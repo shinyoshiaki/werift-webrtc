@@ -276,7 +276,7 @@ RTP パケット生成・DTLS 送信・token-bucket 待ちは sender に残す�
 - [x] B: wire seq allocator と転送時の padding 除去を削除し、media seq は `input + seqOffset` に戻した。受信側は develop と同じく padding-only RTX を track に渡さない（TWCC には計上する）。
 - [x] C: `needsPacedSendPath()`（`processIntervalMs > 0 || probePaddingPacketBytes > 0`）が false の estimator では、`RTCRtpSender` が送信キューを通さず直接送る。キュー上限も適用しない。estimator 差し替え直後にキューが残っている間だけ、順序維持のためキューの後ろに並べる。
 - [x] C: `ReceiverTWCC` の corrective feedback（到着履歴・再報告）を削除した。transport 単位の共有、frontier からの loss 報告、RunLength 分割は維持している。
-- [x] D: `tests/media/twccFeedbackAdapter.test.ts`（seed 付き乱数で 8 系列 + legacy / GCC 各 1 系列）と、`tests/media/rtpSender.test.ts` の「sequence properties」（6 系列、legacy / GCC）を追加した。adapter の「受信確定で履歴から消す」「span 上限」を外すと失敗し、padding で `seqOffset` をずらすと seq 側の性質テストが失敗することを確認した。
+- [x] D: `tests/media/twccFeedbackAdapter.test.ts`（seed 付き乱数で 8 系列 + legacy / GCC 各 1 系列）と、`tests/media/rtpSender.test.ts` の「sequence properties」（6 系列、legacy / GCC）を追加した。adapter の「受信確定で履歴から消す」「span 上限」を外すと失敗し、padding で `seqOffset` をずらすと seq 側の性質テストが失敗することを確認した。（2026-10-25 に `tests/pbt/twcc/`・`tests/pbt/sender/` へ移した。§2.12「性質テストの共通基盤化」）
 - [x] package sim（`npm run test:sim`）で RTX を negotiate し、padding が RTX SSRC にだけ出て media SSRC には出ないことを検証した。
 
 #### develop との差分として残るもの（legacy 既定経路）
@@ -329,7 +329,7 @@ RTP パケット生成・DTLS 送信・token-bucket 待ちは sender に残す�
 
 #### 例ベースから性質テストへの置き換え（2026-10-25）
 
-不変条件として書けるものは、§2.12 で残した例ベースのテストからさらに性質テストへ置き換えた。生成器は共有の Arrange ユーティリティ `tests/media/twccTestUtils.ts`（`randomTwccWindow` / `randomSourceSeqScript` / `randomHistoryOps`）に置いた。
+不変条件として書けるものは、§2.12 で残した例ベースのテストからさらに性質テストへ置き換えた。置き場所と生成器は、次の「性質テストの共通基盤化」で `tests/pbt/` へ移した。
 
 | 置き換えた例ベースのテスト | 性質テスト（系列数） | 確かめる性質 |
 | --- | --- | --- |
@@ -351,7 +351,28 @@ RTP パケット生成・DTLS 送信・token-bucket 待ちは sender に残す�
   - padding で media の番号をずらす → 8 件失敗
   - padding-only を NACK cache に入れる → 3 件失敗
 - 最初の生成器では、span 上限・reference_time の後退 wrap・cache 上書きの 3 つの故障を検出できなかった。生成器を強めて（idle を減らし番号の飛びを大きくする、周回付近を前後させる、上流の padding-only を混ぜる）検出できるようにした。
-- `bandwidthEstimator.test.ts` は 2,590 行から 2,262 行になった。例ベース 38 件、制御応答 7 件、性質テスト 140 系列（§2.12 の GCC 不変条件 24 系列を含む）、合計 185 ケース。`twccTestUtils.ts` は 143 行から 254 行。
+- `bandwidthEstimator.test.ts` は 2,590 行から 2,262 行になった。例ベース 38 件、制御応答 7 件、性質テスト 140 系列（§2.12 の GCC 不変条件 24 系列を含む）、合計 185 ケース（共通基盤化の前の数値）。
+
+#### 性質テストの共通基盤化（追加要件・2026-10-25）
+
+要件: 性質テストは既存の実装と合わせて共通基盤にまとめ、その基盤を使う。
+
+- 共通基盤は既存の `packages/webrtc/tests/pbt/shared/` とした（交渉の性質テスト `fuzz/` / `scenario/` / `model/` が使っていたもの）。
+  - `shared/random.ts`: 既存の seed 付き乱数（mulberry32）。`between` / `int` を追加した。乱数列（`next`）は変えていないので、既存の seed は同じ操作を再現する。
+  - `shared/seeds.ts`（新規）: `<PREFIX>_SEEDS` / `_SEED` / `_STEPS` から seed 一覧と手順数を決め、1 seed を再現する環境変数（`replay`）を返す。交渉の 3 つの性質テストもこれを使うように変えた（既定値・環境変数名・テスト名は変えていない）。
+- TWCC / BWE / 送信経路の性質テストを、規約どおり 1 ディレクトリ 1 性質テストで `tests/pbt/` に移した。生成器は各ディレクトリの `generator.ts` に置き、テスト名に再現用の環境変数を出す。
+
+| ディレクトリ | 性質（各 seed で実行） | 環境変数の接頭辞（CI 既定） | 移動元 |
+| --- | --- | --- | --- |
+| `tests/pbt/twcc/` | adapter の受信は高々 1 回・正しい世代、estimator に渡る受信も高々 1 回、wire 往復、周回をまたぐ並べ替え、reference_time の展開、送信履歴の窓 | `WERIFT_TWCC`（24 seed × 3,000 step） | `twccFeedbackAdapter.test.ts`、`bandwidthEstimator.test.ts` |
+| `tests/pbt/bwe/` | GCC の通知は有限・[min, max] 内・変化時のみ、legacy の推定値は min(送信, 受信) の再計算と一致、legacy の通知は変化時のみ | `WERIFT_BWE`（24 seed × 3 フェーズ） | `bandwidthEstimator.test.ts` |
+| `tests/pbt/sender/` | 転送の番号保存・切替の連続・RTX padding の連番・NACK cache、並行送信の FIFO 直列化と TSN 順 | `WERIFT_SENDER`（12 seed × 300 step） | `bandwidthEstimator.test.ts`、`rtpSender.test.ts` |
+
+- 送信経路の 2 つの生成器（`bandwidthEstimator.test.ts` 側と `rtpSender.test.ts` 側）は、track 切替・上流の padding-only・自前の padding を含む 1 つの生成器にまとめた。
+- 共通の Arrange（`prepareConnectedSender` / `startGccProbing` など）は `tests/media/twccTestUtils.ts` に移し、例ベースのテストと性質テストの両方から使う。`twccTestUtils.ts` にあった独自の乱数は削除し、`gccSimulation.ts` も共通の乱数を使う（同じ乱数列なので制御応答テストの結果は変わらない）。
+- `npm run pbt:deep -- --suite twcc,bwe,sender` で、これらを seed 分割して並列に深く探索できるようにした（`tools/pbt-deep/run.ts`。既定の suite は交渉の 3 つのまま）。`packages/webrtc/AGENTS.md` に置き場所・コマンド・検証手順を追記した。
+- 深い探索（300 seed）で legacy 推定の性質が 2 seed で失敗した。原因は性質側の期待値の計算で、受信時間幅を `送信間隔 × 倍率` で求めていたため、`Date.now()` 付近の絶対時刻で作る入力と丸めが 1 bps ずれていた。期待値を入力した時刻の差から求めるように直した（実装の不具合ではない）。
+- 故障注入（確認後に元へ戻した）で、移した性質が引き続き失敗することを確認した: 受信確定で履歴から消さない（48 件）、span 上限なし（24 件）、reference_time の後退 wrap を無視（8 件）、RunLength 後の cursor ずれ（23 件）、legacy の min→max（24 件）、変化時のみ通知をやめる（24 件）、FIFO を通さない（11 件）、padding で media 番号をずらす（12 件）、padding-only を cache に入れる（5 件）。
 
 #### 残したテスト（werift 固有の回帰）
 
@@ -570,6 +591,16 @@ set availableBitrate(v: number) {
 - `cd packages/webrtc && npm run type`: 成功。`npx vitest run tests`: 60 ファイル、1,081 件成功・3 件 skip。
 - `tests/media/bandwidthEstimator.test.ts` を 3 回続けて実行し、3 回とも 185 件成功。
 - Biome（`tests/media`）: 指摘なし。
+
+### 検証記録（2026-10-25、性質テストの共通基盤化後）
+
+- 作業開始時のリビジョンは `88d87632`（未コミット変更なし）。変更はテスト・テスト用ツール・`packages/webrtc/AGENTS.md`・チケットだけで、`src` は変更していない（故障注入の一時変更は戻した）。
+- `cd packages/webrtc && npm run type`: 成功。`npx vitest run tests`: 63 ファイル、1,165 件成功・3 件 skip。
+- `npx vitest run tests/pbt`: 交渉の 3 suite（137 件）と媒体の 3 suite（240 件）がすべて成功。交渉側のテスト名は変わっていない。
+- `npm run pbt:deep -- --suite twcc,bwe,sender --seeds 300 --jobs 8`: twcc 1,800 件・bwe 900 件・sender 600 件、すべて成功（22 秒）。
+- `npm run pbt:deep -- --seeds 4 --steps 4 --jobs 8`（交渉の 3 suite、分割のパターンが合っているかの確認）: fuzz 10 件・scenario 91 件・model 55 件、すべて成功。
+- 失敗した seed は、テスト名に出る環境変数（例: `WERIFT_TWCC_SEED=5 WERIFT_TWCC_SEEDS=1 WERIFT_TWCC_STEPS=3000`）で単独に再現できることを確認した。
+- Biome（`tests` / `tools/pbt-deep` / `AGENTS.md`）: 指摘なし。
 
 ### ライセンス
 

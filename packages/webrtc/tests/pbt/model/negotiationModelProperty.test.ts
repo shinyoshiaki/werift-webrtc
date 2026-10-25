@@ -3,6 +3,7 @@ import {
   describeCases,
   negotiationCase,
 } from "../../negotiation/harness/negotiationCase";
+import { propertySeeds } from "../shared/seeds";
 import { type Scene, generateScene, runScene, shrinkScene } from "./generator";
 import { MODEL_SCENES } from "./scenes";
 
@@ -27,12 +28,14 @@ import { MODEL_SCENES } from "./scenes";
  * `WERIFT_NEGOTIATION_MODEL_STEPS` (default 10) operations from
  * `WERIFT_NEGOTIATION_MODEL_SEED` (default 1).
  */
-const seedCount = Number(process.env.WERIFT_NEGOTIATION_MODEL_SEEDS ?? 4);
-const stepCount = Number(process.env.WERIFT_NEGOTIATION_MODEL_STEPS ?? 10);
-const firstSeed = Number(process.env.WERIFT_NEGOTIATION_MODEL_SEED ?? 1);
+const {
+  seeds: seedNumbers,
+  steps: stepCount,
+  replay,
+} = propertySeeds("WERIFT_NEGOTIATION_MODEL", { seeds: 4, steps: 10 });
 const shrink = process.env.WERIFT_NEGOTIATION_MODEL_SHRINK !== "0";
-const seeds = [...Array(seedCount).keys()].map((i) => ({
-  seed: firstSeed + i,
+const seeds = seedNumbers.map((seed) => ({
+  seed,
 }));
 const meta: CaseMeta = {
   ref: "2.1-5 2.1-10 2.1-11 2.1-T2 2.1-T8; property: model",
@@ -57,7 +60,7 @@ describeCases(
     }
 
     negotiationCase.for(seeds)(
-      `seed $seed (replay: WERIFT_NEGOTIATION_MODEL_SEED=$seed WERIFT_NEGOTIATION_MODEL_SEEDS=1 WERIFT_NEGOTIATION_MODEL_STEPS=${stepCount})`,
+      `seed $seed (replay: ${replay("$seed")})`,
       meta,
       async (c, { seed }) => {
         // Arrange / Act: seed から開始状態と操作列を引き、順に実行する。

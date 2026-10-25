@@ -1,6 +1,7 @@
 /**
  * Shared by every property test of tests/pbt: the seeded random stream a
- * seed replays exactly. Changing it changes the operations of every seed.
+ * seed replays exactly. Changing `next` changes the operations of every seed;
+ * the helpers below only combine `next` and may be added freely.
  */
 /** Deterministic PRNG (mulberry32) so a failing seed replays exactly. */
 export function seededRandom(seed: number) {
@@ -16,6 +17,10 @@ export function seededRandom(seed: number) {
     next,
     chance: (p: number) => next() < p,
     pick: <T>(items: readonly T[]) => items[Math.floor(next() * items.length)],
+    /** Real number in `[min, max)`. */
+    between: (min: number, max: number) => min + next() * (max - min),
+    /** Integer in `[min, max)`. */
+    int: (min: number, max: number) => min + Math.floor(next() * (max - min)),
   };
 }
 export type SeededRandom = ReturnType<typeof seededRandom>;

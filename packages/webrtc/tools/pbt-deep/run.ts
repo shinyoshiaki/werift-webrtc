@@ -13,6 +13,12 @@
  *   fuzz      tests/pbt/fuzz/negotiationTransactionProperty.test.ts, 300 seeds x 20 steps
  *   scenario  tests/pbt/scenario/negotiationScenarioProperty.test.ts, 300 seeds
  *   model     tests/pbt/model/negotiationModelProperty.test.ts, 300 seeds x 10 steps
+ * Media suites (not in the default list; pass them with `--suite`):
+ *   twcc      tests/pbt/twcc/twccProperty.test.ts, 300 seeds x 3000 steps
+ *   bwe       tests/pbt/bwe/bweProperty.test.ts, 300 seeds x 3 phases
+ *   sender    tests/pbt/sender/senderProperty.test.ts, 300 seeds x 300 steps
+ *
+ *   npm run pbt:deep -- --suite twcc,bwe,sender
  * The fixed scenes and regression seeds run once in their own shard.
  * Exit code 1 when a seed fails again when replayed alone.
  */
@@ -21,7 +27,18 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { cpus, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
-type Suite = "fuzz" | "scenario" | "model";
+type Suite = "fuzz" | "scenario" | "model" | MediaSuite;
+type MediaSuite = "twcc" | "bwe" | "sender";
+
+/** Media property tests: one file, seeds from `<prefix>_SEED(S)` (tests/pbt/shared/seeds.ts). */
+const mediaSuites: Record<MediaSuite, { file: string; prefix: string }> = {
+  twcc: { file: "tests/pbt/twcc/twccProperty.test.ts", prefix: "WERIFT_TWCC" },
+  bwe: { file: "tests/pbt/bwe/bweProperty.test.ts", prefix: "WERIFT_BWE" },
+  sender: {
+    file: "tests/pbt/sender/senderProperty.test.ts",
+    prefix: "WERIFT_SENDER",
+  },
+};
 type Shard = {
   label: string;
   file: string;
@@ -104,6 +121,21 @@ function shards(suite: Suite): Shard[] {
           },
         })),
       ];
+    }
+    case "twcc":
+    case "bwe":
+    case "sender": {
+      const { file, prefix } = mediaSuites[suite];
+      return ranges(seeds).map(({ first, count }) => ({
+        label: `${suite} seeds ${first}-${first + count - 1}`,
+        file,
+        pattern: ": seed \\d+ \\(replay",
+        env: {
+          [`${prefix}_SEED`]: String(first),
+          [`${prefix}_SEEDS`]: String(count),
+          ...(stepsOption ? { [`${prefix}_STEPS`]: stepsOption } : {}),
+        },
+      }));
     }
     case "model": {
       const file = "tests/pbt/model/negotiationModelProperty.test.ts";
@@ -204,7 +236,7 @@ async function main() {
   const started = Date.now();
   // 全 suite の分割を 1 つの pool に入れ、suite の境目で待たない。1 分割あたりの
   // 時間が長い順 (20 step の fuzz、…) に並べ、最後に待つ時間を減らす。
-  const order: Suite[] = ["fuzz", "model", "scenario"];
+  const order: Suite[] = ["fuzz", "model", "scenario", "sender", "bwe", "twcc"];
   const list = order
     .filter((suite) => suites.includes(suite))
     .flatMap((suite) => shards(suite).map((shard) => ({ suite, shard })));

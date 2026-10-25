@@ -1,3 +1,4 @@
+import { propertySeeds } from "../shared/seeds";
 import {
   createFuzzSession,
   expectFuzzSessionAlive,
@@ -23,9 +24,11 @@ import {
  * A failure names its seed and the operations; WERIFT_NEGOTIATION_FUZZ_SEED
  * replays from that seed.
  */
-const seedCount = Number(process.env.WERIFT_NEGOTIATION_FUZZ_SEEDS ?? 6);
-const stepCount = Number(process.env.WERIFT_NEGOTIATION_FUZZ_STEPS ?? 8);
-const firstSeed = Number(process.env.WERIFT_NEGOTIATION_FUZZ_SEED ?? 1);
+const {
+  seeds: randomSeeds,
+  steps: stepCount,
+  seedSelected,
+} = propertySeeds("WERIFT_NEGOTIATION_FUZZ", { seeds: 6, steps: 8 });
 /**
  * Seeds (with the default 8 steps unless noted) that exposed bugs fixed in
  * this change; CI keeps replaying them:
@@ -37,10 +40,7 @@ const firstSeed = Number(process.env.WERIFT_NEGOTIATION_FUZZ_SEED ?? 1);
  *   steps) srflx dropped after restart.
  */
 const regressionSeeds = [3, 4, 6, 17, 19, 28];
-const randomSeeds = [...Array(seedCount)].map((_, index) => firstSeed + index);
-const longRegressionSeeds = process.env.WERIFT_NEGOTIATION_FUZZ_SEED
-  ? []
-  : [254, 302, 1385];
+const longRegressionSeeds = seedSelected ? [] : [254, 302, 1385];
 
 /**
  * Replay one seed: `steps` random operations, each followed by live traffic.

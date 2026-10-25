@@ -1,3 +1,4 @@
+import { propertySeeds } from "../shared/seeds";
 import {
   type Generator,
   type Judge,
@@ -31,10 +32,11 @@ import {
  * from `WERIFT_NEGOTIATION_SCENARIO_SEED` (default 1). A failure prints the
  * seed, the input operations and the operation log; that seed replays them.
  */
-const seedCount = Number(process.env.WERIFT_NEGOTIATION_SCENARIO_SEEDS ?? 1);
-const stepCount = Number(process.env.WERIFT_NEGOTIATION_SCENARIO_STEPS ?? 4);
-const firstSeed = Number(process.env.WERIFT_NEGOTIATION_SCENARIO_SEED ?? 1);
-const seeds = [...Array(seedCount)].map((_, index) => firstSeed + index);
+const {
+  seeds,
+  steps: stepCount,
+  replay,
+} = propertySeeds("WERIFT_NEGOTIATION_SCENARIO", { seeds: 1, steps: 4 });
 
 /** Fixed scenes by name; `o` / `t` in a scene marked `(o=…)` is the offerer / answerer. */
 type Fixed = Record<string, string>;
@@ -319,7 +321,7 @@ describe.concurrent.each(properties)(
       // Act / Assert: seed から生成した操作列を実行し、同じ判定を行う。
       (seed) =>
         runScenario(
-          `seed ${seed} (replay: WERIFT_NEGOTIATION_SCENARIO_SEED=${seed} WERIFT_NEGOTIATION_SCENARIO_SEEDS=1 WERIFT_NEGOTIATION_SCENARIO_STEPS=${stepCount})`,
+          `seed ${seed} (replay: ${replay(seed)})`,
           generate(seededRandom(seed), stepCount),
           judge,
         ),

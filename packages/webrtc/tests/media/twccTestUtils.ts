@@ -1,9 +1,16 @@
-import type {
-  BandwidthEstimator,
-  SentInfo,
-  TwccFeedbackAdapter,
-  TwccPacketFeedback,
+import { vi } from "vitest";
+import {
+  type BandwidthEstimator,
+  type GccBandwidthEstimator,
+  RTCRtpCodecParameters,
+  RTCRtpHeaderExtensionParameters,
+  RTCRtpSender,
+  RtpHeader,
+  type SentInfo,
+  type TwccFeedbackAdapter,
+  type TwccPacketFeedback,
 } from "../../src";
+import { RTP_EXTENSION_URI } from "../../src/imports/rtp";
 import {
   PacketResult,
   PacketStatus,
@@ -13,6 +20,7 @@ import {
   RunLengthChunk,
   TransportWideCC,
 } from "../../src/imports/rtp";
+import { createDtlsTransport } from "../fixture";
 
 /** Arrange: SentInfo with matching send / sent times. */
 export function twccSentInfo(
@@ -95,18 +103,6 @@ export function wireTwccFeedback(
   return rtpfb.feedback as TransportWideCC;
 }
 
-/** Arrange: deterministic PRNG (mulberry32) for property-style tests. */
-export function seededRandom(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
 /** Internal TWCC adapter of a legacy / GCC estimator. */
 export function feedbackAdapterOf(e: BandwidthEstimator): TwccFeedbackAdapter {
   return (e as unknown as { feedbackAdapter: TwccFeedbackAdapter })
@@ -142,113 +138,86 @@ export function captureMatchedFeedback(
 
 export { PacketResult };
 
-/**
- * Arrange: a contiguous TWCC window for wire round-trip properties.
- * Starts near a 16-bit wrap about half of the time; receive times mostly
- * advance (small / large deltas) with occasional reordering and losses.
- * `recvUs[i]` is the receive time of `base16 + i` (µs) or `undefined`.
- */
-export function randomTwccWindow(rand: () => number): {
-  base16: number;
-  recvUs: (number | undefined)[];
-} {
-  const length = 1 + Math.floor(rand() * 120);
-  const base16 =
-    rand() < 0.5
-      ? (0x10000 - Math.floor(rand() * length)) & 0xffff
-      : Math.floor(rand() * 0x10000);
-  let tUs = 1_000_000 + Math.floor(rand() * 60_000_000);
-  const recvUs = Array.from({ length }, () => {
-    if (rand() < 0.2) return undefined;
-    const r = rand();
-    // small delta (0–63ms), large forward gap (up to 2s), or reorder (−20ms)
-    const stepUs =
-      r < 0.8
-        ? Math.floor(rand() * 63_000)
-        : r < 0.9
-          ? 64_000 + Math.floor(rand() * 2_000_000)
-          : -Math.floor(rand() * 20_000);
-    tUs = Math.max(0, tUs + stepUs);
-    return tUs;
-  });
-  return { base16, recvUs };
+/** pin OnNetworkAvailability(true) then first ProcessInterval SetBitrates. */
+export function startGccProbing(gcc: GccBandwidthEstimator, nowMs?: number) {
+  gcc.setNetworkAvailable(true);
+  // 合成 clock の GCC では Date.now() を使わない（ALR origin が壁時計になる）。
+  gcc.process(nowMs ?? (gcc as unknown as { clock: () => number }).clock());
 }
 
-/** One step of a forwarded media stream for sender sequence properties. */
-export type SourceSeqStep =
-  | {
-      type: "media";
-      seq: number;
-      payloadByte: number;
-      /** Upstream padding-only packet forwarded on the media path. */
-      forwardedPadding: boolean;
-    }
-  | { type: "padding"; count: number };
+/**
+ * 3x/6x を開始するが、RTCRtpSender の onProbeClusterConfig 自動 padding は抑止する。
+ * sendRtp 後の注入や maybeInjectProbePadding 自体を検証するテスト用。
+ */
+export function startGccProbingWithoutSenderPadding(
+  sender: RTCRtpSender,
+  gcc: GccBandwidthEstimator,
+  nowMs?: number,
+) {
+  const spy = vi.spyOn(sender, "maybeInjectProbePadding").mockResolvedValue(0);
+  try {
+    startGccProbing(gcc, nowMs);
+  } finally {
+    spy.mockRestore();
+  }
+}
 
 /**
- * Arrange: forwarded source media with gaps, reorders, duplicates, and
- * upstream padding-only packets, interleaved with this sender's own
- * probe-padding bursts.
+ * Connected video sender with VP8 + TWCC. RTX (PT 97) is negotiated by
+ * default because probe / loss padding is only sent on the RTX SSRC.
  */
-export function randomSourceSeqScript(
-  rand: () => number,
-  length: number,
-): SourceSeqStep[] {
-  const steps: SourceSeqStep[] = [];
-  let seq = Math.floor(rand() * 0x10000);
-  for (let i = 0; i < length; i++) {
-    if (rand() < 0.2) {
-      steps.push({ type: "padding", count: 1 + Math.floor(rand() * 4) });
-      continue;
-    }
-    const r = rand();
-    let s: number;
-    if (r < 0.1) s = (seq - 1 - Math.floor(rand() * 3)) & 0xffff;
-    else if (r < 0.15) s = seq;
-    else {
-      seq = (seq + 1 + (rand() < 0.15 ? Math.floor(rand() * 4) : 0)) & 0xffff;
-      s = seq;
-    }
-    steps.push({
-      type: "media",
-      seq: s,
-      payloadByte: i & 0xff,
-      forwardedPadding: rand() < 0.1,
+export async function prepareConnectedSender(
+  estimator?: BandwidthEstimator,
+  { rtx = true }: { rtx?: boolean } = {},
+) {
+  const sender = new RTCRtpSender("video");
+  const dtls = createDtlsTransport();
+  (dtls as { state: string }).state = "connected";
+  const sentPackets: { header: RtpHeader; payload: Buffer; size: number }[] =
+    [];
+  dtls.sendRtp = vi.fn(async (payload: Buffer, header: RtpHeader) => {
+    // payload already includes RFC 3550 padding bytes when P=1.
+    const size = payload.length + header.serializeSize;
+    // Snapshot header fields — the same object is mutated across sends.
+    sentPackets.push({
+      header: new RtpHeader({ ...header, extensions: [...header.extensions] }),
+      payload: Buffer.from(payload),
+      size,
     });
+    return size;
+  }) as typeof dtls.sendRtp;
+  dtls.transportSequenceNumber = 0;
+  dtls.transportSequenceNumberExtended = 0;
+  sender.setDtlsTransport(dtls);
+  if (estimator) {
+    sender.setBandwidthEstimator(estimator);
   }
-  return steps;
-}
-
-/** One operation on an estimator's send history. */
-export type HistoryOp = {
-  type: "send" | "process";
-  atMs: number;
-  seq16: number;
-};
-
-/**
- * Arrange: send / process operations with non-decreasing times (dense bursts
- * and rare multi-second idle gaps) and 16-bit TSNs that wrap and skip by up
- * to 5,000 (other BUNDLE senders), so both the time window and the 32768
- * sequence-span cap bound the history.
- */
-export function randomHistoryOps(
-  rand: () => number,
-  count: number,
-  withProcess: boolean,
-): HistoryOp[] {
-  const ops: HistoryOp[] = [];
-  let atMs = 1_000;
-  let seq = Math.floor(rand() * 0x10000);
-  for (let i = 0; i < count; i++) {
-    const r = rand();
-    atMs += r < 0.98 ? Math.floor(rand() * 10) : Math.floor(rand() * 15_000);
-    if (withProcess && rand() < 0.2) {
-      ops.push({ type: "process", atMs, seq16: seq });
-      continue;
-    }
-    seq = (seq + 1 + (rand() < 0.1 ? Math.floor(rand() * 5_000) : 0)) & 0xffff;
-    ops.push({ type: "send", atMs, seq16: seq });
-  }
-  return ops;
+  sender.prepareSend({
+    codecs: [
+      new RTCRtpCodecParameters({
+        mimeType: "video/VP8",
+        clockRate: 90000,
+        payloadType: 96,
+      }),
+      ...(rtx
+        ? [
+            new RTCRtpCodecParameters({
+              mimeType: "video/rtx",
+              clockRate: 90000,
+              payloadType: 97,
+              parameters: "apt=96",
+            }),
+          ]
+        : []),
+    ],
+    headerExtensions: [
+      new RTCRtpHeaderExtensionParameters({
+        id: 3,
+        uri: RTP_EXTENSION_URI.transportWideCC,
+      }),
+    ],
+    muxId: "0",
+    rtcp: { cname: "test", mux: true },
+  });
+  return { sender, dtls, sentPackets };
 }

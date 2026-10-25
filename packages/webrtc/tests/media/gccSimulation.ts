@@ -1,5 +1,6 @@
 import { type BandwidthEstimator, GccBandwidthEstimator } from "../../src";
-import { seededRandom, twccSentInfo, wireTwccFeedback } from "./twccTestUtils";
+import { seededRandom } from "../pbt/shared/random";
+import { twccSentInfo, wireTwccFeedback } from "./twccTestUtils";
 
 /**
  * Arrange utilities for spec-level GCC control-response tests.
@@ -78,7 +79,7 @@ const kProbePacketBytes = 224;
 export function runGccSimulation(scenario: GccScenario): GccSimulationResult {
   const packetBytes = scenario.packetBytes ?? 1_200;
   const feedbackIntervalMs = scenario.feedbackIntervalMs ?? 50;
-  const rand = seededRandom(scenario.seed ?? 1);
+  const rng = seededRandom(scenario.seed ?? 1);
   let nowMs = kStartMs;
   const clock = () => nowMs;
   const estimator =
@@ -144,7 +145,7 @@ export function runGccSimulation(scenario: GccScenario): GccSimulationResult {
           (bytes * 8 * 1000) / phase.link.capacityBps;
         linkFreeAtMs = departMs;
         queue.push({ departMs, bytes });
-        if (rand() >= (phase.link.lossRate ?? 0)) {
+        if (!rng.chance(phase.link.lossRate ?? 0)) {
           arrivalMs = departMs + phase.link.baseDelayMs;
         }
       }
