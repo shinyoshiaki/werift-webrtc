@@ -908,7 +908,9 @@ export class RTCRtpSender {
                   feedback.fir.filter(({ ssrc }) => ssrc === this.ssrc);
                 if (entries.length === 0) break;
 
-                this.firCount += entries.length;
+                // W3C webrtc-stats: firCount is the number of FIR packets received,
+                // however many FCI entries of the packet resolve to this sender
+                this.firCount++;
                 // an entry with the same sequence number as the last one for its
                 // (sender, target) pair is a retransmission (RFC 5104 4.3.1.1)
                 let isNew = false;

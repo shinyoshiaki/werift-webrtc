@@ -263,9 +263,9 @@ describe("media/router", () => {
         }),
       );
 
-      // Assert: 両エントリが video sender に解決され、1 回だけ通知されて firCount に 2 件数えられる
+      // Assert: 両エントリが video sender に解決され、1 回だけ通知されて firCount は 1 パケット分の 1
       expect(onFir).toHaveBeenCalledTimes(1);
-      expect((await outboundRtpStats(video)).firCount).toBe(2);
+      expect((await outboundRtpStats(video)).firCount).toBe(1);
     });
 
     test("compatible: a retransmitted FIR with entries resolved to one sender does not notify again", async () => {
@@ -281,13 +281,23 @@ describe("media/router", () => {
         ],
       });
 
-      // Act: primary / RTX 宛のエントリを持つ FIR と、その再送を配送する
-      router.routeRtcp(fir);
-      router.routeRtcp(fir);
+      // Act: primary / RTX 宛のエントリを持つ FIR を、シリアライズした実バイト列から復号して配送する
+      const routeWire = () =>
+        RtcpPacketConverter.deSerialize(fir.serialize()).forEach(
+          router.routeRtcp,
+        );
+      routeWire();
 
-      // Assert: 両エントリとも同じ sender に解決され、通知は初回の 1 回だけ、firCount は 4
+      // Assert: 両エントリとも同じ sender に解決され、初回は通知 1 回・firCount 1
       expect(onRequest.mock.calls).toEqual([["fir"]]);
-      expect((await outboundRtpStats(video)).firCount).toBe(4);
+      expect((await outboundRtpStats(video)).firCount).toBe(1);
+
+      // Act: 同じ FIR を再送として配送する
+      routeWire();
+
+      // Assert: 再送なので通知は増えず、firCount はパケット数の 2
+      expect(onRequest.mock.calls).toEqual([["fir"]]);
+      expect((await outboundRtpStats(video)).firCount).toBe(2);
     });
 
     test("strict: FIR entries for an unregistered SSRC are not routed", async () => {

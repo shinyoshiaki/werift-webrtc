@@ -1330,9 +1330,9 @@ describe("media/rtpSender RTP continuity", () => {
       receiveFir([primary(5), rtx(9)]);
       receiveFir([primary(5), rtx(9)]);
 
-      // Assert: 再送は各エントリが既受信の番号なので通知されず、firCount は 4 エントリ分
+      // Assert: 再送は各エントリが既受信の番号なので通知されず、firCount はエントリ数ではなくパケット数の 2
       expect(onFir).toHaveBeenCalledTimes(1);
-      expect((await outboundRtpStats(sender)).firCount).toBe(4);
+      expect((await outboundRtpStats(sender)).firCount).toBe(2);
 
       // Act: primary の番号と同じ値を RTX 宛の新しい要求として受ける
       receiveFir([rtx(5)]);
@@ -1346,7 +1346,7 @@ describe("media/rtpSender RTP continuity", () => {
 
       // Assert: どちらも対象ごとの再送なので通知されない
       expect(onFir).toHaveBeenCalledTimes(2);
-      expect((await outboundRtpStats(sender)).firCount).toBe(7);
+      expect((await outboundRtpStats(sender)).firCount).toBe(5);
     });
 
     test("FIR not addressed to the sender is ignored except onRtcp", async () => {
