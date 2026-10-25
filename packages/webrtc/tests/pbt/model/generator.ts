@@ -129,7 +129,6 @@ const pickIndex = (
   from: RTCRtpTransceiver[],
 ) => pc.getTransceivers().indexOf(rng.pick(from));
 
-/** The operations a scene is made of. */
 export const STEPS: Record<string, Step> = {
   addTrack: {
     weight: 2,

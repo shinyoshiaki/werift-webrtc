@@ -467,9 +467,32 @@ function assertDescriptionBindings(pc: RTCPeerConnection) {
 
 /**
  * Which description decides each negotiated value while a negotiation is
- * pending (ticket 2.10 / NEGOTIATION_TRANSACTION.md "Effective values while
- * pending"): `current` keeps the committed value, `provisional` takes the
- * pranswer's, and before any answer the latest committed one applies.
+ * pending. Rules: **current** (the committed value stays live),
+ * **provisional** (the latest applied pranswer, local or remote, is live
+ * until the final answer or rollback), **both** (current stays live and the
+ * pending description adds what does not conflict; conflicts are staged until
+ * commit), **reject** (refused before any live mutation). The final answer
+ * always commits its own values (it can differ from every pranswer) and
+ * rollback always returns to the baseline. A first negotiation has no current
+ * value: its pranswer is live for every row.
+ *
+ * | Value | Remote offer | Pranswer | Checked by |
+ * | --- | --- | --- | --- |
+ * | ICE credentials, candidates, EOC | current | both (a provisional generation beside the selected pair) | `assertIceGenerations` |
+ * | DTLS role / fingerprint | current | current; a new association (BUNDLE split owner) is provisional; a role change of a connecting / connected association is rejected (also at the answer) | `assertDtlsBindings` |
+ * | Receive codec / RTCP feedback | both | both | `assertRouterAndCodecs` |
+ * | Send codec | current (the offer only proposes) | provisional on both sides | `expectedLive("sendCodec")` |
+ * | Direction (`currentDirection`, sending) | current | provisional (`inactive` / `recvonly` stops sending) | `expectedLive("direction")` |
+ * | BUNDLE owner / transport | current | both (a split owner is provisional) | `assertDescriptionBindings` |
+ * | SCTP port | current | reject a change of an existing association (also at the answer) | `assertSctpBinding` |
+ * | SCTP max-message-size | current | provisional (W3C updates it at answer and pranswer) | `expectedLive("remoteMaxMessageSize")` |
+ * | Header extension IDs | both; remap of a current ID rejected | both; remap rejected | `assertRouteTables` |
+ * | Remote SSRC routes | both (conflicts staged) | both; routes only a replaced pranswer added are dropped | `assertEffectiveValues` |
+ *
+ * This function encodes the provisional / current rows (direction, send
+ * codec, max-message-size); a new rule for a live value while a description
+ * is pending is encoded here or in the listed helper before the
+ * implementation changes.
  */
 export function expectedLive(
   snapshot: Snapshot,
@@ -618,9 +641,14 @@ function assertEffectiveValues(pc: RTCPeerConnection, snapshot: Snapshot) {
 /**
  * Test-only observation; no PeerConnection public API is added.
  * Checks that live RTP/router, BUNDLE owner/MID/mLineIndex, ICE generation
- * (credentials, candidates, EOC, checklist, selected pair), DTLS
- * role/fingerprint, SCTP binding/parameters and transport lifetime agree with
- * the current descriptions, in every signaling state.
+ * (credentials, candidates, EOC, checklist, selected pair, no provisional
+ * generation in stable), DTLS role/fingerprint, SCTP binding/parameters and
+ * transport lifetime agree with the current descriptions, in every signaling
+ * state. The routing keys are checked against the live tables: each SSRC,
+ * RTX pair and MID+RID of the current remote SDP resolves to the current
+ * receiver (with its track), no extmap ID the router knows contradicts the
+ * current SDP, no staged route survives in `stable`, and every transport that
+ * left use is closed. A new class of negotiation state gets a check here.
  */
 export function assertNegotiationInvariants(pc: RTCPeerConnection) {
   const snapshot = assertDescriptionBindings(pc);
@@ -1499,7 +1527,6 @@ export async function expectSessionContinues(
   }
 }
 
-/** The m-section identified by `mid`. */
 export function sectionOf(sdp: string, mid: string) {
   const section = sdp
     .split(/(?=^m=)/m)
@@ -2310,7 +2337,6 @@ export function forceIceState(
   ).setState(state);
 }
 
-/** Record the ICE connection states `pc` reports from now on. */
 export function recordIceConnectionStates(pc: RTCPeerConnection) {
   const states: string[] = [];
   pc.iceConnectionStateChange.subscribe((state) => {
@@ -2632,7 +2658,6 @@ export async function arrangeInterruptWait(wait: InterruptWait) {
 
 // --- spec coverage: events ---
 
-/** Poll `condition` until it holds (fails after the shared timeout). */
 export async function waitUntil(
   condition: () => boolean,
   message: string,
@@ -2836,7 +2861,6 @@ export async function createBundledIceRestartPranswer() {
   return { ...peers, ufrag, video, audio };
 }
 
-/** Record the connection states `pc` reports from now on. */
 export function recordConnectionStates(pc: RTCPeerConnection) {
   const states: string[] = [];
   pc.connectionStateChange.subscribe((state) => {

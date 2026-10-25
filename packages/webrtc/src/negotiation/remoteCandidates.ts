@@ -40,6 +40,25 @@ export function normalizeCandidateUfrag(
  * it targets, records it in that SDP and hands it to the live, pending-only or
  * provisional checklist. Candidates added before any remote description wait
  * in a queue (werift convenience; the WPT runner keeps the strict rejection).
+ *
+ * - The generation is chosen by the ufrag of the m-line the candidate targets
+ *   (`sdpMid`, else `sdpMLineIndex`): in a partial BUNDLE split one m-line can
+ *   keep the current ufrag while another moves to a new one.
+ * - During a remote re-offer, a candidate for an m-line whose ufrag is
+ *   unchanged belongs to both the pending proposal and the live generation:
+ *   it is recorded in both SDPs and handed to the live checklist once, and a
+ *   rollback keeps it.
+ * - End-of-candidates ends one generation (RFC 8838): every m-line sharing
+ *   its transport and ufrag is marked complete, in the current or pending SDP,
+ *   and a later candidate of it reaches neither an SDP nor a checklist. A
+ *   pending restart ufrag on the same transport stays open; an m-line a
+ *   proposal splits off stays open even with the same credentials (RFC 8839
+ *   section 5.4).
+ * - Queued candidates are checked against an incoming remote description
+ *   before any state change; one it cannot place rejects
+ *   setRemoteDescription and stays queued for a retry.
+ * - Duplicates within a generation are idempotent; a callback of a retired
+ *   generation cannot reach its replacement.
  */
 export class RemoteCandidates {
   /** Candidates added before a remote description was applied. */

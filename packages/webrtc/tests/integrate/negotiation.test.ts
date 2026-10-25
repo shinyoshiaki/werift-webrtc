@@ -3,6 +3,8 @@ import {
   MediaStreamTrack,
   RTCPeerConnection,
   RTCRtpCodecParameters,
+  useAV1,
+  useAV1X,
 } from "../../src";
 
 describe("codec negotiation", () => {
@@ -136,5 +138,47 @@ describe("codec negotiation", () => {
 
       await Promise.all([caller.close(), callee.close()]);
     });
+  });
+
+  describe("AV1 / AV1X legacy name negotiation", () => {
+    const negotiate = async (
+      callerCodec: RTCRtpCodecParameters,
+      calleeCodec: RTCRtpCodecParameters,
+    ) => {
+      // Arrange
+      const caller = new RTCPeerConnection({
+        codecs: { audio: [], video: [callerCodec] },
+      });
+      const callee = new RTCPeerConnection({
+        codecs: { audio: [], video: [calleeCodec] },
+      });
+      caller.addTrack(new MediaStreamTrack({ kind: "video" }));
+      // Act
+      const offer = await caller.setLocalDescription(
+        await caller.createOffer(),
+      );
+      await callee.setRemoteDescription(offer);
+      const answer = await callee.setLocalDescription(
+        await callee.createAnswer(),
+      );
+      await Promise.all([caller.close(), callee.close()]);
+      return answer;
+    };
+
+    it.each([
+      ["AV1 offer / AV1X answerer", useAV1(), useAV1X()],
+      ["AV1X offer / AV1 answerer", useAV1X(), useAV1()],
+    ])(
+      "%s accepts the video m-line",
+      async (_name, callerCodec, calleeCodec) => {
+        const answer = await negotiate(callerCodec, calleeCodec);
+        // Assert: m=video が拒否 (port 0) されず、codec が 1 つ選ばれる
+        expect(answer.media[0].port).not.toBe(0);
+        expect(answer.media[0].rtp.codecs.length).toBe(1);
+        expect(answer.media[0].rtp.codecs[0].name.toLowerCase()).toMatch(
+          /^av1/,
+        );
+      },
+    );
   });
 });

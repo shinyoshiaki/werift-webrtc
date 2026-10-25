@@ -649,18 +649,22 @@ export function createRecordingTransport(
   metadata: Pick<Transport, "addressFamily" | "remoteAddress"> = {},
 ) {
   const sentTo: Address[] = [];
+  /** Every STUN message sent, in order. */
+  const sentMessages: Message[] = [];
   const transport: Transport = {
     type,
     closed: false,
     onData: () => {},
     address: { address: "127.0.0.1", port: 0, family: "IPv4" },
-    send: async (_data: Buffer, addr?: Address) => {
+    send: async (data: Buffer, addr?: Address) => {
       if (addr) sentTo.push(addr);
+      const message = parseMessage(data);
+      if (message) sentMessages.push(message);
     },
     close: async () => {},
     ...metadata,
   };
-  return { transport, sentTo };
+  return { transport, sentTo, sentMessages };
 }
 
 /**
@@ -729,15 +733,100 @@ export function createTurnSuccessResponse(request: Message) {
   return response;
 }
 
+/** Where a redirecting test TURN server sends clients; mutable. */
+export interface TurnRedirectTarget {
+  alternate?: Address;
+  /** Sent after `alternate` as further ALTERNATE-SERVER attributes. */
+  extraAlternates?: Address[];
+  alternateDomain?: string;
+}
+
+/** 300 (Try Alternate) error response a TURN server would send for a request. */
+export function createTurnTryAlternateResponse(
+  request: Message,
+  { alternate, extraAlternates = [], alternateDomain }: TurnRedirectTarget,
+) {
+  const response = new Message(
+    request.messageMethod,
+    classes.ERROR,
+    request.transactionId,
+  ).setAttribute("ERROR-CODE", [300, "Try Alternate"]);
+  if (alternate) {
+    response.setAttribute("ALTERNATE-SERVER", alternate);
+    // Message#setAttribute keeps one value per name, so the repeated
+    // attributes are appended as raw wire attributes (RFC 8489 §14.15).
+    for (const extra of extraAlternates) {
+      const packed = new Message(methods.ALLOCATE, classes.ERROR)
+        .setAttribute("ALTERNATE-SERVER", extra)
+        .bytes.subarray(24); // 20 byte header + 4 byte attribute header
+      response.appendRawAttribute(0x8023, packed);
+    }
+  }
+  if (alternateDomain) {
+    response.setAttribute("ALTERNATE-DOMAIN", alternateDomain);
+  }
+  return response;
+}
+
+/**
+ * TURN server on UDP 127.0.0.1 that answers every request with 300 (Try
+ * Alternate) to `target`, read when each request arrives, and records the
+ * requests it receives.
+ */
+export async function createUdpTurnRedirectServer(
+  target: TurnRedirectTarget = {},
+) {
+  const requests: Message[] = [];
+  const socket = dgram.createSocket("udp4");
+  socket.on("message", (data, rinfo) => {
+    const request = parseMessage(data);
+    if (!request) return;
+    requests.push(request);
+    socket.send(
+      createTurnTryAlternateResponse(request, target).bytes,
+      rinfo.port,
+      rinfo.address,
+    );
+  });
+  await new Promise<void>((resolve) =>
+    socket.bind(0, "127.0.0.1", () => resolve()),
+  );
+  const address: Address = ["127.0.0.1", socket.address().port];
+  return {
+    address,
+    requests,
+    target,
+    close: () => new Promise<void>((resolve) => socket.close(() => resolve())),
+  };
+}
+
+/** Stream (TCP/TLS) counterpart of createUdpTurnRedirectServer. */
+export async function createStreamTurnRedirectServer(
+  target: TurnRedirectTarget = {},
+  { tls: useTls = false }: { tls?: boolean } = {},
+) {
+  const server = await createStreamTurnServer({
+    tls: useTls,
+    reply: (request) => createTurnTryAlternateResponse(request, target),
+  });
+  const address: Address = ["127.0.0.1", server.port];
+  return { ...server, address, target };
+}
+
 /**
  * Minimal TURN server over TCP or TLS on 127.0.0.1. It records the requests
- * it receives. With `respond`, it answers every request with
- * createTurnSuccessResponse (no authentication).
+ * it receives. With `respond`, it answers every request with `reply`,
+ * createTurnSuccessResponse (no authentication) by default.
  */
 export async function createStreamTurnServer({
   tls: useTls = false,
   respond = true,
-}: { tls?: boolean; respond?: boolean } = {}) {
+  reply = createTurnSuccessResponse,
+}: {
+  tls?: boolean;
+  respond?: boolean;
+  reply?: (request: Message) => Message;
+} = {}) {
   const requests: Message[] = [];
   const sockets = new Set<net.Socket>();
   const onConnection = (socket: net.Socket) => {
@@ -754,7 +843,7 @@ export async function createStreamTurnServer({
         if (!request) continue;
         requests.push(request);
         if (respond) {
-          socket.write(createTurnSuccessResponse(request).bytes);
+          socket.write(reply(request).bytes);
         }
       }
     });
@@ -1013,4 +1102,138 @@ export function atFirstSelection<T>(
     },
   });
   return result;
+}
+
+// --- late TURN relay candidates ---
+
+/** Poll until `predicate` holds (rejects after `timeoutMs`). */
+export async function waitUntil(predicate: () => boolean, timeoutMs = 10000) {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() > deadline) throw new Error("waitUntil timed out");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+}
+
+/**
+ * Shared Arrange: deliver `from`'s local candidates gathered so far to `to`,
+ * and every later one as `from` trickles it.
+ */
+export function forwardLocalCandidates(from: Connection, to: Connection) {
+  for (const candidate of from.localCandidates) {
+    void to.addRemoteCandidate(Candidate.fromSdp(candidate.toSdp()));
+  }
+  from.onIceCandidate.subscribe((candidate) => {
+    void to.addRemoteCandidate(Candidate.fromSdp(candidate.toSdp()));
+  });
+}
+
+/**
+ * Shared Arrange: `late` (controlling) gathers host candidates and a TURN
+ * allocation that reaches the local server through a held proxy, so its relay
+ * candidate arrives only on `proxy.release()`. `early` (controlled) has
+ * finished gathering (relay-only by default) and both know each other's ICE
+ * credentials. `gathering` is `late`'s pending gatherCandidates().
+ */
+export async function createLateRelaySetup({
+  late: lateOptions = {},
+  early: earlyOptions,
+}: {
+  late?: Partial<IceOptions>;
+  early?: (
+    server: Awaited<ReturnType<typeof createLocalTurnServer>>,
+    late: Connection,
+  ) => Partial<IceOptions>;
+} = {}) {
+  const server = await createLocalTurnServer(getHostAddresses(true, false)[0]!);
+  const proxy = await createHeldUdpProxy(server.address!);
+  const late = createTestConnection(true, {
+    ...proxiedTurnOptions(proxy),
+    forceTurn: false,
+    ...lateOptions,
+  });
+  const early = createTestConnection(
+    false,
+    earlyOptions ? earlyOptions(server, late) : localTurnOptions(server),
+  );
+  await early.gatherCandidates();
+  const gathering = late.gatherCandidates();
+  exchangeIceCredentials(late, early);
+  return {
+    server,
+    proxy,
+    late,
+    early,
+    gathering,
+    close: async () => {
+      proxy.release();
+      await Promise.allSettled([late.close(), early.close()]);
+      proxy.close();
+      await server.close();
+    },
+  };
+}
+
+/** Pairs of `connection`'s check list whose local candidate is a relay. */
+export function relayPairs(connection: Connection) {
+  return connection.checkList.filter(
+    (pair) => pair.localCandidate.type === "relay",
+  );
+}
+
+/** Check list results `connection` has queued for connect() (ICE_FAILED / ICE_COMPLETED). */
+export function queuedCheckListResults(connection: Connection) {
+  return (
+    connection as unknown as {
+      checkListState: { queue: Promise<number>[] };
+    }
+  ).checkListState.queue.length;
+}
+
+/** Shared Arrange: a filterStunResponse that answers only checks from `peer`'s relay candidates. */
+export function answerOnlyRelayOf(peer: Connection) {
+  return (_message: Message, addr: Address) =>
+    peer.localCandidates.some(
+      (candidate) =>
+        candidate.type === "relay" &&
+        candidate.host === addr[0] &&
+        candidate.port === addr[1],
+    );
+}
+
+/** Wire bytes of one STUN attribute (4 byte header, value padded to 4 bytes). */
+export function stunAttributeBytes(type: number, value: Buffer) {
+  const header = Buffer.alloc(4);
+  header.writeUInt16BE(type, 0);
+  header.writeUInt16BE(value.length, 2);
+  return Buffer.concat([
+    header,
+    value,
+    Buffer.alloc((4 - (value.length % 4)) % 4),
+  ]);
+}
+
+/** `message` bytes with `attribute` appended and the header length updated. */
+export function appendStunAttributeBytes(message: Buffer, attribute: Buffer) {
+  const bytes = Buffer.concat([message, attribute]);
+  bytes.writeUInt16BE(bytes.length - 20, 2);
+  return bytes;
+}
+
+/**
+ * Wire bytes of `message` (typed and raw attributes as they are) followed by a
+ * MESSAGE-INTEGRITY computed over all of them, so every attribute in `message`
+ * is inside the signed range.
+ */
+export function signStunMessageBytes(message: Message, key: Buffer) {
+  const body = message.bytes;
+  const integrity = stunAttributeBytes(0x0008, message.messageIntegrity(key));
+  return appendStunAttributeBytes(body, integrity);
+}
+
+/** Wire value of an ALTERNATE-SERVER attribute for `address`. */
+export function alternateServerValue(address: Address) {
+  return new Message(methods.ALLOCATE, classes.ERROR)
+    .setAttribute("ALTERNATE-SERVER", address)
+    .bytes.subarray(24);
 }
