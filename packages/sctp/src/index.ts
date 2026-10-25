@@ -15,4 +15,5 @@ export {
   SCTP_PADDING_MULTIPLE,
 } from "./chunk";
 export { createUdpTransport, UdpTransport } from "./transport";
+export { FifoQueue } from "./imports/common";
 export type { Transport } from "./transport";

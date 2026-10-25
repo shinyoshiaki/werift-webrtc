@@ -4,6 +4,11 @@ import { Event } from "../imports/common";
 import type { RTCDtlsTransport } from "..";
 import { SenderDirections } from "../const";
 import { createWebRtcTypeError } from "../errors";
+import {
+  type TransceiverNegotiationState,
+  getApplicationStopRevision,
+  noteApplicationStop,
+} from "../negotiation/internalState";
 import type { Kind } from "../types/domain";
 import { cloneCodecParameters } from "./codec";
 import type {
@@ -42,6 +47,12 @@ export class RTCRtpTransceiver {
   readonly onCodecPreferencesChanged = new Event<[]>();
   pendingLocalOfferCodecs?: RTCRtpCodecParameters[];
   codecPreferencesNeedResolution = false;
+  /**
+   * Counts application changes to the codecs this transceiver may use
+   * (`setCodecPreferences()`, a track attached by `addTrack()`). A rollback
+   * keeps such a change instead of restoring the baseline's resolved codecs.
+   */
+  private codecChangeRevision = 0;
 
   get codecPreferences(): readonly RTCRtpCodecParameters[] | undefined {
     return this._codecPreferences;
@@ -59,8 +70,18 @@ export class RTCRtpTransceiver {
     // pending offer への answer が現在の codec を書き戻しても、この要求は
     // 次回の createOffer() まで失われない。
     this.codecPreferencesNeedResolution = true;
-    this._codecs = [];
+    this.markCodecsForResolution();
     this.onCodecPreferencesChanged.execute();
+  }
+
+  /**
+   * Internal: an application change makes the next offer / answer resolve
+   * this transceiver's codecs again. The live sender and receiver keep the
+   * committed codecs until a description is committed.
+   */
+  markCodecsForResolution() {
+    this.codecChangeRevision++;
+    this._codecs = [];
   }
   options: Partial<TransceiverOptions> = {};
   /**stop() 済み、または停止が確定した transceiver */
@@ -97,6 +118,12 @@ export class RTCRtpTransceiver {
     }
   }
 
+  /**
+   * Internal: the negotiation state the transceiver was created with, so a
+   * rollback can return one that no description committed to it.
+   */
+  createdNegotiationState?: TransceiverNegotiationState;
+
   get dtlsTransport() {
     return this.receiver.dtlsTransport;
   }
@@ -128,6 +155,13 @@ export class RTCRtpTransceiver {
 
   setCurrentDirection(direction: CurrentDirection | undefined) {
     this._currentDirection = direction;
+    // A negotiated direction without sending (inactive / recvonly, also a
+    // pranswer's while it is pending) stops the sender from sending.
+    this.sender.setSendSuppressed(
+      !!direction &&
+        direction !== "stopped" &&
+        !SenderDirections.includes(direction),
+    );
     if (
       direction &&
       direction !== "stopped" &&
@@ -142,6 +176,80 @@ export class RTCRtpTransceiver {
   setDtlsTransport(dtls: RTCDtlsTransport) {
     this.receiver.setDtlsTransport(dtls);
     this.sender.setDtlsTransport(dtls);
+  }
+
+  /**
+   * Internal: everything a negotiation may change on this transceiver, its
+   * sender and its receiver, for a rollback baseline. Codec preferences are an
+   * application choice and are not part of it.
+   */
+  snapshotNegotiationState() {
+    return {
+      mid: this.mid,
+      mLineIndex: this.mLineIndex,
+      codecs: this.codecs,
+      pendingLocalOfferCodecs: this.pendingLocalOfferCodecs && [
+        ...this.pendingLocalOfferCodecs,
+      ],
+      codecPreferencesNeedResolution: this.codecPreferencesNeedResolution,
+      codecChangeRevision: this.codecChangeRevision,
+      headerExtensions: this.headerExtensions,
+      offerDirection: this.offerDirection,
+      currentDirection: this.currentDirection,
+      stopping: this.stopping,
+      stopped: this.stopped,
+      rejected: this.rejected,
+      pendingRejection: this.pendingRejection,
+      firedReceiving: this.firedReceiving,
+      applicationStopRevision: getApplicationStopRevision(this),
+      dtlsTransport: this.dtlsTransport,
+      sender: this.sender.snapshotSendParams(),
+      receiver: this.receiver.snapshotNegotiationState(),
+    };
+  }
+
+  /** Internal: return to a negotiation baseline taken by `snapshotNegotiationState`. */
+  restoreNegotiationState(state: TransceiverNegotiationState) {
+    this.mid = state.mid;
+    this.mLineIndex = state.mLineIndex;
+    this.pendingLocalOfferCodecs = state.pendingLocalOfferCodecs && [
+      ...state.pendingLocalOfferCodecs,
+    ];
+    // A codec change the application made during the rolled-back negotiation
+    // stays: the next offer / answer resolves the codecs again.
+    if (this.codecChangeRevision === state.codecChangeRevision) {
+      this.codecs = state.codecs;
+      this.codecPreferencesNeedResolution =
+        state.codecPreferencesNeedResolution;
+    } else {
+      this.codecs = [];
+      this.codecPreferencesNeedResolution = true;
+    }
+    this.headerExtensions = state.headerExtensions;
+    this.offerDirection = state.offerDirection;
+    this.setCurrentDirection(state.currentDirection ?? undefined);
+    // stop() is an application operation: one made during the rolled-back
+    // negotiation stays.
+    this.stopping =
+      state.stopping ||
+      getApplicationStopRevision(this) !== state.applicationStopRevision;
+    this.stopped = state.stopped;
+    this.rejected = state.rejected;
+    this.pendingRejection = state.pendingRejection;
+    this.firedReceiving = state.firedReceiving;
+    this.setDtlsTransport(state.dtlsTransport);
+    this.sender.restoreSendParams(state.sender);
+    this.receiver.restoreNegotiationState(state.receiver);
+  }
+
+  /**
+   * Internal: the application sends on this transceiver (its sender has a
+   * track), so a rollback keeps it even if a remote offer created it. As in
+   * develop, only a track counts: stop(), a direction or codec preferences
+   * set on a remote-created transceiver do not keep it.
+   */
+  get heldByApplication() {
+    return !!this.sender.track;
   }
 
   get msid() {
@@ -172,6 +280,7 @@ export class RTCRtpTransceiver {
    * 冪等で、2 回目以降は何もしない。
    */
   stop() {
+    noteApplicationStop(this);
     if (this.stopping) {
       return;
     }

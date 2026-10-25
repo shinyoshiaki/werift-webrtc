@@ -1,10 +1,10 @@
 import { prepareConnectionSped } from "../../ice/src/internal/sped-bind";
+import type { PeerConfig } from "./api/peerConfig";
 import { SRTP_PROFILE } from "./const";
 import { createWebRtcDomException, createWebRtcTypeError } from "./errors";
 import { Event, debug } from "./imports/common";
 import type { RTCRtpTransceiver, TransceiverManager } from "./media";
 import type { RTCStats } from "./media/stats";
-import type { PeerConfig } from "./peerConnection";
 import type { SctpTransportManager } from "./sctpManager";
 import type { BundlePolicy, MediaDescription, SessionDescription } from "./sdp";
 import {
@@ -39,6 +39,7 @@ export class SecureTransportManager {
   readonly connectionStateChange = new Event<[ConnectionState]>();
 
   private config: PeerConfig;
+  private lastLocalCredentials?: { usernameFragment: string; password: string };
   private transceiverManager: TransceiverManager;
   private sctpManager: SctpTransportManager;
   private dtlsStateDisposers = new Map<RTCDtlsTransport, () => void>();
@@ -72,8 +73,8 @@ export class SecureTransportManager {
     return uniqueTransports([
       ...this.transceiverManager
         .getTransceivers()
-        .filter((t) => !t.stopped)
-        .map((t) => t?.dtlsTransport),
+        .filter((transceiver) => !transceiver.stopped)
+        .map((transceiver) => transceiver.dtlsTransport),
       this.sctpManager.sctpTransport?.dtlsTransport,
     ]);
   }
@@ -120,14 +121,14 @@ export class SecureTransportManager {
   }
 
   /**
-   * Re-apply ICE servers from the current config to ICE transports that have
-   * not started gathering yet (`gatheringState === "new"`).
+   * Re-apply ICE servers from the current config.
    *
-   * JSEP (RFC 8829 §4.1.18) / ticket scope: server changes affect the next
-   * gathering phase. Once gathering has started or finished, leave the live
-   * Connection alone so existing candidates and TURN protocols are not
-   * disturbed. Used when TURN is learned after the gatherer was built
-   * (e.g. from a WHIP Link header) but before setLocalDescription gathers.
+   * JSEP (RFC 8829 §4.1.18): server changes affect the next gathering phase.
+   * A transport that has not gathered yet (`gatheringState === "new"`) takes
+   * them now (e.g. TURN learned from a WHIP Link header before
+   * setLocalDescription gathers). A transport that already gathered keeps its
+   * live Connection untouched and takes them at its next ICE restart, which
+   * also replaces a TURN allocation made with the old settings.
    */
   updateIceServers() {
     const options = {
@@ -137,16 +138,20 @@ export class SecureTransportManager {
       turnUdpFamily: this.config.turnUdpFamily,
     };
     for (const iceTransport of this.iceTransports) {
-      // Only update gatherers that have never gathered in this generation.
-      // Applying after gathering would leave stale TURN protocols in
-      // Connection.protocols that get re-advertised on a later restart.
       if (iceTransport.gatheringState === "new") {
         iceTransport.setIceServers(options);
+      } else {
+        iceTransport.deferIceServers(options);
       }
     }
   }
 
-  createTransport({ inheritCredentials = true } = {}) {
+  createTransport(option: boolean | { inheritCredentials?: boolean } = true) {
+    const inheritCredentials =
+      typeof option === "boolean"
+        ? !option
+        : option.inheritCredentials !== false;
+    const independentIceCredentials = !inheritCredentials;
     const existing = inheritCredentials
       ? this.iceTransports.find((transport) => transport.state !== "closed")
       : undefined;
@@ -172,9 +177,26 @@ export class SecureTransportManager {
       useLinkLocalAddress: this.config.iceUseLinkLocalAddress,
     });
 
-    if (existing) {
-      iceGatherer.connection.localUsername = existing.connection.localUsername;
-      iceGatherer.connection.localPassword = existing.connection.localPassword;
+    // ICE credentials change only on an ICE restart (JSEP 5.2.1). A transport
+    // created after rollback discarded every live transport keeps the last
+    // credentials, so a previously created description stays applicable.
+    const inherited = existing
+      ? {
+          usernameFragment: existing.connection.localUsername,
+          password: existing.connection.localPassword,
+        }
+      : !independentIceCredentials
+        ? this.lastLocalCredentials
+        : undefined;
+    if (inherited) {
+      iceGatherer.connection.localUsername = inherited.usernameFragment;
+      iceGatherer.connection.localPassword = inherited.password;
+    }
+    if (!independentIceCredentials) {
+      this.lastLocalCredentials = {
+        usernameFragment: iceGatherer.connection.localUsername,
+        password: iceGatherer.connection.localPassword,
+      };
     }
 
     iceGatherer.onGatheringStateChange.subscribe(() => {
@@ -250,6 +272,7 @@ export class SecureTransportManager {
   async addIceCandidate(
     sdp: SessionDescription,
     candidateMessage: RTCIceCandidate | RTCIceCandidateInit | null,
+    applyToTransport = true,
   ) {
     const candidateText = candidateMessage?.candidate;
     const sdpMid = candidateMessage?.sdpMid;
@@ -266,7 +289,11 @@ export class SecureTransportManager {
     });
 
     if (isEndOfCandidates) {
-      const candidateTarget = mediaIndices
+      const unfinished = mediaIndices.filter(
+        (index) => !sdp.media[index]?.iceCandidatesComplete,
+      );
+      if (unfinished.length === 0) return;
+      const candidateTarget = unfinished
         .map((index) => this.getTransportByMLineIndex(sdp, index))
         .filter(
           (iceTransport): iceTransport is RTCIceTransport => !!iceTransport,
@@ -278,14 +305,14 @@ export class SecureTransportManager {
           return acc;
         }, []);
 
-      await Promise.all(
-        candidateTarget.map((iceTransport) =>
-          iceTransport.addRemoteCandidate(undefined),
-        ),
-      );
+      if (applyToTransport) {
+        for (const iceTransport of candidateTarget) {
+          iceTransport.deliverRemoteCandidate(undefined);
+        }
+      }
       return {
         kind: "end-of-candidates" as const,
-        mediaIndices,
+        mediaIndices: unfinished,
       };
     }
 
@@ -308,11 +335,25 @@ export class SecureTransportManager {
     candidate.sdpMid = targetMedia.rtp.muxId ?? undefined;
     candidate.sdpMLineIndex = targetMediaIndex;
 
+    if (
+      targetMedia.iceCandidates.some(
+        (existing) =>
+          existing.toJSON().candidate === candidate.toJSON().candidate,
+      )
+    ) {
+      return;
+    }
+    // RFC 8838: the generation of this m-line already ended. The candidate is
+    // ignored, so it reaches neither the SDP nor any (live, pending-only or
+    // provisional) checklist of that generation.
+    if (targetMedia.iceCandidatesComplete) {
+      return;
+    }
+
     const iceTransport = this.getTransportByMLineIndex(sdp, targetMediaIndex);
 
-    if (!iceTransport) {
+    if (!iceTransport && applyToTransport) {
       if (this.isRejectedMedia(targetMedia)) {
-        // 拒否 / 停止した m-line の候補は MID / index を保ったまま記録だけする
         return {
           kind: "candidate" as const,
           candidate,
@@ -325,7 +366,7 @@ export class SecureTransportManager {
       );
     }
 
-    await iceTransport.addRemoteCandidate(candidate);
+    if (applyToTransport) iceTransport?.deliverRemoteCandidate(candidate);
     return {
       kind: "candidate" as const,
       candidate,
@@ -448,21 +489,93 @@ export class SecureTransportManager {
     for (const transport of this.dtlsTransports) {
       transport.handleIceRestart();
     }
+    const [first] = this.iceTransports;
+    if (first) this.lastLocalCredentials = first.localParameters;
     // restart() resets each gatherer to "new"; refresh the aggregate cache
     // even if a gatherer failed to emit onGatheringStateChange.
+    this.updateIceGatheringState();
+  }
+
+  /** Stage restart credentials on `targets` (all transports by default). */
+  stageIceRestart(
+    targets?: ReadonlySet<RTCIceTransport>,
+    {
+      answering,
+      replacing,
+    }: { answering?: object; replacing?: ReadonlySet<string> } = {},
+  ) {
+    for (const transport of this.iceTransports) {
+      // A transport without a generation yet (never gathered, e.g. created
+      // for a new m-line beside the restart) starts with fresh credentials
+      // anyway; staging would advertise its empty candidate list as complete.
+      const hasGeneration =
+        transport.gatheringState !== "new" && !!transport.getRemoteParameters();
+      if ((!targets || targets.has(transport)) && hasGeneration) {
+        transport.stageLocalRestart({ answering, replacing });
+      } else {
+        transport.rollbackLocalRestart();
+      }
+    }
+  }
+
+  rollbackStagedIceRestart() {
+    for (const transport of this.iceTransports) {
+      transport.rollbackLocalRestart();
+    }
+  }
+
+  /** The staged restart credentials now belong to an applied description. */
+  markStagedIceRestartApplied() {
+    for (const transport of this.iceTransports) {
+      transport.markLocalRestartApplied();
+    }
+  }
+
+  /** Discard restart credentials staged only by an unapplied createOffer. */
+  discardUnappliedIceRestart() {
+    for (const transport of this.iceTransports) {
+      transport.discardUnappliedLocalRestart();
+    }
+  }
+
+  emitStagedIceCandidates() {
+    for (const transport of this.iceTransports) {
+      transport.emitStagedCandidates();
+    }
+  }
+
+  emitCommittedIceCandidates() {
+    for (const transport of this.iceTransports) {
+      transport.emitCommittedCandidates();
+    }
+  }
+
+  /**
+   * Called unconditionally whenever a remote answer is applied. Whether ICE
+   * actually restarts depends on each transport's own state: only transports
+   * that staged a local restart for the applied offer do anything; the rest
+   * no-op inside `commitLocalRestartIfStaged`.
+   */
+  async commitIceRestartIfAnyStaged() {
+    await Promise.all(
+      this.iceTransports.map((transport) =>
+        transport.commitLocalRestartIfStaged(),
+      ),
+    );
+    const [first] = this.iceTransports;
+    if (first) this.lastLocalCredentials = first.localParameters;
     this.updateIceGatheringState();
   }
 
   setLocalRole({
     type,
     role,
-    roleOfTransport,
   }: {
     type: "offer" | "answer";
-    /**transport 個別の role がない場合に使う local description 先頭の role */
-    role: "auto" | "client" | "server" | undefined;
-    /**local description でその transport を使う m-line の role */
-    roleOfTransport?: Map<RTCDtlsTransport, "auto" | "client" | "server">;
+    /** answer で transport に設定する DTLS role。undefined なら現在の role を保つ */
+    role: (
+      transport: RTCDtlsTransport,
+    ) => "auto" | "client" | "server" | undefined;
   }) {
     for (const dtlsTransport of this.dtlsTransports) {
       const iceTransport = dtlsTransport.iceTransport;
@@ -479,7 +592,7 @@ export class SecureTransportManager {
 
       // # set DTLS role for mediasoup
       if (type === "answer") {
-        const transportRole = roleOfTransport?.get(dtlsTransport) ?? role;
+        const transportRole = role(dtlsTransport);
         if (transportRole) {
           dtlsTransport.role = transportRole;
         }
@@ -572,19 +685,17 @@ export class SecureTransportManager {
     }
   }
 
-  /**
-   * 未収集 (gatheringState=new) の ICE transport だけ候補を収集する。
-   * 収集済み transport は gather() が何もしないので、確立済み BUNDLE の transport は再収集されず、
-   * BUNDLE group 外に新設した独立 transport だけが候補を収集する。
-   */
   async gatherCandidates() {
+    // Partial BUNDLE topology can have an established owner and newly added transports.
     await Promise.allSettled(
       this.iceTransports
-        .filter((iceTransport) => iceTransport.state !== "closed")
+        .filter(
+          (iceTransport) =>
+            iceTransport.state !== "closed" &&
+            iceTransport.gatheringState === "new",
+        )
         .map((iceTransport) => iceTransport.gather()),
-    ).catch((e) => {
-      log("gatherCandidates failed", e);
-    });
+    );
   }
 
   setConnectionState(state: ConnectionState) {

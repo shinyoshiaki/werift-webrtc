@@ -1,7 +1,7 @@
 import { createSign, randomBytes, webcrypto } from "crypto";
 import { Certificate, PrivateKey } from "@fidm/x509";
 import * as x509 from "@peculiar/x509";
-import { encode, types } from "@shinyoshiaki/binary-data";
+import { binaryData } from "../imports/common";
 
 import {
   type CipherSuites,
@@ -18,6 +18,8 @@ import { SessionType, type SessionTypes } from "../cipher/suites/abstract";
 import type AEADCipher from "../cipher/suites/aead";
 import type { DtlsRandom } from "../handshake/random";
 import type { DtlsPlaintext } from "../record/message/plaintext";
+
+const { encode, types } = binaryData;
 
 const crypto = webcrypto;
 x509.cryptoProvider.set(crypto as any);
@@ -199,15 +201,13 @@ export class CipherContext {
     publicKey: Buffer,
     namedCurve: number,
   ) {
-    const serverParams = Buffer.from(
-      encode(
-        {
-          type: CurveType.named_curve_3,
-          curve: namedCurve,
-          len: publicKey.length,
-        },
-        { type: types.uint8, curve: types.uint16be, len: types.uint8 },
-      ).slice(),
+    const serverParams = encode(
+      {
+        type: CurveType.named_curve_3,
+        curve: namedCurve,
+        len: publicKey.length,
+      },
+      { type: types.uint8, curve: types.uint16be, len: types.uint8 },
     );
     return Buffer.concat([clientRandom, serverRandom, serverParams, publicKey]);
   }

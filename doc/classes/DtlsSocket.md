@@ -410,19 +410,19 @@ closeAssociationHard instead).
 
 ##### localKey
 
-> **localKey**: `any` = `clientKey`
+> **localKey**: `Buffer`\<`ArrayBufferLike`\> = `clientKey`
 
 ##### localSalt
 
-> **localSalt**: `any` = `clientSalt`
+> **localSalt**: `Buffer`\<`ArrayBufferLike`\> = `clientSalt`
 
 ##### remoteKey
 
-> **remoteKey**: `any` = `serverKey`
+> **remoteKey**: `Buffer`\<`ArrayBufferLike`\> = `serverKey`
 
 ##### remoteSalt
 
-> **remoteSalt**: `any` = `serverSalt`
+> **remoteSalt**: `Buffer`\<`ArrayBufferLike`\> = `serverSalt`
 
 ***
 
@@ -776,7 +776,7 @@ readonly \[`string`, `number`\]
 `set-if-empty` keeps the first authenticated pin (server Flight4 /
   connect). `replace` is for dual association re-pin / client connect.
 
-`"replace"` | `"set-if-empty"`
+`"set-if-empty"` | `"replace"`
 
 #### Returns
 
@@ -796,7 +796,7 @@ Pass `replace` when the association deliberately re-pins (e.g. client connect).
 
 ##### mode
 
-`"replace"` | `"set-if-empty"`
+`"set-if-empty"` | `"replace"`
 
 #### Returns
 

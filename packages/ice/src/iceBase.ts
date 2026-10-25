@@ -42,6 +42,29 @@ export interface IceConnection {
   readonly onIceCandidate: Event<[Candidate]>;
 
   restart(): void;
+  /**
+   * Optional staged-restart and provisional-generation support. An
+   * implementation without them still restarts ICE at the final answer, but
+   * cannot answer or run checks for the new generation during pranswer.
+   */
+  stageLocalCredentials?(usernameFragment: string, password: string): void;
+  discardStagedLocalCredentials?(usernameFragment: string): void;
+  commitLocalCredentials?(usernameFragment: string, password: string): void;
+  /**
+   * The remote side alone restarted (new remote credentials in an answer):
+   * drop the remote generation and its checks, keep the local credentials
+   * and gathered candidates.
+   */
+  restartRemote?(): void;
+  setProvisionalRemoteParams?(params: {
+    usernameFragment: string;
+    password: string;
+  }): void;
+  addProvisionalRemoteCandidate?(
+    candidate: Candidate | undefined,
+  ): Promise<void>;
+  startProvisionalChecks?(): void;
+  readonly provisionalNominated?: CandidatePair;
 
   setIceServers(options: Partial<IceOptions>): void;
 
@@ -51,7 +74,15 @@ export interface IceConnection {
     password: string;
   }): void;
 
+  /**
+   * Gather the current generation's candidates. After an ICE restart the
+   * candidates the kept sockets advertised are re-advertised synchronously;
+   * only server work (STUN, TURN) is awaited.
+   */
   gatherCandidates(): Promise<void>;
+
+  /** Whether gathering contacts a STUN or TURN server. */
+  readonly gathersFromServers?: boolean;
 
   connect(): Promise<void>;
 
@@ -66,6 +97,8 @@ export interface IceConnection {
 
   getDefaultCandidate(): Candidate | undefined;
   resetNominatedPair(): void;
+  /** Drop remote candidates and pairs that name another remote ufrag. */
+  dropOtherRemoteGenerations?(usernameFragment: string): void;
 }
 
 export interface CandidatePairStats {

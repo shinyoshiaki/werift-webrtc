@@ -33,6 +33,12 @@ If a rule applies only to a specific package or subdirectory, put it in the near
 13. When changing public API, protocol behavior, examples, or WPT wiring, update the nearest docs or examples that demonstrate the behavior.
 14. Keep upstream-WPT-only strict behavior inside `packages/webrtc/tools/wpt-runner/*` wrappers. Do not leak stricter WPT shims into the default `packages/webrtc/src` API when that would regress existing werift convenience behavior.
 15. Keep CI-facing nested dependency bootstraps cache-friendly and non-auditing (`--prefer-offline --no-audit --no-fund --no-update-notifier`).
+16. Compare behavior against another revision in a separate temporary worktree (`git worktree add --detach <tmp-dir> <rev>`), never by checking out, resetting, or stashing the active worktree. External tooling may auto-commit the active worktree at any time.
+17. Reproduce a failing E2E with only the affected test file first; run the full E2E suite as final validation.
+18. Before long-running verification, state the current revision, uncommitted changes, and intent so interrupted work can be resumed.
+19. Resolve conflicts in generated docs (`doc/`, `packages/*/doc`) by regenerating them from the finalized source (`npm run doc`), not by merging the text.
+20. After a merge, check that public APIs match the generated docs, READMEs, and `changelog.md`.
+21. When code and docs disagree, decide the correct behavior from history, requirements, specs, and compatibility, then fix the side that is wrong.
 
 ## Don't
 
@@ -43,6 +49,8 @@ If a rule applies only to a specific package or subdirectory, put it in the near
 * Do not duplicate Arrange-phase setup across multiple test files when it can be safely shared through common utilities.
 * Do not leave Act / Assert phases without comments when the operation sequence or expectation is not obvious from a quick read.
 * Do not add multi-level class inheritance in `packages/dtls/src/engine/v1_3` (see that directory's `AGENTS.md`).
+* Do not stop test servers or browsers with pattern-based kills (`pkill -f`, `killall`); they can match the agent's own shell. Stop them by PID or through the runner's stop path.
+* Do not end a turn while a background test or build you started is still running unless you report it as unfinished.
 
 ## Commands
 

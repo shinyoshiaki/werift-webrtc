@@ -48,7 +48,7 @@ readonly \[`string`, `number`\]
 
 ### rinfo?
 
-> `optional` **rinfo**: `Partial`\<`Pick`\<`RemoteInfo`, `"port"` \| `"address"`\>\>
+> `optional` **rinfo**: `Partial`\<`Pick`\<`RemoteInfo`, `"address"` \| `"port"`\>\>
 
 ***
 

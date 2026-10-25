@@ -573,9 +573,11 @@ describe("codec resolution", () => {
     await answerer.setRemoteDescription(offer);
     const answererTransceiver = answerer.getTransceivers()[0];
 
-    // Act: remote offer 適用後に preference を H264 のみに変更して answer を作成する。
+    // Act: remote offer 適用後に preference を H264 のみに変更して answer を作成・適用する。
     answererTransceiver.setCodecPreferences([useH264()]);
     const answer = await answerer.createAnswer();
+    // 送受信の live state は answer の commit (setLocalDescription) で切り替わる。
+    await answerer.setLocalDescription(answer);
 
     // Assert: answer SDP と sender の実 codec が一致する。
     expect(answer.sdp.toLowerCase()).toContain("h264/90000");
@@ -1214,9 +1216,11 @@ describe("codec resolution", () => {
       (codec) => codec.name.toLowerCase() === "vp8",
     )!.payloadType;
 
-    // Act: remote offer 適用後に preference を H264 のみに変更して answer を作成する。
+    // Act: remote offer 適用後に preference を H264 のみに変更して answer を作成・適用する。
     answererTransceiver.setCodecPreferences([useH264()]);
     const answer = await answerer.createAnswer();
+    // 送受信の live state は answer の commit (setLocalDescription) で切り替わる。
+    await answerer.setLocalDescription(answer);
     const h264PayloadType = answererTransceiver.codecs.find(
       (codec) => codec.name.toLowerCase() === "h264",
     )!.payloadType;
@@ -1276,9 +1280,11 @@ describe("codec resolution", () => {
     // Arrange: 初期交渉では TWCC が開始している。
     expect(answererTransceiver.receiver.receiverTWCC).toBeDefined();
 
-    // Act: transport-cc を持たない H264 のみに絞って answer を作成する。
+    // Act: transport-cc を持たない H264 のみに絞って answer を作成・適用する。
     answererTransceiver.setCodecPreferences([useH264()]);
     const answer = await answerer.createAnswer();
+    // 送受信の live state は answer の commit (setLocalDescription) で切り替わる。
+    await answerer.setLocalDescription(answer);
 
     // Assert: answer SDP と sender が H264 に更新され、TWCC 状態は破棄される。
     expect(answer.sdp.toLowerCase()).toContain("h264/90000");

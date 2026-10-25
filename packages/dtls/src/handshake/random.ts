@@ -1,6 +1,8 @@
 import { randomBytes } from "crypto";
 /* eslint-disable @typescript-eslint/ban-ts-comment */
-import { decode, encode, types } from "@shinyoshiaki/binary-data";
+import { binaryData } from "../imports/common";
+
+const { decode, encode, types } = binaryData;
 
 import { DOWNGRADE_TLS12_SENTINEL } from "../version";
 
@@ -22,14 +24,13 @@ export class DtlsRandom {
     );
   }
 
-  static from(spec: typeof DtlsRandom.spec) {
+  static from(spec: binaryData.Decoded<typeof DtlsRandom.spec>) {
     //@ts-ignore
     return new DtlsRandom(...Object.values(spec));
   }
 
   serialize() {
-    const res = encode(this, DtlsRandom.spec).slice();
-    return Buffer.from(res);
+    return encode(this, DtlsRandom.spec);
   }
 
   /** Full 32-byte Random (gmt_unix_time || random_bytes). */

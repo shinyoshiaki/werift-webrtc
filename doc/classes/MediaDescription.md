@@ -28,7 +28,7 @@
 
 ##### fmt
 
-`number`[] | `string`[]
+`string`[] | `number`[]
 
 #### Returns
 
@@ -50,7 +50,7 @@
 
 ### fmt
 
-> **fmt**: `number`[] \| `string`[]
+> **fmt**: `string`[] \| `number`[]
 
 ***
 

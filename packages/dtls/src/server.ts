@@ -378,7 +378,7 @@ export class DtlsServer extends DtlsSocket {
                   this.dtls,
                   this.cipher,
                   this.srtp,
-                ).exec(handshake, this.options.certificateRequest);
+                ).exec(handshake, clientHello, this.options.certificateRequest);
                 if (!isActive()) return;
                 return;
               }
@@ -419,7 +419,7 @@ export class DtlsServer extends DtlsSocket {
                 this.dtls,
                 this.cipher,
                 this.srtp,
-              ).exec(handshake, this.options.certificateRequest);
+              ).exec(handshake, clientHello, this.options.certificateRequest);
               // close/fatal during Flight4 must not continue HS
               if (!isActive()) return;
             }

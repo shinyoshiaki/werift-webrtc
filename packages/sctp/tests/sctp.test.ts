@@ -16,6 +16,7 @@ import { StreamAddOutgoingParam } from "../src/param";
 import type { Transport } from "../src/transport";
 import { createUdpTransport } from "../src/transport";
 import {
+  createChunkQueue,
   createControlledTransport,
   receiveCookieEcho,
   receiveInitAck,
@@ -176,7 +177,7 @@ describe("sctp timers and ack policy", () => {
     (sctp as any).lastSackedTsn = 0;
     const sent = createDataChunk(1);
     sent.bookSize = 100;
-    (sctp as any).sentQueue = [sent];
+    (sctp as any).sentQueue = createChunkQueue([sent]);
     (sctp as any).flightSize = 100;
 
     const sack = new SackChunk(0, undefined);

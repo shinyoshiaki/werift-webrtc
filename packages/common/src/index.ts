@@ -7,3 +7,5 @@ export * from "./type";
 export * from "./log";
 export * from "./event";
 export * from "./transport";
+export * as binaryData from "./binaryData";
+export * from "./queue";

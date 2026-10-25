@@ -78,6 +78,13 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   id = randomUUID().toString();
   state: DtlsState = "new";
   role: DtlsRole = "auto";
+  /**
+   * Internal: the ICE role when the handshake started. werift sets the ICE role at
+   * every offer / answer, so an SCTP association that starts later on this
+   * transport takes its client / server side from here, as both peers agreed
+   * on it when they started DTLS.
+   */
+  iceRoleAtStart?: RTCIceTransport["role"];
   srtpStarted = false;
   transportSequenceNumber = 0;
 
@@ -275,6 +282,11 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     this.dtls?.close();
   }
 
+  /** Internal: whether a description gave this transport the peer's DTLS parameters. */
+  get hasRemoteParameters() {
+    return (this.remoteParameters?.fingerprints.length ?? 0) > 0;
+  }
+
   async start() {
     if (this.state === "connected") {
       return;
@@ -299,6 +311,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       throw new Error("remote fingerprint not exist");
     }
 
+    this.iceRoleAtStart = this.iceTransport.role;
     if (this.role === "auto") {
       if (this.iceTransport.role === "controlling") {
         this.role = "server";

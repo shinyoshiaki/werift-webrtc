@@ -143,7 +143,7 @@ Defaults to 8.
 
 ### turnTransport?
 
-> `optional` **turnTransport**: `"tcp"` \| `"tls"` \| `"udp"`
+> `optional` **turnTransport**: `"udp"` \| `"tcp"` \| `"tls"`
 
 ***
 

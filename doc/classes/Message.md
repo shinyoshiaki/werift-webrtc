@@ -14,7 +14,7 @@
 
 ### new Message()
 
-> **new Message**(`messageMethod`, `messageClass`, `transactionId`, `attributes`, `rawAttributes`): [`Message`](Message.md)
+> **new Message**(`messageMethod`, `messageClass`, `transactionId`, `attributes`, `rawAttributes`, `alternateServers`): [`Message`](Message.md)
 
 #### Parameters
 
@@ -38,6 +38,12 @@
 
 `RawAttribute`[] = `[]`
 
+##### alternateServers
+
+\[`string`, `number`\][] = `[]`
+
+Every ALTERNATE-SERVER attribute, in wire order.
+
 #### Returns
 
 [`Message`](Message.md)
@@ -47,6 +53,14 @@
 `AttributeRepository.constructor`
 
 ## Properties
+
+### alternateServers
+
+> **alternateServers**: \[`string`, `number`\][] = `[]`
+
+Every ALTERNATE-SERVER attribute, in wire order.
+
+***
 
 ### attributes
 
