@@ -1,0 +1,1 @@
+親チケットの依存更新後のコードに npm run format を適用し、整形のみの差分をコミットしてください。packages/dtls/src/handshake/message/changeCipherSpec.ts の @ts-ignore が @ts-expect-error に変換されて TS2578 になる既知問題を直し、npm run build / type:all / test:small と format の2回目差分なしを確認してください。完了後に PR を作成し、このチケットへリンクしてください。
