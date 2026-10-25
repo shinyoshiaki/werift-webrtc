@@ -133,13 +133,15 @@ export class SctpTransportManager {
 
   /**
    * Count a channel (created here or announced by the remote peer) and keep
-   * it for getStats until it closes.
+   * it for getStats until it closes. The listener goes with it: a closed
+   * channel the application still holds must not keep the manager reachable.
    */
   private track(channel: RTCDataChannel) {
     this.dataChannelsOpened++;
     this.dataChannels.push(channel);
-    channel.stateChange.subscribe((state) => {
+    const { unSubscribe } = channel.stateChange.subscribe((state) => {
       if (state === "closed") {
+        unSubscribe();
         this.dataChannelsClosed++;
         const index = this.dataChannels.indexOf(channel);
         if (index !== -1) {
