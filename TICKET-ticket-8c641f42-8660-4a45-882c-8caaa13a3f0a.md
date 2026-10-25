@@ -27,8 +27,9 @@
 - active worktree で stash / reset しない。
 
 ### 5. 完了条件
-- [ ] `npm run format` 適用済みの整形コミットが存在する
-- [ ] changeCipherSpec.ts の TS2578 が解消している
-- [ ] `npm run build` / `npm run type:all` / `npm run test:small` が成功
-- [ ] `npm run format` を再実行しても差分が出ない
-- [ ] PR を作成し、このチケットにリンクする
+- [x] `npm run format` 適用済みの整形コミットが存在する
+- [x] changeCipherSpec.ts の TS2578 が解消している
+- [x] `npm run build` / `npm run type:all` / `npm run test:small` が成功
+- [x] `npm run format` を再実行しても差分が出ない
+- [x] PR を作成し、このチケットにリンクする
+- PR: https://github.com/shinyoshiaki/werift-webrtc/pull/784
