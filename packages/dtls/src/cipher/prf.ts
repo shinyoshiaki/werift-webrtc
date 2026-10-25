@@ -10,6 +10,15 @@ import { binaryData } from "../imports/common";
 import { NamedCurveAlgorithm, type NamedCurveAlgorithms } from "./const";
 import { p256PreMasterSecret } from "./ec";
 
+const x25519PrivateKeyPrefix = Buffer.from(
+  "302e020100300506032b656e04220420",
+  "hex",
+);
+const x25519PublicKeyPrefix = Buffer.from(
+  "302a300506032b656e032100",
+  "hex",
+);
+
 export function prfPreMasterSecret(
   publicKey: Buffer,
   privateKey: Buffer,
@@ -21,18 +30,12 @@ export function prfPreMasterSecret(
     case NamedCurveAlgorithm.x25519_29:
       return diffieHellman({
         privateKey: createPrivateKey({
-          key: Buffer.concat([
-            Buffer.from("302e020100300506032b656e04220420", "hex"),
-            privateKey,
-          ]),
+          key: Buffer.concat([x25519PrivateKeyPrefix, privateKey]),
           format: "der",
           type: "pkcs8",
         }),
         publicKey: createPublicKey({
-          key: Buffer.concat([
-            Buffer.from("302a300506032b656e032100", "hex"),
-            publicKey,
-          ]),
+          key: Buffer.concat([x25519PublicKeyPrefix, publicKey]),
           format: "der",
           type: "spki",
         }),
