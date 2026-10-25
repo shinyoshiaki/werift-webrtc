@@ -252,6 +252,11 @@ move REFRESH, CREATE_PERMISSION, CHANNEL_BIND or data to another server.
 
 > **close**(): `Promise`\<`void`\>
 
+Release the client: its transactions, refresh timer and socket. Known
+constraint (as in develop): the allocation is not deleted on the server
+(no Refresh with lifetime 0), so the server keeps it until its lifetime
+ends.
+
 #### Returns
 
 `Promise`\<`void`\>
