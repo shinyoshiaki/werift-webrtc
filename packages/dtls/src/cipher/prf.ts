@@ -1,4 +1,10 @@
-import { createHash, createHmac, createPrivateKey, createPublicKey, diffieHellman } from "node:crypto";
+import {
+  createHash,
+  createHmac,
+  createPrivateKey,
+  createPublicKey,
+  diffieHellman,
+} from "node:crypto";
 
 import { binaryData } from "../imports/common";
 import { NamedCurveAlgorithm, type NamedCurveAlgorithms } from "./const";
@@ -15,12 +21,18 @@ export function prfPreMasterSecret(
     case NamedCurveAlgorithm.x25519_29:
       return diffieHellman({
         privateKey: createPrivateKey({
-          key: Buffer.concat([Buffer.from("302e020100300506032b656e04220420", "hex"), privateKey]),
+          key: Buffer.concat([
+            Buffer.from("302e020100300506032b656e04220420", "hex"),
+            privateKey,
+          ]),
           format: "der",
           type: "pkcs8",
         }),
         publicKey: createPublicKey({
-          key: Buffer.concat([Buffer.from("302a300506032b656e032100", "hex"), publicKey]),
+          key: Buffer.concat([
+            Buffer.from("302a300506032b656e032100", "hex"),
+            publicKey,
+          ]),
           format: "der",
           type: "spki",
         }),

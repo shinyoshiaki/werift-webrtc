@@ -11,8 +11,8 @@ import {
   SessionDescription,
 } from "../../../src";
 import {
-  type DuplexSession,
   assertNegotiationInvariants,
+  type DuplexSession,
   enforceSessionContinuation,
   exemptFromContinuation,
   expectSessionAlive,

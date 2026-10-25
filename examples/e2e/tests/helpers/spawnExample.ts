@@ -11,7 +11,10 @@ const STOP_TIMEOUT_MS = 2_000;
 export type SpawnedProcess = {
   child: ChildProcess;
   logs: string;
-  waitForExit: () => Promise<{ code: number | null; signal: NodeJS.Signals | null }>;
+  waitForExit: () => Promise<{
+    code: number | null;
+    signal: NodeJS.Signals | null;
+  }>;
 };
 
 export function hasExited(child: ChildProcess) {
@@ -397,7 +400,8 @@ export function watchUnexpectedExit(
   };
 }
 
-const FATAL_LOG = /Error: baseTime not exist|UnhandledPromiseRejection|unhandledRejection/;
+const FATAL_LOG =
+  /Error: baseTime not exist|UnhandledPromiseRejection|unhandledRejection/;
 
 export function assertGstreamerHealthy(
   spawned: SpawnedProcess,
@@ -411,11 +415,12 @@ export function assertGstreamerHealthy(
       /gst exit code=(?!0(?:\s|$)|null(?:\s|$))/i.test(line),
   );
   if (failures.length > 0) {
-    throw new Error(
-      `GStreamer reported a failure:\n${failures.join("\n")}`,
-    );
+    throw new Error(`GStreamer reported a failure:\n${failures.join("\n")}`);
   }
-  if (options.requireExit && !lines.some((line) => /gst exit code=/i.test(line))) {
+  if (
+    options.requireExit &&
+    !lines.some((line) => /gst exit code=/i.test(line))
+  ) {
     throw new Error(
       `GStreamer exit status was not reported:\n${spawned.logs.slice(-2_000)}`,
     );

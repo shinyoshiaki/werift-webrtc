@@ -2,18 +2,17 @@
 // Codec payload formats live in packages/rtp; this file maps mediabunny
 // EncodedPacket (data + key/delta) and SDP codec parameters onto them.
 
+import type { EncodedPacket } from "mediabunny";
 import {
   Av1Packetizer,
   H264Packetizer,
   OpusPacketizer,
+  parseAvcDecoderConfigurationRecord,
   type RtpPacket,
   Vp8Packetizer,
   Vp9Packetizer,
-  parseAvcDecoderConfigurationRecord,
 } from "../../imports/rtp";
 import type { RTCRtpCodecParameters } from "../../media/parameters";
-
-import type { EncodedPacket } from "mediabunny";
 
 export { Vp8Packetizer } from "../../imports/rtp";
 

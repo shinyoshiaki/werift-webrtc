@@ -17,7 +17,7 @@ export class ChangeCipherSpec {
 
   static deSerialize(buf: Buffer) {
     return new ChangeCipherSpec(
-      //@ts-ignore
+      //@ts-expect-error
       ...Object.values(decode(buf, ChangeCipherSpec.spec)),
     );
   }

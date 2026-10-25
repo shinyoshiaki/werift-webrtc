@@ -46,9 +46,7 @@ server.on("connection", async (socket) => {
   }>((resolve) => {
     gst.once("exit", (code, signal) => {
       const unexpected = !shuttingDown;
-      console.log(
-        `gst exit code=${code ?? "null"} signal=${signal ?? "null"}`,
-      );
+      console.log(`gst exit code=${code ?? "null"} signal=${signal ?? "null"}`);
       if (unexpected) {
         console.error(
           `gst unexpected exit: code=${code ?? "null"} signal=${signal ?? "null"}`,

@@ -1,10 +1,9 @@
 import { spawn, spawnSync } from "child_process";
 import { createSocket } from "dgram";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { BufferSource, Input, MP4 } from "mediabunny";
 import { tmpdir } from "os";
 import { join } from "path";
-
-import { BufferSource, Input, MP4 } from "mediabunny";
 
 import { MP4Callback, type Track } from "../src/extra";
 import type { Mp4Output } from "../src/extra/processor/mp4";
