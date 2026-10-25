@@ -2,10 +2,10 @@ import { setTimeout as delay } from "node:timers/promises";
 
 import { CandidatePairState } from "../../src/iceBase";
 import {
+  checkProvisionalPair,
   createScriptedCheckHarness,
   createTestConnection,
   createUnansweredCheckAgent,
-  checkProvisionalPair,
   inviteAccept,
   provisionalGeneration,
   queuedCheckListResults,

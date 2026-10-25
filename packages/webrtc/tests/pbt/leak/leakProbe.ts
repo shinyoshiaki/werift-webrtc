@@ -513,7 +513,7 @@ export async function settledFootprint(pcs: RTCPeerConnection[], ms = 3000) {
  * stays in every sample.
  */
 async function quietTimerCount(samples = 6, gapMs = 40) {
-  let fewest = Infinity;
+  let fewest = Number.POSITIVE_INFINITY;
   for (let i = 0; i < samples; i++) {
     fewest = Math.min(fewest, activeResources().Timeout ?? 0);
     await delay(gapMs);
