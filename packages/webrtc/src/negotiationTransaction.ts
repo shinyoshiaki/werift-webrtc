@@ -83,7 +83,83 @@ function replaceSet<T>(target: Set<T>, source: Iterable<T>) {
 /** Remote ufrags of retired generations kept to reject late callbacks. */
 const RETIRED_UFRAG_HISTORY = 64;
 
-/** One owner for the reversible metadata of a PeerConnection negotiation. */
+/**
+ * One owner for the reversible metadata of a PeerConnection negotiation.
+ *
+ * Invariant: the last pair of descriptions that reached `stable` is
+ * **current**. Its RTP routes, BUNDLE owners, ICE selected pair, DTLS session
+ * and SCTP association stay usable while another negotiation is pending.
+ * Packet-driven state (counters, consent, retransmission) belongs to the live
+ * transport and is never part of a snapshot.
+ *
+ * An applied offer opens the transaction. The state before it is the
+ * **rollback baseline**, captured once (first wins): a replacement offer or
+ * pranswer replaces only the **pending** proposal and its resources
+ * (`ProposalResources`, candidate buckets, provisional routes, new SCTP
+ * associations). The final answer is the only commit boundary; a pranswer may
+ * run provisional traffic without changing the current pair. An event already
+ * delivered to the application (track, candidate, DataChannel) is never
+ * retracted, and a repeated description does not deliver it again.
+ *
+ * Phases (owned here, driven by RTCPeerConnection):
+ *
+ * | Phase | Rule |
+ * | --- | --- |
+ * | begin | Capture the baseline once. `createOffer` in stable only records the snapshot its `setLocalDescription` adopts (`snapshotForOffer`); a remote offer captures its own. |
+ * | replace/update | Retire the previous proposal's pending-only resources and candidate buckets; keep the baseline and the delivered-event history. A byte-identical description is idempotent. |
+ * | validate | Every check (signaling transition, MIDs, BUNDLE, codecs, ICE credentials, DTLS role, SCTP port) runs before any live mutation (`DescriptionValidation`); a failure leaves the previous pending and current state untouched. |
+ * | prepare | New transports and media objects are allocated under the proposal; a failure stops only what it allocated. |
+ * | commit | Final answer only: switch BUNDLE routing, ICE generation, DTLS parameters, SCTP binding and RTP/router, then publish the current descriptions and `stable`. Nothing fallible runs after the switch; asynchronous connect work starts afterwards. |
+ * | rollback | Stop provisional communication, drop pending candidates and resources, restore the baseline and publish `stable`. Rolling back a first negotiation resets the connection states to `new`. |
+ * | cleanup | Stop orphan proposal resources; a transport created during the transaction that no binding holds at commit stops. |
+ *
+ * Signaling transitions (JSEP 3.2; `have-remote-pranswer` also accepts a
+ * replacement local offer, which first rolls back the remote pranswer):
+ *
+ * | State | Local input | Remote input |
+ * | --- | --- | --- |
+ * | stable | offer → have-local-offer | offer → have-remote-offer |
+ * | have-local-offer | offer, rollback → stable | pranswer → have-remote-pranswer; answer → stable; offer → implicit rollback, have-remote-offer |
+ * | have-remote-offer | pranswer → have-local-pranswer; answer → stable | offer; rollback → stable |
+ * | have-local-pranswer | pranswer; answer → stable | rollback → stable; offer → implicit rollback, have-remote-offer |
+ * | have-remote-pranswer | rollback → stable; offer → have-local-offer | pranswer; answer → stable |
+ *
+ * What a pending proposal may change, per subsystem (K = final answer
+ * commit, R = rollback):
+ *
+ * - RTP / router: new routing keys at once, conflicting ones staged until K
+ *   (`RtpRouter`); codec and direction of current m-lines follow the
+ *   effective-value rules. R restores the baseline tables.
+ * - BUNDLE: current owners keep their transports; a changed topology gets
+ *   transports prepared for the proposal and switches at K (`BundleTopology`).
+ * - ICE: a restart is staged on the live transport, with a provisional
+ *   generation during a pranswer (`RTCIceTransport`); K switches, R drops it.
+ * - DTLS: the current session and role are kept; only a new association (a
+ *   BUNDLE split owner) handshakes during the proposal.
+ * - SCTP: the current association stays live; a new pending association may
+ *   run at a pranswer and closes on R. A port change or move of an
+ *   established association is rejected in validate.
+ * - Candidates / end-of-candidates: kept per generation (ufrag) and per
+ *   proposal; replacement and R drop the pending buckets
+ *   (`RemoteCandidates`).
+ *
+ * Which description each live value follows while pending (current,
+ * provisional at a pranswer, both, or reject) is tabulated and checked by
+ * `expectedLive` and `assertNegotiationInvariants` in
+ * tests/negotiation/harness/negotiationTransactionUtils.ts.
+ *
+ * Each component owns the snapshot of its reversible state and the rule for
+ * restoring it; this class only composes them. Add new negotiation state to
+ * its component's pair:
+ *
+ * | Component | Snapshot / restore | Kept across rollback |
+ * | --- | --- | --- |
+ * | `RTCRtpTransceiver` (with sender, receiver) | `snapshotNegotiationState` / `restoreNegotiationState` | an application `stop()` made during the transaction |
+ * | `RTCRtpReceiver` | `snapshotNegotiationState` / `restoreNegotiationState` | SSRCs learned from RID packets whose track survives |
+ * | `TransceiverManager` | `snapshotNegotiationState` / `restoreNegotiationState` | transceivers the application uses (`heldByApplication`) |
+ * | `RtpRouter` | `snapshotRoutes` / `restoreRoutes` | packet-learned SSRC routes, every live sender's route |
+ * | `SctpTransportManager` | `snapshotNegotiationState` / `restoreNegotiationState` | an application-created SCTP transport whose association never ran |
+ */
 export class NegotiationTransaction {
   private baseline?: Baseline;
   private offerSnapshot?: Baseline;
