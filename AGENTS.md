@@ -69,6 +69,8 @@ If a rule applies only to a specific package or subdirectory, put it in the near
 | run allowlisted upstream WPT | `npm run wpt`         |
 | measure WPT coverage         | `npm run wpt:coverage` |
 | format code                  | `npm run format`      |
+
+Package builds do not run the formatter; run `npm run format` explicitly before review.
 | regenerate docs              | `npm run doc`         |
 | memory leak test (webrtc, local only) | `cd packages/webrtc && npm run memleak` |
 
