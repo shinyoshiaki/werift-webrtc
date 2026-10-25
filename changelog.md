@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### 🐛 Bug Fixes
+
+- **`werift-common` `UdpTransport` always handles dgram socket `error` events** (`werift-common`, `werift-ice`): before this fix, a socket error with no listener (for example Bun's asynchronous `recvmsg ECONNREFUSED` after the remote peer closed) became an uncaught process exception.
+  - Runtime socket errors are logged and emitted on the new `UdpTransport.onError` (`Event<[Error]>`). The socket stays open. `StunProtocol` / `TurnProtocol` subscribe to it and log. `Transport.onError` is optional for custom transports.
+  - A bind failure (e.g. `EADDRINUSE`, including a synchronous `bind()` throw) or a `findPort()` failure now rejects `UdpTransport.init()` and closes the socket. Before, a bind failure caused an uncaught exception or `init()` waited forever.
+  - `close()` can be called more than once, including after an error or a failed bind.
+
 ## v0.25.2
 
 ### ⚠️ Breaking changes

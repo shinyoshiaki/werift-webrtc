@@ -281,6 +281,9 @@ export class TurnProtocol implements Protocol {
     this.transport.onData = (data, addr) => {
       this.dataReceived(data, addr);
     };
+    this.transport.onError?.subscribe((error) => {
+      log("transport error", error);
+    });
   }
 
   /**

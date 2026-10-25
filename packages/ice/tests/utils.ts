@@ -15,6 +15,7 @@ import {
 } from "../src/iceBase";
 import { classes, methods } from "../src/stun/const";
 import { Message, parseMessage } from "../src/stun/message";
+import { StunProtocol } from "../src/stun/protocol";
 import { splitTurnTcpFrames } from "../src/turn/frame";
 import type { StunOverTurnProtocol } from "../src/turn/protocol";
 import type { Protocol, TransactionRequestOptions } from "../src/types/model";
@@ -1236,4 +1237,11 @@ export function alternateServerValue(address: Address) {
   return new Message(methods.ALLOCATE, classes.ERROR)
     .setAttribute("ALTERNATE-SERVER", address)
     .bytes.subarray(24);
+}
+
+/** Arrange helper: a StunProtocol bound to a loopback UDP host transport. */
+export async function createLoopbackStunProtocol() {
+  const protocol = new StunProtocol();
+  await protocol.connectionMade(true, undefined, { udp4: "127.0.0.1" });
+  return protocol;
 }

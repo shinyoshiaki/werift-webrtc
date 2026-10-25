@@ -51,6 +51,9 @@ export class StunProtocol implements Protocol {
     this.transport.onData = (data, addr) => {
       this.datagramReceived(data, addr);
     };
+    this.transport.onError.subscribe((error) => {
+      log("transport error", error);
+    });
   };
 
   private datagramReceived(data: Buffer, addr: Address) {
