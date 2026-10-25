@@ -4,14 +4,68 @@ import { binaryData } from "../imports/common";
 import { NamedCurveAlgorithm, type NamedCurveAlgorithms } from "./const";
 import { p256PreMasterSecret } from "./ec";
 
-const x25519PrivateKeyPrefix = Buffer.from(
-  "302e020100300506032b656e04220420",
-  "hex",
-);
-const x25519PublicKeyPrefix = Buffer.from(
-  "302a300506032b656e032100",
-  "hex",
-);
+const x25519Oid = "1.3.101.110";
+const x25519RawKeyLength = 32;
+
+function encodeDer(tag: number, content: Buffer): Buffer {
+  if (content.length < 0x80) {
+    return Buffer.concat([Buffer.from([tag, content.length]), content]);
+  }
+
+  const length: number[] = [];
+  for (
+    let value = content.length;
+    value > 0;
+    value = Math.floor(value / 0x100)
+  ) {
+    length.unshift(value & 0xff);
+  }
+
+  return Buffer.concat([
+    Buffer.from([tag, 0x80 | length.length, ...length]),
+    content,
+  ]);
+}
+
+function encodeDerOid(oid: string): Buffer {
+  const arcs = oid.split(".").map(Number);
+  const bytes = [arcs[0] * 40 + arcs[1]];
+
+  for (const arc of arcs.slice(2)) {
+    const encoded = [arc & 0x7f];
+    for (
+      let value = Math.floor(arc / 0x80);
+      value > 0;
+      value = Math.floor(value / 0x80)
+    ) {
+      encoded.unshift((value & 0x7f) | 0x80);
+    }
+    bytes.push(...encoded);
+  }
+
+  return encodeDer(0x06, Buffer.from(bytes));
+}
+
+const x25519AlgorithmIdentifier = encodeDer(0x30, encodeDerOid(x25519Oid));
+const emptyX25519RawKey = Buffer.alloc(x25519RawKeyLength);
+const x25519PrivateKeyPrefix = encodeDer(
+  0x30,
+  Buffer.concat([
+    encodeDer(0x02, Buffer.from([0x00])),
+    x25519AlgorithmIdentifier,
+    encodeDer(0x04, encodeDer(0x04, emptyX25519RawKey)),
+  ]),
+).subarray(0, -x25519RawKeyLength);
+const x25519PublicKeyPrefix = encodeDer(
+  0x30,
+  Buffer.concat([
+    x25519AlgorithmIdentifier,
+    encodeDer(
+      0x03,
+      Buffer.concat([Buffer.from([0x00]), emptyX25519RawKey]),
+    ),
+  ]),
+).subarray(0, -x25519RawKeyLength);
 
 export function prfPreMasterSecret(
   publicKey: Buffer,
