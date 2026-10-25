@@ -60,6 +60,15 @@ readonly \[`string`, `number`\]
 
 ***
 
+### onError?
+
+> `optional` **onError**: [`Event`](../classes/Event.md)\<\[`Error`\]\>
+
+Runtime transport errors that do not close the transport. Optional so
+custom transports need not implement it; the built-in UDP transport does.
+
+***
+
 ### remoteAddress?
 
 > `optional` **remoteAddress**: readonly \[`string`, `number`\]

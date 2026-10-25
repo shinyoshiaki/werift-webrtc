@@ -46,6 +46,20 @@ readonly \[`string`, `number`\]
 
 ***
 
+### onError
+
+> `readonly` **onError**: [`Event`](Event.md)\<\[`Error`\]\>
+
+Runtime socket errors (e.g. an asynchronous ECONNREFUSED from an ICMP
+port unreachable). The socket stays open; bind errors reject init()
+instead of being emitted here.
+
+#### Implementation of
+
+[`Transport`](../interfaces/Transport.md).[`onError`](../interfaces/Transport.md#onerror)
+
+***
+
 ### rinfo?
 
 > `optional` **rinfo**: `Partial`\<`Pick`\<`RemoteInfo`, `"port"` \| `"address"`\>\>
