@@ -248,7 +248,7 @@
 
 [`NamedCurveAlgorithms`](../type-aliases/NamedCurveAlgorithms.md)
 
-necessary when use ecdsa
+kept for compatibility. ECDSA certificates always use P-256 (X25519 cannot sign).
 
 #### Returns
 

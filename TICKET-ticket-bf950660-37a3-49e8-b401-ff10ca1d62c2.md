@@ -53,6 +53,16 @@
   - 事前検証で、hook とこのフラグを使えば `rtp` の読み込みと `wpt:list` が動くことを確認した。
 - 開発環境に必要な Node は 22.18.0 以上（CI は 24.x）。ルートの `package.json` に `devEngines` を追加する。公開パッケージの `engines`（`>=22`）は変えない。
 
+### 2.6 `@peculiar/x509` は廃止し、`node:crypto` と `common` の DER エンコーダで証明書を作る（追加要件）
+
+- `@peculiar/x509` と、そのためだけに入れていた `reflect-metadata` を `packages/dtls` / `packages/webrtc` の依存から削除する。推移的に入っていた `tsyringe`・`@peculiar/asn1-*`・`pvtsutils` などもなくなる。
+- `CipherContext.createSelfSignedCertificateWithKey()`（`werift` の `createSelfSignedCertificate`）のシグネチャと戻り値（PEM の `certPem` / `keyPem`、`signatureHash`）は変えない。
+- 生成する証明書の内容も変えない: X.509 v3、拡張なし、issuer = subject = `C=AU, ST=Some-State, O=Internet Widgits Pty Ltd`、64 bit のランダムなシリアル番号（正の整数）、有効期間 10 年、ECDSA P-256 + SHA-256 または RSA 2048 bit（e=65537）+ SHA-256。`namedCurveAlgorithm` は従来どおり実質無視する（ECDSA は常に P-256）。
+- 鍵の生成と署名は `node:crypto`（`generateKeyPair`、`sign`。ECDSA 署名は DER 形式）で行う。
+- ASN.1 DER の符号化は `packages/common/src/asn1.ts` に置く。`Buffer` 以外に依存しないので、ブラウザでも読み込める（2.4 の制約を満たす）。`prf.ts` の X25519 用 PKCS#8 / SPKI プレフィックスもこのエンコーダで作る。
+- `asn1.ts` は `common` の `index.ts` から export しない。`common` は `werift-rtp` / `werift` からそのまま re-export されるので、export すると両方の公開 API が増えてしまう（5 章「それ以外の公開 API は変えない」に反する）。`packages/dtls/src/imports/common.ts` から直接読み込む。
+- X.509 の組み立て（`packages/dtls/src/context/certificate.ts`）は `node:crypto` を使うので `dtls` に置き、`common` には入れない。
+
 ## 3. 現状（2026-10-24 時点の作業ツリー）
 
 R1〜R6 はすべて実施済み。4 章は実装方針の記録として残す。
@@ -61,8 +71,8 @@ R1〜R6 はすべて実施済み。4 章は実装方針の記録として残す�
 
 ### 3.1 実施内容
 
-- **依存の削除**: `debug`、`tweetnacl`、`@noble/curves`、`@fidm/x509`、`ts-node`、`ts-node-dev`、`tsx`、`organize-imports-cli`。DTLS は `node:crypto`（`localPrivateKey: KeyObject`）。
-- **依存の更新**: `@peculiar/x509` 2.2 + `reflect-metadata`、`mediabunny` 1.62、TypeScript 6.0.3、Biome 2.6.2、Vitest 5.0.5、typedoc 0.28.20 / typedoc-plugin-markdown 4.14.1、knip 6、npm-run-all2 9、`@types/node` 22.20.x、`esbuild`（`packages/webrtc` に明示）。周辺の `package.json` / lockfile も更新済み。
+- **依存の削除**: `debug`、`tweetnacl`、`@noble/curves`、`@fidm/x509`、`@peculiar/x509`、`reflect-metadata`、`ts-node`、`ts-node-dev`、`tsx`、`organize-imports-cli`。DTLS は `node:crypto`（`localPrivateKey: KeyObject`）。
+- **依存の更新**: `mediabunny` 1.62、TypeScript 6.0.3、Biome 2.6.2、Vitest 5.0.5、typedoc 0.28.20 / typedoc-plugin-markdown 4.14.1、knip 6、npm-run-all2 9、`@types/node` 22.20.x、`esbuild`（`packages/webrtc` に明示）。周辺の `package.json` / lockfile も更新済み。
 - **R1**: `rtp` / `webrtc` の `"buffer": "^6.0.3"` と `import "buffer";` を維持。
 - **R2**: `common/src/log.ts` は `node:util` もトップレベルの `process` 参照も持たない。`tests/browserLog.test.ts` で `process` なし・`localStorage.debug`・`localStorage` 例外を検証。
 - **R3**: `packages/rtp/browser-e2e/`（Vitest browser + Playwright + `vite-plugin-node-polyfills`）。`setup/localStorageDebug.ts` で読み込み前に `localStorage.debug` を設定し、有効 / 無効 / `debug.enable()` を検証。`npm run test:browser --workspace packages/rtp` を CI に追加。`packages/rtp/vitest.config.mts` で Node 実行から `browser-e2e/**` を除外。
@@ -75,6 +85,8 @@ R1〜R6 はすべて実施済み。4 章は実装方針の記録として残す�
 - **R5**: changelog の `buffer` / `tsx` / `localStorage.debug` の記述を実態に合わせた。
 - **追加の互換修正**: `@fidm/x509` はインデント付き PEM を受け付けていたが `node:crypto` は拒否する（`examples/certificate/offer.ts` が接続できなくなっていた）。`werift-dtls` に `normalizePem()` を追加し、`CipherContext.parseX509` と `RTCCertificate` で使用。テスト `packages/dtls/tests/context/cipher.test.ts` を追加。changelog の `### Fixes` に記載。
 - **vendor の復元**: 過去の `fmt` コミット（ea7d720c）で `examples/e2e/vendor/*.js` が書き換わり、ブラウザページが `E is not a constructor` で動かなくなっていた。`develop` の内容に戻した（現在の Biome 設定では vendor は対象外）。vendor と生成 doc 内のコピーは `.gitattributes` で `-whitespace` に指定し、`git diff --check` の空白誤検出を避けた。
+- **`@peculiar/x509` の廃止（2.6）**: `packages/common/src/asn1.ts`（DER エンコーダ: TLV / SEQUENCE / SET（DER の並べ替えあり）/ EXPLICIT タグ / INTEGER / OID / BIT STRING / OCTET STRING / NULL / UTF8String / PrintableString / UTCTime・GeneralizedTime（2050 年で切り替え）/ PEM）を追加。`packages/dtls/src/context/certificate.ts` に `createSelfSignedCertificatePem()` と `encodeCertificateName()` を追加し、`CipherContext.createSelfSignedCertificateWithKey()` を `node:crypto` の `generateKeyPair` とこれらで書き直した。`prf.ts` の DER エンコーダは `common` のものに置き換えた。`packages/dtls/examples/{server,client}.ts` から `x509.cryptoProvider.set()` を削除。lockfile を更新（`npm install`。`import-test` が公開済みの `werift@0.25.2` に依存しているため、その推移的依存としての `@peculiar/*` は lockfile に残る）。changelog の `### Dependencies` を更新。`npm run doc` で再生成（公開 API の変化は `createSelfSignedCertificateWithKey` の `namedCurveAlgorithm` の説明文だけ。ほかに、整形の巻き戻し後に再生成されていなかった `doc/_media/examples/` の 27 ファイルもソースに合わせて更新された）。
+  - テスト: `packages/common/tests/asn1.test.ts`（既知の OID / INTEGER / 長さ表現 / SET の並び / 時刻の型切り替え / PrintableString / PEM）、`packages/dtls/tests/context/certificate.test.ts`（ECDSA と RSA の証明書を `node:crypto` の `X509Certificate` で読み、subject / issuer、自己署名の検証、秘密鍵との対応、有効期間 10 年、署名アルゴリズムの OID、`parseX509` での読み込み、最上位ビットが立ったシリアル番号、2050 年以降の時刻を確認）。鍵ペアの準備は `packages/dtls/tests/utils.ts` の `createCertificateKeyPair()` にまとめた。
 - **AGENTS.md**: ルートに `npm run test:node-ts` とサードパーティ TS ランナー禁止の方針を追記。
 - **整形の分離**: 各パッケージの `build` から `npm run format` を削除し、ビルドがソースを整形しないようにした。リポジトリ全体の整形はサブタスク `8c641f42-8660-4a45-882c-8caaa13a3f0a` に移し、このブランチの整形済みコードは整形前に戻した（195 files）。`packages/dtls/src/handshake/message/changeCipherSpec.ts` の `//@ts-ignore` は Biome が `//@ts-expect-error` に変えて TS2578 になるため、サブタスク側で修正する。
 
@@ -97,10 +109,15 @@ R1〜R6 はすべて実施済み。4 章は実装方針の記録として残す�
 | `examples/turn-loopback` の `server` | 起動ログを確認（20 秒で停止） |
 | mediasoup-interop `type` / `test:small` / `test:source-import` | 成功 |
 | mediasoup-interop `test:interop` | 27 件中 20 件成功。失敗 7 件はすべて `mediasoup-legacy`（3.19.2）で、このホスト（kernel 7）向けの prebuilt worker がなく、`pip` もないためビルドできない環境要因（`spawn ... mediasoup-worker ENOENT`）。`mediasoup` 3.26 のケースはすべて成功 |
+| `@peculiar/x509` 廃止後: `npm run type`、`npm run type:all`、`npm run build`、`npm run test:small`、`npm run doc` | すべて成功（dtls 42 passed / 1 skipped、common 56 passed） |
+| `@peculiar/x509` 廃止後: `npm run e2e` | 21 files / 63 tests 成功（Chrome との DTLS ハンドシェイクで新しい証明書を使用） |
+| `@peculiar/x509` 廃止後: `npm run wpt --workspace packages/webrtc` | 成功（REGRESSION 0。`RTCCertificate*` / `dtls-certificates` の FAIL は baseline どおり） |
+| `@peculiar/x509` 廃止後: 生成した ECDSA / RSA 証明書を `openssl x509 -text` と `openssl verify -check_ss_sig -x509_strict` で確認 | 成功（Version 3、`ecdsa-with-SHA256` / `sha256WithRSAEncryption`、有効期間 10 年、strict 検証 OK） |
 | `git diff --check develop...HEAD` | 成功（vendor は属性で除外） |
 | fresh clone + `git submodule update --init integration/werift-mediasoup-interop` | 成功（親 gitlink の `63bc5d51` をチェックアウト） |
 | `npm audit --prefix examples --omit=dev` | 3 件（high 3）。`npm audit fix` で 9 件から 6 件を解消。残りは `ring-client-api@14.3.0` → `werift@0.22.4` → `ip@2.0.1` の既存 upstream 依存 |
 
+- 未確認: `packages/dtls` の `npm run server` / `npm run client`（手動の UDP サンプル）は接続まで確認できていない。`examples/server.ts` がポート 4444 に bind した socket を使わず、`UdpTransport.init("udp4")` で別のランダムなポートを `DtlsServer` に渡しているためで、`@peculiar/x509` の廃止とは関係のない既存のサンプルの不具合（コードから判断、別チケット候補）。証明書生成を含む DTLS の接続は `packages/dtls/tests/e2e`、`npm run e2e` で確認した。
 - 環境メモ: ホスト共有の `~/.cache/ms-playwright` が別プロセスにより実行中に削除されるため、Playwright 系は `PLAYWRIGHT_BROWSERS_PATH=/tmp/pw-browsers` で実行した。
 - 環境メモ: コンテナに ssh がないため、submodule の push は `gh` の HTTPS 認証で行った。fresh clone 検証では `git@github.com:` を `https://github.com/` に読み替えた。`third_party/wpt` は巨大なため fresh clone の対象から外した（gitlink は `develop` から変更なし）。
 - `npm audit` の残りは今回の更新前から存在する upstream の推移的依存（`ring-client-api` が固定する公開済み `werift` の `ip`）で、`ip` 側に修正版がない。`--force` は `ring-client-api` の大幅なダウングレードになるため適用せず、ring-client-api 側の更新待ちとして記録する。
@@ -119,6 +136,7 @@ R1〜R6 はすべて実施済み。4 章は実装方針の記録として残す�
 ## 6. 完了条件
 
 - [x] `debug`、`tweetnacl`、`@noble/curves`、`@fidm/x509`、`ts-node`、`ts-node-dev`、`organize-imports-cli` が依存から削除されている。
+- [x] `@peculiar/x509` と `reflect-metadata` が依存から削除され、自己署名証明書の生成が `node:crypto` と `packages/common/src/asn1.ts`（非公開）で動く。証明書の内容と `createSelfSignedCertificateWithKey()` の API は変わらず、`werift` / `werift-rtp` の公開 API も増えていない（2.6）。
 - [x] `CipherContext.localPrivateKey` が `KeyObject` になり、DTLS の鍵交換・署名が `node:crypto` で動く。
 - [x] 3.1 の依存更新が反映され、changelog に `## Unreleased` がある。
 - [x] R1: `buffer` の依存と `import "buffer";` が `rtp` / `webrtc` に戻っている。

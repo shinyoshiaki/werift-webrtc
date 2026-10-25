@@ -1,6 +1,6 @@
+import { createSocket } from "dgram";
 import axios from "axios";
 import cors from "cors";
-import { createSocket } from "dgram";
 import express from "express";
 import yargs from "yargs";
 import { hideBin } from "yargs/helpers";

@@ -1,8 +1,8 @@
 import { WebSocketServer } from "ws";
 import {
   RTCPeerConnection,
-  useVP9,
   Vp9RtpPayload,
+  useVP9,
 } from "../../../packages/webrtc/src";
 
 const server = new WebSocketServer({ port: 8888 });

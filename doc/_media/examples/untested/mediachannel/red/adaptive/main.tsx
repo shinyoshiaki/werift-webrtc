@@ -7,7 +7,7 @@ import { Red } from "../../../../../packages/rtp/src";
 import { getAudioStream, uint32Add } from "./util";
 
 const peer = new RTCPeerConnection({
-  //@ts-expect-error
+  //@ts-ignore
   encodedInsertableStreams: true,
   iceServers: [],
 });

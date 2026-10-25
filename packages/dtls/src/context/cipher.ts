@@ -1,18 +1,15 @@
 import {
   createPrivateKey,
   createSign,
+  generateKeyPair,
   type KeyObject,
-  randomBytes,
-  webcrypto,
   X509Certificate,
 } from "node:crypto";
-import "reflect-metadata";
-import * as x509 from "@peculiar/x509";
+import { promisify } from "node:util";
 import {
   type CipherSuites,
   CurveType,
   HashAlgorithm,
-  NamedCurveAlgorithm,
   type NamedCurveAlgorithms,
   SignatureAlgorithm,
   type SignatureHash,
@@ -24,11 +21,11 @@ import type AEADCipher from "../cipher/suites/aead";
 import type { DtlsRandom } from "../handshake/random";
 import { binaryData } from "../imports/common";
 import type { DtlsPlaintext } from "../record/message/plaintext";
+import { createSelfSignedCertificatePem } from "./certificate";
 
 const { encode, types } = binaryData;
 
-const crypto = webcrypto;
-x509.cryptoProvider.set(crypto as any);
+const generateKeyPairAsync = promisify(generateKeyPair);
 
 export class CipherContext {
   localRandom!: DtlsRandom;
@@ -58,75 +55,52 @@ export class CipherContext {
   /**
    *
    * @param signatureHash
-   * @param namedCurveAlgorithm necessary when use ecdsa
+   * @param namedCurveAlgorithm kept for compatibility. ECDSA certificates always use P-256 (X25519 cannot sign).
    */
   static createSelfSignedCertificateWithKey = async (
     signatureHash: SignatureHash,
     namedCurveAlgorithm?: NamedCurveAlgorithms,
   ) => {
-    const signatureAlgorithmName = (() => {
+    if (signatureHash.hash !== HashAlgorithm.sha256_4) {
+      throw new Error(`unsupported hash algorithm: ${signatureHash.hash}`);
+    }
+
+    const { publicKey, privateKey } = await (() => {
       switch (signatureHash.signature) {
         case SignatureAlgorithm.rsa_1:
-          return "RSASSA-PKCS1-v1_5";
-        case SignatureAlgorithm.ecdsa_3:
-          return "ECDSA";
-      }
-    })();
-    const hash = (() => {
-      switch (signatureHash.hash) {
-        case HashAlgorithm.sha256_4:
-          return "SHA-256";
-      }
-    })();
-    const namedCurve = (() => {
-      switch (namedCurveAlgorithm) {
-        case NamedCurveAlgorithm.secp256r1_23:
-          return "P-256";
-        case NamedCurveAlgorithm.x25519_29:
-          // todo fix (X25519 not supported with ECDSA)
-          if (signatureAlgorithmName === "ECDSA") {
-            return "P-256";
-          }
-          return "X25519";
-        default: {
-          if (signatureAlgorithmName === "ECDSA") return "P-256";
-          if (signatureAlgorithmName === "RSASSA-PKCS1-v1_5") return "X25519";
-        }
-      }
-    })();
-    const alg = (() => {
-      switch (signatureAlgorithmName) {
-        case "ECDSA":
-          return { name: signatureAlgorithmName, hash, namedCurve };
-        case "RSASSA-PKCS1-v1_5":
-          return {
-            name: signatureAlgorithmName,
-            hash,
-            publicExponent: new Uint8Array([1, 0, 1]),
+          return generateKeyPairAsync("rsa", {
             modulusLength: 2048,
-          };
+            publicExponent: 0x10001,
+          });
+        case SignatureAlgorithm.ecdsa_3:
+          return generateKeyPairAsync("ec", { namedCurve: "P-256" });
+        default:
+          throw new Error(
+            `unsupported signature algorithm: ${signatureHash.signature}`,
+          );
       }
     })();
 
-    const keys = (await crypto.subtle.generateKey(alg, true, [
-      "sign",
-      "verify",
-    ])) as webcrypto.CryptoKeyPair;
-
-    const cert = await x509.X509CertificateGenerator.createSelfSigned({
-      serialNumber: randomBytes(8).toString("hex"),
-      name: "C=AU, ST=Some-State, O=Internet Widgits Pty Ltd",
-      notBefore: new Date(),
-      notAfter: new Date(Date.now() + 10 * 365 * 24 * 60 * 60 * 1000),
-      signingAlgorithm: alg,
-      keys,
+    const notBefore = new Date();
+    const certPem = createSelfSignedCertificatePem({
+      publicKey,
+      privateKey,
+      signatureAlgorithm:
+        signatureHash.signature === SignatureAlgorithm.ecdsa_3
+          ? "ecdsa-sha256"
+          : "rsa-sha256",
+      name: [
+        ["C", "AU"],
+        ["ST", "Some-State"],
+        ["O", "Internet Widgits Pty Ltd"],
+      ],
+      notBefore,
+      notAfter: new Date(notBefore.getTime() + 10 * 365 * 24 * 60 * 60 * 1000),
     });
-
-    const certPem = cert.toString("pem");
-    const keyPem = x509.PemConverter.encode(
-      await crypto.subtle.exportKey("pkcs8", keys.privateKey as any),
-      "private key",
-    );
+    const keyPem = privateKey.export({
+      type: "pkcs8",
+      format: "pem",
+    }) as string;
 
     return { certPem, keyPem, signatureHash };
   };

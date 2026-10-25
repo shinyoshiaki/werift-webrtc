@@ -29,8 +29,7 @@ const vendorRoutes: Array<{ pattern: RegExp; file: string }> = [
     file: "react-dom.18.development.js",
   },
   {
-    pattern:
-      /cdnjs\.cloudflare\.com\/ajax\/libs\/babel-core\/5\.8\.34\/browser\.min\.js/,
+    pattern: /cdnjs\.cloudflare\.com\/ajax\/libs\/babel-core\/5\.8\.34\/browser\.min\.js/,
     file: "babel-core.5.8.34.browser.min.js",
   },
   {
@@ -38,8 +37,7 @@ const vendorRoutes: Array<{ pattern: RegExp; file: string }> = [
     file: "babel.standalone.min.js",
   },
   {
-    pattern:
-      /cdn\.jsdelivr\.net\/npm\/babel-regenerator-runtime@6\.5\.0\/runtime\.min\.js/,
+    pattern: /cdn\.jsdelivr\.net\/npm\/babel-regenerator-runtime@6\.5\.0\/runtime\.min\.js/,
     file: "babel-regenerator-runtime.6.5.0.min.js",
   },
   {
@@ -218,7 +216,10 @@ export async function closePage(page: Page, context: BrowserContext) {
   await context.close().catch(() => undefined);
 }
 
-export async function attachFixtureFile(page: Page, kind: "webm" | "mp4") {
+export async function attachFixtureFile(
+  page: Page,
+  kind: "webm" | "mp4",
+) {
   const input = page.locator('input[type="file"]').first();
   await input.waitFor({ state: "attached", timeout: 30_000 });
   await input.setInputFiles(kind === "mp4" ? fixtureMp4 : fixtureWebm);

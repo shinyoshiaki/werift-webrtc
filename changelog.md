@@ -14,7 +14,8 @@
 ### Dependencies
 
 - Removed `debug`, `tweetnacl`, `@noble/curves`, and `@fidm/x509`; logger behavior now lives in `werift-common`, and X25519, P-256, certificate parsing, and signing use `node:crypto`.
-- Updated `@peculiar/x509` to 2.2.x and `mediabunny` to 1.62.x. Added a direct `reflect-metadata` runtime dependency because `tsyringe`, used by `@peculiar/x509`, still requires its polyfill after x509 v2 removed it as a transitive dependency.
+- Removed `@peculiar/x509` (and with it `reflect-metadata`, `tsyringe`, and the `@peculiar/asn1-*` packages). `CipherContext.createSelfSignedCertificateWithKey()` / `createSelfSignedCertificate()` now generate keys with `node:crypto` and build the X.509 v3 certificate with a small internal DER encoder in `werift-common` (`src/asn1.ts`, not part of the public exports). The certificate contents are unchanged: same subject / issuer, random 64-bit serial, 10-year validity, ECDSA P-256 or RSA 2048 with SHA-256, no extensions.
+- Updated `mediabunny` to 1.62.x.
 - Updated the TypeScript, Biome, Vitest, TypeDoc, Knip, npm-run-all2, Playwright, Vite, React, and example dependencies. TypeScript remains on 6.0.x because TypeDoc 0.28 does not support TypeScript 7; `@types/node` remains on 22.x to match the supported Node runtime.
 - Removed `ts-node`, `ts-node-dev`, and `tsx`. Repository scripts now run TypeScript with Node.js itself (`--experimental-transform-types` plus the `tools/node-ts/register.mjs` resolve hook for extensionless imports); local development requires Node.js 22.18.0 or later (`devEngines`). Published package `engines` are unchanged.
 - Removed `organize-imports-cli` unused-import scripts in favor of Biome 2.
