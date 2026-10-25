@@ -65,5 +65,8 @@ test(`https://github.com/shinyoshiaki/werift-webrtc/issues/142`, async () => {
 
   await pc.setRemoteDescription({ type: "answer", sdp: answer });
   expect(pc.sctpRemotePort).toBe(5000);
+  // The server's own MIDs (0_srtp, ...) answer the offered m-lines by position.
+  expect(pc.getTransceivers().map((t) => t.mid)).toEqual(["0", "1"]);
+  expect(pc.signalingState).toBe("stable");
   await pc.close();
 });

@@ -1,4 +1,4 @@
-import { decode, encode, types } from "@shinyoshiaki/binary-data";
+import { binaryData } from "../../../imports/common";
 
 import type {
   HashAlgorithms,
@@ -12,6 +12,8 @@ import {
   SignatureHashAlgorithm,
 } from "../../binary";
 import { HandshakeType } from "../../const";
+
+const { decode, encode, types } = binaryData;
 
 // 7.4.4.  Certificate Request
 
@@ -49,8 +51,7 @@ export class ServerCertificateRequest implements Handshake {
   }
 
   serialize() {
-    const res = encode(this, ServerCertificateRequest.spec).slice();
-    return Buffer.from(res);
+    return encode(this, ServerCertificateRequest.spec);
   }
 
   toFragment() {

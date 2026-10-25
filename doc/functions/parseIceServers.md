@@ -32,7 +32,7 @@
 
 ### turnTransport?
 
-> `optional` **turnTransport**: `"tcp"` \| `"tls"` \| `"udp"`
+> `optional` **turnTransport**: `"udp"` \| `"tcp"` \| `"tls"`
 
 ### turnUsername?
 

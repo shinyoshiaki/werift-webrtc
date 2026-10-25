@@ -20,6 +20,14 @@
 
 ***
 
+### gathersFromServers?
+
+> `readonly` `optional` **gathersFromServers**: `boolean`
+
+Whether gathering contacts a STUN or TURN server.
+
+***
+
 ### generation
 
 > **generation**: `number`
@@ -92,6 +100,12 @@
 
 ***
 
+### provisionalNominated?
+
+> `readonly` `optional` **provisionalNominated**: [`CandidatePair`](../classes/CandidatePair.md)
+
+***
+
 ### remoteCandidates
 
 > **remoteCandidates**: [`Candidate`](../classes/Candidate.md)[]
@@ -146,6 +160,22 @@
 
 ## Methods
 
+### addProvisionalRemoteCandidate()?
+
+> `optional` **addProvisionalRemoteCandidate**(`candidate`): `Promise`\<`void`\>
+
+#### Parameters
+
+##### candidate
+
+`undefined` | [`Candidate`](../classes/Candidate.md)
+
+#### Returns
+
+`Promise`\<`void`\>
+
+***
+
 ### addRemoteCandidate()
 
 > **addRemoteCandidate**(`remoteCandidate`): `Promise`\<`void`\>
@@ -172,6 +202,26 @@
 
 ***
 
+### commitLocalCredentials()?
+
+> `optional` **commitLocalCredentials**(`usernameFragment`, `password`): `void`
+
+#### Parameters
+
+##### usernameFragment
+
+`string`
+
+##### password
+
+`string`
+
+#### Returns
+
+`void`
+
+***
+
 ### connect()
 
 > **connect**(): `Promise`\<`void`\>
@@ -182,9 +232,47 @@
 
 ***
 
+### discardStagedLocalCredentials()?
+
+> `optional` **discardStagedLocalCredentials**(`usernameFragment`): `void`
+
+#### Parameters
+
+##### usernameFragment
+
+`string`
+
+#### Returns
+
+`void`
+
+***
+
+### dropOtherRemoteGenerations()?
+
+> `optional` **dropOtherRemoteGenerations**(`usernameFragment`): `void`
+
+Drop remote candidates and pairs that name another remote ufrag.
+
+#### Parameters
+
+##### usernameFragment
+
+`string`
+
+#### Returns
+
+`void`
+
+***
+
 ### gatherCandidates()
 
 > **gatherCandidates**(): `Promise`\<`void`\>
+
+Gather the current generation's candidates. After an ICE restart the
+candidates the kept sockets advertised are re-advertised synchronously;
+only server work (STUN, TURN) is awaited.
 
 #### Returns
 
@@ -215,6 +303,20 @@
 ### restart()
 
 > **restart**(): `void`
+
+#### Returns
+
+`void`
+
+***
+
+### restartRemote()?
+
+> `optional` **restartRemote**(): `void`
+
+The remote side alone restarted (new remote credentials in an answer):
+drop the remote generation and its checks, keep the local credentials
+and gathered candidates.
 
 #### Returns
 
@@ -254,6 +356,28 @@
 
 ***
 
+### setProvisionalRemoteParams()?
+
+> `optional` **setProvisionalRemoteParams**(`params`): `void`
+
+#### Parameters
+
+##### params
+
+###### password
+
+`string`
+
+###### usernameFragment
+
+`string`
+
+#### Returns
+
+`void`
+
+***
+
 ### setRemoteParams()
 
 > **setRemoteParams**(`params`): `void`
@@ -273,6 +397,40 @@
 ###### usernameFragment
 
 `string`
+
+#### Returns
+
+`void`
+
+***
+
+### stageLocalCredentials()?
+
+> `optional` **stageLocalCredentials**(`usernameFragment`, `password`): `void`
+
+Optional staged-restart and provisional-generation support. An
+implementation without them still restarts ICE at the final answer, but
+cannot answer or run checks for the new generation during pranswer.
+
+#### Parameters
+
+##### usernameFragment
+
+`string`
+
+##### password
+
+`string`
+
+#### Returns
+
+`void`
+
+***
+
+### startProvisionalChecks()?
+
+> `optional` **startProvisionalChecks**(): `void`
 
 #### Returns
 

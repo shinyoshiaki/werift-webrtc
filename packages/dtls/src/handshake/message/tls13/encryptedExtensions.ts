@@ -1,9 +1,10 @@
-import { decode, encode, types } from "@shinyoshiaki/binary-data";
-
+import { binaryData } from "../../../imports/common";
 import { FragmentedHandshake } from "../../../record/message/fragment";
 import type { Extension, Handshake } from "../../../typings/domain";
 import { ExtensionList } from "../../binary";
 import { HandshakeType } from "../../const";
+
+const { decode, encode } = binaryData;
 
 // HandshakeType.encrypted_extensions = 8 (TLS 1.3)
 
@@ -29,7 +30,7 @@ export class EncryptedExtensions implements Handshake {
   }
 
   serialize() {
-    return Buffer.from(encode(this, EncryptedExtensions.spec).slice());
+    return encode(this, EncryptedExtensions.spec);
   }
 
   toFragment() {

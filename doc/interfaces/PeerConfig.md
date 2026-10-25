@@ -137,7 +137,7 @@ Gather passive (listening) TCP host candidates. Defaults to true.
 
 ### iceTransportPolicy
 
-> **iceTransportPolicy**: `"relay"` \| `"all"`
+> **iceTransportPolicy**: `"all"` \| `"relay"`
 
 ***
 
@@ -251,7 +251,7 @@ Cannot be combined with `dtls.helloRetryRequest: true`
 
 ### turnTransport
 
-> **turnTransport**: `undefined` \| `"tcp"` \| `"tls"` \| `"udp"`
+> **turnTransport**: `undefined` \| `"udp"` \| `"tcp"` \| `"tls"`
 
 ***
 

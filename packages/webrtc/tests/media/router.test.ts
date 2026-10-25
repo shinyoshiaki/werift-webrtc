@@ -58,4 +58,32 @@ describe("media/router", () => {
       });
       router.routeRtp(packet);
     }));
+
+  test("SDP registration clears the learned mark of an SSRC", () => {
+    // Arrange: packet から学習した扱いの SSRC を router と receiver に置く。
+    const router = new RtpRouter();
+    const transceiver = new RTCRtpTransceiver(
+      "video",
+      createDtlsTransport(),
+      new RTCRtpReceiver(defaultPeerConfig, "video", 0),
+      new RTCRtpSender("video"),
+      "recvonly",
+    );
+    const ssrc = 1111;
+    router.learnedSsrcs.add(ssrc);
+    transceiver.receiver.learnedTrackSsrcs.add(ssrc);
+
+    // Act: description が同じ SSRC を登録する。
+    router.registerRtpReceiverBySsrc(transceiver, {
+      encodings: [new RTCRtpCodingParameters({ ssrc, payloadType: 96 })],
+      codecs: [],
+      headerExtensions: [],
+    });
+
+    // Assert: route と track 対応は description 由来になり、学習済みの印が外れる。
+    expect(router.ssrcTable[ssrc]).toBe(transceiver.receiver);
+    expect(transceiver.receiver.trackBySSRC[ssrc]?.ssrc).toBe(ssrc);
+    expect(router.learnedSsrcs.has(ssrc)).toBe(false);
+    expect(transceiver.receiver.learnedTrackSsrcs.has(ssrc)).toBe(false);
+  });
 });

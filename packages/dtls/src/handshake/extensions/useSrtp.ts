@@ -1,6 +1,8 @@
-import { decode, encode, types } from "@shinyoshiaki/binary-data";
+import { binaryData } from "../../imports/common";
 
 import type { Extension } from "../../typings/domain";
+
+const { decode, encode, types } = binaryData;
 
 /**
  * use_srtp extension (RFC 5764).
@@ -91,8 +93,7 @@ export class UseSRTP {
       this.mki,
     ]);
     this.data = data;
-    const res = encode(this, UseSRTP.spec).slice();
-    return Buffer.from(res);
+    return encode(this, UseSRTP.spec);
   }
 
   static fromData(buf: Buffer) {

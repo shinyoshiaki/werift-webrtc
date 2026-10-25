@@ -4,6 +4,7 @@ import path from "path";
 import { PassThrough } from "stream";
 
 import { OverconstrainedError } from "../../src/errors";
+import { RtpPacket, Vp8RtpPayload } from "../../src/imports/rtp";
 import { MediaStreamTrack } from "../../src/media/track";
 import {
   type InstallPolyfillOptions,
@@ -139,6 +140,17 @@ export async function withUdpSocketCounter<T>(
   } finally {
     setUdpSocketFactory();
   }
+}
+
+/** Decode serialized RTP packets (from {@link waitForRtp}) as VP8 payloads. */
+export function parseVp8Rtp(serialized: Buffer[]) {
+  return serialized.map((buf) => {
+    const rtp = RtpPacket.deSerialize(buf);
+    return {
+      firstByte: rtp.payload[0],
+      vp8: Vp8RtpPayload.deSerialize(rtp.payload),
+    };
+  });
 }
 
 export async function waitForRtp(

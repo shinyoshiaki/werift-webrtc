@@ -34,7 +34,7 @@
 
 ### iceTransportPolicy?
 
-> `optional` **iceTransportPolicy**: `"relay"` \| `"all"`
+> `optional` **iceTransportPolicy**: `"all"` \| `"relay"`
 
 ***
 

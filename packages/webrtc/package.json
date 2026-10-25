@@ -1,6 +1,6 @@
 {
   "name": "werift",
-  "version": "0.25.0",
+  "version": "0.25.2",
   "description": "WebRTC Implementation for TypeScript (Node.js)",
   "keywords": [
     "WebRTC",
@@ -55,6 +55,7 @@
     "test": "vitest run ./tests",
     "test:pion-ice-agent": "WERIFT_PION_ICE_AGENT_REQUIRED=1 vitest run ./tests/integrate/sped-pion-ice.test.ts",
     "memleak": "vitest run --config ./tests/memleak/memleak.vitest.config.mts",
+    "pbt:deep": "tsx --tsconfig ./tsconfig.json tools/pbt-deep/run.ts",
     "type": "tsc --noEmit --project ./tsconfig.json",
     "unused": "organize-imports-cli src/**/*.ts",
     "upgrade-interactive": "npx npm-check-updates -i",
@@ -66,7 +67,6 @@
     "@fidm/x509": "^1.2.1",
     "@noble/curves": "^1.8.1",
     "@peculiar/x509": "^1.12.3",
-    "@shinyoshiaki/binary-data": "^0.6.1",
     "buffer": "^6.0.3",
     "debug": "4.4.0",
     "mediabunny": "^1.45.2",

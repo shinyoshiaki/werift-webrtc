@@ -48,7 +48,7 @@ Maximum time to wait for TCP/TLS connection establishment, in milliseconds.
 
 ### transport?
 
-> `optional` **transport**: `"tcp"` \| `"tls"` \| `"udp"`
+> `optional` **transport**: `"udp"` \| `"tcp"` \| `"tls"`
 
 ***
 

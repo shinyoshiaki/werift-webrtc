@@ -1,7 +1,5 @@
-import { decode, types } from "@shinyoshiaki/binary-data";
-
 import { setTimeout } from "timers/promises";
-import { Event, EventDisposer, debug } from "./imports/common";
+import { Event, EventDisposer, binaryData, debug } from "./imports/common";
 import type { Address, Transport } from "./imports/common";
 
 import {
@@ -46,6 +44,8 @@ import {
 } from "./peer";
 
 export type { PeerIdentityMode } from "./peer";
+
+const { decode, types } = binaryData;
 
 const log = debug("werift-dtls : packages/dtls/src/socket.ts : log");
 const err = debug("werift-dtls : packages/dtls/src/socket.ts : err");

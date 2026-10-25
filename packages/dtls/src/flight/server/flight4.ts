@@ -7,10 +7,12 @@ import { ExtendedMasterSecret } from "../../handshake/extensions/extendedMasterS
 import { RenegotiationIndication } from "../../handshake/extensions/renegotiationIndication";
 import { UseSRTP } from "../../handshake/extensions/useSrtp";
 import { Certificate } from "../../handshake/message/certificate";
+import type { ClientHello } from "../../handshake/message/client/hello";
 import { ServerCertificateRequest } from "../../handshake/message/server/certificateRequest";
 import { ServerHello } from "../../handshake/message/server/hello";
 import { ServerHelloDone } from "../../handshake/message/server/helloDone";
 import { ServerKeyExchange } from "../../handshake/message/server/keyExchange";
+import { DtlsRandom } from "../../handshake/random";
 import { debug } from "../../imports/common";
 import type { FragmentedHandshake } from "../../record/message/fragment";
 import type { Extension } from "../../typings/domain";
@@ -34,7 +36,8 @@ export class Flight4 extends Flight {
   }
 
   async exec(
-    clientHello: FragmentedHandshake,
+    handshake: FragmentedHandshake,
+    clientHello: ClientHello,
     certificateRequest: boolean = false,
   ) {
     if (this.dtls.flight === 4) {
@@ -42,11 +45,16 @@ export class Flight4 extends Flight {
       this.send(this.dtls.lastMessage);
       return;
     }
+    // The cookie-authenticated ClientHello is the one the handshake proceeds
+    // with, so its random must be used as client_random for the
+    // ServerKeyExchange signature and key derivation. Some peers send a
+    // different random than in the initial cookie-less ClientHello.
+    this.cipher.remoteRandom = DtlsRandom.from(clientHello.random);
     this.dtls.flight = 4;
     // ServerHello message_seq corresponds to the final cookie-validated
     // ClientHello (CH1=0 → HVR=0; CH2=1 → SH=1; re-challenge CH3=2 → SH=2).
-    this.dtls.sequenceNumber = clientHello.message_seq;
-    this.dtls.bufferHandshakeCache([clientHello], false, 4);
+    this.dtls.sequenceNumber = handshake.message_seq;
+    this.dtls.bufferHandshakeCache([handshake], false, 4);
 
     const messages = [
       this.sendServerHello(),

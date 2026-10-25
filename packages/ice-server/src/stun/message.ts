@@ -105,11 +105,14 @@ export function parseMessage(
 
   const attributeRepository = new AttributeRepository();
   const wireAttributes: WireAttribute[] = [];
+  const alternateServers: unknown[] = [];
   // When integrityKey is provided, MESSAGE-INTEGRITY must be present and valid
   // (RFC 5389 short-term credentials / RFC 7675 authenticated consent responses).
   // Attributes after MESSAGE-INTEGRITY are not HMAC-covered (FINGERPRINT may
   // follow); SPED DATA/ACK in that region must not be published.
   let messageIntegrityVerified = false;
+  let sawIntegrity = false;
+  let sawIntegritySha256 = false;
 
   for (let pos = HEADER_LENGTH; pos < data.length; ) {
     if (pos + 4 > data.length) {
@@ -131,21 +134,24 @@ export function parseMessage(
       return undefined;
     }
 
-    const attribute = ATTRIBUTES_BY_TYPE[attrType];
-    // RFC 8489 §9: ignore every attribute after MESSAGE-INTEGRITY except
-    // MESSAGE-INTEGRITY-SHA256 and FINGERPRINT. Do not unpack ignored
-    // attributes; a malformed trailing attribute must not fail the message.
-    if (integrityKey && messageIntegrityVerified) {
-      const attrName = attribute?.[1];
-      if (
-        attrName !== "FINGERPRINT" &&
-        attrName !== "MESSAGE-INTEGRITY-SHA256"
-      ) {
-        pos = valueEnd + padLen;
-        continue;
-      }
+    // RFC 8489 §14.5/§14.6: attributes after MESSAGE-INTEGRITY are not covered
+    // by the HMAC and must be ignored, except MESSAGE-INTEGRITY-SHA256 and
+    // FINGERPRINT (after MESSAGE-INTEGRITY-SHA256 only FINGERPRINT).
+    const attrNameOnWire = ATTRIBUTES_BY_TYPE[attrType]?.[1];
+    if (
+      (sawIntegritySha256 && attrNameOnWire !== "FINGERPRINT") ||
+      (sawIntegrity &&
+        attrNameOnWire !== "FINGERPRINT" &&
+        attrNameOnWire !== "MESSAGE-INTEGRITY-SHA256")
+    ) {
+      pos = valueEnd + padLen;
+      continue;
     }
+    if (attrNameOnWire === "MESSAGE-INTEGRITY") sawIntegrity = true;
+    if (attrNameOnWire === "MESSAGE-INTEGRITY-SHA256")
+      sawIntegritySha256 = true;
 
+    const attribute = ATTRIBUTES_BY_TYPE[attrType];
     if (attribute) {
       const [, attrName, , attrUnpack] = attribute;
       let value: unknown;
@@ -163,6 +169,11 @@ export function parseMessage(
         name: attrName as AttributeKey,
         value,
       });
+      if (attrName === "ALTERNATE-SERVER") {
+        // Repeatable (RFC 8489 §14.15, e.g. one per address family); the
+        // repository only keeps the last one.
+        alternateServers.push(value);
+      }
 
       if (attrName === "FINGERPRINT") {
         const fingerprint = messageFingerprint(data.slice(0, pos));
@@ -197,6 +208,8 @@ export function parseMessage(
     messageType & 0x0110,
     transactionId,
     attributeRepository.getAttributes(),
+    [],
+    alternateServers as [string, number][],
   );
   setMessageWireAttributes(message, wireAttributes);
   bindRawAttributesFromWire(message);
@@ -210,6 +223,8 @@ export class Message extends AttributeRepository {
     public transactionId: Buffer = randomBytes(12),
     attributes: AttributePair[] = [],
     rawAttributes: RawAttribute[] = [],
+    /** Every ALTERNATE-SERVER attribute, in wire order. */
+    public alternateServers: [string, number][] = [],
   ) {
     super(attributes);
     setRawAttributeList(this, rawAttributes);
