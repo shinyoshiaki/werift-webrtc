@@ -67,7 +67,7 @@ heap の増え方を見る統計的な方法は CI で不安定なので、**「
   });
 </script>
 
-P1 / P2 / P3 の関係と CI での実行条件は [NEGOTIATION_TRANSACTION.md](review-file:packages/webrtc/NEGOTIATION_TRANSACTION.md:858) の「Leak property」にあります。公開 STUN の代わりにテストプロセス内の STUN サーバーを使うため、判定はネットワークに左右されません。
+P1 / P2 / P3 の関係と CI での実行条件は [negotiationLeakProperty.test.ts](review-file:packages/webrtc/tests/pbt/leak/negotiationLeakProperty.test.ts:24) の冒頭コメントにあります（`NEGOTIATION_*.md` は削除し、コードコメントを正としました）。公開 STUN の代わりにテストプロセス内の STUN サーバーを使うため、判定はネットワークに左右されません。
 
 ## 3. 見つかったリークと修正
 

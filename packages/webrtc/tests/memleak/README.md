@@ -43,7 +43,7 @@ npm run memleak
 
 各シナリオは N サイクル繰り返し、サイクルごとに新規 `RTCPeerConnection` を作成します（`renegotiation` だけは同じ session を使い続け、session 内の状態の増加を見ます）。
 
-交渉の経路のリークは、決定的な判定の leak property（`tests/pbt/leak/`、`npm test` に含まれる）が close 後の保持・OS リソース・session 内の構造的な増加として検出します。本試験の `renegotiation` はその補助で、heap の傾きとスナップショットで見ます（詳細は `NEGOTIATION_TRANSACTION.md` の "Leak property"）。
+交渉の経路のリークは、決定的な判定の leak property（`tests/pbt/leak/`、`npm test` に含まれる）が close 後の保持・OS リソース・session 内の構造的な増加として検出します。本試験の `renegotiation` はその補助で、heap の傾きとスナップショットで見ます（詳細は `tests/pbt/leak/negotiationLeakProperty.test.ts` の冒頭コメント）。
 
 ### 時間加速
 

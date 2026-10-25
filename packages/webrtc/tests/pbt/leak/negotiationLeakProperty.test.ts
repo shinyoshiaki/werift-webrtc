@@ -48,6 +48,26 @@ import { CLOSED_SCENES, LEAK_CYCLES } from "./scenes";
  * `WERIFT_NEGOTIATION_LEAK_SHRINK=0`, the smallest failing one found.
  *
  * Each test runs without retry: a leak must not pass on a second attempt.
+ *
+ * Peers that name no ICE servers query a STUN server in this process
+ * (`useLocalStunServer`), so no verdict depends on the network. Besides the
+ * continuation and the interrupts, a scene may end closed as it is (`asIs`:
+ * a pending offer or pranswer and its proposal's transports included).
+ * Harness references that would look like leaks are released or bounded:
+ * the continuation records (`releaseContinuationRecords`), the operation log
+ * (last 40), and the case and its oracles, which stay inside the function
+ * that runs a scene. A surplus `Timeout` is reported with the creation stack
+ * of every live timer (`live timer created at:`).
+ *
+ * Known flakes of the model property that predate this property (not leak
+ * findings): leak seed 57 (10 steps) sometimes ends with "added DataChannel
+ * did not reach the peer" (both SCTP associations stay in their handshake
+ * over a connected DTLS transport); model seed 275 (10 steps) sometimes ends
+ * with "the transport did not settle", also when replayed alone. Both fail
+ * the same way before the leak property was added.
+ *
+ * `npm run leak:verify` (`tools/leak-verify/run.sh`) repeats this file and
+ * injects artificial leaks to show each is detected.
  */
 const env = process.env;
 const seedCount = Number(env.WERIFT_NEGOTIATION_LEAK_SEEDS ?? 2);

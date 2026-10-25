@@ -861,6 +861,12 @@ export class TurnProtocol implements Protocol {
     await this.send(message.bytes, addr);
   }
 
+  /**
+   * Release the client: its transactions, refresh timer and socket. Known
+   * constraint (as in develop): the allocation is not deleted on the server
+   * (no Refresh with lifetime 0), so the server keeps it until its lifetime
+   * ends.
+   */
   async close() {
     if (this.closed) return;
     this.closed = true;

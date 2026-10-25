@@ -93,6 +93,27 @@ export class Connection implements IceConnection {
   /**
    * Aborted when the remote generation ends (restart, restartRemote, close):
    * every check and nomination transaction of that generation stops with it.
+   *
+   * Every STUN request of the agent and what cancels it (a late result of an
+   * ended generation changes no state of the generation that replaced it):
+   * - `checkStart` (live check): its handle (`pair.handle`: checklist
+   *   completed, replaced, other remote ufrag dropped) and this signal; an
+   *   aborted check changes nothing.
+   * - `retryCheck` (487 role conflict / 401 retry): the handle of the check
+   *   it replaces and this signal (the retry is a `checkStart`).
+   * - regular nomination in `checkStart` (toward an ICE-lite peer): the
+   *   check's signal; `isStaleNomination` guards `nominating`, the pair state
+   *   and `checkComplete`.
+   * - `nominateTcpPair`: this signal; `isStaleNomination`.
+   * - `checkProvisional` / `nominateProvisional`: `generation.checks`
+   *   (`endProvisional()`, a replacement pranswer, close); `belongs()`.
+   * - `queryConsent`: a per-request `AbortController` and
+   *   `stopConsentLifecycle()`; `consentSessionId`.
+   * - `serverReflexiveCandidate` (gathering): `protocol.close()`; otherwise
+   *   it ends by its retransmission timeout, and `stale()` drops the
+   *   candidate of an ended gather.
+   * - TURN client requests: the `closing` signal and `TurnProtocol.close()`.
+   * Regression tests: `tests/ice/check-cancel.test.ts`.
    */
   private remoteChecks = new AbortController();
   private checkListDone = false;
@@ -101,6 +122,13 @@ export class Connection implements IceConnection {
   private signalClosed!: () => void;
   /** Aborted by close(): a TURN allocation still running is released. */
   private readonly closing = new AbortController();
+  /**
+   * Results for connect(). Known constraint (as in develop): a restart
+   * replaces the queue, so a connect() still waiting on the old one never
+   * settles (the agent is still collected). It cannot simply return, since
+   * the caller (webrtc's `TransactionActivation`) treats a returned start as
+   * a connected ICE transport.
+   */
   private checkListState = new PQueue<number>();
   private earlyChecks: [Message, Address, Protocol][] = [];
   private earlyChecksDone = false;
@@ -1775,6 +1803,14 @@ export class Connection implements IceConnection {
     this.stateChanged.execute(state);
   }
 
+  /**
+   * Known constraint (as in develop): candidates are not deduplicated. A
+   * description applied again in the same generation (BUNDLE split and
+   * merge after an ICE restart) adds its candidates and pairs a second time,
+   * until the next restart. Deduplicating here alone breaks the pairs a
+   * provisional generation dropped and the repeated add rebuilds; a fix needs
+   * the pairing and provisional lifecycle together.
+   */
   async addRemoteCandidate(remoteCandidate: Candidate | undefined) {
     // """
     // Add a remote candidate or signal end-of-candidates.

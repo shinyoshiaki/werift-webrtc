@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Evidence for the leak property (see NEGOTIATION_TRANSACTION.md "Leak property"):
+# Evidence for the leak property (tests/pbt/leak/negotiationLeakProperty.test.ts):
 #   run.sh repeat [N]   run the leak test file N times (default 10) on the active tree
 #   run.sh inject       inject 6 artificial leaks, one at a time, into a temporary
 #                       git worktree and require the leak test file (or, for "unit:" entries, the unit test) to fail for each

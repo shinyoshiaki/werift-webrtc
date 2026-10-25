@@ -400,7 +400,7 @@ export function leakFootprint(pc: RTCPeerConnection): Footprint {
       (t) => t.heldCandidateEvents?.length ?? 0,
     ),
     // 同じ候補の重複 (同じ description の再適用) は数えない。develop から同じ挙動で、
-    // 次の restart で消える (NEGOTIATION_TRANSACTION.md の follow-up)。
+    // 次の restart で消える (ice の Connection.addRemoteCandidate の既知の制約)。
     "ice.checkList": sum(
       ice,
       (t) =>
@@ -468,7 +468,7 @@ export function leakFootprint(pc: RTCPeerConnection): Footprint {
       ice,
       (t) =>
         // 実行中の start() の完了待ち (waitStart) は一時的なもの。ICE restart に追い越された
-        // connect() は結果を待ち続ける (develop から。NEGOTIATION_TRANSACTION.md の follow-up)。
+        // connect() は結果を待ち続ける (develop から。ice の Connection.checkListState の既知の制約)。
         subscriptions({ ...t, waitStart: undefined }) +
         subscriptions(t.iceGather) +
         subscriptions(t.connection) +
@@ -990,8 +990,20 @@ const GROWTH_EXPIRY_MS = 8000;
 
 /**
  * Metrics allowed to change between repetitions, each with the upper bound
- * that keeps it from growing without limit (NEGOTIATION_TRANSACTION.md,
- * "Leak property").
+ * that keeps it from growing without limit. Every other metric must equal its
+ * value after the second repetition (a lower value becomes the reference).
+ *
+ * State kept on purpose that P2 sees as steady (each with its bound):
+ * - `sdp.seenMid`: one per m-line the application adds (the cycle declares
+ *   it); a MID is never reused in a session (RFC 8843).
+ * - ICE `userHistory`: current, replaced and staged credentials (3 per
+ *   agent), so a check sent before the peer applied a restart is answered.
+ * - ICE `localGenerations`: the latest created offer and answer and the
+ *   applied one, so applying a created description again restarts to it.
+ * - routes of SSRCs a later answer no longer lists, stopped transceivers:
+ *   the SSRCs and m-lines negotiated (as in develop; the cycles keep SSRCs).
+ * - sent packets awaiting transport-cc feedback: 5 s and 32768 per sender
+ *   (`senderBWE.ts`); the cycles carry no RTP, `senderBWE.test.ts` checks it.
  */
 export const BOUNDED_METRICS: Record<
   string,
@@ -1333,8 +1345,8 @@ async function runClosedTurnGather(
  * (or after) its TURN allocation. The TURN server is a fixture in this
  * process: the relay socket it keeps for the client's allocation until the
  * allocation's lifetime ends is the server's, not the peer's, and is not
- * counted (the client does not delete its allocation on close; see "Leak
- * property" in NEGOTIATION_TRANSACTION.md).
+ * counted (the client does not delete its allocation on close; see
+ * `TurnProtocol.close` in packages/ice).
  */
 export async function closedTurnGatherLeaks(wait: number | "macrotask") {
   const turn = await createLocalTurnIceServer();
