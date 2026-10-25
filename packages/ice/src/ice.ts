@@ -90,6 +90,11 @@ export class Connection implements IceConnection {
   // P2P接続完了したソケット
   nominated?: CandidatePair;
   private nominating = false;
+  /**
+   * Aborted when the remote generation ends (restart, restartRemote, close):
+   * every check and nomination transaction of that generation stops with it.
+   */
+  private remoteChecks = new AbortController();
   private checkListDone = false;
   /** Resolves when the agent closes: work that awaits the network stops waiting. */
   private readonly closedSignal: Promise<void>;
@@ -292,8 +297,13 @@ export class Connection implements IceConnection {
     this.endProvisional();
   }
 
-  /** Stop the checks in flight for the checklist a restart replaces. */
+  /**
+   * Stop the checks and nominations in flight for the checklist a restart
+   * replaces (or close ends), and start a signal for the next generation.
+   */
   private cancelChecks() {
+    this.remoteChecks.abort();
+    this.remoteChecks = new AbortController();
     for (const pair of this.checkList) pair.handle?.resolve?.();
   }
 
@@ -592,7 +602,12 @@ export class Connection implements IceConnection {
         request,
         pair.remoteAddr,
         Buffer.from(generation.remotePassword!, "utf8"),
-        pair.localCandidate.transport.toLowerCase() === "tcp" ? 0 : 4,
+        {
+          retransmissions:
+            pair.localCandidate.transport.toLowerCase() === "tcp" ? 0 : 4,
+          // endProvisional / a replacement pranswer stops it with the checks.
+          signal: generation.checks.signal,
+        },
       );
       pair.responsesReceived++;
       if (belongs()) pair.nominated = true;
@@ -1726,6 +1741,8 @@ export class Connection implements IceConnection {
     this.setState("closed");
     this.signalClosed();
     this.closing.abort();
+    this.cancelChecks();
+    this.endProvisional();
 
     // # stop consent freshness tests
     this.stopConsentLifecycle();
@@ -2029,6 +2046,9 @@ export class Connection implements IceConnection {
       // the request's retransmissions too.
       const checks = new AbortController();
       onCancel.once(() => checks.abort());
+      // The remote generation ending (restart / close) stops it as well.
+      const signal = AbortSignal.any([checks.signal, this.remoteChecks.signal]);
+      const remoteGeneration = this.remoteGeneration;
 
       pair.updateState(CandidatePairState.IN_PROGRESS);
       const result: { response?: Message; addr?: Address } = {};
@@ -2055,7 +2075,7 @@ export class Connection implements IceConnection {
           request,
           pair.remoteAddr,
           Buffer.from(remotePassword, "utf8"),
-          { ...this.checkRequestOptions(pair), signal: checks.signal },
+          { ...this.checkRequestOptions(pair), signal },
         );
         pair.responsesReceived++;
 
@@ -2080,7 +2100,7 @@ export class Connection implements IceConnection {
       } catch (error: any) {
         // A cancelled check (its handle resolved, or the agent closed and
         // cancelled its transactions) changes nothing.
-        if (checks.signal.aborted || error instanceof TransactionCancelled) {
+        if (signal.aborted || error instanceof TransactionCancelled) {
           r();
           return;
         }
@@ -2104,13 +2124,13 @@ export class Connection implements IceConnection {
           } else if (request.attributesKeys.includes("ICE-CONTROLLING")) {
             this.switchRole(false);
           }
-          await this.checkStart(pair).awaitable;
+          await this.retryCheck(pair, onCancel);
           r();
           return;
         }
         if (exc.response?.getAttributeValue("ERROR-CODE")[0] === 401) {
           log("retry 401", pair.toJSON());
-          await this.checkStart(pair).awaitable;
+          await this.retryCheck(pair, onCancel);
           r();
           return;
         } else {
@@ -2156,13 +2176,28 @@ export class Connection implements IceConnection {
             request,
             pair.remoteAddr,
             Buffer.from(this.remotePassword, "utf8"),
-            this.checkRequestOptions(pair),
+            { ...this.checkRequestOptions(pair), signal },
           );
           pair.responsesReceived++;
         } catch (error) {
+          // A nomination of a generation that ended (or a cancelled check)
+          // must not touch the state of the generation that replaced it.
+          if (
+            signal.aborted ||
+            error instanceof TransactionCancelled ||
+            this.isStaleNomination(pair, remoteGeneration)
+          ) {
+            r();
+            return;
+          }
           this.nominating = false;
           pair.updateState(CandidatePairState.FAILED);
           this.checkComplete(pair);
+          r();
+          return;
+        }
+        if (this.isStaleNomination(pair, remoteGeneration)) {
+          r();
           return;
         }
         pair.nominated = true;
@@ -2172,6 +2207,16 @@ export class Connection implements IceConnection {
       this.checkComplete(pair);
       r();
     });
+
+  /**
+   * 487 / 401 retry of a check: the retry is cancelled with the check it
+   * replaces (its handle) and, through checkStart, with the generation.
+   */
+  private async retryCheck(pair: CandidatePair, onCancel: Event<[any]>) {
+    const retry = this.checkStart(pair);
+    onCancel.once(() => retry.resolve());
+    await retry.awaitable;
+  }
 
   private isTcpPair(pair: CandidatePair) {
     return pair.localCandidate.transport.toLowerCase() === "tcp";
@@ -2251,7 +2296,7 @@ export class Connection implements IceConnection {
         request,
         pair.remoteAddr,
         Buffer.from(this.remotePassword, "utf8"),
-        this.checkRequestOptions(pair),
+        { ...this.checkRequestOptions(pair), signal: this.remoteChecks.signal },
       )
       .then(
         () => {

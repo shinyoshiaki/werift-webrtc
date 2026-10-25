@@ -952,6 +952,12 @@ Model seed 57 shows the same failure on `de807ac8^`, before this ticket (1 of
 `expectSessionContinues`). It is a session continuation failure, so P1 reports
 it as a scene failure, as the model property does.
 
+Known flake of the model property that predates this ticket: model seed 275
+(10 steps) ends with "the transport did not settle" also when replayed alone
+(`de807ac8^`, before this ticket: 3 of 6 runs; `36efccfa`: 4 of 6; with the
+generation-scoped check cancellation: 7 of 10). `pbt:deep` reports it as
+FAILED because the replay fails too; it is not a leak finding.
+
 Known and left alone (follow-up, as in `develop`): an ICE restart replaces
 `Connection.checkListState`, so a `connect()` that was waiting on the old
 queue never settles (its `start()` and the waiters on `waitStart` stay
@@ -1028,6 +1034,33 @@ transport stopped (`packages/dtls`: the flight stops when the socket closes,
 and `RTCDtlsTransport.stop()` closes it; fixed case "closing while a DTLS
 handshake waits for its peer"); the transport-cc send history of a sender
 was never pruned (one entry per RTP packet, found by P3; now 5 s).
+
+#### STUN transactions of `packages/ice` and what cancels them
+
+Each check and nomination of the live checklist is scoped to its remote
+generation: `Connection.remoteChecks` is one `AbortController` per remote
+generation, aborted and replaced by `cancelChecks()` (called from
+`restart()`, `restartRemote()` and `close()`). Every request below carries a
+signal, so no path keeps a transaction of an ended generation, and a result
+that still arrives from one (`isStaleNomination`: closed, another remote
+generation, or the pair left the checklist) changes no state of the
+generation that replaced it. Regression tests:
+`packages/ice/tests/ice/check-cancel.test.ts` (Arrange in `tests/utils.ts`:
+`createScriptedCheckHarness`, `ScriptedCheckProtocol`); each of them fails
+without the cancellation.
+
+| Request (`packages/ice/src`) | Path | Cancelled by | Stale result |
+| --- | --- | --- | --- |
+| `ice.ts` `checkStart` | live check | its handle (`pair.handle`: checklist completed, replaced, other remote ufrag dropped) and `remoteChecks` | aborted check changes nothing |
+| `ice.ts` `checkStart` → `retryCheck` | 487 (role conflict) / 401 retry of a check | the handle of the check it replaces (`onCancel`) and `remoteChecks` (the retry is a `checkStart`) | as above |
+| `ice.ts` `checkStart` (regular nomination) | controlling toward an ICE-lite peer | the check's signal (handle and `remoteChecks`) | `isStaleNomination`: no `nominating`, pair state or `checkComplete` change |
+| `ice.ts` `nominateTcpPair` | TCP regular nomination | `remoteChecks` | `isStaleNomination` |
+| `ice.ts` `checkProvisional` | provisional (pranswer) check, also its 487 retry | `generation.checks` (`endProvisional()`, replacement pranswer, `close()`) | `belongs()` |
+| `ice.ts` `nominateProvisional` | provisional regular nomination | `generation.checks` | `belongs()` |
+| `ice.ts` `queryConsent` | consent freshness | `requestAbort` per request, `stopConsentLifecycle()` (restart, renomination, close) | `consentSessionId` |
+| `iceBase.ts` `serverReflexiveCandidate` (from `gatherCandidates`) | srflx query | `protocol.close()` (close); otherwise ends by its retransmission timeout (seconds) | `stale()` drops the candidate of an ended gather |
+| `turn/protocol.ts` (allocation, refresh, permission, channel bind) | TURN client | `closing` signal into `createStunOverTurnClient`, `TurnProtocol.close()` | `closed` checks after each await |
+| `utils.ts` `getGlobalIp` | helper outside the agent | its own `protocol.close()` | — |
 
 ### Negotiation cases (`tests/negotiation`)
 
@@ -1353,6 +1386,7 @@ no behavior difference unless they pass `expectSessionContinues`.
 | The ICE agent answers checks for its current, replaced and staged credentials only | answers every generation's credentials since the agent started | L3 (no growth per restart) | added, passes the helper (found by the leak property) |
 | `RTCDtlsTransport.stop()` closes the DTLS socket and a running handshake stops retransmitting | the flight retransmits ~30 s after stop | L1 / L2 | added, passes the helper (found by the leak property) |
 | `close()` aborts a TURN allocation still running (its client and socket close at once, no TCP fallback) | the allocation completes (or times out) after close, then closes | L1 / L2 | added, passes the helper (found by the leak property) |
+| A check or nomination of an ended remote generation (restart, `restartRemote`, close) is cancelled and its late result is ignored (leak ticket) | regular / TCP nomination and 487/401 retries keep retransmitting; a late nomination failure marks the old pair FAILED and runs `checkComplete` on the new generation | no transaction outlives its generation (L2), the new generation's `nominating` and checklist result are its own | kept (passes `expectSessionContinues`) |
 
 ## Scope and known constraints
 
