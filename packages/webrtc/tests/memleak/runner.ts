@@ -73,6 +73,8 @@ export async function runScenario(
     samples.push(sample);
   }
 
+  await scenario.dispose?.();
+
   const wallClockSeconds = (Date.now() - wallStart) / 1000;
   const equivalentSeconds =
     totalUnits > 0 && scenario.budget.totalUnits > 0

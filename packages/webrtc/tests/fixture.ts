@@ -26,6 +26,7 @@ import { RTCRtpCodingParameters } from "../src/media/parameters";
 import { type KeyFrameRequestRouting, RtpRouter } from "../src/media/router";
 import { RTCRtpReceiver } from "../src/media/rtpReceiver";
 import { RTCRtpSender } from "../src/media/rtpSender";
+import type { SenderBandwidthEstimator } from "../src/media/sender/senderBWE";
 
 export const createRtpPacket = (
   sequenceNumber = 0,
@@ -363,4 +364,31 @@ export async function createConnectedSendrecvVideoPeers(
     transceiver1: peer1.transceiver,
     transceiver2: peer2.transceiver,
   };
+}
+
+/** Arrange: `count` packets sent through `estimator` from `firstSeq`, `sentAtMs` apart by `stepMs`. */
+export function recordSentPackets(
+  estimator: SenderBandwidthEstimator,
+  {
+    count,
+    firstSeq = 0,
+    sentAtMs = Date.now(),
+    stepMs = 0,
+  }: { count: number; firstSeq?: number; sentAtMs?: number; stepMs?: number },
+) {
+  for (let i = 0; i < count; i++) {
+    const at = sentAtMs + i * stepMs;
+    estimator.rtpPacketSent({
+      wideSeq: (firstSeq + i) & 0xffff,
+      size: 1000,
+      sendingAtMs: at,
+      sentAtMs: at,
+    });
+  }
+}
+
+/** Test-only read: the packets `estimator` keeps for transport-cc feedback. */
+export function pendingFeedback(estimator: SenderBandwidthEstimator) {
+  return (estimator as unknown as { sentInfos: Map<number, unknown> })
+    .sentInfos;
 }

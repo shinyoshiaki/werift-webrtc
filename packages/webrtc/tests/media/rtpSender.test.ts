@@ -24,6 +24,21 @@ import {
 } from "../fixture";
 
 describe("media/rtpSender", () => {
+  test("stop releases the subscription on the DTLS transport", () => {
+    // Arrange: DTLS transport に結び付けた sender。
+    const dtls = createDtlsTransport();
+    const before = dtls.onStateChange.length;
+    const sender = new RTCRtpSender("video");
+    sender.setDtlsTransport(dtls);
+    expect(dtls.onStateChange.length).toBe(before + 1);
+
+    // Act: sender を止める (transceiver.stop())。
+    sender.stop();
+
+    // Assert: BUNDLE で共有して長く生きる transport が、止めた sender を参照し続けない。
+    expect(dtls.onStateChange.length).toBe(before);
+  });
+
   test("stop track", () => {
     const track = new MediaStreamTrack({ kind: "audio", remote: true });
     const dtls = createDtlsTransport();

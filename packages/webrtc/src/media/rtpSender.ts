@@ -263,6 +263,12 @@ export class RTCRtpSender {
     }
 
     this.dtlsTransport = dtlsTransport;
+    // A stopped sender (also one a rollback binds again) sends nothing and
+    // does not subscribe to the transport, which may outlive it.
+    if (this.stopped) {
+      this.dtlsDisposer = [];
+      return;
+    }
     this.dtlsDisposer = [
       this.dtlsTransport.onStateChange.subscribe((state) => {
         if (state === "connected") {
@@ -555,6 +561,10 @@ export class RTCRtpSender {
 
   stop({ keepTrack = false }: { keepTrack?: boolean } = {}) {
     this.stopped = true;
+    // A stopped sender sends nothing: release its subscription on the
+    // (possibly BUNDLE-shared) DTLS transport, which outlives it.
+    for (const dispose of this.dtlsDisposer) dispose();
+    this.dtlsDisposer = [];
     this.rtpContinuityPending = false;
     this.discardPendingRtp();
     this.rtcpRunning = false;
