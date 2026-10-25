@@ -568,6 +568,8 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     this.setState("closed", false);
     // todo impl send alert
     await this.iceTransport.stop();
+    // A handshake still in flight stops retransmitting its flight.
+    this.dtls?.close();
   }
 
   async getStats(timestamp = getStatsTimestamp()): Promise<RTCStats[]> {
@@ -772,8 +774,10 @@ class IceTransport implements Transport {
   };
 
   async close() {
+    if (this.closed) return;
     this.closed = true;
-    this.ice.close();
+    // RTCIceTransport.stop() may have closed the agent already.
+    if (this.ice.state !== "closed") this.ice.close();
   }
 }
 

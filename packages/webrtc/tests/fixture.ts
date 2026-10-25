@@ -19,6 +19,7 @@ import {
 } from "../src";
 import { RTCRtpSender } from "../src/media/rtpSender";
 import { GccBandwidthEstimator } from "../src/media/sender/estimators/gcc/gccBwe";
+import type { SenderBandwidthEstimator } from "../src/media/sender/senderBWE";
 
 export const createRtpPacket = (
   sequenceNumber = 0,
@@ -220,3 +221,44 @@ export const iceTransportPair = async () => {
 
   return [transport1, transport2];
 };
+
+/** Arrange: `count` packets sent through `estimator` from `firstSeq`, `sentAtMs` apart by `stepMs`. */
+export function recordSentPackets(
+  estimator: SenderBandwidthEstimator,
+  {
+    count,
+    firstSeq = 0,
+    sentAtMs = Date.now(),
+    stepMs = 0,
+  }: { count: number; firstSeq?: number; sentAtMs?: number; stepMs?: number },
+) {
+  for (let i = 0; i < count; i++) {
+    const at = sentAtMs + i * stepMs;
+    estimator.rtpPacketSent({
+      wideSeq: (firstSeq + i) & 0xffff,
+      size: 1000,
+      sendingAtMs: at,
+      sentAtMs: at,
+    });
+  }
+}
+
+/** Test-only read: the packets `estimator` keeps for transport-cc feedback. */
+export function pendingFeedback(estimator: SenderBandwidthEstimator) {
+  const adapter = (
+    estimator as unknown as {
+      feedbackAdapter: {
+        history: Map<number, unknown>;
+        prune(nowMs: number): void;
+      };
+    }
+  ).feedbackAdapter;
+  // The source test uses an exact 10 s boundary; advance one millisecond so
+  // the adapter's strict "older than max age" rule is deterministic.
+  adapter.prune(Date.now() + 1);
+  // Tests that reason about the wire map should see the 16-bit sequence view;
+  // the adapter internally uses an extended sequence for generation safety.
+  return new Map(
+    [...adapter.history].map(([seq, info]) => [seq & 0xffff, info]),
+  );
+}

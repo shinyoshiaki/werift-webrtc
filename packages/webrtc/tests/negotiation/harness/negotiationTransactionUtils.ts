@@ -1309,6 +1309,16 @@ export function exemptFromContinuation(
 }
 
 /**
+ * Forget the peers recorded for the continuation check, so the records hold
+ * no closed peer (the leak property checks that a closed peer is collected).
+ */
+export function releaseContinuationRecords() {
+  negotiatedPeers.clear();
+  continuedPeers.clear();
+  exemptPeers.clear();
+}
+
+/**
  * Register hooks that fail a test in which a peer applied a local
  * description but never reached `expectSessionContinues` and was not
  * exempted. Call it inside the `describe` of a test file.
