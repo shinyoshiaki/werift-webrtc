@@ -1,5 +1,5 @@
 import * as net from "node:net";
-import { binaryData, FifoQueue } from "../src";
+import { FifoQueue, binaryData } from "../src";
 
 export async function createHangingStreamServer() {
   const sockets = new Set<net.Socket>();

@@ -1,3 +1,5 @@
+import { Event, debug } from "../../imports/common";
+
 import {
   GenericNack,
   RtcpTransportLayerFeedback,
@@ -5,7 +7,6 @@ import {
   timer,
   uint16Add,
 } from "../..";
-import { debug, Event } from "../../imports/common";
 import type { Processor } from "./interface";
 import type { RtpOutput } from "./rtpCallback";
 

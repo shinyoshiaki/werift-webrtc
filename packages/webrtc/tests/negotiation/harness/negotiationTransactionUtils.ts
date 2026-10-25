@@ -3,12 +3,11 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { Address } from "../../../../common/src";
 import { getHostAddresses } from "../../../../ice/src/utils";
 import {
-  createHeldUdpProxy,
-  createLocalTurnServer,
   TURN_TEST_PASSWORD,
   TURN_TEST_USERNAME,
+  createHeldUdpProxy,
+  createLocalTurnServer,
 } from "../../../../ice/tests/utils";
-import type { RTCIceCandidate } from "../../../src";
 import {
   MediaStreamTrack,
   type RTCDataChannel,
@@ -27,10 +26,10 @@ import {
   useTransportWideCC,
   useVP8,
 } from "../../../src";
+import type { RTCIceCandidate } from "../../../src";
 import { ridRouteKey } from "../../../src/negotiation/internalState";
 import { type MediaDescription, SessionDescription } from "../../../src/sdp";
 import { RTCIceTransport } from "../../../src/transport/ice";
-
 export * from "../../../tools/negotiation-diff/mutations";
 
 /** Something a test closes at its end: a peer, or anything with `close()`. */

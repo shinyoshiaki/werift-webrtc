@@ -4,10 +4,10 @@ import type { MdnsLookup } from "./dns/lookup";
 import type { Cancelable } from "./helper";
 import {
   type Address,
-  debug,
   type Event,
   type InterfaceAddresses,
   type TlsConnectionOptions,
+  debug,
 } from "./imports/common";
 import { classes, methods } from "./stun/const";
 import { Message } from "./stun/message";

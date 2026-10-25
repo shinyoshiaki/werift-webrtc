@@ -2,7 +2,6 @@ import { readFileSync } from "fs";
 import { join } from "path";
 
 import {
-  dePacketizeRtpPackets,
   G711_CLOCK_RATE,
   PCMA_PAYLOAD_TYPE,
   PCMU_PAYLOAD_TYPE,
@@ -10,6 +9,7 @@ import {
   PcmaRtpPayload,
   PcmuPacketizer,
   PcmuRtpPayload,
+  dePacketizeRtpPackets,
 } from "../../src";
 import { loadPayloadVector } from "../utils";
 

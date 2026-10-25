@@ -1,4 +1,6 @@
 import { createCipheriv, createDecipheriv } from "crypto";
+
+import { CipherAesBase } from ".";
 import { createBufferWriter } from "../../../../common/src";
 import { growBufferSize } from "../../helper";
 import type { RtcpHeader } from "../../rtcp/header";
@@ -9,7 +11,6 @@ import {
   parseSrtcpHeader,
   parseSrtpRtpHeader,
 } from "../packet";
-import { CipherAesBase } from ".";
 
 export class CipherAesGcm extends CipherAesBase {
   readonly aeadAuthTagLen = 16;

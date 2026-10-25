@@ -1,8 +1,8 @@
 import { getHostAddresses } from "../../../ice/src/utils";
 import {
-  createLocalTurnServer,
   TURN_TEST_PASSWORD,
   TURN_TEST_USERNAME,
+  createLocalTurnServer,
 } from "../../../ice/tests/utils";
 import { RTCIceGatherer, RTCIceTransport, RTCPeerConnection } from "../../src";
 import { iceTransportPair } from "../fixture";

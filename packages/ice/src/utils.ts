@@ -1,8 +1,8 @@
 import * as os from "node:os";
 import {
   type Address,
-  debug,
   type InterfaceAddresses,
+  debug,
   normalizeFamilyNodeV18,
 } from "./imports/common";
 import { selectAddressesFromInterfaces } from "./internal/selectAddresses";

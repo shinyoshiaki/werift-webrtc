@@ -1,13 +1,15 @@
 import { promises as dns } from "node:dns";
-import { isIP, SocketAddress } from "node:net";
+import { SocketAddress, isIP } from "node:net";
+
+import { type Address, Event, debug } from "../imports/common";
+
 import {
   AddressFamilyMismatch,
   TransactionFailed,
   TransactionTimeout,
 } from "../exceptions";
-import { type Address, debug, Event } from "../imports/common";
 import type { Protocol, TransactionRequestOptions } from "../types/model";
-import { classes, RETRY_MAX, RETRY_RTO } from "./const";
+import { RETRY_MAX, RETRY_RTO, classes } from "./const";
 import type { Message } from "./message";
 
 const log = debug("werift-ice:packages/ice/src/stun/transaction.ts");

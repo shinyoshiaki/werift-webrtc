@@ -2,12 +2,12 @@ import { readFileSync } from "fs";
 import { join } from "path";
 
 import {
-  dePacketizeRtpPackets,
+  G722Packetizer,
+  G722RtpPayload,
   G722_CLOCK_RATE,
   G722_OCTET_RATE,
   G722_PAYLOAD_TYPE,
-  G722Packetizer,
-  G722RtpPayload,
+  dePacketizeRtpPackets,
 } from "../../src";
 import { loadPayloadVector } from "../utils";
 

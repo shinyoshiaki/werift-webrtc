@@ -1,9 +1,9 @@
+import { deepStrictEqual } from "assert";
+import { readFileSync } from "fs";
 import * as dgram from "node:dgram";
 import * as dns from "node:dns";
 import * as net from "node:net";
 import * as tls from "node:tls";
-import { deepStrictEqual } from "assert";
-import { readFileSync } from "fs";
 import { type Address, Event, type Transport } from "../../common/src";
 import { NodeStunServer, NodeTurnServer } from "../../ice-server/src";
 import { Candidate } from "../src/candidate";

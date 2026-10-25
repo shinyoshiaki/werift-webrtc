@@ -17,13 +17,13 @@ export class DtlsRandom {
 
   static deSerialize(buf: Buffer) {
     return new DtlsRandom(
-      //@ts-expect-error
+      //@ts-ignore
       ...Object.values(decode(buf, DtlsRandom.spec)),
     );
   }
 
   static from(spec: binaryData.Decoded<typeof DtlsRandom.spec>) {
-    //@ts-expect-error
+    //@ts-ignore
     return new DtlsRandom(...Object.values(spec));
   }
 

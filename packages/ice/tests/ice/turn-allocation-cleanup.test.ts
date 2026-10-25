@@ -1,13 +1,13 @@
-import { createSocket, type Socket } from "node:dgram";
+import { type Socket, createSocket } from "node:dgram";
 
 import { UdpTransport } from "../../../common/src";
 import { TransactionFailed } from "../../src/exceptions";
-import { createTurnClient, TurnProtocol } from "../../src/turn/protocol";
+import { TurnProtocol, createTurnClient } from "../../src/turn/protocol";
 import {
-  createLocalStunServer,
-  createLocalTurnServer,
   TURN_TEST_PASSWORD,
   TURN_TEST_USERNAME,
+  createLocalStunServer,
+  createLocalTurnServer,
 } from "../utils";
 
 async function tryBindUdpPort(port: number) {

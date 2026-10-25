@@ -6,9 +6,11 @@ import { TransactionTimeout } from "../../src/exceptions";
 import { Connection } from "../../src/ice";
 import { classes, methods } from "../../src/stun/const";
 import { Message } from "../../src/stun/message";
-import { createTurnClient, TurnProtocol } from "../../src/turn/protocol";
+import { TurnProtocol, createTurnClient } from "../../src/turn/protocol";
 import { getHostAddresses } from "../../src/utils";
 import {
+  TURN_TEST_PASSWORD,
+  TURN_TEST_USERNAME,
   canBindIpv6Loopback,
   createLocalTurnServer,
   createRecordingTransport,
@@ -19,8 +21,6 @@ import {
   stubDualStackLookup,
   stubLookup,
   stubRotatingLookup,
-  TURN_TEST_PASSWORD,
-  TURN_TEST_USERNAME,
 } from "../utils";
 
 const localTurnHost = getHostAddresses(true, false)[0]!;

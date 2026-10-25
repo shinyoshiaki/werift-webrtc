@@ -2,10 +2,10 @@ import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 
 import {
-  dePacketizeRtpPackets,
   OPUS_CLOCK_RATE,
   OpusPacketizer,
   OpusRtpPayload,
+  dePacketizeRtpPackets,
 } from "../../src";
 import { loadPayloadVector } from "../utils";
 

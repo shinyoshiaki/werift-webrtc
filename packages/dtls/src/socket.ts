@@ -1,4 +1,7 @@
 import { setTimeout } from "timers/promises";
+import { Event, binaryData, debug } from "./imports/common";
+import type { Address, Transport } from "./imports/common";
+
 import {
   NamedCurveAlgorithmList,
   type SignatureHash,
@@ -15,8 +18,6 @@ import { ExtendedMasterSecret } from "./handshake/extensions/extendedMasterSecre
 import { RenegotiationIndication } from "./handshake/extensions/renegotiationIndication";
 import { Signature } from "./handshake/extensions/signature";
 import { UseSRTP } from "./handshake/extensions/useSrtp";
-import type { Address, Transport } from "./imports/common";
-import { binaryData, debug, Event } from "./imports/common";
 import type { SrtpProfile } from "./imports/rtp";
 import { createPlaintext } from "./record/builder";
 import { ContentType } from "./record/const";

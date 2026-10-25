@@ -1,6 +1,7 @@
 import { randomUUID } from "crypto";
+import { Event, debug } from "./imports/common";
+
 import { EventTarget } from "./helper";
-import { debug, Event } from "./imports/common";
 import type { RTCSctpTransport } from "./transport/sctp";
 import type { Callback, CallbackWithValue } from "./types/util";
 

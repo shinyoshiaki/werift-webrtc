@@ -47,7 +47,7 @@ export class ClientHello {
 
   static deSerialize(buf: Buffer) {
     return new ClientHello(
-      //@ts-expect-error
+      //@ts-ignore
       ...Object.values(decode(buf, ClientHello.spec)),
     );
   }

@@ -1,11 +1,11 @@
 import {
+  type DuplexSession,
+  type InterruptWait,
   arrangeInterruptWait,
   assertNegotiationInvariants,
   assertTransportsClosed,
-  type DuplexSession,
   expectSessionAlive,
   heldTransports,
-  type InterruptWait,
   negotiate,
   prepareMutationAnswerer,
   negotiationTest as test,

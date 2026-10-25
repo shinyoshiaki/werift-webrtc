@@ -1,5 +1,6 @@
-import type { RtcpPacket } from "../..";
 import { Event } from "../../imports/common";
+
+import type { RtcpPacket } from "../..";
 import type { SimpleProcessorCallback } from "./interface";
 
 export type RtcpInput = RtcpPacket;

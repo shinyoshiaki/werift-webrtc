@@ -1,7 +1,7 @@
 import type { AcceptFn } from "protoo-server";
 import {
-  MediaStreamTrack,
   type MLineReuse,
+  MediaStreamTrack,
   RTCPeerConnection,
   type RTCRtpTransceiver,
   useOPUS,

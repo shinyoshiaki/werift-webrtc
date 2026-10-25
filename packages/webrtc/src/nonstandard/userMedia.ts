@@ -1,5 +1,13 @@
 import { randomUUID } from "crypto";
+import { homedir } from "os";
+import { isAbsolute, resolve } from "path";
+import { Readable } from "stream";
 import { readFile } from "fs/promises";
+import {
+  setImmediate as onNextTurn,
+  setTimeout as wait,
+} from "timers/promises";
+
 import {
   BufferSource,
   EncodedPacketSink,
@@ -10,13 +18,6 @@ import {
   MP4,
   WEBM,
 } from "mediabunny";
-import { homedir } from "os";
-import { isAbsolute, resolve } from "path";
-import { Readable } from "stream";
-import {
-  setImmediate as onNextTurn,
-  setTimeout as wait,
-} from "timers/promises";
 
 import { Event } from "../imports/common";
 import { useAV1X, useH264, useOPUS, useVP8, useVP9 } from "../media/codec";
@@ -25,9 +26,9 @@ import type { RTCRtpCodecParameters } from "../media/parameters";
 import { MediaStreamTrack } from "../media/track";
 import { codecParametersFromString } from "../sdp";
 import {
-  createPacketizer,
   type Packetizer,
   type SupportedSourceCodec,
+  createPacketizer,
   supportedSourceCodecs,
   toSupportedMimeType,
 } from "./userMedia/packetizer";

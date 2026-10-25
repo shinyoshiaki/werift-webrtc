@@ -1,7 +1,8 @@
-import { EncodedPacket } from "mediabunny";
 import type { Readable } from "stream";
 
-import { isRtcp, RtcpPacketConverter } from "../../imports/rtp";
+import { EncodedPacket } from "mediabunny";
+
+import { RtcpPacketConverter, isRtcp } from "../../imports/rtp";
 import { MediaStreamTrack } from "../../media/track";
 import { createPacketizer } from "../../nonstandard/userMedia/packetizer";
 import type {
@@ -17,9 +18,9 @@ import {
   sourceCodecFromMimeType,
 } from "../rtpCodec";
 import {
+  type UdpOrStreamSource,
   openPacketSource,
   throwIfAborted,
-  type UdpOrStreamSource,
 } from "../sourceIo";
 import { bindTrackStop } from "../trackStop";
 

@@ -2,9 +2,9 @@ import type { AcceptFn } from "protoo-server";
 import { RTCPeerConnection, StunOverTurnProtocol } from "../..";
 import { peerConfig } from "../../fixture";
 import {
+  type TurnRelayTransport,
   getTurnIceServer,
   getTurnTlsOptions,
-  type TurnRelayTransport,
 } from "../../turn";
 
 type TurnRelayInitPayload = {

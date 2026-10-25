@@ -1,7 +1,7 @@
 import {
   AbortChunk,
-  parsePacket,
   ShutdownChunk,
+  parsePacket,
 } from "../../../sctp/src/chunk";
 import { RTCPeerConnection } from "../../src";
 import type { RTCDataChannel } from "../../src/dataChannel";

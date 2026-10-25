@@ -44,7 +44,7 @@ const senderTransform = (sender: RTCRtpSender) => {
 };
 
 const peer = new RTCPeerConnection({
-  //@ts-expect-error
+  //@ts-ignore
   encodedInsertableStreams: true,
   iceServers: [],
 });

@@ -1,15 +1,16 @@
 import { networkInterfaces } from "node:os";
+
 import {
-  type BundlePolicy,
-  NamedCurveAlgorithm,
-} from "../../packages/webrtc/src";
-import {
-  createSelfSignedCertificate,
   type DtlsKeys,
   HashAlgorithm,
   type PeerConfig,
   SignatureAlgorithm,
+  createSelfSignedCertificate,
 } from ".";
+import {
+  type BundlePolicy,
+  NamedCurveAlgorithm,
+} from "../../packages/webrtc/src";
 
 export class DtlsKeysContext {
   private static rsa: DtlsKeys;
@@ -85,8 +86,7 @@ export const iceLitePeerConfig: Promise<Partial<PeerConfig>> = (async () => {
       ? { udp4: iceLiteInterfaceAddress }
       : undefined,
     iceFilterStunResponse: iceLiteInterfaceAddress
-      ? (_, __, protocol) =>
-          protocol.localCandidate?.host === iceLiteInterfaceAddress
+      ? (_, __, protocol) => protocol.localCandidate?.host === iceLiteInterfaceAddress
       : undefined,
     iceFilterCandidatePair: iceLiteInterfaceAddress
       ? (pair) => pair.localCandidate.host === iceLiteInterfaceAddress

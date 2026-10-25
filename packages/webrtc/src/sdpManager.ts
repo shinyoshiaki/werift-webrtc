@@ -8,13 +8,13 @@ import {
 } from "./media/parameters";
 import type { MediaDirection } from "./media/rtpTransceiver";
 import {
-  addSDPHeader,
   type BundlePolicy,
-  codecParametersFromString,
   GroupDescription,
   MediaDescription,
   SessionDescription,
   SsrcDescription,
+  addSDPHeader,
+  codecParametersFromString,
 } from "./sdp";
 import type { RTCDtlsTransport } from "./transport/dtls";
 import type { RTCSctpTransport } from "./transport/sctp";

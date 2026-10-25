@@ -1,8 +1,8 @@
 import {
-  createSocket,
   type RemoteInfo,
   type Socket,
   type SocketType,
+  createSocket,
 } from "node:dgram";
 
 import type { Address } from "../../../common/src";

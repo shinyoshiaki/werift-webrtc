@@ -1,7 +1,7 @@
 import {
-  episodes,
   type Generator,
   type Judge,
+  episodes,
   judgeCommit,
   judgeCreate,
   judgeIce,

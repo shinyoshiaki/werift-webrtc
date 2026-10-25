@@ -1,5 +1,5 @@
 import { SCTP_STATE } from "../../../sctp/src";
-import { debug, type Event } from "../imports/common";
+import { type Event, debug } from "../imports/common";
 import type { TransceiverManager } from "../media";
 import type { NegotiationTransaction } from "../negotiationTransaction";
 import type { SctpTransportManager } from "../sctpManager";

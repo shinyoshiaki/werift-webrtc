@@ -21,11 +21,11 @@
 
 import SPSParser from "../../src/extra/container/mp4/sps-parser";
 import {
+  type FfprobeVideoResult,
   createAudioFrames,
   createAudioTrack,
   createMp4Input,
   createVideoTrack,
-  type FfprobeVideoResult,
   isFfprobeAvailable,
   loadH264AccessUnits,
   mp4OutputsToBuffer,

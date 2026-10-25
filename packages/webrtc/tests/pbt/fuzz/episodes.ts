@@ -10,15 +10,15 @@ import {
   useVP8,
 } from "../../../src";
 import {
+  type DuplexSession,
+  type Peer,
   assertNegotiationInvariants,
   createDuplexSession,
   createRewrittenOffer,
-  type DuplexSession,
   expectSessionAlive,
   leaveBundle,
   mungeSection,
   negotiationSnapshot,
-  type Peer,
   sectionOf,
   sendAndExpectRtp,
   step,
@@ -27,7 +27,6 @@ import {
 } from "../../negotiation/harness/negotiationTransactionUtils";
 
 export { type SeededRandom, seededRandom } from "../shared/random";
-
 import { type SeededRandom, seededRandom } from "../shared/random";
 
 /**

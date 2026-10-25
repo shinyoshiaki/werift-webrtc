@@ -28,7 +28,7 @@ export class ServerHelloVerifyRequest implements Handshake {
 
   static deSerialize(buf: Buffer) {
     return new ServerHelloVerifyRequest(
-      //@ts-expect-error
+      //@ts-ignore
       ...Object.values(decode(buf, ServerHelloVerifyRequest.spec)),
     );
   }

@@ -1,8 +1,8 @@
 import { Connection } from "../../src/ice";
 import {
-  createHangingTlsServer,
   TURN_TEST_PASSWORD,
   TURN_TEST_USERNAME,
+  createHangingTlsServer,
 } from "../utils";
 
 describe("TURN stream connection timeout", () => {

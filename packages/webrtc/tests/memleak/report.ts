@@ -6,11 +6,11 @@ import { join } from "node:path";
 
 import type { LeakAnalysis } from "./analyze";
 import {
+  type LeakVerdict,
+  type MemorySample,
   ensureArtifactsDir,
   formatBytes,
   formatDuration,
-  type LeakVerdict,
-  type MemorySample,
 } from "./heapUtils";
 import type { ScenarioBudget } from "./scenarios";
 

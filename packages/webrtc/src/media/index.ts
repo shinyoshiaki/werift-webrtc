@@ -1,4 +1,3 @@
-export * from "../transceiverManager";
 export * from "./codec";
 export * from "./codecCompatibility";
 export * from "./extension/rtcpFeedback";
@@ -9,4 +8,5 @@ export * from "./rtpReceiver";
 export * from "./rtpSender";
 export * from "./rtpTransceiver";
 export * from "./stats";
+export * from "../transceiverManager";
 export * from "./track";

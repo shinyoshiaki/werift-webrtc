@@ -1,8 +1,8 @@
 /* eslint-disable @typescript-eslint/ban-ts-comment */
+import { binaryData } from "../../imports/common";
 
 import type { HandshakeType } from "../../handshake/const";
 import { getObjectSummary } from "../../helper";
-import { binaryData } from "../../imports/common";
 
 const { decode, encode, types } = binaryData;
 
@@ -42,7 +42,7 @@ export class FragmentedHandshake {
 
   static deSerialize(buf: Buffer) {
     return new FragmentedHandshake(
-      //@ts-expect-error
+      //@ts-ignore
       ...Object.values(decode(buf, FragmentedHandshake.spec)),
     );
   }

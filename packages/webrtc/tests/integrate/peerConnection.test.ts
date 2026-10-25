@@ -3,12 +3,12 @@ import { vi } from "vitest";
 
 import { HashAlgorithm } from "../../../dtls/src/cipher/const";
 import {
-  createSelfSignedCertificate,
   MediaStream,
   MediaStreamTrack,
   type RTCDataChannel,
   RTCPeerConnection,
   RTCTrackEvent,
+  createSelfSignedCertificate,
 } from "../../src";
 import { SignatureAlgorithm } from "../../src/const";
 

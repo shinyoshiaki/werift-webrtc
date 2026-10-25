@@ -1,8 +1,11 @@
 import { randomUUID } from "crypto";
+
+import { Event, FifoQueue, debug } from "../imports/common";
+
 import {
   SCTP,
-  SCTP_STATE,
   type SCTPOptions,
+  SCTP_STATE,
   type Transport,
 } from "../../../sctp/src";
 import {
@@ -17,11 +20,10 @@ import {
 } from "../const";
 import {
   type DCState,
-  getDataChannelMessageSize,
   RTCDataChannel,
   RTCDataChannelParameters,
+  getDataChannelMessageSize,
 } from "../dataChannel";
-import { debug, Event, FifoQueue } from "../imports/common";
 import type { RTCDtlsTransport } from "./dtls";
 
 const log = debug("werift:packages/webrtc/src/transport/sctp.ts");

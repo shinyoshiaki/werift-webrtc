@@ -1,12 +1,13 @@
-import { SCTP_STATE, type SCTPOptions } from "../../sctp/src";
-import { RTCDataChannel, RTCDataChannelParameters } from "./dataChannel";
+import { type SCTPOptions, SCTP_STATE } from "../../sctp/src";
 import { createWebRtcTypeError } from "./errors";
-import { debug, Event } from "./imports/common";
+import { Event, debug } from "./imports/common";
+
+import { RTCDataChannel, RTCDataChannelParameters } from "./dataChannel";
 import {
-  generateStatsId,
-  getStatsTimestamp,
   type RTCDataChannelStats,
   type RTCStats,
+  generateStatsId,
+  getStatsTimestamp,
 } from "./media/stats";
 import type { MediaDescription } from "./sdp";
 import type { RTCDtlsTransport } from "./transport/dtls";

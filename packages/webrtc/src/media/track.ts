@@ -1,6 +1,7 @@
 import { randomUUID } from "crypto";
-import { EventTarget } from "../helper";
 import { Event } from "../imports/common";
+
+import { EventTarget } from "../helper";
 import {
   type Extensions,
   type RtcpPacket,

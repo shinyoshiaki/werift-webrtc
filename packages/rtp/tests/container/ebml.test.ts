@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
-  decodeVintEncodedNumber,
   UNKNOWN_SIZE,
+  decodeVintEncodedNumber,
   vintEncodedNumber,
 } from "../../src/extra/container/webm/ebml/ebml";
 

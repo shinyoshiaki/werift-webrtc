@@ -682,9 +682,9 @@ describe("ice", () => {
       const a = createTestConnection(true);
       const b = createTestConnection(true);
 
-      //@ts-expect-error
+      //@ts-ignore
       a.tieBreaker = BigInt(1);
-      //@ts-expect-error
+      //@ts-ignore
       b.tieBreaker = BigInt(2);
 
       await inviteAccept(a, b);
@@ -733,9 +733,9 @@ describe("ice", () => {
       const a = createTestConnection(false);
       const b = createTestConnection(false);
 
-      //@ts-expect-error
+      //@ts-ignore
       a.tieBreaker = BigInt(1);
-      //@ts-expect-error
+      //@ts-ignore
       b.tieBreaker = BigInt(2);
 
       await inviteAccept(a, b);

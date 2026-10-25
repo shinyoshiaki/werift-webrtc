@@ -1,3 +1,5 @@
+import { tmpdir } from "os";
+import { join } from "path";
 import {
   appendFile,
   mkdtemp,
@@ -6,6 +8,7 @@ import {
   unlink,
   writeFile,
 } from "fs/promises";
+
 import {
   BufferSource,
   BufferTarget,
@@ -19,8 +22,6 @@ import {
   WEBM,
   WebMOutputFormat,
 } from "mediabunny";
-import { tmpdir } from "os";
-import { join } from "path";
 
 import {
   RTCPeerConnection,

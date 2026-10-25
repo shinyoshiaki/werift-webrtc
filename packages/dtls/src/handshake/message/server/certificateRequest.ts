@@ -1,8 +1,9 @@
+import { binaryData } from "../../../imports/common";
+
 import type {
   HashAlgorithms,
   SignatureAlgorithms,
 } from "../../../cipher/const";
-import { binaryData } from "../../../imports/common";
 import { FragmentedHandshake } from "../../../record/message/fragment";
 import type { Handshake } from "../../../typings/domain";
 import {
@@ -44,7 +45,7 @@ export class ServerCertificateRequest implements Handshake {
 
   static deSerialize(buf: Buffer) {
     return new ServerCertificateRequest(
-      //@ts-expect-error
+      //@ts-ignore
       ...Object.values(decode(buf, ServerCertificateRequest.spec)),
     );
   }

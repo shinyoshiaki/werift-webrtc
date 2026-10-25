@@ -1,11 +1,11 @@
 import type { CipherGCMTypes } from "crypto";
 import {
+  type KeyExchange,
   createECDHEECDSAKeyExchange,
   createECDHEPSKKeyExchange,
   createECDHERSAKeyExchange,
   createPSKKeyExchange,
   createRSAKeyExchange,
-  type KeyExchange,
 } from "./key-exchange";
 import AEADCipher from "./suites/aead";
 

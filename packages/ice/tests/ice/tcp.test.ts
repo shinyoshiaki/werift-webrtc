@@ -5,9 +5,9 @@ import { describe, expect, test, vi } from "vitest";
 import type { Address } from "../../../common/src";
 import { CandidatePairState } from "../../src";
 import {
+  TCP_CHECK_RESPONSE_TIMEOUT_MS,
   classes,
   methods,
-  TCP_CHECK_RESPONSE_TIMEOUT_MS,
 } from "../../src/stun/const";
 import { Message } from "../../src/stun/message";
 import { TcpActiveProtocol } from "../../src/stun/tcpProtocol";

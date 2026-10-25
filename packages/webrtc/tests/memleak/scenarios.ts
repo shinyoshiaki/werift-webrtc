@@ -15,7 +15,7 @@ import {
   RtpHeader,
   RtpPacket,
 } from "../../src";
-import { injectSyntheticLeak, type MemleakEnv } from "./heapUtils";
+import { type MemleakEnv, injectSyntheticLeak } from "./heapUtils";
 
 /** 想定実時間レート（時間加速の換算に使用） */
 export const RATES = {

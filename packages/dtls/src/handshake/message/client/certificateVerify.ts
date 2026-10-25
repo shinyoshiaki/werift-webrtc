@@ -1,5 +1,6 @@
-import type { SignatureSchemes } from "../../../cipher/const";
 import { binaryData } from "../../../imports/common";
+
+import type { SignatureSchemes } from "../../../cipher/const";
 import { FragmentedHandshake } from "../../../record/message/fragment";
 import type { Handshake } from "../../../typings/domain";
 import { HandshakeType } from "../../const";
@@ -27,7 +28,7 @@ export class CertificateVerify implements Handshake {
   static deSerialize(buf: Buffer) {
     const res = decode(buf, CertificateVerify.spec);
     return new CertificateVerify(
-      //@ts-expect-error
+      //@ts-ignore
       ...Object.values(res),
     );
   }

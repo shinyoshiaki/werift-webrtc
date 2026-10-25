@@ -17,13 +17,13 @@ import {
   RTCRtpCodecParameters,
 } from "../../";
 import {
-  attachDepacketizer,
   type CodecRtpName,
+  type DepacketizeStats,
+  type PacketizeStreamStats,
+  attachDepacketizer,
   codecKind,
   codecMimeHint,
   createRtpPacketizer,
-  type DepacketizeStats,
-  type PacketizeStreamStats,
   streamPacketizedFixture,
   useCodecParameters,
   useH264CodecList,
@@ -149,7 +149,8 @@ function livePacketizeStatus(
   const packetsSent = final?.packetsSent ?? live?.packetsSent ?? 0;
   const multiPacketFrames =
     final?.multiPacketFrames ?? live?.multiPacketFrames ?? 0;
-  const firstRtpTimestamp = final?.firstRtpTimestamp ?? live?.firstRtpTimestamp;
+  const firstRtpTimestamp =
+    final?.firstRtpTimestamp ?? live?.firstRtpTimestamp;
   const lastRtpTimestamp = final?.lastRtpTimestamp ?? live?.lastRtpTimestamp;
   const timestampAdvanced =
     final?.timestampAdvanced ??
@@ -175,8 +176,7 @@ function livePacketizeStatus(
     timestampAdvanced,
     timestampsMonotonic: final?.timestampsMonotonic ?? true,
     rtpTimestampDeltas: final?.rtpTimestampDeltas ?? [],
-    clockRate:
-      final?.clockRate ?? live?.clockRate ?? (codec === "opus" ? 48000 : 90000),
+    clockRate: final?.clockRate ?? live?.clockRate ?? (codec === "opus" ? 48000 : 90000),
     fixtureDurationSec: final?.fixtureDurationSec,
     averageIntervalSec: final?.averageIntervalSec,
   };
@@ -551,7 +551,8 @@ class RepacketizeHandler {
         const rep = this.state.repacketizeMetrics;
         const chromeRtpOk = (stats?.rtpPackets ?? 0) >= 1;
         const repacketizeOk =
-          (rep?.framesRepacketized ?? 0) >= 1 && (rep?.packetsSent ?? 0) >= 1;
+          (rep?.framesRepacketized ?? 0) >= 1 &&
+          (rep?.packetsSent ?? 0) >= 1;
         if (
           stats &&
           isDepacketizeSuccess(stats, this.codec) &&
@@ -565,7 +566,8 @@ class RepacketizeHandler {
             source: "chrome" as const,
             expectedMime: useCodecParameters(this.codec).mimeType,
             negotiatedMime:
-              stats.negotiatedMime ?? useCodecParameters(this.codec).mimeType,
+              stats.negotiatedMime ??
+              useCodecParameters(this.codec).mimeType,
             payloadType: stats.payloadType,
             frameCount: stats.frameCount,
             keyframeCount: stats.keyframeCount,

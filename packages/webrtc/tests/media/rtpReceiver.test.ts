@@ -3,8 +3,6 @@ import { setTimeout } from "timers/promises";
 import { describe, expect, test, vi } from "vitest";
 import { wrapRtx } from "../../../rtp/src";
 import {
-  codecParametersToString,
-  defaultPeerConfig,
   MediaStreamTrack,
   RTCRtpCodecParameters,
   RTCRtpCodingParameters,
@@ -13,6 +11,8 @@ import {
   RtcpSrPacket,
   RtpHeader,
   RtpPacket,
+  codecParametersToString,
+  defaultPeerConfig,
   useTWCC,
 } from "../../src";
 import { RTCRtpReceiver } from "../../src/media/rtpReceiver";

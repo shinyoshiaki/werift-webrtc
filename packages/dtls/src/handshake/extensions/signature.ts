@@ -1,5 +1,6 @@
-import type { HashAlgorithms, SignatureAlgorithms } from "../../cipher/const";
 import { binaryData } from "../../imports/common";
+
+import type { HashAlgorithms, SignatureAlgorithms } from "../../cipher/const";
 
 const { decode, encode, types } = binaryData;
 

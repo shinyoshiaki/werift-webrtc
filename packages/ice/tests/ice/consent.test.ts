@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
-  CandidatePair,
   CONSENT_FAILURES,
   CONSENT_RESPONSE_TIMEOUT,
   CONSENT_RESPONSE_TIMEOUT_MIN,
   CONSENT_TIMEOUT,
+  CandidatePair,
   consentResponseTimeoutMs,
 } from "../../src/iceBase";
 import { classes, methods } from "../../src/stun/const";

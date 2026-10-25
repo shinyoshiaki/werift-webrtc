@@ -1,14 +1,14 @@
 /**
  * シナリオを N サイクル実行し、サンプリング・スナップショット・判定・分析を行うランナー。
  */
-import { compareSnapshots, type LeakAnalysis } from "./analyze";
+import { type LeakAnalysis, compareSnapshots } from "./analyze";
 import {
+  type MemleakEnv,
+  type MemorySample,
   detectLeak,
   ensureArtifactsDir,
   forceGcAndSettle,
   hasGcExposed,
-  type MemleakEnv,
-  type MemorySample,
   sampleMemory,
   shouldTakeSnapshot,
   takeHeapSnapshot,
