@@ -1305,6 +1305,50 @@ describe("media/rtpSender RTP continuity", () => {
       expect((await outboundRtpStats(sender)).firCount).toBe(4);
     });
 
+    test("FIR retransmission is judged per (FIR sender, target SSRC) entry", async () => {
+      // Arrange: router が primary SSRC と RTX SSRC のエントリを同じ sender に解決した状態
+      const { sender } = createConnectedRtpSender({ kind: "video" });
+      const onFir = vi.fn();
+      sender.onFullIntraRequest.subscribe(onFir);
+      const receiveFir = (
+        entries: { ssrc: number; sequenceNumber: number }[],
+      ) =>
+        sender.handleRtcpPacket(
+          createFirPacket({ senderSsrc: remoteSsrc, fir: entries }),
+          entries,
+        );
+      const primary = (sequenceNumber: number) => ({
+        ssrc: sender.ssrc,
+        sequenceNumber,
+      });
+      const rtx = (sequenceNumber: number) => ({
+        ssrc: sender.rtxSsrc,
+        sequenceNumber,
+      });
+
+      // Act: primary=5 / RTX=9 の 2 エントリを持つ FIR と、その再送を受ける
+      receiveFir([primary(5), rtx(9)]);
+      receiveFir([primary(5), rtx(9)]);
+
+      // Assert: 再送は各エントリが既受信の番号なので通知されず、firCount は 4 エントリ分
+      expect(onFir).toHaveBeenCalledTimes(1);
+      expect((await outboundRtpStats(sender)).firCount).toBe(4);
+
+      // Act: primary の番号と同じ値を RTX 宛の新しい要求として受ける
+      receiveFir([rtx(5)]);
+
+      // Assert: RTX 宛の番号空間では 5 は新しいので、別対象の記録に引きずられず通知される
+      expect(onFir).toHaveBeenCalledTimes(2);
+
+      // Act: 各対象の最新番号だけを持つ FIR を順に受ける
+      receiveFir([primary(5)]);
+      receiveFir([rtx(5)]);
+
+      // Assert: どちらも対象ごとの再送なので通知されない
+      expect(onFir).toHaveBeenCalledTimes(2);
+      expect((await outboundRtpStats(sender)).firCount).toBe(7);
+    });
+
     test("FIR not addressed to the sender is ignored except onRtcp", async () => {
       // Arrange
       const { sender } = createConnectedRtpSender({ kind: "video" });

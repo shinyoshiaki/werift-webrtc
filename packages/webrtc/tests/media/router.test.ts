@@ -268,6 +268,28 @@ describe("media/router", () => {
       expect((await outboundRtpStats(video)).firCount).toBe(2);
     });
 
+    test("compatible: a retransmitted FIR with entries resolved to one sender does not notify again", async () => {
+      // Arrange
+      const { router, video, remoteSsrc } = createSingleVideoSenderRouter();
+      const onRequest = vi.fn();
+      video.onKeyFrameRequest.subscribe(onRequest);
+      const fir = createFirPacket({
+        senderSsrc: remoteSsrc,
+        fir: [
+          { ssrc: video.ssrc, sequenceNumber: 3 },
+          { ssrc: video.rtxSsrc, sequenceNumber: 8 },
+        ],
+      });
+
+      // Act: primary / RTX 宛のエントリを持つ FIR と、その再送を配送する
+      router.routeRtcp(fir);
+      router.routeRtcp(fir);
+
+      // Assert: 両エントリとも同じ sender に解決され、通知は初回の 1 回だけ、firCount は 4
+      expect(onRequest.mock.calls).toEqual([["fir"]]);
+      expect((await outboundRtpStats(video)).firCount).toBe(4);
+    });
+
     test("strict: FIR entries for an unregistered SSRC are not routed", async () => {
       // Arrange
       const { router, video, remoteSsrc, rtcpSpies } =

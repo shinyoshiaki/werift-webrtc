@@ -105,7 +105,7 @@ ide:
 <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:stretch">
   <div style="flex:1;min-width:150px;padding:8px;border:1px solid var(--review-border);border-radius:6px"><strong>1. 自分宛を抽出</strong><br>fir[] から <code>ssrc === this.ssrc</code> を選ぶ。0 件なら何もしない</div>
   <div style="flex:1;min-width:150px;padding:8px;border:1px solid var(--review-border);border-radius:6px"><strong>2. firCount</strong><br>自分宛エントリ数を加算（再送も数える）</div>
-  <div style="flex:1;min-width:150px;padding:8px;border:1px solid var(--review-border);border-radius:6px"><strong>3. 再送判定</strong><br>送信元 <code>senderSsrc</code> ごとの前回 Seq nr と比較</div>
+  <div style="flex:1;min-width:150px;padding:8px;border:1px solid var(--review-border);border-radius:6px"><strong>3. 再送判定</strong><br>エントリごとに <code>(senderSsrc, 対象 ssrc)</code> の前回 Seq nr と比較。1 つでも新しければ新規（RFC 5104 §4.3.1.1）</div>
   <div style="flex:1;min-width:150px;padding:8px;border:1px solid var(--review-accent);border-radius:6px"><strong>4. 発火</strong><br>新しい Seq nr のときだけ <code>onFullIntraRequest</code> と <code>onKeyFrameRequest("fir")</code></div>
 </div>
 
@@ -167,6 +167,17 @@ ide:
 | B の通知 | PLI と、Seq nr が変われば余分な FIR | PLI のみ |
 | B の `firCount` | 増える | 増えない |
 
+### 4.4 FIR の再送判定は（送信元, 対象 SSRC）ごと（レビュー指摘への対応）
+
+RFC 5104 §4.3.1.1 では、Seq nr の番号空間は FIR の送信元と対象 SSRC の組ごとです。以前の実装は送信元 SSRC だけをキーにし、最後のエントリの番号だけを記録していました。そのため、primary と RTX のエントリが同じ Sender に解決されると、次の 2 つが起きていました。
+
+| 例 | 修正前 | 修正後 |
+| --- | --- | --- |
+| `[primary=5, RTX=9]` の再送 | primary の 5 が記録済みの 9 と違うため、再送でも通知 | 各エントリが既受信の番号なので通知しない |
+| primary=5 を受けた後の `[RTX=5]`（RTX 宛の新しい要求） | 記録済みの 5 と同じため、再送扱いで通知が欠落 | RTX 宛の番号空間では新しいので通知 |
+
+[packages/webrtc/src/media/rtpSender.ts](review-file:packages/webrtc/src/media/rtpSender.ts) で、エントリごとに `(senderSsrc, ssrc)` をキーに判定・記録します。チケット §2.3 の「送信元ごとに覚える」を、RFC の定義に合わせて精密にしたものです。`firCount` は従来どおり全エントリを数えます。
+
 ## 5. リスク・互換性
 
 - **挙動変更**: `mediaSsrc` が未登録の PLI は、`senderSsrc` 側にも配送されなくなります。これは意図した変更で、changelog に記載しました。
@@ -185,6 +196,8 @@ ide:
 | 結合 | [packages/webrtc/tests/integrate/mediaChannel.test.ts:167](review-file:packages/webrtc/tests/integrate/mediaChannel.test.ts:167) | sendrecv video で PLI が相手 Sender に届き、Receiver に誤配送されない |
 | Router（救済） | [packages/webrtc/tests/media/router.test.ts](review-file:packages/webrtc/tests/media/router.test.ts) | compatible: RTX SSRC 宛 PLI、唯一の video Sender への PLI、FIR エントリの解決と `firCount`／strict: 未登録 SSRC は配送しない／複数 video Sender では配送しない |
 | 複合 RTCP（rtp） | [packages/rtp/tests/rtcp/rtcp.test.ts](review-file:packages/rtp/tests/rtcp/rtcp.test.ts) | 実バイト列の `RR + SDES + FIR + PLI` が 4 パケットに分かれ FCI が 1 件のまま、padding 付きパケットの後続も復号、FIR の length が 2 + 2 × N で往復できる |
+| FIR 再送判定（Sender） | [packages/webrtc/tests/media/rtpSender.test.ts](review-file:packages/webrtc/tests/media/rtpSender.test.ts) | primary / RTX の 2 エントリとその再送、別対象と同じ番号の新規要求、対象ごとの再送 |
+| FIR 再送判定（Router） | [packages/webrtc/tests/media/router.test.ts](review-file:packages/webrtc/tests/media/router.test.ts) | compatible で primary / RTX のエントリが同じ Sender に解決された FIR の再送は再通知しない |
 | 複合 RTCP（Router） | [packages/webrtc/tests/media/router.test.ts](review-file:packages/webrtc/tests/media/router.test.ts) | 実バイト列を復号して配送し、A は FIR・B は PLI だけを受ける。同じパケットの再送では A の通知は出ず `firCount` だけ増え、B の `firCount` は増えない |
 | 結合（救済） | [packages/webrtc/tests/integrate/mediaChannel.test.ts](review-file:packages/webrtc/tests/integrate/mediaChannel.test.ts) | werift 同士で media SSRC 0 の PLI が既定で届き、strict では届かない。未知のモードは `TypeError` |
 
@@ -192,6 +205,8 @@ ide:
 
 | 項目 | 結果 | 備考 |
 | --- | --- | --- |
+| `packages/webrtc` の `npm run type` / `npm test`（FIR 再送判定の修正後） | 成功 | 56 ファイル・837 テスト（3 件 skip） |
+| ミューテーション確認（FIR 再送判定） | 検出 | 修正前の `rtpSender.ts` に戻すと、追加した Sender / Router の 2 テストが失敗。元に戻した |
 | ルートの `npm run type` | 成功 | 複合 RTCP の境界・FIR length 修正後 |
 | ルートの `npm run test:small` | 成功 | 全パッケージ。rtp 368、webrtc 835（3 件 skip）を含む |
 | `packages/rtp` の `npm run type` / `npm test` | 成功 | 39 ファイル・368 テスト |

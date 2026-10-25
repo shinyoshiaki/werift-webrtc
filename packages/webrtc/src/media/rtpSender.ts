@@ -191,8 +191,11 @@ export class RTCRtpSender {
   private nackCount = 0;
   private pliCount = 0;
   private firCount = 0;
-  /** last FIR sequence number per FIR sender SSRC */
-  private lastFirSequenceNumbers = new Map<number, number>();
+  /**
+   * Last FIR sequence number per (FIR sender SSRC, FCI target SSRC): RFC 5104
+   * 4.3.1.1 keeps one sequence number space per pair.
+   */
+  private lastFirSequenceNumbers = new Map<string, number>();
   private remotePacketsLost?: number;
   private remoteFractionLost?: number;
   receiverEstimatedMaxBitrate = 0n;
@@ -906,17 +909,16 @@ export class RTCRtpSender {
                 if (entries.length === 0) break;
 
                 this.firCount += entries.length;
-                // a FIR with the same sequence number is a retransmission (RFC 5104 4.3.1)
-                const last = this.lastFirSequenceNumbers.get(
-                  feedback.senderSsrc,
-                );
-                const isNew = entries.some(
-                  ({ sequenceNumber }) => sequenceNumber !== last,
-                );
-                this.lastFirSequenceNumbers.set(
-                  feedback.senderSsrc,
-                  entries[entries.length - 1].sequenceNumber,
-                );
+                // an entry with the same sequence number as the last one for its
+                // (sender, target) pair is a retransmission (RFC 5104 4.3.1.1)
+                let isNew = false;
+                for (const { ssrc, sequenceNumber } of entries) {
+                  const key = `${feedback.senderSsrc}:${ssrc}`;
+                  if (this.lastFirSequenceNumbers.get(key) !== sequenceNumber) {
+                    isNew = true;
+                  }
+                  this.lastFirSequenceNumbers.set(key, sequenceNumber);
+                }
                 if (isNew) {
                   this.onFullIntraRequest.execute(feedback);
                   this.onKeyFrameRequest.execute("fir");
