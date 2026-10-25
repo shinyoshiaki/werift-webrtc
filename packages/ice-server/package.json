@@ -17,7 +17,7 @@
     "lib"
   ],
   "scripts": {
-    "build": "rm -rf lib && npm run format && tsc -p ./tsconfig.production.json && node ../write-package-entrypoint.mjs ice-server",
+    "build": "rm -rf lib && tsc -p ./tsconfig.production.json && node ../write-package-entrypoint.mjs ice-server",
     "chrome-e2e": "cd chrome-e2e && npm i && npm run ci:silent",
     "deploy": "npm run build && npm publish",
     "format": "biome check --write src tests",

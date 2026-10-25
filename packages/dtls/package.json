@@ -17,7 +17,7 @@
     "lib"
   ],
   "scripts": {
-    "build": "rm -rf lib && npm run format && tsc -p ./tsconfig.production.json && node ../write-package-entrypoint.mjs dtls",
+    "build": "rm -rf lib && tsc -p ./tsconfig.production.json && node ../write-package-entrypoint.mjs dtls",
     "ci": "npm run type && npm run test",
     "client": "DEBUG=werift* node --watch --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs examples/client.ts",
     "dep": "depcheck",

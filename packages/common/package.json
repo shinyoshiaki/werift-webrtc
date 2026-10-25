@@ -22,7 +22,7 @@
   ],
   "scripts": {
     "test": "vitest run ./tests",
-    "build": "rm -rf lib && npm run format && tsc -p ./tsconfig.production.json && node ../write-package-entrypoint.mjs common",
+    "build": "rm -rf lib && tsc -p ./tsconfig.production.json && node ../write-package-entrypoint.mjs common",
     "deploy": "npm run build && npm publish",
     "format": "biome check --write src tests",
     "type": "tsc --noEmit --project ./tsconfig.json --rootDir .."

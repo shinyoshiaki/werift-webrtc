@@ -43,7 +43,7 @@
     "lib"
   ],
   "scripts": {
-    "build": "npm i && rm -rf lib && run-s format compile:*",
+    "build": "npm i && rm -rf lib && run-s compile:*",
     "compile:cjs": "tsc -p ./tsconfig.production.json",
     "compile:esm": "esbuild src/index.ts src/nonstandard/index.ts src/polyfill/index.ts src/polyfill/dom.ts --bundle --packages=external --platform=node --format=esm --target=es2022 --outdir=lib --out-extension:.js=.mjs && node lib/index.mjs",
     "depcheck": "npx depcheck --ignores='@typescript-eslint/*,eslint-*'",
