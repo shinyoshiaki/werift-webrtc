@@ -62,11 +62,9 @@
     "wpt:coverage": "node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs tools/wpt-runner/coverage.ts"
   },
   "dependencies": {
-    "@peculiar/x509": "^2.2.0",
     "buffer": "^6.0.3",
     "mediabunny": "^1.62.1",
-    "multicast-dns": "^7.2.5",
-    "reflect-metadata": "^0.2.2"
+    "multicast-dns": "^7.2.5"
   },
   "devDependencies": {
     "esbuild": "^0.28.2"

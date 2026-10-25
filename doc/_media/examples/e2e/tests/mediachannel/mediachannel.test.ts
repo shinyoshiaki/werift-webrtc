@@ -29,7 +29,10 @@ for (const entry of entries.filter((item) => item.kind === "process-exit")) {
       async (session) => {
         // Act: dump デモがキーフレーム受信で終了するのを待つ
         // Assert: 終了コード 0
-        await waitSpawnedExit(session.processes[0], entry.expectExit ?? 0);
+        await waitSpawnedExit(
+          session.processes[0],
+          entry.expectExit ?? 0,
+        );
       },
       ctx,
     );

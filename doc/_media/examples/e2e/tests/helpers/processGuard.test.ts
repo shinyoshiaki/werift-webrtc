@@ -6,8 +6,8 @@ import { setTimeout as delay } from "node:timers/promises";
 import { expect, test } from "vitest";
 
 import {
-  assertGstreamerHealthy,
   assertMediaPidsAlive,
+  assertGstreamerHealthy,
   assertNoFatalLogs,
   commandExists,
   spawnLogged,
@@ -69,13 +69,9 @@ test("non-zero example exit fails immediately", async () => {
 });
 
 test("fatal example log fails the session", () => {
-  const spawned = spawnLogged(
-    process.execPath,
-    ["-e", "setTimeout(() => {}, 30_000)"],
-    {
-      cwd: os.tmpdir(),
-    },
-  );
+  const spawned = spawnLogged(process.execPath, ["-e", "setTimeout(() => {}, 30_000)"], {
+    cwd: os.tmpdir(),
+  });
   try {
     Object.defineProperty(spawned, "logs", {
       get() {
@@ -103,9 +99,9 @@ test("GStreamer stderr and non-zero exit fail the health assertion", () => {
     });
     // Act: GStreamer の stderr と終了コードを検証する
     // Assert: mux 失敗を成功扱いしない
-    expect(() =>
-      assertGstreamerHealthy(spawned, { requireExit: true }),
-    ).toThrow(/GStreamer reported a failure/);
+    expect(() => assertGstreamerHealthy(spawned, { requireExit: true })).toThrow(
+      /GStreamer reported a failure/,
+    );
   } finally {
     void stopProcessTree(spawned.child);
   }
