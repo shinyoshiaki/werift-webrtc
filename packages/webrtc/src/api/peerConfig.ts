@@ -53,9 +53,21 @@ export interface PeerConfig {
   iceServers: RTCIceServer[];
   /**Minimum port and Maximum port must not be the same value */
   icePortRange: [number, number] | undefined;
+  /**
+   * Local addresses to bind the ICE UDP host sockets to, per family
+   * (`udp4` / `udp6`).
+   *
+   * The address given for a family is the only host address of that family:
+   * its host candidate advertises the address the socket is actually bound
+   * to, even when it is not an enumerated interface address (loopback, tun,
+   * VPN, ...). If the bind fails, the family has no UDP host candidate.
+   * A family left unspecified while the other one is set gathers no
+   * enumerated addresses (only its `iceAdditionalHostAddresses`).
+   */
   iceInterfaceAddresses: InterfaceAddresses | undefined;
   /** Add additional host (local) addresses to use for candidate gathering.
    * Notably, you can include hosts that are normally excluded, such as loopback, tun interfaces, etc.
+   * For a family bound by `iceInterfaceAddresses`, addresses other than the bound one are ignored.
    */
   iceAdditionalHostAddresses: string[] | undefined;
   iceUseIpv4: boolean;

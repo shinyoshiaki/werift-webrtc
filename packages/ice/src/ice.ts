@@ -2,7 +2,7 @@ import { randomBytes } from "crypto";
 import { isIPv4 } from "net";
 
 import * as timers from "node:timers/promises";
-import { type Address, Event, debug } from "./imports/common";
+import { type Address, Event, debug, interfaceAddress } from "./imports/common";
 
 import {
   Candidate,
@@ -30,6 +30,7 @@ import {
   validateAddress,
   validateRemoteCandidate,
 } from "./iceBase";
+import { resolveHostAddresses } from "./internal/resolveHostAddresses";
 import { TCP_CHECK_RESPONSE_TIMEOUT_MS, classes, methods } from "./stun/const";
 import { Message } from "./stun/message";
 import { StunProtocol } from "./stun/protocol";
@@ -726,27 +727,22 @@ export class Connection implements IceConnection {
         }
       }
 
-      let address = getHostAddresses(
-        this.options.useIpv4,
-        this.options.useIpv6,
-        {
-          useLinkLocalAddress: this.options.useLinkLocalAddress,
-        },
-      );
-      const { interfaceAddresses } = this.options;
-      if (interfaceAddresses) {
-        const filteredAddresses = address.filter((check) =>
-          Object.values(interfaceAddresses).includes(check),
-        );
-        if (filteredAddresses.length) {
-          address = filteredAddresses;
-        }
-      }
-      if (this.options.additionalHostAddresses) {
-        address = Array.from(
-          new Set([...this.options.additionalHostAddresses, ...address]),
-        );
-      }
+      // A family bound to an explicit interface address gathers only that
+      // address, so the advertised host candidate is the socket's address.
+      const address = resolveHostAddresses({
+        enumerated: getHostAddresses(
+          this.options.useIpv4,
+          this.options.useIpv6,
+          {
+            useLinkLocalAddress: this.options.useLinkLocalAddress,
+          },
+        ),
+        interfaceAddresses: this.options.interfaceAddresses,
+        additionalHostAddresses: this.options.additionalHostAddresses,
+        useIpv4: this.options.useIpv4,
+        useIpv6: this.options.useIpv6,
+        log,
+      });
 
       const candidatePromises = this.getCandidatePromises(
         address,
@@ -949,7 +945,7 @@ export class Connection implements IceConnection {
     // nothing is added to the current one.
     const stale = () => !this.isGathering(generation);
     const { stunServer, turnServer } = this;
-    const { turnUsername, turnPassword } = this.options;
+    const { turnUsername, turnPassword, interfaceAddresses } = this.options;
     const gatherIceLite = this.iceLite;
     const gatherRelayOnly =
       !gatherIceLite &&
@@ -961,6 +957,20 @@ export class Connection implements IceConnection {
     addresses = addresses.filter((address) => {
       // ice restartで同じアドレスが追加されるのを防ぐ
       if (this.protocols.find((protocol) => protocol.localIp === address)) {
+        return false;
+      }
+      // A family bound to an interface address has one UDP host socket; its
+      // localIp is the bound address, whose notation may differ (IPv6).
+      if (
+        interfaceAddress(socketTypeOf(address), interfaceAddresses) ===
+          address &&
+        this.protocols.some(
+          (protocol) =>
+            protocol instanceof StunProtocol &&
+            protocol.localCandidate?.type === "host" &&
+            isIPv4(protocol.localCandidate.host) === isIPv4(address),
+        )
+      ) {
         return false;
       }
       return true;
@@ -981,27 +991,43 @@ export class Connection implements IceConnection {
           // # create transport
           const protocol = new StunProtocol();
           this.ensureProtocol(protocol);
+          const boundInterface = interfaceAddress(
+            socketTypeOf(address),
+            interfaceAddresses,
+          );
           try {
             await protocol.connectionMade(
               isIPv4(address),
               this.options.portRange,
-              this.options.interfaceAddresses,
+              interfaceAddresses,
             );
             if (stale()) {
               await protocol.close();
               return;
             }
 
-            protocol.localIp = address;
+            // # add host candidate
+            // A socket bound to an interface address advertises that address:
+            // the peer sends its checks there. A wildcard socket advertises
+            // the gathered address (never 0.0.0.0 / ::).
+            const [boundHost, boundPort] = protocol.getExtraInfo();
+            let candidateHost = address;
+            if (boundInterface) {
+              candidateHost = stripZoneId(boundHost);
+              if (candidateHost !== address) {
+                log(
+                  "host address differs from the bound interface address; advertise the bound one",
+                  address,
+                  candidateHost,
+                );
+              }
+            }
+            const candidateAddress: Address = [candidateHost, boundPort];
+
+            protocol.localIp = candidateHost;
             this.protocols.push(protocol);
 
             log("protocol", protocol.localIp);
-
-            // # add host candidate
-            const candidateAddress: Address = [
-              address,
-              protocol.getExtraInfo()[1],
-            ];
 
             protocol.localCandidate = new Candidate(
               candidateFoundation("host", "udp", candidateAddress[0]),
@@ -1023,7 +1049,17 @@ export class Connection implements IceConnection {
 
             return protocol;
           } catch (error) {
-            log("error protocol STUN", error);
+            if (boundInterface) {
+              // No host candidate for this family: advertising another
+              // address than the socket's would mislead the peer.
+              log(
+                "failed to bind UDP socket to interface address",
+                boundInterface,
+                error,
+              );
+            } else {
+              log("error protocol STUN", error);
+            }
           }
         });
 
@@ -2484,3 +2520,8 @@ type ProvisionalGeneration = {
   nominating?: boolean;
   started: boolean;
 };
+
+const socketTypeOf = (address: string) => (isIPv4(address) ? "udp4" : "udp6");
+
+/** Candidates carry no IPv6 zone id (e.g. `fe80::1%eth0`). */
+const stripZoneId = (address: string) => address.split("%")[0];
