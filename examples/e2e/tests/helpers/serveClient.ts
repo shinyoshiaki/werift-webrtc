@@ -3,9 +3,10 @@ import http from "node:http";
 import path from "node:path";
 
 import { e2eRoot, examplesRoot, repoRoot } from "./paths.js";
+import { rewritePublicStun } from "./stunFixture.js";
 
 export function rewriteClientHtml(html: string, signalingPort: number) {
-  return html
+  return rewritePublicStun(html)
     .replace(/wss:\/\/[^\s"'`<>]+/g, `ws://127.0.0.1:${signalingPort}`)
     .replace(
       /ws:\/\/\d+\.\d+\.\d+\.\d+:\d+/g,

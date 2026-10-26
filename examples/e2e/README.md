@@ -28,6 +28,12 @@ Missing `ffmpeg` / `gst-launch-1.0` skips those cases locally. `CI=true` fails i
 
 Tests run serially because most demos bind `8888` or `8878`.
 
+The demos use the public STUN server `stun.l.google.com:19302`. The run starts a
+local STUN fixture on `127.0.0.1:19302` (`tests/globalSetup.ts`) and points the
+demos at it: served HTML is rewritten, and example Node processes load
+`tests/helpers/stunRedirect.mjs`, which resolves that host to `127.0.0.1`. So
+ICE gathering never waits on the network, and port `19302` must be free.
+
 Examples not included in this smoke catalog are kept under `../untested/` while
 the paths exercised by the catalog remain in their original directories.
 

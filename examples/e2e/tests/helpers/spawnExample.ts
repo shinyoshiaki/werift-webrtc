@@ -5,6 +5,7 @@ import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
 import { repoRoot } from "./paths.js";
+import { stunRedirectPreload } from "./stunFixture.js";
 
 const STOP_TIMEOUT_MS = 2_000;
 
@@ -149,6 +150,8 @@ export function spawnExampleNodeTs(
       "--disable-warning=MODULE_TYPELESS_PACKAGE_JSON",
       "--import",
       path.join(repoRoot, "tools/node-ts/register.mjs"),
+      "--import",
+      stunRedirectPreload,
       entryFile,
     ],
     options,
