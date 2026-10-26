@@ -41,6 +41,18 @@ export function prfPreMasterSecret(
     case NamedCurveAlgorithm.secp256r1_23:
       return p256PreMasterSecret({ publicKey, privateKey });
     case NamedCurveAlgorithm.x25519_29:
+      // The DER prefixes assume 32-byte raw keys; reject anything else instead
+      // of letting trailing bytes be silently ignored.
+      if (privateKey.length !== x25519RawKeyLength) {
+        throw new Error(
+          `invalid X25519 private key length: ${privateKey.length}`,
+        );
+      }
+      if (publicKey.length !== x25519RawKeyLength) {
+        throw new Error(
+          `invalid X25519 public key length: ${publicKey.length}`,
+        );
+      }
       return diffieHellman({
         privateKey: createPrivateKey({
           key: Buffer.concat([x25519PrivateKeyPrefix, privateKey]),
