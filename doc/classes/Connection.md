@@ -226,6 +226,9 @@
 
 > **userHistory**: `object` = `{}`
 
+Local credentials STUN requests may use, by ufrag: the current ones, the
+generation the last restart replaced and a staged (provisional) one.
+
 #### Index Signature
 
 \[`username`: `string`\]: `string`
@@ -383,6 +386,13 @@ Whether gathering contacts a STUN or TURN server.
 ### addRemoteCandidate()
 
 > **addRemoteCandidate**(`remoteCandidate`): `Promise`\<`void`\>
+
+Known constraint (as in develop): candidates are not deduplicated. A
+description applied again in the same generation (BUNDLE split and
+merge after an ICE restart) adds its candidates and pairs a second time,
+until the next restart. Deduplicating here alone breaks the pairs a
+provisional generation dropped and the repeated add rebuilds; a fix needs
+the pairing and provisional lifecycle together.
 
 #### Parameters
 

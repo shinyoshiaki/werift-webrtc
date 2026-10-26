@@ -18,6 +18,7 @@ import {
   RtpPacket,
 } from "../src";
 import { RTCRtpSender } from "../src/media/rtpSender";
+import type { SenderBandwidthEstimator } from "../src/media/sender/senderBWE";
 
 export const createRtpPacket = (
   sequenceNumber = 0,
@@ -173,3 +174,30 @@ export const iceTransportPair = async () => {
 
   return [transport1, transport2];
 };
+
+/** Arrange: `count` packets sent through `estimator` from `firstSeq`, `sentAtMs` apart by `stepMs`. */
+export function recordSentPackets(
+  estimator: SenderBandwidthEstimator,
+  {
+    count,
+    firstSeq = 0,
+    sentAtMs = Date.now(),
+    stepMs = 0,
+  }: { count: number; firstSeq?: number; sentAtMs?: number; stepMs?: number },
+) {
+  for (let i = 0; i < count; i++) {
+    const at = sentAtMs + i * stepMs;
+    estimator.rtpPacketSent({
+      wideSeq: (firstSeq + i) & 0xffff,
+      size: 1000,
+      sendingAtMs: at,
+      sentAtMs: at,
+    });
+  }
+}
+
+/** Test-only read: the packets `estimator` keeps for transport-cc feedback. */
+export function pendingFeedback(estimator: SenderBandwidthEstimator) {
+  return (estimator as unknown as { sentInfos: Map<number, unknown> })
+    .sentInfos;
+}

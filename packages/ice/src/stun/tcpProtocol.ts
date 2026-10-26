@@ -1,6 +1,7 @@
 import { type AddressInfo, connect, createServer, type Socket } from "node:net";
 
 import type { Candidate } from "../candidate";
+import { TransactionCancelled } from "../exceptions";
 import { type Address, debug, Event } from "../imports/common";
 import type { Protocol, TransactionRequestOptions } from "../types/model";
 import { classes } from "./const";
@@ -72,6 +73,8 @@ abstract class BaseTcpProtocol implements Protocol {
   readonly onDataReceived = new Event<[Buffer]>();
   /** The connection to this remote address was closed (by either side). */
   readonly onConnectionClosed = new Event<[Address]>();
+  /** close() ran: no new transaction starts. */
+  private closed = false;
 
   protected readonly sockets = new Map<string, SocketEntry>();
 
@@ -244,6 +247,8 @@ abstract class BaseTcpProtocol implements Protocol {
     }
 
     const resolvedAddr = await resolveRequestAddress(addr);
+    // close() ran during the lookup: no transaction starts on a closed protocol.
+    if (this.closed) throw new TransactionCancelled();
     const options: TransactionRequestOptions = {
       // A failed connect/write will not be fixed by waiting for a response.
       failOnSendError: true,
@@ -282,6 +287,7 @@ abstract class BaseTcpProtocol implements Protocol {
   }
 
   async close() {
+    this.closed = true;
     Object.values(this.transactions).forEach((transaction) => {
       transaction.cancel();
     });

@@ -25,6 +25,7 @@ MEMLEAK_ITERATIONS=5 \
 MEMLEAK_WARMUP=1 \
 MEMLEAK_SNAPSHOT_INTERVAL=2 \
 MEMLEAK_CONN_CYCLES=5 \
+MEMLEAK_RENEGOTIATION_CYCLES=5 \
 npm run memleak
 ```
 
@@ -32,14 +33,17 @@ npm run memleak
 
 ## シナリオ
 
-| ID               | 内容                                         | 1 時間相当バジェット（既定）    |
-| ---------------- | -------------------------------------------- | ------------------------------- |
-| `connection`     | 接続確立（ICE→DTLS→SCTP）と `close()` のみ   | 60 接続（1 接続/分）            |
-| `datachannel`    | DataChannel 接続 → メッセージ送受信 → close  | 360,000 メッセージ（100 msg/s） |
-| `media`          | ビデオ RTP を `writeRtp` で連続送信 → close  | 108,000 フレーム（30fps）       |
-| `synthetic-leak` | 意図的に Buffer を保持して検出ロジックを検証 | n/a                             |
+| ID               | 内容                                                                                                                                                                  | 1 時間相当バジェット（既定）    |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| `connection`     | 接続確立（ICE→DTLS→SCTP）と `close()` のみ                                                                                                                            | 60 接続（1 接続/分）            |
+| `datachannel`    | DataChannel 接続 → メッセージ送受信 → close                                                                                                                           | 360,000 メッセージ（100 msg/s） |
+| `media`          | ビデオ RTP を `writeRtp` で連続送信 → close                                                                                                                           | 108,000 フレーム（30fps）       |
+| `renegotiation`  | 1 つの session で再交渉の周期（leak property の P3 と同じ `drawCycle(MEMLEAK_RENEGOTIATION_SEED)`）を繰り返す。session は最初のサイクルで張り、全サイクルの後に閉じる | 360 周期（6 周期/分）           |
+| `synthetic-leak` | 意図的に Buffer を保持して検出ロジックを検証                                                                                                                          | n/a                             |
 
-各シナリオは N サイクル繰り返し、サイクルごとに新規 `RTCPeerConnection` を作成します。
+各シナリオは N サイクル繰り返し、サイクルごとに新規 `RTCPeerConnection` を作成します（`renegotiation` だけは同じ session を使い続け、session 内の状態の増加を見ます）。
+
+交渉の経路のリークは、決定的な判定の leak property（`tests/pbt/leak/`、`npm test` に含まれる）が close 後の保持・OS リソース・session 内の構造的な増加として検出します。本試験の `renegotiation` はその補助で、heap の傾きとスナップショットで見ます（詳細は `tests/pbt/leak/negotiationLeakProperty.test.ts` の冒頭コメント）。
 
 ### 時間加速
 
@@ -52,21 +56,23 @@ ICE consent / SCTP RTO / DTLS 再送など**タイマー依存の挙動は実時
 
 ## 環境変数
 
-| 変数                        | 既定                            | 意味                                                                   |
-| --------------------------- | ------------------------------- | ---------------------------------------------------------------------- |
-| `MEMLEAK_TARGET_HOURS`      | `1`                             | 実時間相当の目標時間（時間）。処理量バジェットの倍率                   |
-| `MEMLEAK_ITERATIONS`        | `50`                            | media / datachannel のサイクル数                                       |
-| `MEMLEAK_CONN_CYCLES`       | `60 * TARGET_HOURS`             | 接続ライフサイクルのサイクル数                                         |
-| `MEMLEAK_SNAPSHOT_INTERVAL` | `10`                            | 何サイクルごとにヒープスナップショットを取るか（先頭・末尾は常に取得） |
-| `MEMLEAK_WARMUP`            | `10`                            | リーク判定から除外するウォームアップサイクル数                         |
-| `MEMLEAK_SLOPE_THRESHOLD`   | `262144` (256KiB)               | heapUsed の許容傾き（bytes/cycle）                                     |
-| `MEMLEAK_MARGIN_RATIO`      | `0.3`                           | 最終中央値がベースライン中央値を超えてよい割合                         |
-| `MEMLEAK_ANALYZE`           | `on-fail`                       | `on-fail` / `always` / `never` — スナップショット比較分析の実行契機    |
-| `MEMLEAK_ARTIFACTS_DIR`     | `artifacts/memleak`（cwd 相対） | レポート・スナップショット出力先                                       |
-| `MEMLEAK_MEDIA_FRAMES`      | （自動）                        | メディア総フレーム数の明示オーバーライド                               |
-| `MEMLEAK_DC_MESSAGES`       | （自動）                        | DataChannel 総メッセージ数の明示オーバーライド                         |
-| `MEMLEAK_INJECT_LEAK_BYTES` | `0`                             | サイクルごとに保持する合成リーク量（検証用）                           |
-| `MEMLEAK_TEST_TIMEOUT_MS`   | `1800000`                       | シナリオ 1 本あたりの vitest timeout                                   |
+| 変数                           | 既定                            | 意味                                                                   |
+| ------------------------------ | ------------------------------- | ---------------------------------------------------------------------- |
+| `MEMLEAK_TARGET_HOURS`         | `1`                             | 実時間相当の目標時間（時間）。処理量バジェットの倍率                   |
+| `MEMLEAK_ITERATIONS`           | `50`                            | media / datachannel のサイクル数                                       |
+| `MEMLEAK_CONN_CYCLES`          | `60 * TARGET_HOURS`             | 接続ライフサイクルのサイクル数                                         |
+| `MEMLEAK_RENEGOTIATION_CYCLES` | `360 * TARGET_HOURS`            | `renegotiation` の周期数                                               |
+| `MEMLEAK_RENEGOTIATION_SEED`   | `1`                             | `renegotiation` の周期を引く seed（leak property の `drawCycle`）      |
+| `MEMLEAK_SNAPSHOT_INTERVAL`    | `10`                            | 何サイクルごとにヒープスナップショットを取るか（先頭・末尾は常に取得） |
+| `MEMLEAK_WARMUP`               | `10`                            | リーク判定から除外するウォームアップサイクル数                         |
+| `MEMLEAK_SLOPE_THRESHOLD`      | `262144` (256KiB)               | heapUsed の許容傾き（bytes/cycle）                                     |
+| `MEMLEAK_MARGIN_RATIO`         | `0.3`                           | 最終中央値がベースライン中央値を超えてよい割合                         |
+| `MEMLEAK_ANALYZE`              | `on-fail`                       | `on-fail` / `always` / `never` — スナップショット比較分析の実行契機    |
+| `MEMLEAK_ARTIFACTS_DIR`        | `artifacts/memleak`（cwd 相対） | レポート・スナップショット出力先                                       |
+| `MEMLEAK_MEDIA_FRAMES`         | （自動）                        | メディア総フレーム数の明示オーバーライド                               |
+| `MEMLEAK_DC_MESSAGES`          | （自動）                        | DataChannel 総メッセージ数の明示オーバーライド                         |
+| `MEMLEAK_INJECT_LEAK_BYTES`    | `0`                             | サイクルごとに保持する合成リーク量（検証用）                           |
+| `MEMLEAK_TEST_TIMEOUT_MS`      | `1800000`                       | シナリオ 1 本あたりの vitest timeout                                   |
 
 ## 出力物
 

@@ -54,6 +54,7 @@
     "knip": "knip",
     "test": "vitest run ./tests",
     "memleak": "vitest run --config ./tests/memleak/memleak.vitest.config.mts",
+    "leak:verify": "bash tools/leak-verify/run.sh",
     "pbt:deep": "node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs tools/pbt-deep/run.ts",
     "type": "tsc --noEmit --project ./tsconfig.json --rootDir ..",
     "upgrade-interactive": "npx npm-check-updates -i",

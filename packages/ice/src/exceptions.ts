@@ -31,6 +31,13 @@ export class TransactionTimeout extends TransactionError {
   }
 }
 
+/** The protocol carrying the transaction closed before a response arrived. */
+export class TransactionCancelled extends TransactionError {
+  get str() {
+    return "STUN transaction cancelled";
+  }
+}
+
 /**
  * The request target is an IP literal of a different family than the socket
  * that would carry it, so it can never be delivered.

@@ -15,6 +15,8 @@ import {
   RtpHeader,
   RtpPacket,
 } from "../../src";
+import { NegotiationCase } from "../negotiation/harness/negotiationCase";
+import { drawCycle, openCycleSession } from "../pbt/leak/leakProbe";
 import { injectSyntheticLeak, type MemleakEnv } from "./heapUtils";
 
 /** 想定実時間レート（時間加速の換算に使用） */
@@ -25,12 +27,15 @@ export const RATES = {
   dcMessagesPerSec: 100,
   /** 接続ライフサイクル 1 接続/分 */
   connectionsPerMinute: 1,
+  /** 1 つの session での再交渉の周期 6 回/分 */
+  renegotiationsPerMinute: 6,
 } as const;
 
 export type ScenarioId =
   | "datachannel"
   | "media"
   | "connection"
+  | "renegotiation"
   | "synthetic-leak";
 
 export type ScenarioBudget = {
@@ -60,6 +65,8 @@ export type Scenario = {
   expectedLeak?: boolean;
   /** 1 サイクル実行。接続確立 → 処理 → close */
   runCycle: (cycle: number) => Promise<CycleResult>;
+  /** 全サイクルの後に、サイクルをまたいで保持した資源を閉じる */
+  dispose?: () => Promise<void>;
 };
 
 type Unsub = () => void;
@@ -478,10 +485,58 @@ export function createSyntheticLeakScenario(env: MemleakEnv): Scenario {
   };
 }
 
+/**
+ * 1 つの session で再交渉の周期を繰り返すシナリオ (leak property の P3 と同じ周期)。
+ * 周期は `drawCycle(MEMLEAK_RENEGOTIATION_SEED)` (既定 1) で、session は最初の
+ * サイクルで張り、全サイクルの後に閉じる。session 内の状態の増加を heap で見る。
+ */
+export function createRenegotiationScenario(env: MemleakEnv): Scenario {
+  const hours = env.targetHours;
+  const iterations =
+    env.renegotiationCycles ??
+    Math.max(1, Math.round(RATES.renegotiationsPerMinute * 60 * hours));
+  const seed = Number(process.env.MEMLEAK_RENEGOTIATION_SEED ?? 1);
+  const cycle = drawCycle(seed);
+  // invariant の検査とオラクルは候補やイベントの履歴を周期ごとに保持するので付けない。
+  const c = new NegotiationCase(`memleak renegotiation seed ${seed}`, {
+    ref: "memleak: renegotiation",
+    explicitInvariants: true,
+  });
+  let session: Awaited<ReturnType<typeof openCycleSession>> | undefined;
+  const label = `再交渉の周期（${cycle.templates.join(" / ")}）`;
+  return {
+    id: "renegotiation",
+    label,
+    budget: {
+      id: "renegotiation",
+      label,
+      iterations,
+      unitsPerCycle: 1,
+      totalUnits: iterations,
+      equivalentSeconds: (iterations / RATES.renegotiationsPerMinute) * 60,
+      unitName: "renegotiation cycles",
+      rateDescription: `${RATES.renegotiationsPerMinute} cycles/min`,
+    },
+    async runCycle(): Promise<CycleResult> {
+      session ??= await openCycleSession(c, cycle, { observe: false });
+      await session.repeat();
+      injectSyntheticLeak(env.injectLeakBytes);
+      return { unitsProcessed: 1 };
+    },
+    async dispose() {
+      if (!session) return;
+      const { a, b } = session;
+      session = undefined;
+      await closePeers(a, b);
+    },
+  };
+}
+
 export function createAllScenarios(env: MemleakEnv): Scenario[] {
   return [
     createConnectionScenario(env),
     createDataChannelScenario(env),
     createMediaScenario(env),
+    createRenegotiationScenario(env),
   ];
 }

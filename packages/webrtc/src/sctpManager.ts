@@ -64,8 +64,7 @@ export class SctpTransportManager {
     const sctp = new RTCSctpTransport(5000, maxMessageSize, sctpOptions);
     sctp.mid = undefined;
     sctp.onDataChannel.subscribe((channel) => {
-      this.dataChannelsOpened++;
-      this.dataChannels.push(channel);
+      this.track(channel);
       this.onDataChannel.execute(channel);
     });
 
@@ -127,10 +126,21 @@ export class SctpTransportManager {
     });
 
     const channel = new RTCDataChannel(this.sctpTransport, parameters);
+    this.track(channel);
+    return channel;
+  }
+
+  /**
+   * Count a channel (created here or announced by the remote peer) and keep
+   * it for getStats until it closes. The listener goes with it: a closed
+   * channel the application still holds must not keep the manager reachable.
+   */
+  private track(channel: RTCDataChannel) {
     this.dataChannelsOpened++;
     this.dataChannels.push(channel);
-    channel.stateChange.subscribe((state) => {
+    const { unSubscribe } = channel.stateChange.subscribe((state) => {
       if (state === "closed") {
+        unSubscribe();
         this.dataChannelsClosed++;
         const index = this.dataChannels.indexOf(channel);
         if (index !== -1) {
@@ -138,7 +148,6 @@ export class SctpTransportManager {
         }
       }
     });
-    return channel;
   }
 
   isApplicationOwned(transport: RTCSctpTransport) {
