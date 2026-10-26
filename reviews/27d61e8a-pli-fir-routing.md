@@ -4,79 +4,33 @@ ide:
   version: 1
   title: "PLI/FIR 配送修正のレビュー解説"
   dock: right
-  baseCommit: 8b2366c00837f5b53519a49b8e54ed46bbdc326d
+  baseCommit: 210081e0d99c078eaabb39b89b84b082f5161844
 ---
 # RTCP PLI/FIR を media SSRC で配送する修正のレビュー解説
 
+対象チケット: `27d61e8a-9e52-4b83-9797-51c6369b9dbf`（reviewStatus: approved）。比較の基準は `develop`（merge-base `210081e0`）、最新は `1ffb4a77`（develop を取り込み済み）です。
+
 ## 1. 概要
 
-キーフレーム要求（PLI / FIR）が、**要求の送信元 SSRC ではなく、要求の対象メディアの SSRC** で配送されるようにしました。あわせて、Sender が FIR を受けたことをアプリが知れるよう、`onFullIntraRequest`、`onKeyFrameRequest`、`firCount` の集計を追加しました。
+キーフレーム要求（PLI / FIR）が、**要求の送信元 SSRC ではなく、要求の対象 SSRC** で配送されるようにしました。あわせて次の 4 つを入れています。
+
+- Sender が FIR を受けたことをアプリが知れるようにした（`onFullIntraRequest`、統合イベント `onKeyFrameRequest`、`firCount` の集計）
+- 対象 SSRC が登録されていない要求の扱いを選べるようにした（`keyFrameRequestRouting`。既定は `"compatible"` で救済する、`"strict"` は RFC どおり）
+- 複合 RTCP の分割で、後続パケットのバイトを FIR の FCI として読む不具合を直した（`werift-rtp`）
+- `FullIntraRequest` の送信長を RFC 5104 の値に直した（`werift-rtp`）
 
 <div style="display:flex;gap:12px;flex-wrap:wrap">
   <div style="flex:1;min-width:240px;padding:8px 12px;border:1px solid var(--review-border);border-left:4px solid var(--review-danger);border-radius:6px">
-    <strong>Before</strong><br>PLI/FIR は <code>senderSsrc</code> を先に引く。sendrecv では自分の Receiver に誤配送され、<code>onPictureLossIndication</code> が発火しない。FIR は Sender に届いても通知手段がない。
+    <strong>Before</strong><br>PSFB は <code>senderSsrc</code> を先に引く。sendrecv では自分の Receiver に誤配送され、<code>onPictureLossIndication</code> が発火しない。Chrome の FIR（media SSRC = 0）は誤配送か未配送。FIR が Sender に届いても通知も <code>firCount</code> もない。複合 RTCP の FIR は後続パケットのバイトを FCI として読む。
   </div>
   <div style="flex:1;min-width:240px;padding:8px 12px;border:1px solid var(--review-border);border-left:4px solid var(--review-success);border-radius:6px">
-    <strong>After</strong><br>PLI は <code>mediaSsrc</code> のみ。FIR は FCI の各 <code>ssrc</code> で配送し重複は 1 回にまとめる。Sender は FIR を数え、通知する。
+    <strong>After</strong><br>PLI は <code>mediaSsrc</code>、FIR は FCI の各 <code>ssrc</code> で配送。<code>senderSsrc</code> は使わない。未登録の対象は既定で RTX の持ち主か唯一の video Sender へ。Sender は FIR をパケット単位で数え、(送信元, 対象) ごとの Seq nr で再送を除いて通知する。複合 RTCP は各パケットの宣言長で区切る。
   </div>
 </div>
-
-## 2. 配送ロジックの変更（Router）
-
-[packages/webrtc/src/media/router.ts:397](review-file:packages/webrtc/src/media/router.ts:397) で PLI を `mediaSsrc` のみで引くようにしました。
-差分は [packages/webrtc/src/media/router.ts:397](review-diff:packages/webrtc/src/media/router.ts:397) です。
-
-[packages/webrtc/src/media/router.ts:401](review-file:packages/webrtc/src/media/router.ts:401) で FIR を FCI エントリの `ssrc` ごとに引き、`Set` で重複を除いています。
-
-<style>
-  .rt-tabs button { border: 1px solid var(--review-border); background: var(--review-surface); color: var(--review-fg); padding: 2px 10px; cursor: pointer; }
-  .rt-tabs button[aria-selected="true"] { border-color: var(--review-accent); color: var(--review-accent); }
-  .rt-tabs [role="tabpanel"] { padding: 10px 0; }
-  .rt-tabs table { border-collapse: collapse; width: 100%; font-size: 13px; }
-  .rt-tabs td, .rt-tabs th { border: 1px solid var(--review-border); padding: 4px 8px; text-align: left; }
-</style>
-
-<div class="rt-tabs">
-  <button role="tab" aria-selected="true" data-panel="pli">PLI (FMT=1)</button>
-  <button role="tab" aria-selected="false" data-panel="fir">FIR (FMT=4)</button>
-  <button role="tab" aria-selected="false" data-panel="other">REMB / その他</button>
-  <div role="tabpanel" data-panel="pli">
-    <table>
-      <tr><th></th><th>Before</th><th>After</th></tr>
-      <tr><td>引くキー</td><td>senderSsrc → なければ mediaSsrc</td><td>mediaSsrc のみ</td></tr>
-      <tr><td>mediaSsrc が未登録</td><td>senderSsrc 側へ誤配送しうる</td><td>compatible（既定）: RTX SSRC の持ち主 → 唯一の video Sender／strict: 配送しない（§4）</td></tr>
-      <tr><td>根拠</td><td>-</td><td>RFC 4585 §6.1</td></tr>
-    </table>
-  </div>
-  <div role="tabpanel" data-panel="fir" hidden>
-    <table>
-      <tr><th></th><th>Before</th><th>After</th></tr>
-      <tr><td>引くキー</td><td>senderSsrc → mediaSsrc（Chrome は 0）</td><td>FCI の <code>fir[].ssrc</code> 各エントリ</td></tr>
-      <tr><td>複数エントリ</td><td>考慮なし</td><td>同じ recipient には 1 回だけ配送</td></tr>
-      <tr><td>エントリの ssrc が未登録</td><td>-</td><td>PLI と同じ解決（compatible / strict）。Sender には解決済みのエントリを渡す</td></tr>
-      <tr><td>fir[] が空</td><td>-</td><td>mediaSsrc が 0 以外のときのみ fallback</td></tr>
-      <tr><td>根拠</td><td>-</td><td>RFC 5104 §4.3.1</td></tr>
-    </table>
-  </div>
-  <div role="tabpanel" data-panel="other" hidden>
-    <table>
-      <tr><th>種別</th><th>挙動</th></tr>
-      <tr><td>REMB</td><td>従来どおり <code>ssrcFeedbacks[0]</code> で配送（変更なし）</td></tr>
-      <tr><td>未知 FMT（SLI, RPSI など）</td><td>配送しない。<code>feedback</code> が未パースの場合も throw しない</td></tr>
-    </table>
-  </div>
-</div>
-
-<script>
-  document.querySelectorAll(".rt-tabs [role=tab]").forEach((tab) => {
-    tab.addEventListener("click", () => {
-      document.querySelectorAll(".rt-tabs [role=tab]").forEach((t) => t.setAttribute("aria-selected", String(t === tab)));
-      document.querySelectorAll(".rt-tabs [role=tabpanel]").forEach((p) => { p.hidden = p.dataset.panel !== tab.dataset.panel; });
-    });
-  });
-</script>
 
 ### なぜ誤配送が起きていたか（sendrecv video の例）
+
+werift の `sendRtcpPLI` も Chrome も、PLI の `senderSsrc` に自分の送信 SSRC を入れます。sendrecv では、その SSRC は受信側 router の `ssrcTable` で **Receiver** に登録されています。
 
 <svg viewBox="0 0 640 210" width="100%" role="img" aria-label="PLI の誤配送と修正後の配送">
   <g fill="none" stroke="var(--review-border)" stroke-width="1.5">
@@ -98,123 +52,141 @@ ide:
   <g font-size="12" text-anchor="middle"><text x="320" y="195" fill="var(--review-danger)">Before: senderSsrc が自分の Receiver に当たり、PLI は handleRtcpPacket で無視される</text><text x="320" y="10" fill="var(--review-success)">After: mediaSsrc で Sender に届く</text></g>
 </svg>
 
-## 3. Sender 側の FIR 処理と統合イベント
+## 2. 主要変更
 
-[packages/webrtc/src/media/rtpSender.ts:892](review-file:packages/webrtc/src/media/rtpSender.ts:892) で FIR を処理します。差分は [packages/webrtc/src/media/rtpSender.ts:892](review-diff:packages/webrtc/src/media/rtpSender.ts:892) です。
+### 2.1 Router: 対象 SSRC で配送する
 
-<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:stretch">
-  <div style="flex:1;min-width:150px;padding:8px;border:1px solid var(--review-border);border-radius:6px"><strong>1. 自分宛を抽出</strong><br>fir[] から <code>ssrc === this.ssrc</code> を選ぶ。0 件なら何もしない</div>
-  <div style="flex:1;min-width:150px;padding:8px;border:1px solid var(--review-border);border-radius:6px"><strong>2. firCount</strong><br>自分宛エントリを含む FIR パケット 1 つにつき 1 加算（再送も数える）</div>
-  <div style="flex:1;min-width:150px;padding:8px;border:1px solid var(--review-border);border-radius:6px"><strong>3. 再送判定</strong><br>エントリごとに <code>(senderSsrc, 対象 ssrc)</code> の前回 Seq nr と比較。1 つでも新しければ新規（RFC 5104 §4.3.1.1）</div>
-  <div style="flex:1;min-width:150px;padding:8px;border:1px solid var(--review-accent);border-radius:6px"><strong>4. 発火</strong><br>新しい Seq nr のときだけ <code>onFullIntraRequest</code> と <code>onKeyFrameRequest("fir")</code></div>
-</div>
+PLI は [packages/webrtc/src/media/router.ts:441](review-file:packages/webrtc/src/media/router.ts:441) で `mediaSsrc` から配送先を決めます。FIR は [packages/webrtc/src/media/router.ts:450](review-file:packages/webrtc/src/media/router.ts:450) で FCI エントリごとに配送先を決め、同じ配送先には 1 回だけ届けます。Sender には、その Sender に解決したエントリを `handleRtcpPacket(packet, entries)` で渡します。
 
-| イベント | 型 | 発火条件 |
-| --- | --- | --- |
-| `onPictureLossIndication`（既存） | `Event<[]>` | PLI を受けるたび |
-| `onFullIntraRequest`（新規） | `Event<[FullIntraRequest]>` | 自分宛かつ新しい Seq nr の FIR |
-| `onKeyFrameRequest`（新規） | `Event<["pli" \| "fir"]>` | PLI ごと、および再送でない FIR |
+最初の修正の差分は [packages/webrtc/src/media/router.ts](review-diff:packages/webrtc/src/media/router.ts:commit:fcfe4833) です。
 
-- `onPictureLossIndication` / `pliCount` の挙動は変えていません。FIR を PLI のイベントに流すと既存購読者が名前と違う種類のパケットで動き出すため、分離を維持しました（ユーザー判断で統合イベントを追加）。
-- `FullIntraRequest` は [packages/rtp/src/index.ts:8](review-file:packages/rtp/src/index.ts:8) から export し、利用者が型を参照できます。
-- example は [examples/mediachannel/sendrecv/offer.ts:28](review-file:examples/mediachannel/sendrecv/offer.ts:28) で `onKeyFrameRequest` の 1 購読に移行しました。差分は [examples/mediachannel/sendrecv/offer.ts](review-diff:examples/mediachannel/sendrecv/offer.ts) です。
+| 種別 | Before | After | 根拠 |
+| --- | --- | --- | --- |
+| PLI（FMT=1） | `senderSsrc` → なければ `mediaSsrc` | `mediaSsrc` から解決（§2.2） | RFC 4585 §6.1 |
+| FIR（FMT=4） | `senderSsrc` → なければ `mediaSsrc`（Chrome は 0） | FCI の各 `fir[].ssrc` から解決し、配送先ごとに 1 回。`fir[]` が空なら 0 以外の `mediaSsrc` のみ | RFC 5104 §4.3.1 |
+| REMB（FMT=15） | `ssrcFeedbacks[0]` | 変更なし | - |
+| 未知 FMT（SLI, RPSI など） | `feedback` 未定義で throw しうる | 配送しない（[packages/webrtc/src/media/router.ts:432](review-file:packages/webrtc/src/media/router.ts:432)） | - |
 
-## 4. 判断理由
+### 2.2 未登録の対象 SSRC の扱い: `keyFrameRequestRouting`
 
-- **FIR の common header の media SSRC は使わない**: RFC 5104 で 0 と定められ、libwebrtc も 0 を送ります。
-- **`firCount` はパケット単位で、再送も数える**: W3C webrtc-stats の `firCount` は「受信した FIR パケット数」です。primary と RTX のエントリが同じ Sender に解決されても、1 パケットなら 1 です。再送も 1 パケットとして数え、通知だけを Seq nr で重複除去します（libwebrtc も重複除去の前に数えます）。チケット §2.3 の「エントリ 1 つにつき」は、W3C の定義に合わせてパケット単位に改めました。
-- **`onKeyFrameRequest` を追加**: PLI と FIR のどちらでも行う処理は結局キーフレーム要求だけ、というユーザーの指摘によります。既存イベントは変えず追加のみです。
+対象 SSRC は [packages/webrtc/src/media/router.ts:495](review-file:packages/webrtc/src/media/router.ts:495) の `keyFrameRequestTarget` で解決します。設定は `RTCPeerConnection` の `keyFrameRequestRouting` です（[packages/webrtc/src/api/peerConfig.ts:130](review-file:packages/webrtc/src/api/peerConfig.ts:130)）。`setConfiguration` で router に反映し（[packages/webrtc/src/peerConnection.ts:504](review-file:packages/webrtc/src/peerConnection.ts:504)）、未知の値は `TypeError` です。
 
-### 4.1 「senderSsrc へフォールバック」案を採らない理由
-
-レビューで「`mediaSsrc` → なければ `senderSsrc`」をデフォルトにし、RFC 準拠をオプションにする案が出ました。キーフレーム要求に最大限応える、という狙いは採用しました（§4.2）。ただし、`senderSsrc` を引く方法では狙いを達成できません。
-
-| 観点 | 内容 |
-| --- | --- |
-| `senderSsrc` の意味 | 要求を**送ってきた相手**の SSRC（RFC 4585 §6.1）。自分の Sender の SSRC は自分で乱数で決めるため、ここに一致しない |
-| 実測 | werift 同士の sendrecv video で、相手 PLI の `senderSsrc` を自分の `ssrcTable` で引くと `RTCRtpReceiver` に当たった |
-| 結果 | Receiver は PSFB を処理しないので、キーフレームは出ない。Receiver の `onRtcp` に PSFB が流れるだけ |
-| SFU / relay | `senderSsrc` が別 endpoint の stream に当たり、無関係な相手に要求が届く。下流の relay が monkey-patch で避けていた誤配送そのもの |
-
-つまり、このフォールバックで救える要求はほぼなく、今回直した誤配送がデフォルトで戻ります。
-
-### 4.2 代わりに入れたもの: `keyFrameRequestRouting`
-
-`mediaSsrc`（FIR では FCI エントリの `ssrc`）が引けない現実的なケースは、SSRC 0、RTX の SSRC、再ネゴシエーション後の古い SSRC です。これらを、要求先の SSRC から**自分の Sender への対応付け**で救います。
-
-[packages/webrtc/src/media/router.ts](review-file:packages/webrtc/src/media/router.ts) の `keyFrameRequestTarget` が解決します。設定は `RTCPeerConnection` の `keyFrameRequestRouting` です（[packages/webrtc/src/api/peerConfig.ts](review-file:packages/webrtc/src/api/peerConfig.ts)）。
+差分は [packages/webrtc/src/media/router.ts](review-diff:packages/webrtc/src/media/router.ts:commit:5b19896e) です。
 
 | 対象 SSRC | `"compatible"`（既定） | `"strict"` |
 | --- | --- | --- |
 | `ssrcTable` に登録済み | そのまま配送 | そのまま配送 |
 | ある Sender の RTX SSRC | その Sender | 配送しない |
-| 上記以外で、video Sender が 1 つだけ | その Sender | 配送しない |
+| 上記以外で、停止していない video Sender が 1 つだけ | その Sender | 配送しない |
 | 上記以外（video Sender が 0 または複数） | 配送しない | 配送しない |
 | `senderSsrc` | 使わない | 使わない |
 
-- **複数 video Sender では推測しない**: SFU / relay のように Sender が複数あると、どれ宛か決められないためです。誤った相手へ送るより、配送しない方を選びました。
-- **FIR**: Router が解決したエントリを `handleRtcpPacket(packet, entries)` で Sender に渡します。これで RTX SSRC 宛や未登録 SSRC 宛のエントリも `firCount` と `onFullIntraRequest` / `onKeyFrameRequest` に反映されます。引数が無いとき（直接呼び出し）は、従来どおり自分の SSRC 宛のエントリだけを扱います。
-- **設定の変更**: `setConfiguration` でいつでも切り替えられます。未知の値は `TypeError` です。
+救済の対象は、SSRC 0、RTX の SSRC、再ネゴシエーション後の古い SSRC を指す要求です。video Sender が複数あるときは、どれ宛か決められないので配送しません（SFU / relay で無関係な相手に届くのを避けるため）。
 
-### 4.3 複合 RTCP の境界と FIR の送信長（レビュー指摘への対応）
+### 2.3 Sender: FIR の集計と通知
 
-- **受信側**: `RtcpPacketConverter.deSerialize` は、各パケットの payload を複合パケットの末尾まで渡していました（[packages/rtp/src/rtcp/rtcp.ts](review-file:packages/rtp/src/rtcp/rtcp.ts)）。`RR + SDES + FIR(A 宛) + PLI(B 宛)` では、後続の PLI のバイトが FIR の FCI として読まれ、B 宛の偽エントリができていました。FIR の配送と通知を追加したことで、この偽エントリが B への余分な FIR 通知と `firCount` の誤計上として表面化しました。各パケットを、ヘッダーで宣言された長さで区切るよう直しました。padding 長も、自分のパケットの末尾から読むようになります。
-- **送信側**: `FullIntraRequest.length` は 1 エントリで 3 を返していました。RFC 5104 §4.3.1.1 では 2 + 2 × N（1 エントリなら 4）です（[packages/rtp/src/rtcp/psfb/fullIntraRequest.ts](review-file:packages/rtp/src/rtcp/psfb/fullIntraRequest.ts)）。既存テストの期待値も誤った 3 で一致していたため、4 に直しました。
+FIR は [packages/webrtc/src/media/rtpSender.ts:913](review-file:packages/webrtc/src/media/rtpSender.ts:913) で処理します。
 
-| 例: `RR + SDES + FIR(A) + PLI(B)` | 修正前 | 修正後 |
+<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:stretch">
+  <div style="flex:1;min-width:150px;padding:8px;border:1px solid var(--review-border);border-radius:6px"><strong>1. 自分宛を決める</strong><br>Router が渡したエントリ。直接呼び出しで無ければ <code>ssrc === this.ssrc</code> のエントリ。0 件なら何もしない</div>
+  <div style="flex:1;min-width:150px;padding:8px;border:1px solid var(--review-border);border-radius:6px"><strong>2. firCount</strong><br>パケット 1 つにつき 1 加算。エントリ数は関係なく、再送も数える</div>
+  <div style="flex:1;min-width:150px;padding:8px;border:1px solid var(--review-border);border-radius:6px"><strong>3. 再送判定</strong><br>エントリごとに <code>(senderSsrc, 対象 ssrc)</code> の前回 Seq nr と比べ、記録を更新する</div>
+  <div style="flex:1;min-width:150px;padding:8px;border:1px solid var(--review-accent);border-radius:6px"><strong>4. 通知</strong><br>新しいエントリが 1 つでもあれば <code>onFullIntraRequest</code> と <code>onKeyFrameRequest("fir")</code> を 1 回</div>
+</div>
+
+| イベント / 統計 | 型 | 発火・加算の条件 |
 | --- | --- | --- |
-| FIR の FCI | A と、PLI のバイトから読んだ偽エントリ（B を含む） | A のみ |
-| B の通知 | PLI と、Seq nr が変われば余分な FIR | PLI のみ |
-| B の `firCount` | 増える | 増えない |
+| `onPictureLossIndication`（既存） | `Event<[]>` | PLI を受けるたび（変更なし） |
+| `onFullIntraRequest`（新規、[packages/webrtc/src/media/rtpSender.ts:157](review-file:packages/webrtc/src/media/rtpSender.ts:157)） | `Event<[FullIntraRequest]>` | 自分宛で、新しい Seq nr のエントリを含む FIR |
+| `onKeyFrameRequest`（新規、[packages/webrtc/src/media/rtpSender.ts:162](review-file:packages/webrtc/src/media/rtpSender.ts:162)） | `Event<["pli" \| "fir"]>` | PLI ごと、および再送でない FIR |
+| `pliCount`（既存） | outbound-rtp | PLI を受けるたび（変更なし） |
+| `firCount`（集計を新規実装） | outbound-rtp | 自分宛エントリを含む FIR パケット 1 つにつき 1 |
 
-### 4.4 FIR の再送判定は（送信元, 対象 SSRC）ごと（レビュー指摘への対応）
+再送判定とパケット単位の集計の差分は [packages/webrtc/src/media/rtpSender.ts](review-diff:packages/webrtc/src/media/rtpSender.ts:commit:b5e5716e) と [packages/webrtc/src/media/rtpSender.ts](review-diff:packages/webrtc/src/media/rtpSender.ts:commit:130cb55f) です。
 
-RFC 5104 §4.3.1.1 では、Seq nr の番号空間は FIR の送信元と対象 SSRC の組ごとです。以前の実装は送信元 SSRC だけをキーにし、最後のエントリの番号だけを記録していました。そのため、primary と RTX のエントリが同じ Sender に解決されると、次の 2 つが起きていました。
+例: primary と RTX のエントリが同じ Sender に解決される場合です。
 
-| 例 | 修正前 | 修正後 |
+| 受信した FIR | 通知 | `firCount` |
 | --- | --- | --- |
-| `[primary=5, RTX=9]` の再送 | primary の 5 が記録済みの 9 と違うため、再送でも通知 | 各エントリが既受信の番号なので通知しない |
-| primary=5 を受けた後の `[RTX=5]`（RTX 宛の新しい要求） | 記録済みの 5 と同じため、再送扱いで通知が欠落 | RTX 宛の番号空間では新しいので通知 |
+| `[primary=5, RTX=9]` | する（どちらも初めて） | 1 |
+| 同じパケットの再送 | しない（どちらも既受信の番号） | 2 |
+| `[RTX=5]` | する（RTX 宛の番号空間では 5 は新しい） | 3 |
 
-[packages/webrtc/src/media/rtpSender.ts](review-file:packages/webrtc/src/media/rtpSender.ts) で、エントリごとに `(senderSsrc, ssrc)` をキーに判定・記録します。チケット §2.3 の「送信元ごとに覚える」を、RFC の定義に合わせて精密にしたものです。`firCount` は再送判定とは独立に、自分宛エントリを含むパケット 1 つにつき 1 加算します。
+### 2.4 werift-rtp: 複合 RTCP の分割と FIR の送信長
 
-## 5. リスク・互換性
+- **受信**: [packages/rtp/src/rtcp/rtcp.ts:30](review-file:packages/rtp/src/rtcp/rtcp.ts:30) で、各パケットの payload をヘッダーの宣言長で区切ります。以前は複合パケットの末尾まで渡していたので、`RR + SDES + FIR(A 宛) + PLI(B 宛)` では PLI のバイトが FIR の FCI として読まれ、B 宛の偽エントリができていました。FIR の配送と通知を入れたことで、これが B への余分な FIR 通知と `firCount` として表面化しました。padding 長も、自分のパケットの末尾から読むようになります。
+- **送信**: [packages/rtp/src/rtcp/psfb/fullIntraRequest.ts:17](review-file:packages/rtp/src/rtcp/psfb/fullIntraRequest.ts:17) の `length` を 2 + 2 × N（1 エントリなら 4）にしました。以前は 1 ワード足りず、相手が解析に失敗しえました。既存テストの期待値も誤った 3 だったため、4 に直しました。
+- 差分は [packages/rtp/src/rtcp/rtcp.ts](review-diff:packages/rtp/src/rtcp/rtcp.ts:commit:caa9aa28) と [packages/rtp/src/rtcp/psfb/fullIntraRequest.ts](review-diff:packages/rtp/src/rtcp/psfb/fullIntraRequest.ts:commit:caa9aa28) です。
 
-- **挙動変更**: `mediaSsrc` が未登録の PLI は、`senderSsrc` 側にも配送されなくなります。これは意図した変更で、changelog に記載しました。
-- **既定の救済（`"compatible"`）**: 未登録 SSRC 宛の PLI / FIR が、RTX の持ち主か唯一の video Sender に届きます。余分なキーフレームが出る可能性はありますが、要求に応えない場合よりも影響は小さいと判断しました。RFC どおりにしたい場合は `"strict"` を指定します。
-- **チケットとの差分**: チケット §2.1 は「`mediaSsrc` が無ければ配送しない」です。既定の `"compatible"` はレビューでの指示に基づく拡張で、`"strict"` がチケットどおりの挙動です。
-- **挙動変更**: 未知 FMT の PSFB は配送されなくなります。以前は `feedback` が無い場合に throw しうる経路でした。
-- **API は追加のみ**: 既存イベントと stats の名前は変更していません。
+### 2.5 公開 API・example・ドキュメント
+
+- `FullIntraRequest` を [packages/rtp/src/index.ts:8](review-file:packages/rtp/src/index.ts:8) から export し、`werift-rtp` / `werift` の利用者が型を参照できます。
+- example は [examples/mediachannel/sendrecv/offer.ts:28](review-file:examples/mediachannel/sendrecv/offer.ts:28) で `onKeyFrameRequest` の 1 購読に移行しました。
+- [changelog.md:11](review-file:changelog.md:11) 以降に Feature と Bug Fix を記載し、`npm run doc` で `doc/` と `packages/rtp/doc/` を再生成しました。
+
+## 3. 判断理由
+
+- **FIR の common header の media SSRC は使わない**: RFC 5104 で 0 と定められ、libwebrtc も 0 を送ります。
+- **FIR を `onPictureLossIndication` に流さない**: 既存の購読者が、名前と違う種類のパケットで動き出すためです。PLI と FIR のどちらでもキーフレームを出すアプリのために、統合イベント `onKeyFrameRequest` を追加しました（レビューでの指示）。
+- **`firCount` はパケット単位**: W3C webrtc-stats の `firCount` は「受信した FIR パケット数」です。1 パケットに自分宛エントリが複数あっても 1 です。再送も数え、通知だけを Seq nr で重複除去します。
+- **再送判定は（送信元, 対象 SSRC）ごと**: RFC 5104 §4.3.1.1 では Seq nr の番号空間がこの組ごとです。送信元だけをキーにすると、primary と RTX のエントリが同じ Sender に解決されたとき、再送で通知したり、新しい要求を再送扱いしたりします。
+
+### 3.1 「senderSsrc へフォールバック」案を採らない理由
+
+レビューで「`mediaSsrc` → なければ `senderSsrc`」を既定にし、RFC 準拠をオプションにする案が出ました。キーフレーム要求に最大限応えるという狙いは §2.2 で採用しました。ただし `senderSsrc` を引く方法では、この狙いを達成できません。
+
+| 観点 | 内容 |
+| --- | --- |
+| `senderSsrc` の意味 | 要求を**送ってきた相手**の SSRC（RFC 4585 §6.1）。自分の Sender の SSRC は自分で乱数で決めるので、ここに一致しない |
+| 実測 | werift 同士の sendrecv video で、相手 PLI の `senderSsrc` を自分の `ssrcTable` で引くと `RTCRtpReceiver` に当たった |
+| 結果 | Receiver は PSFB を処理しないので、キーフレームは出ない。Receiver の `onRtcp` に PSFB が流れるだけ |
+| SFU / relay | `senderSsrc` が別 endpoint の stream に当たり、無関係な相手に要求が届く。下流の relay が monkey-patch で避けていた誤配送そのもの |
+
+## 4. リスク・互換性
+
+- **挙動変更**: `senderSsrc` が自分の Sender に一致することで偶然届いていた PLI は、届かなくなります。RFC 上は誤りなので許容し、changelog に記載しました。
+- **既定の救済（`"compatible"`）**: 未登録 SSRC 宛の PLI / FIR が、RTX の持ち主か唯一の video Sender に届きます。余分なキーフレームが出る可能性はありますが、要求に応えない場合より影響は小さいと判断しました。RFC どおりにしたい場合は `"strict"` を指定します。
+- **挙動変更**: 未知 FMT の PSFB は配送されなくなります。
+- **`werift-rtp` の受信**: 複合 RTCP の分割は全 RTCP 種別に効きます。宣言長どおりに区切るのが仕様どおりで、rtp・webrtc の全テストに回帰はありません。
+- **API は追加のみ**: 既存イベント・統計の名前とシグネチャは変えていません。`handleRtcpPacket` の第 2 引数は Router 用の省略可能な引数です。
 - **未移行の example**: [examples/certificate/offer.ts](review-file:examples/certificate/offer.ts) と [examples/mediachannel/rtx/offer.ts](review-file:examples/mediachannel/rtx/offer.ts) は `onPictureLossIndication` のままです。動作は変わりませんが、FIR には反応しません。
 
-## 6. テスト
+### 4.1 チケット本文との差分
+
+チケット本文は作成時のままです。次の点は、レビューでの指示や指摘によって本文から変わっています。
+
+| チケット本文 | 実装 | 経緯 |
+| --- | --- | --- |
+| §2.1「`mediaSsrc` が無ければ配送しない」 | 既定 `"compatible"` は救済する。`"strict"` が本文どおり | レビューでの指示（§3.1） |
+| §2.3.1「`onKeyFrameRequest` は今回は作らない」 | 追加した | レビューでの指示 |
+| §2.3「自分宛エントリ 1 つにつき `firCount++`」 | パケット 1 つにつき 1 | レビュー指摘（W3C の定義） |
+| §2.3「前回の Seq nr は送信元ごとに覚える」 | (送信元, 対象 SSRC) ごと | レビュー指摘（RFC 5104 §4.3.1.1） |
+| `packages/rtp` は export の追加のみ | 複合 RTCP の分割と FIR の送信長も修正 | レビュー指摘（配送の追加で表面化） |
+
+## 5. テスト
+
+Arrange は [packages/webrtc/tests/fixture.ts:210](review-file:packages/webrtc/tests/fixture.ts:210) 以降の共通 utility（`createRtcpFeedbackRouter`、`createSingleVideoSenderRouter`、`createCompoundFeedbackBytes`、`sendRawRtcp` など）に集約しています。
 
 | 対象 | ファイル | 内容 |
 | --- | --- | --- |
-| Router | [packages/webrtc/tests/media/router.test.ts:100](review-file:packages/webrtc/tests/media/router.test.ts:100) | PLI の media SSRC 配送、未知 SSRC、FIR の FCI 配送・重複除去・fallback、REMB 維持、未知 FMT |
-| Sender | [packages/webrtc/tests/media/rtpSender.test.ts:1256](review-file:packages/webrtc/tests/media/rtpSender.test.ts:1256) | `firCount`、再送の扱い、他 SSRC 宛の FIR、`onKeyFrameRequest` の発火順 |
-| 結合 | [packages/webrtc/tests/integrate/mediaChannel.test.ts:167](review-file:packages/webrtc/tests/integrate/mediaChannel.test.ts:167) | sendrecv video で PLI が相手 Sender に届き、Receiver に誤配送されない |
-| Router（救済） | [packages/webrtc/tests/media/router.test.ts](review-file:packages/webrtc/tests/media/router.test.ts) | compatible: RTX SSRC 宛 PLI、唯一の video Sender への PLI、FIR エントリの解決と `firCount`／strict: 未登録 SSRC は配送しない／複数 video Sender では配送しない |
-| 複合 RTCP（rtp） | [packages/rtp/tests/rtcp/rtcp.test.ts](review-file:packages/rtp/tests/rtcp/rtcp.test.ts) | 実バイト列の `RR + SDES + FIR + PLI` が 4 パケットに分かれ FCI が 1 件のまま、padding 付きパケットの後続も復号、FIR の length が 2 + 2 × N で往復できる |
-| FIR 再送判定（Sender） | [packages/webrtc/tests/media/rtpSender.test.ts](review-file:packages/webrtc/tests/media/rtpSender.test.ts) | primary / RTX の 2 エントリとその再送、別対象と同じ番号の新規要求、対象ごとの再送 |
-| FIR 再送判定（Router） | [packages/webrtc/tests/media/router.test.ts](review-file:packages/webrtc/tests/media/router.test.ts) | compatible で primary / RTX のエントリが同じ Sender に解決された FIR の再送は再通知しない |
-| 複合 RTCP（Router） | [packages/webrtc/tests/media/router.test.ts](review-file:packages/webrtc/tests/media/router.test.ts) | 実バイト列を復号して配送し、A は FIR・B は PLI だけを受ける。同じパケットの再送では A の通知は出ず `firCount` だけ増え、B の `firCount` は増えない |
-| 結合（救済） | [packages/webrtc/tests/integrate/mediaChannel.test.ts](review-file:packages/webrtc/tests/integrate/mediaChannel.test.ts) | werift 同士で media SSRC 0 の PLI が既定で届き、strict では届かない。未知のモードは `TypeError` |
+| Router | [packages/webrtc/tests/media/router.test.ts:104](review-file:packages/webrtc/tests/media/router.test.ts:104) | PLI の media SSRC 配送、複数 video Sender での未登録 SSRC、FIR の FCI 配送・重複除去・空 FCI、REMB、未知 FMT |
+| Router（救済） | [packages/webrtc/tests/media/router.test.ts:142](review-file:packages/webrtc/tests/media/router.test.ts:142) | compatible: RTX SSRC 宛 PLI、唯一の video Sender、FIR エントリの解決と再送。strict: 未登録 SSRC は配送しない |
+| Router（複合 RTCP） | [packages/webrtc/tests/media/router.test.ts:346](review-file:packages/webrtc/tests/media/router.test.ts:346) | 実バイト列を復号して配送。A は FIR、B は PLI だけを受け、再送では A の通知は出ず `firCount` だけ増える |
+| Sender | [packages/webrtc/tests/media/rtpSender.test.ts:1268](review-file:packages/webrtc/tests/media/rtpSender.test.ts:1268) | `firCount`、再送の扱い、(送信元, 対象) ごとの再送判定、他 SSRC 宛の FIR、`onKeyFrameRequest` の発火順、PLI と FIR の独立 |
+| 結合 | [packages/webrtc/tests/integrate/mediaChannel.test.ts:173](review-file:packages/webrtc/tests/integrate/mediaChannel.test.ts:173) | werift 同士の sendrecv video で PLI が相手 Sender に届く。media SSRC 0 の PLI は既定で届き、strict では届かない。未知のモードは `TypeError` |
+| rtp（複合 RTCP） | [packages/rtp/tests/rtcp/rtcp.test.ts:64](review-file:packages/rtp/tests/rtcp/rtcp.test.ts:64) | `RR + SDES + FIR + PLI` の分割、padding 付きパケットの後続、FIR の length が 2 + 2 × N で往復できる |
+| rtp（FIR） | [packages/rtp/tests/rtcp/psfb/fullIntraRequest.test.ts:6](review-file:packages/rtp/tests/rtcp/psfb/fullIntraRequest.test.ts:6) | RFC どおりの length=4 のベクタで復号・再シリアライズ |
 
-## 7. 検証結果
+各修正では、修正前の実装に戻すと追加テストが失敗することを確認してから元に戻しています（strict 判定、唯一の video Sender への解決、payload の区切り、(送信元, 対象) ごとの再送判定、パケット単位の `firCount`）。
+
+## 6. 検証結果
 
 | 項目 | 結果 | 備考 |
 | --- | --- | --- |
-| `packages/webrtc` の `npm run type` / `npm test`（`firCount` をパケット単位にした後） | 成功 | 56 ファイル・837 テスト（3 件 skip） |
-| ミューテーション確認（`firCount`） | 検出 | エントリ数で加算する実装に戻すと、複数エントリの FIR を扱う Sender / Router のテストが失敗。元に戻した |
-| `packages/webrtc` の `npm run type` / `npm test`（FIR 再送判定の修正後） | 成功 | 56 ファイル・837 テスト（3 件 skip） |
-| ミューテーション確認（FIR 再送判定） | 検出 | 修正前の `rtpSender.ts` に戻すと、追加した Sender / Router の 2 テストが失敗。元に戻した |
-| ルートの `npm run type` | 成功 | 複合 RTCP の境界・FIR length 修正後 |
-| ルートの `npm run test:small` | 成功 | 全パッケージ。rtp 368、webrtc 835（3 件 skip）を含む |
-| `packages/rtp` の `npm run type` / `npm test` | 成功 | 39 ファイル・368 テスト |
-| `packages/webrtc` の `npm run type` / `npm test` | 成功 | 56 ファイル・835 テスト（3 件 skip） |
-| レビュー指摘の再現コード | 期待どおり | FIR の FCI は A のみ、通知は A:`fir` / B:`pli`、B は `firCount: 1, pliCount: 1` |
-| ミューテーション確認 | 検出 | 受信 payload の区切りを外すと rtp の追加 3 件と Router の複合 RTCP テストが失敗。strict 判定・唯一の video Sender 解決を外すと救済テストが失敗。いずれも元に戻した |
-| `npm run doc` | 成功 | `keyFrameRequestRouting` 追加時に実行。今回の修正は公開シグネチャを変えないため再生成していない |
+| `packages/rtp` の `npm run type` / `npm test`（`1ffb4a77`） | 成功 | 39 ファイル・368 テスト |
+| `packages/webrtc` の `npm run type` / `npm test`（`1ffb4a77`） | 成功 | 58 ファイル・895 テスト（5 件 skip） |
+| ルートの `npm run type` / `npm run test:small` | 成功 | 複合 RTCP 修正時（`caa9aa28` 相当）に実施。develop 取り込み後は未実施 |
+| `npm run doc` | 成功 | `keyFrameRequestRouting` 追加時に実施。以降は公開シグネチャの変更なし |
+| examples の Chromium カタログ（`npm run examples:e2e`） | 成功 | 初回の自動レビュー時（`onKeyFrameRequest` 追加前）のみ |
 
-**未確認**: WPT、Chromium の E2E カタログ（`npm run examples:e2e`）、`npm run e2e` は、`onKeyFrameRequest` / `keyFrameRequestRouting` / 複合 RTCP 修正の後に実行していません。Chrome などが未登録 SSRC 宛の PLI / FIR を実際にどの程度送るかも調べていません。
+**未確認**: WPT と `npm run e2e` は実施していません。`npm run examples:e2e` は `onKeyFrameRequest` 追加以降、実施していません。Chrome などが未登録 SSRC 宛の PLI / FIR を実際にどの程度送るかも調べていません。
