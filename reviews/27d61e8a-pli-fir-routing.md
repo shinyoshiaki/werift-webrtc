@@ -4,11 +4,11 @@ ide:
   version: 1
   title: "PLI/FIR 配送修正のレビュー解説"
   dock: right
-  baseCommit: 210081e0d99c078eaabb39b89b84b082f5161844
+  baseCommit: 69e7c85da66d534810e31da438f2b472ff82745a
 ---
 # RTCP PLI/FIR を media SSRC で配送する修正のレビュー解説
 
-対象チケット: `27d61e8a-9e52-4b83-9797-51c6369b9dbf`（reviewStatus: approved）。比較の基準は `develop`（merge-base `210081e0`）、最新は `1ffb4a77`（develop を取り込み済み）です。
+対象チケット: `27d61e8a-9e52-4b83-9797-51c6369b9dbf`（reviewStatus: approved）。比較の基準は `develop`（merge-base `69e7c85d`）、最新は `9fadc74f`（develop を取り込み済み）です。
 
 ## 1. 概要
 
@@ -85,7 +85,7 @@ PLI は [packages/webrtc/src/media/router.ts:441](review-file:packages/webrtc/sr
 
 ### 2.3 Sender: FIR の集計と通知
 
-FIR は [packages/webrtc/src/media/rtpSender.ts:913](review-file:packages/webrtc/src/media/rtpSender.ts:913) で処理します。
+FIR は [packages/webrtc/src/media/rtpSender.ts:910](review-file:packages/webrtc/src/media/rtpSender.ts:910) で処理します。
 
 <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:stretch">
   <div style="flex:1;min-width:150px;padding:8px;border:1px solid var(--review-border);border-radius:6px"><strong>1. 自分宛を決める</strong><br>Router が渡したエントリ。直接呼び出しで無ければ <code>ssrc === this.ssrc</code> のエントリ。0 件なら何もしない</div>
@@ -97,8 +97,8 @@ FIR は [packages/webrtc/src/media/rtpSender.ts:913](review-file:packages/webrtc
 | イベント / 統計 | 型 | 発火・加算の条件 |
 | --- | --- | --- |
 | `onPictureLossIndication`（既存） | `Event<[]>` | PLI を受けるたび（変更なし） |
-| `onFullIntraRequest`（新規、[packages/webrtc/src/media/rtpSender.ts:157](review-file:packages/webrtc/src/media/rtpSender.ts:157)） | `Event<[FullIntraRequest]>` | 自分宛で、新しい Seq nr のエントリを含む FIR |
-| `onKeyFrameRequest`（新規、[packages/webrtc/src/media/rtpSender.ts:162](review-file:packages/webrtc/src/media/rtpSender.ts:162)） | `Event<["pli" \| "fir"]>` | PLI ごと、および再送でない FIR |
+| `onFullIntraRequest`（新規、[packages/webrtc/src/media/rtpSender.ts:154](review-file:packages/webrtc/src/media/rtpSender.ts:154)） | `Event<[FullIntraRequest]>` | 自分宛で、新しい Seq nr のエントリを含む FIR |
+| `onKeyFrameRequest`（新規、[packages/webrtc/src/media/rtpSender.ts:159](review-file:packages/webrtc/src/media/rtpSender.ts:159)） | `Event<["pli" \| "fir"]>` | PLI ごと、および再送でない FIR |
 | `pliCount`（既存） | outbound-rtp | PLI を受けるたび（変更なし） |
 | `firCount`（集計を新規実装） | outbound-rtp | 自分宛エントリを含む FIR パケット 1 つにつき 1 |
 
@@ -183,9 +183,7 @@ Arrange は [packages/webrtc/tests/fixture.ts:210](review-file:packages/webrtc/t
 
 | 項目 | 結果 | 備考 |
 | --- | --- | --- |
-| `packages/rtp` の `npm run type` / `npm test`（`1ffb4a77`） | 成功 | 39 ファイル・368 テスト |
-| `packages/webrtc` の `npm run type` / `npm test`（`1ffb4a77`） | 成功 | 58 ファイル・895 テスト（5 件 skip） |
-| ルートの `npm run type` / `npm run test:small` | 成功 | 複合 RTCP 修正時（`caa9aa28` 相当）に実施。develop 取り込み後は未実施 |
+| ルートの `npm run type` / `npm run test:small`（`9fadc74f`、develop 取り込み後） | 成功 | rtp 40 ファイル・372 テスト、webrtc 58 ファイル・896 テスト（5 件 skip）を含む全パッケージ |
 | `npm run doc` | 成功 | `keyFrameRequestRouting` 追加時に実施。以降は公開シグネチャの変更なし |
 | examples の Chromium カタログ（`npm run examples:e2e`） | 成功 | 初回の自動レビュー時（`onKeyFrameRequest` 追加前）のみ |
 
