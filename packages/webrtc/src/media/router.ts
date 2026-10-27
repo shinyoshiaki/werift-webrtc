@@ -1,7 +1,8 @@
 import {
+  debug,
   type Extensions,
-  RTP_EXTENSION_URI,
   ReceiverEstimatedMaxBitrate,
+  RTP_EXTENSION_URI,
   type RtcpPacket,
   RtcpPayloadSpecificFeedback,
   RtcpRrPacket,
@@ -9,9 +10,8 @@ import {
   RtcpSrPacket,
   RtcpTransportLayerFeedback,
   type RtpPacket,
-  TransportWideCC,
-  debug,
   rtpHeaderExtensionsParser,
+  TransportWideCC,
 } from "../imports/rtp";
 import { type RouterSnapshot, ridRouteKey } from "../negotiation/internalState";
 import type { RTCDtlsTransport } from "../transport/dtls";

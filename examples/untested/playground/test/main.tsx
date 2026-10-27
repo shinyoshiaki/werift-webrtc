@@ -5,7 +5,7 @@ import { Red } from "werift-rtp/src";
 (async () => {
   const caller = new RTCPeerConnection();
   const callee = new RTCPeerConnection({
-    //@ts-ignore
+    //@ts-expect-error
     encodedInsertableStreams: true,
   });
 

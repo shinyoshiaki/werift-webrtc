@@ -78,7 +78,9 @@ async function hasDirectTcpAllocation(pc: RTCPeerConnection) {
 describe("datachannel/ice tcp", () => {
   test("exchanges data over direct ICE-TCP between Chrome and werift", async ({
     skip,
-  }: { skip: (message?: string) => void }) => {
+  }: {
+    skip: (message?: string) => void;
+  }) => {
     // Arrange: Chrome 側で candidate gathering を完了させ、direct TCP 経路の有無を確認する。
     await ensurePeerConnected();
     const pc = new RTCPeerConnection({

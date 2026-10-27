@@ -1,10 +1,10 @@
 import { randomUUID } from "crypto";
 import {
-  type PeerConfig,
-  type RTCPeerConnectionConfig,
   clonePeerConfiguration,
   generateDefaultPeerConfig,
   mergePeerConfiguration,
+  type PeerConfig,
+  type RTCPeerConnectionConfig,
 } from "./api/peerConfig";
 import {
   type PeerConnectionEventHandlers,
@@ -15,7 +15,7 @@ import {
 import type { RTCDataChannel } from "./dataChannel";
 import { createWebRtcDomException } from "./errors";
 import { EventTarget, enumerate } from "./helper";
-import { Event, debug } from "./imports/common";
+import { debug, Event } from "./imports/common";
 import {
   type MediaStream,
   type MediaStreamTrack,
@@ -27,20 +27,20 @@ import {
   type TransceiverOptions,
 } from "./media";
 import {
-  type RTCPeerConnectionStats,
-  type RTCStats,
-  type RTCStatsReport,
   buildStatsReport,
   generateStatsId,
   getStatsTimestamp,
+  type RTCPeerConnectionStats,
+  type RTCStats,
+  type RTCStatsReport,
 } from "./media/stats";
 import { BundleTopology } from "./negotiation/bundleTopology";
 import { DescriptionValidation } from "./negotiation/descriptionValidation";
 import { IceRestartRequest } from "./negotiation/iceRestartRequest";
 import { NegotiationNeeded } from "./negotiation/negotiationNeeded";
 import {
-  RemoteCandidates,
   normalizeCandidateUfrag,
+  RemoteCandidates,
 } from "./negotiation/remoteCandidates";
 import { RemoteMediaApplication } from "./negotiation/remoteMediaApplication";
 import { TransportActivation } from "./negotiation/transportActivation";
@@ -63,6 +63,8 @@ import { andDirection } from "./utils";
 
 export {
   type DebugConfig,
+  defaultPeerConfig,
+  findCodecByMimeType,
   type PeerConfig,
   type RTCBundlePolicy,
   type RTCConfiguration,
@@ -70,8 +72,6 @@ export {
   type RTCPeerConnectionConfig,
   type RTCRtcpMuxPolicy,
   type RTCSctpConfiguration,
-  defaultPeerConfig,
-  findCodecByMimeType,
 } from "./api/peerConfig";
 export {
   type RTCDataChannelEvent,

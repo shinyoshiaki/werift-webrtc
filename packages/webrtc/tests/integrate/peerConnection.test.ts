@@ -3,6 +3,7 @@ import { vi } from "vitest";
 
 import { HashAlgorithm } from "../../../dtls/src/cipher/const";
 import {
+  createSelfSignedCertificate,
   MediaStream,
   MediaStreamTrack,
   type RTCDataChannel,
@@ -11,7 +12,6 @@ import {
   RTP_EXTENSION_URI,
   RtpHeader,
   RtpPacket,
-  createSelfSignedCertificate,
   useSdesRTPStreamId,
 } from "../../src";
 import { SignatureAlgorithm } from "../../src/const";

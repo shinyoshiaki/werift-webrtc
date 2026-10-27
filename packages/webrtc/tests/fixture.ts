@@ -2,6 +2,8 @@ import { setTimeout } from "timers/promises";
 
 import { vi } from "vitest";
 import {
+  codecParametersToString,
+  defaultPeerConfig,
   type Kind,
   MediaStreamTrack,
   RTCDtlsTransport,
@@ -14,8 +16,6 @@ import {
   RTP_EXTENSION_URI,
   RtpHeader,
   RtpPacket,
-  codecParametersToString,
-  defaultPeerConfig,
 } from "../src";
 import { RTCRtpSender } from "../src/media/rtpSender";
 import { GccBandwidthEstimator } from "../src/media/sender/estimators/gcc/gccBwe";

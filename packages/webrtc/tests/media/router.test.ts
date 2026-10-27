@@ -1,5 +1,6 @@
 import { describe, expect, test, vi } from "vitest";
 import {
+  defaultPeerConfig,
   GenericNack,
   MediaStreamTrack,
   RTCRtpTransceiver,
@@ -7,7 +8,6 @@ import {
   RtpHeader,
   RtpPacket,
   TransportWideCC,
-  defaultPeerConfig,
 } from "../../src";
 import {
   RTCRtpCodecParameters,

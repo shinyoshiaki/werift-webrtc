@@ -1,10 +1,9 @@
 import { createPrivateKey, randomUUID, X509Certificate } from "node:crypto";
-import { setTimeout } from "timers/promises";
-import { Event, type Transport } from "../imports/common";
-
 import type { AddressInfo } from "net";
+import { setTimeout } from "timers/promises";
 import type { DebugConfig } from "../api/peerConfig";
 import { EventTarget as DomEventTarget } from "../helper";
+import { Event, type Transport } from "../imports/common";
 import {
   CipherContext,
   DtlsClient,
@@ -18,6 +17,10 @@ import {
 } from "../imports/dtls";
 import type { IceConnection } from "../imports/ice";
 import {
+  debug,
+  isMedia,
+  isRtcp,
+  keyLength,
   type RtcpPacket,
   RtcpPacketConverter,
   type RtpHeader,
@@ -26,20 +29,16 @@ import {
   SrtpAuthenticationError,
   type SrtpProfile,
   SrtpSession,
-  debug,
-  isMedia,
-  isRtcp,
-  keyLength,
   saltLength,
 } from "../imports/rtp";
 import {
+  generateStatsId,
+  getStatsTimestamp,
   type RTCCertificateStats,
   type RTCIceCandidatePairStats,
   type RTCIceCandidateStats,
   type RTCStats,
   type RTCTransportStats,
-  generateStatsId,
-  getStatsTimestamp,
 } from "../media/stats";
 import {
   fingerprint,
@@ -60,10 +59,7 @@ export type DtlsSendRtpResult = {
   sendingAtMs: number;
 };
 
-function formatDtlsVersion(version?: {
-  major: number;
-  minor: number;
-}) {
+function formatDtlsVersion(version?: { major: number; minor: number }) {
   if (!version) {
     return;
   }
@@ -691,10 +687,7 @@ export class RTCCertificate {
     return [
       new RTCDtlsFingerprint(
         "sha-256",
-        fingerprint(
-          new X509Certificate(this.certPem).raw,
-          "sha256",
-        ),
+        fingerprint(new X509Certificate(this.certPem).raw, "sha256"),
       ),
     ];
   }
