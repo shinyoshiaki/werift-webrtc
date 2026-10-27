@@ -8,19 +8,19 @@
 
 ## Constructors
 
-### new RTCRtpHeaderExtensionParameters()
+### Constructor
 
-> **new RTCRtpHeaderExtensionParameters**(`props`): [`RTCRtpHeaderExtensionParameters`](RTCRtpHeaderExtensionParameters.md)
+> **new RTCRtpHeaderExtensionParameters**(`props`): `RTCRtpHeaderExtensionParameters`
 
 #### Parameters
 
 ##### props
 
-`Partial`\<[`RTCRtpHeaderExtensionParameters`](RTCRtpHeaderExtensionParameters.md)\> & `Pick`\<[`RTCRtpHeaderExtensionParameters`](RTCRtpHeaderExtensionParameters.md), `"uri"`\>
+`Partial`\<`RTCRtpHeaderExtensionParameters`\> & `Pick`\<`RTCRtpHeaderExtensionParameters`, `"uri"`\>
 
 #### Returns
 
-[`RTCRtpHeaderExtensionParameters`](RTCRtpHeaderExtensionParameters.md)
+`RTCRtpHeaderExtensionParameters`
 
 ## Properties
 

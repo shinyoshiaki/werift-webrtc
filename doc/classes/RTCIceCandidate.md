@@ -8,19 +8,19 @@
 
 ## Constructors
 
-### new RTCIceCandidate()
+### Constructor
 
-> **new RTCIceCandidate**(`props`): [`RTCIceCandidate`](RTCIceCandidate.md)
+> **new RTCIceCandidate**(`props`): `RTCIceCandidate`
 
 #### Parameters
 
 ##### props
 
-`Partial`\<[`RTCIceCandidate`](RTCIceCandidate.md)\>
+`Partial`\<`RTCIceCandidate`\>
 
 #### Returns
 
-[`RTCIceCandidate`](RTCIceCandidate.md)
+`RTCIceCandidate`
 
 ## Properties
 
@@ -32,19 +32,19 @@
 
 ### sdpMid?
 
-> `optional` **sdpMid**: `string`
+> `optional` **sdpMid?**: `string`
 
 ***
 
 ### sdpMLineIndex?
 
-> `optional` **sdpMLineIndex**: `number`
+> `optional` **sdpMLineIndex?**: `number`
 
 ***
 
 ### usernameFragment?
 
-> `optional` **usernameFragment**: `string`
+> `optional` **usernameFragment?**: `string`
 
 ## Methods
 
@@ -62,21 +62,21 @@
 
 ##### sdpMid
 
-> **sdpMid**: `undefined` \| `string`
+> **sdpMid**: `string` \| `undefined`
 
 ##### sdpMLineIndex
 
-> **sdpMLineIndex**: `undefined` \| `number`
+> **sdpMLineIndex**: `number` \| `undefined`
 
 ##### usernameFragment
 
-> **usernameFragment**: `undefined` \| `string`
+> **usernameFragment**: `string` \| `undefined`
 
 ***
 
 ### fromSdp()
 
-> `static` **fromSdp**(`sdp`): [`RTCIceCandidate`](RTCIceCandidate.md)
+> `static` **fromSdp**(`sdp`): `RTCIceCandidate`
 
 #### Parameters
 
@@ -86,13 +86,13 @@
 
 #### Returns
 
-[`RTCIceCandidate`](RTCIceCandidate.md)
+`RTCIceCandidate`
 
 ***
 
 ### isThis()
 
-> `static` **isThis**(`o`): `undefined` \| `true`
+> `static` **isThis**(`o`): `true` \| `undefined`
 
 #### Parameters
 
@@ -102,4 +102,4 @@
 
 #### Returns
 
-`undefined` \| `true`
+`true` \| `undefined`
