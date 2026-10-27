@@ -2,20 +2,27 @@ import { existsSync } from "node:fs";
 
 import { playwright } from "@vitest/browser-playwright";
 import { chromium } from "playwright";
+import { chromium as chromiumDtls12 } from "playwright-dtls12";
 import { nodePolyfills } from "vite-plugin-node-polyfills";
 import { defineConfig } from "vitest/config";
 import { chromiumLaunchArgs } from "./tests/dtls/chromiumLaunch";
 
+const chromiumMode =
+  process.env.DTLS_CHROMIUM_MODE === "dtls13" ? "dtls13" : "dtls12";
+const chromiumForMode = chromiumMode === "dtls12" ? chromiumDtls12 : chromium;
+
 let playwrightChromium: string | undefined;
 try {
-  playwrightChromium = chromium.executablePath();
+  playwrightChromium = chromiumForMode.executablePath();
 } catch {
   playwrightChromium = undefined;
 }
 
 // Version assertions are Chromium-revision-specific. Never fall back to
 // GHA/system Google Chrome (ubuntu-latest preinstalls a newer Chrome whose
-// DTLS 1.3 default ignores WebRTC-ForceDtls13/Disabled).
+// DTLS 1.3 default ignores WebRTC-ForceDtls13/Disabled). The DTLS 1.2 mode
+// uses the pinned Chromium 140 package because Chromium 156 no longer honors
+// that field trial.
 const override = process.env.DTLS_CHROME_BIN;
 const chromiumExecutablePath =
   override && existsSync(override) ? override : playwrightChromium;
@@ -25,9 +32,6 @@ if (!chromiumExecutablePath || !existsSync(chromiumExecutablePath)) {
     "DTLS e2e requires Playwright Chromium. From e2e/ run `npm run install:browsers`.",
   );
 }
-
-const chromiumMode =
-  process.env.DTLS_CHROMIUM_MODE === "dtls13" ? "dtls13" : "dtls12";
 
 console.info(
   `[dtls e2e] mode=${chromiumMode} executable=${chromiumExecutablePath}`,
