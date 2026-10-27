@@ -1,6 +1,6 @@
 import {
   assertNegotiatedVersions,
-  casesForCurrentChromium,
+  BROWSER_DTLS_CASES,
   ensureDtlsPeer,
   getChromiumDtlsStats,
   peer,
@@ -26,7 +26,7 @@ async function waitForInboundRtp(pc: RTCPeerConnection, timeoutMs = 20_000) {
 }
 
 describe("dtls parameterized media", () => {
-  for (const testCase of casesForCurrentChromium()) {
+  for (const testCase of BROWSER_DTLS_CASES) {
     it(`${testCase.name} Chromium offerer media`, async () => {
       await ensureDtlsPeer();
       const method = "dtls_media_offer";

@@ -1,6 +1,6 @@
 import {
   assertNegotiatedVersions,
-  casesForCurrentChromium,
+  BROWSER_DTLS_CASES,
   ensureDtlsPeer,
   peer,
   pingPong,
@@ -10,7 +10,7 @@ import {
 const iceServers = [{ urls: "stun:stun.l.google.com:19302" }];
 
 describe("dtls parameterized datachannel", () => {
-  for (const testCase of casesForCurrentChromium()) {
+  for (const testCase of BROWSER_DTLS_CASES) {
     it(`${testCase.name} Chromium offerer → werift answerer`, async () => {
       await ensureDtlsPeer();
       const method = "dtls_datachannel_offer";

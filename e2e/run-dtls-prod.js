@@ -26,7 +26,7 @@ function waitForExit(child) {
   });
 }
 
-function runDtlsMode(mode) {
+function runDtls() {
   return spawn(
     npmCommand(),
     [
@@ -41,10 +41,7 @@ function runDtlsMode(mode) {
     ],
     {
       cwd: __dirname,
-      env: {
-        ...process.env,
-        DTLS_CHROMIUM_MODE: mode,
-      },
+      env: process.env,
       stdio: "inherit",
     },
   );
@@ -81,24 +78,13 @@ async function main() {
     });
   });
 
-  for (const mode of ["dtls12", "dtls13"]) {
-    currentChild = runDtlsMode(mode);
-    const result = await waitForExit(currentChild);
-    const code = result.signal
-      ? signalExitCode(result.signal)
-      : (result.code ?? 1);
-    if (requestedExitCode != null) {
-      await requestServerStop();
-      process.exit(requestedExitCode);
-    }
-    if (code !== 0) {
-      await requestServerStop();
-      process.exit(code);
-    }
-  }
-
+  currentChild = runDtls();
+  const result = await waitForExit(currentChild);
+  const code = result.signal
+    ? signalExitCode(result.signal)
+    : (result.code ?? 1);
   await requestServerStop();
-  process.exit(0);
+  process.exit(requestedExitCode ?? code);
 }
 
 main().catch((error) => {

@@ -18,6 +18,7 @@ dist
 *.m4a
 credential.env
 __screenshots__
+.vitest
 .env
 packages/webrtc/wpt/progress.state.json
 packages/webrtc/wpt/progress.md

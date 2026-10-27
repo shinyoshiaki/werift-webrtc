@@ -71,16 +71,12 @@ function ensureGoogleChromeForH264() {
   return existing;
 }
 
-function hasPlaywrightChromium(packageName, requireHeadlessShell) {
+function hasPlaywrightChromium(packageName) {
   try {
     const { chromium } = require(packageName);
     const chromiumExecutablePath = chromium.executablePath();
     if (!existsSync(chromiumExecutablePath)) {
       return false;
-    }
-
-    if (!requireHeadlessShell) {
-      return true;
     }
 
     const chromiumDir = dirname(dirname(chromiumExecutablePath));
@@ -128,40 +124,10 @@ if (chrome) {
   console.log(`[ensure-browser] using Chrome: ${chrome}`);
 }
 
-if (!hasPlaywrightChromium("playwright", true)) {
-  // Keep the current browser for regular and DTLS 1.3 E2E.
+if (!hasPlaywrightChromium("playwright")) {
+  // Regular and DTLS E2E both run on this package's pinned Chromium.
   installPlaywrightBrowsers("playwright", [
     "chromium",
     "chromium-headless-shell",
   ]);
-}
-
-// DTLS version tests must use Playwright's pinned Chromium. The shared
-// installer skips download when /usr/bin/google-chrome exists (GHA), so
-// install this package's Playwright browsers directly into the package-local
-// browsers path (see playwright-browsers.js).
-const playwrightPackageJson = require.resolve("playwright/package.json", {
-  paths: [__dirname],
-});
-const cliPath = join(dirname(playwrightPackageJson), "cli.js");
-const result = spawnSync(
-  process.execPath,
-  [cliPath, "install", "chromium", "chromium-headless-shell"],
-  {
-    cwd: __dirname,
-    env: withE2ePlaywrightBrowsersPath(playwrightInstallEnv()),
-    stdio: "inherit",
-  },
-);
-
-if (result.error) {
-  throw result.error;
-}
-if ((result.status ?? 1) !== 0) {
-  process.exit(result.status ?? 1);
-}
-
-if (!hasPlaywrightChromium("playwright-dtls12", false)) {
-  // Chromium 140 still honors the DTLS 1.2 field trial used by fallback tests.
-  installPlaywrightBrowsers("playwright-dtls12", ["chromium"]);
 }

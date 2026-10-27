@@ -1,5 +1,5 @@
 import {
-  casesForCurrentChromium,
+  BROWSER_DTLS_CASES,
   ensureDtlsPeer,
   getChromiumDtlsStats,
   peer,
@@ -13,7 +13,7 @@ function wait(ms: number) {
 }
 
 describe("dtls parameterized fingerprint", () => {
-  for (const testCase of casesForCurrentChromium()) {
+  for (const testCase of BROWSER_DTLS_CASES) {
     it(`${testCase.name} Chromium offerer fingerprint mismatch`, async () => {
       await ensureDtlsPeer();
       const method = "dtls_fingerprint_offer";

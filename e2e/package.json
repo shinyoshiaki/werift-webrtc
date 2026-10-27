@@ -7,9 +7,7 @@
     "build": "tsc -p tsconfig.server.json",
     "chrome": "vitest ./tests",
     "chrome:prod": "node run-chrome-prod.js",
-    "dtls": "run-s dtls:12 dtls:13",
-    "dtls:12": "DTLS_CHROMIUM_MODE=dtls12 vitest run --config vitest.dtls.config.mts --browser.headless",
-    "dtls:13": "DTLS_CHROMIUM_MODE=dtls13 vitest run --config vitest.dtls.config.mts --browser.headless",
+    "dtls": "vitest run --config vitest.dtls.config.mts --browser.headless",
     "dtls:prod": "node run-dtls-prod.js",
     "ci": "npm run install:browsers && npm run build && node run-ci.js prod && node run-dtls-ci.js prod",
     "ci:silent": "npm run install:browsers && npm run build && node run-ci.js silent && node run-dtls-ci.js silent",
@@ -44,7 +42,6 @@
     "playwright": "^1.64.1",
     "protoo-client": "^4.0.6",
     "protoo-server": "^4.0.6",
-    "playwright-dtls12": "npm:playwright@1.55.1",
     "vite-plugin-node-polyfills": "^0.28.0",
     "vitest": "5.0.5"
   }
