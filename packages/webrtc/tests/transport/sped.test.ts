@@ -227,7 +227,7 @@ describe("IceSpedTransport datagram gate", () => {
     expect(received[0]!.equals(dtls)).toBe(true);
   });
 
-  it("handshake 完了後は nominated 以外の authenticated pair から application DTLS を渡さない", () => {
+  it("handshake 完了後は nominated 前には current-generation pair の application DTLS を渡さない", () => {
     // Arrange: restart 中。新 generation の pair は認証済みだが未 nomination
     const ice = createIceStub(2);
     const transport = new IceSpedTransport(ice);
@@ -256,7 +256,7 @@ describe("IceSpedTransport datagram gate", () => {
     ice.nominated = pair;
     connectionDatagramEvent(ice).execute(ctx);
 
-    // Assert: nominated になるまで application record は届かない
+    // Assert: selected path になる前は落とし、nomination 後だけ届ける
     expect(received).toHaveLength(1);
     expect(received[0]!.equals(app)).toBe(true);
   });
@@ -469,7 +469,7 @@ describe("IceSpedTransport datagram gate", () => {
     // Act: nominated ではない UDP pair から application record を流す
     connectionDatagramEvent(ice).execute(ctx);
 
-    // Assert: UDP の別 candidate は nomination 後も届かない
+    // Assert: current-generation の認証だけでは選択済み DTLS path にならない
     expect(received).toHaveLength(0);
   });
 
@@ -556,7 +556,7 @@ describe("IceSpedTransport datagram gate", () => {
       authenticated: true,
     });
 
-    // Assert: nominated と一致しない TCP pair は落とす
+    // Assert: authenticated でも未選択の TCP pair からは届けない
     expect(received).toHaveLength(0);
   });
 });
