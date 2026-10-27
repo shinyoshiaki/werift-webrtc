@@ -6,4 +6,4 @@
 
 # Type Alias: OpusPacketizerOptions
 
-> **OpusPacketizerOptions**: [`PacketizerBaseOptions`](PacketizerBaseOptions.md)
+> **OpusPacketizerOptions** = [`PacketizerBaseOptions`](PacketizerBaseOptions.md)

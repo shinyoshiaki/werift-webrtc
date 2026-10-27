@@ -8,7 +8,7 @@
 
 > `const` **CipherSuite**: `object`
 
-## Type declaration
+## Type Declaration
 
 ### TLS\_ECDHE\_ECDSA\_WITH\_AES\_128\_GCM\_SHA256\_49195
 

@@ -8,19 +8,19 @@
 
 ## Constructors
 
-### new RunLengthChunk()
+### Constructor
 
-> **new RunLengthChunk**(`props`): [`RunLengthChunk`](RunLengthChunk.md)
+> **new RunLengthChunk**(`props?`): `RunLengthChunk`
 
 #### Parameters
 
-##### props
+##### props?
 
-`Partial`\<[`RunLengthChunk`](RunLengthChunk.md)\> = `{}`
+`Partial`\<`RunLengthChunk`\> = `{}`
 
 #### Returns
 
-[`RunLengthChunk`](RunLengthChunk.md)
+`RunLengthChunk`
 
 ## Properties
 
@@ -72,7 +72,7 @@
 
 ### deSerialize()
 
-> `static` **deSerialize**(`data`): [`RunLengthChunk`](RunLengthChunk.md)
+> `static` **deSerialize**(`data`): `RunLengthChunk`
 
 #### Parameters
 
@@ -82,4 +82,4 @@
 
 #### Returns
 
-[`RunLengthChunk`](RunLengthChunk.md)
+`RunLengthChunk`

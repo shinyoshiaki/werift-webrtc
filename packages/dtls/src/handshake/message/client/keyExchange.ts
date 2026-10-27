@@ -23,7 +23,7 @@ export class ClientKeyExchange implements Handshake {
   static deSerialize(buf: Buffer) {
     const res = decode(buf, ClientKeyExchange.spec);
     return new ClientKeyExchange(
-      //@ts-ignore
+      //@ts-expect-error
       ...Object.values(res),
     );
   }

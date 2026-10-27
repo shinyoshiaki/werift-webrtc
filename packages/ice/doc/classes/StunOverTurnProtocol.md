@@ -12,9 +12,9 @@
 
 ## Constructors
 
-### new StunOverTurnProtocol()
+### Constructor
 
-> **new StunOverTurnProtocol**(`turn`): [`StunOverTurnProtocol`](StunOverTurnProtocol.md)
+> **new StunOverTurnProtocol**(`turn`): `StunOverTurnProtocol`
 
 #### Parameters
 
@@ -24,7 +24,7 @@
 
 #### Returns
 
-[`StunOverTurnProtocol`](StunOverTurnProtocol.md)
+`StunOverTurnProtocol`
 
 ## Properties
 
@@ -110,7 +110,7 @@
 
 ### request()
 
-> **request**(`request`, `addr`, `integrityKey`?, `retransmissionsOrOptions`?, `onRequestSent`?): `Promise`\<\[[`Message`](Message.md), readonly \[`string`, `number`\]\]\>
+> **request**(`request`, `addr`, `integrityKey?`, `retransmissionsOrOptions?`, `onRequestSent?`): `Promise`\<\[[`Message`](Message.md), readonly \[`string`, `number`\]\]\>
 
 #### Parameters
 
@@ -128,7 +128,7 @@ readonly \[`string`, `number`\]
 
 ##### retransmissionsOrOptions?
 
-`number` | [`TransactionRequestOptions`](../interfaces/TransactionRequestOptions.md)
+`number` \| [`TransactionRequestOptions`](../interfaces/TransactionRequestOptions.md)
 
 ##### onRequestSent?
 

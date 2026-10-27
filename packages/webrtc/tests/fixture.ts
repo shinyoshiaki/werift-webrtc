@@ -3,6 +3,8 @@ import { setTimeout } from "timers/promises";
 
 import { vi } from "vitest";
 import {
+  codecParametersToString,
+  defaultPeerConfig,
   type Kind,
   MediaStreamTrack,
   RTCDtlsTransport,
@@ -15,8 +17,6 @@ import {
   RTP_EXTENSION_URI,
   RtpHeader,
   RtpPacket,
-  codecParametersToString,
-  defaultPeerConfig,
 } from "../src";
 import {
   ProtectionProfileAes128CmHmacSha1_80,

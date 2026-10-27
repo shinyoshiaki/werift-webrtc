@@ -1,5 +1,5 @@
 import { createSocket } from "node:dgram";
-import { type Server, createServer } from "node:net";
+import { createServer, type Server } from "node:net";
 import { setTimeout as delay } from "node:timers/promises";
 
 import { vi } from "vitest";
@@ -7,11 +7,11 @@ import { vi } from "vitest";
 import { TcpTransport } from "../../../common/src";
 import { classes, methods } from "../../src/stun/const";
 import { Message, parseMessage } from "../../src/stun/message";
-import { TurnProtocol, createTurnClient } from "../../src/turn/protocol";
+import { createTurnClient, TurnProtocol } from "../../src/turn/protocol";
 import {
+  activeResourceCount,
   TURN_TEST_PASSWORD,
   TURN_TEST_USERNAME,
-  activeResourceCount,
 } from "../utils";
 
 const credentials = {

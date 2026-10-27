@@ -1,9 +1,10 @@
 import type { CipherAesCtr } from "../../../src/srtp/cipher/ctr";
 import { ProtectionProfileAes128CmHmacSha1_80 } from "../../../src/srtp/const";
 import {
+  aes128EcbEncrypt,
   Context,
   SrtpRolloverCounterOverflowError,
-  aes128EcbEncrypt,
+  type SrtpSsrcState,
 } from "../../../src/srtp/context/context";
 import {
   type RolloverStep,

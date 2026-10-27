@@ -1,9 +1,9 @@
 import {
+  defaultPeerConfig,
   MediaStreamTrack,
   RTCRtpTransceiver,
   RtpHeader,
   RtpPacket,
-  defaultPeerConfig,
 } from "../../src";
 import {
   RTCRtpCodecParameters,

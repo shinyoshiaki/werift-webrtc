@@ -3,7 +3,7 @@ import {
   describeCases,
   negotiationCase,
 } from "../../negotiation/harness/negotiationCase";
-import { type Scene, generateScene, runScene, shrinkScene } from "./generator";
+import { generateScene, runScene, type Scene, shrinkScene } from "./generator";
 import { MODEL_SCENES } from "./scenes";
 
 /**

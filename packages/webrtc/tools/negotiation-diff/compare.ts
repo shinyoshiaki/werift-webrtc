@@ -1,7 +1,7 @@
 /**
  * Compare two negotiation-diff runs (see run.ts) seed by seed:
  *
- *   npx tsx tools/negotiation-diff/compare.ts <develop.jsonl> <head.jsonl>
+ *   node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs tools/negotiation-diff/compare.ts <develop.jsonl> <head.jsonl>
  *
  * For every seed it walks the operations in order up to the first step whose
  * outcome differs (after that the two sessions are no longer comparable) and

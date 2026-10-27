@@ -6,4 +6,4 @@
 
 # Type Alias: CurrentDirection
 
-> **CurrentDirection**: [`MediaDirection`](MediaDirection.md) \| `"stopped"`
+> **CurrentDirection** = [`MediaDirection`](MediaDirection.md) \| `"stopped"`
