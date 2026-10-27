@@ -15,7 +15,9 @@ consumed prefix lazily, so indexed access (`at`) stays O(1).
 
 ## Type Parameters
 
-• **T**
+### T
+
+`T`
 
 ## Implements
 
@@ -23,9 +25,9 @@ consumed prefix lazily, so indexed access (`at`) stays O(1).
 
 ## Constructors
 
-### new FifoQueue()
+### Constructor
 
-> **new FifoQueue**\<`T`\>(`items`?): [`FifoQueue`](FifoQueue.md)\<`T`\>
+> **new FifoQueue**\<`T`\>(`items?`): `FifoQueue`\<`T`\>
 
 #### Parameters
 
@@ -35,7 +37,7 @@ consumed prefix lazily, so indexed access (`at`) stays O(1).
 
 #### Returns
 
-[`FifoQueue`](FifoQueue.md)\<`T`\>
+`FifoQueue`\<`T`\>
 
 ## Accessors
 
@@ -71,7 +73,7 @@ continues with the current front instead of jumping over live elements.
 
 ### at()
 
-> **at**(`index`): `undefined` \| `T`
+> **at**(`index`): `T` \| `undefined`
 
 Element at `index` from the front (negative index counts from the back).
 
@@ -83,7 +85,7 @@ Element at `index` from the front (negative index counts from the back).
 
 #### Returns
 
-`undefined` \| `T`
+`T` \| `undefined`
 
 ***
 
@@ -99,7 +101,7 @@ Element at `index` from the front (negative index counts from the back).
 
 ### filter()
 
-> **filter**(`predicate`): [`FifoQueue`](FifoQueue.md)\<`T`\>
+> **filter**(`predicate`): `FifoQueue`\<`T`\>
 
 Returns a new queue with the elements that satisfy `predicate`.
 
@@ -111,7 +113,7 @@ Returns a new queue with the elements that satisfy `predicate`.
 
 #### Returns
 
-[`FifoQueue`](FifoQueue.md)\<`T`\>
+`FifoQueue`\<`T`\>
 
 ***
 
@@ -149,25 +151,25 @@ Returns a new queue with the elements that satisfy `predicate`.
 
 ### last()
 
-> **last**(): `undefined` \| `T`
+> **last**(): `T` \| `undefined`
 
 Last element, without removing it.
 
 #### Returns
 
-`undefined` \| `T`
+`T` \| `undefined`
 
 ***
 
 ### peek()
 
-> **peek**(): `undefined` \| `T`
+> **peek**(): `T` \| `undefined`
 
 First element, without removing it.
 
 #### Returns
 
-`undefined` \| `T`
+`T` \| `undefined`
 
 ***
 
@@ -189,13 +191,13 @@ First element, without removing it.
 
 ### shift()
 
-> **shift**(): `undefined` \| `T`
+> **shift**(): `T` \| `undefined`
 
 Removes and returns the first element.
 
 #### Returns
 
-`undefined` \| `T`
+`T` \| `undefined`
 
 ***
 

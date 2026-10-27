@@ -8,19 +8,19 @@
 
 ## Constructors
 
-### new RTCRtpSimulcastParameters()
+### Constructor
 
-> **new RTCRtpSimulcastParameters**(`props`): [`RTCRtpSimulcastParameters`](RTCRtpSimulcastParameters.md)
+> **new RTCRtpSimulcastParameters**(`props`): `RTCRtpSimulcastParameters`
 
 #### Parameters
 
 ##### props
 
-[`RTCRtpSimulcastParameters`](RTCRtpSimulcastParameters.md)
+`RTCRtpSimulcastParameters`
 
 #### Returns
 
-[`RTCRtpSimulcastParameters`](RTCRtpSimulcastParameters.md)
+`RTCRtpSimulcastParameters`
 
 ## Properties
 

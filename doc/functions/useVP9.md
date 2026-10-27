@@ -6,11 +6,11 @@
 
 # Function: useVP9()
 
-> **useVP9**(`props`): [`RTCRtpCodecParameters`](../classes/RTCRtpCodecParameters.md)
+> **useVP9**(`props?`): [`RTCRtpCodecParameters`](../classes/RTCRtpCodecParameters.md)
 
 ## Parameters
 
-### props
+### props?
 
 `Partial`\<[`RTCRtpCodecParameters`](../classes/RTCRtpCodecParameters.md)\> = `{}`
 

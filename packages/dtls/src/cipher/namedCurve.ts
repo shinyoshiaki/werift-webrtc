@@ -1,4 +1,4 @@
-import nacl from "tweetnacl";
+import { generateKeyPairSync } from "node:crypto";
 
 import { NamedCurveAlgorithm, type NamedCurveAlgorithms } from "./const";
 import { p256Keypair } from "./ec";
@@ -23,12 +23,14 @@ export function generateKeyPair(
       };
     }
     case NamedCurveAlgorithm.x25519_29: {
-      const keys = nacl.box.keyPair();
+      const keys = generateKeyPairSync("x25519");
+      const privateJwk = keys.privateKey.export({ format: "jwk" });
+      const publicJwk = keys.publicKey.export({ format: "jwk" });
 
       return {
         curve: namedCurve,
-        privateKey: Buffer.from(keys.secretKey.buffer),
-        publicKey: Buffer.from(keys.publicKey.buffer),
+        privateKey: Buffer.from(privateJwk.d!, "base64url"),
+        publicKey: Buffer.from(publicJwk.x!, "base64url"),
       };
     }
     default:

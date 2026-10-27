@@ -126,7 +126,7 @@ async function demonstrateGetStats() {
 }
 
 // Run the demonstration
-if (require.main === module) {
+if (process.argv[1] === import.meta.filename) {
   demonstrateGetStats().catch(console.error);
 }
 

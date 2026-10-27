@@ -99,7 +99,7 @@ ffmpeg / GStreamer:
 | `packages/*/examples` | 範囲外 |
 | `examples/turn-loopback` | 既存 chrome-e2e |
 
-Public STUN URLs in HTML are not treated as extra dependencies.
+Public STUN URLs (`stun.l.google.com:19302`) are not extra dependencies: the smoke run redirects them to a local STUN fixture (`e2e/tests/globalSetup.ts`). Keep new demos on that URL or on no STUN server.
 
 ## Validation
 

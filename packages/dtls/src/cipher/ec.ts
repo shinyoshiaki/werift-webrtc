@@ -1,10 +1,10 @@
-import { p256 } from "@noble/curves/p256";
+import { createECDH } from "node:crypto";
 
 export const p256Keypair = (): { privateKey: Buffer; publicKey: Buffer } => {
-  const priv = p256.utils.randomPrivateKey();
-  const pub = p256.getPublicKey(priv, false);
-  const privateKey = Buffer.from(priv);
-  const publicKey = Buffer.from(pub);
+  const ecdh = createECDH("prime256v1");
+  ecdh.generateKeys();
+  const privateKey = ecdh.getPrivateKey();
+  const publicKey = ecdh.getPublicKey();
 
   return {
     privateKey,
@@ -19,8 +19,7 @@ export const p256PreMasterSecret = ({
   publicKey: Buffer;
   privateKey: Buffer;
 }): Buffer => {
-  const res = p256.getSharedSecret(privateKey, publicKey);
-  const secret = Buffer.from(res).subarray(1);
-
-  return secret;
+  const ecdh = createECDH("prime256v1");
+  ecdh.setPrivateKey(privateKey);
+  return ecdh.computeSecret(publicKey);
 };
