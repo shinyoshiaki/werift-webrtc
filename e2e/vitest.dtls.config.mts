@@ -1,10 +1,9 @@
-/// <reference types="@vitest/browser/providers/playwright" />
-
 import { existsSync } from "node:fs";
 
+import { playwright } from "@vitest/browser-playwright";
 import { chromium } from "playwright";
-import { defineConfig } from "vitest/config";
 import { nodePolyfills } from "vite-plugin-node-polyfills";
+import { defineConfig } from "vitest/config";
 import { chromiumLaunchArgs } from "./tests/dtls/chromiumLaunch";
 
 let playwrightChromium: string | undefined;
@@ -54,17 +53,16 @@ export default defineConfig({
     fileParallelism: false,
     retry: 1,
     browser: {
-      provider: "playwright",
+      provider: playwright({
+        launchOptions: {
+          executablePath: chromiumExecutablePath,
+          args: chromiumLaunchArgs(chromiumMode),
+        },
+      }),
       enabled: true,
       instances: [
         {
           browser: "chromium",
-          launch: {
-            ...(chromiumExecutablePath
-              ? { executablePath: chromiumExecutablePath }
-              : {}),
-            args: chromiumLaunchArgs(chromiumMode),
-          },
         },
       ],
     },
