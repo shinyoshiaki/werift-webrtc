@@ -8,9 +8,9 @@
 
 ## Constructors
 
-### new CipherContext()
+### Constructor
 
-> **new CipherContext**(`sessionType`, `certPem`?, `keyPem`?, `signatureHashAlgorithm`?): [`CipherContext`](CipherContext.md)
+> **new CipherContext**(`sessionType`, `certPem?`, `keyPem?`, `signatureHashAlgorithm?`): `CipherContext`
 
 #### Parameters
 
@@ -32,13 +32,13 @@
 
 #### Returns
 
-[`CipherContext`](CipherContext.md)
+`CipherContext`
 
 ## Properties
 
 ### certPem?
 
-> `optional` **certPem**: `string`
+> `optional` **certPem?**: `string`
 
 ***
 
@@ -56,7 +56,7 @@
 
 ### keyPem?
 
-> `optional` **keyPem**: `string`
+> `optional` **keyPem?**: `string`
 
 ***
 
@@ -74,7 +74,7 @@
 
 ### localPrivateKey
 
-> **localPrivateKey**: `PrivateKey`
+> **localPrivateKey**: `KeyObject`
 
 ***
 
@@ -98,7 +98,7 @@
 
 ### remoteCertificate?
 
-> `optional` **remoteCertificate**: `Buffer`\<`ArrayBufferLike`\>
+> `optional` **remoteCertificate?**: `Buffer`\<`ArrayBufferLike`\>
 
 ***
 
@@ -122,13 +122,13 @@
 
 ### signatureHashAlgorithm?
 
-> `optional` **signatureHashAlgorithm**: [`SignatureHash`](../type-aliases/SignatureHash.md)
+> `optional` **signatureHashAlgorithm?**: [`SignatureHash`](../type-aliases/SignatureHash.md)
 
 ## Methods
 
 ### decryptPacket()
 
-> **decryptPacket**(`pkt`): `Buffer`\<`ArrayBufferLike`\>
+> **decryptPacket**(`pkt`): `NonSharedBuffer`
 
 #### Parameters
 
@@ -138,7 +138,7 @@
 
 #### Returns
 
-`Buffer`\<`ArrayBufferLike`\>
+`NonSharedBuffer`
 
 ***
 
@@ -160,7 +160,7 @@
 
 ### generateKeySignature()
 
-> **generateKeySignature**(`hashAlgorithm`): `Buffer`\<`ArrayBufferLike`\>
+> **generateKeySignature**(`hashAlgorithm`): `NonSharedBuffer`
 
 #### Parameters
 
@@ -170,7 +170,7 @@
 
 #### Returns
 
-`Buffer`\<`ArrayBufferLike`\>
+`NonSharedBuffer`
 
 ***
 
@@ -200,7 +200,7 @@
 
 ### signatureData()
 
-> **signatureData**(`data`, `hash`): `Buffer`\<`ArrayBufferLike`\>
+> **signatureData**(`data`, `hash`): `NonSharedBuffer`
 
 #### Parameters
 
@@ -214,7 +214,7 @@
 
 #### Returns
 
-`Buffer`\<`ArrayBufferLike`\>
+`NonSharedBuffer`
 
 ***
 
@@ -236,7 +236,7 @@
 
 ### createSelfSignedCertificateWithKey()
 
-> `static` **createSelfSignedCertificateWithKey**(`signatureHash`, `namedCurveAlgorithm`?): `Promise`\<\{ `certPem`: `string`; `keyPem`: `string`; `signatureHash`: [`SignatureHash`](../type-aliases/SignatureHash.md); \}\>
+> `static` **createSelfSignedCertificateWithKey**(`signatureHash`, `namedCurveAlgorithm?`): `Promise`\<\{ `certPem`: `string`; `keyPem`: `string`; `signatureHash`: [`SignatureHash`](../type-aliases/SignatureHash.md); \}\>
 
 #### Parameters
 
@@ -248,7 +248,7 @@
 
 [`NamedCurveAlgorithms`](../type-aliases/NamedCurveAlgorithms.md)
 
-necessary when use ecdsa
+kept for compatibility. ECDSA certificates always use P-256 (X25519 cannot sign).
 
 #### Returns
 

@@ -11,7 +11,7 @@ import {
 
 /** AES-128-ECB single-block encrypt for SRTP KDF (no padding). */
 export function aes128EcbEncrypt(key: Buffer, plaintext: Buffer): Buffer {
-  const cipher = createCipheriv("aes-128-ecb", key, null);
+  const cipher = createCipheriv("aes-128-ecb", key, Buffer.alloc(0));
   cipher.setAutoPadding(false);
   return Buffer.concat([cipher.update(plaintext), cipher.final()]);
 }

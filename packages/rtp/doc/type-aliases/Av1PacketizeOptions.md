@@ -6,23 +6,27 @@
 
 # Type Alias: Av1PacketizeOptions
 
-> **Av1PacketizeOptions**: `object`
+> **Av1PacketizeOptions** = `object`
 
-## Type declaration
+## Properties
 
 ### frameType?
 
-> `optional` **frameType**: `"key"` \| `"delta"`
+> `optional` **frameType?**: `"key"` \| `"delta"`
+
+***
 
 ### isKeyframe?
 
-> `optional` **isKeyframe**: `boolean`
+> `optional` **isKeyframe?**: `boolean`
 
 Keyframe flag. Does NOT by itself set the N bit (see below).
 
+***
+
 ### startsNewCodedVideoSequence?
 
-> `optional` **startsNewCodedVideoSequence**: `boolean`
+> `optional` **startsNewCodedVideoSequence?**: `boolean`
 
 N bit (RFC 9628 §4.4): first packet of a new coded video sequence.
 A keyframe in the middle of a sequence must not set it. When omitted,

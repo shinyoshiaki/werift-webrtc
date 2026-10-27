@@ -22,7 +22,7 @@
 
 ***
 
-### onData()
+### onData
 
 > **onData**: (`data`, `addr`) => `void`
 
@@ -62,7 +62,7 @@ instead of being emitted here.
 
 ### rinfo?
 
-> `optional` **rinfo**: `Partial`\<`Pick`\<`RemoteInfo`, `"port"` \| `"address"`\>\>
+> `optional` **rinfo?**: `Partial`\<`Pick`\<`RemoteInfo`, `"port"` \| `"address"`\>\>
 
 ***
 
@@ -160,7 +160,7 @@ transport that leaves it unset gets no family preference.
 
 ### send()
 
-> **send**(`data`, `addr`?): `Promise`\<`void`\>
+> **send**(`data`, `addr?`): `Promise`\<`void`\>
 
 #### Parameters
 
@@ -184,7 +184,7 @@ readonly \[`string`, `number`\]
 
 ### init()
 
-> `static` **init**(`type`, `options`): `Promise`\<[`UdpTransport`](UdpTransport.md)\>
+> `static` **init**(`type`, `options?`): `Promise`\<`UdpTransport`\>
 
 #### Parameters
 
@@ -192,7 +192,7 @@ readonly \[`string`, `number`\]
 
 `SocketType`
 
-##### options
+##### options?
 
 ###### interfaceAddresses?
 
@@ -208,4 +208,4 @@ readonly \[`string`, `number`\]
 
 #### Returns
 
-`Promise`\<[`UdpTransport`](UdpTransport.md)\>
+`Promise`\<`UdpTransport`\>

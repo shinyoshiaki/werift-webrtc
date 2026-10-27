@@ -1,5 +1,3 @@
-import * as nodeCrypto from "node:crypto";
-import * as x509 from "@peculiar/x509";
 import { createSocket } from "dgram";
 
 import {
@@ -10,9 +8,6 @@ import {
 import { CipherContext } from "../src/context/cipher";
 import { DtlsServer } from "../src/server";
 import { UdpTransport } from "../../common/src";
-
-const crypto = nodeCrypto.webcrypto;
-x509.cryptoProvider.set(crypto as any);
 
 const port = 4444;
 const socket = createSocket("udp4");
