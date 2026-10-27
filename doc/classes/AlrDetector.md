@@ -17,13 +17,13 @@ Start time uses the sender clock (`sendMs`), matching pin Timestamp domain.
 
 ## Constructors
 
-### new AlrDetector()
+### Constructor
 
-> **new AlrDetector**(): [`AlrDetector`](AlrDetector.md)
+> **new AlrDetector**(): `AlrDetector`
 
 #### Returns
 
-[`AlrDetector`](AlrDetector.md)
+`AlrDetector`
 
 ## Accessors
 
@@ -43,13 +43,13 @@ Start time uses the sender clock (`sendMs`), matching pin Timestamp domain.
 
 #### Get Signature
 
-> **get** **startMs**(): `undefined` \| `number`
+> **get** **startMs**(): `number` \| `undefined`
 
 Sender-clock time when the current ALR region started, if any.
 
 ##### Returns
 
-`undefined` \| `number`
+`number` \| `undefined`
 
 ## Methods
 

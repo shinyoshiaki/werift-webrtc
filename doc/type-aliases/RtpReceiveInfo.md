@@ -6,9 +6,9 @@
 
 # Type Alias: RtpReceiveInfo
 
-> **RtpReceiveInfo**: `object`
+> **RtpReceiveInfo** = `object`
 
-## Type declaration
+## Properties
 
 ### type
 

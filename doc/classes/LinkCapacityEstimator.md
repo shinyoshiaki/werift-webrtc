@@ -12,13 +12,13 @@ to refine overuse decreases.
 
 ## Constructors
 
-### new LinkCapacityEstimator()
+### Constructor
 
-> **new LinkCapacityEstimator**(): [`LinkCapacityEstimator`](LinkCapacityEstimator.md)
+> **new LinkCapacityEstimator**(): `LinkCapacityEstimator`
 
 #### Returns
 
-[`LinkCapacityEstimator`](LinkCapacityEstimator.md)
+`LinkCapacityEstimator`
 
 ## Accessors
 

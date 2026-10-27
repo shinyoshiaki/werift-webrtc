@@ -13,7 +13,7 @@ Transport-wide sequence numbers come from the shared DTLS transport clock.
 
 ### isProbation?
 
-> `optional` **isProbation**: `boolean`
+> `optional` **isProbation?**: `boolean`
 
 Optional flag for probe / probation packets used by some estimators (e.g. GCC).
 
@@ -21,7 +21,7 @@ Optional flag for probe / probation packets used by some estimators (e.g. GCC).
 
 ### isRetransmission?
 
-> `optional` **isRetransmission**: `boolean`
+> `optional` **isRetransmission?**: `boolean`
 
 True when this packet is an RTX / retransmission.
 
@@ -29,7 +29,7 @@ True when this packet is an RTX / retransmission.
 
 ### priorUnackedBytes?
 
-> `optional` **priorUnackedBytes**: `number`
+> `optional` **priorUnackedBytes?**: `number`
 
 pin `SentPacket.prior_unacked_data` — untracked bytes attributed to
 the next TWCC-tracked packet (RobustThroughputEstimator).
@@ -38,7 +38,7 @@ the next TWCC-tracked packet (RobustThroughputEstimator).
 
 ### probeClusterId?
 
-> `optional` **probeClusterId**: `number`
+> `optional` **probeClusterId?**: `number`
 
 pin `PacedPacketInfo.probe_cluster_id` reserved **before** send.
 ProbeController must attribute this packet to this cluster, not

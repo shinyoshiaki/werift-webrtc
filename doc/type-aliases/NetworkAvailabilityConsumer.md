@@ -6,6 +6,6 @@
 
 # Type Alias: NetworkAvailabilityConsumer
 
-> **NetworkAvailabilityConsumer**: `Pick`\<[`BandwidthEstimator`](../interfaces/BandwidthEstimator.md), `"setNetworkAvailable"`\>
+> **NetworkAvailabilityConsumer** = `Pick`\<[`BandwidthEstimator`](../interfaces/BandwidthEstimator.md), `"setNetworkAvailable"`\>
 
 pin `OnNetworkAvailability` consumer.

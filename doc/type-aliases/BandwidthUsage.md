@@ -6,4 +6,4 @@
 
 # Type Alias: BandwidthUsage
 
-> **BandwidthUsage**: `"normal"` \| `"overuse"` \| `"underuse"`
+> **BandwidthUsage** = `"normal"` \| `"overuse"` \| `"underuse"`

@@ -4,11 +4,11 @@
 
 [werift](../globals.md) / GccClock
 
-# Type Alias: GccClock()
+# Type Alias: GccClock
 
-> **GccClock**: () => `number`
+> **GccClock** = () => `number`
 
-Optional sender clock for tests. Production uses [milliTime](../functions/milliTime.md) so
+Optional sender clock for tests. Production uses [milliTime](../variables/milliTime.md) so
 `sendingAtMs` and TWCC feedback arrival share one domain (pin Timestamp).
 
 ## Returns

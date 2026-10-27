@@ -17,13 +17,13 @@ libwebrtc TrendlineEstimator port
 
 ## Constructors
 
-### new TrendlineEstimator()
+### Constructor
 
-> **new TrendlineEstimator**(): [`TrendlineEstimator`](TrendlineEstimator.md)
+> **new TrendlineEstimator**(): `TrendlineEstimator`
 
 #### Returns
 
-[`TrendlineEstimator`](TrendlineEstimator.md)
+`TrendlineEstimator`
 
 ## Accessors
 

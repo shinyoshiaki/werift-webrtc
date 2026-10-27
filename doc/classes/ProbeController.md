@@ -26,20 +26,20 @@ Pacing vs result-wait are **separated** (libwebrtc BitrateProber):
 - `setBitrates` / activate returns only **activated** configs (for pacing).
   In `complete`, a higher max than the previous max (and than the estimate)
   starts one probe at the new max (`probe_further=false`).
-- Further via [setEstimatedBitrate](ProbeController.md#setestimatedbitrate) only while `waiting_for_result`
+- Further via [setEstimatedBitrate](#setestimatedbitrate) only while `waiting_for_result`
   (pin SetEstimatedBitrate); session `complete` sets
   `minBitrateToProbeFurther = +∞` (UpdateState(kProbingComplete))
-- Recovery after complete uses [requestProbe](ProbeController.md#requestprobe) (not further threshold)
+- Recovery after complete uses [requestProbe](#requestprobe) (not further threshold)
 
 ## Constructors
 
-### new ProbeController()
+### Constructor
 
-> **new ProbeController**(): [`ProbeController`](ProbeController.md)
+> **new ProbeController**(): `ProbeController`
 
 #### Returns
 
-[`ProbeController`](ProbeController.md)
+`ProbeController`
 
 ## Accessors
 
@@ -233,7 +233,7 @@ pin `NextProbeTime`. PlusInfinity when inactive.
 
 ### onAckedPacket()
 
-> **onAckedPacket**(`sizeBytes`, `receivedAtMs`, `isProbe`, `wideSeq`, `senderNowMs`, `sendingAtMs`?): `void`
+> **onAckedPacket**(`sizeBytes`, `receivedAtMs`, `isProbe`, `wideSeq`, `senderNowMs`, `sendingAtMs?`): `void`
 
 ACK a probe packet. Credits the cluster that owned wideSeq (pacing or
 awaiting). Does **not** advance or clear FIFO pacing — send-fill only.
@@ -263,7 +263,7 @@ TWCC receiver timeline (rate math only)
 
 ##### wideSeq
 
-`undefined` | `number`
+`number` \| `undefined`
 
 ##### senderNowMs
 
@@ -309,7 +309,7 @@ Initial exponential probing starts only after the network is available
 
 ### onProbePacketSent()
 
-> **onProbePacketSent**(`sizeBytes`, `sendMs`, `wideSeq`, `reservedClusterId`?): `object`
+> **onProbePacketSent**(`sizeBytes`, `sendMs`, `wideSeq`, `reservedClusterId?`): `object`
 
 Record a probation packet at **send** time (sender clock = sendMs).
 When minBytes AND minPackets are met, pops pacing → awaitingResults and
@@ -384,13 +384,13 @@ pin `RecommendedMinProbeSize` = send_rate × min_probe_delta.
 
 ### remainingProbeBytes()
 
-> **remainingProbeBytes**(`packetBytes`): `number`
+> **remainingProbeBytes**(`packetBytes?`): `number`
 
 Bytes still needed for the **pacing** cluster (padding injection).
 
 #### Parameters
 
-##### packetBytes
+##### packetBytes?
 
 `number` = `200`
 
@@ -402,7 +402,7 @@ Bytes still needed for the **pacing** cluster (padding injection).
 
 ### requestProbe()
 
-> **requestProbe**(`estimatedBps`, `nowMs`, `opts`?): [`ProbeClusterConfig`](../interfaces/ProbeClusterConfig.md)[]
+> **requestProbe**(`estimatedBps`, `nowMs`, `opts?`): [`ProbeClusterConfig`](../interfaces/ProbeClusterConfig.md)[]
 
 pin `ProbeController::RequestProbe`.
 
@@ -433,7 +433,7 @@ Target is 0.85 × bitrate_before_last_large_drop. Always probe_further=false.
 
 ### reserveOutgoingProbe()
 
-> **reserveOutgoingProbe**(`nowMs`): `undefined` \| [`ProbeReservation`](../interfaces/ProbeReservation.md)
+> **reserveOutgoingProbe**(`nowMs`): [`ProbeReservation`](../interfaces/ProbeReservation.md) \| `undefined`
 
 pin `BitrateProber::CurrentCluster(now)` — take the active cluster id
 **before** send. If `now - next_probe_time > max_probe_delay` (10ms),
@@ -447,13 +447,13 @@ the active cluster is discarded (not a 5s scheduling timeout).
 
 #### Returns
 
-`undefined` \| [`ProbeReservation`](../interfaces/ProbeReservation.md)
+[`ProbeReservation`](../interfaces/ProbeReservation.md) \| `undefined`
 
 ***
 
 ### reset()
 
-> **reset**(`atTimeMs`): `void`
+> **reset**(`atTimeMs?`): `void`
 
 pin `ProbeController::Reset(at_time)`.
 
@@ -464,7 +464,7 @@ kMinTimeBetweenAlrProbesMs after reset.
 
 #### Parameters
 
-##### atTimeMs
+##### atTimeMs?
 
 `number` = `0`
 
@@ -502,7 +502,7 @@ pin `SetAlrStartTime` (`undefined` = not in ALR).
 
 ##### startMs
 
-`undefined` | `number`
+`number` \| `undefined`
 
 #### Returns
 
@@ -540,14 +540,14 @@ pin `SetAlrStartTime` (`undefined` = not in ALR).
 
 ### setEstimatedBitrate()
 
-> **setEstimatedBitrate**(`bitrateBps`, `nowMs`, `opts`?): [`ProbeClusterConfig`](../interfaces/ProbeClusterConfig.md)[]
+> **setEstimatedBitrate**(`bitrateBps`, `nowMs`, `opts?`): [`ProbeClusterConfig`](../interfaces/ProbeClusterConfig.md)[]
 
 Further-probe after a successful estimate update.
 
 libwebrtc `ProbeController::SetEstimatedBitrate` only continues exponential
 further probing while `state_ == kWaitingForProbingResult`. Once the session
 is `kProbingComplete`, `min_bitrate_to_probe_further_` is +∞ and further
-clusters are not opened from this path (recovery uses [requestProbe](ProbeController.md#requestprobe)).
+clusters are not opened from this path (recovery uses [requestProbe](#requestprobe)).
 
 `maxProbeBps` mirrors InitiateProbing max_probe_bitrate for the current
 BandwidthLimitedCause (loss-limited increasing → estimated × 1.5).

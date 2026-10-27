@@ -12,11 +12,13 @@
 
 ### bandwidthEstimator?
 
-> `optional` **bandwidthEstimator**: [`BandwidthEstimator`](../interfaces/BandwidthEstimator.md)
+> `optional` **bandwidthEstimator?**: [`BandwidthEstimator`](../interfaces/BandwidthEstimator.md)
 
 Initial send-side bandwidth estimator. When omitted, the default is
 [SenderBandwidthEstimator](../classes/LegacyCumulativeBandwidthEstimator.md). [RTCPeerConnection](../classes/RTCPeerConnection.md) passes the
 instance created from [PeerConfig.bandwidthEstimator](../interfaces/PeerConfig.md#bandwidthestimator).
+
+***
 
 ### pendingRtp?
 

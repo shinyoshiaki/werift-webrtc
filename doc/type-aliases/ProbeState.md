@@ -6,7 +6,7 @@
 
 # Type Alias: ProbeState
 
-> **ProbeState**: `"init"` \| `"waiting_for_result"` \| `"complete"`
+> **ProbeState** = `"init"` \| `"waiting_for_result"` \| `"complete"`
 
 libwebrtc ProbeController-aligned states:
 - init: no probing initiated yet

@@ -16,7 +16,9 @@ consecutive sequences, including wrap), so a window like
 
 ## Type Parameters
 
-• **T** *extends* `object`
+### T
+
+`T` *extends* `object`
 
 ## Parameters
 

@@ -6,7 +6,7 @@
 
 # Type Alias: LossBasedState
 
-> **LossBasedState**: `"increasing"` \| `"increase_using_padding"` \| `"decreasing"` \| `"delay_based"`
+> **LossBasedState** = `"increasing"` \| `"increase_using_padding"` \| `"decreasing"` \| `"delay_based"`
 
 Loss-based BWE states (libwebrtc `LossBasedState`).
 There is no `kHold` — HOLD is a timer inside `kDecreasing`

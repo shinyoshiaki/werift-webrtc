@@ -6,7 +6,7 @@
 
 # Interface: LossBasedResult
 
-pin `LossBasedBweV2::Result` plus an explicit [LossBasedResult.ready](LossBasedResult.md#ready).
+pin `LossBasedBweV2::Result` plus an explicit [LossBasedResult.ready](#ready).
 
 ## Properties
 

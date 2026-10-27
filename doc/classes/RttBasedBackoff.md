@@ -18,19 +18,19 @@ interval=1s, floor=5kbps (Enabled).
 
 ## Constructors
 
-### new RttBasedBackoff()
+### Constructor
 
-> **new RttBasedBackoff**(`rttLimitMs`): [`RttBasedBackoff`](RttBasedBackoff.md)
+> **new RttBasedBackoff**(`rttLimitMs?`): `RttBasedBackoff`
 
 #### Parameters
 
-##### rttLimitMs
+##### rttLimitMs?
 
 `number` = `kRttBasedBackOffHighRttMs`
 
 #### Returns
 
-[`RttBasedBackoff`](RttBasedBackoff.md)
+`RttBasedBackoff`
 
 ## Accessors
 

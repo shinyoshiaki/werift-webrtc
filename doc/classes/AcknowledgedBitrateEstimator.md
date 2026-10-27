@@ -15,13 +15,13 @@ Sliding-window robust throughput (libwebrtc RobustThroughputEstimator).
 
 ## Constructors
 
-### new AcknowledgedBitrateEstimator()
+### Constructor
 
-> **new AcknowledgedBitrateEstimator**(): [`AcknowledgedBitrateEstimator`](AcknowledgedBitrateEstimator.md)
+> **new AcknowledgedBitrateEstimator**(): `AcknowledgedBitrateEstimator`
 
 #### Returns
 
-[`AcknowledgedBitrateEstimator`](AcknowledgedBitrateEstimator.md)
+`AcknowledgedBitrateEstimator`
 
 ## Methods
 

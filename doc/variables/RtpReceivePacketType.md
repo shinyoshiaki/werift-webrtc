@@ -16,7 +16,7 @@ How an RTP packet is classified at the moment it is delivered on
   deserialize; do not decode. TWCC/NACK still observed it.
 - `retransmission`: RTX unwrapped onto the original media SSRC
 
-## Type declaration
+## Type Declaration
 
 ### media
 

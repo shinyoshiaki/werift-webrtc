@@ -6,16 +6,16 @@
 
 # Function: createBandwidthEstimator()
 
-> **createBandwidthEstimator**(`option`): [`BandwidthEstimator`](../interfaces/BandwidthEstimator.md)
+> **createBandwidthEstimator**(`option?`): [`BandwidthEstimator`](../interfaces/BandwidthEstimator.md)
 
 Construct a send-side estimator from a [BandwidthEstimatorOption](../type-aliases/BandwidthEstimatorOption.md).
 Each [RTCRtpSender](../classes/RTCRtpSender.md) must get its own instance.
 
 ## Parameters
 
-### option
+### option?
 
-`undefined` | [`BandwidthEstimatorOption`](../type-aliases/BandwidthEstimatorOption.md)
+[`BandwidthEstimatorOption`](../type-aliases/BandwidthEstimatorOption.md) \| `undefined` = `"legacy"`
 
 ## Returns
 

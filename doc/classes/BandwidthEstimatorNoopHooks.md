@@ -4,7 +4,7 @@
 
 [werift](../globals.md) / BandwidthEstimatorNoopHooks
 
-# Class: `abstract` BandwidthEstimatorNoopHooks
+# Abstract Class: BandwidthEstimatorNoopHooks
 
 Shared no-op implementations of GCC send-path hooks.
 [SenderBandwidthEstimator](LegacyCumulativeBandwidthEstimator.md) and [DisabledBandwidthEstimator](DisabledBandwidthEstimator.md) extend this.
@@ -16,13 +16,13 @@ Shared no-op implementations of GCC send-path hooks.
 
 ## Constructors
 
-### new BandwidthEstimatorNoopHooks()
+### Constructor
 
-> **new BandwidthEstimatorNoopHooks**(): [`BandwidthEstimatorNoopHooks`](BandwidthEstimatorNoopHooks.md)
+> **new BandwidthEstimatorNoopHooks**(): `BandwidthEstimatorNoopHooks`
 
 #### Returns
 
-[`BandwidthEstimatorNoopHooks`](BandwidthEstimatorNoopHooks.md)
+`BandwidthEstimatorNoopHooks`
 
 ## Properties
 
@@ -134,7 +134,7 @@ Always 1 except on [SenderBandwidthEstimator](LegacyCumulativeBandwidthEstimator
 
 ### pendingLossPaddingPackets()
 
-> **pendingLossPaddingPackets**(`_packetBytes`?): `number`
+> **pendingLossPaddingPackets**(`_packetBytes?`): `number`
 
 #### Parameters
 
@@ -150,7 +150,7 @@ Always 1 except on [SenderBandwidthEstimator](LegacyCumulativeBandwidthEstimator
 
 ### pendingProbePaddingPackets()
 
-> **pendingProbePaddingPackets**(`_packetBytes`?): `number`
+> **pendingProbePaddingPackets**(`_packetBytes?`): `number`
 
 #### Parameters
 
@@ -182,7 +182,7 @@ Always 1 except on [SenderBandwidthEstimator](LegacyCumulativeBandwidthEstimator
 
 ### reserveOutgoingProbe()
 
-> **reserveOutgoingProbe**(`_nowMs`): `undefined` \| [`ProbeReservation`](../interfaces/ProbeReservation.md)
+> **reserveOutgoingProbe**(`_nowMs`): [`ProbeReservation`](../interfaces/ProbeReservation.md) \| `undefined`
 
 #### Parameters
 
@@ -192,7 +192,7 @@ Always 1 except on [SenderBandwidthEstimator](LegacyCumulativeBandwidthEstimator
 
 #### Returns
 
-`undefined` \| [`ProbeReservation`](../interfaces/ProbeReservation.md)
+[`ProbeReservation`](../interfaces/ProbeReservation.md) \| `undefined`
 
 ***
 

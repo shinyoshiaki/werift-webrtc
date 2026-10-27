@@ -26,13 +26,13 @@ observed in TWCC (empty / unmatched feedback does not notify).
 
 ## Constructors
 
-### new GccBandwidthEstimator()
+### Constructor
 
-> **new GccBandwidthEstimator**(`startBitrateBps`, `options`?): [`GccBandwidthEstimator`](GccBandwidthEstimator.md)
+> **new GccBandwidthEstimator**(`startBitrateBps?`, `options?`): `GccBandwidthEstimator`
 
 #### Parameters
 
-##### startBitrateBps
+##### startBitrateBps?
 
 `number` = `kDefaultStartBitrateBps`
 
@@ -44,7 +44,7 @@ Initial target / AIMD start (bps).
 
 #### Returns
 
-[`GccBandwidthEstimator`](GccBandwidthEstimator.md)
+`GccBandwidthEstimator`
 
 ## Properties
 
@@ -326,14 +326,14 @@ pin `GetPacingRates` padding_rate when loss state is
 
 ### pendingLossPaddingPackets()
 
-> **pendingLossPaddingPackets**(`packetBytes`): `number`
+> **pendingLossPaddingPackets**(`packetBytes?`): `number`
 
 Padding packets to send so the token-bucket approaches
-[getPaddingBitrateBps](GccBandwidthEstimator.md#getpaddingbitratebps) when media is sparse. 0 while probing.
+[getPaddingBitrateBps](#getpaddingbitratebps) when media is sparse. 0 while probing.
 
 #### Parameters
 
-##### packetBytes
+##### packetBytes?
 
 `number` = `kProbePaddingPacketBytes`
 
@@ -349,14 +349,14 @@ Padding packets to send so the token-bucket approaches
 
 ### pendingProbePaddingPackets()
 
-> **pendingProbePaddingPackets**(`packetBytes`): `number`
+> **pendingProbePaddingPackets**(`packetBytes?`): `number`
 
 How many padding packets the sender should inject to progress the active
 probe cluster when media is sparse. 0 if not probing or cluster is full.
 
 #### Parameters
 
-##### packetBytes
+##### packetBytes?
 
 `number` = `kProbePaddingPacketBytes`
 
@@ -426,7 +426,7 @@ Process a Transport-Wide CC RTCP feedback packet and update the estimate.
 
 ### reserveOutgoingProbe()
 
-> **reserveOutgoingProbe**(`nowMs`): `undefined` \| [`ProbeReservation`](../interfaces/ProbeReservation.md)
+> **reserveOutgoingProbe**(`nowMs`): [`ProbeReservation`](../interfaces/ProbeReservation.md) \| `undefined`
 
 pin `BitrateProber::CurrentCluster` — must be called **before** send.
 
@@ -438,7 +438,7 @@ pin `BitrateProber::CurrentCluster` — must be called **before** send.
 
 #### Returns
 
-`undefined` \| [`ProbeReservation`](../interfaces/ProbeReservation.md)
+[`ProbeReservation`](../interfaces/ProbeReservation.md) \| `undefined`
 
 #### Implementation of
 
@@ -551,7 +551,7 @@ stored a start bitrate).
 
 ### setNetworkStateEstimate()
 
-> **setNetworkStateEstimate**(`linkCapacityUpperBps`, `linkCapacityLowerBps`): `void`
+> **setNetworkStateEstimate**(`linkCapacityUpperBps`, `linkCapacityLowerBps?`): `void`
 
 pin `OnNetworkStateEstimate` / `SetNetworkStateEstimate`.
 `linkCapacityUpperBps <= 0` clears the estimate on ProbeController and AIMD.
@@ -562,7 +562,7 @@ pin `OnNetworkStateEstimate` / `SetNetworkStateEstimate`.
 
 `number`
 
-##### linkCapacityLowerBps
+##### linkCapacityLowerBps?
 
 `number` = `0`
 
@@ -615,7 +615,7 @@ Tag the next outgoing packet as a probe (`SentInfo.isProbation`).
 
 ### updatePacketsLost()
 
-> **updatePacketsLost**(`packetsLost`, `numberOfPackets`, `atTimeMs`?): `void`
+> **updatePacketsLost**(`packetsLost`, `numberOfPackets`, `atTimeMs?`): `void`
 
 pin `OnTransportLossReport` → `UpdatePacketsLost`.
 
@@ -625,7 +625,7 @@ Fraction-loss is published only after
 [kStartPhaseLossReportMinPackets](../variables/kStartPhaseLossReportMinPackets.md) packets accumulate.
 
 Not on the thin [BandwidthEstimator](../interfaces/BandwidthEstimator.md) interface — RTCP RR / XR
-wiring is GCC-specific (same pattern as [setRoundTripTime](GccBandwidthEstimator.md#setroundtriptime)).
+wiring is GCC-specific (same pattern as [setRoundTripTime](#setroundtriptime)).
 
 #### Parameters
 

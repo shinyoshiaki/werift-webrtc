@@ -6,7 +6,7 @@
 
 # Type Alias: LegacyCongestionCompatibility
 
-> **LegacyCongestionCompatibility**: `object`
+> **LegacyCongestionCompatibility** = `object`
 
 Legacy congestion events kept on every estimator instance so
 `sender.senderBWE.onCongestion` still type-checks after the BWE abstraction.
@@ -15,7 +15,7 @@ Only SenderBandwidthEstimator fires them; GCC / disabled are no-ops.
 Not part of [BandwidthEstimator](../interfaces/BandwidthEstimator.md). Prefer a `SenderBandwidthEstimator`
 assertion for new code. This surface may be removed in a future major.
 
-## Type declaration
+## Properties
 
 ### ~~congestion~~
 
@@ -25,6 +25,8 @@ assertion for new code. This surface may be removed in a future major.
 
 Legacy-only. Always false on GCC / disabled.
 
+***
+
 ### ~~congestionScore~~
 
 > **congestionScore**: `number`
@@ -33,6 +35,8 @@ Legacy-only. Always false on GCC / disabled.
 
 Legacy-only. Always 1 on GCC / disabled.
 
+***
+
 ### ~~onCongestion~~
 
 > `readonly` **onCongestion**: [`Event`](../classes/Event.md)\<\[`boolean`\]\>
@@ -40,6 +44,8 @@ Legacy-only. Always 1 on GCC / disabled.
 #### Deprecated
 
 Legacy-only. No-op on GCC / disabled.
+
+***
 
 ### ~~onCongestionScore~~
 

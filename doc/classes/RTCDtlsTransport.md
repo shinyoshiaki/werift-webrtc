@@ -205,7 +205,7 @@ on it when they started DTLS.
 
 > **transportSequenceNumber**: `number` = `0`
 
-Wire 16-bit TWCC sequence (low bits of [transportSequenceNumberExtended](RTCDtlsTransport.md#transportsequencenumberextended)).
+Wire 16-bit TWCC sequence (low bits of [transportSequenceNumberExtended](#transportsequencenumberextended)).
 
 ***
 
@@ -214,7 +214,7 @@ Wire 16-bit TWCC sequence (low bits of [transportSequenceNumberExtended](RTCDtls
 > **transportSequenceNumberExtended**: `number` = `0`
 
 Monotonic transport-wide sequence allocated at ICE enqueue time.
-Never wraps in JS Number. [transportSequenceNumber](RTCDtlsTransport.md#transportsequencenumber) is the wire
+Never wraps in JS Number. [transportSequenceNumber](#transportsequencenumber) is the wire
 16-bit view (`extended & 0xffff`).
 
 ***
@@ -392,7 +392,7 @@ reserve a TSN then wait in a per-sender pacer.
 > **sendRtp**(`payload`, `header`): `Promise`\<`number`\>
 
 Encrypt RTP and enqueue on ICE. Returns on-wire size.
-Send-time metadata: [sendRtpWithMeta](RTCDtlsTransport.md#sendrtpwithmeta).
+Send-time metadata: [sendRtpWithMeta](#sendrtpwithmeta).
 
 #### Parameters
 
@@ -415,7 +415,7 @@ Send-time metadata: [sendRtpWithMeta](RTCDtlsTransport.md#sendrtpwithmeta).
 > **sendRtpWithMeta**(`payload`, `header`): `Promise`\<[`DtlsSendRtpResult`](../type-aliases/DtlsSendRtpResult.md)\>
 
 Encrypt RTP and enqueue on ICE, capturing the clock immediately before
-the ICE write (RFC 8888). Prefer [sendRtp](RTCDtlsTransport.md#sendrtp) unless send time is needed.
+the ICE write (RFC 8888). Prefer [sendRtp](#sendrtp) unless send time is needed.
 
 #### Parameters
 

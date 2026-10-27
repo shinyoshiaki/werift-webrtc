@@ -6,7 +6,7 @@
 
 # Function: maxProbeBitrateBps()
 
-> **maxProbeBitrateBps**(`cause`, `estimatedBitrateBps`, `configuredMaxBps`): `number`
+> **maxProbeBitrateBps**(`cause`, `estimatedBitrateBps`, `configuredMaxBps?`): `number`
 
 Max probe target bitrate for this cause (libwebrtc InitiateProbing switch).
 - kLossLimitedBweIncreasing → estimated × loss_limited_probe_scale (1.5)
@@ -23,7 +23,7 @@ Max probe target bitrate for this cause (libwebrtc InitiateProbing switch).
 
 `number`
 
-### configuredMaxBps
+### configuredMaxBps?
 
 `number` = `kMaxBitrateBps`
 

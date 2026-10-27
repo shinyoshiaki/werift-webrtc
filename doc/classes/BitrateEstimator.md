@@ -11,13 +11,13 @@ Used when robust throughput is disabled; kept for parity / unit tests.
 
 ## Constructors
 
-### new BitrateEstimator()
+### Constructor
 
-> **new BitrateEstimator**(): [`BitrateEstimator`](BitrateEstimator.md)
+> **new BitrateEstimator**(): `BitrateEstimator`
 
 #### Returns
 
-[`BitrateEstimator`](BitrateEstimator.md)
+`BitrateEstimator`
 
 ## Methods
 

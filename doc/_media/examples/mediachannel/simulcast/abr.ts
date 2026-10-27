@@ -3,6 +3,7 @@ import { WebSocketServer } from "ws";
 import {
   RTCPeerConnection,
   RTCRtpCodecParameters,
+  type SenderBandwidthEstimator,
   useAbsSendTime,
   useFIR,
   useNACK,
@@ -70,9 +71,16 @@ server.on("connection", async (socket) => {
       receiverTransceiver.receiver.sendRtcpPLI(rtp.header.ssrc);
     }, 1000);
   });
-  const bwe = senderTransceiver.sender.senderBWE;
-  bwe.onAvailableBitrate.subscribe((bitrate) => console.log({ bitrate }));
-  bwe.onCongestionScore.subscribe((score) => {
+  // Default BWE is legacy cumulative (SenderBandwidthEstimator).
+  // Connection-wide GCC: new RTCPeerConnection({ bandwidthEstimator: "gcc" })
+  //   or disable with bandwidthEstimator: false.
+  // Per-sender: senderTransceiver.sender.setBandwidthEstimator(new GccBandwidthEstimator()).
+  // Prefer rtpSender.onAvailableBitrate (survives estimator swap); unit is bps, change-only.
+  const rtpSender = senderTransceiver.sender;
+  rtpSender.onAvailableBitrate.subscribe((bitrate) => console.log({ bitrate }));
+  // onCongestionScore / onCongestion are legacy-only (not on BandwidthEstimator).
+  const legacyBwe = rtpSender.senderBWE as SenderBandwidthEstimator;
+  legacyBwe.onCongestionScore.subscribe((score) => {
     console.log({ score });
     if (score >= 5) {
       if (state != "low") {
@@ -92,7 +100,7 @@ server.on("connection", async (socket) => {
       }
     }
   });
-  bwe.onCongestion.subscribe((congestion) => console.log({ congestion }));
+  legacyBwe.onCongestion.subscribe((congestion) => console.log({ congestion }));
 
   {
     await receiver.setLocalDescription(await receiver.createOffer());

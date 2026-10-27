@@ -112,9 +112,9 @@ pin `GetPacingRates` padding_rate while loss-limited
 
 ### pendingLossPaddingPackets()
 
-> **pendingLossPaddingPackets**(`packetBytes`?): `number`
+> **pendingLossPaddingPackets**(`packetBytes?`): `number`
 
-Padding packets to send to approach [getPaddingBitrateBps](BandwidthEstimator.md#getpaddingbitratebps) when
+Padding packets to send to approach [getPaddingBitrateBps](#getpaddingbitratebps) when
 media is sparse. Not probe/probation packets.
 
 #### Parameters
@@ -131,7 +131,7 @@ media is sparse. Not probe/probation packets.
 
 ### pendingProbePaddingPackets()
 
-> **pendingProbePaddingPackets**(`packetBytes`?): `number`
+> **pendingProbePaddingPackets**(`packetBytes?`): `number`
 
 Number of padding packets the sender should inject to fill the active
 probe cluster when media alone is insufficient.
@@ -188,7 +188,7 @@ Process a Transport-Wide CC RTCP feedback packet and update the estimate.
 
 ### reserveOutgoingProbe()
 
-> **reserveOutgoingProbe**(`nowMs`): `undefined` \| [`ProbeReservation`](ProbeReservation.md)
+> **reserveOutgoingProbe**(`nowMs`): [`ProbeReservation`](ProbeReservation.md) \| `undefined`
 
 pin `BitrateProber::CurrentCluster` — reserve the active probe cluster
 **before** the packet is sent (not at send-complete callback).
@@ -201,7 +201,7 @@ pin `BitrateProber::CurrentCluster` — reserve the active probe cluster
 
 #### Returns
 
-`undefined` \| [`ProbeReservation`](ProbeReservation.md)
+[`ProbeReservation`](ProbeReservation.md) \| `undefined`
 
 ***
 

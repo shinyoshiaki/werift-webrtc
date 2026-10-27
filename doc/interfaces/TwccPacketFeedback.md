@@ -28,7 +28,7 @@ False when this feedback reports the packet as not received.
 
 ### recvMs?
 
-> `optional` **recvMs**: `number`
+> `optional` **recvMs?**: `number`
 
 Receive time in ms on a continuous timeline (24-bit reference_time
 unwrapped). `undefined` when lost or reported without a receive delta.

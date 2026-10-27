@@ -6,23 +6,25 @@
 
 # Type Alias: GccBandwidthEstimatorOptions
 
-> **GccBandwidthEstimatorOptions**: `object`
+> **GccBandwidthEstimatorOptions** = `object`
 
 Optional GCC constructor settings. Probe / RTT / process hooks are on
 [BandwidthEstimator](../interfaces/BandwidthEstimator.md); this type is constructor-only (clock, ALR).
 
-## Type declaration
+## Properties
 
 ### clock?
 
-> `optional` **clock**: [`GccClock`](GccClock.md)
+> `optional` **clock?**: [`GccClock`](GccClock.md)
 
 Sender clock. Tests may inject a synthetic clock so send / feedback stay
-in one domain. Production omits this (defaults to [milliTime](../functions/milliTime.md)).
+in one domain. Production omits this (defaults to [milliTime](../variables/milliTime.md)).
+
+***
 
 ### periodicAlrProbing?
 
-> `optional` **periodicAlrProbing**: `boolean`
+> `optional` **periodicAlrProbing?**: `boolean`
 
 pin `requests_alr_probing` / `ProbeController::EnablePeriodicAlrProbing`.
 Default **false** — GoogCc does not enable periodic ALR probing after the

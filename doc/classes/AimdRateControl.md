@@ -12,18 +12,18 @@ AIMD rate controller for the delay-based estimate (pin
 Ports ChangeState / ChangeBitrate / MultiplicativeRateIncrease /
 AdditiveRateIncrease / TimeToReduceFurther / GetNearMaxIncreaseRate.
 
-RTT is **only** via [setRtt](AimdRateControl.md#setrtt) (RTCP / OnRoundTripTimeUpdate path) —
+RTT is **only** via [setRtt](#setrtt) (RTCP / OnRoundTripTimeUpdate path) —
 never from TWCC propagation RTT / RttBasedBackoff.
 
 ## Constructors
 
-### new AimdRateControl()
+### Constructor
 
-> **new AimdRateControl**(): [`AimdRateControl`](AimdRateControl.md)
+> **new AimdRateControl**(): `AimdRateControl`
 
 #### Returns
 
-[`AimdRateControl`](AimdRateControl.md)
+`AimdRateControl`
 
 ## Accessors
 
@@ -96,11 +96,11 @@ pin `InitialTimeToReduceFurther`.
 
 ### reset()
 
-> **reset**(`startBps`): `void`
+> **reset**(`startBps?`): `void`
 
 #### Parameters
 
-##### startBps
+##### startBps?
 
 `number` = `kDefaultStartBitrateBps`
 
@@ -167,7 +167,7 @@ Used for valid probe results — does not wipe RTT or link-capacity history.
 
 ### setNetworkStateEstimate()
 
-> **setNetworkStateEstimate**(`linkCapacityUpperBps`, `linkCapacityLowerBps`): `void`
+> **setNetworkStateEstimate**(`linkCapacityUpperBps`, `linkCapacityLowerBps?`): `void`
 
 pin `AimdRateControl::SetNetworkStateEstimate`.
 Non-finite / non-positive upper clears the estimate.
@@ -178,7 +178,7 @@ Non-finite / non-positive upper clears the estimate.
 
 `number`
 
-##### linkCapacityLowerBps
+##### linkCapacityLowerBps?
 
 `number` = `0`
 

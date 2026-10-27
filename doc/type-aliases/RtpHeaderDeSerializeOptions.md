@@ -6,13 +6,13 @@
 
 # Type Alias: RtpHeaderDeSerializeOptions
 
-> **RtpHeaderDeSerializeOptions**: `object`
+> **RtpHeaderDeSerializeOptions** = `object`
 
-## Type declaration
+## Properties
 
 ### validatePadding?
 
-> `optional` **validatePadding**: `boolean`
+> `optional` **validatePadding?**: `boolean`
 
 When true (default), RFC 3550 padding length is validated:
 1..`packet.length - payloadOffset`.

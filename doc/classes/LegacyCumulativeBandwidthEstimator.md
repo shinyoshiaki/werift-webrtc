@@ -28,17 +28,17 @@ CumulativeResult
 
 ## Constructors
 
-### new LegacyCumulativeBandwidthEstimator()
+### Constructor
 
-> **new LegacyCumulativeBandwidthEstimator**(): [`LegacyCumulativeBandwidthEstimator`](LegacyCumulativeBandwidthEstimator.md)
+> **new LegacyCumulativeBandwidthEstimator**(): `SenderBandwidthEstimator`
 
 #### Returns
 
-[`LegacyCumulativeBandwidthEstimator`](LegacyCumulativeBandwidthEstimator.md)
+`SenderBandwidthEstimator`
 
 #### Inherited from
 
-[`BandwidthEstimatorNoopHooks`](BandwidthEstimatorNoopHooks.md).[`constructor`](BandwidthEstimatorNoopHooks.md#constructors)
+[`BandwidthEstimatorNoopHooks`](BandwidthEstimatorNoopHooks.md).[`constructor`](BandwidthEstimatorNoopHooks.md#constructor)
 
 ## Properties
 
@@ -58,7 +58,7 @@ CumulativeResult
 
 #### Deprecated
 
-Always false except on [SenderBandwidthEstimator](LegacyCumulativeBandwidthEstimator.md).
+Always false except on SenderBandwidthEstimator.
 
 #### Overrides
 
@@ -229,7 +229,7 @@ May remain `0` until TWCC is negotiated and enough samples are collected.
 
 ##### Deprecated
 
-Always 1 except on [SenderBandwidthEstimator](LegacyCumulativeBandwidthEstimator.md).
+Always 1 except on SenderBandwidthEstimator.
 
 ##### Parameters
 
@@ -324,7 +324,7 @@ pin `GetPacingRates` padding_rate while loss-limited
 
 ### pendingLossPaddingPackets()
 
-> **pendingLossPaddingPackets**(`_packetBytes`?): `number`
+> **pendingLossPaddingPackets**(`_packetBytes?`): `number`
 
 Padding packets to send to approach [getPaddingBitrateBps](../interfaces/BandwidthEstimator.md#getpaddingbitratebps) when
 media is sparse. Not probe/probation packets.
@@ -351,7 +351,7 @@ media is sparse. Not probe/probation packets.
 
 ### pendingProbePaddingPackets()
 
-> **pendingProbePaddingPackets**(`_packetBytes`?): `number`
+> **pendingProbePaddingPackets**(`_packetBytes?`): `number`
 
 Number of padding packets the sender should inject to fill the active
 probe cluster when media alone is insufficient.
@@ -428,7 +428,7 @@ Process a Transport-Wide CC RTCP feedback packet and update the estimate.
 
 ### reserveOutgoingProbe()
 
-> **reserveOutgoingProbe**(`_nowMs`): `undefined` \| [`ProbeReservation`](../interfaces/ProbeReservation.md)
+> **reserveOutgoingProbe**(`_nowMs`): [`ProbeReservation`](../interfaces/ProbeReservation.md) \| `undefined`
 
 pin `BitrateProber::CurrentCluster` — reserve the active probe cluster
 **before** the packet is sent (not at send-complete callback).
@@ -441,7 +441,7 @@ pin `BitrateProber::CurrentCluster` — reserve the active probe cluster
 
 #### Returns
 
-`undefined` \| [`ProbeReservation`](../interfaces/ProbeReservation.md)
+[`ProbeReservation`](../interfaces/ProbeReservation.md) \| `undefined`
 
 #### Implementation of
 

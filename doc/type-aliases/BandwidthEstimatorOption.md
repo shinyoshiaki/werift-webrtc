@@ -6,7 +6,7 @@
 
 # Type Alias: BandwidthEstimatorOption
 
-> **BandwidthEstimatorOption**: [`BandwidthEstimatorPreset`](BandwidthEstimatorPreset.md) \| `false` \| () => [`BandwidthEstimator`](../interfaces/BandwidthEstimator.md)
+> **BandwidthEstimatorOption** = [`BandwidthEstimatorPreset`](BandwidthEstimatorPreset.md) \| `false` \| (() => [`BandwidthEstimator`](../interfaces/BandwidthEstimator.md))
 
 How a new [RTCRtpSender](../classes/RTCRtpSender.md) obtains its [BandwidthEstimator](../interfaces/BandwidthEstimator.md).
 

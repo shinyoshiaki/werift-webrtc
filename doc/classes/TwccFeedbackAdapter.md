@@ -22,9 +22,9 @@ Shared by every [BandwidthEstimator](../interfaces/BandwidthEstimator.md) that c
 
 ## Constructors
 
-### new TwccFeedbackAdapter()
+### Constructor
 
-> **new TwccFeedbackAdapter**(`maxAgeMs`): [`TwccFeedbackAdapter`](TwccFeedbackAdapter.md)
+> **new TwccFeedbackAdapter**(`maxAgeMs`): `TwccFeedbackAdapter`
 
 #### Parameters
 
@@ -36,7 +36,7 @@ Drop history entries sent more than this long ago.
 
 #### Returns
 
-[`TwccFeedbackAdapter`](TwccFeedbackAdapter.md)
+`TwccFeedbackAdapter`
 
 ## Accessors
 
@@ -44,13 +44,13 @@ Drop history entries sent more than this long ago.
 
 #### Get Signature
 
-> **get** **latestSentSeq**(): `undefined` \| `number`
+> **get** **latestSentSeq**(): `number` \| `undefined`
 
-Latest extended sequence recorded by [onSent](TwccFeedbackAdapter.md#onsent).
+Latest extended sequence recorded by [onSent](#onsent).
 
 ##### Returns
 
-`undefined` \| `number`
+`number` \| `undefined`
 
 ***
 

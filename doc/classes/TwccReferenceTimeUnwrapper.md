@@ -11,13 +11,13 @@ monotonic timeline (modulo unwrap).
 
 ## Constructors
 
-### new TwccReferenceTimeUnwrapper()
+### Constructor
 
-> **new TwccReferenceTimeUnwrapper**(): [`TwccReferenceTimeUnwrapper`](TwccReferenceTimeUnwrapper.md)
+> **new TwccReferenceTimeUnwrapper**(): `TwccReferenceTimeUnwrapper`
 
 #### Returns
 
-[`TwccReferenceTimeUnwrapper`](TwccReferenceTimeUnwrapper.md)
+`TwccReferenceTimeUnwrapper`
 
 ## Methods
 
@@ -30,7 +30,9 @@ Re-base per-packet `receivedAtMs` produced by [TransportWideCC.packetResults](Tr
 
 #### Type Parameters
 
-• **T** *extends* `object`
+##### T
+
+`T` *extends* `object`
 
 #### Parameters
 

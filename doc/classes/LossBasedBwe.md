@@ -25,13 +25,13 @@ LossBasedBweV2-aligned controller
 
 ## Constructors
 
-### new LossBasedBwe()
+### Constructor
 
-> **new LossBasedBwe**(): [`LossBasedBwe`](LossBasedBwe.md)
+> **new LossBasedBwe**(): `LossBasedBwe`
 
 #### Returns
 
-[`LossBasedBwe`](LossBasedBwe.md)
+`LossBasedBwe`
 
 ## Accessors
 
@@ -123,7 +123,7 @@ start phase (`last_fraction_loss_ == 0`).
 
 > **get** **targetBitrateBps**(): `number`
 
-pin `GetLossBasedResult`. Until [isReady](LossBasedBwe.md#isready), delay (or `+Infinity`
+pin `GetLossBasedResult`. Until [isReady](#isready), delay (or `+Infinity`
 if delay is unset) with `kDelayBasedEstimate`. Does **not** expose the
 internally evolving `loss_based_result_` or uninitialized current-best.
 
@@ -152,7 +152,7 @@ pin `LossBasedBweV2::UseInStartPhase` (default true).
 > **getLossBasedResult**(): [`LossBasedResult`](../interfaces/LossBasedResult.md)
 
 pin `LossBasedBweV2::GetLossBasedResult`.
-`ready` is [isReady](LossBasedBwe.md#isready). Controllers must ignore
+`ready` is [isReady](#isready). Controllers must ignore
 `bandwidthEstimateBps` until `ready` (pin
 `LossBasedBandwidthEstimatorV2ReadyForUse`).
 
@@ -164,11 +164,11 @@ pin `LossBasedBweV2::GetLossBasedResult`.
 
 ### reset()
 
-> **reset**(`startBps`): `void`
+> **reset**(`startBps?`): `void`
 
 #### Parameters
 
-##### startBps
+##### startBps?
 
 `number` = `kDefaultStartBitrateBps`
 
@@ -259,7 +259,7 @@ pin PaddingDuration. 0 keeps `increasing`; >0 enters
 
 ### update()
 
-> **update**(`lossFraction`, `delayBasedBps`, `acknowledgedBps`, `packetCount`, `lostCount`, `firstSendMs`, `batchBytes`, `lastSendMs`, `lostBytes`, `packets`?, `inAlr`?): `number`
+> **update**(`lossFraction`, `delayBasedBps`, `acknowledgedBps?`, `packetCount?`, `lostCount?`, `firstSendMs?`, `batchBytes?`, `lastSendMs?`, `lostBytes?`, `packets?`, `inAlr?`): `number`
 
 #### Parameters
 
@@ -275,43 +275,43 @@ fallback when packet counts are 0
 
 delay-based A_hat
 
-##### acknowledgedBps
+##### acknowledgedBps?
 
 `number` = `0`
 
 recent acked bitrate (TWCC-relative throughput)
 
-##### packetCount
+##### packetCount?
 
 `number` = `0`
 
 known packets in batch
 
-##### lostCount
+##### lostCount?
 
 `number` = `0`
 
 lost among known
 
-##### firstSendMs
+##### firstSendMs?
 
 `number` = `0`
 
 actual first send time of this batch (send timeline)
 
-##### batchBytes
+##### batchBytes?
 
 `number` = `0`
 
 total sent bytes in batch
 
-##### lastSendMs
+##### lastSendMs?
 
 `number` = `0`
 
 actual last send time of this batch (send timeline)
 
-##### lostBytes
+##### lostBytes?
 
 `number` = `0`
 

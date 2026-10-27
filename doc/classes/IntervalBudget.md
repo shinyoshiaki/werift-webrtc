@@ -13,19 +13,19 @@ lets unused budget accumulate up to that cap.
 
 ## Constructors
 
-### new IntervalBudget()
+### Constructor
 
-> **new IntervalBudget**(`canBuildUpUnderuse`): [`IntervalBudget`](IntervalBudget.md)
+> **new IntervalBudget**(`canBuildUpUnderuse?`): `IntervalBudget`
 
 #### Parameters
 
-##### canBuildUpUnderuse
+##### canBuildUpUnderuse?
 
 `boolean` = `true`
 
 #### Returns
 
-[`IntervalBudget`](IntervalBudget.md)
+`IntervalBudget`
 
 ## Methods
 

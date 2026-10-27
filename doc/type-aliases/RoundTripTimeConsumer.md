@@ -6,6 +6,6 @@
 
 # Type Alias: RoundTripTimeConsumer
 
-> **RoundTripTimeConsumer**: `Pick`\<[`BandwidthEstimator`](../interfaces/BandwidthEstimator.md), `"setRoundTripTime"`\>
+> **RoundTripTimeConsumer** = `Pick`\<[`BandwidthEstimator`](../interfaces/BandwidthEstimator.md), `"setRoundTripTime"`\>
 
 RTCP / network RTT consumer (pin OnRoundTripTimeUpdate).

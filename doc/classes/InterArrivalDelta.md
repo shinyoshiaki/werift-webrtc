@@ -12,25 +12,25 @@ continuous ≤5ms spacing still closes groups after `kSendTimeGroupLengthMs`.
 
 ## Constructors
 
-### new InterArrivalDelta()
+### Constructor
 
-> **new InterArrivalDelta**(`sendTimeGroupLengthMs`): [`InterArrivalDelta`](InterArrivalDelta.md)
+> **new InterArrivalDelta**(`sendTimeGroupLengthMs?`): `InterArrivalDelta`
 
 #### Parameters
 
-##### sendTimeGroupLengthMs
+##### sendTimeGroupLengthMs?
 
 `number` = `kSendTimeGroupLengthMs`
 
 #### Returns
 
-[`InterArrivalDelta`](InterArrivalDelta.md)
+`InterArrivalDelta`
 
 ## Methods
 
 ### computeDeltas()
 
-> **computeDeltas**(`sendMs`, `recvMs`, `packetSize`, `systemMs`?): `undefined` \| `InterArrivalDeltas`
+> **computeDeltas**(`sendMs`, `recvMs`, `packetSize`, `systemMs?`): `InterArrivalDeltas` \| `undefined`
 
 Ingest one packet. When a completed previous group pair is available,
 returns send/recv/size deltas; otherwise `undefined`.
@@ -59,20 +59,20 @@ pin `system_time` (feedback_time / sender clock). When
 
 #### Returns
 
-`undefined` \| `InterArrivalDeltas`
+`InterArrivalDeltas` \| `undefined`
 
 ***
 
 ### flush()
 
-> **flush**(): `undefined` \| `InterArrivalDeltas`
+> **flush**(): `InterArrivalDeltas` \| `undefined`
 
 Flush any in-progress group as complete (e.g. end of TWCC feedback batch).
 Does not invent a following group; returns deltas vs prev if possible.
 
 #### Returns
 
-`undefined` \| `InterArrivalDeltas`
+`InterArrivalDeltas` \| `undefined`
 
 ***
 

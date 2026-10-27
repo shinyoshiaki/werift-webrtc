@@ -17,13 +17,13 @@ already advanced a generation, e.g. `wideSeq=65537`).
 
 ## Constructors
 
-### new TransportWideSeqUnwrapper()
+### Constructor
 
-> **new TransportWideSeqUnwrapper**(): [`TransportWideSeqUnwrapper`](TransportWideSeqUnwrapper.md)
+> **new TransportWideSeqUnwrapper**(): `TransportWideSeqUnwrapper`
 
 #### Returns
 
-[`TransportWideSeqUnwrapper`](TransportWideSeqUnwrapper.md)
+`TransportWideSeqUnwrapper`
 
 ## Accessors
 
@@ -31,13 +31,13 @@ already advanced a generation, e.g. `wideSeq=65537`).
 
 #### Get Signature
 
-> **get** **last**(): `undefined` \| `number`
+> **get** **last**(): `number` \| `undefined`
 
 Last extended sequence, or `undefined` before the first unwrap.
 
 ##### Returns
 
-`undefined` \| `number`
+`number` \| `undefined`
 
 ## Methods
 
@@ -49,7 +49,7 @@ Map a **send-time** TSN onto a monotonic key.
 
 Wire TSN only increases. A jump larger than half the 16-bit space is a
 gap (other BUNDLE senders while this one was idle), not wrap-back.
-[peek](TransportWideSeqUnwrapper.md#peek) still uses the half-modulus rule for 16-bit feedback.
+[peek](#peek) still uses the half-modulus rule for 16-bit feedback.
 
 #### Parameters
 
@@ -67,7 +67,7 @@ gap (other BUNDLE senders while this one was idle), not wrap-back.
 
 > **peek**(`seq`): `number`
 
-Same mapping as [unwrap](TransportWideSeqUnwrapper.md#unwrap) without updating the origin.
+Same mapping as [unwrap](#unwrap) without updating the origin.
 Used when matching TWCC 16-bit feedback against already-sent history.
 
 #### Parameters
