@@ -33,9 +33,9 @@ export class IceSpedTransport implements Transport {
       if (!allowsAuthenticatedDtlsDelivery(ctx, ice.generation)) {
         return;
       }
-      if (this.applicationReady && ctx.pair !== ice.nominated) {
-        return;
-      }
+      // Authenticate inbound records against the current ICE generation and
+      // source tuple. As with the regular ICE transport, receive over any
+      // authenticated pair; application sends still use Connection.send().
       this.onData(ctx.bytes, ctx.source);
     });
   }

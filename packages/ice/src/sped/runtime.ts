@@ -164,7 +164,13 @@ export class SpedRuntime {
       if (direction === "in") {
         return "capability";
       }
-      return this.session.peerSupport === "supported" ? "capability" : "none";
+      if (this.session.peerSupport !== "supported") {
+        return "none";
+      }
+      // A nominated prflx pair is the selected ICE path. Once the peer has
+      // advertised SPED, it must be able to carry L1 even when trickle did not
+      // replace the prflx candidate with a signaled host/srflx candidate.
+      return pair.nominated ? "full" : "capability";
     }
     return "none";
   }
