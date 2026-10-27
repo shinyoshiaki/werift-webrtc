@@ -28,7 +28,7 @@
 
 ### debug
 
-> **debug**: `Partial`
+> **debug**: [`DebugConfig`](../type-aliases/DebugConfig.md)
 
 ***
 
@@ -56,7 +56,7 @@ Prefer turn URL transport parameters or turnTransport.
 
 ### iceAdditionalHostAddresses
 
-> **iceAdditionalHostAddresses**: `undefined` \| `string`[]
+> **iceAdditionalHostAddresses**: `string`[] \| `undefined`
 
 Add additional host (local) addresses to use for candidate gathering.
 Notably, you can include hosts that are normally excluded, such as loopback, tun interfaces, etc.
@@ -72,13 +72,13 @@ For a family bound by `iceInterfaceAddresses`, addresses other than the bound on
 
 ### iceFilterCandidatePair
 
-> **iceFilterCandidatePair**: `undefined` \| (`pair`) => `boolean`
+> **iceFilterCandidatePair**: ((`pair`) => `boolean`) \| `undefined`
 
 ***
 
 ### iceFilterStunResponse
 
-> **iceFilterStunResponse**: `undefined` \| (`message`, `addr`, `protocol`) => `boolean`
+> **iceFilterStunResponse**: ((`message`, `addr`, `protocol`) => `boolean`) \| `undefined`
 
 If provided, is called on each STUN request.
 Return `true` if a STUN response should be sent, false if it should be skipped.
@@ -87,7 +87,7 @@ Return `true` if a STUN response should be sent, false if it should be skipped.
 
 ### iceInterfaceAddresses
 
-> **iceInterfaceAddresses**: `undefined` \| [`InterfaceAddresses`](../type-aliases/InterfaceAddresses.md)
+> **iceInterfaceAddresses**: [`InterfaceAddresses`](../type-aliases/InterfaceAddresses.md) \| `undefined`
 
 Local addresses to bind the ICE UDP host sockets to, per family
 (`udp4` / `udp6`).
@@ -111,13 +111,13 @@ Advertise local ICE lite and operate in the controlled role.
 
 ### icePasswordPrefix
 
-> **icePasswordPrefix**: `undefined` \| `string`
+> **icePasswordPrefix**: `string` \| `undefined`
 
 ***
 
 ### icePortRange
 
-> **icePortRange**: `undefined` \| \[`number`, `number`\]
+> **icePortRange**: \[`number`, `number`\] \| `undefined`
 
 Minimum port and Maximum port must not be the same value
 
@@ -131,7 +131,7 @@ Minimum port and Maximum port must not be the same value
 
 ### iceStunGatherTimeout
 
-> **iceStunGatherTimeout**: `undefined` \| `number`
+> **iceStunGatherTimeout**: `number` \| `undefined`
 
 Seconds to wait for server-reflexive candidates while gathering.
 Defaults to 5 when undefined.
@@ -154,7 +154,7 @@ Gather passive (listening) TCP host candidates. Defaults to true.
 
 ### iceTurnConnectTimeout
 
-> **iceTurnConnectTimeout**: `undefined` \| `number`
+> **iceTurnConnectTimeout**: `number` \| `undefined`
 
 Seconds to wait for a TURN TCP/TLS connection to be established.
 Defaults to 8 when undefined.
@@ -175,7 +175,7 @@ Defaults to 8 when undefined.
 
 ### iceUseLinkLocalAddress
 
-> **iceUseLinkLocalAddress**: `undefined` \| `boolean`
+> **iceUseLinkLocalAddress**: `boolean` \| `undefined`
 
 such as google cloud run
 
@@ -215,7 +215,7 @@ How local SDP marks inactive / stopped m-lines. Cannot be changed after construc
 
 ### pendingRtp
 
-> **pendingRtp**: `NonNullable`\<`undefined` \| `boolean` \| [`PendingRtpOptions`](../type-aliases/PendingRtpOptions.md)\>
+> **pendingRtp**: `NonNullable`\<`boolean` \| [`PendingRtpOptions`](../type-aliases/PendingRtpOptions.md) \| `undefined`\>
 
 Queue outbound RTP on each sender until DTLS is connected.
 Disabled by default. Pass `true` or `{ enabled: true, maxLength }` to buffer.
@@ -242,19 +242,19 @@ SCTP outbound packet MTU used for DATA chunk fragmentation.
 
 ### turnTlsOptions
 
-> **turnTlsOptions**: `undefined` \| [`TlsConnectionOptions`](../type-aliases/TlsConnectionOptions.md)
+> **turnTlsOptions**: [`TlsConnectionOptions`](../type-aliases/TlsConnectionOptions.md) \| `undefined`
 
 ***
 
 ### turnTransport
 
-> **turnTransport**: `undefined` \| `"tcp"` \| `"tls"` \| `"udp"`
+> **turnTransport**: `"tcp"` \| `"tls"` \| `"udp"` \| `undefined`
 
 ***
 
 ### turnUdpFamily
 
-> **turnUdpFamily**: `undefined` \| `4` \| `6`
+> **turnUdpFamily**: `4` \| `6` \| `undefined`
 
 Preferred IP family of the TURN/UDP socket, applied only when the TURN
 server is a hostname. Ignored for an IP literal server, whose own family

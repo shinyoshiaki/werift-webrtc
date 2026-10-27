@@ -12,19 +12,19 @@
 
 ## Constructors
 
-### new PcmaPacketizer()
+### Constructor
 
-> **new PcmaPacketizer**(`options`): [`PcmaPacketizer`](PcmaPacketizer.md)
+> **new PcmaPacketizer**(`options?`): `PcmaPacketizer`
 
 #### Parameters
 
-##### options
+##### options?
 
 [`G711PacketizerOptions`](../type-aliases/G711PacketizerOptions.md) = `{}`
 
 #### Returns
 
-[`PcmaPacketizer`](PcmaPacketizer.md)
+`PcmaPacketizer`
 
 #### Overrides
 

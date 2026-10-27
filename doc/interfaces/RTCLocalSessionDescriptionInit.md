@@ -14,7 +14,7 @@
 
 ### sdp?
 
-> `optional` **sdp**: `string`
+> `optional` **sdp?**: `string`
 
 #### Inherited from
 
@@ -24,7 +24,7 @@
 
 ### type?
 
-> `optional` **type**: `"offer"` \| `"answer"` \| `"pranswer"` \| `"rollback"`
+> `optional` **type?**: `"offer"` \| `"answer"` \| `"pranswer"` \| `"rollback"`
 
 #### Overrides
 

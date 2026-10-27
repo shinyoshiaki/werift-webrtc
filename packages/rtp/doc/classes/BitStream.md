@@ -8,9 +8,9 @@
 
 ## Constructors
 
-### new BitStream()
+### Constructor
 
-> **new BitStream**(`uint8Array`): [`BitStream`](BitStream.md)
+> **new BitStream**(`uint8Array`): `BitStream`
 
 #### Parameters
 
@@ -20,7 +20,7 @@
 
 #### Returns
 
-[`BitStream`](BitStream.md)
+`BitStream`
 
 ## Properties
 
@@ -64,7 +64,7 @@
 
 ### writeBits()
 
-> **writeBits**(`bits`, `value`): [`BitStream`](BitStream.md)
+> **writeBits**(`bits`, `value`): `BitStream`
 
 #### Parameters
 
@@ -78,4 +78,4 @@
 
 #### Returns
 
-[`BitStream`](BitStream.md)
+`BitStream`

@@ -14,13 +14,13 @@
 
 ### channels?
 
-> `optional` **channels**: `number`
+> `optional` **channels?**: `number`
 
 ***
 
 ### clockRate?
 
-> `optional` **clockRate**: `number`
+> `optional` **clockRate?**: `number`
 
 ***
 
@@ -48,7 +48,7 @@
 
 ### sdpFmtpLine?
 
-> `optional` **sdpFmtpLine**: `string`
+> `optional` **sdpFmtpLine?**: `string`
 
 ***
 

@@ -10,7 +10,7 @@
 
 ### additionalHostAddresses?
 
-> `optional` **additionalHostAddresses**: `string`[]
+> `optional` **additionalHostAddresses?**: `string`[]
 
 Host addresses gathered in addition to the enumerated ones. For a family
 bound by `interfaceAddresses`, addresses other than the bound one are
@@ -18,9 +18,9 @@ ignored.
 
 ***
 
-### filterCandidatePair()?
+### filterCandidatePair?
 
-> `optional` **filterCandidatePair**: (`pair`) => `boolean`
+> `optional` **filterCandidatePair?**: (`pair`) => `boolean`
 
 #### Parameters
 
@@ -34,9 +34,9 @@ ignored.
 
 ***
 
-### filterStunResponse()?
+### filterStunResponse?
 
-> `optional` **filterStunResponse**: (`message`, `addr`, `protocol`) => `boolean`
+> `optional` **filterStunResponse?**: (`message`, `addr`, `protocol`) => `boolean`
 
 #### Parameters
 
@@ -60,7 +60,7 @@ readonly \[`string`, `number`\]
 
 ### forceTurn?
 
-> `optional` **forceTurn**: `boolean`
+> `optional` **forceTurn?**: `boolean`
 
 ***
 
@@ -74,7 +74,7 @@ Advertise and operate as an ICE lite agent.
 
 ### interfaceAddresses?
 
-> `optional` **interfaceAddresses**: [`InterfaceAddresses`](../type-aliases/InterfaceAddresses.md)
+> `optional` **interfaceAddresses?**: [`InterfaceAddresses`](../type-aliases/InterfaceAddresses.md)
 
 Local addresses to bind the UDP host sockets to, per family.
 
@@ -93,19 +93,19 @@ family set, every enumerated address is gathered over wildcard sockets.
 
 ### localPasswordPrefix?
 
-> `optional` **localPasswordPrefix**: `string`
+> `optional` **localPasswordPrefix?**: `string`
 
 ***
 
 ### portRange?
 
-> `optional` **portRange**: \[`number`, `number`\]
+> `optional` **portRange?**: \[`number`, `number`\]
 
 ***
 
 ### stunGatherTimeout?
 
-> `optional` **stunGatherTimeout**: `number`
+> `optional` **stunGatherTimeout?**: `number`
 
 Seconds to wait for server-reflexive candidates while gathering.
 Defaults to 5. Where UDP is blocked these STUN queries are never answered,
@@ -116,13 +116,13 @@ networks can lower it.
 
 ### stunServer?
 
-> `optional` **stunServer**: readonly \[`string`, `number`\]
+> `optional` **stunServer?**: readonly \[`string`, `number`\]
 
 ***
 
 ### tcpPassive?
 
-> `optional` **tcpPassive**: `boolean`
+> `optional` **tcpPassive?**: `boolean`
 
 Gather passive TCP host candidates (opens a listening TCP server per
 interface). Defaults to true. Send-only agents that never accept inbound
@@ -133,7 +133,7 @@ active TCP candidates.
 
 ### turnConnectTimeout?
 
-> `optional` **turnConnectTimeout**: `number`
+> `optional` **turnConnectTimeout?**: `number`
 
 Seconds to wait for a TURN TCP/TLS connection to be established.
 Defaults to 8.
@@ -142,31 +142,31 @@ Defaults to 8.
 
 ### turnPassword?
 
-> `optional` **turnPassword**: `string`
+> `optional` **turnPassword?**: `string`
 
 ***
 
 ### turnServer?
 
-> `optional` **turnServer**: readonly \[`string`, `number`\]
+> `optional` **turnServer?**: readonly \[`string`, `number`\]
 
 ***
 
 ### turnTlsOptions?
 
-> `optional` **turnTlsOptions**: [`TlsConnectionOptions`](../type-aliases/TlsConnectionOptions.md)
+> `optional` **turnTlsOptions?**: [`TlsConnectionOptions`](../type-aliases/TlsConnectionOptions.md)
 
 ***
 
 ### turnTransport?
 
-> `optional` **turnTransport**: `"tcp"` \| `"tls"` \| `"udp"`
+> `optional` **turnTransport?**: `"tcp"` \| `"tls"` \| `"udp"`
 
 ***
 
 ### turnUdpFamily?
 
-> `optional` **turnUdpFamily**: `4` \| `6`
+> `optional` **turnUdpFamily?**: `4` \| `6`
 
 Preferred IP family of the TURN/UDP socket, applied only when turnServer
 is a hostname. Ignored for an IP literal turnServer, whose own family
@@ -176,7 +176,7 @@ always selects the socket. Defaults to 4.
 
 ### turnUsername?
 
-> `optional` **turnUsername**: `string`
+> `optional` **turnUsername?**: `string`
 
 ***
 
@@ -194,7 +194,7 @@ always selects the socket. Defaults to 4.
 
 ### useLinkLocalAddress?
 
-> `optional` **useLinkLocalAddress**: `boolean`
+> `optional` **useLinkLocalAddress?**: `boolean`
 
 ***
 
