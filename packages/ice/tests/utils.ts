@@ -1,12 +1,17 @@
-import { deepStrictEqual } from "assert";
-import { readFileSync } from "fs";
 import * as dgram from "node:dgram";
 import * as dns from "node:dns";
 import * as net from "node:net";
 import * as tls from "node:tls";
+import { deepStrictEqual } from "assert";
+import { readFileSync } from "fs";
 import { type Address, Event, type Transport } from "../../common/src";
 import { NodeStunServer, NodeTurnServer } from "../../ice-server/src";
 import { Candidate } from "../src/candidate";
+import {
+  TransactionCancelled,
+  TransactionFailed,
+  TransactionTimeout,
+} from "../src/exceptions";
 import { Connection } from "../src/ice";
 import {
   CandidatePair,
@@ -15,6 +20,7 @@ import {
 } from "../src/iceBase";
 import { classes, methods } from "../src/stun/const";
 import { Message, parseMessage } from "../src/stun/message";
+import { StunProtocol } from "../src/stun/protocol";
 import { splitTurnTcpFrames } from "../src/turn/frame";
 import type { StunOverTurnProtocol } from "../src/turn/protocol";
 import type { Protocol, TransactionRequestOptions } from "../src/types/model";
@@ -1104,6 +1110,69 @@ export function atFirstSelection<T>(
   return result;
 }
 
+/**
+ * Stub dns.promises.lookup so every lookup waits until `release()`, then
+ * answers `address` (a request whose lookup outlives its protocol).
+ */
+export function holdLookup(address: string) {
+  let release!: () => void;
+  const released = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const spy = vi.spyOn(dns.promises, "lookup").mockImplementation((async () => {
+    await released;
+    return { address, family: net.isIP(address) };
+  }) as unknown as typeof dns.promises.lookup);
+  return { release, restore: () => spy.mockRestore() };
+}
+
+/** `process.getActiveResourcesInfo()` entries of `type` (e.g. `Timeout`). */
+export function activeResourceCount(type: string) {
+  return process.getActiveResourcesInfo().filter((t) => t === type).length;
+}
+
+/** Shared Arrange: a bound IPv4 STUN protocol on the loopback interface. */
+export async function createLoopbackStunProtocol() {
+  const protocol = new StunProtocol();
+  await protocol.connectionMade(true);
+  return protocol;
+}
+
+/**
+ * Shared Arrange: a controlling agent with gathered host candidates whose
+ * checks go to a remote candidate that never answers (the discard port), so
+ * a check stays in flight; `transactions()` counts the STUN transactions
+ * its sockets wait on.
+ */
+export async function createUnansweredCheckAgent() {
+  const agent = createTestConnection(true);
+  await agent.gatherCandidates();
+  agent.remoteUsername = "remote";
+  agent.remotePassword = "remote-password-0000000000";
+  await agent.addRemoteCandidate(remoteHostCandidate(9));
+  await agent.addRemoteCandidate(undefined);
+  const transactions = () =>
+    (
+      agent as unknown as {
+        protocols: { transactions?: Record<string, unknown> }[];
+      }
+    ).protocols.reduce(
+      (sum, p) => sum + Object.keys(p.transactions ?? {}).length,
+      0,
+    );
+  return { agent, transactions };
+}
+
+/** Shared Arrange: a UDP socket that receives and never answers (an unreachable TURN or STUN server). */
+export async function createSilentUdpServer(host = "127.0.0.1") {
+  const socket = dgram.createSocket("udp4");
+  await new Promise<void>((resolve) => socket.bind(0, host, () => resolve()));
+  return {
+    address: [host, socket.address().port] as Address,
+    close: () => new Promise<void>((resolve) => socket.close(() => resolve())),
+  };
+}
+
 // --- late TURN relay candidates ---
 
 /** Poll until `predicate` holds (rejects after `timeoutMs`). */
@@ -1236,4 +1305,159 @@ export function alternateServerValue(address: Address) {
   return new Message(methods.ALLOCATE, classes.ERROR)
     .setAttribute("ALTERNATE-SERVER", address)
     .bytes.subarray(24);
+}
+
+// --- check / nomination cancellation ---
+
+/** How ScriptedCheckProtocol answers one request: a response, an error code, or no answer until released. */
+export type ScriptedReply = "success" | "hold" | 401 | 487;
+
+/** One request ScriptedCheckProtocol received. */
+export type ScriptedRequest = {
+  message: Message;
+  nominate: boolean;
+  /** Settled (answered, failed, or cancelled by its signal). */
+  done: boolean;
+  /** Answer a held request now (success, or a failure without response). */
+  release: (outcome: "success" | "failure") => void;
+};
+
+/**
+ * Mock Protocol whose request() answers as `reply` scripts it. A held request
+ * stays in flight until its signal aborts (as a real transaction cancels) or
+ * until `release`; `honorSignal: false` models a result that arrives after
+ * the generation ended (the signal is ignored).
+ */
+export class ScriptedCheckProtocol implements Protocol {
+  type: string;
+  localCandidate: Candidate;
+  onRequestReceived = new Event<[Message, any, Buffer]>();
+  onDataReceived = new Event<[Buffer]>();
+  readonly requests: ScriptedRequest[] = [];
+  readonly request: Protocol["request"];
+
+  constructor(
+    transport: "udp" | "tcp",
+    reply: (request: { nominate: boolean; index: number }) => ScriptedReply,
+    honorSignal = true,
+  ) {
+    this.type = transport;
+    this.localCandidate = createConsentCandidate(
+      "192.0.2.1",
+      4000,
+      "local",
+      transport,
+    );
+    this.request = ((
+      message: Message,
+      addr: Address,
+      _integrityKey?: Buffer,
+      options?: number | TransactionRequestOptions,
+    ) => {
+      const signal = typeof options === "object" ? options.signal : undefined;
+      const nominate = message.attributesKeys.includes("USE-CANDIDATE");
+      const answer = reply({ nominate, index: this.requests.length });
+      return new Promise((resolve, reject) => {
+        const entry: ScriptedRequest = {
+          message,
+          nominate,
+          done: false,
+          release: (outcome) => {
+            if (entry.done) return;
+            entry.done = true;
+            if (outcome === "success") {
+              resolve([new Message(methods.BINDING, classes.RESPONSE), addr]);
+            } else {
+              reject(new TransactionTimeout());
+            }
+          },
+        };
+        this.requests.push(entry);
+        if (answer === "success") {
+          entry.release("success");
+          return;
+        }
+        if (answer === 401 || answer === 487) {
+          entry.done = true;
+          const response = new Message(methods.BINDING, classes.ERROR);
+          response.setAttribute("ERROR-CODE", [answer, "scripted"]);
+          reject(new TransactionFailed(response, addr));
+          return;
+        }
+        if (!honorSignal || !signal) return;
+        const cancel = () => {
+          if (entry.done) return;
+          entry.done = true;
+          reject(new TransactionCancelled());
+        };
+        if (signal.aborted) cancel();
+        else signal.addEventListener("abort", cancel, { once: true });
+      });
+    }) as Protocol["request"];
+  }
+
+  /** Requests still waiting for an answer (each one is a live STUN transaction). */
+  pending() {
+    return this.requests.filter((request) => !request.done).length;
+  }
+
+  async sendStun() {}
+  async sendData() {}
+  async connectionMade() {}
+  async close() {}
+}
+
+/**
+ * Shared Arrange: a controlling Connection whose remote credentials are set
+ * and whose single protocol is a ScriptedCheckProtocol; `addPair()` puts a
+ * WAITING pair on the checklist and `check(pair)` starts its check the way
+ * the scheduler does (the handle is kept on the pair).
+ */
+export function createScriptedCheckHarness({
+  transport = "udp",
+  remoteIsLite = false,
+  honorSignal = true,
+  reply,
+}: {
+  transport?: "udp" | "tcp";
+  remoteIsLite?: boolean;
+  honorSignal?: boolean;
+  reply: (request: { nominate: boolean; index: number }) => ScriptedReply;
+}) {
+  const protocol = new ScriptedCheckProtocol(transport, reply, honorSignal);
+  const connection = new Connection(true);
+  connection.remoteIsLite = remoteIsLite;
+  const setRemoteCredentials = () => {
+    connection.remoteUsername = "remote";
+    connection.remotePassword = "remote-password-0000000000";
+  };
+  setRemoteCredentials();
+  let port = 5000;
+  const addPair = () => {
+    const remoteCandidate = createConsentCandidate(
+      "192.0.2.2",
+      port++,
+      "remote",
+      transport,
+    );
+    if (transport === "tcp") remoteCandidate.tcptype = "passive";
+    const pair = new CandidatePair(protocol, remoteCandidate, true);
+    pair.updateState(CandidatePairState.WAITING);
+    connection.checkList.push(pair);
+    return pair;
+  };
+  const check = (pair: CandidatePair) => {
+    pair.handle = connection.checkStart(pair);
+    return pair.handle;
+  };
+  const nominating = () =>
+    (connection as unknown as { nominating: boolean }).nominating;
+  return {
+    connection,
+    protocol,
+    addPair,
+    check,
+    nominating,
+    setRemoteCredentials,
+  };
 }

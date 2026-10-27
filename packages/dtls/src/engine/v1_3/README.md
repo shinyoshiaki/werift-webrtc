@@ -11,28 +11,28 @@ extends `Dtls13ConnectionBase` once and assigns those functions.
 
 Version-neutral helpers used by both DTLS 1.2 and 1.3:
 
-| Module | Shared with 1.2 |
-| --- | --- |
-| `src/peer.ts` | peer identity, loopback pin host |
-| `src/retransmission.ts` | RFC RTO (`computeDtlsRtoMs`, used by DTLS 1.3) |
-| `handshake/random.ts` | `DtlsRandom.bytes32` |
-| `handshake/extensions/unique.ts` | duplicate-extension check |
-| `context/srtp.ts` | `findMatchingSRTPProfile` |
+| Module                           | Shared with 1.2                                |
+| -------------------------------- | ---------------------------------------------- |
+| `src/peer.ts`                    | peer identity, loopback pin host               |
+| `src/retransmission.ts`          | RFC RTO (`computeDtlsRtoMs`, used by DTLS 1.3) |
+| `handshake/random.ts`            | `DtlsRandom.bytes32`                           |
+| `handshake/extensions/unique.ts` | duplicate-extension check                      |
+| `context/srtp.ts`                | `findMatchingSRTPProfile`                      |
 
 ## Module stack
 
-| File | Role | Figure 3 correspondence |
-| --- | --- | --- |
-| `types.ts` | Options, constants, HRR random | shared |
-| `host.ts` | `Dtls13Host` (`this` for flight/record functions) | shared |
-| `transcript.ts` | Handshake transcript hash | all flights |
-| `connection-base.ts` | Session state, epochs, `fail` / lifecycle | stack foundation |
-| `flight-tx.ts` | Outbound records, retransmit, anti-amp, ACK send | all `-------->` arrows |
-| `record-rx.ts` | Inbound datagrams, reassembly, allowlist, ACK/alert RX | all `<--------` arrows |
-| `flight/dispatch.ts` | Expected-type state machine + handshake dispatch | Flight 1–5 routing |
-| `flight/client/*.ts` / `flight/server/*.ts` | Per-flight send/receive | Flight 1–5 |
-| `flight/post-hs.ts` | Post-handshake KeyUpdate + NewSessionTicket | post-HS |
-| `connection.ts` | Public API; extends Base once; assigns flight/record functions | application edge |
+| File                                        | Role                                                           | Figure 3 correspondence |
+| ------------------------------------------- | -------------------------------------------------------------- | ----------------------- |
+| `types.ts`                                  | Options, constants, HRR random                                 | shared                  |
+| `host.ts`                                   | `Dtls13Host` (`this` for flight/record functions)              | shared                  |
+| `transcript.ts`                             | Handshake transcript hash                                      | all flights             |
+| `connection-base.ts`                        | Session state, epochs, `fail` / lifecycle                      | stack foundation        |
+| `flight-tx.ts`                              | Outbound records, retransmit, anti-amp, ACK send               | all `-------->` arrows  |
+| `record-rx.ts`                              | Inbound datagrams, reassembly, allowlist, ACK/alert RX         | all `<--------` arrows  |
+| `flight/dispatch.ts`                        | Expected-type state machine + handshake dispatch               | Flight 1–5 routing      |
+| `flight/client/*.ts` / `flight/server/*.ts` | Per-flight send/receive                                        | Flight 1–5              |
+| `flight/post-hs.ts`                         | Post-handshake KeyUpdate + NewSessionTicket                    | post-HS                 |
+| `connection.ts`                             | Public API; extends Base once; assigns flight/record functions | application edge        |
 
 `Dtls13Connection extends Dtls13ConnectionBase` is the only class inheritance. Flight and record modules export functions with `this: Dtls13Host`.
 

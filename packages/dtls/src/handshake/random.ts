@@ -1,10 +1,9 @@
 import { randomBytes } from "crypto";
 /* eslint-disable @typescript-eslint/ban-ts-comment */
 import { binaryData } from "../imports/common";
+import { DOWNGRADE_TLS12_SENTINEL } from "../version";
 
 const { decode, encode, types } = binaryData;
-
-import { DOWNGRADE_TLS12_SENTINEL } from "../version";
 
 export class DtlsRandom {
   static readonly spec = {
@@ -19,13 +18,13 @@ export class DtlsRandom {
 
   static deSerialize(buf: Buffer) {
     return new DtlsRandom(
-      //@ts-ignore
+      //@ts-expect-error
       ...Object.values(decode(buf, DtlsRandom.spec)),
     );
   }
 
   static from(spec: binaryData.Decoded<typeof DtlsRandom.spec>) {
-    //@ts-ignore
+    //@ts-expect-error
     return new DtlsRandom(...Object.values(spec));
   }
 

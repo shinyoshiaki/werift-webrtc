@@ -1,9 +1,9 @@
 import { CandidatePair, CandidatePairState } from "../../src";
 import { Candidate } from "../../src/candidate";
 import {
-  type IceDatagramContext,
   allowsAuthenticatedDtlsDelivery,
   connectionDatagramEvent,
+  type IceDatagramContext,
   isAuthenticatedHandshakePair,
 } from "../../src/internal/datagram";
 import { createTestConnection } from "../utils";

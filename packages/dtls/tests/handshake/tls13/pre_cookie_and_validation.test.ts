@@ -1,3 +1,4 @@
+import { randomBytes } from "crypto";
 import { describe, expect, test } from "vitest";
 import { UdpTransport } from "../../../../common/src";
 import { DtlsClient, DtlsServer, DtlsVersion } from "../../../src";
@@ -30,8 +31,6 @@ import {
   ecdsaP256KeyPem,
   keyPem,
 } from "../../fixture";
-
-import { randomBytes } from "crypto";
 
 function buildCh(opts?: {
   compression?: number[];

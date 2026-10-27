@@ -6,4 +6,4 @@
 
 # Type Alias: InterfaceAddresses
 
-> **InterfaceAddresses**: `{ [K in SocketType]?: string }`
+> **InterfaceAddresses** = `{ [K in SocketType]?: string }`

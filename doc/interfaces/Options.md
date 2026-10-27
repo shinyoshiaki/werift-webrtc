@@ -10,7 +10,7 @@
 
 ### addressValidation?
 
-> `optional` **addressValidation**: `"none"` \| `"dtls-cookie"` \| `"ice-authenticated"`
+> `optional` **addressValidation?**: `"dtls-cookie"` \| `"ice-authenticated"` \| `"none"`
 
 Address validation policy for the server.
 Default for generic DTLS: `"dtls-cookie"`.
@@ -20,31 +20,31 @@ WebRTC ICE-authenticated peers use `"ice-authenticated"` (Epic 2/3).
 
 ### cert?
 
-> `optional` **cert**: `string`
+> `optional` **cert?**: `string`
 
 ***
 
 ### certificateRequest?
 
-> `optional` **certificateRequest**: `boolean`
+> `optional` **certificateRequest?**: `boolean`
 
 ***
 
 ### extendedMasterSecret?
 
-> `optional` **extendedMasterSecret**: `boolean`
+> `optional` **extendedMasterSecret?**: `boolean`
 
 ***
 
 ### key?
 
-> `optional` **key**: `string`
+> `optional` **key?**: `string`
 
 ***
 
 ### maxEarlyAppDataBytes?
 
-> `optional` **maxEarlyAppDataBytes**: `number`
+> `optional` **maxEarlyAppDataBytes?**: `number`
 
 Max bytes of epoch-3 application data buffered before `onConnect`.
 Default 256 KiB. Raise together with `maxEarlyAppDataRecords`, or pass
@@ -54,7 +54,7 @@ Default 256 KiB. Raise together with `maxEarlyAppDataRecords`, or pass
 
 ### maxEarlyAppDataRecords?
 
-> `optional` **maxEarlyAppDataRecords**: `number`
+> `optional` **maxEarlyAppDataRecords?**: `number`
 
 Max epoch-3 application-data records buffered before `onConnect`
 (UDP reorder / 0.5-RTT early server data).
@@ -66,7 +66,7 @@ Pass `EARLY_APP_DATA_UNLIMITED` (`Infinity`) for trusted P2P with no cap.
 
 ### mtu?
 
-> `optional` **mtu**: `number`
+> `optional` **mtu?**: `number`
 
 DTLS 1.3 carrier MTU hint for handshake fragmentation (bytes).
 
@@ -74,7 +74,7 @@ DTLS 1.3 carrier MTU hint for handshake fragmentation (bytes).
 
 ### namedGroups?
 
-> `optional` **namedGroups**: readonly [`NamedCurveAlgorithms`](../type-aliases/NamedCurveAlgorithms.md)[]
+> `optional` **namedGroups?**: readonly [`NamedCurveAlgorithms`](../type-aliases/NamedCurveAlgorithms.md)[]
 
 DTLS 1.3 named groups preference order (key_share).
 Default: X25519 then P-256. Use `[NamedCurveAlgorithm.secp256r1_23]` for P-256 only.
@@ -83,7 +83,7 @@ Default: X25519 then P-256. Use `[NamedCurveAlgorithm.secp256r1_23]` for P-256 o
 
 ### peerIdentityMode?
 
-> `optional` **peerIdentityMode**: [`PeerIdentityMode`](../type-aliases/PeerIdentityMode.md)
+> `optional` **peerIdentityMode?**: [`PeerIdentityMode`](../type-aliases/PeerIdentityMode.md)
 
 Peer-identity policy for association TX/RX lifecycle.
 Default (when omitted): inferred as `"authenticated-single-peer"` when
@@ -97,7 +97,7 @@ not depend on inference.
 
 ### protocolVersions?
 
-> `optional` **protocolVersions**: readonly [`DtlsVersion`](../enumerations/DtlsVersion.md)[]
+> `optional` **protocolVersions?**: readonly [`DtlsVersion`](../enumerations/DtlsVersion.md)[]
 
 Protocol versions in **preference order** (first = highest priority).
 Default: `[DtlsVersion.V1_2]` (backward compatible).
@@ -120,13 +120,13 @@ ClientHello `supported_versions` is advertised in this order.
 
 ### signatureHash?
 
-> `optional` **signatureHash**: [`SignatureHash`](../type-aliases/SignatureHash.md)
+> `optional` **signatureHash?**: [`SignatureHash`](../type-aliases/SignatureHash.md)
 
 ***
 
 ### srtpProfiles?
 
-> `optional` **srtpProfiles**: (`1` \| `7`)[]
+> `optional` **srtpProfiles?**: (`1` \| `7`)[]
 
 ***
 

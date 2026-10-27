@@ -11,13 +11,6 @@ import {
   setConnectionSpedRuntime,
 } from "./sped-bind";
 
-export type { SpedHooks } from "../sped/runtime";
-export {
-  isSpedEligiblePair,
-  isSpedEligibleProtocol,
-  sameCandidatePair,
-} from "../sped/runtime";
-export { SpedSession } from "../sped/draft00/session";
 export {
   DTLS_IN_STUN_ACK,
   DTLS_IN_STUN_DATA,
@@ -27,6 +20,13 @@ export {
   encodeSpedData,
   spedDataCrc32,
 } from "../sped/draft00";
+export { SpedSession } from "../sped/draft00/session";
+export type { SpedHooks } from "../sped/runtime";
+export {
+  isSpedEligiblePair,
+  isSpedEligibleProtocol,
+  sameCandidatePair,
+} from "../sped/runtime";
 
 export interface SpedHandle {
   session: SpedSession;

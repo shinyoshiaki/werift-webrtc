@@ -1,5 +1,3 @@
-import { createServer } from "http";
-import path from "path";
 import {
   appendFile,
   mkdir,
@@ -8,7 +6,9 @@ import {
   rm,
   writeFile,
 } from "fs/promises";
-import { Server } from "ws";
+import { createServer } from "http";
+import path from "path";
+import { WebSocketServer } from "ws";
 import { PromiseQueue, RTCPeerConnection } from "../../../packages/webrtc/src";
 import {
   DepacketizeCallback,
@@ -27,7 +27,7 @@ const signalingServerPort = 8888;
 
 console.log({ dir, dashServerPort, signalingServerPort });
 
-const signalingServer = new Server({ port: signalingServerPort });
+const signalingServer = new WebSocketServer({ port: signalingServerPort });
 signalingServer.on("connection", async (socket) => {
   const { audio, video, audioRtcp, videoRtcp } = await recorder();
 

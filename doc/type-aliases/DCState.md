@@ -6,4 +6,4 @@
 
 # Type Alias: DCState
 
-> **DCState**: `"open"` \| `"closed"` \| `"connecting"` \| `"closing"`
+> **DCState** = `"open"` \| `"closed"` \| `"connecting"` \| `"closing"`

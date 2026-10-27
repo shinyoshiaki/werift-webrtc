@@ -12,19 +12,19 @@
 
 ## Constructors
 
-### new StunProtocol()
+### Constructor
 
-> **new StunProtocol**(): [`StunProtocol`](StunProtocol.md)
+> **new StunProtocol**(): `StunProtocol`
 
 #### Returns
 
-[`StunProtocol`](StunProtocol.md)
+`StunProtocol`
 
 ## Properties
 
 ### localCandidate?
 
-> `optional` **localCandidate**: [`Candidate`](Candidate.md)
+> `optional` **localCandidate?**: [`Candidate`](Candidate.md)
 
 #### Implementation of
 
@@ -34,7 +34,7 @@
 
 ### localIp?
 
-> `optional` **localIp**: `string`
+> `optional` **localIp?**: `string`
 
 #### Implementation of
 
@@ -44,7 +44,7 @@
 
 ### onDataReceived
 
-> `readonly` **onDataReceived**: [`Event`](Event.md)\<\[`Buffer`\<`ArrayBufferLike`\>, readonly \[`string`, `number`\]?\]\>
+> `readonly` **onDataReceived**: [`Event`](Event.md)\<\[`Buffer`\<`ArrayBufferLike`\>, (readonly \[`string`, `number`\])?\]\>
 
 Non-STUN datagrams on this protocol. The optional source address is
 required to route handshake DTLS to the matching CandidatePair.
@@ -67,7 +67,7 @@ required to route handshake DTLS to the matching CandidatePair.
 
 ### sentMessage?
 
-> `optional` **sentMessage**: [`Message`](Message.md)
+> `optional` **sentMessage?**: [`Message`](Message.md)
 
 #### Implementation of
 
@@ -135,7 +135,7 @@ required to route handshake DTLS to the matching CandidatePair.
 
 ### connectionMade()
 
-> **connectionMade**(`useIpv4`, `portRange`?, `interfaceAddresses`?): `Promise`\<`void`\>
+> **connectionMade**(`useIpv4`, `portRange?`, `interfaceAddresses?`): `Promise`\<`void`\>
 
 #### Parameters
 
@@ -173,7 +173,7 @@ readonly \[`string`, `number`\]
 
 ### request()
 
-> **request**(`request`, `addr`, `integrityKey`?, `retransmissionsOrOptions`?, `onRequestSent`?): `Promise`\<\[[`Message`](Message.md), readonly \[`string`, `number`\]\]\>
+> **request**(`request`, `addr`, `integrityKey?`, `retransmissionsOrOptions?`, `onRequestSent?`): `Promise`\<\[[`Message`](Message.md), readonly \[`string`, `number`\]\]\>
 
 #### Parameters
 
@@ -191,7 +191,7 @@ readonly \[`string`, `number`\]
 
 ##### retransmissionsOrOptions?
 
-`number` | [`TransactionRequestOptions`](../interfaces/TransactionRequestOptions.md)
+`number` \| [`TransactionRequestOptions`](../interfaces/TransactionRequestOptions.md)
 
 ##### onRequestSent?
 

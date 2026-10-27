@@ -62,21 +62,7 @@
 
 ##### Returns
 
-`Function`
-
-###### Parameters
-
-###### data
-
-`Buffer`
-
-###### addr
-
-readonly \[`string`, `number`\]
-
-###### Returns
-
-`void`
+(`data`, `addr`) => `void`
 
 #### Set Signature
 
@@ -102,14 +88,14 @@ readonly \[`string`, `number`\]
 
 #### Get Signature
 
-> **get** **remoteAddress**(): `undefined` \| readonly \[`string`, `number`\]
+> **get** **remoteAddress**(): readonly \[`string`, `number`\] \| `undefined`
 
 The peer a connected (stream) transport is talking to. Responses arrive
 from this address. Built-in TCP/TLS transports set it once connected.
 
 ##### Returns
 
-`undefined` \| readonly \[`string`, `number`\]
+readonly \[`string`, `number`\] \| `undefined`
 
 The peer a connected (stream) transport is talking to. Responses arrive
 from this address. Built-in TCP/TLS transports set it once connected.
@@ -136,7 +122,7 @@ from this address. Built-in TCP/TLS transports set it once connected.
 
 ### send()
 
-> **send**(`data`, `addr`?): `Promise`\<`void`\>
+> **send**(`data`, `addr?`): `Promise`\<`void`\>
 
 #### Parameters
 
@@ -160,7 +146,7 @@ readonly \[`string`, `number`\]
 
 ### sendAndWait()
 
-> **sendAndWait**(`data`, `addr`?): `Promise`\<`void`\>
+> **sendAndWait**(`data`, `addr?`): `Promise`\<`void`\>
 
 Optional flush: wait until the datagram is accepted by the kernel.
 Hot-path [send](../interfaces/Transport.md#send) must stay fire-and-forget for resolved IP peers.
@@ -188,7 +174,7 @@ readonly \[`string`, `number`\]
 
 ### init()
 
-> `static` **init**(`addr`, `options`, `streamOptions`): `Promise`\<[`TlsTransport`](TlsTransport.md)\>
+> `static` **init**(`addr`, `options?`, `streamOptions?`): `Promise`\<`TlsTransport`\>
 
 #### Parameters
 
@@ -196,14 +182,14 @@ readonly \[`string`, `number`\]
 
 readonly \[`string`, `number`\]
 
-##### options
+##### options?
 
 [`TlsConnectionOptions`](../type-aliases/TlsConnectionOptions.md) = `{}`
 
-##### streamOptions
+##### streamOptions?
 
 [`StreamTransportOptions`](../interfaces/StreamTransportOptions.md) = `{}`
 
 #### Returns
 
-`Promise`\<[`TlsTransport`](TlsTransport.md)\>
+`Promise`\<`TlsTransport`\>

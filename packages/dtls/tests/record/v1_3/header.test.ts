@@ -7,8 +7,8 @@ import {
   serializeUnifiedHeader,
 } from "../../../src/record/v1_3/header";
 import {
-  DtlsDecodeError,
   createEpochProtection,
+  DtlsDecodeError,
   decryptRecord,
   encryptRecord,
   parseNextRecord,

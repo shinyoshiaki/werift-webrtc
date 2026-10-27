@@ -22,7 +22,7 @@
 
 ***
 
-### onData()
+### onData
 
 > **onData**: (`data`, `addr`) => `void`
 
@@ -48,7 +48,7 @@ readonly \[`string`, `number`\]
 
 ### rinfo?
 
-> `optional` **rinfo**: `Partial`\<`Pick`\<`RemoteInfo`, `"address"` \| `"port"`\>\>
+> `optional` **rinfo?**: `Partial`\<`Pick`\<`RemoteInfo`, `"port"` \| `"address"`\>\>
 
 ***
 
@@ -146,7 +146,7 @@ transport that leaves it unset gets no family preference.
 
 ### send()
 
-> **send**(`data`, `addr`?): `Promise`\<`void`\>
+> **send**(`data`, `addr?`): `Promise`\<`void`\>
 
 #### Parameters
 
@@ -170,11 +170,10 @@ readonly \[`string`, `number`\]
 
 ### sendAndWait()
 
-> **sendAndWait**(`data`, `addr`?): `Promise`\<`void`\>
+> **sendAndWait**(`data`, `addr?`): `Promise`\<`void`\>
 
-Optional flush: wait until the datagram is accepted by the kernel.
-Hot-path [send](../interfaces/Transport.md#send) must stay fire-and-forget for resolved IP peers.
-DTLS close_notify uses this so a following socket.close() cannot drop it.
+Wait until the kernel accepts the datagram. Use only when a later
+socket.close() must not drop this packet (DTLS close_notify).
 
 #### Parameters
 
@@ -198,7 +197,7 @@ readonly \[`string`, `number`\]
 
 ### init()
 
-> `static` **init**(`type`, `options`): `Promise`\<[`UdpTransport`](UdpTransport.md)\>
+> `static` **init**(`type`, `options?`): `Promise`\<`UdpTransport`\>
 
 #### Parameters
 
@@ -206,7 +205,7 @@ readonly \[`string`, `number`\]
 
 `SocketType`
 
-##### options
+##### options?
 
 ###### interfaceAddresses?
 
@@ -222,4 +221,4 @@ readonly \[`string`, `number`\]
 
 #### Returns
 
-`Promise`\<[`UdpTransport`](UdpTransport.md)\>
+`Promise`\<`UdpTransport`\>

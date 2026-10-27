@@ -1,17 +1,16 @@
 import { networkInterfaces } from "node:os";
-
 import {
+  type BundlePolicy,
+  NamedCurveAlgorithm,
+} from "../../packages/webrtc/src";
+import {
+  createSelfSignedCertificate,
   type DtlsKeys,
   DtlsVersion,
   HashAlgorithm,
   type PeerConfig,
   SignatureAlgorithm,
-  createSelfSignedCertificate,
 } from ".";
-import {
-  type BundlePolicy,
-  NamedCurveAlgorithm,
-} from "../../packages/webrtc/src";
 
 export class DtlsKeysContext {
   private static rsa: DtlsKeys;

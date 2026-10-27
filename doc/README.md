@@ -126,7 +126,7 @@ See [the design note](_media/705-media-rejection-and-removetrack.md) for BUNDLE,
 
 - [Website](https://shinyoshiaki.github.io/werift-webrtc/website/build/)
 - [API Reference](https://shinyoshiaki.github.io/werift-webrtc/website/build/docs/api)
-- [Examples](../../examples)
+- [Examples](_media/examples)
 - [Polyfill guide](_media/README-1.md)
 - [Browser API compatibility differences](_media/browser-api-compatibility.md)
 

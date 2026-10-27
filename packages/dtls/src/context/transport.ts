@@ -1,7 +1,7 @@
 import {
   type Address,
-  type Transport,
   flushTransportSend,
+  type Transport,
 } from "../imports/common";
 
 export class TransportContext {
@@ -12,6 +12,8 @@ export class TransportContext {
    * Dual association sets this via pin; clear on hard-close.
    */
   pinnedPeer?: Address;
+  /** Aborted by `close()`: a flight waiting to retransmit stops. */
+  private readonly closing = new AbortController();
 
   constructor(public socket: Transport) {}
 
@@ -23,4 +25,13 @@ export class TransportContext {
   readonly sendAndWait = (buf: Buffer, addr?: Address) => {
     return flushTransportSend(this.socket, buf, addr ?? this.pinnedPeer);
   };
+
+  get closedSignal(): AbortSignal {
+    return this.closing.signal;
+  }
+
+  close() {
+    this.closing.abort();
+    return this.socket.close();
+  }
 }

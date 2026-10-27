@@ -1,8 +1,8 @@
 import { createHash, randomBytes } from "crypto";
 import { describe, expect, test } from "vitest";
 import {
-  DirectHandshakeCarrier,
   createHandshakeDatagram,
+  DirectHandshakeCarrier,
 } from "../../../src/carrier/direct";
 import { SignatureScheme } from "../../../src/cipher/const";
 import {

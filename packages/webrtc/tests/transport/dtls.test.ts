@@ -1,19 +1,47 @@
-import { Certificate } from "@fidm/x509";
+import {
+  createPrivateKey,
+  createSign,
+  createVerify,
+  X509Certificate,
+} from "node:crypto";
 import { setTimeout } from "timers/promises";
 
 import {
   DtlsVersion,
+  defaultPeerConfig,
+  fingerprint,
+  RTCCertificate,
   RTCDtlsFingerprint,
   RTCDtlsParameters,
   RTCDtlsTransport,
-  defaultPeerConfig,
-  fingerprint,
 } from "../../src";
-import { dtlsTransportPair } from "../fixture";
-import { iceTransportPair } from "../fixture";
+import { dtlsTransportPair, iceTransportPair } from "../fixture";
 import { waitForDtlsState } from "../utils";
 
 describe("RTCDtlsTransportTest", () => {
+  test("RTCCertificate preserves PKCS#8 PEM and signs with Node KeyObject", async () => {
+    // Arrange
+    const source = await RTCDtlsTransport.SetupCertificate();
+    const certificate = new RTCCertificate(
+      source.privateKey,
+      source.certPem,
+      source.signatureHash,
+    );
+    const data = Buffer.from("werift certificate signing");
+
+    // Act
+    const signature = createSign("sha256")
+      .update(data)
+      .sign(createPrivateKey(certificate.privateKey));
+    const verified = createVerify("sha256")
+      .update(data)
+      .verify(new X509Certificate(certificate.certPem).publicKey, signature);
+
+    // Assert
+    expect(certificate.privateKey).toBe(source.privateKey);
+    expect(verified).toBe(true);
+  });
+
   test("dtls_test_data", async () => {
     const [session1, session2] = await dtlsTransportPair();
     const receiver2 = new DummyDataReceiver();
@@ -55,8 +83,8 @@ describe("RTCDtlsTransportTest", () => {
   test("dtls_start_prefers_most_preferred_supported_fingerprint_algorithm", async () => {
     const [session1, session2] = await createDtlsSessions();
     const expectedFingerprint = session2.localParameters.fingerprints[0];
-    const remoteCertificate = Certificate.fromPEM(
-      Buffer.from(session2.localCertificate!.certPem),
+    const remoteCertificate = new X509Certificate(
+      session2.localCertificate!.certPem,
     ).raw;
 
     try {

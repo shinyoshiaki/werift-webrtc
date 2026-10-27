@@ -1,11 +1,11 @@
 import { describe, expect, test } from "vitest";
 import { DtlsRandom } from "../src/handshake/random";
 import {
+  computeDtlsRtoMs,
   DTLS_SRTP_INITIAL_RTO_MS,
   INITIAL_RTO_MS,
   MAX_RTO_MS,
   MIN_RTO_MS,
-  computeDtlsRtoMs,
 } from "../src/retransmission";
 
 describe("shared DTLS 1.2 / 1.3 helpers", () => {

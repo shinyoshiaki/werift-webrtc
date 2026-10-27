@@ -12,9 +12,9 @@
 
 ## Constructors
 
-### new StunOverTurnProtocol()
+### Constructor
 
-> **new StunOverTurnProtocol**(`turn`): [`StunOverTurnProtocol`](StunOverTurnProtocol.md)
+> **new StunOverTurnProtocol**(`turn`): `StunOverTurnProtocol`
 
 #### Parameters
 
@@ -24,7 +24,7 @@
 
 #### Returns
 
-[`StunOverTurnProtocol`](StunOverTurnProtocol.md)
+`StunOverTurnProtocol`
 
 ## Properties
 
@@ -40,7 +40,7 @@
 
 ### onDataReceived
 
-> **onDataReceived**: `Event`\<\[`Buffer`\<`ArrayBufferLike`\>, readonly \[`string`, `number`\]?\]\>
+> **onDataReceived**: `Event`\<\[`Buffer`\<`ArrayBufferLike`\>, (readonly \[`string`, `number`\])?\]\>
 
 Non-STUN datagrams on this protocol. The optional source address is
 required to route handshake DTLS to the matching CandidatePair.
@@ -113,7 +113,7 @@ required to route handshake DTLS to the matching CandidatePair.
 
 ### request()
 
-> **request**(`request`, `addr`, `integrityKey`?, `retransmissionsOrOptions`?, `onRequestSent`?): `Promise`\<\[[`Message`](Message.md), readonly \[`string`, `number`\]\]\>
+> **request**(`request`, `addr`, `integrityKey?`, `retransmissionsOrOptions?`, `onRequestSent?`): `Promise`\<\[[`Message`](Message.md), readonly \[`string`, `number`\]\]\>
 
 #### Parameters
 
@@ -131,7 +131,7 @@ readonly \[`string`, `number`\]
 
 ##### retransmissionsOrOptions?
 
-`number` | [`TransactionRequestOptions`](../interfaces/TransactionRequestOptions.md)
+`number` \| [`TransactionRequestOptions`](../interfaces/TransactionRequestOptions.md)
 
 ##### onRequestSent?
 

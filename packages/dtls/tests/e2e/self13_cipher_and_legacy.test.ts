@@ -1,8 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { UdpTransport } from "../../../common/src";
 import { DtlsClient, DtlsServer, DtlsVersion } from "../../src";
-import { CipherSuite } from "../../src/cipher/const";
-import { NamedCurveAlgorithm } from "../../src/cipher/const";
+import { CipherSuite, NamedCurveAlgorithm } from "../../src/cipher/const";
 import { generateKeyPair } from "../../src/cipher/namedCurve";
 import { EllipticCurves } from "../../src/handshake/extensions/ellipticCurves";
 import { KeyShare } from "../../src/handshake/extensions/keyShare";

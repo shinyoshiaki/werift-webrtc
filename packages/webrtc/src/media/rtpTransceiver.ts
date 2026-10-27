@@ -1,13 +1,12 @@
 import { randomUUID } from "crypto";
-import { Event } from "../imports/common";
-
 import type { RTCDtlsTransport } from "..";
 import { SenderDirections } from "../const";
 import { createWebRtcTypeError } from "../errors";
+import { Event } from "../imports/common";
 import {
-  type TransceiverNegotiationState,
   getApplicationStopRevision,
   noteApplicationStop,
+  type TransceiverNegotiationState,
 } from "../negotiation/internalState";
 import type { Kind } from "../types/domain";
 import { cloneCodecParameters } from "./codec";
@@ -18,11 +17,11 @@ import type {
 import type { RTCRtpReceiver } from "./rtpReceiver";
 import type { RTCRtpSender } from "./rtpSender";
 import {
-  type RTCCodecStats,
-  type RTCStats,
   generateCodecStatsId,
   generateStatsId,
   getStatsTimestamp,
+  type RTCCodecStats,
+  type RTCStats,
 } from "./stats";
 import type { MediaStream, MediaStreamTrack } from "./track";
 

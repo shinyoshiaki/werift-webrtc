@@ -18,21 +18,19 @@
     "lib"
   ],
   "scripts": {
-    "build": "npm run format && tsc -p ./tsconfig.production.json",
+    "build": "tsc -p ./tsconfig.production.json && node ../write-package-entrypoint.mjs ice",
     "deploy": "npm run build && npm publish",
     "deploy:alpha": "npm run build && npm publish --tag alpha",
     "doc": "rm -rf doc && typedoc --excludePrivate --disableSources --excludeInternal --plugin typedoc-plugin-markdown --out doc ./src/index.ts",
     "format": "biome check --write src tests examples",
-    "start": "ts-node --project ./tsconfig.json ./example/cli/index.ts",
+    "start": "node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs ./example/cli/index.ts",
     "test": "vitest run ./tests",
     "test:pion-sped": "WERIFT_PION_SPED_REQUIRED=1 vitest run ./tests/sped/pion-sped.integration.test.ts",
     "test:pion-turn": "bash ./scripts/run-pion-turn.sh --run -- npm test -- pion-turn",
-    "type": "tsc --noEmit --project ./tsconfig.json",
-    "unused": "organize-imports-cli src/**/*.ts",
+    "type": "tsc --noEmit --project ./tsconfig.json --rootDir ..",
     "upgrade-interactive": "npx npm-check-updates -i"
   },
   "dependencies": {
-    "debug": "4.4.0",
     "multicast-dns": "^7.2.5"
   },
   "devDependencies": {

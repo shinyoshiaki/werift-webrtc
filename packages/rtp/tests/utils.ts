@@ -1,10 +1,9 @@
 import { spawn, spawnSync } from "child_process";
 import { createSocket } from "dgram";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { BufferSource, Input, MP4 } from "mediabunny";
 import { tmpdir } from "os";
 import { join } from "path";
-
-import { BufferSource, Input, MP4 } from "mediabunny";
 
 import { MP4Callback, type Track } from "../src/extra";
 import type { Mp4Output } from "../src/extra/processor/mp4";
@@ -605,7 +604,7 @@ export function deliverStreamingArrivals(
 const PACKAGE_ROOT = join(__dirname, "..");
 
 /**
- * Runs `packages/rtp/<relativePath>` with tsx as a separate Node.js process,
+ * Runs `packages/rtp/<relativePath>` with Node's TypeScript support in a separate process,
  * the same way a user runs an example, and collects its output.
  */
 export function runExample(
@@ -614,7 +613,14 @@ export function runExample(
 ) {
   const child = spawn(
     process.execPath,
-    ["--import", "tsx", join(PACKAGE_ROOT, relativePath)],
+    [
+      "--experimental-transform-types",
+      "--disable-warning=ExperimentalWarning",
+      "--disable-warning=MODULE_TYPELESS_PACKAGE_JSON",
+      "--import",
+      join(PACKAGE_ROOT, "..", "..", "tools/node-ts/register.mjs"),
+      join(PACKAGE_ROOT, relativePath),
+    ],
     {
       cwd: PACKAGE_ROOT,
       env: { ...process.env, ...options.env },

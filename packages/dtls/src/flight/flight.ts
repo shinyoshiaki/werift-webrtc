@@ -73,7 +73,14 @@ export abstract class Flight {
     this.sendGeneration = this.dtls.flightTxGeneration;
 
     let retransmitCount = 0;
+    const closed = this.transport.closedSignal;
     for (; retransmitCount <= Flight.RetransmitCount; retransmitCount++) {
+      // The socket closed: nothing is sent or retransmitted any more (the
+      // retransmission timer would keep the handshake alive for ~30 s).
+      if (closed.aborted) {
+        this.setState("FINISHED");
+        return;
+      }
       // Association may have advanced flight=99 / canceled timers while sleeping.
       if (
         this.nextFlight !== undefined &&
@@ -121,7 +128,12 @@ export abstract class Flight {
       // Linear 0.5s, 1s, 1.5s… (existing 1.2 schedule). RFC doubling is
       // computeDtlsRtoMs in DTLS 1.3 flight-tx — aligning 1.2 onto that timer
       // collided dual-stack CH-A retransmit with the cookie ClientHello.
-      await this.dtls.flightSleep(1000 * ((retransmitCount + 1) / 2));
+      await this.dtls.flightSleep(1000 * ((retransmitCount + 1) / 2), closed);
+
+      if (closed.aborted) {
+        this.setState("FINISHED");
+        return;
+      }
 
       if (this.dtls.fatalError) {
         this.setState("FINISHED");

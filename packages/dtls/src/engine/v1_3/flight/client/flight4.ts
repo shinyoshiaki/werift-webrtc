@@ -30,11 +30,11 @@ import type { Dtls13Host } from "../../host";
 import { HandshakeTranscript } from "../../transcript";
 import { HRR_RANDOM } from "../../types";
 import {
+  assertUniqueExtensions,
   EE_KNOWN_ALLOWED_EXTS,
   HRR_ALLOWED_EXTS,
   KNOWN_EXTENSION_TYPES,
   SERVER_HELLO_ALLOWED_EXTS,
-  assertUniqueExtensions,
 } from "../extensions";
 
 /**

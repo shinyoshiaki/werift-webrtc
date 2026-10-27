@@ -10,16 +10,16 @@
 
 ### debug?
 
-> `optional` **debug**: `Partial`\<\{ `disableRecvRetransmit`: `boolean`; `disableSendNack`: `boolean`; `inboundPacketLoss`: `number`; `outboundPacketLoss`: `number`; `receiverReportDelay`: `number`; \}\>
+> `optional` **debug?**: `Partial`\<\{ `disableRecvRetransmit`: `boolean`; `disableSendNack`: `boolean`; `inboundPacketLoss`: `number`; `outboundPacketLoss`: `number`; `receiverReportDelay`: `number`; \}\>
 
 ***
 
 ### helloRetryRequest?
 
-> `optional` **helloRetryRequest**: `boolean`
+> `optional` **helloRetryRequest?**: `boolean`
 
 ***
 
 ### protocolVersions?
 
-> `optional` **protocolVersions**: readonly [`DtlsVersion`](../enumerations/DtlsVersion.md)[]
+> `optional` **protocolVersions?**: readonly [`DtlsVersion`](../enumerations/DtlsVersion.md)[]

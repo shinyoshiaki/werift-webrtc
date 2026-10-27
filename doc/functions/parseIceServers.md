@@ -20,20 +20,20 @@
 
 ### stunServer?
 
-> `optional` **stunServer**: readonly \[`string`, `number`\]
+> `optional` **stunServer?**: readonly \[`string`, `number`\]
 
 ### turnPassword?
 
-> `optional` **turnPassword**: `string`
+> `optional` **turnPassword?**: `string`
 
 ### turnServer?
 
-> `optional` **turnServer**: readonly \[`string`, `number`\]
+> `optional` **turnServer?**: readonly \[`string`, `number`\]
 
 ### turnTransport?
 
-> `optional` **turnTransport**: `"udp"` \| `"tcp"` \| `"tls"`
+> `optional` **turnTransport?**: `"tcp"` \| `"tls"` \| `"udp"`
 
 ### turnUsername?
 
-> `optional` **turnUsername**: `string`
+> `optional` **turnUsername?**: `string`

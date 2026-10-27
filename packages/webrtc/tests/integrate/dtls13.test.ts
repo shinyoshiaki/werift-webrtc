@@ -2,11 +2,11 @@ import { setTimeout } from "timers/promises";
 
 import {
   DtlsVersion,
+  isMedia,
   MediaStreamTrack,
   RTCPeerConnection,
   RtpHeader,
   RtpPacket,
-  isMedia,
 } from "../../src";
 import {
   dtlsPeerConfig,

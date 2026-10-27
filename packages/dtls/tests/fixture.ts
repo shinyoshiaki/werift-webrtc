@@ -1,3 +1,4 @@
+import type { Transport } from "../../common/src";
 import { UdpTransport } from "../../common/src";
 import type { SrtpProfile } from "../../rtp/src/srtp/const";
 import { DtlsClient, DtlsServer, DtlsVersion } from "../src";
@@ -124,4 +125,25 @@ export async function arrangeDtls13Pair(extra?: Dtls13PairExtra) {
   const server = new DtlsServer({ transport: serverTransport, ...base });
   const client = new DtlsClient({ transport: clientTransport, ...base });
   return { server, client, serverTransport, clientTransport };
+}
+
+/**
+ * Shared Arrange: a transport that sends nowhere and records every datagram
+ * (a peer that never answers the handshake).
+ */
+export function createSilentTransport() {
+  const sent: Buffer[] = [];
+  const transport: Transport = {
+    type: "silent",
+    address: {} as Transport["address"],
+    closed: false,
+    onData: () => {},
+    send: async (data) => {
+      sent.push(data);
+    },
+    close: async () => {
+      transport.closed = true;
+    },
+  };
+  return { transport, sent };
 }

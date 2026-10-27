@@ -6,9 +6,9 @@ Instructions for coding agents working in `packages/dtls/src/engine/v1_3`.
 
 ## Scope
 
-* DTLS 1.3 endpoint over direct datagrams (RFC 9147 / RFC 8446).
-* Flight sequence is Figure 3 in `packages/dtls/src/index.ts`.
-* Layout: `README.md` in this directory.
+- DTLS 1.3 endpoint over direct datagrams (RFC 9147 / RFC 8446).
+- Flight sequence is Figure 3 in `packages/dtls/src/index.ts`.
+- Layout: `README.md` in this directory.
 
 ## Do
 
@@ -19,9 +19,9 @@ Instructions for coding agents working in `packages/dtls/src/engine/v1_3`.
 
 ## Don't
 
-* Do not add `class A extends B extends C` (or abstract mixin classes) to split flights or I/O layers.
-* Do not introduce new `extends` under this directory except the existing Connection → Base pair.
-* Do not share mutable 1.3 epoch/transcript/key state with the DTLS 1.2 engine.
+- Do not add `class A extends B extends C` (or abstract mixin classes) to split flights or I/O layers.
+- Do not introduce new `extends` under this directory except the existing Connection → Base pair.
+- Do not share mutable 1.3 epoch/transcript/key state with the DTLS 1.2 engine.
 
 ## Commands
 
@@ -29,9 +29,9 @@ Use the package guide: `packages/dtls/AGENTS.md`.
 
 ## Validation
 
-* `cd packages/dtls && npm run type && npm test`.
+- `cd packages/dtls && npm run type && npm test`.
 
 ## Maintenance
 
-* Keep `README.md` and `packages/dtls/src/index.ts` Figure 3 map aligned when files move.
-* Keep `host.ts` (`Dtls13HostMethods`) aligned when adding flight/record functions assigned on Connection.
+- Keep `README.md` and `packages/dtls/src/index.ts` Figure 3 map aligned when files move.
+- Keep `host.ts` (`Dtls13HostMethods`) aligned when adding flight/record functions assigned on Connection.

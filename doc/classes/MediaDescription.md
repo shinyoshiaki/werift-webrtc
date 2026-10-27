@@ -8,9 +8,9 @@
 
 ## Constructors
 
-### new MediaDescription()
+### Constructor
 
-> **new MediaDescription**(`kind`, `port`, `profile`, `fmt`): [`MediaDescription`](MediaDescription.md)
+> **new MediaDescription**(`kind`, `port`, `profile`, `fmt`): `MediaDescription`
 
 #### Parameters
 
@@ -28,35 +28,35 @@
 
 ##### fmt
 
-`string`[] | `number`[]
+`number`[] \| `string`[]
 
 #### Returns
 
-[`MediaDescription`](MediaDescription.md)
+`MediaDescription`
 
 ## Properties
 
 ### direction?
 
-> `optional` **direction**: `"inactive"` \| `"sendonly"` \| `"recvonly"` \| `"sendrecv"`
+> `optional` **direction?**: `"inactive"` \| `"sendonly"` \| `"recvonly"` \| `"sendrecv"`
 
 ***
 
 ### dtlsParams?
 
-> `optional` **dtlsParams**: [`RTCDtlsParameters`](RTCDtlsParameters.md)
+> `optional` **dtlsParams?**: [`RTCDtlsParameters`](RTCDtlsParameters.md)
 
 ***
 
 ### fmt
 
-> **fmt**: `string`[] \| `number`[]
+> **fmt**: `number`[] \| `string`[]
 
 ***
 
 ### host?
 
-> `optional` **host**: `string`
+> `optional` **host?**: `string`
 
 ***
 
@@ -74,13 +74,13 @@
 
 ### iceOptions?
 
-> `optional` **iceOptions**: `string`
+> `optional` **iceOptions?**: `string`
 
 ***
 
 ### iceParams?
 
-> `optional` **iceParams**: [`RTCIceParameters`](RTCIceParameters.md)
+> `optional` **iceParams?**: [`RTCIceParameters`](RTCIceParameters.md)
 
 ***
 
@@ -110,7 +110,7 @@
 
 ### rtcpHost?
 
-> `optional` **rtcpHost**: `string`
+> `optional` **rtcpHost?**: `string`
 
 ***
 
@@ -122,7 +122,7 @@
 
 ### rtcpPort?
 
-> `optional` **rtcpPort**: `number`
+> `optional` **rtcpPort?**: `number`
 
 ***
 
@@ -134,7 +134,7 @@
 
 ### sctpCapabilities?
 
-> `optional` **sctpCapabilities**: [`RTCSctpCapabilities`](RTCSctpCapabilities.md)
+> `optional` **sctpCapabilities?**: [`RTCSctpCapabilities`](RTCSctpCapabilities.md)
 
 ***
 
@@ -150,7 +150,7 @@
 
 ### sctpPort?
 
-> `optional` **sctpPort**: `number`
+> `optional` **sctpPort?**: `number`
 
 ***
 
@@ -176,11 +176,11 @@
 
 #### Get Signature
 
-> **get** **msid**(): `undefined` \| `string`
+> **get** **msid**(): `string` \| `undefined`
 
 ##### Returns
 
-`undefined` \| `string`
+`string` \| `undefined`
 
 #### Set Signature
 
@@ -190,7 +190,7 @@
 
 ###### value
 
-`undefined` | `string`
+`string` \| `undefined`
 
 ##### Returns
 

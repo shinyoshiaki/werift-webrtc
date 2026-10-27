@@ -6,7 +6,7 @@
 
 # Type Alias: PeerIdentityMode
 
-> **PeerIdentityMode**: `"datagram-address"` \| `"authenticated-single-peer"`
+> **PeerIdentityMode** = `"datagram-address"` \| `"authenticated-single-peer"`
 
 How the association identifies the remote peer for TX/RX lifecycle.
 

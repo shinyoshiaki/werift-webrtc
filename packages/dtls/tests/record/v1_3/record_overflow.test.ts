@@ -2,10 +2,10 @@ import { describe, expect, test } from "vitest";
 import { ContentType } from "../../../src/record/const";
 import { serializeUnifiedHeader } from "../../../src/record/v1_3/header";
 import {
+  createEpochProtection,
   DTLS13_MAX_CIPHERTEXT_LENGTH,
   DTLS13_MAX_PLAINTEXT_LENGTH,
   DtlsRecordOverflowError,
-  createEpochProtection,
   encryptRecord,
   parseNextRecord,
   serializePlaintextRecord,

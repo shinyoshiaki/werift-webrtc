@@ -7,10 +7,6 @@ import {
   NamedCurveAlgorithm,
   SignatureAlgorithm,
 } from "../../src/cipher/const";
-import { HandshakeType } from "../../src/handshake/const";
-import { ContentType } from "../../src/record/const";
-import { certPem, keyPem } from "../fixture";
-
 import { createCipher } from "../../src/cipher/create";
 import { generateKeyPair } from "../../src/cipher/namedCurve";
 import { SessionType } from "../../src/cipher/suites/abstract";
@@ -18,9 +14,12 @@ import { CipherContext } from "../../src/context/cipher";
 import { DtlsContext } from "../../src/context/dtls";
 import { TransportContext } from "../../src/context/transport";
 import { Flight6 } from "../../src/flight/server/flight6";
+import { HandshakeType } from "../../src/handshake/const";
 import { ClientKeyExchange } from "../../src/handshake/message/client/keyExchange";
 import { Finished } from "../../src/handshake/message/finished";
 import { DtlsRandom } from "../../src/handshake/random";
+import { ContentType } from "../../src/record/const";
+import { certPem, keyPem } from "../fixture";
 
 const sig = {
   hash: HashAlgorithm.sha256_4,

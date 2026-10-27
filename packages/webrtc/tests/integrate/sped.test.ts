@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { DirectHandshakeCarrier } from "../../../dtls/src/carrier/direct";
 import type { CandidatePair, Connection } from "../../../ice/src";
-import { SpedSession, encodeSpedAck } from "../../../ice/src/internal/sped";
+import { encodeSpedAck, SpedSession } from "../../../ice/src/internal/sped";
 import { getConnectionSpedRuntime } from "../../../ice/src/internal/sped-bind";
 import {
   maxPayloadFitting,

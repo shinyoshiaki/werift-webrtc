@@ -6,7 +6,7 @@
 
 # Function: flushTransportSend()
 
-> **flushTransportSend**(`transport`, `data`, `addr`?): `Promise`\<`void`\>
+> **flushTransportSend**(`transport`, `data`, `addr?`): `Promise`\<`void`\>
 
 Flush one datagram when the transport supports it; else [Transport.send](../interfaces/Transport.md#send).
 

@@ -12,13 +12,13 @@
 
 ## Constructors
 
-### new TcpActiveProtocol()
+### Constructor
 
-> **new TcpActiveProtocol**(): [`TcpActiveProtocol`](TcpActiveProtocol.md)
+> **new TcpActiveProtocol**(): `TcpActiveProtocol`
 
 #### Returns
 
-[`TcpActiveProtocol`](TcpActiveProtocol.md)
+`TcpActiveProtocol`
 
 #### Inherited from
 
@@ -28,7 +28,7 @@
 
 ### localCandidate?
 
-> `optional` **localCandidate**: [`Candidate`](Candidate.md)
+> `optional` **localCandidate?**: [`Candidate`](Candidate.md)
 
 #### Inherited from
 
@@ -38,7 +38,7 @@
 
 ### localIp?
 
-> `optional` **localIp**: `string`
+> `optional` **localIp?**: `string`
 
 #### Inherited from
 
@@ -60,7 +60,7 @@ The connection to this remote address was closed (by either side).
 
 ### onDataReceived
 
-> `readonly` **onDataReceived**: `Event`\<\[`Buffer`\<`ArrayBufferLike`\>, readonly \[`string`, `number`\]?\]\>
+> `readonly` **onDataReceived**: `Event`\<\[`Buffer`\<`ArrayBufferLike`\>, (readonly \[`string`, `number`\])?\]\>
 
 Non-STUN datagrams on this protocol. The optional source address is
 required to route handshake DTLS to the matching CandidatePair.
@@ -83,7 +83,7 @@ required to route handshake DTLS to the matching CandidatePair.
 
 ### sentMessage?
 
-> `optional` **sentMessage**: [`Message`](Message.md)
+> `optional` **sentMessage?**: [`Message`](Message.md)
 
 #### Inherited from
 
@@ -225,7 +225,7 @@ Drop `entry` only if it is still the socket registered for its address.
 
 ### getOpenSocket()
 
-> `protected` **getOpenSocket**(`addr`): `undefined` \| `SocketEntry`
+> `protected` **getOpenSocket**(`addr`): `SocketEntry` \| `undefined`
 
 Registered socket for `addr`, discarding it if it is already closed.
 
@@ -237,7 +237,7 @@ readonly \[`string`, `number`\]
 
 #### Returns
 
-`undefined` \| `SocketEntry`
+`SocketEntry` \| `undefined`
 
 #### Inherited from
 
@@ -267,7 +267,7 @@ readonly \[`string`, `number`\]
 
 ### pruneForSelection()
 
-> **pruneForSelection**(`remoteAddr`?): `Promise`\<`void`\>
+> **pruneForSelection**(`remoteAddr?`): `Promise`\<`void`\>
 
 #### Parameters
 
@@ -287,7 +287,7 @@ readonly \[`string`, `number`\]
 
 ### registerSocket()
 
-> `protected` **registerSocket**(`socket`, `remoteAddr`?): `SocketEntry`
+> `protected` **registerSocket**(`socket`, `remoteAddr?`): `SocketEntry`
 
 #### Parameters
 
@@ -331,7 +331,7 @@ readonly \[`string`, `number`\]
 
 ### request()
 
-> **request**(`request`, `addr`, `integrityKey`?, `retransmissionsOrOptions`?, `onRequestSent`?): `Promise`\<\[[`Message`](Message.md), readonly \[`string`, `number`\]\]\>
+> **request**(`request`, `addr`, `integrityKey?`, `retransmissionsOrOptions?`, `onRequestSent?`): `Promise`\<\[[`Message`](Message.md), readonly \[`string`, `number`\]\]\>
 
 #### Parameters
 
@@ -349,7 +349,7 @@ readonly \[`string`, `number`\]
 
 ##### retransmissionsOrOptions?
 
-`number` | [`TransactionRequestOptions`](../interfaces/TransactionRequestOptions.md)
+`number` \| [`TransactionRequestOptions`](../interfaces/TransactionRequestOptions.md)
 
 ##### onRequestSent?
 

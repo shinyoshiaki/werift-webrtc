@@ -8,7 +8,7 @@
 
 ## Properties
 
-### close()
+### close
 
 > **close**: () => `Promise`\<`void`\>
 
@@ -18,7 +18,7 @@
 
 ***
 
-### connectionMade()
+### connectionMade
 
 > **connectionMade**: (...`args`) => `Promise`\<`void`\>
 
@@ -36,19 +36,19 @@
 
 ### localCandidate?
 
-> `optional` **localCandidate**: [`Candidate`](../classes/Candidate.md)
+> `optional` **localCandidate?**: [`Candidate`](../classes/Candidate.md)
 
 ***
 
 ### localIp?
 
-> `optional` **localIp**: `string`
+> `optional` **localIp?**: `string`
 
 ***
 
 ### onConnectionClosed?
 
-> `optional` **onConnectionClosed**: `Event`\<\[readonly \[`string`, `number`\]\]\>
+> `optional` **onConnectionClosed?**: `Event`\<\[readonly \[`string`, `number`\]\]\>
 
 Connection-oriented protocols: the connection to this remote address is gone.
 
@@ -56,7 +56,7 @@ Connection-oriented protocols: the connection to this remote address is gone.
 
 ### onDataReceived
 
-> **onDataReceived**: `Event`\<\[`Buffer`\<`ArrayBufferLike`\>, readonly \[`string`, `number`\]?\]\>
+> **onDataReceived**: `Event`\<\[`Buffer`\<`ArrayBufferLike`\>, (readonly \[`string`, `number`\])?\]\>
 
 Non-STUN datagrams on this protocol. The optional source address is
 required to route handshake DTLS to the matching CandidatePair.
@@ -69,9 +69,9 @@ required to route handshake DTLS to the matching CandidatePair.
 
 ***
 
-### request()
+### request
 
-> **request**: (`message`, `addr`, `integrityKey`?, `retransmissionsOrOptions`?, `onRequestSent`?) => `Promise`\<\[[`Message`](../classes/Message.md), readonly \[`string`, `number`\]\]\>
+> **request**: (`message`, `addr`, `integrityKey?`, `retransmissionsOrOptions?`, `onRequestSent?`) => `Promise`\<\[[`Message`](../classes/Message.md), readonly \[`string`, `number`\]\]\>
 
 #### Parameters
 
@@ -89,7 +89,7 @@ readonly \[`string`, `number`\]
 
 ##### retransmissionsOrOptions?
 
-`number` | [`TransactionRequestOptions`](TransactionRequestOptions.md)
+`number` \| [`TransactionRequestOptions`](TransactionRequestOptions.md)
 
 ##### onRequestSent?
 
@@ -103,17 +103,17 @@ readonly \[`string`, `number`\]
 
 ### responseAddr?
 
-> `optional` **responseAddr**: readonly \[`string`, `number`\]
+> `optional` **responseAddr?**: readonly \[`string`, `number`\]
 
 ***
 
 ### responseMessage?
 
-> `optional` **responseMessage**: `string`
+> `optional` **responseMessage?**: `string`
 
 ***
 
-### sendData()
+### sendData
 
 > **sendData**: (`data`, `addr`) => `Promise`\<`void`\>
 
@@ -133,7 +133,7 @@ readonly \[`string`, `number`\]
 
 ***
 
-### sendStun()
+### sendStun
 
 > **sendStun**: (`message`, `addr`) => `Promise`\<`void`\>
 
@@ -155,7 +155,7 @@ readonly \[`string`, `number`\]
 
 ### sentMessage?
 
-> `optional` **sentMessage**: [`Message`](../classes/Message.md)
+> `optional` **sentMessage?**: [`Message`](../classes/Message.md)
 
 ***
 

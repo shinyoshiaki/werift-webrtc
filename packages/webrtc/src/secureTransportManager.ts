@@ -1,7 +1,7 @@
 import type { PeerConfig } from "./api/peerConfig";
 import { SRTP_PROFILE } from "./const";
 import { createWebRtcDomException, createWebRtcTypeError } from "./errors";
-import { Event, debug } from "./imports/common";
+import { debug, Event } from "./imports/common";
 import type { RTCRtpTransceiver, TransceiverManager } from "./media";
 import type { RTCStats } from "./media/stats";
 import type { SctpTransportManager } from "./sctpManager";
@@ -12,13 +12,13 @@ import {
   RTCDtlsTransport,
 } from "./transport/dtls";
 import { markDtlsTransportSped } from "./transport/dtls-sped";
-import { IceCandidate, RTCIceGatherer, RTCIceTransport } from "./transport/ice";
 import type {
   IceGathererState,
   RTCIceCandidate,
   RTCIceCandidateInit,
   RTCIceConnectionState,
 } from "./transport/ice";
+import { IceCandidate, RTCIceGatherer, RTCIceTransport } from "./transport/ice";
 import type { RTCSctpTransport } from "./transport/sctp";
 import type { ConnectionState } from "./types/domain";
 import { parseIceServers, resolveTurnTransport } from "./utils";

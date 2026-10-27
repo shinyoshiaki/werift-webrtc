@@ -1,4 +1,4 @@
-import { type Address, Event, crc32 } from "../../../common/src";
+import { type Address, crc32, Event } from "../../../common/src";
 import { CandidatePair } from "../../src";
 import { Candidate } from "../../src/candidate";
 import {

@@ -1,8 +1,6 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "child_process";
-import { existsSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import { join } from "path";
-
-import { readFileSync } from "fs";
 
 /** Pinned BoringSSL revision (BORINGSSL_REVISION file is source of truth). */
 export const BORINGSSL_PIN_REVISION = (() => {

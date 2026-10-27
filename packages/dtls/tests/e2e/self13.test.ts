@@ -1,4 +1,5 @@
 import { UdpTransport } from "../../../common/src";
+import { ProtectionProfileAeadAes128Gcm } from "../../../rtp/src/srtp/const";
 import {
   DtlsClient,
   DtlsServer,
@@ -11,8 +12,6 @@ import {
   SignatureAlgorithm,
 } from "../../src/cipher/const";
 import { certPem, keyPem } from "../fixture";
-
-import { ProtectionProfileAeadAes128Gcm } from "../../../rtp/src/srtp/const";
 
 const dtls13Options = {
   cert: certPem,

@@ -1,9 +1,6 @@
-import { Certificate, PrivateKey } from "@fidm/x509";
-
-import { randomUUID } from "crypto";
+import { createPrivateKey, randomUUID, X509Certificate } from "node:crypto";
+import type { AddressInfo } from "net";
 import { setTimeout } from "timers/promises";
-import { type Address, Event, type Transport } from "../imports/common";
-
 import { DirectHandshakeCarrier } from "../../../dtls/src/carrier/direct";
 import {
   createDtlsClientInternal,
@@ -13,9 +10,9 @@ import {
 import type { Connection } from "../../../ice/src";
 import { attachSpedToConnection } from "../../../ice/src/internal/sped";
 import { getConnectionSpedRuntime } from "../../../ice/src/internal/sped-bind";
-import type { AddressInfo } from "net";
 import type { DebugConfig } from "../api/peerConfig";
 import { EventTarget as DomEventTarget } from "../helper";
+import { type Address, Event, type Transport } from "../imports/common";
 import {
   CipherContext,
   DtlsClient,
@@ -24,11 +21,16 @@ import {
   DtlsVersion,
   HashAlgorithm,
   NamedCurveAlgorithm,
+  normalizePem,
   SignatureAlgorithm,
   type SignatureHash,
 } from "../imports/dtls";
 import type { IceConnection } from "../imports/ice";
 import {
+  debug,
+  isMedia,
+  isRtcp,
+  keyLength,
   type RtcpPacket,
   RtcpPacketConverter,
   type RtpHeader,
@@ -37,20 +39,16 @@ import {
   SrtpAuthenticationError,
   type SrtpProfile,
   SrtpSession,
-  debug,
-  isMedia,
-  isRtcp,
-  keyLength,
   saltLength,
 } from "../imports/rtp";
 import {
+  generateStatsId,
+  getStatsTimestamp,
   type RTCCertificateStats,
   type RTCIceCandidatePairStats,
   type RTCIceCandidateStats,
   type RTCStats,
   type RTCTransportStats,
-  generateStatsId,
-  getStatsTimestamp,
 } from "../media/stats";
 import {
   fingerprint,
@@ -732,6 +730,8 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     this.setState("closed", false);
     // todo impl send alert
     await this.iceTransport.stop();
+    // A handshake still in flight stops retransmitting its flight.
+    this.dtls?.close();
   }
 
   async getStats(timestamp = getStatsTimestamp()): Promise<RTCStats[]> {
@@ -839,19 +839,21 @@ export class RTCCertificate {
     public certPem: string,
     public signatureHash: SignatureHash,
   ) {
-    const cert = Certificate.fromPEM(Buffer.from(certPem));
-    this.publicKey = cert.publicKey.toPEM();
-    this.privateKey = PrivateKey.fromPEM(Buffer.from(privateKeyPem)).toPEM();
+    this.certPem = normalizePem(certPem);
+    const cert = new X509Certificate(this.certPem);
+    this.publicKey = cert.publicKey
+      .export({ type: "spki", format: "pem" })
+      .toString();
+    this.privateKey = createPrivateKey(normalizePem(privateKeyPem))
+      .export({ type: "pkcs8", format: "pem" })
+      .toString();
   }
 
   getFingerprints(): RTCDtlsFingerprint[] {
     return [
       new RTCDtlsFingerprint(
         "sha-256",
-        fingerprint(
-          Certificate.fromPEM(Buffer.from(this.certPem)).raw,
-          "sha256",
-        ),
+        fingerprint(new X509Certificate(this.certPem).raw, "sha256"),
       ),
     ];
   }
@@ -951,8 +953,10 @@ class IceTransport implements Transport {
   };
 
   async close() {
+    if (this.closed) return;
     this.closed = true;
-    this.ice.close();
+    // RTCIceTransport.stop() may have closed the agent already.
+    if (this.ice.state !== "closed") this.ice.close();
   }
 
   private remotePeer(): Address {

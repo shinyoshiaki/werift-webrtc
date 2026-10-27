@@ -12,13 +12,13 @@
 
 ## Constructors
 
-### new OpusRtpPayload()
+### Constructor
 
-> **new OpusRtpPayload**(): [`OpusRtpPayload`](OpusRtpPayload.md)
+> **new OpusRtpPayload**(): `OpusRtpPayload`
 
 #### Returns
 
-[`OpusRtpPayload`](OpusRtpPayload.md)
+`OpusRtpPayload`
 
 ## Properties
 
@@ -50,11 +50,11 @@
 
 ### createCodecPrivate()
 
-> `static` **createCodecPrivate**(`samplingFrequency`): `Buffer`\<`ArrayBuffer`\>
+> `static` **createCodecPrivate**(`samplingFrequency?`): `Buffer`\<`ArrayBuffer`\>
 
 #### Parameters
 
-##### samplingFrequency
+##### samplingFrequency?
 
 `number` = `48000`
 
@@ -66,7 +66,7 @@
 
 ### deSerialize()
 
-> `static` **deSerialize**(`buf`): [`OpusRtpPayload`](OpusRtpPayload.md)
+> `static` **deSerialize**(`buf`): `OpusRtpPayload`
 
 #### Parameters
 
@@ -76,7 +76,7 @@
 
 #### Returns
 
-[`OpusRtpPayload`](OpusRtpPayload.md)
+`OpusRtpPayload`
 
 ***
 

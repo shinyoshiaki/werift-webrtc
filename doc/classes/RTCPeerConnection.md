@@ -34,19 +34,19 @@ reviewable diff does not depend on external PR text.
 
 ## Constructors
 
-### new RTCPeerConnection()
+### Constructor
 
-> **new RTCPeerConnection**(`config`): [`RTCPeerConnection`](RTCPeerConnection.md)
+> **new RTCPeerConnection**(`config?`): `RTCPeerConnection`
 
 #### Parameters
 
-##### config
+##### config?
 
 [`RTCPeerConnectionConfig`](../type-aliases/RTCPeerConnectionConfig.md) = `{}`
 
 #### Returns
 
-[`RTCPeerConnection`](RTCPeerConnection.md)
+`RTCPeerConnection`
 
 #### Overrides
 
@@ -68,13 +68,13 @@ reviewable diff does not depend on external PR text.
 
 ### connectionStateChange
 
-> `readonly` **connectionStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"disconnected"` \| `"new"` \| `"connected"` \| `"failed"` \| `"connecting"`\]\>
+> `readonly` **connectionStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"connected"` \| `"disconnected"` \| `"new"` \| `"failed"` \| `"connecting"`\]\>
 
 ***
 
 ### iceConnectionStateChange
 
-> `readonly` **iceConnectionStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"disconnected"` \| `"completed"` \| `"new"` \| `"connected"` \| `"failed"` \| `"checking"`\]\>
+> `readonly` **iceConnectionStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"connected"` \| `"disconnected"` \| `"completed"` \| `"new"` \| `"failed"` \| `"checking"`\]\>
 
 ***
 
@@ -98,7 +98,7 @@ reviewable diff does not depend on external PR text.
 
 ### onIceCandidate
 
-> `readonly` **onIceCandidate**: [`Event`](Event.md)\<\[`undefined` \| [`RTCIceCandidate`](RTCIceCandidate.md)\]\>
+> `readonly` **onIceCandidate**: [`Event`](Event.md)\<\[[`RTCIceCandidate`](RTCIceCandidate.md) \| `undefined`\]\>
 
 ***
 
@@ -247,11 +247,11 @@ v13.6.0, v12.17.0
 
 #### Get Signature
 
-> **get** **canTrickleIceCandidates**(): `null` \| `boolean`
+> **get** **canTrickleIceCandidates**(): `boolean` \| `null`
 
 ##### Returns
 
-`null` \| `boolean`
+`boolean` \| `null`
 
 ***
 
@@ -259,11 +259,11 @@ v13.6.0, v12.17.0
 
 #### Get Signature
 
-> **get** **connectionState**(): `"closed"` \| `"disconnected"` \| `"new"` \| `"connected"` \| `"failed"` \| `"connecting"`
+> **get** **connectionState**(): `"closed"` \| `"connected"` \| `"disconnected"` \| `"new"` \| `"failed"` \| `"connecting"`
 
 ##### Returns
 
-`"closed"` \| `"disconnected"` \| `"new"` \| `"connected"` \| `"failed"` \| `"connecting"`
+`"closed"` \| `"connected"` \| `"disconnected"` \| `"new"` \| `"failed"` \| `"connecting"`
 
 ***
 
@@ -271,11 +271,11 @@ v13.6.0, v12.17.0
 
 #### Get Signature
 
-> **get** **currentLocalDescription**(): `null` \| [`RTCSessionDescription`](RTCSessionDescription.md)
+> **get** **currentLocalDescription**(): [`RTCSessionDescription`](RTCSessionDescription.md) \| `null`
 
 ##### Returns
 
-`null` \| [`RTCSessionDescription`](RTCSessionDescription.md)
+[`RTCSessionDescription`](RTCSessionDescription.md) \| `null`
 
 ***
 
@@ -283,11 +283,11 @@ v13.6.0, v12.17.0
 
 #### Get Signature
 
-> **get** **currentRemoteDescription**(): `null` \| [`RTCSessionDescription`](RTCSessionDescription.md)
+> **get** **currentRemoteDescription**(): [`RTCSessionDescription`](RTCSessionDescription.md) \| `null`
 
 ##### Returns
 
-`null` \| [`RTCSessionDescription`](RTCSessionDescription.md)
+[`RTCSessionDescription`](RTCSessionDescription.md) \| `null`
 
 ***
 
@@ -319,11 +319,11 @@ v13.6.0, v12.17.0
 
 #### Get Signature
 
-> **get** **iceConnectionState**(): `"closed"` \| `"disconnected"` \| `"completed"` \| `"new"` \| `"connected"` \| `"failed"` \| `"checking"`
+> **get** **iceConnectionState**(): `"closed"` \| `"connected"` \| `"disconnected"` \| `"completed"` \| `"new"` \| `"failed"` \| `"checking"`
 
 ##### Returns
 
-`"closed"` \| `"disconnected"` \| `"completed"` \| `"new"` \| `"connected"` \| `"failed"` \| `"checking"`
+`"closed"` \| `"connected"` \| `"disconnected"` \| `"completed"` \| `"new"` \| `"failed"` \| `"checking"`
 
 ***
 
@@ -379,11 +379,11 @@ v13.6.0, v12.17.0
 
 #### Get Signature
 
-> **get** **localDescription**(): `null` \| [`RTCSessionDescription`](RTCSessionDescription.md)
+> **get** **localDescription**(): [`RTCSessionDescription`](RTCSessionDescription.md) \| `null`
 
 ##### Returns
 
-`null` \| [`RTCSessionDescription`](RTCSessionDescription.md)
+[`RTCSessionDescription`](RTCSessionDescription.md) \| `null`
 
 ***
 
@@ -681,11 +681,11 @@ W3C [[NegotiationNeeded]].
 
 #### Get Signature
 
-> **get** **pendingLocalDescription**(): `null` \| [`RTCSessionDescription`](RTCSessionDescription.md)
+> **get** **pendingLocalDescription**(): [`RTCSessionDescription`](RTCSessionDescription.md) \| `null`
 
 ##### Returns
 
-`null` \| [`RTCSessionDescription`](RTCSessionDescription.md)
+[`RTCSessionDescription`](RTCSessionDescription.md) \| `null`
 
 ***
 
@@ -693,11 +693,11 @@ W3C [[NegotiationNeeded]].
 
 #### Get Signature
 
-> **get** **pendingRemoteDescription**(): `null` \| [`RTCSessionDescription`](RTCSessionDescription.md)
+> **get** **pendingRemoteDescription**(): [`RTCSessionDescription`](RTCSessionDescription.md) \| `null`
 
 ##### Returns
 
-`null` \| [`RTCSessionDescription`](RTCSessionDescription.md)
+[`RTCSessionDescription`](RTCSessionDescription.md) \| `null`
 
 ***
 
@@ -705,11 +705,11 @@ W3C [[NegotiationNeeded]].
 
 #### Get Signature
 
-> **get** **remoteDescription**(): `null` \| [`RTCSessionDescription`](RTCSessionDescription.md)
+> **get** **remoteDescription**(): [`RTCSessionDescription`](RTCSessionDescription.md) \| `null`
 
 ##### Returns
 
-`null` \| [`RTCSessionDescription`](RTCSessionDescription.md)
+[`RTCSessionDescription`](RTCSessionDescription.md) \| `null`
 
 ***
 
@@ -717,11 +717,11 @@ W3C [[NegotiationNeeded]].
 
 #### Get Signature
 
-> **get** **remoteIsBundled**(): `undefined` \| [`GroupDescription`](GroupDescription.md)
+> **get** **remoteIsBundled**(): [`GroupDescription`](GroupDescription.md) \| `undefined`
 
 ##### Returns
 
-`undefined` \| [`GroupDescription`](GroupDescription.md)
+[`GroupDescription`](GroupDescription.md) \| `undefined`
 
 ***
 
@@ -729,11 +729,11 @@ W3C [[NegotiationNeeded]].
 
 #### Get Signature
 
-> **get** **sctp**(): `null` \| [`RTCSctpTransport`](RTCSctpTransport.md)
+> **get** **sctp**(): [`RTCSctpTransport`](RTCSctpTransport.md) \| `null`
 
 ##### Returns
 
-`null` \| [`RTCSctpTransport`](RTCSctpTransport.md)
+[`RTCSctpTransport`](RTCSctpTransport.md) \| `null`
 
 ***
 
@@ -741,11 +741,11 @@ W3C [[NegotiationNeeded]].
 
 #### Get Signature
 
-> **get** **sctpRemotePort**(): `undefined` \| `number`
+> **get** **sctpRemotePort**(): `number` \| `undefined`
 
 ##### Returns
 
-`undefined` \| `number`
+`number` \| `undefined`
 
 ***
 
@@ -753,11 +753,11 @@ W3C [[NegotiationNeeded]].
 
 #### Get Signature
 
-> **get** **sctpTransport**(): `undefined` \| [`RTCSctpTransport`](RTCSctpTransport.md)
+> **get** **sctpTransport**(): [`RTCSctpTransport`](RTCSctpTransport.md) \| `undefined`
 
 ##### Returns
 
-`undefined` \| [`RTCSctpTransport`](RTCSctpTransport.md)
+[`RTCSctpTransport`](RTCSctpTransport.md) \| `undefined`
 
 ## Methods
 
@@ -767,7 +767,9 @@ W3C [[NegotiationNeeded]].
 
 #### Type Parameters
 
-• **K**
+##### K
+
+`K`
 
 #### Parameters
 
@@ -777,7 +779,7 @@ W3C [[NegotiationNeeded]].
 
 ##### event
 
-`string` | `symbol`
+`string` \| `symbol`
 
 ##### args
 
@@ -795,7 +797,7 @@ W3C [[NegotiationNeeded]].
 
 ### addEventListener()
 
-> **addEventListener**(`type`, `listener`, `options`?): `void`
+> **addEventListener**(`type`, `listener`, `options?`): `void`
 
 #### Parameters
 
@@ -809,7 +811,7 @@ W3C [[NegotiationNeeded]].
 
 ##### options?
 
-`boolean` | \{ `once`: `boolean`; \}
+`boolean` \| \{ `once?`: `boolean`; \}
 
 #### Returns
 
@@ -823,13 +825,13 @@ W3C [[NegotiationNeeded]].
 
 ### addIceCandidate()
 
-> **addIceCandidate**(`candidateMessage`): `Promise`\<`void`\>
+> **addIceCandidate**(`candidateMessage?`): `Promise`\<`void`\>
 
 #### Parameters
 
-##### candidateMessage
+##### candidateMessage?
 
-`null` | [`RTCIceCandidate`](RTCIceCandidate.md) | [`RTCIceCandidateInit`](../interfaces/RTCIceCandidateInit.md)
+[`RTCIceCandidate`](RTCIceCandidate.md) \| [`RTCIceCandidateInit`](../interfaces/RTCIceCandidateInit.md) \| `null` = `{}`
 
 #### Returns
 
@@ -845,13 +847,15 @@ Alias for `emitter.on(eventName, listener)`.
 
 #### Type Parameters
 
-• **K**
+##### K
+
+`K`
 
 #### Parameters
 
 ##### eventName
 
-`string` | `symbol`
+`string` \| `symbol`
 
 ##### listener
 
@@ -893,15 +897,15 @@ v0.1.26
 
 ### addTransceiver()
 
-> **addTransceiver**(`trackOrKind`, `options`): [`RTCRtpTransceiver`](RTCRtpTransceiver.md)
+> **addTransceiver**(`trackOrKind`, `options?`): [`RTCRtpTransceiver`](RTCRtpTransceiver.md)
 
 #### Parameters
 
 ##### trackOrKind
 
-[`Kind`](../type-aliases/Kind.md) | [`MediaStreamTrack`](MediaStreamTrack.md)
+[`Kind`](../type-aliases/Kind.md) \| [`MediaStreamTrack`](MediaStreamTrack.md)
 
-##### options
+##### options?
 
 `Partial`\<[`TransceiverOptions`](../interfaces/TransceiverOptions.md)\> = `{}`
 
@@ -940,7 +944,7 @@ W3C operations chain: createAnswer is ordered with SLD/SRD calls.
 
 ### createDataChannel()
 
-> **createDataChannel**(`label`, `options`): [`RTCDataChannel`](RTCDataChannel.md)
+> **createDataChannel**(`label`, `options?`): [`RTCDataChannel`](RTCDataChannel.md)
 
 #### Parameters
 
@@ -948,9 +952,9 @@ W3C operations chain: createAnswer is ordered with SLD/SRD calls.
 
 `string`
 
-##### options
+##### options?
 
-`Partial`\<\{ `id`: `number`; `maxPacketLifeTime`: `number`; `maxRetransmits`: `number`; `negotiated`: `boolean`; `ordered`: `boolean`; `protocol`: `string`; \}\> = `{}`
+`Partial`\<\{ `id?`: `number`; `maxPacketLifeTime?`: `number`; `maxRetransmits?`: `number`; `negotiated`: `boolean`; `ordered`: `boolean`; `protocol`: `string`; \}\> = `{}`
 
 #### Returns
 
@@ -960,7 +964,7 @@ W3C operations chain: createAnswer is ordered with SLD/SRD calls.
 
 ### createOffer()
 
-> **createOffer**(`options`): `Promise`\<[`RTCSessionDescription`](RTCSessionDescription.md)\>
+> **createOffer**(`options?`): `Promise`\<[`RTCSessionDescription`](RTCSessionDescription.md)\>
 
 W3C operations chain: createOffer runs after every earlier description
 operation, so an offer it produces cannot invalidate a setLocalDescription
@@ -968,7 +972,7 @@ that was called before it.
 
 #### Parameters
 
-##### options
+##### options?
 
 ###### iceRestart?
 
@@ -1046,7 +1050,7 @@ myEmitter.emit('event', 1, 2, 3, 4, 5);
 
 ##### type
 
-`string` | `symbol`
+`string` \| `symbol`
 
 ##### args
 
@@ -1107,8 +1111,6 @@ v6.0.0
 
 #### Returns
 
-`object`
-
 ##### bundlePolicy
 
 > **bundlePolicy**: [`BundlePolicy`](../type-aliases/BundlePolicy.md)
@@ -1123,11 +1125,11 @@ v6.0.0
 
 ###### codecs.audio
 
-> **audio**: `undefined` \| [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]
+> **audio**: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[] \| `undefined`
 
 ###### codecs.video
 
-> **video**: `undefined` \| [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]
+> **video**: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[] \| `undefined`
 
 ##### debug
 
@@ -1135,27 +1137,27 @@ v6.0.0
 
 ###### debug.disableRecvRetransmit?
 
-> `optional` **disableRecvRetransmit**: `boolean`
+> `optional` **disableRecvRetransmit?**: `boolean`
 
 ###### debug.disableSendNack?
 
-> `optional` **disableSendNack**: `boolean`
+> `optional` **disableSendNack?**: `boolean`
 
 ###### debug.inboundPacketLoss?
 
-> `optional` **inboundPacketLoss**: `number`
+> `optional` **inboundPacketLoss?**: `number`
 
 %
 
 ###### debug.outboundPacketLoss?
 
-> `optional` **outboundPacketLoss**: `number`
+> `optional` **outboundPacketLoss?**: `number`
 
 %
 
 ###### debug.receiverReportDelay?
 
-> `optional` **receiverReportDelay**: `number`
+> `optional` **receiverReportDelay?**: `number`
 
 ms
 
@@ -1165,15 +1167,15 @@ ms
 
 ###### dtls.helloRetryRequest
 
-> **helloRetryRequest**: `undefined` \| `boolean` = `config.dtls.helloRetryRequest`
+> **helloRetryRequest**: `boolean` \| `undefined` = `config.dtls.helloRetryRequest`
 
 ###### dtls.keys?
 
-> `optional` **keys**: [`DtlsKeys`](../type-aliases/DtlsKeys.md)
+> `optional` **keys?**: [`DtlsKeys`](../type-aliases/DtlsKeys.md)
 
 ###### dtls.protocolVersions
 
-> **protocolVersions**: `undefined` \| [`DtlsVersion`](../enumerations/DtlsVersion.md)[]
+> **protocolVersions**: [`DtlsVersion`](../enumerations/DtlsVersion.md)[] \| `undefined`
 
 ##### ~~forceTurnTCP~~
 
@@ -1189,15 +1191,15 @@ Prefer turn URL transport parameters or turnTransport.
 
 ###### headerExtensions.audio
 
-> **audio**: `undefined` \| [`RTCRtpHeaderExtensionParameters`](RTCRtpHeaderExtensionParameters.md)[]
+> **audio**: [`RTCRtpHeaderExtensionParameters`](RTCRtpHeaderExtensionParameters.md)[] \| `undefined`
 
 ###### headerExtensions.video
 
-> **video**: `undefined` \| [`RTCRtpHeaderExtensionParameters`](RTCRtpHeaderExtensionParameters.md)[]
+> **video**: [`RTCRtpHeaderExtensionParameters`](RTCRtpHeaderExtensionParameters.md)[] \| `undefined`
 
 ##### iceAdditionalHostAddresses
 
-> **iceAdditionalHostAddresses**: `undefined` \| `string`[]
+> **iceAdditionalHostAddresses**: `string`[] \| `undefined`
 
 ##### iceCandidatePoolSize
 
@@ -1205,18 +1207,18 @@ Prefer turn URL transport parameters or turnTransport.
 
 ##### iceFilterCandidatePair
 
-> **iceFilterCandidatePair**: `undefined` \| (`pair`) => `boolean`
+> **iceFilterCandidatePair**: ((`pair`) => `boolean`) \| `undefined`
 
 ##### iceFilterStunResponse
 
-> **iceFilterStunResponse**: `undefined` \| (`message`, `addr`, `protocol`) => `boolean`
+> **iceFilterStunResponse**: ((`message`, `addr`, `protocol`) => `boolean`) \| `undefined`
 
 If provided, is called on each STUN request.
 Return `true` if a STUN response should be sent, false if it should be skipped.
 
 ##### iceInterfaceAddresses
 
-> **iceInterfaceAddresses**: `undefined` \| [`InterfaceAddresses`](../type-aliases/InterfaceAddresses.md)
+> **iceInterfaceAddresses**: [`InterfaceAddresses`](../type-aliases/InterfaceAddresses.md) \| `undefined`
 
 ##### iceLite
 
@@ -1226,11 +1228,11 @@ Advertise local ICE lite and operate in the controlled role.
 
 ##### icePasswordPrefix
 
-> **icePasswordPrefix**: `undefined` \| `string`
+> **icePasswordPrefix**: `string` \| `undefined`
 
 ##### icePortRange
 
-> **icePortRange**: `undefined` \| \[`number`, `number`\]
+> **icePortRange**: \[`number`, `number`\] \| `undefined`
 
 ##### iceServers
 
@@ -1238,7 +1240,7 @@ Advertise local ICE lite and operate in the controlled role.
 
 ##### iceStunGatherTimeout
 
-> **iceStunGatherTimeout**: `undefined` \| `number`
+> **iceStunGatherTimeout**: `number` \| `undefined`
 
 Seconds to wait for server-reflexive candidates while gathering.
 Defaults to 5 when undefined.
@@ -1251,11 +1253,11 @@ Gather passive (listening) TCP host candidates. Defaults to true.
 
 ##### iceTransportPolicy
 
-> **iceTransportPolicy**: `"all"` \| `"relay"`
+> **iceTransportPolicy**: `"relay"` \| `"all"`
 
 ##### iceTurnConnectTimeout
 
-> **iceTurnConnectTimeout**: `undefined` \| `number`
+> **iceTurnConnectTimeout**: `number` \| `undefined`
 
 Seconds to wait for a TURN TCP/TLS connection to be established.
 Defaults to 8 when undefined.
@@ -1270,7 +1272,7 @@ Defaults to 8 when undefined.
 
 ##### iceUseLinkLocalAddress
 
-> **iceUseLinkLocalAddress**: `undefined` \| `boolean`
+> **iceUseLinkLocalAddress**: `boolean` \| `undefined`
 
 such as google cloud run
 
@@ -1300,13 +1302,29 @@ How local SDP marks inactive / stopped m-lines. Cannot be changed after construc
 
 ##### pendingRtp
 
-> **pendingRtp**: `boolean` \| \{ `enabled`: `boolean`; `maxLength`: `number`; \}
+> **pendingRtp**: `boolean` \| \{ `enabled?`: `boolean`; `maxLength?`: `number`; \}
 
-###### Type declaration
+###### Union Members
 
 `boolean`
 
-\{ `enabled`: `boolean`; `maxLength`: `number`; \}
+***
+
+###### Type Literal
+
+\{ `enabled?`: `boolean`; `maxLength?`: `number`; \}
+
+###### enabled?
+
+> `optional` **enabled?**: `boolean`
+
+Queue RTP until DTLS is connected and a codec is set. Default true when this object is passed.
+
+###### maxLength?
+
+> `optional` **maxLength?**: `number`
+
+Max queued packets when enabled. Oldest packets are dropped. Default 256.
 
 ##### rtcpMuxPolicy
 
@@ -1322,7 +1340,7 @@ How local SDP marks inactive / stopped m-lines. Cannot be changed after construc
 
 ##### sped?
 
-> `optional` **sped**: `boolean`
+> `optional` **sped?**: `boolean`
 
 Opt-in SPED (DTLS handshake embedded in ICE Binding).
 Omit or false: ICE completes, then DTLS starts (current serial path).
@@ -1334,15 +1352,15 @@ Cannot be combined with `dtls.helloRetryRequest: true`
 
 ##### turnTlsOptions
 
-> **turnTlsOptions**: `undefined` \| [`TlsConnectionOptions`](../type-aliases/TlsConnectionOptions.md)
+> **turnTlsOptions**: [`TlsConnectionOptions`](../type-aliases/TlsConnectionOptions.md) \| `undefined`
 
 ##### turnTransport
 
-> **turnTransport**: `undefined` \| `"udp"` \| `"tcp"` \| `"tls"`
+> **turnTransport**: `"tcp"` \| `"tls"` \| `"udp"` \| `undefined`
 
 ##### turnUdpFamily
 
-> **turnUdpFamily**: `undefined` \| `4` \| `6`
+> **turnUdpFamily**: `4` \| `6` \| `undefined`
 
 Preferred IP family of the TURN/UDP socket, applied only when the TURN
 server is a hostname. Ignored for an IP literal server, whose own family
@@ -1393,13 +1411,13 @@ v1.0.0
 
 ### getStats()
 
-> **getStats**(`selector`?): `Promise`\<[`RTCStatsReport`](RTCStatsReport.md)\>
+> **getStats**(`selector?`): `Promise`\<[`RTCStatsReport`](RTCStatsReport.md)\>
 
 #### Parameters
 
 ##### selector?
 
-`null` | [`MediaStreamTrack`](MediaStreamTrack.md)
+[`MediaStreamTrack`](MediaStreamTrack.md) \| `null`
 
 #### Returns
 
@@ -1419,7 +1437,7 @@ v1.0.0
 
 ### listenerCount()
 
-> **listenerCount**\<`K`\>(`eventName`, `listener`?): `number`
+> **listenerCount**\<`K`\>(`eventName`, `listener?`): `number`
 
 Returns the number of listeners listening for the event named `eventName`.
 If `listener` is provided, it will return how many times the listener is found
@@ -1427,15 +1445,17 @@ in the list of the listeners of the event.
 
 #### Type Parameters
 
-• **K**
+##### K
+
+`K`
 
 #### Parameters
 
 ##### eventName
 
-The name of the event being listened for
+`string` \| `symbol`
 
-`string` | `symbol`
+The name of the event being listened for
 
 ##### listener?
 
@@ -1473,13 +1493,15 @@ console.log(util.inspect(server.listeners('connection')));
 
 #### Type Parameters
 
-• **K**
+##### K
+
+`K`
 
 #### Parameters
 
 ##### eventName
 
-`string` | `symbol`
+`string` \| `symbol`
 
 #### Returns
 
@@ -1503,13 +1525,15 @@ Alias for `emitter.removeListener()`.
 
 #### Type Parameters
 
-• **K**
+##### K
+
+`K`
 
 #### Parameters
 
 ##### eventName
 
-`string` | `symbol`
+`string` \| `symbol`
 
 ##### listener
 
@@ -1562,15 +1586,17 @@ myEE.emit('foo');
 
 #### Type Parameters
 
-• **K**
+##### K
+
+`K`
 
 #### Parameters
 
 ##### eventName
 
-The name of the event.
+`string` \| `symbol`
 
-`string` | `symbol`
+The name of the event.
 
 ##### listener
 
@@ -1623,15 +1649,17 @@ myEE.emit('foo');
 
 #### Type Parameters
 
-• **K**
+##### K
+
+`K`
 
 #### Parameters
 
 ##### eventName
 
-The name of the event.
+`string` \| `symbol`
 
-`string` | `symbol`
+The name of the event.
 
 ##### listener
 
@@ -1672,15 +1700,17 @@ Returns a reference to the `EventEmitter`, so that calls can be chained.
 
 #### Type Parameters
 
-• **K**
+##### K
+
+`K`
 
 #### Parameters
 
 ##### eventName
 
-The name of the event.
+`string` \| `symbol`
 
-`string` | `symbol`
+The name of the event.
 
 ##### listener
 
@@ -1719,15 +1749,17 @@ Returns a reference to the `EventEmitter`, so that calls can be chained.
 
 #### Type Parameters
 
-• **K**
+##### K
+
+`K`
 
 #### Parameters
 
 ##### eventName
 
-The name of the event.
+`string` \| `symbol`
 
-`string` | `symbol`
+The name of the event.
 
 ##### listener
 
@@ -1783,13 +1815,15 @@ emitter.emit('log');
 
 #### Type Parameters
 
-• **K**
+##### K
+
+`K`
 
 #### Parameters
 
 ##### eventName
 
-`string` | `symbol`
+`string` \| `symbol`
 
 #### Returns
 
@@ -1807,7 +1841,7 @@ v9.4.0
 
 ### removeAllListeners()
 
-> **removeAllListeners**(`eventName`?): `this`
+> **removeAllListeners**(`eventName?`): `this`
 
 Removes all listeners, or those of the specified `eventName`.
 
@@ -1821,7 +1855,7 @@ Returns a reference to the `EventEmitter`, so that calls can be chained.
 
 ##### eventName?
 
-`string` | `symbol`
+`string` \| `symbol`
 
 #### Returns
 
@@ -1947,13 +1981,15 @@ Returns a reference to the `EventEmitter`, so that calls can be chained.
 
 #### Type Parameters
 
-• **K**
+##### K
+
+`K`
 
 #### Parameters
 
 ##### eventName
 
-`string` | `symbol`
+`string` \| `symbol`
 
 ##### listener
 
@@ -2046,7 +2082,7 @@ leaves the peer exactly as it was.
 
 #### Call Signature
 
-> **setLocalDescription**(`sessionDescription`?): `Promise`\<[`SessionDescription`](SessionDescription.md)\>
+> **setLocalDescription**(`sessionDescription?`): `Promise`\<[`SessionDescription`](SessionDescription.md)\>
 
 Applying a created description is built only from its SDP and its
 generation record (`createdOffer`, the ICE generations registered on the
@@ -2121,8 +2157,6 @@ v0.3.5
 ### addAbortListener()
 
 > `static` **addAbortListener**(`signal`, `resource`): `Disposable`
-
-**`Experimental`**
 
 Listens once to the `abort` event on the provided `signal`.
 
@@ -2213,11 +2247,11 @@ import { getEventListeners, EventEmitter } from 'node:events';
 
 ##### emitter
 
-`EventEmitter`\<`DefaultEventMap`\> | `EventTarget`
+`EventEmitter`\<`DefaultEventMap`\> \| `EventTarget`
 
 ##### name
 
-`string` | `symbol`
+`string` \| `symbol`
 
 #### Returns
 
@@ -2267,7 +2301,7 @@ import { getMaxListeners, setMaxListeners, EventEmitter } from 'node:events';
 
 ##### emitter
 
-`EventEmitter`\<`DefaultEventMap`\> | `EventTarget`
+`EventEmitter`\<`DefaultEventMap`\> \| `EventTarget`
 
 #### Returns
 
@@ -2309,9 +2343,9 @@ The emitter to query
 
 ##### eventName
 
-The event name
+`string` \| `symbol`
 
-`string` | `symbol`
+The event name
 
 #### Returns
 
@@ -2335,7 +2369,7 @@ Since v3.2.0 - Use `listenerCount` instead.
 
 #### Call Signature
 
-> `static` **on**(`emitter`, `eventName`, `options`?): `AsyncIterator`\<`any`[]\>
+> `static` **on**(`emitter`, `eventName`, `options?`): `AsyncIterator`\<`any`[]\>
 
 ```js
 import { on, EventEmitter } from 'node:events';
@@ -2422,7 +2456,7 @@ console.log('done'); // prints 'done'
 
 ###### eventName
 
-`string` | `symbol`
+`string` \| `symbol`
 
 ###### options?
 
@@ -2444,7 +2478,7 @@ v13.6.0, v12.16.0
 
 #### Call Signature
 
-> `static` **on**(`emitter`, `eventName`, `options`?): `AsyncIterator`\<`any`[]\>
+> `static` **on**(`emitter`, `eventName`, `options?`): `AsyncIterator`\<`any`[]\>
 
 ```js
 import { on, EventEmitter } from 'node:events';
@@ -2557,7 +2591,7 @@ v13.6.0, v12.16.0
 
 #### Call Signature
 
-> `static` **once**(`emitter`, `eventName`, `options`?): `Promise`\<`any`[]\>
+> `static` **once**(`emitter`, `eventName`, `options?`): `Promise`\<`any`[]\>
 
 Creates a `Promise` that is fulfilled when the `EventEmitter` emits the given
 event or that is rejected if the `EventEmitter` emits `'error'` while waiting.
@@ -2644,7 +2678,7 @@ ee.emit('foo'); // Prints: Waiting for the event was canceled!
 
 ###### eventName
 
-`string` | `symbol`
+`string` \| `symbol`
 
 ###### options?
 
@@ -2664,7 +2698,7 @@ v11.13.0, v10.16.0
 
 #### Call Signature
 
-> `static` **once**(`emitter`, `eventName`, `options`?): `Promise`\<`any`[]\>
+> `static` **once**(`emitter`, `eventName`, `options?`): `Promise`\<`any`[]\>
 
 Creates a `Promise` that is fulfilled when the `EventEmitter` emits the given
 event or that is rejected if the `EventEmitter` emits `'error'` while waiting.
@@ -2773,7 +2807,7 @@ v11.13.0, v10.16.0
 
 ### setMaxListeners()
 
-> `static` **setMaxListeners**(`n`?, ...`eventTargets`?): `void`
+> `static` **setMaxListeners**(`n?`, ...`eventTargets`): `void`
 
 ```js
 import { setMaxListeners, EventEmitter } from 'node:events';
@@ -2792,7 +2826,7 @@ setMaxListeners(5, target, emitter);
 
 A non-negative number. The maximum number of listeners per `EventTarget` event.
 
-##### eventTargets?
+##### eventTargets
 
 ...(`EventEmitter`\<`DefaultEventMap`\> \| `EventTarget`)[]
 

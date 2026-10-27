@@ -40,6 +40,11 @@ function hasHeadlessShell(chromiumExecutablePath) {
   );
 
   return [
+    join(
+      headlessRoot,
+      "chrome-headless-shell-linux64",
+      "chrome-headless-shell",
+    ),
     join(headlessRoot, "chrome-linux", "headless_shell"),
     join(headlessRoot, "chrome-mac", "headless_shell"),
     join(headlessRoot, "chrome-mac-arm64", "headless_shell"),
@@ -48,9 +53,32 @@ function hasHeadlessShell(chromiumExecutablePath) {
   ].some((candidate) => existsSync(candidate));
 }
 
-function hasPlaywrightChromium(playwright) {
+/**
+ * Browsers directory a harness launches from: its `browsers-path.js`
+ * (kept out of the shared cache) unless the caller set PLAYWRIGHT_BROWSERS_PATH.
+ */
+function harnessBrowsersPath(packageDir) {
+  if (process.env.PLAYWRIGHT_BROWSERS_PATH) {
+    return undefined;
+  }
+  const helper = join(packageDir, "browsers-path.js");
+  if (!existsSync(helper)) {
+    return undefined;
+  }
+  return join(packageDir, "node_modules", ".cache", "ms-playwright");
+}
+
+function hasPlaywrightChromium(playwright, browsersPath) {
   try {
-    const chromiumExecutablePath = playwright.chromium.executablePath();
+    let chromiumExecutablePath = playwright.chromium.executablePath();
+    if (browsersPath) {
+      // Same revision and layout, rooted at the harness browsers directory.
+      const chromiumDir = dirname(dirname(chromiumExecutablePath));
+      chromiumExecutablePath = join(
+        browsersPath,
+        chromiumExecutablePath.slice(dirname(chromiumDir).length + 1),
+      );
+    }
     return (
       existsSync(chromiumExecutablePath) &&
       hasHeadlessShell(chromiumExecutablePath)
@@ -60,7 +88,7 @@ function hasPlaywrightChromium(playwright) {
   }
 }
 
-function installWithPlaywright(packageDir) {
+function installWithPlaywright(packageDir, browsersPath) {
   const packageJsonPath = require.resolve("playwright/package.json", {
     paths: [packageDir],
   });
@@ -71,6 +99,9 @@ function installWithPlaywright(packageDir) {
     {
       cwd: repoRoot,
       stdio: "inherit",
+      env: browsersPath
+        ? { ...process.env, PLAYWRIGHT_BROWSERS_PATH: browsersPath }
+        : process.env,
     },
   );
 
@@ -93,11 +124,18 @@ function collectPlaywrightInstalls() {
     if (!manifest?.version || !playwright) {
       continue;
     }
-    if (seenVersions.has(manifest.version)) {
+    const browsersPath = harnessBrowsersPath(packageDir);
+    const key = `${manifest.version}:${browsersPath ?? ""}`;
+    if (seenVersions.has(key)) {
       continue;
     }
-    seenVersions.add(manifest.version);
-    installs.push({ packageDir, playwright, version: manifest.version });
+    seenVersions.add(key);
+    installs.push({
+      packageDir,
+      playwright,
+      version: manifest.version,
+      browsersPath,
+    });
   }
 
   return installs;
@@ -107,10 +145,7 @@ function main() {
   // System Chrome is enough for most browser tests, but DTLS version
   // tests need Playwright's pinned Chromium. Set FORCE_PLAYWRIGHT_BROWSERS=1
   // to install it even when /usr/bin/google-chrome exists (GHA ubuntu-latest).
-  if (
-    resolveSystemChrome() &&
-    process.env.FORCE_PLAYWRIGHT_BROWSERS !== "1"
-  ) {
+  if (resolveSystemChrome() && process.env.FORCE_PLAYWRIGHT_BROWSERS !== "1") {
     process.exit(0);
   }
 
@@ -132,10 +167,10 @@ function main() {
   }
 
   for (const install of installs) {
-    if (hasPlaywrightChromium(install.playwright)) {
+    if (hasPlaywrightChromium(install.playwright, install.browsersPath)) {
       continue;
     }
-    installWithPlaywright(install.packageDir);
+    installWithPlaywright(install.packageDir, install.browsersPath);
   }
 
   process.exit(0);

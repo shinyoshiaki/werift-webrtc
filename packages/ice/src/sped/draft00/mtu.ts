@@ -1,8 +1,8 @@
 import {
+  classes,
   FINGERPRINT_LENGTH,
   HEADER_LENGTH,
   INTEGRITY_LENGTH,
-  classes,
   methods,
 } from "../../stun/const";
 import { Message, paddingLength } from "../../stun/message";

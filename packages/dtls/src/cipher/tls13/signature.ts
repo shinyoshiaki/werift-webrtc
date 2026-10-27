@@ -1,12 +1,11 @@
 import {
-  type KeyObject,
-  X509Certificate,
   createPrivateKey,
   createSign,
   createVerify,
+  type KeyObject,
+  X509Certificate,
 } from "crypto";
-import { Certificate as FidmCertificate, PrivateKey } from "@fidm/x509";
-
+import { normalizePem } from "../../context/cipher";
 import { buildCertificateVerifyContent } from "../../handshake/message/tls13/certificateVerify";
 import { SignatureScheme } from "../const";
 import { hashSha256 } from "./hkdf";
@@ -204,8 +203,9 @@ export function verifyCertificateVerify(
 export function parseCertAndKey(
   certPem: string,
   keyPem: string,
-): { certDer: Buffer; keyPem: string; privateKey: PrivateKey } {
-  const cert = FidmCertificate.fromPEM(Buffer.from(certPem));
-  const privateKey = PrivateKey.fromPEM(Buffer.from(keyPem));
-  return { certDer: cert.raw, keyPem, privateKey };
+): { certDer: Buffer; keyPem: string; privateKey: KeyObject } {
+  const cert = new X509Certificate(normalizePem(certPem));
+  const normalizedKeyPem = normalizePem(keyPem);
+  const privateKey = createPrivateKey(normalizedKeyPem);
+  return { certDer: cert.raw, keyPem: normalizedKeyPem, privateKey };
 }

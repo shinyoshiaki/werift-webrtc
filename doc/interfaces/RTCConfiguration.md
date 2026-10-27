@@ -10,34 +10,34 @@
 
 ### bundlePolicy?
 
-> `optional` **bundlePolicy**: [`RTCBundlePolicy`](../type-aliases/RTCBundlePolicy.md)
+> `optional` **bundlePolicy?**: [`RTCBundlePolicy`](../type-aliases/RTCBundlePolicy.md)
 
 ***
 
 ### certificates?
 
-> `optional` **certificates**: [`RTCCertificate`](../classes/RTCCertificate.md)[]
+> `optional` **certificates?**: [`RTCCertificate`](../classes/RTCCertificate.md)[]
 
 ***
 
 ### iceCandidatePoolSize?
 
-> `optional` **iceCandidatePoolSize**: `number`
+> `optional` **iceCandidatePoolSize?**: `number`
 
 ***
 
 ### iceServers?
 
-> `optional` **iceServers**: [`RTCIceServer`](../type-aliases/RTCIceServer.md)[]
+> `optional` **iceServers?**: [`RTCIceServer`](../type-aliases/RTCIceServer.md)[]
 
 ***
 
 ### iceTransportPolicy?
 
-> `optional` **iceTransportPolicy**: `"all"` \| `"relay"`
+> `optional` **iceTransportPolicy?**: `"relay"` \| `"all"`
 
 ***
 
 ### rtcpMuxPolicy?
 
-> `optional` **rtcpMuxPolicy**: `"require"`
+> `optional` **rtcpMuxPolicy?**: `"require"`

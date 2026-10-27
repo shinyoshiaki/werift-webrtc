@@ -11,13 +11,13 @@ import type {
 } from "../imports/common";
 import type { DtlsVersion } from "../imports/dtls";
 import type { CandidatePair, Message, Protocol } from "../imports/ice";
-import {
-  type RTCRtpCodecParameters,
-  type RTCRtpHeaderExtensionParameters,
-  type RTCRtpSenderOptions,
-  defaultCodecs,
-} from "../media";
+import { defaultCodecs } from "../media/codec";
 import { normalizeCodecMimeType } from "../media/codecCompatibility";
+import type {
+  RTCRtpCodecParameters,
+  RTCRtpHeaderExtensionParameters,
+} from "../media/parameters";
+import type { RTCRtpSenderOptions } from "../media/rtpSender";
 import type { BundlePolicy } from "../sdp";
 import type { MLineReuse } from "../sdpManager";
 import type { DtlsKeys, RTCCertificate } from "../transport/dtls";
