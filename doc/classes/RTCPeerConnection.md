@@ -1368,7 +1368,7 @@ always selects the socket. Defaults to 4 when undefined.
 
 ##### warp
 
-> **warp**: `undefined` \| \{ `allowEarlyServerData`: `boolean`; `earlyMediaPolicy`: `"buffer"` \| `"drop"`; \}
+> **warp**: \{ `allowEarlyServerData?`: `boolean`; `earlyMediaPolicy?`: `"buffer"` \| `"drop"`; \} \| `undefined`
 
 ***
 

@@ -42,7 +42,7 @@ transport that leaves it unset gets no family preference.
 
 ### onData
 
-> **onData**: (`data`, `addr`, `meta`?) => `void`
+> **onData**: (`data`, `addr`, `meta?`) => `void`
 
 #### Parameters
 

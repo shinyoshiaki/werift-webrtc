@@ -44,7 +44,7 @@
 
 ### iceGeneration?
 
-> `optional` **iceGeneration**: `number`
+> `optional` **iceGeneration?**: `number`
 
 ***
 
@@ -158,58 +158,58 @@
 
 ### warpCarrier?
 
-> `optional` **warpCarrier**: `"direct"` \| `"sped"`
+> `optional` **warpCarrier?**: `"direct"` \| `"sped"`
 
 ***
 
 ### warpDtlsRetransmissions?
 
-> `optional` **warpDtlsRetransmissions**: `number`
+> `optional` **warpDtlsRetransmissions?**: `number`
 
 ***
 
 ### warpEarlyBufferedBytes?
 
-> `optional` **warpEarlyBufferedBytes**: `number`
+> `optional` **warpEarlyBufferedBytes?**: `number`
 
 ***
 
 ### warpEarlyBufferedPackets?
 
-> `optional` **warpEarlyBufferedPackets**: `number`
+> `optional` **warpEarlyBufferedPackets?**: `number`
 
 ***
 
 ### warpEarlyDroppedBytes?
 
-> `optional` **warpEarlyDroppedBytes**: `number`
+> `optional` **warpEarlyDroppedBytes?**: `number`
 
 ***
 
 ### warpEarlyDroppedPackets?
 
-> `optional` **warpEarlyDroppedPackets**: `number`
+> `optional` **warpEarlyDroppedPackets?**: `number`
 
 ***
 
 ### warpEarlyServerSendUsed?
 
-> `optional` **warpEarlyServerSendUsed**: `boolean`
+> `optional` **warpEarlyServerSendUsed?**: `boolean`
 
 ***
 
 ### warpHandshakeRttMs?
 
-> `optional` **warpHandshakeRttMs**: `number`
+> `optional` **warpHandshakeRttMs?**: `number`
 
 ***
 
 ### warpSpedRetransmissions?
 
-> `optional` **warpSpedRetransmissions**: `number`
+> `optional` **warpSpedRetransmissions?**: `number`
 
 ***
 
 ### warpSpedState?
 
-> `optional` **warpSpedState**: `"probing"` \| `"active"` \| `"disabled"` \| `"fallback"`
+> `optional` **warpSpedState?**: `"disabled"` \| `"probing"` \| `"active"` \| `"fallback"`

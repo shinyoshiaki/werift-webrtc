@@ -15,4 +15,4 @@ longer matches at queue-execution time (ICE restart race).
 
 ### rxGeneration?
 
-> `optional` **rxGeneration**: `number`
+> `optional` **rxGeneration?**: `number`

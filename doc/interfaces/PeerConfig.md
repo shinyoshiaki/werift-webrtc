@@ -267,14 +267,14 @@ always selects the socket. Defaults to 4 when undefined.
 
 ### warp?
 
-> `optional` **warp**: `object`
+> `optional` **warp?**: `object`
 
-Experimental WARP traffic policy. Early outbound remains opt-in.
+WARP early outbound and encrypted-media buffering policy.
 
 #### allowEarlyServerData?
 
-> `optional` **allowEarlyServerData**: `boolean`
+> `optional` **allowEarlyServerData?**: `boolean`
 
 #### earlyMediaPolicy?
 
-> `optional` **earlyMediaPolicy**: `"buffer"` \| `"drop"`
+> `optional` **earlyMediaPolicy?**: `"buffer"` \| `"drop"`

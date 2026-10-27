@@ -14,19 +14,19 @@ authenticated, so a forged packet cannot advance or poison the window.
 
 ## Constructors
 
-### new SrtpReplayWindow()
+### Constructor
 
-> **new SrtpReplayWindow**(`size`): [`SrtpReplayWindow`](SrtpReplayWindow.md)
+> **new SrtpReplayWindow**(`size?`): `SrtpReplayWindow`
 
 #### Parameters
 
-##### size
+##### size?
 
 `number` = `64`
 
 #### Returns
 
-[`SrtpReplayWindow`](SrtpReplayWindow.md)
+`SrtpReplayWindow`
 
 ## Properties
 
