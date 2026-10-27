@@ -68,16 +68,12 @@ function ensureGoogleChromeForH264() {
   return existing;
 }
 
-function hasPlaywrightChromium(packageName, requireHeadlessShell) {
+function hasPlaywrightChromium(packageName) {
   try {
     const { chromium } = require(packageName);
     const chromiumExecutablePath = chromium.executablePath();
     if (!existsSync(chromiumExecutablePath)) {
       return false;
-    }
-
-    if (!requireHeadlessShell) {
-      return true;
     }
 
     const chromiumDir = dirname(dirname(chromiumExecutablePath));
@@ -125,15 +121,10 @@ if (chrome) {
   console.log(`[ensure-browser] using Chrome: ${chrome}`);
 }
 
-if (!hasPlaywrightChromium("playwright", true)) {
-  // Keep the current browser for regular and DTLS 1.3 E2E.
+if (!hasPlaywrightChromium("playwright")) {
+  // Regular and DTLS E2E both run on this package's pinned Chromium.
   installPlaywrightBrowsers("playwright", [
     "chromium",
     "chromium-headless-shell",
   ]);
-}
-
-if (!hasPlaywrightChromium("playwright-dtls12", false)) {
-  // Chromium 140 still honors the DTLS 1.2 field trial used by fallback tests.
-  installPlaywrightBrowsers("playwright-dtls12", ["chromium"]);
 }

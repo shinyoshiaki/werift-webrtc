@@ -2,27 +2,20 @@ import { existsSync } from "node:fs";
 
 import { playwright } from "@vitest/browser-playwright";
 import { chromium } from "playwright";
-import { chromium as chromiumDtls12 } from "playwright-dtls12";
 import { nodePolyfills } from "vite-plugin-node-polyfills";
 import { defineConfig } from "vitest/config";
 import { chromiumLaunchArgs } from "./tests/dtls/chromiumLaunch";
 
-const chromiumMode =
-  process.env.DTLS_CHROMIUM_MODE === "dtls13" ? "dtls13" : "dtls12";
-const chromiumForMode = chromiumMode === "dtls12" ? chromiumDtls12 : chromium;
-
 let playwrightChromium: string | undefined;
 try {
-  playwrightChromium = chromiumForMode.executablePath();
+  playwrightChromium = chromium.executablePath();
 } catch {
   playwrightChromium = undefined;
 }
 
-// Version assertions are Chromium-revision-specific. Never fall back to
-// GHA/system Google Chrome (ubuntu-latest preinstalls a newer Chrome whose
-// DTLS 1.3 default ignores WebRTC-ForceDtls13/Disabled). The DTLS 1.2 mode
-// uses the pinned Chromium 140 package because Chromium 156 no longer honors
-// that field trial.
+// Use Playwright's Chromium, not GHA/system Google Chrome, so the DTLS
+// assertions run against a known Chromium revision. DTLS 1.2 is selected by
+// limiting werift's advertised versions, not by capping Chromium.
 const override = process.env.DTLS_CHROME_BIN;
 const chromiumExecutablePath =
   override && existsSync(override) ? override : playwrightChromium;
@@ -33,15 +26,10 @@ if (!chromiumExecutablePath || !existsSync(chromiumExecutablePath)) {
   );
 }
 
-console.info(
-  `[dtls e2e] mode=${chromiumMode} executable=${chromiumExecutablePath}`,
-);
+console.info(`[dtls e2e] executable=${chromiumExecutablePath}`);
 
 export default defineConfig({
   plugins: [nodePolyfills()],
-  define: {
-    "import.meta.env.VITE_DTLS_CHROMIUM_MODE": JSON.stringify(chromiumMode),
-  },
   optimizeDeps: {
     include: [
       "vite-plugin-node-polyfills/shims/buffer",
@@ -50,7 +38,7 @@ export default defineConfig({
     ],
   },
   test: {
-    name: `dtls-${chromiumMode}`,
+    name: "dtls",
     globals: true,
     include: ["tests/dtls/**/*.test.ts"],
     testTimeout: 40_000,
@@ -60,7 +48,7 @@ export default defineConfig({
       provider: playwright({
         launchOptions: {
           executablePath: chromiumExecutablePath,
-          args: chromiumLaunchArgs(chromiumMode),
+          args: chromiumLaunchArgs,
         },
       }),
       enabled: true,

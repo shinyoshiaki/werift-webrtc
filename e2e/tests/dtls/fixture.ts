@@ -1,40 +1,29 @@
 /**
- * Chromium DTLS version launch helper for Epic 2 parameterized E2E.
+ * DTLS version helper for Epic 2 parameterized E2E.
  *
  * How to confirm the running Chromium:
  *   - Playwright: `npx playwright --version` and the Chromium revision
  *     printed by `playwright.chromium.executablePath()`
- *   - This worktree pin: Playwright Chromium 140.0.7339.186 (build v1193)
- *   - Override only: `DTLS_CHROME_BIN` (system Chrome is not used; GHA's
- *     preinstalled Google Chrome defaults to DTLS 1.3 and does not cap to 1.2)
+ *   - Override only: `DTLS_CHROME_BIN` (system Chrome is not used)
  *
- * Field trials used here:
- *   DTLS 1.3 only: WebRTC-ForceDtls13/Only/
- *   DTLS 1.2 cap:  WebRTC-ForceDtls13/Disabled/
- *   SPED off:      WebRTC-IceHandshakeDtls/Disabled/  (default is already off;
- *                  Disabled is explicit so SDP must not contain goog-sped-v1)
- *
- * WebRTC-ForceDtls13 registration ended 2024-09-01 and Chromium later enabled
- * DTLS 1.3 by default. Current Chromium GetForceDtls13 (chromium build) only
- * honors group `Disabled` (1.2 max) and `Only` (1.3 only); anything else —
- * including `Off/` — falls through to DTLS 1.3 max. `--force-fieldtrials`
- * still feeds openssl_stream_adapter. Measured:
- *   Disabled/ → transport.tlsVersion FEFD (DTLS 1.2)
- *   Only/     → transport.tlsVersion FEFC (DTLS 1.3)
- * Asserts use those stats strings, not mere connection success.
+ * Chromium runs with its default DTLS policy (DTLS 1.3 max, DTLS 1.2
+ * fallback); see chromiumLaunch.ts. Each case selects the negotiated version
+ * through werift's advertised `protocolVersions`:
+ *   ["1.2"]        → Chromium falls back to DTLS 1.2
+ *   ["1.3"]        → DTLS 1.3
+ *   ["1.3", "1.2"] → DTLS 1.3 (werift prefers 1.3)
+ * werift's own 1.3 → 1.2 fallback against a 1.2-only peer is covered by the
+ * packages/dtls and packages/webrtc tests, because Chromium can no longer be
+ * capped to DTLS 1.2.
  *
  * Assert Chromium `getStats()` transport.tlsVersion:
  *   DTLS 1.2 → "FEFD"
  *   DTLS 1.3 → "FEFC"
  * werift transport.tlsVersion is human-readable "DTLS 1.2" / "DTLS 1.3".
  */
-/// <reference types="vite/client" />
-
 import { peer, sleep, waitVideoPlay } from "../fixture";
-import type { ChromiumDtlsMode } from "./chromiumLaunch";
 
 export {
-  type ChromiumDtlsMode,
   chromiumFieldTrialArgs,
   chromiumLaunchArgs,
   chromiumMediaArgs,
@@ -43,7 +32,6 @@ export {
 export type BrowserDtlsTestCase = {
   name: string;
   weriftVersions: readonly string[];
-  chromiumMode: ChromiumDtlsMode;
   expectedWeriftVersion: "DTLS 1.2" | "DTLS 1.3";
   expectedChromiumVersion: "FEFD" | "FEFC";
 };
@@ -52,45 +40,22 @@ export const BROWSER_DTLS_CASES: BrowserDtlsTestCase[] = [
   {
     name: "DTLS 1.2 baseline",
     weriftVersions: ["1.2"],
-    chromiumMode: "dtls12",
     expectedWeriftVersion: "DTLS 1.2",
     expectedChromiumVersion: "FEFD",
   },
   {
     name: "DTLS 1.3 opt-in",
     weriftVersions: ["1.3"],
-    chromiumMode: "dtls13",
     expectedWeriftVersion: "DTLS 1.3",
     expectedChromiumVersion: "FEFC",
   },
   {
     name: "1.3 preferred",
     weriftVersions: ["1.3", "1.2"],
-    chromiumMode: "dtls13",
     expectedWeriftVersion: "DTLS 1.3",
     expectedChromiumVersion: "FEFC",
   },
-  {
-    name: "1.2 fallback",
-    weriftVersions: ["1.3", "1.2"],
-    chromiumMode: "dtls12",
-    expectedWeriftVersion: "DTLS 1.2",
-    expectedChromiumVersion: "FEFD",
-  },
 ];
-
-export function currentChromiumDtlsMode(): ChromiumDtlsMode {
-  return import.meta.env.VITE_DTLS_CHROMIUM_MODE === "dtls13"
-    ? "dtls13"
-    : "dtls12";
-}
-
-export function casesForCurrentChromium(): BrowserDtlsTestCase[] {
-  const mode = currentChromiumDtlsMode();
-  return BROWSER_DTLS_CASES.filter(
-    (testCase) => testCase.chromiumMode === mode,
-  );
-}
 
 export type WeriftDtlsDiagnostics = {
   connectionState: string;
