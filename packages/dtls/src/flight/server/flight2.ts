@@ -19,7 +19,7 @@ import { UseSRTP } from "../../handshake/extensions/useSrtp";
 import type { ClientHello } from "../../handshake/message/client/hello";
 import { ServerHelloVerifyRequest } from "../../handshake/message/server/helloVerifyRequest";
 import { DtlsRandom } from "../../handshake/random";
-import { type SrtpProfile, debug } from "../../imports/rtp";
+import { debug, type SrtpProfile } from "../../imports/rtp";
 import { createFragments, createPlaintext } from "../../record/builder";
 import { ContentType } from "../../record/const";
 
