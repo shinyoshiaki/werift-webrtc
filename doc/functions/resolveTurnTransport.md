@@ -6,7 +6,7 @@
 
 # Function: resolveTurnTransport()
 
-> **resolveTurnTransport**(`__namedParameters`): `undefined` \| `"udp"` \| `"tcp"` \| `"tls"`
+> **resolveTurnTransport**(`__namedParameters`): `"tcp"` \| `"tls"` \| `"udp"` \| `undefined`
 
 ## Parameters
 
@@ -14,7 +14,7 @@
 
 #### configuredTurnTransport?
 
-`"udp"` \| `"tcp"` \| `"tls"`
+`"tcp"` \| `"tls"` \| `"udp"`
 
 #### forceTurnTCP
 
@@ -22,8 +22,8 @@
 
 #### parsedTurnTransport?
 
-`"udp"` \| `"tcp"` \| `"tls"`
+`"tcp"` \| `"tls"` \| `"udp"`
 
 ## Returns
 
-`undefined` \| `"udp"` \| `"tcp"` \| `"tls"`
+`"tcp"` \| `"tls"` \| `"udp"` \| `undefined`

@@ -1,7 +1,6 @@
 import { randomUUID } from "crypto";
 import { setTimeout } from "timers/promises";
 import { Event } from "../imports/common";
-
 import { DirectHandshakeCarrier } from "../../../dtls/src/carrier/direct";
 import {
   type EarlyDataBuffer,
@@ -21,15 +20,16 @@ import { SCTPSendPermissionRevokedError } from "../../../sctp/src";
 import { EventTarget as DomEventTarget } from "../helper";
 import { DtlsClient, DtlsServer, type DtlsSocket } from "../imports/dtls";
 import {
+  debug,
+  isMedia,
+  isRtcp,
+  keyLength,
   type RtcpPacket,
   type RtpHeader,
   type RtpPacket,
   type SrtcpSession,
   type SrtpProfile,
   type SrtpSession,
-  debug,
-  isMedia,
-  isRtcp,
 } from "../imports/rtp";
 import { type RTCStats, getStatsTimestamp } from "../media/stats";
 import { InboundApplicationGate } from "./dtls-application-gate";

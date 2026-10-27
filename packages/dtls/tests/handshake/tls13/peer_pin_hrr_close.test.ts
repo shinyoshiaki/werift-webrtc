@@ -1,27 +1,25 @@
 import { describe, expect, test } from "vitest";
 import { UdpTransport } from "../../../../common/src";
 import { DtlsClient, DtlsServer, DtlsVersion } from "../../../src";
-import { CipherSuite } from "../../../src/cipher/const";
-import { NamedCurveAlgorithm } from "../../../src/cipher/const";
+import { CipherSuite, NamedCurveAlgorithm } from "../../../src/cipher/const";
 import { generateKeyPair } from "../../../src/cipher/namedCurve";
 import { MAX_ACK_RECORD_NUMBERS } from "../../../src/engine/v1_3/types";
 import { EllipticCurves } from "../../../src/handshake/extensions/ellipticCurves";
 import { KeyShare } from "../../../src/handshake/extensions/keyShare";
 import { SignatureAlgorithms } from "../../../src/handshake/extensions/signatureAlgorithms";
 import { SupportedVersions } from "../../../src/handshake/extensions/supportedVersions";
+import { UseSRTP } from "../../../src/handshake/extensions/useSrtp";
 import { ClientHello } from "../../../src/handshake/message/client/hello";
 import {
   DtlsAck,
   MAX_ACK_RECORD_NUMBERS_INBOUND,
 } from "../../../src/handshake/message/tls13/ack";
+import { EncryptedExtensions } from "../../../src/handshake/message/tls13/encryptedExtensions";
 import { DtlsRandom } from "../../../src/handshake/random";
 import { ContentType } from "../../../src/record/const";
 import { serializePlaintextRecord } from "../../../src/record/v1_3/record";
 import { DTLS_1_3_VERSION, WireVersion } from "../../../src/version";
 import { certPem, keyPem } from "../../fixture";
-
-import { UseSRTP } from "../../../src/handshake/extensions/useSrtp";
-import { EncryptedExtensions } from "../../../src/handshake/message/tls13/encryptedExtensions";
 
 const dtls13Options = {
   cert: certPem,

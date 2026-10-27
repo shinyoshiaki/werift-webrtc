@@ -24,12 +24,12 @@ import {
 import { type Dtls13Host, isStaleRxGeneration } from "./host";
 import {
   FRAGMENT_TTL_MS,
+  log,
   MAX_ACK_RECORD_NUMBERS,
-  MAX_FRAGMENTS_PER_MESSAGE,
   MAX_FRAGMENT_BUFFER_BYTES,
   MAX_FRAGMENT_BUFFER_MESSAGES,
+  MAX_FRAGMENTS_PER_MESSAGE,
   MAX_HS_MESSAGE_BYTES,
-  log,
 } from "./types";
 
 /**

@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
-import { UdpTransport } from "../../../common/src";
 import type { Address, Transport } from "../../../common/src";
+import { UdpTransport } from "../../../common/src";
 import {
   DtlsClient,
   DtlsServer,
@@ -12,12 +12,11 @@ import { HandshakeType } from "../../src/handshake/const";
 import { SupportedVersions } from "../../src/handshake/extensions/supportedVersions";
 import { ClientHello } from "../../src/handshake/message/client/hello";
 import { DtlsRandom } from "../../src/handshake/random";
+import { createPlaintext } from "../../src/record/builder";
 import { AlertDesc, ContentType } from "../../src/record/const";
 import { serializePlaintextRecord } from "../../src/record/v1_3/record";
 import { DTLS_1_3_VERSION, WireVersion } from "../../src/version";
 import { certPem, keyPem } from "../fixture";
-
-import { createPlaintext } from "../../src/record/builder";
 
 const sig = {
   hash: HashAlgorithm.sha256_4,

@@ -1,5 +1,6 @@
 import { spawn } from "child_process";
 import { UdpTransport, randomPort } from "../../common/src";
+import type { Transport } from "../../common/src";
 import type { SrtpProfile } from "../../rtp/src/srtp/const";
 import { DtlsClient, DtlsServer, DtlsVersion, type Options } from "../src";
 import { SessionType } from "../src/cipher/suites/abstract";
@@ -333,4 +334,25 @@ export async function arrangeHeldEarlyServerAppData(
       server.close();
     },
   };
+}
+
+/**
+ * Shared Arrange: a transport that sends nowhere and records every datagram
+ * (a peer that never answers the handshake).
+ */
+export function createSilentTransport() {
+  const sent: Buffer[] = [];
+  const transport: Transport = {
+    type: "silent",
+    address: {} as Transport["address"],
+    closed: false,
+    onData: () => {},
+    send: async (data) => {
+      sent.push(data);
+    },
+    close: async () => {
+      transport.closed = true;
+    },
+  };
+  return { transport, sent };
 }

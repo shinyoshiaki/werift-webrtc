@@ -1,6 +1,6 @@
 import { appendFile, open } from "fs/promises";
 import { type ReadableStreamReadResult, TransformStream } from "stream/web";
-import { Server } from "ws";
+import { WebSocketServer } from "ws";
 import { RTCPeerConnection, RtpPacket } from "../../../packages/webrtc/src";
 import {
   type DepacketizerInput,
@@ -10,7 +10,7 @@ import {
   type WebmStreamOutput,
 } from "../../../packages/webrtc/src/nonstandard";
 
-const server = new Server({ port: 8888 });
+const server = new WebSocketServer({ port: 8888 });
 console.log("start");
 
 server.on("connection", async (socket) => {
@@ -26,7 +26,7 @@ server.on("connection", async (socket) => {
   });
 });
 
-const mediaServer = new Server({ port: 8889 });
+const mediaServer = new WebSocketServer({ port: 8889 });
 mediaServer.on("connection", (socket) => {
   socket.on("message", (data: Buffer) => {
     const rtp = RtpPacket.deSerialize(data);

@@ -356,7 +356,9 @@ export async function requestServerDone(label: string) {
 }
 
 async function digestMessage(data: Uint8ClampedArray) {
-  const hashBuffer = await crypto.subtle.digest("SHA-1", data); // hash the message
+  const buffer = new ArrayBuffer(data.byteLength);
+  new Uint8Array(buffer).set(data);
+  const hashBuffer = await crypto.subtle.digest("SHA-1", buffer); // hash the message
   const hashArray = Array.from(new Uint8Array(hashBuffer)); // convert buffer to byte array
   const hashHex = hashArray
     .map((b) => b.toString(16).padStart(2, "0"))

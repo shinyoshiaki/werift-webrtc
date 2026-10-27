@@ -15,9 +15,9 @@ import { Message, parseMessage } from "../../src/stun/message";
 import { getRawAttributeValue } from "../../src/stun/rawAttributeValue";
 import { createTestConnection } from "../utils";
 import {
-  SpedProtocolMock,
   appendStunFingerprint,
   rewriteStunMessageLength,
+  SpedProtocolMock,
   serializeStunRawAttribute,
   spedPair,
 } from "./helpers";

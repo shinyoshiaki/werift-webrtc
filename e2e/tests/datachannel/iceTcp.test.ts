@@ -103,7 +103,9 @@ describe("datachannel/ice tcp", () => {
   // run. Keep the vitest timeout above gathering (30s) + connect (45s) + messages.
   test("exchanges data over direct ICE-TCP between Chrome and werift", async ({
     skip,
-  }: { skip: (message?: string) => void }) => {
+  }: {
+    skip: (message?: string) => void;
+  }) => {
     // Arrange: Chrome 側で candidate gathering を完了させ、direct TCP 経路の有無を確認する。
     await ensurePeerConnected();
     // turnRelay と同様、シグナリング接続直後の競合を避ける

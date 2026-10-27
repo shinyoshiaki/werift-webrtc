@@ -2,11 +2,10 @@ import { expect, test } from "vitest";
 import { UdpTransport } from "../../../common/src";
 import { DtlsClient, DtlsServer } from "../../src";
 import { HashAlgorithm, SignatureAlgorithm } from "../../src/cipher/const";
+import { createPlaintext } from "../../src/record/builder";
 import { AlertDesc, ContentType } from "../../src/record/const";
 import { serializePlaintextRecord } from "../../src/record/v1_3/record";
 import { certPem, keyPem } from "../fixture";
-
-import { createPlaintext } from "../../src/record/builder";
 
 const sig = {
   hash: HashAlgorithm.sha256_4,
@@ -66,10 +65,9 @@ async function connectPair() {
   return { client, server, clientTransport, serverTransport };
 }
 
-function peerOf(t: { address: { address: string; port: number } | string }): [
-  string,
-  number,
-] {
+function peerOf(t: {
+  address: { address: string; port: number } | string;
+}): [string, number] {
   const a = t.address as { address: string; port: number };
   return [a.address === "0.0.0.0" ? "127.0.0.1" : a.address, a.port];
 }

@@ -1,5 +1,4 @@
-import { X509Certificate, createPrivateKey, createSign } from "crypto";
-import { Certificate as FidmCertificate } from "@fidm/x509";
+import { createPrivateKey, createSign, X509Certificate } from "crypto";
 import { describe, expect, test } from "vitest";
 import { UdpTransport } from "../../../common/src";
 import { DtlsClient, DtlsServer, DtlsVersion } from "../../src";
@@ -163,7 +162,7 @@ describe("CertificateVerify curve / key type binding", () => {
     // Arrange: 前提を準備する
     const transcript = Buffer.alloc(16, 1);
     const { signature } = signCertificateVerify(keyPem, true, transcript);
-    const der = FidmCertificate.fromPEM(Buffer.from(certPem)).raw;
+    const der = new X509Certificate(certPem).raw;
     // Act / Assert: 証明書・署名を検証する
     expect(() =>
       verifyCertificateVerify(
@@ -191,7 +190,7 @@ describe("CertificateVerify curve / key type binding", () => {
       true,
       transcript,
     );
-    const der = FidmCertificate.fromPEM(Buffer.from(ecdsaP256CertPem)).raw;
+    const der = new X509Certificate(ecdsaP256CertPem).raw;
     // Act: 証明書・署名を検証する
     const ok = verifyCertificateVerify(
       der,

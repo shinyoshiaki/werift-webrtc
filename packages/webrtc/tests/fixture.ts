@@ -2,8 +2,11 @@ import { setTimeout } from "timers/promises";
 
 import { vi } from "vitest";
 import {
+  codecParametersToString,
   type DtlsTransportConfig,
   type DtlsVersion,
+  defaultPeerConfig,
+  isDtls,
   type Kind,
   MediaStreamTrack,
   RTCDtlsTransport,
@@ -17,11 +20,9 @@ import {
   RTP_EXTENSION_URI,
   RtpHeader,
   RtpPacket,
-  codecParametersToString,
-  defaultPeerConfig,
-  isDtls,
 } from "../src";
 import { RTCRtpSender } from "../src/media/rtpSender";
+import type { SenderBandwidthEstimator } from "../src/media/sender/senderBWE";
 import { exchangeIceCandidates } from "./utils";
 
 export const createRtpPacket = (
@@ -291,4 +292,31 @@ function parseServerHelloHrr(body: Buffer) {
     offset += 4 + len;
   }
   return { isHrr: true, hasCookie };
+}
+
+/** Arrange: `count` packets sent through `estimator` from `firstSeq`, `sentAtMs` apart by `stepMs`. */
+export function recordSentPackets(
+  estimator: SenderBandwidthEstimator,
+  {
+    count,
+    firstSeq = 0,
+    sentAtMs = Date.now(),
+    stepMs = 0,
+  }: { count: number; firstSeq?: number; sentAtMs?: number; stepMs?: number },
+) {
+  for (let i = 0; i < count; i++) {
+    const at = sentAtMs + i * stepMs;
+    estimator.rtpPacketSent({
+      wideSeq: (firstSeq + i) & 0xffff,
+      size: 1000,
+      sendingAtMs: at,
+      sentAtMs: at,
+    });
+  }
+}
+
+/** Test-only read: the packets `estimator` keeps for transport-cc feedback. */
+export function pendingFeedback(estimator: SenderBandwidthEstimator) {
+  return (estimator as unknown as { sentInfos: Map<number, unknown> })
+    .sentInfos;
 }

@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import { crc32 } from "../../common/src";
 import {
+  classes,
   FINGERPRINT_LENGTH,
   FINGERPRINT_XOR,
   HEADER_LENGTH,
-  classes,
   methods,
 } from "../src/stun/const";
 import { Message, paddingLength, parseMessage } from "../src/stun/message";

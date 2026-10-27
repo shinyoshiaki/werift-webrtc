@@ -67,10 +67,9 @@ async function connectPair12(clientVersions?: readonly DtlsVersion[]) {
   return { client, server, clientTransport, serverTransport };
 }
 
-function peerOf(t: { address: { address: string; port: number } | string }): [
-  string,
-  number,
-] {
+function peerOf(t: {
+  address: { address: string; port: number } | string;
+}): [string, number] {
   const a = t.address as { address: string; port: number };
   return [a.address === "0.0.0.0" ? "127.0.0.1" : a.address, a.port];
 }

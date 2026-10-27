@@ -3,11 +3,12 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { Address } from "../../../../common/src";
 import { getHostAddresses } from "../../../../ice/src/utils";
 import {
-  TURN_TEST_PASSWORD,
-  TURN_TEST_USERNAME,
   createHeldUdpProxy,
   createLocalTurnServer,
+  TURN_TEST_PASSWORD,
+  TURN_TEST_USERNAME,
 } from "../../../../ice/tests/utils";
+import type { RTCIceCandidate } from "../../../src";
 import {
   MediaStreamTrack,
   type RTCDataChannel,
@@ -16,6 +17,7 @@ import {
   type RTCRtpReceiver,
   type RTCRtpSender,
   type RTCRtpTransceiver,
+  type RTCTrackEvent,
   RtpHeader,
   RtpPacket,
   useAbsSendTime,
@@ -26,10 +28,10 @@ import {
   useTransportWideCC,
   useVP8,
 } from "../../../src";
-import type { RTCIceCandidate } from "../../../src";
 import { ridRouteKey } from "../../../src/negotiation/internalState";
 import { type MediaDescription, SessionDescription } from "../../../src/sdp";
 import { RTCIceTransport } from "../../../src/transport/ice";
+
 export * from "../../../tools/negotiation-diff/mutations";
 
 /** Something a test closes at its end: a peer, or anything with `close()`. */
@@ -1306,6 +1308,16 @@ export function exemptFromContinuation(
   reason: string,
 ) {
   for (const pc of [peers].flat()) exemptPeers.set(pc, reason);
+}
+
+/**
+ * Forget the peers recorded for the continuation check, so the records hold
+ * no closed peer (the leak property checks that a closed peer is collected).
+ */
+export function releaseContinuationRecords() {
+  negotiatedPeers.clear();
+  continuedPeers.clear();
+  exemptPeers.clear();
 }
 
 /**
@@ -2683,7 +2695,7 @@ export async function waitUntil(
  */
 export function recordNegotiationEvents(pc: RTCPeerConnection) {
   const events = {
-    tracks: [] as import("../../../src").RTCTrackEvent[],
+    tracks: [] as RTCTrackEvent[],
     remoteTransceivers: [] as RTCRtpTransceiver[],
     dataChannels: [] as RTCDataChannel[],
     candidates: [] as (RTCIceCandidate | undefined)[],
@@ -2692,12 +2704,9 @@ export function recordNegotiationEvents(pc: RTCPeerConnection) {
     iceConnection: [] as string[],
     negotiationNeeded: 0,
   };
-  pc.addEventListener(
-    "track",
-    (event: import("../../../src").RTCTrackEvent) => {
-      events.tracks.push(event);
-    },
-  );
+  pc.addEventListener("track", (event: RTCTrackEvent) => {
+    events.tracks.push(event);
+  });
   pc.onRemoteTransceiverAdded.subscribe((transceiver) => {
     events.remoteTransceivers.push(transceiver);
   });

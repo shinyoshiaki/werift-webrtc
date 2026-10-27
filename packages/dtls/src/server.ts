@@ -16,8 +16,8 @@ import { debug } from "./imports/common";
 import { AlertDesc, ContentType } from "./record/const";
 import type { FragmentedHandshake } from "./record/message/fragment";
 import { serializePlaintextRecord } from "./record/v1_3/record";
-import { DtlsSocket, type Options } from "./socket";
 import type { DtlsInternalOptions } from "./socket";
+import { DtlsSocket, type Options } from "./socket";
 import {
   DtlsVersion,
   ProtocolVersionError,

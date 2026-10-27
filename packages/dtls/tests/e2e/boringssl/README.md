@@ -8,14 +8,14 @@ libraries (`DTLS_method` + `DTLS1_3_VERSION`).
 
 ## Revision pin
 
-| Item | Value |
-| --- | --- |
-| Repository | https://boringssl.googlesource.com/boringssl |
-| Git revision | `a204be272595867e7069221050f19697a0cf66ad` (pin; do not use floating HEAD) |
-| Helper source | `packages/dtls/tools/boringssl-dtls13/native/dtls13_echo.c` (canonical) |
-| Helper binary | `tests/e2e/boringssl/dtls13_echo` (built from the tools source) |
-| Pin file | `packages/dtls/tools/boringssl-dtls13/BORINGSSL_REVISION` |
-| Optional tool | `bssl` (not required for DTLS interop) |
+| Item          | Value                                                                      |
+| ------------- | -------------------------------------------------------------------------- |
+| Repository    | https://boringssl.googlesource.com/boringssl                               |
+| Git revision  | `a204be272595867e7069221050f19697a0cf66ad` (pin; do not use floating HEAD) |
+| Helper source | `packages/dtls/tools/boringssl-dtls13/native/dtls13_echo.c` (canonical)    |
+| Helper binary | `tests/e2e/boringssl/dtls13_echo` (built from the tools source)            |
+| Pin file      | `packages/dtls/tools/boringssl-dtls13/BORINGSSL_REVISION`                  |
+| Optional tool | `bssl` (not required for DTLS interop)                                     |
 
 Environment overrides:
 
@@ -105,4 +105,4 @@ Failures must surface alerts / flight logs (no catch-and-ignore).
 
 - OpenSSL is used only for DTLS 1.2 regression, not DTLS 1.3 interop.
 - SPED / ICE are out of scope for this harness (Epic 2+).
-Wed Aug 12 10:22:39 UTC 2026
+  Wed Aug 12 10:22:39 UTC 2026

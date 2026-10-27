@@ -11,13 +11,13 @@ extends `Dtls13ConnectionBase` once and assigns those functions.
 
 Version-neutral helpers used by both DTLS 1.2 and 1.3:
 
-| Module | Shared with 1.2 |
-| --- | --- |
-| `src/peer.ts` | peer identity, loopback pin host |
-| `src/retransmission.ts` | RFC RTO (`computeDtlsRtoMs`, used by DTLS 1.3) |
-| `handshake/random.ts` | `DtlsRandom.bytes32` |
-| `handshake/extensions/unique.ts` | duplicate-extension check |
-| `context/srtp.ts` | `findMatchingSRTPProfile` |
+| Module                           | Shared with 1.2                                |
+| -------------------------------- | ---------------------------------------------- |
+| `src/peer.ts`                    | peer identity, loopback pin host               |
+| `src/retransmission.ts`          | RFC RTO (`computeDtlsRtoMs`, used by DTLS 1.3) |
+| `handshake/random.ts`            | `DtlsRandom.bytes32`                           |
+| `handshake/extensions/unique.ts` | duplicate-extension check                      |
+| `context/srtp.ts`                | `findMatchingSRTPProfile`                      |
 
 ## Module stack
 

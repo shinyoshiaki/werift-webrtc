@@ -14,13 +14,13 @@
 
 ### active?
 
-> `optional` **active**: `boolean`
+> `optional` **active?**: `boolean`
 
 ***
 
 ### bytesSent?
 
-> `optional` **bytesSent**: `number`
+> `optional` **bytesSent?**: `number`
 
 #### Inherited from
 
@@ -30,7 +30,7 @@
 
 ### codecId?
 
-> `optional` **codecId**: `string`
+> `optional` **codecId?**: `string`
 
 #### Inherited from
 
@@ -40,61 +40,61 @@
 
 ### encoderImplementation?
 
-> `optional` **encoderImplementation**: `string`
+> `optional` **encoderImplementation?**: `string`
 
 ***
 
 ### firCount?
 
-> `optional` **firCount**: `number`
+> `optional` **firCount?**: `number`
 
 ***
 
 ### frameBitDepth?
 
-> `optional` **frameBitDepth**: `number`
+> `optional` **frameBitDepth?**: `number`
 
 ***
 
 ### frameHeight?
 
-> `optional` **frameHeight**: `number`
+> `optional` **frameHeight?**: `number`
 
 ***
 
 ### framesEncoded?
 
-> `optional` **framesEncoded**: `number`
+> `optional` **framesEncoded?**: `number`
 
 ***
 
 ### framesPerSecond?
 
-> `optional` **framesPerSecond**: `number`
+> `optional` **framesPerSecond?**: `number`
 
 ***
 
 ### framesSent?
 
-> `optional` **framesSent**: `number`
+> `optional` **framesSent?**: `number`
 
 ***
 
 ### frameWidth?
 
-> `optional` **frameWidth**: `number`
+> `optional` **frameWidth?**: `number`
 
 ***
 
 ### headerBytesSent?
 
-> `optional` **headerBytesSent**: `number`
+> `optional` **headerBytesSent?**: `number`
 
 ***
 
 ### hugeFramesSent?
 
-> `optional` **hugeFramesSent**: `number`
+> `optional` **hugeFramesSent?**: `number`
 
 ***
 
@@ -110,7 +110,7 @@
 
 ### keyFramesEncoded?
 
-> `optional` **keyFramesEncoded**: `number`
+> `optional` **keyFramesEncoded?**: `number`
 
 ***
 
@@ -126,25 +126,25 @@
 
 ### mediaSourceId?
 
-> `optional` **mediaSourceId**: `string`
+> `optional` **mediaSourceId?**: `string`
 
 ***
 
 ### mid?
 
-> `optional` **mid**: `string`
+> `optional` **mid?**: `string`
 
 ***
 
 ### nackCount?
 
-> `optional` **nackCount**: `number`
+> `optional` **nackCount?**: `number`
 
 ***
 
 ### packetsSent?
 
-> `optional` **packetsSent**: `number`
+> `optional` **packetsSent?**: `number`
 
 #### Inherited from
 
@@ -154,79 +154,79 @@
 
 ### perDscpPacketsSent?
 
-> `optional` **perDscpPacketsSent**: `Record`\<`string`, `number`\>
+> `optional` **perDscpPacketsSent?**: `Record`\<`string`, `number`\>
 
 ***
 
 ### pliCount?
 
-> `optional` **pliCount**: `number`
+> `optional` **pliCount?**: `number`
 
 ***
 
 ### powerEfficientEncoder?
 
-> `optional` **powerEfficientEncoder**: `boolean`
+> `optional` **powerEfficientEncoder?**: `boolean`
 
 ***
 
 ### qpSum?
 
-> `optional` **qpSum**: `number`
+> `optional` **qpSum?**: `number`
 
 ***
 
 ### qualityLimitationDurations?
 
-> `optional` **qualityLimitationDurations**: `Record`\<`string`, `number`\>
+> `optional` **qualityLimitationDurations?**: `Record`\<`string`, `number`\>
 
 ***
 
 ### qualityLimitationReason?
 
-> `optional` **qualityLimitationReason**: `string`
+> `optional` **qualityLimitationReason?**: `string`
 
 ***
 
 ### qualityLimitationResolutionChanges?
 
-> `optional` **qualityLimitationResolutionChanges**: `number`
+> `optional` **qualityLimitationResolutionChanges?**: `number`
 
 ***
 
 ### remoteId?
 
-> `optional` **remoteId**: `string`
+> `optional` **remoteId?**: `string`
 
 ***
 
 ### retransmittedBytesSent?
 
-> `optional` **retransmittedBytesSent**: `number`
+> `optional` **retransmittedBytesSent?**: `number`
 
 ***
 
 ### retransmittedPacketsSent?
 
-> `optional` **retransmittedPacketsSent**: `number`
+> `optional` **retransmittedPacketsSent?**: `number`
 
 ***
 
 ### rid?
 
-> `optional` **rid**: `string`
+> `optional` **rid?**: `string`
 
 ***
 
 ### rtxSsrc?
 
-> `optional` **rtxSsrc**: `number`
+> `optional` **rtxSsrc?**: `number`
 
 ***
 
 ### scalabilityMode?
 
-> `optional` **scalabilityMode**: `string`
+> `optional` **scalabilityMode?**: `string`
 
 ***
 
@@ -242,7 +242,7 @@
 
 ### targetBitrate?
 
-> `optional` **targetBitrate**: `number`
+> `optional` **targetBitrate?**: `number`
 
 ***
 
@@ -258,25 +258,25 @@
 
 ### totalEncodedBytesTarget?
 
-> `optional` **totalEncodedBytesTarget**: `number`
+> `optional` **totalEncodedBytesTarget?**: `number`
 
 ***
 
 ### totalEncodeTime?
 
-> `optional` **totalEncodeTime**: `number`
+> `optional` **totalEncodeTime?**: `number`
 
 ***
 
 ### totalPacketSendDelay?
 
-> `optional` **totalPacketSendDelay**: `number`
+> `optional` **totalPacketSendDelay?**: `number`
 
 ***
 
 ### transportId?
 
-> `optional` **transportId**: `string`
+> `optional` **transportId?**: `string`
 
 #### Inherited from
 

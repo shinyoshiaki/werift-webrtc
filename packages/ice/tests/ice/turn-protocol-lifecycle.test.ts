@@ -12,9 +12,7 @@ const debugState = vi.hoisted(() => {
   return { debug, log };
 });
 
-vi.mock("debug", () => ({
-  default: { debug: debugState.debug },
-}));
+vi.mock("../../../common/src/log", () => ({ debug: debugState.debug }));
 
 vi.mock("timers/promises", () => ({
   setTimeout: (

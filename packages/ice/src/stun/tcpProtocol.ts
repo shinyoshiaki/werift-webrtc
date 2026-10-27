@@ -1,15 +1,16 @@
-import { type AddressInfo, type Socket, connect, createServer } from "node:net";
+import { type AddressInfo, connect, createServer, type Socket } from "node:net";
 
 import type { Candidate } from "../candidate";
-import { type Address, Event, debug } from "../imports/common";
+import { TransactionCancelled } from "../exceptions";
+import { type Address, debug, Event } from "../imports/common";
 import type { Protocol, TransactionRequestOptions } from "../types/model";
 import { classes } from "./const";
 import { type Message, parseMessage } from "./message";
 import { encodeTcpFrame, splitTcpFrames } from "./tcpFrame";
 import {
-  Transaction,
   buildTransactionOptions,
   resolveRequestAddress,
+  Transaction,
 } from "./transaction";
 
 const log = debug("werift-ice:packages/ice/src/stun/tcpProtocol.ts");
@@ -72,6 +73,8 @@ abstract class BaseTcpProtocol implements Protocol {
   readonly onDataReceived = new Event<[Buffer, Address?]>();
   /** The connection to this remote address was closed (by either side). */
   readonly onConnectionClosed = new Event<[Address]>();
+  /** close() ran: no new transaction starts. */
+  private closed = false;
 
   protected readonly sockets = new Map<string, SocketEntry>();
 
@@ -133,7 +136,10 @@ abstract class BaseTcpProtocol implements Protocol {
     }
 
     socket.on("data", (data) => {
-      entry.buffer = Buffer.concat([entry.buffer, data]);
+      entry.buffer = Buffer.concat([
+        entry.buffer,
+        typeof data === "string" ? Buffer.from(data) : data,
+      ]);
       const { frames, rest } = splitTcpFrames(entry.buffer);
       entry.buffer = rest;
 
@@ -241,6 +247,8 @@ abstract class BaseTcpProtocol implements Protocol {
     }
 
     const resolvedAddr = await resolveRequestAddress(addr);
+    // close() ran during the lookup: no transaction starts on a closed protocol.
+    if (this.closed) throw new TransactionCancelled();
     const options: TransactionRequestOptions = {
       // A failed connect/write will not be fixed by waiting for a response.
       failOnSendError: true,
@@ -279,6 +287,7 @@ abstract class BaseTcpProtocol implements Protocol {
   }
 
   async close() {
+    this.closed = true;
     Object.values(this.transactions).forEach((transaction) => {
       transaction.cancel();
     });

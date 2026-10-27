@@ -1,6 +1,6 @@
 import type { Readable } from "stream";
 
-import { OverconstrainedError, createWebRtcDomException } from "../../errors";
+import { createWebRtcDomException, OverconstrainedError } from "../../errors";
 import { RTCRtpCodecParameters } from "../../media/parameters";
 import { type MediaStreamTrack, setTrackSourceCodecs } from "../../media/track";
 import { createFileMediaPlayer } from "../../nonstandard/userMedia";

@@ -21,13 +21,13 @@ import { Event } from "../../imports/common";
 import type { SrtpProfile } from "../../imports/rtp";
 import type { FragmentedHandshake } from "../../record/message/fragment";
 import {
-  type EpochProtection,
   createEpochProtection,
+  type EpochProtection,
 } from "../../record/v1_3/record";
 import {
   DtlsVersion,
-  ProtocolVersionError,
   normalizeProtocolVersions,
+  ProtocolVersionError,
   supportsVersion,
 } from "../../version";
 import {
@@ -37,20 +37,20 @@ import {
 import { HandshakeTranscript } from "./transcript";
 import {
   type AddressValidationMode,
+  associationHasPeerAuth,
   type Dtls13Options,
   type DtlsReadiness,
   EARLY_DATA_LIMITS,
   EPOCH_KEY_TTL_MS,
   EPOCH_PRUNE_INTERVAL_MS,
+  log,
   MAX_ACCEPTED_HS_RECORDS,
   MAX_PRE_COOKIE_ATTEMPTS,
   MAX_RETAINED_APP_EPOCHS,
-  PRE_COOKIE_ATTEMPT_TTL_MS,
   type PeerIdentityMode,
+  PRE_COOKIE_ATTEMPT_TTL_MS,
   type ReceivedHandshake,
   type Role,
-  associationHasPeerAuth,
-  log,
   resolveMaxEarlyAppDataBytes,
   resolveMaxEarlyAppDataRecords,
   resolvePeerIdentityMode,
@@ -568,11 +568,7 @@ export class Dtls13ConnectionBase {
     );
   }
 
-  zeroizeTrafficKeys(keys?: {
-    key: Buffer;
-    iv: Buffer;
-    snKey: Buffer;
-  }): void {
+  zeroizeTrafficKeys(keys?: { key: Buffer; iv: Buffer; snKey: Buffer }): void {
     if (!keys) return;
     keys.key.fill(0);
     keys.iv.fill(0);

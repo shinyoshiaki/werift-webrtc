@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
-import { UdpTransport } from "../../../common/src";
 import type { Address, Transport } from "../../../common/src";
+import { UdpTransport } from "../../../common/src";
 import {
   DtlsClient,
   DtlsServer,
@@ -9,9 +9,8 @@ import {
 } from "../../src";
 import { HashAlgorithm, SignatureAlgorithm } from "../../src/cipher/const";
 import { AlertDesc, ContentType } from "../../src/record/const";
-import { certPem, keyPem } from "../fixture";
-
 import { encryptRecord } from "../../src/record/v1_3/record";
+import { certPem, keyPem } from "../fixture";
 
 const sig = {
   hash: HashAlgorithm.sha256_4,

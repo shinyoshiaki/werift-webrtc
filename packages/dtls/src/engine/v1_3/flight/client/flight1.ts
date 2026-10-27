@@ -15,9 +15,9 @@ import type { Extension } from "../../../../typings/domain";
 import {
   DTLS_1_3_VERSION,
   DtlsVersion,
-  WireVersion,
   protocolVersionsToWire,
   supportsVersion,
+  WireVersion,
 } from "../../../../version";
 import type { Dtls13Host } from "../../host";
 

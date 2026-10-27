@@ -1,6 +1,6 @@
+import { mkdir, mkdtemp, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { resolve } from "path";
-import { mkdir, mkdtemp, writeFile } from "fs/promises";
 
 export async function createCoverageTempDir(prefix: string) {
   return mkdtemp(resolve(tmpdir(), prefix));

@@ -2,11 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Connection } from "../../src/ice";
 import {
+  CandidatePair,
   CONSENT_FAILURES,
   CONSENT_RESPONSE_TIMEOUT,
   CONSENT_RESPONSE_TIMEOUT_MIN,
   CONSENT_TIMEOUT,
-  CandidatePair,
   CandidatePairState,
   consentResponseTimeoutMs,
 } from "../../src/iceBase";

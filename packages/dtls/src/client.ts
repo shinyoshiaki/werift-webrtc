@@ -1,3 +1,4 @@
+import type { DtlsHandshakeCarrier } from "./carrier/types";
 import {
   CipherSuite,
   NamedCurveAlgorithm,
@@ -13,8 +14,10 @@ import { Flight1 } from "./flight/client/flight1";
 import { Flight3 } from "./flight/client/flight3";
 import { Flight5 } from "./flight/client/flight5";
 import { HandshakeType } from "./handshake/const";
-import { CookieExtension } from "./handshake/extensions/cookie";
-import { peerKeyFromAddr } from "./handshake/extensions/cookie";
+import {
+  CookieExtension,
+  peerKeyFromAddr,
+} from "./handshake/extensions/cookie";
 import { EllipticCurves } from "./handshake/extensions/ellipticCurves";
 import { KeyShare } from "./handshake/extensions/keyShare";
 import {
@@ -37,16 +40,14 @@ import {
   DTLS_1_3_VERSION,
   DtlsVersion,
   DtlsVersionSelected,
-  ProtocolVersionError,
   hasTlsDowngradeSentinel,
+  ProtocolVersionError,
   protocolVersionsToWire,
   supportsVersion,
   wireVersionToNumber,
 } from "./version";
 
-import type { DtlsHandshakeCarrier } from "./carrier/types";
 import type { EarlyDataBufferStats } from "./engine/v1_3/early-data-buffer";
-
 const log = debug("werift-dtls : packages/dtls/src/client.ts : log");
 
 /**
@@ -285,9 +286,7 @@ export class DtlsClient extends DtlsSocket {
    * @returns true when at least one engine was asked to graceful-close (may
    *   still be sending close_notify asynchronously — do not close transport yet).
    */
-  private closeAllDtls13Candidates(opts?: {
-    hardDispose?: boolean;
-  }): boolean {
+  private closeAllDtls13Candidates(opts?: { hardDispose?: boolean }): boolean {
     this.unbridgeEngine13();
     const candidates = new Set<Dtls13Connection>();
     if (this.engine13) candidates.add(this.engine13);
@@ -360,10 +359,10 @@ export class DtlsClient extends DtlsSocket {
         this.closeAllDtls13Candidates({ hardDispose: true });
         this.closeAssociationCarrier();
         this.transport.socket.onData = this.udpOnMessage;
-        void this.transport.socket.close().catch(() => {});
+        void this.transport.close().catch(() => {});
       } else if (!this.engine13 && !this.parkedEngine13) {
         this.closeAssociationCarrier();
-        void this.transport.socket.close().catch(() => {});
+        void this.transport.close().catch(() => {});
       }
       return;
     }
@@ -394,7 +393,7 @@ export class DtlsClient extends DtlsSocket {
     this.transport.socket.onData = this.udpOnMessage;
     if (opts?.hardDisposeCandidates || !deferredTransport) {
       // Fatal path, or no engine left to finish close_notify + teardown.
-      void this.transport.socket.close().catch(() => {});
+      void this.transport.close().catch(() => {});
     }
     // Graceful with live engine: teardownAssociation closes transport after notify.
   }

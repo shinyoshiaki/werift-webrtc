@@ -8,19 +8,19 @@
 
 ## Constructors
 
-### new RtcpHeader()
+### Constructor
 
-> **new RtcpHeader**(`props`): [`RtcpHeader`](RtcpHeader.md)
+> **new RtcpHeader**(`props?`): `RtcpHeader`
 
 #### Parameters
 
-##### props
+##### props?
 
-`Partial`\<[`RtcpHeader`](RtcpHeader.md)\> = `{}`
+`Partial`\<`RtcpHeader`\> = `{}`
 
 #### Returns
 
-[`RtcpHeader`](RtcpHeader.md)
+`RtcpHeader`
 
 ## Properties
 
@@ -68,7 +68,7 @@
 
 ### deSerialize()
 
-> `static` **deSerialize**(`buf`): [`RtcpHeader`](RtcpHeader.md)
+> `static` **deSerialize**(`buf`): `RtcpHeader`
 
 #### Parameters
 
@@ -78,7 +78,7 @@
 
 #### Returns
 
-[`RtcpHeader`](RtcpHeader.md)
+`RtcpHeader`
 
 ***
 

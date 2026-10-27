@@ -8,19 +8,19 @@
 
 ## Constructors
 
-### new RTCIceGatherer()
+### Constructor
 
-> **new RTCIceGatherer**(`options`): [`RTCIceGatherer`](RTCIceGatherer.md)
+> **new RTCIceGatherer**(`options?`): `RTCIceGatherer`
 
 #### Parameters
 
-##### options
+##### options?
 
 `Partial`\<[`IceOptions`](../interfaces/IceOptions.md)\> = `{}`
 
 #### Returns
 
-[`RTCIceGatherer`](RTCIceGatherer.md)
+`RTCIceGatherer`
 
 ## Properties
 
@@ -42,7 +42,7 @@
 
 ***
 
-### onIceCandidate()
+### onIceCandidate
 
 > **onIceCandidate**: (`candidate`) => `void`
 
@@ -50,7 +50,7 @@
 
 ##### candidate
 
-`undefined` | [`IceCandidate`](IceCandidate.md)
+[`IceCandidate`](IceCandidate.md) \| `undefined`
 
 #### Returns
 
@@ -104,7 +104,7 @@ SecureTransportManager can refresh its aggregate iceGatheringState.
 
 ##### state
 
-`"complete"` | `"new"` | `"gathering"`
+`"complete"` \| `"new"` \| `"gathering"`
 
 #### Returns
 

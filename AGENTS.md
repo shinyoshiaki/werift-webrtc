@@ -2,19 +2,15 @@
 
 ## Purpose
 
-Instructions for coding agents working in `werift-webrtc`.
-Keep this file short and repo-specific.
-If a rule applies only to a specific package or subdirectory, put it in the nearest `AGENTS.md`.
+Repository-wide instructions for coding agents working in `werift-webrtc`.
+Rules that apply to one package or directory belong in the nearest `AGENTS.md`.
 
 ## Scope
 
-* Applies to the repository root and cross-package changes.
-* Runtime target: Linux, macOS, and other Unix-like environments only. Native Windows is not supported.
-* Package-specific execution details should be documented in the nearest package-level `AGENTS.md`.
-* `werift` is a pure TypeScript WebRTC implementation for Node.js.
-* Core packages are `common`, `ice`, `dtls`, `rtp`, `sctp`, and `webrtc`.
-* Protocol flow is `ICE -> DTLS -> SCTP/RTP`.
-* `packages/webrtc` is the main public API. Lower-level packages are reusable protocol layers.
+* Applies to the repository root and to changes that cross packages.
+* `werift` is a pure TypeScript WebRTC implementation for Node.js. Supported runtimes are Linux, macOS, and other Unix-like systems; native Windows is not supported.
+* Core packages: `common`, `ice`, `dtls`, `rtp`, `sctp`, `webrtc`. Protocol flow is `ICE -> DTLS -> SCTP/RTP`.
+* `packages/webrtc` is the public API; the lower-level packages are reusable protocol layers.
 
 ## Do
 
@@ -42,57 +38,51 @@ If a rule applies only to a specific package or subdirectory, put it in the near
 
 ## Don't
 
-* Do not copy README-style feature catalogs, example payloads, or other fast-changing implementation details into `AGENTS.md`.
-* Do not list commands that are absent from the local `package.json`.
-* Do not describe provider credentials, secrets, or machine-specific setup in this guide.
-* Do not let package guides drift in structure. Differences should mostly be limited to responsibilities, validation, references, and cross-package cautions.
-* Do not duplicate Arrange-phase setup across multiple test files when it can be safely shared through common utilities.
-* Do not leave Act / Assert phases without comments when the operation sequence or expectation is not obvious from a quick read.
-* Do not add multi-level class inheritance in `packages/dtls/src/engine/v1_3` (see that directory's `AGENTS.md`).
-* Do not stop test servers or browsers with pattern-based kills (`pkill -f`, `killall`); they can match the agent's own shell. Stop them by PID or through the runner's stop path.
-* Do not end a turn while a background test or build you started is still running unless you report it as unfinished.
+* Don't reintroduce third-party TypeScript runners such as `tsx`. Run TypeScript with `node --experimental-transform-types --import <rel>/tools/node-ts/register.mjs` (Node.js 22.18+, see `devEngines`).
+* Don't add multi-level class inheritance in `packages/dtls/src/engine/v1_3` (see that directory's `AGENTS.md`).
+* Don't stop test servers or browsers with pattern-based kills (`pkill -f`, `killall`); they can match the agent's own shell. Stop them by PID or through the runner's stop path.
+* Don't end a turn while a background test or build you started is still running, unless you report it as unfinished.
+* Don't put credentials, secrets, or machine-specific setup in any `AGENTS.md`.
 
 ## Commands
 
-| Task                                       | Command                         |
-| ------------------------------------------ | ------------------------------- |
-| build all packages                         | `npm run build`                 |
-| broad workspace validation                 | `npm run ci`                    |
-| run package / unit tests                   | `npm run test:small`            |
-| run full suite including E2E               | `npm run test`                  |
-| install Playwright browsers                | `npm run install:browsers`      |
-| run E2E only                               | `npm run e2e`                   |
-| run verbose E2E                            | `npm run e2e:verbose`           |
-| run examples smoke (Chromium + gst/ffmpeg) | `npm run examples:e2e`          |
-| install examples e2e Chromium              | `npm run examples:e2e:install`  |
-| type-check workspace                       | `npm run type`                  |
-| run allowlisted upstream WPT               | `npm run wpt`                   |
-| measure WPT coverage                       | `npm run wpt:coverage`          |
-| format code                                | `npm run format`                |
-| regenerate docs                            | `npm run doc`                   |
-| verify docs match sources                  | `npm run doc:check`             |
-| memory leak test (webrtc, local only) | `cd packages/webrtc && npm run memleak` |
+| Task | Command |
+| --- | --- |
+| build all packages | `npm run build` |
+| type-check workspace | `npm run type` |
+| package / unit tests | `npm run test:small` |
+| full suite including E2E | `npm run test` |
+| install Playwright browsers | `npm run install:browsers` |
+| E2E only (verbose: `e2e:verbose`) | `npm run e2e` |
+| broad workspace validation | `npm run ci` |
+| examples smoke (Chromium + gst/ffmpeg) | `npm run examples:e2e` |
+| install examples smoke Chromium | `npm run examples:e2e:install` |
+| TypeScript resolve hook tests | `npm run test:node-ts` |
+| allowlisted upstream WPT | `npm run wpt` |
+| WPT coverage | `npm run wpt:coverage` |
+| format code | `npm run format` |
+| regenerate docs | `npm run doc` |
+| verify docs match sources | `npm run doc:check` |
+| memory leak test (Node 24+, local only, not in CI) | `cd packages/webrtc && npm run memleak` |
 
-For targeted work, prefer the narrowest package command first, for example:
-
-* `cd packages/webrtc && npm test`
-* `cd packages/rtp && npm run type && npm test`
-* `cd packages/webrtc && npm run memleak` (Node 24+; not part of CI)
+Package builds don't run the formatter; run `npm run format` before review.
+For targeted work, start with the package's own commands, for example `cd packages/webrtc && npm test`.
 
 ## Validation
 
-* Docs-only edits: no code validation required. Public API / Typedoc surface changes: run `npm run doc:check` so committed `doc/` and `packages/*/doc` match sources (also part of `npm run ci`).
-* Single-package logic changes: run that package's relevant test and/or type-check command.
-* Cross-package, public API, or protocol changes: run `npm run type` and `npm run test:small`; use `npm run ci` when the change spans the full stack.
-* WPT runner, dummy media, or compatibility allowlist changes: run `npm run wpt --workspace packages/webrtc`; run `npm run wpt:coverage --workspace packages/webrtc` when coverage or baseline wiring changes.
-* Browser interop, examples, or signaling flow changes: run `npm run install:browsers` once from the repo root, then the relevant example and/or `npm run e2e` when feasible. The root install covers `e2e`, `packages/ice-server/chrome-e2e`, and `examples/turn-loopback/chrome-e2e`. If the change is a root `examples/` demo in the `examples/e2e` catalog, also run `npm run examples:e2e`.
-* Test code changes: confirm shared Arrange utilities remain reusable and appropriately scoped, and review that Act / Assert comments are present at a useful Japanese granularity.
-* Infrastructure-backed E2E changes: run the targeted scenario with its required opt-in environment flag before finishing, so the real dependency path is exercised.
-* Changes under `integration/werift-mediasoup-interop`: follow that directory's `AGENTS.md`.
+Start with the narrowest package command, and widen to workspace commands only when a change crosses package boundaries.
+
+* Docs-only edits: no code validation needed. Public API / Typedoc surface changes: `npm run doc:check` so committed `doc/` and `packages/*/doc` match sources (also part of `npm run ci`).
+* Single-package logic: that package's test and/or type-check command.
+* Cross-package, public API, or protocol changes: `npm run type` and `npm run test:small`; `npm run ci` when the change spans the full stack.
+* WPT runner, dummy media, or allowlist changes: `npm run wpt`; also `npm run wpt:coverage` when coverage or baseline wiring changes.
+* Browser interop or signaling changes: run `npm run install:browsers` once from the repo root (covers `e2e`, `packages/ice-server/chrome-e2e`, and `examples/turn-loopback/chrome-e2e`), then the relevant example and/or `npm run e2e`. For a failing E2E, reproduce with only the affected test file first, then run the full suite as final validation. Root `examples/` demos in the `examples/e2e` catalog also need `npm run examples:e2e`.
+* Infrastructure-backed E2E: run the targeted scenario with its opt-in environment flag, so the real dependency path is exercised.
+* `integration/werift-mediasoup-interop`: follow that directory's `AGENTS.md`.
 
 ## Maintenance
 
-* Keep this section order in every guide: Purpose, Scope, Do, Don't, Commands, Validation, Maintenance.
-* When adding, removing, renaming, or re-scoping a package, update the root package list references and the affected package guides together.
-* When package scripts or stable reference files change, update the nearest `AGENTS.md` in the same change.
-* When test implementation conventions change, keep the Arrange / Act / Assert guidance and shared utility placement rules aligned across the root and package-level guides.
+* Every guide uses this section order: Purpose, Scope, Do, Don't, Commands, Validation, Maintenance. Package guides differ mainly in responsibilities, validation, references, and cross-package cautions.
+* Keep guides short and operational. List only commands that exist in the local `package.json`, and leave feature catalogs, example payloads, and other fast-changing details to READMEs.
+* Update the nearest `AGENTS.md` in the same change when scripts, stable entrypoints, neighboring package dependencies, or validation expectations change. Update this root guide last, when the shared template, workspace commands, or package list change.
+* When test conventions change, keep the Arrange / Act / Assert and shared-utility rules aligned between this guide and the package guides.

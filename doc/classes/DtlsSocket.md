@@ -13,9 +13,9 @@
 
 ## Constructors
 
-### new DtlsSocket()
+### Constructor
 
-> **new DtlsSocket**(`options`, `sessionType`): [`DtlsSocket`](DtlsSocket.md)
+> **new DtlsSocket**(`options`, `sessionType`): `DtlsSocket`
 
 #### Parameters
 
@@ -29,7 +29,7 @@
 
 #### Returns
 
-[`DtlsSocket`](DtlsSocket.md)
+`DtlsSocket`
 
 ## Properties
 
@@ -37,7 +37,7 @@
 
 > `protected` **associationAbort**: `AbortController`
 
-Cancels pending [waitForReady](DtlsSocket.md#waitforready) association sleeps on terminal teardown.
+Cancels pending [waitForReady](#waitforready) association sleeps on terminal teardown.
 Replaced only if a future multi-HS redesign needs a fresh controller mid-life.
 
 ***
@@ -67,7 +67,7 @@ Dual client also flips dualPhase=closed; this flag is the base guard.
 
 ### engine13?
 
-> `protected` `optional` **engine13**: `Dtls13Connection`
+> `protected` `optional` **engine13?**: `Dtls13Connection`
 
 When set, DTLS 1.3 engine owns the transport and crypto state.
 
@@ -103,9 +103,9 @@ When set, DTLS 1.3 engine owns the transport and crypto state.
 
 ***
 
-### onHandleHandshakes()
+### onHandleHandshakes
 
-> **onHandleHandshakes**: (`assembled`, `peer`?, `meta`?) => `Promise`\<`void`\>
+> **onHandleHandshakes**: (`assembled`, `peer?`, `meta?`) => `Promise`\<`void`\>
 
 Assembled handshake handler. `peer` is the source of the datagram that
 produced these messages (explicit UDP/inject addr) — async handlers must
@@ -223,11 +223,11 @@ transport.peerAuthenticated / addressValidation for backward compatibility.
 
 #### Get Signature
 
-> **get** **remoteCertificate**(): `undefined` \| `Buffer`\<`ArrayBufferLike`\>
+> **get** **remoteCertificate**(): `Buffer`\<`ArrayBufferLike`\> \| `undefined`
 
 ##### Returns
 
-`undefined` \| `Buffer`\<`ArrayBufferLike`\>
+`Buffer`\<`ArrayBufferLike`\> \| `undefined`
 
 ## Methods
 
@@ -235,7 +235,7 @@ transport.peerAuthenticated / addressValidation for backward compatibility.
 
 > `protected` **abortAssociationWaits**(): `void`
 
-Aborts association-owned async waits ([waitForReady](DtlsSocket.md#waitforready) sleeps).
+Aborts association-owned async waits ([waitForReady](#waitforready) sleeps).
 Invoked on every terminal transition so pending timers/promises cancel
 immediately (not only "wake later and check torn-down").
 
@@ -247,7 +247,7 @@ immediately (not only "wake later and check torn-down").
 
 ### abortLegacy12Flight()
 
-> `protected` **abortLegacy12Flight**(`error`?): `void`
+> `protected` **abortLegacy12Flight**(`error?`): `void`
 
 Abort legacy DTLS 1.2 flight: optional fatalError, flight=99, cancel timers.
 Use on close / fatal alert / version commit away from 1.2 — not on
@@ -286,7 +286,7 @@ Dual client overrides to reject `closed` and `probing` (no 1.2 fallthrough).
 
 ### bridgeEngine13()
 
-> `protected` **bridgeEngine13**(`engine`, `options`?): `void`
+> `protected` **bridgeEngine13**(`engine`, `options?`): `void`
 
 Wire DTLS 1.3 engine events onto this socket.
 
@@ -352,7 +352,7 @@ Clear TX pin on association terminal teardown.
 
 ### closeLegacy12Association()
 
-> `protected` **closeLegacy12Association**(`firePublicOnClose`): `void`
+> `protected` **closeLegacy12Association**(`firePublicOnClose?`): `void`
 
 Local close for pure DTLS 1.2 (server and non-overridden paths).
 Terminal transition + optional single public onClose (client dual uses
@@ -360,7 +360,7 @@ closeAssociationHard instead).
 
 #### Parameters
 
-##### firePublicOnClose
+##### firePublicOnClose?
 
 `boolean` = `true`
 
@@ -472,13 +472,13 @@ Dual client overrides to also set dualPhase=closed and close carrier/candidates.
 `boolean`
 
 true when the caller should fire public onClose after onError
-  (same ordering as 1.3 [failAssociationFromEngine13](DtlsSocket.md#failassociationfromengine13)).
+  (same ordering as 1.3 [failAssociationFromEngine13](#failassociationfromengine13)).
 
 ***
 
 ### finishLegacy12PeerCloseWithOptionalNotify()
 
-> `protected` **finishLegacy12PeerCloseWithOptionalNotify**(`after`?): `void`
+> `protected` **finishLegacy12PeerCloseWithOptionalNotify**(`after?`): `void`
 
 Best-effort 1.2 close_notify reply then onClose/transport free even if
 transport.send never settles (~250ms budget, parity with 1.3).
@@ -513,7 +513,7 @@ transport.send never settles (~250ms budget, parity with 1.3).
 
 ### handleUdpDatagram()
 
-> `protected` **handleUdpDatagram**(`data`, `addr`?, `meta`?): `void`
+> `protected` **handleUdpDatagram**(`data`, `addr?`, `meta?`): `void`
 
 Process one UDP datagram on the DTLS 1.2 record path.
 Subclasses (dual client) may intercept before calling this.
@@ -602,7 +602,7 @@ close_notify must not tear down a post-handshake association (unauth DoS).
 
 Transport path already authenticates a single peer (ICE / equivalent).
 Distinct from TransportContext.pinnedPeer (UDP return-routability).
-Driven by [peerIdentityMode](DtlsSocket.md#peeridentitymode) (public Options) when set.
+Driven by [peerIdentityMode](#peeridentitymode) (public Options) when set.
 
 #### Returns
 
@@ -612,7 +612,7 @@ Driven by [peerIdentityMode](DtlsSocket.md#peeridentitymode) (public Options) wh
 
 ### isCurrentRxGeneration()
 
-> `protected` **isCurrentRxGeneration**(`rxGeneration`?): `boolean`
+> `protected` **isCurrentRxGeneration**(`rxGeneration?`): `boolean`
 
 Check the carrier generation at every DTLS 1.2 receive boundary.
 
@@ -636,13 +636,13 @@ where no carrier generation exists and the check is intentionally disabled.
 
 ### keyUpdate()
 
-> **keyUpdate**(`requestUpdate`): `Promise`\<`void`\>
+> **keyUpdate**(`requestUpdate?`): `Promise`\<`void`\>
 
 Request KeyUpdate on DTLS 1.3 connections.
 
 #### Parameters
 
-##### requestUpdate
+##### requestUpdate?
 
 `boolean` = `false`
 
@@ -654,7 +654,7 @@ Request KeyUpdate on DTLS 1.3 connections.
 
 ### matchesPinnedPeer()
 
-> `protected` **matchesPinnedPeer**(`addr`?): `boolean`
+> `protected` **matchesPinnedPeer**(`addr?`): `boolean`
 
 True when inbound source matches association TX/RX pin, or no pin yet
 (pre-cookie server / pre-connect). After pin, unknown or non-pin peer
@@ -724,7 +724,7 @@ Dual client overrides for phase/carrier/transport ownership.
 
 ### ownsLegacy12Handshake()
 
-> `protected` **ownsLegacy12Handshake**(`ownership`, `rxGeneration`, `peer`?): `boolean`
+> `protected` **ownsLegacy12Handshake**(`ownership`, `rxGeneration`, `peer?`): `boolean`
 
 Check ownership before an asynchronous legacy handshake rejection is
 allowed to change association state.
@@ -743,7 +743,7 @@ association.
 
 ##### rxGeneration
 
-`undefined` | `number`
+`number` \| `undefined`
 
 ##### peer?
 
@@ -757,7 +757,7 @@ readonly \[`string`, `number`\]
 
 ### pinSendPeer()
 
-> `protected` **pinSendPeer**(`addr`?, `mode`?): `void`
+> `protected` **pinSendPeer**(`addr?`, `mode?`): `void`
 
 Normalize and store association TX peer pin on TransportContext.
 
@@ -773,10 +773,10 @@ readonly \[`string`, `number`\]
 
 ##### mode?
 
+`"replace"` \| `"set-if-empty"` = `"set-if-empty"`
+
 `set-if-empty` keeps the first authenticated pin (server Flight4 /
   connect). `replace` is for dual association re-pin / client connect.
-
-`"set-if-empty"` | `"replace"`
 
 #### Returns
 
@@ -786,7 +786,7 @@ readonly \[`string`, `number`\]
 
 ### pinSendPeerFromTransportRinfo()
 
-> `protected` **pinSendPeerFromTransportRinfo**(`mode`): `void`
+> `protected` **pinSendPeerFromTransportRinfo**(`mode?`): `void`
 
 Pin from last transport rinfo when present.
 Default mode is `set-if-empty` (keeps an existing authenticated pin).
@@ -794,9 +794,9 @@ Pass `replace` when the association deliberately re-pins (e.g. client connect).
 
 #### Parameters
 
-##### mode
+##### mode?
 
-`"set-if-empty"` | `"replace"`
+`"replace"` \| `"set-if-empty"` = `"set-if-empty"`
 
 #### Returns
 
@@ -852,7 +852,7 @@ not double-fire public events.
 
 ### resolveInboundPeer()
 
-> `protected` **resolveInboundPeer**(`addr`?): `undefined` \| readonly \[`string`, `number`\]
+> `protected` **resolveInboundPeer**(`addr?`): readonly \[`string`, `number`\] \| `undefined`
 
 Resolve inbound peer for RX ownership: explicit UDP/inject addr first,
 else last transport rinfo (may be spoofed — always gate with pin).
@@ -865,7 +865,7 @@ readonly \[`string`, `number`\]
 
 #### Returns
 
-`undefined` \| readonly \[`string`, `number`\]
+readonly \[`string`, `number`\] \| `undefined`
 
 ***
 
@@ -883,7 +883,7 @@ Restore transport.rinfo to pin so spoof sources do not stick for later TX fallba
 
 ### send()
 
-> **send**(`buf`, `addr`?): `Promise`\<`void`\>
+> **send**(`buf`, `addr?`): `Promise`\<`void`\>
 
 send application data
 
@@ -917,7 +917,7 @@ Best-effort close_notify on the current 1.2 write epoch.
 
 ### sendPlaintextAlert()
 
-> `protected` **sendPlaintextAlert**(`description`, `dest`?): `Promise`\<`void`\>
+> `protected` **sendPlaintextAlert**(`description`, `dest?`): `Promise`\<`void`\>
 
 Send a fatal DTLSPlaintext alert (used for protocol_version mismatch).
 
@@ -955,7 +955,7 @@ Explicit peer for this reply. Required pre-cookie so a concurrent
 
 ### udpOnMessage()
 
-> `protected` **udpOnMessage**(`data`, `addr`?, `meta`?): `void`
+> `protected` **udpOnMessage**(`data`, `addr?`, `meta?`): `void`
 
 #### Parameters
 

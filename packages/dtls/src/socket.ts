@@ -1,7 +1,7 @@
 import { setTimeout } from "timers/promises";
 import { Event, EventDisposer, binaryData, debug } from "./imports/common";
 import type { Address, DatagramRxMeta, Transport } from "./imports/common";
-
+import type { DtlsHandshakeCarrier } from "./carrier/types";
 import {
   NamedCurveAlgorithmList,
   type NamedCurveAlgorithms,
@@ -25,6 +25,13 @@ import { Signature } from "./handshake/extensions/signature";
 import { UseSRTP } from "./handshake/extensions/useSrtp";
 import type { Alert } from "./handshake/message/alert";
 import type { SrtpProfile } from "./imports/rtp";
+import {
+  associationHasPeerAuth,
+  normalizeLoopbackHost,
+  normalizePeerTuple,
+  type PeerIdentityMode,
+  resolvePeerIdentityMode,
+} from "./peer";
 import { createPlaintext } from "./record/builder";
 import { AlertDesc, ContentType } from "./record/const";
 import { FragmentedHandshake } from "./record/message/fragment";
@@ -33,18 +40,9 @@ import type { Extension } from "./typings/domain";
 import {
   DtlsVersion,
   DtlsVersionSelected,
-  ProtocolVersionError,
   normalizeProtocolVersions,
+  ProtocolVersionError,
 } from "./version";
-
-import type { DtlsHandshakeCarrier } from "./carrier/types";
-import {
-  type PeerIdentityMode,
-  associationHasPeerAuth,
-  normalizeLoopbackHost,
-  normalizePeerTuple,
-  resolvePeerIdentityMode,
-} from "./peer";
 
 export type { PeerIdentityMode } from "./peer";
 
@@ -1028,7 +1026,7 @@ export class DtlsSocket {
     this.associationTornDown = true;
     this.abortAssociationWaits();
     this.clearSendPeerPin();
-    void this.transport.socket.close().catch(() => {});
+    void this.transport.close().catch(() => {});
     return true;
   }
 
@@ -1060,7 +1058,7 @@ export class DtlsSocket {
     if (firePublicOnClose) {
       this.onClose.execute();
     }
-    void this.transport.socket.close().catch(() => {});
+    void this.transport.close().catch(() => {});
   }
 
   /**
@@ -1094,7 +1092,7 @@ export class DtlsSocket {
       this.clearSendPeerPin();
       after?.();
       this.onClose.execute();
-      void this.transport.socket.close().catch(() => {});
+      void this.transport.close().catch(() => {});
     };
     // Use global timer APIs — module imports setTimeout from timers/promises.
     const timer = globalThis.setTimeout(finish, 250);
@@ -1244,7 +1242,7 @@ export class DtlsSocket {
       eng.hardDisposeResources();
     }
     // Always close transport (hardDispose does not). Double-close is fine.
-    void this.transport.socket.close().catch(() => {});
+    void this.transport.close().catch(() => {});
     // Engine hard-fail would have fired onClose after onError, but unbridge
     // removed that subscription — association owns the single public onClose.
     return true;
@@ -1275,7 +1273,7 @@ export class DtlsSocket {
     this.clearSendPeerPin();
     this.unbridgeEngine13();
     this.engine13 = undefined;
-    void this.transport.socket.close().catch(() => {});
+    void this.transport.close().catch(() => {});
   }
 
   /**

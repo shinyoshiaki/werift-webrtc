@@ -12,9 +12,9 @@
 
 ## Constructors
 
-### new Message()
+### Constructor
 
-> **new Message**(`messageMethod`, `messageClass`, `transactionId`, `attributes`, `rawAttributes`, `alternateServers`): [`Message`](Message.md)
+> **new Message**(`messageMethod`, `messageClass`, `transactionId?`, `attributes?`, `rawAttributes?`, `alternateServers?`): `Message`
 
 #### Parameters
 
@@ -26,19 +26,19 @@
 
 [`classes`](../enumerations/classes.md)
 
-##### transactionId
+##### transactionId?
 
 `Buffer` = `...`
 
-##### attributes
+##### attributes?
 
 `AttributePair`[] = `[]`
 
-##### rawAttributes
+##### rawAttributes?
 
 `RawAttribute`[] = `[]`
 
-##### alternateServers
+##### alternateServers?
 
 \[`string`, `number`\][] = `[]`
 
@@ -46,7 +46,7 @@ Every ALTERNATE-SERVER attribute, in wire order.
 
 #### Returns
 
-[`Message`](Message.md)
+`Message`
 
 #### Overrides
 
@@ -201,17 +201,17 @@ Live array: `push` / `reverse` / in-place edits are serialized.
 
 ### addFingerprint()
 
-> **addFingerprint**(): [`Message`](Message.md)
+> **addFingerprint**(): `Message`
 
 #### Returns
 
-[`Message`](Message.md)
+`Message`
 
 ***
 
 ### addMessageIntegrity()
 
-> **addMessageIntegrity**(`key`): [`Message`](Message.md)
+> **addMessageIntegrity**(`key`): `Message`
 
 #### Parameters
 
@@ -221,13 +221,13 @@ Live array: `push` / `reverse` / in-place edits are serialized.
 
 #### Returns
 
-[`Message`](Message.md)
+`Message`
 
 ***
 
 ### appendRawAttribute()
 
-> **appendRawAttribute**(`type`, `value`): [`Message`](Message.md)
+> **appendRawAttribute**(`type`, `value`): `Message`
 
 #### Parameters
 
@@ -241,7 +241,7 @@ Live array: `push` / `reverse` / in-place edits are serialized.
 
 #### Returns
 
-[`Message`](Message.md)
+`Message`
 
 ***
 
@@ -281,7 +281,7 @@ Live array: `push` / `reverse` / in-place edits are serialized.
 
 ##### key
 
-`"FINGERPRINT"` | `"MESSAGE-INTEGRITY"` | `"MESSAGE-INTEGRITY-SHA256"` | `"CHANGE-REQUEST"` | `"PRIORITY"` | `"USERNAME"` | `"USERHASH"` | `"ICE-CONTROLLING"` | `"SOURCE-ADDRESS"` | `"USE-CANDIDATE"` | `"ICE-CONTROLLED"` | `"ERROR-CODE"` | `"UNKNOWN-ATTRIBUTES"` | `"XOR-MAPPED-ADDRESS"` | `"CHANGED-ADDRESS"` | `"LIFETIME"` | `"REQUESTED-TRANSPORT"` | `"NONCE"` | `"REALM"` | `"REQUESTED-ADDRESS-FAMILY"` | `"EVEN-PORT"` | `"PASSWORD-ALGORITHM"` | `"PASSWORD-ALGORITHMS"` | `"XOR-RELAYED-ADDRESS"` | `"RESERVATION-TOKEN"` | `"CHANNEL-NUMBER"` | `"XOR-PEER-ADDRESS"` | `"DATA"` | `"SOFTWARE"` | `"MAPPED-ADDRESS"` | `"ALTERNATE-DOMAIN"` | `"ALTERNATE-SERVER"` | `"RESPONSE-ORIGIN"` | `"OTHER-ADDRESS"`
+`"FINGERPRINT"` \| `"MESSAGE-INTEGRITY"` \| `"MESSAGE-INTEGRITY-SHA256"` \| `"CHANGE-REQUEST"` \| `"PRIORITY"` \| `"USERNAME"` \| `"USERHASH"` \| `"ICE-CONTROLLING"` \| `"SOURCE-ADDRESS"` \| `"USE-CANDIDATE"` \| `"ICE-CONTROLLED"` \| `"ERROR-CODE"` \| `"UNKNOWN-ATTRIBUTES"` \| `"XOR-MAPPED-ADDRESS"` \| `"CHANGED-ADDRESS"` \| `"LIFETIME"` \| `"REQUESTED-TRANSPORT"` \| `"NONCE"` \| `"REALM"` \| `"REQUESTED-ADDRESS-FAMILY"` \| `"EVEN-PORT"` \| `"PASSWORD-ALGORITHM"` \| `"PASSWORD-ALGORITHMS"` \| `"XOR-RELAYED-ADDRESS"` \| `"RESERVATION-TOKEN"` \| `"CHANNEL-NUMBER"` \| `"XOR-PEER-ADDRESS"` \| `"DATA"` \| `"SOFTWARE"` \| `"MAPPED-ADDRESS"` \| `"ALTERNATE-DOMAIN"` \| `"ALTERNATE-SERVER"` \| `"RESPONSE-ORIGIN"` \| `"OTHER-ADDRESS"`
 
 #### Returns
 
@@ -311,13 +311,13 @@ Live array: `push` / `reverse` / in-place edits are serialized.
 
 ### setAttribute()
 
-> **setAttribute**(`key`, `value`): [`Message`](Message.md)
+> **setAttribute**(`key`, `value`): `Message`
 
 #### Parameters
 
 ##### key
 
-`"FINGERPRINT"` | `"MESSAGE-INTEGRITY"` | `"MESSAGE-INTEGRITY-SHA256"` | `"CHANGE-REQUEST"` | `"PRIORITY"` | `"USERNAME"` | `"USERHASH"` | `"ICE-CONTROLLING"` | `"SOURCE-ADDRESS"` | `"USE-CANDIDATE"` | `"ICE-CONTROLLED"` | `"ERROR-CODE"` | `"UNKNOWN-ATTRIBUTES"` | `"XOR-MAPPED-ADDRESS"` | `"CHANGED-ADDRESS"` | `"LIFETIME"` | `"REQUESTED-TRANSPORT"` | `"NONCE"` | `"REALM"` | `"REQUESTED-ADDRESS-FAMILY"` | `"EVEN-PORT"` | `"PASSWORD-ALGORITHM"` | `"PASSWORD-ALGORITHMS"` | `"XOR-RELAYED-ADDRESS"` | `"RESERVATION-TOKEN"` | `"CHANNEL-NUMBER"` | `"XOR-PEER-ADDRESS"` | `"DATA"` | `"SOFTWARE"` | `"MAPPED-ADDRESS"` | `"ALTERNATE-DOMAIN"` | `"ALTERNATE-SERVER"` | `"RESPONSE-ORIGIN"` | `"OTHER-ADDRESS"`
+`"FINGERPRINT"` \| `"MESSAGE-INTEGRITY"` \| `"MESSAGE-INTEGRITY-SHA256"` \| `"CHANGE-REQUEST"` \| `"PRIORITY"` \| `"USERNAME"` \| `"USERHASH"` \| `"ICE-CONTROLLING"` \| `"SOURCE-ADDRESS"` \| `"USE-CANDIDATE"` \| `"ICE-CONTROLLED"` \| `"ERROR-CODE"` \| `"UNKNOWN-ATTRIBUTES"` \| `"XOR-MAPPED-ADDRESS"` \| `"CHANGED-ADDRESS"` \| `"LIFETIME"` \| `"REQUESTED-TRANSPORT"` \| `"NONCE"` \| `"REALM"` \| `"REQUESTED-ADDRESS-FAMILY"` \| `"EVEN-PORT"` \| `"PASSWORD-ALGORITHM"` \| `"PASSWORD-ALGORITHMS"` \| `"XOR-RELAYED-ADDRESS"` \| `"RESERVATION-TOKEN"` \| `"CHANNEL-NUMBER"` \| `"XOR-PEER-ADDRESS"` \| `"DATA"` \| `"SOFTWARE"` \| `"MAPPED-ADDRESS"` \| `"ALTERNATE-DOMAIN"` \| `"ALTERNATE-SERVER"` \| `"RESPONSE-ORIGIN"` \| `"OTHER-ADDRESS"`
 
 ##### value
 
@@ -325,7 +325,7 @@ Live array: `push` / `reverse` / in-place edits are serialized.
 
 #### Returns
 
-[`Message`](Message.md)
+`Message`
 
 #### Overrides
 

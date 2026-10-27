@@ -16,7 +16,7 @@ import { assertUniqueExtensions } from "../../handshake/extensions/unique";
 import { UseSRTP } from "../../handshake/extensions/useSrtp";
 import type { ClientHello } from "../../handshake/message/client/hello";
 import { DtlsRandom } from "../../handshake/random";
-import { type SrtpProfile, debug } from "../../imports/rtp";
+import { debug, type SrtpProfile } from "../../imports/rtp";
 
 const log = debug(
   "werift-dtls : packages/dtls/flight/server/commitClientHello.ts : log",

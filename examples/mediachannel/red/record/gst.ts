@@ -1,13 +1,13 @@
 import { spawn } from "child_process";
 import { createSocket } from "dgram";
-import { Server } from "ws";
+import { WebSocketServer } from "ws";
 import {
   RTCPeerConnection,
   RTCRtpCodecParameters,
   randomPort,
 } from "../../../../packages/webrtc/src";
 
-const server = new Server({ port: 8888 });
+const server = new WebSocketServer({ port: 8888 });
 console.log("start");
 
 server.on("connection", async (socket) => {
@@ -46,9 +46,7 @@ server.on("connection", async (socket) => {
   }>((resolve) => {
     gst.once("exit", (code, signal) => {
       const unexpected = !shuttingDown;
-      console.log(
-        `gst exit code=${code ?? "null"} signal=${signal ?? "null"}`,
-      );
+      console.log(`gst exit code=${code ?? "null"} signal=${signal ?? "null"}`);
       if (unexpected) {
         console.error(
           `gst unexpected exit: code=${code ?? "null"} signal=${signal ?? "null"}`,

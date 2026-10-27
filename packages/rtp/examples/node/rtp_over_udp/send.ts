@@ -2,7 +2,7 @@
  * Plain RTP-over-UDP sender using package-local packetizers.
  *
  * Usage:
- *   npx tsx examples/node/rtp_over_udp/send.ts [host] [port] [codec]
+ *   node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs examples/node/rtp_over_udp/send.ts [host] [port] [codec]
  * codec: pcmu | pcma | g722 | aac | h265 | vp8 | vp9 | av1 | opus | h264
  *   (default pcmu)
  *
@@ -11,19 +11,7 @@
 
 import { createSocket } from "dgram";
 
-import {
-  AacHbrPacketizer,
-  Av1Packetizer,
-  G722Packetizer,
-  H264Packetizer,
-  H265Packetizer,
-  OpusPacketizer,
-  PcmaPacketizer,
-  PcmuPacketizer,
-  Vp8Packetizer,
-  Vp9Packetizer,
-  writeH265PayloadHeader,
-} from "../../../src";
+import { AacHbrPacketizer, Av1Packetizer, G722Packetizer, H264Packetizer, H265Packetizer, OpusPacketizer, PcmaPacketizer, PcmuPacketizer, type RtpPacket, Vp8Packetizer, Vp9Packetizer, writeH265PayloadHeader } from "../../../src";
 
 const host = process.argv[2] ?? "127.0.0.1";
 const port = Number(process.argv[3] ?? "5004");
@@ -44,7 +32,7 @@ function annexB(...nalus: Buffer[]): Buffer {
 }
 
 function buildFrames(codecName: string): {
-  packets: import("../../../src").RtpPacket[];
+  packets: RtpPacket[];
   label: string;
 } {
   switch (codecName) {

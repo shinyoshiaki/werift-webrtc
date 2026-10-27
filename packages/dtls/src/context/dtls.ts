@@ -80,15 +80,24 @@ export class DtlsContext {
    * Association-owned cancelable sleep (replaces bare timers/promises setTimeout
    * so close can cancel pending retransmit waits immediately).
    */
-  flightSleep(ms: number): Promise<void> {
+  flightSleep(ms: number, signal?: AbortSignal): Promise<void> {
     return new Promise((resolve) => {
-      const id = setTimeout(() => {
-        this.flightTimers.delete(id);
-        this.flightSleepResolvers.delete(resolve);
+      if (signal?.aborted) {
         resolve();
-      }, ms);
+        return;
+      }
+      const done = () => {
+        clearTimeout(id);
+        this.flightTimers.delete(id);
+        this.flightSleepResolvers.delete(done);
+        signal?.removeEventListener("abort", done);
+        resolve();
+      };
+      const id = setTimeout(done, ms);
       this.flightTimers.add(id);
-      this.flightSleepResolvers.add(resolve);
+      this.flightSleepResolvers.add(done);
+      // Transport close wakes the sleeper so the caller can observe the signal.
+      signal?.addEventListener("abort", done, { once: true });
     });
   }
 

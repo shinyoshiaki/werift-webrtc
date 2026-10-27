@@ -23,13 +23,13 @@
     "build": "npm run build --workspaces --if-present",
     "ci": "run-s lint:imports type:all doc:check build test wpt wpt:coverage",
     "clean": "rm -rf e2e/node_modules && rm -rf packages/*/node_modules",
-    "datachannel": "ts-node-dev examples/datachannel/offer.ts",
-    "debug": "DEBUG=werift* tsx watch examples/mediachannel/sendrecv/answer.ts",
+    "datachannel": "node --watch --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./tools/node-ts/register.mjs examples/datachannel/offer.ts",
+    "debug": "DEBUG=werift* node --watch --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./tools/node-ts/register.mjs examples/mediachannel/sendrecv/answer.ts",
     "doc": "npm run doc --workspaces --if-present && rm -rf doc && cd packages/webrtc && mv doc ../..",
     "doc:check": "node ./scripts/doc-check.mjs",
     "e2e": "cd e2e && npm install --prefer-offline --no-audit --no-fund --no-update-notifier && npm run ci:silent",
     "e2e:verbose": "cd e2e && npm run ci",
-    "example": "tsx watch examples/ice/restart/offer.ts",
+    "example": "node --watch --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./tools/node-ts/register.mjs examples/ice/restart/offer.ts",
     "examples:e2e": "npm i --prefix examples && cd examples/e2e && npm i && npm run ci:silent",
     "examples:e2e:install": "cd examples/e2e && npm i && npm run install:browsers",
     "format": "node ./scripts/hoist-imports.mjs --fix && npm run format --workspaces --if-present && run-s format:examples format:e2e",
@@ -38,12 +38,13 @@
     "install:browsers": "node ./scripts/install-playwright-browsers.js",
     "knip": "npx knip --config ./knip.json --dependencies --fix",
     "lint:imports": "node ./scripts/hoist-imports.mjs",
-    "media": "DEBUG=werift* ts-node-dev examples/mediachannel/pubsub/offer.ts",
+    "media": "DEBUG=werift* node --watch --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./tools/node-ts/register.mjs examples/mediachannel/pubsub/offer.ts",
     "test": "run-s test:small e2e",
     "test:small": "npm run test --workspaces --if-present",
     "type": "npm run type:packages",
     "type:all": "run-s type:packages type:extra",
     "type:extra": "cd e2e && npm run type",
+    "test:node-ts": "node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./tools/node-ts/register.mjs --test tools/node-ts/register.test.mjs",
     "type:packages": "npm run type --workspaces --if-present",
     "upgrade-interactive": "npx npm-check-updates -i --deep",
     "wpt:list": "npm run wpt:list --workspace packages/webrtc",
@@ -52,29 +53,36 @@
     "submodule": "git submodule update --init --recursive"
   },
   "devDependencies": {
-    "@biomejs/biome": "1.9.4",
-    "@jridgewell/trace-mapping": "0.3.9",
-    "@types/node": "^22.13.4",
-    "@vitest/coverage-v8": "4.1.11",
+    "@vitest/coverage-v8": "5.0.5",
+    "@biomejs/biome": "2.6.2",
+    "@jridgewell/trace-mapping": "0.3.31",
+    "@types/node": "^22.20.5",
     "istanbul-lib-coverage": "3.2.2",
     "istanbul-lib-report": "3.0.1",
     "istanbul-reports": "3.2.0",
-    "knip": "^5.44.1",
-    "npm-run-all2": "^7.0.2",
-    "organize-imports-cli": "^0.10.0",
-    "playwright": "^1.55.1",
-    "ts-node": "^10.9.2",
-    "ts-node-dev": "^2.0.0",
-    "tsx": "^4.19.3",
-    "typedoc": "0.27.7",
-    "typedoc-plugin-markdown": "4.4.2",
-    "typescript": "5.7.3",
+    "knip": "^6.42.1",
+    "npm-run-all2": "^9.0.4",
+    "playwright": "^1.64.1",
+    "typedoc": "0.28.20",
+    "typedoc-plugin-markdown": "4.14.1",
+    "typescript": "6.0.3",
     "v8-to-istanbul": "9.3.0",
-    "vitest": "4.1.11"
+    "vitest": "5.0.5"
   },
-  "packageManager": "npm@11.1.0",
+  "packageManager": "npm@11.16.0",
+  "overrides": {
+    "mediabunny": {
+      "@types/dom-webcodecs": "0.1.19"
+    }
+  },
   "engines": {
     "node": ">=22"
+  },
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": ">=22.18.0"
+    }
   },
   "readme": "README.md"
 }

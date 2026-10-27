@@ -42,13 +42,13 @@ import {
   DTLS_1_3_VERSION,
   DtlsProtocolError,
   DtlsVersion,
-  WireVersion,
   peerVersionsFromSupportedVersionsWire,
   selectVersion,
+  WireVersion,
 } from "../../../../version";
 import type { Dtls13Host } from "../../host";
 import { HandshakeTranscript } from "../../transcript";
-import { EXT_EARLY_DATA, assertUniqueExtensions } from "../extensions";
+import { assertUniqueExtensions, EXT_EARLY_DATA } from "../extensions";
 
 /**
  * Flight 4 (server): process ClientHello, then send ServerHello + encrypted flight.

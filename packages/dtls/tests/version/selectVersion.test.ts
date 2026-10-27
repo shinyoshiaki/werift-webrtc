@@ -4,9 +4,9 @@ import {
   DTLS_1_2_VERSION,
   DTLS_1_3_VERSION,
   DtlsVersion,
-  ProtocolVersionError,
   hasTlsDowngradeSentinel,
   normalizeProtocolVersions,
+  ProtocolVersionError,
   peerVersionsFromSupportedVersionsWire,
   selectVersion,
 } from "../../src/version";

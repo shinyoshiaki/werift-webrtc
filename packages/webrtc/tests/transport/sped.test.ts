@@ -6,8 +6,8 @@ import {
 } from "../../../ice/src";
 import { Candidate } from "../../../ice/src/candidate";
 import {
-  type IceDatagramContext,
   connectionDatagramEvent,
+  type IceDatagramContext,
 } from "../../../ice/src/internal/datagram";
 import { SpedSession } from "../../../ice/src/internal/sped";
 import { SpedRuntime } from "../../../ice/src/sped/runtime";

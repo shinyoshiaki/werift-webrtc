@@ -20,21 +20,19 @@
 Figure 2: Example for round-trip time computation
  */
 
-import { randomBytes } from "crypto";
-
-import { randomUUID } from "crypto";
+import { randomBytes, randomUUID } from "crypto";
 import { setTimeout } from "timers/promises";
-import { Event, random16, uint16Add, uint32Add } from "../imports/common";
-
 import { codecParametersFromString } from "..";
 import { createWebRtcDomException } from "../errors";
+import { Event, random16, uint16Add, uint32Add } from "../imports/common";
 import {
+  debug,
   type Extension,
   GenericNack,
   PictureLossIndication,
-  RTP_EXTENSION_URI,
   ReceiverEstimatedMaxBitrate,
   RedEncoder,
+  RTP_EXTENSION_URI,
   type RtcpPacket,
   RtcpPayloadSpecificFeedback,
   RtcpRrPacket,
@@ -46,13 +44,12 @@ import {
   RtpPacket,
   SourceDescriptionChunk,
   SourceDescriptionItem,
-  TransportWideCC,
-  debug,
   serializeAbsSendTime,
   serializeRepairedRtpStreamId,
   serializeSdesMid,
   serializeSdesRTPStreamID,
   serializeTransportWideCC,
+  TransportWideCC,
   wrapRtx,
 } from "../imports/rtp";
 import type { RTCDtlsTransport } from "../transport/dtls";
@@ -66,22 +63,22 @@ import type {
 } from "./parameters";
 import { SenderBandwidthEstimator, type SentInfo } from "./sender/senderBWE";
 import {
+  buildStatsReport,
+  generateCodecStatsId,
+  generateStatsId,
+  getStatsTimestamp,
   type RTCCodecStats,
   type RTCMediaSourceStats,
   type RTCOutboundRtpStreamStats,
   type RTCRemoteInboundRtpStreamStats,
   type RTCStats,
   type RTCStatsReport,
-  buildStatsReport,
-  generateCodecStatsId,
-  generateStatsId,
-  getStatsTimestamp,
 } from "./stats";
 import {
-  type MediaStream,
-  type MediaStreamTrack,
   captureTrackSourceCodecs,
   getTrackSourceCodecs,
+  type MediaStream,
+  type MediaStreamTrack,
 } from "./track";
 
 const log = debug("werift:packages/webrtc/src/media/rtpSender.ts");
@@ -250,6 +247,12 @@ export class RTCRtpSender {
     }
 
     this.dtlsTransport = dtlsTransport;
+    // A stopped sender (also one a rollback binds again) sends nothing and
+    // does not subscribe to the transport, which may outlive it.
+    if (this.stopped) {
+      this.dtlsDisposer = [];
+      return;
+    }
     this.dtlsDisposer = [
       this.dtlsTransport.onStateChange.subscribe((state) => {
         if (state === "connected") {
@@ -542,6 +545,10 @@ export class RTCRtpSender {
 
   stop({ keepTrack = false }: { keepTrack?: boolean } = {}) {
     this.stopped = true;
+    // A stopped sender sends nothing: release its subscription on the
+    // (possibly BUNDLE-shared) DTLS transport, which outlives it.
+    for (const dispose of this.dtlsDisposer) dispose();
+    this.dtlsDisposer = [];
     this.rtpContinuityPending = false;
     this.discardPendingRtp();
     this.rtcpRunning = false;

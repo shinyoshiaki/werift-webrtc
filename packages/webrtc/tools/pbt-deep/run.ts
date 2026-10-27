@@ -13,15 +13,22 @@
  *   fuzz      tests/pbt/fuzz/negotiationTransactionProperty.test.ts, 300 seeds x 20 steps
  *   scenario  tests/pbt/scenario/negotiationScenarioProperty.test.ts, 300 seeds
  *   model     tests/pbt/model/negotiationModelProperty.test.ts, 300 seeds x 10 steps
- * The fixed scenes and regression seeds run once in their own shard.
+ *   leak      tests/pbt/leak/negotiationLeakProperty.test.ts, 300 seeds x 10 steps
+ *             (P1 and P2 with 6 cycles) and P3 (heap slope over 200 cycles)
+ *             for `--heap-seeds` (default 4) seeds
+ * The fixed scenes and regression seeds run once in their own shard. Every
+ * shard is its own vitest process running one file, so the leak property's
+ * process-wide measurements (active resources, heap) never mix with another
+ * shard's.
  * Exit code 1 when a seed fails again when replayed alone.
  */
 import { spawn } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { cpus, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { createRequire } from "node:module";
 
-type Suite = "fuzz" | "scenario" | "model";
+type Suite = "fuzz" | "scenario" | "model" | "leak";
 type Shard = {
   label: string;
   file: string;
@@ -31,26 +38,30 @@ type Shard = {
 type Failure = { suite: Suite; title: string; shard: Shard };
 
 const args = process.argv.slice(2);
+const require = createRequire(import.meta.url);
 const option = (name: string) => {
   const index = args.indexOf(`--${name}`);
   return index >= 0 ? args[index + 1] : undefined;
 };
-const suites = (option("suite") ?? "fuzz,scenario,model").split(",") as Suite[];
+const suites = (option("suite") ?? "fuzz,scenario,model,leak").split(
+  ",",
+) as Suite[];
 const jobs = Number(option("jobs") ?? cpus().length);
 const seedsOption = option("seeds");
 const stepsOption = option("steps");
 const firstSeed = Number(option("seed") ?? 1);
+const heapSeeds = Number(option("heap-seeds") ?? 4);
 /** vitest's own entry (its package.json is exported; vitest.mjs sits beside it). */
 const vitest = join(
   dirname(require.resolve("vitest/package.json")),
   "vitest.mjs",
 );
-const cwd = join(__dirname, "../..");
+const cwd = join(import.meta.dirname, "../..");
 const work = mkdtempSync(join(tmpdir(), "pbt-deep-"));
 
-/** Seed ranges of about `size` seeds each, at least `jobs * 3` shards for balance. */
-function ranges(count: number) {
-  const size = Math.max(1, Math.ceil(count / (jobs * 3)));
+/** Seed ranges of about `size` seeds each, at least `jobs * 3` shards for balance (or `size` given). */
+function ranges(count: number, fixedSize?: number) {
+  const size = fixedSize ?? Math.max(1, Math.ceil(count / (jobs * 3)));
   const out: { first: number; count: number }[] = [];
   for (let offset = 0; offset < count; offset += size) {
     out.push({
@@ -78,7 +89,8 @@ function shards(suite: Suite): Shard[] {
         ...ranges(seeds).map(({ first, count }) => ({
           label: `fuzz seeds ${first}-${first + count - 1}`,
           file,
-          pattern: "^negotiation transaction property seed ",
+          // Vitest 5 joins describe and test names with " > " (Vitest 4: " ").
+          pattern: "^negotiation transaction property (> )?seed ",
           env: {
             WERIFT_NEGOTIATION_FUZZ_SEED: String(first),
             WERIFT_NEGOTIATION_FUZZ_SEEDS: String(count),
@@ -128,6 +140,40 @@ function shards(suite: Suite): Shard[] {
         })),
       ];
     }
+    case "leak": {
+      const file = "tests/pbt/leak/negotiationLeakProperty.test.ts";
+      const steps = stepsOption ?? "10";
+      return [
+        {
+          label: "leak fixed scenes",
+          file,
+          pattern: "fixed: |close timing: ",
+          env: { WERIFT_NEGOTIATION_LEAK_SEEDS: "0" },
+        },
+        ...ranges(seeds).map(({ first, count }) => ({
+          label: `leak seeds ${first}-${first + count - 1}`,
+          file,
+          pattern: "seed \\d+ \\(replay",
+          env: {
+            WERIFT_NEGOTIATION_LEAK_SEED: String(first),
+            WERIFT_NEGOTIATION_LEAK_SEEDS: String(count),
+            WERIFT_NEGOTIATION_LEAK_STEPS: steps,
+            WERIFT_NEGOTIATION_LEAK_CYCLES: "6",
+          },
+        })),
+        // P3 (heap slope) は 1 seed を 1 プロセスで実行する (heap を他の seed と混ぜない)。
+        ...ranges(heapSeeds, 1).map(({ first }) => ({
+          label: `leak heap seed ${first}`,
+          file,
+          pattern: "heap seed \\d+ ",
+          env: {
+            WERIFT_NEGOTIATION_LEAK_SEED: String(first),
+            WERIFT_NEGOTIATION_LEAK_SEEDS: "1",
+            WERIFT_NEGOTIATION_LEAK_HEAP: "1",
+          },
+        })),
+      ];
+    }
   }
 }
 
@@ -153,6 +199,7 @@ function run(shard: Shard, id: string, extraPattern?: string) {
           ...process.env,
           ...shard.env,
           WERIFT_NEGOTIATION_MODEL_SHRINK: "0",
+          WERIFT_NEGOTIATION_LEAK_SHRINK: "0",
         },
         stdio: "ignore",
       },
@@ -204,7 +251,7 @@ async function main() {
   const started = Date.now();
   // 全 suite の分割を 1 つの pool に入れ、suite の境目で待たない。1 分割あたりの
   // 時間が長い順 (20 step の fuzz、…) に並べ、最後に待つ時間を減らす。
-  const order: Suite[] = ["fuzz", "model", "scenario"];
+  const order: Suite[] = ["leak", "fuzz", "model", "scenario"];
   const list = order
     .filter((suite) => suites.includes(suite))
     .flatMap((suite) => shards(suite).map((shard) => ({ suite, shard })));

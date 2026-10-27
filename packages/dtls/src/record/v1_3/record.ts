@@ -13,11 +13,11 @@ import { AntiReplayWindow } from "../antiReplayWindow";
 import { ContentType } from "../const";
 import { DtlsPlaintext } from "../message/plaintext";
 import {
-  UNIFIED_HEADER_S_BIT,
   isCidPresent,
   isUnifiedHeader,
   parseUnifiedHeader,
   serializeUnifiedHeader,
+  UNIFIED_HEADER_S_BIT,
 } from "./header";
 
 export const DTLS13_LEGACY_VERSION = { major: 254, minor: 253 }; // 0xfefd

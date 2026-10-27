@@ -34,7 +34,6 @@ const coverageBaselinePath = resolve(
   "coverage-baseline.json",
 );
 const sourceDir = resolve(packageDir, "src");
-const tsconfigPath = resolve(packageDir, "tsconfig.json");
 
 async function main() {
   await removeStaleCoverageTempDirs(tmpdir(), WPT_V8_COVERAGE_TEMP_PREFIX);
@@ -112,8 +111,15 @@ async function runWptAndConsumeCoverage(
   consume: () => Promise<void>,
 ) {
   const child = spawn(
-    "npx",
-    ["tsx", "--tsconfig", tsconfigPath, "tools/wpt-runner/run.ts"],
+    process.execPath,
+    [
+      "--experimental-transform-types",
+      "--disable-warning=ExperimentalWarning",
+      "--disable-warning=MODULE_TYPELESS_PACKAGE_JSON",
+      "--import",
+      resolve(repoRoot, "tools/node-ts/register.mjs"),
+      "tools/wpt-runner/run.ts",
+    ],
     {
       cwd: packageDir,
       env: {

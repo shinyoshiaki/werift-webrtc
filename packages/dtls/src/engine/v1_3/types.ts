@@ -15,12 +15,12 @@ import type { DtlsVersion } from "../../version";
 export const ANTI_AMPLIFICATION_FACTOR = 3;
 
 export {
+  computeDtlsRtoMs,
   DTLS_SRTP_INITIAL_RTO_MS,
   INITIAL_RTO_MS,
   MAX_RTO_MS,
   MIN_RTO_MS,
   RTO_FACTOR,
-  computeDtlsRtoMs,
 } from "../../retransmission";
 
 /**

@@ -1,10 +1,4 @@
 export {
-  DTLS_IN_STUN_ACK,
-  DTLS_IN_STUN_DATA,
-  SPED_ACK_MAX,
-  SPED_OUTER_MTU,
-} from "./constants";
-export {
   decodeSpedAck,
   decodeSpedData,
   encodeSpedAck,
@@ -12,7 +6,13 @@ export {
   isDtlsHandshakeDemux,
   spedDataCrc32,
 } from "./codec";
-export { SpedSession } from "./session";
+export {
+  DTLS_IN_STUN_ACK,
+  DTLS_IN_STUN_DATA,
+  SPED_ACK_MAX,
+  SPED_OUTER_MTU,
+} from "./constants";
+export type { SpedMtuIceCredentials } from "./mtu";
 export {
   defaultSpedDtlsMtu,
   estimatedStunSizeAfterSped,
@@ -22,7 +22,7 @@ export {
   spedBindingResponseSkeleton,
   spedDtlsMtuForIceCredentials,
 } from "./mtu";
-export type { SpedMtuIceCredentials } from "./mtu";
+export { SpedSession } from "./session";
 export type {
   SpedDecodedAck,
   SpedDecodedData,

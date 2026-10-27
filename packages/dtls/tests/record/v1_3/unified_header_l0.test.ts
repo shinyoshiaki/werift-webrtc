@@ -5,10 +5,10 @@ import {
   parseUnifiedHeader,
 } from "../../../src/record/v1_3/header";
 import {
+  createEpochProtection,
   DTLS13_MAX_CIPHERTEXT_LENGTH,
   DtlsDecodeError,
   DtlsRecordOverflowError,
-  createEpochProtection,
   decryptRecord,
   encryptRecord,
   parseDatagramRecords,

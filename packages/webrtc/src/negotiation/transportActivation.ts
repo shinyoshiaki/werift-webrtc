@@ -1,9 +1,9 @@
 import { SCTP_STATE } from "../../../sctp/src";
-import { type Event, debug } from "../imports/common";
+import { type PeerConfig, peerConfigHasDtls13 } from "../api/peerConfig";
+import { debug, type Event } from "../imports/common";
 import type { TransceiverManager } from "../media";
 import type { NegotiationTransaction } from "../negotiationTransaction";
 import type { SctpTransportManager } from "../sctpManager";
-import { type PeerConfig, peerConfigHasDtls13 } from "../api/peerConfig";
 import type { MediaDescription } from "../sdp";
 import type { SDPManager } from "../sdpManager";
 import type { SecureTransportManager } from "../secureTransportManager";

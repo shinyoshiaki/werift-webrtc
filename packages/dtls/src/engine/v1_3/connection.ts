@@ -21,7 +21,6 @@ import {
   serializePlaintextRecord,
 } from "../../record/v1_3/record";
 import { Dtls13ConnectionBase } from "./connection-base";
-import * as flightTx from "./flight-tx";
 import * as certificate from "./flight/certificate";
 import * as clientFlight1 from "./flight/client/flight1";
 import * as clientFlight4 from "./flight/client/flight4";
@@ -32,6 +31,7 @@ import * as postHs from "./flight/post-hs";
 import * as serverFlight2 from "./flight/server/flight2";
 import * as serverFlight4 from "./flight/server/flight4";
 import * as serverFlight5 from "./flight/server/flight5";
+import * as flightTx from "./flight-tx";
 import type { Dtls13HostMethods } from "./host";
 import * as recordRx from "./record-rx";
 import { HandshakeTranscript } from "./transcript";
