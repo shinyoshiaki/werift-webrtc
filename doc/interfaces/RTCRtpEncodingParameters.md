@@ -10,16 +10,16 @@
 
 ### active?
 
-> `optional` **active?**: `boolean`
+> `optional` **active**: `boolean`
 
 ***
 
 ### maxBitrate?
 
-> `optional` **maxBitrate?**: `number`
+> `optional` **maxBitrate**: `number`
 
 ***
 
 ### rid?
 
-> `optional` **rid?**: `string`
+> `optional` **rid**: `string`

@@ -8,19 +8,19 @@
 
 ## Constructors
 
-### Constructor
+### new SourceDescriptionChunk()
 
-> **new SourceDescriptionChunk**(`props?`): `SourceDescriptionChunk`
+> **new SourceDescriptionChunk**(`props`): [`SourceDescriptionChunk`](SourceDescriptionChunk.md)
 
 #### Parameters
 
-##### props?
+##### props
 
-`Partial`\<`SourceDescriptionChunk`\> = `{}`
+`Partial`\<[`SourceDescriptionChunk`](SourceDescriptionChunk.md)\> = `{}`
 
 #### Returns
 
-`SourceDescriptionChunk`
+[`SourceDescriptionChunk`](SourceDescriptionChunk.md)
 
 ## Properties
 
@@ -60,7 +60,7 @@
 
 ### deSerialize()
 
-> `static` **deSerialize**(`data`): `SourceDescriptionChunk`
+> `static` **deSerialize**(`data`): [`SourceDescriptionChunk`](SourceDescriptionChunk.md)
 
 #### Parameters
 
@@ -70,4 +70,4 @@
 
 #### Returns
 
-`SourceDescriptionChunk`
+[`SourceDescriptionChunk`](SourceDescriptionChunk.md)

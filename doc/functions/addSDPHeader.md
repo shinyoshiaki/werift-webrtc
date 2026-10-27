@@ -12,7 +12,7 @@
 
 ### type
 
-`"offer"` \| `"answer"`
+`"offer"` | `"answer"`
 
 ### description
 

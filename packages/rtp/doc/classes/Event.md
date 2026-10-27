@@ -8,19 +8,17 @@
 
 ## Type Parameters
 
-### T
-
-`T` *extends* `any`[]
+• **T** *extends* `any`[]
 
 ## Constructors
 
-### Constructor
+### new Event()
 
-> **new Event**\<`T`\>(): `Event`\<`T`\>
+> **new Event**\<`T`\>(): [`Event`](Event.md)\<`T`\>
 
 #### Returns
 
-`Event`\<`T`\>
+[`Event`](Event.md)\<`T`\>
 
 ## Properties
 
@@ -30,9 +28,9 @@
 
 ***
 
-### onended?
+### onended()?
 
-> `optional` **onended?**: () => `void`
+> `optional` **onended**: () => `void`
 
 #### Returns
 
@@ -62,9 +60,9 @@
 
 `object`
 
-###### asPromise
+###### asPromise()
 
-> **asPromise**: (`timeLimit?`) => `Promise`\<`T`\>
+> **asPromise**: (`timeLimit`?) => `Promise`\<`T`\>
 
 ###### Parameters
 
@@ -76,9 +74,9 @@
 
 `Promise`\<`T`\>
 
-###### once
+###### once()
 
-> **once**: (`execute`, `complete?`, `error?`) => `void`
+> **once**: (`execute`, `complete`?, `error`?) => `void`
 
 ###### Parameters
 
@@ -98,9 +96,9 @@
 
 `void`
 
-###### subscribe
+###### subscribe()
 
-> **subscribe**: (`execute`, `complete?`, `error?`) => `object`
+> **subscribe**: (`execute`, `complete`?, `error`?) => `object`
 
 ###### Parameters
 
@@ -120,7 +118,7 @@
 
 `object`
 
-###### disposer
+###### disposer()
 
 > **disposer**: (`disposer`) => `void`
 
@@ -134,7 +132,7 @@
 
 `void`
 
-###### unSubscribe
+###### unSubscribe()
 
 > **unSubscribe**: () => `void`
 
@@ -154,7 +152,7 @@
 
 `object`
 
-###### complete
+###### complete()
 
 > **complete**: () => `void`
 
@@ -162,7 +160,7 @@
 
 `void`
 
-###### error
+###### error()
 
 > **error**: (`e`) => `void`
 
@@ -176,7 +174,7 @@
 
 `void`
 
-###### execute
+###### execute()
 
 > **execute**: (...`args`) => `void`
 
@@ -204,7 +202,7 @@
 
 ### asPromise()
 
-> **asPromise**(`timeLimit?`): `Promise`\<`T`\>
+> **asPromise**(`timeLimit`?): `Promise`\<`T`\>
 
 #### Parameters
 
@@ -262,7 +260,7 @@
 
 ### once()
 
-> **once**(`execute`, `complete?`, `error?`): `void`
+> **once**(`execute`, `complete`?, `error`?): `void`
 
 #### Parameters
 
@@ -308,7 +306,7 @@
 
 ##### e
 
-`Event`\<`T`\>
+[`Event`](Event.md)\<`T`\>
 
 #### Returns
 
@@ -318,7 +316,7 @@
 
 ### queuingSubscribe()
 
-> **queuingSubscribe**(`execute`, `complete?`, `error?`): `object`
+> **queuingSubscribe**(`execute`, `complete`?, `error`?): `object`
 
 #### Parameters
 
@@ -338,7 +336,7 @@
 
 `object`
 
-##### disposer
+##### disposer()
 
 > **disposer**: (`disposer`) => `void`
 
@@ -352,7 +350,7 @@
 
 `void`
 
-##### unSubscribe
+##### unSubscribe()
 
 > **unSubscribe**: () => `void`
 
@@ -364,7 +362,7 @@
 
 ### subscribe()
 
-> **subscribe**(`execute`, `complete?`, `error?`): `object`
+> **subscribe**(`execute`, `complete`?, `error`?): `object`
 
 #### Parameters
 
@@ -384,7 +382,7 @@
 
 `object`
 
-##### disposer
+##### disposer()
 
 > **disposer**: (`disposer`) => `void`
 
@@ -398,7 +396,7 @@
 
 `void`
 
-##### unSubscribe
+##### unSubscribe()
 
 > **unSubscribe**: () => `void`
 
@@ -410,7 +408,7 @@
 
 ### watch()
 
-> **watch**(`cb`, `timeLimit?`): `Promise`\<`T`\>
+> **watch**(`cb`, `timeLimit`?): `Promise`\<`T`\>
 
 #### Parameters
 

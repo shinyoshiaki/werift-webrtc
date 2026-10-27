@@ -6,9 +6,9 @@
 
 # Type Alias: AvcDecoderConfigurationRecord
 
-> **AvcDecoderConfigurationRecord** = `object`
+> **AvcDecoderConfigurationRecord**: `object`
 
-## Properties
+## Type declaration
 
 ### naluLengthSize
 
@@ -16,21 +16,15 @@
 
 lengthSizeMinusOne + 1: NAL length field size of AVCC samples (1, 2 or 4).
 
-***
-
 ### parameterSets
 
 > **parameterSets**: `Buffer`[]
 
 SPS followed by PPS, ready for H264PacketizerOptions.parameterSets.
 
-***
-
 ### pps
 
 > **pps**: `Buffer`[]
-
-***
 
 ### sps
 

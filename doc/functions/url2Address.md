@@ -6,7 +6,7 @@
 
 # Function: url2Address()
 
-> **url2Address**(`url?`): readonly \[`string`, `number`\] \| `undefined`
+> **url2Address**(`url`?): `undefined` \| readonly \[`string`, `number`\]
 
 ## Parameters
 
@@ -16,4 +16,4 @@
 
 ## Returns
 
-readonly \[`string`, `number`\] \| `undefined`
+`undefined` \| readonly \[`string`, `number`\]

@@ -6,7 +6,7 @@
 
 # Function: createBufferWriter()
 
-> **createBufferWriter**(`bytes`, `singleBuffer?`): (`values`) => `Buffer`\<`ArrayBuffer`\>
+> **createBufferWriter**(`bytes`, `singleBuffer`?): (`values`) => `Buffer`\<`ArrayBuffer`\>
 
 ## Parameters
 
@@ -20,4 +20,14 @@
 
 ## Returns
 
-(`values`) => `Buffer`\<`ArrayBuffer`\>
+`Function`
+
+### Parameters
+
+#### values
+
+(`number` \| `bigint`)[]
+
+### Returns
+
+`Buffer`\<`ArrayBuffer`\>

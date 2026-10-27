@@ -12,13 +12,13 @@
 
 ## Constructors
 
-### Constructor
+### new TcpPassiveProtocol()
 
-> **new TcpPassiveProtocol**(): `TcpPassiveProtocol`
+> **new TcpPassiveProtocol**(): [`TcpPassiveProtocol`](TcpPassiveProtocol.md)
 
 #### Returns
 
-`TcpPassiveProtocol`
+[`TcpPassiveProtocol`](TcpPassiveProtocol.md)
 
 #### Inherited from
 
@@ -28,7 +28,7 @@
 
 ### localCandidate?
 
-> `optional` **localCandidate?**: [`Candidate`](Candidate.md)
+> `optional` **localCandidate**: [`Candidate`](Candidate.md)
 
 #### Inherited from
 
@@ -38,7 +38,7 @@
 
 ### localIp?
 
-> `optional` **localIp?**: `string`
+> `optional` **localIp**: `string`
 
 #### Inherited from
 
@@ -80,7 +80,7 @@ The connection to this remote address was closed (by either side).
 
 ### sentMessage?
 
-> `optional` **sentMessage?**: [`Message`](Message.md)
+> `optional` **sentMessage**: [`Message`](Message.md)
 
 #### Inherited from
 
@@ -192,7 +192,7 @@ The connection to this remote address was closed (by either side).
 
 ### connectionMade()
 
-> **connectionMade**(`localIp`, `portRange?`): `Promise`\<`void`\>
+> **connectionMade**(`localIp`, `portRange`?): `Promise`\<`void`\>
 
 #### Parameters
 
@@ -238,7 +238,7 @@ Drop `entry` only if it is still the socket registered for its address.
 
 ### getOpenSocket()
 
-> `protected` **getOpenSocket**(`addr`): `SocketEntry` \| `undefined`
+> `protected` **getOpenSocket**(`addr`): `undefined` \| `SocketEntry`
 
 Registered socket for `addr`, discarding it if it is already closed.
 
@@ -250,7 +250,7 @@ readonly \[`string`, `number`\]
 
 #### Returns
 
-`SocketEntry` \| `undefined`
+`undefined` \| `SocketEntry`
 
 #### Inherited from
 
@@ -280,7 +280,7 @@ readonly \[`string`, `number`\]
 
 ### pruneForSelection()
 
-> **pruneForSelection**(`remoteAddr?`): `Promise`\<`void`\>
+> **pruneForSelection**(`remoteAddr`?): `Promise`\<`void`\>
 
 #### Parameters
 
@@ -300,7 +300,7 @@ readonly \[`string`, `number`\]
 
 ### registerSocket()
 
-> `protected` **registerSocket**(`socket`, `remoteAddr?`): `SocketEntry`
+> `protected` **registerSocket**(`socket`, `remoteAddr`?): `SocketEntry`
 
 #### Parameters
 
@@ -344,7 +344,7 @@ readonly \[`string`, `number`\]
 
 ### request()
 
-> **request**(`request`, `addr`, `integrityKey?`, `retransmissionsOrOptions?`, `onRequestSent?`): `Promise`\<\[[`Message`](Message.md), readonly \[`string`, `number`\]\]\>
+> **request**(`request`, `addr`, `integrityKey`?, `retransmissionsOrOptions`?, `onRequestSent`?): `Promise`\<\[[`Message`](Message.md), readonly \[`string`, `number`\]\]\>
 
 #### Parameters
 
@@ -362,7 +362,7 @@ readonly \[`string`, `number`\]
 
 ##### retransmissionsOrOptions?
 
-`number` \| [`TransactionRequestOptions`](../interfaces/TransactionRequestOptions.md)
+`number` | [`TransactionRequestOptions`](../interfaces/TransactionRequestOptions.md)
 
 ##### onRequestSent?
 

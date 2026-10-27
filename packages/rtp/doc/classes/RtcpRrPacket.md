@@ -8,19 +8,19 @@
 
 ## Constructors
 
-### Constructor
+### new RtcpRrPacket()
 
-> **new RtcpRrPacket**(`props?`): `RtcpRrPacket`
+> **new RtcpRrPacket**(`props`): [`RtcpRrPacket`](RtcpRrPacket.md)
 
 #### Parameters
 
-##### props?
+##### props
 
-`Partial`\<`RtcpRrPacket`\> = `{}`
+`Partial`\<[`RtcpRrPacket`](RtcpRrPacket.md)\> = `{}`
 
 #### Returns
 
-`RtcpRrPacket`
+[`RtcpRrPacket`](RtcpRrPacket.md)
 
 ## Properties
 
@@ -60,7 +60,7 @@
 
 ### deSerialize()
 
-> `static` **deSerialize**(`data`, `count`): `RtcpRrPacket`
+> `static` **deSerialize**(`data`, `count`): [`RtcpRrPacket`](RtcpRrPacket.md)
 
 #### Parameters
 
@@ -74,4 +74,4 @@
 
 #### Returns
 
-`RtcpRrPacket`
+[`RtcpRrPacket`](RtcpRrPacket.md)

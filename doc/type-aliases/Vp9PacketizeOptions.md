@@ -6,20 +6,18 @@
 
 # Type Alias: Vp9PacketizeOptions
 
-> **Vp9PacketizeOptions** = `object`
+> **Vp9PacketizeOptions**: `object`
 
-## Properties
+## Type declaration
 
 ### frameType?
 
-> `optional` **frameType?**: `"key"` \| `"delta"`
+> `optional` **frameType**: `"key"` \| `"delta"`
 
 Alias for isKeyframe false / true: "key" | "delta".
 
-***
-
 ### isKeyframe?
 
-> `optional` **isKeyframe?**: `boolean`
+> `optional` **isKeyframe**: `boolean`
 
 Override keyframe (P bit). Key → P=0, delta → P=1 (RFC 9628).

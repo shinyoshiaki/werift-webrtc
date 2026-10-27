@@ -6,4 +6,4 @@
 
 # Type Alias: BundlePolicy
 
-> **BundlePolicy** = `"max-compat"` \| `"max-bundle"` \| `"disable"`
+> **BundlePolicy**: `"max-compat"` \| `"max-bundle"` \| `"disable"`

@@ -10,7 +10,7 @@
 
 ### connectTimeoutMs?
 
-> `optional` **connectTimeoutMs?**: `number`
+> `optional` **connectTimeoutMs**: `number`
 
 Maximum time to wait for TCP/TLS connection establishment, in milliseconds.
 
@@ -18,25 +18,25 @@ Maximum time to wait for TCP/TLS connection establishment, in milliseconds.
 
 ### interfaceAddresses?
 
-> `optional` **interfaceAddresses?**: [`InterfaceAddresses`](../type-aliases/InterfaceAddresses.md)
+> `optional` **interfaceAddresses**: [`InterfaceAddresses`](../type-aliases/InterfaceAddresses.md)
 
 ***
 
 ### lifetime?
 
-> `optional` **lifetime?**: `number`
+> `optional` **lifetime**: `number`
 
 ***
 
 ### portRange?
 
-> `optional` **portRange?**: \[`number`, `number`\]
+> `optional` **portRange**: \[`number`, `number`\]
 
 ***
 
 ### signal?
 
-> `optional` **signal?**: `AbortSignal`
+> `optional` **signal**: `AbortSignal`
 
 Aborting it while the allocation runs closes the client (its socket and
 transactions) and rejects with `TransactionCancelled`.
@@ -45,25 +45,25 @@ transactions) and rejects with `TransactionCancelled`.
 
 ### ssl?
 
-> `optional` **ssl?**: `boolean`
+> `optional` **ssl**: `boolean`
 
 ***
 
 ### tlsOptions?
 
-> `optional` **tlsOptions?**: [`TlsConnectionOptions`](../type-aliases/TlsConnectionOptions.md)
+> `optional` **tlsOptions**: [`TlsConnectionOptions`](../type-aliases/TlsConnectionOptions.md)
 
 ***
 
 ### transport?
 
-> `optional` **transport?**: `"tcp"` \| `"tls"` \| `"udp"`
+> `optional` **transport**: `"tcp"` \| `"tls"` \| `"udp"`
 
 ***
 
 ### udpFamily?
 
-> `optional` **udpFamily?**: `4` \| `6`
+> `optional` **udpFamily**: `4` \| `6`
 
 Preferred IP family of the UDP socket, applied only when the server
 address is a hostname. Ignored for an IP literal server address, whose

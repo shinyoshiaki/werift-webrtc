@@ -14,25 +14,25 @@
 
 ### bytesReceived?
 
-> `optional` **bytesReceived?**: `number`
+> `optional` **bytesReceived**: `number`
 
 ***
 
 ### bytesSent?
 
-> `optional` **bytesSent?**: `number`
+> `optional` **bytesSent**: `number`
 
 ***
 
 ### dtlsCipher?
 
-> `optional` **dtlsCipher?**: `string`
+> `optional` **dtlsCipher**: `string`
 
 ***
 
 ### dtlsRole?
 
-> `optional` **dtlsRole?**: [`RTCDtlsRole`](../type-aliases/RTCDtlsRole.md)
+> `optional` **dtlsRole**: [`RTCDtlsRole`](../type-aliases/RTCDtlsRole.md)
 
 ***
 
@@ -44,25 +44,25 @@
 
 ### iceLocalUsernameFragment?
 
-> `optional` **iceLocalUsernameFragment?**: `string`
+> `optional` **iceLocalUsernameFragment**: `string`
 
 ***
 
 ### iceRestarts?
 
-> `optional` **iceRestarts?**: `number`
+> `optional` **iceRestarts**: `number`
 
 ***
 
 ### iceRole?
 
-> `optional` **iceRole?**: [`RTCIceRole`](../type-aliases/RTCIceRole.md)
+> `optional` **iceRole**: [`RTCIceRole`](../type-aliases/RTCIceRole.md)
 
 ***
 
 ### iceState?
 
-> `optional` **iceState?**: [`RTCIceTransportState`](../type-aliases/RTCIceTransportState.md)
+> `optional` **iceState**: [`RTCIceTransportState`](../type-aliases/RTCIceTransportState.md)
 
 ***
 
@@ -78,49 +78,49 @@
 
 ### localCertificateId?
 
-> `optional` **localCertificateId?**: `string`
+> `optional` **localCertificateId**: `string`
 
 ***
 
 ### packetsReceived?
 
-> `optional` **packetsReceived?**: `number`
+> `optional` **packetsReceived**: `number`
 
 ***
 
 ### packetsSent?
 
-> `optional` **packetsSent?**: `number`
+> `optional` **packetsSent**: `number`
 
 ***
 
 ### remoteCertificateId?
 
-> `optional` **remoteCertificateId?**: `string`
+> `optional` **remoteCertificateId**: `string`
 
 ***
 
 ### rtcpTransportStatsId?
 
-> `optional` **rtcpTransportStatsId?**: `string`
+> `optional` **rtcpTransportStatsId**: `string`
 
 ***
 
 ### selectedCandidatePairChanges?
 
-> `optional` **selectedCandidatePairChanges?**: `number`
+> `optional` **selectedCandidatePairChanges**: `number`
 
 ***
 
 ### selectedCandidatePairId?
 
-> `optional` **selectedCandidatePairId?**: `string`
+> `optional` **selectedCandidatePairId**: `string`
 
 ***
 
 ### srtpCipher?
 
-> `optional` **srtpCipher?**: `string`
+> `optional` **srtpCipher**: `string`
 
 ***
 
@@ -136,7 +136,7 @@
 
 ### tlsVersion?
 
-> `optional` **tlsVersion?**: `string`
+> `optional` **tlsVersion**: `string`
 
 ***
 

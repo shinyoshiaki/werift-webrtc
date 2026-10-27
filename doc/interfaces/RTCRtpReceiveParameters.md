@@ -40,7 +40,7 @@
 
 ### muxId?
 
-> `optional` **muxId?**: `string`
+> `optional` **muxId**: `string`
 
 #### Inherited from
 
@@ -50,7 +50,7 @@
 
 ### repairedRtpStreamId?
 
-> `optional` **repairedRtpStreamId?**: `string`
+> `optional` **repairedRtpStreamId**: `string`
 
 #### Inherited from
 
@@ -60,7 +60,7 @@
 
 ### rtcp?
 
-> `optional` **rtcp?**: [`RTCRtcpParameters`](../classes/RTCRtcpParameters.md)
+> `optional` **rtcp**: [`RTCRtcpParameters`](../classes/RTCRtcpParameters.md)
 
 #### Inherited from
 
@@ -70,7 +70,7 @@
 
 ### rtpStreamId?
 
-> `optional` **rtpStreamId?**: `string`
+> `optional` **rtpStreamId**: `string`
 
 #### Inherited from
 

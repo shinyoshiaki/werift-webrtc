@@ -6,4 +6,4 @@
 
 # Type Alias: RTCDtlsTransportState
 
-> **RTCDtlsTransportState** = `"new"` \| `"connecting"` \| `"connected"` \| `"closed"` \| `"failed"`
+> **RTCDtlsTransportState**: `"new"` \| `"connecting"` \| `"connected"` \| `"closed"` \| `"failed"`

@@ -8,19 +8,19 @@
 
 ## Constructors
 
-### Constructor
+### new RTCDataChannelParameters()
 
-> **new RTCDataChannelParameters**(`props?`): `RTCDataChannelParameters`
+> **new RTCDataChannelParameters**(`props`): [`RTCDataChannelParameters`](RTCDataChannelParameters.md)
 
 #### Parameters
 
-##### props?
+##### props
 
-`Partial`\<`RTCDataChannelParameters`\> = `{}`
+`Partial`\<[`RTCDataChannelParameters`](RTCDataChannelParameters.md)\> = `{}`
 
 #### Returns
 
-`RTCDataChannelParameters`
+[`RTCDataChannelParameters`](RTCDataChannelParameters.md)
 
 ## Properties
 
@@ -38,13 +38,13 @@
 
 ### maxPacketLifeTime?
 
-> `optional` **maxPacketLifeTime?**: `number`
+> `optional` **maxPacketLifeTime**: `number`
 
 ***
 
 ### maxRetransmits?
 
-> `optional` **maxRetransmits?**: `number`
+> `optional` **maxRetransmits**: `number`
 
 ***
 

@@ -6,4 +6,4 @@
 
 # Type Alias: TcpCandidateType
 
-> **TcpCandidateType** = `"active"` \| `"passive"` \| `"so"`
+> **TcpCandidateType**: `"active"` \| `"passive"` \| `"so"`

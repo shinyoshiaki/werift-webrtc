@@ -6,7 +6,7 @@
 
 # Function: deliveredTrackCodec()
 
-> **deliveredTrackCodec**(`kind`, `codec`, `negotiated`): [`RTCRtpCodecParameters`](../classes/RTCRtpCodecParameters.md) \| `undefined`
+> **deliveredTrackCodec**(`kind`, `codec`, `negotiated`): `undefined` \| [`RTCRtpCodecParameters`](../classes/RTCRtpCodecParameters.md)
 
 remote track が実際に配信する codec を返す。
 audio の RED は RTCRtpReceiver が primary へ展開してから track へ渡すため、
@@ -20,7 +20,7 @@ RED が参照する primary codec (不明なら先頭の primary) を track の 
 
 ### codec
 
-[`RTCRtpCodecParameters`](../classes/RTCRtpCodecParameters.md) \| `undefined`
+`undefined` | [`RTCRtpCodecParameters`](../classes/RTCRtpCodecParameters.md)
 
 ### negotiated
 
@@ -28,4 +28,4 @@ readonly [`RTCRtpCodecParameters`](../classes/RTCRtpCodecParameters.md)[]
 
 ## Returns
 
-[`RTCRtpCodecParameters`](../classes/RTCRtpCodecParameters.md) \| `undefined`
+`undefined` \| [`RTCRtpCodecParameters`](../classes/RTCRtpCodecParameters.md)

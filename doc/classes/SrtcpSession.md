@@ -12,9 +12,9 @@
 
 ## Constructors
 
-### Constructor
+### new SrtcpSession()
 
-> **new SrtcpSession**(`config`): `SrtcpSession`
+> **new SrtcpSession**(`config`): [`SrtcpSession`](SrtcpSession.md)
 
 #### Parameters
 
@@ -24,7 +24,7 @@
 
 #### Returns
 
-`SrtcpSession`
+[`SrtcpSession`](SrtcpSession.md)
 
 #### Overrides
 
@@ -48,9 +48,9 @@
 
 ***
 
-### onData?
+### onData()?
 
-> `optional` **onData?**: (`buf`) => `void`
+> `optional` **onData**: (`buf`) => `void`
 
 #### Parameters
 

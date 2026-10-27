@@ -6,21 +6,17 @@
 
 # Type Alias: DtlsKeys
 
-> **DtlsKeys** = `object`
+> **DtlsKeys**: `object`
 
-## Properties
+## Type declaration
 
 ### certPem
 
 > **certPem**: `string`
 
-***
-
 ### keyPem
 
 > **keyPem**: `string`
-
-***
 
 ### signatureHash
 

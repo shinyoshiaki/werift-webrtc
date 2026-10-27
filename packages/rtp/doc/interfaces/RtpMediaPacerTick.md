@@ -8,9 +8,7 @@
 
 ## Type Parameters
 
-### T
-
-`T`
+• **T**
 
 ## Properties
 

@@ -6,4 +6,4 @@
 
 # Type Alias: Kind
 
-> **Kind** = `"audio"` \| `"video"` \| `"application"` \| `"unknown"`
+> **Kind**: `"audio"` \| `"video"` \| `"application"` \| `"unknown"`

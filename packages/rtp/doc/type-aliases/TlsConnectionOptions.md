@@ -6,4 +6,4 @@
 
 # Type Alias: TlsConnectionOptions
 
-> **TlsConnectionOptions** = `Omit`\<`tls.ConnectionOptions`, `"host"` \| `"port"` \| `"socket"`\>
+> **TlsConnectionOptions**: `Omit`\<`tls.ConnectionOptions`, `"host"` \| `"port"` \| `"socket"`\>

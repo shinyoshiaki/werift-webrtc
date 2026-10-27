@@ -15,23 +15,23 @@ AU-size fields store the Access Unit size in octets (not size−1).
 
 ## Constructors
 
-### Constructor
+### new AacHbrPacketizer()
 
-> **new AacHbrPacketizer**(`options?`): `AacHbrPacketizer`
+> **new AacHbrPacketizer**(`options`): [`AacHbrPacketizer`](AacHbrPacketizer.md)
 
 #### Parameters
 
-##### options?
+##### options
 
 [`AacHbrPacketizerOptions`](../type-aliases/AacHbrPacketizerOptions.md) = `{}`
 
 #### Returns
 
-`AacHbrPacketizer`
+[`AacHbrPacketizer`](AacHbrPacketizer.md)
 
 #### Overrides
 
-[`PacketizerBase`](PacketizerBase.md).[`constructor`](PacketizerBase.md#constructor)
+[`PacketizerBase`](PacketizerBase.md).[`constructor`](PacketizerBase.md#constructors)
 
 ## Properties
 

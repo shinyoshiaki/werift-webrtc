@@ -6,4 +6,4 @@
 
 # Type Alias: SignatureSchemes
 
-> **SignatureSchemes** = *typeof* [`SignatureScheme`](../variables/SignatureScheme.md)\[keyof *typeof* [`SignatureScheme`](../variables/SignatureScheme.md)\]
+> **SignatureSchemes**: *typeof* [`SignatureScheme`](../variables/SignatureScheme.md)\[keyof *typeof* [`SignatureScheme`](../variables/SignatureScheme.md)\]

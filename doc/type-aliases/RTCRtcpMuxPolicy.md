@@ -6,4 +6,4 @@
 
 # Type Alias: RTCRtcpMuxPolicy
 
-> **RTCRtcpMuxPolicy** = `"require"`
+> **RTCRtcpMuxPolicy**: `"require"`

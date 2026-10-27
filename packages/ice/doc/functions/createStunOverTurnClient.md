@@ -6,7 +6,7 @@
 
 # Function: createStunOverTurnClient()
 
-> **createStunOverTurnClient**(`config`, `options?`): `Promise`\<[`StunOverTurnProtocol`](../classes/StunOverTurnProtocol.md)\>
+> **createStunOverTurnClient**(`config`, `options`): `Promise`\<[`StunOverTurnProtocol`](../classes/StunOverTurnProtocol.md)\>
 
 ## Parameters
 
@@ -14,7 +14,7 @@
 
 [`TurnClientConfig`](../interfaces/TurnClientConfig.md)
 
-### options?
+### options
 
 [`TurnClientOptions`](../interfaces/TurnClientOptions.md) = `{}`
 

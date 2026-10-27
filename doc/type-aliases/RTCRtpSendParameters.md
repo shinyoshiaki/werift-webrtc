@@ -6,4 +6,4 @@
 
 # Type Alias: RTCRtpSendParameters
 
-> **RTCRtpSendParameters** = [`RTCRtpParameters`](../interfaces/RTCRtpParameters.md)
+> **RTCRtpSendParameters**: [`RTCRtpParameters`](../interfaces/RTCRtpParameters.md)

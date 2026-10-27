@@ -8,19 +8,19 @@
 
 ## Constructors
 
-### Constructor
+### new TransportWideCC()
 
-> **new TransportWideCC**(`props?`): `TransportWideCC`
+> **new TransportWideCC**(`props`): [`TransportWideCC`](TransportWideCC.md)
 
 #### Parameters
 
-##### props?
+##### props
 
-`Partial`\<`TransportWideCC`\> = `{}`
+`Partial`\<[`TransportWideCC`](TransportWideCC.md)\> = `{}`
 
 #### Returns
 
-`TransportWideCC`
+[`TransportWideCC`](TransportWideCC.md)
 
 ## Properties
 
@@ -122,7 +122,7 @@
 
 ### deSerialize()
 
-> `static` **deSerialize**(`data`, `header`): `TransportWideCC`
+> `static` **deSerialize**(`data`, `header`): [`TransportWideCC`](TransportWideCC.md)
 
 #### Parameters
 
@@ -136,4 +136,4 @@
 
 #### Returns
 
-`TransportWideCC`
+[`TransportWideCC`](TransportWideCC.md)

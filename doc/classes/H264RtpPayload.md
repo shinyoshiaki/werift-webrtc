@@ -12,13 +12,13 @@
 
 ## Constructors
 
-### Constructor
+### new H264RtpPayload()
 
-> **new H264RtpPayload**(): `H264RtpPayload`
+> **new H264RtpPayload**(): [`H264RtpPayload`](H264RtpPayload.md)
 
 #### Returns
 
-`H264RtpPayload`
+[`H264RtpPayload`](H264RtpPayload.md)
 
 ## Properties
 
@@ -32,7 +32,7 @@ nal_unit_types of the NAL units aggregated in a STAP-A packet
 
 ### e?
 
-> `optional` **e?**: `number`
+> `optional` **e**: `number`
 
 end of a fragmented NAL unit (FU-A / FU-B only)
 
@@ -48,7 +48,7 @@ forbidden_zero_bit
 
 ### fragment?
 
-> `optional` **fragment?**: `Buffer`\<`ArrayBufferLike`\>
+> `optional` **fragment**: `Buffer`\<`ArrayBufferLike`\>
 
 #### Implementation of
 
@@ -58,7 +58,7 @@ forbidden_zero_bit
 
 ### nalUnitPayloadType?
 
-> `optional` **nalUnitPayloadType?**: `number`
+> `optional` **nalUnitPayloadType**: `number`
 
 nal_unit_type of the fragmented NAL unit (FU-A / FU-B only)
 
@@ -92,7 +92,7 @@ nal_ref_idc
 
 ### r?
 
-> `optional` **r?**: `number`
+> `optional` **r**: `number`
 
 reserved bit of the FU header (FU-A / FU-B only)
 
@@ -100,7 +100,7 @@ reserved bit of the FU header (FU-A / FU-B only)
 
 ### s?
 
-> `optional` **s?**: `number`
+> `optional` **s**: `number`
 
 start of a fragmented NAL unit (FU-A / FU-B only)
 
@@ -138,7 +138,7 @@ true only when this packet carries (a part of) an IDR slice
 
 ### deSerialize()
 
-> `static` **deSerialize**(`buf`, `fragment?`): `H264RtpPayload`
+> `static` **deSerialize**(`buf`, `fragment`?): [`H264RtpPayload`](H264RtpPayload.md)
 
 #### Parameters
 
@@ -152,7 +152,7 @@ true only when this packet carries (a part of) an IDR slice
 
 #### Returns
 
-`H264RtpPayload`
+[`H264RtpPayload`](H264RtpPayload.md)
 
 ***
 

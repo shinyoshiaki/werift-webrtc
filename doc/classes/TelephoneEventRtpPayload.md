@@ -11,19 +11,19 @@ Bidirectional: deSerialize + serialize (unlike most codec depacketizers).
 
 ## Constructors
 
-### Constructor
+### new TelephoneEventRtpPayload()
 
-> **new TelephoneEventRtpPayload**(`props?`): `TelephoneEventRtpPayload`
+> **new TelephoneEventRtpPayload**(`props`): [`TelephoneEventRtpPayload`](TelephoneEventRtpPayload.md)
 
 #### Parameters
 
-##### props?
+##### props
 
 `Partial`\<[`TelephoneEventFields`](../type-aliases/TelephoneEventFields.md) & `object`\> = `{}`
 
 #### Returns
 
-`TelephoneEventRtpPayload`
+[`TelephoneEventRtpPayload`](TelephoneEventRtpPayload.md)
 
 ## Properties
 
@@ -97,7 +97,7 @@ Serialize to 4-byte payload (RFC 4733 §2.3).
 
 ### deSerialize()
 
-> `static` **deSerialize**(`buf`): `TelephoneEventRtpPayload`
+> `static` **deSerialize**(`buf`): [`TelephoneEventRtpPayload`](TelephoneEventRtpPayload.md)
 
 Parse a 4-byte telephone-event payload (RFC 4733 §2.3).
 
@@ -109,7 +109,7 @@ Parse a 4-byte telephone-event payload (RFC 4733 §2.3).
 
 #### Returns
 
-`TelephoneEventRtpPayload`
+[`TelephoneEventRtpPayload`](TelephoneEventRtpPayload.md)
 
 #### Throws
 

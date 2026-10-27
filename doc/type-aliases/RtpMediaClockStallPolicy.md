@@ -6,7 +6,7 @@
 
 # Type Alias: RtpMediaClockStallPolicy
 
-> **RtpMediaClockStallPolicy** = `"skip"` \| `"delay"`
+> **RtpMediaClockStallPolicy**: `"skip"` \| `"delay"`
 
 What to do when the clock falls behind by one frame or more.
 

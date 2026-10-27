@@ -6,7 +6,7 @@
 
 # Function: nodeIpAddress()
 
-> **nodeIpAddress**(`family`, `__namedParameters?`): `string`[]
+> **nodeIpAddress**(`family`, `__namedParameters`): `string`[]
 
 ## Parameters
 
@@ -14,7 +14,7 @@
 
 `number`
 
-### \_\_namedParameters?
+### \_\_namedParameters
 
 #### useLinkLocalAddress?
 

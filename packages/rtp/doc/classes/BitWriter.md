@@ -8,9 +8,9 @@
 
 ## Constructors
 
-### Constructor
+### new BitWriter()
 
-> **new BitWriter**(`bitLength`): `BitWriter`
+> **new BitWriter**(`bitLength`): [`BitWriter`](BitWriter.md)
 
 #### Parameters
 
@@ -20,7 +20,7 @@
 
 #### Returns
 
-`BitWriter`
+[`BitWriter`](BitWriter.md)
 
 ## Properties
 
@@ -44,7 +44,7 @@
 
 ### set()
 
-> **set**(`size`, `startIndex`, `value`): `BitWriter`
+> **set**(`size`, `startIndex`, `value`): [`BitWriter`](BitWriter.md)
 
 #### Parameters
 
@@ -62,4 +62,4 @@
 
 #### Returns
 
-`BitWriter`
+[`BitWriter`](BitWriter.md)

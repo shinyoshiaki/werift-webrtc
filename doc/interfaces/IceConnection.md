@@ -22,7 +22,7 @@
 
 ### gathersFromServers?
 
-> `readonly` `optional` **gathersFromServers?**: `boolean`
+> `readonly` `optional` **gathersFromServers**: `boolean`
 
 Whether gathering contacts a STUN or TURN server.
 
@@ -72,13 +72,13 @@ Whether gathering contacts a STUN or TURN server.
 
 ### lookup?
 
-> `optional` **lookup?**: `MdnsLookup`
+> `optional` **lookup**: `MdnsLookup`
 
 ***
 
 ### nominated?
 
-> `optional` **nominated?**: [`CandidatePair`](../classes/CandidatePair.md)
+> `optional` **nominated**: [`CandidatePair`](../classes/CandidatePair.md)
 
 ***
 
@@ -102,7 +102,7 @@ Whether gathering contacts a STUN or TURN server.
 
 ### provisionalNominated?
 
-> `readonly` `optional` **provisionalNominated?**: [`CandidatePair`](../classes/CandidatePair.md)
+> `readonly` `optional` **provisionalNominated**: [`CandidatePair`](../classes/CandidatePair.md)
 
 ***
 
@@ -150,13 +150,13 @@ Whether gathering contacts a STUN or TURN server.
 
 ### stunServer?
 
-> `optional` **stunServer?**: readonly \[`string`, `number`\]
+> `optional` **stunServer**: readonly \[`string`, `number`\]
 
 ***
 
 ### turnServer?
 
-> `optional` **turnServer?**: readonly \[`string`, `number`\]
+> `optional` **turnServer**: readonly \[`string`, `number`\]
 
 ## Methods
 
@@ -168,7 +168,7 @@ Whether gathering contacts a STUN or TURN server.
 
 ##### candidate
 
-[`Candidate`](../classes/Candidate.md) \| `undefined`
+`undefined` | [`Candidate`](../classes/Candidate.md)
 
 #### Returns
 
@@ -184,7 +184,7 @@ Whether gathering contacts a STUN or TURN server.
 
 ##### remoteCandidate
 
-[`Candidate`](../classes/Candidate.md) \| `undefined`
+`undefined` | [`Candidate`](../classes/Candidate.md)
 
 #### Returns
 
@@ -282,11 +282,11 @@ only server work (STUN, TURN) is awaited.
 
 ### getDefaultCandidate()
 
-> **getDefaultCandidate**(): [`Candidate`](../classes/Candidate.md) \| `undefined`
+> **getDefaultCandidate**(): `undefined` \| [`Candidate`](../classes/Candidate.md)
 
 #### Returns
 
-[`Candidate`](../classes/Candidate.md) \| `undefined`
+`undefined` \| [`Candidate`](../classes/Candidate.md)
 
 ***
 

@@ -12,13 +12,13 @@
 
 ## Constructors
 
-### Constructor
+### new PcmaRtpPayload()
 
-> **new PcmaRtpPayload**(): `PcmaRtpPayload`
+> **new PcmaRtpPayload**(): [`PcmaRtpPayload`](PcmaRtpPayload.md)
 
 #### Returns
 
-`PcmaRtpPayload`
+[`PcmaRtpPayload`](PcmaRtpPayload.md)
 
 ## Properties
 
@@ -50,7 +50,7 @@
 
 ### deSerialize()
 
-> `static` **deSerialize**(`buf`): `PcmaRtpPayload`
+> `static` **deSerialize**(`buf`): [`PcmaRtpPayload`](PcmaRtpPayload.md)
 
 #### Parameters
 
@@ -60,7 +60,7 @@
 
 #### Returns
 
-`PcmaRtpPayload`
+[`PcmaRtpPayload`](PcmaRtpPayload.md)
 
 ***
 

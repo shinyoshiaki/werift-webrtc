@@ -8,25 +8,25 @@
 
 ## Constructors
 
-### Constructor
+### new SrtpContext()
 
-> **new SrtpContext**(): `SrtpContext`
+> **new SrtpContext**(): [`SrtpContext`](SrtpContext.md)
 
 #### Returns
 
-`SrtpContext`
+[`SrtpContext`](SrtpContext.md)
 
 ## Properties
 
 ### srtpProfile?
 
-> `optional` **srtpProfile?**: `1` \| `7`
+> `optional` **srtpProfile**: `1` \| `7`
 
 ## Methods
 
 ### findMatchingSRTPProfile()
 
-> `static` **findMatchingSRTPProfile**(`remote`, `local`): `1` \| `7` \| `undefined`
+> `static` **findMatchingSRTPProfile**(`remote`, `local`): `undefined` \| `1` \| `7`
 
 #### Parameters
 
@@ -40,4 +40,4 @@
 
 #### Returns
 
-`1` \| `7` \| `undefined`
+`undefined` \| `1` \| `7`

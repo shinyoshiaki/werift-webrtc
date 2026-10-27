@@ -12,9 +12,9 @@
 
 ## Constructors
 
-### Constructor
+### new Message()
 
-> **new Message**(`messageMethod`, `messageClass`, `transactionId?`, `attributes?`, `rawAttributes?`, `alternateServers?`): `Message`
+> **new Message**(`messageMethod`, `messageClass`, `transactionId`, `attributes`, `rawAttributes`, `alternateServers`): [`Message`](Message.md)
 
 #### Parameters
 
@@ -26,19 +26,19 @@
 
 [`classes`](../enumerations/classes.md)
 
-##### transactionId?
+##### transactionId
 
 `Buffer` = `...`
 
-##### attributes?
+##### attributes
 
 `AttributePair`[] = `[]`
 
-##### rawAttributes?
+##### rawAttributes
 
 `RawAttribute`[] = `[]`
 
-##### alternateServers?
+##### alternateServers
 
 \[`string`, `number`\][] = `[]`
 
@@ -46,7 +46,7 @@ Every ALTERNATE-SERVER attribute, in wire order.
 
 #### Returns
 
-`Message`
+[`Message`](Message.md)
 
 #### Overrides
 
@@ -178,17 +178,17 @@ Every ALTERNATE-SERVER attribute, in wire order.
 
 ### addFingerprint()
 
-> **addFingerprint**(): `Message`
+> **addFingerprint**(): [`Message`](Message.md)
 
 #### Returns
 
-`Message`
+[`Message`](Message.md)
 
 ***
 
 ### addMessageIntegrity()
 
-> **addMessageIntegrity**(`key`): `Message`
+> **addMessageIntegrity**(`key`): [`Message`](Message.md)
 
 #### Parameters
 
@@ -198,13 +198,13 @@ Every ALTERNATE-SERVER attribute, in wire order.
 
 #### Returns
 
-`Message`
+[`Message`](Message.md)
 
 ***
 
 ### appendRawAttribute()
 
-> **appendRawAttribute**(`type`, `value`): `Message`
+> **appendRawAttribute**(`type`, `value`): [`Message`](Message.md)
 
 #### Parameters
 
@@ -218,7 +218,7 @@ Every ALTERNATE-SERVER attribute, in wire order.
 
 #### Returns
 
-`Message`
+[`Message`](Message.md)
 
 ***
 
@@ -258,7 +258,7 @@ Every ALTERNATE-SERVER attribute, in wire order.
 
 ##### key
 
-`"FINGERPRINT"` \| `"MESSAGE-INTEGRITY"` \| `"MESSAGE-INTEGRITY-SHA256"` \| `"CHANGE-REQUEST"` \| `"PRIORITY"` \| `"USERNAME"` \| `"USERHASH"` \| `"ICE-CONTROLLING"` \| `"SOURCE-ADDRESS"` \| `"USE-CANDIDATE"` \| `"ICE-CONTROLLED"` \| `"ERROR-CODE"` \| `"UNKNOWN-ATTRIBUTES"` \| `"XOR-MAPPED-ADDRESS"` \| `"CHANGED-ADDRESS"` \| `"LIFETIME"` \| `"REQUESTED-TRANSPORT"` \| `"NONCE"` \| `"REALM"` \| `"REQUESTED-ADDRESS-FAMILY"` \| `"EVEN-PORT"` \| `"PASSWORD-ALGORITHM"` \| `"PASSWORD-ALGORITHMS"` \| `"XOR-RELAYED-ADDRESS"` \| `"RESERVATION-TOKEN"` \| `"CHANNEL-NUMBER"` \| `"XOR-PEER-ADDRESS"` \| `"DATA"` \| `"SOFTWARE"` \| `"MAPPED-ADDRESS"` \| `"ALTERNATE-DOMAIN"` \| `"ALTERNATE-SERVER"` \| `"RESPONSE-ORIGIN"` \| `"OTHER-ADDRESS"`
+`"FINGERPRINT"` | `"MESSAGE-INTEGRITY"` | `"MESSAGE-INTEGRITY-SHA256"` | `"CHANGE-REQUEST"` | `"PRIORITY"` | `"USERNAME"` | `"USERHASH"` | `"ICE-CONTROLLING"` | `"SOURCE-ADDRESS"` | `"USE-CANDIDATE"` | `"ICE-CONTROLLED"` | `"ERROR-CODE"` | `"UNKNOWN-ATTRIBUTES"` | `"XOR-MAPPED-ADDRESS"` | `"CHANGED-ADDRESS"` | `"LIFETIME"` | `"REQUESTED-TRANSPORT"` | `"NONCE"` | `"REALM"` | `"REQUESTED-ADDRESS-FAMILY"` | `"EVEN-PORT"` | `"PASSWORD-ALGORITHM"` | `"PASSWORD-ALGORITHMS"` | `"XOR-RELAYED-ADDRESS"` | `"RESERVATION-TOKEN"` | `"CHANNEL-NUMBER"` | `"XOR-PEER-ADDRESS"` | `"DATA"` | `"SOFTWARE"` | `"MAPPED-ADDRESS"` | `"ALTERNATE-DOMAIN"` | `"ALTERNATE-SERVER"` | `"RESPONSE-ORIGIN"` | `"OTHER-ADDRESS"`
 
 #### Returns
 
@@ -288,13 +288,13 @@ Every ALTERNATE-SERVER attribute, in wire order.
 
 ### setAttribute()
 
-> **setAttribute**(`key`, `value`): `Message`
+> **setAttribute**(`key`, `value`): [`Message`](Message.md)
 
 #### Parameters
 
 ##### key
 
-`"FINGERPRINT"` \| `"MESSAGE-INTEGRITY"` \| `"MESSAGE-INTEGRITY-SHA256"` \| `"CHANGE-REQUEST"` \| `"PRIORITY"` \| `"USERNAME"` \| `"USERHASH"` \| `"ICE-CONTROLLING"` \| `"SOURCE-ADDRESS"` \| `"USE-CANDIDATE"` \| `"ICE-CONTROLLED"` \| `"ERROR-CODE"` \| `"UNKNOWN-ATTRIBUTES"` \| `"XOR-MAPPED-ADDRESS"` \| `"CHANGED-ADDRESS"` \| `"LIFETIME"` \| `"REQUESTED-TRANSPORT"` \| `"NONCE"` \| `"REALM"` \| `"REQUESTED-ADDRESS-FAMILY"` \| `"EVEN-PORT"` \| `"PASSWORD-ALGORITHM"` \| `"PASSWORD-ALGORITHMS"` \| `"XOR-RELAYED-ADDRESS"` \| `"RESERVATION-TOKEN"` \| `"CHANNEL-NUMBER"` \| `"XOR-PEER-ADDRESS"` \| `"DATA"` \| `"SOFTWARE"` \| `"MAPPED-ADDRESS"` \| `"ALTERNATE-DOMAIN"` \| `"ALTERNATE-SERVER"` \| `"RESPONSE-ORIGIN"` \| `"OTHER-ADDRESS"`
+`"FINGERPRINT"` | `"MESSAGE-INTEGRITY"` | `"MESSAGE-INTEGRITY-SHA256"` | `"CHANGE-REQUEST"` | `"PRIORITY"` | `"USERNAME"` | `"USERHASH"` | `"ICE-CONTROLLING"` | `"SOURCE-ADDRESS"` | `"USE-CANDIDATE"` | `"ICE-CONTROLLED"` | `"ERROR-CODE"` | `"UNKNOWN-ATTRIBUTES"` | `"XOR-MAPPED-ADDRESS"` | `"CHANGED-ADDRESS"` | `"LIFETIME"` | `"REQUESTED-TRANSPORT"` | `"NONCE"` | `"REALM"` | `"REQUESTED-ADDRESS-FAMILY"` | `"EVEN-PORT"` | `"PASSWORD-ALGORITHM"` | `"PASSWORD-ALGORITHMS"` | `"XOR-RELAYED-ADDRESS"` | `"RESERVATION-TOKEN"` | `"CHANNEL-NUMBER"` | `"XOR-PEER-ADDRESS"` | `"DATA"` | `"SOFTWARE"` | `"MAPPED-ADDRESS"` | `"ALTERNATE-DOMAIN"` | `"ALTERNATE-SERVER"` | `"RESPONSE-ORIGIN"` | `"OTHER-ADDRESS"`
 
 ##### value
 
@@ -302,7 +302,7 @@ Every ALTERNATE-SERVER attribute, in wire order.
 
 #### Returns
 
-`Message`
+[`Message`](Message.md)
 
 #### Inherited from
 

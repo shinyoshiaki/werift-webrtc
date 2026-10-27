@@ -14,49 +14,49 @@
 
 ### availableIncomingBitrate?
 
-> `optional` **availableIncomingBitrate?**: `number`
+> `optional` **availableIncomingBitrate**: `number`
 
 ***
 
 ### availableOutgoingBitrate?
 
-> `optional` **availableOutgoingBitrate?**: `number`
+> `optional` **availableOutgoingBitrate**: `number`
 
 ***
 
 ### bytesDiscardedOnSend?
 
-> `optional` **bytesDiscardedOnSend?**: `number`
+> `optional` **bytesDiscardedOnSend**: `number`
 
 ***
 
 ### bytesReceived?
 
-> `optional` **bytesReceived?**: `number`
+> `optional` **bytesReceived**: `number`
 
 ***
 
 ### bytesSent?
 
-> `optional` **bytesSent?**: `number`
+> `optional` **bytesSent**: `number`
 
 ***
 
 ### consentExpiredTimestamp?
 
-> `optional` **consentExpiredTimestamp?**: `number`
+> `optional` **consentExpiredTimestamp**: `number`
 
 ***
 
 ### consentRequestsSent?
 
-> `optional` **consentRequestsSent?**: `number`
+> `optional` **consentRequestsSent**: `number`
 
 ***
 
 ### currentRoundTripTime?
 
-> `optional` **currentRoundTripTime?**: `number`
+> `optional` **currentRoundTripTime**: `number`
 
 ***
 
@@ -72,13 +72,13 @@
 
 ### lastPacketReceivedTimestamp?
 
-> `optional` **lastPacketReceivedTimestamp?**: `number`
+> `optional` **lastPacketReceivedTimestamp**: `number`
 
 ***
 
 ### lastPacketSentTimestamp?
 
-> `optional` **lastPacketSentTimestamp?**: `number`
+> `optional` **lastPacketSentTimestamp**: `number`
 
 ***
 
@@ -90,25 +90,25 @@
 
 ### nominated?
 
-> `optional` **nominated?**: `boolean`
+> `optional` **nominated**: `boolean`
 
 ***
 
 ### packetsDiscardedOnSend?
 
-> `optional` **packetsDiscardedOnSend?**: `number`
+> `optional` **packetsDiscardedOnSend**: `number`
 
 ***
 
 ### packetsReceived?
 
-> `optional` **packetsReceived?**: `number`
+> `optional` **packetsReceived**: `number`
 
 ***
 
 ### packetsSent?
 
-> `optional` **packetsSent?**: `number`
+> `optional` **packetsSent**: `number`
 
 ***
 
@@ -120,43 +120,43 @@
 
 ### requestsReceived?
 
-> `optional` **requestsReceived?**: `number`
+> `optional` **requestsReceived**: `number`
 
 ***
 
 ### requestsSent?
 
-> `optional` **requestsSent?**: `number`
+> `optional` **requestsSent**: `number`
 
 ***
 
 ### responsesReceived?
 
-> `optional` **responsesReceived?**: `number`
+> `optional` **responsesReceived**: `number`
 
 ***
 
 ### responsesSent?
 
-> `optional` **responsesSent?**: `number`
+> `optional` **responsesSent**: `number`
 
 ***
 
 ### retransmissionsReceived?
 
-> `optional` **retransmissionsReceived?**: `number`
+> `optional` **retransmissionsReceived**: `number`
 
 ***
 
 ### retransmissionsSent?
 
-> `optional` **retransmissionsSent?**: `number`
+> `optional` **retransmissionsSent**: `number`
 
 ***
 
 ### roundTripTimeMeasurements?
 
-> `optional` **roundTripTimeMeasurements?**: `number`
+> `optional` **roundTripTimeMeasurements**: `number`
 
 ***
 
@@ -178,13 +178,13 @@
 
 ### totalRoundTripTime?
 
-> `optional` **totalRoundTripTime?**: `number`
+> `optional` **totalRoundTripTime**: `number`
 
 ***
 
 ### transportId?
 
-> `optional` **transportId?**: `string`
+> `optional` **transportId**: `string`
 
 ***
 

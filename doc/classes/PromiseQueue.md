@@ -8,13 +8,13 @@
 
 ## Constructors
 
-### Constructor
+### new PromiseQueue()
 
-> **new PromiseQueue**(): `PromiseQueue`
+> **new PromiseQueue**(): [`PromiseQueue`](PromiseQueue.md)
 
 #### Returns
 
-`PromiseQueue`
+[`PromiseQueue`](PromiseQueue.md)
 
 ## Properties
 
@@ -22,7 +22,7 @@
 
 > **queue**: `object`[] = `[]`
 
-#### done
+#### done()
 
 > **done**: (...`args`) => `void`
 
@@ -36,7 +36,7 @@
 
 `void`
 
-#### failed
+#### failed()
 
 > **failed**: (...`args`) => `void`
 
@@ -50,7 +50,7 @@
 
 `void`
 
-#### promise
+#### promise()
 
 > **promise**: () => `Promise`\<`unknown`\>
 
@@ -82,9 +82,7 @@
 
 #### Type Parameters
 
-##### T
-
-`T`
+• **T**
 
 #### Parameters
 

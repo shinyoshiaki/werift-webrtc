@@ -8,9 +8,9 @@
 
 ## Constructors
 
-### Constructor
+### new RTCDtlsFingerprint()
 
-> **new RTCDtlsFingerprint**(`algorithm`, `value`): `RTCDtlsFingerprint`
+> **new RTCDtlsFingerprint**(`algorithm`, `value`): [`RTCDtlsFingerprint`](RTCDtlsFingerprint.md)
 
 #### Parameters
 
@@ -24,7 +24,7 @@
 
 #### Returns
 
-`RTCDtlsFingerprint`
+[`RTCDtlsFingerprint`](RTCDtlsFingerprint.md)
 
 ## Properties
 

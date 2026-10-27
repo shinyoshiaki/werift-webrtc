@@ -8,19 +8,19 @@
 
 ## Constructors
 
-### Constructor
+### new RtcpPayloadSpecificFeedback()
 
-> **new RtcpPayloadSpecificFeedback**(`props?`): `RtcpPayloadSpecificFeedback`
+> **new RtcpPayloadSpecificFeedback**(`props`): [`RtcpPayloadSpecificFeedback`](RtcpPayloadSpecificFeedback.md)
 
 #### Parameters
 
-##### props?
+##### props
 
-`Partial`\<`RtcpPayloadSpecificFeedback`\> = `{}`
+`Partial`\<[`RtcpPayloadSpecificFeedback`](RtcpPayloadSpecificFeedback.md)\> = `{}`
 
 #### Returns
 
-`RtcpPayloadSpecificFeedback`
+[`RtcpPayloadSpecificFeedback`](RtcpPayloadSpecificFeedback.md)
 
 ## Properties
 
@@ -54,7 +54,7 @@
 
 ### deSerialize()
 
-> `static` **deSerialize**(`data`, `header`): `RtcpPayloadSpecificFeedback`
+> `static` **deSerialize**(`data`, `header`): [`RtcpPayloadSpecificFeedback`](RtcpPayloadSpecificFeedback.md)
 
 #### Parameters
 
@@ -68,4 +68,4 @@
 
 #### Returns
 
-`RtcpPayloadSpecificFeedback`
+[`RtcpPayloadSpecificFeedback`](RtcpPayloadSpecificFeedback.md)

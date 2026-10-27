@@ -8,7 +8,7 @@
 
 > `const` **RTP\_EXTENSION\_URI**: `object`
 
-## Type Declaration
+## Type declaration
 
 ### absSendTime
 

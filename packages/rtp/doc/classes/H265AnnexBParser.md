@@ -8,9 +8,9 @@
 
 ## Constructors
 
-### Constructor
+### new H265AnnexBParser()
 
-> **new H265AnnexBParser**(`data`): `H265AnnexBParser`
+> **new H265AnnexBParser**(`data`): [`H265AnnexBParser`](H265AnnexBParser.md)
 
 #### Parameters
 
@@ -20,7 +20,7 @@
 
 #### Returns
 
-`H265AnnexBParser`
+[`H265AnnexBParser`](H265AnnexBParser.md)
 
 ## Methods
 
@@ -36,10 +36,10 @@
 
 ### readNextNalu()
 
-> **readNextNalu**(): `Buffer`\<`ArrayBufferLike`\> \| `null`
+> **readNextNalu**(): `null` \| `Buffer`\<`ArrayBufferLike`\>
 
 Returns next NAL unit without start code, or null at EOF.
 
 #### Returns
 
-`Buffer`\<`ArrayBufferLike`\> \| `null`
+`null` \| `Buffer`\<`ArrayBufferLike`\>

@@ -12,9 +12,9 @@
 
 ## Constructors
 
-### Constructor
+### new Connection()
 
-> **new Connection**(`_iceControlling`, `options?`): `Connection`
+> **new Connection**(`_iceControlling`, `options`?): [`Connection`](Connection.md)
 
 #### Parameters
 
@@ -28,7 +28,7 @@
 
 #### Returns
 
-`Connection`
+[`Connection`](Connection.md)
 
 ## Properties
 
@@ -94,7 +94,7 @@
 
 ### lookup?
 
-> `optional` **lookup?**: `MdnsLookup`
+> `optional` **lookup**: `MdnsLookup`
 
 #### Implementation of
 
@@ -104,7 +104,7 @@
 
 ### nominated?
 
-> `optional` **nominated?**: [`CandidatePair`](CandidatePair.md)
+> `optional` **nominated**: [`CandidatePair`](CandidatePair.md)
 
 #### Implementation of
 
@@ -204,7 +204,7 @@
 
 ### stunServer?
 
-> `optional` **stunServer?**: readonly \[`string`, `number`\]
+> `optional` **stunServer**: readonly \[`string`, `number`\]
 
 #### Implementation of
 
@@ -214,7 +214,7 @@
 
 ### turnServer?
 
-> `optional` **turnServer?**: readonly \[`string`, `number`\]
+> `optional` **turnServer**: readonly \[`string`, `number`\]
 
 #### Implementation of
 
@@ -321,11 +321,11 @@ Whether gathering contacts a STUN or TURN server.
 
 #### Get Signature
 
-> **get** **provisionalNominated**(): [`CandidatePair`](CandidatePair.md) \| `undefined`
+> **get** **provisionalNominated**(): `undefined` \| [`CandidatePair`](CandidatePair.md)
 
 ##### Returns
 
-[`CandidatePair`](CandidatePair.md) \| `undefined`
+`undefined` \| [`CandidatePair`](CandidatePair.md)
 
 #### Implementation of
 
@@ -371,7 +371,7 @@ Whether gathering contacts a STUN or TURN server.
 
 ##### remoteCandidate
 
-[`Candidate`](Candidate.md) \| `undefined`
+`undefined` | [`Candidate`](Candidate.md)
 
 #### Returns
 
@@ -398,7 +398,7 @@ the pairing and provisional lifecycle together.
 
 ##### remoteCandidate
 
-[`Candidate`](Candidate.md) \| `undefined`
+`undefined` | [`Candidate`](Candidate.md)
 
 #### Returns
 
@@ -452,9 +452,9 @@ readonly \[`string`, `number`\]
 
 > **awaitable**: `Promise`\<`void`\> = `p`
 
-##### reject
+##### reject()
 
-> **reject**: (`reason?`) => `void`
+> **reject**: (`reason`?) => `void`
 
 ###### Parameters
 
@@ -466,7 +466,7 @@ readonly \[`string`, `number`\]
 
 `void`
 
-##### resolve
+##### resolve()
 
 > **resolve**: (`value`) => `void`
 
@@ -474,7 +474,7 @@ readonly \[`string`, `number`\]
 
 ###### value
 
-`void` \| `PromiseLike`\<`void`\>
+`void` | `PromiseLike`\<`void`\>
 
 ###### Returns
 

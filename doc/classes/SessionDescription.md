@@ -8,13 +8,13 @@
 
 ## Constructors
 
-### Constructor
+### new SessionDescription()
 
-> **new SessionDescription**(): `SessionDescription`
+> **new SessionDescription**(): [`SessionDescription`](SessionDescription.md)
 
 #### Returns
 
-`SessionDescription`
+[`SessionDescription`](SessionDescription.md)
 
 ## Properties
 
@@ -44,7 +44,7 @@
 
 ### host?
 
-> `optional` **host?**: `string`
+> `optional` **host**: `string`
 
 ***
 
@@ -92,7 +92,7 @@
 
 ### origin?
 
-> `optional` **origin?**: `string`
+> `optional` **origin**: `string`
 
 ***
 
@@ -156,7 +156,7 @@
 
 ### webrtcTrackId()
 
-> **webrtcTrackId**(`media`): `string` \| `undefined`
+> **webrtcTrackId**(`media`): `undefined` \| `string`
 
 #### Parameters
 
@@ -166,13 +166,13 @@
 
 #### Returns
 
-`string` \| `undefined`
+`undefined` \| `string`
 
 ***
 
 ### parse()
 
-> `static` **parse**(`sdp`): `SessionDescription`
+> `static` **parse**(`sdp`): [`SessionDescription`](SessionDescription.md)
 
 #### Parameters
 
@@ -182,4 +182,4 @@
 
 #### Returns
 
-`SessionDescription`
+[`SessionDescription`](SessionDescription.md)

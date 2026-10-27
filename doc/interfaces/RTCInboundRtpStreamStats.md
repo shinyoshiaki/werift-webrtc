@@ -14,13 +14,13 @@
 
 ### audioLevel?
 
-> `optional` **audioLevel?**: `number`
+> `optional` **audioLevel**: `number`
 
 ***
 
 ### burstDiscardCount?
 
-> `optional` **burstDiscardCount?**: `number`
+> `optional` **burstDiscardCount**: `number`
 
 #### Inherited from
 
@@ -30,7 +30,7 @@
 
 ### burstDiscardRate?
 
-> `optional` **burstDiscardRate?**: `number`
+> `optional` **burstDiscardRate**: `number`
 
 #### Inherited from
 
@@ -40,7 +40,7 @@
 
 ### burstLossCount?
 
-> `optional` **burstLossCount?**: `number`
+> `optional` **burstLossCount**: `number`
 
 #### Inherited from
 
@@ -50,7 +50,7 @@
 
 ### burstLossRate?
 
-> `optional` **burstLossRate?**: `number`
+> `optional` **burstLossRate**: `number`
 
 #### Inherited from
 
@@ -60,7 +60,7 @@
 
 ### burstPacketsDiscarded?
 
-> `optional` **burstPacketsDiscarded?**: `number`
+> `optional` **burstPacketsDiscarded**: `number`
 
 #### Inherited from
 
@@ -70,7 +70,7 @@
 
 ### burstPacketsLost?
 
-> `optional` **burstPacketsLost?**: `number`
+> `optional` **burstPacketsLost**: `number`
 
 #### Inherited from
 
@@ -80,7 +80,7 @@
 
 ### bytesReceived?
 
-> `optional` **bytesReceived?**: `number`
+> `optional` **bytesReceived**: `number`
 
 #### Inherited from
 
@@ -90,7 +90,7 @@
 
 ### codecId?
 
-> `optional` **codecId?**: `string`
+> `optional` **codecId**: `string`
 
 #### Inherited from
 
@@ -100,67 +100,67 @@
 
 ### concealedSamples?
 
-> `optional` **concealedSamples?**: `number`
+> `optional` **concealedSamples**: `number`
 
 ***
 
 ### concealmentEvents?
 
-> `optional` **concealmentEvents?**: `number`
+> `optional` **concealmentEvents**: `number`
 
 ***
 
 ### decoderImplementation?
 
-> `optional` **decoderImplementation?**: `string`
+> `optional` **decoderImplementation**: `string`
 
 ***
 
 ### estimatedPlayoutTimestamp?
 
-> `optional` **estimatedPlayoutTimestamp?**: `number`
+> `optional` **estimatedPlayoutTimestamp**: `number`
 
 ***
 
 ### fecSsrc?
 
-> `optional` **fecSsrc?**: `number`
+> `optional` **fecSsrc**: `number`
 
 ***
 
 ### firCount?
 
-> `optional` **firCount?**: `number`
+> `optional` **firCount**: `number`
 
 ***
 
 ### frameBitDepth?
 
-> `optional` **frameBitDepth?**: `number`
+> `optional` **frameBitDepth**: `number`
 
 ***
 
 ### frameHeight?
 
-> `optional` **frameHeight?**: `number`
+> `optional` **frameHeight**: `number`
 
 ***
 
 ### framesAssembledFromMultiplePackets?
 
-> `optional` **framesAssembledFromMultiplePackets?**: `number`
+> `optional` **framesAssembledFromMultiplePackets**: `number`
 
 ***
 
 ### framesDecoded?
 
-> `optional` **framesDecoded?**: `number`
+> `optional` **framesDecoded**: `number`
 
 ***
 
 ### framesDropped?
 
-> `optional` **framesDropped?**: `number`
+> `optional` **framesDropped**: `number`
 
 #### Inherited from
 
@@ -170,25 +170,25 @@
 
 ### framesPerSecond?
 
-> `optional` **framesPerSecond?**: `number`
+> `optional` **framesPerSecond**: `number`
 
 ***
 
 ### framesReceived?
 
-> `optional` **framesReceived?**: `number`
+> `optional` **framesReceived**: `number`
 
 ***
 
 ### frameWidth?
 
-> `optional` **frameWidth?**: `number`
+> `optional` **frameWidth**: `number`
 
 ***
 
 ### fullFramesLost?
 
-> `optional` **fullFramesLost?**: `number`
+> `optional` **fullFramesLost**: `number`
 
 #### Inherited from
 
@@ -198,7 +198,7 @@
 
 ### gapDiscardRate?
 
-> `optional` **gapDiscardRate?**: `number`
+> `optional` **gapDiscardRate**: `number`
 
 #### Inherited from
 
@@ -208,7 +208,7 @@
 
 ### gapLossRate?
 
-> `optional` **gapLossRate?**: `number`
+> `optional` **gapLossRate**: `number`
 
 #### Inherited from
 
@@ -218,7 +218,7 @@
 
 ### headerBytesReceived?
 
-> `optional` **headerBytesReceived?**: `number`
+> `optional` **headerBytesReceived**: `number`
 
 ***
 
@@ -234,13 +234,13 @@
 
 ### insertedSamplesForDeceleration?
 
-> `optional` **insertedSamplesForDeceleration?**: `number`
+> `optional` **insertedSamplesForDeceleration**: `number`
 
 ***
 
 ### jitter?
 
-> `optional` **jitter?**: `number`
+> `optional` **jitter**: `number`
 
 #### Inherited from
 
@@ -250,31 +250,31 @@
 
 ### jitterBufferDelay?
 
-> `optional` **jitterBufferDelay?**: `number`
+> `optional` **jitterBufferDelay**: `number`
 
 ***
 
 ### jitterBufferEmittedCount?
 
-> `optional` **jitterBufferEmittedCount?**: `number`
+> `optional` **jitterBufferEmittedCount**: `number`
 
 ***
 
 ### jitterBufferMinimumDelay?
 
-> `optional` **jitterBufferMinimumDelay?**: `number`
+> `optional` **jitterBufferMinimumDelay**: `number`
 
 ***
 
 ### jitterBufferTargetDelay?
 
-> `optional` **jitterBufferTargetDelay?**: `number`
+> `optional` **jitterBufferTargetDelay**: `number`
 
 ***
 
 ### keyFramesDecoded?
 
-> `optional` **keyFramesDecoded?**: `number`
+> `optional` **keyFramesDecoded**: `number`
 
 ***
 
@@ -290,25 +290,25 @@
 
 ### lastPacketReceivedTimestamp?
 
-> `optional` **lastPacketReceivedTimestamp?**: `number`
+> `optional` **lastPacketReceivedTimestamp**: `number`
 
 ***
 
 ### mid?
 
-> `optional` **mid?**: `string`
+> `optional` **mid**: `string`
 
 ***
 
 ### nackCount?
 
-> `optional` **nackCount?**: `number`
+> `optional` **nackCount**: `number`
 
 ***
 
 ### packetsDiscarded?
 
-> `optional` **packetsDiscarded?**: `number`
+> `optional` **packetsDiscarded**: `number`
 
 #### Inherited from
 
@@ -318,19 +318,19 @@
 
 ### packetsDuplicated?
 
-> `optional` **packetsDuplicated?**: `number`
+> `optional` **packetsDuplicated**: `number`
 
 ***
 
 ### packetsFailedDecryption?
 
-> `optional` **packetsFailedDecryption?**: `number`
+> `optional` **packetsFailedDecryption**: `number`
 
 ***
 
 ### packetsLost?
 
-> `optional` **packetsLost?**: `number`
+> `optional` **packetsLost**: `number`
 
 #### Inherited from
 
@@ -340,7 +340,7 @@
 
 ### packetsReceived?
 
-> `optional` **packetsReceived?**: `number`
+> `optional` **packetsReceived**: `number`
 
 #### Inherited from
 
@@ -350,7 +350,7 @@
 
 ### packetsRepaired?
 
-> `optional` **packetsRepaired?**: `number`
+> `optional` **packetsRepaired**: `number`
 
 #### Inherited from
 
@@ -360,7 +360,7 @@
 
 ### partialFramesLost?
 
-> `optional` **partialFramesLost?**: `number`
+> `optional` **partialFramesLost**: `number`
 
 #### Inherited from
 
@@ -370,67 +370,67 @@
 
 ### perDscpPacketsReceived?
 
-> `optional` **perDscpPacketsReceived?**: `Record`\<`string`, `number`\>
+> `optional` **perDscpPacketsReceived**: `Record`\<`string`, `number`\>
 
 ***
 
 ### playoutId?
 
-> `optional` **playoutId?**: `string`
+> `optional` **playoutId**: `string`
 
 ***
 
 ### pliCount?
 
-> `optional` **pliCount?**: `number`
+> `optional` **pliCount**: `number`
 
 ***
 
 ### powerEfficientDecoder?
 
-> `optional` **powerEfficientDecoder?**: `boolean`
+> `optional` **powerEfficientDecoder**: `boolean`
 
 ***
 
 ### qpSum?
 
-> `optional` **qpSum?**: `number`
+> `optional` **qpSum**: `number`
 
 ***
 
 ### remoteId?
 
-> `optional` **remoteId?**: `string`
+> `optional` **remoteId**: `string`
 
 ***
 
 ### removedSamplesForAcceleration?
 
-> `optional` **removedSamplesForAcceleration?**: `number`
+> `optional` **removedSamplesForAcceleration**: `number`
 
 ***
 
 ### retransmittedBytesReceived?
 
-> `optional` **retransmittedBytesReceived?**: `number`
+> `optional` **retransmittedBytesReceived**: `number`
 
 ***
 
 ### retransmittedPacketsReceived?
 
-> `optional` **retransmittedPacketsReceived?**: `number`
+> `optional` **retransmittedPacketsReceived**: `number`
 
 ***
 
 ### rtxSsrc?
 
-> `optional` **rtxSsrc?**: `number`
+> `optional` **rtxSsrc**: `number`
 
 ***
 
 ### silentConcealedSamples?
 
-> `optional` **silentConcealedSamples?**: `number`
+> `optional` **silentConcealedSamples**: `number`
 
 ***
 
@@ -456,61 +456,61 @@
 
 ### totalAssemblyTime?
 
-> `optional` **totalAssemblyTime?**: `number`
+> `optional` **totalAssemblyTime**: `number`
 
 ***
 
 ### totalAudioEnergy?
 
-> `optional` **totalAudioEnergy?**: `number`
+> `optional` **totalAudioEnergy**: `number`
 
 ***
 
 ### totalDecodeTime?
 
-> `optional` **totalDecodeTime?**: `number`
+> `optional` **totalDecodeTime**: `number`
 
 ***
 
 ### totalInterFrameDelay?
 
-> `optional` **totalInterFrameDelay?**: `number`
+> `optional` **totalInterFrameDelay**: `number`
 
 ***
 
 ### totalProcessingDelay?
 
-> `optional` **totalProcessingDelay?**: `number`
+> `optional` **totalProcessingDelay**: `number`
 
 ***
 
 ### totalSamplesDuration?
 
-> `optional` **totalSamplesDuration?**: `number`
+> `optional` **totalSamplesDuration**: `number`
 
 ***
 
 ### totalSamplesReceived?
 
-> `optional` **totalSamplesReceived?**: `number`
+> `optional` **totalSamplesReceived**: `number`
 
 ***
 
 ### totalSquaredInterFrameDelay?
 
-> `optional` **totalSquaredInterFrameDelay?**: `number`
+> `optional` **totalSquaredInterFrameDelay**: `number`
 
 ***
 
 ### trackIdentifier?
 
-> `optional` **trackIdentifier?**: `string`
+> `optional` **trackIdentifier**: `string`
 
 ***
 
 ### transportId?
 
-> `optional` **transportId?**: `string`
+> `optional` **transportId**: `string`
 
 #### Inherited from
 

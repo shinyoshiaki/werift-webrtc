@@ -15,23 +15,23 @@ Single NAL / STAP-A (SPS+PPS) / FU-A fragmentation (RFC 6184).
 
 ## Constructors
 
-### Constructor
+### new H264Packetizer()
 
-> **new H264Packetizer**(`options?`): `H264Packetizer`
+> **new H264Packetizer**(`options`): [`H264Packetizer`](H264Packetizer.md)
 
 #### Parameters
 
-##### options?
+##### options
 
 [`H264PacketizerOptions`](../type-aliases/H264PacketizerOptions.md) = `{}`
 
 #### Returns
 
-`H264Packetizer`
+[`H264Packetizer`](H264Packetizer.md)
 
 #### Overrides
 
-[`PacketizerBase`](PacketizerBase.md).[`constructor`](PacketizerBase.md#constructor)
+[`PacketizerBase`](PacketizerBase.md).[`constructor`](PacketizerBase.md#constructors)
 
 ## Properties
 
@@ -105,7 +105,7 @@ Single NAL / STAP-A (SPS+PPS) / FU-A fragmentation (RFC 6184).
 
 ### packetize()
 
-> **packetize**(`data`, `rtpTimestamp`, `options?`): [`RtpPacket`](RtpPacket.md)[]
+> **packetize**(`data`, `rtpTimestamp`, `options`): [`RtpPacket`](RtpPacket.md)[]
 
 #### Parameters
 
@@ -117,7 +117,7 @@ Single NAL / STAP-A (SPS+PPS) / FU-A fragmentation (RFC 6184).
 
 `number`
 
-##### options?
+##### options
 
 [`H264PacketizeOptions`](../type-aliases/H264PacketizeOptions.md) = `{}`
 

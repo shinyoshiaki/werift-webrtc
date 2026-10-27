@@ -35,9 +35,9 @@ m-line stop, rejection and reuse inside a negotiation:
 
 ## Constructors
 
-### Constructor
+### new TransceiverManager()
 
-> **new TransceiverManager**(`cname`, `config`, `router`): `TransceiverManager`
+> **new TransceiverManager**(`cname`, `config`, `router`): [`TransceiverManager`](TransceiverManager.md)
 
 #### Parameters
 
@@ -55,7 +55,7 @@ m-line stop, rejection and reuse inside a negotiation:
 
 #### Returns
 
-`TransceiverManager`
+[`TransceiverManager`](TransceiverManager.md)
 
 ## Properties
 
@@ -85,7 +85,7 @@ m-line stop, rejection and reuse inside a negotiation:
 
 ### addTrack()
 
-> **addTrack**(`track`, `streams?`): [`RTCRtpTransceiver`](RTCRtpTransceiver.md)
+> **addTrack**(`track`, `streams`): [`RTCRtpTransceiver`](RTCRtpTransceiver.md)
 
 #### Parameters
 
@@ -93,7 +93,7 @@ m-line stop, rejection and reuse inside a negotiation:
 
 [`MediaStreamTrack`](MediaStreamTrack.md)
 
-##### streams?
+##### streams
 
 [`MediaStream`](MediaStream.md)[] = `[]`
 
@@ -105,13 +105,13 @@ m-line stop, rejection and reuse inside a negotiation:
 
 ### addTransceiver()
 
-> **addTransceiver**(`trackOrKind`, `dtlsTransport?`, `options?`, `__namedParameters?`): [`RTCRtpTransceiver`](RTCRtpTransceiver.md)
+> **addTransceiver**(`trackOrKind`, `dtlsTransport`?, `options`?, `__namedParameters`?): [`RTCRtpTransceiver`](RTCRtpTransceiver.md)
 
 #### Parameters
 
 ##### trackOrKind
 
-[`Kind`](../type-aliases/Kind.md) \| [`MediaStreamTrack`](MediaStreamTrack.md)
+[`Kind`](../type-aliases/Kind.md) | [`MediaStreamTrack`](MediaStreamTrack.md)
 
 ##### dtlsTransport?
 
@@ -302,7 +302,7 @@ remote SDP 起因の停止なので negotiationneeded は要求しない。
 
 ##### selector
 
-[`MediaStreamTrack`](MediaStreamTrack.md) \| `null` \| `undefined`
+`undefined` | `null` | [`MediaStreamTrack`](MediaStreamTrack.md)
 
 #### Returns
 
@@ -312,7 +312,7 @@ remote SDP 起因の停止なので negotiationneeded は要求しない。
 
 ### getTransceiverByMLineIndex()
 
-> **getTransceiverByMLineIndex**(`index`): [`RTCRtpTransceiver`](RTCRtpTransceiver.md) \| `undefined`
+> **getTransceiverByMLineIndex**(`index`): `undefined` \| [`RTCRtpTransceiver`](RTCRtpTransceiver.md)
 
 #### Parameters
 
@@ -322,7 +322,7 @@ remote SDP 起因の停止なので negotiationneeded は要求しない。
 
 #### Returns
 
-[`RTCRtpTransceiver`](RTCRtpTransceiver.md) \| `undefined`
+`undefined` \| [`RTCRtpTransceiver`](RTCRtpTransceiver.md)
 
 ***
 
@@ -356,7 +356,7 @@ transceiver の対応付けは本適用と同じ resolver を使い、検証と�
 
 ##### findTransceiver
 
-(`remoteMedia`, `index`) => [`RTCRtpTransceiver`](RTCRtpTransceiver.md) \| `undefined`
+(`remoteMedia`, `index`) => `undefined` \| [`RTCRtpTransceiver`](RTCRtpTransceiver.md)
 
 #### Returns
 
@@ -465,7 +465,7 @@ sender から track を外す。
 
 ### restoreNegotiationState()
 
-> **restoreNegotiationState**(`snapshot`, `added`, `createdState?`, `carried?`, `notified?`): [`RTCDtlsTransport`](RTCDtlsTransport.md)[]
+> **restoreNegotiationState**(`snapshot`, `added`, `createdState`, `carried`, `notified`): [`RTCDtlsTransport`](RTCDtlsTransport.md)[]
 
 Internal: return to a negotiation baseline. Transceivers in `added` were
 created by the rolled-back proposal: they are removed unless the
@@ -483,15 +483,15 @@ keep the track event they delivered.
 
 `Iterable`\<[`RTCRtpTransceiver`](RTCRtpTransceiver.md)\>
 
-##### createdState?
+##### createdState
 
-(`transceiver`) => \{ `applicationStopRevision`: `number`; `codecChangeRevision`: `number`; `codecPreferencesNeedResolution`: `boolean`; `codecs`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]; `currentDirection`: [`CurrentDirection`](../type-aliases/CurrentDirection.md) \| `null`; `dtlsTransport`: [`RTCDtlsTransport`](RTCDtlsTransport.md); `firedReceiving`: `boolean`; `headerExtensions`: [`RTCRtpHeaderExtensionParameters`](RTCRtpHeaderExtensionParameters.md)[]; `mid`: `string` \| `null`; `mLineIndex`: `number` \| `undefined`; `offerDirection`: `"inactive"` \| `"sendonly"` \| `"recvonly"` \| `"sendrecv"`; `pendingLocalOfferCodecs`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[] \| `undefined`; `pendingRejection`: `boolean`; `receiver`: \{ `receiverTWCC`: `ReceiverTWCC` \| `undefined`; `receiveTables`: \{ `codecs`: \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \}; `ssrcByRtx`: \{\[`rtxSsrc`: `number`\]: `number`; \}; `stagedCodecs`: \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \}; `stagedSsrcByRtx`: \{\[`rtxSsrc`: `number`\]: `number`; \}; \}; `remoteStreamId`: `string` \| `undefined`; `remoteStreamIds`: `string`[]; `remoteTrackId`: `string` \| `undefined`; `trackByRID`: \{\[`rid`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md); \}; `trackBySSRC`: \{\[`ssrc`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md); \}; `tracks`: [`MediaStreamTrack`](MediaStreamTrack.md)[]; `unboundTracks`: [`MediaStreamTrack`](MediaStreamTrack.md)[]; \}; `rejected`: `boolean`; `sender`: \{ `cname`: `string` \| `undefined`; `codec`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined`; `headerExtensions`: [`RTCRtpHeaderExtensionParameters`](RTCRtpHeaderExtensionParameters.md)[]; `mid`: `string` \| `undefined`; `negotiatedCodecs`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]; `proposedPrimaryCodec`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined`; `redRedundantPayloadType`: `number` \| `undefined`; `repairedRtpStreamId`: `string` \| `undefined`; `rtpStreamId`: `string` \| `undefined`; `rtxPayloadType`: `number` \| `undefined`; `sendPrimaryCodec`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined`; `track`: [`MediaStreamTrack`](MediaStreamTrack.md) \| `null`; `trackCodec`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined`; \}; `stopped`: `boolean`; `stopping`: `boolean`; \} \| `undefined`
+(`transceiver`) => `undefined` \| \{ `applicationStopRevision`: `number`; `codecChangeRevision`: `number`; `codecPreferencesNeedResolution`: `boolean`; `codecs`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]; `currentDirection`: `null` \| [`CurrentDirection`](../type-aliases/CurrentDirection.md); `dtlsTransport`: [`RTCDtlsTransport`](RTCDtlsTransport.md); `firedReceiving`: `boolean`; `headerExtensions`: [`RTCRtpHeaderExtensionParameters`](RTCRtpHeaderExtensionParameters.md)[]; `mid`: `null` \| `string`; `mLineIndex`: `undefined` \| `number`; `offerDirection`: `"inactive"` \| `"sendonly"` \| `"recvonly"` \| `"sendrecv"`; `pendingLocalOfferCodecs`: `undefined` \| [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]; `pendingRejection`: `boolean`; `receiver`: \{ `receiverTWCC`: `undefined` \| `ReceiverTWCC`; `receiveTables`: \{ `codecs`: \{\}; `ssrcByRtx`: \{\}; `stagedCodecs`: \{\}; `stagedSsrcByRtx`: \{\}; \}; `remoteStreamId`: `undefined` \| `string`; `remoteStreamIds`: `string`[]; `remoteTrackId`: `undefined` \| `string`; `trackByRID`: \{\}; `trackBySSRC`: \{\}; `tracks`: [`MediaStreamTrack`](MediaStreamTrack.md)[]; `unboundTracks`: [`MediaStreamTrack`](MediaStreamTrack.md)[]; \}; `rejected`: `boolean`; `sender`: \{ `cname`: `undefined` \| `string`; `codec`: `undefined` \| [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); `headerExtensions`: [`RTCRtpHeaderExtensionParameters`](RTCRtpHeaderExtensionParameters.md)[]; `mid`: `undefined` \| `string`; `negotiatedCodecs`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]; `proposedPrimaryCodec`: `undefined` \| [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); `redRedundantPayloadType`: `undefined` \| `number`; `repairedRtpStreamId`: `undefined` \| `string`; `rtpStreamId`: `undefined` \| `string`; `rtxPayloadType`: `undefined` \| `number`; `sendPrimaryCodec`: `undefined` \| [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); `track`: `null` \| [`MediaStreamTrack`](MediaStreamTrack.md); `trackCodec`: `undefined` \| [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \}; `stopped`: `boolean`; `stopping`: `boolean`; \}
 
-##### carried?
+##### carried
 
 `ReadonlySet`\<[`RTCRtpTransceiver`](RTCRtpTransceiver.md)\> = `...`
 
-##### notified?
+##### notified
 
 `ReadonlySet`\<[`RTCRtpTransceiver`](RTCRtpTransceiver.md)\> = `...`
 
@@ -545,7 +545,7 @@ sender/receiver 準備・router 登録・onTrack・TWCC を行わない。
 
 ##### type
 
-`"offer"` \| `"answer"` \| `"pranswer"`
+`"offer"` | `"answer"` | `"pranswer"`
 
 ##### mLineIndex
 

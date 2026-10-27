@@ -12,13 +12,13 @@
 
 ## Constructors
 
-### Constructor
+### new Vp9RtpPayload()
 
-> **new Vp9RtpPayload**(): `Vp9RtpPayload`
+> **new Vp9RtpPayload**(): [`Vp9RtpPayload`](Vp9RtpPayload.md)
 
 #### Returns
 
-`Vp9RtpPayload`
+[`Vp9RtpPayload`](Vp9RtpPayload.md)
 
 ## Properties
 
@@ -32,7 +32,7 @@ Start of a frame
 
 ### d?
 
-> `optional` **d?**: `number`
+> `optional` **d**: `number`
 
 inter_layer_predicted
 
@@ -56,7 +56,7 @@ Flexible mode
 
 ### g?
 
-> `optional` **g?**: `number`
+> `optional` **g**: `number`
 
 ***
 
@@ -84,7 +84,7 @@ Layer indices present
 
 ### m?
 
-> `optional` **m?**: `number`
+> `optional` **m**: `number`
 
 ***
 
@@ -96,7 +96,7 @@ Layer indices present
 
 ### n\_s?
 
-> `optional` **n\_s?**: `number`
+> `optional` **n\_s**: `number`
 
 ***
 
@@ -144,31 +144,31 @@ Inter-picture predicted frame
 
 ### pictureId?
 
-> `optional` **pictureId?**: `number`
+> `optional` **pictureId**: `number`
 
 ***
 
 ### sid?
 
-> `optional` **sid?**: `number`
+> `optional` **sid**: `number`
 
 ***
 
 ### tid?
 
-> `optional` **tid?**: `number`
+> `optional` **tid**: `number`
 
 ***
 
 ### tl0PicIdx?
 
-> `optional` **tl0PicIdx?**: `number`
+> `optional` **tl0PicIdx**: `number`
 
 ***
 
 ### u?
 
-> `optional` **u?**: `number`
+> `optional` **u**: `number`
 
 ***
 
@@ -188,7 +188,7 @@ Scalability structure
 
 ### y?
 
-> `optional` **y?**: `number`
+> `optional` **y**: `number`
 
 ***
 
@@ -228,7 +228,7 @@ Scalability structure
 
 ### deSerialize()
 
-> `static` **deSerialize**(`buf`): `Vp9RtpPayload`
+> `static` **deSerialize**(`buf`): [`Vp9RtpPayload`](Vp9RtpPayload.md)
 
 #### Parameters
 
@@ -238,7 +238,7 @@ Scalability structure
 
 #### Returns
 
-`Vp9RtpPayload`
+[`Vp9RtpPayload`](Vp9RtpPayload.md)
 
 ***
 
@@ -278,4 +278,4 @@ Scalability structure
 
 ##### p
 
-> **p**: `Vp9RtpPayload`
+> **p**: [`Vp9RtpPayload`](Vp9RtpPayload.md)

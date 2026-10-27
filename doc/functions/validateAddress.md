@@ -6,7 +6,7 @@
 
 # Function: validateAddress()
 
-> **validateAddress**(`addr?`): readonly \[`string`, `number`\] \| `undefined`
+> **validateAddress**(`addr`?): `undefined` \| readonly \[`string`, `number`\]
 
 ## Parameters
 
@@ -16,4 +16,4 @@ readonly \[`string`, `number`\]
 
 ## Returns
 
-readonly \[`string`, `number`\] \| `undefined`
+`undefined` \| readonly \[`string`, `number`\]

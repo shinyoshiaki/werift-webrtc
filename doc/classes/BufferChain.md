@@ -8,9 +8,9 @@
 
 ## Constructors
 
-### Constructor
+### new BufferChain()
 
-> **new BufferChain**(`size`): `BufferChain`
+> **new BufferChain**(`size`): [`BufferChain`](BufferChain.md)
 
 #### Parameters
 
@@ -20,7 +20,7 @@
 
 #### Returns
 
-`BufferChain`
+[`BufferChain`](BufferChain.md)
 
 ## Properties
 
@@ -32,7 +32,7 @@
 
 ### writeInt16BE()
 
-> **writeInt16BE**(`value`, `offset?`): `BufferChain`
+> **writeInt16BE**(`value`, `offset`?): [`BufferChain`](BufferChain.md)
 
 #### Parameters
 
@@ -46,13 +46,13 @@
 
 #### Returns
 
-`BufferChain`
+[`BufferChain`](BufferChain.md)
 
 ***
 
 ### writeUInt8()
 
-> **writeUInt8**(`value`, `offset?`): `BufferChain`
+> **writeUInt8**(`value`, `offset`?): [`BufferChain`](BufferChain.md)
 
 #### Parameters
 
@@ -66,4 +66,4 @@
 
 #### Returns
 
-`BufferChain`
+[`BufferChain`](BufferChain.md)

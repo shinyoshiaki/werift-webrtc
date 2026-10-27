@@ -10,7 +10,7 @@
 
 IRAP picture NAL unit types (HEVC); used for isKeyframe.
 
-## Type Declaration
+## Type declaration
 
 ### BLA\_N\_LP
 

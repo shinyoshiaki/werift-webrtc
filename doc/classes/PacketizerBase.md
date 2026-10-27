@@ -4,7 +4,7 @@
 
 [werift](../globals.md) / PacketizerBase
 
-# Abstract Class: PacketizerBase
+# Class: `abstract` PacketizerBase
 
 Shared RTP packet construction for package-local packetizers.
 Sequence number increments by 1 (uint16 wrap) per packet.
@@ -29,19 +29,19 @@ telephone-event is the RFC 4733 exception: marker on the first event packet).
 
 ## Constructors
 
-### Constructor
+### new PacketizerBase()
 
-> **new PacketizerBase**(`options?`): `PacketizerBase`
+> **new PacketizerBase**(`options`): [`PacketizerBase`](PacketizerBase.md)
 
 #### Parameters
 
-##### options?
+##### options
 
 [`PacketizerBaseOptions`](../type-aliases/PacketizerBaseOptions.md) = `{}`
 
 #### Returns
 
-`PacketizerBase`
+[`PacketizerBase`](PacketizerBase.md)
 
 ## Properties
 

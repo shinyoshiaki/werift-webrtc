@@ -14,31 +14,31 @@
 
 ### audioLevel?
 
-> `optional` **audioLevel?**: `number`
+> `optional` **audioLevel**: `number`
 
 ***
 
 ### droppedSamplesDuration?
 
-> `optional` **droppedSamplesDuration?**: `number`
+> `optional` **droppedSamplesDuration**: `number`
 
 ***
 
 ### droppedSamplesEvents?
 
-> `optional` **droppedSamplesEvents?**: `number`
+> `optional` **droppedSamplesEvents**: `number`
 
 ***
 
 ### echoReturnLoss?
 
-> `optional` **echoReturnLoss?**: `number`
+> `optional` **echoReturnLoss**: `number`
 
 ***
 
 ### echoReturnLossEnhancement?
 
-> `optional` **echoReturnLossEnhancement?**: `number`
+> `optional` **echoReturnLossEnhancement**: `number`
 
 ***
 
@@ -74,25 +74,25 @@
 
 ### totalAudioEnergy?
 
-> `optional` **totalAudioEnergy?**: `number`
+> `optional` **totalAudioEnergy**: `number`
 
 ***
 
 ### totalCaptureDelay?
 
-> `optional` **totalCaptureDelay?**: `number`
+> `optional` **totalCaptureDelay**: `number`
 
 ***
 
 ### totalSamplesCaptured?
 
-> `optional` **totalSamplesCaptured?**: `number`
+> `optional` **totalSamplesCaptured**: `number`
 
 ***
 
 ### totalSamplesDuration?
 
-> `optional` **totalSamplesDuration?**: `number`
+> `optional` **totalSamplesDuration**: `number`
 
 ***
 

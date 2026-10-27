@@ -12,9 +12,9 @@
 
 ## Constructors
 
-### Constructor
+### new SrtpSession()
 
-> **new SrtpSession**(`config`): `SrtpSession`
+> **new SrtpSession**(`config`): [`SrtpSession`](SrtpSession.md)
 
 #### Parameters
 
@@ -24,7 +24,7 @@
 
 #### Returns
 
-`SrtpSession`
+[`SrtpSession`](SrtpSession.md)
 
 #### Overrides
 
@@ -48,9 +48,9 @@
 
 ***
 
-### onData?
+### onData()?
 
-> `optional` **onData?**: (`buf`) => `void`
+> `optional` **onData**: (`buf`) => `void`
 
 #### Parameters
 

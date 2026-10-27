@@ -16,11 +16,11 @@
 
 ### source
 
-readonly [`RTCRtpCodecParameters`](../classes/RTCRtpCodecParameters.md)[] \| `undefined`
+`undefined` | readonly [`RTCRtpCodecParameters`](../classes/RTCRtpCodecParameters.md)[]
 
 ### preferences
 
-readonly [`RTCRtpCodecParameters`](../classes/RTCRtpCodecParameters.md)[] \| `undefined`
+`undefined` | readonly [`RTCRtpCodecParameters`](../classes/RTCRtpCodecParameters.md)[]
 
 ## Returns
 

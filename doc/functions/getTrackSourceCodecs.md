@@ -6,14 +6,14 @@
 
 # Function: getTrackSourceCodecs()
 
-> **getTrackSourceCodecs**(`track`): readonly [`RTCRtpCodecParameters`](../classes/RTCRtpCodecParameters.md)[] \| `undefined`
+> **getTrackSourceCodecs**(`track`): `undefined` \| readonly [`RTCRtpCodecParameters`](../classes/RTCRtpCodecParameters.md)[]
 
 ## Parameters
 
 ### track
 
-[`MediaStreamTrack`](../classes/MediaStreamTrack.md) \| `null` \| `undefined`
+`undefined` | `null` | [`MediaStreamTrack`](../classes/MediaStreamTrack.md)
 
 ## Returns
 
-readonly [`RTCRtpCodecParameters`](../classes/RTCRtpCodecParameters.md)[] \| `undefined`
+`undefined` \| readonly [`RTCRtpCodecParameters`](../classes/RTCRtpCodecParameters.md)[]

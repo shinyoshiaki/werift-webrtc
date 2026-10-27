@@ -8,19 +8,19 @@
 
 ## Constructors
 
-### Constructor
+### new RtcpSrPacket()
 
-> **new RtcpSrPacket**(`props`): `RtcpSrPacket`
+> **new RtcpSrPacket**(`props`): [`RtcpSrPacket`](RtcpSrPacket.md)
 
 #### Parameters
 
 ##### props
 
-`Pick`\<`RtcpSrPacket`, `"senderInfo"`\> & `Partial`\<`RtcpSrPacket`\>
+`Pick`\<[`RtcpSrPacket`](RtcpSrPacket.md), `"senderInfo"`\> & `Partial`\<[`RtcpSrPacket`](RtcpSrPacket.md)\>
 
 #### Returns
 
-`RtcpSrPacket`
+[`RtcpSrPacket`](RtcpSrPacket.md)
 
 ## Properties
 
@@ -96,7 +96,7 @@
 
 ### deSerialize()
 
-> `static` **deSerialize**(`payload`, `count`): `RtcpSrPacket`
+> `static` **deSerialize**(`payload`, `count`): [`RtcpSrPacket`](RtcpSrPacket.md)
 
 #### Parameters
 
@@ -110,4 +110,4 @@
 
 #### Returns
 
-`RtcpSrPacket`
+[`RtcpSrPacket`](RtcpSrPacket.md)

@@ -8,25 +8,25 @@
 
 ## Constructors
 
-### Constructor
+### new RTCRtpCodecParameters()
 
-> **new RTCRtpCodecParameters**(`props`): `RTCRtpCodecParameters`
+> **new RTCRtpCodecParameters**(`props`): [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
 
 #### Parameters
 
 ##### props
 
-`Pick`\<`RTCRtpCodecParameters`, `"clockRate"` \| `"mimeType"`\> & `Partial`\<`RTCRtpCodecParameters`\>
+`Pick`\<[`RTCRtpCodecParameters`](RTCRtpCodecParameters.md), `"clockRate"` \| `"mimeType"`\> & `Partial`\<[`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)\>
 
 #### Returns
 
-`RTCRtpCodecParameters`
+[`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
 
 ## Properties
 
 ### channels?
 
-> `optional` **channels?**: `number`
+> `optional` **channels**: `number`
 
 ***
 
@@ -50,7 +50,7 @@
 
 ### parameters?
 
-> `optional` **parameters?**: `string`
+> `optional` **parameters**: `string`
 
 ***
 

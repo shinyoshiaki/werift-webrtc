@@ -6,4 +6,4 @@
 
 # Type Alias: TurnRedirectFailureReason
 
-> **TurnRedirectFailureReason** = `"missing-alternate"` \| `"loop"` \| `"too-many-redirects"` \| `"unsupported-transport"`
+> **TurnRedirectFailureReason**: `"missing-alternate"` \| `"loop"` \| `"too-many-redirects"` \| `"unsupported-transport"`

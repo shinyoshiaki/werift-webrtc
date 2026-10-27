@@ -8,7 +8,7 @@
 
 > `const` **NamedCurveAlgorithm**: `object`
 
-## Type Declaration
+## Type declaration
 
 ### secp256r1\_23
 

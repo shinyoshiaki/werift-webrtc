@@ -6,4 +6,4 @@
 
 # Type Alias: IpAddressFamily
 
-> **IpAddressFamily** = `4` \| `6`
+> **IpAddressFamily**: `4` \| `6`

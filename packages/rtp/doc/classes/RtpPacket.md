@@ -8,9 +8,9 @@
 
 ## Constructors
 
-### Constructor
+### new RtpPacket()
 
-> **new RtpPacket**(`header`, `payload`): `RtpPacket`
+> **new RtpPacket**(`header`, `payload`): [`RtpPacket`](RtpPacket.md)
 
 #### Parameters
 
@@ -24,7 +24,7 @@
 
 #### Returns
 
-`RtpPacket`
+[`RtpPacket`](RtpPacket.md)
 
 ## Properties
 
@@ -64,11 +64,11 @@
 
 ### clone()
 
-> **clone**(): `RtpPacket`
+> **clone**(): [`RtpPacket`](RtpPacket.md)
 
 #### Returns
 
-`RtpPacket`
+[`RtpPacket`](RtpPacket.md)
 
 ***
 
@@ -84,7 +84,7 @@
 
 ### deSerialize()
 
-> `static` **deSerialize**(`buf`): `RtpPacket`
+> `static` **deSerialize**(`buf`): [`RtpPacket`](RtpPacket.md)
 
 #### Parameters
 
@@ -94,4 +94,4 @@
 
 #### Returns
 
-`RtpPacket`
+[`RtpPacket`](RtpPacket.md)

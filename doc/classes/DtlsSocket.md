@@ -13,9 +13,9 @@
 
 ## Constructors
 
-### Constructor
+### new DtlsSocket()
 
-> **new DtlsSocket**(`options`, `sessionType`): `DtlsSocket`
+> **new DtlsSocket**(`options`, `sessionType`): [`DtlsSocket`](DtlsSocket.md)
 
 #### Parameters
 
@@ -29,7 +29,7 @@
 
 #### Returns
 
-`DtlsSocket`
+[`DtlsSocket`](DtlsSocket.md)
 
 ## Properties
 
@@ -81,7 +81,7 @@
 
 ***
 
-### onHandleHandshakes
+### onHandleHandshakes()
 
 > **onHandleHandshakes**: (`assembled`) => `Promise`\<`void`\>
 
@@ -125,11 +125,11 @@
 
 #### Get Signature
 
-> **get** **remoteCertificate**(): `Buffer`\<`ArrayBufferLike`\> \| `undefined`
+> **get** **remoteCertificate**(): `undefined` \| `Buffer`\<`ArrayBufferLike`\>
 
 ##### Returns
 
-`Buffer`\<`ArrayBufferLike`\> \| `undefined`
+`undefined` \| `Buffer`\<`ArrayBufferLike`\>
 
 ## Methods
 
@@ -227,7 +227,7 @@
 
 ### send()
 
-> **send**(`buf`, `addr?`): `Promise`\<`void`\>
+> **send**(`buf`, `addr`?): `Promise`\<`void`\>
 
 send application data
 

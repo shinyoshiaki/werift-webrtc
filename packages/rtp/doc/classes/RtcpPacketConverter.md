@@ -8,13 +8,13 @@
 
 ## Constructors
 
-### Constructor
+### new RtcpPacketConverter()
 
-> **new RtcpPacketConverter**(): `RtcpPacketConverter`
+> **new RtcpPacketConverter**(): [`RtcpPacketConverter`](RtcpPacketConverter.md)
 
 #### Returns
 
-`RtcpPacketConverter`
+[`RtcpPacketConverter`](RtcpPacketConverter.md)
 
 ## Methods
 

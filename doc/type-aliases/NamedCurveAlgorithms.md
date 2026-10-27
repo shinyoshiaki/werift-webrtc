@@ -6,4 +6,4 @@
 
 # Type Alias: NamedCurveAlgorithms
 
-> **NamedCurveAlgorithms** = *typeof* [`NamedCurveAlgorithm`](../variables/NamedCurveAlgorithm.md)\[keyof *typeof* [`NamedCurveAlgorithm`](../variables/NamedCurveAlgorithm.md)\]
+> **NamedCurveAlgorithms**: *typeof* [`NamedCurveAlgorithm`](../variables/NamedCurveAlgorithm.md)\[keyof *typeof* [`NamedCurveAlgorithm`](../variables/NamedCurveAlgorithm.md)\]

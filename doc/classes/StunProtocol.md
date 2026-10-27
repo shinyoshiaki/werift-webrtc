@@ -12,19 +12,19 @@
 
 ## Constructors
 
-### Constructor
+### new StunProtocol()
 
-> **new StunProtocol**(): `StunProtocol`
+> **new StunProtocol**(): [`StunProtocol`](StunProtocol.md)
 
 #### Returns
 
-`StunProtocol`
+[`StunProtocol`](StunProtocol.md)
 
 ## Properties
 
 ### localCandidate?
 
-> `optional` **localCandidate?**: [`Candidate`](Candidate.md)
+> `optional` **localCandidate**: [`Candidate`](Candidate.md)
 
 #### Implementation of
 
@@ -34,7 +34,7 @@
 
 ### localIp?
 
-> `optional` **localIp?**: `string`
+> `optional` **localIp**: `string`
 
 #### Implementation of
 
@@ -64,7 +64,7 @@
 
 ### sentMessage?
 
-> `optional` **sentMessage?**: [`Message`](Message.md)
+> `optional` **sentMessage**: [`Message`](Message.md)
 
 #### Implementation of
 
@@ -132,7 +132,7 @@
 
 ### connectionMade()
 
-> **connectionMade**(`useIpv4`, `portRange?`, `interfaceAddresses?`): `Promise`\<`void`\>
+> **connectionMade**(`useIpv4`, `portRange`?, `interfaceAddresses`?): `Promise`\<`void`\>
 
 #### Parameters
 
@@ -170,7 +170,7 @@ readonly \[`string`, `number`\]
 
 ### request()
 
-> **request**(`request`, `addr`, `integrityKey?`, `retransmissionsOrOptions?`, `onRequestSent?`): `Promise`\<\[[`Message`](Message.md), readonly \[`string`, `number`\]\]\>
+> **request**(`request`, `addr`, `integrityKey`?, `retransmissionsOrOptions`?, `onRequestSent`?): `Promise`\<\[[`Message`](Message.md), readonly \[`string`, `number`\]\]\>
 
 #### Parameters
 
@@ -188,7 +188,7 @@ readonly \[`string`, `number`\]
 
 ##### retransmissionsOrOptions?
 
-`number` \| [`TransactionRequestOptions`](../interfaces/TransactionRequestOptions.md)
+`number` | [`TransactionRequestOptions`](../interfaces/TransactionRequestOptions.md)
 
 ##### onRequestSent?
 

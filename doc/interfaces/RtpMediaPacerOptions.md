@@ -18,7 +18,7 @@ RTP clock rate in Hz (e.g. 90000 for video).
 
 ### initialTimestamp?
 
-> `optional` **initialTimestamp?**: `number`
+> `optional` **initialTimestamp**: `number`
 
 RTP timestamp of the first pushed frame's `pts`. Default: random32().
 
@@ -26,7 +26,7 @@ RTP timestamp of the first pushed frame's `pts`. Default: random32().
 
 ### latencyMs?
 
-> `optional` **latencyMs?**: `number`
+> `optional` **latencyMs**: `number`
 
 Initial playout delay (ms) of the first frame. For streaming sources it
 absorbs arrival jitter / bursts up to this amount without re-anchoring.
@@ -34,9 +34,9 @@ Default: 0.
 
 ***
 
-### now?
+### now()?
 
-> `optional` **now?**: () => `number`
+> `optional` **now**: () => `number`
 
 Monotonic time source in ms. Default: `performance.now()`.
 
@@ -48,7 +48,7 @@ Monotonic time source in ms. Default: `performance.now()`.
 
 ### scheduler?
 
-> `optional` **scheduler?**: [`RtpMediaClockScheduler`](RtpMediaClockScheduler.md)
+> `optional` **scheduler**: [`RtpMediaClockScheduler`](RtpMediaClockScheduler.md)
 
 Timer implementation. Default: global setTimeout / clearTimeout.
 
@@ -56,7 +56,7 @@ Timer implementation. Default: global setTimeout / clearTimeout.
 
 ### signal?
 
-> `optional` **signal?**: `AbortSignal`
+> `optional` **signal**: `AbortSignal`
 
 Aborting the signal is equivalent to `stop()`.
 
@@ -64,6 +64,6 @@ Aborting the signal is equivalent to `stop()`.
 
 ### unref?
 
-> `optional` **unref?**: `boolean`
+> `optional` **unref**: `boolean`
 
 Call `unref()` on timer handles (Node.js only). Default: false.

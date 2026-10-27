@@ -8,9 +8,9 @@
 
 ## Constructors
 
-### Constructor
+### new RTCSessionDescription()
 
-> **new RTCSessionDescription**(`sdp`, `type`): `RTCSessionDescription`
+> **new RTCSessionDescription**(`sdp`, `type`): [`RTCSessionDescription`](RTCSessionDescription.md)
 
 #### Parameters
 
@@ -20,11 +20,11 @@
 
 ##### type
 
-`"offer"` \| `"answer"` \| `"pranswer"`
+`"offer"` | `"answer"` | `"pranswer"`
 
 #### Returns
 
-`RTCSessionDescription`
+[`RTCSessionDescription`](RTCSessionDescription.md)
 
 ## Properties
 
@@ -60,7 +60,7 @@
 
 ### isThis()
 
-> `static` **isThis**(`o`): `true` \| `undefined`
+> `static` **isThis**(`o`): `undefined` \| `true`
 
 #### Parameters
 
@@ -70,4 +70,4 @@
 
 #### Returns
 
-`true` \| `undefined`
+`undefined` \| `true`

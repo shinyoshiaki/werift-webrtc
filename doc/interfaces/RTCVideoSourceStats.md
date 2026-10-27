@@ -14,19 +14,19 @@
 
 ### frames?
 
-> `optional` **frames?**: `number`
+> `optional` **frames**: `number`
 
 ***
 
 ### framesPerSecond?
 
-> `optional` **framesPerSecond?**: `number`
+> `optional` **framesPerSecond**: `number`
 
 ***
 
 ### height?
 
-> `optional` **height?**: `number`
+> `optional` **height**: `number`
 
 ***
 
@@ -82,4 +82,4 @@
 
 ### width?
 
-> `optional` **width?**: `number`
+> `optional` **width**: `number`

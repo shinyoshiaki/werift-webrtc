@@ -6,7 +6,7 @@
 
 # Function: remoteTcpTypeForIncoming()
 
-> **remoteTcpTypeForIncoming**(`localTcpType?`): [`TcpCandidateType`](../type-aliases/TcpCandidateType.md)
+> **remoteTcpTypeForIncoming**(`localTcpType`?): [`TcpCandidateType`](../type-aliases/TcpCandidateType.md)
 
 ## Parameters
 

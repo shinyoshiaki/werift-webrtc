@@ -60,9 +60,9 @@ at the commit, so RTP pauses until the new generation nominates.
 
 ## Constructors
 
-### Constructor
+### new RTCIceTransport()
 
-> **new RTCIceTransport**(`iceGather`): `RTCIceTransport`
+> **new RTCIceTransport**(`iceGather`): [`RTCIceTransport`](RTCIceTransport.md)
 
 #### Parameters
 
@@ -72,7 +72,7 @@ at the commit, so RTP pauses until the new generation nominates.
 
 #### Returns
 
-`RTCIceTransport`
+[`RTCIceTransport`](RTCIceTransport.md)
 
 ## Properties
 
@@ -100,9 +100,9 @@ at the commit, so RTP pauses until the new generation nominates.
 
 ***
 
-### ongatheringstatechange?
+### ongatheringstatechange()?
 
-> `optional` **ongatheringstatechange?**: () => `void`
+> `optional` **ongatheringstatechange**: () => `void`
 
 #### Returns
 
@@ -112,7 +112,7 @@ at the commit, so RTP pauses until the new generation nominates.
 
 ### onIceCandidate
 
-> `readonly` **onIceCandidate**: [`Event`](Event.md)\<\[[`IceCandidate`](IceCandidate.md) \| `undefined`\]\>
+> `readonly` **onIceCandidate**: [`Event`](Event.md)\<\[`undefined` \| [`IceCandidate`](IceCandidate.md)\]\>
 
 ***
 
@@ -122,9 +122,9 @@ at the commit, so RTP pauses until the new generation nominates.
 
 ***
 
-### onstatechange?
+### onstatechange()?
 
-> `optional` **onstatechange?**: () => `void`
+> `optional` **onstatechange**: () => `void`
 
 #### Returns
 
@@ -220,7 +220,7 @@ Whether the local description may carry `a=end-of-candidates`.
 
 ### addEventListener()
 
-> **addEventListener**(`type`, `listener`, `options?`): `void`
+> **addEventListener**(`type`, `listener`, `options`?): `void`
 
 #### Parameters
 
@@ -234,7 +234,7 @@ Whether the local description may carry `a=end-of-candidates`.
 
 ##### options?
 
-`boolean` \| \{ `once?`: `boolean`; \}
+`boolean` | \{ `once`: `boolean`; \}
 
 #### Returns
 
@@ -244,7 +244,7 @@ Whether the local description may carry `a=end-of-candidates`.
 
 ### addProvisionalRemoteCandidate()
 
-> **addProvisionalRemoteCandidate**(`candidate?`): `Promise`\<`void`\> \| `undefined`
+> **addProvisionalRemoteCandidate**(`candidate`?): `undefined` \| `Promise`\<`void`\>
 
 #### Parameters
 
@@ -254,13 +254,13 @@ Whether the local description may carry `a=end-of-candidates`.
 
 #### Returns
 
-`Promise`\<`void`\> \| `undefined`
+`undefined` \| `Promise`\<`void`\>
 
 ***
 
 ### addRemoteCandidate()
 
-> **addRemoteCandidate**(`candidate?`): `Promise`\<`void`\> \| `undefined`
+> **addRemoteCandidate**(`candidate`?): `undefined` \| `Promise`\<`void`\>
 
 #### Parameters
 
@@ -270,7 +270,7 @@ Whether the local description may carry `a=end-of-candidates`.
 
 #### Returns
 
-`Promise`\<`void`\> \| `undefined`
+`undefined` \| `Promise`\<`void`\>
 
 ***
 
@@ -307,7 +307,7 @@ Keep ICE servers for the next gathering (an ICE restart).
 
 ### deliverProvisionalRemoteCandidate()
 
-> **deliverProvisionalRemoteCandidate**(`candidate?`): `void`
+> **deliverProvisionalRemoteCandidate**(`candidate`?): `void`
 
 `deliverRemoteCandidate` for the provisional (pranswer) generation.
 
@@ -325,7 +325,7 @@ Keep ICE servers for the next gathering (an ICE restart).
 
 ### deliverRemoteCandidate()
 
-> **deliverRemoteCandidate**(`candidate?`): `void`
+> **deliverRemoteCandidate**(`candidate`?): `void`
 
 Hand a remote candidate (`undefined`: end-of-candidates) to the ICE agent
 without waiting for it. A host candidate is added synchronously; an mDNS
@@ -437,35 +437,35 @@ Signal the candidates an ICE restart committed by a local answer gathered.
 
 ### getRemoteParameters()
 
-> **getRemoteParameters**(): [`RTCIceParameters`](RTCIceParameters.md) \| `null`
+> **getRemoteParameters**(): `null` \| [`RTCIceParameters`](RTCIceParameters.md)
 
 #### Returns
 
-[`RTCIceParameters`](RTCIceParameters.md) \| `null`
+`null` \| [`RTCIceParameters`](RTCIceParameters.md)
 
 ***
 
 ### getSelectedCandidatePair()
 
-> **getSelectedCandidatePair**(): \{ `local`: [`RTCIceCandidate`](RTCIceCandidate.md); `remote`: [`RTCIceCandidate`](RTCIceCandidate.md); \} \| `null`
+> **getSelectedCandidatePair**(): `null` \| \{ `local`: [`RTCIceCandidate`](RTCIceCandidate.md); `remote`: [`RTCIceCandidate`](RTCIceCandidate.md); \}
 
 #### Returns
 
-\{ `local`: [`RTCIceCandidate`](RTCIceCandidate.md); `remote`: [`RTCIceCandidate`](RTCIceCandidate.md); \} \| `null`
+`null` \| \{ `local`: [`RTCIceCandidate`](RTCIceCandidate.md); `remote`: [`RTCIceCandidate`](RTCIceCandidate.md); \}
 
 ***
 
 ### getStats()
 
-> **getStats**(`timestamp?`, `transportId?`): `Promise`\<[`RTCStats`](../interfaces/RTCStats.md)[]\>
+> **getStats**(`timestamp`, `transportId`): `Promise`\<[`RTCStats`](../interfaces/RTCStats.md)[]\>
 
 #### Parameters
 
-##### timestamp?
+##### timestamp
 
 `number` = `...`
 
-##### transportId?
+##### transportId
 
 `string` = `...`
 
@@ -523,15 +523,15 @@ restart, or a proposal transport a replacement pranswer left unused).
 
 ### restart()
 
-> **restart**(`notifyNegotiation?`, `applyNextGatherIceServers?`): `void`
+> **restart**(`notifyNegotiation`, `applyNextGatherIceServers`): `void`
 
 #### Parameters
 
-##### notifyNegotiation?
+##### notifyNegotiation
 
 `boolean` = `true`
 
-##### applyNextGatherIceServers?
+##### applyNextGatherIceServers
 
 `boolean` = `true`
 
@@ -587,7 +587,7 @@ Feed a pranswer's ICE generation to the provisional checklist.
 
 ### setRemoteParams()
 
-> **setRemoteParams**(`remoteParameters`, `renomination?`, `__namedParameters?`): `void`
+> **setRemoteParams**(`remoteParameters`, `renomination`, `__namedParameters`): `void`
 
 `keepLocalCredentials`: the remote credentials come from an answer or
 pranswer, so the local ones are fixed by the applied local offer. Changed
@@ -600,11 +600,11 @@ without new local credentials (nothing would describe them to the peer).
 
 [`RTCIceParameters`](RTCIceParameters.md)
 
-##### renomination?
+##### renomination
 
 `boolean` = `false`
 
-##### \_\_namedParameters?
+##### \_\_namedParameters
 
 ###### keepLocalCredentials?
 
@@ -618,14 +618,14 @@ without new local credentials (nothing would describe them to the peer).
 
 ### stageLocalRestart()
 
-> **stageLocalRestart**(`__namedParameters?`): `void`
+> **stageLocalRestart**(`__namedParameters`): `void`
 
 Prepare an ICE generation for SDP without touching the selected pair.
 `answering` is the remote offer an answer is created for.
 
 #### Parameters
 
-##### \_\_namedParameters?
+##### \_\_namedParameters
 
 ###### answering?
 

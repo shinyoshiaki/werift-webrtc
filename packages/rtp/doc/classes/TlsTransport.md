@@ -62,7 +62,21 @@
 
 ##### Returns
 
-(`data`, `addr`) => `void`
+`Function`
+
+###### Parameters
+
+###### data
+
+`Buffer`
+
+###### addr
+
+readonly \[`string`, `number`\]
+
+###### Returns
+
+`void`
 
 #### Set Signature
 
@@ -88,14 +102,14 @@
 
 #### Get Signature
 
-> **get** **remoteAddress**(): readonly \[`string`, `number`\] \| `undefined`
+> **get** **remoteAddress**(): `undefined` \| readonly \[`string`, `number`\]
 
 The peer a connected (stream) transport is talking to. Responses arrive
 from this address. Built-in TCP/TLS transports set it once connected.
 
 ##### Returns
 
-readonly \[`string`, `number`\] \| `undefined`
+`undefined` \| readonly \[`string`, `number`\]
 
 The peer a connected (stream) transport is talking to. Responses arrive
 from this address. Built-in TCP/TLS transports set it once connected.
@@ -122,7 +136,7 @@ from this address. Built-in TCP/TLS transports set it once connected.
 
 ### send()
 
-> **send**(`data`, `addr?`): `Promise`\<`void`\>
+> **send**(`data`, `addr`?): `Promise`\<`void`\>
 
 #### Parameters
 
@@ -146,7 +160,7 @@ readonly \[`string`, `number`\]
 
 ### init()
 
-> `static` **init**(`addr`, `options?`, `streamOptions?`): `Promise`\<`TlsTransport`\>
+> `static` **init**(`addr`, `options`, `streamOptions`): `Promise`\<[`TlsTransport`](TlsTransport.md)\>
 
 #### Parameters
 
@@ -154,14 +168,14 @@ readonly \[`string`, `number`\]
 
 readonly \[`string`, `number`\]
 
-##### options?
+##### options
 
 [`TlsConnectionOptions`](../type-aliases/TlsConnectionOptions.md) = `{}`
 
-##### streamOptions?
+##### streamOptions
 
 [`StreamTransportOptions`](../interfaces/StreamTransportOptions.md) = `{}`
 
 #### Returns
 
-`Promise`\<`TlsTransport`\>
+`Promise`\<[`TlsTransport`](TlsTransport.md)\>

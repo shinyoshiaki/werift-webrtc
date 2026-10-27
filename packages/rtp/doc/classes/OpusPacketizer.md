@@ -15,23 +15,23 @@ Throws if the Opus packet exceeds maxPayloadSize (no TOC-blind split).
 
 ## Constructors
 
-### Constructor
+### new OpusPacketizer()
 
-> **new OpusPacketizer**(`options?`): `OpusPacketizer`
+> **new OpusPacketizer**(`options`): [`OpusPacketizer`](OpusPacketizer.md)
 
 #### Parameters
 
-##### options?
+##### options
 
 [`PacketizerBaseOptions`](../type-aliases/PacketizerBaseOptions.md) = `{}`
 
 #### Returns
 
-`OpusPacketizer`
+[`OpusPacketizer`](OpusPacketizer.md)
 
 #### Overrides
 
-[`PacketizerBase`](PacketizerBase.md).[`constructor`](PacketizerBase.md#constructor)
+[`PacketizerBase`](PacketizerBase.md).[`constructor`](PacketizerBase.md#constructors)
 
 ## Properties
 

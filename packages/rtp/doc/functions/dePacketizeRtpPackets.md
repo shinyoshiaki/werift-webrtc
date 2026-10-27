@@ -6,7 +6,7 @@
 
 # Function: dePacketizeRtpPackets()
 
-> **dePacketizeRtpPackets**(`codec`, `packets`, `frameFragmentBuffer?`): `object`
+> **dePacketizeRtpPackets**(`codec`, `packets`, `frameFragmentBuffer`?): `object`
 
 ## Parameters
 
@@ -32,7 +32,7 @@
 
 ### frameFragmentBuffer?
 
-> `optional` **frameFragmentBuffer?**: `Buffer`\<`ArrayBufferLike`\>
+> `optional` **frameFragmentBuffer**: `Buffer`\<`ArrayBufferLike`\>
 
 ### isKeyframe
 

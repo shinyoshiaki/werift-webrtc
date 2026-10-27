@@ -8,7 +8,7 @@
 
 > `const` **CurveType**: `object`
 
-## Type Declaration
+## Type declaration
 
 ### named\_curve\_3
 

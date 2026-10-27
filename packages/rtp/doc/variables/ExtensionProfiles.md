@@ -8,7 +8,7 @@
 
 > `const` **ExtensionProfiles**: `object`
 
-## Type Declaration
+## Type declaration
 
 ### OneByte
 

@@ -8,19 +8,19 @@
 
 ## Constructors
 
-### Constructor
+### new RedEncoder()
 
-> **new RedEncoder**(`distance?`): `RedEncoder`
+> **new RedEncoder**(`distance`): [`RedEncoder`](RedEncoder.md)
 
 #### Parameters
 
-##### distance?
+##### distance
 
 `number` = `1`
 
 #### Returns
 
-`RedEncoder`
+[`RedEncoder`](RedEncoder.md)
 
 ## Properties
 

@@ -6,4 +6,4 @@
 
 # Type Alias: RTCBundlePolicy
 
-> **RTCBundlePolicy** = `"balanced"` \| `"max-compat"` \| `"max-bundle"`
+> **RTCBundlePolicy**: `"balanced"` \| `"max-compat"` \| `"max-bundle"`

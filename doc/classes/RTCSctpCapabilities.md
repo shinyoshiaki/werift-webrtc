@@ -8,9 +8,9 @@
 
 ## Constructors
 
-### Constructor
+### new RTCSctpCapabilities()
 
-> **new RTCSctpCapabilities**(`maxMessageSize`): `RTCSctpCapabilities`
+> **new RTCSctpCapabilities**(`maxMessageSize`): [`RTCSctpCapabilities`](RTCSctpCapabilities.md)
 
 #### Parameters
 
@@ -20,7 +20,7 @@
 
 #### Returns
 
-`RTCSctpCapabilities`
+[`RTCSctpCapabilities`](RTCSctpCapabilities.md)
 
 ## Properties
 

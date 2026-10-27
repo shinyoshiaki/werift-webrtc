@@ -6,10 +6,10 @@
 
 # Type Alias: H264PacketizeOptions
 
-> **H264PacketizeOptions** = `object`
+> **H264PacketizeOptions**: `object`
 
-## Properties
+## Type declaration
 
 ### isKeyframe?
 
-> `optional` **isKeyframe?**: `boolean`
+> `optional` **isKeyframe**: `boolean`

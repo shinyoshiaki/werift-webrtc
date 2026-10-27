@@ -8,13 +8,13 @@
 
 ## Constructors
 
-### Constructor
+### new AV1RtpPayload()
 
-> **new AV1RtpPayload**(): `AV1RtpPayload`
+> **new AV1RtpPayload**(): [`AV1RtpPayload`](AV1RtpPayload.md)
 
 #### Returns
 
-`AV1RtpPayload`
+[`AV1RtpPayload`](AV1RtpPayload.md)
 
 ## Properties
 
@@ -33,7 +33,7 @@ MUST be set to 1 if the packet is the first packet of a coded video sequence, an
 
 #### continues?
 
-> `optional` **continues?**: `boolean`
+> `optional` **continues**: `boolean`
 
 Fragment continues in the next packet (last element with Y=1).
 
@@ -43,7 +43,7 @@ Fragment continues in the next packet (last element with Y=1).
 
 #### isContinuation?
 
-> `optional` **isContinuation?**: `boolean`
+> `optional` **isContinuation**: `boolean`
 
 Fragment continues an OBU from the previous packet (first element with Z=1).
 
@@ -94,7 +94,7 @@ MUST be set to 1 if the first OBU element is an OBU fragment that is a continuat
 
 ### deSerialize()
 
-> `static` **deSerialize**(`buf`): `AV1RtpPayload`
+> `static` **deSerialize**(`buf`): [`AV1RtpPayload`](AV1RtpPayload.md)
 
 #### Parameters
 
@@ -104,7 +104,7 @@ MUST be set to 1 if the first OBU element is an OBU fragment that is a continuat
 
 #### Returns
 
-`AV1RtpPayload`
+[`AV1RtpPayload`](AV1RtpPayload.md)
 
 ***
 
@@ -116,7 +116,7 @@ MUST be set to 1 if the first OBU element is an OBU fragment that is a continuat
 
 ##### payloads
 
-`AV1RtpPayload`[]
+[`AV1RtpPayload`](AV1RtpPayload.md)[]
 
 #### Returns
 

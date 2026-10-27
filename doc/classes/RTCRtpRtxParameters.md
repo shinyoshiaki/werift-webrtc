@@ -8,19 +8,19 @@
 
 ## Constructors
 
-### Constructor
+### new RTCRtpRtxParameters()
 
-> **new RTCRtpRtxParameters**(`props?`): `RTCRtpRtxParameters`
+> **new RTCRtpRtxParameters**(`props`): [`RTCRtpRtxParameters`](RTCRtpRtxParameters.md)
 
 #### Parameters
 
-##### props?
+##### props
 
-`Partial`\<`RTCRtpRtxParameters`\> = `{}`
+`Partial`\<[`RTCRtpRtxParameters`](RTCRtpRtxParameters.md)\> = `{}`
 
 #### Returns
 
-`RTCRtpRtxParameters`
+[`RTCRtpRtxParameters`](RTCRtpRtxParameters.md)
 
 ## Properties
 

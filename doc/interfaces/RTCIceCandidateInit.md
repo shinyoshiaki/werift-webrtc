@@ -10,22 +10,22 @@
 
 ### candidate?
 
-> `optional` **candidate?**: `string`
+> `optional` **candidate**: `string`
 
 ***
 
 ### sdpMid?
 
-> `optional` **sdpMid?**: `string` \| `null`
+> `optional` **sdpMid**: `null` \| `string`
 
 ***
 
 ### sdpMLineIndex?
 
-> `optional` **sdpMLineIndex?**: `number` \| `null`
+> `optional` **sdpMLineIndex**: `null` \| `number`
 
 ***
 
 ### usernameFragment?
 
-> `optional` **usernameFragment?**: `string` \| `null`
+> `optional` **usernameFragment**: `null` \| `string`

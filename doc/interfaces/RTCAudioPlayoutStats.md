@@ -30,13 +30,13 @@
 
 ### synthesizedSamplesDuration?
 
-> `optional` **synthesizedSamplesDuration?**: `number`
+> `optional` **synthesizedSamplesDuration**: `number`
 
 ***
 
 ### synthesizedSamplesEvents?
 
-> `optional` **synthesizedSamplesEvents?**: `number`
+> `optional` **synthesizedSamplesEvents**: `number`
 
 ***
 
@@ -52,19 +52,19 @@
 
 ### totalPlayoutDelay?
 
-> `optional` **totalPlayoutDelay?**: `number`
+> `optional` **totalPlayoutDelay**: `number`
 
 ***
 
 ### totalSamplesCount?
 
-> `optional` **totalSamplesCount?**: `number`
+> `optional` **totalSamplesCount**: `number`
 
 ***
 
 ### totalSamplesDuration?
 
-> `optional` **totalSamplesDuration?**: `number`
+> `optional` **totalSamplesDuration**: `number`
 
 ***
 

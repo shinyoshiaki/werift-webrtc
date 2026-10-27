@@ -8,7 +8,7 @@
 
 > `const` **SignatureAlgorithm**: `object`
 
-## Type Declaration
+## Type declaration
 
 ### ecdsa\_3
 

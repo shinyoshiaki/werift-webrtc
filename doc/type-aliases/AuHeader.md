@@ -6,45 +6,35 @@
 
 # Type Alias: AuHeader
 
-> **AuHeader** = `object`
+> **AuHeader**: `object`
 
-## Properties
+## Type declaration
 
 ### ctsDelta?
 
-> `optional` **ctsDelta?**: `number`
-
-***
+> `optional` **ctsDelta**: `number`
 
 ### dtsDelta?
 
-> `optional` **dtsDelta?**: `number`
-
-***
+> `optional` **dtsDelta**: `number`
 
 ### hasCts?
 
-> `optional` **hasCts?**: `boolean`
+> `optional` **hasCts**: `boolean`
 
 True when CTS-flag was present and set (extended parse only).
 
-***
-
 ### hasDts?
 
-> `optional` **hasDts?**: `boolean`
+> `optional` **hasDts**: `boolean`
 
 True when DTS-flag was present and set (extended parse only).
-
-***
 
 ### index
 
 > **index**: `number`
 
 AU-Index (first) or AU-Index-delta (subsequent).
-
-***
 
 ### size
 

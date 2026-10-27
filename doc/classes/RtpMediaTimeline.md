@@ -13,9 +13,9 @@ accumulates no matter how long the timeline runs.
 
 ## Constructors
 
-### Constructor
+### new RtpMediaTimeline()
 
-> **new RtpMediaTimeline**(`options`): `RtpMediaTimeline`
+> **new RtpMediaTimeline**(`options`): [`RtpMediaTimeline`](RtpMediaTimeline.md)
 
 #### Parameters
 
@@ -25,7 +25,7 @@ accumulates no matter how long the timeline runs.
 
 #### Returns
 
-`RtpMediaTimeline`
+[`RtpMediaTimeline`](RtpMediaTimeline.md)
 
 ## Properties
 
@@ -117,7 +117,7 @@ Latest slot whose deadline has been reached at `now`.
 
 ### resolveTick()
 
-> **resolveTick**(`__namedParameters`): [`RtpMediaClockTick`](../interfaces/RtpMediaClockTick.md) \| `undefined`
+> **resolveTick**(`__namedParameters`): `undefined` \| [`RtpMediaClockTick`](../interfaces/RtpMediaClockTick.md)
 
 Resolves the tick to emit at `now`.
 
@@ -165,7 +165,7 @@ Frame index of the previous tick, if any.
 
 #### Returns
 
-[`RtpMediaClockTick`](../interfaces/RtpMediaClockTick.md) \| `undefined`
+`undefined` \| [`RtpMediaClockTick`](../interfaces/RtpMediaClockTick.md)
 
 ***
 

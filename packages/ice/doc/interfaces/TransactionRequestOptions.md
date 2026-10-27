@@ -14,7 +14,7 @@ so consent freshness (retransmissions: 0, longer timeout) can be expressed.
 
 ### failOnSendError?
 
-> `optional` **failOnSendError?**: `boolean`
+> `optional` **failOnSendError**: `boolean`
 
 Fail the transaction as soon as the request cannot be sent instead of
 waiting for the response timeout. Used on reliable transports (TCP),
@@ -24,7 +24,7 @@ where a send error means the connection itself is unusable.
 
 ### integrityKey?
 
-> `optional` **integrityKey?**: `Buffer`\<`ArrayBufferLike`\>
+> `optional` **integrityKey**: `Buffer`\<`ArrayBufferLike`\>
 
 When set, responses must include MESSAGE-INTEGRITY and pass HMAC
 verification (protocol re-parses the wire bytes with this key; the
@@ -33,9 +33,9 @@ Unsigned or forged responses must not complete the transaction.
 
 ***
 
-### onRequestSent?
+### onRequestSent()?
 
-> `optional` **onRequestSent?**: (`attempt`) => `void`
+> `optional` **onRequestSent**: (`attempt`) => `void`
 
 Called for each wire send (attempt 0 is the initial transmission).
 
@@ -53,7 +53,7 @@ Called for each wire send (attempt 0 is the initial transmission).
 
 ### responseTimeout?
 
-> `optional` **responseTimeout?**: `number`
+> `optional` **responseTimeout**: `number`
 
 Initial response wait deadline in milliseconds.
 Doubled after each retransmission when retransmissions > 0.
@@ -63,7 +63,7 @@ Defaults to RETRY_RTO when omitted.
 
 ### retransmissions?
 
-> `optional` **retransmissions?**: `number`
+> `optional` **retransmissions**: `number`
 
 Number of retransmissions after the initial send. 0 = send once.
 
@@ -71,6 +71,6 @@ Number of retransmissions after the initial send. 0 = send once.
 
 ### signal?
 
-> `optional` **signal?**: `AbortSignal`
+> `optional` **signal**: `AbortSignal`
 
 Abort the outstanding transaction (e.g. consent lifecycle teardown).

@@ -8,9 +8,9 @@
 
 ## Constructors
 
-### Constructor
+### new CipherContext()
 
-> **new CipherContext**(`sessionType`, `certPem?`, `keyPem?`, `signatureHashAlgorithm?`): `CipherContext`
+> **new CipherContext**(`sessionType`, `certPem`?, `keyPem`?, `signatureHashAlgorithm`?): [`CipherContext`](CipherContext.md)
 
 #### Parameters
 
@@ -32,13 +32,13 @@
 
 #### Returns
 
-`CipherContext`
+[`CipherContext`](CipherContext.md)
 
 ## Properties
 
 ### certPem?
 
-> `optional` **certPem?**: `string`
+> `optional` **certPem**: `string`
 
 ***
 
@@ -56,7 +56,7 @@
 
 ### keyPem?
 
-> `optional` **keyPem?**: `string`
+> `optional` **keyPem**: `string`
 
 ***
 
@@ -98,7 +98,7 @@
 
 ### remoteCertificate?
 
-> `optional` **remoteCertificate?**: `Buffer`\<`ArrayBufferLike`\>
+> `optional` **remoteCertificate**: `Buffer`\<`ArrayBufferLike`\>
 
 ***
 
@@ -122,13 +122,13 @@
 
 ### signatureHashAlgorithm?
 
-> `optional` **signatureHashAlgorithm?**: [`SignatureHash`](../type-aliases/SignatureHash.md)
+> `optional` **signatureHashAlgorithm**: [`SignatureHash`](../type-aliases/SignatureHash.md)
 
 ## Methods
 
 ### decryptPacket()
 
-> **decryptPacket**(`pkt`): `NonSharedBuffer`
+> **decryptPacket**(`pkt`): `Buffer`\<`ArrayBufferLike`\>
 
 #### Parameters
 
@@ -138,7 +138,7 @@
 
 #### Returns
 
-`NonSharedBuffer`
+`Buffer`\<`ArrayBufferLike`\>
 
 ***
 
@@ -160,7 +160,7 @@
 
 ### generateKeySignature()
 
-> **generateKeySignature**(`hashAlgorithm`): `NonSharedBuffer`
+> **generateKeySignature**(`hashAlgorithm`): `Buffer`\<`ArrayBufferLike`\>
 
 #### Parameters
 
@@ -170,7 +170,7 @@
 
 #### Returns
 
-`NonSharedBuffer`
+`Buffer`\<`ArrayBufferLike`\>
 
 ***
 
@@ -200,7 +200,7 @@
 
 ### signatureData()
 
-> **signatureData**(`data`, `hash`): `NonSharedBuffer`
+> **signatureData**(`data`, `hash`): `Buffer`\<`ArrayBufferLike`\>
 
 #### Parameters
 
@@ -214,7 +214,7 @@
 
 #### Returns
 
-`NonSharedBuffer`
+`Buffer`\<`ArrayBufferLike`\>
 
 ***
 
@@ -236,7 +236,7 @@
 
 ### createSelfSignedCertificateWithKey()
 
-> `static` **createSelfSignedCertificateWithKey**(`signatureHash`, `namedCurveAlgorithm?`): `Promise`\<\{ `certPem`: `string`; `keyPem`: `string`; `signatureHash`: [`SignatureHash`](../type-aliases/SignatureHash.md); \}\>
+> `static` **createSelfSignedCertificateWithKey**(`signatureHash`, `namedCurveAlgorithm`?): `Promise`\<\{ `certPem`: `string`; `keyPem`: `string`; `signatureHash`: [`SignatureHash`](../type-aliases/SignatureHash.md); \}\>
 
 #### Parameters
 

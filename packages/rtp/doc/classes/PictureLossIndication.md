@@ -8,19 +8,19 @@
 
 ## Constructors
 
-### Constructor
+### new PictureLossIndication()
 
-> **new PictureLossIndication**(`props?`): `PictureLossIndication`
+> **new PictureLossIndication**(`props`): [`PictureLossIndication`](PictureLossIndication.md)
 
 #### Parameters
 
-##### props?
+##### props
 
-`Partial`\<`PictureLossIndication`\> = `{}`
+`Partial`\<[`PictureLossIndication`](PictureLossIndication.md)\> = `{}`
 
 #### Returns
 
-`PictureLossIndication`
+[`PictureLossIndication`](PictureLossIndication.md)
 
 ## Properties
 
@@ -66,7 +66,7 @@
 
 ### deSerialize()
 
-> `static` **deSerialize**(`data`): `PictureLossIndication`
+> `static` **deSerialize**(`data`): [`PictureLossIndication`](PictureLossIndication.md)
 
 #### Parameters
 
@@ -76,4 +76,4 @@
 
 #### Returns
 
-`PictureLossIndication`
+[`PictureLossIndication`](PictureLossIndication.md)

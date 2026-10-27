@@ -8,25 +8,25 @@
 
 ## Constructors
 
-### Constructor
+### new RTCRtcpFeedback()
 
-> **new RTCRtcpFeedback**(`props?`): `RTCRtcpFeedback`
+> **new RTCRtcpFeedback**(`props`): [`RTCRtcpFeedback`](RTCRtcpFeedback.md)
 
 #### Parameters
 
-##### props?
+##### props
 
-`Partial`\<`RTCRtcpFeedback`\> = `{}`
+`Partial`\<[`RTCRtcpFeedback`](RTCRtcpFeedback.md)\> = `{}`
 
 #### Returns
 
-`RTCRtcpFeedback`
+[`RTCRtcpFeedback`](RTCRtcpFeedback.md)
 
 ## Properties
 
 ### parameter?
 
-> `optional` **parameter?**: `string`
+> `optional` **parameter**: `string`
 
 ***
 

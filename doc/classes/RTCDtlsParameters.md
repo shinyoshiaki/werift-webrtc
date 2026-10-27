@@ -8,23 +8,23 @@
 
 ## Constructors
 
-### Constructor
+### new RTCDtlsParameters()
 
-> **new RTCDtlsParameters**(`fingerprints?`, `role`): `RTCDtlsParameters`
+> **new RTCDtlsParameters**(`fingerprints`, `role`): [`RTCDtlsParameters`](RTCDtlsParameters.md)
 
 #### Parameters
 
-##### fingerprints?
+##### fingerprints
 
 [`RTCDtlsFingerprint`](RTCDtlsFingerprint.md)[] = `[]`
 
 ##### role
 
-`"auto"` \| `"server"` \| `"client"`
+`"auto"` | `"server"` | `"client"`
 
 #### Returns
 
-`RTCDtlsParameters`
+[`RTCDtlsParameters`](RTCDtlsParameters.md)
 
 ## Properties
 

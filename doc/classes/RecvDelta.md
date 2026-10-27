@@ -8,19 +8,19 @@
 
 ## Constructors
 
-### Constructor
+### new RecvDelta()
 
-> **new RecvDelta**(`props?`): `RecvDelta`
+> **new RecvDelta**(`props`): [`RecvDelta`](RecvDelta.md)
 
 #### Parameters
 
-##### props?
+##### props
 
-`Partial`\<`RecvDelta`\> = `{}`
+`Partial`\<[`RecvDelta`](RecvDelta.md)\> = `{}`
 
 #### Returns
 
-`RecvDelta`
+[`RecvDelta`](RecvDelta.md)
 
 ## Properties
 
@@ -40,7 +40,7 @@ micro sec
 
 ### type?
 
-> `optional` **type?**: [`TypeTCCPacketReceivedSmallDelta`](../enumerations/PacketStatus.md#typetccpacketreceivedsmalldelta) \| [`TypeTCCPacketReceivedLargeDelta`](../enumerations/PacketStatus.md#typetccpacketreceivedlargedelta)
+> `optional` **type**: [`TypeTCCPacketReceivedSmallDelta`](../enumerations/PacketStatus.md#typetccpacketreceivedsmalldelta) \| [`TypeTCCPacketReceivedLargeDelta`](../enumerations/PacketStatus.md#typetccpacketreceivedlargedelta)
 
 optional (If undefined, it will be set automatically.)
 
@@ -84,7 +84,7 @@ optional (If undefined, it will be set automatically.)
 
 ### deSerialize()
 
-> `static` **deSerialize**(`data`): `RecvDelta`
+> `static` **deSerialize**(`data`): [`RecvDelta`](RecvDelta.md)
 
 #### Parameters
 
@@ -94,4 +94,4 @@ optional (If undefined, it will be set automatically.)
 
 #### Returns
 
-`RecvDelta`
+[`RecvDelta`](RecvDelta.md)

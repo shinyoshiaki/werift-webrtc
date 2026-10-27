@@ -6,4 +6,4 @@
 
 # Type Alias: Address
 
-> **Address** = `Readonly`\<\[`string`, `number`\]\>
+> **Address**: `Readonly`\<\[`string`, `number`\]\>

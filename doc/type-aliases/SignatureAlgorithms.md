@@ -6,4 +6,4 @@
 
 # Type Alias: SignatureAlgorithms
 
-> **SignatureAlgorithms** = *typeof* [`SignatureAlgorithm`](../variables/SignatureAlgorithm.md)\[keyof *typeof* [`SignatureAlgorithm`](../variables/SignatureAlgorithm.md)\]
+> **SignatureAlgorithms**: *typeof* [`SignatureAlgorithm`](../variables/SignatureAlgorithm.md)\[keyof *typeof* [`SignatureAlgorithm`](../variables/SignatureAlgorithm.md)\]

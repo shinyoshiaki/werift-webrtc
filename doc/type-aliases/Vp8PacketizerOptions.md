@@ -6,12 +6,12 @@
 
 # Type Alias: Vp8PacketizerOptions
 
-> **Vp8PacketizerOptions** = [`PacketizerBaseOptions`](PacketizerBaseOptions.md) & `object`
+> **Vp8PacketizerOptions**: [`PacketizerBaseOptions`](PacketizerBaseOptions.md) & `object`
 
-## Type Declaration
+## Type declaration
 
 ### pictureId?
 
-> `optional` **pictureId?**: `number`
+> `optional` **pictureId**: `number`
 
 Initial 15-bit PictureID (default random).

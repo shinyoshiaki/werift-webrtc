@@ -6,4 +6,4 @@
 
 # Type Alias: SrtpProfile
 
-> **SrtpProfile** = *typeof* [`Profiles`](../variables/Profiles.md)\[`number`\]
+> **SrtpProfile**: *typeof* [`Profiles`](../variables/Profiles.md)\[`number`\]

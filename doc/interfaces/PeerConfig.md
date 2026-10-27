@@ -28,7 +28,7 @@
 
 ### debug
 
-> **debug**: [`DebugConfig`](../type-aliases/DebugConfig.md)
+> **debug**: `Partial`
 
 ***
 
@@ -56,7 +56,7 @@ Prefer turn URL transport parameters or turnTransport.
 
 ### iceAdditionalHostAddresses
 
-> **iceAdditionalHostAddresses**: `string`[] \| `undefined`
+> **iceAdditionalHostAddresses**: `undefined` \| `string`[]
 
 Add additional host (local) addresses to use for candidate gathering.
 Notably, you can include hosts that are normally excluded, such as loopback, tun interfaces, etc.
@@ -71,13 +71,13 @@ Notably, you can include hosts that are normally excluded, such as loopback, tun
 
 ### iceFilterCandidatePair
 
-> **iceFilterCandidatePair**: ((`pair`) => `boolean`) \| `undefined`
+> **iceFilterCandidatePair**: `undefined` \| (`pair`) => `boolean`
 
 ***
 
 ### iceFilterStunResponse
 
-> **iceFilterStunResponse**: ((`message`, `addr`, `protocol`) => `boolean`) \| `undefined`
+> **iceFilterStunResponse**: `undefined` \| (`message`, `addr`, `protocol`) => `boolean`
 
 If provided, is called on each STUN request.
 Return `true` if a STUN response should be sent, false if it should be skipped.
@@ -86,7 +86,7 @@ Return `true` if a STUN response should be sent, false if it should be skipped.
 
 ### iceInterfaceAddresses
 
-> **iceInterfaceAddresses**: [`InterfaceAddresses`](../type-aliases/InterfaceAddresses.md) \| `undefined`
+> **iceInterfaceAddresses**: `undefined` \| [`InterfaceAddresses`](../type-aliases/InterfaceAddresses.md)
 
 ***
 
@@ -100,13 +100,13 @@ Advertise local ICE lite and operate in the controlled role.
 
 ### icePasswordPrefix
 
-> **icePasswordPrefix**: `string` \| `undefined`
+> **icePasswordPrefix**: `undefined` \| `string`
 
 ***
 
 ### icePortRange
 
-> **icePortRange**: \[`number`, `number`\] \| `undefined`
+> **icePortRange**: `undefined` \| \[`number`, `number`\]
 
 Minimum port and Maximum port must not be the same value
 
@@ -120,7 +120,7 @@ Minimum port and Maximum port must not be the same value
 
 ### iceStunGatherTimeout
 
-> **iceStunGatherTimeout**: `number` \| `undefined`
+> **iceStunGatherTimeout**: `undefined` \| `number`
 
 Seconds to wait for server-reflexive candidates while gathering.
 Defaults to 5 when undefined.
@@ -143,7 +143,7 @@ Gather passive (listening) TCP host candidates. Defaults to true.
 
 ### iceTurnConnectTimeout
 
-> **iceTurnConnectTimeout**: `number` \| `undefined`
+> **iceTurnConnectTimeout**: `undefined` \| `number`
 
 Seconds to wait for a TURN TCP/TLS connection to be established.
 Defaults to 8 when undefined.
@@ -164,7 +164,7 @@ Defaults to 8 when undefined.
 
 ### iceUseLinkLocalAddress
 
-> **iceUseLinkLocalAddress**: `boolean` \| `undefined`
+> **iceUseLinkLocalAddress**: `undefined` \| `boolean`
 
 such as google cloud run
 
@@ -214,7 +214,7 @@ How local SDP marks inactive / stopped m-lines. Cannot be changed after construc
 
 ### pendingRtp
 
-> **pendingRtp**: `NonNullable`\<`boolean` \| [`PendingRtpOptions`](../type-aliases/PendingRtpOptions.md) \| `undefined`\>
+> **pendingRtp**: `NonNullable`\<`undefined` \| `boolean` \| [`PendingRtpOptions`](../type-aliases/PendingRtpOptions.md)\>
 
 Queue outbound RTP on each sender until DTLS is connected.
 Disabled by default. Pass `true` or `{ enabled: true, maxLength }` to buffer.
@@ -241,19 +241,19 @@ SCTP outbound packet MTU used for DATA chunk fragmentation.
 
 ### turnTlsOptions
 
-> **turnTlsOptions**: [`TlsConnectionOptions`](../type-aliases/TlsConnectionOptions.md) \| `undefined`
+> **turnTlsOptions**: `undefined` \| [`TlsConnectionOptions`](../type-aliases/TlsConnectionOptions.md)
 
 ***
 
 ### turnTransport
 
-> **turnTransport**: `"tcp"` \| `"tls"` \| `"udp"` \| `undefined`
+> **turnTransport**: `undefined` \| `"tcp"` \| `"tls"` \| `"udp"`
 
 ***
 
 ### turnUdpFamily
 
-> **turnUdpFamily**: `4` \| `6` \| `undefined`
+> **turnUdpFamily**: `undefined` \| `4` \| `6`
 
 Preferred IP family of the TURN/UDP socket, applied only when the TURN
 server is a hostname. Ignored for an IP literal server, whose own family

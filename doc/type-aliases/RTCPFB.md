@@ -6,15 +6,13 @@
 
 # Type Alias: RTCPFB
 
-> **RTCPFB** = `object`
+> **RTCPFB**: `object`
 
-## Properties
+## Type declaration
 
 ### parameter?
 
-> `optional` **parameter?**: `string`
-
-***
+> `optional` **parameter**: `string`
 
 ### type
 

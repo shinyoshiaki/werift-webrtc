@@ -6,7 +6,7 @@
 
 # Function: getGlobalIp()
 
-> **getGlobalIp**(`stunServer?`, `interfaceAddresses?`): `Promise`\<`string`\>
+> **getGlobalIp**(`stunServer`?, `interfaceAddresses`?): `Promise`\<`string`\>
 
 ## Parameters
 

@@ -6,7 +6,7 @@
 
 ## Namespaces
 
-- [binaryData](werift-rtp/namespaces/binaryData/README.md)
+- [binaryData](namespaces/binaryData/README.md)
 
 ## Enumerations
 
@@ -152,7 +152,6 @@
 - [AAC\_HBR\_INDEX\_DELTA\_LENGTH](variables/AAC_HBR_INDEX_DELTA_LENGTH.md)
 - [AAC\_HBR\_INDEX\_LENGTH](variables/AAC_HBR_INDEX_LENGTH.md)
 - [AAC\_HBR\_SIZE\_LENGTH](variables/AAC_HBR_SIZE_LENGTH.md)
-- [debug](variables/debug.md)
 - [depacketizerCodecs](variables/depacketizerCodecs.md)
 - [ExtensionProfiles](variables/ExtensionProfiles.md)
 - [G711\_CLOCK\_RATE](variables/G711_CLOCK_RATE.md)
@@ -194,6 +193,7 @@
 - [createAv1AggregationHeader](functions/createAv1AggregationHeader.md)
 - [createBufferWriter](functions/createBufferWriter.md)
 - [createVp8PayloadDescriptor](functions/createVp8PayloadDescriptor.md)
+- [debug](functions/debug.md)
 - [dePacketizeRtpPackets](functions/dePacketizeRtpPackets.md)
 - [deserializeAbsSendTime](functions/deserializeAbsSendTime.md)
 - [deserializeAudioLevelIndication](functions/deserializeAudioLevelIndication.md)

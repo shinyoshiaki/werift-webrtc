@@ -12,9 +12,9 @@
 
 ## Constructors
 
-### Constructor
+### new DtlsClient()
 
-> **new DtlsClient**(`options`): `DtlsClient`
+> **new DtlsClient**(`options`): [`DtlsClient`](DtlsClient.md)
 
 #### Parameters
 
@@ -24,11 +24,11 @@
 
 #### Returns
 
-`DtlsClient`
+[`DtlsClient`](DtlsClient.md)
 
 #### Overrides
 
-[`DtlsSocket`](DtlsSocket.md).[`constructor`](DtlsSocket.md#constructor)
+[`DtlsSocket`](DtlsSocket.md).[`constructor`](DtlsSocket.md#constructors)
 
 ## Properties
 
@@ -112,7 +112,7 @@
 
 ***
 
-### onHandleHandshakes
+### onHandleHandshakes()
 
 > **onHandleHandshakes**: (`assembled`) => `Promise`\<`void`\>
 
@@ -138,7 +138,7 @@
 
 #### Inherited from
 
-[`DtlsSocket`](DtlsSocket.md).[`options`](DtlsSocket.md#options)
+[`DtlsSocket`](DtlsSocket.md).[`options`](DtlsSocket.md#options-1)
 
 ***
 
@@ -148,7 +148,7 @@
 
 #### Inherited from
 
-[`DtlsSocket`](DtlsSocket.md).[`sessionType`](DtlsSocket.md#sessiontype)
+[`DtlsSocket`](DtlsSocket.md).[`sessionType`](DtlsSocket.md#sessiontype-1)
 
 ***
 
@@ -176,11 +176,11 @@
 
 #### Get Signature
 
-> **get** **remoteCertificate**(): `Buffer`\<`ArrayBufferLike`\> \| `undefined`
+> **get** **remoteCertificate**(): `undefined` \| `Buffer`\<`ArrayBufferLike`\>
 
 ##### Returns
 
-`Buffer`\<`ArrayBufferLike`\> \| `undefined`
+`undefined` \| `Buffer`\<`ArrayBufferLike`\>
 
 #### Inherited from
 
@@ -312,7 +312,7 @@
 
 ### send()
 
-> **send**(`buf`, `addr?`): `Promise`\<`void`\>
+> **send**(`buf`, `addr`?): `Promise`\<`void`\>
 
 send application data
 

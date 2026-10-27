@@ -14,9 +14,9 @@ RTCStatsReport is a Map-like object that holds WebRTC statistics
 
 ## Constructors
 
-### Constructor
+### new RTCStatsReport()
 
-> **new RTCStatsReport**(`stats?`): `RTCStatsReport`
+> **new RTCStatsReport**(`stats`?): [`RTCStatsReport`](RTCStatsReport.md)
 
 #### Parameters
 
@@ -26,7 +26,7 @@ RTCStatsReport is a Map-like object that holds WebRTC statistics
 
 #### Returns
 
-`RTCStatsReport`
+[`RTCStatsReport`](RTCStatsReport.md)
 
 #### Overrides
 
@@ -88,8 +88,6 @@ Returns an iterable of entries in the map.
 
 > **clear**(): `void`
 
-Removes all elements from the Map.
-
 #### Returns
 
 `void`
@@ -140,7 +138,7 @@ Returns an iterable of key, value pairs for every entry in the map.
 
 ### forEach()
 
-> **forEach**(`callbackfn`, `thisArg?`): `void`
+> **forEach**(`callbackfn`, `thisArg`?): `void`
 
 Executes a provided function once per each key/value pair in the Map, in insertion order.
 
@@ -166,7 +164,7 @@ Executes a provided function once per each key/value pair in the Map, in inserti
 
 ### get()
 
-> **get**(`key`): [`RTCStats`](../interfaces/RTCStats.md) \| `undefined`
+> **get**(`key`): `undefined` \| [`RTCStats`](../interfaces/RTCStats.md)
 
 Returns a specified element from the Map object. If the value that is associated to the provided key is an object, then you will get a reference to that object and any change made to that object will effectively modify it inside the Map.
 
@@ -178,71 +176,13 @@ Returns a specified element from the Map object. If the value that is associated
 
 #### Returns
 
-[`RTCStats`](../interfaces/RTCStats.md) \| `undefined`
+`undefined` \| [`RTCStats`](../interfaces/RTCStats.md)
 
 Returns the element associated with the specified key. If no element is associated with the specified key, undefined is returned.
 
 #### Inherited from
 
 `Map.get`
-
-***
-
-### getOrInsert()
-
-> **getOrInsert**(`key`, `defaultValue`): [`RTCStats`](../interfaces/RTCStats.md)
-
-Returns a specified element from the Map object.
-If no element is associated with the specified key, a new element with the value `defaultValue` will be inserted into the Map and returned.
-
-#### Parameters
-
-##### key
-
-`string`
-
-##### defaultValue
-
-[`RTCStats`](../interfaces/RTCStats.md)
-
-#### Returns
-
-[`RTCStats`](../interfaces/RTCStats.md)
-
-The element associated with the specified key, which will be `defaultValue` if no element previously existed.
-
-#### Inherited from
-
-`Map.getOrInsert`
-
-***
-
-### getOrInsertComputed()
-
-> **getOrInsertComputed**(`key`, `callback`): [`RTCStats`](../interfaces/RTCStats.md)
-
-Returns a specified element from the Map object.
-If no element is associated with the specified key, the result of passing the specified key to the `callback` function will be inserted into the Map and returned.
-
-#### Parameters
-
-##### key
-
-`string`
-
-##### callback
-
-(`key`) => [`RTCStats`](../interfaces/RTCStats.md)
-
-#### Returns
-
-[`RTCStats`](../interfaces/RTCStats.md)
-
-The element associated with the specific key, which will be the newly computed value if no element previously existed.
-
-#### Inherited from
-
-`Map.getOrInsertComputed`
 
 ***
 
@@ -334,13 +274,9 @@ Groups members of an iterable according to the return value of the passed callba
 
 #### Type Parameters
 
-##### K
+• **K**
 
-`K`
-
-##### T
-
-`T`
+• **T**
 
 #### Parameters
 

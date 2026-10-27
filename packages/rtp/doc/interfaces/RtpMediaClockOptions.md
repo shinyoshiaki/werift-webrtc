@@ -26,7 +26,7 @@ RTP clock rate in Hz (e.g. 48000 for Opus, 90000 for video).
 
 ### frameDurationMs?
 
-> `optional` **frameDurationMs?**: `number`
+> `optional` **frameDurationMs**: `number`
 
 Frame duration in milliseconds. May be fractional.
 
@@ -38,7 +38,7 @@ Frame duration in milliseconds. May be fractional.
 
 ### frameSamples?
 
-> `optional` **frameSamples?**: `number`
+> `optional` **frameSamples**: `number`
 
 Samples per frame. May be fractional (e.g. 90000 / 29.97).
 Exactly one of `frameSamples` / `frameDurationMs` must be given.
@@ -51,7 +51,7 @@ Exactly one of `frameSamples` / `frameDurationMs` must be given.
 
 ### initialTimestamp?
 
-> `optional` **initialTimestamp?**: `number`
+> `optional` **initialTimestamp**: `number`
 
 RTP timestamp of frame 0. Default: random32().
 
@@ -61,9 +61,9 @@ RTP timestamp of frame 0. Default: random32().
 
 ***
 
-### now?
+### now()?
 
-> `optional` **now?**: () => `number`
+> `optional` **now**: () => `number`
 
 Monotonic time source in ms. Default: `performance.now()`.
 
@@ -75,7 +75,7 @@ Monotonic time source in ms. Default: `performance.now()`.
 
 ### scheduler?
 
-> `optional` **scheduler?**: [`RtpMediaClockScheduler`](RtpMediaClockScheduler.md)
+> `optional` **scheduler**: [`RtpMediaClockScheduler`](RtpMediaClockScheduler.md)
 
 Timer implementation. Default: global setTimeout / clearTimeout.
 
@@ -83,7 +83,7 @@ Timer implementation. Default: global setTimeout / clearTimeout.
 
 ### signal?
 
-> `optional` **signal?**: `AbortSignal`
+> `optional` **signal**: `AbortSignal`
 
 Aborting the signal is equivalent to `stop()`.
 
@@ -91,7 +91,7 @@ Aborting the signal is equivalent to `stop()`.
 
 ### stallPolicy?
 
-> `optional` **stallPolicy?**: [`RtpMediaClockStallPolicy`](../type-aliases/RtpMediaClockStallPolicy.md)
+> `optional` **stallPolicy**: [`RtpMediaClockStallPolicy`](../type-aliases/RtpMediaClockStallPolicy.md)
 
 Default: `"skip"`.
 
@@ -99,6 +99,6 @@ Default: `"skip"`.
 
 ### unref?
 
-> `optional` **unref?**: `boolean`
+> `optional` **unref**: `boolean`
 
 Call `unref()` on timer handles (Node.js only). Default: false.

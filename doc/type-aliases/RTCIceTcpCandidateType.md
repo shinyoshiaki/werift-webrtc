@@ -6,4 +6,4 @@
 
 # Type Alias: RTCIceTcpCandidateType
 
-> **RTCIceTcpCandidateType** = `"active"` \| `"passive"` \| `"so"`
+> **RTCIceTcpCandidateType**: `"active"` \| `"passive"` \| `"so"`

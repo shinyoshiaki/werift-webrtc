@@ -6,13 +6,13 @@
 
 # Function: usePCMA()
 
-> **usePCMA**(`props?`): [`RTCRtpCodecParameters`](../classes/RTCRtpCodecParameters.md)
+> **usePCMA**(`props`): [`RTCRtpCodecParameters`](../classes/RTCRtpCodecParameters.md)
 
 RFC 3551 static PT 8 / 8000 Hz. Not added to supportedCodecs (negotiation optional).
 
 ## Parameters
 
-### props?
+### props
 
 `Partial`\<[`RTCRtpCodecParameters`](../classes/RTCRtpCodecParameters.md)\> = `{}`
 

@@ -6,12 +6,12 @@
 
 # Type Alias: RTCRtpSenderOptions
 
-> **RTCRtpSenderOptions** = `object`
+> **RTCRtpSenderOptions**: `object`
 
-## Properties
+## Type declaration
 
 ### pendingRtp?
 
-> `optional` **pendingRtp?**: `boolean` \| [`PendingRtpOptions`](PendingRtpOptions.md)
+> `optional` **pendingRtp**: `boolean` \| [`PendingRtpOptions`](PendingRtpOptions.md)
 
 Pending RTP cache. Disabled by default. Pass `true` or `{ maxLength }` to enable.

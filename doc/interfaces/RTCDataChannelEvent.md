@@ -16,4 +16,4 @@
 
 ### type?
 
-> `optional` **type?**: `"datachannel"`
+> `optional` **type**: `"datachannel"`

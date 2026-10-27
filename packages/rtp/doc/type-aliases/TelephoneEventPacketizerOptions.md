@@ -6,4 +6,4 @@
 
 # Type Alias: TelephoneEventPacketizerOptions
 
-> **TelephoneEventPacketizerOptions** = [`PacketizerBaseOptions`](PacketizerBaseOptions.md)
+> **TelephoneEventPacketizerOptions**: [`PacketizerBaseOptions`](PacketizerBaseOptions.md)

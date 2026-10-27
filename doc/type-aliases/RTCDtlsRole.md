@@ -6,4 +6,4 @@
 
 # Type Alias: RTCDtlsRole
 
-> **RTCDtlsRole** = `"client"` \| `"server"`
+> **RTCDtlsRole**: `"client"` \| `"server"`

@@ -6,4 +6,4 @@
 
 # Type Alias: RTCSdpType
 
-> **RTCSdpType** = `"answer"` \| `"offer"` \| `"pranswer"` \| `"rollback"`
+> **RTCSdpType**: `"answer"` \| `"offer"` \| `"pranswer"` \| `"rollback"`

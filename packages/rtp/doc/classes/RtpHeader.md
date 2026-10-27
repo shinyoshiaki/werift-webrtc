@@ -8,19 +8,19 @@
 
 ## Constructors
 
-### Constructor
+### new RtpHeader()
 
-> **new RtpHeader**(`props?`): `RtpHeader`
+> **new RtpHeader**(`props`): [`RtpHeader`](RtpHeader.md)
 
 #### Parameters
 
-##### props?
+##### props
 
-`Partial`\<`RtpHeader`\> = `{}`
+`Partial`\<[`RtpHeader`](RtpHeader.md)\> = `{}`
 
 #### Returns
 
-`RtpHeader`
+[`RtpHeader`](RtpHeader.md)
 
 ## Properties
 
@@ -44,7 +44,7 @@
 
 ### extensionLength?
 
-> `optional` **extensionLength?**: `number`
+> `optional` **extensionLength**: `number`
 
 deserialize only
 
@@ -150,7 +150,7 @@ deserialize only
 
 ### deSerialize()
 
-> `static` **deSerialize**(`rawPacket`): `RtpHeader`
+> `static` **deSerialize**(`rawPacket`): [`RtpHeader`](RtpHeader.md)
 
 #### Parameters
 
@@ -160,4 +160,4 @@ deserialize only
 
 #### Returns
 
-`RtpHeader`
+[`RtpHeader`](RtpHeader.md)

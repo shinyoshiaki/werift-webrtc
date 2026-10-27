@@ -17,23 +17,23 @@ telephone-event is the RFC 4733 exception: marker on the first event packet).
 
 ## Constructors
 
-### Constructor
+### new H265Packetizer()
 
-> **new H265Packetizer**(`options?`): `H265Packetizer`
+> **new H265Packetizer**(`options`): [`H265Packetizer`](H265Packetizer.md)
 
 #### Parameters
 
-##### options?
+##### options
 
 [`H265PacketizerOptions`](../type-aliases/H265PacketizerOptions.md) = `{}`
 
 #### Returns
 
-`H265Packetizer`
+[`H265Packetizer`](H265Packetizer.md)
 
 #### Overrides
 
-[`PacketizerBase`](PacketizerBase.md).[`constructor`](PacketizerBase.md#constructor)
+[`PacketizerBase`](PacketizerBase.md).[`constructor`](PacketizerBase.md#constructors)
 
 ## Properties
 

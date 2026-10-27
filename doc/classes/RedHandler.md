@@ -8,13 +8,13 @@
 
 ## Constructors
 
-### Constructor
+### new RedHandler()
 
-> **new RedHandler**(): `RedHandler`
+> **new RedHandler**(): [`RedHandler`](RedHandler.md)
 
 #### Returns
 
-`RedHandler`
+[`RedHandler`](RedHandler.md)
 
 ## Methods
 

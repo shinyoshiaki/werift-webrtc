@@ -6,7 +6,7 @@
 
 # Type Alias: RtpBuilderProps
 
-> **RtpBuilderProps** = `RtpBuilderCommonProps` & `object` \| `RtpBuilderCommonProps` & `object` \| `RtpBuilderCommonProps` & `object`
+> **RtpBuilderProps**: `RtpBuilderCommonProps` & `object` \| `RtpBuilderCommonProps` & `object` \| `RtpBuilderCommonProps` & `object`
 
 - `{ between, clockRate }`: legacy fixed pacing. Each `create()` advances the
   timestamp by `between * clockRate / 1000` (before the first packet too).

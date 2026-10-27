@@ -12,9 +12,9 @@
 
 ## Constructors
 
-### Constructor
+### new CandidatePair()
 
-> **new CandidatePair**(`protocol`, `remoteCandidate`, `iceControlling`): `CandidatePair`
+> **new CandidatePair**(`protocol`, `remoteCandidate`, `iceControlling`): [`CandidatePair`](CandidatePair.md)
 
 #### Parameters
 
@@ -32,7 +32,7 @@
 
 #### Returns
 
-`CandidatePair`
+[`CandidatePair`](CandidatePair.md)
 
 ## Properties
 
@@ -68,7 +68,7 @@
 
 ### handle?
 
-> `optional` **handle?**: `Cancelable`\<`void`\>
+> `optional` **handle**: `Cancelable`\<`void`\>
 
 ***
 
@@ -200,7 +200,7 @@
 
 ### rtt?
 
-> `optional` **rtt?**: `number`
+> `optional` **rtt**: `number`
 
 #### Implementation of
 

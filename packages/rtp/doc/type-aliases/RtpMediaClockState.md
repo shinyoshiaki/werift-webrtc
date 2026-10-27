@@ -6,4 +6,4 @@
 
 # Type Alias: RtpMediaClockState
 
-> **RtpMediaClockState** = `"idle"` \| `"running"` \| `"paused"` \| `"stopped"`
+> **RtpMediaClockState**: `"idle"` \| `"running"` \| `"paused"` \| `"stopped"`

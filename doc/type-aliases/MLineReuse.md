@@ -6,4 +6,4 @@
 
 # Type Alias: MLineReuse
 
-> **MLineReuse** = `"compatible"` \| `"aggressive"`
+> **MLineReuse**: `"compatible"` \| `"aggressive"`

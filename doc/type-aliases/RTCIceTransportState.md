@@ -6,4 +6,4 @@
 
 # Type Alias: RTCIceTransportState
 
-> **RTCIceTransportState** = `"new"` \| `"checking"` \| `"connected"` \| `"completed"` \| `"disconnected"` \| `"failed"` \| `"closed"`
+> **RTCIceTransportState**: `"new"` \| `"checking"` \| `"connected"` \| `"completed"` \| `"disconnected"` \| `"failed"` \| `"closed"`

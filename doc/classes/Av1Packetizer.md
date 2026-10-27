@@ -15,23 +15,23 @@ Packs OBU elements (W=1..3) and fragments them across packets with Z/Y bits.
 
 ## Constructors
 
-### Constructor
+### new Av1Packetizer()
 
-> **new Av1Packetizer**(`options?`): `Av1Packetizer`
+> **new Av1Packetizer**(`options`): [`Av1Packetizer`](Av1Packetizer.md)
 
 #### Parameters
 
-##### options?
+##### options
 
 [`Av1PacketizerOptions`](../type-aliases/Av1PacketizerOptions.md) = `{}`
 
 #### Returns
 
-`Av1Packetizer`
+[`Av1Packetizer`](Av1Packetizer.md)
 
 #### Overrides
 
-[`PacketizerBase`](PacketizerBase.md).[`constructor`](PacketizerBase.md#constructor)
+[`PacketizerBase`](PacketizerBase.md).[`constructor`](PacketizerBase.md#constructors)
 
 ## Properties
 
@@ -105,7 +105,7 @@ Packs OBU elements (W=1..3) and fragments them across packets with Z/Y bits.
 
 ### packetize()
 
-> **packetize**(`data`, `rtpTimestamp`, `options?`): [`RtpPacket`](RtpPacket.md)[]
+> **packetize**(`data`, `rtpTimestamp`, `options`): [`RtpPacket`](RtpPacket.md)[]
 
 #### Parameters
 
@@ -117,7 +117,7 @@ Packs OBU elements (W=1..3) and fragments them across packets with Z/Y bits.
 
 `number`
 
-##### options?
+##### options
 
 [`Av1PacketizeOptions`](../type-aliases/Av1PacketizeOptions.md) = `{}`
 

@@ -6,15 +6,13 @@
 
 # Type Alias: SignatureHash
 
-> **SignatureHash** = `object`
+> **SignatureHash**: `object`
 
-## Properties
+## Type declaration
 
 ### hash
 
 > **hash**: [`HashAlgorithms`](HashAlgorithms.md)
-
-***
 
 ### signature
 

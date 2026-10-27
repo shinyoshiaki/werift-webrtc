@@ -6,7 +6,7 @@
 
 # Type Alias: NalInputFormat
 
-> **NalInputFormat** = `"auto"` \| `"annexb"` \| `"length-prefixed"`
+> **NalInputFormat**: `"auto"` \| `"annexb"` \| `"length-prefixed"`
 
 Layout of video samples handed to H.264 / H.265 packetizers.
 - `"annexb"`: start-code delimited NAL units.

@@ -14,13 +14,13 @@
 
 ### dataChannelsClosed?
 
-> `optional` **dataChannelsClosed?**: `number`
+> `optional` **dataChannelsClosed**: `number`
 
 ***
 
 ### dataChannelsOpened?
 
-> `optional` **dataChannelsOpened?**: `number`
+> `optional` **dataChannelsOpened**: `number`
 
 ***
 

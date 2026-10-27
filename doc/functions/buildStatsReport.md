@@ -6,7 +6,7 @@
 
 # Function: buildStatsReport()
 
-> **buildStatsReport**(`stats`, `rootIds?`): [`RTCStatsReport`](../classes/RTCStatsReport.md)
+> **buildStatsReport**(`stats`, `rootIds`?): [`RTCStatsReport`](../classes/RTCStatsReport.md)
 
 ## Parameters
 

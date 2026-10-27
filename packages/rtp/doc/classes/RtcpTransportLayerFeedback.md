@@ -8,19 +8,19 @@
 
 ## Constructors
 
-### Constructor
+### new RtcpTransportLayerFeedback()
 
-> **new RtcpTransportLayerFeedback**(`props?`): `RtcpTransportLayerFeedback`
+> **new RtcpTransportLayerFeedback**(`props`): [`RtcpTransportLayerFeedback`](RtcpTransportLayerFeedback.md)
 
 #### Parameters
 
-##### props?
+##### props
 
-`Partial`\<`RtcpTransportLayerFeedback`\> = `{}`
+`Partial`\<[`RtcpTransportLayerFeedback`](RtcpTransportLayerFeedback.md)\> = `{}`
 
 #### Returns
 
-`RtcpTransportLayerFeedback`
+[`RtcpTransportLayerFeedback`](RtcpTransportLayerFeedback.md)
 
 ## Properties
 
@@ -60,7 +60,7 @@
 
 ### deSerialize()
 
-> `static` **deSerialize**(`data`, `header`): `RtcpTransportLayerFeedback`
+> `static` **deSerialize**(`data`, `header`): [`RtcpTransportLayerFeedback`](RtcpTransportLayerFeedback.md)
 
 #### Parameters
 
@@ -74,4 +74,4 @@
 
 #### Returns
 
-`RtcpTransportLayerFeedback`
+[`RtcpTransportLayerFeedback`](RtcpTransportLayerFeedback.md)
