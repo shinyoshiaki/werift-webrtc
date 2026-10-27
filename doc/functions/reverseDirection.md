@@ -12,7 +12,7 @@
 
 ### dir
 
-`"inactive"` | `"sendonly"` | `"recvonly"` | `"sendrecv"`
+`"inactive"` \| `"sendonly"` \| `"recvonly"` \| `"sendrecv"`
 
 ## Returns
 

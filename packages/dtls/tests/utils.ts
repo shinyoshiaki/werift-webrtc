@@ -1,4 +1,4 @@
-import { createPublicKey, verify } from "crypto";
+import { createPublicKey, generateKeyPairSync, verify } from "crypto";
 import type { Address, Transport } from "../../common/src";
 import { DtlsServer } from "../src";
 import {
@@ -119,3 +119,16 @@ export const verifyServerKeyExchangeSignature = ({
     keyExchange.signature,
   );
 };
+
+/** PEM の各行をインデントした文字列（インデント付きテンプレートリテラル相当）を作る。 */
+export const indentPem = (pem: string, indent = "    ") =>
+  pem
+    .split("\n")
+    .map((line) => `${indent}${line}`)
+    .join("\n");
+
+/** 証明書生成テスト用の鍵ペアを作る（ECDSA は P-256、RSA は 2048 bit）。 */
+export const createCertificateKeyPair = (type: "ec" | "rsa") =>
+  type === "ec"
+    ? generateKeyPairSync("ec", { namedCurve: "P-256" })
+    : generateKeyPairSync("rsa", { modulusLength: 2048 });

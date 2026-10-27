@@ -12,13 +12,13 @@
 
 ## Constructors
 
-### new PcmuRtpPayload()
+### Constructor
 
-> **new PcmuRtpPayload**(): [`PcmuRtpPayload`](PcmuRtpPayload.md)
+> **new PcmuRtpPayload**(): `PcmuRtpPayload`
 
 #### Returns
 
-[`PcmuRtpPayload`](PcmuRtpPayload.md)
+`PcmuRtpPayload`
 
 ## Properties
 
@@ -50,7 +50,7 @@
 
 ### deSerialize()
 
-> `static` **deSerialize**(`buf`): [`PcmuRtpPayload`](PcmuRtpPayload.md)
+> `static` **deSerialize**(`buf`): `PcmuRtpPayload`
 
 #### Parameters
 
@@ -60,7 +60,7 @@
 
 #### Returns
 
-[`PcmuRtpPayload`](PcmuRtpPayload.md)
+`PcmuRtpPayload`
 
 ***
 
