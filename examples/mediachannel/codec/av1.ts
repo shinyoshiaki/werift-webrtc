@@ -1,4 +1,4 @@
-import { Server } from "ws";
+import { WebSocketServer } from "ws";
 import {
   AV1RtpPayload,
   RTCPeerConnection,
@@ -6,7 +6,7 @@ import {
   dumpBuffer,
 } from "../../../packages/webrtc/src";
 
-const server = new Server({ port: 8888 });
+const server = new WebSocketServer({ port: 8888 });
 console.log("start");
 
 (async () => {

@@ -8,9 +8,9 @@
 
 ## Constructors
 
-### new RTCRtpReceiver()
+### Constructor
 
-> **new RTCRtpReceiver**(`config`, `kind`, `rtcpSsrc`): [`RTCRtpReceiver`](RTCRtpReceiver.md)
+> **new RTCRtpReceiver**(`config`, `kind`, `rtcpSsrc`): `RTCRtpReceiver`
 
 #### Parameters
 
@@ -28,7 +28,7 @@
 
 #### Returns
 
-[`RTCRtpReceiver`](RTCRtpReceiver.md)
+`RTCRtpReceiver`
 
 ## Properties
 
@@ -65,13 +65,13 @@ compactNtp
 
 ### latestRepairedRid?
 
-> `optional` **latestRepairedRid**: `string`
+> `optional` **latestRepairedRid?**: `string`
 
 ***
 
 ### latestRid?
 
-> `optional` **latestRid**: `string`
+> `optional` **latestRid?**: `string`
 
 ***
 
@@ -109,13 +109,13 @@ seconds
 
 ### receiverTWCC?
 
-> `optional` **receiverTWCC**: `ReceiverTWCC`
+> `optional` **receiverTWCC?**: `ReceiverTWCC`
 
 ***
 
 ### remoteStreamId?
 
-> `optional` **remoteStreamId**: `string`
+> `optional` **remoteStreamId?**: `string`
 
 ***
 
@@ -127,7 +127,7 @@ seconds
 
 ### remoteTrackId?
 
-> `optional` **remoteTrackId**: `string`
+> `optional` **remoteTrackId?**: `string`
 
 ***
 
@@ -145,7 +145,7 @@ seconds
 
 ### sdesMid?
 
-> `optional` **sdesMid**: `string`
+> `optional` **sdesMid?**: `string`
 
 ***
 
@@ -197,11 +197,11 @@ seconds
 
 #### Get Signature
 
-> **get** **nackEnabled**(): `undefined` \| [`RTCPFB`](../type-aliases/RTCPFB.md)
+> **get** **nackEnabled**(): [`RTCPFB`](../type-aliases/RTCPFB.md) \| `undefined`
 
 ##### Returns
 
-`undefined` \| [`RTCPFB`](../type-aliases/RTCPFB.md)
+[`RTCPFB`](../type-aliases/RTCPFB.md) \| `undefined`
 
 ***
 
@@ -209,13 +209,13 @@ seconds
 
 #### Get Signature
 
-> **get** **pliEnabled**(): `undefined` \| [`RTCPFB`](../type-aliases/RTCPFB.md)
+> **get** **pliEnabled**(): [`RTCPFB`](../type-aliases/RTCPFB.md) \| `undefined`
 
 `a=rtcp-fb:<pt> nack pli` (RFC 4585): a generic `nack` alone does not allow PLI.
 
 ##### Returns
 
-`undefined` \| [`RTCPFB`](../type-aliases/RTCPFB.md)
+[`RTCPFB`](../type-aliases/RTCPFB.md) \| `undefined`
 
 ***
 
@@ -247,11 +247,11 @@ seconds
 
 #### Get Signature
 
-> **get** **twccEnabled**(): `undefined` \| [`RTCPFB`](../type-aliases/RTCPFB.md)
+> **get** **twccEnabled**(): [`RTCPFB`](../type-aliases/RTCPFB.md) \| `undefined`
 
 ##### Returns
 
-`undefined` \| [`RTCPFB`](../type-aliases/RTCPFB.md)
+[`RTCPFB`](../type-aliases/RTCPFB.md) \| `undefined`
 
 ## Methods
 
@@ -336,7 +336,7 @@ transceiver の停止確定時に remote track を ended にする
 
 ### getStatsRootIds()
 
-> **getStatsRootIds**(`selector`?): `string`[]
+> **getStatsRootIds**(`selector?`): `string`[]
 
 #### Parameters
 
@@ -454,13 +454,13 @@ commit and restored on rollback), not the codec its track was created with.
 
 ##### payloadType
 
-> **payloadType**: `undefined` \| `number`
+> **payloadType**: `number` \| `undefined`
 
 ***
 
 ### prepareReceive()
 
-> **prepareReceive**(`params`, `__namedParameters`): `void`
+> **prepareReceive**(`params`, `__namedParameters?`): `void`
 
 Receive tables are keyed by payload type and RTX SSRC. With
 `deferConflicts` (a pending offer or pranswer), a new key applies at once
@@ -474,7 +474,7 @@ until the transaction commits, and rollback drops the staged value.
 
 [`RTCRtpReceiveParameters`](../interfaces/RTCRtpReceiveParameters.md)
 
-##### \_\_namedParameters
+##### \_\_namedParameters?
 
 ###### deferConflicts?
 
@@ -516,31 +516,31 @@ Internal: return to a negotiation baseline taken by `snapshotNegotiationState`.
 
 ###### receiverTWCC
 
-`undefined` \| `ReceiverTWCC` = `...`
+`ReceiverTWCC` \| `undefined` = `...`
 
 ###### receiveTables
 
-\{ `codecs`: \{\}; `ssrcByRtx`: \{\}; `stagedCodecs`: \{\}; `stagedSsrcByRtx`: \{\}; \} = `...`
+\{ `codecs`: \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \}; `ssrcByRtx`: \{\[`rtxSsrc`: `number`\]: `number`; \}; `stagedCodecs`: \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \}; `stagedSsrcByRtx`: \{\[`rtxSsrc`: `number`\]: `number`; \}; \} = `...`
 
 ###### receiveTables.codecs
 
-\{\} = `...`
+\{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \} = `...`
 
 ###### receiveTables.ssrcByRtx
 
-\{\} = `...`
+\{\[`rtxSsrc`: `number`\]: `number`; \} = `...`
 
 ###### receiveTables.stagedCodecs
 
-\{\} = `...`
+\{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \} = `...`
 
 ###### receiveTables.stagedSsrcByRtx
 
-\{\} = `...`
+\{\[`rtxSsrc`: `number`\]: `number`; \} = `...`
 
 ###### remoteStreamId
 
-`undefined` \| `string` = `...`
+`string` \| `undefined` = `...`
 
 ###### remoteStreamIds
 
@@ -548,15 +548,15 @@ Internal: return to a negotiation baseline taken by `snapshotNegotiationState`.
 
 ###### remoteTrackId
 
-`undefined` \| `string` = `...`
+`string` \| `undefined` = `...`
 
 ###### trackByRID
 
-\{\} = `...`
+\{\[`rid`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md); \} = `...`
 
 ###### trackBySSRC
 
-\{\} = `...`
+\{\[`ssrc`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md); \} = `...`
 
 ###### tracks
 
@@ -584,19 +584,19 @@ Internal: replace the decode tables with a rollback baseline.
 
 ###### codecs
 
-\{\} = `...`
+\{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \} = `...`
 
 ###### ssrcByRtx
 
-\{\} = `...`
+\{\[`rtxSsrc`: `number`\]: `number`; \} = `...`
 
 ###### stagedCodecs
 
-\{\} = `...`
+\{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \} = `...`
 
 ###### stagedSsrcByRtx
 
-\{\} = `...`
+\{\[`rtxSsrc`: `number`\]: `number`; \} = `...`
 
 #### Returns
 
@@ -606,7 +606,7 @@ Internal: replace the decode tables with a rollback baseline.
 
 ### resyncCodecs()
 
-> **resyncCodecs**(`params`, `mediaSourceSsrc`?): `void`
+> **resyncCodecs**(`params`, `mediaSourceSsrc?`): `void`
 
 Replace receiver codec state after a negotiated codec preference change.
 Use only when the transaction commits; pending descriptions stage through
@@ -672,7 +672,7 @@ prepareReceive() so the current decode path remains available.
 
 ### setupTWCC()
 
-> **setupTWCC**(`mediaSourceSsrc`, `negotiated`): `void`
+> **setupTWCC**(`mediaSourceSsrc`, `negotiated?`): `void`
 
 Attach this receiver to the DTLS-transport-scoped TWCC generator.
 BUNDLE audio/video share one ReceiverTWCC so interleaved
@@ -684,7 +684,7 @@ transport-wide sequences are not reported as loss.
 
 `number`
 
-##### negotiated
+##### negotiated?
 
 `boolean` = `...`
 
@@ -708,7 +708,7 @@ part of it.
 
 ##### receiverTWCC
 
-> **receiverTWCC**: `undefined` \| `ReceiverTWCC`
+> **receiverTWCC**: `ReceiverTWCC` \| `undefined`
 
 ##### receiveTables
 
@@ -720,7 +720,7 @@ part of it.
 
 ###### Index Signature
 
-\[`key`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
+\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
 
 ###### receiveTables.ssrcByRtx
 
@@ -728,7 +728,7 @@ part of it.
 
 ###### Index Signature
 
-\[`key`: `number`\]: `number`
+\[`rtxSsrc`: `number`\]: `number`
 
 ###### receiveTables.stagedCodecs
 
@@ -736,7 +736,7 @@ part of it.
 
 ###### Index Signature
 
-\[`key`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
+\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
 
 ###### receiveTables.stagedSsrcByRtx
 
@@ -744,11 +744,11 @@ part of it.
 
 ###### Index Signature
 
-\[`key`: `number`\]: `number`
+\[`rtxSsrc`: `number`\]: `number`
 
 ##### remoteStreamId
 
-> **remoteStreamId**: `undefined` \| `string`
+> **remoteStreamId**: `string` \| `undefined`
 
 ##### remoteStreamIds
 
@@ -756,7 +756,7 @@ part of it.
 
 ##### remoteTrackId
 
-> **remoteTrackId**: `undefined` \| `string`
+> **remoteTrackId**: `string` \| `undefined`
 
 ##### trackByRID
 
@@ -764,7 +764,7 @@ part of it.
 
 ###### Index Signature
 
-\[`key`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md)
+\[`rid`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md)
 
 ##### trackBySSRC
 
@@ -772,7 +772,7 @@ part of it.
 
 ###### Index Signature
 
-\[`key`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md)
+\[`ssrc`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md)
 
 ##### tracks
 
@@ -800,7 +800,7 @@ Internal: capture the decode tables for a negotiation rollback baseline.
 
 ###### Index Signature
 
-\[`key`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
+\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
 
 ##### ssrcByRtx
 
@@ -808,7 +808,7 @@ Internal: capture the decode tables for a negotiation rollback baseline.
 
 ###### Index Signature
 
-\[`key`: `number`\]: `number`
+\[`rtxSsrc`: `number`\]: `number`
 
 ##### stagedCodecs
 
@@ -816,7 +816,7 @@ Internal: capture the decode tables for a negotiation rollback baseline.
 
 ###### Index Signature
 
-\[`key`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
+\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
 
 ##### stagedSsrcByRtx
 
@@ -824,7 +824,7 @@ Internal: capture the decode tables for a negotiation rollback baseline.
 
 ###### Index Signature
 
-\[`key`: `number`\]: `number`
+\[`rtxSsrc`: `number`\]: `number`
 
 ***
 

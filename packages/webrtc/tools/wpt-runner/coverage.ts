@@ -25,7 +25,6 @@ const coverageDir = resolve(repoRoot, "coverage", "webrtc-wpt");
 const coverageSummaryPath = resolve(coverageDir, "coverage-summary.json");
 const coverageBaselinePath = resolve(packageDir, "wpt", "coverage-baseline.json");
 const sourceDir = resolve(packageDir, "src");
-const tsconfigPath = resolve(packageDir, "tsconfig.json");
 
 /**
  * GCC / selectable BWE algorithm sources are public API (barrel-exported) so
@@ -50,7 +49,14 @@ async function main() {
   const rawCoverageDir = await mkdtemp(resolve(tmpdir(), "werift-wpt-v8-"));
 
   try {
-    const result = spawnSync("npx", ["tsx", "--tsconfig", tsconfigPath, "tools/wpt-runner/run.ts"], {
+    const result = spawnSync(process.execPath, [
+      "--experimental-transform-types",
+      "--disable-warning=ExperimentalWarning",
+      "--disable-warning=MODULE_TYPELESS_PACKAGE_JSON",
+      "--import",
+      resolve(repoRoot, "tools/node-ts/register.mjs"),
+      "tools/wpt-runner/run.ts",
+    ], {
       cwd: packageDir,
       env: {
         ...process.env,

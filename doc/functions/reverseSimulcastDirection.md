@@ -12,7 +12,7 @@
 
 ### dir
 
-`"send"` | `"recv"`
+`"send"` \| `"recv"`
 
 ## Returns
 

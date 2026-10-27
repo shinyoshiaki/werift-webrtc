@@ -585,7 +585,7 @@ export type AvcDecoderConfigurationRecord = {
  * Throws on a truncated record instead of returning partial parameter sets.
  */
 export function parseAvcDecoderConfigurationRecord(
-  description: ArrayBuffer | ArrayBufferView,
+  description: ArrayBufferLike | ArrayBufferView<ArrayBufferLike>,
 ): AvcDecoderConfigurationRecord {
   const record = ArrayBuffer.isView(description)
     ? Buffer.from(

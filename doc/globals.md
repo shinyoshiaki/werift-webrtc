@@ -6,7 +6,7 @@
 
 ## Namespaces
 
-- [binaryData](namespaces/binaryData/README.md)
+- [binaryData](werift/namespaces/binaryData/README.md)
 
 ## Enumerations
 
@@ -165,6 +165,8 @@
 - [BandwidthEstimator](interfaces/BandwidthEstimator.md)
 - [CandidatePairStats](interfaces/CandidatePairStats.md)
 - [DataChannelStats](interfaces/DataChannelStats.md)
+- [DebugFactory](interfaces/DebugFactory.md)
+- [Debugger](interfaces/Debugger.md)
 - [DtlsTransportStats](interfaces/DtlsTransportStats.md)
 - [Extensions](interfaces/Extensions.md)
 - [IceConnection](interfaces/IceConnection.md)
@@ -343,6 +345,7 @@
 - [CONSENT\_RESPONSE\_TIMEOUT\_MIN](variables/CONSENT_RESPONSE_TIMEOUT_MIN.md)
 - [CONSENT\_TIMEOUT](variables/CONSENT_TIMEOUT.md)
 - [COOKIE](variables/COOKIE.md)
+- [createSelfSignedCertificate](variables/createSelfSignedCertificate.md)
 - [CurveType](variables/CurveType.md)
 - [debug](variables/debug.md)
 - [DEFAULT\_MAX\_MESSAGE\_SIZE](variables/DEFAULT_MAX_MESSAGE_SIZE.md)
@@ -407,6 +410,7 @@
 - [kStartPhaseMs](variables/kStartPhaseMs.md)
 - [kTrendlineWindowSize](variables/kTrendlineWindowSize.md)
 - [kTwccFeedbackHistoryMaxSeqSpan](variables/kTwccFeedbackHistoryMaxSeqSpan.md)
+- [milliTime](variables/milliTime.md)
 - [MPEG4\_GENERIC\_ENCODING\_NAME](variables/MPEG4_GENERIC_ENCODING_NAME.md)
 - [NalUnitType](variables/NalUnitType.md)
 - [NamedCurveAlgorithm](variables/NamedCurveAlgorithm.md)
@@ -477,7 +481,6 @@
 - [createAv1AggregationHeader](functions/createAv1AggregationHeader.md)
 - [createBandwidthEstimator](functions/createBandwidthEstimator.md)
 - [createBufferWriter](functions/createBufferWriter.md)
-- [createSelfSignedCertificate](functions/createSelfSignedCertificate.md)
 - [createStunOverTurnClient](functions/createStunOverTurnClient.md)
 - [createTurnClient](functions/createTurnClient.md)
 - [createVp8PayloadDescriptor](functions/createVp8PayloadDescriptor.md)
@@ -533,13 +536,13 @@
 - [makeIntegrityKey](functions/makeIntegrityKey.md)
 - [maxProbeBitrateBps](functions/maxProbeBitrateBps.md)
 - [microTime](functions/microTime.md)
-- [milliTime](functions/milliTime.md)
 - [negotiateRemoteCodecs](functions/negotiateRemoteCodecs.md)
 - [nodeIpAddress](functions/nodeIpAddress.md)
 - [normalizeCodecMimeType](functions/normalizeCodecMimeType.md)
 - [normalizeFamilyNodeV18](functions/normalizeFamilyNodeV18.md)
 - [normalizeFingerprintAlgorithm](functions/normalizeFingerprintAlgorithm.md)
 - [normalizeFingerprintValue](functions/normalizeFingerprintValue.md)
+- [normalizePem](functions/normalizePem.md)
 - [ntpTime](functions/ntpTime.md)
 - [ntpTime2Sec](functions/ntpTime2Sec.md)
 - [ntpTimeToEpochMs](functions/ntpTimeToEpochMs.md)

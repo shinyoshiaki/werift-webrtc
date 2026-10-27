@@ -1,6 +1,6 @@
 {
   "name": "werift",
-  "version": "0.25.2",
+  "version": "0.26.0",
   "description": "WebRTC Implementation for TypeScript (Node.js)",
   "keywords": [
     "WebRTC",
@@ -44,7 +44,7 @@
     "THIRD_PARTY_LICENSES_LIBWEBRTC.txt"
   ],
   "scripts": {
-    "build": "npm i && rm -rf lib && run-s format compile:*",
+    "build": "npm i && rm -rf lib && run-s compile:*",
     "compile:cjs": "tsc -p ./tsconfig.production.json",
     "compile:esm": "esbuild src/index.ts src/nonstandard/index.ts src/polyfill/index.ts src/polyfill/dom.ts --bundle --packages=external --platform=node --format=esm --target=es2022 --outdir=lib --out-extension:.js=.mjs && node lib/index.mjs",
     "depcheck": "npx depcheck --ignores='@typescript-eslint/*,eslint-*'",
@@ -56,24 +56,21 @@
     "test": "vitest run ./tests",
     "memleak": "vitest run --config ./tests/memleak/memleak.vitest.config.mts",
     "leak:verify": "bash tools/leak-verify/run.sh",
-    "pbt:deep": "tsx --tsconfig ./tsconfig.json tools/pbt-deep/run.ts",
-    "type": "tsc --noEmit --project ./tsconfig.json",
-    "unused": "organize-imports-cli src/**/*.ts",
+    "pbt:deep": "node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs tools/pbt-deep/run.ts",
+    "type": "tsc --noEmit --project ./tsconfig.json --rootDir ..",
     "upgrade-interactive": "npx npm-check-updates -i",
-    "wpt:list": "tsx --tsconfig ./tsconfig.json tools/wpt-runner/list.ts",
-    "wpt": "tsx --tsconfig ./tsconfig.json tools/wpt-runner/run.ts",
-    "wpt:coverage": "tsx --tsconfig ./tsconfig.json tools/wpt-runner/coverage.ts",
+    "wpt:list": "node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs tools/wpt-runner/list.ts",
+    "wpt": "node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs tools/wpt-runner/run.ts",
+    "wpt:coverage": "node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs tools/wpt-runner/coverage.ts",
     "test:sim": "vitest run --config ./simulations/vitest.config.mts"
   },
   "dependencies": {
-    "@fidm/x509": "^1.2.1",
-    "@noble/curves": "^1.8.1",
-    "@peculiar/x509": "^1.12.3",
     "buffer": "^6.0.3",
-    "debug": "4.4.0",
-    "mediabunny": "^1.45.2",
-    "multicast-dns": "^7.2.5",
-    "tweetnacl": "^1.0.3"
+    "mediabunny": "^1.62.1",
+    "multicast-dns": "^7.2.5"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
   },
   "engines": {
     "node": ">=22"

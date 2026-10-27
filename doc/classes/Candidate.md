@@ -8,9 +8,9 @@
 
 ## Constructors
 
-### new Candidate()
+### Constructor
 
-> **new Candidate**(`foundation`, `component`, `transport`, `priority`, `host`, `port`, `type`, `relatedAddress`?, `relatedPort`?, `tcptype`?, `generation`?, `ufrag`?): [`Candidate`](Candidate.md)
+> **new Candidate**(`foundation`, `component`, `transport`, `priority`, `host`, `port`, `type`, `relatedAddress?`, `relatedPort?`, `tcptype?`, `generation?`, `ufrag?`): `Candidate`
 
 #### Parameters
 
@@ -64,7 +64,7 @@
 
 #### Returns
 
-[`Candidate`](Candidate.md)
+`Candidate`
 
 ## Properties
 
@@ -82,7 +82,7 @@
 
 ### generation?
 
-> `optional` **generation**: `number`
+> `optional` **generation?**: `number`
 
 ***
 
@@ -112,19 +112,19 @@
 
 ### relatedAddress?
 
-> `optional` **relatedAddress**: `string`
+> `optional` **relatedAddress?**: `string`
 
 ***
 
 ### relatedPort?
 
-> `optional` **relatedPort**: `number`
+> `optional` **relatedPort?**: `number`
 
 ***
 
 ### tcptype?
 
-> `optional` **tcptype**: `string`
+> `optional` **tcptype?**: `string`
 
 ***
 
@@ -142,7 +142,7 @@
 
 ### ufrag?
 
-> `optional` **ufrag**: `string`
+> `optional` **ufrag?**: `string`
 
 ## Methods
 
@@ -154,7 +154,7 @@
 
 ##### other
 
-[`Candidate`](Candidate.md)
+`Candidate`
 
 #### Returns
 
@@ -184,7 +184,7 @@
 
 ### fromSdp()
 
-> `static` **fromSdp**(`sdp`): [`Candidate`](Candidate.md)
+> `static` **fromSdp**(`sdp`): `Candidate`
 
 #### Parameters
 
@@ -194,4 +194,4 @@
 
 #### Returns
 
-[`Candidate`](Candidate.md)
+`Candidate`

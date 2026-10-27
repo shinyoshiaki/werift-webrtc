@@ -8,15 +8,15 @@
 
 ## Constructors
 
-### new RTCRtpSender()
+### Constructor
 
-> **new RTCRtpSender**(`trackOrKind`, `options`?): [`RTCRtpSender`](RTCRtpSender.md)
+> **new RTCRtpSender**(`trackOrKind`, `options?`): `RTCRtpSender`
 
 #### Parameters
 
 ##### trackOrKind
 
-[`Kind`](../type-aliases/Kind.md) | [`MediaStreamTrack`](MediaStreamTrack.md)
+[`Kind`](../type-aliases/Kind.md) \| [`MediaStreamTrack`](MediaStreamTrack.md)
 
 ##### options?
 
@@ -24,13 +24,13 @@
 
 #### Returns
 
-[`RTCRtpSender`](RTCRtpSender.md)
+`RTCRtpSender`
 
 ## Properties
 
 ### codec?
 
-> `optional` **codec**: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
+> `optional` **codec?**: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
 
 ***
 
@@ -52,7 +52,7 @@
 
 Stable recommended send bitrate event (**bps**, change-only).
 Bridged from the active [BandwidthEstimator](../interfaces/BandwidthEstimator.md); subscriptions survive
-[setBandwidthEstimator](RTCRtpSender.md#setbandwidthestimator) without re-subscribing.
+[setBandwidthEstimator](#setbandwidthestimator) without re-subscribing.
 
 Prefer this over `senderBWE.onAvailableBitrate` for application adaptation.
 
@@ -105,7 +105,7 @@ Probe cluster configs (target bps / min packets). Bridged from the active
 
 ### redRedundantPayloadType?
 
-> `optional` **redRedundantPayloadType**: `number`
+> `optional` **redRedundantPayloadType?**: `number`
 
 ***
 
@@ -141,7 +141,7 @@ Probe cluster configs (target bps / min packets). Bridged from the active
 
 ### track
 
-> **track**: `null` \| [`MediaStreamTrack`](MediaStreamTrack.md) = `null`
+> **track**: [`MediaStreamTrack`](MediaStreamTrack.md) \| `null` = `null`
 
 ***
 
@@ -214,9 +214,9 @@ probe target while probing. 0 when unknown. Legacy returns 0 from
 Active send-side bandwidth estimator (TWCC-driven).
 
 Default is [SenderBandwidthEstimator](LegacyCumulativeBandwidthEstimator.md) (legacy cumulative algorithm).
-Replace only with [setBandwidthEstimator](RTCRtpSender.md#setbandwidthestimator) (e.g. `new GccBandwidthEstimator()`).
+Replace only with [setBandwidthEstimator](#setbandwidthestimator) (e.g. `new GccBandwidthEstimator()`).
 
-Prefer [onAvailableBitrate](RTCRtpSender.md#onavailablebitrate) on this sender for bitrate notifications that
+Prefer [onAvailableBitrate](#onavailablebitrate) on this sender for bitrate notifications that
 survive estimator swaps. Algorithm-specific events remain on concrete instances.
 
 **TypeScript compatibility:** [LegacyCongestionCompatibility](../type-aliases/LegacyCongestionCompatibility.md) fields
@@ -236,11 +236,11 @@ Prefer `sender.senderBWE as SenderBandwidthEstimator` (or
 
 #### Get Signature
 
-> **get** **streamId**(): `undefined` \| `string`
+> **get** **streamId**(): `string` \| `undefined`
 
 ##### Returns
 
-`undefined` \| `string`
+`string` \| `undefined`
 
 #### Set Signature
 
@@ -250,7 +250,7 @@ Prefer `sender.senderBWE as SenderBandwidthEstimator` (or
 
 ###### value
 
-`undefined` | `string`
+`string` \| `undefined`
 
 ##### Returns
 
@@ -437,7 +437,7 @@ the committed codec keeps sending until the final answer.
 
 ### replaceRTP()
 
-> **replaceRTP**(`header`, `discontinuity`, `timestampStep`): `void`
+> **replaceRTP**(`header`, `discontinuity?`, `timestampStep?`): `void`
 
 Schedule RTP continuity rewrite for the next packet that is actually sent.
 The header argument is kept for API compatibility and is not used to compute
@@ -451,11 +451,11 @@ at the source-switch boundary.
 
 `Pick`\<[`RtpHeader`](RtpHeader.md), `"sequenceNumber"` \| `"timestamp"`\>
 
-##### discontinuity
+##### discontinuity?
 
 `boolean` = `false`
 
-##### timestampStep
+##### timestampStep?
 
 `number` = `1`
 
@@ -473,7 +473,7 @@ at the source-switch boundary.
 
 ##### track
 
-`null` | [`MediaStreamTrack`](MediaStreamTrack.md)
+[`MediaStreamTrack`](MediaStreamTrack.md) \| `null`
 
 #### Returns
 
@@ -493,11 +493,11 @@ Internal: return to a negotiation baseline's send parameters.
 
 ###### cname
 
-`undefined` \| `string` = `...`
+`string` \| `undefined` = `...`
 
 ###### codec
 
-`undefined` \| [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) = `...`
+[`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined` = `...`
 
 ###### headerExtensions
 
@@ -505,7 +505,7 @@ Internal: return to a negotiation baseline's send parameters.
 
 ###### mid
 
-`undefined` \| `string` = `...`
+`string` \| `undefined` = `...`
 
 ###### negotiatedCodecs
 
@@ -513,35 +513,35 @@ Internal: return to a negotiation baseline's send parameters.
 
 ###### proposedPrimaryCodec
 
-`undefined` \| [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) = `...`
+[`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined` = `...`
 
 ###### redRedundantPayloadType
 
-`undefined` \| `number` = `...`
+`number` \| `undefined` = `...`
 
 ###### repairedRtpStreamId
 
-`undefined` \| `string` = `...`
+`string` \| `undefined` = `...`
 
 ###### rtpStreamId
 
-`undefined` \| `string` = `...`
+`string` \| `undefined` = `...`
 
 ###### rtxPayloadType
 
-`undefined` \| `number` = `...`
+`number` \| `undefined` = `...`
 
 ###### sendPrimaryCodec
 
-`undefined` \| [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) = `...`
+[`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined` = `...`
 
 ###### track
 
-`null` \| [`MediaStreamTrack`](MediaStreamTrack.md) = `...`
+[`MediaStreamTrack`](MediaStreamTrack.md) \| `null` = `...`
 
 ###### trackCodec
 
-`undefined` \| [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) = `...`
+[`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined` = `...`
 
 #### Returns
 
@@ -570,7 +570,7 @@ is enabled. Each call settles only after its own packet is sent or dropped.
 
 ##### rtp
 
-`Buffer`\<`ArrayBufferLike`\> | [`RtpPacket`](RtpPacket.md)
+`Buffer`\<`ArrayBufferLike`\> \| [`RtpPacket`](RtpPacket.md)
 
 #### Returns
 
@@ -589,16 +589,16 @@ Default is the legacy [SenderBandwidthEstimator](LegacyCumulativeBandwidthEstima
 
 Behavior on swap:
 1. Bumps bweGeneration so in-flight sends discard `rtpPacketSent`
-   delivery and in-flight [maybeInjectProbePadding](RTCRtpSender.md#maybeinjectprobepadding) loops exit
+   delivery and in-flight [maybeInjectProbePadding](#maybeinjectprobepadding) loops exit
    (cancelled — no packets to disposed / previous estimator).
 2. Clears pendingUntrackedBytes so the next estimator's first
    `SentInfo.priorUnackedBytes` is 0.
 3. Stops delivering `rtpPacketSent` / `receiveTWCC` to the previous instance.
-3. Unbinds the stable [onAvailableBitrate](RTCRtpSender.md#onavailablebitrate) bridge, then `dispose()`/`reset()` the old instance.
+3. Unbinds the stable [onAvailableBitrate](#onavailablebitrate) bridge, then `dispose()`/`reset()` the old instance.
 4. **Always** `reset()` the injected `impl` so a previously used instance
    starts clean (no implicit state merge), then rebinds the bridge.
 
-Subscriptions to [onAvailableBitrate](RTCRtpSender.md#onavailablebitrate) on this sender are preserved.
+Subscriptions to [onAvailableBitrate](#onavailablebitrate) on this sender are preserved.
 Re-subscribe algorithm-specific events on the new concrete instance.
 
 #### Parameters
@@ -649,11 +649,11 @@ Re-subscribe algorithm-specific events on the new concrete instance.
 
 ### setSendEncodings()
 
-> **setSendEncodings**(`encodings`): `void`
+> **setSendEncodings**(`encodings?`): `void`
 
 #### Parameters
 
-##### encodings
+##### encodings?
 
 `Record`\<`string`, `unknown`\>[] = `[]`
 
@@ -665,11 +665,11 @@ Re-subscribe algorithm-specific events on the new concrete instance.
 
 ### setStreams()
 
-> **setStreams**(`streams`): `void`
+> **setStreams**(`streams?`): `void`
 
 #### Parameters
 
-##### streams
+##### streams?
 
 [`MediaStream`](MediaStream.md)[] = `[]`
 
@@ -691,11 +691,11 @@ Internal: the negotiated send parameters, for a negotiation baseline.
 
 ##### cname
 
-> **cname**: `undefined` \| `string`
+> **cname**: `string` \| `undefined`
 
 ##### codec
 
-> **codec**: `undefined` \| [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
+> **codec**: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined`
 
 ##### headerExtensions
 
@@ -703,7 +703,7 @@ Internal: the negotiated send parameters, for a negotiation baseline.
 
 ##### mid
 
-> **mid**: `undefined` \| `string`
+> **mid**: `string` \| `undefined`
 
 ##### negotiatedCodecs
 
@@ -711,45 +711,45 @@ Internal: the negotiated send parameters, for a negotiation baseline.
 
 ##### proposedPrimaryCodec
 
-> **proposedPrimaryCodec**: `undefined` \| [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
+> **proposedPrimaryCodec**: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined`
 
 ##### redRedundantPayloadType
 
-> **redRedundantPayloadType**: `undefined` \| `number`
+> **redRedundantPayloadType**: `number` \| `undefined`
 
 ##### repairedRtpStreamId
 
-> **repairedRtpStreamId**: `undefined` \| `string`
+> **repairedRtpStreamId**: `string` \| `undefined`
 
 ##### rtpStreamId
 
-> **rtpStreamId**: `undefined` \| `string`
+> **rtpStreamId**: `string` \| `undefined`
 
 ##### rtxPayloadType
 
-> **rtxPayloadType**: `undefined` \| `number`
+> **rtxPayloadType**: `number` \| `undefined`
 
 ##### sendPrimaryCodec
 
-> **sendPrimaryCodec**: `undefined` \| [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
+> **sendPrimaryCodec**: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined`
 
 ##### track
 
-> **track**: `null` \| [`MediaStreamTrack`](MediaStreamTrack.md)
+> **track**: [`MediaStreamTrack`](MediaStreamTrack.md) \| `null`
 
 ##### trackCodec
 
-> **trackCodec**: `undefined` \| [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
+> **trackCodec**: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined`
 
 ***
 
 ### stop()
 
-> **stop**(`__namedParameters`): `void`
+> **stop**(`__namedParameters?`): `void`
 
 #### Parameters
 
-##### \_\_namedParameters
+##### \_\_namedParameters?
 
 ###### keepTrack?
 

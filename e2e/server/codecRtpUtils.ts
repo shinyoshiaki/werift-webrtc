@@ -40,7 +40,7 @@ export type EncodedFrameSample = {
   timestampSec: number;
 };
 
-// cwd is e2e/ in CI and local runs (compiled or ts-node)
+// cwd is e2e/ in CI and local runs (compiled or Node's native TypeScript runtime)
 const FIXTURE_DIR = join(process.cwd(), "fixtures/media");
 
 export const codecFixturePaths: Record<CodecRtpName, string> = {

@@ -8,19 +8,19 @@
 
 ## Constructors
 
-### new TransportWideCC()
+### Constructor
 
-> **new TransportWideCC**(`props`): [`TransportWideCC`](TransportWideCC.md)
+> **new TransportWideCC**(`props?`): `TransportWideCC`
 
 #### Parameters
 
-##### props
+##### props?
 
-`Partial`\<[`TransportWideCC`](TransportWideCC.md)\> = `{}`
+`Partial`\<`TransportWideCC`\> = `{}`
 
 #### Returns
 
-[`TransportWideCC`](TransportWideCC.md)
+`TransportWideCC`
 
 ## Properties
 
@@ -128,7 +128,7 @@ and advances the sequence across chunk boundaries.
 
 ### deSerialize()
 
-> `static` **deSerialize**(`data`, `header`): [`TransportWideCC`](TransportWideCC.md)
+> `static` **deSerialize**(`data`, `header`): `TransportWideCC`
 
 #### Parameters
 
@@ -142,4 +142,4 @@ and advances the sequence across chunk boundaries.
 
 #### Returns
 
-[`TransportWideCC`](TransportWideCC.md)
+`TransportWideCC`

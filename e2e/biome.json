@@ -1,13 +1,12 @@
 {
   "files": {
-    "ignore": [
-      ".sak-link",
-      "**/build",
-      "**/build/**",
-      "**/dist",
-      "**/dist/**",
-      "**/lib",
-      "**/lib/**"
+    "includes": [
+      "**",
+      "!**/.sak-link",
+      "!**/build",
+      "!**/dist",
+      "!**/lib",
+      "!**/vendor"
     ]
   },
   "formatter": {
@@ -33,7 +32,11 @@
         "noForEach": "off",
         "noThisInStatic": "off",
         "useLiteralKeys": "off",
-        "noUselessConstructor": "off"
+        "noUselessConstructor": "off",
+        "noCommaOperator": "off",
+        "useIndexOf": "off",
+        "useMathMinMax": "off",
+        "useOptionalChain": "off"
       },
       "a11y": {
         "useButtonType": "off",
@@ -43,15 +46,23 @@
         "noAsyncPromiseExecutor": "off",
         "noExplicitAny": "off",
         "noDoubleEquals": "off",
+        "useIterableCallbackReturn": "off",
         "noFallthroughSwitchClause": "off",
         "noAssignInExpressions": "off",
         "noRedeclare": "off",
         "noConfusingVoidType": "off",
-        "noImplicitAnyLet": "off"
+        "noImplicitAnyLet": "off",
+        "noNonNullAssertedOptionalChain": "off"
       },
       "correctness": {
         "noSwitchDeclarations": "error",
-        "noInvalidUseBeforeDeclaration": "off"
+        "noInvalidUseBeforeDeclaration": "off",
+        "noInnerDeclarations": "off",
+        "noUnusedFunctionParameters": "off",
+        "noUnusedImports": "off",
+        "noUnusedPrivateClassMembers": "off",
+        "noUnusedVariables": "off",
+        "useParseIntRadix": "off"
       }
     }
   }

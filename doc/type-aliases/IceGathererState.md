@@ -6,4 +6,4 @@
 
 # Type Alias: IceGathererState
 
-> **IceGathererState**: *typeof* [`IceGathererStates`](../variables/IceGathererStates.md)\[`number`\]
+> **IceGathererState** = *typeof* [`IceGathererStates`](../variables/IceGathererStates.md)\[`number`\]

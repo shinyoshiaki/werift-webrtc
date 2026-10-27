@@ -18,7 +18,7 @@
  * Run it on HEAD (`--check` exits 1 on a mismatch) and on a develop worktree
  * to measure develop's column of the basis:
  *
- *   npx tsx tools/negotiation-diff/scenarios.ts --root <repo> [--check 1]
+ *   node --experimental-transform-types --import ../../tools/node-ts/register.mjs tools/negotiation-diff/scenarios.ts --root <repo> [--check 1]
  *
  * In CI the description-pool episodes of the episode fuzzer
  * (`tests/pbt/fuzz`) check the same contract with an atomicity oracle (a
@@ -38,7 +38,7 @@ const args = new Map<string, string>();
 for (let i = 2; i < process.argv.length; i += 2) {
   args.set(process.argv[i].replace(/^--/, ""), process.argv[i + 1]);
 }
-const root = resolve(args.get("root") ?? join(__dirname, "../../../.."));
+const root = resolve(args.get("root") ?? join(import.meta.dirname, "../../../.."));
 
 type Pc = Ctx["a"]["pc"];
 

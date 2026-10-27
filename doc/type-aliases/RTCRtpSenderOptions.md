@@ -6,9 +6,9 @@
 
 # Type Alias: RTCRtpSenderOptions
 
-> **RTCRtpSenderOptions**: `object`
+> **RTCRtpSenderOptions** = `object`
 
-## Type declaration
+## Properties
 
 ### bandwidthEstimator?
 
@@ -20,6 +20,6 @@ instance created from [PeerConfig.bandwidthEstimator](../interfaces/PeerConfig.m
 
 ### pendingRtp?
 
-> `optional` **pendingRtp**: `boolean` \| [`PendingRtpOptions`](PendingRtpOptions.md)
+> `optional` **pendingRtp?**: `boolean` \| [`PendingRtpOptions`](PendingRtpOptions.md)
 
 Pending RTP cache. Disabled by default. Pass `true` or `{ maxLength }` to enable.

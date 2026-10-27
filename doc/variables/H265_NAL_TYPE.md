@@ -8,7 +8,7 @@
 
 > `const` **H265\_NAL\_TYPE**: `object`
 
-## Type declaration
+## Type Declaration
 
 ### AP
 
