@@ -18,9 +18,10 @@ function resolveSystemChrome() {
   ].find((candidate) => candidate && existsSync(candidate));
 }
 
-const { canAutoDownloadGoogleChrome, resolveCachedGoogleChrome } = require(
-  "./browser-paths",
-);
+const {
+  canAutoDownloadGoogleChrome,
+  resolveCachedGoogleChrome,
+} = require("./browser-paths");
 
 /**
  * Prefer Google Chrome (proprietary H.264) for P0 H.264 codec E2E.
@@ -70,12 +71,16 @@ function ensureGoogleChromeForH264() {
   return existing;
 }
 
-function hasPlaywrightChromium() {
+function hasPlaywrightChromium(packageName, requireHeadlessShell) {
   try {
-    const { chromium } = require("playwright");
+    const { chromium } = require(packageName);
     const chromiumExecutablePath = chromium.executablePath();
     if (!existsSync(chromiumExecutablePath)) {
       return false;
+    }
+
+    if (!requireHeadlessShell) {
+      return true;
     }
 
     const chromiumDir = dirname(dirname(chromiumExecutablePath));
@@ -99,17 +104,37 @@ function hasPlaywrightChromium() {
   }
 }
 
+function installPlaywrightBrowsers(packageName, components) {
+  const playwrightPackageJson = require.resolve(`${packageName}/package.json`, {
+    paths: [__dirname],
+  });
+  const cliPath = join(dirname(playwrightPackageJson), "cli.js");
+  const result = spawnSync(
+    process.execPath,
+    [cliPath, "install", ...components],
+    { cwd: __dirname, stdio: "inherit" },
+  );
+
+  if (result.error) {
+    throw result.error;
+  }
+  if ((result.status ?? 1) !== 0) {
+    process.exit(result.status ?? 1);
+  }
+}
+
 const chrome = ensureGoogleChromeForH264();
 if (chrome) {
   console.log(`[ensure-browser] using Chrome: ${chrome}`);
 }
 
-if (hasPlaywrightChromium()) {
-  process.exit(0);
+if (!hasPlaywrightChromium("playwright", true)) {
+  // Keep the current browser for regular and DTLS 1.3 E2E.
+  installPlaywrightBrowsers("playwright", [
+    "chromium",
+    "chromium-headless-shell",
+  ]);
 }
-
-
-
 
 // DTLS version tests must use Playwright's pinned Chromium. The shared
 // installer skips download when /usr/bin/google-chrome exists (GHA), so
@@ -134,4 +159,9 @@ if (result.error) {
 }
 if ((result.status ?? 1) !== 0) {
   process.exit(result.status ?? 1);
+}
+
+if (!hasPlaywrightChromium("playwright-dtls12", false)) {
+  // Chromium 140 still honors the DTLS 1.2 field trial used by fallback tests.
+  installPlaywrightBrowsers("playwright-dtls12", ["chromium"]);
 }

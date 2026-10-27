@@ -1,8 +1,6 @@
-/// <reference types="@vitest/browser/providers/playwright" />
-
 import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
-
+import { playwright } from "@vitest/browser-playwright";
 import { nodePolyfills } from "vite-plugin-node-polyfills";
 import { defineConfig } from "vitest/config";
 import { chromiumLaunchArgs } from "./tests/dtls/chromiumLaunch";
@@ -16,17 +14,23 @@ const { applyE2ePlaywrightBrowsersPath } = createRequire(import.meta.url)(
 applyE2ePlaywrightBrowsersPath();
 // hoist-imports-allow: Playwright reads PLAYWRIGHT_BROWSERS_PATH at module load
 const { chromium } = await import("playwright");
+const { chromium: chromiumDtls12 } = await import("playwright-dtls12");
+const chromiumMode =
+  process.env.DTLS_CHROMIUM_MODE === "dtls13" ? "dtls13" : "dtls12";
+const chromiumForMode = chromiumMode === "dtls12" ? chromiumDtls12 : chromium;
 
 let playwrightChromium: string | undefined;
 try {
-  playwrightChromium = chromium.executablePath();
+  playwrightChromium = chromiumForMode.executablePath();
 } catch {
   playwrightChromium = undefined;
 }
 
 // Version assertions are Chromium-revision-specific. Never fall back to
 // GHA/system Google Chrome (ubuntu-latest preinstalls a newer Chrome whose
-// DTLS 1.3 default ignores WebRTC-ForceDtls13/Disabled).
+// DTLS 1.3 default ignores WebRTC-ForceDtls13/Disabled). The DTLS 1.2 mode
+// uses the pinned Chromium 140 package because Chromium 156 no longer honors
+// that field trial.
 const override = process.env.DTLS_CHROME_BIN;
 const chromiumExecutablePath =
   override && existsSync(override) ? override : playwrightChromium;
@@ -36,9 +40,6 @@ if (!chromiumExecutablePath || !existsSync(chromiumExecutablePath)) {
     "DTLS e2e requires Playwright Chromium. From e2e/ run `npm run install:browsers`.",
   );
 }
-
-const chromiumMode =
-  process.env.DTLS_CHROMIUM_MODE === "dtls13" ? "dtls13" : "dtls12";
 
 console.info(
   `[dtls e2e] mode=${chromiumMode} executable=${chromiumExecutablePath}`,
@@ -64,17 +65,16 @@ export default defineConfig({
     fileParallelism: false,
     retry: 1,
     browser: {
-      provider: "playwright",
+      provider: playwright({
+        launchOptions: {
+          executablePath: chromiumExecutablePath,
+          args: chromiumLaunchArgs(chromiumMode),
+        },
+      }),
       enabled: true,
       instances: [
         {
           browser: "chromium",
-          launch: {
-            ...(chromiumExecutablePath
-              ? { executablePath: chromiumExecutablePath }
-              : {}),
-            args: chromiumLaunchArgs(chromiumMode),
-          },
         },
       ],
     },

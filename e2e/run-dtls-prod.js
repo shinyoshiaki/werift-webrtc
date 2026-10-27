@@ -1,5 +1,9 @@
 const { spawn } = require("node:child_process");
 const { requestServerStop } = require("./stop");
+const { ensurePlaywrightBrowsersPath } = require("./browsers-path");
+
+// Launch the Chromium that ensure-browser.js installed for this harness.
+ensurePlaywrightBrowsersPath();
 
 function npmCommand() {
   return process.platform === "win32" ? "npm.cmd" : "npm";
