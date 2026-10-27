@@ -15,7 +15,7 @@ export class Alert {
 
   static deSerialize(buf: Buffer) {
     return new Alert(
-      //@ts-ignore
+      //@ts-expect-error
       ...Object.values(decode(buf, Alert.spec)),
     );
   }

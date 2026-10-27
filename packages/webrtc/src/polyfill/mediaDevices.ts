@@ -1,4 +1,4 @@
-import { OverconstrainedError, createWebRtcDomException } from "../errors";
+import { createWebRtcDomException, OverconstrainedError } from "../errors";
 import { EventTarget } from "../helper";
 import { MediaStream, type MediaStreamTrack } from "../media/track";
 import type {
@@ -8,9 +8,9 @@ import type {
 } from "./mediaRegister";
 import { mimeTypeForKind, normalizeTrackConstraints } from "./mediaRegister";
 import {
+  assertRequestedMediaTypes,
   type MediaKind,
   type PolyfillTrackConstraints,
-  assertRequestedMediaTypes,
   polyfillSupportedConstraints,
   selectRegisterForKind,
 } from "./selectSettings";

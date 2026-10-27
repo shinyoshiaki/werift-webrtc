@@ -4,14 +4,14 @@ import { catalogByGroup } from "../helpers/catalog.js";
 import { closeSharedBrowser } from "../helpers/openPage.js";
 import { withExample } from "../helpers/runExample.js";
 import {
-  assertMediaPidsAlive,
   assertGstreamerHealthy,
+  assertMediaPidsAlive,
   assertNoFatalLogs,
   waitForLog,
 } from "../helpers/spawnExample.js";
 import {
-  waitInboundRtp,
   assertValidMediaContainer,
+  waitInboundRtp,
   waitNonEmptyOutput,
   waitPeerConnected,
   waitSpawnedExit,
@@ -55,7 +55,8 @@ for (const entry of entries.filter((item) => item.kind === "media-inbound")) {
             await assertMediaPidsAlive(session.mediaPids);
           }
           if (entry.stopAfterOutput) {
-            if (!session.processes[0]) throw new Error("example process required");
+            if (!session.processes[0])
+              throw new Error("example process required");
             // Act: 出力確認後に常駐する example をテストから正常停止する
             await session.stop();
             // Assert: Node example が正常終了し、GStreamer の状態を報告する

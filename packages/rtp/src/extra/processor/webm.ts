@@ -1,6 +1,12 @@
 import { Event } from "../../imports/common";
 
-import { WEBMContainer, vintEncodeFixed } from "../container";
+import {
+  getEBMLByteLength,
+  numberToByteArray,
+  vintEncode,
+  vintEncodeFixed,
+  WEBMContainer,
+} from "../container";
 import type { WebmSupportedCodec } from "../container/webm";
 import type { AVProcessor } from "./interface";
 

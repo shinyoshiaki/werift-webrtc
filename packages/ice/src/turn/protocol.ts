@@ -12,25 +12,25 @@ import {
 import { type Cancelable, cancelable, randomTransactionId } from "../helper";
 import {
   type Address,
+  bufferReader,
+  debug,
   Event,
   EventDisposer,
   type InterfaceAddresses,
+  int,
   TcpTransport,
   type TlsConnectionOptions,
   TlsTransport,
   type Transport,
   UdpTransport,
-  bufferReader,
-  debug,
-  int,
 } from "../imports/common";
 import { classes, methods } from "../stun/const";
 import { Message, paddingLength, parseMessage } from "../stun/message";
 import {
-  Transaction,
   addressEquals,
   buildTransactionOptions,
   resolveRequestAddress,
+  Transaction,
 } from "../stun/transaction";
 import type { Protocol, TransactionRequestOptions } from "../types/model";
 import {

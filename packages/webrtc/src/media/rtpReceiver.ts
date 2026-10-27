@@ -1,14 +1,14 @@
 import { randomUUID } from "crypto";
 import { setTimeout } from "timers/promises";
-import { Event, int } from "../imports/common";
-
 import type { PeerConfig } from "../api/peerConfig";
+import { Event, int } from "../imports/common";
 import {
+  debug,
   type Extensions,
   PictureLossIndication,
-  RTP_EXTENSION_URI,
   Red,
   RedHandler,
+  RTP_EXTENSION_URI,
   type RtcpPacket,
   RtcpPayloadSpecificFeedback,
   RtcpReceiverInfo,
@@ -16,14 +16,15 @@ import {
   RtcpSrPacket,
   type RtpPacket,
   type TransportWideCCPayload,
-  debug,
   unwrapRtx,
 } from "../imports/rtp";
 import type { ReceiverNegotiationState } from "../negotiation/internalState";
+import { codecParametersFromString } from "../sdp";
 import type { RTCDtlsTransport } from "../transport/dtls";
 import type { Kind } from "../types/domain";
 import { compactNtp, ntpTimeToEpochMs, timestampSeconds } from "../utils";
 import { deliveredTrackCodec } from "./codecCompatibility";
+import { usePLI, useTWCC } from "./extension/rtcpFeedback";
 import type {
   RTCRtpCodecParameters,
   RTCRtpReceiveParameters,
@@ -31,19 +32,16 @@ import type {
 import { NackHandler } from "./receiver/nack";
 import { ReceiverTWCC } from "./receiver/receiverTwcc";
 import { StreamStatistics } from "./receiver/statistics";
-
-import { codecParametersFromString } from "../sdp";
-import { usePLI, useTWCC } from "./extension/rtcpFeedback";
 import {
+  buildStatsReport,
+  generateCodecStatsId,
+  generateStatsId,
+  getStatsTimestamp,
   type RTCCodecStats,
   type RTCInboundRtpStreamStats,
   type RTCRemoteOutboundRtpStreamStats,
   type RTCStats,
   type RTCStatsReport,
-  buildStatsReport,
-  generateCodecStatsId,
-  generateStatsId,
-  getStatsTimestamp,
 } from "./stats";
 import { MediaStreamTrack } from "./track";
 
