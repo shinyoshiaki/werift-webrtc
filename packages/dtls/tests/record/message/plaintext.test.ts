@@ -1,4 +1,5 @@
 import { DtlsPlaintext } from "../../../src/record/message/plaintext";
+
 describe("record_message_plaintext", () => {
   test("Change_Cipher_Spec_single_packet", () => {
     const raw = Buffer.from([

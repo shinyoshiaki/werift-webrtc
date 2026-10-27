@@ -1,9 +1,9 @@
 import {
+  codecParametersFromString,
+  codecParametersToString,
   GroupDescription,
   MediaDescription,
   SessionDescription,
-  codecParametersFromString,
-  codecParametersToString,
 } from "../src";
 
 describe("sdp", () => {

@@ -1,9 +1,10 @@
 import {
+  debug,
   type Extensions,
   FullIntraRequest,
   PictureLossIndication,
-  RTP_EXTENSION_URI,
   ReceiverEstimatedMaxBitrate,
+  RTP_EXTENSION_URI,
   type RtcpPacket,
   RtcpPayloadSpecificFeedback,
   RtcpRrPacket,
@@ -11,7 +12,6 @@ import {
   RtcpSrPacket,
   RtcpTransportLayerFeedback,
   type RtpPacket,
-  debug,
   rtpHeaderExtensionsParser,
 } from "../imports/rtp";
 import { type RouterSnapshot, ridRouteKey } from "../negotiation/internalState";

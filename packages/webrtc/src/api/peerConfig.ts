@@ -12,14 +12,14 @@ import type {
 import type { CandidatePair, Message, Protocol } from "../imports/ice";
 import { defaultCodecs } from "../media/codec";
 import { normalizeCodecMimeType } from "../media/codecCompatibility";
-import {
-  type KeyFrameRequestRouting,
-  KeyFrameRequestRoutingModes,
-} from "../media/router";
 import type {
   RTCRtpCodecParameters,
   RTCRtpHeaderExtensionParameters,
 } from "../media/parameters";
+import {
+  type KeyFrameRequestRouting,
+  KeyFrameRequestRoutingModes,
+} from "../media/router";
 import type { RTCRtpSenderOptions } from "../media/rtpSender";
 import type { BundlePolicy } from "../sdp";
 import type { MLineReuse } from "../sdpManager";

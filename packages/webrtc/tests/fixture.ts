@@ -2,6 +2,8 @@ import { setTimeout } from "timers/promises";
 
 import { vi } from "vitest";
 import {
+  codecParametersToString,
+  defaultPeerConfig,
   FullIntraRequest,
   type Kind,
   MediaStreamTrack,
@@ -19,8 +21,6 @@ import {
   RtcpPayloadSpecificFeedback,
   RtpHeader,
   RtpPacket,
-  codecParametersToString,
-  defaultPeerConfig,
 } from "../src";
 import { RTCRtpCodingParameters } from "../src/media/parameters";
 import { type KeyFrameRequestRouting, RtpRouter } from "../src/media/router";
