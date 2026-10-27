@@ -5,7 +5,6 @@ import { NegotiationCase } from "../../negotiation/harness/negotiationCase";
 import { CLOSE_TIMING_OPERATIONS } from "../../negotiation/harness/negotiationTransactionUtils";
 import {
   type Cycle,
-  type LeakScene,
   closedHandshakeLeaks,
   closedOperationLeaks,
   closedSceneLeaks,
@@ -15,6 +14,7 @@ import {
   cycleGrowth,
   drawCycle,
   heapSamples,
+  type LeakScene,
   leakSupport,
   runCycles,
   useLocalStunServer,

@@ -1,20 +1,18 @@
+import * as net from "node:net";
+import { type AddressInfo, connect, type Socket as TcpSocket } from "node:net";
+import * as tls from "node:tls";
 import {
+  createSocket,
   type RemoteInfo,
   type Socket,
   type SocketType,
-  createSocket,
 } from "dgram";
-
-import * as net from "node:net";
-import * as tls from "node:tls";
-
-import { type AddressInfo, type Socket as TcpSocket, connect } from "node:net";
 import { Event } from "./event";
 import { debug } from "./log";
 import {
   type Address,
-  type InterfaceAddresses,
   findPort,
+  type InterfaceAddresses,
   interfaceAddress,
   normalizeFamilyNodeV18,
 } from "./network";

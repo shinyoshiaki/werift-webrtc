@@ -1,6 +1,6 @@
 import * as dgram from "node:dgram";
 import * as net from "node:net";
-import { FifoQueue, binaryData } from "../src";
+import { binaryData, FifoQueue } from "../src";
 import { UdpTransport } from "../src/transport";
 
 /** loopback に bind 済みの UdpTransport を生成する。 */

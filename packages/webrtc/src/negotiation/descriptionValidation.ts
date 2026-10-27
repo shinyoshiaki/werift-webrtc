@@ -1,7 +1,7 @@
 import { SCTP_STATE } from "../../../sctp/src";
 import type { PeerConfig } from "../api/peerConfig";
 import { createWebRtcDomException } from "../errors";
-import { type TransceiverManager, negotiateRemoteCodecs } from "../media";
+import { negotiateRemoteCodecs, type TransceiverManager } from "../media";
 import type { NegotiationTransaction } from "../negotiationTransaction";
 import type { SctpTransportManager } from "../sctpManager";
 import type { MediaDescription, SessionDescription } from "../sdp";
