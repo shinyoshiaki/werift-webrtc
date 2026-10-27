@@ -348,6 +348,45 @@ describe("SPED pair eligibility と lastPath isolation", () => {
     expect(handle.runtime.lastPath).toBe(pairB);
   });
 
+  it("SPED 対応確認後の nominated UDP prflx は L1 を運べる", async () => {
+    // Arrange: peer-reflexive pair で空の SPED 広告を受け、ClientHello を保留する
+    const { handle } = arrangeSpedRuntime();
+    const generation = handle.session.generation;
+    const hello = Buffer.from([22, 0xfe, 0xfd, 0x00, 0x01]);
+    const prflx = spedPair(new SpedProtocolMock(), "prflx", "192.0.2.10", 1000);
+    handle.session.replaceL1([hello]);
+    const empty = new Message(methods.BINDING, classes.RESPONSE);
+    empty.appendRawAttribute(DTLS_IN_STUN_DATA, Buffer.alloc(0));
+
+    await handle.runtime.handleAuthenticatedStun(
+      empty,
+      prflx.remoteAddr,
+      generation,
+      prflx,
+    );
+
+    // Act: nomination 前の outgoing response を作る
+    const beforeNomination = new Message(methods.BINDING, classes.RESPONSE);
+    handle.runtime.decorateOutgoing(beforeNomination, prflx);
+
+    // Assert: nomination 前は capability 広告に留まり、empty DATA は path を pin しない
+    expect(getRawAttributeValue(beforeNomination, DTLS_IN_STUN_DATA)).toEqual(
+      Buffer.alloc(0),
+    );
+    expect(handle.runtime.lastPath).toBeUndefined();
+
+    // Act: SPED 対応確認済みの peer-reflexive pair を nomination する
+    prflx.nominated = true;
+    const nominatedResponse = new Message(methods.BINDING, classes.RESPONSE);
+    handle.runtime.decorateOutgoing(nominatedResponse, prflx);
+
+    // Assert: 選択済み path で L1 を運べるが、DATA 受信前はまだ pin しない
+    expect(getRawAttributeValue(nominatedResponse, DTLS_IN_STUN_DATA)).toEqual(
+      hello,
+    );
+    expect(handle.runtime.lastPath).toBeUndefined();
+  });
+
   it("同一 IP でも別 TCP protocol/port は pin 後に混入しない", async () => {
     // Arrange
     const { handle, injected } = arrangeSpedRuntime();

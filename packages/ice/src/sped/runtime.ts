@@ -324,6 +324,13 @@ export class SpedRuntime {
     if (isSpedEligiblePair(pair)) {
       return association ? "capability" : "full";
     }
+    if (isUnconfirmedUdpPrflx(pair)) {
+      // Before peer support is known, advertise only the capability. Once the
+      // peer has confirmed SPED, the nominated path can carry the association.
+      return this.session.peerSupport === "supported" && pair.nominated
+        ? "full"
+        : "capability";
+    }
     return isSpedAdvertisablePair(pair) ? "capability" : "none";
   }
 

@@ -2137,7 +2137,8 @@ export class Connection implements IceConnection {
           }
 
           const pairId = nominated.id;
-          const generation = this.remoteGeneration;
+          const localGeneration = this.generation;
+          const remoteGeneration = this.remoteGeneration;
           const remotePassword = this.remotePassword;
           const { localUsername, remoteUsername, iceControlling } = this;
 
@@ -2193,7 +2194,10 @@ export class Connection implements IceConnection {
               if (this.nominated?.id !== pairId) {
                 return;
               }
-              if (this.remoteGeneration !== generation) {
+              if (
+                this.generation !== localGeneration ||
+                this.remoteGeneration !== remoteGeneration
+              ) {
                 return;
               }
               if (this.remotePassword !== remotePassword) {
@@ -2216,7 +2220,7 @@ export class Connection implements IceConnection {
                 addr,
                 nominated.protocol,
                 nominated,
-                generation,
+                localGeneration,
               );
             })
             .catch((error) => {
