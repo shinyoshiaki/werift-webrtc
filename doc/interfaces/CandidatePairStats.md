@@ -82,7 +82,7 @@
 
 ### rtt?
 
-> `optional` **rtt**: `number`
+> `optional` **rtt?**: `number`
 
 ***
 

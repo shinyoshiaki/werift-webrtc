@@ -8,11 +8,11 @@
 
 > `const` **timer**: `object`
 
-## Type declaration
+## Type Declaration
 
-### setInterval()
+### setInterval
 
-> **setInterval**: (`callback`, `delay`?) => () => `void`
+> **setInterval**: (`callback`, `delay?`) => () => `void`
 
 #### Parameters
 
@@ -26,13 +26,9 @@
 
 #### Returns
 
-`Function`
+() => `void`
 
-##### Returns
-
-`void`
-
-### setTimeout()
+### setTimeout
 
 > **setTimeout**: (...`args`) => () => `void`
 
@@ -40,12 +36,8 @@
 
 ##### args
 
-...\[(`args`) => `void`, `number`\]
+...\[`callback`: (`_`) => `void`, `delay?`: `number`\]
 
 #### Returns
 
-`Function`
-
-##### Returns
-
-`void`
+() => `void`

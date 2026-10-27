@@ -8,13 +8,13 @@
 
 ## Constructors
 
-### new MediaStreamTrackFactory()
+### Constructor
 
-> **new MediaStreamTrackFactory**(): [`MediaStreamTrackFactory`](MediaStreamTrackFactory.md)
+> **new MediaStreamTrackFactory**(): `MediaStreamTrackFactory`
 
 #### Returns
 
-[`MediaStreamTrackFactory`](MediaStreamTrackFactory.md)
+`MediaStreamTrackFactory`
 
 ## Methods
 

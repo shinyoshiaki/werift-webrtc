@@ -16,7 +16,7 @@ Throws on a truncated record instead of returning partial parameter sets.
 
 ### description
 
-`ArrayBufferLike` | `ArrayBufferView`\<`ArrayBufferLike`\>
+`ArrayBufferLike` \| `ArrayBufferView`\<`ArrayBufferLike`\>
 
 ## Returns
 

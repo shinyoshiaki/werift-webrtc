@@ -8,19 +8,19 @@
 
 ## Constructors
 
-### new FullIntraRequest()
+### Constructor
 
-> **new FullIntraRequest**(`props`): [`FullIntraRequest`](FullIntraRequest.md)
+> **new FullIntraRequest**(`props?`): `FullIntraRequest`
 
 #### Parameters
 
-##### props
+##### props?
 
-`Partial`\<[`FullIntraRequest`](FullIntraRequest.md)\> = `{}`
+`Partial`\<`FullIntraRequest`\> = `{}`
 
 #### Returns
 
-[`FullIntraRequest`](FullIntraRequest.md)
+`FullIntraRequest`
 
 ## Properties
 
@@ -78,7 +78,7 @@
 
 ### deSerialize()
 
-> `static` **deSerialize**(`data`): [`FullIntraRequest`](FullIntraRequest.md)
+> `static` **deSerialize**(`data`): `FullIntraRequest`
 
 #### Parameters
 
@@ -88,4 +88,4 @@
 
 #### Returns
 
-[`FullIntraRequest`](FullIntraRequest.md)
+`FullIntraRequest`

@@ -6,7 +6,7 @@
 
 # Type Alias: KeyFrameRequestRouting
 
-> **KeyFrameRequestRouting**: `"compatible"` \| `"strict"`
+> **KeyFrameRequestRouting** = `"compatible"` \| `"strict"`
 
 Where a keyframe request (PLI / FIR) goes when no route has its target SSRC.
 - `"compatible"` (default): the sender whose RTX SSRC it is, else the only
