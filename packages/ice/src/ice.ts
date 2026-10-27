@@ -1,9 +1,12 @@
+import * as timers from "node:timers/promises";
 import { randomBytes } from "crypto";
 import { isIPv4 } from "net";
-
-import * as timers from "node:timers/promises";
-import { type Address, Event, debug, interfaceAddress } from "./imports/common";
-
+import {
+  type Address,
+  Event,
+  debug,
+  interfaceAddress,
+} from "./imports/common";
 import {
   Candidate,
   candidateFoundation,
@@ -12,19 +15,19 @@ import {
 } from "./candidate";
 import { MdnsLookup } from "./dns/lookup";
 import { TransactionCancelled, type TransactionError } from "./exceptions";
-import { type Cancelable, PQueue, cancelable, randomString } from "./helper";
+import { type Cancelable, cancelable, PQueue, randomString } from "./helper";
 import {
-  CONSENT_INTERVAL,
-  CONSENT_TIMEOUT,
   CandidatePair,
   CandidatePairState,
+  CONSENT_INTERVAL,
+  CONSENT_TIMEOUT,
+  consentResponseTimeoutMs,
+  defaultOptions,
   ICE_COMPLETED,
   ICE_FAILED,
   type IceConnection,
   type IceOptions,
   type IceState,
-  consentResponseTimeoutMs,
-  defaultOptions,
   serverReflexiveCandidate,
   sortCandidatePairs,
   validateAddress,

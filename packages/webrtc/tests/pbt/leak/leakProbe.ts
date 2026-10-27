@@ -14,8 +14,8 @@ import {
 } from "../../../src";
 import { Event } from "../../../src/imports/common";
 import {
-  type MemorySample,
   gcFunction,
+  type MemorySample,
   sampleMemory,
 } from "../../memleak/heapUtils";
 import {
@@ -24,9 +24,9 @@ import {
   type Observer,
 } from "../../negotiation/harness/negotiationCase";
 import {
+  arrangeCloseTimingOperation,
   CLOSE_TIMING_OPERATIONS,
   type CloseTimingOperation,
-  arrangeCloseTimingOperation,
   closeAfter,
   createDuplexSession,
   createLocalTurnIceServer,
@@ -37,13 +37,13 @@ import {
   waitForDtlsHandshake,
 } from "../../negotiation/harness/negotiationTransactionUtils";
 import {
-  type Op,
-  STEPS,
-  type Scene,
-  type Side,
   generateScene,
   modelConfig,
+  type Op,
   runScene,
+  type Scene,
+  type Side,
+  STEPS,
 } from "../model/generator";
 import { ModelOracles } from "../model/oracles";
 import { type SeededRandom, seededRandom } from "../shared/random";

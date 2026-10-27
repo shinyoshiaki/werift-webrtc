@@ -3,14 +3,14 @@ import React, { type FC, useRef } from "react";
 import ReactDOM from "react-dom";
 import { createRoot } from "react-dom/client";
 import {
+  buffer2ArrayBuffer,
   Red,
   RedEncoder,
-  buffer2ArrayBuffer,
 } from "../../../../packages/rtp/src";
 import { getAudioStream } from "./util";
 
 const peer = new RTCPeerConnection({
-  //@ts-ignore
+  //@ts-expect-error
   encodedInsertableStreams: true,
   iceServers: [],
 });

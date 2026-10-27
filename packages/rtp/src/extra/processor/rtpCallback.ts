@@ -1,6 +1,5 @@
-import { Event } from "../../imports/common";
-
 import { RtpPacket } from "../..";
+import { Event } from "../../imports/common";
 import type { SimpleProcessorCallback } from "./interface";
 
 export type RtpInput = Buffer | RtpPacket;

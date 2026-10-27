@@ -1,6 +1,6 @@
 import type { RtpHeader } from "../../rtp/rtp";
-import { ProtectionProfileAeadAes128Gcm } from "../const";
 import type { SrtpProfile } from "../const";
+import { ProtectionProfileAeadAes128Gcm } from "../const";
 import { parseSrtpRtpHeader } from "../packet";
 import { Context } from "./context";
 
