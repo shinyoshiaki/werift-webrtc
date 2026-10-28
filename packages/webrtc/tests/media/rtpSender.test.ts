@@ -1431,3 +1431,86 @@ describe("media/rtpSender RTP continuity", () => {
     });
   });
 });
+
+describe("media/rtpSender NACK retransmission over SRTP", () => {
+  const started: RTCRtpSender[] = [];
+
+  afterEach(() => {
+    for (const sender of started) {
+      sender.stop();
+    }
+    started.length = 0;
+  });
+
+  const arrangeSender = (
+    options?: Parameters<typeof createConnectedRtpSender>[0],
+  ) => {
+    const setup = createConnectedRtpSender({ ...options, srtpLoopback: true });
+    started.push(setup.sender);
+    return { ...setup, srtp: setup.srtp! };
+  };
+
+  const nack = (sender: RTCRtpSender, lost: number[]) =>
+    sender.handleRtcpPacket(
+      new RtcpTransportLayerFeedback({
+        feedback: new GenericNack({
+          lost,
+          senderSsrc: 1,
+          mediaSourceSsrc: sender.ssrc,
+        }),
+      }),
+    );
+
+  test("RTX なし: 折り返し後の seq 0 再送と後続パケットが受信側で復号できる (#764)", async () => {
+    const { sender, srtp } = arrangeSender();
+
+    // Arrange: 65535 → 0..120 と送り、折り返し後の ROC=1 区間に入る。
+    for (const seq of [65535, ...Array.from({ length: 121 }, (_, i) => i)]) {
+      await sender.sendRtp(createRtpPacket(seq, seq * 960));
+    }
+    srtp.received.length = 0;
+
+    // Act: seq 0 の NACK を受けて元 SSRC/seq のまま再送し、続けて 121 を送る。
+    nack(sender, [0]);
+    await setTimeout(0);
+    await sender.sendRtp(createRtpPacket(121, 121 * 960));
+
+    // Assert: 再送 0 と 121 はどちらも認証・復号に成功する。
+    expect(srtp.failures).toEqual([]);
+    expect(srtp.received.map((p) => p.header.sequenceNumber)).toEqual([0, 121]);
+    expect(srtp.received.every((p) => p.header.ssrc === sender.ssrc)).toBe(
+      true,
+    );
+    // Assert: 送信側の最高 index は (ROC=1, 121) で、再送で二重加算されていない。
+    expect(srtp.sender.localContext.srtpSSRCStates[sender.ssrc]).toMatchObject({
+      rolloverCounter: 1,
+      lastSequenceNumber: 121,
+    });
+  });
+
+  test("RTX あり: RTX は別 SSRC で送られ、メディア SSRC の後続パケットも復号できる", async () => {
+    const { sender, srtp } = arrangeSender({ rtx: true });
+
+    // Arrange: 65535 → 0..120 と送る。
+    for (const seq of [65535, ...Array.from({ length: 121 }, (_, i) => i)]) {
+      await sender.sendRtp(createRtpPacket(seq, seq * 960));
+    }
+    srtp.received.length = 0;
+
+    // Act: seq 0 の NACK で RTX を送り、続けて 121 を送る。
+    nack(sender, [0]);
+    await setTimeout(0);
+    await sender.sendRtp(createRtpPacket(121, 121 * 960));
+
+    // Assert: 全パケットが復号でき、1 つ目は RTX SSRC の再送。
+    expect(srtp.failures).toEqual([]);
+    const [rtx, next] = srtp.received;
+    expect(rtx.header.ssrc).toBe(sender.rtxSsrc);
+    expect(unwrapRtx(rtx, 96, sender.ssrc).header.sequenceNumber).toBe(0);
+    // Assert: メディア SSRC の後続 121 も復号できる。
+    expect(next.header).toMatchObject({
+      ssrc: sender.ssrc,
+      sequenceNumber: 121,
+    });
+  });
+});
