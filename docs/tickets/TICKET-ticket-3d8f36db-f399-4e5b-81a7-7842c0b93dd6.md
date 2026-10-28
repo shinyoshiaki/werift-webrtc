@@ -226,3 +226,11 @@ playout-delay は「送信側が受信側 jitter buffer の min/max 遅延を指
 - 修正報告に「未確認・制約」を残さない。残す場合は、RTP の仕組み上観測できないことを根拠で示し、実行時に検出・表示する。
 - 再レビューの前に、到着順の入れ替え・遅延・先頭/末尾ロス・重複・16bit 折り返しの観点で自己レビューする。
 - 指摘箇所と同じ型の前提は、1 回の修正でまとめて直す。
+
+## 7. 追加要件: 別マシン (tailnet) から開けるようにする (2026-10-28 追加)
+
+- example のページを `0.0.0.0` で listen し、tailnet 上の別マシンの Chrome から開いてシナリオ A〜D を実行できるようにする。
+  - localhost 以外では getUserMedia・AudioWorklet・WebCodecs・Encoded Transform が secure context でしか使えないため、Vite (`vite.config.mts`) は HTTPS で配信する。証明書は環境変数で指定 (`tailscale cert` の出力など)、未指定なら openssl で自己署名証明書を生成する (`.cert/` は git 管理外)。
+  - signaling は同一オリジンの `wss://<host>/signaling` を Vite が werift (`ws://127.0.0.1:8888`) へ proxy する。mixed content にならず、ページ用のポートだけで済む。HTTP で開いた場合は従来どおり `ws://<host>:8888` に直接つなぐ。
+  - werift の signaling も `0.0.0.0` で listen する。コンテナ内で動かす場合に備え、ICE の追加ホストアドレス (`LATENCY_BUDGET_ICE_ADDRESSES`) と UDP ポート範囲 (`LATENCY_BUDGET_ICE_PORT_RANGE`) を環境変数で指定できる。既定値は従来どおりで、smoke test の動作は変えない。
+- README に別マシンから開く手順と環境変数を記載する。

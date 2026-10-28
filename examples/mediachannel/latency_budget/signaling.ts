@@ -8,7 +8,16 @@ import {
   type SendGateOptions,
 } from "./sendGate";
 
-const signalingUrl = `ws://${location.hostname || "localhost"}:8888`;
+/**
+ * Over HTTPS (vite.config.ts, needed off localhost for getUserMedia /
+ * AudioWorklet / Encoded Transform) the signaling goes through the page's own
+ * origin (`/signaling`, proxied to werift): no mixed content, no second port.
+ * Over plain HTTP it connects to werift directly on port 8888.
+ */
+const signalingUrl =
+  location.protocol === "https:"
+    ? `wss://${location.host}/signaling`
+    : `ws://${location.hostname || "localhost"}:8888`;
 
 /** RTCRtpScriptTransform when available, else legacy createEncodedStreams() */
 export const transformApi =

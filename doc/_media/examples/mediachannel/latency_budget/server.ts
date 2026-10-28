@@ -24,7 +24,30 @@ import { SubscriptionStart } from "./subscriptionStart";
 import { Unwrapper } from "./unwrap";
 import { countSavedInOrder, readWebmFrames } from "./webmFrames";
 
-const port = 8888;
+const port = Number(process.env.LATENCY_BUDGET_SIGNALING_PORT ?? 8888);
+/** 0.0.0.0: reachable from other machines (tailnet), also through the Vite proxy */
+const host = process.env.LATENCY_BUDGET_SIGNALING_HOST ?? "0.0.0.0";
+
+/**
+ * ICE settings for browsers on other machines (see README "Open from another
+ * machine"). When werift runs in a container, its own addresses are not
+ * reachable from the tailnet: advertise the host's address and use a fixed
+ * UDP port range that the container publishes.
+ */
+const iceConfig = (() => {
+  const additional = process.env.LATENCY_BUDGET_ICE_ADDRESSES?.split(",")
+    .map((address) => address.trim())
+    .filter(Boolean);
+  const range =
+    process.env.LATENCY_BUDGET_ICE_PORT_RANGE?.match(/^(\d+)-(\d+)$/);
+  return {
+    iceServers: [],
+    iceAdditionalHostAddresses: additional?.length ? additional : undefined,
+    icePortRange: range
+      ? ([Number(range[1]), Number(range[2])] as [number, number])
+      : undefined,
+  };
+})();
 /** NACK retry interval used with a latency budget */
 const NACK_RETRY_INTERVAL_MS = 20;
 /** Recent sequence numbers kept to spot duplicates (far below 32768) */
@@ -93,8 +116,8 @@ function mediaLagMs(timestamp: number) {
   return liveEdge.lagMs(timestamp);
 }
 
-const server = new WebSocketServer({ port });
-console.log("start", port);
+const server = new WebSocketServer({ port, host });
+console.log("start", `${host}:${port}`, iceConfig);
 
 server.on("connection", (socket) => {
   socket.once("message", (data) => {
@@ -229,7 +252,7 @@ async function runPublisher(socket: WebSocket, join: JoinMessage) {
   const budgetMs = join.budgetMs ?? 0;
   const loss = upstreamLoss(join.headLossPackets, join.periodicLoss);
   const pc = new RTCPeerConnection({
-    iceServers: [],
+    ...iceConfig,
     // Audio NACK must be negotiated explicitly; werift's default Opus has none.
     codecs: { audio: [useOPUS({ rtcpFeedback: [useNACK()] })] },
     nack: {
@@ -470,7 +493,7 @@ function keepForAnswer(self: Publisher, rtp: RtpPacket) {
 // NACK over a DataChannel and cut off at the subscriber's budget.
 async function runSubscriber(socket: WebSocket, join: JoinMessage) {
   const pc = new RTCPeerConnection({
-    iceServers: [],
+    ...iceConfig,
     // No `nack` on purpose: Chrome would drive it from NetEQ, which gives up
     // on audio after its playout deadline. The player NACKs on its own.
     codecs: { audio: [useOPUS()] },
@@ -583,7 +606,7 @@ async function runSubscriber(socket: WebSocket, join: JoinMessage) {
 // possible with its RTP timestamps kept. The CSRC carries the generation.
 async function runTts(socket: WebSocket) {
   const pc = new RTCPeerConnection({
-    iceServers: [],
+    ...iceConfig,
     codecs: { audio: [useOPUS()] },
   });
   const transceiver = pc.addTransceiver("audio", { direction: "sendonly" });

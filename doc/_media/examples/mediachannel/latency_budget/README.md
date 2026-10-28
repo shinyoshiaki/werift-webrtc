@@ -13,6 +13,7 @@ browser limits.
   (mic → werift, NACK within a budget, recorded to `latency-budget-*.webm`),
   `subscriber` (werift relay → browser, application-layer NACK over a
   DataChannel), `tts` (replays the last recording as the "AI answer").
+- `vite.config.mts`: HTTPS on 0.0.0.0 with the signaling proxied (see "Open from another machine").
 - `index.html` / `main.ts`: the scenarios A–D. Results are shown on the page
   and kept in `window.__latencyBudgetResult`.
 - `transform-worker.ts` / `encodedFrames.ts`: receiver transform
@@ -38,6 +39,38 @@ cd examples/e2e && npm i && npx vite ../mediachannel/latency_budget
 
 Open the Vite URL in Chrome and run the scenarios top to bottom (B and D
 replay what A or C recorded). Use headphones (see "Limits").
+
+### Open from another machine (e.g. a tailnet)
+
+`vite.config.mts` serves the page on `0.0.0.0:5173` over **HTTPS**: off
+`localhost`, Chrome only allows `getUserMedia`, AudioWorklet, WebCodecs and
+Encoded Transform in a secure context. The werift signaling is proxied on the
+same origin (`wss://<host>:5173/signaling` → `ws://127.0.0.1:8888`), so only
+port 5173 (TCP) is needed for the page and the signaling. The server listens
+on `0.0.0.0:8888` too, for plain-HTTP use.
+- Certificate: by default a self-signed one is generated with `openssl` into
+  `.cert/` (git-ignored; accept the browser warning once). For a trusted one
+  on a tailnet, run `tailscale cert <machine>.<tailnet>.ts.net` and start Vite
+  with `LATENCY_BUDGET_TLS_CERT=<crt> LATENCY_BUDGET_TLS_KEY=<key>`, then open
+  `https://<machine>.<tailnet>.ts.net:5173/` (`*.ts.net` and IP hosts are
+  allowed; more with `LATENCY_BUDGET_ALLOWED_HOSTS`).
+- Media: werift advertises the addresses of the machine it runs on. If that
+  machine is on the tailnet, nothing else is needed. If werift runs in a
+  container whose addresses the tailnet cannot reach, publish a UDP port range
+  and advertise the host's tailnet address:
+
+  ```sh
+  LATENCY_BUDGET_ICE_ADDRESSES=<host tailnet IP> \
+  LATENCY_BUDGET_ICE_PORT_RANGE=40000-40100 \
+  node --experimental-transform-types --import ./tools/node-ts/register.mjs \
+    examples/mediachannel/latency_budget/server.ts
+  # and publish 5173/tcp and 40000-40100/udp from the container
+  ```
+
+- Other settings: `LATENCY_BUDGET_HOST` / `LATENCY_BUDGET_PORT` (Vite),
+  `LATENCY_BUDGET_SIGNALING` (proxy target), `LATENCY_BUDGET_HTTP=1` (plain
+  HTTP, localhost only), `LATENCY_BUDGET_SIGNALING_HOST` /
+  `LATENCY_BUDGET_SIGNALING_PORT` (werift).
 
 | Scenario                       | What to do                                                      | What you see                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | ------------------------------ | --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
