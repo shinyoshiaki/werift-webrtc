@@ -47,6 +47,21 @@ async function microphone() {
   return stream.getAudioTracks()[0];
 }
 
+/** RTP packets the browser sent for the mic, retransmissions excluded. */
+async function sentOriginalPackets(pc: RTCPeerConnection) {
+  const report = await pc.getStats();
+  for (const stats of report.values()) {
+    if (stats.type === "outbound-rtp" && stats.kind === "audio") {
+      const s = stats as any;
+      return (
+        (s.packetsSent as number) -
+        ((s.retransmittedPacketsSent as number) ?? 0)
+      );
+    }
+  }
+  return undefined;
+}
+
 /** Browser mic -> werift. `munge` adds the audio NACK Chrome leaves out. */
 async function publish(options: {
   budgetMs: number;
@@ -71,6 +86,7 @@ async function publish(options: {
     },
   );
   let stats: any = {};
+  let sent: number | undefined;
   session.onMessage("stats", (message) => {
     stats = message;
   });
@@ -82,11 +98,15 @@ async function publish(options: {
     stop: async () => {
       // Stop sending first, then let werift settle the losses already detected.
       track.stop();
+      await sleep(100);
+      const sentPackets = await sentOriginalPackets(session.pc);
+      sent = sentPackets;
       const stopped = session.next("stopped");
-      session.send({ type: "stop" });
+      // Tell werift where the stream ended, so it can find a lost tail.
+      session.send({ type: "stop", sentPackets });
       await stopped;
       session.close();
-      return stats;
+      return { ...stats, sentPackets: sent };
     },
   };
 }
@@ -230,6 +250,7 @@ async function runA(options: {
   result.a[String(options.budgetMs)] = {
     ...options,
     received: stats.received,
+    sentPackets: stats.sentPackets,
     ...stats.nack,
   };
   show("a-out", result.a);

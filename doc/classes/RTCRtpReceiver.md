@@ -211,8 +211,6 @@ seconds
 
 > **get** **nackStats**(): [`NackStats`](../type-aliases/NackStats.md)
 
-nonstandard: lost / recovered / unrecovered packet counters of the receiver-side NACK.
-
 ##### Returns
 
 [`NackStats`](../type-aliases/NackStats.md)
@@ -436,6 +434,25 @@ tracks; the SSRCs the replacing offer gives take them over.
 ##### tracks
 
 [`MediaStreamTrack`](MediaStreamTrack.md)[]
+
+#### Returns
+
+`void`
+
+***
+
+### markLastSentSequence()
+
+> **markLastSentSequence**(`sequenceNumber`): `void`
+
+nonstandard: tell the NACK handler the sender's last sequence number, so
+losses at the tail of a stream are NACKed too.
+
+#### Parameters
+
+##### sequenceNumber
+
+`number`
 
 #### Returns
 

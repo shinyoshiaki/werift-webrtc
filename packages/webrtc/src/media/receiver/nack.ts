@@ -171,6 +171,31 @@ export class NackHandler {
     }
   }
 
+  /**
+   * The sender says its last packet has this sequence number (such as at the
+   * end of a stream). Packets up to it that have not arrived are lost: without
+   * this, a loss at the tail is only found when a later packet arrives, which
+   * never happens.
+   */
+  markSentUpTo(sequenceNumber: number) {
+    if (
+      this.newEstSeqNum === undefined ||
+      !uint16Gt(sequenceNumber, this.newEstSeqNum)
+    ) {
+      return;
+    }
+    const now = Date.now();
+    for (
+      let i = uint16Add(this.newEstSeqNum, 1);
+      i !== uint16Add(sequenceNumber, 1);
+      i = uint16Add(i, 1)
+    ) {
+      this.setLost(i, now);
+    }
+    this.newEstSeqNum = sequenceNumber;
+    this.pruneLost();
+  }
+
   private pruneLost() {
     // Map keeps insertion order, so the first keys are the oldest losses.
     for (const seq of this.lost.keys()) {

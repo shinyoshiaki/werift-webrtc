@@ -146,6 +146,14 @@ export class RTCRtpReceiver {
   }
 
   /** nonstandard: lost / recovered / unrecovered packet counters of the receiver-side NACK. */
+  /**
+   * nonstandard: tell the NACK handler the sender's last sequence number, so
+   * losses at the tail of a stream are NACKed too.
+   */
+  markLastSentSequence(sequenceNumber: number) {
+    this.nack.markSentUpTo(sequenceNumber);
+  }
+
   get nackStats(): NackStats {
     return this.nack.stats;
   }

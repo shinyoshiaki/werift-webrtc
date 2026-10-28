@@ -22,6 +22,8 @@ const port = 8888;
 const NACK_RETRY_INTERVAL_MS = 20;
 /** Time for in-flight RTP to arrive after the client stopped sending */
 const SETTLE_GRACE_MS = 200;
+/** How long the packets sent before the stop may take to arrive */
+const SETTLE_ARRIVAL_MS = 2000;
 /** 20ms Opus: 10s of send history covers the 5s budget with room to spare */
 const RTP_HISTORY_SIZE = 512;
 /** Lost packets tracked per 20ms Opus frame of budget, plus some slack */
@@ -168,10 +170,17 @@ async function runPublisher(socket: WebSocket, join: JoinMessage) {
 
   let recorder: MediaRecorder | undefined;
   let received = 0;
+  let firstSeq: number | undefined;
+  let highestSeq: number | undefined;
   transceiver.onTrack.subscribe(async (track: MediaStreamTrack) => {
     track.onReceiveRtp.subscribe((rtp) => {
       received++;
       liveEdge.update(rtp.header.timestamp);
+      const seq = rtp.header.sequenceNumber;
+      firstSeq ??= seq;
+      if (highestSeq === undefined || ((seq - highestSeq) & 0xffff) < 0x8000) {
+        highestSeq = seq;
+      }
       self.packets.set(rtp.header.sequenceNumber, rtp);
       if (self.packets.size > RECORDING_MAX_PACKETS) {
         self.packets.delete(self.packets.keys().next().value!);
@@ -203,6 +212,8 @@ async function runPublisher(socket: WebSocket, join: JoinMessage) {
     send(socket, {
       type: "stats",
       received,
+      firstSeq,
+      highestSeq,
       nack: self.receiver.nackStats,
       upstreamBudgetMs: self.upstreamBudgetMs,
     });
@@ -214,16 +225,33 @@ async function runPublisher(socket: WebSocket, join: JoinMessage) {
    * (A loss at the very tail is only detected by a later packet, so it can't
    * be waited for.)
    */
-  const settle = async () => {
+  const settle = async (sentPackets?: number) => {
     await setTimeout(SETTLE_GRACE_MS);
+    if (sentPackets !== undefined && firstSeq !== undefined) {
+      // The packets sent before the stop may still be on their way: wait for
+      // the end of the stream, then count what never came as lost.
+      const lastSeq = (firstSeq + sentPackets - 1) & 0xffff;
+      const arrivalUntil = Date.now() + SETTLE_ARRIVAL_MS;
+      while (
+        highestSeq !== undefined &&
+        ((lastSeq - highestSeq) & 0xffff) < 0x8000 &&
+        lastSeq !== highestSeq &&
+        Date.now() < arrivalUntil
+      ) {
+        await setTimeout(20);
+      }
+      self.receiver.markLastSentSequence(lastSeq);
+    }
     const until = Date.now() + self.upstreamBudgetMs + SETTLE_GRACE_MS;
     while (self.receiver.nackStats.pending > 0 && Date.now() < until) {
       await setTimeout(20);
     }
   };
 
-  const finish = async (options: { settle?: boolean } = {}) => {
-    if (options.settle) await settle();
+  const finish = async (
+    options: { settle?: boolean; sentPackets?: number } = {},
+  ) => {
+    if (options.settle) await settle(options.sentPackets);
     clearInterval(timer);
     report();
     if (self.packets.size > 0) {
@@ -239,8 +267,9 @@ async function runPublisher(socket: WebSocket, join: JoinMessage) {
     console.log("publisher stop", budgetMs, received, self.receiver.nackStats);
   };
   socket.on("message", async (data) => {
-    if (parse(data).type === "stop") {
-      await finish({ settle: true });
+    const message = parse(data);
+    if (message.type === "stop") {
+      await finish({ settle: true, sentPackets: message.sentPackets });
       send(socket, { type: "stopped" });
     }
   });

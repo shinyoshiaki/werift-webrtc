@@ -214,6 +214,28 @@ describe("media/nack retry policy", () => {
     expect(Math.min(...receiver.nackedSeqs)).toBe(1101);
     nack.close();
   });
+
+  test("markSentUpTo で、後続パケットが来ない末尾の欠番も NACK 対象にする", () => {
+    // Arrange: seq 1, 2 を受信。seq 3, 4 は届かず、後続も来ない
+    const { nack, receiver, add } = arrange({ maxWaitMs: 5000 });
+    add(1);
+    add(2);
+    vi.advanceTimersByTime(100);
+    expect(nack.stats.lost).toBe(0);
+
+    // Act: 送信側の最後の seq が 4 だと伝える
+    nack.markSentUpTo(4);
+    vi.advanceTimersByTime(20);
+
+    // Assert: 3, 4 が欠番として検出され NACK される。再送が届けば回収する
+    expect(nack.stats.lost).toBe(2);
+    expect(receiver.nackedSeqs).toEqual(expect.arrayContaining([3, 4]));
+    add(3);
+    add(4);
+    expect(nack.stats.recovered).toBe(2);
+    expect(nack.stats.pending).toBe(0);
+    nack.close();
+  });
 });
 
 describe("media/rtpReceiver audio NACK", () => {
