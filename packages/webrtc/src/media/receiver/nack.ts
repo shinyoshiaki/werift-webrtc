@@ -97,6 +97,8 @@ export class NackHandler {
   /** Change the retry policy. Packets already lost follow the new policy. */
   setOptions(options: NackOptions) {
     this.options = { ...options };
+    // A smaller maxLost applies to the packets already tracked, too.
+    this.pruneLost();
     if (this.nackLoop) {
       clearInterval(this.nackLoop);
       this.nackLoop = undefined;

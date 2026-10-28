@@ -194,6 +194,26 @@ describe("media/nack retry policy", () => {
     expect(nack.stats.pending).toBe(0);
     nack.close();
   });
+
+  test("実行中に maxLost を小さくすると、追跡中の欠番も新しい上限まで整理する", () => {
+    // Arrange: 上限 300 で 200 個の欠番を追跡する
+    const { nack, receiver, add } = arrange({ maxWaitMs: 5000, maxLost: 300 });
+    add(1000);
+    add(1201);
+    expect(nack.stats.pending).toBe(200);
+
+    // Act: 上限を 100 に下げる
+    nack.setOptions({ maxWaitMs: 5000, maxLost: 100 });
+    receiver.nackedSeqs.length = 0;
+    vi.advanceTimersByTime(100);
+
+    // Assert: 古い 100 個は打ち切られ、新しい 100 個だけが追跡・NACK される
+    expect(nack.stats.pending).toBe(100);
+    expect(nack.stats.unrecovered).toBe(100);
+    expect(nack.lostSeqNumbers[0]).toBe(1101);
+    expect(Math.min(...receiver.nackedSeqs)).toBe(1101);
+    nack.close();
+  });
 });
 
 describe("media/rtpReceiver audio NACK", () => {
