@@ -6,12 +6,15 @@ import type { EncodedAudioFrameMessage } from "./encodedFrames";
 
 const SAMPLE_RATE = 48000;
 const NACK_INTERVAL_MS = 40;
+const MAX_UNRESOLVED_FRAMES = 500;
 
 export type PlayerOptions = {
   /** Buffered before playback starts (jitter absorption). */
   minDelayMs: number;
   /** Latency budget: later frames are concealed / dropped. */
   maxDelayMs: number;
+  /** Ignore the CSRC (as when the browser gives no contributingSources) */
+  ignoreCsrc?: boolean;
   /** Send an application-layer NACK (DataChannel); omit to disable. */
   nack?: (seqs: number[]) => void;
 };
@@ -71,6 +74,10 @@ export class BudgetPlayer {
   private readonly pending = new Map<number, Pending>();
   private readonly nackTimer?: ReturnType<typeof setInterval>;
   private generation = 0;
+  private firstTimestamp?: number;
+  private awaitingStart = false;
+  /** frames received between a local interrupt and its control message */
+  private readonly unresolved: EncodedAudioFrameMessage[] = [];
   private lastSeq?: number;
   private lastPos = 0;
   private refTimestamp?: number;
@@ -158,13 +165,46 @@ export class BudgetPlayer {
    * older generations. Called on the user's action or on the control message,
    * so it does not wait for the first RTP packet of the new generation.
    */
-  interrupt(generation = this.generation + 1) {
-    if (generation <= this.generation) return;
-    this.generation = generation;
-    this.node.port.postMessage({ type: "flush", generation });
+  interrupt(generation?: number, firstTimestamp?: number) {
+    const local = generation === undefined;
+    const next = generation ?? this.generation + 1;
+    if (this.awaitingStart && firstTimestamp !== undefined) {
+      // The control message of an interrupt already flushed locally: adopt the
+      // server's generation and decide the frames that waited for it.
+      this.awaitingStart = false;
+      this.generation = Math.max(this.generation, next);
+      this.firstTimestamp = firstTimestamp;
+      for (const frame of this.unresolved.splice(0)) this.push(frame);
+      return;
+    }
+    if (next <= this.generation) return;
+    this.generation = next;
+    this.node.port.postMessage({ type: "flush", generation: next });
     this.pending.clear();
     this.order.clear();
     this.lastSeq = undefined;
+    this.unresolved.length = 0;
+    this.firstTimestamp = firstTimestamp;
+    // Without CSRC the new generation is only known from the control message.
+    this.awaitingStart = local && firstTimestamp === undefined;
+  }
+
+  /**
+   * Generation of a frame: the CSRC when there is one, otherwise decided by
+   * the first RTP timestamp announced with the interrupt. `undefined` while
+   * that is still on its way.
+   */
+  private generationOf(frame: EncodedAudioFrameMessage) {
+    const csrc = this.options.ignoreCsrc ? [] : frame.contributingSources;
+    if (csrc.length > 0) return csrc[0];
+    if (this.awaitingStart) return undefined;
+    if (
+      this.firstTimestamp !== undefined &&
+      ((frame.rtpTimestamp - this.firstTimestamp) | 0) < 0
+    ) {
+      return this.generation - 1;
+    }
+    return this.generation;
   }
 
   /** RTP timestamp -> media position in samples (32bit unwrap). */
@@ -182,7 +222,13 @@ export class BudgetPlayer {
   }
 
   push(frame: EncodedAudioFrameMessage) {
-    const gen = frame.contributingSources[0] ?? 0;
+    const gen = this.generationOf(frame);
+    if (gen === undefined) {
+      if (this.unresolved.length < MAX_UNRESOLVED_FRAMES) {
+        this.unresolved.push(frame);
+      }
+      return;
+    }
     if (gen < this.generation) {
       this.counters.staleGenerationFrames++;
       return;

@@ -185,6 +185,25 @@ for (const entry of catalogByGroup("browser").filter(
         expect(dDelayed.player.oldGenerationPlayed).toBe(0);
         expect(dDelayed.playedWhileWaitingReply).toBe(0);
         expect(dDelayed.replyMs).toBeGreaterThan(0);
+
+        // Act: シナリオ D (CSRC なし)。CSRC を読めない環境として、generation は制御通知の開始 RTP timestamp で判定する
+        const dNoCsrc = await runLatencyBudgetScenario(page, "runD", {
+          interruptAfterMs: 700,
+          replyDelayMs: 1500,
+          noCsrc: true,
+        });
+
+        // Assert: 旧応答は再生されず、遅れて届いた新しい応答は破棄されずに再生される
+        expect(dNoCsrc.player.generation).toBe(2);
+        expect(dNoCsrc.player.oldGenerationPlayed).toBe(0);
+        expect(dNoCsrc.playedWhileWaitingReply).toBe(0);
+        expect(dNoCsrc.replyMs).toBeGreaterThan(0);
+        expect(dNoCsrc.playedAfter).toBeGreaterThan(
+          dNoCsrc.playedAfterInterrupt,
+        );
+        expect(dNoCsrc.player.playedFrames).toBeLessThan(
+          (dNoCsrc.answerMs + dNoCsrc.replyMs) / 20,
+        );
       },
       ctx,
     );

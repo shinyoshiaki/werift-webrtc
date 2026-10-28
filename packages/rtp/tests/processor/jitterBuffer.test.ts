@@ -1,4 +1,5 @@
 import { RtpHeader, RtpPacket } from "../../src";
+import { JitterBufferBase } from "../../src/extra/processor/jitterBuffer";
 import { JitterBufferTransformer } from "../../src/extra/processor/jitterBufferTransformer";
 
 describe("test JitterBuffer", () => {
@@ -79,5 +80,33 @@ describe("test JitterBuffer", () => {
       const res = (await reader.read()).value!;
       expect(res.rtp!.header.sequenceNumber).toBe(5);
     }
+  });
+
+  it("期限切れで欠番を諦めても、後続の正常なパケットを欠落・重複させない", () => {
+    // Arrange: 5 秒 (250 パケット) の latency、seq 2 は届かない
+    const jitterBuffer = new JitterBufferBase(48000, { latency: 5000 });
+    const output: number[] = [];
+    const lost: { from: number; to: number }[] = [];
+    const collect = (
+      input: Parameters<typeof jitterBuffer.processInput>[0],
+    ) => {
+      for (const o of jitterBuffer.processInput(input)) {
+        if (o.rtp) output.push(o.rtp.header.sequenceNumber);
+        if (o.isPacketLost) lost.push(o.isPacketLost);
+      }
+    };
+
+    // Act: seq 1 と 3〜255 を順に入力し、最後に終了する
+    collect({ rtp: createRtpPacket(1, 1 * 960) });
+    for (let seq = 3; seq <= 255; seq++) {
+      collect({ rtp: createRtpPacket(seq, seq * 960) });
+    }
+    collect({ eol: true });
+
+    // Assert: seq 2 以外が昇順に一度ずつ出力され、欠番が通知される
+    const expected = [1, ...Array.from({ length: 253 }, (_, i) => i + 3)];
+    expect(output).toEqual(expected);
+    expect(lost.length).toBeGreaterThan(0);
+    expect(lost[0].from).toBe(2);
   });
 });

@@ -103,3 +103,5 @@ the playout.
 - The recording uses `MediaRecorder({ jitterBuffer: { latency: budget } })`, so a packet recovered by NACK is written in sequence order.
 - `player.ts` feeds Opus to `AudioDecoder` in sequence order (`decodeOrder.ts`): frames behind a hole wait until it is recovered or its deadline passes; a frame that arrives after that is dropped (`lateDroppedFrames`), never decoded out of order (`outOfOrderDecodedFrames` stays 0).
 - The relay judges a packet by its media lag (newest upstream RTP timestamp minus its own), not by the time it entered a send history. A packet recovered upstream after more than a subscriber's budget is not relayed to it (`skippedLate`), and the subscriber's NACKs for such packets are refused.
+- The relay's lag includes wall time since the upstream last advanced (`liveEdge.ts`), so a retransmission that arrives after the upstream went quiet is still judged as late.
+- Without CSRC metadata the `generation` control message carries `firstTimestamp`, the first RTP timestamp of the new answer; frames before it are the old generation. Frames that arrive between the local interrupt and that message wait, then are decided.

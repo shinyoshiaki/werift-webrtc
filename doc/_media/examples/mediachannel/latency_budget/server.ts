@@ -15,6 +15,7 @@ import {
   useOPUS,
 } from "../../../packages/webrtc/src";
 import { MediaRecorder } from "../../../packages/webrtc/src/nonstandard";
+import { LiveEdge } from "./liveEdge";
 
 const port = 8888;
 /** NACK retry interval used with a latency budget */
@@ -44,8 +45,6 @@ type Publisher = {
   budgetMs: number;
   upstreamBudgetMs: number;
   packets: Map<number, RtpPacket>;
-  /** Newest RTP timestamp received (the live edge of the media clock) */
-  newestTimestamp?: number;
 };
 
 type Subscriber = {
@@ -62,6 +61,7 @@ let publisher: Publisher | undefined;
 /** RTP received by the last publisher, in RTP timestamp order */
 let lastRecording: RtpPacket[] = [];
 const subscribers = new Set<Subscriber>();
+const liveEdge = new LiveEdge();
 
 /**
  * How far behind the live edge of the upstream a packet is, on the media clock
@@ -69,9 +69,7 @@ const subscribers = new Set<Subscriber>();
  * 600ms is already 600ms late for a subscriber, before any downstream wait.
  */
 function mediaLagMs(timestamp: number) {
-  const newest = publisher?.newestTimestamp;
-  if (newest === undefined) return 0;
-  return Math.max(0, ((newest - timestamp) | 0) / 48);
+  return liveEdge.lagMs(timestamp);
 }
 
 const server = new WebSocketServer({ port });
@@ -163,6 +161,7 @@ async function runPublisher(socket: WebSocket, join: JoinMessage) {
     packets: new Map(),
   };
   publisher = self;
+  liveEdge.reset();
   updateUpstreamBudget();
 
   let recorder: MediaRecorder | undefined;
@@ -170,12 +169,7 @@ async function runPublisher(socket: WebSocket, join: JoinMessage) {
   transceiver.onTrack.subscribe(async (track: MediaStreamTrack) => {
     track.onReceiveRtp.subscribe((rtp) => {
       received++;
-      if (
-        self.newestTimestamp === undefined ||
-        ((rtp.header.timestamp - self.newestTimestamp) | 0) > 0
-      ) {
-        self.newestTimestamp = rtp.header.timestamp;
-      }
+      liveEdge.update(rtp.header.timestamp);
       self.packets.set(rtp.header.sequenceNumber, rtp);
       if (self.packets.size > RECORDING_MAX_PACKETS) {
         self.packets.delete(self.packets.keys().next().value!);
@@ -334,6 +328,8 @@ async function runTts(socket: WebSocket) {
     packets: RtpPacket[],
     pace: "burst" | "realtime",
     gen: number,
+    /** RTP timestamp of the first packet; announced on interrupt */
+    firstTimestamp?: number,
   ) => {
     speaking?.abort();
     const abort = new AbortController();
@@ -344,7 +340,7 @@ async function runTts(socket: WebSocket) {
     }
     // Start a new talk spurt 1s after the previous one on the RTP clock.
     const base = packets[0].header.timestamp;
-    const startTimestamp = (timestamp + 48000) >>> 0;
+    const startTimestamp = firstTimestamp ?? (timestamp + 48000) >>> 0;
     const startedAt = Date.now();
     let sent = 0;
     for (const [i, source] of packets.entries()) {
@@ -394,10 +390,20 @@ async function runTts(socket: WebSocket) {
         speaking?.abort();
         generation++;
         // Control message first: the client flushes without waiting for RTP.
-        send(socket, { type: "generation", generation });
-        if (message.reply !== false) {
-          if (message.replyDelayMs) await setTimeout(message.replyDelayMs);
-          await speak(lastRecording.slice(0, 50), "burst", generation);
+        // It carries the first RTP timestamp of the new generation, so a
+        // client that cannot read the CSRC can still tell old frames from new.
+        {
+          const firstTimestamp = (timestamp + 48000) >>> 0;
+          send(socket, { type: "generation", generation, firstTimestamp });
+          if (message.reply !== false) {
+            if (message.replyDelayMs) await setTimeout(message.replyDelayMs);
+            await speak(
+              lastRecording.slice(0, 50),
+              "burst",
+              generation,
+              firstTimestamp,
+            );
+          }
         }
         break;
     }

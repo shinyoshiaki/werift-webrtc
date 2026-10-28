@@ -93,7 +93,12 @@ async function publish(options: {
 /** werift -> browser with the frames tapped before NetEQ into a BudgetPlayer. */
 async function subscribe(
   join: object,
-  player: { minDelayMs: number; maxDelayMs: number; appNack: boolean },
+  player: {
+    minDelayMs: number;
+    maxDelayMs: number;
+    appNack: boolean;
+    ignoreCsrc?: boolean;
+  },
   output: "player" | "native",
 ) {
   const ctx = await audioContext();
@@ -101,6 +106,7 @@ async function subscribe(
   const budgetPlayer = new BudgetPlayer(ctx, {
     minDelayMs: player.minDelayMs,
     maxDelayMs: player.maxDelayMs,
+    ignoreCsrc: player.ignoreCsrc,
     nack: player.appNack
       ? (seqs) => {
           if (control?.readyState === "open") {
@@ -137,7 +143,7 @@ async function subscribe(
   });
   // Barge-in control message: flush now, without waiting for new-generation RTP.
   session.onMessage("generation", (message) =>
-    budgetPlayer.interrupt(message.generation),
+    budgetPlayer.interrupt(message.generation, message.firstTimestamp),
   );
   return {
     session,
@@ -347,10 +353,12 @@ async function runD(options: {
   replyDelayMs?: number;
   /** wait for the button instead of interrupting automatically */
   manual?: boolean;
+  /** act as if the browser gave no CSRC: generations come from the control message */
+  noCsrc?: boolean;
 }) {
   const sub = await subscribe(
     { type: "join", role: "tts" },
-    ttsPlayer,
+    { ...ttsPlayer, ignoreCsrc: options.noCsrc },
     "player",
   );
   activeD = sub;

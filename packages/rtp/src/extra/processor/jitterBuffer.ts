@@ -66,17 +66,23 @@ export class JitterBufferBase
       return output;
     }
 
+    const expectBefore =
+      this.presentSeqNum == undefined
+        ? undefined
+        : uint16Add(this.presentSeqNum, 1);
     const { packets, timeoutSeqNum } = this.processRtp(input.rtp);
 
     if (timeoutSeqNum != undefined) {
       const isPacketLost = {
-        from: this.expectNextSeqNum,
+        from: expectBefore ?? timeoutSeqNum,
         to: timeoutSeqNum,
       };
-      this.presentSeqNum = input.rtp.header.sequenceNumber;
       output.push({ isPacketLost });
+      // processRtp already moved presentSeqNum past the timed out packets and
+      // the buffered packets that follow them contiguously. Packets behind a
+      // further hole stay buffered, so nothing is skipped or output twice.
       if (packets) {
-        for (const rtp of [...packets, input.rtp]) {
+        for (const rtp of packets) {
           output.push({ rtp });
         }
       }
@@ -135,8 +141,17 @@ export class JitterBufferBase
     const { latestTimeoutSeqNum, sorted } =
       this.disposeTimeoutPackets(timestamp);
 
-    if (latestTimeoutSeqNum) {
-      return { timeoutSeqNum: latestTimeoutSeqNum, packets: sorted };
+    if (latestTimeoutSeqNum != undefined) {
+      // Give up the holes before the latest timed out packet, then release
+      // what is buffered right behind it.
+      this.presentSeqNum = latestTimeoutSeqNum;
+      const resolved = this.resolveBuffer(uint16Add(latestTimeoutSeqNum, 1));
+      this.presentSeqNum =
+        resolved.at(-1)?.header.sequenceNumber ?? this.presentSeqNum;
+      return {
+        timeoutSeqNum: latestTimeoutSeqNum,
+        packets: [...sorted, ...resolved],
+      };
     } else {
       return { nothing: undefined };
     }
