@@ -1155,6 +1155,24 @@ Drop inbound RTP in periodic bursts.
 
 Drop this % of all inbound packets at random.
 
+###### debug.inboundRtpDrop?
+
+> `optional` **inboundRtpDrop?**: (`rtp`) => `boolean`
+
+Drop inbound RTP for which this returns true. Called for every RTP packet
+(retransmissions too, which keep their sequence number without RTX), so a
+loss can be decided per sequence number, e.g. only its first transmission.
+
+###### Parameters
+
+###### rtp
+
+[`DebugRtpHeader`](../type-aliases/DebugRtpHeader.md)
+
+###### Returns
+
+`boolean`
+
 ###### debug.outboundBurstLoss?
 
 > `optional` **outboundBurstLoss?**: [`BurstPacketLoss`](../type-aliases/BurstPacketLoss.md)

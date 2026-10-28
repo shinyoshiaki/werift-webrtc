@@ -177,3 +177,46 @@ playout-delay は「送信側が受信側 jitter buffer の min/max 遅延を指
   - `npm run test:small`
   - `cd examples/e2e && npm run type && npm run ci:silent` (または `npm run examples:e2e`)
   - `npm run format`
+
+## 6. 追加要件: 推定をやめ、送信側の事実と照合する (2026-10-28 追加)
+
+レビューで「最初に受信したパケット」「固定時間の待機」「受信数からの推定」を前提にした箇所が、到着順・遅延・先頭/末尾ロスのいずれかで繰り返し破綻した。以降は**送信側が知っている事実**と照合し、照合できないときは推定値を出さずに実行時に `unverified` と表示する。
+
+### 6.1 送信範囲を送信側から通知する (シナリオ A)
+- Chrome の送信側 Encoded Transform の metadata には `sequenceNumber` が無い (Playwright 同梱 HeadlessChrome 156.0.8078.4 で確認)。一方 `rtpTimestamp` は wire 上の受信側 `rtpTimestamp` と一致し、Opus 20ms は 1 フレーム = 1 パケット (+960 ticks, +1 seq)。
+- publisher に sender transform (ゲート) を入れ、最初のフレーム通過時に `{type:"start", firstRtpTimestamp}`、停止時に `{type:"stop", firstRtpTimestamp, lastRtpTimestamp, frames}` を通知する。停止後のフレームは transform で破棄し、送信範囲に含めない。
+- werift は受信済みの任意の 1 パケット (seq s, ts t) から `firstSeq = s − (t − firstTs)/960`、`lastSeq = firstSeq + frames − 1` を求める。
+  - 受信した全パケットについて seq と timestamp の対応を検算し、`frames === (lastTs − firstTs)/960 + 1` も確認する。
+  - 合わない場合 (DTX・ptime 変化・範囲外のパケット) は範囲を推定せず、統計に `accounting.status: "unverified"` と理由を出す。
+
+### 6.2 NACK の先頭欠落 API (packages/webrtc)
+- `NackHandler.markSentFrom(seq)` と `RTCRtpReceiver.markFirstSentSequence(seq)` (nonstandard) を追加する。最初に受信したパケットより前の欠番も lost として NACK する。パケット受信前に呼んでもよい。
+- 先頭で順序が入れ替わって届いたパケットは欠番にしない。16bit の折り返しをまたぐ範囲を扱う。
+- 諦めた後に届いたパケットを `NackStats.late` として数える (`unrecovered` に含む)。届かなかった数は `unrecovered − late`。
+- unit test: 先頭欠落、先頭の入れ替わり、16bit 折り返し、late の計上。
+
+### 6.3 集計を重複なしの集合で定義する
+- 受信数は重複を除いた数 (再送の重複応答は 1 回)。重複は relay・保持もしない。
+- 不変条件: `uniqueReceived + pending + (unrecovered − late) === frames`、かつ範囲外・対応崩れのパケットが 0 (`balanced`)。
+
+### 6.4 smoke に敵対的な条件を入れる
+- シナリオ A に、少なくとも次を決定的にかける。budget 0 / 5000ms とも `verified`・`balanced`・`pending = 0` を Assert する。
+  - (a) 先頭ロス: 最初の 8 パケットの初回送信を落とす (`DebugConfig.inboundRtpDrop` で seq 単位に判定し、再送は通す)。
+  - (b) 末尾ロス: 停止直前 300ms の初回送信を落とす。
+  - (c) 停止通知より後に届く RTP: 最後の 10 フレームを送信側 transform で保持し、停止の 1 秒後に送る。
+- budget 5000ms では、先頭・末尾・停止後の分も含めて全フレームを受信し、保存した `.webm` に全フレームが seq 順に書かれていることを Assert する。
+- シナリオ C の長いロスは購読の最初のパケットから始め、開始通知で先頭の欠落も検出・回収できることを Assert する。
+
+### 6.5 同じ型の前提の点検
+- 固定値の待機 (`SETTLE_ARRIVAL_MS` など) をやめる。停止後の待機は「未解決の欠番が 0 になるまで」とし、上限は budget から決める。
+- 「最初に受信したもの」を開始とみなす処理を、送信側の通知で置き換える。
+  - 録音: `JitterBufferOptions.startSequenceNumber` (packages/rtp)。
+  - シナリオ C の subscriber: werift が最初に relay したパケットを DataChannel で通知し、player は通知までフレームを保留する。
+- relay は subscriber の DTLS 確立後に開始する。確立前に送ったパケットは送信履歴に入らず再送できないため。
+- 録音保持の上限 (`RECORDING_MAX_PACKETS`) を超えた分は `recording.evicted` として統計に出す。
+- `.webm` の末尾が欠ける問題 (`Lipsync` が終了時にバッファを捨てる) は werift 側で修正する。
+
+### 6.6 進め方
+- 修正報告に「未確認・制約」を残さない。残す場合は、RTP の仕組み上観測できないことを根拠で示し、実行時に検出・表示する。
+- 再レビューの前に、到着順の入れ替え・遅延・先頭/末尾ロス・重複・16bit 折り返しの観点で自己レビューする。
+- 指摘箇所と同じ型の前提は、1 回の修正でまとめて直す。

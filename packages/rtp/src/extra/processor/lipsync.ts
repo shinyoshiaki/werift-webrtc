@@ -133,8 +133,31 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
     this.videoBuffer = [];
   }
 
+  /**
+   * End of stream: output what is still buffered (the last sync interval) in
+   * time order instead of dropping it, for both kinds, as the first end of
+   * stream stops the whole processor.
+   */
+  private flush() {
+    if (this.stopped) {
+      return;
+    }
+    const buffered = [...this.audioBuffer.flat(), ...this.videoBuffer.flat()]
+      .filter((b) => b.frame.time >= this.lastCommittedTime)
+      .sort((a, b) => a.frame.time - b.frame.time);
+    for (const output of buffered) {
+      if (output.kind === "audio") {
+        this.audioOutput?.(output);
+      } else {
+        this.videoOutput?.(output);
+      }
+      this.lastCommittedTime = output.frame.time;
+    }
+  }
+
   processAudioInput = ({ frame, eol }: LipsyncInput) => {
     if (!frame) {
+      this.flush();
       this.audioOutput({ eol });
       this.stop();
       this.audioOutput = undefined as any;
@@ -146,6 +169,7 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
 
   processVideoInput = ({ frame, eol }: LipsyncInput) => {
     if (!frame) {
+      this.flush();
       this.videoOutput({ eol });
       this.stop();
       this.videoOutput = undefined as any;

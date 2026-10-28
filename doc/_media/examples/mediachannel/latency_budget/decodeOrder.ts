@@ -16,6 +16,11 @@ export class DecodeOrder<T> {
     return this.held.size;
   }
 
+  /** The stream starts at `seq`: frames from it on are decoded in order. */
+  start(seq: number) {
+    this.next ??= seq;
+  }
+
   /** Frames now ready to decode, in order. `late` when it can no longer be decoded. */
   push(seq: number, item: T): { ready: T[]; late: boolean } {
     this.next ??= seq;

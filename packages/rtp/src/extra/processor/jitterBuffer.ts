@@ -34,6 +34,7 @@ export class JitterBufferBase
     this.options = {
       latency: options.latency ?? 200,
       bufferSize: options.bufferSize ?? 10000,
+      startSequenceNumber: options.startSequenceNumber,
     };
   }
 
@@ -68,7 +69,7 @@ export class JitterBufferBase
 
     const expectBefore =
       this.presentSeqNum == undefined
-        ? undefined
+        ? this.options.startSequenceNumber
         : uint16Add(this.presentSeqNum, 1);
     const { packets, timeoutSeqNum } = this.processRtp(input.rtp);
 
@@ -109,8 +110,12 @@ export class JitterBufferBase
 
     // init
     if (this.presentSeqNum == undefined) {
-      this.presentSeqNum = sequenceNumber;
-      return { packets: [rtp] };
+      if (this.options.startSequenceNumber == undefined) {
+        this.presentSeqNum = sequenceNumber;
+        return { packets: [rtp] };
+      }
+      // The stream starts before this packet: wait for the head like any hole.
+      this.presentSeqNum = uint16Add(this.options.startSequenceNumber, -1);
     }
 
     // duplicate
@@ -260,4 +265,11 @@ export interface JitterBufferOptions {
   /**milliseconds */
   latency: number;
   bufferSize: number;
+  /**
+   * First sequence number of the stream, when known (e.g. told by the
+   * sender). Packets from it that arrive after a later one (a lost head
+   * recovered by NACK) are still output in order, within `latency`.
+   * Default: the first packet received is the start.
+   */
+  startSequenceNumber?: number;
 }

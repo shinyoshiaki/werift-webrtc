@@ -2,6 +2,7 @@ import { describe, expect, test, vi } from "vitest";
 import type { PeerConfig } from "../../src";
 import {
   BurstLossClock,
+  DebugPacketLoss,
   dropByPercent,
 } from "../../src/transport/debugPacketLoss";
 import { createDtlsTransport } from "../fixture";
@@ -42,6 +43,38 @@ describe("transport/debugPacketLoss", () => {
 
     // Assert
     expect(dropped).toEqual([true, false, true, false]);
+  });
+
+  test("inboundRtpDrop は RTP ヘッダの seq / timestamp / ssrc で判定して捨てる", () => {
+    // Arrange: seq 5 だけを捨てる
+    const seen: unknown[] = [];
+    const loss = new DebugPacketLoss({
+      debug: {
+        inboundRtpDrop: (rtp) => {
+          seen.push(rtp);
+          return rtp.sequenceNumber === 5;
+        },
+      },
+    });
+    const rtp = (seq: number) => {
+      const data = Buffer.alloc(20);
+      data.writeUInt8(0x80, 0);
+      data.writeUInt16BE(seq, 2);
+      data.writeUInt32BE(48000, 4);
+      data.writeUInt32BE(1234, 8);
+      return data;
+    };
+
+    // Act
+    const dropped = [4, 5, 6].map((seq) => loss.dropInboundRtp(rtp(seq)));
+
+    // Assert: seq 5 だけを捨て、ヘッダの値をそのまま渡している
+    expect(dropped).toEqual([false, true, false]);
+    expect(seen[1]).toEqual({
+      sequenceNumber: 5,
+      timestamp: 48000,
+      ssrc: 1234,
+    });
   });
 
   const arrangeTransport = (debug: PeerConfig["debug"]) => {

@@ -2,6 +2,11 @@ import {
   type EncodedAudioFrameMessage,
   forwardEncodedFrames,
 } from "./encodedFrames";
+import {
+  SendGate,
+  type SendGateMessage,
+  type SendGateOptions,
+} from "./sendGate";
 
 const signalingUrl = `ws://${location.hostname || "localhost"}:8888`;
 
@@ -142,4 +147,51 @@ export function tapReceiver(
   const { readable, writable } = (receiver as any).createEncodedStreams();
   void forwardEncodedFrames(readable, writable, onFrame);
   return () => {};
+}
+
+/**
+ * Put a SendGate on the sender: `onStart` gets the first RTP timestamp as soon
+ * as it is sent, and `close()` stops sending and resolves with the send range.
+ */
+export function gateSender(
+  sender: RTCRtpSender,
+  options: SendGateOptions & {
+    onStart: (firstRtpTimestamp: number) => void;
+  },
+) {
+  let resolveRange: (range: SendGateMessage & { type: "range" }) => void;
+  const range = new Promise<SendGateMessage & { type: "range" }>((r) => {
+    resolveRange = r;
+  });
+  const onMessage = (message: SendGateMessage) => {
+    if (message.type === "start") options.onStart(message.firstRtpTimestamp);
+    else resolveRange(message);
+  };
+  const gateOptions: SendGateOptions = { holdFrames: options.holdFrames };
+  if (transformApi === "RTCRtpScriptTransform") {
+    const worker = new Worker(
+      new URL("./transform-worker.ts", import.meta.url),
+      { type: "module" },
+    );
+    worker.onmessage = ({ data }) => onMessage(data);
+    (sender as any).transform = new (window as any).RTCRtpScriptTransform(
+      worker,
+      { side: "sender", ...gateOptions },
+    );
+    return {
+      close: (releaseHeldAfterMs = 0) => {
+        worker.postMessage({ type: "close", releaseHeldAfterMs });
+        return range;
+      },
+    };
+  }
+  const gate = new SendGate(onMessage, gateOptions);
+  const { readable, writable } = (sender as any).createEncodedStreams();
+  void gate.pipe(readable, writable);
+  return {
+    close: (releaseHeldAfterMs = 0) => {
+      gate.close(releaseHeldAfterMs);
+      return range;
+    },
+  };
 }

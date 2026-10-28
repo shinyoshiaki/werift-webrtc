@@ -64,6 +64,7 @@ import { andDirection } from "./utils";
 export {
   type BurstPacketLoss,
   type DebugConfig,
+  type DebugRtpHeader,
   defaultPeerConfig,
   findCodecByMimeType,
   type PeerConfig,

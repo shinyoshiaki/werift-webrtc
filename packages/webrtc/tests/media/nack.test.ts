@@ -66,6 +66,7 @@ describe("media/nack retry policy", () => {
       recovered: 0,
       unrecovered: 1,
       pending: 0,
+      late: 0,
     });
     nack.close();
   });
@@ -96,6 +97,7 @@ describe("media/nack retry policy", () => {
       recovered: 1,
       unrecovered: 0,
       pending: 0,
+      late: 0,
     });
     nack.close();
   });
@@ -132,6 +134,7 @@ describe("media/nack retry policy", () => {
       recovered: 0,
       unrecovered: 1,
       pending: 0,
+      late: 0,
     });
     nack.close();
   });
@@ -234,6 +237,139 @@ describe("media/nack retry policy", () => {
     add(4);
     expect(nack.stats.recovered).toBe(2);
     expect(nack.stats.pending).toBe(0);
+    nack.close();
+  });
+
+  test("markSentFrom で、最初に受信したパケットより前 (先頭) の欠番も NACK 対象にする", () => {
+    // Arrange: 送信は seq 10 から。10〜14 が落ち、15 から届く
+    const { nack, receiver, add } = arrange({ maxWaitMs: 5000 });
+    add(15);
+    add(16);
+
+    // Act: 送信側の最初の seq が 10 だと伝える
+    nack.markSentFrom(10);
+    vi.advanceTimersByTime(20);
+
+    // Assert: 10〜14 が欠番として NACK され、再送が届けば全て回収する
+    expect(nack.stats.lost).toBe(5);
+    expect(receiver.nackedSeqs).toEqual(
+      expect.arrayContaining([10, 11, 12, 13, 14]),
+    );
+    for (const seq of [10, 11, 12, 13, 14]) add(seq);
+    expect(nack.stats).toEqual({
+      lost: 5,
+      recovered: 5,
+      unrecovered: 0,
+      pending: 0,
+      late: 0,
+    });
+    nack.close();
+  });
+
+  test("markSentFrom は先頭で順序が入れ替わって届いたパケットを欠番にしない", () => {
+    // Arrange: 送信は seq 10 から。12 が先に届き、11 が後から届く。10 は落ちる
+    const { nack, receiver, add } = arrange({ maxWaitMs: 5000 });
+    add(12);
+    add(11);
+
+    // Act: 送信側の最初の seq が 10 だと伝える
+    nack.markSentFrom(10);
+    vi.advanceTimersByTime(20);
+
+    // Assert: 受信済みの 11 は欠番にせず、10 だけを NACK する
+    expect(nack.stats.lost).toBe(1);
+    expect(new Set(receiver.nackedSeqs)).toEqual(new Set([10]));
+    nack.close();
+  });
+
+  test("markSentFrom は最初のパケットより前に呼んでも、16bit の折り返しをまたいで先頭の欠番を検出する", () => {
+    // Arrange: 最初の seq が 65534 だと先に伝えておく
+    const { nack, receiver, add } = arrange({ maxWaitMs: 5000 });
+    nack.markSentFrom(65534);
+
+    // Act: 65534, 65535, 0 が落ち、1 から届く
+    add(1);
+    add(2);
+    vi.advanceTimersByTime(20);
+
+    // Assert: 折り返しをまたいだ 65534, 65535, 0 だけが欠番になる
+    expect(nack.lostSeqNumbers).toEqual([65534, 65535, 0]);
+    expect(new Set(receiver.nackedSeqs)).toEqual(new Set([65534, 65535, 0]));
+    nack.close();
+  });
+
+  test("諦めた後に届いたパケットは late として数え、受信数と欠落の対応が取れる", () => {
+    // Arrange: budget 100ms。seq 2 が落ちる
+    const { nack, add } = arrange({ maxWaitMs: 100, retryIntervalMs: 20 });
+    add(1);
+    add(3);
+
+    // Act: budget を過ぎてから seq 2 が届き、さらに重複して届く
+    vi.advanceTimersByTime(200);
+    add(2);
+    add(2);
+
+    // Assert: unrecovered に含めたまま late を 1 回だけ数える (届かなかった数 = unrecovered - late = 0)
+    expect(nack.stats).toEqual({
+      lost: 1,
+      recovered: 0,
+      unrecovered: 1,
+      pending: 0,
+      late: 1,
+    });
+    nack.close();
+  });
+
+  test("32768 パケットを超える長いストリームでも欠番を検出し、折り返し後に偽の欠番を作らない", () => {
+    // Arrange: NACK 無効 (budget 0) で数だけを見る
+    const { nack, add } = arrange({ maxWaitMs: 0 });
+
+    // Act: 0 から 70000 パケット (16bit で折り返す) を送り、35000 番目だけ落とす
+    for (let i = 0; i < 70000; i++) {
+      if (i !== 35000) add(i & 0xffff);
+    }
+
+    // Assert: 落とした 1 件だけが欠番になる
+    expect(nack.stats.lost).toBe(1);
+    expect(nack.stats.unrecovered).toBe(1);
+    nack.close();
+  });
+
+  test("諦めた seq と同じ番号でも、16bit の折り返し後に新しく届いたパケットは late にしない", () => {
+    // Arrange: seq 2 を諦める
+    const { nack, add } = arrange({ maxWaitMs: 0 });
+    add(1);
+    add(3);
+
+    // Act: 折り返しまで順に届き、次の周回の seq 2 も届く
+    for (let i = 4; i <= 65536 + 10; i++) add(i & 0xffff);
+
+    // Assert: 次の周回の 2 は late ではなく、欠番も増えない
+    expect(nack.stats.late).toBe(0);
+    expect(nack.stats.lost).toBe(1);
+    nack.close();
+  });
+
+  test("maxWaitMs=0 でも、欠番の後から届いたパケットを late として数える", () => {
+    // Arrange: NACK 無効。末尾の seq 3, 4 を markSentUpTo で欠番にする
+    const { nack, receiver, add } = arrange({ maxWaitMs: 0 });
+    add(1);
+    add(2);
+    nack.markSentUpTo(4);
+
+    // Act: 遅れていた 3 だけが届く
+    add(3);
+    vi.advanceTimersByTime(100);
+
+    // Assert: NACK は送らず、3 は late、4 は届かなかった欠落として残る
+    expect(receiver.nackedSeqs).toEqual([]);
+    expect(nack.stats).toEqual({
+      lost: 2,
+      recovered: 0,
+      unrecovered: 2,
+      pending: 0,
+      late: 1,
+    });
     nack.close();
   });
 });

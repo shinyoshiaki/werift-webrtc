@@ -7,6 +7,8 @@ import type { EncodedAudioFrameMessage } from "./encodedFrames";
 const SAMPLE_RATE = 48000;
 const NACK_INTERVAL_MS = 40;
 const MAX_UNRESOLVED_FRAMES = 500;
+/** 20ms Opus */
+const FRAME_SAMPLES = 960;
 
 export type PlayerOptions = {
   /** Buffered before playback starts (jitter absorption). */
@@ -17,6 +19,11 @@ export type PlayerOptions = {
   ignoreCsrc?: boolean;
   /** Send an application-layer NACK (DataChannel); omit to disable. */
   nack?: (seqs: number[]) => void;
+  /**
+   * Hold frames until `start()` tells the first packet of the stream, so a
+   * loss of the first packets is a hole too (not a later start).
+   */
+  awaitStart?: boolean;
 };
 
 export type WorkletStats = {
@@ -78,6 +85,11 @@ export class BudgetPlayer {
   private awaitingStart = false;
   /** frames received between a local interrupt and its control message */
   private readonly unresolved: EncodedAudioFrameMessage[] = [];
+  /** frames received before `start()` (with `awaitStart`) */
+  private readonly beforeStart: EncodedAudioFrameMessage[] = [];
+  private startPending: boolean;
+  /** the wall clock anchor is set (by the first frame of a spurt) */
+  private anchored = false;
   private lastSeq?: number;
   private lastPos = 0;
   private refTimestamp?: number;
@@ -111,6 +123,7 @@ export class BudgetPlayer {
     private readonly context: AudioContext,
     private readonly options: PlayerOptions,
   ) {
+    this.startPending = !!options.awaitStart;
     this.node = new AudioWorkletNode(context, "budget-player", {
       outputChannelCount: [1],
       processorOptions: {
@@ -161,6 +174,21 @@ export class BudgetPlayer {
   }
 
   /**
+   * First packet of the stream (`awaitStart`): from the sender, since a lost
+   * first packet can't be seen here. Frames that came before are decided now.
+   */
+  start(sequenceNumber: number, rtpTimestamp: number) {
+    if (!this.startPending) return;
+    this.startPending = false;
+    // As if the frame just before the first one had been received: every
+    // frame from the first on that is not here is a hole.
+    this.lastSeq = (sequenceNumber - 1) & 0xffff;
+    this.lastPos = this.unwrap(rtpTimestamp) - FRAME_SAMPLES;
+    this.order.start(sequenceNumber);
+    for (const frame of this.beforeStart.splice(0)) this.push(frame);
+  }
+
+  /**
    * Barge-in: drop everything buffered or still decoding right now and ignore
    * older generations. Called on the user's action or on the control message,
    * so it does not wait for the first RTP packet of the new generation.
@@ -183,6 +211,7 @@ export class BudgetPlayer {
     this.pending.clear();
     this.order.clear();
     this.lastSeq = undefined;
+    this.anchored = false;
     this.unresolved.length = 0;
     this.firstTimestamp = firstTimestamp;
     // Without CSRC the new generation is only known from the control message.
@@ -222,6 +251,12 @@ export class BudgetPlayer {
   }
 
   push(frame: EncodedAudioFrameMessage) {
+    if (this.startPending) {
+      if (this.beforeStart.length < MAX_UNRESOLVED_FRAMES) {
+        this.beforeStart.push(frame);
+      }
+      return;
+    }
     const gen = this.generationOf(frame);
     if (gen === undefined) {
       if (this.unresolved.length < MAX_UNRESOLVED_FRAMES) {
@@ -246,12 +281,14 @@ export class BudgetPlayer {
     // A jump in RTP time with contiguous seq is a new talk spurt; a jump with
     // missing seqs is loss and keeps the anchor the deadlines are based on.
     const newSpurt =
+      !this.anchored ||
       this.lastSeq === undefined ||
       (seq !== undefined &&
         ((seq - this.lastSeq) & 0xffff) === 1 &&
         pos - this.lastPos > SAMPLE_RATE / 5);
     if (newSpurt) {
       // the wall clock anchor of the budget
+      this.anchored = true;
       this.anchorWall = now;
       this.anchorPos = pos;
       this.spurtStart = now;

@@ -12,6 +12,15 @@ Counters of the receiver-side NACK.
 
 ## Properties
 
+### late
+
+> **late**: `number`
+
+Given-up packets that arrived afterwards (included in `unrecovered`).
+Packets never received = `unrecovered - late`.
+
+***
+
 ### lost
 
 > **lost**: `number`

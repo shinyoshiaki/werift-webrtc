@@ -2,6 +2,7 @@ import { afterAll } from "vitest";
 
 import { catalogByGroup } from "../helpers/catalog.js";
 import {
+  latencyBudgetAdversarialUpstream,
   latencyBudgetLoss,
   runLatencyBudgetScenario,
   waitLatencyBudgetPage,
@@ -25,29 +26,55 @@ for (const entry of catalogByGroup("browser").filter(
         if (!page) throw new Error("page required");
         await waitLatencyBudgetPage(page);
 
-        // Act: シナリオ A。同じ周期バーストロスで budget 0 と 5000ms を録音する
+        // Act: シナリオ A。同じ周期バーストロスに加え、先頭ロス・末尾ロス・停止通知より後に届く末尾をかけ、budget 0 と 5000ms を録音する
         const a0 = await runLatencyBudgetScenario(page, "runA", {
           budgetMs: 0,
           durationMs: 5000,
           loss: latencyBudgetLoss.upstream,
+          ...latencyBudgetAdversarialUpstream,
         });
         const a5000 = await runLatencyBudgetScenario(page, "runA", {
           budgetMs: 5000,
           durationMs: 5000,
           loss: latencyBudgetLoss.upstream,
+          ...latencyBudgetAdversarialUpstream,
         });
 
-        // Assert: budget 0 は一切回収せず、5000ms は欠落を全て音声 NACK で回収する
-        expect(a0.lost).toBeGreaterThan(0);
+        // Assert: 送信側 transform の範囲と受信した全パケットの seq / timestamp の対応が取れている (推定ではない)
+        for (const a of [a0, a5000]) {
+          expect(a.accounting.status).toBe("verified");
+          expect(a.accounting.reasons).toEqual([]);
+          expect(a.accounting.outOfRange).toBe(0);
+          expect(a.accounting.mismatched).toBe(0);
+          expect(a.accounting.frames).toBe(a.sentFrames);
+          // Assert: 先頭と末尾のロスが実際に起きている
+          expect(a.dropped.head).toBe(
+            latencyBudgetAdversarialUpstream.headLossPackets,
+          );
+          expect(a.dropped.tail).toBeGreaterThan(0);
+          // Assert: 送った全パケットが「受信 (重複なし) / 未解決 / 届かなかった」のどれかに一度ずつ数えられている
+          expect(a.accounting.balanced).toBe(true);
+          expect(a.pending).toBe(0);
+        }
+        // Assert: budget 0 は一切回収しない (先頭・末尾の欠番も unrecovered に数える)
+        expect(a0.lost).toBeGreaterThan(
+          latencyBudgetAdversarialUpstream.headLossPackets,
+        );
         expect(a0.recovered).toBe(0);
         expect(a0.unrecovered).toBe(a0.lost);
-        expect(a5000.lost).toBeGreaterThan(0);
-        expect(a5000.recovered).toBeGreaterThanOrEqual(a0.recovered);
+        // Assert: 5000ms は先頭・末尾・停止後に届く分も含め全て回収し、送った全フレームを受信している
+        expect(a5000.recovered).toBe(a5000.lost);
         expect(a5000.unrecovered).toBe(0);
-        // Assert: 検出済みの欠番が未解決のまま録音を確定していない
-        expect(a5000.pending).toBe(0);
-        // Assert: ブラウザが送った全パケットが、受信または欠番として数えられている (末尾の欠落も含む)
-        expect(a5000.received + a5000.unrecovered).toBe(a5000.sentPackets);
+        expect(a5000.accounting.neverReceived).toBe(0);
+        expect(a5000.accounting.uniqueReceived).toBe(a5000.sentFrames);
+        expect(a5000.accounting.arrivedAfterStop).toBeGreaterThanOrEqual(
+          latencyBudgetAdversarialUpstream.holdTailFrames,
+        );
+        // Assert: シナリオ B の再生元に使う録音は上限内で、欠けていない
+        expect(a5000.recording.evicted).toBe(0);
+        // Assert: 保存した webm には、後から回収した先頭・末尾も含め、送った全フレームが seq 順に書かれている
+        expect(a5000.recording.webmFrames).toBe(a5000.sentFrames);
+        expect(a5000.recording.webmInOrder).toBe(a5000.sentFrames);
         // Assert: 受信音声を webm に保存している
         await waitNonEmptyOutput(session.workDir, entry.outputGlob!, 10_000);
 
@@ -118,7 +145,7 @@ for (const entry of catalogByGroup("browser").filter(
         expect(long.server.budgetMs).toBe(5000);
         expect(c.upstream.upstreamBudgetMs).toBe(5000);
 
-        // Act: シナリオ C (長いロス)。werift 送信履歴 (512) が 3.5 秒 (175 パケット) 連続ロスを再送する
+        // Act: シナリオ C (長い先頭ロス)。購読の最初のパケットから 3.5 秒 (175 パケット) 連続で落とし、werift 送信履歴 (512) から再送する
         const cLong = await runLatencyBudgetScenario(page, "runC", {
           budgets: [5000],
           minDelayMs: 100,
@@ -127,12 +154,20 @@ for (const entry of catalogByGroup("browser").filter(
         });
         const longBurst = cLong.subscribers["5000"];
 
-        // Assert: 150 件を超える連続ロスを budget 内で全て回収し、打ち切りはない
-        expect(longBurst.player.missingFrames).toBeGreaterThan(150);
+        // Assert: 開始通知で先頭の欠落も穴として検出し、150 件を超える連続ロスを budget 内で全て回収する
+        expect(longBurst.player.missingFrames).toBeGreaterThanOrEqual(175);
         expect(longBurst.player.recoveredFrames).toBe(
           longBurst.player.missingFrames,
         );
         expect(longBurst.player.nackGaveUp).toBe(0);
+        expect(longBurst.player.outOfOrderDecodedFrames).toBe(0);
+        // Assert: 購読開始より前のパケットは中継していない
+        expect(longBurst.server.skippedBeforeStart).toBe(0);
+        // Assert: 要求された seq は全て werift の送信履歴にあり、断った再送はない
+        expect(longBurst.server.retransmitted).toBe(
+          longBurst.player.missingFrames,
+        );
+        expect(longBurst.server.refused).toBe(0);
 
         // Act: シナリオ C (upstream ロス)。upstream の欠落を 5000ms で回収し、500ms / 5000ms に中継する
         const cUp = await runLatencyBudgetScenario(page, "runC", {

@@ -19,6 +19,10 @@ browser limits.
   (`RTCRtpScriptTransform`, or `createEncodedStreams()` as a fallback). Frames
   are copied out and passed on unchanged, so the native `<audio>` keeps
   playing them for comparison.
+- `sendGate.ts`: sender transform of the publisher (same worker, `{ side: "sender" }`).
+  It reports the true send range by RTP timestamp; see "Accounting".
+- `sendRange.ts`: werift side of that accounting. `webmFrames.ts`: reads the
+  saved `.webm` back to check it.
 - `player.ts` / `player-worklet.js`: the player that replaces NetEQ.
 
 ## Run
@@ -35,12 +39,12 @@ cd examples/e2e && npm i && npx vite ../mediachannel/latency_budget
 Open the Vite URL in Chrome and run the scenarios top to bottom (B and D
 replay what A or C recorded). Use headphones (see "Limits").
 
-| Scenario                       | What to do                                                      | What you see                                                                                                                                                                                                                                                                                                                                                                                                  |
-| ------------------------------ | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A: reliable upstream           | `record` with budget `0`, then `5000`                           | werift `lost` / `recovered` / `unrecovered` under the same periodic burst loss. 0: everything lost stays lost. 5000: everything is recovered by audio NACK. Compare the two `.webm` files.                                                                                                                                                                                                                    |
-| B: faster-than-realtime answer | `speak` with pace `burst`, listen to `player`, then to `native` | The answer is sent in a few ms. The player plays it at RTP-timestamp speed; NetEQ (`native`) discards most of the burst (`packetsDiscarded`, `concealedSamples`). With pace `realtime` (sleep 20ms, what a WebRTC TTS server does today) NetEQ is fine.                                                                                                                                                       |
-| C: per-subscriber budget       | `start` (500ms / 5000ms)                                        | Same upstream and the same downstream burst loss for both. `minDelay` is set per subscriber too (the two inputs), and shows up as `startDelayMs`, the delay when playback starts. The 500ms subscriber conceals what it cannot recover within 500ms and keeps its delay ≤ 500ms; the 5000ms subscriber recovers everything with a larger delay. The upstream NACK budget follows the most patient subscriber. |
-| D: barge-in                    | `speak, then interrupt`                                         | The `interrupt now` button (or the automatic interrupt) flushes the player locally at once and tells werift, which stops sending, sends a `generation` control message and bumps the generation in the RTP CSRC. The old answer is dropped even if the new answer is delayed (`new answer delayed by`) or never comes (`flushedFrames`, `oldGenerationPlayed: 0`, no frames played while waiting).            |
+| Scenario                       | What to do                                                      | What you see                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ------------------------------ | --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A: reliable upstream           | `record` with budget `0`, then `5000`                           | werift `lost` / `recovered` / `unrecovered` under the same periodic burst loss, optionally with a lost head (`head loss`), a lost tail (`tail loss`) and a tail that reaches werift only after the stop (`hold the last … frames`). 0: everything lost stays lost. 5000: everything is recovered by audio NACK, head and tail included. `accounting` checks every packet against what the browser sent. Compare the two `.webm` files. |
+| B: faster-than-realtime answer | `speak` with pace `burst`, listen to `player`, then to `native` | The answer is sent in a few ms. The player plays it at RTP-timestamp speed; NetEQ (`native`) discards most of the burst (`packetsDiscarded`, `concealedSamples`). With pace `realtime` (sleep 20ms, what a WebRTC TTS server does today) NetEQ is fine.                                                                                                                                                                                |
+| C: per-subscriber budget       | `start` (500ms / 5000ms)                                        | Same upstream and the same downstream burst loss for both. `minDelay` is set per subscriber too (the two inputs), and shows up as `startDelayMs`, the delay when playback starts. The 500ms subscriber conceals what it cannot recover within 500ms and keeps its delay ≤ 500ms; the 5000ms subscriber recovers everything with a larger delay. The upstream NACK budget follows the most patient subscriber.                          |
+| D: barge-in                    | `speak, then interrupt`                                         | The `interrupt now` button (or the automatic interrupt) flushes the player locally at once and tells werift, which stops sending, sends a `generation` control message and bumps the generation in the RTP CSRC. The old answer is dropped even if the new answer is delayed (`new answer delayed by`) or never comes (`flushedFrames`, `oldGenerationPlayed: 0`, no frames played while waiting).                                     |
 
 Verified with Chromium 156.0.8078.4 (Playwright, headless) on Linux,
 2026-10. The smoke test is `examples/e2e/tests/mediachannel/latency_budget.test.ts`.
@@ -94,7 +98,13 @@ the playout.
   `nack` (`useOPUS({ rtcpFeedback: [useNACK()] })`).
 - `PeerConfig.rtpHistorySize` (rounded up to a power of two internally, so the ring stays consistent across the 16-bit sequence wrap) and `RTCRtpSender.retransmit(seqs, { maxAgeMs })`.
 - `DebugConfig.inboundBurstLoss` / `outboundBurstLoss` (periodic, so the
-  smoke test is deterministic).
+  smoke test is deterministic) and `DebugConfig.inboundRtpDrop` (per sequence
+  number: scenario A drops only the first transmission of the head / tail).
+- `RTCRtpReceiver.markFirstSentSequence()` / `markLastSentSequence()`: the
+  sender's range, so a lost head or tail is NACKed; `nackStats.late` counts a
+  packet that arrives after being given up.
+- `MediaRecorder({ jitterBuffer: { latency, startSequenceNumber } })`: the
+  recording starts at the sender's first packet, not the first one received.
 - `RTCRtpSender.sendRtp()` keeps the CSRC list, and relaying an older
   (recovered) packet does not rewind the sender state.
 
@@ -102,7 +112,40 @@ the playout.
 
 - The recording uses `MediaRecorder({ jitterBuffer: { latency: budget } })`, so a packet recovered by NACK is written in sequence order.
 - `player.ts` feeds Opus to `AudioDecoder` in sequence order (`decodeOrder.ts`): frames behind a hole wait until it is recovered or its deadline passes; a frame that arrives after that is dropped (`lateDroppedFrames`), never decoded out of order (`outOfOrderDecodedFrames` stays 0).
-- The relay judges a packet by its media lag (newest upstream RTP timestamp minus its own), not by the time it entered a send history. A packet recovered upstream after more than a subscriber's budget is not relayed to it (`skippedLate`), and the subscriber's NACKs for such packets are refused.
-- The relay judges lateness on the media clock against the best delay seen so far (`liveEdge.ts`), so neither a quiet upstream nor a newer packet that itself arrives late makes an old retransmission look fresh.
+- The relay judges a packet by its media lag, not by the time it entered a send history: how late it is now against the best delay seen so far on the media clock (`liveEdge.ts`). Neither a quiet upstream nor a newer packet that itself arrives late makes an old retransmission look fresh. A packet recovered upstream after more than a subscriber's budget is not relayed to it (`skippedLate`), and the subscriber's NACKs for such packets are refused.
+- werift relays to a subscriber only once its DTLS is up (a packet sent before never enters the send history and could not be retransmitted), and tells it the first packet relayed over the DataChannel (`start`). The player holds frames until then, so a loss of the very first packets is a hole it NACKs, not a later start.
 - Without CSRC metadata the `generation` control message carries `firstTimestamp`, the first RTP timestamp of the new answer; frames before it are the old generation. Frames that arrive between the local interrupt and that message wait, then are decided.
-- Stopping scenario A stops the mic first; werift then waits for the losses already detected to be recovered (or for the budget to run out) before it reports the final stats and closes the WebM. The browser reports how many RTP packets it sent (`getStats`); werift waits for the ones still in flight, then `markLastSentSequence()` makes a lost tail NACKable too (smoke: `received + unrecovered == sentPackets`).
+
+## Accounting (scenario A)
+
+Nothing about the send range is estimated:
+- The sender metadata of Encoded Transform has no sequence number, but its
+  `rtpTimestamp` is the one on the wire, and one 20ms Opus frame is one packet
+  (+960 ticks, +1 seq). The publisher's sender transform (`sendGate.ts`) sends
+  `start` with the first RTP timestamp as soon as the first frame passes, and,
+  when it is closed, the first / last RTP timestamp and the number of frames.
+  Frames after the close are dropped in the transform, so they are never sent.
+- werift maps timestamps to sequence numbers with any one received packet and
+  checks every other packet against that mapping (`sendRange.ts`). The head
+  range goes to `markFirstSentSequence()` at the start, so a lost head is
+  NACKed within the budget; the tail goes to `markLastSentSequence()` at the
+  stop, so a lost tail, or one still in flight, is NACKed too. werift then
+  waits until nothing is pending (bounded by the budget) before it closes the
+  WebM and reports.
+- `accounting` is `verified` only if every packet matched, and `balanced`
+  only if every sent frame is counted exactly once: received (duplicates
+  once), pending, or never received (`unrecovered - late`). If the mapping
+  does not hold (DTX, another ptime, packets outside the range), it says
+  `unverified` with the reasons instead of reporting numbers.
+- `recording.webmInOrder` / `webmFrames`: the saved `.webm` is read back
+  (`webmFrames.ts`, its SimpleBlocks in file order) and compared frame by
+  frame with the received frames in sequence order. The recorder starts at
+  the sender's first sequence number (`startSequenceNumber`), so a head
+  recovered after later packets is written first.
+- `recording.evicted` counts audio dropped from the "AI answer" kept for B / D
+  (the newest 15s), so a cut answer is visible.
+
+The smoke test runs scenario A with a lost head (8 packets), a lost tail
+(300ms) and the last 10 frames held until 1s after the stop, and asserts
+`verified`, `balanced`, `pending = 0`; with 5000ms also no loss left and
+every frame in the `.webm` in order.

@@ -2,11 +2,12 @@ import { BudgetPlayer, type PlayerStats } from "./player";
 import {
   connect,
   enableOpusNack,
+  gateSender,
   tapReceiver,
   transformApi,
 } from "./signaling";
 
-type BurstLoss = { intervalMs: number; durationMs: number };
+type BurstLoss = { intervalMs: number; durationMs: number; offsetMs?: number };
 
 /** Results for the page and for the smoke test (examples/e2e). */
 const result = {
@@ -47,66 +48,69 @@ async function microphone() {
   return stream.getAudioTracks()[0];
 }
 
-/** RTP packets the browser sent for the mic, retransmissions excluded. */
-async function sentOriginalPackets(pc: RTCPeerConnection) {
-  const report = await pc.getStats();
-  for (const stats of report.values()) {
-    if (stats.type === "outbound-rtp" && stats.kind === "audio") {
-      const s = stats as any;
-      return (
-        (s.packetsSent as number) -
-        ((s.retransmittedPacketsSent as number) ?? 0)
-      );
-    }
-  }
-  return undefined;
-}
-
 /** Browser mic -> werift. `munge` adds the audio NACK Chrome leaves out. */
 async function publish(options: {
   budgetMs: number;
   loss?: BurstLoss;
+  /** werift drops the first transmission of the first N packets (head loss) */
+  headLossPackets?: number;
+  /** keep the newest N frames back; sent after the stop notice (late tail) */
+  holdTailFrames?: number;
   record?: boolean;
   munge?: boolean;
 }) {
   const track = await microphone();
-  const session = await connect(
+  let session: Awaited<ReturnType<typeof connect>> | undefined;
+  let start: object | undefined;
+  let gate: ReturnType<typeof gateSender> | undefined;
+  session = await connect(
     {
       type: "join",
       role: "publisher",
       budgetMs: options.budgetMs,
       loss: options.loss,
+      headLossPackets: options.headLossPackets,
       record: options.record,
     },
     {
       setup: (pc) => {
-        pc.addTrack(track);
+        const sender = pc.addTrack(track);
+        // The send range comes from the sender itself, not from an estimate.
+        gate = gateSender(sender, {
+          holdFrames: options.holdTailFrames,
+          onStart: (firstRtpTimestamp) => {
+            start = { type: "start", firstRtpTimestamp };
+            session?.send(start);
+          },
+        });
       },
       mungeAnswer: options.munge === false ? undefined : enableOpusNack,
     },
   );
+  // The first frame may have passed the gate before the session was set.
+  if (start) session.send(start);
+  const connected = session;
   let stats: any = {};
-  let sent: number | undefined;
-  session.onMessage("stats", (message) => {
+  connected.onMessage("stats", (message) => {
     stats = message;
   });
   return {
-    session,
+    session: connected,
     get stats() {
       return stats;
     },
-    stop: async () => {
-      // Stop sending first, then let werift settle the losses already detected.
+    /** werift drops the first transmission of every packet until the stop */
+    loseTail: () => connected.send({ type: "lose-tail" }),
+    stop: async (stopOptions: { releaseHeldAfterMs?: number } = {}) => {
+      // Close the gate: no frame is sent after the range it reports.
+      const range = await gate!.close(stopOptions.releaseHeldAfterMs ?? 0);
+      const stopped = connected.next<any>("stopped");
+      connected.send({ ...range, type: "stop" });
+      // werift answers once every packet of the range is received or given up.
+      const final = await stopped;
       track.stop();
-      await sleep(100);
-      const sentPackets = await sentOriginalPackets(session.pc);
-      sent = sentPackets;
-      const stopped = session.next("stopped");
-      // Tell werift where the stream ended, so it can find a lost tail.
-      session.send({ type: "stop", sentPackets });
-      await stopped;
-      session.close();
-      return { ...stats, sentPackets: sent };
+      connected.close();
+      return { ...final.stats, range };
     },
   };
 }
@@ -119,6 +123,8 @@ async function subscribe(
     maxDelayMs: number;
     appNack: boolean;
     ignoreCsrc?: boolean;
+    /** werift announces the first packet relayed (live subscription) */
+    awaitStart?: boolean;
   },
   output: "player" | "native",
 ) {
@@ -128,6 +134,7 @@ async function subscribe(
     minDelayMs: player.minDelayMs,
     maxDelayMs: player.maxDelayMs,
     ignoreCsrc: player.ignoreCsrc,
+    awaitStart: player.awaitStart,
     nack: player.appNack
       ? (seqs) => {
           if (control?.readyState === "open") {
@@ -150,6 +157,13 @@ async function subscribe(
       };
       pc.ondatachannel = ({ channel }) => {
         control = channel;
+        channel.onmessage = ({ data }) => {
+          const message = JSON.parse(data);
+          // Where this subscription starts: a lost first packet is a hole too.
+          if (message.type === "start") {
+            budgetPlayer.start(message.sequenceNumber, message.rtpTimestamp);
+          }
+        };
         channel.onopen = () =>
           // Declare this subscriber's latency budget to werift.
           channel.send(
@@ -241,17 +255,34 @@ async function runA(options: {
   durationMs: number;
   loss: BurstLoss;
   munge?: boolean;
+  /** lose the first N packets (their first transmission) */
+  headLossPackets?: number;
+  /** lose every packet sent in the last N ms before the stop */
+  tailLossMs?: number;
+  /** send the last N frames only after the stop notice ... */
+  holdTailFrames?: number;
+  /** ... this many ms after it */
+  holdTailMs?: number;
 }) {
   const pub = await publish({ ...options, record: true });
   const timer = setInterval(() => show("a-out", { live: pub.stats }), 250);
-  await sleep(options.durationMs);
+  const tailLossMs = Math.min(options.tailLossMs ?? 0, options.durationMs);
+  await sleep(options.durationMs - tailLossMs);
+  if (tailLossMs > 0) {
+    pub.loseTail();
+    await sleep(tailLossMs);
+  }
   clearInterval(timer);
-  const stats = await pub.stop();
+  const stats = await pub.stop({ releaseHeldAfterMs: options.holdTailMs });
   result.a[String(options.budgetMs)] = {
     ...options,
     received: stats.received,
-    sentPackets: stats.sentPackets,
+    sentFrames: stats.range.frames,
     ...stats.nack,
+    duplicates: stats.duplicates,
+    dropped: stats.dropped,
+    accounting: stats.accounting,
+    recording: stats.recording,
   };
   show("a-out", result.a);
   return result.a[String(options.budgetMs)];
@@ -315,7 +346,11 @@ async function runC(options: {
   upstreamLoss?: BurstLoss;
 }) {
   const pub = await publish({ budgetMs: 0, loss: options.upstreamLoss });
-  const subs = [];
+  const subs: {
+    budgetMs: number;
+    minDelayMs: number;
+    sub: Awaited<ReturnType<typeof subscribe>>;
+  }[] = [];
   for (const [i, budgetMs] of options.budgets.entries()) {
     const minDelayMs = options.minDelays?.[i] ?? options.minDelayMs;
     subs.push({
@@ -323,7 +358,7 @@ async function runC(options: {
       minDelayMs,
       sub: await subscribe(
         { type: "join", role: "subscriber", budgetMs, loss: options.loss },
-        { minDelayMs, maxDelayMs: budgetMs, appNack: true },
+        { minDelayMs, maxDelayMs: budgetMs, appNack: true, awaitStart: true },
         "player",
       ),
     });
@@ -456,6 +491,10 @@ button("a-start", () =>
     durationMs: num("a-duration"),
     loss: lossInput("a"),
     munge: $<HTMLInputElement>("a-munge").checked,
+    headLossPackets: num("a-head-loss"),
+    tailLossMs: num("a-tail-loss"),
+    holdTailFrames: num("a-hold-frames"),
+    holdTailMs: num("a-hold-ms"),
   }),
 );
 button("b-start", () =>

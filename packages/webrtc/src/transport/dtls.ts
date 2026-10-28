@@ -380,7 +380,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       }
 
       if (!isMedia(data)) return;
-      if (!isRtcp(data) && this.debugLoss.dropInboundRtp()) {
+      if (!isRtcp(data) && this.debugLoss.dropInboundRtp(data)) {
         return;
       }
 

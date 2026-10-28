@@ -10,10 +10,11 @@ import { MediaRecorder } from "../../src/nonstandard/recorder";
 const marker = (seq: number) =>
   Buffer.from(`PKT${String(seq).padStart(5, "0")}`);
 
-/** Arrange: 欠番 (seq 3) が後続パケットの後に再送で届く音声を録音する */
-async function recordLateRetransmission(jitterBuffer?: {
-  latency: number;
-}): Promise<Buffer> {
+/** Arrange: 欠番が後続パケットの後に再送で届く音声を録音する (既定は seq 3 が最後に届く) */
+async function recordLateRetransmission(
+  jitterBuffer?: { latency: number; startSequenceNumber?: number },
+  arrival = [1, 2, 4, 5, 3],
+): Promise<Buffer> {
   const track = new MediaStreamTrack({
     kind: "audio",
     remote: true,
@@ -35,8 +36,8 @@ async function recordLateRetransmission(jitterBuffer?: {
   });
   await new Promise((r) => setTimeout(r, 50));
 
-  // Act: 到着順は 1, 2, 4, 5, 3
-  for (const seq of [1, 2, 4, 5, 3]) {
+  // Act: arrival の順に届く
+  for (const seq of arrival) {
     track.onReceiveRtp.execute(
       new RtpPacket(
         new RtpHeader({
@@ -75,5 +76,27 @@ describe("MediaRecorder audio jitterBuffer", () => {
 
     // Assert: 到着順 (seq 3 が最後)
     expect(orderOf(webm)).toEqual([1, 2, 4, 5, 3]);
+  });
+
+  test("jitterBuffer に startSequenceNumber を指定すると、後から回収した先頭も元の順序で録音する", async () => {
+    // Act: 先頭の 1, 2 が落ち、3〜5 の後に再送で届く
+    const webm = await recordLateRetransmission(
+      { latency: 5000, startSequenceNumber: 1 },
+      [3, 4, 5, 1, 2],
+    );
+
+    // Assert: 先頭を含む全パケットが seq 順に書かれる
+    expect(orderOf(webm)).toEqual([1, 2, 3, 4, 5]);
+  });
+
+  test("startSequenceNumber がなければ、最初に受信した seq より前の先頭は録音されない", async () => {
+    // Act
+    const webm = await recordLateRetransmission(
+      { latency: 5000 },
+      [3, 4, 5, 1, 2],
+    );
+
+    // Assert: 最初に届いた 3 が先頭扱いになり、1, 2 は失われる
+    expect(orderOf(webm)).toEqual([3, 4, 5]);
   });
 });

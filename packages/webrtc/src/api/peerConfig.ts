@@ -39,6 +39,13 @@ export type BurstPacketLoss = {
   offsetMs?: number;
 };
 
+/** RTP header fields passed to `DebugConfig.inboundRtpDrop` (read before SRTP decryption). */
+export type DebugRtpHeader = {
+  sequenceNumber: number;
+  timestamp: number;
+  ssrc: number;
+};
+
 export type DebugConfig = Partial<{
   /** Drop this % of all inbound packets at random. */
   inboundPacketLoss: number;
@@ -48,6 +55,12 @@ export type DebugConfig = Partial<{
   inboundBurstLoss: BurstPacketLoss;
   /** Drop outbound RTP (including retransmissions) in periodic bursts. */
   outboundBurstLoss: BurstPacketLoss;
+  /**
+   * Drop inbound RTP for which this returns true. Called for every RTP packet
+   * (retransmissions too, which keep their sequence number without RTX), so a
+   * loss can be decided per sequence number, e.g. only its first transmission.
+   */
+  inboundRtpDrop: (rtp: DebugRtpHeader) => boolean;
   /**ms */
   receiverReportDelay: number;
   disableSendNack: boolean;

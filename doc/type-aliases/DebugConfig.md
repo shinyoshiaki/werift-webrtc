@@ -6,4 +6,4 @@
 
 # Type Alias: DebugConfig
 
-> **DebugConfig** = `Partial`\<\{ `disableRecvRetransmit`: `boolean`; `disableSendNack`: `boolean`; `inboundBurstLoss`: [`BurstPacketLoss`](BurstPacketLoss.md); `inboundPacketLoss`: `number`; `outboundBurstLoss`: [`BurstPacketLoss`](BurstPacketLoss.md); `outboundPacketLoss`: `number`; `receiverReportDelay`: `number`; \}\>
+> **DebugConfig** = `Partial`\<\{ `disableRecvRetransmit`: `boolean`; `disableSendNack`: `boolean`; `inboundBurstLoss`: [`BurstPacketLoss`](BurstPacketLoss.md); `inboundPacketLoss`: `number`; `inboundRtpDrop`: (`rtp`) => `boolean`; `outboundBurstLoss`: [`BurstPacketLoss`](BurstPacketLoss.md); `outboundPacketLoss`: `number`; `receiverReportDelay`: `number`; \}\>

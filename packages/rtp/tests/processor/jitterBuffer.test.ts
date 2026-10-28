@@ -109,4 +109,74 @@ describe("test JitterBuffer", () => {
     expect(lost.length).toBeGreaterThan(0);
     expect(lost[0].from).toBe(2);
   });
+
+  const collector = (jitterBuffer: JitterBufferBase) => {
+    const output: number[] = [];
+    const lost: { from: number; to: number }[] = [];
+    const collect = (
+      input: Parameters<typeof jitterBuffer.processInput>[0],
+    ) => {
+      for (const o of jitterBuffer.processInput(input)) {
+        if (o.rtp) output.push(o.rtp.header.sequenceNumber);
+        if (o.isPacketLost) lost.push(o.isPacketLost);
+      }
+    };
+    return { output, lost, collect };
+  };
+
+  it("startSequenceNumber を指定すると、後から届いた先頭のパケットも順序どおりに出力する", () => {
+    // Arrange: 送信は seq 10 から。10〜12 は落ちて後から再送で届く
+    const jitterBuffer = new JitterBufferBase(48000, {
+      latency: 5000,
+      startSequenceNumber: 10,
+    });
+    const { output, lost, collect } = collector(jitterBuffer);
+
+    // Act: 13〜20 の後に 10〜12 が届く
+    for (let seq = 13; seq <= 20; seq++) {
+      collect({ rtp: createRtpPacket(seq, seq * 960) });
+    }
+    for (let seq = 10; seq <= 12; seq++) {
+      collect({ rtp: createRtpPacket(seq, seq * 960) });
+    }
+
+    // Assert: 10〜20 が昇順に一度ずつ出力され、欠番は通知されない
+    expect(output).toEqual(Array.from({ length: 11 }, (_, i) => i + 10));
+    expect(lost).toEqual([]);
+  });
+
+  it("startSequenceNumber の先頭が届かなければ latency 後に欠番として通知し、16bit の折り返しをまたいでも後続を出力する", () => {
+    // Arrange: 送信は seq 65534 から。65534〜0 は届かない
+    const jitterBuffer = new JitterBufferBase(48000, {
+      latency: 1000,
+      startSequenceNumber: 65534,
+    });
+    const { output, lost, collect } = collector(jitterBuffer);
+
+    // Act: seq 1 から 2 秒分 (100 パケット) を入力する
+    for (let i = 0; i < 100; i++) {
+      collect({ rtp: createRtpPacket((1 + i) & 0xffff, (3 + i) * 960) });
+    }
+
+    // Assert: 先頭の欠番 65534〜0 を通知し、1 から欠落・重複なく出力する
+    expect(lost[0]).toEqual({ from: 65534, to: expect.any(Number) });
+    expect(output[0]).toBe(1);
+    expect(new Set(output).size).toBe(output.length);
+    expect(output).toEqual(
+      Array.from({ length: output.length }, (_, i) => i + 1),
+    );
+  });
+
+  it("startSequenceNumber を指定しなければ従来どおり最初に受信したパケットから始める", () => {
+    // Arrange
+    const jitterBuffer = new JitterBufferBase(48000, { latency: 5000 });
+    const { output, collect } = collector(jitterBuffer);
+
+    // Act: 13 の後に 12 が届く
+    collect({ rtp: createRtpPacket(13, 13 * 960) });
+    collect({ rtp: createRtpPacket(12, 12 * 960) });
+
+    // Assert: 13 が先頭になり、12 は古いパケットとして捨てる
+    expect(output).toEqual([13]);
+  });
 });

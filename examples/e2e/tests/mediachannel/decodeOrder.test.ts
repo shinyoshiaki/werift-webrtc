@@ -55,4 +55,21 @@ describe("latency_budget DecodeOrder", () => {
     // Assert
     expect(decoded).toEqual([65534, 65535, 0, 1, 2]);
   });
+
+  test("start で先頭の seq を伝えると、先頭が後から届いても最初に受信した seq から始めない", () => {
+    // Arrange: 先頭 10 が落ち、11 が先に届く
+    const waiting = new Set([10]);
+    const order = arrange(waiting);
+    const decoded: number[] = [];
+    const feed = (seq: number) => decoded.push(...order.push(seq, seq).ready);
+
+    // Act: 先頭が 10 だと伝え、11 の後に 10 の再送が届く
+    order.start(10);
+    feed(11);
+    waiting.delete(10);
+    feed(10);
+
+    // Assert: 10 を捨てずに 10, 11 の順で出す
+    expect(decoded).toEqual([10, 11]);
+  });
 });

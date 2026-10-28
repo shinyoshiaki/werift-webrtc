@@ -1,4 +1,17 @@
-import type { BurstPacketLoss, DebugConfig } from "../api/peerConfig";
+import type {
+  BurstPacketLoss,
+  DebugConfig,
+  DebugRtpHeader,
+} from "../api/peerConfig";
+
+/** RTP header fields of an (S)RTP packet; the header is not encrypted. */
+export function debugRtpHeader(data: Buffer): DebugRtpHeader {
+  return {
+    sequenceNumber: data.readUInt16BE(2),
+    timestamp: data.readUInt32BE(4),
+    ssrc: data.readUInt32BE(8),
+  };
+}
 
 /** `true` with probability `percent`% (DebugConfig.*PacketLoss). */
 export function dropByPercent(
@@ -45,8 +58,13 @@ export class DebugPacketLoss {
     return dropByPercent(this.config.debug?.outboundPacketLoss);
   }
 
-  dropInboundRtp() {
-    return this.inboundBurst.drop(this.config.debug?.inboundBurstLoss);
+  dropInboundRtp(data: Buffer) {
+    // Both see every packet: the predicate can tell a first transmission from
+    // a retransmission, and the burst clock starts at the first packet.
+    const drop = this.config.debug?.inboundRtpDrop;
+    const dropped = !!drop && data.length >= 12 && drop(debugRtpHeader(data));
+    const burst = this.inboundBurst.drop(this.config.debug?.inboundBurstLoss);
+    return dropped || burst;
   }
 
   dropOutboundRtp() {

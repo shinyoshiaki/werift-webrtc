@@ -1,29 +1,32 @@
 // Reproduces the points of https://moq.dev/blog/webrtc-is-still-the-problem/
 // with plain WebRTC: werift side of the latency budget example.
 // open http://localhost:<vite port>/ (see README.md)
+import { readFile } from "node:fs/promises";
 import { setImmediate, setTimeout } from "node:timers/promises";
 import { type RawData, type WebSocket, WebSocketServer } from "ws";
 import {
   type BurstPacketLoss,
-  type MediaStreamTrack,
+  type DebugRtpHeader,
+  MediaStreamTrack,
   RTCPeerConnection,
   type RTCRtpReceiver,
   type RTCRtpSender,
   RtpHeader,
   RtpPacket,
+  uint16Gt,
   useNACK,
   useOPUS,
 } from "../../../packages/webrtc/src";
 import { MediaRecorder } from "../../../packages/webrtc/src/nonstandard";
 import { LiveEdge } from "./liveEdge";
+import { type Accounting, SendAccounting, type SendRange } from "./sendRange";
+import { countSavedInOrder, readWebmFrames } from "./webmFrames";
 
 const port = 8888;
 /** NACK retry interval used with a latency budget */
 const NACK_RETRY_INTERVAL_MS = 20;
-/** Time for in-flight RTP to arrive after the client stopped sending */
-const SETTLE_GRACE_MS = 200;
-/** How long the packets sent before the stop may take to arrive */
-const SETTLE_ARRIVAL_MS = 2000;
+/** Recent sequence numbers kept to spot duplicates (far below 32768) */
+const RECENT_SEQS = 4096;
 /** 20ms Opus: 10s of send history covers the 5s budget with room to spare */
 const RTP_HISTORY_SIZE = 512;
 /** Lost packets tracked per 20ms Opus frame of budget, plus some slack */
@@ -42,6 +45,8 @@ type JoinMessage = {
   loss?: BurstPacketLoss;
   /** publisher: record the received audio to a .webm file */
   record?: boolean;
+  /** publisher: drop the first transmission of the first N packets */
+  headLossPackets?: number;
 };
 
 type Publisher = {
@@ -49,6 +54,10 @@ type Publisher = {
   budgetMs: number;
   upstreamBudgetMs: number;
   packets: Map<number, RtpPacket>;
+  /** packets dropped from `packets` over RECORDING_MAX_PACKETS */
+  recordingEvicted: number;
+  /** newest upstream sequence number received */
+  highestSeq?: number;
 };
 
 type Subscriber = {
@@ -59,6 +68,10 @@ type Subscriber = {
   refused: number;
   /** Recovered upstream packets not relayed: already older than the budget */
   skippedLate: number;
+  /** Upstream packets older than this subscription's start, not relayed */
+  skippedBeforeStart: number;
+  /** Send one upstream packet to this subscriber */
+  relay: (rtp: RtpPacket) => void;
 };
 
 let publisher: Publisher | undefined;
@@ -143,9 +156,59 @@ function updateUpstreamBudget() {
   console.log("upstream nack budget", budgetMs);
 }
 
+/** Bounded set of recent sequence numbers (far below half the 16bit space). */
+class RecentSeqs {
+  private readonly seqs = new Set<number>();
+  /** false when already seen */
+  add(seq: number) {
+    if (this.seqs.has(seq)) return false;
+    this.seqs.add(seq);
+    if (this.seqs.size > RECENT_SEQS) {
+      this.seqs.delete(this.seqs.values().next().value!);
+    }
+    return true;
+  }
+}
+
+/**
+ * Deterministic upstream loss by sequence number (on top of the periodic
+ * burst): the first transmission of the first N packets (head), and of every
+ * packet between the client's "lose-tail" and its stop (tail). Audio has no
+ * RTX, so a retransmission has the same sequence number and gets through.
+ */
+function upstreamLoss(headLossPackets = 0) {
+  const seen = new RecentSeqs();
+  let firstSeq: number | undefined;
+  let tail = false;
+  const dropped = { head: 0, tail: 0 };
+  return {
+    dropped,
+    loseTail: () => {
+      tail = true;
+    },
+    stopTail: () => {
+      tail = false;
+    },
+    drop: (rtp: DebugRtpHeader) => {
+      if (!seen.add(rtp.sequenceNumber)) return false;
+      firstSeq ??= rtp.sequenceNumber;
+      if (((rtp.sequenceNumber - firstSeq) & 0xffff) < headLossPackets) {
+        dropped.head++;
+        return true;
+      }
+      if (tail) {
+        dropped.tail++;
+        return true;
+      }
+      return false;
+    },
+  };
+}
+
 // Scenario A / C upstream: browser mic -> werift, NACKed within the budget.
 async function runPublisher(socket: WebSocket, join: JoinMessage) {
   const budgetMs = join.budgetMs ?? 0;
+  const loss = upstreamLoss(join.headLossPackets);
   const pc = new RTCPeerConnection({
     iceServers: [],
     // Audio NACK must be negotiated explicitly; werift's default Opus has none.
@@ -155,7 +218,7 @@ async function runPublisher(socket: WebSocket, join: JoinMessage) {
       retryIntervalMs: NACK_RETRY_INTERVAL_MS,
       maxLost: nackMaxLost(budgetMs),
     },
-    debug: { inboundBurstLoss: join.loss },
+    debug: { inboundBurstLoss: join.loss, inboundRtpDrop: loss.drop },
   });
   const transceiver = pc.addTransceiver("audio", { direction: "recvonly" });
   const self: Publisher = {
@@ -163,28 +226,91 @@ async function runPublisher(socket: WebSocket, join: JoinMessage) {
     budgetMs,
     upstreamBudgetMs: budgetMs,
     packets: new Map(),
+    recordingEvicted: 0,
   };
   publisher = self;
   liveEdge.reset();
   updateUpstreamBudget();
 
-  let recorder: MediaRecorder | undefined;
+  // The send range comes from the browser's sender transform (start / stop).
+  const accounting = new SendAccounting();
+  const seen = new RecentSeqs();
+  let recorder: Promise<MediaRecorder> | undefined;
+  /** packets received before the recorder started, in arrival order */
+  const recorderQueue: RtpPacket[] = [];
+  let recordTrack: MediaStreamTrack | undefined;
+  /**
+   * Record from the first sequence number the browser sent (not the first
+   * one received): a head recovered by NACK is written in order, too. The
+   * budget is the jitter buffer latency; budget 0 writes in arrival order.
+   */
+  const startRecorder = (
+    source: MediaStreamTrack,
+    startSequenceNumber?: number,
+  ) => {
+    if (!join.record || recorder) return;
+    recorder = (async () => {
+      const track = new MediaStreamTrack({
+        kind: "audio",
+        codec: source.codec,
+      });
+      recordPath = `./latency-budget-${budgetMs}ms-${Date.now()}.webm`;
+      const created = new MediaRecorder({
+        path: recordPath,
+        numOfTracks: 1,
+        jitterBuffer:
+          budgetMs > 0 ? { latency: budgetMs, startSequenceNumber } : undefined,
+      });
+      await created.addTrack(track);
+      // The writer times the audio by the sender reports (NTP).
+      source.onReceiveRtcp.subscribe((rtcp) =>
+        track.onReceiveRtcp.execute(rtcp),
+      );
+      recordTrack = track;
+      for (const rtp of recorderQueue.splice(0))
+        track.onReceiveRtp.execute(rtp);
+      return created;
+    })();
+  };
+  const toRecorder = (rtp: RtpPacket) => {
+    if (!join.record) return;
+    if (recordTrack) recordTrack.onReceiveRtp.execute(rtp);
+    else recorderQueue.push(rtp);
+  };
+  let remoteTrack: MediaStreamTrack | undefined;
+  let recordPath: string | undefined;
+  /** leading frames of the .webm that equal the received frames in sequence order */
+  let webmInOrder: number | undefined;
+  /** frames in the .webm */
+  let webmFrames: number | undefined;
+  const markFirst = (firstSeq: number | undefined) => {
+    if (firstSeq === undefined) return;
+    // Head losses (before the first packet received) are NACKed from now on.
+    self.receiver.markFirstSentSequence(firstSeq);
+    if (remoteTrack && budgetMs > 0) startRecorder(remoteTrack, firstSeq);
+  };
   let received = 0;
-  let firstSeq: number | undefined;
-  let highestSeq: number | undefined;
-  transceiver.onTrack.subscribe(async (track: MediaStreamTrack) => {
+  let duplicates = 0;
+  transceiver.onTrack.subscribe((track: MediaStreamTrack) => {
+    remoteTrack = track;
+    if (budgetMs === 0) startRecorder(track);
     track.onReceiveRtp.subscribe((rtp) => {
+      markFirst(
+        accounting.receive(rtp.header.sequenceNumber, rtp.header.timestamp),
+      );
+      if (!seen.add(rtp.header.sequenceNumber)) {
+        // A retransmission answered twice: neither counted nor relayed again.
+        duplicates++;
+        return;
+      }
       received++;
-      liveEdge.update(rtp.header.timestamp);
       const seq = rtp.header.sequenceNumber;
-      firstSeq ??= seq;
-      if (highestSeq === undefined || ((seq - highestSeq) & 0xffff) < 0x8000) {
-        highestSeq = seq;
+      if (self.highestSeq === undefined || uint16Gt(seq, self.highestSeq)) {
+        self.highestSeq = seq;
       }
-      self.packets.set(rtp.header.sequenceNumber, rtp);
-      if (self.packets.size > RECORDING_MAX_PACKETS) {
-        self.packets.delete(self.packets.keys().next().value!);
-      }
+      toRecorder(rtp);
+      liveEdge.update(rtp.header.timestamp);
+      keepForAnswer(self, rtp);
       // Fan out to every subscriber. A recovered (late) packet only goes to
       // subscribers whose budget it still fits, judged from its media lag.
       const lag = mediaLagMs(rtp.header.timestamp);
@@ -193,84 +319,94 @@ async function runPublisher(socket: WebSocket, join: JoinMessage) {
           subscriber.skippedLate++;
           continue;
         }
-        void subscriber.sender.sendRtp(rtp);
+        subscriber.relay(rtp);
       }
     });
-    if (join.record) {
-      recorder = new MediaRecorder({
-        path: `./latency-budget-${budgetMs}ms-${Date.now()}.webm`,
-        numOfTracks: 1,
-        // The budget is the jitter buffer latency: a packet recovered by NACK
-        // is written back in sequence order instead of at its arrival.
-        jitterBuffer: budgetMs > 0 ? { latency: budgetMs } : undefined,
-      });
-      await recorder.addTrack(track);
-    }
   });
 
-  const report = () =>
-    send(socket, {
-      type: "stats",
-      received,
-      firstSeq,
-      highestSeq,
-      nack: self.receiver.nackStats,
-      upstreamBudgetMs: self.upstreamBudgetMs,
-    });
+  let accountingResult: Accounting | undefined;
+  const stats = () => ({
+    received,
+    duplicates,
+    nack: self.receiver.nackStats,
+    upstreamBudgetMs: self.upstreamBudgetMs,
+    dropped: loss.dropped,
+    accounting: accountingResult,
+    recording: {
+      packets: self.packets.size,
+      max: RECORDING_MAX_PACKETS,
+      evicted: self.recordingEvicted,
+      webmInOrder,
+      webmFrames,
+    },
+  });
+  const report = () => send(socket, { type: "stats", ...stats() });
   const timer = setInterval(report, 250);
 
   /**
-   * The client has stopped sending. Wait for the losses already detected to be
-   * recovered, or for their budget to run out, before closing the recording.
-   * (A loss at the very tail is only detected by a later packet, so it can't
-   * be waited for.)
+   * The client has closed its sender with the range it sent. Mark the end of
+   * the range, so the tail (lost, or still in flight) is NACKed too, then wait
+   * until every packet of the range is received or given up.
    */
-  const settle = async (sentPackets?: number) => {
-    await setTimeout(SETTLE_GRACE_MS);
-    if (sentPackets !== undefined && firstSeq !== undefined) {
-      // The packets sent before the stop may still be on their way: wait for
-      // the end of the stream, then count what never came as lost.
-      const lastSeq = (firstSeq + sentPackets - 1) & 0xffff;
-      const arrivalUntil = Date.now() + SETTLE_ARRIVAL_MS;
-      while (
-        highestSeq !== undefined &&
-        ((lastSeq - highestSeq) & 0xffff) < 0x8000 &&
-        lastSeq !== highestSeq &&
-        Date.now() < arrivalUntil
-      ) {
-        await setTimeout(20);
-      }
-      self.receiver.markLastSentSequence(lastSeq);
+  const settle = async (range: SendRange) => {
+    loss.stopTail();
+    // The range repeats the start, in case that notice has not come yet.
+    if (range.firstRtpTimestamp !== undefined) {
+      markFirst(accounting.start(range.firstRtpTimestamp));
     }
-    const until = Date.now() + self.upstreamBudgetMs + SETTLE_GRACE_MS;
-    while (self.receiver.nackStats.pending > 0 && Date.now() < until) {
-      await setTimeout(20);
+    const lastSeq = accounting.stop(range);
+    if (lastSeq === undefined) return;
+    self.receiver.markLastSentSequence(lastSeq);
+    // Every loss is detected by now (head at the start notice, the rest by a
+    // gap or by the end mark above). The NACK handler gives one up at most the
+    // budget after its detection, checked every retry interval; the wait
+    // below cannot run longer than that.
+    const stopAt = Date.now();
+    while (
+      self.receiver.nackStats.pending > 0 &&
+      Date.now() < stopAt + self.upstreamBudgetMs + 2 * NACK_RETRY_INTERVAL_MS
+    ) {
+      await setTimeout(NACK_RETRY_INTERVAL_MS);
     }
   };
 
-  const finish = async (
-    options: { settle?: boolean; sentPackets?: number } = {},
-  ) => {
-    if (options.settle) await settle(options.sentPackets);
+  const finish = async (range?: SendRange) => {
+    if (range) {
+      await settle(range);
+      accountingResult = accounting.summary(self.receiver.nackStats);
+    }
     clearInterval(timer);
     report();
     if (self.packets.size > 0) {
-      const packets = [...self.packets.values()];
-      const base = packets[0].header.timestamp;
-      lastRecording = packets.sort(
-        (a, b) =>
-          ((a.header.timestamp - base) | 0) - ((b.header.timestamp - base) | 0),
-      );
+      lastRecording = sortByTimestamp([...self.packets.values()]);
     }
     if (publisher === self) publisher = undefined;
-    await recorder?.stop();
-    console.log("publisher stop", budgetMs, received, self.receiver.nackStats);
+    // No start was ever known (nothing sent, or unverified): record what came.
+    if (remoteTrack) startRecorder(remoteTrack);
+    await (await recorder)?.stop();
+    if (recordPath && range) {
+      const frames = readWebmFrames(await readFile(recordPath));
+      webmFrames = frames.length;
+      webmInOrder = countSavedInOrder(
+        frames,
+        lastRecording.map((p) => p.payload),
+      );
+    }
+    console.log("publisher stop", budgetMs, stats());
   };
   socket.on("message", async (data) => {
     const message = parse(data);
-    if (message.type === "stop") {
-      await finish({ settle: true, sentPackets: message.sentPackets });
-      send(socket, { type: "stopped" });
+    switch (message.type) {
+      case "start":
+        markFirst(accounting.start(message.firstRtpTimestamp));
+        break;
+      case "lose-tail":
+        loss.loseTail();
+        break;
+      case "stop":
+        await finish(message);
+        send(socket, { type: "stopped", stats: stats() });
+        break;
     }
   });
   socket.on("close", async () => {
@@ -279,6 +415,30 @@ async function runPublisher(socket: WebSocket, join: JoinMessage) {
   });
 
   await negotiate(socket, pc);
+}
+
+const timestampOrder = (base: number) => (a: RtpPacket, b: RtpPacket) =>
+  ((a.header.timestamp - base) | 0) - ((b.header.timestamp - base) | 0);
+
+function sortByTimestamp(packets: RtpPacket[]) {
+  return packets.sort(timestampOrder(packets[0].header.timestamp));
+}
+
+/**
+ * Keep the publisher's audio for the "AI answer" (scenario B / D). Over the
+ * limit the oldest by RTP timestamp (not by arrival: a recovered packet
+ * arrives late) is dropped and counted, so a cut answer is visible.
+ */
+function keepForAnswer(self: Publisher, rtp: RtpPacket) {
+  self.packets.set(rtp.header.sequenceNumber, rtp);
+  if (self.packets.size <= RECORDING_MAX_PACKETS) return;
+  const order = timestampOrder(rtp.header.timestamp);
+  let oldest: RtpPacket | undefined;
+  for (const packet of self.packets.values()) {
+    if (!oldest || order(packet, oldest) < 0) oldest = packet;
+  }
+  self.packets.delete(oldest!.header.sequenceNumber);
+  self.recordingEvicted++;
 }
 
 // Scenario C downstream: werift -> browser, recovered by application-layer
@@ -300,9 +460,44 @@ async function runSubscriber(socket: WebSocket, join: JoinMessage) {
     retransmitted: 0,
     refused: 0,
     skippedLate: 0,
+    skippedBeforeStart: 0,
+    relay: (rtp) => {
+      const seq = rtp.header.sequenceNumber;
+      // A packet from before this subscription (an older one recovered
+      // upstream) is neither its start nor relayed: it was never in this
+      // sender's history, so the player could not be given the holes before it.
+      const before = start?.sequenceNumber ?? publisher?.highestSeq;
+      if (before !== undefined && uint16Gt(before, seq)) {
+        self.skippedBeforeStart++;
+        return;
+      }
+      if (!start) {
+        // The first packet relayed is where this subscription starts. Tell the
+        // player, so a loss of this very packet is a hole it can NACK, not a
+        // later start. (A fresh sender keeps the upstream sequence numbers.)
+        start = {
+          type: "start",
+          sequenceNumber: rtp.header.sequenceNumber,
+          rtpTimestamp: rtp.header.timestamp,
+        };
+        sendStart();
+      }
+      void self.sender.sendRtp(rtp);
+    },
   };
+  let start:
+    | { type: "start"; sequenceNumber: number; rtpTimestamp: number }
+    | undefined;
 
   const control = pc.createDataChannel("control");
+  const sendStart = () => {
+    if (start && control.readyState === "open") {
+      control.send(JSON.stringify(start));
+    }
+  };
+  control.stateChanged.subscribe((state) => {
+    if (state === "open") sendStart();
+  });
   control.onMessage.subscribe(async (data) => {
     const message = JSON.parse(data.toString());
     switch (message.type) {
@@ -341,6 +536,7 @@ async function runSubscriber(socket: WebSocket, join: JoinMessage) {
         retransmitted: self.retransmitted,
         refused: self.refused,
         skippedLate: self.skippedLate,
+        skippedBeforeStart: self.skippedBeforeStart,
       }),
     250,
   );
@@ -352,6 +548,11 @@ async function runSubscriber(socket: WebSocket, join: JoinMessage) {
   });
 
   await negotiate(socket, pc);
+  // Relay only once DTLS is up: a packet sent before is dropped by the sender
+  // and never enters its history, so the player could not get it back.
+  if (pc.connectionState !== "connected") {
+    await pc.connectionStateChange.watch((state) => state === "connected");
+  }
   subscribers.add(self);
   updateUpstreamBudget();
 }

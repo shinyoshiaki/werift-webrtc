@@ -11,19 +11,23 @@
 
 - **Latency budget for NACK / retransmission** (`packages/webrtc`), used by the new `examples/mediachannel/latency_budget` example that reproduces the MoQ-side claims of "WebRTC is still the problem" with plain WebRTC:
   - Audio is now NACKed when its codec negotiates a generic `a=rtcp-fb:<pt> nack` (previously video only). The default audio codecs have no `nack`, so the default behavior is unchanged.
-  - `PeerConfig.nack` / `RTCRtpReceiver.setNackOptions()` (nonstandard): `maxWaitMs` (time-based latency budget; `0` disables NACK), `retryIntervalMs`, `retryCount`, `maxLost`. The default `{}` keeps the old policy (5ms interval, given up after about 50ms). `RTCRtpReceiver.nackStats` reports lost / recovered / unrecovered / pending packets.
+  - `PeerConfig.nack` / `RTCRtpReceiver.setNackOptions()` (nonstandard): `maxWaitMs` (time-based latency budget; `0` disables NACK), `retryIntervalMs`, `retryCount`, `maxLost`. The default `{}` keeps the old policy (5ms interval, given up after about 50ms). `RTCRtpReceiver.nackStats` reports lost / recovered / unrecovered / pending packets, and `late` (given up, then arrived; included in `unrecovered`).
   - `RTCRtpReceiver.markLastSentSequence(seq)` (nonstandard): tells the NACK handler the sender's last sequence number so losses at the tail of a stream, which no later packet reveals, are NACKed too.
+  - `RTCRtpReceiver.markFirstSentSequence(seq)` (nonstandard): tells the NACK handler the sender's first sequence number so losses at the head of a stream (before the first packet received) are NACKed too. May be called before any packet arrives; packets reordered at the head are not counted as lost.
+  - `JitterBufferOptions.startSequenceNumber` (rtp processor, also via `MediaRecorder` `jitterBuffer`): the first sequence number of the stream, so a head that arrives after later packets is still output in order instead of being dropped as old.
   - `JitterBuffer` (rtp processor): when a missing packet times out, the buffered packets behind it are now output once, in order. Before, the position jumped to the newest input and intermediate packets were skipped or output twice.
   - `MediaRecorder` `jitterBuffer` option now also reorders audio (opt-in; audio is still written in arrival order when unset), so audio recovered by a late NACK is recorded in sequence order.
   - `PeerConfig.rtpHistorySize` / `RTCRtpSenderOptions.rtpHistorySize`: send history kept for retransmission (default 128; at least this many packets are kept, the ring is rounded up to a power of two so it survives the 16-bit sequence wrap).
   - `RTCRtpSender.retransmit(sequenceNumbers, { maxAgeMs })` (nonstandard): resend packets from the send history, for NACKs that arrive outside RTCP (for example an application-layer NACK over a DataChannel). RTCP generic NACK handling uses the same path.
   - `DebugConfig.inboundBurstLoss` / `outboundBurstLoss`: deterministic periodic burst loss of RTP (`{ intervalMs, durationMs, offsetMs? }`).
+  - `DebugConfig.inboundRtpDrop(rtp)`: drop inbound RTP by its header (`sequenceNumber` / `timestamp` / `ssrc`), for deterministic loss per sequence number (e.g. only the first transmission).
 
 ### Fixes
 
 - **`DebugConfig.inboundPacketLoss` / `outboundPacketLoss` dropped the complement of the given percentage** (`loss / 100 < Math.random()`): `10` dropped about 90% of the packets. They now drop the given percentage.
 - **`RTCRtpSender` no longer rewinds its output state when an older packet is sent** (for example a retransmission recovered upstream and relayed later): the continuity base used by `replaceTrack()` and the RTCP SR RTP timestamp stay at the newest packet. The packet itself is still sent.
 - Receiver-side NACK detects losses across the 16-bit sequence number wrap, lists lost sequence numbers in detection order (they were sorted as strings), and no longer leaves its retry timer running after all lost packets are resolved.
+- **`Lipsync` (rtp processor, used by `MediaRecorder`) dropped the last sync interval at the end of a stream**: the frames still buffered are now output in time order before `eol`, so a recording no longer loses its last ~0.5s.
 - PEM passed to `dtls.keys` / `RTCCertificate` / `CipherContext` may still be indented (for example inside an indented template literal), as it was with `@fidm/x509`. `werift-dtls` exports the `normalizePem()` helper used for this.
 
 ### Dependencies
