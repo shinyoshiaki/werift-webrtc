@@ -16,6 +16,13 @@ import {
   type RtpMediaPacerTick,
 } from "../src/rtp/mediaClock";
 import { RtpHeader, RtpPacket } from "../src/rtp/rtp";
+import {
+  ProtectionProfileAeadAes128Gcm,
+  ProtectionProfileAes128CmHmacSha1_80,
+  type SrtpProfile,
+} from "../src/srtp/const";
+import { Context, type SrtpSsrcState } from "../src/srtp/context/context";
+import { SrtpContext } from "../src/srtp/context/srtp";
 import type { Transport } from "../src/transport";
 
 export function load(name: string) {
@@ -731,4 +738,154 @@ export function createH264RtpPackets(payloads: Buffer[], timestamp = 0) {
         payload,
       ),
   );
+}
+
+// ---------------------------------------------------------------------------
+// SRTP rollover counter (ROC) helpers
+
+const srtpTestKeys: Record<
+  SrtpProfile,
+  { masterKey: Buffer; masterSalt: Buffer }
+> = {
+  [ProtectionProfileAes128CmHmacSha1_80]: {
+    masterKey: Buffer.from([
+      0x0d, 0xcd, 0x21, 0x3e, 0x4c, 0xbc, 0xf2, 0x8f, 0x01, 0x7f, 0x69, 0x94,
+      0x40, 0x1e, 0x28, 0x89,
+    ]),
+    masterSalt: Buffer.from([
+      0x62, 0x77, 0x60, 0x38, 0xc0, 0x6d, 0xc9, 0x41, 0x9f, 0x6d, 0xd9, 0x43,
+      0x3e, 0x7c,
+    ]),
+  },
+  [ProtectionProfileAeadAes128Gcm]: {
+    masterKey: Buffer.from([
+      0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b,
+      0x0c, 0x0d, 0x0e, 0x0f,
+    ]),
+    masterSalt: Buffer.from([
+      0xa0, 0xa1, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7, 0xa8, 0xa9, 0xaa, 0xab,
+    ]),
+  },
+};
+
+/** SRTP context sharing the test master key of `profile`. */
+export function createSrtpTestContext(
+  profile: SrtpProfile = ProtectionProfileAes128CmHmacSha1_80,
+) {
+  const { masterKey, masterSalt } = srtpTestKeys[profile];
+  return new SrtpContext(masterKey, masterSalt, profile);
+}
+
+/** Sender / receiver SRTP contexts sharing the same test master key. */
+export function createSrtpContextPair(
+  profile: SrtpProfile = ProtectionProfileAes128CmHmacSha1_80,
+) {
+  return {
+    sender: createSrtpTestContext(profile),
+    receiver: createSrtpTestContext(profile),
+  };
+}
+
+/** Bare SRTP context and an empty (uninitialized) SSRC state for ROC tests. */
+export function createRolloverTestContext(state: Partial<SrtpSsrcState> = {}) {
+  const { masterKey, masterSalt } =
+    srtpTestKeys[ProtectionProfileAes128CmHmacSha1_80];
+  const context = new Context(
+    masterKey,
+    masterSalt,
+    ProtectionProfileAes128CmHmacSha1_80,
+  );
+  const s: SrtpSsrcState = {
+    ssrc: 0,
+    rolloverCounter: 0,
+    lastSequenceNumber: 0,
+    ...state,
+  };
+  return { context, state: s };
+}
+
+/** Inclusive sequence number range. */
+export function sequenceRange(from: number, to: number) {
+  return Array.from({ length: to - from + 1 }, (_, i) => from + i);
+}
+
+export type RolloverStep = {
+  sequenceNumber: number;
+  /** ROC used for this packet */
+  roc: number;
+  /** highest accepted index after this packet */
+  highest: { rolloverCounter: number; lastSequenceNumber: number };
+};
+
+/**
+ * Runs `sequenceNumbers` through estimate → commit (the same order as
+ * `SrtpContext.encryptRtp`) and records the packet ROC and highest index.
+ */
+export function runRolloverSequence(
+  context: Context,
+  state: SrtpSsrcState,
+  sequenceNumbers: number[],
+): RolloverStep[] {
+  return sequenceNumbers.map((sequenceNumber) => {
+    const roc = context.estimateRolloverCounter(sequenceNumber, state);
+    context.commitPacketIndex(sequenceNumber, roc, state);
+    return {
+      sequenceNumber,
+      roc,
+      highest: {
+        rolloverCounter: state.rolloverCounter,
+        lastSequenceNumber: state.lastSequenceNumber,
+      },
+    };
+  });
+}
+
+export type SrtpTestPacket = {
+  sequenceNumber: number;
+  /** plain RTP packet */
+  plain: Buffer;
+  /** SRTP packet */
+  encrypted: Buffer;
+};
+
+/** Encrypts one RTP packet per sequence number with `sender`, in order. */
+export function encryptSrtpSequence(
+  sender: SrtpContext,
+  sequenceNumbers: number[],
+  ssrc = 5000,
+): SrtpTestPacket[] {
+  return sequenceNumbers.map((sequenceNumber) => {
+    const payload = Buffer.from([
+      sequenceNumber >> 8,
+      sequenceNumber & 0xff,
+      0xab,
+      0xcd,
+    ]);
+    const header = new RtpHeader({ sequenceNumber, ssrc, payloadType: 96 });
+    const plain = new RtpPacket(header, payload).serialize();
+    const encrypted = sender.encryptRtp(payload, header);
+    return { sequenceNumber, plain, encrypted };
+  });
+}
+
+/**
+ * Decrypts every packet with `receiver` and records whether it succeeded.
+ * Failures are recorded instead of thrown.
+ */
+export function decryptSrtpSequence(receiver: SrtpContext, packets: Buffer[]) {
+  return packets.map((packet) => {
+    try {
+      const [decrypted] = receiver.decryptRtp(packet);
+      return { ok: true as const, decrypted };
+    } catch (error) {
+      return { ok: false as const, error: error as Error };
+    }
+  });
+}
+
+/** Copy of `buffer` with one byte flipped. */
+export function tamperBuffer(buffer: Buffer, index: number, mask = 0x01) {
+  const tampered = Buffer.from(buffer);
+  tampered[index] ^= mask;
+  return tampered;
 }
