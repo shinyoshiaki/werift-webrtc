@@ -1435,16 +1435,31 @@ describe("media/rtpSender retransmission and relay", () => {
 });
 
 describe("media/rtpSender older packets", () => {
-  test("reorder window を超えて戻った seq は新しい系列として送信状態を更新する", async () => {
+  test("1024 seq 以上古い relay (半周未満) でも送信状態を巻き戻さない", async () => {
+    const { sender, sendRtp } = createConnectedRtpSender();
+    await sender.sendRtp(createRtpPacket(20000, 960_000));
+    const newest = sentRtpHeaders(sendRtp).at(-1)!;
+
+    // Act: 5000 seq 古く、timestamp も古いパケットを relay する
+    await sender.sendRtp(createRtpPacket(15000, 960_000 - 5000 * 960));
+
+    // Assert: 送信状態 (SR の rtpTimestamp / 最新 seq) は最新のまま
+    expect((sender as any).rtpTimestamp).toBe(newest.timestamp);
+    expect((sender as any).sequenceNumber).toBe(newest.sequenceNumber);
+    sender.stop();
+  });
+
+  test("seq が戻っても timestamp が進んでいれば、再起動した系列として送信状態を更新する", async () => {
     const { sender, sendRtp } = createConnectedRtpSender();
     await sender.sendRtp(createRtpPacket(20000, 960_000));
 
-    // Act: replaceRTP なしで seq を大きく巻き戻す
-    await sender.sendRtp(createRtpPacket(100, 4800));
+    // Act: replaceRTP なしで seq だけ巻き戻し、timestamp は進める
+    await sender.sendRtp(createRtpPacket(100, 960_000 + 4800));
 
-    // Assert: 従来どおり SR の rtpTimestamp は新しい系列に追従する
+    // Assert: SR の rtpTimestamp は新しい系列に追従する
     const restarted = sentRtpHeaders(sendRtp).at(-1)!;
     expect((sender as any).rtpTimestamp).toBe(restarted.timestamp);
+    expect((sender as any).sequenceNumber).toBe(100);
     sender.stop();
   });
 
@@ -1494,18 +1509,4 @@ describe("media/rtpSender older packets", () => {
       );
     },
   );
-
-  test("履歴サイズや 1024 より大きく戻った seq は新しい系列として送信状態を移す", async () => {
-    const { sender, sendRtp } = createConnectedRtpSender({ rtpHistorySize: 4 });
-    for (let seq = 5000; seq < 5003; seq++) {
-      await sender.sendRtp(createRtpPacket(seq, seq * 960));
-    }
-    sendRtp.mockClear();
-
-    // Act: 5000 パケット戻った seq を送る
-    await sender.sendRtp(createRtpPacket(10, 9600));
-
-    // Assert: 新しい系列として送信状態が移る (従来の動作)
-    expect((sender as any).sequenceNumber).toBe(10);
-  });
 });

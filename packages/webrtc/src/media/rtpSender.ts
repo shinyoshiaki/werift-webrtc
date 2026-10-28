@@ -91,7 +91,6 @@ const log = debug("werift:packages/webrtc/src/media/rtpSender.ts");
 
 const DEFAULT_RTP_HISTORY_SIZE = 128;
 /** Sequence numbers this far behind the newest are reordered / late, not a restart. */
-const REORDER_WINDOW = 1024;
 const DEFAULT_PENDING_RTP_MAX_LENGTH = 256;
 const RTT_ALPHA = 0.85;
 
@@ -743,7 +742,10 @@ export class RTCRtpSender {
     // A relayed retransmission or reordered packet is older than what was
     // already sent: send it, but keep the output state (continuity base, SR
     // rtpTimestamp) at the newest packet.
-    const isNewest = !this.isRecentlySent(header.sequenceNumber);
+    const isNewest = !this.isRecentlySent(
+      header.sequenceNumber,
+      header.timestamp,
+    );
     if (isNewest) {
       this.timestamp = header.timestamp;
       this.sequenceNumber = header.sequenceNumber;
@@ -843,18 +845,23 @@ export class RTCRtpSender {
   }
 
   /**
-   * `true` when `sequenceNumber` is at or a little behind the newest sent
-   * sequence number (a reordered or late relayed packet). A larger jump back
-   * is taken as a new sequence and moves the output state as before.
+   * `true` when the packet is older than the newest one sent: its sequence
+   * number is behind (less than half the 16bit space, as RFC 3550 orders them)
+   * and its timestamp is not ahead. This covers any lateness, not a fixed
+   * window, and does not depend on the history size. A packet whose timestamp
+   * moved ahead while the sequence number jumped back is a restarted sequence
+   * and moves the output state.
    */
-  private isRecentlySent(sequenceNumber: number) {
-    if (this.sequenceNumber == undefined) {
+  private isRecentlySent(sequenceNumber: number, timestamp: number) {
+    if (this.sequenceNumber == undefined || this.timestamp == undefined) {
       return false;
     }
     const behind = uint16Add(this.sequenceNumber, -sequenceNumber);
-    // Independent of the history size: a large history must not widen it
-    // (65536 would make every packet "old"), a small one must not narrow it.
-    return behind < REORDER_WINDOW;
+    if (behind >= 0x8000) {
+      return false;
+    }
+    const timestampAhead = uint32Add(timestamp, -this.timestamp);
+    return timestampAhead === 0 || timestampAhead >= 0x80000000;
   }
 
   /**
