@@ -46,6 +46,7 @@ import {
   normalizeFingerprintAlgorithm,
   normalizeFingerprintValue,
 } from "../utils";
+import { DebugPacketLoss } from "./debugPacketLoss";
 import type { RTCIceTransport } from "./ice";
 
 const log = debug("werift:packages/webrtc/src/transport/dtls.ts");
@@ -115,6 +116,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   static localCertificate?: RTCCertificate;
   static localCertificatePromise?: Promise<RTCCertificate>;
   private remoteParameters?: RTCDtlsParameters;
+  private readonly debugLoss: DebugPacketLoss;
 
   constructor(
     readonly config: { debug?: DebugConfig },
@@ -123,6 +125,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     private readonly srtpProfiles: SrtpProfile[] = [],
   ) {
     this.localCertificate ??= RTCDtlsTransport.localCertificate;
+    this.debugLoss = new DebugPacketLoss(config);
   }
 
   addEventListener = (
@@ -233,10 +236,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
         });
       }
       this.dtls.onData.subscribe((buf) => {
-        if (
-          this.config.debug?.inboundPacketLoss &&
-          this.config.debug?.inboundPacketLoss / 100 < Math.random()
-        ) {
+        if (this.debugLoss.dropInbound()) {
           return;
         }
         this.dataReceiver(buf);
@@ -375,14 +375,14 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     this.updateSrtpSession();
 
     this.iceTransport.connection.onData.subscribe((data) => {
-      if (
-        this.config.debug?.inboundPacketLoss &&
-        this.config.debug?.inboundPacketLoss / 100 < Math.random()
-      ) {
+      if (this.debugLoss.dropInbound()) {
         return;
       }
 
       if (!isMedia(data)) return;
+      if (!isRtcp(data) && this.debugLoss.dropInboundRtp()) {
+        return;
+      }
 
       // Track received data statistics
       this.bytesReceived += data.length;
@@ -441,10 +441,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   }
 
   readonly sendData = async (data: Buffer) => {
-    if (
-      this.config.debug?.outboundPacketLoss &&
-      this.config.debug?.outboundPacketLoss / 100 < Math.random()
-    ) {
+    if (this.debugLoss.dropOutbound()) {
       return;
     }
 
@@ -458,10 +455,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     try {
       const enc = this.srtp.encrypt(payload, header);
 
-      if (
-        this.config.debug?.outboundPacketLoss &&
-        this.config.debug?.outboundPacketLoss / 100 < Math.random()
-      ) {
+      if (this.debugLoss.dropOutbound() || this.debugLoss.dropOutboundRtp()) {
         return enc.length;
       }
 
@@ -481,10 +475,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     const payload = Buffer.concat(packets.map((packet) => packet.serialize()));
     const enc = this.srtcp.encrypt(payload);
 
-    if (
-      this.config.debug?.outboundPacketLoss &&
-      this.config.debug?.outboundPacketLoss / 100 < Math.random()
-    ) {
+    if (this.debugLoss.dropOutbound()) {
       return enc.length;
     }
 

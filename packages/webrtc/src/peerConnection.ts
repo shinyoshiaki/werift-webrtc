@@ -62,6 +62,7 @@ import type { Callback, CallbackWithValue } from "./types/util";
 import { andDirection } from "./utils";
 
 export {
+  type BurstPacketLoss,
   type DebugConfig,
   defaultPeerConfig,
   findCodecByMimeType,

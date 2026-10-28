@@ -1143,17 +1143,29 @@ v6.0.0
 
 > `optional` **disableSendNack?**: `boolean`
 
+###### debug.inboundBurstLoss?
+
+> `optional` **inboundBurstLoss?**: [`BurstPacketLoss`](../type-aliases/BurstPacketLoss.md)
+
+Drop inbound RTP in periodic bursts.
+
 ###### debug.inboundPacketLoss?
 
 > `optional` **inboundPacketLoss?**: `number`
 
-%
+Drop this % of all inbound packets at random.
+
+###### debug.outboundBurstLoss?
+
+> `optional` **outboundBurstLoss?**: [`BurstPacketLoss`](../type-aliases/BurstPacketLoss.md)
+
+Drop outbound RTP (including retransmissions) in periodic bursts.
 
 ###### debug.outboundPacketLoss?
 
 > `optional` **outboundPacketLoss?**: `number`
 
-%
+Drop this % of all outbound packets at random.
 
 ###### debug.receiverReportDelay?
 
@@ -1292,6 +1304,36 @@ How local SDP marks inactive / stopped m-lines. Cannot be changed after construc
   and only those negotiated port 0 positions are reused by new transceivers.
 - `"aggressive"`: legacy behavior. `inactive` m-lines are also written with port 0.
 
+##### nack
+
+> **nack**: `object`
+
+###### nack.maxLost?
+
+> `optional` **maxLost?**: `number`
+
+Max lost packets tracked at the same time. Oldest are dropped. Default 150.
+
+###### nack.maxWaitMs?
+
+> `optional` **maxWaitMs?**: `number`
+
+Latency budget in ms. A lost packet is NACKed until this much time has
+passed since its loss was detected, then given up.
+`0` disables NACK. When undefined, `retryCount` decides when to give up.
+
+###### nack.retryCount?
+
+> `optional` **retryCount?**: `number`
+
+NACKs per lost packet before giving up when `maxWaitMs` is undefined. Default 10.
+
+###### nack.retryIntervalMs?
+
+> `optional` **retryIntervalMs?**: `number`
+
+Interval in ms between NACKs for the same lost packet. Default 5.
+
 ##### pendingRtp
 
 > **pendingRtp**: `boolean` \| \{ `enabled?`: `boolean`; `maxLength?`: `number`; \}
@@ -1321,6 +1363,13 @@ Max queued packets when enabled. Oldest packets are dropped. Default 256.
 ##### rtcpMuxPolicy
 
 > **rtcpMuxPolicy**: `"require"`
+
+##### rtpHistorySize
+
+> **rtpHistorySize**: `number`
+
+Packets each new sender keeps for retransmission (NACK / `retransmit()`).
+Default 128 (about 2.5s of 20ms Opus).
 
 ##### sctp
 

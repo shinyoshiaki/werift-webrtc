@@ -1,5 +1,3 @@
-import { createServer } from "http";
-import path from "path";
 import {
   appendFile,
   mkdir,
@@ -8,6 +6,8 @@ import {
   rm,
   writeFile,
 } from "fs/promises";
+import { createServer } from "http";
+import path from "path";
 import { WebSocketServer } from "ws";
 import { PromiseQueue, RTCPeerConnection } from "../../../packages/webrtc/src";
 import {

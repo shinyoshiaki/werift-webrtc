@@ -205,6 +205,20 @@ seconds
 
 ***
 
+### nackStats
+
+#### Get Signature
+
+> **get** **nackStats**(): [`NackStats`](../type-aliases/NackStats.md)
+
+nonstandard: lost / recovered / unrecovered packet counters of the receiver-side NACK.
+
+##### Returns
+
+[`NackStats`](../type-aliases/NackStats.md)
+
+***
+
 ### pliEnabled
 
 #### Get Signature
@@ -663,6 +677,25 @@ prepareReceive() so the current decode path remains available.
 ##### dtls
 
 [`RTCDtlsTransport`](RTCDtlsTransport.md)
+
+#### Returns
+
+`void`
+
+***
+
+### setNackOptions()
+
+> **setNackOptions**(`options`): `void`
+
+nonstandard: change the NACK retry policy (latency budget) at runtime.
+Applies to packets already waiting for a retransmission too.
+
+#### Parameters
+
+##### options
+
+[`NackOptions`](../type-aliases/NackOptions.md)
 
 #### Returns
 

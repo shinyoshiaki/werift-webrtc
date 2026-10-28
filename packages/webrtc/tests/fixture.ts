@@ -6,17 +6,20 @@ import {
   defaultPeerConfig,
   type Kind,
   MediaStreamTrack,
+  type PeerConfig,
   RTCDtlsTransport,
   RTCIceGatherer,
   RTCIceTransport,
   RTCPeerConnection,
   RTCRtpCodecParameters,
+  RTCRtpCodingParameters,
   RTCRtpHeaderExtensionParameters,
   type RTCSessionDescription,
   RTP_EXTENSION_URI,
   RtpHeader,
   RtpPacket,
 } from "../src";
+import { RTCRtpReceiver } from "../src/media/rtpReceiver";
 import { RTCRtpSender } from "../src/media/rtpSender";
 import type { SenderBandwidthEstimator } from "../src/media/sender/senderBWE";
 
@@ -38,9 +41,11 @@ export const createRtpPacket = (
   return rtp;
 };
 
-export const createDtlsTransport = () => {
+export const createDtlsTransport = (
+  config: Pick<PeerConfig, "debug"> = defaultPeerConfig,
+) => {
   const dtls = new RTCDtlsTransport(
-    defaultPeerConfig,
+    config,
     new RTCIceTransport(new RTCIceGatherer()),
   );
   return dtls;
@@ -69,12 +74,15 @@ export function createConnectedRtpSender(options?: {
   rtx?: boolean;
   twcc?: boolean;
   cname?: string;
+  rtpHistorySize?: number;
 }) {
   const kind = options?.kind ?? "audio";
   const track = options?.track ?? new MediaStreamTrack({ kind, remote: true });
   const dtls = createDtlsTransport();
   dtls.state = "connected";
-  const sender = new RTCRtpSender(track);
+  const sender = new RTCRtpSender(track, {
+    rtpHistorySize: options?.rtpHistorySize,
+  });
   sender.setDtlsTransport(dtls);
 
   const codecs = [createAudioCodec()];
@@ -200,4 +208,55 @@ export function recordSentPackets(
 export function pendingFeedback(estimator: SenderBandwidthEstimator) {
   return (estimator as unknown as { sentInfos: Map<number, unknown> })
     .sentInfos;
+}
+
+/**
+ * Audio receiver whose Opus codec negotiates `nack` (or `nack pli` / none),
+ * with RTCP sends stubbed. Feed RTP with `receive(seq)`.
+ */
+export function createNackAudioReceiver(options?: {
+  rtcpFeedback?: { type: string; parameter?: string }[];
+  kind?: Kind;
+  config?: Partial<PeerConfig>;
+}) {
+  const kind = options?.kind ?? "audio";
+  const dtls = createDtlsTransport();
+  const sendRtcp = vi
+    .spyOn(dtls, "sendRtcp")
+    .mockResolvedValue(undefined as never);
+  const receiver = new RTCRtpReceiver(
+    { ...defaultPeerConfig, ...options?.config },
+    kind,
+    1234,
+  );
+  receiver.setDtlsTransport(dtls);
+  const track = new MediaStreamTrack({ kind });
+  track.ssrc = 777;
+  receiver.addTrack(track);
+  receiver.prepareReceive({
+    codecs: [
+      new RTCRtpCodecParameters({
+        mimeType: kind === "audio" ? "audio/opus" : "video/vp8",
+        clockRate: kind === "audio" ? 48000 : 90000,
+        channels: kind === "audio" ? 2 : undefined,
+        payloadType: 96,
+        rtcpFeedback: options?.rtcpFeedback ?? [{ type: "nack" }],
+      }),
+    ],
+    encodings: [new RTCRtpCodingParameters({ ssrc: 777, payloadType: 96 })],
+    headerExtensions: [],
+  });
+  const received: number[] = [];
+  track.onReceiveRtp.subscribe((rtp) =>
+    received.push(rtp.header.sequenceNumber),
+  );
+  const receive = (sequenceNumber: number) =>
+    receiver.handleRtpBySsrc(
+      new RtpPacket(
+        new RtpHeader({ ssrc: 777, payloadType: 96, sequenceNumber }),
+        Buffer.from([1]),
+      ),
+      {},
+    );
+  return { receiver, dtls, sendRtcp, track, received, receive };
 }

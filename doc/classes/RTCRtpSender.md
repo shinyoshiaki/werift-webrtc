@@ -460,6 +460,33 @@ Internal: return to a negotiation baseline's send parameters.
 
 ***
 
+### retransmit()
+
+> **retransmit**(`sequenceNumbers`, `options?`): `Promise`\<`number`[]\>
+
+nonstandard: retransmit packets still in the send history, as a generic
+NACK does. Use it for NACKs that arrive outside RTCP, such as an
+application-layer NACK over a DataChannel. With RTX negotiated the packets
+are wrapped in RTX; otherwise they are resent on the media SSRC.
+
+#### Parameters
+
+##### sequenceNumbers
+
+`number`[]
+
+##### options?
+
+[`RTCRtpRetransmitOptions`](../type-aliases/RTCRtpRetransmitOptions.md) = `{}`
+
+#### Returns
+
+`Promise`\<`number`[]\>
+
+the sequence numbers actually retransmitted
+
+***
+
 ### runRtcp()
 
 > **runRtcp**(): `Promise`\<`void`\>

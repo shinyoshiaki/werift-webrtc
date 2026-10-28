@@ -202,6 +202,16 @@ How local SDP marks inactive / stopped m-lines. Cannot be changed after construc
 
 ***
 
+### nack
+
+> **nack**: [`NackOptions`](../type-aliases/NackOptions.md)
+
+Receiver-side NACK retry policy (latency budget) of new receivers.
+The default `{}` gives up after about 50ms (10 NACKs at 5ms intervals).
+Audio is NACKed only when its codec negotiates `a=rtcp-fb:<pt> nack`.
+
+***
+
 ### pendingRtp
 
 > **pendingRtp**: `NonNullable`\<`boolean` \| [`PendingRtpOptions`](../type-aliases/PendingRtpOptions.md) \| `undefined`\>
@@ -214,6 +224,15 @@ Disabled by default. Pass `true` or `{ enabled: true, maxLength }` to buffer.
 ### rtcpMuxPolicy
 
 > **rtcpMuxPolicy**: `"require"`
+
+***
+
+### rtpHistorySize
+
+> **rtpHistorySize**: `number`
+
+Packets each new sender keeps for retransmission (NACK / `retransmit()`).
+Default 128 (about 2.5s of 20ms Opus).
 
 ***
 

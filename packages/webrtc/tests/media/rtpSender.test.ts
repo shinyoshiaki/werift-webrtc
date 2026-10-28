@@ -1262,3 +1262,184 @@ describe("media/rtpSender RTP continuity", () => {
     expect(header.timestamp).toBe((last.timestamp + 1) >>> 0);
   });
 });
+
+describe("media/rtpSender retransmission and relay", () => {
+  const started: RTCRtpSender[] = [];
+
+  afterEach(() => {
+    vi.useRealTimers();
+    for (const sender of started) {
+      sender.stop();
+    }
+    started.length = 0;
+  });
+
+  const arrangeSender = (
+    options?: Parameters<typeof createConnectedRtpSender>[0],
+  ) => {
+    const setup = createConnectedRtpSender(options);
+    started.push(setup.sender);
+    return setup;
+  };
+
+  const nackFor = (sender: RTCRtpSender, lost: number[]) =>
+    new RtcpTransportLayerFeedback({
+      feedback: new GenericNack({
+        lost,
+        senderSsrc: 1,
+        mediaSourceSsrc: sender.ssrc,
+      }),
+    });
+
+  test("既定の送信履歴は 128 パケットで、それより古い seq は再送しない", async () => {
+    const { sender, sendRtp } = arrangeSender();
+    for (let seq = 0; seq < 200; seq++) {
+      await sender.sendRtp(createRtpPacket(seq, seq * 960));
+    }
+    const headers = sentRtpHeaders(sendRtp);
+    const oldest = headers[0].sequenceNumber;
+    const inHistory = headers[200 - 128].sequenceNumber;
+    sendRtp.mockClear();
+
+    // Act: 履歴外と履歴内の seq を再送要求する
+    const retransmitted = await sender.retransmit([oldest, inHistory]);
+
+    // Assert: 履歴内の 1 つだけ再送する
+    expect(retransmitted).toEqual([inHistory]);
+    expect(sendRtp).toHaveBeenCalledTimes(1);
+  });
+
+  test("rtpHistorySize を増やすと 5 秒分 (250 パケット) を再送できる", async () => {
+    const { sender, sendRtp } = arrangeSender({ rtpHistorySize: 256 });
+    for (let seq = 0; seq < 250; seq++) {
+      await sender.sendRtp(createRtpPacket(seq, seq * 960));
+    }
+    const oldest = sentRtpHeaders(sendRtp)[0].sequenceNumber;
+    sendRtp.mockClear();
+
+    // Act: GenericNack で一番古い seq を要求する
+    sender.handleRtcpPacket(nackFor(sender, [oldest]));
+    await setTimeout(0);
+
+    // Assert: RTX なしなので同じ SSRC / seq のまま再送する
+    expect(sendRtp).toHaveBeenCalledTimes(1);
+    const [header] = sentRtpHeaders(sendRtp);
+    expect(header.sequenceNumber).toBe(oldest);
+    expect(header.ssrc).toBe(sender.ssrc);
+  });
+
+  test("retransmit は maxAgeMs より古い送信を再送しない", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const { sender, sendRtp } = arrangeSender();
+    await sender.sendRtp(createRtpPacket(1, 960));
+    vi.setSystemTime(Date.now() + 1000);
+    await sender.sendRtp(createRtpPacket(2, 1920));
+    const [first, second] = sentRtpHeaders(sendRtp).map(
+      (header) => header.sequenceNumber,
+    );
+    sendRtp.mockClear();
+
+    // Act: 500ms の budget で両方を要求する
+    const retransmitted = await sender.retransmit([first, second], {
+      maxAgeMs: 500,
+    });
+
+    // Assert: 1 秒前に送ったパケットは budget 切れとして再送しない
+    expect(retransmitted).toEqual([second]);
+    expect(sendRtp).toHaveBeenCalledTimes(1);
+  });
+
+  test("retransmit は RTX が negotiate されていれば RTX で包む", async () => {
+    const { sender, sendRtp } = arrangeSender({ rtx: true });
+    await sender.sendRtp(createRtpPacket(1, 960, Buffer.from([7])));
+    const seq = sentRtpHeaders(sendRtp)[0].sequenceNumber;
+    sendRtp.mockClear();
+
+    // Act
+    await sender.retransmit([seq]);
+
+    // Assert: RTX ssrc / pt で送られ、中身は元の seq
+    const [header] = sentRtpHeaders(sendRtp);
+    expect(header.ssrc).toBe(sender.rtxSsrc);
+    const recovered = unwrapRtx(
+      new RtpPacket(header, sendRtp.mock.calls[0][0]),
+      96,
+      sender.ssrc,
+    );
+    expect(recovered.header.sequenceNumber).toBe(seq);
+  });
+
+  test("relay した古い seq のパケットは送信状態 (SR / continuity) を巻き戻さない", async () => {
+    const { sender, sendRtp } = arrangeSender();
+    await sender.sendRtp(createRtpPacket(10, 9600));
+    await sender.sendRtp(createRtpPacket(12, 11520));
+    const newest = sentRtpHeaders(sendRtp).at(-1)!;
+
+    // Act: upstream で回収した古い seq 11 を後から relay する
+    await sender.sendRtp(createRtpPacket(11, 10560));
+
+    // Assert: パケットは送るが、SR の rtpTimestamp は最新のまま
+    const late = sentRtpHeaders(sendRtp).at(-1)!;
+    expect(late.sequenceNumber).toBe((newest.sequenceNumber - 1) & 0xffff);
+    expect((sender as any).rtpTimestamp).toBe(newest.timestamp);
+
+    // Act: ソース切替後の先頭パケット
+    sender.replaceRTP({ sequenceNumber: 0, timestamp: 0 });
+    await sender.sendRtp(createRtpPacket(500, 0));
+
+    // Assert: continuity は古い seq ではなく最新 seq の次から続く
+    const next = sentRtpHeaders(sendRtp).at(-1)!;
+    expect(next.sequenceNumber).toBe((newest.sequenceNumber + 1) & 0xffff);
+    expect(next.timestamp).toBe((newest.timestamp + 1) >>> 0);
+  });
+
+  test("sendRtp に渡した CSRC はそのまま送出される", async () => {
+    const { sender, sendRtp } = arrangeSender();
+    const rtp = createRtpPacket(1, 960, Buffer.from([1, 2]));
+    rtp.header.csrc = [7, 0xffffffff];
+
+    // Act
+    await sender.sendRtp(rtp);
+
+    // Assert: header の CSRC が保持され、シリアライズ後も読める
+    const [header] = sentRtpHeaders(sendRtp);
+    expect(header.csrc).toEqual([7, 0xffffffff]);
+    const parsed = RtpPacket.deSerialize(
+      new RtpPacket(header, Buffer.from([1, 2])).serialize(),
+    );
+    expect(parsed.header.csrc).toEqual([7, 0xffffffff]);
+    expect(parsed.payload).toEqual(Buffer.from([1, 2]));
+  });
+});
+
+describe("media/rtpSender older packets", () => {
+  test("reorder window を超えて戻った seq は新しい系列として送信状態を更新する", async () => {
+    const { sender, sendRtp } = createConnectedRtpSender();
+    await sender.sendRtp(createRtpPacket(20000, 960_000));
+
+    // Act: replaceRTP なしで seq を大きく巻き戻す
+    await sender.sendRtp(createRtpPacket(100, 4800));
+
+    // Assert: 従来どおり SR の rtpTimestamp は新しい系列に追従する
+    const restarted = sentRtpHeaders(sendRtp).at(-1)!;
+    expect((sender as any).rtpTimestamp).toBe(restarted.timestamp);
+    sender.stop();
+  });
+
+  test("遅れて relay した古い seq は同じスロットの新しい送信履歴を上書きしない", async () => {
+    const { sender, sendRtp } = createConnectedRtpSender({ rtpHistorySize: 4 });
+    for (let seq = 10; seq < 15; seq++) {
+      await sender.sendRtp(createRtpPacket(seq, seq * 960));
+    }
+    const newest = sentRtpHeaders(sendRtp).at(-1)!.sequenceNumber;
+    sendRtp.mockClear();
+
+    // Act: 同じスロット (seq % 4) に入る 4 つ前の seq を遅れて relay し、最新 seq を再送要求する
+    await sender.sendRtp(createRtpPacket(10, 9600));
+    const retransmitted = await sender.retransmit([newest]);
+
+    // Assert: 最新 seq は履歴に残っている
+    expect(retransmitted).toEqual([newest]);
+    sender.stop();
+  });
+});

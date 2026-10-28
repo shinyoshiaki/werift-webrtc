@@ -29,7 +29,7 @@ import type {
   RTCRtpCodecParameters,
   RTCRtpReceiveParameters,
 } from "./parameters";
-import { NackHandler } from "./receiver/nack";
+import { NackHandler, type NackOptions, type NackStats } from "./receiver/nack";
 import { ReceiverTWCC } from "./receiver/receiverTwcc";
 import { StreamStatistics } from "./receiver/statistics";
 import {
@@ -60,7 +60,7 @@ export class RTCRtpReceiver {
   private readonly stagedSsrcByRtx: { [rtxSsrc: number]: number } = {};
   /** SSRCs of `trackBySSRC` learned from RID packets rather than SDP. */
   readonly learnedTrackSsrcs = new Set<number>();
-  private readonly nack = new NackHandler(this);
+  private readonly nack: NackHandler;
   private readonly audioRedHandler = new RedHandler();
 
   readonly type = "receiver";
@@ -80,7 +80,7 @@ export class RTCRtpReceiver {
   readonly lastSRtimestamp: { [ssrc: number]: number } = {};
   /**seconds */
   readonly receiveLastSRTimestamp: { [ssrc: number]: number } = {};
-  readonly onPacketLost = this.nack.onPacketLost;
+  readonly onPacketLost: NackHandler["onPacketLost"];
   readonly onRtcp = new Event<[RtcpPacket]>();
 
   dtlsTransport!: RTCDtlsTransport;
@@ -112,6 +112,8 @@ export class RTCRtpReceiver {
     public rtcpSsrc: number,
   ) {
     this.defaultTrack = new MediaStreamTrack({ kind, remote: true });
+    this.nack = new NackHandler(this, config.nack);
+    this.onPacketLost = this.nack.onPacketLost;
     this.onPacketLost.subscribe((nack) => {
       this.nackCountBySsrc[nack.mediaSourceSsrc] =
         (this.nackCountBySsrc[nack.mediaSourceSsrc] ?? 0) + 1;
@@ -133,6 +135,19 @@ export class RTCRtpReceiver {
 
   get nackEnabled() {
     return this.codecArray[0]?.rtcpFeedback.find((f) => f.type === "nack");
+  }
+
+  /**
+   * nonstandard: change the NACK retry policy (latency budget) at runtime.
+   * Applies to packets already waiting for a retransmission too.
+   */
+  setNackOptions(options: NackOptions) {
+    this.nack.setOptions(options);
+  }
+
+  /** nonstandard: lost / recovered / unrecovered packet counters of the receiver-side NACK. */
+  get nackStats(): NackStats {
+    return this.nack.stats;
   }
 
   get twccEnabled() {
@@ -720,7 +735,14 @@ export class RTCRtpReceiver {
 
     this.payloadTypeBySsrc[packet.header.ssrc] = mediaCodec.payloadType;
 
-    if (track?.kind === "video" && hasFeedback(mediaCodec, "nack")) {
+    // Audio is NACKed only with a generic `nack` (not `nack pli`); the
+    // default audio codecs negotiate none, so audio stays without NACK.
+    if (
+      track &&
+      (track.kind === "video"
+        ? hasFeedback(mediaCodec, "nack")
+        : hasGenericNack(mediaCodec))
+    ) {
       this.nack.addPacket(packet);
     }
 
@@ -777,4 +799,8 @@ function hasFeedback(
     (f) =>
       f.type === type && (parameter === undefined || f.parameter === parameter),
   );
+}
+
+function hasGenericNack(codec: RTCRtpCodecParameters | undefined) {
+  return !!codec?.rtcpFeedback.some((f) => f.type === "nack" && !f.parameter);
 }

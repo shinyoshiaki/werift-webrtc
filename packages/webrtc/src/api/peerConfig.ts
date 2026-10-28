@@ -16,6 +16,7 @@ import type {
   RTCRtpCodecParameters,
   RTCRtpHeaderExtensionParameters,
 } from "../media/parameters";
+import type { NackOptions } from "../media/receiver/nack";
 import type { RTCRtpSenderOptions } from "../media/rtpSender";
 import type { BundlePolicy } from "../sdp";
 import type { MLineReuse } from "../sdpManager";
@@ -23,11 +24,30 @@ import type { DtlsKeys, RTCCertificate } from "../transport/dtls";
 import { DEFAULT_MAX_MESSAGE_SIZE } from "../transport/sctp";
 import { deepMerge } from "../utils";
 
+/**
+ * Periodic (deterministic) burst loss for debugging.
+ * Every `intervalMs` from the first RTP packet, RTP packets are dropped for
+ * `durationMs`. Only RTP is dropped; RTCP and ICE/DTLS keep flowing, so the
+ * loss hits media and retransmissions but not the NACKs themselves.
+ */
+export type BurstPacketLoss = {
+  /** Period of the drop windows in ms. */
+  intervalMs: number;
+  /** Length of each drop window in ms. */
+  durationMs: number;
+  /** Delay from the first RTP packet to the first drop window in ms. Default `intervalMs - durationMs`. */
+  offsetMs?: number;
+};
+
 export type DebugConfig = Partial<{
-  /**% */
+  /** Drop this % of all inbound packets at random. */
   inboundPacketLoss: number;
-  /**% */
+  /** Drop this % of all outbound packets at random. */
   outboundPacketLoss: number;
+  /** Drop inbound RTP in periodic bursts. */
+  inboundBurstLoss: BurstPacketLoss;
+  /** Drop outbound RTP (including retransmissions) in periodic bursts. */
+  outboundBurstLoss: BurstPacketLoss;
   /**ms */
   receiverReportDelay: number;
   disableSendNack: boolean;
@@ -110,6 +130,17 @@ export interface PeerConfig {
    * Disabled by default. Pass `true` or `{ enabled: true, maxLength }` to buffer.
    */
   pendingRtp: NonNullable<RTCRtpSenderOptions["pendingRtp"]>;
+  /**
+   * Receiver-side NACK retry policy (latency budget) of new receivers.
+   * The default `{}` gives up after about 50ms (10 NACKs at 5ms intervals).
+   * Audio is NACKed only when its codec negotiates `a=rtcp-fb:<pt> nack`.
+   */
+  nack: NackOptions;
+  /**
+   * Packets each new sender keeps for retransmission (NACK / `retransmit()`).
+   * Default 128 (about 2.5s of 20ms Opus).
+   */
+  rtpHistorySize: number;
   /**
    * How local SDP marks inactive / stopped m-lines. Cannot be changed after construction.
    * - `"compatible"` (default): an accepted `inactive` m-line keeps a non-zero port.
@@ -242,6 +273,8 @@ export function generateDefaultPeerConfig(): PeerConfig {
     maxMessageSize: DEFAULT_MAX_MESSAGE_SIZE,
     sctp: { mtu: DEFAULT_SCTP_MTU },
     pendingRtp: false,
+    nack: {},
+    rtpHistorySize: 128,
     mLineReuse: "compatible",
   };
 }
@@ -336,6 +369,7 @@ export function clonePeerConfiguration(config: PeerConfig) {
     dtls: { ...config.dtls },
     certificates: [...config.certificates],
     debug: { ...config.debug },
+    nack: { ...config.nack },
     sctp: { ...config.sctp },
     pendingRtp:
       typeof config.pendingRtp === "object" && config.pendingRtp != undefined

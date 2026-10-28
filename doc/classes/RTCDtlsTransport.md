@@ -22,7 +22,7 @@
 
 ###### debug?
 
-`Partial`\<\{ `disableRecvRetransmit`: `boolean`; `disableSendNack`: `boolean`; `inboundPacketLoss`: `number`; `outboundPacketLoss`: `number`; `receiverReportDelay`: `number`; \}\>
+`Partial`\<\{ `disableRecvRetransmit`: `boolean`; `disableSendNack`: `boolean`; `inboundBurstLoss`: [`BurstPacketLoss`](../type-aliases/BurstPacketLoss.md); `inboundPacketLoss`: `number`; `outboundBurstLoss`: [`BurstPacketLoss`](../type-aliases/BurstPacketLoss.md); `outboundPacketLoss`: `number`; `receiverReportDelay`: `number`; \}\>
 
 ##### iceTransport
 
@@ -68,7 +68,7 @@
 
 #### debug?
 
-> `optional` **debug?**: `Partial`\<\{ `disableRecvRetransmit`: `boolean`; `disableSendNack`: `boolean`; `inboundPacketLoss`: `number`; `outboundPacketLoss`: `number`; `receiverReportDelay`: `number`; \}\>
+> `optional` **debug?**: `Partial`\<\{ `disableRecvRetransmit`: `boolean`; `disableSendNack`: `boolean`; `inboundBurstLoss`: [`BurstPacketLoss`](../type-aliases/BurstPacketLoss.md); `inboundPacketLoss`: `number`; `outboundBurstLoss`: [`BurstPacketLoss`](../type-aliases/BurstPacketLoss.md); `outboundPacketLoss`: `number`; `receiverReportDelay`: `number`; \}\>
 
 ***
 

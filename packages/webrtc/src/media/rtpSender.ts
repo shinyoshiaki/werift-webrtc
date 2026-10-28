@@ -24,7 +24,13 @@ import { randomBytes, randomUUID } from "crypto";
 import { setTimeout } from "timers/promises";
 import { codecParametersFromString } from "..";
 import { createWebRtcDomException } from "../errors";
-import { Event, random16, uint16Add, uint32Add } from "../imports/common";
+import {
+  Event,
+  random16,
+  uint16Add,
+  uint16Gt,
+  uint32Add,
+} from "../imports/common";
 import {
   debug,
   type Extension,
@@ -83,7 +89,9 @@ import {
 
 const log = debug("werift:packages/webrtc/src/media/rtpSender.ts");
 
-const RTP_HISTORY_SIZE = 128;
+const DEFAULT_RTP_HISTORY_SIZE = 128;
+/** Sequence numbers this far behind the newest are reordered / late, not a restart. */
+const REORDER_WINDOW = 1024;
 const DEFAULT_PENDING_RTP_MAX_LENGTH = 256;
 const RTT_ALPHA = 0.85;
 
@@ -97,7 +105,20 @@ export type PendingRtpOptions = {
 export type RTCRtpSenderOptions = {
   /** Pending RTP cache. Disabled by default. Pass `true` or `{ maxLength }` to enable. */
   pendingRtp?: boolean | PendingRtpOptions;
+  /**
+   * Packets kept for retransmission (NACK / `retransmit()`). Default 128
+   * (about 2.5s of 20ms Opus). Raise it for a longer latency budget.
+   */
+  rtpHistorySize?: number;
 };
+
+/** Options of {@link RTCRtpSender.retransmit}. */
+export type RTCRtpRetransmitOptions = {
+  /** Skip packets first sent more than this many ms ago. */
+  maxAgeMs?: number;
+};
+
+type SentRtpEntry = { packet: RtpPacket; sentAt: number };
 
 type PendingRtpItem = {
   packet: RtpPacket;
@@ -191,7 +212,8 @@ export class RTCRtpSender {
   private seqOffset = 0;
   private rtpContinuityPending = false;
   private pendingTimestampStep = 1;
-  private rtpCache: RtpPacket[] = [];
+  private rtpCache: (SentRtpEntry | undefined)[] = [];
+  private readonly rtpHistorySize: number;
   private pendingRtp: PendingRtpItem[] = [];
   private drainingPendingRtp = false;
   private readonly pendingRtpEnabled: boolean;
@@ -220,6 +242,12 @@ export class RTCRtpSender {
     const pendingRtp = resolvePendingRtpOptions(options.pendingRtp);
     this.pendingRtpEnabled = pendingRtp.enabled;
     this.pendingRtpMaxLength = pendingRtp.maxLength;
+    this.rtpHistorySize =
+      typeof options.rtpHistorySize === "number" &&
+      Number.isFinite(options.rtpHistorySize) &&
+      options.rtpHistorySize >= 1
+        ? Math.floor(options.rtpHistorySize)
+        : DEFAULT_RTP_HISTORY_SIZE;
     this.kind =
       typeof this.trackOrKind === "string"
         ? this.trackOrKind
@@ -706,8 +734,14 @@ export class RTCRtpSender {
     header.payloadType = codec.payloadType;
     header.timestamp = uint32Add(header.timestamp, this.timestampOffset);
     header.sequenceNumber = uint16Add(header.sequenceNumber, this.seqOffset);
-    this.timestamp = header.timestamp;
-    this.sequenceNumber = header.sequenceNumber;
+    // A relayed retransmission or reordered packet is older than what was
+    // already sent: send it, but keep the output state (continuity base, SR
+    // rtpTimestamp) at the newest packet.
+    const isNewest = !this.isRecentlySent(header.sequenceNumber);
+    if (isNewest) {
+      this.timestamp = header.timestamp;
+      this.sequenceNumber = header.sequenceNumber;
+    }
 
     const ntpTimestamp = ntpTime();
 
@@ -759,13 +793,23 @@ export class RTCRtpSender {
     }
     header.extensions = header.extensions.sort((a, b) => a.id - b.id);
 
-    this.ntpTimestamp = ntpTimestamp;
-    this.rtpTimestamp = header.timestamp;
+    if (isNewest) {
+      this.ntpTimestamp = ntpTimestamp;
+      this.rtpTimestamp = header.timestamp;
+    }
     this.octetCount += payload.length;
     this.headerBytesSent += header.serializeSize;
     this.packetCount = uint32Add(this.packetCount, 1);
 
-    this.rtpCache[header.sequenceNumber % RTP_HISTORY_SIZE] = rtp;
+    const slot = header.sequenceNumber % this.rtpHistorySize;
+    const cached = this.rtpCache[slot];
+    if (
+      isNewest ||
+      !cached ||
+      !uint16Gt(cached.packet.header.sequenceNumber, header.sequenceNumber)
+    ) {
+      this.rtpCache[slot] = { packet: rtp, sentAt: Date.now() };
+    }
 
     let rtpPayload = payload;
 
@@ -790,6 +834,68 @@ export class RTCRtpSender {
       sentAtMs: millitime,
     };
     this.senderBWE.rtpPacketSent(sentInfo);
+  }
+
+  /**
+   * `true` when `sequenceNumber` is at or a little behind the newest sent
+   * sequence number (a reordered or late relayed packet). A larger jump back
+   * is taken as a new sequence and moves the output state as before.
+   */
+  private isRecentlySent(sequenceNumber: number) {
+    if (this.sequenceNumber == undefined) {
+      return false;
+    }
+    const behind = uint16Add(this.sequenceNumber, -sequenceNumber);
+    return behind < Math.max(this.rtpHistorySize, REORDER_WINDOW);
+  }
+
+  /**
+   * nonstandard: retransmit packets still in the send history, as a generic
+   * NACK does. Use it for NACKs that arrive outside RTCP, such as an
+   * application-layer NACK over a DataChannel. With RTX negotiated the packets
+   * are wrapped in RTX; otherwise they are resent on the media SSRC.
+   *
+   * @returns the sequence numbers actually retransmitted
+   */
+  async retransmit(
+    sequenceNumbers: number[],
+    options: RTCRtpRetransmitOptions = {},
+  ): Promise<number[]> {
+    if (!this.canSendRtp()) {
+      return [];
+    }
+    const now = Date.now();
+    const sent: Promise<number>[] = [];
+    const retransmitted: number[] = [];
+    for (const seqNum of sequenceNumbers) {
+      const entry = this.rtpCache[seqNum % this.rtpHistorySize];
+      if (!entry || entry.packet.header.sequenceNumber !== seqNum) {
+        continue;
+      }
+      if (
+        options.maxAgeMs != undefined &&
+        now - entry.sentAt > options.maxAgeMs
+      ) {
+        continue;
+      }
+      let packet = entry.packet;
+      if (this.rtxPayloadType != undefined) {
+        packet = wrapRtx(
+          packet,
+          this.rtxPayloadType,
+          this.rtxSequenceNumber,
+          this.rtxSsrc,
+        );
+        this.rtxSequenceNumber = uint16Add(this.rtxSequenceNumber, 1);
+      }
+      this.retransmittedPacketsSent++;
+      this.retransmittedBytesSent += packet.payload.length;
+      this.headerBytesSent += packet.header.serializeSize;
+      retransmitted.push(seqNum);
+      sent.push(this.dtlsTransport.sendRtp(packet.payload, packet.header));
+    }
+    await Promise.all(sent);
+    return retransmitted;
   }
 
   handleRtcpPacket(rtcpPacket: RtcpPacket) {
@@ -835,34 +941,7 @@ export class RTCRtpSender {
               {
                 const feedback = packet.feedback as GenericNack;
                 this.nackCount++;
-                feedback.lost.forEach(async (seqNum) => {
-                  let packet: RtpPacket | undefined =
-                    this.rtpCache[seqNum % RTP_HISTORY_SIZE];
-                  if (packet && packet.header.sequenceNumber !== seqNum) {
-                    packet = undefined;
-                  }
-                  if (packet) {
-                    if (this.rtxPayloadType != undefined) {
-                      packet = wrapRtx(
-                        packet,
-                        this.rtxPayloadType,
-                        this.rtxSequenceNumber,
-                        this.rtxSsrc,
-                      );
-                      this.rtxSequenceNumber = uint16Add(
-                        this.rtxSequenceNumber,
-                        1,
-                      );
-                    }
-                    this.retransmittedPacketsSent++;
-                    this.retransmittedBytesSent += packet.payload.length;
-                    this.headerBytesSent += packet.header.serializeSize;
-                    await this.dtlsTransport.sendRtp(
-                      packet.payload,
-                      packet.header,
-                    );
-                  }
-                });
+                void this.retransmit(feedback.lost);
                 this.onGenericNack.execute(feedback);
               }
               break;

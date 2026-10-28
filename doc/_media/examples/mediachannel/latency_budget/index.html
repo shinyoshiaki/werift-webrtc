@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex" />
+    <title>latency budget (WebRTC is still the problem?)</title>
+    <style>
+      body { font-family: sans-serif; max-width: 960px; margin: 1em auto; }
+      section { border: 1px solid #ccc; padding: 0.5em 1em; margin: 1em 0; }
+      pre { background: #f6f6f6; padding: 0.5em; max-height: 24em; overflow: auto; }
+      input { width: 5em; }
+    </style>
+  </head>
+  <body>
+    <h1>Latency budget with WebRTC + Encoded Transform</h1>
+    <p>
+      Reproduces the MoQ-side claims of
+      <a href="https://moq.dev/blog/webrtc-is-still-the-problem/">WebRTC is still the problem</a>
+      with werift and a custom player. See README.md.
+    </p>
+    <p><small id="env"></small></p>
+    <p id="error" style="color: red"></p>
+
+    <section>
+      <h2>A: reliable upstream (mic → werift, audio NACK)</h2>
+      budget <input id="a-budget" type="number" value="5000" /> ms
+      duration <input id="a-duration" type="number" value="5000" /> ms
+      burst loss every <input id="a-loss-interval" type="number" value="2000" /> ms
+      for <input id="a-loss-duration" type="number" value="300" /> ms
+      <label><input id="a-munge" type="checkbox" checked style="width: auto" /> SDP munging (audio nack)</label>
+      <button id="a-start">record</button>
+      <pre id="a-out"></pre>
+    </section>
+
+    <section>
+      <h2>B: faster-than-realtime answer (werift → browser)</h2>
+      pace
+      <select id="b-pace">
+        <option value="burst">burst (no sleep)</option>
+        <option value="realtime">realtime (sleep 20ms)</option>
+      </select>
+      listen to
+      <select id="b-output">
+        <option value="player">Encoded Transform player</option>
+        <option value="native">native &lt;audio&gt; (NetEQ)</option>
+      </select>
+      <button id="b-start">speak the last recording (run A first)</button>
+      <pre id="b-out"></pre>
+    </section>
+
+    <section>
+      <h2>C: one upstream, two subscribers with different budgets</h2>
+      budgets <input id="c-budget-1" type="number" value="500" /> /
+      <input id="c-budget-2" type="number" value="5000" /> ms
+      minDelay <input id="c-min-delay" type="number" value="100" /> ms
+      duration <input id="c-duration" type="number" value="10000" /> ms
+      downstream burst loss every <input id="c-loss-interval" type="number" value="3000" /> ms
+      for <input id="c-loss-duration" type="number" value="800" /> ms
+      <button id="c-start">start</button>
+      <pre id="c-out"></pre>
+    </section>
+
+    <section>
+      <h2>D: barge-in (track generation in CSRC)</h2>
+      interrupt after <input id="d-interrupt-after" type="number" value="700" /> ms
+      <button id="d-start">speak, then interrupt</button>
+      <pre id="d-out"></pre>
+    </section>
+
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

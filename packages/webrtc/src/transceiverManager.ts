@@ -455,6 +455,7 @@ export class TransceiverManager {
 
     const sender = new RTCRtpSender(trackOrKind, {
       pendingRtp: this.config.pendingRtp,
+      rtpHistorySize: this.config.rtpHistorySize,
     });
     const receiver = new RTCRtpReceiver(this.config, kind, sender.ssrc);
     const newTransceiver = new RTCRtpTransceiver(

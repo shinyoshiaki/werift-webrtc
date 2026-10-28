@@ -66,6 +66,7 @@ werift + browser (no extra cloud):
 | `mediachannel/simulcast/{offer,answer,select,abr,twcc,multiple,multiple_answer}.ts` | 同ディレクトリ HTML                | rid 受信。offer/answer/select が代表。multiple 2件は werift 側の track A/B を双方確認 |
 | `mediachannel/twcc/{offer,multitrack}.ts`                                           | 対応 HTML                          | TWCC                                                                                  |
 | `mediachannel/red/{sendrecv,recv}.ts`                                               | 対応 HTML                          | RED                                                                                   |
+| `mediachannel/latency_budget/server.ts`                                             | Vite `latency_budget/index.html`   | シナリオ A〜D (音声 NACK budget / バースト送信 / subscriber 別 budget / generation)   |
 | `mediachannel/codec/{vp8,vp9,h264,av1}.ts`                                          | Vite `codec/index.html`            | AV1 は Chrome 未対応なら skip                                                         |
 | `save_to_disk/{vp8,vp9,h264,opus,av1x,pipeline}.ts`                                 | `answer.html`                      | 非空ファイル                                                                          |
 | `save_to_disk/mp4/{h264,opus,av}.ts`                                                | `answer.html` (8878)               | MP4                                                                                   |

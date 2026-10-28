@@ -6,7 +6,8 @@ export type ExampleKind =
   | "close-pc"
   | "ice-restart"
   | "process-exit"
-  | "node-gst";
+  | "node-gst"
+  | "latency-budget";
 
 export type ClientKind = "babel" | "vite" | "none";
 
@@ -379,6 +380,17 @@ export const catalog: CatalogEntry[] = [
     kind: "media-inbound",
     inbound: "werift",
     rtpForwardPort: 4005,
+  },
+  {
+    // Scenarios A-D are driven from the test through window.latencyBudget.
+    id: "latency-budget",
+    group: "browser",
+    node: ["mediachannel/latency_budget/server.ts"],
+    html: "mediachannel/latency_budget/index.html",
+    port: 8888,
+    client: "vite",
+    kind: "latency-budget",
+    outputGlob: "latency-budget-*.webm",
   },
   {
     id: "codec-vp8",

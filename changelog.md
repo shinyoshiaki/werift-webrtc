@@ -7,8 +7,20 @@
 - **`werift-dtls`: `CipherContext.localPrivateKey` is now a Node `KeyObject`** instead of the `@fidm/x509` `PrivateKey`. Replace `localPrivateKey.toPEM()` with `localPrivateKey.export({ type: "pkcs8", format: "pem" })`; replace `localPrivateKey.sign(data, hash)` with `createSign(hash).update(data).sign(localPrivateKey)`.
 - **werift logging no longer follows the application's `debug` package instance.** Use `debug.enable("werift*")` or `debug.disable()` from `werift`, or set `DEBUG=werift*` before startup. The built-in logger does not implement `DEBUG_HIDE_DATE`, `DEBUG_DEPTH`, `DEBUG_SHOW_HIDDEN`, `logger.extend()`, `logger.log`, `debug.log`, `debug.formatters`, `logger.destroy()`, `logger.color`, `useColors`, or `inspectOpts`. In browsers, `localStorage.debug` is still read at load time.
 
+### Features
+
+- **Latency budget for NACK / retransmission** (`packages/webrtc`), used by the new `examples/mediachannel/latency_budget` example that reproduces the MoQ-side claims of "WebRTC is still the problem" with plain WebRTC:
+  - Audio is now NACKed when its codec negotiates a generic `a=rtcp-fb:<pt> nack` (previously video only). The default audio codecs have no `nack`, so the default behavior is unchanged.
+  - `PeerConfig.nack` / `RTCRtpReceiver.setNackOptions()` (nonstandard): `maxWaitMs` (time-based latency budget; `0` disables NACK), `retryIntervalMs`, `retryCount`, `maxLost`. The default `{}` keeps the old policy (5ms interval, given up after about 50ms). `RTCRtpReceiver.nackStats` reports lost / recovered / unrecovered / pending packets.
+  - `PeerConfig.rtpHistorySize` / `RTCRtpSenderOptions.rtpHistorySize`: send history kept for retransmission (default 128).
+  - `RTCRtpSender.retransmit(sequenceNumbers, { maxAgeMs })` (nonstandard): resend packets from the send history, for NACKs that arrive outside RTCP (for example an application-layer NACK over a DataChannel). RTCP generic NACK handling uses the same path.
+  - `DebugConfig.inboundBurstLoss` / `outboundBurstLoss`: deterministic periodic burst loss of RTP (`{ intervalMs, durationMs, offsetMs? }`).
+
 ### Fixes
 
+- **`DebugConfig.inboundPacketLoss` / `outboundPacketLoss` dropped the complement of the given percentage** (`loss / 100 < Math.random()`): `10` dropped about 90% of the packets. They now drop the given percentage.
+- **`RTCRtpSender` no longer rewinds its output state when an older packet is sent** (for example a retransmission recovered upstream and relayed later): the continuity base used by `replaceTrack()` and the RTCP SR RTP timestamp stay at the newest packet. The packet itself is still sent.
+- Receiver-side NACK detects losses across the 16-bit sequence number wrap, lists lost sequence numbers in detection order (they were sorted as strings), and no longer leaves its retry timer running after all lost packets are resolved.
 - PEM passed to `dtls.keys` / `RTCCertificate` / `CipherContext` may still be indented (for example inside an indented template literal), as it was with `@fidm/x509`. `werift-dtls` exports the `normalizePem()` helper used for this.
 
 ### Dependencies

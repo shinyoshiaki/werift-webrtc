@@ -4,6 +4,7 @@ export * from "./codecCompatibility";
 export * from "./extension/rtcpFeedback";
 export * from "./extension/rtpExtension";
 export * from "./parameters";
+export type { NackOptions, NackStats } from "./receiver/nack";
 export * from "./router";
 export * from "./rtpReceiver";
 export * from "./rtpSender";
