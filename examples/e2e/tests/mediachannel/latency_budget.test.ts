@@ -97,6 +97,10 @@ for (const entry of catalogByGroup("browser").filter(
         expect(long.player.maxDelayMs).toBeGreaterThan(short.player.maxDelayMs);
         // Assert: 500ms subscriber の遅延は budget 内に収まる
         expect(short.player.maxDelayMs).toBeLessThanOrEqual(500 + 20);
+        // Assert: 再送で回収したフレームも、デコーダへは seq 順に渡している
+        expect(short.player.outOfOrderDecodedFrames).toBe(0);
+        expect(long.player.outOfOrderDecodedFrames).toBe(0);
+        expect(long.player.recoveredFrames).toBeGreaterThan(0);
         // Assert: minDelay が subscriber ごとに効き、再生開始時の遅延が設定差に沿う
         expect(short.minDelayMs).toBe(60);
         expect(long.minDelayMs).toBe(300);
@@ -125,6 +129,25 @@ for (const entry of catalogByGroup("browser").filter(
           longBurst.player.missingFrames,
         );
         expect(longBurst.player.nackGaveUp).toBe(0);
+
+        // Act: シナリオ C (upstream ロス)。upstream の欠落を 5000ms で回収し、500ms / 5000ms に中継する
+        const cUp = await runLatencyBudgetScenario(page, "runC", {
+          budgets: [500, 5000],
+          minDelayMs: 100,
+          durationMs: 10_000,
+          upstreamLoss: { intervalMs: 4000, durationMs: 1000 },
+        });
+        const shortUp = cUp.subscribers["500"];
+        const longUp = cUp.subscribers["5000"];
+
+        // Assert: upstream で 500ms を超えて回収したパケットは 500ms subscriber へ中継しない
+        expect(cUp.upstream.nack.recovered).toBeGreaterThan(0);
+        expect(shortUp.server.skippedLate).toBeGreaterThan(0);
+        // Assert: 5000ms subscriber には全て中継する
+        expect(longUp.server.skippedLate).toBe(0);
+        // Assert: 回収したフレームも seq 順にデコードしている
+        expect(shortUp.player.outOfOrderDecodedFrames).toBe(0);
+        expect(longUp.player.outOfOrderDecodedFrames).toBe(0);
 
         // Act: シナリオ D。バースト送信後、再生途中で割り込む
         const d = await runLatencyBudgetScenario(page, "runD", {

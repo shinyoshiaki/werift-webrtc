@@ -44,6 +44,8 @@ type Publisher = {
   budgetMs: number;
   upstreamBudgetMs: number;
   packets: Map<number, RtpPacket>;
+  /** Newest RTP timestamp received (the live edge of the media clock) */
+  newestTimestamp?: number;
 };
 
 type Subscriber = {
@@ -52,12 +54,25 @@ type Subscriber = {
   nackRequested: number;
   retransmitted: number;
   refused: number;
+  /** Recovered upstream packets not relayed: already older than the budget */
+  skippedLate: number;
 };
 
 let publisher: Publisher | undefined;
 /** RTP received by the last publisher, in RTP timestamp order */
 let lastRecording: RtpPacket[] = [];
 const subscribers = new Set<Subscriber>();
+
+/**
+ * How far behind the live edge of the upstream a packet is, on the media clock
+ * (not since it entered a send history). A packet NACK-recovered upstream after
+ * 600ms is already 600ms late for a subscriber, before any downstream wait.
+ */
+function mediaLagMs(timestamp: number) {
+  const newest = publisher?.newestTimestamp;
+  if (newest === undefined) return 0;
+  return Math.max(0, ((newest - timestamp) | 0) / 48);
+}
 
 const server = new WebSocketServer({ port });
 console.log("start", port);
@@ -155,12 +170,24 @@ async function runPublisher(socket: WebSocket, join: JoinMessage) {
   transceiver.onTrack.subscribe(async (track: MediaStreamTrack) => {
     track.onReceiveRtp.subscribe((rtp) => {
       received++;
+      if (
+        self.newestTimestamp === undefined ||
+        ((rtp.header.timestamp - self.newestTimestamp) | 0) > 0
+      ) {
+        self.newestTimestamp = rtp.header.timestamp;
+      }
       self.packets.set(rtp.header.sequenceNumber, rtp);
       if (self.packets.size > RECORDING_MAX_PACKETS) {
         self.packets.delete(self.packets.keys().next().value!);
       }
-      // Fan out to every subscriber, recovered (old seq) packets included.
+      // Fan out to every subscriber. A recovered (late) packet only goes to
+      // subscribers whose budget it still fits, judged from its media lag.
+      const lag = mediaLagMs(rtp.header.timestamp);
       for (const subscriber of subscribers) {
+        if (lag > subscriber.budgetMs) {
+          subscriber.skippedLate++;
+          continue;
+        }
         void subscriber.sender.sendRtp(rtp);
       }
     });
@@ -168,6 +195,9 @@ async function runPublisher(socket: WebSocket, join: JoinMessage) {
       recorder = new MediaRecorder({
         path: `./latency-budget-${budgetMs}ms-${Date.now()}.webm`,
         numOfTracks: 1,
+        // The budget is the jitter buffer latency: a packet recovered by NACK
+        // is written back in sequence order instead of at its arrival.
+        jitterBuffer: budgetMs > 0 ? { latency: budgetMs } : undefined,
       });
       await recorder.addTrack(track);
     }
@@ -229,6 +259,7 @@ async function runSubscriber(socket: WebSocket, join: JoinMessage) {
     nackRequested: 0,
     retransmitted: 0,
     refused: 0,
+    skippedLate: 0,
   };
 
   const control = pc.createDataChannel("control");
@@ -241,13 +272,21 @@ async function runSubscriber(socket: WebSocket, join: JoinMessage) {
         updateUpstreamBudget();
         break;
       case "nack": {
-        const seqs: number[] = message.seqs;
-        self.nackRequested += seqs.length;
+        const requested: number[] = message.seqs;
+        self.nackRequested += requested.length;
+        // Judge by media lag, which includes the time the packet spent being
+        // recovered upstream; the send history only knows its own age.
+        const seqs = requested.filter((seq) => {
+          const packet = publisher?.packets.get(seq);
+          return (
+            !packet || mediaLagMs(packet.header.timestamp) <= self.budgetMs
+          );
+        });
         const sent = await self.sender.retransmit(seqs, {
           maxAgeMs: self.budgetMs,
         });
         self.retransmitted += sent.length;
-        self.refused += seqs.length - sent.length;
+        self.refused += requested.length - sent.length;
         break;
       }
     }
@@ -261,6 +300,7 @@ async function runSubscriber(socket: WebSocket, join: JoinMessage) {
         nackRequested: self.nackRequested,
         retransmitted: self.retransmitted,
         refused: self.refused,
+        skippedLate: self.skippedLate,
       }),
     250,
   );

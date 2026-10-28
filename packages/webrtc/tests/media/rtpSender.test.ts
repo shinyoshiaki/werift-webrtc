@@ -1464,4 +1464,48 @@ describe("media/rtpSender older packets", () => {
     expect(retransmitted).toEqual([newest]);
     sender.stop();
   });
+
+  test.each([1, 4, 65536])(
+    "rtpHistorySize=%i でも、折り返しをまたぐ遅れた relay は送信状態を巻き戻さず、以降の送信状態は更新される",
+    async (rtpHistorySize) => {
+      const { sender, sendRtp } = createConnectedRtpSender({ rtpHistorySize });
+      for (let seq = 65530; seq < 65530 + 10; seq++) {
+        await sender.sendRtp(
+          createRtpPacket(seq & 0xffff, (seq - 65530) * 960),
+        );
+      }
+      const newest = sentRtpHeaders(sendRtp).at(-1)!;
+      sendRtp.mockClear();
+
+      // Act: 折り返し前の古い seq (5 つ前) を遅れて relay してから、新しいパケットを送る
+      await sender.sendRtp(
+        createRtpPacket((newest.sequenceNumber - 5 + 0x10000) & 0xffff, 100),
+      );
+      const stateAfterLate = (sender as any).rtpTimestamp;
+      await sender.sendRtp(
+        createRtpPacket((newest.sequenceNumber + 1) & 0xffff, 99999),
+      );
+
+      // Assert: 遅れたパケットは基準を巻き戻さず、新しいパケットで基準が更新される
+      expect(stateAfterLate).toBe(newest.timestamp);
+      expect((sender as any).rtpTimestamp).not.toBe(newest.timestamp);
+      expect((sender as any).sequenceNumber).toBe(
+        (newest.sequenceNumber + 1) & 0xffff,
+      );
+    },
+  );
+
+  test("履歴サイズや 1024 より大きく戻った seq は新しい系列として送信状態を移す", async () => {
+    const { sender, sendRtp } = createConnectedRtpSender({ rtpHistorySize: 4 });
+    for (let seq = 5000; seq < 5003; seq++) {
+      await sender.sendRtp(createRtpPacket(seq, seq * 960));
+    }
+    sendRtp.mockClear();
+
+    // Act: 5000 パケット戻った seq を送る
+    await sender.sendRtp(createRtpPacket(10, 9600));
+
+    // Assert: 新しい系列として送信状態が移る (従来の動作)
+    expect((sender as any).sequenceNumber).toBe(10);
+  });
 });

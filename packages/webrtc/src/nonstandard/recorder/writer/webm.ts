@@ -122,7 +122,19 @@ export class WebmFactory extends MediaWriter {
       } else {
         const depacketizer = new DepacketizeCallback(codec);
 
-        rtpSource.pipe(time.input);
+        if (this.props.jitterBuffer) {
+          // Opt-in: reorder audio too (e.g. late NACK retransmissions) and
+          // wait `latency` ms for a missing packet. Off by default, audio is
+          // written in arrival order.
+          const jitterBuffer = new JitterBufferCallback(
+            clockRate,
+            this.props.jitterBuffer,
+          );
+          rtpSource.pipe(jitterBuffer.input);
+          jitterBuffer.pipe(time.input);
+        } else {
+          rtpSource.pipe(time.input);
+        }
         rtcpSource.pipe(time.input);
 
         time.pipe(depacketizer.input);

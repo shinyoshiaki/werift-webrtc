@@ -1,6 +1,7 @@
 // Main-thread half of the custom player: decodes the encoded frames taken out
 // by Encoded Transform with WebCodecs, finds holes by RTP sequence number,
 // sends application-layer NACKs within the budget and handles generations.
+import { DecodeOrder } from "./decodeOrder";
 import type { EncodedAudioFrameMessage } from "./encodedFrames";
 
 const SAMPLE_RATE = 48000;
@@ -41,6 +42,12 @@ export type PlayerStats = WorkletStats & {
   staleGenerationFrames: number;
   decodedFrames: number;
   unmatchedOutputs: number;
+  /** frames that arrived after their hole was given up (not decoded) */
+  lateDroppedFrames: number;
+  /** frames decoded behind an already decoded seq: must stay 0 */
+  outOfOrderDecodedFrames: number;
+  /** frames waiting for an earlier hole to be recovered */
+  heldFrames: number;
   generation: number;
   /** wall-clock span over which the frames of the current spurt arrived */
   arrivalSpanMs: number;
@@ -52,6 +59,7 @@ export type PlayerStats = WorkletStats & {
 
 type FrameMeta = { pos: number; seq: number; gen: number };
 type Pending = { pos: number; deadline: number };
+type DecodeItem = { meta: FrameMeta; data: ArrayBuffer };
 
 export class BudgetPlayer {
   readonly node: AudioWorkletNode;
@@ -82,7 +90,15 @@ export class BudgetPlayer {
     staleGenerationFrames: 0,
     decodedFrames: 0,
     unmatchedOutputs: 0,
+    lateDroppedFrames: 0,
+    outOfOrderDecodedFrames: 0,
   };
+  private lastDecodedSeq?: number;
+  /** Decode in sequence order; wait for a hole while its deadline is ahead. */
+  private readonly order = new DecodeOrder<DecodeItem>((seq) => {
+    const hole = this.pending.get(seq);
+    return hole !== undefined && performance.now() <= hole.deadline;
+  });
 
   constructor(
     private readonly context: AudioContext,
@@ -101,9 +117,8 @@ export class BudgetPlayer {
     this.output = context.createGain();
     this.node.connect(this.output).connect(context.destination);
     this.createDecoder();
-    if (options.nack) {
-      this.nackTimer = setInterval(() => this.sendNacks(), NACK_INTERVAL_MS);
-    }
+    // Also ends the wait for a hole when there is no NACK to send.
+    this.nackTimer = setInterval(() => this.sendNacks(), NACK_INTERVAL_MS);
   }
 
   static async load(context: AudioContext) {
@@ -148,6 +163,7 @@ export class BudgetPlayer {
     this.generation = generation;
     this.node.port.postMessage({ type: "flush", generation });
     this.pending.clear();
+    this.order.clear();
     this.lastSeq = undefined;
   }
 
@@ -233,11 +249,30 @@ export class BudgetPlayer {
       }
     }
 
-    // Monotonic fake timestamps: late (out-of-order) frames are decoded too.
+    const item = { meta: { pos, seq: seq ?? -1, gen }, data: frame.data };
+    if (seq === undefined) {
+      this.decode(item);
+      return;
+    }
+    const { ready, late } = this.order.push(seq, item);
+    if (late) this.counters.lateDroppedFrames++;
+    for (const next of ready) this.decode(next);
+  }
+
+  private decode({ meta, data }: DecodeItem) {
+    if (
+      meta.seq >= 0 &&
+      this.lastDecodedSeq !== undefined &&
+      ((meta.seq - this.lastDecodedSeq) & 0xffff) >= 0x8000
+    ) {
+      this.counters.outOfOrderDecodedFrames++;
+    }
+    if (meta.seq >= 0) this.lastDecodedSeq = meta.seq;
+    // Monotonic fake timestamps: the decoder re-derives its own anyway.
     const timestamp = this.decodeIndex++ * 20_000;
-    this.metas.push({ pos, seq: seq ?? -1, gen });
+    this.metas.push(meta);
     this.decoder.decode(
-      new EncodedAudioChunk({ type: "key", timestamp, data: frame.data }),
+      new EncodedAudioChunk({ type: "key", timestamp, data }),
     );
   }
 
@@ -283,10 +318,12 @@ export class BudgetPlayer {
         seqs.push(seq);
       }
     }
-    if (seqs.length > 0) {
+    if (seqs.length > 0 && this.options.nack) {
       this.counters.nackSent += seqs.length;
-      this.options.nack?.(seqs);
+      this.options.nack(seqs);
     }
+    // Holes given up above no longer hold back the frames behind them.
+    for (const item of this.order.release()) this.decode(item);
   }
 
   get stats(): PlayerStats {
@@ -297,6 +334,7 @@ export class BudgetPlayer {
       ...worklet,
       ...this.counters,
       generation: this.generation,
+      heldFrames: this.order.heldFrames,
       arrivalSpanMs: this.spurtLastArrival - this.spurtStart,
       arrivalMediaMs:
         ((this.spurtLastPos - this.spurtFirstPos) * 1000) / SAMPLE_RATE + 20,

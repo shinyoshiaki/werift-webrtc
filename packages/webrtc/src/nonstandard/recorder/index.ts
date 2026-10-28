@@ -102,5 +102,9 @@ export interface MediaRecorderOptions {
   defaultDuration: number;
   tracks: MediaStreamTrack[];
   lipsync: Partial<LipSyncOptions>;
+  /**
+   * Reorders RTP before writing. Always applied to video; applied to audio only
+   * when set (`latency` ms to wait for a late or retransmitted packet).
+   */
   jitterBuffer: Partial<JitterBufferOptions>;
 }

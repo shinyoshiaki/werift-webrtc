@@ -203,6 +203,9 @@ const summarize = (stats: PlayerStats) => ({
   oldGenerationPlayed: stats.oldGenerationPlayed,
   staleGenerationFrames: stats.staleGenerationFrames,
   generation: stats.generation,
+  lateDroppedFrames: stats.lateDroppedFrames,
+  outOfOrderDecodedFrames: stats.outOfOrderDecodedFrames,
+  heldFrames: stats.heldFrames,
 });
 
 // Scenario A: reliable upstream. werift NACKs Opus within the budget.
@@ -278,9 +281,12 @@ async function runC(options: {
   /** minDelay per subscriber, in the order of `budgets` */
   minDelays?: number[];
   durationMs: number;
-  loss: BurstLoss;
+  /** downstream loss of every subscriber */
+  loss?: BurstLoss;
+  /** loss on the mic -> werift leg; recovered by upstream NACK and relayed late */
+  upstreamLoss?: BurstLoss;
 }) {
-  const pub = await publish({ budgetMs: 0 });
+  const pub = await publish({ budgetMs: 0, loss: options.upstreamLoss });
   const subs = [];
   for (const [i, budgetMs] of options.budgets.entries()) {
     const minDelayMs = options.minDelays?.[i] ?? options.minDelayMs;

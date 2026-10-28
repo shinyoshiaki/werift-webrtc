@@ -852,7 +852,9 @@ export class RTCRtpSender {
       return false;
     }
     const behind = uint16Add(this.sequenceNumber, -sequenceNumber);
-    return behind < Math.max(this.rtpHistorySize, REORDER_WINDOW);
+    // Independent of the history size: a large history must not widen it
+    // (65536 would make every packet "old"), a small one must not narrow it.
+    return behind < REORDER_WINDOW;
   }
 
   /**

@@ -97,3 +97,9 @@ the playout.
   smoke test is deterministic).
 - `RTCRtpSender.sendRtp()` keeps the CSRC list, and relaying an older
   (recovered) packet does not rewind the sender state.
+
+## Ordering and relay deadlines
+
+- The recording uses `MediaRecorder({ jitterBuffer: { latency: budget } })`, so a packet recovered by NACK is written in sequence order.
+- `player.ts` feeds Opus to `AudioDecoder` in sequence order (`decodeOrder.ts`): frames behind a hole wait until it is recovered or its deadline passes; a frame that arrives after that is dropped (`lateDroppedFrames`), never decoded out of order (`outOfOrderDecodedFrames` stays 0).
+- The relay judges a packet by its media lag (newest upstream RTP timestamp minus its own), not by the time it entered a send history. A packet recovered upstream after more than a subscriber's budget is not relayed to it (`skippedLate`), and the subscriber's NACKs for such packets are refused.
