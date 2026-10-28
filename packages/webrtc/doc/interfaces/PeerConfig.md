@@ -202,6 +202,14 @@ How local SDP marks inactive / stopped m-lines. Cannot be changed after construc
 
 ***
 
+### nackRetryIntervalMs
+
+> **nackRetryIntervalMs**: `number`
+
+Delay between missing-packet NACK requests. Defaults to 5 ms.
+
+***
+
 ### nackRetryWindowMs
 
 > **nackRetryWindowMs**: `number`

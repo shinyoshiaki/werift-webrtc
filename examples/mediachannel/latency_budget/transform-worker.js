@@ -3,12 +3,15 @@ self.onrtctransform = ({ transformer }) => {
     transform(frame, controller) {
       const metadata = frame.getMetadata?.() ?? {};
       const payload = frame.data.slice().buffer;
-      self.postMessage({
-        type: "frame",
-        metadata,
-        timestamp: metadata.rtpTimestamp ?? frame.timestamp,
-        payload,
-      }, [payload]);
+      self.postMessage(
+        {
+          type: "frame",
+          metadata,
+          timestamp: metadata.rtpTimestamp ?? frame.timestamp,
+          payload,
+        },
+        [payload],
+      );
       controller.enqueue(frame);
     },
   });

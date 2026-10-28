@@ -18,7 +18,7 @@ A small number of intentional or known edge-case differences remain for backward
 
 ## RTP retransmission controls
 
-`PeerConfig.nackRetryWindowMs` sets how long a receiver retries negotiated generic NACK feedback (default 55 ms, matching the prior retry window), and `nackRetryIntervalMs` sets the request interval (default 5 ms). `PeerConfig.rtpHistorySize` sets the number of recent RTP packets each sender retains (default 128). `RTCRtpSender.retransmit(sequenceNumbers)` can resend retained packets when an application implements its own NACK protocol. `DebugConfig.burstLoss` provides deterministic periodic packet loss for examples and diagnostics. See [`examples/mediachannel/latency_budget`](../../examples/mediachannel/latency_budget/README.md) for a browser Encoded Transform demonstration.
+`PeerConfig.nackRetryWindowMs` sets how long a receiver retries negotiated generic NACK feedback (default 55 ms, matching the prior retry window), and `nackRetryIntervalMs` sets the request interval (default 5 ms). `PeerConfig.rtpHistorySize` sets the number of recent RTP packets each sender retains (default 128). `RTCRtpSender.retransmit(sequenceNumbers)` can resend retained packets when an application implements its own NACK protocol. `DebugConfig.burstLoss` provides deterministic periodic packet loss for examples and diagnostics. The browser Encoded Transform demonstration is in `examples/mediachannel/latency_budget/README.md`.
 
 ## Development setup
 

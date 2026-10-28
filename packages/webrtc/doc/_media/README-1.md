@@ -1,14 +1,95 @@
-# WebRTC latency budget demo
+# `werift/polyfill`
 
-This demo pairs werift with the browser's Encoded Transform API and WebCodecs. Start it with `node --experimental-transform-types --import ../../tools/node-ts/register.mjs examples/mediachannel/latency_budget/server.ts` from the repository root, then open the Vite-served `index.html` in Chrome and allow the microphone. The bundled Chromium used by the example smoke test is the version reported by `npx playwright --version`; the API path is feature-detected at runtime.
+`werift/polyfill` is an opt-in Node.js adapter for applications that expect
+browser-style WebRTC globals. It installs werift's WebRTC constructors and a
+`navigator.mediaDevices` implementation backed by application-provided media
+registers.
 
-| MoQ article claim                                                 | Demo behavior                                                                                                                           | What the browser still controls                                                                       |
-| ----------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| Audio should be retransmitted while a consumer can still use it   | Choose a 0, 500, or 5000 ms werift NACK retry window; the server requests missing Opus packets and retains a larger sender history      | Browser audio NACK support and packet history depend on negotiated SDP and the browser implementation |
-| Faster-than-realtime delivery should be paced by media timestamps | The server can replay retained RTP immediately; the Encoded Transform reads RTP metadata, decodes Opus, and feeds an AudioWorklet queue | The default `<audio>` path still uses NetEQ and its arrival-time behavior                             |
-| Each subscriber needs its own latency budget                      | Run separate browser tabs and choose a budget per tab; each connection has its own peer configuration                                   | This example does not implement a shared publisher fan-out service                                    |
-| An interrupted response should discard buffered old audio         | The interrupt button increments generation, resets the decoder, and clears the AudioWorklet queue before a new RTP burst                | This uses an application DataChannel message; it is not a standardized track-generation RTP extension |
+It is not a browser implementation of camera capture, codecs, rendering, or
+the DOM. Applications still provide the media source and signaling that their
+pipeline needs.
 
-The server applies deterministic periodic burst loss plus random inbound loss. The browser sends an Opus NACK feedback line in its offer because browser defaults can omit audio NACK. The native `<audio>` element is muted while the timestamp driven player is active; use the toggle to compare paths.
+## Start here
 
-The Encoded Transform player runs before native playback and does not change NetEQ. It demonstrates an application-owned decoder and playout queue, which is how this example works around the browser's default behavior. `createEncodedStreams()` is used when present; browsers that only expose `RTCRtpScriptTransform` need a worker adapter before this demo can use that API. `window.__latencyBudgetResult` exposes connection, frame, loss, decode, and generation counters for smoke tests.
+- [Polyfill usage guide](./guide.md)
+
+## Minimal example
+
+```ts
+import {
+  createDummyRegister,
+  installPolyfill,
+} from "werift/polyfill";
+
+const uninstall = installPolyfill({
+  mediaRegister: [createDummyRegister({ label: "test media" })],
+});
+
+try {
+  const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+  const [track] = stream.getVideoTracks();
+
+  // Add the track to an RTCPeerConnection, or use it in another werift
+  // media pipeline.
+  track?.stop();
+} finally {
+  uninstall();
+}
+```
+
+`mediaRegister` is required even when no media source is needed. Passing an
+empty array installs a built-in empty register, so `getUserMedia()` returns a
+plain live, muted track with no codec or generated RTP. The same intent can be
+made explicit with `mediaRegister: [createEmptyRegister()]`.
+
+```ts
+import { createEmptyRegister, installPolyfill } from "werift/polyfill";
+
+const uninstall = installPolyfill({
+  mediaRegister: [createEmptyRegister()],
+});
+const stream = await navigator.mediaDevices.getUserMedia({
+  audio: true,
+  video: true,
+});
+```
+
+The import does not mutate globals by itself. Call `installPolyfill()` when the
+application is ready to install the adapter, and call the returned function
+when that scope is finished.
+
+Use `peerConnectionConfig` to apply codec capabilities to every
+polyfill-created PeerConnection, including mediasoup-client probe and transport
+instances. Fixed-codec registers must match those capabilities or track
+attachment throws `NotSupportedError`; they do not expand the codec list.
+
+## Public entrypoints
+
+| Import | Use |
+| --- | --- |
+| `werift` | Core werift classes and protocol helpers; no global installation |
+| `werift/polyfill` | Polyfill API plus ambient werift global types for TypeScript projects without `lib.dom` |
+| `werift/polyfill/dom` | The same runtime API with `lib.dom`-compatible type augmentation |
+
+The polyfill entrypoint is intentionally separate from `werift` so existing
+applications do not receive global mutations just by importing the core
+package.
+
+## What is installed
+
+The installer provides browser-shaped globals such as
+`RTCPeerConnection`, `RTCSessionDescription`, `RTCIceCandidate`,
+`RTCDataChannel`, `MediaStream`, `MediaStreamTrack`, RTP sender/receiver and
+transceiver classes, ICE/DTLS transport classes, `RTCTrackEvent`, and
+`OverconstrainedError`. It also provides `navigator.mediaDevices` when the
+selected installation mode allows it.
+
+The available media sources are deliberately register-based. Choose the
+appropriate guide above for file playback, RTP/RTCP ingestion, encoded binary
+input, or a custom source.
+
+## Related documentation
+
+- [Browser API compatibility differences](../browser-api-compatibility.md)
+- [Package API reference](https://shinyoshiaki.github.io/werift-webrtc/website/build/docs/api)
+- [Runnable examples](../../examples)

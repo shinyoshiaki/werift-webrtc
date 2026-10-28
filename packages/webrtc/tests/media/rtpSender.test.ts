@@ -42,7 +42,7 @@ describe("media/rtpSender", () => {
   });
 
   test("a late relay packet does not rewind the sender timeline", async () => {
-    const { sender, sendRtp } = arrangeSender();
+    const { sender, sendRtp } = createConnectedRtpSender();
 
     // Arrange: 連続した 2 パケットを送信して最新時刻を記録する。
     await sender.sendRtp(createRtpPacket(100, 10_000));
@@ -55,6 +55,7 @@ describe("media/rtpSender", () => {
     // Assert: 遅延パケットは送出されるが、sender の SR timeline は最新値を保つ。
     expect((sender as any).sequenceNumber).toBe(latest.sequenceNumber);
     expect((sender as any).rtpTimestamp).toBe(latest.timestamp);
+    sender.stop();
   });
   test("stop releases the subscription on the DTLS transport", () => {
     // Arrange: DTLS transport に結び付けた sender。

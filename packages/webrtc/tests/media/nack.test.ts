@@ -35,6 +35,29 @@ describe("media/nack", () => {
     short.close();
     long.close();
   });
+
+  test("zero retry window disables NACK requests", () => {
+    // Arrange: 再送 budget が 0 ms の receiver を用意する。
+    const nack = new NackHandler(new MockRTCRtpReceiver(0) as any);
+
+    // Act: RTP sequence に欠番を作る。
+    nack.addPacket(
+      new RtpPacket(
+        new RtpHeader({ sequenceNumber: 10, ssrc: 1 }),
+        Buffer.from([]),
+      ),
+    );
+    nack.addPacket(
+      new RtpPacket(
+        new RtpHeader({ sequenceNumber: 12, ssrc: 1 }),
+        Buffer.from([]),
+      ),
+    );
+
+    // Assert: budget 0 は要求を送信せず、失われた番号も保持しない。
+    expect(nack.lostSeqNumbers).toEqual([]);
+    nack.close();
+  });
 });
 
 class MockRTCRtpReceiver {

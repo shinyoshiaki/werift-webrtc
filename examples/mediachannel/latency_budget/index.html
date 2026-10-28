@@ -8,8 +8,10 @@
   <body>
     <main>
       <h1>WebRTC latency budget / Encoded Transform</h1>
+      <label>接続ロール <select id="role"><option value="publisher">publisher</option><option value="subscriber">subscriber</option></select></label>
+      <label>音源 <select id="source"><option value="generated">生成音</option><option value="microphone">マイク</option></select></label>
       <label>再送 budget <select id="budget"><option value="0">0 ms</option><option value="500">500 ms</option><option value="5000" selected>5000 ms</option></select></label>
-      <button id="start">開始</button>
+      <button id="start">接続してテスト音を送信</button>
       <button id="burst" disabled>受信 RTP をバースト再生</button>
       <button id="interrupt" disabled>割り込み</button>
       <button id="native">ネイティブ再生を切替</button>

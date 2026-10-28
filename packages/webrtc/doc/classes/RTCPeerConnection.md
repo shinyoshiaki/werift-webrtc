@@ -1135,19 +1135,9 @@ v6.0.0
 
 > **debug**: `object`
 
-###### debug.burstLoss?
+###### debug.burstLoss
 
-> `optional` **burstLoss?**: `object`
-
-Deterministic periodic outbound RTP loss: drop packets within each burst window.
-
-###### debug.burstLoss.durationMs
-
-> **durationMs**: `number`
-
-###### debug.burstLoss.everyMs
-
-> **everyMs**: `number`
+> **burstLoss**: \{ `durationMs`: `number`; `everyMs`: `number`; \} \| `undefined`
 
 ###### debug.disableRecvRetransmit?
 
@@ -1305,6 +1295,12 @@ How local SDP marks inactive / stopped m-lines. Cannot be changed after construc
   Only rejected (no common codec / remote port 0) or stopped m-lines use port 0,
   and only those negotiated port 0 positions are reused by new transceivers.
 - `"aggressive"`: legacy behavior. `inactive` m-lines are also written with port 0.
+
+##### nackRetryIntervalMs
+
+> **nackRetryIntervalMs**: `number`
+
+Delay between missing-packet NACK requests. Defaults to 5 ms.
 
 ##### nackRetryWindowMs
 

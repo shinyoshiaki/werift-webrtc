@@ -68,8 +68,10 @@ for (const entry of entries.filter(
         if (!session.page) throw new Error("page required");
         const logs = () => session.processes[0]?.logs ?? "";
         if (entry.id === "latency-budget") {
-          // Act: fake microphone で接続し、Encoded Transform player を起動する。
-          await session.page.getByRole("button", { name: "開始" }).click();
+          // Act: Web Audio のテスト音で接続し、Encoded Transform player を起動する。
+          await session.page
+            .getByRole("button", { name: "接続してテスト音を送信" })
+            .click();
         }
         try {
           // Act: ICE 接続を待つ（画質や video.play 完了は必須にしない）

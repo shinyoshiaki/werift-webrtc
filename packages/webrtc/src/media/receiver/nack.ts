@@ -20,14 +20,22 @@ export class NackHandler {
   mediaSourceSsrc?: number;
   retryCount: number;
   closed = false;
+  private readonly retryWindowMs: number;
+  private readonly retryIntervalMs: number;
 
   constructor(private receiver: RTCRtpReceiver) {
-    // 5 ms の既存送信間隔を維持し、待ち時間だけ peer 設定で伸ばす。
+    this.retryWindowMs = Number.isFinite(receiver.config.nackRetryWindowMs)
+      ? Math.max(0, receiver.config.nackRetryWindowMs)
+      : 55;
+    this.retryIntervalMs =
+      Number.isFinite(receiver.config.nackRetryIntervalMs) &&
+      receiver.config.nackRetryIntervalMs > 0
+        ? receiver.config.nackRetryIntervalMs
+        : 5;
+    // 既定の 5 ms cadence を維持し、設定 budget に応じて retry 数を決める。
     this.retryCount = Math.max(
       0,
-      Math.ceil(
-        receiver.config.nackRetryWindowMs / receiver.config.nackRetryIntervalMs,
-      ) - 1,
+      Math.ceil(this.retryWindowMs / this.retryIntervalMs) - 1,
     );
   }
 
@@ -40,6 +48,9 @@ export class NackHandler {
   }
 
   private setLost(seq: number, count: number) {
+    if (this.retryWindowMs <= 0) {
+      return;
+    }
     this._lost[seq] = count;
 
     if (this.nackLoop || this.closed) {
@@ -55,7 +66,7 @@ export class NackHandler {
       } catch (error) {
         log("failed to send nack", error);
       }
-    }, this.receiver.config.nackRetryIntervalMs);
+    }, this.retryIntervalMs);
   }
 
   private removeLost(sequenceNumber: number) {
