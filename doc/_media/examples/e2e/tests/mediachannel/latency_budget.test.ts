@@ -26,17 +26,17 @@ for (const entry of catalogByGroup("browser").filter(
         if (!page) throw new Error("page required");
         await waitLatencyBudgetPage(page);
 
-        // Act: シナリオ A。同じ周期バーストロスに加え、先頭ロス・末尾ロス・停止通知より後に届く末尾をかけ、budget 0 と 5000ms を録音する
+        // Act: シナリオ A。同じ周期ロス (seq 位置で決定的) に加え、先頭ロス・末尾ロス・停止通知より後に届く末尾をかけ、budget 0 と 5000ms を録音する
         const a0 = await runLatencyBudgetScenario(page, "runA", {
           budgetMs: 0,
           durationMs: 5000,
-          loss: latencyBudgetLoss.upstream,
+          periodicLoss: latencyBudgetLoss.upstreamPeriodic,
           ...latencyBudgetAdversarialUpstream,
         });
         const a5000 = await runLatencyBudgetScenario(page, "runA", {
           budgetMs: 5000,
           durationMs: 5000,
-          loss: latencyBudgetLoss.upstream,
+          periodicLoss: latencyBudgetLoss.upstreamPeriodic,
           ...latencyBudgetAdversarialUpstream,
         });
 
@@ -56,6 +56,28 @@ for (const entry of catalogByGroup("browser").filter(
           expect(a.accounting.balanced).toBe(true);
           expect(a.pending).toBe(0);
         }
+        // Assert: 停止通知の後に届いた保持フレームも数えた後で、集計が釣り合っている (budget 0 は報告後に届く)
+        for (const a of [a0, a5000]) {
+          expect(a.afterLate.accounting.status).toBe("verified");
+          expect(a.afterLate.accounting.balanced).toBe(true);
+          expect(
+            a.afterLate.accounting.arrivedAfterStop,
+          ).toBeGreaterThanOrEqual(
+            latencyBudgetAdversarialUpstream.holdTailFrames,
+          );
+          expect(a.afterLate.pending).toBe(0);
+        }
+        // Assert: budget 0 は保持フレームを待たずに諦め、後から届いた分は late として数える
+        expect(a0.accounting.arrivedAfterStop).toBe(0);
+        expect(a0.afterLate.late).toBe(
+          a0.afterLate.accounting.arrivedAfterStop,
+        );
+        expect(a0.afterLate.recovered).toBe(0);
+        expect(a0.afterLate.accounting.neverReceived).toBe(
+          a0.afterLate.unrecovered - a0.afterLate.late,
+        );
+        // Assert: 5000ms は保持フレームを待って回収しており、諦めた後に届いたものはない
+        expect(a5000.afterLate.late).toBe(0);
         // Assert: budget 0 は一切回収しない (先頭・末尾の欠番も unrecovered に数える)
         expect(a0.lost).toBeGreaterThan(
           latencyBudgetAdversarialUpstream.headLossPackets,

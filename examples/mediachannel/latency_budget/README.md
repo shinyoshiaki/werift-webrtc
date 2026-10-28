@@ -145,7 +145,15 @@ Nothing about the send range is estimated:
 - `recording.evicted` counts audio dropped from the "AI answer" kept for B / D
   (the newest 15s), so a cut answer is visible.
 
-The smoke test runs scenario A with a lost head (8 packets), a lost tail
-(300ms) and the last 10 frames held until 1s after the stop, and asserts
-`verified`, `balanced`, `pending = 0`; with 5000ms also no loss left and
-every frame in the `.webm` in order.
+werift keeps the books open after its report: a frame that still arrives (for
+example given up at budget 0, then sent late) is counted (`late`,
+`arrivedAfterStop`) and the accounting is reported again.
+
+The smoke test runs scenario A with a periodic loss by position in the stream
+(15 of every 100 packets, `periodicLoss`; the timed burst could cover the
+frames sent after the stop or not, depending on when the stop happens), a lost
+head (8 packets), a lost tail (300ms) and the last 10 frames held until 1s
+after the stop. For budget 0 and 5000ms it asserts `verified`, `balanced`,
+`pending = 0`, also after the held frames have arrived (`afterLate`); budget 0
+counts each of them as `late`. With 5000ms no loss is left and every frame is
+in the `.webm` in order.

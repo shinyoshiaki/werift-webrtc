@@ -54,6 +54,8 @@ async function publish(options: {
   loss?: BurstLoss;
   /** werift drops the first transmission of the first N packets (head loss) */
   headLossPackets?: number;
+  /** werift drops the first transmission of `count` packets of every `every` */
+  periodicLoss?: { every: number; count: number };
   /** keep the newest N frames back; sent after the stop notice (late tail) */
   holdTailFrames?: number;
   record?: boolean;
@@ -70,6 +72,7 @@ async function publish(options: {
       budgetMs: options.budgetMs,
       loss: options.loss,
       headLossPackets: options.headLossPackets,
+      periodicLoss: options.periodicLoss,
       record: options.record,
     },
     {
@@ -101,16 +104,38 @@ async function publish(options: {
     },
     /** werift drops the first transmission of every packet until the stop */
     loseTail: () => connected.send({ type: "lose-tail" }),
-    stop: async (stopOptions: { releaseHeldAfterMs?: number } = {}) => {
+    stop: async (
+      stopOptions: {
+        releaseHeldAfterMs?: number;
+        /**
+         * Frames expected after the stop notice (held back). werift keeps
+         * counting them after its report, which may come first (small budget).
+         */
+        lateFrames?: number;
+      } = {},
+    ) => {
       // Close the gate: no frame is sent after the range it reports.
       const range = await gate!.close(stopOptions.releaseHeldAfterMs ?? 0);
       const stopped = connected.next<any>("stopped");
       connected.send({ ...range, type: "stop" });
       // werift answers once every packet of the range is received or given up.
       const final = await stopped;
+      stats = final.stats;
+      // The frames held back must still arrive and be counted, even when the
+      // budget let werift report before them. Bounded: they are sent
+      // `releaseHeldAfterMs` after the stop.
+      const lateUntil =
+        performance.now() + (stopOptions.releaseHeldAfterMs ?? 0) + 3000;
+      while (
+        (stats.accounting?.arrivedAfterStop ?? 0) <
+          (stopOptions.lateFrames ?? 0) &&
+        performance.now() < lateUntil
+      ) {
+        await sleep(20);
+      }
       track.stop();
       connected.close();
-      return { ...final.stats, range };
+      return { ...final.stats, range, afterLate: stats };
     },
   };
 }
@@ -253,7 +278,10 @@ const summarize = (stats: PlayerStats) => ({
 async function runA(options: {
   budgetMs: number;
   durationMs: number;
-  loss: BurstLoss;
+  /** timed burst loss (also drops retransmissions inside its windows) */
+  loss?: BurstLoss;
+  /** lose `count` of every `every` packets (their first transmission) */
+  periodicLoss?: { every: number; count: number };
   munge?: boolean;
   /** lose the first N packets (their first transmission) */
   headLossPackets?: number;
@@ -273,7 +301,10 @@ async function runA(options: {
     await sleep(tailLossMs);
   }
   clearInterval(timer);
-  const stats = await pub.stop({ releaseHeldAfterMs: options.holdTailMs });
+  const stats = await pub.stop({
+    releaseHeldAfterMs: options.holdTailMs,
+    lateFrames: options.holdTailFrames,
+  });
   result.a[String(options.budgetMs)] = {
     ...options,
     received: stats.received,
@@ -283,6 +314,11 @@ async function runA(options: {
     dropped: stats.dropped,
     accounting: stats.accounting,
     recording: stats.recording,
+    // The same books once the held-back frames have arrived too
+    afterLate: {
+      ...stats.afterLate.nack,
+      accounting: stats.afterLate.accounting,
+    },
   };
   show("a-out", result.a);
   return result.a[String(options.budgetMs)];
@@ -491,6 +527,10 @@ button("a-start", () =>
     durationMs: num("a-duration"),
     loss: lossInput("a"),
     munge: $<HTMLInputElement>("a-munge").checked,
+    periodicLoss: {
+      every: num("a-periodic-every"),
+      count: num("a-periodic-count"),
+    },
     headLossPackets: num("a-head-loss"),
     tailLossMs: num("a-tail-loss"),
     holdTailFrames: num("a-hold-frames"),

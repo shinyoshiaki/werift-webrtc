@@ -47,6 +47,8 @@ type JoinMessage = {
   record?: boolean;
   /** publisher: drop the first transmission of the first N packets */
   headLossPackets?: number;
+  /** publisher: drop the first transmission of `count` packets of every `every` */
+  periodicLoss?: PeriodicPacketLoss;
 };
 
 type Publisher = {
@@ -171,16 +173,19 @@ class RecentSeqs {
 }
 
 /**
- * Deterministic upstream loss by sequence number (on top of the periodic
- * burst): the first transmission of the first N packets (head), and of every
- * packet between the client's "lose-tail" and its stop (tail). Audio has no
+ * Deterministic upstream loss by sequence number (on top of the timed
+ * burst): the first transmission of the first N packets (head), of `count`
+ * packets of every `every` (periodic), and of every packet between the
+ * client's "lose-tail" and its stop (tail). Audio has no
  * RTX, so a retransmission has the same sequence number and gets through.
  */
-function upstreamLoss(headLossPackets = 0) {
+type PeriodicPacketLoss = { every: number; count: number };
+
+function upstreamLoss(headLossPackets = 0, periodic?: PeriodicPacketLoss) {
   const seen = new RecentSeqs();
   let firstSeq: number | undefined;
   let tail = false;
-  const dropped = { head: 0, tail: 0 };
+  const dropped = { head: 0, tail: 0, periodic: 0 };
   return {
     dropped,
     loseTail: () => {
@@ -192,8 +197,20 @@ function upstreamLoss(headLossPackets = 0) {
     drop: (rtp: DebugRtpHeader) => {
       if (!seen.add(rtp.sequenceNumber)) return false;
       firstSeq ??= rtp.sequenceNumber;
-      if (((rtp.sequenceNumber - firstSeq) & 0xffff) < headLossPackets) {
+      const index = (rtp.sequenceNumber - firstSeq) & 0xffff;
+      if (index < headLossPackets) {
         dropped.head++;
+        return true;
+      }
+      // Fixed positions in the stream, unlike the timed burst: whether the
+      // tail or the frames sent after the stop fall into it never depends on
+      // when the stop happens.
+      if (
+        periodic &&
+        periodic.every > 0 &&
+        index % periodic.every >= periodic.every - periodic.count
+      ) {
+        dropped.periodic++;
         return true;
       }
       if (tail) {
@@ -208,7 +225,7 @@ function upstreamLoss(headLossPackets = 0) {
 // Scenario A / C upstream: browser mic -> werift, NACKed within the budget.
 async function runPublisher(socket: WebSocket, join: JoinMessage) {
   const budgetMs = join.budgetMs ?? 0;
-  const loss = upstreamLoss(join.headLossPackets);
+  const loss = upstreamLoss(join.headLossPackets, join.periodicLoss);
   const pc = new RTCPeerConnection({
     iceServers: [],
     // Audio NACK must be negotiated explicitly; werift's default Opus has none.
@@ -298,6 +315,12 @@ async function runPublisher(socket: WebSocket, join: JoinMessage) {
       markFirst(
         accounting.receive(rtp.header.sequenceNumber, rtp.header.timestamp),
       );
+      if (accountingResult) {
+        // Already reported, but a packet still arrives (given up with a small
+        // budget, or a duplicate): the books stay open and are reported again.
+        accountingResult = accounting.summary(self.receiver.nackStats);
+        report();
+      }
       if (!seen.add(rtp.header.sequenceNumber)) {
         // A retransmission answered twice: neither counted nor relayed again.
         duplicates++;

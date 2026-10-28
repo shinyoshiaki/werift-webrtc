@@ -35,8 +35,12 @@ export const latencyBudgetAdversarialUpstream = {
 };
 
 export const latencyBudgetLoss = {
-  /** Upstream (scenario A): 300ms bursts every 2s */
-  upstream: { intervalMs: 2000, durationMs: 300 },
+  /**
+   * Upstream (scenario A): 15 of every 100 packets (300ms of every 2s). By
+   * position in the stream, not by time, so it never covers the frames held
+   * back past the stop (positions ~240-249 of ~250).
+   */
+  upstreamPeriodic: { every: 100, count: 15 },
   /** Downstream (scenario C): 800ms bursts every 3s */
   downstream: { intervalMs: 3000, durationMs: 800 },
   /**
