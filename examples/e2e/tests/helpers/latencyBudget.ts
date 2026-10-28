@@ -28,4 +28,6 @@ export const latencyBudgetLoss = {
   upstream: { intervalMs: 2000, durationMs: 300 },
   /** Downstream (scenario C): 800ms bursts every 3s */
   downstream: { intervalMs: 3000, durationMs: 800 },
+  /** Downstream (scenario C): one 3.5s burst (175 packets) */
+  downstreamLong: { intervalMs: 8000, durationMs: 3500 },
 };

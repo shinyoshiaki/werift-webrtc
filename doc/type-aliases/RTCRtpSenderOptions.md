@@ -23,4 +23,5 @@ Pending RTP cache. Disabled by default. Pass `true` or `{ maxLength }` to enable
 > `optional` **rtpHistorySize?**: `number`
 
 Packets kept for retransmission (NACK / `retransmit()`). Default 128
-(about 2.5s of 20ms Opus). Raise it for a longer latency budget.
+(about 2.5s of 20ms Opus). Raise it for a longer latency budget. At least
+this many packets are kept (the ring is rounded up to a power of two).

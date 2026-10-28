@@ -1328,6 +1328,28 @@ describe("media/rtpSender retransmission and relay", () => {
     expect(header.ssrc).toBe(sender.ssrc);
   });
 
+  test.each([100, 250, 300])(
+    "rtpHistorySize=%i (2 の累乗でない) でも 16bit seq の折り返しをまたいで履歴を保持する",
+    async (rtpHistorySize) => {
+      const { sender, sendRtp } = arrangeSender({ rtpHistorySize });
+      // 65536 から 36 パケット手前で開始し、折り返し後も rtpHistorySize 個を送る
+      const start = 65536 - 36;
+      for (let i = 0; i < rtpHistorySize; i++) {
+        await sender.sendRtp(createRtpPacket((start + i) & 0xffff, i * 960));
+      }
+      const seqs = sentRtpHeaders(sendRtp).map(
+        (header) => header.sequenceNumber,
+      );
+      sendRtp.mockClear();
+
+      // Act: 折り返しをまたいで送った全 seq を再送要求する
+      const retransmitted = await sender.retransmit(seqs);
+
+      // Assert: 設定した履歴サイズ分すべてを再送できる
+      expect(retransmitted).toEqual(seqs);
+    },
+  );
+
   test("retransmit は maxAgeMs より古い送信を再送しない", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     const { sender, sendRtp } = arrangeSender();

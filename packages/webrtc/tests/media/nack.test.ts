@@ -164,6 +164,36 @@ describe("media/nack retry policy", () => {
     expect(nack.stats.unrecovered).toBe(2);
     nack.close();
   });
+
+  test.each([
+    { maxLost: undefined, label: "既定 (150 件)" },
+    { maxLost: 300, label: "5 秒 budget 相当 (300 件)" },
+  ])("4 秒 (200 パケット) の連続ロスを $label で追跡する", ({ maxLost }) => {
+    // Arrange: 5 秒 budget。20ms Opus の欠番が 200 個 (4 秒) 連続する
+    const { nack, add } = arrange({
+      maxWaitMs: 5000,
+      retryIntervalMs: 20,
+      maxLost,
+    });
+    add(1000);
+    add(1201);
+    vi.advanceTimersByTime(1000);
+
+    // Act: 再送されたパケットを budget 内に全て届ける
+    for (let seq = 1001; seq <= 1200; seq++) add(seq);
+
+    // Assert: 追跡上限が足りれば全て回収し、既定値では古い欠番が追跡から外れる
+    expect(nack.stats.lost).toBe(200);
+    if (maxLost === undefined) {
+      expect(nack.stats.recovered).toBe(150);
+      expect(nack.stats.unrecovered).toBe(50);
+    } else {
+      expect(nack.stats.recovered).toBe(200);
+      expect(nack.stats.unrecovered).toBe(0);
+    }
+    expect(nack.stats.pending).toBe(0);
+    nack.close();
+  });
 });
 
 describe("media/rtpReceiver audio NACK", () => {

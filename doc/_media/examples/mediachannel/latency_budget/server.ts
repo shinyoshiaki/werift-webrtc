@@ -21,6 +21,10 @@ const port = 8888;
 const NACK_RETRY_INTERVAL_MS = 20;
 /** 20ms Opus: 10s of send history covers the 5s budget with room to spare */
 const RTP_HISTORY_SIZE = 512;
+/** Lost packets tracked per 20ms Opus frame of budget, plus some slack */
+const NACK_MS_PER_PACKET = 20;
+const NACK_MAX_LOST_SLACK = 50;
+const NACK_MAX_LOST_MIN = 150;
 /** Packets kept from the last publisher, replayed as the "AI answer" */
 const RECORDING_MAX_PACKETS = 50 * 15;
 
@@ -98,6 +102,14 @@ async function negotiate(socket: WebSocket, pc: RTCPeerConnection) {
   await pc.setRemoteDescription(answer);
 }
 
+/** A burst as long as the budget must stay tracked, or old losses are dropped. */
+function nackMaxLost(budgetMs: number) {
+  return Math.max(
+    NACK_MAX_LOST_MIN,
+    Math.ceil(budgetMs / NACK_MS_PER_PACKET) + NACK_MAX_LOST_SLACK,
+  );
+}
+
 /** Upstream waits as long as the most patient subscriber (or its own budget). */
 function updateUpstreamBudget() {
   if (!publisher) return;
@@ -108,6 +120,7 @@ function updateUpstreamBudget() {
   publisher.upstreamBudgetMs = budgetMs;
   publisher.receiver.setNackOptions({
     maxWaitMs: budgetMs,
+    maxLost: nackMaxLost(budgetMs),
     retryIntervalMs: NACK_RETRY_INTERVAL_MS,
   });
   console.log("upstream nack budget", budgetMs);
@@ -120,7 +133,11 @@ async function runPublisher(socket: WebSocket, join: JoinMessage) {
     iceServers: [],
     // Audio NACK must be negotiated explicitly; werift's default Opus has none.
     codecs: { audio: [useOPUS({ rtcpFeedback: [useNACK()] })] },
-    nack: { maxWaitMs: budgetMs, retryIntervalMs: NACK_RETRY_INTERVAL_MS },
+    nack: {
+      maxWaitMs: budgetMs,
+      retryIntervalMs: NACK_RETRY_INTERVAL_MS,
+      maxLost: nackMaxLost(budgetMs),
+    },
     debug: { inboundBurstLoss: join.loss },
   });
   const transceiver = pc.addTransceiver("audio", { direction: "recvonly" });
@@ -336,8 +353,12 @@ async function runTts(socket: WebSocket) {
         // Barge-in: stop sending, bump the generation and answer briefly.
         speaking?.abort();
         generation++;
+        // Control message first: the client flushes without waiting for RTP.
         send(socket, { type: "generation", generation });
-        await speak(lastRecording.slice(0, 50), "burst", generation);
+        if (message.reply !== false) {
+          if (message.replyDelayMs) await setTimeout(message.replyDelayMs);
+          await speak(lastRecording.slice(0, 50), "burst", generation);
+        }
         break;
     }
   });

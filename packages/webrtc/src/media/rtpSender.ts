@@ -107,7 +107,8 @@ export type RTCRtpSenderOptions = {
   pendingRtp?: boolean | PendingRtpOptions;
   /**
    * Packets kept for retransmission (NACK / `retransmit()`). Default 128
-   * (about 2.5s of 20ms Opus). Raise it for a longer latency budget.
+   * (about 2.5s of 20ms Opus). Raise it for a longer latency budget. At least
+   * this many packets are kept (the ring is rounded up to a power of two).
    */
   rtpHistorySize?: number;
 };
@@ -214,6 +215,8 @@ export class RTCRtpSender {
   private pendingTimestampStep = 1;
   private rtpCache: (SentRtpEntry | undefined)[] = [];
   private readonly rtpHistorySize: number;
+  /** ring size - 1; the ring holds at least `rtpHistorySize` packets */
+  private readonly rtpHistoryMask: number;
   private pendingRtp: PendingRtpItem[] = [];
   private drainingPendingRtp = false;
   private readonly pendingRtpEnabled: boolean;
@@ -246,8 +249,11 @@ export class RTCRtpSender {
       typeof options.rtpHistorySize === "number" &&
       Number.isFinite(options.rtpHistorySize) &&
       options.rtpHistorySize >= 1
-        ? Math.floor(options.rtpHistorySize)
+        ? Math.min(Math.floor(options.rtpHistorySize), 0x10000)
         : DEFAULT_RTP_HISTORY_SIZE;
+    // Power of two, so that `seq & mask` stays consistent across the 16bit
+    // wrap (65535 -> 0). Any other modulus makes old and new packets collide.
+    this.rtpHistoryMask = 2 ** Math.ceil(Math.log2(this.rtpHistorySize)) - 1;
     this.kind =
       typeof this.trackOrKind === "string"
         ? this.trackOrKind
@@ -801,7 +807,7 @@ export class RTCRtpSender {
     this.headerBytesSent += header.serializeSize;
     this.packetCount = uint32Add(this.packetCount, 1);
 
-    const slot = header.sequenceNumber % this.rtpHistorySize;
+    const slot = header.sequenceNumber & this.rtpHistoryMask;
     const cached = this.rtpCache[slot];
     if (
       isNewest ||
@@ -868,7 +874,7 @@ export class RTCRtpSender {
     const sent: Promise<number>[] = [];
     const retransmitted: number[] = [];
     for (const seqNum of sequenceNumbers) {
-      const entry = this.rtpCache[seqNum % this.rtpHistorySize];
+      const entry = this.rtpCache[seqNum & this.rtpHistoryMask];
       if (!entry || entry.packet.header.sequenceNumber !== seqNum) {
         continue;
       }

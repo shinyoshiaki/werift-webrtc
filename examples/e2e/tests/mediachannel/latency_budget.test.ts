@@ -100,6 +100,22 @@ for (const entry of catalogByGroup("browser").filter(
         expect(long.server.budgetMs).toBe(5000);
         expect(c.upstream.upstreamBudgetMs).toBe(5000);
 
+        // Act: シナリオ C (長いロス)。werift 送信履歴 (512) が 3.5 秒 (175 パケット) 連続ロスを再送する
+        const cLong = await runLatencyBudgetScenario(page, "runC", {
+          budgets: [5000],
+          minDelayMs: 100,
+          durationMs: 14_000,
+          loss: latencyBudgetLoss.downstreamLong,
+        });
+        const longBurst = cLong.subscribers["5000"];
+
+        // Assert: 150 件を超える連続ロスを budget 内で全て回収し、打ち切りはない
+        expect(longBurst.player.missingFrames).toBeGreaterThan(150);
+        expect(longBurst.player.recoveredFrames).toBe(
+          longBurst.player.missingFrames,
+        );
+        expect(longBurst.player.nackGaveUp).toBe(0);
+
         // Act: シナリオ D。バースト送信後、再生途中で割り込む
         const d = await runLatencyBudgetScenario(page, "runD", {
           interruptAfterMs: 700,
@@ -113,6 +129,29 @@ for (const entry of catalogByGroup("browser").filter(
         expect(d.player.playedFrames).toBeLessThan(
           (d.answerMs + d.replyMs) / 20,
         );
+
+        // Act: シナリオ D (新しい応答が来ない)。割り込み後に新 generation の RTP を送らない
+        const dSilent = await runLatencyBudgetScenario(page, "runD", {
+          interruptAfterMs: 700,
+          reply: false,
+        });
+
+        // Assert: 新 generation の RTP が届かなくても、割り込み後は旧バッファを再生しない
+        expect(dSilent.player.generation).toBe(2);
+        expect(dSilent.player.flushedFrames).toBeGreaterThan(0);
+        expect(dSilent.player.oldGenerationPlayed).toBe(0);
+        expect(dSilent.playedWhileWaitingReply).toBe(0);
+
+        // Act: シナリオ D (新しい応答が遅れる)。新 generation の RTP を 1.5 秒遅らせる
+        const dDelayed = await runLatencyBudgetScenario(page, "runD", {
+          interruptAfterMs: 700,
+          replyDelayMs: 1500,
+        });
+
+        // Assert: 遅れている間は無音で、旧バッファは再生されない
+        expect(dDelayed.player.oldGenerationPlayed).toBe(0);
+        expect(dDelayed.playedWhileWaitingReply).toBe(0);
+        expect(dDelayed.replyMs).toBeGreaterThan(0);
       },
       ctx,
     );

@@ -137,6 +137,19 @@ export class BudgetPlayer {
     });
   }
 
+  /**
+   * Barge-in: drop everything buffered or still decoding right now and ignore
+   * older generations. Called on the user's action or on the control message,
+   * so it does not wait for the first RTP packet of the new generation.
+   */
+  interrupt(generation = this.generation + 1) {
+    if (generation <= this.generation) return;
+    this.generation = generation;
+    this.node.port.postMessage({ type: "flush", generation });
+    this.pending.clear();
+    this.lastSeq = undefined;
+  }
+
   /** RTP timestamp -> media position in samples (32bit unwrap). */
   private unwrap(timestamp: number) {
     if (this.refTimestamp === undefined) {
@@ -159,10 +172,7 @@ export class BudgetPlayer {
     }
     if (gen > this.generation) {
       // In-band generation bump (CSRC): flush everything already buffered.
-      this.generation = gen;
-      this.node.port.postMessage({ type: "flush", generation: gen });
-      this.pending.clear();
-      this.lastSeq = undefined;
+      this.interrupt(gen);
     }
 
     const now = performance.now();

@@ -135,6 +135,10 @@ async function subscribe(
   session.onMessage("stats", (message) => {
     server = message;
   });
+  // Barge-in control message: flush now, without waiting for new-generation RTP.
+  session.onMessage("generation", (message) =>
+    budgetPlayer.interrupt(message.generation),
+  );
   return {
     session,
     player: budgetPlayer,
@@ -310,31 +314,74 @@ async function runC(options: {
   return result.c;
 }
 
-// Scenario D: barge-in. The generation in the CSRC flushes the old answer.
-async function runD(options: { interruptAfterMs: number }) {
+// Scenario D: barge-in. The user's interrupt (button) flushes the old answer
+// at once; the new generation's audio may come late or never.
+let activeD: Awaited<ReturnType<typeof subscribe>> | undefined;
+
+/** Flush locally right away, then tell werift to stop and bump the generation. */
+function interruptNow(
+  options: { reply?: boolean; replyDelayMs?: number } = {},
+) {
+  if (!activeD) throw new Error("scenario D is not running");
+  activeD.player.interrupt();
+  activeD.session.send({ type: "interrupt", ...options });
+}
+
+async function runD(options: {
+  interruptAfterMs: number;
+  /** false: no new answer follows the interrupt */
+  reply?: boolean;
+  /** delay of the new answer's RTP after the interrupt */
+  replyDelayMs?: number;
+  /** wait for the button instead of interrupting automatically */
+  manual?: boolean;
+}) {
   const sub = await subscribe(
     { type: "join", role: "tts" },
     ttsPlayer,
     "player",
   );
+  activeD = sub;
   const spoken = sub.session.next<any>("spoken");
   sub.session.send({ type: "speak", pace: "burst" });
   const first = await spoken;
-  await sleep(options.interruptAfterMs);
+  // Subscribe before the interrupt: the new answer can follow it immediately.
+  const reply =
+    options.reply === false ? undefined : sub.session.next<any>("spoken");
+  if (options.manual) {
+    await new Promise<void>((resolve) => {
+      sub.session.onMessage("generation", () => resolve());
+    });
+  } else {
+    await sleep(options.interruptAfterMs);
+  }
   const beforeInterrupt = summarize(sub.player.stats);
-  const reply = sub.session.next<any>("spoken");
-  sub.session.send({ type: "interrupt" });
+  if (!options.manual) {
+    interruptNow({ reply: options.reply, replyDelayMs: options.replyDelayMs });
+  }
+  // Played frames must stop growing once the old answer is flushed, even
+  // while the new generation's RTP has not arrived.
+  await sleep(300);
+  const settled = summarize(sub.player.stats);
+  await sleep(
+    options.replyDelayMs ? Math.max(options.replyDelayMs - 600, 300) : 700,
+  );
+  const quiet = summarize(sub.player.stats);
   const second = await reply;
-  await sleep(second.mediaMs + 1000);
+  const replyMs = second?.mediaMs ?? 0;
+  await sleep(replyMs + 1000);
   const after = summarize(sub.player.stats);
   result.d = {
     ...options,
     answerMs: first.mediaMs,
-    replyMs: second.mediaMs,
+    replyMs,
     playedBeforeInterrupt: beforeInterrupt.playedFrames,
+    playedAfterInterrupt: settled.playedFrames,
+    playedWhileWaitingReply: quiet.playedFrames - settled.playedFrames,
     playedAfter: after.playedFrames,
     player: after,
   };
+  activeD = undefined;
   sub.close();
   show("d-out", result.d);
   return result.d;
@@ -383,7 +430,23 @@ button("c-start", () =>
     loss: lossInput("c"),
   }),
 );
-button("d-start", () => runD({ interruptAfterMs: num("d-interrupt-after") }));
+button("d-start", () =>
+  runD({
+    interruptAfterMs: num("d-interrupt-after"),
+    manual: $<HTMLInputElement>("d-manual").checked,
+    replyDelayMs: num("d-reply-delay"),
+  }),
+);
+button("d-interrupt", async () =>
+  interruptNow({ replyDelayMs: num("d-reply-delay") }),
+);
 
-(window as any).latencyBudget = { audioContext, runA, runB, runC, runD };
+(window as any).latencyBudget = {
+  audioContext,
+  runA,
+  runB,
+  runC,
+  runD,
+  interruptNow,
+};
 $("env").textContent = `${transformApi} / ${navigator.userAgent}`;
