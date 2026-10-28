@@ -14,9 +14,34 @@ import {
   RTCDtlsParameters,
   RTCDtlsTransport,
 } from "../../src";
+import { isWithinBurstLossWindow } from "../../src/transport/debugPacketLoss";
+import { isPacketLost } from "../../src/transport/dtls";
 import { dtlsTransportPair, iceTransportPair } from "../fixture";
 
 describe("RTCDtlsTransportTest", () => {
+  test("debug packet loss uses the configured percentage", () => {
+    // Arrange: 25% loss を境界値の乱数で評価する。
+    // Act: 破棄判定を閾値の直前・直後で呼ぶ。
+    const dropped = isPacketLost(25, 0.249);
+    const kept = isPacketLost(25, 0.25);
+
+    // Assert: 設定した割合どおりにパケットを破棄する。
+    expect(dropped).toBe(true);
+    expect(kept).toBe(false);
+  });
+
+  test("periodic debug burst loss has deterministic boundaries", () => {
+    // Arrange: 1000 ms 周期の先頭 100 ms を損失区間にする。
+    // Act: 区間内、区間外、次周期の先頭を判定する。
+    const inside = isWithinBurstLossWindow(1050, 1000, 100);
+    const outside = isWithinBurstLossWindow(1150, 1000, 100);
+    const nextBurst = isWithinBurstLossWindow(2000, 1000, 100);
+
+    // Assert: 境界を含む開始時刻から duration 未満だけ損失する。
+    expect(inside).toBe(true);
+    expect(outside).toBe(false);
+    expect(nextBurst).toBe(true);
+  });
   test("RTCCertificate preserves PKCS#8 PEM and signs with Node KeyObject", async () => {
     // Arrange
     const source = await RTCDtlsTransport.SetupCertificate();

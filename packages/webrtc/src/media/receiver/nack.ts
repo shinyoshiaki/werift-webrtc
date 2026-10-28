@@ -18,10 +18,16 @@ export class NackHandler {
 
   readonly onPacketLost = new Event<[GenericNack]>();
   mediaSourceSsrc?: number;
-  retryCount = 10;
+  retryCount: number;
   closed = false;
 
-  constructor(private receiver: RTCRtpReceiver) {}
+  constructor(private receiver: RTCRtpReceiver) {
+    // 5 ms の既存送信間隔を維持し、待ち時間だけ peer 設定で伸ばす。
+    this.retryCount = Math.max(
+      0,
+      Math.ceil(receiver.config.nackRetryWindowMs / 5) - 1,
+    );
+  }
 
   get lostSeqNumbers() {
     return Object.keys(this._lost).map(Number).sort();

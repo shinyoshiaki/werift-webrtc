@@ -67,6 +67,10 @@ for (const entry of entries.filter(
       async (session) => {
         if (!session.page) throw new Error("page required");
         const logs = () => session.processes[0]?.logs ?? "";
+        if (entry.id === "latency-budget") {
+          // Act: fake microphone で接続し、Encoded Transform player を起動する。
+          await session.page.getByRole("button", { name: "開始" }).click();
+        }
         try {
           // Act: ICE 接続を待つ（画質や video.play 完了は必須にしない）
           await waitPeerConnected(session.page, 25_000, logs);
@@ -89,6 +93,17 @@ for (const entry of entries.filter(
         } else {
           // Assert: connectionState が connected かつ inbound-rtp の packetsReceived > 0
           await waitInboundRtp(session.page);
+        }
+        if (entry.id === "latency-budget") {
+          // Assert: window に公開した smoke 結果で transform が RTP を処理したことを確認する。
+          await session.page.waitForFunction(() => {
+            const result = (window as any).__latencyBudgetResult;
+            return (
+              result?.connected &&
+              result.encodedFrames > 0 &&
+              result.transform !== "unavailable"
+            );
+          });
         }
       },
       ctx,

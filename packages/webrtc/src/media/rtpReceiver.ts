@@ -60,7 +60,7 @@ export class RTCRtpReceiver {
   private readonly stagedSsrcByRtx: { [rtxSsrc: number]: number } = {};
   /** SSRCs of `trackBySSRC` learned from RID packets rather than SDP. */
   readonly learnedTrackSsrcs = new Set<number>();
-  private readonly nack = new NackHandler(this);
+  private readonly nack: NackHandler;
   private readonly audioRedHandler = new RedHandler();
 
   readonly type = "receiver";
@@ -80,7 +80,7 @@ export class RTCRtpReceiver {
   readonly lastSRtimestamp: { [ssrc: number]: number } = {};
   /**seconds */
   readonly receiveLastSRTimestamp: { [ssrc: number]: number } = {};
-  readonly onPacketLost = this.nack.onPacketLost;
+  readonly onPacketLost: NackHandler["onPacketLost"];
   readonly onRtcp = new Event<[RtcpPacket]>();
 
   dtlsTransport!: RTCDtlsTransport;
@@ -111,6 +111,8 @@ export class RTCRtpReceiver {
     public kind: Kind,
     public rtcpSsrc: number,
   ) {
+    this.nack = new NackHandler(this);
+    this.onPacketLost = this.nack.onPacketLost;
     this.defaultTrack = new MediaStreamTrack({ kind, remote: true });
     this.onPacketLost.subscribe((nack) => {
       this.nackCountBySsrc[nack.mediaSourceSsrc] =
@@ -720,7 +722,7 @@ export class RTCRtpReceiver {
 
     this.payloadTypeBySsrc[packet.header.ssrc] = mediaCodec.payloadType;
 
-    if (track?.kind === "video" && hasFeedback(mediaCodec, "nack")) {
+    if (track && hasFeedback(mediaCodec, "nack")) {
       this.nack.addPacket(packet);
     }
 

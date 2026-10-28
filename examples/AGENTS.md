@@ -60,6 +60,7 @@ werift + browser (no extra cloud):
 | `mediachannel/sendrecv/{offer,answer,multi_offer}.ts`                               | 対応 HTML                          | 双方向 / 複数                                                                         |
 | `mediachannel/recvonly/{offer,multi_offer,dump}.ts`                                 | 対応 HTML                          | 片方向。dump は exit 0                                                                |
 | `mediachannel/rtp_forward/offer.ts`                                                 | `rtp_forward/answer.html`          | 受信 RTP                                                                              |
+| `mediachannel/latency_budget/server.ts`                                             | Vite `latency_budget/index.html`   | Encoded Transform、再送 budget、バースト・割り込み player                             |
 | `mediachannel/pubsub/offer.ts`                                                      | `pubsub/answer.html`               | publish / subscribe                                                                   |
 | `mediachannel/sdp/{offer,offer_offer}.ts`                                           | 対応 HTML                          | SDP 経路                                                                              |
 | `mediachannel/rtx/{offer,simulcast_offer}.ts`                                       | 対応 HTML                          | RTX / simulcast+RTX                                                                   |

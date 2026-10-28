@@ -21,6 +21,25 @@ import {
 } from "../fixture";
 
 describe("media/rtpSender", () => {
+  test("configured history supports application retransmission and preserves CSRC", async () => {
+    // Arrange: 2 パケット分の履歴を持つ sender と CSRC 付き RTP を用意する。
+    const { sender, sendRtp } = createConnectedRtpSender({
+      senderOptions: { rtpHistorySize: 2 },
+    } as any);
+    const packet = createRtpPacket(10, 1000);
+    packet.header.csrc = [0x12345678];
+
+    // Act: 送信した RTP をアプリ層 NACK 相当で再送する。
+    await sender.sendRtp(packet);
+    const sentHeader = sentRtpHeaders(sendRtp)[0];
+    sendRtp.mockClear();
+    await sender.retransmit([sentHeader.sequenceNumber]);
+
+    // Assert: CSRC は初回・再送ともに維持され、指定されたパケットを再送する。
+    expect(sentHeader.csrc).toEqual([0x12345678]);
+    expect(sentRtpHeaders(sendRtp)[0].csrc).toEqual([0x12345678]);
+    sender.stop();
+  });
   test("stop releases the subscription on the DTLS transport", () => {
     // Arrange: DTLS transport に結び付けた sender。
     const dtls = createDtlsTransport();

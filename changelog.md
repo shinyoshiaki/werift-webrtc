@@ -9,6 +9,13 @@
 
 ### Fixes
 
+- **`packages/webrtc`: audio codecs that negotiate generic RTCP `nack` now use the receiver NACK handler**, and debug packet loss percentages now drop the configured percentage. `DebugConfig.burstLoss` adds deterministic periodic bursts. `PeerConfig.nackRetryWindowMs` controls receiver retry time (default ~55 ms); `rtpHistorySize` controls sender history (default 128), and `RTCRtpSender.retransmit()` supports application-layer NACK. Defaults preserve the existing retry and history windows.
+- **RTP relay state no longer moves backwards for delayed retransmissions**; `RTCRtpSender` keeps its latest sequence/timestamp state while still forwarding CSRC values.
+
+### Examples
+
+- Added `examples/mediachannel/latency_budget/`, a werift + Chrome Encoded Transform / WebCodecs audio latency-budget demo with retransmission, burst replay, and interrupt controls.
+
 - PEM passed to `dtls.keys` / `RTCCertificate` / `CipherContext` may still be indented (for example inside an indented template literal), as it was with `@fidm/x509`. `werift-dtls` exports the `normalizePem()` helper used for this.
 
 ### Dependencies

@@ -1,0 +1,438 @@
+[**werift**](../README.md)
+
+***
+
+[werift](../globals.md) / RTCDtlsTransport
+
+# Class: RTCDtlsTransport
+
+## Implements
+
+- [`DtlsTransportStats`](../interfaces/DtlsTransportStats.md)
+
+## Constructors
+
+### Constructor
+
+> **new RTCDtlsTransport**(`config`, `iceTransport`, `localCertificate?`, `srtpProfiles?`): `RTCDtlsTransport`
+
+#### Parameters
+
+##### config
+
+###### debug?
+
+`Partial`\<\{ `burstLoss`: \{ `durationMs`: `number`; `everyMs`: `number`; \}; `disableRecvRetransmit`: `boolean`; `disableSendNack`: `boolean`; `inboundPacketLoss`: `number`; `outboundPacketLoss`: `number`; `receiverReportDelay`: `number`; \}\>
+
+##### iceTransport
+
+[`RTCIceTransport`](RTCIceTransport.md)
+
+##### localCertificate?
+
+[`RTCCertificate`](RTCCertificate.md)
+
+##### srtpProfiles?
+
+(`1` \| `7`)[] = `[]`
+
+#### Returns
+
+`RTCDtlsTransport`
+
+## Properties
+
+### bytesReceived
+
+> **bytesReceived**: `number` = `0`
+
+#### Implementation of
+
+[`DtlsTransportStats`](../interfaces/DtlsTransportStats.md).[`bytesReceived`](../interfaces/DtlsTransportStats.md#bytesreceived)
+
+***
+
+### bytesSent
+
+> **bytesSent**: `number` = `0`
+
+#### Implementation of
+
+[`DtlsTransportStats`](../interfaces/DtlsTransportStats.md).[`bytesSent`](../interfaces/DtlsTransportStats.md#bytessent)
+
+***
+
+### config
+
+> `readonly` **config**: `object`
+
+#### debug?
+
+> `optional` **debug?**: `Partial`\<\{ `burstLoss`: \{ `durationMs`: `number`; `everyMs`: `number`; \}; `disableRecvRetransmit`: `boolean`; `disableSendNack`: `boolean`; `inboundPacketLoss`: `number`; `outboundPacketLoss`: `number`; `receiverReportDelay`: `number`; \}\>
+
+***
+
+### dataReceiver
+
+> **dataReceiver**: (`buf`) => `void`
+
+#### Parameters
+
+##### buf
+
+`Buffer`
+
+#### Returns
+
+`void`
+
+***
+
+### dtls?
+
+> `optional` **dtls?**: [`DtlsSocket`](DtlsSocket.md)
+
+***
+
+### iceRoleAtStart?
+
+> `optional` **iceRoleAtStart?**: `"unknown"` \| `"controlling"` \| `"controlled"`
+
+Internal: the ICE role when the handshake started. werift sets the ICE role at
+every offer / answer, so an SCTP association that starts later on this
+transport takes its client / server side from here, as both peers agreed
+on it when they started DTLS.
+
+***
+
+### iceTransport
+
+> `readonly` **iceTransport**: [`RTCIceTransport`](RTCIceTransport.md)
+
+***
+
+### id
+
+> **id**: `string`
+
+***
+
+### localCertificate?
+
+> `optional` **localCertificate?**: [`RTCCertificate`](RTCCertificate.md)
+
+***
+
+### onRtcp
+
+> `readonly` **onRtcp**: [`Event`](Event.md)\<\[[`RtcpPacket`](../type-aliases/RtcpPacket.md)\]\>
+
+***
+
+### onRtp
+
+> `readonly` **onRtp**: [`Event`](Event.md)\<\[[`RtpPacket`](RtpPacket.md)\]\>
+
+***
+
+### onstatechange?
+
+> `optional` **onstatechange?**: () => `void`
+
+#### Returns
+
+`void`
+
+***
+
+### onStateChange
+
+> `readonly` **onStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"new"` \| `"connected"` \| `"connecting"` \| `"failed"`\]\>
+
+***
+
+### packetsReceived
+
+> **packetsReceived**: `number` = `0`
+
+#### Implementation of
+
+[`DtlsTransportStats`](../interfaces/DtlsTransportStats.md).[`packetsReceived`](../interfaces/DtlsTransportStats.md#packetsreceived)
+
+***
+
+### packetsSent
+
+> **packetsSent**: `number` = `0`
+
+#### Implementation of
+
+[`DtlsTransportStats`](../interfaces/DtlsTransportStats.md).[`packetsSent`](../interfaces/DtlsTransportStats.md#packetssent)
+
+***
+
+### role
+
+> **role**: [`DtlsRole`](../type-aliases/DtlsRole.md) = `"auto"`
+
+***
+
+### srtcp
+
+> **srtcp**: [`SrtcpSession`](SrtcpSession.md)
+
+***
+
+### srtp
+
+> **srtp**: [`SrtpSession`](SrtpSession.md)
+
+***
+
+### srtpStarted
+
+> **srtpStarted**: `boolean` = `false`
+
+***
+
+### state
+
+> **state**: `"closed"` \| `"new"` \| `"connected"` \| `"connecting"` \| `"failed"` = `"new"`
+
+***
+
+### transportSequenceNumber
+
+> **transportSequenceNumber**: `number` = `0`
+
+***
+
+### localCertificate?
+
+> `static` `optional` **localCertificate?**: [`RTCCertificate`](RTCCertificate.md)
+
+***
+
+### localCertificatePromise?
+
+> `static` `optional` **localCertificatePromise?**: `Promise`\<[`RTCCertificate`](RTCCertificate.md)\>
+
+## Accessors
+
+### hasRemoteParameters
+
+#### Get Signature
+
+> **get** **hasRemoteParameters**(): `boolean`
+
+Internal: whether a description gave this transport the peer's DTLS parameters.
+
+##### Returns
+
+`boolean`
+
+***
+
+### localParameters
+
+#### Get Signature
+
+> **get** **localParameters**(): [`RTCDtlsParameters`](RTCDtlsParameters.md)
+
+##### Returns
+
+[`RTCDtlsParameters`](RTCDtlsParameters.md)
+
+## Methods
+
+### addEventListener()
+
+> **addEventListener**(`type`, `listener`, `options?`): `void`
+
+#### Parameters
+
+##### type
+
+`string`
+
+##### listener
+
+(...`args`) => `void`
+
+##### options?
+
+`boolean` \| \{ `once?`: `boolean`; \}
+
+#### Returns
+
+`void`
+
+***
+
+### dispatchEvent()
+
+> **dispatchEvent**(`event`): `boolean`
+
+#### Parameters
+
+##### event
+
+`Event`
+
+#### Returns
+
+`boolean`
+
+***
+
+### getStats()
+
+> **getStats**(`timestamp?`): `Promise`\<[`RTCStats`](../interfaces/RTCStats.md)[]\>
+
+#### Parameters
+
+##### timestamp?
+
+`number` = `...`
+
+#### Returns
+
+`Promise`\<[`RTCStats`](../interfaces/RTCStats.md)[]\>
+
+***
+
+### removeEventListener()
+
+> **removeEventListener**(`type`, `listener`): `void`
+
+#### Parameters
+
+##### type
+
+`string`
+
+##### listener
+
+(...`args`) => `void`
+
+#### Returns
+
+`void`
+
+***
+
+### sendData()
+
+> `readonly` **sendData**(`data`): `Promise`\<`void`\>
+
+#### Parameters
+
+##### data
+
+`Buffer`
+
+#### Returns
+
+`Promise`\<`void`\>
+
+***
+
+### sendRtcp()
+
+> **sendRtcp**(`packets`): `Promise`\<`number` \| `undefined`\>
+
+#### Parameters
+
+##### packets
+
+[`RtcpPacket`](../type-aliases/RtcpPacket.md)[]
+
+#### Returns
+
+`Promise`\<`number` \| `undefined`\>
+
+***
+
+### sendRtp()
+
+> **sendRtp**(`payload`, `header`): `Promise`\<`number`\>
+
+#### Parameters
+
+##### payload
+
+`Buffer`
+
+##### header
+
+[`RtpHeader`](RtpHeader.md)
+
+#### Returns
+
+`Promise`\<`number`\>
+
+***
+
+### setRemoteParams()
+
+> **setRemoteParams**(`remoteParameters`): `void`
+
+#### Parameters
+
+##### remoteParameters
+
+[`RTCDtlsParameters`](RTCDtlsParameters.md)
+
+#### Returns
+
+`void`
+
+***
+
+### start()
+
+> **start**(): `Promise`\<`void`\>
+
+#### Returns
+
+`Promise`\<`void`\>
+
+***
+
+### startSrtp()
+
+> **startSrtp**(): `void`
+
+#### Returns
+
+`void`
+
+***
+
+### stop()
+
+> **stop**(): `Promise`\<`void`\>
+
+#### Returns
+
+`Promise`\<`void`\>
+
+***
+
+### updateSrtpSession()
+
+> **updateSrtpSession**(): `void`
+
+#### Returns
+
+`void`
+
+***
+
+### SetupCertificate()
+
+> `static` **SetupCertificate**(): `Promise`\<[`RTCCertificate`](RTCCertificate.md)\>
+
+#### Returns
+
+`Promise`\<[`RTCCertificate`](RTCCertificate.md)\>

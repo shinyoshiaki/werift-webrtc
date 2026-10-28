@@ -32,6 +32,8 @@ export type DebugConfig = Partial<{
   receiverReportDelay: number;
   disableSendNack: boolean;
   disableRecvRetransmit: boolean;
+  /** Deterministic periodic outbound RTP loss: drop packets within each burst window. */
+  burstLoss: { everyMs: number; durationMs: number };
 }>;
 
 export interface PeerConfig {
@@ -110,6 +112,10 @@ export interface PeerConfig {
    * Disabled by default. Pass `true` or `{ enabled: true, maxLength }` to buffer.
    */
   pendingRtp: NonNullable<RTCRtpSenderOptions["pendingRtp"]>;
+  /** Maximum time to request missing RTP packets. Defaults to the historical retry window (~55 ms). */
+  nackRetryWindowMs: number;
+  /** Number of recent RTP packets retained by each sender for retransmission. Defaults to 128. */
+  rtpHistorySize: number;
   /**
    * How local SDP marks inactive / stopped m-lines. Cannot be changed after construction.
    * - `"compatible"` (default): an accepted `inactive` m-line keeps a non-zero port.
@@ -242,6 +248,8 @@ export function generateDefaultPeerConfig(): PeerConfig {
     maxMessageSize: DEFAULT_MAX_MESSAGE_SIZE,
     sctp: { mtu: DEFAULT_SCTP_MTU },
     pendingRtp: false,
+    nackRetryWindowMs: 55,
+    rtpHistorySize: 128,
     mLineReuse: "compatible",
   };
 }

@@ -46,9 +46,17 @@ import {
   normalizeFingerprintAlgorithm,
   normalizeFingerprintValue,
 } from "../utils";
+import { isWithinBurstLossWindow } from "./debugPacketLoss";
 import type { RTCIceTransport } from "./ice";
 
 const log = debug("werift:packages/webrtc/src/transport/dtls.ts");
+
+export function isPacketLost(
+  loss: number | undefined,
+  randomValue = Math.random(),
+) {
+  return loss != undefined && loss > 0 && randomValue < loss / 100;
+}
 
 function formatDtlsVersion(version?: { major: number; minor: number }) {
   if (!version) {
@@ -233,10 +241,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
         });
       }
       this.dtls.onData.subscribe((buf) => {
-        if (
-          this.config.debug?.inboundPacketLoss &&
-          this.config.debug?.inboundPacketLoss / 100 < Math.random()
-        ) {
+        if (isPacketLost(this.config.debug?.inboundPacketLoss)) {
           return;
         }
         this.dataReceiver(buf);
@@ -376,8 +381,8 @@ export class RTCDtlsTransport implements DtlsTransportStats {
 
     this.iceTransport.connection.onData.subscribe((data) => {
       if (
-        this.config.debug?.inboundPacketLoss &&
-        this.config.debug?.inboundPacketLoss / 100 < Math.random()
+        isPacketLost(this.config.debug?.inboundPacketLoss) ||
+        (isMedia(data) && this.isInBurstLossWindow())
       ) {
         return;
       }
@@ -441,10 +446,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   }
 
   readonly sendData = async (data: Buffer) => {
-    if (
-      this.config.debug?.outboundPacketLoss &&
-      this.config.debug?.outboundPacketLoss / 100 < Math.random()
-    ) {
+    if (isPacketLost(this.config.debug?.outboundPacketLoss)) {
       return;
     }
 
@@ -459,8 +461,8 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       const enc = this.srtp.encrypt(payload, header);
 
       if (
-        this.config.debug?.outboundPacketLoss &&
-        this.config.debug?.outboundPacketLoss / 100 < Math.random()
+        isPacketLost(this.config.debug?.outboundPacketLoss) ||
+        this.isInBurstLossWindow()
       ) {
         return enc.length;
       }
@@ -481,10 +483,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     const payload = Buffer.concat(packets.map((packet) => packet.serialize()));
     const enc = this.srtcp.encrypt(payload);
 
-    if (
-      this.config.debug?.outboundPacketLoss &&
-      this.config.debug?.outboundPacketLoss / 100 < Math.random()
-    ) {
+    if (isPacketLost(this.config.debug?.outboundPacketLoss)) {
       return enc.length;
     }
 
@@ -493,6 +492,15 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     this.packetsSent++;
 
     await this.iceTransport.connection.send(enc).catch(() => {});
+  }
+
+  private isInBurstLossWindow() {
+    const burst = this.config.debug?.burstLoss;
+    return isWithinBurstLossWindow(
+      Date.now(),
+      burst?.everyMs,
+      burst?.durationMs,
+    );
   }
 
   private setState(state: DtlsState, emitEvent = true) {

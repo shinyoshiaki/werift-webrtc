@@ -69,12 +69,13 @@ export function createConnectedRtpSender(options?: {
   rtx?: boolean;
   twcc?: boolean;
   cname?: string;
+  senderOptions?: ConstructorParameters<typeof RTCRtpSender>[1];
 }) {
   const kind = options?.kind ?? "audio";
   const track = options?.track ?? new MediaStreamTrack({ kind, remote: true });
   const dtls = createDtlsTransport();
   dtls.state = "connected";
-  const sender = new RTCRtpSender(track);
+  const sender = new RTCRtpSender(track, options?.senderOptions);
   sender.setDtlsTransport(dtls);
 
   const codecs = [createAudioCodec()];

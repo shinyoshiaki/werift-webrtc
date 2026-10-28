@@ -218,6 +218,15 @@ export const catalog: CatalogEntry[] = [
     expectExit: 0,
   },
   {
+    id: "latency-budget",
+    group: "browser",
+    node: ["mediachannel/latency_budget/server.ts"],
+    html: "mediachannel/latency_budget/index.html",
+    port: 8888,
+    client: "vite",
+    kind: "media-inbound",
+  },
+  {
     id: "rtp-forward",
     group: "browser",
     node: ["mediachannel/rtp_forward/offer.ts"],

@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>WebRTC latency budget</title>
+  </head>
+  <body>
+    <main>
+      <h1>WebRTC latency budget / Encoded Transform</h1>
+      <label>再送 budget <select id="budget"><option value="0">0 ms</option><option value="500">500 ms</option><option value="5000" selected>5000 ms</option></select></label>
+      <button id="start">開始</button>
+      <button id="burst" disabled>受信 RTP をバースト再生</button>
+      <button id="interrupt" disabled>割り込み</button>
+      <button id="native">ネイティブ再生を切替</button>
+      <audio id="native-audio" autoplay controls muted></audio>
+      <p id="status">未接続</p>
+      <pre id="metrics">{}</pre>
+    </main>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>
