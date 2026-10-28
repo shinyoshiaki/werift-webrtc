@@ -504,6 +504,10 @@ export class RtpRouter {
           !(endpoint instanceof RTCRtpReceiver) && !endpoint.stopped,
       ),
     );
+    // RFC 4585 / RFC 4588 では、キーフレーム要求(PLI/FIR)の宛先は再送用(RTX)ではなく
+    // 元のメディアストリームの SSRC であることが前提で、libwebrtc もメディア SSRC 宛に送る。
+    // そのため strict では RTX SSRC を解決しない。ここは RTX SSRC 宛に送ってくる
+    // 非準拠な相手向けの compatible 限定の救済措置。
     const rtxOwner = [...senders].find((sender) => sender.rtxSsrc === ssrc);
     if (rtxOwner) return rtxOwner;
     const videoSenders = [...senders].filter(
