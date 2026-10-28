@@ -177,31 +177,67 @@ export class Context {
     return s;
   }
 
-  // 3.3.1.  Packet Index Determination, and ROC, s_l Update
-  // In particular, out-of-order RTP packets with
-  // sequence numbers close to 2^16 or zero must be properly handled.
-  updateRolloverCount(sequenceNumber: number, s: SrtpSsrcState) {
+  // RFC 3711 3.3.1.  Packet Index Determination, and ROC, s_l Update
+  // The state keeps only the highest accepted index (ROC, s_l). Each packet
+  // estimates its own ROC from it, so out-of-order packets, duplicates and
+  // retransmissions never shift the ROC of later packets.
+
+  /**
+   * Estimates the ROC of a packet without touching the state
+   * (RFC 3711 Appendix A).
+   *
+   * A packet guessed to belong to the cycle before ROC=0 is clamped to 0
+   * (negative ROC is not representable, see #94).
+   *
+   * @throws {SrtpRolloverCounterOverflowError} when the packet belongs to the
+   * cycle after ROC=0xFFFFFFFF (re-keying is required).
+   */
+  estimateRolloverCounter(sequenceNumber: number, s: SrtpSsrcState): number {
+    const roc = guessRolloverCounter(sequenceNumber, s);
+    if (roc < 0) {
+      return 0;
+    }
+    if (roc > MaxRolloverCounter) {
+      throw new SrtpRolloverCounterOverflowError(s.ssrc);
+    }
+    return roc;
+  }
+
+  /**
+   * Advances the highest accepted index (ROC, s_l) only when the packet is
+   * newer than it. Older packets, duplicates and packets whose ROC was clamped
+   * leave the state unchanged.
+   */
+  commitPacketIndex(
+    sequenceNumber: number,
+    rolloverCounter: number,
+    s: SrtpSsrcState,
+  ) {
     if (!s.rolloverHasProcessed) {
       s.rolloverHasProcessed = true;
-    } else if (sequenceNumber === 0) {
-      if (s.lastSequenceNumber > MaxROCDisorder) {
-        s.rolloverCounter++;
-      }
-    } else if (
-      s.lastSequenceNumber < MaxROCDisorder &&
-      sequenceNumber > MaxSequenceNumber - MaxROCDisorder
-    ) {
-      // https://github.com/shinyoshiaki/werift-webrtc/issues/94
-      if (s.rolloverCounter > 0) {
-        s.rolloverCounter--;
-      }
-    } else if (
-      sequenceNumber < MaxROCDisorder &&
-      s.lastSequenceNumber > MaxSequenceNumber - MaxROCDisorder
-    ) {
-      s.rolloverCounter++;
+      s.rolloverCounter = rolloverCounter;
+      s.lastSequenceNumber = sequenceNumber;
+      return;
     }
-    s.lastSequenceNumber = sequenceNumber;
+    const delta =
+      packetIndex(rolloverCounter, sequenceNumber) -
+      packetIndex(s.rolloverCounter, s.lastSequenceNumber);
+    // A newer packet is at most half a cycle ahead of the highest index.
+    if (delta > 0 && delta <= HalfSequenceNumberCycle) {
+      s.rolloverCounter = rolloverCounter;
+      s.lastSequenceNumber = sequenceNumber;
+    }
+  }
+
+  /**
+   * @deprecated Use {@link Context.estimateRolloverCounter} and
+   * {@link Context.commitPacketIndex}. Kept for compatibility.
+   * @returns the ROC to use for this packet
+   */
+  updateRolloverCount(sequenceNumber: number, s: SrtpSsrcState) {
+    const roc = this.estimateRolloverCounter(sequenceNumber, s);
+    this.commitPacketIndex(sequenceNumber, roc, s);
+    return roc;
   }
 
   generateSrtpAuthTag(buf: Buffer, roc: number) {
@@ -232,8 +268,11 @@ export class Context {
 
 export interface SrtpSsrcState {
   ssrc: number;
+  /** ROC of the highest accepted packet index (RFC 3711 ROC) */
   rolloverCounter: number;
+  /** whether the highest accepted packet index has been initialized */
   rolloverHasProcessed?: boolean;
+  /** sequence number of the highest accepted packet index (RFC 3711 s_l) */
   lastSequenceNumber: number;
 }
 
@@ -242,5 +281,35 @@ export type SrtcpSSRCState = {
   ssrc: number;
 };
 
-const MaxROCDisorder = 100;
-const MaxSequenceNumber = 65535;
+export class SrtpRolloverCounterOverflowError extends Error {
+  constructor(ssrc: number) {
+    super(
+      `SRTP rollover counter exhausted for ssrc ${ssrc}, re-keying required`,
+    );
+    this.name = "SrtpRolloverCounterOverflowError";
+  }
+}
+
+const SequenceNumberCycle = 0x10000;
+const HalfSequenceNumberCycle = 0x8000;
+const MaxRolloverCounter = 0xffffffff;
+
+/** 48bit packet index (fits in Number.MAX_SAFE_INTEGER) */
+const packetIndex = (rolloverCounter: number, sequenceNumber: number) =>
+  rolloverCounter * SequenceNumberCycle + sequenceNumber;
+
+/** RFC 3711 Appendix A. may return -1 or 2^32 */
+const guessRolloverCounter = (sequenceNumber: number, s: SrtpSsrcState) => {
+  if (!s.rolloverHasProcessed) {
+    return 0;
+  }
+  const { rolloverCounter, lastSequenceNumber } = s;
+  if (lastSequenceNumber < HalfSequenceNumberCycle) {
+    return sequenceNumber - lastSequenceNumber > HalfSequenceNumberCycle
+      ? rolloverCounter - 1
+      : rolloverCounter;
+  }
+  return lastSequenceNumber - HalfSequenceNumberCycle > sequenceNumber
+    ? rolloverCounter + 1
+    : rolloverCounter;
+};
