@@ -25,7 +25,9 @@ export class NackHandler {
     // 5 ms の既存送信間隔を維持し、待ち時間だけ peer 設定で伸ばす。
     this.retryCount = Math.max(
       0,
-      Math.ceil(receiver.config.nackRetryWindowMs / 5) - 1,
+      Math.ceil(
+        receiver.config.nackRetryWindowMs / receiver.config.nackRetryIntervalMs,
+      ) - 1,
     );
   }
 
@@ -53,7 +55,7 @@ export class NackHandler {
       } catch (error) {
         log("failed to send nack", error);
       }
-    }, 5);
+    }, this.receiver.config.nackRetryIntervalMs);
   }
 
   private removeLost(sequenceNumber: number) {

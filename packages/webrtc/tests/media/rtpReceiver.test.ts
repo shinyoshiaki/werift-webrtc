@@ -19,6 +19,40 @@ import { RTCRtpReceiver } from "../../src/media/rtpReceiver";
 import { createDtlsTransport } from "../fixture";
 
 describe("packages/webrtc/src/media/rtpReceiver.ts", () => {
+  test("negotiated audio NACK reports missing audio packets", async () => {
+    // Arrange: generic NACK を negotiate した Opus receiver と track を用意する。
+    const dtls = createDtlsTransport();
+    const receiver = new RTCRtpReceiver(defaultPeerConfig, "audio", 1234);
+    receiver.setDtlsTransport(dtls);
+    const track = new MediaStreamTrack({ kind: "audio" });
+    track.ssrc = 777;
+    receiver.addTrack(track);
+    receiver.prepareReceive({
+      codecs: [new RTCRtpCodecParameters({
+        mimeType: "audio/opus",
+        clockRate: 48000,
+        payloadType: 111,
+        rtcpFeedback: [{ type: "nack" }],
+      })],
+      encodings: [new RTCRtpCodingParameters({ ssrc: 777, payloadType: 111 })],
+      headerExtensions: [],
+    });
+    const requests: number[][] = [];
+    receiver.onPacketLost.subscribe((nack) => requests.push(nack.lost));
+
+    // Act: sequence 10 の次に 12 を受け、NACK timer を一度実行する。
+    receiver.handleRtpBySsrc(new RtpPacket(
+      new RtpHeader({ ssrc: 777, payloadType: 111, sequenceNumber: 10 }), Buffer.from([1]),
+    ), {});
+    receiver.handleRtpBySsrc(new RtpPacket(
+      new RtpHeader({ ssrc: 777, payloadType: 111, sequenceNumber: 12 }), Buffer.from([2]),
+    ), {});
+    await setTimeout(8);
+
+    // Assert: 音声の欠番 11 が negotiated NACK として通知される。
+    expect(requests.flat()).toContain(11);
+    receiver.stop();
+  });
   test("abort runRtcp", async () =>
     new Promise<void>(async (done) => {
       const dtls = createDtlsTransport();

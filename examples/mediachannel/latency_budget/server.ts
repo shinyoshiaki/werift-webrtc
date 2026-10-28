@@ -13,6 +13,11 @@ signaling.on("connection", (socket) => {
   let pc: RTCPeerConnection | undefined;
   let generation = 0;
   let latestPackets: Buffer[] = [];
+  let expectedSequence: number | undefined;
+  let weriftMissing = 0;
+  let weriftRecovered = 0;
+  let weriftUnrecovered = 0;
+  const pendingLoss = new Map<number, ReturnType<typeof setTimeout>>();
 
   socket.on("message", async (raw) => {
     const message = JSON.parse(String(raw));
@@ -63,9 +68,37 @@ signaling.on("connection", (socket) => {
               (transceiver) => transceiver.receiver.track === track,
             )?.sender;
           track.onReceiveRtp.subscribe((packet) => {
+            const sequence = packet.header.sequenceNumber;
+            if (expectedSequence != undefined) {
+              const delta = (sequence - expectedSequence + 65536) % 65536;
+              if (delta > 1 && delta < 32768) {
+                for (let step = 1; step < delta; step++) {
+                  const missing = (expectedSequence + step) % 65536;
+                  weriftMissing++;
+                  const timer = setTimeout(() => {
+                    if (pendingLoss.delete(missing)) {
+                      weriftUnrecovered++;
+                      report();
+                    }
+                  }, budget);
+                  pendingLoss.set(missing, timer);
+                }
+              } else if (pendingLoss.has(sequence)) {
+                clearTimeout(pendingLoss.get(sequence));
+                pendingLoss.delete(sequence);
+                weriftRecovered++;
+              }
+            }
+            if (
+              expectedSequence == undefined ||
+              ((sequence - expectedSequence + 65536) % 65536) < 32768
+            ) {
+              expectedSequence = sequence;
+            }
             latestPackets.push(packet.serialize());
             if (latestPackets.length > 250) latestPackets.shift();
             if (eventSender) void eventSender.sendRtp(packet);
+            report();
           });
         },
       );
@@ -74,16 +107,24 @@ signaling.on("connection", (socket) => {
       socket.send(
         JSON.stringify({ type: "answer", description: pc.localDescription }),
       );
-      pc.onPacketLost.subscribe((nack) => {
-        socket.send(
-          JSON.stringify({
-            type: "nack",
-            sequenceNumbers: nack.lost,
-            sentAt: Date.now(),
-          }),
-        );
-      });
+      pc.onPacketLost.subscribe(report);
     }
   });
-  socket.on("close", () => pc?.close());
+  socket.on("close", () => {
+    for (const timer of pendingLoss.values()) clearTimeout(timer);
+    pc?.close();
+  });
+
+  function report() {
+    if (socket.readyState === socket.OPEN) {
+      socket.send(
+        JSON.stringify({
+          type: "metrics",
+          weriftMissing,
+          weriftRecovered,
+          weriftUnrecovered,
+        }),
+      );
+    }
+  }
 });

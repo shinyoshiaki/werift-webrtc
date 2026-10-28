@@ -9,7 +9,7 @@
 
 ### Fixes
 
-- **`packages/webrtc`: audio codecs that negotiate generic RTCP `nack` now use the receiver NACK handler**, and debug packet loss percentages now drop the configured percentage. `DebugConfig.burstLoss` adds deterministic periodic bursts. `PeerConfig.nackRetryWindowMs` controls receiver retry time (default ~55 ms); `rtpHistorySize` controls sender history (default 128), and `RTCRtpSender.retransmit()` supports application-layer NACK. Defaults preserve the existing retry and history windows.
+- **`packages/webrtc`: audio codecs that negotiate generic RTCP `nack` now use the receiver NACK handler**, and debug packet loss percentages now drop the configured percentage. `DebugConfig.burstLoss` adds deterministic periodic bursts. `PeerConfig.nackRetryWindowMs` / `nackRetryIntervalMs` control receiver retry time and cadence (defaults 55 / 5 ms); `rtpHistorySize` controls sender history (default 128), and `RTCRtpSender.retransmit()` supports application-layer NACK. Defaults preserve the existing retry and history windows.
 - **RTP relay state no longer moves backwards for delayed retransmissions**; `RTCRtpSender` keeps its latest sequence/timestamp state while still forwarding CSRC values.
 
 ### Examples

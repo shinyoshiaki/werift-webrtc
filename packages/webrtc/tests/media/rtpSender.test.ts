@@ -40,6 +40,22 @@ describe("media/rtpSender", () => {
     expect(sentRtpHeaders(sendRtp)[0].csrc).toEqual([0x12345678]);
     sender.stop();
   });
+
+  test("a late relay packet does not rewind the sender timeline", async () => {
+    const { sender, sendRtp } = arrangeSender();
+
+    // Arrange: 連続した 2 パケットを送信して最新時刻を記録する。
+    await sender.sendRtp(createRtpPacket(100, 10_000));
+    await sender.sendRtp(createRtpPacket(101, 20_000));
+    const latest = sentRtpHeaders(sendRtp).at(-1)!;
+
+    // Act: 上流で回収した古い RTP packet を relay する。
+    await sender.sendRtp(createRtpPacket(100, 10_000));
+
+    // Assert: 遅延パケットは送出されるが、sender の SR timeline は最新値を保つ。
+    expect((sender as any).sequenceNumber).toBe(latest.sequenceNumber);
+    expect((sender as any).rtpTimestamp).toBe(latest.timestamp);
+  });
   test("stop releases the subscription on the DTLS transport", () => {
     // Arrange: DTLS transport に結び付けた sender。
     const dtls = createDtlsTransport();

@@ -26,12 +26,12 @@ describe("media/nack", () => {
   test("retry window controls retry count while keeping the 5 ms cadence", () => {
     // Arrange: 5 ms ごとの従来 cadence を持つ receiver を用意する。
     const short = new NackHandler(new MockRTCRtpReceiver(0) as any);
-    const long = new NackHandler(new MockRTCRtpReceiver(5000) as any);
+    const long = new NackHandler(new MockRTCRtpReceiver(5000, 25) as any);
 
     // Act: 設定 budget に対応する再試行数を確認する。
     // Assert: 既定相当は即時終了でき、5 秒設定はその時間分の retry を許可する。
     expect(short.retryCount).toBe(0);
-    expect(long.retryCount).toBe(999);
+    expect(long.retryCount).toBe(199);
     short.close();
     long.close();
   });
@@ -39,9 +39,9 @@ describe("media/nack", () => {
 
 class MockRTCRtpReceiver {
   rtcpSsrc = 0;
-  config: { nackRetryWindowMs: number };
-  constructor(nackRetryWindowMs: number) {
-    this.config = { nackRetryWindowMs };
+  config: { nackRetryWindowMs: number; nackRetryIntervalMs: number };
+  constructor(nackRetryWindowMs: number, nackRetryIntervalMs = 5) {
+    this.config = { nackRetryWindowMs, nackRetryIntervalMs };
   }
   dtlsTransport = {
     sendRtcp: (packets: RtcpPacket[]) => {

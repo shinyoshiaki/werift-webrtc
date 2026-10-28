@@ -114,6 +114,8 @@ export interface PeerConfig {
   pendingRtp: NonNullable<RTCRtpSenderOptions["pendingRtp"]>;
   /** Maximum time to request missing RTP packets. Defaults to the historical retry window (~55 ms). */
   nackRetryWindowMs: number;
+  /** Delay between missing-packet NACK requests. Defaults to 5 ms. */
+  nackRetryIntervalMs: number;
   /** Number of recent RTP packets retained by each sender for retransmission. Defaults to 128. */
   rtpHistorySize: number;
   /**
@@ -249,6 +251,7 @@ export function generateDefaultPeerConfig(): PeerConfig {
     sctp: { mtu: DEFAULT_SCTP_MTU },
     pendingRtp: false,
     nackRetryWindowMs: 55,
+    nackRetryIntervalMs: 5,
     rtpHistorySize: 128,
     mLineReuse: "compatible",
   };
@@ -343,7 +346,12 @@ export function clonePeerConfiguration(config: PeerConfig) {
       : undefined,
     dtls: { ...config.dtls },
     certificates: [...config.certificates],
-    debug: { ...config.debug },
+    debug: {
+      ...config.debug,
+      burstLoss: config.debug.burstLoss
+        ? { ...config.debug.burstLoss }
+        : undefined,
+    },
     sctp: { ...config.sctp },
     pendingRtp:
       typeof config.pendingRtp === "object" && config.pendingRtp != undefined

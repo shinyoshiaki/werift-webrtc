@@ -13,6 +13,9 @@ const result = {
   receivedPackets: 0,
   missingPackets: 0,
   recoveredPackets: 0,
+  weriftMissing: 0,
+  weriftRecovered: 0,
+  weriftUnrecovered: 0,
   decodedSamples: 0,
   generation: 0,
   rtpTimestamp: undefined as number | undefined,
@@ -26,6 +29,7 @@ let channel: RTCDataChannel;
 let decoder: AudioDecoder | undefined;
 let worklet: AudioWorkletNode | undefined;
 let context: AudioContext | undefined;
+let transformWorker: Worker | undefined;
 let lastSequence: number | undefined;
 const sequenceGap = new Set<number>();
 
@@ -34,20 +38,20 @@ function update() {
   (window as any).__latencyBudgetResult = { ...result };
 }
 
-function createPlayer() {
+async function createPlayer() {
   if (!("AudioDecoder" in window) || !("AudioWorkletNode" in window)) {
     status.textContent = "WebCodecs AudioDecoder / AudioWorklet が必要です";
     return;
   }
   context = new AudioContext();
-  void context.audioWorklet.addModule("./player-worklet.js").then(() => {
-    worklet = new AudioWorkletNode(context!, "latency-budget-player", {
+  await context.audioWorklet.addModule("./player-worklet.js");
+  worklet = new AudioWorkletNode(context, "latency-budget-player", {
       numberOfInputs: 0,
       numberOfOutputs: 1,
       outputChannelCount: [1],
     });
-    worklet.connect(context!.destination);
-    decoder = new AudioDecoder({
+  worklet.connect(context.destination);
+  decoder = new AudioDecoder({
       output: (audioData) => {
         const samples = new Float32Array(audioData.numberOfFrames);
         audioData.copyTo(samples, { planeIndex: 0, format: "f32-planar" });
@@ -61,15 +65,47 @@ function createPlayer() {
       error: (error) => {
         status.textContent = `decoder error: ${error.message}`;
       },
-    });
-    decoder.configure({
+  });
+  decoder.configure({
       codec: "opus",
       sampleRate: 48000,
       numberOfChannels: 2,
-    });
-    nativeAudio.muted = true;
-    status.textContent = "Encoded Transform player ready";
   });
+  nativeAudio.muted = true;
+  status.textContent = "Encoded Transform player ready";
+}
+
+function acceptFrame(metadata: Record<string, any>, timestamp: number, data?: ArrayBuffer) {
+  const sequence = metadata.sequenceNumber as number | undefined;
+  result.encodedFrames++;
+  result.receivedPackets++;
+  result.rtpTimestamp = timestamp;
+  if (sequence != null && lastSequence != null) {
+    const delta = (sequence - lastSequence + 65536) % 65536;
+    if (delta > 1 && delta < 32768) {
+      for (let n = 1; n < delta; n++) {
+        const lost = (lastSequence + n) % 65536;
+        sequenceGap.add(lost);
+        result.missingPackets++;
+      }
+    } else if (sequenceGap.delete(sequence)) {
+      result.recoveredPackets++;
+    }
+  }
+  if (sequence != null) lastSequence = sequence;
+  if (decoder && data?.byteLength) {
+    try {
+      decoder.decode(new EncodedAudioChunk({
+        type: "key",
+        timestamp: Math.round((timestamp * 1_000_000) / 48000),
+        data,
+      }));
+    } catch { /* decode errors are reflected by the browser decoder */ }
+  }
+  if (sequenceGap.size && channel?.readyState === "open") {
+    channel.send(JSON.stringify({ type: "nack", sequenceNumbers: [...sequenceGap] }));
+  }
+  update();
 }
 
 function attachTransform(receiver: RTCRtpReceiver) {
@@ -79,73 +115,45 @@ function attachTransform(receiver: RTCRtpReceiver) {
       writable: WritableStream<EncodedAudio>;
     };
   };
-  if (!encodedReceiver.createEncodedStreams) {
-    result.transform = "RTCRtpScriptTransform required";
-    status.textContent = "この Chromium は createEncodedStreams に未対応です";
-    update();
-    return;
-  }
-  result.transform = "createEncodedStreams";
-  const streams = encodedReceiver.createEncodedStreams();
-  const transform = new TransformStream<EncodedAudio, EncodedAudio>({
-    transform(frame, controller) {
-      const metadata = frame.getMetadata?.() ?? {};
-      const sequence = metadata.sequenceNumber as number | undefined;
-      const timestamp = (metadata.rtpTimestamp ?? frame.timestamp) as number;
-      result.encodedFrames++;
-      result.receivedPackets++;
-      result.rtpTimestamp = timestamp;
-      if (sequence != null && lastSequence != null) {
-        const delta = (sequence - lastSequence + 65536) % 65536;
-        if (delta > 1 && delta < 32768) {
-          for (let n = 1; n < delta; n++) {
-            const lost = (lastSequence + n) % 65536;
-            sequenceGap.add(lost);
-            result.missingPackets++;
-          }
-        } else if (sequenceGap.delete(sequence)) {
-          result.recoveredPackets++;
-        }
-      }
-      if (sequence != null) lastSequence = sequence;
-      if (decoder && frame.data.byteLength) {
-        try {
-          decoder.decode(
-            new EncodedAudioChunk({
-              type: "key",
-              timestamp: Math.round((timestamp * 1_000_000) / 48000),
-              data: frame.data,
-            }),
-          );
-        } catch {
-          /* decode errors are reflected by the browser decoder */
-        }
-      }
-      if (sequenceGap.size && channel?.readyState === "open") {
-        channel.send(
-          JSON.stringify({ type: "nack", sequenceNumbers: [...sequenceGap] }),
-        );
-      }
-      update();
-      controller.enqueue(frame);
-    },
-  });
-  void streams.readable
-    .pipeThrough(transform)
-    .pipeTo(streams.writable)
-    .catch((error) => {
+  if (encodedReceiver.createEncodedStreams) {
+    result.transform = "createEncodedStreams";
+    const streams = encodedReceiver.createEncodedStreams();
+    const transform = new TransformStream<EncodedAudio, EncodedAudio>({
+      transform(frame, controller) {
+        const metadata = frame.getMetadata?.() ?? {};
+        const timestamp = (metadata.rtpTimestamp ?? frame.timestamp) as number;
+        acceptFrame(metadata, timestamp, frame.data.slice().buffer as ArrayBuffer);
+        controller.enqueue(frame);
+      },
+    });
+    void streams.readable.pipeThrough(transform).pipeTo(streams.writable).catch((error) => {
       status.textContent = `transform stopped: ${error}`;
     });
+  } else if ("RTCRtpScriptTransform" in window) {
+    result.transform = "RTCRtpScriptTransform";
+    transformWorker = new Worker("./transform-worker.js");
+    transformWorker.onmessage = ({ data }) => {
+      if (data.type === "frame") acceptFrame(data.metadata, data.timestamp, data.payload);
+    };
+    (receiver as any).transform = new (window as any).RTCRtpScriptTransform(transformWorker, { operation: "inspect" });
+  } else {
+    result.transform = "unavailable";
+    status.textContent = "Encoded Transform API がこの Chrome で使えません";
+  }
+  update();
 }
 
 $("start").addEventListener("click", async () => {
   $("start").setAttribute("disabled", "");
-  createPlayer();
+  await createPlayer();
   const local = await navigator.mediaDevices.getUserMedia({
     audio: true,
     video: false,
   });
-  pc = new RTCPeerConnection({ iceServers: [] });
+  pc = new RTCPeerConnection({
+    iceServers: [],
+    encodedInsertableStreams: true,
+  } as RTCConfiguration & { encodedInsertableStreams: boolean });
   pc.addTrack(local.getAudioTracks()[0]);
   pc.ontrack = (event) => {
     nativeAudio.srcObject = event.streams[0];
@@ -173,6 +181,13 @@ $("start").addEventListener("click", async () => {
   socket = new WebSocket(`ws://${location.hostname}:8888`);
   socket.onmessage = async ({ data }) => {
     const message = JSON.parse(data);
+    if (message.type === "metrics") {
+      result.weriftMissing = message.weriftMissing;
+      result.weriftRecovered = message.weriftRecovered;
+      result.weriftUnrecovered = message.weriftUnrecovered;
+      update();
+      return;
+    }
     if (message.type !== "answer") return;
     await pc.setRemoteDescription(message.description);
   };
