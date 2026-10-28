@@ -104,7 +104,21 @@ describe("MediaRecorder audio jitterBuffer", () => {
    * Arrange / Act: 映像と音声を `order` の順に登録して約 4 秒録音する。
    * 音声は seq 2 が欠落し、jitter buffer (latency 5000ms) が後続を保持したまま録音を止める
    */
-  async function recordAv(order: ("video" | "audio")[]) {
+  async function recordAv(
+    order: ("video" | "audio")[],
+    options: {
+      jitterBuffer?: { latency: number };
+      /** audio frames (20ms) */
+      frames?: number;
+      /** audio seq not delivered */
+      lost?: number[];
+      /** video stops after this many ms */
+      videoUntilMs?: number;
+    } = { jitterBuffer: { latency: 5000 } },
+  ) {
+    const frames = options.frames ?? 200;
+    const lost = options.lost ?? [2];
+    const videoUntilMs = options.videoUntilMs ?? Number.POSITIVE_INFINITY;
     const audio = new MediaStreamTrack({
       kind: "audio",
       remote: true,
@@ -134,13 +148,13 @@ describe("MediaRecorder audio jitterBuffer", () => {
       width: 320,
       height: 240,
       disableNtp: true,
-      jitterBuffer: { latency: 5000 },
+      jitterBuffer: options.jitterBuffer,
     });
     await new Promise((r) => setTimeout(r, 50));
 
     // 4 秒分: 音声 20ms (200 フレーム、seq 2 は届かない)、映像 40ms ごとのキーフレーム
-    for (let i = 0; i < 200; i++) {
-      if (i !== 2) {
+    for (let i = 0; i < frames; i++) {
+      if (!lost.includes(i)) {
         audio.onReceiveRtp.execute(
           new RtpPacket(
             new RtpHeader({
@@ -153,7 +167,7 @@ describe("MediaRecorder audio jitterBuffer", () => {
           ),
         );
       }
-      if (i % 2 === 0) {
+      if (i % 2 === 0 && i * 20 <= videoUntilMs) {
         video.onReceiveRtp.execute(
           new RtpPacket(
             new RtpHeader({
@@ -173,7 +187,7 @@ describe("MediaRecorder audio jitterBuffer", () => {
     }
     await recorder.stop();
     const webm = await readFile(path);
-    return Array.from({ length: 200 }, (_, i) => i).filter(
+    return Array.from({ length: frames }, (_, i) => i).filter(
       (seq) => webm.indexOf(marker(seq)) >= 0,
     );
   }
@@ -193,4 +207,16 @@ describe("MediaRecorder audio jitterBuffer", () => {
       );
     },
   );
+
+  test("jitterBuffer なしで映像が止まっても、続く 6 秒の音声を全て保存する", async () => {
+    // Act: 映像は 240ms で止まり、欠落のない音声 301 フレームが続く
+    const saved = await recordAv(["video", "audio"], {
+      frames: 301,
+      lost: [],
+      videoUntilMs: 240,
+    });
+
+    // Assert
+    expect(saved).toEqual(Array.from({ length: 301 }, (_, i) => i));
+  });
 });

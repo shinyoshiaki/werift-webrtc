@@ -93,4 +93,31 @@ describe("Lipsync", () => {
     expect(audio).toEqual([0, "eol"]);
     expect(video).toEqual([10, "eol"]);
   });
+
+  test("映像がリング容量 (5 秒) 以上止まっても、続く音声を周回の混在で捨てない", () => {
+    // Arrange: 既定設定。映像は 240ms で止まる
+    const { lipsync, audio, video, frame } = arrange();
+    for (let time = 0; time <= 240; time += 40) {
+      lipsync.processVideoInput(frame(time));
+    }
+
+    // Act: 欠落のない音声を 6 秒分 (301 フレーム) 入力する
+    for (let time = 0; time <= 6000; time += 20) {
+      lipsync.processAudioInput(frame(time));
+    }
+    const beforeEnd = [...audio];
+    lipsync.processVideoInput({ eol: true });
+    lipsync.processAudioInput({ eol: true });
+
+    // Assert: 終了前に出力した分は先頭から 20ms 刻みで連続し (時刻が飛ばない)、終了後は 301 フレーム全てが出る
+    expect(beforeEnd.length).toBeGreaterThan(0);
+    expect(beforeEnd).toEqual(
+      Array.from({ length: beforeEnd.length }, (_, i) => i * 20),
+    );
+    expect(audio).toEqual([
+      ...Array.from({ length: 301 }, (_, i) => i * 20),
+      "eol",
+    ]);
+    expect(video).toEqual([0, 40, 80, 120, 160, 200, 240, "eol"]);
+  });
 });

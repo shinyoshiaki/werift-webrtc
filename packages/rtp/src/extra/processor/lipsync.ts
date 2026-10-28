@@ -256,6 +256,18 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
     }
     this.lastFrameReceivedAt = now;
 
+    // The ring holds one lap: a frame a full ring or more ahead of the next
+    // buffer to output would share a buffer with older frames (and be output
+    // before the frames in between, which are then dropped as too old).
+    // Output the older lap first, whatever the frontier says.
+    const ring = this.bufferLength * this.bufferDuration;
+    if (frame.time >= this.currentTimestamp + ring) {
+      while (frame.time >= this.currentTimestamp + ring) {
+        this.executeTask();
+      }
+      this.lastExecutionTime = this.currentTimestamp;
+    }
+
     const elapsed = frame.time - this.baseTime;
     const index = int(elapsed / this.bufferDuration) % this.bufferLength;
     buffer[index].push({
