@@ -193,6 +193,7 @@ const summarize = (stats: PlayerStats) => ({
   nackSent: stats.nackSent,
   nackGaveUp: stats.nackGaveUp,
   delayMs: Math.round(stats.delayMs),
+  startDelayMs: Math.round(stats.startDelayMs),
   maxDelayMs: Math.round(stats.maxDelayMs),
   stalledMs: Math.round(stats.stalledMs),
   arrivalSpanMs: Math.round(stats.arrivalSpanMs),
@@ -272,18 +273,23 @@ async function runB(options: {
 // Scenario C: one upstream, two subscribers with different budgets.
 async function runC(options: {
   budgets: number[];
+  /** Fallback when `minDelays` has no entry for a subscriber */
   minDelayMs: number;
+  /** minDelay per subscriber, in the order of `budgets` */
+  minDelays?: number[];
   durationMs: number;
   loss: BurstLoss;
 }) {
   const pub = await publish({ budgetMs: 0 });
   const subs = [];
-  for (const budgetMs of options.budgets) {
+  for (const [i, budgetMs] of options.budgets.entries()) {
+    const minDelayMs = options.minDelays?.[i] ?? options.minDelayMs;
     subs.push({
       budgetMs,
+      minDelayMs,
       sub: await subscribe(
         { type: "join", role: "subscriber", budgetMs, loss: options.loss },
-        { minDelayMs: options.minDelayMs, maxDelayMs: budgetMs, appNack: true },
+        { minDelayMs, maxDelayMs: budgetMs, appNack: true },
         "player",
       ),
     });
@@ -294,11 +300,11 @@ async function runC(options: {
   });
   const collect = () =>
     Object.fromEntries(
-      subs.map(({ budgetMs, sub }) => [
+      subs.map(({ budgetMs, minDelayMs, sub }) => [
         String(budgetMs),
         {
           budgetMs,
-          minDelayMs: options.minDelayMs,
+          minDelayMs,
           player: summarize(sub.player.stats),
           server: sub.server,
         },
@@ -425,7 +431,8 @@ button("b-start", () =>
 button("c-start", () =>
   runC({
     budgets: [num("c-budget-1"), num("c-budget-2")],
-    minDelayMs: num("c-min-delay"),
+    minDelayMs: num("c-min-delay-1"),
+    minDelays: [num("c-min-delay-1"), num("c-min-delay-2")],
     durationMs: num("c-duration"),
     loss: lossInput("c"),
   }),

@@ -25,6 +25,7 @@ export type WorkletStats = {
   oldGenerationPlayed: number;
   stalledMs: number;
   delayMs: number;
+  startDelayMs: number;
   maxDelayMs: number;
   spurts: number;
   spurtPlayedSamples: number;

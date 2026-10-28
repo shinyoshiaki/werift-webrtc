@@ -77,6 +77,8 @@ for (const entry of catalogByGroup("browser").filter(
         const c = await runLatencyBudgetScenario(page, "runC", {
           budgets: [500, 5000],
           minDelayMs: 100,
+          // subscriber ごとに minDelay を変える (500ms 側 60ms、5000ms 側 300ms)
+          minDelays: [60, 300],
           durationMs: 10_000,
           loss: latencyBudgetLoss.downstream,
         });
@@ -95,6 +97,14 @@ for (const entry of catalogByGroup("browser").filter(
         expect(long.player.maxDelayMs).toBeGreaterThan(short.player.maxDelayMs);
         // Assert: 500ms subscriber の遅延は budget 内に収まる
         expect(short.player.maxDelayMs).toBeLessThanOrEqual(500 + 20);
+        // Assert: minDelay が subscriber ごとに効き、再生開始時の遅延が設定差に沿う
+        expect(short.minDelayMs).toBe(60);
+        expect(long.minDelayMs).toBe(300);
+        expect(short.player.startDelayMs).toBeGreaterThanOrEqual(60);
+        expect(long.player.startDelayMs).toBeGreaterThanOrEqual(300);
+        expect(long.player.startDelayMs).toBeGreaterThan(
+          short.player.startDelayMs + 100,
+        );
         // Assert: budget が DataChannel 経由で werift の再送打ち切りに反映される
         expect(short.server.budgetMs).toBe(500);
         expect(long.server.budgetMs).toBe(5000);

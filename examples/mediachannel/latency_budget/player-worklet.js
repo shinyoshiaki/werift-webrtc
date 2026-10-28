@@ -34,6 +34,8 @@ class BudgetPlayerProcessor extends AudioWorkletProcessor {
       oldGenerationPlayed: 0,
       stalledMs: 0,
       delayMs: 0,
+      // delay when playback first started: where minDelay shows up
+      startDelayMs: 0,
       maxDelayMs: 0,
       spurts: 0,
       spurtPlayedSamples: 0,
@@ -120,6 +122,9 @@ class BudgetPlayerProcessor extends AudioWorkletProcessor {
     }
     if (this.state === "buffering" && this.delay() >= this.minDelay) {
       this.state = "playing";
+      if (this.stats.startDelayMs === 0) {
+        this.stats.startDelayMs = (this.delay() * 1000) / sampleRate;
+      }
     }
     if (this.state === "playing") {
       this.render(out, n);
