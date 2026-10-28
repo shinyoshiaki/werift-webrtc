@@ -40,6 +40,11 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
   private internalStats = {};
   /**ms */
   private lastFrameReceivedAt = 0;
+  /** newest frame time per kind (ms) */
+  private readonly latestTime: Partial<Record<MediaKind, number>> = {};
+  /** kinds in use (piped, or with input) and the ones that ended */
+  protected readonly kinds = new Set<MediaKind>();
+  private readonly endedKinds = new Set<MediaKind>();
 
   constructor(
     private audioOutput: (output: LipsyncOutput) => void,
@@ -127,6 +132,24 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
     }
   }
 
+  /**
+   * Time up to which buffered frames may be output: the slowest kind still
+   * running, so a kind that lags (a jitter buffer waiting for a lost packet)
+   * is not dropped as too old once the other kind has moved on. Bounded by
+   * the ring of buffers, which must not wrap over frames not yet output.
+   */
+  private commitFrontier() {
+    // A kind in use that has no frame yet has not progressed at all.
+    const running = [...this.kinds]
+      .filter((kind) => !this.endedKinds.has(kind))
+      .map((kind) => this.latestTime[kind] ?? this.baseTime!);
+    const all = Object.values(this.latestTime) as number[];
+    const newest = Math.max(...all);
+    const slowest = running.length > 0 ? Math.min(...running) : newest;
+    const capacity = (this.bufferLength - 2) * this.bufferDuration;
+    return Math.max(slowest, newest - capacity);
+  }
+
   private stop() {
     this.stopped = true;
     this.audioBuffer = [];
@@ -134,10 +157,28 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
   }
 
   /**
-   * End of stream: output what is still buffered (the last sync interval) in
-   * time order instead of dropping it, for both kinds, as the first end of
-   * stream stops the whole processor.
+   * End of stream of one kind. The other kind may still be draining (e.g. its
+   * jitter buffer outputs what it held at its own end of stream), so the
+   * processor only ends when every kind in use has ended: then what is still
+   * buffered is output in time order, followed by the end of each kind.
    */
+  private end(kind: MediaKind) {
+    this.kinds.add(kind);
+    this.endedKinds.add(kind);
+    if ([...this.kinds].some((k) => !this.endedKinds.has(k))) {
+      return;
+    }
+    this.flush();
+    const audioOutput = this.audioOutput;
+    const videoOutput = this.videoOutput;
+    this.stop();
+    this.audioOutput = undefined as any;
+    this.videoOutput = undefined as any;
+    if (this.endedKinds.has("audio")) audioOutput?.({ eol: true });
+    if (this.endedKinds.has("video")) videoOutput?.({ eol: true });
+  }
+
+  /** Output what is still buffered (the last sync interval) in time order. */
   private flush() {
     if (this.stopped) {
       return;
@@ -155,24 +196,18 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
     }
   }
 
-  processAudioInput = ({ frame, eol }: LipsyncInput) => {
+  processAudioInput = ({ frame }: LipsyncInput) => {
     if (!frame) {
-      this.flush();
-      this.audioOutput({ eol });
-      this.stop();
-      this.audioOutput = undefined as any;
+      this.end("audio");
       return;
     }
 
     this.processInput(frame, this.audioBuffer, "audio");
   };
 
-  processVideoInput = ({ frame, eol }: LipsyncInput) => {
+  processVideoInput = ({ frame }: LipsyncInput) => {
     if (!frame) {
-      this.flush();
-      this.videoOutput({ eol });
-      this.stop();
-      this.videoOutput = undefined as any;
+      this.end("video");
       return;
     }
 
@@ -190,6 +225,7 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
     if (this.stopped) {
       return;
     }
+    this.kinds.add(kind);
 
     if (this.baseTime == undefined) {
       this.baseTime = frame.time;
@@ -227,7 +263,11 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
       kind,
     });
 
-    const diff = frame.time - this.lastExecutionTime;
+    this.latestTime[kind] = Math.max(
+      this.latestTime[kind] ?? frame.time,
+      frame.time,
+    );
+    const diff = this.commitFrontier() - this.lastExecutionTime;
     if (diff >= this.interval) {
       const times = int(diff / this.bufferDuration) - 1;
       this.lastExecutionTime = this.currentTimestamp;

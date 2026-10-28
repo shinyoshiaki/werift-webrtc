@@ -29,10 +29,12 @@ export class LipsyncCallback extends LipsyncBase {
   pipeAudio = (cb: (input: LipsyncOutput) => void, destructor?: () => void) => {
     this.audioCb = cb;
     this.audioDestructor = destructor;
+    this.kinds.add("audio");
   };
   pipeVideo = (cb: (input: LipsyncOutput) => void, destructor?: () => void) => {
     this.videoCb = cb;
     this.videoDestructor = destructor;
+    this.kinds.add("video");
   };
 
   inputAudio = (input: LipsyncInput) => {

@@ -18,7 +18,7 @@
   - `JitterBuffer` (rtp processor): when a missing packet times out, the buffered packets behind it are now output once, in order. Before, the position jumped to the newest input and intermediate packets were skipped or output twice.
   - `MediaRecorder` `jitterBuffer` option now also reorders audio (opt-in; audio is still written in arrival order when unset), so audio recovered by a late NACK is recorded in sequence order.
   - `PeerConfig.rtpHistorySize` / `RTCRtpSenderOptions.rtpHistorySize`: send history kept for retransmission (default 128; at least this many packets are kept, the ring is rounded up to a power of two so it survives the 16-bit sequence wrap).
-  - `RTCRtpSender.retransmit(sequenceNumbers, { maxAgeMs })` (nonstandard): resend packets from the send history, for NACKs that arrive outside RTCP (for example an application-layer NACK over a DataChannel). RTCP generic NACK handling uses the same path.
+  - `RTCRtpSender.retransmit(sequenceNumbers, { maxAgeMs })` (nonstandard): resend packets from the send history, for NACKs that arrive outside RTCP (for example an application-layer NACK over a DataChannel). RTCP generic NACK handling uses the same path. `maxAgeMs` counts from the first send of a packet, also when the same packet is sent (relayed) again.
   - `DebugConfig.inboundBurstLoss` / `outboundBurstLoss`: deterministic periodic burst loss of RTP (`{ intervalMs, durationMs, offsetMs? }`).
   - `DebugConfig.inboundRtpDrop(rtp)`: drop inbound RTP by its header (`sequenceNumber` / `timestamp` / `ssrc`), for deterministic loss per sequence number (e.g. only the first transmission).
 
@@ -27,7 +27,7 @@
 - **`DebugConfig.inboundPacketLoss` / `outboundPacketLoss` dropped the complement of the given percentage** (`loss / 100 < Math.random()`): `10` dropped about 90% of the packets. They now drop the given percentage.
 - **`RTCRtpSender` no longer rewinds its output state when an older packet is sent** (for example a retransmission recovered upstream and relayed later): the continuity base used by `replaceTrack()` and the RTCP SR RTP timestamp stay at the newest packet. The packet itself is still sent.
 - Receiver-side NACK detects losses across the 16-bit sequence number wrap, lists lost sequence numbers in detection order (they were sorted as strings), and no longer leaves its retry timer running after all lost packets are resolved.
-- **`Lipsync` (rtp processor, used by `MediaRecorder`) dropped the last sync interval at the end of a stream**: the frames still buffered are now output in time order before `eol`, so a recording no longer loses its last ~0.5s.
+- **`Lipsync` (rtp processor, used by `MediaRecorder`) dropped audio or video at the end of a stream and when one kind lagged**: it now ends only when every kind in use has ended (so frames a jitter buffer outputs at its own end of stream are kept), outputs what is still buffered in time order before `eol` (a recording no longer loses its last ~0.5s), and outputs frames only up to the slowest kind, so a kind held back by a jitter buffer waiting for a lost packet is no longer dropped as too old. `MediaRecorder` sizes the lipsync buffer from `jitterBuffer.latency`.
 - PEM passed to `dtls.keys` / `RTCCertificate` / `CipherContext` may still be indented (for example inside an indented template literal), as it was with `@fidm/x509`. `werift-dtls` exports the `normalizePem()` helper used for this.
 
 ### Dependencies

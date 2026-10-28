@@ -80,7 +80,17 @@ export class WebmFactory extends MediaWriter {
     const webm = new WebmCallback(inputTracks, {
       duration: this.props.defaultDuration ?? 1000 * 60 * 60 * 24,
     });
-    const lipsync = new LipsyncCallback(this.props.lipsync ?? {});
+    // A kind can lag the other by up to the jitter buffer latency (it waits
+    // for a lost packet); the lipsync ring must hold that much.
+    const lipsyncOptions = this.props.lipsync ?? {};
+    const syncInterval = lipsyncOptions.syncInterval ?? 500;
+    const jitterLatency = this.props.jitterBuffer?.latency ?? 0;
+    const lipsync = new LipsyncCallback({
+      ...lipsyncOptions,
+      bufferLength:
+        lipsyncOptions.bufferLength ??
+        Math.max(10, Math.ceil(jitterLatency / syncInterval) + 2),
+    });
 
     this.rtpSources = inputTracks.map(({ track, clockRate, codec }) => {
       const rtpSource = new RtpSourceCallback();

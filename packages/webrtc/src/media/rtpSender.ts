@@ -816,7 +816,15 @@ export class RTCRtpSender {
       !cached ||
       !uint16Gt(cached.packet.header.sequenceNumber, header.sequenceNumber)
     ) {
-      this.rtpCache[slot] = { packet: rtp, sentAt: Date.now() };
+      // The same packet sent again (relayed twice) keeps its first send time:
+      // `retransmit({ maxAgeMs })` measures the age from the first send.
+      const resent =
+        cached?.packet.header.sequenceNumber === header.sequenceNumber &&
+        cached.packet.header.timestamp === header.timestamp;
+      this.rtpCache[slot] = {
+        packet: rtp,
+        sentAt: resent ? cached.sentAt : Date.now(),
+      };
     }
 
     let rtpPayload = payload;

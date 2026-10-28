@@ -1371,6 +1371,25 @@ describe("media/rtpSender retransmission and relay", () => {
     expect(sendRtp).toHaveBeenCalledTimes(1);
   });
 
+  test("同じ RTP を再び sendRtp しても、maxAgeMs は初回送信から数える", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const { sender, sendRtp } = arrangeSender();
+    await sender.sendRtp(createRtpPacket(1, 960));
+    const [seq] = sentRtpHeaders(sendRtp).map(
+      (header) => header.sequenceNumber,
+    );
+
+    // Act: 1 秒後に同じ RTP を再び中継してから、500ms の budget で要求する
+    vi.setSystemTime(Date.now() + 1000);
+    await sender.sendRtp(createRtpPacket(1, 960));
+    sendRtp.mockClear();
+    const retransmitted = await sender.retransmit([seq], { maxAgeMs: 500 });
+
+    // Assert: 初回送信から 1 秒経っているので再送しない
+    expect(retransmitted).toEqual([]);
+    expect(sendRtp).not.toHaveBeenCalled();
+  });
+
   test("retransmit は RTX が negotiate されていれば RTX で包む", async () => {
     const { sender, sendRtp } = arrangeSender({ rtx: true });
     await sender.sendRtp(createRtpPacket(1, 960, Buffer.from([7])));
