@@ -80,10 +80,11 @@ async function publish(options: {
       return stats;
     },
     stop: async () => {
+      // Stop sending first, then let werift settle the losses already detected.
+      track.stop();
       const stopped = session.next("stopped");
       session.send({ type: "stop" });
       await stopped;
-      track.stop();
       session.close();
       return stats;
     },

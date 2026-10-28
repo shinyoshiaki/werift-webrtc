@@ -1,34 +1,41 @@
-// The live edge of the upstream media clock, advanced by wall time while no
-// RTP arrives. Comparing a recovered packet only with the newest RTP would
-// keep its lag at ~20ms when the upstream stops and the retransmission is the
-// next packet to arrive.
+// How late a packet is, judged on the media clock: the delay of the best
+// packet seen so far (smallest arrival time minus RTP time) is the baseline,
+// and a packet's lag is how much later than that baseline it is *now*.
+//
+// Using the newest RTP packet as the reference would be wrong in two ways: it
+// keeps a recovered packet's lag at ~20ms when the upstream went quiet, and it
+// moves the reference back when a newer packet itself arrives late.
 
 const RTP_TICKS_PER_MS = 48;
 
 export class LiveEdge {
-  private timestamp?: number;
-  private at = 0;
+  private baseTimestamp?: number;
+  /** min over packets of (arrival ms - RTP ms since the first packet) */
+  private baseline = 0;
 
   /** A new publisher has its own timestamp base. */
   reset() {
-    this.timestamp = undefined;
+    this.baseTimestamp = undefined;
   }
 
-  /** Call for every received packet. Only a newer timestamp moves the edge. */
+  /** RTP time in ms since the first packet (signed 32bit wrap: ~12h range) */
+  private rtpMs(timestamp: number) {
+    return ((timestamp - this.baseTimestamp!) | 0) / RTP_TICKS_PER_MS;
+  }
+
+  /** Call for every received packet. */
   update(timestamp: number, now = Date.now()) {
-    if (
-      this.timestamp === undefined ||
-      ((timestamp - this.timestamp) | 0) > 0
-    ) {
-      this.timestamp = timestamp;
-      this.at = now;
+    if (this.baseTimestamp === undefined) {
+      this.baseTimestamp = timestamp;
+      this.baseline = now;
+      return;
     }
+    this.baseline = Math.min(this.baseline, now - this.rtpMs(timestamp));
   }
 
-  /** ms the packet is behind the live edge, including wall time since the edge moved */
+  /** ms the packet is behind the best-case playout of its RTP time at `now` */
   lagMs(timestamp: number, now = Date.now()) {
-    if (this.timestamp === undefined) return 0;
-    const media = ((this.timestamp - timestamp) | 0) / RTP_TICKS_PER_MS;
-    return Math.max(0, media + (now - this.at));
+    if (this.baseTimestamp === undefined) return 0;
+    return Math.max(0, now - this.rtpMs(timestamp) - this.baseline);
   }
 }

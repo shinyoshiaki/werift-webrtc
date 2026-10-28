@@ -16,6 +16,19 @@ describe("latency_budget LiveEdge", () => {
     expect(lag).toBeGreaterThan(500);
   });
 
+  test("遅れて届いた新しい RTP が基準を巻き戻さず、その後の古い再送も遅れとして判定する", () => {
+    // Arrange: seq 1 を 0ms に受信。seq 4 は 60ms 頃に生成されたが 2000ms に遅れて届く
+    const edge = new LiveEdge();
+    edge.update(1 * 960, 0);
+    edge.update(4 * 960, 2000);
+
+    // Act: 直後 (2001ms) に seq 3 の再送が届く
+    const lag = edge.lagMs(3 * 960, 2001);
+
+    // Assert: seq 3 は約 2 秒遅れているので、500ms の budget を超える
+    expect(lag).toBeGreaterThan(1900);
+  });
+
   test("新しい RTP が届き続けていれば、直前の再送の遅れは小さい", () => {
     // Arrange
     const edge = new LiveEdge();

@@ -20,6 +20,8 @@ import { LiveEdge } from "./liveEdge";
 const port = 8888;
 /** NACK retry interval used with a latency budget */
 const NACK_RETRY_INTERVAL_MS = 20;
+/** Time for in-flight RTP to arrive after the client stopped sending */
+const SETTLE_GRACE_MS = 200;
 /** 20ms Opus: 10s of send history covers the 5s budget with room to spare */
 const RTP_HISTORY_SIZE = 512;
 /** Lost packets tracked per 20ms Opus frame of budget, plus some slack */
@@ -206,7 +208,22 @@ async function runPublisher(socket: WebSocket, join: JoinMessage) {
     });
   const timer = setInterval(report, 250);
 
-  const finish = async () => {
+  /**
+   * The client has stopped sending. Wait for the losses already detected to be
+   * recovered, or for their budget to run out, before closing the recording.
+   * (A loss at the very tail is only detected by a later packet, so it can't
+   * be waited for.)
+   */
+  const settle = async () => {
+    await setTimeout(SETTLE_GRACE_MS);
+    const until = Date.now() + self.upstreamBudgetMs + SETTLE_GRACE_MS;
+    while (self.receiver.nackStats.pending > 0 && Date.now() < until) {
+      await setTimeout(20);
+    }
+  };
+
+  const finish = async (options: { settle?: boolean } = {}) => {
+    if (options.settle) await settle();
     clearInterval(timer);
     report();
     if (self.packets.size > 0) {
@@ -223,7 +240,7 @@ async function runPublisher(socket: WebSocket, join: JoinMessage) {
   };
   socket.on("message", async (data) => {
     if (parse(data).type === "stop") {
-      await finish();
+      await finish({ settle: true });
       send(socket, { type: "stopped" });
     }
   });

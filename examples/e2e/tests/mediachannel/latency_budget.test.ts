@@ -44,6 +44,8 @@ for (const entry of catalogByGroup("browser").filter(
         expect(a5000.lost).toBeGreaterThan(0);
         expect(a5000.recovered).toBeGreaterThanOrEqual(a0.recovered);
         expect(a5000.unrecovered).toBe(0);
+        // Assert: 検出済みの欠番が未解決のまま録音を確定していない
+        expect(a5000.pending).toBe(0);
         // Assert: 受信音声を webm に保存している
         await waitNonEmptyOutput(session.workDir, entry.outputGlob!, 10_000);
 
