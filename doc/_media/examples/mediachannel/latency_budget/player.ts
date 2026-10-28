@@ -3,6 +3,14 @@
 // sends application-layer NACKs within the budget and handles generations.
 import { DecodeOrder } from "./decodeOrder";
 import type { EncodedAudioFrameMessage } from "./encodedFrames";
+import { Unwrapper } from "./unwrap";
+
+/** Extended RTP timestamps where `first` is 0 (however long the answer runs) */
+const timestampsFrom = (first: number) => {
+  const timestamps = new Unwrapper(32);
+  timestamps.unwrap(first);
+  return timestamps;
+};
 
 const SAMPLE_RATE = 48000;
 const NACK_INTERVAL_MS = 40;
@@ -81,7 +89,8 @@ export class BudgetPlayer {
   private readonly pending = new Map<number, Pending>();
   private readonly nackTimer?: ReturnType<typeof setInterval>;
   private generation = 0;
-  private firstTimestamp?: number;
+  /** RTP timestamps extended from the new generation's first one (0) */
+  private generationTimestamps?: Unwrapper;
   private awaitingStart = false;
   /** frames received between a local interrupt and its control message */
   private readonly unresolved: EncodedAudioFrameMessage[] = [];
@@ -201,7 +210,7 @@ export class BudgetPlayer {
       // server's generation and decide the frames that waited for it.
       this.awaitingStart = false;
       this.generation = Math.max(this.generation, next);
-      this.firstTimestamp = firstTimestamp;
+      this.generationTimestamps = timestampsFrom(firstTimestamp);
       for (const frame of this.unresolved.splice(0)) this.push(frame);
       return;
     }
@@ -213,7 +222,8 @@ export class BudgetPlayer {
     this.lastSeq = undefined;
     this.anchored = false;
     this.unresolved.length = 0;
-    this.firstTimestamp = firstTimestamp;
+    this.generationTimestamps =
+      firstTimestamp === undefined ? undefined : timestampsFrom(firstTimestamp);
     // Without CSRC the new generation is only known from the control message.
     this.awaitingStart = local && firstTimestamp === undefined;
   }
@@ -228,8 +238,8 @@ export class BudgetPlayer {
     if (csrc.length > 0) return csrc[0];
     if (this.awaitingStart) return undefined;
     if (
-      this.firstTimestamp !== undefined &&
-      ((frame.rtpTimestamp - this.firstTimestamp) | 0) < 0
+      this.generationTimestamps !== undefined &&
+      this.generationTimestamps.unwrap(frame.rtpTimestamp) < 0
     ) {
       return this.generation - 1;
     }

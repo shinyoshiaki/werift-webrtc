@@ -214,6 +214,7 @@ playout-delay は「送信側が受信側 jitter buffer の min/max 遅延を指
 - 「最初に受信したもの」を開始とみなす処理を、送信側の通知で置き換える。
   - 録音: `JitterBufferOptions.startSequenceNumber` (packages/rtp)。
   - シナリオ C の subscriber: werift が最初に relay したパケットを DataChannel で通知し、player は通知までフレームを保留する。
+- 折り返す RTP の番号 (16bit seq、32bit timestamp) を固定の開始値と比較しない。最新値を基準に拡張した値で扱い、半周・一周を超える長い入力でも正常なパケットを誤判定しない (購読開始位置、集計のフレーム位置、relay の遅れ判定、player の generation 境界)。開始通知前に届いたパケットも全て集計・検証する。
 - relay は subscriber の DTLS 確立後に開始する。確立前に送ったパケットは送信履歴に入らず再送できないため。
 - 録音保持の上限 (`RECORDING_MAX_PACKETS`) を超えた分は `recording.evicted` として統計に出す。
 - `.webm` の末尾が欠ける問題 (`Lipsync` が終了時にバッファを捨てる) は werift 側で修正する。

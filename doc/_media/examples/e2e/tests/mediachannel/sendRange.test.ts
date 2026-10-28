@@ -150,4 +150,85 @@ describe("latency_budget SendAccounting", () => {
     expect(accounting.summary(nack()).status).toBe("unverified");
     expect(accounting.summary(nack()).balanced).toBe(false);
   });
+
+  test("開始通知より先に届いた複数のパケットを全て数え、重複も 1 回だけ数える", () => {
+    // Arrange: seq 10 から 4 フレーム。通知より先に 10, 11, 12 と 11 の重複が届く
+    const accounting = new SendAccounting();
+    for (const [seq, i] of [
+      [10, 0],
+      [11, 1],
+      [12, 2],
+      [11, 1],
+    ]) {
+      accounting.receive(seq, ts(0, i));
+    }
+
+    // Act
+    const firstSeq = accounting.start(0);
+    accounting.receive(13, ts(0, 3));
+    accounting.stop(range(0, 4));
+    const summary = accounting.summary(nack());
+
+    // Assert: 4 フレーム全てを数え、重複は 1 件
+    expect(firstSeq).toBe(10);
+    expect(summary).toMatchObject({
+      status: "verified",
+      uniqueReceived: 4,
+      duplicates: 1,
+      balanced: true,
+    });
+  });
+
+  test("開始通知より先に届いたパケットの対応崩れも検出し、verified にしない", () => {
+    // Arrange: 通知前に 10 (正しい) と、timestamp では 1 フレーム後なのに seq が 3 進んだパケット
+    const accounting = new SendAccounting();
+    accounting.receive(10, ts(0, 0));
+    accounting.receive(13, ts(0, 1));
+
+    // Act: 通知後は正しいパケットだけが続く
+    accounting.start(0);
+    accounting.receive(11, ts(0, 1));
+    accounting.receive(12, ts(0, 2));
+    accounting.stop(range(0, 3));
+    const summary = accounting.summary(nack());
+
+    // Assert
+    expect(summary.mismatched).toBe(1);
+    expect(summary.status).toBe("unverified");
+    expect(summary.balanced).toBe(false);
+  });
+
+  test("32bit timestamp の半周 (約 12 時間分) を超えても、範囲内のパケットを範囲外と判定しない", () => {
+    // Arrange: 2^31 ticks を超えるまで 1 秒 (48000 ticks) ごとに受信した後、最初から数えたフレーム位置で届く
+    const accounting = new SendAccounting();
+    accounting.start(0);
+    accounting.receive(0, 0);
+    const steps = Math.ceil(2 ** 31 / 48000) + 10;
+    let seq = 0;
+    for (let i = 1; i <= steps; i++) {
+      seq = (i * 50) & 0xffff;
+      accounting.receive(seq, (i * 48000) >>> 0);
+    }
+
+    // Act
+    const summary = accounting.summary(nack());
+
+    // Assert: 範囲より前・対応崩れと誤判定しない
+    expect(summary.outOfRange).toBe(0);
+    expect(summary.mismatched).toBe(0);
+  });
+
+  test("32bit timestamp を一周以上またぐ長い範囲でも、フレーム数から最後の seq を求める", () => {
+    // Arrange: 2^32 ticks (約 24.9 時間) を超える範囲
+    const frames = Math.ceil(2 ** 32 / OPUS_FRAME_TICKS) + 5;
+    const accounting = new SendAccounting();
+    accounting.start(1000);
+    accounting.receive(7, 1000);
+
+    // Act
+    const lastSeq = accounting.stop(range(1000, frames));
+
+    // Assert: 折り返した span でも範囲を確定する
+    expect(lastSeq).toBe((7 + frames - 1) & 0xffff);
+  });
 });

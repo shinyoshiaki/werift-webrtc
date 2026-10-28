@@ -116,6 +116,12 @@ the playout.
 - werift relays to a subscriber only once its DTLS is up (a packet sent before never enters the send history and could not be retransmitted), and tells it the first packet relayed over the DataChannel (`start`). The player holds frames until then, so a loss of the very first packets is a hole it NACKs, not a later start.
 - Without CSRC metadata the `generation` control message carries `firstTimestamp`, the first RTP timestamp of the new answer; frames before it are the old generation. Frames that arrive between the local interrupt and that message wait, then are decided.
 
+- Wrapping RTP numbers are extended relative to the newest value seen
+  (`unwrap.ts`), never compared with a fixed first value: the subscription
+  start (`subscriptionStart.ts`), the accounting's frame index, the relay's
+  media clock (`liveEdge.ts`) and the player's generation boundary stay right
+  past half a wrap (16bit sequence numbers: ~11 minutes of 20ms audio).
+
 ## Accounting (scenario A)
 
 Nothing about the send range is estimated:

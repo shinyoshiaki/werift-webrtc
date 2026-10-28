@@ -6,36 +6,44 @@
 // keeps a recovered packet's lag at ~20ms when the upstream went quiet, and it
 // moves the reference back when a newer packet itself arrives late.
 
+import { Unwrapper } from "./unwrap";
+
 const RTP_TICKS_PER_MS = 48;
 
 export class LiveEdge {
-  private baseTimestamp?: number;
+  private timestamps = new Unwrapper(32);
+  private started = false;
   /** min over packets of (arrival ms - RTP ms since the first packet) */
   private baseline = 0;
 
   /** A new publisher has its own timestamp base. */
   reset() {
-    this.baseTimestamp = undefined;
+    this.timestamps = new Unwrapper(32);
+    this.started = false;
   }
 
-  /** RTP time in ms since the first packet (signed 32bit wrap: ~12h range) */
-  private rtpMs(timestamp: number) {
-    return ((timestamp - this.baseTimestamp!) | 0) / RTP_TICKS_PER_MS;
+  /** RTP time in ms since the first packet, extended past the 32bit wrap */
+  private rtpMs(timestamp: number, update: boolean) {
+    const ticks = update
+      ? this.timestamps.unwrap(timestamp)
+      : this.timestamps.peek(timestamp);
+    return ticks / RTP_TICKS_PER_MS;
   }
 
   /** Call for every received packet. */
   update(timestamp: number, now = Date.now()) {
-    if (this.baseTimestamp === undefined) {
-      this.baseTimestamp = timestamp;
+    if (!this.started) {
+      this.started = true;
+      this.timestamps.unwrap(timestamp);
       this.baseline = now;
       return;
     }
-    this.baseline = Math.min(this.baseline, now - this.rtpMs(timestamp));
+    this.baseline = Math.min(this.baseline, now - this.rtpMs(timestamp, true));
   }
 
   /** ms the packet is behind the best-case playout of its RTP time at `now` */
   lagMs(timestamp: number, now = Date.now()) {
-    if (this.baseTimestamp === undefined) return 0;
-    return Math.max(0, now - this.rtpMs(timestamp) - this.baseline);
+    if (!this.started) return 0;
+    return Math.max(0, now - this.rtpMs(timestamp, false) - this.baseline);
   }
 }

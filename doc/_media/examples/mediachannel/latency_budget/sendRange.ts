@@ -6,6 +6,8 @@
 // checks that mapping. Nothing is estimated: when a check fails, the result is
 // "unverified" instead of a wrong number.
 
+import { Unwrapper } from "./unwrap";
+
 /** RTP ticks per packet: 20ms Opus at 48kHz (Chrome's default ptime) */
 export const OPUS_FRAME_TICKS = 960;
 /** Packets kept while the start notice has not come (1 minute of audio) */
@@ -57,6 +59,8 @@ export class SendAccounting {
   private outOfRange = 0;
   private mismatched = 0;
   private readonly reasons = new Set<string>();
+  /** RTP timestamps extended from the first frame's (0) */
+  private readonly timestamps = new Unwrapper(32);
   firstSeq?: number;
 
   /**
@@ -68,8 +72,12 @@ export class SendAccounting {
     this.firstTimestamp = firstRtpTimestamp;
     const early = this.early.splice(0);
     let firstSeq: number | undefined;
+    this.timestamps.unwrap(firstRtpTimestamp);
     for (const arrival of early) {
-      firstSeq ??= this.count(arrival);
+      // Every early packet is counted and checked; only the first derived
+      // sequence number is returned.
+      const derived = this.count(arrival);
+      firstSeq ??= derived;
     }
     return firstSeq;
   }
@@ -86,7 +94,8 @@ export class SendAccounting {
   }
 
   private count({ seq, timestamp, afterStop }: Arrival) {
-    const ticks = (timestamp - this.firstTimestamp!) | 0;
+    // Ticks since the first frame, extended past the 32bit wrap
+    const ticks = this.timestamps.unwrap(timestamp);
     if (ticks < 0 || ticks % OPUS_FRAME_TICKS !== 0) {
       // Before the first frame, or not on the 20ms grid (DTX, other ptime).
       if (ticks < 0) this.outOfRange++;
@@ -128,11 +137,11 @@ export class SendAccounting {
     } else if (this.firstTimestamp !== range.firstRtpTimestamp) {
       this.reasons.add("start and range disagree");
     }
+    // The frames say how long the range is, so the 32bit span is checked
+    // modulo 2^32 and a range longer than one timestamp wrap is still exact.
     const span = (range.lastRtpTimestamp - range.firstRtpTimestamp) >>> 0;
-    if (
-      span % OPUS_FRAME_TICKS !== 0 ||
-      span / OPUS_FRAME_TICKS + 1 !== range.frames
-    ) {
+    const expectedSpan = (range.frames - 1) * OPUS_FRAME_TICKS;
+    if (expectedSpan % 2 ** 32 !== span) {
       // Frames are not one per 20ms (DTX, ptime change): the seq range is unknown.
       this.reasons.add("frame count does not match the timestamps");
       return undefined;

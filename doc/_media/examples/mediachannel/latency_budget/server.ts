@@ -20,6 +20,8 @@ import {
 import { MediaRecorder } from "../../../packages/webrtc/src/nonstandard";
 import { LiveEdge } from "./liveEdge";
 import { type Accounting, SendAccounting, type SendRange } from "./sendRange";
+import { SubscriptionStart } from "./subscriptionStart";
+import { Unwrapper } from "./unwrap";
 import { countSavedInOrder, readWebmFrames } from "./webmFrames";
 
 const port = 8888;
@@ -183,7 +185,7 @@ type PeriodicPacketLoss = { every: number; count: number };
 
 function upstreamLoss(headLossPackets = 0, periodic?: PeriodicPacketLoss) {
   const seen = new RecentSeqs();
-  let firstSeq: number | undefined;
+  const positions = new Unwrapper(16);
   let tail = false;
   const dropped = { head: 0, tail: 0, periodic: 0 };
   return {
@@ -196,8 +198,8 @@ function upstreamLoss(headLossPackets = 0, periodic?: PeriodicPacketLoss) {
     },
     drop: (rtp: DebugRtpHeader) => {
       if (!seen.add(rtp.sequenceNumber)) return false;
-      firstSeq ??= rtp.sequenceNumber;
-      const index = (rtp.sequenceNumber - firstSeq) & 0xffff;
+      // Position in the stream, extended past the 16bit wrap (first = 0)
+      const index = positions.unwrap(rtp.sequenceNumber);
       if (index < headLossPackets) {
         dropped.head++;
         return true;
@@ -485,37 +487,34 @@ async function runSubscriber(socket: WebSocket, join: JoinMessage) {
     skippedLate: 0,
     skippedBeforeStart: 0,
     relay: (rtp) => {
-      const seq = rtp.header.sequenceNumber;
       // A packet from before this subscription (an older one recovered
       // upstream) is neither its start nor relayed: it was never in this
       // sender's history, so the player could not be given the holes before it.
-      const before = start?.sequenceNumber ?? publisher?.highestSeq;
-      if (before !== undefined && uint16Gt(before, seq)) {
+      const decision = subscription.accept(
+        rtp.header.sequenceNumber,
+        rtp.header.timestamp,
+        publisher?.highestSeq,
+      );
+      if (decision === "before") {
         self.skippedBeforeStart++;
         return;
       }
-      if (!start) {
-        // The first packet relayed is where this subscription starts. Tell the
-        // player, so a loss of this very packet is a hole it can NACK, not a
-        // later start. (A fresh sender keeps the upstream sequence numbers.)
-        start = {
-          type: "start",
-          sequenceNumber: rtp.header.sequenceNumber,
-          rtpTimestamp: rtp.header.timestamp,
-        };
+      if (decision === "start") {
+        // Tell the player where this subscription starts, so a loss of this
+        // very packet is a hole it can NACK, not a later start. (A fresh
+        // sender keeps the upstream sequence numbers.)
         sendStart();
       }
       void self.sender.sendRtp(rtp);
     },
   };
-  let start:
-    | { type: "start"; sequenceNumber: number; rtpTimestamp: number }
-    | undefined;
+  const subscription = new SubscriptionStart();
 
   const control = pc.createDataChannel("control");
   const sendStart = () => {
+    const { start } = subscription;
     if (start && control.readyState === "open") {
-      control.send(JSON.stringify(start));
+      control.send(JSON.stringify({ type: "start", ...start }));
     }
   };
   control.stateChanged.subscribe((state) => {

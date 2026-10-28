@@ -54,4 +54,20 @@ describe("latency_budget LiveEdge", () => {
     // Assert: 新しい基準で live edge が動く
     expect(edge.lagMs(5, 10)).toBe(0);
   });
+
+  test("32bit timestamp の半周を超える長い配信でも、遅れを正しく判定する", () => {
+    // Arrange: 2^31 ticks (約 12.4 時間) を超えるまで、1 秒ごとに遅れなく受信する
+    const edge = new LiveEdge();
+    const steps = Math.ceil(2 ** 31 / 48000) + 10;
+    for (let i = 0; i <= steps; i++) {
+      edge.update((i * 48000) >>> 0, i * 1000);
+    }
+
+    // Act: 最新パケットの 2 秒後に、その 1 秒前のパケットの再送が届く
+    const lag = edge.lagMs(((steps - 1) * 48000) >>> 0, steps * 1000 + 2000);
+
+    // Assert: 遅れは約 3 秒
+    expect(lag).toBeGreaterThan(2900);
+    expect(lag).toBeLessThan(3100);
+  });
 });
