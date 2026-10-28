@@ -197,7 +197,7 @@ React 化は UI 層に留める。親チケットで検証済みの再生・集�
 - **公平性**: 下りロスは subscriber ごとに `DebugConfig.outboundBurstLoss` を設定する。ロス窓の位相はセッション開始時刻に依存するので、グループの開始時刻を基準にそろえる。そろえられない場合は、ずれていることを V6 に表示する。
 - **upstream の共有**: Live mic では publisher は 1 つで、全プレイヤーが同じ upstream の relay を受ける。upstream NACK budget は最大の subscriber budget に追従する (既存)。プレイヤーを追加・削除したら、この値が変わることを Source bar に表示する。
 - **native の可視化**: NetEQ の内部は見えない。`getStats()` の `inbound-rtp` (`jitterBufferDelay` / `jitterBufferEmittedCount`、`concealedSamples`、`removedSamplesForAcceleration`、`insertedSamplesForDeceleration`、`packetsDiscarded`、`nackCount`) の時系列だけで描く。player と同じ図に見せかけない。
-- **リソース**: 1 プレイヤー = PC 1 本 + WebSocket 1 本 + transform worker + `AudioDecoder`。`AudioContext` は共有する。上限 6 枚程度なら問題ない見込みだが、実機で CPU 使用率を確認して上限を決める。
+- **リソース**: 1 プレイヤー = PC 1 本 + WebSocket 1 本 + transform worker + `AudioDecoder`。`AudioContext` は共有する。上限 6 枚程度なら問題ない見込み。上限値はエージェントが自マシンの Chromium で上限枚数を同時再生したときの CPU 使用率と worklet の underrun (`stalledMs`) を測って決め、測定値を README に残す。実機での体感確認はユーザが行う (5.2)。
 
 ## 4. 制約・注意点
 
@@ -211,27 +211,58 @@ React 化は UI 層に留める。親チケットで検証済みの再生・集�
 - テストは Arrange / Act / Assert で書き、Act / Assert に日本語コメントを付ける。共有 Arrange は `examples/e2e/tests/helpers/latencyBudget.ts` に置く。
 - 既存の smoke test (`window.latencyBudget.runA`〜`runD`) の互換を保つ。API 名や戻り値を変える場合は、テストと README を同時に直す。
 - `server.ts` の変更は example 内に留める。`packages/webrtc` の公開 API を変える必要が出たら、親チケット同様 `changelog.md`・生成ドキュメント (`npm run doc`)・既定値の互換を守る (現時点では不要の見込み)。
-- 別マシン (tailnet) から開く構成 (`vite.config.mts` の HTTPS、`/signaling` proxy、ICE 環境変数) を維持する。React 化後も HTTPS 経由で動くことを確認する。
+- 別マシン (tailnet) から開く構成 (`vite.config.mts` の HTTPS、`/signaling` proxy、ICE 環境変数) を維持する。React 化後も HTTPS 経由で動くことを、エージェントは 5.1 の非 loopback 確認で、ユーザは 5.2 の別マシン確認で確かめる。
 - autoplay 制限: `AudioContext` の開始とマイク取得はユーザ操作の中で行う。smoke では `window.latencyBudget.audioContext()` を使う既存の方法に合わせる。
 - パフォーマンス: 可視化のスナップショットは購読中だけ送る。描画は `requestAnimationFrame` で行い、React の state を毎フレーム更新しない (canvas を ref で直接描く)。イベント履歴はリングバッファで上限を持つ。
 - `npm run format` (biome) を通す。
 
 ## 5. 完了条件
 
+### 確認の分担 (着手前に確定)
+
+実装エージェントは、別マシンの実機ブラウザを操作できず、音声を聴くこともできない。そこで確認を次のように分ける。
+
+- **エージェント**: 5.1 をすべて満たした時点で実装完了として報告する。人の目と耳が要る確認は、自動の Assert と、自マシンの Chromium で撮ったスクリーンショットに置き換える。
+- **ユーザ**: エージェントの報告後に、5.2 の受け入れ確認を行う。問題があれば同じチケットで修正を依頼する。
+- エージェントは 5.2 を実施したと書かない。報告には「5.2 はユーザ確認待ち」と明記し、確認手順のチェックリスト (5.2 をそのまま) を付ける。5.2 が未実施であることは、エージェントの完了を妨げない。
+  - 親チケット §6.6 の「未確認・制約を残さない」の例外にあたる。理由は観測手段が無いこと (別マシンの実機が無い、音声出力を聴けない) であり、報告にこの理由を書く。
+- 5.1 で自動化できる確認を 5.2 に回さない。5.2 に残すのは、聴感、実機の別マシン経由の通信、目視でのデザイン評価だけにする。
+
+| 確認項目 | エージェント (5.1) | ユーザ (5.2) |
+|---|---|---|
+| tailnet 上の別マシンから HTTPS で動くか | 自マシンの非 loopback アドレス (tailnet IP、無ければ LAN IP) で `vite.config.mts` の HTTPS サーバを開き、headless Chromium から全ソースを 1 回ずつ実行する。secure context、`wss://<host>/signaling` の proxy、非 loopback の ICE を確認する | 別マシンの Chrome で開き、全ソースを実行する |
+| solo 切り替えで聴き比べられるか | solo のプレイヤーだけ出力が鳴っていることを Assert する。solo の `AnalyserNode` の RMS > 0 で、他のプレイヤーは出力 gain = 0 / `muted` | 実際に聴いて、差 (NetEQ の早送り・欠落、budget による回収) が分かる |
+| V1 / V3 / V5 が見えるか | 可視化の入力データを Assert し (2.8)、各状態のスクリーンショットを撮る | スクリーンショットではなく実画面で動きを見て、意図が伝わるか評価する |
+| デザイン | スクリーンショット (既定 2 枚、+ で 3 枚、狭い幅) を撮って報告に添付する | 見た目を評価する |
+| Chrome のバージョン | 検証に使った Playwright Chromium のバージョンを README に記録する | 確認した Chrome のバージョンと OS をエージェントに伝える (エージェントが README に追記する) か、自分で追記する |
+
+### 5.1 エージェントの完了条件
+
 - [ ] `examples/mediachannel/latency_budget/` のクライアントが React (`main.tsx` + コンポーネント) で書き直され、`index.html` は root 要素だけになっている。
 - [ ] 既定で 2 枚のプレイヤー (左: Standard WebRTC = native NetEQ、設定固定。右: Custom) が並ぶ。「+」でカスタムプレイヤーを右に追加でき、追加分は × で削除できる。上限に達したら「+」が無効になる。
 - [ ] ソース (Live mic / AI answer burst / AI answer realtime)、録音、Speak、Interrupt、ネットワーク条件が Source bar にあり、全プレイヤーに同じ条件でかかる。AI answer は server のグループ一斉送信で同時に始まる。
 - [ ] Custom プレイヤーで、再生エンジン・`minDelayMs`・`maxDelayMs`・アプリ層 NACK・generation 判定・プリセットを設定できる。budget と minDelay は再接続なしで反映される。native を選ぶと、効かない項目が理由付きで無効になる。
-- [ ] 可視化 V1〜V6 が、該当オプションの有効時に実データで動く。手動確認で次が見える。
-  - burst ソースで、Standard は破棄・加速、Custom は傾き 1 の再生 (V3)。
-  - 下りロス下で、NACK on の Custom は穴が回収で埋まり、budget 500 では期限線を越えた穴が concealment になる (V1, V2)。
-  - Interrupt で旧 generation のブロックが消える (V5)。
-- [ ] solo 切り替えで 1 プレイヤーずつ聴き比べられる。波形・レベルメーターが各カードで動く。
+- [ ] 可視化 V1〜V6 が、該当オプションの有効時に実データで動く。次を smoke test で Assert する (可視化に渡したデータと描画カウンタを確認し、ピクセル比較はしない)。
+  - burst ソースで、Standard は native stats の破棄・加速が増え、Custom は `playbackRate` ≈ 1 (V3)。
+  - 下りロス下で、NACK on の Custom は回収済みブロックが現れ、budget 500 では期限を越えた穴が concealment になる (V1, V2)。
+  - Interrupt の後、スナップショットに旧 generation のブロックが残らない (V5)。
+- [ ] 上の 3 状態 (V3 の burst、V1/V2 のロス下、V5 の Interrupt 直後) と、デザイン確認用 (既定 2 枚、+ で 3 枚、幅 390px 程度の狭い画面) のスクリーンショットを、自マシンの Chromium で撮って報告に添付している。撮影は使い捨てのスクリプトで行い、画像はコミットしない (README に載せる場合を除く)。
+- [ ] solo の切り替えで、solo のプレイヤーだけが鳴っている (`AnalyserNode` の RMS > 0、他は gain 0 / muted) ことを smoke test で Assert している。各カードの波形・レベルメーターが描画カウンタで更新されている。
+- [ ] 非 loopback の HTTPS 確認: `vite.config.mts` で起動した HTTPS サーバに、自マシンの非 loopback アドレスから headless Chromium (自己署名証明書は `ignoreHTTPSErrors`) で接続し、全ソースを 1 回ずつ実行して音声が届いている。実行したコマンドと結果を報告に書く。smoke test (catalog) には入れない。
+- [ ] 上限枚数を同時再生したときの CPU 使用率と `stalledMs` を自マシンで測り、上限値の根拠として README に残している。
 - [ ] 既存の smoke test (シナリオ A〜D) が通る。比較 UI の smoke test (2.8) を追加し、`window.__latencyBudgetResult.players` を Assert している。
-- [ ] `examples/AGENTS.md` の catalog 表、`catalog.ts`、example の `README.md` (操作手順、オプション・可視化と記事の主張の対応、Run 手順の `npm i --prefix examples`) を更新している。
-- [ ] ローカル Chrome と、tailnet 上の別マシンの Chrome (HTTPS) の両方で手動確認している。README に検証時の Chrome バージョンを記録している。
+- [ ] `examples/AGENTS.md` の catalog 表、`catalog.ts`、example の `README.md` を更新している。README には操作手順、オプション・可視化と記事の主張の対応、Run 手順の `npm i --prefix examples` を書く。検証に使った Chromium のバージョンも記録する。
 - [ ] 検証コマンドが通る。
   - `cd examples/e2e && npm run type && npm run ci:silent` (または `npm run examples:e2e`)
   - TSX の型確認: `npm run type` は workspace の `type` script だけを実行し、`examples` (script なし) は見ない。ルート `tsconfig.json` (`include` に `examples` があり `"jsx": "react"`) で `npx tsc --noEmit -p tsconfig.json` を実行し、本 example のファイルにエラーが無いことを確認する。
   - `npm run format`
   - `packages/*` を変更した場合のみ: 該当パッケージのテストと `npm run test:small`
+- [ ] 完了報告に「5.2 はユーザ確認待ち」と、5.2 のチェックリストを載せている。
+
+### 5.2 ユーザの受け入れ確認 (エージェントの報告後)
+
+- [ ] tailnet 上の別マシンの Chrome から HTTPS (`tailscale cert` の証明書、または自己署名) で開き、Live mic / AI answer burst / AI answer realtime を実行できる。
+- [ ] solo を切り替えて聴き比べ、Standard と Custom の差 (burst で NetEQ が早送り・欠落する、budget の大きい Custom が回収する) が耳で分かる。
+- [ ] V1 / V3 / V5 の動きを実画面で見て、オプションの働きが伝わる。
+- [ ] デザインと、狭い画面 (タブレット・スマホ) での操作感に問題が無い。
+- [ ] 確認した Chrome のバージョンと OS を README に記録する (エージェントに伝えて追記させてもよい)。
