@@ -1053,8 +1053,11 @@ function candidateFieldsFromIce(c: {
   };
 }
 
-const uintToken = (token: string | undefined, max: number) =>
-  token !== undefined && /^\d+$/.test(token) && Number(token) <= max;
+const uintToken = (token: string | undefined, max: number, min = 0) =>
+  token !== undefined &&
+  /^\d+$/.test(token) &&
+  Number(token) >= min &&
+  Number(token) <= max;
 
 /** Check the candidate-attribute grammar (RFC 8839) and numeric ranges. */
 function isValidCandidateSdp(sdp: string): boolean {
@@ -1064,9 +1067,9 @@ function isValidCandidateSdp(sdp: string): boolean {
   if (bits.length < 8 || bits.length % 2 !== 0) return false;
   const [, component, protocol, priority, address, port, typ, type] = bits;
   if (
-    !uintToken(component, 256) ||
+    !uintToken(component, 256, 1) ||
     !/^(udp|tcp)$/i.test(protocol) ||
-    !uintToken(priority, 0xffffffff) ||
+    !uintToken(priority, 2 ** 31 - 1, 1) ||
     !address ||
     !uintToken(port, 65535) ||
     typ !== "typ" ||
