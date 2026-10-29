@@ -12,6 +12,10 @@
 
 > `optional` **additionalHostAddresses?**: `string`[]
 
+Host addresses gathered in addition to the enumerated ones. For a family
+bound by `interfaceAddresses`, addresses other than the bound one are
+ignored.
+
 ***
 
 ### filterCandidatePair?
@@ -71,6 +75,19 @@ Advertise and operate as an ICE lite agent.
 ### interfaceAddresses?
 
 > `optional` **interfaceAddresses?**: [`InterfaceAddresses`](../type-aliases/InterfaceAddresses.md)
+
+Local addresses to bind the UDP host sockets to, per family.
+
+The address given for a family (`udp4` / `udp6`) is the only host
+address of that family: its UDP host candidate advertises the address and
+port the socket is actually bound to, even when the address is not among
+the enumerated network interfaces (loopback, tun, ...), and its TCP host
+candidates use it too. Other enumerated addresses of that family are not
+gathered. If the bind fails, the family has no UDP host candidate.
+
+A family left unspecified while the other one is set gathers no
+enumerated addresses (only its `additionalHostAddresses`). Without any
+family set, every enumerated address is gathered over wildcard sockets.
 
 ***
 
