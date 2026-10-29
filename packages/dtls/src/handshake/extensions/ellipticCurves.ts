@@ -1,6 +1,8 @@
-import { decode, encode, types } from "@shinyoshiaki/binary-data";
+import { binaryData } from "../../imports/common";
 
 import type { Extension } from "../../typings/domain";
+
+const { decode, encode, types } = binaryData;
 
 // rfc4492
 export class EllipticCurves {
@@ -33,7 +35,7 @@ export class EllipticCurves {
   }
 
   serialize() {
-    return Buffer.from(encode(this, EllipticCurves.spec).slice());
+    return encode(this, EllipticCurves.spec);
   }
 
   get extension(): Extension {

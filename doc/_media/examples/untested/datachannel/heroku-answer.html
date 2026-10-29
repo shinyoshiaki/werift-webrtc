@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Heroku</title>
+    <script
+      crossorigin
+      src="https://unpkg.com/react@16/umd/react.development.js"
+    ></script>
+    <script
+      crossorigin
+      src="https://unpkg.com/react-dom@16/umd/react-dom.development.js"
+    ></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/2.3.0/socket.io.js"></script>
+    <script
+      crossorigin
+      src="https://cdnjs.cloudflare.com/ajax/libs/babel-core/5.8.34/browser.min.js"
+    ></script>
+    <script src="https://cdn.jsdelivr.net/npm/babel-regenerator-runtime@6.5.0/runtime.min.js"></script>
+  </head>
+  <body>
+    <div class="main">
+      <div class="section" id="app1"></div>
+    </div>
+    <script type="text/babel">
+      let rtc;
+      (async () => {
+        const socket = io("https://serene-anchorage-28732.herokuapp.com/");
+
+        const peer = (rtc = new RTCPeerConnection({
+          iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+        }));
+        peer.onicecandidate = ({ candidate }) => {
+          if (!candidate) {
+            socket.emit("sdp", {
+              sdp: JSON.stringify(peer.localDescription),
+              roomId: "test",
+            });
+          }
+        };
+        peer.ondatachannel = (ev) => {
+          const channel = ev.channel;
+          channel.onmessage = (ev) => {
+            console.log(
+              new TextDecoder("utf-8").decode(new Uint8Array(ev.data))
+            );
+            channel.send("pong");
+          };
+        };
+
+        socket.emit("create", { roomId: "test" });
+
+        socket.on("sdp", async (data) => {
+          const offer = JSON.parse(data.sdp);
+          console.log(offer.sdp);
+          await peer.setRemoteDescription(offer);
+          const answer = await peer.createAnswer();
+          await peer.setLocalDescription(answer);
+        });
+      })();
+
+      const App = () => {
+        return <div>answer</div>;
+      };
+
+      ReactDOM.render(App(), document.getElementById("app1"));
+    </script>
+  </body>
+</html>

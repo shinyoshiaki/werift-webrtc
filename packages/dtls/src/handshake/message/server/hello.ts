@@ -1,6 +1,5 @@
-import { decode, encode, types } from "@shinyoshiaki/binary-data";
-
 import type { CipherSuites } from "../../../cipher/const";
+import { binaryData } from "../../../imports/common";
 import { FragmentedHandshake } from "../../../record/message/fragment";
 import type {
   Extension,
@@ -11,6 +10,8 @@ import type {
 import { ExtensionList, ProtocolVersion } from "../../binary";
 import { HandshakeType } from "../../const";
 import { DtlsRandom } from "../../random";
+
+const { decode, encode, types } = binaryData;
 
 // 7.4.1.3.  Server Hello
 
@@ -48,13 +49,13 @@ export class ServerHello implements Handshake {
   static deSerialize(buf: Buffer) {
     const res = decode(buf, ServerHello.spec);
     const cls = new ServerHello(
-      //@ts-ignore
+      //@ts-expect-error
       ...Object.values(res),
     );
     const expect = cls.serialize();
     if (expect.length < buf.length) {
       return new ServerHello(
-        //@ts-ignore
+        //@ts-expect-error
         ...Object.values(
           decode(buf, { ...ServerHello.spec, extensions: ExtensionList }),
         ),
@@ -64,14 +65,12 @@ export class ServerHello implements Handshake {
   }
 
   serialize() {
-    const res =
-      this.extensions === undefined
-        ? encode(this, ServerHello.spec).slice()
-        : encode(this, {
-            ...ServerHello.spec,
-            extensions: ExtensionList,
-          }).slice();
-    return Buffer.from(res);
+    return this.extensions === undefined
+      ? encode(this, ServerHello.spec)
+      : encode(this, {
+          ...ServerHello.spec,
+          extensions: ExtensionList,
+        });
   }
 
   toFragment() {

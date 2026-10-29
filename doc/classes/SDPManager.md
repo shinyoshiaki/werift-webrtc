@@ -8,9 +8,9 @@
 
 ## Constructors
 
-### new SDPManager()
+### Constructor
 
-> **new SDPManager**(`__namedParameters`): [`SDPManager`](SDPManager.md)
+> **new SDPManager**(`__namedParameters`): `SDPManager`
 
 #### Parameters
 
@@ -34,13 +34,13 @@
 
 #### Returns
 
-[`SDPManager`](SDPManager.md)
+`SDPManager`
 
 ## Properties
 
 ### bundlePolicy?
 
-> `readonly` `optional` **bundlePolicy**: [`BundlePolicy`](../type-aliases/BundlePolicy.md)
+> `readonly` `optional` **bundlePolicy?**: [`BundlePolicy`](../type-aliases/BundlePolicy.md)
 
 ***
 
@@ -52,13 +52,13 @@
 
 ### currentLocalDescription?
 
-> `optional` **currentLocalDescription**: [`SessionDescription`](SessionDescription.md)
+> `optional` **currentLocalDescription?**: [`SessionDescription`](SessionDescription.md)
 
 ***
 
 ### currentRemoteDescription?
 
-> `optional` **currentRemoteDescription**: [`SessionDescription`](SessionDescription.md)
+> `optional` **currentRemoteDescription?**: [`SessionDescription`](SessionDescription.md)
 
 ***
 
@@ -76,13 +76,13 @@
 
 ### pendingLocalDescription?
 
-> `optional` **pendingLocalDescription**: [`SessionDescription`](SessionDescription.md)
+> `optional` **pendingLocalDescription?**: [`SessionDescription`](SessionDescription.md)
 
 ***
 
 ### pendingRemoteDescription?
 
-> `optional` **pendingRemoteDescription**: [`SessionDescription`](SessionDescription.md)
+> `optional` **pendingRemoteDescription?**: [`SessionDescription`](SessionDescription.md)
 
 ## Accessors
 
@@ -90,11 +90,11 @@
 
 #### Get Signature
 
-> **get** **inactiveRemoteMedia**(): `undefined` \| [`MediaDescription`](MediaDescription.md)
+> **get** **inactiveRemoteMedia**(): [`MediaDescription`](MediaDescription.md) \| `undefined`
 
 ##### Returns
 
-`undefined` \| [`MediaDescription`](MediaDescription.md)
+[`MediaDescription`](MediaDescription.md) \| `undefined`
 
 ***
 
@@ -102,25 +102,25 @@
 
 #### Get Signature
 
-> **get** **localDescription**(): `undefined` \| [`RTCSessionDescription`](RTCSessionDescription.md)
+> **get** **localDescription**(): [`RTCSessionDescription`](RTCSessionDescription.md) \| `undefined`
 
 ##### Returns
 
-`undefined` \| [`RTCSessionDescription`](RTCSessionDescription.md)
+[`RTCSessionDescription`](RTCSessionDescription.md) \| `undefined`
 
 ***
 
-### negotiatedBundleTag
+### negotiatedBundleTags
 
 #### Get Signature
 
-> **get** **negotiatedBundleTag**(): `undefined` \| `string`
+> **get** **negotiatedBundleTags**(): `string`[]
 
-確定済み answer の BUNDLE tag (先頭 MID)
+確定済み answer の BUNDLE tag (各 group の先頭 MID)
 
 ##### Returns
 
-`undefined` \| `string`
+`string`[]
 
 ***
 
@@ -128,11 +128,11 @@
 
 #### Get Signature
 
-> **get** **remoteDescription**(): `undefined` \| [`RTCSessionDescription`](RTCSessionDescription.md)
+> **get** **remoteDescription**(): [`RTCSessionDescription`](RTCSessionDescription.md) \| `undefined`
 
 ##### Returns
 
-`undefined` \| [`RTCSessionDescription`](RTCSessionDescription.md)
+[`RTCSessionDescription`](RTCSessionDescription.md) \| `undefined`
 
 ***
 
@@ -140,17 +140,17 @@
 
 #### Get Signature
 
-> **get** **remoteIsBundled**(): `undefined` \| [`GroupDescription`](GroupDescription.md)
+> **get** **remoteIsBundled**(): [`GroupDescription`](GroupDescription.md) \| `undefined`
 
 ##### Returns
 
-`undefined` \| [`GroupDescription`](GroupDescription.md)
+[`GroupDescription`](GroupDescription.md) \| `undefined`
 
 ## Methods
 
 ### addTransportDescription()
 
-> **addTransportDescription**(`media`, `dtlsTransport`): `void`
+> **addTransportDescription**(`media`, `dtlsTransport`, `__namedParameters?`): `void`
 
 トランスポートの情報をMediaDescriptionに追加
 
@@ -164,6 +164,12 @@
 
 [`RTCDtlsTransport`](RTCDtlsTransport.md)
 
+##### \_\_namedParameters?
+
+###### applied?
+
+`boolean` = `false`
+
 #### Returns
 
 `void`
@@ -172,19 +178,35 @@
 
 ### allocateMid()
 
-> **allocateMid**(`type`): `string`
+> **allocateMid**(`type?`): `string`
 
 一意のMIDを割り当て
 
 #### Parameters
 
-##### type
+##### type?
 
-`""` | `"dc"` | `"av"`
+`""` \| `"dc"` \| `"av"` = `""`
 
 #### Returns
 
 `string`
+
+***
+
+### applyRemoteDescription()
+
+> **applyRemoteDescription**(`remoteSdp`): `void`
+
+#### Parameters
+
+##### remoteSdp
+
+[`SessionDescription`](SessionDescription.md)
+
+#### Returns
+
+`void`
 
 ***
 
@@ -200,7 +222,7 @@
 
 ###### sctpTransport
 
-`undefined` \| [`RTCSctpTransport`](RTCSctpTransport.md)
+[`RTCSctpTransport`](RTCSctpTransport.md) \| `undefined`
 
 ###### signalingState
 
@@ -209,6 +231,10 @@
 ###### transceivers
 
 [`RTCRtpTransceiver`](RTCRtpTransceiver.md)[]
+
+###### transportByMid?
+
+`Map`\<`string`, [`RTCDtlsTransport`](RTCDtlsTransport.md)\>
 
 #### Returns
 
@@ -230,7 +256,7 @@
 
 ##### sctpTransport
 
-`undefined` | [`RTCSctpTransport`](RTCSctpTransport.md)
+[`RTCSctpTransport`](RTCSctpTransport.md) \| `undefined`
 
 #### Returns
 
@@ -270,7 +296,7 @@ MediaDescriptionをトランシーバー用に作成
 
 ##### direction
 
-`"inactive"` | `"sendonly"` | `"recvonly"` | `"sendrecv"`
+`"inactive"` \| `"sendonly"` \| `"recvonly"` \| `"sendrecv"`
 
 #### Returns
 
@@ -280,7 +306,7 @@ MediaDescriptionをトランシーバー用に作成
 
 ### createRejectedMediaDescription()
 
-> **createRejectedMediaDescription**(`source`, `dtlsTransport`?): [`MediaDescription`](MediaDescription.md)
+> **createRejectedMediaDescription**(`source`, `dtlsTransport?`): [`MediaDescription`](MediaDescription.md)
 
 拒否 / 停止した m-line を作成する (RFC 3264 §6 / RFC 8829 §5.3.1)。
 port は 0、proto と MID は元の m-line を保ち、fmt は少なくとも 1 token 残す。
@@ -383,7 +409,7 @@ port は 0、proto と MID は元の m-line を保ち、fmt は少なくとも 1
 
 ### setLocal()
 
-> **setLocal**(`description`, `transceivers`, `sctpTransport`?): `void`
+> **setLocal**(`description`, `transceivers`, `sctpTransport?`, `transportByMid?`): `void`
 
 ローカルセッション記述を設定し、トランスポート情報を追加する
 
@@ -406,6 +432,10 @@ port は 0、proto と MID は元の m-line を保ち、fmt は少なくとも 1
 ###### mid?
 
 `string`
+
+##### transportByMid?
+
+`Map`\<`string`, [`RTCDtlsTransport`](RTCDtlsTransport.md)\>
 
 #### Returns
 
@@ -431,7 +461,7 @@ port は 0、proto と MID は元の m-line を保ち、fmt は少なくとも 1
 
 ### setRemoteDescription()
 
-> **setRemoteDescription**(`sessionDescription`, `signalingState`): `undefined` \| [`SessionDescription`](SessionDescription.md)
+> **setRemoteDescription**(`sessionDescription`, `signalingState`): [`SessionDescription`](SessionDescription.md) \| `undefined`
 
 #### Parameters
 
@@ -445,4 +475,24 @@ port は 0、proto と MID は元の m-line を保ち、fmt は少なくとも 1
 
 #### Returns
 
-`undefined` \| [`SessionDescription`](SessionDescription.md)
+[`SessionDescription`](SessionDescription.md) \| `undefined`
+
+***
+
+### validateRemoteDescription()
+
+> **validateRemoteDescription**(`remoteSdp`): `void`
+
+状態を変更する前の remote description の検証。失敗時は signaling state /
+descriptions を保つ。answer / pranswer は pending local offer と共通 codec を持つ。
+(re-offer による BUNDLE の分割・統合は negotiation transaction が staged topology として扱う)
+
+#### Parameters
+
+##### remoteSdp
+
+[`SessionDescription`](SessionDescription.md)
+
+#### Returns
+
+`void`

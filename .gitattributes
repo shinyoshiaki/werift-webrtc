@@ -1,1 +1,4 @@
 *.html linguist-detectable=false
+# Vendored third-party bundles keep their original formatting.
+examples/e2e/vendor/*.js -whitespace
+doc/_media/examples/e2e/vendor/*.js -whitespace

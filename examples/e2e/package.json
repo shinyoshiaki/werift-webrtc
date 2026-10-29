@@ -11,18 +11,19 @@
     "type": "tsc --noEmit -p tsconfig.json"
   },
   "devDependencies": {
-    "@types/node": "^22.13.4",
-    "@types/react": "^19.0.8",
-    "@types/react-dom": "^19.0.3",
-    "@vitejs/plugin-react": "^4.7.0",
+    "@types/node": "^22.20.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
     "buffer": "^6.0.3",
-    "playwright": "^1.55.1",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
-    "sdp-transform": "^2.15.0",
-    "typescript": "^5.7.3",
-    "vite": "^6.4.2",
-    "vite-plugin-node-polyfills": "^0.24.0",
-    "vitest": "4.1.11"
+    "playwright": "^1.64.1",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "sdp-transform": "^3.0.0",
+    "typescript": "6.0.3",
+    "vite": "^8.3.5",
+    "vite-plugin-node-polyfills": "^0.28.0",
+    "vitest": "5.0.5",
+    "@vitest/browser-playwright": "5.0.5"
   }
 }

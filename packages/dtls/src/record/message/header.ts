@@ -1,5 +1,7 @@
-import { decode, encode, types } from "@shinyoshiaki/binary-data";
 import { ProtocolVersion } from "../../handshake/binary";
+import { binaryData } from "../../imports/common";
+
+const { decode, encode, types } = binaryData;
 
 export interface DtlsPlaintextHeader {
   contentType: number;
@@ -41,13 +43,12 @@ export class MACHeader {
 
   static deSerialize(buf: Buffer) {
     return new MACHeader(
-      //@ts-ignore
+      //@ts-expect-error
       ...Object.values(decode(buf, MACHeader.spec)),
     );
   }
 
   serialize() {
-    const res = encode(this, MACHeader.spec).slice();
-    return Buffer.from(res);
+    return encode(this, MACHeader.spec);
   }
 }

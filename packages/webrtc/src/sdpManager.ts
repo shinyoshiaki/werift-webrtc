@@ -1,18 +1,20 @@
 import { DISCARD_HOST, DISCARD_PORT } from "./const";
 import { createWebRtcDomException } from "./errors";
 import type { RTCRtpTransceiver } from "./media";
+import { normalizeCodecMimeType } from "./media/codecCompatibility";
 import {
   type RTCRtpCodecParameters,
   RTCRtpSimulcastParameters,
 } from "./media/parameters";
 import type { MediaDirection } from "./media/rtpTransceiver";
 import {
+  addSDPHeader,
   type BundlePolicy,
+  codecParametersFromString,
   GroupDescription,
   MediaDescription,
   SessionDescription,
   SsrcDescription,
-  addSDPHeader,
 } from "./sdp";
 import type { RTCDtlsTransport } from "./transport/dtls";
 import type { RTCSctpTransport } from "./transport/sctp";
@@ -100,6 +102,7 @@ export class SDPManager {
     media.rtcpHost = "0.0.0.0";
     media.rtcpPort = 9;
     media.rtcpMux = true;
+
     media.ssrc = [
       new SsrcDescription({ ssrc: transceiver.sender.ssrc, cname: this.cname }),
     ];
@@ -189,12 +192,26 @@ export class SDPManager {
   addTransportDescription(
     media: MediaDescription,
     dtlsTransport: RTCDtlsTransport,
+    { applied = false }: { applied?: boolean } = {},
   ): void {
-    const iceTransport = dtlsTransport.iceTransport;
+    const generation = dtlsTransport.iceTransport.describedLocalGeneration({
+      applied,
+    });
+    // An applied description keeps the credentials it applied: an m-line
+    // BUNDLE later moved onto another transport (the tag of a first max-compat
+    // offer) is not rewritten with that transport's generation.
+    if (
+      applied &&
+      media.iceParams &&
+      media.iceParams.usernameFragment !==
+        generation.parameters?.usernameFragment
+    ) {
+      return;
+    }
 
-    media.iceCandidates = iceTransport.localCandidates;
-    media.iceCandidatesComplete = iceTransport.gatheringState === "complete";
-    media.iceParams = iceTransport.localParameters;
+    media.iceCandidates = generation.candidates;
+    media.iceCandidatesComplete = generation.complete;
+    media.iceParams = generation.parameters;
     media.iceOptions = "trickle";
 
     media.host = DISCARD_HOST;
@@ -245,8 +262,239 @@ export class SDPManager {
   }): SessionDescription {
     const description = SessionDescription.parse(sdp);
     this.validateDescription({ description, isLocal, signalingState, type });
+    if (!isLocal && type !== "offer") this.alignInitialAnswerMids(description);
+    this.validateSections(description, type, isLocal);
     description.type = type;
     return description;
+  }
+
+  /**
+   * RFC 3264 pairs the m-lines of an answer with the offer's by position.
+   * Some servers (issue #142) answer a first offer with MIDs of their own
+   * (`0_srtp` for the offered `0`): such an m-line, of the offered kind at the
+   * offered position, takes the offered MID, and BUNDLE entries naming it
+   * follow. This applies only before a session exists; afterwards an answer
+   * MID must equal the offered one (RFC 8843), and any other mismatch is
+   * rejected by validateSections.
+   */
+  private alignInitialAnswerMids(answer: SessionDescription) {
+    const offer = this.pendingLocalDescription;
+    if (
+      this.currentLocalDescription ||
+      this.currentRemoteDescription ||
+      !offer ||
+      offer.media.length !== answer.media.length
+    ) {
+      return;
+    }
+    const offeredMids = new Set(offer.media.map((media) => media.rtp.muxId));
+    const renamed = new Map<string, string>();
+    for (const [index, media] of answer.media.entries()) {
+      const offered = offer.media[index];
+      const mid = media.rtp.muxId;
+      const offeredMid = offered.rtp.muxId;
+      if (
+        !mid ||
+        !offeredMid ||
+        mid === offeredMid ||
+        offeredMids.has(mid) ||
+        media.kind !== offered.kind ||
+        answer.media.some((other) => other.rtp.muxId === offeredMid)
+      ) {
+        continue;
+      }
+      renamed.set(mid, offeredMid);
+      media.rtp.muxId = offeredMid;
+    }
+    for (const group of answer.group) {
+      group.items = group.items.map((item) => renamed.get(item) ?? item);
+    }
+  }
+
+  /** Checks cross-section constraints before any media or transport is changed. */
+  private validateSections(
+    description: SessionDescription,
+    type: "offer" | "answer" | "pranswer",
+    isLocal: boolean,
+  ) {
+    const mids = description.media.map((media) => media.rtp.muxId);
+    const presentMids = mids.filter((mid): mid is string => !!mid);
+    if (new Set(presentMids).size !== presentMids.length) {
+      throw createWebRtcDomException("OperationError", "Duplicate MID in SDP");
+    }
+
+    for (const group of description.group.filter(
+      (group) => group.semantic === "BUNDLE",
+    )) {
+      // BUNDLE members are identified by exact MID (RFC 8843 section 7).
+      if (
+        new Set(group.items).size !== group.items.length ||
+        group.items.some((mid) => !presentMids.includes(mid))
+      ) {
+        throw createWebRtcDomException(
+          "OperationError",
+          "Invalid BUNDLE group in SDP",
+        );
+      }
+    }
+
+    const previous = isLocal
+      ? this.currentLocalDescription
+      : this.currentRemoteDescription;
+    if (previous) {
+      for (const [index, oldMedia] of previous.media.entries()) {
+        const next = description.media[index];
+        // Rejected by either side of the current session (JSEP 5.2.2).
+        const counterpart = isLocal
+          ? this.currentRemoteDescription
+          : this.currentLocalDescription;
+        const reusable =
+          oldMedia.port === 0 ||
+          counterpart?.media[index]?.port === 0 ||
+          oldMedia.direction === "inactive";
+        if (
+          !next ||
+          (next.kind !== oldMedia.kind && oldMedia.port !== 0) ||
+          (oldMedia.rtp.muxId &&
+            next.rtp.muxId !== oldMedia.rtp.muxId &&
+            !reusable)
+        ) {
+          throw createWebRtcDomException(
+            "InvalidModificationError",
+            "Existing m-lines must retain their order, kind and MID",
+          );
+        }
+        if (!isLocal && !reusable && next.port !== 0) {
+          this.assertStablePayloadTypes(this.negotiatedCodecs(index), next);
+        }
+      }
+      if (!isLocal) this.assertStableHeaderExtensionIds(description);
+    }
+
+    if (type === "offer") return;
+    const offer = isLocal
+      ? this.pendingRemoteDescription
+      : this.pendingLocalDescription;
+    // RFC 3264 §6 asks for exactly the offer's m-lines. A remote answer that
+    // answers only the leading ones (a peer re-sending its previous answer)
+    // is accepted as develop did: the m-lines it leaves out are rejected by it.
+    const shorterRemote =
+      !isLocal && !!offer && description.media.length < offer.media.length;
+    if (
+      !offer ||
+      (description.media.length !== offer.media.length && !shorterRemote)
+    ) {
+      throw createWebRtcDomException(
+        "InvalidModificationError",
+        "Answer m-lines must match the offer",
+      );
+    }
+    for (const [index, media] of description.media.entries()) {
+      const offered = offer.media[index];
+      if (
+        media.kind !== offered.kind ||
+        (offered.rtp.muxId && media.rtp.muxId !== offered.rtp.muxId)
+      ) {
+        throw createWebRtcDomException(
+          "InvalidModificationError",
+          "Answer m-lines must match the offer",
+        );
+      }
+      if (media.port !== 0 && offered.port === 0) {
+        throw createWebRtcDomException(
+          "InvalidModificationError",
+          "Answer cannot accept a rejected m-line",
+        );
+      }
+    }
+  }
+
+  /**
+   * The current session uses only what both current descriptions carry for an
+   * m-line: an offer may list payload types and header extensions the answer
+   * did not accept, and those are free to be offered again with another value.
+   */
+  private negotiatedMedia(index: number) {
+    const remote = this.currentRemoteDescription?.media[index];
+    const local = this.currentLocalDescription?.media[index];
+    if (!remote || !local || remote.port === 0 || local.port === 0) return;
+    return { remote, local };
+  }
+
+  private negotiatedCodecs(index: number) {
+    const media = this.negotiatedMedia(index);
+    if (!media) return [];
+    return media.remote.rtp.codecs.filter((codec) =>
+      media.local.rtp.codecs.some((c) => c.payloadType === codec.payloadType),
+    );
+  }
+
+  private negotiatedHeaderExtensions(index: number) {
+    const media = this.negotiatedMedia(index);
+    if (!media) return [];
+    return media.remote.rtp.headerExtensions.filter((extension) =>
+      media.local.rtp.headerExtensions.some(
+        (e) => e.id === extension.id && e.uri === extension.uri,
+      ),
+    );
+  }
+
+  /**
+   * RFC 8285 section 7: a header extension ID in use must not be remapped to
+   * another URI within the session (Chrome rejects it too). The router's ID
+   * map is shared by every m-line, so a remap in the proposal would reparse
+   * current RTP while the description is still pending. Adding extensions,
+   * or moving a URI to a new ID, stays allowed.
+   */
+  private assertStableHeaderExtensionIds(next: SessionDescription) {
+    const active = new Map<number, string>();
+    for (const index of this.currentRemoteDescription?.media.keys() ?? []) {
+      for (const extension of this.negotiatedHeaderExtensions(index)) {
+        active.set(extension.id, extension.uri);
+      }
+    }
+    for (const media of next.media) {
+      if (media.port === 0) continue;
+      for (const extension of media.rtp.headerExtensions) {
+        const uri = active.get(extension.id);
+        if (uri !== undefined && uri !== extension.uri) {
+          throw createWebRtcDomException(
+            "InvalidModificationError",
+            `RTP header extension id ${extension.id} cannot be remapped within a session`,
+          );
+        }
+      }
+    }
+  }
+
+  /**
+   * RFC 3264 section 8.3.2: a dynamic payload type keeps its codec for the
+   * session. A remap would change how in-flight current RTP is decoded while
+   * the new description is still pending, so it is rejected before mutation.
+   */
+  private assertStablePayloadTypes(
+    negotiated: RTCRtpCodecParameters[],
+    next: MediaDescription,
+  ) {
+    for (const codec of next.rtp.codecs) {
+      const previous = negotiated.find(
+        (c) => c.payloadType === codec.payloadType,
+      );
+      if (!previous) continue;
+      const apt = (c: typeof codec) =>
+        codecParametersFromString(c.parameters ?? "")["apt"];
+      if (
+        previous.mimeType.toLowerCase() !== codec.mimeType.toLowerCase() ||
+        previous.clockRate !== codec.clockRate ||
+        (previous.channels ?? 1) !== (codec.channels ?? 1) ||
+        (previous.name.toLowerCase() === "rtx" && apt(previous) !== apt(codec))
+      ) {
+        throw createWebRtcDomException(
+          "InvalidModificationError",
+          `Payload type ${codec.payloadType} cannot be remapped within a session`,
+        );
+      }
+    }
   }
 
   private validateDescription({
@@ -262,7 +510,11 @@ export class SDPManager {
   }) {
     if (isLocal) {
       if (type === "offer") {
-        if (!["stable", "have-local-offer"].includes(signalingState))
+        if (
+          !["stable", "have-local-offer", "have-remote-pranswer"].includes(
+            signalingState,
+          )
+        )
           throw createWebRtcDomException(
             "InvalidStateError",
             "Cannot handle offer in signaling state",
@@ -280,9 +532,12 @@ export class SDPManager {
     } else {
       if (type === "offer") {
         if (
-          !["stable", "have-remote-offer", "have-local-offer"].includes(
-            signalingState,
-          )
+          ![
+            "stable",
+            "have-remote-offer",
+            "have-local-offer",
+            "have-local-pranswer",
+          ].includes(signalingState)
         ) {
           throw createWebRtcDomException(
             "InvalidStateError",
@@ -319,21 +574,81 @@ export class SDPManager {
 
     // # handle existing transceivers / sctp
     const currentMedia = this.currentLocalDescription?.media ?? [];
-    /**過去の m-line を引き継ぐ停止済みの位置 (新しい transceiver が再利用できる) */
+    // JSEP 5.2.2: recycle eligible zero-port slots while preserving placeholders
+    // for stopped m-lines whose transceiver was replaced at the same index.
+    const added = transceivers.filter(
+      (t) =>
+        t.mid == undefined &&
+        t.mLineIndex === undefined &&
+        !t.stopping &&
+        !t.stopped,
+    );
     const placeholderIndices = new Set<number>();
 
     currentMedia.forEach((m, i) => {
+      // werift also writes an `inactive` m-line with port zero, so only an
+      // m-line whose transceiver is gone or stopped is recyclable.
+      const owner = transceivers.find(
+        (t) => !!m.rtp.muxId && t.mid === m.rtp.muxId,
+      );
+      const recyclable =
+        m.kind !== "application" &&
+        (!owner || owner.stopped) &&
+        (m.port === 0 || this.currentRemoteDescription?.media[i]?.port === 0);
+      // A stopped position is reused only by the same kind (issue 705 design).
+      const index = recyclable
+        ? added.findIndex((transceiver) => transceiver.kind === m.kind)
+        : -1;
+      const recycled = index >= 0 ? added.splice(index, 1)[0] : undefined;
+      if (recycled) {
+        recycled.mid = this.allocateMid(this.midSuffix ? "av" : "");
+        recycled.mLineIndex = i;
+        description.media.push(
+          this.createMediaDescriptionForTransceiver(
+            recycled,
+            recycled.direction,
+          ),
+        );
+        return;
+      }
       const mid = m.rtp.muxId;
       if (!mid) {
         return;
       }
       if (m.kind === "application") {
-        if (!sctpTransport) {
-          throw new Error("sctpTransport not found");
+        // The m-line keeps its position without an SCTP transport: the
+        // current description, not the transport, records it.
+        const rejected =
+          m.port === 0 || this.currentRemoteDescription?.media[i]?.port === 0;
+        let placed = sctpTransport?.mid === mid;
+        if (sctpTransport && sctpTransport.mid == undefined) {
+          // An unbound transport (createDataChannel) takes a rejected
+          // position with a new MID, like a transceiver reusing a stopped
+          // position of its kind, and keeps the MID of any other position.
+          sctpTransport.mid = rejected
+            ? this.allocateMid(this.midSuffix ? "dc" : "")
+            : mid;
+          placed = true;
         }
-        sctpTransport.mLineIndex = i;
+        if (sctpTransport && placed) {
+          sctpTransport.mLineIndex = i;
+          description.media.push(
+            this.createMediaDescriptionForSctp(sctpTransport),
+          );
+          return;
+        }
+        // No SCTP transport for this position: it stays rejected (port 0).
         description.media.push(
-          this.createMediaDescriptionForSctp(sctpTransport),
+          this.createRejectedMediaDescription(
+            {
+              kind: m.kind,
+              profile: m.profile,
+              fmt: m.fmt,
+              codecs: [],
+              mid,
+            },
+            fallbackDtlsTransport,
+          ),
         );
       } else {
         const transceiver = transceivers.find((t) => t.mid === mid);
@@ -377,13 +692,18 @@ export class SDPManager {
         description.media.push(
           this.createMediaDescriptionForTransceiver(
             transceiver,
-            transceiver.direction,
+            // JSEP 5.2.2: a stopping or stopped transceiver is offered as a
+            // rejected (zero port) m-line.
+            transceiver.stopping || transceiver.stopped
+              ? "inactive"
+              : transceiver.direction,
           ),
         );
       }
     });
 
     // # handle new transceivers / sctp
+    // A stopping or stopped transceiver never gets a new m-line (JSEP 5.2.2).
     for (const transceiver of transceivers.filter(
       (t) =>
         !t.stopping &&
@@ -414,7 +734,12 @@ export class SDPManager {
 
     if (
       sctpTransport &&
-      !description.media.find((m) => m.kind === "application")
+      !description.media.find(
+        (m) =>
+          m.kind === "application" &&
+          m.port !== 0 &&
+          m.rtp.muxId === sctpTransport.mid,
+      )
     ) {
       sctpTransport.mLineIndex = description.media.length;
       if (sctpTransport.mid == undefined) {
@@ -432,7 +757,10 @@ export class SDPManager {
       if (mids.length) {
         const bundle = new GroupDescription(
           "BUNDLE",
-          orderBundleMids(mids, this.negotiatedBundleTag),
+          orderBundleMids(
+            mids,
+            this.negotiatedBundleTags.find((tag) => mids.includes(tag)),
+          ),
         );
         description.group.push(bundle);
       }
@@ -463,13 +791,15 @@ export class SDPManager {
     ].find((t): t is RTCDtlsTransport => !!t && t.state !== "closed");
   }
 
-  /**確定済み answer の BUNDLE tag (先頭 MID) */
-  get negotiatedBundleTag(): string | undefined {
+  /**確定済み answer の BUNDLE tag (各 group の先頭 MID) */
+  get negotiatedBundleTags(): string[] {
     const answer = [
       this.currentLocalDescription,
       this.currentRemoteDescription,
     ].find((d) => d?.type === "answer");
-    return answer?.group.find((g) => g.semantic === "BUNDLE")?.items[0];
+    return (answer?.group ?? [])
+      .filter((g) => g.semantic === "BUNDLE")
+      .map((g) => g.items[0]);
   }
 
   /**
@@ -479,11 +809,12 @@ export class SDPManager {
     transceivers,
     sctpTransport,
     signalingState,
+    transportByMid,
   }: {
     transceivers: RTCRtpTransceiver[];
     sctpTransport: RTCSctpTransport | undefined;
-
     signalingState: string;
+    transportByMid?: Map<string, RTCDtlsTransport>;
   }): SessionDescription {
     if (
       !["have-remote-offer", "have-local-pranswer"].includes(signalingState)
@@ -502,11 +833,26 @@ export class SDPManager {
       transceivers,
       sctpTransport,
     );
+    const rejectedMids = new Set<string>();
 
     for (const remoteMedia of remoteDescription.media) {
       let dtlsTransport: RTCDtlsTransport | undefined;
       let media: MediaDescription;
       let accepted = true;
+
+      if (remoteMedia.port === 0) {
+        if (remoteMedia.rtp.muxId) rejectedMids.add(remoteMedia.rtp.muxId);
+        media = new MediaDescription(
+          remoteMedia.kind,
+          0,
+          remoteMedia.profile,
+          remoteMedia.fmt,
+        );
+        media.rtp.muxId = remoteMedia.rtp.muxId;
+        media.direction = "inactive";
+        description.media.push(media);
+        continue;
+      }
 
       if (["audio", "video"].includes(remoteMedia.kind)) {
         const transceiver = transceivers.find(
@@ -517,14 +863,31 @@ export class SDPManager {
             `Transceiver with mid=${remoteMedia.rtp.muxId} not found`,
           );
         }
+        // answerer の stop() だけでは port 0 にせず、次の自分の offer で停止を交渉する
+        const answered =
+          transceiver &&
+          remoteMedia.port !== 0 &&
+          !transceiver.stopped &&
+          !transceiver.pendingRejection
+            ? this.createMediaDescriptionForTransceiver(
+                transceiver,
+                transceiver.stopping
+                  ? "inactive"
+                  : andDirection(
+                      transceiver.direction,
+                      transceiver.offerDirection,
+                    ),
+              )
+            : undefined;
         if (
           !transceiver ||
-          remoteMedia.port === 0 ||
-          transceiver.stopped ||
-          transceiver.pendingRejection
+          !answered ||
+          // codec のない m-line は答えられない (JSEP 5.3.1: 拒否する)。
+          // stop() 直後に setCodecPreferences した transceiver など。
+          answered.rtp.codecs.length === 0
         ) {
-          // 非対応 / remote port 0 / 停止確定の section は同じ位置で port 0 にする
           accepted = false;
+          if (remoteMedia.rtp.muxId) rejectedMids.add(remoteMedia.rtp.muxId);
           dtlsTransport = this.liveTransportOr(
             transceiver?.dtlsTransport,
             fallbackDtlsTransport,
@@ -540,13 +903,7 @@ export class SDPManager {
             dtlsTransport,
           );
         } else {
-          // answerer の stop() だけでは port 0 にせず、次の自分の offer で停止を交渉する
-          media = this.createMediaDescriptionForTransceiver(
-            transceiver,
-            transceiver.stopping
-              ? "inactive"
-              : andDirection(transceiver.direction, transceiver.offerDirection),
-          );
+          media = answered;
           dtlsTransport = transceiver.dtlsTransport;
         }
       } else if (remoteMedia.kind === "application") {
@@ -560,10 +917,22 @@ export class SDPManager {
         throw new Error("invalid kind");
       }
 
+      const proposedTransport =
+        remoteMedia.rtp.muxId && transportByMid?.get(remoteMedia.rtp.muxId);
+      // A rejected m-line keeps port 0: only an accepted one takes the
+      // transport prepared for the pending proposal.
+      if (proposedTransport && accepted) {
+        dtlsTransport = proposedTransport;
+        this.addTransportDescription(media, proposedTransport);
+      }
+
       // # determine DTLS role, or preserve the currently configured role
       if (media.dtlsParams && dtlsTransport) {
         if (dtlsTransport.role === "auto") {
-          media.dtlsParams.role = "client";
+          // RFC 8842 section 5.3: answer `passive` to an `active` offer and
+          // `active` to `actpass`/`passive`.
+          media.dtlsParams.role =
+            remoteMedia.dtlsParams?.role === "client" ? "server" : "client";
         } else {
           media.dtlsParams.role = dtlsTransport.role;
         }
@@ -610,7 +979,7 @@ export class SDPManager {
         .filter((m) => m.port !== 0 && m.rtp.muxId)
         .map((m) => m.rtp.muxId!),
     );
-    const negotiatedTag = this.negotiatedBundleTag;
+    const negotiatedTags = this.negotiatedBundleTags;
 
     return remoteDescription.group
       .filter((group) => group.semantic === "BUNDLE")
@@ -622,7 +991,13 @@ export class SDPManager {
       .filter((mids) => mids.length > 0)
       .map(
         (mids) =>
-          new GroupDescription("BUNDLE", orderBundleMids(mids, negotiatedTag)),
+          new GroupDescription(
+            "BUNDLE",
+            orderBundleMids(
+              mids,
+              negotiatedTags.find((tag) => mids.includes(tag)),
+            ),
+          ),
       );
   }
 
@@ -651,8 +1026,8 @@ export class SDPManager {
           codec.name.toLowerCase() !== "rtx" &&
           offered.rtp.codecs.some(
             (offeredCodec) =>
-              offeredCodec.mimeType.toLowerCase() ===
-              codec.mimeType.toLowerCase(),
+              normalizeCodecMimeType(offeredCodec.mimeType) ===
+              normalizeCodecMimeType(codec.mimeType),
           ),
       );
       if (!hasCommonCodec) {
@@ -662,47 +1037,6 @@ export class SDPManager {
         );
       }
     });
-  }
-
-  /**
-   * 確立済み BUNDLE の transport を共有している m-line を、re-offer が
-   * group の外へ出したり別々の group に分割したりすることはできない
-   * (共有 transport を分割できない)。状態を変更する前に拒否する。
-   */
-  private assertBundlePreserved(remoteSdp: SessionDescription) {
-    if (remoteSdp.type !== "offer" || this.bundlePolicy === "disable") {
-      return;
-    }
-    const negotiatedGroups =
-      [this.currentLocalDescription, this.currentRemoteDescription]
-        .find((d) => d?.type === "answer")
-        ?.group.filter((g) => g.semantic === "BUNDLE") ?? [];
-    const offeredGroups = remoteSdp.group.filter(
-      (g) => g.semantic === "BUNDLE",
-    );
-    for (const negotiated of negotiatedGroups) {
-      let sharedGroup: GroupDescription | undefined;
-      for (const mid of negotiated.items) {
-        const media = remoteSdp.media.find((m) => m.rtp.muxId === mid);
-        if (!media || media.port === 0) {
-          continue;
-        }
-        const offeredGroup = offeredGroups.find((g) => g.items.includes(mid));
-        if (!offeredGroup) {
-          throw createWebRtcDomException(
-            "InvalidAccessError",
-            `BUNDLE transport of mid=${mid} cannot be preserved by the remote offer`,
-          );
-        }
-        sharedGroup ??= offeredGroup;
-        if (offeredGroup !== sharedGroup) {
-          throw createWebRtcDomException(
-            "InvalidAccessError",
-            `BUNDLE transport of mid=${mid} cannot be split into another BUNDLE group by the remote offer`,
-          );
-        }
-      }
-    }
   }
 
   setLocalDescription(description: SessionDescription) {
@@ -729,7 +1063,11 @@ export class SDPManager {
 
     if (sessionDescription.type === "rollback") {
       if (
-        !["have-remote-offer", "have-local-pranswer"].includes(signalingState)
+        ![
+          "have-remote-offer",
+          "have-local-pranswer",
+          "have-remote-pranswer",
+        ].includes(signalingState)
       ) {
         throw createWebRtcDomException(
           "InvalidStateError",
@@ -752,10 +1090,23 @@ export class SDPManager {
       signalingState,
       type: sessionDescription.type,
     });
-    // 状態を変更する前に検証し、失敗時は signaling state / descriptions を保つ
-    this.assertRemoteAnswerCodecs(remoteSdp);
-    this.assertBundlePreserved(remoteSdp);
+    this.validateRemoteDescription(remoteSdp);
 
+    this.applyRemoteDescription(remoteSdp);
+
+    return remoteSdp;
+  }
+
+  /**
+   * 状態を変更する前の remote description の検証。失敗時は signaling state /
+   * descriptions を保つ。answer / pranswer は pending local offer と共通 codec を持つ。
+   * (re-offer による BUNDLE の分割・統合は negotiation transaction が staged topology として扱う)
+   */
+  validateRemoteDescription(remoteSdp: SessionDescription) {
+    this.assertRemoteAnswerCodecs(remoteSdp);
+  }
+
+  applyRemoteDescription(remoteSdp: SessionDescription) {
     if (remoteSdp.type === "offer" || remoteSdp.type === "pranswer") {
       this.pendingRemoteDescription = remoteSdp;
     } else {
@@ -766,12 +1117,16 @@ export class SDPManager {
       this.pendingRemoteDescription = undefined;
       this.pendingLocalDescription = undefined;
     }
-
-    return remoteSdp;
   }
 
   rollbackLocalDescription(signalingState: string) {
-    if (!["have-local-offer", "have-local-pranswer"].includes(signalingState)) {
+    if (
+      ![
+        "have-local-offer",
+        "have-local-pranswer",
+        "have-remote-pranswer",
+      ].includes(signalingState)
+    ) {
       throw createWebRtcDomException(
         "InvalidStateError",
         "Cannot rollback local description in signaling state",
@@ -797,12 +1152,34 @@ export class SDPManager {
   }
 
   /**
+   * RFC 8842 section 5.2: an offer for a new DTLS association (a transport
+   * prepared for this offer that has never connected, such as a BUNDLE split
+   * owner) uses `actpass`, even if the SDP carried the shared transport's role.
+   */
+  private offerNewAssociation(
+    description: SessionDescription,
+    media: MediaDescription,
+    dtlsTransport: RTCDtlsTransport,
+    transportByMid?: Map<string, RTCDtlsTransport>,
+  ) {
+    if (
+      description.type === "offer" &&
+      media.dtlsParams &&
+      dtlsTransport.state === "new" &&
+      transportByMid?.get(media.rtp.muxId ?? "") === dtlsTransport
+    ) {
+      media.dtlsParams.role = "auto";
+    }
+  }
+
+  /**
    * ローカルセッション記述を設定し、トランスポート情報を追加する
    */
   setLocal(
     description: SessionDescription,
     transceivers: RTCRtpTransceiver[],
     sctpTransport?: { dtlsTransport: RTCDtlsTransport; mid?: string },
+    transportByMid?: Map<string, RTCDtlsTransport>,
   ) {
     const transceiverByMLineIndex = new Map(
       transceivers.map((transceiver) => [transceiver?.mLineIndex, transceiver]),
@@ -810,41 +1187,54 @@ export class SDPManager {
     const fallbackDtlsTransport =
       transceivers.find((transceiver) => transceiver?.dtlsTransport)
         ?.dtlsTransport ?? sctpTransport?.dtlsTransport;
+    // Refreshing an applied description keeps the ICE generation it applied.
+    const applied =
+      description === this.currentLocalDescription ||
+      description === this.pendingLocalDescription;
     // SCTP が RTP より先にある SDP でも元の m-line index で transceiver を引く
     description.media.forEach((m, i) => {
-      if (!["audio", "video"].includes(m.kind)) {
-        return;
-      }
+      if (!["audio", "video"].includes(m.kind)) return;
       const transceiver =
         transceivers.find(
           (t) => t?.mid != undefined && t.mid === m.rtp.muxId,
         ) ?? transceiverByMLineIndex.get(i);
-      if (m.port === 0) {
-        const live =
-          transceiver &&
-          !transceiver.stopping &&
-          !transceiver.stopped &&
-          !transceiver.pendingRejection;
-        if (!live) {
-          // 拒否 / 停止した m-line には transport 情報を追加しない
-          return;
-        }
-      }
-      const dtlsTransport = transceiver?.dtlsTransport ?? fallbackDtlsTransport;
-      if (!dtlsTransport) {
+      const live =
+        transceiver &&
+        !transceiver.stopping &&
+        !transceiver.stopped &&
+        !transceiver.pendingRejection;
+      if (m.port === 0 && !live) return;
+      const dtlsTransport =
+        (m.rtp.muxId && transportByMid?.get(m.rtp.muxId)) ||
+        transceiver?.dtlsTransport ||
+        fallbackDtlsTransport;
+      if (!dtlsTransport)
         throw new Error(`dtls transport not found for media index ${i}`);
-      }
       const port = m.port;
-      this.addTransportDescription(m, dtlsTransport);
-      if (port === 0) {
-        m.port = 0;
-      }
+      this.addTransportDescription(m, dtlsTransport, { applied });
+      this.offerNewAssociation(description, m, dtlsTransport, transportByMid);
+      if (port === 0) m.port = 0;
     });
-    const sctpMedia = description.media.find((m) => m.kind === "application");
+    // A rejected (port 0) application m-line carries no transport.
+    const sctpMedia = description.media.find(
+      (m) => m.kind === "application" && m.port !== 0,
+    );
     if (sctpTransport && sctpMedia) {
-      this.addTransportDescription(sctpMedia, sctpTransport.dtlsTransport);
+      const dtlsTransport =
+        (sctpMedia.rtp.muxId && transportByMid?.get(sctpMedia.rtp.muxId)) ||
+        sctpTransport.dtlsTransport;
+      this.addTransportDescription(sctpMedia, dtlsTransport, { applied });
+      this.offerNewAssociation(
+        description,
+        sctpMedia,
+        dtlsTransport,
+        transportByMid,
+      );
     }
 
+    // Refreshing the transport lines of the current description (candidates
+    // an ICE restart gathers after its commit) keeps it current.
+    if (description === this.currentLocalDescription) return;
     this.setLocalDescription(description);
   }
 }

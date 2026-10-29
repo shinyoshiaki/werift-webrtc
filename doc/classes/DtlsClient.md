@@ -12,9 +12,9 @@
 
 ## Constructors
 
-### new DtlsClient()
+### Constructor
 
-> **new DtlsClient**(`options`): [`DtlsClient`](DtlsClient.md)
+> **new DtlsClient**(`options`): `DtlsClient`
 
 #### Parameters
 
@@ -24,11 +24,11 @@
 
 #### Returns
 
-[`DtlsClient`](DtlsClient.md)
+`DtlsClient`
 
 #### Overrides
 
-[`DtlsSocket`](DtlsSocket.md).[`constructor`](DtlsSocket.md#constructors)
+[`DtlsSocket`](DtlsSocket.md).[`constructor`](DtlsSocket.md#constructor)
 
 ## Properties
 
@@ -112,7 +112,7 @@
 
 ***
 
-### onHandleHandshakes()
+### onHandleHandshakes
 
 > **onHandleHandshakes**: (`assembled`) => `Promise`\<`void`\>
 
@@ -138,7 +138,7 @@
 
 #### Inherited from
 
-[`DtlsSocket`](DtlsSocket.md).[`options`](DtlsSocket.md#options-1)
+[`DtlsSocket`](DtlsSocket.md).[`options`](DtlsSocket.md#options)
 
 ***
 
@@ -148,7 +148,7 @@
 
 #### Inherited from
 
-[`DtlsSocket`](DtlsSocket.md).[`sessionType`](DtlsSocket.md#sessiontype-1)
+[`DtlsSocket`](DtlsSocket.md).[`sessionType`](DtlsSocket.md#sessiontype)
 
 ***
 
@@ -176,11 +176,11 @@
 
 #### Get Signature
 
-> **get** **remoteCertificate**(): `undefined` \| `Buffer`\<`ArrayBufferLike`\>
+> **get** **remoteCertificate**(): `Buffer`\<`ArrayBufferLike`\> \| `undefined`
 
 ##### Returns
 
-`undefined` \| `Buffer`\<`ArrayBufferLike`\>
+`Buffer`\<`ArrayBufferLike`\> \| `undefined`
 
 #### Inherited from
 
@@ -256,19 +256,19 @@
 
 ##### localKey
 
-> **localKey**: `any` = `clientKey`
+> **localKey**: `Buffer`\<`ArrayBufferLike`\> = `clientKey`
 
 ##### localSalt
 
-> **localSalt**: `any` = `clientSalt`
+> **localSalt**: `Buffer`\<`ArrayBufferLike`\> = `clientSalt`
 
 ##### remoteKey
 
-> **remoteKey**: `any` = `serverKey`
+> **remoteKey**: `Buffer`\<`ArrayBufferLike`\> = `serverKey`
 
 ##### remoteSalt
 
-> **remoteSalt**: `any` = `serverSalt`
+> **remoteSalt**: `Buffer`\<`ArrayBufferLike`\> = `serverSalt`
 
 #### Inherited from
 
@@ -312,7 +312,7 @@
 
 ### send()
 
-> **send**(`buf`, `addr`?): `Promise`\<`void`\>
+> **send**(`buf`, `addr?`): `Promise`\<`void`\>
 
 send application data
 

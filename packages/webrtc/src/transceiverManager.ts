@@ -1,9 +1,11 @@
+import { findCodecByMimeType, type PeerConfig } from "./api/peerConfig";
 import { ReceiverDirection, SenderDirections } from "./const";
 import { createWebRtcDomException } from "./errors";
-import { Event, debug } from "./imports/common";
+import { debug, Event } from "./imports/common";
 import {
   MediaStream,
   type MediaStreamTrack,
+  Recvonly,
   type RTCRtpCodecParameters,
   RTCRtpCodingParameters,
   type RTCRtpEncodingParameters,
@@ -13,7 +15,6 @@ import {
   RTCRtpRtxParameters,
   RTCRtpSender,
   RTCRtpTransceiver,
-  Recvonly,
   type RtpRouter,
   Sendonly,
   Sendrecv,
@@ -23,21 +24,54 @@ import {
   assertCodecsSupported,
   hasCommonPrimaryMimeType,
   isCodecCompatible,
+  normalizeCodecMimeType,
   resolveCodecs,
 } from "./media/codecCompatibility";
 import type { RTCStats } from "./media/stats";
 import { captureTrackSourceCodecs, getTrackSourceCodecs } from "./media/track";
-import type { PeerConfig } from "./peerConnection";
+import type {
+  TransceiverNegotiationState,
+  TransceiversNegotiationState,
+} from "./negotiation/internalState";
 import {
+  codecParametersFromString,
   type MediaDescription,
   type SessionDescription,
-  codecParametersFromString,
 } from "./sdp";
 import type { RTCDtlsTransport } from "./transport/dtls";
 import type { Kind } from "./types/domain";
 import { reverseDirection } from "./utils";
 
 const log = debug("werift:packages/webrtc/src/media/rtpTransceiverManager.ts");
+
+/**
+ * Remote codecs of an m-line that local codecs support. RTX is kept only when
+ * the codec its `apt` names is kept too. Pre-validation and application use
+ * the same rule, so an m-line that negotiates nothing is rejected up front.
+ */
+export function negotiateRemoteCodecs(
+  localCodecs: RTCRtpCodecParameters[],
+  remoteMedia: MediaDescription,
+) {
+  return remoteMedia.rtp.codecs.filter((remoteCodec) => {
+    const existCodec = findCodecByMimeType(localCodecs, remoteCodec);
+    if (!existCodec) {
+      return false;
+    }
+
+    if (existCodec?.name.toLowerCase() === "rtx") {
+      const params = codecParametersFromString(existCodec.parameters ?? "");
+      const pt = params["apt"];
+      const origin = remoteMedia.rtp.codecs.find((c) => c.payloadType === pt);
+      if (!origin) {
+        return false;
+      }
+      return !!findCodecByMimeType(localCodecs, origin);
+    }
+
+    return true;
+  });
+}
 
 function simulcastFromSendEncodings(
   encodings: RTCRtpEncodingParameters[] | undefined,
@@ -54,23 +88,180 @@ function simulcastFromSendEncodings(
   return rids.map((rid) => ({ rid, direction: "send" as const }));
 }
 
+/**
+ * The transceivers of a PeerConnection and their m-lines.
+ *
+ * m-line stop, rejection and reuse inside a negotiation:
+ * - A stopping transceiver is offered and answered as a rejected (port 0)
+ *   m-line (JSEP 5.2.2, 5.3.1); the final answer marks it stopped and
+ *   unregisters its routes. werift also writes `inactive` m-lines with port
+ *   0: a port-0 answer stops only a transceiver the application is stopping.
+ * - A remote offer or pranswer m-line without a common codec, or with port 0
+ *   for a known MID, only marks `pendingRejection`; the current pipeline keeps
+ *   running and rollback restores the flag. The commit releases it.
+ * - An application `addTransceiver` reuses only a same-kind position whose
+ *   rejection or stop is committed, with a new MID; a transceiver for a remote
+ *   offer replaces only a stopped one at its index. Neither takes an inactive
+ *   one. A transceiver displaced by a recycling remote offer is marked
+ *   stopped as a reversible change; its sender and receiver stop at the final
+ *   answer.
+ * - A transceiver created for a remote offer is not an application operation
+ *   (no `negotiationneeded`). Rollback removes it unless the application
+ *   attached a track (`heldByApplication`); a kept one returns to its created
+ *   state. An application `stop()` during the transaction survives rollback.
+ * - A transceiver the application added while a description was pending is
+ *   never committed by it: rollback takes back its MID, m-line and the
+ *   direction a pranswer gave it.
+ * - `setCodecPreferences()` / an attached track only mark codecs for
+ *   re-resolution; the live sender and receiver follow at the local answer
+ *   commit, and a change made during the transaction survives its rollback.
+ */
 export class TransceiverManager {
   private readonly transceivers: RTCRtpTransceiver[] = [];
+  private readonly notifiedRemoteTrack = new WeakMap<
+    RTCRtpTransceiver,
+    { track: MediaStreamTrack; streams: string[] }
+  >();
   private readonly watched = new WeakSet<RTCRtpTransceiver>();
-  private remoteOfferSnapshot?: {
-    transceivers: RTCRtpTransceiver[];
-    /**適用中の remote offer が作成した transceiver (rollback で破棄する対象) */
-    remoteCreated: Set<RTCRtpTransceiver>;
-    states: Map<
-      RTCRtpTransceiver,
-      {
-        mid: string | null;
-        mLineIndex?: number;
-        pendingRejection: boolean;
-        firedReceiving: boolean;
+
+  private getNotifiedRemoteTrack(transceiver: RTCRtpTransceiver) {
+    const state = this.notifiedRemoteTrack.get(transceiver);
+    return state && { track: state.track, streams: [...state.streams] };
+  }
+
+  private restoreNotifiedRemoteTrack(
+    transceiver: RTCRtpTransceiver,
+    state: ReturnType<TransceiverManager["getNotifiedRemoteTrack"]>,
+  ) {
+    if (state) this.notifiedRemoteTrack.set(transceiver, state);
+    else this.notifiedRemoteTrack.delete(transceiver);
+  }
+
+  /** Internal: the transceivers, their order and negotiation state, for a rollback baseline. */
+  snapshotNegotiationState(): TransceiversNegotiationState {
+    return {
+      order: [...this.transceivers],
+      states: new Map(
+        this.transceivers.map((transceiver) => [
+          transceiver,
+          {
+            transceiver: transceiver.snapshotNegotiationState(),
+            notifiedRemoteTrack: this.getNotifiedRemoteTrack(transceiver),
+          },
+        ]),
+      ),
+    };
+  }
+
+  /**
+   * Internal: return to a negotiation baseline. Transceivers in `added` were
+   * created by the rolled-back proposal: they are removed unless the
+   * application uses them, in which case only their m-line association goes.
+   * Transceivers in `notified` (a replacement offer describes them again)
+   * keep the track event they delivered.
+   * @returns transports of the removed transceivers (the caller stops unused ones)
+   */
+  restoreNegotiationState(
+    snapshot: TransceiversNegotiationState,
+    added: Iterable<RTCRtpTransceiver>,
+    createdState: (
+      transceiver: RTCRtpTransceiver,
+    ) => TransceiverNegotiationState | undefined = () => undefined,
+    carried: ReadonlySet<RTCRtpTransceiver> = new Set(),
+    notified: ReadonlySet<RTCRtpTransceiver> = new Set(),
+  ) {
+    for (const [transceiver, state] of snapshot.states) {
+      // A transceiver a replacement offer describes again keeps the track
+      // event it already delivered (it is not repeated).
+      const { firedReceiving } = transceiver.snapshotNegotiationState();
+      const tracks = [...transceiver.receiver.tracks];
+      transceiver.restoreNegotiationState(state.transceiver);
+      if (notified.has(transceiver)) {
+        // The same track objects stay for the SSRCs the replacing offer gives.
+        transceiver.receiver.keepUnboundTracks(tracks);
+        transceiver.firedReceiving = firedReceiving;
+        continue;
       }
-    >;
-  };
+      this.restoreNotifiedRemoteTrack(transceiver, state.notifiedRemoteTrack);
+    }
+    const removedTransports: RTCDtlsTransport[] = [];
+    for (const transceiver of added) {
+      if (carried.has(transceiver)) {
+        // A replacement remote offer describes its MID again: it keeps its
+        // MID, m-line and notified track and goes back to its created state.
+        const tracks = [...transceiver.receiver.tracks];
+        const created = createdState(transceiver);
+        if (created) transceiver.restoreNegotiationState(created);
+        transceiver.receiver.keepUnboundTracks(tracks);
+        continue;
+      }
+      if (transceiver.heldByApplication) {
+        // Kept for the application, it returns to the state it was created
+        // with (no direction, codecs or routes the proposal negotiated) and
+        // loses its m-line association.
+        const created = createdState(transceiver);
+        if (created) transceiver.restoreNegotiationState(created);
+        this.notifiedRemoteTrack.delete(transceiver);
+        transceiver.mid = null;
+        transceiver.mLineIndex = undefined;
+        continue;
+      }
+      removedTransports.push(transceiver.dtlsTransport);
+      this.removeRemoteTransceiver(transceiver);
+    }
+    // A transceiver the application added during the rolled-back negotiation
+    // may have taken over a stopped m-line that the baseline gives back.
+    const baselineIndexes = new Set(
+      [...snapshot.states.values()].map(
+        ({ transceiver }) => transceiver.mLineIndex,
+      ),
+    );
+    for (const transceiver of this.transceivers) {
+      if (snapshot.states.has(transceiver)) continue;
+      // One the application added during the transaction was never
+      // committed (a final answer ends the transaction): it loses the MID /
+      // m-line the rolled-back offer gave it (W3C), also when a replacement
+      // offer gave them, and the direction a pranswer gave it provisionally.
+      if (!transceiver.stopped) {
+        // What the proposal negotiated goes back to the created state; a
+        // delivered track event is not taken back: its track stays, unbound,
+        // for the SSRC a later negotiation gives.
+        const created = transceiver.createdNegotiationState;
+        if (created) {
+          const tracks = [...transceiver.receiver.tracks];
+          const { firedReceiving } = transceiver.snapshotNegotiationState();
+          transceiver.restoreNegotiationState({ ...created, firedReceiving });
+          transceiver.receiver.keepUnboundTracks(tracks);
+        }
+        transceiver.mid = null;
+        transceiver.mLineIndex = undefined;
+        transceiver.setCurrentDirection(undefined);
+        continue;
+      }
+      if (
+        transceiver.mLineIndex != undefined &&
+        baselineIndexes.has(transceiver.mLineIndex)
+      ) {
+        transceiver.mLineIndex = undefined;
+      }
+    }
+    this.restoreTransceiverOrder(snapshot.order);
+    return removedTransports;
+  }
+
+  /**
+   * Internal: a created offer that was never applied must not leave its MID
+   * and m-line assignments behind (W3C associates a MID only when a
+   * description is set). Transceivers the session never negotiated go back to
+   * `snapshot`.
+   */
+  revertUnappliedAssociations(snapshot: TransceiversNegotiationState) {
+    for (const [transceiver, { transceiver: state }] of snapshot.states) {
+      if (transceiver.currentDirection || transceiver.stopped) continue;
+      transceiver.mid = state.mid;
+      transceiver.mLineIndex = state.mLineIndex;
+    }
+  }
 
   readonly onTransceiverAdded = new Event<[RTCRtpTransceiver]>();
   readonly onRemoteTransceiverAdded = new Event<[RTCRtpTransceiver]>();
@@ -104,14 +295,42 @@ export class TransceiverManager {
   }
 
   getTransceiverByMLineIndex(index: number): RTCRtpTransceiver | undefined {
-    return this.transceivers.find(
-      (transceiver) => transceiver.mLineIndex === index,
+    return (
+      this.transceivers.find(
+        (transceiver) =>
+          transceiver.mLineIndex === index && !transceiver.stopped,
+      ) ??
+      this.transceivers.find((transceiver) => transceiver.mLineIndex === index)
     );
+  }
+
+  private restoreTransceiverOrder(baseline: RTCRtpTransceiver[]) {
+    const attachedLater = this.transceivers.filter(
+      (transceiver) => !baseline.includes(transceiver),
+    );
+    this.transceivers.splice(
+      0,
+      this.transceivers.length,
+      ...baseline,
+      ...attachedLater,
+    );
+    // A transceiver taken off its m-line by the rolled-back offer is back.
+    baseline.forEach((t) => this.watchTransceiver(t));
   }
 
   pushTransceiver(t: RTCRtpTransceiver): void {
     this.watchTransceiver(t);
     this.transceivers.push(t);
+  }
+
+  /** Remove an uncommitted transceiver created only by a remote offer. */
+  private removeRemoteTransceiver(transceiver: RTCRtpTransceiver): void {
+    const index = this.transceivers.indexOf(transceiver);
+    if (index < 0) return;
+    transceiver.forceStop();
+    transceiver.mid = null;
+    transceiver.mLineIndex = undefined;
+    this.transceivers.splice(index, 1);
   }
 
   replaceTransceiver(t: RTCRtpTransceiver, index: number): void {
@@ -260,8 +479,11 @@ export class TransceiverManager {
       ).map((encoding) => ({ ...encoding })),
     );
     this.router.registerRtpSender(newTransceiver.sender);
+    newTransceiver.createdNegotiationState =
+      newTransceiver.snapshotNegotiationState();
 
-    // 旧 transceiver は復活させず、MID は次の offer で新しく割り当てる
+    // 旧 transceiver は復活させず、MID は次の offer で新しく割り当てる。
+    // 同じ kind で拒否 / 停止の交渉が確定した位置だけを再利用する (inactive は奪わない)
     const reusable =
       remoteMLineIndex == undefined
         ? this.findReusableTransceiver(kind)
@@ -272,9 +494,6 @@ export class TransceiverManager {
       this.takeOverMLine(reusable, newTransceiver);
     } else {
       this.pushTransceiver(newTransceiver);
-    }
-    if (remoteMLineIndex != undefined) {
-      this.remoteOfferSnapshot?.remoteCreated.add(newTransceiver);
     }
     this.onTransceiverAdded.execute(newTransceiver);
 
@@ -313,7 +532,7 @@ export class TransceiverManager {
         ...emptyTrackSenderTransceiver.options,
         streams,
       };
-      emptyTrackSenderTransceiver.codecs = [];
+      emptyTrackSenderTransceiver.markCodecsForResolution();
       return emptyTrackSenderTransceiver;
     }
 
@@ -347,7 +566,7 @@ export class TransceiverManager {
           notSendTransceiver.setDirection("sendonly");
           break;
       }
-      notSendTransceiver.codecs = [];
+      notSendTransceiver.markCodecsForResolution();
       return notSendTransceiver;
     } else {
       const transceiver = this.addTransceiver(track, undefined, {
@@ -472,9 +691,16 @@ export class TransceiverManager {
       rtcp: media.rtp.rtcp,
       codecs: transceiver.codecs,
       headerExtensions: transceiver.headerExtensions,
+      // RTX pairs with its `apt` codec wherever the description lists it (an
+      // answer may put RTX before its primary codec), so primaries come first.
       encodings: Object.values(
-        transceiver.codecs.reduce(
-          (acc: { [pt: number]: RTCRtpCodingParameters }, codec) => {
+        [...transceiver.codecs]
+          .sort(
+            (x, y) =>
+              Number(x.name.toLowerCase() === "rtx") -
+              Number(y.name.toLowerCase() === "rtx"),
+          )
+          .reduce((acc: { [pt: number]: RTCRtpCodingParameters }, codec) => {
             if (codec.name.toLowerCase() === "rtx") {
               const params = codecParametersFromString(codec.parameters ?? "");
               const apt = acc[params["apt"]];
@@ -488,43 +714,11 @@ export class TransceiverManager {
               payloadType: codec.payloadType,
             });
             return acc;
-          },
-          {},
-        ),
+          }, {}),
       ),
     };
 
     return receiveParameters;
-  }
-
-  /**
-   * remote offer と local (source constraint + preferences) から
-   * answer 用の codec を再解決し、sender/receiver の codec 状態も
-   * 新しい negotiated codec に同期する。
-   * setCodecPreferences() による無効化後に createAnswer() から呼ばれる。
-   * direction / headerExtensions / onTrack は setRemoteDescription() 時の
-   * まま変えない (track イベントの重複発火を避ける)。
-   */
-  resyncAnswerCodecs(
-    transceiver: RTCRtpTransceiver,
-    remoteMedia: MediaDescription,
-  ): void {
-    this.refreshAnswerCodecs(transceiver, remoteMedia);
-
-    const localParams = this.getLocalRtpParams(transceiver);
-    transceiver.sender.prepareSend(localParams);
-
-    if (["recvonly", "sendrecv"].includes(transceiver.direction)) {
-      const remoteParams = this.getRemoteRtpParams(remoteMedia, transceiver);
-      for (const param of remoteMedia.simulcastParameters) {
-        this.router.registerRtpReceiverByRid(transceiver, param, remoteParams);
-      }
-      transceiver.receiver.resyncCodecs(
-        remoteParams,
-        remoteMedia.ssrc[0]?.ssrc,
-      );
-      this.router.registerRtpReceiverBySsrc(transceiver, remoteParams);
-    }
   }
 
   /**
@@ -556,7 +750,8 @@ export class TransceiverManager {
       const remoteCodec = remoteMedia.rtp.codecs.find(
         (codec) =>
           !usedRemote.has(codec) &&
-          codec.mimeType.toLowerCase() === localCodec.mimeType.toLowerCase() &&
+          normalizeCodecMimeType(codec.mimeType) ===
+            normalizeCodecMimeType(localCodec.mimeType) &&
           (source == undefined ||
             source.some((sourceCodec) =>
               isCodecCompatible(sourceCodec, codec),
@@ -664,8 +859,28 @@ export class TransceiverManager {
       "local",
       source,
     );
-    transceiver.codecPreferencesNeedResolution = false;
+    transceiver.sender.proposeSend(transceiver.codecs);
     log("negotiated codecs", transceiver.codecs);
+  }
+
+  /** Commit an answer's refreshed codec proposal to sender and receiver state. */
+  commitAnswerCodecs(
+    transceiver: RTCRtpTransceiver,
+    remoteMedia: MediaDescription,
+  ) {
+    transceiver.sender.prepareSend(this.getLocalRtpParams(transceiver));
+    if (["recvonly", "sendrecv"].includes(transceiver.direction)) {
+      const remoteParams = this.getRemoteRtpParams(remoteMedia, transceiver);
+      for (const param of remoteMedia.simulcastParameters) {
+        this.router.registerRtpReceiverByRid(transceiver, param, remoteParams);
+      }
+      transceiver.receiver.resyncCodecs(
+        remoteParams,
+        remoteMedia.ssrc[0]?.ssrc,
+      );
+      this.router.registerRtpReceiverBySsrc(transceiver, remoteParams);
+    }
+    transceiver.codecPreferencesNeedResolution = false;
   }
 
   /**
@@ -719,6 +934,8 @@ export class TransceiverManager {
           ? resolveCodecs(configured, source, transceiver?.codecPreferences)
           : localCodecs,
         remoteMedia,
+        // An answer lists the answerer's preference order (RFC 3264 §6.1);
+        // a remote answer keeps the order it chose.
         isOffer ? "local" : "remote",
         source,
       );
@@ -799,20 +1016,40 @@ export class TransceiverManager {
       transceiver.offerDirection = direction;
     }
     const localParams = this.getLocalRtpParams(transceiver);
-    transceiver.sender.prepareSend(localParams);
+    // During a re-offer the committed sender keeps its codec until the final
+    // answer. The proposed codec remains on the transceiver for createAnswer.
+    if (type !== "offer" || !transceiver.currentDirection) {
+      transceiver.sender.prepareSend(localParams);
+    } else {
+      transceiver.sender.proposeSend(localParams.codecs);
+    }
 
     if (["recvonly", "sendrecv"].includes(transceiver.direction)) {
       const remotePrams = this.getRemoteRtpParams(remoteMedia, transceiver);
 
+      // A pending offer or pranswer may add routes and decode entries, but a
+      // key the current session uses keeps its value until the commit.
+      const staging = { deferConflicts: type !== "answer" };
       // register simulcast receiver
       for (const param of remoteMedia.simulcastParameters) {
-        this.router.registerRtpReceiverByRid(transceiver, param, remotePrams);
+        this.router.registerRtpReceiverByRid(
+          transceiver,
+          param,
+          remotePrams,
+          staging,
+        );
       }
 
-      // codec map / RTX / TWCC を negotiated codec に合わせて再構築する
-      transceiver.receiver.resyncCodecs(remotePrams, remoteMedia.ssrc[0]?.ssrc);
+      if (type === "answer") {
+        transceiver.receiver.resyncCodecs(
+          remotePrams,
+          remoteMedia.ssrc[0]?.ssrc,
+        );
+      } else {
+        transceiver.receiver.prepareReceive(remotePrams, staging);
+      }
       // register ssrc receiver
-      this.router.registerRtpReceiverBySsrc(transceiver, remotePrams);
+      this.router.registerRtpReceiverBySsrc(transceiver, remotePrams, staging);
     }
     if (["sendonly", "sendrecv"].includes(mediaDirection)) {
       const remoteStreamIds = [
@@ -823,51 +1060,40 @@ export class TransceiverManager {
       transceiver.receiver.remoteStreamIds = remoteStreamIds;
       transceiver.receiver.remoteTrackId = remoteTrackId;
 
-      // re-offer / re-answer で同じ受信を重複通知しない
-      if (!transceiver.firedReceiving) {
-        transceiver.firedReceiving = true;
+      const track = transceiver.receiver.track;
+      const previous = this.notifiedRemoteTrack.get(transceiver);
+      if (
+        previous?.track !== track ||
+        previous.streams.join("\0") !== remoteStreamIds.join("\0")
+      ) {
+        this.notifiedRemoteTrack.set(transceiver, {
+          track,
+          streams: remoteStreamIds,
+        });
         this.onTrack.execute({
-          track: transceiver.receiver.track,
+          track,
           transceiver,
           streams: remoteStreamIds.map(
-            (id) =>
-              new MediaStream({
-                id,
-                tracks: [transceiver.receiver.track],
-              }),
+            (id) => new MediaStream({ id, tracks: [track] }),
           ),
         });
       }
+      transceiver.firedReceiving = true;
     } else {
+      this.notifiedRemoteTrack.delete(transceiver);
       transceiver.firedReceiving = false;
     }
 
-    return true;
-  }
-
-  /**
-   * remote offer 適用前の transceiver 対応を保存する。
-   * 同じ offer/answer 交換中に複数回呼ばれても最初の状態を保持する。
-   */
-  beginRemoteOffer() {
-    if (this.remoteOfferSnapshot) {
-      return;
+    // A pending offer or pranswer does not start transport-cc feedback for
+    // the current stream; the receiver starts it from a packet whose codec
+    // negotiated it, or here once the description is an answer.
+    if (
+      (type === "answer" || !transceiver.currentDirection) &&
+      remoteMedia.ssrc[0]?.ssrc
+    ) {
+      transceiver.receiver.setupTWCC(remoteMedia.ssrc[0].ssrc);
     }
-    this.remoteOfferSnapshot = {
-      transceivers: [...this.transceivers],
-      remoteCreated: new Set(),
-      states: new Map(
-        this.transceivers.map((t) => [
-          t,
-          {
-            mid: t.mid,
-            mLineIndex: t.mLineIndex,
-            pendingRejection: t.pendingRejection,
-            firedReceiving: t.firedReceiving,
-          },
-        ]),
-      ),
-    };
+    return true;
   }
 
   /**
@@ -875,53 +1101,10 @@ export class TransceiverManager {
    * remote SDP 起因の停止なので negotiationneeded は要求しない。
    */
   commitRemoteOffer() {
-    this.remoteOfferSnapshot = undefined;
     for (const transceiver of this.transceivers) {
       if (transceiver.pendingRejection) {
         transceiver.commitStopped({ rejected: true });
       }
-    }
-  }
-
-  /**remote offer の rollback で transceiver 対応を元に戻す */
-  rollbackRemoteOffer() {
-    const snapshot = this.remoteOfferSnapshot;
-    this.remoteOfferSnapshot = undefined;
-    if (!snapshot) {
-      return;
-    }
-
-    for (const transceiver of this.transceivers) {
-      if (snapshot.states.has(transceiver)) {
-        continue;
-      }
-      // app が追加した transceiver と、remote offer が作ったが app が addTrack で使い始めた
-      // transceiver は残し、関連付けだけ外す (track の有無ではなく作成元で判定する)
-      if (
-        !snapshot.remoteCreated.has(transceiver) ||
-        transceiver.sender.track
-      ) {
-        transceiver.mid = null;
-        transceiver.mLineIndex = undefined;
-        snapshot.transceivers.push(transceiver);
-        continue;
-      }
-      // remote offer が作った transceiver は破棄する
-      transceiver.forceStop();
-      this.unwatchTransceiver(transceiver);
-    }
-
-    this.transceivers.splice(
-      0,
-      this.transceivers.length,
-      ...snapshot.transceivers,
-    );
-    snapshot.transceivers.forEach((t) => this.watchTransceiver(t));
-    for (const [transceiver, state] of snapshot.states) {
-      transceiver.mid = state.mid;
-      transceiver.mLineIndex = state.mLineIndex;
-      transceiver.pendingRejection = state.pendingRejection;
-      transceiver.firedReceiving = state.firedReceiving;
     }
   }
 

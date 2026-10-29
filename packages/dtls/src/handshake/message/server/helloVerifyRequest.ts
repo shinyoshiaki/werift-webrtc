@@ -1,9 +1,11 @@
-import { decode, encode, types } from "@shinyoshiaki/binary-data";
+import { binaryData } from "../../../imports/common";
 
 import { FragmentedHandshake } from "../../../record/message/fragment";
 import type { Handshake } from "../../../typings/domain";
 import { ProtocolVersion } from "../../binary";
 import { HandshakeType } from "../../const";
+
+const { decode, encode, types } = binaryData;
 
 // 4.2.1.  Denial-of-Service Countermeasures
 
@@ -26,14 +28,13 @@ export class ServerHelloVerifyRequest implements Handshake {
 
   static deSerialize(buf: Buffer) {
     return new ServerHelloVerifyRequest(
-      //@ts-ignore
+      //@ts-expect-error
       ...Object.values(decode(buf, ServerHelloVerifyRequest.spec)),
     );
   }
 
   serialize() {
-    const res = encode(this, ServerHelloVerifyRequest.spec).slice();
-    return Buffer.from(res);
+    return encode(this, ServerHelloVerifyRequest.spec);
   }
 
   get version() {

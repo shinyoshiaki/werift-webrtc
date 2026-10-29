@@ -1,15 +1,14 @@
 import { promises as dns } from "node:dns";
-import { SocketAddress, isIP } from "node:net";
-
-import { type Address, Event, debug } from "../imports/common";
-
+import { isIP, SocketAddress } from "node:net";
 import {
   AddressFamilyMismatch,
+  TransactionCancelled,
   TransactionFailed,
   TransactionTimeout,
 } from "../exceptions";
+import { type Address, debug, Event } from "../imports/common";
 import type { Protocol, TransactionRequestOptions } from "../types/model";
-import { RETRY_MAX, RETRY_RTO, classes } from "./const";
+import { classes, RETRY_MAX, RETRY_RTO } from "./const";
 import type { Message } from "./message";
 
 const log = debug("werift-ice:packages/ice/src/stun/transaction.ts");
@@ -259,7 +258,13 @@ export class Transaction {
     }
   };
 
+  /**
+   * End the transaction. A `run()` still waiting for a response rejects with
+   * `TransactionCancelled`, so whoever awaits it (and its timers) settles
+   * instead of waiting forever on a closed protocol.
+   */
   cancel() {
+    this.fail(new TransactionCancelled());
     this.ended = true;
     this.clearWait();
     if (this.signal && this.onAbort) {

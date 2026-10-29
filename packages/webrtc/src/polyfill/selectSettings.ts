@@ -1,7 +1,7 @@
 import {
-  OverconstrainedError,
   createWebRtcDomException,
   createWebRtcTypeError,
+  OverconstrainedError,
 } from "../errors";
 
 export type MediaKind = "audio" | "video";

@@ -1,9 +1,10 @@
-import { decode, encode, types } from "@shinyoshiaki/binary-data";
-
 import type { SignatureSchemes } from "../../../cipher/const";
+import { binaryData } from "../../../imports/common";
 import { FragmentedHandshake } from "../../../record/message/fragment";
 import type { Handshake } from "../../../typings/domain";
 import { HandshakeType } from "../../const";
+
+const { decode, encode, types } = binaryData;
 
 export class CertificateVerify implements Handshake {
   msgType = HandshakeType.certificate_verify_15;
@@ -26,14 +27,13 @@ export class CertificateVerify implements Handshake {
   static deSerialize(buf: Buffer) {
     const res = decode(buf, CertificateVerify.spec);
     return new CertificateVerify(
-      //@ts-ignore
+      //@ts-expect-error
       ...Object.values(res),
     );
   }
 
   serialize() {
-    const res = encode(this, CertificateVerify.spec).slice();
-    return Buffer.from(res);
+    return encode(this, CertificateVerify.spec);
   }
 
   toFragment() {

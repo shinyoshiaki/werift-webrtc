@@ -20,21 +20,19 @@
 Figure 2: Example for round-trip time computation
  */
 
-import { randomBytes } from "crypto";
-
-import { randomUUID } from "crypto";
+import { randomBytes, randomUUID } from "crypto";
 import { setTimeout } from "timers/promises";
-import { Event, random16, uint16Add, uint32Add } from "../imports/common";
-
 import { codecParametersFromString } from "..";
 import { createWebRtcDomException } from "../errors";
+import { Event, random16, uint16Add, uint32Add } from "../imports/common";
 import {
+  debug,
   type Extension,
   GenericNack,
   PictureLossIndication,
-  RTP_EXTENSION_URI,
   ReceiverEstimatedMaxBitrate,
   RedEncoder,
+  RTP_EXTENSION_URI,
   type RtcpPacket,
   RtcpPayloadSpecificFeedback,
   RtcpRrPacket,
@@ -46,13 +44,12 @@ import {
   RtpPacket,
   SourceDescriptionChunk,
   SourceDescriptionItem,
-  TransportWideCC,
-  debug,
   serializeAbsSendTime,
   serializeRepairedRtpStreamId,
   serializeSdesMid,
   serializeSdesRTPStreamID,
   serializeTransportWideCC,
+  TransportWideCC,
   wrapRtx,
 } from "../imports/rtp";
 import type { RTCDtlsTransport } from "../transport/dtls";
@@ -66,22 +63,22 @@ import type {
 } from "./parameters";
 import { SenderBandwidthEstimator, type SentInfo } from "./sender/senderBWE";
 import {
+  buildStatsReport,
+  generateCodecStatsId,
+  generateStatsId,
+  getStatsTimestamp,
   type RTCCodecStats,
   type RTCMediaSourceStats,
   type RTCOutboundRtpStreamStats,
   type RTCRemoteInboundRtpStreamStats,
   type RTCStats,
   type RTCStatsReport,
-  buildStatsReport,
-  generateCodecStatsId,
-  generateStatsId,
-  getStatsTimestamp,
 } from "./stats";
 import {
-  type MediaStream,
-  type MediaStreamTrack,
   captureTrackSourceCodecs,
   getTrackSourceCodecs,
+  type MediaStream,
+  type MediaStreamTrack,
 } from "./track";
 
 const log = debug("werift:packages/webrtc/src/media/rtpSender.ts");
@@ -202,6 +199,11 @@ export class RTCRtpSender {
   codec?: RTCRtpCodecParameters;
   private negotiatedCodecs: RTCRtpCodecParameters[] = [];
   private sendPrimaryCodec?: RTCRtpCodecParameters;
+  /**
+   * Primary codec a pending remote offer's answer would switch this sender to.
+   * `replaceTrack()` must fit it too, since the commit sends the track with it.
+   */
+  private proposedPrimaryCodec?: RTCRtpCodecParameters;
   public dtlsTransport!: RTCDtlsTransport;
   private dtlsDisposer: (() => void)[] = [];
 
@@ -245,6 +247,12 @@ export class RTCRtpSender {
     }
 
     this.dtlsTransport = dtlsTransport;
+    // A stopped sender (also one a rollback binds again) sends nothing and
+    // does not subscribe to the transport, which may outlive it.
+    if (this.stopped) {
+      this.dtlsDisposer = [];
+      return;
+    }
     this.dtlsDisposer = [
       this.dtlsTransport.onStateChange.subscribe((state) => {
         if (state === "connected") {
@@ -263,6 +271,54 @@ export class RTCRtpSender {
     this.redEncoder.distance = n;
   }
 
+  /** Internal: the negotiated send parameters, for a negotiation baseline. */
+  snapshotSendParams() {
+    return {
+      cname: this.cname,
+      mid: this.mid,
+      headerExtensions: [...this.headerExtensions],
+      rtpStreamId: this.rtpStreamId,
+      repairedRtpStreamId: this.repairedRtpStreamId,
+      codec: this.codec,
+      negotiatedCodecs: [...this.negotiatedCodecs],
+      sendPrimaryCodec: this.sendPrimaryCodec,
+      proposedPrimaryCodec: this.proposedPrimaryCodec,
+      track: this.track,
+      trackCodec: this.track?.codec,
+      rtxPayloadType: this.rtxPayloadType,
+      redRedundantPayloadType: this.redRedundantPayloadType,
+    };
+  }
+
+  /**
+   * Internal: a pending remote offer proposes `codecs` for the answer while
+   * the committed codec keeps sending until the final answer.
+   */
+  proposeSend(codecs: RTCRtpCodecParameters[]) {
+    this.proposedPrimaryCodec = primarySendCodecOf(codecs);
+  }
+
+  /** Internal: return to a negotiation baseline's send parameters. */
+  restoreSendParams(snapshot: ReturnType<RTCRtpSender["snapshotSendParams"]>) {
+    this.cname = snapshot.cname;
+    this.mid = snapshot.mid;
+    this.headerExtensions = [...snapshot.headerExtensions];
+    this.rtpStreamId = snapshot.rtpStreamId;
+    this.repairedRtpStreamId = snapshot.repairedRtpStreamId;
+    this.codec = snapshot.codec;
+    this.negotiatedCodecs = [...snapshot.negotiatedCodecs];
+    this.sendPrimaryCodec = snapshot.sendPrimaryCodec;
+    this.proposedPrimaryCodec = snapshot.proposedPrimaryCodec;
+    if (this.track) {
+      // A track attached during the rolled-back negotiation sends with the
+      // restored codec, not the one a pranswer applied.
+      this.track.codec =
+        this.track === snapshot.track ? snapshot.trackCodec : this.codec;
+    }
+    this.rtxPayloadType = snapshot.rtxPayloadType;
+    this.redRedundantPayloadType = snapshot.redRedundantPayloadType;
+  }
+
   prepareSend(params: RTCRtpSendParameters) {
     this.cname = params.rtcp?.cname;
     this.mid = params.muxId;
@@ -271,25 +327,15 @@ export class RTCRtpSender {
     this.repairedRtpStreamId = params.repairedRtpStreamId;
 
     this.negotiatedCodecs = [...params.codecs];
-    this.codec =
-      params.codecs.find((codec) => codec.name.toLowerCase() !== "rtx") ??
-      params.codecs[0];
-    const redPrimaryPayloadType =
-      this.codec?.name.toLowerCase() === "red"
-        ? Number((this.codec.parameters ?? "").split("/")[0])
-        : undefined;
-    this.sendPrimaryCodec =
-      this.codec?.name.toLowerCase() === "red"
-        ? params.codecs.find(
-            (codec) =>
-              !["red", "rtx"].includes(codec.name.toLowerCase()) &&
-              codec.payloadType === redPrimaryPayloadType,
-          )
-        : this.codec;
+    this.proposedPrimaryCodec = undefined;
+    this.codec = sendCodecOf(params.codecs);
+    this.sendPrimaryCodec = primarySendCodecOf(params.codecs);
     if (this.track) {
       this.track.codec = this.codec;
     }
 
+    // Derived from these codecs only: a description without RTX/RED turns
+    // them off instead of keeping an earlier negotiation's payload type.
     this.rtxPayloadType = undefined;
     this.redRedundantPayloadType = undefined;
     params.codecs.forEach((codec) => {
@@ -310,9 +356,27 @@ export class RTCRtpSender {
     void this.drainPendingRtp();
   }
 
+  /**
+   * The negotiated direction in effect (the answer's, or a pranswer's while
+   * it is pending) does not include sending: RTP is dropped, not queued.
+   * @internal
+   */
+  sendSuppressed = false;
+
+  /** @internal Follow the transceiver's currentDirection. */
+  setSendSuppressed(suppressed: boolean) {
+    if (this.sendSuppressed === suppressed) return;
+    this.sendSuppressed = suppressed;
+    if (suppressed) this.discardPendingRtp();
+    else void this.drainPendingRtp();
+  }
+
   private canSendRtp() {
     return (
-      !this.stopped && this.dtlsTransport?.state === "connected" && !!this.codec
+      !this.stopped &&
+      !this.sendSuppressed &&
+      this.dtlsTransport?.state === "connected" &&
+      !!this.codec
     );
   }
 
@@ -441,16 +505,19 @@ export class RTCRtpSender {
 
     captureTrackSourceCodecs(track);
     const sourceCodecs = getTrackSourceCodecs(track);
-    if (
-      this.sendPrimaryCodec != undefined &&
-      sourceCodecs != undefined &&
-      !sourceCodecs.some((source) =>
-        isCodecCompatible(source, this.sendPrimaryCodec!),
-      )
-    ) {
+    const incompatible = [
+      this.sendPrimaryCodec,
+      this.proposedPrimaryCodec,
+    ].find(
+      (primary) =>
+        primary != undefined &&
+        sourceCodecs != undefined &&
+        !sourceCodecs.some((source) => isCodecCompatible(source, primary)),
+    );
+    if (incompatible) {
       throw createWebRtcDomException(
         "InvalidModificationError",
-        `Track codec ${sourceCodecs.map((codec) => codec.mimeType).join(", ")} is incompatible with negotiated codecs ${this.negotiatedCodecs.map((codec) => codec.mimeType).join(", ")}`,
+        `Track codec ${sourceCodecs!.map((codec) => codec.mimeType).join(", ")} is incompatible with negotiated codec ${incompatible.mimeType}`,
       );
     }
 
@@ -478,6 +545,10 @@ export class RTCRtpSender {
 
   stop({ keepTrack = false }: { keepTrack?: boolean } = {}) {
     this.stopped = true;
+    // A stopped sender sends nothing: release its subscription on the
+    // (possibly BUNDLE-shared) DTLS transport, which outlives it.
+    for (const dispose of this.dtlsDisposer) dispose();
+    this.dtlsDisposer = [];
     this.rtpContinuityPending = false;
     this.discardPendingRtp();
     this.rtcpRunning = false;
@@ -555,7 +626,7 @@ export class RTCRtpSender {
    * dropped, even if a drain is already in progress.
    */
   async sendRtp(rtp: Buffer | RtpPacket) {
-    if (this.stopped) {
+    if (this.stopped || this.sendSuppressed) {
       return;
     }
     if (!this.pendingRtpEnabled) {
@@ -958,4 +1029,23 @@ export class RTCRtpSender {
 
     return buildStatsReport(stats, this.getStatsRootIds());
   }
+}
+
+/** The codec RTP is sent with: the first non-RTX codec. */
+function sendCodecOf(codecs: RTCRtpCodecParameters[]) {
+  return (
+    codecs.find((codec) => codec.name.toLowerCase() !== "rtx") ?? codecs[0]
+  );
+}
+
+/** The media codec RTP carries: RED's primary payload, else the send codec. */
+function primarySendCodecOf(codecs: RTCRtpCodecParameters[]) {
+  const codec = sendCodecOf(codecs);
+  if (codec?.name.toLowerCase() !== "red") return codec;
+  const primaryPayloadType = Number((codec.parameters ?? "").split("/")[0]);
+  return codecs.find(
+    (candidate) =>
+      !["red", "rtx"].includes(candidate.name.toLowerCase()) &&
+      candidate.payloadType === primaryPayloadType,
+  );
 }

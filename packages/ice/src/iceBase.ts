@@ -4,10 +4,10 @@ import type { MdnsLookup } from "./dns/lookup";
 import type { Cancelable } from "./helper";
 import {
   type Address,
+  debug,
   type Event,
   type InterfaceAddresses,
   type TlsConnectionOptions,
-  debug,
 } from "./imports/common";
 import { classes, methods } from "./stun/const";
 import { Message } from "./stun/message";
@@ -42,6 +42,29 @@ export interface IceConnection {
   readonly onIceCandidate: Event<[Candidate]>;
 
   restart(): void;
+  /**
+   * Optional staged-restart and provisional-generation support. An
+   * implementation without them still restarts ICE at the final answer, but
+   * cannot answer or run checks for the new generation during pranswer.
+   */
+  stageLocalCredentials?(usernameFragment: string, password: string): void;
+  discardStagedLocalCredentials?(usernameFragment: string): void;
+  commitLocalCredentials?(usernameFragment: string, password: string): void;
+  /**
+   * The remote side alone restarted (new remote credentials in an answer):
+   * drop the remote generation and its checks, keep the local credentials
+   * and gathered candidates.
+   */
+  restartRemote?(): void;
+  setProvisionalRemoteParams?(params: {
+    usernameFragment: string;
+    password: string;
+  }): void;
+  addProvisionalRemoteCandidate?(
+    candidate: Candidate | undefined,
+  ): Promise<void>;
+  startProvisionalChecks?(): void;
+  readonly provisionalNominated?: CandidatePair;
 
   setIceServers(options: Partial<IceOptions>): void;
 
@@ -51,7 +74,15 @@ export interface IceConnection {
     password: string;
   }): void;
 
+  /**
+   * Gather the current generation's candidates. After an ICE restart the
+   * candidates the kept sockets advertised are re-advertised synchronously;
+   * only server work (STUN, TURN) is awaited.
+   */
   gatherCandidates(): Promise<void>;
+
+  /** Whether gathering contacts a STUN or TURN server. */
+  readonly gathersFromServers?: boolean;
 
   connect(): Promise<void>;
 
@@ -63,6 +94,8 @@ export interface IceConnection {
 
   getDefaultCandidate(): Candidate | undefined;
   resetNominatedPair(): void;
+  /** Drop remote candidates and pairs that name another remote ufrag. */
+  dropOtherRemoteGenerations?(usernameFragment: string): void;
 }
 
 export interface CandidatePairStats {
@@ -271,7 +304,26 @@ export interface IceOptions {
   useIpv6: boolean;
   useLinkLocalAddress?: boolean;
   portRange?: [number, number];
+  /**
+   * Local addresses to bind the UDP host sockets to, per family.
+   *
+   * The address given for a family (`udp4` / `udp6`) is the only host
+   * address of that family: its UDP host candidate advertises the address and
+   * port the socket is actually bound to, even when the address is not among
+   * the enumerated network interfaces (loopback, tun, ...), and its TCP host
+   * candidates use it too. Other enumerated addresses of that family are not
+   * gathered. If the bind fails, the family has no UDP host candidate.
+   *
+   * A family left unspecified while the other one is set gathers no
+   * enumerated addresses (only its `additionalHostAddresses`). Without any
+   * family set, every enumerated address is gathered over wildcard sockets.
+   */
   interfaceAddresses?: InterfaceAddresses;
+  /**
+   * Host addresses gathered in addition to the enumerated ones. For a family
+   * bound by `interfaceAddresses`, addresses other than the bound one are
+   * ignored.
+   */
   additionalHostAddresses?: string[];
   filterStunResponse?: (
     message: Message,

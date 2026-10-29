@@ -8,15 +8,23 @@
 
 ## Constructors
 
-### new AV1Obu()
+### Constructor
 
-> **new AV1Obu**(): [`AV1Obu`](AV1Obu.md)
+> **new AV1Obu**(): `AV1Obu`
 
 #### Returns
 
-[`AV1Obu`](AV1Obu.md)
+`AV1Obu`
 
 ## Properties
+
+### extension\_header?
+
+> `optional` **extension\_header?**: `number`
+
+Present when obu_extension_flag=1 (TID/SID byte).
+
+***
 
 ### obu\_extension\_flag
 
@@ -52,6 +60,8 @@
 
 > **payload**: `Buffer`
 
+OBU payload body only (LEB128 size field is not part of payload).
+
 ## Methods
 
 ### serialize()
@@ -66,7 +76,11 @@
 
 ### deSerialize()
 
-> `static` **deSerialize**(`buf`): [`AV1Obu`](AV1Obu.md)
+> `static` **deSerialize**(`buf`): `AV1Obu`
+
+Parse one OBU element.
+When `obu_has_size_field` is set, consumes LEB128 size and takes exactly
+that many payload octets (AV1 bitstream / AV1 RTP OBU element).
 
 #### Parameters
 
@@ -76,4 +90,4 @@
 
 #### Returns
 
-[`AV1Obu`](AV1Obu.md)
+`AV1Obu`

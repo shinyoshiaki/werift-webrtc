@@ -12,9 +12,9 @@
 
 ## Constructors
 
-### new Connection()
+### Constructor
 
-> **new Connection**(`_iceControlling`, `options`?): [`Connection`](Connection.md)
+> **new Connection**(`_iceControlling`, `options?`): `Connection`
 
 #### Parameters
 
@@ -28,7 +28,7 @@
 
 #### Returns
 
-[`Connection`](Connection.md)
+`Connection`
 
 ## Properties
 
@@ -94,7 +94,7 @@
 
 ### lookup?
 
-> `optional` **lookup**: `MdnsLookup`
+> `optional` **lookup?**: `MdnsLookup`
 
 #### Implementation of
 
@@ -104,7 +104,7 @@
 
 ### nominated?
 
-> `optional` **nominated**: [`CandidatePair`](CandidatePair.md)
+> `optional` **nominated?**: [`CandidatePair`](CandidatePair.md)
 
 #### Implementation of
 
@@ -204,7 +204,7 @@
 
 ### stunServer?
 
-> `optional` **stunServer**: readonly \[`string`, `number`\]
+> `optional` **stunServer?**: readonly \[`string`, `number`\]
 
 #### Implementation of
 
@@ -214,7 +214,7 @@
 
 ### turnServer?
 
-> `optional` **turnServer**: readonly \[`string`, `number`\]
+> `optional` **turnServer?**: readonly \[`string`, `number`\]
 
 #### Implementation of
 
@@ -225,6 +225,9 @@
 ### userHistory
 
 > **userHistory**: `object` = `{}`
+
+Local credentials STUN requests may use, by ufrag: the current ones, the
+generation the last restart replaced and a staged (provisional) one.
 
 #### Index Signature
 
@@ -245,6 +248,26 @@
 #### Implementation of
 
 [`IceConnection`](../interfaces/IceConnection.md).[`candidatePairs`](../interfaces/IceConnection.md#candidatepairs)
+
+***
+
+### gathersFromServers
+
+#### Get Signature
+
+> **get** **gathersFromServers**(): `boolean`
+
+Whether gathering contacts a STUN or TURN server (more than re-advertising sockets).
+
+##### Returns
+
+`boolean`
+
+Whether gathering contacts a STUN or TURN server.
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`gathersFromServers`](../interfaces/IceConnection.md#gathersfromservers)
 
 ***
 
@@ -294,6 +317,22 @@
 
 ***
 
+### provisionalNominated
+
+#### Get Signature
+
+> **get** **provisionalNominated**(): [`CandidatePair`](CandidatePair.md) \| `undefined`
+
+##### Returns
+
+[`CandidatePair`](CandidatePair.md) \| `undefined`
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`provisionalNominated`](../interfaces/IceConnection.md#provisionalnominated)
+
+***
+
 ### remoteCandidates
 
 #### Get Signature
@@ -324,15 +363,42 @@
 
 ## Methods
 
-### addRemoteCandidate()
+### addProvisionalRemoteCandidate()
 
-> **addRemoteCandidate**(`remoteCandidate`): `Promise`\<`void`\>
+> **addProvisionalRemoteCandidate**(`remoteCandidate`): `Promise`\<`void`\>
 
 #### Parameters
 
 ##### remoteCandidate
 
-`undefined` | [`Candidate`](Candidate.md)
+[`Candidate`](Candidate.md) \| `undefined`
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`addProvisionalRemoteCandidate`](../interfaces/IceConnection.md#addprovisionalremotecandidate)
+
+***
+
+### addRemoteCandidate()
+
+> **addRemoteCandidate**(`remoteCandidate`): `Promise`\<`void`\>
+
+Known constraint (as in develop): candidates are not deduplicated. A
+description applied again in the same generation (BUNDLE split and
+merge after an ICE restart) adds its candidates and pairs a second time,
+until the next restart. Deduplicating here alone breaks the pairs a
+provisional generation dropped and the repeated add rebuilds; a fix needs
+the pairing and provisional lifecycle together.
+
+#### Parameters
+
+##### remoteCandidate
+
+[`Candidate`](Candidate.md) \| `undefined`
 
 #### Returns
 
@@ -386,9 +452,9 @@ readonly \[`string`, `number`\]
 
 > **awaitable**: `Promise`\<`void`\> = `p`
 
-##### reject()
+##### reject
 
-> **reject**: (`reason`?) => `void`
+> **reject**: (`reason?`) => `void`
 
 ###### Parameters
 
@@ -400,7 +466,7 @@ readonly \[`string`, `number`\]
 
 `void`
 
-##### resolve()
+##### resolve
 
 > **resolve**: (`value`) => `void`
 
@@ -408,7 +474,7 @@ readonly \[`string`, `number`\]
 
 ###### value
 
-`void` | `PromiseLike`\<`void`\>
+`void` \| `PromiseLike`\<`void`\>
 
 ###### Returns
 
@@ -430,6 +496,32 @@ readonly \[`string`, `number`\]
 
 ***
 
+### commitLocalCredentials()
+
+> **commitLocalCredentials**(`usernameFragment`, `password`): `void`
+
+Called after restart, before re-gathering the chosen generation.
+
+#### Parameters
+
+##### usernameFragment
+
+`string`
+
+##### password
+
+`string`
+
+#### Returns
+
+`void`
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`commitLocalCredentials`](../interfaces/IceConnection.md#commitlocalcredentials)
+
+***
+
 ### connect()
 
 > **connect**(): `Promise`\<`void`\>
@@ -444,9 +536,61 @@ readonly \[`string`, `number`\]
 
 ***
 
+### discardStagedLocalCredentials()
+
+> **discardStagedLocalCredentials**(`usernameFragment`): `void`
+
+#### Parameters
+
+##### usernameFragment
+
+`string`
+
+#### Returns
+
+`void`
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`discardStagedLocalCredentials`](../interfaces/IceConnection.md#discardstagedlocalcredentials)
+
+***
+
+### dropOtherRemoteGenerations()
+
+> **dropOtherRemoteGenerations**(`usernameFragment`): `void`
+
+Drop the remote candidates (and their pairs) that name a ufrag other than
+`usernameFragment`: they belong to another remote generation and cannot
+pass checks with its credentials. Candidates without a ufrag stay.
+
+#### Parameters
+
+##### usernameFragment
+
+`string`
+
+#### Returns
+
+`void`
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`dropOtherRemoteGenerations`](../interfaces/IceConnection.md#dropotherremotegenerations)
+
+***
+
 ### gatherCandidates()
 
 > **gatherCandidates**(): `Promise`\<`void`\>
+
+Gather the local candidates of the current generation.
+
+After an ICE restart everything the kept sockets already advertised is
+advertised again synchronously, before this method first awaits: the host
+candidates and the server-reflexive address each kept socket had. Only
+work that needs a server follows (a fresh STUN query, a new TURN
+allocation), so a caller may let it finish in the background.
 
 #### Returns
 
@@ -500,6 +644,24 @@ readonly \[`string`, `number`\]
 
 ***
 
+### restartRemote()
+
+> **restartRemote**(): `void`
+
+Only the remote side restarted (new remote credentials in an answer to an
+offer that kept the local ones): the remote generation, its checks and
+the selected pair start over; local credentials and candidates stay.
+
+#### Returns
+
+`void`
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`restartRemote`](../interfaces/IceConnection.md#restartremote)
+
+***
+
 ### send()
 
 > **send**(`data`): `Promise`\<`void`\>
@@ -548,6 +710,34 @@ Link headers) and must take effect before the next gather pass.
 
 ***
 
+### setProvisionalRemoteParams()
+
+> **setProvisionalRemoteParams**(`__namedParameters`): `void`
+
+Remote credentials of the provisional generation (pranswer).
+
+#### Parameters
+
+##### \_\_namedParameters
+
+###### password
+
+`string`
+
+###### usernameFragment
+
+`string`
+
+#### Returns
+
+`void`
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`setProvisionalRemoteParams`](../interfaces/IceConnection.md#setprovisionalremoteparams)
+
+***
+
 ### setRemoteParams()
 
 > **setRemoteParams**(`__namedParameters`): `void`
@@ -575,3 +765,45 @@ Link headers) and must take effect before the next gather pass.
 #### Implementation of
 
 [`IceConnection`](../interfaces/IceConnection.md).[`setRemoteParams`](../interfaces/IceConnection.md#setremoteparams)
+
+***
+
+### stageLocalCredentials()
+
+> **stageLocalCredentials**(`usernameFragment`, `password`): `void`
+
+Accept provisional checks without changing the selected current pair.
+
+#### Parameters
+
+##### usernameFragment
+
+`string`
+
+##### password
+
+`string`
+
+#### Returns
+
+`void`
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`stageLocalCredentials`](../interfaces/IceConnection.md#stagelocalcredentials)
+
+***
+
+### startProvisionalChecks()
+
+> **startProvisionalChecks**(): `void`
+
+Start checks for the provisional generation; the selected pair is kept.
+
+#### Returns
+
+`void`
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`startProvisionalChecks`](../interfaces/IceConnection.md#startprovisionalchecks)

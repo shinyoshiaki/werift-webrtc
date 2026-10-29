@@ -1,6 +1,6 @@
 {
   "name": "werift-dtls",
-  "version": "0.5.8",
+  "version": "0.6.0",
   "description": "DTLS protocol implementation for Node.js written in TypeScript.",
   "homepage": "https://github.com/shinyoshiaki/werift-dtls",
   "repository": {
@@ -17,26 +17,18 @@
     "lib"
   ],
   "scripts": {
-    "build": "rm -rf lib && npm run format && tsc -p ./tsconfig.production.json",
+    "build": "rm -rf lib && tsc -p ./tsconfig.production.json && node ../write-package-entrypoint.mjs dtls",
     "ci": "npm run type && npm run test",
-    "client": "DEBUG=werift* ts-node-dev --files --project tsconfig.json examples/client.ts",
+    "client": "DEBUG=werift* node --watch --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs examples/client.ts",
     "dep": "depcheck",
     "deploy": "npm run build && npm publish",
     "format": "biome check --write src tests",
-    "server": "DEBUG=werift* ts-node-dev --files --project tsconfig.json examples/server.ts",
+    "server": "DEBUG=werift* node --watch --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs examples/server.ts",
     "test": "vitest run ./tests",
-    "type": "tsc --noEmit -p .",
-    "unused": "organize-imports-cli src/**/*.ts",
+    "type": "tsc --noEmit -p . --rootDir ..",
     "upgrade-interactive": "npx npm-check-updates -i"
   },
-  "dependencies": {
-    "@fidm/x509": "^1.2.1",
-    "@noble/curves": "^1.8.1",
-    "@peculiar/x509": "^1.12.3",
-    "@shinyoshiaki/binary-data": "^0.6.1",
-    "debug": "4.4.0",
-    "tweetnacl": "^1.0.3"
-  },
+  "dependencies": {},
   "engines": {
     "node": ">=22"
   },

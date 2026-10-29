@@ -8,29 +8,29 @@
 
 ## Constructors
 
-### new RTCRtpSender()
+### Constructor
 
-> **new RTCRtpSender**(`trackOrKind`, `options`): [`RTCRtpSender`](RTCRtpSender.md)
+> **new RTCRtpSender**(`trackOrKind`, `options?`): `RTCRtpSender`
 
 #### Parameters
 
 ##### trackOrKind
 
-[`Kind`](../type-aliases/Kind.md) | [`MediaStreamTrack`](MediaStreamTrack.md)
+[`Kind`](../type-aliases/Kind.md) \| [`MediaStreamTrack`](MediaStreamTrack.md)
 
-##### options
+##### options?
 
 [`RTCRtpSenderOptions`](../type-aliases/RTCRtpSenderOptions.md) = `{}`
 
 #### Returns
 
-[`RTCRtpSender`](RTCRtpSender.md)
+`RTCRtpSender`
 
 ## Properties
 
 ### codec?
 
-> `optional` **codec**: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
+> `optional` **codec?**: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
 
 ***
 
@@ -84,7 +84,7 @@
 
 ### redRedundantPayloadType?
 
-> `optional` **redRedundantPayloadType**: `number`
+> `optional` **redRedundantPayloadType?**: `number`
 
 ***
 
@@ -126,7 +126,7 @@
 
 ### track
 
-> **track**: `null` \| [`MediaStreamTrack`](MediaStreamTrack.md) = `null`
+> **track**: [`MediaStreamTrack`](MediaStreamTrack.md) \| `null` = `null`
 
 ***
 
@@ -178,11 +178,11 @@
 
 #### Get Signature
 
-> **get** **streamId**(): `undefined` \| `string`
+> **get** **streamId**(): `string` \| `undefined`
 
 ##### Returns
 
-`undefined` \| `string`
+`string` \| `undefined`
 
 #### Set Signature
 
@@ -192,7 +192,7 @@
 
 ###### value
 
-`undefined` | `string`
+`string` \| `undefined`
 
 ##### Returns
 
@@ -311,6 +311,25 @@ The same sender can resume sending after `replaceTrack(track)`.
 
 ***
 
+### proposeSend()
+
+> **proposeSend**(`codecs`): `void`
+
+Internal: a pending remote offer proposes `codecs` for the answer while
+the committed codec keeps sending until the final answer.
+
+#### Parameters
+
+##### codecs
+
+[`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]
+
+#### Returns
+
+`void`
+
+***
+
 ### registerTrack()
 
 > **registerTrack**(`track`): `void`
@@ -329,7 +348,7 @@ The same sender can resume sending after `replaceTrack(track)`.
 
 ### replaceRTP()
 
-> **replaceRTP**(`header`, `discontinuity`, `timestampStep`): `void`
+> **replaceRTP**(`header`, `discontinuity?`, `timestampStep?`): `void`
 
 Schedule RTP continuity rewrite for the next packet that is actually sent.
 The header argument is kept for API compatibility and is not used to compute
@@ -343,11 +362,11 @@ at the source-switch boundary.
 
 `Pick`\<[`RtpHeader`](RtpHeader.md), `"sequenceNumber"` \| `"timestamp"`\>
 
-##### discontinuity
+##### discontinuity?
 
 `boolean` = `false`
 
-##### timestampStep
+##### timestampStep?
 
 `number` = `1`
 
@@ -365,11 +384,79 @@ at the source-switch boundary.
 
 ##### track
 
-`null` | [`MediaStreamTrack`](MediaStreamTrack.md)
+[`MediaStreamTrack`](MediaStreamTrack.md) \| `null`
 
 #### Returns
 
 `Promise`\<`void`\>
+
+***
+
+### restoreSendParams()
+
+> **restoreSendParams**(`snapshot`): `void`
+
+Internal: return to a negotiation baseline's send parameters.
+
+#### Parameters
+
+##### snapshot
+
+###### cname
+
+`string` \| `undefined` = `...`
+
+###### codec
+
+[`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined` = `...`
+
+###### headerExtensions
+
+[`RTCRtpHeaderExtensionParameters`](RTCRtpHeaderExtensionParameters.md)[] = `...`
+
+###### mid
+
+`string` \| `undefined` = `...`
+
+###### negotiatedCodecs
+
+[`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[] = `...`
+
+###### proposedPrimaryCodec
+
+[`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined` = `...`
+
+###### redRedundantPayloadType
+
+`number` \| `undefined` = `...`
+
+###### repairedRtpStreamId
+
+`string` \| `undefined` = `...`
+
+###### rtpStreamId
+
+`string` \| `undefined` = `...`
+
+###### rtxPayloadType
+
+`number` \| `undefined` = `...`
+
+###### sendPrimaryCodec
+
+[`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined` = `...`
+
+###### track
+
+[`MediaStreamTrack`](MediaStreamTrack.md) \| `null` = `...`
+
+###### trackCodec
+
+[`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined` = `...`
+
+#### Returns
+
+`void`
 
 ***
 
@@ -404,7 +491,7 @@ dropped, even if a drain is already in progress.
 
 ##### rtp
 
-`Buffer`\<`ArrayBufferLike`\> | [`RtpPacket`](RtpPacket.md)
+`Buffer`\<`ArrayBufferLike`\> \| [`RtpPacket`](RtpPacket.md)
 
 #### Returns
 
@@ -448,11 +535,11 @@ dropped, even if a drain is already in progress.
 
 ### setSendEncodings()
 
-> **setSendEncodings**(`encodings`): `void`
+> **setSendEncodings**(`encodings?`): `void`
 
 #### Parameters
 
-##### encodings
+##### encodings?
 
 `Record`\<`string`, `unknown`\>[] = `[]`
 
@@ -464,11 +551,11 @@ dropped, even if a drain is already in progress.
 
 ### setStreams()
 
-> **setStreams**(`streams`): `void`
+> **setStreams**(`streams?`): `void`
 
 #### Parameters
 
-##### streams
+##### streams?
 
 [`MediaStream`](MediaStream.md)[] = `[]`
 
@@ -478,13 +565,77 @@ dropped, even if a drain is already in progress.
 
 ***
 
+### snapshotSendParams()
+
+> **snapshotSendParams**(): `object`
+
+Internal: the negotiated send parameters, for a negotiation baseline.
+
+#### Returns
+
+`object`
+
+##### cname
+
+> **cname**: `string` \| `undefined`
+
+##### codec
+
+> **codec**: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined`
+
+##### headerExtensions
+
+> **headerExtensions**: [`RTCRtpHeaderExtensionParameters`](RTCRtpHeaderExtensionParameters.md)[]
+
+##### mid
+
+> **mid**: `string` \| `undefined`
+
+##### negotiatedCodecs
+
+> **negotiatedCodecs**: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]
+
+##### proposedPrimaryCodec
+
+> **proposedPrimaryCodec**: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined`
+
+##### redRedundantPayloadType
+
+> **redRedundantPayloadType**: `number` \| `undefined`
+
+##### repairedRtpStreamId
+
+> **repairedRtpStreamId**: `string` \| `undefined`
+
+##### rtpStreamId
+
+> **rtpStreamId**: `string` \| `undefined`
+
+##### rtxPayloadType
+
+> **rtxPayloadType**: `number` \| `undefined`
+
+##### sendPrimaryCodec
+
+> **sendPrimaryCodec**: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined`
+
+##### track
+
+> **track**: [`MediaStreamTrack`](MediaStreamTrack.md) \| `null`
+
+##### trackCodec
+
+> **trackCodec**: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined`
+
+***
+
 ### stop()
 
-> **stop**(`__namedParameters`): `void`
+> **stop**(`__namedParameters?`): `void`
 
 #### Parameters
 
-##### \_\_namedParameters
+##### \_\_namedParameters?
 
 ###### keepTrack?
 

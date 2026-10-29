@@ -1,9 +1,4 @@
-import { decode, types } from "@shinyoshiaki/binary-data";
-
 import { setTimeout } from "timers/promises";
-import { Event, debug } from "./imports/common";
-import type { Address, Transport } from "./imports/common";
-
 import {
   NamedCurveAlgorithmList,
   type SignatureHash,
@@ -20,12 +15,16 @@ import { ExtendedMasterSecret } from "./handshake/extensions/extendedMasterSecre
 import { RenegotiationIndication } from "./handshake/extensions/renegotiationIndication";
 import { Signature } from "./handshake/extensions/signature";
 import { UseSRTP } from "./handshake/extensions/useSrtp";
+import type { Address, Transport } from "./imports/common";
+import { binaryData, debug, Event } from "./imports/common";
 import type { SrtpProfile } from "./imports/rtp";
 import { createPlaintext } from "./record/builder";
 import { ContentType } from "./record/const";
 import { FragmentedHandshake } from "./record/message/fragment";
 import { parsePacket, parsePlainText } from "./record/receive";
 import type { Extension } from "./typings/domain";
+
+const { decode, types } = binaryData;
 
 const log = debug("werift-dtls : packages/dtls/src/socket.ts : log");
 const err = debug("werift-dtls : packages/dtls/src/socket.ts : err");
@@ -202,7 +201,7 @@ export class DtlsSocket {
   };
 
   close() {
-    this.transport.socket.close();
+    this.transport.close();
   }
 
   extractSessionKeys(keyLength: number, saltLength: number) {

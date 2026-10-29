@@ -1,7 +1,8 @@
 import {
+  debug,
   type Extensions,
-  RTP_EXTENSION_URI,
   ReceiverEstimatedMaxBitrate,
+  RTP_EXTENSION_URI,
   type RtcpPacket,
   RtcpPayloadSpecificFeedback,
   RtcpRrPacket,
@@ -9,9 +10,9 @@ import {
   RtcpSrPacket,
   RtcpTransportLayerFeedback,
   type RtpPacket,
-  debug,
   rtpHeaderExtensionsParser,
 } from "../imports/rtp";
+import { type RouterSnapshot, ridRouteKey } from "../negotiation/internalState";
 import { deliveredTrackCodec } from "./codecCompatibility";
 import type {
   RTCRtpReceiveParameters,
@@ -24,32 +25,223 @@ import { MediaStreamTrack } from "./track";
 
 const log = debug("werift:packages/webrtc/src/media/router.ts");
 
+const ridOfRouteKey = (key: string) => key.slice(key.indexOf("\u0000") + 1);
+
+type StagedRoutes = {
+  ssrc: [number, RTCRtpReceiver][];
+  rid: [string, RTCRtpReceiver][];
+  provisional?: [number, RTCRtpReceiver][];
+};
+
+/**
+ * RTP routing tables shared by the current session and a pending proposal.
+ * One rule covers every key: a pending remote offer or pranswer may **add**
+ * keys, effective at once so provisional RTP flows, but a key the current
+ * session uses keeps its value until the final answer. A conflicting value is
+ * rejected before any mutation or staged until commit; rollback drops what was
+ * staged and restores the baseline (`snapshotRoutes` / `restoreRoutes`).
+ *
+ * | Key | Table | Conflicting proposal |
+ * | --- | --- | --- |
+ * | Payload type → codec | receiver codec table | remap rejected (RFC 3264 section 8.3.2); fmtp / rtcp-fb change staged |
+ * | Header extension ID → URI | `extIdUriMap` | remap of an ID in use rejected (RFC 8285 section 7); a URI on a new ID is an addition |
+ * | SSRC → receiver | `ssrcTable` | move to another m-line staged |
+ * | RTX SSRC → media SSRC | receiver RTX table | changed pairing staged |
+ * | MID+RID → receiver | `ridTable` | RIDs are scoped to their m-line (RFC 8851): no conflict |
+ * | Sender SSRC → sender | `ssrcTable` | application state: rollback keeps every live sender's route |
+ *
+ * A payload type or extension ID counts as in use only when both current
+ * descriptions carry it for the m-line. RID lookup uses MID+RID when the
+ * packet's MID names a route, else the RID alone. `extIdUriMap` is shared by
+ * the whole PeerConnection: m-lines on separate transports that map one ID to
+ * different URIs are not supported. A current remote SSRC that a later answer
+ * omits stays routed; only SSRCs a replaced pranswer alone added are dropped.
+ */
 export class RtpRouter {
   ssrcTable: { [ssrc: number]: RTCRtpReceiver | RTCRtpSender } = {};
-  ridTable: { [rid: string]: RTCRtpReceiver | RTCRtpSender } = {};
+  /** Keyed by {@link ridRouteKey} (MID + RID). */
+  ridTable: { [midAndRid: string]: RTCRtpReceiver | RTCRtpSender } = {};
+  /**
+   * Routes a pending offer or pranswer would move away from the receiver the
+   * current session uses. They apply at commit; until then current RTP keeps
+   * its route, and rollback drops them.
+   */
+  private stagedSsrc = new Map<number, RTCRtpReceiver>();
+  private stagedRid = new Map<string, RTCRtpReceiver>();
+  /**
+   * New SSRC routes a pending description added at once (no conflict). A
+   * later remote pranswer / answer replaces them, the commit keeps them.
+   */
+  private provisionalSsrc = new Map<number, RTCRtpReceiver>();
   extIdUriMap: { [id: number]: string } = {};
+  /**
+   * SSRCs registered from received packets (simulcast after RID stops being
+   * sent), not from SDP. Negotiation rollback keeps these entries.
+   */
+  readonly learnedSsrcs = new Set<number>();
 
   constructor() {}
 
   registerRtpSender(sender: RTCRtpSender) {
     this.ssrcTable[sender.ssrc] = sender;
+    this.learnedSsrcs.delete(sender.ssrc);
   }
 
-  private registerRtpReceiver(receiver: RTCRtpReceiver, ssrc: number) {
+  /** Internal: the negotiation committed, staged routes replace current ones. */
+  commitStaged() {
+    for (const [ssrc, receiver] of this.stagedSsrc) {
+      this.ssrcTable[ssrc] = receiver;
+      this.learnedSsrcs.delete(ssrc);
+    }
+    for (const [key, receiver] of this.stagedRid) {
+      this.ridTable[key] = receiver;
+    }
+    this.stagedSsrc.clear();
+    this.stagedRid.clear();
+    this.provisionalSsrc.clear();
+  }
+
+  /** Internal: drop the routes an earlier pending description added at once. */
+  discardProvisional() {
+    for (const [ssrc, receiver] of this.provisionalSsrc) {
+      if (this.ssrcTable[ssrc] === receiver && !this.learnedSsrcs.has(ssrc)) {
+        delete this.ssrcTable[ssrc];
+        receiver.releaseProvisionalSsrc(ssrc);
+      }
+    }
+    this.provisionalSsrc.clear();
+  }
+
+  /** Internal: capture staged routes for a transaction baseline or checkpoint. */
+  snapshotStaged(): StagedRoutes {
+    return {
+      ssrc: [...this.stagedSsrc],
+      rid: [...this.stagedRid],
+      provisional: [...this.provisionalSsrc],
+    };
+  }
+
+  /** Internal: restore staged routes (an empty snapshot discards them). */
+  restoreStaged(snapshot: StagedRoutes) {
+    this.stagedSsrc = new Map(snapshot.ssrc);
+    this.stagedRid = new Map(snapshot.rid);
+    this.provisionalSsrc = new Map(snapshot.provisional);
+  }
+
+  /** Internal: every route a negotiation may change, for a rollback baseline. */
+  snapshotRoutes() {
+    return {
+      ssrcTable: { ...this.ssrcTable },
+      ridTable: { ...this.ridTable },
+      extIdUriMap: { ...this.extIdUriMap },
+      staged: this.snapshotStaged(),
+    };
+  }
+
+  /**
+   * Internal: return to a negotiation baseline. Two kinds of route are not
+   * description state and survive: SSRCs learned from packets for an endpoint
+   * still attached, and the own SSRC of every live sender (including one the
+   * application added while the description was pending).
+   */
+  restoreRoutes(
+    snapshot: RouterSnapshot,
+    {
+      endpoints,
+      liveSenders,
+    }: {
+      endpoints: Set<RTCRtpReceiver | RTCRtpSender>;
+      liveSenders: RTCRtpSender[];
+    },
+  ) {
+    const learnedRoutes = Object.entries(this.ssrcTable).filter(
+      ([ssrc, endpoint]) =>
+        this.learnedSsrcs.has(Number(ssrc)) &&
+        !(ssrc in snapshot.ssrcTable) &&
+        endpoints.has(endpoint),
+    );
+    this.ssrcTable = { ...snapshot.ssrcTable };
+    for (const [ssrc, endpoint] of learnedRoutes) {
+      this.ssrcTable[Number(ssrc)] = endpoint;
+    }
+    for (const sender of liveSenders) {
+      if (!(sender.ssrc in this.ssrcTable)) this.registerRtpSender(sender);
+    }
+    this.ridTable = { ...snapshot.ridTable };
+    this.extIdUriMap = { ...snapshot.extIdUriMap };
+    this.restoreStaged(snapshot.staged);
+  }
+
+  /** Test-only observation of staged routes. */
+  get staged() {
+    return this.snapshotStaged();
+  }
+
+  unregisterTransceiver(transceiver: RTCRtpTransceiver) {
+    for (const [ssrc, receiver] of this.stagedSsrc) {
+      if (receiver === transceiver.receiver) this.stagedSsrc.delete(ssrc);
+    }
+    for (const [key, receiver] of this.stagedRid) {
+      if (receiver === transceiver.receiver) this.stagedRid.delete(key);
+    }
+    for (const [ssrc, endpoint] of Object.entries(this.ssrcTable)) {
+      if (
+        endpoint === transceiver.sender ||
+        endpoint === transceiver.receiver
+      ) {
+        delete this.ssrcTable[Number(ssrc)];
+      }
+    }
+    for (const [rid, endpoint] of Object.entries(this.ridTable)) {
+      if (
+        endpoint === transceiver.sender ||
+        endpoint === transceiver.receiver
+      ) {
+        delete this.ridTable[rid];
+      }
+    }
+  }
+
+  private registerRtpReceiver(
+    receiver: RTCRtpReceiver,
+    ssrc: number,
+    deferConflicts = false,
+  ) {
     log("registerRtpReceiver", ssrc);
+    const existing = this.ssrcTable[ssrc];
+    if (deferConflicts && existing && existing !== receiver) {
+      this.stagedSsrc.set(ssrc, receiver);
+      return;
+    }
+    if (deferConflicts && !existing) this.provisionalSsrc.set(ssrc, receiver);
+    if (!deferConflicts) this.provisionalSsrc.delete(ssrc);
+    this.stagedSsrc.delete(ssrc);
     this.ssrcTable[ssrc] = receiver;
+    // Registration from SDP makes the route description state again; the
+    // packet path re-marks it as learned right after this call.
+    this.learnedSsrcs.delete(ssrc);
   }
 
+  /**
+   * With `deferConflicts` (a pending offer or pranswer) an SSRC the current
+   * session routes to another receiver is staged until commit; new SSRCs route
+   * at once so provisional RTP flows.
+   */
   registerRtpReceiverBySsrc(
     transceiver: RTCRtpTransceiver,
     params: RTCRtpReceiveParameters,
+    { deferConflicts = false }: { deferConflicts?: boolean } = {},
   ) {
     log("registerRtpReceiverBySsrc", params);
 
     params.encodings
       .filter((e) => e.ssrc != undefined) // todo fix
       .forEach((encode, i) => {
-        this.registerRtpReceiver(transceiver.receiver, encode.ssrc);
+        this.registerRtpReceiver(
+          transceiver.receiver,
+          encode.ssrc,
+          deferConflicts,
+        );
         transceiver.addTrack(
           new MediaStreamTrack({
             ssrc: encode.ssrc,
@@ -64,7 +256,11 @@ export class RtpRouter {
           }),
         );
         if (encode.rtx) {
-          this.registerRtpReceiver(transceiver.receiver, encode.rtx.ssrc);
+          this.registerRtpReceiver(
+            transceiver.receiver,
+            encode.rtx.ssrc,
+            deferConflicts,
+          );
         }
       });
 
@@ -77,6 +273,7 @@ export class RtpRouter {
     transceiver: RTCRtpTransceiver,
     param: RTCRtpSimulcastParameters,
     params: RTCRtpReceiveParameters,
+    { deferConflicts = false }: { deferConflicts?: boolean } = {},
   ) {
     // サイマルキャスト利用時のRTXをサポートしていないのでcodecs/encodingsは常に一つ
     const [codec] = params.codecs;
@@ -91,25 +288,30 @@ export class RtpRouter {
         codec,
       }),
     );
-    this.ridTable[param.rid] = transceiver.receiver;
+    const key = ridRouteKey(transceiver.mid ?? "", param.rid);
+    const existing = this.ridTable[key];
+    if (deferConflicts && existing && existing !== transceiver.receiver) {
+      this.stagedRid.set(key, transceiver.receiver);
+      return;
+    }
+    this.stagedRid.delete(key);
+    this.ridTable[key] = transceiver.receiver;
   }
 
-  /**停止した transceiver の SSRC / RID 登録を解除する */
-  unregisterTransceiver(transceiver: RTCRtpTransceiver) {
-    const owners: (RTCRtpReceiver | RTCRtpSender)[] = [
-      transceiver.sender,
-      transceiver.receiver,
-    ];
-    for (const [ssrc, owner] of Object.entries(this.ssrcTable)) {
-      if (owners.includes(owner)) {
-        delete this.ssrcTable[Number(ssrc)];
-      }
+  /**
+   * The receiver of an RTP stream ID: by MID and RID when the packet carries
+   * a MID extension that names a route, otherwise (no MID extension, or a MID
+   * value no route uses) the first m-line that uses that RID, as develop does.
+   */
+  private receiverByRid(rid: string, mid: unknown) {
+    if (typeof mid === "string") {
+      const byMid = this.ridTable[ridRouteKey(mid, rid)];
+      if (byMid) return byMid as RTCRtpReceiver;
     }
-    for (const [rid, owner] of Object.entries(this.ridTable)) {
-      if (owners.includes(owner)) {
-        delete this.ridTable[rid];
-      }
-    }
+    const key = Object.keys(this.ridTable).find(
+      (candidate) => ridOfRouteKey(candidate) === rid,
+    );
+    return key ? (this.ridTable[key] as RTCRtpReceiver) : undefined;
   }
 
   routeRtp = (packet: RtpPacket) => {
@@ -124,11 +326,16 @@ export class RtpRouter {
 
     const rid = extensions[RTP_EXTENSION_URI.sdesRTPStreamID];
     if (typeof rid === "string") {
-      rtpReceiver = this.ridTable[rid] as RTCRtpReceiver | undefined;
-      if (rtpReceiver) {
-        rtpReceiver.latestRid = rid;
-        rtpReceiver.handleRtpByRid(packet, rid, extensions);
+      rtpReceiver = this.receiverByRid(
+        rid,
+        extensions[RTP_EXTENSION_URI.sdesMid],
+      );
+      if (!rtpReceiver) {
+        log("rid receiver not found", rid);
+        return;
       }
+      rtpReceiver.latestRid = rid;
+      rtpReceiver.handleRtpByRid(packet, rid, extensions);
     } else if (rtpReceiver) {
       rtpReceiver.handleRtpBySsrc(packet, extensions);
     } else {
@@ -138,7 +345,9 @@ export class RtpRouter {
         .find((r) => r.trackBySSRC[packet.header.ssrc]);
       if (rtpReceiver) {
         log("simulcast register receiver by ssrc", packet.header.ssrc);
-        this.registerRtpReceiver(rtpReceiver, packet.header.ssrc);
+        // Packet-driven, not a description: staged routes stay as they are.
+        this.ssrcTable[packet.header.ssrc] = rtpReceiver;
+        this.learnedSsrcs.add(packet.header.ssrc);
         rtpReceiver.handleRtpBySsrc(packet, extensions);
       } else {
         // bug

@@ -1,6 +1,7 @@
-import { decode, encode, types } from "@shinyoshiaki/binary-data";
-
 import type { HashAlgorithms, SignatureAlgorithms } from "../../cipher/const";
+import { binaryData } from "../../imports/common";
+
+const { decode, encode, types } = binaryData;
 
 export class Signature {
   static type = 13;
@@ -26,12 +27,11 @@ export class Signature {
   }
 
   static deSerialize(buf: Buffer) {
-    return new Signature(decode(buf, Signature.spec));
+    return new Signature(decode(buf, Signature.spec) as Partial<Signature>);
   }
 
   serialize() {
-    const res = encode(this, Signature.spec).slice();
-    return Buffer.from(res);
+    return encode(this, Signature.spec);
   }
 
   static fromData(buf: Buffer) {

@@ -1,10 +1,11 @@
-import { decode, types } from "@shinyoshiaki/binary-data";
-
 import type { CurveTypes, NamedCurveAlgorithms } from "../../../cipher/const";
+import { binaryData } from "../../../imports/common";
 import { FragmentedHandshake } from "../../../record/message/fragment";
 import type { Handshake } from "../../../typings/domain";
 import { encodeBuffer } from "../../../util/binary";
 import { HandshakeType } from "../../const";
+
+const { decode, types } = binaryData;
 
 export class ServerKeyExchange implements Handshake {
   msgType = HandshakeType.server_key_exchange_12;
@@ -14,11 +15,11 @@ export class ServerKeyExchange implements Handshake {
     ellipticCurveType: types.uint8,
     namedCurve: types.uint16be,
     publicKeyLength: types.uint8,
-    publicKey: types.buffer((ctx: any) => ctx.current.publicKeyLength),
+    publicKey: types.buffer((ctx) => ctx.current.publicKeyLength),
     hashAlgorithm: types.uint8,
     signatureAlgorithm: types.uint8,
     signatureLength: types.uint16be,
-    signature: types.buffer((ctx: any) => ctx.current.signatureLength),
+    signature: types.buffer((ctx) => ctx.current.signatureLength),
   };
 
   constructor(
@@ -48,7 +49,7 @@ export class ServerKeyExchange implements Handshake {
   static deSerialize(buf: Buffer) {
     const res = decode(buf, ServerKeyExchange.spec);
     return new ServerKeyExchange(
-      //@ts-ignore
+      //@ts-expect-error
       ...Object.values(res),
     );
   }

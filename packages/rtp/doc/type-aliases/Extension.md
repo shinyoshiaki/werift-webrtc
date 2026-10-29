@@ -6,13 +6,15 @@
 
 # Type Alias: Extension
 
-> **Extension**: `object`
+> **Extension** = `object`
 
-## Type declaration
+## Properties
 
 ### id
 
 > **id**: `number`
+
+***
 
 ### payload
 

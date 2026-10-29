@@ -26,22 +26,22 @@
 
 ### muxId?
 
-> `optional` **muxId**: `string`
+> `optional` **muxId?**: `string`
 
 ***
 
 ### repairedRtpStreamId?
 
-> `optional` **repairedRtpStreamId**: `string`
+> `optional` **repairedRtpStreamId?**: `string`
 
 ***
 
 ### rtcp?
 
-> `optional` **rtcp**: [`RTCRtcpParameters`](../classes/RTCRtcpParameters.md)
+> `optional` **rtcp?**: [`RTCRtcpParameters`](../classes/RTCRtcpParameters.md)
 
 ***
 
 ### rtpStreamId?
 
-> `optional` **rtpStreamId**: `string`
+> `optional` **rtpStreamId?**: `string`

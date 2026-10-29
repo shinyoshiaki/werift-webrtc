@@ -1,31 +1,36 @@
 import { isIP } from "node:net";
+import * as tls from "node:tls";
 import { setTimeout } from "timers/promises";
 
 import { makeTurnIntegrityKey } from "../../../ice-server/src/turn/auth";
 import type { Candidate } from "../candidate";
-import { TransactionFailed } from "../exceptions";
+import {
+  TransactionCancelled,
+  TransactionFailed,
+  TurnRedirectError,
+} from "../exceptions";
 import { type Cancelable, cancelable, randomTransactionId } from "../helper";
 import {
   type Address,
+  bufferReader,
+  debug,
   Event,
   EventDisposer,
   type InterfaceAddresses,
+  int,
   TcpTransport,
   type TlsConnectionOptions,
   TlsTransport,
   type Transport,
   UdpTransport,
-  bufferReader,
-  debug,
-  int,
 } from "../imports/common";
 import { classes, methods } from "../stun/const";
 import { Message, paddingLength, parseMessage } from "../stun/message";
 import {
-  Transaction,
   addressEquals,
   buildTransactionOptions,
   resolveRequestAddress,
+  Transaction,
 } from "../stun/transaction";
 import type { Protocol, TransactionRequestOptions } from "../types/model";
 import {
@@ -41,6 +46,30 @@ const log = debug("werift-ice:packages/ice/src/turn/protocol.ts");
 const DEFAULT_CHANNEL_REFRESH_TIME = 500;
 const DEFAULT_ALLOCATION_LIFETIME = 600;
 const UDP_TRANSPORT = 0x11000000;
+/** 300 (Try Alternate) redirects followed for one Allocate before giving up. */
+const DEFAULT_MAX_ALLOCATE_REDIRECTS = 3;
+
+export {
+  TurnRedirectError,
+  type TurnRedirectFailureReason,
+} from "../exceptions";
+
+/**
+ * Opens a new stream transport to the TURN server named by a 300 (Try
+ * Alternate) ALTERNATE-SERVER. `alternateDomain` is the ALTERNATE-DOMAIN
+ * attribute, if any, which a TLS transport must validate the certificate
+ * against (RFC 8489 §10).
+ */
+export type TurnStreamReconnect = (
+  server: Address,
+  alternateDomain: string | undefined,
+) => Promise<Transport>;
+
+/** Where a 300 (Try Alternate) response tells the client to go. */
+interface TurnAlternate {
+  server: Address;
+  domain?: string;
+}
 
 /** Channel binding state for a single peer transport address. */
 export interface TurnChannel {
@@ -174,6 +203,8 @@ export class TurnProtocol implements Protocol {
   mappedAddress!: Address;
   localCandidate!: Candidate;
   transactions: { [hexId: string]: Transaction } = {};
+  /** close() ran: no new transaction starts. */
+  private closed = false;
   private refreshHandle?: Cancelable<void>;
   private channelNumber = 0x4000;
   private channelByAddr: { [key: string]: TurnChannel } = {};
@@ -202,8 +233,15 @@ export class TurnProtocol implements Protocol {
   private pinnedServerEndpoint?: Address;
   private serverEndpointSelection?: Promise<Address>;
 
+  /** TURN server as configured, before any 300 (Try Alternate) redirect. */
+  readonly configuredServer: Address;
+
   constructor(
-    /** TURN server as configured; the host may be a hostname. */
+    /**
+     * TURN server the allocation is made on; the host may be a hostname.
+     * Starts as the configured server and becomes the ALTERNATE-SERVER when
+     * an Allocate is redirected with 300 (Try Alternate).
+     */
     public server: Address,
     public username: string,
     public password: string,
@@ -212,34 +250,149 @@ export class TurnProtocol implements Protocol {
     public options: {
       /**sec */
       channelRefreshTime?: number;
+      /**
+       * 300 (Try Alternate) redirects followed for one Allocate.
+       * Defaults to 3.
+       */
+      maxAllocateRedirects?: number;
+      /**
+       * Reconnects a TCP/TLS transport to an ALTERNATE-SERVER. Without it, a
+       * redirect over a stream transport fails with TurnRedirectError
+       * ("unsupported-transport"). UDP needs no reconnect.
+       */
+      reconnect?: TurnStreamReconnect;
     } = {},
   ) {
+    this.configuredServer = server;
     this.channelRefreshTime =
       this.options.channelRefreshTime ?? DEFAULT_CHANNEL_REFRESH_TIME;
   }
 
   async connectionMade() {
-    this.transport.onData = (data, addr) => {
-      this.dataReceived(data, addr);
-    };
+    this.attachTransport();
 
-    const request = new Message(methods.ALLOCATE, classes.REQUEST);
-    request
-      .setAttribute("LIFETIME", this.lifetime)
-      .setAttribute("REQUESTED-TRANSPORT", UDP_TRANSPORT);
-
-    const [response] = await this.requestWithRetry(request, this.server).catch(
-      (e) => {
-        log("connect error", e);
-        throw e;
-      },
-    );
+    const [response] = await this.allocate().catch((e) => {
+      log("connect error", e);
+      throw e;
+    });
     this.relayedAddress = response.getAttributeValue("XOR-RELAYED-ADDRESS");
     this.mappedAddress = response.getAttributeValue("XOR-MAPPED-ADDRESS");
     const exp = response.getAttributeValue("LIFETIME");
     log("connect", this.relayedAddress, this.mappedAddress, { exp });
 
+    // close() ran while the response was in flight: no refresh starts.
+    if (this.closed) throw new TransactionCancelled();
     this.refresh(exp);
+  }
+
+  private attachTransport() {
+    this.transport.onData = (data, addr) => {
+      this.dataReceived(data, addr);
+    };
+  }
+
+  /**
+   * Allocate on the current server, following 300 (Try Alternate) to the
+   * ALTERNATE-SERVER with the same transport protocol and credentials
+   * (RFC 8656 §7.4, RFC 8489 §10). Only Allocate is redirected: an existing
+   * allocation lives on one server, so Refresh, CreatePermission and
+   * ChannelBind never move.
+   */
+  private async allocate(): Promise<[Message, Address]> {
+    const maxRedirects =
+      this.options.maxAllocateRedirects ?? DEFAULT_MAX_ALLOCATE_REDIRECTS;
+    /** Servers this Allocate has been sent to, to detect redirect loops. */
+    const tried: Address[] = [];
+
+    for (let redirects = 0; ; redirects++) {
+      // A fresh request per server: a redirected request may already carry
+      // MESSAGE-INTEGRITY for the previous server's realm and nonce.
+      const request = new Message(methods.ALLOCATE, classes.REQUEST)
+        .setAttribute("LIFETIME", this.lifetime)
+        .setAttribute("REQUESTED-TRANSPORT", UDP_TRANSPORT);
+
+      try {
+        return await this.requestWithRetry(request, this.server);
+      } catch (error) {
+        const alternate = tryAlternateOf(error, this.transport.addressFamily);
+        if (!alternate) {
+          throw error;
+        }
+        // The request has resolved the configured host, so its endpoint is
+        // known here: a redirect to the resolved IP of a host name is a loop.
+        tried.push(this.server);
+        if (this.pinnedServerEndpoint) {
+          tried.push(this.pinnedServerEndpoint);
+        }
+        const failed = error as TransactionFailed;
+        const fail = (
+          reason: ConstructorParameters<typeof TurnRedirectError>[0],
+        ) =>
+          new TurnRedirectError(reason, this.server, alternate.server, failed);
+
+        if (!alternate.server) {
+          throw new TurnRedirectError(
+            "missing-alternate",
+            this.server,
+            undefined,
+            failed,
+          );
+        }
+        if (tried.some((addr) => addressEquals(addr, alternate.server!))) {
+          throw fail("loop");
+        }
+        if (redirects >= maxRedirects) {
+          throw fail("too-many-redirects");
+        }
+        if (isStreamTransport(this.transport) && !this.options.reconnect) {
+          throw fail("unsupported-transport");
+        }
+
+        log("allocate redirected", this.server, "->", alternate);
+        await this.switchServer(alternate as TurnAlternate);
+      }
+    }
+  }
+
+  /**
+   * Point the client at an ALTERNATE-SERVER. Authentication state belongs to
+   * the previous server, so the alternate starts again with an
+   * unauthenticated Allocate and its own 401 realm/nonce; username and
+   * password are kept.
+   */
+  private async switchServer({ server, domain }: TurnAlternate) {
+    let endpoint: Address;
+    if (isStreamTransport(this.transport)) {
+      const previous = this.transport;
+      previous.onData = () => {};
+      await previous.close();
+      const reconnected = await this.options.reconnect!(server, domain);
+      // close() ran while reconnecting: it saw only the closed previous
+      // transport, so the new connection is released here.
+      if (this.closed) {
+        reconnected.onData = () => {};
+        await reconnected.close();
+        throw new TransactionCancelled();
+      }
+      this.transport = reconnected;
+      this.tcpBuffer = Buffer.alloc(0);
+      this.attachTransport();
+      endpoint = this.transport.remoteAddress ?? server;
+    } else {
+      // ALTERNATE-SERVER is an IP literal. One of the other family cannot be
+      // reached from this socket (AddressFamilyMismatch).
+      endpoint = await resolveRequestAddress(
+        server,
+        this.transport.addressFamily ?? 0,
+      );
+    }
+
+    this.server = server;
+    this.pinnedServerEndpoint = endpoint;
+    this.serverEndpointSelection = Promise.resolve(endpoint);
+    this.nonce = undefined;
+    this.realm = undefined;
+    this.integrityKey = undefined;
   }
 
   private handleChannelData(data: Buffer) {
@@ -399,6 +552,8 @@ export class TurnProtocol implements Protocol {
     // callers pass explicit options. Peer consent goes through StunOverTurnProtocol.
     // Prefer the TURN session integrity key for response verification.
     const resolvedAddr = await this.resolveRequestTarget(addr);
+    // close() ran during the lookup: no transaction starts on a closed client.
+    if (this.closed) throw new TransactionCancelled();
     const options = buildTransactionOptions(
       this.integrityKey,
       retransmissionsOrOptions,
@@ -706,7 +861,19 @@ export class TurnProtocol implements Protocol {
     await this.send(message.bytes, addr);
   }
 
+  /**
+   * Release the client: its transactions, refresh timer and socket. Known
+   * constraint (as in develop): the allocation is not deleted on the server
+   * (no Refresh with lifetime 0), so the server keeps it until its lifetime
+   * ends.
+   */
   async close() {
+    if (this.closed) return;
+    this.closed = true;
+    // An allocation, refresh or ChannelBind still waiting settles now.
+    for (const transaction of Object.values(this.transactions)) {
+      transaction.cancel();
+    }
     this.refreshHandle?.resolve?.();
     await this.transport.close();
   }
@@ -732,6 +899,11 @@ export interface TurnClientOptions {
    * own family always selects the socket. Defaults to 4.
    */
   udpFamily?: 4 | 6;
+  /**
+   * Aborting it while the allocation runs closes the client (its socket and
+   * transactions) and rejects with `TransactionCancelled`.
+   */
+  signal?: AbortSignal;
 }
 
 /**
@@ -769,6 +941,7 @@ export async function createTurnClient(
     transport: transportType,
     connectTimeoutMs,
     udpFamily,
+    signal,
   }: TurnClientOptions = {},
 ) {
   lifetime ??= DEFAULT_ALLOCATION_LIFETIME;
@@ -789,10 +962,34 @@ export async function createTurnClient(
     password,
     lifetime,
     transport,
+    {
+      reconnect:
+        transportType === "udp"
+          ? undefined
+          : (alternate, alternateDomain) =>
+              transportType === "tcp"
+                ? TcpTransport.init(alternate, { connectTimeoutMs })
+                : TlsTransport.init(
+                    alternate,
+                    alternateTlsOptions(address, alternateDomain, tlsOptions),
+                    { connectTimeoutMs },
+                  ),
+    },
   );
+  // The owner (an ICE agent) closed while the allocation runs: release the
+  // socket and its retransmissions now instead of after the allocation.
+  const abort = () => {
+    turn
+      .close()
+      .catch((error) => log("failed to close aborted TURN client", error));
+  };
+  if (signal?.aborted) abort();
+  signal?.addEventListener("abort", abort, { once: true });
 
   try {
+    if (signal?.aborted) throw new TransactionCancelled();
     await turn.connectionMade();
+    if (signal?.aborted) throw new TransactionCancelled();
   } catch (error) {
     try {
       await turn.close();
@@ -800,6 +997,8 @@ export async function createTurnClient(
       log("failed to close TURN client after allocation failure", closeError);
     }
     throw error;
+  } finally {
+    signal?.removeEventListener("abort", abort);
   }
   return turn;
 }
@@ -811,6 +1010,60 @@ export async function createStunOverTurnClient(
   const turn = await createTurnClient(config, options);
   const turnTransport = new StunOverTurnProtocol(turn);
   return turnTransport;
+}
+
+/**
+ * TLS options for a connection to an ALTERNATE-SERVER (an IP literal). The
+ * certificate is validated against ALTERNATE-DOMAIN when present, otherwise
+ * against the name the original server would have been validated with
+ * (RFC 8489 §10): `tlsOptions.servername`, else the configured host.
+ */
+function alternateTlsOptions(
+  configured: Address,
+  alternateDomain: string | undefined,
+  tlsOptions: TlsConnectionOptions = {},
+): TlsConnectionOptions {
+  const identity = alternateDomain ?? tlsOptions.servername ?? configured[0];
+  const checkServerIdentity =
+    tlsOptions.checkServerIdentity ?? tls.checkServerIdentity;
+  return {
+    ...tlsOptions,
+    // SNI cannot carry an IP literal.
+    servername: isIP(identity) ? undefined : identity,
+    checkServerIdentity: (_host, cert) => checkServerIdentity(identity, cert),
+  };
+}
+
+/**
+ * The redirect target of a 300 (Try Alternate) error response, or undefined
+ * for any other error. `server` is undefined when ALTERNATE-SERVER is
+ * missing.
+ */
+function tryAlternateOf(
+  error: unknown,
+  addressFamily?: number,
+): { server?: Address; domain?: string } | undefined {
+  if (!(error instanceof TransactionFailed)) {
+    return undefined;
+  }
+  const [errorCode] = error.response.getAttributeValue("ERROR-CODE") ?? [];
+  if (errorCode !== 300) {
+    return undefined;
+  }
+  // A response may carry one ALTERNATE-SERVER per address family (RFC 8489
+  // §10): take the first one this transport can reach, else the first.
+  const servers = error.response.alternateServers;
+  const reachable = servers.find(
+    ([host]) => addressFamily === undefined || ipFamily(host) === addressFamily,
+  );
+  return {
+    server: reachable ?? servers[0],
+    domain: error.response.getAttributeValue("ALTERNATE-DOMAIN"),
+  };
+}
+
+function ipFamily(host: string): number {
+  return host.includes(":") ? 6 : 4;
 }
 
 export function makeIntegrityKey(

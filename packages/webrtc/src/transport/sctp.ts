@@ -1,11 +1,8 @@
 import { randomUUID } from "crypto";
-
-import { Event, debug } from "../imports/common";
-
 import {
   SCTP,
-  type SCTPOptions,
   SCTP_STATE,
+  type SCTPOptions,
   type Transport,
 } from "../../../sctp/src";
 import {
@@ -20,10 +17,11 @@ import {
 } from "../const";
 import {
   type DCState,
+  getDataChannelMessageSize,
   RTCDataChannel,
   RTCDataChannelParameters,
-  getDataChannelMessageSize,
 } from "../dataChannel";
+import { debug, Event, FifoQueue } from "../imports/common";
 import type { RTCDtlsTransport } from "./dtls";
 
 const log = debug("werift:packages/webrtc/src/transport/sctp.ts");
@@ -40,9 +38,11 @@ export class RTCSctpTransport {
   mLineIndex?: number;
   bundled = false;
   dataChannels: { [key: number]: RTCDataChannel } = {};
+  /** Set by stop(); nothing received afterwards reaches the application. */
+  private stopped = false;
   remoteMaxMessageSize = DEFAULT_MAX_MESSAGE_SIZE;
 
-  private dataChannelQueue: [RTCDataChannel, number, Buffer][] = [];
+  private dataChannelQueue = new FifoQueue<[RTCDataChannel, number, Buffer]>();
   private dataChannelId?: number;
   private eventDisposer: (() => void)[] = [];
 
@@ -64,6 +64,8 @@ export class RTCSctpTransport {
     this.eventDisposer.forEach((dispose) => dispose());
 
     this.dtlsTransport = dtlsTransport;
+    // A new association: the transport delivers again.
+    this.stopped = false;
     this.sctp = new SCTP(
       new BridgeDtls(this.dtlsTransport),
       this.port,
@@ -107,12 +109,14 @@ export class RTCSctpTransport {
     ];
 
     this.sctp.onSackReceived = async () => {
-      await this.dataChannelFlush();
+      this.dataChannelFlush();
     };
   }
 
   private get isServer() {
-    return this.dtlsTransport.iceTransport.role !== "controlling";
+    const role =
+      this.dtlsTransport.iceRoleAtStart ?? this.dtlsTransport.iceTransport.role;
+    return role !== "controlling";
   }
 
   channelByLabel(label: string) {
@@ -124,6 +128,9 @@ export class RTCSctpTransport {
     ppId: number,
     data: Buffer,
   ) => {
+    // A stopped transport (rolled back, replaced or closed) delivers no
+    // message a callback still queued for it carries.
+    if (this.stopped) return;
     if (ppId === WEBRTC_DCEP && data.length > 0) {
       log("DCEP", streamId, ppId, data);
       switch (data[0]) {
@@ -184,7 +191,7 @@ export class RTCSctpTransport {
             const ack = Buffer.allocUnsafe(1);
             ack.writeUInt8(DATA_CHANNEL_ACK, 0);
             this.dataChannelQueue.push([channel, WEBRTC_DCEP, ack]);
-            await this.dataChannelFlush();
+            this.dataChannelFlush();
           }
           break;
         case DATA_CHANNEL_ACK:
@@ -286,7 +293,7 @@ export class RTCSctpTransport {
     this.dataChannelFlush();
   }
 
-  private async dataChannelFlush() {
+  private dataChannelFlush() {
     // """
     // Try to flush buffered data to the SCTP layer.
 
@@ -296,9 +303,23 @@ export class RTCSctpTransport {
     // """
 
     if (this.sctp.associationState != SCTP_STATE.ESTABLISHED) return;
+    // The peer's INIT can establish an association that joined a connected
+    // DTLS transport before start() ran here; the same side decides the IDs.
+    this.dataChannelId ??= this.isServer ? 0 : 1;
 
+    // Hands every queued message to SCTP synchronously (SCTP.send enqueues
+    // before its first await) and tracks completion per message, so repeated
+    // datachannelSend() calls never spawn concurrent flush loops.
     while (this.dataChannelQueue.length > 0) {
       const [channel, protocol, userData] = this.dataChannelQueue.shift()!;
+
+      // A channel closed while its message was queued (e.g. the association
+      // closed and was re-established) is no longer managed; never announce it.
+      if (channel.readyState === "closed" || channel.readyState === "closing") {
+        if (protocol !== WEBRTC_DCEP)
+          channel.addBufferedAmount(-userData.length);
+        continue;
+      }
 
       let streamId = channel.id;
       if (streamId === undefined) {
@@ -311,25 +332,34 @@ export class RTCSctpTransport {
       }
 
       if (protocol === WEBRTC_DCEP) {
-        await this.sctp.send(streamId, protocol, userData, {
-          ordered: true,
-        });
+        this.sctp
+          .send(streamId, protocol, userData, {
+            ordered: true,
+          })
+          .catch((err: Error) => {
+            log("send DCEP failed", err.message);
+          });
       } else {
         const expiry =
           channel.maxPacketLifeTime !== null
             ? Date.now() + channel.maxPacketLifeTime / 1000
             : undefined;
 
-        await this.sctp.send(streamId, protocol, userData, {
-          expiry,
-          maxRetransmits: channel.maxRetransmits ?? undefined,
-          ordered: channel.ordered,
-        });
-        channel.addBufferedAmount(-userData.length);
+        this.sctp
+          .send(streamId, protocol, userData, {
+            expiry,
+            maxRetransmits: channel.maxRetransmits ?? undefined,
+            ordered: channel.ordered,
+          })
+          .catch((err: Error) => {
+            log("send data failed", err.message);
+          })
+          .then(() => channel.addBufferedAmount(-userData.length))
+          .catch((err: Error) => {
+            log("update bufferedAmount failed", err.message);
+          });
       }
     }
-    // Resetting the queue to empty array mitigates this.
-    this.dataChannelQueue = [];
   }
 
   private assertSendableMessageSize(size: number) {
@@ -390,8 +420,32 @@ export class RTCSctpTransport {
   }
 
   async stop() {
+    this.stopped = true;
     this.dtlsTransport.dataReceiver = () => {};
+    this.discardUnsentMessages();
     await this.sctp.stop();
+  }
+
+  // Messages not yet handed to SCTP belong to the stopped association and must
+  // not leak into a later one. User messages are dropped and removed from
+  // bufferedAmount; DATA_CHANNEL_OPEN is kept only for channels still alive, so
+  // a channel that outlives the transport (e.g. rollback) can be announced,
+  // while closed channels and stale ACKs go.
+  private discardUnsentMessages() {
+    const kept = new FifoQueue<[RTCDataChannel, number, Buffer]>();
+    for (const item of this.dataChannelQueue.toArray()) {
+      const [channel, protocol, userData] = item;
+      if (protocol !== WEBRTC_DCEP) {
+        channel.addBufferedAmount(-userData.length);
+      } else if (
+        userData[0] === DATA_CHANNEL_OPEN &&
+        channel.readyState !== "closed" &&
+        channel.readyState !== "closing"
+      ) {
+        kept.push(item);
+      }
+    }
+    this.dataChannelQueue = kept;
   }
 
   dataChannelClose(channel: RTCDataChannel) {

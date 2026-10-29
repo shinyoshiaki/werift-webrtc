@@ -2,6 +2,7 @@
   "compilerOptions": {
     "target": "ESNext",
     "module": "commonjs",
+    "moduleResolution": "bundler",
     "lib": [
       "esnext"
     ],
@@ -20,10 +21,12 @@
     "types": [
       "node",
       "vitest/globals"
-    ]
+    ],
+    "rootDir": ".."
   },
   "include": [
     "src",
-    "tests"
+    "tests",
+    "examples/node/pacer"
   ]
 }

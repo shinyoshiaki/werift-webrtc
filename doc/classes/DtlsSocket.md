@@ -13,9 +13,9 @@
 
 ## Constructors
 
-### new DtlsSocket()
+### Constructor
 
-> **new DtlsSocket**(`options`, `sessionType`): [`DtlsSocket`](DtlsSocket.md)
+> **new DtlsSocket**(`options`, `sessionType`): `DtlsSocket`
 
 #### Parameters
 
@@ -29,7 +29,7 @@
 
 #### Returns
 
-[`DtlsSocket`](DtlsSocket.md)
+`DtlsSocket`
 
 ## Properties
 
@@ -81,7 +81,7 @@
 
 ***
 
-### onHandleHandshakes()
+### onHandleHandshakes
 
 > **onHandleHandshakes**: (`assembled`) => `Promise`\<`void`\>
 
@@ -125,11 +125,11 @@
 
 #### Get Signature
 
-> **get** **remoteCertificate**(): `undefined` \| `Buffer`\<`ArrayBufferLike`\>
+> **get** **remoteCertificate**(): `Buffer`\<`ArrayBufferLike`\> \| `undefined`
 
 ##### Returns
 
-`undefined` \| `Buffer`\<`ArrayBufferLike`\>
+`Buffer`\<`ArrayBufferLike`\> \| `undefined`
 
 ## Methods
 
@@ -183,19 +183,19 @@
 
 ##### localKey
 
-> **localKey**: `any` = `clientKey`
+> **localKey**: `Buffer`\<`ArrayBufferLike`\> = `clientKey`
 
 ##### localSalt
 
-> **localSalt**: `any` = `clientSalt`
+> **localSalt**: `Buffer`\<`ArrayBufferLike`\> = `clientSalt`
 
 ##### remoteKey
 
-> **remoteKey**: `any` = `serverKey`
+> **remoteKey**: `Buffer`\<`ArrayBufferLike`\> = `serverKey`
 
 ##### remoteSalt
 
-> **remoteSalt**: `any` = `serverSalt`
+> **remoteSalt**: `Buffer`\<`ArrayBufferLike`\> = `serverSalt`
 
 ***
 
@@ -227,7 +227,7 @@
 
 ### send()
 
-> **send**(`buf`, `addr`?): `Promise`\<`void`\>
+> **send**(`buf`, `addr?`): `Promise`\<`void`\>
 
 send application data
 

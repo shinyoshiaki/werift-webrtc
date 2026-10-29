@@ -8,9 +8,9 @@
 
 ## Constructors
 
-### new RTCRtpTransceiver()
+### Constructor
 
-> **new RTCRtpTransceiver**(`kind`, `dtlsTransport`, `receiver`, `sender`, `_direction`): [`RTCRtpTransceiver`](RTCRtpTransceiver.md)
+> **new RTCRtpTransceiver**(`kind`, `dtlsTransport`, `receiver`, `sender`, `_direction`): `RTCRtpTransceiver`
 
 #### Parameters
 
@@ -20,7 +20,7 @@
 
 ##### dtlsTransport
 
-`undefined` | [`RTCDtlsTransport`](RTCDtlsTransport.md)
+[`RTCDtlsTransport`](RTCDtlsTransport.md) \| `undefined`
 
 ##### receiver
 
@@ -32,13 +32,13 @@
 
 ##### \_direction
 
-RFC 8829 4.2.4.  direction the transceiver was initialized with
+`"inactive"` \| `"sendonly"` \| `"recvonly"` \| `"sendrecv"`
 
-`"inactive"` | `"sendonly"` | `"recvonly"` | `"sendrecv"`
+RFC 8829 4.2.4.  direction the transceiver was initialized with
 
 #### Returns
 
-[`RTCRtpTransceiver`](RTCRtpTransceiver.md)
+`RTCRtpTransceiver`
 
 ## Properties
 
@@ -51,6 +51,215 @@ RFC 8829 4.2.4.  direction the transceiver was initialized with
 ### codecPreferencesNeedResolution
 
 > **codecPreferencesNeedResolution**: `boolean` = `false`
+
+***
+
+### createdNegotiationState?
+
+> `optional` **createdNegotiationState?**: `object`
+
+Internal: the negotiation state the transceiver was created with, so a
+rollback can return one that no description committed to it.
+
+#### applicationStopRevision
+
+> **applicationStopRevision**: `number`
+
+#### codecChangeRevision
+
+> **codecChangeRevision**: `number`
+
+#### codecPreferencesNeedResolution
+
+> **codecPreferencesNeedResolution**: `boolean`
+
+#### codecs
+
+> **codecs**: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]
+
+#### currentDirection
+
+> **currentDirection**: [`CurrentDirection`](../type-aliases/CurrentDirection.md) \| `null`
+
+#### dtlsTransport
+
+> **dtlsTransport**: [`RTCDtlsTransport`](RTCDtlsTransport.md)
+
+#### firedReceiving
+
+> **firedReceiving**: `boolean`
+
+#### headerExtensions
+
+> **headerExtensions**: [`RTCRtpHeaderExtensionParameters`](RTCRtpHeaderExtensionParameters.md)[]
+
+#### mid
+
+> **mid**: `string` \| `null`
+
+#### mLineIndex
+
+> **mLineIndex**: `number` \| `undefined`
+
+#### offerDirection
+
+> **offerDirection**: `"inactive"` \| `"sendonly"` \| `"recvonly"` \| `"sendrecv"`
+
+#### pendingLocalOfferCodecs
+
+> **pendingLocalOfferCodecs**: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[] \| `undefined`
+
+#### pendingRejection
+
+> **pendingRejection**: `boolean`
+
+#### receiver
+
+> **receiver**: `object`
+
+##### receiver.receiverTWCC
+
+> **receiverTWCC**: `ReceiverTWCC` \| `undefined`
+
+##### receiver.receiveTables
+
+> **receiveTables**: `object`
+
+##### receiver.receiveTables.codecs
+
+> **codecs**: `object`
+
+###### Index Signature
+
+\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
+
+##### receiver.receiveTables.ssrcByRtx
+
+> **ssrcByRtx**: `object`
+
+###### Index Signature
+
+\[`rtxSsrc`: `number`\]: `number`
+
+##### receiver.receiveTables.stagedCodecs
+
+> **stagedCodecs**: `object`
+
+###### Index Signature
+
+\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
+
+##### receiver.receiveTables.stagedSsrcByRtx
+
+> **stagedSsrcByRtx**: `object`
+
+###### Index Signature
+
+\[`rtxSsrc`: `number`\]: `number`
+
+##### receiver.remoteStreamId
+
+> **remoteStreamId**: `string` \| `undefined`
+
+##### receiver.remoteStreamIds
+
+> **remoteStreamIds**: `string`[]
+
+##### receiver.remoteTrackId
+
+> **remoteTrackId**: `string` \| `undefined`
+
+##### receiver.trackByRID
+
+> **trackByRID**: `object`
+
+###### Index Signature
+
+\[`rid`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md)
+
+##### receiver.trackBySSRC
+
+> **trackBySSRC**: `object`
+
+###### Index Signature
+
+\[`ssrc`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md)
+
+##### receiver.tracks
+
+> **tracks**: [`MediaStreamTrack`](MediaStreamTrack.md)[]
+
+##### receiver.unboundTracks
+
+> **unboundTracks**: [`MediaStreamTrack`](MediaStreamTrack.md)[]
+
+#### rejected
+
+> **rejected**: `boolean`
+
+#### sender
+
+> **sender**: `object`
+
+##### sender.cname
+
+> **cname**: `string` \| `undefined`
+
+##### sender.codec
+
+> **codec**: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined`
+
+##### sender.headerExtensions
+
+> **headerExtensions**: [`RTCRtpHeaderExtensionParameters`](RTCRtpHeaderExtensionParameters.md)[]
+
+##### sender.mid
+
+> **mid**: `string` \| `undefined`
+
+##### sender.negotiatedCodecs
+
+> **negotiatedCodecs**: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]
+
+##### sender.proposedPrimaryCodec
+
+> **proposedPrimaryCodec**: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined`
+
+##### sender.redRedundantPayloadType
+
+> **redRedundantPayloadType**: `number` \| `undefined`
+
+##### sender.repairedRtpStreamId
+
+> **repairedRtpStreamId**: `string` \| `undefined`
+
+##### sender.rtpStreamId
+
+> **rtpStreamId**: `string` \| `undefined`
+
+##### sender.rtxPayloadType
+
+> **rtxPayloadType**: `number` \| `undefined`
+
+##### sender.sendPrimaryCodec
+
+> **sendPrimaryCodec**: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined`
+
+##### sender.track
+
+> **track**: [`MediaStreamTrack`](MediaStreamTrack.md) \| `null`
+
+##### sender.trackCodec
+
+> **trackCodec**: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined`
+
+#### stopped
+
+> **stopped**: `boolean`
+
+#### stopping
+
+> **stopping**: `boolean`
 
 ***
 
@@ -74,13 +283,13 @@ RFC 8829 4.2.4.  direction the transceiver was initialized with
 
 ### mid
 
-> **mid**: `null` \| `string` = `null`
+> **mid**: `string` \| `null` = `null`
 
 ***
 
 ### mLineIndex?
 
-> `optional` **mLineIndex**: `number`
+> `optional` **mLineIndex?**: `number`
 
 ***
 
@@ -98,7 +307,7 @@ RFC 8829 4.2.4.  direction the transceiver was initialized with
 
 ### onTrack
 
-> `readonly` **onTrack**: [`Event`](Event.md)\<\[[`MediaStreamTrack`](MediaStreamTrack.md), [`RTCRtpTransceiver`](RTCRtpTransceiver.md)\]\>
+> `readonly` **onTrack**: [`Event`](Event.md)\<\[[`MediaStreamTrack`](MediaStreamTrack.md), `RTCRtpTransceiver`\]\>
 
 ***
 
@@ -110,7 +319,7 @@ RFC 8829 4.2.4.  direction the transceiver was initialized with
 
 ### pendingLocalOfferCodecs?
 
-> `optional` **pendingLocalOfferCodecs**: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]
+> `optional` **pendingLocalOfferCodecs?**: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]
 
 ***
 
@@ -186,11 +395,11 @@ m-line (MID / index) と関連付け済みか
 
 #### Get Signature
 
-> **get** **codecPreferences**(): `undefined` \| readonly [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]
+> **get** **codecPreferences**(): readonly [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[] \| `undefined`
 
 ##### Returns
 
-`undefined` \| readonly [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]
+readonly [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[] \| `undefined`
 
 ***
 
@@ -224,13 +433,13 @@ m-line (MID / index) と関連付け済みか
 
 #### Get Signature
 
-> **get** **currentDirection**(): `null` \| [`CurrentDirection`](../type-aliases/CurrentDirection.md)
+> **get** **currentDirection**(): [`CurrentDirection`](../type-aliases/CurrentDirection.md) \| `null`
 
 RFC 8829 4.2.5. last negotiated direction
 
 ##### Returns
 
-`null` \| [`CurrentDirection`](../type-aliases/CurrentDirection.md)
+[`CurrentDirection`](../type-aliases/CurrentDirection.md) \| `null`
 
 ***
 
@@ -254,7 +463,7 @@ RFC 8829 4.2.4. setDirectionに渡された最後の値を示します
 
 ###### direction
 
-`"inactive"` | `"sendonly"` | `"recvonly"` | `"sendrecv"`
+`"inactive"` \| `"sendonly"` \| `"recvonly"` \| `"sendrecv"`
 
 ##### Returns
 
@@ -271,6 +480,23 @@ RFC 8829 4.2.4. setDirectionに渡された最後の値を示します
 ##### Returns
 
 [`RTCDtlsTransport`](RTCDtlsTransport.md)
+
+***
+
+### heldByApplication
+
+#### Get Signature
+
+> **get** **heldByApplication**(): `boolean`
+
+Internal: the application sends on this transceiver (its sender has a
+track), so a rollback keeps it even if a remote offer created it. As in
+develop, only a track counts: stop(), a direction or codec preferences
+set on a remote-created transceiver do not keep it.
+
+##### Returns
+
+`boolean`
 
 ***
 
@@ -352,7 +578,7 @@ RFC 8829 4.2.4. setDirectionに渡された最後の値を示します
 
 ### getPayloadType()
 
-> **getPayloadType**(`mimeType`): `undefined` \| `number`
+> **getPayloadType**(`mimeType`): `number` \| `undefined`
 
 #### Parameters
 
@@ -362,7 +588,213 @@ RFC 8829 4.2.4. setDirectionに渡された最後の値を示します
 
 #### Returns
 
-`undefined` \| `number`
+`number` \| `undefined`
+
+***
+
+### markCodecsForResolution()
+
+> **markCodecsForResolution**(): `void`
+
+Internal: an application change makes the next offer / answer resolve
+this transceiver's codecs again. The live sender and receiver keep the
+committed codecs until a description is committed.
+
+#### Returns
+
+`void`
+
+***
+
+### restoreNegotiationState()
+
+> **restoreNegotiationState**(`state`): `void`
+
+Internal: return to a negotiation baseline taken by `snapshotNegotiationState`.
+
+#### Parameters
+
+##### state
+
+###### applicationStopRevision
+
+`number` = `...`
+
+###### codecChangeRevision
+
+`number` = `...`
+
+###### codecPreferencesNeedResolution
+
+`boolean` = `...`
+
+###### codecs
+
+[`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[] = `...`
+
+###### currentDirection
+
+[`CurrentDirection`](../type-aliases/CurrentDirection.md) \| `null` = `...`
+
+###### dtlsTransport
+
+[`RTCDtlsTransport`](RTCDtlsTransport.md) = `...`
+
+###### firedReceiving
+
+`boolean` = `...`
+
+###### headerExtensions
+
+[`RTCRtpHeaderExtensionParameters`](RTCRtpHeaderExtensionParameters.md)[] = `...`
+
+###### mid
+
+`string` \| `null` = `...`
+
+###### mLineIndex
+
+`number` \| `undefined` = `...`
+
+###### offerDirection
+
+`"inactive"` \| `"sendonly"` \| `"recvonly"` \| `"sendrecv"` = `...`
+
+###### pendingLocalOfferCodecs
+
+[`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[] \| `undefined` = `...`
+
+###### pendingRejection
+
+`boolean` = `...`
+
+###### receiver
+
+\{ `receiverTWCC`: `ReceiverTWCC` \| `undefined`; `receiveTables`: \{ `codecs`: \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \}; `ssrcByRtx`: \{\[`rtxSsrc`: `number`\]: `number`; \}; `stagedCodecs`: \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \}; `stagedSsrcByRtx`: \{\[`rtxSsrc`: `number`\]: `number`; \}; \}; `remoteStreamId`: `string` \| `undefined`; `remoteStreamIds`: `string`[]; `remoteTrackId`: `string` \| `undefined`; `trackByRID`: \{\[`rid`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md); \}; `trackBySSRC`: \{\[`ssrc`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md); \}; `tracks`: [`MediaStreamTrack`](MediaStreamTrack.md)[]; `unboundTracks`: [`MediaStreamTrack`](MediaStreamTrack.md)[]; \} = `...`
+
+###### receiver.receiverTWCC
+
+`ReceiverTWCC` \| `undefined` = `...`
+
+###### receiver.receiveTables
+
+\{ `codecs`: \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \}; `ssrcByRtx`: \{\[`rtxSsrc`: `number`\]: `number`; \}; `stagedCodecs`: \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \}; `stagedSsrcByRtx`: \{\[`rtxSsrc`: `number`\]: `number`; \}; \} = `...`
+
+###### receiver.receiveTables.codecs
+
+\{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \} = `...`
+
+###### receiver.receiveTables.ssrcByRtx
+
+\{\[`rtxSsrc`: `number`\]: `number`; \} = `...`
+
+###### receiver.receiveTables.stagedCodecs
+
+\{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \} = `...`
+
+###### receiver.receiveTables.stagedSsrcByRtx
+
+\{\[`rtxSsrc`: `number`\]: `number`; \} = `...`
+
+###### receiver.remoteStreamId
+
+`string` \| `undefined` = `...`
+
+###### receiver.remoteStreamIds
+
+`string`[] = `...`
+
+###### receiver.remoteTrackId
+
+`string` \| `undefined` = `...`
+
+###### receiver.trackByRID
+
+\{\[`rid`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md); \} = `...`
+
+###### receiver.trackBySSRC
+
+\{\[`ssrc`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md); \} = `...`
+
+###### receiver.tracks
+
+[`MediaStreamTrack`](MediaStreamTrack.md)[] = `...`
+
+###### receiver.unboundTracks
+
+[`MediaStreamTrack`](MediaStreamTrack.md)[] = `...`
+
+###### rejected
+
+`boolean` = `...`
+
+###### sender
+
+\{ `cname`: `string` \| `undefined`; `codec`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined`; `headerExtensions`: [`RTCRtpHeaderExtensionParameters`](RTCRtpHeaderExtensionParameters.md)[]; `mid`: `string` \| `undefined`; `negotiatedCodecs`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]; `proposedPrimaryCodec`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined`; `redRedundantPayloadType`: `number` \| `undefined`; `repairedRtpStreamId`: `string` \| `undefined`; `rtpStreamId`: `string` \| `undefined`; `rtxPayloadType`: `number` \| `undefined`; `sendPrimaryCodec`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined`; `track`: [`MediaStreamTrack`](MediaStreamTrack.md) \| `null`; `trackCodec`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined`; \} = `...`
+
+###### sender.cname
+
+`string` \| `undefined` = `...`
+
+###### sender.codec
+
+[`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined` = `...`
+
+###### sender.headerExtensions
+
+[`RTCRtpHeaderExtensionParameters`](RTCRtpHeaderExtensionParameters.md)[] = `...`
+
+###### sender.mid
+
+`string` \| `undefined` = `...`
+
+###### sender.negotiatedCodecs
+
+[`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[] = `...`
+
+###### sender.proposedPrimaryCodec
+
+[`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined` = `...`
+
+###### sender.redRedundantPayloadType
+
+`number` \| `undefined` = `...`
+
+###### sender.repairedRtpStreamId
+
+`string` \| `undefined` = `...`
+
+###### sender.rtpStreamId
+
+`string` \| `undefined` = `...`
+
+###### sender.rtxPayloadType
+
+`number` \| `undefined` = `...`
+
+###### sender.sendPrimaryCodec
+
+[`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined` = `...`
+
+###### sender.track
+
+[`MediaStreamTrack`](MediaStreamTrack.md) \| `null` = `...`
+
+###### sender.trackCodec
+
+[`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined` = `...`
+
+###### stopped
+
+`boolean` = `...`
+
+###### stopping
+
+`boolean` = `...`
+
+#### Returns
+
+`void`
 
 ***
 
@@ -390,7 +822,7 @@ RFC 8829 4.2.4. setDirectionに渡された最後の値を示します
 
 ##### direction
 
-`undefined` | [`CurrentDirection`](../type-aliases/CurrentDirection.md)
+[`CurrentDirection`](../type-aliases/CurrentDirection.md) \| `undefined`
 
 #### Returns
 
@@ -406,7 +838,7 @@ RFC 8829 4.2.4. setDirectionに渡された最後の値を示します
 
 ##### direction
 
-`"inactive"` | `"sendonly"` | `"recvonly"` | `"sendrecv"`
+`"inactive"` \| `"sendonly"` \| `"recvonly"` \| `"sendrecv"`
 
 #### Returns
 
@@ -427,6 +859,220 @@ RFC 8829 4.2.4. setDirectionに渡された最後の値を示します
 #### Returns
 
 `void`
+
+***
+
+### snapshotNegotiationState()
+
+> **snapshotNegotiationState**(): `object`
+
+Internal: everything a negotiation may change on this transceiver, its
+sender and its receiver, for a rollback baseline. Codec preferences are an
+application choice and are not part of it.
+
+#### Returns
+
+`object`
+
+##### applicationStopRevision
+
+> **applicationStopRevision**: `number`
+
+##### codecChangeRevision
+
+> **codecChangeRevision**: `number`
+
+##### codecPreferencesNeedResolution
+
+> **codecPreferencesNeedResolution**: `boolean`
+
+##### codecs
+
+> **codecs**: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]
+
+##### currentDirection
+
+> **currentDirection**: [`CurrentDirection`](../type-aliases/CurrentDirection.md) \| `null`
+
+##### dtlsTransport
+
+> **dtlsTransport**: [`RTCDtlsTransport`](RTCDtlsTransport.md)
+
+##### firedReceiving
+
+> **firedReceiving**: `boolean`
+
+##### headerExtensions
+
+> **headerExtensions**: [`RTCRtpHeaderExtensionParameters`](RTCRtpHeaderExtensionParameters.md)[]
+
+##### mid
+
+> **mid**: `string` \| `null`
+
+##### mLineIndex
+
+> **mLineIndex**: `number` \| `undefined`
+
+##### offerDirection
+
+> **offerDirection**: `"inactive"` \| `"sendonly"` \| `"recvonly"` \| `"sendrecv"`
+
+##### pendingLocalOfferCodecs
+
+> **pendingLocalOfferCodecs**: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[] \| `undefined`
+
+##### pendingRejection
+
+> **pendingRejection**: `boolean`
+
+##### receiver
+
+> **receiver**: `object`
+
+###### receiver.receiverTWCC
+
+> **receiverTWCC**: `ReceiverTWCC` \| `undefined`
+
+###### receiver.receiveTables
+
+> **receiveTables**: `object`
+
+###### receiver.receiveTables.codecs
+
+> **codecs**: `object`
+
+###### Index Signature
+
+\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
+
+###### receiver.receiveTables.ssrcByRtx
+
+> **ssrcByRtx**: `object`
+
+###### Index Signature
+
+\[`rtxSsrc`: `number`\]: `number`
+
+###### receiver.receiveTables.stagedCodecs
+
+> **stagedCodecs**: `object`
+
+###### Index Signature
+
+\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
+
+###### receiver.receiveTables.stagedSsrcByRtx
+
+> **stagedSsrcByRtx**: `object`
+
+###### Index Signature
+
+\[`rtxSsrc`: `number`\]: `number`
+
+###### receiver.remoteStreamId
+
+> **remoteStreamId**: `string` \| `undefined`
+
+###### receiver.remoteStreamIds
+
+> **remoteStreamIds**: `string`[]
+
+###### receiver.remoteTrackId
+
+> **remoteTrackId**: `string` \| `undefined`
+
+###### receiver.trackByRID
+
+> **trackByRID**: `object`
+
+###### Index Signature
+
+\[`rid`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md)
+
+###### receiver.trackBySSRC
+
+> **trackBySSRC**: `object`
+
+###### Index Signature
+
+\[`ssrc`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md)
+
+###### receiver.tracks
+
+> **tracks**: [`MediaStreamTrack`](MediaStreamTrack.md)[]
+
+###### receiver.unboundTracks
+
+> **unboundTracks**: [`MediaStreamTrack`](MediaStreamTrack.md)[]
+
+##### rejected
+
+> **rejected**: `boolean`
+
+##### sender
+
+> **sender**: `object`
+
+###### sender.cname
+
+> **cname**: `string` \| `undefined`
+
+###### sender.codec
+
+> **codec**: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined`
+
+###### sender.headerExtensions
+
+> **headerExtensions**: [`RTCRtpHeaderExtensionParameters`](RTCRtpHeaderExtensionParameters.md)[]
+
+###### sender.mid
+
+> **mid**: `string` \| `undefined`
+
+###### sender.negotiatedCodecs
+
+> **negotiatedCodecs**: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]
+
+###### sender.proposedPrimaryCodec
+
+> **proposedPrimaryCodec**: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined`
+
+###### sender.redRedundantPayloadType
+
+> **redRedundantPayloadType**: `number` \| `undefined`
+
+###### sender.repairedRtpStreamId
+
+> **repairedRtpStreamId**: `string` \| `undefined`
+
+###### sender.rtpStreamId
+
+> **rtpStreamId**: `string` \| `undefined`
+
+###### sender.rtxPayloadType
+
+> **rtxPayloadType**: `number` \| `undefined`
+
+###### sender.sendPrimaryCodec
+
+> **sendPrimaryCodec**: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined`
+
+###### sender.track
+
+> **track**: [`MediaStreamTrack`](MediaStreamTrack.md) \| `null`
+
+###### sender.trackCodec
+
+> **trackCodec**: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined`
+
+##### stopped
+
+> **stopped**: `boolean`
+
+##### stopping
+
+> **stopping**: `boolean`
 
 ***
 

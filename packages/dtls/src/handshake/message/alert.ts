@@ -1,4 +1,6 @@
-import { decode, encode, types } from "@shinyoshiaki/binary-data";
+import { binaryData } from "../../imports/common";
+
+const { decode, encode, types } = binaryData;
 
 export class Alert {
   static readonly spec = {
@@ -13,13 +15,12 @@ export class Alert {
 
   static deSerialize(buf: Buffer) {
     return new Alert(
-      //@ts-ignore
+      //@ts-expect-error
       ...Object.values(decode(buf, Alert.spec)),
     );
   }
 
   serialize() {
-    const res = encode(this, Alert.spec).slice();
-    return Buffer.from(res);
+    return encode(this, Alert.spec);
   }
 }

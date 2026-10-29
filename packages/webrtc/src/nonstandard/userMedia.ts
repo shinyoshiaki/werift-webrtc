@@ -1,13 +1,5 @@
 import { randomUUID } from "crypto";
-import { homedir } from "os";
-import { isAbsolute, resolve } from "path";
-import { Readable } from "stream";
 import { readFile } from "fs/promises";
-import {
-  setImmediate as onNextTurn,
-  setTimeout as wait,
-} from "timers/promises";
-
 import {
   BufferSource,
   EncodedPacketSink,
@@ -18,15 +10,24 @@ import {
   MP4,
   WEBM,
 } from "mediabunny";
+import { homedir } from "os";
+import { isAbsolute, resolve } from "path";
+import { Readable } from "stream";
+import {
+  setImmediate as onNextTurn,
+  setTimeout as wait,
+} from "timers/promises";
 
 import { Event } from "../imports/common";
 import { useAV1X, useH264, useOPUS, useVP8, useVP9 } from "../media/codec";
+import { normalizeCodecMimeType } from "../media/codecCompatibility";
 import type { RTCRtpCodecParameters } from "../media/parameters";
 import { MediaStreamTrack } from "../media/track";
 import { codecParametersFromString } from "../sdp";
 import {
-  type SupportedSourceCodec,
   createPacketizer,
+  type Packetizer,
+  type SupportedSourceCodec,
   supportedSourceCodecs,
   toSupportedMimeType,
 } from "./userMedia/packetizer";
@@ -255,6 +256,10 @@ class MediaPlayer {
 }
 
 class TrackPlaybackRunner {
+  // Reused across loops so per-stream packetizer state (e.g. VP8 PictureID)
+  // stays continuous; recreated only when the negotiated codec changes.
+  private packetizer?: { codecKey: string; packetizer: Packetizer };
+
   constructor(
     private readonly props: PlaybackTrack & {
       mediaStartTimestamp: number;
@@ -271,11 +276,7 @@ class TrackPlaybackRunner {
     sourceChanged: boolean;
   }) {
     const codec = this.requireNegotiatedCodec();
-    const packetizer = createPacketizer({
-      codec,
-      sourceCodec: this.props.sourceCodec,
-      decoderDescription: this.props.decoderDescription,
-    });
+    const packetizer = this.getPacketizer(codec);
     const packetSink = new EncodedPacketSink(this.props.inputTrack);
     let sourceChangeNotified = false;
 
@@ -319,6 +320,24 @@ class TrackPlaybackRunner {
     }
   }
 
+  private getPacketizer(codec: RTCRtpCodecParameters) {
+    // RTCRtpSender assigns a new codec object on every offer/answer (and the
+    // payload type may only be filled in after playback started), so compare
+    // by value; identity would reset PictureID at the next loop.
+    const codecKey = packetizerCodecKey(codec);
+    if (this.packetizer?.codecKey !== codecKey) {
+      this.packetizer = {
+        codecKey,
+        packetizer: createPacketizer({
+          codec,
+          sourceCodec: this.props.sourceCodec,
+          decoderDescription: this.props.decoderDescription,
+        }),
+      };
+    }
+    return this.packetizer.packetizer;
+  }
+
   private requireNegotiatedCodec() {
     const codec = this.props.track.codec;
     if (!codec) {
@@ -327,7 +346,9 @@ class TrackPlaybackRunner {
       );
     }
 
-    const expectedMimeType = toSupportedMimeType(this.props.sourceCodec);
+    const expectedMimeType = normalizeMimeType(
+      toSupportedMimeType(this.props.sourceCodec),
+    );
     const negotiatedMimeType = normalizeMimeType(codec.mimeType);
     if (negotiatedMimeType !== expectedMimeType) {
       throw new Error(
@@ -359,7 +380,10 @@ interface PlaybackTrack {
   inputTrack: InputTrack;
   track: MediaStreamTrack;
   sourceCodec: SupportedSourceCodec;
-  decoderDescription?: ArrayBuffer | ArrayBufferView | null;
+  decoderDescription?:
+    | ArrayBufferLike
+    | ArrayBufferView<ArrayBufferLike>
+    | null;
   sourceChannels?: number;
 }
 
@@ -454,7 +478,10 @@ async function createPlaybackTrack(
 
 function codecParametersForSource(
   sourceCodec: SupportedSourceCodec,
-  decoderDescription?: ArrayBuffer | ArrayBufferView | null,
+  decoderDescription?:
+    | ArrayBufferLike
+    | ArrayBufferView<ArrayBufferLike>
+    | null,
 ) {
   switch (sourceCodec) {
     case "avc": {
@@ -582,8 +609,21 @@ function toBuffer(value: Buffer | ArrayBuffer | ArrayBufferView | string) {
   return Buffer.from(new Uint8Array(value));
 }
 
+/**
+ * Codec fields that change `createPacketizer` output. The payload type is
+ * excluded: `MediaStreamTrack.writeRtp` rewrites it from `track.codec`.
+ */
+function packetizerCodecKey(codec: RTCRtpCodecParameters) {
+  return JSON.stringify([
+    normalizeMimeType(codec.mimeType),
+    codec.clockRate,
+    codec.channels,
+    codec.parameters,
+  ]);
+}
+
 function normalizeMimeType(mimeType: string) {
-  return mimeType.toLowerCase();
+  return normalizeCodecMimeType(mimeType);
 }
 
 function assertSupportedOptions(options: FileMediaTrackSource) {
@@ -642,7 +682,10 @@ function assertCodecParameters({
   trackKind: "audio" | "video";
   codec: RTCRtpCodecParameters;
   sourceCodec: SupportedSourceCodec;
-  decoderDescription?: ArrayBuffer | ArrayBufferView | null;
+  decoderDescription?:
+    | ArrayBufferLike
+    | ArrayBufferView<ArrayBufferLike>
+    | null;
   sourceChannels?: number;
 }) {
   if (sourceCodec === "opus" && sourceChannels && codec.channels != undefined) {
@@ -694,7 +737,10 @@ function assertCodecParameters({
 }
 
 function getH264ProfileLevelId(
-  decoderDescription?: ArrayBuffer | ArrayBufferView | null,
+  decoderDescription?:
+    | ArrayBufferLike
+    | ArrayBufferView<ArrayBufferLike>
+    | null,
 ) {
   if (!decoderDescription) {
     return undefined;
@@ -734,7 +780,7 @@ function toError(error: unknown) {
 }
 
 function toDescriptionBuffer(
-  decoderDescription: ArrayBuffer | ArrayBufferView,
+  decoderDescription: ArrayBufferLike | ArrayBufferView<ArrayBufferLike>,
 ) {
   if (ArrayBuffer.isView(decoderDescription)) {
     return Buffer.from(
