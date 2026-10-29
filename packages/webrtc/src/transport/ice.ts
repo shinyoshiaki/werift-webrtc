@@ -1058,10 +1058,9 @@ const uintToken = (token: string | undefined, max: number) =>
 
 /** Check the candidate-attribute grammar (RFC 8839) and numeric ranges. */
 function isValidCandidateSdp(sdp: string): boolean {
-  const bits = sdp
-    .trim()
-    .replace(/^candidate:/, "")
-    .split(/\s+/);
+  // parser は " " 区切りで解析するため、同じ分割で検証する (連続空白・タブ・前後空白は不正)
+  const bits = sdp.replace(/^candidate:/, "").split(" ");
+  if (bits.some((bit) => bit === "" || /\s/.test(bit))) return false;
   if (bits.length < 8 || bits.length % 2 !== 0) return false;
   const [, component, protocol, priority, address, port, typ, type] = bits;
   if (
