@@ -1302,7 +1302,7 @@
       </article>
     </div>
     <h3>速度の増減（AIMD）</h3>
-    <p class="note">判定をビットレートに翻訳します。werift は Chrome と同じ式です。</p>
+    <p class="note">判定をビットレートに翻訳します。werift は Chrome（libwebrtc）を参考にした同じ式を使っています。</p>
     <div class="split2">
       <div class="card" style="padding:20px">
         <h3>減らすとき</h3>
@@ -1421,6 +1421,8 @@ sender.onAvailableBitrate.subscribe((bps) => {
 
   <footer>
     werift の GCC は、Chrome と同じ考え方（遅延・ロス・試し打ち）を TypeScript で動かしています。
+    ただし Chrome と細部まで同じ動きをすることは目指していません。
+    「混んだら下げる・空いたら上げる・ロスや返事の途絶で下げる」が正しく働くかを、仮想の道路を通したシミュレーションと性質テストで確かめています。
     既定の legacy との違いは <a href="./gcc-vs-legacy.html">gcc-vs-legacy.html</a> にあります。
     関数名まで追う資料は <code>reviews/gcc-mechanism.md</code> です。
     このページはブラウザでそのまま開けます。外部サービスは使いません。

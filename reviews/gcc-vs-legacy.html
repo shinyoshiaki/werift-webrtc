@@ -373,9 +373,17 @@ sender.setBandwidthEstimator(new GccBandwidthEstimator());</code></pre>
         <tr><td>TWCC の照合（両方式共通）・soft loss</td><td><a href="../packages/webrtc/src/media/sender/estimators/twccFeedbackAdapter.ts">twccFeedbackAdapter.ts</a>（受信確定で履歴から削除、未受信は残す）。LossBased の <code>partial.lostPackets</code>（commit 前だけ unmark）</td></tr>
         <tr><td>統合・イベント・差し替え</td><td><a href="../packages/webrtc/src/media/sender/estimators/gcc/gccBwe.ts">gccBwe.ts</a> / <a href="../packages/webrtc/src/media/sender/bandwidthEstimator.ts">bandwidthEstimator.ts</a> / <a href="../packages/webrtc/src/media/rtpSender.ts">rtpSender.ts</a></td></tr>
       </tbody></table></div>
-      <details><summary>数値を現在のコードで再検証する</summary><p><a href="./gcc-vs-legacy.trace.ts">gcc-vs-legacy.trace.ts</a> が HTML 内のデータと現在の実装の出力を照合します。リポジトリのルートで実行してください。</p><pre><code>node_modules/.bin/tsx reviews/gcc-vs-legacy.trace.ts
+      <h3>動作をどう確かめているか</h3>
+      <p>GCC の実装は libwebrtc の goog_cc を参考にしており、境界値や処理順も今は libwebrtc に合わせたままです。ただし完成度は「libwebrtc と 1:1 で一致すること」ではなく、「GCC として正しく機能すること」で判定します。テストも libwebrtc と同じ処理順・境界値かどうかは固定せず、次の 3 種類で確かめます。</p>
+      <div class="table-scroll"><table><thead><tr><th>種類</th><th>確かめること</th><th>テスト</th></tr></thead><tbody>
+        <tr><td>制御応答（仕様ベース）</td><td>仮想ボトルネック（容量・片道遅延・キュー上限・ランダムロス）を通した決定的なシミュレーション。混雑やロスで下がる、余裕があれば probe で上がる、固定遅延だけでは下げない、feedback が途絶えたら下げる、を範囲で判定</td><td><a href="../packages/webrtc/tests/media/bandwidthEstimator.test.ts">bandwidthEstimator.test.ts</a>「GCC 制御応答（仕様ベース）」/ <a href="../packages/webrtc/tests/media/gccSimulation.ts">gccSimulation.ts</a></td></tr>
+        <tr><td>不変条件（性質テスト）</td><td>TWCC の照合で各パケットの受信を高々 1 回だけ数える、正しい世代にだけ対応する、送信履歴が時間窓内かつ 32768 番号未満。通知値は [min, max] に収まり、変化時だけ出る。legacy の推定値は min(送信レート, 受信レート)。media の番号はずれず、padding は RTX にだけ出る</td><td><a href="../packages/webrtc/tests/pbt/twcc/twccProperty.test.ts">tests/pbt/twcc</a> / <a href="../packages/webrtc/tests/pbt/bwe/bweProperty.test.ts">tests/pbt/bwe</a> / <a href="../packages/webrtc/tests/pbt/sender/senderProperty.test.ts">tests/pbt/sender</a>（共通基盤 <code>tests/pbt/shared</code>）</td></tr>
+        <tr><td>werift 固有の回帰</td><td>過去のレビューで見つかった送信経路・番号・padding・差し替え・停止・TWCC 解釈の不具合</td><td><a href="../packages/webrtc/tests/media/bandwidthEstimator.test.ts">bandwidthEstimator.test.ts</a> / <a href="../packages/webrtc/tests/media/rtpSender.test.ts">rtpSender.test.ts</a></td></tr>
+      </tbody></table></div>
+      <p class="note">性質テストは固定 seed で決まった系列を回します。失敗したテスト名に、その seed だけを再現する環境変数が出ます。seed を増やした探索は <code>cd packages/webrtc &amp;&amp; npm run pbt:deep -- --suite twcc,bwe,sender</code> です。範囲で判定するので、わずかな性能の悪化や Chrome との細かい挙動差は検出しません。</p>
+      <details><summary>数値を現在のコードで再検証する</summary><p><a href="./gcc-vs-legacy.trace.ts">gcc-vs-legacy.trace.ts</a> が HTML 内のデータと現在の実装の出力を照合します。リポジトリのルートで実行してください。</p><pre><code>node --experimental-transform-types --import ./tools/node-ts/register.mjs reviews/gcc-vs-legacy.trace.ts
 # 実装の変更後、埋め込みデータを更新する場合:
-node_modules/.bin/tsx reviews/gcc-vs-legacy.trace.ts --write</code></pre><p class="note">フィードバックはパース後の入力として与えます。wire シリアライズやネットワーク・pacer・エンコーダを含む E2E 検証ではありません。</p></details>
+node --experimental-transform-types --import ./tools/node-ts/register.mjs reviews/gcc-vs-legacy.trace.ts --write</code></pre><p class="note">フィードバックはパース後の入力として与えます。wire シリアライズやネットワーク・pacer・エンコーダを含む E2E 検証ではありません。</p></details>
     </section>
   </main>
   <footer>このページは、このリポジトリの GCC と legacy の実装を比較する資料です。GCC 一般やブラウザの全実装が、どの条件でも同じ数値を返すという意味ではありません。</footer>

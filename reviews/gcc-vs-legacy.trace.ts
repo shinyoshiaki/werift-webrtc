@@ -1,7 +1,7 @@
 /**
  * Reproduce the worked examples embedded in gcc-vs-legacy.html.
  * Run from the repository root:
- * node_modules/.bin/tsx reviews/gcc-vs-legacy.trace.ts
+ * node --experimental-transform-types --import ./tools/node-ts/register.mjs reviews/gcc-vs-legacy.trace.ts
  * Use --write to refresh only the embedded JSON; otherwise check it.
  * This is an estimator-input illustration, not a network/encoder benchmark.
  */
