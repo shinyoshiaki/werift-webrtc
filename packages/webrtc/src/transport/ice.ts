@@ -1058,7 +1058,10 @@ const uintToken = (token: string | undefined, max: number) =>
 
 /** Check the candidate-attribute grammar (RFC 8839) and numeric ranges. */
 function isValidCandidateSdp(sdp: string): boolean {
-  const bits = sdp.trim().split(/\s+/);
+  const bits = sdp
+    .trim()
+    .replace(/^candidate:/, "")
+    .split(/\s+/);
   if (bits.length < 8 || bits.length % 2 !== 0) return false;
   const [, component, protocol, priority, address, port, typ, type] = bits;
   if (
@@ -1149,6 +1152,10 @@ export class RTCIceCandidate implements RTCIceCandidateFields {
   }
 
   static fromSdp(sdp: string): RTCIceCandidate {
+    // 不正な a-line からは派生属性を公開せず、すべて null にする
+    if (!isValidCandidateSdp(sdp)) {
+      return new RTCIceCandidate({ candidate: sdp });
+    }
     const ice = Candidate.fromSdp(sdp);
     const candidate = candidateFromIce(ice);
     return candidate.toJSON();
@@ -1193,12 +1200,16 @@ export class IceCandidate {
   ) {}
 
   toJSON(): RTCIceCandidate {
+    const candidate = candidateToSdp(this);
     return new RTCIceCandidate({
-      candidate: candidateToSdp(this),
+      candidate,
       sdpMLineIndex: this.sdpMLineIndex,
       sdpMid: this.sdpMid,
       usernameFragment: this.ufrag,
-      ...candidateFieldsFromIce(this),
+      // 不正な内部値は公開せず、すべて null にする
+      ...(isValidCandidateSdp(candidate)
+        ? candidateFieldsFromIce(this)
+        : emptyCandidateFields),
     });
   }
 
@@ -1210,6 +1221,9 @@ export class IceCandidate {
       const normalizedCandidate = data.candidate.startsWith("candidate:")
         ? data.candidate.slice("candidate:".length)
         : data.candidate;
+      if (!isValidCandidateSdp(normalizedCandidate)) {
+        throw new Error("invalid candidate");
+      }
       const candidate = candidateFromSdp(normalizedCandidate);
       candidate.sdpMLineIndex = data.sdpMLineIndex ?? undefined;
       candidate.sdpMid = data.sdpMid ?? undefined;

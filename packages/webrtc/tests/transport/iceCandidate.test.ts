@@ -126,6 +126,24 @@ describe("RTCIceCandidate parsed fields", () => {
     },
   );
 
+  test.each([
+    "1 1 udp nope 192.0.2.1 123 typ host",
+    "1 1 udp 1 192.0.2.1 123 wrong relay",
+  ])(
+    "fromSdp and IceCandidate.fromJSON().toJSON() hide invalid values: %s",
+    (sdp) => {
+      // Act: fromSdp と内部候補経由の両方で不正な a-line を処理する
+      const viaFromSdp = RTCIceCandidate.fromSdp(sdp);
+      const internal = IceCandidate.fromJSON({ candidate: sdp });
+
+      // Assert: fromSdp は NaN や誤った type を公開せず null、内部候補は生成されない
+      expect(viaFromSdp.type).toBeNull();
+      expect(viaFromSdp.priority).toBeNull();
+      expect(viaFromSdp.port).toBeNull();
+      expect(internal).toBeUndefined();
+    },
+  );
+
   test("omitting candidate defaults it to an empty string", () => {
     // Act: candidate を省略して生成する
     const none = new RTCIceCandidate();
