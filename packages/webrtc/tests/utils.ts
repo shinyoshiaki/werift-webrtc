@@ -1,8 +1,16 @@
 import { readFileSync } from "fs";
 
+import type { Connection } from "../../ice/src";
+import { getHostAddresses } from "../../ice/src/utils";
+import {
+  createLocalStunServer,
+  createLocalTurnServer,
+  turnAllocations,
+} from "../../ice/tests/utils";
 import {
   type PeerConfig,
   type RTCDataChannel,
+  type RTCIceServer,
   type RTCIceTransport,
   RTCPeerConnection,
 } from "../src";
@@ -22,6 +30,116 @@ export function createPeerConnectionWithIceTransport(
   pc.createDataChannel("ice-transport");
   const ice = (pc as any).secureManager.iceTransports[0] as RTCIceTransport;
   return { pc, ice };
+}
+
+/**
+ * Shared Arrange: a local STUN server and a local TURN server that accepts
+ * two credentials (`a` and `b`), for TURN credential rotation. `iceServers`
+ * builds a configuration with the STUN server and the TURN server with one of
+ * the credentials (or none for STUN only), so no test contacts a public
+ * STUN server.
+ */
+export async function createTurnRotationServers() {
+  const host = getHostAddresses(true, false)[0]!;
+  const credentials = {
+    a: { username: "user-a", credential: "pass-a" },
+    b: { username: "user-b", credential: "pass-b" },
+  };
+  const turn = await createLocalTurnServer(host, {
+    credentials: {
+      [credentials.a.username]: credentials.a.credential,
+      [credentials.b.username]: credentials.b.credential,
+    },
+  });
+  const stun = await createLocalStunServer(host);
+  const [turnHost, turnPort] = turn.address!;
+  const stunIceServer: RTCIceServer = {
+    urls: `stun:${host}:${stun.address![1]}`,
+  };
+  const iceServers = (credential?: keyof typeof credentials): RTCIceServer[] =>
+    credential
+      ? [
+          stunIceServer,
+          { urls: `turn:${turnHost}:${turnPort}`, ...credentials[credential] },
+        ]
+      : [stunIceServer];
+  return {
+    turn,
+    credentials,
+    iceServers,
+    /** TURN usernames authenticated after `since` requests. */
+    authenticatedSince: (since: number) =>
+      turn.authenticatedUsernames.slice(since),
+    close: async () => {
+      await turn.close();
+      await stun.close();
+    },
+  };
+}
+
+/**
+ * Shared Arrange: connect `offerer` and `answerer` over a data channel with
+ * one offer/answer exchange (candidates are in the descriptions, since
+ * setLocalDescription gathers), and wait until both are connected.
+ */
+export async function connectPeerConnections(
+  offerer: RTCPeerConnection,
+  answerer: RTCPeerConnection,
+) {
+  offerer.createDataChannel("connect");
+  await offerer.setLocalDescription(await offerer.createOffer());
+  await answerer.setRemoteDescription(offerer.localDescription!);
+  await answerer.setLocalDescription(await answerer.createAnswer());
+  await offerer.setRemoteDescription(answerer.localDescription!);
+  await waitUntil(
+    () =>
+      offerer.connectionState === "connected" &&
+      answerer.connectionState === "connected",
+    "peers did not connect",
+  );
+}
+
+/** Complete one offer/answer exchange started by `offerer`. */
+export async function negotiate(
+  offerer: RTCPeerConnection,
+  answerer: RTCPeerConnection,
+) {
+  await offerer.setLocalDescription(await offerer.createOffer());
+  await answerer.setRemoteDescription(offerer.localDescription!);
+  await answerer.setLocalDescription(await answerer.createAnswer());
+  await offerer.setRemoteDescription(answerer.localDescription!);
+}
+
+/** The first live RTCIceTransport of `pc` and its ICE agent. */
+export function firstIceTransport(pc: RTCPeerConnection) {
+  const ice = (pc as any).secureManager.iceTransports[0] as RTCIceTransport;
+  return { ice, connection: ice.connection as unknown as Connection };
+}
+
+/** TURN allocations the ICE agent of `pc` currently holds. */
+export function peerTurnAllocations(pc: RTCPeerConnection) {
+  return turnAllocations(firstIceTransport(pc).connection);
+}
+
+/** Wait until the current ICE generation of `pc` finished gathering. */
+export async function waitForLocalCandidatesEnd(pc: RTCPeerConnection) {
+  const { connection } = firstIceTransport(pc);
+  await waitUntil(
+    () => connection.localCandidatesEnd,
+    "local candidates did not complete",
+  );
+}
+
+export async function waitUntil(
+  condition: () => boolean,
+  message: string,
+  timeout = 10_000,
+) {
+  const deadline = Date.now() + timeout;
+  while (!condition()) {
+    if (Date.now() > deadline) throw new Error(message);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
 }
 
 export async function createDataChannelPair(

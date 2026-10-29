@@ -367,26 +367,38 @@ export async function createLocalStunServer(host: string) {
   return server;
 }
 
+/**
+ * Shared Arrange: a local TURN server. `credentials` replaces the default
+ * test user; `authenticatedUsernames` records the username of every request
+ * the server authenticated, in order.
+ */
 export async function createLocalTurnServer(
   host: string,
   options: {
     tls?: boolean;
+    credentials?: Record<string, string>;
   } = {},
 ) {
+  const credentials = options.credentials ?? {
+    [TURN_TEST_USERNAME]: TURN_TEST_PASSWORD,
+  };
+  const authenticatedUsernames: string[] = [];
   const server = new NodeTurnServer({
     host,
     port: 0,
     relayAddress: host,
     relayBindAddress: host,
-    credentials: {
-      [TURN_TEST_USERNAME]: TURN_TEST_PASSWORD,
+    getPassword: (username) => {
+      const password = credentials[username];
+      if (password !== undefined) authenticatedUsernames.push(username);
+      return password;
     },
     realm: "werift.local",
     software: "werift-ice-server/test",
     tls: options.tls ? getLocalTurnServerTlsOptions() : undefined,
   });
   await server.listen();
-  return server;
+  return Object.assign(server, { authenticatedUsernames });
 }
 
 /** Shared Arrange helper: two host-only connections with a nominated pair. */
@@ -923,12 +935,16 @@ export async function canBindIpv6Loopback() {
 /** Relay-only TURN options of a local test server for `createTestConnection`. */
 export function localTurnOptions(
   server: Awaited<ReturnType<typeof createLocalTurnServer>>,
+  {
+    username = TURN_TEST_USERNAME,
+    password = TURN_TEST_PASSWORD,
+  }: { username?: string; password?: string } = {},
 ) {
   return {
     stunServer: undefined,
     turnServer: server.address!,
-    turnUsername: TURN_TEST_USERNAME,
-    turnPassword: TURN_TEST_PASSWORD,
+    turnUsername: username,
+    turnPassword: password,
     forceTurn: true,
   };
 }

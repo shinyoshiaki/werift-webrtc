@@ -118,9 +118,30 @@ export class SecureTransportManager {
   }
 
   /**
+   * The STUN/TURN settings the next gathering phase uses, resolved from the
+   * current config (what `updateIceServers` hands to each transport).
+   */
+  iceServerSettings() {
+    return {
+      ...this.resolveIceServerOptions(),
+      forceTurn: this.config.iceTransportPolicy === "relay",
+      useTcp: this.config.iceUseTcp,
+      turnTlsOptions: this.config.turnTlsOptions,
+      turnUdpFamily: this.config.turnUdpFamily,
+    };
+  }
+
+  /** Whether a live transport started gathering (its servers are in use). */
+  get gatheringStarted() {
+    return this.iceTransports.some(
+      (iceTransport) => iceTransport.gatheringState !== "new",
+    );
+  }
+
+  /**
    * Re-apply ICE servers from the current config.
    *
-   * JSEP (RFC 8829 §4.1.18): server changes affect the next gathering phase.
+   * JSEP (RFC 9429 §4.1.18): server changes affect the next gathering phase.
    * A transport that has not gathered yet (`gatheringState === "new"`) takes
    * them now (e.g. TURN learned from a WHIP Link header before
    * setLocalDescription gathers). A transport that already gathered keeps its
@@ -128,12 +149,7 @@ export class SecureTransportManager {
    * also replaces a TURN allocation made with the old settings.
    */
   updateIceServers() {
-    const options = {
-      ...this.resolveIceServerOptions(),
-      forceTurn: this.config.iceTransportPolicy === "relay",
-      useTcp: this.config.iceUseTcp,
-      turnUdpFamily: this.config.turnUdpFamily,
-    };
+    const options = this.iceServerSettings();
     for (const iceTransport of this.iceTransports) {
       if (iceTransport.gatheringState === "new") {
         iceTransport.setIceServers(options);

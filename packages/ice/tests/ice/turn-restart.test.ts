@@ -3,6 +3,7 @@ import { getHostAddresses } from "../../src/utils";
 import {
   createConnectedRelayOnlyPair,
   createHeldUdpProxy,
+  createLocalStunServer,
   createLocalTurnServer,
   createTestConnection,
   deliverLocalCandidates,
@@ -69,6 +70,87 @@ describe("TURN allocation across ICE restart", () => {
       await connection.close();
       await oldServer.close();
       await newServer.close();
+    }
+  });
+
+  test("restart after a TURN credential rotation allocates with the new credential", async () => {
+    // Arrange: credential A / B の両方を受け付ける TURN server で、A を使って gather 済みの connection
+    const server = await createLocalTurnServer(localTurnHost, {
+      credentials: { "user-a": "pass-a", "user-b": "pass-b" },
+    });
+    const connection = createTestConnection(
+      true,
+      localTurnOptions(server, { username: "user-a", password: "pass-a" }),
+    );
+    try {
+      await connection.gatherCandidates();
+      const [stale] = turnAllocations(connection);
+      const closeStale = vi.spyOn(stale, "close");
+      const staleRelay = localRelayCandidates(connection)[0];
+      const authenticatedBefore = server.authenticatedUsernames.length;
+
+      // Act: credential B に差し替えてから ICE restart し、gather し直す
+      connection.setIceServers(
+        localTurnOptions(server, { username: "user-b", password: "pass-b" }),
+      );
+      await connection.restart();
+      await connection.gatherCandidates();
+
+      // Assert: restart 後の認証はすべて credential B で行われる
+      const authenticatedAfter =
+        server.authenticatedUsernames.slice(authenticatedBefore);
+      expect(authenticatedAfter.length).toBeGreaterThan(0);
+      expect(new Set(authenticatedAfter)).toEqual(new Set(["user-b"]));
+      // Assert: credential A の allocation は閉じられ、その relay 候補は新 generation に出ない
+      expect(closeStale).toHaveBeenCalled();
+      expect(turnAllocations(connection)).toHaveLength(1);
+      expect(turnAllocations(connection)[0]).not.toBe(stale);
+      const relay = localRelayCandidates(connection);
+      expect(relay).toHaveLength(1);
+      expect(relay[0].port).not.toBe(staleRelay.port);
+      expect(relay[0].ufrag).toBe(connection.localUsername);
+    } finally {
+      await connection.close();
+      await server.close();
+    }
+  });
+
+  test("restart after TURN is replaced by STUN only advertises no relay candidate", async () => {
+    // Arrange: TURN で gather 済みの connection と、置換先のローカル STUN server
+    const turnServer = await createLocalTurnServer(localTurnHost);
+    const stunServer = await createLocalStunServer(localTurnHost);
+    const connection = createTestConnection(true, {
+      ...localTurnOptions(turnServer),
+      forceTurn: false,
+    });
+    try {
+      await connection.gatherCandidates();
+      const [stale] = turnAllocations(connection);
+      const closeStale = vi.spyOn(stale, "close");
+
+      // Act: TURN を外して STUN のみにし、ICE restart して gather し直す
+      connection.setIceServers({ stunServer: stunServer.address! });
+      await connection.restart();
+      await connection.gatherCandidates();
+
+      // Assert: TURN の server / credential は消え、STUN server が更新される
+      expect(connection.turnServer).toBeUndefined();
+      expect(connection.options.turnUsername).toBeUndefined();
+      expect(connection.options.turnPassword).toBeUndefined();
+      expect(connection.stunServer).toEqual(stunServer.address);
+      // Assert: 旧 allocation は閉じられ、新 generation に relay 候補は出ない
+      expect(closeStale).toHaveBeenCalled();
+      expect(turnAllocations(connection)).toHaveLength(0);
+      expect(localRelayCandidates(connection)).toHaveLength(0);
+      expect(
+        connection.localCandidates.some(
+          (candidate) => candidate.type === "host",
+        ),
+      ).toBe(true);
+    } finally {
+      await connection.close();
+      await turnServer.close();
+      await stunServer.close();
     }
   });
 

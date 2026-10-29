@@ -2019,6 +2019,15 @@ v0.1.26
 
 > **restartIce**(): `void`
 
+Request an ICE restart (W3C `restartIce`): the next `createOffer()`
+carries new ICE credentials and fires `negotiationneeded`.
+
+The restarted generation gathers with the current configuration, so
+`setConfiguration({ iceServers })` followed by `restartIce()` rotates
+STUN/TURN servers or credentials: the new TURN allocation authenticates
+with the new credentials and the old allocation is released. Media keeps
+flowing on the current pair until the restart is committed by the answer.
+
 #### Returns
 
 `void`
@@ -2028,6 +2037,34 @@ v0.1.26
 ### setConfiguration()
 
 > **setConfiguration**(`config`): `void`
+
+Update the configuration (W3C `setConfiguration`).
+
+STUN/TURN settings (`iceServers`, `iceTransportPolicy`, `turnUdpFamily`)
+apply to the next ICE gathering phase (JSEP, RFC 9429 §4.1.18):
+
+- A transport that has not gathered yet takes them at once, so servers
+  learned after `createOffer()` (e.g. a WHIP Link header) are used by the
+  following `setLocalDescription()`. No ICE restart is needed.
+- Once gathering has started, the live ICE session is left untouched (its
+  selected pair and TURN allocation keep working) and, if the settings
+  actually changed, the next `createOffer()` performs an ICE restart. That
+  restart gathers with the new settings and releases the TURN allocation
+  made with the old ones; its relay candidates are not carried over.
+  Setting the same servers again (e.g. `setConfiguration(getConfiguration())`)
+  requests no restart. `negotiationneeded` does not fire for this, so call
+  `restartIce()` (or renegotiate) to apply the change now.
+- On the answering side the new settings are used when the remote peer
+  restarts ICE.
+
+Rotating expiring TURN credentials on a live connection:
+
+```ts
+pc.setConfiguration({ iceServers: freshIceServers });
+pc.restartIce();
+// in onnegotiationneeded:
+await pc.setLocalDescription(await pc.createOffer());
+```
 
 #### Parameters
 
