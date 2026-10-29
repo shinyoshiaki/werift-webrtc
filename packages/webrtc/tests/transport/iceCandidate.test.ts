@@ -95,6 +95,51 @@ describe("RTCIceCandidate parsed fields", () => {
     }
   });
 
+  test.each([
+    "1 1 udp nope 192.0.2.1 123 typ host",
+    "1 1 udp 1 192.0.2.1 xyz typ host",
+    "1 1 udp 1 192.0.2.1 70000 typ host",
+    "1 1 udp 1 192.0.2.1 123 wrong relay",
+    "1 1 udp 1 192.0.2.1 123 typ bogus",
+    "1 1 sctp 1 192.0.2.1 123 typ host",
+    "1 1 udp 1 192.0.2.1 123 typ srflx raddr 192.0.2.2 rport abc",
+    "1 1 tcp 1 192.0.2.1 9 typ host tcptype bogus",
+  ])(
+    "syntactically or numerically invalid candidate gives all-null fields: %s",
+    (sdp) => {
+      // Act: 不正な a-line から生成する
+      const candidate = new RTCIceCandidate({ candidate: sdp });
+
+      // Assert: NaN や誤った type を公開せず、派生フィールドはすべて null
+      expect(candidate).toMatchObject({
+        foundation: null,
+        component: null,
+        priority: null,
+        address: null,
+        protocol: null,
+        port: null,
+        type: null,
+        tcpType: null,
+        relatedAddress: null,
+        relatedPort: null,
+      });
+    },
+  );
+
+  test("omitting candidate defaults it to an empty string", () => {
+    // Act: candidate を省略して生成する
+    const none = new RTCIceCandidate();
+    const midOnly = new RTCIceCandidate({ sdpMid: "0" });
+
+    // Assert: 型宣言どおり string で、JSON にも空文字列として残る
+    for (const candidate of [none, midOnly]) {
+      expect(candidate.candidate).toBe("");
+      expect(candidate.toJSON().candidate).toBe("");
+      expect(JSON.parse(JSON.stringify(candidate)).candidate).toBe("");
+      expect(candidate.type).toBeNull();
+    }
+  });
+
   test("IceCandidate.toJSON carries the parsed fields and toJSON keeps the signaling shape", () => {
     // Arrange: 内部表現の relay candidate
     const ice = IceCandidate.fromJSON({ candidate: relay, sdpMid: "1" })!;

@@ -51,7 +51,7 @@ already parsed candidate), and parsed from `props.candidate` otherwise.
 
 ### candidate
 
-> **candidate**: `string`
+> **candidate**: `string` = `""`
 
 ***
 

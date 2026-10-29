@@ -1053,12 +1053,42 @@ function candidateFieldsFromIce(c: {
   };
 }
 
+const uintToken = (token: string | undefined, max: number) =>
+  token !== undefined && /^\d+$/.test(token) && Number(token) <= max;
+
+/** Check the candidate-attribute grammar (RFC 8839) and numeric ranges. */
+function isValidCandidateSdp(sdp: string): boolean {
+  const bits = sdp.trim().split(/\s+/);
+  if (bits.length < 8 || bits.length % 2 !== 0) return false;
+  const [, component, protocol, priority, address, port, typ, type] = bits;
+  if (
+    !uintToken(component, 256) ||
+    !/^(udp|tcp)$/i.test(protocol) ||
+    !uintToken(priority, 0xffffffff) ||
+    !address ||
+    !uintToken(port, 65535) ||
+    typ !== "typ" ||
+    !["host", "srflx", "prflx", "relay"].includes(type)
+  ) {
+    return false;
+  }
+  for (let i = 8; i < bits.length; i += 2) {
+    const [key, value] = [bits[i], bits[i + 1]];
+    if (key === "rport" && !uintToken(value, 65535)) return false;
+    if (key === "tcptype" && !["active", "passive", "so"].includes(value)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 /** Parse the browser-visible fields of a candidate a-line (`null` if unparsable). */
 function parseCandidateFields(candidate?: string): RTCIceCandidateFields {
   if (!candidate) return emptyCandidateFields;
   const sdp = candidate.startsWith("candidate:")
     ? candidate.slice("candidate:".length)
     : candidate;
+  if (!isValidCandidateSdp(sdp)) return emptyCandidateFields;
   try {
     return candidateFieldsFromIce(candidateFromSdp(sdp));
   } catch {
@@ -1076,7 +1106,7 @@ function parseCandidateFields(candidate?: string): RTCIceCandidateFields {
  * `relayProtocol` and `url` are not implemented.
  */
 export class RTCIceCandidate implements RTCIceCandidateFields {
-  candidate!: string;
+  candidate: string = "";
   sdpMid?: string;
   sdpMLineIndex?: number;
   usernameFragment?: string;
@@ -1115,6 +1145,7 @@ export class RTCIceCandidate implements RTCIceCandidateFields {
         : parseCandidateFields(props.candidate),
       props,
     );
+    this.candidate = props.candidate ?? "";
   }
 
   static fromSdp(sdp: string): RTCIceCandidate {
