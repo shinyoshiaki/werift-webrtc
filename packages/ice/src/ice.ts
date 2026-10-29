@@ -1,12 +1,7 @@
 import * as timers from "node:timers/promises";
 import { randomBytes } from "crypto";
 import { isIPv4 } from "net";
-import {
-  type Address,
-  Event,
-  debug,
-  interfaceAddress,
-} from "./imports/common";
+import { type Address, Event, debug, interfaceAddress } from "./imports/common";
 import {
   Candidate,
   candidateFoundation,
@@ -199,12 +194,10 @@ export class Connection implements IceConnection {
     if (options.useTcp !== undefined) {
       this.options.useTcp = options.useTcp;
     }
-    if (options.turnTlsOptions !== undefined) {
-      this.options.turnTlsOptions = options.turnTlsOptions;
-    }
-    if (options.turnUdpFamily !== undefined) {
-      this.options.turnUdpFamily = options.turnUdpFamily;
-    }
+    // TURN-related options are reset too, so unsetting them cannot leave a
+    // previous TLS / address-family setting behind.
+    this.options.turnTlsOptions = options.turnTlsOptions;
+    this.options.turnUdpFamily = options.turnUdpFamily;
 
     this.applyStunTurnServersFromOptions();
     log("Connection ice servers updated", this.options);

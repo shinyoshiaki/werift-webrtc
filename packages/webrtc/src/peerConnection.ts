@@ -529,7 +529,7 @@ export class RTCPeerConnection extends EventTarget {
     // Transports only use the first STUN/TURN, but any change in the
     // normalized list (e.g. a second TURN) counts as a configuration change.
     const previousIceServers = structuredClone(this.config.iceServers);
-    const normalizedConfig = mergePeerConfiguration(this.config, config, {
+    mergePeerConfiguration(this.config, config, {
       isReconfiguration,
       hasLocalDescription: isReconfiguration && !!this.localDescription,
       hasSctpTransport: !!this.sctpManager?.sctpTransport,
@@ -544,13 +544,10 @@ export class RTCPeerConnection extends EventTarget {
     // phase. Transports still in gathering state "new" take them now (WHIP:
     // createOffer → setConfiguration → setLocalDescription); the others keep
     // the live Connection untouched and take them at their next ICE restart.
-    if (
-      isReconfiguration &&
-      this.secureManager &&
-      (normalizedConfig.iceServers !== undefined ||
-        normalizedConfig.iceTransportPolicy !== undefined ||
-        normalizedConfig.turnUdpFamily !== undefined)
-    ) {
+    // Every STUN/TURN-related field (iceServers, policy, turnTransport,
+    // turnTlsOptions, turnUdpFamily, iceUseTcp) goes through the same resolved
+    // settings, so any of them changing is picked up here.
+    if (isReconfiguration && this.secureManager) {
       const gatheringStarted = this.secureManager.gatheringStarted;
       this.secureManager.updateIceServers();
       // Changed servers after gathering started set the "needs-ice-restart"

@@ -288,6 +288,55 @@ describe("iceTransport", () => {
       }
     });
 
+    test("gathering 完了後に turnTransport / turnTlsOptions / iceUseTcp だけ変更しても defer され restart を要求する", async () => {
+      // Arrange: TURN 付きで gather 完了まで進める
+      const pc = new RTCPeerConnection({
+        iceServers: [
+          {
+            urls: "turn:turn.example.com:3478",
+            username: "u",
+            credential: "p",
+          },
+        ],
+      });
+      try {
+        pc.createDataChannel("other-fields");
+        const ice = (pc as any).secureManager
+          .iceTransports[0] as RTCIceTransport;
+        await ice.gather();
+        expect(ice.gatheringState).toBe("complete");
+        const changes: Parameters<RTCPeerConnection["setConfiguration"]>[0][] =
+          [
+            { turnTransport: "tcp" },
+            { turnTlsOptions: { rejectUnauthorized: false } },
+            { iceUseTcp: true },
+          ];
+
+        for (const change of changes) {
+          (pc as any).needRestart = false;
+
+          // Act: 1 フィールドだけ変更する
+          pc.setConfiguration(change);
+
+          // Assert: restart が要求され、live Connection は変わらない
+          expect((pc as any).needRestart).toBe(true);
+        }
+        expect(ice.connection.options.useTcp).toBeFalsy();
+
+        // Act: restart で次の gathering に入る
+        await ice.restart();
+
+        // Assert: restart 後は変更した設定が Connection に適用される
+        expect(ice.connection.options.turnTransport).toBe("tcp");
+        expect(ice.connection.options.turnTlsOptions).toEqual({
+          rejectUnauthorized: false,
+        });
+        expect(ice.connection.options.useTcp).toBe(true);
+      } finally {
+        await pc.close();
+      }
+    });
+
     test("gathering 完了後に同じ iceServers を再設定しても restart を要求しない", async () => {
       // Arrange: gather 完了まで進める
       const pc = new RTCPeerConnection({
