@@ -526,6 +526,9 @@ export class RTCPeerConnection extends EventTarget {
   setConfiguration(config: RTCPeerConnectionConfig) {
     const isReconfiguration = !!this.sdpManager;
     const previousIceServerSettings = this.secureManager?.iceServerSettings();
+    // Transports only use the first STUN/TURN, but any change in the
+    // normalized list (e.g. a second TURN) counts as a configuration change.
+    const previousIceServers = structuredClone(this.config.iceServers);
     const normalizedConfig = mergePeerConfiguration(this.config, config, {
       isReconfiguration,
       hasLocalDescription: isReconfiguration && !!this.localDescription,
@@ -556,10 +559,11 @@ export class RTCPeerConnection extends EventTarget {
       // gathering phase", so this does not fire negotiationneeded by itself.
       if (
         gatheringStarted &&
-        !isDeepStrictEqual(
+        (!isDeepStrictEqual(
           previousIceServerSettings,
           this.secureManager.iceServerSettings(),
-        )
+        ) ||
+          !isDeepStrictEqual(previousIceServers, this.config.iceServers))
       ) {
         this.iceRestartRequest.request(
           this.sdpManager.currentLocalDescription,

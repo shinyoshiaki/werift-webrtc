@@ -241,6 +241,53 @@ describe("iceTransport", () => {
       }
     });
 
+    test("gathering 完了後に 2 番目以降の iceServers を追加・変更すると restart を要求する", async () => {
+      // Arrange: TURN A のみで gather 完了まで進める
+      const turnA = {
+        urls: "turn:turn-a.example.com:3478",
+        username: "user-a",
+        credential: "pass-a",
+      };
+      const turnB = {
+        urls: "turn:turn-b.example.com:3478",
+        username: "user-b",
+        credential: "pass-b",
+      };
+      const pc = new RTCPeerConnection({ iceServers: [turnA] });
+      try {
+        pc.createDataChannel("second-server");
+        const ice = (pc as any).secureManager
+          .iceTransports[0] as RTCIceTransport;
+        await ice.gather();
+        expect(ice.gatheringState).toBe("complete");
+
+        // Act: 先頭の TURN A を維持したまま TURN B を追加する
+        pc.setConfiguration({ iceServers: [turnA, turnB] });
+
+        // Assert: transport が使うのは先頭のサーバーだけだが、restart は要求される
+        expect((pc as any).needRestart).toBe(true);
+
+        // Arrange: ビットを下ろして同じリストを再設定する
+        (pc as any).needRestart = false;
+
+        // Act: 変更のない [A, B] を再設定する
+        pc.setConfiguration({ iceServers: [turnA, turnB] });
+
+        // Assert: 同一リストなので restart は要求されない
+        expect((pc as any).needRestart).toBe(false);
+
+        // Act: 2 番目の TURN B の credential だけを変更する
+        pc.setConfiguration({
+          iceServers: [turnA, { ...turnB, credential: "pass-b2" }],
+        });
+
+        // Assert: 後続要素の変更でも restart は要求される
+        expect((pc as any).needRestart).toBe(true);
+      } finally {
+        await pc.close();
+      }
+    });
+
     test("gathering 完了後に同じ iceServers を再設定しても restart を要求しない", async () => {
       // Arrange: gather 完了まで進める
       const pc = new RTCPeerConnection({
