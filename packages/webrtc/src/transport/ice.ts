@@ -12,6 +12,8 @@ import {
   getStatsTimestamp,
   type RTCIceCandidatePairStats,
   type RTCIceCandidateStats,
+  type RTCIceCandidateType,
+  type RTCIceTcpCandidateType,
   type RTCStats,
   type RTCStatsIceCandidatePairState,
 } from "../media/stats";
@@ -988,14 +990,131 @@ export interface RTCIceCandidateInit {
   usernameFragment?: string | null;
 }
 
-export class RTCIceCandidate {
+export type RTCIceComponent = "rtp" | "rtcp";
+export type RTCIceProtocol = "udp" | "tcp";
+
+/** The fields `RTCIceCandidate` parses from its candidate a-line. */
+export interface RTCIceCandidateFields {
+  foundation: string | null;
+  component: RTCIceComponent | null;
+  priority: number | null;
+  address: string | null;
+  protocol: RTCIceProtocol | null;
+  port: number | null;
+  type: RTCIceCandidateType | null;
+  tcpType: RTCIceTcpCandidateType | null;
+  relatedAddress: string | null;
+  relatedPort: number | null;
+}
+
+const emptyCandidateFields: RTCIceCandidateFields = {
+  foundation: null,
+  component: null,
+  priority: null,
+  address: null,
+  protocol: null,
+  port: null,
+  type: null,
+  tcpType: null,
+  relatedAddress: null,
+  relatedPort: null,
+};
+
+function candidateFieldsFromIce(c: {
+  foundation: string;
+  component: number;
+  priority: number;
+  ip: string;
+  protocol: string;
+  port: number;
+  type: string;
+  tcpType?: string;
+  relatedAddress?: string;
+  relatedPort?: number;
+}): RTCIceCandidateFields {
+  const protocol = c.protocol.toLowerCase();
+  return {
+    foundation: c.foundation,
+    component: c.component === 1 ? "rtp" : c.component === 2 ? "rtcp" : null,
+    priority: c.priority,
+    address: c.ip,
+    protocol: protocol === "udp" || protocol === "tcp" ? protocol : null,
+    port: c.port,
+    type:
+      (["host", "srflx", "prflx", "relay"] as const).find(
+        (type) => type === c.type,
+      ) ?? null,
+    tcpType:
+      (["active", "passive", "so"] as const).find(
+        (type) => type === c.tcpType,
+      ) ?? null,
+    relatedAddress: c.relatedAddress ?? null,
+    relatedPort: c.relatedPort ?? null,
+  };
+}
+
+/** Parse the browser-visible fields of a candidate a-line (`null` if unparsable). */
+function parseCandidateFields(candidate?: string): RTCIceCandidateFields {
+  if (!candidate) return emptyCandidateFields;
+  const sdp = candidate.startsWith("candidate:")
+    ? candidate.slice("candidate:".length)
+    : candidate;
+  try {
+    return candidateFieldsFromIce(candidateFromSdp(sdp));
+  } catch {
+    return emptyCandidateFields;
+  }
+}
+
+/**
+ * Browser-shaped ICE candidate. Besides the signaling fields it exposes the
+ * readonly fields of the W3C interface parsed from the candidate a-line
+ * (`foundation`, `component`, `priority`, `address`, `protocol`, `port`,
+ * `type`, `tcpType`, `relatedAddress`, `relatedPort`; `null` when absent or
+ * unparsable). Candidates werift creates carry them without reparsing;
+ * `toJSON()` keeps only the signaling fields (RTCIceCandidateInit).
+ * `relayProtocol` and `url` are not implemented.
+ */
+export class RTCIceCandidate implements RTCIceCandidateFields {
   candidate!: string;
   sdpMid?: string;
   sdpMLineIndex?: number;
   usernameFragment?: string;
 
-  constructor(props: Partial<RTCIceCandidate>) {
-    Object.assign(this, props);
+  readonly foundation!: string | null;
+  readonly component!: RTCIceComponent | null;
+  readonly priority!: number | null;
+  readonly address!: string | null;
+  readonly protocol!: RTCIceProtocol | null;
+  readonly port!: number | null;
+  readonly type!: RTCIceCandidateType | null;
+  readonly tcpType!: RTCIceTcpCandidateType | null;
+  readonly relatedAddress!: string | null;
+  readonly relatedPort!: number | null;
+
+  /**
+   * The parsed fields are taken from `props` when any of them is given (an
+   * already parsed candidate), and parsed from `props.candidate` otherwise.
+   */
+  constructor(
+    props: Partial<
+      Pick<
+        RTCIceCandidate,
+        "candidate" | "sdpMid" | "sdpMLineIndex" | "usernameFragment"
+      >
+    > &
+      Partial<RTCIceCandidateFields> = {},
+  ) {
+    const parsedGiven = Object.keys(emptyCandidateFields).some(
+      (key) => (props as Record<string, unknown>)[key] !== undefined,
+    );
+    Object.assign(
+      this,
+      parsedGiven
+        ? emptyCandidateFields
+        : parseCandidateFields(props.candidate),
+      props,
+    );
   }
 
   static fromSdp(sdp: string): RTCIceCandidate {
@@ -1048,6 +1167,7 @@ export class IceCandidate {
       sdpMLineIndex: this.sdpMLineIndex,
       sdpMid: this.sdpMid,
       usernameFragment: this.ufrag,
+      ...candidateFieldsFromIce(this),
     });
   }
 

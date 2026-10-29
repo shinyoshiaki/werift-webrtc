@@ -7,6 +7,10 @@
 - **`werift-dtls`: `CipherContext.localPrivateKey` is now a Node `KeyObject`** instead of the `@fidm/x509` `PrivateKey`. Replace `localPrivateKey.toPEM()` with `localPrivateKey.export({ type: "pkcs8", format: "pem" })`; replace `localPrivateKey.sign(data, hash)` with `createSign(hash).update(data).sign(localPrivateKey)`.
 - **werift logging no longer follows the application's `debug` package instance.** Use `debug.enable("werift*")` or `debug.disable()` from `werift`, or set `DEBUG=werift*` before startup. The built-in logger does not implement `DEBUG_HIDE_DATE`, `DEBUG_DEPTH`, `DEBUG_SHOW_HIDDEN`, `logger.extend()`, `logger.log`, `debug.log`, `debug.formatters`, `logger.destroy()`, `logger.color`, `useColors`, or `inspectOpts`. In browsers, `localStorage.debug` is still read at load time.
 
+### Features
+
+- `RTCIceCandidate` now exposes the readonly W3C fields parsed from its candidate a-line: `foundation`, `component` (`"rtp"` / `"rtcp"`), `priority`, `address`, `protocol` (`"udp"` / `"tcp"`), `port`, `type` (`"host"` / `"srflx"` / `"prflx"` / `"relay"`), `tcpType`, `relatedAddress` and `relatedPort` (`null` when absent or unparsable). This covers `icecandidate` events, `RTCIceCandidate.fromSdp()`, `new RTCIceCandidate(init)`, and `RTCIceTransport.getSelectedCandidatePair()` / `getLocalCandidates()` / `getRemoteCandidates()`, so `pair.local.type === "relay"` works without parsing the candidate string. `toJSON()` still returns only the signaling fields. `relayProtocol` and `url` are not implemented yet.
+
 ### Fixes
 
 - PEM passed to `dtls.keys` / `RTCCertificate` / `CipherContext` may still be indented (for example inside an indented template literal), as it was with `@fidm/x509`. `werift-dtls` exports the `normalizePem()` helper used for this.
