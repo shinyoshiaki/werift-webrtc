@@ -68,7 +68,7 @@
 
 ##### ntpTimestamp
 
-> **ntpTimestamp**: `number`
+> **ntpTimestamp**: `any`
 
 ##### rtpTimestamp
 
