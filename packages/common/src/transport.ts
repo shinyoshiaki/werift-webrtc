@@ -81,20 +81,32 @@ export class UdpTransport implements Transport {
       this.socketType,
       this.options.interfaceAddresses,
     );
-    if (this.options.port) {
-      this.socket.bind({ port: this.options.port, address });
-    } else if (this.options.portRange) {
-      const port = await findPort(
+    let port = this.options.port;
+    if (!port && this.options.portRange) {
+      port = await findPort(
         this.options.portRange[0],
         this.options.portRange[1],
         this.socketType,
         this.options.interfaceAddresses,
       );
-      this.socket.bind({ port, address });
-    } else {
-      this.socket.bind({ address });
     }
-    await new Promise((r) => this.socket.once("listening", r));
+    // A bind error (e.g. EADDRNOTAVAIL for an interface address this host
+    // does not have) rejects init instead of surfacing as an uncaught error.
+    await new Promise<void>((resolve, reject) => {
+      const onError = (error: Error) => {
+        this.socket.off("listening", onListening);
+        this.closed = true;
+        this.socket.close();
+        reject(error);
+      };
+      const onListening = () => {
+        this.socket.off("error", onError);
+        resolve();
+      };
+      this.socket.once("error", onError);
+      this.socket.once("listening", onListening);
+      this.socket.bind(port ? { port, address } : { address });
+    });
   }
 
   send = async (data: Buffer, addr?: Address) => {
