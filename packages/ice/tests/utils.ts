@@ -326,6 +326,37 @@ export function createTestConnection(
   return connection;
 }
 
+/**
+ * Shared Arrange: an agent with UDP host sockets bound to `interfaceAddresses`
+ * and no STUN server (only host candidates are gathered).
+ */
+export function createInterfaceBoundConnection(
+  iceControlling: boolean,
+  interfaceAddresses: IceOptions["interfaceAddresses"],
+  options: Partial<IceOptions> = {},
+) {
+  return createTestConnection(iceControlling, {
+    interfaceAddresses,
+    ...options,
+  });
+}
+
+/** UDP host candidates of `connection` with the address their socket is bound to. */
+export function udpHostCandidatesWithBinding(connection: Connection) {
+  return (connection as unknown as { protocols: Protocol[] }).protocols
+    .filter(
+      (protocol): protocol is StunProtocol =>
+        protocol instanceof StunProtocol &&
+        protocol.localCandidate?.type === "host" &&
+        protocol.localCandidate.transport === "udp",
+    )
+    .map((protocol) => ({
+      candidate: [protocol.localCandidate!.host, protocol.localCandidate!.port],
+      bound: protocol.getExtraInfo(),
+      localIp: protocol.localIp,
+    }));
+}
+
 export async function createLocalStunServer(host: string) {
   const server = new NodeStunServer({
     host,
