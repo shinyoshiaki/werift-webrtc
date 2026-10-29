@@ -8,6 +8,7 @@
   - `WebmOutput.eol.clusters` (new; `{ position, size }[]`), `replaceClusterSize()` and `ClusterSizeOffset` are exported for custom writers. Streaming output (`WebmStream` without rewriting) still uses unknown-size Segment / Clusters.
   - `replaceSegmentSize()` now writes an 8 byte VINT instead of a short VINT followed by a Void element. The old value was too large by the length of the size field, because it counted the field itself. Its Void padding also moved the Segment body start, so every CueClusterPosition pointed past its Cluster.
   - The record examples now use `saveToFileSystem`.
+- **`ntpTime2Sec()` now converts the NTP fraction correctly** (`werift-rtp`, used by `NtpTimeCallback` / `MediaRecorder` A/V sync): the low 32 bits of an RTCP SR NTP timestamp are a binary fraction (1/2^32 s), but they were read as decimal digits (`0x80000000`, i.e. 0.5 s, became 0.2147483648 s). Each track's frame times could be off by up to about 1 s, so lipsync dropped most or all audio from short recordings of a browser's audio and video. A new E2E test (`e2e/tests/mediachannel/recordPlayback.test.ts`) records browser media with `MediaRecorder`, sends the WebM back over a DataChannel, and checks that Chrome plays it.
 
 ### ⚠️ Breaking changes
 

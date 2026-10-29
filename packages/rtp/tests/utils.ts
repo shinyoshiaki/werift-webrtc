@@ -23,6 +23,7 @@ import {
   type RtpMediaPacerOptions,
   type RtpMediaPacerTick,
 } from "../src/rtp/mediaClock";
+import { RtcpSenderInfo, RtcpSrPacket } from "../src/rtcp/sr";
 import { RtpHeader, RtpPacket } from "../src/rtp/rtp";
 import {
   ProtectionProfileAeadAes128Gcm,
@@ -1054,4 +1055,27 @@ export function tamperBuffer(buffer: Buffer, index: number, mask = 0x01) {
   const tampered = Buffer.from(buffer);
   tampered[index] ^= mask;
   return tampered;
+}
+
+/** 64bit NTP timestamp from integer seconds and a 32bit binary fraction */
+export function createNtpTimestamp(seconds: number, fraction: number) {
+  return (BigInt(seconds) << 32n) | BigInt(fraction);
+}
+
+export function createSenderReport(ntpTimestamp: bigint, rtpTimestamp: number) {
+  return new RtcpSrPacket({
+    senderInfo: new RtcpSenderInfo({
+      ntpTimestamp,
+      rtpTimestamp,
+      packetCount: 0,
+      octetCount: 0,
+    }),
+  });
+}
+
+export function createRtpAt(timestamp: number, sequenceNumber = 0) {
+  return new RtpPacket(
+    new RtpHeader({ timestamp, sequenceNumber }),
+    Buffer.alloc(0),
+  );
 }
