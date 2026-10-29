@@ -6,7 +6,7 @@
 
 # Function: findCodecByMimeType()
 
-> **findCodecByMimeType**(`codecs`, `target`): `undefined` \| [`RTCRtpCodecParameters`](../classes/RTCRtpCodecParameters.md)
+> **findCodecByMimeType**(`codecs`, `target`): [`RTCRtpCodecParameters`](../classes/RTCRtpCodecParameters.md) \| `undefined`
 
 ## Parameters
 
@@ -20,4 +20,4 @@
 
 ## Returns
 
-`undefined` \| [`RTCRtpCodecParameters`](../classes/RTCRtpCodecParameters.md)
+[`RTCRtpCodecParameters`](../classes/RTCRtpCodecParameters.md) \| `undefined`

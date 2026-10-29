@@ -19,7 +19,7 @@ export class ServerHelloDone implements Handshake {
 
   static deSerialize(buf: Buffer) {
     return new ServerHelloDone(
-      //@ts-ignore
+      //@ts-expect-error
       ...Object.values(decode(buf, ServerHelloDone.spec)),
     );
   }

@@ -1,7 +1,7 @@
 import {
-  CLOSE_TIMING_OPERATIONS,
   arrangeCloseTimingOperation,
   assertTransportsClosed,
+  CLOSE_TIMING_OPERATIONS,
   closeAfter,
   heldTransports,
   settlesWithin,

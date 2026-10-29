@@ -28,9 +28,9 @@ rewrites RTP timestamps based on send time.
 
 ## Constructors
 
-### new RtpMediaClock()
+### Constructor
 
-> **new RtpMediaClock**(`options`): [`RtpMediaClock`](RtpMediaClock.md)
+> **new RtpMediaClock**(`options`): `RtpMediaClock`
 
 #### Parameters
 
@@ -40,7 +40,7 @@ rewrites RTP timestamps based on send time.
 
 #### Returns
 
-[`RtpMediaClock`](RtpMediaClock.md)
+`RtpMediaClock`
 
 ## Properties
 
@@ -78,13 +78,13 @@ rewrites RTP timestamps based on send time.
 
 #### Get Signature
 
-> **get** **lastTick**(): `undefined` \| [`RtpMediaClockTick`](../interfaces/RtpMediaClockTick.md)
+> **get** **lastTick**(): [`RtpMediaClockTick`](../interfaces/RtpMediaClockTick.md) \| `undefined`
 
 The most recently emitted tick.
 
 ##### Returns
 
-`undefined` \| [`RtpMediaClockTick`](../interfaces/RtpMediaClockTick.md)
+[`RtpMediaClockTick`](../interfaces/RtpMediaClockTick.md) \| `undefined`
 
 ***
 
@@ -126,11 +126,11 @@ RTP timestamp of the latest tick, or of frame 0 before the first tick.
 
 ### resume()
 
-> **resume**(`options`): `void`
+> **resume**(`options?`): `void`
 
 #### Parameters
 
-##### options
+##### options?
 
 [`RtpMediaClockResumeOptions`](../interfaces/RtpMediaClockResumeOptions.md) = `{}`
 
@@ -142,7 +142,7 @@ RTP timestamp of the latest tick, or of frame 0 before the first tick.
 
 ### start()
 
-> **start**(`onTick`?): `void`
+> **start**(`onTick?`): `void`
 
 #### Parameters
 

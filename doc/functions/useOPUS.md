@@ -6,11 +6,11 @@
 
 # Function: useOPUS()
 
-> **useOPUS**(`props`): [`RTCRtpCodecParameters`](../classes/RTCRtpCodecParameters.md)
+> **useOPUS**(`props?`): [`RTCRtpCodecParameters`](../classes/RTCRtpCodecParameters.md)
 
 ## Parameters
 
-### props
+### props?
 
 `Partial`\<[`RTCRtpCodecParameters`](../classes/RTCRtpCodecParameters.md)\> = `{}`
 

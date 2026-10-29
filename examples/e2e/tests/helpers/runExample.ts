@@ -6,7 +6,7 @@ import type { Page } from "playwright";
 import type { TestContext } from "vitest";
 
 import type { CatalogEntry } from "./catalog.js";
-import { type ExampleHandles, cleanupExample } from "./cleanup.js";
+import { cleanupExample, type ExampleHandles } from "./cleanup.js";
 import {
   attachFixtureFile,
   clickNamedButton,
@@ -25,9 +25,9 @@ import {
   commandExists,
   getAvailablePort,
   listMediaPids,
-  spawnExampleTsx,
-  spawnVideotestsrc,
   type SpawnedProcess,
+  spawnExampleNodeTs,
+  spawnVideotestsrc,
   stopProcessTree,
   waitForLog,
   waitForMediaPids,
@@ -119,7 +119,7 @@ export async function withExample(
     }
 
     const nodeFiles = entry.node.map((relative) => examplePath(relative));
-    const primary = spawnExampleTsx(nodeFiles[0], { cwd: workDir, env });
+    const primary = spawnExampleNodeTs(nodeFiles[0], { cwd: workDir, env });
     handles.processes.push(primary);
     if (entry.waitLog !== false) {
       await waitForLog(primary, entry.waitLog ?? "start");
@@ -130,7 +130,7 @@ export async function withExample(
 
     let client: SpawnedProcess | undefined;
     if (nodeFiles[1]) {
-      client = spawnExampleTsx(nodeFiles[1], { cwd: workDir, env });
+      client = spawnExampleNodeTs(nodeFiles[1], { cwd: workDir, env });
       handles.processes.push(client);
     }
 

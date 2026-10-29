@@ -12,19 +12,19 @@
 
 ## Constructors
 
-### new MediaStreamTrack()
+### Constructor
 
-> **new MediaStreamTrack**(`props`): [`MediaStreamTrack`](MediaStreamTrack.md)
+> **new MediaStreamTrack**(`props`): `MediaStreamTrack`
 
 #### Parameters
 
 ##### props
 
-`Partial`\<[`MediaStreamTrack`](MediaStreamTrack.md)\> & `Pick`\<[`MediaStreamTrack`](MediaStreamTrack.md), `"kind"`\> & `object`
+`Partial`\<`MediaStreamTrack`\> & `Pick`\<`MediaStreamTrack`, `"kind"`\> & `object`
 
 #### Returns
 
-[`MediaStreamTrack`](MediaStreamTrack.md)
+`MediaStreamTrack`
 
 #### Overrides
 
@@ -34,7 +34,7 @@
 
 ### codec?
 
-> `optional` **codec**: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
+> `optional` **codec?**: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
 
 ***
 
@@ -48,13 +48,13 @@ todo impl
 
 ### header?
 
-> `optional` **header**: [`RtpHeader`](RtpHeader.md)
+> `optional` **header?**: [`RtpHeader`](RtpHeader.md)
 
 ***
 
 ### id?
 
-> `optional` **id**: `string`
+> `optional` **id?**: `string`
 
 ***
 
@@ -102,13 +102,13 @@ todo impl
 
 ### rid?
 
-> `optional` **rid**: `string`
+> `optional` **rid?**: `string`
 
 ***
 
 ### ssrc?
 
-> `optional` **ssrc**: `number`
+> `optional` **ssrc?**: `number`
 
 mediaSsrc
 
@@ -122,7 +122,7 @@ mediaSsrc
 
 ### streamId?
 
-> `optional` **streamId**: `string`
+> `optional` **streamId?**: `string`
 
 MediaStream ID
 
@@ -257,7 +257,9 @@ v13.6.0, v12.17.0
 
 #### Type Parameters
 
-• **K**
+##### K
+
+`K`
 
 #### Parameters
 
@@ -267,7 +269,7 @@ v13.6.0, v12.17.0
 
 ##### event
 
-`string` | `symbol`
+`string` \| `symbol`
 
 ##### args
 
@@ -285,7 +287,7 @@ v13.6.0, v12.17.0
 
 ### addEventListener()
 
-> **addEventListener**(`type`, `listener`, `options`?): `void`
+> **addEventListener**(`type`, `listener`, `options?`): `void`
 
 #### Parameters
 
@@ -299,7 +301,7 @@ v13.6.0, v12.17.0
 
 ##### options?
 
-`boolean` | \{ `once`: `boolean`; \}
+`boolean` \| \{ `once?`: `boolean`; \}
 
 #### Returns
 
@@ -319,13 +321,15 @@ Alias for `emitter.on(eventName, listener)`.
 
 #### Type Parameters
 
-• **K**
+##### K
+
+`K`
 
 #### Parameters
 
 ##### eventName
 
-`string` | `symbol`
+`string` \| `symbol`
 
 ##### listener
 
@@ -347,7 +351,7 @@ v0.1.26
 
 ### applyIncomingRtp()
 
-> **applyIncomingRtp**(`packet`, `extensions`?): `void`
+> **applyIncomingRtp**(`packet`, `extensions?`): `void`
 
 #### Parameters
 
@@ -383,11 +387,11 @@ v0.1.26
 
 ### clone()
 
-> **clone**(): [`MediaStreamTrack`](MediaStreamTrack.md)
+> **clone**(): `MediaStreamTrack`
 
 #### Returns
 
-[`MediaStreamTrack`](MediaStreamTrack.md)
+`MediaStreamTrack`
 
 ***
 
@@ -457,7 +461,7 @@ myEmitter.emit('event', 1, 2, 3, 4, 5);
 
 ##### type
 
-`string` | `symbol`
+`string` \| `symbol`
 
 ##### args
 
@@ -535,7 +539,7 @@ v1.0.0
 
 ### listenerCount()
 
-> **listenerCount**\<`K`\>(`eventName`, `listener`?): `number`
+> **listenerCount**\<`K`\>(`eventName`, `listener?`): `number`
 
 Returns the number of listeners listening for the event named `eventName`.
 If `listener` is provided, it will return how many times the listener is found
@@ -543,15 +547,17 @@ in the list of the listeners of the event.
 
 #### Type Parameters
 
-• **K**
+##### K
+
+`K`
 
 #### Parameters
 
 ##### eventName
 
-The name of the event being listened for
+`string` \| `symbol`
 
-`string` | `symbol`
+The name of the event being listened for
 
 ##### listener?
 
@@ -589,13 +595,15 @@ console.log(util.inspect(server.listeners('connection')));
 
 #### Type Parameters
 
-• **K**
+##### K
+
+`K`
 
 #### Parameters
 
 ##### eventName
 
-`string` | `symbol`
+`string` \| `symbol`
 
 #### Returns
 
@@ -635,13 +643,15 @@ Alias for `emitter.removeListener()`.
 
 #### Type Parameters
 
-• **K**
+##### K
+
+`K`
 
 #### Parameters
 
 ##### eventName
 
-`string` | `symbol`
+`string` \| `symbol`
 
 ##### listener
 
@@ -694,15 +704,17 @@ myEE.emit('foo');
 
 #### Type Parameters
 
-• **K**
+##### K
+
+`K`
 
 #### Parameters
 
 ##### eventName
 
-The name of the event.
+`string` \| `symbol`
 
-`string` | `symbol`
+The name of the event.
 
 ##### listener
 
@@ -755,15 +767,17 @@ myEE.emit('foo');
 
 #### Type Parameters
 
-• **K**
+##### K
+
+`K`
 
 #### Parameters
 
 ##### eventName
 
-The name of the event.
+`string` \| `symbol`
 
-`string` | `symbol`
+The name of the event.
 
 ##### listener
 
@@ -804,15 +818,17 @@ Returns a reference to the `EventEmitter`, so that calls can be chained.
 
 #### Type Parameters
 
-• **K**
+##### K
+
+`K`
 
 #### Parameters
 
 ##### eventName
 
-The name of the event.
+`string` \| `symbol`
 
-`string` | `symbol`
+The name of the event.
 
 ##### listener
 
@@ -851,15 +867,17 @@ Returns a reference to the `EventEmitter`, so that calls can be chained.
 
 #### Type Parameters
 
-• **K**
+##### K
+
+`K`
 
 #### Parameters
 
 ##### eventName
 
-The name of the event.
+`string` \| `symbol`
 
-`string` | `symbol`
+The name of the event.
 
 ##### listener
 
@@ -915,13 +933,15 @@ emitter.emit('log');
 
 #### Type Parameters
 
-• **K**
+##### K
+
+`K`
 
 #### Parameters
 
 ##### eventName
 
-`string` | `symbol`
+`string` \| `symbol`
 
 #### Returns
 
@@ -939,7 +959,7 @@ v9.4.0
 
 ### removeAllListeners()
 
-> **removeAllListeners**(`eventName`?): `this`
+> **removeAllListeners**(`eventName?`): `this`
 
 Removes all listeners, or those of the specified `eventName`.
 
@@ -953,7 +973,7 @@ Returns a reference to the `EventEmitter`, so that calls can be chained.
 
 ##### eventName?
 
-`string` | `symbol`
+`string` \| `symbol`
 
 #### Returns
 
@@ -1079,13 +1099,15 @@ Returns a reference to the `EventEmitter`, so that calls can be chained.
 
 #### Type Parameters
 
-• **K**
+##### K
+
+`K`
 
 #### Parameters
 
 ##### eventName
 
-`string` | `symbol`
+`string` \| `symbol`
 
 ##### listener
 
@@ -1180,7 +1202,7 @@ v0.3.5
 
 ##### rtp
 
-`Buffer`\<`ArrayBufferLike`\> | [`RtpPacket`](RtpPacket.md)
+`Buffer`\<`ArrayBufferLike`\> \| [`RtpPacket`](RtpPacket.md)
 
 #### Returns
 
@@ -1191,8 +1213,6 @@ v0.3.5
 ### addAbortListener()
 
 > `static` **addAbortListener**(`signal`, `resource`): `Disposable`
-
-**`Experimental`**
 
 Listens once to the `abort` event on the provided `signal`.
 
@@ -1283,11 +1303,11 @@ import { getEventListeners, EventEmitter } from 'node:events';
 
 ##### emitter
 
-`EventEmitter`\<`DefaultEventMap`\> | `EventTarget`
+`EventEmitter`\<`DefaultEventMap`\> \| `EventTarget`
 
 ##### name
 
-`string` | `symbol`
+`string` \| `symbol`
 
 #### Returns
 
@@ -1337,7 +1357,7 @@ import { getMaxListeners, setMaxListeners, EventEmitter } from 'node:events';
 
 ##### emitter
 
-`EventEmitter`\<`DefaultEventMap`\> | `EventTarget`
+`EventEmitter`\<`DefaultEventMap`\> \| `EventTarget`
 
 #### Returns
 
@@ -1379,9 +1399,9 @@ The emitter to query
 
 ##### eventName
 
-The event name
+`string` \| `symbol`
 
-`string` | `symbol`
+The event name
 
 #### Returns
 
@@ -1405,7 +1425,7 @@ Since v3.2.0 - Use `listenerCount` instead.
 
 #### Call Signature
 
-> `static` **on**(`emitter`, `eventName`, `options`?): `AsyncIterator`\<`any`[]\>
+> `static` **on**(`emitter`, `eventName`, `options?`): `AsyncIterator`\<`any`[]\>
 
 ```js
 import { on, EventEmitter } from 'node:events';
@@ -1492,7 +1512,7 @@ console.log('done'); // prints 'done'
 
 ###### eventName
 
-`string` | `symbol`
+`string` \| `symbol`
 
 ###### options?
 
@@ -1514,7 +1534,7 @@ v13.6.0, v12.16.0
 
 #### Call Signature
 
-> `static` **on**(`emitter`, `eventName`, `options`?): `AsyncIterator`\<`any`[]\>
+> `static` **on**(`emitter`, `eventName`, `options?`): `AsyncIterator`\<`any`[]\>
 
 ```js
 import { on, EventEmitter } from 'node:events';
@@ -1627,7 +1647,7 @@ v13.6.0, v12.16.0
 
 #### Call Signature
 
-> `static` **once**(`emitter`, `eventName`, `options`?): `Promise`\<`any`[]\>
+> `static` **once**(`emitter`, `eventName`, `options?`): `Promise`\<`any`[]\>
 
 Creates a `Promise` that is fulfilled when the `EventEmitter` emits the given
 event or that is rejected if the `EventEmitter` emits `'error'` while waiting.
@@ -1714,7 +1734,7 @@ ee.emit('foo'); // Prints: Waiting for the event was canceled!
 
 ###### eventName
 
-`string` | `symbol`
+`string` \| `symbol`
 
 ###### options?
 
@@ -1734,7 +1754,7 @@ v11.13.0, v10.16.0
 
 #### Call Signature
 
-> `static` **once**(`emitter`, `eventName`, `options`?): `Promise`\<`any`[]\>
+> `static` **once**(`emitter`, `eventName`, `options?`): `Promise`\<`any`[]\>
 
 Creates a `Promise` that is fulfilled when the `EventEmitter` emits the given
 event or that is rejected if the `EventEmitter` emits `'error'` while waiting.
@@ -1843,7 +1863,7 @@ v11.13.0, v10.16.0
 
 ### setMaxListeners()
 
-> `static` **setMaxListeners**(`n`?, ...`eventTargets`?): `void`
+> `static` **setMaxListeners**(`n?`, ...`eventTargets`): `void`
 
 ```js
 import { setMaxListeners, EventEmitter } from 'node:events';
@@ -1862,7 +1882,7 @@ setMaxListeners(5, target, emitter);
 
 A non-negative number. The maximum number of listeners per `EventTarget` event.
 
-##### eventTargets?
+##### eventTargets
 
 ...(`EventEmitter`\<`DefaultEventMap`\> \| `EventTarget`)[]
 

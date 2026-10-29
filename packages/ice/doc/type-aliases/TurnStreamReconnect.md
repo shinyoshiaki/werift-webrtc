@@ -4,9 +4,9 @@
 
 [werift-ice](../globals.md) / TurnStreamReconnect
 
-# Type Alias: TurnStreamReconnect()
+# Type Alias: TurnStreamReconnect
 
-> **TurnStreamReconnect**: (`server`, `alternateDomain`) => `Promise`\<`Transport`\>
+> **TurnStreamReconnect** = (`server`, `alternateDomain`) => `Promise`\<`Transport`\>
 
 Opens a new stream transport to the TURN server named by a 300 (Try
 Alternate) ALTERNATE-SERVER. `alternateDomain` is the ALTERNATE-DOMAIN
@@ -21,7 +21,7 @@ against (RFC 8489 §10).
 
 ### alternateDomain
 
-`string` | `undefined`
+`string` \| `undefined`
 
 ## Returns
 

@@ -1,5 +1,5 @@
 import { exec } from "child_process";
-import { Server } from "ws";
+import { WebSocketServer } from "ws";
 import { RTCPeerConnection, randomPort } from "../../../packages/webrtc/src";
 import {
   createRtpRtcpRegister,
@@ -8,7 +8,7 @@ import {
 
 // open answer.html
 
-const server = new Server({ port: 8888 });
+const server = new WebSocketServer({ port: 8888 });
 console.log("start");
 
 server.on("connection", async (socket) => {

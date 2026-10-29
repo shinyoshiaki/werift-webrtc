@@ -6,7 +6,7 @@
 
 # Function: makeIntegrityKey()
 
-> **makeIntegrityKey**(`username`, `realm`, `password`): `Buffer`\<`ArrayBufferLike`\>
+> **makeIntegrityKey**(`username`, `realm`, `password`): `NonSharedBuffer`
 
 ## Parameters
 
@@ -24,4 +24,4 @@
 
 ## Returns
 
-`Buffer`\<`ArrayBufferLike`\>
+`NonSharedBuffer`
