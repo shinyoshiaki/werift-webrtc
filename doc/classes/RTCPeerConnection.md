@@ -1220,6 +1220,16 @@ Return `true` if a STUN response should be sent, false if it should be skipped.
 
 > **iceInterfaceAddresses**: [`InterfaceAddresses`](../type-aliases/InterfaceAddresses.md) \| `undefined`
 
+Local addresses to bind the ICE UDP host sockets to, per family
+(`udp4` / `udp6`).
+
+The address given for a family is the only host address of that family:
+its host candidate advertises the address the socket is actually bound
+to, even when it is not an enumerated interface address (loopback, tun,
+VPN, ...). If the bind fails, the family has no UDP host candidate.
+A family left unspecified while the other one is set gathers no
+enumerated addresses (only its `iceAdditionalHostAddresses`).
+
 ##### iceLite
 
 > **iceLite**: `boolean`
