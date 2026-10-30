@@ -4,7 +4,7 @@ ide:
   version: 1
   title: "Epic 4: WARP 対応 WebRTC の検証記録（interop / E2E / 要件とテストの対応）"
   dock: right
-  baseCommit: f296d38ee93c8b930185d35e65155e504e58d995
+  baseCommit: 142abf107d1130a05a84601abb70a9e2e41f87f6
 ---
 # Epic 4: WARP 対応 WebRTC の検証記録
 
@@ -347,4 +347,63 @@ SCTP 側で認証状態を見ずに `cancelStart` へ進む経路は、`SCTPSend
   - `onHandshakeComplete` の時点で Finished の ACK 送信が成功済みであること、その後に両側が完了することを確認する。
   - 修正前は「Finished の ACK 未送信のまま完了」で失敗した（先行 record の ACK は成功していた）。
 - **検証:** `packages/dtls` 全件 `--retry=0`（449 passed / 1 skipped）、`npm run type`、`lint:imports`、`npm run test:small`（DTLS 449、webrtc 685、ICE 302 ほか）、`npm run test:boringssl:docker`（5/5）、`npm run e2e`（46、DTLS 1.2 / 1.3 モード各 12）、`npm run wpt --workspace packages/webrtc`（後退なし）、`npm run doc`（差分なし）が成功。
+
+## 11. レビュー範囲と承認基準の固定（チケット §8 への対応）
+
+対象は `142abf10` に、installer 関連を `warp` に戻した変更（§11.1）とチケット文書の更新を加えた作業ツリーです。比較元の `warp` は `de84c1b9` です。
+
+### 11.1 installer 関連を `warp` に戻した（A-1）
+
+レビュー #8 の指摘（`e2e/ensure-browser.js` の install から `env: playwrightInstallEnv()` が消え、import だけが残った）は、develop merge の conflict 解消で生じたものです。installer は WARP の要件と無関係なので、直さずにこのチケットから外しました。
+
+| ファイル | 対応 |
+|---|---|
+| `e2e/ensure-browser.js`、`e2e/vitest.config.mts`、`e2e/vitest.dtls.config.mts`、`scripts/install-playwright-browsers.js` | `warp` の内容に戻した |
+| `e2e/playwright-browsers.js`（develop の `e2e/browsers-path.js` と重複）、`scripts/playwright-host-platform.js` | 削除した（`warp` に存在しない） |
+
+再導入は `TICKET-playwright-host-platform-installer.md` で扱います。戻した後も、Ubuntu 26.04 では `npm run install:browsers` と `npm run e2e`（63 + 18 件）が成功しました。e2e の Playwright 1.64.1 は `ubuntu26.04-x64` を定義しているためです。
+
+### 11.2 merge 残骸の点検（C）
+
+```bash
+git diff --stat warp -- e2e scripts integration        # 出力なし
+git diff warp --submodule=short -- integration third_party   # 出力なし
+npm run lint:imports                                    # all imports are at the file header
+```
+
+`e2e/`・`scripts/`・submodule にチケット外の差分は残っていません。差分全体は 156 ファイル（+83,454 / −1,694）で、そのうち 11 ファイル・+63,347 行が `docs/rfc`・`docs/w3c` の参考資料（チケット §8 でレビュー対象外）です。残るチケット外の差分は、`package.json`・`import-test/package.json` の非 auditing install（`4393d889`）と `AGENTS.md`（develop merge 由来）です。merge のたびにこの 3 コマンドを実行し、結果をこの節に追記します。
+
+### 11.3 leak probe の計測方針と `warp` との比較
+
+leak property（P2）が報告した `ice.remoteCandidates` / `ice.checkList` の +1 は 2 つの原因の重なりでした。
+
+1. **実際の漏れ（修正済み）:** `restartRemote()` の後、相手の旧 generation の遅れた check（USERNAME の送信側が旧 remote ufrag）が現行 generation として扱われ、新しい checklist に prflx candidate と pair を作っていました。`packages/ice/src/ice.ts` で退役した remote ufrag を最大 4 個覚え、その check には成功応答だけを返して candidate と pair を作らないようにしました（旧経路の consent は RFC 8445 §9 のとおり維持）。`packages/ice/tests/ice/restart-generation.test.ts` が、`restart()` / `restartRemote()` の両方で旧 generation の prflx と pair が残らないことを固定します（修正を外すと失敗）。
+2. **環境依存の揺らぎ（漏れではない）:** この環境は複数 NIC（Tailscale の 100.124.146.41 を含む）を持ち、host candidate のソケットが wildcard に bind されています。192.168.0.100 のソケットから相手の Tailscale アドレスへ送った check は、送信元が 100.124.146.41 になり、相手はそれを prflx として学習します。学習するかは、その低優先度の pair が ICE 完了前に check されるかで変わり、次の restart で破棄されます。そこで leak probe では、シグナリングされた candidate と pair を厳密に数え（`ice.remoteCandidates`、`ice.checkList`）、prflx は上限付きで数えます（`ice.prflxCandidates` は相手の host IP 数 × host port 数、`ice.prflxPairs` はさらに × local socket 数）。
+
+あわせて、前回追加した固定 cycle 専用の template に `fixedOnly` を付け、seed の抽選から外しました。追加前と同じく、各 seed は `warp` と同じ cycle を引きます。
+
+**seed ごとの失敗率（各 10 回、`--retry 0`、cycle seed のみ）**
+
+| seed | `warp` | 修正前（`27a2717e`） | ICE 修正 + `fixedOnly` | さらに計測方針 |
+|---|---|---|---|---|
+| 10 | 2/10 | 1/10 | 0/10 | 0/10 |
+| 107 | 0/10 | 6/10 | 0/10 | 0/10 |
+| 179 | 0/10 | 0/10 | 4/10 | 0/10 |
+| 175 | 0/10 | 2/10 | 6/10 | 0/10 |
+
+修正前の列は、追加した template のせいで `warp` と異なる cycle を引いていました（seed 107 の失敗 cycle に「BUNDLE split offer rolled back on both sides」が含まれていた）。`fixedOnly` を付けた後の 2 列は `warp` と同じ cycle です。`warp` の seed 10 の失敗も同じ「+1 prflx」で、`warp` でも再現する揺らぎです。
+
+### 11.4 固定の検証コマンドの結果
+
+| コマンド | 結果 |
+|---|---|
+| `npm run type` | 成功 |
+| `npm run lint:imports` | 成功 |
+| `npm run test:small` | 成功（DTLS 462、ICE 402、RTP 405、SCTP 71、WebRTC 1,128 など。失敗 0） |
+| `npm run doc:check` | 成功 |
+| `npm run e2e` | 成功（63 + 18） |
+| `npm run wpt --workspace packages/webrtc` | 成功（PASS 442 / FAIL 534 / TIMEOUT 39、REGRESSION 0。baseline に対する非回帰であり、upstream WPT 全件の成功ではない） |
+| leak property（seed 1〜200、`--retry 0`） | 成功（450 passed、200 skipped は opt-in の heap 検査 P3。約 945 秒） |
+
+未実施: Pion SPED の opt-in 相互接続は、自動ビルドが「local pion-sped is missing or incompatible」で起動しなかったため、今回は確認できていません（このセッションの前半では 5/5 成功）。
 

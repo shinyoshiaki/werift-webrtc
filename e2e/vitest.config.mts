@@ -4,14 +4,6 @@ import { playwright } from "@vitest/browser-playwright";
 import { nodePolyfills } from "vite-plugin-node-polyfills";
 import { defineConfig } from "vitest/config";
 
-// Without a system Chrome the provider falls back to Playwright's Chromium,
-// which ensure-browser.js installs into the package-local browsers path.
-// Loaded at runtime: Vite's config bundler cannot inline this CJS helper.
-const { applyE2ePlaywrightBrowsersPath } = createRequire(import.meta.url)(
-  "./playwright-browsers.js",
-);
-applyE2ePlaywrightBrowsersPath();
-
 // Loaded via require so Vite does not bundle the CommonJS helper.
 const { resolveChromeExecutable } = createRequire(import.meta.url)(
   "./browser-paths.js",

@@ -420,3 +420,55 @@ npm run e2e
 - [x] JSDoc 2 か所を本来の宣言の上に戻した。コードの変更はない。
 - [x] `reviews/epic4-warp-verification.md` §9 に、P1 とテストの対照、検出性の確認（修正を外すと 90 件中 13 件失敗、HEAD では 90/90 成功）、再現コマンド、取りこぼしの点検結果を記録し、`baseCommit` を更新した。
 - [x] 同 §9.3 に最終検証の結果を記録した（`type`、`lint:imports`、`test:small`、マトリクス `--retry=0`、`doc:check`、`e2e`、`wpt` がすべて成功）。
+
+## 8. 追加要件: レビュー範囲と承認基準の固定（レビュー #1–#8 の振り返り）
+
+### 背景（なぜ毎回通らないか）
+
+| 要因 | 根拠 |
+|---|---|
+| ① 差分が大きすぎる | `warp...HEAD` は 162 ファイル・+83k 行で、うち約 63k 行は `docs/rfc`・`docs/w3c` の原文コピー。チケット外の `e2e/`・`scripts/`・`package.json`・`AGENTS.md` も含み、差分全体のレビューでチケット外の箇所が指摘され続けた。 |
+| ② merge 由来の回帰の繰り返し | #2・#3（warp merge 後の replay とテストヘルパーの不整合、145 件失敗）、#3（submodule の巻き戻し、installer の `env` 重複）、#8（`e2e/ensure-browser.js` の `env` 消失）。8 回中 3 回の阻害要因が、チケットのロジックではなく merge 解消の残骸だった。 |
+| ③ 承認基準の変動 | #4 が承認した `dad4fc09` を、#5 が property 検証と公開 API での再現で否認した。レビュアーのモデルと検証の深さが毎回違い、深いレビューほど新しい論点が出る（§7 の①と同じ構図）。 |
+| ④ 既存挙動・環境依存の蒸し返し | 同一 generation 内の ICE candidate の重複登録は既存挙動。leak property の揺らぎは複数 NIC の環境（Tailscale）に依存し、`warp` でも再現する。 |
+
+### 要件
+
+1. **installer 関連をこのチケットから外す（A-1）:** `e2e/ensure-browser.js`、`e2e/vitest.config.mts`、`e2e/vitest.dtls.config.mts`、`scripts/install-playwright-browsers.js` を `warp` の状態に戻し、`e2e/playwright-browsers.js` と `scripts/playwright-host-platform.js` を削除する。再導入は `TICKET-playwright-host-platform-installer.md` で扱う。
+2. **レビュー対象を明確にする（B）:** 次はレビュー対象外とする。
+   - `docs/rfc/`・`docs/w3c/`: 仕様照合用の原文の参考資料（約 63k 行）。werift のコードでもドキュメントでもない。
+   - `doc/`・`packages/*/doc/`: `npm run doc` の生成物。`npm run doc:check` がソースとの一致を保証する。
+   - チケット外として残す差分: `package.json` と `import-test/package.json` の非 auditing install（`4393d889`、AGENTS.md の規則 15）、`AGENTS.md`（develop merge 由来）。
+3. **merge のたびに残骸を点検する（C）:** merge の後に次を実行し、チケット外の差分と未使用の import がないことを確認して、結果を `reviews/epic4-warp-verification.md` §11 に記録する。
+   ```bash
+   git diff --stat warp -- e2e scripts integration
+   git diff warp --submodule=short -- integration third_party
+   npm run lint:imports
+   ```
+4. **承認基準を固定する（D）:**
+   - 既知の対象外事項:
+     - 同一 generation 内の ICE candidate の重複登録 → `TICKET-webrtc-existing-negotiation-issues.md` §5。
+     - leak property の ±1 の揺らぎ（prflx の学習有無）→ 下の「leak probe の計測方針」と、`warp` との比較証跡（`reviews/epic4-warp-verification.md` §11.3）。
+   - leak probe の計測方針（`packages/webrtc/tests/pbt/leak/leakProbe.ts`）:
+     - シグナリングされた candidate と、その pair は厳密に数える（`ice.remoteCandidates`、`ice.checkList`）。2 回目の後の値から増えたら失敗。
+     - prflx は上限付きで数える（`ice.prflxCandidates`、`ice.prflxPairs`）。prflx は相手の check の送信元（相手のインターフェース IP とソケット port の組）から学習する。wildcard に bind したソケットは経路によって送信元 IP が変わるため、学習するかどうかは check の順序で揺れる。上限は「相手の host IP 数 × host port 数」（pair はさらに × local socket 数）で、これを超えては増えない。
+     - 旧 generation の prflx が restart で破棄されることは `packages/ice/tests/ice/restart-generation.test.ts` で固定する。`restartRemote` 後に旧 remote ufrag の遅れた check が prflx を作る実際の漏れは、`ice.ts` の retired remote ufrag で修正した。
+     - 固定 cycle 専用の template（`fixedOnly`）は seed の抽選から外し、seed の replay を `warp` と同じ cycle に保つ。
+   - 固定の検証コマンド:
+     ```bash
+     npm run type
+     npm run lint:imports
+     npm run test:small
+     npm run doc:check
+     npm run e2e
+     npm run wpt --workspace packages/webrtc
+     (cd packages/webrtc && WERIFT_NEGOTIATION_LEAK_SEED=1 WERIFT_NEGOTIATION_LEAK_SEEDS=200 \
+       WERIFT_NEGOTIATION_LEAK_SHRINK=0 npx vitest run tests/pbt/leak/negotiationLeakProperty.test.ts --retry 0)
+     ```
+   - 承認の判断は、この固定コマンドの結果と、上の対象外事項を除いたチケット範囲（§1–§6）の指摘で行う。対象外事項に該当する指摘は、このチケットではなく参照先のチケットで扱う。
+
+### 完了条件
+
+- [x] installer 関連 6 ファイルを `warp` の状態に戻し（2 ファイルは削除）、`TICKET-playwright-host-platform-installer.md` を作成した。`git diff --stat warp -- e2e scripts integration` は空になった。
+- [x] `TICKET-webrtc-existing-negotiation-issues.md` の installer の記述を新チケットへの参照に改め、同一 generation の ICE 重複を §5 に追加した。
+- [x] `reviews/epic4-warp-verification.md` §11 に、merge 残骸の点検結果、leak probe の計測方針と seed 1〜200 の結果、`warp` との比較、固定の検証コマンドの結果を記録した。

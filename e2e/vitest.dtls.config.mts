@@ -1,19 +1,11 @@
 import { existsSync } from "node:fs";
-import { createRequire } from "node:module";
+
 import { playwright } from "@vitest/browser-playwright";
+import { chromium } from "playwright";
 import { nodePolyfills } from "vite-plugin-node-polyfills";
 import { defineConfig } from "vitest/config";
 import { chromiumLaunchArgs } from "./tests/dtls/chromiumLaunch";
 
-// ensure-browser.js installs the pinned Chromium into the package-local
-// browsers path; point Playwright there before loading it.
-// Loaded at runtime: Vite's config bundler cannot inline this CJS helper.
-const { applyE2ePlaywrightBrowsersPath } = createRequire(import.meta.url)(
-  "./playwright-browsers.js",
-);
-applyE2ePlaywrightBrowsersPath();
-// hoist-imports-allow: Playwright reads PLAYWRIGHT_BROWSERS_PATH at module load
-const { chromium } = await import("playwright");
 let playwrightChromium: string | undefined;
 try {
   playwrightChromium = chromium.executablePath();

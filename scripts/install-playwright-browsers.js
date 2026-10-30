@@ -3,15 +3,12 @@
 const { spawnSync } = require("node:child_process");
 const { existsSync } = require("node:fs");
 const { basename, dirname, join } = require("node:path");
-const { playwrightInstallEnv } = require("./playwright-host-platform.js");
 
 const repoRoot = join(__dirname, "..");
 
-// e2e keeps its browsers in a package-local path and has its own installer.
-const e2eDir = join(repoRoot, "e2e");
-
 const playwrightPackageDirs = [
   repoRoot,
+  join(repoRoot, "e2e"),
   join(repoRoot, "packages/ice-server/chrome-e2e"),
   join(repoRoot, "examples/turn-loopback/chrome-e2e"),
 ];
@@ -96,7 +93,6 @@ function installWithPlaywright(packageDir, browsersPath) {
     paths: [packageDir],
   });
   const cliPath = join(dirname(packageJsonPath), "cli.js");
-  const installEnv = playwrightInstallEnv();
   const result = spawnSync(
     process.execPath,
     [cliPath, "install", "chromium", "chromium-headless-shell"],
@@ -104,8 +100,8 @@ function installWithPlaywright(packageDir, browsersPath) {
       cwd: repoRoot,
       stdio: "inherit",
       env: browsersPath
-        ? { ...installEnv, PLAYWRIGHT_BROWSERS_PATH: browsersPath }
-        : installEnv,
+        ? { ...process.env, PLAYWRIGHT_BROWSERS_PATH: browsersPath }
+        : process.env,
     },
   );
 
@@ -161,7 +157,6 @@ function main() {
       ["playwright", "install", "chromium", "chromium-headless-shell"],
       {
         cwd: repoRoot,
-        env: playwrightInstallEnv(),
         stdio: "inherit",
       },
     );
@@ -176,20 +171,6 @@ function main() {
       continue;
     }
     installWithPlaywright(install.packageDir, install.browsersPath);
-  }
-
-  if (resolveFromPackage(e2eDir, "playwright/package.json")) {
-    const result = spawnSync(
-      process.execPath,
-      [join(e2eDir, "ensure-browser.js")],
-      { cwd: e2eDir, stdio: "inherit" },
-    );
-    if (result.error) {
-      throw result.error;
-    }
-    if ((result.status ?? 1) !== 0) {
-      process.exit(result.status ?? 1);
-    }
   }
 
   process.exit(0);
