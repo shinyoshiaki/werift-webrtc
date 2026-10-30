@@ -1,6 +1,6 @@
 import { readFileSync } from "fs";
 import { setTimeout } from "timers/promises";
-
+import { SCTP_STATE } from "../../sctp/src";
 import {
   type ConnectionState,
   type PeerConfig,
@@ -212,6 +212,20 @@ export async function waitForConnectionState(
       );
     }),
   ]);
+}
+
+/** Arrange: wait until the peer's SCTP association reaches ESTABLISHED. */
+export async function waitForSctpEstablished(
+  pc: RTCPeerConnection,
+  timeoutMs = 10_000,
+) {
+  const deadline = Date.now() + timeoutMs;
+  while (pc.sctpTransport?.sctp.associationState !== SCTP_STATE.ESTABLISHED) {
+    if (Date.now() > deadline) {
+      throw new Error("timed out waiting for the SCTP association");
+    }
+    await setTimeout(10);
+  }
 }
 
 export async function waitForDtlsState(

@@ -231,12 +231,19 @@ export class SecureTransportManager {
     // A fingerprint re-validation failure happens after the initial
     // connection has already been reported.  Bridge that terminal DTLS state
     // to PeerConnection.connectionState instead of leaving it "connected".
+    // A closed transport (stopped by rollback, BUNDLE replacement or close())
+    // releases its entry so a long-lived PeerConnection does not retain it.
+    const release = () => {
+      stateSubscription.unSubscribe();
+      this.dtlsStateDisposers.delete(dtlsTransport);
+    };
     const stateSubscription = dtlsTransport.onStateChange.subscribe((state) => {
       if (state === "failed" && this.connectionState !== "closed") {
         this.setConnectionState("failed");
       }
+      if (state === "closed") release();
     });
-    this.dtlsStateDisposers.set(dtlsTransport, stateSubscription.unSubscribe);
+    this.dtlsStateDisposers.set(dtlsTransport, release);
 
     return dtlsTransport;
   }
@@ -732,16 +739,6 @@ export class SecureTransportManager {
     }
   }
 
-  /** Stop a transport that was replaced while applying a BUNDLE description. */
-  async stopTransport(dtlsTransport: RTCDtlsTransport) {
-    const dispose = this.dtlsStateDisposers.get(dtlsTransport);
-    if (dispose) {
-      dispose();
-      this.dtlsStateDisposers.delete(dtlsTransport);
-    }
-    await dtlsTransport.stop();
-  }
-
   async close() {
     this.setConnectionState("closed");
 
@@ -749,10 +746,9 @@ export class SecureTransportManager {
       ...this.dtlsStateDisposers.keys(),
       ...this.allDtlsTransports,
     ]);
-    for (const dispose of this.dtlsStateDisposers.values()) {
-      dispose();
+    for (const release of [...this.dtlsStateDisposers.values()]) {
+      release();
     }
-    this.dtlsStateDisposers.clear();
 
     await Promise.allSettled(createdTransports.map((t) => t.stop()));
 

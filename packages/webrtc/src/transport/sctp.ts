@@ -211,6 +211,15 @@ export class RTCSctpTransport {
     return this.sctp;
   }
 
+  /**
+   * RFC 8832 §6: the DTLS client uses even stream IDs and the DTLS server odd
+   * ones. Shared by start() and by an association the peer's INIT established
+   * before start() ran, so both sides never pick the same ID.
+   */
+  private get firstLocalStreamId() {
+    return this.isServer ? 1 : 0;
+  }
+
   private get isServer() {
     return this.dtlsTransport.role === "server";
   }
@@ -401,7 +410,7 @@ export class RTCSctpTransport {
     if (this.sctp.associationState != SCTP_STATE.ESTABLISHED) return;
     // The peer's INIT can establish an association that joined a connected
     // DTLS transport before start() ran here; the same side decides the IDs.
-    this.dataChannelId ??= this.isServer ? 0 : 1;
+    this.dataChannelId ??= this.firstLocalStreamId;
 
     // Hands every queued message to SCTP synchronously (SCTP.send enqueues
     // before its first await) and tracks completion per message, so repeated
@@ -538,11 +547,7 @@ export class RTCSctpTransport {
     if (this.dtlsTransport.state !== "connected") {
       this.preAuthenticationStarts.add(this.sctp);
     }
-    if (this.isServer) {
-      this.dataChannelId = 1;
-    } else {
-      this.dataChannelId = 0;
-    }
+    this.dataChannelId = this.firstLocalStreamId;
     // SCTP's `isServer` flag means passive COOKIE-WAIT peer. WARP assigns the
     // active INIT sender to the DTLS server, independently of the ICE role.
     this.sctp.isServer = !this.isServer;

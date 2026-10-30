@@ -445,6 +445,11 @@ export function leakFootprint(pc: RTCPeerConnection): Footprint {
       candidateLines(pc.currentRemoteDescription?.sdp) +
       candidateLines(pc.pendingLocalDescription?.sdp) +
       candidateLines(pc.pendingRemoteDescription?.sdp),
+    // 閉じた (rollback・BUNDLE 置換・close で停止した) DTLS transport を状態購読の
+    // 表に残さない。
+    "secure.dtlsStateDisposers": (
+      internal.secureManager.dtlsStateDisposers as Map<unknown, unknown>
+    ).size,
     "events.peer": sum(
       [
         pc,
@@ -897,6 +902,14 @@ export const CYCLE_TEMPLATES: CycleTemplate[] = [
     ops: (x, y, rng) => [
       [x, "offer", { iceRestart: rng.chance(0.5) }],
       [x, "replacementOffer", { iceRestart: rng.chance(0.5) }],
+      [x, "rollback"],
+    ],
+  },
+  {
+    name: "BUNDLE split offer rolled back on both sides",
+    ops: (x, y) => [
+      [x, "splitOffer", { mid: "2" }],
+      [y, "rollback"],
       [x, "rollback"],
     ],
   },

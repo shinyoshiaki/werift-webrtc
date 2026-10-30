@@ -509,7 +509,7 @@ describe("peerConnection", () => {
       });
 
       try {
-        // Act: SRD の transceiver 通知後、追加された stopTransport 待機へ入る。
+        // Act: SRD の transceiver 通知後、置き換えた transport の停止待機へ入る。
         const applied = callee.setRemoteDescription(caller.localDescription!);
 
         // Assert: await 中に close された SRD は InvalidStateError で終わる。
