@@ -61,6 +61,40 @@ describe("ICE restart previous selected pair", () => {
       await b.close();
     }
   }, 30_000);
+  test("remote だけの restart でも新候補が届くまで旧選択 pair の datagram を media 用に識別する", async () => {
+    // Arrange: restart 前から a → b の media が流れている
+    const { a, b } = await createConnectedPair();
+    const received = collectDatagrams(b);
+    await a.send(Buffer.from("before-restart"));
+    await setTimeout(100);
+
+    try {
+      // Act: 相手 (a) だけが資格情報を更新した answer を b が適用する。
+      // b の local 資格情報は変わらず、新しい remote 候補はまだ届かない。
+      b.restartRemote();
+      b.setRemoteParams({
+        iceLite: false,
+        usernameFragment: "next",
+        password: "next-generation-password-0",
+      });
+      await a.send(Buffer.from("old-path-remote-only"));
+      await setTimeout(100);
+
+      // Assert: 現世代の pair はないが、旧選択 pair 由来の media として識別される
+      const onOldPath = received.find(
+        (ctx) => ctx.bytes.toString() === "old-path-remote-only",
+      );
+      expect(onOldPath).toBeDefined();
+      expect(onOldPath?.pair).toBeUndefined();
+      expect(onOldPath?.authenticated).toBe(false);
+      expect(onOldPath?.generation).toBe(b.generation);
+      expect(onOldPath?.fromPreviousSelectedPair).toBe(true);
+    } finally {
+      await a.close();
+      await b.close();
+    }
+  }, 30_000);
+
   test("同じアドレスの新世代 pair が未認証のうちは旧選択 pair の datagram を識別し続ける", async () => {
     // Arrange: restart 前に a → b の media 経路 (b から見た 5-tuple) を確定させる
     const { a, b } = await createConnectedPair();

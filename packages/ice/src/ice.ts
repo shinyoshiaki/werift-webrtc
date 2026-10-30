@@ -305,7 +305,12 @@ export class Connection implements IceConnection {
     return this.options.iceLite;
   }
 
-  async restart() {
+  /**
+   * Keep the selected path of the generation a restart replaces: the peer
+   * keeps sending media on it until it moves to the new selected pair
+   * (RFC 8445 §9). Its datagrams stay deliverable as media only.
+   */
+  private retainSelectedPairs() {
     const selected = [this.nominated, this.lastDataPair].filter(
       (pair): pair is CandidatePair =>
         pair !== undefined && isAuthenticatedHandshakePair(pair),
@@ -314,6 +319,10 @@ export class Connection implements IceConnection {
       this.previousSelectedPairs = [...new Set(selected)];
     }
     this.lastDataPair = undefined;
+  }
+
+  async restart() {
+    this.retainSelectedPairs();
     this.generation++;
     this.abandonInFlightStunTransactions();
     this.remoteGeneration++;
@@ -488,6 +497,7 @@ export class Connection implements IceConnection {
    * the selected pair start over; local credentials and candidates stay.
    */
   restartRemote() {
+    this.retainSelectedPairs();
     this.remoteGeneration++;
     this.retireRemoteUsername();
     this.remoteUsername = "";

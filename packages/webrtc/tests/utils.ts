@@ -273,6 +273,22 @@ export async function getTransportStats(pc: RTCPeerConnection) {
   );
 }
 
+/**
+ * Arrange: a description whose ICE credentials changed (a restart by its
+ * author only) and whose candidates have not arrived yet (trickled later).
+ */
+export function withRestartedIceCredentials(sdp: string) {
+  return sdp
+    .replace(/a=ice-ufrag:\S+/g, "a=ice-ufrag:rstr")
+    .replace(/a=ice-pwd:\S+/g, "a=ice-pwd:restartedpassword0123456789")
+    .split("\r\n")
+    .filter(
+      (line) =>
+        !line.startsWith("a=candidate:") && line !== "a=end-of-candidates",
+    )
+    .join("\r\n");
+}
+
 export function mutateSdpFingerprint(sdp: string) {
   return sdp.replace(
     /a=fingerprint:(\S+)\s+([0-9A-Fa-f:]+)/g,

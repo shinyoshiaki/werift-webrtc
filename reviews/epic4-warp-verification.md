@@ -407,3 +407,18 @@ leak property（P2）が報告した `ice.remoteCandidates` / `ice.checkList` �
 
 未実施: Pion SPED の opt-in 相互接続は、自動ビルドが「local pion-sped is missing or incompatible」で起動しなかったため、今回は確認できていません（このセッションの前半では 5/5 成功）。
 
+
+### 11.5 remote だけの ICE restart で旧経路の RTP が破棄される（レビューの再指摘への対応）
+
+**原因:** `packages/ice/src/ice.ts` の `restartRemote()`（相手だけが資格情報を変えた description を適用したときの経路）は、`restart()` と違って旧選択 pair を `previousSelectedPairs` に残さず、`nominated` と checklist を消していました。そのため `RTCDtlsTransport` の受信ゲートは、相手がまだ送り続けている旧経路の RTP を「未認証 pair・旧選択 pair でもない」として破棄し、新 pair が認証されるまで音声と映像が途切れていました。
+
+**修正:** 旧選択 pair を残す処理を `retainSelectedPairs()` にまとめ、`restart()` と `restartRemote()` の両方で呼びます。残した pair は、従来どおり media の受信にだけ使い（DTLS の認証経路には使わない）、新しい generation の認証済み datagram が届いた時点で解放されます（RFC 8445 §9）。
+
+**回帰テスト（修正を外すと両方失敗）:**
+
+| テスト | 内容 |
+|---|---|
+| `packages/ice/tests/ice/restart-previous-pair.test.ts`「remote だけの restart でも…」 | `restartRemote()` と新しい remote 資格情報の適用後、新候補が届く前の旧経路の datagram が `fromPreviousSelectedPair` として識別される |
+| `packages/webrtc/tests/integrate/iceRestartContinuity.test.ts` | 公開 API で、相手だけが資格情報を変えて候補を省いた answer を `setRemoteDescription()` で適用した後の 250 ms 間も RTP を受け取り続ける（修正前は 0 パケット） |
+
+**固定の検証コマンド（§8 の一式、`9bce67d6` + 本修正の作業ツリー）:** `type`・`lint:imports`・`doc:check` 成功、`test:small` 成功（ICE 403、WebRTC 1,129 ほか失敗 0）、`e2e` 63 + 18 成功、`wpt` REGRESSION 0（PASS 442）、leak property seed 1〜200 は 450 passed。
