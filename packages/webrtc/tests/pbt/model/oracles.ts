@@ -339,12 +339,45 @@ export class ModelOracles implements Observer {
     };
   }
 
+  /**
+   * The WARP policy `setConfiguration` set reaches every transport that is
+   * created and not closed: live, prepared for a pending description, or
+   * held by a rollback baseline.
+   */
+  private warpConfigReachesOpenTransports(
+    pc: RTCPeerConnection,
+    label: string,
+  ) {
+    const normalize = (warp?: {
+      allowEarlyServerData?: boolean;
+      earlyMediaPolicy?: string;
+    }) => ({
+      allowEarlyServerData: warp?.allowEarlyServerData === true,
+      earlyMediaPolicy: warp?.earlyMediaPolicy ?? "drop",
+    });
+    const expected = normalize(pc.getConfiguration().warp);
+    const open = (
+      pc as unknown as {
+        secureManager: {
+          openDtlsTransports: { id: string; config: { warp?: never } }[];
+        };
+      }
+    ).secureManager.openDtlsTransports;
+    for (const transport of open) {
+      expect(
+        normalize(transport.config.warp),
+        `${label}: WARP policy of transport ${transport.id}`,
+      ).toEqual(expected);
+    }
+  }
+
   async after(step: AppliedStep, raw: unknown) {
     const { pc } = step;
     const before = raw as Before;
     if (pc.signalingState === "closed") return;
     const now = world(pc);
     const label = `${step.kind}(${step.type ?? "candidate"})`;
+    this.warpConfigReachesOpenTransports(pc, label);
     const other = this.other(pc);
     // jsep: 相手の peer は変わらない (自分の操作だけが自分の状態を変える)。
     if (other && before.other && other.signalingState !== "closed") {

@@ -448,6 +448,7 @@ npm run e2e
 4. **承認基準を固定する（D）:**
    - 既知の対象外事項:
      - 同一 generation 内の ICE candidate の重複登録 → `TICKET-webrtc-existing-negotiation-issues.md` §5。
+     - `setConfiguration({ iceServers })` が準備中の transport に届かない（`updateIceServers()`、`warp` と同じコード）→ 同 §6。同じ型の WARP 設定の漏れはこのチケットで直した（§9）。
      - leak property の ±1 の揺らぎ（prflx の学習有無）→ 下の「leak probe の計測方針」と、`warp` との比較証跡（`reviews/epic4-warp-verification.md` §11.3）。
    - leak probe の計測方針（`packages/webrtc/tests/pbt/leak/leakProbe.ts`）:
      - シグナリングされた candidate と、その pair は厳密に数える（`ice.remoteCandidates`、`ice.checkList`）。2 回目の後の値から増えたら失敗。
@@ -472,3 +473,42 @@ npm run e2e
 - [x] installer 関連 6 ファイルを `warp` の状態に戻し（2 ファイルは削除）、`TICKET-playwright-host-platform-installer.md` を作成した。`git diff --stat warp -- e2e scripts integration` は空になった。
 - [x] `TICKET-webrtc-existing-negotiation-issues.md` の installer の記述を新チケットへの参照に改め、同一 generation の ICE 重複を §5 に追加した。
 - [x] `reviews/epic4-warp-verification.md` §11 に、merge 残骸の点検結果、leak probe の計測方針と seed 1〜200 の結果、`warp` との比較、固定の検証コマンドの結果を記録した。
+
+## 9. 追加要件: 同じ型の漏れの一括点検（レビュー #1–#7 の振り返り）
+
+### 背景（なぜ指摘が続くか）
+
+| # | モデル | 判定 | 指摘の型 |
+|---|---|---|---|
+| 1 | sol | 非承認 | チケット外の installer（§8 の A-1 で除外済み） |
+| 2 | luna | 承認 | — |
+| 3 | sol | 非承認 | `restart()` には旧経路の保持を入れたが、`restartRemote()` には入れていなかった（**対になる操作の片方だけ**） |
+| 4 | luna | 承認 | — |
+| 5 | sol | 非承認 | 受信の制限が「自分が選んだ経路」だけを前提にしていた（**相手側の経路を見落とし**） |
+| 6 | luna | 承認（関連テストだけで判断） | — |
+| 7 | sol | 非承認 | 設定の変更が使用中の transport にしか届かない（**準備中の transport を見落とし**） |
+
+- luna の承認の直後に sol が非承認にしている。sol は公開 API の操作を組み合わせた独自の再現、`--retry=0`、`warp` との比較まで行うので、承認の可否を実質的に決めているのは sol である。
+- #3・#5・#7 は §8 の「対象外」に当てはまらない。どれもこのチケットで入れたコードの不完全さで、承認基準を固定しても防げない。
+- 共通の根本原因: このチケットは transport ごとに多くの状態を追加した（WARP 設定、SPED の受信ゲート、early データの buffer、replay window、旧経路の保持、readiness）。一方で、transport を保持する集合（live、prepared、pendingOnly、speculative、rollback の baseline）も、対になる操作（local/remote の restart、offer/answer、pranswer/answer、DTLS client/server、自分/相手の経路）も複数ある。新しい状態を代表的な 1 経路にしか入れないと、組み合わせのどこかに穴が残る。
+- 修正のたびに修正箇所の周辺だけを検証していたため、同じ型の別の箇所は次の sol レビューで初めて見つかっていた。
+
+### 要件
+
+1. **#7 を型ごと直す（A）:** `SecureTransportManager.openDtlsTransports`（作成済みで閉じていない全 transport）を追加し、`setConfiguration` の WARP 設定の更新はこれを通す。回帰テストは #7 の再現手順（3 本の m-line を BUNDLE した接続の分割 offer → `createAnswer` → 設定変更 → `setLocalDescription`）を `packages/webrtc/tests/integrate/warpConfiguration.test.ts` に置き、Arrange は `warpArrange.ts` に置く。`updateIceServers()` の同じ型の不具合は `warp` と同じ既存の問題なので直さず、`TICKET-webrtc-existing-negotiation-issues.md` §6 と §8 の対象外一覧に記録する。
+2. **同じ型を自分で洗い出す（B）:** このチケットが追加した transport ごとの状態を行にし、「どの transport に反映されるか（live / prepared / pendingOnly・speculative / baseline / 停止済み）」と「対になる操作の両方を通るか」を列にした表を `reviews/epic4-warp-verification.md` §12 に置く。すべてのマスについて、反映される・されない理由をコードの位置かテストで示す。
+3. **sol と同じ検証を PBT に組み込む（C）:** `tests/pbt/model` に、操作列のどこにでも入る `setConfiguration({ warp })` の操作と、description の操作のたびに「開いているすべての transport の `config.warp` が `getConfiguration().warp` と一致する」ことを検査する invariant を追加する。#7 の順序は固定 scene にする。
+4. **依頼前の確認を sol と同じ深さにする（D）:** CLI レビューを依頼する前に、次を実行して `reviews/epic4-warp-verification.md` に記録する。
+   - 全体のテストを `--retry=0` で実行する（`test:small` は vitest の既定 `retry: 1` を使うため、`npx vitest run --retry 0` でも実行する）。
+   - `transportFaultMatrix.test.ts` を `--retry=0` で実行する。
+   - 指摘されたシナリオを `warp` の一時 worktree と比較する。
+5. **自動コミットで不要なファイルが混入するのを防ぐ（E）:** スクラッチや診断用のファイルは worktree の外（`/tmp` など）に置くか、作ったらすぐ消す。
+
+### 完了条件
+
+- [x] `openDtlsTransports` を追加し、WARP 設定の更新をそれに通した。`warpConfiguration.test.ts` は修正を外すと失敗する（準備中の transport が `true` / `"buffer"` のまま）。
+- [x] `TICKET-webrtc-existing-negotiation-issues.md` §6 に `updateIceServers()` を追加し、§8 の対象外一覧に載せた。
+- [x] `reviews/epic4-warp-verification.md` §12 に、反映先と対になる操作の表を記録した。
+- [x] model property に `warpPolicy` の操作、invariant、固定 scene を追加した。固定 scene は修正を外すと invariant で失敗する。
+- [x] D の確認結果を `reviews/epic4-warp-verification.md` §12.4 に記録した。
+

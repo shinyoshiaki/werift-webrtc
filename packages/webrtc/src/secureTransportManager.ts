@@ -79,6 +79,16 @@ export class SecureTransportManager {
     ]);
   }
 
+  /**
+   * Every DTLS transport created and not yet closed: the live ones, those a
+   * pending description prepared (BUNDLE split, a new m-line) and those a
+   * rollback baseline still holds. Transport-level settings that may change
+   * after creation must reach all of them, not only `dtlsTransports`.
+   */
+  get openDtlsTransports() {
+    return [...this.dtlsStateDisposers.keys()];
+  }
+
   /**停止済み transceiver の transport も含めた全 transport */
   private get allDtlsTransports() {
     return uniqueTransports([

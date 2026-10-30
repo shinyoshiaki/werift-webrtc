@@ -4,7 +4,7 @@ ide:
   version: 1
   title: "Epic 4: WARP 対応 WebRTC の検証記録（interop / E2E / 要件とテストの対応）"
   dock: right
-  baseCommit: 142abf107d1130a05a84601abb70a9e2e41f87f6
+  baseCommit: 468aef83d759cda42379519aeec719bffe05160a
 ---
 # Epic 4: WARP 対応 WebRTC の検証記録
 
@@ -440,3 +440,91 @@ leak property（P2）が報告した `ice.remoteCandidates` / `ice.checkList` �
 自分の選択 pair 以外を破棄することを確かめていた単体テスト 2 件（restart 中の未 nomination の pair、TCP の別 pair）は、この誤った制限を固定していたため、受け取ることを確かめる内容に改めました。
 
 **固定の検証コマンド（§8 の一式、`89e8bdad` + 本修正の作業ツリー）:** `type`・`lint:imports`・`doc:check` 成功、`test:small` 成功（WebRTC 1,130、ICE 403 ほか失敗 0）、`e2e` 63 + 18 成功、`wpt` REGRESSION 0（PASS 442）、leak property seed 1〜200 は 450 passed。
+
+## 12. 同じ型の漏れの洗い出し（チケット §9 への対応）
+
+レビュー #3・#5・#7 の非承認は、どれも「このチケットが transport ごとに追加した状態が、代表的な 1 経路にしか適用されていない」型でした（#3: `restart()` には入れたが `restartRemote()` に未適用、#5: 自分の選択経路だけを前提にした受信制限、#7: WARP 設定の更新が使用中の transport だけに届く）。同じ型の残りを、次の 2 つの表で洗い出しました。各マスは、反映されることを示すコードの位置かテスト、または反映されない理由です。`✓` は反映される、`—` はその集合・操作に当てはまらないことを表します。
+
+### 12.1 どの transport に反映されるか
+
+transport の集合は次のとおりです。
+
+- **live:** `SecureTransportManager.dtlsTransports`。現在の m-line と SCTP が使う transport。
+- **prepared:** 適用前の description のために作られた transport。BUNDLE 分割や新しい m-line の answer・offer で作られ、`negotiation.resources.prepared` に入る。
+- **pendingOnly / speculative:** pranswer の暫定接続だけが使う transport。`resources.pendingOnly` と `owners`。
+- **baseline:** rollback で戻る先の transport。開いたまま保持されている。
+- **停止済み:** `stop()` で `closed` になった transport。
+
+作成済みで閉じていない transport は、すべて `SecureTransportManager.openDtlsTransports`（`secureTransportManager.ts:88`）に入ります（`dtlsStateDisposers` のキー）。
+
+| このチケットが追加した状態 | live | prepared | pendingOnly / speculative | baseline | 停止済み |
+|---|---|---|---|---|---|
+| WARP 設定（`allowEarlyServerData`・`earlyMediaPolicy`） | ✓ 作成時に複製（`secureTransportManager.ts:227`、`dtls.ts` の constructor）。変更は `openDtlsTransports` 全体へ（`peerConnection.ts:514`） | ✓ 同左。**#7 で漏れていた**。`tests/integrate/warpConfiguration.test.ts`、model の固定 scene とすべての操作後の invariant（§12.3） | ✓ 同左（`openDtlsTransports` に含まれる） | ✓ 同左 | — `closed` で集合から外れる。再び使われない |
+| `sped`・`dtls.protocolVersions`・`helloRetryRequest` | ✓ 作成時に設定 | ✓ 同左 | ✓ 同左 | ✓ 同左 | — |
+| （上の行の続き） | 最初の transport ができた後は変更不可（`peerConfig.ts:551` ほか）なので、作成後の更新漏れは起きない | | | | |
+| SPED の対応表明（`prepareConnectionSped`） | ✓ `sped: true` の全 transport の作成時（`secureTransportManager.ts:238`） | ✓ 同左 | ✓ 同左 | ✓ 同左 | — |
+| DTLS の `failed` → `connectionState` の橋渡しと購読 | ✓ 作成時に登録（`secureTransportManager.ts:250`） | ✓ 同左 | ✓ 同左。暫定接続の DTLS 失敗も `failed` にする（W3C の集約は開いている transport の失敗を含む） | ✓ 同左 | ✓ `closed` で購読と表から外す（`secureTransportManager.ts:254`、leak の固定 cycle「a remote offer rolled back releases…」） |
+| ICE restart の DTLS への通知（`handleIceRestart`） | ✓ ICE を restart する集合と同じ live 集合（`secureTransportManager.ts:507`） | — ICE をまだ開始していない。restart は開始後の generation に対する操作 | — 暫定世代は live 世代を変えない（`transport/ice.ts:111`） | ✓ live と同じ | — |
+| （上の行の続き） | 通知のない経路（answerer の restart、staged restart の commit、remote だけの restart）は、datagram の受信時と handshake の待機中に `syncAttemptToIceGeneration`（`dtls.ts:397`）が generation のずれを検出して同じ処理をする | | | | |
+| early データ・media の buffer、readiness | ✓ attempt 単位。generation の変化で作り直す（SPED は `onSessionReset`（`dtls.ts:758`）、非 SPED は `syncAttemptToIceGeneration`） | ✓ 開始前の到着も現世代だけ buffer する | ✓ 同左 | ✓ 同左 | ✓ `stop()`（`dtls.ts:1349`）が gate を中止し、buffer を破棄する |
+| SRTP の replay window | ✓ DTLS association ごとの `SrtpSession`（`dtls-srtp.ts:17`）。ICE restart では同じ鍵を使い続けるので window も保つ | ✓ 同左（新しい association は新しい window） | ✓ 同左 | ✓ 同左 | — |
+| SCTP の stream ID の偶奇・開始側 | ✓ DTLS role で決める（`sctp.ts:219` の `firstLocalStreamId` を `start()` と、相手の INIT が先に来た場合の両方で使う） | ✓ SCTP transport が移っても同じ規則 | ✓ 同左 | ✓ 同左 | — |
+| SCTP の停止と DataChannel | ✓ `stop()` は登録済みの channel だけを閉じ、未告知の channel を残す（`sctp.ts:116`） | ✓ 同左 | ✓ 同左 | ✓ rollback で残った channel は次の association で告知する | ✓ PeerConnection の close はすべての channel を閉じる（`sctpManager.ts:356`）。DTLS の `failed`／`closed` も全 channel を閉じる |
+| `connect()` の結果の集約 | ✓ 待機中に失敗した transport を `connected` と報告しない（`transportActivation.ts:323`） | — 接続判定は live 集合が対象（W3C の `connectionState`） | — 同左 | — 同左 | — `closed` は終端（`secureTransportManager.ts:718`） |
+
+### 12.2 対になる操作の両方を通るか
+
+| 対になる操作 | 一方 | もう一方 | 根拠 |
+|---|---|---|---|
+| local の restart と remote だけの restart | ✓ `restart()` が旧選択 pair を保持し（`ice.ts:325`）、旧 remote ufrag を退役させる（`ice.ts:350`） | ✓ `restartRemote()` も同じ処理を呼ぶ（`ice.ts:500`、`ice.ts:502`）。**#3 で漏れていた** | `tests/ice/restart-previous-pair.test.ts`（両方）、`tests/ice/restart-generation.test.ts`（`restart` / `restartRemote` の each）、`tests/integrate/iceRestartContinuity.test.ts` |
+| （上の行の続き） | | `setRemoteParams()` で remote ufrag が変わったときも退役させる（`ice.ts:971`） | |
+| 自分の選択経路と相手の選択経路 | ✓ | ✓ 受信は「現世代・認証済み pair・送信元一致」だけで判定する。SPED の DTLS（`sped.ts:92`）、media（`dtls.ts:1128`、旧選択 pair は media だけ）。**#5 で漏れていた** | `tests/integrate/spedPathSelection.test.ts`（IPv4 / IPv6）、`tests/transport/sped.test.ts` |
+| （上の行の続き） | | 同じ 5-tuple に重複した pair があるときは、認証済みの pair で判定する（`ice.ts:2565`） | `tests/sped/datagram.test.ts` |
+| DTLS client と DTLS server | ✓ SCTP の stream ID は偶数（`sctp.ts:219`） | ✓ 奇数。INIT を送るのは server で、client は受け身で待つ | `tests/datachannel/streamId.test.ts`、`transportFaultMatrix.test.ts`（answerer の DTLS role を 2 通り） |
+| SPED の Binding Request と Response | ✓ runtime がない間も、relay 以外の pair では空の DATA を付ける（`sped-bind.ts:25`） | ✓ 同左 | `tests/sped/prestart.test.ts` |
+| pranswer と最終の answer | ✓ pranswer の暫定世代は、live の選択 pair と送信先を変えない（`transport/ice.ts:111`）。暫定 pair では送らないので、受信制限の対象にもならない | ✓ 最終の answer は `restart()` で live 世代を作り直し、上の restart の規則が適用される | `negotiationTransaction*.test.ts`（[2.7-T4b] ほか） |
+| rollback | ✓ WARP 設定は description の状態ではないので、rollback で戻さない。開いている transport はすべて現在の設定を保つ（§12.1） | ✓ rollback で閉じた transport は、表と購読から外れる | model の固定 scene（§12.3）、leak の固定 cycle「a remote offer rolled back releases the transports it created」 |
+| offer と answer（設定変更の時期） | ✓ offer の作成後・適用前の変更も反映される（作成済みの transport はすべて `openDtlsTransports` に入る） | ✓ answer の作成後・適用前の変更も反映される（#7 の手順） | `tests/integrate/warpConfiguration.test.ts`、model の操作 `warpPolicy` |
+
+**同じ型だが、このチケットでは直さないもの:** `setConfiguration({ iceServers })` が準備中の transport に届かない問題（`updateIceServers()`）は、`warp` と同じコードの既存の不具合です。`TICKET-webrtc-existing-negotiation-issues.md` §6 に記録し、チケット §8 の対象外一覧に加えました。
+
+### 12.3 model property への組み込み（C）
+
+`packages/webrtc/tests/pbt/model` に次を追加しました。
+
+- **操作 `warpPolicy`**（`generator.ts`）: どの signaling state でも、`setConfiguration({ warp: { earlyMediaPolicy } })` で `"drop"` / `"buffer"` を切り替える。model の peer は SPED を使わないため、`allowEarlyServerData` は切り替えない（SPED と DTLS 1.3 が必要）。
+- **invariant**（`oracles.ts` の `warpConfigReachesOpenTransports`）: description の操作のたびに、開いているすべての transport の `config.warp` が `getConfiguration().warp` と一致することを検査する。
+- **固定 scene**（`scenes.ts`）「a WARP policy set while a BUNDLE split transport is prepared reaches that transport」: #7 と同じ順序（分割 offer → `createAnswer` → 設定変更 → `setLocalDescription`）。修正を外すと invariant が `setLocal(answer)` で失敗し、修正後は成功する。
+
+### 12.4 依頼前の確認（D、`468aef83` + §9 の修正の作業ツリー）
+
+**`--retry 0` で全体のテスト:**
+
+| パッケージ | 結果 |
+|---|---|
+| common | 57 passed |
+| dtls | 462 passed |
+| ice | 403 passed |
+| rtp | 405 passed |
+| sctp | 1 回目は 70 passed / 1 failed、再実行 3 回はすべて 71 passed |
+| webrtc | 1,133 passed |
+| ice-server | 45 passed、Chrome E2E 4 passed |
+
+sctp の 1 件は `tests/burst.test.ts`「transfer time grows close to linearly…」です。時間の比（10.2 倍、上限 8 倍）で判定する負荷依存のテストで、単独実行では branch・`warp` とも 5/5 成功しました。パッケージ全体の `--retry 0` 再実行も、branch（71 件）と `warp`（59 件）でそれぞれ 3/3 成功しました。このブランチはこのテストを変更していません。
+
+**`transportFaultMatrix.test.ts` を `--retry 0`:** 90/90 成功。
+
+**#7 のシナリオの `warp` との比較:** `warp` には `PeerConfig.warp`（`allowEarlyServerData`・`earlyMediaPolicy`）も、実行中の設定変更（`updateWarpConfig`）もありません。#7 は退行ではなく、このチケットが追加した機能が準備中の transport に届いていなかったもので、`warp` では同じ手順を再現できません。
+
+**model property（C の追加後）:** 既定の 4 seed で 56 passed。seed 1〜100（12 操作）で 152 passed。
+
+**固定の検証コマンド（§8）:**
+
+- `type`・`lint:imports`・`doc:check`: 成功
+- `e2e`: 63 + 18 件成功
+- `wpt`: REGRESSION 0（PASS 442）
+- leak property（seed 1〜200）: 449 passed / 1 failed
+
+leak property の 1 件は seed 96 で、操作を 1 つも適用する前の初期接続が 5 秒の待機内に完了しなかった（`Duplex session did not connect`）ものです。単独の再実行では、branch・`warp` とも 5/5 成功しました。
+
+**E:** 調査用のスクリプトとログはすべて `/tmp/spedfix` に置き、比較用の `warp` worktree は `/tmp` に作って確認後に削除しました。worktree に残った調査用ファイルはありません（`git status` には本修正のファイルだけが出る）。

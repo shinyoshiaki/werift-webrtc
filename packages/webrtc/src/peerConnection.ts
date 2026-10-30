@@ -508,8 +508,10 @@ export class RTCPeerConnection extends EventTarget {
       this.sctpManager.sctpTransport.maxMessageSize =
         this.config.maxMessageSize;
     }
+    // Transports a pending description prepared take the new WARP policy too:
+    // they become live when that description is applied.
     if (isReconfiguration && normalizedConfig.warp !== undefined) {
-      for (const transport of this.secureManager.dtlsTransports) {
+      for (const transport of this.secureManager.openDtlsTransports) {
         transport.updateWarpConfig(this.config.warp);
       }
     }

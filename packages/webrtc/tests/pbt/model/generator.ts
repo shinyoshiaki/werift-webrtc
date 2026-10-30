@@ -236,6 +236,18 @@ export const STEPS: Record<string, Step> = {
     applies: ({ pc, other }) => stable(pc, other),
     run: async ({ pc }) => pc.restartIce(),
   },
+  warpPolicy: {
+    weight: 1,
+    // どの signaling state でも変えられる (準備中の transport があっても)。
+    // 非 SPED の peer なので変えられるのは early media の扱いだけ。
+    applies: () => true,
+    draw: (rng) => ({ earlyMediaPolicy: rng.pick(["drop", "buffer"]) }),
+    run: async ({ pc }, _w, { earlyMediaPolicy }) => {
+      pc.setConfiguration({
+        warp: { earlyMediaPolicy: earlyMediaPolicy as "drop" | "buffer" },
+      });
+    },
+  },
   offer: {
     weight: 4,
     applies: ({ pc, other }) => stable(pc, other),

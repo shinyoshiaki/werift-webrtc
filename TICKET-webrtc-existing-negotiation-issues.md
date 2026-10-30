@@ -61,6 +61,14 @@ WARP 導入とは独立した既存の SDP・メディア実装の制約と E2E 
 - 同じ remote description を再適用すると、同じ generation の中で同じ candidate と pair が重複して登録される。develop と `warp` から同じ挙動で、次の ICE restart で消える。
 - Epic 4 の leak property（`packages/webrtc/tests/pbt/leak/leakProbe.ts`）はこの重複を集合化して数えるため、配列そのものの増加は判定していない。重複登録を直すときは、集合化をやめて配列長で判定するよう leak probe も一緒に変える。
 
+### 6. `setConfiguration` の ICE サーバー変更が準備中の transport に届かない
+
+対象: `packages/webrtc/src/secureTransportManager.ts` の `updateIceServers()`。
+
+- `updateIceServers()` は `iceTransports`（現在の m-line が使う transport）だけを更新する。再交渉で準備され、まだ採用されていない transport（BUNDLE 分割の answer で作られたものなど）には、`setConfiguration({ iceServers })` の変更が届かない。
+- `warp` の `updateIceServers()` と同じコードで、Epic 4 による退行ではない。Epic 4 は同じ型の不具合のうち、Epic 4 が追加した WARP 設定の更新だけを直した（`SecureTransportManager.openDtlsTransports`、Epic 4 チケット §9）。
+- 直すときは `openDtlsTransports` から ICE transport を集め、gathering 前なら即時、後なら次の gathering に回す既存の規則（JSEP RFC 8829 §4.1.18）をそのまま適用する。
+
 ## Epic 4 に残す変更
 
 DTLS readiness、fingerprint gate、early application/media queue、directional SRTP、DTLS role 基準の SCTP、early start の取消・再試行、SPED/direct fallback、Full/Lite、ICE generation 分離、stats を残す。複数 m-line の fingerprint/ICE が BUNDLE tag を上書きしない最小限の処理と、不要 transport の WARP queue/timer cleanup も認証境界のために残す。SDP staging に依存せず、別 pair の成功応答から既に認証された SPED 固定経路の handshake 再送を再開できる処理も残す（application の nomination/consent 条件は維持）。CI の依存 install の非 auditing 化（`package.json` と `import-test/package.json` の `npm install --prefer-offline --no-audit --no-fund --no-update-notifier`、AGENTS.md の規則 15）は残す。Playwright 未対応 Ubuntu での browser install 補助は Epic 4 から外し、`TICKET-playwright-host-platform-installer.md` へ切り出した。
@@ -68,7 +76,7 @@ DTLS readiness、fingerprint gate、early application/media queue、directional 
 ## 完了条件
 
 - [ ] 各問題を基準コミットで再現し、期待結果・実際の結果を記録する。
-- [ ] 上記 1〜5 を個別にレビュー可能な変更へ分割する。
+- [ ] 上記 1〜6 を個別にレビュー可能な変更へ分割する。
 - [ ] rollback/pranswer/ICE restart 失敗注入と RID 別 RTP の回帰テストを追加する。
 - [ ] 通常 DTLS 1.2、DTLS 1.3、SPED 有効/無効の接続を回帰させない。
 - [ ] package tests/type、workspace type/test:small、doc:check、該当 E2E/WPT を実行し、既存失敗・外部依存 skip を成功と区別して報告する。

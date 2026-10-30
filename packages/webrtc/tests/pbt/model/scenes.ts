@@ -541,4 +541,21 @@ export const MODEL_SCENES: (Scene & { name: string; ref: string })[] = [
       ["b", "answer"],
     ],
   },
+  {
+    name: "a WARP policy set while a BUNDLE split transport is prepared reaches that transport",
+    ref: "Epic 4 §9; origin: review #7 (setConfiguration updated only the live transports)",
+    start: "connected",
+    ops: [
+      ["a", "addTrack", { kind: "audio" }],
+      ["a", "offer"],
+      ["b", "answer"],
+      ["a", "splitOffer", { mid: "2" }],
+      ["b", "createOnly"],
+      ["b", "warpPolicy", { earlyMediaPolicy: "buffer" }],
+      ["b", "answer"],
+      ["a", "warpPolicy", { earlyMediaPolicy: "buffer" }],
+      ["a", "offer"],
+      ["b", "answer"],
+    ],
+  },
 ];

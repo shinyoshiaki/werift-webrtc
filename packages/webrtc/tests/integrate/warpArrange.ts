@@ -25,6 +25,7 @@ import {
   useSdesRTPStreamId,
 } from "../../src";
 import type { RTCTransportStats } from "../../src/media/stats";
+import { createSplitOffer } from "../negotiation/harness/negotiationTransactionUtils";
 import { exchangeIceCandidates, exchangeOfferAnswer } from "../utils";
 
 /*
@@ -799,4 +800,55 @@ export function steerToDifferentFamilies(
   receiverPairOfSenderPath.nominated = false;
   receiverPairOfSenderPath.remoteNominated = false;
   return { receiverPairOfSenderPath, senderSelected };
+}
+
+// --- WARP configuration reaching every open transport ---
+
+const bufferingWarpConfig = () => ({
+  iceServers: [],
+  bundlePolicy: "max-bundle" as const,
+  sped: true,
+  dtls: { protocolVersions: [DtlsVersion.V1_3] },
+  warp: { allowEarlyServerData: true, earlyMediaPolicy: "buffer" as const },
+});
+
+/**
+ * Arrange: a connected session whose three m-lines share one BUNDLE
+ * transport; the answerer applied an offer that splits `mid` out of BUNDLE
+ * and created its answer, so the split transport is prepared but not live.
+ */
+export async function prepareSplitAnswerWithPreparedTransport(mid = "1") {
+  const offerer = new RTCPeerConnection(bufferingWarpConfig());
+  const answerer = new RTCPeerConnection(bufferingWarpConfig());
+  offerer.addTransceiver("audio");
+  offerer.addTransceiver("video");
+  offerer.createDataChannel("warp-config");
+  await exchangeOfferAnswer(offerer, answerer);
+  await Promise.all(
+    [offerer, answerer].map((pc) =>
+      pc.connectionState === "connected"
+        ? undefined
+        : pc.connectionStateChange.watch((s) => s === "connected"),
+    ),
+  );
+  const split = await createSplitOffer(offerer, mid);
+  await offerer.setLocalDescription({ type: "offer", sdp: split });
+  await answerer.setRemoteDescription(offerer.localDescription!);
+  const answer = await answerer.createAnswer();
+  return { offerer, answerer, answer };
+}
+
+/** Assert helper: the WARP policy of every created, not yet closed transport. */
+export function openTransportWarpConfigs(pc: RTCPeerConnection) {
+  const secure = (
+    pc as unknown as {
+      secureManager: {
+        openDtlsTransports: { id: string; config: { warp?: unknown } }[];
+      };
+    }
+  ).secureManager;
+  return secure.openDtlsTransports.map((transport) => ({
+    id: transport.id,
+    warp: transport.config.warp,
+  }));
 }
