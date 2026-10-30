@@ -361,6 +361,12 @@ export function clonePeerConfiguration(config: PeerConfig) {
  * merge it in place. Returns the normalized input; side effects on live
  * transports (SCTP limits, ICE servers) stay with the caller.
  */
+const CLEARABLE_TURN_KEYS = [
+  "turnTransport",
+  "turnTlsOptions",
+  "turnUdpFamily",
+] as const;
+
 export function mergePeerConfiguration(
   config: PeerConfig,
   input: RTCPeerConnectionConfig,
@@ -461,6 +467,13 @@ export function mergePeerConfiguration(
   }
 
   deepMerge(config, normalizedConfig as Partial<PeerConfig>);
+  // Omitted keys keep their value, but an explicit `undefined` unsets these
+  // optional TURN settings (deepMerge skips undefined).
+  for (const key of CLEARABLE_TURN_KEYS) {
+    if (Object.hasOwn(normalizedConfig, key) && normalizedConfig[key] == null) {
+      config[key] = undefined;
+    }
+  }
   config.sctp = {
     mtu: config.sctp?.mtu ?? DEFAULT_SCTP_MTU,
   };

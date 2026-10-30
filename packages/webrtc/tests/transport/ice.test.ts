@@ -337,6 +337,60 @@ describe("iceTransport", () => {
       }
     });
 
+    test("turnTlsOptions / turnUdpFamily / turnTransport に undefined を明示すると解除され、次の gathering に反映される", async () => {
+      // Arrange: TLS 設定付きの TURN で gather 完了まで進める
+      const pc = new RTCPeerConnection({
+        iceServers: [
+          {
+            urls: "turns:turn.example.com:5349",
+            username: "u",
+            credential: "p",
+          },
+        ],
+        turnTransport: "tls",
+        turnTlsOptions: { rejectUnauthorized: false },
+        turnUdpFamily: 4,
+      });
+      try {
+        pc.createDataChannel("clear-turn-options");
+        const ice = (pc as any).secureManager
+          .iceTransports[0] as RTCIceTransport;
+        await ice.gather();
+        expect(pc.getConfiguration().turnTlsOptions).toBeDefined();
+
+        // Act: 省略した setConfiguration では値が維持される
+        pc.setConfiguration({ iceUseTcp: false });
+
+        // Assert: 省略なら変更なし
+        expect(pc.getConfiguration().turnTlsOptions).toEqual({
+          rejectUnauthorized: false,
+        });
+        expect(pc.getConfiguration().turnUdpFamily).toBe(4);
+        expect((pc as any).needRestart).toBe(false);
+
+        // Act: undefined を明示して解除し、ICE restart する
+        pc.setConfiguration({
+          turnTransport: undefined,
+          turnTlsOptions: undefined,
+          turnUdpFamily: undefined,
+        });
+
+        // Assert: 設定が解除され、restart が要求される
+        expect(pc.getConfiguration().turnTlsOptions).toBeUndefined();
+        expect(pc.getConfiguration().turnUdpFamily).toBeUndefined();
+        expect((pc as any).needRestart).toBe(true);
+
+        // Act: 次の gathering に入る
+        ice.restart();
+
+        // Assert: Connection の古い TLS / family が残らない
+        expect(ice.connection.options.turnTlsOptions).toBeUndefined();
+        expect(ice.connection.options.turnUdpFamily).toBeUndefined();
+      } finally {
+        await pc.close();
+      }
+    });
+
     test("gathering 完了後に同じ iceServers を再設定しても restart を要求しない", async () => {
       // Arrange: gather 完了まで進める
       const pc = new RTCPeerConnection({

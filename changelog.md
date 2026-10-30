@@ -9,6 +9,8 @@
 
 ### Fixes
 
+- **`setConfiguration()` TURN options**: changing `turnTransport`, `turnTlsOptions` or `iceUseTcp` after gathering now requests an ICE restart like `iceServers`. Passing an explicit `undefined` for `turnTransport` / `turnTlsOptions` / `turnUdpFamily` unsets it; omitting the key keeps the current value.
+
 - **`RTCPeerConnection.setConfiguration({ iceServers })` after ICE gathering started now takes effect at the next ICE restart** (JSEP, RFC 9429 §4.1.18), so expiring TURN credentials can be rotated without recreating the `RTCPeerConnection`: call `setConfiguration()` with the new servers, then `restartIce()` and renegotiate. The restarted generation allocates with the new credentials, and the allocation made with the old ones is closed and not re-advertised. A changed STUN/TURN configuration (`iceServers`, `iceTransportPolicy`, `turnUdpFamily`) also sets the needs-ice-restart flag, so the next `createOffer()` restarts ICE even without `restartIce()`. It does not fire `negotiationneeded` by itself. Setting the same servers again requests no restart, and `setConfiguration()` before the first gathering (the WHIP flow) still applies the servers without a restart.
 - PEM passed to `dtls.keys` / `RTCCertificate` / `CipherContext` may still be indented (for example inside an indented template literal), as it was with `@fidm/x509`. `werift-dtls` exports the `normalizePem()` helper used for this.
 
