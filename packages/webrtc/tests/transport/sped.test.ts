@@ -227,7 +227,7 @@ describe("IceSpedTransport datagram gate", () => {
     expect(received[0]!.equals(dtls)).toBe(true);
   });
 
-  it("handshake 完了後は nominated 前には current-generation pair の application DTLS を渡さない", () => {
+  it("handshake 完了後の ICE restart 中も current-generation の認証済み pair からの application DTLS を渡す", () => {
     // Arrange: restart 中。新 generation の pair は認証済みだが未 nomination
     const ice = createIceStub(2);
     const transport = new IceSpedTransport(ice);
@@ -251,12 +251,10 @@ describe("IceSpedTransport datagram gate", () => {
       authenticated: true,
     };
 
-    // Act: 未 nomination のあと、同じ pair を selected にして再送する
-    connectionDatagramEvent(ice).execute(ctx);
-    ice.nominated = pair;
+    // Act: 自分ではまだ nomination していない pair から application record を流す
     connectionDatagramEvent(ice).execute(ctx);
 
-    // Assert: selected path になる前は落とし、nomination 後だけ届ける
+    // Assert: 送信経路は相手が選ぶ。現世代・認証済み・送信元一致なら届ける
     expect(received).toHaveLength(1);
     expect(received[0]!.equals(app)).toBe(true);
   });
@@ -436,8 +434,8 @@ describe("IceSpedTransport datagram gate", () => {
     expect(received[0]!.equals(app)).toBe(true);
   });
 
-  it("handshake 完了後の UDP は nominated と異なる authenticated pair から application DTLS を渡さない", () => {
-    // Arrange: nominated は pair A。B は認証済みだが別 candidate
+  it("handshake 完了後は両端の選択経路が IPv4 / IPv6 に分かれても相手の認証済み pair から application DTLS を渡す", () => {
+    // Arrange: 自分は IPv6 pair を選び、相手は IPv4 pair を選んで送ってくる
     const ice = createIceStub(1);
     const transport = new IceSpedTransport(ice);
     const received: Buffer[] = [];
@@ -445,32 +443,46 @@ describe("IceSpedTransport datagram gate", () => {
       received.push(buf);
     };
     transport.markApplicationReady();
-    const protocolA = {
-      type: "udp",
-      localCandidate: new Candidate("f", 1, "udp", 1, "1.2.3.4", 1, "host"),
-    } as any;
-    const protocolB = {
-      type: "udp",
-      localCandidate: new Candidate("g", 1, "udp", 1, "1.2.3.4", 2, "host"),
-    } as any;
-    const pairA = authenticatedPair(protocolA, "10.0.0.1", 1111);
-    const pairB = authenticatedPair(protocolB, "10.0.0.2", 2222);
-    ice.nominated = pairA;
+    const { protocol: ipv6 } = mockProtocol("::1", 1);
+    const { protocol: ipv4 } = mockProtocol("127.0.0.1", 2);
+    const selected = authenticatedPair(ipv6, "::1", 1111);
+    selected.nominated = true;
+    ice.nominated = selected;
+    const peerSelected = authenticatedPair(ipv4, "127.0.0.1", 2222);
+    const unauthenticated = new CandidatePair(
+      ipv4,
+      new Candidate("u", 1, "udp", 1, "127.0.0.1", 3333, "host"),
+      true,
+    );
     const app = Buffer.from([23, 9, 8, 7]);
-    const ctx: IceDatagramContext = {
+    const ctx = (
+      overrides: Partial<IceDatagramContext>,
+    ): IceDatagramContext => ({
       bytes: app,
-      source: ["10.0.0.2", 2222],
-      protocol: protocolB,
-      pair: pairB,
+      source: ["127.0.0.1", 2222],
+      protocol: ipv4,
+      pair: peerSelected,
       generation: 1,
       authenticated: true,
-    };
+      ...overrides,
+    });
 
-    // Act: nominated ではない UDP pair から application record を流す
-    connectionDatagramEvent(ice).execute(ctx);
+    // Act: 相手の選択 pair (IPv4) から application record を流す
+    connectionDatagramEvent(ice).execute(ctx({}));
+    // Act: 旧世代・未認証 pair・送信元不一致は届けない
+    connectionDatagramEvent(ice).execute(ctx({ generation: 0 }));
+    connectionDatagramEvent(ice).execute(
+      ctx({
+        pair: unauthenticated,
+        source: ["127.0.0.1", 3333],
+        authenticated: false,
+      }),
+    );
+    connectionDatagramEvent(ice).execute(ctx({ source: ["127.0.0.1", 4444] }));
 
-    // Assert: current-generation の認証だけでは選択済み DTLS path にならない
-    expect(received).toHaveLength(0);
+    // Assert: 自分の選択 (IPv6) と違っても、検証を通った 1 件だけが届く
+    expect(received).toHaveLength(1);
+    expect(received[0]!.equals(app)).toBe(true);
   });
 
   it("handshake 完了後の TCP ICE は nominated local-active pair の application DTLS を渡す", () => {
@@ -531,7 +543,7 @@ describe("IceSpedTransport datagram gate", () => {
     expect(received[0]!.equals(app)).toBe(true);
   });
 
-  it("handshake 完了後の TCP ICE は nominated 以外の authenticated pair から application DTLS を渡さない", () => {
+  it("handshake 完了後の TCP ICE も相手が選んだ別の authenticated pair から application DTLS を渡す", () => {
     // Arrange: nominated は local-active。incoming は別 5-tuple の local-passive
     const ice = createIceStub(1);
     const transport = new IceSpedTransport(ice);
@@ -556,8 +568,9 @@ describe("IceSpedTransport datagram gate", () => {
       authenticated: true,
     });
 
-    // Assert: authenticated でも未選択の TCP pair からは届けない
-    expect(received).toHaveLength(0);
+    // Assert: 自分の選択 pair と違っても、現世代・認証済み・送信元一致なら届ける
+    expect(received).toHaveLength(1);
+    expect(received[0]!.equals(app)).toBe(true);
   });
 });
 

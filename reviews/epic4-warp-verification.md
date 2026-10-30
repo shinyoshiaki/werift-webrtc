@@ -422,3 +422,21 @@ leak property（P2）が報告した `ice.remoteCandidates` / `ice.checkList` �
 | `packages/webrtc/tests/integrate/iceRestartContinuity.test.ts` | 公開 API で、相手だけが資格情報を変えて候補を省いた answer を `setRemoteDescription()` で適用した後の 250 ms 間も RTP を受け取り続ける（修正前は 0 パケット） |
 
 **固定の検証コマンド（§8 の一式、`9bce67d6` + 本修正の作業ツリー）:** `type`・`lint:imports`・`doc:check` 成功、`test:small` 成功（ICE 403、WebRTC 1,129 ほか失敗 0）、`e2e` 63 + 18 成功、`wpt` REGRESSION 0（PASS 442）、leak property seed 1〜200 は 450 passed。
+
+### 11.6 両端の選択経路が異なると SPED の DTLS が破棄される（レビューの再指摘への対応）
+
+**原因:** `packages/webrtc/src/transport/sped.ts` の `IceSpedTransport` は、DTLS 接続後に受け取る record を「自分の選択経路」（`ice.nominated`、nominated / remoteNominated な pair、handshake で固定した `lastPath`）に限っていました。送信経路は相手が選ぶため、複数インターフェースで両端が別の pair（IPv4 / IPv6 など）を選ぶと、相手が使う現世代・認証済みの経路の record まで破棄され、SCTP が進まず DataChannel が開きませんでした。`transportFaultMatrix.test.ts` を `--retry 0` で実行すると、HEAD では `restart=cookie-echoed` 系の 2 件が 20 秒で失敗しました（この環境では Tailscale を含む複数インターフェースで選択が分かれる）。
+
+**修正:** その制限（`isSelectedApplicationPath`）を削除し、受信条件を `allowsAuthenticatedDtlsDelivery` の検証（現世代・認証済み pair・protocol と送信元 5-tuple の一致）だけにしました。どの valid pair で届いたデータも受け取る、という RFC 8445 §12.1 のとおりです。旧世代・未認証 pair・送信元不一致の record は従来どおり破棄します。送信側（`Connection.send()` が consent の取れた選択 pair だけを使う）は変えていません。
+
+**回帰テスト:**
+
+| テスト | 内容 | 修正前 | 修正後 |
+|---|---|---|---|
+| `packages/webrtc/tests/integrate/spedPathSelection.test.ts` | 127.0.0.1 と ::1 だけを候補にした実 SPED 接続で、受信側と送信側に別 family を選ばせ（送信側の経路は受信側の選択 pair でも handshake 経路でもない）、DataChannel のメッセージが届く | 3/3 失敗 | 3/3 成功 |
+| `packages/webrtc/tests/transport/sped.test.ts`「両端の選択経路が IPv4 / IPv6 に分かれても…」 | 自分は IPv6、相手は IPv4 を選ぶ。相手の認証済み pair の record は届き、旧世代・未認証 pair・送信元不一致は届かない | 失敗 | 成功 |
+| `packages/webrtc/tests/integrate/transportFaultMatrix.test.ts`（`--retry 0`） | 障害注入マトリクス 90 件 | 88/90 | 90/90 |
+
+自分の選択 pair 以外を破棄することを確かめていた単体テスト 2 件（restart 中の未 nomination の pair、TCP の別 pair）は、この誤った制限を固定していたため、受け取ることを確かめる内容に改めました。
+
+**固定の検証コマンド（§8 の一式、`89e8bdad` + 本修正の作業ツリー）:** `type`・`lint:imports`・`doc:check` 成功、`test:small` 成功（WebRTC 1,130、ICE 403 ほか失敗 0）、`e2e` 63 + 18 成功、`wpt` REGRESSION 0（PASS 442）、leak property seed 1〜200 は 450 passed。

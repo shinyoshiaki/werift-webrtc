@@ -1,5 +1,9 @@
 import { vi } from "vitest";
-import { Candidate, type Connection } from "../../../ice/src";
+import {
+  Candidate,
+  CandidatePairState,
+  type Connection,
+} from "../../../ice/src";
 import { getConnectionSpedRuntime } from "../../../ice/src/internal/sped-bind";
 import { classes } from "../../../ice/src/stun/const";
 import type { Message } from "../../../ice/src/stun/message";
@@ -733,4 +737,66 @@ export async function restartIceAndRenegotiate(
       await new Promise((r) => setTimeout(r, 20));
     }
   }
+}
+
+// --- SPED: the two peers select different paths (IPv4 / IPv6) ---
+
+/** Arrange: SPED peers whose only host candidates are 127.0.0.1 and ::1. */
+export function createDualFamilyLoopbackSpedPeers() {
+  const config = {
+    iceServers: [],
+    sped: true,
+    dtls: { protocolVersions: [DtlsVersion.V1_3] },
+    iceUseIpv4: true,
+    iceUseIpv6: true,
+    iceInterfaceAddresses: { udp4: "127.0.0.1", udp6: "::1" },
+  };
+  return {
+    caller: new RTCPeerConnection(config),
+    callee: new RTCPeerConnection(config),
+  };
+}
+
+const isIpv6 = (host: string) => host.includes(":");
+
+/**
+ * Arrange: make the peers use paths of different address families. The
+ * receiver selects one family; the sender selects the other one, which is
+ * neither the receiver's selected pair nor the SPED handshake path the
+ * receiver pinned (so only its authentication admits the sender's records).
+ * @returns the receiver's pair of the 5-tuple the sender now uses.
+ */
+export function steerToDifferentFamilies(
+  receiver: RTCPeerConnection,
+  sender: RTCPeerConnection,
+) {
+  const receiverIce = receiver.iceTransports[0].connection as Connection;
+  const senderIce = sender.iceTransports[0].connection as Connection;
+  const pinned = getConnectionSpedRuntime(receiverIce)?.lastPath;
+  const senderFamilyIpv6 = pinned ? !isIpv6(pinned.remoteAddr[0]) : true;
+  const succeeded = (ice: Connection, ipv6: boolean) =>
+    ice.checkList.find(
+      (pair) =>
+        pair.state === CandidatePairState.SUCCEEDED &&
+        isIpv6(pair.remoteAddr[0]) === ipv6,
+    );
+  const receiverSelected = succeeded(receiverIce, !senderFamilyIpv6);
+  const senderSelected = succeeded(senderIce, senderFamilyIpv6);
+  if (!receiverSelected || !senderSelected) {
+    throw new Error("both address families need a succeeded pair");
+  }
+  receiverIce.nominated = receiverSelected;
+  senderIce.nominated = senderSelected;
+  const receiverPairOfSenderPath = receiverIce.checkList.find(
+    (pair) =>
+      pair.remoteAddr[0] === senderSelected.localCandidate.host &&
+      pair.remoteAddr[1] === senderSelected.localCandidate.port,
+  );
+  if (!receiverPairOfSenderPath) {
+    throw new Error("the receiver has no pair for the sender's path");
+  }
+  // The receiver did not select the sender's path in any way.
+  receiverPairOfSenderPath.nominated = false;
+  receiverPairOfSenderPath.remoteNominated = false;
+  return { receiverPairOfSenderPath, senderSelected };
 }

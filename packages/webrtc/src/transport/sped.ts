@@ -1,6 +1,5 @@
 import type { CandidatePair, Connection } from "../../../ice/src";
 import {
-  type IceDatagramContext,
   allowsAuthenticatedDtlsDelivery,
   connectionDatagramEvent,
   isAuthenticatedHandshakePair,
@@ -10,8 +9,8 @@ import { SCTPSendPermissionRevokedError } from "../../../sctp/src";
 import {
   type Address,
   type DatagramRxMeta,
-  type Transport,
   debug,
+  type Transport,
 } from "../imports/common";
 import { isDtls } from "../utils";
 
@@ -87,13 +86,10 @@ export class IceSpedTransport implements Transport {
         if (!isDtls(ctx.bytes) || !this.onData) {
           return;
         }
+        // 現世代・認証済み pair・送信元 5-tuple の一致だけで受け付ける。
+        // 送信経路の選択は相手が決めるので、自分の選択 pair とは限らない
+        // (両端が IPv4 / IPv6 など別の pair を選ぶ。RFC 8445 §12.1)。
         if (!allowsAuthenticatedDtlsDelivery(ctx, ice.generation)) {
-          return;
-        }
-        if (
-          this.applicationReady &&
-          !isSelectedApplicationPath(ctx, ice, this.runtime?.lastPath)
-        ) {
           return;
         }
         // 世代トークンを engine RX queue まで運び、restart 後の stale 実行を防ぐ。
@@ -646,36 +642,6 @@ export class IceSpedTransport implements Transport {
     }
     return ["0.0.0.0", 0];
   }
-}
-
-function isSelectedApplicationPath(
-  ctx: IceDatagramContext,
-  ice: Connection,
-  lastPath?: CandidatePair,
-): boolean {
-  // Dual nomination / multiple host protocols can leave more than one
-  // SUCCEEDED nominated pair. DTLS/SCTP is one association: deliver on any
-  // ICE-selected path, not only ice.nominated's object identity.
-  if (ctx.pair?.nominated || ctx.pair?.remoteNominated) {
-    return true;
-  }
-  const nominated = ice.nominated;
-  if (!nominated) {
-    return false;
-  }
-  if (ctx.pair === nominated) {
-    return true;
-  }
-  if (addressesEqual(ctx.source, nominated.remoteAddr)) {
-    return true;
-  }
-  // Handshake may have pinned a valid pair that ICE later replaced as
-  // ice.nominated. Application records on that 5-tuple still belong to DTLS.
-  return !!lastPath && addressesEqual(ctx.source, lastPath.remoteAddr);
-}
-
-function addressesEqual(a: Address, b: Address): boolean {
-  return a[0] === b[0] && a[1] === b[1];
 }
 
 function isDtlsApplicationData(data: Buffer): boolean {
