@@ -3,9 +3,11 @@ import { CandidatePair, CandidatePairState } from "../../src/iceBase";
 import { classes, methods } from "../../src/stun/const";
 import { Message } from "../../src/stun/message";
 import type { Protocol } from "../../src/types/model";
+import { SpedProtocolMock } from "../sped/helpers";
 import {
   createConnectedLitePair,
   createConnectedPair,
+  createTestConnection,
   deliverLocalCandidates,
 } from "../utils";
 
@@ -144,4 +146,56 @@ describe("ICE restart generation boundaries", () => {
       await Promise.allSettled([a.close(), b.close()]);
     }
   });
+
+  test.each(["restart", "restartRemote"] as const)(
+    "%s は旧 generation で学習した prflx candidate と pair を残さない",
+    async (kind) => {
+      // Arrange: 未通知の送信元から現行 generation の check が届き、prflx を学習する。
+      const connection = createTestConnection(true);
+      const protocol = new SpedProtocolMock();
+      (
+        connection as unknown as { ensureProtocol(p: Protocol): void }
+      ).ensureProtocol(protocol);
+      // 相手の現行 ufrag は remote description で設定済み。
+      connection.setRemoteParams({
+        iceLite: false,
+        usernameFragment: "remote",
+        password: "remote-password-0123456789",
+      });
+      const source: [string, number] = ["192.0.2.40", 4000];
+      const check = (localUfrag: string, localPassword: string) => {
+        const request = new Message(methods.BINDING, classes.REQUEST);
+        request
+          .setAttribute("USERNAME", `${localUfrag}:remote`)
+          .setAttribute("PRIORITY", 1)
+          .setAttribute("ICE-CONTROLLED", 1n)
+          .addMessageIntegrity(Buffer.from(localPassword))
+          .addFingerprint();
+        protocol.onRequestReceived.execute(request, source, request.bytes);
+      };
+      const oldUfrag = connection.localUsername;
+      const oldPassword = connection.localPassword;
+      check(oldUfrag, oldPassword);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      expect(
+        connection.remoteCandidates.map((c) => c.type),
+        "prflx を学習している",
+      ).toEqual(["prflx"]);
+      expect(connection.checkList).toHaveLength(1);
+
+      try {
+        // Act: generation を切り替え、旧 ufrag 宛ての遅れた check も届ける。
+        if (kind === "restart") await connection.restart();
+        else connection.restartRemote();
+        check(oldUfrag, oldPassword);
+        await new Promise((resolve) => setTimeout(resolve, 30));
+
+        // Assert: 旧 generation の prflx candidate と pair は破棄され、遅れた check でも戻らない。
+        expect(connection.remoteCandidates).toEqual([]);
+        expect(connection.checkList).toEqual([]);
+      } finally {
+        await connection.close();
+      }
+    },
+  );
 });

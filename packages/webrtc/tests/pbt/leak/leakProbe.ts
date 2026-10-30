@@ -401,20 +401,49 @@ export function leakFootprint(pc: RTCPeerConnection): Footprint {
     ),
     // 同じ候補の重複 (同じ description の再適用) は数えない。develop から同じ挙動で、
     // 次の restart で消える (ice の Connection.addRemoteCandidate の既知の制約)。
+    // 交渉で知らされた candidate の pair。prflx は下の ice.prflxPairs で数える。
     "ice.checkList": sum(
       ice,
       (t) =>
         new Set(
-          t.connection.checkList.map(
-            (pair) =>
-              `${candidateKey(pair.localCandidate)}>${candidateKey(pair.remoteCandidate)}`,
-          ),
+          t.connection.checkList
+            .filter((pair) => pair.remoteCandidate.type !== "prflx")
+            .map(
+              (pair) =>
+                `${candidateKey(pair.localCandidate)}>${candidateKey(pair.remoteCandidate)}`,
+            ),
+        ).size,
+    ),
+    "ice.prflxPairs": sum(
+      ice,
+      (t) =>
+        new Set(
+          t.connection.checkList
+            .filter((pair) => pair.remoteCandidate.type === "prflx")
+            .map(
+              (pair) =>
+                `${candidateKey(pair.localCandidate)}>${candidateKey(pair.remoteCandidate)}`,
+            ),
         ).size,
     ),
     "ice.localCandidates": sum(ice, (t) => t.connection.localCandidates.length),
     "ice.remoteCandidates": sum(
       ice,
-      (t) => new Set(t.connection.remoteCandidates.map(candidateKey)).size,
+      (t) =>
+        new Set(
+          t.connection.remoteCandidates
+            .filter((c) => c.type !== "prflx")
+            .map(candidateKey),
+        ).size,
+    ),
+    "ice.prflxCandidates": sum(
+      ice,
+      (t) =>
+        new Set(
+          t.connection.remoteCandidates
+            .filter((c) => c.type === "prflx")
+            .map(candidateKey),
+        ).size,
     ),
     "ice.userHistory": sum(
       ice,
@@ -851,6 +880,11 @@ type CycleTemplate = {
    * a new MID per added m-line), per peer side relative to `x`.
    */
   growth?: { x?: Footprint; y?: Footprint };
+  /**
+   * Used only by a fixed cycle (`LEAK_CYCLES`). Seeds never draw it, so
+   * adding one keeps every seed's cycle (and its replay) unchanged.
+   */
+  fixedOnly?: true;
 };
 
 /**
@@ -907,6 +941,7 @@ export const CYCLE_TEMPLATES: CycleTemplate[] = [
   },
   {
     name: "BUNDLE split offer rolled back on both sides",
+    fixedOnly: true,
     ops: (x, y) => [
       [x, "splitOffer", { mid: "2" }],
       [y, "rollback"],
@@ -967,7 +1002,9 @@ export function drawCycle(seed: number): Cycle {
   const rng = seededRandom(seed);
   const count = 1 + Math.floor(rng.next() * 3);
   return composeCycle(
-    [...Array(count)].map(() => rng.pick(CYCLE_TEMPLATES).name),
+    [...Array(count)].map(
+      () => rng.pick(CYCLE_TEMPLATES.filter((t) => !t.fixedOnly)).name,
+    ),
     rng,
   );
 }
@@ -1001,6 +1038,34 @@ const TIMER_SLACK = 4;
 /** How long a repetition's surplus state may take to go away (a transport's late close, a STUN query's timeout) before it counts as growth. */
 const GROWTH_EXPIRY_MS = 8000;
 
+/** The peer's possible check sources: its signaled host IPs × host ports. */
+function prflxSources(t: IceTransportInternals) {
+  const hosts = t.connection.remoteCandidates.filter((c) => c.type === "host");
+  return (
+    new Set(hosts.map((c) => c.host)).size *
+    new Set(hosts.map((c) => c.port)).size
+  );
+}
+
+function sumIce(
+  pc: RTCPeerConnection,
+  size: (t: IceTransportInternals) => number,
+) {
+  const ice = new Set(
+    [...heldTransports(pc)].map(
+      (t) => t.iceTransport as unknown as IceTransportInternals,
+    ),
+  );
+  for (const t of pc.iceTransports) {
+    ice.add(t as unknown as IceTransportInternals);
+  }
+  return [...ice].reduce((total, t) => total + size(t), 0);
+}
+
+function prflxSourceBound(pc: RTCPeerConnection) {
+  return sumIce(pc, prflxSources);
+}
+
 /**
  * Metrics allowed to change between repetitions, each with the upper bound
  * that keeps it from growing without limit. Every other metric must equal its
@@ -1022,6 +1087,13 @@ export const BOUNDED_METRICS: Record<
   string,
   (context: { pc: RTCPeerConnection; early: number[] }) => number
 > = {
+  // prflx は相手の check の送信元 (相手のインターフェース IP とソケットの port の組) から
+  // 学習する。wildcard に bind したソケットは経路で送信元 IP が変わるので、どの組を学習
+  // するかは check の順序で揺れる。restart で破棄され (ice の restart-generation テスト)、
+  // 組の数を超えて増えることはない。
+  "ice.prflxCandidates": ({ pc }) => prflxSourceBound(pc),
+  "ice.prflxPairs": ({ pc }) =>
+    sumIce(pc, (t) => prflxSources(t) * t.connection.protocols.length),
   // 退役した remote ufrag は遅れて届く callback を拒否するために最大 64 個保持する。
   "negotiation.retiredRemoteUfrags": () => 64,
   // 周期的な timer (RTCP、consent、SCTP heartbeat) は、流れた traffic と、ICE 再 gather の

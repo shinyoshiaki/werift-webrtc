@@ -86,6 +86,12 @@ export class Connection implements IceConnection {
   remoteIsLite = false;
   remotePassword: string = "";
   remoteUsername: string = "";
+  /**
+   * Remote ufrags of replaced generations (bounded). A late check one of them
+   * sends is still answered but never adds a candidate or pair to the new
+   * generation's checklist.
+   */
+  private retiredRemoteUsernames: string[] = [];
   checkList: CandidatePair[] = [];
   localCandidates: Candidate[] = [];
   stunServer?: Address;
@@ -332,6 +338,7 @@ export class Connection implements IceConnection {
     };
     this.restarted = true;
 
+    this.retireRemoteUsername();
     this.remoteUsername = "";
     this.remotePassword = "";
     this.localCandidates = [];
@@ -482,6 +489,7 @@ export class Connection implements IceConnection {
    */
   restartRemote() {
     this.remoteGeneration++;
+    this.retireRemoteUsername();
     this.remoteUsername = "";
     this.remotePassword = "";
     this._remoteCandidates = [];
@@ -950,9 +958,32 @@ export class Connection implements IceConnection {
   }) {
     log("setRemoteParams", { iceLite, usernameFragment, password });
     this.remoteIsLite = iceLite;
+    if (usernameFragment !== this.remoteUsername) this.retireRemoteUsername();
+    this.retiredRemoteUsernames = this.retiredRemoteUsernames.filter(
+      (retired) => retired !== usernameFragment,
+    );
     this.remoteUsername = usernameFragment;
     this.remotePassword = password;
     this.spedRuntime?.syncPathMtuFromConnection(this);
+  }
+
+  private retireRemoteUsername() {
+    if (!this.remoteUsername) return;
+    this.retiredRemoteUsernames = [
+      ...this.retiredRemoteUsernames.filter((u) => u !== this.remoteUsername),
+      this.remoteUsername,
+    ].slice(-RETIRED_REMOTE_USERNAMES_MAX);
+  }
+
+  /** A check sent by a remote generation that was replaced. */
+  private isRetiredRemoteCheck(message: Message) {
+    const txUsername = message.getAttributeValue("USERNAME");
+    if (typeof txUsername !== "string") return false;
+    const sender = decodeTxUsername(txUsername).localUsername;
+    return (
+      sender !== this.remoteUsername &&
+      this.retiredRemoteUsernames.includes(sender)
+    );
   }
 
   // 4.1.1 Gathering Candidates
@@ -1283,6 +1314,25 @@ export class Connection implements IceConnection {
       this.options.filterStunResponse &&
       !this.options.filterStunResponse(verified, addr, protocol)
     ) {
+      return;
+    }
+
+    // A late check of the peer's replaced generation keeps its old path's
+    // consent (RFC 8445 §9) but must not add a peer-reflexive candidate or a
+    // pair to the new generation.
+    if (this.isRetiredRemoteCheck(verified)) {
+      const response = new Message(
+        methods.BINDING,
+        classes.RESPONSE,
+        verified.transactionId,
+      );
+      response
+        .setAttribute("XOR-MAPPED-ADDRESS", addr)
+        .addMessageIntegrity(Buffer.from(localPassword, "utf8"))
+        .addFingerprint();
+      protocol.sendStun(response, addr).catch((e) => {
+        log("sendStun error", e);
+      });
       return;
     }
 
@@ -3460,6 +3510,9 @@ const encodeTxUsername = ({
 }) => {
   return `${remoteUsername}:${localUsername}`;
 };
+
+/** Replaced remote ufrags remembered to recognise their late checks. */
+const RETIRED_REMOTE_USERNAMES_MAX = 4;
 
 const decodeTxUsername = (txUsername: string) => {
   const [remoteUsername, localUsername] = txUsername.split(":");
