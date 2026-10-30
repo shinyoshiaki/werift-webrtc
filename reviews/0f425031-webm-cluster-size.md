@@ -105,4 +105,5 @@ sequenceDiagram
 - 新規テスト [packages/rtp/tests/processor/webm.test.ts](review-file:packages/rtp/tests/processor/webm.test.ts:25): 8byte 幅の確認、Segment→Cluster→Cues の走査、ffprobe 警告なし、ストリーミングが unknown-size のまま。
 - 境界: キーフレーム無し 80 秒入力（32.767 秒で Cluster 分割）でも整合。mediabunny が 2 トラックで読めた。
 
+<!-- review-bookmark id="bm_1a18beffc9a-fe92dee4" title="7. 検証結果" -->
 **未確認**: mkvalidator（環境に無し）、実ブラウザでの E2E（`npm run e2e`）、examples の実行。なお、この文書作成のために新たなテストは再実行していません（上記は実装・レビュー時の結果です）。
