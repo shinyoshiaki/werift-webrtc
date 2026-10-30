@@ -96,16 +96,16 @@ function installWithPlaywright(packageDir, browsersPath) {
     paths: [packageDir],
   });
   const cliPath = join(dirname(packageJsonPath), "cli.js");
+  const installEnv = playwrightInstallEnv();
   const result = spawnSync(
     process.execPath,
     [cliPath, "install", "chromium", "chromium-headless-shell"],
     {
       cwd: repoRoot,
-      env: playwrightInstallEnv(),
       stdio: "inherit",
       env: browsersPath
-        ? { ...process.env, PLAYWRIGHT_BROWSERS_PATH: browsersPath }
-        : process.env,
+        ? { ...installEnv, PLAYWRIGHT_BROWSERS_PATH: browsersPath }
+        : installEnv,
     },
   );
 

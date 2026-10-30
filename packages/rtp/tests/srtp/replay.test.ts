@@ -3,13 +3,16 @@ import {
   ProtectionProfileAes128CmHmacSha1_80,
 } from "../../src/srtp/const";
 import { SrtpAuthenticationError, SrtpReplayError } from "../../src/srtp/error";
-import { SrtpReplayWindow } from "../../src/srtp/replay";
+import {
+  SRTP_REPLAY_WINDOW_SIZE,
+  SrtpReplayWindow,
+} from "../../src/srtp/replay";
 import { createSrtpContextPair } from "../utils";
 
 describe("srtp/replay (RFC 3711 §3.3.2)", () => {
   test("SrtpReplayWindow は重複と window 外の古い index を拒否する", () => {
-    // Arrange: 既定 64 の window
-    const window = new SrtpReplayWindow();
+    // Arrange: RFC 3711 の最小値 64 の window
+    const window = new SrtpReplayWindow(64);
 
     // Act: 100 を受理した後、順不同の 99 と大きく進んだ 200 を受理する
     window.accept(100);
@@ -24,6 +27,24 @@ describe("srtp/replay (RFC 3711 §3.3.2)", () => {
     expect(window.check(136)).toBe(false);
     expect(window.check(100)).toBe(false);
     expect(window.check(201)).toBe(true);
+  });
+
+  test("既定 window は NACK 再送が遅れて届いても受理できる 1024 で、重複は拒否する", () => {
+    // Arrange: 既定 window で 1 を取りこぼしたまま 1000 まで受信する
+    const window = new SrtpReplayWindow();
+    window.accept(0);
+    for (let index = 2; index <= 1000; index++) window.accept(index);
+
+    // Act: 取りこぼした 1 の遅延再送を受理する
+    const late = window.check(1);
+    window.accept(1);
+
+    // Assert: libwebrtc と同じ 1024 幅で、遅延再送は通し重複は拒否する
+    expect(window.size).toBe(SRTP_REPLAY_WINDOW_SIZE);
+    expect(SRTP_REPLAY_WINDOW_SIZE).toBe(1024);
+    expect(late).toBe(true);
+    expect(window.check(1)).toBe(false);
+    expect(window.check(500)).toBe(false);
   });
 
   describe.each([

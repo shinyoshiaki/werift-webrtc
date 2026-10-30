@@ -5,16 +5,19 @@ import { HashAlgorithm } from "../../../dtls/src/cipher/const";
 import { CandidatePairState, type Connection } from "../../../ice/src";
 import { SCTP_STATE } from "../../../sctp/src";
 import {
+  createSelfSignedCertificate,
   DtlsVersion,
   MediaStream,
   MediaStreamTrack,
   RTCCertificate,
   type RTCDataChannel,
+  RTCDtlsFingerprint,
+  RTCDtlsParameters,
+  type RTCDtlsTransport,
   RTCPeerConnection,
   RTCTrackEvent,
   RtcpRrPacket,
   RtpHeader,
-  createSelfSignedCertificate,
 } from "../../src";
 import { SignatureAlgorithm } from "../../src/const";
 import { createDataChannelPair } from "../utils";
@@ -196,13 +199,23 @@ describe("peerConnection", () => {
       await assertDataChannelOpen(channel);
       expect(channel.readyState).toBe("open");
 
-      // Act: 再ネゴシエーションの remote offer に不一致 fingerprint を適用する。
+      // Act: 接続済み association の fingerprint を変える remote offer を適用する。
       const renegotiationOffer = await callee.createOffer();
       await callee.setLocalDescription(renegotiationOffer);
-      await caller.setRemoteDescription({
+      const tampered = caller.setRemoteDescription({
         type: "offer",
         sdp: tamperFingerprints(callee.localDescription!.sdp),
       });
+
+      // Assert: SDP 受理契約どおり事前検証で拒否し、接続済み状態を壊さない。
+      await expect(tampered).rejects.toMatchObject({
+        name: "InvalidModificationError",
+      });
+      expect(caller.connectionState).toBe("connected");
+      expect(channel.readyState).toBe("open");
+
+      // Act: SDP 検証を経ない transport の事後再検証で fingerprint 不一致を起こす。
+      applyMismatchedFingerprint(caller.dtlsTransports[0]!);
       // 認証失敗イベントが欠落すると無期限に待たず、このテストを失敗させる。
       if (caller.connectionState !== "failed") {
         await caller.connectionStateChange.asPromise(5_000);
@@ -249,13 +262,9 @@ describe("peerConnection", () => {
       await startEnteredPromise;
       expect(dtls.state).toBe("connected");
 
-      // Act: 保留中の connect() より先に、不一致 fingerprint の offer を適用する。
-      const renegotiationOffer = await callee.createOffer();
-      await callee.setLocalDescription(renegotiationOffer);
-      await caller.setRemoteDescription({
-        type: "offer",
-        sdp: tamperFingerprints(callee.localDescription!.sdp),
-      });
+      // Act: 保留中の connect() より先に、transport の事後再検証で fingerprint
+      // 不一致を起こす (接続済み fingerprint を変える SDP は事前検証で拒否される)。
+      applyMismatchedFingerprint(dtls);
       expect(dtls.state).toBe("failed");
 
       // Act: 古い connect() を再開する。
@@ -501,7 +510,12 @@ describe("peerConnection", () => {
 
       try {
         // Act: SRD の transceiver 通知後、追加された stopTransport 待機へ入る。
-        await callee.setRemoteDescription(caller.localDescription!);
+        const applied = callee.setRemoteDescription(caller.localDescription!);
+
+        // Assert: await 中に close された SRD は InvalidStateError で終わる。
+        await expect(applied, label).rejects.toMatchObject({
+          name: "InvalidStateError",
+        });
         expect(closePromise, label).toBeDefined();
         await closePromise;
 
@@ -641,10 +655,10 @@ describe("peerConnection", () => {
   });
 
   test("ICE/DTLS connected 後の再接続でも SCTP retry に到達する", async () => {
-    // Arrange: 実 DataChannel を確立し、ICE/DTLS/SCTP が一度成功した状態を作る。
+    // Arrange: 初回の SCTP 開始だけを失敗させ、ICE/DTLS は接続済み・SCTP は
+    // 未確立 (CLOSED) の状態を作る。
     const caller = new RTCPeerConnection({});
     const callee = new RTCPeerConnection({});
-    const [channel] = await createDataChannelPair({}, caller, callee);
     const manager = (
       caller as unknown as {
         sctpManager: { connectSctp(): Promise<void> };
@@ -659,24 +673,36 @@ describe("peerConnection", () => {
       }
       await originalConnectSctp();
     };
+    const channel = caller.createDataChannel("retry");
 
     try {
-      // Act: 接続済みの早期 return からも SCTP の初回 retry を実行する。
-      await (caller as unknown as { connect(): Promise<void> }).connect();
-      expect(caller.connectionState).toBe("failed");
+      await caller.setLocalDescription(await caller.createOffer());
+      await callee.setRemoteDescription(caller.localDescription!);
+      await callee.setLocalDescription(await callee.createAnswer());
+      await caller.setRemoteDescription(callee.localDescription!);
+      const dtls = caller.dtlsTransports[0]!;
+      if (dtls.state !== "connected") {
+        await dtls.onStateChange.watch(
+          (state) => state === "connected",
+          10_000,
+        );
+      }
+      while (attempts < 1) await setTimeout(10);
+      expect(caller.sctp?.sctp.associationState).toBe(SCTP_STATE.CLOSED);
 
-      // Act: 再ネゴシエーション相当の connect() を再度実行する。
+      // Act: 接続済み transport に対する再接続 (再ネゴシエーション相当) を実行する。
       await (caller as unknown as { connect(): Promise<void> }).connect();
+      await assertDataChannelOpen(channel);
 
-      // Assert: manager の二回目の開始へ到達し、PCだけ connected にはしない。
+      // Assert: ICE/DTLS 接続済みの経路からも manager の二回目の開始へ到達する。
       expect(attempts).toBe(2);
-      expect(caller.connectionState).toBe("connected");
+      expect(dtls.state).toBe("connected");
       expect(channel.readyState).toBe("open");
     } finally {
       manager.connectSctp = originalConnectSctp;
       await Promise.allSettled([caller.close(), callee.close()]);
     }
-  });
+  }, 30_000);
 
   test("constructor applies WebIDL-style validation for configuration dictionaries", () => {
     const certificateValues = [null, undefined];
@@ -1696,6 +1722,29 @@ function tamperFingerprints(sdp: string) {
     /a=fingerprint:([^\s]+) ([0-9A-Fa-f:]+)/g,
     (_, algorithm: string, value: string) =>
       `a=fingerprint:${algorithm} ${mutateFingerprint(value)}`,
+  );
+}
+
+/**
+ * Arrange: 接続済み transport の再検証に、現在の remote fingerprint を 1 byte
+ * 変えた値を渡す。SDP 経由では InvalidModificationError で拒否されるため、
+ * transport 単体の防御 (認証済み association の事後失敗) を直接起こす。
+ */
+function applyMismatchedFingerprint(transport: RTCDtlsTransport) {
+  const current = (
+    transport as unknown as { remoteParameters: RTCDtlsParameters }
+  ).remoteParameters;
+  transport.setRemoteParams(
+    new RTCDtlsParameters(
+      current.fingerprints.map(
+        (fingerprint) =>
+          new RTCDtlsFingerprint(
+            fingerprint.algorithm,
+            mutateFingerprint(fingerprint.value),
+          ),
+      ),
+      current.role,
+    ),
   );
 }
 

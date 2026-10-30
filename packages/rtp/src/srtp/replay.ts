@@ -1,4 +1,10 @@
 /**
+ * RFC 3711 requires at least 64. Match libwebrtc (1024) so a NACK
+ * retransmission of a lost packet still fits after the stream moved on.
+ */
+export const SRTP_REPLAY_WINDOW_SIZE = 1024;
+
+/**
  * RFC 3711 §3.3.2 receiver replay list: a sliding window over the packet
  * index (SRTP: ROC * 2^16 + SEQ, SRTCP: the 31-bit SRTCP index).
  *
@@ -11,7 +17,7 @@ export class SrtpReplayWindow {
   private received = 0n;
   private readonly sizeMask: bigint;
 
-  constructor(readonly size = 64) {
+  constructor(readonly size = SRTP_REPLAY_WINDOW_SIZE) {
     this.sizeMask = (1n << BigInt(size)) - 1n;
   }
 

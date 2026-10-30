@@ -888,6 +888,21 @@ export function encryptSrtpSequence(
 }
 
 /**
+ * Drops the first transmission of `sequenceNumber` as if it was lost on the
+ * wire. A NACK retransmission is only sent for a lost packet: delivering both
+ * copies is an RFC 3711 §3.3.2 replay and the receiver rejects it.
+ */
+export function loseOriginalTransmission(
+  packets: SrtpTestPacket[],
+  sequenceNumber: number,
+): SrtpTestPacket[] {
+  const index = packets.findIndex((p) => p.sequenceNumber === sequenceNumber);
+  return index < 0
+    ? packets
+    : [...packets.slice(0, index), ...packets.slice(index + 1)];
+}
+
+/**
  * Decrypts every packet with `receiver` and records whether it succeeded.
  * Failures are recorded instead of thrown.
  */

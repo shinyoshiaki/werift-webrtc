@@ -6,8 +6,6 @@ import {
   type RTCDtlsTransport,
   RTCPeerConnection,
   type RTCRtpTransceiver,
-  RtpHeader,
-  RtpPacket,
   SessionDescription,
 } from "../../../src";
 import {
@@ -18,6 +16,7 @@ import {
   expectSessionAlive,
   expectSessionContinues,
   negotiationSnapshot,
+  nextTestRtpPacket,
   registeredDataChannels,
   sendAndExpectData,
   sendAndExpectRtp,
@@ -618,10 +617,7 @@ export class NegotiationCase {
         await flows(
           remote!.receiver.track.onReceiveRtp,
           (packet) => packet.payload.toString() === text,
-          () =>
-            track.writeRtp(
-              new RtpPacket(new RtpHeader(), Buffer.from(text)).serialize(),
-            ),
+          () => track.writeRtp(nextTestRtpPacket(track, text)),
           `RTP was not received: ${text}`,
         );
       }

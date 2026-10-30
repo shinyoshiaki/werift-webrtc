@@ -177,6 +177,7 @@
 - [ProtectionProfileAes128CmHmacSha1\_80](variables/ProtectionProfileAes128CmHmacSha1_80.md)
 - [RTCP\_HEADER\_SIZE](variables/RTCP_HEADER_SIZE.md)
 - [RTP\_EXTENSION\_URI](variables/RTP_EXTENSION_URI.md)
+- [SRTP\_REPLAY\_WINDOW\_SIZE](variables/SRTP_REPLAY_WINDOW_SIZE.md)
 - [TELEPHONE\_EVENT\_DEFAULT\_CLOCK\_RATE](variables/TELEPHONE_EVENT_DEFAULT_CLOCK_RATE.md)
 - [TELEPHONE\_EVENT\_DEFAULT\_PAYLOAD\_TYPE](variables/TELEPHONE_EVENT_DEFAULT_PAYLOAD_TYPE.md)
 - [timer](variables/timer.md)

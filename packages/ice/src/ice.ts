@@ -2,12 +2,6 @@ import * as timers from "node:timers/promises";
 import { randomBytes } from "crypto";
 import { isIPv4 } from "net";
 import {
-  type Address,
-  Event,
-  debug,
-  interfaceAddress,
-} from "./imports/common";
-import {
   Candidate,
   candidateFoundation,
   candidatePriority,
@@ -33,11 +27,12 @@ import {
   validateAddress,
   validateRemoteCandidate,
 } from "./iceBase";
-import { resolveHostAddresses } from "./internal/resolveHostAddresses";
+import { type Address, debug, Event, interfaceAddress } from "./imports/common";
 import {
   connectionDatagramEvent,
   isAuthenticatedHandshakePair,
 } from "./internal/datagram";
+import { resolveHostAddresses } from "./internal/resolveHostAddresses";
 import {
   decoratePendingSped,
   getConnectionSpedRuntime,
@@ -46,11 +41,11 @@ import {
 import { SpedBindingResponseCache } from "./internal/sped-binding-cache";
 import { type SpedRuntime, sameCandidatePair } from "./sped/runtime";
 import {
-  TCP_CHECK_RESPONSE_TIMEOUT_MS,
-  RETRY_MAX,
-  RETRY_RTO,
   classes,
   methods,
+  RETRY_MAX,
+  RETRY_RTO,
+  TCP_CHECK_RESPONSE_TIMEOUT_MS,
 } from "./stun/const";
 import { Message, parseMessage } from "./stun/message";
 import { StunProtocol } from "./stun/protocol";
@@ -2501,13 +2496,20 @@ export class Connection implements IceConnection {
     return pair;
   }
 
+  /**
+   * Several remote candidates can share one transport address (a srflx equal
+   * to its host base), so one 5-tuple may have several pairs. Checks are
+   * accounted on one of them only; prefer the authenticated pair so the
+   * 5-tuple is not judged by a FROZEN/FAILED duplicate.
+   */
   private findPairByAddr(protocol: Protocol, addr: Address) {
-    return this.checkList.find(
+    const matches = this.checkList.filter(
       (pair) =>
         pair.protocol === protocol &&
         pair.remoteAddr[0] === addr[0] &&
         pair.remoteAddr[1] === addr[1],
     );
+    return matches.find(isAuthenticatedHandshakePair) ?? matches[0];
   }
 
   /**
@@ -2680,12 +2682,7 @@ export class Connection implements IceConnection {
     if (!pair || !runtime || !runtime.isLiveGeneration(generation)) {
       return;
     }
-    await runtime.handleAuthenticatedStun(
-      message,
-      addr,
-      generation,
-      pair,
-    );
+    await runtime.handleAuthenticatedStun(message, addr, generation, pair);
     if (
       generation !== this.generation ||
       !runtime.isLiveGeneration(generation)

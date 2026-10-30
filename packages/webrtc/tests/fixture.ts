@@ -155,9 +155,17 @@ export function createSrtpLoopback(
 
   const received: RtpPacket[] = [];
   const failures: { header: RtpHeader; error: Error }[] = [];
+  /** seq numbers whose next transmission is encrypted but lost on the wire */
+  const lost = new Set<number>();
+  const loseNext = (sequenceNumber: number) => {
+    lost.add(sequenceNumber);
+  };
 
   const transmit = (payload: Buffer, header: RtpHeader) => {
     const encrypted = sender.encrypt(payload, header);
+    if (lost.delete(header.sequenceNumber)) {
+      return encrypted.length;
+    }
     try {
       received.push(RtpPacket.deSerialize(receiver.decrypt(encrypted)));
     } catch (error) {
@@ -166,7 +174,7 @@ export function createSrtpLoopback(
     return encrypted.length;
   };
 
-  return { sender, receiver, received, failures, transmit };
+  return { sender, receiver, received, failures, transmit, loseNext };
 }
 
 export type ConnectedRtpSenderSetup = ReturnType<

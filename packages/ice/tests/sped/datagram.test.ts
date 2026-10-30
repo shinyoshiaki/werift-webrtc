@@ -6,7 +6,7 @@ import {
   type IceDatagramContext,
   isAuthenticatedHandshakePair,
 } from "../../src/internal/datagram";
-import { createTestConnection } from "../utils";
+import { collectDatagrams, createTestConnection } from "../utils";
 import { SpedProtocolMock, spedPair } from "./helpers";
 
 function context(
@@ -162,5 +162,29 @@ describe("Connection datagram routing without source", () => {
       allowsAuthenticatedDtlsDelivery(seen[1]!, connection.generation),
     ).toBe(true);
     expect(appData).toHaveLength(2);
+  });
+
+  it("同じ 5-tuple に重複 pair があっても認証済み pair で datagram を判定する", () => {
+    // Arrange: host と同じアドレスの srflx が別 candidate として届き、同一 protocol
+    // に 2 つの pair ができる。先頭は FAILED、後続だけが incoming check で認証済み
+    const connection = createTestConnection(true);
+    const protocol = new SpedProtocolMock();
+    (connection as any).ensureProtocol(protocol);
+    const failed = spedPair(protocol, "host", "192.0.2.30", 3000);
+    failed.updateState(CandidatePairState.FAILED);
+    const authenticated = spedPair(protocol, "srflx", "192.0.2.30", 3000);
+    authenticated.updateState(CandidatePairState.SUCCEEDED);
+    authenticated.requestsReceived = 1;
+    connection.checkList.push(failed, authenticated);
+    const seen = collectDatagrams(connection);
+    const media = Buffer.from([0x80, 96, 0, 1]);
+
+    // Act: その 5-tuple から media datagram を受信する
+    protocol.onDataReceived.execute(media, ["192.0.2.30", 3000]);
+
+    // Assert: FAILED の重複 pair ではなく認証済み pair として届ける
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.pair).toBe(authenticated);
+    expect(seen[0]!.authenticated).toBe(true);
   });
 });

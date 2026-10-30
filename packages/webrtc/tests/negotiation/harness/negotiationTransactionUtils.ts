@@ -288,7 +288,21 @@ export async function waitForConnection(pc: RTCPeerConnection) {
   await pc.connectionStateChange.watch((state) => state === "connected");
 }
 
-/** Wait for the pending ICE/DTLS association while live media stays bound. */
+const rtpSequenceNumbers = new WeakMap<MediaStreamTrack, number>();
+
+/**
+ * Shared Arrange: the next RTP packet written to `track`. Every write
+ * advances the sequence number so the receiver's SRTP replay window
+ * (RFC 3711 §3.3.2) accepts retried and repeated test traffic.
+ */
+export function nextTestRtpPacket(track: MediaStreamTrack, text: string) {
+  const sequenceNumber = ((rtpSequenceNumbers.get(track) ?? 0) + 1) & 0xffff;
+  rtpSequenceNumbers.set(track, sequenceNumber);
+  return new RtpPacket(
+    new RtpHeader({ sequenceNumber, timestamp: sequenceNumber * 3000 }),
+    Buffer.from(text),
+  ).serialize();
+}
 
 export async function sendAndExpectRtp(
   outgoing: MediaStreamTrack,
@@ -298,9 +312,7 @@ export async function sendAndExpectRtp(
   const received = incoming.onReceiveRtp.watch(
     (packet) => packet.payload.toString() === text,
   );
-  outgoing.writeRtp(
-    new RtpPacket(new RtpHeader(), Buffer.from(text)).serialize(),
-  );
+  outgoing.writeRtp(nextTestRtpPacket(outgoing, text));
   await Promise.race([
     received,
     new Promise<never>((_, reject) =>
@@ -1417,9 +1429,7 @@ async function expectRtpEventually(
   try {
     const deadline = Date.now() + ms;
     while (!received && Date.now() < deadline) {
-      outgoing.writeRtp(
-        new RtpPacket(new RtpHeader(), Buffer.from(text)).serialize(),
-      );
+      outgoing.writeRtp(nextTestRtpPacket(outgoing, text));
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
   } finally {
@@ -3051,7 +3061,6 @@ export function recordSenderFeedback(sender: RTCRtpSender) {
   return { record, stop: () => subscription.unSubscribe() };
 }
 
-let twccSequenceNumber = 20000;
 /**
  * Write `packets` RTP packets on `outgoing` (its sender adds the transport-cc
  * header extension when negotiated) and report whether `receiver` sent
@@ -3080,13 +3089,7 @@ export async function twccFeedbackSent(
   };
   try {
     for (let i = 0; i < packets; i++) {
-      const sequenceNumber = ++twccSequenceNumber;
-      outgoing.writeRtp(
-        new RtpPacket(
-          new RtpHeader({ sequenceNumber, timestamp: sequenceNumber * 3000 }),
-          Buffer.from(`twcc-${sequenceNumber}`),
-        ).serialize(),
-      );
+      outgoing.writeRtp(nextTestRtpPacket(outgoing, `twcc-${i}`));
       await new Promise((resolve) => setTimeout(resolve, 5));
     }
     const deadline = Date.now() + waitMs;

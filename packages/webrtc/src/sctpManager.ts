@@ -1,7 +1,7 @@
-import { type SCTP, type SCTPOptions, SCTP_STATE } from "../../sctp/src";
-import { createWebRtcTypeError } from "./errors";
-import { Event, debug } from "./imports/common";
+import { type SCTP, SCTP_STATE, type SCTPOptions } from "../../sctp/src";
 import { RTCDataChannel, RTCDataChannelParameters } from "./dataChannel";
+import { createWebRtcTypeError } from "./errors";
+import { debug, Event } from "./imports/common";
 import {
   generateStatsId,
   getStatsTimestamp,
@@ -352,6 +352,16 @@ export class SctpTransportManager {
       // UdpTransport.send は既知アドレスでは callback を待たない。呼び出し側が
       // 直後に ICE ソケットを閉じると queued な AbortChunk が落ちるので、1 tick 譲る。
       await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+    // transport.stop() は rollback 用に未告知 (OPEN 待ち) の channel を残す。
+    // PeerConnection の close ではそれらも含めすべての channel を閉じる。
+    for (const channel of [...this.dataChannels]) {
+      if (channel.readyState === "closed") continue;
+      try {
+        channel.setReadyState("closed");
+      } catch (error) {
+        log("datachannel close callback failed", error);
+      }
     }
 
     this.onDataChannel.allUnsubscribe();

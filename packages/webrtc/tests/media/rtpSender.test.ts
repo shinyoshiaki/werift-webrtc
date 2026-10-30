@@ -1313,6 +1313,9 @@ describe("media/rtpSender NACK retransmission over SRTP", () => {
     const { sender, srtp } = arrangeSender();
 
     // Arrange: 65535 → 0..120 と送り、折り返し後の ROC=1 区間に入る。
+    // 初回の seq 0 は経路上で失われる (NACK が出る前提)。受信済みの同一
+    // index の再送は RFC 3711 §3.3.2 の replay として拒否されるため。
+    srtp.loseNext(0);
     for (const seq of [65535, ...Array.from({ length: 121 }, (_, i) => i)]) {
       await sender.sendRtp(createRtpPacket(seq, seq * 960));
     }

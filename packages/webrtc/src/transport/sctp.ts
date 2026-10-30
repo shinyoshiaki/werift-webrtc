@@ -110,10 +110,16 @@ export class RTCSctpTransport {
           this.dataChannelFlush();
         }),
         association.stateChanged.closed.subscribe(() => {
+          // An explicit stop() closes the channels registered on this
+          // association only; channels whose OPEN is still queued outlive it
+          // (rollback re-announces them on the next association).
+          if (this.stopping) {
+            this.closeDataChannels({ clearQueue: false, includeQueued: false });
+            return;
+          }
           // Keep pre-establishment channels and queued DCEP available for a
-          // retry. Once an association was established (or the transport is
-          // explicitly stopping), closing the SCTP association closes them.
-          if (!association.hadEstablished && !this.stopping) return;
+          // retry. Once an association was established, closing it closes them.
+          if (!association.hadEstablished) return;
           this.closeDataChannels();
         }),
         ...(() => {
@@ -453,10 +459,18 @@ export class RTCSctpTransport {
   }
 
   /** Close retained channels even when SCTP removed its state listeners. */
-  private closeDataChannels(clearQueue = true) {
+  private closeDataChannels({
+    clearQueue = true,
+    includeQueued = true,
+  }: {
+    clearQueue?: boolean;
+    includeQueued?: boolean;
+  } = {}) {
     const channels = new Set<RTCDataChannel>([
       ...Object.values(this.dataChannels),
-      ...this.dataChannelQueue.toArray().map(([channel]) => channel),
+      ...(includeQueued
+        ? this.dataChannelQueue.toArray().map(([channel]) => channel)
+        : []),
     ]);
     if (clearQueue) this.dataChannelQueue.clear();
     this.dataChannels = {};
@@ -544,10 +558,11 @@ export class RTCSctpTransport {
     // entries so a later association can discard them if the channel closed.
     this.discardUnsentMessages();
     const retainedOpens = this.dataChannelQueue.toArray();
-    // SCTP removes its own state listeners when it reaches CLOSED.  Explicit
-    // PeerConnection shutdown must therefore close retained channels without
-    // relying on a later stateChanged.closed callback.
-    this.closeDataChannels(false);
+    // SCTP removes its own state listeners when it reaches CLOSED, so close
+    // the channels registered on this association here. Channels whose OPEN
+    // is still queued outlive the transport (rollback re-announces them);
+    // PeerConnection shutdown closes those in SctpTransportManager.close().
+    this.closeDataChannels({ clearQueue: false, includeQueued: false });
     try {
       await this.sctp.stop();
     } finally {

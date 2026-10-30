@@ -699,7 +699,9 @@ export class SecureTransportManager {
   }
 
   setConnectionState(state: ConnectionState) {
-    if (this.connectionState === state) {
+    // "closed" is terminal: asynchronous ICE/DTLS/SCTP completions that
+    // settle after close() must not reopen or fail the connection.
+    if (this.connectionState === state || this.connectionState === "closed") {
       return;
     }
     log("connectionStateChange", state);

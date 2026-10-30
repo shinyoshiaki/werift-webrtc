@@ -316,7 +316,12 @@ export class TransportActivation {
     );
 
     if (epoch !== this.connectEpoch) return;
-    if (res.find((r) => r.status === "rejected")) {
+    // A transport can fail while this call waits (for example a fingerprint
+    // re-validation failure); its earlier success must not report connected.
+    if (
+      res.find((r) => r.status === "rejected") ||
+      this.secure.dtlsTransports.some((t) => t.state === "failed")
+    ) {
       this.secure.setConnectionState("failed");
     } else if (res.some((r) => r.status === "fulfilled" && r.value)) {
       this.secure.setConnectionState("connected");
@@ -324,16 +329,9 @@ export class TransportActivation {
   }
 
   /** Start or arm the SCTP role while SPED handshake writes become available. */
-  private startEarlySctp(
-    dtlsTransport: RTCDtlsTransport,
-    config: PeerConfig,
-  ) {
+  private startEarlySctp(dtlsTransport: RTCDtlsTransport, config: PeerConfig) {
     const sctp = this.sctp.sctpTransport;
-    if (
-      config.sped !== true ||
-      !sctp ||
-      sctp.dtlsTransport !== dtlsTransport
-    ) {
+    if (config.sped !== true || !sctp || sctp.dtlsTransport !== dtlsTransport) {
       return Promise.resolve();
     }
     if (dtlsTransport.role === "client") {
