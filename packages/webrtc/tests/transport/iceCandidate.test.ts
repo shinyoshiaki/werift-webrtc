@@ -137,6 +137,11 @@ describe("RTCIceCandidate parsed fields", () => {
   test.each([
     "1 1 udp nope 192.0.2.1 123 typ host",
     "1 1 udp 1 192.0.2.1 123 wrong relay",
+    "1 0 udp 0 192.0.2.1 123 typ host",
+    "1 0 udp 1 192.0.2.1 123 typ host",
+    "1 257 udp 1 192.0.2.1 123 typ host",
+    "1 1 udp 0 192.0.2.1 123 typ host",
+    "1 1 udp 2147483648 192.0.2.1 123 typ host",
   ])(
     "fromSdp and IceCandidate.fromJSON().toJSON() hide invalid values: %s",
     (sdp) => {
@@ -149,6 +154,31 @@ describe("RTCIceCandidate parsed fields", () => {
       expect(viaFromSdp.priority).toBeNull();
       expect(viaFromSdp.port).toBeNull();
       expect(internal).toBeUndefined();
+    },
+  );
+
+  test.each([
+    { component: 1, priority: 1, expected: ["rtp", 1] },
+    { component: 256, priority: 2147483647, expected: [null, 2147483647] },
+  ])(
+    "component / priority boundary values are accepted: $component $priority",
+    ({ component, priority, expected }) => {
+      // Arrange: 仕様上の境界値を持つ a-line
+      const sdp = `1 ${component} udp ${priority} 192.0.2.1 123 typ host`;
+
+      // Act: コンストラクター・fromSdp・内部候補変換で処理する
+      const candidates = [
+        new RTCIceCandidate({ candidate: sdp }),
+        RTCIceCandidate.fromSdp(sdp),
+        IceCandidate.fromJSON({ candidate: sdp })?.toJSON(),
+      ];
+
+      // Assert: 境界値は有効で、どの経路でも同じ値が読める
+      for (const candidate of candidates) {
+        expect(candidate?.component).toBe(expected[0]);
+        expect(candidate?.priority).toBe(expected[1]);
+        expect(candidate?.type).toBe("host");
+      }
     },
   );
 
