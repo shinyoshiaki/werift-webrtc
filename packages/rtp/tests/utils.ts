@@ -12,7 +12,12 @@ import {
   type OggOutput,
   type OggTrack,
   type Track,
+  WebmCallback,
+  type WebmOutput,
+  type WebmTrack,
+  saveToFileSystem,
 } from "../src/extra";
+import { vintDecode } from "../src/extra/container/webm/ebml/ebml";
 import type { Mp4Output } from "../src/extra/processor/mp4";
 import {
   RtpMediaClock,
@@ -22,6 +27,7 @@ import {
   type RtpMediaPacerOptions,
   type RtpMediaPacerTick,
 } from "../src/rtp/mediaClock";
+import { RtcpSenderInfo, RtcpSrPacket } from "../src/rtcp/sr";
 import { RtpHeader, RtpPacket } from "../src/rtp/rtp";
 import {
   ProtectionProfileAeadAes128Gcm,
@@ -952,6 +958,164 @@ export function createH264RtpPackets(payloads: Buffer[], timestamp = 0) {
 }
 
 // ---------------------------------------------------------------------------
+// WebM
+
+export function createWebmTracks(): WebmTrack[] {
+  return [
+    {
+      kind: "video",
+      codec: "VP8",
+      clockRate: 90_000,
+      trackNumber: 1,
+      width: 640,
+      height: 480,
+    },
+    { kind: "audio", codec: "OPUS", clockRate: 48_000, trackNumber: 2 },
+  ];
+}
+
+/**
+ * Video frames every 33 ms with a keyframe every `keyframeInterval` frames,
+ * and audio frames every 20 ms, both covering `durationMs`.
+ */
+export function createWebmFrames(durationMs: number, keyframeInterval = 30) {
+  const video = Array.from({ length: Math.ceil(durationMs / 33) }, (_, i) =>
+    createFrame(
+      Buffer.alloc(100, i & 0xff),
+      i % keyframeInterval === 0,
+      i * 33,
+    ),
+  );
+  const audio = Array.from({ length: Math.ceil(durationMs / 20) }, (_, i) =>
+    createFrame(Buffer.from([0xf8, 0xff, 0xfe, i & 0xff]), true, i * 20),
+  );
+  return { video, audio };
+}
+
+/** Feeds frames to `webm` in time order, then sends EOL on every track. */
+export function feedWebmFrames(
+  webm: WebmCallback,
+  frames: ReturnType<typeof createWebmFrames>,
+) {
+  const events = [
+    ...frames.video.map((frame) => ({ frame, input: webm.inputVideo })),
+    ...frames.audio.map((frame) => ({ frame, input: webm.inputAudio })),
+  ].sort((a, b) => a.frame.time - b.frame.time);
+  for (const { frame, input } of events) {
+    input({ frame });
+  }
+  webm.inputVideo({});
+  webm.inputAudio({});
+}
+
+/**
+ * Records with `WebmCallback` and either `saveToFileSystem` (`file`) or plain
+ * concatenation of `saveToFile` chunks (`stream`), returning the bytes.
+ */
+export async function recordWebm(
+  frames: ReturnType<typeof createWebmFrames>,
+  mode: "file" | "stream" = "file",
+) {
+  const dir = mkdtempSync(join(tmpdir(), "werift-rtp-webm-"));
+  const path = join(dir, "output.webm");
+  const chunks: Buffer[] = [];
+  try {
+    const save = saveToFileSystem(path);
+    const done = new Promise<void>((resolve) => {
+      const webm = new WebmCallback(createWebmTracks(), { duration: 60_000 });
+      webm.pipe(async (output: WebmOutput) => {
+        if (mode === "file") {
+          await save(output);
+        } else if (output.saveToFile) {
+          chunks.push(output.saveToFile);
+        }
+        if (output.eol) {
+          resolve();
+        }
+      });
+      feedWebmFrames(webm, frames);
+    });
+    await withTimeout(done, 5_000);
+    return mode === "file" ? readFileSync(path) : Buffer.concat(chunks);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+export type EbmlElementHeader = {
+  id: number;
+  /** offset of the element ID */
+  position: number;
+  /** offset of the element body */
+  dataPosition: number;
+  /** undefined for unknown size */
+  size?: number;
+};
+
+export function readEbmlElementHeader(
+  buf: Buffer,
+  position: number,
+): EbmlElementHeader {
+  const idLength = vintDecode(buf, position).length;
+  const id = buf.readUIntBE(position, idLength);
+  const size = vintDecode(buf, position + idLength);
+  return {
+    id,
+    position,
+    dataPosition: position + idLength + size.length,
+    size: size.unknown ? undefined : Number(size.value),
+  };
+}
+
+/** Lists the direct children of the element at `parent` by following sizes. */
+export function readEbmlChildren(buf: Buffer, parent: EbmlElementHeader) {
+  const end =
+    parent.size == undefined ? buf.length : parent.dataPosition + parent.size;
+  const children: EbmlElementHeader[] = [];
+  for (let position = parent.dataPosition; position < end; ) {
+    const child = readEbmlElementHeader(buf, position);
+    children.push(child);
+    if (child.size == undefined) {
+      break;
+    }
+    position = child.dataPosition + child.size;
+  }
+  return children;
+}
+
+/** Reads every CueClusterPosition (relative to the Segment body) in Cues. */
+export function readCueClusterPositions(buf: Buffer, cues: EbmlElementHeader) {
+  const ids = {
+    cuePoint: 0xbb,
+    cueTrackPositions: 0xb7,
+    cueClusterPosition: 0xf1,
+  };
+  return readEbmlChildren(buf, cues)
+    .filter((e) => e.id === ids.cuePoint)
+    .flatMap((point) => readEbmlChildren(buf, point))
+    .filter((e) => e.id === ids.cueTrackPositions)
+    .flatMap((track) => readEbmlChildren(buf, track))
+    .filter((e) => e.id === ids.cueClusterPosition)
+    .map((e) => buf.readUIntBE(e.dataPosition, e.size!));
+}
+
+/** Runs ffprobe at `-v warning` over the WebM bytes and returns stderr. */
+export function probeWebmWarnings(buffer: Buffer) {
+  const dir = mkdtempSync(join(tmpdir(), "werift-rtp-webm-"));
+  try {
+    const path = join(dir, "output.webm");
+    writeFileSync(path, buffer);
+    const result = spawnSync(
+      "ffprobe",
+      ["-v", "warning", "-show_entries", "format=duration", path],
+      { encoding: "utf8" },
+    );
+    return result.stderr;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 // SRTP rollover counter (ROC) helpers
 
 const srtpTestKeys: Record<
@@ -1099,4 +1263,27 @@ export function tamperBuffer(buffer: Buffer, index: number, mask = 0x01) {
   const tampered = Buffer.from(buffer);
   tampered[index] ^= mask;
   return tampered;
+}
+
+/** 64bit NTP timestamp from integer seconds and a 32bit binary fraction */
+export function createNtpTimestamp(seconds: number, fraction: number) {
+  return (BigInt(seconds) << 32n) | BigInt(fraction);
+}
+
+export function createSenderReport(ntpTimestamp: bigint, rtpTimestamp: number) {
+  return new RtcpSrPacket({
+    senderInfo: new RtcpSenderInfo({
+      ntpTimestamp,
+      rtpTimestamp,
+      packetCount: 0,
+      octetCount: 0,
+    }),
+  });
+}
+
+export function createRtpAt(timestamp: number, sequenceNumber = 0) {
+  return new RtpPacket(
+    new RtpHeader({ timestamp, sequenceNumber }),
+    Buffer.alloc(0),
+  );
 }
