@@ -22,7 +22,7 @@ candidate without useTcp; the kept ones are held back the same way.
 
 ### options
 
-`Pick`\<[`IceOptions`](../interfaces/IceOptions.md), `"turnServer"` \| `"turnUsername"` \| `"turnPassword"` \| `"forceTurn"`\> & `object` & `Partial`\<`Pick`\<[`IceOptions`](../interfaces/IceOptions.md), `"useTcp"`\>\>
+`Pick`\<[`IceOptions`](../interfaces/IceOptions.md), `"forceTurn"`\> & `Partial`\<`Pick`\<[`IceOptions`](../interfaces/IceOptions.md), `"useTcp"`\>\>
 
 ## Returns
 

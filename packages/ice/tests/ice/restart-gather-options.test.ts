@@ -1,4 +1,5 @@
 import { Candidate } from "../../src/candidate";
+import type { IceOptions } from "../../src/iceBase";
 import {
   isCandidateAllowedByGatherOptions,
   isRelayOnlyGathering,
@@ -25,34 +26,39 @@ describe("isCandidateAllowedByGatherOptions", () => {
     [{ type: "host", transport: "udp" }, { ...turn, forceTurn: true }, false],
     [{ type: "srflx", transport: "udp" }, { ...turn, forceTurn: true }, false],
     [{ type: "host", transport: "tcp" }, { ...turn, forceTurn: true }, false],
-    // TURN が無い relay ポリシーは従来どおり host / srflx に fallback する
-    [{ type: "host", transport: "udp" }, { forceTurn: true }, true],
-    [{ type: "srflx", transport: "udp" }, { forceTurn: true }, true],
+    // TURN 未設定・資格情報欠落でも relay ポリシーは host / srflx に fallback しない
+    [{ type: "host", transport: "udp" }, { forceTurn: true }, false],
+    [{ type: "srflx", transport: "udp" }, { forceTurn: true }, false],
+    [
+      { type: "host", transport: "udp" },
+      { ...turn, turnPassword: undefined, forceTurn: true },
+      false,
+    ],
     [{ type: "host", transport: "udp" }, { ...turn, forceTurn: false }, true],
     [{ type: "host", transport: "tcp" }, { useTcp: false }, false],
     [{ type: "host", transport: "tcp" }, { useTcp: true }, true],
-    // ICE-lite は relay-only にならない
+    // ICE-lite でも relay ポリシーなら host 候補を出さない
     [
       { type: "host", transport: "udp" },
       { ...turn, forceTurn: true, iceLite: true },
-      true,
+      false,
     ],
   ])("%o with %o → %s", (candidate, options, allowed) => {
     // Act / Assert: 新規 gathering と同じ条件で可否が決まる
     expect(isCandidateAllowedByGatherOptions(candidate, options)).toBe(allowed);
   });
 
-  test("isRelayOnlyGathering は TURN server / credential が揃うときだけ真", () => {
-    // Act / Assert: forceTurn と TURN 設定がすべて揃ったときだけ relay-only
+  test("isRelayOnlyGathering は TURN 設定の有無にかかわらず forceTurn で決まる", () => {
+    // Act / Assert: forceTurn なら TURN 設定が揃っていなくても relay-only
     expect(isRelayOnlyGathering({ ...turn, forceTurn: true })).toBe(true);
     expect(isRelayOnlyGathering({ ...turn, forceTurn: false })).toBe(false);
-    expect(
-      isRelayOnlyGathering({
-        ...turn,
-        turnPassword: undefined,
-        forceTurn: true,
-      }),
-    ).toBe(false);
+    expect(isRelayOnlyGathering({ forceTurn: true })).toBe(true);
+    const withoutPassword = {
+      ...turn,
+      turnPassword: undefined,
+      forceTurn: true,
+    };
+    expect(isRelayOnlyGathering(withoutPassword)).toBe(true);
   });
 });
 
@@ -203,6 +209,91 @@ describe("ICE restart follows the gather options of the new generation", () => {
       await arranged.close();
     }
   });
+
+  test.each([
+    ["TURN 未設定", () => ({})],
+    [
+      "TURN 資格情報欠落",
+      (turnOptions: Partial<IceOptions>) => ({
+        ...turnOptions,
+        turnPassword: undefined,
+      }),
+    ],
+  ])(
+    "all → relay (%s): 直接候補へ fallback せず候補なしで host socket も閉じる",
+    async (_label, turnUpdate) => {
+      // Arrange: STUN のみ (relay ポリシーなし) で gather 済みの connection
+      const arranged = await createGatheredConnectionWithLocalServers(
+        ({ stunOptions }) => stunOptions,
+      );
+      const { connection, stunOptions, turnOptions } = arranged;
+      try {
+        expect(localCandidateKinds(connection)).toEqual(
+          expect.arrayContaining(["udp/host", "udp/srflx"]),
+        );
+
+        // Act: 使える TURN が無いまま relay ポリシーに変えて ICE restart する
+        await restartWithIceServers(connection, {
+          ...stunOptions,
+          ...turnUpdate(turnOptions),
+          forceTurn: true,
+        });
+
+        // Assert: 新しい generation に host / srflx は出ず、直接通信用の socket も残らない
+        expect(connection.localCandidates).toEqual([]);
+        expect(connectionProtocols(connection)).toEqual([]);
+
+        // Act: 相手の host 候補を受け取る
+        connection.setRemoteParams({
+          iceLite: false,
+          usernameFragment: "remote",
+          password: "remote-password-remote",
+        });
+        await connection.addRemoteCandidate(
+          new Candidate("1", 1, "udp", 100, "127.0.0.1", 50000, "host"),
+        );
+
+        // Assert: 直接経路のペアはできない
+        const checkList = (connection as unknown as { checkList: unknown[] })
+          .checkList;
+        expect(checkList).toEqual([]);
+      } finally {
+        await arranged.close();
+      }
+    },
+  );
+
+  test.each([
+    ["TURN 未設定", {}],
+    [
+      "TURN 資格情報欠落",
+      {
+        turnServer: ["127.0.0.1", 3478] as [string, number],
+        turnUsername: "user",
+      },
+    ],
+  ])(
+    "relay ポリシーの新規 gathering (%s) は host / srflx を gather しない",
+    async (_label, turnOptions) => {
+      // Arrange: STUN を持ち、使える TURN が無い relay ポリシーの connection
+      const arranged = await createGatheredConnectionWithLocalServers(
+        ({ stunOptions }) => ({
+          ...stunOptions,
+          ...turnOptions,
+          forceTurn: true,
+        }),
+      );
+      const { connection } = arranged;
+      try {
+        // Assert: 候補も socket も無く、gathering は完了している
+        expect(connection.localCandidates).toEqual([]);
+        expect(connectionProtocols(connection)).toEqual([]);
+        expect(connection.state).toBe("completed");
+      } finally {
+        await arranged.close();
+      }
+    },
+  );
 
   test("staged generation の gather options が relay-only なら provisional checks は host socket を使わない", async () => {
     // Arrange: host 候補だけで接続済みの 2 agent

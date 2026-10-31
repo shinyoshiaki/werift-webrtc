@@ -116,6 +116,34 @@ describe("setConfiguration → ICE restart: 設定 × 出力マトリクス", ()
       },
     },
     {
+      name: "STUN のみ: iceTransportPolicy all → relay (TURN 未設定)",
+      initial: () => ({ iceServers: servers.iceServers() }),
+      change: () => ({ iceTransportPolicy: "relay" }),
+      expected: {
+        needRestart: true,
+        offer: [],
+        absent: ["udp/host", "udp/srflx", "tcp/host"],
+        options: { forceTurn: true, turnServer: undefined },
+        authenticated: [],
+      },
+    },
+    {
+      name: "relay のまま TURN → STUN のみ",
+      initial: () => ({
+        iceServers: servers.iceServers("a"),
+        iceTransportPolicy: "relay",
+      }),
+      change: () => ({ iceServers: servers.iceServers() }),
+      expected: {
+        needRestart: true,
+        offer: [],
+        absent: ["udp/host", "udp/srflx", "udp/relay", "tcp/host"],
+        options: { forceTurn: true, turnServer: undefined },
+        authenticated: [],
+        staleAllocationsClosed: true,
+      },
+    },
+    {
       name: "iceUseTcp true → false",
       initial: () => ({ iceServers: servers.iceServers(), iceUseTcp: true }),
       change: () => ({ iceUseTcp: false }),
