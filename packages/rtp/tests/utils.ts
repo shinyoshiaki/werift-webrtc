@@ -1,11 +1,18 @@
 import { spawn, spawnSync } from "child_process";
 import { createSocket } from "dgram";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
-import { BufferSource, Input, MP4 } from "mediabunny";
+import { BufferSource, Input, MP4, OGG } from "mediabunny";
 import { tmpdir } from "os";
 import { join } from "path";
 
-import { MP4Callback, type Track } from "../src/extra";
+import {
+  MP4Callback,
+  OggCallback,
+  type OggOption,
+  type OggOutput,
+  type OggTrack,
+  type Track,
+} from "../src/extra";
 import type { Mp4Output } from "../src/extra/processor/mp4";
 import {
   RtpMediaClock,
@@ -392,6 +399,206 @@ export function createMp4Input(buffer: Buffer) {
     source: new BufferSource(buffer),
     formats: [MP4],
   });
+}
+
+export type ParsedOggPage = {
+  headerType: number;
+  granulePosition: bigint;
+  serialNumber: number;
+  pageSequence: number;
+  checksum: number;
+  segmentTable: number[];
+  data: Buffer;
+  /** whole page with the checksum field zeroed, for CRC recomputation */
+  crcInput: Buffer;
+};
+
+/** Parses every Ogg page header field, independent of the OggParser under test. */
+export function parseOggPages(buffer: Buffer): ParsedOggPage[] {
+  const pages: ParsedOggPage[] = [];
+  let offset = 0;
+  while (offset < buffer.length) {
+    if (buffer.subarray(offset, offset + 4).toString("ascii") !== "OggS") {
+      throw new Error(`no OggS at ${offset}`);
+    }
+    const segments = buffer.readUInt8(offset + 26);
+    const segmentTable = [
+      ...buffer.subarray(offset + 27, offset + 27 + segments),
+    ];
+    const headerLength = 27 + segments;
+    const dataLength = segmentTable.reduce((a, b) => a + b, 0);
+    const raw = buffer.subarray(offset, offset + headerLength + dataLength);
+    const crcInput = Buffer.from(raw);
+    crcInput.writeUInt32LE(0, 22);
+    pages.push({
+      headerType: raw.readUInt8(5),
+      granulePosition: raw.readBigInt64LE(6),
+      serialNumber: raw.readUInt32LE(14),
+      pageSequence: raw.readUInt32LE(18),
+      checksum: raw.readUInt32LE(22),
+      segmentTable,
+      data: raw.subarray(headerLength),
+      crcInput,
+    });
+    offset += raw.length;
+  }
+  return pages;
+}
+
+/** Reassembles packets from lacing values, following continued pages. */
+export function oggPagesToPackets(pages: ParsedOggPage[]) {
+  const packets: Buffer[] = [];
+  let pending: Buffer[] = [];
+  for (const page of pages) {
+    let offset = 0;
+    for (const size of page.segmentTable) {
+      pending.push(page.data.subarray(offset, offset + size));
+      offset += size;
+      if (size < 255) {
+        packets.push(Buffer.concat(pending));
+        pending = [];
+      }
+    }
+  }
+  return packets;
+}
+
+export function oggOutputsToBuffer(outputs: OggOutput[]) {
+  return Buffer.concat(
+    outputs.flatMap((output) => (output.saveToFile ? [output.saveToFile] : [])),
+  );
+}
+
+export async function collectOggOutputs(
+  act: (ogg: OggCallback) => void | Promise<void>,
+  { track = {}, options = {} }: { track?: OggTrack; options?: OggOption } = {},
+) {
+  const outputs: OggOutput[] = [];
+  const ogg = new OggCallback(track, { serialNumber: 0x1234abcd, ...options });
+
+  let resolveDone!: () => void;
+  const done = new Promise<void>((resolve) => {
+    resolveDone = resolve;
+  });
+  ogg.pipe(async (output) => {
+    outputs.push(output);
+    if (output.eol) {
+      resolveDone();
+    }
+  });
+
+  await act(ogg);
+  await withTimeout(done, 5_000);
+  return outputs;
+}
+
+/** 20 ms CELT fullband stereo packets (TOC 0xfc) at the given times (ms). */
+export function createOpusFramesAt(times: number[], payloadSize = 3) {
+  return times.map((time, i) =>
+    createFrame(
+      Buffer.concat([Buffer.from([0xfc]), Buffer.alloc(payloadSize, i & 0xff)]),
+      true,
+      time,
+    ),
+  );
+}
+
+export function createOggInput(buffer: Buffer) {
+  return new Input({
+    source: new BufferSource(buffer),
+    formats: [OGG],
+  });
+}
+
+export function isFfmpegOpusAvailable() {
+  const result = spawnSync("ffmpeg", ["-hide_banner", "-encoders"], {
+    encoding: "utf8",
+  });
+  return (
+    result.status === 0 && /libopus/.test(result.stdout) && isFfprobeAvailable()
+  );
+}
+
+/** Encodes a sine tone with ffmpeg/libopus and returns the Ogg file. */
+export function encodeOggOpusWithFfmpeg(seconds: number, channels = 2) {
+  const result = spawnSync(
+    "ffmpeg",
+    [
+      "-v",
+      "error",
+      "-f",
+      "lavfi",
+      "-i",
+      `sine=frequency=440:duration=${seconds}`,
+      "-ac",
+      String(channels),
+      "-c:a",
+      "libopus",
+      "-frame_duration",
+      "20",
+      "-f",
+      "ogg",
+      "pipe:1",
+    ],
+    { maxBuffer: 64 * 1024 * 1024 },
+  );
+  if (result.status !== 0) {
+    throw new Error(`ffmpeg failed: ${result.stderr}`);
+  }
+  return result.stdout as Buffer;
+}
+
+export type FfprobeAudioResult = {
+  codecName: string;
+  channels: number;
+  sampleRate: number;
+  /** seconds */
+  duration: number;
+  /** stderr of a full ffmpeg decode at `-v error`; empty when it had no errors */
+  decodeErrors: string;
+};
+
+/** Probes the first audio stream with ffprobe and fully decodes it with ffmpeg. */
+export function probeOggAudio(buffer: Buffer): FfprobeAudioResult {
+  const dir = mkdtempSync(join(tmpdir(), "werift-rtp-ogg-"));
+  try {
+    const path = join(dir, "output.ogg");
+    writeFileSync(path, buffer);
+    const probe = spawnSync(
+      "ffprobe",
+      [
+        "-v",
+        "error",
+        "-select_streams",
+        "a:0",
+        "-show_entries",
+        "stream=codec_name,channels,sample_rate:format=duration",
+        "-of",
+        "json",
+        path,
+      ],
+      { encoding: "utf8" },
+    );
+    if (probe.status !== 0) {
+      throw new Error(`ffprobe failed: ${probe.stderr}`);
+    }
+    const json = JSON.parse(probe.stdout);
+    const [stream] = json.streams;
+    const decode = spawnSync(
+      "ffmpeg",
+      ["-v", "error", "-i", path, "-f", "null", "-"],
+      { encoding: "utf8" },
+    );
+    return {
+      codecName: stream.codec_name,
+      channels: Number(stream.channels),
+      sampleRate: Number(stream.sample_rate),
+      duration: Number(json.format.duration),
+      decodeErrors: decode.stderr,
+    };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 async function withTimeout<T>(promise: Promise<T>, timeout: number) {

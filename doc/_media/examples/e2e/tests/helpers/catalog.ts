@@ -466,6 +466,17 @@ export const catalog: CatalogEntry[] = [
     recordWaitMs: 6_000,
   },
   {
+    id: "save-opus-ogg",
+    group: "browser",
+    node: ["save_to_disk/opus_ogg.ts"],
+    html: "save_to_disk/answer.html",
+    port: 8878,
+    client: "babel",
+    kind: "media-record",
+    outputGlob: "*.ogg",
+    recordWaitMs: 6_000,
+  },
+  {
     id: "save-av1x",
     group: "browser",
     node: ["save_to_disk/av1x.ts"],

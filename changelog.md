@@ -2,8 +2,16 @@
 
 ## Unreleased
 
+### ✨ Features
+
+- **Nonstandard `MediaRecorder` writes Ogg Opus** (`werift`, `werift-rtp`): `path: "*.ogg"` / `"*.opus"`, or `format: "ogg"` with `stream` (pass an `Event<[OggOutput]>`), records exactly one Opus audio track as Ogg Opus (RFC 7845). Without `format`, `stream` still produces WebM. A video track, a non-Opus track or more than one track is rejected with a `WeriftError`; an unsupported extension now throws a `WeriftError` with a message instead of an empty `Error`. `width`, `height`, `roll`, `defaultDuration`, `disableLipSync` and `lipsync` are ignored for Ogg.
+  - `werift-rtp` adds the Ogg page writer (`OggPager`, `createOggPage`, `oggCrc32`, `createOpusHead`, `createOpusTags`, `getOpusPacketSamples`) and the `OggCallback` processor with the append-only `saveOggToFileSystem`. Timestamp gaps of 20 ms or more (DTX, loss) are filled with empty Opus packets, so the granule position follows the media time.
+  - `StreamEvent` takes an optional output type (`StreamEvent<OggOutput>`); `StreamEvent` alone is still `Event<[WebmOutput]>`.
+
 ### 🐛 Bug Fixes
 
+- **`WeriftError` keeps its `message`, `payload` and `path`** (`werift-common`): the class field declaration overwrote the message set by `Error` with `undefined`, and `payload` / `path` were never stored. `toJSON()` no longer throws without a `payload`.
+- `MediaRecorder.stop()` called before the asynchronous start finished now waits for the start instead of waiting 5 seconds for an end that never comes.
 - **`werift-common` `UdpTransport` always handles dgram socket `error` events** (`werift-common`, `werift-ice`): before this fix, a socket error with no listener (for example Bun's asynchronous `recvmsg ECONNREFUSED` after the remote peer closed) became an uncaught process exception.
   - Runtime socket errors are logged and emitted on the new `UdpTransport.onError` (`Event<[Error]>`). The socket stays open. `StunProtocol` / `TurnProtocol` subscribe to it and log. `Transport.onError` is optional for custom transports.
   - A bind failure (e.g. `EADDRINUSE`, including a synchronous `bind()` throw) or a `findPort()` failure now rejects `UdpTransport.init()` and closes the socket. Before, a bind failure caused an uncaught exception or `init()` waited forever.

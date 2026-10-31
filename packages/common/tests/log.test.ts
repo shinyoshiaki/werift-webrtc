@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "vitest";
-import { debug } from "../src/log";
+import { debug, WeriftError } from "../src/log";
 import { createDebugOutput, setStderrIsTTYForTest } from "./logUtils";
 
 let restoreTTY: (() => void) | undefined;
@@ -144,5 +144,38 @@ describe("debug logger", () => {
     // Assert: 複製側でも有効化が反映される
     expect(output.messages).toHaveLength(1);
     output.restore();
+  });
+});
+
+describe("WeriftError", () => {
+  test("keeps message, payload and path", () => {
+    // Act
+    const error = new WeriftError({
+      message: "unsupported codec",
+      payload: { codec: "vp8" },
+      path: "src/x.ts",
+    });
+
+    // Assert: Error の message が class field で上書きされず、payload / path も保持される
+    expect(error).toBeInstanceOf(Error);
+    expect(error.message).toBe("unsupported codec");
+    expect(String(error)).toBe("Error: unsupported codec");
+    expect(error.toJSON()).toEqual({
+      message: "unsupported codec",
+      payload: { codec: "vp8" },
+      path: "src/x.ts",
+    });
+  });
+
+  test("serializes without payload", () => {
+    // Act
+    const error = new WeriftError({ message: "failed" });
+
+    // Assert: payload 未指定でも toJSON が例外を投げない
+    expect(error.toJSON()).toEqual({
+      message: "failed",
+      payload: undefined,
+      path: undefined,
+    });
   });
 });

@@ -1,0 +1,175 @@
+import { Event } from "../../imports/common";
+
+import {
+  createOpusHead,
+  createOpusTags,
+  getOpusPacketSamples,
+  OggPager,
+  OpusDefaultPreSkip,
+} from "../container";
+import type { WebmInput } from "./webm";
+
+/** Opus always runs at 48 kHz in Ogg (RFC 7845 §4) */
+const OpusSamplesPerMs = 48;
+/** 20 ms at 48 kHz */
+const GapFillSamples = 960;
+
+export interface OggTrack {
+  /** 1 or 2, default 2 */
+  channels?: number;
+  /** default 312 */
+  preSkip?: number;
+}
+
+/** compatible with WebmInput, so Depacketize / Lipsync output can be piped */
+export type OggInput = WebmInput;
+
+export interface OggOutput {
+  saveToFile?: Buffer;
+  kind?: "initial" | "page";
+  eol?: {
+    /**ms */
+    duration: number;
+  };
+}
+
+export interface OggOption {
+  /** ms of audio collected into one page before it is written. default 1000 */
+  pageDuration?: number;
+  /**
+   * fill timestamp gaps (DTX, packet loss) of 20 ms or more with empty
+   * Opus packets so the granule position follows the media time. default true
+   */
+  fillGaps?: boolean;
+  /** bitstream serial number. default random */
+  serialNumber?: number;
+  /** default "werift" */
+  vendor?: string;
+}
+
+/**
+ * Writes Opus frames into an Ogg Opus stream (RFC 7845).
+ * Output is append-only: page 0 holds OpusHead (BOS), page 1 OpusTags,
+ * audio pages follow and the last page carries the EOS flag.
+ */
+export class OggBase {
+  private pager: OggPager;
+  private preSkip: number;
+  private channels: number;
+  /** 48 kHz samples written so far, excluding pre-skip */
+  private samples = 0;
+  private pendingSamples = 0;
+  private baseTime?: number;
+  private lastToc?: number;
+  stopped = false;
+  internalStats: Record<string, any> = {};
+  onStopped = new Event();
+
+  constructor(
+    track: OggTrack,
+    private output: (output: OggOutput) => void,
+    private options: OggOption = {},
+  ) {
+    this.channels = track.channels ?? 2;
+    this.preSkip = track.preSkip ?? OpusDefaultPreSkip;
+    this.pager = new OggPager(
+      options.serialNumber ?? Math.floor(Math.random() * 0xffffffff),
+    );
+  }
+
+  toJSON(): Record<string, any> {
+    return {
+      ...this.internalStats,
+      samples: this.samples,
+      stopped: this.stopped,
+    };
+  }
+
+  /** ms of audio written so far */
+  get duration() {
+    return this.samples / OpusSamplesPerMs;
+  }
+
+  protected start() {
+    const head = this.pager.addPacket(
+      createOpusHead({ channels: this.channels, preSkip: this.preSkip }),
+      0n,
+    );
+    const headPage = this.pager.flush();
+    this.pager.addPacket(createOpusTags(this.options.vendor), 0n);
+    const tagsPage = this.pager.flush();
+    this.output({
+      saveToFile: Buffer.concat([...head, ...headPage, ...tagsPage]),
+      kind: "initial",
+    });
+  }
+
+  processAudioInput = (input: OggInput) => {
+    if (this.stopped) {
+      return;
+    }
+    if (input.frame) {
+      this.internalStats["processAudioInput"] = new Date().toISOString();
+      this.onFrameReceived(input.frame);
+    } else if (input.eol) {
+      this.stop();
+    }
+  };
+
+  private onFrameReceived(frame: NonNullable<OggInput["frame"]>) {
+    if (frame.data.length === 0) {
+      return;
+    }
+    if (this.baseTime === undefined) {
+      this.baseTime = frame.time;
+    }
+
+    if (this.options.fillGaps ?? true) {
+      const expected = Math.round(
+        (frame.time - this.baseTime) * OpusSamplesPerMs,
+      );
+      // 1 byte packets (TOC only) are decoded as lost frames (RFC 6716 §3.2.1)
+      const toc = (31 << 3) | ((this.lastToc ?? 0) & 0x04);
+      while (expected - this.samples >= GapFillSamples) {
+        this.writePacket(Buffer.from([toc]), GapFillSamples);
+      }
+    }
+
+    this.lastToc = frame.data[0];
+    this.writePacket(
+      frame.data,
+      getOpusPacketSamples(frame.data) ?? GapFillSamples,
+    );
+  }
+
+  private writePacket(packet: Buffer, samples: number) {
+    this.samples += samples;
+    this.pendingSamples += samples;
+    const pages = this.pager.addPacket(
+      packet,
+      BigInt(this.samples + this.preSkip),
+    );
+    if (
+      this.pendingSamples >=
+      (this.options.pageDuration ?? 1000) * OpusSamplesPerMs
+    ) {
+      pages.push(...this.pager.flush());
+      this.pendingSamples = 0;
+    }
+    if (pages.length > 0) {
+      this.output({ saveToFile: Buffer.concat(pages), kind: "page" });
+    }
+  }
+
+  protected stop() {
+    if (this.stopped) {
+      return;
+    }
+    this.stopped = true;
+
+    const pages = this.pager.flush({ eos: true });
+    this.output({ saveToFile: Buffer.concat(pages), kind: "page" });
+    this.output({ eol: { duration: this.duration } });
+    this.onStopped.execute();
+  }
+}
