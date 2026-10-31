@@ -286,6 +286,18 @@ export interface IceOptions {
    * Defaults to 8.
    */
   turnConnectTimeout?: number;
+  /**
+   * Milliseconds the controlling agent keeps checking before it nominates
+   * (RFC 8445 §8.1.1 regular nomination). Counted from the later of the first
+   * valid pair and the last pair added that outranks the best valid pair, so
+   * a higher-priority candidate trickled shortly after a lower-priority one
+   * succeeded can still be selected. Once both sides signalled
+   * end-of-candidates and no higher-priority pair is still being checked, the
+   * best valid pair is nominated at once. Defaults to 300; 0 nominates the
+   * best valid pair as soon as one exists. A negative or non-finite value
+   * falls back to the default.
+   */
+  nominationDelayMs?: number;
   stunServer?: Address;
   turnServer?: Address;
   turnUsername?: string;
