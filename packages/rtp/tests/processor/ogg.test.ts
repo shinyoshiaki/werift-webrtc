@@ -282,6 +282,29 @@ describe("packages/rtp/tests/processor/ogg.test.ts", () => {
     expect(outputs[0].saveToFile!.subarray(0, 4).toString()).toBe("OggS");
   });
 
+  it("counts pre-skip samples as stored audio in granule and duration", async () => {
+    // Arrange: preSkip 312 を指定し、20ms パケットを 50 個 (48,000 サンプル) 格納する。
+    const frames = createOpusFramesAt(range(50));
+
+    // Act
+    const outputs = await collectOggOutputs(
+      (ogg) => {
+        for (const frame of frames) {
+          ogg.inputAudio({ frame });
+        }
+        ogg.inputAudio({ eol: true });
+      },
+      { track: { preSkip: 312 } },
+    );
+    const pages = parseOggPages(oggOutputsToBuffer(outputs));
+
+    // Assert: OpusHead に pre-skip が入り、最終 granule は格納したサンプル数と一致する。
+    expect(pages[0].data.readUInt16LE(10)).toBe(312);
+    expect(pages.at(-1)!.granulePosition).toBe(48_000n);
+    // Assert: 終了通知の長さは pre-skip を除いた再生時間 (993.5ms) になる。
+    expect(outputs.at(-1)!.eol).toEqual({ duration: (48_000 - 312) / 48 });
+  });
+
   it("writes an EOS page even without audio", async () => {
     // Act: フレームなしで EOL のみ投入する。
     const outputs = await collectOggOutputs((ogg) => {
@@ -399,6 +422,45 @@ describe("packages/rtp/tests/processor/ogg.test.ts", () => {
       expect(result.duration).toBeCloseTo((packets.length * 960) / 48_000, 4);
       // Assert: 実際にデコードされたサンプル数が全パケット分と一致し、先頭が欠落しない。
       expect(result.decodedSamples).toBe(packets.length * 960);
+    });
+
+    it("matches decoded samples, file duration and eol with a non-zero preSkip", async () => {
+      // Arrange: libopus の実パケットを preSkip 312 で格納する。
+      // ffmpeg 自身が書いた参照ファイル (pre-skip 312) も比較用に用意する。
+      const reference = encodeOggOpusWithFfmpeg(1);
+      const source = parseOggPages(reference);
+      const packets = oggPagesToPackets(source).slice(2);
+      const preSkip = 312;
+      const referenceResult = probeOggAudio(reference);
+
+      // Act
+      const outputs = await collectOggOutputs(
+        (ogg) => {
+          packets.forEach((data, i) => {
+            ogg.inputAudio({ frame: { data, isKeyframe: true, time: i * 20 } });
+          });
+          ogg.inputAudio({ eol: true });
+        },
+        { track: { preSkip } },
+      );
+      const result = probeOggAudio(oggOutputsToBuffer(outputs));
+      const expectedSamples = packets.length * 960 - preSkip;
+
+      // Assert: ffmpeg の実デコード結果は格納サンプル数から pre-skip を除いた数になる。
+      expect(result.decodeErrors).toBe("");
+      expect(result.decodedSamples).toBe(expectedSamples);
+      // Assert: 終了通知の長さは実デコード結果と一致する。
+      expect(outputs.at(-1)!.eol!.duration).toBe(result.decodedSamples / 48);
+      // Assert: ffprobe の長さは参照ファイルと同じく「デコード結果 + pre-skip」(= granule) になる。
+      expect(source[0].data.readUInt16LE(10)).toBe(preSkip);
+      expect(referenceResult.duration * 48_000).toBeCloseTo(
+        referenceResult.decodedSamples + preSkip,
+        0,
+      );
+      expect(result.duration * 48_000).toBeCloseTo(
+        result.decodedSamples + preSkip,
+        0,
+      );
     });
 
     it("decodes a file whose OpusTags spans pages", async () => {

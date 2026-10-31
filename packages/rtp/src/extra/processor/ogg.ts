@@ -29,7 +29,8 @@ export interface OggTrack {
   /**
    * samples (48 kHz) the decoder discards from the start. default 0:
    * recorded RTP carries no encoder priming audio, so a non-zero value would
-   * cut real audio
+   * cut real audio. The pre-skip samples are part of the stored packets:
+   * the granule position counts them, `duration` / `eol.duration` do not
    */
   preSkip?: number;
 }
@@ -69,7 +70,7 @@ export class OggBase {
   private pager: OggPager;
   private preSkip: number;
   private channels: number;
-  /** 48 kHz samples written so far, excluding pre-skip */
+  /** 48 kHz samples stored so far, pre-skip included (= granule position) */
   private samples = 0;
   /**
    * input time position (48 kHz samples from the first frame) that the
@@ -105,9 +106,10 @@ export class OggBase {
     };
   }
 
-  /** ms of audio written so far */
+  /** ms of audio played back so far, i.e. stored samples minus pre-skip */
   get duration() {
-    return this.samples / OpusSamplesPerMs;
+    // the decoder discards the first preSkip samples of the stored audio
+    return Math.max(0, this.samples - this.preSkip) / OpusSamplesPerMs;
   }
 
   protected start() {
@@ -186,7 +188,8 @@ export class OggBase {
     this.pendingSamples += samples;
     const pages = this.pager.addPacket(
       packet,
-      BigInt(this.samples + this.preSkip),
+      // granule counts every stored sample, pre-skip included (RFC 7845 §4)
+      BigInt(this.samples),
     );
     if (
       this.pendingSamples >=
