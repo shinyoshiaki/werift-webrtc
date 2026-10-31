@@ -504,6 +504,8 @@ export class RTCPeerConnection extends EventTarget {
       dtlsTransportCreated: this.dtlsTransportCreated,
     });
 
+    this.router.keyFrameRequestRouting = this.config.keyFrameRequestRouting;
+
     if (this.sctpManager?.sctpTransport) {
       this.sctpManager.sctpTransport.maxMessageSize =
         this.config.maxMessageSize;

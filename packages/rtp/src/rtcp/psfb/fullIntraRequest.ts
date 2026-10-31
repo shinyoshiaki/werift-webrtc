@@ -15,7 +15,8 @@ export class FullIntraRequest {
   }
 
   get length() {
-    return Math.floor(this.serialize().length / 4 - 1);
+    // RFC 5104 4.3.1.1: header length = 2 + 2 * N (32-bit words minus one)
+    return this.serialize().length / 4;
   }
 
   static deSerialize(data: Buffer) {
