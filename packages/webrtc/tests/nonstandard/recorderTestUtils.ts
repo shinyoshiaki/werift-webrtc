@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "fs/promises";
+import { chmod, mkdtemp, readFile, rm, writeFile } from "fs/promises";
 import { BufferSource, Input, OGG } from "mediabunny";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -80,7 +80,14 @@ export async function createRecordingDir() {
   return {
     path: (name: string) => join(dir, name),
     read: (name: string) => readFile(join(dir, name)),
-    cleanup: () => rm(dir, { recursive: true, force: true }),
+    write: (name: string, data: string, mode = 0o644) =>
+      writeFile(join(dir, name), data, { mode }),
+    /** forbid creating / deleting entries in the directory */
+    lock: () => chmod(dir, 0o555),
+    cleanup: async () => {
+      await chmod(dir, 0o755);
+      await rm(dir, { recursive: true, force: true });
+    },
   };
 }
 

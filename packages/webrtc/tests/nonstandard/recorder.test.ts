@@ -306,6 +306,93 @@ describe("packages/webrtc/tests/nonstandard/recorder.test.ts", () => {
     expect(elapsed).toBeLessThan(1000);
   });
 
+  it("replaces an existing file that cannot be deleted", async () => {
+    // Arrange: 書き込み可能な既存ファイルがあり、ディレクトリからは削除できない。
+    const dir = await createRecordingDir();
+    const track = createOpusTrack();
+    const errors: Error[] = [];
+    try {
+      await dir.write("out.ogg", "OLD-CONTENT");
+      await dir.lock();
+      const recorder = new MediaRecorder({
+        path: dir.path("out.ogg"),
+        tracks: [track],
+        disableNtp: true,
+      });
+      recorder.onError.subscribe((e) => errors.push(e));
+      await waitForOggRecorderStarted(recorder);
+
+      // Act: 10 パケット録音して停止する。
+      feedOpusRtp(track, 10);
+      await recorder.stop();
+      const buffer = await dir.read("out.ogg");
+
+      // Assert: 古い内容は残らず、ファイルは新しい Ogg だけで始まる。
+      expect(buffer.subarray(0, 4).toString()).toBe("OggS");
+      expect(buffer.includes(Buffer.from("OLD-CONTENT"))).toBe(false);
+      expect(oggHeaderTypes(buffer)[0]).toBe(0x02);
+      // Assert: エラーは通知されない。
+      expect(errors).toEqual([]);
+    } finally {
+      await dir.cleanup();
+    }
+  });
+
+  it("reports an error when the existing file cannot be overwritten", async () => {
+    // Arrange: 読み取り専用の既存ファイルがあり、ディレクトリからも削除できない。
+    const dir = await createRecordingDir();
+    const track = createOpusTrack();
+    const errors: Error[] = [];
+    try {
+      await dir.write("out.ogg", "OLD-CONTENT", 0o444);
+      await dir.lock();
+      const recorder = new MediaRecorder({
+        path: dir.path("out.ogg"),
+        tracks: [track],
+        disableNtp: true,
+      });
+      recorder.onError.subscribe((e) => errors.push(e));
+      await waitForOggRecorderStarted(recorder);
+
+      // Act
+      feedOpusRtp(track, 10);
+      const elapsed = await measureStop(recorder);
+
+      // Assert: 書き込めないことが onError に通知され、停止は待たずに終わる。
+      expect(errors.map((e) => (e as NodeJS.ErrnoException).code)).toEqual([
+        "EACCES",
+      ]);
+      expect(elapsed).toBeLessThan(1000);
+      // Assert: 既存ファイルは変更されない。
+      expect((await dir.read("out.ogg")).toString()).toBe("OLD-CONTENT");
+    } finally {
+      await dir.cleanup();
+    }
+  });
+
+  it("rejects a second track added to a started ogg recorder", async () => {
+    // Arrange: 1 トラックで録音を開始する。
+    const dir = await createRecordingDir();
+    try {
+      const recorder = new MediaRecorder({
+        path: dir.path("out.ogg"),
+        tracks: [createOpusTrack()],
+        disableNtp: true,
+      });
+      await waitForOggRecorderStarted(recorder);
+
+      // Act / Assert: 2 本目の Opus トラックは追加前に拒否される。
+      await expect(recorder.addTrack(createOpusTrack())).rejects.toThrow(
+        /exactly one audio track, got 2/,
+      );
+      // Assert: トラック一覧は 1 本のまま変わらない。
+      expect(recorder.tracks).toHaveLength(1);
+      await recorder.stop();
+    } finally {
+      await dir.cleanup();
+    }
+  });
+
   it("rejects a video track added later to an ogg recorder", async () => {
     // Arrange
     const recorder = new MediaRecorder({ path: "x.ogg", numOfTracks: 1 });

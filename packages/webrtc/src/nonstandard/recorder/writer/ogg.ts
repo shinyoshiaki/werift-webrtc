@@ -1,4 +1,3 @@
-import { unlink } from "fs/promises";
 import { type MediaStreamTrack, WeriftError } from "../../..";
 import { Event, EventDisposer } from "../../../imports/common";
 import {
@@ -95,10 +94,6 @@ export class OggFactory extends MediaWriter<OggOutput> {
         payload: { codec: track.codec?.name },
         path: sourcePath,
       });
-    }
-
-    if (this.props.path) {
-      await unlink(this.props.path).catch((e) => e);
     }
 
     // set before the pipeline can emit, so an early write failure clears it

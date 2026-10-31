@@ -5,7 +5,7 @@
 ### ✨ Features
 
 - **Nonstandard `MediaRecorder` writes Ogg Opus** (`werift`, `werift-rtp`): `path: "*.ogg"` / `"*.opus"`, or `format: "ogg"` with `stream` (pass an `Event<[OggOutput]>`), records exactly one Opus audio track as Ogg Opus (RFC 7845). Without `format`, `stream` still produces WebM. A video track, a non-Opus track or more than one track is rejected with a `WeriftError`; an unsupported extension now throws a `WeriftError` with a message instead of an empty `Error`. `width`, `height`, `roll`, `defaultDuration`, `disableLipSync` and `lipsync` are ignored for Ogg.
-  - `werift-rtp` adds the Ogg page writer (`OggPager`, `createOggPage`, `oggCrc32`, `createOpusHead`, `createOpusTags`, `getOpusPacketSamples`) and the `OggCallback` processor with the append-only `saveOggToFileSystem`. Timestamp gaps of 20 ms or more (DTX, loss) are filled with empty Opus packets, so the granule position follows the media time.
+  - `werift-rtp` adds the Ogg page writer (`OggPager`, `createOggPage`, `oggCrc32`, `createOpusHead`, `createOpusTags`, `getOpusPacketSamples`) and the `OggCallback` processor with the append-only `saveOggToFileSystem` (its first write replaces an existing file). Timestamp gaps of 2.5 ms or more (DTX, loss) are filled with empty Opus packets, so the granule position follows the media time.
   - `StreamEvent` takes an optional output type (`StreamEvent<OggOutput>`); `StreamEvent` alone is still `Event<[WebmOutput]>`.
   - The Ogg recording path reorders RTP with the jitter buffer (`jitterBuffer` option, default latency 200 ms). Packets that arrive after their range was filled are dropped instead of being written out of order.
 

@@ -367,6 +367,35 @@ describe("packages/rtp/tests/processor/ogg.test.ts", () => {
     }
   });
 
+  it("saveOggToFileSystem replaces existing file content", async () => {
+    // Arrange: 保存先に古い内容が残っている。
+    const { mkdtemp, readFile, rm, writeFile } = await import("fs/promises");
+    const { tmpdir } = await import("os");
+    const { join } = await import("path");
+    const dir = await mkdtemp(join(tmpdir(), "werift-ogg-"));
+    const path = join(dir, "out.ogg");
+    await writeFile(path, "OLD-CONTENT");
+    const save = saveOggToFileSystem(path);
+
+    try {
+      // Act
+      const outputs = await collectOggOutputs((ogg) => {
+        for (const frame of createOpusFramesAt(range(10))) {
+          ogg.inputAudio({ frame });
+        }
+        ogg.inputAudio({ eol: true });
+      });
+      for (const output of outputs) {
+        await save(output);
+      }
+
+      // Assert: 古い内容は消え、ファイルは今回の出力の連結だけになる。
+      expect(await readFile(path)).toEqual(oggOutputsToBuffer(outputs));
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it("saveOggToFileSystem appends pages and reports eol", async () => {
     // Arrange
     const { mkdtemp, readFile, rm } = await import("fs/promises");

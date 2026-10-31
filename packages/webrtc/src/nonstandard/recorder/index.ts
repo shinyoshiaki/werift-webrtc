@@ -93,6 +93,8 @@ export class MediaRecorder {
 
   async addTrack(track: MediaStreamTrack) {
     if (this.format === "ogg") {
+      // reject before the track is listed: Ogg records exactly one track
+      OggFactory.validateNumOfTracks(this.tracks.length + 1);
       OggFactory.validateTrack(track);
     }
     this.tracks.push(track);

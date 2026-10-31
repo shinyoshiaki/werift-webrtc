@@ -1,4 +1,4 @@
-import { appendFile } from "fs/promises";
+import { appendFile, writeFile } from "fs/promises";
 
 import { PromiseQueue } from "../..";
 import { Event } from "../../imports/common";
@@ -48,7 +48,8 @@ export class OggCallback extends OggBase {
 }
 
 /**
- * Append-only file writer for {@link OggCallback} output.
+ * Append-only file writer for {@link OggCallback} output. The first write
+ * replaces an existing file at `path`.
  * Unlike WebM, Ogg needs no header rewrite after the last page.
  *
  * @param path
@@ -56,10 +57,18 @@ export class OggCallback extends OggBase {
  */
 export const saveOggToFileSystem = (path: string) => {
   const queue = new PromiseQueue();
+  let opened = false;
   return async (value: OggOutput): Promise<boolean> => {
     return await queue.push<boolean>(async () => {
       if (value.saveToFile) {
-        await appendFile(path, value.saveToFile);
+        if (opened) {
+          await appendFile(path, value.saveToFile);
+        } else {
+          // the first write truncates, so an existing file is replaced even
+          // where it cannot be deleted
+          await writeFile(path, value.saveToFile);
+          opened = true;
+        }
       }
       return !!value.eol;
     });
