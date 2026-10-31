@@ -1,6 +1,7 @@
 import { setTimeout } from "timers/promises";
 
 import { vi } from "vitest";
+import { NtpTimeBase } from "../../src/imports/rtpExtra";
 import {
   GenericNack,
   MediaStreamTrack,
@@ -1400,6 +1401,27 @@ describe("media/rtpSender RTCP Sender Report clock mapping", () => {
 
     // Assert: wrap 後のパケットが新しいアンカーになる。
     expect(sr.senderInfo.rtpTimestamp).toBe(0);
+  });
+
+  test("折り返し後の SR でも録画側 (NtpTimeBase) は折り返し前の遅延パケットを SR の 500ms 前にする", async () => {
+    const { sender, clock } = arrangeSender({
+      kind: "video",
+      codec: createVideoCodec(),
+    });
+    await sender.sendRtp(createRtpPacket(1, 0xfffffc18));
+    const lastPacket = createRtpPacket(1, 0xfffffc18);
+
+    // Act: 500ms 後に SR を生成する (RTP ts は折り返し後の 44000 になる)。
+    clock.advance(500);
+    const sr = buildSenderReportAt(sender, clock.nowMs);
+    const recorder = new NtpTimeBase(90000);
+    recorder.processInput({ rtcp: sr });
+    const [res] = recorder.processInput({ rtp: lastPacket });
+
+    // Assert: SR の RTP ts は折り返し後で、パケットは SR 時刻の 500ms 前。
+    expect(sr.senderInfo.rtpTimestamp).toBe(44000);
+    const srMs = Math.round(ntpDiffMs(sr.senderInfo.ntpTimestamp, 0n));
+    expect(Math.abs(res.time! - (srMs - 500))).toBeLessThanOrEqual(1);
   });
 
   test("continuity rewrite の境界パケットでアンカーを張り直す", async () => {
