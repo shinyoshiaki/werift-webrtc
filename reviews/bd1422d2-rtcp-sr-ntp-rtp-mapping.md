@@ -27,10 +27,10 @@ ide:
 
 ### 2.1 SR 生成の変更（`packages/webrtc`）
 
-- 旧フィールド `ntpTimestamp` / `rtpTimestamp` を廃止し、`rtpClockAnchor`（`performance.now()`、RTP ts、clockRate）に置き換えました。[packages/webrtc/src/media/rtpSender.ts:176](review-file:packages/webrtc/src/media/rtpSender.ts:176)
-- `buildSenderReport()` が現在時刻の NTP を採取します。アンカーからの経過 ms に clockRate を掛けた値を 32bit で加算し、RTP ts とします。LSR（`lastSRtimestamp`）も実際に送る NTP から計算します。変更の核は [packages/webrtc/src/media/rtpSender.ts:634](review-diff:packages/webrtc/src/media/rtpSender.ts:634) です。
-- `updateRtpClockAnchor()` は、より新しい RTP ts を持つ最初のパケットでだけアンカーを動かします。同一 ts（フレーム分割）、古い ts（遅着）、RTX 再送ではアンカーを動かしません。[packages/webrtc/src/media/rtpSender.ts:661](review-diff:packages/webrtc/src/media/rtpSender.ts:661)
-- continuity rewrite の境界パケット（`replaceTrack` / `replaceRTP` / `onSourceChanged`）ではアンカーを張り直します。境界では出力 ts が `timestampStep` しか進まず、経過した壁時計時間は反映されないためです。[packages/webrtc/src/media/rtpSender.ts:767](review-diff:packages/webrtc/src/media/rtpSender.ts:767)
+- 旧フィールド `ntpTimestamp` / `rtpTimestamp` を廃止し、`rtpClockAnchor`（`performance.now()`、RTP ts、clockRate）に置き換えました。[packages/webrtc/src/media/rtpSender.ts:188](review-file:packages/webrtc/src/media/rtpSender.ts:188)
+- `buildSenderReport()` が現在時刻の NTP を採取します。アンカーからの経過 ms に clockRate を掛けた値を 32bit で加算し、RTP ts とします。LSR（`lastSRtimestamp`）も実際に送る NTP から計算します。変更の核は [packages/webrtc/src/media/rtpSender.ts:638](review-diff:packages/webrtc/src/media/rtpSender.ts:638) です。
+- `updateRtpClockAnchor()` は、より新しい RTP ts を持つ最初のパケットでだけアンカーを動かします。同一 ts（フレーム分割）、古い ts（遅着）、RTX 再送ではアンカーを動かしません。[packages/webrtc/src/media/rtpSender.ts:665](review-diff:packages/webrtc/src/media/rtpSender.ts:665)
+- continuity rewrite の境界パケット（`replaceTrack` / `replaceRTP` / `onSourceChanged`）ではアンカーを張り直します。境界では出力 ts が `timestampStep` しか進まず、経過した壁時計時間は反映されないためです。[packages/webrtc/src/media/rtpSender.ts:771](review-diff:packages/webrtc/src/media/rtpSender.ts:771)
 - clockRate が変わったときもアンカーを張り直します。
 
 <svg viewBox="0 0 560 120" width="100%" role="img" aria-label="アンカーからの外挿">
@@ -48,13 +48,13 @@ ide:
 
 ### 2.2 NTP の小数部（`packages/webrtc` / `packages/rtp`）
 
-- `ntpTime()` は、小数部を「秒の小数のデシマル桁」で書いていました。これを `fraction / 2^32` に直し、引数 `epochMs` を任意で受け取れるようにしました。[packages/webrtc/src/utils.ts:87](review-diff:packages/webrtc/src/utils.ts:87)
-- `ntpTimeToEpochMs()` と `ntpTime2Sec()` も同じ定義に揃えました。[packages/rtp/src/rtcp/sr.ts:132](review-diff:packages/rtp/src/rtcp/sr.ts:132)
-- `NtpTimeBase` の RTP ts 差分を 32bit 符号付き差分にしました。SR が wrap 後、遅延パケットが wrap 前というケースで、約 26 時間ずれる不具合を防ぎます。[packages/rtp/src/extra/processor/ntpTime.ts:125](review-diff:packages/rtp/src/extra/processor/ntpTime.ts:125)
+- `ntpTime()` は、小数部を「秒の小数のデシマル桁」で書いていました。これを `fraction / 2^32` に直し、引数 `epochMs` を任意で受け取れるようにしました。[packages/webrtc/src/utils.ts:86](review-diff:packages/webrtc/src/utils.ts:86)
+- `ntpTimeToEpochMs()` と `ntpTime2Sec()` も同じ定義に揃えました。[packages/rtp/src/rtcp/sr.ts:133](review-diff:packages/rtp/src/rtcp/sr.ts:133)
+- `NtpTimeBase` の RTP ts 差分を 32bit 符号付き差分にしました。SR が wrap 後、遅延パケットが wrap 前というケースで、約 26 時間ずれる不具合を防ぎます。[packages/rtp/src/extra/processor/ntpTime.ts:126](review-diff:packages/rtp/src/extra/processor/ntpTime.ts:126)
 
 ### 2.3 テストと changelog
 
-- SR の時計対応のテスト群を追加しました。即時 SR、700ms 後の SR、90kHz、32bit wrap、同一 ts、遅着、continuity 境界、clockRate 変更、長い idle、LSR の差、`runRtcp` が対象です。[packages/webrtc/tests/media/rtpSender.test.ts:1277](review-file:packages/webrtc/tests/media/rtpSender.test.ts:1277)
+- SR の時計対応のテスト群を追加しました。即時 SR、700ms 後の SR、90kHz、32bit wrap、同一 ts、遅着、continuity 境界、clockRate 変更、長い idle、LSR の差、`runRtcp` が対象です。実際の SR を `NtpTimeBase` に渡し、wrap 後の SR と wrap 前の遅延パケットが SR の 500ms 前になる結合テストも含みます。[packages/webrtc/tests/media/rtpSender.test.ts:1529](review-file:packages/webrtc/tests/media/rtpSender.test.ts:1529)
 - NTP 変換のテストも追加しました。[packages/webrtc/tests/utils.test.ts](review-diff:packages/webrtc/tests/utils.test.ts) / [packages/rtp/tests/processor/ntpTime.test.ts](review-diff:packages/rtp/tests/processor/ntpTime.test.ts) / [packages/rtp/tests/rtcp/rtcp.test.ts](review-diff:packages/rtp/tests/rtcp/rtcp.test.ts)
 - 利用者向けの変更は [changelog.md](review-diff:changelog.md) の Unreleased に記載しました。
 
@@ -72,16 +72,15 @@ ide:
   - 公開関数の `ntpTime()` / `ntpTimeToEpochMs()` / `ntpTime2Sec()` の戻り値の意味が変わるため、外部利用者への影響は changelog の記述で足りるか確認してください。
 - **近似の限界**: リレー RTP では、送出ジッタがそのまま SR の対応誤差になります（changelog に Limitation として記載済み）。
 - **アンカー更新条件**: `uint32Gt` による比較なので、RTP ts の wrap は正しく扱います。ただし、ソースが ts を大きく巻き戻した場合は continuity rewrite 経由でないと張り直されません。
-- **作業ツリーの差分**: 検証時点で `packages/webrtc/tests/media/rtpSender.test.ts` に import 順序だけの未コミット差分がありました（`NtpTimeBase` の import 位置）。本文書の作成者が加えたものではなく、機能への影響はありません。
 
 ## 5. 検証結果
 
-本文書の作成時に、次のテストを実行しました。
+本文書の更新時（作業ツリーはクリーン）に、次のテストを実行しました。
 
 | 対象 | 結果 |
 | --- | --- |
-| `packages/webrtc`: `tests/media/rtpSender.test.ts` `tests/utils.test.ts` | 2 ファイル / 77 テスト 成功 |
-| `packages/rtp`: `tests/processor/ntpTime.test.ts` `tests/rtcp/rtcp.test.ts` | 2 ファイル / 8 テスト 成功 |
+| `packages/webrtc`: `tests/media/rtpSender.test.ts` `tests/utils.test.ts` | 2 ファイル / 85 テスト 成功 |
+| `packages/rtp`: `tests/processor/ntpTime.test.ts` `tests/rtcp/rtcp.test.ts` | 2 ファイル / 13 テスト 成功 |
 
 次の項目は実行していません。
 
