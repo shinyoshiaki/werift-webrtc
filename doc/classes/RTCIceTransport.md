@@ -55,8 +55,14 @@ end-of-candidates: after the commit the generation gathers again (a new TURN
 allocation replaces and closes the previous one) and trickles them. A
 restart's background gathering that a later restart or `close()` replaced
 signals nothing more. ICE server settings changed after gathering take
-effect at the next restart (JSEP 4.1.18). The old selected pair is dropped
-at the commit, so RTP pauses until the new generation nominates.
+effect at the next restart (JSEP 4.1.18): the restart generation carries
+only the kept candidates a fresh gathering with them would produce (none
+but relay for a relay-only policy, no TCP host candidates without useTcp),
+in its description and at the commit alike. Settings changed after the
+description was created still apply to that restart's gathering at the
+commit: a kept socket they exclude is closed then, so a candidate the
+description announced for it fails its checks. The old selected pair is
+dropped at the commit, so RTP pauses until the new generation nominates.
 
 ## Constructors
 

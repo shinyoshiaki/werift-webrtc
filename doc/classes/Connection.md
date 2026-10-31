@@ -770,7 +770,7 @@ Remote credentials of the provisional generation (pranswer).
 
 ### stageLocalCredentials()
 
-> **stageLocalCredentials**(`usernameFragment`, `password`): `void`
+> **stageLocalCredentials**(`usernameFragment`, `password`, `gatherOptions?`): `void`
 
 Accept provisional checks without changing the selected current pair.
 
@@ -783,6 +783,10 @@ Accept provisional checks without changing the selected current pair.
 ##### password
 
 `string`
+
+##### gatherOptions?
+
+`Partial`\<[`IceOptions`](../interfaces/IceOptions.md)\>
 
 #### Returns
 

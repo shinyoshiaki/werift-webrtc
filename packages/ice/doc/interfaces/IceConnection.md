@@ -406,11 +406,11 @@ and gathered candidates.
 
 ### stageLocalCredentials()?
 
-> `optional` **stageLocalCredentials**(`usernameFragment`, `password`): `void`
+> `optional` **stageLocalCredentials**(`usernameFragment`, `password`, `gatherOptions?`): `void`
 
-Optional staged-restart and provisional-generation support. An
-implementation without them still restarts ICE at the final answer, but
-cannot answer or run checks for the new generation during pranswer.
+`gatherOptions`: the options the staged generation gathers with (an ICE
+server update applied at the commit); its provisional checks use only
+the sockets those options allow. Defaults to the current options.
 
 #### Parameters
 
@@ -421,6 +421,10 @@ cannot answer or run checks for the new generation during pranswer.
 ##### password
 
 `string`
+
+##### gatherOptions?
+
+`Partial`\<[`IceOptions`](IceOptions.md)\>
 
 #### Returns
 

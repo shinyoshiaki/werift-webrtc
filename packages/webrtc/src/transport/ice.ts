@@ -4,6 +4,8 @@ import {
   Connection,
   type IceConnection,
   type IceOptions,
+  isCandidateAllowedByGatherOptions,
+  mergeIceServerOptions,
 } from "../../../ice/src";
 import { EventTarget as DomEventTarget } from "../helper";
 import { debug, Event } from "../imports/common";
@@ -73,6 +75,12 @@ type StagedLocalRestart = {
   /** The remote offer an answer staged this generation for, if any. */
   answering?: object;
   /**
+   * The agent's options with the ICE servers kept for the next gathering
+   * applied, when the description was created: its candidates and its
+   * provisional checks use only the sockets these options allow.
+   */
+  gatherOptions: Partial<IceOptions>;
+  /**
    * The kind of description that created it. The latest created offer and
    * the latest created answer each keep their generation registered.
    */
@@ -129,8 +137,14 @@ type StagedLocalRestart = {
  * allocation replaces and closes the previous one) and trickles them. A
  * restart's background gathering that a later restart or `close()` replaced
  * signals nothing more. ICE server settings changed after gathering take
- * effect at the next restart (JSEP 4.1.18). The old selected pair is dropped
- * at the commit, so RTP pauses until the new generation nominates.
+ * effect at the next restart (JSEP 4.1.18): the restart generation carries
+ * only the kept candidates a fresh gathering with them would produce (none
+ * but relay for a relay-only policy, no TCP host candidates without useTcp),
+ * in its description and at the commit alike. Settings changed after the
+ * description was created still apply to that restart's gathering at the
+ * commit: a kept socket they exclude is closed then, so a candidate the
+ * description announced for it fails its checks. The old selected pair is
+ * dropped at the commit, so RTP pauses until the new generation nominates.
  */
 export class RTCIceTransport {
   readonly id = randomUUID().toString();
@@ -326,27 +340,42 @@ export class RTCIceTransport {
     // password, as the agent's own restart does.
     const prefix = this.connection.options.localPasswordPrefix ?? "";
     const password = prefix + random.slice(prefix.length);
-    const candidates = this.iceGather.localCandidates.map((candidate) => {
-      const copy = Object.assign(
-        new IceCandidate(
-          candidate.component,
-          candidate.foundation,
-          candidate.ip,
-          candidate.port,
-          candidate.priority,
-          candidate.protocol,
-          candidate.type,
-          this.connection.generation + 1,
-          usernameFragment,
+    // The generation gathers with the options set for it (a relay-only
+    // policy, useTcp turned off), so it carries only the kept candidates a
+    // fresh gathering with them would produce; the agent re-advertises the
+    // same ones at the commit.
+    const iceServers = this.nextGatherIceServers;
+    const gatherOptions = iceServers
+      ? mergeIceServerOptions(this.connection.options, iceServers)
+      : this.connection.options;
+    const candidates = this.iceGather.localCandidates
+      .filter((candidate) =>
+        isCandidateAllowedByGatherOptions(
+          { type: candidate.type, transport: candidate.protocol },
+          gatherOptions,
         ),
-        {
-          relatedAddress: candidate.relatedAddress,
-          relatedPort: candidate.relatedPort,
-          tcpType: candidate.tcpType,
-        },
-      );
-      return copy;
-    });
+      )
+      .map((candidate) => {
+        const copy = Object.assign(
+          new IceCandidate(
+            candidate.component,
+            candidate.foundation,
+            candidate.ip,
+            candidate.port,
+            candidate.priority,
+            candidate.protocol,
+            candidate.type,
+            this.connection.generation + 1,
+            usernameFragment,
+          ),
+          {
+            relatedAddress: candidate.relatedAddress,
+            relatedPort: candidate.relatedPort,
+            tcpType: candidate.tcpType,
+          },
+        );
+        return copy;
+      });
     const generation: StagedLocalRestart = {
       usernameFragment,
       password,
@@ -354,6 +383,7 @@ export class RTCIceTransport {
       emitted: false,
       answering,
       createdBy: answering ? "answer" : "offer",
+      gatherOptions,
     };
     // The previous description of this kind is no longer the latest one.
     for (const [ufrag, previous] of this.localGenerations) {
@@ -368,7 +398,11 @@ export class RTCIceTransport {
     this.stagedLocalRestart = generation;
     // Existing sockets can respond to provisional STUN checks for the new
     // ufrag while the old generation continues to carry media.
-    this.connection.stageLocalCredentials?.(usernameFragment, password);
+    this.connection.stageLocalCredentials?.(
+      usernameFragment,
+      password,
+      gatherOptions,
+    );
   }
 
   /**
@@ -414,6 +448,7 @@ export class RTCIceTransport {
     this.connection.stageLocalCredentials?.(
       generation.usernameFragment,
       generation.password,
+      generation.gatherOptions,
     );
   }
 
@@ -510,6 +545,7 @@ export class RTCIceTransport {
       this.connection.stageLocalCredentials?.(
         applied.usernameFragment,
         applied.password,
+        applied.gatherOptions,
       );
     }
   }

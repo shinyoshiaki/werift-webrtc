@@ -429,7 +429,16 @@ export async function createConnectedLitePair() {
  * each side the other's staged credentials and candidates, as a pranswer
  * carrying an ICE restart would.
  */
-export async function stageProvisionalGeneration(a: Connection, b: Connection) {
+export async function stageProvisionalGeneration(
+  a: Connection,
+  b: Connection,
+  {
+    gatherOptionsA,
+  }: {
+    /** The options `a`'s staged generation gathers with. */
+    gatherOptionsA?: Partial<IceOptions>;
+  } = {},
+) {
   const credentials = {
     a: { usernameFragment: "provA", password: "provisional-password-a-000" },
     b: { usernameFragment: "provB", password: "provisional-password-b-000" },
@@ -437,6 +446,7 @@ export async function stageProvisionalGeneration(a: Connection, b: Connection) {
   a.stageLocalCredentials(
     credentials.a.usernameFragment,
     credentials.a.password,
+    gatherOptionsA,
   );
   b.stageLocalCredentials(
     credentials.b.usernameFragment,
@@ -1507,4 +1517,61 @@ export function createScriptedCheckHarness({
     nominating,
     setRemoteCredentials,
   };
+}
+
+/** `udp/host`, `tcp/host`, `udp/srflx`, `udp/relay`, ... of the local candidates. */
+export function localCandidateKinds(connection: Connection) {
+  return [
+    ...new Set(
+      connection.localCandidates.map(
+        (candidate) => `${candidate.transport.toLowerCase()}/${candidate.type}`,
+      ),
+    ),
+  ].sort();
+}
+
+/**
+ * Shared Arrange: a local STUN server and a local TURN server, and a
+ * connection built with `options(servers)` that gathered once. `stunOptions`
+ * / `turnOptions` are the server fields of an update for setIceServers.
+ */
+export async function createGatheredConnectionWithLocalServers(
+  options: (servers: {
+    stunOptions: { stunServer: Address };
+    turnOptions: ReturnType<typeof localTurnOptions>;
+  }) => Partial<IceOptions>,
+) {
+  const host = getHostAddresses(true, false)[0]!;
+  const stun = await createLocalStunServer(host);
+  const turn = await createLocalTurnServer(host);
+  const servers = {
+    stunOptions: { stunServer: stun.address! },
+    turnOptions: localTurnOptions(turn),
+  };
+  const connection = createTestConnection(true, options(servers));
+  await connection.gatherCandidates();
+  return {
+    ...servers,
+    connection,
+    close: async () => {
+      await connection.close();
+      await turn.close();
+      await stun.close();
+    },
+  };
+}
+
+/** Act: apply an ICE server update, restart ICE and gather the new generation. */
+export async function restartWithIceServers(
+  connection: Connection,
+  update: Partial<IceOptions>,
+) {
+  connection.setIceServers(update);
+  await connection.restart();
+  await connection.gatherCandidates();
+}
+
+/** The transport protocols (sockets / allocations) `connection` keeps. */
+export function connectionProtocols(connection: Connection) {
+  return (connection as unknown as { protocols: Protocol[] }).protocols;
 }

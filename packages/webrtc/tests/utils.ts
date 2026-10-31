@@ -344,3 +344,116 @@ export function collectChannelMessages(channel: RTCDataChannel, count: number) {
     });
   });
 }
+
+/** `udp/host`, `tcp/host`, `udp/srflx`, `udp/relay`, ... of a candidate line. */
+export function candidateLabel(candidate: string) {
+  const fields = candidate.replace(/^a=/, "").split(" ");
+  const type = fields[fields.indexOf("typ") + 1];
+  return `${fields[2].toLowerCase()}/${type}`;
+}
+
+/** Sorted, de-duplicated labels of the candidate lines of an SDP. */
+export function sdpCandidateLabels(sdp: string) {
+  return uniqueSorted(
+    sdp
+      .split(/\r?\n/)
+      .filter((line) => line.startsWith("a=candidate:"))
+      .map(candidateLabel),
+  );
+}
+
+function uniqueSorted(labels: string[]) {
+  return [...new Set(labels)].sort();
+}
+
+/** Sorted labels of the local candidates of `pc`'s current ICE generation. */
+export function generationCandidateLabels(pc: RTCPeerConnection) {
+  return uniqueSorted(
+    firstIceTransport(pc).connection.localCandidates.map(
+      (candidate) => `${candidate.transport.toLowerCase()}/${candidate.type}`,
+    ),
+  );
+}
+
+/**
+ * Shared Arrange: an offerer built with `initial` connected to a STUN-only
+ * answerer, after the offerer finished gathering. The caller closes both.
+ */
+export async function createGatheredPeers(
+  servers: Awaited<ReturnType<typeof createTurnRotationServers>>,
+  initial: PeerConfig | Partial<PeerConfig>,
+) {
+  const offerer = new RTCPeerConnection(initial);
+  const answerer = new RTCPeerConnection({ iceServers: servers.iceServers() });
+  try {
+    await connectPeerConnections(offerer, answerer);
+    await waitForLocalCandidatesEnd(offerer);
+  } catch (error) {
+    await Promise.all([offerer.close(), answerer.close()]);
+    throw error;
+  }
+  return { offerer, answerer };
+}
+
+/**
+ * Shared Arrange + Act for the setConfiguration → ICE restart matrix: connect
+ * an offerer built with `initial` to a STUN-only answerer, wait until the
+ * offerer finished gathering, apply `change` with setConfiguration and
+ * negotiate once without restartIce(). Returns what the restart produced:
+ * whether it was requested and happened, the candidate kinds of the offer and
+ * of what was trickled after it, the agent's options, the TURN usernames
+ * authenticated after the change, and whether every TURN allocation of the
+ * first generation was closed.
+ */
+export async function observeConfigurationRestart(
+  servers: Awaited<ReturnType<typeof createTurnRotationServers>>,
+  initial: PeerConfig | Partial<PeerConfig>,
+  change: Partial<PeerConfig>,
+) {
+  const { offerer, answerer } = await createGatheredPeers(servers, initial);
+  try {
+    const { ice, connection } = firstIceTransport(offerer);
+    const ufragBefore = ice.localParameters.usernameFragment;
+    const staleAllocations = peerTurnAllocations(offerer);
+    const closedAllocations = new Set<unknown>();
+    for (const allocation of staleAllocations) {
+      const close = allocation.close.bind(allocation);
+      allocation.close = () => {
+        closedAllocations.add(allocation);
+        return close();
+      };
+    }
+    const authenticatedBefore = servers.turn.authenticatedUsernames.length;
+    const trickled: string[] = [];
+    offerer.onIceCandidate.subscribe((candidate) => {
+      if (candidate) trickled.push(candidateLabel(candidate.candidate));
+    });
+
+    offerer.setConfiguration(change);
+    const needRestart = (offerer as any).needRestart as boolean;
+    const offer = await offerer.createOffer();
+    await offerer.setLocalDescription(offer);
+    await answerer.setRemoteDescription(offerer.localDescription!);
+    await answerer.setLocalDescription(await answerer.createAnswer());
+    await offerer.setRemoteDescription(answerer.localDescription!);
+    await waitForLocalCandidatesEnd(offerer);
+
+    return {
+      needRestart,
+      restarted: ice.localParameters.usernameFragment !== ufragBefore,
+      offer: sdpCandidateLabels(offer.sdp),
+      trickled: uniqueSorted(trickled),
+      generation: generationCandidateLabels(offerer),
+      options: connection.options,
+      authenticated: [
+        ...new Set(servers.authenticatedSince(authenticatedBefore)),
+      ],
+      staleAllocations: staleAllocations.length,
+      staleAllocationsClosed: staleAllocations.every((allocation) =>
+        closedAllocations.has(allocation),
+      ),
+    };
+  } finally {
+    await Promise.all([offerer.close(), answerer.close()]);
+  }
+}

@@ -126,3 +126,73 @@ await pc.setLocalDescription(offer);
 - [ ] テストは Arrange / Act / Assert の 3 フェーズで書き、Arrange は共通ユーティリティに切り出し、Act / Assert に日本語コメントを付ける。
 - [ ] `setConfiguration()` / `restartIce()` の JSDoc を更新し、`npm run doc` で docs を再生成する。
 - [ ] 検証: `cd packages/ice && npm run type && npm test`、`cd packages/webrtc && npm run type && npm test`、cross-package 変更として `npm run type` と `npm run test:small` を実行する。
+
+## 6. 追加要件（レビュー 7 回目の P1 と再発防止）
+
+### 6.1 背景
+
+- 7 回目のレビューで P1 が指摘された。`iceTransportPolicy` を `all` → `relay` に変えて restart すると、restart offer の SDP と commit 後の trickle に host / srflx 候補が漏れる（`Connection.options.forceTurn` は `true` まで届いている）。
+- 原因は 2 か所。
+  - webrtc `RTCIceTransport.stageLocalRestart()` が live な候補を全部コピーしている。
+  - ice `Connection.gatherCandidates()` の再広告ループが、保持中の protocol を無条件に再広告している。
+- `iceUseTcp: true → false` にも同じ穴がある。
+- 構造的な原因: restart を起こす条件を「STUN/TURN 関連の全設定」に広げた。一方で、restart 経路が新しい設定の意味を守っているかは検証していなかった。テストも `needRestart` と `Connection.options` しか見ていなかった。
+
+### 6.2 実装要件
+
+1. **判定を 1 か所にまとめる**（`packages/ice`）
+   - 「新規 gathering で出る候補か」の判定を共通関数にする。新規 gathering の `gatherRelayOnly` / `useTcp` と同じ条件で判定する。
+   - TURN が無いときの relay ポリシーは、従来どおり host にフォールバックする。
+2. **ice 層**: restart 後の generation では、新しい設定で除外される保持 socket（host UDP / TCP）を close して外す。除外した socket は再広告も、ペアの作成も、着信チェックの受け付けもしない。
+3. **webrtc 層**: restart offer / answer の候補は、その generation が gather に使う設定（defer された ICE server を適用した options）で絞り込む。relay ポリシーに変えた場合は、offer の候補は 0 件で、commit 後に relay だけを trickle する。
+4. **provisional checks**: staged generation の gather options で除外される socket は、provisional checklist にも使わない。
+5. **commit 前の設定変更**: restart offer の作成後、commit 前に `setConfiguration()` で設定が変わった場合は、既存仕様 `[2.6-T3b]`（`negotiationTransactionCoverageIce.test.ts`）どおり、その restart の commit 時の gathering に最新設定を反映する。offer が announce 済みで、新しい設定では除外される host 候補は、commit 時に socket を close するため、チェックに失敗するだけになる。
+   - 当初は「offer 作成時の設定で固定し、変更は次の restart に回す」案で実装した。しかし `[2.6-T3b]` と矛盾したため、この案は採らなかった。
+6. **`iceUseTcp: false → true`** の restart で、UDP socket を保持しているアドレスにも TCP host 候補を gather する。
+7. ICE server の merge 規則（server 系は undefined も含めて置換し、`forceTurn` / `useTcp` は指定されたときだけ変える）は、ice の共通関数を `Connection.setIceServers()` と webrtc で共有する。
+8. relay-only 時の check スケジューリングも同じ判定（`isRelayOnlyGathering`）を使う。
+
+### 6.3 テスト要件（設定 × 出力マトリクス）
+
+- 共通の Arrange ユーティリティを使って、表形式のテストを作る。
+- 行（変更の種類）:
+  - TURN A→B
+  - TURN→STUN のみ、STUN→TURN
+  - `iceTransportPolicy` の all→relay、relay→all
+  - `iceUseTcp` の true↔false
+  - `turnTransport` の udp→tcp
+  - `turnTlsOptions` / `turnUdpFamily` の設定と解除
+  - 同じ値の再設定
+- 列（確認する出力）:
+  - `needRestart` と、実際に restart したか
+  - restart offer の SDP に載る候補の種類
+  - commit 後に trickle される候補の種類
+  - 新しい generation の候補の種類
+  - `Connection.options`
+  - TURN の認証 username
+  - 旧 allocation が close されたか
+- ice 層の単体テストも作る。
+  - 判定関数
+  - 除外 socket の close とペアへの不参加
+  - provisional checks での除外
+  - TCP の再 gather
+- 「restart offer 作成後、answer 前の `setConfiguration()`」のテストも作る。
+- 差分に `/code-review high` をかける。観点は「`setConfiguration` が起こす restart のすべてで、新しい設定の意味が守られているか」で、指摘を修正する。
+
+### 6.4 検証要件
+
+- `npm ci` で依存を lockfile（TypeScript 6.0.3 / Biome 2.6.2）に揃えてから検証する。
+- 次の検証を実行して結果を記録する。
+  - `cd packages/ice && npm run type && npm test`
+  - `cd packages/webrtc && npm run type && npm test`
+  - ルートで `npm run type && npm run test:small`
+- 公開 API の追加（`isCandidateAllowedByGatherOptions` / `isRelayOnlyGathering` / `mergeIceServerOptions`）は `npm run doc` で docs に反映する。
+- 修正は 1 つのコミットにまとめる。
+
+### 6.5 追加の完了条件
+
+- [ ] all→relay の restart で、restart offer の候補が 0 件、commit 後の trickle と新しい generation が relay のみになり、保持していた host socket が close される。
+- [ ] `iceUseTcp` true→false で TCP host 候補が出ず、TCP socket が close される。false→true で TCP host 候補が出る。
+- [ ] 設定 × 出力マトリクスの全行が green。修正前のコードでは all→relay と `iceUseTcp` の 2 行（計 3 行）が失敗することを確認する。
+- [ ] offer 適用後・answer 前の relay 化は、その restart の commit 時の gathering に反映される（relay のみになり、host socket は close される）。既存の `[2.6-T3b]` も green のまま。
+- [ ] 6.4 の検証がすべて通る。
