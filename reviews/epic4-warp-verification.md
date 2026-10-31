@@ -601,3 +601,30 @@ SCTP がない media-only の接続では後者が呼ばれず、`allowEarlyServ
 | `wpt` | REGRESSION 0（PASS 442） |
 | leak property（seed 1〜200、`--retry 0`） | 450 passed |
 | heap property（`WERIFT_NEGOTIATION_LEAK_HEAP=1`、seed 1〜8、200 cycle、`--retry 0`） | 8/8 成功 |
+
+## 15. 最終 ACK の実送信前に `handshakeComplete` が成立する（レビューの指摘への対応）
+
+**原因:** DTLS 1.3 server は、client の Finished を受け取ると `onConnect` から `markApplicationReady()` を呼び、その後で最終 ACK を送ります。`IceSpedTransport.sendInternal()`（`packages/webrtc/src/transport/sped.ts`）は、`applicationReady` のあと ICE の application path がまだない（nomination / consent が未完了）とき、record をキューに入れて呼び出し元へ直ちに成功を返していました。DTLS engine の `sendAck()` は、送信が成功した時点で ACK 済みの record を未 ACK 管理から外し、server の完了を判定します。そのため、ACK がキューに残ったまま server だけが完了し、相手は完了しない状態になっていました。
+
+**修正:** handshake の制御 record（最終 ACK・alert。application data ではない record）は、application path がない間も、相手の record が届いた認証済み pair で直ちに送ります（nomination 前の handshake と同じ経路）。認証済み pair もない場合は、キューが実際に送ってから解決します。キューの flush も同じ規則にしました。application record は従来どおり application path を待ち、呼び出し元を止めません。こうして、DTLS が「送信済み」と見なすのは実際に wire に出た record だけになります。nomination の待機中に送信を await すると、ICE の Binding 処理（SPED の inject を await する）と相互に待ち合う恐れがありますが、認証済み pair で送るのでその待ち合いは生じません。
+
+**回帰テスト（修正を外すと両方失敗）:**
+
+| テスト | 内容 | 修正前 | 修正後 |
+|---|---|---|---|
+| `packages/webrtc/tests/integrate/spedFinalAck.test.ts` | 実 PeerConnection の SPED / DTLS 1.3 接続で、両端の ICE を application path なし（nomination 未完了）に保留する（Arrange は `warpArrange.ts` の `holdApplicationPath`）。server の handshake 完了時点で最終 ACK が送信キューに残っておらず、相手 (client) も完了する | 3/3 失敗（完了時に ACK がキューに 1 件残る） | 3/3 成功 |
+| `packages/webrtc/tests/transport/sped.test.ts`「application path がない間の制御 record…」 | 認証済み pair がない間は、制御 record の `send()` が解決しない。pair ができて実際に送られてから解決する | 失敗（直ちに解決） | 成功 |
+
+**依頼前の確認（§9 の D、`fa7cf5c77` + 本修正の作業ツリー）:**
+
+| 確認 | 結果 |
+|---|---|
+| `--retry 0`: common / ice / dtls / rtp / sctp / webrtc / ice-server | 65 / 405 / 462 / 408 / 71 / 1,160 / 45 passed |
+| `transportFaultMatrix.test.ts`（`--retry 0`） | 90/90 |
+| `type`・`lint:imports`・`doc:check` | 成功 |
+| `e2e` | 63 + 18 |
+| `wpt` | REGRESSION 0（PASS 442） |
+| leak property（seed 1〜200） | 450 passed |
+| heap property（seed 1〜8、200 cycle） | 8/8 成功 |
+
+**未実施:** Pion の相互接続。自動ビルドが「local pion-sped is missing or incompatible」で起動しませんでした。

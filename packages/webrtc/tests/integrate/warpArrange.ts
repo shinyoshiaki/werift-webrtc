@@ -909,3 +909,44 @@ export function holdPeerAuthentication(client: RTCDtlsTransport) {
   };
   return { release };
 }
+
+// --- SPED final ACK while nomination is held ---
+
+/**
+ * Arrange: keep the ICE agent of `pc` from offering an application data path
+ * (nomination / consent not reached) until `release`. DTLS handshake records
+ * may still use authenticated pairs; application records queue.
+ */
+export function holdApplicationPath(pc: RTCPeerConnection) {
+  const ice = pc.iceTransports[0].connection as Connection & {
+    canSendApplicationData(): boolean;
+  };
+  const original = ice.canSendApplicationData.bind(ice);
+  ice.canSendApplicationData = () => false;
+  return {
+    release: () => {
+      ice.canSendApplicationData = original;
+    },
+  };
+}
+
+/** Assert helper: records the SPED transport still holds in its send queue. */
+export function queuedSpedSendsOf(transport: RTCDtlsTransport) {
+  const sped = (
+    transport as unknown as {
+      spedTransport?: { pendingEarlySends: unknown[] };
+    }
+  ).spedTransport;
+  return sped?.pendingEarlySends.length ?? 0;
+}
+
+/** Assert helper: whether the DTLS association of `transport` completed its handshake. */
+export function coreHandshakeComplete(transport: RTCDtlsTransport) {
+  return (
+    (
+      transport as unknown as {
+        dtls?: { readiness: { handshakeComplete: boolean } };
+      }
+    ).dtls?.readiness.handshakeComplete === true
+  );
+}

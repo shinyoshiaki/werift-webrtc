@@ -229,6 +229,25 @@ export class IceSpedTransport implements Transport {
   ) {
     this.assertIceSendable();
     if (this.applicationReady) {
+      if (!this.ice.canSendApplicationData() && !application) {
+        // Handshake control records (the final ACK, alerts) decide when the
+        // DTLS engine considers its last flight delivered: a resolved send
+        // removes the ACKed records and completes the handshake. Never report
+        // a record that only sits in the queue as sent. Use the authenticated
+        // path the peer's records arrived on (as the pre-nomination handshake
+        // does); without one, resolve only once the queue really sends it.
+        const pair = this.resolveAuthenticatedSendPair(addr);
+        if (pair) {
+          this.runtime?.pinHandshakePath(pair);
+          await pair.protocol.sendData(data, pair.remoteAddr);
+          return;
+        }
+        await this.enqueueEarlySend(data, addr, {
+          early: false,
+          application: false,
+        });
+        return;
+      }
       if (!this.ice.canSendApplicationData()) {
         // DTLS/SCTP の送信元は ICE nomination と同じ受信処理から再開する
         // ことがあるため、ここで await すると nomination 自体を止めてしまう。
@@ -512,14 +531,20 @@ export class IceSpedTransport implements Transport {
           continue;
         }
 
-        const pair = this.applicationReady
-          ? undefined
-          : this.resolveAuthenticatedSendPair(item.addr);
-        if (this.applicationReady && !this.ice.canSendApplicationData()) {
+        // A handshake control record (final ACK, alert) may leave on the
+        // authenticated path before the application path is ready, as in
+        // sendInternal(); application records wait for that path.
+        const onAuthenticatedPair =
+          !this.applicationReady ||
+          (!item.application && !this.ice.canSendApplicationData());
+        const pair = onAuthenticatedPair
+          ? this.resolveAuthenticatedSendPair(item.addr)
+          : undefined;
+        if (!onAuthenticatedPair && !this.ice.canSendApplicationData()) {
           this.scheduleEarlySendRetry();
           return;
         }
-        if (!this.applicationReady && !pair) {
+        if (onAuthenticatedPair && !pair) {
           this.scheduleEarlySendRetry();
           return;
         }
@@ -545,11 +570,11 @@ export class IceSpedTransport implements Transport {
         }
 
         try {
-          if (this.applicationReady) {
-            await this.ice.send(item.data);
+          if (pair) {
+            this.runtime?.pinHandshakePath(pair);
+            await pair.protocol.sendData(item.data, pair.remoteAddr);
           } else {
-            this.runtime?.pinHandshakePath(pair!);
-            await pair!.protocol.sendData(item.data, pair!.remoteAddr);
+            await this.ice.send(item.data);
           }
           if (this.pendingEarlySends[0] !== item) {
             // close() / restart が待機項目を先に破棄した場合は、解決を再発火しない。

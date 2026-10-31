@@ -574,6 +574,39 @@ describe("IceSpedTransport datagram gate", () => {
   });
 });
 
+describe("IceSpedTransport handshake control after the handshake", () => {
+  it("application path がない間の制御 record (最終 ACK) は、実際に送れるまで send が解決しない", async () => {
+    // Arrange: handshake 後 (applicationReady) で nomination 前。認証済み pair もまだない
+    const ice = createIceStub(1);
+    const transport = new IceSpedTransport(ice);
+    transport.markApplicationReady();
+    const ack = Buffer.from([0x2f, 0x00, 0x01, 0x02]); // DTLS 1.3 unified header (暗号化 ACK)
+    let resolved = false;
+
+    // Act: 制御 record を送る
+    const sending = transport.send(ack).then(() => {
+      resolved = true;
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    // Assert: キューにあるだけでは送信成功にしない (DTLS は完了を判定しない)
+    expect(resolved).toBe(false);
+
+    // Act: 相手の record が届いた認証済み pair ができて flush される
+    const { protocol, sent } = mockProtocol("1.2.3.4", 1);
+    const pair = authenticatedPair(protocol, "10.0.0.1", 1111);
+    ice.checkList.push(pair);
+    ice.stateChanged.execute("connected");
+    await sending;
+
+    // Assert: nomination 前でも認証済み pair で実際に送られてから解決する
+    expect(resolved).toBe(true);
+    expect(sent.map(({ data }) => data)).toEqual([ack]);
+    expect(sent[0]!.addr).toEqual(["10.0.0.1", 1111]);
+    await transport.close();
+  });
+});
+
 describe("IceSpedTransport pre-nomination send", () => {
   it("writeReady application data bypasses SPED embedding on the authenticated pair", async () => {
     // Arrange: SPED active 中で nomination 前の認証済み pair を用意する。
