@@ -1642,6 +1642,47 @@ describe("media/rtpSender RTCP Sender Report clock mapping", () => {
     expect(sr.senderInfo.rtpTimestamp).toBe(96000 + 4800);
   });
 
+  test("並べ替えの範囲 (3 秒) を超えて timestamp が巻き戻るとアンカーを張り直す", async () => {
+    const { sender, clock } = arrangeSender();
+    await sender.sendRtp(createRtpPacket(1, 960000));
+
+    // Act: continuity rewrite なしで 10 秒分 (480000 tick) 巻き戻った timestamp を送り、100ms 後に SR を生成する。
+    clock.advance(20);
+    await sender.sendRtp(createRtpPacket(2, 480000));
+    clock.advance(100);
+    const sr = buildSenderReportAt(sender, clock.nowMs);
+
+    // Assert: 巻き戻ったパケットが新アンカーになり、そこから 4800 tick 進む (旧アンカーからの外挿ではない)。
+    expect(sr.senderInfo.rtpTimestamp).toBe(480000 + 4800);
+  });
+
+  test("3 秒以内の巻き戻りは並べ替えとみなしアンカーを動かさない", async () => {
+    const { sender, clock } = arrangeSender();
+    await sender.sendRtp(createRtpPacket(1, 960000));
+
+    // Act: ちょうど 3 秒分 (144000 tick) 古い timestamp を送り、100ms 後に SR を生成する。
+    clock.advance(20);
+    await sender.sendRtp(createRtpPacket(2, 960000 - 144000));
+    clock.advance(100);
+    const sr = buildSenderReportAt(sender, clock.nowMs);
+
+    // Assert: アンカーは新しい方のままで、120ms 分 (5760 tick) 進む。
+    expect(sr.senderInfo.rtpTimestamp).toBe(960000 + 5760);
+  });
+
+  test("wrap をまたいで大きく巻き戻った timestamp でもアンカーを張り直す", async () => {
+    const { sender, clock } = arrangeSender();
+    await sender.sendRtp(createRtpPacket(1, 1000));
+
+    // Act: wrap 前の値 (10 秒分以上古い) を送り、その時刻で SR を生成する。
+    clock.advance(20);
+    await sender.sendRtp(createRtpPacket(2, 0xfff00000));
+    const sr = buildSenderReportAt(sender, clock.nowMs);
+
+    // Assert: 巻き戻ったパケットが新アンカーになる。
+    expect(sr.senderInfo.rtpTimestamp).toBe(0xfff00000);
+  });
+
   test("timestamp が wrap した新しいパケットではアンカーを進める", async () => {
     const { sender, clock } = arrangeSender();
     await sender.sendRtp(createRtpPacket(1, 0xfffffc40));

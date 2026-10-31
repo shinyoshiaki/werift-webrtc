@@ -24,7 +24,7 @@ import { randomBytes, randomUUID } from "crypto";
 import { setTimeout } from "timers/promises";
 import { codecParametersFromString } from "..";
 import { createWebRtcDomException } from "../errors";
-import { Event, random16, uint16Add, uint32Add, uint32Gt } from "../imports/common";
+import { Event, random16, uint16Add, uint32Add } from "../imports/common";
 import {
   debug,
   type Extension,
@@ -87,6 +87,12 @@ const log = debug("werift:packages/webrtc/src/media/rtpSender.ts");
 const RTP_HISTORY_SIZE = 128;
 const DEFAULT_PENDING_RTP_MAX_LENGTH = 256;
 const RTT_ALPHA = 0.85;
+/**
+ * A sent RTP timestamp at most this far behind the SR clock anchor is treated
+ * as reordering (relay jitter, B-frames) and does not move the anchor. A larger
+ * backward step is a source timestamp discontinuity without continuity rewrite.
+ */
+const RTP_CLOCK_ANCHOR_MAX_REORDER_SEC = 3;
 
 export type PendingRtpOptions = {
   /** Queue RTP until DTLS is connected and a codec is set. Default true when this object is passed. */
@@ -180,10 +186,11 @@ export class RTCRtpSender {
    * The send time of the first packet of the newest RTP timestamp (output
    * timeline, after continuity rewrite) approximates that frame's sampling
    * instant; werift does not know the capture time, so for relayed RTP the
-   * send jitter becomes SR mapping error. Later packets with the same or an
-   * older timestamp (frame fragments, reordered relay packets) and RTX
-   * retransmissions do not move it. A continuity rewrite or a clock rate
-   * change resets it.
+   * send jitter becomes SR mapping error. Later packets with the same or a
+   * slightly older timestamp (frame fragments, reordered relay packets) and RTX
+   * retransmissions do not move it. A continuity rewrite, a clock rate change
+   * or a backward timestamp step beyond `RTP_CLOCK_ANCHOR_MAX_REORDER_SEC`
+   * resets it (libwebrtc follows the last frame unconditionally).
    */
   private rtpClockAnchor?: {
     /** `performance.now()` when the anchor packet was sent */
@@ -661,16 +668,21 @@ export class RTCRtpSender {
     });
   }
 
-  /** Move the SR clock anchor to a sent packet with a newer timestamp. */
+  /**
+   * Move the SR clock anchor to a sent packet with a newer timestamp, or to a
+   * packet that steps back further than reordering can explain.
+   */
   private updateRtpClockAnchor(rtpTimestamp: number, clockRate: number) {
     const anchor = this.rtpClockAnchor;
-    if (
-      anchor &&
-      !this.rtpClockAnchorReset &&
-      anchor.clockRate === clockRate &&
-      !uint32Gt(rtpTimestamp, anchor.rtpTimestamp)
-    ) {
-      return;
+    if (anchor && !this.rtpClockAnchorReset && anchor.clockRate === clockRate) {
+      // 32bit signed difference: handles timestamp wraparound
+      const delta = (rtpTimestamp - anchor.rtpTimestamp) | 0;
+      if (
+        delta <= 0 &&
+        -delta <= clockRate * RTP_CLOCK_ANCHOR_MAX_REORDER_SEC
+      ) {
+        return;
+      }
     }
     this.rtpClockAnchorReset = false;
     this.rtpClockAnchor = {
