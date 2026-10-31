@@ -389,7 +389,7 @@ describe("staged generation は保持中の TURN allocation を新しい TURN �
 });
 
 describe("relay ポリシーの relay 候補は raddr / rport を秘匿する", () => {
-  test("初回 gathering: relay ポリシーは 0.0.0.0:0、all ポリシーは TURN が観測したアドレス", async () => {
+  test("初回 gathering: relay ポリシーは 0.0.0.0:9、all ポリシーは TURN が観測したアドレス", async () => {
     // Arrange: relay ポリシーと all ポリシーで TURN A から gather した connection
     const relayOnly = await createGatheredConnectionWithLocalServers(
       ({ turnOptions }) => ({ ...turnOptions, forceTurn: true }),
@@ -402,27 +402,27 @@ describe("relay ポリシーの relay 候補は raddr / rport を秘匿する", 
       const relayOf = (connection: typeof relayOnly.connection) =>
         connection.localCandidates.filter((c) => c.type === "relay");
 
-      // Assert: relay ポリシーでは related address が 0.0.0.0:0 で、SDP にも実アドレスが出ない
+      // Assert: relay ポリシーでは related address が 0.0.0.0:9 で、SDP にも実アドレスが出ない
       expect(relayOf(relayOnly.connection).length).toBeGreaterThan(0);
       for (const candidate of relayOf(relayOnly.connection)) {
         expect([candidate.relatedAddress, candidate.relatedPort]).toEqual([
           "0.0.0.0",
-          0,
+          9,
         ]);
-        expect(candidate.toSdp()).toContain("raddr 0.0.0.0 rport 0");
+        expect(candidate.toSdp()).toContain("raddr 0.0.0.0 rport 9");
       }
       // Assert: all ポリシーでは従来どおり TURN が観測したアドレスを出す
       expect(relayOf(all.connection).length).toBeGreaterThan(0);
       for (const candidate of relayOf(all.connection)) {
         expect(candidate.relatedAddress).not.toBe("0.0.0.0");
-        expect(candidate.relatedPort).not.toBe(0);
+        expect(candidate.relatedPort).toBeGreaterThan(0);
       }
     } finally {
       await Promise.all([relayOnly.close(), all.close()]);
     }
   });
 
-  test("all → relay の restart: trickle される relay 候補の raddr は 0.0.0.0:0", async () => {
+  test("all → relay の restart: trickle される relay 候補の raddr は 0.0.0.0:9", async () => {
     // Arrange: all ポリシー・TURN A で gather 済みの connection
     const arranged = await createGatheredConnectionWithLocalServers(
       ({ turnOptions }) => ({ ...turnOptions, forceTurn: false }),
@@ -442,7 +442,7 @@ describe("relay ポリシーの relay 候補は raddr / rport を秘匿する", 
       // Assert: 新しい generation で trickle された relay 候補は実アドレスを含まない
       expect(trickled.length).toBeGreaterThan(0);
       for (const candidate of trickled) {
-        expect(candidate.toSdp()).toContain("raddr 0.0.0.0 rport 0");
+        expect(candidate.toSdp()).toContain("raddr 0.0.0.0 rport 9");
       }
     } finally {
       await arranged.close();

@@ -1414,9 +1414,9 @@ export class Connection implements IceConnection {
         // The related address of a relay candidate is the address the TURN
         // server saw the agent at. A relay-only policy hides the agent's
         // addresses from the peer, so it advertises the unspecified address
-        // and port 0 instead (as browsers do), in SDP and trickle alike.
+        // and port 9 instead (RFC 8839 §5.1), in SDP and trickle alike.
         const relatedAddress: Address = gatherRelayOnly
-          ? [isIPv4(candidateAddress[0]) ? "0.0.0.0" : "::", 0]
+          ? [isIPv4(candidateAddress[0]) ? "0.0.0.0" : "::", 9]
           : protocol.turn.mappedAddress;
 
         log("turn candidateAddress", candidateAddress);

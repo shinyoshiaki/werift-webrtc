@@ -50,7 +50,7 @@ describe("setConfiguration → ICE restart: 設定 × 出力マトリクス", ()
       staleAllocationsClosed?: boolean;
       /**
        * raddr of the relay candidates trickled and in the new generation:
-       * "hidden" (0.0.0.0:0, the relay policy) or "mapped" (the address the
+       * "hidden" (0.0.0.0:9, the relay policy) or "mapped" (the address the
        * TURN server saw).
        */
       relayRelated?: "hidden" | "mapped";
@@ -293,7 +293,7 @@ describe("setConfiguration → ICE restart: 設定 × 出力マトリクス", ()
       }
       // Assert: relay ポリシーでは relay 候補の raddr / rport を trickle・generation・localDescription の SDP のすべてで秘匿する
       if (expected.relayRelated) {
-        const related = expected.relayRelated === "hidden" ? ["0.0.0.0:0"] : [];
+        const related = expected.relayRelated === "hidden" ? ["0.0.0.0:9"] : [];
         for (const observedRelated of [
           observed.trickledRelayRelated,
           observed.generationRelayRelated,
@@ -303,7 +303,7 @@ describe("setConfiguration → ICE restart: 設定 × 出力マトリクス", ()
           if (expected.relayRelated === "hidden") {
             expect(observedRelated).toEqual(related);
           } else {
-            expect(observedRelated).not.toContain("0.0.0.0:0");
+            expect(observedRelated).not.toContain("0.0.0.0:9");
             expect(observedRelated).not.toContain("none");
           }
         }
@@ -413,13 +413,13 @@ describe("relay ポリシーの初回 gathering は relay 候補の raddr を秘
           offerer.localDescription!.sdp,
         );
 
-        // Assert: relay ポリシーなら trickle と SDP の relay 候補はどちらも 0.0.0.0:0 だけ
+        // Assert: relay ポリシーなら trickle と SDP の relay 候補はどちらも 0.0.0.0:9 だけ
         for (const related of [[...new Set(trickled)], described]) {
           expect(related.length).toBeGreaterThan(0);
           if (expected === "hidden") {
-            expect(related).toEqual(["0.0.0.0:0"]);
+            expect(related).toEqual(["0.0.0.0:9"]);
           } else {
-            expect(related).not.toContain("0.0.0.0:0");
+            expect(related).not.toContain("0.0.0.0:9");
             expect(related).not.toContain("none");
           }
         }
