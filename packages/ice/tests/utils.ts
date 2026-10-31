@@ -1510,21 +1510,36 @@ export function createNominationHarness({
   nominationDelayMs,
   remoteIsLite = false,
   nominationReply = () => "success",
+  localPriorities = [undefined],
 }: {
   nominationDelayMs?: number;
   remoteIsLite?: boolean;
   nominationReply?: (nominationIndex: number) => ScriptedReply;
+  /** One local candidate (socket) per entry; undefined keeps the host default. */
+  localPriorities?: (number | undefined)[];
 } = {}) {
   let nominationCount = 0;
-  const protocol = new ScriptedCheckProtocol("udp", ({ nominate }) =>
-    nominate ? nominationReply(nominationCount++) : "hold",
-  );
+  const protocols = localPriorities.map((priority, index) => {
+    const local = new ScriptedCheckProtocol("udp", ({ nominate }) =>
+      nominate ? nominationReply(nominationCount++) : "hold",
+    );
+    local.localCandidate.foundation = `local${index}`;
+    local.localCandidate.port = 4000 + index;
+    if (priority !== undefined) local.localCandidate.priority = priority;
+    return local;
+  });
+  const [protocol] = protocols;
+  const requestsOf = (pair: CandidatePair) =>
+    (pair.protocol as ScriptedCheckProtocol).requests;
+  const allRequests = () => protocols.flatMap((local) => local.requests);
   const connection = new Connection(true, { nominationDelayMs });
   connection.remoteIsLite = remoteIsLite;
   connection.remoteUsername = "remote";
   connection.remotePassword = "remote-password-0000000000";
   connection.localCandidatesEnd = true;
-  (connection as unknown as { protocols: Protocol[] }).protocols.push(protocol);
+  (connection as unknown as { protocols: Protocol[] }).protocols.push(
+    ...protocols,
+  );
 
   let port = 5000;
   const remoteCandidate = (priority: number) =>
@@ -1542,21 +1557,31 @@ export function createNominationHarness({
       undefined,
       undefined,
     );
-  /** Trickle a remote candidate; returns the live pair it formed. */
-  const addRemote = async (priority: number) => {
+  /**
+   * Trickle a remote candidate; returns the live pairs it formed, one per
+   * local candidate in `localPriorities` order.
+   */
+  const addRemotePairs = async (priority: number) => {
     const candidate = remoteCandidate(priority);
     await connection.addRemoteCandidate(candidate);
-    return connection.checkList.find(
-      (pair) => pair.remoteCandidate === candidate,
-    )!;
+    return protocols.map(
+      (local) =>
+        connection.checkList.find(
+          (pair) =>
+            pair.remoteCandidate === candidate && pair.protocol === local,
+        )!,
+    );
   };
+  /** Trickle a remote candidate; returns the pair it formed with the first local candidate. */
+  const addRemote = async (priority: number) =>
+    (await addRemotePairs(priority))[0];
   /** Start the ordinary check of `pair` as the scheduler does. */
   const check = (pair: CandidatePair) => {
     pair.handle = connection.checkStart(pair);
     return pair.handle;
   };
   const pendingCheck = (pair: CandidatePair) =>
-    protocol.requests.find(
+    requestsOf(pair).find(
       (request) =>
         !request.nominate &&
         !request.done &&
@@ -1568,11 +1593,15 @@ export function createNominationHarness({
     pendingCheck(pair)!.release("success");
     await vi.advanceTimersByTimeAsync(0);
   };
+  /** Let the ordinary check of `pair` in flight time out. */
+  const fail = async (pair: CandidatePair) => {
+    pendingCheck(pair)!.release("failure");
+    await vi.advanceTimersByTimeAsync(0);
+  };
   /** USE-CANDIDATE checks sent so far, with the port they were sent to. */
-  const nominations = () =>
-    protocol.requests.filter((request) => request.nominate);
+  const nominations = () => allRequests().filter((request) => request.nominate);
   const ordinaryChecks = () =>
-    protocol.requests.filter((request) => !request.nominate);
+    allRequests().filter((request) => !request.nominate);
 
   // Provisional generation (an ICE restart signalled in a pranswer).
   const stageProvisional = () => {
@@ -1602,8 +1631,10 @@ export function createNominationHarness({
     connection,
     protocol,
     addRemote,
+    addRemotePairs,
     check,
     succeed,
+    fail,
     nominations,
     ordinaryChecks,
     stageProvisional,

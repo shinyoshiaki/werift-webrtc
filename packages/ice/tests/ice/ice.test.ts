@@ -4,6 +4,7 @@ import { type Address, Event } from "../../../common/src";
 import {
   CandidatePair,
   CandidatePairState,
+  compareCandidatePairPriority,
   sortCandidatePairs,
 } from "../../src";
 import { Candidate, candidatePriority } from "../../src/candidate";
@@ -941,6 +942,55 @@ describe("ice", () => {
 });
 
 describe("sortCandidatePairs", () => {
+  it("orders by MIN(G,D) before MAX(G,D)", () => {
+    const pair = (local: number, remote: number) => ({
+      localCandidate: { priority: local },
+      remoteCandidate: { priority: remote },
+    });
+    const minLow = pair(100, 1000);
+    const minHigh = pair(200, 300);
+
+    // Act: MAX だけ大きい pair を先に渡して並べ替える。
+    const res = sortCandidatePairs([minLow, minHigh], true);
+
+    // Assert: RFC 8445 §6.1.2.3 では MIN(G,D) が大きい pair が上位。
+    expect(res).toEqual([minHigh, minLow]);
+  });
+
+  it("keeps equal-priority pairs in their order", () => {
+    const first = {
+      localCandidate: { priority: 10 },
+      remoteCandidate: { priority: 20 },
+    };
+    const second = {
+      localCandidate: { priority: 10 },
+      remoteCandidate: { priority: 20 },
+    };
+
+    // Act: 同じ優先度の pair を並べ替える。
+    const res = sortCandidatePairs([first, second], true);
+
+    // Assert: 安定ソートで元の順序のまま。
+    expect(res[0]).toBe(first);
+    expect(res[1]).toBe(second);
+  });
+
+  it("compares large priorities exactly", () => {
+    const max = 2 ** 31 - 1;
+
+    // Act: 2^32 * MIN が倍精度の整数範囲を超える pair 同士を比べる (MAX だけ 1 違う)。
+    const higher = compareCandidatePairPriority(
+      { priority: max - 1 },
+      { priority: max },
+      { priority: max - 1 },
+      { priority: max - 1 },
+      true,
+    );
+
+    // Assert: 丸めずに MAX の差で上位と判定される。
+    expect(higher).toBeGreaterThan(0);
+  });
+
   it("controlling", () => {
     const host = {
       type: "host",

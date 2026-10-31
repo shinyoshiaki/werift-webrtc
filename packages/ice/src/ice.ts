@@ -15,7 +15,7 @@ import {
   CandidatePairState,
   CONSENT_INTERVAL,
   CONSENT_TIMEOUT,
-  candidatePairPriority,
+  compareCandidatePairPriority,
   consentResponseTimeoutMs,
   defaultOptions,
   ICE_COMPLETED,
@@ -2503,16 +2503,13 @@ export class Connection implements IceConnection {
 
   private outranks(pair: CandidatePair, other: CandidatePair) {
     return (
-      candidatePairPriority(
+      compareCandidatePairPriority(
         pair.localCandidate,
         pair.remoteCandidate,
-        this.iceControlling,
-      ) >
-      candidatePairPriority(
         other.localCandidate,
         other.remoteCandidate,
         this.iceControlling,
-      )
+      ) > 0
     );
   }
 

@@ -370,32 +370,58 @@ export function sortCandidatePairs(
   }[],
   iceControlling: boolean,
 ) {
-  return pairs
-    .sort(
-      (a, b) =>
-        candidatePairPriority(
-          a.localCandidate,
-          a.remoteCandidate,
-          iceControlling,
-        ) -
-        candidatePairPriority(
-          b.localCandidate,
-          b.remoteCandidate,
-          iceControlling,
-        ),
-    )
-    .reverse();
+  // Highest priority first; pairs of equal priority keep their order.
+  return pairs.sort((a, b) =>
+    compareCandidatePairPriority(
+      b.localCandidate,
+      b.remoteCandidate,
+      a.localCandidate,
+      a.remoteCandidate,
+      iceControlling,
+    ),
+  );
+}
+
+/** RFC 8445 §6.1.2.3: G is the controlling agent's candidate priority, D the controlled one's. */
+function pairPriorityTerms(
+  local: Pick<Candidate, "priority">,
+  remote: Pick<Candidate, "priority">,
+  iceControlling: boolean,
+) {
+  const G = iceControlling ? local.priority : remote.priority;
+  const D = iceControlling ? remote.priority : local.priority;
+  return { min: Math.min(G, D), max: Math.max(G, D), tie: G > D ? 1 : 0 };
 }
 
 // 5.7.2.  Computing Pair Priority and Ordering Pairs
+/**
+ * `2^32 * MIN(G,D) + 2 * MAX(G,D) + (G > D ? 1 : 0)` (RFC 8445 §6.1.2.3).
+ * The value can exceed `Number.MAX_SAFE_INTEGER`, so it is approximate;
+ * order pairs with `compareCandidatePairPriority`, which is exact.
+ */
 export function candidatePairPriority(
   local: Pick<Candidate, "priority">,
   remote: Pick<Candidate, "priority">,
   iceControlling: boolean,
 ) {
-  const G = (iceControlling && local.priority) || remote.priority;
-  const D = (iceControlling && remote.priority) || local.priority;
-  return (1 << 32) * Math.min(G, D) + 2 * Math.max(G, D) + (G > D ? 1 : 0);
+  const { min, max, tie } = pairPriorityTerms(local, remote, iceControlling);
+  return 2 ** 32 * min + 2 * max + tie;
+}
+
+/**
+ * Exact comparison of two pair priorities (RFC 8445 §6.1.2.3): negative
+ * when pair `a` has the lower priority, positive when the higher, 0 when equal.
+ */
+export function compareCandidatePairPriority(
+  aLocal: Pick<Candidate, "priority">,
+  aRemote: Pick<Candidate, "priority">,
+  bLocal: Pick<Candidate, "priority">,
+  bRemote: Pick<Candidate, "priority">,
+  iceControlling: boolean,
+) {
+  const a = pairPriorityTerms(aLocal, aRemote, iceControlling);
+  const b = pairPriorityTerms(bLocal, bRemote, iceControlling);
+  return a.min - b.min || a.max - b.max || a.tie - b.tie;
 }
 
 export async function serverReflexiveCandidate(

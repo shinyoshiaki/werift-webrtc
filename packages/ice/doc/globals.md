@@ -69,6 +69,7 @@
 - [candidateLocalPreference](functions/candidateLocalPreference.md)
 - [candidatePairPriority](functions/candidatePairPriority.md)
 - [candidatePriority](functions/candidatePriority.md)
+- [compareCandidatePairPriority](functions/compareCandidatePairPriority.md)
 - [consentResponseTimeoutMs](functions/consentResponseTimeoutMs.md)
 - [createStunOverTurnClient](functions/createStunOverTurnClient.md)
 - [createTurnClient](functions/createTurnClient.md)

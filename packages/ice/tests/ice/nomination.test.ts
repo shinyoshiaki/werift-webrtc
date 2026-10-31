@@ -100,6 +100,34 @@ describe("regular nomination of UDP / relay pairs (full ICE, controlling)", () =
     }
   });
 
+  test("orders pairs of different local and remote priorities by the RFC 8445 pair priority", async () => {
+    // local 100 / 200 と remote 1000 / 300 の 4 pair。正しい順位は
+    // (200,1000) > (200,300) > (100,1000) > (100,300) (MIN が大きい方が上位)。
+    const h = createNominationHarness({ localPriorities: [100, 200] });
+    const [lowX, highX] = await h.addRemotePairs(1000);
+    const [lowY, highY] = await h.addRemotePairs(300);
+    await h.connection.addRemoteCandidate(undefined);
+    for (const pair of [lowX, highX, lowY, highY]) h.check(pair);
+
+    try {
+      // Assert: checklist は MIN(G,D) を優先して並ぶ。
+      expect(h.connection.checkList).toEqual([highX, highY, lowX, lowY]);
+
+      // Act: (100,1000) と (200,300) が成功し、残りは失敗する (EOC 済み)。
+      await h.succeed(lowX);
+      await h.fail(highX);
+      await h.fail(lowY);
+      await h.succeed(highY);
+
+      // Assert: MAX だけが大きい (100,1000) ではなく (200,300) が nominate される。
+      expect(h.nominations()).toHaveLength(1);
+      expect(h.connection.nominated).toBe(highY);
+      expect(lowX.nominated).toBe(false);
+    } finally {
+      await h.connection.close();
+    }
+  });
+
   test("nominates at once when the only valid pair succeeds after end-of-candidates", async () => {
     const h = createNominationHarness();
     const pair = await h.addRemote(HIGH);

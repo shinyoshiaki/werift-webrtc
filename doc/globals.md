@@ -399,6 +399,7 @@
 - [codecParametersFromString](functions/codecParametersFromString.md)
 - [codecParametersToString](functions/codecParametersToString.md)
 - [compactNtp](functions/compactNtp.md)
+- [compareCandidatePairPriority](functions/compareCandidatePairPriority.md)
 - [consentResponseTimeoutMs](functions/consentResponseTimeoutMs.md)
 - [crc32](functions/crc32.md)
 - [crc32c](functions/crc32c.md)
