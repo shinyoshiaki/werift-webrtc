@@ -1063,9 +1063,16 @@ export class RTCIceCandidate implements RTCIceCandidateFields {
     });
   }
 
-  /** Same as `new RTCIceCandidate({ candidate: sdp })`. */
+  /**
+   * Same as `new RTCIceCandidate({ candidate: sdp })`, plus `usernameFragment`
+   * taken from the `ufrag` extension attribute of a valid candidate.
+   */
   static fromSdp(sdp: string): RTCIceCandidate {
-    return new RTCIceCandidate({ candidate: sdp });
+    const values = parseCandidateAttribute(sdp);
+    return createRTCIceCandidate(
+      { candidate: sdp, usernameFragment: values?.ufrag },
+      candidateFieldsFromValues(values),
+    );
   }
 
   static isThis(o: any) {

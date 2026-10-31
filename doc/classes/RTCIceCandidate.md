@@ -195,7 +195,8 @@ omitted).
 
 > `static` **fromSdp**(`sdp`): `RTCIceCandidate`
 
-Same as `new RTCIceCandidate({ candidate: sdp })`.
+Same as `new RTCIceCandidate({ candidate: sdp })`, plus `usernameFragment`
+taken from the `ufrag` extension attribute of a valid candidate.
 
 #### Parameters
 

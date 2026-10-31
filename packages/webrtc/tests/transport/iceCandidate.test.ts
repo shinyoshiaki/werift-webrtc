@@ -356,6 +356,38 @@ describe("RTCIceCandidate parsed fields", () => {
     expect(fieldsOf(withInvalid)).toEqual(allNull);
   });
 
+  test.each([candidates.tcp, `candidate:${candidates.tcp}`])(
+    "fromSdp sets usernameFragment from the ufrag attribute: %s",
+    (sdp) => {
+      // Act: ufrag を含む a-line から生成する
+      const candidate = RTCIceCandidate.fromSdp(sdp);
+
+      // Assert: develop と同じく usernameFragment が属性と JSON の両方に入る
+      expect(candidate.usernameFragment).toBe("abcd");
+      expect(candidate.toJSON().usernameFragment).toBe("abcd");
+      expect(JSON.parse(JSON.stringify(candidate)).usernameFragment).toBe(
+        "abcd",
+      );
+    },
+  );
+
+  test("fromSdp leaves usernameFragment undefined without a valid ufrag", () => {
+    // Act: ufrag なしの有効な a-line と、ufrag を含む不正な a-line から生成する
+    const withoutUfrag = RTCIceCandidate.fromSdp(candidates.host);
+    const invalid = RTCIceCandidate.fromSdp(
+      "1 1 udp 0 192.0.2.1 123 typ host ufrag abcd",
+    );
+
+    // Assert: 有効な ufrag がなければ usernameFragment は設定されない
+    for (const candidate of [withoutUfrag, invalid]) {
+      expect(candidate.usernameFragment).toBeUndefined();
+      expect("usernameFragment" in candidate.toJSON()).toBe(true);
+      expect(JSON.parse(JSON.stringify(candidate)).usernameFragment).toBe(
+        undefined,
+      );
+    }
+  });
+
   test("omitting candidate defaults it to an empty string", () => {
     // Act: candidate を省略して生成する
     const none = new RTCIceCandidate();

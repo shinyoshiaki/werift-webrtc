@@ -100,7 +100,7 @@ OpenHarness is a concrete downstream example where this missing API has already 
 - 入口は `parseCandidateAttribute(raw)` のみ。`candidate:` 接頭辞の除去は 1 回だけ行い、`" "` で分割して ABNF の要素ごとに検証する。
 - 型付きの値は `isValidCandidateValues()` で、同じ要素検証器を使って検証する。`IceCandidate.toJSON()` は文字列を再生成・再解析せず、これで検証する。
 - W3C 属性への対応付けは `candidateFieldsFromValues()` に分ける。
-- コンストラクター、`fromSdp`、`fromJSON` の 3 経路とも、これらの関数だけを使う。`fromSdp(sdp)` は `new RTCIceCandidate({ candidate: sdp })` と同じ動作にする。
+- コンストラクター、`fromSdp`、`fromJSON` の 3 経路とも、これらの関数だけを使う。`fromSdp(sdp)` は `new RTCIceCandidate({ candidate: sdp })` と同じ解析を行い、さらに従来どおり `ufrag` 拡張属性を `usernameFragment` に設定する(有効な候補のときだけ。属性と `toJSON()` の両方をテストで確認する)。
 
 ### B. コンストラクターは `RTCIceCandidateInit` だけを読む
 - `init` に含まれる派生属性は無視し、常に `candidate` から解析する(省略時は `""`)。
