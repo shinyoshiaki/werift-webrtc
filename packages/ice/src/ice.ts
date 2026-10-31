@@ -2,12 +2,6 @@ import * as timers from "node:timers/promises";
 import { randomBytes } from "crypto";
 import { isIPv4 } from "net";
 import {
-  type Address,
-  Event,
-  debug,
-  interfaceAddress,
-} from "./imports/common";
-import {
   Candidate,
   candidateFoundation,
   candidatePriority,
@@ -34,8 +28,9 @@ import {
   validateAddress,
   validateRemoteCandidate,
 } from "./iceBase";
+import { type Address, debug, Event, interfaceAddress } from "./imports/common";
 import { resolveHostAddresses } from "./internal/resolveHostAddresses";
-import { TCP_CHECK_RESPONSE_TIMEOUT_MS, classes, methods } from "./stun/const";
+import { classes, methods, TCP_CHECK_RESPONSE_TIMEOUT_MS } from "./stun/const";
 import { Message } from "./stun/message";
 import { StunProtocol } from "./stun/protocol";
 import { TcpActiveProtocol, TcpPassiveProtocol } from "./stun/tcpProtocol";

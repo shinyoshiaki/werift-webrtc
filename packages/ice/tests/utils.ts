@@ -1346,6 +1346,8 @@ export type ScriptedReply = "success" | "hold" | 401 | 487;
 /** One request ScriptedCheckProtocol received. */
 export type ScriptedRequest = {
   message: Message;
+  /** Destination of the request (the pair's remote address). */
+  addr: Address;
   nominate: boolean;
   /** Settled (answered, failed, or cancelled by its signal). */
   done: boolean;
@@ -1391,6 +1393,7 @@ export class ScriptedCheckProtocol implements Protocol {
       return new Promise((resolve, reject) => {
         const entry: ScriptedRequest = {
           message,
+          addr,
           nominate,
           done: false,
           release: (outcome) => {
@@ -1490,5 +1493,121 @@ export function createScriptedCheckHarness({
     check,
     nominating,
     setRemoteCredentials,
+  };
+}
+
+// --- regular nomination ---
+
+/**
+ * Shared Arrange for regular nomination: a controlling full agent whose local
+ * gathering finished, with one ScriptedCheckProtocol. Ordinary checks stay in
+ * flight until `succeed` / `fail`; USE-CANDIDATE checks are answered by
+ * `nominationReply` (success by default). Remote candidates are trickled with
+ * `addRemote(priority)` (a higher priority makes a higher-priority pair), the
+ * way signaling delivers them, so the agent sees each pair being added.
+ */
+export function createNominationHarness({
+  nominationDelayMs,
+  remoteIsLite = false,
+  nominationReply = () => "success",
+}: {
+  nominationDelayMs?: number;
+  remoteIsLite?: boolean;
+  nominationReply?: (nominationIndex: number) => ScriptedReply;
+} = {}) {
+  let nominationCount = 0;
+  const protocol = new ScriptedCheckProtocol("udp", ({ nominate }) =>
+    nominate ? nominationReply(nominationCount++) : "hold",
+  );
+  const connection = new Connection(true, { nominationDelayMs });
+  connection.remoteIsLite = remoteIsLite;
+  connection.remoteUsername = "remote";
+  connection.remotePassword = "remote-password-0000000000";
+  connection.localCandidatesEnd = true;
+  (connection as unknown as { protocols: Protocol[] }).protocols.push(protocol);
+
+  let port = 5000;
+  const remoteCandidate = (priority: number) =>
+    new Candidate(
+      `remote${port}`,
+      1,
+      "udp",
+      priority,
+      "192.0.2.2",
+      port++,
+      "host",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+    );
+  /** Trickle a remote candidate; returns the live pair it formed. */
+  const addRemote = async (priority: number) => {
+    const candidate = remoteCandidate(priority);
+    await connection.addRemoteCandidate(candidate);
+    return connection.checkList.find(
+      (pair) => pair.remoteCandidate === candidate,
+    )!;
+  };
+  /** Start the ordinary check of `pair` as the scheduler does. */
+  const check = (pair: CandidatePair) => {
+    pair.handle = connection.checkStart(pair);
+    return pair.handle;
+  };
+  const pendingCheck = (pair: CandidatePair) =>
+    protocol.requests.find(
+      (request) =>
+        !request.nominate &&
+        !request.done &&
+        request.addr[0] === pair.remoteAddr[0] &&
+        request.addr[1] === pair.remoteAddr[1],
+    );
+  /** Answer the ordinary check of `pair` in flight. */
+  const succeed = async (pair: CandidatePair) => {
+    pendingCheck(pair)!.release("success");
+    await vi.advanceTimersByTimeAsync(0);
+  };
+  /** USE-CANDIDATE checks sent so far, with the port they were sent to. */
+  const nominations = () =>
+    protocol.requests.filter((request) => request.nominate);
+  const ordinaryChecks = () =>
+    protocol.requests.filter((request) => !request.nominate);
+
+  // Provisional generation (an ICE restart signalled in a pranswer).
+  const stageProvisional = () => {
+    connection.stageLocalCredentials("provA", "provisional-password-a-000");
+    connection.setProvisionalRemoteParams({
+      usernameFragment: "provB",
+      password: "provisional-password-b-000",
+    });
+    connection.startProvisionalChecks();
+  };
+  /** Trickle a provisional remote candidate; its check starts at once. */
+  const addProvisionalRemote = async (priority: number) => {
+    const candidate = remoteCandidate(priority);
+    await connection.addProvisionalRemoteCandidate(candidate);
+    return provisionalGeneration(connection)!.pairs.find(
+      (pair) => pair.remoteCandidate === candidate,
+    )!;
+  };
+  /** Replacement pranswer: new remote credentials for the provisional checklist. */
+  const replaceProvisionalRemote = () =>
+    connection.setProvisionalRemoteParams({
+      usernameFragment: "provC",
+      password: "provisional-password-c-000",
+    });
+
+  return {
+    connection,
+    protocol,
+    addRemote,
+    check,
+    succeed,
+    nominations,
+    ordinaryChecks,
+    stageProvisional,
+    addProvisionalRemote,
+    replaceProvisionalRemote,
   };
 }

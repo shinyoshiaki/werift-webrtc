@@ -109,6 +109,18 @@ Advertise local ICE lite and operate in the controlled role.
 
 ***
 
+### iceNominationDelayMs
+
+> **iceNominationDelayMs**: `number` \| `undefined`
+
+werift extension. Milliseconds the controlling ICE agent keeps checking
+before it nominates a candidate pair (regular nomination), so a
+higher-priority candidate trickled shortly after a lower-priority one
+succeeded can still be selected. Maps to `IceOptions.nominationDelayMs`:
+300 when undefined, 0 nominates the first valid pair at once.
+
+***
+
 ### icePasswordPrefix
 
 > **icePasswordPrefix**: `string` \| `undefined`

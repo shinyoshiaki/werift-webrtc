@@ -272,6 +272,26 @@ describe("iceTransport", () => {
     });
   });
 
+  describe("iceNominationDelayMs", () => {
+    test("PeerConfig.iceNominationDelayMs が Connection の nominationDelayMs に伝搬し、ICE server 更新後も残る", async () => {
+      // Arrange
+      const { pc, ice } = createPeerConnectionWithIceTransport({
+        iceNominationDelayMs: 0,
+      });
+      try {
+        // Act: RTCIceGatherer が生成した Connection のオプションを読み、ICE server を更新する
+        const initial = ice.connection.options.nominationDelayMs;
+        pc.setConfiguration({ iceServers: [] });
+
+        // Assert: 指定値が IceOptions に渡り、server 更新で消えない
+        expect(initial).toBe(0);
+        expect(ice.connection.options.nominationDelayMs).toBe(0);
+      } finally {
+        await pc.close();
+      }
+    });
+  });
+
   describe("turnUdpFamily", () => {
     test("PeerConfig.turnUdpFamily が Connection の turnUdpFamily に伝搬する", async () => {
       // Arrange
