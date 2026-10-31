@@ -26,7 +26,7 @@ test("client HTML points the public STUN server at the local fixture", () => {
 });
 
 test("example Node processes gather srflx candidates from the local fixture", async () => {
-  // Act: example と同じ起動経路で、既定 STUN を使う収集プローブを実行する
+  // Act: example と同じ起動経路で、デモと同じ公開 STUN URL を指定した収集プローブを実行する
   const probe = spawnExampleNodeTs(stunProbe, {
     cwd: e2eRoot,
     env: process.env,

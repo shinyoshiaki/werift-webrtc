@@ -12,6 +12,11 @@ import { StunProtocol } from "./stun/protocol";
 
 const logger = debug("werift-ice : packages/ice/src/utils.ts");
 
+/**
+ * Query the public (server-reflexive) IP of this host with a STUN Binding
+ * request.
+ * When `stunServer` is omitted, `stun.l.google.com:19302` is used.
+ */
 export async function getGlobalIp(
   stunServer?: Address,
   interfaceAddresses?: InterfaceAddresses,

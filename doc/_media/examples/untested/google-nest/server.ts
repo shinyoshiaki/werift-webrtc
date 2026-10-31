@@ -40,6 +40,8 @@ const session = async (
 ) => {
   {
     const pc = new RTCPeerConnection({
+      // Talks to Nest over the Internet; werift has no default STUN server.
+      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
       bundlePolicy: "max-bundle",
       codecs: {
         audio: [

@@ -4,7 +4,8 @@ import { NodeTurnServer } from "../../../../packages/ice-server/src";
 import { e2eRoot } from "./paths.js";
 
 /**
- * The demos (and werift's default ICE options) use this public STUN server.
+ * The demos that name a STUN server use this public one (werift itself has no
+ * default STUN server).
  * The smoke run points it at a local fixture so gathering never waits on the
  * network.
  */

@@ -5,6 +5,7 @@ import {
   createConnectedVideoPeers,
   createIceRestartPranswer,
   createInitialPranswerConnection,
+  createLocalStunIceServer,
   createLocalTurnIceServer,
   forceIceState,
   provisionalIce,
@@ -368,12 +369,16 @@ describeCases("negotiation transaction spec coverage: ICE", () => {
     "[2.6-T3b] ICE servers set after a restart offer was created apply to that restart's gathering at its commit",
     { ref: "2.6-T3b" },
     async (c) => {
-      // Arrange: TURN なしで接続済みの peer で、restartIce() の offer を作って restart を stage する。
+      // Arrange: TURN なし (STUN のみ) で接続済みの peer で、restartIce() の offer を作って restart を stage する。
+      // STUN を明示するので restart の generation は commit 後もサーバから収集を続ける (既定の公開 STUN は無い)。
       const { a, b, channel, received } = await c.given(
         createConnectedMediaAndDataPeers(),
       );
+      const stun = await createLocalStunIceServer();
+      c.closing(stun.server);
       const turn = await createLocalTurnIceServer();
       c.closing(turn.server);
+      a.setConfiguration({ iceServers: stun.iceServers });
       const events = recordIceCandidates(a);
       a.restartIce();
       const offer = await a.createOffer();

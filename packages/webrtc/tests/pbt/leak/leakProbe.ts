@@ -1389,9 +1389,8 @@ export async function closedSilentTurnLeaks() {
 
 /**
  * Arrange (whole file): a STUN server in this process, which every peer that
- * names no ICE servers uses instead of the public default
- * (`stun.l.google.com`), so the L1 / L2 verdicts do not depend on the
- * network. It is addressed as `localhost`: a STUN query still resolves its
+ * names no ICE servers uses (werift has no default STUN server), so the STUN
+ * gathering path is exercised without depending on the network. It is addressed as `localhost`: a STUN query still resolves its
  * name first (the lookup that close() may overtake). Returns its cleanup.
  */
 export async function useLocalStunServer() {

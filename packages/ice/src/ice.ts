@@ -2,12 +2,6 @@ import * as timers from "node:timers/promises";
 import { randomBytes } from "crypto";
 import { isIPv4 } from "net";
 import {
-  type Address,
-  Event,
-  debug,
-  interfaceAddress,
-} from "./imports/common";
-import {
   Candidate,
   candidateFoundation,
   candidatePriority,
@@ -33,8 +27,9 @@ import {
   validateAddress,
   validateRemoteCandidate,
 } from "./iceBase";
+import { type Address, debug, Event, interfaceAddress } from "./imports/common";
 import { resolveHostAddresses } from "./internal/resolveHostAddresses";
-import { TCP_CHECK_RESPONSE_TIMEOUT_MS, classes, methods } from "./stun/const";
+import { classes, methods, TCP_CHECK_RESPONSE_TIMEOUT_MS } from "./stun/const";
 import { Message } from "./stun/message";
 import { StunProtocol } from "./stun/protocol";
 import { TcpActiveProtocol, TcpPassiveProtocol } from "./stun/tcpProtocol";
@@ -43,9 +38,6 @@ import type { Protocol, TransactionRequestOptions } from "./types/model";
 import { getHostAddresses } from "./utils";
 
 const log = debug("werift-ice : packages/ice/src/ice.ts : log");
-
-/** Fallback STUN server when none is configured (constructor / setIceServers). */
-const DEFAULT_STUN_SERVER: Address = ["stun.l.google.com", 19302];
 
 export class Connection implements IceConnection {
   localUsername = randomString(4);
@@ -212,12 +204,12 @@ export class Connection implements IceConnection {
 
   /**
    * Derive Connection.stunServer / turnServer from this.options.
-   * Shared by the constructor and setIceServers so both paths validate and
-   * default identically.
+   * Shared by the constructor and setIceServers so both paths validate
+   * identically. An omitted / undefined `stunServer` means no STUN: there is
+   * no implicit public STUN server and no srflx candidate is gathered.
    */
   private applyStunTurnServersFromOptions() {
-    this.stunServer =
-      validateAddress(this.options.stunServer) ?? DEFAULT_STUN_SERVER;
+    this.stunServer = validateAddress(this.options.stunServer);
     this.turnServer = validateAddress(this.options.turnServer);
   }
 

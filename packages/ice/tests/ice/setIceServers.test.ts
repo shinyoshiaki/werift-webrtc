@@ -13,6 +13,8 @@ describe("Connection.setIceServers", () => {
 
     try {
       expect(connection.turnServer).toEqual(["turn-a.example.com", 3478]);
+      // stunServer: undefined は既定の公開 STUN で補われない
+      expect(connection.stunServer).toBeUndefined();
       expect(connection.options.turnUsername).toBe("user-a");
       expect(connection.options.turnPassword).toBe("pass-a");
 
@@ -89,6 +91,45 @@ describe("Connection.setIceServers", () => {
       expect(connection.options.turnUsername).toBeUndefined();
       expect(connection.options.turnPassword).toBeUndefined();
       expect(connection.turnServer).toBeUndefined();
+    } finally {
+      await connection.close();
+    }
+  });
+
+  test.each([
+    ["new Connection(true)", () => new Connection(true)],
+    [
+      "new Connection(true, { stunServer: undefined })",
+      () => new Connection(true, { stunServer: undefined }),
+    ],
+  ])("%s は STUN なし (既定の公開 STUN を補わない)", async (_name, create) => {
+    // Act: stunServer を省略 / undefined にして構築
+    const connection = create();
+
+    try {
+      // Assert: STUN を使わない
+      expect(connection.stunServer).toBeUndefined();
+      expect(connection.options.stunServer).toBeUndefined();
+    } finally {
+      await connection.close();
+    }
+  });
+
+  test("STUN あり → setIceServers({ stunServer: undefined }) で STUN なしになる", async () => {
+    // Arrange: STUN を明示して構築
+    const connection = new Connection(true, {
+      stunServer: ["stun.example.com", 19302],
+    });
+
+    try {
+      expect(connection.stunServer).toEqual(["stun.example.com", 19302]);
+
+      // Act: STUN を外す
+      connection.setIceServers({ stunServer: undefined });
+
+      // Assert: 既定の公開 STUN に戻らず STUN なしになる
+      expect(connection.stunServer).toBeUndefined();
+      expect(connection.options.stunServer).toBeUndefined();
     } finally {
       await connection.close();
     }

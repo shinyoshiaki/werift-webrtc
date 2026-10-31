@@ -286,6 +286,11 @@ export interface IceOptions {
    * Defaults to 8.
    */
   turnConnectTimeout?: number;
+  /**
+   * STUN server used to gather server-reflexive (srflx) candidates.
+   * When omitted (or undefined), STUN is not used and no srflx candidate is
+   * gathered. There is no default public STUN server.
+   */
   stunServer?: Address;
   turnServer?: Address;
   turnUsername?: string;

@@ -71,7 +71,7 @@ export type PeerConfig = {
     audio: RTCRtpHeaderExtensionParameters[];
     video: RTCRtpHeaderExtensionParameters[];
   }>;
-  iceConfig: Partial<IceOptions>;
+  iceServers: RTCIceServer[]; // default []
 };
 ```
 
@@ -138,23 +138,18 @@ const pc = new RTCPeerConnection({
 
 If you want to use the simulcast feature, you must specify `useSdesRTPStreamID()`.
 
-#### iceConfig
+#### iceServers
 
-Specify the ICE configuration.
-Werift supports STUN and TURN-UDP.
+Specify the STUN / TURN servers.
+The default is `[]` (same as the W3C default): werift does not use any STUN server implicitly, so only host candidates are gathered unless you configure servers.
 
 ```typescript
 const pc = new RTCPeerConnection({
-  iceConfig: { stunServer: ["stun.l.google.com", 19302] },
+  iceServers: [
+    { urls: "stun:stun.l.google.com:19302" },
+    { urls: "turn:turn.example.com:3478", username: "user", credential: "pass" },
+  ],
 });
-
-type IceConfig = {
-  stunServer?: [string, number];
-  turnServer?: [string, number];
-  turnUsername?: string;
-  turnPassword?: string;
-  forceTurn?: boolean;
-};
 ```
 
 ### Signaling

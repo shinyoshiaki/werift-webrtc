@@ -4,6 +4,7 @@ import type { Address } from "../../../../common/src";
 import { getHostAddresses } from "../../../../ice/src/utils";
 import {
   createHeldUdpProxy,
+  createLocalStunServer,
   createLocalTurnServer,
   TURN_TEST_PASSWORD,
   TURN_TEST_USERNAME,
@@ -2048,6 +2049,17 @@ export async function settlesWithin(promise: Promise<unknown>, ms: number) {
   ]);
   clearTimeout(timer);
   return settled;
+}
+
+/**
+ * Shared Arrange: a local STUN server and the RTCIceServer entry for it.
+ * werift uses no STUN server unless one is configured, so a case whose
+ * premise is "the peer gathers from a server" names this one.
+ */
+export async function createLocalStunIceServer() {
+  const server = await createLocalStunServer(getHostAddresses(true, false)[0]!);
+  const [host, port] = server.address!;
+  return { server, iceServers: [{ urls: `stun:${host}:${port}` }] };
 }
 
 /** Shared Arrange: a local TURN server and the RTCIceServer entry for it. */

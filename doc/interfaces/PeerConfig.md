@@ -127,6 +127,10 @@ Minimum port and Maximum port must not be the same value
 
 > **iceServers**: [`RTCIceServer`](../type-aliases/RTCIceServer.md)[]
 
+STUN / TURN servers used for ICE gathering. Defaults to `[]` (W3C
+default): no STUN / TURN server is used implicitly, so only host
+candidates are gathered unless servers are configured.
+
 ***
 
 ### iceStunGatherTimeout

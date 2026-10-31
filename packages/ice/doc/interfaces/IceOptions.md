@@ -118,6 +118,10 @@ networks can lower it.
 
 > `optional` **stunServer?**: readonly \[`string`, `number`\]
 
+STUN server used to gather server-reflexive (srflx) candidates.
+When omitted (or undefined), STUN is not used and no srflx candidate is
+gathered. There is no default public STUN server.
+
 ***
 
 ### tcpPassive?

@@ -321,9 +321,7 @@ export function createTestConnection(
   iceControlling: boolean,
   options: Partial<IceOptions> = {},
 ) {
-  const connection = new Connection(iceControlling, options);
-  connection.stunServer = options.stunServer;
-  return connection;
+  return new Connection(iceControlling, options);
 }
 
 /**
@@ -735,6 +733,28 @@ export function stubLookup(
     return { address, family: net.isIP(address) };
   }) as unknown as typeof dns.promises.lookup);
   return { families, restore: () => spy.mockRestore() };
+}
+
+/**
+ * Record the host names passed to dns.promises.lookup without touching the
+ * network: a host in `answers` resolves to its address, any other host fails
+ * with ENOTFOUND. Used to assert which STUN / TURN names ICE resolves.
+ */
+export function recordLookupHosts(answers: Record<string, string> = {}) {
+  const hosts: string[] = [];
+  const spy = vi.spyOn(dns.promises, "lookup").mockImplementation((async (
+    host: string,
+  ) => {
+    hosts.push(host);
+    const address = answers[host];
+    if (!address) {
+      throw Object.assign(new Error(`getaddrinfo ENOTFOUND ${host}`), {
+        code: "ENOTFOUND",
+      });
+    }
+    return { address, family: net.isIP(address) };
+  }) as unknown as typeof dns.promises.lookup);
+  return { hosts, restore: () => spy.mockRestore() };
 }
 
 /**

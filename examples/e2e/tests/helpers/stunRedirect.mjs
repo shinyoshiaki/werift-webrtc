@@ -1,6 +1,6 @@
 // Loaded with `--import` into example Node processes by spawnExampleNodeTs.
-// Resolves the public STUN host used by the demos (and werift's default ICE
-// options) to the local fixture started in tests/globalSetup.ts.
+// Resolves the public STUN host named by the demos to the local fixture
+// started in tests/globalSetup.ts. werift has no default STUN server.
 import dns from "node:dns";
 
 const publicStunHost = "stun.l.google.com";

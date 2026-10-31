@@ -16,6 +16,8 @@
   - `close()` can be called more than once, including after an error or a failed bind.
 ### ⚠️ Breaking changes
 
+- **`werift`: `RTCPeerConnection` no longer uses Google STUN implicitly**: when `iceServers` is omitted, `[]`, or TURN-only, werift used to resolve and query `stun.l.google.com:19302` anyway. It now uses only the servers the application configures (W3C `RTCConfiguration.iceServers` default `[]`, RFC 8829 §4.1.1). `getConfiguration().iceServers` defaults to `[]`. Without STUN no srflx candidate is gathered, so peers behind NAT that relied on the implicit server may no longer connect. Migration: to keep the previous behavior, specify `iceServers: [{ urls: "stun:stun.l.google.com:19302" }]` explicitly.
+- **`werift-ice`: `Connection` no longer falls back to `stun.l.google.com:19302`** when `stunServer` is omitted; omitted / `undefined` means no STUN (no srflx candidate, no STUN wait), and `setIceServers({ stunServer: undefined })` also means no STUN. `getGlobalIp()` keeps its explicit Google STUN default. Migration: pass `stunServer: ["stun.l.google.com", 19302]` explicitly.
 - **`werift-dtls`: `CipherContext.localPrivateKey` is now a Node `KeyObject`** instead of the `@fidm/x509` `PrivateKey`. Replace `localPrivateKey.toPEM()` with `localPrivateKey.export({ type: "pkcs8", format: "pem" })`; replace `localPrivateKey.sign(data, hash)` with `createSign(hash).update(data).sign(localPrivateKey)`.
 - **werift logging no longer follows the application's `debug` package instance.** Use `debug.enable("werift*")` or `debug.disable()` from `werift`, or set `DEBUG=werift*` before startup. The built-in logger does not implement `DEBUG_HIDE_DATE`, `DEBUG_DEPTH`, `DEBUG_SHOW_HIDDEN`, `logger.extend()`, `logger.log`, `debug.log`, `debug.formatters`, `logger.destroy()`, `logger.color`, `useColors`, or `inspectOpts`. In browsers, `localStorage.debug` is still read at load time.
 
@@ -29,6 +31,10 @@
 ### Fixes
 
 - PEM passed to `dtls.keys` / `RTCCertificate` / `CipherContext` may still be indented (for example inside an indented template literal), as it was with `@fidm/x509`. `werift-dtls` exports the `normalizePem()` helper used for this.
+
+### 📦 Packaging / versions
+
+- Because of the breaking changes above, the next release bumps the minor versions: **`werift`** (`packages/webrtc`) `0.25.x` → **`0.26.0`**, **`werift-ice`** (`packages/ice`) `0.2.3` → **`0.3.0`**.
 
 ### Dependencies
 

@@ -8,6 +8,10 @@
 
 > **getGlobalIp**(`stunServer?`, `interfaceAddresses?`): `Promise`\<`string`\>
 
+Query the public (server-reflexive) IP of this host with a STUN Binding
+request.
+When `stunServer` is omitted, `stun.l.google.com:19302` is used.
+
 ## Parameters
 
 ### stunServer?

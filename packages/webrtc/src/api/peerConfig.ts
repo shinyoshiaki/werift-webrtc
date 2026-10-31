@@ -54,6 +54,11 @@ export interface PeerConfig {
   iceTransportPolicy: "all" | "relay";
   /** Advertise local ICE lite and operate in the controlled role. */
   iceLite: boolean;
+  /**
+   * STUN / TURN servers used for ICE gathering. Defaults to `[]` (W3C
+   * default): no STUN / TURN server is used implicitly, so only host
+   * candidates are gathered unless servers are configured.
+   */
   iceServers: RTCIceServer[];
   /**Minimum port and Maximum port must not be the same value */
   icePortRange: [number, number] | undefined;
@@ -200,6 +205,11 @@ export interface RTCSctpConfiguration {
 }
 
 export interface RTCConfiguration {
+  /**
+   * STUN / TURN servers used for ICE gathering. Defaults to `[]`; no public
+   * STUN server is used implicitly. To use Google STUN, specify
+   * `[{ urls: "stun:stun.l.google.com:19302" }]` explicitly.
+   */
   iceServers?: RTCIceServer[];
   iceTransportPolicy?: PeerConfig["iceTransportPolicy"];
   bundlePolicy?: RTCBundlePolicy;
@@ -236,7 +246,7 @@ export function generateDefaultPeerConfig(): PeerConfig {
     },
     iceTransportPolicy: "all",
     iceLite: false,
-    iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+    iceServers: [],
     icePortRange: undefined,
     iceInterfaceAddresses: undefined,
     iceAdditionalHostAddresses: undefined,

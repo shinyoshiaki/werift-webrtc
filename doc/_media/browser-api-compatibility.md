@@ -26,6 +26,7 @@ The normal application-facing surface includes:
 - `currentLocalDescription`, `pendingLocalDescription`, `currentRemoteDescription`, and `pendingRemoteDescription`
 - `addIceCandidate()`, end-of-candidates handling, and ICE server URL arrays
 - `RTCConfiguration` fields including `iceServers`, `iceTransportPolicy`, `bundlePolicy`, `rtcpMuxPolicy`, `iceCandidatePoolSize`, and `certificates`
+  - `iceServers` defaults to `[]` as in W3C WebRTC: no STUN / TURN server (including a public STUN server) is used unless the application configures it
 - `canTrickleIceCandidates` and `sctp`
 - tracks, senders, receivers, and transceivers
 - `RTCDataChannel` with browser-style event handlers

@@ -1,6 +1,8 @@
 import { getHostAddresses } from "../../../ice/src/utils";
 import {
+  createLocalStunServer,
   createLocalTurnServer,
+  recordLookupHosts,
   TURN_TEST_PASSWORD,
   TURN_TEST_USERNAME,
 } from "../../../ice/tests/utils";
@@ -58,6 +60,8 @@ describe("iceTransport", () => {
 
         // Assert: 次の gather で使えるよう Connection に stage される
         expect(ice.connection.turnServer).toEqual(["turn.example.com", 3478]);
+        // Assert: TURN のみなので既定の公開 STUN は補われない
+        expect(ice.connection.stunServer).toBeUndefined();
         expect(ice.connection.options.turnUsername).toBe("whip-user");
         expect(ice.connection.options.turnPassword).toBe("whip-pass");
         expect((pc as any).needRestart).toBe(false);
@@ -264,10 +268,172 @@ describe("iceTransport", () => {
           "post-restart.example.com",
           3478,
         ]);
+        // Assert: restart 後も STUN なしのまま (既定の公開 STUN に戻らない)
+        expect(ice.connection.stunServer).toBeUndefined();
         expect(ice.connection.options.turnUsername).toBe("post");
         expect((pc as any).needRestart).toBe(false);
       } finally {
         await pc.close();
+      }
+    });
+  });
+
+  describe("既定の公開 STUN を暗黙に使わない", () => {
+    const stunHostName = "stun.werift.test";
+
+    test("new RTCPeerConnection() の iceServers 既定値は [] で STUN なし", async () => {
+      // Arrange: iceServers を指定しない
+      const pc = new RTCPeerConnection();
+      try {
+        // Act: ICE transport を用意する
+        pc.createDataChannel("default");
+        const ice = (pc as any).secureManager
+          .iceTransports[0] as RTCIceTransport;
+
+        // Assert: W3C の既定値 [] を返し、Connection も STUN を持たない
+        expect(pc.getConfiguration().iceServers).toEqual([]);
+        expect(ice.connection.stunServer).toBeUndefined();
+        expect(ice.connection.turnServer).toBeUndefined();
+      } finally {
+        await pc.close();
+      }
+    });
+
+    test("iceServers: [] の gather は DNS lookup せず host 候補だけを出す", async () => {
+      // Arrange: lookup を記録し、STUN 待ちが起きれば検出できるよう timeout を長くする
+      const lookups = recordLookupHosts();
+      const pc = new RTCPeerConnection({
+        iceServers: [],
+        iceStunGatherTimeout: 30,
+      });
+      try {
+        pc.createDataChannel("empty");
+        const ice = (pc as any).secureManager
+          .iceTransports[0] as RTCIceTransport;
+
+        // Act: gather を完了まで進める
+        const started = Date.now();
+        await ice.gather();
+        const elapsed = Date.now() - started;
+
+        // Assert: gather 完了。STUN / TURN の名前解決は一度も起きない
+        expect(ice.gatheringState).toBe("complete");
+        expect(lookups.hosts).toEqual([]);
+        expect(ice.connection.stunServer).toBeUndefined();
+        // Assert: host 候補だけが出る
+        expect(ice.localCandidates.length).toBeGreaterThan(0);
+        expect(
+          ice.localCandidates.every((candidate) => candidate.type === "host"),
+        ).toBe(true);
+        // Assert: stunGatherTimeout (30 秒) を待たない
+        expect(elapsed).toBeLessThan(10_000);
+      } finally {
+        lookups.restore();
+        await pc.close();
+      }
+    });
+
+    test("TURN のみの iceServers は設定した TURN だけを使う", async () => {
+      // Arrange: ローカル TURN (IP literal) のみを指定し、lookup を記録する
+      const localTurnHost = getHostAddresses(true, false)[0]!;
+      const turnServer = await createLocalTurnServer(localTurnHost);
+      const [turnHost, turnPort] = turnServer.address!;
+      const lookups = recordLookupHosts();
+      const pc = new RTCPeerConnection({
+        iceServers: [
+          {
+            urls: `turn:${turnHost}:${turnPort}`,
+            username: TURN_TEST_USERNAME,
+            credential: TURN_TEST_PASSWORD,
+          },
+        ],
+        iceStunGatherTimeout: 30,
+      });
+      try {
+        pc.createDataChannel("turn-only");
+        const ice = (pc as any).secureManager
+          .iceTransports[0] as RTCIceTransport;
+
+        // Act: gather を完了まで進める
+        await ice.gather();
+
+        // Assert: STUN は補われず、TURN だけが設定されている
+        expect(ice.connection.stunServer).toBeUndefined();
+        expect(ice.connection.turnServer).toEqual([turnHost, turnPort]);
+        // Assert: Allocate が成功して relay 候補が出る。srflx は出ない
+        const types = ice.localCandidates.map((candidate) => candidate.type);
+        expect(types).toContain("relay");
+        expect(types).not.toContain("srflx");
+        // Assert: 名前解決は一度も起きない (Google STUN を引かない)
+        expect(lookups.hosts).toEqual([]);
+      } finally {
+        lookups.restore();
+        await pc.close();
+        await turnServer.close();
+      }
+    }, 20_000);
+
+    test("STUN を明示したときはそのエンドポイントだけを使う", async () => {
+      // Arrange: ローカル STUN をテスト用のホスト名で指定し、lookup を記録する
+      const stunServer = await createLocalStunServer("127.0.0.1");
+      const [, stunPort] = stunServer.address!;
+      const lookups = recordLookupHosts({ [stunHostName]: "127.0.0.1" });
+      const pc = new RTCPeerConnection({
+        iceServers: [{ urls: `stun:${stunHostName}:${stunPort}` }],
+        iceStunGatherTimeout: 1,
+      });
+      try {
+        pc.createDataChannel("explicit-stun");
+        const ice = (pc as any).secureManager
+          .iceTransports[0] as RTCIceTransport;
+
+        // Act: gather を完了まで進める
+        await ice.gather();
+
+        // Assert: Connection は指定した STUN を持つ
+        expect(ice.connection.stunServer).toEqual([stunHostName, stunPort]);
+        // Assert: 名前解決したのは指定したホストだけ
+        expect(lookups.hosts.length).toBeGreaterThan(0);
+        expect(new Set(lookups.hosts)).toEqual(new Set([stunHostName]));
+      } finally {
+        lookups.restore();
+        await pc.close();
+        await stunServer.close();
+      }
+    });
+
+    test("gather 後に iceServers: [] へ変えると ICE restart で STUN なしになる", async () => {
+      // Arrange: ローカル STUN (IP literal) で gather を完了させる
+      const stunServer = await createLocalStunServer("127.0.0.1");
+      const [stunHost, stunPort] = stunServer.address!;
+      const pc = new RTCPeerConnection({
+        iceServers: [{ urls: `stun:${stunHost}:${stunPort}` }],
+        iceStunGatherTimeout: 1,
+      });
+      try {
+        pc.createDataChannel("deferred");
+        const ice = (pc as any).secureManager
+          .iceTransports[0] as RTCIceTransport;
+        await ice.gather();
+        expect(ice.connection.stunServer).toEqual([stunHost, stunPort]);
+
+        // Act: gather 完了後に STUN を外す（deferIceServers で次の restart まで保留）
+        pc.setConfiguration({ iceServers: [] });
+
+        // Assert: live Connection はまだ変わらない
+        expect(ice.connection.stunServer).toEqual([stunHost, stunPort]);
+
+        // Act: ICE restart で保留中の iceServers を適用する
+        (pc as any).secureManager.restartIce();
+
+        // Assert: 既定の公開 STUN に戻らず STUN なしになり、設定値と一致する
+        expect(ice.gatheringState).toBe("new");
+        expect(ice.connection.stunServer).toBeUndefined();
+        expect(pc.getConfiguration().iceServers).toEqual([]);
+        expect(ice.connection.gathersFromServers).toBe(false);
+      } finally {
+        await pc.close();
+        await stunServer.close();
       }
     });
   });

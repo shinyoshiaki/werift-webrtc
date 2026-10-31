@@ -22,9 +22,7 @@ describe("ICE consent restart integration", () => {
     async () => {
       // Arrange: host-only dual connection（外部 STUN 不要）
       const a = createTestConnection(true);
-      a.stunServer = undefined;
       const b = createTestConnection(false);
-      b.stunServer = undefined;
       connections.push(a, b);
 
       await inviteAccept(a, b);
