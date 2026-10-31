@@ -115,6 +115,15 @@ export interface PeerConfig {
   rtcpMuxPolicy: "require";
   iceCandidatePoolSize: number;
   certificates: RTCCertificate[];
+  /**
+   * Which default DTLS certificate is used when neither `certificates` nor `dtls.keys` is given.
+   * Cannot be changed after construction.
+   * - `"process"` (default): one certificate shared by every RTCPeerConnection in the process
+   *   (legacy behavior), so their `a=fingerprint` values are identical.
+   * - `"peerConnection"`: each RTCPeerConnection generates its own certificate (browser behavior).
+   *   All DTLS transports of that connection share it.
+   */
+  certificateScope: CertificateScope;
   debug: DebugConfig;
   midSuffix: boolean;
   /** Advertised local SCTP max-message-size in SDP. Use 0 for unlimited. */
@@ -141,6 +150,12 @@ export interface PeerConfig {
    */
   keyFrameRequestRouting: KeyFrameRequestRouting;
 }
+
+export type CertificateScope = "process" | "peerConnection";
+const CertificateScopes: readonly CertificateScope[] = [
+  "process",
+  "peerConnection",
+];
 
 const MLineReuseModes: readonly MLineReuse[] = ["compatible", "aggressive"];
 
@@ -258,6 +273,7 @@ export function generateDefaultPeerConfig(): PeerConfig {
     rtcpMuxPolicy: "require",
     iceCandidatePoolSize: 0,
     certificates: [],
+    certificateScope: "process",
     debug: {},
     midSuffix: false,
     forceTurnTCP: false,
@@ -408,6 +424,26 @@ export function mergePeerConfiguration(
     normalizedConfig.bundlePolicy !== config.bundlePolicy
   ) {
     throw new Error("bundlePolicy cannot be changed");
+  }
+
+  if (
+    normalizedConfig.certificateScope !== undefined &&
+    !CertificateScopes.includes(normalizedConfig.certificateScope)
+  ) {
+    throw createWebRtcTypeError(
+      `certificateScope must be one of ${CertificateScopes.join(", ")}`,
+    );
+  }
+
+  if (
+    isReconfiguration &&
+    normalizedConfig.certificateScope !== undefined &&
+    normalizedConfig.certificateScope !== config.certificateScope
+  ) {
+    throw createWebRtcDomException(
+      "InvalidModificationError",
+      "certificateScope cannot be changed",
+    );
   }
 
   if (

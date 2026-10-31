@@ -695,19 +695,24 @@ export class SecureTransportManager {
   }
 
   /**
-   * Without `certificates` / `dtls.keys`, each peer connection generates its own
-   * certificate (like browsers) and keeps it for its lifetime; every DTLS transport
-   * of this peer connection uses it.
+   * Without `certificates` / `dtls.keys`, `certificateScope` decides the default:
+   * - `"process"` (default): the certificate shared by the whole process.
+   * - `"peerConnection"`: a certificate generated for this peer connection (like browsers),
+   *   kept for its lifetime; every DTLS transport of this peer connection uses it.
    */
   async ensureCerts() {
     if (!this.certificate) {
-      this.certificatePromise ??= RTCDtlsTransport.generateCertificate();
-      try {
-        this.certificate ??= await this.certificatePromise;
-      } catch (error) {
-        // let the next createOffer / createAnswer retry the generation
-        this.certificatePromise = undefined;
-        throw error;
+      if (this.config.certificateScope === "peerConnection") {
+        this.certificatePromise ??= RTCDtlsTransport.generateCertificate();
+        try {
+          this.certificate ??= await this.certificatePromise;
+        } catch (error) {
+          // let the next createOffer / createAnswer retry the generation
+          this.certificatePromise = undefined;
+          throw error;
+        }
+      } else {
+        this.certificate = await RTCDtlsTransport.SetupCertificate();
       }
     }
 

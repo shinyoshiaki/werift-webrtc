@@ -20,6 +20,19 @@
 
 ***
 
+### certificateScope
+
+> **certificateScope**: `CertificateScope`
+
+Which default DTLS certificate is used when neither `certificates` nor `dtls.keys` is given.
+Cannot be changed after construction.
+- `"process"` (default): one certificate shared by every RTCPeerConnection in the process
+  (legacy behavior), so their `a=fingerprint` values are identical.
+- `"peerConnection"`: each RTCPeerConnection generates its own certificate (browser behavior).
+  All DTLS transports of that connection share it.
+
+***
+
 ### codecs
 
 > **codecs**: `Partial`\<\{ `audio`: [`RTCRtpCodecParameters`](../classes/RTCRtpCodecParameters.md)[]; `video`: [`RTCRtpCodecParameters`](../classes/RTCRtpCodecParameters.md)[]; \}\>
