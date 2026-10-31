@@ -1,7 +1,6 @@
 import { setTimeout } from "timers/promises";
 
 import { vi } from "vitest";
-import { NtpTimeBase } from "../../src/imports/rtpExtra";
 import {
   GenericNack,
   MediaStreamTrack,
@@ -12,6 +11,7 @@ import {
   RtpPacket,
   unwrapRtx,
 } from "../../src";
+import { NtpTimeBase } from "../../src/imports/rtpExtra";
 import { RTCRtpCodecParameters } from "../../src/media/parameters";
 import { RTCRtpSender } from "../../src/media/rtpSender";
 import { RTCStatsReport } from "../../src/media/stats";
