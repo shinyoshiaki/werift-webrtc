@@ -5,6 +5,7 @@ import { MediaRecorder } from "../../src/nonstandard";
 import { OggFactory } from "../../src/nonstandard/recorder/writer/ogg";
 import { WebmFactory } from "../../src/nonstandard/recorder/writer/webm";
 import {
+  createCodeclessAudioTrack,
   createOggInput,
   createOggStream,
   createOpusTrack,
@@ -12,6 +13,7 @@ import {
   createRecordingDir,
   createVp8Track,
   feedOpusRtp,
+  measureStop,
   oggHeaderTypes,
   waitForOggRecorderStarted,
 } from "./recorderTestUtils";
@@ -252,6 +254,56 @@ describe("packages/webrtc/tests/nonstandard/recorder.test.ts", () => {
     expect(
       () => new MediaRecorder({ path: "x.ogg", ...(props() as any) }),
     ).toThrow(/ogg recording/);
+  });
+
+  it("reports a start failure and stops without waiting for the timeout", async () => {
+    // Arrange: コーデック未設定の音声トラックで録音を作る。
+    const dir = await createRecordingDir();
+    const errors: Error[] = [];
+    try {
+      const recorder = new MediaRecorder({
+        path: dir.path("out.ogg"),
+        tracks: [createCodeclessAudioTrack()],
+      });
+      recorder.onError.subscribe((e) => errors.push(e));
+
+      // Act: 開始失敗の通知を受けた後に停止する。
+      const elapsed = await measureStop(recorder);
+
+      // Assert: 開始失敗が onError に通知され、停止は 5 秒待たずに完了する。
+      expect(errors.map((e) => e.message)).toEqual([
+        "ogg recording requires a negotiated opus codec",
+      ]);
+      expect(elapsed).toBeLessThan(1000);
+    } finally {
+      await dir.cleanup();
+    }
+  });
+
+  it("stops without waiting when a track added later fails to start", async () => {
+    // Arrange
+    const recorder = new MediaRecorder({ path: "x.ogg", numOfTracks: 1 });
+
+    // Act: addTrack で開始が失敗した後に停止する。
+    await expect(
+      recorder.addTrack(createCodeclessAudioTrack()),
+    ).rejects.toThrow(/negotiated opus codec/);
+    const elapsed = await measureStop(recorder);
+
+    // Assert: 停止は 5 秒待たずに完了する。
+    expect(elapsed).toBeLessThan(1000);
+  });
+
+  it("stops without waiting when the recording never started", async () => {
+    // Arrange: トラックがそろわず、録音が始まっていない。
+    const recorder = new MediaRecorder({ path: "x.ogg", numOfTracks: 1 });
+
+    // Act
+    const elapsed = await measureStop(recorder);
+
+    // Assert: 停止は 5 秒待たずに完了する。
+    expect(recorder.started).toBe(false);
+    expect(elapsed).toBeLessThan(1000);
   });
 
   it("rejects a video track added later to an ogg recorder", async () => {

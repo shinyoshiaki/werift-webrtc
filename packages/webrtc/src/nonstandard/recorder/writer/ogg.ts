@@ -27,7 +27,12 @@ const sourcePath = "packages/webrtc/src/nonstandard/recorder/writer/ogg.ts";
 export class OggFactory extends MediaWriter<OggOutput> {
   rtpSources: RtpSourceCallback[] = [];
   private onEol = new Event();
-  private ended = false;
+  /**
+   * true while an eol is still to come: set once the pipeline is running and
+   * cleared when it ends. stop() waits for the eol only in this state, so a
+   * recording that never started or failed to start stops immediately
+   */
+  private running = false;
   /** a write failure stops the recording and is reported here */
   onError = new Event<[Error]>();
   unSubscribers = new EventDisposer();
@@ -69,6 +74,19 @@ export class OggFactory extends MediaWriter<OggOutput> {
   }
 
   async start(tracks: MediaStreamTrack[]) {
+    try {
+      await this.startPipeline(tracks);
+    } catch (error) {
+      this.running = false;
+      this.unSubscribers.dispose();
+      for (const source of this.rtpSources) {
+        source.stop();
+      }
+      throw error;
+    }
+  }
+
+  private async startPipeline(tracks: MediaStreamTrack[]) {
     OggFactory.validateTracks(tracks);
     const [track] = tracks;
     if (track.codec?.name.toLowerCase() !== "opus") {
@@ -83,10 +101,12 @@ export class OggFactory extends MediaWriter<OggOutput> {
       await unlink(this.props.path).catch((e) => e);
     }
 
+    // set before the pipeline can emit, so an early write failure clears it
+    this.running = true;
     const channels = track.codec.channels === 1 ? 1 : 2;
     const ogg = new OggCallback({ channels });
     ogg.onError.once((error) => {
-      this.ended = true;
+      this.running = false;
       ogg.destroy();
       // the recording is dead: stop feeding it RTP / RTCP
       this.unSubscribers.dispose();
@@ -135,16 +155,16 @@ export class OggFactory extends MediaWriter<OggOutput> {
           this.props.stream.execute(o);
         }
         if (eol) {
+          this.running = false;
           this.onEol.execute();
-          this.ended = true;
         }
       });
     } else if (this.props.stream) {
       ogg.pipe(async (o) => {
         this.props.stream.execute(o);
         if (o.eol) {
+          this.running = false;
           this.onEol.execute();
-          this.ended = true;
         }
       });
     }
@@ -153,7 +173,7 @@ export class OggFactory extends MediaWriter<OggOutput> {
   async stop() {
     await Promise.all(this.rtpSources.map((r) => r.stop()));
 
-    if (!this.ended) {
+    if (this.running) {
       await this.onEol.asPromise(5000).catch((e) => e);
     }
     this.unSubscribers.dispose();

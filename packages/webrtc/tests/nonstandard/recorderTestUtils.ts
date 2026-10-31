@@ -19,6 +19,18 @@ export function createOpusTrack() {
   });
 }
 
+/** remote audio track whose codec has not been negotiated yet */
+export function createCodeclessAudioTrack() {
+  return new MediaStreamTrack({ kind: "audio", remote: true });
+}
+
+/** ms that `recorder.stop()` takes */
+export async function measureStop(recorder: MediaRecorder) {
+  const started = Date.now();
+  await recorder.stop();
+  return Date.now() - started;
+}
+
 export function createPcmuTrack() {
   return new MediaStreamTrack({
     kind: "audio",
