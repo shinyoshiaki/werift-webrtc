@@ -42,7 +42,7 @@
 
 ### issuerCertificateId?
 
-> `optional` **issuerCertificateId**: `string`
+> `optional` **issuerCertificateId?**: `string`
 
 ***
 

@@ -504,26 +504,16 @@ describe("werift/polyfill installPolyfill", () => {
 
     // 実行: 空の target にインストールしてから外す。
     const uninstall = installPolyfill({ target, mediaRegister: [] });
-    expect(Object.prototype.hasOwnProperty.call(target, "navigator")).toBe(
-      true,
-    );
-    expect(
-      Object.prototype.hasOwnProperty.call(target, "RTCPeerConnection"),
-    ).toBe(true);
+    expect(Object.hasOwn(target, "navigator")).toBe(true);
+    expect(Object.hasOwn(target, "RTCPeerConnection")).toBe(true);
     uninstall();
 
     // 検証: 元々無かったプロパティは undefined ではなく削除される。
-    expect(Object.prototype.hasOwnProperty.call(target, "navigator")).toBe(
-      false,
-    );
+    expect(Object.hasOwn(target, "navigator")).toBe(false);
     expect("navigator" in target).toBe(false);
-    expect(Object.prototype.hasOwnProperty.call(target, "mediaDevices")).toBe(
-      false,
-    );
-    expect(
-      Object.prototype.hasOwnProperty.call(target, "RTCPeerConnection"),
-    ).toBe(false);
-    expect(Object.prototype.hasOwnProperty.call(target, "window")).toBe(false);
+    expect(Object.hasOwn(target, "mediaDevices")).toBe(false);
+    expect(Object.hasOwn(target, "RTCPeerConnection")).toBe(false);
+    expect(Object.hasOwn(target, "window")).toBe(false);
   });
 
   test("existingMediaDevices overwrite / throw / noop", () => {
@@ -755,9 +745,7 @@ describe("werift/polyfill installPolyfill", () => {
     );
     uninstallEmpty();
     uninstallNode();
-    expect(
-      Object.prototype.hasOwnProperty.call(nodeNavigator, "userAgent"),
-    ).toBe(false);
+    expect(Object.hasOwn(nodeNavigator, "userAgent")).toBe(false);
     expect(nodeNavigator.userAgent).toBe("Node.js/24");
   });
 

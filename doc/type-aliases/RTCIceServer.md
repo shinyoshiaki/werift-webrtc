@@ -6,18 +6,22 @@
 
 # Type Alias: RTCIceServer
 
-> **RTCIceServer**: `object`
+> **RTCIceServer** = `object`
 
-## Type declaration
+## Properties
 
 ### credential?
 
-> `optional` **credential**: `string`
+> `optional` **credential?**: `string`
+
+***
 
 ### urls
 
 > **urls**: `string` \| `string`[]
 
+***
+
 ### username?
 
-> `optional` **username**: `string`
+> `optional` **username?**: `string`

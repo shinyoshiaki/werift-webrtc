@@ -2,93 +2,74 @@
 
 ## Purpose
 
-Instructions for coding agents working in `werift-webrtc`.
-Keep this file short and repo-specific.
-If a rule applies only to a specific package or subdirectory, put it in the nearest `AGENTS.md`.
+Repository-wide instructions for coding agents working in `werift-webrtc`.
+Rules that apply to one package or directory belong in the nearest `AGENTS.md`.
 
 ## Scope
 
-* Applies to the repository root and cross-package changes.
-* Runtime target: Linux, macOS, and other Unix-like environments only. Native Windows is not supported.
-* Package-specific execution details should be documented in the nearest package-level `AGENTS.md`.
-* `werift` is a pure TypeScript WebRTC implementation for Node.js.
-* Core packages are `common`, `ice`, `dtls`, `rtp`, `sctp`, and `webrtc`.
-* Protocol flow is `ICE -> DTLS -> SCTP/RTP`.
-* `packages/webrtc` is the main public API. Lower-level packages are reusable protocol layers.
+* Applies to the repository root and to changes that cross packages.
+* `werift` is a pure TypeScript WebRTC implementation for Node.js. Supported runtimes are Linux, macOS, and other Unix-like systems; native Windows is not supported.
+* Core packages: `common`, `ice`, `dtls`, `rtp`, `sctp`, `webrtc`. Protocol flow is `ICE -> DTLS -> SCTP/RTP`.
+* `packages/webrtc` is the public API; the lower-level packages are reusable protocol layers.
 
 ## Do
 
-1. Read the nearest `AGENTS.md` before editing files in that directory.
-2. Run `git submodule update --init --recursive` after checkout before WPT-related work.
-3. Keep every `AGENTS.md` short, operational, and grounded in the local `package.json` and stable directory structure.
-4. Update the relevant package guide when scripts, stable entrypoints, neighboring package dependencies, or validation expectations change.
-5. Update this root guide last when a change affects the shared template, workspace commands, or package list.
-6. Prefer package-level validation first, then widen to workspace commands only when the change crosses package boundaries.
-7. Write test code in three phases: Arrange / Act / Assert.
-8. Extract Arrange-phase setup into utilities wherever practical.
-9. Keep Arrange utility functions in a single file so they can be reused from other test files.
-10. In Act / Assert phases, add Japanese comments at an appropriate granularity for each operation so the test intent and verification points are clear.
-11. Fix root causes. Do not silence failing tests, type errors, protocol validation, or interop issues.
-12. Follow existing patterns: manager-style orchestration in `packages/webrtc`, asynchronous notifications based on the custom `Event` class, and package-local error handling instead of broad catch-and-ignore logic. Use handling.
-13. When changing public API, protocol behavior, examples, or WPT wiring, update the nearest docs or examples that demonstrate the behavior.
-14. Keep upstream-WPT-only strict behavior inside `packages/webrtc/tools/wpt-runner/*` wrappers. Do not leak stricter WPT shims into the default `packages/webrtc/src` API when that would regress existing werift convenience behavior.
-15. Compare behavior against another revision in a separate temporary worktree (`git worktree add --detach <tmp-dir> <rev>`), never by checking out, resetting, or stashing the active worktree. External tooling may auto-commit the active worktree at any time.
-16. Reproduce a failing E2E with only the affected test file first; run the full E2E suite as final validation.
-17. Before long-running verification, state the current revision, uncommitted changes, and intent so interrupted work can be resumed.
-18. Resolve conflicts in generated docs (`doc/`, `packages/*/doc`) by regenerating them from the finalized source (`npm run doc`), not by merging the text.
-19. After a merge, check that public APIs match the generated docs, READMEs, and `changelog.md`.
-20. When code and docs disagree, decide the correct behavior from history, requirements, specs, and compatibility, then fix the side that is wrong.
+1. Read the nearest `AGENTS.md` before editing files in a directory.
+2. Fix root causes. Failing tests, type errors, protocol validation, and interop failures point at real bugs, so don't silence them.
+3. Follow existing patterns: manager-style orchestration in `packages/webrtc`, asynchronous notifications through the custom `Event` class, and package-local error handling instead of broad catch-and-ignore.
+4. When you change public API, protocol behavior, examples, or WPT wiring, update the docs or examples that demonstrate it.
+5. Keep upstream-WPT-only strict behavior inside the `packages/webrtc/tools/wpt-runner/*` wrappers, so the default `packages/webrtc/src` API keeps werift's convenience behavior.
+6. Write tests as Arrange / Act / Assert. Put shared Arrange setup in one reusable utility file per test area instead of repeating it, and comment each Act / Assert step in Japanese so the intent and the checked outcome are clear.
+7. Compare against another revision in a temporary worktree (`git worktree add --detach <tmp-dir> <rev>`). Don't check out, reset, or stash the active worktree: external tooling may auto-commit it at any time.
+8. Before a long-running verification, state the current revision, the uncommitted changes, and the intent, so interrupted work can be resumed.
+9. Run `git submodule update --init --recursive` after checkout before WPT work.
+10. Generated docs (`doc/`, `packages/*/doc`): resolve conflicts by regenerating with `npm run doc` from the final source, not by merging text. After a merge, check that public APIs match the generated docs, READMEs, and `changelog.md`.
+11. When code and docs disagree, decide the correct behavior from history, requirements, specs, and compatibility, then fix the side that is wrong.
 
 ## Don't
 
-* Do not copy README-style feature catalogs, example payloads, or other fast-changing implementation details into `AGENTS.md`.
-* Do not list commands that are absent from the local `package.json`.
-* Do not describe provider credentials, secrets, or machine-specific setup in this guide.
-* Do not let package guides drift in structure. Differences should mostly be limited to responsibilities, validation, references, and cross-package cautions.
-* Do not duplicate Arrange-phase setup across multiple test files when it can be safely shared through common utilities.
-* Do not leave Act / Assert phases without comments when the operation sequence or expectation is not obvious from a quick read.
-* Do not stop test servers or browsers with pattern-based kills (`pkill -f`, `killall`); they can match the agent's own shell. Stop them by PID or through the runner's stop path.
-* Do not end a turn while a background test or build you started is still running unless you report it as unfinished.
+* Don't reintroduce third-party TypeScript runners such as `tsx`. Run TypeScript with `node --experimental-transform-types --import <rel>/tools/node-ts/register.mjs` (Node.js 22.18+, see `devEngines`).
+* Don't stop test servers or browsers with pattern-based kills (`pkill -f`, `killall`); they can match the agent's own shell. Stop them by PID or through the runner's stop path.
+* Don't end a turn while a background test or build you started is still running, unless you report it as unfinished.
+* Don't put credentials, secrets, or machine-specific setup in any `AGENTS.md`.
 
 ## Commands
 
-| Task                         | Command               |
-| ---------------------------- | --------------------- |
-| build all packages           | `npm run build`       |
-| broad workspace validation   | `npm run ci`          |
-| run package / unit tests     | `npm run test:small`  |
-| run full suite including E2E | `npm run test`        |
-| run E2E only                 | `npm run e2e`         |
-| run verbose E2E              | `npm run e2e:verbose` |
-| run examples smoke (Chromium + gst/ffmpeg) | `npm run examples:e2e` |
-| install examples e2e Chromium | `npm run examples:e2e:install` |
-| type-check workspace         | `npm run type`        |
-| run allowlisted upstream WPT | `npm run wpt`         |
-| measure WPT coverage         | `npm run wpt:coverage` |
-| format code                  | `npm run format`      |
-| regenerate docs              | `npm run doc`         |
-| memory leak test (webrtc, local only) | `cd packages/webrtc && npm run memleak` |
+| Task | Command |
+| --- | --- |
+| build all packages | `npm run build` |
+| type-check workspace | `npm run type` |
+| package / unit tests | `npm run test:small` |
+| full suite including E2E | `npm run test` |
+| E2E only (verbose: `e2e:verbose`) | `npm run e2e` |
+| broad workspace validation | `npm run ci` |
+| examples smoke (Chromium + gst/ffmpeg) | `npm run examples:e2e` |
+| install examples smoke Chromium | `npm run examples:e2e:install` |
+| TypeScript resolve hook tests | `npm run test:node-ts` |
+| allowlisted upstream WPT | `npm run wpt` |
+| WPT coverage | `npm run wpt:coverage` |
+| format code | `npm run format` |
+| regenerate docs | `npm run doc` |
+| memory leak test (Node 24+, local only, not in CI) | `cd packages/webrtc && npm run memleak` |
 
-For targeted work, prefer the narrowest package command first, for example:
-
-* `cd packages/webrtc && npm test`
-* `cd packages/rtp && npm run type && npm test`
-* `cd packages/webrtc && npm run memleak` (Node 24+; not part of CI)
+Package builds don't run the formatter; run `npm run format` before review.
+For targeted work, start with the package's own commands, for example `cd packages/webrtc && npm test`.
 
 ## Validation
 
-* Docs-only edits: no code validation required.
-* Single-package logic changes: run that package's relevant test and/or type-check command.
-* Cross-package, public API, or protocol changes: run `npm run type` and `npm run test:small`; use `npm run ci` when the change spans the full stack.
-* WPT runner, dummy media, or compatibility allowlist changes: run `npm run wpt --workspace packages/webrtc`; run `npm run wpt:coverage --workspace packages/webrtc` when coverage or baseline wiring changes.
-* Browser interop, examples, or signaling flow changes: run the relevant example and/or `npm run e2e` when feasible. If the change is a root `examples/` demo in the `examples/e2e` catalog, also run `npm run examples:e2e`.
-* Test code changes: confirm shared Arrange utilities remain reusable and appropriately scoped, and review that Act / Assert comments are present at a useful Japanese granularity.
-* Infrastructure-backed E2E changes: run the targeted scenario with its required opt-in environment flag before finishing, so the real dependency path is exercised.
-* Changes under `integration/werift-mediasoup-interop`: follow that directory's `AGENTS.md`.
+Start with the narrowest package command, and widen to workspace commands only when a change crosses package boundaries.
+
+* Docs-only edits: no code validation needed.
+* Single-package logic: that package's test and/or type-check command.
+* Cross-package, public API, or protocol changes: `npm run type` and `npm run test:small`; `npm run ci` when the change spans the full stack.
+* WPT runner, dummy media, or allowlist changes: `npm run wpt`; also `npm run wpt:coverage` when coverage or baseline wiring changes.
+* Browser interop or signaling changes: the relevant example and/or `npm run e2e`. For a failing E2E, reproduce with only the affected test file first, then run the full suite as final validation. Root `examples/` demos in the `examples/e2e` catalog also need `npm run examples:e2e`.
+* Infrastructure-backed E2E: run the targeted scenario with its opt-in environment flag, so the real dependency path is exercised.
+* `integration/werift-mediasoup-interop`: follow that directory's `AGENTS.md`.
 
 ## Maintenance
 
-* Keep this section order in every guide: Purpose, Scope, Do, Don't, Commands, Validation, Maintenance.
-* When adding, removing, renaming, or re-scoping a package, update the root package list references and the affected package guides together.
-* When package scripts or stable reference files change, update the nearest `AGENTS.md` in the same change.
-* When test implementation conventions change, keep the Arrange / Act / Assert guidance and shared utility placement rules aligned across the root and package-level guides.
+* Every guide uses this section order: Purpose, Scope, Do, Don't, Commands, Validation, Maintenance. Package guides differ mainly in responsibilities, validation, references, and cross-package cautions.
+* Keep guides short and operational. List only commands that exist in the local `package.json`, and leave feature catalogs, example payloads, and other fast-changing details to READMEs.
+* Update the nearest `AGENTS.md` in the same change when scripts, stable entrypoints, neighboring package dependencies, or validation expectations change. Update this root guide last, when the shared template, workspace commands, or package list change.
+* When test conventions change, keep the Arrange / Act / Assert and shared-utility rules aligned between this guide and the package guides.

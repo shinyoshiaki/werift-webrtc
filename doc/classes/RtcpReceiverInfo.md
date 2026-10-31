@@ -8,19 +8,19 @@
 
 ## Constructors
 
-### new RtcpReceiverInfo()
+### Constructor
 
-> **new RtcpReceiverInfo**(`props`): [`RtcpReceiverInfo`](RtcpReceiverInfo.md)
+> **new RtcpReceiverInfo**(`props?`): `RtcpReceiverInfo`
 
 #### Parameters
 
-##### props
+##### props?
 
-`Partial`\<[`RtcpReceiverInfo`](RtcpReceiverInfo.md)\> = `{}`
+`Partial`\<`RtcpReceiverInfo`\> = `{}`
 
 #### Returns
 
-[`RtcpReceiverInfo`](RtcpReceiverInfo.md)
+`RtcpReceiverInfo`
 
 ## Properties
 
@@ -120,7 +120,7 @@ last SR
 
 ### deSerialize()
 
-> `static` **deSerialize**(`data`): [`RtcpReceiverInfo`](RtcpReceiverInfo.md)
+> `static` **deSerialize**(`data`): `RtcpReceiverInfo`
 
 #### Parameters
 
@@ -130,4 +130,4 @@ last SR
 
 #### Returns
 
-[`RtcpReceiverInfo`](RtcpReceiverInfo.md)
+`RtcpReceiverInfo`

@@ -12,43 +12,43 @@
 
 ## Constructors
 
-### new Vp8RtpPayload()
+### Constructor
 
-> **new Vp8RtpPayload**(): [`Vp8RtpPayload`](Vp8RtpPayload.md)
+> **new Vp8RtpPayload**(): `Vp8RtpPayload`
 
 #### Returns
 
-[`Vp8RtpPayload`](Vp8RtpPayload.md)
+`Vp8RtpPayload`
 
 ## Properties
 
 ### hBit?
 
-> `optional` **hBit**: `number`
+> `optional` **hBit?**: `number`
 
 ***
 
 ### iBit?
 
-> `optional` **iBit**: `number`
+> `optional` **iBit?**: `number`
 
 ***
 
 ### kBit?
 
-> `optional` **kBit**: `number`
+> `optional` **kBit?**: `number`
 
 ***
 
 ### lBit?
 
-> `optional` **lBit**: `number`
+> `optional` **lBit?**: `number`
 
 ***
 
 ### mBit?
 
-> `optional` **mBit**: `number`
+> `optional` **mBit?**: `number`
 
 ***
 
@@ -70,13 +70,13 @@
 
 ### pBit?
 
-> `optional` **pBit**: `number`
+> `optional` **pBit?**: `number`
 
 ***
 
 ### pictureId?
 
-> `optional` **pictureId**: `number`
+> `optional` **pictureId?**: `number`
 
 ***
 
@@ -112,13 +112,13 @@
 
 ### tBit?
 
-> `optional` **tBit**: `number`
+> `optional` **tBit?**: `number`
 
 ***
 
 ### ver?
 
-> `optional` **ver**: `number`
+> `optional` **ver?**: `number`
 
 ***
 
@@ -182,7 +182,7 @@
 
 ### deSerialize()
 
-> `static` **deSerialize**(`buf`): [`Vp8RtpPayload`](Vp8RtpPayload.md)
+> `static` **deSerialize**(`buf`): `Vp8RtpPayload`
 
 #### Parameters
 
@@ -192,7 +192,7 @@
 
 #### Returns
 
-[`Vp8RtpPayload`](Vp8RtpPayload.md)
+`Vp8RtpPayload`
 
 ***
 

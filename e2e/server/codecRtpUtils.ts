@@ -8,26 +8,25 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { BufferSource, EncodedPacketSink, Input, MP4, WEBM } from "mediabunny";
-
+// DepacketizeCallback lives in rtp/extra (re-exported via webrtc nonstandard)
+import { DepacketizeCallback } from "../../packages/webrtc/src/nonstandard";
 import type { DepacketizerCodec, RtpPacket } from ".";
 import {
   Av1Packetizer,
   H264Packetizer,
   type MediaStreamTrack,
   OpusPacketizer,
+  parseAvcDecoderConfigurationRecord,
   type RTCPeerConnection,
   type RTCRtpCodecParameters,
-  Vp8Packetizer,
-  Vp9Packetizer,
-  parseAvcDecoderConfigurationRecord,
   useAV1,
   useH264,
   useOPUS,
   useVP8,
   useVP9,
+  Vp8Packetizer,
+  Vp9Packetizer,
 } from ".";
-// DepacketizeCallback lives in rtp/extra (re-exported via webrtc nonstandard)
-import { DepacketizeCallback } from "../../packages/webrtc/src/nonstandard";
 
 export type CodecRtpName = "vp8" | "vp9" | "av1" | "h264" | "opus";
 
@@ -40,7 +39,7 @@ export type EncodedFrameSample = {
   timestampSec: number;
 };
 
-// cwd is e2e/ in CI and local runs (compiled or ts-node)
+// cwd is e2e/ in CI and local runs (compiled or Node's native TypeScript runtime)
 const FIXTURE_DIR = join(process.cwd(), "fixtures/media");
 
 export const codecFixturePaths: Record<CodecRtpName, string> = {

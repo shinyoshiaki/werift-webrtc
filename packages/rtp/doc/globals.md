@@ -6,7 +6,7 @@
 
 ## Namespaces
 
-- [binaryData](namespaces/binaryData/README.md)
+- [binaryData](werift-rtp/namespaces/binaryData/README.md)
 
 ## Enumerations
 
@@ -88,6 +88,8 @@
 
 ## Interfaces
 
+- [DebugFactory](interfaces/DebugFactory.md)
+- [Debugger](interfaces/Debugger.md)
 - [Extensions](interfaces/Extensions.md)
 - [Packetizer](interfaces/Packetizer.md)
 - [RtpBuilderCreateOptions](interfaces/RtpBuilderCreateOptions.md)

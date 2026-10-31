@@ -6,4 +6,4 @@
 
 # Type Alias: DtlsRole
 
-> **DtlsRole**: `"auto"` \| `"server"` \| `"client"`
+> **DtlsRole** = `"auto"` \| `"server"` \| `"client"`
