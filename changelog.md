@@ -8,6 +8,7 @@
   - The anchor is the send time of the first packet with a newer output timestamp (after continuity rewrite). Frame fragments with the same timestamp, older (reordered) timestamps and RTX retransmissions do not move it; a continuity rewrite (`replaceTrack` / `replaceRTP` / `onSourceChanged`) or a clock rate change resets it.
   - Limitation: werift does not know the capture time, so for relayed RTP the send time approximates the sampling time and send jitter becomes SR mapping error.
   - `ntpTime()` accepts an optional epoch-ms argument.
+  - NTP timestamps now encode the fractional part as RFC 3550 requires (`fraction / 2^32`) in `ntpTime()`, `ntpTimeToEpochMs()` and `ntpTime2Sec()`. Previously the sub-second part was the decimal digits, so two SRs within the same second could carry nearly identical NTP/LSR values, and abs-send-time was affected too.
 
 ## v0.25.2
 

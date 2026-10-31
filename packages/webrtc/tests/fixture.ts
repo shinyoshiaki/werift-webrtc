@@ -150,6 +150,26 @@ export function buildSenderReportAt(sender: RTCRtpSender, nowMs: number) {
   return (sender as any).buildSenderReport(nowMs) as RtcpSrPacket;
 }
 
+/** Seconds between the NTP epoch (1900) and the Unix epoch (1970). */
+const NTP_UNIX_OFFSET_SEC = 2208988800;
+
+/**
+ * RFC 3550 の 64bit NTP timestamp を実装とは独立に組み立てる。
+ * 上位32bit=秒、下位32bit=秒の小数部 (x / 2^32)。
+ */
+export function rfc3550Ntp(epochMs: number) {
+  const wholeSec = Math.floor(epochMs / 1000);
+  const fractionMs = epochMs - wholeSec * 1000;
+  const seconds = BigInt(wholeSec + NTP_UNIX_OFFSET_SEC);
+  const fraction = BigInt(Math.floor((fractionMs * 2 ** 32) / 1000));
+  return (seconds << 32n) | fraction;
+}
+
+/** 2 つの NTP timestamp の差を RFC 3550 の定義に従い ms で返す。 */
+export function ntpDiffMs(later: bigint, earlier: bigint) {
+  return (Number(later - earlier) / 2 ** 32) * 1000;
+}
+
 export async function generateOffer() {
   const pc = new RTCPeerConnection();
   const offer = await pc.createOffer();

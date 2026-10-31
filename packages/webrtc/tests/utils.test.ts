@@ -1,7 +1,47 @@
 import { deepMerge, parseIceServers, resolveTurnTransport } from "../src";
 import type { RTCIceServer } from "../src/peerConnection";
+import { ntpTime, ntpTimeToEpochMs } from "../src/utils";
+import { ntpDiffMs, rfc3550Ntp } from "./fixture";
 
 describe("utils", () => {
+  describe("ntpTime (RFC 3550)", () => {
+    test("小数部は秒の 2^32 分率で符号化される", () => {
+      // Arrange: Unix epoch + 1.5 秒 (小数部はちょうど 0.5)
+      const epochMs = 1500;
+
+      // Act
+      const ntp = ntpTime(epochMs);
+
+      // Assert: 上位は 1900 年起点の秒、下位は 0x80000000
+      expect(ntp >> 32n).toBe(2208988801n);
+      expect(ntp & 0xffffffffn).toBe(0x80000000n);
+    });
+
+    test("同じ秒内の 100ms と 900ms は 800ms の差になる", () => {
+      // Arrange
+      const base = 1_700_000_000_000;
+
+      // Act
+      const a = ntpTime(base + 100);
+      const b = ntpTime(base + 900);
+
+      // Assert: 標準形式で読んだ差が 800ms
+      expect(ntpDiffMs(b, a)).toBeCloseTo(800, 2);
+      expect(a).toBe(rfc3550Ntp(base + 100));
+    });
+
+    test("ntpTimeToEpochMs は ntpTime の逆変換になる", () => {
+      // Arrange
+      const epochMs = 1_700_000_000_123.456;
+
+      // Act
+      const restored = ntpTimeToEpochMs(ntpTime(epochMs));
+
+      // Assert
+      expect(restored).toBeCloseTo(epochMs, 1);
+    });
+  });
+
   describe("parseIceServers", () => {
     test("stun", () => {
       const iceServers = [{ urls: "stun:stun.l.google.com:19302" }];

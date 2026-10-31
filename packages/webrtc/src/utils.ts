@@ -79,26 +79,35 @@ export const microTime = () => {
 
 export const timestampSeconds = () => Date.now() / 1000;
 
-/**https://datatracker.ietf.org/doc/html/rfc3550#section-4 */
+const NTP_FRACTION_SCALE = 2 ** 32;
+
+/**
+ * 64bit NTP timestamp (32bit seconds . 32bit fraction of a second)
+ * https://datatracker.ietf.org/doc/html/rfc3550#section-4
+ */
 export const ntpTime = (
   epochMs: number = performance.timeOrigin + performance.now(),
 ) => {
-  const now = epochMs - Date.UTC(1900, 0, 1);
+  const ntpMs = epochMs - Date.UTC(1900, 0, 1);
 
-  const seconds = now / 1000;
-  const [sec, msec] = seconds.toString().split(".").map(Number);
+  const sec = Math.floor(ntpMs / 1000);
+  const fraction = Math.min(
+    Math.floor(((ntpMs - sec * 1000) / 1000) * NTP_FRACTION_SCALE),
+    NTP_FRACTION_SCALE - 1,
+  );
 
-  const buf = bufferWriter([4, 4], [sec, msec]);
+  const buf = bufferWriter([4, 4], [sec, fraction]);
 
   return buf.readBigUInt64BE();
 };
 
 export const ntpTimeToEpochMs = (ntp: bigint) => {
-  const [seconds, milliseconds] = bufferReader(
-    bufferWriter([8], [ntp]),
-    [4, 4],
+  const [seconds, fraction] = bufferReader(bufferWriter([8], [ntp]), [4, 4]);
+  return (
+    seconds * 1000 +
+    (fraction / NTP_FRACTION_SCALE) * 1000 +
+    Date.UTC(1900, 0, 1)
   );
-  return seconds * 1000 + milliseconds + Date.UTC(1900, 0, 1);
 };
 
 /**

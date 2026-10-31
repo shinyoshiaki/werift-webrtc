@@ -14,7 +14,7 @@ import {
 import { RTCRtpCodecParameters } from "../../src/media/parameters";
 import { RTCRtpSender } from "../../src/media/rtpSender";
 import { RTCStatsReport } from "../../src/media/stats";
-import { compactNtp, ntpTime } from "../../src/utils";
+import { compactNtp } from "../../src/utils";
 import {
   buildSenderReportAt,
   createConnectedRtpSender,
@@ -22,6 +22,8 @@ import {
   createRtpPacket,
   createVideoCodec,
   mockMonotonicClock,
+  ntpDiffMs,
+  rfc3550Ntp,
   sentRtpHeaders,
 } from "../fixture";
 
@@ -1292,7 +1294,7 @@ describe("media/rtpSender RTCP Sender Report clock mapping", () => {
 
   /** SR が表す NTP は、生成時刻 nowMs の壁時計から作った値と一致する */
   const expectedNtp = (nowMs: number) =>
-    ntpTime(performance.timeOrigin + nowMs);
+    rfc3550Ntp(performance.timeOrigin + nowMs);
 
   test("RTP 送出直後の SR は直前パケットのアンカーに対応する", async () => {
     const { sender, clock } = arrangeSender();
@@ -1486,6 +1488,34 @@ describe("media/rtpSender RTCP Sender Report clock mapping", () => {
     );
     expect((sender as any).lastSRtimestamp).toBe(
       compactNtp(second.senderInfo.ntpTimestamp),
+    );
+  });
+
+  test("同じ秒内の 100ms と 900ms の SR は NTP で 800ms 離れ、LSR も異なる", async () => {
+    const { sender, clock } = arrangeSender();
+    // Arrange: 壁時計が秒境界 + 100ms になるよう単調時計を合わせる。
+    const baseEpochMs = Math.floor(performance.timeOrigin / 1000) * 1000 + 5000;
+    clock.set(baseEpochMs + 100 - performance.timeOrigin);
+    await sender.sendRtp(createRtpPacket(1, 48000));
+
+    // Act: 同じ秒の 100ms 時点と 900ms 時点で SR を生成する。
+    const first = buildSenderReportAt(sender, clock.nowMs);
+    clock.advance(800);
+    const second = buildSenderReportAt(sender, clock.nowMs);
+
+    // Assert: 標準形式で読むと NTP 差は 800ms、RTP ts も同じ 800ms 分進む。
+    expect(first.senderInfo.ntpTimestamp >> 32n).toBe(
+      second.senderInfo.ntpTimestamp >> 32n,
+    );
+    expect(
+      ntpDiffMs(second.senderInfo.ntpTimestamp, first.senderInfo.ntpTimestamp),
+    ).toBeCloseTo(800, 2);
+    expect(second.senderInfo.rtpTimestamp - first.senderInfo.rtpTimestamp).toBe(
+      38400,
+    );
+    // Assert: 同一秒内でも LSR は衝突しない。
+    expect(compactNtp(second.senderInfo.ntpTimestamp)).not.toBe(
+      compactNtp(first.senderInfo.ntpTimestamp),
     );
   });
 

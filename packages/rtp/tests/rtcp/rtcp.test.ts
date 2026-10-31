@@ -5,7 +5,7 @@ import {
 } from "../../src";
 import { RtcpRrPacket } from "../../src/rtcp/rr";
 import { RtcpPacketConverter } from "../../src/rtcp/rtcp";
-import { RtcpSrPacket } from "../../src/rtcp/sr";
+import { RtcpSrPacket, ntpTime2Sec } from "../../src/rtcp/sr";
 import { load } from "../utils";
 
 describe("rtcp/rtcp", () => {
@@ -69,5 +69,18 @@ describe("rtcp/rtcp", () => {
     );
     const packets = RtcpPacketConverter.deSerialize(rtcp);
     expect(packets.length).toBe(0);
+  });
+});
+
+describe("ntpTime2Sec", () => {
+  test("下位32bitを秒の 2^32 分率として解釈する", () => {
+    // Arrange: 秒=10、小数部=0.25
+    const ntp = (10n << 32n) | 0x40000000n;
+
+    // Act
+    const sec = ntpTime2Sec(ntp);
+
+    // Assert
+    expect(sec).toBe(10.25);
   });
 });
