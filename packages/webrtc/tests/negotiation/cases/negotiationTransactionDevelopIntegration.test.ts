@@ -1,5 +1,8 @@
 import type { Connection } from "../../../../ice/src";
-import { StunOverTurnProtocol } from "../../../../ice/src/turn/protocol";
+import {
+  StunOverTurnProtocol,
+  TurnProtocol,
+} from "../../../../ice/src/turn/protocol";
 import { turnAllocations } from "../../../../ice/tests/utils";
 import { MediaStreamTrack, useH264, useVP8 } from "../../../src";
 import type { RTCIceCandidate, RTCPeerConnection } from "../../../src";
@@ -261,14 +264,15 @@ describe("develop features inside the negotiation transaction", () => {
         const { a, proxies, restartThrough } = await c.given(
           createHeldTurnRestartPeers(1),
         );
-        const closed = vi.spyOn(StunOverTurnProtocol.prototype, "close");
+        const closed = vi.spyOn(TurnProtocol.prototype, "close");
         await restartThrough(0);
 
         // Act: gathering 中に close し、その後で allocation を完了させる。
         await a.close();
         proxies[0].release();
 
-        // Assert: close 後にできた allocation も閉じ (refresh timer も止まり)、transport に残らない。
+        // Assert: 保留中の allocation も (完了を待たずに) client ごと閉じ (再送・refresh の
+        // timer も止まり)、transport に残らない。
         await c.waitFor(() => new Set(closed.mock.contexts).size === 2, 1000);
         expect(relayAllocations(a).length).toEqual(0);
       },
@@ -309,7 +313,6 @@ describe("develop features inside the negotiation transaction", () => {
           "H264",
         ]);
 
-        // Act: offer に answer する。
         await c.setRemote(b, a.localDescription);
         await c.answer(b, { hold: true });
 
@@ -479,7 +482,6 @@ describe("develop features inside the negotiation transaction", () => {
           "sctp.mtu cannot be changed after SCTP transport creation",
         );
 
-        // Act: remote offer を rollback する。
         await c.setRemote(b, "rollback");
 
         // Assert: 提案が作った SCTP transport は消え、MTU を変更できる。

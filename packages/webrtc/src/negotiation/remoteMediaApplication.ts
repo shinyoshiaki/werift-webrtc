@@ -113,7 +113,6 @@ export class RemoteMediaApplication {
     return plan;
   }
 
-  /** Associate m-lines with transceivers / the SCTP transport. */
   private associate(
     remoteSdp: SessionDescription,
     associated: Set<RTCRtpTransceiver>,
@@ -167,7 +166,6 @@ export class RemoteMediaApplication {
           this.router.unregisterTransceiver(displaced);
           this.negotiation.rememberDisplacedTransceiver(displaced);
         }
-        // create remote transceiver
         // Not an application operation: no negotiationneeded and no
         // takeover of an inactive current transceiver. A stopped
         // transceiver at the same index is replaced, never revived.
@@ -196,7 +194,6 @@ export class RemoteMediaApplication {
     return entries;
   }
 
-  /** Whether the current session rejected (port 0) the m-line `mid`. */
   /** Whether a current description has an m-line with `mid`. */
   private inCurrent(mid: string) {
     return [
@@ -207,6 +204,7 @@ export class RemoteMediaApplication {
     );
   }
 
+  /** Whether the current session rejected (port 0) the m-line `mid`. */
   private rejectedInCurrent(mid: string) {
     return [
       this.sdp.currentLocalDescription,
