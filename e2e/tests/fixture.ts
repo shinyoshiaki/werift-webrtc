@@ -356,7 +356,9 @@ export async function requestServerDone(label: string) {
 }
 
 async function digestMessage(data: Uint8ClampedArray) {
-  const hashBuffer = await crypto.subtle.digest("SHA-1", data); // hash the message
+  const buffer = new ArrayBuffer(data.byteLength);
+  new Uint8Array(buffer).set(data);
+  const hashBuffer = await crypto.subtle.digest("SHA-1", buffer); // hash the message
   const hashArray = Array.from(new Uint8Array(hashBuffer)); // convert buffer to byte array
   const hashHex = hashArray
     .map((b) => b.toString(16).padStart(2, "0"))
@@ -643,4 +645,273 @@ function getCandidateLines(sdp?: string) {
       (line) =>
         line.startsWith("a=candidate:") || line === "a=end-of-candidates",
     );
+}
+
+export type RecordPlaybackKinds = "video" | "av";
+
+/**
+ * Arrange: Chrome offers fake-camera media (sendonly) plus DataChannel "record"
+ * to the werift recorder handler `label`, and waits until both are usable.
+ */
+export async function connectRecordPlayback(
+  label: string,
+  kinds: RecordPlaybackKinds,
+) {
+  await ensurePeerConnected();
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: { width: 640, height: 480 },
+    audio: kinds === "av",
+  });
+  const pc = new RTCPeerConnection({
+    iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+  });
+  pc.onicecandidate = ({ candidate }) => {
+    peer
+      .request(label, { type: "candidate", payload: candidate })
+      .catch(() => {});
+  };
+  const dc = pc.createDataChannel("record");
+  dc.binaryType = "arraybuffer";
+  for (const track of stream.getTracks()) {
+    const transceiver = pc.addTransceiver(track, { direction: "sendonly" });
+    preferCodec(transceiver, track.kind === "video" ? "vp8" : "opus");
+  }
+
+  await pc.setLocalDescription(await pc.createOffer());
+  const answer = await peer.request(label, {
+    type: "init",
+    payload: pc.localDescription,
+  });
+  await pc.setRemoteDescription(answer);
+  await waitForPeerConnection(pc);
+  await waitForDataChannelOpen(dc);
+
+  const close = () => {
+    for (const track of stream.getTracks()) track.stop();
+    pc.close();
+  };
+  return { pc, dc, close };
+}
+
+/**
+ * Send "stop" on the record DataChannel and collect the WebM file the server
+ * returns as header JSON → binary chunks → eof JSON.
+ */
+export async function receiveRecordedFile(
+  dc: RTCDataChannel,
+  timeoutMs = 30_000,
+) {
+  return new Promise<Uint8Array<ArrayBuffer>>((resolve, reject) => {
+    const chunks: Uint8Array[] = [];
+    let expected: number | undefined;
+    let received = 0;
+    const timer = setTimeout(() => {
+      finish();
+      reject(
+        new Error(
+          `receiveRecordedFile timed out: ${received}/${expected ?? "?"} bytes`,
+        ),
+      );
+    }, timeoutMs);
+    const finish = () => {
+      clearTimeout(timer);
+      dc.removeEventListener("message", onMessage);
+    };
+    const onMessage = (event: MessageEvent) => {
+      if (typeof event.data !== "string") {
+        const chunk = new Uint8Array(event.data as ArrayBuffer);
+        chunks.push(chunk);
+        received += chunk.byteLength;
+        return;
+      }
+      const message = JSON.parse(event.data);
+      if (message.type === "header") {
+        expected = message.size;
+      } else if (message.type === "error") {
+        finish();
+        reject(new Error(`server failed to record: ${message.message}`));
+      } else if (message.type === "eof") {
+        finish();
+        if (received !== expected) {
+          reject(
+            new Error(`recorded file size mismatch: ${received}/${expected}`),
+          );
+          return;
+        }
+        const file = new Uint8Array(received);
+        let offset = 0;
+        for (const chunk of chunks) {
+          file.set(chunk, offset);
+          offset += chunk.byteLength;
+        }
+        resolve(file);
+      }
+    };
+    dc.addEventListener("message", onMessage);
+    dc.send("stop");
+  });
+}
+
+export type WebmFilePlayback = {
+  duration: number;
+  videoWidth: number;
+  videoHeight: number;
+  /** currentTime when `ended` fired. */
+  endedAt: number;
+  totalVideoFrames: number;
+  droppedVideoFrames: number;
+  /** Chrome-only `webkitAudioDecodedByteCount`. */
+  audioDecodedBytes: number;
+  /** Seek to the middle of the file completed and a frame was drawn. */
+  seekedTo: number;
+  /** Sum of RGB values at the seek target (0 means a black/empty frame). */
+  seekedFrameLuma: number;
+  error?: string;
+};
+
+/**
+ * Play `file` as a WebM Blob in a muted <video> from start to `ended`, then
+ * seek to the middle (uses Cues) and sample the drawn frame.
+ */
+export async function playWebmFile(
+  file: Uint8Array<ArrayBuffer>,
+  timeoutMs = 30_000,
+) {
+  const url = URL.createObjectURL(new Blob([file], { type: "video/webm" }));
+  const video = document.createElement("video");
+  video.muted = true;
+  video.preload = "auto";
+  document.body.appendChild(video);
+  const waitEvent = (name: string) =>
+    new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error(`video "${name}" timed out`)),
+        timeoutMs,
+      );
+      video.addEventListener(
+        name,
+        () => {
+          clearTimeout(timer);
+          resolve();
+        },
+        { once: true },
+      );
+      video.addEventListener(
+        "error",
+        () => {
+          clearTimeout(timer);
+          reject(
+            new Error(
+              `video error ${video.error?.code}: ${video.error?.message}`,
+            ),
+          );
+        },
+        { once: true },
+      );
+    });
+
+  try {
+    const loaded = waitEvent("loadedmetadata");
+    video.src = url;
+    await loaded;
+
+    const ended = waitEvent("ended");
+    await video.play();
+    await ended;
+    const endedAt = video.currentTime;
+    const quality = video.getVideoPlaybackQuality();
+
+    const seekedTo = video.duration / 2;
+    const seeked = waitEvent("seeked");
+    video.currentTime = seekedTo;
+    await seeked;
+    const canvas = document.createElement("canvas");
+    canvas.width = 64;
+    canvas.height = 48;
+    const context = canvas.getContext("2d")!;
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+    let seekedFrameLuma = 0;
+    for (let i = 0; i < pixels.length; i += 4) {
+      seekedFrameLuma += pixels[i] + pixels[i + 1] + pixels[i + 2];
+    }
+
+    return {
+      duration: video.duration,
+      videoWidth: video.videoWidth,
+      videoHeight: video.videoHeight,
+      endedAt,
+      totalVideoFrames: quality.totalVideoFrames,
+      droppedVideoFrames: quality.droppedVideoFrames,
+      audioDecodedBytes:
+        (video as unknown as { webkitAudioDecodedByteCount?: number })
+          .webkitAudioDecodedByteCount ?? 0,
+      seekedTo: video.currentTime,
+      seekedFrameLuma,
+    } satisfies WebmFilePlayback;
+  } finally {
+    video.pause();
+    video.removeAttribute("src");
+    video.load();
+    video.remove();
+    URL.revokeObjectURL(url);
+  }
+}
+
+/**
+ * Append `file` to a MediaSource SourceBuffer (Chrome's own WebM byte-stream
+ * parser, stricter than the <video src> demuxer) and return the buffered range.
+ */
+export async function appendWebmToMediaSource(
+  file: Uint8Array<ArrayBuffer>,
+  mimeType: string,
+  timeoutMs = 15_000,
+) {
+  const mediaSource = new MediaSource();
+  const video = document.createElement("video");
+  const url = URL.createObjectURL(mediaSource);
+  video.src = url;
+  try {
+    await new Promise<void>((resolve) =>
+      mediaSource.addEventListener("sourceopen", () => resolve(), {
+        once: true,
+      }),
+    );
+    const sourceBuffer = mediaSource.addSourceBuffer(mimeType);
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error("SourceBuffer append timed out")),
+        timeoutMs,
+      );
+      sourceBuffer.addEventListener(
+        "updateend",
+        () => {
+          clearTimeout(timer);
+          resolve();
+        },
+        { once: true },
+      );
+      sourceBuffer.addEventListener(
+        "error",
+        () => {
+          clearTimeout(timer);
+          reject(new Error("SourceBuffer append failed"));
+        },
+        { once: true },
+      );
+      sourceBuffer.appendBuffer(file);
+    });
+    const buffered = sourceBuffer.buffered;
+    return {
+      readyState: mediaSource.readyState,
+      ranges: Array.from({ length: buffered.length }, (_, i) => ({
+        start: buffered.start(i),
+        end: buffered.end(i),
+      })),
+    };
+  } finally {
+    video.removeAttribute("src");
+    video.load();
+    URL.revokeObjectURL(url);
+  }
 }

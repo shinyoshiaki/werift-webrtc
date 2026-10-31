@@ -12,19 +12,19 @@
 
 ## Constructors
 
-### new PcmuPacketizer()
+### Constructor
 
-> **new PcmuPacketizer**(`options`): [`PcmuPacketizer`](PcmuPacketizer.md)
+> **new PcmuPacketizer**(`options?`): `PcmuPacketizer`
 
 #### Parameters
 
-##### options
+##### options?
 
 [`G711PacketizerOptions`](../type-aliases/G711PacketizerOptions.md) = `{}`
 
 #### Returns
 
-[`PcmuPacketizer`](PcmuPacketizer.md)
+`PcmuPacketizer`
 
 #### Overrides
 

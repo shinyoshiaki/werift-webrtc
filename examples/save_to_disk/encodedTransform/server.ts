@@ -1,16 +1,16 @@
-import { appendFile, open } from "fs/promises";
 import { type ReadableStreamReadResult, TransformStream } from "stream/web";
-import { Server } from "ws";
+import { WebSocketServer } from "ws";
 import { RTCPeerConnection, RtpPacket } from "../../../packages/webrtc/src";
 import {
   type DepacketizerInput,
   type DepacketizerOutput,
   RtpSourceStream,
+  saveToFileSystem,
   WebmStream,
   type WebmStreamOutput,
 } from "../../../packages/webrtc/src/nonstandard";
 
-const server = new Server({ port: 8888 });
+const server = new WebSocketServer({ port: 8888 });
 console.log("start");
 
 server.on("connection", async (socket) => {
@@ -26,7 +26,7 @@ server.on("connection", async (socket) => {
   });
 });
 
-const mediaServer = new Server({ port: 8889 });
+const mediaServer = new WebSocketServer({ port: 8889 });
 mediaServer.on("connection", (socket) => {
   socket.on("message", (data: Buffer) => {
     const rtp = RtpPacket.deSerialize(data);
@@ -72,20 +72,15 @@ const source = new RtpSourceStream();
 source.readable.pipeThrough(transform).pipeTo(webm.videoStream);
 
 const path = "./encoded.webm";
+const save = saveToFileSystem(path);
 const reader = webm.webmStream.getReader();
 const readChunk = async ({
   value,
   done,
 }: ReadableStreamReadResult<WebmStreamOutput>) => {
   if (done) return;
-  if (value.saveToFile) {
-    await appendFile(path, value.saveToFile);
-  } else if (value.eol) {
-    const { durationElement } = value.eol;
-    const handler = await open(path, "r+");
-    await handler.write(durationElement, 0, durationElement.length, 83);
-    await handler.close();
-  }
+  // appends chunks, then fixes Duration / Segment / Cluster sizes on eol
+  await save(value);
   reader.read().then(readChunk);
 };
 reader.read().then(readChunk);

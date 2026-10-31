@@ -1,5 +1,8 @@
 import { OverconstrainedError as WeriftOverconstrainedError } from "../errors";
 
+export type { RTCPeerConnectionConfig } from "../peerConnection";
+export type { InstallPolyfillOptions } from "./install";
+export { installPolyfill } from "./install";
 export type {
   BoundMediaRegister,
   MediaGetUserMediaRequest,
@@ -9,9 +12,6 @@ export type {
   MediaStreamConstraints,
   MediaTrackConstraints,
 } from "./mediaRegister";
-export { installPolyfill } from "./install";
-export type { InstallPolyfillOptions } from "./install";
-export type { RTCPeerConnectionConfig } from "../peerConnection";
 export {
   createPolyfillRTCPeerConnection,
   mergePeerConnectionConfig,
@@ -21,18 +21,18 @@ export {
   createDummyRegister,
 } from "./registers/callback";
 export { createEmptyRegister } from "./registers/empty";
-export { createMp4WebmRegister } from "./registers/mp4Webm";
 export type {
   CreateMp4WebmRegisterOptions,
   Mp4WebmCodecHint,
 } from "./registers/mp4Webm";
-export {
-  createEncodedBinaryRegister,
-  createRtpRtcpRegister,
-} from "./registers/rtpRtcp";
+export { createMp4WebmRegister } from "./registers/mp4Webm";
 export type {
   CreateEncodedBinaryRegisterOptions,
   CreateRtpRtcpRegisterOptions,
+} from "./registers/rtpRtcp";
+export {
+  createEncodedBinaryRegister,
+  createRtpRtcpRegister,
 } from "./registers/rtpRtcp";
 export { PolyfillRTCSessionDescription as RTCSessionDescription } from "./rtcSessionDescription";
 export { WeriftOverconstrainedError as OverconstrainedError };

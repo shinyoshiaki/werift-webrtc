@@ -2,7 +2,7 @@
  * Plain RTP-over-UDP sender using package-local packetizers.
  *
  * Usage:
- *   npx tsx examples/node/rtp_over_udp/send.ts [host] [port] [codec]
+ *   node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs examples/node/rtp_over_udp/send.ts [host] [port] [codec]
  * codec: pcmu | pcma | g722 | aac | h265 | vp8 | vp9 | av1 | opus | h264
  *   (default pcmu)
  *

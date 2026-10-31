@@ -6,7 +6,7 @@
 
 # Function: parseMessage()
 
-> **parseMessage**(`data`, `integrityKey`?): `undefined` \| [`Message`](../classes/Message.md)
+> **parseMessage**(`data`, `integrityKey?`): [`Message`](../classes/Message.md) \| `undefined`
 
 ## Parameters
 
@@ -20,4 +20,4 @@
 
 ## Returns
 
-`undefined` \| [`Message`](../classes/Message.md)
+[`Message`](../classes/Message.md) \| `undefined`

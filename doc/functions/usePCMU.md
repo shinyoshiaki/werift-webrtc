@@ -6,11 +6,11 @@
 
 # Function: usePCMU()
 
-> **usePCMU**(`props`): [`RTCRtpCodecParameters`](../classes/RTCRtpCodecParameters.md)
+> **usePCMU**(`props?`): [`RTCRtpCodecParameters`](../classes/RTCRtpCodecParameters.md)
 
 ## Parameters
 
-### props
+### props?
 
 `Partial`\<[`RTCRtpCodecParameters`](../classes/RTCRtpCodecParameters.md)\> = `{}`
 

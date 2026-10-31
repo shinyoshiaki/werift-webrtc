@@ -1,9 +1,9 @@
 import type { ChildProcess } from "child_process";
 import type { AcceptFn } from "protoo-server";
 import {
-  type MLineReuse,
   type MediaStreamTrack,
   MediaStreamTrackFactory,
+  type MLineReuse,
   RTCPeerConnection,
 } from "../../";
 import { peerConfig } from "../../fixture";
