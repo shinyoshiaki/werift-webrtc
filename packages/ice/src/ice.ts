@@ -122,6 +122,13 @@ export class Connection implements IceConnection {
    */
   private nominationAbandoned = false;
   /**
+   * Incremented when the role changes: a nomination started under the
+   * previous role (its answer, timeout or repeats) changes nothing after it.
+   */
+  private nominationEpoch = 0;
+  /** Aborts the USE-CANDIDATE transaction in flight (live checklist). */
+  private nominationAbort?: AbortController;
+  /**
    * Aborted when the remote generation ends (restart, restartRemote, close):
    * every check and nomination transaction of that generation stops with it.
    *
@@ -736,12 +743,21 @@ export class Connection implements IceConnection {
     maybeAccepted = false,
   ) {
     const revision = generation.revision;
+    const epoch = this.nominationEpoch;
+    // A role change invalidates the nomination as a replacement pranswer does.
     const belongs = () =>
       this.provisional === generation &&
       generation.revision === revision &&
+      this.nominationEpoch === epoch &&
       generation.pairs.includes(pair);
     void this.nominateProvisional(generation, pair, belongs).then((result) => {
       if (!belongs()) return;
+      if (result === "role-conflict") {
+        // As in the live checklist: become controlled, keep the pair valid.
+        log("provisional nomination role conflict", pair.toJSON());
+        this.switchRole(false);
+        return;
+      }
       if (result === "nominated") {
         if (!generation.nominated) {
           log("provisional nominated", pair.toJSON());
@@ -790,8 +806,10 @@ export class Connection implements IceConnection {
     generation: ProvisionalGeneration,
     pair: CandidatePair,
     belongs: () => boolean,
-  ): Promise<"nominated" | "unanswered" | "rejected"> {
+  ): Promise<"nominated" | "unanswered" | "rejected" | "role-conflict"> {
     generation.nominating = true;
+    const abort = new AbortController();
+    generation.nominationAbort = abort;
     const request = this.buildRequest({
       nominate: true,
       localUsername: generation.localUsername,
@@ -808,8 +826,9 @@ export class Connection implements IceConnection {
         {
           retransmissions:
             pair.localCandidate.transport.toLowerCase() === "tcp" ? 0 : 4,
-          // endProvisional / a replacement pranswer stops it with the checks.
-          signal: generation.checks.signal,
+          // endProvisional / a replacement pranswer stops it with the
+          // checks; a role change stops it alone.
+          signal: AbortSignal.any([generation.checks.signal, abort.signal]),
         },
       );
       pair.responsesReceived++;
@@ -817,8 +836,12 @@ export class Connection implements IceConnection {
       return "nominated";
     } catch (error) {
       log("provisional regular nomination failed", error);
+      if (isRoleConflict(error)) return "role-conflict";
       return error instanceof TransactionTimeout ? "unanswered" : "rejected";
     } finally {
+      if (generation.nominationAbort === abort) {
+        generation.nominationAbort = undefined;
+      }
       if (belongs()) generation.nominating = false;
     }
   }
@@ -2150,9 +2173,33 @@ export class Connection implements IceConnection {
   }
 
   private applyIceControlling(iceControlling: boolean) {
+    if (this._iceControlling !== iceControlling) {
+      this.invalidateNominations();
+    }
     this._iceControlling = iceControlling;
     for (const pair of this.checkList) {
       pair.iceControlling = iceControlling;
+    }
+  }
+
+  /**
+   * The role changed: a nomination in flight (live or provisional) was sent
+   * as the controlling agent and must not select a pair, fail one, or fail
+   * the agent under the new role. Its transaction stops; a controlling agent
+   * later nominates afresh.
+   */
+  private invalidateNominations() {
+    this.nominationEpoch++;
+    this.nominationAbort?.abort();
+    this.nominationAbort = undefined;
+    this.nominating = false;
+    this.nominationAbandoned = false;
+    const generation = this.provisional;
+    if (generation) {
+      generation.nominationAbort?.abort();
+      generation.nominationAbort = undefined;
+      generation.nominating = false;
+      generation.nominationAbandoned = false;
     }
   }
 
@@ -2638,6 +2685,9 @@ export class Connection implements IceConnection {
     log("nominate", pair.toJSON(), { attempt, maybeAccepted });
     this.nominating = true;
     const generation = this.remoteGeneration;
+    const epoch = this.nominationEpoch;
+    const abort = new AbortController();
+    this.nominationAbort = abort;
     const request = this.buildRequest({
       nominate: true,
       localUsername: pair.localCandidate.ufrag ?? this.localUsername,
@@ -2652,20 +2702,34 @@ export class Connection implements IceConnection {
         request,
         pair.remoteAddr,
         Buffer.from(this.remotePassword, "utf8"),
-        { ...this.checkRequestOptions(pair), signal: this.remoteChecks.signal },
+        {
+          ...this.checkRequestOptions(pair),
+          signal: AbortSignal.any([this.remoteChecks.signal, abort.signal]),
+        },
       )
       .then(
         () => {
-          if (this.isStaleNomination(pair, generation)) {
+          if (this.isStaleNomination(pair, generation, epoch)) {
             return;
           }
+          if (this.nominationAbort === abort) this.nominationAbort = undefined;
           pair.responsesReceived++;
           pair.nominated = true;
           this.nominating = false;
           this.checkComplete(pair);
         },
         (error) => {
-          if (this.isStaleNomination(pair, generation)) {
+          if (this.isStaleNomination(pair, generation, epoch)) {
+            return;
+          }
+          if (this.nominationAbort === abort) this.nominationAbort = undefined;
+          if (isRoleConflict(error)) {
+            // RFC 8445 §7.2.5.1: the peer is controlling too and wins; the
+            // nomination was not accepted. Become controlled: the pair stays
+            // valid and the peer nominates.
+            log("nomination role conflict", pair.toJSON());
+            this.nominating = false;
+            this.switchRole(false);
             return;
           }
           if (error instanceof TransactionTimeout || maybeAccepted) {
@@ -2712,11 +2776,19 @@ export class Connection implements IceConnection {
     this.setState("failed");
   }
 
-  /** The agent was closed or restarted while the nomination was in flight. */
-  private isStaleNomination(pair: CandidatePair, generation: number) {
+  /**
+   * The agent was closed or restarted, or its role changed, while the
+   * nomination was in flight.
+   */
+  private isStaleNomination(
+    pair: CandidatePair,
+    generation: number,
+    epoch = this.nominationEpoch,
+  ) {
     return (
       this.state === "closed" ||
       this.remoteGeneration !== generation ||
+      this.nominationEpoch !== epoch ||
       !this.checkList.includes(pair)
     );
   }
@@ -2971,6 +3043,12 @@ const decodeTxUsername = (txUsername: string) => {
   return { remoteUsername, localUsername };
 };
 
+/** The peer answered with 487 (Role Conflict). */
+const isRoleConflict = (error: unknown) =>
+  (error as TransactionError | undefined)?.response?.getAttributeValue(
+    "ERROR-CODE",
+  )?.[0] === 487;
+
 type NominationDecision =
   | { action: "nominate"; pair: CandidatePair }
   | { action: "wait"; deadline: number }
@@ -3047,6 +3125,8 @@ type ProvisionalGeneration = {
   nominationTimer?: ReturnType<typeof setTimeout>;
   /** A nomination went unanswered; no other pair is nominated (see `Connection.nominationAbandoned`). */
   nominationAbandoned?: boolean;
+  /** Aborts the USE-CANDIDATE transaction in flight. */
+  nominationAbort?: AbortController;
   started: boolean;
   /** Aborts the checks in flight when the checklist is replaced or dropped. */
   checks: AbortController;

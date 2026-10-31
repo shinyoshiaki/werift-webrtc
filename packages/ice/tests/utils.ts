@@ -1511,17 +1511,23 @@ export function createNominationHarness({
   remoteIsLite = false,
   nominationReply = () => "success",
   localPriorities = [undefined],
+  honorSignal = true,
 }: {
   nominationDelayMs?: number;
   remoteIsLite?: boolean;
   nominationReply?: (nominationIndex: number) => ScriptedReply;
   /** One local candidate (socket) per entry; undefined keeps the host default. */
   localPriorities?: (number | undefined)[];
+  /** false: a held request still answers after its signal aborted (a late response). */
+  honorSignal?: boolean;
 } = {}) {
   let nominationCount = 0;
   const protocols = localPriorities.map((priority, index) => {
-    const local = new ScriptedCheckProtocol("udp", ({ nominate }) =>
-      nominate ? nominationReply(nominationCount++) : "hold",
+    const local = new ScriptedCheckProtocol(
+      "udp",
+      ({ nominate }) =>
+        nominate ? nominationReply(nominationCount++) : "hold",
+      honorSignal,
     );
     local.localCandidate.foundation = `local${index}`;
     local.localCandidate.port = 4000 + index;
@@ -1600,6 +1606,15 @@ export function createNominationHarness({
   };
   /** USE-CANDIDATE checks sent so far, with the port they were sent to. */
   const nominations = () => allRequests().filter((request) => request.nominate);
+  /** Let every request still in flight time out (checks and nominations). */
+  const timeOutPending = async () => {
+    for (const request of allRequests()) {
+      if (!request.done) request.release("failure");
+    }
+    await vi.advanceTimersByTimeAsync(0);
+  };
+  /** Every request sent, ordinary checks and nominations alike. */
+  const requests = () => allRequests();
   const ordinaryChecks = () =>
     allRequests().filter((request) => !request.nominate);
 
@@ -1627,9 +1642,26 @@ export function createNominationHarness({
       password: "provisional-password-c-000",
     });
 
+  /** Role change as a role-conflict repair makes it (RFC 8445 §7.3.1.1). */
+  const switchRole = (iceControlling: boolean) =>
+    (
+      connection as unknown as { switchRole: (controlling: boolean) => void }
+    ).switchRole(iceControlling);
+  /** The peer (now controlling) nominates `pair` with USE-CANDIDATE. */
+  const receiveNomination = (pair: CandidatePair) =>
+    connection.checkIncoming(
+      createIncomingCheck(connection, { useCandidate: true }),
+      pair.remoteAddr,
+      pair.protocol,
+    );
+
   return {
     connection,
     protocol,
+    switchRole,
+    receiveNomination,
+    timeOutPending,
+    requests,
     addRemote,
     addRemotePairs,
     check,

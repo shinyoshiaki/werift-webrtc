@@ -385,6 +385,148 @@ describe("regular nomination of UDP / relay pairs (full ICE, controlling)", () =
     }
   });
 
+  test("a role change invalidates the nomination in flight (late success)", async () => {
+    const h = createNominationHarness({ nominationReply: () => "hold" });
+    const pair = await h.addRemote(HIGH);
+    await h.connection.addRemoteCandidate(undefined);
+    h.check(pair);
+    await h.succeed(pair);
+    const [nomination] = h.nominations();
+
+    try {
+      // Act: nomination の応答待ち中に controlled へ切り替わる。
+      h.switchRole(false);
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Assert: 送信中の nomination transaction は取り消される。
+      expect(nomination.done).toBe(true);
+
+      // Act: 取り消し後に古い応答相当の成功が届いても無視される (release は no-op)。
+      nomination.release("success");
+      await vi.advanceTimersByTimeAsync(1000);
+
+      // Assert: 古い nomination で pair は nominate されず、再送も追加の USE-CANDIDATE もない。
+      expect(pair.nominated).toBe(false);
+      expect(h.connection.nominated).toBeUndefined();
+      expect(h.nominations()).toHaveLength(1);
+      expect(h.connection.iceControlling).toBe(false);
+    } finally {
+      await h.connection.close();
+    }
+  });
+
+  test("a nomination response that arrives after a role change selects nothing", async () => {
+    // 取り消しを無視して応答が後から届く (応答がネットワーク上にあった) ケース。
+    const h = createNominationHarness({
+      nominationReply: () => "hold",
+      honorSignal: false,
+    });
+    const pair = await h.addRemote(HIGH);
+    await h.connection.addRemoteCandidate(undefined);
+    h.check(pair);
+    await h.succeed(pair);
+
+    try {
+      // Act: controlled へ切り替わった後に、古い nomination の成功応答が届く。
+      h.switchRole(false);
+      h.nominations()[0].release("success");
+      await vi.advanceTimersByTimeAsync(1000);
+
+      // Assert: 古いロールの nomination では pair は選ばれない。
+      expect(pair.nominated).toBe(false);
+      expect(h.connection.nominated).toBeUndefined();
+      expect(h.nominations()).toHaveLength(1);
+    } finally {
+      await h.connection.close();
+    }
+  });
+
+  test("an unanswered nomination that times out after a role change does not fail the agent", async () => {
+    const h = createNominationHarness({
+      nominationReply: () => "hold",
+      honorSignal: false,
+    });
+    const pair = await h.addRemote(HIGH);
+    await h.connection.addRemoteCandidate(undefined);
+    h.check(pair);
+    await h.succeed(pair);
+
+    try {
+      // Act: controlled へ切り替わった後に、古い nomination がタイムアウトする。
+      const sent = h.requests().length;
+      h.switchRole(false);
+      // 古い nomination と、その後に出うる要求をすべてタイムアウトさせる。
+      for (let round = 0; round < 3; round++) await h.timeOutPending();
+      await vi.advanceTimersByTimeAsync(5000);
+
+      // Assert: 再送も断念もせず、pair は valid のまま agent は failed にならない。
+      expect(h.requests()).toHaveLength(sent);
+      expect(pair.state).toBe(CandidatePairState.SUCCEEDED);
+      expect(h.connection.state).not.toBe("failed");
+    } finally {
+      await h.connection.close();
+    }
+  });
+
+  test("a role change stops an unanswered nomination from failing the agent", async () => {
+    const h = createNominationHarness({ nominationReply: () => "hold" });
+    const high = await h.addRemote(HIGH);
+    const low = await h.addRemote(LOW);
+    await h.connection.addRemoteCandidate(undefined);
+    h.check(high);
+    h.check(low);
+    await h.succeed(low);
+    await h.succeed(high);
+
+    try {
+      // Act: 1 回目の nomination がタイムアウトして再送中に controlled へ切り替わり、
+      // 新しい controlling 側 (相手) が低優先度 pair を nominate する。
+      h.nominations()[0].release("failure");
+      await vi.advanceTimersByTimeAsync(0);
+      const sent = h.requests().length;
+      h.switchRole(false);
+      h.receiveNomination(low);
+      // 残っている要求 (古い再送を含む) をすべてタイムアウトさせる。
+      for (let round = 0; round < 3; round++) await h.timeOutPending();
+      await vi.advanceTimersByTimeAsync(5000);
+
+      // Assert: 相手の選択に従い、古い nomination の再送・断念で failed にならない。
+      expect(h.connection.nominated).toBe(low);
+      expect(h.requests()).toHaveLength(sent);
+      expect(h.connection.state).not.toBe("failed");
+      expect(high.state).toBe(CandidatePairState.SUCCEEDED);
+    } finally {
+      await h.connection.close();
+    }
+  });
+
+  test("a 487 answering a nomination switches to controlled and keeps the pair valid", async () => {
+    const h = createNominationHarness({ nominationReply: () => 487 });
+    const pair = await h.addRemote(HIGH);
+    await h.connection.addRemoteCandidate(undefined);
+    h.check(pair);
+
+    try {
+      // Act: nomination が 487 Role Conflict で拒否される。
+      await h.succeed(pair);
+      await vi.advanceTimersByTimeAsync(1000);
+
+      // Assert: controlled へ切り替わり、pair は valid のまま、追加の nomination も送らない。
+      expect(h.connection.iceControlling).toBe(false);
+      expect(pair.state).toBe(CandidatePairState.SUCCEEDED);
+      expect(h.nominations()).toHaveLength(1);
+      expect(h.connection.nominated).toBeUndefined();
+
+      // Act: 新しい controlling 側 (相手) が同じ pair を nominate する。
+      h.receiveNomination(pair);
+
+      // Assert: controlled として相手の nomination を受け入れ、接続が成立する。
+      expect(h.connection.nominated).toBe(pair);
+    } finally {
+      await h.connection.close();
+    }
+  });
+
   test("a restart after an abandoned nomination nominates again", async () => {
     const h = createNominationHarness({
       nominationReply: (index) => (index < 3 ? "hold" : "success"),
@@ -586,6 +728,51 @@ describe("regular nomination of the provisional generation", () => {
         Array(3).fill(high.remoteAddr),
       );
       expect(low.nominated).toBe(false);
+      expect(h.connection.provisionalNominated).toBeUndefined();
+    } finally {
+      await h.connection.close();
+    }
+  });
+
+  test("a role change invalidates a provisional nomination in flight", async () => {
+    const h = createNominationHarness({ nominationReply: () => "hold" });
+    h.stageProvisional();
+    const pair = await h.addProvisionalRemote(HIGH);
+    await h.connection.addProvisionalRemoteCandidate(undefined);
+    await h.succeed(pair);
+    const [nomination] = h.nominations();
+
+    try {
+      // Act: provisional nomination の応答待ち中に controlled へ切り替わる。
+      h.switchRole(false);
+      nomination.release("success");
+      await vi.advanceTimersByTimeAsync(5000);
+
+      // Assert: transaction は取り消され、古い nomination は provisional pair を選ばない。
+      expect(nomination.done).toBe(true);
+      expect(pair.nominated).toBe(false);
+      expect(h.connection.provisionalNominated).toBeUndefined();
+      expect(h.nominations()).toHaveLength(1);
+    } finally {
+      await h.connection.close();
+    }
+  });
+
+  test("a 487 answering a provisional nomination switches to controlled", async () => {
+    const h = createNominationHarness({ nominationReply: () => 487 });
+    h.stageProvisional();
+    const pair = await h.addProvisionalRemote(HIGH);
+    await h.connection.addProvisionalRemoteCandidate(undefined);
+
+    try {
+      // Act: provisional nomination が 487 Role Conflict で拒否される。
+      await h.succeed(pair);
+      await vi.advanceTimersByTimeAsync(1000);
+
+      // Assert: controlled へ切り替わり、pair は valid のまま、再 nomination しない。
+      expect(h.connection.iceControlling).toBe(false);
+      expect(pair.state).toBe(CandidatePairState.SUCCEEDED);
+      expect(h.nominations()).toHaveLength(1);
       expect(h.connection.provisionalNominated).toBeUndefined();
     } finally {
       await h.connection.close();
