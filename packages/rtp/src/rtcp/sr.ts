@@ -129,9 +129,10 @@ export class RtcpSenderInfo {
   }
 }
 
+/** 64bit NTP timestamp (RFC 3550 4.) → seconds. The low 32 bits are a binary fraction. */
 export const ntpTime2Sec = (ntp: bigint) => {
-  const [ntpSec, ntpMsec] = bufferReader(bufferWriter([8], [ntp]), [4, 4]);
+  const [ntpSec, ntpFraction] = bufferReader(bufferWriter([8], [ntp]), [4, 4]);
 
   // 下位32bitは秒の小数部を 2^32 で正規化した固定小数点
-  return ntpSec + ntpMsec / 2 ** 32;
+  return ntpSec + ntpFraction / 2 ** 32;
 };
