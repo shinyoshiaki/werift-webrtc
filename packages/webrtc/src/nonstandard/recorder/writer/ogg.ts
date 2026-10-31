@@ -27,6 +27,8 @@ export class OggFactory extends MediaWriter<OggOutput> {
   rtpSources: RtpSourceCallback[] = [];
   private onEol = new Event();
   private ended = false;
+  /** a write failure stops the recording and is reported here */
+  onError = new Event<[Error]>();
   unSubscribers = new EventDisposer();
 
   /** throws WeriftError unless tracks is exactly one Opus audio track */
@@ -82,6 +84,12 @@ export class OggFactory extends MediaWriter<OggOutput> {
 
     const channels = track.codec.channels === 1 ? 1 : 2;
     const ogg = new OggCallback({ channels });
+    ogg.onError.once((error) => {
+      this.ended = true;
+      ogg.destroy();
+      this.onEol.execute();
+      this.onError.execute(error);
+    });
     const clockRate = 48000;
 
     const rtpSource = new RtpSourceCallback();

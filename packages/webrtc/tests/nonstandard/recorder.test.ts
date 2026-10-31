@@ -54,6 +54,40 @@ describe("packages/webrtc/tests/nonstandard/recorder.test.ts", () => {
     }
   });
 
+  it("reports a write failure through onError and stops without crashing", async () => {
+    // Arrange: 存在しないディレクトリを保存先にする。
+    const dir = await createRecordingDir();
+    const track = createOpusTrack();
+    const errors: Error[] = [];
+    const unhandled: unknown[] = [];
+    const onUnhandled = (e: unknown) => unhandled.push(e);
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      const recorder = new MediaRecorder({
+        path: dir.path("missing/out.ogg"),
+        tracks: [track],
+        disableNtp: true,
+      });
+      recorder.onError.subscribe((e) => errors.push(e));
+      await waitForOggRecorderStarted(recorder);
+
+      // Act: RTP を流して停止する。
+      feedOpusRtp(track, 10);
+      await new Promise((r) => setTimeout(r, 50));
+      const started = Date.now();
+      await recorder.stop();
+
+      // Assert: 書き込みエラーが onError に通知され、停止は 5 秒待たずに完了する。
+      expect(errors.length).toBe(1);
+      expect(Date.now() - started).toBeLessThan(2000);
+      // Assert: 未処理の Promise 拒否は発生しない。
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+      await dir.cleanup();
+    }
+  });
+
   it("finishes the file when stopped right after construction", async () => {
     // Arrange
     const dir = await createRecordingDir();

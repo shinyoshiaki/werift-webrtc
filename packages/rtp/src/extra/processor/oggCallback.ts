@@ -1,6 +1,7 @@
 import { appendFile } from "fs/promises";
 
 import { PromiseQueue } from "../..";
+import { Event } from "../../imports/common";
 import {
   OggBase,
   type OggInput,
@@ -12,13 +13,19 @@ import {
 export class OggCallback extends OggBase {
   private cb?: (input: OggOutput) => Promise<void>;
   private queue = new PromiseQueue();
+  /** a failed output callback (e.g. file write error) is reported here instead of an unhandled rejection */
+  onError = new Event<[Error]>();
   constructor(track: OggTrack = {}, options: OggOption = {}) {
     super(
       track,
       async (output) => {
         const cb = this.cb;
         if (cb) {
-          await this.queue.push(() => cb(output));
+          await this.queue
+            .push(() => cb(output))
+            .catch((error) => {
+              this.onError.execute(error);
+            });
         }
       },
       options,

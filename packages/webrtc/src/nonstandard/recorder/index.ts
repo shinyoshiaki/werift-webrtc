@@ -75,7 +75,11 @@ export class MediaRecorder {
         if (props.tracks) {
           OggFactory.validateTracks(props.tracks);
         }
-        this.writer = new OggFactory(writerProps);
+        {
+          const writer = new OggFactory(writerProps);
+          writer.onError.subscribe((error) => this.onError.execute(error));
+          this.writer = writer;
+        }
         break;
     }
 

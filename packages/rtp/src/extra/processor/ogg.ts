@@ -5,7 +5,6 @@ import {
   createOpusTags,
   getOpusPacketSamples,
   OggPager,
-  OpusDefaultPreSkip,
 } from "../container";
 import type { WebmInput } from "./webm";
 
@@ -17,7 +16,11 @@ const GapFillSamples = 960;
 export interface OggTrack {
   /** 1 or 2, default 2 */
   channels?: number;
-  /** default 312 */
+  /**
+   * samples (48 kHz) the decoder discards from the start. default 0:
+   * recorded RTP carries no encoder priming audio, so a non-zero value would
+   * cut real audio
+   */
   preSkip?: number;
 }
 
@@ -71,7 +74,7 @@ export class OggBase {
     private options: OggOption = {},
   ) {
     this.channels = track.channels ?? 2;
-    this.preSkip = track.preSkip ?? OpusDefaultPreSkip;
+    this.preSkip = track.preSkip ?? 0;
     this.pager = new OggPager(
       options.serialNumber ?? Math.floor(Math.random() * 0xffffffff),
     );

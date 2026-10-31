@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  OggCallback,
   OggHeaderTypeBos,
   OggHeaderTypeEos,
   OggParser,
@@ -64,7 +65,7 @@ describe("packages/rtp/tests/processor/ogg.test.ts", () => {
     expect(outputs.at(-1)!.eol).toEqual({ duration: 2000 });
   });
 
-  it("keeps granule positions monotonic and ends at pre-skip + samples", async () => {
+  it("keeps granule positions monotonic and ends at the sample count", async () => {
     // Arrange
     const frames = createOpusFramesAt(range(130));
 
@@ -76,22 +77,22 @@ describe("packages/rtp/tests/processor/ogg.test.ts", () => {
         }
         ogg.inputAudio({ eol: true });
       },
-      { track: { preSkip: 312 }, options: { pageDuration: 500 } },
+      { options: { pageDuration: 500 } },
     );
     const pages = parseOggPages(oggOutputsToBuffer(outputs));
     const granules = pages.slice(2).map((p) => p.granulePosition);
 
     // Assert: 500ms ごとにページ化され、granule は単調増加する。
     expect(granules).toEqual([
-      312n + 24_000n,
-      312n + 48_000n,
-      312n + 72_000n,
-      312n + 96_000n,
-      312n + 120_000n,
-      312n + 124_800n,
+      24_000n,
+      48_000n,
+      72_000n,
+      96_000n,
+      120_000n,
+      124_800n,
     ]);
-    // Assert: 最終 granule は pre-skip + 130 パケット × 960 サンプル。
-    expect(pages.at(-1)!.granulePosition).toBe(312n + 130n * 960n);
+    // Assert: 最終 granule は 130 パケット × 960 サンプル (pre-skip 312 は明示指定分が先頭に足される)。
+    expect(pages.at(-1)!.granulePosition).toBe(130n * 960n);
   });
 
   it("fills timestamp gaps so the granule follows the media time", async () => {
@@ -112,8 +113,8 @@ describe("packages/rtp/tests/processor/ogg.test.ts", () => {
     expect(packets).toHaveLength(70);
     expect(packets.slice(10, 60).every((p) => p.length === 1)).toBe(true);
     expect(packets[10][0] & 0x04).toBe(0x04);
-    // Assert: 最終 granule は 1400ms 分 + pre-skip になる。
-    expect(pages.at(-1)!.granulePosition).toBe(312n + 1400n * 48n);
+    // Assert: 最終 granule は 1400ms 分 になる。
+    expect(pages.at(-1)!.granulePosition).toBe(1400n * 48n);
     expect(outputs.at(-1)!.eol).toEqual({ duration: 1400 });
   });
 
@@ -136,7 +137,36 @@ describe("packages/rtp/tests/processor/ogg.test.ts", () => {
       .map((p) => p.granulePosition);
 
     // Assert: granule は減少せず、パケット長分ずつ進む。
-    expect(granules).toEqual([1272n, 2232n, 3192n, 4152n, 5112n, 5112n]);
+    expect(granules).toEqual([960n, 1920n, 2880n, 3840n, 4800n, 4800n]);
+  });
+
+  it("reports output callback failures through onError instead of rejecting", async () => {
+    // Arrange: 書き込みに失敗する出力先をつなぐ。
+    const ogg = new OggCallback();
+    const errors: Error[] = [];
+    ogg.onError.subscribe((e) => errors.push(e));
+    ogg.pipe(async () => {
+      throw new Error("ENOENT");
+    });
+    const unhandled: unknown[] = [];
+    const onUnhandled = (e: unknown) => unhandled.push(e);
+    process.on("unhandledRejection", onUnhandled);
+
+    try {
+      // Act: フレームと EOL を投入する。
+      for (const frame of createOpusFramesAt(range(60))) {
+        ogg.inputAudio({ frame });
+      }
+      ogg.inputAudio({ eol: true });
+      await new Promise((r) => setTimeout(r, 50));
+
+      // Assert: エラーは onError に通知され、未処理の Promise 拒否にならない。
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0].message).toBe("ENOENT");
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
   });
 
   it("writes an EOS page even without audio", async () => {
@@ -167,7 +197,7 @@ describe("packages/rtp/tests/processor/ogg.test.ts", () => {
 
     // Assert: 既存パーサでもページ数と最終 granule が読み戻せる。
     expect(parser.pages.length).toBeGreaterThan(3);
-    expect(parser.pages.at(-1)!.granulePosition).toBe(312 + 60 * 960);
+    expect(parser.pages.at(-1)!.granulePosition).toBe(60 * 960);
     expect(parser.pages[0].segments[0].subarray(0, 8).toString()).toBe(
       "OpusHead",
     );
@@ -252,11 +282,10 @@ describe("packages/rtp/tests/processor/ogg.test.ts", () => {
       expect(result.channels).toBe(2);
       expect(result.sampleRate).toBe(48_000);
       expect(result.decodeErrors).toBe("");
-      // Assert: ffprobe の長さ (最終 granule / 48kHz) は pre-skip + パケット数 × 20ms と一致する。
-      expect(result.duration).toBeCloseTo(
-        (312 + packets.length * 960) / 48_000,
-        4,
-      );
+      // Assert: ffprobe の長さはパケット数 × 20ms と一致する。
+      expect(result.duration).toBeCloseTo((packets.length * 960) / 48_000, 4);
+      // Assert: 実際にデコードされたサンプル数が全パケット分と一致し、先頭が欠落しない。
+      expect(result.decodedSamples).toBe(packets.length * 960);
     });
   });
 });

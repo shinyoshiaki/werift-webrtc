@@ -556,6 +556,8 @@ export type FfprobeAudioResult = {
   duration: number;
   /** stderr of a full ffmpeg decode at `-v error`; empty when it had no errors */
   decodeErrors: string;
+  /** samples per channel actually produced by a full ffmpeg decode */
+  decodedSamples: number;
 };
 
 /** Probes the first audio stream with ffprobe and fully decodes it with ffmpeg. */
@@ -586,15 +588,17 @@ export function probeOggAudio(buffer: Buffer): FfprobeAudioResult {
     const [stream] = json.streams;
     const decode = spawnSync(
       "ffmpeg",
-      ["-v", "error", "-i", path, "-f", "null", "-"],
-      { encoding: "utf8" },
+      ["-v", "error", "-i", path, "-f", "s16le", "-c:a", "pcm_s16le", "pipe:1"],
+      { maxBuffer: 256 * 1024 * 1024 },
     );
+    const channels = Number(stream.channels);
     return {
       codecName: stream.codec_name,
       channels: Number(stream.channels),
       sampleRate: Number(stream.sample_rate),
       duration: Number(json.format.duration),
-      decodeErrors: decode.stderr,
+      decodeErrors: decode.stderr.toString(),
+      decodedSamples: decode.stdout.length / 2 / channels,
     };
   } finally {
     rmSync(dir, { recursive: true, force: true });
