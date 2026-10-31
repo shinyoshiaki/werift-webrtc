@@ -8,43 +8,43 @@
 
 ## Constructors
 
-### new SsrcDescription()
+### Constructor
 
-> **new SsrcDescription**(`props`): [`SsrcDescription`](SsrcDescription.md)
+> **new SsrcDescription**(`props`): `SsrcDescription`
 
 #### Parameters
 
 ##### props
 
-`Partial`\<[`SsrcDescription`](SsrcDescription.md)\>
+`Partial`\<`SsrcDescription`\>
 
 #### Returns
 
-[`SsrcDescription`](SsrcDescription.md)
+`SsrcDescription`
 
 ## Properties
 
 ### cname?
 
-> `optional` **cname**: `string`
+> `optional` **cname?**: `string`
 
 ***
 
 ### label?
 
-> `optional` **label**: `string`
+> `optional` **label?**: `string`
 
 ***
 
 ### msid?
 
-> `optional` **msid**: `string`
+> `optional` **msid?**: `string`
 
 ***
 
 ### msLabel?
 
-> `optional` **msLabel**: `string`
+> `optional` **msLabel?**: `string`
 
 ***
 

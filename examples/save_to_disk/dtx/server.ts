@@ -1,5 +1,5 @@
 import { unlink } from "fs/promises";
-import { Server } from "ws";
+import { WebSocketServer } from "ws";
 import {
   RTCPeerConnection,
   RTCRtpCodecParameters,
@@ -10,13 +10,13 @@ import {
   NtpTimeCallback,
   RtcpSourceCallback,
   RtpSourceCallback,
-  WebmCallback,
   saveToFileSystem,
+  WebmCallback,
 } from "../../../packages/webrtc/src/nonstandard";
 
 // open ./answer.html
 
-const server = new Server({ port: 8878 });
+const server = new WebSocketServer({ port: 8878 });
 console.log("start");
 
 const silent = Buffer.from([0xf8, 0xff, 0xfe]);

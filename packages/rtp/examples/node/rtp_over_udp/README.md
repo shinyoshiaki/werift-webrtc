@@ -9,14 +9,14 @@ Round-trip in one process (ephemeral port, no external tools):
 
 ```bash
 cd packages/rtp
-RUN_SELF_TEST=1 npx tsx examples/node/rtp_over_udp/recv.ts _ pcmu
-RUN_SELF_TEST=1 npx tsx examples/node/rtp_over_udp/recv.ts _ h265
-RUN_SELF_TEST=1 npx tsx examples/node/rtp_over_udp/recv.ts _ aac
-RUN_SELF_TEST=1 npx tsx examples/node/rtp_over_udp/recv.ts _ vp8
-RUN_SELF_TEST=1 npx tsx examples/node/rtp_over_udp/recv.ts _ vp9
-RUN_SELF_TEST=1 npx tsx examples/node/rtp_over_udp/recv.ts _ av1
-RUN_SELF_TEST=1 npx tsx examples/node/rtp_over_udp/recv.ts _ opus
-RUN_SELF_TEST=1 npx tsx examples/node/rtp_over_udp/recv.ts _ h264
+RUN_SELF_TEST=1 node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs examples/node/rtp_over_udp/recv.ts _ pcmu
+RUN_SELF_TEST=1 node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs examples/node/rtp_over_udp/recv.ts _ h265
+RUN_SELF_TEST=1 node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs examples/node/rtp_over_udp/recv.ts _ aac
+RUN_SELF_TEST=1 node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs examples/node/rtp_over_udp/recv.ts _ vp8
+RUN_SELF_TEST=1 node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs examples/node/rtp_over_udp/recv.ts _ vp9
+RUN_SELF_TEST=1 node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs examples/node/rtp_over_udp/recv.ts _ av1
+RUN_SELF_TEST=1 node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs examples/node/rtp_over_udp/recv.ts _ opus
+RUN_SELF_TEST=1 node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs examples/node/rtp_over_udp/recv.ts _ h264
 ```
 
 Supported codec names: `pcmu`, `pcma`, `g722`, `aac`, `h265`, `vp8`, `vp9`, `av1`, `opus`, `h264`.
@@ -26,13 +26,13 @@ Supported codec names: `pcmu`, `pcma`, `g722`, `aac`, `h265`, `vp8`, `vp9`, `av1
 Terminal A:
 
 ```bash
-npx tsx examples/node/rtp_over_udp/recv.ts 5004 pcmu
+node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs examples/node/rtp_over_udp/recv.ts 5004 pcmu
 ```
 
 Terminal B:
 
 ```bash
-npx tsx examples/node/rtp_over_udp/send.ts 127.0.0.1 5004 pcmu
+node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs examples/node/rtp_over_udp/send.ts 127.0.0.1 5004 pcmu
 ```
 
 ## Notes

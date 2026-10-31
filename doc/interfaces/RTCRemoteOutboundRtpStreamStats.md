@@ -14,7 +14,7 @@
 
 ### bytesSent?
 
-> `optional` **bytesSent**: `number`
+> `optional` **bytesSent?**: `number`
 
 #### Inherited from
 
@@ -24,7 +24,7 @@
 
 ### codecId?
 
-> `optional` **codecId**: `string`
+> `optional` **codecId?**: `string`
 
 #### Inherited from
 
@@ -54,13 +54,13 @@
 
 ### localId?
 
-> `optional` **localId**: `string`
+> `optional` **localId?**: `string`
 
 ***
 
 ### packetsSent?
 
-> `optional` **packetsSent**: `number`
+> `optional` **packetsSent?**: `number`
 
 #### Inherited from
 
@@ -70,25 +70,25 @@
 
 ### remoteTimestamp?
 
-> `optional` **remoteTimestamp**: `number`
+> `optional` **remoteTimestamp?**: `number`
 
 ***
 
 ### reportsSent?
 
-> `optional` **reportsSent**: `number`
+> `optional` **reportsSent?**: `number`
 
 ***
 
 ### roundTripTime?
 
-> `optional` **roundTripTime**: `number`
+> `optional` **roundTripTime?**: `number`
 
 ***
 
 ### roundTripTimeMeasurements?
 
-> `optional` **roundTripTimeMeasurements**: `number`
+> `optional` **roundTripTimeMeasurements?**: `number`
 
 ***
 
@@ -114,13 +114,13 @@
 
 ### totalRoundTripTime?
 
-> `optional` **totalRoundTripTime**: `number`
+> `optional` **totalRoundTripTime?**: `number`
 
 ***
 
 ### transportId?
 
-> `optional` **transportId**: `string`
+> `optional` **transportId?**: `string`
 
 #### Inherited from
 

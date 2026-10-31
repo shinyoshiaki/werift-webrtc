@@ -31,13 +31,13 @@ omits stays routed; only SSRCs a replaced pranswer alone added are dropped.
 
 ## Constructors
 
-### new RtpRouter()
+### Constructor
 
-> **new RtpRouter**(): [`RtpRouter`](RtpRouter.md)
+> **new RtpRouter**(): `RtpRouter`
 
 #### Returns
 
-[`RtpRouter`](RtpRouter.md)
+`RtpRouter`
 
 ## Properties
 
@@ -122,7 +122,7 @@ Internal: drop the routes an earlier pending description added at once.
 
 ### registerRtpReceiverByRid()
 
-> **registerRtpReceiverByRid**(`transceiver`, `param`, `params`, `__namedParameters`): `void`
+> **registerRtpReceiverByRid**(`transceiver`, `param`, `params`, `__namedParameters?`): `void`
 
 #### Parameters
 
@@ -138,7 +138,7 @@ Internal: drop the routes an earlier pending description added at once.
 
 [`RTCRtpReceiveParameters`](../interfaces/RTCRtpReceiveParameters.md)
 
-##### \_\_namedParameters
+##### \_\_namedParameters?
 
 ###### deferConflicts?
 
@@ -152,7 +152,7 @@ Internal: drop the routes an earlier pending description added at once.
 
 ### registerRtpReceiverBySsrc()
 
-> **registerRtpReceiverBySsrc**(`transceiver`, `params`, `__namedParameters`): `void`
+> **registerRtpReceiverBySsrc**(`transceiver`, `params`, `__namedParameters?`): `void`
 
 With `deferConflicts` (a pending offer or pranswer) an SSRC the current
 session routes to another receiver is staged until commit; new SSRCs route
@@ -168,7 +168,7 @@ at once so provisional RTP flows.
 
 [`RTCRtpReceiveParameters`](../interfaces/RTCRtpReceiveParameters.md)
 
-##### \_\_namedParameters
+##### \_\_namedParameters?
 
 ###### deferConflicts?
 
@@ -211,15 +211,15 @@ application added while the description was pending).
 
 ###### extIdUriMap
 
-\{\} = `...`
+\{\[`id`: `number`\]: `string`; \} = `...`
 
 ###### ridTable
 
-\{\} = `...`
+\{\[`midAndRid`: `string`\]: [`RTCRtpReceiver`](RTCRtpReceiver.md) \| [`RTCRtpSender`](RTCRtpSender.md); \} = `...`
 
 ###### ssrcTable
 
-\{\} = `...`
+\{\[`ssrc`: `number`\]: [`RTCRtpReceiver`](RTCRtpReceiver.md) \| [`RTCRtpSender`](RTCRtpSender.md); \} = `...`
 
 ###### staged
 
@@ -307,7 +307,7 @@ Internal: every route a negotiation may change, for a rollback baseline.
 
 ###### Index Signature
 
-\[`key`: `number`\]: `string`
+\[`id`: `number`\]: `string`
 
 ##### ridTable
 
@@ -315,7 +315,7 @@ Internal: every route a negotiation may change, for a rollback baseline.
 
 ###### Index Signature
 
-\[`key`: `string`\]: [`RTCRtpReceiver`](RTCRtpReceiver.md) \| [`RTCRtpSender`](RTCRtpSender.md)
+\[`midAndRid`: `string`\]: [`RTCRtpReceiver`](RTCRtpReceiver.md) \| [`RTCRtpSender`](RTCRtpSender.md)
 
 ##### ssrcTable
 
@@ -323,7 +323,7 @@ Internal: every route a negotiation may change, for a rollback baseline.
 
 ###### Index Signature
 
-\[`key`: `number`\]: [`RTCRtpReceiver`](RTCRtpReceiver.md) \| [`RTCRtpSender`](RTCRtpSender.md)
+\[`ssrc`: `number`\]: [`RTCRtpReceiver`](RTCRtpReceiver.md) \| [`RTCRtpSender`](RTCRtpSender.md)
 
 ##### staged
 
