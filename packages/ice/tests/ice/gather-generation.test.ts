@@ -1,7 +1,9 @@
 import { StunOverTurnProtocol, TurnProtocol } from "../../src/turn/protocol";
 import { getHostAddresses } from "../../src/utils";
 import {
+  collectGarbage,
   createHeldUdpProxy,
+  createInterfaceBoundConnection,
   createLocalTurnServer,
   createTestConnection,
   localRelayCandidates,
@@ -149,4 +151,36 @@ describe("gathering bound to its ICE generation", () => {
       await server.close();
     }
   });
+
+  test("終わった gathering の結果は、その後の ICE restart をまたいで保持されない", async () => {
+    // Arrange: gathering ごとに一意の目印も一緒に解決させ、目印は WeakRef だけで追う。
+    const connection = createInterfaceBoundConnection(true, {
+      udp4: "127.0.0.1",
+    });
+    const markers: WeakRef<object>[] = [];
+    const internal = connection as unknown as {
+      getCandidatePromises: (...args: unknown[]) => Promise<unknown>[];
+    };
+    const original = internal.getCandidatePromises.bind(connection);
+    internal.getCandidatePromises = (...args: unknown[]) => {
+      const marker = { gathering: markers.length };
+      markers.push(new WeakRef(marker));
+      return [...original(...args), Promise.resolve(marker)];
+    };
+
+    try {
+      // Act: gathering と ICE restart を繰り返し、各 gathering を完了させる。
+      for (let i = 0; i < 5; i++) {
+        await connection.gatherCandidates();
+        await connection.restart();
+      }
+      await collectGarbage();
+
+      // Assert: 完了した gathering の結果 (目印) は、agent が閉じる前でも解放される。
+      expect(markers).toHaveLength(5);
+      expect(markers.filter((ref) => ref.deref() !== undefined)).toEqual([]);
+    } finally {
+      await connection.close();
+    }
+  }, 20_000);
 });

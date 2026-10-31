@@ -2,6 +2,8 @@ import * as dgram from "node:dgram";
 import * as dns from "node:dns";
 import * as net from "node:net";
 import * as tls from "node:tls";
+import { setFlagsFromString } from "node:v8";
+import { runInNewContext } from "node:vm";
 import { deepStrictEqual } from "assert";
 import { readFileSync } from "fs";
 import { type Address, Event, type Transport } from "../../common/src";
@@ -19,8 +21,8 @@ import {
   type IceOptions,
 } from "../src/iceBase";
 import {
-  type IceDatagramContext,
   connectionDatagramEvent,
+  type IceDatagramContext,
 } from "../src/internal/datagram";
 import { classes, methods } from "../src/stun/const";
 import { Message, parseMessage } from "../src/stun/message";
@@ -1514,4 +1516,23 @@ export function createScriptedCheckHarness({
     nominating,
     setRemoteCredentials,
   };
+}
+
+let cachedGc: (() => void) | undefined;
+
+/** Arrange/Assert helper: force full GCs, letting settled promises be freed between them. */
+export async function collectGarbage(rounds = 3) {
+  if (!cachedGc) {
+    const exposed = (globalThis as { gc?: () => void }).gc;
+    if (typeof exposed === "function") {
+      cachedGc = exposed;
+    } else {
+      setFlagsFromString("--expose-gc");
+      cachedGc = runInNewContext("gc") as () => void;
+    }
+  }
+  for (let i = 0; i < rounds; i++) {
+    cachedGc();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
 }

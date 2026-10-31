@@ -170,9 +170,6 @@ export class Connection implements IceConnection {
    */
   private remoteChecks = new AbortController();
   private checkListDone = false;
-  /** Resolves when the agent closes: work that awaits the network stops waiting. */
-  private readonly closedSignal: Promise<void>;
-  private signalClosed!: () => void;
   /** Aborted by close(): a TURN allocation still running is released. */
   private readonly closing = new AbortController();
   /**
@@ -221,9 +218,6 @@ export class Connection implements IceConnection {
     private _iceControlling: boolean,
     options?: Partial<IceOptions>,
   ) {
-    this.closedSignal = new Promise<void>((resolve) => {
-      this.signalClosed = resolve;
-    });
     this.options = {
       ...defaultOptions,
       ...options,
@@ -1059,10 +1053,7 @@ export class Connection implements IceConnection {
       );
       // close() ends the gathering at once: the continuations above close
       // whatever a server query still opens for a closed agent.
-      await Promise.race([
-        Promise.allSettled(candidatePromises),
-        this.closedSignal,
-      ]);
+      await this.untilSettledOrClosed(Promise.allSettled(candidatePromises));
 
       // A later ICE restart (or close) owns the agent now: this gathering
       // neither completes that generation nor touches its state.
@@ -1073,6 +1064,25 @@ export class Connection implements IceConnection {
     // keeps gathering from its servers) must not overwrite their state: the
     // agent stays "new" while checking, and only the checks' outcome moves it.
     if (this.state === "new" && !this.checksBegun) this.setState("completed");
+  }
+
+  /**
+   * Wait for `work` or close(), whichever comes first. Unlike racing a
+   * promise that stays pending for the agent's lifetime, the close listener
+   * goes away with this wait, so a settled gathering (and the candidates its
+   * result holds) is not kept alive by every later restart.
+   */
+  private untilSettledOrClosed(work: Promise<unknown>): Promise<void> {
+    const signal = this.closing.signal;
+    if (signal.aborted) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      const done = () => {
+        signal.removeEventListener("abort", done);
+        resolve();
+      };
+      signal.addEventListener("abort", done, { once: true });
+      work.then(done, done);
+    });
   }
 
   /**
@@ -2347,7 +2357,6 @@ export class Connection implements IceConnection {
 
     this.setState("closed");
     this.cancelIncomingPairWait();
-    this.signalClosed();
     this.closing.abort();
     this.cancelChecks();
     this.endProvisional();

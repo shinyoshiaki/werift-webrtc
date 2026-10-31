@@ -559,3 +559,45 @@ SCTP がない media-only の接続では後者が呼ばれず、`allowEarlyServ
 | leak property の TURN を含むケース（`-t "TURN\|turn"`、`--retry 0`） | 5 回とも 4 件成功 |
 
 指摘にあった TURN リーク検査の `Timeout +1` は、この環境では再現しませんでした。因果関係は未確定のままです。
+
+## 14. BUNDLE split と ICE restart の反復で heap が増加する（レビューの指摘への対応）
+
+**再現:** leak property の heap seed 4（`BUNDLE split and merge → ICE restart → re-offer`、200 cycle、`--retry 0`）は、修正前に 18.64 KiB/cycle（R²=0.95）で上限の 16 KiB/cycle を超えました。前回追加した write-ready の待機（§13）を外しても 18.4〜18.8 KiB/cycle のままで、これは原因ではありませんでした。
+
+**保持オブジェクトの特定:** cycle 30 と 130 の heap snapshot を比較し、新しく増えたオブジェクトの retainer を辿りました（スナップショットと解析スクリプトは worktree の外の `/tmp` に置き、計測用の一時テストはすぐ削除）。100 cycle で `Candidate` が 600 個（1 cycle あたり 6 個）増えていて、どれも次の経路で保持されていました。
+
+- `{ value: Candidate }` の配列（`Promise.allSettled` の結果）
+- それを結果に持つ `Promise`
+- その `Promise` を参照する closure
+- `closedSignal` に付いた `PromiseReaction`
+
+原因は、`packages/ice/src/ice.ts` の `gatherCandidates()` が gathering のたびに `Promise.race([Promise.allSettled(candidatePromises), this.closedSignal])` を作っていたことです。`closedSignal` は agent を閉じるまで解決しないので、race がそれに付けた反応が、終わった gathering の結果（その世代の候補）を ICE restart のたびに 1 つずつ保持し続けていました。`warp` にも同じコードがある既存の不具合ですが、このブランチではほかの増加と合わせて上限を超えていました。
+
+**修正:** `closedSignal` を廃止し、`untilSettledOrClosed()` で待つようにしました。close の検出には `close()` が abort する既存の `AbortController`（`closing`）を使い、待機が終わったら listener を外します。終わった gathering の結果は、次の restart まで残りません。
+
+**回帰テスト:** `packages/ice/tests/ice/gather-generation.test.ts`「終わった gathering の結果は、その後の ICE restart をまたいで保持されない」を追加しました。gathering ごとに一意の目印を一緒に解決させ、WeakRef で追います。restart を 5 回繰り返して GC した後、目印がすべて解放されることを確かめます。旧来の `Promise.race` に戻すと失敗し（5 個とも残る）、修正後は成功します。GC の helper は `packages/ice/tests/utils.ts` の `collectGarbage` です。
+
+**heap の傾き（200 cycle、修正後の branch / `warp`）:**
+
+| seed | 周期 | branch | `warp` |
+|---|---|---|---|
+| 1 | re-offer, replacement offer then rollback | 12.36 | 10.24 |
+| 2 | BUNDLE split and merge ×2, replacement offer then rollback | 9.19 | 6.48 |
+| 3 | re-offer, replacement offer then rollback, re-offer | 3.65 | 1.81 |
+| 4 | BUNDLE split and merge, ICE restart, re-offer | **4.98**（修正前 18.64） | 8.16 |
+| 5 | remote DataChannel opened and closed, ICE restart, glare | 3.10 | 7.72 |
+| 6 | re-offer, glare | 2.75 | 0.97 |
+
+単位は KiB/cycle です。すべて上限の 16 KiB/cycle 未満です。seed 1 の snapshot の差分で残る増加は、主に JIT のコードオブジェクトと `RTCRtpSender.rtpCache` でした。`rtpCache` は 128 件の ring buffer（`RTP_HISTORY_SIZE`）で、traffic とともに埋まって上限で止まります。
+
+**依頼前の確認（§9 の D、`10959a75c` + 本修正の作業ツリー）:**
+
+| 確認 | 結果 |
+|---|---|
+| `--retry 0`: common / ice / dtls / rtp / sctp / webrtc / ice-server | 65 / 405 / 462 / 408 / 71 / 1,158 / 45 passed |
+| `transportFaultMatrix.test.ts`（`--retry 0`） | 90/90 |
+| `type`・`lint:imports`・`doc:check` | 成功 |
+| `e2e` | 63 + 18 |
+| `wpt` | REGRESSION 0（PASS 442） |
+| leak property（seed 1〜200、`--retry 0`） | 450 passed |
+| heap property（`WERIFT_NEGOTIATION_LEAK_HEAP=1`、seed 1〜8、200 cycle、`--retry 0`） | 8/8 成功 |
