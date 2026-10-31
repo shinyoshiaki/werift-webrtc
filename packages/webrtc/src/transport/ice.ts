@@ -17,7 +17,14 @@ import {
   type RTCStats,
   type RTCStatsIceCandidatePairState,
 } from "../media/stats";
-import { candidateFromSdp, candidateToSdp } from "../sdp";
+import { candidateToSdp } from "../sdp";
+import {
+  candidateFieldsFromValues,
+  parseCandidateAttribute,
+  type RTCIceCandidateFields,
+  type RTCIceComponent,
+  type RTCIceProtocol,
+} from "./iceCandidateAttribute";
 
 const log = debug("werift:packages/webrtc/src/transport/ice.ts");
 
@@ -990,125 +997,35 @@ export interface RTCIceCandidateInit {
   usernameFragment?: string | null;
 }
 
-export type RTCIceComponent = "rtp" | "rtcp";
-export type RTCIceProtocol = "udp" | "tcp";
+export type {
+  RTCIceCandidateFields,
+  RTCIceComponent,
+  RTCIceProtocol,
+} from "./iceCandidateAttribute";
 
-/** The fields `RTCIceCandidate` parses from its candidate a-line. */
-export interface RTCIceCandidateFields {
-  foundation: string | null;
-  component: RTCIceComponent | null;
-  priority: number | null;
-  address: string | null;
-  protocol: RTCIceProtocol | null;
-  port: number | null;
-  type: RTCIceCandidateType | null;
-  tcpType: RTCIceTcpCandidateType | null;
-  relatedAddress: string | null;
-  relatedPort: number | null;
-}
+/** Module-private key for handing already parsed fields to the constructor. */
+const parsedFields = Symbol("RTCIceCandidate.parsedFields");
 
-const emptyCandidateFields: RTCIceCandidateFields = {
-  foundation: null,
-  component: null,
-  priority: null,
-  address: null,
-  protocol: null,
-  port: null,
-  type: null,
-  tcpType: null,
-  relatedAddress: null,
-  relatedPort: null,
-};
-
-function candidateFieldsFromIce(c: {
-  foundation: string;
-  component: number;
-  priority: number;
-  ip: string;
-  protocol: string;
-  port: number;
-  type: string;
-  tcpType?: string;
-  relatedAddress?: string;
-  relatedPort?: number;
-}): RTCIceCandidateFields {
-  const protocol = c.protocol.toLowerCase();
-  return {
-    foundation: c.foundation,
-    component: c.component === 1 ? "rtp" : c.component === 2 ? "rtcp" : null,
-    priority: c.priority,
-    address: c.ip,
-    protocol: protocol === "udp" || protocol === "tcp" ? protocol : null,
-    port: c.port,
-    type:
-      (["host", "srflx", "prflx", "relay"] as const).find(
-        (type) => type === c.type,
-      ) ?? null,
-    tcpType:
-      (["active", "passive", "so"] as const).find(
-        (type) => type === c.tcpType,
-      ) ?? null,
-    relatedAddress: c.relatedAddress ?? null,
-    relatedPort: c.relatedPort ?? null,
-  };
-}
-
-const uintToken = (token: string | undefined, max: number, min = 0) =>
-  token !== undefined &&
-  /^\d+$/.test(token) &&
-  Number(token) >= min &&
-  Number(token) <= max;
-
-/** Check the candidate-attribute grammar (RFC 8839) and numeric ranges. */
-function isValidCandidateSdp(sdp: string): boolean {
-  // parser は " " 区切りで解析するため、同じ分割で検証する (連続空白・タブ・前後空白は不正)
-  const bits = sdp.replace(/^candidate:/, "").split(" ");
-  if (bits.some((bit) => bit === "" || /\s/.test(bit))) return false;
-  if (bits.length < 8 || bits.length % 2 !== 0) return false;
-  const [, component, protocol, priority, address, port, typ, type] = bits;
-  if (
-    !uintToken(component, 256, 1) ||
-    !/^(udp|tcp)$/i.test(protocol) ||
-    !uintToken(priority, 2 ** 31 - 1, 1) ||
-    !address ||
-    !uintToken(port, 65535) ||
-    typ !== "typ" ||
-    !["host", "srflx", "prflx", "relay"].includes(type)
-  ) {
-    return false;
-  }
-  for (let i = 8; i < bits.length; i += 2) {
-    const [key, value] = [bits[i], bits[i + 1]];
-    if (key === "rport" && !uintToken(value, 65535)) return false;
-    if (key === "tcptype" && !["active", "passive", "so"].includes(value)) {
-      return false;
-    }
-  }
-  return true;
-}
-
-/** Parse the browser-visible fields of a candidate a-line (`null` if unparsable). */
-function parseCandidateFields(candidate?: string): RTCIceCandidateFields {
-  if (!candidate) return emptyCandidateFields;
-  const sdp = candidate.startsWith("candidate:")
-    ? candidate.slice("candidate:".length)
-    : candidate;
-  if (!isValidCandidateSdp(sdp)) return emptyCandidateFields;
-  try {
-    return candidateFieldsFromIce(candidateFromSdp(sdp));
-  } catch {
-    return emptyCandidateFields;
-  }
+/** Create an `RTCIceCandidate` whose fields come from typed values, without reparsing. */
+function createRTCIceCandidate(
+  init: RTCIceCandidateInit,
+  fields: RTCIceCandidateFields,
+) {
+  return new RTCIceCandidate({
+    ...init,
+    [parsedFields]: fields,
+  } as RTCIceCandidateInit);
 }
 
 /**
  * Browser-shaped ICE candidate. Besides the signaling fields it exposes the
  * readonly fields of the W3C interface parsed from the candidate a-line
  * (`foundation`, `component`, `priority`, `address`, `protocol`, `port`,
- * `type`, `tcpType`, `relatedAddress`, `relatedPort`; `null` when absent or
- * unparsable). Candidates werift creates carry them without reparsing;
- * `toJSON()` keeps only the signaling fields (RTCIceCandidateInit).
- * `relayProtocol` and `url` are not implemented.
+ * `type`, `tcpType`, `relatedAddress`, `relatedPort`). Which candidates give
+ * `null` fields is specified on {@link RTCIceCandidateFields}. Candidates
+ * werift creates carry them without reparsing; `toJSON()` keeps only the
+ * signaling fields (RTCIceCandidateInit). `relayProtocol` and `url` are not
+ * implemented.
  */
 export class RTCIceCandidate implements RTCIceCandidateFields {
   candidate: string = "";
@@ -1128,39 +1045,27 @@ export class RTCIceCandidate implements RTCIceCandidateFields {
   readonly relatedPort!: number | null;
 
   /**
-   * The parsed fields are taken from `props` when any of them is given (an
-   * already parsed candidate), and parsed from `props.candidate` otherwise.
+   * Like the browser constructor, only the `RTCIceCandidateInit` members are
+   * read; the parsed fields always come from `init.candidate` (`""` when
+   * omitted).
    */
-  constructor(
-    props: Partial<
-      Pick<
-        RTCIceCandidate,
-        "candidate" | "sdpMid" | "sdpMLineIndex" | "usernameFragment"
-      >
-    > &
-      Partial<RTCIceCandidateFields> = {},
-  ) {
-    const parsedGiven = Object.keys(emptyCandidateFields).some(
-      (key) => (props as Record<string, unknown>)[key] !== undefined,
-    );
-    Object.assign(
-      this,
-      parsedGiven
-        ? emptyCandidateFields
-        : parseCandidateFields(props.candidate),
-      props,
-    );
-    this.candidate = props.candidate ?? "";
+  constructor(init: RTCIceCandidateInit = {}) {
+    const { sdpMid, sdpMLineIndex, usernameFragment } = init;
+    const candidate = init.candidate ?? "";
+    const fields =
+      (init as { [parsedFields]?: RTCIceCandidateFields })[parsedFields] ??
+      candidateFieldsFromValues(parseCandidateAttribute(candidate));
+    Object.assign(this, fields, {
+      candidate,
+      sdpMid,
+      sdpMLineIndex,
+      usernameFragment,
+    });
   }
 
+  /** Same as `new RTCIceCandidate({ candidate: sdp })`. */
   static fromSdp(sdp: string): RTCIceCandidate {
-    // 不正な a-line からは派生属性を公開せず、すべて null にする
-    if (!isValidCandidateSdp(sdp)) {
-      return new RTCIceCandidate({ candidate: sdp });
-    }
-    const ice = Candidate.fromSdp(sdp);
-    const candidate = candidateFromIce(ice);
-    return candidate.toJSON();
+    return new RTCIceCandidate({ candidate: sdp });
   }
 
   static isThis(o: any) {
@@ -1201,36 +1106,43 @@ export class IceCandidate {
     public ufrag?: string,
   ) {}
 
+  /** The parsed fields are validated from these typed values, not by reparsing. */
   toJSON(): RTCIceCandidate {
-    const candidate = candidateToSdp(this);
-    return new RTCIceCandidate({
-      candidate,
-      sdpMLineIndex: this.sdpMLineIndex,
-      sdpMid: this.sdpMid,
-      usernameFragment: this.ufrag,
-      // 不正な内部値は公開せず、すべて null にする
-      ...(isValidCandidateSdp(candidate)
-        ? candidateFieldsFromIce(this)
-        : emptyCandidateFields),
-    });
+    return createRTCIceCandidate(
+      {
+        candidate: candidateToSdp(this),
+        sdpMLineIndex: this.sdpMLineIndex,
+        sdpMid: this.sdpMid,
+        usernameFragment: this.ufrag,
+      },
+      candidateFieldsFromValues(this),
+    );
   }
 
+  /**
+   * Returns `undefined` when `data.candidate` is empty or violates the grammar
+   * documented on {@link RTCIceCandidateFields}.
+   */
   static fromJSON(data: RTCIceCandidate | RTCIceCandidateInit) {
-    try {
-      if (!data.candidate) {
-        throw new Error("candidate is required");
-      }
-      const normalizedCandidate = data.candidate.startsWith("candidate:")
-        ? data.candidate.slice("candidate:".length)
-        : data.candidate;
-      if (!isValidCandidateSdp(normalizedCandidate)) {
-        throw new Error("invalid candidate");
-      }
-      const candidate = candidateFromSdp(normalizedCandidate);
-      candidate.sdpMLineIndex = data.sdpMLineIndex ?? undefined;
-      candidate.sdpMid = data.sdpMid ?? undefined;
-      return candidate;
-    } catch (error) {}
+    const values = parseCandidateAttribute(data.candidate ?? "");
+    if (!values) return;
+    const candidate = new IceCandidate(
+      values.component,
+      values.foundation,
+      values.ip,
+      values.port,
+      values.priority,
+      values.protocol,
+      values.type,
+      values.generation,
+      values.ufrag,
+    );
+    candidate.relatedAddress = values.relatedAddress;
+    candidate.relatedPort = values.relatedPort;
+    candidate.tcpType = values.tcpType;
+    candidate.sdpMLineIndex = data.sdpMLineIndex ?? undefined;
+    candidate.sdpMid = data.sdpMid ?? undefined;
+    return candidate;
   }
 }
 

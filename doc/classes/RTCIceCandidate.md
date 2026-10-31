@@ -9,10 +9,11 @@
 Browser-shaped ICE candidate. Besides the signaling fields it exposes the
 readonly fields of the W3C interface parsed from the candidate a-line
 (`foundation`, `component`, `priority`, `address`, `protocol`, `port`,
-`type`, `tcpType`, `relatedAddress`, `relatedPort`; `null` when absent or
-unparsable). Candidates werift creates carry them without reparsing;
-`toJSON()` keeps only the signaling fields (RTCIceCandidateInit).
-`relayProtocol` and `url` are not implemented.
+`type`, `tcpType`, `relatedAddress`, `relatedPort`). Which candidates give
+`null` fields is specified on [RTCIceCandidateFields](../interfaces/RTCIceCandidateFields.md). Candidates
+werift creates carry them without reparsing; `toJSON()` keeps only the
+signaling fields (RTCIceCandidateInit). `relayProtocol` and `url` are not
+implemented.
 
 ## Implements
 
@@ -22,16 +23,17 @@ unparsable). Candidates werift creates carry them without reparsing;
 
 ### Constructor
 
-> **new RTCIceCandidate**(`props?`): `RTCIceCandidate`
+> **new RTCIceCandidate**(`init?`): `RTCIceCandidate`
 
-The parsed fields are taken from `props` when any of them is given (an
-already parsed candidate), and parsed from `props.candidate` otherwise.
+Like the browser constructor, only the `RTCIceCandidateInit` members are
+read; the parsed fields always come from `init.candidate` (`""` when
+omitted).
 
 #### Parameters
 
-##### props?
+##### init?
 
-`Partial`\<`Pick`\<`RTCIceCandidate`, `"usernameFragment"` \| `"candidate"` \| `"sdpMid"` \| `"sdpMLineIndex"`\>\> & `Partial`\<[`RTCIceCandidateFields`](../interfaces/RTCIceCandidateFields.md)\> = `{}`
+[`RTCIceCandidateInit`](../interfaces/RTCIceCandidateInit.md) = `{}`
 
 #### Returns
 
@@ -192,6 +194,8 @@ already parsed candidate), and parsed from `props.candidate` otherwise.
 ### fromSdp()
 
 > `static` **fromSdp**(`sdp`): `RTCIceCandidate`
+
+Same as `new RTCIceCandidate({ candidate: sdp })`.
 
 #### Parameters
 
