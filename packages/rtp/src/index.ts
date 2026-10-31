@@ -5,6 +5,7 @@ export * from "./codec";
 export * from "./helper";
 export * from "./rtcp/header";
 export * from "./rtcp/psfb";
+export * from "./rtcp/psfb/fullIntraRequest";
 export * from "./rtcp/psfb/pictureLossIndication";
 export * from "./rtcp/psfb/remb";
 export * from "./rtcp/rr";

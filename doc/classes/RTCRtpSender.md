@@ -46,9 +46,26 @@
 
 ***
 
+### onFullIntraRequest
+
+> `readonly` **onFullIntraRequest**: [`Event`](Event.md)\<\[[`FullIntraRequest`](FullIntraRequest.md)\]\>
+
+Fires for a FIR addressed to this sender with a new sequence number (RFC 5104 4.3.1).
+
+***
+
 ### onGenericNack
 
 > `readonly` **onGenericNack**: [`Event`](Event.md)\<\[[`GenericNack`](GenericNack.md)\]\>
+
+***
+
+### onKeyFrameRequest
+
+> `readonly` **onKeyFrameRequest**: [`Event`](Event.md)\<\[`"fir"` \| `"pli"`\]\>
+
+Fires for every key frame request addressed to this sender: each PLI, and each FIR
+that is not a retransmission. Fires in addition to onPictureLossIndication / onFullIntraRequest.
 
 ***
 
@@ -281,13 +298,21 @@ The same sender can resume sending after `replaceTrack(track)`.
 
 ### handleRtcpPacket()
 
-> **handleRtcpPacket**(`rtcpPacket`): `void`
+> **handleRtcpPacket**(`rtcpPacket`, `firEntries?`): `void`
 
 #### Parameters
 
 ##### rtcpPacket
 
 [`RtcpPacket`](../type-aliases/RtcpPacket.md)
+
+##### firEntries?
+
+`firEntry`[]
+
+Internal: the FCI entries of a FIR the router resolved to
+this sender (see `KeyFrameRequestRouting`). Defaults to the entries for
+the own SSRC.
 
 #### Returns
 
