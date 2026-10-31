@@ -27,7 +27,7 @@ describe("utils", () => {
 
       // Assert: 標準形式で読んだ差が 800ms
       expect(ntpDiffMs(b, a)).toBeCloseTo(800, 2);
-      expect(a).toBe(rfc3550Ntp(base + 100));
+      expect(Math.abs(ntpDiffMs(a, rfc3550Ntp(base + 100)))).toBeLessThan(0.01);
     });
 
     test("ntpTimeToEpochMs は ntpTime の逆変換になる", () => {

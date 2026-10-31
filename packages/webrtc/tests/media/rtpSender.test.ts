@@ -1296,6 +1296,11 @@ describe("media/rtpSender RTCP Sender Report clock mapping", () => {
   const expectedNtp = (nowMs: number) =>
     rfc3550Ntp(performance.timeOrigin + nowMs);
 
+  /** 2^-32 秒の分解能と double の丸めを考慮し、0.01ms 以内なら同一時刻とみなす */
+  const expectNtpCloseTo = (actual: bigint, expected: bigint) => {
+    expect(Math.abs(ntpDiffMs(actual, expected))).toBeLessThan(0.01);
+  };
+
   test("RTP 送出直後の SR は直前パケットのアンカーに対応する", async () => {
     const { sender, clock } = arrangeSender();
 
@@ -1305,7 +1310,7 @@ describe("media/rtpSender RTCP Sender Report clock mapping", () => {
 
     // Assert: 経過 0ms なので RTP ts はアンカーそのもの、NTP は生成時刻。
     expect(sr.senderInfo.rtpTimestamp).toBe(480000);
-    expect(sr.senderInfo.ntpTimestamp).toBe(expectedNtp(clock.nowMs));
+    expectNtpCloseTo(sr.senderInfo.ntpTimestamp, expectedNtp(clock.nowMs));
   });
 
   test("最後の RTP から 700ms 後の SR は送信時刻の NTP と外挿した RTP ts (48kHz)", async () => {
@@ -1317,8 +1322,12 @@ describe("media/rtpSender RTCP Sender Report clock mapping", () => {
     const sr = buildSenderReportAt(sender, clock.nowMs);
 
     // Assert: NTP は 700ms 後の時刻で、RTP ts は 0.7 * 48000 だけ進む。
-    expect(sr.senderInfo.ntpTimestamp).toBe(expectedNtp(clock.nowMs));
-    expect(sr.senderInfo.ntpTimestamp).not.toBe(expectedNtp(clock.nowMs - 700));
+    expectNtpCloseTo(sr.senderInfo.ntpTimestamp, expectedNtp(clock.nowMs));
+    expect(
+      Math.abs(
+        ntpDiffMs(sr.senderInfo.ntpTimestamp, expectedNtp(clock.nowMs - 700)),
+      ),
+    ).toBeGreaterThan(600);
     expect(sr.senderInfo.rtpTimestamp).toBe(480000 + 33600);
   });
 
@@ -1532,7 +1541,7 @@ describe("media/rtpSender RTCP Sender Report clock mapping", () => {
 
     // Assert: 送られた SR は最後の RTP 送出時刻ではなく生成時刻に対応する。
     const sr = sendRtcp.mock.calls[0][0][0] as RtcpSrPacket;
-    expect(sr.senderInfo.ntpTimestamp).toBe(expectedNtp(clock.nowMs));
+    expectNtpCloseTo(sr.senderInfo.ntpTimestamp, expectedNtp(clock.nowMs));
     expect(sr.senderInfo.rtpTimestamp).toBe(480000 + 33600);
   });
 });
