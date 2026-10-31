@@ -47,6 +47,7 @@ import {
   mediachannel_oneway_answer,
   mediachannel_oneway_offer,
 } from "./handler/mediachannel/oneway";
+import { recordPlaybackHandlers } from "./handler/mediachannel/recordPlayback";
 import {
   mediachannel_red_client_answer,
   mediachannel_red_client_offer,
@@ -214,6 +215,8 @@ function attachWebSocketServer() {
       ...codecRtpHandlers,
       // werift VP8 sources (file playback / dummy media) → Chrome decode E2E
       ...vp8PlaybackHandlers,
+      // Chrome media → werift MediaRecorder (WebM) → DataChannel → Chrome playback
+      ...recordPlaybackHandlers,
     };
 
     const transport = accept();
