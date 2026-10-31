@@ -124,6 +124,42 @@ describe("packages/webrtc/tests/nonstandard/recorder.test.ts", () => {
     }
   });
 
+  it("keeps every received packet when one packet is lost", async () => {
+    // Arrange
+    const dir = await createRecordingDir();
+    const track = createOpusTrack();
+    try {
+      const recorder = new MediaRecorder({
+        path: dir.path("out.ogg"),
+        tracks: [track],
+        disableNtp: true,
+      });
+      await waitForOggRecorderStarted(recorder);
+
+      // Act: パケット 0〜30 のうち 1 だけを欠落させて流し、停止する。
+      const order = Array.from({ length: 31 }, (_, i) => i).filter(
+        (i) => i !== 1,
+      );
+      feedOpusRtp(track, order);
+      await recorder.stop();
+      const buffer = await dir.read("out.ogg");
+
+      // Assert: 正常に受信した 30 パケットの音声がすべて録音に残る。
+      for (const i of order) {
+        expect(buffer.includes(Buffer.from([0xfc, i, 0x00]))).toBe(true);
+      }
+      // Assert: 欠落分は補完され、録音時間は 31 パケット分 (620ms) になる。
+      const input = createOggInput(buffer);
+      try {
+        expect(await input.computeDuration()).toBeCloseTo(0.62, 3);
+      } finally {
+        input.dispose();
+      }
+    } finally {
+      await dir.cleanup();
+    }
+  });
+
   it("finishes the file when stopped right after construction", async () => {
     // Arrange
     const dir = await createRecordingDir();

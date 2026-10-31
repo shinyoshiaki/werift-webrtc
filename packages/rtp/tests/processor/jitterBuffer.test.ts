@@ -1,4 +1,5 @@
 import { RtpHeader, RtpPacket } from "../../src";
+import { JitterBufferBase } from "../../src/extra/processor/jitterBuffer";
 import { JitterBufferTransformer } from "../../src/extra/processor/jitterBufferTransformer";
 
 describe("test JitterBuffer", () => {
@@ -79,5 +80,37 @@ describe("test JitterBuffer", () => {
       const res = (await reader.read()).value!;
       expect(res.rtp!.header.sequenceNumber).toBe(5);
     }
+  });
+
+  it("keeps received packets when one packet is lost and reception continues", () => {
+    // Arrange: 20ms 間隔のパケット 0〜30 のうち 1 だけが欠落する。
+    const jitterBuffer = new JitterBufferBase(48000, { latency: 200 });
+    const received: number[] = [];
+    const lost: { from: number; to: number }[] = [];
+
+    // Act
+    for (let i = 0; i <= 30; i++) {
+      if (i === 1) {
+        continue;
+      }
+      for (const out of jitterBuffer.processInput({
+        rtp: createRtpPacket(i, i * 960),
+      })) {
+        if (out.rtp) received.push(out.rtp.header.sequenceNumber);
+        if (out.isPacketLost) lost.push(out.isPacketLost);
+      }
+    }
+    for (const out of jitterBuffer.processInput({ eol: true })) {
+      if (out.rtp) received.push(out.rtp.header.sequenceNumber);
+    }
+
+    // Assert: 欠落した 1 以外の全パケットが、重複なく順序どおり出力される。
+    expect(received).toEqual([
+      0,
+      ...Array.from({ length: 29 }, (_, i) => i + 2),
+    ]);
+    // Assert: 欠落通知は 1 のみを指す。
+    expect(lost.length).toBeGreaterThan(0);
+    expect(lost[0].from).toBe(1);
   });
 });

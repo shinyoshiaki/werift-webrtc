@@ -73,12 +73,32 @@ export class JitterBufferBase
         from: this.expectNextSeqNum,
         to: timeoutSeqNum,
       };
-      this.presentSeqNum = input.rtp.header.sequenceNumber;
       output.push({ isPacketLost });
-      if (packets) {
-        for (const rtp of [...packets, input.rtp]) {
-          output.push({ rtp });
+
+      // Everything received so far up to this packet is released in order.
+      // Packets still waiting in the buffer must not be skipped just because
+      // the position moves forward: only the missing ones are lost.
+      const base = this.presentSeqNum!;
+      const distance = (rtp: RtpPacket) =>
+        uint16Add(rtp.header.sequenceNumber, -base);
+      const inputSeq = input.rtp.header.sequenceNumber;
+      delete this.rtpBuffer[inputSeq];
+      const released = [...(packets ?? [])];
+      for (const rtp of Object.values(this.rtpBuffer)) {
+        if (distance(rtp) < uint16Add(inputSeq, -base)) {
+          released.push(rtp);
+          delete this.rtpBuffer[rtp.header.sequenceNumber];
         }
+      }
+      if (!released.some((r) => r.header.sequenceNumber === inputSeq)) {
+        released.push(input.rtp);
+      }
+      released.sort((a, b) => distance(a) - distance(b));
+      released.push(...this.resolveBuffer(uint16Add(inputSeq, 1)));
+
+      this.presentSeqNum = released.at(-1)!.header.sequenceNumber;
+      for (const rtp of released) {
+        output.push({ rtp });
       }
       this.internalStats["jitterBuffer"] = new Date().toISOString();
       return output;
