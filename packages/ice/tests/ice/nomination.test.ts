@@ -355,6 +355,36 @@ describe("regular nomination of UDP / relay pairs (full ICE, controlling)", () =
     }
   });
 
+  test("an error answering a repeated nomination does not move it to another pair", async () => {
+    // 1 回目は応答なし、再送 2 回はエラー応答 (401) を返す。
+    const h = createNominationHarness({
+      nominationReply: (index) => (index === 0 ? "hold" : 401),
+    });
+    const high = await h.addRemote(HIGH);
+    const low = await h.addRemote(LOW);
+    await h.connection.addRemoteCandidate(undefined);
+    h.check(high);
+    h.check(low);
+    await h.succeed(low);
+    await h.succeed(high);
+
+    try {
+      // Act: 最初の nomination がタイムアウトし、その後の再送はエラーで終わる。
+      h.nominations()[0].release("failure");
+      await vi.advanceTimersByTimeAsync(1000);
+
+      // Assert: 最初の要求が受理済みかもしれないので、次点の pair へは切り替えない。
+      expect(h.nominations().map((request) => request.addr)).toEqual(
+        Array(3).fill(high.remoteAddr),
+      );
+      expect(low.nominated).toBe(false);
+      expect(h.connection.nominated).toBeUndefined();
+      expect(h.connection.state).toBe("failed");
+    } finally {
+      await h.connection.close();
+    }
+  });
+
   test("a restart after an abandoned nomination nominates again", async () => {
     const h = createNominationHarness({
       nominationReply: (index) => (index < 3 ? "hold" : "success"),
@@ -535,6 +565,33 @@ describe("regular nomination of the provisional generation", () => {
     }
   });
 
+  test("an error answering a repeated provisional nomination does not move it to another pair", async () => {
+    const h = createNominationHarness({
+      nominationReply: (index) => (index === 0 ? "hold" : 401),
+    });
+    h.stageProvisional();
+    const high = await h.addProvisionalRemote(HIGH);
+    const low = await h.addProvisionalRemote(LOW);
+    await h.connection.addProvisionalRemoteCandidate(undefined);
+    await h.succeed(low);
+    await h.succeed(high);
+
+    try {
+      // Act: 最初の provisional nomination がタイムアウトし、再送はエラーで終わる。
+      h.nominations()[0].release("failure");
+      await vi.advanceTimersByTimeAsync(1000);
+
+      // Assert: 送り先は同じ pair のままで、次点の pair は nominate しない。
+      expect(h.nominations().map((request) => request.addr)).toEqual(
+        Array(3).fill(high.remoteAddr),
+      );
+      expect(low.nominated).toBe(false);
+      expect(h.connection.provisionalNominated).toBeUndefined();
+    } finally {
+      await h.connection.close();
+    }
+  });
+
   test("a replacement pranswer invalidates the pending nomination timer", async () => {
     const h = createNominationHarness();
     h.stageProvisional();
@@ -588,4 +645,25 @@ describe("nomination over real sockets", () => {
       await b.close();
     }
   }, 20_000);
+
+  test("connect() rejects when every nomination response is lost", async () => {
+    vi.useRealTimers();
+    const { a, b } = await createMultiPathPair();
+    // b はすべての USE-CANDIDATE を処理するが、その応答はすべて失われる。
+    dropNominationResponses(b, Number.POSITIVE_INFINITY);
+
+    try {
+      // Act: 両端で ICE を実行する。
+      const connecting = a.connect();
+      void b.connect().catch(() => {});
+
+      // Assert: controlling 側の connect() は待ち続けずに拒否され、state は failed。
+      await expect(connecting).rejects.toThrow("ICE negotiation failed");
+      expect(a.state).toBe("failed");
+      expect(a.nominated).toBeUndefined();
+    } finally {
+      await a.close();
+      await b.close();
+    }
+  }, 30_000);
 });

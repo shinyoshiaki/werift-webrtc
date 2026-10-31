@@ -1,6 +1,8 @@
+import type { Connection } from "../../../ice/src";
 import { getHostAddresses } from "../../../ice/src/utils";
 import {
   createLocalTurnServer,
+  dropNominationResponses,
   TURN_TEST_PASSWORD,
   TURN_TEST_USERNAME,
 } from "../../../ice/tests/utils";
@@ -271,6 +273,39 @@ describe("iceTransport", () => {
       }
     });
   });
+
+  test("start() rejects and the transport fails when the nomination is never answered", async () => {
+    // Arrange: controlling / controlled の transport を収集まで進め、
+    // controlled 側は USE-CANDIDATE を処理するが応答をすべて失う。
+    const gatherer1 = new RTCIceGatherer({ useIpv6: false });
+    const transport1 = new RTCIceTransport(gatherer1);
+    transport1.connection.iceControlling = true;
+    const gatherer2 = new RTCIceGatherer({ useIpv6: false });
+    const transport2 = new RTCIceTransport(gatherer2);
+    transport2.connection.iceControlling = false;
+    await Promise.all([gatherer1.gather(), gatherer2.gather()]);
+    dropNominationResponses(
+      transport2.connection as Connection,
+      Number.POSITIVE_INFINITY,
+    );
+    gatherer2.localCandidates.forEach(transport1.addRemoteCandidate);
+    gatherer1.localCandidates.forEach(transport2.addRemoteCandidate);
+    transport1.setRemoteParams(gatherer2.localParameters);
+    transport2.setRemoteParams(gatherer1.localParameters);
+
+    try {
+      // Act: 両端で start する。
+      const starting = transport1.start();
+      void transport2.start().catch(() => {});
+
+      // Assert: 上位 transport の start() は待ち続けずに拒否され、state は failed。
+      await expect(starting).rejects.toThrow("ICE negotiation failed");
+      expect(transport1.state).toBe("failed");
+    } finally {
+      await transport1.stop();
+      await transport2.stop();
+    }
+  }, 30_000);
 
   describe("iceNominationDelayMs", () => {
     test("PeerConfig.iceNominationDelayMs が Connection の nominationDelayMs に伝搬し、ICE server 更新後も残る", async () => {

@@ -54,6 +54,12 @@ const DEFAULT_NOMINATION_DELAY_MS = 300;
  * nomination gives up (each one retransmits as a check does).
  */
 const NOMINATION_ATTEMPTS = 3;
+/**
+ * Check-list result: an unanswered nomination was abandoned. Unlike
+ * ICE_FAILED (which connect() keeps waiting past, as more candidates may
+ * still pair), it ends connect() with an error.
+ */
+const ICE_NOMINATION_ABANDONED = 3;
 
 export class Connection implements IceConnection {
   localUsername = randomString(4);
@@ -726,6 +732,8 @@ export class Connection implements IceConnection {
     generation: ProvisionalGeneration,
     pair: CandidatePair,
     attempt = 1,
+    /** An earlier attempt went unanswered (see `nominatePair`). */
+    maybeAccepted = false,
   ) {
     const revision = generation.revision;
     const belongs = () =>
@@ -741,11 +749,12 @@ export class Connection implements IceConnection {
         }
         return;
       }
-      if (result === "unanswered") {
-        // The peer may have selected this pair: repeat on it, never another.
+      if (result === "unanswered" || maybeAccepted) {
+        // The peer may have selected this pair: repeat on it, never another,
+        // even when a repeat is answered with an error.
         if (attempt < NOMINATION_ATTEMPTS) {
           generation.nominating = true;
-          this.nominateProvisionalPair(generation, pair, attempt + 1);
+          this.nominateProvisionalPair(generation, pair, attempt + 1, true);
           return;
         }
         log("provisional nomination unanswered, giving up", pair.toJSON());
@@ -2616,8 +2625,17 @@ export class Connection implements IceConnection {
     this.nominationAbandoned = false;
   }
 
-  private nominatePair(pair: CandidatePair, attempt = 1) {
-    log("nominate", pair.toJSON(), { attempt });
+  /**
+   * @param maybeAccepted an earlier attempt for `pair` went unanswered: the
+   *   peer may have selected the pair already, so no later outcome lets the
+   *   nomination move to another pair.
+   */
+  private nominatePair(
+    pair: CandidatePair,
+    attempt = 1,
+    maybeAccepted = false,
+  ) {
+    log("nominate", pair.toJSON(), { attempt, maybeAccepted });
     this.nominating = true;
     const generation = this.remoteGeneration;
     const request = this.buildRequest({
@@ -2650,13 +2668,14 @@ export class Connection implements IceConnection {
           if (this.isStaleNomination(pair, generation)) {
             return;
           }
-          if (error instanceof TransactionTimeout) {
+          if (error instanceof TransactionTimeout || maybeAccepted) {
             this.nominationUnanswered(pair, attempt);
             return;
           }
-          // The peer answered with an error (or the request never left, e.g.
-          // a refused TCP connect): it did not select this pair, so only this
-          // pair fails and checkComplete nominates the next one.
+          // The peer answered the first attempt with an error (or it never
+          // left, e.g. a refused TCP connect): the peer did not select this
+          // pair, so only this pair fails and checkComplete nominates the
+          // next one.
           log("nomination failed", pair.toJSON(), error);
           this.nominating = false;
           pair.updateState(CandidatePairState.FAILED);
@@ -2669,14 +2688,16 @@ export class Connection implements IceConnection {
    * No response to a USE-CANDIDATE check. The request may still have reached
    * the peer, and a controlled agent keeps the first pair nominated to it
    * (RFC 8445 §8.1.1): nominating another pair now could leave the two agents
-   * on different pairs. The nomination is repeated on the same pair; when
-   * every attempt goes unanswered, the agent nominates nothing else and fails
-   * (an ICE restart starts over), as a consent expiry does.
+   * on different pairs. The nomination is repeated on the same pair, and an
+   * error answering a repeat does not change that (the first request may
+   * still have been accepted). When no attempt succeeds, the agent nominates
+   * nothing else, connect() rejects and the agent fails (an ICE restart
+   * starts over), as a consent expiry does.
    */
   private nominationUnanswered(pair: CandidatePair, attempt: number) {
     if (attempt < NOMINATION_ATTEMPTS) {
       log("nomination unanswered, repeating", pair.toJSON(), { attempt });
-      this.nominatePair(pair, attempt + 1);
+      this.nominatePair(pair, attempt + 1, true);
       return;
     }
     log("nomination unanswered, giving up", pair.toJSON());
@@ -2686,7 +2707,7 @@ export class Connection implements IceConnection {
     pair.updateState(CandidatePairState.FAILED);
     if (!this.checkListDone) {
       this.checkListDone = true;
-      this.checkListState.put(new Promise((r) => r(ICE_FAILED)));
+      this.checkListState.put(new Promise((r) => r(ICE_NOMINATION_ABANDONED)));
     }
     this.setState("failed");
   }
