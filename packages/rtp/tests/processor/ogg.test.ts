@@ -211,6 +211,77 @@ describe("packages/rtp/tests/processor/ogg.test.ts", () => {
     expect(outputs.at(-1)!.eol).toEqual({ duration: 80 });
   });
 
+  it.each([
+    {
+      name: "a duplicate after a gap",
+      times: [0, 100, 100, 120],
+      kept: [0, 1, 3],
+    },
+    {
+      name: "a late packet after a gap",
+      times: [0, 40, 20, 60],
+      kept: [0, 1, 3],
+    },
+  ])("drops $name without gap filling", async ({ times, kept }) => {
+    // Arrange: 補完を無効にし、ギャップ後に重複・遅延パケットが届く。
+    const frames = createOpusFramesAt(times);
+
+    // Act
+    const outputs = await collectOggOutputs(
+      (ogg) => {
+        for (const frame of frames) {
+          ogg.inputAudio({ frame });
+        }
+        ogg.inputAudio({ eol: true });
+      },
+      { options: { fillGaps: false } },
+    );
+    const pages = parseOggPages(oggOutputsToBuffer(outputs));
+    const packets = oggPagesToPackets(pages.slice(2));
+
+    // Assert: 重複・遅延パケットは捨てられ、補完パケットも入らない。
+    expect(packets.map((p) => p[1])).toEqual(kept);
+    // Assert: 録音は書き込んだ 3 パケット分 (60ms) になる。
+    expect(pages.at(-1)!.granulePosition).toBe(60n * 48n);
+    expect(outputs.at(-1)!.eol).toEqual({ duration: 60 });
+  });
+
+  it("writes every OpusTags page when the vendor spans pages", async () => {
+    // Arrange: 1 ページ (255 segment) に収まらない 65,536 バイトの vendor。
+    const vendor = "v".repeat(65_536);
+    const frames = createOpusFramesAt(range(5));
+
+    // Act
+    const outputs = await collectOggOutputs(
+      (ogg) => {
+        for (const frame of frames) {
+          ogg.inputAudio({ frame });
+        }
+        ogg.inputAudio({ eol: true });
+      },
+      { options: { vendor } },
+    );
+    const buffer = oggOutputsToBuffer(outputs);
+    const pages = parseOggPages(buffer);
+    const packets = oggPagesToPackets(pages);
+
+    // Assert: page sequence が 0 からの連番で、OpusTags の先頭ページも欠けない。
+    expect(pages.map((p) => p.pageSequence)).toEqual(range(pages.length, 1));
+    expect(pages[1].data.subarray(0, 8).toString()).toBe("OpusTags");
+    // Assert: OpusTags は 2 ページ目から複数ページにまたがり、続きのページは continued になる。
+    const tagsPages = pages.slice(1).filter((p) => p.granulePosition !== 960n);
+    expect(pages[2].headerType & 0x01).toBe(0x01);
+    expect(tagsPages.length).toBeGreaterThan(1);
+    // Assert: 組み立て直した OpusTags に vendor 全体が入り、音声パケットが続く。
+    expect(packets[1].subarray(0, 8).toString()).toBe("OpusTags");
+    expect(packets[1].readUInt32LE(8)).toBe(vendor.length);
+    expect(packets[1].subarray(12, 12 + vendor.length).toString()).toBe(vendor);
+    expect(packets.slice(2)).toEqual(frames.map((f) => f.data));
+    // Assert: ヘッダーを含めて 1 回の初期出力にまとまる。
+    expect(outputs[0].kind).toBe("initial");
+    expect(outputs[0].saveToFile!.subarray(0, 4).toString()).toBe("OggS");
+  });
+
   it("writes an EOS page even without audio", async () => {
     // Act: フレームなしで EOL のみ投入する。
     const outputs = await collectOggOutputs((ogg) => {
@@ -327,6 +398,29 @@ describe("packages/rtp/tests/processor/ogg.test.ts", () => {
       // Assert: ffprobe の長さはパケット数 × 20ms と一致する。
       expect(result.duration).toBeCloseTo((packets.length * 960) / 48_000, 4);
       // Assert: 実際にデコードされたサンプル数が全パケット分と一致し、先頭が欠落しない。
+      expect(result.decodedSamples).toBe(packets.length * 960);
+    });
+
+    it("decodes a file whose OpusTags spans pages", async () => {
+      // Arrange: libopus のパケットと、ページをまたぐ長い vendor。
+      const source = parseOggPages(encodeOggOpusWithFfmpeg(1));
+      const packets = oggPagesToPackets(source).slice(2);
+
+      // Act
+      const outputs = await collectOggOutputs(
+        (ogg) => {
+          packets.forEach((data, i) => {
+            ogg.inputAudio({ frame: { data, isKeyframe: true, time: i * 20 } });
+          });
+          ogg.inputAudio({ eol: true });
+        },
+        { options: { vendor: "v".repeat(65_536) } },
+      );
+      const result = probeOggAudio(oggOutputsToBuffer(outputs));
+
+      // Assert: ffprobe / ffmpeg がヘッダーを受け付け、全サンプルをエラーなくデコードできる。
+      expect(result.codecName).toBe("opus");
+      expect(result.decodeErrors).toBe("");
       expect(result.decodedSamples).toBe(packets.length * 960);
     });
   });

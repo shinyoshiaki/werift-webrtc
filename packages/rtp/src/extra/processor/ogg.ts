@@ -71,6 +71,13 @@ export class OggBase {
   private channels: number;
   /** 48 kHz samples written so far, excluding pre-skip */
   private samples = 0;
+  /**
+   * input time position (48 kHz samples from the first frame) that the
+   * written packets reach. Equals `samples` when gaps are filled; without
+   * gap filling it keeps counting the skipped gaps, so late and duplicated
+   * packets are still detected
+   */
+  private position = 0;
   private pendingSamples = 0;
   private baseTime?: number;
   private lastToc?: number;
@@ -109,10 +116,11 @@ export class OggBase {
       0n,
     );
     const headPage = this.pager.flush();
-    this.pager.addPacket(createOpusTags(this.options.vendor), 0n);
+    // a long vendor string makes OpusTags span several pages
+    const tags = this.pager.addPacket(createOpusTags(this.options.vendor), 0n);
     const tagsPage = this.pager.flush();
     this.output({
-      saveToFile: Buffer.concat([...head, ...headPage, ...tagsPage]),
+      saveToFile: Buffer.concat([...head, ...headPage, ...tags, ...tagsPage]),
       kind: "initial",
     });
   }
@@ -141,7 +149,7 @@ export class OggBase {
       (frame.time - this.baseTime) * OpusSamplesPerMs,
     );
     const packetSamples = getOpusPacketSamples(frame.data) ?? GapFillSamples;
-    if (expected + packetSamples / 2 <= this.samples) {
+    if (expected + packetSamples / 2 <= this.position) {
       // late, reordered or duplicated: its span is already written (as audio
       // or as a gap fill), so writing it again would stretch the recording
       this.internalStats["droppedLate"] =
@@ -154,7 +162,7 @@ export class OggBase {
       // The remainder below 20 ms is filled with shorter frames
       const stereo = (this.lastToc ?? 0) & 0x04;
       for (;;) {
-        const gap = expected - this.samples;
+        const gap = expected - this.position;
         const fill = GapFillFrames.find((f) => f.samples <= gap);
         if (!fill) {
           break;
@@ -164,6 +172,8 @@ export class OggBase {
           fill.samples,
         );
       }
+    } else {
+      this.position = Math.max(this.position, expected);
     }
 
     this.lastToc = frame.data[0];
@@ -172,6 +182,7 @@ export class OggBase {
 
   private writePacket(packet: Buffer, samples: number) {
     this.samples += samples;
+    this.position += samples;
     this.pendingSamples += samples;
     const pages = this.pager.addPacket(
       packet,
