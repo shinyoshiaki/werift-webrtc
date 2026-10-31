@@ -82,7 +82,7 @@
 
 ###### senderInfo.ntpTimestamp
 
-> **ntpTimestamp**: `number`
+> **ntpTimestamp**: `any`
 
 ###### senderInfo.rtpTimestamp
 
