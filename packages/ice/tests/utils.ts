@@ -1642,3 +1642,58 @@ export function createNominationHarness({
     replaceProvisionalRemote,
   };
 }
+
+/**
+ * Arrange: `connection` processes the first `count` USE-CANDIDATE checks it
+ * receives (so it may select their pair) but their responses, including the
+ * ones answering retransmissions, never leave: only the response is lost.
+ * Call after gathering, when the connection's sockets exist.
+ */
+export function dropNominationResponses(connection: Connection, count = 1) {
+  const dropped = new Set<string>();
+  let remaining = count;
+  const protocols = (connection as unknown as { protocols: Protocol[] })
+    .protocols;
+  for (const protocol of protocols) {
+    const execute = protocol.onRequestReceived.execute;
+    protocol.onRequestReceived.execute = (message, addr, data) => {
+      const id = message.transactionIdHex;
+      if (
+        message.attributesKeys.includes("USE-CANDIDATE") &&
+        !dropped.has(id) &&
+        remaining > 0
+      ) {
+        remaining--;
+        dropped.add(id);
+      }
+      execute(message, addr, data);
+    };
+    const sendStun = protocol.sendStun.bind(protocol);
+    protocol.sendStun = async (message, addr) => {
+      if (
+        message.messageClass !== classes.REQUEST &&
+        dropped.has(message.transactionIdHex)
+      ) {
+        return;
+      }
+      return sendStun(message, addr);
+    };
+  }
+  return { dropped };
+}
+
+/**
+ * Arrange: a controlling and a controlled host-only agent that each gather
+ * the loopback address beside the machine's own, so several valid pairs
+ * exist. Candidates and credentials are exchanged; checks have not started.
+ */
+export async function createMultiPathPair() {
+  const options: Partial<IceOptions> = {
+    useIpv6: false,
+    additionalHostAddresses: ["127.0.0.1"],
+  };
+  const a = createTestConnection(true, options);
+  const b = createTestConnection(false, options);
+  await inviteAccept(a, b);
+  return { a, b };
+}

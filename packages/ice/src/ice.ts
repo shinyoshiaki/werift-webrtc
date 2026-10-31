@@ -8,7 +8,11 @@ import {
   remoteTcpTypeForIncoming,
 } from "./candidate";
 import { MdnsLookup } from "./dns/lookup";
-import { TransactionCancelled, type TransactionError } from "./exceptions";
+import {
+  TransactionCancelled,
+  type TransactionError,
+  TransactionTimeout,
+} from "./exceptions";
 import { type Cancelable, cancelable, PQueue, randomString } from "./helper";
 import {
   CandidatePair,
@@ -45,6 +49,11 @@ const DEFAULT_STUN_SERVER: Address = ["stun.l.google.com", 19302];
 
 /** Default of `IceOptions.nominationDelayMs`. */
 const DEFAULT_NOMINATION_DELAY_MS = 300;
+/**
+ * USE-CANDIDATE transactions sent for one pair before an unanswered
+ * nomination gives up (each one retransmits as a check does).
+ */
+const NOMINATION_ATTEMPTS = 3;
 
 export class Connection implements IceConnection {
   localUsername = randomString(4);
@@ -101,6 +110,11 @@ export class Connection implements IceConnection {
   private nominationQuietSince?: number;
   /** Re-evaluates the nomination when its deadline passes. */
   private nominationTimer?: ReturnType<typeof setTimeout>;
+  /**
+   * A nomination went unanswered: the peer may have selected that pair, so
+   * no other pair is nominated in this remote generation.
+   */
+  private nominationAbandoned = false;
   /**
    * Aborted when the remote generation ends (restart, restartRemote, close):
    * every check and nomination transaction of that generation stops with it.
@@ -660,7 +674,8 @@ export class Connection implements IceConnection {
       !this.usesRegularNomination() ||
       !generation.started ||
       generation.nominated ||
-      generation.nominating
+      generation.nominating ||
+      generation.nominationAbandoned
     ) {
       this.clearProvisionalNominationTimer(generation);
       return;
@@ -703,27 +718,45 @@ export class Connection implements IceConnection {
     }
     if (decision.action !== "nominate") return;
 
-    const pair = decision.pair;
+    this.nominateProvisionalPair(generation, decision.pair);
+  }
+
+  /** Regular nomination of `pair` in the provisional checklist (see `nominatePair`). */
+  private nominateProvisionalPair(
+    generation: ProvisionalGeneration,
+    pair: CandidatePair,
+    attempt = 1,
+  ) {
     const revision = generation.revision;
     const belongs = () =>
       this.provisional === generation &&
       generation.revision === revision &&
       generation.pairs.includes(pair);
-    void this.nominateProvisional(generation, pair, belongs).then(
-      (nominated) => {
-        if (!belongs()) return;
-        if (nominated) {
-          if (!generation.nominated) {
-            log("provisional nominated", pair.toJSON());
-            generation.nominated = pair;
-          }
+    void this.nominateProvisional(generation, pair, belongs).then((result) => {
+      if (!belongs()) return;
+      if (result === "nominated") {
+        if (!generation.nominated) {
+          log("provisional nominated", pair.toJSON());
+          generation.nominated = pair;
+        }
+        return;
+      }
+      if (result === "unanswered") {
+        // The peer may have selected this pair: repeat on it, never another.
+        if (attempt < NOMINATION_ATTEMPTS) {
+          generation.nominating = true;
+          this.nominateProvisionalPair(generation, pair, attempt + 1);
           return;
         }
-        // Only this pair failed; the next best valid pair is nominated.
+        log("provisional nomination unanswered, giving up", pair.toJSON());
+        generation.nominationAbandoned = true;
         pair.updateState(CandidatePairState.FAILED);
-        this.nominateProvisionalIfReady(generation);
-      },
-    );
+        return;
+      }
+      // Rejected: only this pair failed; the next best valid pair is nominated.
+      pair.updateState(CandidatePairState.FAILED);
+      this.nominateProvisionalIfReady(generation);
+    });
   }
 
   private clearProvisionalNominationTimer(generation: ProvisionalGeneration) {
@@ -736,14 +769,19 @@ export class Connection implements IceConnection {
   private resetProvisionalNominationDelay(generation: ProvisionalGeneration) {
     this.clearProvisionalNominationTimer(generation);
     generation.quietSince = undefined;
+    generation.nominationAbandoned = false;
   }
 
-  /** Send the USE-CANDIDATE check for `pair`; true when it was answered. */
+  /**
+   * Send the USE-CANDIDATE check for `pair`: "nominated" when answered,
+   * "unanswered" on a timeout (the peer may have selected the pair),
+   * "rejected" otherwise (an error response, or the request never left).
+   */
   private async nominateProvisional(
     generation: ProvisionalGeneration,
     pair: CandidatePair,
     belongs: () => boolean,
-  ) {
+  ): Promise<"nominated" | "unanswered" | "rejected"> {
     generation.nominating = true;
     const request = this.buildRequest({
       nominate: true,
@@ -767,10 +805,10 @@ export class Connection implements IceConnection {
       );
       pair.responsesReceived++;
       if (belongs()) pair.nominated = true;
-      return true;
+      return "nominated";
     } catch (error) {
       log("provisional regular nomination failed", error);
-      return false;
+      return error instanceof TransactionTimeout ? "unanswered" : "rejected";
     } finally {
       if (belongs()) generation.nominating = false;
     }
@@ -2524,6 +2562,7 @@ export class Connection implements IceConnection {
       !this.usesRegularNomination() ||
       this.nominated ||
       this.nominating ||
+      this.nominationAbandoned ||
       this.state === "closed"
     ) {
       this.clearNominationTimer();
@@ -2574,10 +2613,11 @@ export class Connection implements IceConnection {
   private resetNominationDelay() {
     this.clearNominationTimer();
     this.nominationQuietSince = undefined;
+    this.nominationAbandoned = false;
   }
 
-  private nominatePair(pair: CandidatePair) {
-    log("nominate", pair.toJSON());
+  private nominatePair(pair: CandidatePair, attempt = 1) {
+    log("nominate", pair.toJSON(), { attempt });
     this.nominating = true;
     const generation = this.remoteGeneration;
     const request = this.buildRequest({
@@ -2610,13 +2650,45 @@ export class Connection implements IceConnection {
           if (this.isStaleNomination(pair, generation)) {
             return;
           }
-          // Only this pair failed; checkComplete re-evaluates the next one.
+          if (error instanceof TransactionTimeout) {
+            this.nominationUnanswered(pair, attempt);
+            return;
+          }
+          // The peer answered with an error (or the request never left, e.g.
+          // a refused TCP connect): it did not select this pair, so only this
+          // pair fails and checkComplete nominates the next one.
           log("nomination failed", pair.toJSON(), error);
           this.nominating = false;
           pair.updateState(CandidatePairState.FAILED);
           this.checkComplete(pair);
         },
       );
+  }
+
+  /**
+   * No response to a USE-CANDIDATE check. The request may still have reached
+   * the peer, and a controlled agent keeps the first pair nominated to it
+   * (RFC 8445 §8.1.1): nominating another pair now could leave the two agents
+   * on different pairs. The nomination is repeated on the same pair; when
+   * every attempt goes unanswered, the agent nominates nothing else and fails
+   * (an ICE restart starts over), as a consent expiry does.
+   */
+  private nominationUnanswered(pair: CandidatePair, attempt: number) {
+    if (attempt < NOMINATION_ATTEMPTS) {
+      log("nomination unanswered, repeating", pair.toJSON(), { attempt });
+      this.nominatePair(pair, attempt + 1);
+      return;
+    }
+    log("nomination unanswered, giving up", pair.toJSON());
+    this.nominating = false;
+    this.nominationAbandoned = true;
+    this.clearNominationTimer();
+    pair.updateState(CandidatePairState.FAILED);
+    if (!this.checkListDone) {
+      this.checkListDone = true;
+      this.checkListState.put(new Promise((r) => r(ICE_FAILED)));
+    }
+    this.setState("failed");
   }
 
   /** The agent was closed or restarted while the nomination was in flight. */
@@ -2952,6 +3024,8 @@ type ProvisionalGeneration = {
   quietSince?: number;
   /** Re-evaluates the nomination when its deadline passes. */
   nominationTimer?: ReturnType<typeof setTimeout>;
+  /** A nomination went unanswered; no other pair is nominated (see `Connection.nominationAbandoned`). */
+  nominationAbandoned?: boolean;
   started: boolean;
   /** Aborts the checks in flight when the checklist is replaced or dropped. */
   checks: AbortController;
