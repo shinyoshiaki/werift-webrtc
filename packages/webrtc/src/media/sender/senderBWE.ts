@@ -7,6 +7,13 @@ import { CumulativeResult } from "./cumulativeResult";
 
 const COUNTER_MAX = 20;
 const SCORE_MAX = 10;
+/**
+ * A sent packet is kept for its transport-cc feedback this long: feedback
+ * arrives within a round trip, and the estimate only uses the last second.
+ */
+const SENT_INFO_MAX_AGE_MS = 5000;
+/** At most half the 16-bit sequence space, so a wrapped number never aliases a kept one. */
+const SENT_INFO_MAX_COUNT = 0x8000;
 
 export class SenderBandwidthEstimator {
   congestion = false;
@@ -18,7 +25,8 @@ export class SenderBandwidthEstimator {
 
   private congestionCounter = 0;
   private cumulativeResult = new CumulativeResult();
-  private sentInfos: { [key: number]: SentInfo } = {};
+  /** Packets awaiting feedback by transport-wide sequence number, oldest first. */
+  private readonly sentInfos = new Map<number, SentInfo>();
   private _congestionScore = 1;
   /**1~10 big is worth*/
   get congestionScore() {
@@ -63,7 +71,7 @@ export class SenderBandwidthEstimator {
       if (!result.received) continue;
 
       const wideSeq = result.sequenceNumber;
-      const info = this.sentInfos[wideSeq];
+      const info = this.sentInfos.get(wideSeq);
       if (!info) continue;
       if (!result.receivedAtMs) continue;
 
@@ -106,14 +114,20 @@ export class SenderBandwidthEstimator {
   }
 
   rtpPacketSent(sentInfo: SentInfo) {
-    Object.keys(sentInfo)
-      .map((v) => Number(v))
-      .sort()
-      .filter((seq) => seq < sentInfo.wideSeq)
-      .forEach((seq) => {
-        delete this.sentInfos[seq];
-      });
-    this.sentInfos[sentInfo.wideSeq] = sentInfo;
+    // A wrapped sequence number replaces its old entry at the newest position.
+    this.sentInfos.delete(sentInfo.wideSeq);
+    this.sentInfos.set(sentInfo.wideSeq, sentInfo);
+    // Drop packets too old for feedback to matter (every sent packet stayed
+    // here before, one entry per packet for the sender's lifetime).
+    for (const [seq, info] of this.sentInfos) {
+      if (
+        this.sentInfos.size <= SENT_INFO_MAX_COUNT &&
+        sentInfo.sentAtMs - info.sentAtMs <= SENT_INFO_MAX_AGE_MS
+      ) {
+        break;
+      }
+      this.sentInfos.delete(seq);
+    }
   }
 }
 

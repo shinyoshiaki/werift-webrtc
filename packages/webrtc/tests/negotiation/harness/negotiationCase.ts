@@ -37,9 +37,31 @@ import {
  * - `expectSessionContinues(a, b)` after the body unless `exempt`;
  * - a failure names the case, its `ref`, the number and text of the last
  *   operation and the operations before it (vitest adds expected / actual).
+ *
+ * Rules for a case:
+ * - Expected values are literals or values the case saved before the
+ *   operation, never computed by the code under test, and a case keeps the
+ *   operation sequence of the regression it records (no split into
+ *   independent cases).
+ * - A case uses only descriptions and candidates werift creates itself (an
+ *   offer under another local policy through `createRewrittenOffer`
+ *   included); another implementation's SDP shapes and candidates (mDNS) are
+ *   the end-to-end tests' responsibility (`e2e/`).
+ * - A verdict that is only invariants, an unchanged state, continued traffic
+ *   or a baseline match belongs to a property in `tests/pbt` (a fixed scene),
+ *   not to a case; cases keep concrete ICE / DTLS / BUNDLE / RFC codec
+ *   values, timing, concurrency and special environments.
+ * - Tests whose control flow is a matrix stay table-driven with the
+ *   `negotiationTest` fixtures (the interrupt and close-timing matrices).
+ *   Helpers several cases of a file share sit at the top of that file;
+ *   Arrange helpers belong in `negotiationTransactionUtils.ts`.
  */
 export type CaseMeta = {
-  /** Spec IDs of NEGOTIATION_SPEC_COVERAGE.md and, for a regression, `origin: ...`. */
+  /**
+   * Requirement IDs of the negotiation transaction ticket (section and item,
+   * e.g. `2.1-T4`; the test name states the requirement) and, for a
+   * regression, `origin: ...`.
+   */
   ref: string;
   /** Why the peers do not reach expectSessionContinues. */
   exempt?: string;
@@ -112,6 +134,9 @@ export type Given<T> = T extends {
       }
     : Omit<T, "close">;
 
+/** Operations a failure prints (and the log keeps). */
+const OPERATION_LOG = 40;
+
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** An SDP without its candidate and end-of-candidates lines. */
@@ -177,7 +202,10 @@ async function flows<T>(
 export class NegotiationCase {
   private readonly peers = new Map<RTCPeerConnection, string>();
   private readonly cleanup: (() => unknown)[] = [];
+  /** The last `OPERATION_LOG` operations (a failure prints them). */
   private readonly operations: string[] = [];
+  /** Operations logged so far (numbers the log). */
+  private operationCount = 0;
   private session?: DuplexSession;
   private exemptReason?: string;
   private observer?: Observer;
@@ -299,7 +327,6 @@ export class NegotiationCase {
     );
   }
 
-  /** Act: `addIceCandidate`. */
   async addCandidate(
     pc: RTCPeerConnection,
     candidate: Parameters<RTCPeerConnection["addIceCandidate"]>[0],
@@ -522,7 +549,7 @@ export class NegotiationCase {
    * candidates, is the other's current remote description). While a
    * renegotiation is pending, a stream on a transport that is not connected
    * yet is not required: a pranswer stages a new transport's parameters for
-   * the final answer ("Connection start" in NEGOTIATION_TRANSACTION.md).
+   * the final answer (see `src/negotiation/transportActivation.ts`).
    */
   async expectTraffic({ final = false } = {}) {
     const peers = ["a", "b"].map(
@@ -669,24 +696,26 @@ export class NegotiationCase {
         cause: original,
       });
     }
-    const last = this.operations.length;
+    const last = this.operationCount;
+    const first = last - this.operations.length + 1;
     e.message = [
       `case "${this.name}" (${this.meta.ref})`,
       last
-        ? `after operation #${last}: ${this.operations[last - 1]}`
+        ? `after operation #${last}: ${this.operations.at(-1)}`
         : "before the first operation",
       e.message,
       `operations:\n${this.operations
-        .map((op, i) => `  #${i + 1} ${op}`)
-        .slice(-40)
+        .map((op, i) => `  #${first + i} ${op}`)
         .join("\n")}`,
     ].join("\n");
     return e;
   }
 
   private log(operation: string) {
+    // 失敗時に出すのは最後の分だけなので、それより古い記録は持たない (長い周期で増えない)。
     this.operations.push(operation);
-    return `op${this.operations.length}`;
+    if (this.operations.length > OPERATION_LOG) this.operations.shift();
+    return `op${++this.operationCount}`;
   }
 
   private label(pc: RTCPeerConnection) {

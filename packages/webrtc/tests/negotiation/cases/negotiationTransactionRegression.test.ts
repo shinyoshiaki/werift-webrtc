@@ -34,7 +34,6 @@ import {
   waitForPeersConnected,
 } from "../harness/negotiationTransactionUtils";
 
-/** Wait for the next macrotask (`setImmediate`). */
 const nextMacrotask = () => new Promise((resolve) => setImmediate(resolve));
 
 /**
@@ -367,7 +366,6 @@ describeCases("negotiation transaction live-state regressions", () => {
       ).toEqual(held.map(() => true));
       c.invariants(b);
 
-      // Act: final answer で確定する。
       await c.setLocal(b, answer.sdp, { type: "answer" });
       await c.setRemote(a, answer.sdp, { type: "answer" });
       await waitForPeersConnected(a, b);
@@ -386,7 +384,6 @@ describeCases("negotiation transaction live-state regressions", () => {
       // Assert: その後も次の offer・ICE restart・DataChannel と transceiver の追加・相手からの再 offer の後に通信できる。
       await expectSessionContinues(a, b, "split-pranswer-again");
 
-      // Act: close する。
       c.exempt("close() is the operation under test after the continuation");
       const transports = [...heldTransports(a), ...heldTransports(b), ...held];
       await Promise.all([a.close(), b.close()]);
@@ -579,7 +576,6 @@ describeCases("negotiation transaction live-state regressions", () => {
       a.addTransceiver("video");
       await c.offer(a);
 
-      // Act: answer を作る。
       const answer = await b.createAnswer();
 
       // Assert: answer の codec 順は remote offer ではなく answerer の設定順になる。
