@@ -16,17 +16,17 @@ ide:
 
 設計の正は設計文書です。遷移表（current / pending / rollback baseline / speculative side effect）、各 subsystem の mutation matrix、ルーティングキーの規則、生成済み description の再利用契約、pending 中に有効な値の表、develop との挙動差の棚卸し、コード構成、対象外の範囲を定義しています。チケットの各文と試験の対応表も置いています。
 
-- 遷移表: [packages/webrtc/NEGOTIATION_TRANSACTION.md:197](review-file:packages/webrtc/NEGOTIATION_TRANSACTION.md:197)
-- mutation matrix: [packages/webrtc/NEGOTIATION_TRANSACTION.md:208](review-file:packages/webrtc/NEGOTIATION_TRANSACTION.md:208)
-- ルーティングキーの規則: [packages/webrtc/NEGOTIATION_TRANSACTION.md:352](review-file:packages/webrtc/NEGOTIATION_TRANSACTION.md:352)
-- コード構成と、状態の snapshot の持ち主: [packages/webrtc/NEGOTIATION_TRANSACTION.md:469](review-file:packages/webrtc/NEGOTIATION_TRANSACTION.md:469)
-- 生成済み description の再利用契約: [packages/webrtc/NEGOTIATION_TRANSACTION.md:122](review-file:packages/webrtc/NEGOTIATION_TRANSACTION.md:122)
-- pending 中に有効な値の表: [packages/webrtc/NEGOTIATION_TRANSACTION.md:501](review-file:packages/webrtc/NEGOTIATION_TRANSACTION.md:501)
-- 拒否された application m-line: [packages/webrtc/NEGOTIATION_TRANSACTION.md:779](review-file:packages/webrtc/NEGOTIATION_TRANSACTION.md:779)
-- 操作の連鎖・接続の開始・探索の軸: [packages/webrtc/NEGOTIATION_TRANSACTION.md:820](review-file:packages/webrtc/NEGOTIATION_TRANSACTION.md:820)
-- develop との挙動差の棚卸し: [packages/webrtc/NEGOTIATION_TRANSACTION.md:874](review-file:packages/webrtc/NEGOTIATION_TRANSACTION.md:874)
-- 対象外・既知の制約: [packages/webrtc/NEGOTIATION_TRANSACTION.md:902](review-file:packages/webrtc/NEGOTIATION_TRANSACTION.md:902)
-- 仕様と試験の対応表（チケットの全 276 文）: [packages/webrtc/NEGOTIATION_SPEC_COVERAGE.md](review-file:packages/webrtc/NEGOTIATION_SPEC_COVERAGE.md)
+- 遷移表: [packages/webrtc/src/negotiationTransaction.ts:116](review-file:packages/webrtc/src/negotiationTransaction.ts:116)
+- mutation matrix（subsystem ごとに pending が変えてよいもの）: [packages/webrtc/src/negotiationTransaction.ts:127](review-file:packages/webrtc/src/negotiationTransaction.ts:127)
+- ルーティングキーの規則: [packages/webrtc/src/media/router.ts:36](review-file:packages/webrtc/src/media/router.ts:36)
+- コード構成と、状態の snapshot の持ち主: [packages/webrtc/src/negotiationTransaction.ts:151](review-file:packages/webrtc/src/negotiationTransaction.ts:151)
+- 生成済み description の再利用契約（実行できる契約表）: [packages/webrtc/tools/negotiation-diff/scenarios.ts:340](review-file:packages/webrtc/tools/negotiation-diff/scenarios.ts:340)
+- pending 中に有効な値の表: [packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts:469](review-file:packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts:469)
+- 拒否された application m-line: [packages/webrtc/src/sctpManager.ts:23](review-file:packages/webrtc/src/sctpManager.ts:23)
+- 操作の連鎖・接続の開始: [packages/webrtc/src/peerConnection.ts:736](review-file:packages/webrtc/src/peerConnection.ts:736)、[packages/webrtc/src/negotiation/transportActivation.ts:18](review-file:packages/webrtc/src/negotiation/transportActivation.ts:18)。探索の軸: [packages/webrtc/tools/negotiation-diff/run.ts:1](review-file:packages/webrtc/tools/negotiation-diff/run.ts:1)
+- develop との挙動差の棚卸し: チケット 2.11 と各節の記録（設計文書は削除し、規則は実装の TSDoc とテストに移した）
+- 対象外・既知の制約: チケット 6 章。実装に関わる制約は該当コードの TSDoc にある
+- 仕様と試験の対応: 各テストの名前と `ref`（チケットの要件 ID）。対応表の文書は削除した
 - チケット: [TICKET-support-fallback-state.md](review-file:TICKET-support-fallback-state.md)（同じ内容を [TICKET-ticket-0ad06d37-d829-4a08-8e49-2da46e551b79.md](review-file:TICKET-ticket-0ad06d37-d829-4a08-8e49-2da46e551b79.md) にも置いています）
 
 変更規模は、最新の develop との merge base（`71b6ddbf`）から `packages/` で 68 ファイル（+28,052 / −1,726）です。うち `webrtc` と `ice` の `src` が 26 ファイル（+7,271 / −1,698）で、残りは主にテストと探索ツールです。公開 API の値は増やしていません（追加したのは内部用の型とフィールドだけです。4 章を参照）。
@@ -35,13 +35,13 @@ ide:
 
 ### 2.1 transaction coordinator（baseline / checkpoint / commit / rollback）
 
-`NegotiationTransaction` が、交渉で変わる状態の baseline と、提案が作った資源を 1 か所で所有します（[packages/webrtc/src/negotiationTransaction.ts:87](review-file:packages/webrtc/src/negotiationTransaction.ts:87)）。
+`NegotiationTransaction` が、交渉で変わる状態の baseline と、提案が作った資源を 1 か所で所有します（[packages/webrtc/src/negotiationTransaction.ts:163](review-file:packages/webrtc/src/negotiationTransaction.ts:163)）。
 
-- transaction の開始（`createOffer` が取った snapshot を baseline に使う）: [packages/webrtc/src/negotiationTransaction.ts:147](review-file:packages/webrtc/src/negotiationTransaction.ts:147)
-- commit（staged route / receive 値の切替、置換された transceiver と使われない transport の停止）: [packages/webrtc/src/negotiationTransaction.ts:179](review-file:packages/webrtc/src/negotiationTransaction.ts:179)
-- replacement（baseline を残したまま戻す）と rollback: [packages/webrtc/src/negotiationTransaction.ts:239](review-file:packages/webrtc/src/negotiationTransaction.ts:239)
-- 1 回の操作の途中失敗を、その操作の分だけ戻す checkpoint: [packages/webrtc/src/negotiationTransaction.ts:279](review-file:packages/webrtc/src/negotiationTransaction.ts:279)
-- 復元処理（各コンポーネントの restore を順に呼び、使われなくなった transport を止める）: [packages/webrtc/src/negotiationTransaction.ts:440](review-file:packages/webrtc/src/negotiationTransaction.ts:440)
+- transaction の開始（`createOffer` が取った snapshot を baseline に使う）: [packages/webrtc/src/negotiationTransaction.ts:223](review-file:packages/webrtc/src/negotiationTransaction.ts:223)
+- commit（staged route / receive 値の切替、置換された transceiver と使われない transport の停止）: [packages/webrtc/src/negotiationTransaction.ts:255](review-file:packages/webrtc/src/negotiationTransaction.ts:255)
+- replacement（baseline を残したまま戻す）と rollback: [packages/webrtc/src/negotiationTransaction.ts:315](review-file:packages/webrtc/src/negotiationTransaction.ts:315)
+- 1 回の操作の途中失敗を、その操作の分だけ戻す checkpoint: [packages/webrtc/src/negotiationTransaction.ts:355](review-file:packages/webrtc/src/negotiationTransaction.ts:355)
+- 復元処理（各コンポーネントの restore を順に呼び、使われなくなった transport を止める）: [packages/webrtc/src/negotiationTransaction.ts:516](review-file:packages/webrtc/src/negotiationTransaction.ts:516)
 
 **状態の snapshot は、その状態を持つコンポーネントが自分で取り、自分で戻します。** transaction は、それらを組み合わせるだけです。新しい状態を足すときは、そのコンポーネントの snapshot / restore の組だけを直せば済みます。rollback で特別に残す規則も、それぞれの持ち主に置いています。
 
@@ -49,9 +49,9 @@ ide:
 | --- | --- | --- |
 | transceiver（sender・receiver を含む） | [packages/webrtc/src/media/rtpTransceiver.ts:180](review-file:packages/webrtc/src/media/rtpTransceiver.ts:180) | transaction 中にアプリが呼んだ `stop()` |
 | receiver | [packages/webrtc/src/media/rtpReceiver.ts:248](review-file:packages/webrtc/src/media/rtpReceiver.ts:248) | RID パケットから学習した SSRC（その track が残る場合） |
-| transceiver 群（並び順、track 通知、提案が作った transceiver の除去） | [packages/webrtc/src/transceiverManager.ts:133](review-file:packages/webrtc/src/transceiverManager.ts:133) | remote offer が作った transceiver は、sender に track があるときだけ残す（develop と同じ。`stop()`・direction・codec の選択では残さない。[packages/webrtc/src/media/rtpTransceiver.ts:245](review-file:packages/webrtc/src/media/rtpTransceiver.ts:245)）。アプリが transaction 中に追加し、交渉していない transceiver は、rolled back の offer が付けた MID と m-line を外す（[packages/webrtc/src/transceiverManager.ts:179](review-file:packages/webrtc/src/transceiverManager.ts:179)） |
-| router | [packages/webrtc/src/media/router.ts:123](review-file:packages/webrtc/src/media/router.ts:123) | パケットから学習した経路、未停止の各 sender の経路 |
-| SCTP | [packages/webrtc/src/sctpManager.ts:138](review-file:packages/webrtc/src/sctpManager.ts:138) | アプリが作った SCTP transport（association が動いていない場合）。提案の SCTP が使った DTLS transport は、他に使われなければ止める（[packages/webrtc/src/negotiationTransaction.ts:461](review-file:packages/webrtc/src/negotiationTransaction.ts:461)） |
+| transceiver 群（並び順、track 通知、提案が作った transceiver の除去） | [packages/webrtc/src/transceiverManager.ts:161](review-file:packages/webrtc/src/transceiverManager.ts:161) | remote offer が作った transceiver は、sender に track があるときだけ残す（develop と同じ。`stop()`・direction・codec の選択では残さない。[packages/webrtc/src/media/rtpTransceiver.ts:245](review-file:packages/webrtc/src/media/rtpTransceiver.ts:245)）。アプリが transaction 中に追加し、交渉していない transceiver は、rolled back の offer が付けた MID と m-line を外す（[packages/webrtc/src/transceiverManager.ts:207](review-file:packages/webrtc/src/transceiverManager.ts:207)） |
+| router | [packages/webrtc/src/media/router.ts:147](review-file:packages/webrtc/src/media/router.ts:147) | パケットから学習した経路、未停止の各 sender の経路 |
+| SCTP | [packages/webrtc/src/sctpManager.ts:163](review-file:packages/webrtc/src/sctpManager.ts:163) | アプリが作った SCTP transport（association が動いていない場合）。提案の SCTP が使った DTLS transport は、他に使われなければ止める（[packages/webrtc/src/negotiationTransaction.ts:537](review-file:packages/webrtc/src/negotiationTransaction.ts:537)） |
 
 提案が作った資源（remote offer が作った transceiver、置換された transceiver、準備済み transport、pending-only transport、owner transport、候補を通知済みの transport）は、`ProposalResources` にまとめています。消去・複製・復元はこのクラスの中の 1 か所だけです（[packages/webrtc/src/negotiationTransaction.ts:27](review-file:packages/webrtc/src/negotiationTransaction.ts:27)）。replacement は「pending は最後のもの、baseline は最初のもの」です。新しい offer が来ると、前の pending を baseline まで戻してから適用します。
 
@@ -66,7 +66,7 @@ ide:
 4. m-line を適用する。live の transport を変える処理は、失敗しうる処理がすべて終わってから実行する。
 5. answer なら commit する。
 
-[packages/webrtc/src/peerConnection.ts:1488](review-file:packages/webrtc/src/peerConnection.ts:1488) が入口です。検証は [packages/webrtc/src/peerConnection.ts:1540](review-file:packages/webrtc/src/peerConnection.ts:1540)、codec 計画は [packages/webrtc/src/peerConnection.ts:1544](review-file:packages/webrtc/src/peerConnection.ts:1544)、checkpoint は [packages/webrtc/src/peerConnection.ts:1606](review-file:packages/webrtc/src/peerConnection.ts:1606)、m-line の適用は [packages/webrtc/src/peerConnection.ts:1621](review-file:packages/webrtc/src/peerConnection.ts:1621) です。transport の更新は [packages/webrtc/src/peerConnection.ts:1633](review-file:packages/webrtc/src/peerConnection.ts:1633) で、まとめて後から実行します。
+[packages/webrtc/src/peerConnection.ts:1500](review-file:packages/webrtc/src/peerConnection.ts:1500) が入口です。検証は [packages/webrtc/src/peerConnection.ts:1552](review-file:packages/webrtc/src/peerConnection.ts:1552)、codec 計画は [packages/webrtc/src/peerConnection.ts:1556](review-file:packages/webrtc/src/peerConnection.ts:1556)、checkpoint は [packages/webrtc/src/peerConnection.ts:1618](review-file:packages/webrtc/src/peerConnection.ts:1618)、m-line の適用は [packages/webrtc/src/peerConnection.ts:1633](review-file:packages/webrtc/src/peerConnection.ts:1633) です。transport の更新は [packages/webrtc/src/peerConnection.ts:1645](review-file:packages/webrtc/src/peerConnection.ts:1645) で、まとめて後から実行します。
 
 事前検証の内容は次のとおりです。
 
@@ -84,7 +84,7 @@ remote m-line の適用は 4 段階です。入口は [packages/webrtc/src/negot
 3. RTP / SCTP の受け入れ判定（codec 計画の結果を使う）: [packages/webrtc/src/negotiation/remoteMediaApplication.ts:342](review-file:packages/webrtc/src/negotiation/remoteMediaApplication.ts:342)
 4. transport パラメータ更新の計画（実行は呼び出し側）: [packages/webrtc/src/negotiation/remoteMediaApplication.ts:393](review-file:packages/webrtc/src/negotiation/remoteMediaApplication.ts:393)
 
-local 側の入口は [packages/webrtc/src/peerConnection.ts:938](review-file:packages/webrtc/src/peerConnection.ts:938) です。
+local 側の入口は [packages/webrtc/src/peerConnection.ts:950](review-file:packages/webrtc/src/peerConnection.ts:950) です。
 
 ### 2.3 ルーティングキーの staging（pending は追加だけ、変更は拒否か保留）
 
@@ -97,20 +97,20 @@ local 側の入口は [packages/webrtc/src/peerConnection.ts:938](review-file:pa
 | --- | --- | --- |
 | payload type → codec | 再割当ては拒否。fmtp / rtcp-fb の変更は保留 | [packages/webrtc/src/media/rtpReceiver.ts:159](review-file:packages/webrtc/src/media/rtpReceiver.ts:159) |
 | extmap ID → URI | 再割当ては拒否 | [packages/webrtc/src/sdpManager.ts:437](review-file:packages/webrtc/src/sdpManager.ts:437) |
-| SSRC → receiver / RTX 対応 | 別の m-line への付け替えは保留 | [packages/webrtc/src/media/router.ts:206](review-file:packages/webrtc/src/media/router.ts:206) |
+| SSRC → receiver / RTX 対応 | 別の m-line への付け替えは保留 | [packages/webrtc/src/media/router.ts:230](review-file:packages/webrtc/src/media/router.ts:230) |
 | MID+RID → receiver | RID は m-line 単位のキー | [packages/webrtc/src/negotiation/internalState.ts:39](review-file:packages/webrtc/src/negotiation/internalState.ts:39) |
-| sender SSRC → sender | アプリ側の状態として rollback 後も維持 | [packages/webrtc/src/media/router.ts:123](review-file:packages/webrtc/src/media/router.ts:123) |
+| sender SSRC → sender | アプリ側の状態として rollback 後も維持 | [packages/webrtc/src/media/router.ts:147](review-file:packages/webrtc/src/media/router.ts:147) |
 | PLI 判定 | その SSRC の live な受信 codec に従う | [packages/webrtc/src/media/rtpReceiver.ts:577](review-file:packages/webrtc/src/media/rtpReceiver.ts:577) |
 
-staged route は [packages/webrtc/src/media/router.ts:67](review-file:packages/webrtc/src/media/router.ts:67) で commit 時に切り替わります。後から来た remote pranswer / answer は、先の pranswer が staged した値を [packages/webrtc/src/negotiationTransaction.ts:397](review-file:packages/webrtc/src/negotiationTransaction.ts:397) で破棄してから適用します。
+staged route は [packages/webrtc/src/media/router.ts:91](review-file:packages/webrtc/src/media/router.ts:91) で commit 時に切り替わります。後から来た remote pranswer / answer は、先の pranswer が staged した値を [packages/webrtc/src/negotiationTransaction.ts:473](review-file:packages/webrtc/src/negotiationTransaction.ts:473) で破棄してから適用します。
 
 ### 2.4 ICE generation（restart / pranswer / trickle / EOC）
 
 - ICE restart は、offer の時点では資格情報を stage するだけで、live の ICE は answer の commit で切り替えます。pranswer は、選択中の pair を保ったまま provisional generation の check を進めます。
 - provisional の check は、送信時の checklist（revision と pair の所属）にだけ効きます。replacement pranswer より前の遅延応答は、新しい checklist を nominate しません。実装は [packages/ice/src/ice.ts:452](review-file:packages/ice/src/ice.ts:452) です。
 - EOC は、live と provisional のどちらの generation も完了させます（RFC 8838）。EOC 後の候補は、SDP にも checklist にも入りません。EOC より前に届いて mDNS を解決中の候補は保持し、generation の完了はその解決を待ちます。実装は [packages/ice/src/ice.ts:351](review-file:packages/ice/src/ice.ts:351)、[packages/ice/src/ice.ts:329](review-file:packages/ice/src/ice.ts:329)、[packages/webrtc/src/secureTransportManager.ts:321](review-file:packages/webrtc/src/secureTransportManager.ts:321) です。
-- trickle ICE は、候補が対象とする m-line の ufrag で、current と pending のどちらの generation に属するかを決めます。実装は [packages/webrtc/src/negotiation/remoteCandidates.ts:60](review-file:packages/webrtc/src/negotiation/remoteCandidates.ts:60) です。EOC は transport 単位で BUNDLE group 全体に及びます（[packages/webrtc/src/negotiation/remoteCandidates.ts:234](review-file:packages/webrtc/src/negotiation/remoteCandidates.ts:234)）。
-- `restartIce()` は、current と pending のローカル ufrag を置き換え対象として記録します（W3C の `[[LocalIceCredentialsToReplace]]`）。rollback や glare の後も要求は残ります。実装は [packages/webrtc/src/negotiation/iceRestartRequest.ts:18](review-file:packages/webrtc/src/negotiation/iceRestartRequest.ts:18) と [packages/webrtc/src/peerConnection.ts:1480](review-file:packages/webrtc/src/peerConnection.ts:1480) です。
+- trickle ICE は、候補が対象とする m-line の ufrag で、current と pending のどちらの generation に属するかを決めます。実装は [packages/webrtc/src/negotiation/remoteCandidates.ts:79](review-file:packages/webrtc/src/negotiation/remoteCandidates.ts:79) です。EOC は transport 単位で BUNDLE group 全体に及びます（[packages/webrtc/src/negotiation/remoteCandidates.ts:253](review-file:packages/webrtc/src/negotiation/remoteCandidates.ts:253)）。
+- `restartIce()` は、current と pending のローカル ufrag を置き換え対象として記録します（W3C の `[[LocalIceCredentialsToReplace]]`）。rollback や glare の後も要求は残ります。実装は [packages/webrtc/src/negotiation/iceRestartRequest.ts:18](review-file:packages/webrtc/src/negotiation/iceRestartRequest.ts:18) と [packages/webrtc/src/peerConnection.ts:1492](review-file:packages/webrtc/src/peerConnection.ts:1492) です。
 - restart の候補は offer / answer の作成時に確定し、commit はそれを再広告するだけでサーバーを待ちません。背景の再収集（STUN の再問い合わせ、新しい TURN allocation）は開始時の generation に属し、次の restart や `close()` に追い越されたら何も足さずに閉じます。
 - relay-only の restart では、相手の候補と end-of-candidates が自分の新しい relay 候補より先に届くことがあります。接続確認は、相手の end-of-candidates に加えて自分の収集が終わるまで候補を待ち、後から確立した allocation を既知の相手候補とペアにします（[packages/ice/src/ice.ts:1245](review-file:packages/ice/src/ice.ts:1245)、[packages/ice/src/ice.ts:1399](review-file:packages/ice/src/ice.ts:1399)）。agent の close で収集の待機は終わります（[packages/ice/src/ice.ts:89](review-file:packages/ice/src/ice.ts:89)）。
 - remote だけの restart（offer で restart していない transport の資格情報を answer が変える）は、別の `remoteGeneration` を進め、local の収集には触れません（[packages/ice/src/ice.ts:77](review-file:packages/ice/src/ice.ts:77)、[packages/ice/src/ice.ts:253](review-file:packages/ice/src/ice.ts:253)）。pair の選択は checklist と ufrag の所属で判定し、相手の SDP の `generation` 番号とローカルの番号は比べません。ICE-lite の相手が answer で資格情報を変えて `generation 1` を付けても接続します（[packages/ice/src/ice.ts:1865](review-file:packages/ice/src/ice.ts:1865)）。
@@ -118,10 +118,10 @@ staged route は [packages/webrtc/src/media/router.ts:67](review-file:packages/w
 
 ### 2.5 BUNDLE topology
 
-- BUNDLE group は最初のものだけでなく、すべての group を扱います。group の tag が member の transport を決めます: [packages/webrtc/src/negotiation/bundleTopology.ts:48](review-file:packages/webrtc/src/negotiation/bundleTopology.ts:48)
-- 分割・統合・新しい owner は、local offer では [packages/webrtc/src/negotiation/bundleTopology.ts:119](review-file:packages/webrtc/src/negotiation/bundleTopology.ts:119)、remote re-offer では [packages/webrtc/src/negotiation/bundleTopology.ts:268](review-file:packages/webrtc/src/negotiation/bundleTopology.ts:268) で準備し、answer の commit で切り替えます。
-- offer で共有した transport を answer が分割することは拒否します: [packages/webrtc/src/negotiation/bundleTopology.ts:343](review-file:packages/webrtc/src/negotiation/bundleTopology.ts:343)
-- 所有のためだけに作った transport は、rollback で閉じます: [packages/webrtc/src/peerConnection.ts:1756](review-file:packages/webrtc/src/peerConnection.ts:1756)
+- BUNDLE group は最初のものだけでなく、すべての group を扱います。group の tag が member の transport を決めます: [packages/webrtc/src/negotiation/bundleTopology.ts:61](review-file:packages/webrtc/src/negotiation/bundleTopology.ts:61)
+- 分割・統合・新しい owner は、local offer では [packages/webrtc/src/negotiation/bundleTopology.ts:132](review-file:packages/webrtc/src/negotiation/bundleTopology.ts:132)、remote re-offer では [packages/webrtc/src/negotiation/bundleTopology.ts:281](review-file:packages/webrtc/src/negotiation/bundleTopology.ts:281) で準備し、answer の commit で切り替えます。
+- offer で共有した transport を answer が分割することは拒否します: [packages/webrtc/src/negotiation/bundleTopology.ts:356](review-file:packages/webrtc/src/negotiation/bundleTopology.ts:356)
+- 所有のためだけに作った transport は、rollback で閉じます: [packages/webrtc/src/peerConnection.ts:1768](review-file:packages/webrtc/src/peerConnection.ts:1768)
 - max-compat / balanced の offer の BUNDLE group は、相手が BUNDLE を受理するまで提案にすぎません。各 m-line は自分の transport と候補を保ち、BUNDLE を受けない相手とも接続します（RFC 8843 §7.2）。
 
 ### 2.6 develop の issue 705（m-line 拒否・停止・再利用）との統合
@@ -130,8 +130,8 @@ develop のマージ（`c580f5d2`）でコンフリクトを解消したとき�
 
 - 拒否予定（`pendingRejection`）を baseline に含めました。rollback の所有者は transaction だけにしています。
 - remote が port 0 で出した m-line は拒否予定にします。
-- アプリの再利用は、kind が一致し、停止が確定した位置だけにしました: [packages/webrtc/src/transceiverManager.ts:429](review-file:packages/webrtc/src/transceiverManager.ts:429)
-- `setRemoteRTP` の受け入れ判定: [packages/webrtc/src/transceiverManager.ts:900](review-file:packages/webrtc/src/transceiverManager.ts:900)
+- アプリの再利用は、kind が一致し、停止が確定した位置だけにしました: [packages/webrtc/src/transceiverManager.ts:457](review-file:packages/webrtc/src/transceiverManager.ts:457)
+- `setRemoteRTP` の受け入れ判定: [packages/webrtc/src/transceiverManager.ts:928](review-file:packages/webrtc/src/transceiverManager.ts:928)
 
 意図した挙動変更（705 単独のときとの違い）は 3 点あり、チケットの 2.5 章に表で記載しています。
 
@@ -145,9 +145,9 @@ develop のマージ（`c580f5d2`）でコンフリクトを解消したとき�
 
 最新の develop のマージ（`64f374a3`）と CI 対応（`d5cd6112`）で取り込みました。codec の解決は develop の方式に合わせ、適用する時期をこのチケットの規則（pending 中は current を保つ）に合わせています。
 
-- **remote description：** 全 m-line の codec を、適用前に副作用なしで決めます（`planRemoteRtpCodecs`）。決めた結果を受け入れ判定で使います。計画: [packages/webrtc/src/transceiverManager.ts:833](review-file:packages/webrtc/src/transceiverManager.ts:833)、呼び出し: [packages/webrtc/src/negotiation/remoteMediaApplication.ts:69](review-file:packages/webrtc/src/negotiation/remoteMediaApplication.ts:69)
+- **remote description：** 全 m-line の codec を、適用前に副作用なしで決めます（`planRemoteRtpCodecs`）。決めた結果を受け入れ判定で使います。計画: [packages/webrtc/src/transceiverManager.ts:861](review-file:packages/webrtc/src/transceiverManager.ts:861)、呼び出し: [packages/webrtc/src/negotiation/remoteMediaApplication.ts:69](review-file:packages/webrtc/src/negotiation/remoteMediaApplication.ts:69)
 - **受信設定：** pending の offer / pranswer では、新しいキーの追加だけを行います。受信 codec 表の置き換え（`resyncCodecs`）は、remote answer または commit の時点でだけ行います: [packages/webrtc/src/media/rtpReceiver.ts:287](review-file:packages/webrtc/src/media/rtpReceiver.ts:287)
-- **`createAnswer()`：** answer 用の codec を transceiver の提案として解決するだけです（[packages/webrtc/src/transceiverManager.ts:777](review-file:packages/webrtc/src/transceiverManager.ts:777)、呼び出しは [packages/webrtc/src/peerConnection.ts:1861](review-file:packages/webrtc/src/peerConnection.ts:1861)）。sender・受信 codec / RTX 表・TWCC・remote track の codec は、local answer の commit で切り替えます（[packages/webrtc/src/transceiverManager.ts:805](review-file:packages/webrtc/src/transceiverManager.ts:805)、呼び出しは [packages/webrtc/src/peerConnection.ts:1179](review-file:packages/webrtc/src/peerConnection.ts:1179)）。develop 単独では `createAnswer()` の時点で切り替えていたので、これは pending 中の current RTP を守るための意図した挙動変更です。
+- **`createAnswer()`：** answer 用の codec を transceiver の提案として解決するだけです（[packages/webrtc/src/transceiverManager.ts:805](review-file:packages/webrtc/src/transceiverManager.ts:805)、呼び出しは [packages/webrtc/src/peerConnection.ts:1873](review-file:packages/webrtc/src/peerConnection.ts:1873)）。sender・受信 codec / RTX 表・TWCC・remote track の codec は、local answer の commit で切り替えます（[packages/webrtc/src/transceiverManager.ts:833](review-file:packages/webrtc/src/transceiverManager.ts:833)、呼び出しは [packages/webrtc/src/peerConnection.ts:1191](review-file:packages/webrtc/src/peerConnection.ts:1191)）。develop 単独では `createAnswer()` の時点で切り替えていたので、これは pending 中の current RTP を守るための意図した挙動変更です。
 - **rollback：** `pendingLocalOfferCodecs` と再解決の要求（`codecPreferencesNeedResolution`）を baseline に含めます。`setCodecPreferences()` 自体はアプリの選択なので戻しません。
 - **回帰テスト：** [packages/webrtc/tests/negotiation/cases/negotiationTransactionRegression.test.ts:1614](review-file:packages/webrtc/tests/negotiation/cases/negotiationTransactionRegression.test.ts:1614)
 
@@ -158,42 +158,42 @@ develop のマージ（`c580f5d2`）でコンフリクトを解消したとき�
 
 ### 2.9 モジュール構成
 
-`peerConnection.ts`（分割前 3,514 行、現在 2,015 行）を責務ごとに分割しました。`src/negotiation/` には交渉用の内部サブシステム、`src/api/` には公開型（設定とイベント）を置いています。transport の起動処理は [packages/webrtc/src/negotiation/transportActivation.ts:24](review-file:packages/webrtc/src/negotiation/transportActivation.ts:24) にあります。対応表は [packages/webrtc/NEGOTIATION_TRANSACTION.md:469](review-file:packages/webrtc/NEGOTIATION_TRANSACTION.md:469) です。
+`peerConnection.ts`（分割前 3,514 行、現在 2,015 行）を責務ごとに分割しました。`src/negotiation/` には交渉用の内部サブシステム、`src/api/` には公開型（設定とイベント）を置いています。transport の起動処理は [packages/webrtc/src/negotiation/transportActivation.ts:24](review-file:packages/webrtc/src/negotiation/transportActivation.ts:24) にあります。対応表は [packages/webrtc/src/negotiationTransaction.ts:151](review-file:packages/webrtc/src/negotiationTransaction.ts:151) です。
 
-`negotiationTransaction.ts` も 653 行から 440 行に整理しました（その後の規則の追加で現在 509 行）（2.1 章のとおり、snapshot を各コンポーネントへ移し、提案の資源を `ProposalResources` にまとめたため）。状態の持ち主の表は [packages/webrtc/NEGOTIATION_TRANSACTION.md:489](review-file:packages/webrtc/NEGOTIATION_TRANSACTION.md:489) です。
+`negotiationTransaction.ts` も 653 行から 440 行に整理しました（その後の規則の追加で現在 509 行）（2.1 章のとおり、snapshot を各コンポーネントへ移し、提案の資源を `ProposalResources` にまとめたため）。状態の持ち主の表は [packages/webrtc/src/negotiationTransaction.ts:151](review-file:packages/webrtc/src/negotiationTransaction.ts:151) です。
 
 ### 2.10 生成済み description の再利用契約
 
 生成済みの description を後から／再度適用したときの扱いを、1 件ずつの特例ではなく契約と構造で決めました（チケット 2.9）。規則は 3 つです: (a) W3C が受理を求める適用は必ず受理する、(b) develop で受理・通信できた適用は退行させない、(c) それ以外は `InvalidModificationError` で拒否し、状態を一切変えない。
 
-- `createOffer()` / `createAnswer()` ごとに、不変の生成記録（transport ごとの ICE 資格情報と stage した generation、MID と m-line の割当て、m-line ごとの codec）を残します: [packages/webrtc/src/peerConnection.ts:613](review-file:packages/webrtc/src/peerConnection.ts:613)、[packages/webrtc/src/transport/ice.ts:199](review-file:packages/webrtc/src/transport/ice.ts:199)
+- `createOffer()` / `createAnswer()` ごとに、不変の生成記録（transport ごとの ICE 資格情報と stage した generation、MID と m-line の割当て、m-line ごとの codec）を残します: [packages/webrtc/src/peerConnection.ts:613](review-file:packages/webrtc/src/peerConnection.ts:613)、[packages/webrtc/src/transport/ice.ts:252](review-file:packages/webrtc/src/transport/ice.ts:252)
 - `setLocalDescription` は、SDP と記録から割当てを計画し（[packages/webrtc/src/peerConnection.ts:675](review-file:packages/webrtc/src/peerConnection.ts:675)）、状態に書き込まずに検証し、そのあと一括で反映します。各 transport は description が持つ generation に切り替わります（[packages/webrtc/src/peerConnection.ts:705](review-file:packages/webrtc/src/peerConnection.ts:705)）。失敗時は undo に頼らず、構造的に何も変わりません。
 - 未適用の `createOffer()` は MID を transceiver に関連付けません（W3C）。develop は `createOffer` の時点で割り当てます（2.14 の差分ファズで「意図した差」として数えます）。
-- 契約表と develop の実測: [packages/webrtc/NEGOTIATION_TRANSACTION.md:122](review-file:packages/webrtc/NEGOTIATION_TRANSACTION.md:122)
+- 契約表と develop の実測: [packages/webrtc/tools/negotiation-diff/scenarios.ts:340](review-file:packages/webrtc/tools/negotiation-diff/scenarios.ts:340)
 
 ### 2.11 pending 中に有効な値
 
 「pending 中は current を壊さない」という規則は、pranswer で暫定的に有効にすべき値には当てはまりません。値ごとに、remote offer / pranswer / replacement pranswer / final answer / rollback の各段階で live になる値を current・provisional・both・reject のどれかに決めました（チケット 2.10）。
 
 - 例: 送信 codec と direction、SCTP の max-message-size は provisional（W3C は pranswer でも max-message-size を更新します）。remote SSRC は both（新しい SSRC はすぐ route し、衝突は commit まで保留）。接続中の SCTP port の変更は reject。
-- 表: [packages/webrtc/NEGOTIATION_TRANSACTION.md:501](review-file:packages/webrtc/NEGOTIATION_TRANSACTION.md:501)
-- invariant helper は、一律の「live = current SDP」ではなく、表の規則（`expectedLive`）で検査します: [packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts:486](review-file:packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts:486)
+- 表: [packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts:469](review-file:packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts:469)
+- invariant helper は、一律の「live = current SDP」ではなく、表の規則（`expectedLive`）で検査します: [packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts:509](review-file:packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts:509)
 
 ### 2.12 拒否された application m-line と「その後も使い続けられるか」
 
 application m-line を拒否した answer の commit で SCTP を閉じる規則を一度入れましたが、拒否の後の `createOffer()` が失敗する退行を起こしたので撤回し、develop と同じ挙動に戻しました（チケット 2.11）。
 
 - m-line の位置（MID・index・拒否されたか）は、SCTP オブジェクトではなく current description が記録します。SCTP のない位置は同じ MID の port 0 で保ち、未束縛の SCTP（`createDataChannel`）は拒否された位置を新しい MID で使い直します: [packages/webrtc/src/sdpManager.ts:606](review-file:packages/webrtc/src/sdpManager.ts:606)、[packages/webrtc/src/negotiation/remoteMediaApplication.ts:196](review-file:packages/webrtc/src/negotiation/remoteMediaApplication.ts:196)
-- 相手の offer で port 0 の application には port 0 で答えます（RFC 3264 §6）。answer の commit は、拒否された SCTP を別の transport へ移しません（[packages/webrtc/src/negotiation/bundleTopology.ts:318](review-file:packages/webrtc/src/negotiation/bundleTopology.ts:318)）。
+- 相手の offer で port 0 の application には port 0 で答えます（RFC 3264 §6）。answer の commit は、拒否された SCTP を別の transport へ移しません（[packages/webrtc/src/negotiation/bundleTopology.ts:331](review-file:packages/webrtc/src/negotiation/bundleTopology.ts:331)）。
 - 接続済みの DTLS transport に後から載った SCTP（再交渉で足した最初の DataChannel）も association を開始します（[packages/webrtc/src/negotiation/transportActivation.ts:292](review-file:packages/webrtc/src/negotiation/transportActivation.ts:292)）。SCTP の client / server は、DTLS を開始したときの ICE role で固定します（werift は offer / answer のたびに ICE role を設定し直すため。[packages/webrtc/src/transport/dtls.ts:99](review-file:packages/webrtc/src/transport/dtls.ts:99)、[packages/webrtc/src/transport/sctp.ts:118](review-file:packages/webrtc/src/transport/sctp.ts:118)）。
-- **共通の継続確認:** `expectSessionContinues(a, b)` は、両端を stable に戻してから、次の offer → ICE restart → DataChannel と transceiver の追加 → 相手からの再 offer を invariant 付きで行い、追加した経路で実通信を確認します（[packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts:1396](review-file:packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts:1396)）。`enforceSessionContinuation()` は呼び忘れを afterEach で検出し、除外は理由付きに限ります（[packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts:1262](review-file:packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts:1262)）。対応表の試験・回帰・変異・拒否の各試験で有効です。
+- **共通の継続確認:** `expectSessionContinues(a, b)` は、両端を stable に戻してから、次の offer → ICE restart → DataChannel と transceiver の追加 → 相手からの再 offer を invariant 付きで行い、追加した経路で実通信を確認します（[packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts:1424](review-file:packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts:1424)）。`enforceSessionContinuation()` は呼び忘れを afterEach で検出し、除外は理由付きに限ります（[packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts:1290](review-file:packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts:1290)）。対応表の試験・回帰・変異・拒否の各試験で有効です。
 
 ### 2.13 操作の連鎖・close・接続の開始
 
-- **操作の連鎖**（W3C の "chain an operation" を 1 か所で実装）: 閉じた接続への登録はその場で reject し、前の操作を待った後・操作の途中で close に追い越された操作は `InvalidStateError` で決着します。永久に pending の Promise はありません（[packages/webrtc/src/peerConnection.ts:736](review-file:packages/webrtc/src/peerConnection.ts:736)、[packages/webrtc/src/peerConnection.ts:1888](review-file:packages/webrtc/src/peerConnection.ts:1888)）。description 操作は各 await と signaling 通知の後に閉鎖を確認し、閉じていれば何も変更せず、回復処理も行いません。閉じた接続は transport を作りません。
-- **addIceCandidate:** 前の操作が description を適用した時点まで待ち、`setLocalDescription` の収集の完了は待ちません（develop と同じ遅延。[packages/webrtc/src/peerConnection.ts:1372](review-file:packages/webrtc/src/peerConnection.ts:1372)）。後続の description 操作は両方の完了を待ちます。
+- **操作の連鎖**（W3C の "chain an operation" を 1 か所で実装）: 閉じた接続への登録はその場で reject し、前の操作を待った後・操作の途中で close に追い越された操作は `InvalidStateError` で決着します。永久に pending の Promise はありません（[packages/webrtc/src/peerConnection.ts:736](review-file:packages/webrtc/src/peerConnection.ts:736)、[packages/webrtc/src/peerConnection.ts:1900](review-file:packages/webrtc/src/peerConnection.ts:1900)）。description 操作は各 await と signaling 通知の後に閉鎖を確認し、閉じていれば何も変更せず、回復処理も行いません。閉じた接続は transport を作りません。
+- **addIceCandidate:** 前の操作が description を適用した時点まで待ち、`setLocalDescription` の収集の完了は待ちません（develop と同じ遅延。[packages/webrtc/src/peerConnection.ts:1384](review-file:packages/webrtc/src/peerConnection.ts:1384)）。後続の description 操作は両方の完了を待ちます。
 - **接続の開始:** `connect()` は、適用した description で remote の ICE / DTLS パラメータを受けた transport だけを開始します（再交渉の pranswer で `failed` にならない。[packages/webrtc/src/negotiation/transportActivation.ts:202](review-file:packages/webrtc/src/negotiation/transportActivation.ts:202)）。`connectPending()` も同じ規則で、checks は generation ごとに一度だけ始め、実行中なら待ち、確立済みはやり直しません（pranswer の再適用で `checking` に戻らない。[packages/webrtc/src/negotiation/transportActivation.ts:308](review-file:packages/webrtc/src/negotiation/transportActivation.ts:308)）。ICE transport の停止は `checksSettled()` の待機を決着させます。
-- **simulcast の RID:** MID+RID で見つからなければ、develop と同じく RID だけで引き直します（[packages/webrtc/src/media/router.ts:282](review-file:packages/webrtc/src/media/router.ts:282)）。
+- **simulcast の RID:** MID+RID で見つからなければ、develop と同じく RID だけで引き直します（[packages/webrtc/src/media/router.ts:306](review-file:packages/webrtc/src/media/router.ts:306)）。
 
 ### 2.14 自前の探索（レビュアーと同じ軸）
 
@@ -201,13 +201,13 @@ application m-line を拒否した answer の commit で SCTP を閉じる規則
 
 | 仕組み | 内容 | 実行 |
 | --- | --- | --- |
-| invariant helper | 各操作の後に current SDP と live 状態の一致・有効値・孤立 transport を検査 | すべての交渉試験（[packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts:628](review-file:packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts:628)） |
+| invariant helper | 各操作の後に current SDP と live 状態の一致・有効値・孤立 transport を検査 | すべての交渉試験（[packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts:656](review-file:packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts:656)） |
 | property test | seed 固定のランダム操作列。description pool の再利用、相手が m-line を拒否する episode を含む。仕組みは 2.14.1 | CI は固定 seed と回帰 seed、深い探索は 300 seed × 20 step（[packages/webrtc/tests/pbt/fuzz/episodes.ts:105](review-file:packages/webrtc/tests/pbt/fuzz/episodes.ts:105)、[packages/webrtc/tests/pbt/fuzz/episodes.ts:289](review-file:packages/webrtc/tests/pbt/fuzz/episodes.ts:289)） |
-| 相手の SDP の変異 | 手書きの session 単位の変異と、「kind × 属性」の表から生成した変異（27 種類）を offer / pranswer / answer、初回と再交渉に適用 | CI は単独、手元で全ペア（[packages/webrtc/tools/negotiation-diff/mutations.ts:246](review-file:packages/webrtc/tools/negotiation-diff/mutations.ts:246)） |
+| 相手の SDP の変異 | 手書きの session 単位の変異と、「kind × 属性」の表から生成した変異（27 種類）を offer / pranswer / answer、初回と再交渉に適用 | CI は単独、手元で全ペア（[packages/webrtc/tools/negotiation-diff/mutations.ts:249](review-file:packages/webrtc/tools/negotiation-diff/mutations.ts:249)） |
 | 割り込み | gather・mDNS・DTLS・STUN の待機中に close / restartIce / 新しい offer / rollback | CI（[packages/webrtc/tests/negotiation/cases/negotiationTransactionInterrupt.test.ts](review-file:packages/webrtc/tests/negotiation/cases/negotiationTransactionInterrupt.test.ts)） |
 | close のタイミング | 10 種類の操作 × 0〜10 microtask 後と 1 macrotask 後の close（120 件）。全 Promise の決着と transport の停止を検査 | CI（[packages/webrtc/tests/negotiation/cases/negotiationTransactionCloseTiming.test.ts](review-file:packages/webrtc/tests/negotiation/cases/negotiationTransactionCloseTiming.test.ts)） |
-| develop 差分ファズ | 公開 API だけの操作列。設定（`bundlePolicy`、`rtcpMuxPolicy`、TURN の relay-only）、アプリの操作（stop・replaceTrack・direction・setCodecPreferences・createDataChannel・restartIce）、close のタイミング、変異、2 つの合成操作。HEAD について未決着・故障なしの `failed`・transceiver 状態の差を常に検査 | 手元（[packages/webrtc/tools/negotiation-diff/run.ts:124](review-file:packages/webrtc/tools/negotiation-diff/run.ts:124)、[packages/webrtc/tools/negotiation-diff/compare.ts:139](review-file:packages/webrtc/tools/negotiation-diff/compare.ts:139)） |
-| 仕様と試験の対応表 | チケットの全 276 文を試験名か「対象外（理由）」に対応づけ（covered 253、対象外 23、partial / uncovered 0） | [packages/webrtc/NEGOTIATION_SPEC_COVERAGE.md](review-file:packages/webrtc/NEGOTIATION_SPEC_COVERAGE.md) |
+| develop 差分ファズ | 公開 API だけの操作列。設定（`bundlePolicy`、`rtcpMuxPolicy`、TURN の relay-only）、アプリの操作（stop・replaceTrack・direction・setCodecPreferences・createDataChannel・restartIce）、close のタイミング、変異、2 つの合成操作。HEAD について未決着・故障なしの `failed`・transceiver 状態の差を常に検査 | 手元（[packages/webrtc/tools/negotiation-diff/run.ts:133](review-file:packages/webrtc/tools/negotiation-diff/run.ts:133)、[packages/webrtc/tools/negotiation-diff/compare.ts:139](review-file:packages/webrtc/tools/negotiation-diff/compare.ts:139)） |
+| 仕様と試験の対応表 | チケットの全 276 文を試験名か「対象外（理由）」に対応づけ（covered 253、対象外 23、partial / uncovered 0） | 各テストの名前と `ref`（対応表の文書は削除） |
 
 #### 2.14.1 property test の仕組み
 
@@ -215,7 +215,7 @@ property test は、「どんな操作の順序でも成り立つべき性質」
 
 確かめる性質は 3 つです。
 
-1. **各操作の後**：両 peer の invariant が成り立つ。`step()` が操作のたびに `assertNegotiationInvariants` を呼び、pending 中を含むどの signaling state でも検査します（[packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts:1189](review-file:packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts:1189)）。
+1. **各操作の後**：両 peer の invariant が成り立つ。`step()` が操作のたびに `assertNegotiationInvariants` を呼び、pending 中を含むどの signaling state でも検査します（[packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts:1217](review-file:packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts:1217)）。
 2. **各 step の後**：確定した session が実際に通信できる。video の RTP（双方向）、DataChannel（双方向）、交渉済みの各 audio の RTP を実際に送り、受信を待ちます（[packages/webrtc/tests/pbt/fuzz/episodes.ts:71](review-file:packages/webrtc/tests/pbt/fuzz/episodes.ts:71)）。
 3. **拒否された操作**：再利用契約で拒否される操作は、状態を何も変えない（原子性）。
 
@@ -273,7 +273,7 @@ a: SLD(offer) → b: SRD(offer) → b: SLD(pranswer) → a: SRD(pranswer) → �
       ▲inv           ▲inv             ▲inv               ▲inv             ▲inv
 ```
 
-invariant の検査（[packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts:628](review-file:packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts:628)）は試験専用の観測で、公開 API は増やしていません。
+invariant の検査（[packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts:656](review-file:packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts:656)）は試験専用の観測で、公開 API は増やしていません。
 
 | 検査 | 確かめる内容 |
 | --- | --- |
@@ -287,7 +287,7 @@ invariant の検査（[packages/webrtc/tests/negotiation/harness/negotiationTran
 
 **拒否された操作の原子性**
 
-`expectRejectedAtomically` は、拒否の前後で両 peer の snapshot を取り、完全一致を要求します（[packages/webrtc/tests/pbt/fuzz/episodes.ts:349](review-file:packages/webrtc/tests/pbt/fuzz/episodes.ts:349)）。snapshot の内容は、signaling state、current / pending の local・remote SDP、各 ICE transport の ufrag と staged restart、transceiver の MID と m-line index、SSRC / RID の表です（[packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts:2526](review-file:packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts:2526)）。
+`expectRejectedAtomically` は、拒否の前後で両 peer の snapshot を取り、完全一致を要求します（[packages/webrtc/tests/pbt/fuzz/episodes.ts:349](review-file:packages/webrtc/tests/pbt/fuzz/episodes.ts:349)）。snapshot の内容は、signaling state、current / pending の local・remote SDP、各 ICE transport の ufrag と staged restart、transceiver の MID と m-line index、SSRC / RID の表です（[packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts:2554](review-file:packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts:2554)）。
 
 ```text
 snapshot(a, b) → 拒否される操作 (例: 古い offer の SLD → reject) → snapshot(a, b) + invariant
@@ -346,9 +346,9 @@ seed 4 は、試験のコメントに欠陥の記載がありません。固定 
 - **live に書いて rollback で戻す方式から、stage して commit する方式へ。** live に書いて rollback で戻す方式では、rollback 後の状態しか守れず、pending 中の current の通信は守れません。キーの種類ごとに「追加は即時、変更は拒否か保留」と決めることで、反例を個別に塞ぐのではなく、種類ごとにまとめて閉じました。develop の codec 統合も、同じ規則に合わせて commit 時に切り替えています。
 - **拒否と保留の判断は RFC と Chrome の実機挙動に合わせました。** extmap ID の再割当ては拒否します（RFC 8285 §7、Chrome も拒否）。SSRC の移動と RTX の付け替えは保留します（Chrome は受理）。
 - **状態の snapshot は持ち主に置きました。** transaction が他のオブジェクトのプロパティを列挙すると、状態を足すたびに漏れが起きます（実際に develop の codec 統合で修正が必要になりました）。持ち主の snapshot / restore の組だけを直せば済む形にしています。
-- **invariant helper で機械的に検出します。** 各操作の後に、current SDP と live 状態の一致を検査します。対象は、SSRC / RTX / MID+RID / extmap、受信 codec（fmtp と RTCP feedback まで）、PLI の判定、未停止の sender の経路、ICE の credential / candidate / EOC / checklist、DTLS、SCTP です: [packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts:628](review-file:packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts:628)、ルーティング表の検査は [packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts:698](review-file:packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts:698)
+- **invariant helper で機械的に検出します。** 各操作の後に、current SDP と live 状態の一致を検査します。対象は、SSRC / RTX / MID+RID / extmap、受信 codec（fmtp と RTCP feedback まで）、PLI の判定、未停止の sender の経路、ICE の credential / candidate / EOC / checklist、DTLS、SCTP です: [packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts:656](review-file:packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts:656)、ルーティング表の検査は [packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts:726](review-file:packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts:726)
 - **自分で反例を探索します。** seed 固定の property test で、ランダムな操作列（offer / pranswer / answer / rollback / replacement、ICE restart、BUNDLE の分割と統合、EOC、ルーティングキーの変更）を実行し、各操作の後に invariant を、各ステップの後に実通信を検査します: [packages/webrtc/tests/pbt/fuzz/episodes.ts:105](review-file:packages/webrtc/tests/pbt/fuzz/episodes.ts:105)。CI では固定 seed と回帰 seed を再生します: [packages/webrtc/tests/pbt/fuzz/negotiationTransactionProperty.test.ts:39](review-file:packages/webrtc/tests/pbt/fuzz/negotiationTransactionProperty.test.ts:39)
-- **develop と挙動を変える箇所を増やしません。** develop と挙動が変わる規則を、核の不変条件・W3C・RFC のどれに必須かで棚卸ししました（[packages/webrtc/NEGOTIATION_TRANSACTION.md:874](review-file:packages/webrtc/NEGOTIATION_TRANSACTION.md:874)）。必須でないもの（application 拒否での SCTP の close）は develop に戻しました。新しい差は、develop で失敗していた操作を成功させるものか、`expectSessionContinues` を通るものに限ります。
+- **develop と挙動を変える箇所を増やしません。** develop と挙動が変わる規則を、核の不変条件・W3C・RFC のどれに必須かで棚卸ししました（チケット 2.11）。必須でないもの（application 拒否での SCTP の close）は develop に戻しました。新しい差は、develop で失敗していた操作を成功させるものか、`expectSessionContinues` を通るものに限ります。
 - **完了条件を有限にしました。** 遷移表・mutation matrix・操作カタログに載っていない新しい組み合わせは、後続チケットとして扱います（設計文書の Scope 章、チケットの 6 章）。
 
 ## 4. リスク・既知の制約

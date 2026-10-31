@@ -24,6 +24,7 @@
   },
   "include": [
     "src",
-    "tests"
+    "tests",
+    "examples/node/pacer"
   ]
 }

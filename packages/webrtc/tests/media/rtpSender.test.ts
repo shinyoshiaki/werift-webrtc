@@ -6,6 +6,7 @@ import {
   MediaStreamTrack,
   RTCPeerConnection,
   RtcpTransportLayerFeedback,
+  RtpBuilder,
   RtpPacket,
   unwrapRtx,
 } from "../../src";
@@ -20,6 +21,21 @@ import {
 } from "../fixture";
 
 describe("media/rtpSender", () => {
+  test("stop releases the subscription on the DTLS transport", () => {
+    // Arrange: DTLS transport に結び付けた sender。
+    const dtls = createDtlsTransport();
+    const before = dtls.onStateChange.length;
+    const sender = new RTCRtpSender("video");
+    sender.setDtlsTransport(dtls);
+    expect(dtls.onStateChange.length).toBe(before + 1);
+
+    // Act: sender を止める (transceiver.stop())。
+    sender.stop();
+
+    // Assert: BUNDLE で共有して長く生きる transport が、止めた sender を参照し続けない。
+    expect(dtls.onStateChange.length).toBe(before);
+  });
+
   test("stop track", () => {
     const track = new MediaStreamTrack({ kind: "audio", remote: true });
     const dtls = createDtlsTransport();
@@ -526,6 +542,37 @@ describe("media/rtpSender", () => {
 
     original.sender.stop();
     cloned.sender.stop();
+  });
+
+  test("sendRtp keeps media-clock timestamps including skip gaps as-is", async () => {
+    // 準備: RtpBuilder でストール後の skip ギャップを含む timestamp 列を作る。
+    const { sender, sendRtp } = createConnectedRtpSender();
+    const builder = new RtpBuilder({
+      initialSequenceNumber: 100,
+      initialTimestamp: 0xffffff00,
+    });
+    const packets = [
+      builder.create(Buffer.from([1])),
+      builder.create(Buffer.from([2]), { elapsedSamples: 960 }),
+      builder.create(Buffer.from([3]), { elapsedSamples: 960 * 250 }),
+    ];
+
+    // 実行: 送信時刻とは無関係な間隔で sendRtp する。
+    for (const packet of packets) {
+      await sender.sendRtp(packet);
+      await setTimeout(5);
+    }
+
+    // 検証: 送出 timestamp は入力のまま (wrap とギャップを含め書き換えない)。
+    expect(sentRtpHeaders(sendRtp).map((h) => h.timestamp)).toEqual(
+      packets.map((p) => p.header.timestamp),
+    );
+    expect(sentRtpHeaders(sendRtp).map((h) => h.timestamp)).toEqual([
+      0xffffff00,
+      (0xffffff00 + 960) % 2 ** 32,
+      (0xffffff00 + 960 * 251) % 2 ** 32,
+    ]);
+    sender.stop();
   });
 
   test("RTP fan-out copies packets before the first subscriber mutates them", () => {
