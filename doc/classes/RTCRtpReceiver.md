@@ -211,6 +211,8 @@ seconds
 
 > **get** **pliEnabled**(): `undefined` \| [`RTCPFB`](../type-aliases/RTCPFB.md)
 
+`a=rtcp-fb:<pt> nack pli` (RFC 4585): a generic `nack` alone does not allow PLI.
+
 ##### Returns
 
 `undefined` \| [`RTCPFB`](../type-aliases/RTCPFB.md)

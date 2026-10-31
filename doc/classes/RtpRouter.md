@@ -6,6 +6,29 @@
 
 # Class: RtpRouter
 
+RTP routing tables shared by the current session and a pending proposal.
+One rule covers every key: a pending remote offer or pranswer may **add**
+keys, effective at once so provisional RTP flows, but a key the current
+session uses keeps its value until the final answer. A conflicting value is
+rejected before any mutation or staged until commit; rollback drops what was
+staged and restores the baseline (`snapshotRoutes` / `restoreRoutes`).
+
+| Key | Table | Conflicting proposal |
+| --- | --- | --- |
+| Payload type → codec | receiver codec table | remap rejected (RFC 3264 section 8.3.2); fmtp / rtcp-fb change staged |
+| Header extension ID → URI | `extIdUriMap` | remap of an ID in use rejected (RFC 8285 section 7); a URI on a new ID is an addition |
+| SSRC → receiver | `ssrcTable` | move to another m-line staged |
+| RTX SSRC → media SSRC | receiver RTX table | changed pairing staged |
+| MID+RID → receiver | `ridTable` | RIDs are scoped to their m-line (RFC 8851): no conflict |
+| Sender SSRC → sender | `ssrcTable` | application state: rollback keeps every live sender's route |
+
+A payload type or extension ID counts as in use only when both current
+descriptions carry it for the m-line. RID lookup uses MID+RID when the
+packet's MID names a route, else the RID alone. `extIdUriMap` is shared by
+the whole PeerConnection: m-lines on separate transports that map one ID to
+different URIs are not supported. A current remote SSRC that a later answer
+omits stays routed; only SSRCs a replaced pranswer alone added are dropped.
+
 ## Constructors
 
 ### new RtpRouter()
