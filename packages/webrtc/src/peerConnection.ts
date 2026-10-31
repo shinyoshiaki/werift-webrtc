@@ -535,6 +535,8 @@ export class RTCPeerConnection extends EventTarget {
       hasSctpTransport: !!this.sctpManager?.sctpTransport,
     });
 
+    this.router.keyFrameRequestRouting = this.config.keyFrameRequestRouting;
+
     if (this.sctpManager?.sctpTransport) {
       this.sctpManager.sctpTransport.maxMessageSize =
         this.config.maxMessageSize;
