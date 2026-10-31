@@ -1,5 +1,49 @@
+import * as dgram from "node:dgram";
 import * as net from "node:net";
 import { binaryData, FifoQueue } from "../src";
+import { UdpTransport } from "../src/transport";
+
+/** loopback に bind 済みの UdpTransport を生成する。 */
+export function createLoopbackUdpTransport(
+  options: { port?: number; portRange?: [number, number] } = {},
+) {
+  return UdpTransport.init("udp4", {
+    ...options,
+    interfaceAddresses: { udp4: "127.0.0.1" },
+  });
+}
+
+/** 127.0.0.1 のポートを占有する dgram socket を生成する。 */
+export async function occupyUdpPort() {
+  const socket = dgram.createSocket("udp4");
+  await new Promise<void>((resolve) =>
+    socket.bind({ port: 0, address: "127.0.0.1" }, resolve),
+  );
+  return {
+    socket,
+    port: socket.address().port,
+    close: () => new Promise<void>((resolve) => socket.close(() => resolve())),
+  };
+}
+
+/**
+ * Bun が ICMP port unreachable を受けたときに socket の error として出す
+ * `recvmsg ECONNREFUSED` 相当のエラーを生成する。
+ */
+export function createRecvmsgConnRefusedError() {
+  return Object.assign(new Error("recvmsg ECONNREFUSED"), {
+    code: "ECONNREFUSED",
+    errno: -111,
+    syscall: "recvmsg",
+  });
+}
+
+/** UdpTransport の受信データを最初の 1 件だけ待つ Promise を返す。 */
+export function waitForUdpData(transport: UdpTransport) {
+  return new Promise<Buffer>((resolve) => {
+    transport.onData = (data) => resolve(data);
+  });
+}
 
 export async function createHangingStreamServer() {
   const sockets = new Set<net.Socket>();

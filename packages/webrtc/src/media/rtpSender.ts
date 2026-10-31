@@ -28,7 +28,9 @@ import { Event, random16, uint16Add, uint32Add } from "../imports/common";
 import {
   debug,
   type Extension,
+  FullIntraRequest,
   GenericNack,
+  isPaddingOnlyRtpPacket,
   PictureLossIndication,
   ReceiverEstimatedMaxBitrate,
   RedEncoder,
@@ -44,7 +46,6 @@ import {
   RtpPacket,
   SourceDescriptionChunk,
   SourceDescriptionItem,
-  isPaddingOnlyRtpPacket,
   serializeAbsSendTime,
   serializeRepairedRtpStreamId,
   serializeSdesMid,
@@ -64,10 +65,10 @@ import type {
 } from "./parameters";
 import {
   type BandwidthEstimator,
-  type LegacyCongestionCompatibility,
-  type ProbeClusterConfig,
   isProbePacingController,
+  type LegacyCongestionCompatibility,
   needsPacedSendPath,
+  type ProbeClusterConfig,
 } from "./sender/bandwidthEstimator";
 import { SenderBandwidthEstimator, type SentInfo } from "./sender/senderBWE";
 import {
@@ -333,6 +334,13 @@ export class RTCRtpSender {
    * {@link BandwidthEstimator.processIntervalMs} (0 = do not start).
    */
   private bweProcessTimer?: ReturnType<typeof setInterval>;
+  /** Fires for a FIR addressed to this sender with a new sequence number (RFC 5104 4.3.1). */
+  readonly onFullIntraRequest = new Event<[FullIntraRequest]>();
+  /**
+   * Fires for every key frame request addressed to this sender: each PLI, and each FIR
+   * that is not a retransmission. Fires in addition to onPictureLossIndication / onFullIntraRequest.
+   */
+  readonly onKeyFrameRequest = new Event<["pli" | "fir"]>();
 
   private cname?: string;
   private mid?: string;
@@ -363,6 +371,11 @@ export class RTCRtpSender {
   private nackCount = 0;
   private pliCount = 0;
   private firCount = 0;
+  /**
+   * Last FIR sequence number per (FIR sender SSRC, FCI target SSRC): RFC 5104
+   * 4.3.1.1 keeps one sequence number space per pair.
+   */
+  private lastFirSequenceNumbers = new Map<string, number>();
   private remotePacketsLost?: number;
   private remoteFractionLost?: number;
   receiverEstimatedMaxBitrate = 0n;
@@ -1776,7 +1789,15 @@ export class RTCRtpSender {
     this.lastPaceMs = nowMs;
   }
 
-  handleRtcpPacket(rtcpPacket: RtcpPacket) {
+  /**
+   * @param firEntries Internal: the FCI entries of a FIR the router resolved to
+   * this sender (see `KeyFrameRequestRouting`). Defaults to the entries for
+   * the own SSRC.
+   */
+  handleRtcpPacket(
+    rtcpPacket: RtcpPacket,
+    firEntries?: FullIntraRequest["fir"],
+  ) {
     switch (rtcpPacket.type) {
       case RtcpSrPacket.type:
       case RtcpRrPacket.type:
@@ -1875,7 +1896,7 @@ export class RTCRtpSender {
       case RtcpPayloadSpecificFeedback.type:
         {
           const packet = rtcpPacket as RtcpPayloadSpecificFeedback;
-          switch (packet.feedback.count) {
+          switch (packet.feedback?.count) {
             case ReceiverEstimatedMaxBitrate.count:
               {
                 const feedback = packet.feedback as ReceiverEstimatedMaxBitrate;
@@ -1886,6 +1907,34 @@ export class RTCRtpSender {
               {
                 this.pliCount++;
                 this.onPictureLossIndication.execute();
+                this.onKeyFrameRequest.execute("pli");
+              }
+              break;
+            case FullIntraRequest.count:
+              {
+                const feedback = packet.feedback as FullIntraRequest;
+                const entries =
+                  firEntries ??
+                  feedback.fir.filter(({ ssrc }) => ssrc === this.ssrc);
+                if (entries.length === 0) break;
+
+                // W3C webrtc-stats: firCount is the number of FIR packets received,
+                // however many FCI entries of the packet resolve to this sender
+                this.firCount++;
+                // an entry with the same sequence number as the last one for its
+                // (sender, target) pair is a retransmission (RFC 5104 4.3.1.1)
+                let isNew = false;
+                for (const { ssrc, sequenceNumber } of entries) {
+                  const key = `${feedback.senderSsrc}:${ssrc}`;
+                  if (this.lastFirSequenceNumbers.get(key) !== sequenceNumber) {
+                    isNew = true;
+                  }
+                  this.lastFirSequenceNumbers.set(key, sequenceNumber);
+                }
+                if (isNew) {
+                  this.onFullIntraRequest.execute(feedback);
+                  this.onKeyFrameRequest.execute("fir");
+                }
               }
               break;
           }

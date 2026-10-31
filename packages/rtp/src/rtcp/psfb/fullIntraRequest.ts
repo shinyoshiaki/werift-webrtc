@@ -19,6 +19,7 @@ export class FullIntraRequest {
    * Body is `serialize()`; plus 1 header word → bodyWords = bodyBytes/4.
    */
   get length() {
+    // RFC 5104 4.3.1.1: header length = 2 + 2 * N (32-bit words minus one)
     return this.serialize().length / 4;
   }
 

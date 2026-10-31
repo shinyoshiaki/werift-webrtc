@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### 🐛 Bug Fixes
+
+- **`werift-common` `UdpTransport` always handles dgram socket `error` events** (`werift-common`, `werift-ice`): before this fix, a socket error with no listener (for example Bun's asynchronous `recvmsg ECONNREFUSED` after the remote peer closed) became an uncaught process exception.
+  - Runtime socket errors are logged and emitted on the new `UdpTransport.onError` (`Event<[Error]>`). The socket stays open. `StunProtocol` / `TurnProtocol` subscribe to it and log. `Transport.onError` is optional for custom transports.
+  - A bind failure (e.g. `EADDRINUSE`, including a synchronous `bind()` throw) or a `findPort()` failure now rejects `UdpTransport.init()` and closes the socket. Before, a bind failure caused an uncaught exception or `init()` waited forever.
+  - `close()` can be called more than once, including after an error or a failed bind.
 ### ⚠️ Breaking changes
 
 - **`werift-dtls`: `CipherContext.localPrivateKey` is now a Node `KeyObject`** instead of the `@fidm/x509` `PrivateKey`. Replace `localPrivateKey.toPEM()` with `localPrivateKey.export({ type: "pkcs8", format: "pem" })`; replace `localPrivateKey.sign(data, hash)` with `createSign(hash).update(data).sign(localPrivateKey)`.
@@ -27,6 +33,14 @@
 
 - **`werift-sctp`: `SCTP.outboundQueue` is now a `FifoQueue<DataChunk>` instead of `DataChunk[]`**: the field is `readonly` and has no array-compatibility layer. `FifoQueue` is exported from `werift-common` and re-exported from `werift-sctp`. Migration: use `outboundQueue.length`, `peek()`, `at(i)`, `last()`, `toArray()` or `for...of` instead of array indexing / array methods, and do not reassign the field. Reason: draining a large queue with `Array.prototype.shift()` was quadratic and contributed to the DataChannel burst slowdown below.
 
+### 🚀 Features
+
+- **`RTCRtpSender.onFullIntraRequest`**: a new `Event<[FullIntraRequest]>` fires when the sender receives a FIR (RFC 5104) whose FCI has an entry for its SSRC with a new sequence number. A retransmitted FIR does not fire it again: each FCI entry is compared with the last sequence number for its (FIR sender SSRC, target SSRC) pair (RFC 5104 §4.3.1.1), so entries for the primary and RTX SSRC resolved to one sender are judged independently. FIR is not delivered to `onPictureLossIndication`; applications that refresh on both should subscribe to `onKeyFrameRequest`.
+- **`RTCRtpSender.onKeyFrameRequest`**: a new `Event<["pli" | "fir"]>` that fires for every PLI and every non-retransmitted FIR addressed to the sender, so applications that only need to request a key frame can use one subscription. `onPictureLossIndication` / `onFullIntraRequest` and the stats counters are unchanged.
+- **`firCount` in outbound-rtp stats**: every FIR packet with an entry addressed to the sender is now counted once (retransmissions included, as the W3C webrtc-stats definition counts FIR packets), so `getStats()` reports `firCount`. A packet whose primary and RTX entries both resolve to the sender counts as one.
+- **`FullIntraRequest` is exported** from `werift-rtp` and `werift`.
+- **`keyFrameRequestRouting` peer configuration** (`"compatible"` default / `"strict"`): decides where a PLI / FIR goes when no route has its target SSRC (the PLI media SSRC or a FIR FCI entry SSRC). `"compatible"` delivers it to the sender whose RTX SSRC it is, else to the only video sender of the PeerConnection, so a request naming the RTX stream, SSRC 0 or a stale SSRC still produces a key frame (`onPictureLossIndication` / `onFullIntraRequest` / `onKeyFrameRequest`, `pliCount` / `firCount`). `"strict"` does not deliver it, as RFC 4585 / RFC 5104 define the target. A registered target SSRC is routed as is in both modes, and the sender SSRC of the request is never used.
+
 ### 🐛 Bug Fixes
 
 - **Large `RTCDataChannel.send()` bursts no longer slow down quadratically or starve the event loop** (`werift-sctp`, `packages/webrtc`): queuing thousands of messages at once took time growing with the square of the queue length (2,000 × 1 KB: ~12 s, 5,000: minutes) and blocked the event loop for seconds per SACK, long enough to lose ICE consent mid-transfer.
@@ -34,6 +48,10 @@
   - Pending `send()` calls settle when the association closes instead of staying pending forever.
   - The SCTP sent / outbound queues and the DataChannel send queue use `FifoQueue` (amortized O(1) `shift()`).
   - `RTCSctpTransport` hands queued DataChannel messages to SCTP in a single synchronous pass instead of starting one concurrent flush loop per `send()`. `bufferedAmount` now decreases per message as it is transmitted (previously only after the whole SCTP outbound queue drained), so `bufferedamountlow` fires during a burst. Messages not yet handed to SCTP are discarded when the transport stops.
+- **RTCP PLI / FIR routed to the targeted media source**: `RtpRouter.routeRtcp()` used to look up a payload-specific feedback by its sender SSRC first, so a PLI whose sender SSRC matched another local stream (e.g. a werift or Chrome peer in a sendrecv video session, or an SFU viewer's own stream) was delivered to the wrong `RTCRtpReceiver` / `RTCRtpSender` and never raised `onPictureLossIndication`. PLI is now routed only by its media SSRC (RFC 4585 §6.1), and FIR by the SSRC of each FCI entry (RFC 5104 §4.3.1; the media SSRC of the common header is 0 for libwebrtc), delivering once per target sender. A PLI whose media SSRC is not registered is no longer delivered to the stream matching its sender SSRC (see `keyFrameRequestRouting` for where it goes instead). Unknown payload-specific feedback types (SLI, RPSI, ...) are no longer routed, instead of throwing.
+
+- **Compound RTCP packets are split at each packet's declared length** (`werift-rtp` `RtcpPacketConverter.deSerialize`): each packet's payload used to extend to the end of the compound packet, so a FIR followed by another packet (e.g. `RR + SDES + FIR + PLI`) gained bogus FCI entries from the following bytes. With FIR routing these reached other senders as extra FIR notifications and `firCount`. Padding is also read from the end of its own packet instead of the end of the compound packet.
+- **`FullIntraRequest` serializes the RFC 5104 header length**: the RTCP length field was one word short (3 instead of 4 for one entry; RFC 5104 §4.3.1.1: 2 + 2 × N), so peers could fail to parse a FIR sent by werift.
 
 ### 🧪 Testing & tooling
 

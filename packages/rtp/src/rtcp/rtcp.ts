@@ -26,6 +26,7 @@ export class RtcpPacketConverter {
       );
       pos += RTCP_HEADER_SIZE;
 
+      // each packet of a compound RTCP packet ends at its own declared length
       const payloadLen = header.length * 4;
       let payload = data.subarray(pos, pos + payloadLen);
       pos += payloadLen;
