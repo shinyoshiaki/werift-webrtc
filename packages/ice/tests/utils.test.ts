@@ -4,6 +4,7 @@ import { findPort } from "../../common/src";
 import { randomString } from "../src/helper";
 import { selectAddressesFromInterfaces } from "../src/internal/selectAddresses";
 import { getGlobalIp, isLinkLocalAddress } from "../src/utils";
+import { createLocalStunServer } from "./utils";
 
 describe("utils", () => {
   test("randomString", () => {
@@ -22,8 +23,17 @@ describe("utils", () => {
   }, 60_000);
 
   test("getGlobalIp", async () => {
-    const gip = await getGlobalIp();
-    expect(gip).toBeTruthy();
+    // Arrange: 外部ネットワークに依存しないローカル STUN サーバーを用意する。
+    const server = await createLocalStunServer("127.0.0.1");
+    try {
+      // Act: ローカル STUN サーバーから観測したアドレスを取得する。
+      const gip = await getGlobalIp(server.address!);
+
+      // Assert: STUN 応答に含まれる送信元アドレスが返る。
+      expect(gip).toBe("127.0.0.1");
+    } finally {
+      await server.close();
+    }
   });
 
   test("selectAddressesFromInterfaces excludes internal and link-local by default", () => {

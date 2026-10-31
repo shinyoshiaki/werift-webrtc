@@ -1,8 +1,11 @@
 /**
- * SDP mutations that model what other peers send (NEGOTIATION_TRANSACTION.md
- * "Peer-diversity mutations"). Each one is a pure string rewrite of a werift
- * description, so the same library drives the integration tests and the
- * develop differential runner (run.ts) against any werift revision.
+ * SDP mutations that model what other peers send. Each one is a pure string
+ * rewrite of a werift description, so the same library drives the develop
+ * differential runner (run.ts, `--mutate`) against any werift revision; the
+ * model property's wire rewrites (`tests/pbt/model/wireMutations.ts`) reuse
+ * some of them. The individual negotiation cases never fabricate another
+ * peer's description: interoperability with browsers and other
+ * implementations is the end-to-end tests' responsibility (`e2e/`).
  *
  * `breaksMedia` marks mutations after which RTP is not expected to arrive even
  * when the description is accepted (the remote said it will not send, or
@@ -329,7 +332,6 @@ export const MUTATION_NAMES = Object.keys(MUTATIONS) as MutationName[];
 const lookup = (name: MutationName): Mutation =>
   MUTATIONS[(ALIASES as Record<string, string>)[name] ?? name];
 
-/** Apply mutations in order. */
 export function mutate(sdp: string, names: readonly MutationName[]) {
   return names.reduce((value, name) => lookup(name).apply(value), sdp);
 }

@@ -1,4 +1,4 @@
-import { StunOverTurnProtocol } from "../../src/turn/protocol";
+import { StunOverTurnProtocol, TurnProtocol } from "../../src/turn/protocol";
 import { getHostAddresses } from "../../src/utils";
 import {
   createHeldUdpProxy,
@@ -30,6 +30,7 @@ describe("gathering bound to its ICE generation", () => {
     const proxy2 = await createHeldUdpProxy(server.address!);
     const connection = createTestConnection(true, localTurnOptions(server));
     const closed = vi.spyOn(StunOverTurnProtocol.prototype, "close");
+    const closedClients = vi.spyOn(TurnProtocol.prototype, "close");
     try {
       await connection.gatherCandidates();
       const [initial] = turnAllocations(connection);
@@ -79,6 +80,7 @@ describe("gathering bound to its ICE generation", () => {
     const proxy = await createHeldUdpProxy(server.address!);
     const connection = createTestConnection(true, localTurnOptions(server));
     const closed = vi.spyOn(StunOverTurnProtocol.prototype, "close");
+    const closedClients = vi.spyOn(TurnProtocol.prototype, "close");
     try {
       await connection.gatherCandidates();
       const [initial] = turnAllocations(connection);
@@ -92,16 +94,17 @@ describe("gathering bound to its ICE generation", () => {
       // Assert: gather は close で待たずに終わる。
       await gathering;
 
-      // Assert: close 後にできた allocation は connection に入らず、完了した後で自身も閉じる
-      // (refresh timer も止まる)。closed の agent は gather を完了扱いにしない
-      const closedAllocations = () => new Set(closed.mock.contexts);
-      for (let i = 0; i < 100 && closedAllocations().size < 2; i++) {
+      // Assert: 保留中の allocation は完了を待たずに close で client ごと閉じ (socket と
+      // 再送 timer も止まる)、connection に入らない。closed の agent は gather を完了扱いにしない
+      const clients = () => new Set(closedClients.mock.contexts);
+      for (let i = 0; i < 100 && clients().size < 2; i++) {
         await new Promise((resolve) => setTimeout(resolve, 20));
       }
       expect(turnAllocations(connection)).toHaveLength(0);
       expect(connection.localCandidatesEnd).toBe(false);
-      expect(closedAllocations().has(initial)).toBe(true);
-      expect(closedAllocations().size).toBe(2);
+      expect(new Set(closed.mock.contexts).has(initial)).toBe(true);
+      expect(clients().has(initial.turn)).toBe(true);
+      expect(clients().size).toBe(2);
     } finally {
       proxy.close();
       await server.close();
