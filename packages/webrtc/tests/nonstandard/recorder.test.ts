@@ -58,6 +58,10 @@ describe("packages/webrtc/tests/nonstandard/recorder.test.ts", () => {
     // Arrange: 存在しないディレクトリを保存先にする。
     const dir = await createRecordingDir();
     const track = createOpusTrack();
+    const baseline = {
+      rtp: track.onReceiveRtp.length,
+      rtcp: track.onReceiveRtcp.length,
+    };
     const errors: Error[] = [];
     const unhandled: unknown[] = [];
     const onUnhandled = (e: unknown) => unhandled.push(e);
@@ -74,9 +78,13 @@ describe("packages/webrtc/tests/nonstandard/recorder.test.ts", () => {
       // Act: RTP を流して停止する。
       feedOpusRtp(track, 10);
       await new Promise((r) => setTimeout(r, 50));
+      expect(errors.length).toBe(1);
       const started = Date.now();
       await recorder.stop();
 
+      // Assert: 失敗後は RTP の購読が解除され、以後のパケットは処理されない。
+      expect(track.onReceiveRtp.length).toBe(baseline.rtp);
+      expect(track.onReceiveRtcp.length).toBe(baseline.rtcp);
       // Assert: 書き込みエラーが onError に通知され、停止は 5 秒待たずに完了する。
       expect(errors.length).toBe(1);
       expect(Date.now() - started).toBeLessThan(2000);
@@ -84,6 +92,34 @@ describe("packages/webrtc/tests/nonstandard/recorder.test.ts", () => {
       expect(unhandled).toEqual([]);
     } finally {
       process.off("unhandledRejection", onUnhandled);
+      await dir.cleanup();
+    }
+  });
+
+  it("reorders out-of-order opus packets before writing", async () => {
+    // Arrange
+    const dir = await createRecordingDir();
+    const track = createOpusTrack();
+    try {
+      const recorder = new MediaRecorder({
+        path: dir.path("out.ogg"),
+        tracks: [track],
+        disableNtp: true,
+      });
+      await waitForOggRecorderStarted(recorder);
+
+      // Act: 順序が入れ替わった 4 パケット (0, 2, 1, 3) を流して停止する。
+      feedOpusRtp(track, [0, 2, 1, 3]);
+      await recorder.stop();
+      const input = createOggInput(await dir.read("out.ogg"));
+
+      // Assert: 重複・補完なしで 80ms の録音になる。
+      try {
+        expect(await input.computeDuration()).toBeCloseTo(0.08, 3);
+      } finally {
+        input.dispose();
+      }
+    } finally {
       await dir.cleanup();
     }
   });

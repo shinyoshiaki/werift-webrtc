@@ -36,8 +36,15 @@ export function createVp8Track() {
 }
 
 /** Feeds `count` 20 ms Opus RTP packets (CELT FB stereo TOC) into the track. */
-export function feedOpusRtp(track: MediaStreamTrack, count: number) {
-  for (let i = 0; i < count; i++) {
+export function feedOpusRtp(
+  track: MediaStreamTrack,
+  countOrOrder: number | number[],
+) {
+  const order =
+    typeof countOrOrder === "number"
+      ? [...Array(countOrOrder).keys()]
+      : countOrOrder;
+  for (const i of order) {
     const header = new RtpHeader({
       payloadType: 111,
       sequenceNumber: i,

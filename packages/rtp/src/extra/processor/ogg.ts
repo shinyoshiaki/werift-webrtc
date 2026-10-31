@@ -137,10 +137,19 @@ export class OggBase {
       this.baseTime = frame.time;
     }
 
+    const expected = Math.round(
+      (frame.time - this.baseTime) * OpusSamplesPerMs,
+    );
+    const packetSamples = getOpusPacketSamples(frame.data) ?? GapFillSamples;
+    if (expected + packetSamples / 2 <= this.samples) {
+      // late, reordered or duplicated: its span is already written (as audio
+      // or as a gap fill), so writing it again would stretch the recording
+      this.internalStats["droppedLate"] =
+        (this.internalStats["droppedLate"] ?? 0) + 1;
+      return;
+    }
+
     if (this.options.fillGaps ?? true) {
-      const expected = Math.round(
-        (frame.time - this.baseTime) * OpusSamplesPerMs,
-      );
       // 1 byte packets (TOC only) are decoded as lost frames (RFC 6716 §3.2.1).
       // The remainder below 20 ms is filled with shorter frames
       const stereo = (this.lastToc ?? 0) & 0x04;
@@ -158,10 +167,7 @@ export class OggBase {
     }
 
     this.lastToc = frame.data[0];
-    this.writePacket(
-      frame.data,
-      getOpusPacketSamples(frame.data) ?? GapFillSamples,
-    );
+    this.writePacket(frame.data, packetSamples);
   }
 
   private writePacket(packet: Buffer, samples: number) {

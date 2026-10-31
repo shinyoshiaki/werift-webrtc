@@ -158,8 +158,8 @@ describe("packages/rtp/tests/processor/ogg.test.ts", () => {
       .slice(2)
       .map((p) => p.granulePosition);
 
-    // Assert: granule は減少せず、パケット長分ずつ進む。
-    expect(granules).toEqual([960n, 1920n, 2880n, 3840n, 4800n, 4800n]);
+    // Assert: 巻き戻った 10ms のパケットは破棄され、granule は減少せず進む。
+    expect(granules).toEqual([960n, 1920n, 2880n, 3840n, 3840n]);
   });
 
   it("reports output callback failures through onError instead of rejecting", async () => {
@@ -189,6 +189,26 @@ describe("packages/rtp/tests/processor/ogg.test.ts", () => {
     } finally {
       process.off("unhandledRejection", onUnhandled);
     }
+  });
+
+  it("drops late and duplicated packets after their gap was filled", async () => {
+    // Arrange: 0, 40, 20, 60ms の順 (20ms は遅延到着) と、60ms の重複。
+    const frames = createOpusFramesAt([0, 40, 20, 60, 60]);
+
+    // Act
+    const outputs = await collectOggOutputs((ogg) => {
+      for (const frame of frames) {
+        ogg.inputAudio({ frame });
+      }
+      ogg.inputAudio({ eol: true });
+    });
+    const pages = parseOggPages(oggOutputsToBuffer(outputs));
+    const packets = oggPagesToPackets(pages.slice(2));
+
+    // Assert: 録音は 80ms で、順序は 0, 補完(20), 40, 60 になる。
+    expect(pages.at(-1)!.granulePosition).toBe(80n * 48n);
+    expect(packets.map((p) => p.length)).toEqual([4, 1, 4, 4]);
+    expect(outputs.at(-1)!.eol).toEqual({ duration: 80 });
   });
 
   it("writes an EOS page even without audio", async () => {

@@ -3,6 +3,7 @@ import { type MediaStreamTrack, WeriftError } from "../../..";
 import { Event, EventDisposer } from "../../../imports/common";
 import {
   DepacketizeCallback,
+  JitterBufferCallback,
   NtpTimeCallback,
   OggCallback,
   type OggOutput,
@@ -87,6 +88,11 @@ export class OggFactory extends MediaWriter<OggOutput> {
     ogg.onError.once((error) => {
       this.ended = true;
       ogg.destroy();
+      // the recording is dead: stop feeding it RTP / RTCP
+      this.unSubscribers.dispose();
+      for (const source of this.rtpSources) {
+        source.stop();
+      }
       this.onEol.execute();
       this.onError.execute(error);
     });
@@ -109,7 +115,13 @@ export class OggFactory extends MediaWriter<OggOutput> {
       : new NtpTimeCallback(clockRate);
     const depacketizer = new DepacketizeCallback("OPUS");
 
-    rtpSource.pipe(time.input);
+    // reorders packets so late audio is not written after its gap was filled
+    const jitterBuffer = new JitterBufferCallback(
+      clockRate,
+      this.props.jitterBuffer ?? {},
+    );
+    rtpSource.pipe(jitterBuffer.input);
+    jitterBuffer.pipe(time.input);
     rtcpSource.pipe(time.input);
     time.pipe(depacketizer.input);
     depacketizer.pipe(ogg.inputAudio);
