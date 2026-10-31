@@ -1,23 +1,23 @@
-import { randomUUID } from "crypto";
 import {
+  createSocket,
   type RemoteInfo,
   type Socket,
   type SocketType,
-  createSocket,
 } from "node:dgram";
 import {
   type AddressInfo,
+  createServer,
   type Server as TcpServer,
   type Socket as TcpSocket,
-  createServer,
 } from "node:net";
 import { networkInterfaces } from "node:os";
 import {
+  createServer as createTlsServer,
   type TLSSocket,
   type TlsOptions,
   type Server as TlsServer,
-  createServer as createTlsServer,
 } from "node:tls";
+import { randomUUID } from "crypto";
 
 import type { Address } from "../../../common/src";
 

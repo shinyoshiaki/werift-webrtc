@@ -3,7 +3,7 @@ import { createHash } from "crypto";
 import { createSocket } from "dgram";
 
 import { performance } from "perf_hooks";
-
+import type { RTCIceServer } from "./api/peerConfig";
 import {
   type Address,
   bufferReader,
@@ -12,8 +12,6 @@ import {
   randomPort,
 } from "./imports/common";
 import { CipherContext } from "./imports/dtls";
-
-import type { RTCIceServer } from "./api/peerConfig";
 import { Directions, type MediaDirection } from "./media/rtpTransceiver";
 import { MediaStreamTrack } from "./media/track";
 
@@ -347,7 +345,7 @@ export const deepMerge = <T>(dst: T, src: T) => {
   }
 
   for (const key in src) {
-    if (Object.prototype.hasOwnProperty.call(src, key)) {
+    if (Object.hasOwn(src, key)) {
       const sourceValue = src[key];
 
       if (sourceValue != undefined) {

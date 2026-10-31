@@ -16,23 +16,23 @@ Each packet carries the 4-octet descriptor from
 
 ## Constructors
 
-### new Vp8Packetizer()
+### Constructor
 
-> **new Vp8Packetizer**(`options`): [`Vp8Packetizer`](Vp8Packetizer.md)
+> **new Vp8Packetizer**(`options?`): `Vp8Packetizer`
 
 #### Parameters
 
-##### options
+##### options?
 
 [`Vp8PacketizerOptions`](../type-aliases/Vp8PacketizerOptions.md) = `{}`
 
 #### Returns
 
-[`Vp8Packetizer`](Vp8Packetizer.md)
+`Vp8Packetizer`
 
 #### Overrides
 
-[`PacketizerBase`](PacketizerBase.md).[`constructor`](PacketizerBase.md#constructors)
+[`PacketizerBase`](PacketizerBase.md).[`constructor`](PacketizerBase.md#constructor)
 
 ## Properties
 

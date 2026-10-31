@@ -13,8 +13,9 @@ RUN apt-get update \
     openssl \
   && rm -rf /var/lib/apt/lists/*
 
-COPY package.json package-lock.json tsconfig.json biome.json vitest.workspace.mjs ./
+COPY package.json package-lock.json tsconfig.json biome.json ./
 COPY packages ./packages
+COPY tools/node-ts ./tools/node-ts
 COPY examples/turn-loopback ./examples/turn-loopback
 COPY import-test ./import-test
 

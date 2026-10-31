@@ -8,9 +8,9 @@
 
 ## Constructors
 
-### new GroupDescription()
+### Constructor
 
-> **new GroupDescription**(`semantic`, `items`): [`GroupDescription`](GroupDescription.md)
+> **new GroupDescription**(`semantic`, `items`): `GroupDescription`
 
 #### Parameters
 
@@ -24,7 +24,7 @@
 
 #### Returns
 
-[`GroupDescription`](GroupDescription.md)
+`GroupDescription`
 
 ## Properties
 

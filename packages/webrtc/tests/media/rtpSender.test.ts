@@ -20,11 +20,14 @@ import {
   buildSenderReportAt,
   createConnectedRtpSender,
   createDtlsTransport,
+  createFirPacket,
+  createPliPacket,
   createRtpPacket,
   createVideoCodec,
   mockMonotonicClock,
   ntpDiffMs,
   rfc3550Ntp,
+  outboundRtpStats,
   sentRtpHeaders,
 } from "../fixture";
 
@@ -1271,6 +1274,255 @@ describe("media/rtpSender RTP continuity", () => {
     const [header] = sentRtpHeaders(sendRtp);
     expect(header.sequenceNumber).toBe((last.sequenceNumber + 1) & 0xffff);
     expect(header.timestamp).toBe((last.timestamp + 1) >>> 0);
+  });
+
+  describe("keyframe requests", () => {
+    const remoteSsrc = 0x0abc0001;
+
+    test("FIR addressed to the sender counts firCount and fires onFullIntraRequest", async () => {
+      // Arrange
+      const { sender } = createConnectedRtpSender({ kind: "video" });
+      const onFir = vi.fn();
+      const onPli = vi.fn();
+      sender.onFullIntraRequest.subscribe(onFir);
+      sender.onPictureLossIndication.subscribe(onPli);
+      const fir = createFirPacket({
+        senderSsrc: remoteSsrc,
+        fir: [{ ssrc: sender.ssrc, sequenceNumber: 7 }],
+      });
+
+      // Act: 自分宛エントリを含む FIR を受ける
+      sender.handleRtcpPacket(fir);
+
+      // Assert: firCount が outbound-rtp に出て、FIR の Event だけが発火する
+      expect(onFir).toHaveBeenCalledTimes(1);
+      expect(onFir).toHaveBeenCalledWith(fir.feedback);
+      expect(onPli).not.toHaveBeenCalled();
+      const stats = await outboundRtpStats(sender);
+      expect(stats.firCount).toBe(1);
+      expect(stats.pliCount).toBeUndefined();
+    });
+
+    test("retransmitted FIR with the same sequence number counts but does not fire", async () => {
+      // Arrange
+      const { sender } = createConnectedRtpSender({ kind: "video" });
+      const onFir = vi.fn();
+      sender.onFullIntraRequest.subscribe(onFir);
+      const firWithSeq = (sequenceNumber: number, senderSsrc = remoteSsrc) =>
+        createFirPacket({
+          senderSsrc,
+          fir: [{ ssrc: sender.ssrc, sequenceNumber }],
+        });
+
+      // Act: 同じ送信元・同じ Seq nr の FIR を再送として 2 回受ける
+      sender.handleRtcpPacket(firWithSeq(1));
+      sender.handleRtcpPacket(firWithSeq(1));
+
+      // Assert: 数は 2 だが Event は初回の 1 回だけ
+      expect(onFir).toHaveBeenCalledTimes(1);
+      expect((await outboundRtpStats(sender)).firCount).toBe(2);
+
+      // Act: Seq nr を進めた FIR と、別の送信元からの同じ Seq nr の FIR を受ける
+      sender.handleRtcpPacket(firWithSeq(2));
+      sender.handleRtcpPacket(firWithSeq(2, remoteSsrc + 1));
+
+      // Assert: どちらも新しい要求として発火する
+      expect(onFir).toHaveBeenCalledTimes(3);
+      expect((await outboundRtpStats(sender)).firCount).toBe(4);
+    });
+
+    test("FIR retransmission is judged per (FIR sender, target SSRC) entry", async () => {
+      // Arrange: router が primary SSRC と RTX SSRC のエントリを同じ sender に解決した状態
+      const { sender } = createConnectedRtpSender({ kind: "video" });
+      const onFir = vi.fn();
+      sender.onFullIntraRequest.subscribe(onFir);
+      const receiveFir = (
+        entries: { ssrc: number; sequenceNumber: number }[],
+      ) =>
+        sender.handleRtcpPacket(
+          createFirPacket({ senderSsrc: remoteSsrc, fir: entries }),
+          entries,
+        );
+      const primary = (sequenceNumber: number) => ({
+        ssrc: sender.ssrc,
+        sequenceNumber,
+      });
+      const rtx = (sequenceNumber: number) => ({
+        ssrc: sender.rtxSsrc,
+        sequenceNumber,
+      });
+
+      // Act: primary=5 / RTX=9 の 2 エントリを持つ FIR と、その再送を受ける
+      receiveFir([primary(5), rtx(9)]);
+      receiveFir([primary(5), rtx(9)]);
+
+      // Assert: 再送は各エントリが既受信の番号なので通知されず、firCount はエントリ数ではなくパケット数の 2
+      expect(onFir).toHaveBeenCalledTimes(1);
+      expect((await outboundRtpStats(sender)).firCount).toBe(2);
+
+      // Act: primary の番号と同じ値を RTX 宛の新しい要求として受ける
+      receiveFir([rtx(5)]);
+
+      // Assert: RTX 宛の番号空間では 5 は新しいので、別対象の記録に引きずられず通知される
+      expect(onFir).toHaveBeenCalledTimes(2);
+
+      // Act: 各対象の最新番号だけを持つ FIR を順に受ける
+      receiveFir([primary(5)]);
+      receiveFir([rtx(5)]);
+
+      // Assert: どちらも対象ごとの再送なので通知されない
+      expect(onFir).toHaveBeenCalledTimes(2);
+      expect((await outboundRtpStats(sender)).firCount).toBe(5);
+    });
+
+    test("FIR not addressed to the sender is ignored except onRtcp", async () => {
+      // Arrange
+      const { sender } = createConnectedRtpSender({ kind: "video" });
+      const onFir = vi.fn();
+      const onRtcp = vi.fn();
+      sender.onFullIntraRequest.subscribe(onFir);
+      sender.onRtcp.subscribe(onRtcp);
+
+      // Act: 他の SSRC 宛エントリだけの FIR を受ける
+      sender.handleRtcpPacket(
+        createFirPacket({
+          senderSsrc: remoteSsrc,
+          fir: [{ ssrc: sender.ssrc + 1, sequenceNumber: 1 }],
+        }),
+      );
+
+      // Assert: firCount も Event も変わらず、onRtcp だけ従来どおり発火する
+      expect(onFir).not.toHaveBeenCalled();
+      expect(onRtcp).toHaveBeenCalledTimes(1);
+      expect((await outboundRtpStats(sender)).firCount).toBeUndefined();
+    });
+
+    test("onKeyFrameRequest fires for PLI and for new FIR only", () => {
+      // Arrange
+      const { sender } = createConnectedRtpSender({ kind: "video" });
+      const onRequest = vi.fn();
+      sender.onKeyFrameRequest.subscribe(onRequest);
+      const firWithSeq = (sequenceNumber: number) =>
+        createFirPacket({
+          senderSsrc: remoteSsrc,
+          fir: [{ ssrc: sender.ssrc, sequenceNumber }],
+        });
+
+      // Act: PLI、FIR、FIR の再送、新しい Seq nr の FIR を順に受ける
+      sender.handleRtcpPacket(
+        createPliPacket({ senderSsrc: remoteSsrc, mediaSsrc: sender.ssrc }),
+      );
+      sender.handleRtcpPacket(firWithSeq(1));
+      sender.handleRtcpPacket(firWithSeq(1));
+      sender.handleRtcpPacket(firWithSeq(2));
+
+      // Assert: 再送を除き、種別付きで 3 回発火する
+      expect(onRequest.mock.calls).toEqual([["pli"], ["fir"], ["fir"]]);
+    });
+
+    test("PLI does not affect FIR handling", async () => {
+      // Arrange
+      const { sender } = createConnectedRtpSender({ kind: "video" });
+      const onFir = vi.fn();
+      const onPli = vi.fn();
+      sender.onFullIntraRequest.subscribe(onFir);
+      sender.onPictureLossIndication.subscribe(onPli);
+
+      // Act: PLI を受ける
+      sender.handleRtcpPacket(
+        createPliPacket({ senderSsrc: remoteSsrc, mediaSsrc: sender.ssrc }),
+      );
+
+      // Assert: PLI 側だけが数えられ、FIR 側は変わらない
+      expect(onPli).toHaveBeenCalledTimes(1);
+      expect(onFir).not.toHaveBeenCalled();
+      const stats = await outboundRtpStats(sender);
+      expect(stats.pliCount).toBe(1);
+      expect(stats.firCount).toBeUndefined();
+    });
+  });
+});
+
+describe("media/rtpSender NACK retransmission over SRTP", () => {
+  const started: RTCRtpSender[] = [];
+
+  afterEach(() => {
+    for (const sender of started) {
+      sender.stop();
+    }
+    started.length = 0;
+  });
+
+  const arrangeSender = (
+    options?: Parameters<typeof createConnectedRtpSender>[0],
+  ) => {
+    const setup = createConnectedRtpSender({ ...options, srtpLoopback: true });
+    started.push(setup.sender);
+    return { ...setup, srtp: setup.srtp! };
+  };
+
+  const nack = (sender: RTCRtpSender, lost: number[]) =>
+    sender.handleRtcpPacket(
+      new RtcpTransportLayerFeedback({
+        feedback: new GenericNack({
+          lost,
+          senderSsrc: 1,
+          mediaSourceSsrc: sender.ssrc,
+        }),
+      }),
+    );
+
+  test("RTX なし: 折り返し後の seq 0 再送と後続パケットが受信側で復号できる (#764)", async () => {
+    const { sender, srtp } = arrangeSender();
+
+    // Arrange: 65535 → 0..120 と送り、折り返し後の ROC=1 区間に入る。
+    for (const seq of [65535, ...Array.from({ length: 121 }, (_, i) => i)]) {
+      await sender.sendRtp(createRtpPacket(seq, seq * 960));
+    }
+    srtp.received.length = 0;
+
+    // Act: seq 0 の NACK を受けて元 SSRC/seq のまま再送し、続けて 121 を送る。
+    nack(sender, [0]);
+    await setTimeout(0);
+    await sender.sendRtp(createRtpPacket(121, 121 * 960));
+
+    // Assert: 再送 0 と 121 はどちらも認証・復号に成功する。
+    expect(srtp.failures).toEqual([]);
+    expect(srtp.received.map((p) => p.header.sequenceNumber)).toEqual([0, 121]);
+    expect(srtp.received.every((p) => p.header.ssrc === sender.ssrc)).toBe(
+      true,
+    );
+    // Assert: 送信側の最高 index は (ROC=1, 121) で、再送で二重加算されていない。
+    expect(srtp.sender.localContext.srtpSSRCStates[sender.ssrc]).toMatchObject({
+      rolloverCounter: 1,
+      lastSequenceNumber: 121,
+    });
+  });
+
+  test("RTX あり: RTX は別 SSRC で送られ、メディア SSRC の後続パケットも復号できる", async () => {
+    const { sender, srtp } = arrangeSender({ rtx: true });
+
+    // Arrange: 65535 → 0..120 と送る。
+    for (const seq of [65535, ...Array.from({ length: 121 }, (_, i) => i)]) {
+      await sender.sendRtp(createRtpPacket(seq, seq * 960));
+    }
+    srtp.received.length = 0;
+
+    // Act: seq 0 の NACK で RTX を送り、続けて 121 を送る。
+    nack(sender, [0]);
+    await setTimeout(0);
+    await sender.sendRtp(createRtpPacket(121, 121 * 960));
+
+    // Assert: 全パケットが復号でき、1 つ目は RTX SSRC の再送。
+    expect(srtp.failures).toEqual([]);
+    const [rtx, next] = srtp.received;
+    expect(rtx.header.ssrc).toBe(sender.rtxSsrc);
+    expect(unwrapRtx(rtx, 96, sender.ssrc).header.sequenceNumber).toBe(0);
+    // Assert: メディア SSRC の後続 121 も復号できる。
+    expect(next.header).toMatchObject({
+      ssrc: sender.ssrc,
+      sequenceNumber: 121,
+    });
   });
 });
 

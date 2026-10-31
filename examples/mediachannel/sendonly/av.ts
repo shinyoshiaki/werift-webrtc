@@ -1,11 +1,11 @@
-import { Server } from "ws";
+import { WebSocketServer } from "ws";
 import { RTCPeerConnection } from "../../../packages/webrtc/src";
 import {
   createMp4WebmRegister,
   installPolyfill,
 } from "../../../packages/webrtc/src/polyfill";
 
-const server = new Server({ port: 8881 });
+const server = new WebSocketServer({ port: 8881 });
 console.log("start");
 
 server.on("connection", async (socket) => {
