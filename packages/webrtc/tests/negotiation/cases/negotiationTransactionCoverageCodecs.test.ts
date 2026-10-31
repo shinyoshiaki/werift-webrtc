@@ -171,7 +171,6 @@ describeCases(
         expect(await twccFeedbackSent(outgoing, receiver)).toBe(true);
         expect(receiver.receiverTWCC).not.toEqual(undefined);
 
-        // Act: 両側で rollback する。
         await c.rollback(a);
 
         // Assert: pending 中に始まった TWCC は止まり、current の VP8 の RTP には feedback を送らない。
@@ -216,7 +215,6 @@ describeCases(
         expect(added.mid).not.toBe(inactiveMid);
         expect(added.mLineIndex).toEqual(1);
 
-        // Act: rollback する。
         await c.setRemote(b, "rollback");
 
         // Assert: rollback 後も inactive な transceiver はそのまま残る。
@@ -258,7 +256,6 @@ describeCases(
         expect(appInactive.mid).toBe(a.getTransceivers()[0].mid);
         expect(appInactive.direction).toEqual("inactive");
 
-        // Act: rollback する。
         await c.setRemote(b, "rollback");
 
         // Assert: app の transceiver は未関連付けに戻り、inactive のまま残る。
@@ -296,7 +293,6 @@ describeCases(
         };
         const offer = await a.createOffer();
 
-        // Act: local offer を適用する。
         await c.setLocal(a, offer);
 
         // Assert: 適用中は offer の codec を pendingLocalOfferCodecs に持つ。
@@ -310,7 +306,6 @@ describeCases(
           ),
         );
 
-        // Act: rollback する。
         await c.setLocal(a, "rollback");
 
         // Assert: rolled-back offer の pendingLocalOfferCodecs と再解決要求は baseline に戻る。
@@ -357,7 +352,6 @@ describeCases(
         expect(offeredVideoCodecs(unapplied.sdp)).toEqual(["VP8", "H264"]);
         expect(transceiver.codecPreferencesNeedResolution).toBe(false);
 
-        // Act: remote offer を rollback する。
         await c.rollback(b);
 
         // Assert: pending 中に消費した再解決要求と解決済み codec は baseline に戻る。
@@ -399,7 +393,6 @@ describeCases(
         expect(sctp.dtlsTransport).not.toBe(ownTransport);
         expect(sctp.sctp.mtu).toEqual(1052);
 
-        // Act: rollback する。
         await c.setRemote(b, "rollback");
 
         // Assert: 元の DTLS transport に戻した SCTP も設定の MTU を使う。
@@ -541,7 +534,6 @@ describeCases(
           setTrackFeedback(incoming, [useNACK(), usePLI()]);
         }
 
-        // Act: PLI を要求する。
         const reached = await pliReaches(receiver, sender);
 
         // Assert: PLI の可否は track の codec ではなく、受信 codec 表 (current SDP) の feedback に従う。

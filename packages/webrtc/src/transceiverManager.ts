@@ -24,6 +24,7 @@ import {
   assertCodecsSupported,
   hasCommonPrimaryMimeType,
   isCodecCompatible,
+  normalizeCodecMimeType,
   resolveCodecs,
 } from "./media/codecCompatibility";
 import type { RTCStats } from "./media/stats";
@@ -87,6 +88,34 @@ function simulcastFromSendEncodings(
   return rids.map((rid) => ({ rid, direction: "send" as const }));
 }
 
+/**
+ * The transceivers of a PeerConnection and their m-lines.
+ *
+ * m-line stop, rejection and reuse inside a negotiation:
+ * - A stopping transceiver is offered and answered as a rejected (port 0)
+ *   m-line (JSEP 5.2.2, 5.3.1); the final answer marks it stopped and
+ *   unregisters its routes. werift also writes `inactive` m-lines with port
+ *   0: a port-0 answer stops only a transceiver the application is stopping.
+ * - A remote offer or pranswer m-line without a common codec, or with port 0
+ *   for a known MID, only marks `pendingRejection`; the current pipeline keeps
+ *   running and rollback restores the flag. The commit releases it.
+ * - An application `addTransceiver` reuses only a same-kind position whose
+ *   rejection or stop is committed, with a new MID; a transceiver for a remote
+ *   offer replaces only a stopped one at its index. Neither takes an inactive
+ *   one. A transceiver displaced by a recycling remote offer is marked
+ *   stopped as a reversible change; its sender and receiver stop at the final
+ *   answer.
+ * - A transceiver created for a remote offer is not an application operation
+ *   (no `negotiationneeded`). Rollback removes it unless the application
+ *   attached a track (`heldByApplication`); a kept one returns to its created
+ *   state. An application `stop()` during the transaction survives rollback.
+ * - A transceiver the application added while a description was pending is
+ *   never committed by it: rollback takes back its MID, m-line and the
+ *   direction a pranswer gave it.
+ * - `setCodecPreferences()` / an attached track only mark codecs for
+ *   re-resolution; the live sender and receiver follow at the local answer
+ *   commit, and a change made during the transaction survives its rollback.
+ */
 export class TransceiverManager {
   private readonly transceivers: RTCRtpTransceiver[] = [];
   private readonly notifiedRemoteTrack = new WeakMap<
@@ -721,7 +750,8 @@ export class TransceiverManager {
       const remoteCodec = remoteMedia.rtp.codecs.find(
         (codec) =>
           !usedRemote.has(codec) &&
-          codec.mimeType.toLowerCase() === localCodec.mimeType.toLowerCase() &&
+          normalizeCodecMimeType(codec.mimeType) ===
+            normalizeCodecMimeType(localCodec.mimeType) &&
           (source == undefined ||
             source.some((sourceCodec) =>
               isCodecCompatible(sourceCodec, codec),
