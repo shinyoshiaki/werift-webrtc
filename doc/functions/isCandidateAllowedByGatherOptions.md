@@ -11,8 +11,9 @@
 Whether `candidate`, kept from an earlier generation (an ICE restart keeps
 the sockets), may be advertised and paired in a generation gathered with
 `options`. A fresh gathering with the same options would not have produced
-a host / server-reflexive candidate for a relay-only policy, nor a TCP host
-candidate without useTcp; the kept ones are held back the same way.
+a host / server-reflexive candidate for a relay-only policy, a TCP host
+candidate without useTcp, nor a relay candidate without a TURN server;
+the kept ones are held back the same way.
 
 ## Parameters
 
@@ -22,7 +23,7 @@ candidate without useTcp; the kept ones are held back the same way.
 
 ### options
 
-`Pick`\<[`IceOptions`](../interfaces/IceOptions.md), `"forceTurn"`\> & `Partial`\<`Pick`\<[`IceOptions`](../interfaces/IceOptions.md), `"useTcp"`\>\>
+`Pick`\<[`IceOptions`](../interfaces/IceOptions.md), `"forceTurn"`\> & `Partial`\<`Pick`\<[`IceOptions`](../interfaces/IceOptions.md), `"useTcp"` \| `"turnServer"` \| `"turnUsername"` \| `"turnPassword"`\>\>
 
 ## Returns
 

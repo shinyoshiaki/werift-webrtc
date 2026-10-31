@@ -75,6 +75,7 @@
 - [encodeTcpFrame](functions/encodeTcpFrame.md)
 - [getGlobalIp](functions/getGlobalIp.md)
 - [getHostAddresses](functions/getHostAddresses.md)
+- [hasTurnServer](functions/hasTurnServer.md)
 - [isCandidateAllowedByGatherOptions](functions/isCandidateAllowedByGatherOptions.md)
 - [isComprehensionRequiredAttribute](functions/isComprehensionRequiredAttribute.md)
 - [isLinkLocalAddress](functions/isLinkLocalAddress.md)

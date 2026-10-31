@@ -8,9 +8,12 @@ import {
   connectionProtocols,
   createConnectedPair,
   createGatheredConnectionWithLocalServers,
+  deliverProvisionalCheck,
   localCandidateKinds,
+  provisionalPairs,
   restartWithIceServers,
   stageProvisionalGeneration,
+  stageProvisionalWithKeptRelay,
 } from "../utils";
 
 describe("isCandidateAllowedByGatherOptions", () => {
@@ -23,6 +26,15 @@ describe("isCandidateAllowedByGatherOptions", () => {
   test.each([
     // [candidate, options, allowed]
     [{ type: "relay", transport: "udp" }, { ...turn, forceTurn: true }, true],
+    [{ type: "relay", transport: "udp" }, { ...turn, forceTurn: false }, true],
+    // TURN が無い・資格情報が欠けた世代は relay を使わない
+    [{ type: "relay", transport: "udp" }, { forceTurn: false }, false],
+    [{ type: "relay", transport: "udp" }, { forceTurn: true }, false],
+    [
+      { type: "relay", transport: "udp" },
+      { ...turn, turnUsername: undefined, forceTurn: false },
+      false,
+    ],
     [{ type: "host", transport: "udp" }, { ...turn, forceTurn: true }, false],
     [{ type: "srflx", transport: "udp" }, { ...turn, forceTurn: true }, false],
     [{ type: "host", transport: "tcp" }, { ...turn, forceTurn: true }, false],
@@ -321,4 +333,57 @@ describe("ICE restart follows the gather options of the new generation", () => {
       await Promise.all([a.close(), b.close()]);
     }
   });
+});
+
+describe("staged generation は保持中の TURN allocation を新しい TURN 設定でだけ使う", () => {
+  test.each([
+    // [label, staged generation の TURN 設定, 旧 allocation を使うか]
+    ["TURN A → STUN のみ", () => ({}), false],
+    [
+      "TURN A → 別 credential (B)",
+      (turn: Partial<IceOptions>) => ({
+        ...turn,
+        turnUsername: "user-b",
+        turnPassword: "password-b",
+      }),
+      false,
+    ],
+    ["TURN A のまま", (turn: Partial<IceOptions>) => turn, true],
+  ])(
+    "%s: provisional checklist と着信 check での旧 relay socket の扱い",
+    async (_label, stagedTurn, usesKeptRelay) => {
+      // Arrange: STUN + TURN A で gather 済みの connection と、新しい設定で stage した世代
+      const arranged = await createGatheredConnectionWithLocalServers(
+        ({ stunOptions, turnOptions }) => ({ ...turnOptions, ...stunOptions }),
+      );
+      const { connection, stunOptions, turnOptions } = arranged;
+      try {
+        const staged = await stageProvisionalWithKeptRelay(connection, {
+          ...stunOptions,
+          ...stagedTurn(turnOptions),
+          forceTurn: false,
+        });
+
+        // Assert: provisional checklist に旧 relay socket のペアができるのは TURN A を使い続けるときだけ
+        expect(
+          provisionalPairs(connection).some(
+            (pair) => pair.protocol === staged.relay,
+          ),
+        ).toBe(usesKeptRelay);
+
+        // Act: staged generation 宛ての着信 check が旧 relay socket に届く
+        const responded = await deliverProvisionalCheck(staged.relay, staged);
+
+        // Assert: 応答もペア作成も TURN A を使い続けるときだけ行う
+        expect(responded).toBe(usesKeptRelay);
+        expect(
+          provisionalPairs(connection).filter(
+            (pair) => pair.protocol === staged.relay,
+          ).length > 0,
+        ).toBe(usesKeptRelay);
+      } finally {
+        await arranged.close();
+      }
+    },
+  );
 });

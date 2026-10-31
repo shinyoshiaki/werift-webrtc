@@ -430,6 +430,7 @@
 - [getTrackSourceCodecs](functions/getTrackSourceCodecs.md)
 - [growBufferSize](functions/growBufferSize.md)
 - [hasCommonPrimaryMimeType](functions/hasCommonPrimaryMimeType.md)
+- [hasTurnServer](functions/hasTurnServer.md)
 - [int](functions/int.md)
 - [Int](functions/Int-1.md)
 - [interfaceAddress](functions/interfaceAddress.md)

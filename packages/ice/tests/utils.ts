@@ -1571,6 +1571,77 @@ export async function restartWithIceServers(
   await connection.gatherCandidates();
 }
 
+/**
+ * Arrange: stage a provisional generation on `connection` that gathers with
+ * `gatherOptions`, with remote credentials and one remote host candidate, as
+ * an ICE restart offer applied before its answer would. `relay` is the TURN
+ * allocation `connection` kept from its current generation.
+ */
+export async function stageProvisionalWithKeptRelay(
+  connection: Connection,
+  gatherOptions: Partial<IceOptions>,
+) {
+  const relay = connectionProtocols(connection).find(
+    (protocol) => protocol.localCandidate?.type === "relay",
+  );
+  if (!relay) throw new Error("expected a kept TURN allocation");
+  const local = {
+    usernameFragment: "provL",
+    password: "provisional-local-000",
+  };
+  const remote = {
+    usernameFragment: "provR",
+    password: "provisional-remote-000",
+  };
+  connection.stageLocalCredentials(
+    local.usernameFragment,
+    local.password,
+    gatherOptions,
+  );
+  connection.setProvisionalRemoteParams(remote);
+  await connection.addProvisionalRemoteCandidate(
+    new Candidate("1", 1, "udp", 100, "127.0.0.1", 50000, "host"),
+  );
+  return { relay, local, remote };
+}
+
+/** The pairs of the provisional checklist `connection` staged. */
+export function provisionalPairs(connection: Connection) {
+  return (
+    (
+      connection as unknown as {
+        provisional?: { pairs: CandidatePair[] };
+      }
+    ).provisional?.pairs ?? []
+  );
+}
+
+/**
+ * Act: deliver a connectivity check for the staged generation on `protocol`
+ * from `addr`; resolves with whether `protocol` sent a response.
+ */
+export async function deliverProvisionalCheck(
+  protocol: Protocol,
+  { local, remote }: Awaited<ReturnType<typeof stageProvisionalWithKeptRelay>>,
+  addr: Address = ["127.0.0.1", 50001],
+) {
+  const sendStun = vi
+    .spyOn(protocol, "sendStun")
+    .mockResolvedValue(undefined as never);
+  const request = new Message(methods.BINDING, classes.REQUEST)
+    .setAttribute(
+      "USERNAME",
+      `${local.usernameFragment}:${remote.usernameFragment}`,
+    )
+    .setAttribute("PRIORITY", 1_000)
+    .setAttribute("ICE-CONTROLLED", 1n);
+  protocol.onRequestReceived.execute(request, addr, Buffer.alloc(0));
+  await new Promise((resolve) => setImmediate(resolve));
+  const responded = sendStun.mock.calls.length > 0;
+  sendStun.mockRestore();
+  return responded;
+}
+
 /** The transport protocols (sockets / allocations) `connection` keeps. */
 export function connectionProtocols(connection: Connection) {
   return (connection as unknown as { protocols: Protocol[] }).protocols;

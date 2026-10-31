@@ -36,7 +36,10 @@ import { TCP_CHECK_RESPONSE_TIMEOUT_MS, classes, methods } from "./stun/const";
 import { Message } from "./stun/message";
 import { StunProtocol } from "./stun/protocol";
 import { TcpActiveProtocol, TcpPassiveProtocol } from "./stun/tcpProtocol";
-import { createStunOverTurnClient } from "./turn/protocol";
+import {
+  StunOverTurnProtocol,
+  createStunOverTurnClient,
+} from "./turn/protocol";
 import type { Protocol, TransactionRequestOptions } from "./types/model";
 import { getHostAddresses } from "./utils";
 
@@ -793,6 +796,7 @@ export class Connection implements IceConnection {
       // sockets, so they are neither advertised, paired nor reachable.
       const excluded = this.protocols.filter(
         (protocol) =>
+          !previousTurn.includes(protocol) &&
           !!protocol.localCandidate &&
           !isCandidateAllowedByGatherOptions(
             protocol.localCandidate,
@@ -872,19 +876,33 @@ export class Connection implements IceConnection {
   /**
    * Whether the provisional generation may use `protocol`: the staged
    * generation drops the sockets its gather options exclude at the commit,
-   * so its checks never use them.
+   * so its checks never use them. A kept TURN allocation serves it only when
+   * the generation still uses that TURN server and credential: one whose
+   * server was removed or replaced (a credential rotation) is not part of it.
    */
   private allowsProvisional(
     generation: ProvisionalGeneration,
     protocol: Protocol,
   ) {
-    return (
-      !!protocol.localCandidate &&
-      isCandidateAllowedByGatherOptions(
-        protocol.localCandidate,
-        generation.gatherOptions ?? this.options,
-      )
-    );
+    const options = generation.gatherOptions ?? this.options;
+    if (
+      !protocol.localCandidate ||
+      !isCandidateAllowedByGatherOptions(protocol.localCandidate, options)
+    ) {
+      return false;
+    }
+    if (protocol instanceof StunOverTurnProtocol) {
+      const { configuredServer, username, password } = protocol.turn;
+      const turnServer = validateAddress(options.turnServer);
+      return (
+        !!turnServer &&
+        configuredServer[0] === turnServer[0] &&
+        configuredServer[1] === turnServer[1] &&
+        username === options.turnUsername &&
+        password === options.turnPassword
+      );
+    }
+    return true;
   }
 
   /** A copy of `candidate` labelled with the current generation and ufrag. */
@@ -927,6 +945,20 @@ export class Connection implements IceConnection {
       const { remoteUsername: localUsername } = decodeTxUsername(txUsername);
       const localPassword =
         this.userHistory[localUsername] ?? this.localPassword;
+
+      // A check for the staged generation on a socket it drops at the commit
+      // (a host socket under a relay-only policy, a TURN allocation whose
+      // server was removed or replaced) is not answered: the socket is not
+      // part of that generation.
+      const staged = this.provisional;
+      if (
+        staged &&
+        localUsername === staged.localUsername &&
+        localUsername !== this.localUsername &&
+        !this.allowsProvisional(staged, protocol)
+      ) {
+        return;
+      }
 
       const { iceControlling } = this;
 

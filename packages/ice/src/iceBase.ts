@@ -483,17 +483,40 @@ export function isRelayOnlyGathering(options: Pick<IceOptions, "forceTurn">) {
 }
 
 /**
+ * Whether `options` carry a usable TURN server and credential, the ones a
+ * gathering with them allocates relay candidates from.
+ */
+export function hasTurnServer(
+  options: Partial<
+    Pick<IceOptions, "turnServer" | "turnUsername" | "turnPassword">
+  >,
+) {
+  return !!(
+    validateAddress(options.turnServer) &&
+    options.turnUsername &&
+    options.turnPassword
+  );
+}
+
+/**
  * Whether `candidate`, kept from an earlier generation (an ICE restart keeps
  * the sockets), may be advertised and paired in a generation gathered with
  * `options`. A fresh gathering with the same options would not have produced
- * a host / server-reflexive candidate for a relay-only policy, nor a TCP host
- * candidate without useTcp; the kept ones are held back the same way.
+ * a host / server-reflexive candidate for a relay-only policy, a TCP host
+ * candidate without useTcp, nor a relay candidate without a TURN server;
+ * the kept ones are held back the same way.
  */
 export function isCandidateAllowedByGatherOptions(
   candidate: Pick<Candidate, "type" | "transport">,
-  options: Pick<IceOptions, "forceTurn"> & Partial<Pick<IceOptions, "useTcp">>,
+  options: Pick<IceOptions, "forceTurn"> &
+    Partial<
+      Pick<
+        IceOptions,
+        "useTcp" | "turnServer" | "turnUsername" | "turnPassword"
+      >
+    >,
 ) {
-  if (candidate.type === "relay") return true;
+  if (candidate.type === "relay") return hasTurnServer(options);
   if (isRelayOnlyGathering(options)) return false;
   if (candidate.transport.toLowerCase() === "tcp" && !options.useTcp) {
     return false;
