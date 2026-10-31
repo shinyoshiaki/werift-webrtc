@@ -8,17 +8,17 @@ import {
   type AttributeKey,
   type AttributePair,
   AttributeRepository,
-  type RawAttribute,
   packXorAddress,
+  type RawAttribute,
   unpackXorAddress,
 } from "./attributes";
 import {
   COOKIE,
+  type classes,
   FINGERPRINT_LENGTH,
   FINGERPRINT_XOR,
   HEADER_LENGTH,
   INTEGRITY_LENGTH,
-  type classes,
   isStunMessage,
   type methods,
 } from "./const";

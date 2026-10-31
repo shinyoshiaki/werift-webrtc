@@ -1,4 +1,4 @@
-import { RtpHeader, RtpPacket, int } from "../../src";
+import { int, RtpHeader, RtpPacket } from "../../src";
 import { Max32Uint, RtpTimeBase } from "../../src/extra/processor";
 
 describe("rtpTime", () => {

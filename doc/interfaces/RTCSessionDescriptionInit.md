@@ -14,10 +14,10 @@
 
 ### sdp?
 
-> `optional` **sdp**: `string`
+> `optional` **sdp?**: `string`
 
 ***
 
 ### type?
 
-> `optional` **type**: [`RTCSdpType`](../type-aliases/RTCSdpType.md)
+> `optional` **type?**: [`RTCSdpType`](../type-aliases/RTCSdpType.md)

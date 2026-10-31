@@ -1,9 +1,36 @@
-import { createHash, createHmac } from "crypto";
-import nacl from "tweetnacl";
+import {
+  createHash,
+  createHmac,
+  createPrivateKey,
+  createPublicKey,
+  diffieHellman,
+} from "node:crypto";
 
-import { binaryData } from "../imports/common";
+import {
+  binaryData,
+  encodeDerBitString,
+  encodeDerInteger,
+  encodeDerOctetString,
+  encodeDerOid,
+  encodeDerSequence,
+} from "../imports/common";
 import { NamedCurveAlgorithm, type NamedCurveAlgorithms } from "./const";
 import { p256PreMasterSecret } from "./ec";
+
+const x25519Oid = "1.3.101.110";
+const x25519RawKeyLength = 32;
+
+const x25519AlgorithmIdentifier = encodeDerSequence(encodeDerOid(x25519Oid));
+const emptyX25519RawKey = Buffer.alloc(x25519RawKeyLength);
+const x25519PrivateKeyPrefix = encodeDerSequence(
+  encodeDerInteger(0),
+  x25519AlgorithmIdentifier,
+  encodeDerOctetString(encodeDerOctetString(emptyX25519RawKey)),
+).subarray(0, -x25519RawKeyLength);
+const x25519PublicKeyPrefix = encodeDerSequence(
+  x25519AlgorithmIdentifier,
+  encodeDerBitString(emptyX25519RawKey),
+).subarray(0, -x25519RawKeyLength);
 
 export function prfPreMasterSecret(
   publicKey: Buffer,
@@ -14,7 +41,30 @@ export function prfPreMasterSecret(
     case NamedCurveAlgorithm.secp256r1_23:
       return p256PreMasterSecret({ publicKey, privateKey });
     case NamedCurveAlgorithm.x25519_29:
-      return Buffer.from(nacl.scalarMult(privateKey, publicKey));
+      // The DER prefixes assume 32-byte raw keys; reject anything else instead
+      // of letting trailing bytes be silently ignored.
+      if (privateKey.length !== x25519RawKeyLength) {
+        throw new Error(
+          `invalid X25519 private key length: ${privateKey.length}`,
+        );
+      }
+      if (publicKey.length !== x25519RawKeyLength) {
+        throw new Error(
+          `invalid X25519 public key length: ${publicKey.length}`,
+        );
+      }
+      return diffieHellman({
+        privateKey: createPrivateKey({
+          key: Buffer.concat([x25519PrivateKeyPrefix, privateKey]),
+          format: "der",
+          type: "pkcs8",
+        }),
+        publicKey: createPublicKey({
+          key: Buffer.concat([x25519PublicKeyPrefix, publicKey]),
+          format: "der",
+          type: "spki",
+        }),
+      });
     default:
       throw new Error();
   }

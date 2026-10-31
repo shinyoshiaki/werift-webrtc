@@ -1,10 +1,58 @@
 # Changelog
 
+## Unreleased
+
+### 🐛 Bug Fixes
+
+- **WebM files saved with `saveToFileSystem` no longer contain unknown-size Clusters** (`werift-rtp`, `MediaRecorder` WebM output): when the recording ends, each Cluster's size field is rewritten in place with its real size. Before this fix, ffprobe warned `Unknown-sized element ... inside parent with finite size`, mkvalidator reported errors, and libwebm rejected the files.
+  - `WebmOutput.eol.clusters` (new; `{ position, size }[]`), `replaceClusterSize()` and `ClusterSizeOffset` are exported for custom writers. Streaming output (`WebmStream` without rewriting) still uses unknown-size Segment / Clusters.
+  - `replaceSegmentSize()` now writes an 8 byte VINT instead of a short VINT followed by a Void element. The old value was too large by the length of the size field, because it counted the field itself. Its Void padding also moved the Segment body start, so every CueClusterPosition pointed past its Cluster.
+  - The record examples now use `saveToFileSystem`.
+- **`ntpTime2Sec()` now converts the NTP fraction correctly** (`werift-rtp`, used by `NtpTimeCallback` / `MediaRecorder` A/V sync): the low 32 bits of an RTCP SR NTP timestamp are a binary fraction (1/2^32 s), but they were read as decimal digits (`0x80000000`, i.e. 0.5 s, became 0.2147483648 s). Each track's frame times could be off by up to about 1 s, so lipsync dropped most or all audio from short recordings of a browser's audio and video. A new E2E test (`e2e/tests/mediachannel/recordPlayback.test.ts`) records browser media with `MediaRecorder`, sends the WebM back over a DataChannel, and checks that Chrome plays it.
+
+- **`werift-common` `UdpTransport` always handles dgram socket `error` events** (`werift-common`, `werift-ice`): before this fix, a socket error with no listener (for example Bun's asynchronous `recvmsg ECONNREFUSED` after the remote peer closed) became an uncaught process exception.
+  - Runtime socket errors are logged and emitted on the new `UdpTransport.onError` (`Event<[Error]>`). The socket stays open. `StunProtocol` / `TurnProtocol` subscribe to it and log. `Transport.onError` is optional for custom transports.
+  - A bind failure (e.g. `EADDRINUSE`, including a synchronous `bind()` throw) or a `findPort()` failure now rejects `UdpTransport.init()` and closes the socket. Before, a bind failure caused an uncaught exception or `init()` waited forever.
+  - `close()` can be called more than once, including after an error or a failed bind.
+### ⚠️ Breaking changes
+
+- **`werift-dtls`: `CipherContext.localPrivateKey` is now a Node `KeyObject`** instead of the `@fidm/x509` `PrivateKey`. Replace `localPrivateKey.toPEM()` with `localPrivateKey.export({ type: "pkcs8", format: "pem" })`; replace `localPrivateKey.sign(data, hash)` with `createSign(hash).update(data).sign(localPrivateKey)`.
+- **werift logging no longer follows the application's `debug` package instance.** Use `debug.enable("werift*")` or `debug.disable()` from `werift`, or set `DEBUG=werift*` before startup. The built-in logger does not implement `DEBUG_HIDE_DATE`, `DEBUG_DEPTH`, `DEBUG_SHOW_HIDDEN`, `logger.extend()`, `logger.log`, `debug.log`, `debug.formatters`, `logger.destroy()`, `logger.color`, `useColors`, or `inspectOpts`. In browsers, `localStorage.debug` is still read at load time.
+
+### Features
+
+- `RTCIceCandidate` now exposes the readonly W3C fields parsed from its candidate a-line: `foundation`, `component` (`"rtp"` / `"rtcp"`), `priority`, `address`, `protocol` (`"udp"` / `"tcp"`), `port`, `type` (`"host"` / `"srflx"` / `"prflx"` / `"relay"`), `tcpType`, `relatedAddress` and `relatedPort` (`null` when absent or unparsable). This covers `icecandidate` events, `RTCIceCandidate.fromSdp()`, `new RTCIceCandidate(init)`, and `RTCIceTransport.getSelectedCandidatePair()` / `getLocalCandidates()` / `getRemoteCandidates()`, so `pair.local.type === "relay"` works without parsing the candidate string. `toJSON()` still returns only the signaling fields. `relayProtocol` and `url` are not implemented yet.
+  - Which candidates give `null` fields is one contract documented on `RTCIceCandidateFields`: an RFC 8839 §5.1 grammar violation (foundation, component-id 1-256, priority 1-2^31-1, address, port, `typ`, `raddr` / `rport`, `tcptype`, single-space separation) gives all `null`; so does a value the W3C attributes cannot represent (component other than 1/2, protocol other than udp/tcp, unknown type). `tcpType` alone is `null` for non-TCP candidates.
+  - `new RTCIceCandidate(init)` reads only the `RTCIceCandidateInit` members (`candidate` defaults to `""`); parsed fields passed in `init` are ignored. `RTCIceCandidate.fromSdp(sdp)` now parses like `new RTCIceCandidate({ candidate: sdp })` and keeps the given string instead of re-serializing it; as before, it sets `usernameFragment` from the `ufrag` attribute (only for a valid candidate).
+- **Behavior change:** `addIceCandidate()` now rejects a candidate that violates the RFC 8839 grammar above with `OperationError` ("Failed to parse ICE candidate"), as browsers do; before, the lenient parser could pass e.g. `NaN` ports or a missing `typ` keyword to the ICE agent. Browser candidates (mDNS `.local`, `generation`, `ufrag`, `network-id`, `network-cost`, TCP port 9, uppercase `UDP`) are still accepted. a=candidate lines in a remote description are parsed as before.
+
+### Fixes
+
+- PEM passed to `dtls.keys` / `RTCCertificate` / `CipherContext` may still be indented (for example inside an indented template literal), as it was with `@fidm/x509`. `werift-dtls` exports the `normalizePem()` helper used for this.
+
+### Dependencies
+
+- Removed `debug`, `tweetnacl`, `@noble/curves`, and `@fidm/x509`; logger behavior now lives in `werift-common`, and X25519, P-256, certificate parsing, and signing use `node:crypto`.
+- Removed `@peculiar/x509` (and with it `reflect-metadata`, `tsyringe`, and the `@peculiar/asn1-*` packages). `CipherContext.createSelfSignedCertificateWithKey()` / `createSelfSignedCertificate()` now generate keys with `node:crypto` and build the X.509 v3 certificate with a small internal DER encoder in `werift-common` (`src/asn1.ts`, not part of the public exports). The certificate contents are unchanged: same subject / issuer, random 64-bit serial, 10-year validity, ECDSA P-256 or RSA 2048 with SHA-256, no extensions.
+- Updated `mediabunny` to 1.62.x.
+- Updated the TypeScript, Biome, Vitest, TypeDoc, Knip, npm-run-all2, Playwright, Vite, React, and example dependencies. TypeScript remains on 6.0.x because TypeDoc 0.28 does not support TypeScript 7; `@types/node` remains on 22.x to match the supported Node runtime.
+- Removed `ts-node`, `ts-node-dev`, and `tsx`. Repository scripts now run TypeScript with Node.js itself (`--experimental-transform-types` plus the `tools/node-ts/register.mjs` resolve hook for extensionless imports); local development requires Node.js 22.18.0 or later (`devEngines`). Published package `engines` are unchanged.
+- Removed `organize-imports-cli` unused-import scripts in favor of Biome 2.
+- `werift-rtp` keeps `buffer` and its `import "buffer"` side effect so browser bundlers can provide `Buffer`; a Chromium smoke test (`npm run test:browser --workspace packages/rtp`) now covers the main entry bundled with Vite and `vite-plugin-node-polyfills`.
+
 ## v0.25.2
 
 ### ⚠️ Breaking changes
 
 - **`werift-sctp`: `SCTP.outboundQueue` is now a `FifoQueue<DataChunk>` instead of `DataChunk[]`**: the field is `readonly` and has no array-compatibility layer. `FifoQueue` is exported from `werift-common` and re-exported from `werift-sctp`. Migration: use `outboundQueue.length`, `peek()`, `at(i)`, `last()`, `toArray()` or `for...of` instead of array indexing / array methods, and do not reassign the field. Reason: draining a large queue with `Array.prototype.shift()` was quadratic and contributed to the DataChannel burst slowdown below.
+
+### 🚀 Features
+
+- **`RTCRtpSender.onFullIntraRequest`**: a new `Event<[FullIntraRequest]>` fires when the sender receives a FIR (RFC 5104) whose FCI has an entry for its SSRC with a new sequence number. A retransmitted FIR does not fire it again: each FCI entry is compared with the last sequence number for its (FIR sender SSRC, target SSRC) pair (RFC 5104 §4.3.1.1), so entries for the primary and RTX SSRC resolved to one sender are judged independently. FIR is not delivered to `onPictureLossIndication`; applications that refresh on both should subscribe to `onKeyFrameRequest`.
+- **`RTCRtpSender.onKeyFrameRequest`**: a new `Event<["pli" | "fir"]>` that fires for every PLI and every non-retransmitted FIR addressed to the sender, so applications that only need to request a key frame can use one subscription. `onPictureLossIndication` / `onFullIntraRequest` and the stats counters are unchanged.
+- **`firCount` in outbound-rtp stats**: every FIR packet with an entry addressed to the sender is now counted once (retransmissions included, as the W3C webrtc-stats definition counts FIR packets), so `getStats()` reports `firCount`. A packet whose primary and RTX entries both resolve to the sender counts as one.
+- **`FullIntraRequest` is exported** from `werift-rtp` and `werift`.
+- **`keyFrameRequestRouting` peer configuration** (`"compatible"` default / `"strict"`): decides where a PLI / FIR goes when no route has its target SSRC (the PLI media SSRC or a FIR FCI entry SSRC). `"compatible"` delivers it to the sender whose RTX SSRC it is, else to the only video sender of the PeerConnection, so a request naming the RTX stream, SSRC 0 or a stale SSRC still produces a key frame (`onPictureLossIndication` / `onFullIntraRequest` / `onKeyFrameRequest`, `pliCount` / `firCount`). `"strict"` does not deliver it, as RFC 4585 / RFC 5104 define the target. A registered target SSRC is routed as is in both modes, and the sender SSRC of the request is never used.
 
 ### 🐛 Bug Fixes
 
@@ -13,6 +61,10 @@
   - Pending `send()` calls settle when the association closes instead of staying pending forever.
   - The SCTP sent / outbound queues and the DataChannel send queue use `FifoQueue` (amortized O(1) `shift()`).
   - `RTCSctpTransport` hands queued DataChannel messages to SCTP in a single synchronous pass instead of starting one concurrent flush loop per `send()`. `bufferedAmount` now decreases per message as it is transmitted (previously only after the whole SCTP outbound queue drained), so `bufferedamountlow` fires during a burst. Messages not yet handed to SCTP are discarded when the transport stops.
+- **RTCP PLI / FIR routed to the targeted media source**: `RtpRouter.routeRtcp()` used to look up a payload-specific feedback by its sender SSRC first, so a PLI whose sender SSRC matched another local stream (e.g. a werift or Chrome peer in a sendrecv video session, or an SFU viewer's own stream) was delivered to the wrong `RTCRtpReceiver` / `RTCRtpSender` and never raised `onPictureLossIndication`. PLI is now routed only by its media SSRC (RFC 4585 §6.1), and FIR by the SSRC of each FCI entry (RFC 5104 §4.3.1; the media SSRC of the common header is 0 for libwebrtc), delivering once per target sender. A PLI whose media SSRC is not registered is no longer delivered to the stream matching its sender SSRC (see `keyFrameRequestRouting` for where it goes instead). Unknown payload-specific feedback types (SLI, RPSI, ...) are no longer routed, instead of throwing.
+
+- **Compound RTCP packets are split at each packet's declared length** (`werift-rtp` `RtcpPacketConverter.deSerialize`): each packet's payload used to extend to the end of the compound packet, so a FIR followed by another packet (e.g. `RR + SDES + FIR + PLI`) gained bogus FCI entries from the following bytes. With FIR routing these reached other senders as extra FIR notifications and `firCount`. Padding is also read from the end of its own packet instead of the end of the compound packet.
+- **`FullIntraRequest` serializes the RFC 5104 header length**: the RTCP length field was one word short (3 instead of 4 for one entry; RFC 5104 §4.3.1.1: 2 + 2 × N), so peers could fail to parse a FIR sent by werift.
 
 ### 🧪 Testing & tooling
 

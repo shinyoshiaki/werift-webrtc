@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Answer</title>
+    <script
+      crossorigin
+      src="https://unpkg.com/react@16/umd/react.development.js"
+    ></script>
+    <script
+      crossorigin
+      src="https://unpkg.com/react-dom@16/umd/react-dom.development.js"
+    ></script>
+    <script
+      crossorigin
+      src="https://cdnjs.cloudflare.com/ajax/libs/babel-core/5.8.34/browser.min.js"
+    ></script>
+    <script src="https://cdn.jsdelivr.net/npm/babel-regenerator-runtime@6.5.0/runtime.min.js"></script>
+  </head>
+  <body>
+    <div class="main">
+      <div class="section" id="app1"></div>
+    </div>
+    <script type="text/babel">
+      const App = () => {
+        const videoRef = React.useRef();
+        const videoRef2 = React.useRef();
+        const videoRef3 = React.useRef();
+
+        const main = async () => {
+          const socket = new WebSocket("ws://192.168.0.101:8888");
+          await new Promise((r) => (socket.onopen = r));
+          console.log("open websocket");
+
+          const offer = await new Promise(
+            (r) => (socket.onmessage = (ev) => r(JSON.parse(ev.data)))
+          );
+          console.log("offer", offer.sdp);
+
+          const peer = new RTCPeerConnection();
+
+          peer.onicecandidate = ({ candidate }) => {
+            if (!candidate) {
+              const sdp = JSON.stringify(peer.localDescription);
+              console.log(peer.localDescription.sdp);
+              socket.send(sdp);
+            }
+          };
+
+          let i = 0;
+          peer.ontrack = (e) => {
+            console.log("ontrack", e);
+            const stream = e.streams[0];
+            console.log(i);
+            switch (i++) {
+              case 0:
+                videoRef.current.srcObject = stream;
+                break;
+              case 1:
+                videoRef2.current.srcObject = stream;
+                break;
+              case 2:
+                videoRef3.current.srcObject = stream;
+                break;
+            }
+          };
+
+          const stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              width: {
+                ideal: 4096,
+              },
+              height: {
+                ideal: 2160,
+              },
+              frameRate: {
+                ideal: 60,
+                min: 10,
+              },
+            },
+            audio: false,
+          });
+          await peer.setRemoteDescription(offer);
+
+          peer.addTrack(stream.getVideoTracks()[0], stream);
+          const transceiver = peer.getTransceivers()[0];
+          const params = transceiver.sender.getParameters();
+          params.encodings = [
+            {
+              rid: "high",
+              maxBitrate: 200000,
+              scaleResolutionDownBy: 1,
+            },
+            {
+              rid: "middle",
+              maxBitrate: 100000 / 2,
+              scaleResolutionDownBy: 2,
+            },
+            {
+              rid: "low",
+              maxBitrate: 100000 / 4,
+              scaleResolutionDownBy: 4,
+            },
+          ];
+          transceiver.sender.setParameters(params);
+
+          const answer = await peer.createAnswer();
+          await peer.setLocalDescription(answer);
+        };
+
+        React.useEffect(() => {
+          main();
+        }, []);
+
+        return (
+          <div>
+            answer
+            <video ref={videoRef} autoPlay muted />
+            <video ref={videoRef2} autoPlay muted />
+            <video ref={videoRef3} autoPlay muted />
+          </div>
+        );
+      };
+
+      ReactDOM.render(<App />, document.getElementById("app1"));
+    </script>
+  </body>
+</html>

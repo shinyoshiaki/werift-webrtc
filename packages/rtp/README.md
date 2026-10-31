@@ -326,9 +326,9 @@ const fields = TelephoneEventRtpPayload.deSerialize(start.payload);
 See `examples/node/rtp_over_udp/` (Node `dgram` peer, no GStreamer required):
 
 ```bash
-RUN_SELF_TEST=1 npx tsx examples/node/rtp_over_udp/recv.ts _ pcmu
-RUN_SELF_TEST=1 npx tsx examples/node/rtp_over_udp/recv.ts _ vp8
-RUN_SELF_TEST=1 npx tsx examples/node/rtp_over_udp/recv.ts _ h264
+RUN_SELF_TEST=1 node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs examples/node/rtp_over_udp/recv.ts _ pcmu
+RUN_SELF_TEST=1 node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs examples/node/rtp_over_udp/recv.ts _ vp8
+RUN_SELF_TEST=1 node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs examples/node/rtp_over_udp/recv.ts _ h264
 ```
 
 # test vectors
@@ -337,7 +337,7 @@ Committed payloads under `tests/data/vector_*.bin` (and synthetic cases in tests
 including GStreamer-derived **VP8 / VP9 / H.264 / Opus** (and synthetic **AV1**
 when `rtpav1pay` is unavailable).
 Regenerate with GStreamer via `tools/generateVectors/` when available:
-`npx tsx tools/generateVectors/generate.ts` (synthetic baseline first, GST
+`node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs tools/generateVectors/generate.ts` (synthetic baseline first, GST
 overwrites per codec).
 
 # RFC authority notes

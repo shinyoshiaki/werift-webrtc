@@ -1,6 +1,4 @@
 import { randomBytes, randomUUID } from "crypto";
-import { Event, debug } from "../imports/common";
-
 import {
   Candidate,
   Connection,
@@ -8,15 +6,25 @@ import {
   type IceOptions,
 } from "../../../ice/src";
 import { EventTarget as DomEventTarget } from "../helper";
+import { debug, Event } from "../imports/common";
 import {
-  type RTCIceCandidatePairStats,
-  type RTCIceCandidateStats,
-  type RTCStats,
-  type RTCStatsIceCandidatePairState,
   generateStatsId,
   getStatsTimestamp,
+  type RTCIceCandidatePairStats,
+  type RTCIceCandidateStats,
+  type RTCIceCandidateType,
+  type RTCIceTcpCandidateType,
+  type RTCStats,
+  type RTCStatsIceCandidatePairState,
 } from "../media/stats";
-import { candidateFromSdp, candidateToSdp } from "../sdp";
+import { candidateToSdp } from "../sdp";
+import {
+  candidateFieldsFromValues,
+  parseCandidateAttribute,
+  type RTCIceCandidateFields,
+  type RTCIceComponent,
+  type RTCIceProtocol,
+} from "./iceCandidateAttribute";
 
 const log = debug("werift:packages/webrtc/src/transport/ice.ts");
 
@@ -989,20 +997,82 @@ export interface RTCIceCandidateInit {
   usernameFragment?: string | null;
 }
 
-export class RTCIceCandidate {
-  candidate!: string;
+export type {
+  RTCIceCandidateFields,
+  RTCIceComponent,
+  RTCIceProtocol,
+} from "./iceCandidateAttribute";
+
+/** Module-private key for handing already parsed fields to the constructor. */
+const parsedFields = Symbol("RTCIceCandidate.parsedFields");
+
+/** Create an `RTCIceCandidate` whose fields come from typed values, without reparsing. */
+function createRTCIceCandidate(
+  init: RTCIceCandidateInit,
+  fields: RTCIceCandidateFields,
+) {
+  return new RTCIceCandidate({
+    ...init,
+    [parsedFields]: fields,
+  } as RTCIceCandidateInit);
+}
+
+/**
+ * Browser-shaped ICE candidate. Besides the signaling fields it exposes the
+ * readonly fields of the W3C interface parsed from the candidate a-line
+ * (`foundation`, `component`, `priority`, `address`, `protocol`, `port`,
+ * `type`, `tcpType`, `relatedAddress`, `relatedPort`). Which candidates give
+ * `null` fields is specified on {@link RTCIceCandidateFields}. Candidates
+ * werift creates carry them without reparsing; `toJSON()` keeps only the
+ * signaling fields (RTCIceCandidateInit). `relayProtocol` and `url` are not
+ * implemented.
+ */
+export class RTCIceCandidate implements RTCIceCandidateFields {
+  candidate: string = "";
   sdpMid?: string;
   sdpMLineIndex?: number;
   usernameFragment?: string;
 
-  constructor(props: Partial<RTCIceCandidate>) {
-    Object.assign(this, props);
+  readonly foundation!: string | null;
+  readonly component!: RTCIceComponent | null;
+  readonly priority!: number | null;
+  readonly address!: string | null;
+  readonly protocol!: RTCIceProtocol | null;
+  readonly port!: number | null;
+  readonly type!: RTCIceCandidateType | null;
+  readonly tcpType!: RTCIceTcpCandidateType | null;
+  readonly relatedAddress!: string | null;
+  readonly relatedPort!: number | null;
+
+  /**
+   * Like the browser constructor, only the `RTCIceCandidateInit` members are
+   * read; the parsed fields always come from `init.candidate` (`""` when
+   * omitted).
+   */
+  constructor(init: RTCIceCandidateInit = {}) {
+    const { sdpMid, sdpMLineIndex, usernameFragment } = init;
+    const candidate = init.candidate ?? "";
+    const fields =
+      (init as { [parsedFields]?: RTCIceCandidateFields })[parsedFields] ??
+      candidateFieldsFromValues(parseCandidateAttribute(candidate));
+    Object.assign(this, fields, {
+      candidate,
+      sdpMid,
+      sdpMLineIndex,
+      usernameFragment,
+    });
   }
 
+  /**
+   * Same as `new RTCIceCandidate({ candidate: sdp })`, plus `usernameFragment`
+   * taken from the `ufrag` extension attribute of a valid candidate.
+   */
   static fromSdp(sdp: string): RTCIceCandidate {
-    const ice = Candidate.fromSdp(sdp);
-    const candidate = candidateFromIce(ice);
-    return candidate.toJSON();
+    const values = parseCandidateAttribute(sdp);
+    return createRTCIceCandidate(
+      { candidate: sdp, usernameFragment: values?.ufrag },
+      candidateFieldsFromValues(values),
+    );
   }
 
   static isThis(o: any) {
@@ -1043,28 +1113,43 @@ export class IceCandidate {
     public ufrag?: string,
   ) {}
 
+  /** The parsed fields are validated from these typed values, not by reparsing. */
   toJSON(): RTCIceCandidate {
-    return new RTCIceCandidate({
-      candidate: candidateToSdp(this),
-      sdpMLineIndex: this.sdpMLineIndex,
-      sdpMid: this.sdpMid,
-      usernameFragment: this.ufrag,
-    });
+    return createRTCIceCandidate(
+      {
+        candidate: candidateToSdp(this),
+        sdpMLineIndex: this.sdpMLineIndex,
+        sdpMid: this.sdpMid,
+        usernameFragment: this.ufrag,
+      },
+      candidateFieldsFromValues(this),
+    );
   }
 
+  /**
+   * Returns `undefined` when `data.candidate` is empty or violates the grammar
+   * documented on {@link RTCIceCandidateFields}.
+   */
   static fromJSON(data: RTCIceCandidate | RTCIceCandidateInit) {
-    try {
-      if (!data.candidate) {
-        throw new Error("candidate is required");
-      }
-      const normalizedCandidate = data.candidate.startsWith("candidate:")
-        ? data.candidate.slice("candidate:".length)
-        : data.candidate;
-      const candidate = candidateFromSdp(normalizedCandidate);
-      candidate.sdpMLineIndex = data.sdpMLineIndex ?? undefined;
-      candidate.sdpMid = data.sdpMid ?? undefined;
-      return candidate;
-    } catch (error) {}
+    const values = parseCandidateAttribute(data.candidate ?? "");
+    if (!values) return;
+    const candidate = new IceCandidate(
+      values.component,
+      values.foundation,
+      values.ip,
+      values.port,
+      values.priority,
+      values.protocol,
+      values.type,
+      values.generation,
+      values.ufrag,
+    );
+    candidate.relatedAddress = values.relatedAddress;
+    candidate.relatedPort = values.relatedPort;
+    candidate.tcpType = values.tcpType;
+    candidate.sdpMLineIndex = data.sdpMLineIndex ?? undefined;
+    candidate.sdpMid = data.sdpMid ?? undefined;
+    return candidate;
   }
 }
 

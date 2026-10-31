@@ -1,12 +1,19 @@
 import { spawn, spawnSync } from "child_process";
 import { createSocket } from "dgram";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { BufferSource, Input, MP4 } from "mediabunny";
 import { tmpdir } from "os";
 import { join } from "path";
 
-import { BufferSource, Input, MP4 } from "mediabunny";
-
-import { MP4Callback, type Track } from "../src/extra";
+import {
+  MP4Callback,
+  type Track,
+  WebmCallback,
+  type WebmOutput,
+  type WebmTrack,
+  saveToFileSystem,
+} from "../src/extra";
+import { vintDecode } from "../src/extra/container/webm/ebml/ebml";
 import type { Mp4Output } from "../src/extra/processor/mp4";
 import {
   RtpMediaClock,
@@ -16,7 +23,15 @@ import {
   type RtpMediaPacerOptions,
   type RtpMediaPacerTick,
 } from "../src/rtp/mediaClock";
+import { RtcpSenderInfo, RtcpSrPacket } from "../src/rtcp/sr";
 import { RtpHeader, RtpPacket } from "../src/rtp/rtp";
+import {
+  ProtectionProfileAeadAes128Gcm,
+  ProtectionProfileAes128CmHmacSha1_80,
+  type SrtpProfile,
+} from "../src/srtp/const";
+import { Context, type SrtpSsrcState } from "../src/srtp/context/context";
+import { SrtpContext } from "../src/srtp/context/srtp";
 import type { Transport } from "../src/transport";
 
 export function load(name: string) {
@@ -605,7 +620,7 @@ export function deliverStreamingArrivals(
 const PACKAGE_ROOT = join(__dirname, "..");
 
 /**
- * Runs `packages/rtp/<relativePath>` with tsx as a separate Node.js process,
+ * Runs `packages/rtp/<relativePath>` with Node's TypeScript support in a separate process,
  * the same way a user runs an example, and collects its output.
  */
 export function runExample(
@@ -614,7 +629,14 @@ export function runExample(
 ) {
   const child = spawn(
     process.execPath,
-    ["--import", "tsx", join(PACKAGE_ROOT, relativePath)],
+    [
+      "--experimental-transform-types",
+      "--disable-warning=ExperimentalWarning",
+      "--disable-warning=MODULE_TYPELESS_PACKAGE_JSON",
+      "--import",
+      join(PACKAGE_ROOT, "..", "..", "tools/node-ts/register.mjs"),
+      join(PACKAGE_ROOT, relativePath),
+    ],
     {
       cwd: PACKAGE_ROOT,
       env: { ...process.env, ...options.env },
@@ -724,5 +746,336 @@ export function createH264RtpPackets(payloads: Buffer[], timestamp = 0) {
         }),
         payload,
       ),
+  );
+}
+
+// ---------------------------------------------------------------------------
+// WebM
+
+export function createWebmTracks(): WebmTrack[] {
+  return [
+    {
+      kind: "video",
+      codec: "VP8",
+      clockRate: 90_000,
+      trackNumber: 1,
+      width: 640,
+      height: 480,
+    },
+    { kind: "audio", codec: "OPUS", clockRate: 48_000, trackNumber: 2 },
+  ];
+}
+
+/**
+ * Video frames every 33 ms with a keyframe every `keyframeInterval` frames,
+ * and audio frames every 20 ms, both covering `durationMs`.
+ */
+export function createWebmFrames(durationMs: number, keyframeInterval = 30) {
+  const video = Array.from({ length: Math.ceil(durationMs / 33) }, (_, i) =>
+    createFrame(
+      Buffer.alloc(100, i & 0xff),
+      i % keyframeInterval === 0,
+      i * 33,
+    ),
+  );
+  const audio = Array.from({ length: Math.ceil(durationMs / 20) }, (_, i) =>
+    createFrame(Buffer.from([0xf8, 0xff, 0xfe, i & 0xff]), true, i * 20),
+  );
+  return { video, audio };
+}
+
+/** Feeds frames to `webm` in time order, then sends EOL on every track. */
+export function feedWebmFrames(
+  webm: WebmCallback,
+  frames: ReturnType<typeof createWebmFrames>,
+) {
+  const events = [
+    ...frames.video.map((frame) => ({ frame, input: webm.inputVideo })),
+    ...frames.audio.map((frame) => ({ frame, input: webm.inputAudio })),
+  ].sort((a, b) => a.frame.time - b.frame.time);
+  for (const { frame, input } of events) {
+    input({ frame });
+  }
+  webm.inputVideo({});
+  webm.inputAudio({});
+}
+
+/**
+ * Records with `WebmCallback` and either `saveToFileSystem` (`file`) or plain
+ * concatenation of `saveToFile` chunks (`stream`), returning the bytes.
+ */
+export async function recordWebm(
+  frames: ReturnType<typeof createWebmFrames>,
+  mode: "file" | "stream" = "file",
+) {
+  const dir = mkdtempSync(join(tmpdir(), "werift-rtp-webm-"));
+  const path = join(dir, "output.webm");
+  const chunks: Buffer[] = [];
+  try {
+    const save = saveToFileSystem(path);
+    const done = new Promise<void>((resolve) => {
+      const webm = new WebmCallback(createWebmTracks(), { duration: 60_000 });
+      webm.pipe(async (output: WebmOutput) => {
+        if (mode === "file") {
+          await save(output);
+        } else if (output.saveToFile) {
+          chunks.push(output.saveToFile);
+        }
+        if (output.eol) {
+          resolve();
+        }
+      });
+      feedWebmFrames(webm, frames);
+    });
+    await withTimeout(done, 5_000);
+    return mode === "file" ? readFileSync(path) : Buffer.concat(chunks);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+export type EbmlElementHeader = {
+  id: number;
+  /** offset of the element ID */
+  position: number;
+  /** offset of the element body */
+  dataPosition: number;
+  /** undefined for unknown size */
+  size?: number;
+};
+
+export function readEbmlElementHeader(
+  buf: Buffer,
+  position: number,
+): EbmlElementHeader {
+  const idLength = vintDecode(buf, position).length;
+  const id = buf.readUIntBE(position, idLength);
+  const size = vintDecode(buf, position + idLength);
+  return {
+    id,
+    position,
+    dataPosition: position + idLength + size.length,
+    size: size.unknown ? undefined : Number(size.value),
+  };
+}
+
+/** Lists the direct children of the element at `parent` by following sizes. */
+export function readEbmlChildren(buf: Buffer, parent: EbmlElementHeader) {
+  const end =
+    parent.size == undefined ? buf.length : parent.dataPosition + parent.size;
+  const children: EbmlElementHeader[] = [];
+  for (let position = parent.dataPosition; position < end; ) {
+    const child = readEbmlElementHeader(buf, position);
+    children.push(child);
+    if (child.size == undefined) {
+      break;
+    }
+    position = child.dataPosition + child.size;
+  }
+  return children;
+}
+
+/** Reads every CueClusterPosition (relative to the Segment body) in Cues. */
+export function readCueClusterPositions(buf: Buffer, cues: EbmlElementHeader) {
+  const ids = {
+    cuePoint: 0xbb,
+    cueTrackPositions: 0xb7,
+    cueClusterPosition: 0xf1,
+  };
+  return readEbmlChildren(buf, cues)
+    .filter((e) => e.id === ids.cuePoint)
+    .flatMap((point) => readEbmlChildren(buf, point))
+    .filter((e) => e.id === ids.cueTrackPositions)
+    .flatMap((track) => readEbmlChildren(buf, track))
+    .filter((e) => e.id === ids.cueClusterPosition)
+    .map((e) => buf.readUIntBE(e.dataPosition, e.size!));
+}
+
+/** Runs ffprobe at `-v warning` over the WebM bytes and returns stderr. */
+export function probeWebmWarnings(buffer: Buffer) {
+  const dir = mkdtempSync(join(tmpdir(), "werift-rtp-webm-"));
+  try {
+    const path = join(dir, "output.webm");
+    writeFileSync(path, buffer);
+    const result = spawnSync(
+      "ffprobe",
+      ["-v", "warning", "-show_entries", "format=duration", path],
+      { encoding: "utf8" },
+    );
+    return result.stderr;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+// SRTP rollover counter (ROC) helpers
+
+const srtpTestKeys: Record<
+  SrtpProfile,
+  { masterKey: Buffer; masterSalt: Buffer }
+> = {
+  [ProtectionProfileAes128CmHmacSha1_80]: {
+    masterKey: Buffer.from([
+      0x0d, 0xcd, 0x21, 0x3e, 0x4c, 0xbc, 0xf2, 0x8f, 0x01, 0x7f, 0x69, 0x94,
+      0x40, 0x1e, 0x28, 0x89,
+    ]),
+    masterSalt: Buffer.from([
+      0x62, 0x77, 0x60, 0x38, 0xc0, 0x6d, 0xc9, 0x41, 0x9f, 0x6d, 0xd9, 0x43,
+      0x3e, 0x7c,
+    ]),
+  },
+  [ProtectionProfileAeadAes128Gcm]: {
+    masterKey: Buffer.from([
+      0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b,
+      0x0c, 0x0d, 0x0e, 0x0f,
+    ]),
+    masterSalt: Buffer.from([
+      0xa0, 0xa1, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7, 0xa8, 0xa9, 0xaa, 0xab,
+    ]),
+  },
+};
+
+/** SRTP context sharing the test master key of `profile`. */
+export function createSrtpTestContext(
+  profile: SrtpProfile = ProtectionProfileAes128CmHmacSha1_80,
+) {
+  const { masterKey, masterSalt } = srtpTestKeys[profile];
+  return new SrtpContext(masterKey, masterSalt, profile);
+}
+
+/** Sender / receiver SRTP contexts sharing the same test master key. */
+export function createSrtpContextPair(
+  profile: SrtpProfile = ProtectionProfileAes128CmHmacSha1_80,
+) {
+  return {
+    sender: createSrtpTestContext(profile),
+    receiver: createSrtpTestContext(profile),
+  };
+}
+
+/** Bare SRTP context and an empty (uninitialized) SSRC state for ROC tests. */
+export function createRolloverTestContext(state: Partial<SrtpSsrcState> = {}) {
+  const { masterKey, masterSalt } =
+    srtpTestKeys[ProtectionProfileAes128CmHmacSha1_80];
+  const context = new Context(
+    masterKey,
+    masterSalt,
+    ProtectionProfileAes128CmHmacSha1_80,
+  );
+  const s: SrtpSsrcState = {
+    ssrc: 0,
+    rolloverCounter: 0,
+    lastSequenceNumber: 0,
+    ...state,
+  };
+  return { context, state: s };
+}
+
+/** Inclusive sequence number range. */
+export function sequenceRange(from: number, to: number) {
+  return Array.from({ length: to - from + 1 }, (_, i) => from + i);
+}
+
+export type RolloverStep = {
+  sequenceNumber: number;
+  /** ROC used for this packet */
+  roc: number;
+  /** highest accepted index after this packet */
+  highest: { rolloverCounter: number; lastSequenceNumber: number };
+};
+
+/**
+ * Runs `sequenceNumbers` through estimate → commit (the same order as
+ * `SrtpContext.encryptRtp`) and records the packet ROC and highest index.
+ */
+export function runRolloverSequence(
+  context: Context,
+  state: SrtpSsrcState,
+  sequenceNumbers: number[],
+): RolloverStep[] {
+  return sequenceNumbers.map((sequenceNumber) => {
+    const roc = context.estimateRolloverCounter(sequenceNumber, state);
+    context.commitPacketIndex(sequenceNumber, roc, state);
+    return {
+      sequenceNumber,
+      roc,
+      highest: {
+        rolloverCounter: state.rolloverCounter,
+        lastSequenceNumber: state.lastSequenceNumber,
+      },
+    };
+  });
+}
+
+export type SrtpTestPacket = {
+  sequenceNumber: number;
+  /** plain RTP packet */
+  plain: Buffer;
+  /** SRTP packet */
+  encrypted: Buffer;
+};
+
+/** Encrypts one RTP packet per sequence number with `sender`, in order. */
+export function encryptSrtpSequence(
+  sender: SrtpContext,
+  sequenceNumbers: number[],
+  ssrc = 5000,
+): SrtpTestPacket[] {
+  return sequenceNumbers.map((sequenceNumber) => {
+    const payload = Buffer.from([
+      sequenceNumber >> 8,
+      sequenceNumber & 0xff,
+      0xab,
+      0xcd,
+    ]);
+    const header = new RtpHeader({ sequenceNumber, ssrc, payloadType: 96 });
+    const plain = new RtpPacket(header, payload).serialize();
+    const encrypted = sender.encryptRtp(payload, header);
+    return { sequenceNumber, plain, encrypted };
+  });
+}
+
+/**
+ * Decrypts every packet with `receiver` and records whether it succeeded.
+ * Failures are recorded instead of thrown.
+ */
+export function decryptSrtpSequence(receiver: SrtpContext, packets: Buffer[]) {
+  return packets.map((packet) => {
+    try {
+      const [decrypted] = receiver.decryptRtp(packet);
+      return { ok: true as const, decrypted };
+    } catch (error) {
+      return { ok: false as const, error: error as Error };
+    }
+  });
+}
+
+/** Copy of `buffer` with one byte flipped. */
+export function tamperBuffer(buffer: Buffer, index: number, mask = 0x01) {
+  const tampered = Buffer.from(buffer);
+  tampered[index] ^= mask;
+  return tampered;
+}
+
+/** 64bit NTP timestamp from integer seconds and a 32bit binary fraction */
+export function createNtpTimestamp(seconds: number, fraction: number) {
+  return (BigInt(seconds) << 32n) | BigInt(fraction);
+}
+
+export function createSenderReport(ntpTimestamp: bigint, rtpTimestamp: number) {
+  return new RtcpSrPacket({
+    senderInfo: new RtcpSenderInfo({
+      ntpTimestamp,
+      rtpTimestamp,
+      packetCount: 0,
+      octetCount: 0,
+    }),
+  });
+}
+
+export function createRtpAt(timestamp: number, sequenceNumber = 0) {
+  return new RtpPacket(
+    new RtpHeader({ timestamp, sequenceNumber }),
+    Buffer.alloc(0),
   );
 }
