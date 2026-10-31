@@ -375,6 +375,24 @@ export function generationCandidateLabels(pc: RTCPeerConnection) {
   );
 }
 
+/** `raddr:rport` of an SDP candidate line ("none" without them). */
+export function relatedAddressOf(candidate: string) {
+  const raddr = candidate.match(/ raddr (\S+)/)?.[1];
+  const rport = candidate.match(/ rport (\S+)/)?.[1];
+  return raddr === undefined ? "none" : `${raddr}:${rport}`;
+}
+
+/** `raddr:rport` of the relay candidates in an SDP. */
+export function sdpRelayRelatedAddresses(sdp: string) {
+  return uniqueSorted(
+    sdp
+      .split(/\r?\n/)
+      .filter((line) => line.startsWith("a=candidate:"))
+      .filter((line) => line.includes(" typ relay"))
+      .map(relatedAddressOf),
+  );
+}
+
 /**
  * Shared Arrange: an offerer built with `initial` connected to a STUN-only
  * answerer, after the offerer finished gathering. The caller closes both.
@@ -425,8 +443,13 @@ export async function observeConfigurationRestart(
     }
     const authenticatedBefore = servers.turn.authenticatedUsernames.length;
     const trickled: string[] = [];
+    const trickledRelayRelated: string[] = [];
     offerer.onIceCandidate.subscribe((candidate) => {
-      if (candidate) trickled.push(candidateLabel(candidate.candidate));
+      if (!candidate) return;
+      trickled.push(candidateLabel(candidate.candidate));
+      if (candidate.candidate.includes(" typ relay")) {
+        trickledRelayRelated.push(relatedAddressOf(candidate.candidate));
+      }
     });
 
     offerer.setConfiguration(change);
@@ -443,7 +466,16 @@ export async function observeConfigurationRestart(
       restarted: ice.localParameters.usernameFragment !== ufragBefore,
       offer: sdpCandidateLabels(offer.sdp),
       trickled: uniqueSorted(trickled),
+      trickledRelayRelated: uniqueSorted(trickledRelayRelated),
+      localDescriptionRelayRelated: sdpRelayRelatedAddresses(
+        offerer.localDescription!.sdp,
+      ),
       generation: generationCandidateLabels(offerer),
+      generationRelayRelated: uniqueSorted(
+        connection.localCandidates
+          .filter((candidate) => candidate.type === "relay")
+          .map((candidate) => relatedAddressOf(candidate.toSdp())),
+      ),
       options: connection.options,
       authenticated: [
         ...new Set(servers.authenticatedSince(authenticatedBefore)),

@@ -1,13 +1,16 @@
 import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 
-import type { PeerConfig } from "../../src";
+import { type PeerConfig, RTCPeerConnection } from "../../src";
 import {
+  connectPeerConnections,
   createGatheredPeers,
   createTurnRotationServers,
   firstIceTransport,
   generationCandidateLabels,
   observeConfigurationRestart,
+  relatedAddressOf,
   sdpCandidateLabels,
+  sdpRelayRelatedAddresses,
   waitForLocalCandidatesEnd,
 } from "../utils";
 
@@ -45,6 +48,12 @@ describe("setConfiguration → ICE restart: 設定 × 出力マトリクス", ()
       /** TURN usernames authenticated after the change (exactly). */
       authenticated: string[];
       staleAllocationsClosed?: boolean;
+      /**
+       * raddr of the relay candidates trickled and in the new generation:
+       * "hidden" (0.0.0.0:0, the relay policy) or "mapped" (the address the
+       * TURN server saw).
+       */
+      relayRelated?: "hidden" | "mapped";
     };
   };
 
@@ -58,6 +67,7 @@ describe("setConfiguration → ICE restart: 設定 × 出力マトリクス", ()
         offer: ["udp/host", "udp/srflx"],
         trickledIncludes: ["udp/relay"],
         options: { turnUsername: "user-b" },
+        relayRelated: "mapped",
         authenticated: ["user-b"],
         staleAllocationsClosed: true,
       },
@@ -96,6 +106,7 @@ describe("setConfiguration → ICE restart: 設定 × 出力マトリクス", ()
         trickledIncludes: ["udp/relay"],
         absent: ["udp/host", "udp/srflx", "tcp/host"],
         options: { forceTurn: true },
+        relayRelated: "hidden",
         authenticated: ["user-a"],
         staleAllocationsClosed: true,
       },
@@ -111,6 +122,7 @@ describe("setConfiguration → ICE restart: 設定 × 出力マトリクス", ()
         needRestart: true,
         trickledIncludes: ["udp/host", "udp/srflx", "udp/relay"],
         options: { forceTurn: false },
+        relayRelated: "mapped",
         authenticated: ["user-a"],
         staleAllocationsClosed: true,
       },
@@ -279,6 +291,23 @@ describe("setConfiguration → ICE restart: 設定 × 出力マトリクス", ()
           value,
         );
       }
+      // Assert: relay ポリシーでは relay 候補の raddr / rport を trickle・generation・localDescription の SDP のすべてで秘匿する
+      if (expected.relayRelated) {
+        const related = expected.relayRelated === "hidden" ? ["0.0.0.0:0"] : [];
+        for (const observedRelated of [
+          observed.trickledRelayRelated,
+          observed.generationRelayRelated,
+          observed.localDescriptionRelayRelated,
+        ]) {
+          expect(observedRelated.length).toBeGreaterThan(0);
+          if (expected.relayRelated === "hidden") {
+            expect(observedRelated).toEqual(related);
+          } else {
+            expect(observedRelated).not.toContain("0.0.0.0:0");
+            expect(observedRelated).not.toContain("none");
+          }
+        }
+      }
       // Assert: restart 後の TURN 認証は新しい credential だけ
       expect(observed.authenticated).toEqual(expected.authenticated);
       // Assert: 旧 TURN allocation は restart で close される (restart しなければ残る)
@@ -344,4 +373,60 @@ describe("setConfiguration between a restart offer and its answer", () => {
       await Promise.all([offerer.close(), answerer.close()]);
     }
   }, 30_000);
+});
+
+describe("relay ポリシーの初回 gathering は relay 候補の raddr を秘匿する", () => {
+  let servers: Awaited<ReturnType<typeof createTurnRotationServers>>;
+  beforeAll(async () => {
+    servers = await createTurnRotationServers();
+  });
+  afterAll(async () => {
+    await servers.close();
+  });
+
+  test.each([
+    // [iceTransportPolicy, 期待する relay 候補の raddr]
+    ["relay", "hidden"],
+    ["all", "mapped"],
+  ] as const)(
+    "iceTransportPolicy %s → raddr %s",
+    async (policy, expected) => {
+      // Arrange: TURN A を持つ offerer と STUN のみの answerer
+      const offerer = new RTCPeerConnection({
+        iceServers: servers.iceServers("a"),
+        iceTransportPolicy: policy,
+      });
+      const answerer = new RTCPeerConnection({
+        iceServers: servers.iceServers(),
+      });
+      const trickled: string[] = [];
+      offerer.onIceCandidate.subscribe((candidate) => {
+        if (candidate?.candidate.includes(" typ relay")) {
+          trickled.push(relatedAddressOf(candidate.candidate));
+        }
+      });
+      try {
+        // Act: 接続して初回 gathering を完了させる
+        await connectPeerConnections(offerer, answerer);
+        await waitForLocalCandidatesEnd(offerer);
+        const described = sdpRelayRelatedAddresses(
+          offerer.localDescription!.sdp,
+        );
+
+        // Assert: relay ポリシーなら trickle と SDP の relay 候補はどちらも 0.0.0.0:0 だけ
+        for (const related of [[...new Set(trickled)], described]) {
+          expect(related.length).toBeGreaterThan(0);
+          if (expected === "hidden") {
+            expect(related).toEqual(["0.0.0.0:0"]);
+          } else {
+            expect(related).not.toContain("0.0.0.0:0");
+            expect(related).not.toContain("none");
+          }
+        }
+      } finally {
+        await Promise.all([offerer.close(), answerer.close()]);
+      }
+    },
+    30_000,
+  );
 });
