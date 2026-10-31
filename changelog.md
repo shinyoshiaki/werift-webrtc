@@ -9,6 +9,7 @@
 
 ### Fixes
 
+- **`werift`: unordered partially reliable DataChannels now announce an unordered DCEP channel type.** `ordered: false` with `maxRetransmits` or `maxPacketLifeTime` sent channel type `0x01` / `0x02` in `DATA_CHANNEL_OPEN` instead of `0x81` / `0x82` (RFC 8832 §5.1), so the remote peer created the channel as ordered. Workarounds that set the `0x80` bit on the queued OPEN message are no longer needed.
 - PEM passed to `dtls.keys` / `RTCCertificate` / `CipherContext` may still be indented (for example inside an indented template literal), as it was with `@fidm/x509`. `werift-dtls` exports the `normalizePem()` helper used for this.
 
 ### Dependencies

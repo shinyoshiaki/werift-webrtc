@@ -1,5 +1,6 @@
 import { RTCPeerConnection } from "../../src";
 import type { RTCStats } from "../../src/media/stats";
+import { createDataChannelPair, DCEP_CHANNEL_TYPE_CASES } from "../utils";
 
 function filterSdpToTcp(sdp: string) {
   return sdp
@@ -144,4 +145,30 @@ describe("datachannel", () => {
       await pc2.close();
     }
   });
+
+  test.each(DCEP_CHANNEL_TYPE_CASES)(
+    "remote channel keeps $name settings",
+    async ({ options }) => {
+      // Arrange: DCEP でネゴシエーションするチャネル用の PeerConnection を用意する。
+      const pc1 = new RTCPeerConnection();
+      const pc2 = new RTCPeerConnection();
+
+      try {
+        // Act: pc1 でチャネルを作成し、pc2 側で ondatachannel を受けて open まで待つ。
+        const [local, remote] = await createDataChannelPair(options, pc1, pc2);
+
+        // Assert: 受信側チャネルの ordered / 部分信頼性が送信側と一致する。
+        expect(local.ordered).toBe(options.ordered);
+        expect(remote.ordered).toBe(options.ordered);
+        expect(remote.maxRetransmits).toBe(local.maxRetransmits);
+        expect(remote.maxPacketLifeTime).toBe(local.maxPacketLifeTime);
+        expect(remote.maxRetransmits).toBe(options.maxRetransmits ?? null);
+        expect(remote.maxPacketLifeTime).toBe(
+          options.maxPacketLifeTime ?? null,
+        );
+      } finally {
+        await Promise.all([pc1.close(), pc2.close()]);
+      }
+    },
+  );
 });

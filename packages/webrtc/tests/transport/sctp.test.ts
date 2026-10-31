@@ -1,6 +1,7 @@
 import { RTCDataChannel, RTCSctpTransport } from "../../src";
 import { RTCDataChannelParameters } from "../../src/dataChannel";
 import { dtlsTransportPair } from "../fixture";
+import { DCEP_CHANNEL_TYPE_CASES } from "../utils";
 
 describe("RTCSctpTransportTest", () => {
   test("reuses outbound MTU when replacing the DTLS transport", async () => {
@@ -134,4 +135,46 @@ describe("RTCSctpTransportTest", () => {
         channel.send(Buffer.from("pong"));
       });
     }));
+
+  test.each(DCEP_CHANNEL_TYPE_CASES)(
+    "DATA_CHANNEL_OPEN encodes $name",
+    async ({ options, channelType, reliability }) => {
+      // Arrange: SCTP association を確立し、client が送る DCEP を記録する。
+      const [clientTransport, serverTransport] = await dtlsTransportPair();
+      const client = new RTCSctpTransport();
+      client.setDtlsTransport(clientTransport);
+      const server = new RTCSctpTransport();
+      server.setDtlsTransport(serverTransport);
+      await Promise.all([server.start(client.port), client.start(server.port)]);
+      await waitForOutcome(client, server);
+      const dcep: Buffer[] = [];
+      const send = client.sctp.send.bind(client.sctp);
+      client.sctp.send = ((...args: Parameters<typeof send>) => {
+        if (args[1] === 50) dcep.push(Buffer.from(args[2]));
+        return send(...args);
+      }) as typeof send;
+      const remote = server.onDataChannel.asPromise();
+
+      // Act: 指定の ordered / 部分信頼性でチャネルを作成し OPEN を送らせる。
+      new RTCDataChannel(
+        client,
+        new RTCDataChannelParameters({ label: "dcep", id: 1, ...options }),
+      );
+      const [received] = await remote;
+
+      // Assert: OPEN の Channel Type と reliability が RFC 8832 の値になる。
+      expect(dcep).toHaveLength(1);
+      expect(dcep[0].readUInt8(0)).toBe(3);
+      expect(dcep[0].readUInt8(1)).toBe(channelType);
+      expect(dcep[0].readUInt32BE(4)).toBe(reliability);
+      // Assert: 受信側チャネルは送信側と同じ ordered / 部分信頼性を持つ。
+      expect(received.ordered).toBe(options.ordered);
+      expect(received.maxRetransmits).toBe(options.maxRetransmits ?? null);
+      expect(received.maxPacketLifeTime).toBe(
+        options.maxPacketLifeTime ?? null,
+      );
+
+      await Promise.all([client.stop(), server.stop()]);
+    },
+  );
 });
