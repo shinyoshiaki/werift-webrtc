@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### 🐛 Bug Fixes
+
+- **RTCP Sender Reports map the current NTP time to the matching RTP timestamp** (`packages/webrtc`, RFC 3550 §6.4.1): `RTCRtpSender` used to report the NTP time and RTP timestamp of the last sent RTP packet, so an SR sent later (up to 1.5 s, or longer while RTP is idle) carried a stale NTP time, and SRs sent while RTP was stopped repeated the same LSR. The SR now samples the wall-clock time when it is built and extrapolates the RTP timestamp to that instant from an NTP↔RTP anchor with the send codec's clock rate (32-bit wrap, as libwebrtc does).
+  - The anchor is the send time of the first packet with a newer output timestamp (after continuity rewrite). Frame fragments with the same timestamp, older (reordered) timestamps and RTX retransmissions do not move it; a continuity rewrite (`replaceTrack` / `replaceRTP` / `onSourceChanged`) or a clock rate change resets it.
+  - Limitation: werift does not know the capture time, so for relayed RTP the send time approximates the sampling time and send jitter becomes SR mapping error.
+  - `ntpTime()` accepts an optional epoch-ms argument.
+
 ## v0.25.2
 
 ### ⚠️ Breaking changes

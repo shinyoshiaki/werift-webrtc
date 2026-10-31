@@ -80,8 +80,10 @@ export const microTime = () => {
 export const timestampSeconds = () => Date.now() / 1000;
 
 /**https://datatracker.ietf.org/doc/html/rfc3550#section-4 */
-export const ntpTime = () => {
-  const now = performance.timeOrigin + performance.now() - Date.UTC(1900, 0, 1);
+export const ntpTime = (
+  epochMs: number = performance.timeOrigin + performance.now(),
+) => {
+  const now = epochMs - Date.UTC(1900, 0, 1);
 
   const seconds = now / 1000;
   const [sec, msec] = seconds.toString().split(".").map(Number);

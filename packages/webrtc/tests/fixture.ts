@@ -12,6 +12,7 @@ import {
   RTCRtpHeaderExtensionParameters,
   type RTCSessionDescription,
   RTP_EXTENSION_URI,
+  type RtcpSrPacket,
   RtpHeader,
   RtpPacket,
   codecParametersToString,
@@ -54,6 +55,14 @@ export function createAudioCodec(payloadType = 96) {
   });
 }
 
+export function createVideoCodec(payloadType = 96) {
+  return new RTCRtpCodecParameters({
+    mimeType: "video/VP8",
+    clockRate: 90000,
+    payloadType,
+  });
+}
+
 export function createRtxCodec(payloadType = 97, apt = 96) {
   return new RTCRtpCodecParameters({
     mimeType: "audio/rtx",
@@ -69,6 +78,8 @@ export function createConnectedRtpSender(options?: {
   rtx?: boolean;
   twcc?: boolean;
   cname?: string;
+  /** send codec (default: 48 kHz opus) */
+  codec?: RTCRtpCodecParameters;
 }) {
   const kind = options?.kind ?? "audio";
   const track = options?.track ?? new MediaStreamTrack({ kind, remote: true });
@@ -77,7 +88,7 @@ export function createConnectedRtpSender(options?: {
   const sender = new RTCRtpSender(track);
   sender.setDtlsTransport(dtls);
 
-  const codecs = [createAudioCodec()];
+  const codecs = [options?.codec ?? createAudioCodec()];
   if (options?.rtx) {
     codecs.push(createRtxCodec());
   }
@@ -110,6 +121,33 @@ export type ConnectedRtpSenderSetup = ReturnType<
 
 export function sentRtpHeaders(sendRtp: ConnectedRtpSenderSetup["sendRtp"]) {
   return sendRtp.mock.calls.map(([, header]) => header);
+}
+
+/**
+ * Replace `performance.now()` with a manually advanced monotonic clock so
+ * RTP send times and SR generation times are deterministic.
+ * Call `restore()` (or `vi.restoreAllMocks()`) after the test.
+ */
+export function mockMonotonicClock(startMs = 1000) {
+  let nowMs = startMs;
+  const spy = vi.spyOn(performance, "now").mockImplementation(() => nowMs);
+  return {
+    get nowMs() {
+      return nowMs;
+    },
+    set(ms: number) {
+      nowMs = ms;
+    },
+    advance(ms: number) {
+      nowMs += ms;
+    },
+    restore: () => spy.mockRestore(),
+  };
+}
+
+/** Build the RTCP Sender Report the sender would send at `nowMs` (`performance.now()`). */
+export function buildSenderReportAt(sender: RTCRtpSender, nowMs: number) {
+  return (sender as any).buildSenderReport(nowMs) as RtcpSrPacket;
 }
 
 export async function generateOffer() {
