@@ -118,6 +118,28 @@ describe("packages/rtp/tests/processor/ogg.test.ts", () => {
     expect(outputs.at(-1)!.eol).toEqual({ duration: 1400 });
   });
 
+  it("fills a gap shorter than 20 ms so the granule follows the media time", async () => {
+    // Arrange: 20ms パケットが 0, 20, 50ms で届く (30ms 時点の不足が 10ms)。
+    const frames = createOpusFramesAt([0, 20, 50]);
+
+    // Act
+    const outputs = await collectOggOutputs((ogg) => {
+      for (const frame of frames) {
+        ogg.inputAudio({ frame });
+      }
+      ogg.inputAudio({ eol: true });
+    });
+    const pages = parseOggPages(oggOutputsToBuffer(outputs));
+    const packets = oggPagesToPackets(pages.slice(2));
+
+    // Assert: 端数の 10ms も 1 バイトの補完パケットで埋められる。
+    expect(packets).toHaveLength(4);
+    expect(packets[2]).toHaveLength(1);
+    // Assert: 最終 granule は 70ms 分 (3 パケット + 補完 10ms)。
+    expect(pages.at(-1)!.granulePosition).toBe(70n * 48n);
+    expect(outputs.at(-1)!.eol).toEqual({ duration: 70 });
+  });
+
   it("does not move the granule backwards on reordered timestamps", async () => {
     // Arrange: タイムスタンプが巻き戻るパケットを含める。
     const frames = createOpusFramesAt([0, 20, 40, 10, 60]);

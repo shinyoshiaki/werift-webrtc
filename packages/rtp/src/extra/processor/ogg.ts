@@ -12,6 +12,16 @@ import type { WebmInput } from "./webm";
 const OpusSamplesPerMs = 48;
 /** 20 ms at 48 kHz */
 const GapFillSamples = 960;
+/**
+ * CELT fullband frame sizes (2.5 / 5 / 10 / 20 ms) with their TOC config
+ * (RFC 6716 §3.1, configs 28-31), largest first
+ */
+const GapFillFrames = [
+  { samples: 960, config: 31 },
+  { samples: 480, config: 30 },
+  { samples: 240, config: 29 },
+  { samples: 120, config: 28 },
+];
 
 export interface OggTrack {
   /** 1 or 2, default 2 */
@@ -40,7 +50,7 @@ export interface OggOption {
   /** ms of audio collected into one page before it is written. default 1000 */
   pageDuration?: number;
   /**
-   * fill timestamp gaps (DTX, packet loss) of 20 ms or more with empty
+   * fill timestamp gaps (DTX, packet loss) of 2.5 ms or more with empty
    * Opus packets so the granule position follows the media time. default true
    */
   fillGaps?: boolean;
@@ -131,10 +141,19 @@ export class OggBase {
       const expected = Math.round(
         (frame.time - this.baseTime) * OpusSamplesPerMs,
       );
-      // 1 byte packets (TOC only) are decoded as lost frames (RFC 6716 §3.2.1)
-      const toc = (31 << 3) | ((this.lastToc ?? 0) & 0x04);
-      while (expected - this.samples >= GapFillSamples) {
-        this.writePacket(Buffer.from([toc]), GapFillSamples);
+      // 1 byte packets (TOC only) are decoded as lost frames (RFC 6716 §3.2.1).
+      // The remainder below 20 ms is filled with shorter frames
+      const stereo = (this.lastToc ?? 0) & 0x04;
+      for (;;) {
+        const gap = expected - this.samples;
+        const fill = GapFillFrames.find((f) => f.samples <= gap);
+        if (!fill) {
+          break;
+        }
+        this.writePacket(
+          Buffer.from([(fill.config << 3) | stereo]),
+          fill.samples,
+        );
       }
     }
 
