@@ -1,7 +1,12 @@
 import { RTCDataChannel, RTCSctpTransport } from "../../src";
 import { RTCDataChannelParameters } from "../../src/dataChannel";
 import { dtlsTransportPair } from "../fixture";
-import { DCEP_CHANNEL_TYPE_CASES } from "../utils";
+import { WEBRTC_BINARY } from "../../src/const";
+import {
+  captureSctpDataChunks,
+  DCEP_CHANNEL_TYPE_CASES,
+  SCTP_DATA_UNORDERED,
+} from "../utils";
 
 describe("RTCSctpTransportTest", () => {
   test("reuses outbound MTU when replacing the DTLS transport", async () => {
@@ -173,6 +178,59 @@ describe("RTCSctpTransportTest", () => {
       expect(received.maxPacketLifeTime).toBe(
         options.maxPacketLifeTime ?? null,
       );
+
+      await Promise.all([client.stop(), server.stop()]);
+    },
+  );
+
+  test.each(DCEP_CHANNEL_TYPE_CASES)(
+    "remote peer sends DATA chunks with the $name delivery mode",
+    async ({ options }) => {
+      // Arrange: SCTP association を確立し、OPEN を受けた server が送る DATA chunk を記録する。
+      const [clientTransport, serverTransport] = await dtlsTransportPair();
+      const client = new RTCSctpTransport();
+      client.setDtlsTransport(clientTransport);
+      const server = new RTCSctpTransport();
+      server.setDtlsTransport(serverTransport);
+      await Promise.all([server.start(client.port), client.start(server.port)]);
+      await waitForOutcome(client, server);
+      const serverChunks = captureSctpDataChunks(server);
+      const remote = server.onDataChannel.asPromise();
+      const local = new RTCDataChannel(
+        client,
+        new RTCDataChannelParameters({ label: "dcep", id: 1, ...options }),
+      );
+      const [received] = await remote;
+      const replies = local.onMessage.asPromise();
+
+      // Act: OPEN から構築された server 側チャネルで 2 件送り、client で受信する。
+      received.send(Buffer.from("pong-1"));
+      received.send(Buffer.from("pong-2"));
+      const [first] = await replies;
+
+      // Assert: server が実際に送った user DATA chunk の U ビットと SSN が
+      // client 側で指定した ordered / unordered に一致する。
+      expect(first.toString()).toBe("pong-1");
+      // 再送で同じ TSN が複数回記録されても 1 件として扱う。
+      const userChunks = [
+        ...new Map(
+          serverChunks
+            .filter(
+              (chunk) =>
+                chunk.streamId === 1 && chunk.protocol === WEBRTC_BINARY,
+            )
+            .map((chunk) => [chunk.tsn, chunk]),
+        ).values(),
+      ];
+      expect(userChunks).toHaveLength(2);
+      const unordered = userChunks.map(
+        (chunk) => (chunk.flags & SCTP_DATA_UNORDERED) !== 0,
+      );
+      expect(unordered).toEqual([!options.ordered, !options.ordered]);
+      // Assert: ordered なら SSN が 1 ずつ進み (0 は DCEP ACK が使用済み)、
+      // unordered なら SSN を進めない。
+      const [ssn1, ssn2] = userChunks.map((chunk) => chunk.streamSeqNum);
+      expect(ssn2 - ssn1).toBe(options.ordered ? 1 : 0);
 
       await Promise.all([client.stop(), server.stop()]);
     },

@@ -1,10 +1,12 @@
 import { readFileSync } from "fs";
 
+import { DataChunk, parsePacket } from "../../sctp/src/chunk";
 import {
   type PeerConfig,
   type RTCDataChannel,
   type RTCIceTransport,
   RTCPeerConnection,
+  type RTCSctpTransport,
 } from "../src";
 
 export function load(name: string) {
@@ -278,3 +280,27 @@ export const DCEP_CHANNEL_TYPE_CASES: {
     reliability: 500,
   },
 ];
+
+/** RFC 9260 3.3.1: U bit of the DATA chunk flags (unordered delivery). */
+export const SCTP_DATA_UNORDERED = 0x04;
+
+/**
+ * Record every DATA chunk the transport puts on the wire, parsed back from
+ * the serialized SCTP packets handed to the DTLS transport. Call it after
+ * `setDtlsTransport`, which recreates the SCTP association.
+ */
+export function captureSctpDataChunks(transport: RTCSctpTransport) {
+  const chunks: DataChunk[] = [];
+  const lower = transport.sctp.transport;
+  const send = lower.send.bind(lower);
+  lower.send = (packet: Buffer) => {
+    const [, , , parsed] = parsePacket(packet);
+    chunks.push(
+      ...parsed.filter(
+        (chunk): chunk is DataChunk => chunk instanceof DataChunk,
+      ),
+    );
+    return send(packet);
+  };
+  return chunks;
+}
