@@ -124,7 +124,29 @@ describe("packages/webrtc/tests/nonstandard/recorder.test.ts", () => {
     }
   });
 
-  it("keeps every received packet when one packet is lost", async () => {
+  const range31 = Array.from({ length: 31 }, (_, i) => i);
+  it.each([
+    {
+      name: "one packet is lost",
+      order: range31.filter((i) => i !== 1),
+      startSeq: 0,
+    },
+    {
+      name: "a loss times out while 13 and 12 are swapped",
+      order: [0, ...range31.slice(2, 12), 13, 12, ...range31.slice(14)],
+      startSeq: 0,
+    },
+    {
+      name: "the timed out packet has sequence number 0",
+      order: [0, ...range31.slice(2, 12), 13, 12, ...range31.slice(14)],
+      startSeq: 65534,
+    },
+    {
+      name: "two separate packets are lost",
+      order: range31.filter((i) => i !== 1 && i !== 12),
+      startSeq: 65530,
+    },
+  ])("keeps every received packet when $name", async ({ order, startSeq }) => {
     // Arrange
     const dir = await createRecordingDir();
     const track = createOpusTrack();
@@ -136,18 +158,17 @@ describe("packages/webrtc/tests/nonstandard/recorder.test.ts", () => {
       });
       await waitForOggRecorderStarted(recorder);
 
-      // Act: パケット 0〜30 のうち 1 だけを欠落させて流し、停止する。
-      const order = Array.from({ length: 31 }, (_, i) => i).filter(
-        (i) => i !== 1,
-      );
-      feedOpusRtp(track, order);
+      // Act: 欠落・入れ替わりを含む到着順でパケットを流し、停止する。
+      feedOpusRtp(track, order, startSeq);
       await recorder.stop();
       const buffer = await dir.read("out.ogg");
 
-      // Assert: 正常に受信した 30 パケットの音声がすべて録音に残る。
-      for (const i of order) {
-        expect(buffer.includes(Buffer.from([0xfc, i, 0x00]))).toBe(true);
-      }
+      // Assert: 正常に受信したパケットの音声が、番号順にすべて録音に残る。
+      const positions = [...order]
+        .sort((a, b) => a - b)
+        .map((i) => buffer.indexOf(Buffer.from([0xfc, i, 0x00])));
+      expect(positions.every((p) => p >= 0)).toBe(true);
+      expect(positions).toEqual([...positions].sort((a, b) => a - b));
       // Assert: 欠落分は補完され、録音時間は 31 パケット分 (620ms) になる。
       const input = createOggInput(buffer);
       try {

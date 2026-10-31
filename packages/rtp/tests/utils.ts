@@ -11,14 +11,15 @@ import {
   type OggOption,
   type OggOutput,
   type OggTrack,
+  saveToFileSystem,
   type Track,
   WebmCallback,
   type WebmOutput,
   type WebmTrack,
-  saveToFileSystem,
 } from "../src/extra";
 import { vintDecode } from "../src/extra/container/webm/ebml/ebml";
 import type { Mp4Output } from "../src/extra/processor/mp4";
+import { RtcpSenderInfo, RtcpSrPacket } from "../src/rtcp/sr";
 import {
   RtpMediaClock,
   type RtpMediaClockOptions,
@@ -27,7 +28,6 @@ import {
   type RtpMediaPacerOptions,
   type RtpMediaPacerTick,
 } from "../src/rtp/mediaClock";
-import { RtcpSenderInfo, RtcpSrPacket } from "../src/rtcp/sr";
 import { RtpHeader, RtpPacket } from "../src/rtp/rtp";
 import {
   ProtectionProfileAeadAes128Gcm,
@@ -1286,4 +1286,140 @@ export function createRtpAt(timestamp: number, sequenceNumber = 0) {
     new RtpHeader({ timestamp, sequenceNumber }),
     Buffer.alloc(0),
   );
+}
+
+/**シード固定の疑似乱数 (mulberry32)。0 以上 1 未満を返す */
+export function createPrng(seed: number) {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let t = state;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+export type JitterStream = {
+  startSeq: number;
+  startTs: number;
+  /**RTP timestamp increment per packet */
+  step: number;
+};
+
+/**index 番目のパケット。payload に index を入れて識別できるようにする */
+export function createJitterRtp(index: number, stream: JitterStream) {
+  const payload = Buffer.alloc(4);
+  payload.writeUInt32BE(index);
+  return new RtpPacket(
+    new RtpHeader({
+      sequenceNumber: (stream.startSeq + index) & 0xffff,
+      timestamp: (stream.startTs + index * stream.step) >>> 0,
+    }),
+    payload,
+  );
+}
+
+export type JitterRun = {
+  /**出力された RTP の index (出力順) */
+  output: number[];
+  /**欠落通知を index の範囲に直したもの (出力順) */
+  lost: { from: number; to: number }[];
+  /**rtp と欠落通知を出力順に並べたもの */
+  events: ({ rtp: number } | { lost: { from: number; to: number } })[];
+};
+
+/**到着順に jitter buffer へ入力し、最後に eol を入れて出力を集める */
+export function runJitterBuffer(
+  jitterBuffer: {
+    processInput: (input: { rtp?: RtpPacket; eol?: boolean }) => {
+      rtp?: RtpPacket;
+      isPacketLost?: { from: number; to: number };
+    }[];
+  },
+  arrivals: RtpPacket[],
+  stream: JitterStream,
+  { eol = true }: { eol?: boolean } = {},
+): JitterRun {
+  const toIndex = (seq: number) => (seq - stream.startSeq) & 0xffff;
+  const run: JitterRun = { output: [], lost: [], events: [] };
+  const collect = (outputs: ReturnType<typeof jitterBuffer.processInput>) => {
+    for (const out of outputs) {
+      if (out.rtp) {
+        const index = out.rtp.payload.readUInt32BE(0);
+        run.output.push(index);
+        run.events.push({ rtp: index });
+      }
+      if (out.isPacketLost) {
+        const lost = {
+          from: toIndex(out.isPacketLost.from),
+          to: toIndex(out.isPacketLost.to),
+        };
+        run.lost.push(lost);
+        run.events.push({ lost });
+      }
+    }
+  };
+  for (const rtp of arrivals) {
+    collect(jitterBuffer.processInput({ rtp }));
+  }
+  if (eol) {
+    collect(jitterBuffer.processInput({ eol: true }));
+  }
+  return run;
+}
+
+/**index の並びから到着順のパケット列を作る */
+export function createJitterArrivals(order: number[], stream: JitterStream) {
+  return order.map((index) => createJitterRtp(index, stream));
+}
+
+/**
+ * 欠落・重複・入れ替わりを含む到着順を乱数で作る。
+ * 各パケットは本来の位置から最大 maxDelay パケット分だけ遅れて届く。
+ * 先頭パケットは基準になるため必ず最初に届く。
+ */
+export function createRandomJitterOrder({
+  count,
+  rng,
+  lossRate,
+  duplicateRate,
+  maxDelay,
+  duplicateMaxDelay = maxDelay,
+}: {
+  count: number;
+  rng: () => number;
+  lossRate: number;
+  duplicateRate: number;
+  maxDelay: number;
+  duplicateMaxDelay?: number;
+}) {
+  const keyed: { index: number; key: number }[] = [{ index: 0, key: -1 }];
+  const received = new Set<number>([0]);
+  for (let index = 1; index < count; index++) {
+    if (rng() < lossRate) {
+      continue;
+    }
+    received.add(index);
+    keyed.push({ index, key: index + rng() * maxDelay });
+    if (rng() < duplicateRate) {
+      keyed.push({ index, key: index + rng() * duplicateMaxDelay });
+    }
+  }
+  keyed.sort((a, b) => a.key - b.key);
+  return {
+    order: keyed.map((k) => k.index),
+    received: [...received].sort((a, b) => a - b),
+  };
+}
+
+/**昇順の index 列から、間にある欠落区間を求める */
+export function findMissingRanges(indices: number[]) {
+  const ranges: { from: number; to: number }[] = [];
+  for (let i = 1; i < indices.length; i++) {
+    if (indices[i] - indices[i - 1] > 1) {
+      ranges.push({ from: indices[i - 1] + 1, to: indices[i] - 1 });
+    }
+  }
+  return ranges;
 }

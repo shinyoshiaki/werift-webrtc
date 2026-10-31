@@ -1,5 +1,4 @@
 import {
-  type RequireAtLeastOne,
   type RtpPacket,
   uint16Add,
   uint16Gte,
@@ -15,11 +14,27 @@ export interface JitterBufferOutput extends RtpOutput {
   isPacketLost?: { from: number; to: number };
 }
 
+/**
+ * Reorders RTP packets by sequence number.
+ *
+ * Invariants:
+ * - every packet that is delayed by less than `latency` (measured by RTP
+ *   timestamps of later arrivals) is output exactly once, in sequence order
+ * - only sequence numbers that were never received are given up; each given
+ *   up range is reported once with `isPacketLost` (`to` is the last missing
+ *   sequence number) right before the packet that follows it
+ * - the output position only moves past a missing sequence number when a
+ *   later packet has timed out, the buffer is full, or at eol
+ * - packets at or before the output position (duplicates, or packets whose
+ *   loss was already given up) are dropped
+ * - sequence numbers and timestamps are compared with uint16 / uint32
+ *   wraparound
+ */
 export class JitterBufferBase
   implements Processor<JitterBufferInput, JitterBufferOutput>
 {
   private options: JitterBufferOptions;
-  /**uint16 */
+  /**uint16. sequence number of the last output packet */
   private presentSeqNum?: number;
   private rtpBuffer: { [sequenceNumber: number]: RtpPacket } = {};
   private get expectNextSeqNum() {
@@ -55,9 +70,9 @@ export class JitterBufferBase
 
     if (!input.rtp) {
       if (input.eol) {
-        const packets = this.sortAndClearBuffer(this.rtpBuffer);
-        for (const rtp of packets) {
-          output.push({ rtp });
+        const buffered = this.sortedBuffer();
+        if (buffered.length > 0) {
+          this.releaseUntil(buffered.at(-1)!.header.sequenceNumber, output);
         }
         output.push({ eol: true });
 
@@ -66,198 +81,140 @@ export class JitterBufferBase
       return output;
     }
 
-    const { packets, timeoutSeqNum } = this.processRtp(input.rtp);
-
-    if (timeoutSeqNum != undefined) {
-      const isPacketLost = {
-        from: this.expectNextSeqNum,
-        to: timeoutSeqNum,
-      };
-      output.push({ isPacketLost });
-
-      // Everything received so far up to this packet is released in order.
-      // Packets still waiting in the buffer must not be skipped just because
-      // the position moves forward: only the missing ones are lost.
-      const base = this.presentSeqNum!;
-      const distance = (rtp: RtpPacket) =>
-        uint16Add(rtp.header.sequenceNumber, -base);
-      const inputSeq = input.rtp.header.sequenceNumber;
-      delete this.rtpBuffer[inputSeq];
-      const released = [...(packets ?? [])];
-      for (const rtp of Object.values(this.rtpBuffer)) {
-        if (distance(rtp) < uint16Add(inputSeq, -base)) {
-          released.push(rtp);
-          delete this.rtpBuffer[rtp.header.sequenceNumber];
-        }
-      }
-      if (!released.some((r) => r.header.sequenceNumber === inputSeq)) {
-        released.push(input.rtp);
-      }
-      released.sort((a, b) => distance(a) - distance(b));
-      released.push(...this.resolveBuffer(uint16Add(inputSeq, 1)));
-
-      this.presentSeqNum = released.at(-1)!.header.sequenceNumber;
-      for (const rtp of released) {
-        output.push({ rtp });
-      }
-      this.internalStats["jitterBuffer"] = new Date().toISOString();
-      return output;
-    } else {
-      if (packets) {
-        for (const rtp of packets) {
-          output.push({ rtp });
-        }
-        this.internalStats["jitterBuffer"] = new Date().toISOString();
-        return output;
-      }
-      return [];
-    }
-  }
-
-  private processRtp(rtp: RtpPacket): RequireAtLeastOne<{
-    packets: RtpPacket[];
-    timeoutSeqNum: number;
-    nothing: undefined;
-  }> {
+    const rtp = input.rtp;
     const { sequenceNumber, timestamp } = rtp.header;
 
     // init
     if (this.presentSeqNum == undefined) {
       this.presentSeqNum = sequenceNumber;
-      return { packets: [rtp] };
+      output.push({ rtp });
+      this.internalStats["jitterBuffer"] = new Date().toISOString();
+      return output;
     }
 
-    // duplicate
-    if (uint16Gte(this.presentSeqNum, sequenceNumber)) {
+    // duplicate, or a packet whose loss was already given up
+    if (
+      uint16Gte(this.presentSeqNum, sequenceNumber) ||
+      this.rtpBuffer[sequenceNumber]
+    ) {
       this.internalStats["duplicate"] = {
         count: (this.internalStats["duplicate"]?.count ?? 0) + 1,
         sequenceNumber,
         timestamp: new Date().toISOString(),
       };
-      return { nothing: undefined };
+      return [];
     }
 
-    // expect
-    if (sequenceNumber === this.expectNextSeqNum) {
-      this.presentSeqNum = sequenceNumber;
+    this.rtpBuffer[sequenceNumber] = rtp;
+    this.releaseContinuous(output);
 
-      const rtpBuffer = this.resolveBuffer(uint16Add(sequenceNumber, 1));
-      this.presentSeqNum =
-        rtpBuffer.at(-1)?.header.sequenceNumber ?? this.presentSeqNum;
-
-      this.disposeTimeoutPackets(timestamp);
-
-      return { packets: [rtp, ...rtpBuffer] };
+    const timeoutSeqNum = this.findLatestTimeoutSeqNum(timestamp);
+    if (timeoutSeqNum != undefined) {
+      this.releaseUntil(timeoutSeqNum, output);
     }
 
-    this.pushRtpBuffer(rtp);
-
-    const { latestTimeoutSeqNum, sorted } =
-      this.disposeTimeoutPackets(timestamp);
-
-    if (latestTimeoutSeqNum) {
-      return { timeoutSeqNum: latestTimeoutSeqNum, packets: sorted };
-    } else {
-      return { nothing: undefined };
-    }
-  }
-
-  private pushRtpBuffer(rtp: RtpPacket) {
-    if (Object.values(this.rtpBuffer).length > this.options.bufferSize) {
+    const buffered = this.sortedBuffer();
+    if (buffered.length > this.options.bufferSize) {
       this.internalStats["buffer_overflow"] = {
         count: (this.internalStats["buffer_overflow"]?.count ?? 0) + 1,
         timestamp: new Date().toISOString(),
       };
-      return;
+      const overflowSeqNum =
+        buffered[buffered.length - this.options.bufferSize - 1].header
+          .sequenceNumber;
+      this.releaseUntil(overflowSeqNum, output);
     }
 
-    this.rtpBuffer[rtp.header.sequenceNumber] = rtp;
+    if (output.length > 0) {
+      this.internalStats["jitterBuffer"] = new Date().toISOString();
+    }
+    return output;
   }
 
-  private resolveBuffer(seqNumFrom: number) {
-    const resolve: RtpPacket[] = [];
+  /**distance from the output position. 1 is the next expected packet */
+  private distance(sequenceNumber: number) {
+    return uint16Add(sequenceNumber, -this.presentSeqNum!);
+  }
 
-    for (let index = seqNumFrom; ; index = uint16Add(index, 1)) {
-      const rtp = this.rtpBuffer[index];
-      if (rtp) {
-        resolve.push(rtp);
-        delete this.rtpBuffer[index];
-      } else {
+  private sortedBuffer() {
+    return Object.values(this.rtpBuffer).sort(
+      (a, b) =>
+        this.distance(a.header.sequenceNumber) -
+        this.distance(b.header.sequenceNumber),
+    );
+  }
+
+  /**output buffered packets that continue from the output position */
+  private releaseContinuous(output: JitterBufferOutput[]) {
+    for (;;) {
+      const next = this.expectNextSeqNum;
+      const rtp = this.rtpBuffer[next];
+      if (!rtp) {
+        return;
+      }
+      delete this.rtpBuffer[next];
+      this.presentSeqNum = next;
+      output.push({ rtp });
+    }
+  }
+
+  /**
+   * give up the missing sequence numbers up to `sequenceNumber`, output the
+   * buffered packets up to it in order, then the packets continuing from it
+   */
+  private releaseUntil(sequenceNumber: number, output: JitterBufferOutput[]) {
+    const base = this.presentSeqNum!;
+    const limit = uint16Add(sequenceNumber, -base);
+    for (const rtp of this.sortedBuffer()) {
+      const seq = rtp.header.sequenceNumber;
+      if (uint16Add(seq, -base) > limit) {
         break;
       }
+      if (seq !== this.expectNextSeqNum) {
+        output.push({
+          isPacketLost: { from: this.expectNextSeqNum, to: uint16Add(seq, -1) },
+        });
+      }
+      delete this.rtpBuffer[seq];
+      this.presentSeqNum = seq;
+      output.push({ rtp });
     }
-
-    return resolve;
+    this.releaseContinuous(output);
   }
 
-  private sortAndClearBuffer(rtpBuffer: {
-    [sequenceNumber: number]: RtpPacket;
-  }) {
-    const buffer: RtpPacket[] = [];
-    for (let index = this.presentSeqNum ?? 0; ; index = uint16Add(index, 1)) {
-      const rtp = rtpBuffer[index];
-      if (rtp) {
-        buffer.push(rtp);
-        delete rtpBuffer[index];
-      }
-      if (Object.values(rtpBuffer).length === 0) {
-        break;
-      }
-    }
-    return buffer;
-  }
-
-  private disposeTimeoutPackets(baseTimestamp: number) {
+  /**the furthest buffered packet that has waited longer than latency */
+  private findLatestTimeoutSeqNum(baseTimestamp: number) {
     let latestTimeoutSeqNum: number | undefined;
 
-    const packets = Object.values(this.rtpBuffer)
-      .map((rtp) => {
-        const { timestamp, sequenceNumber } = rtp.header;
+    for (const rtp of Object.values(this.rtpBuffer)) {
+      const { timestamp, sequenceNumber } = rtp.header;
 
-        if (uint32Gt(timestamp, baseTimestamp)) {
-          return;
-        }
+      if (uint32Gt(timestamp, baseTimestamp)) {
+        continue;
+      }
 
-        const elapsedSec =
-          uint32Add(baseTimestamp, -timestamp) / this.clockRate;
+      const elapsedSec = uint32Add(baseTimestamp, -timestamp) / this.clockRate;
+      if (elapsedSec * 1000 <= this.options.latency) {
+        continue;
+      }
 
-        if (elapsedSec * 1000 > this.options.latency) {
-          this.internalStats["timeout_packet"] = {
-            count: (this.internalStats["timeout_packet"]?.count ?? 0) + 1,
-            at: new Date().toISOString(),
-            sequenceNumber,
-            elapsedSec,
-            baseTimestamp,
-            timestamp,
-          };
+      this.internalStats["timeout_packet"] = {
+        count: (this.internalStats["timeout_packet"]?.count ?? 0) + 1,
+        at: new Date().toISOString(),
+        sequenceNumber,
+        elapsedSec,
+        baseTimestamp,
+        timestamp,
+      };
+      if (
+        latestTimeoutSeqNum == undefined ||
+        this.distance(sequenceNumber) > this.distance(latestTimeoutSeqNum)
+      ) {
+        latestTimeoutSeqNum = sequenceNumber;
+      }
+    }
 
-          if (latestTimeoutSeqNum == undefined) {
-            latestTimeoutSeqNum = sequenceNumber;
-          }
-          // 現在のSeqNumとの差が最も大きいSeqNumを探す
-          if (
-            uint16Add(sequenceNumber, -this.presentSeqNum!) >
-            uint16Add(latestTimeoutSeqNum, -this.presentSeqNum!)
-          ) {
-            latestTimeoutSeqNum = sequenceNumber;
-          }
-
-          const packet = this.rtpBuffer[sequenceNumber];
-          delete this.rtpBuffer[sequenceNumber];
-          return packet;
-        }
-      })
-      .flatMap((p): RtpPacket => p as RtpPacket)
-      .filter((p) => p);
-
-    const sorted = this.sortAndClearBuffer(
-      packets.reduce((acc, cur) => {
-        acc[cur.header.sequenceNumber] = cur;
-        return acc;
-      }, {}),
-    );
-
-    return { latestTimeoutSeqNum, sorted };
+    return latestTimeoutSeqNum;
   }
 }
 

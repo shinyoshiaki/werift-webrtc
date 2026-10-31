@@ -35,10 +35,14 @@ export function createVp8Track() {
   });
 }
 
-/** Feeds `count` 20 ms Opus RTP packets (CELT FB stereo TOC) into the track. */
+/**
+ * Feeds `count` 20 ms Opus RTP packets (CELT FB stereo TOC) into the track.
+ * Packet `i` has sequence number `startSeq + i` (uint16) and payload byte `i`.
+ */
 export function feedOpusRtp(
   track: MediaStreamTrack,
   countOrOrder: number | number[],
+  startSeq = 0,
 ) {
   const order =
     typeof countOrOrder === "number"
@@ -47,7 +51,7 @@ export function feedOpusRtp(
   for (const i of order) {
     const header = new RtpHeader({
       payloadType: 111,
-      sequenceNumber: i,
+      sequenceNumber: (startSeq + i) & 0xffff,
       timestamp: i * 960,
       ssrc: 1234,
       marker: true,
