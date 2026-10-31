@@ -4,10 +4,10 @@ import type { MdnsLookup } from "./dns/lookup";
 import type { Cancelable } from "./helper";
 import {
   type Address,
+  debug,
   type Event,
   type InterfaceAddresses,
   type TlsConnectionOptions,
-  debug,
 } from "./imports/common";
 import { classes, methods } from "./stun/const";
 import { Message } from "./stun/message";
@@ -304,7 +304,26 @@ export interface IceOptions {
   useIpv6: boolean;
   useLinkLocalAddress?: boolean;
   portRange?: [number, number];
+  /**
+   * Local addresses to bind the UDP host sockets to, per family.
+   *
+   * The address given for a family (`udp4` / `udp6`) is the only host
+   * address of that family: its UDP host candidate advertises the address and
+   * port the socket is actually bound to, even when the address is not among
+   * the enumerated network interfaces (loopback, tun, ...), and its TCP host
+   * candidates use it too. Other enumerated addresses of that family are not
+   * gathered. If the bind fails, the family has no UDP host candidate.
+   *
+   * A family left unspecified while the other one is set gathers no
+   * enumerated addresses (only its `additionalHostAddresses`). Without any
+   * family set, every enumerated address is gathered over wildcard sockets.
+   */
   interfaceAddresses?: InterfaceAddresses;
+  /**
+   * Host addresses gathered in addition to the enumerated ones. For a family
+   * bound by `interfaceAddresses`, addresses other than the bound one are
+   * ignored.
+   */
   additionalHostAddresses?: string[];
   filterStunResponse?: (
     message: Message,

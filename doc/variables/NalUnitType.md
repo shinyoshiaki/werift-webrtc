@@ -8,7 +8,7 @@
 
 > `const` **NalUnitType**: `object`
 
-## Type declaration
+## Type Declaration
 
 ### fu\_a
 

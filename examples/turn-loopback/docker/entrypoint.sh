@@ -19,7 +19,6 @@ CERTBOT_WORK_DIR="${CERTBOT_STATE_DIR}/work"
 CERTBOT_LOG_DIR="${CERTBOT_STATE_DIR}/logs"
 NGINX_TEMPLATE="/app/examples/turn-loopback/docker/nginx.conf.template"
 NGINX_CONFIG="/tmp/turn-loopback-nginx.conf"
-TSX_BIN="/app/node_modules/.bin/tsx"
 
 nginx_pid=""
 server_pid=""
@@ -327,12 +326,10 @@ prepare_tls_material() {
 }
 
 start_werift_server() {
-  if [[ ! -x "$TSX_BIN" ]]; then
-    log "tsx binary was not found at ${TSX_BIN}"
-    exit 1
-  fi
-
-  "$TSX_BIN" --tsconfig tsconfig.server.json server/main.ts &
+  node --experimental-transform-types \
+    --disable-warning=ExperimentalWarning \
+    --disable-warning=MODULE_TYPELESS_PACKAGE_JSON \
+    --import ../../tools/node-ts/register.mjs server/main.ts &
   server_pid="$!"
   log "started werift HTTPS/TURN server on port ${TURN_LOOPBACK_PORT:-8443}"
 }

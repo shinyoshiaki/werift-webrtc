@@ -10,13 +10,17 @@ import type {
   TlsConnectionOptions,
 } from "../imports/common";
 import type { CandidatePair, Message, Protocol } from "../imports/ice";
-import {
-  type RTCRtpCodecParameters,
-  type RTCRtpHeaderExtensionParameters,
-  type RTCRtpSenderOptions,
-  defaultCodecs,
-} from "../media";
+import { defaultCodecs } from "../media/codec";
 import { normalizeCodecMimeType } from "../media/codecCompatibility";
+import type {
+  RTCRtpCodecParameters,
+  RTCRtpHeaderExtensionParameters,
+} from "../media/parameters";
+import {
+  type KeyFrameRequestRouting,
+  KeyFrameRequestRoutingModes,
+} from "../media/router";
+import type { RTCRtpSenderOptions } from "../media/rtpSender";
 import type { BundlePolicy } from "../sdp";
 import type { MLineReuse } from "../sdpManager";
 import type { DtlsKeys, RTCCertificate } from "../transport/dtls";
@@ -53,9 +57,21 @@ export interface PeerConfig {
   iceServers: RTCIceServer[];
   /**Minimum port and Maximum port must not be the same value */
   icePortRange: [number, number] | undefined;
+  /**
+   * Local addresses to bind the ICE UDP host sockets to, per family
+   * (`udp4` / `udp6`).
+   *
+   * The address given for a family is the only host address of that family:
+   * its host candidate advertises the address the socket is actually bound
+   * to, even when it is not an enumerated interface address (loopback, tun,
+   * VPN, ...). If the bind fails, the family has no UDP host candidate.
+   * A family left unspecified while the other one is set gathers no
+   * enumerated addresses (only its `iceAdditionalHostAddresses`).
+   */
   iceInterfaceAddresses: InterfaceAddresses | undefined;
   /** Add additional host (local) addresses to use for candidate gathering.
    * Notably, you can include hosts that are normally excluded, such as loopback, tun interfaces, etc.
+   * For a family bound by `iceInterfaceAddresses`, addresses other than the bound one are ignored.
    */
   iceAdditionalHostAddresses: string[] | undefined;
   iceUseIpv4: boolean;
@@ -118,6 +134,12 @@ export interface PeerConfig {
    * - `"aggressive"`: legacy behavior. `inactive` m-lines are also written with port 0.
    */
   mLineReuse: MLineReuse;
+  /**
+   * Where a PLI / FIR goes when no route has its target SSRC. See {@link KeyFrameRequestRouting}.
+   * - `"compatible"` (default): the sender whose RTX SSRC it is, else the only video sender.
+   * - `"strict"`: not delivered, as RFC 4585 / RFC 5104 define the target.
+   */
+  keyFrameRequestRouting: KeyFrameRequestRouting;
 }
 
 const MLineReuseModes: readonly MLineReuse[] = ["compatible", "aggressive"];
@@ -243,6 +265,7 @@ export function generateDefaultPeerConfig(): PeerConfig {
     sctp: { mtu: DEFAULT_SCTP_MTU },
     pendingRtp: false,
     mLineReuse: "compatible",
+    keyFrameRequestRouting: "compatible",
   };
 }
 export const defaultPeerConfig: PeerConfig = generateDefaultPeerConfig();
@@ -393,6 +416,17 @@ export function mergePeerConfiguration(
   ) {
     throw createWebRtcTypeError(
       `mLineReuse must be one of ${MLineReuseModes.join(", ")}`,
+    );
+  }
+
+  if (
+    normalizedConfig.keyFrameRequestRouting !== undefined &&
+    !KeyFrameRequestRoutingModes.includes(
+      normalizedConfig.keyFrameRequestRouting,
+    )
+  ) {
+    throw createWebRtcTypeError(
+      `keyFrameRequestRouting must be one of ${KeyFrameRequestRoutingModes.join(", ")}`,
     );
   }
 

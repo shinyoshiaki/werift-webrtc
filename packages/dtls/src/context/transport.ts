@@ -10,7 +10,7 @@ export class TransportContext {
     return this.socket.send(buf, addr);
   };
 
-  get closedSignal() {
+  get closedSignal(): AbortSignal {
     return this.closing.signal;
   }
 

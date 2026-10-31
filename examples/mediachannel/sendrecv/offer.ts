@@ -1,11 +1,11 @@
-import { Server } from "ws";
+import { WebSocketServer } from "ws";
 import {
   RTCPeerConnection,
   useAbsSendTime,
   useSdesMid,
 } from "../../../packages/webrtc/src";
 
-const server = new Server({ port: 8888 });
+const server = new WebSocketServer({ port: 8888 });
 console.log("start");
 
 server.on("connection", async (socket) => {
@@ -24,7 +24,8 @@ server.on("connection", async (socket) => {
   const video = pc.addTransceiver("video");
   video.onTrack.subscribe((track) => {
     video.sender.replaceTrack(track);
-    video.sender.onPictureLossIndication.subscribe(() =>
+    // PLI and FIR (RFC 5104) both arrive as a key frame request
+    video.sender.onKeyFrameRequest.subscribe(() =>
       video.receiver.sendRtcpPLI(track.ssrc),
     );
   });

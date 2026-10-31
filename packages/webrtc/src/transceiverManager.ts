@@ -1,10 +1,11 @@
-import { type PeerConfig, findCodecByMimeType } from "./api/peerConfig";
+import { findCodecByMimeType, type PeerConfig } from "./api/peerConfig";
 import { ReceiverDirection, SenderDirections } from "./const";
 import { createWebRtcDomException } from "./errors";
-import { Event, debug } from "./imports/common";
+import { debug, Event } from "./imports/common";
 import {
   MediaStream,
   type MediaStreamTrack,
+  Recvonly,
   type RTCRtpCodecParameters,
   RTCRtpCodingParameters,
   type RTCRtpEncodingParameters,
@@ -14,7 +15,6 @@ import {
   RTCRtpRtxParameters,
   RTCRtpSender,
   RTCRtpTransceiver,
-  Recvonly,
   type RtpRouter,
   Sendonly,
   Sendrecv,
@@ -34,9 +34,9 @@ import type {
   TransceiversNegotiationState,
 } from "./negotiation/internalState";
 import {
+  codecParametersFromString,
   type MediaDescription,
   type SessionDescription,
-  codecParametersFromString,
 } from "./sdp";
 import type { RTCDtlsTransport } from "./transport/dtls";
 import type { Kind } from "./types/domain";

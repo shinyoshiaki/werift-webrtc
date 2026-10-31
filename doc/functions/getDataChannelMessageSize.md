@@ -12,7 +12,7 @@
 
 ### data
 
-`string` | `Buffer`\<`ArrayBufferLike`\>
+`string` \| `Buffer`\<`ArrayBufferLike`\>
 
 ## Returns
 

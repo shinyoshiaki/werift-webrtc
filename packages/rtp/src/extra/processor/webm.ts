@@ -1,10 +1,10 @@
 import { Event } from "../../imports/common";
 
 import {
-  WEBMContainer,
   getEBMLByteLength,
   numberToByteArray,
   vintEncode,
+  WEBMContainer,
 } from "../container";
 import type { WebmSupportedCodec } from "../container/webm";
 import type { AVProcessor } from "./interface";

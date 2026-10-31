@@ -1,8 +1,4 @@
-import {
-  ReadableStream,
-  type ReadableStreamController,
-  WritableStream,
-} from "stream/web";
+import { ReadableStream, WritableStream } from "stream/web";
 
 import type { WebmSupportedCodec } from "../container/webm/container";
 import {
@@ -20,7 +16,7 @@ export class WebmStream extends WebmBase {
   audioStream!: WritableStream<WebmInput>;
   videoStream!: WritableStream<WebmInput>;
   webmStream: ReadableStream<WebmStreamOutput>;
-  private controller!: ReadableStreamController<WebmStreamOutput>;
+  private controller!: { enqueue(chunk: WebmStreamOutput): void };
 
   constructor(
     tracks: {
@@ -61,7 +57,9 @@ export class WebmStream extends WebmBase {
 
     this.webmStream = new ReadableStream<WebmStreamOutput>({
       start: (controller) => {
-        this.controller = controller;
+        this.controller = controller as unknown as {
+          enqueue(chunk: WebmStreamOutput): void;
+        };
       },
     });
 
