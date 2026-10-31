@@ -6,7 +6,7 @@
 
 # Function: ntpTime2Sec()
 
-> **ntpTime2Sec**(`ntp`): `number`
+> **ntpTime2Sec**(`ntp`): `any`
 
 ## Parameters
 
@@ -16,4 +16,4 @@
 
 ## Returns
 
-`number`
+`any`

@@ -6,7 +6,7 @@
 
 # Function: ntpTimeToEpochMs()
 
-> **ntpTimeToEpochMs**(`ntp`): `any`
+> **ntpTimeToEpochMs**(`ntp`): `number`
 
 ## Parameters
 
@@ -16,4 +16,4 @@
 
 ## Returns
 
-`any`
+`number`
