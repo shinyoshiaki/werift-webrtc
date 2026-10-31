@@ -6,6 +6,7 @@ import {
   collectMessages,
   createDualFamilyLoopbackSpedPeers,
   steerToDifferentFamilies,
+  waitForBothFamilySucceeded,
 } from "./warpArrange";
 
 describe("SPED path selection", () => {
@@ -28,8 +29,8 @@ describe("SPED path selection", () => {
           remote.onopen = () => resolve();
         });
       }
-      // 両 family の pair が check を終えるまで待つ。
-      await setTimeout(500);
+      // 両 family の pair が両端で check を終えるまで待つ。
+      await waitForBothFamilySucceeded([caller, callee]);
 
       // Act: caller は一方の family、callee は他方の family を選び、callee が送る。
       const { receiverPairOfSenderPath } = steerToDifferentFamilies(

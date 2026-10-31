@@ -986,6 +986,14 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       );
     });
     this.dtls.onConnect.once(r);
+    // Reflect the core's write readiness (DTLS 1.3 server: after its own
+    // Finished) as soon as it exists, independent of SCTP. Media-only early
+    // server sends depend on it; the permission itself is still decided by
+    // updateSrtpPermissions() (peer authentication or the early-server policy).
+    this.waitForWriteReady().catch((error) => {
+      // close / failure is reported by the handshake path above.
+      log("core write readiness not reached", error);
+    });
     this.dtls.onError.once((error) => {
       this.lastError = error;
       this.srtpReadReady = false;

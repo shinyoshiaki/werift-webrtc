@@ -528,3 +528,34 @@ sctp の 1 件は `tests/burst.test.ts`「transfer time grows close to linearly�
 leak property の 1 件は seed 96 で、操作を 1 つも適用する前の初期接続が 5 秒の待機内に完了しなかった（`Duplex session did not connect`）ものです。単独の再実行では、branch・`warp` とも 5/5 成功しました。
 
 **E:** 調査用のスクリプトとログはすべて `/tmp/spedfix` に置き、比較用の `warp` worktree は `/tmp` に作って確認後に削除しました。worktree に残った調査用ファイルはありません（`git status` には本修正のファイルだけが出る）。
+
+## 13. DataChannel のない接続で early RTP / RTCP の送信許可が開かない（レビューの指摘への対応）
+
+**原因:** `RTCDtlsTransport` が DTLS コアの write-ready（DTLS 1.3 server が自分の Finished を送り終えた時点）を上位の `readiness.writeReady` に反映する経路は、2 つしかありませんでした。
+
+- peer 認証の待機後（`completeHandshake()`）
+- 内部 API `waitForWriteReady()` の呼び出し（`startEarlySctp()` だけが呼ぶ）
+
+SCTP がない media-only の接続では後者が呼ばれず、`allowEarlyServerData: true` でも、client の Finished を処理するまで送信許可（`isEarlyServerWriteAllowed()`）が閉じたままでした。RTP の送信は 0 byte でした。§12.1 の表で言えば「SCTP あり / なし」という対の片方だけに early 送信の許可が届いていた、同じ型の漏れです。
+
+**修正:** DTLS socket を作った直後（`bindDtlsSocketEvents()`、serial と SPED の両方の経路で通る）に、コアの write-ready を待って上位へ反映する処理を transport 層で始めます（`dtls.ts`、`waitForWriteReady()` を再利用し、attempt の検証もそのまま使う）。送信を許可するかどうかは、従来どおり `updateSrtpPermissions()` が決めます。peer 認証済みか、early server の条件（SPED・DTLS 1.3・server・`allowEarlyServerData`）を満たす場合だけです。early 送信が無効の接続では、許可は peer 認証まで閉じたままです。
+
+**回帰テスト:** `packages/webrtc/tests/integrate/warpEarlyMedia.test.ts` を追加しました。DataChannel のない media-only の SPED 接続で、DTLS server が client の Finished を処理するのを保留します（Arrange は `warpArrange.ts` の `holdPeerAuthentication`）。内部 API を呼ばずに track へ書いた RTP が、server が `connecting` のまま wire に出る（transport stats の `bytesSent > 0`）ことを確かめます。修正を外すと 3/3 失敗し（0 byte）、修正後は 3/3 成功しました。
+
+**あわせて直したもの:** §11.6 の `spedPathSelection.test.ts` は、両 family の pair が成功するのを固定の 500 ms で待っていたため、全体実行の負荷で 1 回失敗しました。成功を待つ helper（`waitForBothFamilySucceeded`）に置き換え、単独で 3/3 成功しました。
+
+**依頼前の確認（§9 の D、`074009621` + 本修正の作業ツリー）:**
+
+| 確認 | 結果 |
+|---|---|
+| `--retry 0`: common / ice / dtls / rtp / sctp | 65 / 404 / 462 / 408 / 71 passed |
+| `--retry 0`: webrtc | 1,158 passed（helper の修正後） |
+| `--retry 0`: ice-server | 45 passed |
+| `transportFaultMatrix.test.ts`（`--retry 0`） | 90/90 |
+| `type`・`lint:imports`・`doc:check` | 成功 |
+| `e2e` | 63 + 18 |
+| `wpt` | REGRESSION 0（PASS 442） |
+| leak property（seed 1〜200） | 450 passed |
+| leak property の TURN を含むケース（`-t "TURN\|turn"`、`--retry 0`） | 5 回とも 4 件成功 |
+
+指摘にあった TURN リーク検査の `Timeout +1` は、この環境では再現しませんでした。因果関係は未確定のままです。

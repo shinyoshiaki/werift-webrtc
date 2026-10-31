@@ -19,6 +19,7 @@ import {
   DtlsVersion,
   MediaStreamTrack,
   type RTCDataChannel,
+  type RTCDtlsTransport,
   RTCPeerConnection,
   RtpHeader,
   RtpPacket,
@@ -760,6 +761,31 @@ export function createDualFamilyLoopbackSpedPeers() {
 
 const isIpv6 = (host: string) => host.includes(":");
 
+/** Arrange: wait until both peers have a succeeded IPv4 and IPv6 pair. */
+export async function waitForBothFamilySucceeded(
+  peers: RTCPeerConnection[],
+  timeoutMs = 10_000,
+) {
+  const ready = () =>
+    peers.every((pc) => {
+      const ice = pc.iceTransports[0].connection as Connection;
+      return [true, false].every((ipv6) =>
+        ice.checkList.some(
+          (pair) =>
+            pair.state === CandidatePairState.SUCCEEDED &&
+            isIpv6(pair.remoteAddr[0]) === ipv6,
+        ),
+      );
+    });
+  const deadline = Date.now() + timeoutMs;
+  while (!ready()) {
+    if (Date.now() > deadline) {
+      throw new Error("both address families need a succeeded pair");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+}
+
 /**
  * Arrange: make the peers use paths of different address families. The
  * receiver selects one family; the sender selects the other one, which is
@@ -851,4 +877,35 @@ export function openTransportWarpConfigs(pc: RTCPeerConnection) {
     id: transport.id,
     warp: transport.config.warp,
   }));
+}
+
+// --- WARP early server media without SCTP ---
+
+/**
+ * Arrange: keep a transport's peer authentication pending until `release`
+ * (its handling of the peer's Finished waits). On the DTLS server this holds
+ * it in the 0.5-RTT window: write-ready but the client not yet authenticated.
+ * Replaces `transport.start` before the description that starts it.
+ */
+export function holdPeerAuthentication(client: RTCDtlsTransport) {
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  type HeldDtls = { waitForPeerHandshakeAuthenticated: () => Promise<void> };
+  const originalStart = client.start.bind(client);
+  client.start = async () => {
+    const started = originalStart();
+    while (!(client as unknown as { dtls?: HeldDtls }).dtls) {
+      await nextTurn();
+    }
+    const dtls = (client as unknown as { dtls: HeldDtls }).dtls;
+    const originalWait = dtls.waitForPeerHandshakeAuthenticated.bind(dtls);
+    dtls.waitForPeerHandshakeAuthenticated = async () => {
+      await originalWait();
+      await held;
+    };
+    return started;
+  };
+  return { release };
 }
