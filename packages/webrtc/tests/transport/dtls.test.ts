@@ -12,14 +12,18 @@ import {
   RTCCertificate,
   RTCDtlsFingerprint,
   RTCDtlsParameters,
-  RTCDtlsTransport,
+  type RTCDtlsTransport,
 } from "../../src";
-import { dtlsTransportPair, iceTransportPair } from "../fixture";
+import {
+  createDtlsSessions,
+  createTestCertificate,
+  dtlsTransportPair,
+} from "../fixture";
 
 describe("RTCDtlsTransportTest", () => {
   test("RTCCertificate preserves PKCS#8 PEM and signs with Node KeyObject", async () => {
     // Arrange
-    const source = await RTCDtlsTransport.SetupCertificate();
+    const source = await createTestCertificate();
     const certificate = new RTCCertificate(
       source.privateKey,
       source.certPem,
@@ -198,16 +202,6 @@ class DummyDataReceiver {
   handleData = (data: Buffer) => {
     this.data.push(data);
   };
-}
-
-async function createDtlsSessions() {
-  const [transport1, transport2] = await iceTransportPair();
-  await RTCDtlsTransport.SetupCertificate();
-
-  const session1 = new RTCDtlsTransport(defaultPeerConfig, transport1);
-  const session2 = new RTCDtlsTransport(defaultPeerConfig, transport2);
-
-  return [session1, session2] as const;
 }
 
 function mutateFingerprint(value: string) {

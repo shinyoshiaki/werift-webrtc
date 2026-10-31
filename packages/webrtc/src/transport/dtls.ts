@@ -112,7 +112,12 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   private readonly events = new DomEventTarget();
   onstatechange?: () => void;
 
+  /**
+   * @deprecated Process-wide cache used only by {@link RTCDtlsTransport.SetupCertificate}.
+   * RTCPeerConnection no longer reads it; each peer connection generates its own certificate.
+   */
   static localCertificate?: RTCCertificate;
+  /** @deprecated See {@link RTCDtlsTransport.localCertificate}. */
   static localCertificatePromise?: Promise<RTCCertificate>;
   private remoteParameters?: RTCDtlsParameters;
 
@@ -121,9 +126,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     readonly iceTransport: RTCIceTransport,
     public localCertificate?: RTCCertificate,
     private readonly srtpProfiles: SrtpProfile[] = [],
-  ) {
-    this.localCertificate ??= RTCDtlsTransport.localCertificate;
-  }
+  ) {}
 
   addEventListener = (
     type: string,
@@ -146,31 +149,39 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     );
   }
 
+  /**
+   * Generates a new self-signed certificate (ECDSA P-256 / SHA-256) on every call.
+   * This is what an RTCPeerConnection uses when `RTCConfiguration.certificates` is not given.
+   */
+  static async generateCertificate() {
+    const { certPem, keyPem, signatureHash } =
+      await CipherContext.createSelfSignedCertificateWithKey(
+        {
+          signature: SignatureAlgorithm.ecdsa_3,
+          hash: HashAlgorithm.sha256_4,
+        },
+        NamedCurveAlgorithm.secp256r1_23,
+      );
+    return new RTCCertificate(keyPem, certPem, signatureHash);
+  }
+
+  /**
+   * @deprecated Returns one certificate cached for the whole process.
+   * RTCPeerConnection no longer uses it, and a transport constructed without a
+   * certificate no longer falls back to it. Use {@link RTCDtlsTransport.generateCertificate}
+   * and pass the certificate to the constructor instead.
+   */
   static async SetupCertificate() {
     if (this.localCertificate) {
       return this.localCertificate;
     }
 
-    if (this.localCertificatePromise) {
-      return this.localCertificatePromise;
-    }
-
-    this.localCertificatePromise = (async () => {
-      const { certPem, keyPem, signatureHash } =
-        await CipherContext.createSelfSignedCertificateWithKey(
-          {
-            signature: SignatureAlgorithm.ecdsa_3,
-            hash: HashAlgorithm.sha256_4,
-          },
-          NamedCurveAlgorithm.secp256r1_23,
-        );
-      this.localCertificate = new RTCCertificate(
-        keyPem,
-        certPem,
-        signatureHash,
-      );
-      return this.localCertificate;
-    })();
+    this.localCertificatePromise ??= this.generateCertificate().then(
+      (certificate) => {
+        this.localCertificate = certificate;
+        return certificate;
+      },
+    );
 
     return this.localCertificatePromise;
   }

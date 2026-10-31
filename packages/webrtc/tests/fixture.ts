@@ -193,11 +193,19 @@ export async function dtlsTransportPair() {
   transport1.connection.iceControlling = true;
   transport2.connection.iceControlling = false;
 
-  await RTCDtlsTransport.SetupCertificate();
+  const certificate = await createTestCertificate();
 
-  const session1 = new RTCDtlsTransport(defaultPeerConfig, transport1);
+  const session1 = new RTCDtlsTransport(
+    defaultPeerConfig,
+    transport1,
+    certificate,
+  );
 
-  const session2 = new RTCDtlsTransport(defaultPeerConfig, transport2);
+  const session2 = new RTCDtlsTransport(
+    defaultPeerConfig,
+    transport2,
+    certificate,
+  );
 
   session1.setRemoteParams(session2.localParameters);
   session2.setRemoteParams(session1.localParameters);
@@ -209,6 +217,36 @@ export async function dtlsTransportPair() {
     return [session2, session1];
   }
 }
+
+/**ICE 接続済み・DTLS 未開始の transport ペア (証明書は明示的に渡す) */
+export async function createDtlsSessions() {
+  const [transport1, transport2] = await iceTransportPair();
+  const certificate = await createTestCertificate();
+
+  const session1 = new RTCDtlsTransport(
+    defaultPeerConfig,
+    transport1,
+    certificate,
+  );
+  const session2 = new RTCDtlsTransport(
+    defaultPeerConfig,
+    transport2,
+    certificate,
+  );
+
+  return [session1, session2] as const;
+}
+
+/**キャッシュされない新しい DTLS 証明書 */
+export const createTestCertificate = () =>
+  RTCDtlsTransport.generateCertificate();
+
+/**SDP 内の全 a=fingerprint の値 */
+export const getSdpFingerprints = (sdp: string) =>
+  sdp
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith("a=fingerprint:"))
+    .map((line) => line.slice("a=fingerprint:".length).trim());
 
 export const iceTransportPair = async () => {
   const gatherer1 = new RTCIceGatherer();

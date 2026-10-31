@@ -13,7 +13,7 @@ The implementation tracks the W3C WebRTC API closely and is exercised with an al
 | `iceCandidatePoolSize` | `0` is supported; values greater than `0` are rejected | Browsers may support candidate pooling | Candidate pooling is not implemented. |
 | `RTCPeerConnection.close()` | Async for historical API compatibility | Browser API is synchronous and returns `undefined` | Intentional backward-compatible return-type difference. |
 | `setLocalDescription()` | Non-rollback calls return the applied `SessionDescription` | Browser API resolves `Promise<void>` | Intentional backward-compatible return-type difference. The rollback path resolves with `undefined`. |
-| `RTCPeerConnection.generateCertificate()` | Not implemented as the static browser helper | Defined by the browser API | `RTCCertificate` and `RTCConfiguration.certificates` are supported directly. |
+| `RTCPeerConnection.generateCertificate()` | Not implemented as the static browser helper | Defined by the browser API | `RTCCertificate` and `RTCConfiguration.certificates` are supported directly. Without `certificates`, each `RTCPeerConnection` generates its own certificate, as browsers do. |
 | Legacy callback overloads | Not implemented | Legacy browser forms exist historically | Intentionally out of scope. Promise-based APIs are supported. |
 | `addStream`, `removeStream`, `createDTMFSender` | Not implemented | Obsolete/legacy browser APIs | Intentionally out of scope; use track, transceiver, and sender APIs instead. |
 

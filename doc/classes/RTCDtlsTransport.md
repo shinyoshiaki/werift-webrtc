@@ -207,15 +207,24 @@ on it when they started DTLS.
 
 ***
 
-### localCertificate?
+### ~~localCertificate?~~
 
 > `static` `optional` **localCertificate?**: [`RTCCertificate`](RTCCertificate.md)
 
+#### Deprecated
+
+Process-wide cache used only by [RTCDtlsTransport.SetupCertificate](#setupcertificate).
+RTCPeerConnection no longer reads it; each peer connection generates its own certificate.
+
 ***
 
-### localCertificatePromise?
+### ~~localCertificatePromise?~~
 
 > `static` `optional` **localCertificatePromise?**: `Promise`\<[`RTCCertificate`](RTCCertificate.md)\>
+
+#### Deprecated
+
+See [RTCDtlsTransport.localCertificate](#localcertificate-1).
 
 ## Accessors
 
@@ -429,10 +438,30 @@ Internal: whether a description gave this transport the peer's DTLS parameters.
 
 ***
 
-### SetupCertificate()
+### generateCertificate()
+
+> `static` **generateCertificate**(): `Promise`\<[`RTCCertificate`](RTCCertificate.md)\>
+
+Generates a new self-signed certificate (ECDSA P-256 / SHA-256) on every call.
+This is what an RTCPeerConnection uses when `RTCConfiguration.certificates` is not given.
+
+#### Returns
+
+`Promise`\<[`RTCCertificate`](RTCCertificate.md)\>
+
+***
+
+### ~~SetupCertificate()~~
 
 > `static` **SetupCertificate**(): `Promise`\<[`RTCCertificate`](RTCCertificate.md)\>
 
 #### Returns
 
 `Promise`\<[`RTCCertificate`](RTCCertificate.md)\>
+
+#### Deprecated
+
+Returns one certificate cached for the whole process.
+RTCPeerConnection no longer uses it, and a transport constructed without a
+certificate no longer falls back to it. Use [RTCDtlsTransport.generateCertificate](#generatecertificate)
+and pass the certificate to the constructor instead.
