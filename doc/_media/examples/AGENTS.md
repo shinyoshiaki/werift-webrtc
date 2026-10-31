@@ -67,7 +67,7 @@ werift + browser (no extra cloud):
 | `mediachannel/twcc/{offer,multitrack}.ts`                                           | 対応 HTML                          | TWCC                                                                                  |
 | `mediachannel/red/{sendrecv,recv}.ts`                                               | 対応 HTML                          | RED                                                                                   |
 | `mediachannel/codec/{vp8,vp9,h264,av1}.ts`                                          | Vite `codec/index.html`            | AV1 は Chrome 未対応なら skip                                                         |
-| `save_to_disk/{vp8,vp9,h264,opus,av1x,pipeline}.ts`                                 | `answer.html`                      | 非空ファイル                                                                          |
+| `save_to_disk/{vp8,vp9,h264,opus,opus_ogg,av1x,pipeline}.ts`                      | `answer.html`                      | 非空ファイル                                                                          |
 | `save_to_disk/mp4/{h264,opus,av}.ts`                                                | `answer.html` (8878)               | MP4                                                                                   |
 | `save_to_disk/dtx/server.ts`                                                        | Vite `dtx/index.html`              | DTX                                                                                   |
 | `save_to_disk/encodedTransform/server.ts`                                           | Vite `encodedTransform/index.html` | encoded transform                                                                     |
