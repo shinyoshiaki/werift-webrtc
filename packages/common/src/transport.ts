@@ -7,6 +7,7 @@ import {
   type Socket,
   type SocketType,
 } from "dgram";
+import { Event } from "./event";
 import { debug } from "./log";
 import {
   type Address,
@@ -39,7 +40,14 @@ export class UdpTransport implements Transport {
   readonly socket: Socket;
   rinfo?: Partial<Pick<RemoteInfo, "address" | "port">>;
   onData: (data: Buffer, addr: Address) => void = () => {};
+  /**
+   * Runtime socket errors (e.g. an asynchronous ECONNREFUSED from an ICMP
+   * port unreachable). The socket stays open; bind errors reject init()
+   * instead of being emitted here.
+   */
+  readonly onError = new Event<[Error]>();
   closed: boolean = false;
+  private listening = false;
 
   private constructor(
     private socketType: SocketType,
@@ -61,6 +69,20 @@ export class UdpTransport implements Transport {
         log("onData error", error);
       }
     });
+    // The socket must always own its error event: an unhandled dgram error
+    // would become a process-level uncaught exception.
+    this.socket.on("error", (error) => {
+      log("udp socket error", error);
+      // bind errors are handled by init(); errors after close are stale.
+      if (this.closed || !this.listening) {
+        return;
+      }
+      try {
+        this.onError.execute(error);
+      } catch (handlerError) {
+        log("onError handler error", handlerError);
+      }
+    });
   }
 
   static async init(
@@ -72,8 +94,13 @@ export class UdpTransport implements Transport {
     } = {},
   ) {
     const transport = new UdpTransport(type, options);
-    await transport.init();
-    return transport;
+    try {
+      await transport.init();
+      return transport;
+    } catch (error) {
+      await transport.close();
+      throw error;
+    }
   }
 
   private async init() {
@@ -81,31 +108,52 @@ export class UdpTransport implements Transport {
       this.socketType,
       this.options.interfaceAddresses,
     );
-    let port = this.options.port;
-    if (!port && this.options.portRange) {
-      port = await findPort(
-        this.options.portRange[0],
-        this.options.portRange[1],
-        this.socketType,
-        this.options.interfaceAddresses,
-      );
+    const port = this.options.port
+      ? this.options.port
+      : this.options.portRange
+        ? await findPort(
+            this.options.portRange[0],
+            this.options.portRange[1],
+            this.socketType,
+            this.options.interfaceAddresses,
+          )
+        : undefined;
+    if (this.closed) {
+      throw new Error("udp transport closed");
     }
-    // A bind error (e.g. EADDRNOTAVAIL for an interface address this host
-    // does not have) rejects init instead of surfacing as an uncaught error.
+
     await new Promise<void>((resolve, reject) => {
-      const onError = (error: Error) => {
+      let settled = false;
+      const settle = (error?: Error) => {
+        if (settled) return;
+        settled = true;
         this.socket.off("listening", onListening);
-        this.closed = true;
-        this.socket.close();
-        reject(error);
+        this.socket.off("error", onBindError);
+        this.socket.off("close", onClose);
+        error ? reject(error) : resolve();
       };
       const onListening = () => {
-        this.socket.off("error", onError);
-        resolve();
+        this.listening = true;
+        settle();
       };
-      this.socket.once("error", onError);
+      const onBindError = (error: Error) => {
+        settle(error);
+      };
+      const onClose = () => {
+        settle(new Error("udp transport closed"));
+      };
       this.socket.once("listening", onListening);
-      this.socket.bind(port ? { port, address } : { address });
+      this.socket.once("error", onBindError);
+      this.socket.once("close", onClose);
+      try {
+        if (port === undefined) {
+          this.socket.bind({ address });
+        } else {
+          this.socket.bind({ port, address });
+        }
+      } catch (error) {
+        settle(error as Error);
+      }
     });
   }
 
@@ -149,8 +197,19 @@ export class UdpTransport implements Transport {
 
   close = () =>
     new Promise<void>((r) => {
+      if (this.closed) {
+        r();
+        return;
+      }
       this.closed = true;
       this.socket.once("close", r);
+      // A subscriber's completion handler must not prevent the socket from
+      // being released; otherwise the port stays bound forever.
+      try {
+        this.onError.complete();
+      } catch (error) {
+        log("onError complete error", error);
+      }
       try {
         this.socket.close();
       } catch (error) {
@@ -407,6 +466,11 @@ export interface Transport {
   address: AddressInfo;
   closed: boolean;
   onData: (data: Buffer, addr: Address) => void;
+  /**
+   * Runtime transport errors that do not close the transport. Optional so
+   * custom transports need not implement it; the built-in UDP transport does.
+   */
+  onError?: Event<[Error]>;
   send: (data: Buffer, addr?: Address) => Promise<void>;
   close: () => Promise<void>;
   /**
