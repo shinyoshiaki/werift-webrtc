@@ -10,9 +10,15 @@ import {
 import { RTCIceGatherer, RTCIceTransport, RTCPeerConnection } from "../../src";
 import { iceTransportPair } from "../fixture";
 import {
+  connectPeerConnections,
   createPeerConnectionWithIceTransport,
   createStartableIceTransportPair,
+  createTurnRotationServers,
+  firstIceTransport,
+  negotiate,
+  peerTurnAllocations,
   succeededPairs,
+  waitForLocalCandidatesEnd,
 } from "../utils";
 
 describe("iceTransport", () => {
@@ -199,8 +205,8 @@ describe("iceTransport", () => {
       }
     });
 
-    test("gathering 完了後の setConfiguration は live Connection を更新しない", async () => {
-      // Arrange: gather 完了まで進める（チケット: started/finished には何も適用しない）
+    test("gathering 完了後の setConfiguration は live Connection を更新せず restart を要求する", async () => {
+      // Arrange: gather 完了まで進める
       const pc = new RTCPeerConnection({ iceServers: [] });
       try {
         pc.createDataChannel("post-gather");
@@ -223,7 +229,7 @@ describe("iceTransport", () => {
         });
 
         // Assert: PeerConfig には入るが live Connection は触らない
-        // （古い TURN protocol / relay を再広告する危険を避ける）
+        // （次の ICE restart で新しい設定を使う）
         expect(pc.getConfiguration().iceServers).toEqual([
           {
             urls: "turn:turn.example.com:3478",
@@ -233,6 +239,185 @@ describe("iceTransport", () => {
         ]);
         expect(ice.connection.turnServer).toBeUndefined();
         expect(ice.connection.options.turnUsername).toBeUndefined();
+        // Assert: JSEP 4.1.18 の needs-ice-restart ビットが立つ
+        expect((pc as any).needRestart).toBe(true);
+      } finally {
+        await pc.close();
+      }
+    });
+
+    test("gathering 完了後に 2 番目以降の iceServers を追加・変更すると restart を要求する", async () => {
+      // Arrange: TURN A のみで gather 完了まで進める
+      const turnA = {
+        urls: "turn:turn-a.example.com:3478",
+        username: "user-a",
+        credential: "pass-a",
+      };
+      const turnB = {
+        urls: "turn:turn-b.example.com:3478",
+        username: "user-b",
+        credential: "pass-b",
+      };
+      const pc = new RTCPeerConnection({ iceServers: [turnA] });
+      try {
+        pc.createDataChannel("second-server");
+        const ice = (pc as any).secureManager
+          .iceTransports[0] as RTCIceTransport;
+        await ice.gather();
+        expect(ice.gatheringState).toBe("complete");
+
+        // Act: 先頭の TURN A を維持したまま TURN B を追加する
+        pc.setConfiguration({ iceServers: [turnA, turnB] });
+
+        // Assert: transport が使うのは先頭のサーバーだけだが、restart は要求される
+        expect((pc as any).needRestart).toBe(true);
+
+        // Arrange: ビットを下ろして同じリストを再設定する
+        (pc as any).needRestart = false;
+
+        // Act: 変更のない [A, B] を再設定する
+        pc.setConfiguration({ iceServers: [turnA, turnB] });
+
+        // Assert: 同一リストなので restart は要求されない
+        expect((pc as any).needRestart).toBe(false);
+
+        // Act: 2 番目の TURN B の credential だけを変更する
+        pc.setConfiguration({
+          iceServers: [turnA, { ...turnB, credential: "pass-b2" }],
+        });
+
+        // Assert: 後続要素の変更でも restart は要求される
+        expect((pc as any).needRestart).toBe(true);
+      } finally {
+        await pc.close();
+      }
+    });
+
+    test("gathering 完了後に turnTransport / turnTlsOptions / iceUseTcp だけ変更しても defer され restart を要求する", async () => {
+      // Arrange: TURN 付きで gather 完了まで進める
+      const pc = new RTCPeerConnection({
+        iceServers: [
+          {
+            urls: "turn:turn.example.com:3478",
+            username: "u",
+            credential: "p",
+          },
+        ],
+      });
+      try {
+        pc.createDataChannel("other-fields");
+        const ice = (pc as any).secureManager
+          .iceTransports[0] as RTCIceTransport;
+        await ice.gather();
+        expect(ice.gatheringState).toBe("complete");
+        const changes: Parameters<RTCPeerConnection["setConfiguration"]>[0][] =
+          [
+            { turnTransport: "tcp" },
+            { turnTlsOptions: { rejectUnauthorized: false } },
+            { iceUseTcp: true },
+          ];
+
+        for (const change of changes) {
+          (pc as any).needRestart = false;
+
+          // Act: 1 フィールドだけ変更する
+          pc.setConfiguration(change);
+
+          // Assert: restart が要求され、live Connection は変わらない
+          expect((pc as any).needRestart).toBe(true);
+        }
+        expect(ice.connection.options.useTcp).toBeFalsy();
+
+        // Act: restart で次の gathering に入る
+        await ice.restart();
+
+        // Assert: restart 後は変更した設定が Connection に適用される
+        expect(ice.connection.options.turnTransport).toBe("tcp");
+        expect(ice.connection.options.turnTlsOptions).toEqual({
+          rejectUnauthorized: false,
+        });
+        expect(ice.connection.options.useTcp).toBe(true);
+      } finally {
+        await pc.close();
+      }
+    });
+
+    test("turnTlsOptions / turnUdpFamily / turnTransport に undefined を明示すると解除され、次の gathering に反映される", async () => {
+      // Arrange: TLS 設定付きの TURN で gather 完了まで進める
+      const pc = new RTCPeerConnection({
+        iceServers: [
+          {
+            urls: "turns:turn.example.com:5349",
+            username: "u",
+            credential: "p",
+          },
+        ],
+        turnTransport: "tls",
+        turnTlsOptions: { rejectUnauthorized: false },
+        turnUdpFamily: 4,
+      });
+      try {
+        pc.createDataChannel("clear-turn-options");
+        const ice = (pc as any).secureManager
+          .iceTransports[0] as RTCIceTransport;
+        await ice.gather();
+        expect(pc.getConfiguration().turnTlsOptions).toBeDefined();
+
+        // Act: 省略した setConfiguration では値が維持される
+        pc.setConfiguration({ iceUseTcp: false });
+
+        // Assert: 省略なら変更なし
+        expect(pc.getConfiguration().turnTlsOptions).toEqual({
+          rejectUnauthorized: false,
+        });
+        expect(pc.getConfiguration().turnUdpFamily).toBe(4);
+        expect((pc as any).needRestart).toBe(false);
+
+        // Act: undefined を明示して解除し、ICE restart する
+        pc.setConfiguration({
+          turnTransport: undefined,
+          turnTlsOptions: undefined,
+          turnUdpFamily: undefined,
+        });
+
+        // Assert: 設定が解除され、restart が要求される
+        expect(pc.getConfiguration().turnTlsOptions).toBeUndefined();
+        expect(pc.getConfiguration().turnUdpFamily).toBeUndefined();
+        expect((pc as any).needRestart).toBe(true);
+
+        // Act: 次の gathering に入る
+        ice.restart();
+
+        // Assert: Connection の古い TLS / family が残らない
+        expect(ice.connection.options.turnTlsOptions).toBeUndefined();
+        expect(ice.connection.options.turnUdpFamily).toBeUndefined();
+      } finally {
+        await pc.close();
+      }
+    });
+
+    test("gathering 完了後に同じ iceServers を再設定しても restart を要求しない", async () => {
+      // Arrange: gather 完了まで進める
+      const pc = new RTCPeerConnection({
+        iceServers: [
+          {
+            urls: "turn:turn.example.com:3478",
+            username: "same-user",
+            credential: "same-pass",
+          },
+        ],
+      });
+      try {
+        pc.createDataChannel("same-config");
+        const ice = (pc as any).secureManager
+          .iceTransports[0] as RTCIceTransport;
+        await ice.gather();
+        expect(ice.gatheringState).toBe("complete");
+
+        // Act: 現在の設定をそのまま再設定する
+        pc.setConfiguration(pc.getConfiguration());
+
+        // Assert: 設定は変わっていないので restart は要求されない
         expect((pc as any).needRestart).toBe(false);
       } finally {
         await pc.close();
@@ -359,6 +544,221 @@ describe("iceTransport", () => {
         await pc.close();
       }
     });
+  });
+
+  describe("TURN credential rotation (setConfiguration + ICE restart)", () => {
+    let servers: Awaited<ReturnType<typeof createTurnRotationServers>>;
+    const peers: RTCPeerConnection[] = [];
+
+    beforeEach(async () => {
+      servers = await createTurnRotationServers();
+    });
+    afterEach(async () => {
+      await Promise.all(peers.splice(0).map((pc) => pc.close()));
+      await servers.close();
+    });
+
+    /** Arrange: credential A の TURN を持つ offerer と STUN のみの answerer を接続する */
+    async function connectWithTurnA() {
+      const offerer = new RTCPeerConnection({
+        iceServers: servers.iceServers("a"),
+      });
+      const answerer = new RTCPeerConnection({
+        iceServers: servers.iceServers(),
+      });
+      peers.push(offerer, answerer);
+      await connectPeerConnections(offerer, answerer);
+      const [staleAllocation] = peerTurnAllocations(offerer);
+      expect(staleAllocation).toBeDefined();
+      return {
+        offerer,
+        answerer,
+        staleAllocation,
+        closeStale: vi.spyOn(staleAllocation, "close"),
+        staleRelayPort: staleAllocation.localCandidate.port,
+        authenticatedBefore: servers.turn.authenticatedUsernames.length,
+      };
+    }
+
+    test("setConfiguration(TURN B) → restartIce() → createOffer() で credential B の allocation になる", async () => {
+      // Arrange
+      const arranged = await connectWithTurnA();
+      const { offerer, answerer } = arranged;
+      const { ice, connection } = firstIceTransport(offerer);
+      const ufragBefore = ice.localParameters.usernameFragment;
+
+      // Act: credential B に差し替えて ICE restart を交渉する
+      offerer.setConfiguration({ iceServers: servers.iceServers("b") });
+      offerer.restartIce();
+      await negotiate(offerer, answerer);
+      await waitForLocalCandidatesEnd(offerer);
+
+      // Assert: restart 後の TURN 認証はすべて credential B
+      const authenticated = servers.authenticatedSince(
+        arranged.authenticatedBefore,
+      );
+      expect(authenticated.length).toBeGreaterThan(0);
+      expect(new Set(authenticated)).toEqual(
+        new Set([servers.credentials.b.username]),
+      );
+      // Assert: 旧 allocation は close され、新 generation の relay は新しい allocation のもの
+      expect(arranged.closeStale).toHaveBeenCalled();
+      const allocations = peerTurnAllocations(offerer);
+      expect(allocations).toHaveLength(1);
+      expect(allocations[0]).not.toBe(arranged.staleAllocation);
+      const relay = connection.localCandidates.filter(
+        (candidate) => candidate.type === "relay",
+      );
+      expect(relay).toHaveLength(1);
+      expect(relay[0].port).not.toBe(arranged.staleRelayPort);
+      expect(relay[0].ufrag).toBe(connection.localUsername);
+      expect(ice.localParameters.usernameFragment).not.toBe(ufragBefore);
+      expect(connection.options.turnUsername).toBe(
+        servers.credentials.b.username,
+      );
+    }, 30_000);
+
+    test("restartIce() なしでも gathering 後の setConfiguration → createOffer で 1 回だけ restart する", async () => {
+      // Arrange
+      const arranged = await connectWithTurnA();
+      const { offerer, answerer } = arranged;
+      const { ice } = firstIceTransport(offerer);
+      const ufragBefore = ice.localParameters.usernameFragment;
+      const restartsBefore = ice.iceRestarts;
+      const negotiationNeeded = vi.fn();
+      offerer.onNegotiationneeded.subscribe(negotiationNeeded);
+
+      // Act: setConfiguration だけで needs-ice-restart が立つ
+      offerer.setConfiguration({ iceServers: servers.iceServers("b") });
+
+      // Assert: restart が要求されるが、それだけでは negotiationneeded は発火しない
+      expect((offerer as any).needRestart).toBe(true);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(negotiationNeeded).not.toHaveBeenCalled();
+
+      // Act: 次の offer / answer を交渉する
+      await negotiate(offerer, answerer);
+      await waitForLocalCandidatesEnd(offerer);
+
+      // Assert: ufrag が変わり、restart は 1 回だけで要求は解消される
+      expect(ice.localParameters.usernameFragment).not.toBe(ufragBefore);
+      expect(ice.iceRestarts - restartsBefore).toBe(1);
+      expect((offerer as any).needRestart).toBe(false);
+      // Assert: 新しい allocation は credential B で認証される
+      const authenticated = servers.authenticatedSince(
+        arranged.authenticatedBefore,
+      );
+      expect(authenticated.length).toBeGreaterThan(0);
+      expect(new Set(authenticated)).toEqual(
+        new Set([servers.credentials.b.username]),
+      );
+      expect(arranged.closeStale).toHaveBeenCalled();
+
+      // Act: もう一度 offer / answer を交渉する
+      const ufragAfterRestart = ice.localParameters.usernameFragment;
+      await negotiate(offerer, answerer);
+
+      // Assert: 追加の restart は起きない
+      expect(ice.localParameters.usernameFragment).toBe(ufragAfterRestart);
+      expect(ice.iceRestarts - restartsBefore).toBe(1);
+    }, 30_000);
+
+    test("TURN A → STUN のみ: restart 後の generation に relay 候補が出ず TURN 設定が消える", async () => {
+      // Arrange
+      const arranged = await connectWithTurnA();
+      const { offerer, answerer } = arranged;
+      const { connection } = firstIceTransport(offerer);
+
+      // Act: TURN を外して ICE restart を交渉する
+      offerer.setConfiguration({ iceServers: servers.iceServers() });
+      offerer.restartIce();
+      await negotiate(offerer, answerer);
+      await waitForLocalCandidatesEnd(offerer);
+
+      // Assert: TURN server / credential がクリアされ、STUN server は残る
+      expect(connection.turnServer).toBeUndefined();
+      expect(connection.options.turnUsername).toBeUndefined();
+      expect(connection.options.turnPassword).toBeUndefined();
+      expect(connection.stunServer).toBeDefined();
+      // Assert: 旧 allocation は close され、新 generation に relay 候補は無い
+      expect(arranged.closeStale).toHaveBeenCalled();
+      expect(peerTurnAllocations(offerer)).toHaveLength(0);
+      expect(
+        connection.localCandidates.filter(
+          (candidate) => candidate.type === "relay",
+        ),
+      ).toHaveLength(0);
+      expect(servers.authenticatedSince(arranged.authenticatedBefore)).toEqual(
+        [],
+      );
+    }, 30_000);
+
+    test("TURN A → 別の TURN server: restart 後は新しい server の allocation だけになる", async () => {
+      // Arrange: 置換先の TURN server を別に用意する
+      const arranged = await connectWithTurnA();
+      const { offerer, answerer } = arranged;
+      const { connection } = firstIceTransport(offerer);
+      const otherServers = await createTurnRotationServers();
+      try {
+        // Act: 別 server の TURN に差し替えて ICE restart を交渉する
+        offerer.setConfiguration({ iceServers: otherServers.iceServers("b") });
+        offerer.restartIce();
+        await negotiate(offerer, answerer);
+        await waitForLocalCandidatesEnd(offerer);
+
+        // Assert: 旧 server の allocation は close され、新しい server に credential B で allocation される
+        expect(arranged.closeStale).toHaveBeenCalled();
+        const allocations = peerTurnAllocations(offerer);
+        expect(allocations).toHaveLength(1);
+        expect(allocations[0].turn.server).toEqual(otherServers.turn.address);
+        expect(otherServers.turn.authenticatedUsernames).toContain(
+          otherServers.credentials.b.username,
+        );
+        expect(
+          servers.authenticatedSince(arranged.authenticatedBefore),
+        ).toEqual([]);
+        expect(
+          connection.localCandidates.filter(
+            (candidate) => candidate.type === "relay",
+          ),
+        ).toHaveLength(1);
+      } finally {
+        await Promise.all(peers.splice(0).map((pc) => pc.close()));
+        await otherServers.close();
+      }
+    }, 30_000);
+
+    test("相手側起点の ICE restart でも answerer は最新の iceServers で gather する", async () => {
+      // Arrange: credential A の TURN を持つ answerer と STUN のみの offerer を接続する
+      const offerer = new RTCPeerConnection({
+        iceServers: servers.iceServers(),
+      });
+      const answerer = new RTCPeerConnection({
+        iceServers: servers.iceServers("a"),
+      });
+      peers.push(offerer, answerer);
+      await connectPeerConnections(offerer, answerer);
+      const [staleAllocation] = peerTurnAllocations(answerer);
+      const closeStale = vi.spyOn(staleAllocation, "close");
+      const authenticatedBefore = servers.turn.authenticatedUsernames.length;
+
+      // Act: answerer は setConfiguration だけ行い、offerer が ICE restart を起こす
+      answerer.setConfiguration({ iceServers: servers.iceServers("b") });
+      offerer.restartIce();
+      await negotiate(offerer, answerer);
+      await waitForLocalCandidatesEnd(answerer);
+
+      // Assert: answerer の新しい allocation は credential B で認証され、旧 allocation は close される
+      const authenticated = servers.authenticatedSince(authenticatedBefore);
+      expect(authenticated.length).toBeGreaterThan(0);
+      expect(new Set(authenticated)).toEqual(
+        new Set([servers.credentials.b.username]),
+      );
+      expect(closeStale).toHaveBeenCalled();
+      const allocations = peerTurnAllocations(answerer);
+      expect(allocations).toHaveLength(1);
+      expect(allocations[0]).not.toBe(staleAllocation);
+    }, 30_000);
   });
 
   describe("turnUdpFamily", () => {
