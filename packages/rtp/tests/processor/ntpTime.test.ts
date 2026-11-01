@@ -6,11 +6,7 @@ import {
   RtpPacket,
 } from "../../src";
 import { Max32Uint, NtpTimeBase } from "../../src/extra/processor";
-import {
-  createNtpTimestamp,
-  createRtpAt,
-  createSenderReport,
-} from "../utils";
+import { createNtpTimestamp, createRtpAt, createSenderReport } from "../utils";
 
 describe("ntpTime", () => {
   it("rollover", () => {
