@@ -10,11 +10,11 @@ import {
   type TwccFeedbackAdapter,
   type TwccPacketFeedback,
 } from "../../src";
-import { RTP_EXTENSION_URI } from "../../src/imports/rtp";
 import {
   PacketResult,
   PacketStatus,
   RecvDelta,
+  RTP_EXTENSION_URI,
   RtcpPacketConverter,
   RtcpTransportLayerFeedback,
   RunLengthChunk,
@@ -163,18 +163,46 @@ export function startGccProbingWithoutSenderPadding(
 }
 
 /**
- * Connected video sender with VP8 + TWCC. RTX (PT 97) is negotiated by
- * default because probe / loss padding is only sent on the RTX SSRC.
+ * Stop the GCC startup probe so pacing / FIFO tests see media only.
+ * `configured` also blocks the next process() from starting a new probe;
+ * `pacingBps` pins the pacer rate.
  */
-export async function prepareConnectedSender(
-  estimator?: BandwidthEstimator,
-  { rtx = true }: { rtx?: boolean } = {},
+export function settleGccProbe(
+  gcc: GccBandwidthEstimator,
+  {
+    configured = false,
+    pacingBps,
+  }: { configured?: boolean; pacingBps?: number } = {},
 ) {
-  const sender = new RTCRtpSender("video");
-  const dtls = createDtlsTransport();
-  (dtls as { state: string }).state = "connected";
-  const sentPackets: { header: RtpHeader; payload: Buffer; size: number }[] =
-    [];
+  const internal = gcc as unknown as {
+    probe: { abort(nowMs: number): void; state: string };
+    probingConfigured: boolean;
+  };
+  internal.probe.abort(0);
+  internal.probe.state = "complete";
+  if (configured) {
+    internal.probingConfigured = true;
+  }
+  if (pacingBps !== undefined) {
+    vi.spyOn(gcc, "getPacingBitrateBps").mockReturnValue(pacingBps);
+  }
+}
+
+type DtlsTransport = ReturnType<typeof createDtlsTransport>;
+
+/** One RTP write captured by {@link recordDtlsWrites} (header snapshotted). */
+export interface CapturedRtp {
+  header: RtpHeader;
+  payload: Buffer;
+  size: number;
+}
+
+/**
+ * Replace `dtls.sendRtp` with a mock that snapshots every write into the
+ * returned array and returns the on-wire size.
+ */
+export function recordDtlsWrites(dtls: DtlsTransport): CapturedRtp[] {
+  const sentPackets: CapturedRtp[] = [];
   dtls.sendRtp = vi.fn(async (payload: Buffer, header: RtpHeader) => {
     // payload already includes RFC 3550 padding bytes when P=1.
     const size = payload.length + header.serializeSize;
@@ -186,38 +214,114 @@ export async function prepareConnectedSender(
     });
     return size;
   }) as typeof dtls.sendRtp;
-  dtls.transportSequenceNumber = 0;
-  dtls.transportSequenceNumberExtended = 0;
+  return sentPackets;
+}
+
+/**
+ * Hold the first DTLS RTP write until `release()`; later writes go straight
+ * to the previous `dtls.sendRtp`. `onWrite` sees every write before the hold.
+ */
+export function holdFirstWrite(
+  dtls: DtlsTransport,
+  onWrite?: (payload: Buffer, header: RtpHeader) => void,
+) {
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const inner = dtls.sendRtp.bind(dtls);
+  let first = true;
+  dtls.sendRtp = vi.fn(async (payload: Buffer, header: RtpHeader) => {
+    onWrite?.(payload, header);
+    if (first) {
+      first = false;
+      await held;
+    }
+    return inner(payload, header);
+  }) as typeof dtls.sendRtp;
+  return { release };
+}
+
+/** Let pending microtasks (sendRtp up to its first await) run. */
+export async function flushMicrotasks() {
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
+const vp8 = () =>
+  new RTCRtpCodecParameters({
+    mimeType: "video/VP8",
+    clockRate: 90000,
+    payloadType: 96,
+  });
+const vp8Rtx = () =>
+  new RTCRtpCodecParameters({
+    mimeType: "video/rtx",
+    clockRate: 90000,
+    payloadType: 97,
+    parameters: "apt=96",
+  });
+
+export interface SenderSetupOptions {
+  kind?: "audio" | "video";
+  /** Negotiate RTX (PT 97). Ignored when `codecs` is given. */
+  rtx?: boolean;
+  /** Negotiate transport-cc (header extension id 3). */
+  twcc?: boolean;
+  /** Override the negotiated codecs (default VP8 + optional RTX). */
+  codecs?: RTCRtpCodecParameters[];
+  muxId?: string;
+}
+
+/**
+ * Sender bound to an existing (connected) DTLS transport, e.g. a second
+ * BUNDLE sender next to {@link prepareConnectedSender}.
+ */
+export function attachSender(
+  dtls: DtlsTransport,
+  estimator?: BandwidthEstimator,
+  {
+    kind = "video",
+    rtx = true,
+    twcc = true,
+    codecs,
+    muxId = "0",
+  }: SenderSetupOptions = {},
+) {
+  const sender = new RTCRtpSender(kind);
   sender.setDtlsTransport(dtls);
   if (estimator) {
     sender.setBandwidthEstimator(estimator);
   }
   sender.prepareSend({
-    codecs: [
-      new RTCRtpCodecParameters({
-        mimeType: "video/VP8",
-        clockRate: 90000,
-        payloadType: 96,
-      }),
-      ...(rtx
-        ? [
-            new RTCRtpCodecParameters({
-              mimeType: "video/rtx",
-              clockRate: 90000,
-              payloadType: 97,
-              parameters: "apt=96",
-            }),
-          ]
-        : []),
-    ],
-    headerExtensions: [
-      new RTCRtpHeaderExtensionParameters({
-        id: 3,
-        uri: RTP_EXTENSION_URI.transportWideCC,
-      }),
-    ],
-    muxId: "0",
+    codecs: codecs ?? [vp8(), ...(rtx ? [vp8Rtx()] : [])],
+    headerExtensions: twcc
+      ? [
+          new RTCRtpHeaderExtensionParameters({
+            id: 3,
+            uri: RTP_EXTENSION_URI.transportWideCC,
+          }),
+        ]
+      : [],
+    muxId,
     rtcp: { cname: "test", mux: true },
   });
+  return sender;
+}
+
+/**
+ * Connected video sender with VP8 + TWCC. RTX (PT 97) is negotiated by
+ * default because probe / loss padding is only sent on the RTX SSRC.
+ */
+export async function prepareConnectedSender(
+  estimator?: BandwidthEstimator,
+  options: SenderSetupOptions = {},
+) {
+  const dtls = createDtlsTransport();
+  (dtls as { state: string }).state = "connected";
+  const sentPackets = recordDtlsWrites(dtls);
+  dtls.transportSequenceNumber = 0;
+  dtls.transportSequenceNumberExtended = 0;
+  const sender = attachSender(dtls, estimator, options);
   return { sender, dtls, sentPackets };
 }

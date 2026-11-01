@@ -378,9 +378,24 @@ RTP パケット生成・DTLS 送信・token-bucket 待ちは sender に残す�
 
 - 共通契約: GCC フックの no-op、共通 interface に congestion 系を含めない、`senderBWE` は getter のみ、`onCongestion` の TypeScript 互換。
 - legacy: 合成 TWCC での推定範囲、変化時のみ通知、pacing しない、送信履歴の時間窓 prune。
-- TWCC 入力の解釈: wire 形式の TWCC、空 TWCC で通知しない、24-bit reference_time の周回、`receivedAtMs = 0` の扱い、周回した probe 番号、送信停止後の履歴 prune。
-- `RTCRtpSender` 送信経路: padding（RTX SSRC・padding bit・サイズ・SRTP 往復）、FIFO 直列化、BUNDLE での TSN 順、キュー上限、stop 時の commit、RED 後のサイズ、TWCC 未交渉時、メディア番号の保持、SR octetCount。
-- estimator の差し替え・停止: 差し替え後の配送、in-flight の汚染防止、ProcessInterval timer、dispose、ネットワーク可用性の同期。
+- TWCC 入力の解釈: 壁時計とずれた受信時刻、空 TWCC で通知しない、24-bit reference_time の周回、`receivedAtMs = 0` の扱い、周回した probe 番号、送信停止後の履歴 prune。
+- `RTCRtpSender` 送信経路: padding（RTX SSRC・padding bit・サイズと SentInfo の一致・cluster の完遂・SR octetCount）、media 送信で始まる padding、BUNDLE での TSN 順、キュー上限、padding が media に譲る、`sendingAtMs`、stop 時の commit、RED 後のサイズ、TWCC 未交渉時。padding-only RTP の SRTP 往復は `packages/rtp/tests/srtp/srtp.test.ts` へ移した。
+- estimator の差し替え・停止: 差し替え後の配送、使用済み estimator の reset、in-flight の汚染防止、ProcessInterval timer、in-flight padding 中の差し替え / stop、stop 時の dispose、ネットワーク可用性の同期。
+
+#### 例ベースのテストの整理（2026-11-01）
+
+要件: `bandwidthEstimator.test.ts` のコード量を減らし、本質的に確認が必要な部分は残す。`src` は変更しない。
+
+- Arrange の共通化: RTP パケットは `tests/fixture.ts` の `createRtpPacket` を使う。`tests/media/twccTestUtils.ts` に `attachSender`（既存 DTLS への sender 追加。codec・RTX・TWCC・kind を指定）、`recordDtlsWrites`、`holdFirstWrite`、`flushMicrotasks`、`settleGccProbe` を足し、`prepareConnectedSender` はこれらで組み立てる（既存の呼び出しはそのまま動く）。
+- 他で確かめているので削除したテスト（削除前に実装を一時的に壊し、重複先が失敗することを確認した）:
+  - example2 の展開 → `packages/rtp/tests/rtcp/rtpfb/twcc.test.ts`（StatusVectorChunk の読み落としで example2 など 3 件失敗）
+  - wire 形式の TWCC で GCC が動く → `tests/pbt/twcc` の wire 往復（recv delta の倍率を壊すと 24 seed すべて失敗）と制御応答のシミュレーション
+  - loss 系列（`bad <= good` だけの判定） → 制御応答の「ロス 20%」（loss-based を採用しない故障で失敗。削除したテストはこの故障でも成功していた）
+  - SRTP 往復 → `packages/rtp/tests/srtp/srtp.test.ts` へ移した（padding を剥がさない故障で失敗）
+- 統合したテスト: padding の形式 5 件 → 2 件、ProcessInterval timer 2 件 → `test.each` 1 件（timer が残らないことも確認する）、in-flight padding 中の差し替え / stop 2 件 → `test.each` 1 件、dispose 2 件 → 1 件。
+- 統合後の故障注入（確認後に元へ戻した）: padding を media SSRC で送る（2 件失敗）、padding を octetCount に数える（1 件）、cluster を 1 burst で打ち切る（1 件）、padding の SentInfo.size をずらす（1 件）、ProcessInterval timer を止めない（2 件）、dispose で `seqToSendInfo` を消さない（1 件）。
+  - padding ループの世代・stop 判定を外す故障は、統合前のテストでも検出できなかった。dispose が probe を止め、pending が 0 になって結果が変わらないためで（disposed ガードを外しても同じ）、統合で失ったものではない。
+- 結果: 1,778 行・45 件 → 1,095 行・37 件。`twccTestUtils.ts` は 223 行 → 327 行。
 
 #### トレードオフ（了承済み）
 
@@ -601,6 +616,15 @@ set availableBitrate(v: number) {
 - `npm run pbt:deep -- --seeds 4 --steps 4 --jobs 8`（交渉の 3 suite、分割のパターンが合っているかの確認）: fuzz 10 件・scenario 91 件・model 55 件、すべて成功。
 - 失敗した seed は、テスト名に出る環境変数（例: `WERIFT_TWCC_SEED=5 WERIFT_TWCC_SEEDS=1 WERIFT_TWCC_STEPS=3000`）で単独に再現できることを確認した。
 - Biome（`tests` / `tools/pbt-deep` / `AGENTS.md`）: 指摘なし。
+
+### 検証記録（2026-11-01、例ベースのテストの整理後）
+
+- 作業開始時のリビジョンは `9131a37f5`（未コミット変更なし）。変更は `packages/webrtc/tests/media/{bandwidthEstimator.test.ts,twccTestUtils.ts}`、`packages/rtp/tests/srtp/srtp.test.ts`、チケットだけで、`src` は変更していない（故障注入の一時変更は戻した）。
+- `cd packages/webrtc && npm run type`: 成功。`npx vitest run tests`: 67 ファイル、1,455 件成功・5 件 skip（11 回実行）。うち 2 回は失敗あり。1 回は `tests/pbt/leak/negotiationLeakProperty.test.ts`（TURN gathering の解放）で、変更したファイルを import しておらず、単独では 5 回とも成功した。もう 1 回は失敗したテスト名を記録しておらず、再現していない。
+- `bandwidthEstimator.test.ts`・`rtpSender.test.ts`・`tests/pbt/sender` を 5 回続けて実行し、毎回 148 件成功。
+- `npm run pbt:deep -- --suite twcc,bwe,sender --seeds 100 --jobs 8`: twcc 600 件・bwe 300 件・sender 200 件、すべて成功。
+- `cd packages/rtp && npx vitest run tests`: 44 ファイル・431 件成功。`npm run type`: 成功。
+- Biome（変更した 3 ファイル）: 指摘なし。
 
 ### ライセンス
 

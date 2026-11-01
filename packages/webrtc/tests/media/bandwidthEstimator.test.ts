@@ -1,26 +1,8 @@
 import { describe, expect, test, vi } from "vitest";
-import type { Config } from "../../../rtp/src/srtp/session";
-import { SrtpSession } from "../../../rtp/src/srtp/srtp";
 import {
   type BandwidthEstimator,
   DisabledBandwidthEstimator,
   GccBandwidthEstimator,
-  PacketResult,
-  PacketStatus,
-  type ProbePacingController,
-  RTCRtpCodecParameters,
-  RTCRtpHeaderExtensionParameters,
-  RTCRtpSender,
-  RtcpPacketConverter,
-  RtcpTransportLayerFeedback,
-  RtpHeader,
-  RtpPacket,
-  SenderBandwidthEstimator,
-  type SentInfo,
-  TWCC_REFERENCE_TIME_MOD,
-  TWCC_REFERENCE_TIME_UNIT_MS,
-  TransportWideCC,
-  appendRfc3550Padding,
   hasTwccReceiveTiming,
   isBandwidthEstimatorProcessor,
   isNetworkAvailabilityConsumer,
@@ -29,12 +11,29 @@ import {
   isSenderBandwidthEstimator,
   kGoogCcProcessIntervalMs,
   kProbePaddingPacketBytes,
+  PacketResult,
+  PacketStatus,
+  type ProbePacingController,
+  RTCRtpCodecParameters,
+  RTCRtpSender,
+  RtcpTransportLayerFeedback,
+  type RtpHeader,
+  RtpPacket,
+  SenderBandwidthEstimator,
+  type SentInfo,
+  TransportWideCC,
+  TWCC_REFERENCE_TIME_MOD,
+  TWCC_REFERENCE_TIME_UNIT_MS,
 } from "../../src";
-import { RTP_EXTENSION_URI } from "../../src/imports/rtp";
-import { createDtlsTransport } from "../fixture";
-import { type GccLink, bitrateAt, runGccSimulation } from "./gccSimulation";
+import { createRtpPacket } from "../fixture";
+import { bitrateAt, type GccLink, runGccSimulation } from "./gccSimulation";
 import {
+  attachSender,
+  type CapturedRtp,
+  flushMicrotasks,
+  holdFirstWrite,
   prepareConnectedSender,
+  settleGccProbe,
   startGccProbing,
   startGccProbingWithoutSenderPadding,
   twccHistoryOf,
@@ -211,22 +210,7 @@ describe("media/sender bandwidth estimator", () => {
 
       const t0 = performance.now();
       for (let i = 0; i < 20; i++) {
-        await sender.sendRtp(
-          new RtpPacket(
-            new RtpHeader({
-              sequenceNumber: i,
-              timestamp: i * 3000,
-              payloadType: 96,
-              ssrc: 1,
-              extension: true,
-              extensions: [],
-              marker: false,
-              padding: false,
-              payloadOffset: 12,
-            }),
-            Buffer.alloc(1200),
-          ),
-        );
+        await sender.sendRtp(createRtpPacket(i, i * 3000, Buffer.alloc(1200)));
       }
       const elapsed = performance.now() - t0;
 
@@ -298,70 +282,6 @@ describe("media/sender bandwidth estimator", () => {
       expect(gcc.availableBitrate).toBeGreaterThan(50_000);
     });
 
-    test("serialize/deserialize した実 TWCC で GCC が更新される", () => {
-      // Arrange: rtp パッケージの既知ワイヤ（example1, RunLength）を round-trip
-      const wire = Buffer.from([
-        0xaf, 0xcd, 0x0, 0x5, 0xfa, 0x17, 0xfa, 0x17, 0x43, 0x3, 0x2f, 0xa0,
-        0x0, 0x99, 0x0, 0x1, 0x3d, 0xe8, 0x2, 0x17, 0x20, 0x1, 0x94, 0x1,
-      ]);
-      const [rtpfb] = RtcpPacketConverter.deSerialize(wire) as [
-        RtcpTransportLayerFeedback,
-      ];
-      const twcc = rtpfb.feedback as TransportWideCC;
-      expect(rtpfb.serialize()).toEqual(wire);
-
-      // 同一内容を再シリアライズ → 再パース
-      const wire2 = rtpfb.serialize();
-      const [rtpfb2] = RtcpPacketConverter.deSerialize(wire2) as [
-        RtcpTransportLayerFeedback,
-      ];
-      const restored = rtpfb2.feedback as TransportWideCC;
-      expect(restored.baseSequenceNumber).toBe(twcc.baseSequenceNumber);
-      expect(restored.packetResults.length).toBeGreaterThan(0);
-
-      // Act: wire 復元 TWCC + 追加の相対時刻バッチで GCC を更新
-      // （example1 は 1 パケットのため、実時間線のバッチを同経路で合成）
-      const gcc = new GccBandwidthEstimator(300_000);
-      const baseSeq = restored.baseSequenceNumber;
-      // first packet from wire fixture
-      for (const r of restored.packetResults) {
-        if (r.received) {
-          gcc.rtpPacketSent(sent(r.sequenceNumber, 1000, 40_000));
-        }
-      }
-      gcc.receiveTWCC(restored);
-
-      // multi-packet relative-time batch (also via TransportWideCC instance)
-      const n = 30;
-      const batch = new TransportWideCC({
-        senderSsrc: twcc.senderSsrc,
-        mediaSourceSsrc: twcc.mediaSourceSsrc,
-        baseSequenceNumber: baseSeq + 10,
-        packetStatusCount: n,
-        referenceTime: twcc.referenceTime + 10,
-        fbPktCount: (twcc.fbPktCount + 1) & 0xff,
-      });
-      const batchResults = Array.from(
-        { length: n },
-        (_, i) =>
-          new PacketResult({
-            sequenceNumber: baseSeq + 10 + i,
-            received: true,
-            receivedAtMs: Number(BigInt(batch.referenceTime) * 64n) + i * 15,
-          }),
-      );
-      Object.defineProperty(batch, "packetResults", {
-        get: () => batchResults,
-      });
-      for (let i = 0; i < n; i++) {
-        gcc.rtpPacketSent(sent(baseSeq + 10 + i, 1000, 40_000 + 100 + i * 15));
-      }
-      gcc.receiveTWCC(batch);
-
-      // Assert: wire round-trip 成功 + 相対時刻バッチで推定 > 0
-      expect(gcc.availableBitrate).toBeGreaterThan(0);
-    });
-
     test("空 TWCC では通知しない", () => {
       const gcc = new GccBandwidthEstimator(300_000);
       const fired: number[] = [];
@@ -406,33 +326,6 @@ describe("media/sender bandwidth estimator", () => {
 
       // Assert: estimate advances (wrap で窓が壊れ 0 張り付きにならない)
       expect(gcc.availableBitrate).toBeGreaterThan(0);
-    });
-
-    test("TransportWideCC example2 の packetResults が 14 件展開される", () => {
-      // Arrange: リポジトリ fixture example2（2× StatusVectorChunk）
-      const data = Buffer.from([
-        0xaf, 0xcd, 0x0, 0x6, 0xfa, 0x17, 0xfa, 0x17, 0x19, 0x3d, 0xd8, 0xbb,
-        0x1, 0x74, 0x0, 0xe, 0x45, 0xb1, 0x5a, 0x40, 0xd8, 0x0, 0xf0, 0xff,
-        0xd0, 0x0, 0x0, 0x1,
-      ]);
-      const [rtpfb] = RtcpPacketConverter.deSerialize(data) as [
-        RtcpTransportLayerFeedback,
-      ];
-      const twcc = rtpfb.feedback as TransportWideCC;
-
-      // Act
-      const results = twcc.packetResults;
-
-      // Assert
-      expect(twcc.packetStatusCount).toBe(14);
-      expect(results.length).toBe(14);
-      expect(results[0].sequenceNumber).toBe(372);
-      expect(results[13].sequenceNumber).toBe((372 + 13) & 0xffff);
-      // 先頭は small/large delta 受信
-      expect(results[0].received).toBe(true);
-      expect(results[0].receivedAtMs).toBeGreaterThan(0);
-      // not received シンボル
-      expect(results.some((r) => !r.received)).toBe(true);
     });
 
     test("receivedAtMs=0 でも SmallDelta は delay サンプルとして受理する", () => {
@@ -666,205 +559,57 @@ describe("media/sender bandwidth estimator", () => {
   });
 
   describe("RTCRtpSender 送信経路（werift 固有の回帰）", () => {
-    test("大きな probe cluster でも padding が完遂できる", async () => {
+    test("probe padding は RTX の padding-only RTP で cluster を最後まで送り、SentInfo と一致し、SR octetCount に数えない", async () => {
       // Arrange: 高 start → 3x probe target が大きく、minBytes が maxBurst を超える
       const gcc = new GccBandwidthEstimator(1_000_000);
-      const { sender } = await prepareConnectedSender(gcc);
-      // Arrange: cluster 開始時の自動注入を止め、本呼び出しで完遂を検証する
+      const { sender, sentPackets } = await prepareConnectedSender(gcc);
+      // Arrange: cluster 開始時の自動注入を止め、本呼び出しの padding だけを観察する
       startGccProbingWithoutSenderPadding(sender, gcc);
+      const spy = vi.spyOn(gcc, "rtpPacketSent");
+      const octetsBefore = (sender as any).octetCount as number;
+
       // Act
       const n = await sender.maybeInjectProbePadding();
-      // Assert: 単一 maxBurst では足りず、外側ループで完遂する
+
+      // Assert: 単一 maxBurst では足りず、外側ループで cluster を完遂する
       expect(n).toBeGreaterThan(16);
       expect(gcc.pendingProbePaddingPackets()).toBe(0);
+      // Assert: 全パケットが RTX SSRC / PT の padding-only RTP で、番号は重複しない
+      for (const p of sentPackets) {
+        expectProbePaddingPacket(p);
+        expect(p.header.ssrc).toBe(sender.rtxSsrc);
+        expect(p.header.payloadType).toBe(97);
+      }
+      const seqs = sentPackets.map((p) => p.header.sequenceNumber);
+      expect(new Set(seqs).size).toBe(seqs.length);
+      // Assert: estimator へは送った padding ごとに probation の SentInfo が実送サイズで届く
+      const infos = spy.mock.calls.map(([info]) => info);
+      expect(infos.every((info) => info.isProbation)).toBe(true);
+      expect(infos.map((info) => info.size)).toEqual(
+        sentPackets.map((p) => p.size),
+      );
+      // Assert: media payload は 0 byte なので SR の octetCount は増えない
+      expect((sender as any).octetCount - octetsBefore).toBe(0);
     });
 
-    test("padding bit・実 padding bytes・一意 sequence", async () => {
+    test("media 送信で始まった probe padding は RTX SSRC に出て、media の番号を進めない", async () => {
       // Arrange
       const gcc = new GccBandwidthEstimator(100_000);
       const { sender, sentPackets } = await prepareConnectedSender(gcc);
       startGccProbing(gcc);
-      const rtpSpy = vi.spyOn(gcc, "rtpPacketSent");
 
-      // Act: メディア 1 + probe padding
-      await sender.sendRtp(
-        new RtpPacket(
-          new RtpHeader({
-            sequenceNumber: 10,
-            timestamp: 1000,
-            payloadType: 96,
-            ssrc: 1,
-            extension: true,
-            extensions: [],
-            marker: false,
-            padding: false,
-            payloadOffset: 12,
-          }),
-          Buffer.alloc(80),
-        ),
-      );
+      // Act: media 1 本の送信で probe padding が自動注入される
+      await sender.sendRtp(createRtpPacket(10, 1000, Buffer.alloc(80)));
 
-      // Assert: 複数送信
-      expect(sentPackets.length).toBeGreaterThan(1);
-
-      // padding パケット: P-bit + payload 末尾が RFC 3550 padding
-      const padPackets = sentPackets.filter((p) => p.header.padding);
-      expect(padPackets.length).toBeGreaterThan(0);
-      for (const p of padPackets) {
-        expect(p.header.padding).toBe(true);
-        expect(p.header.paddingSize).toBe(kProbePaddingPacketBytes);
-        // 実 payload に padding が含まれる
-        expect(p.payload.length).toBe(kProbePaddingPacketBytes);
-        expect(p.payload[p.payload.length - 1]).toBe(kProbePaddingPacketBytes);
-        // メディア部なし（ゼロ埋め + 末尾 length）
-        expect(p.payload.subarray(0, -1).every((b) => b === 0)).toBe(true);
-        // フル RTP を再パース可能
-        const wire = new RtpPacket(p.header, p.payload).serialize();
-        const parsed = RtpPacket.deSerialize(wire);
-        expect(parsed.header.padding).toBe(true);
-        expect(parsed.header.paddingSize).toBe(kProbePaddingPacketBytes);
-      }
-
-      // SentInfo.size は実送信サイズ（モック戻り値）と一致
-      // メディアも probe 中は isProbation になり得るため、padding パケットのみ照合
-      expect(padPackets.length).toBeGreaterThan(0);
-      const sentInfos = rtpSpy.mock.calls.map((c) => c[0] as SentInfo);
-      const padSizes = sentInfos
-        .filter((s) => s.size >= kProbePaddingPacketBytes)
-        .map((s) => s.size);
-      expect(padSizes.length).toBeGreaterThan(0);
-      for (const p of padPackets) {
-        expect(padSizes).toContain(p.size);
-      }
-
-      // padding は RTX SSRC / PT で送り、media の番号空間を使わない
-      for (const p of padPackets) {
+      // Assert: media は 1 本だけで、padding はすべて RTX SSRC / PT の padding-only RTP
+      const media = sentPackets.filter((p) => !p.header.padding);
+      const padding = sentPackets.filter((p) => p.header.padding);
+      expect(media.map((p) => p.header.ssrc)).toEqual([sender.ssrc]);
+      expect(padding.length).toBeGreaterThan(0);
+      for (const p of padding) {
+        expectProbePaddingPacket(p);
         expect(p.header.ssrc).toBe(sender.rtxSsrc);
         expect(p.header.payloadType).toBe(97);
-      }
-      // RTP sequence は SSRC ごとに一意かつ単調増加
-      for (const ssrc of [sender.ssrc, sender.rtxSsrc]) {
-        const seqs = sentPackets
-          .filter((p) => p.header.ssrc === ssrc)
-          .map((p) => p.header.sequenceNumber);
-        expect(new Set(seqs).size).toBe(seqs.length);
-        for (let i = 1; i < seqs.length; i++) {
-          expect(uint16Forward(seqs[i - 1], seqs[i])).toBe(true);
-        }
-      }
-    });
-
-    test("maybeInjectProbePadding が専用経路で padding を送る", async () => {
-      const gcc = new GccBandwidthEstimator(100_000);
-      const { sender, sentPackets } = await prepareConnectedSender(gcc);
-      startGccProbingWithoutSenderPadding(sender, gcc);
-      const n = await sender.maybeInjectProbePadding();
-      expect(n).toBeGreaterThan(0);
-      expect(sentPackets.every((p) => p.header.padding)).toBe(true);
-      for (const p of sentPackets) {
-        expect(p.payload.length).toBe(kProbePaddingPacketBytes);
-        expect(p.payload[p.payload.length - 1]).toBe(kProbePaddingPacketBytes);
-      }
-      const seqs = sentPackets.map((p) => p.header.sequenceNumber);
-      expect(new Set(seqs).size).toBe(seqs.length);
-    });
-
-    test("SRTP encrypt/decrypt を通した probe padding が復元できる", () => {
-      // Arrange: 実 SRTP セッション（モック transport なし）
-      const config: Config = {
-        profile: 0x0001,
-        keys: {
-          localMasterKey: Buffer.from([
-            0xe1, 0xf9, 0x7a, 0x0d, 0x3e, 0x01, 0x8b, 0xe0, 0xd6, 0x4f, 0xa3,
-            0x2c, 0x06, 0xde, 0x41, 0x39,
-          ]),
-          localMasterSalt: Buffer.from([
-            0x0e, 0xc6, 0x75, 0xad, 0x49, 0x8a, 0xfe, 0xeb, 0xb6, 0x96, 0x0b,
-            0x3a, 0xab, 0xe6,
-          ]),
-          remoteMasterKey: Buffer.from([
-            0xe1, 0xf9, 0x7a, 0x0d, 0x3e, 0x01, 0x8b, 0xe0, 0xd6, 0x4f, 0xa3,
-            0x2c, 0x06, 0xde, 0x41, 0x39,
-          ]),
-          remoteMasterSalt: Buffer.from([
-            0x0e, 0xc6, 0x75, 0xad, 0x49, 0x8a, 0xfe, 0xeb, 0xb6, 0x96, 0x0b,
-            0x3a, 0xab, 0xe6,
-          ]),
-        },
-      };
-      const senderSrtp = new SrtpSession(config);
-      const receiverSrtp = new SrtpSession(config);
-
-      const padSize = kProbePaddingPacketBytes;
-      const header = new RtpHeader({
-        version: 2,
-        padding: true,
-        paddingSize: padSize,
-        sequenceNumber: 42,
-        timestamp: 90000,
-        ssrc: 0x12345678,
-        payloadType: 96,
-        marker: false,
-        extension: false,
-      });
-      // Act: RFC 3550 padding を payload に付加して encrypt
-      const plainPayload = appendRfc3550Padding(Buffer.alloc(0), padSize);
-      expect(plainPayload.length).toBe(padSize);
-      expect(plainPayload[padSize - 1]).toBe(padSize);
-
-      const encrypted = senderSrtp.encrypt(plainPayload, header);
-      // 暗号文長 = header + payload(with pad) + auth tag (> payload)
-      expect(encrypted.length).toBeGreaterThan(plainPayload.length + 12);
-
-      // Act: decrypt → RTP として解釈
-      const decrypted = receiverSrtp.decrypt(encrypted);
-      const rtp = RtpPacket.deSerialize(decrypted);
-
-      // Assert
-      expect(rtp.header.padding).toBe(true);
-      expect(rtp.header.paddingSize).toBe(padSize);
-      expect(rtp.header.sequenceNumber).toBe(42);
-      expect(rtp.header.ssrc).toBe(0x12345678);
-      // deSerialize は padding を除いた media payload を返す（空）
-      expect(rtp.payload.length).toBe(0);
-      // 復号バッファ末尾は padding length byte
-      expect(decrypted[decrypted.length - 1]).toBe(padSize);
-    });
-
-    test("SentInfo.size は実送 payload（padding 含む）と一致する", async () => {
-      // Arrange
-      const gcc = new GccBandwidthEstimator(100_000);
-      const { sender, dtls } = await prepareConnectedSender(gcc);
-      startGccProbingWithoutSenderPadding(sender, gcc);
-      const sizes: number[] = [];
-      const payloads: Buffer[] = [];
-      dtls.sendRtp = vi.fn(async (payload: Buffer, header: RtpHeader) => {
-        payloads.push(Buffer.from(payload));
-        // 実 DTLS 経路と同様、送信バイト数を返す
-        const n = payload.length + header.serializeSize;
-        sizes.push(n);
-        return n;
-      }) as typeof dtls.sendRtp;
-
-      const spy = vi.spyOn(gcc, "rtpPacketSent");
-      await sender.maybeInjectProbePadding();
-
-      // Assert
-      const padCalls = spy.mock.calls
-        .map((c) => c[0] as SentInfo)
-        .filter((s) => s.isProbation);
-      expect(padCalls.length).toBeGreaterThan(0);
-      const padPayloads = payloads.filter(
-        (p) => p.length === kProbePaddingPacketBytes,
-      );
-      expect(padPayloads.length).toBe(padCalls.length);
-      for (let i = 0; i < padCalls.length; i++) {
-        expect(padPayloads[i][padPayloads[i].length - 1]).toBe(
-          kProbePaddingPacketBytes,
-        );
-      }
-      for (const info of padCalls) {
-        expect(sizes).toContain(info.size);
       }
     });
 
@@ -873,38 +618,20 @@ describe("media/sender bandwidth estimator", () => {
       const gccVideo = new GccBandwidthEstimator(100_000);
       const gccAudio = new GccBandwidthEstimator(100_000);
       // RTX なし: padding を出さず media の TSN 順だけを見る
-      const { sender: video, dtls } = await prepareConnectedSender(gccVideo, {
-        rtx: false,
-      });
+      const {
+        sender: video,
+        dtls,
+        sentPackets,
+      } = await prepareConnectedSender(gccVideo, { rtx: false });
       startGccProbing(gccVideo);
       startGccProbing(gccAudio);
-      (gccVideo as any).probe.abort(0);
-      (gccVideo as any).probe.state = "complete";
-      (gccAudio as any).probe.abort(0);
-      (gccAudio as any).probe.state = "complete";
-      vi.spyOn(gccVideo, "getPacingBitrateBps").mockReturnValue(1_000_000);
-      vi.spyOn(gccAudio, "getPacingBitrateBps").mockReturnValue(1_000_000);
-      const audio = new RTCRtpSender("audio");
-      audio.setDtlsTransport(dtls);
-      audio.setBandwidthEstimator(gccAudio);
-      audio.prepareSend({
-        codecs: [
-          new RTCRtpCodecParameters({
-            mimeType: "audio/opus",
-            clockRate: 48000,
-            payloadType: 111,
-          }),
-        ],
-        headerExtensions: [
-          new RTCRtpHeaderExtensionParameters({
-            id: 3,
-            uri: RTP_EXTENSION_URI.transportWideCC,
-          }),
-        ],
+      settleGccProbe(gccVideo, { pacingBps: 1_000_000 });
+      settleGccProbe(gccAudio, { pacingBps: 1_000_000 });
+      const audio = attachSender(dtls, gccAudio, {
+        kind: "audio",
+        codecs: [opusCodec()],
         muxId: "1",
-        rtcp: { cname: "test", mux: true },
       });
-
       let releaseVideo!: () => void;
       const holdVideo = new Promise<void>((resolve) => {
         releaseVideo = resolve;
@@ -914,49 +641,27 @@ describe("media/sender bandwidth estimator", () => {
         await holdVideo;
         return origPace(...args);
       };
-
-      const wireTsns: number[] = [];
-      dtls.sendRtp = vi.fn(async (payload: Buffer, header: RtpHeader) => {
-        const twcc = header.extensions.find((ext) => ext.id === 3);
-        wireTsns.push(twcc ? twcc.payload.readUInt16BE(0) : -1);
-        return payload.length + header.serializeSize;
-      }) as typeof dtls.sendRtp;
-
-      const mk = (seq: number, pt: number) =>
-        new RtpPacket(
-          new RtpHeader({
-            sequenceNumber: seq,
-            timestamp: seq * 1000,
-            payloadType: pt,
-            ssrc: 1,
-            extension: true,
-            extensions: [],
-            marker: false,
-            padding: false,
-            payloadOffset: 12,
-          }),
-          Buffer.alloc(80),
-        );
+      const opus = createRtpPacket(1, 1000, Buffer.alloc(80));
+      opus.header.payloadType = 111;
 
       // Act: video が pacing 待ちのあいだに audio を送る
-      const videoSend = video.sendRtp(mk(1, 96));
-      await Promise.resolve();
-      await Promise.resolve();
-      await audio.sendRtp(mk(1, 111));
+      const videoSend = video.sendRtp(
+        createRtpPacket(1, 1000, Buffer.alloc(80)),
+      );
+      await flushMicrotasks();
+      await audio.sendRtp(opus);
       releaseVideo();
       await videoSend;
 
       // Assert: 先に出た audio が TSN 1、後着 video が 2（確保→待ちの逆転ではない）
-      expect(wireTsns).toEqual([1, 2]);
+      expect(sentPackets.map(wireTsnOf)).toEqual([1, 2]);
     });
 
     test("pacing 中の stop は packetCount / NACK cache を commit しない", async () => {
       // Arrange
       const gcc = new GccBandwidthEstimator(100_000);
       const { sender, dtls } = await prepareConnectedSender(gcc);
-      (gcc as any).probe.abort(0);
-      (gcc as any).probe.state = "complete";
-      vi.spyOn(gcc, "getPacingBitrateBps").mockReturnValue(1_000_000);
+      settleGccProbe(gcc, { pacingBps: 1_000_000 });
       const sendSpy = dtls.sendRtp as ReturnType<typeof vi.fn>;
       sendSpy.mockClear();
       const countBefore = (sender as any).packetCount;
@@ -967,22 +672,7 @@ describe("media/sender bandwidth estimator", () => {
       };
 
       // Act
-      await sender.sendRtp(
-        new RtpPacket(
-          new RtpHeader({
-            sequenceNumber: 1,
-            timestamp: 1000,
-            payloadType: 96,
-            ssrc: 1,
-            extension: true,
-            extensions: [],
-            marker: false,
-            padding: false,
-            payloadOffset: 12,
-          }),
-          Buffer.alloc(80),
-        ),
-      );
+      await sender.sendRtp(createRtpPacket(1, 1000, Buffer.alloc(80)));
 
       // Assert
       expect((sender as any).packetCount).toBe(countBefore);
@@ -996,53 +686,27 @@ describe("media/sender bandwidth estimator", () => {
       // Arrange: DTLS を遅くし、キュー上限を超える
       const gcc = new GccBandwidthEstimator(100_000);
       const { sender, dtls } = await prepareConnectedSender(gcc);
-      (gcc as any).probe.abort(0);
-      (gcc as any).probe.state = "complete";
-      let release!: () => void;
-      const hold = new Promise<void>((resolve) => {
-        release = resolve;
-      });
-      let first = true;
-      dtls.sendRtp = vi.fn(async (payload: Buffer, header: RtpHeader) => {
-        if (first) {
-          first = false;
-          await hold;
-        }
-        return payload.length + header.serializeSize;
-      }) as typeof dtls.sendRtp;
-
-      const mk = (seq: number) =>
-        new RtpPacket(
-          new RtpHeader({
-            sequenceNumber: seq,
-            timestamp: seq * 1000,
-            payloadType: 96,
-            ssrc: 1,
-            extension: true,
-            extensions: [],
-            marker: false,
-            padding: false,
-            payloadOffset: 12,
-          }),
-          Buffer.alloc(80),
-        );
+      settleGccProbe(gcc);
+      const { release } = holdFirstWrite(dtls);
 
       // Act: 1 本 in-flight + 60 キュー
-      const pending = [sender.sendRtp(mk(1))];
+      const pending = [
+        sender.sendRtp(createRtpPacket(1, 1000, Buffer.alloc(80))),
+      ];
       await Promise.resolve();
       for (let i = 2; i <= 61; i++) {
-        pending.push(sender.sendRtp(mk(i)));
+        pending.push(
+          sender.sendRtp(createRtpPacket(i, i * 1000, Buffer.alloc(80))),
+        );
       }
       release();
       await Promise.all(pending);
 
       // Assert: 上限 48 + 実行中 1 を超えて送らない
-      expect(
-        (dtls.sendRtp as ReturnType<typeof vi.fn>).mock.calls.length,
-      ).toBeLessThanOrEqual(49);
-      expect(
-        (dtls.sendRtp as ReturnType<typeof vi.fn>).mock.calls.length,
-      ).toBeGreaterThan(1);
+      const writes = (dtls.sendRtp as ReturnType<typeof vi.fn>).mock.calls
+        .length;
+      expect(writes).toBeLessThanOrEqual(49);
+      expect(writes).toBeGreaterThan(1);
     });
 
     test("probe padding は待ち media に譲る", async () => {
@@ -1050,43 +714,16 @@ describe("media/sender bandwidth estimator", () => {
       const gcc = new GccBandwidthEstimator(1_000_000);
       const { sender, dtls } = await prepareConnectedSender(gcc);
       startGccProbing(gcc);
-      let releaseFirst!: () => void;
-      const holdFirst = new Promise<void>((resolve) => {
-        releaseFirst = resolve;
-      });
-      let firstHeld = false;
       const order: string[] = [];
-      dtls.sendRtp = vi.fn(async (payload: Buffer, header: RtpHeader) => {
-        order.push(header.padding ? "pad" : "media");
-        if (!firstHeld) {
-          firstHeld = true;
-          await holdFirst;
-        }
-        return payload.length + header.serializeSize;
-      }) as typeof dtls.sendRtp;
-
-      const mk = (seq: number) =>
-        new RtpPacket(
-          new RtpHeader({
-            sequenceNumber: seq,
-            timestamp: seq * 1000,
-            payloadType: 96,
-            ssrc: 1,
-            extension: true,
-            extensions: [],
-            marker: false,
-            padding: false,
-            payloadOffset: 12,
-          }),
-          Buffer.alloc(80),
-        );
+      const { release } = holdFirstWrite(dtls, (_, header) =>
+        order.push(header.padding ? "pad" : "media"),
+      );
 
       // Act
-      const first = sender.sendRtp(mk(1));
-      await Promise.resolve();
-      await Promise.resolve();
-      const second = sender.sendRtp(mk(2));
-      releaseFirst();
+      const first = sender.sendRtp(createRtpPacket(1, 1000, Buffer.alloc(80)));
+      await flushMicrotasks();
+      const second = sender.sendRtp(createRtpPacket(2, 2000, Buffer.alloc(80)));
+      release();
       await Promise.all([first, second]);
 
       // Assert: 2 本目の media は padding 連打の後ろに埋まらない
@@ -1101,54 +738,30 @@ describe("media/sender bandwidth estimator", () => {
     });
 
     test("sendingAtMs は DTLS send 完了後ではなく送信開始前の時刻である", async () => {
-      // Arrange
+      // Arrange: DTLS write に 25ms かかる
       const gcc = new GccBandwidthEstimator(100_000);
       const { sender, dtls } = await prepareConnectedSender(gcc);
-      (gcc as any).probe.abort(0);
-      (gcc as any).probe.state = "complete";
-      (gcc as any).probingConfigured = true;
+      settleGccProbe(gcc, { configured: true });
+      const write = dtls.sendRtp.bind(dtls);
       dtls.sendRtp = vi.fn(async (payload: Buffer, header: RtpHeader) => {
         await new Promise<void>((resolve) => setTimeout(resolve, 25));
-        return payload.length + header.serializeSize;
+        return write(payload, header);
       }) as typeof dtls.sendRtp;
-      const sent: SentInfo[] = [];
-      const orig = gcc.rtpPacketSent.bind(gcc);
-      gcc.rtpPacketSent = (info: SentInfo) => {
-        sent.push(info);
-        orig(info);
-      };
+      const spy = vi.spyOn(gcc, "rtpPacketSent");
 
       // Act
-      await sender.sendRtp(
-        new RtpPacket(
-          new RtpHeader({
-            sequenceNumber: 1,
-            timestamp: 1000,
-            payloadType: 96,
-            ssrc: 1,
-            extension: true,
-            extensions: [],
-            marker: false,
-            padding: false,
-            payloadOffset: 12,
-          }),
-          Buffer.alloc(80),
-        ),
-      );
+      await sender.sendRtp(createRtpPacket(1, 1000, Buffer.alloc(80)));
 
       // Assert: ICE wait は sentAtMs に入り、sendingAtMs には入らない
-      expect(sent).toHaveLength(1);
-      expect(sent[0].sentAtMs - sent[0].sendingAtMs).toBeGreaterThanOrEqual(15);
+      expect(spy).toHaveBeenCalledTimes(1);
+      const [info] = spy.mock.calls[0];
+      expect(info.sentAtMs - info.sendingAtMs).toBeGreaterThanOrEqual(15);
     });
 
     test("pacer は RED 構築後のパケットサイズを使う", async () => {
-      // Arrange
+      // Arrange: audio/red + opus を交渉した sender
       const gcc = new GccBandwidthEstimator(100_000);
-      const { sender } = await prepareConnectedSender(gcc);
-      (gcc as any).probe.abort(0);
-      (gcc as any).probe.state = "complete";
-      (gcc as any).probingConfigured = true;
-      sender.prepareSend({
+      const { sender } = await prepareConnectedSender(gcc, {
         codecs: [
           new RTCRtpCodecParameters({
             mimeType: "audio/red",
@@ -1156,21 +769,10 @@ describe("media/sender bandwidth estimator", () => {
             payloadType: 63,
             parameters: "111/111",
           }),
-          new RTCRtpCodecParameters({
-            mimeType: "audio/opus",
-            clockRate: 48000,
-            payloadType: 111,
-          }),
+          opusCodec(),
         ],
-        headerExtensions: [
-          new RTCRtpHeaderExtensionParameters({
-            id: 3,
-            uri: RTP_EXTENSION_URI.transportWideCC,
-          }),
-        ],
-        muxId: "0",
-        rtcp: { cname: "test", mux: true },
       });
+      settleGccProbe(gcc, { configured: true });
       const paced: number[] = [];
       const orig = (sender as any).awaitPacingBudget.bind(sender);
       (sender as any).awaitPacingBudget = async (
@@ -1180,24 +782,11 @@ describe("media/sender bandwidth estimator", () => {
         paced.push(n);
         return orig(n, ...rest);
       };
+      const opus = createRtpPacket(1, 1000, Buffer.alloc(20));
+      opus.header.payloadType = 111;
 
       // Act: 小さな payload を RED 経路で送る
-      await sender.sendRtp(
-        new RtpPacket(
-          new RtpHeader({
-            sequenceNumber: 1,
-            timestamp: 1000,
-            payloadType: 111,
-            ssrc: 1,
-            extension: true,
-            extensions: [],
-            marker: false,
-            padding: false,
-            payloadOffset: 12,
-          }),
-          Buffer.alloc(20),
-        ),
-      );
+      await sender.sendRtp(opus);
 
       // Assert: 生 payload 20+header より大きい（RED + TWCC extension）
       expect(paced.length).toBeGreaterThan(0);
@@ -1207,73 +796,19 @@ describe("media/sender bandwidth estimator", () => {
     test("TWCC 未交渉では probe padding を送らない", async () => {
       // Arrange: headerExtensions に transport-cc 無し
       const gcc = new GccBandwidthEstimator(100_000);
-      const sender = new RTCRtpSender("video");
-      const dtls = createDtlsTransport();
-      (dtls as { state: string }).state = "connected";
-      const sentPackets: { header: RtpHeader }[] = [];
-      dtls.sendRtp = vi.fn(async (payload: Buffer, header: RtpHeader) => {
-        sentPackets.push({
-          header: new RtpHeader({
-            ...header,
-            extensions: [...header.extensions],
-          }),
-        });
-        return payload.length + header.serializeSize;
-      }) as typeof dtls.sendRtp;
-      sender.setDtlsTransport(dtls);
-      sender.setBandwidthEstimator(gcc);
-      sender.prepareSend({
-        codecs: [
-          new RTCRtpCodecParameters({
-            mimeType: "video/VP8",
-            clockRate: 90000,
-            payloadType: 96,
-          }),
-        ],
-        headerExtensions: [], // no transport-cc
-        muxId: "0",
-        rtcp: { cname: "test", mux: true },
+      const { sender, sentPackets } = await prepareConnectedSender(gcc, {
+        twcc: false,
       });
+      const rtp = createRtpPacket(1, 1000, Buffer.alloc(200));
+      rtp.header.extension = false;
 
       // Act
-      await sender.sendRtp(
-        new RtpPacket(
-          new RtpHeader({
-            sequenceNumber: 1,
-            timestamp: 1000,
-            payloadType: 96,
-            ssrc: 1,
-            extension: false,
-            extensions: [],
-            marker: false,
-            padding: false,
-            payloadOffset: 12,
-          }),
-          Buffer.alloc(200),
-        ),
-      );
+      await sender.sendRtp(rtp);
 
       // Assert: media のみ、padding なし、BWE にも送っていない
       expect(sentPackets.length).toBe(1);
       expect(sentPackets.every((p) => !p.header.padding)).toBe(true);
       expect(gcc.availableBitrate).toBe(0);
-    });
-
-    test("probe padding は SR octetCount に含めない", async () => {
-      // Arrange
-      const gcc = new GccBandwidthEstimator(100_000);
-      const { sender, sentPackets } = await prepareConnectedSender(gcc);
-      startGccProbingWithoutSenderPadding(sender, gcc);
-      const before = (sender as any).octetCount as number;
-
-      // Act: padding only
-      const n = await sender.maybeInjectProbePadding();
-      expect(n).toBeGreaterThan(0);
-      expect(sentPackets.every((p) => p.header.padding)).toBe(true);
-
-      // Assert: 0-byte media payload → octetCount 増分 0
-      const after = (sender as any).octetCount as number;
-      expect(after - before).toBe(0);
     });
   });
 
@@ -1284,149 +819,67 @@ describe("media/sender bandwidth estimator", () => {
       const { sender, dtls } = await prepareConnectedSender(gcc);
       const fired: number[] = [];
       sender.onAvailableBitrate.subscribe((v) => fired.push(v));
-
-      // Act: 複数 sendRtp（probe padding 含む）
+      // Arrange: 複数 sendRtp（probe padding 含む）
       for (let i = 0; i < 15; i++) {
-        await sender.sendRtp(
-          new RtpPacket(
-            new RtpHeader({
-              sequenceNumber: i,
-              timestamp: i * 3000,
-              payloadType: 96,
-              ssrc: 1,
-              extension: true,
-              extensions: [],
-              marker: false,
-              padding: false,
-              payloadOffset: 12,
-            }),
-            Buffer.alloc(500),
-          ),
-        );
+        await sender.sendRtp(createRtpPacket(i, i * 3000, Buffer.alloc(500)));
       }
 
-      // 記録された sentInfos 相当: rtpPacketSent から wideSeq を復元
-      // TWCC は transport sequence を使う — dtls の現在値から遡る
-      const lastWide = dtls.transportSequenceNumber;
-      // 直近 40 パケット分を受信済みとして返す
-      const count = Math.min(40, lastWide);
-      const base = Date.now() - 1000;
-      const results = Array.from({ length: count }, (_, i) => {
-        const seq = lastWide - count + 1 + i;
-        return new PacketResult({
-          sequenceNumber: seq & 0xffff,
-          received: true,
-          receivedAtMs: base + i * 15,
-        });
-      });
+      // Act: 直近 40 パケット分を受信済みとして handleRtcpPacket 経路で返す
+      sender.handleRtcpPacket(
+        makeTwccRtcp(
+          receivedTail(dtls.transportSequenceNumber, 40, Date.now() - 1000, 15),
+        ),
+      );
 
-      // Act: handleRtcpPacket 経路
-      sender.handleRtcpPacket(makeTwccRtcp(results));
-
-      // Assert
+      // Assert: 新 estimator が更新され、sender の通知は最新値と一致する
       expect(sender.senderBWE).toBe(gcc);
       expect(gcc.availableBitrate).toBeGreaterThan(0);
       expect(fired.length).toBeGreaterThanOrEqual(1);
       expect(fired.at(-1)).toBe(gcc.availableBitrate);
     });
 
-    test("loss 系列を sendRtp/TWCC 経路で再現できる", async () => {
-      const gcc = new GccBandwidthEstimator(400_000);
-      const { sender, dtls } = await prepareConnectedSender(gcc);
+    test.each([
+      {
+        action: "stop",
+        act: (sender: RTCRtpSender) => sender.stop(),
+      },
+      {
+        action: "legacy への差し替え",
+        act: (sender: RTCRtpSender) =>
+          sender.setBandwidthEstimator(new SenderBandwidthEstimator()),
+      },
+    ])(
+      "GCC は ProcessInterval ごとに process され、$action で旧 GCC の timer が止まる",
+      ({ act }) => {
+        // Arrange: production wiring（runRtcp の 500–1500ms ではなく processIntervalMs 周期）
+        vi.useFakeTimers();
+        const gcc = new GccBandwidthEstimator(300_000);
+        const spy = vi.spyOn(gcc, "process");
+        const sender = new RTCRtpSender("video");
+        try {
+          sender.setBandwidthEstimator(gcc);
+          expect(spy).not.toHaveBeenCalled();
 
-      const pushBatch = async (n: number, lossRatio: number, tBase: number) => {
-        for (let i = 0; i < n; i++) {
-          await sender.sendRtp(
-            new RtpPacket(
-              new RtpHeader({
-                sequenceNumber: i,
-                timestamp: i * 3000,
-                payloadType: 96,
-                ssrc: 1,
-                extension: true,
-                extensions: [],
-                marker: false,
-                padding: false,
-                payloadOffset: 12,
-              }),
-              Buffer.alloc(800),
-            ),
-          );
+          // Act: 2 周期進める
+          vi.advanceTimersByTime(gcc.processIntervalMs * 2);
+
+          // Assert: 周期ごとに process される
+          expect(spy.mock.calls.length).toBeGreaterThanOrEqual(2);
+
+          // Act: stop / 差し替えのあとさらに進める
+          act(sender);
+          const n = spy.mock.calls.length;
+          vi.advanceTimersByTime(gcc.processIntervalMs * 4);
+
+          // Assert: 旧 GCC へはもう process せず、周期 timer も残らない
+          expect(spy.mock.calls.length).toBe(n);
+          expect(vi.getTimerCount()).toBe(0);
+        } finally {
+          sender.stop();
+          vi.useRealTimers();
         }
-        const last = dtls.transportSequenceNumber;
-        const results = Array.from({ length: n }, (_, i) => {
-          const seq = (last - n + 1 + i) & 0xffff;
-          const lost = i / n < lossRatio;
-          return new PacketResult({
-            sequenceNumber: seq,
-            received: !lost,
-            receivedAtMs: lost ? 0 : tBase + i * 12,
-          });
-        });
-        sender.handleRtcpPacket(makeTwccRtcp(results));
-      };
-
-      await pushBatch(25, 0, Date.now() - 2000);
-      await pushBatch(25, 0, Date.now() - 1000);
-      const good = gcc.availableBitrate;
-      await pushBatch(30, 0.45, Date.now() - 500);
-      await pushBatch(30, 0.45, Date.now() - 100);
-      const bad = gcc.availableBitrate;
-
-      expect(good).toBeGreaterThan(0);
-      expect(bad).toBeLessThanOrEqual(good);
-    });
-
-    test("RTCRtpSender は GCC 差し替え後に pin 25ms ProcessInterval で process する", () => {
-      // Arrange: production wiring（runRtcp の 500–1500ms ではなく 25ms）
-      vi.useFakeTimers();
-      const gcc = new GccBandwidthEstimator(300_000);
-      const spy = vi.spyOn(gcc, "process");
-      const sender = new RTCRtpSender("video");
-      try {
-        sender.setBandwidthEstimator(gcc);
-
-        // Act: pin kUpdateIntervalMs
-        expect(kGoogCcProcessIntervalMs).toBe(25);
-        expect(spy).not.toHaveBeenCalled();
-        vi.advanceTimersByTime(kGoogCcProcessIntervalMs);
-        expect(spy.mock.calls.length).toBeGreaterThanOrEqual(1);
-        vi.advanceTimersByTime(kGoogCcProcessIntervalMs);
-        expect(spy.mock.calls.length).toBeGreaterThanOrEqual(2);
-
-        // Assert: stop で timer が止まる
-        sender.stop();
-        const n = spy.mock.calls.length;
-        vi.advanceTimersByTime(kGoogCcProcessIntervalMs * 4);
-        expect(spy.mock.calls.length).toBe(n);
-      } finally {
-        sender.stop();
-        vi.useRealTimers();
-      }
-    });
-
-    test("estimator swap で旧 GCC の ProcessInterval timer が止まる", () => {
-      vi.useFakeTimers();
-      const gcc = new GccBandwidthEstimator(300_000);
-      const spy = vi.spyOn(gcc, "process");
-      const sender = new RTCRtpSender("video");
-      try {
-        sender.setBandwidthEstimator(gcc);
-        vi.advanceTimersByTime(kGoogCcProcessIntervalMs);
-        expect(spy.mock.calls.length).toBeGreaterThanOrEqual(1);
-
-        // Act: legacy に差し替え
-        sender.setBandwidthEstimator(new SenderBandwidthEstimator());
-        const n = spy.mock.calls.length;
-        vi.advanceTimersByTime(kGoogCcProcessIntervalMs * 4);
-
-        // Assert: 旧 instance へはもう process しない
-        expect(spy.mock.calls.length).toBe(n);
-      } finally {
-        sender.stop();
-        vi.useRealTimers();
-      }
-    });
+      },
+    );
 
     test("使用済み estimator の再注入で reset され履歴が残らない", async () => {
       // Arrange: 一度 TWCC を処理して availableBitrate を立てる
@@ -1435,210 +888,104 @@ describe("media/sender bandwidth estimator", () => {
       for (let i = 0; i < 20; i++) {
         gcc.rtpPacketSent(sent(i + 1, 800, t0 + i * 20));
       }
-      gcc.receiveTWCC(
-        makeTwccFeedback(
-          Array.from({ length: 20 }, (_, i) => {
-            return new PacketResult({
-              sequenceNumber: i + 1,
-              received: true,
-              receivedAtMs: t0 + 30 + i * 20,
-            });
-          }),
-        ),
-      );
+      gcc.receiveTWCC(makeTwccFeedback(receivedTail(20, 20, t0 + 30, 20)));
       expect(gcc.availableBitrate).toBeGreaterThan(0);
-      const usedBitrate = gcc.availableBitrate;
 
       // Act: 別 sender に同じインスタンスを注入 → setBandwidthEstimator が reset
       const { sender } = await prepareConnectedSender();
       sender.setBandwidthEstimator(gcc);
 
-      // Assert: 履歴クリア（availableBitrate は 0 に戻る）
+      // Assert: 履歴クリア（availableBitrate は 0 に戻る）、再観測なしでは通知しない
       expect(gcc.availableBitrate).toBe(0);
-      expect(gcc.availableBitrate).not.toBe(usedBitrate);
-      // 再観測なしでは通知しない
       const fired: number[] = [];
       sender.onAvailableBitrate.subscribe((v) => fired.push(v));
       expect(fired).toEqual([]);
     });
 
     test("送信中の estimator 差し替えで in-flight が新 estimator を汚染しない", async () => {
-      // Arrange: 旧 GCC で send を開始し、await sendRtp 中に差し替える
+      // Arrange: 旧 GCC で send を開始し、DTLS で止まっている間に差し替える
       const oldGcc = new GccBandwidthEstimator(300_000);
       const newGcc = new GccBandwidthEstimator(100_000);
       const { sender, dtls } = await prepareConnectedSender(oldGcc);
-
-      let releaseSend!: () => void;
-      const holdSend = new Promise<void>((resolve) => {
-        releaseSend = resolve;
-      });
-      let resolveHeld!: (size: number) => void;
-      const heldSize = new Promise<number>((resolve) => {
-        resolveHeld = resolve;
-      });
-
-      // 最初の 1 パケットだけ DTLS send をブロックして差し替えウィンドウを作る
-      let blockedOnce = false;
-      const originalSendRtp = dtls.sendRtp.bind(dtls);
-      dtls.sendRtp = vi.fn(async (payload: Buffer, header: RtpHeader) => {
-        if (!blockedOnce) {
-          blockedOnce = true;
-          await holdSend;
-          const size = payload.length + header.serializeSize;
-          resolveHeld(size);
-          return size;
-        }
-        return originalSendRtp(payload, header);
-      }) as typeof dtls.sendRtp;
-
+      const { release } = holdFirstWrite(dtls);
       const oldSpy = vi.spyOn(oldGcc, "rtpPacketSent");
       const newSpy = vi.spyOn(newGcc, "rtpPacketSent");
-
-      // Act: media 送信を開始（sendRtp 内で await 中）
       const sendPromise = sender.sendRtp(
-        new RtpPacket(
-          new RtpHeader({
-            sequenceNumber: 1,
-            timestamp: 1000,
-            payloadType: 96,
-            ssrc: 1,
-            extension: true,
-            extensions: [],
-            marker: false,
-            padding: false,
-            payloadOffset: 12,
-          }),
-          Buffer.alloc(200),
-        ),
+        createRtpPacket(1, 1000, Buffer.alloc(200)),
       );
+      await flushMicrotasks();
 
-      // 送信が DTLS で止まっている間に estimator を差し替え
-      await Promise.resolve();
-      await Promise.resolve();
+      // Act: in-flight のまま差し替えてから完了させる
       sender.setBandwidthEstimator(newGcc);
       expect(sender.senderBWE).toBe(newGcc);
-      expect(newGcc.availableBitrate).toBe(0);
-
-      // in-flight を完了
-      releaseSend();
-      await heldSize;
+      release();
       await sendPromise;
 
-      // Assert: 差し替え後に完了したパケットは新 estimator に渡らない
-      // （世代不一致で discard）。旧も dispose 済みなので汚染しない。
+      // Assert: 差し替え後に完了したパケットは新旧どちらにも渡らない（世代不一致で discard）
       expect(newSpy).not.toHaveBeenCalled();
-      // 新 estimator はクリーン（差し替え時 reset + in-flight 非配送）
+      expect(oldSpy).not.toHaveBeenCalled();
       expect(newGcc.availableBitrate).toBe(0);
       expect(twccHistoryOf(newGcc).size).toBe(0);
 
-      // 差し替え後の新規送信は新 estimator のみに届く
-      await sender.sendRtp(
-        new RtpPacket(
-          new RtpHeader({
-            sequenceNumber: 2,
-            timestamp: 2000,
-            payloadType: 96,
-            ssrc: 1,
-            extension: true,
-            extensions: [],
-            marker: false,
-            padding: false,
-            payloadOffset: 12,
-          }),
-          Buffer.alloc(200),
-        ),
-      );
+      // Act: 差し替え後の新規送信
+      await sender.sendRtp(createRtpPacket(2, 2000, Buffer.alloc(200)));
+
+      // Assert: 新 estimator だけに届き、旧世代の in-flight バイトを priorUnackedBytes に混ぜない
       expect(newSpy).toHaveBeenCalled();
-      expect(newSpy.mock.calls.length).toBeGreaterThanOrEqual(1);
-      // 旧世代の in-flight 完了バイトを priorUnackedBytes に混ぜない
       expect(newSpy.mock.calls[0][0].priorUnackedBytes).toBe(0);
-      // 旧への post-swap 配送はない（dispose 後に呼ばれても世代 discard）
-      // oldSpy は差し替え前の同期経路で 0 回、または in-flight 完了時も discard
-      const oldCallsAfterSwap = oldSpy.mock.calls.length;
-      expect(oldCallsAfterSwap).toBe(0);
+      expect(oldSpy).not.toHaveBeenCalled();
     });
 
-    test("差し替えで in-flight probe padding が旧 estimator を再駆動しない", async () => {
-      // Arrange: GCC probe padding を非同期開始し、途中で legacy に差し替え
-      const gcc = new GccBandwidthEstimator(1_000_000);
-      const { sender, dtls } = await prepareConnectedSender(gcc);
-      startGccProbing(gcc);
+    test.each([
+      {
+        action: "legacy への差し替え",
+        act: (sender: RTCRtpSender) =>
+          sender.setBandwidthEstimator(new SenderBandwidthEstimator()),
+      },
+      { action: "stop", act: (sender: RTCRtpSender) => sender.stop() },
+    ])(
+      "in-flight probe padding 中の $action で、dispose 済み GCC を再駆動しない",
+      async ({ act }) => {
+        // Arrange: GCC probe padding を非同期開始し、最初の DTLS write で止める
+        const gcc = new GccBandwidthEstimator(1_000_000);
+        const { sender, dtls } = await prepareConnectedSender(gcc);
+        startGccProbing(gcc);
+        const { release } = holdFirstWrite(dtls);
+        const pendingSpy = vi.spyOn(gcc, "pendingProbePaddingPackets");
+        const padPromise = sender.maybeInjectProbePadding();
+        await flushMicrotasks();
 
-      let releaseFirst!: () => void;
-      const holdFirst = new Promise<void>((resolve) => {
-        releaseFirst = resolve;
-      });
-      let firstHeld = false;
-      const originalSendRtp = dtls.sendRtp.bind(dtls);
-      dtls.sendRtp = vi.fn(async (payload: Buffer, header: RtpHeader) => {
-        if (!firstHeld) {
-          firstHeld = true;
-          await holdFirst;
-        }
-        return originalSendRtp(payload, header);
-      }) as typeof dtls.sendRtp;
+        // Act: in-flight のまま差し替え / stop（generation bump で padding ループは cancel）
+        act(sender);
+        release();
+        const n = await padPromise;
 
-      const pendingSpy = vi.spyOn(gcc, "pendingProbePaddingPackets");
-      const sentSpy = vi.spyOn(gcc, "rtpPacketSent");
-
-      // Act: padding 注入を開始（最初の send で止まる）
-      const padPromise = sender.maybeInjectProbePadding();
-      await Promise.resolve();
-      await Promise.resolve();
-
-      // 差し替え → generation bump で padding ループは cancel
-      const legacy = new SenderBandwidthEstimator();
-      sender.setBandwidthEstimator(legacy);
-      releaseFirst();
-      const n = await padPromise;
-
-      // Assert: dispose 後に pendingProbePaddingPackets で probe を再生成しない
-      // （差し替え前の呼び出し回数で止まり、dispose 後の追加呼び出しなし）
-      const callsAtEnd = pendingSpy.mock.calls.length;
-      // 差し替え後にさらに drain しようとして呼ばれていないことを、
-      // イベントループを回してから再確認
-      await Promise.resolve();
-      await Promise.resolve();
-      expect(pendingSpy.mock.calls.length).toBe(callsAtEnd);
-      // 新 (legacy) は probe 非対応 — 旧への rtpPacketSent も in-flight discard で 0 可
-      expect(isProbePacingController(sender.senderBWE)).toBe(false);
-      // n は 0 以上（最初の 1 パケットが wire に出る場合あり）だが、
-      // 差し替え後の大量完遂にはならない
-      expect(n).toBeLessThan(16);
-      void sentSpy;
-    });
+        // Assert: その後 pendingProbePaddingPackets で probe を再生成しない
+        const callsAtEnd = pendingSpy.mock.calls.length;
+        await flushMicrotasks();
+        expect(pendingSpy.mock.calls.length).toBe(callsAtEnd);
+        // Assert: 最初の 1 パケットは wire に出うるが、大量完遂にはならず、履歴も解放される
+        expect(n).toBeLessThan(16);
+        expect(gcc.pendingProbePaddingPackets()).toBe(0);
+        expect(twccHistoryOf(gcc).size).toBe(0);
+      },
+    );
 
     test("差し替え中に発火した新 GCC probe は旧 padding in-flight を跨いで送信される", async () => {
       // Arrange: 旧 GCC の padding 送信を DTLS で止め、その間に新 GCC へ差し替える
       const oldGcc = new GccBandwidthEstimator(1_000_000);
       const { sender, dtls } = await prepareConnectedSender(oldGcc);
       startGccProbing(oldGcc);
-
-      let releaseFirst!: () => void;
-      const holdFirst = new Promise<void>((resolve) => {
-        releaseFirst = resolve;
-      });
-      let firstHeld = false;
-      const originalSendRtp = dtls.sendRtp.bind(dtls);
-      dtls.sendRtp = vi.fn(async (payload: Buffer, header: RtpHeader) => {
-        if (!firstHeld) {
-          firstHeld = true;
-          await holdFirst;
-        }
-        return originalSendRtp(payload, header);
-      }) as typeof dtls.sendRtp;
-
+      const { release } = holdFirstWrite(dtls);
       const oldPadPromise = sender.maybeInjectProbePadding();
-      await Promise.resolve();
-      await Promise.resolve();
-
+      await flushMicrotasks();
       const newGcc = new GccBandwidthEstimator(1_000_000);
       const newSent = vi.spyOn(newGcc, "rtpPacketSent");
       sender.setBandwidthEstimator(newGcc);
 
       // Act: 切替後に新 estimator の probe cluster を発火させる
       startGccProbing(newGcc);
-      releaseFirst();
+      release();
       await oldPadPromise;
       for (let i = 0; i < 50 && newSent.mock.calls.length === 0; i++) {
         await new Promise((r) => setTimeout(r, 5));
@@ -1651,23 +998,6 @@ describe("media/sender bandwidth estimator", () => {
       expect(probation.length).toBeGreaterThan(0);
     });
 
-    test("estimator dispose / reset は sentInfos と probe seq map を残さない", () => {
-      // Arrange: 送信履歴と probe mapping を積む
-      const gcc = new GccBandwidthEstimator(300_000);
-      startGccProbing(gcc);
-      gcc.rtpPacketSent(sent(1, 200, 1_000, { isProbation: true }));
-      gcc.rtpPacketSent(sent(2, 200, 1_010, { isProbation: true }));
-      expect(twccHistoryOf(gcc).size).toBeGreaterThan(0);
-
-      // Act
-      gcc.dispose();
-
-      // Assert: stop/dispose 後に履歴が残らない
-      expect(twccHistoryOf(gcc).size).toBe(0);
-      expect((gcc as any).probe.seqToCluster.size).toBe(0);
-      expect((gcc as any).probe.seqToSendInfo.size).toBe(0);
-    });
-
     test("RTCRtpSender.stop は世代無効化・padding 停止・estimator dispose する", async () => {
       // Arrange: GCC + 送信履歴 + probe mapping
       const gcc = new GccBandwidthEstimator(300_000);
@@ -1676,10 +1006,9 @@ describe("media/sender bandwidth estimator", () => {
       gcc.rtpPacketSent(sent(1, 200, 1_000, { isProbation: true }));
       gcc.rtpPacketSent(sent(2, 200, 1_010, { isProbation: true }));
       expect(twccHistoryOf(gcc).size).toBeGreaterThan(0);
-      await Promise.resolve();
-      await Promise.resolve();
-      const sendsBeforeStop = (dtls.sendRtp as ReturnType<typeof vi.fn>).mock
-        .calls.length;
+      await flushMicrotasks();
+      const writes = dtls.sendRtp as ReturnType<typeof vi.fn>;
+      const sendsBeforeStop = writes.mock.calls.length;
 
       // Act
       sender.stop();
@@ -1687,75 +1016,19 @@ describe("media/sender bandwidth estimator", () => {
       // Assert: 履歴は dispose で解放される
       expect(twccHistoryOf(gcc).size).toBe(0);
       expect((gcc as any).probe.seqToCluster.size).toBe(0);
+      expect((gcc as any).probe.seqToSendInfo.size).toBe(0);
       expect((gcc as any).lossBwe.partial.numPackets).toBe(0);
       expect((gcc as any).lossBwe.partial.lostPackets.size).toBe(0);
       expect((gcc as any).disposed).toBe(true);
 
-      // Act: stop 後の padding / send は何も送らない
+      // Act: stop 後の padding / send
       const n = await sender.maybeInjectProbePadding();
-      await sender.sendRtp(
-        new RtpPacket(
-          new RtpHeader({
-            sequenceNumber: 9,
-            timestamp: 9,
-            payloadType: 96,
-            ssrc: 1,
-            extension: true,
-            extensions: [],
-            marker: false,
-            padding: false,
-            payloadOffset: 12,
-          }),
-          Buffer.alloc(100),
-        ),
-      );
+      await sender.sendRtp(createRtpPacket(9, 9, Buffer.alloc(100)));
 
       // Assert: stop 後に追加の RTP / padding は出ない
       expect(n).toBe(0);
-      expect((dtls.sendRtp as ReturnType<typeof vi.fn>).mock.calls.length).toBe(
-        sendsBeforeStop,
-      );
+      expect(writes.mock.calls.length).toBe(sendsBeforeStop);
       expect(gcc.pendingProbePaddingPackets()).toBe(0);
-    });
-
-    test("stop と in-flight padding の競合で disposed estimator を再駆動しない", async () => {
-      // Arrange: padding 注入を非同期開始し、途中で stop
-      const gcc = new GccBandwidthEstimator(1_000_000);
-      const { sender, dtls } = await prepareConnectedSender(gcc);
-      startGccProbing(gcc);
-
-      let releaseFirst!: () => void;
-      const holdFirst = new Promise<void>((resolve) => {
-        releaseFirst = resolve;
-      });
-      let firstHeld = false;
-      const originalSendRtp = dtls.sendRtp.bind(dtls);
-      dtls.sendRtp = vi.fn(async (payload: Buffer, header: RtpHeader) => {
-        if (!firstHeld) {
-          firstHeld = true;
-          await holdFirst;
-        }
-        return originalSendRtp(payload, header);
-      }) as typeof dtls.sendRtp;
-
-      const pendingSpy = vi.spyOn(gcc, "pendingProbePaddingPackets");
-
-      // Act: padding 開始（最初の send で止まる）→ stop
-      const padPromise = sender.maybeInjectProbePadding();
-      await Promise.resolve();
-      await Promise.resolve();
-      sender.stop();
-      releaseFirst();
-      const n = await padPromise;
-
-      // Assert: stop 後に pendingProbe で probe を再生成しない
-      const callsAtEnd = pendingSpy.mock.calls.length;
-      await Promise.resolve();
-      await Promise.resolve();
-      expect(pendingSpy.mock.calls.length).toBe(callsAtEnd);
-      expect(n).toBeLessThan(16);
-      expect(gcc.pendingProbePaddingPackets()).toBe(0);
-      expect(twccHistoryOf(gcc).size).toBe(0);
     });
 
     test("connected sender に差し込むと network available が同期される", async () => {
@@ -1772,7 +1045,51 @@ describe("media/sender bandwidth estimator", () => {
   });
 });
 
-function uint16Forward(a: number, b: number): boolean {
-  const da = (b - a + 0x10000) & 0xffff;
-  return da > 0 && da < 0x8000;
+/** Arrange: the last `count` TSNs up to `lastSeq`, all received `stepMs` apart. */
+function receivedTail(
+  lastSeq: number,
+  count: number,
+  baseMs: number,
+  stepMs: number,
+): PacketResult[] {
+  const n = Math.min(count, lastSeq);
+  return Array.from(
+    { length: n },
+    (_, i) =>
+      new PacketResult({
+        sequenceNumber: (lastSeq - n + 1 + i) & 0xffff,
+        received: true,
+        receivedAtMs: baseMs + i * stepMs,
+      }),
+  );
+}
+
+/** Assert: RFC 3550 padding-only probe packet that reparses from the wire. */
+function expectProbePaddingPacket(p: CapturedRtp) {
+  expect(p.header.padding).toBe(true);
+  expect(p.header.paddingSize).toBe(kProbePaddingPacketBytes);
+  // 実 payload は padding だけ（ゼロ埋め + 末尾 length）
+  expect(p.payload.length).toBe(kProbePaddingPacketBytes);
+  expect(p.payload[p.payload.length - 1]).toBe(kProbePaddingPacketBytes);
+  expect(p.payload.subarray(0, -1).every((b) => b === 0)).toBe(true);
+  // フル RTP を再パース可能
+  const parsed = RtpPacket.deSerialize(
+    new RtpPacket(p.header, p.payload).serialize(),
+  );
+  expect(parsed.header.padding).toBe(true);
+  expect(parsed.header.paddingSize).toBe(kProbePaddingPacketBytes);
+}
+
+/** Wire 16-bit TSN of a captured packet (extension id 3), or -1. */
+function wireTsnOf(p: CapturedRtp): number {
+  const twcc = p.header.extensions.find((ext) => ext.id === 3);
+  return twcc ? twcc.payload.readUInt16BE(0) : -1;
+}
+
+function opusCodec() {
+  return new RTCRtpCodecParameters({
+    mimeType: "audio/opus",
+    clockRate: 48000,
+    payloadType: 111,
+  });
 }
