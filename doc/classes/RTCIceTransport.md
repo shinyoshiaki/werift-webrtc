@@ -39,9 +39,10 @@ nomination, staged-password error responses).
   ignored.
 - Ends at the final answer, which recreates the live agent with the staged
   credentials and checks the answered generation from scratch (when the
-  answer keeps the pranswer's credentials, the controlling side nominates
-  only the 5-tuple its provisional checklist nominated, which the peer may
-  have selected already, and fails if it cannot), or at rollback / a
+  answer keeps the pranswer's credentials and the commit keeps that pair's
+  local socket, the controlling side nominates only the 5-tuple its
+  provisional checklist nominated, which the peer may have selected
+  already, and fails if it cannot), or at rollback / a
   replacement offer / selecting another generation, which stops its checks
   and keeps the live generation.
 

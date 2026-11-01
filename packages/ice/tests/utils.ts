@@ -1728,6 +1728,17 @@ export function createNominationHarness({
     (connection as unknown as { checksBegun: boolean }).checksBegun = true;
   };
   /**
+   * The commit drops the local socket of `pair` from the agent, as
+   * `gatherCandidates()` does for a TURN allocation it replaces or a socket
+   * the gather options exclude.
+   */
+  const dropLocalSocketOf = (pair: CandidatePair) => {
+    const internals = connection as unknown as { protocols: Protocol[] };
+    internals.protocols = internals.protocols.filter(
+      (protocol) => protocol !== pair.protocol,
+    );
+  };
+  /**
    * Signal the remote candidate of `pair` (a provisional one) again to the
    * live checklist; returns the live pair with the same local candidate.
    */
@@ -1806,6 +1817,7 @@ export function createNominationHarness({
     finalAnswer,
     addRemoteLike,
     receiveCheckLike,
+    dropLocalSocketOf,
   };
 }
 
@@ -2106,4 +2118,79 @@ export async function deliverProvisionalCheck(
 /** The transport protocols (sockets / allocations) `connection` keeps. */
 export function connectionProtocols(connection: Connection) {
   return (connection as unknown as { protocols: Protocol[] }).protocols;
+}
+
+/**
+ * Shared Arrange: a relay-only controlling agent `a` (forceTurn through a
+ * local TURN server) and a host-only controlled agent `b`, connected, then an
+ * ICE restart negotiated up to its pranswer: both stage the restart
+ * credentials and run the provisional checklist, which `a` checks over the
+ * TURN allocation it kept. `commit(agent)` applies the final answer to one
+ * agent (restart to the staged credentials and gather); `connectBoth()`
+ * then exchanges the committed candidates and connects both.
+ */
+export async function createRelayProvisionalRestartPair() {
+  const server = await createLocalTurnServer(getHostAddresses(true, false)[0]!);
+  const a = createTestConnection(true, localTurnOptions(server));
+  const b = createTestConnection(false, { useIpv6: false });
+  await Promise.all([a.gatherCandidates(), b.gatherCandidates()]);
+  exchangeIceCredentials(a, b);
+  await deliverLocalCandidates(a, b, { endOfCandidates: true });
+  await deliverLocalCandidates(b, a, { endOfCandidates: true });
+  await Promise.all([a.connect(), b.connect()]);
+
+  const credentials = new Map([
+    [a, { usernameFragment: "provA", password: "provisional-password-a-000" }],
+    [b, { usernameFragment: "provB", password: "provisional-password-b-000" }],
+  ]);
+  const peerOf = (agent: Connection) => (agent === a ? b : a);
+
+  const startProvisional = async () => {
+    for (const agent of [a, b]) {
+      const own = credentials.get(agent)!;
+      agent.stageLocalCredentials(own.usernameFragment, own.password);
+    }
+    for (const agent of [a, b]) {
+      agent.setProvisionalRemoteParams(credentials.get(peerOf(agent))!);
+      for (const candidate of peerOf(agent).localCandidates) {
+        await agent.addProvisionalRemoteCandidate(
+          signalledCandidate(candidate),
+        );
+      }
+      await agent.addProvisionalRemoteCandidate(undefined);
+    }
+    b.startProvisionalChecks();
+    a.startProvisionalChecks();
+  };
+
+  /** The final answer reaches `agent`: it restarts to the staged generation and gathers it. */
+  const commit = async (agent: Connection) => {
+    const own = credentials.get(agent)!;
+    await agent.restart();
+    agent.commitLocalCredentials(own.usernameFragment, own.password);
+    agent.setRemoteParams({
+      iceLite: false,
+      ...credentials.get(peerOf(agent))!,
+    });
+    await agent.gatherCandidates();
+  };
+
+  /** Signal each committed generation's candidates to the other and connect both. */
+  const connectBoth = async () => {
+    await deliverLocalCandidates(a, b, { endOfCandidates: true });
+    await deliverLocalCandidates(b, a, { endOfCandidates: true });
+    await Promise.all([a.connect(), b.connect()]);
+  };
+
+  return {
+    a,
+    b,
+    startProvisional,
+    commit,
+    connectBoth,
+    close: async () => {
+      await Promise.allSettled([a.close(), b.close()]);
+      await server.close();
+    },
+  };
 }

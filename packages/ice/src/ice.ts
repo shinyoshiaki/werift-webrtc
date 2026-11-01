@@ -2647,7 +2647,11 @@ export class Connection implements IceConnection {
           !hint ||
           hint.localUsername !== this.localUsername ||
           hint.remoteUsername !== this.remoteUsername ||
-          hint.remotePassword !== this.remotePassword
+          hint.remotePassword !== this.remotePassword ||
+          // The commit closed the pair's socket (a TURN allocation an ICE
+          // restart replaces, an excluded host socket): the path is gone for
+          // the peer too, so the usual rules choose.
+          !this.protocols.includes(hint.protocol)
         ) {
           return undefined;
         }
@@ -2743,6 +2747,7 @@ export class Connection implements IceConnection {
       remoteUsername: generation.remoteUsername,
       remotePassword: generation.remotePassword,
       key: pairKey(pair),
+      protocol: pair.protocol,
     };
   }
 
@@ -3343,13 +3348,21 @@ class RegularNomination {
  * scratch (`[2.7-T4a]`) but nominates only the pair with the same 5-tuple;
  * when that pair fails or never appears it nominates nothing else and the
  * agent fails (see `decideNomination`). It only applies while the live
- * checklist uses the provisional credentials.
+ * checklist uses the provisional credentials and the agent keeps the pair's
+ * local socket (`protocol`); otherwise the usual rules choose the pair.
  */
 type NominationHint = {
   localUsername: string;
   remoteUsername: string;
   remotePassword: string;
   key: string;
+  /**
+   * The local socket (or TURN allocation) of the pair. The hint holds only
+   * while the agent keeps it: a commit that closes it (an ICE restart
+   * allocates TURN afresh, gather options that exclude the socket) ends the
+   * path for both agents, so no selection of the peer is left to match.
+   */
+  protocol: Protocol;
 };
 
 /** Local foundation and the 5-tuple: the same path in another checklist. */

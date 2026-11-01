@@ -5,9 +5,11 @@ import {
   createMultiPathPair,
   createNominationHarness,
   createProvisionalRestartPair,
+  createRelayProvisionalRestartPair,
   dropNominationResponses,
   ignoreRequestsOn,
   nominationInFlight,
+  turnAllocations,
   waitUntil,
 } from "../utils";
 
@@ -911,6 +913,40 @@ describe("the final answer after a provisional nomination", () => {
     },
   );
 
+  test("a preferred pair whose local socket the commit closed is not waited for: the usual rule nominates", async () => {
+    // local0 / local1 の 2 つのソケットを持つ。
+    const h = createNominationHarness({
+      nominationReply: (index) => (index === 0 ? "hold" : "success"),
+      localPriorities: [undefined, undefined],
+    });
+    h.stageProvisional();
+    const provisional = await h.addProvisionalRemote(LOW);
+    await h.connection.addProvisionalRemoteCandidate(undefined);
+    await h.succeed(provisional);
+    expect(h.nominations()).toHaveLength(1);
+
+    try {
+      // Act: final answer の確定で provisional の pair のソケット (local0) が閉じられ、残るソケットの pair だけが成功する。
+      await h.finalAnswer();
+      h.dropLocalSocketOf(provisional);
+      const [gone, kept] = await h.addRemotePairs(HIGH);
+      await h.connection.addRemoteCandidate(undefined);
+      h.check(kept);
+      await h.succeed(kept);
+
+      // Assert: 経路は両端で失われているので待たず (3 秒の待機も断念もせず)、通常の規則で残る pair が即 nominate される。
+      expect(gone).toBeUndefined();
+      expect(h.nominations().map((request) => request.addr)).toEqual([
+        provisional.remoteAddr,
+        kept.remoteAddr,
+      ]);
+      expect(h.connection.nominated).toBe(kept);
+      expect(h.connection.state).not.toBe("failed");
+    } finally {
+      await h.connection.close();
+    }
+  });
+
   test("an empty checklist after end-of-candidates waits for the preferred pair, then gives up", async () => {
     const h = createNominationHarness({
       nominationReply: (index) => (index === 0 ? "hold" : "success"),
@@ -1412,6 +1448,44 @@ describe("nomination over real sockets", () => {
     } finally {
       await a.close();
       await b.close();
+    }
+  }, 40_000);
+
+  test("a relay path the final answer's re-allocation closed is no longer preferred and the new allocation connects", async () => {
+    vi.useRealTimers();
+    const pair = await createRelayProvisionalRestartPair();
+    const { a, b } = pair;
+
+    try {
+      // Arrange: a は保持している TURN allocation 上で provisional の relay pair を nominate する。
+      await pair.startProvisional();
+      await waitUntil(() => a.provisionalNominated !== undefined, 15_000);
+      const provisional = a.provisionalNominated!;
+      const [oldAllocation] = turnAllocations(a);
+      expect(provisional.localCandidate.type).toBe("relay");
+      expect(provisional.protocol).toBe(oldAllocation);
+
+      // Act: 同じ資格情報の final answer を両端で確定する (a は TURN を allocation し直し、旧 allocation を閉じる)。
+      await pair.commit(b);
+      await pair.commit(a);
+      await pair.connectBoth();
+
+      // Assert: 旧 allocation は外れ、新しい allocation の relay pair が nominate されて両端の 5-tuple が一致する。
+      expect(turnAllocations(a)).not.toContain(oldAllocation);
+      expect(a.nominated!.localCandidate.type).toBe("relay");
+      expect(a.nominated!.protocol).not.toBe(oldAllocation);
+      expect(a.state).not.toBe("failed");
+      expect(a.nominated?.localCandidate.host).toBe(b.nominated?.remoteAddr[0]);
+      expect(a.nominated?.localCandidate.port).toBe(b.nominated?.remoteAddr[1]);
+      expect(a.nominated?.remoteAddr[0]).toBe(b.nominated?.localCandidate.host);
+      expect(a.nominated?.remoteAddr[1]).toBe(b.nominated?.localCandidate.port);
+      // Assert: 新しい経路でデータが双方向に届く。
+      await a.send(Buffer.from("ping"));
+      expect((await b.onData.asPromise())[0].toString()).toBe("ping");
+      await b.send(Buffer.from("pong"));
+      expect((await a.onData.asPromise())[0].toString()).toBe("pong");
+    } finally {
+      await pair.close();
     }
   }, 40_000);
 });
