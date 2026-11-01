@@ -27,21 +27,21 @@
     "lib"
   ],
   "scripts": {
-    "build": "rm -rf lib && npm run format && tsc -p ./tsconfig.production.json",
+    "build": "rm -rf lib && tsc -p ./tsconfig.production.json && node ../write-package-entrypoint.mjs rtp",
     "ci": "npm run type && npm run lint && npm run test",
     "deploy": "npm run build && npm publish",
     "deploy:alpha": "npm run build && npm publish --tag alpha",
     "doc": "rm -rf doc && typedoc --excludePrivate --disableSources --excludeInternal --plugin typedoc-plugin-markdown --out doc ./src/index.ts",
     "format": "biome check --write src tests",
-    "test": "npm run type && vitest run ./tests",
-    "type": "tsc --noEmit -p .",
-    "unused": "organize-imports-cli src/**/*.ts",
+    "test": "npm run type && npm run type:public && vitest run ./tests",
+    "test:browser": "cd browser-e2e && npm install && npm run ci:silent",
+    "type": "tsc --noEmit -p . --rootDir ..",
+    "type:public": "rm -rf .tmp-decl && tsc -p tsconfig.production.json --outDir .tmp-decl && tsc -p tools/publicTypes/tsconfig.json; r=$?; rm -rf .tmp-decl; exit $r",
     "upgrade-interactive": "npx npm-check-updates -i"
   },
   "dependencies": {
     "buffer": "^6.0.3",
-    "debug": "4.4.0",
-    "mediabunny": "^1.45.2"
+    "mediabunny": "^1.62.1"
   },
   "devDependencies": {},
   "engines": {

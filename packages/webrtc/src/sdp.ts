@@ -23,9 +23,9 @@ import {
   RTCDtlsParameters,
 } from "./transport/dtls";
 import {
+  candidateFromIce,
   type IceCandidate,
   RTCIceParameters,
-  candidateFromIce,
 } from "./transport/ice";
 import { RTCSctpCapabilities } from "./transport/sctp";
 import type { Kind } from "./types/domain";

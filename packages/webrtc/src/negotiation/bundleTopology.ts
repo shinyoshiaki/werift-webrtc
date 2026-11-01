@@ -14,6 +14,19 @@ import type { RTCSignalingState } from "../types/domain";
  * group owns the transport its members share. A proposal that changes the
  * topology (split, merge, new owner) gets its transports prepared in the
  * negotiation transaction and switches only at the commit.
+ *
+ * - For a first negotiation and for answers, each offered group shares one
+ *   transport and an m-line outside every group gets its own, whatever
+ *   `bundlePolicy` is. A re-offer or pranswer on a live session keeps every
+ *   current owner on its transport, so moving an established member out of
+ *   its group (RFC 8843 section 7.5) is staged, not rejected.
+ * - A split prepares a separate ICE/DTLS transport for the new owner while the
+ *   shared one stays connected. The new owner is a new DTLS association
+ *   (offered `actpass`); each transport takes the DTLS role of its own m-line.
+ *   The m-line that moves away brings its new ufrag to its own transport; the
+ *   transport it leaves is not restarted.
+ * - An answer leaves an m-line it rejects out of its group (RFC 8843 section
+ *   7.3.3); werift's port-0 `inactive` m-lines are not rejections and stay.
  */
 export class BundleTopology {
   constructor(
@@ -70,8 +83,6 @@ export class BundleTopology {
     );
   }
 
-  /** Live transport of every m-line (transceiver or SCTP) that has a MID. */
-  /** The transport the committed session uses for `mid` (ignoring a pending proposal). */
   /**
    * The transports `description` puts its accepted m-lines on: each m-line's
    * BUNDLE owner (group tag, else itself), on the transport prepared for the

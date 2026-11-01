@@ -2,14 +2,16 @@ import { appendFile, open, stat } from "fs/promises";
 
 import { PromiseQueue } from "../..";
 import {
+  ClusterSizeOffset,
   DurationPosition,
+  replaceSegmentSize,
   SegmentSizePosition,
   WebmBase,
   type WebmInput,
   type WebmOption,
   type WebmOutput,
   type WebmTrack,
-  replaceSegmentSize,
+  replaceClusterSize,
 } from "./webm";
 
 export class WebmCallback extends WebmBase {
@@ -60,7 +62,7 @@ export const saveToFileSystem = (path: string) => {
 
         return false;
       } else if (value.eol) {
-        const { durationElement } = value.eol;
+        const { durationElement, clusters } = value.eol;
         const handler = await open(path, "r+");
 
         // set duration
@@ -70,6 +72,17 @@ export const saveToFileSystem = (path: string) => {
           durationElement.length,
           DurationPosition,
         );
+
+        // set cluster sizes
+        for (const { position, size } of clusters) {
+          const resize = replaceClusterSize(size);
+          await handler.write(
+            resize,
+            0,
+            resize.length,
+            position + ClusterSizeOffset,
+          );
+        }
 
         // set size
         const meta = await stat(path);

@@ -8,13 +8,13 @@
 
 ## Constructors
 
-### new EventDisposer()
+### Constructor
 
-> **new EventDisposer**(): [`EventDisposer`](EventDisposer.md)
+> **new EventDisposer**(): `EventDisposer`
 
 #### Returns
 
-[`EventDisposer`](EventDisposer.md)
+`EventDisposer`
 
 ## Methods
 

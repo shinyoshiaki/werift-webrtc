@@ -1,7 +1,7 @@
 import type { PeerConfig } from "./api/peerConfig";
 import { SRTP_PROFILE } from "./const";
 import { createWebRtcDomException, createWebRtcTypeError } from "./errors";
-import { Event, debug } from "./imports/common";
+import { debug, Event } from "./imports/common";
 import type { RTCRtpTransceiver, TransceiverManager } from "./media";
 import type { RTCStats } from "./media/stats";
 import type { SctpTransportManager } from "./sctpManager";
@@ -11,13 +11,13 @@ import {
   RTCCertificate,
   RTCDtlsTransport,
 } from "./transport/dtls";
-import { IceCandidate, RTCIceGatherer, RTCIceTransport } from "./transport/ice";
 import type {
   IceGathererState,
   RTCIceCandidate,
   RTCIceCandidateInit,
   RTCIceConnectionState,
 } from "./transport/ice";
+import { IceCandidate, RTCIceGatherer, RTCIceTransport } from "./transport/ice";
 import type { RTCSctpTransport } from "./transport/sctp";
 import type { ConnectionState } from "./types/domain";
 import { parseIceServers, resolveTurnTransport } from "./utils";
@@ -30,6 +30,8 @@ export class SecureTransportManager {
   iceConnectionState: RTCIceConnectionState = "new";
   iceGatheringState: IceGathererState = "new";
   certificate?: RTCCertificate;
+  /**Generation of this peer connection's own certificate, shared by concurrent createOffer / createAnswer calls */
+  private certificatePromise?: Promise<RTCCertificate>;
 
   readonly iceGatheringStateChange = new Event<[IceGathererState]>();
   readonly iceConnectionStateChange = new Event<[RTCIceConnectionState]>();
@@ -118,9 +120,30 @@ export class SecureTransportManager {
   }
 
   /**
+   * The STUN/TURN settings the next gathering phase uses, resolved from the
+   * current config (what `updateIceServers` hands to each transport).
+   */
+  iceServerSettings() {
+    return {
+      ...this.resolveIceServerOptions(),
+      forceTurn: this.config.iceTransportPolicy === "relay",
+      useTcp: this.config.iceUseTcp,
+      turnTlsOptions: this.config.turnTlsOptions,
+      turnUdpFamily: this.config.turnUdpFamily,
+    };
+  }
+
+  /** Whether a live transport started gathering (its servers are in use). */
+  get gatheringStarted() {
+    return this.iceTransports.some(
+      (iceTransport) => iceTransport.gatheringState !== "new",
+    );
+  }
+
+  /**
    * Re-apply ICE servers from the current config.
    *
-   * JSEP (RFC 8829 §4.1.18): server changes affect the next gathering phase.
+   * JSEP (RFC 9429 §4.1.18): server changes affect the next gathering phase.
    * A transport that has not gathered yet (`gatheringState === "new"`) takes
    * them now (e.g. TURN learned from a WHIP Link header before
    * setLocalDescription gathers). A transport that already gathered keeps its
@@ -128,12 +151,7 @@ export class SecureTransportManager {
    * also replaces a TURN allocation made with the old settings.
    */
   updateIceServers() {
-    const options = {
-      ...this.resolveIceServerOptions(),
-      forceTurn: this.config.iceTransportPolicy === "relay",
-      useTcp: this.config.iceUseTcp,
-      turnUdpFamily: this.config.turnUdpFamily,
-    };
+    const options = this.iceServerSettings();
     for (const iceTransport of this.iceTransports) {
       if (iceTransport.gatheringState === "new") {
         iceTransport.setIceServers(options);
@@ -692,9 +710,26 @@ export class SecureTransportManager {
     return stats;
   }
 
+  /**
+   * Without `certificates` / `dtls.keys`, `certificateScope` decides the default:
+   * - `"process"` (default): the certificate shared by the whole process.
+   * - `"peerConnection"`: a certificate generated for this peer connection (like browsers),
+   *   kept for its lifetime; every DTLS transport of this peer connection uses it.
+   */
   async ensureCerts() {
     if (!this.certificate) {
-      this.certificate = await RTCDtlsTransport.SetupCertificate();
+      if (this.config.certificateScope === "peerConnection") {
+        this.certificatePromise ??= RTCDtlsTransport.generateCertificate();
+        try {
+          this.certificate ??= await this.certificatePromise;
+        } catch (error) {
+          // let the next createOffer / createAnswer retry the generation
+          this.certificatePromise = undefined;
+          throw error;
+        }
+      } else {
+        this.certificate = await RTCDtlsTransport.SetupCertificate();
+      }
     }
 
     for (const dtlsTransport of this.dtlsTransports) {

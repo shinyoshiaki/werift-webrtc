@@ -1,6 +1,3 @@
-import * as nodeCrypto from "node:crypto";
-import * as x509 from "@peculiar/x509";
-
 import {
   HashAlgorithm,
   NamedCurveAlgorithm,
@@ -9,9 +6,6 @@ import {
 import { DtlsClient } from "../src/client";
 import { CipherContext } from "../src/context/cipher";
 import { UdpTransport } from "../../common/src";
-
-const crypto = nodeCrypto.webcrypto;
-x509.cryptoProvider.set(crypto as any);
 
 (async () => {
   const { certPem, keyPem, signatureHash } =

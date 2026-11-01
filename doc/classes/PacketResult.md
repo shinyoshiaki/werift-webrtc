@@ -8,19 +8,19 @@
 
 ## Constructors
 
-### new PacketResult()
+### Constructor
 
-> **new PacketResult**(`props`): [`PacketResult`](PacketResult.md)
+> **new PacketResult**(`props`): `PacketResult`
 
 #### Parameters
 
 ##### props
 
-`Partial`\<[`PacketResult`](PacketResult.md)\>
+`Partial`\<`PacketResult`\>
 
 #### Returns
 
-[`PacketResult`](PacketResult.md)
+`PacketResult`
 
 ## Properties
 

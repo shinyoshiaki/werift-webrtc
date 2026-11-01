@@ -8,9 +8,9 @@
 
 ## Constructors
 
-### new RTCCertificate()
+### Constructor
 
-> **new RTCCertificate**(`privateKeyPem`, `certPem`, `signatureHash`): [`RTCCertificate`](RTCCertificate.md)
+> **new RTCCertificate**(`privateKeyPem`, `certPem`, `signatureHash`): `RTCCertificate`
 
 #### Parameters
 
@@ -28,7 +28,7 @@
 
 #### Returns
 
-[`RTCCertificate`](RTCCertificate.md)
+`RTCCertificate`
 
 ## Properties
 

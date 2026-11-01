@@ -1,4 +1,4 @@
-import { type Browser, type Page, chromium } from "playwright";
+import { type Browser, chromium, type Page } from "playwright";
 
 import {
   chromiumContextOptions,

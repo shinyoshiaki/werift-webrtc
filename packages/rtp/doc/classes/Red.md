@@ -8,13 +8,13 @@
 
 ## Constructors
 
-### new Red()
+### Constructor
 
-> **new Red**(): [`Red`](Red.md)
+> **new Red**(): `Red`
 
 #### Returns
 
-[`Red`](Red.md)
+`Red`
 
 ## Properties
 
@@ -32,7 +32,7 @@
 
 #### timestampOffset?
 
-> `optional` **timestampOffset**: `number`
+> `optional` **timestampOffset?**: `number`
 
 14bit
 
@@ -56,14 +56,14 @@
 
 ### deSerialize()
 
-> `static` **deSerialize**(`bufferOrArrayBuffer`): [`Red`](Red.md)
+> `static` **deSerialize**(`bufferOrArrayBuffer`): `Red`
 
 #### Parameters
 
 ##### bufferOrArrayBuffer
 
-`ArrayBuffer` | `Buffer`\<`ArrayBufferLike`\>
+`ArrayBuffer` \| `Buffer`\<`ArrayBufferLike`\>
 
 #### Returns
 
-[`Red`](Red.md)
+`Red`
