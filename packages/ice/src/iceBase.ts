@@ -47,7 +47,16 @@ export interface IceConnection {
    * implementation without them still restarts ICE at the final answer, but
    * cannot answer or run checks for the new generation during pranswer.
    */
-  stageLocalCredentials?(usernameFragment: string, password: string): void;
+  /**
+   * `gatherOptions`: the options the staged generation gathers with (an ICE
+   * server update applied at the commit); its provisional checks use only
+   * the sockets those options allow. Defaults to the current options.
+   */
+  stageLocalCredentials?(
+    usernameFragment: string,
+    password: string,
+    gatherOptions?: Partial<IceOptions>,
+  ): void;
   discardStagedLocalCredentials?(usernameFragment: string): void;
   commitLocalCredentials?(usernameFragment: string, password: string): void;
   /**
@@ -435,4 +444,82 @@ export function validateAddress(addr?: Address): Address | undefined {
     return [addr[0], 443];
   }
   return addr;
+}
+
+/**
+ * `current` with an ICE server update applied (Connection.setIceServers): the
+ * STUN/TURN fields are replaced, an undefined one included, so a STUN-only
+ * update cannot leave a previous TURN host/credential behind; forceTurn and
+ * useTcp change only when given.
+ */
+export function mergeIceServerOptions<T extends Partial<IceOptions>>(
+  current: T,
+  update: Partial<IceOptions>,
+): T {
+  return {
+    ...current,
+    stunServer: update.stunServer,
+    turnServer: update.turnServer,
+    turnUsername: update.turnUsername,
+    turnPassword: update.turnPassword,
+    turnTransport: update.turnTransport,
+    turnTlsOptions: update.turnTlsOptions,
+    turnUdpFamily: update.turnUdpFamily,
+    forceTurn: update.forceTurn ?? current.forceTurn,
+    useTcp: update.useTcp ?? current.useTcp,
+  };
+}
+
+/**
+ * Whether a generation gathered with `options` is relay-only: forceTurn (the
+ * "relay" ICE transport policy). The policy holds whatever the TURN settings
+ * are: without a usable TURN server / credential (or for an ICE-lite agent,
+ * which gathers no relay candidate) the generation has no candidate at all
+ * rather than falling back to host / server-reflexive ones, so the local and
+ * public addresses are neither advertised nor used for checks.
+ */
+export function isRelayOnlyGathering(options: Pick<IceOptions, "forceTurn">) {
+  return !!options.forceTurn;
+}
+
+/**
+ * Whether `options` carry a usable TURN server and credential, the ones a
+ * gathering with them allocates relay candidates from.
+ */
+export function hasTurnServer(
+  options: Partial<
+    Pick<IceOptions, "turnServer" | "turnUsername" | "turnPassword">
+  >,
+) {
+  return !!(
+    validateAddress(options.turnServer) &&
+    options.turnUsername &&
+    options.turnPassword
+  );
+}
+
+/**
+ * Whether `candidate`, kept from an earlier generation (an ICE restart keeps
+ * the sockets), may be advertised and paired in a generation gathered with
+ * `options`. A fresh gathering with the same options would not have produced
+ * a host / server-reflexive candidate for a relay-only policy, a TCP host
+ * candidate without useTcp, nor a relay candidate without a TURN server;
+ * the kept ones are held back the same way.
+ */
+export function isCandidateAllowedByGatherOptions(
+  candidate: Pick<Candidate, "type" | "transport">,
+  options: Pick<IceOptions, "forceTurn"> &
+    Partial<
+      Pick<
+        IceOptions,
+        "useTcp" | "turnServer" | "turnUsername" | "turnPassword"
+      >
+    >,
+) {
+  if (candidate.type === "relay") return hasTurnServer(options);
+  if (isRelayOnlyGathering(options)) return false;
+  if (candidate.transport.toLowerCase() === "tcp" && !options.useTcp) {
+    return false;
+  }
+  return true;
 }
