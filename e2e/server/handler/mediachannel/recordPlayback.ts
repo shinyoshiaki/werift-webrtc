@@ -1,6 +1,7 @@
 /**
- * Chrome E2E handlers: Chrome sends camera media → werift MediaRecorder saves a
- * WebM file → werift returns the file over a DataChannel → Chrome plays it.
+ * Chrome E2E handlers: Chrome sends camera / microphone media → werift
+ * MediaRecorder saves a WebM file (video, av) or an Ogg Opus file (audio) →
+ * werift returns the file over a DataChannel → Chrome plays it.
  *
  * Chrome is the offerer (sendonly media + DataChannel "record").
  * DataChannel protocol (Chrome → Node: "stop"):
@@ -19,7 +20,7 @@ import { MediaRecorder } from "../../../../packages/webrtc/src/nonstandard";
 import { type RTCDataChannel, RTCPeerConnection, useOPUS, useVP8 } from "../..";
 import { DtlsKeysContext } from "../../fixture";
 
-type RecordKinds = "video" | "av";
+type RecordKinds = "video" | "av" | "audio";
 
 const CHUNK_SIZE = 16 * 1024;
 const BUFFERED_HIGH = 1024 * 1024;
@@ -51,7 +52,8 @@ class RecordPlaybackHandler {
           tracks: 0,
           rtpPackets: {},
         };
-        this.path = join(tmpdir(), `werift-e2e-record-${randomUUID()}.webm`);
+        const ext = this.kinds === "audio" ? "ogg" : "webm";
+        this.path = join(tmpdir(), `werift-e2e-record-${randomUUID()}.${ext}`);
         this.recorder = new MediaRecorder({
           path: this.path,
           numOfTracks,
@@ -159,4 +161,5 @@ class RecordPlaybackHandler {
 export const recordPlaybackHandlers = {
   mediachannel_record_playback_video: new RecordPlaybackHandler("video"),
   mediachannel_record_playback_av: new RecordPlaybackHandler("av"),
+  mediachannel_record_playback_audio: new RecordPlaybackHandler("audio"),
 };

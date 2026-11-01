@@ -1,16 +1,23 @@
 export class WeriftError extends Error {
-  message!: string;
+  // `declare` keeps the message set by Error: a class field would overwrite it
+  // with undefined under useDefineForClassFields
+  declare message: string;
   payload?: object;
   path?: string;
 
   constructor(props: Pick<WeriftError, "message" | "payload" | "path">) {
     super(props.message);
+    this.payload = props.payload;
+    this.path = props.path;
   }
 
   toJSON() {
     return {
       message: this.message,
-      payload: JSON.parse(JSON.stringify(this.payload)),
+      payload:
+        this.payload === undefined
+          ? undefined
+          : JSON.parse(JSON.stringify(this.payload)),
       path: this.path,
     };
   }
