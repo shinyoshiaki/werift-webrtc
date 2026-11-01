@@ -92,4 +92,41 @@ describe("SecureTransportManager transport ownership", () => {
     expect(owned().size).toEqual(0);
     await inFlight;
   });
+
+  test("close() waits for ICE even when a state subscriber re-enters stop()", async () => {
+    // Arrange: ICE の停止を遅延させ、状態通知の購読者から stop() を再入させる。
+    const { pc, manager, owned } = createPeer();
+    const orphan = manager.createTransport({ inheritCredentials: false });
+    await orphan.iceTransport.gather();
+    const realStop = orphan.iceTransport.stop.bind(orphan.iceTransport);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    orphan.iceTransport.stop = async () => {
+      await gate;
+      await realStop();
+    };
+    let reentered: Promise<void> | undefined;
+    orphan.onStateChange.subscribe((state) => {
+      if (state === "closed") reentered ??= orphan.stop();
+    });
+
+    // Act: stop() を開始し、遅延中に pc.close() を呼ぶ。
+    const outer = orphan.stop();
+    let closed = false;
+    const closing = pc.close().then(() => {
+      closed = true;
+    });
+    await new Promise((r) => setTimeout(r, 50));
+    const closedWhileDelayed = closed;
+    release();
+    await closing;
+
+    // Assert: 遅延中は close() が戻らず、完了時には ICE が止まり集合も空。
+    expect(reentered).toBe(outer);
+    expect(closedWhileDelayed).toEqual(false);
+    expect(orphan.iceTransport.state).toEqual("closed");
+    expect(owned().size).toEqual(0);
+  });
 });

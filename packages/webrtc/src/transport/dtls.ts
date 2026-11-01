@@ -518,13 +518,22 @@ export class RTCDtlsTransport implements DtlsTransportStats {
 
   /** Resolves once ICE has stopped; concurrent callers share one stop. */
   stop(): Promise<void> {
-    this.stopPromise ??= (async () => {
+    if (this.stopPromise) return this.stopPromise;
+    // Publish the shared promise before setState notifies: a subscriber that
+    // re-enters stop() must get this same promise, not start another stop.
+    let resolve!: () => void;
+    let reject!: (error: unknown) => void;
+    this.stopPromise = new Promise<void>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    (async () => {
       this.setState("closed", false);
       // todo impl send alert
       await this.iceTransport.stop();
       // A handshake still in flight stops retransmitting its flight.
       this.dtls?.close();
-    })();
+    })().then(resolve, reject);
     return this.stopPromise;
   }
 
