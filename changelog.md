@@ -1,6 +1,8 @@
 # Changelog
 
-## v0.26.1
+## v0.26.0
+
+The 0.26 line collects everything merged since v0.25.2, including the `rc/0.26.0` branch (negotiation transaction, SCTP queue, PLI / FIR routing). `0.26.0` was never published.
 
 ### ✨ Features
 
@@ -25,7 +27,7 @@
   - Runtime socket errors are logged and emitted on the new `UdpTransport.onError` (`Event<[Error]>`). The socket stays open. `StunProtocol` / `TurnProtocol` subscribe to it and log. `Transport.onError` is optional for custom transports.
   - A bind failure (e.g. `EADDRINUSE`, including a synchronous `bind()` throw) or a `findPort()` failure now rejects `UdpTransport.init()` and closes the socket. Before, a bind failure caused an uncaught exception or `init()` waited forever.
   - `close()` can be called more than once, including after an error or a failed bind.
-The 0.26 line collects everything merged since v0.25.2, including the `rc/0.26.0` branch (negotiation transaction, SCTP queue, PLI / FIR routing). `0.26.0` was never published.
+
 ### ⚠️ Breaking changes
 
 - **`werift-dtls`: `CipherContext.localPrivateKey` is now a Node `KeyObject`** instead of the `@fidm/x509` `PrivateKey`. Replace `localPrivateKey.toPEM()` with `localPrivateKey.export({ type: "pkcs8", format: "pem" })`; replace `localPrivateKey.sign(data, hash)` with `createSign(hash).update(data).sign(localPrivateKey)`.
