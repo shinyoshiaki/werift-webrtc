@@ -44,6 +44,10 @@ The 0.26 line collects everything merged since v0.25.2, including the `rc/0.26.0
   - Runtime socket errors are logged and emitted on the new `UdpTransport.onError` (`Event<[Error]>`). The socket stays open. `StunProtocol` / `TurnProtocol` subscribe to it and log. `Transport.onError` is optional for custom transports.
   - A bind failure (e.g. `EADDRINUSE`, including a synchronous `bind()` throw) or a `findPort()` failure now rejects `UdpTransport.init()` and closes the socket. Before, a bind failure caused an uncaught exception or `init()` waited forever.
   - `close()` can be called more than once, including after an error or a failed bind.
+### 🚀 Features
+
+- **`werift`: `RTCConfiguration.certificateScope` selects the default DTLS certificate.** With `"process"` (default, unchanged behavior), an `RTCPeerConnection` without `certificates` / `dtls.keys` reuses one process-wide certificate, so every such connection advertises the same `a=fingerprint`. With `"peerConnection"`, each connection generates its own certificate on its first `createOffer()` / `createAnswer()` (as browsers do) and its DTLS transports share it. `certificates` / `dtls.keys` still take precedence, and the scope cannot be changed by `setConfiguration()`. `RTCDtlsTransport.generateCertificate()` creates a new certificate on every call.
+
 ### ⚠️ Breaking changes
 
 - **`werift-dtls`: `CipherContext.localPrivateKey` is now a Node `KeyObject`** instead of the `@fidm/x509` `PrivateKey`. Replace `localPrivateKey.toPEM()` with `localPrivateKey.export({ type: "pkcs8", format: "pem" })`; replace `localPrivateKey.sign(data, hash)` with `createSign(hash).update(data).sign(localPrivateKey)`.
