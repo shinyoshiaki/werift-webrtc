@@ -557,7 +557,7 @@ set availableBitrate(v: number) {
 - [x] 既存 example（特に `simulcast/abr.ts`、`twcc/offer.ts`）がコンパイル・利用パターンとして破綻しない（legacy 固有イベント購読を含む）。
   - 根拠: ルートの `npm run type`（`tsconfig.json` は `examples` を含む）が成功。`examples/mediachannel/simulcast/abr.ts` と `examples/mediachannel/twcc/offer.ts` もこれでコンパイル確認済み。
 - [x] 破壊的変更がある場合は CHANGELOG または README に移行手順を記載。ない場合はデフォルト互換を確認済みであること。
-  - 根拠: `changelog.md` の Unreleased「⚠️ Breaking changes」に `senderBWE` の型、transport 単位の TWCC、`filterProbePaddingOnReceiveRtp` の既定値、GCC 送信経路を記載。
+  - 根拠: `changelog.md` の Unreleased（v0.26.0 より上）に記載。「⚠️ Breaking changes」に `senderBWE` の getter 化・型と `onAvailableBitrate` の変化時のみ通知、「🚀 Features」に estimator 選択 API・GCC・`TwccFeedbackAdapter`・`filterProbePaddingOnReceiveRtp`・`sendRtpWithMeta`、「🐛 Bug Fixes」に transport 単位の TWCC と legacy 既定経路の不具合修正（§2.11）。
 
 ### 検証記録（2026-10-19）
 

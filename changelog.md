@@ -1,5 +1,34 @@
 # Changelog
 
+## Unreleased
+
+### ⚠️ Breaking changes
+
+- **`sender.senderBWE` is a getter whose TypeScript type is `BandwidthEstimator`** (it was a `readonly` `SenderBandwidthEstimator` field). Replace the estimator with `sender.setBandwidthEstimator(impl)`, not by assigning the property. Legacy `onCongestion` / `onCongestionScore` still exist at runtime on the default estimator, and a one-release compatibility surface keeps those names on GCC / disabled estimators as no-op Events so `sender.senderBWE.onCongestion.subscribe(...)` compiles. Prefer `sender.senderBWE as SenderBandwidthEstimator` or `isSenderBandwidthEstimator`. The names are not part of the shared `BandwidthEstimator` contract and may be removed from non-legacy estimators in a future major.
+- **`onAvailableBitrate` fires only when the estimate changes.** The legacy estimator used to fire on every update, even with the same value. The payload is still the bitrate in bps.
+
+### 🚀 Features
+
+- **Selectable TWCC send-side bandwidth estimation** (`packages/webrtc`): estimators share the `BandwidthEstimator` contract, and each `RTCRtpSender` has its own instance.
+  - `new RTCPeerConnection({ bandwidthEstimator })` picks the estimator for new senders: `"legacy"` (default, the existing algorithm), `"gcc"`, `false` / `"none"` (disabled), or a factory `() => BandwidthEstimator`.
+  - `RTCRtpSender.setBandwidthEstimator(impl)` swaps the estimator of one sender, e.g. `new GccBandwidthEstimator()`. The new estimator starts from a clean state.
+  - `RTCRtpSender.onAvailableBitrate` (`Event<[number]>`, bps) notifies changes of the recommended send bitrate and keeps its subscriptions across `setBandwidthEstimator`. It may stay `0` until TWCC is negotiated and enough feedback has arrived.
+  - `GccBandwidthEstimator` implements Google Congestion Control with libwebrtc as the reference (delay-based and loss-based estimation, probing, pacing). Known differences are listed in `GCC_KNOWN_DIFFERENCES`. With GCC, outgoing RTP goes through a bounded per-sender FIFO and a pacer, and `sender.onProbeClusterConfig` / `sender.pacingBitrateBps` expose the probe targets. Probe and loss padding is padding-only RTP on the RTX SSRC, so media sequence numbers are never shifted; without negotiated RTX, GCC sends no padding.
+  - The default legacy and disabled estimators keep the direct (unqueued, unpaced) send path.
+  - New exports: `createBandwidthEstimator`, `BandwidthEstimatorOption`, `LegacyCumulativeBandwidthEstimator`, `DisabledBandwidthEstimator`, `GccBandwidthEstimator`, `TwccFeedbackAdapter`, and related types.
+- **`TwccFeedbackAdapter` matches TWCC feedback to sent packets for every estimator**: 16-bit sequence numbers are unwrapped from the previous feedback, and each sent packet is counted as received at most once, including duplicate, reordered, and wrapped feedback.
+- **`PeerConfig.filterProbePaddingOnReceiveRtp`** (default `false`): `MediaStreamTrack.onReceiveRtp` keeps the wire sequence numbers and delivers padding-only packets with `{ type: "padding" }` as the third argument. Set `true` to drop padding-only probes and compact the sequence numbers of the following media.
+- **`RTCDtlsTransport.sendRtpWithMeta()`** also returns the ICE enqueue time. `sendRtp()` still returns `Promise<number>`. `RTCDtlsTransport.transportSequenceNumberExtended` is the monotonic transport-wide sequence; `transportSequenceNumber` remains the 16-bit wire value.
+
+### 🐛 Bug Fixes
+
+- **TWCC is transport-wide on BUNDLE.** `ReceiverTWCC` is shared per DTLS transport, and incoming TWCC RTCP is fanned out to every `RTCRtpSender` on that transport (each estimator matches only its own sent packets).
+- **The transport-wide sequence number is allocated synchronously before each send** and used for the estimator input, so with BUNDLE a sender no longer picks up the number of another sender's packet. The TWCC and abs-send-time extensions of forwarded packets no longer overwrite the newly assigned values.
+- **NACK retransmissions get a new transport-wide sequence number** instead of reusing the original one.
+- **Padding-only packets are no longer stored in the NACK cache.**
+- **The legacy estimator's send history is pruned to a 10 s window**; it used to grow without bound.
+
+
 ## v0.26.0
 
 This release collects everything merged since v0.25.2, including the `rc/0.26.0` branch (negotiation transaction, SCTP queue, PLI / FIR routing).
@@ -166,17 +195,8 @@ This release collects everything merged since v0.25.2, including the `rc/0.26.0`
 
 ### ⚠️ Breaking changes
 
-- **Removed `getUserMedia({ path | buffer | stream })` from `werift/nonstandard`.** File playback now goes through `werift/polyfill`: `installPolyfill({ mediaRegister: [createMp4WebmRegister({ path })] })` then `navigator.mediaDevices.getUserMedia({ audio: true, video: true })`.
-- **`sender.senderBWE` TypeScript type is `BandwidthEstimator`.** Legacy `onCongestion` / `onCongestionScore` still exist at runtime on the default estimator, and a one-release compatibility surface keeps those names on GCC/disabled as no-op Events so `sender.senderBWE.onCongestion.subscribe(...)` compiles. Prefer `sender.senderBWE as SenderBandwidthEstimator` or `isSenderBandwidthEstimator`. The names are not part of the shared `BandwidthEstimator` contract and may be removed from non-legacy estimators in a future major.
-
-### 🐛 Bug Fixes
-
-- **TWCC is transport-wide on BUNDLE.** `ReceiverTWCC` is shared per DTLS transport, and incoming TWCC RTCP is fanned out to every `RTCRtpSender` on that transport (each estimator still matches only its own `SentInfo`).
-- **`filterProbePaddingOnReceiveRtp` defaults to `false`.** Default `onReceiveRtp` keeps wire sequence numbers and delivers padding-only packets as `{ type: "padding" }`. Opt in to compaction with `true`.
-- **GCC send path:** outgoing RTP is serialized (reservation → pacing → TSN allocate → DTLS write); `sendingAtMs` is sampled before ICE enqueue via `sendRtpWithMeta` (`sendRtp` remains `Promise<number>`); the token-bucket pacer uses the constructed packet size (after TWCC/RED/padding). The per-sender FIFO is bounded (drop stale video / bound audio latency). Probe padding yields to queued media. The default legacy / disabled estimators keep the direct (unqueued, unpaced) send path.
-- **GCC probe / loss padding is sent on the RTX SSRC** (padding-only RTP, RTX sequence space), so media sequence numbers are never shifted. Without negotiated RTX, GCC sends no padding.
-- **TWCC feedback is normalized once for every estimator** (`TwccFeedbackAdapter`): each sent packet is counted as received at most once, including duplicate, reordered, and wrapped feedback.
 - **`werift/polyfill` fixed-codec sources no longer expand `RTCPeerConnection` codec capability implicitly** (#729): A track from a polyfill `MediaRegister` (MP4/WebM, callback, RTP/RTCP, encoded binary) now treats its codec as a hard constraint — `addTrack()` / `addTransceiver()` throws `NotSupportedError` instead of silently adding the codec to the PeerConnection capability. The public `adoptSenderTrackCodec` helper was removed. Plain, non-polyfill `MediaStreamTrack`s (e.g. ordinary live sources) are unaffected.
+- **Removed `getUserMedia({ path | buffer | stream })` from `werift/nonstandard`** (#729). File playback now goes through `werift/polyfill`: `installPolyfill({ mediaRegister: [createMp4WebmRegister({ path })] })` then `navigator.mediaDevices.getUserMedia({ audio: true, video: true })`.
 - **m-line reuse behavior changed, default `PeerConfig.mLineReuse: "compatible"`** (#705, #721): Accepted `inactive` m-lines now keep port 9 instead of port 0, and `addTransceiver()` / `addTrack()` no longer take over an `inactive` m-line left by `removeTrack()` — only a position whose port 0 stop/rejection has been negotiated is reused (with a new MID). **To keep the pre-v0.25 behavior, set `mLineReuse: "aggressive"`.** Note that in `"aggressive"` mode a negotiated inactive m-line becomes permanently stopped and cannot resume with `direction = "sendrecv"`, so pause/resume (mute/unmute, hold/resume) workflows should stay on `"compatible"`. See the `PeerConfig.mLineReuse` entry under Features for the full compatibility matrix.
 
 ### 🚀 Features
