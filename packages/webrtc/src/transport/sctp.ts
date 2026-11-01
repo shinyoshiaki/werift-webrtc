@@ -8,7 +8,12 @@ import {
 import {
   DATA_CHANNEL_ACK,
   DATA_CHANNEL_OPEN,
+  DATA_CHANNEL_PARTIAL_RELIABLE_REXMIT,
+  DATA_CHANNEL_PARTIAL_RELIABLE_REXMIT_UNORDERED,
+  DATA_CHANNEL_PARTIAL_RELIABLE_TIMED,
+  DATA_CHANNEL_PARTIAL_RELIABLE_TIMED_UNORDERED,
   DATA_CHANNEL_RELIABLE,
+  DATA_CHANNEL_RELIABLE_UNORDERED,
   WEBRTC_BINARY,
   WEBRTC_BINARY_EMPTY,
   WEBRTC_DCEP,
@@ -260,19 +265,25 @@ export class RTCSctpTransport {
       this.dataChannels[channel.id] = channel;
     }
 
-    let channelType = DATA_CHANNEL_RELIABLE;
     const priority = 0;
+    // RFC 8832 5.1: the reliability mode and the unordered bit (0x80) are
+    // independent, so a partially reliable channel keeps its unordered bit.
+    let channelType: number;
     let reliability = 0;
-
-    if (!channel.ordered) {
-      channelType = 0x80;
-    }
     if (channel.maxRetransmits !== null) {
-      channelType = 1;
+      channelType = channel.ordered
+        ? DATA_CHANNEL_PARTIAL_RELIABLE_REXMIT
+        : DATA_CHANNEL_PARTIAL_RELIABLE_REXMIT_UNORDERED;
       reliability = channel.maxRetransmits;
     } else if (channel.maxPacketLifeTime !== null) {
-      channelType = 2;
+      channelType = channel.ordered
+        ? DATA_CHANNEL_PARTIAL_RELIABLE_TIMED
+        : DATA_CHANNEL_PARTIAL_RELIABLE_TIMED_UNORDERED;
       reliability = channel.maxPacketLifeTime;
+    } else {
+      channelType = channel.ordered
+        ? DATA_CHANNEL_RELIABLE
+        : DATA_CHANNEL_RELIABLE_UNORDERED;
     }
 
     // 5.1.  DATA_CHANNEL_OPEN Message
