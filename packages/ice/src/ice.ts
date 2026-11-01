@@ -645,7 +645,8 @@ export class Connection implements IceConnection {
       generation.nomination.evaluate();
       return;
     }
-    if (pair.remoteNominated) pair.nominated = true;
+    // Only a controlled agent takes the peer's nomination (see checkStart).
+    if (pair.remoteNominated && !this.iceControlling) pair.nominated = true;
     pair.updateState(CandidatePairState.SUCCEEDED);
     if (
       !pair.nominated &&
@@ -2192,6 +2193,16 @@ export class Connection implements IceConnection {
   private applyIceControlling(iceControlling: boolean) {
     if (this._iceControlling !== iceControlling) {
       this.invalidateNominations();
+      // USE-CANDIDATE received while controlled came from a peer that was
+      // controlling then; as the controlling agent this one nominates itself.
+      if (iceControlling) {
+        for (const pair of [
+          ...this.checkList,
+          ...(this.provisional?.pairs ?? []),
+        ]) {
+          pair.remoteNominated = false;
+        }
+      }
     }
     this._iceControlling = iceControlling;
     for (const pair of this.checkList) {
@@ -2484,7 +2495,11 @@ export class Connection implements IceConnection {
       }
 
       // # success
-      if (pair.remoteNominated) {
+      // The peer's USE-CANDIDATE selects the pair only while this agent is
+      // controlled: one received before a role switch made it controlling is
+      // not a nomination any more (the peer is controlled now and waits for
+      // this agent's USE-CANDIDATE), so it nominates by itself below.
+      if (pair.remoteNominated && !this.iceControlling) {
         // # nominated by the remote party
         pair.nominated = true;
       } else if (

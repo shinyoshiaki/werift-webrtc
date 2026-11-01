@@ -534,6 +534,29 @@ describe("regular nomination of UDP / relay pairs (full ICE, controlling)", () =
     }
   });
 
+  test("a USE-CANDIDATE received while controlled does not select the pair after the agent became controlling", async () => {
+    const h = createNominationHarness();
+    const pair = await h.addRemote(HIGH);
+    await h.connection.addRemoteCandidate(undefined);
+    h.check(pair);
+
+    try {
+      // Act: controlled の間に相手 (当時 controlling) の USE-CANDIDATE を受け、ロール競合の修復で controlling に戻ってから check が成功する。
+      h.switchRole(false);
+      h.receiveNomination(pair);
+      h.switchRole(true);
+      await h.succeed(pair);
+
+      // Assert: 古い USE-CANDIDATE では選択せず、controlling として自分の USE-CANDIDATE を送ってから nominate する (相手は controlled としてそれを待つ)。
+      expect(h.nominations().map((request) => request.addr)).toEqual([
+        pair.remoteAddr,
+      ]);
+      expect(h.connection.nominated).toBe(pair);
+    } finally {
+      await h.connection.close();
+    }
+  });
+
   test("a restart after an abandoned nomination nominates again", async () => {
     const h = createNominationHarness({
       nominationReply: (index) => (index < 3 ? "hold" : "success"),
@@ -1254,6 +1277,29 @@ describe("regular nomination of the provisional generation", () => {
       expect(pair.state).toBe(CandidatePairState.SUCCEEDED);
       expect(h.nominations()).toHaveLength(1);
       expect(h.connection.provisionalNominated).toBeUndefined();
+    } finally {
+      await h.connection.close();
+    }
+  });
+
+  test("a provisional USE-CANDIDATE received while controlled does not select the pair after the agent became controlling", async () => {
+    const h = createNominationHarness();
+    h.stageProvisional();
+    const pair = await h.addProvisionalRemote(HIGH);
+    await h.connection.addProvisionalRemoteCandidate(undefined);
+
+    try {
+      // Act: controlled の間に provisional の USE-CANDIDATE を受け、controlling に戻ってから provisional の check が成功する。
+      h.switchRole(false);
+      h.receiveProvisionalNomination(pair);
+      h.switchRole(true);
+      await h.succeed(pair);
+
+      // Assert: live と同じく、自分の USE-CANDIDATE を送ってから provisional の pair を nominate する。
+      expect(h.nominations().map((request) => request.addr)).toEqual([
+        pair.remoteAddr,
+      ]);
+      expect(h.connection.provisionalNominated).toBe(pair);
     } finally {
       await h.connection.close();
     }

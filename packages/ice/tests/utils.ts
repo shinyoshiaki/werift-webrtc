@@ -1788,6 +1788,29 @@ export function createNominationHarness({
         live.remoteAddr[1] === pair.remoteAddr[1],
     )!;
   };
+  /** The peer (controlling) nominates provisional `pair` with USE-CANDIDATE. */
+  const receiveProvisionalNomination = (pair: CandidatePair) => {
+    const request = new Message(methods.BINDING, classes.REQUEST)
+      .setAttribute("USERNAME", "provA:provB")
+      .setAttribute("PRIORITY", 1_000)
+      .setAttribute("ICE-CONTROLLING", 1n)
+      .setAttribute("USE-CANDIDATE", null);
+    (
+      connection as unknown as {
+        checkIncomingProvisional: (
+          generation: unknown,
+          message: Message,
+          addr: Address,
+          protocol: Protocol,
+        ) => void;
+      }
+    ).checkIncomingProvisional(
+      provisionalGeneration(connection),
+      request,
+      pair.remoteAddr,
+      pair.protocol,
+    );
+  };
   /** The peer (now controlling) nominates `pair` with USE-CANDIDATE. */
   const receiveNomination = (pair: CandidatePair) =>
     connection.checkIncoming(
@@ -1801,6 +1824,7 @@ export function createNominationHarness({
     protocol,
     switchRole,
     receiveNomination,
+    receiveProvisionalNomination,
     timeOutPending,
     requests,
     addRemote,
