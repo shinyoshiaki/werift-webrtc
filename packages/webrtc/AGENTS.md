@@ -15,7 +15,7 @@ Instructions for coding agents working in `packages/webrtc`.
 ## Do
 
 1. Prefer package-local validation (`npm test`, `npm run type`) before workspace-wide commands.
-2. Keep Arrange helpers reusable; memleak Arrange utilities live in `tests/memleak/heapUtils.ts` and scenario setup in `tests/memleak/scenarios.ts`.
+2. Keep Arrange helpers reusable; memleak Arrange utilities live in `tests/memleak/heapUtils.ts` and scenario setup in `tests/memleak/scenarios.ts`. Tests whose ICE gathering, restart or end-of-candidates behavior depends on a STUN server run under both ICE server modes (`ICE_SERVER_MODES` in `../ice/tests/utils.ts`: `describeCases(..., { iceServerModes: true })`, `describeIceServerModes`, or `iceServerModeOfSeed` for sequential seeded tests); the implicit STUN mode uses a local fixture, never the network.
 3. Add Japanese comments in Act / Assert phases when operation order or expectations are not obvious.
 4. When adding package scripts, update this guide's Commands table in the same change.
 5. Keep memleak tests out of the default vitest suite (`vitest.config.mts` excludes `tests/memleak/**`). The leak property (`tests/pbt/leak`) is deterministic and stays in `npm test`, each test with `retry: 0`; its heap-slope part (P3) runs only with `WERIFT_NEGOTIATION_LEAK_HEAP=1` (`npm run pbt:deep`).

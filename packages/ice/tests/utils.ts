@@ -381,6 +381,80 @@ export async function createLocalStunServer(host: string) {
   return server;
 }
 
+/**
+ * ICE server modes a test can run under. Until werift-ice 0.3 a Connection
+ * without `stunServer` queried `stun.l.google.com`, so tests written before
+ * ran with a STUN server; "implicit STUN" restores that fallback toward a
+ * local fixture (no network) so the STUN path stays covered.
+ */
+export const ICE_SERVER_MODES = [
+  { mode: "no STUN" },
+  { mode: "implicit STUN" },
+] as const;
+export type IceServerMode = (typeof ICE_SERVER_MODES)[number]["mode"];
+
+/**
+ * Arrange: until the returned cleanup runs, a Connection that names no STUN
+ * server (constructor or setIceServers) uses a local STUN fixture, as the
+ * removed `stun.l.google.com` fallback did.
+ */
+export async function installImplicitStunServer() {
+  const server = await createLocalStunServer(getHostAddresses(true, false)[0]!);
+  const address = server.address!;
+  const agent = Connection.prototype as unknown as {
+    applyStunTurnServersFromOptions: (this: Connection) => void;
+  };
+  const original = agent.applyStunTurnServersFromOptions;
+  agent.applyStunTurnServersFromOptions = function () {
+    original.call(this);
+    this.stunServer ??= address;
+  };
+  return async () => {
+    agent.applyStunTurnServersFromOptions = original;
+    await server.close();
+  };
+}
+
+/** The mode a seeded property test runs a seed under: odd seeds use implicit STUN. */
+export const iceServerModeOfSeed = (seed: number): IceServerMode =>
+  ICE_SERVER_MODES[Math.abs(seed) % 2].mode;
+
+/** Run `fn` under `mode` (the implicit STUN fixture installed around it). */
+export async function withIceServerMode<T>(
+  mode: IceServerMode,
+  fn: () => Promise<T>,
+): Promise<T> {
+  if (mode === "no STUN") return fn();
+  const uninstall = await installImplicitStunServer();
+  try {
+    return await fn();
+  } finally {
+    await uninstall();
+  }
+}
+
+/**
+ * `describe.each(ICE_SERVER_MODES)`: runs the block once per mode, with the
+ * implicit STUN fixture installed around the "implicit STUN" run.
+ */
+export function describeIceServerModes(
+  name: string,
+  body: (mode: IceServerMode) => void,
+) {
+  describe.each(ICE_SERVER_MODES)(`${name} ($mode)`, ({ mode }) => {
+    if (mode === "implicit STUN") {
+      let uninstall: (() => Promise<void>) | undefined;
+      beforeAll(async () => {
+        uninstall = await installImplicitStunServer();
+      });
+      afterAll(async () => {
+        await uninstall?.();
+      });
+    }
+    body(mode);
+  });
+}
+
 export async function createLocalTurnServer(
   host: string,
   options: {

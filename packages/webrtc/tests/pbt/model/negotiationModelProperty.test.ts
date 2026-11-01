@@ -1,4 +1,8 @@
 import {
+  iceServerModeOfSeed,
+  withIceServerMode,
+} from "../../../../ice/tests/utils";
+import {
   type CaseMeta,
   describeCases,
   negotiationCase,
@@ -26,6 +30,10 @@ import { MODEL_SCENES } from "./scenes";
  * CI runs `WERIFT_NEGOTIATION_MODEL_SEEDS` (default 4) seeds of
  * `WERIFT_NEGOTIATION_MODEL_STEPS` (default 10) operations from
  * `WERIFT_NEGOTIATION_MODEL_SEED` (default 1).
+ *
+ * Odd seeds run with the implicit STUN fixture (`iceServerModeOfSeed`) and
+ * even seeds without STUN, so the gathering paths with and without a STUN
+ * server are both explored; replaying a seed uses the same mode.
  */
 const seedCount = Number(process.env.WERIFT_NEGOTIATION_MODEL_SEEDS ?? 4);
 const stepCount = Number(process.env.WERIFT_NEGOTIATION_MODEL_STEPS ?? 10);
@@ -33,6 +41,7 @@ const firstSeed = Number(process.env.WERIFT_NEGOTIATION_MODEL_SEED ?? 1);
 const shrink = process.env.WERIFT_NEGOTIATION_MODEL_SHRINK !== "0";
 const seeds = [...Array(seedCount).keys()].map((i) => ({
   seed: firstSeed + i,
+  mode: iceServerModeOfSeed(firstSeed + i),
 }));
 const meta: CaseMeta = {
   ref: "2.1-5 2.1-10 2.1-11 2.1-T2 2.1-T8; property: model",
@@ -57,25 +66,32 @@ describeCases(
     }
 
     negotiationCase.for(seeds)(
-      `seed $seed (replay: WERIFT_NEGOTIATION_MODEL_SEED=$seed WERIFT_NEGOTIATION_MODEL_SEEDS=1 WERIFT_NEGOTIATION_MODEL_STEPS=${stepCount})`,
+      `seed $seed (replay: WERIFT_NEGOTIATION_MODEL_SEED=$seed WERIFT_NEGOTIATION_MODEL_SEEDS=1 WERIFT_NEGOTIATION_MODEL_STEPS=${stepCount}) [$mode]`,
       meta,
-      async (c, { seed }) => {
-        // Arrange / Act: seed から開始状態と操作列を引き、順に実行する。
-        // Assert: 各記述操作の後に invariant・通信・オラクルを検査する (ハーネス)。
-        const scene: Scene = { start: "connected", ops: [] };
-        try {
-          await generateScene(c, seed, stepCount, scene);
-          // 通信と継続確認も縮小の対象にするため、本体の中で終える。
-          await c.end();
-        } catch (error) {
-          if (!shrink || !(error instanceof Error)) throw error;
-          const small = await shrinkScene(`seed ${seed}`, meta, scene, 180_000);
-          throw new Error(
-            `${error.message}\nsmallest failing scene: ${JSON.stringify(small)}`,
-            { cause: error },
-          );
-        }
-      },
+      async (c, { seed, mode }) =>
+        // Arrange: seed の ICE server mode (奇数 seed は暗黙の STUN fixture) で実行する。
+        withIceServerMode(mode, async () => {
+          // Arrange / Act: seed から開始状態と操作列を引き、順に実行する。
+          // Assert: 各記述操作の後に invariant・通信・オラクルを検査する (ハーネス)。
+          const scene: Scene = { start: "connected", ops: [] };
+          try {
+            await generateScene(c, seed, stepCount, scene);
+            // 通信と継続確認も縮小の対象にするため、本体の中で終える。
+            await c.end();
+          } catch (error) {
+            if (!shrink || !(error instanceof Error)) throw error;
+            const small = await shrinkScene(
+              `seed ${seed}`,
+              meta,
+              scene,
+              180_000,
+            );
+            throw new Error(
+              `${error.message}\nsmallest failing scene: ${JSON.stringify(small)}`,
+              { cause: error },
+            );
+          }
+        }),
     );
   },
 );

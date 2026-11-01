@@ -1,5 +1,8 @@
 import { describe, expect, test, vi } from "vitest";
-
+import {
+  describeIceServerModes,
+  type IceServerMode,
+} from "../../../../ice/tests/utils";
 import {
   type MediaStreamTrack,
   type RTCDataChannel,
@@ -849,10 +852,19 @@ negotiationCase.for =
 /**
  * A describe block of negotiation cases: every negotiated peer must reach
  * `expectSessionContinues` (or be exempt), and a case has 60 s by default.
+ * With `iceServerModes` the block runs once per ICE server mode (without
+ * STUN, and with the implicit STUN fixture peers that name no STUN server
+ * used to get from the removed public default); `cases` receives the mode.
  */
-export function describeCases(title: string, cases: () => void) {
-  describe(title, () => {
+export function describeCases(
+  title: string,
+  cases: (mode: IceServerMode) => void,
+  { iceServerModes = false }: { iceServerModes?: boolean } = {},
+) {
+  const body = (mode: IceServerMode) => {
     enforceSessionContinuation();
-    cases();
-  });
+    cases(mode);
+  };
+  if (iceServerModes) describeIceServerModes(title, body);
+  else describe(title, () => body("no STUN"));
 }
