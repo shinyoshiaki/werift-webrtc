@@ -22,6 +22,7 @@ import {
   RTCRtpTransceiver,
   type RTCSessionDescription,
   RTP_EXTENSION_URI,
+  type RtcpSrPacket,
   RtcpPayloadSpecificFeedback,
   RtpHeader,
   RtpPacket,
@@ -71,6 +72,14 @@ export function createAudioCodec(payloadType = 96) {
   });
 }
 
+export function createVideoCodec(payloadType = 96) {
+  return new RTCRtpCodecParameters({
+    mimeType: "video/VP8",
+    clockRate: 90000,
+    payloadType,
+  });
+}
+
 export function createRtxCodec(payloadType = 97, apt = 96) {
   return new RTCRtpCodecParameters({
     mimeType: "audio/rtx",
@@ -86,6 +95,8 @@ export function createConnectedRtpSender(options?: {
   rtx?: boolean;
   twcc?: boolean;
   cname?: string;
+  /** send codec (default: 48 kHz opus) */
+  codec?: RTCRtpCodecParameters;
   /** encrypt sendRtp with a real SrtpSession and decrypt it on a peer session */
   srtpLoopback?: boolean;
 }) {
@@ -96,7 +107,7 @@ export function createConnectedRtpSender(options?: {
   const sender = new RTCRtpSender(track);
   sender.setDtlsTransport(dtls);
 
-  const codecs = [createAudioCodec()];
+  const codecs = [options?.codec ?? createAudioCodec()];
   if (options?.rtx) {
     codecs.push(createRtxCodec());
   }
@@ -190,6 +201,53 @@ export type ConnectedRtpSenderSetup = ReturnType<
 
 export function sentRtpHeaders(sendRtp: ConnectedRtpSenderSetup["sendRtp"]) {
   return sendRtp.mock.calls.map(([, header]) => header);
+}
+
+/**
+ * Replace `performance.now()` with a manually advanced monotonic clock so
+ * RTP send times and SR generation times are deterministic.
+ * Call `restore()` (or `vi.restoreAllMocks()`) after the test.
+ */
+export function mockMonotonicClock(startMs = 1000) {
+  let nowMs = startMs;
+  const spy = vi.spyOn(performance, "now").mockImplementation(() => nowMs);
+  return {
+    get nowMs() {
+      return nowMs;
+    },
+    set(ms: number) {
+      nowMs = ms;
+    },
+    advance(ms: number) {
+      nowMs += ms;
+    },
+    restore: () => spy.mockRestore(),
+  };
+}
+
+/** Build the RTCP Sender Report the sender would send at `nowMs` (`performance.now()`). */
+export function buildSenderReportAt(sender: RTCRtpSender, nowMs: number) {
+  return (sender as any).buildSenderReport(nowMs) as RtcpSrPacket;
+}
+
+/** Seconds between the NTP epoch (1900) and the Unix epoch (1970). */
+const NTP_UNIX_OFFSET_SEC = 2208988800;
+
+/**
+ * RFC 3550 の 64bit NTP timestamp を実装とは独立に組み立てる。
+ * 上位32bit=秒、下位32bit=秒の小数部 (x / 2^32)。
+ */
+export function rfc3550Ntp(epochMs: number) {
+  const wholeSec = Math.floor(epochMs / 1000);
+  const fractionMs = epochMs - wholeSec * 1000;
+  const seconds = BigInt(wholeSec + NTP_UNIX_OFFSET_SEC);
+  const fraction = BigInt(Math.floor((fractionMs * 2 ** 32) / 1000));
+  return (seconds << 32n) | fraction;
+}
+
+/** 2 つの NTP timestamp の差を RFC 3550 の定義に従い ms で返す。 */
+export function ntpDiffMs(later: bigint, earlier: bigint) {
+  return (Number(later - earlier) / 2 ** 32) * 1000;
 }
 
 export async function generateOffer() {
