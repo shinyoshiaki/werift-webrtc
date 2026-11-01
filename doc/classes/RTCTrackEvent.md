@@ -8,9 +8,9 @@
 
 ## Constructors
 
-### new RTCTrackEvent()
+### Constructor
 
-> **new RTCTrackEvent**(`init`): [`RTCTrackEvent`](RTCTrackEvent.md)
+> **new RTCTrackEvent**(`init`): `RTCTrackEvent`
 
 #### Parameters
 
@@ -34,7 +34,7 @@
 
 #### Returns
 
-[`RTCTrackEvent`](RTCTrackEvent.md)
+`RTCTrackEvent`
 
 ## Properties
 

@@ -29,6 +29,7 @@ import {
   expectDomException,
   expectOverconstrainedError,
   installTestPolyfill,
+  parseVp8Rtp,
   receivesRtpWithin,
   waitForRtp,
   waitUntil,
@@ -503,26 +504,16 @@ describe("werift/polyfill installPolyfill", () => {
 
     // 実行: 空の target にインストールしてから外す。
     const uninstall = installPolyfill({ target, mediaRegister: [] });
-    expect(Object.prototype.hasOwnProperty.call(target, "navigator")).toBe(
-      true,
-    );
-    expect(
-      Object.prototype.hasOwnProperty.call(target, "RTCPeerConnection"),
-    ).toBe(true);
+    expect(Object.hasOwn(target, "navigator")).toBe(true);
+    expect(Object.hasOwn(target, "RTCPeerConnection")).toBe(true);
     uninstall();
 
     // 検証: 元々無かったプロパティは undefined ではなく削除される。
-    expect(Object.prototype.hasOwnProperty.call(target, "navigator")).toBe(
-      false,
-    );
+    expect(Object.hasOwn(target, "navigator")).toBe(false);
     expect("navigator" in target).toBe(false);
-    expect(Object.prototype.hasOwnProperty.call(target, "mediaDevices")).toBe(
-      false,
-    );
-    expect(
-      Object.prototype.hasOwnProperty.call(target, "RTCPeerConnection"),
-    ).toBe(false);
-    expect(Object.prototype.hasOwnProperty.call(target, "window")).toBe(false);
+    expect(Object.hasOwn(target, "mediaDevices")).toBe(false);
+    expect(Object.hasOwn(target, "RTCPeerConnection")).toBe(false);
+    expect(Object.hasOwn(target, "window")).toBe(false);
   });
 
   test("existingMediaDevices overwrite / throw / noop", () => {
@@ -754,9 +745,7 @@ describe("werift/polyfill installPolyfill", () => {
     );
     uninstallEmpty();
     uninstallNode();
-    expect(
-      Object.prototype.hasOwnProperty.call(nodeNavigator, "userAgent"),
-    ).toBe(false);
+    expect(Object.hasOwn(nodeNavigator, "userAgent")).toBe(false);
     expect(nodeNavigator.userAgent).toBe("Node.js/24");
   });
 
@@ -1019,7 +1008,20 @@ describe("werift/polyfill builtin registers", () => {
         const stream = await navigator.mediaDevices.getUserMedia({
           video: true,
         });
-        await waitForRtp(stream.getVideoTracks()[0] as MediaStreamTrack);
+        const rtps = await waitForRtp(
+          stream.getVideoTracks()[0] as MediaStreamTrack,
+          2,
+        );
+
+        // 検証: VP8 WebM 再生の RTP は X/I/M descriptor (先頭 0x90) で、PictureID が frame ごとに +1 される。
+        const [first, second] = parseVp8Rtp(rtps);
+        expect(first.firstByte).toBe(0x90);
+        expect(first.vp8.xBit).toBe(1);
+        expect(first.vp8.iBit).toBe(1);
+        expect(first.vp8.mBit).toBe(1);
+        expect(second.vp8.pictureId).toBe(
+          ((first.vp8.pictureId ?? 0) + 1) & 0x7fff,
+        );
       });
       await withRegister(
         createMp4WebmRegister({ path: temp.path }),
@@ -1383,7 +1385,15 @@ describe("werift/polyfill builtin registers", () => {
         });
         const wait = waitForRtp(stream.getVideoTracks()[0] as MediaStreamTrack);
         passthrough.end(encodeLengthPrefixed(au));
-        await wait;
+        const rtps = await wait;
+
+        // 検証: encoded-binary 経路の VP8 RTP も X/I/M descriptor (先頭 0x90) を持つ。
+        const [first] = parseVp8Rtp(rtps);
+        expect(first.firstByte).toBe(0x90);
+        expect(first.vp8.xBit).toBe(1);
+        expect(first.vp8.iBit).toBe(1);
+        expect(first.vp8.mBit).toBe(1);
+        expect(first.vp8.payload.equals(au)).toBe(true);
       },
     );
   });

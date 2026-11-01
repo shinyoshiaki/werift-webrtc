@@ -8,19 +8,19 @@
 
 ## Constructors
 
-### new RTCRtpCodingParameters()
+### Constructor
 
-> **new RTCRtpCodingParameters**(`props`): [`RTCRtpCodingParameters`](RTCRtpCodingParameters.md)
+> **new RTCRtpCodingParameters**(`props`): `RTCRtpCodingParameters`
 
 #### Parameters
 
 ##### props
 
-`Partial`\<[`RTCRtpCodingParameters`](RTCRtpCodingParameters.md)\> & `Pick`\<[`RTCRtpCodingParameters`](RTCRtpCodingParameters.md), `"payloadType"` \| `"ssrc"`\>
+`Partial`\<`RTCRtpCodingParameters`\> & `Pick`\<`RTCRtpCodingParameters`, `"payloadType"` \| `"ssrc"`\>
 
 #### Returns
 
-[`RTCRtpCodingParameters`](RTCRtpCodingParameters.md)
+`RTCRtpCodingParameters`
 
 ## Properties
 
@@ -32,7 +32,7 @@
 
 ### rtx?
 
-> `optional` **rtx**: [`RTCRtpRtxParameters`](RTCRtpRtxParameters.md)
+> `optional` **rtx?**: [`RTCRtpRtxParameters`](RTCRtpRtxParameters.md)
 
 ***
 

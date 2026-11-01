@@ -446,7 +446,12 @@ function isDecoderConfig(
 }
 
 function isVideoConfig(frame: DecoderConfig): frame is VideoDecoderConfig {
-  return (frame as VideoDecoderConfig).codedWidth !== undefined;
+  // Do not rely on codedWidth here: a video config with missing dimensions
+  // must still reach the "missing coded video dimensions" guard.
+  return (
+    (frame as AudioDecoderConfig).numberOfChannels === undefined &&
+    (frame as AudioDecoderConfig).sampleRate === undefined
+  );
 }
 
 export interface AudioDecoderConfig {

@@ -3,8 +3,8 @@
  * 705.test.ts と 705-reuse.test.ts から共有する。
  */
 import {
-  type MLineReuse,
   MediaStreamTrack,
+  type MLineReuse,
   type PeerConfig,
   RTCPeerConnection,
   type RTCPeerConnectionConfig,
@@ -499,7 +499,9 @@ function replaceSectionIceCredentials(
  */
 export async function createBundlePairWithOutsideReoffer({
   reofferFrom = "caller",
-}: { reofferFrom?: "caller" | "callee" } = {}) {
+}: {
+  reofferFrom?: "caller" | "callee";
+} = {}) {
   const caller = createPeer();
   const callee = createPeer();
   exchangeIceCandidates(caller, callee);

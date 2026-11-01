@@ -1,6 +1,4 @@
 import { expect } from "vitest";
-
-import { SessionDescription } from "../../../src";
 import type {
   RTCDataChannel,
   RTCDtlsTransport,
@@ -9,6 +7,7 @@ import type {
   RTCRtpReceiver,
   RTCRtpTransceiver,
 } from "../../../src";
+import { SessionDescription } from "../../../src";
 import type {
   AppliedStep,
   NegotiationCase,

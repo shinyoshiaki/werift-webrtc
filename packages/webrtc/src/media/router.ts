@@ -1,7 +1,10 @@
 import {
+  debug,
   type Extensions,
-  RTP_EXTENSION_URI,
+  FullIntraRequest,
+  PictureLossIndication,
   ReceiverEstimatedMaxBitrate,
+  RTP_EXTENSION_URI,
   type RtcpPacket,
   RtcpPayloadSpecificFeedback,
   RtcpRrPacket,
@@ -9,7 +12,6 @@ import {
   RtcpSrPacket,
   RtcpTransportLayerFeedback,
   type RtpPacket,
-  debug,
   rtpHeaderExtensionsParser,
 } from "../imports/rtp";
 import { type RouterSnapshot, ridRouteKey } from "../negotiation/internalState";
@@ -25,6 +27,25 @@ import { MediaStreamTrack } from "./track";
 
 const log = debug("werift:packages/webrtc/src/media/router.ts");
 
+/**
+ * Where a keyframe request (PLI / FIR) goes when no route has its target SSRC.
+ * - `"compatible"` (default): the sender whose RTX SSRC it is, else the only
+ *   video sender of the PeerConnection, so that a request naming the RTX
+ *   stream, SSRC 0 or a stale SSRC still gets a keyframe.
+ * - `"strict"`: not delivered (RFC 4585 section 6.1 / RFC 5104 section 4.3.1).
+ *
+ * A registered target SSRC is routed as is in both modes, and the sender SSRC
+ * of the request is never used: it names the requesting peer's own stream.
+ */
+export type KeyFrameRequestRouting = "compatible" | "strict";
+
+export const KeyFrameRequestRoutingModes: readonly KeyFrameRequestRouting[] = [
+  "compatible",
+  "strict",
+];
+
+type FirEntry = FullIntraRequest["fir"][number];
+
 const ridOfRouteKey = (key: string) => key.slice(key.indexOf("\u0000") + 1);
 
 type StagedRoutes = {
@@ -33,6 +54,30 @@ type StagedRoutes = {
   provisional?: [number, RTCRtpReceiver][];
 };
 
+/**
+ * RTP routing tables shared by the current session and a pending proposal.
+ * One rule covers every key: a pending remote offer or pranswer may **add**
+ * keys, effective at once so provisional RTP flows, but a key the current
+ * session uses keeps its value until the final answer. A conflicting value is
+ * rejected before any mutation or staged until commit; rollback drops what was
+ * staged and restores the baseline (`snapshotRoutes` / `restoreRoutes`).
+ *
+ * | Key | Table | Conflicting proposal |
+ * | --- | --- | --- |
+ * | Payload type → codec | receiver codec table | remap rejected (RFC 3264 section 8.3.2); fmtp / rtcp-fb change staged |
+ * | Header extension ID → URI | `extIdUriMap` | remap of an ID in use rejected (RFC 8285 section 7); a URI on a new ID is an addition |
+ * | SSRC → receiver | `ssrcTable` | move to another m-line staged |
+ * | RTX SSRC → media SSRC | receiver RTX table | changed pairing staged |
+ * | MID+RID → receiver | `ridTable` | RIDs are scoped to their m-line (RFC 8851): no conflict |
+ * | Sender SSRC → sender | `ssrcTable` | application state: rollback keeps every live sender's route |
+ *
+ * A payload type or extension ID counts as in use only when both current
+ * descriptions carry it for the m-line. RID lookup uses MID+RID when the
+ * packet's MID names a route, else the RID alone. `extIdUriMap` is shared by
+ * the whole PeerConnection: m-lines on separate transports that map one ID to
+ * different URIs are not supported. A current remote SSRC that a later answer
+ * omits stays routed; only SSRCs a replaced pranswer alone added are dropped.
+ */
 export class RtpRouter {
   ssrcTable: { [ssrc: number]: RTCRtpReceiver | RTCRtpSender } = {};
   /** Keyed by {@link ridRouteKey} (MID + RID). */
@@ -55,6 +100,7 @@ export class RtpRouter {
    * sent), not from SDP. Negotiation rollback keeps these entries.
    */
   readonly learnedSsrcs = new Set<number>();
+  keyFrameRequestRouting: KeyFrameRequestRouting = "compatible";
 
   constructor() {}
 
@@ -383,6 +429,8 @@ export class RtpRouter {
       case RtcpPayloadSpecificFeedback.type:
         {
           const psfb = packet as RtcpPayloadSpecificFeedback;
+          // unknown FMT (SLI, RPSI, ...) is not parsed and is not routed
+          if (!psfb.feedback) break;
           switch (psfb.feedback.count) {
             case ReceiverEstimatedMaxBitrate.count:
               {
@@ -390,11 +438,50 @@ export class RtpRouter {
                 recipients.push(this.ssrcTable[remb.ssrcFeedbacks[0]]);
               }
               break;
+            case PictureLossIndication.count:
+              // RFC 4585 6.1: the target is the media source, never the sender of the feedback
+              {
+                const target = this.keyFrameRequestTarget(
+                  psfb.feedback.mediaSsrc,
+                );
+                if (target) recipients.push(target);
+              }
+              break;
+            case FullIntraRequest.count:
+              {
+                // RFC 5104 4.3.1: the media source SSRC SHALL be 0; the targets are the FCI entries
+                const fir = psfb.feedback as FullIntraRequest;
+                if (fir.fir.length === 0) {
+                  if (fir.mediaSsrc) {
+                    recipients.push(this.ssrcTable[fir.mediaSsrc]);
+                  }
+                  break;
+                }
+                const targets = new Map<
+                  RTCRtpReceiver | RTCRtpSender,
+                  FirEntry[]
+                >();
+                for (const entry of fir.fir) {
+                  const target = this.keyFrameRequestTarget(entry.ssrc);
+                  if (target) {
+                    targets.set(target, [
+                      ...(targets.get(target) ?? []),
+                      entry,
+                    ]);
+                  }
+                }
+                // each target once, a sender with the entries resolved to it
+                targets.forEach((entries, target) => {
+                  if (target instanceof RTCRtpReceiver) {
+                    target.handleRtcpPacket(packet);
+                  } else {
+                    target.handleRtcpPacket(packet, entries);
+                  }
+                });
+              }
+              break;
             default:
-              recipients.push(
-                this.ssrcTable[psfb.feedback.senderSsrc] ||
-                  this.ssrcTable[psfb.feedback.mediaSsrc],
-              );
+              recipients.push(this.ssrcTable[psfb.feedback.mediaSsrc]);
           }
         }
         break;
@@ -403,4 +490,29 @@ export class RtpRouter {
       .filter((v) => v) // todo simulcast
       .forEach((recipient) => recipient.handleRtcpPacket(packet));
   };
+
+  /** Endpoint a keyframe request for `ssrc` reaches; see {@link KeyFrameRequestRouting}. */
+  private keyFrameRequestTarget(
+    ssrc: number,
+  ): RTCRtpReceiver | RTCRtpSender | undefined {
+    const route = this.ssrcTable[ssrc];
+    if (route || this.keyFrameRequestRouting === "strict") return route;
+
+    const senders = new Set(
+      Object.values(this.ssrcTable).filter(
+        (endpoint): endpoint is RTCRtpSender =>
+          !(endpoint instanceof RTCRtpReceiver) && !endpoint.stopped,
+      ),
+    );
+    // RFC 4585 / RFC 4588 では、キーフレーム要求(PLI/FIR)の宛先は再送用(RTX)ではなく
+    // 元のメディアストリームの SSRC であることが前提で、libwebrtc もメディア SSRC 宛に送る。
+    // そのため strict では RTX SSRC を解決しない。ここは RTX SSRC 宛に送ってくる
+    // 非準拠な相手向けの compatible 限定の救済措置。
+    const rtxOwner = [...senders].find((sender) => sender.rtxSsrc === ssrc);
+    if (rtxOwner) return rtxOwner;
+    const videoSenders = [...senders].filter(
+      (sender) => sender.kind === "video",
+    );
+    return videoSenders.length === 1 ? videoSenders[0] : undefined;
+  }
 }

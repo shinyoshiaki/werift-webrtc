@@ -6,4 +6,4 @@
 
 # Type Alias: RTCSignalingState
 
-> **RTCSignalingState**: *typeof* [`SignalingStates`](../variables/SignalingStates.md)\[`number`\]
+> **RTCSignalingState** = *typeof* [`SignalingStates`](../variables/SignalingStates.md)\[`number`\]

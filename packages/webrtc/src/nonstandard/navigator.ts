@@ -2,10 +2,10 @@ import { createSocket } from "dgram";
 import { RTCRtpCodecParameters } from "..";
 import { MediaStream, MediaStreamTrack } from "../media/track";
 import {
-  type DummyAudioOptions,
-  type DummyVideoOptions,
   createDummyAudioTrack,
   createDummyVideoTrack,
+  type DummyAudioOptions,
+  type DummyVideoOptions,
 } from "./dummyMedia";
 
 export class Navigator {

@@ -1,6 +1,12 @@
 import { RTCDataChannel, RTCSctpTransport } from "../../src";
 import { RTCDataChannelParameters } from "../../src/dataChannel";
 import { dtlsTransportPair } from "../fixture";
+import { WEBRTC_BINARY } from "../../src/const";
+import {
+  captureSctpDataChunks,
+  DCEP_CHANNEL_TYPE_CASES,
+  SCTP_DATA_UNORDERED,
+} from "../utils";
 
 describe("RTCSctpTransportTest", () => {
   test("reuses outbound MTU when replacing the DTLS transport", async () => {
@@ -14,6 +20,72 @@ describe("RTCSctpTransportTest", () => {
 
     // Assert: constructor で指定した MTU が再生成後にも保持される。
     expect(transport.sctp.mtu).toBe(1052);
+  });
+
+  test("stop discards unsent messages and releases bufferedAmount", async () => {
+    // Arrange: association 確立前の transport に未送信メッセージを積む。
+    const [first, second] = await dtlsTransportPair();
+    const transport = new RTCSctpTransport();
+    transport.setDtlsTransport(first);
+    const channel = new RTCDataChannel(
+      transport,
+      new RTCDataChannelParameters({ label: "unsent", id: 1 }),
+    );
+    transport.datachannelSend(channel, Buffer.from("stale-1"));
+    transport.datachannelSend(channel, "stale-2");
+    expect(channel.bufferedAmount).toBe(14);
+
+    // Act: 停止して別の DTLS transport で再接続する。
+    await transport.stop();
+    transport.setDtlsTransport(second);
+    const sent: unknown[] = [];
+    const send = transport.sctp.send.bind(transport.sctp);
+    transport.sctp.send = ((...args: Parameters<typeof send>) => {
+      sent.push(args[2]);
+      return send(...args);
+    }) as typeof send;
+    transport["dataChannelFlush"]();
+
+    // Assert: 古いメッセージは SCTP に渡されず、bufferedAmount は 0 に戻る。
+    expect(sent).toHaveLength(0);
+    // DATA_CHANNEL_OPEN だけが残る (チャネルが存続する場合に備える)。
+    expect(transport["dataChannelQueue"].toArray().map((i) => i[1])).toEqual([
+      50,
+    ]);
+    expect(channel.bufferedAmount).toBe(0);
+  });
+
+  test("reconnect does not announce a channel closed while stopped", async () => {
+    // Arrange: 未確立の transport で OPEN を積み、停止後にチャネルが closed になる。
+    const [first] = await dtlsTransportPair();
+    const [clientDtls, serverDtls] = await dtlsTransportPair();
+    const client = new RTCSctpTransport();
+    client.setDtlsTransport(first);
+    const closedChannel = new RTCDataChannel(
+      client,
+      new RTCDataChannelParameters({ label: "closed-before-reconnect", id: 1 }),
+    );
+    const aliveChannel = new RTCDataChannel(
+      client,
+      new RTCDataChannelParameters({ label: "alive", id: 3 }),
+    );
+    await client.stop();
+    closedChannel.setReadyState("closed");
+    const server = new RTCSctpTransport();
+    server.setDtlsTransport(serverDtls);
+    const labels: string[] = [];
+    server.onDataChannel.subscribe((c) => labels.push(c.label));
+
+    // Act: 同じ transport に DTLS を再設定して association を確立する。
+    client.setDtlsTransport(clientDtls);
+    await Promise.all([server.start(client.port), client.start(server.port)]);
+    await waitForOutcome(client, server);
+    await new Promise((r) => setTimeout(r, 300));
+
+    // Assert: stop で closed になったチャネルの OPEN は再接続後に送られない。
+    expect(aliveChannel.readyState).toBe("closed");
+    expect(labels).toEqual([]);
+    expect(client["dataChannelQueue"].length).toBe(0);
   });
 
   function trackChannels(transport: RTCSctpTransport) {
@@ -68,4 +140,99 @@ describe("RTCSctpTransportTest", () => {
         channel.send(Buffer.from("pong"));
       });
     }));
+
+  test.each(DCEP_CHANNEL_TYPE_CASES)(
+    "DATA_CHANNEL_OPEN encodes $name",
+    async ({ options, channelType, reliability }) => {
+      // Arrange: SCTP association を確立し、client が送る DCEP を記録する。
+      const [clientTransport, serverTransport] = await dtlsTransportPair();
+      const client = new RTCSctpTransport();
+      client.setDtlsTransport(clientTransport);
+      const server = new RTCSctpTransport();
+      server.setDtlsTransport(serverTransport);
+      await Promise.all([server.start(client.port), client.start(server.port)]);
+      await waitForOutcome(client, server);
+      const dcep: Buffer[] = [];
+      const send = client.sctp.send.bind(client.sctp);
+      client.sctp.send = ((...args: Parameters<typeof send>) => {
+        if (args[1] === 50) dcep.push(Buffer.from(args[2]));
+        return send(...args);
+      }) as typeof send;
+      const remote = server.onDataChannel.asPromise();
+
+      // Act: 指定の ordered / 部分信頼性でチャネルを作成し OPEN を送らせる。
+      new RTCDataChannel(
+        client,
+        new RTCDataChannelParameters({ label: "dcep", id: 1, ...options }),
+      );
+      const [received] = await remote;
+
+      // Assert: OPEN の Channel Type と reliability が RFC 8832 の値になる。
+      expect(dcep).toHaveLength(1);
+      expect(dcep[0].readUInt8(0)).toBe(3);
+      expect(dcep[0].readUInt8(1)).toBe(channelType);
+      expect(dcep[0].readUInt32BE(4)).toBe(reliability);
+      // Assert: 受信側チャネルは送信側と同じ ordered / 部分信頼性を持つ。
+      expect(received.ordered).toBe(options.ordered);
+      expect(received.maxRetransmits).toBe(options.maxRetransmits ?? null);
+      expect(received.maxPacketLifeTime).toBe(
+        options.maxPacketLifeTime ?? null,
+      );
+
+      await Promise.all([client.stop(), server.stop()]);
+    },
+  );
+
+  test.each(DCEP_CHANNEL_TYPE_CASES)(
+    "remote peer sends DATA chunks with the $name delivery mode",
+    async ({ options }) => {
+      // Arrange: SCTP association を確立し、OPEN を受けた server が送る DATA chunk を記録する。
+      const [clientTransport, serverTransport] = await dtlsTransportPair();
+      const client = new RTCSctpTransport();
+      client.setDtlsTransport(clientTransport);
+      const server = new RTCSctpTransport();
+      server.setDtlsTransport(serverTransport);
+      await Promise.all([server.start(client.port), client.start(server.port)]);
+      await waitForOutcome(client, server);
+      const serverChunks = captureSctpDataChunks(server);
+      const remote = server.onDataChannel.asPromise();
+      const local = new RTCDataChannel(
+        client,
+        new RTCDataChannelParameters({ label: "dcep", id: 1, ...options }),
+      );
+      const [received] = await remote;
+      const replies = local.onMessage.asPromise();
+
+      // Act: OPEN から構築された server 側チャネルで 2 件送り、client で受信する。
+      received.send(Buffer.from("pong-1"));
+      received.send(Buffer.from("pong-2"));
+      const [first] = await replies;
+
+      // Assert: server が実際に送った user DATA chunk の U ビットと SSN が
+      // client 側で指定した ordered / unordered に一致する。
+      expect(first.toString()).toBe("pong-1");
+      // 再送で同じ TSN が複数回記録されても 1 件として扱う。
+      const userChunks = [
+        ...new Map(
+          serverChunks
+            .filter(
+              (chunk) =>
+                chunk.streamId === 1 && chunk.protocol === WEBRTC_BINARY,
+            )
+            .map((chunk) => [chunk.tsn, chunk]),
+        ).values(),
+      ];
+      expect(userChunks).toHaveLength(2);
+      const unordered = userChunks.map(
+        (chunk) => (chunk.flags & SCTP_DATA_UNORDERED) !== 0,
+      );
+      expect(unordered).toEqual([!options.ordered, !options.ordered]);
+      // Assert: ordered なら SSN が 1 ずつ進み (0 は DCEP ACK が使用済み)、
+      // unordered なら SSN を進めない。
+      const [ssn1, ssn2] = userChunks.map((chunk) => chunk.streamSeqNum);
+      expect(ssn2 - ssn1).toBe(options.ordered ? 1 : 0);
+
+      await Promise.all([client.stop(), server.stop()]);
+    },
+  );
 });

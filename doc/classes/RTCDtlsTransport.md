@@ -12,9 +12,9 @@
 
 ## Constructors
 
-### new RTCDtlsTransport()
+### Constructor
 
-> **new RTCDtlsTransport**(`config`, `iceTransport`, `localCertificate`?, `srtpProfiles`?): [`RTCDtlsTransport`](RTCDtlsTransport.md)
+> **new RTCDtlsTransport**(`config`, `iceTransport`, `localCertificate?`, `srtpProfiles?`): `RTCDtlsTransport`
 
 #### Parameters
 
@@ -38,7 +38,7 @@
 
 #### Returns
 
-[`RTCDtlsTransport`](RTCDtlsTransport.md)
+`RTCDtlsTransport`
 
 ## Properties
 
@@ -68,11 +68,11 @@
 
 #### debug?
 
-> `optional` **debug**: `Partial`\<\{ `disableRecvRetransmit`: `boolean`; `disableSendNack`: `boolean`; `inboundPacketLoss`: `number`; `outboundPacketLoss`: `number`; `receiverReportDelay`: `number`; \}\>
+> `optional` **debug?**: `Partial`\<\{ `disableRecvRetransmit`: `boolean`; `disableSendNack`: `boolean`; `inboundPacketLoss`: `number`; `outboundPacketLoss`: `number`; `receiverReportDelay`: `number`; \}\>
 
 ***
 
-### dataReceiver()
+### dataReceiver
 
 > **dataReceiver**: (`buf`) => `void`
 
@@ -90,13 +90,13 @@
 
 ### dtls?
 
-> `optional` **dtls**: [`DtlsSocket`](DtlsSocket.md)
+> `optional` **dtls?**: [`DtlsSocket`](DtlsSocket.md)
 
 ***
 
 ### iceRoleAtStart?
 
-> `optional` **iceRoleAtStart**: `"unknown"` \| `"controlling"` \| `"controlled"`
+> `optional` **iceRoleAtStart?**: `"unknown"` \| `"controlling"` \| `"controlled"`
 
 Internal: the ICE role when the handshake started. werift sets the ICE role at
 every offer / answer, so an SCTP association that starts later on this
@@ -119,7 +119,7 @@ on it when they started DTLS.
 
 ### localCertificate?
 
-> `optional` **localCertificate**: [`RTCCertificate`](RTCCertificate.md)
+> `optional` **localCertificate?**: [`RTCCertificate`](RTCCertificate.md)
 
 ***
 
@@ -135,9 +135,9 @@ on it when they started DTLS.
 
 ***
 
-### onstatechange()?
+### onstatechange?
 
-> `optional` **onstatechange**: () => `void`
+> `optional` **onstatechange?**: () => `void`
 
 #### Returns
 
@@ -209,13 +209,15 @@ on it when they started DTLS.
 
 ### localCertificate?
 
-> `static` `optional` **localCertificate**: [`RTCCertificate`](RTCCertificate.md)
+> `static` `optional` **localCertificate?**: [`RTCCertificate`](RTCCertificate.md)
+
+Process-wide default certificate cache, see [RTCDtlsTransport.SetupCertificate](#setupcertificate).
 
 ***
 
 ### localCertificatePromise?
 
-> `static` `optional` **localCertificatePromise**: `Promise`\<[`RTCCertificate`](RTCCertificate.md)\>
+> `static` `optional` **localCertificatePromise?**: `Promise`\<[`RTCCertificate`](RTCCertificate.md)\>
 
 ## Accessors
 
@@ -247,7 +249,7 @@ Internal: whether a description gave this transport the peer's DTLS parameters.
 
 ### addEventListener()
 
-> **addEventListener**(`type`, `listener`, `options`?): `void`
+> **addEventListener**(`type`, `listener`, `options?`): `void`
 
 #### Parameters
 
@@ -261,7 +263,7 @@ Internal: whether a description gave this transport the peer's DTLS parameters.
 
 ##### options?
 
-`boolean` | \{ `once`: `boolean`; \}
+`boolean` \| \{ `once?`: `boolean`; \}
 
 #### Returns
 
@@ -287,11 +289,11 @@ Internal: whether a description gave this transport the peer's DTLS parameters.
 
 ### getStats()
 
-> **getStats**(`timestamp`): `Promise`\<[`RTCStats`](../interfaces/RTCStats.md)[]\>
+> **getStats**(`timestamp?`): `Promise`\<[`RTCStats`](../interfaces/RTCStats.md)[]\>
 
 #### Parameters
 
-##### timestamp
+##### timestamp?
 
 `number` = `...`
 
@@ -339,7 +341,7 @@ Internal: whether a description gave this transport the peer's DTLS parameters.
 
 ### sendRtcp()
 
-> **sendRtcp**(`packets`): `Promise`\<`undefined` \| `number`\>
+> **sendRtcp**(`packets`): `Promise`\<`number` \| `undefined`\>
 
 #### Parameters
 
@@ -349,7 +351,7 @@ Internal: whether a description gave this transport the peer's DTLS parameters.
 
 #### Returns
 
-`Promise`\<`undefined` \| `number`\>
+`Promise`\<`number` \| `undefined`\>
 
 ***
 
@@ -429,9 +431,26 @@ Internal: whether a description gave this transport the peer's DTLS parameters.
 
 ***
 
+### generateCertificate()
+
+> `static` **generateCertificate**(): `Promise`\<[`RTCCertificate`](RTCCertificate.md)\>
+
+Generates a new self-signed certificate (ECDSA P-256 / SHA-256) on every call.
+Used by an RTCPeerConnection created with `certificateScope: "peerConnection"`
+when `RTCConfiguration.certificates` is not given.
+
+#### Returns
+
+`Promise`\<[`RTCCertificate`](RTCCertificate.md)\>
+
+***
+
 ### SetupCertificate()
 
 > `static` **SetupCertificate**(): `Promise`\<[`RTCCertificate`](RTCCertificate.md)\>
+
+Returns the default certificate cached for the whole process
+(the default `certificateScope: "process"`).
 
 #### Returns
 

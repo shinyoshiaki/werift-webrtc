@@ -19,49 +19,49 @@
 
 ### burstDiscardCount?
 
-> `optional` **burstDiscardCount**: `number`
+> `optional` **burstDiscardCount?**: `number`
 
 ***
 
 ### burstDiscardRate?
 
-> `optional` **burstDiscardRate**: `number`
+> `optional` **burstDiscardRate?**: `number`
 
 ***
 
 ### burstLossCount?
 
-> `optional` **burstLossCount**: `number`
+> `optional` **burstLossCount?**: `number`
 
 ***
 
 ### burstLossRate?
 
-> `optional` **burstLossRate**: `number`
+> `optional` **burstLossRate?**: `number`
 
 ***
 
 ### burstPacketsDiscarded?
 
-> `optional` **burstPacketsDiscarded**: `number`
+> `optional` **burstPacketsDiscarded?**: `number`
 
 ***
 
 ### burstPacketsLost?
 
-> `optional` **burstPacketsLost**: `number`
+> `optional` **burstPacketsLost?**: `number`
 
 ***
 
 ### bytesReceived?
 
-> `optional` **bytesReceived**: `number`
+> `optional` **bytesReceived?**: `number`
 
 ***
 
 ### codecId?
 
-> `optional` **codecId**: `string`
+> `optional` **codecId?**: `string`
 
 #### Inherited from
 
@@ -71,25 +71,25 @@
 
 ### framesDropped?
 
-> `optional` **framesDropped**: `number`
+> `optional` **framesDropped?**: `number`
 
 ***
 
 ### fullFramesLost?
 
-> `optional` **fullFramesLost**: `number`
+> `optional` **fullFramesLost?**: `number`
 
 ***
 
 ### gapDiscardRate?
 
-> `optional` **gapDiscardRate**: `number`
+> `optional` **gapDiscardRate?**: `number`
 
 ***
 
 ### gapLossRate?
 
-> `optional` **gapLossRate**: `number`
+> `optional` **gapLossRate?**: `number`
 
 ***
 
@@ -105,7 +105,7 @@
 
 ### jitter?
 
-> `optional` **jitter**: `number`
+> `optional` **jitter?**: `number`
 
 ***
 
@@ -121,31 +121,31 @@
 
 ### packetsDiscarded?
 
-> `optional` **packetsDiscarded**: `number`
+> `optional` **packetsDiscarded?**: `number`
 
 ***
 
 ### packetsLost?
 
-> `optional` **packetsLost**: `number`
+> `optional` **packetsLost?**: `number`
 
 ***
 
 ### packetsReceived?
 
-> `optional` **packetsReceived**: `number`
+> `optional` **packetsReceived?**: `number`
 
 ***
 
 ### packetsRepaired?
 
-> `optional` **packetsRepaired**: `number`
+> `optional` **packetsRepaired?**: `number`
 
 ***
 
 ### partialFramesLost?
 
-> `optional` **partialFramesLost**: `number`
+> `optional` **partialFramesLost?**: `number`
 
 ***
 
@@ -171,7 +171,7 @@
 
 ### transportId?
 
-> `optional` **transportId**: `string`
+> `optional` **transportId?**: `string`
 
 #### Inherited from
 

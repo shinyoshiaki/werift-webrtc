@@ -129,7 +129,7 @@ DTLS and SRTP share the ICE transport, but media is **not tunneled through DTLS*
 | **Simulcast** | Receive-side simulcast |
 | **Bandwidth estimation** | Sender-side estimator driven by Transport-Wide CC feedback |
 | **Statistics** | Browser-compatible `getStats()` report model for RTP, transport, ICE, codec, certificate, DataChannel, and related stats |
-| **Recording** | Nonstandard `MediaRecorder` / WebM writer paths for Opus, VP8, VP9, H.264, and AV1 tracks |
+| **Recording** | Nonstandard `MediaRecorder` / WebM writer paths for Opus, VP8, VP9, H.264, and AV1 tracks; Ogg Opus (`.ogg` / `.opus`, or `format: "ogg"` for `stream`) for a single Opus audio track |
 | **Nonstandard media** | MP4/WebM file playback via mediabunny plus configurable/dummy media-device sources |
 | **RTP processing** | Jitter buffer, RED encoder/decoder, DTX, NACK, lip sync, and other packet processors |
 
@@ -239,11 +239,22 @@ Again, the browser console and `chrome://webrtc-internals/` are useful for inspe
 
 ## Debugging
 
-werift uses the [`debug`](https://www.npmjs.com/package/debug) package throughout the stack.
+werift provides a debug-compatible logger throughout the stack.
 
 ```bash
 DEBUG=werift* node your-app.js
 ```
+
+Applications can also switch logging at runtime through werift's exported API:
+
+```ts
+import { debug } from "werift";
+
+debug.enable("werift*");
+debug.disable();
+```
+
+The application's own `debug` package instance does not control werift logging. The logger supports the `DEBUG` patterns and common API shown above, but does not implement `DEBUG_HIDE_DATE`, `DEBUG_DEPTH`, `DEBUG_SHOW_HIDDEN`, `logger.extend()`, `logger.log`, `debug.log`, `debug.formatters`, `logger.destroy()`, `logger.color`, `useColors`, or `inspectOpts`. In browsers (for example `werift-rtp` bundled with Vite), set `localStorage.debug` before loading werift.
 
 For browser interoperability debugging, combine server logs with:
 

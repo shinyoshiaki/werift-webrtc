@@ -10,13 +10,13 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import { compareClassCounts } from "./analyze";
 import {
-  type MemleakEnv,
-  type MemorySample,
   clearSyntheticLeak,
   detectLeak,
   forceGcAndSettle,
   hasGcExposed,
   linearRegressionSlope,
+  type MemleakEnv,
+  type MemorySample,
   median,
   readMemleakEnv,
 } from "./heapUtils";
@@ -27,10 +27,10 @@ import {
 } from "./report";
 import { buildEnvBanner, runScenario } from "./runner";
 import {
-  RATES,
   computeBudgets,
   createAllScenarios,
   createSyntheticLeakScenario,
+  RATES,
 } from "./scenarios";
 
 const env = readMemleakEnv();

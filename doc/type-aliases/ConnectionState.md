@@ -6,4 +6,4 @@
 
 # Type Alias: ConnectionState
 
-> **ConnectionState**: *typeof* [`ConnectionStates`](../variables/ConnectionStates.md)\[`number`\]
+> **ConnectionState** = *typeof* [`ConnectionStates`](../variables/ConnectionStates.md)\[`number`\]

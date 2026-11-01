@@ -1,3 +1,5 @@
+import type { Transport } from "../../common/src";
+
 export const certPem = `-----BEGIN CERTIFICATE-----
 MIIDETCCAfkCFEtWAs2R7xuwFvkze6b7C0mNodXKMA0GCSqGSIb3DQEBCwUAMEUx
 CzAJBgNVBAYTAkFVMRMwEQYDVQQIDApTb21lLVN0YXRlMSEwHwYDVQQKDBhJbnRl
@@ -48,3 +50,24 @@ v5/QTK1BlvJ52UxGn2C+SQVK7ZLO5U+lnrLJ8DmW4z7/hmK+VK7g27GxIbqVn75v
 MRWZMFdB3hM1ZJ3myUyE8qw=
 -----END PRIVATE KEY-----
 `;
+
+/**
+ * Shared Arrange: a transport that sends nowhere and records every datagram
+ * (a peer that never answers the handshake).
+ */
+export function createSilentTransport() {
+  const sent: Buffer[] = [];
+  const transport: Transport = {
+    type: "silent",
+    address: {} as Transport["address"],
+    closed: false,
+    onData: () => {},
+    send: async (data) => {
+      sent.push(data);
+    },
+    close: async () => {
+      transport.closed = true;
+    },
+  };
+  return { transport, sent };
+}

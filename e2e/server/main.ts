@@ -42,10 +42,12 @@ import {
   mediachannel_addTrack_answer,
   mediachannel_addTrack_offer,
 } from "./handler/mediachannel/addTrack";
+import { codecRtpHandlers } from "./handler/mediachannel/codecRtp";
 import {
   mediachannel_oneway_answer,
   mediachannel_oneway_offer,
 } from "./handler/mediachannel/oneway";
+import { recordPlaybackHandlers } from "./handler/mediachannel/recordPlayback";
 import {
   mediachannel_red_client_answer,
   mediachannel_red_client_offer,
@@ -72,6 +74,7 @@ import {
   mediachannel_simulcast_answer,
   mediachannel_simulcast_offer,
 } from "./handler/mediachannel/simulcast";
+import { vp8PlaybackHandlers } from "./handler/mediachannel/vp8Playback";
 import { getTurnRelayConfig, startTurnServer, stopTurnServer } from "./turn";
 
 const app = express();
@@ -208,6 +211,12 @@ function attachWebSocketServer() {
         new mediachannel_reject_unsupported_video(),
       ice_restart_web_trigger: new ice_restart_web_trigger(),
       ice_restart_node_trigger: new ice_restart_node_trigger(),
+      // packages/rtp Packetizer / Depacketizer Chrome E2E
+      ...codecRtpHandlers,
+      // werift VP8 sources (file playback / dummy media) → Chrome decode E2E
+      ...vp8PlaybackHandlers,
+      // Chrome media → werift MediaRecorder (WebM) → DataChannel → Chrome playback
+      ...recordPlaybackHandlers,
     };
 
     const transport = accept();

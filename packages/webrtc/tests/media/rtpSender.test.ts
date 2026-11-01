@@ -5,21 +5,48 @@ import {
   GenericNack,
   MediaStreamTrack,
   RTCPeerConnection,
+  type RtcpSrPacket,
   RtcpTransportLayerFeedback,
+  RtpBuilder,
   RtpPacket,
   unwrapRtx,
 } from "../../src";
+import { NtpTimeBase } from "../../src/imports/rtpExtra";
 import { RTCRtpCodecParameters } from "../../src/media/parameters";
 import { RTCRtpSender } from "../../src/media/rtpSender";
 import { RTCStatsReport } from "../../src/media/stats";
+import { compactNtp } from "../../src/utils";
 import {
+  buildSenderReportAt,
   createConnectedRtpSender,
   createDtlsTransport,
+  createFirPacket,
+  createPliPacket,
   createRtpPacket,
+  createVideoCodec,
+  mockMonotonicClock,
+  ntpDiffMs,
+  rfc3550Ntp,
+  outboundRtpStats,
   sentRtpHeaders,
 } from "../fixture";
 
 describe("media/rtpSender", () => {
+  test("stop releases the subscription on the DTLS transport", () => {
+    // Arrange: DTLS transport に結び付けた sender。
+    const dtls = createDtlsTransport();
+    const before = dtls.onStateChange.length;
+    const sender = new RTCRtpSender("video");
+    sender.setDtlsTransport(dtls);
+    expect(dtls.onStateChange.length).toBe(before + 1);
+
+    // Act: sender を止める (transceiver.stop())。
+    sender.stop();
+
+    // Assert: BUNDLE で共有して長く生きる transport が、止めた sender を参照し続けない。
+    expect(dtls.onStateChange.length).toBe(before);
+  });
+
   test("stop track", () => {
     const track = new MediaStreamTrack({ kind: "audio", remote: true });
     const dtls = createDtlsTransport();
@@ -526,6 +553,37 @@ describe("media/rtpSender", () => {
 
     original.sender.stop();
     cloned.sender.stop();
+  });
+
+  test("sendRtp keeps media-clock timestamps including skip gaps as-is", async () => {
+    // 準備: RtpBuilder でストール後の skip ギャップを含む timestamp 列を作る。
+    const { sender, sendRtp } = createConnectedRtpSender();
+    const builder = new RtpBuilder({
+      initialSequenceNumber: 100,
+      initialTimestamp: 0xffffff00,
+    });
+    const packets = [
+      builder.create(Buffer.from([1])),
+      builder.create(Buffer.from([2]), { elapsedSamples: 960 }),
+      builder.create(Buffer.from([3]), { elapsedSamples: 960 * 250 }),
+    ];
+
+    // 実行: 送信時刻とは無関係な間隔で sendRtp する。
+    for (const packet of packets) {
+      await sender.sendRtp(packet);
+      await setTimeout(5);
+    }
+
+    // 検証: 送出 timestamp は入力のまま (wrap とギャップを含め書き換えない)。
+    expect(sentRtpHeaders(sendRtp).map((h) => h.timestamp)).toEqual(
+      packets.map((p) => p.header.timestamp),
+    );
+    expect(sentRtpHeaders(sendRtp).map((h) => h.timestamp)).toEqual([
+      0xffffff00,
+      (0xffffff00 + 960) % 2 ** 32,
+      (0xffffff00 + 960 * 251) % 2 ** 32,
+    ]);
+    sender.stop();
   });
 
   test("RTP fan-out copies packets before the first subscriber mutates them", () => {
@@ -1183,8 +1241,11 @@ describe("media/rtpSender RTP continuity", () => {
     await sender.sendRtp(createRtpPacket(0, 0));
     const second = sentRtpHeaders(sendRtp).at(-1)!;
 
-    // Assert: SR が参照する rtpTimestamp は書き換え後 timestamp。
-    expect((sender as any).rtpTimestamp).toBe(second.timestamp);
+    // Assert: 直後に生成した SR の rtpTimestamp は書き換え後タイムライン上にある。
+    const sr = buildSenderReportAt(sender, performance.now());
+    expect((sr.senderInfo.rtpTimestamp - second.timestamp) >>> 0).toBeLessThan(
+      48 * 10,
+    );
     expect(second.timestamp).not.toBe(0);
     expect(second.sequenceNumber).toBe((first.sequenceNumber + 1) & 0xffff);
 
@@ -1213,5 +1274,589 @@ describe("media/rtpSender RTP continuity", () => {
     const [header] = sentRtpHeaders(sendRtp);
     expect(header.sequenceNumber).toBe((last.sequenceNumber + 1) & 0xffff);
     expect(header.timestamp).toBe((last.timestamp + 1) >>> 0);
+  });
+
+  describe("keyframe requests", () => {
+    const remoteSsrc = 0x0abc0001;
+
+    test("FIR addressed to the sender counts firCount and fires onFullIntraRequest", async () => {
+      // Arrange
+      const { sender } = createConnectedRtpSender({ kind: "video" });
+      const onFir = vi.fn();
+      const onPli = vi.fn();
+      sender.onFullIntraRequest.subscribe(onFir);
+      sender.onPictureLossIndication.subscribe(onPli);
+      const fir = createFirPacket({
+        senderSsrc: remoteSsrc,
+        fir: [{ ssrc: sender.ssrc, sequenceNumber: 7 }],
+      });
+
+      // Act: 自分宛エントリを含む FIR を受ける
+      sender.handleRtcpPacket(fir);
+
+      // Assert: firCount が outbound-rtp に出て、FIR の Event だけが発火する
+      expect(onFir).toHaveBeenCalledTimes(1);
+      expect(onFir).toHaveBeenCalledWith(fir.feedback);
+      expect(onPli).not.toHaveBeenCalled();
+      const stats = await outboundRtpStats(sender);
+      expect(stats.firCount).toBe(1);
+      expect(stats.pliCount).toBeUndefined();
+    });
+
+    test("retransmitted FIR with the same sequence number counts but does not fire", async () => {
+      // Arrange
+      const { sender } = createConnectedRtpSender({ kind: "video" });
+      const onFir = vi.fn();
+      sender.onFullIntraRequest.subscribe(onFir);
+      const firWithSeq = (sequenceNumber: number, senderSsrc = remoteSsrc) =>
+        createFirPacket({
+          senderSsrc,
+          fir: [{ ssrc: sender.ssrc, sequenceNumber }],
+        });
+
+      // Act: 同じ送信元・同じ Seq nr の FIR を再送として 2 回受ける
+      sender.handleRtcpPacket(firWithSeq(1));
+      sender.handleRtcpPacket(firWithSeq(1));
+
+      // Assert: 数は 2 だが Event は初回の 1 回だけ
+      expect(onFir).toHaveBeenCalledTimes(1);
+      expect((await outboundRtpStats(sender)).firCount).toBe(2);
+
+      // Act: Seq nr を進めた FIR と、別の送信元からの同じ Seq nr の FIR を受ける
+      sender.handleRtcpPacket(firWithSeq(2));
+      sender.handleRtcpPacket(firWithSeq(2, remoteSsrc + 1));
+
+      // Assert: どちらも新しい要求として発火する
+      expect(onFir).toHaveBeenCalledTimes(3);
+      expect((await outboundRtpStats(sender)).firCount).toBe(4);
+    });
+
+    test("FIR retransmission is judged per (FIR sender, target SSRC) entry", async () => {
+      // Arrange: router が primary SSRC と RTX SSRC のエントリを同じ sender に解決した状態
+      const { sender } = createConnectedRtpSender({ kind: "video" });
+      const onFir = vi.fn();
+      sender.onFullIntraRequest.subscribe(onFir);
+      const receiveFir = (
+        entries: { ssrc: number; sequenceNumber: number }[],
+      ) =>
+        sender.handleRtcpPacket(
+          createFirPacket({ senderSsrc: remoteSsrc, fir: entries }),
+          entries,
+        );
+      const primary = (sequenceNumber: number) => ({
+        ssrc: sender.ssrc,
+        sequenceNumber,
+      });
+      const rtx = (sequenceNumber: number) => ({
+        ssrc: sender.rtxSsrc,
+        sequenceNumber,
+      });
+
+      // Act: primary=5 / RTX=9 の 2 エントリを持つ FIR と、その再送を受ける
+      receiveFir([primary(5), rtx(9)]);
+      receiveFir([primary(5), rtx(9)]);
+
+      // Assert: 再送は各エントリが既受信の番号なので通知されず、firCount はエントリ数ではなくパケット数の 2
+      expect(onFir).toHaveBeenCalledTimes(1);
+      expect((await outboundRtpStats(sender)).firCount).toBe(2);
+
+      // Act: primary の番号と同じ値を RTX 宛の新しい要求として受ける
+      receiveFir([rtx(5)]);
+
+      // Assert: RTX 宛の番号空間では 5 は新しいので、別対象の記録に引きずられず通知される
+      expect(onFir).toHaveBeenCalledTimes(2);
+
+      // Act: 各対象の最新番号だけを持つ FIR を順に受ける
+      receiveFir([primary(5)]);
+      receiveFir([rtx(5)]);
+
+      // Assert: どちらも対象ごとの再送なので通知されない
+      expect(onFir).toHaveBeenCalledTimes(2);
+      expect((await outboundRtpStats(sender)).firCount).toBe(5);
+    });
+
+    test("FIR not addressed to the sender is ignored except onRtcp", async () => {
+      // Arrange
+      const { sender } = createConnectedRtpSender({ kind: "video" });
+      const onFir = vi.fn();
+      const onRtcp = vi.fn();
+      sender.onFullIntraRequest.subscribe(onFir);
+      sender.onRtcp.subscribe(onRtcp);
+
+      // Act: 他の SSRC 宛エントリだけの FIR を受ける
+      sender.handleRtcpPacket(
+        createFirPacket({
+          senderSsrc: remoteSsrc,
+          fir: [{ ssrc: sender.ssrc + 1, sequenceNumber: 1 }],
+        }),
+      );
+
+      // Assert: firCount も Event も変わらず、onRtcp だけ従来どおり発火する
+      expect(onFir).not.toHaveBeenCalled();
+      expect(onRtcp).toHaveBeenCalledTimes(1);
+      expect((await outboundRtpStats(sender)).firCount).toBeUndefined();
+    });
+
+    test("onKeyFrameRequest fires for PLI and for new FIR only", () => {
+      // Arrange
+      const { sender } = createConnectedRtpSender({ kind: "video" });
+      const onRequest = vi.fn();
+      sender.onKeyFrameRequest.subscribe(onRequest);
+      const firWithSeq = (sequenceNumber: number) =>
+        createFirPacket({
+          senderSsrc: remoteSsrc,
+          fir: [{ ssrc: sender.ssrc, sequenceNumber }],
+        });
+
+      // Act: PLI、FIR、FIR の再送、新しい Seq nr の FIR を順に受ける
+      sender.handleRtcpPacket(
+        createPliPacket({ senderSsrc: remoteSsrc, mediaSsrc: sender.ssrc }),
+      );
+      sender.handleRtcpPacket(firWithSeq(1));
+      sender.handleRtcpPacket(firWithSeq(1));
+      sender.handleRtcpPacket(firWithSeq(2));
+
+      // Assert: 再送を除き、種別付きで 3 回発火する
+      expect(onRequest.mock.calls).toEqual([["pli"], ["fir"], ["fir"]]);
+    });
+
+    test("PLI does not affect FIR handling", async () => {
+      // Arrange
+      const { sender } = createConnectedRtpSender({ kind: "video" });
+      const onFir = vi.fn();
+      const onPli = vi.fn();
+      sender.onFullIntraRequest.subscribe(onFir);
+      sender.onPictureLossIndication.subscribe(onPli);
+
+      // Act: PLI を受ける
+      sender.handleRtcpPacket(
+        createPliPacket({ senderSsrc: remoteSsrc, mediaSsrc: sender.ssrc }),
+      );
+
+      // Assert: PLI 側だけが数えられ、FIR 側は変わらない
+      expect(onPli).toHaveBeenCalledTimes(1);
+      expect(onFir).not.toHaveBeenCalled();
+      const stats = await outboundRtpStats(sender);
+      expect(stats.pliCount).toBe(1);
+      expect(stats.firCount).toBeUndefined();
+    });
+  });
+});
+
+describe("media/rtpSender NACK retransmission over SRTP", () => {
+  const started: RTCRtpSender[] = [];
+
+  afterEach(() => {
+    for (const sender of started) {
+      sender.stop();
+    }
+    started.length = 0;
+  });
+
+  const arrangeSender = (
+    options?: Parameters<typeof createConnectedRtpSender>[0],
+  ) => {
+    const setup = createConnectedRtpSender({ ...options, srtpLoopback: true });
+    started.push(setup.sender);
+    return { ...setup, srtp: setup.srtp! };
+  };
+
+  const nack = (sender: RTCRtpSender, lost: number[]) =>
+    sender.handleRtcpPacket(
+      new RtcpTransportLayerFeedback({
+        feedback: new GenericNack({
+          lost,
+          senderSsrc: 1,
+          mediaSourceSsrc: sender.ssrc,
+        }),
+      }),
+    );
+
+  test("RTX なし: 折り返し後の seq 0 再送と後続パケットが受信側で復号できる (#764)", async () => {
+    const { sender, srtp } = arrangeSender();
+
+    // Arrange: 65535 → 0..120 と送り、折り返し後の ROC=1 区間に入る。
+    for (const seq of [65535, ...Array.from({ length: 121 }, (_, i) => i)]) {
+      await sender.sendRtp(createRtpPacket(seq, seq * 960));
+    }
+    srtp.received.length = 0;
+
+    // Act: seq 0 の NACK を受けて元 SSRC/seq のまま再送し、続けて 121 を送る。
+    nack(sender, [0]);
+    await setTimeout(0);
+    await sender.sendRtp(createRtpPacket(121, 121 * 960));
+
+    // Assert: 再送 0 と 121 はどちらも認証・復号に成功する。
+    expect(srtp.failures).toEqual([]);
+    expect(srtp.received.map((p) => p.header.sequenceNumber)).toEqual([0, 121]);
+    expect(srtp.received.every((p) => p.header.ssrc === sender.ssrc)).toBe(
+      true,
+    );
+    // Assert: 送信側の最高 index は (ROC=1, 121) で、再送で二重加算されていない。
+    expect(srtp.sender.localContext.srtpSSRCStates[sender.ssrc]).toMatchObject({
+      rolloverCounter: 1,
+      lastSequenceNumber: 121,
+    });
+  });
+
+  test("RTX あり: RTX は別 SSRC で送られ、メディア SSRC の後続パケットも復号できる", async () => {
+    const { sender, srtp } = arrangeSender({ rtx: true });
+
+    // Arrange: 65535 → 0..120 と送る。
+    for (const seq of [65535, ...Array.from({ length: 121 }, (_, i) => i)]) {
+      await sender.sendRtp(createRtpPacket(seq, seq * 960));
+    }
+    srtp.received.length = 0;
+
+    // Act: seq 0 の NACK で RTX を送り、続けて 121 を送る。
+    nack(sender, [0]);
+    await setTimeout(0);
+    await sender.sendRtp(createRtpPacket(121, 121 * 960));
+
+    // Assert: 全パケットが復号でき、1 つ目は RTX SSRC の再送。
+    expect(srtp.failures).toEqual([]);
+    const [rtx, next] = srtp.received;
+    expect(rtx.header.ssrc).toBe(sender.rtxSsrc);
+    expect(unwrapRtx(rtx, 96, sender.ssrc).header.sequenceNumber).toBe(0);
+    // Assert: メディア SSRC の後続 121 も復号できる。
+    expect(next.header).toMatchObject({
+      ssrc: sender.ssrc,
+      sequenceNumber: 121,
+    });
+  });
+});
+
+describe("media/rtpSender RTCP Sender Report clock mapping", () => {
+  const started: RTCRtpSender[] = [];
+
+  afterEach(() => {
+    for (const sender of started) {
+      sender.stop();
+    }
+    started.length = 0;
+    vi.restoreAllMocks();
+  });
+
+  const arrangeSender = (
+    options?: Parameters<typeof createConnectedRtpSender>[0],
+  ) => {
+    const setup = createConnectedRtpSender(options);
+    started.push(setup.sender);
+    return { ...setup, clock: mockMonotonicClock() };
+  };
+
+  /** SR が表す NTP は、生成時刻 nowMs の壁時計から作った値と一致する */
+  const expectedNtp = (nowMs: number) =>
+    rfc3550Ntp(performance.timeOrigin + nowMs);
+
+  /** 2^-32 秒の分解能と double の丸めを考慮し、0.01ms 以内なら同一時刻とみなす */
+  const expectNtpCloseTo = (actual: bigint, expected: bigint) => {
+    expect(Math.abs(ntpDiffMs(actual, expected))).toBeLessThan(0.01);
+  };
+
+  test("RTP 送出直後の SR は直前パケットのアンカーに対応する", async () => {
+    const { sender, clock } = arrangeSender();
+
+    // Act: t=1000ms に RTP を送り、同じ時刻に SR を生成する。
+    await sender.sendRtp(createRtpPacket(1, 480000));
+    const sr = buildSenderReportAt(sender, clock.nowMs);
+
+    // Assert: 経過 0ms なので RTP ts はアンカーそのもの、NTP は生成時刻。
+    expect(sr.senderInfo.rtpTimestamp).toBe(480000);
+    expectNtpCloseTo(sr.senderInfo.ntpTimestamp, expectedNtp(clock.nowMs));
+  });
+
+  test("最後の RTP から 700ms 後の SR は送信時刻の NTP と外挿した RTP ts (48kHz)", async () => {
+    const { sender, clock } = arrangeSender();
+    await sender.sendRtp(createRtpPacket(1, 480000));
+
+    // Act: RTP を送らずに 700ms 進めて SR を生成する。
+    clock.advance(700);
+    const sr = buildSenderReportAt(sender, clock.nowMs);
+
+    // Assert: NTP は 700ms 後の時刻で、RTP ts は 0.7 * 48000 だけ進む。
+    expectNtpCloseTo(sr.senderInfo.ntpTimestamp, expectedNtp(clock.nowMs));
+    expect(
+      Math.abs(
+        ntpDiffMs(sr.senderInfo.ntpTimestamp, expectedNtp(clock.nowMs - 700)),
+      ),
+    ).toBeGreaterThan(600);
+    expect(sr.senderInfo.rtpTimestamp).toBe(480000 + 33600);
+  });
+
+  test("90kHz video は video の clockRate で外挿する", async () => {
+    const { sender, clock } = arrangeSender({
+      kind: "video",
+      codec: createVideoCodec(),
+    });
+    await sender.sendRtp(createRtpPacket(1, 900000));
+
+    // Act: 700ms 後に SR を生成する。
+    clock.advance(700);
+    const sr = buildSenderReportAt(sender, clock.nowMs);
+
+    // Assert: 0.7 * 90000 = 63000 進む。
+    expect(sr.senderInfo.rtpTimestamp).toBe(900000 + 63000);
+  });
+
+  test("外挿は 32bit で wrap する", async () => {
+    const { sender, clock } = arrangeSender();
+    await sender.sendRtp(createRtpPacket(1, 0xffffff00));
+
+    // Act: 100ms (4800 tick) 後に SR を生成する。
+    clock.advance(100);
+    const sr = buildSenderReportAt(sender, clock.nowMs);
+
+    // Assert: 0xffffff00 + 4800 を 32bit に丸めた値になる。
+    expect(sr.senderInfo.rtpTimestamp).toBe((0xffffff00 + 4800) >>> 0);
+  });
+
+  test("同じ timestamp の後続パケットはアンカーを動かさない (フレーム分割)", async () => {
+    const { sender, clock } = arrangeSender({
+      kind: "video",
+      codec: createVideoCodec(),
+    });
+    await sender.sendRtp(createRtpPacket(1, 9000));
+
+    // Act: 同じフレームの続きを 30ms 遅れて送り、さらに 70ms 後に SR を生成する。
+    clock.advance(30);
+    await sender.sendRtp(createRtpPacket(2, 9000));
+    clock.advance(70);
+    const sr = buildSenderReportAt(sender, clock.nowMs);
+
+    // Assert: アンカーは先頭パケットの時刻のままで、100ms 分 (9000 tick) 進む。
+    expect(sr.senderInfo.rtpTimestamp).toBe(9000 + 9000);
+  });
+
+  test("古い timestamp の遅着パケットはアンカーを後退させない", async () => {
+    const { sender, clock } = arrangeSender();
+    await sender.sendRtp(createRtpPacket(2, 96000));
+
+    // Act: 20ms 後に古い timestamp のパケットを送り、さらに 80ms 後に SR を生成する。
+    clock.advance(20);
+    await sender.sendRtp(createRtpPacket(1, 95040));
+    clock.advance(80);
+    const sr = buildSenderReportAt(sender, clock.nowMs);
+
+    // Assert: 新しい方のアンカーから 100ms 分 (4800 tick) 進む。
+    expect(sr.senderInfo.rtpTimestamp).toBe(96000 + 4800);
+  });
+
+  test("並べ替えの範囲 (3 秒) を超えて timestamp が巻き戻るとアンカーを張り直す", async () => {
+    const { sender, clock } = arrangeSender();
+    await sender.sendRtp(createRtpPacket(1, 960000));
+
+    // Act: continuity rewrite なしで 10 秒分 (480000 tick) 巻き戻った timestamp を送り、100ms 後に SR を生成する。
+    clock.advance(20);
+    await sender.sendRtp(createRtpPacket(2, 480000));
+    clock.advance(100);
+    const sr = buildSenderReportAt(sender, clock.nowMs);
+
+    // Assert: 巻き戻ったパケットが新アンカーになり、そこから 4800 tick 進む (旧アンカーからの外挿ではない)。
+    expect(sr.senderInfo.rtpTimestamp).toBe(480000 + 4800);
+  });
+
+  test("3 秒以内の巻き戻りは並べ替えとみなしアンカーを動かさない", async () => {
+    const { sender, clock } = arrangeSender();
+    await sender.sendRtp(createRtpPacket(1, 960000));
+
+    // Act: ちょうど 3 秒分 (144000 tick) 古い timestamp を送り、100ms 後に SR を生成する。
+    clock.advance(20);
+    await sender.sendRtp(createRtpPacket(2, 960000 - 144000));
+    clock.advance(100);
+    const sr = buildSenderReportAt(sender, clock.nowMs);
+
+    // Assert: アンカーは新しい方のままで、120ms 分 (5760 tick) 進む。
+    expect(sr.senderInfo.rtpTimestamp).toBe(960000 + 5760);
+  });
+
+  test("wrap をまたいで大きく巻き戻った timestamp でもアンカーを張り直す", async () => {
+    const { sender, clock } = arrangeSender();
+    await sender.sendRtp(createRtpPacket(1, 1000));
+
+    // Act: wrap 前の値 (10 秒分以上古い) を送り、その時刻で SR を生成する。
+    clock.advance(20);
+    await sender.sendRtp(createRtpPacket(2, 0xfff00000));
+    const sr = buildSenderReportAt(sender, clock.nowMs);
+
+    // Assert: 巻き戻ったパケットが新アンカーになる。
+    expect(sr.senderInfo.rtpTimestamp).toBe(0xfff00000);
+  });
+
+  test("timestamp が wrap した新しいパケットではアンカーを進める", async () => {
+    const { sender, clock } = arrangeSender();
+    await sender.sendRtp(createRtpPacket(1, 0xfffffc40));
+
+    // Act: 20ms 後に wrap 後の timestamp を送り、その時刻で SR を生成する。
+    clock.advance(20);
+    await sender.sendRtp(createRtpPacket(2, 0x00000000));
+    const sr = buildSenderReportAt(sender, clock.nowMs);
+
+    // Assert: wrap 後のパケットが新しいアンカーになる。
+    expect(sr.senderInfo.rtpTimestamp).toBe(0);
+  });
+
+  test("折り返し後の SR でも録画側 (NtpTimeBase) は折り返し前の遅延パケットを SR の 500ms 前にする", async () => {
+    const { sender, clock } = arrangeSender({
+      kind: "video",
+      codec: createVideoCodec(),
+    });
+    await sender.sendRtp(createRtpPacket(1, 0xfffffc18));
+    const lastPacket = createRtpPacket(1, 0xfffffc18);
+
+    // Act: 500ms 後に SR を生成する (RTP ts は折り返し後の 44000 になる)。
+    clock.advance(500);
+    const sr = buildSenderReportAt(sender, clock.nowMs);
+    const recorder = new NtpTimeBase(90000);
+    recorder.processInput({ rtcp: sr });
+    const [res] = recorder.processInput({ rtp: lastPacket });
+
+    // Assert: SR の RTP ts は折り返し後で、パケットは SR 時刻の 500ms 前。
+    expect(sr.senderInfo.rtpTimestamp).toBe(44000);
+    const srMs = Math.round(ntpDiffMs(sr.senderInfo.ntpTimestamp, 0n));
+    expect(Math.abs(res.time! - (srMs - 500))).toBeLessThanOrEqual(1);
+  });
+
+  test("continuity rewrite の境界パケットでアンカーを張り直す", async () => {
+    const { sender, clock, sendRtp } = arrangeSender();
+    await sender.sendRtp(createRtpPacket(10, 48000));
+
+    // Act: 2 秒後にソースを切り替えて新ソースの先頭を送り、その時刻で SR を生成する。
+    clock.advance(2000);
+    sender.replaceRTP({ sequenceNumber: 0, timestamp: 0 });
+    await sender.sendRtp(createRtpPacket(0, 0));
+    const boundary = sentRtpHeaders(sendRtp).at(-1)!;
+    const sr = buildSenderReportAt(sender, clock.nowMs);
+
+    // Assert: 境界は旧 ts + 1 で、SR は旧アンカーからの外挿 (48000 + 96000) ではなく境界に一致する。
+    expect(boundary.timestamp).toBe(48001);
+    expect(sr.senderInfo.rtpTimestamp).toBe(boundary.timestamp);
+
+    // Act: さらに 100ms 後に SR を生成する。
+    clock.advance(100);
+    const later = buildSenderReportAt(sender, clock.nowMs);
+
+    // Assert: 書き換え後タイムライン上で 4800 tick 進む。
+    expect(later.senderInfo.rtpTimestamp).toBe(boundary.timestamp + 4800);
+  });
+
+  test("replaceTrack の境界パケットでもアンカーを張り直す", async () => {
+    const { sender, clock, sendRtp } = arrangeSender();
+    await sender.sendRtp(createRtpPacket(10, 48000));
+    const track2 = new MediaStreamTrack({ kind: "audio", remote: true });
+    await sender.replaceTrack(track2);
+
+    // Act: 1 秒後に新 track の先頭を送り、その時刻で SR を生成する。
+    clock.advance(1000);
+    track2.onReceiveRtp.execute(createRtpPacket(500, 777));
+    await setTimeout(0);
+    const boundary = sentRtpHeaders(sendRtp).at(-1)!;
+    const sr = buildSenderReportAt(sender, clock.nowMs);
+
+    // Assert: SR は境界パケットの書き換え後 timestamp に一致する。
+    expect(boundary.timestamp).toBe(48001);
+    expect(sr.senderInfo.rtpTimestamp).toBe(48001);
+  });
+
+  test("codec の clockRate が変わるとアンカーを張り直す", async () => {
+    const { sender, clock } = arrangeSender();
+    await sender.sendRtp(createRtpPacket(1, 480000));
+
+    // Act: 90kHz codec に再ネゴシエーションし、古い値の timestamp で送ってから 100ms 後に SR を生成する。
+    sender.prepareSend({ codecs: [createVideoCodec()], headerExtensions: [] });
+    clock.advance(500);
+    await sender.sendRtp(createRtpPacket(2, 1000));
+    clock.advance(100);
+    const sr = buildSenderReportAt(sender, clock.nowMs);
+
+    // Assert: 新アンカー (1000) から 90kHz で 9000 tick 進む。
+    expect(sr.senderInfo.rtpTimestamp).toBe(1000 + 9000);
+  });
+
+  test("長い idle 中は壁時計に沿って外挿し、再開後は新しいアンカーに従う", async () => {
+    const { sender, clock } = arrangeSender();
+    await sender.sendRtp(createRtpPacket(1, 48000));
+
+    // Act: 5 秒 idle のまま SR を生成する。
+    clock.advance(5000);
+    const idle = buildSenderReportAt(sender, clock.nowMs);
+
+    // Assert: 5 秒分 (240000 tick) 外挿される。
+    expect(idle.senderInfo.rtpTimestamp).toBe(48000 + 240000);
+
+    // Act: 無音抑圧後のように timestamp を飛ばして再開し、50ms 後に SR を生成する。
+    await sender.sendRtp(createRtpPacket(2, 48000 + 300000));
+    clock.advance(50);
+    const resumed = buildSenderReportAt(sender, clock.nowMs);
+
+    // Assert: 再開パケットが新アンカーになり、そこから 2400 tick 進む。
+    expect(resumed.senderInfo.rtpTimestamp).toBe(48000 + 300000 + 2400);
+  });
+
+  test("RTP が止まったまま SR を 2 回生成すると NTP と LSR が異なる", async () => {
+    const { sender, clock } = arrangeSender();
+    await sender.sendRtp(createRtpPacket(1, 48000));
+
+    // Act: RTP を送らずに SR を 2 回生成する。
+    clock.advance(700);
+    const first = buildSenderReportAt(sender, clock.nowMs);
+    clock.advance(1000);
+    const second = buildSenderReportAt(sender, clock.nowMs);
+
+    // Assert: NTP が異なり、LSR 照合値は最後に送った SR の NTP から作られる。
+    expect(second.senderInfo.ntpTimestamp).not.toBe(
+      first.senderInfo.ntpTimestamp,
+    );
+    expect(compactNtp(second.senderInfo.ntpTimestamp)).not.toBe(
+      compactNtp(first.senderInfo.ntpTimestamp),
+    );
+    expect((sender as any).lastSRtimestamp).toBe(
+      compactNtp(second.senderInfo.ntpTimestamp),
+    );
+  });
+
+  test("同じ秒内の 100ms と 900ms の SR は NTP で 800ms 離れ、LSR も異なる", async () => {
+    const { sender, clock } = arrangeSender();
+    // Arrange: 壁時計が秒境界 + 100ms になるよう単調時計を合わせる。
+    const baseEpochMs = Math.floor(performance.timeOrigin / 1000) * 1000 + 5000;
+    clock.set(baseEpochMs + 100 - performance.timeOrigin);
+    await sender.sendRtp(createRtpPacket(1, 48000));
+
+    // Act: 同じ秒の 100ms 時点と 900ms 時点で SR を生成する。
+    const first = buildSenderReportAt(sender, clock.nowMs);
+    clock.advance(800);
+    const second = buildSenderReportAt(sender, clock.nowMs);
+
+    // Assert: 標準形式で読むと NTP 差は 800ms、RTP ts も同じ 800ms 分進む。
+    expect(first.senderInfo.ntpTimestamp >> 32n).toBe(
+      second.senderInfo.ntpTimestamp >> 32n,
+    );
+    expect(
+      ntpDiffMs(second.senderInfo.ntpTimestamp, first.senderInfo.ntpTimestamp),
+    ).toBeCloseTo(800, 2);
+    expect(second.senderInfo.rtpTimestamp - first.senderInfo.rtpTimestamp).toBe(
+      38400,
+    );
+    // Assert: 同一秒内でも LSR は衝突しない。
+    expect(compactNtp(second.senderInfo.ntpTimestamp)).not.toBe(
+      compactNtp(first.senderInfo.ntpTimestamp),
+    );
+  });
+
+  test("runRtcp は送信時刻で生成した SR を送る", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    const { sender, clock, sendRtcp } = arrangeSender();
+
+    // Act: RTP 送出で runRtcp を起動し、最初の SR (500ms 後) までに単調時計を 700ms 進める。
+    await sender.sendRtp(createRtpPacket(1, 480000));
+    clock.advance(700);
+    await vi.waitFor(() => expect(sendRtcp).toHaveBeenCalled(), {
+      timeout: 3000,
+    });
+
+    // Assert: 送られた SR は最後の RTP 送出時刻ではなく生成時刻に対応する。
+    const sr = sendRtcp.mock.calls[0][0][0] as RtcpSrPacket;
+    expectNtpCloseTo(sr.senderInfo.ntpTimestamp, expectedNtp(clock.nowMs));
+    expect(sr.senderInfo.rtpTimestamp).toBe(480000 + 33600);
   });
 });
