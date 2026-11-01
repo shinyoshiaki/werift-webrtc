@@ -239,9 +239,17 @@ export class SecureTransportManager {
       srtpProfiles,
     );
     this.ownedTransports.add(dtlsTransport);
-    dtlsTransport.onStateChange.subscribe((state) => {
-      if (state === "closed") this.ownedTransports.delete(dtlsTransport);
-    });
+    // Ownership ends when stop() has finished stopping ICE. A DTLS "closed"
+    // state alone (e.g. a received alert) leaves ICE running.
+    const stop = dtlsTransport.stop.bind(dtlsTransport);
+    dtlsTransport.stop = () => {
+      const stopping = stop();
+      void stopping.then(
+        () => this.ownedTransports.delete(dtlsTransport),
+        () => this.ownedTransports.delete(dtlsTransport),
+      );
+      return stopping;
+    };
 
     return dtlsTransport;
   }

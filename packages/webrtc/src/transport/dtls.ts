@@ -514,12 +514,18 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     }
   }
 
-  async stop() {
-    this.setState("closed", false);
-    // todo impl send alert
-    await this.iceTransport.stop();
-    // A handshake still in flight stops retransmitting its flight.
-    this.dtls?.close();
+  private stopPromise?: Promise<void>;
+
+  /** Resolves once ICE has stopped; concurrent callers share one stop. */
+  stop(): Promise<void> {
+    this.stopPromise ??= (async () => {
+      this.setState("closed", false);
+      // todo impl send alert
+      await this.iceTransport.stop();
+      // A handshake still in flight stops retransmitting its flight.
+      this.dtls?.close();
+    })();
+    return this.stopPromise;
   }
 
   async getStats(timestamp = getStatsTimestamp()): Promise<RTCStats[]> {

@@ -57,4 +57,39 @@ describe("SecureTransportManager transport ownership", () => {
     expect(pc.iceTransports).toEqual([transceiver.dtlsTransport.iceTransport]);
     await pc.close();
   });
+
+  test("a transport whose DTLS closed by alert is still stopped by close()", async () => {
+    // Arrange: gather 済みで、どの m-line にも参照されない transport。
+    const { pc, manager, owned } = createPeer();
+    pc.addTransceiver("audio");
+    const orphan = manager.createTransport({ inheritCredentials: false });
+    await orphan.iceTransport.gather();
+
+    // Act: 受信 alert 相当で DTLS だけ closed にしてから pc を閉じる。
+    (orphan as unknown as { setState(s: string): void }).setState("closed");
+    expect(orphan.iceTransport.state).not.toEqual("closed");
+    expect(owned().has(orphan)).toEqual(true);
+    await pc.close();
+
+    // Assert: ICE も止まり、所有集合も空になる。
+    expect(orphan.iceTransport.state).toEqual("closed");
+    expect(owned().size).toEqual(0);
+  });
+
+  test("close() waits for a stop that is already in progress", async () => {
+    // Arrange: gather 済みで参照されない transport と、始まったままの stop()。
+    const { pc, manager, owned } = createPeer();
+    const orphan = manager.createTransport({ inheritCredentials: false });
+    await orphan.iceTransport.gather();
+    const inFlight = orphan.stop();
+    expect(owned().has(orphan)).toEqual(true);
+
+    // Act: stop の完了を待たずに pc を閉じる。
+    await pc.close();
+
+    // Assert: close() 完了時点で ICE の停止まで終わっている。
+    expect(orphan.iceTransport.state).toEqual("closed");
+    expect(owned().size).toEqual(0);
+    await inFlight;
+  });
 });
