@@ -7,12 +7,14 @@ import {
   createLocalTurnServer,
   turnAllocations,
 } from "../../ice/tests/utils";
+import { DataChunk, parsePacket } from "../../sctp/src/chunk";
 import {
   type PeerConfig,
   type RTCDataChannel,
   type RTCIceServer,
   type RTCIceTransport,
   RTCPeerConnection,
+  type RTCSctpTransport,
 } from "../src";
 
 export function load(name: string) {
@@ -488,4 +490,80 @@ export async function observeConfigurationRestart(
   } finally {
     await Promise.all([offerer.close(), answerer.close()]);
   }
+}
+
+/**
+ * RFC 8832 5.1 DATA_CHANNEL_OPEN Channel Type for every combination of
+ * ordered / unordered and reliable / retransmit-limited / lifetime-limited.
+ */
+export const DCEP_CHANNEL_TYPE_CASES: {
+  name: string;
+  options: {
+    ordered: boolean;
+    maxRetransmits?: number;
+    maxPacketLifeTime?: number;
+  };
+  channelType: number;
+  reliability: number;
+}[] = [
+  {
+    name: "reliable ordered",
+    options: { ordered: true },
+    channelType: 0x00,
+    reliability: 0,
+  },
+  {
+    name: "retransmit-limited ordered",
+    options: { ordered: true, maxRetransmits: 3 },
+    channelType: 0x01,
+    reliability: 3,
+  },
+  {
+    name: "lifetime-limited ordered",
+    options: { ordered: true, maxPacketLifeTime: 500 },
+    channelType: 0x02,
+    reliability: 500,
+  },
+  {
+    name: "reliable unordered",
+    options: { ordered: false },
+    channelType: 0x80,
+    reliability: 0,
+  },
+  {
+    name: "retransmit-limited unordered (maxRetransmits: 0)",
+    options: { ordered: false, maxRetransmits: 0 },
+    channelType: 0x81,
+    reliability: 0,
+  },
+  {
+    name: "lifetime-limited unordered",
+    options: { ordered: false, maxPacketLifeTime: 500 },
+    channelType: 0x82,
+    reliability: 500,
+  },
+];
+
+/** RFC 9260 3.3.1: U bit of the DATA chunk flags (unordered delivery). */
+export const SCTP_DATA_UNORDERED = 0x04;
+
+/**
+ * Record every DATA chunk the transport puts on the wire, parsed back from
+ * the serialized SCTP packets handed to the DTLS transport. Call it after
+ * `setDtlsTransport`, which recreates the SCTP association.
+ */
+export function captureSctpDataChunks(transport: RTCSctpTransport) {
+  const chunks: DataChunk[] = [];
+  const lower = transport.sctp.transport;
+  const send = lower.send.bind(lower);
+  lower.send = (packet: Buffer) => {
+    const [, , , parsed] = parsePacket(packet);
+    chunks.push(
+      ...parsed.filter(
+        (chunk): chunk is DataChunk => chunk instanceof DataChunk,
+      ),
+    );
+    return send(packet);
+  };
+  return chunks;
 }
