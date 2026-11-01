@@ -7,6 +7,7 @@ import { hideBin } from "yargs/helpers";
 import {
   MediaStreamTrack,
   RTCPeerConnection,
+  useGoogleStun,
 } from "../../../packages/webrtc/src";
 import {
   createCallbackRegister,
@@ -48,10 +49,10 @@ installPolyfill({
     const offer = req.body;
 
     const receiver = new RTCPeerConnection({
-      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+      iceServers: [useGoogleStun()],
     });
     const sender = new RTCPeerConnection({
-      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+      iceServers: [useGoogleStun()],
     });
 
     const media = await navigator.mediaDevices.getUserMedia({ video: true });

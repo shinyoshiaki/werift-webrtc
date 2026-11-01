@@ -6,7 +6,12 @@ import {
   TURN_TEST_PASSWORD,
   TURN_TEST_USERNAME,
 } from "../../../ice/tests/utils";
-import { RTCIceGatherer, RTCIceTransport, RTCPeerConnection } from "../../src";
+import {
+  RTCIceGatherer,
+  RTCIceTransport,
+  RTCPeerConnection,
+  useGoogleStun,
+} from "../../src";
 import { iceTransportPair } from "../fixture";
 import { createPeerConnectionWithIceTransport } from "../utils";
 
@@ -293,6 +298,27 @@ describe("iceTransport", () => {
         // Assert: W3C の既定値 [] を返し、Connection も STUN を持たない
         expect(pc.getConfiguration().iceServers).toEqual([]);
         expect(ice.connection.stunServer).toBeUndefined();
+        expect(ice.connection.turnServer).toBeUndefined();
+      } finally {
+        await pc.close();
+      }
+    });
+
+    test("useGoogleStun() で Google の公開 STUN を明示的に使う", async () => {
+      // Arrange: useGoogleStun() だけを iceServers に指定する
+      const pc = new RTCPeerConnection({ iceServers: [useGoogleStun()] });
+      try {
+        // Act: ICE transport を用意する (gather はしないので通信しない)
+        pc.createDataChannel("google-stun");
+        const ice = (pc as any).secureManager
+          .iceTransports[0] as RTCIceTransport;
+
+        // Assert: 設定値は Google STUN の URL 1 件で、Connection もそのエンドポイントだけを持つ
+        expect(useGoogleStun()).toEqual({
+          urls: "stun:stun.l.google.com:19302",
+        });
+        expect(pc.getConfiguration().iceServers).toEqual([useGoogleStun()]);
+        expect(ice.connection.stunServer).toEqual(["stun.l.google.com", 19302]);
         expect(ice.connection.turnServer).toBeUndefined();
       } finally {
         await pc.close();

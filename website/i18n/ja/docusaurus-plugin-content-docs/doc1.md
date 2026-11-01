@@ -146,7 +146,7 @@ STUN / TURN サーバを指定します。
 ```typescript
 const pc = new RTCPeerConnection({
   iceServers: [
-    { urls: "stun:stun.l.google.com:19302" },
+    useGoogleStun(), // { urls: "stun:stun.l.google.com:19302" }
     { urls: "turn:turn.example.com:3478", username: "user", credential: "pass" },
   ],
 });

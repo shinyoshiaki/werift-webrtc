@@ -196,6 +196,16 @@ export type RTCIceServer = {
   credential?: string;
 };
 
+/**
+ * The RTCIceServer entry of Google's public STUN server
+ * (`stun:stun.l.google.com:19302`). werift uses no STUN server unless one is
+ * configured; opt in with `iceServers: [useGoogleStun()]` (combine it with
+ * TURN entries as needed).
+ */
+export const useGoogleStun = (): RTCIceServer => ({
+  urls: "stun:stun.l.google.com:19302",
+});
+
 export type RTCBundlePolicy = "balanced" | "max-compat" | "max-bundle";
 export type RTCRtcpMuxPolicy = "require";
 
@@ -208,7 +218,7 @@ export interface RTCConfiguration {
   /**
    * STUN / TURN servers used for ICE gathering. Defaults to `[]`; no public
    * STUN server is used implicitly. To use Google STUN, specify
-   * `[{ urls: "stun:stun.l.google.com:19302" }]` explicitly.
+   * `[useGoogleStun()]` (`[{ urls: "stun:stun.l.google.com:19302" }]`) explicitly.
    */
   iceServers?: RTCIceServer[];
   iceTransportPolicy?: PeerConfig["iceTransportPolicy"];

@@ -1,11 +1,14 @@
 // Spawned by stunFixture.test.ts: gathers with the public STUN server the
 // demos name (werift has no default STUN server) and prints the result as one
 // JSON line.
-import { RTCPeerConnection } from "../../../../../packages/webrtc/src";
+import {
+  RTCPeerConnection,
+  useGoogleStun,
+} from "../../../../../packages/webrtc/src";
 
 const startedAt = Date.now();
 const pc = new RTCPeerConnection({
-  iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+  iceServers: [useGoogleStun()],
 });
 pc.createDataChannel("probe");
 await pc.setLocalDescription(await pc.createOffer());

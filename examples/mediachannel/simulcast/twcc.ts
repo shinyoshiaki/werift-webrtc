@@ -3,6 +3,7 @@ import {
   RTCPeerConnection,
   RTCRtpCodecParameters,
   useAbsSendTime,
+  useGoogleStun,
   useSdesRTPStreamId,
   useTransportWideCC,
 } from "../../../packages/webrtc/src";
@@ -12,7 +13,7 @@ console.log("start");
 
 server.on("connection", async (socket) => {
   const pc = new RTCPeerConnection({
-    iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+    iceServers: [useGoogleStun()],
     codecs: {
       video: [
         new RTCRtpCodecParameters({

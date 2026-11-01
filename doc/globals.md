@@ -509,6 +509,7 @@
 - [useDependencyDescriptor](functions/useDependencyDescriptor.md)
 - [useFIR](functions/useFIR.md)
 - [useG722](functions/useG722.md)
+- [useGoogleStun](functions/useGoogleStun.md)
 - [useH264](functions/useH264.md)
 - [useNACK](functions/useNACK.md)
 - [useOPUS](functions/useOPUS.md)

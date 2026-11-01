@@ -2,7 +2,11 @@ import { exec } from "child_process";
 import { setTimeout } from "timers/promises";
 import yargs from "yargs";
 import { hideBin } from "yargs/helpers";
-import { RTCPeerConnection, randomPort } from "../../packages/webrtc/src";
+import {
+  RTCPeerConnection,
+  randomPort,
+  useGoogleStun,
+} from "../../packages/webrtc/src";
 import {
   createRtpRtcpRegister,
   installPolyfill,
@@ -31,7 +35,7 @@ new Promise<void>(async (done, failed) => {
 
   const port = await randomPort("udp4");
   const pc = new RTCPeerConnection({
-    iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+    iceServers: [useGoogleStun()],
   });
 
   if (testType === TestType.PeerConnection) {

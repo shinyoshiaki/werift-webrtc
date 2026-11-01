@@ -1,6 +1,7 @@
 import { WebSocketServer } from "ws";
 import {
   RTCPeerConnection,
+  useGoogleStun,
   useSdesRTPStreamId,
 } from "../../../packages/webrtc/src";
 
@@ -12,7 +13,7 @@ server.on("connection", (socket) => {
     const offer = JSON.parse(data as unknown as string);
 
     const pc = new RTCPeerConnection({
-      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+      iceServers: [useGoogleStun()],
       headerExtensions: {
         video: [useSdesRTPStreamId()],
         audio: [],

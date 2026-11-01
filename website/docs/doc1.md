@@ -146,7 +146,7 @@ The default is `[]` (same as the W3C default): werift does not use any STUN serv
 ```typescript
 const pc = new RTCPeerConnection({
   iceServers: [
-    { urls: "stun:stun.l.google.com:19302" },
+    useGoogleStun(), // { urls: "stun:stun.l.google.com:19302" }
     { urls: "turn:turn.example.com:3478", username: "user", credential: "pass" },
   ],
 });

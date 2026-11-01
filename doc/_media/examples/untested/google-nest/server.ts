@@ -3,6 +3,7 @@ import * as google from "googleapis";
 import {
   RTCPeerConnection,
   RTCRtpCodecParameters,
+  useGoogleStun,
 } from "../../../packages/webrtc/src";
 import { MediaRecorder } from "../../../packages/webrtc/src/nonstandard";
 
@@ -41,7 +42,7 @@ const session = async (
   {
     const pc = new RTCPeerConnection({
       // Talks to Nest over the Internet; werift has no default STUN server.
-      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+      iceServers: [useGoogleStun()],
       bundlePolicy: "max-bundle",
       codecs: {
         audio: [

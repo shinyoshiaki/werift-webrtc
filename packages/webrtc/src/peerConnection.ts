@@ -72,6 +72,7 @@ export {
   type RTCPeerConnectionConfig,
   type RTCRtcpMuxPolicy,
   type RTCSctpConfiguration,
+  useGoogleStun,
 } from "./api/peerConfig";
 export {
   type RTCDataChannelEvent,

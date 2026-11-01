@@ -3,7 +3,7 @@ import { readFileSync } from "fs";
 import https from "https";
 import yargs from "yargs";
 import { hideBin } from "yargs/helpers";
-import { RTCPeerConnection } from "../../packages/webrtc/src";
+import { RTCPeerConnection, useGoogleStun } from "../../packages/webrtc/src";
 
 (async () => {
   const args = await yargs(hideBin(process.argv))
@@ -54,7 +54,7 @@ import { RTCPeerConnection } from "../../packages/webrtc/src";
     const offer = req.body;
 
     const pc = new RTCPeerConnection({
-      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+      iceServers: [useGoogleStun()],
     });
     pc.onRemoteTransceiverAdded.subscribe(async (transceiver) => {
       const [track] = await transceiver.onTrack.asPromise();
