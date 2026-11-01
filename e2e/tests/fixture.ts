@@ -647,11 +647,12 @@ function getCandidateLines(sdp?: string) {
     );
 }
 
-export type RecordPlaybackKinds = "video" | "av";
+export type RecordPlaybackKinds = "video" | "av" | "audio";
 
 /**
- * Arrange: Chrome offers fake-camera media (sendonly) plus DataChannel "record"
- * to the werift recorder handler `label`, and waits until both are usable.
+ * Arrange: Chrome offers fake-camera / fake-microphone media (sendonly) plus
+ * DataChannel "record" to the werift recorder handler `label`, and waits until
+ * both are usable. "audio" sends only the microphone (Ogg Opus recording).
  */
 export async function connectRecordPlayback(
   label: string,
@@ -659,8 +660,8 @@ export async function connectRecordPlayback(
 ) {
   await ensurePeerConnected();
   const stream = await navigator.mediaDevices.getUserMedia({
-    video: { width: 640, height: 480 },
-    audio: kinds === "av",
+    video: kinds === "audio" ? false : { width: 640, height: 480 },
+    audio: kinds !== "video",
   });
   const pc = new RTCPeerConnection({
     iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
@@ -694,7 +695,7 @@ export async function connectRecordPlayback(
 }
 
 /**
- * Send "stop" on the record DataChannel and collect the WebM file the server
+ * Send "stop" on the record DataChannel and collect the file the server
  * returns as header JSON → binary chunks → eof JSON.
  */
 export async function receiveRecordedFile(
@@ -914,4 +915,201 @@ export async function appendWebmToMediaSource(
     video.load();
     URL.revokeObjectURL(url);
   }
+}
+
+export type OggFileSummary = {
+  pageCount: number;
+  /** Header type flags of the first / last page (0x02 BOS, 0x04 EOS). */
+  firstHeaderType: number;
+  lastHeaderType: number;
+  /** Every page starts with "OggS" and uses the same serial number. */
+  wellFormed: boolean;
+  /** Page sequence numbers are 0, 1, 2, ... */
+  sequential: boolean;
+  /** Granule positions of audio pages never decrease. */
+  granuleMonotonic: boolean;
+  lastGranule: number;
+  opusHead: { channels: number; preSkip: number; sampleRate: number } | null;
+  opusTags: boolean;
+};
+
+/**
+ * Walk the Ogg pages of `file` (RFC 3533 / RFC 7845) without decoding audio,
+ * independent of the werift writer under test.
+ */
+export function summarizeOggFile(file: Uint8Array): OggFileSummary {
+  const view = new DataView(file.buffer, file.byteOffset, file.byteLength);
+  const pages: {
+    headerType: number;
+    granule: number;
+    serial: number;
+    sequence: number;
+    body: Uint8Array;
+  }[] = [];
+  let wellFormed = true;
+  for (let offset = 0; offset < file.byteLength; ) {
+    const magic = String.fromCharCode(...file.subarray(offset, offset + 4));
+    if (magic !== "OggS" || offset + 27 > file.byteLength) {
+      wellFormed = false;
+      break;
+    }
+    const segments = file[offset + 26];
+    let size = 0;
+    for (let i = 0; i < segments; i++) size += file[offset + 27 + i];
+    const bodyStart = offset + 27 + segments;
+    pages.push({
+      headerType: file[offset + 5],
+      granule: Number(view.getBigInt64(offset + 6, true)),
+      serial: view.getUint32(offset + 14, true),
+      sequence: view.getUint32(offset + 18, true),
+      body: file.subarray(bodyStart, bodyStart + size),
+    });
+    offset = bodyStart + size;
+  }
+  const text = (bytes: Uint8Array) =>
+    String.fromCharCode(...bytes.subarray(0, 8));
+  const head = pages[0]?.body;
+  const audioPages = pages.slice(2).filter((p) => p.granule >= 0);
+  return {
+    pageCount: pages.length,
+    firstHeaderType: pages[0]?.headerType ?? -1,
+    lastHeaderType: pages.at(-1)?.headerType ?? -1,
+    wellFormed: wellFormed && pages.every((p) => p.serial === pages[0].serial),
+    sequential: pages.every((p, i) => p.sequence === i),
+    granuleMonotonic: audioPages.every(
+      (p, i) => i === 0 || p.granule >= audioPages[i - 1].granule,
+    ),
+    lastGranule: pages.at(-1)?.granule ?? -1,
+    opusHead:
+      head && text(head) === "OpusHead"
+        ? {
+            channels: head[9],
+            preSkip: head[10] | (head[11] << 8),
+            sampleRate: new DataView(head.buffer, head.byteOffset).getUint32(
+              12,
+              true,
+            ),
+          }
+        : null,
+    opusTags: pages[1] ? text(pages[1].body) === "OpusTags" : false,
+  };
+}
+
+export type AudioFilePlayback = {
+  duration: number;
+  /** currentTime when `ended` fired. */
+  endedAt: number;
+  /** Chrome-only `webkitAudioDecodedByteCount`. */
+  audioDecodedBytes: number;
+  /** Seek to the middle of the file completed. */
+  seekedTo: number;
+};
+
+/**
+ * Play `file` as a Blob of `mimeType` in a muted <audio> from start to
+ * `ended`, then seek to the middle.
+ */
+export async function playAudioFile(
+  file: Uint8Array<ArrayBuffer>,
+  mimeType: string,
+  timeoutMs = 30_000,
+) {
+  const url = URL.createObjectURL(new Blob([file], { type: mimeType }));
+  const audio = document.createElement("audio");
+  audio.muted = true;
+  audio.preload = "auto";
+  document.body.appendChild(audio);
+  const waitEvent = (name: string) =>
+    new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error(`audio "${name}" timed out`)),
+        timeoutMs,
+      );
+      audio.addEventListener(
+        name,
+        () => {
+          clearTimeout(timer);
+          resolve();
+        },
+        { once: true },
+      );
+      audio.addEventListener(
+        "error",
+        () => {
+          clearTimeout(timer);
+          reject(
+            new Error(
+              `audio error ${audio.error?.code}: ${audio.error?.message}`,
+            ),
+          );
+        },
+        { once: true },
+      );
+    });
+
+  try {
+    const loaded = waitEvent("loadedmetadata");
+    audio.src = url;
+    await loaded;
+
+    const ended = waitEvent("ended");
+    await audio.play();
+    await ended;
+    const endedAt = audio.currentTime;
+
+    const seeked = waitEvent("seeked");
+    audio.currentTime = audio.duration / 2;
+    await seeked;
+
+    return {
+      duration: audio.duration,
+      endedAt,
+      audioDecodedBytes:
+        (audio as unknown as { webkitAudioDecodedByteCount?: number })
+          .webkitAudioDecodedByteCount ?? 0,
+      seekedTo: audio.currentTime,
+    } satisfies AudioFilePlayback;
+  } finally {
+    audio.pause();
+    audio.removeAttribute("src");
+    audio.load();
+    audio.remove();
+    URL.revokeObjectURL(url);
+  }
+}
+
+export type DecodedAudio = {
+  sampleRate: number;
+  numberOfChannels: number;
+  /** Decoded frames per channel. */
+  length: number;
+  duration: number;
+  /** Largest absolute sample value over all channels. */
+  peak: number;
+};
+
+/**
+ * Decode the whole `file` with Web Audio `decodeAudioData`, a decoder path
+ * independent of the <audio> element.
+ */
+export async function decodeAudioFile(
+  file: Uint8Array<ArrayBuffer>,
+): Promise<DecodedAudio> {
+  const context = new OfflineAudioContext(1, 1, 48_000);
+  const buffer = await context.decodeAudioData(file.slice().buffer);
+  let peak = 0;
+  for (let c = 0; c < buffer.numberOfChannels; c++) {
+    const data = buffer.getChannelData(c);
+    for (let i = 0; i < data.length; i++) {
+      const value = Math.abs(data[i]);
+      if (value > peak) peak = value;
+    }
+  }
+  return {
+    sampleRate: buffer.sampleRate,
+    numberOfChannels: buffer.numberOfChannels,
+    length: buffer.length,
+    duration: buffer.duration,
+    peak,
+  };
 }
