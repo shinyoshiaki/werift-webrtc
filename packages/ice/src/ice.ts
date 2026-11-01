@@ -2,12 +2,6 @@ import * as timers from "node:timers/promises";
 import { randomBytes } from "crypto";
 import { isIPv4 } from "net";
 import {
-  type Address,
-  Event,
-  debug,
-  interfaceAddress,
-} from "./imports/common";
-import {
   Candidate,
   candidateFoundation,
   candidatePriority,
@@ -28,16 +22,20 @@ import {
   type IceConnection,
   type IceOptions,
   type IceState,
+  isCandidateAllowedByGatherOptions,
+  isRelayOnlyGathering,
+  mergeIceServerOptions,
   serverReflexiveCandidate,
   sortCandidatePairs,
   validateAddress,
   validateRemoteCandidate,
 } from "./iceBase";
-import { resolveHostAddresses } from "./internal/resolveHostAddresses";
+import { type Address, debug, Event, interfaceAddress } from "./imports/common";
 import {
   connectionDatagramEvent,
   isAuthenticatedHandshakePair,
 } from "./internal/datagram";
+import { resolveHostAddresses } from "./internal/resolveHostAddresses";
 import {
   getConnectionSpedRuntime,
   registerSpedCarryMaybeFlush,
@@ -46,16 +44,19 @@ import {
 import { SpedBindingResponseCache } from "./internal/sped-binding-cache";
 import { type SpedRuntime, sameCandidatePair } from "./sped/runtime";
 import {
-  TCP_CHECK_RESPONSE_TIMEOUT_MS,
-  RETRY_MAX,
-  RETRY_RTO,
   classes,
   methods,
+  RETRY_MAX,
+  RETRY_RTO,
+  TCP_CHECK_RESPONSE_TIMEOUT_MS,
 } from "./stun/const";
 import { Message, parseMessage } from "./stun/message";
 import { StunProtocol } from "./stun/protocol";
 import { TcpActiveProtocol, TcpPassiveProtocol } from "./stun/tcpProtocol";
-import { createStunOverTurnClient } from "./turn/protocol";
+import {
+  createStunOverTurnClient,
+  StunOverTurnProtocol,
+} from "./turn/protocol";
 import type { Protocol, TransactionRequestOptions } from "./types/model";
 import { getHostAddresses } from "./utils";
 
@@ -245,29 +246,9 @@ export class Connection implements IceConnection {
    * Link headers) and must take effect before the next gather pass.
    */
   setIceServers(options: Partial<IceOptions>) {
-    // Explicitly assign server fields even when undefined so a STUN-only
-    // update cannot leave a previous TURN host/credential in options.
-    this.options = {
-      ...this.options,
-      stunServer: options.stunServer,
-      turnServer: options.turnServer,
-      turnUsername: options.turnUsername,
-      turnPassword: options.turnPassword,
-      turnTransport: options.turnTransport,
-    };
-    if (options.forceTurn !== undefined) {
-      this.options.forceTurn = options.forceTurn;
-    }
-    if (options.useTcp !== undefined) {
-      this.options.useTcp = options.useTcp;
-    }
-    if (options.turnTlsOptions !== undefined) {
-      this.options.turnTlsOptions = options.turnTlsOptions;
-    }
-    if (options.turnUdpFamily !== undefined) {
-      this.options.turnUdpFamily = options.turnUdpFamily;
-    }
-
+    // Server fields are assigned even when undefined, so a STUN-only update
+    // or an unset TLS / address-family option leaves nothing behind.
+    this.options = mergeIceServerOptions(this.options, options);
     this.applyStunTurnServersFromOptions();
     log("Connection ice servers updated", this.options);
   }
@@ -523,12 +504,17 @@ export class Connection implements IceConnection {
   }
 
   /** Accept provisional checks without changing the selected current pair. */
-  stageLocalCredentials(usernameFragment: string, password: string) {
+  stageLocalCredentials(
+    usernameFragment: string,
+    password: string,
+    gatherOptions?: Partial<IceOptions>,
+  ) {
     this.userHistory[usernameFragment] = password;
     this.endProvisional();
     this.provisional = {
       localUsername: usernameFragment,
       localPassword: password,
+      gatherOptions,
       remoteCandidates: [],
       remoteCandidatesEnd: false,
       remoteCandidatesEndRequested: false,
@@ -676,6 +662,7 @@ export class Connection implements IceConnection {
   ) {
     if (
       !protocol.localCandidate?.canPairWith(remoteCandidate) ||
+      !this.allowsProvisional(generation, protocol) ||
       (protocol.localCandidate.transport.toLowerCase() === "tcp" &&
         protocol.localCandidate.tcptype === "passive" &&
         remoteCandidate.type !== "prflx") ||
@@ -831,6 +818,8 @@ export class Connection implements IceConnection {
     addr: Address,
     protocol: Protocol,
   ) {
+    // A socket the staged generation drops at the commit takes no pair.
+    if (!this.allowsProvisional(generation, protocol)) return;
     // Only checks from the remote credentials of the current checklist count
     // (a replacement pranswer replaced any earlier ones).
     const txUsername = message.getAttributeValue("USERNAME");
@@ -976,10 +965,26 @@ export class Connection implements IceConnection {
       const previousTurn = this.protocols.filter(
         (protocol) => protocol.localCandidate?.type === "relay",
       );
-      this.protocols = this.protocols.filter(
-        (protocol) => !previousTurn.includes(protocol),
+      // The generation keeps only the sockets a fresh gathering with the
+      // current options would open: a relay-only policy or useTcp turned off
+      // since the previous generation closes the kept host (UDP / TCP)
+      // sockets, so they are neither advertised, paired nor reachable.
+      const excluded = this.protocols.filter(
+        (protocol) =>
+          !previousTurn.includes(protocol) &&
+          !!protocol.localCandidate &&
+          !isCandidateAllowedByGatherOptions(
+            protocol.localCandidate,
+            this.options,
+          ),
       );
-      void Promise.allSettled(previousTurn.map((protocol) => protocol.close()));
+      this.protocols = this.protocols.filter(
+        (protocol) =>
+          !previousTurn.includes(protocol) && !excluded.includes(protocol),
+      );
+      void Promise.allSettled(
+        [...previousTurn, ...excluded].map((protocol) => protocol.close()),
+      );
 
       // ICE restart keeps transport protocols; re-advertise their host candidates
       // with the new generation / ufrag before gathering additional addresses.
@@ -1041,6 +1046,38 @@ export class Connection implements IceConnection {
    */
   private isGathering(generation: number) {
     return this.generation === generation && this.state !== "closed";
+  }
+
+  /**
+   * Whether the provisional generation may use `protocol`: the staged
+   * generation drops the sockets its gather options exclude at the commit,
+   * so its checks never use them. A kept TURN allocation serves it only when
+   * the generation still uses that TURN server and credential: one whose
+   * server was removed or replaced (a credential rotation) is not part of it.
+   */
+  private allowsProvisional(
+    generation: ProvisionalGeneration,
+    protocol: Protocol,
+  ) {
+    const options = generation.gatherOptions ?? this.options;
+    if (
+      !protocol.localCandidate ||
+      !isCandidateAllowedByGatherOptions(protocol.localCandidate, options)
+    ) {
+      return false;
+    }
+    if (protocol instanceof StunOverTurnProtocol) {
+      const { configuredServer, username, password } = protocol.turn;
+      const turnServer = validateAddress(options.turnServer);
+      return (
+        !!turnServer &&
+        configuredServer[0] === turnServer[0] &&
+        configuredServer[1] === turnServer[1] &&
+        username === options.turnUsername &&
+        password === options.turnPassword
+      );
+    }
+    return true;
   }
 
   /** A copy of `candidate` labelled with the current generation and ufrag. */
@@ -1162,6 +1199,13 @@ export class Connection implements IceConnection {
       const provisional = this.provisional;
       const isProvisional =
         !!provisional && localUsername === provisional.localUsername;
+      if (
+        isProvisional &&
+        provisional &&
+        !this.allowsProvisional(provisional, protocol)
+      ) {
+        return;
+      }
       if (
         isProvisional &&
         this.resolveRoleConflict(
@@ -1450,13 +1494,19 @@ export class Connection implements IceConnection {
     const { stunServer, turnServer } = this;
     const { turnUsername, turnPassword, interfaceAddresses } = this.options;
     const gatherIceLite = this.iceLite;
-    const gatherRelayOnly =
-      !gatherIceLite &&
-      this.options.forceTurn &&
-      turnServer &&
-      turnUsername &&
-      turnPassword;
+    const gatherRelayOnly = isRelayOnlyGathering(this.options);
 
+    // TCP host candidates are kept per address like the UDP ones, but on
+    // their own: a restart that turned useTcp on gathers them for addresses
+    // whose UDP sockets were kept.
+    const tcpAddresses = addresses.filter(
+      (address) =>
+        !this.protocols.some(
+          (protocol) =>
+            protocol.localCandidate?.transport.toLowerCase() === "tcp" &&
+            protocol.localIp === address,
+        ),
+    );
     addresses = addresses.filter((address) => {
       // ice restartで同じアドレスが追加されるのを防ぐ
       if (this.protocols.find((protocol) => protocol.localIp === address)) {
@@ -1575,7 +1625,7 @@ export class Connection implements IceConnection {
     }
 
     if (!gatherRelayOnly && this.options.useTcp) {
-      const tcpCandidatePromises = addresses.map(async (address) => {
+      const tcpCandidatePromises = tcpAddresses.map(async (address) => {
         // Passive candidates open a listening TCP server; skip them when the
         // agent only makes outbound connections (tcpPassive === false). Active
         // candidates below still dial out, so direct TCP egress is unaffected.
@@ -1764,7 +1814,13 @@ export class Connection implements IceConnection {
         this.protocols.push(protocol);
 
         const candidateAddress = protocol.turn.relayedAddress;
-        const relatedAddress = protocol.turn.mappedAddress;
+        // The related address of a relay candidate is the address the TURN
+        // server saw the agent at. A relay-only policy hides the agent's
+        // addresses from the peer, so it advertises the unspecified address
+        // and port 9 instead (RFC 8839 §5.1), in SDP and trickle alike.
+        const relatedAddress: Address = gatherRelayOnly
+          ? [isIPv4(candidateAddress[0]) ? "0.0.0.0" : "::", 9]
+          : protocol.turn.mappedAddress;
 
         log("turn candidateAddress", candidateAddress);
 
@@ -1944,7 +2000,7 @@ export class Connection implements IceConnection {
       const pair = this.checkList
         .filter((pair) => {
           if (
-            this.options.forceTurn &&
+            isRelayOnlyGathering(this.options) &&
             pair.protocol.type === StunProtocol.type
           )
             return false;
@@ -3550,6 +3606,8 @@ const decodeTxUsername = (txUsername: string) => {
 type ProvisionalGeneration = {
   localUsername: string;
   localPassword: string;
+  /** The options the staged generation gathers with (stageLocalCredentials). */
+  gatherOptions?: Partial<IceOptions>;
   remoteUsername?: string;
   remotePassword?: string;
   remoteCandidates: Candidate[];
