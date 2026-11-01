@@ -223,6 +223,8 @@ Never wraps in JS Number. [transportSequenceNumber](#transportsequencenumber) is
 
 > `static` `optional` **localCertificate?**: [`RTCCertificate`](RTCCertificate.md)
 
+Process-wide default certificate cache, see [RTCDtlsTransport.SetupCertificate](#setupcertificate).
+
 ***
 
 ### localCertificatePromise?
@@ -489,9 +491,26 @@ the ICE write (RFC 8888). Prefer [sendRtp](#sendrtp) unless send time is needed.
 
 ***
 
+### generateCertificate()
+
+> `static` **generateCertificate**(): `Promise`\<[`RTCCertificate`](RTCCertificate.md)\>
+
+Generates a new self-signed certificate (ECDSA P-256 / SHA-256) on every call.
+Used by an RTCPeerConnection created with `certificateScope: "peerConnection"`
+when `RTCConfiguration.certificates` is not given.
+
+#### Returns
+
+`Promise`\<[`RTCCertificate`](RTCCertificate.md)\>
+
+***
+
 ### SetupCertificate()
 
 > `static` **SetupCertificate**(): `Promise`\<[`RTCCertificate`](RTCCertificate.md)\>
+
+Returns the default certificate cached for the whole process
+(the default `certificateScope: "process"`).
 
 #### Returns
 

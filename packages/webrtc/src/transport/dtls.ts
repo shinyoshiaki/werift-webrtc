@@ -128,6 +128,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   private readonly events = new DomEventTarget();
   onstatechange?: () => void;
 
+  /** Process-wide default certificate cache, see {@link RTCDtlsTransport.SetupCertificate}. */
   static localCertificate?: RTCCertificate;
   static localCertificatePromise?: Promise<RTCCertificate>;
   private remoteParameters?: RTCDtlsParameters;
@@ -162,31 +163,38 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     );
   }
 
+  /**
+   * Generates a new self-signed certificate (ECDSA P-256 / SHA-256) on every call.
+   * Used by an RTCPeerConnection created with `certificateScope: "peerConnection"`
+   * when `RTCConfiguration.certificates` is not given.
+   */
+  static async generateCertificate() {
+    const { certPem, keyPem, signatureHash } =
+      await CipherContext.createSelfSignedCertificateWithKey(
+        {
+          signature: SignatureAlgorithm.ecdsa_3,
+          hash: HashAlgorithm.sha256_4,
+        },
+        NamedCurveAlgorithm.secp256r1_23,
+      );
+    return new RTCCertificate(keyPem, certPem, signatureHash);
+  }
+
+  /**
+   * Returns the default certificate cached for the whole process
+   * (the default `certificateScope: "process"`).
+   */
   static async SetupCertificate() {
     if (this.localCertificate) {
       return this.localCertificate;
     }
 
-    if (this.localCertificatePromise) {
-      return this.localCertificatePromise;
-    }
-
-    this.localCertificatePromise = (async () => {
-      const { certPem, keyPem, signatureHash } =
-        await CipherContext.createSelfSignedCertificateWithKey(
-          {
-            signature: SignatureAlgorithm.ecdsa_3,
-            hash: HashAlgorithm.sha256_4,
-          },
-          NamedCurveAlgorithm.secp256r1_23,
-        );
-      this.localCertificate = new RTCCertificate(
-        keyPem,
-        certPem,
-        signatureHash,
-      );
-      return this.localCertificate;
-    })();
+    this.localCertificatePromise ??= this.generateCertificate().then(
+      (certificate) => {
+        this.localCertificate = certificate;
+        return certificate;
+      },
+    );
 
     return this.localCertificatePromise;
   }

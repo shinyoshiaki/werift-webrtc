@@ -1125,6 +1125,17 @@ Send-side estimator used by each new sender; defaults to legacy.
 
 > **certificates**: [`RTCCertificate`](RTCCertificate.md)[]
 
+##### certificateScope
+
+> **certificateScope**: `CertificateScope`
+
+Which default DTLS certificate is used when neither `certificates` nor `dtls.keys` is given.
+Cannot be changed after construction.
+- `"process"` (default): one certificate shared by every RTCPeerConnection in the process
+  (legacy behavior), so their `a=fingerprint` values are identical.
+- `"peerConnection"`: each RTCPeerConnection generates its own certificate (browser behavior).
+  All DTLS transports of that connection share it.
+
 ##### codecs
 
 > **codecs**: `object`
