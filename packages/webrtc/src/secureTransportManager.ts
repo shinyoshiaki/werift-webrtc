@@ -43,11 +43,12 @@ export class SecureTransportManager {
   private transceiverManager: TransceiverManager;
   private sctpManager: SctpTransportManager;
   /**
-   * Every transport `createTransport` made that has not closed yet. `close`
-   * stops all of them, so a transport no m-line references any more (e.g. a
-   * max-compat transport a BUNDLE answer replaced) never outlives the peer
-   * connection. A closed transport leaves the set, so renegotiation does not
-   * grow it. Never used for the live-transport getters.
+   * Every transport `createTransport` made that has not finished stopping
+   * (`onStopped`). `close` stops all of them, so a transport no m-line
+   * references any more (e.g. a max-compat transport a BUNDLE answer
+   * replaced) never outlives the peer connection, and a transport whose DTLS
+   * closed by alert keeps its ICE owned until stopped. Renegotiation does not
+   * grow the set. Never used for the live-transport getters.
    */
   private readonly ownedTransports = new Set<RTCDtlsTransport>();
 
@@ -239,17 +240,9 @@ export class SecureTransportManager {
       srtpProfiles,
     );
     this.ownedTransports.add(dtlsTransport);
-    // Ownership ends when stop() has finished stopping ICE. A DTLS "closed"
-    // state alone (e.g. a received alert) leaves ICE running.
-    const stop = dtlsTransport.stop.bind(dtlsTransport);
-    dtlsTransport.stop = () => {
-      const stopping = stop();
-      void stopping.then(
-        () => this.ownedTransports.delete(dtlsTransport),
-        () => this.ownedTransports.delete(dtlsTransport),
-      );
-      return stopping;
-    };
+    dtlsTransport.onStopped.once(() => {
+      this.ownedTransports.delete(dtlsTransport);
+    });
 
     return dtlsTransport;
   }

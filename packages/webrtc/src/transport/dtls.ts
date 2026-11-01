@@ -109,6 +109,12 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   readonly onStateChange = new Event<[DtlsState]>();
   readonly onRtcp = new Event<[RtcpPacket]>();
   readonly onRtp = new Event<[RtpPacket]>();
+  /**
+   * Fires once when {@link RTCDtlsTransport.stop} has finished, i.e. ICE has
+   * stopped too. The DTLS "closed" state alone (e.g. a received alert) does
+   * not mean ICE has released its resources.
+   */
+  readonly onStopped = new Event<[]>();
   private readonly events = new DomEventTarget();
   onstatechange?: () => void;
 
@@ -519,22 +525,27 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   /** Resolves once ICE has stopped; concurrent callers share one stop. */
   stop(): Promise<void> {
     if (this.stopPromise) return this.stopPromise;
-    // Publish the shared promise before setState notifies: a subscriber that
-    // re-enters stop() must get this same promise, not start another stop.
-    let resolve!: () => void;
-    let reject!: (error: unknown) => void;
-    this.stopPromise = new Promise<void>((res, rej) => {
-      resolve = res;
-      reject = rej;
+    // Publish the shared promise before runStop() notifies "closed": a
+    // subscriber that re-enters stop() must get this same promise.
+    let settle!: (stopping: Promise<void>) => void;
+    this.stopPromise = new Promise<void>((resolve) => {
+      settle = resolve;
     });
-    (async () => {
+    settle(this.runStop());
+    return this.stopPromise;
+  }
+
+  private async runStop() {
+    try {
       this.setState("closed", false);
       // todo impl send alert
       await this.iceTransport.stop();
       // A handshake still in flight stops retransmitting its flight.
       this.dtls?.close();
-    })().then(resolve, reject);
-    return this.stopPromise;
+    } finally {
+      this.onStopped.execute();
+      this.onStopped.complete();
+    }
   }
 
   async getStats(timestamp = getStatsTimestamp()): Promise<RTCStats[]> {

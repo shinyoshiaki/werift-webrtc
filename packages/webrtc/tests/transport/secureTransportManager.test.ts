@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { RTCPeerConnection } from "../../src";
+import { type RTCDtlsTransport, RTCPeerConnection } from "../../src";
 import type { SecureTransportManager } from "../../src/secureTransportManager";
 
 /** Arrange: a peer and its SecureTransportManager (internal). */
@@ -11,6 +11,20 @@ function createPeer() {
   const owned = () =>
     (manager as unknown as { ownedTransports: Set<unknown> }).ownedTransports;
   return { pc, manager, owned };
+}
+
+/** Arrange: hold the transport's ICE stop until the returned release(). */
+function delayIceStop(transport: RTCDtlsTransport) {
+  const realStop = transport.iceTransport.stop.bind(transport.iceTransport);
+  let release!: () => void;
+  const gate = new Promise<void>((r) => {
+    release = r;
+  });
+  transport.iceTransport.stop = async () => {
+    await gate;
+    await realStop();
+  };
+  return release;
 }
 
 describe("SecureTransportManager transport ownership", () => {
@@ -58,6 +72,35 @@ describe("SecureTransportManager transport ownership", () => {
     await pc.close();
   });
 
+  test("a transport stays owned until stop() has stopped ICE", async () => {
+    // Arrange: ICE の停止を遅延させた transport。
+    const { pc, manager, owned } = createPeer();
+    const transport = manager.createTransport({ inheritCredentials: false });
+    const release = delayIceStop(transport);
+    let stopped = false;
+    transport.onStopped.subscribe(() => {
+      stopped = true;
+    });
+
+    // Act: stop() を開始し、ICE の停止が終わる前の状態を見る。
+    const stopping = transport.stop();
+    await new Promise((r) => setTimeout(r, 10));
+
+    // Assert: DTLS は closed でも、ICE 停止前は onStopped が発火せず所有も続く。
+    expect(transport.state).toEqual("closed");
+    expect(stopped).toEqual(false);
+    expect(owned().has(transport)).toEqual(true);
+
+    // Act: ICE の停止を進める。
+    release();
+    await stopping;
+
+    // Assert: onStopped が発火し、所有集合から外れる。
+    expect(stopped).toEqual(true);
+    expect(owned().has(transport)).toEqual(false);
+    await pc.close();
+  });
+
   test("a transport whose DTLS closed by alert is still stopped by close()", async () => {
     // Arrange: gather 済みで、どの m-line にも参照されない transport。
     const { pc, manager, owned } = createPeer();
@@ -98,15 +141,7 @@ describe("SecureTransportManager transport ownership", () => {
     const { pc, manager, owned } = createPeer();
     const orphan = manager.createTransport({ inheritCredentials: false });
     await orphan.iceTransport.gather();
-    const realStop = orphan.iceTransport.stop.bind(orphan.iceTransport);
-    let release!: () => void;
-    const gate = new Promise<void>((r) => {
-      release = r;
-    });
-    orphan.iceTransport.stop = async () => {
-      await gate;
-      await realStop();
-    };
+    const release = delayIceStop(orphan);
     let reentered: Promise<void> | undefined;
     orphan.onStateChange.subscribe((state) => {
       if (state === "closed") reentered ??= orphan.stop();
