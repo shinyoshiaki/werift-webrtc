@@ -769,7 +769,7 @@ describe("regular nomination under forceTurn", () => {
       localTypes: [undefined, "stun"],
     });
     h.stageProvisional();
-    const [relay, firstHost] = await h.addProvisionalRemotePairs(HIGH);
+    const [relay] = await h.addProvisionalRemotePairs(HIGH);
 
     try {
       // Act: provisional の relay pair が成功し、deadline 直前に上位の host pair を作る候補が届く。
@@ -778,9 +778,8 @@ describe("regular nomination under forceTurn", () => {
       const [, host] = await h.addProvisionalRemotePairs(MID);
       await vi.advanceTimersByTimeAsync(20);
 
-      // Assert: live と同じく host pair には check を送らず、deadline も延びずに relay pair が nominate される。
-      expect(firstHost.requestsSent).toBe(0);
-      expect(host.requestsSent).toBe(0);
+      // Assert: forceTurn generation では host pair 自体が候補外となり、relay pair が nominate される。
+      expect(host).toBeUndefined();
       expect(h.nominations().map((request) => request.addr)).toEqual([
         relay.remoteAddr,
       ]);
