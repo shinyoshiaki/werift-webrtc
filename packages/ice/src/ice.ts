@@ -42,8 +42,8 @@ import { Message } from "./stun/message";
 import { StunProtocol } from "./stun/protocol";
 import { TcpActiveProtocol, TcpPassiveProtocol } from "./stun/tcpProtocol";
 import {
-  StunOverTurnProtocol,
   createStunOverTurnClient,
+  StunOverTurnProtocol,
 } from "./turn/protocol";
 import type { Protocol, TransactionRequestOptions } from "./types/model";
 import { getHostAddresses } from "./utils";
@@ -67,7 +67,7 @@ const NOMINATION_ATTEMPTS = 3;
  */
 const ICE_NOMINATION_ABANDONED = 3;
 /**
- * How long, from the first valid pair, the live checklist waits for the pair
+ * How long, from the start of its checks, the live checklist waits for the pair
  * a provisional nomination may have selected (`NominationHint`) to appear.
  * It can appear after end-of-candidates: a peer-reflexive or passive TCP
  * pair forms only when the peer's check arrives. Covers the peer's check
@@ -701,6 +701,7 @@ export class Connection implements IceConnection {
         this.usesRegularNomination() &&
         generationOf().started &&
         !generationOf().nominated,
+      checking: () => generationOf().started,
       pairs: () => {
         const pairs = [...generationOf().pairs];
         sortCandidatePairs(pairs, this.iceControlling);
@@ -1631,6 +1632,8 @@ export class Connection implements IceConnection {
     }
     this.earlyChecks = [];
     this.earlyChecksDone = true;
+    // Arms the wait for a preferred pair even while the checklist is empty.
+    this.nomination.evaluate();
 
     if (this.iceLite) {
       if (!this.nominated) {
@@ -1662,7 +1665,12 @@ export class Connection implements IceConnection {
 
     // # wait for completion
     let res: number = ICE_FAILED;
-    while (this.checkList.length > 0 && res === ICE_FAILED) {
+    // The nomination may still wait for a pair an incoming check forms
+    // (`NominationHint`), even with an empty checklist.
+    while (
+      (this.checkList.length > 0 || this.nomination.waiting) &&
+      res === ICE_FAILED
+    ) {
       res = await this.checkListState.get();
       log("checkListState", res);
     }
@@ -2626,6 +2634,7 @@ export class Connection implements IceConnection {
         this.usesRegularNomination() &&
         !this.nominated &&
         this.state !== "closed",
+      checking: () => this.checksBegun,
       pairs: () => this.checkList,
       remoteCandidatesEnd: () => this.remoteCandidatesEnd,
       localCandidatesEnd: () => this.localCandidatesEnd,
@@ -3012,7 +3021,8 @@ type NominationDecision =
  *   see `NominationHint`), only the matching pair may be nominated: as soon
  *   as it is valid, waited for while its check runs. When it fails, or is not
  *   in the checklist `PREFERRED_PAIR_WAIT_MS` (at least the delay) after the
- *   first valid pair, even after end-of-candidates, the nomination is
+ *   checklist began, even after end-of-candidates or with no other valid
+ *   pair, the nomination is
  *   abandoned (as an unanswered one is):
  *   nominating another pair could leave the agents on different paths.
  * - The candidate is the first valid (Succeeded) pair of `pairs` (priority
@@ -3033,6 +3043,7 @@ const decideNomination = ({
   now,
   unchecked,
   preferred,
+  preferredSince,
 }: {
   pairs: readonly CandidatePair[];
   remoteCandidatesEnd: boolean;
@@ -3043,6 +3054,8 @@ const decideNomination = ({
   /** Pairs never checked locally, which cannot be waited for. */
   unchecked: (pair: CandidatePair) => boolean;
   preferred: ((pair: CandidatePair) => boolean) | undefined;
+  /** When the checklist began waiting for the `preferred` pair. */
+  preferredSince: number | undefined;
 }): NominationDecision => {
   if (preferred) {
     const hinted = pairs.find(preferred);
@@ -3056,14 +3069,12 @@ const decideNomination = ({
       // Its check finishing re-evaluates the nomination.
       return { action: "none" };
     }
-    // Not (yet) in the checklist. End-of-candidates does not settle it: a
-    // peer-reflexive pair (or a passive TCP one) is only formed when the
-    // peer's check arrives, so wait for it a bounded time.
-    if (!pairs.some((pair) => pair.state === CandidatePairState.SUCCEEDED)) {
-      return { action: "none" };
-    }
+    // Not (yet) in the checklist. End-of-candidates does not settle it, nor
+    // does an empty checklist: a peer-reflexive pair (or a passive TCP one) is
+    // only formed when the peer's check arrives, so wait for it a bounded time
+    // from when the checklist began.
     const deadline =
-      (quietSince ?? now) + Math.max(delayMs, PREFERRED_PAIR_WAIT_MS);
+      (preferredSince ?? now) + Math.max(delayMs, PREFERRED_PAIR_WAIT_MS);
     if (now >= deadline) return { action: "abandon" };
     return { action: "wait", deadline };
   }
@@ -3100,6 +3111,8 @@ type NominationOutcome =
 type NominationHost = {
   /** The controlling agent nominates in this checklist now (full ICE on both sides, nothing nominated yet, the checklist still current). */
   active: () => boolean;
+  /** The checklist's checks began (connect(), startProvisionalChecks()). */
+  checking: () => boolean;
   /** The checklist, highest priority first. */
   pairs: () => readonly CandidatePair[];
   remoteCandidatesEnd: () => boolean;
@@ -3150,6 +3163,8 @@ type NominationHost = {
  */
 class RegularNomination {
   private quietSince?: number;
+  /** The checklist began waiting for the preferred pair (see `decideNomination`). */
+  private preferredSince?: number;
   private timer?: ReturnType<typeof setTimeout>;
   private attempt?: { pair: CandidatePair; abort: AbortController };
   /** Every attempt went unanswered: no other pair is nominated until reset. */
@@ -3202,6 +3217,14 @@ class RegularNomination {
     ) {
       this.quietSince = now;
     }
+    const preferred = this.host.preferred();
+    if (
+      preferred &&
+      this.preferredSince === undefined &&
+      this.host.checking()
+    ) {
+      this.preferredSince = now;
+    }
     const decision = decideNomination({
       pairs,
       remoteCandidatesEnd: this.host.remoteCandidatesEnd(),
@@ -3210,7 +3233,8 @@ class RegularNomination {
       delayMs: this.host.delayMs(),
       now,
       unchecked: this.host.unchecked,
-      preferred: this.host.preferred(),
+      preferred,
+      preferredSince: this.preferredSince,
     });
     this.stop();
     if (decision.action === "wait") {
@@ -3251,6 +3275,7 @@ class RegularNomination {
     this.invalidate();
     this.stop();
     this.quietSince = undefined;
+    this.preferredSince = undefined;
     this.maybeSelected = undefined;
   }
 

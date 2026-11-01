@@ -911,6 +911,36 @@ describe("the final answer after a provisional nomination", () => {
     },
   );
 
+  test("an empty checklist after end-of-candidates waits for the preferred pair, then gives up", async () => {
+    const h = createNominationHarness({
+      nominationReply: (index) => (index === 0 ? "hold" : "success"),
+    });
+    h.stageProvisional();
+    const provisional = await h.addProvisionalRemote(LOW);
+    await h.connection.addProvisionalRemoteCandidate(undefined);
+    await h.succeed(provisional);
+
+    try {
+      // Act: final answer が候補なしで end-of-candidates だけを届ける。
+      await h.finalAnswer();
+      await h.connection.addRemoteCandidate(undefined);
+      await vi.advanceTimersByTimeAsync(2900);
+
+      // Assert: 空の checklist でも、受信 check で pair が現れうる間は失敗しない。
+      expect(h.connection.checkList).toHaveLength(0);
+      expect(h.connection.state).not.toBe("failed");
+
+      // Act: 待機時間が尽きる。
+      await vi.advanceTimersByTimeAsync(100);
+
+      // Assert: 別の pair を nominate せずに failed になる。
+      expect(h.nominations()).toHaveLength(1);
+      expect(h.connection.state).toBe("failed");
+    } finally {
+      await h.connection.close();
+    }
+  });
+
   test("nominates the preferred path when it reappears as a peer-reflexive pair after end-of-candidates", async () => {
     const h = createNominationHarness({
       nominationReply: (index) => (index === 0 ? "hold" : "success"),
@@ -1340,6 +1370,45 @@ describe("nomination over real sockets", () => {
         selected.localCandidate.host,
         selected.localCandidate.port,
       ]).toEqual([bLowest.host, bLowest.port]);
+    } finally {
+      await a.close();
+      await b.close();
+    }
+  }, 40_000);
+
+  test("waits on an empty checklist after end-of-candidates until the provisional path reappears from the peer's check", async () => {
+    vi.useRealTimers();
+    const { a, b, bLowest, startProvisional, commit } =
+      await createProvisionalRestartPair();
+
+    try {
+      // Arrange: provisional checklist で a が nominate を確定させる。
+      await startProvisional();
+      await waitUntil(() => a.provisionalNominated !== undefined);
+
+      // Act: a が候補なし・end-of-candidates だけの final answer を確定し、空の checklist で connect() を始める。
+      const aConnected = commit(a, { signalCandidates: false });
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      // Assert: 空の checklist でも即座に失敗せず待機している。
+      expect(a.checkList).toHaveLength(0);
+      expect(a.state).not.toBe("failed");
+
+      // Act: b が final answer を確定して check を送り、a 側で同じ経路が peer-reflexive の pair として再生成される。
+      await Promise.all([aConnected, commit(b)]);
+
+      // Assert: a は再生成された provisional と同じ経路を nominate し、両端が同じ 5-tuple を選ぶ。
+      expect(a.nominated!.remoteCandidate.type).toBe("prflx");
+      expect(a.nominated!.remoteAddr).toEqual([bLowest.host, bLowest.port]);
+      expect(a.nominated?.localCandidate.host).toBe(b.nominated?.remoteAddr[0]);
+      expect(a.nominated?.localCandidate.port).toBe(b.nominated?.remoteAddr[1]);
+      expect(a.nominated?.remoteAddr[0]).toBe(b.nominated?.localCandidate.host);
+      expect(a.nominated?.remoteAddr[1]).toBe(b.nominated?.localCandidate.port);
+      // Assert: 選択した経路でデータが双方向に届く。
+      await a.send(Buffer.from("ping"));
+      expect((await b.onData.asPromise())[0].toString()).toBe("ping");
+      await b.send(Buffer.from("pong"));
+      expect((await a.onData.asPromise())[0].toString()).toBe("pong");
     } finally {
       await a.close();
       await b.close();

@@ -1724,6 +1724,8 @@ export function createNominationHarness({
       password,
     });
     connection.localCandidatesEnd = true;
+    // The live checks of the new generation begin, as connect() marks them.
+    (connection as unknown as { checksBegun: boolean }).checksBegun = true;
   };
   /**
    * Signal the remote candidate of `pair` (a provisional one) again to the
@@ -1947,8 +1949,15 @@ export async function createProvisionalRestartPair() {
     a.startProvisionalChecks();
   };
 
-  /** The final answer reaches `agent`: it restarts to the staged generation. */
-  const commit = async (agent: Connection) => {
+  /**
+   * The final answer reaches `agent`: it restarts to the staged generation.
+   * `signalCandidates: false`: the answer carries end-of-candidates but none
+   * of the peer's candidates (only incoming checks form pairs).
+   */
+  const commit = async (
+    agent: Connection,
+    { signalCandidates = true } = {},
+  ) => {
     const own = credentials.get(agent)!;
     await agent.restart();
     agent.commitLocalCredentials(own.usernameFragment, own.password);
@@ -1957,7 +1966,11 @@ export async function createProvisionalRestartPair() {
       ...credentials.get(peerOf(agent))!,
     });
     await agent.gatherCandidates();
-    for (const candidate of agent === a ? bCandidates : aCandidates) {
+    for (const candidate of signalCandidates
+      ? agent === a
+        ? bCandidates
+        : aCandidates
+      : []) {
       await agent.addRemoteCandidate(candidate);
     }
     await agent.addRemoteCandidate(undefined);
