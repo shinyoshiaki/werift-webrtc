@@ -180,6 +180,16 @@ always selects the socket. Defaults to 4.
 
 ***
 
+### useDefaultStunServer?
+
+> `optional` **useDefaultStunServer?**: `boolean`
+
+Whether the built-in public STUN server (stun.l.google.com:19302) is used
+when `stunServer` is not given. Defaults to true; false gathers no
+server-reflexive candidate unless `stunServer` is set.
+
+***
+
 ### useIpv4
 
 > **useIpv4**: `boolean`
