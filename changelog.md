@@ -1,8 +1,8 @@
 # Changelog
 
-## v0.26.1
+## v0.26.0
 
-The 0.26 line collects everything merged since v0.25.2, including the `rc/0.26.0` branch (negotiation transaction, SCTP queue, PLI / FIR routing). `0.26.0` was never published.
+This release collects everything merged since v0.25.2, including the `rc/0.26.0` branch (negotiation transaction, SCTP queue, PLI / FIR routing).
 
 ### ⚠️ Breaking changes
 
