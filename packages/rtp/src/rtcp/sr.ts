@@ -133,5 +133,6 @@ export class RtcpSenderInfo {
 export const ntpTime2Sec = (ntp: bigint) => {
   const [ntpSec, ntpFraction] = bufferReader(bufferWriter([8], [ntp]), [4, 4]);
 
+  // 下位32bitは秒の小数部を 2^32 で正規化した固定小数点
   return ntpSec + ntpFraction / 2 ** 32;
 };
