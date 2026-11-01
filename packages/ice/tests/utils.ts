@@ -1717,6 +1717,24 @@ export function createNominationHarness({
     (
       connection as unknown as { switchRole: (controlling: boolean) => void }
     ).switchRole(iceControlling);
+  /**
+   * The peer's ordinary check arrives from the address of `pair` (a
+   * provisional pair) on its socket; returns the live pair it forms (a
+   * peer-reflexive one when that address was not signalled).
+   */
+  const receiveCheckLike = (pair: CandidatePair) => {
+    connection.checkIncoming(
+      createIncomingCheck(connection),
+      pair.remoteAddr,
+      pair.protocol,
+    );
+    return connection.checkList.find(
+      (live) =>
+        live.protocol === pair.protocol &&
+        live.remoteAddr[0] === pair.remoteAddr[0] &&
+        live.remoteAddr[1] === pair.remoteAddr[1],
+    )!;
+  };
   /** The peer (now controlling) nominates `pair` with USE-CANDIDATE. */
   const receiveNomination = (pair: CandidatePair) =>
     connection.checkIncoming(
@@ -1745,6 +1763,7 @@ export function createNominationHarness({
     replaceProvisionalRemote,
     finalAnswer,
     addRemoteLike,
+    receiveCheckLike,
   };
 }
 

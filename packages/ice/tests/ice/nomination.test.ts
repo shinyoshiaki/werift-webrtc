@@ -892,11 +892,16 @@ describe("the final answer after a provisional nomination", () => {
         if (endOfCandidates) await h.connection.addRemoteCandidate(undefined);
         h.check(high);
         await h.succeed(high);
-        const before = h.nominations().length;
-        await vi.advanceTimersByTimeAsync(300);
+        await vi.advanceTimersByTimeAsync(2900);
 
-        // Assert: EOC 前は deadline まで待ち (EOC 後は即時)、どちらも別の pair を nominate せずに failed になる。
-        expect(before).toBe(1);
+        // Assert: EOC 後も、受信 check で pair が現れうる間 (最初の valid pair から 3 秒) は失敗しない。
+        expect(h.connection.state).not.toBe("failed");
+        expect(h.nominations()).toHaveLength(1);
+
+        // Act: その待機時間が尽きる。
+        await vi.advanceTimersByTimeAsync(100);
+
+        // Assert: 別の pair を nominate せずに failed になる。
         expect(h.nominations()).toHaveLength(1);
         expect(high.nominated).toBe(false);
         expect(h.connection.nominated).toBeUndefined();
@@ -906,6 +911,45 @@ describe("the final answer after a provisional nomination", () => {
       }
     },
   );
+
+  test("nominates the preferred path when it reappears as a peer-reflexive pair after end-of-candidates", async () => {
+    const h = createNominationHarness({
+      nominationReply: (index) => (index === 0 ? "hold" : "success"),
+    });
+    h.stageProvisional();
+    const provisional = await h.addProvisionalRemote(LOW);
+    await h.connection.addProvisionalRemoteCandidate(undefined);
+    await h.succeed(provisional);
+
+    try {
+      // Act: final answer は provisional の経路の候補を含まずに end-of-candidates まで届き、別の pair が成功する。
+      await h.finalAnswer();
+      const high = await h.addRemote(HIGH);
+      await h.connection.addRemoteCandidate(undefined);
+      h.check(high);
+      await h.succeed(high);
+      await vi.advanceTimersByTimeAsync(1000);
+
+      // Assert: end-of-candidates 後でも即座には断念せず、別の pair も nominate しない。
+      expect(h.connection.state).not.toBe("failed");
+      expect(h.nominations()).toHaveLength(1);
+
+      // Act: 相手の check が provisional と同じ経路から届き、peer-reflexive の pair として再生成され、その triggered check が成功する。
+      const reflexive = h.receiveCheckLike(provisional);
+      await h.succeed(reflexive);
+
+      // Assert: 再生成された同じ経路の pair が nominate される。
+      expect(reflexive.remoteCandidate.type).toBe("prflx");
+      expect(h.nominations().map((request) => request.addr)).toEqual([
+        provisional.remoteAddr,
+        provisional.remoteAddr,
+      ]);
+      expect(h.connection.nominated).toBe(reflexive);
+      expect(high.nominated).toBe(false);
+    } finally {
+      await h.connection.close();
+    }
+  });
 
   test.each([
     { case: "other remote credentials", reply: "hold", remote: "other" },

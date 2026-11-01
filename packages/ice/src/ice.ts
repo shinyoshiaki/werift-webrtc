@@ -60,6 +60,14 @@ const NOMINATION_ATTEMPTS = 3;
  * still pair), it ends connect() with an error.
  */
 const ICE_NOMINATION_ABANDONED = 3;
+/**
+ * How long, from the first valid pair, the live checklist waits for the pair
+ * a provisional nomination may have selected (`NominationHint`) to appear.
+ * It can appear after end-of-candidates: a peer-reflexive or passive TCP
+ * pair forms only when the peer's check arrives. Covers the peer's check
+ * pacing and a TCP check's response timeout (`TCP_CHECK_RESPONSE_TIMEOUT_MS`).
+ */
+const PREFERRED_PAIR_WAIT_MS = 3000;
 
 export class Connection implements IceConnection {
   localUsername = randomString(4);
@@ -2935,8 +2943,9 @@ type NominationDecision =
  * - With a `preferred` rule (the peer may have selected that path already,
  *   see `NominationHint`), only the matching pair may be nominated: as soon
  *   as it is valid, waited for while its check runs. When it fails, or is not
- *   in the checklist once both sides signalled end-of-candidates or by the
- *   deadline, the nomination is abandoned (as an unanswered one is):
+ *   in the checklist `PREFERRED_PAIR_WAIT_MS` (at least the delay) after the
+ *   first valid pair, even after end-of-candidates, the nomination is
+ *   abandoned (as an unanswered one is):
  *   nominating another pair could leave the agents on different paths.
  * - The candidate is the first valid (Succeeded) pair of `pairs` (priority
  *   order, highest first), so the choice is deterministic.
@@ -2979,12 +2988,14 @@ const decideNomination = ({
       // Its check finishing re-evaluates the nomination.
       return { action: "none" };
     }
-    // Not (yet) in the checklist.
-    if (remoteCandidatesEnd && localCandidatesEnd) return { action: "abandon" };
+    // Not (yet) in the checklist. End-of-candidates does not settle it: a
+    // peer-reflexive pair (or a passive TCP one) is only formed when the
+    // peer's check arrives, so wait for it a bounded time.
     if (!pairs.some((pair) => pair.state === CandidatePairState.SUCCEEDED)) {
       return { action: "none" };
     }
-    const deadline = (quietSince ?? now) + delayMs;
+    const deadline =
+      (quietSince ?? now) + Math.max(delayMs, PREFERRED_PAIR_WAIT_MS);
     if (now >= deadline) return { action: "abandon" };
     return { action: "wait", deadline };
   }
