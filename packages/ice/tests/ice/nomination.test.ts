@@ -4,10 +4,14 @@ import { CandidatePairState } from "../../src";
 import {
   createMultiPathPair,
   createNominationHarness,
+  createProvisionalRestartPair,
   dropNominationResponses,
+  nominationInFlight,
+  waitUntil,
 } from "../utils";
 
 const LOW = 100;
+const MID = 1_000_000;
 const HIGH = 2_000_000_000;
 
 beforeEach(() => {
@@ -602,6 +606,304 @@ describe("regular nomination of UDP / relay pairs (full ICE, controlling)", () =
   });
 });
 
+describe("a nomination in flight when its checklist ends", () => {
+  test.each(
+    (
+      ["restart", "restartRemote", "resetNominatedPair", "close"] as const
+    ).flatMap((operation) => [
+      { operation, attempt: 1 },
+      { operation, attempt: 2 },
+    ]),
+  )(
+    "$operation during attempt $attempt: the late answer selects nothing",
+    async ({ operation, attempt }) => {
+      // 応答は signal の中止後にも届く (遅れて届く成功応答)。
+      const h = createNominationHarness({
+        nominationReply: () => "hold",
+        honorSignal: false,
+      });
+      const pair = await h.addRemote(HIGH);
+      await h.connection.addRemoteCandidate(undefined);
+      h.check(pair);
+      await h.succeed(pair);
+      if (attempt === 2) {
+        // 1 回目が応答なしで終わり、同じ pair への再送 (受理済みかもしれない状態) が in-flight。
+        h.nominations()[0].release("failure");
+        await vi.advanceTimersByTimeAsync(0);
+      }
+      expect(h.nominations()).toHaveLength(attempt);
+
+      try {
+        // Act: nomination の応答待ちのまま checklist を終わらせ、その後に成功応答が届く。
+        if (operation === "close") await h.connection.close();
+        else if (operation === "restart") await h.connection.restart();
+        else h.connection[operation]();
+        h.nominations()[attempt - 1].release("success");
+        await vi.advanceTimersByTimeAsync(10_000);
+
+        // Assert: 古い pair は nominate されず、再送も新しい nomination も送られず、in-flight も残らない。
+        expect(h.connection.nominated).toBeUndefined();
+        expect(pair.nominated).toBe(false);
+        expect(h.nominations()).toHaveLength(attempt);
+        expect(nominationInFlight(h.connection)).toBe(false);
+      } finally {
+        await h.connection.close();
+      }
+    },
+  );
+
+  test.each([
+    "a replacement pranswer",
+    "discarding the staged credentials",
+    "the final answer",
+    "close",
+  ] as const)(
+    "a provisional nomination in flight selects nothing after %s",
+    async (operation) => {
+      const h = createNominationHarness({
+        nominationReply: () => "hold",
+        honorSignal: false,
+      });
+      h.stageProvisional();
+      const pair = await h.addProvisionalRemote(HIGH);
+      await h.connection.addProvisionalRemoteCandidate(undefined);
+      await h.succeed(pair);
+      expect(h.nominations()).toHaveLength(1);
+
+      try {
+        // Act: provisional の nomination の応答待ちのまま checklist を終わらせ、その後に成功応答が届く。
+        if (operation === "a replacement pranswer")
+          h.replaceProvisionalRemote();
+        else if (operation === "discarding the staged credentials") {
+          h.connection.discardStagedLocalCredentials("provA");
+        } else if (operation === "the final answer") await h.finalAnswer();
+        else await h.connection.close();
+        h.nominations()[0].release("success");
+        await vi.advanceTimersByTimeAsync(10_000);
+
+        // Assert: provisional・live とも何も選択されず、追加の nomination も送られない。
+        expect(h.connection.provisionalNominated).toBeUndefined();
+        expect(pair.nominated).toBe(false);
+        expect(h.connection.nominated).toBeUndefined();
+        expect(h.nominations()).toHaveLength(1);
+      } finally {
+        await h.connection.close();
+      }
+    },
+  );
+
+  test("a nomination answered after its pair left the checklist moves on to the remaining pairs", async () => {
+    const h = createNominationHarness({
+      nominationReply: (index) => (index === 0 ? "hold" : "success"),
+      honorSignal: false,
+    });
+    const high = await h.addRemote(HIGH);
+    const low = await h.addRemote(LOW);
+    high.remoteCandidate.ufrag = "previous";
+    await h.connection.addRemoteCandidate(undefined);
+    h.check(high);
+    h.check(low);
+    await h.succeed(low);
+    await h.succeed(high);
+    expect(h.nominations().map((request) => request.addr)).toEqual([
+      high.remoteAddr,
+    ]);
+
+    try {
+      // Act: 別の remote generation の pair として high が checklist から外れ、その後に nomination の応答が届く。
+      h.connection.dropOtherRemoteGenerations("remote");
+      h.nominations()[0].release("success");
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Assert: 外れた pair は選ばれず、nomination 待ちのまま止まらずに残った pair が nominate される。
+      expect(high.nominated).toBe(false);
+      expect(h.nominations().map((request) => request.addr)).toEqual([
+        high.remoteAddr,
+        low.remoteAddr,
+      ]);
+      expect(h.connection.nominated).toBe(low);
+    } finally {
+      await h.connection.close();
+    }
+  });
+});
+
+describe("regular nomination under forceTurn", () => {
+  test("a trickled host pair, which forceTurn never checks, does not extend the deadline", async () => {
+    // relay 相当の local (低優先度) と forceTurn で check しない host の local。
+    const h = createNominationHarness({
+      forceTurn: true,
+      localPriorities: [LOW, HIGH],
+      localTypes: [undefined, "stun"],
+    });
+    const [relay] = await h.addRemotePairs(HIGH);
+    h.check(relay);
+
+    try {
+      // Act: relay pair が成功し、deadline 直前に「host とは最良 pair を上回る pair、relay とは下回る pair」を作る候補が届く。
+      await h.succeed(relay);
+      await vi.advanceTimersByTimeAsync(290);
+      const [relayLower, host] = await h.addRemotePairs(MID);
+      await vi.advanceTimersByTimeAsync(20);
+
+      // Assert: 前提として host pair は最良 pair を上回り、relay 側の新 pair は下回る。
+      const order = h.connection.checkList;
+      expect(order.indexOf(host)).toBeLessThan(order.indexOf(relay));
+      expect(order.indexOf(relayLower)).toBeGreaterThan(order.indexOf(relay));
+      // Assert: check されない host pair は deadline を延ばさず、当初の deadline で relay pair が nominate される。
+      expect(host.requestsSent).toBe(0);
+      expect(h.nominations().map((request) => request.addr)).toEqual([
+        relay.remoteAddr,
+      ]);
+      expect(h.connection.nominated).toBe(relay);
+    } finally {
+      await h.connection.close();
+    }
+  });
+
+  test("a trickled provisional host pair is neither checked nor extends the deadline", async () => {
+    const h = createNominationHarness({
+      forceTurn: true,
+      localPriorities: [LOW, HIGH],
+      localTypes: [undefined, "stun"],
+    });
+    h.stageProvisional();
+    const [relay, firstHost] = await h.addProvisionalRemotePairs(HIGH);
+
+    try {
+      // Act: provisional の relay pair が成功し、deadline 直前に上位の host pair を作る候補が届く。
+      await h.succeed(relay);
+      await vi.advanceTimersByTimeAsync(290);
+      const [, host] = await h.addProvisionalRemotePairs(MID);
+      await vi.advanceTimersByTimeAsync(20);
+
+      // Assert: live と同じく host pair には check を送らず、deadline も延びずに relay pair が nominate される。
+      expect(firstHost.requestsSent).toBe(0);
+      expect(host.requestsSent).toBe(0);
+      expect(h.nominations().map((request) => request.addr)).toEqual([
+        relay.remoteAddr,
+      ]);
+      expect(h.connection.provisionalNominated).toBe(relay);
+    } finally {
+      await h.connection.close();
+    }
+  });
+});
+
+describe("the final answer after a provisional nomination", () => {
+  test.each([
+    { reply: "hold", outcome: "unanswered" },
+    { reply: "success", outcome: "answered" },
+  ] as const)(
+    "the live checklist prefers the pair of an $outcome provisional nomination",
+    async ({ reply }) => {
+      const h = createNominationHarness({
+        nominationReply: (index) => (index === 0 ? reply : "success"),
+      });
+      h.stageProvisional();
+      const provisional = await h.addProvisionalRemote(LOW);
+      await h.connection.addProvisionalRemoteCandidate(undefined);
+      await h.succeed(provisional);
+      expect(h.nominations()).toHaveLength(1);
+
+      try {
+        // Act: pranswer と同じ資格情報の final answer を適用し、より高優先度の pair を含む live checklist で check する。
+        await h.finalAnswer();
+        const high = await h.addRemote(HIGH);
+        const same = await h.addRemoteLike(provisional);
+        await h.connection.addRemoteCandidate(undefined);
+        h.check(high);
+        h.check(same);
+        await h.succeed(high);
+        await vi.advanceTimersByTimeAsync(1000);
+
+        // Assert: provisional で nominate した 5-tuple の check が終わるまで、高優先度 pair を nominate しない。
+        expect(h.nominations()).toHaveLength(1);
+        expect(h.connection.nominated).toBeUndefined();
+
+        // Act: provisional と同じ 5-tuple の check が成功する。
+        await h.succeed(same);
+
+        // Assert: その pair (provisional とは別の pair object) が nominate される。
+        expect(h.nominations().map((request) => request.addr)).toEqual([
+          provisional.remoteAddr,
+          same.remoteAddr,
+        ]);
+        expect(h.connection.nominated).toBe(same);
+        expect(h.connection.nominated).not.toBe(provisional);
+      } finally {
+        await h.connection.close();
+      }
+    },
+  );
+
+  test("falls back to the best valid pair when the preferred pair fails", async () => {
+    const h = createNominationHarness({
+      nominationReply: (index) => (index === 0 ? "hold" : "success"),
+    });
+    h.stageProvisional();
+    const provisional = await h.addProvisionalRemote(LOW);
+    await h.connection.addProvisionalRemoteCandidate(undefined);
+    await h.succeed(provisional);
+
+    try {
+      // Act: final answer の後、provisional と同じ 5-tuple の check だけが失敗する。
+      await h.finalAnswer();
+      const high = await h.addRemote(HIGH);
+      const same = await h.addRemoteLike(provisional);
+      await h.connection.addRemoteCandidate(undefined);
+      h.check(high);
+      h.check(same);
+      await h.succeed(high);
+      await h.fail(same);
+
+      // Assert: 通常の規則に戻り、最良の valid pair が nominate される。
+      expect(h.nominations().at(-1)!.addr).toEqual(high.remoteAddr);
+      expect(h.connection.nominated).toBe(high);
+    } finally {
+      await h.connection.close();
+    }
+  });
+
+  test.each([
+    { case: "other remote credentials", reply: "hold", remote: "other" },
+    { case: "a rejected provisional nomination", reply: 401, remote: "same" },
+  ] as const)("prefers no pair after $case", async ({ reply, remote }) => {
+    const h = createNominationHarness({
+      nominationReply: (index) => (index === 0 ? reply : "success"),
+    });
+    h.stageProvisional();
+    const provisional = await h.addProvisionalRemote(LOW);
+    await h.connection.addProvisionalRemoteCandidate(undefined);
+    await h.succeed(provisional);
+
+    try {
+      // Act: final answer を適用し、高優先度 pair だけが成功する。
+      await h.finalAnswer(
+        remote === "other"
+          ? {
+              usernameFragment: "other",
+              password: "other-password-00000000000",
+            }
+          : {},
+      );
+      const high = await h.addRemote(HIGH);
+      const same = await h.addRemoteLike(provisional);
+      await h.connection.addRemoteCandidate(undefined);
+      h.check(high);
+      h.check(same);
+      await h.succeed(high);
+
+      // Assert: 引き継ぐ pair はなく、同じ 5-tuple の check を待たずに最良 pair が即 nominate される。
+      expect(same.state).toBe(CandidatePairState.IN_PROGRESS);
+      expect(h.nominations().at(-1)!.addr).toEqual(high.remoteAddr);
+      expect(h.connection.nominated).toBe(high);
+    } finally {
+      await h.connection.close();
+    }
+  });
+});
+
 describe("regular nomination of the provisional generation", () => {
   test("ordinary provisional checks carry no USE-CANDIDATE and the higher-priority pair wins", async () => {
     const h = createNominationHarness();
@@ -673,6 +975,33 @@ describe("regular nomination of the provisional generation", () => {
       expect(before).toBe(0);
       expect(h.connection.provisionalNominated).toBe(low);
       expect(unreachable.state).toBe(CandidatePairState.IN_PROGRESS);
+    } finally {
+      await h.connection.close();
+    }
+  });
+
+  test("a provisional nomination rejected with an error response falls back to the next valid pair", async () => {
+    const h = createNominationHarness({
+      nominationReply: (index) => (index === 0 ? 401 : "success"),
+    });
+    h.stageProvisional();
+    const high = await h.addProvisionalRemote(HIGH);
+    const low = await h.addProvisionalRemote(LOW);
+    await h.connection.addProvisionalRemoteCandidate(undefined);
+
+    try {
+      // Act: 両方成功し、最良 pair への provisional nomination がエラー応答で拒否される。
+      await h.succeed(low);
+      await h.succeed(high);
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Assert: live と同じく拒否された pair だけ FAILED になり、次点へ 1 回だけ nomination が送られる。
+      expect(high.state).toBe(CandidatePairState.FAILED);
+      expect(h.nominations().map((request) => request.addr)).toEqual([
+        high.remoteAddr,
+        low.remoteAddr,
+      ]);
+      expect(h.connection.provisionalNominated).toBe(low);
     } finally {
       await h.connection.close();
     }
@@ -853,4 +1182,37 @@ describe("nomination over real sockets", () => {
       await b.close();
     }
   }, 30_000);
+  test("both agents keep one path when a provisional nomination reaches the controlled agent's committed checklist", async () => {
+    vi.useRealTimers();
+    const { a, b, bLowest, startProvisional, commit } =
+      await createProvisionalRestartPair();
+    // b は provisional の USE-CANDIDATE を処理するが、応答 (再送分も) は失われる。
+    const loss = dropNominationResponses(b, Number.POSITIVE_INFINITY);
+
+    try {
+      // Act: pranswer の provisional checklist で a が nominate を送り、b が選択する。
+      await startProvisional();
+      await waitUntil(() => b.provisionalNominated !== undefined);
+
+      // Act: b が先に final answer を確定し、a の provisional nomination の再送が b の live checklist に届いて選択される。
+      const bConnected = commit(b);
+      await waitUntil(() => b.nominated !== undefined, 15_000);
+      loss.stop();
+
+      // Act: a も final answer を確定し、全候補で live checklist を一から check する。
+      await Promise.all([commit(a), bConnected]);
+
+      // Assert: controlling 側と controlled 側が同じ 5-tuple を選択している。
+      expect(a.nominated?.localCandidate.host).toBe(b.nominated?.remoteAddr[0]);
+      expect(a.nominated?.localCandidate.port).toBe(b.nominated?.remoteAddr[1]);
+      expect(a.nominated?.remoteAddr[0]).toBe(b.nominated?.localCandidate.host);
+      expect(a.nominated?.remoteAddr[1]).toBe(b.nominated?.localCandidate.port);
+      // Assert: 選択は provisional で nominate した pair と同じ 5-tuple で、a の live checklist ではより上位の pair があった (優先度だけなら別の pair を選んでいた)。
+      expect(a.nominated!.remoteAddr).toEqual([bLowest.host, bLowest.port]);
+      expect(a.checkList.indexOf(a.nominated!)).toBeGreaterThan(0);
+    } finally {
+      await a.close();
+      await b.close();
+    }
+  }, 40_000);
 });

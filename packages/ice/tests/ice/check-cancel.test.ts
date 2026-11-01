@@ -7,6 +7,7 @@ import {
   createTestConnection,
   createUnansweredCheckAgent,
   inviteAccept,
+  nominationInFlight,
   provisionalGeneration,
   queuedCheckListResults,
   waitUntil,
@@ -60,9 +61,7 @@ describe("connectivity checks of a replaced checklist", () => {
 
     try {
       // check が成功し、応答のない nomination が送られるまで待つ。
-      await waitUntil(
-        () => (a as unknown as { nominating: boolean }).nominating,
-      );
+      await waitUntil(() => nominationInFlight(a));
       expect(liveTransactions(a)).toBeGreaterThan(0);
 
       // Act: nomination の応答待ちのまま ICE restart する。

@@ -107,27 +107,14 @@ export class Connection implements IceConnection {
   private _remoteCandidates: Candidate[] = [];
   // P2P接続完了したソケット
   nominated?: CandidatePair;
-  private nominating = false;
-  /**
-   * Regular nomination (RFC 8445 §8.1.1) waits `nominationDelayMs` from this
-   * time: the first valid pair, moved forward by every pair added later that
-   * outranks the best valid pair.
-   */
-  private nominationQuietSince?: number;
-  /** Re-evaluates the nomination when its deadline passes. */
-  private nominationTimer?: ReturnType<typeof setTimeout>;
-  /**
-   * A nomination went unanswered: the peer may have selected that pair, so
-   * no other pair is nominated in this remote generation.
-   */
-  private nominationAbandoned = false;
-  /**
-   * Incremented when the role changes: a nomination started under the
-   * previous role (its answer, timeout or repeats) changes nothing after it.
-   */
-  private nominationEpoch = 0;
-  /** Aborts the USE-CANDIDATE transaction in flight (live checklist). */
-  private nominationAbort?: AbortController;
+  /** The ICE-lite nomination (first valid pair, in `checkStart`) is in flight. */
+  private liteNominating = false;
+  /** Regular nomination (RFC 8445 §8.1.1) of the live checklist. */
+  private readonly nomination = new RegularNomination(
+    this.liveNominationHost(),
+  );
+  /** See `NominationHint`; set by the restart that ends a provisional checklist. */
+  private nominationHint?: NominationHint;
   /**
    * Aborted when the remote generation ends (restart, restartRemote, close):
    * every check and nomination transaction of that generation stops with it.
@@ -140,13 +127,16 @@ export class Connection implements IceConnection {
    * - `retryCheck` (487 role conflict / 401 retry): the handle of the check
    *   it replaces and this signal (the retry is a `checkStart`).
    * - regular nomination in `checkStart` (toward an ICE-lite peer): the
-   *   check's signal; `isStaleNomination` guards `nominating`, the pair state
-   *   and `checkComplete`.
-   * - `nominatePair`: this signal; `isStaleNomination`. Its delay timer
-   *   (`nominationTimer`) is cleared with the generation and checks
-   *   `remoteGeneration` when it fires.
+   *   check's signal; `isStaleNomination` guards `liteNominating`, the pair
+   *   state and `checkComplete`.
+   * - `RegularNomination` (live: `sendNomination`): this signal and the
+   *   attempt's own, which `reset()` (restart, restartRemote,
+   *   resetNominatedPair, close) and `invalidate()` (role change) abort; a
+   *   result of a replaced attempt is ignored. Its delay timer is cleared by
+   *   `reset()`.
    * - `checkProvisional` / `nominateProvisional`: `generation.checks`
-   *   (`endProvisional()`, a replacement pranswer, close); `belongs()`.
+   *   (`endProvisional()`, a replacement pranswer, close); `belongs()`, and
+   *   the provisional `RegularNomination` as above.
    * - `queryConsent`: a per-request `AbortController` and
    *   `stopConsentLifecycle()`; `consentSessionId`.
    * - `serverReflexiveCandidate` (gathering): `protocol.close()`; otherwise
@@ -315,8 +305,11 @@ export class Connection implements IceConnection {
     this.lookup?.close?.();
     this.lookup = undefined;
     this.nominated = undefined;
-    this.nominating = false;
-    this.resetNominationDelay();
+    this.liteNominating = false;
+    // Taken before endProvisional() drops the provisional checklist.
+    const hint = this.provisionalNominationHint();
+    this.nomination.reset();
+    this.nominationHint = hint;
     this.cancelChecks();
     this.checkList = [];
     this.checkListDone = false;
@@ -355,8 +348,9 @@ export class Connection implements IceConnection {
     this.checksBegun = false;
     this.state = "new";
     this.nominated = undefined;
-    this.nominating = false;
-    this.resetNominationDelay();
+    this.liteNominating = false;
+    this.nomination.reset();
+    this.nominationHint = undefined;
     this.cancelChecks();
     this.checkList = [];
     this.checkListDone = false;
@@ -384,7 +378,7 @@ export class Connection implements IceConnection {
   private endProvisional() {
     if (this.provisional) {
       this.provisional.checks.abort();
-      this.resetProvisionalNominationDelay(this.provisional);
+      this.provisional.nomination.reset();
     }
     this.provisional = undefined;
   }
@@ -393,7 +387,7 @@ export class Connection implements IceConnection {
   stageLocalCredentials(usernameFragment: string, password: string) {
     this.userHistory[usernameFragment] = password;
     this.endProvisional();
-    this.provisional = {
+    const generation: ProvisionalGeneration = {
       localUsername: usernameFragment,
       localPassword: password,
       remoteCandidates: [],
@@ -402,9 +396,13 @@ export class Connection implements IceConnection {
       resolutions: new Set(),
       revision: 0,
       pairs: [],
+      nomination: new RegularNomination(
+        this.provisionalNominationHost(() => generation),
+      ),
       started: false,
       checks: new AbortController(),
     };
+    this.provisional = generation;
   }
 
   discardStagedLocalCredentials(usernameFragment: string) {
@@ -445,8 +443,8 @@ export class Connection implements IceConnection {
     generation.checks = new AbortController();
     generation.pairs = [];
     generation.nominated = undefined;
-    generation.nominating = false;
-    this.resetProvisionalNominationDelay(generation);
+    generation.liteNominating = false;
+    generation.nomination.reset();
   }
 
   async addProvisionalRemoteCandidate(remoteCandidate: Candidate | undefined) {
@@ -469,7 +467,7 @@ export class Connection implements IceConnection {
         if (!current()) return;
       }
       generation.remoteCandidatesEnd = true;
-      this.nominateProvisionalIfReady(generation);
+      generation.nomination.evaluate();
       return;
     }
     // RFC 8838: a completed generation takes no further candidates.
@@ -530,7 +528,9 @@ export class Connection implements IceConnection {
       }
     }
     for (const pair of generation.pairs) {
-      void this.checkProvisional(generation, pair);
+      if (!this.isUncheckedPair(pair)) {
+        void this.checkProvisional(generation, pair);
+      }
     }
   }
 
@@ -570,7 +570,10 @@ export class Connection implements IceConnection {
     }
     pair.updateState(CandidatePairState.WAITING);
     this.addProvisionalPair(generation, pair);
-    if (generation.started) void this.checkProvisional(generation, pair);
+    // As the live schedule does, forceTurn leaves host pairs unchecked.
+    if (generation.started && !this.isUncheckedPair(pair)) {
+      void this.checkProvisional(generation, pair);
+    }
   }
 
   private async checkProvisional(
@@ -601,7 +604,7 @@ export class Connection implements IceConnection {
     }
     pair.updateState(CandidatePairState.IN_PROGRESS);
     // Regular nomination: a check never carries USE-CANDIDATE; the
-    // nomination is a separate check (nominateProvisionalIfReady).
+    // nomination is a separate check (`generation.nomination`).
     const request = this.buildRequest({
       nominate: false,
       localUsername: generation.localUsername,
@@ -625,7 +628,7 @@ export class Connection implements IceConnection {
       if (!belongs()) return;
       if (addr[0] !== pair.remoteAddr[0] || addr[1] !== pair.remoteAddr[1]) {
         pair.updateState(CandidatePairState.FAILED);
-        this.nominateProvisionalIfReady(generation);
+        generation.nomination.evaluate();
         return;
       }
     } catch (error) {
@@ -639,7 +642,7 @@ export class Connection implements IceConnection {
         pair.updateState(CandidatePairState.WAITING);
         return this.checkProvisional(generation, pair, false);
       }
-      this.nominateProvisionalIfReady(generation);
+      generation.nomination.evaluate();
       return;
     }
     if (pair.remoteNominated) pair.nominated = true;
@@ -649,19 +652,28 @@ export class Connection implements IceConnection {
       this.iceControlling &&
       this.remoteIsLite &&
       !generation.nominated &&
-      !generation.nominating
+      !generation.liteNominating
     ) {
       // Toward an ICE-lite peer, as the live checklist does: nominate the
       // first pair that succeeded with a check that carries USE-CANDIDATE.
-      await this.nominateProvisional(generation, pair, belongs);
+      generation.liteNominating = true;
+      const result = await this.nominateProvisional(
+        generation,
+        pair,
+        generation.checks.signal,
+      );
+      if (belongs()) {
+        generation.liteNominating = false;
+        if (result === "nominated") pair.nominated = true;
+      }
     }
     if (pair.nominated && !generation.nominated) {
       log("provisional nominated", pair.toJSON());
       generation.nominated = pair;
-      this.resetProvisionalNominationDelay(generation);
+      generation.nomination.stop();
       return;
     }
-    if (belongs()) this.nominateProvisionalIfReady(generation);
+    if (belongs()) generation.nomination.evaluate();
   }
 
   /** Put `pair` on the provisional checklist (see `addPair`). */
@@ -671,145 +683,71 @@ export class Connection implements IceConnection {
   ) {
     const best = this.bestValidPair(generation.pairs);
     generation.pairs.push(pair);
-    if (best && this.outranks(pair, best)) {
-      generation.quietSince = Date.now();
-      this.nominateProvisionalIfReady(generation);
-    }
+    generation.nomination.pairAdded(pair, best);
   }
 
   /**
-   * Regular nomination of the provisional checklist, by the rule the live
-   * checklist uses (`decideNomination`).
+   * The provisional checklist's side of regular nomination: the same rules
+   * as the live checklist (`liveNominationHost`), on its own pairs,
+   * credentials and end-of-candidates.
    */
-  private nominateProvisionalIfReady(generation: ProvisionalGeneration) {
-    if (
-      this.provisional !== generation ||
-      !this.usesRegularNomination() ||
-      !generation.started ||
-      generation.nominated ||
-      generation.nominating ||
-      generation.nominationAbandoned
-    ) {
-      this.clearProvisionalNominationTimer(generation);
-      return;
-    }
-    const pairs = [...generation.pairs];
-    sortCandidatePairs(pairs, this.iceControlling);
-    const now = Date.now();
-    if (
-      generation.quietSince === undefined &&
-      pairs.some((pair) => pair.state === CandidatePairState.SUCCEEDED)
-    ) {
-      generation.quietSince = now;
-    }
-    const decision = decideNomination({
-      pairs,
-      remoteCandidatesEnd: generation.remoteCandidatesEnd,
-      localCandidatesEnd: this.localCandidatesEnd,
-      quietSince: generation.quietSince,
-      delayMs: this.nominationDelayMs,
-      now,
+  private provisionalNominationHost(
+    generationOf: () => ProvisionalGeneration,
+  ): NominationHost {
+    const current = () => this.provisional === generationOf();
+    return {
+      active: () =>
+        current() &&
+        this.usesRegularNomination() &&
+        generationOf().started &&
+        !generationOf().nominated,
+      pairs: () => {
+        const pairs = [...generationOf().pairs];
+        sortCandidatePairs(pairs, this.iceControlling);
+        return pairs;
+      },
+      remoteCandidatesEnd: () => generationOf().remoteCandidatesEnd,
+      localCandidatesEnd: () => this.localCandidatesEnd,
+      delayMs: () => this.nominationDelayMs,
       unchecked: (pair) => this.isUncheckedPair(pair),
-    });
-    this.clearProvisionalNominationTimer(generation);
-    if (decision.action === "wait") {
-      const revision = generation.revision;
-      generation.nominationTimer = setTimeout(
-        () => {
-          generation.nominationTimer = undefined;
-          if (
-            this.provisional !== generation ||
-            generation.revision !== revision
-          ) {
-            return;
-          }
-          this.nominateProvisionalIfReady(generation);
-        },
-        Math.max(0, decision.deadline - now),
-      );
-      return;
-    }
-    if (decision.action !== "nominate") return;
-
-    this.nominateProvisionalPair(generation, decision.pair);
-  }
-
-  /** Regular nomination of `pair` in the provisional checklist (see `nominatePair`). */
-  private nominateProvisionalPair(
-    generation: ProvisionalGeneration,
-    pair: CandidatePair,
-    attempt = 1,
-    /** An earlier attempt went unanswered (see `nominatePair`). */
-    maybeAccepted = false,
-  ) {
-    const revision = generation.revision;
-    const epoch = this.nominationEpoch;
-    // A role change invalidates the nomination as a replacement pranswer does.
-    const belongs = () =>
-      this.provisional === generation &&
-      generation.revision === revision &&
-      this.nominationEpoch === epoch &&
-      generation.pairs.includes(pair);
-    void this.nominateProvisional(generation, pair, belongs).then((result) => {
-      if (!belongs()) return;
-      if (result === "role-conflict") {
-        // As in the live checklist: become controlled, keep the pair valid.
-        log("provisional nomination role conflict", pair.toJSON());
-        this.switchRole(false);
-        return;
-      }
-      if (result === "nominated") {
+      outranks: (pair, other) => this.outranks(pair, other),
+      preferred: () => false,
+      owns: (pair) => current() && generationOf().pairs.includes(pair),
+      send: (pair, signal) =>
+        this.nominateProvisional(
+          generationOf(),
+          pair,
+          AbortSignal.any([generationOf().checks.signal, signal]),
+        ),
+      nominated: (pair) => {
+        const generation = generationOf();
+        pair.nominated = true;
         if (!generation.nominated) {
           log("provisional nominated", pair.toJSON());
           generation.nominated = pair;
         }
-        return;
-      }
-      if (result === "unanswered" || maybeAccepted) {
-        // The peer may have selected this pair: repeat on it, never another,
-        // even when a repeat is answered with an error.
-        if (attempt < NOMINATION_ATTEMPTS) {
-          generation.nominating = true;
-          this.nominateProvisionalPair(generation, pair, attempt + 1, true);
-          return;
-        }
-        log("provisional nomination unanswered, giving up", pair.toJSON());
-        generation.nominationAbandoned = true;
+      },
+      rejected: (pair) => {
         pair.updateState(CandidatePairState.FAILED);
-        return;
-      }
-      // Rejected: only this pair failed; the next best valid pair is nominated.
-      pair.updateState(CandidatePairState.FAILED);
-      this.nominateProvisionalIfReady(generation);
-    });
-  }
-
-  private clearProvisionalNominationTimer(generation: ProvisionalGeneration) {
-    if (generation.nominationTimer !== undefined) {
-      clearTimeout(generation.nominationTimer);
-      generation.nominationTimer = undefined;
-    }
-  }
-
-  private resetProvisionalNominationDelay(generation: ProvisionalGeneration) {
-    this.clearProvisionalNominationTimer(generation);
-    generation.quietSince = undefined;
-    generation.nominationAbandoned = false;
+        generationOf().nomination.evaluate();
+      },
+      // As in the live checklist: become controlled, keep the pair valid.
+      roleConflict: () => this.switchRole(false),
+      abandoned: (pair) => pair.updateState(CandidatePairState.FAILED),
+    };
   }
 
   /**
-   * Send the USE-CANDIDATE check for `pair`: "nominated" when answered,
-   * "unanswered" on a timeout (the peer may have selected the pair),
-   * "rejected" otherwise (an error response, or the request never left).
+   * Send a USE-CANDIDATE check for a provisional `pair` (see
+   * `NominationOutcome`). `signal` stops it: the checklist's checks
+   * (endProvisional, a replacement pranswer) and, for regular nomination,
+   * the attempt.
    */
   private async nominateProvisional(
     generation: ProvisionalGeneration,
     pair: CandidatePair,
-    belongs: () => boolean,
-  ): Promise<"nominated" | "unanswered" | "rejected" | "role-conflict"> {
-    generation.nominating = true;
-    const abort = new AbortController();
-    generation.nominationAbort = abort;
+    signal: AbortSignal,
+  ): Promise<NominationOutcome> {
     const request = this.buildRequest({
       nominate: true,
       localUsername: generation.localUsername,
@@ -826,23 +764,15 @@ export class Connection implements IceConnection {
         {
           retransmissions:
             pair.localCandidate.transport.toLowerCase() === "tcp" ? 0 : 4,
-          // endProvisional / a replacement pranswer stops it with the
-          // checks; a role change stops it alone.
-          signal: AbortSignal.any([generation.checks.signal, abort.signal]),
+          signal,
         },
       );
       pair.responsesReceived++;
-      if (belongs()) pair.nominated = true;
       return "nominated";
     } catch (error) {
       log("provisional regular nomination failed", error);
       if (isRoleConflict(error)) return "role-conflict";
       return error instanceof TransactionTimeout ? "unanswered" : "rejected";
-    } finally {
-      if (generation.nominationAbort === abort) {
-        generation.nominationAbort = undefined;
-      }
-      if (belongs()) generation.nominating = false;
     }
   }
 
@@ -952,14 +882,15 @@ export class Connection implements IceConnection {
     this.checkList = this.checkList.filter(
       (pair) => !stale(pair.remoteCandidate),
     );
-    this.nominatePairIfReady();
+    this.nomination.evaluate();
   }
 
   resetNominatedPair() {
     log("resetNominatedPair");
     this.nominated = undefined;
-    this.nominating = false;
-    this.resetNominationDelay();
+    this.liteNominating = false;
+    this.nomination.reset();
+    this.nominationHint = undefined;
     // Drop old pair's consent timers/transactions; restarted when a new pair is nominated.
     this.stopConsentLifecycle();
   }
@@ -1051,8 +982,8 @@ export class Connection implements IceConnection {
       // neither completes that generation nor touches its state.
       if (!this.isGathering(generation)) return;
       this.localCandidatesEnd = true;
-      this.nominatePairIfReady();
-      if (this.provisional) this.nominateProvisionalIfReady(this.provisional);
+      this.nomination.evaluate();
+      this.provisional?.nomination.evaluate();
     }
     // Gathering that finishes after connectivity checks began (an ICE restart
     // keeps gathering from its servers) must not overwrite their state: the
@@ -2024,7 +1955,9 @@ export class Connection implements IceConnection {
     }
 
     this.nominated = undefined;
-    this.resetNominationDelay();
+    this.liteNominating = false;
+    this.nomination.reset();
+    this.nominationHint = undefined;
     for (const protocol of this.protocols) {
       if (protocol.close) {
         await protocol.close();
@@ -2072,7 +2005,7 @@ export class Connection implements IceConnection {
         if (this.remoteGeneration !== generation) return;
       }
       this.remoteCandidatesEnd = true;
-      this.nominatePairIfReady();
+      this.nomination.evaluate();
       return;
     }
 
@@ -2189,17 +2122,11 @@ export class Connection implements IceConnection {
    * later nominates afresh.
    */
   private invalidateNominations() {
-    this.nominationEpoch++;
-    this.nominationAbort?.abort();
-    this.nominationAbort = undefined;
-    this.nominating = false;
-    this.nominationAbandoned = false;
-    const generation = this.provisional;
-    if (generation) {
-      generation.nominationAbort?.abort();
-      generation.nominationAbort = undefined;
-      generation.nominating = false;
-      generation.nominationAbandoned = false;
+    this.liteNominating = false;
+    this.nomination.invalidate();
+    if (this.provisional) {
+      this.provisional.liteNominating = false;
+      this.provisional.nomination.invalidate();
     }
   }
 
@@ -2213,8 +2140,8 @@ export class Connection implements IceConnection {
     this.applyIceControlling(iceControlling);
     this.sortCheckList();
     // Only a controlling agent nominates: start (or stop) waiting for it.
-    this.nominatePairIfReady();
-    if (this.provisional) this.nominateProvisionalIfReady(this.provisional);
+    this.nomination.evaluate();
+    this.provisional?.nomination.evaluate();
   }
 
   private checkComplete(pair: CandidatePair) {
@@ -2242,8 +2169,8 @@ export class Connection implements IceConnection {
       ) {
         log("nominated", pair.toJSON());
         this.nominated = pair;
-        this.nominating = false;
-        this.clearNominationTimer();
+        this.liteNominating = false;
+        this.nomination.stop();
         // RFC 7675 section 5.1: the successful connectivity check that
         // selected the pair is its initial consent, so data may flow at once
         // instead of waiting for the consent lifecycle to start.
@@ -2301,7 +2228,7 @@ export class Connection implements IceConnection {
       }
     }
 
-    this.nominatePairIfReady();
+    this.nomination.evaluate();
 
     this.failCheckListIfExhausted();
   }
@@ -2315,8 +2242,9 @@ export class Connection implements IceConnection {
     // to nominate a valid pair: that decides the outcome.
     if (
       this.nominated ||
-      this.nominating ||
-      this.nominationTimer !== undefined
+      this.liteNominating ||
+      this.nomination.inFlight ||
+      this.nomination.waiting
     ) {
       return;
     }
@@ -2374,7 +2302,7 @@ export class Connection implements IceConnection {
       const localUsername = pair.localCandidate.ufrag ?? this.localUsername;
 
       // Regular nomination (RFC 8445 §8.1.1): an ordinary check never
-      // carries USE-CANDIDATE; see nominatePairIfReady.
+      // carries USE-CANDIDATE; see RegularNomination.
       const request = this.buildRequest({
         nominate: false,
         localUsername,
@@ -2475,9 +2403,13 @@ export class Connection implements IceConnection {
       if (pair.remoteNominated) {
         // # nominated by the remote party
         pair.nominated = true;
-      } else if (this.iceControlling && this.remoteIsLite && !this.nominating) {
+      } else if (
+        this.iceControlling &&
+        this.remoteIsLite &&
+        !this.liteNominating
+      ) {
         // # ICE-lite peer: nominate the first pair that succeeds
-        this.nominating = true;
+        this.liteNominating = true;
         const request = this.buildRequest({
           nominate: true,
           localUsername,
@@ -2505,7 +2437,7 @@ export class Connection implements IceConnection {
             r();
             return;
           }
-          this.nominating = false;
+          this.liteNominating = false;
           pair.updateState(CandidatePairState.FAILED);
           this.checkComplete(pair);
           r();
@@ -2557,7 +2489,7 @@ export class Connection implements IceConnection {
   /**
    * Full ICE on both sides: the controlling agent uses regular nomination
    * (RFC 8445 §8.1.1) for every transport. A check that succeeds only makes
-   * its pair valid; `nominatePairIfReady` later picks one valid pair and
+   * its pair valid; `RegularNomination` later picks one valid pair and
    * nominates it with a separate USE-CANDIDATE check. Nominating the first
    * pair that succeeds (aggressive nomination) would let a lower-priority
    * candidate that happened to finish first (TURN/TCP) win over a
@@ -2608,86 +2540,60 @@ export class Connection implements IceConnection {
   }
 
   /**
-   * Controlling side: nominate the best valid pair once the checklist is
-   * quiet (see `decideNomination`), or arm the timer that re-evaluates it at
-   * the deadline. Called whenever the answer may change: a check finished, a
-   * pair was added, end-of-candidates, the role changed, the timer fired.
+   * The live checklist's side of regular nomination (`RegularNomination`):
+   * the controlling agent nominates the best valid pair once the checklist
+   * is quiet (see `decideNomination`).
    */
-  private nominatePairIfReady() {
-    if (
-      !this.usesRegularNomination() ||
-      this.nominated ||
-      this.nominating ||
-      this.nominationAbandoned ||
-      this.state === "closed"
-    ) {
-      this.clearNominationTimer();
-      return;
-    }
-    const now = Date.now();
-    if (
-      this.nominationQuietSince === undefined &&
-      this.checkList.some((pair) => pair.state === CandidatePairState.SUCCEEDED)
-    ) {
-      this.nominationQuietSince = now;
-    }
-    const decision = decideNomination({
-      pairs: this.checkList,
-      remoteCandidatesEnd: this.remoteCandidatesEnd,
-      localCandidatesEnd: this.localCandidatesEnd,
-      quietSince: this.nominationQuietSince,
-      delayMs: this.nominationDelayMs,
-      now,
+  private liveNominationHost(): NominationHost {
+    return {
+      active: () =>
+        this.usesRegularNomination() &&
+        !this.nominated &&
+        this.state !== "closed",
+      pairs: () => this.checkList,
+      remoteCandidatesEnd: () => this.remoteCandidatesEnd,
+      localCandidatesEnd: () => this.localCandidatesEnd,
+      delayMs: () => this.nominationDelayMs,
       unchecked: (pair) => this.isUncheckedPair(pair),
-    });
-    this.clearNominationTimer();
-    if (decision.action === "wait") {
-      const generation = this.remoteGeneration;
-      this.nominationTimer = setTimeout(
-        () => {
-          this.nominationTimer = undefined;
-          if (this.remoteGeneration !== generation) return;
-          this.nominatePairIfReady();
-          // The valid pair it waited for may be gone (another remote
-          // generation dropped): the checklist may have failed meanwhile.
-          this.failCheckListIfExhausted();
-        },
-        Math.max(0, decision.deadline - now),
-      );
-    } else if (decision.action === "nominate") {
-      this.nominatePair(decision.pair);
-    }
+      outranks: (pair, other) => this.outranks(pair, other),
+      preferred: (pair) => {
+        const hint = this.nominationHint;
+        return (
+          !!hint &&
+          hint.localUsername === this.localUsername &&
+          hint.remoteUsername === this.remoteUsername &&
+          hint.remotePassword === this.remotePassword &&
+          pairKey(pair) === hint.key
+        );
+      },
+      owns: (pair) => this.state !== "closed" && this.checkList.includes(pair),
+      send: (pair, signal) => this.sendNomination(pair, signal),
+      nominated: (pair) => {
+        pair.nominated = true;
+        this.checkComplete(pair);
+      },
+      rejected: (pair) => {
+        // The peer did not select this pair: only it fails, and
+        // checkComplete nominates the next one.
+        pair.updateState(CandidatePairState.FAILED);
+        this.checkComplete(pair);
+      },
+      // RFC 8445 §7.2.5.1: the peer is controlling too and wins; the
+      // nomination was not accepted. Become controlled: the pair stays
+      // valid and the peer nominates.
+      roleConflict: () => this.switchRole(false),
+      abandoned: (pair) => this.nominationAbandoned(pair),
+      // The valid pair it waited for may be gone (another remote generation
+      // dropped): the checklist may have failed meanwhile.
+      deadlinePassed: () => this.failCheckListIfExhausted(),
+    };
   }
 
-  private clearNominationTimer() {
-    if (this.nominationTimer !== undefined) {
-      clearTimeout(this.nominationTimer);
-      this.nominationTimer = undefined;
-    }
-  }
-
-  private resetNominationDelay() {
-    this.clearNominationTimer();
-    this.nominationQuietSince = undefined;
-    this.nominationAbandoned = false;
-  }
-
-  /**
-   * @param maybeAccepted an earlier attempt for `pair` went unanswered: the
-   *   peer may have selected the pair already, so no later outcome lets the
-   *   nomination move to another pair.
-   */
-  private nominatePair(
+  /** Send the USE-CANDIDATE check for a live `pair` (see `NominationOutcome`). */
+  private async sendNomination(
     pair: CandidatePair,
-    attempt = 1,
-    maybeAccepted = false,
-  ) {
-    log("nominate", pair.toJSON(), { attempt, maybeAccepted });
-    this.nominating = true;
-    const generation = this.remoteGeneration;
-    const epoch = this.nominationEpoch;
-    const abort = new AbortController();
-    this.nominationAbort = abort;
+    signal: AbortSignal,
+  ): Promise<NominationOutcome> {
     const request = this.buildRequest({
       nominate: true,
       localUsername: pair.localCandidate.ufrag ?? this.localUsername,
@@ -2696,78 +2602,34 @@ export class Connection implements IceConnection {
       localCandidate: pair.localCandidate,
     });
     pair.requestsSent++;
-
-    pair.protocol
-      .request(
+    try {
+      await pair.protocol.request(
         request,
         pair.remoteAddr,
         Buffer.from(this.remotePassword, "utf8"),
         {
           ...this.checkRequestOptions(pair),
-          signal: AbortSignal.any([this.remoteChecks.signal, abort.signal]),
-        },
-      )
-      .then(
-        () => {
-          if (this.isStaleNomination(pair, generation, epoch)) {
-            return;
-          }
-          if (this.nominationAbort === abort) this.nominationAbort = undefined;
-          pair.responsesReceived++;
-          pair.nominated = true;
-          this.nominating = false;
-          this.checkComplete(pair);
-        },
-        (error) => {
-          if (this.isStaleNomination(pair, generation, epoch)) {
-            return;
-          }
-          if (this.nominationAbort === abort) this.nominationAbort = undefined;
-          if (isRoleConflict(error)) {
-            // RFC 8445 §7.2.5.1: the peer is controlling too and wins; the
-            // nomination was not accepted. Become controlled: the pair stays
-            // valid and the peer nominates.
-            log("nomination role conflict", pair.toJSON());
-            this.nominating = false;
-            this.switchRole(false);
-            return;
-          }
-          if (error instanceof TransactionTimeout || maybeAccepted) {
-            this.nominationUnanswered(pair, attempt);
-            return;
-          }
-          // The peer answered the first attempt with an error (or it never
-          // left, e.g. a refused TCP connect): the peer did not select this
-          // pair, so only this pair fails and checkComplete nominates the
-          // next one.
-          log("nomination failed", pair.toJSON(), error);
-          this.nominating = false;
-          pair.updateState(CandidatePairState.FAILED);
-          this.checkComplete(pair);
+          signal: AbortSignal.any([this.remoteChecks.signal, signal]),
         },
       );
+      pair.responsesReceived++;
+      return "nominated";
+    } catch (error) {
+      log("nomination failed", pair.toJSON(), error);
+      if (isRoleConflict(error)) return "role-conflict";
+      return error instanceof TransactionTimeout ? "unanswered" : "rejected";
+    }
   }
 
   /**
-   * No response to a USE-CANDIDATE check. The request may still have reached
-   * the peer, and a controlled agent keeps the first pair nominated to it
-   * (RFC 8445 §8.1.1): nominating another pair now could leave the two agents
-   * on different pairs. The nomination is repeated on the same pair, and an
-   * error answering a repeat does not change that (the first request may
-   * still have been accepted). When no attempt succeeds, the agent nominates
-   * nothing else, connect() rejects and the agent fails (an ICE restart
-   * starts over), as a consent expiry does.
+   * No attempt of a USE-CANDIDATE check was answered. A request may still
+   * have reached the peer, and a controlled agent keeps the first pair
+   * nominated to it (RFC 8445 §8.1.1): nominating another pair could leave
+   * the two agents on different pairs. The agent nominates nothing else,
+   * connect() rejects and the agent fails (an ICE restart starts over), as a
+   * consent expiry does.
    */
-  private nominationUnanswered(pair: CandidatePair, attempt: number) {
-    if (attempt < NOMINATION_ATTEMPTS) {
-      log("nomination unanswered, repeating", pair.toJSON(), { attempt });
-      this.nominatePair(pair, attempt + 1, true);
-      return;
-    }
-    log("nomination unanswered, giving up", pair.toJSON());
-    this.nominating = false;
-    this.nominationAbandoned = true;
-    this.clearNominationTimer();
+  private nominationAbandoned(pair: CandidatePair) {
     pair.updateState(CandidatePairState.FAILED);
     if (!this.checkListDone) {
       this.checkListDone = true;
@@ -2777,18 +2639,29 @@ export class Connection implements IceConnection {
   }
 
   /**
-   * The agent was closed or restarted, or its role changed, while the
-   * nomination was in flight.
+   * At the restart that ends the provisional checklist (a final answer): the
+   * pair it nominated, or sent a USE-CANDIDATE to that the peer did not
+   * refuse (see `NominationHint`).
    */
-  private isStaleNomination(
-    pair: CandidatePair,
-    generation: number,
-    epoch = this.nominationEpoch,
-  ) {
+  private provisionalNominationHint(): NominationHint | undefined {
+    const generation = this.provisional;
+    const pair = generation?.nominated ?? generation?.nomination.maybeSelected;
+    if (!generation?.remoteUsername || !generation.remotePassword || !pair) {
+      return undefined;
+    }
+    return {
+      localUsername: generation.localUsername,
+      remoteUsername: generation.remoteUsername,
+      remotePassword: generation.remotePassword,
+      key: pairKey(pair),
+    };
+  }
+
+  /** The agent was closed or restarted while the ICE-lite nomination was in flight. */
+  private isStaleNomination(pair: CandidatePair, generation: number) {
     return (
       this.state === "closed" ||
       this.remoteGeneration !== generation ||
-      this.nominationEpoch !== epoch ||
       !this.checkList.includes(pair)
     );
   }
@@ -2797,12 +2670,7 @@ export class Connection implements IceConnection {
     const best = this.bestValidPair(this.checkList);
     this.checkList.push(pair);
     this.sortCheckList();
-    // A pair that may replace the best valid pair restarts the nomination
-    // delay; a lower-priority one cannot change the choice and does not.
-    if (best && this.outranks(pair, best)) {
-      this.nominationQuietSince = Date.now();
-      this.nominatePairIfReady();
-    }
+    this.nomination.pairAdded(pair, best);
   }
 
   // 7.2.  STUN Server Procedures
@@ -3058,6 +2926,10 @@ type NominationDecision =
  * RFC 8445 §8.1.1 regular nomination: when the controlling agent stops
  * checking and nominates, shared by the live and the provisional checklist.
  *
+ * - A `preferred` pair (one the peer may have selected already, see
+ *   `NominationHint`) is nominated as soon as it is valid, and waited for
+ *   while its check runs. Only when it fails, or is not in the checklist by
+ *   the deadline, does the choice fall back to the rules below.
  * - The candidate is the first valid (Succeeded) pair of `pairs` (priority
  *   order, highest first), so the choice is deterministic.
  * - Nominate at once when both sides signalled end-of-candidates and no
@@ -3075,6 +2947,7 @@ const decideNomination = ({
   delayMs,
   now,
   unchecked,
+  preferred,
 }: {
   pairs: readonly CandidatePair[];
   remoteCandidatesEnd: boolean;
@@ -3084,7 +2957,20 @@ const decideNomination = ({
   now: number;
   /** Pairs never checked locally, which cannot be waited for. */
   unchecked: (pair: CandidatePair) => boolean;
+  preferred: (pair: CandidatePair) => boolean;
 }): NominationDecision => {
+  const hinted = pairs.find(preferred);
+  if (hinted?.state === CandidatePairState.SUCCEEDED) {
+    return { action: "nominate", pair: hinted };
+  }
+  if (
+    hinted &&
+    hinted.state !== CandidatePairState.FAILED &&
+    !unchecked(hinted)
+  ) {
+    // Its check finishing re-evaluates the nomination.
+    return { action: "none" };
+  }
   const index = pairs.findIndex(
     (pair) => pair.state === CandidatePairState.SUCCEEDED,
   );
@@ -3103,6 +2989,251 @@ const decideNomination = ({
   return { action: "wait", deadline };
 };
 
+/** What a USE-CANDIDATE check came back with. */
+type NominationOutcome =
+  /** Answered with success. */
+  | "nominated"
+  /** Timed out: the request may have reached the peer, which may have selected the pair. */
+  | "unanswered"
+  /** An error response, or the request never left (e.g. a refused TCP connect). */
+  | "rejected"
+  /** 487: the peer is controlling too and wins (RFC 8445 §7.2.5.1). */
+  | "role-conflict";
+
+/** What a checklist (live or provisional) supplies to its `RegularNomination`. */
+type NominationHost = {
+  /** The controlling agent nominates in this checklist now (full ICE on both sides, nothing nominated yet, the checklist still current). */
+  active: () => boolean;
+  /** The checklist, highest priority first. */
+  pairs: () => readonly CandidatePair[];
+  remoteCandidatesEnd: () => boolean;
+  localCandidatesEnd: () => boolean;
+  delayMs: () => number;
+  /** Pairs never checked locally (forceTurn), which cannot be waited for. */
+  unchecked: (pair: CandidatePair) => boolean;
+  outranks: (pair: CandidatePair, other: CandidatePair) => boolean;
+  /** The pair the peer may have selected already (see `NominationHint`). */
+  preferred: (pair: CandidatePair) => boolean;
+  /** A result for `pair` still applies: the pair is in the checklist and the agent open. */
+  owns: (pair: CandidatePair) => boolean;
+  /** Send the USE-CANDIDATE check; never rejects. */
+  send: (
+    pair: CandidatePair,
+    signal: AbortSignal,
+  ) => Promise<NominationOutcome>;
+  nominated: (pair: CandidatePair) => void;
+  /** The peer refused the pair: fail it, so the next valid pair is nominated. */
+  rejected: (pair: CandidatePair) => void;
+  roleConflict: (pair: CandidatePair) => void;
+  /** No attempt on a pair the peer may have selected was answered. */
+  abandoned: (pair: CandidatePair) => void;
+  /** The delay ended (after the re-evaluation it triggers). */
+  deadlinePassed?: () => void;
+};
+
+/**
+ * The regular nomination (RFC 8445 §8.1.1) of one checklist: the single
+ * state and rule set the live checklist and the provisional (ICE-restart)
+ * checklist share. It holds the delay, the USE-CANDIDATE attempt in flight,
+ * its repeats and the abandoned state; the checklist supplies the pairs and
+ * applies the outcome (`NominationHost`).
+ *
+ * - Delay: `quietSince` is the first valid pair, moved forward by every pair
+ *   added later that outranks the best valid pair and is checked locally
+ *   (a forceTurn-excluded pair cannot replace it and does not count).
+ * - One attempt at a time; a result whose attempt is no longer current (a
+ *   restart, a replacement pranswer, close or a role change replaced it) is
+ *   ignored and its transaction aborted.
+ * - An unanswered attempt may have been accepted: it is repeated on the same
+ *   pair (never another), also when a repeat is answered with an error. When
+ *   all `NOMINATION_ATTEMPTS` go unanswered nothing else is nominated.
+ * - An error answering the first attempt: only that pair fails.
+ */
+class RegularNomination {
+  private quietSince?: number;
+  private timer?: ReturnType<typeof setTimeout>;
+  private attempt?: { pair: CandidatePair; abort: AbortController };
+  /** Every attempt went unanswered: no other pair is nominated until reset. */
+  abandoned = false;
+  /**
+   * The pair a USE-CANDIDATE was sent to and the peer did not refuse: the
+   * peer may have selected it (the provisional checklist hands it to the
+   * live one at the final answer, see `NominationHint`).
+   */
+  maybeSelected?: CandidatePair;
+
+  constructor(private readonly host: NominationHost) {}
+
+  /** A USE-CANDIDATE transaction is in flight. */
+  get inFlight() {
+    return this.attempt !== undefined;
+  }
+
+  /** Waiting for the delay to end. */
+  get waiting() {
+    return this.timer !== undefined;
+  }
+
+  /** `pair` joined the checklist; `best` was its best valid pair before. */
+  pairAdded(pair: CandidatePair, best: CandidatePair | undefined) {
+    // A pair that may replace the best valid pair restarts the delay; a
+    // lower-priority one, or one the agent never checks, cannot change the
+    // choice and does not.
+    if (best && !this.host.unchecked(pair) && this.host.outranks(pair, best)) {
+      this.quietSince = Date.now();
+      this.evaluate();
+    }
+  }
+
+  /**
+   * Nominate now, or arm the timer that re-evaluates at the deadline. Called
+   * whenever the answer may change: a check finished, a pair was added,
+   * end-of-candidates, the role changed, the timer fired.
+   */
+  evaluate() {
+    if (!this.host.active() || this.attempt || this.abandoned) {
+      this.stop();
+      return;
+    }
+    const pairs = this.host.pairs();
+    const now = Date.now();
+    if (
+      this.quietSince === undefined &&
+      pairs.some((pair) => pair.state === CandidatePairState.SUCCEEDED)
+    ) {
+      this.quietSince = now;
+    }
+    const decision = decideNomination({
+      pairs,
+      remoteCandidatesEnd: this.host.remoteCandidatesEnd(),
+      localCandidatesEnd: this.host.localCandidatesEnd(),
+      quietSince: this.quietSince,
+      delayMs: this.host.delayMs(),
+      now,
+      unchecked: this.host.unchecked,
+      preferred: this.host.preferred,
+    });
+    this.stop();
+    if (decision.action === "wait") {
+      this.timer = setTimeout(
+        () => {
+          this.timer = undefined;
+          this.evaluate();
+          this.host.deadlinePassed?.();
+        },
+        Math.max(0, decision.deadline - now),
+      );
+    } else if (decision.action === "nominate") {
+      this.nominate(decision.pair, 1, false);
+    }
+  }
+
+  /** Stop waiting (a pair was nominated, or nomination is not possible now). */
+  stop() {
+    if (this.timer !== undefined) {
+      clearTimeout(this.timer);
+      this.timer = undefined;
+    }
+  }
+
+  /** The role changed: the attempt in flight was sent as the controlling agent and changes nothing after it. */
+  invalidate() {
+    this.attempt?.abort.abort();
+    this.attempt = undefined;
+    this.abandoned = false;
+  }
+
+  /** The checklist starts over (restart, replacement pranswer, renomination, close). */
+  reset() {
+    this.invalidate();
+    this.stop();
+    this.quietSince = undefined;
+    this.maybeSelected = undefined;
+  }
+
+  /**
+   * @param maybeAccepted an earlier attempt for `pair` went unanswered: the
+   *   peer may have selected the pair already, so no later outcome lets the
+   *   nomination move to another pair.
+   */
+  private nominate(
+    pair: CandidatePair,
+    attempt: number,
+    maybeAccepted: boolean,
+  ) {
+    log("nominate", pair.toJSON(), { attempt, maybeAccepted });
+    const current = { pair, abort: new AbortController() };
+    this.attempt = current;
+    this.maybeSelected = pair;
+    void this.host.send(pair, current.abort.signal).then((outcome) => {
+      if (this.attempt !== current) return;
+      this.attempt = undefined;
+      if (!this.host.owns(pair)) {
+        // The pair left the checklist (another remote generation dropped).
+        if (this.maybeSelected === pair) this.maybeSelected = undefined;
+        this.evaluate();
+        return;
+      }
+      if (outcome === "nominated") {
+        this.stop();
+        this.host.nominated(pair);
+        return;
+      }
+      if (outcome === "role-conflict") {
+        // The peer did not accept it as controlled; it nominates now.
+        log("nomination role conflict", pair.toJSON());
+        if (!maybeAccepted) this.maybeSelected = undefined;
+        this.host.roleConflict(pair);
+        return;
+      }
+      if (outcome === "unanswered" || maybeAccepted) {
+        if (attempt < NOMINATION_ATTEMPTS) {
+          log("nomination unanswered, repeating", pair.toJSON(), { attempt });
+          this.nominate(pair, attempt + 1, true);
+          return;
+        }
+        log("nomination unanswered, giving up", pair.toJSON());
+        this.abandoned = true;
+        this.stop();
+        this.host.abandoned(pair);
+        return;
+      }
+      log("nomination rejected", pair.toJSON());
+      this.maybeSelected = undefined;
+      this.host.rejected(pair);
+    });
+  }
+}
+
+/**
+ * The pair the controlling agent may have nominated in the provisional
+ * checklist when a final answer replaced it with the live one. The peer
+ * may have selected that pair already: a USE-CANDIDATE retransmission can
+ * reach its live checklist (same credentials) after it committed the
+ * answer, and a peer that keeps the ICE session across pranswer -> answer
+ * (JSEP) keeps its provisional selection. The live checklist checks from
+ * scratch (`[2.7-T4a]`) but prefers the pair with the same 5-tuple; it only
+ * applies while the live checklist uses the provisional credentials.
+ */
+type NominationHint = {
+  localUsername: string;
+  remoteUsername: string;
+  remotePassword: string;
+  key: string;
+};
+
+/** Local foundation and the 5-tuple: the same path in another checklist. */
+const pairKey = (pair: CandidatePair) =>
+  [
+    pair.localCandidate.foundation,
+    pair.localCandidate.transport.toLowerCase(),
+    pair.localCandidate.host,
+    pair.localCandidate.port,
+    pair.remoteCandidate.transport.toLowerCase(),
+    pair.remoteCandidate.host,
+    pair.remoteCandidate.port,
+  ].join(" ");
+
 type ProvisionalGeneration = {
   localUsername: string;
   localPassword: string;
@@ -3117,16 +3248,10 @@ type ProvisionalGeneration = {
   revision: number;
   pairs: CandidatePair[];
   nominated?: CandidatePair;
-  /** A regular nomination is in flight. */
-  nominating?: boolean;
-  /** Start of the nomination delay (see `Connection.nominationQuietSince`). */
-  quietSince?: number;
-  /** Re-evaluates the nomination when its deadline passes. */
-  nominationTimer?: ReturnType<typeof setTimeout>;
-  /** A nomination went unanswered; no other pair is nominated (see `Connection.nominationAbandoned`). */
-  nominationAbandoned?: boolean;
-  /** Aborts the USE-CANDIDATE transaction in flight. */
-  nominationAbort?: AbortController;
+  /** The ICE-lite nomination (first valid pair) is in flight. */
+  liteNominating?: boolean;
+  /** Regular nomination toward a full ICE peer (shares the live rules). */
+  nomination: RegularNomination;
   started: boolean;
   /** Aborts the checks in flight when the checklist is replaced or dropped. */
   checks: AbortController;

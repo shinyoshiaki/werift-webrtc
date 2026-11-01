@@ -121,9 +121,12 @@ type StagedLocalRestart = {
  *   and send target never change. A response for an earlier checklist is
  *   ignored.
  * - Ends at the final answer, which recreates the live agent with the staged
- *   credentials and checks the answered generation from scratch, or at
- *   rollback / a replacement offer / selecting another generation, which
- *   stops its checks and keeps the live generation.
+ *   credentials and checks the answered generation from scratch (when the
+ *   answer keeps the pranswer's credentials, the controlling side first
+ *   nominates the 5-tuple its provisional checklist nominated, which the peer
+ *   may have selected already), or at rollback / a replacement offer /
+ *   selecting another generation, which stops its checks and keeps the live
+ *   generation.
  *
  * A first negotiation and transports created for a proposal have no
  * provisional generation; they connect normally from the pranswer. The

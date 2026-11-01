@@ -1611,11 +1611,17 @@ export async function negotiate(
   );
 }
 
-/** Wait until every live ICE transport has nominated a pair in its SDP generation. */
+/**
+ * Wait until every live ICE transport has nominated a pair in its SDP
+ * generation and the peer connection reports it connected. The nominated
+ * pair is set a scheduling round before connect() reports `connected`, so
+ * waiting for the pair alone can observe the state before it.
+ */
 export async function waitForCommittedNomination(pc: RTCPeerConnection) {
   await withTimeout(
     (async () => {
       const ready = () =>
+        ["connected", "completed"].includes(pc.iceConnectionState) &&
         pc.iceTransports.every((transport) => {
           const connection = transport.connection as unknown as IceInternals;
           return (
