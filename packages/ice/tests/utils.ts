@@ -1678,8 +1678,10 @@ export async function deliverProvisionalCheck(
       `${local.usernameFragment}:${remote.usernameFragment}`,
     )
     .setAttribute("PRIORITY", 1_000)
-    .setAttribute("ICE-CONTROLLED", 1n);
-  protocol.onRequestReceived.execute(request, addr, Buffer.alloc(0));
+    .setAttribute("ICE-CONTROLLED", 1n)
+    .addMessageIntegrity(Buffer.from(local.password, "utf8"))
+    .addFingerprint();
+  protocol.onRequestReceived.execute(request, addr, request.bytes);
   await new Promise((resolve) => setImmediate(resolve));
   const responded = sendStun.mock.calls.length > 0;
   sendStun.mockRestore();
