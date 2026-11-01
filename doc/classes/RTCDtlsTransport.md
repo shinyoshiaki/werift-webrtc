@@ -415,6 +415,8 @@ Internal: whether a description gave this transport the peer's DTLS parameters.
 
 > **stop**(): `Promise`\<`void`\>
 
+Resolves once ICE has stopped; concurrent callers share one stop.
+
 #### Returns
 
 `Promise`\<`void`\>
