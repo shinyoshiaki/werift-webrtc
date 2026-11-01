@@ -1,10 +1,15 @@
 import { readFileSync } from "fs";
-
+import {
+  CandidatePairState,
+  type Connection,
+  type IceOptions,
+} from "../../ice/src";
 import { DataChunk, parsePacket } from "../../sctp/src/chunk";
 import {
   type PeerConfig,
   type RTCDataChannel,
-  type RTCIceTransport,
+  RTCIceGatherer,
+  RTCIceTransport,
   RTCPeerConnection,
   type RTCSctpTransport,
 } from "../src";
@@ -303,4 +308,46 @@ export function captureSctpDataChunks(transport: RTCSctpTransport) {
     return send(packet);
   };
   return chunks;
+}
+
+/**
+ * Shared Arrange: a controlling and a controlled `RTCIceTransport` that
+ * gathered and exchanged credentials and candidates (no end-of-candidates),
+ * ready to `start()`. `controlled` runs on the controlled side's connection
+ * after gathering (e.g. to drop its nomination responses).
+ */
+export async function createStartableIceTransportPair({
+  options = {},
+  controllingOptions = {},
+  controlled,
+}: {
+  /** Both sides (e.g. `additionalHostAddresses` for several valid pairs). */
+  options?: Partial<IceOptions>;
+  controllingOptions?: Partial<IceOptions>;
+  controlled?: (connection: Connection) => void;
+} = {}) {
+  const gatherer1 = new RTCIceGatherer({
+    useIpv6: false,
+    ...options,
+    ...controllingOptions,
+  });
+  const transport1 = new RTCIceTransport(gatherer1);
+  transport1.connection.iceControlling = true;
+  const gatherer2 = new RTCIceGatherer({ useIpv6: false, ...options });
+  const transport2 = new RTCIceTransport(gatherer2);
+  transport2.connection.iceControlling = false;
+  await Promise.all([gatherer1.gather(), gatherer2.gather()]);
+  controlled?.(transport2.connection as Connection);
+  gatherer2.localCandidates.forEach(transport1.addRemoteCandidate);
+  gatherer1.localCandidates.forEach(transport2.addRemoteCandidate);
+  transport1.setRemoteParams(gatherer2.localParameters);
+  transport2.setRemoteParams(gatherer1.localParameters);
+  return { transport1, transport2 };
+}
+
+/** The ICE agent's own pairs whose ordinary check succeeded (valid, not necessarily selected). */
+export function succeededPairs(transport: RTCIceTransport) {
+  return transport.connection.candidatePairs.filter(
+    (pair) => pair.state === CandidatePairState.SUCCEEDED,
+  );
 }

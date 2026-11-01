@@ -452,6 +452,11 @@ Signal the candidates an ICE restart committed by a local answer gathered.
 
 > **getSelectedCandidatePair**(): \{ `local`: [`RTCIceCandidate`](RTCIceCandidate.md); `remote`: [`RTCIceCandidate`](RTCIceCandidate.md); \} \| `null`
 
+The pair the agent selected (nominated), or null. A pair whose ordinary
+check succeeded is not selected: while the controlling agent waits to
+nominate (regular nomination), after it gave up, or before the peer
+nominated, no pair is reported.
+
 #### Returns
 
 \{ `local`: [`RTCIceCandidate`](RTCIceCandidate.md); `remote`: [`RTCIceCandidate`](RTCIceCandidate.md); \} \| `null`

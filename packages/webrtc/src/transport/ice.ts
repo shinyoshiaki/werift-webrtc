@@ -591,10 +591,14 @@ export class RTCIceTransport {
     );
   }
 
+  /**
+   * The pair the agent selected (nominated), or null. A pair whose ordinary
+   * check succeeded is not selected: while the controlling agent waits to
+   * nominate (regular nomination), after it gave up, or before the peer
+   * nominated, no pair is reported.
+   */
   getSelectedCandidatePair() {
-    const pair =
-      this.connection.candidatePairs.find((candidate) => candidate.nominated) ??
-      this.connection.candidatePairs.find((candidate) => candidate.state === 3);
+    const pair = this.connection.nominated;
     if (!pair) {
       return null;
     }

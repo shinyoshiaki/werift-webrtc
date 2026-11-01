@@ -5,10 +5,15 @@ import {
   dropNominationResponses,
   TURN_TEST_PASSWORD,
   TURN_TEST_USERNAME,
+  waitUntil,
 } from "../../../ice/tests/utils";
 import { RTCIceGatherer, RTCIceTransport, RTCPeerConnection } from "../../src";
 import { iceTransportPair } from "../fixture";
-import { createPeerConnectionWithIceTransport } from "../utils";
+import {
+  createPeerConnectionWithIceTransport,
+  createStartableIceTransportPair,
+  succeededPairs,
+} from "../utils";
 
 describe("iceTransport", () => {
   test("ICE consent failure maps to failed without closing PeerConnection", async () => {
@@ -275,23 +280,12 @@ describe("iceTransport", () => {
   });
 
   test("start() rejects and the transport fails when the nomination is never answered", async () => {
-    // Arrange: controlling / controlled の transport を収集まで進め、
-    // controlled 側は USE-CANDIDATE を処理するが応答をすべて失う。
-    const gatherer1 = new RTCIceGatherer({ useIpv6: false });
-    const transport1 = new RTCIceTransport(gatherer1);
-    transport1.connection.iceControlling = true;
-    const gatherer2 = new RTCIceGatherer({ useIpv6: false });
-    const transport2 = new RTCIceTransport(gatherer2);
-    transport2.connection.iceControlling = false;
-    await Promise.all([gatherer1.gather(), gatherer2.gather()]);
-    dropNominationResponses(
-      transport2.connection as Connection,
-      Number.POSITIVE_INFINITY,
-    );
-    gatherer2.localCandidates.forEach(transport1.addRemoteCandidate);
-    gatherer1.localCandidates.forEach(transport2.addRemoteCandidate);
-    transport1.setRemoteParams(gatherer2.localParameters);
-    transport2.setRemoteParams(gatherer1.localParameters);
+    // Arrange: 有効な経路が複数あり、controlled 側は USE-CANDIDATE を処理するが応答をすべて失う。
+    const { transport1, transport2 } = await createStartableIceTransportPair({
+      options: { additionalHostAddresses: ["127.0.0.1"] },
+      controlled: (connection) =>
+        dropNominationResponses(connection, Number.POSITIVE_INFINITY),
+    });
 
     try {
       // Act: 両端で start する。
@@ -301,6 +295,46 @@ describe("iceTransport", () => {
       // Assert: 上位 transport の start() は待ち続けずに拒否され、state は failed。
       await expect(starting).rejects.toThrow("ICE negotiation failed");
       expect(transport1.state).toBe("failed");
+      // Assert: 通常 check が成功した pair は残るが、nomination を断念したので選択済みの pair は報告しない。
+      expect(succeededPairs(transport1).length).toBeGreaterThan(0);
+      expect(transport1.getSelectedCandidatePair()).toBeNull();
+    } finally {
+      await transport1.stop();
+      await transport2.stop();
+    }
+  }, 30_000);
+
+  test("getSelectedCandidatePair is null while the nomination waits and reports the nominated pair after it", async () => {
+    // Arrange: controlling 側の nomination 待ちを長くし、end-of-candidates を送らない。
+    const { transport1, transport2 } = await createStartableIceTransportPair({
+      controllingOptions: { nominationDelayMs: 2000 },
+    });
+
+    try {
+      // Act: 両端で start し、通常 check が成功するまで待つ。
+      const starting = transport1.start();
+      void transport2.start().catch(() => {});
+      await waitUntil(() => succeededPairs(transport1).length > 0);
+
+      // Assert: nomination の待機中は、成功しただけの pair を選択済みとして返さない。
+      expect(transport1.connection.nominated).toBeUndefined();
+      expect(transport1.getSelectedCandidatePair()).toBeNull();
+
+      // Act: deadline で nominate され、start() が完了する。
+      await starting;
+
+      // Assert: nominate された pair が選択済みとして返る。
+      const nominated = transport1.connection.nominated!;
+      expect(transport1.getSelectedCandidatePair()).toEqual({
+        local: expect.objectContaining({
+          address: nominated.localCandidate.host,
+          port: nominated.localCandidate.port,
+        }),
+        remote: expect.objectContaining({
+          address: nominated.remoteCandidate.host,
+          port: nominated.remoteCandidate.port,
+        }),
+      });
     } finally {
       await transport1.stop();
       await transport2.stop();
