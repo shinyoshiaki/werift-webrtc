@@ -78,6 +78,53 @@ describe("Connection role assignment nomination", () => {
   }, 15_000);
 });
 
+describe("Connection role assignment priority", () => {
+  test("offer / answer で controlling になったら、新しい role の pair priority で成功済み pair を選んで nominate する", async () => {
+    // Arrange: 2 つの UDP pair の local / remote priority を入れ替え、role で優先順が逆になるようにする。
+    // controlled では low-local (remote が高い) が上、controlling では high-local が上になる (RFC 8445 §6.1.2.3)。
+    const harness = createUdpCheckHarness();
+    const connection = harness.connection as unknown as {
+      checksBegun: boolean;
+    };
+    harness.connection.iceControlling = false;
+    connection.checksBegun = true;
+    const lowLocal = addUdpPair(harness, 5000, {
+      localPriority: 100,
+      remotePriority: 200,
+    });
+    const highLocal = addUdpPair(harness, 5001, {
+      localPriority: 200,
+      remotePriority: 100,
+    });
+    expect(lowLocal.priority).toBeGreaterThan(highLocal.priority);
+
+    try {
+      // controlled の check は USE-CANDIDATE を持たず、両 pair とも nomination なしで成功する
+      await harness.connection.checkStart(lowLocal).awaitable;
+      await harness.connection.checkStart(highLocal).awaitable;
+      expect(harness.connection.nominated).toBeUndefined();
+      const checks = harness.protocol.sentMessages.length;
+
+      // Act: offer / answer の適用と同じく setter で controlling にする。
+      harness.connection.iceControlling = true;
+
+      // Assert: checklist は新しい role の priority 順になり、その先頭 (high-local) を nominate する。
+      expect(highLocal.priority).toBeGreaterThan(lowLocal.priority);
+      expect(harness.connection.checkList[0]).toBe(highLocal);
+      await vi.waitFor(() =>
+        expect(harness.connection.nominated).toBe(highLocal),
+      );
+      // Assert: USE-CANDIDATE 付きの request は high-local への 1 回だけ。
+      const nominations = harness.protocol.sentMessages
+        .slice(checks)
+        .filter((message) => message.attributesKeys.includes("USE-CANDIDATE"));
+      expect(nominations).toHaveLength(1);
+    } finally {
+      await harness.connection.close();
+    }
+  });
+});
+
 describe("Connection role switch nomination retries", () => {
   test("ロール切り替え後の nomination が失敗したら、次の成功済み pair を nominate する", async () => {
     // Arrange: controlled で checks を始め、2 つの UDP pair を nomination なしで成功させる。

@@ -513,14 +513,43 @@ export function createUdpCheckHarness(outcomes: ConsentOutcome[] = []) {
   return { connection, protocol };
 }
 
-/** Arrange: UDP pair toward `remotePort` appended to the check list. */
+/**
+ * Arrange: UDP pair toward `remotePort` appended to the check list. With
+ * `localPriority` the pair gets its own local candidate (a protocol of its
+ * own that always answers with success and records into the harness
+ * protocol's `sentMessages`); `remotePriority` sets the remote one.
+ */
 export function addUdpPair(
   harness: ReturnType<typeof createUdpCheckHarness>,
   remotePort: number,
+  options: { localPriority?: number; remotePriority?: number } = {},
 ) {
+  let protocol = harness.protocol;
+  if (options.localPriority !== undefined) {
+    const localCandidate = createConsentCandidate(
+      "192.0.2.1",
+      4000 + remotePort,
+      "local",
+    );
+    localCandidate.priority = options.localPriority;
+    protocol = new ConsentMockProtocol({
+      localCandidate,
+      echoRequestAddress: true,
+    });
+    // 送信記録は harness.protocol に集める
+    protocol.sentMessages = harness.protocol.sentMessages;
+  }
+  const remoteCandidate = createConsentCandidate(
+    "192.0.2.2",
+    remotePort,
+    "remote",
+  );
+  if (options.remotePriority !== undefined) {
+    remoteCandidate.priority = options.remotePriority;
+  }
   const pair = new CandidatePair(
-    harness.protocol,
-    createConsentCandidate("192.0.2.2", remotePort, "remote"),
+    protocol,
+    remoteCandidate,
     harness.connection.iceControlling,
   );
   pair.updateState(CandidatePairState.WAITING);

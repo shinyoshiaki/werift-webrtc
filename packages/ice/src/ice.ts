@@ -1965,11 +1965,18 @@ export class Connection implements IceConnection {
     return pair;
   }
 
+  /**
+   * Set the role on the agent and its pairs, and re-sort the checklist: the
+   * pair priority depends on the role (RFC 8445 §6.1.2.3), so the checks and
+   * a nomination after a role change (offer/answer or role-conflict repair)
+   * follow the new order.
+   */
   private applyIceControlling(iceControlling: boolean) {
     this._iceControlling = iceControlling;
     for (const pair of this.checkList) {
       pair.iceControlling = iceControlling;
     }
+    this.sortCheckList();
   }
 
   private switchRole(iceControlling: boolean) {
@@ -1980,7 +1987,6 @@ export class Connection implements IceConnection {
       iceControlling = false;
     }
     this.applyIceControlling(iceControlling);
-    this.sortCheckList();
     if (iceControlling) this.nominateSucceededPair();
   }
 
