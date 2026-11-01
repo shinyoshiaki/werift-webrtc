@@ -1,8 +1,8 @@
 # Changelog
 
-## v0.26.1
+## v0.26.0
 
-The 0.26 line collects everything merged since v0.25.2, including the `rc/0.26.0` branch (negotiation transaction, SCTP queue, PLI / FIR routing). `0.26.0` was never published.
+This release collects everything merged since v0.25.2, including the `rc/0.26.0` branch (negotiation transaction, SCTP queue, PLI / FIR routing).
 
 - **WebM files saved with `saveToFileSystem` no longer contain unknown-size Clusters** (`werift-rtp`, `MediaRecorder` WebM output): when the recording ends, each Cluster's size field is rewritten in place with its real size. Before this fix, ffprobe warned `Unknown-sized element ... inside parent with finite size`, mkvalidator reported errors, and libwebm rejected the files.
   - `WebmOutput.eol.clusters` (new; `{ position, size }[]`), `replaceClusterSize()` and `ClusterSizeOffset` are exported for custom writers. Streaming output (`WebmStream` without rewriting) still uses unknown-size Segment / Clusters.
