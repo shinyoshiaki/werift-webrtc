@@ -711,7 +711,7 @@ export class Connection implements IceConnection {
       delayMs: () => this.nominationDelayMs,
       unchecked: (pair) => this.isUncheckedPair(pair),
       outranks: (pair, other) => this.outranks(pair, other),
-      preferred: () => false,
+      preferred: () => undefined,
       owns: (pair) => current() && generationOf().pairs.includes(pair),
       send: (pair, signal) =>
         this.nominateProvisional(
@@ -733,7 +733,7 @@ export class Connection implements IceConnection {
       },
       // As in the live checklist: become controlled, keep the pair valid.
       roleConflict: () => this.switchRole(false),
-      abandoned: (pair) => pair.updateState(CandidatePairState.FAILED),
+      abandoned: (pair) => pair?.updateState(CandidatePairState.FAILED),
     };
   }
 
@@ -2556,15 +2556,17 @@ export class Connection implements IceConnection {
       delayMs: () => this.nominationDelayMs,
       unchecked: (pair) => this.isUncheckedPair(pair),
       outranks: (pair, other) => this.outranks(pair, other),
-      preferred: (pair) => {
+      preferred: () => {
         const hint = this.nominationHint;
-        return (
-          !!hint &&
-          hint.localUsername === this.localUsername &&
-          hint.remoteUsername === this.remoteUsername &&
-          hint.remotePassword === this.remotePassword &&
-          pairKey(pair) === hint.key
-        );
+        if (
+          !hint ||
+          hint.localUsername !== this.localUsername ||
+          hint.remoteUsername !== this.remoteUsername ||
+          hint.remotePassword !== this.remotePassword
+        ) {
+          return undefined;
+        }
+        return (pair) => pairKey(pair) === hint.key;
       },
       owns: (pair) => this.state !== "closed" && this.checkList.includes(pair),
       send: (pair, signal) => this.sendNomination(pair, signal),
@@ -2622,15 +2624,17 @@ export class Connection implements IceConnection {
   }
 
   /**
-   * No attempt of a USE-CANDIDATE check was answered. A request may still
-   * have reached the peer, and a controlled agent keeps the first pair
+   * No attempt of a USE-CANDIDATE check was answered, or the pair a
+   * provisional nomination may have selected (`NominationHint`) failed or
+   * never appeared. A request may still have reached the peer, and a
+   * controlled agent keeps the first pair
    * nominated to it (RFC 8445 §8.1.1): nominating another pair could leave
    * the two agents on different pairs. The agent nominates nothing else,
    * connect() rejects and the agent fails (an ICE restart starts over), as a
    * consent expiry does.
    */
-  private nominationAbandoned(pair: CandidatePair) {
-    pair.updateState(CandidatePairState.FAILED);
+  private nominationAbandoned(pair?: CandidatePair) {
+    pair?.updateState(CandidatePairState.FAILED);
     if (!this.checkListDone) {
       this.checkListDone = true;
       this.checkListState.put(new Promise((r) => r(ICE_NOMINATION_ABANDONED)));
@@ -2920,16 +2924,20 @@ const isRoleConflict = (error: unknown) =>
 type NominationDecision =
   | { action: "nominate"; pair: CandidatePair }
   | { action: "wait"; deadline: number }
+  /** The pair the peer may have selected cannot be nominated: nominate nothing else. */
+  | { action: "abandon"; pair?: CandidatePair }
   | { action: "none" };
 
 /**
  * RFC 8445 §8.1.1 regular nomination: when the controlling agent stops
  * checking and nominates, shared by the live and the provisional checklist.
  *
- * - A `preferred` pair (one the peer may have selected already, see
- *   `NominationHint`) is nominated as soon as it is valid, and waited for
- *   while its check runs. Only when it fails, or is not in the checklist by
- *   the deadline, does the choice fall back to the rules below.
+ * - With a `preferred` rule (the peer may have selected that path already,
+ *   see `NominationHint`), only the matching pair may be nominated: as soon
+ *   as it is valid, waited for while its check runs. When it fails, or is not
+ *   in the checklist once both sides signalled end-of-candidates or by the
+ *   deadline, the nomination is abandoned (as an unanswered one is):
+ *   nominating another pair could leave the agents on different paths.
  * - The candidate is the first valid (Succeeded) pair of `pairs` (priority
  *   order, highest first), so the choice is deterministic.
  * - Nominate at once when both sides signalled end-of-candidates and no
@@ -2957,19 +2965,28 @@ const decideNomination = ({
   now: number;
   /** Pairs never checked locally, which cannot be waited for. */
   unchecked: (pair: CandidatePair) => boolean;
-  preferred: (pair: CandidatePair) => boolean;
+  preferred: ((pair: CandidatePair) => boolean) | undefined;
 }): NominationDecision => {
-  const hinted = pairs.find(preferred);
-  if (hinted?.state === CandidatePairState.SUCCEEDED) {
-    return { action: "nominate", pair: hinted };
-  }
-  if (
-    hinted &&
-    hinted.state !== CandidatePairState.FAILED &&
-    !unchecked(hinted)
-  ) {
-    // Its check finishing re-evaluates the nomination.
-    return { action: "none" };
+  if (preferred) {
+    const hinted = pairs.find(preferred);
+    if (hinted?.state === CandidatePairState.SUCCEEDED) {
+      return { action: "nominate", pair: hinted };
+    }
+    if (hinted) {
+      if (hinted.state === CandidatePairState.FAILED || unchecked(hinted)) {
+        return { action: "abandon", pair: hinted };
+      }
+      // Its check finishing re-evaluates the nomination.
+      return { action: "none" };
+    }
+    // Not (yet) in the checklist.
+    if (remoteCandidatesEnd && localCandidatesEnd) return { action: "abandon" };
+    if (!pairs.some((pair) => pair.state === CandidatePairState.SUCCEEDED)) {
+      return { action: "none" };
+    }
+    const deadline = (quietSince ?? now) + delayMs;
+    if (now >= deadline) return { action: "abandon" };
+    return { action: "wait", deadline };
   }
   const index = pairs.findIndex(
     (pair) => pair.state === CandidatePairState.SUCCEEDED,
@@ -3012,8 +3029,8 @@ type NominationHost = {
   /** Pairs never checked locally (forceTurn), which cannot be waited for. */
   unchecked: (pair: CandidatePair) => boolean;
   outranks: (pair: CandidatePair, other: CandidatePair) => boolean;
-  /** The pair the peer may have selected already (see `NominationHint`). */
-  preferred: (pair: CandidatePair) => boolean;
+  /** Matches the only pair that may be nominated: the peer may have selected it already (see `NominationHint`). */
+  preferred: () => ((pair: CandidatePair) => boolean) | undefined;
   /** A result for `pair` still applies: the pair is in the checklist and the agent open. */
   owns: (pair: CandidatePair) => boolean;
   /** Send the USE-CANDIDATE check; never rejects. */
@@ -3025,8 +3042,11 @@ type NominationHost = {
   /** The peer refused the pair: fail it, so the next valid pair is nominated. */
   rejected: (pair: CandidatePair) => void;
   roleConflict: (pair: CandidatePair) => void;
-  /** No attempt on a pair the peer may have selected was answered. */
-  abandoned: (pair: CandidatePair) => void;
+  /**
+   * No attempt on a pair the peer may have selected was answered, or that
+   * pair (the hint) failed or never appeared (`pair` undefined).
+   */
+  abandoned: (pair?: CandidatePair) => void;
   /** The delay ended (after the re-evaluation it triggers). */
   deadlinePassed?: () => void;
 };
@@ -3111,7 +3131,7 @@ class RegularNomination {
       delayMs: this.host.delayMs(),
       now,
       unchecked: this.host.unchecked,
-      preferred: this.host.preferred,
+      preferred: this.host.preferred(),
     });
     this.stop();
     if (decision.action === "wait") {
@@ -3125,6 +3145,10 @@ class RegularNomination {
       );
     } else if (decision.action === "nominate") {
       this.nominate(decision.pair, 1, false);
+    } else if (decision.action === "abandon") {
+      log("preferred pair cannot be nominated, giving up");
+      this.abandoned = true;
+      this.host.abandoned(decision.pair);
     }
   }
 
@@ -3212,8 +3236,10 @@ class RegularNomination {
  * reach its live checklist (same credentials) after it committed the
  * answer, and a peer that keeps the ICE session across pranswer -> answer
  * (JSEP) keeps its provisional selection. The live checklist checks from
- * scratch (`[2.7-T4a]`) but prefers the pair with the same 5-tuple; it only
- * applies while the live checklist uses the provisional credentials.
+ * scratch (`[2.7-T4a]`) but nominates only the pair with the same 5-tuple;
+ * when that pair fails or never appears it nominates nothing else and the
+ * agent fails (see `decideNomination`). It only applies while the live
+ * checklist uses the provisional credentials.
  */
 type NominationHint = {
   localUsername: string;

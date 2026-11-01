@@ -1792,6 +1792,25 @@ export function dropNominationResponses(connection: Connection, count = 1) {
 }
 
 /**
+ * Arrange: from now on `connection` ignores every STUN request reaching its
+ * socket at `host`:`port` (checks on that path time out); requests it sends
+ * itself are unaffected.
+ */
+export function ignoreRequestsOn(
+  connection: Connection,
+  host: string,
+  port: number,
+) {
+  const protocols = (connection as unknown as { protocols: Protocol[] })
+    .protocols;
+  for (const protocol of protocols) {
+    const local = protocol.localCandidate;
+    if (local?.host !== host || local.port !== port) continue;
+    protocol.onRequestReceived.execute = () => {};
+  }
+}
+
+/**
  * Arrange: a controlling and a controlled host-only agent that each gather
  * the loopback address beside the machine's own, so several valid pairs
  * exist. Candidates and credentials are exchanged; checks have not started.
