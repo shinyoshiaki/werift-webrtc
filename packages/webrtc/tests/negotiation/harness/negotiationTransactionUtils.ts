@@ -4,7 +4,6 @@ import type { Address } from "../../../../common/src";
 import { getHostAddresses } from "../../../../ice/src/utils";
 import {
   createHeldUdpProxy,
-  createLocalStunServer,
   createLocalTurnServer,
   TURN_TEST_PASSWORD,
   TURN_TEST_USERNAME,
@@ -2051,17 +2050,6 @@ export async function settlesWithin(promise: Promise<unknown>, ms: number) {
   return settled;
 }
 
-/**
- * Shared Arrange: a local STUN server and the RTCIceServer entry for it.
- * werift uses no STUN server unless one is configured, so a case whose
- * premise is "the peer gathers from a server" names this one.
- */
-export async function createLocalStunIceServer() {
-  const server = await createLocalStunServer(getHostAddresses(true, false)[0]!);
-  const [host, port] = server.address!;
-  return { server, iceServers: [{ urls: `stun:${host}:${port}` }] };
-}
-
 /** Shared Arrange: a local TURN server and the RTCIceServer entry for it. */
 export async function createLocalTurnIceServer() {
   const server = await createLocalTurnServer(getHostAddresses(true, false)[0]!);
@@ -2890,22 +2878,6 @@ export function recordConnectionStates(pc: RTCPeerConnection) {
     states.push(state);
   });
   return states;
-}
-
-/**
- * Arrange: leave every ICE agent of `pc` without a STUN / TURN server. With
- * `iceServers: []` the ICE agent still falls back to its default STUN
- * server, so a generation that has no server to query is reached this way.
- */
-export function removeIceAgentServers(pc: RTCPeerConnection) {
-  for (const transport of pc.iceTransports) {
-    const connection = transport.connection as unknown as {
-      stunServer?: Address;
-      turnServer?: Address;
-    };
-    connection.stunServer = undefined;
-    connection.turnServer = undefined;
-  }
 }
 
 // --- spec coverage: transport ---

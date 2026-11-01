@@ -261,11 +261,14 @@ describeLeak("negotiation leak property", () => {
   describe("P2: repeating a cycle keeps the session's state from growing", () => {
     for (const fixed of LEAK_CYCLES) {
       test(`fixed: ${fixed.name}`, options(120_000), async () => {
-        // Arrange / Act: 接続済みの session で同じ周期を繰り返し、毎回の後に大きさを記録する。
-        const problems = await cycleProblems(
-          fixed.name,
-          composeCycle(fixed.templates),
-        );
+        // Arrange: seed のある周期は、その seed が引いた周期 (同じ側の割り当て) を再生する。
+        const cycle =
+          fixed.seed === undefined
+            ? composeCycle(fixed.templates)
+            : drawCycle(fixed.seed);
+        expect(cycle.templates).toEqual(fixed.templates);
+        // Act: 接続済みの session で同じ周期を繰り返し、毎回の後に大きさを記録する。
+        const problems = await cycleProblems(fixed.name, cycle);
         // Assert: 2 回目以降、各指標は 2 回目の後の値 (と宣言した増分) のまま。
         expect(problems, fixed.ref).toEqual([]);
       });

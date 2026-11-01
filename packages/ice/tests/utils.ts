@@ -12,6 +12,7 @@ import {
   TransactionFailed,
   TransactionTimeout,
 } from "../src/exceptions";
+import { cancelable } from "../src/helper";
 import { Connection } from "../src/ice";
 import {
   CandidatePair,
@@ -310,6 +311,19 @@ export async function inviteAccept(a: Connection, b: Connection) {
   a.remoteCandidates = b.localCandidates;
   a.remoteUsername = b.localUsername;
   a.remotePassword = b.localPassword;
+}
+
+/**
+ * Arrange: `conn` answers the checks it receives (before its own connect())
+ * but sends none of its own, so the peer's checks decide every pair state.
+ */
+export function answerChecksOnly(conn: Connection) {
+  const agent = conn as unknown as {
+    earlyChecksDone: boolean;
+    checkStart: (pair: unknown) => unknown;
+  };
+  agent.earlyChecksDone = true;
+  agent.checkStart = () => cancelable<void>(async (resolve) => resolve());
 }
 
 export function assertCandidateTypes(conn: Connection, expected: string[]) {

@@ -114,43 +114,59 @@ export const CLOSED_SCENES: (LeakScene & { name: string; ref: string })[] = [
 
 /**
  * Fixed cycles of the session property (P2). Each found leak is a cycle
- * that grew a metric before its fix.
+ * that grew a metric before its fix. A cycle with a `seed` replays the
+ * drawn cycle of that seed (`drawCycle`, the same sides as the failure it
+ * found); `templates` then names what that seed draws.
  */
-export const LEAK_CYCLES: { name: string; ref: string; templates: string[] }[] =
-  [
-    {
-      name: "a remote DataChannel that closed leaves the SCTP manager's list",
-      ref: "property: leak L3; origin: sctpManager kept every remote channel",
-      templates: ["remote DataChannel opened and closed"],
-    },
-    {
-      name: "an ICE restart keeps the agent's credential history bounded",
-      ref: "property: leak L3; origin: ice Connection.userHistory grew by two per restart",
-      templates: ["ICE restart"],
-    },
-    {
-      name: "a stopped sender releases its DTLS transport subscription",
-      ref: "property: leak L3; origin: RTCRtpSender kept its onStateChange subscription on the BUNDLE transport",
-      templates: ["transceiver added, stopped and its m-line reused"],
-    },
-    {
-      name: "a stopped sender a glare rollback binds again does not subscribe to its transport",
-      ref: "property: leak L3; origin: cycle seed 148 (rollback restored a stopped sender's DTLS subscription)",
-      templates: ["transceiver added, stopped and its m-line reused", "glare"],
-    },
-    {
-      name: "renegotiation, pranswer, replacement and glare reach a steady state",
-      ref: "property: leak L3",
-      templates: [
-        "re-offer",
-        "pranswer then final answer",
-        "replacement offer then rollback",
-        "glare",
-      ],
-    },
-    {
-      name: "BUNDLE split and merge, trickle and end-of-candidates reach a steady state",
-      ref: "property: leak L3",
-      templates: ["BUNDLE split and merge", "trickle and end-of-candidates"],
-    },
-  ];
+export const LEAK_CYCLES: {
+  name: string;
+  ref: string;
+  templates: string[];
+  seed?: number;
+}[] = [
+  {
+    name: "a remote DataChannel that closed leaves the SCTP manager's list",
+    ref: "property: leak L3; origin: sctpManager kept every remote channel",
+    templates: ["remote DataChannel opened and closed"],
+  },
+  {
+    name: "an ICE restart keeps the agent's credential history bounded",
+    ref: "property: leak L3; origin: ice Connection.userHistory grew by two per restart",
+    templates: ["ICE restart"],
+  },
+  {
+    name: "a stopped sender releases its DTLS transport subscription",
+    ref: "property: leak L3; origin: RTCRtpSender kept its onStateChange subscription on the BUNDLE transport",
+    templates: ["transceiver added, stopped and its m-line reused"],
+  },
+  {
+    name: "a stopped sender a glare rollback binds again does not subscribe to its transport",
+    ref: "property: leak L3; origin: cycle seed 148 (rollback restored a stopped sender's DTLS subscription)",
+    templates: ["transceiver added, stopped and its m-line reused", "glare"],
+  },
+  {
+    name: "renegotiation, pranswer, replacement and glare reach a steady state",
+    ref: "property: leak L3",
+    templates: [
+      "re-offer",
+      "pranswer then final answer",
+      "replacement offer then rollback",
+      "glare",
+    ],
+  },
+  {
+    name: "an ICE restart rolled back, a pranswered restart and glare without ICE servers settle",
+    ref: "property: leak L3; origin: cycle seed 143 (a role conflict repaired after the only pair succeeded left the new controlling agent without a nomination)",
+    templates: [
+      "replacement offer then rollback",
+      "pranswer then final answer",
+      "glare",
+    ],
+    seed: 143,
+  },
+  {
+    name: "BUNDLE split and merge, trickle and end-of-candidates reach a steady state",
+    ref: "property: leak L3",
+    templates: ["BUNDLE split and merge", "trickle and end-of-candidates"],
+  },
+];

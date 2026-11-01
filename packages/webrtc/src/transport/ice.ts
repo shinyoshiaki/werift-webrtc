@@ -255,6 +255,15 @@ export class RTCIceTransport {
    * generation gathers more) carries the staged restart only if it applied
    * it; a later createOffer() that staged another generation without applying
    * it does not change an applied description.
+   *
+   * A staged restart is complete only once a description applied it
+   * (`emitStagedCandidates` fixes whether its end-of-candidates is deferred to
+   * the commit). Until then the ICE servers its gathering uses may still
+   * change (setConfiguration between createOffer / createAnswer and
+   * setLocalDescription), so a created description never carries
+   * `a=end-of-candidates` for it: a remote given that description still
+   * accepts the relay candidates trickled after the commit. Its end comes with
+   * the applied description and the null candidate event.
    * @internal
    */
   describedLocalGeneration({ applied = false }: { applied?: boolean } = {}) {
@@ -280,7 +289,8 @@ export class RTCIceTransport {
       candidates: pending
         ? staged.candidates.filter((candidate) => candidate.type !== "relay")
         : staged.candidates,
-      complete: this.gatheringState === "complete" && !pending,
+      complete:
+        staged.emitted && this.gatheringState === "complete" && !pending,
     };
   }
 

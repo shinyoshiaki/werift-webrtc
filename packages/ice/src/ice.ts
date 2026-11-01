@@ -1978,6 +1978,27 @@ export class Connection implements IceConnection {
     }
     this.applyIceControlling(iceControlling);
     this.sortCheckList();
+    if (iceControlling) this.nominateValidPairAfterRoleSwitch();
+  }
+
+  /**
+   * An agent that becomes controlling while its checks run nominates (RFC
+   * 8445 §8.1.1): a pair that already succeeded while it was controlled
+   * carried no USE-CANDIDATE, and neither side checks a succeeded pair again,
+   * so without this the checklist waits for a nomination forever. Check the
+   * best valid pair again; the check carries USE-CANDIDATE now.
+   */
+  private nominateValidPairAfterRoleSwitch() {
+    if (!this.checksBegun || this.nominated || this.remoteIsLite) return;
+    const pair = this.checkList.find(
+      (p) =>
+        p.state === CandidatePairState.SUCCEEDED &&
+        !p.handle &&
+        !this.isTcpPair(p),
+    );
+    if (!pair) return;
+    log("nominate after role switch", pair.toJSON());
+    pair.handle = this.checkStart(pair);
   }
 
   private checkComplete(pair: CandidatePair) {

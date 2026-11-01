@@ -5,14 +5,12 @@ import {
   createConnectedVideoPeers,
   createIceRestartPranswer,
   createInitialPranswerConnection,
-  createLocalStunIceServer,
   createLocalTurnIceServer,
   forceIceState,
   provisionalIce,
   recordConnectionStates,
   recordIceCandidates,
   recordIceConnectionStates,
-  removeIceAgentServers,
   waitForCommittedNomination,
   waitForConnection,
   waitForEndOfCandidates,
@@ -172,15 +170,13 @@ describeCases("negotiation transaction spec coverage: ICE", () => {
   );
 
   negotiationCase(
-    "[2.8-5] an ICE restart without ICE servers puts end-of-candidates in its descriptions and trickles nothing after the commit",
+    "[2.8-5] an ICE restart without ICE servers puts end-of-candidates in its applied descriptions and trickles nothing after the commit",
     { ref: "2.8-5" },
     async (c) => {
-      // Arrange: 両 peer の ICE agent に問い合わせる server がない状態にし、onIceCandidate を記録する。
+      // Arrange: 両 peer とも ICE server なし (既定の STUN も無い) で接続し、onIceCandidate を記録する。
       const { a, b, outgoing, incoming } = await c.given(
         createConnectedVideoPeers({ iceServers: [] }, { withAudio: true }),
       );
-      removeIceAgentServers(a);
-      removeIceAgentServers(b);
       const events = {
         offerer: recordIceCandidates(a),
         answerer: recordIceCandidates(b),
@@ -195,13 +191,18 @@ describeCases("negotiation transaction spec coverage: ICE", () => {
       await c.setLocal(b, answer);
       await c.setRemote(a, answer);
 
-      // Assert: restart の offer と answer は全 m-line に end-of-candidates を含む。
-      expect(offer.sdp.match(/^a=end-of-candidates/gm)!.length).toEqual(
-        offer.sdp.match(/^m=/gm)!.length,
-      );
-      expect(answer.sdp.match(/^a=end-of-candidates/gm)!.length).toEqual(
-        answer.sdp.match(/^m=/gm)!.length,
-      );
+      // Assert: 作成した restart の offer / answer は、適用までサーバが変わりうるので end-of-candidates を含まない。
+      expect(offer.sdp).not.toContain("a=end-of-candidates");
+      expect(answer.sdp).not.toContain("a=end-of-candidates");
+      // Assert: 適用後の description は全 m-line に end-of-candidates を含む。
+      for (const applied of [a.localDescription!, b.localDescription!]) {
+        expect(applied.sdp.match(/^a=end-of-candidates/gm)!.length).toEqual(
+          applied.sdp.match(/^m=/gm)!.length,
+        );
+      }
+      // Assert: end-of-candidates は適用時に trickle 済み。
+      expect(events.offerer).toContain(undefined);
+      expect(events.answerer).toContain(undefined);
       expect(ufragOf(a.currentLocalDescription!.sdp)).toEqual(
         ufragOf(offer.sdp),
       );
@@ -365,28 +366,30 @@ describeCases("negotiation transaction spec coverage: ICE", () => {
     },
   );
 
-  negotiationCase(
-    "[2.6-T3b] ICE servers set after a restart offer was created apply to that restart's gathering at its commit",
+  negotiationCase.for([
+    { signalled: "the created offer" },
+    { signalled: "the applied localDescription" },
+  ] as const)(
+    "[2.6-T3b] ICE servers set after a restart offer was created apply to that restart's gathering at its commit ($signalled)",
     { ref: "2.6-T3b" },
-    async (c) => {
-      // Arrange: TURN なし (STUN のみ) で接続済みの peer で、restartIce() の offer を作って restart を stage する。
-      // STUN を明示するので restart の generation は commit 後もサーバから収集を続ける (既定の公開 STUN は無い)。
+    async (c, { signalled }) => {
+      // Arrange: ICE server なしで接続済みの peer で、restartIce() の offer を作って restart を stage する。
       const { a, b, channel, received } = await c.given(
         createConnectedMediaAndDataPeers(),
       );
-      const stun = await createLocalStunIceServer();
-      c.closing(stun.server);
       const turn = await createLocalTurnIceServer();
       c.closing(turn.server);
-      a.setConfiguration({ iceServers: stun.iceServers });
       const events = recordIceCandidates(a);
       a.restartIce();
       const offer = await a.createOffer();
 
-      // Act: stage した後に TURN を設定し、その offer を適用して answer で確定する。
+      // Act: stage した後に TURN を設定し、その offer を適用する。相手へは作成済み offer か更新後の localDescription を送る。
       a.setConfiguration({ iceServers: turn.iceServers });
       await c.setLocal(a, offer);
-      await c.setRemote(b, a.localDescription);
+      const sent =
+        signalled === "the created offer" ? offer : a.localDescription!;
+      await c.setRemote(b, sent);
+      // Act: answer で確定し、commit 後に trickle された候補を相手へ渡す。
       await c.answer(b, { hold: true });
       const committedFrom = events.length;
       await c.setRemote(a, b.localDescription);
@@ -394,15 +397,17 @@ describeCases("negotiation transaction spec coverage: ICE", () => {
       const committed = events.slice(committedFrom);
       await trickleAll(b, committed);
 
-      // Assert: offer は relay も end-of-candidates も含まず、commit 後の背景 gather が新しい TURN の relay 候補を trickle する (JSEP 4.1.18)。
-      expect(offer.sdp).not.toContain("typ relay");
-      expect(offer.sdp).not.toContain("a=end-of-candidates");
+      // Assert: 送った description は relay も end-of-candidates も含まない (サーバ未設定で作った offer も同じ)。
+      expect(sent.sdp).not.toContain("typ relay");
+      expect(sent.sdp).not.toContain("a=end-of-candidates");
+      // Assert: commit 後の背景 gather が新しい TURN の relay 候補を trickle し、最後に end-of-candidates を出す (JSEP 4.1.18)。
       expect(
         committed.some((candidate) =>
           candidate?.candidate.includes("typ relay"),
         ),
       ).toBe(true);
       expect(committed.at(-1)).toBe(undefined);
+      // Assert: 相手は relay 候補を受理している。
       expect(
         b.iceTransports[0]
           .getRemoteCandidates()
