@@ -367,26 +367,38 @@ export async function createLocalStunServer(host: string) {
   return server;
 }
 
+/**
+ * Shared Arrange: a local TURN server. `credentials` replaces the default
+ * test user; `authenticatedUsernames` records the username of every request
+ * the server authenticated, in order.
+ */
 export async function createLocalTurnServer(
   host: string,
   options: {
     tls?: boolean;
+    credentials?: Record<string, string>;
   } = {},
 ) {
+  const credentials = options.credentials ?? {
+    [TURN_TEST_USERNAME]: TURN_TEST_PASSWORD,
+  };
+  const authenticatedUsernames: string[] = [];
   const server = new NodeTurnServer({
     host,
     port: 0,
     relayAddress: host,
     relayBindAddress: host,
-    credentials: {
-      [TURN_TEST_USERNAME]: TURN_TEST_PASSWORD,
+    getPassword: (username) => {
+      const password = credentials[username];
+      if (password !== undefined) authenticatedUsernames.push(username);
+      return password;
     },
     realm: "werift.local",
     software: "werift-ice-server/test",
     tls: options.tls ? getLocalTurnServerTlsOptions() : undefined,
   });
   await server.listen();
-  return server;
+  return Object.assign(server, { authenticatedUsernames });
 }
 
 /** Shared Arrange helper: two host-only connections with a nominated pair. */
@@ -417,7 +429,16 @@ export async function createConnectedLitePair() {
  * each side the other's staged credentials and candidates, as a pranswer
  * carrying an ICE restart would.
  */
-export async function stageProvisionalGeneration(a: Connection, b: Connection) {
+export async function stageProvisionalGeneration(
+  a: Connection,
+  b: Connection,
+  {
+    gatherOptionsA,
+  }: {
+    /** The options `a`'s staged generation gathers with. */
+    gatherOptionsA?: Partial<IceOptions>;
+  } = {},
+) {
   const credentials = {
     a: { usernameFragment: "provA", password: "provisional-password-a-000" },
     b: { usernameFragment: "provB", password: "provisional-password-b-000" },
@@ -425,6 +446,7 @@ export async function stageProvisionalGeneration(a: Connection, b: Connection) {
   a.stageLocalCredentials(
     credentials.a.usernameFragment,
     credentials.a.password,
+    gatherOptionsA,
   );
   b.stageLocalCredentials(
     credentials.b.usernameFragment,
@@ -923,12 +945,16 @@ export async function canBindIpv6Loopback() {
 /** Relay-only TURN options of a local test server for `createTestConnection`. */
 export function localTurnOptions(
   server: Awaited<ReturnType<typeof createLocalTurnServer>>,
+  {
+    username = TURN_TEST_USERNAME,
+    password = TURN_TEST_PASSWORD,
+  }: { username?: string; password?: string } = {},
 ) {
   return {
     stunServer: undefined,
     turnServer: server.address!,
-    turnUsername: TURN_TEST_USERNAME,
-    turnPassword: TURN_TEST_PASSWORD,
+    turnUsername: username,
+    turnPassword: password,
     forceTurn: true,
   };
 }
@@ -1491,4 +1517,132 @@ export function createScriptedCheckHarness({
     nominating,
     setRemoteCredentials,
   };
+}
+
+/** `udp/host`, `tcp/host`, `udp/srflx`, `udp/relay`, ... of the local candidates. */
+export function localCandidateKinds(connection: Connection) {
+  return [
+    ...new Set(
+      connection.localCandidates.map(
+        (candidate) => `${candidate.transport.toLowerCase()}/${candidate.type}`,
+      ),
+    ),
+  ].sort();
+}
+
+/**
+ * Shared Arrange: a local STUN server and a local TURN server, and a
+ * connection built with `options(servers)` that gathered once. `stunOptions`
+ * / `turnOptions` are the server fields of an update for setIceServers.
+ */
+export async function createGatheredConnectionWithLocalServers(
+  options: (servers: {
+    stunOptions: { stunServer: Address };
+    turnOptions: ReturnType<typeof localTurnOptions>;
+  }) => Partial<IceOptions>,
+) {
+  const host = getHostAddresses(true, false)[0]!;
+  const stun = await createLocalStunServer(host);
+  const turn = await createLocalTurnServer(host);
+  const servers = {
+    stunOptions: { stunServer: stun.address! },
+    turnOptions: localTurnOptions(turn),
+  };
+  const connection = createTestConnection(true, options(servers));
+  await connection.gatherCandidates();
+  return {
+    ...servers,
+    connection,
+    close: async () => {
+      await connection.close();
+      await turn.close();
+      await stun.close();
+    },
+  };
+}
+
+/** Act: apply an ICE server update, restart ICE and gather the new generation. */
+export async function restartWithIceServers(
+  connection: Connection,
+  update: Partial<IceOptions>,
+) {
+  connection.setIceServers(update);
+  await connection.restart();
+  await connection.gatherCandidates();
+}
+
+/**
+ * Arrange: stage a provisional generation on `connection` that gathers with
+ * `gatherOptions`, with remote credentials and one remote host candidate, as
+ * an ICE restart offer applied before its answer would. `relay` is the TURN
+ * allocation `connection` kept from its current generation.
+ */
+export async function stageProvisionalWithKeptRelay(
+  connection: Connection,
+  gatherOptions: Partial<IceOptions>,
+) {
+  const relay = connectionProtocols(connection).find(
+    (protocol) => protocol.localCandidate?.type === "relay",
+  );
+  if (!relay) throw new Error("expected a kept TURN allocation");
+  const local = {
+    usernameFragment: "provL",
+    password: "provisional-local-000",
+  };
+  const remote = {
+    usernameFragment: "provR",
+    password: "provisional-remote-000",
+  };
+  connection.stageLocalCredentials(
+    local.usernameFragment,
+    local.password,
+    gatherOptions,
+  );
+  connection.setProvisionalRemoteParams(remote);
+  await connection.addProvisionalRemoteCandidate(
+    new Candidate("1", 1, "udp", 100, "127.0.0.1", 50000, "host"),
+  );
+  return { relay, local, remote };
+}
+
+/** The pairs of the provisional checklist `connection` staged. */
+export function provisionalPairs(connection: Connection) {
+  return (
+    (
+      connection as unknown as {
+        provisional?: { pairs: CandidatePair[] };
+      }
+    ).provisional?.pairs ?? []
+  );
+}
+
+/**
+ * Act: deliver a connectivity check for the staged generation on `protocol`
+ * from `addr`; resolves with whether `protocol` sent a response.
+ */
+export async function deliverProvisionalCheck(
+  protocol: Protocol,
+  { local, remote }: Awaited<ReturnType<typeof stageProvisionalWithKeptRelay>>,
+  addr: Address = ["127.0.0.1", 50001],
+) {
+  const sendStun = vi
+    .spyOn(protocol, "sendStun")
+    .mockResolvedValue(undefined as never);
+  const request = new Message(methods.BINDING, classes.REQUEST)
+    .setAttribute(
+      "USERNAME",
+      `${local.usernameFragment}:${remote.usernameFragment}`,
+    )
+    .setAttribute("PRIORITY", 1_000)
+    .setAttribute("ICE-CONTROLLED", 1n);
+  protocol.onRequestReceived.execute(request, addr, Buffer.alloc(0));
+  await new Promise((resolve) => setImmediate(resolve));
+  const responded = sendStun.mock.calls.length > 0;
+  sendStun.mockRestore();
+  return responded;
+}
+
+/** The transport protocols (sockets / allocations) `connection` keeps. */
+export function connectionProtocols(connection: Connection) {
+  return (connection as unknown as { protocols: Protocol[] }).protocols;
 }
