@@ -557,6 +557,32 @@ describe("regular nomination of UDP / relay pairs (full ICE, controlling)", () =
     }
   });
 
+  test("a pair the peer nominated while controlled is re-nominated by USE-CANDIDATE after the agent became controlling", async () => {
+    const h = createNominationHarness();
+    h.switchRole(false);
+    const pair = await h.addRemote(HIGH);
+    await h.connection.addRemoteCandidate(undefined);
+    h.check(pair);
+    await h.succeed(pair);
+    h.receiveNomination(pair);
+    expect(h.connection.nominated).toBe(pair);
+    expect(h.nominations()).toHaveLength(0);
+
+    try {
+      // Act: 相手の nomination で選択済みのまま、ロール競合の修復で controlling に切り替わる。
+      h.switchRole(true);
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Assert: 選択は変えず、controlled になった相手のために同じ pair へ USE-CANDIDATE を送る。
+      expect(h.connection.nominated).toBe(pair);
+      expect(h.nominations().map((request) => request.addr)).toEqual([
+        pair.remoteAddr,
+      ]);
+    } finally {
+      await h.connection.close();
+    }
+  });
+
   test("a restart after an abandoned nomination nominates again", async () => {
     const h = createNominationHarness({
       nominationReply: (index) => (index < 3 ? "hold" : "success"),
@@ -1300,6 +1326,32 @@ describe("regular nomination of the provisional generation", () => {
         pair.remoteAddr,
       ]);
       expect(h.connection.provisionalNominated).toBe(pair);
+    } finally {
+      await h.connection.close();
+    }
+  });
+
+  test("a provisional pair the peer nominated while controlled is re-nominated after the agent became controlling", async () => {
+    const h = createNominationHarness();
+    h.stageProvisional();
+    h.switchRole(false);
+    const pair = await h.addProvisionalRemote(HIGH);
+    await h.connection.addProvisionalRemoteCandidate(undefined);
+    await h.succeed(pair);
+    h.receiveProvisionalNomination(pair);
+    expect(h.connection.provisionalNominated).toBe(pair);
+    expect(h.nominations()).toHaveLength(0);
+
+    try {
+      // Act: provisional の pair が相手の nomination で選択済みのまま controlling に切り替わる。
+      h.switchRole(true);
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Assert: live と同じく、選択は変えずに同じ pair へ USE-CANDIDATE を送る。
+      expect(h.connection.provisionalNominated).toBe(pair);
+      expect(h.nominations().map((request) => request.addr)).toEqual([
+        pair.remoteAddr,
+      ]);
     } finally {
       await h.connection.close();
     }

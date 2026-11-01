@@ -129,6 +129,8 @@ export class Connection implements IceConnection {
   );
   /** See `NominationHint`; set by the restart that ends a provisional checklist. */
   private nominationHint?: NominationHint;
+  /** USE-CANDIDATE re-sent for a pair selected before the agent became controlling (`confirmSelections`). */
+  private readonly selectionConfirmations = new Set<AbortController>();
   /**
    * Aborted when the remote generation ends (restart, restartRemote, close):
    * every check and nomination transaction of that generation stops with it.
@@ -2191,6 +2193,7 @@ export class Connection implements IceConnection {
   }
 
   private applyIceControlling(iceControlling: boolean) {
+    const becameControlling = !this._iceControlling && iceControlling;
     if (this._iceControlling !== iceControlling) {
       this.invalidateNominations();
       // USE-CANDIDATE received while controlled came from a peer that was
@@ -2208,6 +2211,65 @@ export class Connection implements IceConnection {
     for (const pair of this.checkList) {
       pair.iceControlling = iceControlling;
     }
+    if (becameControlling) this.confirmSelections();
+  }
+
+  /**
+   * The agent became controlling with a pair already selected (live or
+   * provisional), e.g. one the peer nominated while this agent was
+   * controlled. The selection stays (RFC 8445 §8.1.1 allows no other pair),
+   * but the peer, controlled now, may still wait for a nomination: send
+   * USE-CANDIDATE for that pair, repeated on timeouts as a nomination is.
+   * A peer that selected the pair already keeps it.
+   */
+  private confirmSelections() {
+    if (!this.usesRegularNomination()) return;
+    const live = this.nominated;
+    if (live && this.state !== "closed" && this.checkList.includes(live)) {
+      void this.confirmSelection(
+        (signal) => this.sendNomination(live, signal),
+        () => this.nominated === live && this.state !== "closed",
+      );
+    }
+    const generation = this.provisional;
+    const provisional = generation?.nominated;
+    if (generation && provisional && generation.pairs.includes(provisional)) {
+      void this.confirmSelection(
+        (signal) =>
+          this.nominateProvisional(
+            generation,
+            provisional,
+            AbortSignal.any([generation.checks.signal, signal]),
+          ),
+        () =>
+          this.provisional === generation &&
+          generation.nominated === provisional,
+      );
+    }
+  }
+
+  private async confirmSelection(
+    send: (signal: AbortSignal) => Promise<NominationOutcome>,
+    selected: () => boolean,
+  ) {
+    const abort = new AbortController();
+    this.selectionConfirmations.add(abort);
+    try {
+      for (let attempt = 1; attempt <= NOMINATION_ATTEMPTS; attempt++) {
+        const outcome = await send(abort.signal);
+        if (abort.signal.aborted || !selected() || !this.iceControlling) {
+          return;
+        }
+        if (outcome === "unanswered") continue;
+        // 487: the peer is controlling and wins; it nominates.
+        if (outcome === "role-conflict") this.switchRole(false);
+        return;
+      }
+    } catch (error) {
+      log("confirm selection failed", error);
+    } finally {
+      this.selectionConfirmations.delete(abort);
+    }
   }
 
   /**
@@ -2219,6 +2281,8 @@ export class Connection implements IceConnection {
   private invalidateNominations() {
     this.liteNominating = false;
     this.nomination.invalidate();
+    for (const abort of this.selectionConfirmations) abort.abort();
+    this.selectionConfirmations.clear();
     if (this.provisional) {
       this.provisional.liteNominating = false;
       this.provisional.nomination.invalidate();
