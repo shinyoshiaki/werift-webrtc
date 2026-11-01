@@ -23,14 +23,18 @@ import {
   fingerprint,
   RTCCertificate,
 } from "../../src";
-import { dtlsTransportPair, iceTransportPair } from "../fixture";
+import {
+  createTestCertificate,
+  dtlsTransportPair,
+  iceTransportPair,
+} from "../fixture";
 import type { RTCTransportStats } from "../../src/media/stats";
 import { waitForDtlsState } from "../utils";
 
 describe("RTCDtlsTransportTest", () => {
   test("RTCCertificate preserves PKCS#8 PEM and signs with Node KeyObject", async () => {
     // Arrange
-    const source = await RTCDtlsTransport.SetupCertificate();
+    const source = await createTestCertificate();
     const certificate = new RTCCertificate(
       source.privateKey,
       source.certPem,

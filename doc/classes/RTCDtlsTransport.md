@@ -211,6 +211,8 @@ on it when they started DTLS.
 
 > `static` `optional` **localCertificate?**: [`RTCCertificate`](RTCCertificate.md)
 
+Process-wide default certificate cache, see [RTCDtlsTransport.SetupCertificate](#setupcertificate).
+
 ***
 
 ### localCertificatePromise?
@@ -429,9 +431,26 @@ Internal: whether a description gave this transport the peer's DTLS parameters.
 
 ***
 
+### generateCertificate()
+
+> `static` **generateCertificate**(): `Promise`\<[`RTCCertificate`](RTCCertificate.md)\>
+
+Generates a new self-signed certificate (ECDSA P-256 / SHA-256) on every call.
+Used by an RTCPeerConnection created with `certificateScope: "peerConnection"`
+when `RTCConfiguration.certificates` is not given.
+
+#### Returns
+
+`Promise`\<[`RTCCertificate`](RTCCertificate.md)\>
+
+***
+
 ### SetupCertificate()
 
 > `static` **SetupCertificate**(): `Promise`\<[`RTCCertificate`](RTCCertificate.md)\>
+
+Returns the default certificate cached for the whole process
+(the default `certificateScope: "process"`).
 
 #### Returns
 

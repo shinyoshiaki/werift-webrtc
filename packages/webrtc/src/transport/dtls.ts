@@ -138,6 +138,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   private readonly events = new DomEventTarget();
   onstatechange?: () => void;
 
+  /** Process-wide default certificate cache, see {@link RTCDtlsTransport.SetupCertificate}. */
   static localCertificate?: RTCCertificate;
   static localCertificatePromise?: Promise<RTCCertificate>;
   private remoteParameters?: RTCDtlsParameters;
@@ -225,19 +226,30 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     );
   }
 
+  /**
+   * Generates a new self-signed certificate (ECDSA P-256 / SHA-256) on every call.
+   * Used by an RTCPeerConnection created with `certificateScope: "peerConnection"`
+   * when `RTCConfiguration.certificates` is not given.
+   */
+  static async generateCertificate() {
+    return createSelfSignedCertificate();
+  }
+
+  /**
+   * Returns the default certificate cached for the whole process
+   * (the default `certificateScope: "process"`).
+   */
   static async SetupCertificate() {
     if (this.localCertificate) {
       return this.localCertificate;
     }
 
-    if (this.localCertificatePromise) {
-      return this.localCertificatePromise;
-    }
-
-    this.localCertificatePromise = (async () => {
-      this.localCertificate = await createSelfSignedCertificate();
-      return this.localCertificate;
-    })();
+    this.localCertificatePromise ??= this.generateCertificate().then(
+      (certificate) => {
+        this.localCertificate = certificate;
+        return certificate;
+      },
+    );
 
     return this.localCertificatePromise;
   }
