@@ -19,17 +19,18 @@ import {
   RTCRtpTransceiver,
   type RTCSessionDescription,
   RTP_EXTENSION_URI,
+  type RtcpSrPacket,
   RtcpPayloadSpecificFeedback,
   RtpHeader,
   RtpPacket,
 } from "../src";
-import { RTCRtpCodingParameters } from "../src/media/parameters";
-import { type KeyFrameRequestRouting, RtpRouter } from "../src/media/router";
-import { RTCRtpReceiver } from "../src/media/rtpReceiver";
 import {
   ProtectionProfileAes128CmHmacSha1_80,
   SrtpSession,
 } from "../src/imports/rtp";
+import { RTCRtpCodingParameters } from "../src/media/parameters";
+import { type KeyFrameRequestRouting, RtpRouter } from "../src/media/router";
+import { RTCRtpReceiver } from "../src/media/rtpReceiver";
 import { RTCRtpSender } from "../src/media/rtpSender";
 import type { SenderBandwidthEstimator } from "../src/media/sender/senderBWE";
 
@@ -67,6 +68,14 @@ export function createAudioCodec(payloadType = 96) {
   });
 }
 
+export function createVideoCodec(payloadType = 96) {
+  return new RTCRtpCodecParameters({
+    mimeType: "video/VP8",
+    clockRate: 90000,
+    payloadType,
+  });
+}
+
 export function createRtxCodec(payloadType = 97, apt = 96) {
   return new RTCRtpCodecParameters({
     mimeType: "audio/rtx",
@@ -82,6 +91,8 @@ export function createConnectedRtpSender(options?: {
   rtx?: boolean;
   twcc?: boolean;
   cname?: string;
+  /** send codec (default: 48 kHz opus) */
+  codec?: RTCRtpCodecParameters;
   /** encrypt sendRtp with a real SrtpSession and decrypt it on a peer session */
   srtpLoopback?: boolean;
 }) {
@@ -92,7 +103,7 @@ export function createConnectedRtpSender(options?: {
   const sender = new RTCRtpSender(track);
   sender.setDtlsTransport(dtls);
 
-  const codecs = [createAudioCodec()];
+  const codecs = [options?.codec ?? createAudioCodec()];
   if (options?.rtx) {
     codecs.push(createRtxCodec());
   }
@@ -180,6 +191,53 @@ export function sentRtpHeaders(sendRtp: ConnectedRtpSenderSetup["sendRtp"]) {
   return sendRtp.mock.calls.map(([, header]) => header);
 }
 
+/**
+ * Replace `performance.now()` with a manually advanced monotonic clock so
+ * RTP send times and SR generation times are deterministic.
+ * Call `restore()` (or `vi.restoreAllMocks()`) after the test.
+ */
+export function mockMonotonicClock(startMs = 1000) {
+  let nowMs = startMs;
+  const spy = vi.spyOn(performance, "now").mockImplementation(() => nowMs);
+  return {
+    get nowMs() {
+      return nowMs;
+    },
+    set(ms: number) {
+      nowMs = ms;
+    },
+    advance(ms: number) {
+      nowMs += ms;
+    },
+    restore: () => spy.mockRestore(),
+  };
+}
+
+/** Build the RTCP Sender Report the sender would send at `nowMs` (`performance.now()`). */
+export function buildSenderReportAt(sender: RTCRtpSender, nowMs: number) {
+  return (sender as any).buildSenderReport(nowMs) as RtcpSrPacket;
+}
+
+/** Seconds between the NTP epoch (1900) and the Unix epoch (1970). */
+const NTP_UNIX_OFFSET_SEC = 2208988800;
+
+/**
+ * RFC 3550 の 64bit NTP timestamp を実装とは独立に組み立てる。
+ * 上位32bit=秒、下位32bit=秒の小数部 (x / 2^32)。
+ */
+export function rfc3550Ntp(epochMs: number) {
+  const wholeSec = Math.floor(epochMs / 1000);
+  const fractionMs = epochMs - wholeSec * 1000;
+  const seconds = BigInt(wholeSec + NTP_UNIX_OFFSET_SEC);
+  const fraction = BigInt(Math.floor((fractionMs * 2 ** 32) / 1000));
+  return (seconds << 32n) | fraction;
+}
+
+/** 2 つの NTP timestamp の差を RFC 3550 の定義に従い ms で返す。 */
+export function ntpDiffMs(later: bigint, earlier: bigint) {
+  return (Number(later - earlier) / 2 ** 32) * 1000;
+}
+
 export async function generateOffer() {
   const pc = new RTCPeerConnection();
   const offer = await pc.createOffer();
@@ -201,11 +259,19 @@ export async function dtlsTransportPair() {
   transport1.connection.iceControlling = true;
   transport2.connection.iceControlling = false;
 
-  await RTCDtlsTransport.SetupCertificate();
+  const certificate = await createTestCertificate();
 
-  const session1 = new RTCDtlsTransport(defaultPeerConfig, transport1);
+  const session1 = new RTCDtlsTransport(
+    defaultPeerConfig,
+    transport1,
+    certificate,
+  );
 
-  const session2 = new RTCDtlsTransport(defaultPeerConfig, transport2);
+  const session2 = new RTCDtlsTransport(
+    defaultPeerConfig,
+    transport2,
+    certificate,
+  );
 
   session1.setRemoteParams(session2.localParameters);
   session2.setRemoteParams(session1.localParameters);
@@ -217,6 +283,36 @@ export async function dtlsTransportPair() {
     return [session2, session1];
   }
 }
+
+/**ICE 接続済み・DTLS 未開始の transport ペア (証明書は明示的に渡す) */
+export async function createDtlsSessions() {
+  const [transport1, transport2] = await iceTransportPair();
+  const certificate = await createTestCertificate();
+
+  const session1 = new RTCDtlsTransport(
+    defaultPeerConfig,
+    transport1,
+    certificate,
+  );
+  const session2 = new RTCDtlsTransport(
+    defaultPeerConfig,
+    transport2,
+    certificate,
+  );
+
+  return [session1, session2] as const;
+}
+
+/**キャッシュされない新しい DTLS 証明書 */
+export const createTestCertificate = () =>
+  RTCDtlsTransport.generateCertificate();
+
+/**SDP 内の全 a=fingerprint の値 */
+export const getSdpFingerprints = (sdp: string) =>
+  sdp
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith("a=fingerprint:"))
+    .map((line) => line.slice("a=fingerprint:".length).trim());
 
 export const iceTransportPair = async () => {
   const gatherer1 = new RTCIceGatherer();

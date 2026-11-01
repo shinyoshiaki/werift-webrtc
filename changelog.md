@@ -1,8 +1,8 @@
 # Changelog
 
-## Unreleased
+## v0.26.0
 
-### 🐛 Bug Fixes
+This release collects everything merged since v0.25.2, including the `rc/0.26.0` branch (negotiation transaction, SCTP queue, PLI / FIR routing).
 
 - **ICE servers set after a restart offer was created are used by that restart, also when the created offer is the one signalled** (`werift`): a created offer or answer for an ICE restart no longer carries `a=end-of-candidates` before `setLocalDescription()` applies it, because `setConfiguration()` may still change the servers that generation gathers from. Previously an offer created without ICE servers declared its candidates complete, so a peer given that offer rejected the relay candidates of a TURN server configured before `setLocalDescription()`. The applied description and the null `icecandidate` event still signal end-of-candidates.
 - **An ICE agent that becomes controlling during connectivity checks now nominates** (`werift-ice`): when a role conflict was repaired (or offer/answer assigned the controlling role, as in glare) after the only pair had already succeeded while the agent was controlled, no side checked that pair again and ICE stayed `checking` forever. The agent now re-sorts its checklist for the new role and nominates its best succeeded pair (RFC 8445 §6.1.2.3 / §8.1.1): a UDP pair is checked again with USE-CANDIDATE, a TCP pair goes through the regular nomination ICE-TCP already uses. If that nomination fails, the next succeeded pair is nominated. Found by the negotiation leak property once sessions without ICE servers stopped waiting for the implicit Google STUN server.
@@ -20,10 +20,6 @@
 
 - Because `develop` already ships `werift` 0.26.0 and `werift-ice` 0.2.3, the next release carries these breaking changes as minor bumps: **`werift`** (`packages/webrtc`) `0.26.x` → **`0.27.0`**, **`werift-ice`** (`packages/ice`) `0.2.x` → **`0.3.0`**.
 
-## v0.26.0
-
-This release collects everything merged since v0.25.2, including the `rc/0.26.0` branch (negotiation transaction, SCTP queue, PLI / FIR routing).
-
 - **RTCP Sender Reports map the current NTP time to the matching RTP timestamp** (`packages/webrtc`, RFC 3550 §6.4.1): `RTCRtpSender` used to report the NTP time and RTP timestamp of the last sent RTP packet, so the SR's NTP time lagged its actual send time by the time since the last RTP packet (without bound while RTP was idle), and SRs sent while RTP was stopped repeated the same LSR. The SR now samples the wall-clock time when it is built and extrapolates the RTP timestamp to that instant from an NTP↔RTP anchor with the send codec's clock rate (32-bit wrap, as libwebrtc does).
   - The anchor is the send time of the first packet with a newer output timestamp (after continuity rewrite). Frame fragments with the same timestamp, timestamps up to 3 s older (reordering) and RTX retransmissions do not move it; a continuity rewrite (`replaceTrack` / `replaceRTP` / `onSourceChanged`), a clock rate change, or a backward timestamp step of more than 3 s (a source discontinuity without continuity rewrite) resets it.
   - Limitation: werift does not know the capture time, so for relayed RTP the send time approximates the sampling time and send jitter becomes SR mapping error.
@@ -40,6 +36,10 @@ This release collects everything merged since v0.25.2, including the `rc/0.26.0`
   - Runtime socket errors are logged and emitted on the new `UdpTransport.onError` (`Event<[Error]>`). The socket stays open. `StunProtocol` / `TurnProtocol` subscribe to it and log. `Transport.onError` is optional for custom transports.
   - A bind failure (e.g. `EADDRINUSE`, including a synchronous `bind()` throw) or a `findPort()` failure now rejects `UdpTransport.init()` and closes the socket. Before, a bind failure caused an uncaught exception or `init()` waited forever.
   - `close()` can be called more than once, including after an error or a failed bind.
+### 🚀 Features
+
+- **`werift`: `RTCConfiguration.certificateScope` selects the default DTLS certificate.** With `"process"` (default, unchanged behavior), an `RTCPeerConnection` without `certificates` / `dtls.keys` reuses one process-wide certificate, so every such connection advertises the same `a=fingerprint`. With `"peerConnection"`, each connection generates its own certificate on its first `createOffer()` / `createAnswer()` (as browsers do) and its DTLS transports share it. `certificates` / `dtls.keys` still take precedence, and the scope cannot be changed by `setConfiguration()`. `RTCDtlsTransport.generateCertificate()` creates a new certificate on every call.
+
 ### ⚠️ Breaking changes
 
 - **`werift-dtls`: `CipherContext.localPrivateKey` is now a Node `KeyObject`** instead of the `@fidm/x509` `PrivateKey`. Replace `localPrivateKey.toPEM()` with `localPrivateKey.export({ type: "pkcs8", format: "pem" })`; replace `localPrivateKey.sign(data, hash)` with `createSign(hash).update(data).sign(localPrivateKey)`.
