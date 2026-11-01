@@ -55,7 +55,7 @@ import {
 } from "../imports/rtp";
 import type { RTCDtlsTransport } from "../transport/dtls";
 import type { Kind } from "../types/domain";
-import { compactNtp, milliTime, ntpTime, timestampSeconds } from "../utils";
+import { compactNtp, milliTime, ntpTime } from "../utils";
 import { isCodecCompatible } from "./codecCompatibility";
 import type {
   RTCRtpCodecParameters,
@@ -63,6 +63,7 @@ import type {
   RTCRtpSendParameters,
 } from "./parameters";
 import { SenderBandwidthEstimator, type SentInfo } from "./sender/senderBWE";
+import { SenderReportHistory } from "./sender/senderReportHistory";
 import {
   buildStatsReport,
   generateCodecStatsId,
@@ -179,8 +180,8 @@ export class RTCRtpSender {
   private sendEncodings: Array<Record<string, unknown>> = [{}];
 
   // # stats
-  private lastSRtimestamp?: number;
-  private lastSentSRTimestamp?: number;
+  /** Sent SRs matched by the `LSR` of incoming report blocks for RTT. */
+  private readonly senderReports = new SenderReportHistory();
   /**
    * NTP<->RTP clock anchor for RTCP Sender Reports (RFC 3550 §6.4.1).
    * The send time of the first packet of the newest RTP timestamp (output
@@ -588,6 +589,7 @@ export class RTCRtpSender {
     this.discardPendingRtp();
     this.rtcpRunning = false;
     this.rtcpCancel.abort();
+    this.senderReports.clear();
     if (this.disposeTrack) {
       this.disposeTrack();
       this.disposeTrack = undefined;
@@ -640,7 +642,8 @@ export class RTCRtpSender {
    * timestamp is extrapolated from the clock anchor to the same instant with
    * the send clock rate, so an SR sent long after the last RTP packet (idle,
    * silence suppression) still maps the current time (as libwebrtc does).
-   * Records the LSR of the NTP timestamp actually sent.
+   * Records the LSR of the NTP timestamp actually sent and that instant in the
+   * Sender Report history.
    */
   private buildSenderReport(nowMonotonicMs = performance.now()) {
     const ntpTimestamp = ntpTime(performance.timeOrigin + nowMonotonicMs);
@@ -654,8 +657,7 @@ export class RTCRtpSender {
       );
     }
 
-    this.lastSRtimestamp = compactNtp(ntpTimestamp);
-    this.lastSentSRTimestamp = timestampSeconds();
+    this.senderReports.record(compactNtp(ntpTimestamp), nowMonotonicMs / 1000);
 
     return new RtcpSrPacket({
       ssrc: this.ssrc,
@@ -878,6 +880,16 @@ export class RTCRtpSender {
     this.senderBWE.rtpPacketSent(sentInfo);
   }
 
+  private addRoundTripTimeSample(rtt: number) {
+    this.totalRoundTripTime += rtt;
+    this.roundTripTimeMeasurements++;
+    if (this.rtt === undefined) {
+      this.rtt = rtt;
+    } else {
+      this.rtt = RTT_ALPHA * this.rtt + (1 - RTT_ALPHA) * rtt;
+    }
+  }
+
   /**
    * @param firEntries Internal: the FCI entries of a FIR the router resolved to
    * this sender (see `KeyFrameRequestRouting`). Defaults to the entries for
@@ -897,20 +909,13 @@ export class RTCRtpSender {
             .forEach((report) => {
               this.remotePacketsLost = report.packetsLost;
               this.remoteFractionLost = report.fractionLost / 256;
-              if (this.lastSRtimestamp === report.lsr && report.dlsr) {
-                if (this.lastSentSRTimestamp) {
-                  const rtt =
-                    timestampSeconds() -
-                    this.lastSentSRTimestamp -
-                    report.dlsr / 65536;
-                  this.totalRoundTripTime += rtt;
-                  this.roundTripTimeMeasurements++;
-                  if (this.rtt === undefined) {
-                    this.rtt = rtt;
-                  } else {
-                    this.rtt = RTT_ALPHA * this.rtt + (1 - RTT_ALPHA) * rtt;
-                  }
-                }
+              const rtt = this.senderReports.roundTripTime(
+                report.lsr,
+                report.dlsr,
+                performance.now() / 1000,
+              );
+              if (rtt !== undefined) {
+                this.addRoundTripTimeSample(rtt);
               }
             });
         }

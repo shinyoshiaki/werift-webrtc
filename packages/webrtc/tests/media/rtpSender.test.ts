@@ -14,6 +14,10 @@ import {
 import { NtpTimeBase } from "../../src/imports/rtpExtra";
 import { RTCRtpCodecParameters } from "../../src/media/parameters";
 import { RTCRtpSender } from "../../src/media/rtpSender";
+import {
+  SENDER_REPORT_HISTORY_MAX_AGE_SEC,
+  SENDER_REPORT_HISTORY_MAX_ENTRIES,
+} from "../../src/media/sender/senderReportHistory";
 import { RTCStatsReport } from "../../src/media/stats";
 import { compactNtp } from "../../src/utils";
 import {
@@ -22,12 +26,16 @@ import {
   createDtlsTransport,
   createFirPacket,
   createPliPacket,
+  createReceiverReport,
   createRtpPacket,
   createVideoCodec,
+  dlsrUnits,
+  lsrOf,
   mockMonotonicClock,
   ntpDiffMs,
   rfc3550Ntp,
   outboundRtpStats,
+  remoteInboundRtpStats,
   sentRtpHeaders,
 } from "../fixture";
 
@@ -1803,15 +1811,20 @@ describe("media/rtpSender RTCP Sender Report clock mapping", () => {
     clock.advance(1000);
     const second = buildSenderReportAt(sender, clock.nowMs);
 
-    // Assert: NTP が異なり、LSR 照合値は最後に送った SR の NTP から作られる。
+    // Assert: NTP が異なり、LSR 照合値は送った SR の NTP から作られる (最後の SR で RTT が取れる)。
     expect(second.senderInfo.ntpTimestamp).not.toBe(
       first.senderInfo.ntpTimestamp,
     );
     expect(compactNtp(second.senderInfo.ntpTimestamp)).not.toBe(
       compactNtp(first.senderInfo.ntpTimestamp),
     );
-    expect((sender as any).lastSRtimestamp).toBe(
-      compactNtp(second.senderInfo.ntpTimestamp),
+    clock.advance(100);
+    sender.handleRtcpPacket(
+      createReceiverReport({ ssrc: sender.ssrc, lsr: lsrOf(second), dlsr: 0 }),
+    );
+    expect((await remoteInboundRtpStats(sender))?.roundTripTime).toBeCloseTo(
+      0.1,
+      4,
     );
   });
 
@@ -1858,5 +1871,248 @@ describe("media/rtpSender RTCP Sender Report clock mapping", () => {
     const sr = sendRtcp.mock.calls[0][0][0] as RtcpSrPacket;
     expectNtpCloseTo(sr.senderInfo.ntpTimestamp, expectedNtp(clock.nowMs));
     expect(sr.senderInfo.rtpTimestamp).toBe(480000 + 33600);
+  });
+});
+
+describe("media/rtpSender RTT from Receiver Reports", () => {
+  const started: RTCRtpSender[] = [];
+
+  afterEach(() => {
+    for (const sender of started) {
+      sender.stop();
+    }
+    started.length = 0;
+    vi.restoreAllMocks();
+  });
+
+  /** 単調時計を固定した sender を作り、SR を生成して RR を受け取る操作を返す。 */
+  const arrangeSender = () => {
+    const setup = createConnectedRtpSender();
+    started.push(setup.sender);
+    const clock = mockMonotonicClock();
+    const sendSenderReport = () => buildSenderReportAt(setup.sender, clock.nowMs);
+    const receiveReport = (
+      props: Omit<Parameters<typeof createReceiverReport>[0], "ssrc">,
+    ) =>
+      setup.sender.handleRtcpPacket(
+        createReceiverReport({ ssrc: setup.sender.ssrc, ...props }),
+      );
+    return { ...setup, clock, sendSenderReport, receiveReport };
+  };
+
+  test("最新 SR を参照する RR から now - 送信時刻 - DLSR を RTT とする", async () => {
+    const { sender, clock, sendSenderReport, receiveReport } = arrangeSender();
+    const sr = sendSenderReport();
+
+    // Act: SR 送信の 300ms 後に、受信側が 250ms 保持した RR を受け取る。
+    clock.advance(300);
+    receiveReport({ lsr: lsrOf(sr), dlsr: dlsrUnits(0.25) });
+
+    // Assert: RTT = 0.3 - 0.25 = 50ms で 1 サンプル記録される。
+    const stats = await remoteInboundRtpStats(sender);
+    expect(stats?.roundTripTime).toBeCloseTo(0.05, 4);
+    expect(stats?.totalRoundTripTime).toBeCloseTo(0.05, 4);
+    expect(stats?.roundTripTimeMeasurements).toBe(1);
+  });
+
+  test("SR A → SR B の後に A を参照する RR が届いても RTT を更新する", async () => {
+    const { sender, clock, sendSenderReport, receiveReport } = arrangeSender();
+    const a = sendSenderReport();
+    clock.advance(1000);
+    sendSenderReport();
+
+    // Act: A の 1.4 秒後に、A を 1 秒保持した RR を受け取る。
+    clock.advance(400);
+    receiveReport({ lsr: lsrOf(a), dlsr: dlsrUnits(1) });
+
+    // Assert: A の送信時刻を基準に RTT = 400ms が記録される。
+    const stats = await remoteInboundRtpStats(sender);
+    expect(stats?.roundTripTime).toBeCloseTo(0.4, 4);
+    expect(stats?.roundTripTimeMeasurements).toBe(1);
+  });
+
+  test("A の後に SR を複数送っても保持範囲内なら A を照合する", async () => {
+    const { sender, clock, sendSenderReport, receiveReport } = arrangeSender();
+    const a = sendSenderReport();
+    for (let i = 0; i < 10; i++) {
+      clock.advance(500);
+      sendSenderReport();
+    }
+
+    // Act: A の 5.25 秒後に、A を 5 秒保持した RR を受け取る。
+    clock.advance(250);
+    receiveReport({ lsr: lsrOf(a), dlsr: dlsrUnits(5) });
+
+    // Assert: RTT = 250ms が記録される。
+    const stats = await remoteInboundRtpStats(sender);
+    expect(stats?.roundTripTime).toBeCloseTo(0.25, 4);
+    expect(stats?.roundTripTimeMeasurements).toBe(1);
+  });
+
+  test("未知の LSR は RTT を記録しない", async () => {
+    const { sender, clock, sendSenderReport, receiveReport } = arrangeSender();
+    const sr = sendSenderReport();
+
+    // Act: 送っていない LSR を参照する RR を受け取る。
+    clock.advance(300);
+    receiveReport({ lsr: (lsrOf(sr) + 1) >>> 0, dlsr: dlsrUnits(0.25) });
+
+    // Assert: RTT は未設定のまま、計測回数も 0。
+    const stats = await remoteInboundRtpStats(sender);
+    expect(stats?.roundTripTime).toBeUndefined();
+    expect(stats?.totalRoundTripTime).toBe(0);
+    expect(stats?.roundTripTimeMeasurements).toBe(0);
+  });
+
+  test("件数上限を超えて追い出された SR を参照する RR は無視する", async () => {
+    const { sender, clock, sendSenderReport, receiveReport } = arrangeSender();
+    const a = sendSenderReport();
+    for (let i = 0; i < SENDER_REPORT_HISTORY_MAX_ENTRIES; i++) {
+      clock.advance(500);
+      sendSenderReport();
+    }
+
+    // Act: 追い出された A を参照する RR を受け取る。
+    clock.advance(100);
+    const elapsedSec = (SENDER_REPORT_HISTORY_MAX_ENTRIES * 500 + 100) / 1000;
+    expect(() =>
+      receiveReport({ lsr: lsrOf(a), dlsr: dlsrUnits(elapsedSec - 0.05) }),
+    ).not.toThrow();
+
+    // Assert: RTT は記録されない。
+    const stats = await remoteInboundRtpStats(sender);
+    expect(stats?.roundTripTime).toBeUndefined();
+    expect(stats?.roundTripTimeMeasurements).toBe(0);
+  });
+
+  test("保持時間を過ぎた SR を参照する RR は無視する", async () => {
+    const { sender, clock, sendSenderReport, receiveReport } = arrangeSender();
+    const a = sendSenderReport();
+
+    // Act: 保持時間 + 1 秒後に、A を参照する RR を受け取る。
+    clock.advance((SENDER_REPORT_HISTORY_MAX_AGE_SEC + 1) * 1000);
+    expect(() =>
+      receiveReport({
+        lsr: lsrOf(a),
+        dlsr: dlsrUnits(SENDER_REPORT_HISTORY_MAX_AGE_SEC),
+      }),
+    ).not.toThrow();
+
+    // Assert: RTT は記録されない。
+    const stats = await remoteInboundRtpStats(sender);
+    expect(stats?.roundTripTime).toBeUndefined();
+    expect(stats?.roundTripTimeMeasurements).toBe(0);
+  });
+
+  test("compact NTP の秒がラップ (0xffff → 0x0000) しても参照先の SR を照合する", async () => {
+    const { sender, clock, sendSenderReport, receiveReport } = arrangeSender();
+    // Arrange: NTP 秒の下位 16bit が 0xffff になる壁時計の時刻 + 500ms に単調時計を合わせる。
+    const ntpUnixOffsetSec = 2208988800;
+    let epochSec = Math.ceil(performance.timeOrigin / 1000) + 10;
+    while (((epochSec + ntpUnixOffsetSec) & 0xffff) !== 0xffff) epochSec++;
+    clock.set(epochSec * 1000 + 500 - performance.timeOrigin);
+    const beforeWrap = sendSenderReport();
+    clock.advance(1000);
+    const afterWrap = sendSenderReport();
+    expect(lsrOf(beforeWrap) >>> 16).toBe(0xffff);
+    expect(lsrOf(afterWrap) >>> 16).toBe(0x0000);
+
+    // Act: ラップ前の SR を参照する RR を受け取り、続けてラップ後の SR を参照する RR を受け取る。
+    clock.advance(200);
+    receiveReport({ lsr: lsrOf(beforeWrap), dlsr: dlsrUnits(1) });
+    const first = await remoteInboundRtpStats(sender);
+    receiveReport({ lsr: lsrOf(afterWrap), dlsr: dlsrUnits(0.125) });
+    const second = await remoteInboundRtpStats(sender);
+
+    // Assert: それぞれ自分の SR を基準に 200ms / 75ms と計算される。
+    expect(first?.totalRoundTripTime).toBeCloseTo(0.2, 4);
+    expect(second?.totalRoundTripTime).toBeCloseTo(0.2 + 0.075, 4);
+    expect(second?.roundTripTimeMeasurements).toBe(2);
+  });
+
+  test("DLSR が SR からの経過時間より大きい (負の RTT) サンプルは棄却する", async () => {
+    const { sender, clock, sendSenderReport, receiveReport } = arrangeSender();
+    const sr = sendSenderReport();
+
+    // Act: SR の 200ms 後に、DLSR = 500ms の RR を受け取る。
+    clock.advance(200);
+    receiveReport({ lsr: lsrOf(sr), dlsr: dlsrUnits(0.5) });
+
+    // Assert: 負の RTT は記録されない。
+    const stats = await remoteInboundRtpStats(sender);
+    expect(stats?.roundTripTime).toBeUndefined();
+    expect(stats?.totalRoundTripTime).toBe(0);
+    expect(stats?.roundTripTimeMeasurements).toBe(0);
+  });
+
+  test("DLSR = 0 (即時応答) の RR も RTT を記録する", async () => {
+    const { sender, clock, sendSenderReport, receiveReport } = arrangeSender();
+    const sr = sendSenderReport();
+
+    // Act: SR の 80ms 後に、DLSR = 0 の RR を受け取る。
+    clock.advance(80);
+    receiveReport({ lsr: lsrOf(sr), dlsr: 0 });
+
+    // Assert: RTT = 80ms が記録される。
+    const stats = await remoteInboundRtpStats(sender);
+    expect(stats?.roundTripTime).toBeCloseTo(0.08, 4);
+    expect(stats?.roundTripTimeMeasurements).toBe(1);
+  });
+
+  test("複数サンプルで roundTripTime は EWMA、total は合計、measurements は件数になる", async () => {
+    const { sender, clock, sendSenderReport, receiveReport } = arrangeSender();
+    const a = sendSenderReport();
+    clock.advance(500);
+    const b = sendSenderReport();
+
+    // Act: B を参照する RR (RTT 100ms) の後に、遅れた A を参照する RR (RTT 300ms) を受け取る。
+    clock.advance(200);
+    receiveReport({ lsr: lsrOf(b), dlsr: dlsrUnits(0.1) });
+    clock.advance(100);
+    receiveReport({ lsr: lsrOf(a), dlsr: dlsrUnits(0.5) });
+
+    // Assert: EWMA (α = 0.85) と合計・件数が更新される。
+    const stats = await remoteInboundRtpStats(sender);
+    expect(stats?.roundTripTime).toBeCloseTo(0.85 * 0.1 + 0.15 * 0.3, 4);
+    expect(stats?.totalRoundTripTime).toBeCloseTo(0.4, 4);
+    expect(stats?.roundTripTimeMeasurements).toBe(2);
+  });
+
+  test("LSR = 0 の RR は RTT を更新せず、packetsLost / fractionLost は更新する", async () => {
+    const { sender, clock, sendSenderReport, receiveReport } = arrangeSender();
+    sendSenderReport();
+
+    // Act: SR 未受信 (LSR = 0) の RR を受け取る。
+    clock.advance(300);
+    receiveReport({ lsr: 0, dlsr: 0, packetsLost: 3, fractionLost: 64 });
+
+    // Assert: 損失統計だけが更新される。
+    const stats = await remoteInboundRtpStats(sender);
+    expect(stats?.packetsLost).toBe(3);
+    expect(stats?.fractionLost).toBe(0.25);
+    expect(stats?.roundTripTime).toBeUndefined();
+    expect(stats?.roundTripTimeMeasurements).toBe(0);
+  });
+
+  test("runRtcp が実際に送った SR を参照する RR から RTT を計算する", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    const { sender, clock, sendRtcp, receiveReport } = arrangeSender();
+
+    // Act: RTP 送出で runRtcp を起動し、最初の SR の送出を待つ。
+    await sender.sendRtp(createRtpPacket(1, 480000));
+    clock.advance(700);
+    await vi.waitFor(() => expect(sendRtcp).toHaveBeenCalled(), {
+      timeout: 3000,
+    });
+    const sr = sendRtcp.mock.calls[0][0][0] as RtcpSrPacket;
+
+    // Act: 送られた SR の 150ms 後に、100ms 保持した RR を受け取る。
+    clock.advance(150);
+    receiveReport({ lsr: lsrOf(sr), dlsr: dlsrUnits(0.1) });
+
+    // Assert: SR の送信時刻を基準に RTT = 50ms が記録される。
+    const stats = await remoteInboundRtpStats(sender);
+    expect(stats?.roundTripTime).toBeCloseTo(0.05, 4);
+    expect(stats?.roundTripTimeMeasurements).toBe(1);
   });
 });
