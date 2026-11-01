@@ -1985,19 +1985,28 @@ export class Connection implements IceConnection {
    * An agent that becomes controlling while its checks run nominates (RFC
    * 8445 §8.1.1): a pair that already succeeded while it was controlled
    * carried no USE-CANDIDATE, and neither side checks a succeeded pair again,
-   * so without this the checklist waits for a nomination forever. Check the
-   * best valid pair again; the check carries USE-CANDIDATE now.
+   * so without this the checklist waits for a nomination forever. A UDP pair
+   * is checked again (the check carries USE-CANDIDATE now); a TCP pair goes
+   * through the regular nomination its checks use (`nominateTcpPairIfReady`).
    */
   private nominateValidPairAfterRoleSwitch() {
-    if (!this.checksBegun || this.nominated || this.remoteIsLite) return;
+    if (
+      !this.checksBegun ||
+      this.nominated ||
+      this.nominating ||
+      this.remoteIsLite
+    ) {
+      return;
+    }
     const pair = this.checkList.find(
-      (p) =>
-        p.state === CandidatePairState.SUCCEEDED &&
-        !p.handle &&
-        !this.isTcpPair(p),
+      (p) => p.state === CandidatePairState.SUCCEEDED && !p.handle,
     );
     if (!pair) return;
     log("nominate after role switch", pair.toJSON());
+    if (this.isTcpPair(pair)) {
+      this.nominateTcpPairIfReady();
+      return;
+    }
     pair.handle = this.checkStart(pair);
   }
 

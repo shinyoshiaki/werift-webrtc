@@ -104,6 +104,39 @@ describe("ICE-TCP nomination", () => {
       await harness.connection.close();
     }
   });
+  test("a TCP pair that succeeded while controlled is nominated after the switch to controlling", async () => {
+    // Arrange: controlled の agent で checks が始まった状態にし、唯一の TCP pair を check で成功させる。
+    const harness = createTcpCheckHarness();
+    const connection = harness.connection as unknown as {
+      switchRole: (iceControlling: boolean) => void;
+      checksBegun: boolean;
+    };
+    connection.switchRole(false);
+    connection.checksBegun = true;
+    const pair = addTcpPair(harness);
+
+    try {
+      await harness.connection.checkStart(pair).awaitable;
+      // controlled の check は nomination を伴わない
+      expect(pair.state).toBe(CandidatePairState.SUCCEEDED);
+      expect(harness.connection.nominated).toBeUndefined();
+      expect(harness.protocol.sentMessages).toHaveLength(1);
+
+      // Act: role conflict の修復と同じく controlling に切り替える。
+      connection.switchRole(true);
+
+      // Assert: 追加の check がなくても、成功済み TCP pair を regular nomination で nominate する。
+      await vi.waitFor(() => expect(harness.connection.nominated).toBe(pair));
+      const [check, nomination] = harness.protocol.sentMessages;
+      expect(harness.protocol.sentMessages).toHaveLength(2);
+      expect(check.attributesKeys).not.toContain("USE-CANDIDATE");
+      expect(check.attributesKeys).toContain("ICE-CONTROLLED");
+      expect(nomination.attributesKeys).toContain("USE-CANDIDATE");
+      expect(nomination.attributesKeys).toContain("ICE-CONTROLLING");
+    } finally {
+      await harness.connection.close();
+    }
+  });
 });
 
 describe("ICE-TCP selected connection", () => {
