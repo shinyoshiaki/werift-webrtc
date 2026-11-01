@@ -87,6 +87,12 @@ const log = debug("werift:packages/webrtc/src/media/rtpSender.ts");
 const RTP_HISTORY_SIZE = 128;
 const DEFAULT_PENDING_RTP_MAX_LENGTH = 256;
 const RTT_ALPHA = 0.85;
+/**
+ * A sent RTP timestamp at most this far behind the SR clock anchor is treated
+ * as reordering (relay jitter, B-frames) and does not move the anchor. A larger
+ * backward step is a source timestamp discontinuity without continuity rewrite.
+ */
+const RTP_CLOCK_ANCHOR_MAX_REORDER_SEC = 3;
 
 export type PendingRtpOptions = {
   /** Queue RTP until DTLS is connected and a codec is set. Default true when this object is passed. */
@@ -175,8 +181,24 @@ export class RTCRtpSender {
   // # stats
   private lastSRtimestamp?: number;
   private lastSentSRTimestamp?: number;
-  private ntpTimestamp = 0n;
-  private rtpTimestamp = 0;
+  /**
+   * NTP<->RTP clock anchor for RTCP Sender Reports (RFC 3550 §6.4.1).
+   * The send time of the first packet of the newest RTP timestamp (output
+   * timeline, after continuity rewrite) approximates that frame's sampling
+   * instant; werift does not know the capture time, so for relayed RTP the
+   * send jitter becomes SR mapping error. Later packets with the same or a
+   * slightly older timestamp (frame fragments, reordered relay packets) and RTX
+   * retransmissions do not move it. A continuity rewrite, a clock rate change
+   * or a backward timestamp step beyond `RTP_CLOCK_ANCHOR_MAX_REORDER_SEC`
+   * resets it (libwebrtc follows the last frame unconditionally).
+   */
+  private rtpClockAnchor?: {
+    /** `performance.now()` when the anchor packet was sent */
+    monotonicMs: number;
+    rtpTimestamp: number;
+    clockRate: number;
+  };
+  private rtpClockAnchorReset = false;
   private octetCount = 0;
   private packetCount = 0;
   private headerBytesSent = 0;
@@ -585,19 +607,7 @@ export class RTCRtpSender {
           signal: this.rtcpCancel.signal,
         });
 
-        const packets: RtcpPacket[] = [
-          new RtcpSrPacket({
-            ssrc: this.ssrc,
-            senderInfo: new RtcpSenderInfo({
-              ntpTimestamp: this.ntpTimestamp,
-              rtpTimestamp: this.rtpTimestamp,
-              packetCount: this.packetCount,
-              octetCount: this.octetCount,
-            }),
-          }),
-        ];
-        this.lastSRtimestamp = compactNtp(this.ntpTimestamp);
-        this.lastSentSRTimestamp = timestampSeconds();
+        const packets: RtcpPacket[] = [this.buildSenderReport()];
 
         if (this.cname) {
           packets.push(
@@ -622,6 +632,64 @@ export class RTCRtpSender {
         }
       }
     } catch (error) {}
+  }
+
+  /**
+   * Build a Sender Report for the instant `nowMonotonicMs` (`performance.now()`).
+   * The NTP timestamp is the wall-clock time of that instant and the RTP
+   * timestamp is extrapolated from the clock anchor to the same instant with
+   * the send clock rate, so an SR sent long after the last RTP packet (idle,
+   * silence suppression) still maps the current time (as libwebrtc does).
+   * Records the LSR of the NTP timestamp actually sent.
+   */
+  private buildSenderReport(nowMonotonicMs = performance.now()) {
+    const ntpTimestamp = ntpTime(performance.timeOrigin + nowMonotonicMs);
+    let rtpTimestamp = 0;
+    const anchor = this.rtpClockAnchor;
+    if (anchor) {
+      const elapsedMs = Math.max(0, nowMonotonicMs - anchor.monotonicMs);
+      rtpTimestamp = uint32Add(
+        anchor.rtpTimestamp,
+        Math.round((elapsedMs * anchor.clockRate) / 1000) % 0x1_0000_0000,
+      );
+    }
+
+    this.lastSRtimestamp = compactNtp(ntpTimestamp);
+    this.lastSentSRTimestamp = timestampSeconds();
+
+    return new RtcpSrPacket({
+      ssrc: this.ssrc,
+      senderInfo: new RtcpSenderInfo({
+        ntpTimestamp,
+        rtpTimestamp,
+        packetCount: this.packetCount,
+        octetCount: this.octetCount,
+      }),
+    });
+  }
+
+  /**
+   * Move the SR clock anchor to a sent packet with a newer timestamp, or to a
+   * packet that steps back further than reordering can explain.
+   */
+  private updateRtpClockAnchor(rtpTimestamp: number, clockRate: number) {
+    const anchor = this.rtpClockAnchor;
+    if (anchor && !this.rtpClockAnchorReset && anchor.clockRate === clockRate) {
+      // 32bit signed difference: handles timestamp wraparound
+      const delta = (rtpTimestamp - anchor.rtpTimestamp) | 0;
+      if (
+        delta <= 0 &&
+        -delta <= clockRate * RTP_CLOCK_ANCHOR_MAX_REORDER_SEC
+      ) {
+        return;
+      }
+    }
+    this.rtpClockAnchorReset = false;
+    this.rtpClockAnchor = {
+      monotonicMs: performance.now(),
+      rtpTimestamp,
+      clockRate,
+    };
   }
 
   /**
@@ -710,6 +778,9 @@ export class RTCRtpSender {
         );
         this.seqOffset = offsets.seqOffset;
         this.timestampOffset = offsets.timestampOffset;
+        // The boundary advances the output timestamp by `timestampStep`
+        // only, not by the elapsed wall-clock time.
+        this.rtpClockAnchorReset = true;
       }
       this.rtpContinuityPending = false;
       this.pendingTimestampStep = 1;
@@ -772,8 +843,10 @@ export class RTCRtpSender {
     }
     header.extensions = header.extensions.sort((a, b) => a.id - b.id);
 
-    this.ntpTimestamp = ntpTimestamp;
-    this.rtpTimestamp = header.timestamp;
+    this.updateRtpClockAnchor(
+      header.timestamp,
+      (this.sendPrimaryCodec ?? codec).clockRate,
+    );
     this.octetCount += payload.length;
     this.headerBytesSent += header.serializeSize;
     this.packetCount = uint32Add(this.packetCount, 1);
