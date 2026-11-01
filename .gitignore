@@ -26,3 +26,4 @@ packages/webrtc/wpt/progress.md
 artifacts/
 .sak
 report.2*.json
+.vitest/
