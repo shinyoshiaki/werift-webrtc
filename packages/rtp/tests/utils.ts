@@ -1,21 +1,26 @@
 import { spawn, spawnSync } from "child_process";
 import { createSocket } from "dgram";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
-import { BufferSource, Input, MP4 } from "mediabunny";
+import { BufferSource, Input, MP4, OGG } from "mediabunny";
 import { tmpdir } from "os";
 import { join } from "path";
 
 import {
   MP4Callback,
+  OggCallback,
+  type OggOption,
+  type OggOutput,
+  type OggTrack,
+  saveToFileSystem,
   type Track,
   WebmCallback,
   type WebmOutput,
   type WebmTrack,
-  saveToFileSystem,
 } from "../src/extra";
 import { vintDecode } from "../src/extra/container/webm/ebml/ebml";
 import type { Mp4Output } from "../src/extra/processor/mp4";
 import { RtcpRrPacket } from "../src/rtcp/rr";
+import { RtcpSenderInfo, RtcpSrPacket } from "../src/rtcp/sr";
 import {
   RtpMediaClock,
   type RtpMediaClockOptions,
@@ -24,7 +29,6 @@ import {
   type RtpMediaPacerOptions,
   type RtpMediaPacerTick,
 } from "../src/rtp/mediaClock";
-import { RtcpSenderInfo, RtcpSrPacket } from "../src/rtcp/sr";
 import { RtpHeader, RtpPacket } from "../src/rtp/rtp";
 import {
   ProtectionProfileAeadAes128Gcm,
@@ -403,6 +407,210 @@ export function createMp4Input(buffer: Buffer) {
     source: new BufferSource(buffer),
     formats: [MP4],
   });
+}
+
+export type ParsedOggPage = {
+  headerType: number;
+  granulePosition: bigint;
+  serialNumber: number;
+  pageSequence: number;
+  checksum: number;
+  segmentTable: number[];
+  data: Buffer;
+  /** whole page with the checksum field zeroed, for CRC recomputation */
+  crcInput: Buffer;
+};
+
+/** Parses every Ogg page header field, independent of the OggParser under test. */
+export function parseOggPages(buffer: Buffer): ParsedOggPage[] {
+  const pages: ParsedOggPage[] = [];
+  let offset = 0;
+  while (offset < buffer.length) {
+    if (buffer.subarray(offset, offset + 4).toString("ascii") !== "OggS") {
+      throw new Error(`no OggS at ${offset}`);
+    }
+    const segments = buffer.readUInt8(offset + 26);
+    const segmentTable = [
+      ...buffer.subarray(offset + 27, offset + 27 + segments),
+    ];
+    const headerLength = 27 + segments;
+    const dataLength = segmentTable.reduce((a, b) => a + b, 0);
+    const raw = buffer.subarray(offset, offset + headerLength + dataLength);
+    const crcInput = Buffer.from(raw);
+    crcInput.writeUInt32LE(0, 22);
+    pages.push({
+      headerType: raw.readUInt8(5),
+      granulePosition: raw.readBigInt64LE(6),
+      serialNumber: raw.readUInt32LE(14),
+      pageSequence: raw.readUInt32LE(18),
+      checksum: raw.readUInt32LE(22),
+      segmentTable,
+      data: raw.subarray(headerLength),
+      crcInput,
+    });
+    offset += raw.length;
+  }
+  return pages;
+}
+
+/** Reassembles packets from lacing values, following continued pages. */
+export function oggPagesToPackets(pages: ParsedOggPage[]) {
+  const packets: Buffer[] = [];
+  let pending: Buffer[] = [];
+  for (const page of pages) {
+    let offset = 0;
+    for (const size of page.segmentTable) {
+      pending.push(page.data.subarray(offset, offset + size));
+      offset += size;
+      if (size < 255) {
+        packets.push(Buffer.concat(pending));
+        pending = [];
+      }
+    }
+  }
+  return packets;
+}
+
+export function oggOutputsToBuffer(outputs: OggOutput[]) {
+  return Buffer.concat(
+    outputs.flatMap((output) => (output.saveToFile ? [output.saveToFile] : [])),
+  );
+}
+
+export async function collectOggOutputs(
+  act: (ogg: OggCallback) => void | Promise<void>,
+  { track = {}, options = {} }: { track?: OggTrack; options?: OggOption } = {},
+) {
+  const outputs: OggOutput[] = [];
+  const ogg = new OggCallback(track, { serialNumber: 0x1234abcd, ...options });
+
+  let resolveDone!: () => void;
+  const done = new Promise<void>((resolve) => {
+    resolveDone = resolve;
+  });
+  ogg.pipe(async (output) => {
+    outputs.push(output);
+    if (output.eol) {
+      resolveDone();
+    }
+  });
+
+  await act(ogg);
+  await withTimeout(done, 5_000);
+  return outputs;
+}
+
+/** 20 ms CELT fullband stereo packets (TOC 0xfc) at the given times (ms). */
+export function createOpusFramesAt(times: number[], payloadSize = 3) {
+  return times.map((time, i) =>
+    createFrame(
+      Buffer.concat([Buffer.from([0xfc]), Buffer.alloc(payloadSize, i & 0xff)]),
+      true,
+      time,
+    ),
+  );
+}
+
+export function createOggInput(buffer: Buffer) {
+  return new Input({
+    source: new BufferSource(buffer),
+    formats: [OGG],
+  });
+}
+
+export function isFfmpegOpusAvailable() {
+  const result = spawnSync("ffmpeg", ["-hide_banner", "-encoders"], {
+    encoding: "utf8",
+  });
+  return (
+    result.status === 0 && /libopus/.test(result.stdout) && isFfprobeAvailable()
+  );
+}
+
+/** Encodes a sine tone with ffmpeg/libopus and returns the Ogg file. */
+export function encodeOggOpusWithFfmpeg(seconds: number, channels = 2) {
+  const result = spawnSync(
+    "ffmpeg",
+    [
+      "-v",
+      "error",
+      "-f",
+      "lavfi",
+      "-i",
+      `sine=frequency=440:duration=${seconds}`,
+      "-ac",
+      String(channels),
+      "-c:a",
+      "libopus",
+      "-frame_duration",
+      "20",
+      "-f",
+      "ogg",
+      "pipe:1",
+    ],
+    { maxBuffer: 64 * 1024 * 1024 },
+  );
+  if (result.status !== 0) {
+    throw new Error(`ffmpeg failed: ${result.stderr}`);
+  }
+  return result.stdout as Buffer;
+}
+
+export type FfprobeAudioResult = {
+  codecName: string;
+  channels: number;
+  sampleRate: number;
+  /** seconds */
+  duration: number;
+  /** stderr of a full ffmpeg decode at `-v error`; empty when it had no errors */
+  decodeErrors: string;
+  /** samples per channel actually produced by a full ffmpeg decode */
+  decodedSamples: number;
+};
+
+/** Probes the first audio stream with ffprobe and fully decodes it with ffmpeg. */
+export function probeOggAudio(buffer: Buffer): FfprobeAudioResult {
+  const dir = mkdtempSync(join(tmpdir(), "werift-rtp-ogg-"));
+  try {
+    const path = join(dir, "output.ogg");
+    writeFileSync(path, buffer);
+    const probe = spawnSync(
+      "ffprobe",
+      [
+        "-v",
+        "error",
+        "-select_streams",
+        "a:0",
+        "-show_entries",
+        "stream=codec_name,channels,sample_rate:format=duration",
+        "-of",
+        "json",
+        path,
+      ],
+      { encoding: "utf8" },
+    );
+    if (probe.status !== 0) {
+      throw new Error(`ffprobe failed: ${probe.stderr}`);
+    }
+    const json = JSON.parse(probe.stdout);
+    const [stream] = json.streams;
+    const decode = spawnSync(
+      "ffmpeg",
+      ["-v", "error", "-i", path, "-f", "s16le", "-c:a", "pcm_s16le", "pipe:1"],
+      { maxBuffer: 256 * 1024 * 1024 },
+    );
+    const channels = Number(stream.channels);
+    return {
+      codecName: stream.codec_name,
+      channels: Number(stream.channels),
+      sampleRate: Number(stream.sample_rate),
+      duration: Number(json.format.duration),
+      decodeErrors: decode.stderr.toString(),
+      decodedSamples: decode.stdout.length / 2 / channels,
+    };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 async function withTimeout<T>(promise: Promise<T>, timeout: number) {
@@ -1112,4 +1320,140 @@ export function createRtpAt(timestamp: number, sequenceNumber = 0) {
     new RtpHeader({ timestamp, sequenceNumber }),
     Buffer.alloc(0),
   );
+}
+
+/**シード固定の疑似乱数 (mulberry32)。0 以上 1 未満を返す */
+export function createPrng(seed: number) {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let t = state;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+export type JitterStream = {
+  startSeq: number;
+  startTs: number;
+  /**RTP timestamp increment per packet */
+  step: number;
+};
+
+/**index 番目のパケット。payload に index を入れて識別できるようにする */
+export function createJitterRtp(index: number, stream: JitterStream) {
+  const payload = Buffer.alloc(4);
+  payload.writeUInt32BE(index);
+  return new RtpPacket(
+    new RtpHeader({
+      sequenceNumber: (stream.startSeq + index) & 0xffff,
+      timestamp: (stream.startTs + index * stream.step) >>> 0,
+    }),
+    payload,
+  );
+}
+
+export type JitterRun = {
+  /**出力された RTP の index (出力順) */
+  output: number[];
+  /**欠落通知を index の範囲に直したもの (出力順) */
+  lost: { from: number; to: number }[];
+  /**rtp と欠落通知を出力順に並べたもの */
+  events: ({ rtp: number } | { lost: { from: number; to: number } })[];
+};
+
+/**到着順に jitter buffer へ入力し、最後に eol を入れて出力を集める */
+export function runJitterBuffer(
+  jitterBuffer: {
+    processInput: (input: { rtp?: RtpPacket; eol?: boolean }) => {
+      rtp?: RtpPacket;
+      isPacketLost?: { from: number; to: number };
+    }[];
+  },
+  arrivals: RtpPacket[],
+  stream: JitterStream,
+  { eol = true }: { eol?: boolean } = {},
+): JitterRun {
+  const toIndex = (seq: number) => (seq - stream.startSeq) & 0xffff;
+  const run: JitterRun = { output: [], lost: [], events: [] };
+  const collect = (outputs: ReturnType<typeof jitterBuffer.processInput>) => {
+    for (const out of outputs) {
+      if (out.rtp) {
+        const index = out.rtp.payload.readUInt32BE(0);
+        run.output.push(index);
+        run.events.push({ rtp: index });
+      }
+      if (out.isPacketLost) {
+        const lost = {
+          from: toIndex(out.isPacketLost.from),
+          to: toIndex(out.isPacketLost.to),
+        };
+        run.lost.push(lost);
+        run.events.push({ lost });
+      }
+    }
+  };
+  for (const rtp of arrivals) {
+    collect(jitterBuffer.processInput({ rtp }));
+  }
+  if (eol) {
+    collect(jitterBuffer.processInput({ eol: true }));
+  }
+  return run;
+}
+
+/**index の並びから到着順のパケット列を作る */
+export function createJitterArrivals(order: number[], stream: JitterStream) {
+  return order.map((index) => createJitterRtp(index, stream));
+}
+
+/**
+ * 欠落・重複・入れ替わりを含む到着順を乱数で作る。
+ * 各パケットは本来の位置から最大 maxDelay パケット分だけ遅れて届く。
+ * 先頭パケットは基準になるため必ず最初に届く。
+ */
+export function createRandomJitterOrder({
+  count,
+  rng,
+  lossRate,
+  duplicateRate,
+  maxDelay,
+  duplicateMaxDelay = maxDelay,
+}: {
+  count: number;
+  rng: () => number;
+  lossRate: number;
+  duplicateRate: number;
+  maxDelay: number;
+  duplicateMaxDelay?: number;
+}) {
+  const keyed: { index: number; key: number }[] = [{ index: 0, key: -1 }];
+  const received = new Set<number>([0]);
+  for (let index = 1; index < count; index++) {
+    if (rng() < lossRate) {
+      continue;
+    }
+    received.add(index);
+    keyed.push({ index, key: index + rng() * maxDelay });
+    if (rng() < duplicateRate) {
+      keyed.push({ index, key: index + rng() * duplicateMaxDelay });
+    }
+  }
+  keyed.sort((a, b) => a.key - b.key);
+  return {
+    order: keyed.map((k) => k.index),
+    received: [...received].sort((a, b) => a - b),
+  };
+}
+
+/**昇順の index 列から、間にある欠落区間を求める */
+export function findMissingRanges(indices: number[]) {
+  const ranges: { from: number; to: number }[] = [];
+  for (let i = 1; i < indices.length; i++) {
+    if (indices[i] - indices[i - 1] > 1) {
+      ranges.push({ from: indices[i - 1] + 1, to: indices[i] - 1 });
+    }
+  }
+  return ranges;
 }
