@@ -31,6 +31,8 @@ export class SecureTransportManager {
   iceConnectionState: RTCIceConnectionState = "new";
   iceGatheringState: IceGathererState = "new";
   certificate?: RTCCertificate;
+  /**Generation of this peer connection's own certificate, shared by concurrent createOffer / createAnswer calls */
+  private certificatePromise?: Promise<RTCCertificate>;
 
   readonly iceGatheringStateChange = new Event<[IceGathererState]>();
   readonly iceConnectionStateChange = new Event<[RTCIceConnectionState]>();
@@ -700,9 +702,26 @@ export class SecureTransportManager {
     return stats;
   }
 
+  /**
+   * Without `certificates` / `dtls.keys`, `certificateScope` decides the default:
+   * - `"process"` (default): the certificate shared by the whole process.
+   * - `"peerConnection"`: a certificate generated for this peer connection (like browsers),
+   *   kept for its lifetime; every DTLS transport of this peer connection uses it.
+   */
   async ensureCerts() {
     if (!this.certificate) {
-      this.certificate = await RTCDtlsTransport.SetupCertificate();
+      if (this.config.certificateScope === "peerConnection") {
+        this.certificatePromise ??= RTCDtlsTransport.generateCertificate();
+        try {
+          this.certificate ??= await this.certificatePromise;
+        } catch (error) {
+          // let the next createOffer / createAnswer retry the generation
+          this.certificatePromise = undefined;
+          throw error;
+        }
+      } else {
+        this.certificate = await RTCDtlsTransport.SetupCertificate();
+      }
     }
 
     for (const dtlsTransport of this.dtlsTransports) {
