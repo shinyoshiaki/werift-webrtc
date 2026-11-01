@@ -493,7 +493,19 @@ export function mergePeerConfiguration(
   // optional TURN settings (deepMerge skips undefined).
   for (const key of CLEARABLE_TURN_KEYS) {
     if (Object.hasOwn(normalizedConfig, key) && normalizedConfig[key] == null) {
-      config[key] = undefined;
+      // Union-key writes require the intersection of all indexed property
+      // types. Narrow the key so each optional setting can be cleared safely.
+      switch (key) {
+        case "turnTransport":
+          config.turnTransport = undefined;
+          break;
+        case "turnTlsOptions":
+          config.turnTlsOptions = undefined;
+          break;
+        case "turnUdpFamily":
+          config.turnUdpFamily = undefined;
+          break;
+      }
     }
   }
   config.sctp = {
