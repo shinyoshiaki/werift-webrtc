@@ -1,13 +1,13 @@
 import { wrapRtx } from "../../../rtp/src";
 import {
+  codecParametersToString,
+  defaultPeerConfig,
   MediaStreamTrack,
   type PeerConfig,
   RTCRtpCodecParameters,
   RTCRtpCodingParameters,
   RtpHeader,
   RtpPacket,
-  codecParametersToString,
-  defaultPeerConfig,
 } from "../../src";
 import type { NackHandler } from "../../src/media/receiver/nack";
 import { RTCRtpReceiver } from "../../src/media/rtpReceiver";
@@ -148,4 +148,43 @@ export function createRtxRtpPacket(
 
 export function getReceiverNack(receiver: RTCRtpReceiver) {
   return (receiver as unknown as { nack: NackHandler }).nack;
+}
+
+/** One `onReceiveRtp` delivery captured by {@link collectReceivedRtp}. */
+export interface ReceivedRtp {
+  seq: number;
+  type?: string;
+  payloadLen: number;
+}
+
+/** Arrange: record every `track.onReceiveRtp` delivery. */
+export function collectReceivedRtp(track: MediaStreamTrack): ReceivedRtp[] {
+  const received: ReceivedRtp[] = [];
+  track.onReceiveRtp.subscribe((rtp, _ext, info) => {
+    received.push({
+      seq: rtp.header.sequenceNumber,
+      type: info?.type,
+      payloadLen: rtp.payload.length,
+    });
+  });
+  return received;
+}
+
+/** `m<seq>` = media packet, `p<seq>` = padding-only packet. */
+export type MediaOrPadding = `${"m" | "p"}${number}`;
+
+/** Act: hand media / padding-only packets to the receiver in order. */
+export function receiveMediaOrPadding(
+  receiver: RTCRtpReceiver,
+  packets: MediaOrPadding[],
+) {
+  for (const p of packets) {
+    const sequenceNumber = Number(p.slice(1));
+    receiver.handleRtpBySsrc(
+      p[0] === "m"
+        ? createMediaRtpPacket({ sequenceNumber })
+        : createPaddingOnlyRtpPacket({ sequenceNumber }),
+      {},
+    );
+  }
 }

@@ -183,7 +183,7 @@
 | 実行 | `cd packages/webrtc && npm run test:sim`（明示実行のみ） |
 | CI | **対象外**。`npm test` / ルート `npm run ci` には含めない |
 | 構成 | 仮想ボトルネック（帯域上限・遅延・キュー溢れロス）+ TWCC 交渉 + `GccBandwidthEstimator` 差し替え |
-| 検証観点 | (1) 容量超過送信でドロップ発生と `onAvailableBitrate` 低下 (2) 推定帯域への追従後に追加ドロップが減少 (3) 容量内低レートではほぼロスしない |
+| 検証観点 | (1) 容量超過送信でドロップ発生と `onAvailableBitrate` 低下 (2) 推定帯域への追従後に追加ドロップが減少 (3) 容量内低レートではほぼロスしない。シナリオはこの 2 本（(1)(2) と (3)）。feedback 途絶・容量回復は決定的な制御応答テストで確かめる（§2.12） |
 
 実装上の前提修正（必要に応じて）:
 
@@ -396,6 +396,32 @@ RTP パケット生成・DTLS 送信・token-bucket 待ちは sender に残す�
 - 統合後の故障注入（確認後に元へ戻した）: padding を media SSRC で送る（2 件失敗）、padding を octetCount に数える（1 件）、cluster を 1 burst で打ち切る（1 件）、padding の SentInfo.size をずらす（1 件）、ProcessInterval timer を止めない（2 件）、dispose で `seqToSendInfo` を消さない（1 件）。
   - padding ループの世代・stop 判定を外す故障は、統合前のテストでも検出できなかった。dispose が probe を止め、pending が 0 になって結果が変わらないためで（disposed ガードを外しても同じ）、統合で失ったものではない。
 - 結果: 1,778 行・45 件 → 1,095 行・37 件。`twccTestUtils.ts` は 223 行 → 327 行。
+
+#### PBT 以外の追加テストの整理（2026-11-01）
+
+要件: このブランチで追加した PBT 以外のテスト（`bandwidthEstimator.test.ts` を除く）のコード量を減らし、本質的に確認が必要な部分は残す。`src` は変更しない。ユーザー了承: 「低レート probe の間隔」のテストを削除する、peer 間シミュレーションを 4 シナリオから 2 シナリオに減らす。
+
+- 共通化:
+  - 仮想ボトルネック `BottleneckLink` を `packages/webrtc/simulations/helpers/bottleneckLink.ts` の 1 つにまとめた（e2e 版にあった ICE ペイロード種別ごとの統計・二重装着防止を取り込み、e2e の複製を削除）。`e2e/server/simulations/gccTwccChrome.ts` はこれを import する。
+  - `rtpReceiverTestUtils.ts` に `collectReceivedRtp` / `receiveMediaOrPadding` を足した。
+- 表駆動・統合:
+  - `peerConfigBandwidthEstimator.test.ts`: option → estimator のクラスを `test.each` の表にし、`createBandwidthEstimator` も同じ行で確かめる。
+  - `packages/rtp` の不正な RTP の拒否 7 件を 1 つの表にし、各行を `RtpHeader` / `RtpPacket` の両方で確かめる（以前は片方だけの行があった）。RED の切り詰め 2 件を `it.each` にした。
+  - `rtpReceiver.test.ts`: padding-only の配送 4 件 → `test.each` 1 件、padding-only の受信処理 6 件（TWCC 報告・packet / byte 数・NACK・unmute・送信直前表現・RTX）→ 1 シナリオ。
+  - `rtpSender.test.ts`: legacy のバースト 2 件 → 1 件。250ms の probe 待ちテストは共有 Arrange を使う。
+  - 送信キュー・replaceTrack・estimator 差し替えの 4 件は、Arrange（FIFO の保留・probe 予約・pacing）も Act / Assert も異なるため統合しなかった。
+- 他で確かめているので削除したテスト（削除前に故障注入で重複先が失敗することを確認した）:
+  - `twccFeedbackAdapter.test.ts` の「受信確定後の再報告を無視」「span 32768 未満」「legacy の二重加算」→ `tests/pbt/twcc`（受信確定で履歴から消さない故障で 48 件、span 上限なしで 24 件失敗）。「最初の feedback の基準」「古い feedback で基準が後退しない」は、性質テストが検出しない故障（基準を 0 にし、かつ履歴窓での下限をなくす）を検出するので残した。
+  - `rtpSender.test.ts` の転送 padding 3 件（切替直後の padding、padding 300 件、registerTrack の中継）→ 残した「転送では padding も source 相対の番号で中継し、欠番を作らない」と `tests/pbt/sender`。sender は受信種別を見ずに中継するので、転送 padding を捨てる故障は 4 件すべてが同じく検出していた。300 件の件は §2.11 で削除した padding 履歴を守るテストだった。
+  - 「失われた padding の NACK」（140 行）は、padding が RTX SSRC に出るようになって前提がなくなったため、「padding は NACK されても再送せず、media の NACK だけを RTX で再送する」（45 行）に縮めた（padding を cache に入れ、NACK 側の padding 除外も外す故障で失敗）。
+  - 「低レート probe の間隔は sent_bytes/rate に近い」を削除した（libwebrtc と同じ値かを見る種類のテスト、§2.12）。
+  - peer 間シミュレーションの「feedback 途絶」「容量回復」を削除した（制御応答テストと重複）。`peerHarness` の `periodicAlrProbing` 引数（回復シナリオ専用、既定値と同じ）も外した。
+- 性質テストへの移行: `tests/pbt/receiver/`（`WERIFT_RECEIVER`、CI 既定 24 seed × 300 step、`pbt:deep -- --suite receiver` に登録）。
+  - 順着の media / padding 列: 出力 seq = 元の seq − それより前に届いた padding の数（mod 2^16）。実ロスの欠番は残る。
+  - 並べ替え・重複を含む列: 同じ packet は同じ出力 seq、異なる packet は元の順を保って一意。
+  - `ReceiverTWCC`: 順着の TSN（欠番・wrap あり）とランダムな送信点で、受信 TSN はちょうど 1 回受信として報告され、欠番は未受信としてだけ報告される。
+  - 置き換えた例: `rtpReceiver.test.ts` の詰めの表 6 行、`receiverTwcc.test.ts` の gap の往復・16-bit wrap・feedback 境界をまたぐ loss。故障注入（詰めない / 遅延 padding も詰める / 重複 padding を別々に数える / seq を拡張しない / 前回 feedback の続きから報告しない / 報告の seq を 16-bit に丸めない）はすべて性質テストが検出した。送信後に受信バッファを消さない故障は、報告済みの番号を frontier で落とす設計のため結果が変わらず、元の例でも検出していなかった。
+- 結果: 変更したファイル合計で +673 / −1,570 行（新規の性質テスト 262 行を含む）。
 
 #### トレードオフ（了承済み）
 
@@ -625,6 +651,15 @@ set availableBitrate(v: number) {
 - `npm run pbt:deep -- --suite twcc,bwe,sender --seeds 100 --jobs 8`: twcc 600 件・bwe 300 件・sender 200 件、すべて成功。
 - `cd packages/rtp && npx vitest run tests`: 44 ファイル・431 件成功。`npm run type`: 成功。
 - Biome（変更した 3 ファイル）: 指摘なし。
+
+### 検証記録（2026-11-01、PBT 以外の追加テストの整理後）
+
+- 作業開始時のリビジョンは `73ed69121`（未コミット変更なし）。変更はテスト・シミュレーション・`tools/pbt-deep/run.ts`・README・`packages/webrtc/AGENTS.md`・チケットだけで、`src` は変更していない（故障注入の一時変更は戻した）。
+- `cd packages/webrtc && npm run type`: 成功。`npx vitest run tests`: 70 ファイル、1,554 件成功・5 件 skip。
+- `cd packages/rtp && npx vitest run tests`: 522 件成功。`npm run type`: 成功。ルートの `npm run type`: 成功。ルートの `npm run test:small`: 成功。
+- `npm run pbt:deep -- --suite twcc,bwe,sender,receiver --seeds 300 --jobs 8`: twcc 1,800 件・bwe 900 件・sender 600 件・receiver 900 件、すべて成功（12 秒）。
+- `cd packages/webrtc && npm run test:sim`: 2 シナリオ成功（統合した `BottleneckLink` で 2 回実行）。`cd e2e && npm run test:sim`（Chrome）: 1 件成功。
+- Biome（変更したファイル。`e2e` は e2e の設定で）: 指摘なし。ただし `simulations/helpers/peerHarness.ts` の import 順の指摘は HEAD から存在するもので、今回は直していない。
 
 ### ライセンス
 

@@ -22,12 +22,14 @@ import {
 import { RTCRtpReceiver } from "../../src/media/rtpReceiver";
 import { createDtlsTransport } from "../fixture";
 import {
+  collectReceivedRtp,
   createMediaRtpPacket,
   createPaddingOnlyRtpPacket,
   createRtxRtpPacket,
   createVideoReceiver,
   defaultVideoSsrc,
   getReceiverNack,
+  receiveMediaOrPadding,
 } from "./rtpReceiverTestUtils";
 
 const omitProbePaddingConfig = {
@@ -557,292 +559,90 @@ describe("packages/webrtc/src/media/rtpReceiver.ts", () => {
     expect(remoteOutbound.reportsSent).toBe(1);
   });
 
-  test("padding-only is omitted from onReceiveRtp when filter is enabled", () => {
-    // Arrange
-    const { receiver, track } = createVideoReceiver({
-      peerConfig: omitProbePaddingConfig,
-    });
-    const received: { payloadLen: number; type?: string }[] = [];
-    track.onReceiveRtp.subscribe((rtp, _ext, info) => {
-      received.push({ payloadLen: rtp.payload.length, type: info?.type });
-    });
+  test.each([
+    { config: "既定", peerConfig: undefined },
+    { config: "filter false", peerConfig: deliverProbePaddingConfig },
+  ])(
+    "$config では padding-only も wire の seq のまま type padding で届く",
+    ({ peerConfig }) => {
+      // Arrange: filterProbePaddingOnReceiveRtp の既定は false
+      const { receiver, track } = createVideoReceiver({ peerConfig });
+      const received = collectReceivedRtp(track);
 
-    // Act: deSerialize 後の padding-only を受信する
-    receiver.handleRtpBySsrc(
-      createPaddingOnlyRtpPacket({ sequenceNumber: 1 }),
-      {},
-    );
+      // Act: media → padding → media
+      receiveMediaOrPadding(receiver, ["m10", "p11", "m12"]);
 
-    // Assert: 既定では外部イベントに padding を出さない
-    expect(received).toEqual([]);
-  });
+      // Assert: seq は補正せず、padding は空 payload の type padding
+      expect(received).toEqual([
+        { seq: 10, type: "media", payloadLen: 4 },
+        { seq: 11, type: "padding", payloadLen: 0 },
+        { seq: 12, type: "media", payloadLen: 4 },
+      ]);
+    },
+  );
 
-  test("default delivers padding-only with original sequence numbers", () => {
-    // Arrange: filterProbePaddingOnReceiveRtp の既定は false
-    const { receiver, track } = createVideoReceiver();
-    const received: { seq: number; type?: string }[] = [];
-    track.onReceiveRtp.subscribe((rtp, _ext, info) => {
-      received.push({ seq: rtp.header.sequenceNumber, type: info?.type });
-    });
+  // filter 有効時の seq の詰め（遅延・重複・wrap を含む）は tests/pbt/receiver の性質テストで確かめる。
 
-    // Act
-    receiver.handleRtpBySsrc(createMediaRtpPacket({ sequenceNumber: 10 }), {});
-    receiver.handleRtpBySsrc(
-      createPaddingOnlyRtpPacket({ sequenceNumber: 11 }),
-      {},
-    );
-    receiver.handleRtpBySsrc(createMediaRtpPacket({ sequenceNumber: 12 }), {});
-
-    // Assert: wire の seq と type padding がそのまま届く
-    expect(received).toEqual([
-      { seq: 10, type: "media" },
-      { seq: 11, type: "padding" },
-      { seq: 12, type: "media" },
-    ]);
-  });
-
-  test("filterProbePaddingOnReceiveRtp false delivers type padding", () => {
-    // Arrange
-    const { receiver, track } = createVideoReceiver({
-      peerConfig: deliverProbePaddingConfig,
-    });
-    const received: { payloadLen: number; type?: string }[] = [];
-    track.onReceiveRtp.subscribe((rtp, _ext, info) => {
-      received.push({ payloadLen: rtp.payload.length, type: info?.type });
-    });
-
-    // Act
-    receiver.handleRtpBySsrc(
-      createPaddingOnlyRtpPacket({ sequenceNumber: 1 }),
-      {},
-    );
-
-    // Assert: オプションオフでは従来どおり padding イベントを出す
-    expect(received).toEqual([{ payloadLen: 0, type: "padding" }]);
-  });
-
-  test("filterProbePaddingOnReceiveRtp false keeps original sequence numbers", () => {
-    // Arrange
-    const { receiver, track } = createVideoReceiver({
-      peerConfig: deliverProbePaddingConfig,
-    });
-    const seqs: number[] = [];
-    track.onReceiveRtp.subscribe((rtp) => {
-      seqs.push(rtp.header.sequenceNumber);
-    });
-
-    // Act
-    receiver.handleRtpBySsrc(createMediaRtpPacket({ sequenceNumber: 10 }), {});
-    receiver.handleRtpBySsrc(
-      createPaddingOnlyRtpPacket({ sequenceNumber: 11 }),
-      {},
-    );
-    receiver.handleRtpBySsrc(createMediaRtpPacket({ sequenceNumber: 12 }), {});
-
-    // Assert: 補正せず元の seq のまま届く
-    expect(seqs).toEqual([10, 11, 12]);
-  });
-
-  test("filter enabled compacts sequence numbers after skipped probe padding", () => {
-    // Arrange
-    const { receiver, track } = createVideoReceiver({
-      peerConfig: omitProbePaddingConfig,
-    });
-    const seqs: number[] = [];
-    track.onReceiveRtp.subscribe((rtp, _ext, info) => {
-      seqs.push(rtp.header.sequenceNumber);
-      expect(info?.type).toBe("media");
-    });
-
-    // Act: メディア → padding → メディア
-    receiver.handleRtpBySsrc(createMediaRtpPacket({ sequenceNumber: 10 }), {});
-    receiver.handleRtpBySsrc(
-      createPaddingOnlyRtpPacket({ sequenceNumber: 11 }),
-      {},
-    );
-    receiver.handleRtpBySsrc(createMediaRtpPacket({ sequenceNumber: 12 }), {});
-
-    // Assert: padding を飛ばした分だけ seq を詰める
-    expect(seqs).toEqual([10, 11]);
-  });
-
-  test("late padding does not duplicate later media sequence numbers", () => {
-    // Arrange
-    const { receiver, track } = createVideoReceiver({
-      peerConfig: omitProbePaddingConfig,
-    });
-    const seqs: number[] = [];
-    track.onReceiveRtp.subscribe((rtp) => {
-      seqs.push(rtp.header.sequenceNumber);
-    });
-
-    // Act: media 10 → media 12 → 遅延 padding 11 → media 13
-    receiver.handleRtpBySsrc(createMediaRtpPacket({ sequenceNumber: 10 }), {});
-    receiver.handleRtpBySsrc(createMediaRtpPacket({ sequenceNumber: 12 }), {});
-    receiver.handleRtpBySsrc(
-      createPaddingOnlyRtpPacket({ sequenceNumber: 11 }),
-      {},
-    );
-    receiver.handleRtpBySsrc(createMediaRtpPacket({ sequenceNumber: 13 }), {});
-
-    // Assert: 遅延 padding は既に届けた 12 の写像を変えない
-    expect(seqs).toEqual([10, 12, 13]);
-  });
-
-  test("duplicate padding seq is counted once when compacting", () => {
-    // Arrange
-    const { receiver, track } = createVideoReceiver({
-      peerConfig: omitProbePaddingConfig,
-    });
-    const seqs: number[] = [];
-    track.onReceiveRtp.subscribe((rtp) => {
-      seqs.push(rtp.header.sequenceNumber);
-    });
-
-    // Act: 同じ padding seq を2回受けてから media
-    receiver.handleRtpBySsrc(createMediaRtpPacket({ sequenceNumber: 10 }), {});
-    receiver.handleRtpBySsrc(
-      createPaddingOnlyRtpPacket({ sequenceNumber: 11 }),
-      {},
-    );
-    receiver.handleRtpBySsrc(
-      createPaddingOnlyRtpPacket({ sequenceNumber: 11 }),
-      {},
-    );
-    receiver.handleRtpBySsrc(createMediaRtpPacket({ sequenceNumber: 12 }), {});
-
-    // Assert: 重複 padding で2つ分詰めない
-    expect(seqs).toEqual([10, 11]);
-  });
-
-  test("compacts sequence numbers across 16-bit wrap", () => {
-    // Arrange
-    const { receiver, track } = createVideoReceiver({
-      peerConfig: omitProbePaddingConfig,
-    });
-    const seqs: number[] = [];
-    track.onReceiveRtp.subscribe((rtp) => {
-      seqs.push(rtp.header.sequenceNumber);
-    });
-
-    // Act: wrap 直前の media → padding → wrap 後 media
-    receiver.handleRtpBySsrc(
-      createMediaRtpPacket({ sequenceNumber: 65534 }),
-      {},
-    );
-    receiver.handleRtpBySsrc(
-      createPaddingOnlyRtpPacket({ sequenceNumber: 65535 }),
-      {},
-    );
-    receiver.handleRtpBySsrc(createMediaRtpPacket({ sequenceNumber: 0 }), {});
-
-    // Assert: extended seq 上で padding 1つ分だけ詰める
-    expect(seqs).toEqual([65534, 65535]);
-  });
-
-  test("late padding across wrap does not duplicate", () => {
-    // Arrange
-    const { receiver, track } = createVideoReceiver({
-      peerConfig: omitProbePaddingConfig,
-    });
-    const seqs: number[] = [];
-    track.onReceiveRtp.subscribe((rtp) => {
-      seqs.push(rtp.header.sequenceNumber);
-    });
-
-    // Act: 65534 → 0 → 遅延 padding 65535 → 1
-    receiver.handleRtpBySsrc(
-      createMediaRtpPacket({ sequenceNumber: 65534 }),
-      {},
-    );
-    receiver.handleRtpBySsrc(createMediaRtpPacket({ sequenceNumber: 0 }), {});
-    receiver.handleRtpBySsrc(
-      createPaddingOnlyRtpPacket({ sequenceNumber: 65535 }),
-      {},
-    );
-    receiver.handleRtpBySsrc(createMediaRtpPacket({ sequenceNumber: 1 }), {});
-
-    // Assert: wrap をまたいだ遅延 padding でも seq は一意
-    expect(seqs).toEqual([65534, 0, 1]);
-  });
-
-  test("media packets are delivered as type media", () => {
-    // Arrange
-    const { receiver, track } = createVideoReceiver();
-    let type: string | undefined;
-    track.onReceiveRtp.subscribe((_rtp, _ext, info) => {
-      type = info?.type;
-    });
-
-    // Act
-    receiver.handleRtpBySsrc(createMediaRtpPacket({ sequenceNumber: 1 }), {});
-
-    // Assert
-    expect(type).toBe("media");
-  });
-
-  test("padding-only with TWCC extension is reported to handleTWCC", () => {
-    // Arrange
-    const { receiver } = createVideoReceiver();
+  test("padding-only は TWCC・packet 数には数え、media としては扱わない", async () => {
+    // Arrange: NACK + RTX 付き video。TWCC の受信は mock で観察する
+    const { receiver, track } = createVideoReceiver({ nack: true, rtx: true });
     const handleTWCC = vi.fn();
     (
       receiver as { receiverTWCC?: { handleTWCC: typeof handleTWCC } }
     ).receiverTWCC = { handleTWCC };
-
-    // Act: probe と同じく transport-wide seq 付き padding
-    receiver.handleRtpBySsrc(
-      createPaddingOnlyRtpPacket({ sequenceNumber: 4 }),
-      {
-        [RTP_EXTENSION_URI.transportWideCC]: 42,
-      },
+    const received = collectReceivedRtp(track);
+    // Arrange: sender と同じ送信直前表現（payload に RFC 3550 padding を載せた wire）
+    const header = new RtpHeader({
+      sequenceNumber: 1,
+      timestamp: 90,
+      payloadType: 96,
+      ssrc: defaultVideoSsrc,
+      padding: true,
+      paddingSize: kProbePaddingPacketBytes,
+    });
+    const wirePayload = appendRfc3550Padding(
+      Buffer.alloc(0),
+      kProbePaddingPacketBytes,
     );
+    const wire = header.serialize(header.serializeSize + wirePayload.length);
+    wirePayload.copy(wire, header.payloadOffset);
 
-    // Assert: padding を TWCC から外さない
+    // Act: probe（TWCC seq 42 付き padding-only）だけが先に届く
+    const probe = RtpPacket.deSerialize(wire);
+    receiver.handleRtpBySsrc(probe, {
+      [RTP_EXTENSION_URI.transportWideCC]: 42,
+    });
+
+    // Assert: 受信側の正規形は空 payload。TWCC には報告するが、padding だけでは unmute しない
+    expect(probe.payload.length).toBe(0);
+    expect(probe.header.paddingSize).toBe(kProbePaddingPacketBytes);
     expect(handleTWCC).toHaveBeenCalledWith(42);
-  });
+    expect(track.muted).toBe(true);
 
-  test("padding-only counts as a packet but not as payload octets", async () => {
-    // Arrange
-    const { receiver, track } = createVideoReceiver();
-
-    // Act: メディア 4 バイトのあと padding-only
+    // Act: media → padding → media → RTX
+    receiveMediaOrPadding(receiver, ["m2", "p3", "m4"]);
     receiver.handleRtpBySsrc(
-      createMediaRtpPacket({
-        sequenceNumber: 1,
-        payload: Buffer.from([1, 2, 3, 4]),
-      }),
+      createRtxRtpPacket(createMediaRtpPacket({ sequenceNumber: 2 }), 97, 0),
       {},
     );
-    receiver.handleRtpBySsrc(
-      createPaddingOnlyRtpPacket({ sequenceNumber: 2 }),
-      {},
-    );
-    const report = await receiver.getStats();
 
-    // Assert: packets は増え、bytes は剥がし後 payload のみ
-    const inbound = Array.from(report.values()).find(
+    // Assert: media で unmute し、RTX は padding の後でも retransmission
+    expect(track.muted).toBe(false);
+    expect(received.map((r) => r.type)).toEqual([
+      "padding",
+      "media",
+      "padding",
+      "media",
+      "retransmission",
+    ]);
+    // Assert: padding の seq は NACK の欠落に見えない
+    expect(getReceiverNack(receiver).lostSeqNumbers).toEqual([]);
+    // Assert: packets には padding も数え、bytes は剥がし後の media payload だけ
+    const inbound = Array.from((await receiver.getStats()).values()).find(
       (stat) => stat.type === "inbound-rtp",
     ) as any;
-    expect(inbound.packetsReceived).toBe(2);
-    expect(inbound.bytesReceived).toBe(4);
-    expect(track.ssrc).toBe(defaultVideoSsrc);
-  });
-
-  test("padding sequence does not look like media loss to NACK", () => {
-    // Arrange: nack 付き video
-    const { receiver } = createVideoReceiver({ nack: true });
-    const nack = getReceiverNack(receiver);
-
-    // Act: メディア → padding → メディア（同一 sequence 空間）
-    receiver.handleRtpBySsrc(createMediaRtpPacket({ sequenceNumber: 1 }), {});
-    receiver.handleRtpBySsrc(
-      createPaddingOnlyRtpPacket({ sequenceNumber: 2 }),
-      {},
-    );
-    receiver.handleRtpBySsrc(createMediaRtpPacket({ sequenceNumber: 3 }), {});
-
-    // Assert: padding を欠落として扱わない
-    expect(nack.lostSeqNumbers).toEqual([]);
+    expect(inbound.packetsReceived).toBe(4);
+    expect(inbound.bytesReceived).toBe(8);
   });
 
   test("padding-only under RED negotiation does not parse RED", () => {
@@ -867,90 +667,6 @@ describe("packages/webrtc/src/media/rtpReceiver.ts", () => {
     // Assert: Red.deSerialize に入らない
     expect(spy).not.toHaveBeenCalled();
     spy.mockRestore();
-  });
-
-  test("padding-only does not unmute; media does", () => {
-    // Arrange
-    const { receiver, track } = createVideoReceiver();
-    expect(track.muted).toBe(true);
-
-    // Act: probe だけ先に届く
-    receiver.handleRtpBySsrc(
-      createPaddingOnlyRtpPacket({ sequenceNumber: 1 }),
-      {},
-    );
-
-    // Assert: padding だけでは unmute しない
-    expect(track.muted).toBe(true);
-
-    // Act: メディア到着
-    receiver.handleRtpBySsrc(createMediaRtpPacket({ sequenceNumber: 2 }), {});
-
-    // Assert
-    expect(track.muted).toBe(false);
-  });
-
-  test("sender-style probe padding deSerializes then handleRTP as padding", () => {
-    // Arrange: 送信直前表現（payload に RFC padding を載せた状態）
-    const { receiver, track } = createVideoReceiver();
-    const header = new RtpHeader({
-      sequenceNumber: 9,
-      timestamp: 90,
-      payloadType: 96,
-      ssrc: defaultVideoSsrc,
-      padding: true,
-      paddingSize: kProbePaddingPacketBytes,
-    });
-    const wirePayload = appendRfc3550Padding(
-      Buffer.alloc(0),
-      kProbePaddingPacketBytes,
-    );
-    const buf = header.serialize(header.serializeSize + wirePayload.length);
-    wirePayload.copy(buf, header.payloadOffset);
-
-    let infoType: string | undefined;
-    track.onReceiveRtp.subscribe((_rtp, _ext, info) => {
-      infoType = info?.type;
-    });
-
-    // Act: 受信側と同じ deSerialize → handleRTP
-    const parsed = RtpPacket.deSerialize(buf);
-    receiver.handleRtpBySsrc(parsed, {});
-
-    // Assert: 正規形は空 payload。既定では type padding として届く
-    expect(parsed.payload.length).toBe(0);
-    expect(parsed.header.paddingSize).toBe(kProbePaddingPacketBytes);
-    expect(infoType).toBe("padding");
-    expect(track.muted).toBe(true);
-  });
-
-  test("RTX unwrap after padding-only still classifies retransmission", () => {
-    // Arrange
-    const { receiver, track } = createVideoReceiver({ rtx: true });
-    const types: string[] = [];
-    track.onReceiveRtp.subscribe((_rtp, _ext, info) => {
-      types.push(info?.type ?? "");
-    });
-
-    // Act
-    receiver.handleRtpBySsrc(
-      createPaddingOnlyRtpPacket({ sequenceNumber: 1 }),
-      {},
-    );
-    receiver.handleRtpBySsrc(
-      createRtxRtpPacket(
-        createMediaRtpPacket({
-          sequenceNumber: 10,
-          payload: Buffer.from([9, 8, 7]),
-        }),
-        97,
-        0,
-      ),
-      {},
-    );
-
-    // Assert: 既定では padding も届き、RTX は retransmission
-    expect(types).toEqual(["padding", "retransmission"]);
   });
 
   test("BUNDLE の複数 receiver は同一 DTLS の ReceiverTWCC を共有する", () => {

@@ -38,43 +38,25 @@ describe("Red", () => {
     expect(() => Red.deSerialize(empty)).toThrow(/truncated/i);
   });
 
-  it("rejects declared blockLength longer than remaining payload", () => {
-    // Arrange: 先頭ブロック長が実データより長い RED
-    const red = new Red();
-    red.blocks.push({
-      block: Buffer.alloc(10, 0x11),
-      blockPT: 97,
-      timestampOffset: 960,
-    });
-    red.blocks.push({
-      block: Buffer.from([0x22, 0x33]),
-      blockPT: 97,
-    });
-    const serialized = red.serialize();
-    const truncated = serialized.subarray(0, serialized.length - 8);
+  // timestampOffset=0 も正当な RED。truthiness で検証を飛ばしてはいけない
+  it.each([960, 0])(
+    "rejects declared blockLength longer than remaining payload (timestampOffset %i)",
+    (timestampOffset) => {
+      // Arrange: 先頭ブロック長が実データより長い RED
+      const red = new Red();
+      red.blocks.push({
+        block: Buffer.alloc(10, 0x11),
+        blockPT: 97,
+        timestampOffset,
+      });
+      red.blocks.push({ block: Buffer.from([0x22, 0x33]), blockPT: 97 });
+      const serialized = red.serialize();
+      const truncated = serialized.subarray(0, serialized.length - 8);
 
-    // Act / Assert: 切り詰めで黙って受理せず明示的に失敗する
-    expect(() => Red.deSerialize(truncated)).toThrow(/truncated/i);
-  });
-
-  it("rejects truncated block even when timestampOffset is 0", () => {
-    // Arrange: timestampOffset=0 は正当な RED。truthiness で検証を飛ばしてはいけない
-    const red = new Red();
-    red.blocks.push({
-      block: Buffer.alloc(10, 0x11),
-      blockPT: 97,
-      timestampOffset: 0,
-    });
-    red.blocks.push({
-      block: Buffer.from([0x22, 0x33]),
-      blockPT: 97,
-    });
-    const serialized = red.serialize();
-    const truncated = serialized.subarray(0, serialized.length - 8);
-
-    // Act / Assert: fBit=1 の blockLength 不足は明示的に失敗する
-    expect(() => Red.deSerialize(truncated)).toThrow(/truncated/i);
-  });
+      // Act / Assert: 切り詰めで黙って受理せず、F=1 の blockLength 不足として失敗する
+      expect(() => Red.deSerialize(truncated)).toThrow(/truncated/i);
+    },
+  );
 
   it("roundtrips a redundant block with timestampOffset 0", () => {
     // Arrange: 同一 timestamp の冗長ブロック

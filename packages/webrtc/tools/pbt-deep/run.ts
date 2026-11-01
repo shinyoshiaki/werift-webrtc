@@ -20,8 +20,9 @@
  *   twcc      tests/pbt/twcc/twccProperty.test.ts, 300 seeds x 3000 steps
  *   bwe       tests/pbt/bwe/bweProperty.test.ts, 300 seeds x 3 phases
  *   sender    tests/pbt/sender/senderProperty.test.ts, 300 seeds x 300 steps
+ *   receiver  tests/pbt/receiver/receiverProperty.test.ts, 300 seeds x 300 steps
  *
- *   npm run pbt:deep -- --suite twcc,bwe,sender
+ *   npm run pbt:deep -- --suite twcc,bwe,sender,receiver
  * The fixed scenes and regression seeds run once in their own shard. Every
  * shard is its own vitest process running one file, so the leak property's
  * process-wide measurements (active resources, heap) never mix with another
@@ -30,12 +31,12 @@
  */
 import { spawn } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { createRequire } from "node:module";
 import { cpus, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { createRequire } from "node:module";
 
 type Suite = "fuzz" | "scenario" | "model" | "leak" | MediaSuite;
-type MediaSuite = "twcc" | "bwe" | "sender";
+type MediaSuite = "twcc" | "bwe" | "sender" | "receiver";
 
 /** Media property tests: one file, seeds from `<prefix>_SEED(S)` (tests/pbt/shared/seeds.ts). */
 const mediaSuites: Record<MediaSuite, { file: string; prefix: string }> = {
@@ -44,6 +45,10 @@ const mediaSuites: Record<MediaSuite, { file: string; prefix: string }> = {
   sender: {
     file: "tests/pbt/sender/senderProperty.test.ts",
     prefix: "WERIFT_SENDER",
+  },
+  receiver: {
+    file: "tests/pbt/receiver/receiverProperty.test.ts",
+    prefix: "WERIFT_RECEIVER",
   },
 };
 type Shard = {
@@ -136,7 +141,8 @@ function shards(suite: Suite): Shard[] {
     }
     case "twcc":
     case "bwe":
-    case "sender": {
+    case "sender":
+    case "receiver": {
       const { file, prefix } = mediaSuites[suite];
       return ranges(seeds).map(({ first, count }) => ({
         label: `${suite} seeds ${first}-${first + count - 1}`,
@@ -289,6 +295,7 @@ async function main() {
     "model",
     "scenario",
     "sender",
+    "receiver",
     "bwe",
     "twcc",
   ];

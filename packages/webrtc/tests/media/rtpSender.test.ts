@@ -2,8 +2,6 @@ import { setTimeout } from "timers/promises";
 
 import { afterEach, describe, expect, test, vi } from "vitest";
 import {
-  codecParametersToString,
-  dePacketizeRtpPackets,
   GccBandwidthEstimator,
   GenericNack,
   kProbePaddingPacketBytes,
@@ -41,7 +39,10 @@ import {
   rfc3550Ntp,
   sentRtpHeaders,
 } from "../fixture";
-import { createVideoReceiver } from "./rtpReceiverTestUtils";
+import {
+  prepareConnectedSender,
+  startGccProbingWithoutSenderPadding,
+} from "./twccTestUtils";
 
 describe("media/rtpSender", () => {
   test("stop releases the subscription on the DTLS transport", () => {
@@ -1482,144 +1483,60 @@ describe("media/rtpSender RTP continuity", () => {
     expect(recovered.header.sequenceNumber).toBe(afterSeq);
   });
 
-  test("失われた padding の NACK は RTX せず、受信側 VP8 に空 payload を流さない", async () => {
-    // Arrange: VP8 + NACK/RTX。Chrome sim は NACK 無効なのでここが回帰口。
-    const dtls = createDtlsTransport();
-    dtls.state = "connected";
-    const sender = new RTCRtpSender("video");
-    sender.setDtlsTransport(dtls);
-    sender.prepareSend({
-      codecs: [
-        new RTCRtpCodecParameters({
-          mimeType: "video/VP8",
-          clockRate: 90000,
-          payloadType: 96,
-        }),
-        new RTCRtpCodecParameters({
-          mimeType: "video/rtx",
-          clockRate: 90000,
-          payloadType: 97,
-          parameters: codecParametersToString({ apt: 96 }),
-        }),
-      ],
-      headerExtensions: [],
-    });
-    const sent: { payload: Buffer; header: RtpHeader }[] = [];
-    const sendRtp = vi
-      .spyOn(dtls, "sendRtp")
-      .mockImplementation(async (payload: Buffer, header: RtpHeader) => {
-        sent.push({
-          payload: Buffer.from(payload),
-          header: new RtpHeader({
-            ...header,
-            extensions: [...header.extensions],
-          }),
-        });
-        return payload.length + header.serializeSize;
-      });
-    started.push(sender);
-
-    const { receiver, track } = createVideoReceiver({
-      nack: true,
+  test("probe padding は NACK されても再送せず、media の NACK だけを RTX で再送する", async () => {
+    // Arrange: VP8 + RTX の sender で media 1 本と probe padding 1 本を送る
+    const { sender, sendRtp } = createConnectedRtpSender({
+      kind: "video",
+      codec: createVideoCodec(),
       rtx: true,
-      ssrc: sender.ssrc,
-      rtxSsrc: sender.rtxSsrc,
     });
-    const received: { packet: RtpPacket; type?: string }[] = [];
-    track.onReceiveRtp.subscribe((rtp, _ext, info) => {
-      received.push({ packet: rtp, type: info?.type });
-    });
-
     const vp8 = Buffer.from([0x10, 0x01, 0x02, 0x03]);
-    await sender.sendRtp(
-      new RtpPacket(
-        new RtpHeader({
-          sequenceNumber: 10,
-          timestamp: 90000,
-          payloadType: 96,
-          payloadOffset: 12,
-        }),
-        vp8,
-      ),
-    );
-    const mediaWire = sent[0]!;
-    const mediaSeq = mediaWire.header.sequenceNumber;
-
+    await sender.sendRtp(createRtpPacket(10, 90000, vp8));
     await (sender as any).sendRtpInternal(
       new RtpPacket(
         new RtpHeader({
-          sequenceNumber: 0,
-          timestamp: 0,
           payloadType: 96,
-          marker: false,
           padding: true,
           paddingSize: kProbePaddingPacketBytes,
-          payloadOffset: 12,
         }),
         Buffer.alloc(0),
       ),
       { injectProbePadding: false, isProbePadding: true },
     );
-    const padSeq = sent[1]!.header.sequenceNumber;
-    expect(sent[1]!.header.padding).toBe(true);
-
-    // Act: media は届け、padding は損失したことにして NACK する
-    receiver.handleRtpBySsrc(
-      new RtpPacket(
-        new RtpHeader({
-          ...mediaWire.header,
-          ssrc: sender.ssrc,
-          padding: false,
-        }),
-        vp8,
-      ),
-      {},
-    );
+    const [media, padding] = sentRtpHeaders(sendRtp);
+    expect(padding.padding).toBe(true);
+    expect(padding.ssrc).toBe(sender.rtxSsrc);
     sendRtp.mockClear();
-    sent.length = 0;
-    sender.handleRtcpPacket(
-      new RtcpTransportLayerFeedback({
-        feedback: new GenericNack({
-          lost: [padSeq],
-          senderSsrc: 1,
-          mediaSourceSsrc: sender.ssrc,
+    const nack = (mediaSourceSsrc: number, lost: number) =>
+      sender.handleRtcpPacket(
+        new RtcpTransportLayerFeedback({
+          feedback: new GenericNack({
+            lost: [lost],
+            senderSsrc: 1,
+            mediaSourceSsrc,
+          }),
         }),
-      }),
-    );
+      );
+
+    // Act: padding の番号を media / RTX どちらの SSRC 宛てに NACK しても
+    nack(sender.ssrc, padding.sequenceNumber);
+    nack(sender.rtxSsrc, padding.sequenceNumber);
     await setTimeout(0);
 
-    // Assert: padding は RTX 対象外
+    // Assert: padding は再送対象にならない
     expect(sendRtp).not.toHaveBeenCalled();
 
-    // Act: 万一 RTX が出ても受信→VP8 に空 payload を流さない
-    for (const pkt of sent) {
-      receiver.handleRtpBySsrc(new RtpPacket(pkt.header, pkt.payload), {});
-    }
-
-    // Assert: 受信した media/retransmission は VP8 としてパースできる
-    expect(received.some((r) => r.type === "retransmission")).toBe(false);
-    for (const r of received) {
-      if (r.type === "padding") continue;
-      expect(() => dePacketizeRtpPackets("VP8", [r.packet])).not.toThrow();
-      expect(r.packet.payload.length).toBeGreaterThan(0);
-    }
-    expect(
-      received.some((r) => r.packet.header.sequenceNumber === mediaSeq),
-    ).toBe(true);
-
-    // Act: media の NACK は従来どおり RTX する
-    sender.handleRtcpPacket(
-      new RtcpTransportLayerFeedback({
-        feedback: new GenericNack({
-          lost: [mediaSeq],
-          senderSsrc: 1,
-          mediaSourceSsrc: sender.ssrc,
-        }),
-      }),
-    );
+    // Act: media の番号を NACK する
+    nack(sender.ssrc, media.sequenceNumber);
     await setTimeout(0);
-    expect(sendRtp).toHaveBeenCalled();
-    expect(sentRtpHeaders(sendRtp)[0]!.payloadType).toBe(97);
+
+    // Assert: RTX（PT 97）で、OSN 2 バイト + 元の VP8 payload を再送する
+    expect(sendRtp).toHaveBeenCalledTimes(1);
+    const [payload, header] = sendRtp.mock.calls[0]!;
+    expect(header.payloadType).toBe(97);
+    expect(header.ssrc).toBe(sender.rtxSsrc);
+    expect(payload.readUInt16BE(0)).toBe(media.sequenceNumber);
+    expect(payload.subarray(2)).toEqual(vp8);
   });
 
   test("RTCP SR の rtpTimestamp は書き換え後値で、TWCC はメディア seq と独立に進む", async () => {
@@ -1710,23 +1627,6 @@ describe("media/rtpSender RTP continuity", () => {
     expect(pads).toHaveLength(2);
     expect(pads[0]!.timestamp).toBe(mediaTs);
     expect(pads[1]!.timestamp).toBe(mediaTs);
-  });
-
-  test("registerTrack は padding-only も develop と同じく中継する", () => {
-    // Arrange: SFU 的に受信 track を sender へつなぐ
-    const track = new MediaStreamTrack({ kind: "video", remote: true });
-    const dtls = createDtlsTransport();
-    const sender = new RTCRtpSender(track);
-    sender.setDtlsTransport(dtls);
-    const spy = vi.spyOn(sender, "sendRtp");
-    const rtp = createRtpPacket();
-
-    // Act: padding と media を流す
-    track.onReceiveRtp.execute(rtp, undefined, { type: "padding" });
-    track.onReceiveRtp.execute(rtp, undefined, { type: "media" });
-
-    // Assert: 種別で間引かず、どちらも同じ seq 変換で中継する
-    expect(spy).toBeCalledTimes(2);
   });
 
   test("stop は DTLS state listener を解除する", () => {
@@ -1871,57 +1771,23 @@ describe("media/rtpSender RTP continuity", () => {
   });
 
   test("probe next_send が 250ms 先でも 100ms で早出ししない", async () => {
-    // Arrange: reserve を now+250 に固定し、実送信時刻を測る
+    // Arrange: 実送信時刻を測り、reserve の next_send を now+250 に固定する
     const gcc = new GccBandwidthEstimator(10_000);
-    const dtls = createDtlsTransport();
-    (dtls as { state: string }).state = "connected";
+    const { sender, dtls } = await prepareConnectedSender(gcc);
     const sendTimes: number[] = [];
-    dtls.sendRtp = vi.fn(async (_p: Buffer, header: RtpHeader) => {
+    const write = dtls.sendRtp.bind(dtls);
+    dtls.sendRtp = vi.fn(async (payload: Buffer, header: RtpHeader) => {
       sendTimes.push(milliTime());
-      return 80;
+      return write(payload, header);
     }) as typeof dtls.sendRtp;
-    const sender = new RTCRtpSender("video");
-    sender.setDtlsTransport(dtls);
-    sender.setBandwidthEstimator(gcc);
-    sender.prepareSend({
-      codecs: [
-        new RTCRtpCodecParameters({
-          mimeType: "video/VP8",
-          clockRate: 90000,
-          payloadType: 96,
-        }),
-        // probe padding は RTX SSRC で送る
-        new RTCRtpCodecParameters({
-          mimeType: "video/rtx",
-          clockRate: 90000,
-          payloadType: 97,
-          parameters: "apt=96",
-        }),
-      ],
-      headerExtensions: [
-        new RTCRtpHeaderExtensionParameters({
-          id: 3,
-          uri: RTP_EXTENSION_URI.transportWideCC,
-        }),
-      ],
-      muxId: "0",
-      rtcp: { cname: "t", mux: true },
-    });
-    const suppress = vi
-      .spyOn(sender, "maybeInjectProbePadding")
-      .mockResolvedValue(0);
-    gcc.setNetworkAvailable(true);
-    gcc.process(milliTime());
-    suppress.mockRestore();
+    startGccProbingWithoutSenderPadding(sender, gcc, milliTime());
     const orig = gcc.reserveOutgoingProbe.bind(gcc);
     gcc.reserveOutgoingProbe = (nowMs: number) => {
       const r = orig(nowMs);
-      if (!r) return r;
-      return { ...r, nextSendTimeMs: milliTime() + 250 };
+      return r && { ...r, nextSendTimeMs: milliTime() + 250 };
     };
 
     // Act
-    sendTimes.length = 0;
     const t0 = milliTime();
     await sender.maybeInjectProbePadding();
 
@@ -1930,76 +1796,23 @@ describe("media/rtpSender RTP continuity", () => {
     expect(sendTimes[0]! - t0).toBeGreaterThanOrEqual(200);
   }, 10_000);
 
-  test("低レート probe のパケット間隔は sent_bytes/rate に近い", async () => {
-    // Arrange: start=5kbps → 3x=15kbps。224B なら約 119ms
-    const gcc = new GccBandwidthEstimator(5_000);
-    const dtls = createDtlsTransport();
-    (dtls as { state: string }).state = "connected";
-    const sendTimes: number[] = [];
-    dtls.sendRtp = vi.fn(async (payload: Buffer, header: RtpHeader) => {
-      sendTimes.push(milliTime());
-      return payload.length + header.serializeSize;
-    }) as typeof dtls.sendRtp;
-    const sender = new RTCRtpSender("video");
-    sender.setDtlsTransport(dtls);
-    sender.prepareSend({
-      codecs: [
-        new RTCRtpCodecParameters({
-          mimeType: "video/VP8",
-          clockRate: 90000,
-          payloadType: 96,
-        }),
-        // probe padding は RTX SSRC で送る
-        new RTCRtpCodecParameters({
-          mimeType: "video/rtx",
-          clockRate: 90000,
-          payloadType: 97,
-          parameters: "apt=96",
-        }),
-      ],
-      headerExtensions: [
-        new RTCRtpHeaderExtensionParameters({
-          id: 3,
-          uri: RTP_EXTENSION_URI.transportWideCC,
-        }),
-      ],
-      muxId: "0",
-      rtcp: { cname: "t", mux: true },
-    });
-    const suppress = vi
-      .spyOn(sender, "maybeInjectProbePadding")
-      .mockResolvedValue(0);
-    sender.setBandwidthEstimator(gcc);
-    gcc.setBitrates(5_000, 5_000, 1e9);
-    gcc.setNetworkAvailable(true);
-    gcc.process(milliTime());
-    suppress.mockRestore();
-    (gcc as any).probe.queue = [];
-
-    // Act: 先頭 2 パケット
-    sendTimes.length = 0;
-    await sender.maybeInjectProbePadding();
-
-    // Assert
-    expect(sendTimes.length).toBeGreaterThanOrEqual(2);
-    const gap = sendTimes[1]! - sendTimes[0]!;
-    const expected = (224 * 8 * 1000) / 15_000;
-    expect(gap).toBeGreaterThan(expected * 0.6);
-    expect(gap).toBeLessThan(expected * 1.8);
-  }, 10_000);
-  test("legacy は DTLS 即完了の 100 パケットバーストを欠落させず送る", async () => {
-    // Arrange: 既定 (legacy) の video sender
+  test("legacy は DTLS 書き込みが保留中でもバーストを欠落させず、キューに溜めず直接送る", async () => {
+    // Arrange: 既定 (legacy) の video sender。1 件目の DTLS 書き込みを保留する
     const { sender, sendRtp } = createConnectedRtpSender({ kind: "video" });
+    const { release } = holdFirstDtlsWrite(sendRtp);
 
-    // Act: 送信完了を待たず 100 パケットを同時投入
-    await Promise.all(
-      Array.from({ length: 100 }, (_, i) =>
-        sender.sendRtp(createRtpPacket(i, 3000, Buffer.alloc(1200))),
-      ),
+    // Act: 保留中に、送信完了を待たず 100 パケットを同時投入する
+    const sends = Array.from({ length: 100 }, (_, i) =>
+      sender.sendRtp(createRtpPacket(i, 3000, Buffer.alloc(1200))),
     );
+    await Promise.all(sends.slice(1));
 
-    // Assert: 輻輳が無いので 1 本も破棄されない
+    // Assert: develop と同じく保留を待たずに全件 DTLS へ渡す（破棄も送信キューもない）
     expect(sendRtp).toHaveBeenCalledTimes(100);
+    expect((sender as any).outgoingRunning).toBe(false);
+    release();
+    await sends[0];
+    sender.stop();
   });
 
   test("転送では padding も source 相対の番号で中継し、欠番を作らない", async () => {
@@ -2016,71 +1829,10 @@ describe("media/rtpSender RTP continuity", () => {
     track.onReceiveRtp.execute(createRtpPacket(1002, 3000, Buffer.alloc(10)));
     await setTimeout(10);
 
-    // Assert: padding を間引かないので番号は入力どおり連続する
+    // Assert: sender は受信種別で間引かず、番号は入力どおり連続する
+    // （track 切替時の連続性・番号の保存は tests/pbt/sender の forward で確かめる）
     const seqs = sentRtpHeaders(sendRtp).map((h) => h.sequenceNumber);
     expect(seqs).toEqual([1000, 1001, 1002]);
-    sender.stop();
-  });
-
-  test("track 切替後の先頭 padding も連続性補正を一度だけ受ける", async () => {
-    // Arrange: 旧 track で 100 を送ったあと新 track へ切り替える
-    const { sender, sendRtp } = createConnectedRtpSender({ kind: "video" });
-    const next = new MediaStreamTrack({ kind: "video", remote: true });
-    await sender.sendRtp(createRtpPacket(100, 9000, Buffer.from([1])));
-    await sender.replaceTrack(next);
-
-    // Act: 新 track は padding 1000 → media 1001 を流す
-    next.onReceiveRtp.execute(createRtpPacket(1000, 9000), undefined, {
-      type: "padding",
-    } as never);
-    next.onReceiveRtp.execute(createRtpPacket(1001, 9000, Buffer.from([2])));
-    await setTimeout(10);
-
-    // Assert: 旧 track の 100 に続けて 101, 102。番号を再利用しない
-    expect(sentRtpHeaders(sendRtp).map((h) => h.sequenceNumber)).toEqual([
-      100, 101, 102,
-    ]);
-    sender.stop();
-  });
-
-  test("padding が 300 件続いても転送番号に欠損が出ない", async () => {
-    // Arrange
-    const { sender, track, sendRtp } = createConnectedRtpSender({
-      kind: "video",
-    });
-    await sender.sendRtp(createRtpPacket(1000, 3000, Buffer.from([1])));
-
-    // Act: padding 300 件 (1001..1300) のあと media 1301
-    for (let seq = 1001; seq <= 1300; seq++) {
-      track.onReceiveRtp.execute(createRtpPacket(seq, 3000), undefined, {
-        type: "padding",
-      } as never);
-    }
-    await sender.sendRtp(createRtpPacket(1301, 3000, Buffer.from([2])));
-    await setTimeout(10);
-
-    // Assert: 1000..1301 が欠番なく続く
-    expect(sentRtpHeaders(sendRtp).map((h) => h.sequenceNumber)).toEqual(
-      Array.from({ length: 302 }, (_, i) => 1000 + i),
-    );
-    sender.stop();
-  });
-
-  test("legacy は DTLS 書き込みが保留中でも後続をキューに溜めず直接送る", async () => {
-    // Arrange: 既定 (legacy) で 1 件目の DTLS 書き込みを保留する
-    const { sender, sendRtp } = createConnectedRtpSender({ kind: "video" });
-    const { release } = holdFirstDtlsWrite(sendRtp);
-
-    // Act: 保留中に 2 件目・3 件目を送る
-    const first = sender.sendRtp(createRtpPacket(1, 3000, Buffer.from([1])));
-    await sender.sendRtp(createRtpPacket(2, 3000, Buffer.from([2])));
-    await sender.sendRtp(createRtpPacket(3, 3000, Buffer.from([3])));
-
-    // Assert: develop と同じく保留を待たずに DTLS へ渡す（送信キューなし）
-    expect(sendRtp).toHaveBeenCalledTimes(3);
-    expect((sender as any).outgoingRunning).toBe(false);
-    release();
-    await first;
     sender.stop();
   });
 

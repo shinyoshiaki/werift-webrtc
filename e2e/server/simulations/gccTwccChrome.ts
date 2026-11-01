@@ -1,5 +1,9 @@
 import type { AcceptFn } from "protoo-server";
 import {
+  BottleneckLink,
+  type BottleneckStats,
+} from "../../../packages/webrtc/simulations/helpers/bottleneckLink";
+import {
   GccBandwidthEstimator,
   MediaStreamTrack,
   RTCPeerConnection,
@@ -10,11 +14,10 @@ import {
   useAbsSendTime,
   usePLI,
   useREMB,
-  useTWCC,
   useTransportWideCC,
+  useTWCC,
 } from "..";
 import { DtlsKeysContext } from "../fixture";
-import { BottleneckLink, type BottleneckStats } from "./bottleneckLink";
 
 /** Tiny VP8 keyframe descriptor so Chrome treats the payload as video RTP. */
 const VP8_KEYFRAME_PREFIX = Buffer.from([

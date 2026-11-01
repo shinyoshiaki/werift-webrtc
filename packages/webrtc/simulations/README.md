@@ -20,9 +20,9 @@ npm run test:sim
 
 | パス | 内容 |
 | --- | --- |
-| `helpers/bottleneckLink.ts` | 帯域上限・遅延・キュー溢れロスの仮想リンク |
+| `helpers/bottleneckLink.ts` | 帯域上限・遅延・キュー溢れロスの仮想リンク（`e2e/server/simulations` と共有） |
 | `helpers/peerHarness.ts` | TWCC 交渉 + GCC 差し替え済み peer 対の構築 |
-| `gcc-twcc-congestion/*.sim.test.ts` | 輻輳誘発 → 帯域低下 → 追従でロス緩和のシナリオ |
+| `gcc-twcc-congestion/*.sim.test.ts` | 輻輳誘発 → 帯域低下 → 追従でロス緩和、容量内の低レートでほぼロスしない、の 2 シナリオ |
 
 ## 検証シナリオ（概要）
 
@@ -31,6 +31,9 @@ npm run test:sim
    の待ち行列が「アプリ追従」と衝突しないようにする）。probe 間隔は切らない。
 2. 遅延増加・ドロップが発生し、GCC の `onAvailableBitrate` が下がる。
 3. 追従期は pacer を戻し、アプリが推定帯域に送信レートを合わせると追加ドロップが減少する。
+4. 別シナリオで、容量内の低レート送信ではほぼドロップせず、probe padding が RTX SSRC にだけ出ることを確かめる。
+
+feedback 途絶・容量回復への応答は、決定的な制御応答テスト（`tests/media/bandwidthEstimator.test.ts` の「GCC 制御応答（仕様ベース）」）で確かめる。
 
 ## 関連: Chrome 間シミュレーション
 
@@ -43,7 +46,5 @@ cd e2e && npm run test:sim
 ## 回帰メモ（BWE）
 
 - `hasTwccReceiveTiming`: `ReceivedWithoutDelta` と `receivedAtMs === 0` を分離（delay サンプル判定）
-- 決定的 bitrate 系列テスト: `bandwidthEstimator.test.ts` の「決定的入力での bitrate 系列」
-- Probe gating: libwebrtc `GetBandwidthLimitedCause` 相当（underuse/overuse / CorrectedRtt(propagation)>3s / loss decreasing|hold は新規 probe 禁止、loss increasing は estimated×1.5 cap、delay_based は uncapped）。更新順は delay→probe→loss→post-loss cause
-- RTT: **min_propagation_rtt** = min(feedback_rtt − (max_recv − recv)) を `UpdatePropagationRtt` へ；IsRttAboveLimit は CorrectedRtt（raw max_feedback_rtt ではない）。>3s は probe 禁止 **および** pin 相当の target ×0.8 drop（1s 間隔・5kbps floor）。TWCC stall 後も送信が続くと CorrectedRtt が伸び、`process()` が 1s ごとに ×0.8 する（sim は 1s サンプリングで drop 回数と係数を検証）。初回 `rtpPacketSent` は pin OnSentPacket（`UpdatePropagationRtt(send, 0)` seed のみ）。`UpdateEstimate` / `ProbeController::Process` は 25ms `process()`（UpdateEstimate → SetAlrStartTime → Process → MaybeTrigger）
+- GCC は libwebrtc goog_cc を参考にしているが、テストは処理順・境界値の一致ではなく「GCC として正しく機能すること」を見る（`TICKET-twcc.md` §2.12）。
 - Playwright ブラウザは `e2e/.playwright-browsers/`（git 管理外）。履歴にもバイナリを含めない

@@ -36,7 +36,7 @@ npm run chrome:sim
 
 | パス | 内容 |
 | --- | --- |
-| `server/simulations/bottleneckLink.ts` | 帯域上限・遅延・キュー溢れロス（werift 側） |
+| `../packages/webrtc/simulations/helpers/bottleneckLink.ts` | 帯域上限・遅延・キュー溢れロス（werift 側。package の peer 間 sim と共有） |
 | `server/simulations/gccTwccChrome.ts` | protoo ハンドラ（GCC + TWCC + 合成 RTP） |
 | `simulations/tests/*.sim.test.ts` | Chrome ブラウザ側シナリオ |
 | `simulations/run-sim.js` | サーバ + vitest 起動（`PLAYWRIGHT_BROWSERS_PATH` 引き継ぎ） |

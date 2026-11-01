@@ -1,12 +1,13 @@
 import { afterEach, describe, expect, test } from "vitest";
 
 import {
+  type BandwidthEstimatorOption,
+  createBandwidthEstimator,
   DisabledBandwidthEstimator,
   GccBandwidthEstimator,
   RTCPeerConnection,
   RTCRtpSender,
   SenderBandwidthEstimator,
-  createBandwidthEstimator,
 } from "../../src";
 
 describe("PeerConfig.bandwidthEstimator", () => {
@@ -22,64 +23,58 @@ describe("PeerConfig.bandwidthEstimator", () => {
     return peer;
   }
 
-  test("default は legacy SenderBandwidthEstimator", () => {
+  test.each([
+    {
+      option: undefined,
+      configured: "legacy",
+      expected: SenderBandwidthEstimator,
+    },
+    {
+      option: "legacy",
+      configured: "legacy",
+      expected: SenderBandwidthEstimator,
+    },
+    { option: "gcc", configured: "gcc", expected: GccBandwidthEstimator },
+    { option: false, configured: false, expected: DisabledBandwidthEstimator },
+    {
+      option: "none",
+      configured: "none",
+      expected: DisabledBandwidthEstimator,
+    },
+  ] as {
+    option: BandwidthEstimatorOption | undefined;
+    configured: BandwidthEstimatorOption;
+    expected: abstract new (...args: never[]) => unknown;
+  }[])(
+    "bandwidthEstimator: $option は各 sender に $expected.name を別インスタンスで付ける",
+    ({ option, configured, expected }) => {
+      // Arrange
+      const peer = pc(
+        option === undefined ? undefined : { bandwidthEstimator: option },
+      );
+
+      // Act
+      const video = peer.addTransceiver("video").sender;
+      const audio = peer.addTransceiver("audio").sender;
+
+      // Assert: sender ごとに指定どおりの estimator が別インスタンスで付く
+      expect(video.senderBWE).toBeInstanceOf(expected);
+      expect(audio.senderBWE).toBeInstanceOf(expected);
+      expect(video.senderBWE).not.toBe(audio.senderBWE);
+      expect(peer.getConfiguration().bandwidthEstimator).toBe(configured);
+      // Assert: createBandwidthEstimator も同じ preset 解釈をする
+      expect(createBandwidthEstimator(option)).toBeInstanceOf(expected);
+    },
+  );
+
+  test("factory は sender ごとに 1 回呼ばれ、戻り値がそのまま使われる", () => {
     // Arrange
-    const peer = pc();
-
-    // Act
-    const sender = peer.addTransceiver("video").sender;
-
-    // Assert: コンストラクタ未指定は従来どおり legacy
-    expect(sender.senderBWE).toBeInstanceOf(SenderBandwidthEstimator);
-    expect(peer.getConfiguration().bandwidthEstimator).toBe("legacy");
-  });
-
-  test('bandwidthEstimator: "gcc" は各 sender に GccBandwidthEstimator を付ける', () => {
-    // Arrange
-    const peer = pc({ bandwidthEstimator: "gcc" });
-
-    // Act
-    const video = peer.addTransceiver("video").sender;
-    const audio = peer.addTransceiver("audio").sender;
-
-    // Assert: sender ごとに別インスタンス
-    expect(video.senderBWE).toBeInstanceOf(GccBandwidthEstimator);
-    expect(audio.senderBWE).toBeInstanceOf(GccBandwidthEstimator);
-    expect(video.senderBWE).not.toBe(audio.senderBWE);
-    expect(peer.getConfiguration().bandwidthEstimator).toBe("gcc");
-  });
-
-  test("bandwidthEstimator: false は DisabledBandwidthEstimator で無効化する", () => {
-    // Arrange
-    const peer = pc({ bandwidthEstimator: false });
-
-    // Act
-    const sender = peer.addTransceiver("audio").sender;
-
-    // Assert: TWCC を受けても帯域は出ない
-    expect(sender.senderBWE).toBeInstanceOf(DisabledBandwidthEstimator);
-    expect(sender.senderBWE.availableBitrate).toBe(0);
-    expect(sender.senderBWE.processIntervalMs).toBe(0);
-    expect(sender.senderBWE.getPacingBitrateBps()).toBe(0);
-  });
-
-  test('bandwidthEstimator: "none" も DisabledBandwidthEstimator', () => {
-    // Arrange / Act
-    const sender = pc({ bandwidthEstimator: "none" }).addTransceiver(
-      "video",
-    ).sender;
-
-    // Assert
-    expect(sender.senderBWE).toBeInstanceOf(DisabledBandwidthEstimator);
-  });
-
-  test("factory は sender ごとに 1 回呼ばれる", () => {
-    // Arrange
-    let n = 0;
+    const created: GccBandwidthEstimator[] = [];
     const peer = pc({
       bandwidthEstimator: () => {
-        n += 1;
-        return new GccBandwidthEstimator(200_000);
+        const gcc = new GccBandwidthEstimator(200_000);
+        created.push(gcc);
+        return gcc;
       },
     });
 
@@ -88,10 +83,10 @@ describe("PeerConfig.bandwidthEstimator", () => {
     peer.addTransceiver("video");
 
     // Assert
-    expect(n).toBe(2);
-    expect(peer.getSenders()[0].senderBWE).toBeInstanceOf(
-      GccBandwidthEstimator,
-    );
+    expect(created).toHaveLength(2);
+    expect(peer.getSenders().map((s) => s.senderBWE)).toEqual(created);
+    const custom = new SenderBandwidthEstimator();
+    expect(createBandwidthEstimator(() => custom)).toBe(custom);
   });
 
   test("RTCRtpSender コンストラクタでも estimator を渡せる", () => {
@@ -104,23 +99,5 @@ describe("PeerConfig.bandwidthEstimator", () => {
     // Assert: setBandwidthEstimator を呼ばなくても注入される
     expect(sender.senderBWE).toBe(gcc);
     sender.stop();
-  });
-
-  test("createBandwidthEstimator の preset と factory", () => {
-    // Arrange / Act / Assert
-    expect(createBandwidthEstimator("legacy")).toBeInstanceOf(
-      SenderBandwidthEstimator,
-    );
-    expect(createBandwidthEstimator("gcc")).toBeInstanceOf(
-      GccBandwidthEstimator,
-    );
-    expect(createBandwidthEstimator(false)).toBeInstanceOf(
-      DisabledBandwidthEstimator,
-    );
-    expect(createBandwidthEstimator("none")).toBeInstanceOf(
-      DisabledBandwidthEstimator,
-    );
-    const custom = new SenderBandwidthEstimator();
-    expect(createBandwidthEstimator(() => custom)).toBe(custom);
   });
 });
