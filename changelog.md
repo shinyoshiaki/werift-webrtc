@@ -1,8 +1,8 @@
 # Changelog
 
-## v0.26.1
+## v0.26.0
 
-The 0.26 line collects everything merged since v0.25.2, including the `rc/0.26.0` branch (negotiation transaction, SCTP queue, PLI / FIR routing). `0.26.0` was never published.
+This release collects everything merged since v0.25.2, including the `rc/0.26.0` branch (negotiation transaction, SCTP queue, PLI / FIR routing).
 
 - **RTCP Sender Reports map the current NTP time to the matching RTP timestamp** (`packages/webrtc`, RFC 3550 §6.4.1): `RTCRtpSender` used to report the NTP time and RTP timestamp of the last sent RTP packet, so the SR's NTP time lagged its actual send time by the time since the last RTP packet (without bound while RTP was idle), and SRs sent while RTP was stopped repeated the same LSR. The SR now samples the wall-clock time when it is built and extrapolates the RTP timestamp to that instant from an NTP↔RTP anchor with the send codec's clock rate (32-bit wrap, as libwebrtc does).
   - The anchor is the send time of the first packet with a newer output timestamp (after continuity rewrite). Frame fragments with the same timestamp, timestamps up to 3 s older (reordering) and RTX retransmissions do not move it; a continuity rewrite (`replaceTrack` / `replaceRTP` / `onSourceChanged`), a clock rate change, or a backward timestamp step of more than 3 s (a source discontinuity without continuity rewrite) resets it.
