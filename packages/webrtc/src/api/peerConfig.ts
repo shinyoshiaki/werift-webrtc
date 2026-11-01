@@ -55,6 +55,13 @@ export interface PeerConfig {
   /** Advertise local ICE lite and operate in the controlled role. */
   iceLite: boolean;
   iceServers: RTCIceServer[];
+  /**
+   * Fall back to the built-in public STUN server (`stun.l.google.com:19302`)
+   * when `iceServers` contains no STUN URL (empty or TURN-only).
+   * Set to false to gather server-reflexive candidates only from the STUN
+   * servers given in `iceServers`. Defaults to true.
+   */
+  iceUseDefaultStunServer: boolean;
   /**Minimum port and Maximum port must not be the same value */
   icePortRange: [number, number] | undefined;
   /**
@@ -252,6 +259,7 @@ export function generateDefaultPeerConfig(): PeerConfig {
     iceTransportPolicy: "all",
     iceLite: false,
     iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+    iceUseDefaultStunServer: true,
     icePortRange: undefined,
     iceInterfaceAddresses: undefined,
     iceAdditionalHostAddresses: undefined,
