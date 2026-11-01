@@ -228,6 +228,9 @@ export class Connection implements IceConnection {
       return;
     }
     this.applyIceControlling(value);
+    // Offer/answer may assign the controlling role after the generation's
+    // checks began (glare, a role taken back after a rollback).
+    if (value) this.nominateSucceededPair();
   }
 
   get iceLite() {
@@ -1978,7 +1981,7 @@ export class Connection implements IceConnection {
     }
     this.applyIceControlling(iceControlling);
     this.sortCheckList();
-    if (iceControlling) this.nominateValidPairAfterRoleSwitch();
+    if (iceControlling) this.nominateSucceededPair();
   }
 
   /**
@@ -1988,9 +1991,13 @@ export class Connection implements IceConnection {
    * so without this the checklist waits for a nomination forever. A UDP pair
    * is checked again (the check carries USE-CANDIDATE now); a TCP pair goes
    * through the regular nomination its checks use (`nominateTcpPairIfReady`).
+   * Called on the role switch and whenever a check fails without a
+   * nomination (`checkComplete`), so a failed nomination moves on to the
+   * next succeeded pair.
    */
-  private nominateValidPairAfterRoleSwitch() {
+  private nominateSucceededPair() {
     if (
+      !this.iceControlling ||
       !this.checksBegun ||
       this.nominated ||
       this.nominating ||
@@ -2002,7 +2009,7 @@ export class Connection implements IceConnection {
       (p) => p.state === CandidatePairState.SUCCEEDED && !p.handle,
     );
     if (!pair) return;
-    log("nominate after role switch", pair.toJSON());
+    log("nominate succeeded pair", pair.toJSON());
     if (this.isTcpPair(pair)) {
       this.nominateTcpPairIfReady();
       return;
@@ -2094,6 +2101,9 @@ export class Connection implements IceConnection {
     }
 
     this.nominateTcpPairIfReady();
+    // A failed check (a nomination re-check included) leaves the other
+    // succeeded pairs: the controlling agent nominates the next one.
+    if (pair.state === CandidatePairState.FAILED) this.nominateSucceededPair();
 
     // A nomination request is still in flight; its result decides the outcome.
     if (this.nominating) {

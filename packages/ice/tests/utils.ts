@@ -110,6 +110,8 @@ export class ConsentMockProtocol implements Protocol {
       responseDelayMilliseconds?: number;
       /** When set, request() delegates to a real-style single-shot sendStun path. */
       useSendStunPath?: boolean;
+      /** Answer from the address the request was sent to (several remote addresses). */
+      echoRequestAddress?: boolean;
     } = {},
   ) {
     this.type = options.type ?? "udp";
@@ -121,7 +123,7 @@ export class ConsentMockProtocol implements Protocol {
 
     this.request = (async (
       message: Message,
-      _addr,
+      addr,
       _integrityKey?,
       retransmissionsOrOptions?: number | TransactionRequestOptions,
       onRequestSent?: (attempt: number) => void,
@@ -176,7 +178,7 @@ export class ConsentMockProtocol implements Protocol {
       }
       return [
         new Message(methods.BINDING, classes.RESPONSE),
-        ["192.0.2.2", 5000] as const,
+        options.echoRequestAddress ? addr : (["192.0.2.2", 5000] as const),
       ];
     }) as Protocol["request"];
   }
@@ -494,6 +496,36 @@ export function createTcpCheckHarness() {
   connection.remotePassword = "remote-password";
   const remoteAddr: Address = ["192.0.2.2", 5000];
   return { connection, protocol, remoteAddr };
+}
+
+/**
+ * Arrange: a controlling Connection whose UDP checks go through one mock
+ * protocol answering with `outcomes` in order (then success).
+ */
+export function createUdpCheckHarness(outcomes: ConsentOutcome[] = []) {
+  const protocol = new ConsentMockProtocol({
+    outcomes,
+    echoRequestAddress: true,
+  });
+  const connection = new Connection(true);
+  connection.remoteUsername = "remote";
+  connection.remotePassword = "remote-password";
+  return { connection, protocol };
+}
+
+/** Arrange: UDP pair toward `remotePort` appended to the check list. */
+export function addUdpPair(
+  harness: ReturnType<typeof createUdpCheckHarness>,
+  remotePort: number,
+) {
+  const pair = new CandidatePair(
+    harness.protocol,
+    createConsentCandidate("192.0.2.2", remotePort, "remote"),
+    harness.connection.iceControlling,
+  );
+  pair.updateState(CandidatePairState.WAITING);
+  harness.connection.checkList.push(pair);
+  return pair;
 }
 
 /** Arrange: TCP pair (local active -> remote passive) added to the check list. */

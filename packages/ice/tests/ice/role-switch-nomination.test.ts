@@ -1,6 +1,11 @@
 import { Connection } from "../../src/ice";
 import { CandidatePairState } from "../../src/iceBase";
-import { answerChecksOnly, inviteAccept } from "../utils";
+import {
+  addUdpPair,
+  answerChecksOnly,
+  createUdpCheckHarness,
+  inviteAccept,
+} from "../utils";
 
 describe("Connection role switch nomination", () => {
   test("controlled の間に成功した pair は controlling に切り替わった後に nominate される", async () => {
@@ -34,6 +39,88 @@ describe("Connection role switch nomination", () => {
       expect(a.state).toBe("connected");
     } finally {
       await Promise.all([a.close(), b.close()]);
+    }
+  }, 15_000);
+});
+
+describe("Connection role assignment nomination", () => {
+  test("controlled の間に成功した pair は offer / answer で controlling になった後に nominate される", async () => {
+    // Arrange: a は controlled で checks を走らせ、b (controlling) は受けた check に応答するだけにする
+    const a = new Connection(false);
+    const b = new Connection(true);
+    try {
+      await inviteAccept(a, b);
+      answerChecksOnly(b);
+      const connected = a.connect();
+      await vi.waitFor(
+        () => {
+          expect(
+            a.checkList.some(
+              (pair) => pair.state === CandidatePairState.SUCCEEDED,
+            ),
+          ).toBe(true);
+        },
+        { timeout: 5_000 },
+      );
+      expect(a.nominated).toBeUndefined();
+
+      // Act: glare の offer 適用のように、setter で a を controlling、b を controlled にする
+      b.iceControlling = false;
+      a.iceControlling = true;
+
+      // Assert: a が成功済みの pair を USE-CANDIDATE 付きで確認し直して nominate し、connect が完了する
+      await connected;
+      expect(a.nominated).toBeDefined();
+      expect(a.state).toBe("connected");
+    } finally {
+      await Promise.all([a.close(), b.close()]);
+    }
+  }, 15_000);
+});
+
+describe("Connection role switch nomination retries", () => {
+  test("ロール切り替え後の nomination が失敗したら、次の成功済み pair を nominate する", async () => {
+    // Arrange: controlled で checks を始め、2 つの UDP pair を nomination なしで成功させる。
+    // 応答は check 2 回が成功、1 回目の nomination がタイムアウト、以降は成功。
+    const harness = createUdpCheckHarness(["success", "success", "timeout"]);
+    const connection = harness.connection as unknown as {
+      switchRole: (iceControlling: boolean) => void;
+      checksBegun: boolean;
+    };
+    connection.switchRole(false);
+    connection.checksBegun = true;
+    const first = addUdpPair(harness, 5000);
+    const second = addUdpPair(harness, 5001);
+
+    try {
+      await harness.connection.checkStart(first).awaitable;
+      await harness.connection.checkStart(second).awaitable;
+      expect([first.state, second.state]).toEqual([
+        CandidatePairState.SUCCEEDED,
+        CandidatePairState.SUCCEEDED,
+      ]);
+      expect(harness.connection.nominated).toBeUndefined();
+
+      // Act: controlling に切り替える (役割に応じて並べ直した checklist の先頭を USE-CANDIDATE 付きで確認し直す)。
+      connection.switchRole(true);
+      const tried = [first, second].find(
+        (pair) => pair.state === CandidatePairState.IN_PROGRESS,
+      )!;
+      const next = tried === first ? second : first;
+      expect(tried).toBeDefined();
+
+      // Assert: 最初の nomination はタイムアウトで失敗し、残る成功済み pair が nominate される。
+      await vi.waitFor(() => expect(harness.connection.nominated).toBe(next), {
+        timeout: 5_000,
+      });
+      expect(tried.state).toBe(CandidatePairState.FAILED);
+      // Assert: 2 回の check の後、両方の pair に USE-CANDIDATE 付きの request を送っている。
+      const nominations = harness.protocol.sentMessages
+        .slice(2)
+        .filter((message) => message.attributesKeys.includes("USE-CANDIDATE"));
+      expect(nominations).toHaveLength(2);
+    } finally {
+      await harness.connection.close();
     }
   }, 15_000);
 });
