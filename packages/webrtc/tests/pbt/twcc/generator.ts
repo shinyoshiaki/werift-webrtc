@@ -39,18 +39,26 @@ export function randomTwccWindow(rng: SeededRandom): {
 }
 
 /** One operation on an estimator's send history. */
-export type HistoryOp = {
-  type: "send" | "process";
-  atMs: number;
-  /** Extended transport-wide sequence number (as `RTCRtpSender` reports it). */
-  seq: number;
-};
+export type HistoryOp =
+  | {
+      type: "send";
+      /** When the send confirmation (`rtpPacketSent`) arrives. */
+      atMs: number;
+      /** `SentInfo.sendingAtMs`: when the packet was sent. */
+      sentAtMs: number;
+      /** Extended transport-wide sequence number (as `RTCRtpSender` reports it). */
+      seq: number;
+    }
+  | { type: "process"; atMs: number };
 
 /**
  * `count` send / process operations with non-decreasing times (dense bursts
  * and rare multi-second idle gaps) and extended TSNs that cross 16-bit wraps
  * and skip by up to 5,000 (other BUNDLE senders), so both the time window and
- * the 32768 sequence-span cap bound the history.
+ * the 32768 sequence-span cap bound the history. Some send confirmations
+ * arrive late (concurrent sends completing out of order): usually a few
+ * operations later, sometimes up to 60, which with the skips can put them
+ * more than half the 16-bit space behind the newest TSN.
  */
 export function randomHistoryOps(
   rng: SeededRandom,
@@ -58,16 +66,29 @@ export function randomHistoryOps(
   withProcess: boolean,
 ): HistoryOp[] {
   const ops: HistoryOp[] = [];
+  const late: { due: number; seq: number; sentAtMs: number }[] = [];
   let atMs = 1_000;
   let seq = rng.int(0, 0x10000);
   for (let i = 0; i < count; i++) {
     atMs += rng.chance(0.98) ? rng.int(0, 10) : rng.int(0, 15_000);
+    for (const l of late.filter((l) => l.due <= i)) {
+      late.splice(late.indexOf(l), 1);
+      ops.push({ type: "send", atMs, sentAtMs: l.sentAtMs, seq: l.seq });
+    }
     if (withProcess && rng.chance(0.2)) {
-      ops.push({ type: "process", atMs, seq });
+      ops.push({ type: "process", atMs });
       continue;
     }
     seq += 1 + (rng.chance(0.1) ? rng.int(0, 5_000) : 0);
-    ops.push({ type: "send", atMs, seq });
+    if (rng.chance(0.05)) {
+      const delay = rng.chance(0.2) ? rng.int(4, 61) : rng.int(1, 4);
+      late.push({ due: i + delay, seq, sentAtMs: atMs });
+    } else {
+      ops.push({ type: "send", atMs, sentAtMs: atMs, seq });
+    }
+  }
+  for (const l of late) {
+    ops.push({ type: "send", atMs, sentAtMs: l.sentAtMs, seq: l.seq });
   }
   return ops;
 }

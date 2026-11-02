@@ -45,7 +45,19 @@ export interface TwccPacketFeedback {
  * Shared by every {@link BandwidthEstimator} that consumes TWCC (legacy, GCC).
  */
 export class TwccFeedbackAdapter {
+  /**
+   * Send history by extended sequence. Entries confirmed in order are kept in
+   * ascending sequence and send-time order (`RTCRtpSender` samples
+   * `sendingAtMs` synchronously right after allocating the TSN), so pruning
+   * can stop at the first entry still in range.
+   */
   private readonly history = new Map<number, SentInfo>();
+  /**
+   * Keys confirmed after a larger sequence (concurrent sends completing out of
+   * order). They break the insertion order above, so {@link prune} checks
+   * each of them individually instead of relying on the early stop.
+   */
+  private readonly outOfOrderKeys = new Set<number>();
   private readonly sentUnwrapper = new TransportWideSeqUnwrapper();
   private readonly refTimeUnwrapper = new TwccReferenceTimeUnwrapper();
   private lastFeedbackSeq: number | undefined;
@@ -72,24 +84,46 @@ export class TwccFeedbackAdapter {
    * @returns extended sequence used as the history key
    */
   onSent(info: SentInfo): number {
+    const previousLatest = this.sentUnwrapper.last;
     const extSeq = this.sentUnwrapper.advanceSent(info.wideSeq);
-    this.history.delete(extSeq);
-    this.history.set(extSeq, info);
+    this.forget(extSeq);
+    const outOfOrder = previousLatest !== undefined && extSeq <= previousLatest;
+    // A late confirmation already outside the span / age window is not kept,
+    // so the history span stays below half of the 16-bit space.
+    if (!this.isOutOfRange(extSeq, info, info.sendingAtMs)) {
+      this.history.set(extSeq, info);
+      if (outOfOrder) this.outOfOrderKeys.add(extSeq);
+    }
     this.prune(info.sendingAtMs);
     return extSeq;
   }
 
   /** Drop entries outside the age window or the sequence span limit. */
   prune(nowMs: number): void {
-    const latest = this.sentUnwrapper.last;
     for (const [extSeq, info] of this.history) {
-      const tooOld = nowMs - info.sendingAtMs > this.maxAgeMs;
-      const tooFar =
-        latest !== undefined &&
-        latest - extSeq >= kTwccFeedbackHistoryMaxSeqSpan;
-      if (!tooOld && !tooFar) break;
+      if (this.outOfOrderKeys.has(extSeq)) continue;
+      if (!this.isOutOfRange(extSeq, info, nowMs)) break;
       this.history.delete(extSeq);
     }
+    for (const extSeq of this.outOfOrderKeys) {
+      const info = this.history.get(extSeq);
+      if (!info || this.isOutOfRange(extSeq, info, nowMs)) {
+        this.forget(extSeq);
+      }
+    }
+  }
+
+  private isOutOfRange(extSeq: number, info: SentInfo, nowMs: number) {
+    const latest = this.sentUnwrapper.last;
+    const tooOld = nowMs - info.sendingAtMs > this.maxAgeMs;
+    const tooFar =
+      latest !== undefined && latest - extSeq >= kTwccFeedbackHistoryMaxSeqSpan;
+    return tooOld || tooFar;
+  }
+
+  private forget(extSeq: number) {
+    this.history.delete(extSeq);
+    this.outOfOrderKeys.delete(extSeq);
   }
 
   /**
@@ -113,7 +147,7 @@ export class TwccFeedbackAdapter {
         out.push({ extSeq, sent, received: false });
         continue;
       }
-      this.history.delete(extSeq);
+      this.forget(extSeq);
       out.push({
         extSeq,
         sent,
@@ -127,6 +161,7 @@ export class TwccFeedbackAdapter {
 
   reset(): void {
     this.history.clear();
+    this.outOfOrderKeys.clear();
     this.sentUnwrapper.reset();
     this.refTimeUnwrapper.reset();
     this.lastFeedbackSeq = undefined;

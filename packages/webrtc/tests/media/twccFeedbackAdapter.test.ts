@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { TwccFeedbackAdapter } from "../../src";
-import { twccSentInfo, wireTwccFeedback } from "./twccTestUtils";
+import { twccHistoryOf, twccSentInfo, wireTwccFeedback } from "./twccTestUtils";
 
 // 受信の重複排除・世代対応・履歴の上限は tests/pbt/twcc の性質テストで確かめる。
 // ここでは性質テストの生成器が作らない unwrap 基準の境界だけを固定例で残す。
@@ -58,6 +58,34 @@ describe("TwccFeedbackAdapter", () => {
     expect(adapter.latestSentSeq).toBe(65537);
   });
 
+  test("32768 の後に遅れて 0 の送信確認が届いても、履歴の番号 span は 32768 未満のまま", () => {
+    // Arrange: 拡張 TSN 32768 の確認のあとに、0 の確認が遅れて届く
+    const adapter = new TwccFeedbackAdapter(60_000);
+    adapter.onSent(twccSentInfo(32768, 100, 1_000));
+
+    // Act
+    adapter.onSent(twccSentInfo(0, 100, 900));
+
+    // Assert: 0 は span の外なので残らず、16-bit 番号 0 の候補が 2 世代にならない
+    const keys = [...historyOf(adapter).keys()];
+    expect(keys).toEqual([32768]);
+    expect(adapter.onFeedback(wireTwccFeedback(0, [2_000]))).toEqual([]);
+  });
+
+  test("順序外に届いた古い送信確認も、後ろの新しい項目に隠れず時間窓で削除される", () => {
+    // Arrange: 10・11 を確認したあと、9（送信は 10 より前）の確認が遅れて届く
+    const adapter = new TwccFeedbackAdapter(10_000);
+    adapter.onSent(twccSentInfo(10, 100, 1_000));
+    adapter.onSent(twccSentInfo(11, 100, 5_000));
+    adapter.onSent(twccSentInfo(9, 100, 500));
+
+    // Act: 9 だけが 10 秒窓の外になる時刻で掃除する（10・11 は窓の中）
+    adapter.prune(10_700);
+
+    // Assert: 窓の中の 10 より後ろに挿入された 9 も、挿入順に関係なく消える
+    expect([...historyOf(adapter).keys()]).toEqual([10, 11]);
+  });
+
   test("遅れて届いた古い feedback で unwrap の基準が後退しない", () => {
     // Arrange: wrap をまたいで 65530..65545 を送信
     const adapter = new TwccFeedbackAdapter(60_000);
@@ -76,3 +104,8 @@ describe("TwccFeedbackAdapter", () => {
     expect(next.map((p) => p.extSeq)).toEqual([65538]);
   });
 });
+
+/** Test-only read: the adapter's send history keyed by extended sequence. */
+function historyOf(adapter: TwccFeedbackAdapter) {
+  return (adapter as unknown as { history: Map<number, unknown> }).history;
+}

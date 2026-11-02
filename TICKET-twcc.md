@@ -681,6 +681,16 @@ set availableBitrate(v: number) {
 - `npm run pbt:deep -- --suite twcc,bwe,sender,receiver --seeds 300 --jobs 8`: 4,200 件すべて成功。
 - `cd e2e && npm run test:sim`（Chrome）: 1 件成功。
 
+### 検証記録（2026-11-02、確認レビュー指摘「逆順完了時の履歴 span 上限」への対応）
+
+- 作業開始時のリビジョンは `00e81c326`（未コミット変更なし）。修正前に再現テストが失敗することを確認した。
+  - 指摘: `TwccFeedbackAdapter.prune()` が Map の挿入順で走査して最初の範囲内項目で止まるため、順序外に届いた送信確認（例: 32768 の後の 0）や、新しい項目の後ろに挿入された古い項目が残る。
+  - 修正: 順序どおりに届いた送信確認は、番号順かつ送信時刻順に並ぶ（`RTCRtpSender` は TSN の割り当て直後に同期で `sendingAtMs` を取る）ので、従来どおり先頭から掃除して最初の範囲内項目で止める。順序外に届いた送信確認だけを別の集合で持ち、掃除のたびに 1 件ずつ判定する。追加の時点で span・時間窓の外にある送信確認は履歴に入れない。
+  - テスト: `twccFeedbackAdapter.test.ts` に「32768 の後に遅れて 0 の送信確認が届いても、履歴の番号 span は 32768 未満のまま」「順序外に届いた古い送信確認も、後ろの新しい項目に隠れず時間窓で削除される」を追加（修正前はそれぞれ `[32768, 0]`・`[10, 11, 9]` が残った）。`tests/pbt/twcc` の history 性質は、生成器に送信確認の遅延（数ステップ、ときに最大 60 ステップ。番号の飛びと合わせて半周以上遅れることがある）を足し、「時間窓内・最新から span 32768 未満」「どの掃除時刻でも範囲内だった項目は消えない」を確かめる形にした（修正前は 24 seed すべてで失敗）。
+- `cd packages/webrtc && npm run type`: 成功。`npx vitest run tests`: 73 ファイル、1,576 件成功・5 件 skip。
+- `npm run pbt:deep -- --suite twcc,bwe,sender,receiver --seeds 300 --jobs 8`: 4,200 件すべて成功。
+- `cd packages/webrtc && npm run test:sim`: 2 件成功。`cd e2e && npm run test:sim`（Chrome）: 1 件成功。
+
 ### ライセンス
 
 - GCC 実装（`packages/webrtc/src/media/sender/estimators/gcc/`）は libwebrtc（BSD-3-Clause + PATENTS）の移植。帰属はルート `NOTICE`、各ファイル先頭の `/*!` ヘッダー、`third_party/libwebrtc-ref/{LICENSE,PATENTS,AUTHORS}`（pin と同じコミットから取得）で示す。

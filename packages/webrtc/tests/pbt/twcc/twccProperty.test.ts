@@ -222,34 +222,43 @@ describe("twcc property", () => {
 
   test.each(cases)(
     title(
-      "history ($kind): 送信履歴は時間窓内・番号 span 32768 未満・送信順に保たれる",
+      "history ($kind): 送信確認が順序外でも、送信履歴は時間窓内・番号 span 32768 未満で、範囲内の項目は消えない",
     ),
     ({ seed, kind }) => {
       // Arrange: legacy は送信時だけ 10 秒窓、GCC は送信時と process 時に 60 秒窓で掃除する
       const estimator = createEstimator(kind);
       const windowMs = kind === "legacy" ? 10_000 : kSendTimeHistoryWindowMs;
       const ops = randomHistoryOps(seededRandom(seed), steps, kind === "gcc");
+      const confirmed: { seq: number; sentAtMs: number }[] = [];
+      let latest = Number.NEGATIVE_INFINITY;
+      let maxNowMs = Number.NEGATIVE_INFINITY;
 
       for (const [i, op] of ops.entries()) {
-        // Act: 送信（拡張 TSN、16-bit の周回・飛びあり）または process
+        // Act: 送信確認（拡張 TSN、周回・飛び・順序外あり）または process
+        let nowMs: number;
         if (op.type === "send") {
-          estimator.rtpPacketSent(twccSentInfo(op.seq, 100, op.atMs));
+          estimator.rtpPacketSent(twccSentInfo(op.seq, 100, op.sentAtMs));
+          confirmed.push(op);
+          latest = Math.max(latest, op.seq);
+          nowMs = op.sentAtMs;
         } else {
           estimator.process(op.atMs);
+          nowMs = op.atMs;
         }
+        maxNowMs = Math.max(maxNowMs, nowMs);
         if (i % 97 !== 0 && i !== ops.length - 1) continue;
 
-        // Assert: 残っているのは窓内だけで、拡張番号は昇順・span 32768 未満
-        const entries = [...twccHistoryOf(estimator).entries()];
-        for (const [, info] of entries) {
-          expect(op.atMs - info.sendingAtMs).toBeLessThanOrEqual(windowMs);
+        // Assert: 残っているのは今回の掃除時刻から窓内だけで、どの番号も最新から span 32768 未満
+        const history = twccHistoryOf(estimator);
+        for (const [key, info] of history) {
+          expect(nowMs - info.sendingAtMs).toBeLessThanOrEqual(windowMs);
+          expect(latest - key).toBeLessThan(0x8000);
         }
-        const keys = entries.map(([key]) => key);
-        for (let k = 1; k < keys.length; k++) {
-          expect(keys[k]).toBeGreaterThan(keys[k - 1]);
-        }
-        if (keys.length > 0) {
-          expect(keys.at(-1)! - keys[0]).toBeLessThan(0x8000);
+        // Assert: これまでのどの掃除時刻でも窓内・span 内だった送信は消えていない
+        for (const c of confirmed) {
+          if (maxNowMs - c.sentAtMs <= windowMs && latest - c.seq < 0x8000) {
+            expect(history.has(c.seq)).toBe(true);
+          }
         }
       }
     },
