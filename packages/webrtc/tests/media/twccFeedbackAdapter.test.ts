@@ -17,6 +17,30 @@ describe("TwccFeedbackAdapter", () => {
     expect(out.map((p) => p.extSeq)).toEqual([0x10000 * 2 + 5]);
   });
 
+  test("送信確認が 1 件だけ順序外に届いても、0xffff をまたいで全パケットを照合できる", () => {
+    // Arrange: RTCRtpSender と同じ拡張 TSN 65500..65560 を、65510 と 65511 だけ逆順に記録する
+    const adapter = new TwccFeedbackAdapter(60_000);
+    const sent = Array.from({ length: 61 }, (_, i) => 65500 + i);
+    const order = [...sent];
+    [order[10], order[11]] = [order[11]!, order[10]!];
+    for (const seq of order) {
+      adapter.onSent(twccSentInfo(seq, 100, 0));
+    }
+
+    // Act: 全パケット受信の feedback（16-bit 番号 65500 から 61 件、wrap をまたぐ）
+    const out = adapter.onFeedback(
+      wireTwccFeedback(
+        65500,
+        sent.map((_, i) => 1_000 + i * 100),
+      ),
+    );
+
+    // Assert: 履歴は削られず、すべてが元の拡張番号で受信として照合される
+    expect(out.map((p) => p.extSeq)).toEqual(sent);
+    expect(out.every((p) => p.received)).toBe(true);
+    expect(adapter.latestSentSeq).toBe(65560);
+  });
+
   test("遅れて届いた古い feedback で unwrap の基準が後退しない", () => {
     // Arrange: wrap をまたいで 65530..65545 を送信
     const adapter = new TwccFeedbackAdapter(60_000);

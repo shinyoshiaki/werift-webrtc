@@ -81,6 +81,13 @@ export class SenderBandwidthEstimator
   }
 
   receiveTWCC(feedback: TransportWideCC) {
+    // With BUNDLE, TWCC is fanned out to every sender on the transport. A
+    // feedback that matches none of this sender's packets is not about this
+    // sender: ignore it like GCC does, so an idle sender does not count it
+    // toward congestion (develop only ever delivered the sender's own TWCC).
+    const packets = this.feedbackAdapter.onFeedback(feedback);
+    if (packets.length === 0) return;
+
     const nowMs = milliTime();
     const elapsedMs = nowMs - this.cumulativeResult.firstPacketSentAtMs;
     if (elapsedMs > 1000) {
@@ -100,7 +107,7 @@ export class SenderBandwidthEstimator
       }
     }
 
-    for (const packet of this.feedbackAdapter.onFeedback(feedback)) {
+    for (const packet of packets) {
       // Timing sample only: lost / ReceivedWithoutDelta carry no recvMs
       // (recvMs === 0 is a valid time, not falsy).
       if (packet.recvMs === undefined) continue;

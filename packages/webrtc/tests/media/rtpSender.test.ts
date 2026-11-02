@@ -461,6 +461,37 @@ describe("media/rtpSender", () => {
       sender.stop();
     }));
 
+  test("送信しない方向の間は pendingRtp 有効でも RTP を積まず、再開後にまとめて送らない", async () => {
+    // Arrange: DTLS 接続済み・pendingRtp 有効で、交渉結果が送信しない方向
+    const track = new MediaStreamTrack({ kind: "audio" });
+    const dtls = createDtlsTransport();
+    dtls.state = "connected";
+    const sendRtp = vi.spyOn(dtls, "sendRtp").mockResolvedValue(12);
+    const sender = new RTCRtpSender(track, { pendingRtp: true });
+    sender.setDtlsTransport(dtls);
+    sender.prepareSend({ codecs: [createAudioCodec()], headerExtensions: [] });
+    sender.setSendSuppressed(true);
+
+    // Act: 送信しない間に RTP を 3 件渡す
+    const suppressed = [1, 2, 3].map((seq) =>
+      sender.sendRtp(createRtpPacket(seq, seq * 960)),
+    );
+    await setTimeout(0);
+
+    // Assert: develop と同じく破棄し、待機キューにも積まない
+    expect(pendingRtpQueue(sender)).toHaveLength(0);
+    expect(sendRtp).not.toHaveBeenCalled();
+
+    // Act: 送信を再開する
+    sender.setSendSuppressed(false);
+    await Promise.all(suppressed);
+    await setTimeout(0);
+
+    // Assert: 止めていた間の RTP はまとめて送られない
+    expect(sendRtp).not.toHaveBeenCalled();
+    sender.stop();
+  });
+
   test("stop discards pending RTP and does not flush after DTLS connects", async () => {
     const track = new MediaStreamTrack({ kind: "audio" });
     const dtls = createDtlsTransport();

@@ -218,6 +218,35 @@ describe("media/sender bandwidth estimator", () => {
       expect(elapsed).toBeLessThan(50);
     });
 
+    test("BUNDLE で他の sender 宛ての TWCC だけを受けても、送信していない legacy は輻輳と判定しない", () => {
+      // Arrange: 1 パケットも送っていない legacy と、その購読
+      const legacy = new SenderBandwidthEstimator();
+      const congestion: boolean[] = [];
+      const scores: number[] = [];
+      legacy.onCongestion.subscribe((v) => congestion.push(v));
+      legacy.onCongestionScore.subscribe((v) => scores.push(v));
+      const others = Array.from(
+        { length: 20 },
+        (_, i) =>
+          new PacketResult({
+            sequenceNumber: 1000 + i,
+            received: true,
+            receivedAtMs: 1000 + i * 10,
+          }),
+      );
+
+      // Act: transport の fan-out で、他 sender の TWCC が 100ms 周期で約 4 秒分届く
+      for (let i = 0; i < 40; i++) {
+        legacy.receiveTWCC(makeTwccFeedback(others));
+      }
+
+      // Assert: develop と同じく congestion=false・score=1 のままで、イベントも出ない
+      expect(legacy.congestion).toBe(false);
+      expect(legacy.congestionScore).toBe(1);
+      expect(congestion).toEqual([]);
+      expect(scores).toEqual([]);
+    });
+
     test("legacy sentInfos の時間窓 prune は先頭からのみ削除し、窓内件数で線形に走査しない", () => {
       // Arrange: 1000 pps で 10s 窓が満杯（約 10,000 件）になる送信列
       const legacy = new SenderBandwidthEstimator();

@@ -1261,7 +1261,9 @@ export class RTCRtpSender {
    * is enabled. Each call settles only after its own packet is sent or dropped.
    */
   async sendRtp(rtp: Buffer | RtpPacket) {
-    if (this.stopped) {
+    // Drop (do not queue) while the negotiated direction does not send, so
+    // nothing is flushed in a burst when sending resumes.
+    if (this.stopped || this.sendSuppressed) {
       return;
     }
     if (!this.pendingRtpEnabled) {

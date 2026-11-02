@@ -46,9 +46,15 @@ export class TransportWideSeqUnwrapper {
   /**
    * Map a **send-time** TSN onto a monotonic key.
    *
-   * Wire TSN only increases. A jump larger than half the 16-bit space is a
-   * gap (other BUNDLE senders while this one was idle), not wrap-back.
-   * {@link peek} still uses the half-modulus rule for 16-bit feedback.
+   * `RTCRtpSender` passes the extended transport-wide counter
+   * ({@link RTCDtlsTransport.transportSequenceNumberExtended}), which is exact:
+   * concurrent sends may report it slightly out of order, and an idle sender
+   * may see a forward gap of any size (other BUNDLE senders). While the origin
+   * is still in the first 16-bit generation, a smaller value is therefore an
+   * out-of-order report (kept as is, origin unchanged), unless it is more than
+   * half the 16-bit space behind, which only a 16-bit caller wrapping past
+   * 0xffff produces. After the first generation a 16-bit value can only come
+   * from such a caller and is unwrapped forward.
    */
   advanceSent(seq: number): number {
     if (!Number.isFinite(seq)) return this.lastUnwrapped ?? 0;
@@ -60,6 +66,18 @@ export class TransportWideSeqUnwrapper {
     if (raw > 0xffff) {
       this.lastUnwrapped = Math.max(this.lastUnwrapped, raw);
       return raw;
+    }
+    if (this.lastUnwrapped <= 0xffff) {
+      if (raw >= this.lastUnwrapped) {
+        this.lastUnwrapped = raw;
+        return raw;
+      }
+      if (this.lastUnwrapped - raw < TWCC_SEQ_MOD / 2) {
+        // Out-of-order send report: exact value, origin stays at the newest.
+        return raw;
+      }
+      this.lastUnwrapped = raw + TWCC_SEQ_MOD;
+      return this.lastUnwrapped;
     }
     const seq16 = raw & 0xffff;
     const last16 = this.lastUnwrapped & 0xffff;

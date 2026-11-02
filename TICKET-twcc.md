@@ -661,6 +661,16 @@ set availableBitrate(v: number) {
 - `cd packages/webrtc && npm run test:sim`: 2 シナリオ成功（統合した `BottleneckLink` で 2 回実行）。`cd e2e && npm run test:sim`（Chrome）: 1 件成功。
 - Biome（変更したファイル。`e2e` は e2e の設定で）: 指摘なし。ただし `simulations/helpers/peerHarness.ts` の import 順の指摘は HEAD から存在するもので、今回は直していない。
 
+### 検証記録（2026-11-02、レビュー指摘 3 件への対応）
+
+- 作業開始時のリビジョンは `4f5609ffa`（未コミット変更なし）。3 件とも妥当と判断し、修正前に再現テストを足して失敗を確認してから直した。
+  - BUNDLE の fan-out で、送信していない legacy sender が他 sender の TWCC で輻輳と判定される: legacy の `receiveTWCC` は、自分のパケットに 1 件も対応しない feedback を無視する（GCC と同じ）。テスト: `bandwidthEstimator.test.ts`「BUNDLE で他の sender 宛ての TWCC だけを受けても…」（修正前は congestion=true）。
+  - 送信しない方向の間に `pendingRtp` が RTP を積み、再開時にまとめて送る: `sendRtp` の入口で develop と同じく `sendSuppressed` を見て破棄する（develop 取り込み時に落ちていた）。テスト: `rtpSender.test.ts`「送信しない方向の間は pendingRtp 有効でも…」（修正前は 3 件が積まれた）。
+  - 送信確認が 1 件順序外に届くと、送信番号の展開が 65535 進み、送信履歴が消える: `TransportWideSeqUnwrapper.advanceSent` は、第 1 世代（0xffff 以下）では値をそのまま拡張番号として扱い、小さい値は順序外の報告として基準を動かさない。半周以上戻る値だけを 16-bit の周回とみなす。テスト: `twccFeedbackAdapter.test.ts`「送信確認が 1 件だけ順序外に届いても…」（修正前は 131046 以降に対応していた）。
+- `cd packages/webrtc && npm run type`: 成功。`npx vitest run tests`: 73 ファイル、1,572 件成功・5 件 skip。
+- `npm run pbt:deep -- --suite twcc,bwe,sender,receiver --seeds 300 --jobs 8`: 4,200 件すべて成功。
+- `cd packages/webrtc && npm run test:sim`: 2 件成功。`cd e2e && npm run test:sim`（Chrome）: 1 件成功。
+
 ### ライセンス
 
 - GCC 実装（`packages/webrtc/src/media/sender/estimators/gcc/`）は libwebrtc（BSD-3-Clause + PATENTS）の移植。帰属はルート `NOTICE`、各ファイル先頭の `/*!` ヘッダー、`third_party/libwebrtc-ref/{LICENSE,PATENTS,AUTHORS}`（pin と同じコミットから取得）で示す。
