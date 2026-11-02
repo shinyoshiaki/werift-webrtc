@@ -175,6 +175,7 @@ export class SecureTransportManager {
     const iceGatherer = new RTCIceGatherer({
       ...this.resolveIceServerOptions(),
       iceLite: this.config.iceLite,
+      useDefaultStunServer: this.config.iceUseDefaultStunServer,
       forceTurn: this.config.iceTransportPolicy === "relay",
       portRange: this.config.icePortRange,
       interfaceAddresses: this.config.iceInterfaceAddresses,
