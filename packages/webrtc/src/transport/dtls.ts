@@ -135,6 +135,12 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   readonly onStateChange = new Event<[DtlsState]>();
   readonly onRtcp = new Event<[RtcpPacket]>();
   readonly onRtp = new Event<[RtpPacket]>();
+  /**
+   * Fires once when {@link RTCDtlsTransport.stop} has finished, i.e. ICE has
+   * stopped too. The DTLS "closed" state alone (e.g. a received alert) does
+   * not mean ICE has released its resources.
+   */
+  readonly onStopped = new Event<[]>();
   private readonly events = new DomEventTarget();
   onstatechange?: () => void;
 
@@ -1366,26 +1372,44 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     }
   }
 
-  async stop() {
-    // 旧 attempt の callback・drain が再開しないよう先に無効化する。
-    this.currentAttempt = undefined;
-    this.iceDatagramSubscription?.unSubscribe();
-    this.iceDatagramSubscription = undefined;
-    this.srtpReadReady = false;
-    this.srtpWriteReady = false;
-    this.setState("closed", false);
-    this.applicationGate.abort();
-    this.mediaBuffer.clear(true);
-    this.mediaBuffer.dispose();
-    // DTLS engine の early queue・pending flight・再送 timer を確実に破棄し、
-    // close 後の遅延実行を残さない。失敗しても ICE 停止は継続する。
+  private stopPromise?: Promise<void>;
+
+  /** Resolves once ICE has stopped; concurrent callers share one stop. */
+  stop(): Promise<void> {
+    if (this.stopPromise) return this.stopPromise;
+    // Publish the shared promise before runStop() notifies "closed": a
+    // subscriber that re-enters stop() must get this same promise.
+    let settle!: (stopping: Promise<void>) => void;
+    this.stopPromise = new Promise<void>((resolve) => {
+      settle = resolve;
+    });
+    settle(this.runStop());
+    return this.stopPromise;
+  }
+
+  private async runStop() {
     try {
-      this.dtls?.close();
-    } catch (error) {
-      log("dtls close failed", error);
+      // 旧 attempt の callback・drain が再開しないよう先に無効化する。
+      this.currentAttempt = undefined;
+      this.iceDatagramSubscription?.unSubscribe();
+      this.iceDatagramSubscription = undefined;
+      this.srtpReadReady = false;
+      this.srtpWriteReady = false;
+      this.setState("closed", false);
+      this.applicationGate.abort();
+      this.mediaBuffer.clear(true);
+      this.mediaBuffer.dispose();
+      // DTLS engine の early queue・pending flight・再送 timer を破棄する。
+      try {
+        this.dtls?.close();
+      } catch (error) {
+        log("dtls close failed", error);
+      }
+      await this.iceTransport.stop();
+    } finally {
+      this.onStopped.execute();
+      this.onStopped.complete();
     }
-    // todo impl send alert
-    await this.iceTransport.stop();
   }
 
   async getStats(timestamp = getStatsTimestamp()): Promise<RTCStats[]> {

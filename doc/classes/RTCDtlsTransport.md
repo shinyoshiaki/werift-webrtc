@@ -151,6 +151,16 @@ on it when they started DTLS.
 
 ***
 
+### onStopped
+
+> `readonly` **onStopped**: [`Event`](Event.md)\<\[\]\>
+
+Fires once when [RTCDtlsTransport.stop](#stop) has finished, i.e. ICE has
+stopped too. The DTLS "closed" state alone (e.g. a received alert) does
+not mean ICE has released its resources.
+
+***
+
 ### packetsReceived
 
 > **packetsReceived**: `number` = `0`
@@ -414,6 +424,8 @@ Internal: whether a description gave this transport the peer's DTLS parameters.
 ### stop()
 
 > **stop**(): `Promise`\<`void`\>
+
+Resolves once ICE has stopped; concurrent callers share one stop.
 
 #### Returns
 

@@ -45,6 +45,15 @@ export class SecureTransportManager {
   private transceiverManager: TransceiverManager;
   private sctpManager: SctpTransportManager;
   private dtlsStateDisposers = new Map<RTCDtlsTransport, () => void>();
+  /**
+   * Every transport `createTransport` made that has not finished stopping
+   * (`onStopped`). `close` stops all of them, so a transport no m-line
+   * references any more (e.g. a max-compat transport a BUNDLE answer
+   * replaced) never outlives the peer connection, and a transport whose DTLS
+   * closed by alert keeps its ICE owned until stopped. Renegotiation does not
+   * grow the set. Never used for the live-transport getters.
+   */
+  private readonly ownedTransports = new Set<RTCDtlsTransport>();
 
   constructor({
     config,
@@ -256,6 +265,10 @@ export class SecureTransportManager {
       // during that interval; leave DTLS DATA unacknowledged until start().
       prepareConnectionSped(iceTransport.connection);
     }
+    this.ownedTransports.add(dtlsTransport);
+    dtlsTransport.onStopped.once(() => {
+      this.ownedTransports.delete(dtlsTransport);
+    });
 
     // A fingerprint re-validation failure happens after the initial
     // connection has already been reported.  Bridge that terminal DTLS state
@@ -791,12 +804,13 @@ export class SecureTransportManager {
     const createdTransports = uniqueTransports([
       ...this.dtlsStateDisposers.keys(),
       ...this.allDtlsTransports,
+      ...this.ownedTransports,
     ]);
     for (const release of [...this.dtlsStateDisposers.values()]) {
       release();
     }
-
     await Promise.allSettled(createdTransports.map((t) => t.stop()));
+    this.ownedTransports.clear();
 
     this.iceGatheringStateChange.allUnsubscribe();
     this.iceConnectionStateChange.allUnsubscribe();
