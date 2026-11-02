@@ -44,48 +44,19 @@ export class TransportWideSeqUnwrapper {
   }
 
   /**
-   * Map a **send-time** TSN onto a monotonic key.
+   * Record a **send-time** TSN, which is already the extended transport-wide
+   * counter ({@link SentInfo.wideSeq} from
+   * {@link RTCDtlsTransport.transportSequenceNumberExtended}).
    *
-   * `RTCRtpSender` passes the extended transport-wide counter
-   * ({@link RTCDtlsTransport.transportSequenceNumberExtended}), which is exact:
-   * concurrent sends may report it slightly out of order, and an idle sender
-   * may see a forward gap of any size (other BUNDLE senders). While the origin
-   * is still in the first 16-bit generation, a smaller value is therefore an
-   * out-of-order report (kept as is, origin unchanged), unless it is more than
-   * half the 16-bit space behind, which only a 16-bit caller wrapping past
-   * 0xffff produces. After the first generation a 16-bit value can only come
-   * from such a caller and is unwrapped forward.
+   * The value is exact, so it is kept as is: concurrent sends may report it
+   * out of order (including across a 16-bit wrap) and an idle sender may see
+   * a forward gap of any size. The origin only moves forward.
    */
   advanceSent(seq: number): number {
     if (!Number.isFinite(seq)) return this.lastUnwrapped ?? 0;
-    const raw = Math.trunc(seq);
-    if (this.lastUnwrapped === undefined) {
-      this.lastUnwrapped = raw > 0xffff ? raw : raw & 0xffff;
-      return this.lastUnwrapped;
-    }
-    if (raw > 0xffff) {
-      this.lastUnwrapped = Math.max(this.lastUnwrapped, raw);
-      return raw;
-    }
-    if (this.lastUnwrapped <= 0xffff) {
-      if (raw >= this.lastUnwrapped) {
-        this.lastUnwrapped = raw;
-        return raw;
-      }
-      if (this.lastUnwrapped - raw < TWCC_SEQ_MOD / 2) {
-        // Out-of-order send report: exact value, origin stays at the newest.
-        return raw;
-      }
-      this.lastUnwrapped = raw + TWCC_SEQ_MOD;
-      return this.lastUnwrapped;
-    }
-    const seq16 = raw & 0xffff;
-    const last16 = this.lastUnwrapped & 0xffff;
-    let forward = seq16 - last16;
-    if (forward < 0) forward += TWCC_SEQ_MOD;
-    if (forward === 0) return this.lastUnwrapped;
-    this.lastUnwrapped = this.lastUnwrapped + forward;
-    return this.lastUnwrapped;
+    const ext = Math.trunc(seq);
+    this.lastUnwrapped = Math.max(this.lastUnwrapped ?? ext, ext);
+    return ext;
   }
 
   /**

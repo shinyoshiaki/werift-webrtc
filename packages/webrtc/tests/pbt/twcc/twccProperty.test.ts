@@ -2,15 +2,15 @@ import { describe, expect, test } from "vitest";
 import {
   type BandwidthEstimator,
   GccBandwidthEstimator,
+  kSendTimeHistoryWindowMs,
   PacketResult,
   SenderBandwidthEstimator,
+  sortPacketResultsByWideSeq,
   TWCC_REFERENCE_TIME_MOD,
   TWCC_REFERENCE_TIME_UNIT_MS,
   TwccFeedbackAdapter,
   type TwccPacketFeedback,
   TwccReferenceTimeUnwrapper,
-  kSendTimeHistoryWindowMs,
-  sortPacketResultsByWideSeq,
 } from "../../../src";
 import {
   captureMatchedFeedback,
@@ -70,13 +70,16 @@ function deliver(
 describe("twcc property", () => {
   test.each(cases)(
     title(
-      "adapter: 周回・重複・並べ替え・corrective を混ぜても受信は高々 1 回で、正しい世代だけに対応する",
+      "adapter: 周回・送信確認の逆順・重複・並べ替え・corrective を混ぜても、受信した送信パケットは正しい世代でちょうど 1 回対応する",
     ),
     ({ seed }) => {
-      // Arrange: 他 sender の TSN と、重複・遅延・corrective を含む feedback 列
-      const { owned, deliveries } = randomTransport(seededRandom(seed), steps);
+      // Arrange: 他 sender の TSN、順序外の送信確認、重複・遅延・corrective を含む feedback 列
+      const { owned, sendOrder, deliveries } = randomTransport(
+        seededRandom(seed),
+        steps,
+      );
       const adapter = new TwccFeedbackAdapter(60_000);
-      for (const info of owned.values()) adapter.onSent(info);
+      for (const info of sendOrder) adapter.onSent(info);
 
       // Act
       const reports = deliver(deliveries, (fb) => adapter.onFeedback(fb));
@@ -95,6 +98,18 @@ describe("twcc property", () => {
       // Assert: どの送信パケットも受信として数えるのは 1 回以下で、他 sender の TSN は数えない
       expect(Math.max(0, ...receivedCount.values())).toBeLessThanOrEqual(1);
       for (const ext of receivedCount.keys()) expect(owned.has(ext)).toBe(true);
+      // Assert: どれかの feedback が受信と報告した自分の送信パケットは、取りこぼさず対応する
+      const reportedReceived = new Set<number>();
+      for (const w of deliveries) {
+        w.recvUs.forEach((us, i) => {
+          if (us !== undefined && owned.has(w.baseExt + i)) {
+            reportedReceived.add(w.baseExt + i);
+          }
+        });
+      }
+      expect([...receivedCount.keys()].sort((a, b) => a - b)).toEqual(
+        [...reportedReceived].sort((a, b) => a - b),
+      );
     },
   );
 
@@ -104,10 +119,13 @@ describe("twcc property", () => {
     ),
     ({ seed, kind }) => {
       // Arrange: legacy / GCC は共通 adapter の出力だけを使う
-      const { owned, deliveries } = randomTransport(seededRandom(seed), steps);
+      const { owned, sendOrder, deliveries } = randomTransport(
+        seededRandom(seed),
+        steps,
+      );
       const estimator = createEstimator(kind);
       const matched = captureMatchedFeedback(estimator);
-      for (const info of owned.values()) estimator.rtpPacketSent(info);
+      for (const info of sendOrder) estimator.rtpPacketSent(info);
 
       // Act
       deliver(deliveries, (fb) => {
@@ -213,9 +231,9 @@ describe("twcc property", () => {
       const ops = randomHistoryOps(seededRandom(seed), steps, kind === "gcc");
 
       for (const [i, op] of ops.entries()) {
-        // Act: 送信（16-bit TSN、周回・飛びあり）または process
+        // Act: 送信（拡張 TSN、16-bit の周回・飛びあり）または process
         if (op.type === "send") {
-          estimator.rtpPacketSent(twccSentInfo(op.seq16, 100, op.atMs));
+          estimator.rtpPacketSent(twccSentInfo(op.seq, 100, op.atMs));
         } else {
           estimator.process(op.atMs);
         }

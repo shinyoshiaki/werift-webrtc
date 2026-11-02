@@ -41,11 +41,28 @@ describe("TwccFeedbackAdapter", () => {
     expect(adapter.latestSentSeq).toBe(65560);
   });
 
+  test("最初の周回の境界で 65536 の確認が 65535 より先に届いても、両方を元の番号で照合できる", () => {
+    // Arrange: 拡張 TSN 65534, 65536, 65535, 65537 の順で送信確認が届く
+    const adapter = new TwccFeedbackAdapter(60_000);
+    for (const seq of [65534, 65536, 65535, 65537]) {
+      adapter.onSent(twccSentInfo(seq, 100, 0));
+    }
+
+    // Act: 16-bit 番号 65534 から 4 件（0 と 1 を含む）の受信 feedback
+    const out = adapter.onFeedback(
+      wireTwccFeedback(65534, [1_000, 1_100, 1_200, 1_300]),
+    );
+
+    // Assert: 65535 を 131071 と読まず、TSN 0（= 65536）も一致する
+    expect(out.map((p) => p.extSeq)).toEqual([65534, 65535, 65536, 65537]);
+    expect(adapter.latestSentSeq).toBe(65537);
+  });
+
   test("遅れて届いた古い feedback で unwrap の基準が後退しない", () => {
     // Arrange: wrap をまたいで 65530..65545 を送信
     const adapter = new TwccFeedbackAdapter(60_000);
     for (let s = 65530; s <= 65545; s++) {
-      adapter.onSent(twccSentInfo(s & 0xffff, 100, 0));
+      adapter.onSent(twccSentInfo(s, 100, 0));
     }
 
     // Act: wrap 後の feedback → wrap 前の遅延 feedback → wrap 後の続き

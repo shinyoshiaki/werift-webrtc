@@ -42,14 +42,15 @@ export function randomTwccWindow(rng: SeededRandom): {
 export type HistoryOp = {
   type: "send" | "process";
   atMs: number;
-  seq16: number;
+  /** Extended transport-wide sequence number (as `RTCRtpSender` reports it). */
+  seq: number;
 };
 
 /**
  * `count` send / process operations with non-decreasing times (dense bursts
- * and rare multi-second idle gaps) and 16-bit TSNs that wrap and skip by up
- * to 5,000 (other BUNDLE senders), so both the time window and the 32768
- * sequence-span cap bound the history.
+ * and rare multi-second idle gaps) and extended TSNs that cross 16-bit wraps
+ * and skip by up to 5,000 (other BUNDLE senders), so both the time window and
+ * the 32768 sequence-span cap bound the history.
  */
 export function randomHistoryOps(
   rng: SeededRandom,
@@ -62,11 +63,11 @@ export function randomHistoryOps(
   for (let i = 0; i < count; i++) {
     atMs += rng.chance(0.98) ? rng.int(0, 10) : rng.int(0, 15_000);
     if (withProcess && rng.chance(0.2)) {
-      ops.push({ type: "process", atMs, seq16: seq });
+      ops.push({ type: "process", atMs, seq });
       continue;
     }
-    seq = (seq + 1 + (rng.chance(0.1) ? rng.int(0, 5_000) : 0)) & 0xffff;
-    ops.push({ type: "send", atMs, seq16: seq });
+    seq += 1 + (rng.chance(0.1) ? rng.int(0, 5_000) : 0);
+    ops.push({ type: "send", atMs, seq });
   }
   return ops;
 }
@@ -102,7 +103,10 @@ export type FeedbackWindow = {
  * A transport where this sender owns only some TSNs (other BUNDLE senders
  * fill the rest) and the receiver's contiguous feedback windows arrive
  * duplicated, delayed (reordered), or as corrective re-reports in which some
- * earlier losses are now received.
+ * earlier losses are now received. `sendOrder` is the order of the send
+ * confirmations (`rtpPacketSent`): concurrent sends complete locally out of
+ * order, and about half of the runs swap the pair across the first 16-bit
+ * wrap (extended 0xffff / 0x10000).
  */
 export function randomTransport(rng: SeededRandom, packets: number) {
   // Start just below a 16-bit wrap so every run crosses at least one wrap.
@@ -131,6 +135,20 @@ export function randomTransport(rng: SeededRandom, packets: number) {
     base += n;
   }
 
+  const sendOrder = [...owned.values()];
+  for (let i = 0; i + 1 < sendOrder.length; i++) {
+    if (rng.chance(0.05)) {
+      [sendOrder[i], sendOrder[i + 1]] = [sendOrder[i + 1]!, sendOrder[i]!];
+    }
+  }
+  const wrapAt = sendOrder.findIndex((info) => info.wideSeq >= 0x10000);
+  if (wrapAt > 0 && rng.chance(0.5)) {
+    [sendOrder[wrapAt - 1], sendOrder[wrapAt]] = [
+      sendOrder[wrapAt]!,
+      sendOrder[wrapAt - 1]!,
+    ];
+  }
+
   const deliveries: FeedbackWindow[] = [];
   const delayed: FeedbackWindow[] = [];
   for (const w of windows) {
@@ -151,5 +169,5 @@ export function randomTransport(rng: SeededRandom, packets: number) {
     }
   }
   deliveries.push(...delayed);
-  return { owned, deliveries };
+  return { owned, sendOrder, deliveries };
 }

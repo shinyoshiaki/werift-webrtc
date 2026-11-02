@@ -56,17 +56,10 @@ describe("simulations/gcc-twcc-congestion", () => {
       await sleep(800);
       pair.link.resetStats("a2b");
       pair.sender.mediaPacingEnabled = true;
-      targetBps = Math.max(
-        40_000,
-        Math.min(lastEstimateAfterCongestion, Math.floor(capacityBps * 0.75)),
-      );
+      // アプリは推定値だけに追従する（既知の容量で上限をかけない）
+      targetBps = Math.max(40_000, lastEstimateAfterCongestion);
       const unsub = pair.sender.onAvailableBitrate.subscribe((bps) => {
-        if (bps > 0) {
-          targetBps = Math.max(
-            40_000,
-            Math.min(bps, Math.floor(capacityBps * 0.75)),
-          );
-        }
+        if (bps > 0) targetBps = Math.max(40_000, bps);
       });
 
       await sleep(4_000);

@@ -582,7 +582,8 @@ export function recordSentPackets(
   for (let i = 0; i < count; i++) {
     const at = sentAtMs + i * stepMs;
     estimator.rtpPacketSent({
-      wideSeq: (firstSeq + i) & 0xffff,
+      // RTCRtpSender reports the extended transport-wide sequence number.
+      wideSeq: firstSeq + i,
       size: 1000,
       sendingAtMs: at,
       sentAtMs: at,

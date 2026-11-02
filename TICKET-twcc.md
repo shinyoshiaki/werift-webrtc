@@ -671,6 +671,16 @@ set availableBitrate(v: number) {
 - `npm run pbt:deep -- --suite twcc,bwe,sender,receiver --seeds 300 --jobs 8`: 4,200 件すべて成功。
 - `cd packages/webrtc && npm run test:sim`: 2 件成功。`cd e2e && npm run test:sim`（Chrome）: 1 件成功。
 
+### 検証記録（2026-11-02、確認レビュー指摘 2 件への対応）
+
+- 作業開始時のリビジョンは `1e15a045c`（未コミット変更なし）。2 件とも修正前に再現テストが失敗することを確認した。
+  - 送信しない方向に変えた後も、pacing 待ち・FIFO 内の RTP が送られる: `setSendSuppressed(true)` で、source 切替と同じく FIFO 内の media を捨て、probe / pacing 待ちを中断する。DTLS への書き込み直前にも抑止を確認し、padding も送らない（NACK 再送は develop と同じ）。テスト: `bandwidthEstimator.test.ts`「送信しない方向に変わったら…」（修正前は抑止後に 2 件書かれた）。
+  - 最初の周回の境界で送信確認が逆順（65536 → 65535）になると、65535 を 131071 と読んで送信履歴が消える: `SentInfo.wideSeq` は契約どおり拡張 TSN なので、送信側は 16-bit の展開をせず値をそのまま使う（基準は前進だけ）。テスト: `twccFeedbackAdapter.test.ts`「最初の周回の境界で 65536 の確認が 65535 より先に届いても…」。`tests/pbt/twcc` の生成器に送信確認の逆順（半分の seed で 0xffff / 0x10000 の組を入れ替え）を足し、受信と報告された自分の送信パケットを取りこぼさないことも性質に加えた（修正前は 14 seed で失敗）。16-bit の送信番号を渡していたテスト・生成器・fixture は拡張番号に直した。
+- 改善提案への対応: peer シミュレーションの追従を、既知容量での上限なしに推定値だけへ追従するように変えた。3 回とも成功（例: 輻輳期のドロップ 4,776 件 → 追従後 0 件、最終推定 166.5 kbps / 容量 200 kbps）。
+- `cd packages/webrtc && npm run type`: 成功。`npx vitest run tests`: 73 ファイル、1,574 件成功・5 件 skip。
+- `npm run pbt:deep -- --suite twcc,bwe,sender,receiver --seeds 300 --jobs 8`: 4,200 件すべて成功。
+- `cd e2e && npm run test:sim`（Chrome）: 1 件成功。
+
 ### ライセンス
 
 - GCC 実装（`packages/webrtc/src/media/sender/estimators/gcc/`）は libwebrtc（BSD-3-Clause + PATENTS）の移植。帰属はルート `NOTICE`、各ファイル先頭の `/*!` ヘッダー、`third_party/libwebrtc-ref/{LICENSE,PATENTS,AUTHORS}`（pin と同じコミットから取得）で示す。

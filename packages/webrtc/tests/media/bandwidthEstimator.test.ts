@@ -401,9 +401,13 @@ describe("media/sender bandwidth estimator", () => {
       // Arrange: wire seq 0xffff → 0。clock=0 の send も含む
       const { gcc, setNow } = createClockGcc(100_000, 0);
       gcc.setBitrates(10_000, 100_000, 1e9);
-      const seqs = [0xfffd, 0xfffe, 0xffff, 0, 1, 2];
-      for (let i = 0; i < seqs.length; i++) {
-        gcc.rtpPacketSent(sent(seqs[i]!, 400, i * 2, { isProbation: true }));
+      // 送信確認は RTCRtpSender と同じ拡張 TSN、feedback は 16-bit の wire 番号
+      const sentSeqs = [0xfffd, 0xfffe, 0xffff, 0x10000, 0x10001, 0x10002];
+      const seqs = sentSeqs.map((s) => s & 0xffff);
+      for (let i = 0; i < sentSeqs.length; i++) {
+        gcc.rtpPacketSent(
+          sent(sentSeqs[i]!, 400, i * 2, { isProbation: true }),
+        );
       }
 
       // Act
@@ -685,6 +689,47 @@ describe("media/sender bandwidth estimator", () => {
       // Assert: 先に出た audio が TSN 1、後着 video が 2（確保→待ちの逆転ではない）
       expect(sentPackets.map(wireTsnOf)).toEqual([1, 2]);
     });
+
+    test("送信しない方向に変わったら、pacing 待ち・キュー内の RTP と probe padding を送らず、再開後は新しい RTP だけを送る", async () => {
+      // Arrange: 実際の GCC（probe padding は止める）と遅い pacer。2 件目は FIFO で待つ
+      const gcc = new GccBandwidthEstimator(300_000);
+      const { sender, sentPackets } = await prepareConnectedSender(gcc);
+      const inject = vi
+        .spyOn(sender, "maybeInjectProbePadding")
+        .mockResolvedValue(0);
+      settleGccProbe(gcc, { configured: true, pacingBps: 8_000 });
+      const sends = [1, 2].map((seq) =>
+        sender.sendRtp(createRtpPacket(seq, seq * 3000, Buffer.alloc(80))),
+      );
+      await flushMicrotasks();
+
+      // Act: 受付直後に recvonly / inactive 相当へ変える
+      sender.setSendSuppressed(true);
+      await Promise.all(sends);
+      await new Promise((r) => setTimeout(r, 300));
+
+      // Assert: 受付済みの 2 件は抑止後に DTLS へ書かれない
+      expect(sentPackets).toHaveLength(0);
+
+      // Act: 抑止中に probe padding を求める
+      inject.mockRestore();
+      startGccProbing(gcc);
+      const padded = await sender.maybeInjectProbePadding();
+
+      // Assert: padding も送らない
+      expect(padded).toBe(0);
+      expect(sentPackets).toHaveLength(0);
+
+      // Act: 送信を再開して新しい RTP を送る
+      settleGccProbe(gcc, { configured: true });
+      sender.setSendSuppressed(false);
+      await sender.sendRtp(createRtpPacket(3, 9000, Buffer.alloc(80)));
+
+      // Assert: 再開後の RTP だけが media として出る
+      const media = sentPackets.filter((p) => !p.header.padding);
+      expect(media).toHaveLength(1);
+      sender.stop();
+    }, 10_000);
 
     test("pacing 中の stop は packetCount / NACK cache を commit しない", async () => {
       // Arrange

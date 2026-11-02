@@ -66,8 +66,9 @@ export class TwccFeedbackAdapter {
   }
 
   /**
-   * Record a sent packet. `info.wideSeq` may be extended or 16-bit; 16-bit
-   * values only move forward.
+   * Record a sent packet. `info.wideSeq` is the extended transport-wide
+   * sequence number and is kept exactly, even when confirmations arrive out
+   * of order.
    * @returns extended sequence used as the history key
    */
   onSent(info: SentInfo): number {

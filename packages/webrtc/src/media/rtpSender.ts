@@ -727,8 +727,12 @@ export class RTCRtpSender {
   setSendSuppressed(suppressed: boolean) {
     if (this.sendSuppressed === suppressed) return;
     this.sendSuppressed = suppressed;
-    if (suppressed) this.discardPendingRtp();
-    else void this.drainPendingRtp();
+    if (suppressed) {
+      this.discardPendingRtp();
+      // Drop media already accepted into the send FIFO and release a packet
+      // parked in a probe / pacing wait (same path as a source switch).
+      this.invalidateQueuedSource();
+    } else void this.drainPendingRtp();
   }
 
   private canSendRtp() {
@@ -1299,6 +1303,7 @@ export class RTCRtpSender {
    */
   private canSendPadding(): boolean {
     return (
+      !this.sendSuppressed &&
       isProbePacingController(this._senderBWE) &&
       this.rtxPayloadType !== undefined &&
       this.isTransportCcNegotiated()
@@ -1355,7 +1360,11 @@ export class RTCRtpSender {
       // Drain the full probe cluster across multiple bursts if needed.
       // Without this, large clusters stall when only maxBurst packets are sent.
       for (let safety = 0; safety < 64; safety++) {
-        if (this.stopped || generation !== this.bweGeneration) {
+        if (
+          this.stopped ||
+          this.sendSuppressed ||
+          generation !== this.bweGeneration
+        ) {
           // stop() / setBandwidthEstimator cancelled this injection.
           break;
         }
@@ -1364,14 +1373,24 @@ export class RTCRtpSender {
         if (this.hasQueuedRealtimeMedia()) break;
         const n = Math.min(pending, maxBurst);
         for (let i = 0; i < n; i++) {
-          if (this.stopped || generation !== this.bweGeneration) break;
+          if (
+            this.stopped ||
+            this.sendSuppressed ||
+            generation !== this.bweGeneration
+          )
+            break;
           if (this.hasQueuedRealtimeMedia()) break;
           await this.sendRtpInternal(this.createPaddingRtpPacket(packetBytes), {
             injectProbePadding: false,
             forceProbeTag: true,
             isProbePadding: true,
           });
-          if (this.stopped || generation !== this.bweGeneration) break;
+          if (
+            this.stopped ||
+            this.sendSuppressed ||
+            generation !== this.bweGeneration
+          )
+            break;
           totalSent++;
           if (this.hasQueuedRealtimeMedia()) break;
         }
@@ -1424,14 +1443,24 @@ export class RTCRtpSender {
       if (pending <= 0) return 0;
       const n = Math.min(pending, maxBurst);
       for (let i = 0; i < n; i++) {
-        if (this.stopped || generation !== this.bweGeneration) break;
+        if (
+          this.stopped ||
+          this.sendSuppressed ||
+          generation !== this.bweGeneration
+        )
+          break;
         if (this.hasQueuedRealtimeMedia()) break;
         await this.sendRtpInternal(this.createPaddingRtpPacket(packetBytes), {
           injectProbePadding: false,
           forceProbeTag: false,
           isProbePadding: true,
         });
-        if (this.stopped || generation !== this.bweGeneration) break;
+        if (
+          this.stopped ||
+          this.sendSuppressed ||
+          generation !== this.bweGeneration
+        )
+          break;
         totalSent++;
       }
       return totalSent;
@@ -1484,6 +1513,9 @@ export class RTCRtpSender {
     } = {},
   ) {
     if (this.stopped) return;
+    // Not sending in the negotiated direction: drop media and padding.
+    // NACK retransmissions keep develop's behavior.
+    if (this.sendSuppressed && !opts.isRetransmission) return;
     if (this.dtlsTransport.state !== "connected" || !this.codec) {
       return;
     }
@@ -1631,6 +1663,10 @@ export class RTCRtpSender {
     }
 
     if (this.stopped || sendGeneration !== this.bweGeneration) {
+      return;
+    }
+    // Direction changed to not sending while this packet waited.
+    if (this.sendSuppressed && !opts.isRetransmission) {
       return;
     }
     // Accepted under a replaced/detached source: never send it, and never let
