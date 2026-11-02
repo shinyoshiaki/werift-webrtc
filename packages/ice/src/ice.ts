@@ -260,7 +260,10 @@ export class Connection implements IceConnection {
    */
   private applyStunTurnServersFromOptions() {
     this.stunServer =
-      validateAddress(this.options.stunServer) ?? DEFAULT_STUN_SERVER;
+      validateAddress(this.options.stunServer) ??
+      (this.options.useDefaultStunServer === false
+        ? undefined
+        : DEFAULT_STUN_SERVER);
     this.turnServer = validateAddress(this.options.turnServer);
   }
 

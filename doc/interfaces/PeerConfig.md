@@ -174,6 +174,17 @@ Defaults to 8 when undefined.
 
 ***
 
+### iceUseDefaultStunServer
+
+> **iceUseDefaultStunServer**: `boolean`
+
+Fall back to the built-in public STUN server (`stun.l.google.com:19302`)
+when `iceServers` contains no STUN URL (empty or TURN-only).
+Set to false to gather server-reflexive candidates only from the STUN
+servers given in `iceServers`. Defaults to true.
+
+***
+
 ### iceUseIpv4
 
 > **iceUseIpv4**: `boolean`
