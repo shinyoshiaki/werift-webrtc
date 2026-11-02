@@ -308,6 +308,12 @@ export interface IceOptions {
    */
   nominationDelayMs?: number;
   stunServer?: Address;
+  /**
+   * Whether the built-in public STUN server (stun.l.google.com:19302) is used
+   * when `stunServer` is not given. Defaults to true; false gathers no
+   * server-reflexive candidate unless `stunServer` is set.
+   */
+  useDefaultStunServer?: boolean;
   turnServer?: Address;
   turnUsername?: string;
   turnPassword?: string;
