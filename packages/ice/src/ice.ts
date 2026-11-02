@@ -1,7 +1,6 @@
 import * as timers from "node:timers/promises";
 import { randomBytes } from "crypto";
 import { isIPv4 } from "net";
-import { type Address, Event, debug, interfaceAddress } from "./imports/common";
 import {
   Candidate,
   candidateFoundation,
@@ -31,14 +30,15 @@ import {
   validateAddress,
   validateRemoteCandidate,
 } from "./iceBase";
+import { type Address, debug, Event, interfaceAddress } from "./imports/common";
 import { resolveHostAddresses } from "./internal/resolveHostAddresses";
-import { TCP_CHECK_RESPONSE_TIMEOUT_MS, classes, methods } from "./stun/const";
+import { classes, methods, TCP_CHECK_RESPONSE_TIMEOUT_MS } from "./stun/const";
 import { Message } from "./stun/message";
 import { StunProtocol } from "./stun/protocol";
 import { TcpActiveProtocol, TcpPassiveProtocol } from "./stun/tcpProtocol";
 import {
-  StunOverTurnProtocol,
   createStunOverTurnClient,
+  StunOverTurnProtocol,
 } from "./turn/protocol";
 import type { Protocol, TransactionRequestOptions } from "./types/model";
 import { getHostAddresses } from "./utils";
@@ -198,7 +198,10 @@ export class Connection implements IceConnection {
    */
   private applyStunTurnServersFromOptions() {
     this.stunServer =
-      validateAddress(this.options.stunServer) ?? DEFAULT_STUN_SERVER;
+      validateAddress(this.options.stunServer) ??
+      (this.options.useDefaultStunServer === false
+        ? undefined
+        : DEFAULT_STUN_SERVER);
     this.turnServer = validateAddress(this.options.turnServer);
   }
 
