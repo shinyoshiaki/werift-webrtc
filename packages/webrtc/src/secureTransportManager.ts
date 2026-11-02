@@ -42,6 +42,15 @@ export class SecureTransportManager {
   private lastLocalCredentials?: { usernameFragment: string; password: string };
   private transceiverManager: TransceiverManager;
   private sctpManager: SctpTransportManager;
+  /**
+   * Every transport `createTransport` made that has not finished stopping
+   * (`onStopped`). `close` stops all of them, so a transport no m-line
+   * references any more (e.g. a max-compat transport a BUNDLE answer
+   * replaced) never outlives the peer connection, and a transport whose DTLS
+   * closed by alert keeps its ICE owned until stopped. Renegotiation does not
+   * grow the set. Never used for the live-transport getters.
+   */
+  private readonly ownedTransports = new Set<RTCDtlsTransport>();
 
   constructor({
     config,
@@ -231,6 +240,10 @@ export class SecureTransportManager {
       this.certificate,
       srtpProfiles,
     );
+    this.ownedTransports.add(dtlsTransport);
+    dtlsTransport.onStopped.once(() => {
+      this.ownedTransports.delete(dtlsTransport);
+    });
 
     return dtlsTransport;
   }
@@ -741,7 +754,14 @@ export class SecureTransportManager {
   async close() {
     this.setConnectionState("closed");
 
-    await Promise.allSettled([...this.allDtlsTransports.map((t) => t.stop())]);
+    // Owned transports cover the ones no binding references any more.
+    await Promise.allSettled(
+      uniqueTransports([
+        ...this.allDtlsTransports,
+        ...this.ownedTransports,
+      ]).map((t) => t.stop()),
+    );
+    this.ownedTransports.clear();
 
     this.iceGatheringStateChange.allUnsubscribe();
     this.iceConnectionStateChange.allUnsubscribe();
