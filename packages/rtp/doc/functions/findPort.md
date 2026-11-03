@@ -6,7 +6,7 @@
 
 # Function: findPort()
 
-> **findPort**(`min`, `max`, `protocol`, `interfaceAddresses`?): `Promise`\<`number`\>
+> **findPort**(`min`, `max`, `protocol?`, `interfaceAddresses?`): `Promise`\<`number`\>
 
 ## Parameters
 
@@ -18,7 +18,7 @@
 
 `number`
 
-### protocol
+### protocol?
 
 `SocketType` = `"udp4"`
 

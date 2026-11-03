@@ -1,14 +1,14 @@
 /**
  * シナリオを N サイクル実行し、サンプリング・スナップショット・判定・分析を行うランナー。
  */
-import { type LeakAnalysis, compareSnapshots } from "./analyze";
+import { compareSnapshots, type LeakAnalysis } from "./analyze";
 import {
-  type MemleakEnv,
-  type MemorySample,
   detectLeak,
   ensureArtifactsDir,
   forceGcAndSettle,
   hasGcExposed,
+  type MemleakEnv,
+  type MemorySample,
   sampleMemory,
   shouldTakeSnapshot,
   takeHeapSnapshot,
@@ -72,6 +72,8 @@ export async function runScenario(
     sample.snapshotPath = snapshotPath;
     samples.push(sample);
   }
+
+  await scenario.dispose?.();
 
   const wallClockSeconds = (Date.now() - wallStart) / 1000;
   const equivalentSeconds =

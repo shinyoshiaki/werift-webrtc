@@ -3,7 +3,7 @@ import { createHash } from "crypto";
 import { createSocket } from "dgram";
 
 import { performance } from "perf_hooks";
-
+import type { RTCIceServer } from "./api/peerConfig";
 import {
   type Address,
   bufferReader,
@@ -12,8 +12,6 @@ import {
   randomPort,
 } from "./imports/common";
 import { CipherContext } from "./imports/dtls";
-
-import type { RTCIceServer } from "./api/peerConfig";
 import { Directions, type MediaDirection } from "./media/rtpTransceiver";
 import { MediaStreamTrack } from "./media/track";
 
@@ -79,24 +77,35 @@ export const microTime = () => {
 
 export const timestampSeconds = () => Date.now() / 1000;
 
-/**https://datatracker.ietf.org/doc/html/rfc3550#section-4 */
-export const ntpTime = () => {
-  const now = performance.timeOrigin + performance.now() - Date.UTC(1900, 0, 1);
+const NTP_FRACTION_SCALE = 2 ** 32;
 
-  const seconds = now / 1000;
-  const [sec, msec] = seconds.toString().split(".").map(Number);
+/**
+ * 64bit NTP timestamp (32bit seconds . 32bit fraction of a second)
+ * https://datatracker.ietf.org/doc/html/rfc3550#section-4
+ */
+export const ntpTime = (
+  epochMs: number = performance.timeOrigin + performance.now(),
+) => {
+  const ntpMs = epochMs - Date.UTC(1900, 0, 1);
 
-  const buf = bufferWriter([4, 4], [sec, msec]);
+  const sec = Math.floor(ntpMs / 1000);
+  const fraction = Math.min(
+    Math.floor(((ntpMs - sec * 1000) / 1000) * NTP_FRACTION_SCALE),
+    NTP_FRACTION_SCALE - 1,
+  );
+
+  const buf = bufferWriter([4, 4], [sec, fraction]);
 
   return buf.readBigUInt64BE();
 };
 
 export const ntpTimeToEpochMs = (ntp: bigint) => {
-  const [seconds, milliseconds] = bufferReader(
-    bufferWriter([8], [ntp]),
-    [4, 4],
+  const [seconds, fraction] = bufferReader(bufferWriter([8], [ntp]), [4, 4]);
+  return (
+    seconds * 1000 +
+    (fraction / NTP_FRACTION_SCALE) * 1000 +
+    Date.UTC(1900, 0, 1)
   );
-  return seconds * 1000 + milliseconds + Date.UTC(1900, 0, 1);
 };
 
 /**
@@ -336,7 +345,7 @@ export const deepMerge = <T>(dst: T, src: T) => {
   }
 
   for (const key in src) {
-    if (Object.prototype.hasOwnProperty.call(src, key)) {
+    if (Object.hasOwn(src, key)) {
       const sourceValue = src[key];
 
       if (sourceValue != undefined) {

@@ -1,5 +1,5 @@
 // Burst transfer benchmark (not part of the vitest suite).
-// usage: npx tsx tests/bench/burstTransfer.ts [counts=1000,5000,20000] [size=1000]
+// usage: node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs tests/bench/burstTransfer.ts [counts=1000,5000,20000] [size=1000]
 import {
   createConnectedSctpPair,
   createMessages,

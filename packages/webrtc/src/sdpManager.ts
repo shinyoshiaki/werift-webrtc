@@ -1,19 +1,20 @@
 import { DISCARD_HOST, DISCARD_PORT } from "./const";
 import { createWebRtcDomException } from "./errors";
 import type { RTCRtpTransceiver } from "./media";
+import { normalizeCodecMimeType } from "./media/codecCompatibility";
 import {
   type RTCRtpCodecParameters,
   RTCRtpSimulcastParameters,
 } from "./media/parameters";
 import type { MediaDirection } from "./media/rtpTransceiver";
 import {
+  addSDPHeader,
   type BundlePolicy,
+  codecParametersFromString,
   GroupDescription,
   MediaDescription,
   SessionDescription,
   SsrcDescription,
-  addSDPHeader,
-  codecParametersFromString,
 } from "./sdp";
 import type { RTCDtlsTransport } from "./transport/dtls";
 import type { RTCSctpTransport } from "./transport/sctp";
@@ -1025,8 +1026,8 @@ export class SDPManager {
           codec.name.toLowerCase() !== "rtx" &&
           offered.rtp.codecs.some(
             (offeredCodec) =>
-              offeredCodec.mimeType.toLowerCase() ===
-              codec.mimeType.toLowerCase(),
+              normalizeCodecMimeType(offeredCodec.mimeType) ===
+              normalizeCodecMimeType(codec.mimeType),
           ),
       );
       if (!hasCommonCodec) {

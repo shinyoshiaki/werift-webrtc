@@ -1,11 +1,10 @@
-import { Event, debug } from "../../imports/common";
-
 import { OpusRtpPayload } from "../..";
+import { debug, Event } from "../../imports/common";
 import {
+  annexb2avcSample,
   type DataType,
   Mp4Container,
   type Mp4SupportedCodec,
-  annexb2avcSample,
   parseAvcDecoderConfig,
 } from "../container/mp4";
 import type { AVProcessor } from "./interface";

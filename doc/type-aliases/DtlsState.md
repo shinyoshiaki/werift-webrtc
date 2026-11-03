@@ -6,4 +6,4 @@
 
 # Type Alias: DtlsState
 
-> **DtlsState**: *typeof* [`DtlsStates`](../variables/DtlsStates.md)\[`number`\]
+> **DtlsState** = *typeof* [`DtlsStates`](../variables/DtlsStates.md)\[`number`\]

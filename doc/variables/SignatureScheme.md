@@ -8,7 +8,7 @@
 
 > `const` **SignatureScheme**: `object`
 
-## Type declaration
+## Type Declaration
 
 ### ecdsa\_secp256r1\_sha256
 

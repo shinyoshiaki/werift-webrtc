@@ -134,11 +134,12 @@ export interface Schema {
 export type TypeOrSchema = DataType<any> | Schema;
 
 /** Infer the decoded value from a type or schema. */
-export type Decoded<S> = S extends DataType<infer T>
-  ? T
-  : S extends Schema
-    ? { -readonly [K in keyof S]: Decoded<S[K]> }
-    : never;
+export type Decoded<S> =
+  S extends DataType<infer T>
+    ? T
+    : S extends Schema
+      ? { -readonly [K in keyof S]: Decoded<S[K]> }
+      : never;
 
 export type LengthCallback = (context: BinaryContext) => number;
 

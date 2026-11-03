@@ -1,4 +1,4 @@
-import { type SocketType, createSocket } from "dgram";
+import { createSocket, type SocketType } from "dgram";
 
 export type InterfaceAddresses = {
   [K in SocketType]?: string;

@@ -3,18 +3,22 @@ import { createCipheriv } from "crypto";
 import { RtpPacket } from "../../../src";
 import { RtpHeader } from "../../../src/rtp/rtp";
 import { ProtectionProfileAeadAes128Gcm } from "../../../src/srtp/const";
-import { Context } from "../../../src/srtp/context/context";
+import {
+  Context,
+  SrtpRolloverCounterOverflowError,
+} from "../../../src/srtp/context/context";
 import { SrtcpContext } from "../../../src/srtp/context/srtcp";
 import { SrtpContext } from "../../../src/srtp/context/srtp";
 import { SrtpAuthenticationError } from "../../../src/srtp/error";
+import {
+  createSrtpContextPair,
+  decryptSrtpSequence,
+  encryptSrtpSequence,
+  sequenceRange,
+  tamperBuffer,
+} from "../../utils";
 
 describe("packages/rtp/tests/srtp/cipher/gcm.test.ts", () => {
-  function tamper(buffer: Buffer, index: number, mask = 0x01) {
-    const tampered = Buffer.from(buffer);
-    tampered[index] ^= mask;
-    return tampered;
-  }
-
   const masterKey = Buffer.from([
     0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b,
     0x0c, 0x0d, 0x0e, 0x0f,
@@ -98,7 +102,9 @@ describe("packages/rtp/tests/srtp/cipher/gcm.test.ts", () => {
     );
 
     expect(() =>
-      ctx.decryptRtp(tamper(encryptedRTPPacket, encryptedRTPPacket.length - 1)),
+      ctx.decryptRtp(
+        tamperBuffer(encryptedRTPPacket, encryptedRTPPacket.length - 1),
+      ),
     ).toThrowError(SrtpAuthenticationError);
 
     const [dec] = ctx.decryptRtp(encryptedRTPPacket);
@@ -112,9 +118,9 @@ describe("packages/rtp/tests/srtp/cipher/gcm.test.ts", () => {
       ProtectionProfileAeadAes128Gcm,
     );
 
-    expect(() => ctx.decryptRtp(tamper(encryptedRTPPacket, 12))).toThrowError(
-      SrtpAuthenticationError,
-    );
+    expect(() =>
+      ctx.decryptRtp(tamperBuffer(encryptedRTPPacket, 12)),
+    ).toThrowError(SrtpAuthenticationError);
   });
 
   test("Rejects RTP header tampering covered by AAD", () => {
@@ -124,9 +130,9 @@ describe("packages/rtp/tests/srtp/cipher/gcm.test.ts", () => {
       ProtectionProfileAeadAes128Gcm,
     );
 
-    expect(() => ctx.decryptRtp(tamper(encryptedRTPPacket, 1))).toThrowError(
-      SrtpAuthenticationError,
-    );
+    expect(() =>
+      ctx.decryptRtp(tamperBuffer(encryptedRTPPacket, 1)),
+    ).toThrowError(SrtpAuthenticationError);
   });
 
   test("Rejects malformed RTP packet with oversized CSRC list", () => {
@@ -231,7 +237,7 @@ describe("packages/rtp/tests/srtp/cipher/gcm.test.ts", () => {
       masterSalt,
       ProtectionProfileAeadAes128Gcm,
     );
-    const tamperedIndex = tamper(
+    const tamperedIndex = tamperBuffer(
       encryptedRtcpPacket,
       encryptedRtcpPacket.length - 1,
     );
@@ -303,4 +309,170 @@ describe("packages/rtp/tests/srtp/cipher/gcm.test.ts", () => {
 
     return Buffer.concat([rtcpPacket, cipher.getAuthTag(), encodedIndex]);
   }
+
+  describe("rollover with retransmission and reordering (AES-128-GCM)", () => {
+    test("A: receiver decrypts retransmitted seq 0 and following packets", () => {
+      // Arrange
+      const { sender, receiver } = createSrtpContextPair(
+        ProtectionProfileAeadAes128Gcm,
+      );
+      const packets = encryptSrtpSequence(sender, [
+        65534,
+        65535,
+        ...sequenceRange(0, 151),
+        0,
+        152,
+      ]);
+
+      // Act: 再送を含む全パケットを順に復号する
+      const results = decryptSrtpSequence(
+        receiver,
+        packets.map((p) => p.encrypted),
+      );
+
+      // Assert: 全パケットが認証・復号に成功し、元の RTP と一致する
+      expect(results.filter((r) => !r.ok)).toEqual([]);
+      results.forEach((r, i) => {
+        expect(r.ok && r.decrypted).toEqual(packets[i].plain);
+      });
+      // Assert: 受信側の最高 index は (1, 152)
+      expect(receiver.srtpSSRCStates[5000]).toMatchObject({
+        rolloverCounter: 1,
+        lastSequenceNumber: 152,
+      });
+    });
+
+    test("B: receiver decrypts late retransmission of 65535 and following packets", () => {
+      // Arrange
+      const { sender, receiver } = createSrtpContextPair(
+        ProtectionProfileAeadAes128Gcm,
+      );
+      const packets = encryptSrtpSequence(sender, [
+        65534,
+        65535,
+        ...sequenceRange(0, 99),
+        65535,
+        ...sequenceRange(100, 120),
+      ]);
+
+      // Act
+      const results = decryptSrtpSequence(
+        receiver,
+        packets.map((p) => p.encrypted),
+      );
+
+      // Assert: 再送 65535 も後続 100.. も全て復号できる
+      expect(results.filter((r) => !r.ok)).toEqual([]);
+      expect(receiver.srtpSSRCStates[5000]).toMatchObject({
+        rolloverCounter: 1,
+        lastSequenceNumber: 120,
+      });
+    });
+
+    test("C: network reordering of 65535 after wrap does not stall the receiver", () => {
+      // Arrange: 65535 だけ 99 の後に遅れて届くように並べ替える
+      const { sender, receiver } = createSrtpContextPair(
+        ProtectionProfileAeadAes128Gcm,
+      );
+      const packets = encryptSrtpSequence(sender, [
+        65534,
+        65535,
+        ...sequenceRange(0, 200),
+      ]);
+      const delayed = packets[1];
+      const reordered = [
+        packets[0],
+        ...packets.slice(2, 102),
+        delayed,
+        ...packets.slice(102),
+      ];
+
+      // Act
+      const results = decryptSrtpSequence(
+        receiver,
+        reordered.map((p) => p.encrypted),
+      );
+
+      // Assert: 遅延パケットと後続のどちらも復号できる
+      expect(results.filter((r) => !r.ok)).toEqual([]);
+      expect(results[101].ok && results[101].decrypted).toEqual(delayed.plain);
+      // Assert: 最高 index は遅延パケットで後退していない
+      expect(receiver.srtpSSRCStates[5000]).toMatchObject({
+        rolloverCounter: 1,
+        lastSequenceNumber: 200,
+      });
+    });
+
+    test("tampered retransmission is rejected without changing receiver state", () => {
+      // Arrange
+      const { sender, receiver } = createSrtpContextPair(
+        ProtectionProfileAeadAes128Gcm,
+      );
+      const packets = encryptSrtpSequence(sender, [
+        65535,
+        ...sequenceRange(0, 120),
+        0,
+        121,
+      ]);
+      const retransmission = packets.at(-2)!.encrypted;
+      decryptSrtpSequence(
+        receiver,
+        packets.slice(0, -2).map((p) => p.encrypted),
+      );
+      const stateBefore = { ...receiver.srtpSSRCStates[5000] };
+
+      // Act / Assert: 改ざんした再送は認証エラーになる
+      expect(() =>
+        receiver.decryptRtp(
+          tamperBuffer(retransmission, retransmission.length - 1),
+        ),
+      ).toThrowError(SrtpAuthenticationError);
+      // Assert: 最高 index は変わらない
+      expect(receiver.srtpSSRCStates[5000]).toEqual(stateBefore);
+
+      // Act: 正しい再送と後続パケットを復号する
+      const results = decryptSrtpSequence(receiver, [
+        retransmission,
+        packets.at(-1)!.encrypted,
+      ]);
+
+      // Assert: どちらも復号できる
+      expect(results.map((r) => r.ok)).toEqual([true, true]);
+    });
+
+    test("rejects decrypt beyond ROC=0xFFFFFFFF as authentication failure", () => {
+      // Arrange: 送信側は seq 65535 で、受信側は ROC 上限の状態にする
+      const { sender, receiver } = createSrtpContextPair(
+        ProtectionProfileAeadAes128Gcm,
+      );
+      const [packet] = encryptSrtpSequence(sender, [0]);
+      receiver.srtpSSRCStates[5000] = {
+        ssrc: 5000,
+        rolloverCounter: 0xffffffff,
+        lastSequenceNumber: 65535,
+        rolloverHasProcessed: true,
+      };
+
+      // Act / Assert: 受信経路をクラッシュさせず認証エラーとして拒否する
+      expect(() => receiver.decryptRtp(packet.encrypted)).toThrowError(
+        SrtpAuthenticationError,
+      );
+    });
+
+    test("rejects encrypt beyond ROC=0xFFFFFFFF", () => {
+      // Arrange
+      const { sender } = createSrtpContextPair(ProtectionProfileAeadAes128Gcm);
+      sender.srtpSSRCStates[5000] = {
+        ssrc: 5000,
+        rolloverCounter: 0xffffffff,
+        lastSequenceNumber: 65535,
+        rolloverHasProcessed: true,
+      };
+
+      // Act / Assert: cipher の例外ではなく明示的なエラーで拒否する
+      expect(() => encryptSrtpSequence(sender, [0])).toThrowError(
+        SrtpRolloverCounterOverflowError,
+      );
+    });
+  });
 });

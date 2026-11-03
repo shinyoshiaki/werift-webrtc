@@ -8,7 +8,7 @@
 
 > `const` **HashAlgorithm**: `object`
 
-## Type declaration
+## Type Declaration
 
 ### sha256\_4
 

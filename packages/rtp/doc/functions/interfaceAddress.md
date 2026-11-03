@@ -6,7 +6,7 @@
 
 # Function: interfaceAddress()
 
-> **interfaceAddress**(`type`, `interfaceAddresses`): `undefined` \| `string`
+> **interfaceAddress**(`type`, `interfaceAddresses`): `string` \| `undefined`
 
 ## Parameters
 
@@ -16,8 +16,8 @@
 
 ### interfaceAddresses
 
-`undefined` | [`InterfaceAddresses`](../type-aliases/InterfaceAddresses.md)
+[`InterfaceAddresses`](../type-aliases/InterfaceAddresses.md) \| `undefined`
 
 ## Returns
 
-`undefined` \| `string`
+`string` \| `undefined`

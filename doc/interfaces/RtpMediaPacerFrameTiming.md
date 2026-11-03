@@ -10,7 +10,7 @@
 
 ### dts?
 
-> `optional` **dts**: `number`
+> `optional` **dts?**: `number`
 
 Decode time in `clockRate` units; frames are paced by it and must be pushed
 in non-decreasing `dts` order. Default: `pts` (no B-frames).

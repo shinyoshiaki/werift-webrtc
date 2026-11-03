@@ -6,7 +6,7 @@
 
 # Function: getBit()
 
-> **getBit**(`bits`, `startIndex`, `length`): `number`
+> **getBit**(`bits`, `startIndex`, `length?`): `number`
 
 ## Parameters
 
@@ -18,7 +18,7 @@
 
 `number`
 
-### length
+### length?
 
 `number` = `1`
 
