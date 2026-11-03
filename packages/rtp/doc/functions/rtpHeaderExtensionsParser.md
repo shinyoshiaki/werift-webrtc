@@ -16,6 +16,8 @@
 
 ### extIdUriMap
 
+\{\[`id`: `number`\]: `string`; \}
+
 ## Returns
 
 [`Extensions`](../interfaces/Extensions.md)

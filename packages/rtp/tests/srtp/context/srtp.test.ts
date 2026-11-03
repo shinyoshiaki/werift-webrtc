@@ -1,25 +1,17 @@
 import { RtpHeader, RtpPacket } from "../../../src/rtp/rtp";
-import { SrtpContext } from "../../../src/srtp/context/srtp";
+import { ProtectionProfileAes128CmHmacSha1_80 } from "../../../src/srtp/const";
+import { SrtpRolloverCounterOverflowError } from "../../../src/srtp/context/context";
 import { SrtpAuthenticationError } from "../../../src/srtp/error";
+import {
+  createSrtpContextPair,
+  createSrtpTestContext,
+  decryptSrtpSequence,
+  encryptSrtpSequence,
+  sequenceRange,
+  tamperBuffer,
+} from "../../utils";
 
 describe("srtp/context/srtp", () => {
-  function buildTestContext() {
-    const masterKey = Buffer.from([
-      0x0d, 0xcd, 0x21, 0x3e, 0x4c, 0xbc, 0xf2, 0x8f, 0x01, 0x7f, 0x69, 0x94,
-      0x40, 0x1e, 0x28, 0x89,
-    ]);
-    const masterSalt = Buffer.from([
-      0x62, 0x77, 0x60, 0x38, 0xc0, 0x6d, 0xc9, 0x41, 0x9f, 0x6d, 0xd9, 0x43,
-      0x3e, 0x7c,
-    ]);
-
-    return new SrtpContext(masterKey, masterSalt, 1);
-  }
-  function tamper(buffer: Buffer, index: number, mask = 0x01) {
-    const tampered = Buffer.from(buffer);
-    tampered[index] ^= mask;
-    return tampered;
-  }
   const rtpTestCaseDecrypted = Buffer.from([
     0x00, 0x01, 0x02, 0x03, 0x04, 0x05,
   ]);
@@ -62,8 +54,8 @@ describe("srtp/context/srtp", () => {
   ];
   test("TestRTPLifecyleNewAlloc", () => {
     rtpTestCases.forEach(([sequenceNumber, encrypted]) => {
-      const encryptContext = buildTestContext();
-      const decryptContext = buildTestContext();
+      const encryptContext = createSrtpTestContext();
+      const decryptContext = createSrtpTestContext();
 
       const decryptedPkt = new RtpPacket(
         new RtpHeader({ sequenceNumber, version: 0 }),
@@ -90,8 +82,8 @@ describe("srtp/context/srtp", () => {
   // 意味あるかこれ？
   test("TestRTPLifecyleInPlace", () => {
     rtpTestCases.forEach(([sequenceNumber, encrypted]) => {
-      const encryptContext = buildTestContext();
-      const decryptContext = buildTestContext();
+      const encryptContext = createSrtpTestContext();
+      const decryptContext = createSrtpTestContext();
 
       const decryptPkt = new RtpPacket(
         new RtpHeader({ sequenceNumber, version: 0 }),
@@ -121,8 +113,8 @@ describe("srtp/context/srtp", () => {
   });
 
   test("Rejects tampered SRTP auth tag without advancing rollover state", () => {
-    const encryptContext = buildTestContext();
-    const decryptContext = buildTestContext();
+    const encryptContext = createSrtpTestContext();
+    const decryptContext = createSrtpTestContext();
     const ssrc = 5000;
 
     const beforeRolloverPacket = new RtpPacket(
@@ -151,7 +143,7 @@ describe("srtp/context/srtp", () => {
     const stateBeforeFailure = {
       ...decryptContext.srtpSSRCStates[ssrc],
     };
-    const tamperedAuthTag = tamper(
+    const tamperedAuthTag = tamperBuffer(
       encryptedRollover,
       encryptedRollover.length - 1,
     );
@@ -171,7 +163,7 @@ describe("srtp/context/srtp", () => {
   });
 
   test("Rejects tampered SRTP ciphertext", () => {
-    const decryptContext = buildTestContext();
+    const decryptContext = createSrtpTestContext();
     const [sequenceNumber, encrypted] = rtpTestCases[0];
     const encryptedRaw = new RtpPacket(
       new RtpHeader({ sequenceNumber, version: 0 }),
@@ -179,12 +171,12 @@ describe("srtp/context/srtp", () => {
     ).serialize();
 
     expect(() =>
-      decryptContext.decryptRtp(tamper(encryptedRaw, 12)),
+      decryptContext.decryptRtp(tamperBuffer(encryptedRaw, 12)),
     ).toThrowError(SrtpAuthenticationError);
   });
 
   test("Rejects malformed SRTP packet with oversized CSRC list", () => {
-    const decryptContext = buildTestContext();
+    const decryptContext = createSrtpTestContext();
     const [sequenceNumber, encrypted] = rtpTestCases[0];
     const malformed = new RtpPacket(
       new RtpHeader({ sequenceNumber, version: 0 }),
@@ -198,7 +190,7 @@ describe("srtp/context/srtp", () => {
   });
 
   test("Rejects malformed SRTP packet with oversized header extension", () => {
-    const decryptContext = buildTestContext();
+    const decryptContext = createSrtpTestContext();
     const [sequenceNumber, encrypted] = rtpTestCases[0];
     const malformed = new RtpPacket(
       new RtpHeader({ sequenceNumber, version: 0 }),
@@ -216,7 +208,7 @@ describe("srtp/context/srtp", () => {
   });
 
   test("Does not create SRTP state for unknown SSRC when authentication fails", () => {
-    const decryptContext = buildTestContext();
+    const decryptContext = createSrtpTestContext();
     const [sequenceNumber, encrypted] = rtpTestCases[0];
     const forged = new RtpPacket(
       new RtpHeader({ sequenceNumber, version: 0 }),
@@ -231,8 +223,8 @@ describe("srtp/context/srtp", () => {
   });
 
   test("Decrypts padded SRTP packets without reading pad count before authentication", () => {
-    const encryptContext = buildTestContext();
-    const decryptContext = buildTestContext();
+    const encryptContext = createSrtpTestContext();
+    const decryptContext = createSrtpTestContext();
     const header = new RtpHeader({
       sequenceNumber: 5000,
       ssrc: 1,
@@ -261,5 +253,173 @@ describe("srtp/context/srtp", () => {
     expect(RtpPacket.deSerialize(decrypted).payload).toEqual(
       Buffer.from([0xde, 0xad, 0xbe, 0xef]),
     );
+  });
+
+  describe("rollover with retransmission and reordering (AES-128-CM/HMAC-SHA1)", () => {
+    test("A: receiver decrypts retransmitted seq 0 and following packets", () => {
+      // Arrange
+      const { sender, receiver } = createSrtpContextPair(
+        ProtectionProfileAes128CmHmacSha1_80,
+      );
+      const packets = encryptSrtpSequence(sender, [
+        65534,
+        65535,
+        ...sequenceRange(0, 151),
+        0,
+        152,
+      ]);
+
+      // Act: 再送を含む全パケットを順に復号する
+      const results = decryptSrtpSequence(
+        receiver,
+        packets.map((p) => p.encrypted),
+      );
+
+      // Assert: 全パケットが認証・復号に成功し、元の RTP と一致する
+      expect(results.filter((r) => !r.ok)).toEqual([]);
+      results.forEach((r, i) => {
+        expect(r.ok && r.decrypted).toEqual(packets[i].plain);
+      });
+      // Assert: 受信側の最高 index は (1, 152)
+      expect(receiver.srtpSSRCStates[5000]).toMatchObject({
+        rolloverCounter: 1,
+        lastSequenceNumber: 152,
+      });
+    });
+
+    test("B: receiver decrypts late retransmission of 65535 and following packets", () => {
+      // Arrange
+      const { sender, receiver } = createSrtpContextPair(
+        ProtectionProfileAes128CmHmacSha1_80,
+      );
+      const packets = encryptSrtpSequence(sender, [
+        65534,
+        65535,
+        ...sequenceRange(0, 99),
+        65535,
+        ...sequenceRange(100, 120),
+      ]);
+
+      // Act
+      const results = decryptSrtpSequence(
+        receiver,
+        packets.map((p) => p.encrypted),
+      );
+
+      // Assert: 再送 65535 も後続 100.. も全て復号できる
+      expect(results.filter((r) => !r.ok)).toEqual([]);
+      expect(receiver.srtpSSRCStates[5000]).toMatchObject({
+        rolloverCounter: 1,
+        lastSequenceNumber: 120,
+      });
+    });
+
+    test("C: network reordering of 65535 after wrap does not stall the receiver", () => {
+      // Arrange: 65535 だけ 99 の後に遅れて届くように並べ替える
+      const { sender, receiver } = createSrtpContextPair(
+        ProtectionProfileAes128CmHmacSha1_80,
+      );
+      const packets = encryptSrtpSequence(sender, [
+        65534,
+        65535,
+        ...sequenceRange(0, 200),
+      ]);
+      const delayed = packets[1];
+      const reordered = [
+        packets[0],
+        ...packets.slice(2, 102),
+        delayed,
+        ...packets.slice(102),
+      ];
+
+      // Act
+      const results = decryptSrtpSequence(
+        receiver,
+        reordered.map((p) => p.encrypted),
+      );
+
+      // Assert: 遅延パケットと後続のどちらも復号できる
+      expect(results.filter((r) => !r.ok)).toEqual([]);
+      expect(results[101].ok && results[101].decrypted).toEqual(delayed.plain);
+      // Assert: 最高 index は遅延パケットで後退していない
+      expect(receiver.srtpSSRCStates[5000]).toMatchObject({
+        rolloverCounter: 1,
+        lastSequenceNumber: 200,
+      });
+    });
+
+    test("tampered retransmission is rejected without changing receiver state", () => {
+      // Arrange
+      const { sender, receiver } = createSrtpContextPair(
+        ProtectionProfileAes128CmHmacSha1_80,
+      );
+      const packets = encryptSrtpSequence(sender, [
+        65535,
+        ...sequenceRange(0, 120),
+        0,
+        121,
+      ]);
+      const retransmission = packets.at(-2)!.encrypted;
+      decryptSrtpSequence(
+        receiver,
+        packets.slice(0, -2).map((p) => p.encrypted),
+      );
+      const stateBefore = { ...receiver.srtpSSRCStates[5000] };
+
+      // Act / Assert: 改ざんした再送は認証エラーになる
+      expect(() =>
+        receiver.decryptRtp(
+          tamperBuffer(retransmission, retransmission.length - 1),
+        ),
+      ).toThrowError(SrtpAuthenticationError);
+      // Assert: 最高 index は変わらない
+      expect(receiver.srtpSSRCStates[5000]).toEqual(stateBefore);
+
+      // Act: 正しい再送と後続パケットを復号する
+      const results = decryptSrtpSequence(receiver, [
+        retransmission,
+        packets.at(-1)!.encrypted,
+      ]);
+
+      // Assert: どちらも復号できる
+      expect(results.map((r) => r.ok)).toEqual([true, true]);
+    });
+
+    test("rejects decrypt beyond ROC=0xFFFFFFFF as authentication failure", () => {
+      // Arrange: 送信側は seq 65535 で、受信側は ROC 上限の状態にする
+      const { sender, receiver } = createSrtpContextPair(
+        ProtectionProfileAes128CmHmacSha1_80,
+      );
+      const [packet] = encryptSrtpSequence(sender, [0]);
+      receiver.srtpSSRCStates[5000] = {
+        ssrc: 5000,
+        rolloverCounter: 0xffffffff,
+        lastSequenceNumber: 65535,
+        rolloverHasProcessed: true,
+      };
+
+      // Act / Assert: 受信経路をクラッシュさせず認証エラーとして拒否する
+      expect(() => receiver.decryptRtp(packet.encrypted)).toThrowError(
+        SrtpAuthenticationError,
+      );
+    });
+
+    test("rejects encrypt beyond ROC=0xFFFFFFFF", () => {
+      // Arrange
+      const { sender } = createSrtpContextPair(
+        ProtectionProfileAes128CmHmacSha1_80,
+      );
+      sender.srtpSSRCStates[5000] = {
+        ssrc: 5000,
+        rolloverCounter: 0xffffffff,
+        lastSequenceNumber: 65535,
+        rolloverHasProcessed: true,
+      };
+
+      // Act / Assert: cipher の例外ではなく明示的なエラーで拒否する
+      expect(() => encryptSrtpSequence(sender, [0])).toThrowError(
+        SrtpRolloverCounterOverflowError,
+      );
+    });
   });
 });

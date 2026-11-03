@@ -13,23 +13,24 @@ import {
   HeartbeatChunk,
   InitAckChunk,
   InitChunk,
+  parsePacket,
   ReConfigChunk,
   ReconfigChunk,
+  SackChunk,
   SCTP_COMMON_HEADER_SIZE,
   SCTP_DATA_CHUNK_HEADER_SIZE,
   SCTP_PADDING_MULTIPLE,
-  SackChunk,
   ShutdownAckChunk,
   ShutdownChunk,
   ShutdownCompleteChunk,
-  parsePacket,
   serializePacket,
 } from "./chunk";
 import { SCTP_STATE } from "./const";
-import { type Unpacked, createEventsFromList, enumerate } from "./helper";
+import { createEventsFromList, enumerate, type Unpacked } from "./helper";
 import {
-  Event,
   debug,
+  Event,
+  FifoQueue,
   random32,
   uint16Add,
   uint16Gt,
@@ -40,9 +41,9 @@ import {
   OutgoingSSNResetRequestParam,
   RECONFIG_PARAM_BY_TYPES,
   ReconfigResponseParam,
+  reconfigResult,
   StreamAddOutgoingParam,
   type StreamParam,
-  reconfigResult,
 } from "./param";
 import type { Transport } from "./transport";
 
@@ -169,7 +170,16 @@ export class SCTP {
   private fastRecoveryTransmit = false;
   private forwardTsnChunk?: ForwardTsnChunk;
   private flightSize = 0;
-  outboundQueue: DataChunk[] = [];
+  /** DATA chunks waiting to be transmitted for the first time. */
+  readonly outboundQueue = new FifoQueue<DataChunk>();
+  /**
+   * Pending send() calls in queue order, each waiting for its last chunk to
+   * leave outboundQueue. Resolved head-first, so completion is O(1) per call.
+   */
+  private sendWaiters = new FifoQueue<{
+    chunk: DataChunk;
+    resolve: () => void;
+  }>();
   private outboundStreamSeq: { [streamId: number]: number } = {};
   _outboundStreamsCount = MAX_STREAMS;
   /**local transmission sequence number */
@@ -177,7 +187,7 @@ export class SCTP {
   private lastSackedTsn = tsnMinusOne(this.localTsn);
   private advancedPeerAckTsn = tsnMinusOne(this.localTsn); // acknowledgement
   private partialBytesAcked = 0;
-  private sentQueue: DataChunk[] = [];
+  private sentQueue = new FifoQueue<DataChunk>();
   private transmitting = false;
   private transmitRequested = false;
 
@@ -674,7 +684,7 @@ export class SCTP {
     // # handle acknowledged data
     while (
       this.sentQueue.length > 0 &&
-      uint32Gte(this.lastSackedTsn, this.sentQueue[0].tsn)
+      uint32Gte(this.lastSackedTsn, this.sentQueue.peek()!.tsn)
     ) {
       const sChunk = this.sentQueue.shift()!;
       done++;
@@ -687,11 +697,6 @@ export class SCTP {
         this.updateRto(receivedTime - sChunk.sentTime!);
       }
     }
-    // Furthermore, this exposed an issue I've seen in v8 in other projects: using an array as a queue seems to result in long calls to shift (it does an array copy under the hood?). The problem seems to get worse the more times it shifts. Resetting the queue to empty array mitigates this.
-    if (!this.sentQueue.length) {
-      this.sentQueue = [];
-    }
-
     // # handle gap blocks
     let loss = false;
     if (chunk.gaps.length > 0) {
@@ -757,7 +762,7 @@ export class SCTP {
         );
         this.cwnd = this.ssthresh;
         this.partialBytesAcked = 0;
-        this.fastRecoveryExit = this.sentQueue[this.sentQueue.length - 1].tsn;
+        this.fastRecoveryExit = this.sentQueue.last()!.tsn;
         this.fastRecoveryTransmit = true;
       }
     } else if (uint32Gte(chunk.cumulativeTsn, this.fastRecoveryExit)) {
@@ -916,19 +921,43 @@ export class SCTP {
       chunks.push(chunk);
     }
 
-    chunks.forEach((chunk) => {
+    for (const chunk of chunks) {
       this.outboundQueue.push(chunk);
-    });
+    }
 
     if (ordered) {
       this.outboundStreamSeq[streamId] = uint16Add(streamSeqNum, 1);
     }
 
+    // Resolves once this call's last chunk is handed to the network (moved to
+    // sentQueue), not when the whole outboundQueue drains, so N queued sends
+    // do not wake N waiters on every transmit.
+    const lastChunk = chunks[chunks.length - 1];
+    const sent =
+      lastChunk && !this.isStopped
+        ? new Promise<void>((resolve) => {
+            this.sendWaiters.push({ chunk: lastChunk, resolve });
+          })
+        : undefined;
+
     await this.transmit();
-    while (this.outboundQueue.length) {
-      await this.flush.asPromise();
-    }
+    await sent;
   };
+
+  private resolveSendWaiters(sentChunk: DataChunk) {
+    if (this.sendWaiters.peek()?.chunk === sentChunk) {
+      this.sendWaiters.shift()!.resolve();
+    }
+  }
+
+  /** Settles every pending send() so no caller is left waiting after close. */
+  private releaseSendWaiters() {
+    const waiters = this.sendWaiters;
+    this.sendWaiters = new FifoQueue();
+    for (const waiter of waiters) {
+      waiter.resolve();
+    }
+  }
 
   private async transmit() {
     if (this.isStopped) return;
@@ -1002,14 +1031,14 @@ export class SCTP {
       this.flightSize < cwnd &&
       this.peerRwnd > 0
     ) {
-      const chunk = this.outboundQueue.shift();
-      if (!chunk) break;
+      const chunk = this.outboundQueue.peek()!;
       if (chunk.bookSize > this.peerRwnd && this.flightSize > 0) {
-        this.outboundQueue.unshift(chunk);
         break;
       }
+      this.outboundQueue.shift();
 
       this.sentQueue.push(chunk);
+      this.resolveSendWaiters(chunk);
       this.flightSizeIncrease(chunk);
 
       // # update counters
@@ -1022,10 +1051,6 @@ export class SCTP {
       if (!this.timer3Handle) {
         this.timer3Start();
       }
-    }
-    if (!this.outboundQueue.length) {
-      // Resetting the queue to empty array mitigates this.
-      this.outboundQueue = [];
     }
     this.flush.execute();
   }
@@ -1303,7 +1328,7 @@ export class SCTP {
 
     let done = 0;
     const streams: { [key: number]: number } = {};
-    while (this.sentQueue.length > 0 && this.sentQueue[0].abandoned) {
+    while (this.sentQueue.length > 0 && this.sentQueue.peek()!.abandoned) {
       const chunk = this.sentQueue.shift()!;
       this.advancedPeerAckTsn = chunk.tsn;
       done++;
@@ -1311,11 +1336,6 @@ export class SCTP {
         streams[chunk.streamId] = chunk.streamSeqNum;
       }
     }
-    // Resetting the queue to empty array mitigates this.
-    if (!this.sentQueue.length) {
-      this.sentQueue = [];
-    }
-
     if (done) {
       this.forwardTsnChunk = new ForwardTsnChunk(0, undefined);
       this.forwardTsnChunk.cumulativeTsn = this.advancedPeerAckTsn;
@@ -1335,7 +1355,7 @@ export class SCTP {
 
     const chunkPos = this.sentQueue.findIndex((v) => v.type === chunk.type);
     for (let pos = chunkPos; pos >= 0; pos--) {
-      const oChunk = this.sentQueue[pos];
+      const oChunk = this.sentQueue.at(pos)!;
       oChunk.abandoned = true;
       oChunk.retransmit = false;
       if (oChunk.flags & SCTP_DATA_LAST_FRAG) {
@@ -1344,7 +1364,7 @@ export class SCTP {
     }
 
     for (let pos = chunkPos; pos < this.sentQueue.length; pos++) {
-      const oChunk = this.sentQueue[pos];
+      const oChunk = this.sentQueue.at(pos)!;
       oChunk.abandoned = true;
       oChunk.retransmit = false;
       if (oChunk.flags & SCTP_DATA_LAST_FRAG) {
@@ -1447,6 +1467,7 @@ export class SCTP {
       }
       this.setConnectionState("closed");
       this.removeAllListeners();
+      this.releaseSendWaiters();
     }
   }
 

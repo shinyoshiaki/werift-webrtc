@@ -1,6 +1,5 @@
-import { binaryData } from "../../../imports/common";
-
 import type { CurveTypes, NamedCurveAlgorithms } from "../../../cipher/const";
+import { binaryData } from "../../../imports/common";
 import { FragmentedHandshake } from "../../../record/message/fragment";
 import type { Handshake } from "../../../typings/domain";
 import { encodeBuffer } from "../../../util/binary";
@@ -50,7 +49,7 @@ export class ServerKeyExchange implements Handshake {
   static deSerialize(buf: Buffer) {
     const res = decode(buf, ServerKeyExchange.spec);
     return new ServerKeyExchange(
-      //@ts-ignore
+      //@ts-expect-error
       ...Object.values(res),
     );
   }

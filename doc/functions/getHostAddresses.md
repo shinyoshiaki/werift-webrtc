@@ -6,7 +6,7 @@
 
 # Function: getHostAddresses()
 
-> **getHostAddresses**(`useIpv4`, `useIpv6`, `options`): `string`[]
+> **getHostAddresses**(`useIpv4`, `useIpv6`, `options?`): `string`[]
 
 ## Parameters
 
@@ -18,7 +18,7 @@
 
 `boolean`
 
-### options
+### options?
 
 #### useLinkLocalAddress?
 

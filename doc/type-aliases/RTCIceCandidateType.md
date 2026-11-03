@@ -6,4 +6,4 @@
 
 # Type Alias: RTCIceCandidateType
 
-> **RTCIceCandidateType**: `"host"` \| `"srflx"` \| `"prflx"` \| `"relay"`
+> **RTCIceCandidateType** = `"host"` \| `"srflx"` \| `"prflx"` \| `"relay"`

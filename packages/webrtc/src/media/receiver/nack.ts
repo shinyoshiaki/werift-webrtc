@@ -1,11 +1,9 @@
-import { Event } from "../../imports/common";
-
-import { uint16Add } from "../../imports/common";
+import { Event, uint16Add } from "../../imports/common";
 import {
+  debug,
   GenericNack,
   RtcpTransportLayerFeedback,
   type RtpPacket,
-  debug,
 } from "../../imports/rtp";
 import type { RTCRtpReceiver } from "../rtpReceiver";
 

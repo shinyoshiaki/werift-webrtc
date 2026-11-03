@@ -6,4 +6,4 @@
 
 # Type Alias: RTCStatsIceCandidatePairState
 
-> **RTCStatsIceCandidatePairState**: `"frozen"` \| `"waiting"` \| `"in-progress"` \| `"failed"` \| `"succeeded"`
+> **RTCStatsIceCandidatePairState** = `"frozen"` \| `"waiting"` \| `"in-progress"` \| `"failed"` \| `"succeeded"`

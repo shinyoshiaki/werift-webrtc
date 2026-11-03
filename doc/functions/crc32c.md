@@ -6,7 +6,7 @@
 
 # Function: crc32c()
 
-> **crc32c**(`input`, `seed`): `number`
+> **crc32c**(`input`, `seed?`): `number`
 
 ## Parameters
 
@@ -14,7 +14,7 @@
 
 `Input`
 
-### seed
+### seed?
 
 `number` = `0`
 
