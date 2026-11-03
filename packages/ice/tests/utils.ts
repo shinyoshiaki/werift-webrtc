@@ -1703,7 +1703,18 @@ export function createFailingAfterRandomSource(
  * the test settles them (delay / failure injection). Settled refills fill
  * the pool with 1, 2, 3, ... so every byte served is distinguishable.
  */
-export function createControlledPool(size = 64, lowWaterMark = 16) {
+export type ControlledPool = {
+  pool: PooledRandomSource;
+  fillSync: ConstructorParameters<typeof PooledRandomSource>[3];
+  readonly fillSyncCalls: number;
+  readonly pendingRefills: number;
+  settleRefill(error?: Error | null): void;
+};
+
+export function createControlledPool(
+  size = 64,
+  lowWaterMark = 16,
+): ControlledPool {
   const pending: ((error: Error | null) => void)[] = [];
   const fill = ((
     buffer: Buffer,
