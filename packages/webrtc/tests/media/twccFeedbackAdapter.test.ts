@@ -11,7 +11,7 @@ describe("TwccFeedbackAdapter", () => {
     adapter.onSent(twccSentInfo(0x10000 * 2 + 5, 100, 0));
 
     // Act: 16bit 番号 5 の feedback
-    const out = adapter.onFeedback(wireTwccFeedback(5, [1_000]));
+    const out = adapter.onFeedback(wireTwccFeedback(5, [1_000]), 0);
 
     // Assert: 3 世代目 (131077) に対応する
     expect(out.map((p) => p.extSeq)).toEqual([0x10000 * 2 + 5]);
@@ -33,6 +33,7 @@ describe("TwccFeedbackAdapter", () => {
         65500,
         sent.map((_, i) => 1_000 + i * 100),
       ),
+      0,
     );
 
     // Assert: 履歴は削られず、すべてが元の拡張番号で受信として照合される
@@ -51,6 +52,7 @@ describe("TwccFeedbackAdapter", () => {
     // Act: 16-bit 番号 65534 から 4 件（0 と 1 を含む）の受信 feedback
     const out = adapter.onFeedback(
       wireTwccFeedback(65534, [1_000, 1_100, 1_200, 1_300]),
+      0,
     );
 
     // Assert: 65535 を 131071 と読まず、TSN 0（= 65536）も一致する
@@ -69,7 +71,7 @@ describe("TwccFeedbackAdapter", () => {
     // Assert: 0 は span の外なので残らず、16-bit 番号 0 の候補が 2 世代にならない
     const keys = [...historyOf(adapter).keys()];
     expect(keys).toEqual([32768]);
-    expect(adapter.onFeedback(wireTwccFeedback(0, [2_000]))).toEqual([]);
+    expect(adapter.onFeedback(wireTwccFeedback(0, [2_000]), 1_000)).toEqual([]);
   });
 
   test("順序外に届いた古い送信確認も、後ろの新しい項目に隠れず時間窓で削除される", () => {
@@ -86,6 +88,32 @@ describe("TwccFeedbackAdapter", () => {
     expect([...historyOf(adapter).keys()]).toEqual([10, 11]);
   });
 
+  test("送信完了が時間窓を超えて遅れた送信確認は、履歴に残らず feedback にも対応しない", () => {
+    // Arrange: 時間窓 1 秒、送信開始 0ms・送信完了 20,000ms の送信確認
+    const adapter = new TwccFeedbackAdapter(1_000);
+
+    // Act: 送信確認を記録し、直後に feedback を照合する
+    adapter.onSent(twccSentInfo(5, 100, 0, { sentAtMs: 20_000 }));
+    const out = adapter.onFeedback(wireTwccFeedback(5, [20_010_000]), 20_010);
+
+    // Assert: 完了時刻を「現在」とみなすので窓の外。保存も照合もされない
+    expect(adapter.size).toBe(0);
+    expect(out).toEqual([]);
+  });
+
+  test("送信が止まったあとに時間窓を超えて届いた feedback は、古い送信履歴に対応しない", () => {
+    // Arrange: 時間窓 10 秒で 1 件送信し、その後は送信しない（onSent による掃除が起きない）
+    const adapter = new TwccFeedbackAdapter(10_000);
+    adapter.onSent(twccSentInfo(5, 100, 0));
+
+    // Act: 50 秒後に feedback が届く
+    const out = adapter.onFeedback(wireTwccFeedback(5, [50_000_000]), 50_000);
+
+    // Assert: 照合の時点で窓の外なので対応しない
+    expect(out).toEqual([]);
+    expect(adapter.size).toBe(0);
+  });
+
   test("遅れて届いた古い feedback で unwrap の基準が後退しない", () => {
     // Arrange: wrap をまたいで 65530..65545 を送信
     const adapter = new TwccFeedbackAdapter(60_000);
@@ -94,9 +122,9 @@ describe("TwccFeedbackAdapter", () => {
     }
 
     // Act: wrap 後の feedback → wrap 前の遅延 feedback → wrap 後の続き
-    const after = adapter.onFeedback(wireTwccFeedback(0, [1_000, 1_100]));
-    const late = adapter.onFeedback(wireTwccFeedback(65530, [900]));
-    const next = adapter.onFeedback(wireTwccFeedback(2, [1_200]));
+    const after = adapter.onFeedback(wireTwccFeedback(0, [1_000, 1_100]), 0);
+    const late = adapter.onFeedback(wireTwccFeedback(65530, [900]), 0);
+    const next = adapter.onFeedback(wireTwccFeedback(2, [1_200]), 0);
 
     // Assert: それぞれ正しい世代の extended 番号に対応する
     expect(after.map((p) => p.extSeq)).toEqual([65536, 65537]);

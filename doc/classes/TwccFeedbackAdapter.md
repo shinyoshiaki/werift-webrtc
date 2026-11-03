@@ -18,6 +18,21 @@ Normalizes TWCC feedback before any estimator sees it
 - A packet reported as not received stays in history; a later feedback may
   still report it as received.
 
+Time contract. Three times are involved, all on the caller's clock (ms):
+- `SentInfo.sendingAtMs`: right before the packet is handed to ICE.
+- `SentInfo.sentAtMs`: when the send completed ([onSent](#onsent) is called
+  at or after this time).
+- `nowMs` of [onFeedback](#onfeedback) / [prune](#prune): when the feedback arrived
+  or the caller ticks.
+
+The adapter keeps a monotonic clock: the largest `sentAtMs` / `nowMs` seen.
+A packet's age is `clock - sendingAtMs`. A packet is in range while its age
+is at most `maxAgeMs` and it lies less than
+[kTwccFeedbackHistoryMaxSeqSpan](../variables/kTwccFeedbackHistoryMaxSeqSpan.md) behind the latest sent sequence.
+[onFeedback](#onfeedback) checks every matched packet against this range at match
+time, so it never returns an out-of-range packet regardless of call order.
+Pruning only bounds memory.
+
 Shared by every [BandwidthEstimator](../interfaces/BandwidthEstimator.md) that consumes TWCC (legacy, GCC).
 
 ## Constructors
@@ -32,7 +47,8 @@ Shared by every [BandwidthEstimator](../interfaces/BandwidthEstimator.md) that c
 
 `number`
 
-Drop history entries sent more than this long ago.
+Max age (`clock - sendingAtMs`) of a packet that may
+  still be matched.
 
 #### Returns
 
@@ -70,17 +86,24 @@ Number of packets still waiting for a received report.
 
 ### onFeedback()
 
-> **onFeedback**(`feedback`): [`TwccPacketFeedback`](../interfaces/TwccPacketFeedback.md)[]
+> **onFeedback**(`feedback`, `nowMs`): [`TwccPacketFeedback`](../interfaces/TwccPacketFeedback.md)[]
 
 Match one TWCC feedback against the send history.
 Results are in extended-sequence (send) order. Packets this sender did not
-send (other BUNDLE senders) or already reported as received are omitted.
+send (other BUNDLE senders), already reported as received, or out of
+range at match time (see time contract) are omitted.
 
 #### Parameters
 
 ##### feedback
 
 [`TransportWideCC`](TransportWideCC.md)
+
+##### nowMs
+
+`number`
+
+Feedback arrival time; advances the clock.
 
 #### Returns
 
@@ -92,8 +115,9 @@ send (other BUNDLE senders) or already reported as received are omitted.
 
 > **onSent**(`info`): `number`
 
-Record a sent packet. `info.wideSeq` may be extended or 16-bit; 16-bit
-values only move forward.
+Record a sent packet. `info.wideSeq` is the extended transport-wide
+sequence number and is kept exactly, even when confirmations arrive out
+of order. Advances the clock to `info.sentAtMs`.
 
 #### Parameters
 
@@ -113,7 +137,8 @@ extended sequence used as the history key
 
 > **prune**(`nowMs`): `void`
 
-Drop entries outside the age window or the sequence span limit.
+Advance the clock to `nowMs` and drop entries now out of range. Memory
+bound only: [onFeedback](#onfeedback) checks the range itself.
 
 #### Parameters
 

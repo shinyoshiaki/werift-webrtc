@@ -321,8 +321,8 @@ describe("media/sender bandwidth estimator", () => {
     });
 
     test("reference_time wrap 前後でも acked bitrate / trendline が壊れない", () => {
-      // Arrange
-      const gcc = new GccBandwidthEstimator(300_000);
+      // Arrange: 送信時刻と同じ domain の clock
+      const { gcc } = createClockGcc(300_000, 50_000);
       const nearEnd = TWCC_REFERENCE_TIME_MOD - 3;
       const n = 25;
       // Send packets around wrap
@@ -359,7 +359,7 @@ describe("media/sender bandwidth estimator", () => {
 
     test("receivedAtMs=0 でも SmallDelta は delay サンプルとして受理する", () => {
       // Arrange: reference_time base 0 + first delta → receivedAtMs が 0 になり得る
-      const gcc = new GccBandwidthEstimator(300_000);
+      const { gcc } = createClockGcc(300_000, 100);
       const n = 30;
       for (let i = 0; i < n; i++) {
         gcc.rtpPacketSent(sent(i + 1, 800, 100 + i * 20));
@@ -957,8 +957,9 @@ describe("media/sender bandwidth estimator", () => {
 
     test("使用済み estimator の再注入で reset され履歴が残らない", async () => {
       // Arrange: 一度 TWCC を処理して availableBitrate を立てる
+      // （送信 sender の process は壁時計で呼ぶので、送信時刻も壁時計にする）
       const gcc = new GccBandwidthEstimator(300_000);
-      const t0 = 20_000;
+      const t0 = Date.now();
       for (let i = 0; i < 20; i++) {
         gcc.rtpPacketSent(sent(i + 1, 800, t0 + i * 20));
       }
@@ -1077,8 +1078,10 @@ describe("media/sender bandwidth estimator", () => {
       const gcc = new GccBandwidthEstimator(300_000);
       const { sender, dtls } = await prepareConnectedSender(gcc);
       startGccProbing(gcc);
-      gcc.rtpPacketSent(sent(1, 200, 1_000, { isProbation: true }));
-      gcc.rtpPacketSent(sent(2, 200, 1_010, { isProbation: true }));
+      // 送信時刻は GCC の clock（壁時計）と同じ domain にする
+      const t0 = Date.now();
+      gcc.rtpPacketSent(sent(1, 200, t0, { isProbation: true }));
+      gcc.rtpPacketSent(sent(2, 200, t0 + 10, { isProbation: true }));
       expect(twccHistoryOf(gcc).size).toBeGreaterThan(0);
       await flushMicrotasks();
       const writes = dtls.sendRtp as ReturnType<typeof vi.fn>;

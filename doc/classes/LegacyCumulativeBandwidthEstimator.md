@@ -30,13 +30,26 @@ CumulativeResult
 
 ### Constructor
 
-> **new LegacyCumulativeBandwidthEstimator**(): `SenderBandwidthEstimator`
+> **new LegacyCumulativeBandwidthEstimator**(`options?`): `SenderBandwidthEstimator`
+
+#### Parameters
+
+##### options?
+
+###### clock?
+
+() => `number`
+
+Optional sender clock for unit tests. Must match the
+  domain of [SentInfo.sendingAtMs](../interfaces/SentInfo.md#sendingatms) / [SentInfo.sentAtMs](../interfaces/SentInfo.md#sentatms) used
+  with this instance. Production omits this (defaults to
+  [milliTime](../variables/milliTime.md)).
 
 #### Returns
 
 `SenderBandwidthEstimator`
 
-#### Inherited from
+#### Overrides
 
 [`BandwidthEstimatorNoopHooks`](BandwidthEstimatorNoopHooks.md).[`constructor`](BandwidthEstimatorNoopHooks.md#constructor)
 

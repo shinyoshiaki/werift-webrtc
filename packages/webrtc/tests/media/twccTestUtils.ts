@@ -128,8 +128,8 @@ export function captureMatchedFeedback(
   const adapter = feedbackAdapterOf(e);
   const calls: TwccPacketFeedback[][] = [];
   const original = adapter.onFeedback.bind(adapter);
-  adapter.onFeedback = (feedback) => {
-    const out = original(feedback);
+  adapter.onFeedback = (feedback, nowMs) => {
+    const out = original(feedback, nowMs);
     calls.push(out);
     return out;
   };

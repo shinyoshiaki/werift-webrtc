@@ -616,7 +616,7 @@ export class GccBandwidthEstimator
     // receive-time order below (libwebrtc SortedByReceiveTime). The adapter
     // already dropped unknown sequences (other BUNDLE senders) and packets
     // previously reported as received.
-    for (const packet of this.feedbackAdapter.onFeedback(feedback)) {
+    for (const packet of this.feedbackAdapter.onFeedback(feedback, nowMs)) {
       const seq = packet.extSeq;
       const info = packet.sent;
       matched++;

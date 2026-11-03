@@ -290,6 +290,55 @@ RTP パケット生成・DTLS 送信・token-bucket 待ちは sender に残す�
 - `SentInfo.sendingAtMs` は ICE へ渡す直前の時刻を使う。
 - legacy の送信履歴は 10 秒の時間窓で捨てる（develop は削除処理が効かず無制限に増えていた）。
 
+#### `TwccFeedbackAdapter` の時刻の取り決めと不変条件（追加要件・2026-11-03）
+
+##### 背景
+
+9 回のレビューのうち後半の非承認理由は、ほぼすべて adapter の送信履歴の管理だった（1: corrective feedback の二重計上、4: 順序外の送信確認を周回と誤認、5: 最初の周回境界の逆順、6・7: `prune()` の途中終了で span 上限が守られない、8・9: 完了が遅れた送信確認が age 上限で除外されない）。修正のたびに個別例だけを直す特殊扱い（`outOfOrderKeys`、途中終了の前提）を足したため、adapter の正しさが「どの順序と時刻で呼ばれるか」に依存していた。原因は 2 つある。
+
+- 時刻の取り決めがなかった。`onSent()` は `info.sendingAtMs` を「現在」として age を判定し、`onFeedback()` には時刻の引数がなかった。
+- 正しさを掃除（`prune()`）に頼っていた。legacy は `onSent()` の中でしか掃除しないので、送信が止まると古い履歴が照合に使われた。
+
+再現（修正前）: `maxAgeMs=1000, sendingAtMs=0, sentAtMs=20000` の送信確認が履歴に残り、feedback に 1 件対応した。時間窓 10 秒で 1 件送信して止め、50 秒後に feedback が届くと 1 件対応した。
+
+##### 要件
+
+- **E. 正しさを照合時の確認に移す**
+  - adapter は単調に進む内部時計を持つ。`onSent()` で `max(clock, info.sentAtMs)`、`onFeedback(feedback, nowMs)` と `prune(nowMs)` で `max(clock, nowMs)` に進める。
+  - `onFeedback()` は、対応した各エントリが範囲内かを照合の時点で確かめ、範囲外なら捨てる。
+  - 掃除はメモリを抑えるためだけの処理とする。取りこぼしても誤った照合にはならない（途中終了と `outOfOrderKeys` は残す）。
+- **F. 時間の軸も性質テストで確かめる**
+  - 生成器に「送信完了の遅れ（`sentAtMs − sendingAtMs` が 0 から時間窓の 1.5 倍まで）」と「送信が止まった後（最大で時間窓の 2 倍）に届く feedback」を加える。
+  - 確かめる性質は 1 つにまとめる: 照合で返るパケットは、照合時点で時間窓の内側にあり、かつ最新の番号から span 32768 未満である。
+- **G. レビューの前提を固定する**
+  - 次の不変条件をこのチケットと `TwccFeedbackAdapter` の JSDoc に明記する。
+  - 再レビューの前に、adapter の時刻と順序の境界について自己レビューを 1 回行う。
+
+##### 不変条件（レビューの基準）
+
+| 時刻 | 意味 |
+| --- | --- |
+| `SentInfo.sendingAtMs` | packet を ICE に渡す直前の時刻 |
+| `SentInfo.sentAtMs` | 送信が完了した時刻（`onSent()` はこの時刻以降に呼ばれる） |
+| `onFeedback()` / `prune()` の `nowMs` | feedback が届いた時刻 / 呼び出し側の tick |
+
+- 3 つの時刻はすべて呼び出し側の同じ clock 上の値である（本番は `milliTime`。テストは legacy / GCC とも `{ clock }` を注入する）。
+- adapter の時計 `clock` は、これまでに見た `sentAtMs` と `nowMs` の最大値である（後退しない）。
+- packet の age は `clock − sendingAtMs` と定義する。
+- 範囲内とは、age が `maxAgeMs` 以下（legacy 10 秒、GCC 60 秒）で、かつ最新の送信番号からの差が 32768 未満であることをいう。
+- `onFeedback()` が返すパケットは、照合の時点で必ず範囲内である。呼び出しの順序や掃除の有無には依存しない。
+- 範囲内の送信パケットは、受信と照合されるまで履歴から消えない。受信と照合されたパケットは二度と返らない（§2.11 A）。
+
+##### 完了条件（この追加分）
+
+- [x] E: `TwccFeedbackAdapter` に内部時計 `clockMs` を追加し、`onSent()`（`sentAtMs`）・`onFeedback(feedback, nowMs)`・`prune(nowMs)` で進める。`onFeedback()` は対応した各エントリを照合時に範囲判定し、範囲外を捨てる。照合の後にも掃除する。
+- [x] E: 呼び出し側を更新した。GCC は `receiveTWCC` の `nowMs`（`this.clock()`）を渡す。legacy（`SenderBandwidthEstimator`）は GCC と同じ `{ clock }` オプションを持ち、`receiveTWCC` の先頭で取った `nowMs` を渡す。
+- [x] E: `twccFeedbackAdapter.test.ts` に「送信完了が時間窓を超えて遅れた送信確認は、履歴に残らず feedback にも対応しない」「送信が止まったあとに時間窓を超えて届いた feedback は、古い送信履歴に対応しない」を追加した。修正前は 2 件とも失敗した（どちらも 1 件対応した）。
+- [x] E: GCC の壁時計（`milliTime`）と合成の送信時刻を混ぜていたテスト 4 件（`bandwidthEstimator.test.ts`。reference_time wrap、`receivedAtMs=0`、使用済み estimator の再注入、`RTCRtpSender.stop`）を、clock を注入するか送信時刻を壁時計にする形に直した。constructor の JSDoc が禁じている使い方で、照合時の判定で検出されるようになった。
+- [x] F: `tests/pbt/twcc/generator.ts` の `randomHistoryOps` に、送信完了の遅れと送信停止後の feedback を加えた。`twccProperty.test.ts` の history 性質は、送信確認・process・feedback を同じ clock で与え、上の性質に加えて「受信と照合されていない範囲内の送信は消えない」を確かめる。
+- [x] F: 故障注入で検出を確認した。照合時の判定を外す、feedback で時計を進めない → それぞれ 25 件失敗。`onSent()` の時計を `sendingAtMs` で進める（レビュー 8・9 の状態）→ history 性質 4 件が失敗。
+- [x] G: 上の不変条件を `twccFeedbackAdapter.ts` の JSDoc（Time contract）に書いた。自己レビューの結果は検証記録に残した。
+
 ### 2.12 GCC テストの方針転換：libwebrtc との 1:1 一致から「GCC として正しく機能すること」へ（追加要件・2026-10-24）
 
 #### 背景
@@ -691,6 +740,20 @@ set availableBitrate(v: number) {
 - `npm run pbt:deep -- --suite twcc,bwe,sender,receiver --seeds 300 --jobs 8`: 4,200 件すべて成功。
 - `cd packages/webrtc && npm run test:sim`: 2 件成功。`cd e2e && npm run test:sim`（Chrome）: 1 件成功。
 
+### 検証記録（2026-11-03、§2.11「adapter の時刻の取り決めと不変条件」）
+
+- 作業開始時のリビジョンは `b476206b0`（未コミット変更なし）。再現テスト 2 件が修正前に失敗することを確認してから修正した。
+- `cd packages/webrtc && npm run type`: 成功。ルートの `npm run type`: 成功。
+- `cd packages/webrtc && npx vitest run tests`: 73 ファイル、1,578 件成功・5 件 skip。
+- `npm run pbt:deep -- --suite twcc,bwe,sender,receiver --seeds 300 --jobs 8`: twcc 1,800、bwe 900、sender 600、receiver 900 件がすべて成功した。
+- `cd packages/webrtc && npm run test:sim`: 2 件成功。
+- `npm run doc` で生成ドキュメントを更新した（`TwccFeedbackAdapter`、`LegacyCumulativeBandwidthEstimator`、以前のソース変更が反映されていなかった `TransportWideSeqUnwrapper`）。
+- 自己レビュー（adapter の時刻と順序の境界）:
+  - 本番の `sentAtMs`（`RTCRtpSender` の送信完了後の `milliTime()`）と legacy / GCC の `receiveTWCC` の `nowMs` は同じ clock なので、時刻の取り決めを満たす。
+  - `src` で `size` / `latestSentSeq` を読む箇所はない。掃除で残った範囲外のエントリが推定に影響することはない。
+  - 残るリスク: 時計は壁時計（`Date.now`）の最大値なので、壁時計が大きく進んでから戻ると、実時刻が追いつくまで照合されない。「未対応・未確認」に記録した。
+- Chrome との E2E（`cd e2e && npm run test:sim`）は今回は実行していない。
+
 ### ライセンス
 
 - GCC 実装（`packages/webrtc/src/media/sender/estimators/gcc/`）は libwebrtc（BSD-3-Clause + PATENTS）の移植。帰属はルート `NOTICE`、各ファイル先頭の `/*!` ヘッダー、`third_party/libwebrtc-ref/{LICENSE,PATENTS,AUTHORS}`（pin と同じコミットから取得）で示す。
@@ -701,6 +764,7 @@ set availableBitrate(v: number) {
 - mediasoup interop、libwebrtc 実行結果との数値比較、E2E 全体実行時の ICE-TCP タイムアウトの原因。
 - worktree の `third_party/wpt/.git` の gitdir 破損そのもの（main checkout の module を共有すると HEAD / index が干渉するため修復していない。上記のとおり内容は pin と一致）。
 - GCC の送信キュー（`enqueueOutgoing`）と RTX padding の実トラフィック（Chrome 実機・mediasoup）での挙動は、sim と単体テスト以外では未検証。
+- `TwccFeedbackAdapter` の時計は `milliTime`（`Date.now`）の最大値で進むため、OS の壁時計が大きく進んでから戻ると、戻った幅の時間だけ照合されず推定が止まる。GCC の他の時刻処理も同じ時刻源を使っており、単調時計への切り替えは本チケットでは行っていない。
 - RTX を negotiate しない GCC sender は padding を送らない（`GCC_KNOWN_DIFFERENCES`）。media だけで probe cluster を埋められない場合の推定立ち上がりは libwebrtc より遅くなりうる。
 
 ### 非ゴール（本チケットでは必須としない）

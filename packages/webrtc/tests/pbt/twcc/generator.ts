@@ -42,54 +42,89 @@ export function randomTwccWindow(rng: SeededRandom): {
 export type HistoryOp =
   | {
       type: "send";
-      /** When the send confirmation (`rtpPacketSent`) arrives. */
+      /** `SentInfo.sentAtMs`: when the send completed and was confirmed. */
       atMs: number;
-      /** `SentInfo.sendingAtMs`: when the packet was sent. */
-      sentAtMs: number;
+      /** `SentInfo.sendingAtMs`: when the packet was handed to ICE. */
+      sendingAtMs: number;
       /** Extended transport-wide sequence number (as `RTCRtpSender` reports it). */
       seq: number;
     }
-  | { type: "process"; atMs: number };
+  | { type: "process"; atMs: number }
+  | {
+      type: "feedback";
+      /** When the feedback arrives. */
+      atMs: number;
+      /** Extended sequence of the first packet the feedback covers. */
+      baseSeq: number;
+      /** Number of contiguous packets reported as received. */
+      count: number;
+    };
 
 /**
- * `count` send / process operations with non-decreasing times (dense bursts
- * and rare multi-second idle gaps) and extended TSNs that cross 16-bit wraps
- * and skip by up to 5,000 (other BUNDLE senders), so both the time window and
- * the 32768 sequence-span cap bound the history. Some send confirmations
- * arrive late (concurrent sends completing out of order): usually a few
- * operations later, sometimes up to 60, which with the skips can put them
- * more than half the 16-bit space behind the newest TSN.
+ * `count` send / process / feedback operations with non-decreasing times
+ * (dense bursts and rare multi-second idle gaps) and extended TSNs that cross
+ * 16-bit wraps and skip by up to 5,000 (other BUNDLE senders), so both the
+ * time window and the 32768 sequence-span cap bound the history.
+ *
+ * Sequence axis: some send confirmations arrive late (concurrent sends
+ * completing out of order): usually a few operations later, sometimes up to
+ * 60, which with the skips can put them more than half the 16-bit space
+ * behind the newest TSN.
+ *
+ * Time axis: a late confirmation's completion (`atMs - sendingAtMs`) ranges
+ * from 0 to 1.5 × `windowMs`, and some feedbacks arrive after sending stopped
+ * for up to 2 × `windowMs`, so entries leave the window both before they are
+ * stored and while nothing is sent.
  */
 export function randomHistoryOps(
   rng: SeededRandom,
   count: number,
   withProcess: boolean,
+  windowMs: number,
 ): HistoryOp[] {
   const ops: HistoryOp[] = [];
-  const late: { due: number; seq: number; sentAtMs: number }[] = [];
+  const late: { due: number; seq: number; sendingAtMs: number }[] = [];
+  const recent: number[] = [];
   let atMs = 1_000;
   let seq = rng.int(0, 0x10000);
+  const confirm = (seq: number, sendingAtMs: number) => {
+    ops.push({ type: "send", atMs, sendingAtMs, seq });
+    recent.push(seq);
+    if (recent.length > 50) recent.shift();
+  };
   for (let i = 0; i < count; i++) {
     atMs += rng.chance(0.98) ? rng.int(0, 10) : rng.int(0, 15_000);
     for (const l of late.filter((l) => l.due <= i)) {
       late.splice(late.indexOf(l), 1);
-      ops.push({ type: "send", atMs, sentAtMs: l.sentAtMs, seq: l.seq });
+      // The send stalls: completion lags up to 1.5 × window behind sending.
+      if (rng.chance(0.3)) {
+        atMs = Math.max(
+          atMs,
+          l.sendingAtMs + rng.int(0, Math.floor(windowMs * 1.5)),
+        );
+      }
+      confirm(l.seq, l.sendingAtMs);
     }
     if (withProcess && rng.chance(0.2)) {
       ops.push({ type: "process", atMs });
       continue;
     }
+    if (recent.length > 0 && rng.chance(0.05)) {
+      // Sending stops, then a feedback arrives up to 2 × window later.
+      if (rng.chance(0.2)) atMs += rng.int(0, windowMs * 2);
+      const baseSeq = recent[rng.int(0, recent.length)]!;
+      ops.push({ type: "feedback", atMs, baseSeq, count: rng.int(1, 41) });
+      continue;
+    }
     seq += 1 + (rng.chance(0.1) ? rng.int(0, 5_000) : 0);
     if (rng.chance(0.05)) {
       const delay = rng.chance(0.2) ? rng.int(4, 61) : rng.int(1, 4);
-      late.push({ due: i + delay, seq, sentAtMs: atMs });
+      late.push({ due: i + delay, seq, sendingAtMs: atMs });
     } else {
-      ops.push({ type: "send", atMs, sentAtMs: atMs, seq });
+      confirm(seq, atMs);
     }
   }
-  for (const l of late) {
-    ops.push({ type: "send", atMs, sentAtMs: l.sentAtMs, seq: l.seq });
-  }
+  for (const l of late) confirm(l.seq, l.sendingAtMs);
   return ops;
 }
 

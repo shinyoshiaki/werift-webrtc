@@ -45,11 +45,13 @@ Last extended sequence, or `undefined` before the first unwrap.
 
 > **advanceSent**(`seq`): `number`
 
-Map a **send-time** TSN onto a monotonic key.
+Record a **send-time** TSN, which is already the extended transport-wide
+counter ([SentInfo.wideSeq](../interfaces/SentInfo.md#wideseq) from
+[RTCDtlsTransport.transportSequenceNumberExtended](RTCDtlsTransport.md#transportsequencenumberextended)).
 
-Wire TSN only increases. A jump larger than half the 16-bit space is a
-gap (other BUNDLE senders while this one was idle), not wrap-back.
-[peek](#peek) still uses the half-modulus rule for 16-bit feedback.
+The value is exact, so it is kept as is: concurrent sends may report it
+out of order (including across a 16-bit wrap) and an idle sender may see
+a forward gap of any size. The origin only moves forward.
 
 #### Parameters
 

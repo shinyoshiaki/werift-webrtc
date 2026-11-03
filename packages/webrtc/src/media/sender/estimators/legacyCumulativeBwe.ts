@@ -61,6 +61,18 @@ export class SenderBandwidthEstimator
    */
   private feedbackAdapter = new TwccFeedbackAdapter(kLegacySentInfoMaxAgeMs);
   private _congestionScore = 1;
+  private readonly clock: () => number;
+
+  /**
+   * @param options.clock Optional sender clock for unit tests. Must match the
+   *   domain of {@link SentInfo.sendingAtMs} / {@link SentInfo.sentAtMs} used
+   *   with this instance. Production omits this (defaults to
+   *   {@link milliTime}).
+   */
+  constructor(options?: { clock?: () => number }) {
+    super();
+    this.clock = options?.clock ?? milliTime;
+  }
 
   /** 1–10; larger means worse congestion (legacy-specific). */
   get congestionScore() {
@@ -85,10 +97,10 @@ export class SenderBandwidthEstimator
     // feedback that matches none of this sender's packets is not about this
     // sender: ignore it like GCC does, so an idle sender does not count it
     // toward congestion (develop only ever delivered the sender's own TWCC).
-    const packets = this.feedbackAdapter.onFeedback(feedback);
+    const nowMs = this.clock();
+    const packets = this.feedbackAdapter.onFeedback(feedback, nowMs);
     if (packets.length === 0) return;
 
-    const nowMs = milliTime();
     const elapsedMs = nowMs - this.cumulativeResult.firstPacketSentAtMs;
     if (elapsedMs > 1000) {
       this.cumulativeResult.reset();

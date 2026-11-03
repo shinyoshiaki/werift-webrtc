@@ -49,10 +49,13 @@ const cases = seeds.map((seed) => ({
 const title = (claim: string) =>
   `${claim}: seed $seed (replay: ${replay("$seed")})`;
 
-const createEstimator = (kind: "legacy" | "gcc"): BandwidthEstimator =>
+const createEstimator = (
+  kind: "legacy" | "gcc",
+  clock?: () => number,
+): BandwidthEstimator =>
   kind === "legacy"
-    ? new SenderBandwidthEstimator()
-    : new GccBandwidthEstimator(300_000);
+    ? new SenderBandwidthEstimator({ clock })
+    : new GccBandwidthEstimator(300_000, { clock });
 
 /** Act: feed every delivery and collect what each feedback reported. */
 function deliver(
@@ -80,9 +83,12 @@ describe("twcc property", () => {
       );
       const adapter = new TwccFeedbackAdapter(60_000);
       for (const info of sendOrder) adapter.onSent(info);
+      const feedbackAtMs = Math.max(...sendOrder.map((i) => i.sentAtMs)) + 100;
 
       // Act
-      const reports = deliver(deliveries, (fb) => adapter.onFeedback(fb));
+      const reports = deliver(deliveries, (fb) =>
+        adapter.onFeedback(fb, feedbackAtMs),
+      );
 
       // Assert: 出力はその feedback が覆った TSN（= 正しい世代）で、送信記録もその TSN のもの
       const receivedCount = new Map<number, number>();
@@ -222,41 +228,63 @@ describe("twcc property", () => {
 
   test.each(cases)(
     title(
-      "history ($kind): 送信確認が順序外でも、送信履歴は時間窓内・番号 span 32768 未満で、範囲内の項目は消えない",
+      "history ($kind): 送信完了の遅れ・送信停止後の feedback を混ぜても、照合で返るパケットは照合時点で時間窓内・番号 span 32768 未満で、範囲内の項目は消えない",
     ),
     ({ seed, kind }) => {
-      // Arrange: legacy は送信時だけ 10 秒窓、GCC は送信時と process 時に 60 秒窓で掃除する
-      const estimator = createEstimator(kind);
+      // Arrange: legacy は 10 秒窓、GCC は 60 秒窓。送信確認・process・feedback の時刻を同じ clock で与える
       const windowMs = kind === "legacy" ? 10_000 : kSendTimeHistoryWindowMs;
-      const ops = randomHistoryOps(seededRandom(seed), steps, kind === "gcc");
-      const confirmed: { seq: number; sentAtMs: number }[] = [];
+      let clockMs = Number.NEGATIVE_INFINITY;
+      const estimator = createEstimator(kind, () => clockMs);
+      const matched = captureMatchedFeedback(estimator);
+      const ops = randomHistoryOps(
+        seededRandom(seed),
+        steps,
+        kind === "gcc",
+        windowMs,
+      );
+      const confirmed: { seq: number; sendingAtMs: number }[] = [];
+      const acked = new Set<number>();
       let latest = Number.NEGATIVE_INFINITY;
-      let maxNowMs = Number.NEGATIVE_INFINITY;
 
       for (const [i, op] of ops.entries()) {
-        // Act: 送信確認（拡張 TSN、周回・飛び・順序外あり）または process
-        let nowMs: number;
+        // Act: 送信確認（拡張 TSN、周回・飛び・順序外・完了の遅れあり）、process、または feedback
+        clockMs = Math.max(clockMs, op.atMs);
         if (op.type === "send") {
-          estimator.rtpPacketSent(twccSentInfo(op.seq, 100, op.sentAtMs));
+          estimator.rtpPacketSent(
+            twccSentInfo(op.seq, 100, op.sendingAtMs, { sentAtMs: op.atMs }),
+          );
           confirmed.push(op);
           latest = Math.max(latest, op.seq);
-          nowMs = op.sentAtMs;
-        } else {
+        } else if (op.type === "process") {
           estimator.process(op.atMs);
-          nowMs = op.atMs;
+        } else {
+          const before = matched.length;
+          const recvUs = Array.from(
+            { length: op.count },
+            (_, j) => op.atMs * 1_000 + j * 100,
+          );
+          estimator.receiveTWCC(wireTwccFeedback(op.baseSeq, recvUs));
+          // Assert: 照合で返るパケットは、照合時点で時間窓の内側・最新の番号から span 32768 未満・feedback が覆った番号
+          for (const p of matched.slice(before).flat()) {
+            expect(clockMs - p.sent.sendingAtMs).toBeLessThanOrEqual(windowMs);
+            expect(latest - p.extSeq).toBeLessThan(0x8000);
+            expect(p.extSeq - op.baseSeq).toBeGreaterThanOrEqual(0);
+            expect(p.extSeq - op.baseSeq).toBeLessThan(op.count);
+            acked.add(p.extSeq);
+          }
         }
-        maxNowMs = Math.max(maxNowMs, nowMs);
         if (i % 97 !== 0 && i !== ops.length - 1) continue;
 
-        // Assert: 残っているのは今回の掃除時刻から窓内だけで、どの番号も最新から span 32768 未満
+        // Assert: 残っているのは現在時刻から窓内だけで、どの番号も最新から span 32768 未満
         const history = twccHistoryOf(estimator);
         for (const [key, info] of history) {
-          expect(nowMs - info.sendingAtMs).toBeLessThanOrEqual(windowMs);
+          expect(clockMs - info.sendingAtMs).toBeLessThanOrEqual(windowMs);
           expect(latest - key).toBeLessThan(0x8000);
         }
-        // Assert: これまでのどの掃除時刻でも窓内・span 内だった送信は消えていない
+        // Assert: 受信と照合されていない送信のうち、現在も窓内・span 内のものは消えていない
         for (const c of confirmed) {
-          if (maxNowMs - c.sentAtMs <= windowMs && latest - c.seq < 0x8000) {
+          if (acked.has(c.seq)) continue;
+          if (clockMs - c.sendingAtMs <= windowMs && latest - c.seq < 0x8000) {
             expect(history.has(c.seq)).toBe(true);
           }
         }

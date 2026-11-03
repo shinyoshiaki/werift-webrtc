@@ -42,6 +42,21 @@ export interface TwccPacketFeedback {
  * - A packet reported as not received stays in history; a later feedback may
  *   still report it as received.
  *
+ * Time contract. Three times are involved, all on the caller's clock (ms):
+ * - `SentInfo.sendingAtMs`: right before the packet is handed to ICE.
+ * - `SentInfo.sentAtMs`: when the send completed ({@link onSent} is called
+ *   at or after this time).
+ * - `nowMs` of {@link onFeedback} / {@link prune}: when the feedback arrived
+ *   or the caller ticks.
+ *
+ * The adapter keeps a monotonic clock: the largest `sentAtMs` / `nowMs` seen.
+ * A packet's age is `clock - sendingAtMs`. A packet is in range while its age
+ * is at most `maxAgeMs` and it lies less than
+ * {@link kTwccFeedbackHistoryMaxSeqSpan} behind the latest sent sequence.
+ * {@link onFeedback} checks every matched packet against this range at match
+ * time, so it never returns an out-of-range packet regardless of call order.
+ * Pruning only bounds memory.
+ *
  * Shared by every {@link BandwidthEstimator} that consumes TWCC (legacy, GCC).
  */
 export class TwccFeedbackAdapter {
@@ -61,9 +76,12 @@ export class TwccFeedbackAdapter {
   private readonly sentUnwrapper = new TransportWideSeqUnwrapper();
   private readonly refTimeUnwrapper = new TwccReferenceTimeUnwrapper();
   private lastFeedbackSeq: number | undefined;
+  /** Monotonic clock: largest `sentAtMs` / `nowMs` seen (see time contract). */
+  private clockMs = Number.NEGATIVE_INFINITY;
 
   /**
-   * @param maxAgeMs Drop history entries sent more than this long ago.
+   * @param maxAgeMs Max age (`clock - sendingAtMs`) of a packet that may
+   *   still be matched.
    */
   constructor(private readonly maxAgeMs: number) {}
 
@@ -80,42 +98,55 @@ export class TwccFeedbackAdapter {
   /**
    * Record a sent packet. `info.wideSeq` is the extended transport-wide
    * sequence number and is kept exactly, even when confirmations arrive out
-   * of order.
+   * of order. Advances the clock to `info.sentAtMs`.
    * @returns extended sequence used as the history key
    */
   onSent(info: SentInfo): number {
     const previousLatest = this.sentUnwrapper.last;
     const extSeq = this.sentUnwrapper.advanceSent(info.wideSeq);
+    this.advanceClock(info.sentAtMs);
     this.forget(extSeq);
     const outOfOrder = previousLatest !== undefined && extSeq <= previousLatest;
     // A late confirmation already outside the span / age window is not kept,
     // so the history span stays below half of the 16-bit space.
-    if (!this.isOutOfRange(extSeq, info, info.sendingAtMs)) {
+    if (!this.isOutOfRange(extSeq, info)) {
       this.history.set(extSeq, info);
       if (outOfOrder) this.outOfOrderKeys.add(extSeq);
     }
-    this.prune(info.sendingAtMs);
+    this.pruneHistory();
     return extSeq;
   }
 
-  /** Drop entries outside the age window or the sequence span limit. */
+  /**
+   * Advance the clock to `nowMs` and drop entries now out of range. Memory
+   * bound only: {@link onFeedback} checks the range itself.
+   */
   prune(nowMs: number): void {
+    this.advanceClock(nowMs);
+    this.pruneHistory();
+  }
+
+  private advanceClock(nowMs: number) {
+    if (Number.isFinite(nowMs)) this.clockMs = Math.max(this.clockMs, nowMs);
+  }
+
+  private pruneHistory() {
     for (const [extSeq, info] of this.history) {
       if (this.outOfOrderKeys.has(extSeq)) continue;
-      if (!this.isOutOfRange(extSeq, info, nowMs)) break;
+      if (!this.isOutOfRange(extSeq, info)) break;
       this.history.delete(extSeq);
     }
     for (const extSeq of this.outOfOrderKeys) {
       const info = this.history.get(extSeq);
-      if (!info || this.isOutOfRange(extSeq, info, nowMs)) {
+      if (!info || this.isOutOfRange(extSeq, info)) {
         this.forget(extSeq);
       }
     }
   }
 
-  private isOutOfRange(extSeq: number, info: SentInfo, nowMs: number) {
+  private isOutOfRange(extSeq: number, info: SentInfo) {
     const latest = this.sentUnwrapper.last;
-    const tooOld = nowMs - info.sendingAtMs > this.maxAgeMs;
+    const tooOld = this.clockMs - info.sendingAtMs > this.maxAgeMs;
     const tooFar =
       latest !== undefined && latest - extSeq >= kTwccFeedbackHistoryMaxSeqSpan;
     return tooOld || tooFar;
@@ -129,9 +160,12 @@ export class TwccFeedbackAdapter {
   /**
    * Match one TWCC feedback against the send history.
    * Results are in extended-sequence (send) order. Packets this sender did not
-   * send (other BUNDLE senders) or already reported as received are omitted.
+   * send (other BUNDLE senders), already reported as received, or out of
+   * range at match time (see time contract) are omitted.
+   * @param nowMs Feedback arrival time; advances the clock.
    */
-  onFeedback(feedback: TransportWideCC): TwccPacketFeedback[] {
+  onFeedback(feedback: TransportWideCC, nowMs: number): TwccPacketFeedback[] {
+    this.advanceClock(nowMs);
     const results = Number.isFinite(feedback.referenceTime)
       ? this.refTimeUnwrapper.rebasePacketResults(
           feedback.packetResults,
@@ -143,6 +177,10 @@ export class TwccFeedbackAdapter {
       const extSeq = this.unwrapFeedbackSeq(result.sequenceNumber);
       const sent = this.history.get(extSeq);
       if (!sent) continue;
+      if (this.isOutOfRange(extSeq, sent)) {
+        this.forget(extSeq);
+        continue;
+      }
       if (!result.received) {
         out.push({ extSeq, sent, received: false });
         continue;
@@ -155,6 +193,7 @@ export class TwccFeedbackAdapter {
         recvMs: hasTwccReceiveTiming(result) ? result.receivedAtMs : undefined,
       });
     }
+    this.pruneHistory();
     // Real feedback is already ordered; keep synthetic input deterministic.
     return out.sort((a, b) => a.extSeq - b.extSeq);
   }
@@ -165,6 +204,7 @@ export class TwccFeedbackAdapter {
     this.sentUnwrapper.reset();
     this.refTimeUnwrapper.reset();
     this.lastFeedbackSeq = undefined;
+    this.clockMs = Number.NEGATIVE_INFINITY;
   }
 
   /**
