@@ -1,5 +1,4 @@
 import * as timers from "node:timers/promises";
-import { randomBytes } from "crypto";
 import { isIPv4 } from "net";
 import {
   Candidate,
@@ -9,7 +8,13 @@ import {
 } from "./candidate";
 import { MdnsLookup } from "./dns/lookup";
 import { TransactionCancelled, type TransactionError } from "./exceptions";
-import { type Cancelable, cancelable, PQueue, randomString } from "./helper";
+import {
+  type Cancelable,
+  cancelable,
+  PQueue,
+  randomString,
+  randomTieBreaker,
+} from "./helper";
 import {
   CandidatePair,
   CandidatePairState,
@@ -49,8 +54,9 @@ const log = debug("werift-ice : packages/ice/src/ice.ts : log");
 const DEFAULT_STUN_SERVER: Address = ["stun.l.google.com", 19302];
 
 export class Connection implements IceConnection {
-  localUsername = randomString(4);
-  localPassword = randomString(22);
+  /** Generated once per generation by restart() (the constructor runs the first). */
+  localUsername = "";
+  localPassword = "";
   remoteIsLite = false;
   remotePassword: string = "";
   remoteUsername: string = "";
@@ -87,7 +93,7 @@ export class Connection implements IceConnection {
   userHistory: { [username: string]: string } = {};
   /** restart() ran once (the constructor's first generation exists). */
   private restarted = false;
-  private readonly tieBreaker: bigint = randomBytes(8).readBigUInt64BE(0);
+  private readonly tieBreaker: bigint = randomTieBreaker();
   state: IceState = "new";
   lookup?: MdnsLookup;
 
@@ -226,13 +232,8 @@ export class Connection implements IceConnection {
     return this.options.iceLite;
   }
 
-  async restart() {
-    this.generation++;
-    this.remoteGeneration++;
-
-    const previous = this.restarted
-      ? { [this.localUsername]: this.localPassword }
-      : {};
+  /** New local ufrag / password; `localPasswordPrefix` replaces the head. */
+  private generateLocalCredentials() {
     this.localUsername = randomString(4);
     this.localPassword = randomString(22);
     if (this.options.localPasswordPrefix) {
@@ -240,6 +241,16 @@ export class Connection implements IceConnection {
         this.options.localPasswordPrefix +
         this.localPassword.slice(this.options.localPasswordPrefix.length);
     }
+  }
+
+  async restart() {
+    this.generation++;
+    this.remoteGeneration++;
+
+    const previous = this.restarted
+      ? { [this.localUsername]: this.localPassword }
+      : {};
+    this.generateLocalCredentials();
     // Only the replaced generation's credentials stay beside the new ones
     // (a check the remote peer sent before it applied the restart is still
     // answered); older generations and staged credentials are dropped, so

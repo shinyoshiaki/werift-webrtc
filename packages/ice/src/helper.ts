@@ -1,13 +1,23 @@
-import { randomBytes } from "crypto";
-
+import { secureRandomBytes } from "../../ice-server/src/stun/random";
 import { Event } from "./imports/common";
 
+export {
+  getRandomSource,
+  PooledRandomSource,
+  type RandomSource,
+  randomTransactionId,
+  secureRandomBytes,
+  setRandomSource,
+} from "../../ice-server/src/stun/random";
+
+/** `length` hex characters (4 bits of randomness each). */
 export function randomString(length: number) {
-  return randomBytes(length).toString("hex").substring(0, length);
+  return secureRandomBytes(length).toString("hex").substring(0, length);
 }
 
-export function randomTransactionId() {
-  return randomBytes(12);
+/** 64-bit ICE tie-breaker (RFC 8445 §7.1.1). */
+export function randomTieBreaker(): bigint {
+  return secureRandomBytes(8).readBigUInt64BE(0);
 }
 
 export function bufferXor(a: Buffer, b: Buffer): Buffer {

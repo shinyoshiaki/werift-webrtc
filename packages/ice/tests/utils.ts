@@ -3,6 +3,7 @@ import * as dns from "node:dns";
 import * as net from "node:net";
 import * as tls from "node:tls";
 import { deepStrictEqual } from "assert";
+import { randomBytes } from "crypto";
 import { readFileSync } from "fs";
 import { type Address, Event, type Transport } from "../../common/src";
 import { NodeStunServer, NodeTurnServer } from "../../ice-server/src";
@@ -12,6 +13,11 @@ import {
   TransactionFailed,
   TransactionTimeout,
 } from "../src/exceptions";
+import {
+  PooledRandomSource,
+  type RandomSource,
+  setRandomSource,
+} from "../src/helper";
 import { Connection } from "../src/ice";
 import {
   CandidatePair,
@@ -1645,4 +1651,75 @@ export async function deliverProvisionalCheck(
 /** The transport protocols (sockets / allocations) `connection` keeps. */
 export function connectionProtocols(connection: Connection) {
   return (connection as unknown as { protocols: Protocol[] }).protocols;
+}
+
+/**
+ * Arrange: install `source` as the ICE / STUN random source until the
+ * current test ends (`setRandomSource()` restores the default pool).
+ */
+export function useRandomSource<T extends RandomSource>(source: T): T {
+  setRandomSource(source);
+  onTestFinished(() => setRandomSource());
+  return source;
+}
+
+/** Arrange: a random source recording each requested length. */
+export function createRecordingRandomSource() {
+  const requests: number[] = [];
+  const source: RandomSource = {
+    bytes: (length) => {
+      requests.push(length);
+      return randomBytes(length);
+    },
+  };
+  return { source, requests };
+}
+
+/** Arrange: a random source whose every draw throws `error`. */
+export function createFailingRandomSource(error: Error): RandomSource {
+  return {
+    bytes: () => {
+      throw error;
+    },
+  };
+}
+
+/**
+ * Arrange: a `PooledRandomSource` whose asynchronous refills are held until
+ * the test settles them (delay / failure injection). Settled refills fill
+ * the pool with 1, 2, 3, ... so every byte served is distinguishable.
+ */
+export function createControlledPool(size = 64, lowWaterMark = 16) {
+  const pending: ((error: Error | null) => void)[] = [];
+  const fill = ((
+    buffer: Buffer,
+    callback: (e: Error | null, b: Buffer) => void,
+  ) => {
+    pending.push((error) => {
+      if (!error) {
+        for (let i = 0; i < buffer.length; i++) buffer[i] = (i % 255) + 1;
+      }
+      callback(error, buffer);
+    });
+  }) as unknown as ConstructorParameters<typeof PooledRandomSource>[2];
+  const fillSync = vi.fn((buffer: Buffer) => {
+    randomBytes(buffer.length).copy(buffer);
+    return buffer;
+  }) as unknown as ConstructorParameters<typeof PooledRandomSource>[3] &
+    ReturnType<typeof vi.fn>;
+  const pool = new PooledRandomSource(size, lowWaterMark, fill, fillSync);
+  return {
+    pool,
+    fillSync,
+    /** Refills started and not settled yet. */
+    get pendingRefills() {
+      return pending.length;
+    },
+    /** Completes the oldest pending refill (with `error`: fails it). */
+    settleRefill(error: Error | null = null) {
+      const next = pending.shift();
+      if (!next) throw new Error("no pending refill");
+      next(error);
+    },
+  };
 }

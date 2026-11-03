@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from "crypto";
+import { randomUUID } from "crypto";
 
 import type { Address } from "../../../common/src";
 
@@ -17,6 +17,7 @@ import {
   methods,
 } from "../stun/const";
 import { Message, parseMessage } from "../stun/message";
+import { secureRandomBytes } from "../stun/random";
 import { makeTurnIntegrityKey } from "./auth";
 import {
   decodeChannelData,
@@ -1069,7 +1070,7 @@ export class TurnServerProtocol {
   }
 
   private issueNonce() {
-    const value = randomBytes(16);
+    const value = secureRandomBytes(16);
     this.nonces.set(value.toString("hex"), {
       value,
       expiresAt: this.now() + this.nonceLifetime * 1000,

@@ -1,4 +1,4 @@
-import { createHmac, randomBytes } from "crypto";
+import { createHmac } from "crypto";
 
 import { crc32 } from "../../../common/src";
 
@@ -22,6 +22,7 @@ import {
   isStunMessage,
   type methods,
 } from "./const";
+import { randomTransactionId } from "./random";
 
 export function parseMessage(
   data: Buffer,
@@ -147,7 +148,7 @@ export class Message extends AttributeRepository {
   constructor(
     public messageMethod: methods,
     public messageClass: classes,
-    public transactionId: Buffer = randomBytes(12),
+    public transactionId: Buffer = randomTransactionId(),
     attributes: AttributePair[] = [],
     public rawAttributes: RawAttribute[] = [],
     /** Every ALTERNATE-SERVER attribute, in wire order. */
