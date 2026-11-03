@@ -63,7 +63,9 @@ export interface TwccArrival {
 /**
  * `length` transport-wide sequence numbers with random losses (short and
  * long gaps), received in order across the 16-bit wrap, with feedback forced
- * at random points.
+ * at random points. Rarely the step is 32,000–32,768 (a loss of up to 32,767
+ * consecutive TSNs, around one full feedback window); half of those are
+ * exactly 32,768, the largest forward jump 16-bit numbers can express.
  */
 export function randomTwccArrivals(
   rng: SeededRandom,
@@ -72,7 +74,13 @@ export function randomTwccArrivals(
   const arrivals: TwccArrival[] = [];
   let ext = startExt(rng);
   for (let i = 0; i < length; i++) {
-    ext += rng.chance(0.15) ? rng.int(2, rng.chance(0.2) ? 40 : 5) : 1;
+    ext += rng.chance(0.005)
+      ? rng.chance(0.5)
+        ? 32_768
+        : rng.int(32_000, 32_768)
+      : rng.chance(0.15)
+        ? rng.int(2, rng.chance(0.2) ? 40 : 5)
+        : 1;
     arrivals.push({ ext, flush: rng.chance(0.1) });
   }
   return arrivals;

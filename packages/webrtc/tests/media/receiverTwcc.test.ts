@@ -154,6 +154,41 @@ describe("ReceiverTWCC", () => {
     ]);
   });
 
+  test("報告窓に収まらない長い欠落のあとも、開始番号が受信 packet へ進み報告が再開する", () => {
+    // Arrange: TSN 0 を報告済み（開始番号 1）
+    const { rx, dtls } = makeReceiver();
+    rx.handleTWCC(0);
+    (rx as any).sendTWCC();
+
+    // Act: 32767 件の欠落（1..32767）のあと 32768, 32769 を受信し、続けて 32770 も受信する
+    rx.handleTWCC(32768);
+    rx.handleTWCC(32769);
+    (rx as any).sendTWCC();
+    rx.handleTWCC(32770);
+    (rx as any).sendTWCC();
+
+    // Assert: 欠落は 1 つの報告窓（最大 32767 件）を埋めるので飛ばし、受信 packet から報告する
+    const reports = (dtls.sendRtcp as any).mock.calls.map(
+      ([packets]: [{ serialize: () => Buffer }[]]) => {
+        const [fb] = RtcpPacketConverter.deSerialize(
+          packets[0].serialize(),
+        ) as [RtcpTransportLayerFeedback];
+        return (fb.feedback as TransportWideCC).packetResults.map((r) => [
+          r.sequenceNumber,
+          r.received,
+        ]);
+      },
+    );
+    expect(reports.slice(1)).toEqual([
+      [
+        [32768, true],
+        [32769, true],
+      ],
+      [[32770, true]],
+    ]);
+    expect(rx.nextReportTsn).toBe(32771);
+  });
+
   test("reference_time は 64ms 量子化値で、first delta はその再構成時刻から測る", () => {
     // Arrange: inject known timestamps via extensionInfo
     const { rx, dtls } = makeReceiver();

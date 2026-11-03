@@ -360,6 +360,28 @@ RTP パケット生成・DTLS 送信・token-bucket 待ちは sender に残す�
 - [x] I: `advanceNextReportTsn()` の判定を `advance <= MAX_FEEDBACK_SPAN` にした。
 - [x] I: `receiverTwcc.test.ts` に「最大長（32767 件）の報告のあとも開始番号が進み、続く packet を報告する」を追加した。修正前は開始番号が 1 のままで失敗した。
 
+#### 長い TSN 欠落と Chrome sim 設定（レビュー指摘・2026-11-03）
+
+##### 指摘と原因
+
+| 指摘 | 再現 | 原因 |
+| --- | --- | --- |
+| 長い TSN 欠落のあとに TWCC feedback が再開しない | 開始番号が 1 の状態で TSN 32768 を受信すると距離 32767 で保留分が捨てられ、続く 32769 以降も同じ判定で捨てられる。番号が周回するまで feedback と帯域推定が止まる | `ReceiverTWCC` が開始番号と受信 TSN を 16bit のまま比べ、窓（32767 件）に入らない packet を「報告済みの遅着」とみなしていた。開始番号は報告しないと進まないため、一度離れると戻れなかった |
+| Chrome シミュレーションの Browser provider 設定が無効 | `cd e2e && npm run test:sim` が `Browser Mode was enabled, but provider was not specified anywhere` で開始前に失敗する | `e2e/simulations/vitest.sim.config.mts` が旧形式の `provider: "playwright"`（文字列）を渡していた。Vitest 5 は `@vitest/browser-playwright` の `playwright(...)` を要求する |
+
+##### 要件
+
+- **J.** 受信 TSN は、これまでに受信した最大の拡張 TSN を基準に展開する（libwebrtc `RemoteEstimatorProxy` の SeqNumUnwrapper 相当）。前方へ半周（32768）までの飛びは前方、それより後ろは遅着とみなす。開始番号も拡張 TSN で持つ。
+- **J.** 保留分は最大 32767 件の報告窓に分けて送る。最初の新しい packet が開始番号から 32767 以上離れているとき（欠落だけで窓が埋まるとき）は、開始番号をその packet へ進め、その欠落は報告しない。後続の packet は失わない。
+- **K.** Chrome sim の設定は通常 e2e（`e2e/vitest.config.mts`）と同じ `playwright({ launchOptions })` 形式にし、`npm run test:sim` が完走することを確かめる。
+
+##### 完了条件（この追加分）
+
+- [x] J: `ReceiverTWCC` に拡張 TSN の展開（`unwrapTsn`、`highestRecvExt`）と拡張の開始番号（`nextReportExt`。`nextReportTsn` はその下位 16bit を返す accessor）を入れ、`sendTWCC()` が報告窓ごとに `sendFeedbackWindow()` を呼ぶ形にした。16bit 比較の `resolveBaseSequence` / `advanceNextReportTsn` は削除した。
+- [x] J: `receiverTwcc.test.ts` に「報告窓に収まらない長い欠落のあとも、開始番号が受信 packet へ進み報告が再開する」を追加した（修正前は失敗）。
+- [x] J: `tests/pbt/receiver` の生成器にまれな長い欠落（飛び 32000〜32768、半数はちょうど 32768）を加え、性質を「受信 TSN はちょうど 1 回受信として報告され、欠番は未受信として報告される。ただし 1 つの報告窓（32767 件）以上続く欠落は報告しなくてよい」にした。修正前の実装では既定 24 seed のうち 15 seed で失敗した。
+- [x] K: `vitest.sim.config.mts` を `playwright({ launchOptions })` に直した。`cd e2e && npm run test:sim` が完走した（1 ファイル・1 件成功）。
+
 ### 2.12 GCC テストの方針転換：libwebrtc との 1:1 一致から「GCC として正しく機能すること」へ（追加要件・2026-10-24）
 
 #### 背景
@@ -782,6 +804,16 @@ set availableBitrate(v: number) {
 - `npm run pbt:deep -- --suite twcc,bwe,sender,receiver --seeds 300 --jobs 8`: 4,200 件すべて成功。
 - `cd packages/webrtc && npm run test:sim`: 2 件成功。
 - examples smoke・WPT・Chrome との E2E は今回は実行していない（レビュー側の記録では examples smoke の失敗はポート 8878 の占有で、develop でも同じだった）。
+
+### 検証記録（2026-11-03、レビュー指摘「長い TSN 欠落」「Chrome sim provider」への対応）
+
+- 作業開始時のリビジョンは `7bd950181`（未コミット変更なし）。回帰テストと強化した性質テストが、修正前の `receiverTwcc.ts` で失敗することを確認した。
+- `cd packages/webrtc && npm run type`: 成功。ルートの `npm run type`: 成功。
+- `cd packages/webrtc && npx vitest run tests`: 73 ファイル、1,582 件成功・5 件 skip。
+- `npm run pbt:deep -- --suite twcc,bwe,sender,receiver --seeds 300 --jobs 8`: 4,200 件すべて成功。
+- `cd packages/webrtc && npm run test:sim`: 2 件成功。
+- `cd e2e && npm run test:sim`（Chrome、headless）: 1 ファイル・1 件成功。2026-11-02 の記録にある同コマンドの成功は、現在の Vitest 5 の設定では再現しなかった（指摘のとおり provider 未解決で開始前に失敗する）。今回の値が現状の結果である。
+- examples smoke・WPT・通常の E2E 全体は今回は実行していない。
 
 ### ライセンス
 

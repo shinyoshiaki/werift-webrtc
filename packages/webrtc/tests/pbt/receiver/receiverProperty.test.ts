@@ -66,9 +66,6 @@ function receiveCompacted(stream: ReceivedStep[]) {
 const seqDelta = (a: number, b: number) =>
   ((((b - a) & 0xffff) + 0x8000) & 0xffff) - 0x8000;
 
-/** Unwrap a 16-bit number to the extended value nearest `near`. */
-const unwrapNear = (seq: number, near: number) => near + seqDelta(near, seq);
-
 describe("rtp receiver property", () => {
   test.each(cases)(
     title(
@@ -131,10 +128,10 @@ describe("rtp receiver property", () => {
 
   test.each(cases)(
     title(
-      "twcc feedback: 受信した TSN は受信として 1 回だけ報告され、欠番は未受信としてだけ報告される",
+      "twcc feedback: 受信した TSN は受信として 1 回だけ報告され、欠番は未受信としてだけ報告される（報告窓を埋める長い欠落は飛ばしても報告が再開する）",
     ),
     ({ seed }) => {
-      // Arrange: 順着の TSN（短い / 長い欠番、wrap をまたぐ）と、ランダムな feedback 送信点
+      // Arrange: 順着の TSN（短い / 長い / 報告窓ほどの欠番、wrap をまたぐ）と、ランダムな feedback 送信点
       const arrivals = randomTwccArrivals(seededRandom(seed), steps);
       const sendRtcp = vi.fn(async (_packets: unknown[]) => {});
       const rx = new ReceiverTWCC({ sendRtcp } as never, 1, 2);
@@ -157,7 +154,9 @@ describe("rtp receiver property", () => {
             packet.serialize(),
           ) as [RtcpTransportLayerFeedback];
           for (const r of (rtpfb.feedback as TransportWideCC).packetResults) {
-            const ext = unwrapNear(r.sequenceNumber, near);
+            // 受信側と同じく、ちょうど半周の差は前方とみなす
+            const delta = seqDelta(near, r.sequenceNumber);
+            const ext = near + (delta === -0x8000 ? 0x8000 : delta);
             near = ext;
             if (r.received)
               receivedCount.set(ext, (receivedCount.get(ext) ?? 0) + 1);
@@ -171,11 +170,21 @@ describe("rtp receiver property", () => {
         ...arrived,
       ]);
       expect([...receivedCount.values()].every((n) => n === 1)).toBe(true);
-      // Assert: 最初と最後の間の欠番はすべて未受信として報告され、受信した TSN は未受信にならない
+      // Assert: 最初と最後の間の欠番は未受信として報告され、受信した TSN は未受信にならない。
+      //         例外は 1 つの報告窓（32767 件）以上続く欠落で、未受信として報告しなくてよい
       const first = arrivals[0]!.ext;
       const last = arrivals.at(-1)!.ext;
+      const skippable = new Set<number>();
+      for (let i = 1; i < arrivals.length; i++) {
+        const prev = arrivals[i - 1]!.ext;
+        if (arrivals[i]!.ext - prev - 1 < 0x7fff) continue;
+        for (let ext = prev + 1; ext < arrivals[i]!.ext; ext++) {
+          skippable.add(ext);
+        }
+      }
       for (let ext = first; ext <= last; ext++) {
-        expect(reportedLost.has(ext)).toBe(!arrived.has(ext));
+        if (arrived.has(ext)) expect(reportedLost.has(ext)).toBe(false);
+        else if (!skippable.has(ext)) expect(reportedLost.has(ext)).toBe(true);
       }
       expect([...reportedLost].every((e) => e > first && e < last)).toBe(true);
     },

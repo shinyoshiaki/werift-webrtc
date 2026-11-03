@@ -1,9 +1,8 @@
-/// <reference types="@vitest/browser/providers/playwright" />
-
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { playwright } from "@vitest/browser-playwright";
 import { nodePolyfills } from "vite-plugin-node-polyfills";
 import { defineConfig } from "vitest/config";
 
@@ -45,27 +44,25 @@ export default defineConfig({
     fileParallelism: false,
     maxWorkers: 1,
     minWorkers: 1,
+    // Same provider form as ../vitest.config.mts (Vitest 4+ takes a factory).
     browser: {
-      provider: "playwright",
-      enabled: true,
-      instances: [
-        {
-          browser: "chromium",
-          launch: {
-            ...(chromiumExecutablePath
-              ? { executablePath: chromiumExecutablePath }
-              : {}),
-            args: [
-              "--use-fake-ui-for-media-stream",
-              "--use-fake-device-for-media-stream",
-              "--ignore-certificate-errors",
-              "--allow-insecure-localhost",
-              "--disable-features=WebRtcHideLocalIpsWithMdns",
-              "--force-webrtc-ip-handling-policy=default_public_interface_only",
-            ],
-          },
+      provider: playwright({
+        launchOptions: {
+          ...(chromiumExecutablePath
+            ? { executablePath: chromiumExecutablePath }
+            : {}),
+          args: [
+            "--use-fake-ui-for-media-stream",
+            "--use-fake-device-for-media-stream",
+            "--ignore-certificate-errors",
+            "--allow-insecure-localhost",
+            "--disable-features=WebRtcHideLocalIpsWithMdns",
+            "--force-webrtc-ip-handling-policy=default_public_interface_only",
+          ],
         },
-      ],
+      }),
+      enabled: true,
+      instances: [{ browser: "chromium" }],
     },
   },
 });
