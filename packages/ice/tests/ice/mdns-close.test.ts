@@ -1,3 +1,4 @@
+import type { MulticastDNS } from "multicast-dns";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { MdnsLookup } from "../../src/dns/lookup";
 import {
@@ -15,6 +16,22 @@ afterEach(() => {
 
 /** Every pending lookup is owned by MdnsLookup and released on close(). */
 describe("MdnsLookup", () => {
+  test("keeps the public cache and the full MulticastDNS type of mdnsInstance", () => {
+    // Arrange
+    const mdns = createFakeMdns();
+    const lookup = new MdnsLookup(mdns.factory);
+
+    // Act: 既存利用者が参照していた公開プロパティを型付きで読む。
+    const cache: Map<string, Promise<string>> = lookup.cache;
+    const instance: MulticastDNS = lookup.mdnsInstance;
+    const respond: MulticastDNS["respond"] | undefined = instance.respond;
+
+    // Assert: 公開プロパティが残っている（型は tsc で検査される）。
+    expect(cache.size).toBe(0);
+    expect(instance).toBeDefined();
+    expect(respond).toBeUndefined(); // fake は respond を持たない
+  });
+
   test("a response resolves the lookup and releases its timer and listener", async () => {
     vi.useFakeTimers();
     const mdns = createFakeMdns();

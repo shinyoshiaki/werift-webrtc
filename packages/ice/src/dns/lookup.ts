@@ -11,24 +11,19 @@ interface DnsLookupResult extends DnsLookupRequest {
   family?: number;
 }
 
-/** The part of a `multicast-dns` instance {@link MdnsLookup} uses. */
-export type MdnsInstance = Pick<
-  mdns.MulticastDNS,
-  "on" | "removeListener" | "query" | "destroy" | "setMaxListeners"
->;
-
 /**
  * Resolves remote `.local` candidates. Every pending lookup is owned by the
  * instance: `close()` cancels them (timer, listener and promise) at once.
  */
 export class MdnsLookup {
-  mdnsInstance: MdnsInstance;
+  cache = new Map<string, Promise<string>>();
+  mdnsInstance: mdns.MulticastDNS;
   private closed = false;
   /** Cancels each pending lookup (rejects it and releases its timer and listener). */
   private readonly pending = new Set<() => void>();
 
   /** @param createMdns creates the mDNS socket; tests inject a fake one. */
-  constructor(createMdns: () => MdnsInstance = () => mdns()) {
+  constructor(createMdns: () => mdns.MulticastDNS = () => mdns()) {
     this.mdnsInstance = createMdns();
     this.mdnsInstance.setMaxListeners(50);
   }

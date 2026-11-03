@@ -8,7 +8,8 @@ import { readFileSync } from "fs";
 import { type Address, Event, type Transport } from "../../common/src";
 import { NodeStunServer, NodeTurnServer } from "../../ice-server/src";
 import { Candidate } from "../src/candidate";
-import { type MdnsInstance, MdnsLookup } from "../src/dns/lookup";
+import type mdns from "multicast-dns";
+import { MdnsLookup } from "../src/dns/lookup";
 import {
   TransactionCancelled,
   TransactionFailed,
@@ -1656,7 +1657,8 @@ export function createFakeMdns() {
   const emitter = new EventEmitter();
   const queries: string[] = [];
   let destroyCount = 0;
-  const instance: MdnsInstance = {
+  type MdnsInstance = mdns.MulticastDNS;
+  const instance = {
     on: ((event: string, listener: (...args: any[]) => void) => {
       emitter.on(event, listener);
       return instance;
@@ -1675,7 +1677,7 @@ export function createFakeMdns() {
     destroy: (() => {
       destroyCount++;
     }) as MdnsInstance["destroy"],
-  };
+  } as unknown as MdnsInstance;
   return {
     factory: () => instance,
     queries,
