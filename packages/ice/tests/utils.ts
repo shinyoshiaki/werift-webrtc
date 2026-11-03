@@ -1716,15 +1716,20 @@ export function createControlledPool(size = 64, lowWaterMark = 16) {
       callback(error, buffer);
     });
   }) as unknown as ConstructorParameters<typeof PooledRandomSource>[2];
-  const fillSync = vi.fn((buffer: Buffer) => {
+  let fillSyncCalls = 0;
+  const fillSync = ((buffer: Buffer) => {
+    fillSyncCalls++;
     randomBytes(buffer.length).copy(buffer);
     return buffer;
-  }) as unknown as ConstructorParameters<typeof PooledRandomSource>[3] &
-    ReturnType<typeof vi.fn>;
+  }) as unknown as ConstructorParameters<typeof PooledRandomSource>[3];
   const pool = new PooledRandomSource(size, lowWaterMark, fill, fillSync);
   return {
     pool,
     fillSync,
+    /** Synchronous fallback draws so far. */
+    get fillSyncCalls() {
+      return fillSyncCalls;
+    },
     /** Refills started and not settled yet. */
     get pendingRefills() {
       return pending.length;

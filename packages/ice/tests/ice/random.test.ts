@@ -125,7 +125,7 @@ describe("ICE random source", () => {
     // Assert: 同期フォールバックで正しい形式の資格情報が得られる。
     expect(connection.localUsername).toMatch(/^[0-9a-f]{4}$/);
     expect(connection.localPassword).toMatch(/^[0-9a-f]{22}$/);
-    expect(harness.fillSync).toHaveBeenCalledTimes(3);
+    expect(harness.fillSyncCalls).toBe(3);
     // Assert: 補充は多重に予約されず 1 本だけ待っている。
     expect(harness.pendingRefills).toBe(1);
   });
@@ -142,7 +142,7 @@ describe("ICE random source", () => {
     // Assert: プールは空のまま同期取得で長さ通りの値を返し、補充を再予約する。
     expect(bytes.length).toBe(8);
     expect(harness.pool.available).toBe(0);
-    expect(harness.fillSync).toHaveBeenCalledTimes(1);
+    expect(harness.fillSyncCalls).toBe(1);
     expect(harness.pendingRefills).toBe(1);
   });
 
@@ -161,7 +161,7 @@ describe("ICE random source", () => {
     // Assert: 連続した区間を重複なく返し、返したバッファはプールと共有しない。
     expect([...second]).toEqual(Array.from({ length: 20 }, (_, i) => i + 21));
     expect([...third]).toEqual(Array.from({ length: 20 }, (_, i) => i + 41));
-    expect(harness.fillSync).not.toHaveBeenCalled();
+    expect(harness.fillSyncCalls).toBe(0);
     // Assert: 残量がしきい値を下回ったので補充が 1 本だけ予約される。
     expect(harness.pendingRefills).toBe(1);
 
@@ -170,7 +170,7 @@ describe("ICE random source", () => {
 
     // Assert: 残りを使い回さず同期取得し、補充は多重予約されない。
     expect(fallback.length).toBe(8);
-    expect(harness.fillSync).toHaveBeenCalledTimes(1);
+    expect(harness.fillSyncCalls).toBe(1);
     expect(harness.pendingRefills).toBe(1);
   });
 
@@ -178,12 +178,7 @@ describe("ICE random source", () => {
     // Arrange: 実際の非同期 randomFill で補充を完了させる。
     const harness = createControlledPool();
     const pool = useRandomSource(
-      new PooledRandomSource(
-        512,
-        128,
-        randomFill,
-        harness.fillSync as ConstructorParameters<typeof PooledRandomSource>[3],
-      ),
+      new PooledRandomSource(512, 128, randomFill, harness.fillSync),
     );
     pool.refill();
     await vi.waitFor(() => expect(pool.available).toBe(512));
@@ -192,7 +187,7 @@ describe("ICE random source", () => {
     const connection = new Connection(true);
 
     // Assert: 同期のエントロピー API を呼ばず、プールから 34 バイトだけ消費する。
-    expect(harness.fillSync).not.toHaveBeenCalled();
+    expect(harness.fillSyncCalls).toBe(0);
     expect(pool.available).toBe(512 - 34);
     expect(connection.localUsername).toMatch(/^[0-9a-f]{4}$/);
   });
