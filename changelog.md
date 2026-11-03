@@ -22,7 +22,8 @@
 
 ### 🐛 Bug Fixes
 
-- **TWCC is transport-wide on BUNDLE.** `ReceiverTWCC` is shared per DTLS transport, and incoming TWCC RTCP is fanned out to every `RTCRtpSender` on that transport (each estimator matches only its own sent packets).
+- **TWCC is transport-wide on BUNDLE.** `ReceiverTWCC` is shared per DTLS transport, and incoming TWCC RTCP is fanned out to every `RTCRtpSender` on that transport (each estimator matches only its own sent packets). A maximum-length feedback (32,767 packets) still advances the next report start, so feedback does not stop after a long gap.
+- **Moving an `RTCRtpSender` to another DTLS transport resets its bandwidth estimator** (send history, transport-wide sequence origin, in-flight sends), because the new transport has its own sequence space. The estimate restarts from the new transport's feedback.
 - **The transport-wide sequence number is allocated synchronously before each send** and used for the estimator input, so with BUNDLE a sender no longer picks up the number of another sender's packet. The TWCC and abs-send-time extensions of forwarded packets no longer overwrite the newly assigned values.
 - **NACK retransmissions get a new transport-wide sequence number** instead of reusing the original one.
 - **Padding-only packets are no longer stored in the NACK cache.**

@@ -317,11 +317,20 @@ export async function prepareConnectedSender(
   estimator?: BandwidthEstimator,
   options: SenderSetupOptions = {},
 ) {
+  const { dtls, sentPackets } = connectedDtlsTransport();
+  const sender = attachSender(dtls, estimator, options);
+  return { sender, dtls, sentPackets };
+}
+
+/**
+ * Connected DTLS transport whose writes are recorded. The next
+ * transport-wide sequence number is `lastTsn + 1`.
+ */
+export function connectedDtlsTransport(lastTsn = 0) {
   const dtls = createDtlsTransport();
   (dtls as { state: string }).state = "connected";
   const sentPackets = recordDtlsWrites(dtls);
-  dtls.transportSequenceNumber = 0;
-  dtls.transportSequenceNumberExtended = 0;
-  const sender = attachSender(dtls, estimator, options);
-  return { sender, dtls, sentPackets };
+  dtls.transportSequenceNumber = lastTsn & 0xffff;
+  dtls.transportSequenceNumberExtended = lastTsn;
+  return { dtls, sentPackets };
 }

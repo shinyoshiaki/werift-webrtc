@@ -113,6 +113,47 @@ describe("ReceiverTWCC", () => {
     expect(sumNot).toBe(9000);
   });
 
+  test("最大長（32767 件）の報告のあとも開始番号が進み、続く packet を報告する", () => {
+    // Arrange: TSN 0 を報告済み（開始番号 1）
+    const { rx, dtls } = makeReceiver();
+    rx.handleTWCC(0);
+    (rx as any).sendTWCC();
+    const reportOf = (call: number) => {
+      const wire = (
+        (dtls.sendRtcp as any).mock.calls[call][0] as {
+          serialize: () => Buffer;
+        }[]
+      )[0].serialize();
+      const [fb] = RtcpPacketConverter.deSerialize(wire) as [
+        RtcpTransportLayerFeedback,
+      ];
+      return fb.feedback as TransportWideCC;
+    };
+
+    // Act 1: 32767 を受信して最大長の報告を送る
+    rx.handleTWCC(32767);
+    (rx as any).sendTWCC();
+
+    // Assert: 1..32767 の 32767 件を報告し、開始番号は 32768 に進む
+    expect(reportOf(1).baseSequenceNumber).toBe(1);
+    expect(reportOf(1).packetStatusCount).toBe(32767);
+    expect(rx.nextReportTsn).toBe(32768);
+
+    // Act 2: 続く 32768, 32769 を受信する
+    rx.handleTWCC(32768);
+    rx.handleTWCC(32769);
+    (rx as any).sendTWCC();
+
+    // Assert: 破棄されず、受信として報告される
+    expect(dtls.sendRtcp).toHaveBeenCalledTimes(3);
+    expect(
+      reportOf(2).packetResults.map((r) => [r.sequenceNumber, r.received]),
+    ).toEqual([
+      [32768, true],
+      [32769, true],
+    ]);
+  });
+
   test("reference_time は 64ms 量子化値で、first delta はその再構成時刻から測る", () => {
     // Arrange: inject known timestamps via extensionInfo
     const { rx, dtls } = makeReceiver();

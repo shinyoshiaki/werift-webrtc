@@ -29,6 +29,8 @@ import { createRtpPacket } from "../fixture";
 import { bitrateAt, type GccLink, runGccSimulation } from "./gccSimulation";
 import {
   attachSender,
+  captureMatchedFeedback,
+  connectedDtlsTransport,
   type CapturedRtp,
   flushMicrotasks,
   holdFirstWrite,
@@ -952,6 +954,42 @@ describe("media/sender bandwidth estimator", () => {
           sender.stop();
           vi.useRealTimers();
         }
+      },
+    );
+
+    test.each([
+      { kind: "legacy", create: () => new SenderBandwidthEstimator() },
+      { kind: "gcc", create: () => new GccBandwidthEstimator(300_000) },
+    ])(
+      "別の DTLS transport に移ると、新 transport の TSN で送った packet が TWCC に照合される ($kind)",
+      async ({ create }) => {
+        // Arrange: 旧 transport で TSN 50001 まで送った sender
+        const estimator = create();
+        const { dtls: oldDtls } = connectedDtlsTransport(50_000);
+        const sender = attachSender(oldDtls, estimator);
+        await sender.sendRtp(createRtpPacket(0, 0, Buffer.alloc(500)));
+        expect(oldDtls.transportSequenceNumberExtended).toBeGreaterThan(50_000);
+        const matched = captureMatchedFeedback(estimator);
+
+        // Act: TSN 1 から始まる新 transport に移り、20 packet 送って TWCC を受け取る
+        const { dtls: newDtls } = connectedDtlsTransport(0);
+        sender.setDtlsTransport(newDtls);
+        for (let i = 1; i <= 20; i++) {
+          await sender.sendRtp(createRtpPacket(i, i * 3000, Buffer.alloc(500)));
+        }
+        const lastTsn = newDtls.transportSequenceNumberExtended;
+        sender.handleRtcpPacket(
+          makeTwccRtcp(receivedTail(lastTsn, 20, Date.now(), 15)),
+        );
+
+        // Assert: 新 transport の直近 20 TSN がすべて受信として照合される
+        const received = matched
+          .flat()
+          .filter((p) => p.received)
+          .map((p) => p.extSeq);
+        expect(received).toEqual(
+          Array.from({ length: 20 }, (_, i) => lastTsn - 19 + i),
+        );
       },
     );
 

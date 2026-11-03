@@ -280,7 +280,8 @@ export class ReceiverTWCC {
 
   /**
    * Advance {@link nextReportTsn} only in the forward half of the sequence
-   * space.
+   * space. A report covers at most {@link MAX_FEEDBACK_SPAN} packets, so one
+   * report advances the frontier by up to that many (inclusive).
    */
   private advanceNextReportTsn(candidate: number) {
     const next = candidate & 0xffff;
@@ -289,7 +290,7 @@ export class ReceiverTWCC {
       return;
     }
     const advance = (next - this.nextReportTsn + TWCC_SEQ_MOD) % TWCC_SEQ_MOD;
-    if (advance > 0 && advance < MAX_FEEDBACK_SPAN) {
+    if (advance > 0 && advance <= MAX_FEEDBACK_SPAN) {
       this.nextReportTsn = next;
     }
   }

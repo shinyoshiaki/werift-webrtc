@@ -339,6 +339,27 @@ RTP パケット生成・DTLS 送信・token-bucket 待ちは sender に残す�
 - [x] F: 故障注入で検出を確認した。照合時の判定を外す、feedback で時計を進めない → それぞれ 25 件失敗。`onSent()` の時計を `sendingAtMs` で進める（レビュー 8・9 の状態）→ history 性質 4 件が失敗。
 - [x] G: 上の不変条件を `twccFeedbackAdapter.ts` の JSDoc（Time contract）に書いた。自己レビューの結果は検証記録に残した。
 
+#### transport 切替と最大長 feedback の境界（レビュー指摘・2026-11-03）
+
+##### 指摘と原因
+
+| 指摘 | 再現 | 原因 |
+| --- | --- | --- |
+| DTLS transport 切替後に帯域推定が止まる | 旧 transport で TSN 50001 まで送り、新 transport（TSN 1..20）に移ると、新しい送信履歴が範囲外として破棄され、通知が出ない（develop は 101,052 bps を通知） | `RTCRtpSender.setDtlsTransport()` が estimator を切り替えないため、adapter の TSN 基準（最新 50001）が残り、1..20 が span 32768 の外と判定された |
+| 最大長の TWCC 報告のあとに feedback が止まる | TSN 0 を報告後、32767 を受信すると 1..32767 の 32,767 件を報告するが、開始番号が 1 のまま。続く 32768・32769 は破棄される | `ReceiverTWCC.advanceNextReportTsn()` が進み幅を `< 32767` で判定し、許容される最大長の報告（進み幅 32767）を拒否していた |
+
+##### 要件
+
+- **H.** sender が別の DTLS transport に移ったら（初回の割り当てと同じ transport の再割り当ては除く）、estimator を初期状態に戻す。送信履歴と TSN 基準を捨て、送信世代（`bweGeneration`）を進めて、旧 transport で送信中の packet が旧 TSN を estimator に報告しないようにする。libwebrtc の `OnNetworkRouteChanged` がコントローラを作り直すのと同じ扱いとする。
+- **I.** 1 回の報告は最大 32,767 件なので、開始番号は 1 回の報告で 32,767 まで（境界を含む）進められるようにする。
+
+##### 完了条件（この追加分）
+
+- [x] H: `RTCRtpSender.setDtlsTransport()` は、前の transport と異なる transport に移るとき `resetBweForNewTransport()`（世代の更新、`estimator.reset()`、送信の一時状態の初期化、process timer の再同期）を呼ぶ。停止済みの sender では何もしない。
+- [x] H: `bandwidthEstimator.test.ts` に「別の DTLS transport に移ると、新 transport の TSN で送った packet が TWCC に照合される」（legacy / GCC）を追加した。修正前は 2 件とも照合が 0 件で失敗した。共通の Arrange として `twccTestUtils.ts` に `connectedDtlsTransport(lastTsn)` を追加し、`prepareConnectedSender` もこれを使う。
+- [x] I: `advanceNextReportTsn()` の判定を `advance <= MAX_FEEDBACK_SPAN` にした。
+- [x] I: `receiverTwcc.test.ts` に「最大長（32767 件）の報告のあとも開始番号が進み、続く packet を報告する」を追加した。修正前は開始番号が 1 のままで失敗した。
+
 ### 2.12 GCC テストの方針転換：libwebrtc との 1:1 一致から「GCC として正しく機能すること」へ（追加要件・2026-10-24）
 
 #### 背景
@@ -753,6 +774,14 @@ set availableBitrate(v: number) {
   - `src` で `size` / `latestSentSeq` を読む箇所はない。掃除で残った範囲外のエントリが推定に影響することはない。
   - 残るリスク: 時計は壁時計（`Date.now`）の最大値なので、壁時計が大きく進んでから戻ると、実時刻が追いつくまで照合されない。「未対応・未確認」に記録した。
 - Chrome との E2E（`cd e2e && npm run test:sim`）は今回は実行していない。
+
+### 検証記録（2026-11-03、レビュー指摘「transport 切替」「最大長 feedback」への対応）
+
+- 作業開始時のリビジョンは `345e235d5`（未コミット変更なし）。回帰テスト 3 件が修正前に失敗することを確認してから修正した。
+- `cd packages/webrtc && npm run type`: 成功。`npx vitest run tests`: 73 ファイル、1,581 件成功・5 件 skip。
+- `npm run pbt:deep -- --suite twcc,bwe,sender,receiver --seeds 300 --jobs 8`: 4,200 件すべて成功。
+- `cd packages/webrtc && npm run test:sim`: 2 件成功。
+- examples smoke・WPT・Chrome との E2E は今回は実行していない（レビュー側の記録では examples smoke の失敗はポート 8878 の占有で、develop でも同じだった）。
 
 ### ライセンス
 
