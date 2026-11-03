@@ -20,6 +20,7 @@ import {
 import { RtpRouter } from "../../src/media/router";
 import { RTCRtpReceiver } from "../../src/media/rtpReceiver";
 import { RTCRtpSender } from "../../src/media/rtpSender";
+import type { RTCDtlsTransport } from "../../src/transport/dtls";
 import {
   createCompoundFeedbackBytes,
   createDtlsTransport,
@@ -154,6 +155,43 @@ describe("media/router", () => {
     // Assert
     expect(seenA).toHaveLength(1);
     expect(seenB).toHaveLength(0);
+  });
+
+  test("最後の sender が別 transport に移ったあと、旧 transport に届いた TWCC はその sender に渡さない", () => {
+    // Arrange: transport A の唯一の sender を transport B に移す
+    const dtlsA = createDtlsTransport();
+    const dtlsB = createDtlsTransport();
+    const sender = new RTCRtpSender("video");
+    sender.setDtlsTransport(dtlsA);
+    const router = new RtpRouter();
+    router.registerRtpSender(sender);
+    sender.setDtlsTransport(dtlsB);
+    const seen: RTCDtlsTransport[] = [];
+    let via: RTCDtlsTransport = dtlsA;
+    sender.senderBWE.receiveTWCC = (() => {
+      seen.push(via);
+    }) as typeof sender.senderBWE.receiveTWCC;
+    const twcc = () =>
+      new RtcpTransportLayerFeedback({
+        feedback: new TransportWideCC({
+          senderSsrc: 1,
+          mediaSourceSsrc: sender.ssrc,
+          baseSequenceNumber: 1,
+          packetStatusCount: 0,
+          referenceTime: 0,
+          fbPktCount: 0,
+          recvDeltas: [],
+          packetChunks: [],
+        }),
+      });
+
+    // Act: 旧 transport A 経由で遅れた TWCC、続いて B 経由の TWCC が届く
+    router.routeRtcp(twcc(), dtlsA);
+    via = dtlsB;
+    router.routeRtcp(twcc(), dtlsB);
+
+    // Assert: SSRC で別 transport の sender に fallback せず、B 経由の TWCC だけが届く
+    expect(seen).toEqual([dtlsB]);
   });
 
   test("NACK は mediaSourceSsrc の sender だけに届く", () => {

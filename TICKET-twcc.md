@@ -405,6 +405,23 @@ RTP パケット生成・DTLS 送信・token-bucket 待ちは sender に残す�
   - `peerConfigBandwidthEstimator.test.ts`「factory で指定した min/max は、balanced の初回交渉で video sender が BUNDLE に統合されても保たれる」（修正前は probe 目標 300 kbps で失敗）。
 - [x] L: `npm run doc` で `BandwidthEstimator` / `GccBandwidthEstimator` の生成ドキュメントを更新し、changelog に追記した。
 
+#### 旧 transport の TWCC を移動後の sender に渡さない（レビュー指摘・2026-11-03）
+
+##### 指摘と原因
+
+| 指摘 | 再現 | 原因 |
+| --- | --- | --- |
+| 旧 transport の TWCC が新 transport の送信履歴に照合される | sender を A から B に移し、B で TSN 1 を送ったあと、A の遅延 TWCC を A 経由で配送すると、B の送信履歴が受信済みとして削除され、その後の正しい B の TWCC は照合 0 件になる（legacy / GCC とも） | `RtpRouter.twccFeedbackRecipients()` は受信元 transport 上の sender が 0 件のとき、`media_ssrc` の SSRC で sender を引く fallback に進み、別 transport に移った sender を選んでいた |
+
+##### 要件
+
+- **M.** 受信元 transport が分かっているときは、その transport に今いる sender だけを TWCC の配送先にする（0 件なら誰にも渡さない）。TSN は transport ごとの番号空間なので、SSRC による別 transport への fallback はしない。受信元 transport が分からない呼び出し（直接 `routeRtcp(packet)`）だけ、従来どおり SSRC から transport を引く。
+
+##### 完了条件（この追加分）
+
+- [x] M: `twccFeedbackRecipients()` は `incomingTransport` があれば `sendersOnTransport(incomingTransport)` だけを返す。
+- [x] M: `router.test.ts` に「最後の sender が別 transport に移ったあと、旧 transport に届いた TWCC はその sender に渡さない」を追加した（修正前は A 経由の TWCC も sender に届いて失敗）。
+
 ### 2.12 GCC テストの方針転換：libwebrtc との 1:1 一致から「GCC として正しく機能すること」へ（追加要件・2026-10-24）
 
 #### 背景
@@ -843,6 +860,14 @@ set availableBitrate(v: number) {
 - 作業開始時のリビジョンは `191d62d2b`（未コミット変更なし）。sender 経路と初回 BUNDLE の回帰テストが修正前の `rtpSender.ts` で失敗すること（probe 目標 300 kbps）を確認した。
 - `cd packages/webrtc && npm run type`: 成功。ルートの `npm run type`: 成功。
 - `cd packages/webrtc && npx vitest run tests`: 73 ファイル、1,585 件成功・5 件 skip。
+- `npm run pbt:deep -- --suite twcc,bwe,sender,receiver --seeds 300 --jobs 8`: 4,200 件すべて成功。
+- `cd packages/webrtc && npm run test:sim`: 2 件成功。
+- examples smoke・WPT・Chrome との E2E は今回は実行していない。
+
+### 検証記録（2026-11-03、レビュー指摘「旧 transport の TWCC が新 transport の送信履歴に照合される」への対応）
+
+- 作業開始時のリビジョンは `c0d3df1cc`（未コミット変更なし）。回帰テストが修正前に失敗することを確認した。
+- `cd packages/webrtc && npm run type`: 成功。`npx vitest run tests`: 73 ファイル、1,586 件成功・5 件 skip。
 - `npm run pbt:deep -- --suite twcc,bwe,sender,receiver --seeds 300 --jobs 8`: 4,200 件すべて成功。
 - `cd packages/webrtc && npm run test:sim`: 2 件成功。
 - examples smoke・WPT・Chrome との E2E は今回は実行していない。

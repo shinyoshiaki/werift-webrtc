@@ -501,15 +501,22 @@ export class RtpRouter {
    * TWCC `media_ssrc` is the latest RTP SSRC, not the owner of the TSN range.
    * Fan-out the whole feedback to every sender on the same DTLS transport;
    * each estimator ignores sequences it did not send.
+   *
+   * When the incoming transport is known, only senders currently on it are
+   * recipients: TSNs belong to that transport's sequence space, so a late
+   * feedback for a sender that has moved elsewhere must not reach it (no
+   * SSRC fallback to another transport).
    */
   private twccFeedbackRecipients(
     rtpfb: RtcpTransportLayerFeedback,
     incomingTransport?: RTCDtlsTransport,
   ): (RTCRtpReceiver | RTCRtpSender)[] {
+    if (incomingTransport) {
+      return this.sendersOnTransport(incomingTransport);
+    }
     const seed = this.ssrcTable[rtpfb.feedback.mediaSourceSsrc];
     const transport =
-      incomingTransport ??
-      (seed && "dtlsTransport" in seed ? seed.dtlsTransport : undefined);
+      seed && "dtlsTransport" in seed ? seed.dtlsTransport : undefined;
     const senders = this.sendersOnTransport(transport);
     if (senders.length > 0) {
       return senders;
