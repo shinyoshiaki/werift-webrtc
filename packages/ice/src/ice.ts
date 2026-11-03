@@ -176,7 +176,7 @@ export class Connection implements IceConnection {
       this._iceControlling = false;
     }
     this.applyStunTurnServersFromOptions();
-    this.restart();
+    this.restartSync();
     log("new Connection", this.options);
   }
 
@@ -234,23 +234,36 @@ export class Connection implements IceConnection {
 
   /** New local ufrag / password; `localPasswordPrefix` replaces the head. */
   private generateLocalCredentials() {
-    this.localUsername = randomString(4);
-    this.localPassword = randomString(22);
+    const username = randomString(4);
+    let password = randomString(22);
     if (this.options.localPasswordPrefix) {
-      this.localPassword =
+      password =
         this.options.localPasswordPrefix +
-        this.localPassword.slice(this.options.localPasswordPrefix.length);
+        password.slice(this.options.localPasswordPrefix.length);
     }
+    return { username, password };
   }
 
   async restart() {
+    this.restartSync();
+  }
+
+  /**
+   * Synchronous body of restart(). The constructor calls it directly so a
+   * random-source failure throws from `new Connection()` instead of becoming
+   * an unhandled rejection. Credentials are generated before any state
+   * changes, so a failure leaves the connection untouched.
+   */
+  private restartSync() {
+    const credentials = this.generateLocalCredentials();
     this.generation++;
     this.remoteGeneration++;
 
     const previous = this.restarted
       ? { [this.localUsername]: this.localPassword }
       : {};
-    this.generateLocalCredentials();
+    this.localUsername = credentials.username;
+    this.localPassword = credentials.password;
     // Only the replaced generation's credentials stay beside the new ones
     // (a check the remote peer sent before it applied the restart is still
     // answered); older generations and staged credentials are dropped, so

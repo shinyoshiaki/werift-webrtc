@@ -1684,6 +1684,20 @@ export function createFailingRandomSource(error: Error): RandomSource {
   };
 }
 
+/** Arrange: a source that serves the first `succeedFor` draws, then fails. */
+export function createFailingAfterRandomSource(
+  succeedFor: number,
+  error: Error,
+): RandomSource {
+  let calls = 0;
+  return {
+    bytes: (size: number) => {
+      if (calls++ >= succeedFor) throw error;
+      return Buffer.alloc(size, 1);
+    },
+  };
+}
+
 /**
  * Arrange: a `PooledRandomSource` whose asynchronous refills are held until
  * the test settles them (delay / failure injection). Settled refills fill

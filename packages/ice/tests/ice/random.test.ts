@@ -5,6 +5,7 @@ import { classes, methods } from "../../src/stun/const";
 import { Message } from "../../src/stun/message";
 import {
   createControlledPool,
+  createFailingAfterRandomSource,
   createFailingRandomSource,
   createRecordingRandomSource,
   useRandomSource,
@@ -62,6 +63,55 @@ describe("ICE random source", () => {
 
     // Act / Assert: 乱数取得の失敗を握りつぶさず、生成時の例外として伝播する。
     expect(() => new Connection(true)).toThrow(error);
+  });
+
+  test.each([
+    ["ufrag", 1],
+    ["password", 2],
+  ])(
+    "a failure drawing the %s after the tie-breaker throws synchronously",
+    async (_name, succeedFor) => {
+      // Arrange: tie-breaker 取得後、指定の回数目で失敗させる。
+      const error = new Error("entropy unavailable");
+      useRandomSource(createFailingAfterRandomSource(succeedFor, error));
+      const unhandled = vi.fn();
+      process.on("unhandledRejection", unhandled);
+
+      try {
+        // Act: Connection を生成する。
+        const create = () => new Connection(true);
+
+        // Assert: 例外は同期的に呼び出し元へ伝わり、未処理の Promise 拒否を残さない。
+        expect(create).toThrow(error);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        expect(unhandled).not.toHaveBeenCalled();
+      } finally {
+        process.off("unhandledRejection", unhandled);
+      }
+    },
+  );
+
+  test("a failed restart() rejects and leaves the credentials untouched", async () => {
+    // Arrange
+    const connection = new Connection(true);
+    const before = {
+      username: connection.localUsername,
+      password: connection.localPassword,
+      generation: connection.generation,
+      history: { ...connection.userHistory },
+    };
+    const error = new Error("entropy unavailable");
+    useRandomSource(createFailingAfterRandomSource(1, error));
+
+    // Act: 2 つ目の資格情報の取得で失敗する restart を実行する。
+    const restart = connection.restart();
+
+    // Assert: 失敗は拒否として伝わり、生成途中の値や generation は公開されない。
+    await expect(restart).rejects.toThrow(error);
+    expect(connection.localUsername).toBe(before.username);
+    expect(connection.localPassword).toBe(before.password);
+    expect(connection.generation).toBe(before.generation);
+    expect(connection.userHistory).toEqual(before.history);
   });
 
   test("an empty pool falls back to a synchronous draw while the refill is delayed", () => {
