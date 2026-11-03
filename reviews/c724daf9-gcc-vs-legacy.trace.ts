@@ -1,7 +1,7 @@
 /**
- * Reproduce the worked examples embedded in gcc-vs-legacy.html.
+ * Reproduce the worked examples embedded in c724daf9-gcc-vs-legacy.html.
  * Run from the repository root:
- * node --experimental-transform-types --import ./tools/node-ts/register.mjs reviews/gcc-vs-legacy.trace.ts
+ * node --experimental-transform-types --import ./tools/node-ts/register.mjs reviews/c724daf9-gcc-vs-legacy.trace.ts
  * Use --write to refresh only the embedded JSON; otherwise check it.
  * This is an estimator-input illustration, not a network/encoder benchmark.
  */
@@ -150,7 +150,7 @@ assert.equal(data.scenarios.steady.usage, "normal");
 assert.equal(data.scenarios.fixed.usage, "normal");
 assert.equal(data.scenarios.steady.gccBps, data.scenarios.fixed.gccBps);
 
-const htmlPath = resolve("reviews/gcc-vs-legacy.html");
+const htmlPath = resolve("reviews/c724daf9-gcc-vs-legacy.html");
 const html = readFileSync(htmlPath, "utf8");
 const pattern =
   /(<script id="estimator-data" type="application\/json">\n)([\s\S]*?)(\n {2}<\/script>)/;

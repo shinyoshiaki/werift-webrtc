@@ -62,7 +62,10 @@ ide:
 - 3 つの境界が影響範囲です。transport 切替時の状態初期化と世代 bump、TWCC の配送先、`ReceiverTWCC` の窓分割です。外部 estimator が `resetNetworkRoute` を持たない場合は、`reset()` でアプリ制約が失われます。
 - factory は sender ごとに呼ばれます。同じインスタンスを複数 sender で共有できません。
 - 差分が大きい（`develop` 比で 296 ファイル、うち `third_party/libwebrtc-ref` は参照用の取り込み）ので、`packages/webrtc/src/media` を中心に読むことを勧めます。
-- `reviews/` 配下の既存文書（[reviews/twcc-gcc-implementation.md](review-file:reviews/twcc-gcc-implementation.md)、[reviews/c724daf9-twcc-tests.md](review-file:reviews/c724daf9-twcc-tests.md)）に、GCC の仕組みとテスト構成の解説があります。
+- このチケットの関連文書は次の 3 つです。
+  - [reviews/c724daf9-twcc-gcc-mechanism.md](review-file:reviews/c724daf9-twcc-gcc-mechanism.md): TWCC と legacy / GCC の仕組みを、実装の呼び出し順とファイルの行で追う解説。
+  - [reviews/c724daf9-gcc-vs-legacy.html](review-file:reviews/c724daf9-gcc-vs-legacy.html): 同じ TWCC から legacy と GCC が別の値を出す様子の図解。数値は [reviews/c724daf9-gcc-vs-legacy.trace.ts](review-file:reviews/c724daf9-gcc-vs-legacy.trace.ts) で現在の実装と照合できます。
+  - [reviews/c724daf9-twcc-tests.md](review-file:reviews/c724daf9-twcc-tests.md): テストの層と各テストの役割。
 
 ## 5. 検証結果
 
