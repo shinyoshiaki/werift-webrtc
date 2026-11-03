@@ -46,12 +46,12 @@ Instructions for coding agents working in `packages/webrtc`.
 | WPT coverage | `npm run wpt:coverage` |
 
 Memleak details, env vars, and report interpretation: `tests/memleak/README.md`.
-Bottleneck simulations live in `simulations/` (`npm run test:sim`); the Chrome peer simulations live in `e2e/simulations/` (`cd e2e && npm run test:sim`). Both are excluded from CI.
+Bottleneck simulations live in `simulations/` (`npm run test:sim`); the Chrome peer simulations live in `e2e/simulations/` (`cd e2e && npm run test:sim` shapes werift's ICE send; `cd e2e && npm run test:sim:netns` shapes Chrome's receive path with `tc` in a privileged Docker container). All are excluded from CI.
 
 ## Validation
 
 * Logic changes in `src`: `npm run type` and relevant `npm test` paths.
-* GCC / TWCC / bottleneck simulation changes: `npm run test:sim`, plus `cd e2e && npm run test:sim` when the Chrome path may be affected.
+* GCC / TWCC / bottleneck simulation changes: `npm run test:sim`, plus `cd e2e && npm run test:sim` when the Chrome path may be affected, and `cd e2e && npm run test:sim:netns` (needs Docker) when the estimator's response to a real Chrome receiver matters.
 * TWCC feedback / BWE / sender send-path / receiver padding or `ReceiverTWCC` changes: the relevant `npm test` paths, plus `npm run pbt:deep -- --suite twcc,bwe,sender,receiver` before review; replay a failed seed with the environment variables printed in its test title.
 * Negotiation changes: the full `npm test` (includes the negotiation property tests with their fixed scenes and regression seeds), plus the deeper property searches above before review.
 * Memleak harness changes: short smoke with reduced env (see `tests/memleak/README.md`), then optional full `npm run memleak`.
