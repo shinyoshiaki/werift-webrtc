@@ -217,6 +217,22 @@ Clear internal history / estimates.
 
 ***
 
+### resetNetworkRoute()?
+
+> `optional` **resetNetworkRoute**(): `void`
+
+The sender moved to another network route (DTLS transport): clear the
+path-dependent state (send history, TSN origin, estimates, probing) but
+keep application configuration such as bitrate constraints
+(pin `OnNetworkRouteChange`). [RTCRtpSender](../classes/RTCRtpSender.md) falls back to
+[reset](#reset) when an estimator does not implement this.
+
+#### Returns
+
+`void`
+
+***
+
 ### rtpPacketSent()
 
 > **rtpPacketSent**(`info`): `void`

@@ -29,9 +29,9 @@ import { createRtpPacket } from "../fixture";
 import { bitrateAt, type GccLink, runGccSimulation } from "./gccSimulation";
 import {
   attachSender,
+  type CapturedRtp,
   captureMatchedFeedback,
   connectedDtlsTransport,
-  type CapturedRtp,
   flushMicrotasks,
   holdFirstWrite,
   prepareConnectedSender,
@@ -459,6 +459,40 @@ describe("media/sender bandwidth estimator", () => {
       expect(bitrateAt(result, 2_000)).toBeLessThan(capacityBps * 1.2);
       expect(result.phaseEndBps[0]).toBeLessThan(capacityBps * 1.2);
       expect(result.phaseEndBps[0]).toBeGreaterThan(capacityBps * 0.4);
+    });
+
+    test("経路を初期化（resetNetworkRoute）しても、アプリ指定の max を超えて推定しない", () => {
+      // Arrange: max 150 kbps を指定した直後に経路が初期化される GCC。容量 2 Mbps、アプリは推定に追従する
+      const createEstimator = (clock: () => number, startBps: number) => {
+        const gcc = new GccBandwidthEstimator(startBps, { clock });
+        const setBitrates = gcc.setBitrates.bind(gcc);
+        gcc.setBitrates = (min, start, max) => {
+          setBitrates(min, start, max);
+          gcc.resetNetworkRoute();
+        };
+        return gcc;
+      };
+
+      // Act
+      const result = runGccSimulation({
+        startBps: 100_000,
+        minBps: 50_000,
+        maxBps: 150_000,
+        createEstimator,
+        phases: [
+          {
+            durationMs: 10_000,
+            link: link(2_000_000),
+            source: "follow",
+          },
+        ],
+      });
+
+      // Assert: 推定は上がるが、通知はすべて max 150 kbps 以下
+      expect(result.events.length).toBeGreaterThan(0);
+      expect(Math.max(...result.events.map((e) => e.bps))).toBeLessThanOrEqual(
+        150_000,
+      );
     });
 
     test("容量に余裕があれば probe で素早く上がり、容量を大きく超えない", () => {
@@ -992,6 +1026,27 @@ describe("media/sender bandwidth estimator", () => {
         );
       },
     );
+
+    test("別の DTLS transport に移っても、アプリ指定の min/max は保たれ probe は max を超えない", async () => {
+      // Arrange: 旧 transport の GCC sender に min 50k / start 100k / max 150k を指定する
+      const gcc = new GccBandwidthEstimator(300_000);
+      const { dtls: oldDtls } = connectedDtlsTransport(50_000);
+      const sender = attachSender(oldDtls, gcc);
+      gcc.setBitrates(50_000, 100_000, 150_000);
+      const probeTargets: number[] = [];
+      gcc.onProbeClusterConfig.subscribe((cfg) =>
+        probeTargets.push(cfg.targetBps),
+      );
+
+      // Act: 新 transport に移り、probe を開始させる
+      sender.setDtlsTransport(connectedDtlsTransport(0).dtls);
+      startGccProbing(gcc);
+
+      // Assert: 経路の初期化後も probe は要求され、その目標は max 150 kbps 以下
+      expect(probeTargets.length).toBeGreaterThan(0);
+      expect(Math.max(...probeTargets)).toBeLessThanOrEqual(150_000);
+      sender.stop();
+    });
 
     test("使用済み estimator の再注入で reset され履歴が残らない", async () => {
       // Arrange: 一度 TWCC を処理して availableBitrate を立てる

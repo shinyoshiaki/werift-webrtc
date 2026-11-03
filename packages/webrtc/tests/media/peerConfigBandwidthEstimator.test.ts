@@ -89,6 +89,44 @@ describe("PeerConfig.bandwidthEstimator", () => {
     expect(createBandwidthEstimator(() => custom)).toBe(custom);
   });
 
+  test("factory で指定した min/max は、balanced の初回交渉で video sender が BUNDLE に統合されても保たれる", async () => {
+    // Arrange: factory が min 50k / start 100k / max 150k を指定した GCC を返す、balanced の offerer
+    const estimators: GccBandwidthEstimator[] = [];
+    const offerer = pc({
+      bundlePolicy: "balanced",
+      bandwidthEstimator: () => {
+        const gcc = new GccBandwidthEstimator(300_000);
+        gcc.setBitrates(50_000, 100_000, 150_000);
+        estimators.push(gcc);
+        return gcc;
+      },
+    });
+    const answerer = pc();
+    const audio = offerer.addTransceiver("audio", { direction: "sendonly" });
+    const video = offerer.addTransceiver("video", { direction: "sendonly" });
+
+    // Act: 初回 offer では別 transport、BUNDLE を受理した answer で audio の transport に統合される
+    await offerer.setLocalDescription(await offerer.createOffer());
+    const offeredVideoTransport = video.sender.transport;
+    await answerer.setRemoteDescription(offerer.localDescription!);
+    await answerer.setLocalDescription(await answerer.createAnswer());
+    await offerer.setRemoteDescription(answerer.localDescription!);
+    const gcc = video.sender.senderBWE as GccBandwidthEstimator;
+    const probeTargets: number[] = [];
+    gcc.onProbeClusterConfig.subscribe((cfg) =>
+      probeTargets.push(cfg.targetBps),
+    );
+    gcc.setNetworkAvailable(true);
+    gcc.process(Date.now());
+
+    // Assert: video sender は transport が切り替わり、その後の probe 目標も max 150 kbps 以下
+    expect(estimators).toContain(gcc);
+    expect(video.sender.transport).not.toBe(offeredVideoTransport);
+    expect(video.sender.transport).toBe(audio.sender.transport);
+    expect(probeTargets.length).toBeGreaterThan(0);
+    expect(Math.max(...probeTargets)).toBeLessThanOrEqual(150_000);
+  });
+
   test("RTCRtpSender コンストラクタでも estimator を渡せる", () => {
     // Arrange
     const gcc = new GccBandwidthEstimator();

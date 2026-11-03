@@ -560,14 +560,17 @@ export class RTCRtpSender {
   /** Drop pacing leftover and unacked bytes that belonged to the previous BWE generation. */
   /**
    * A new DTLS transport has its own transport-wide sequence space and path
-   * (pin `OnNetworkRouteChanged` resets the controller). Start the estimator
-   * clean: drop the send history / TSN origin of the previous transport and
-   * bump {@link bweGeneration} so in-flight sends on it do not report their
-   * old TSN to the estimator.
+   * (pin `OnNetworkRouteChanged` resets the controller). Drop the send
+   * history / TSN origin / estimate of the previous transport while keeping
+   * app-configured constraints ({@link BandwidthEstimator.resetNetworkRoute},
+   * else `reset()`), and bump {@link bweGeneration} so in-flight sends on it
+   * do not report their old TSN to the estimator.
    */
   private resetBweForNewTransport(): void {
     this.bumpBweGeneration();
-    this._senderBWE.reset?.();
+    const estimator = this._senderBWE;
+    if (estimator.resetNetworkRoute) estimator.resetNetworkRoute();
+    else estimator.reset?.();
     this.resetBweSendTransientState();
     this.syncBweProcessTimer();
   }

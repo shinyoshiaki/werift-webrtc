@@ -382,6 +382,29 @@ RTP パケット生成・DTLS 送信・token-bucket 待ちは sender に残す�
 - [x] J: `tests/pbt/receiver` の生成器にまれな長い欠落（飛び 32000〜32768、半数はちょうど 32768）を加え、性質を「受信 TSN はちょうど 1 回受信として報告され、欠番は未受信として報告される。ただし 1 つの報告窓（32767 件）以上続く欠落は報告しなくてよい」にした。修正前の実装では既定 24 seed のうち 15 seed で失敗した。
 - [x] K: `vitest.sim.config.mts` を `playwright({ launchOptions })` に直した。`cd e2e && npm run test:sim` が完走した（1 ファイル・1 件成功）。
 
+#### transport 切替でアプリ指定の帯域制約を保つ（レビュー指摘・2026-11-03）
+
+##### 指摘と原因
+
+| 指摘 | 再現 | 原因 |
+| --- | --- | --- |
+| transport 切替でアプリ指定の帯域制約が消える | `setBitrates(50_000, 100_000, 150_000)` の GCC で、切替なしは最大 150 kbps、切替後は約 636 kbps を通知。factory で指定しても、`bundlePolicy: "balanced"` の初回交渉で video sender が BUNDLE に統合されると 300 kbps の probe が要求される | 要件 H の `resetBweForNewTransport()` が `estimator.reset()` を呼び、GCC の `reset()` がアプリ指定の min / max（`minConfiguredBps` / `appMaxBps`）も初期化していた |
+
+##### 要件
+
+- **L.** transport 変更時は、経路に依存する状態（送信履歴、TSN 基準、推定、probe）だけを初期化し、アプリ指定の min / start / max は保って再適用する（libwebrtc の `OnNetworkRouteChange` 相当）。
+- **L.** 共通契約に任意の `resetNetworkRoute()` を追加する。`RTCRtpSender` はこれがあれば呼び、なければ `reset()` を呼ぶ（legacy / disabled はアプリ指定の制約を持たないので `reset()` で足りる）。
+
+##### 完了条件（この追加分）
+
+- [x] L: `BandwidthEstimator.resetNetworkRoute?()` を追加し、`GccBandwidthEstimator.resetNetworkRoute()` は `reset()` のあと min / max を戻して AIMD・LossBased・目標値の上下限に再適用する。start は `reset()` が保つ `startBitrateBps` を使い、probe は次の `process()` で保った制約から設定し直す。
+- [x] L: `RTCRtpSender.resetBweForNewTransport()` は `resetNetworkRoute()` を優先し、なければ `reset()` を呼ぶ。
+- [x] L: 回帰テストを 3 件追加した。
+  - `bandwidthEstimator.test.ts`「別の DTLS transport に移っても、アプリ指定の min/max は保たれ probe は max を超えない」（修正前は probe 目標 300 kbps で失敗）。
+  - `bandwidthEstimator.test.ts`「経路を初期化（resetNetworkRoute）しても、アプリ指定の max を超えて推定しない」（容量 2 Mbps の制御応答。`resetNetworkRoute` が制約を戻さない故障では約 2.1 Mbps を通知して失敗）。
+  - `peerConfigBandwidthEstimator.test.ts`「factory で指定した min/max は、balanced の初回交渉で video sender が BUNDLE に統合されても保たれる」（修正前は probe 目標 300 kbps で失敗）。
+- [x] L: `npm run doc` で `BandwidthEstimator` / `GccBandwidthEstimator` の生成ドキュメントを更新し、changelog に追記した。
+
 ### 2.12 GCC テストの方針転換：libwebrtc との 1:1 一致から「GCC として正しく機能すること」へ（追加要件・2026-10-24）
 
 #### 背景
@@ -814,6 +837,15 @@ set availableBitrate(v: number) {
 - `cd packages/webrtc && npm run test:sim`: 2 件成功。
 - `cd e2e && npm run test:sim`（Chrome、headless）: 1 ファイル・1 件成功。2026-11-02 の記録にある同コマンドの成功は、現在の Vitest 5 の設定では再現しなかった（指摘のとおり provider 未解決で開始前に失敗する）。今回の値が現状の結果である。
 - examples smoke・WPT・通常の E2E 全体は今回は実行していない。
+
+### 検証記録（2026-11-03、レビュー指摘「transport 切替でアプリ指定の帯域制約が消える」への対応）
+
+- 作業開始時のリビジョンは `191d62d2b`（未コミット変更なし）。sender 経路と初回 BUNDLE の回帰テストが修正前の `rtpSender.ts` で失敗すること（probe 目標 300 kbps）を確認した。
+- `cd packages/webrtc && npm run type`: 成功。ルートの `npm run type`: 成功。
+- `cd packages/webrtc && npx vitest run tests`: 73 ファイル、1,585 件成功・5 件 skip。
+- `npm run pbt:deep -- --suite twcc,bwe,sender,receiver --seeds 300 --jobs 8`: 4,200 件すべて成功。
+- `cd packages/webrtc && npm run test:sim`: 2 件成功。
+- examples smoke・WPT・Chrome との E2E は今回は実行していない。
 
 ### ライセンス
 

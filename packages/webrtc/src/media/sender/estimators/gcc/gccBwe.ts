@@ -935,6 +935,23 @@ export class GccBandwidthEstimator
     }
   }
 
+  /**
+   * pin `OnNetworkRouteChange`: reset everything path-dependent, keep the
+   * app constraints from {@link setBitrates} (min, start, max). Probing is
+   * reconfigured from them on the next {@link process}.
+   */
+  resetNetworkRoute(): void {
+    if (this.disposed) return;
+    const minBps = this.minConfiguredBps;
+    const appMaxBps = this.appMaxBps;
+    this.reset();
+    this.minConfiguredBps = minBps;
+    this.appMaxBps = appMaxBps;
+    this.aimd.setMinBitrate(minBps);
+    this.lossBwe.setMinMaxBitrate(minBps, this.targetMaxBps());
+    this.applyTargetLimits();
+  }
+
   reset() {
     this.disposed = false;
     this.trendline.reset();

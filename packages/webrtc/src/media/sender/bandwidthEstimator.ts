@@ -101,6 +101,15 @@ export interface BandwidthEstimator {
   reset?(): void;
 
   /**
+   * The sender moved to another network route (DTLS transport): clear the
+   * path-dependent state (send history, TSN origin, estimates, probing) but
+   * keep application configuration such as bitrate constraints
+   * (pin `OnNetworkRouteChange`). {@link RTCRtpSender} falls back to
+   * {@link reset} when an estimator does not implement this.
+   */
+  resetNetworkRoute?(): void;
+
+  /**
    * Release listeners / timers when the sender replaces the estimator.
    * {@link RTCRtpSender} rebinds its stable `onAvailableBitrate` bridge after dispose.
    */

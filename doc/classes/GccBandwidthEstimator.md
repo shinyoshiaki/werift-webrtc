@@ -462,6 +462,24 @@ Clear internal history / estimates.
 
 ***
 
+### resetNetworkRoute()
+
+> **resetNetworkRoute**(): `void`
+
+pin `OnNetworkRouteChange`: reset everything path-dependent, keep the
+app constraints from [setBitrates](#setbitrates) (min, start, max). Probing is
+reconfigured from them on the next [process](#process).
+
+#### Returns
+
+`void`
+
+#### Implementation of
+
+[`BandwidthEstimator`](../interfaces/BandwidthEstimator.md).[`resetNetworkRoute`](../interfaces/BandwidthEstimator.md#resetnetworkroute)
+
+***
+
 ### rtpPacketSent()
 
 > **rtpPacketSent**(`info`): `void`
