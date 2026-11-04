@@ -257,7 +257,7 @@ export type CandidatePairState =
 
 ## 6. 完了条件
 
-- [ ] `grep -rn "experimental-transform-types"` の結果が、`changelog.md` の過去の記述、`third_party/`、このチケット文書、別リポジトリのサブモジュール `integration/werift-mediasoup-interop`（別チケットで対応。4.6）を除いて 0 件になる（生成ドキュメントも再生成済み）。
+- [ ] `grep -rn "experimental-transform-types"` の結果が、`changelog.md` の過去の記述、`third_party/`、このチケット文書と過去のチケット文書（`TICKET-*.md`、履歴のため書き換えない）、別リポジトリのサブモジュール `integration/werift-mediasoup-interop`（別チケットで対応。4.6）を除いて 0 件になる（生成ドキュメントも再生成済み）。
 - [ ] `packages/*` / `e2e` / `examples/e2e` / `chrome-e2e` の tsconfig に `erasableSyntaxOnly: true` が入り、`npm run type` と `npm run type:all` が通る。
 - [ ] Node 26.x で次がすべて通る: `npm run test:node-ts`、`npm run test:small`、`npm run wpt:list`、`npm run wpt`、`npm run wpt:coverage`、`npm run e2e`、`npm run examples:e2e`。
 - [ ] Node 24.x（CI の既定）でも同じコマンドが通る。Node 22.18+ で少なくとも `test:node-ts` と `wpt:list` が通る。
