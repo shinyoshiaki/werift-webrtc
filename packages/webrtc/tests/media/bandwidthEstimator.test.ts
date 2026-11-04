@@ -635,7 +635,7 @@ describe("media/sender bandwidth estimator", () => {
       // Arrange: cluster 開始時の自動注入を止め、本呼び出しの padding だけを観察する
       startGccProbingWithoutSenderPadding(sender, gcc);
       const spy = vi.spyOn(gcc, "rtpPacketSent");
-      const octetsBefore = (sender as any).octetCount as number;
+      const octetsBefore = (sender as any).stats.octetCount as number;
 
       // Act
       const n = await sender.maybeInjectProbePadding();
@@ -658,7 +658,7 @@ describe("media/sender bandwidth estimator", () => {
         sentPackets.map((p) => p.size),
       );
       // Assert: media payload は 0 byte なので SR の octetCount は増えない
-      expect((sender as any).octetCount - octetsBefore).toBe(0);
+      expect((sender as any).stats.octetCount - octetsBefore).toBe(0);
     });
 
     test("media 送信で始まった probe padding は RTX SSRC に出て、media の番号を進めない", async () => {
@@ -774,7 +774,7 @@ describe("media/sender bandwidth estimator", () => {
       settleGccProbe(gcc, { pacingBps: 1_000_000 });
       const sendSpy = dtls.sendRtp as ReturnType<typeof vi.fn>;
       sendSpy.mockClear();
-      const countBefore = (sender as any).packetCount;
+      const countBefore = (sender as any).stats.packetCount;
       const cacheBefore = (sender as any).rtpCache.filter(Boolean).length;
       (sender as any).awaitPacingBudget = async () => {
         sender.stop();
@@ -785,7 +785,7 @@ describe("media/sender bandwidth estimator", () => {
       await sender.sendRtp(createRtpPacket(1, 1000, Buffer.alloc(80)));
 
       // Assert
-      expect((sender as any).packetCount).toBe(countBefore);
+      expect((sender as any).stats.packetCount).toBe(countBefore);
       expect((sender as any).rtpCache.filter(Boolean)).toHaveLength(
         cacheBefore,
       );

@@ -561,6 +561,55 @@ RTP パケット生成・DTLS 送信・token-bucket 待ちは sender に残す�
 - 判定が範囲なので、わずかな性能劣化は検出しない。範囲はこの時点の実測値（`gccSimulation.ts` での結果）を基準に決めた。
 - 実装は libwebrtc の写しのまま残るため、実装の量・複雑さは変わらない。互換のための処理を削るかは別途判断する。
 
+### 2.13 RTCRtpSender のモジュール分割（追加要件・2026-11-04）
+
+#### 背景
+
+`packages/webrtc/src/media/rtpSender.ts` は develop の 1,173 行から 2,256 行に増えていた。1 つのクラスに次が同居し、互いの状態を `this` 越しに直接読み書きしていた。
+
+- 推定器の管理（差し替え、世代、process タイマ）
+- GCC の送信 FIFO と pacer
+- probe / loss padding
+- 接続前の RTP の保留
+- ソース切替をまたぐ seq / timestamp の連続性
+- header extension の組み立てと hop-by-hop の値
+- RTCP SR / RR と stats
+
+#### 要件
+
+- 状態を持つまとまりごとにファイルを分け、`RTCRtpSender` はそれらを組み合わせる役にする（リポジトリの manager 型の構成に合わせる）。
+- 公開 API（クラス、メソッド、イベント、export、import パス）と挙動は変えない。
+- 分けた部品は `packages/webrtc/src/media/sender/` に置き、パッケージの外には export しない。
+
+#### 分割の構成
+
+| ファイル（`media/sender/`） | 行数 | 責務 |
+| --- | --- | --- |
+| `estimatorBinding.ts`（`EstimatorBinding`） | 166 | 現在の推定器、世代とその中断シグナル、イベントの橋渡し、process タイマ。差し替え・新しい transport での初期化・停止 |
+| `outgoingQueue.ts`（`OutgoingQueue`） | 159 | GCC の送信 FIFO（1 件ずつ実行）、キュー上限、古いソースの破棄 |
+| `sendPacer.ts`（`MediaPacer`、`waitForProbeSendTime`） | 108 | media の token bucket と、probe の `next_probe_time` 待ち |
+| `padding.ts`（`PaddingInjector`、`createRtxPaddingPacket`、`appendRfc3550Padding`） | 179 | probe / loss padding の送出ループ、RTX の padding パケット、RFC 3550 padding |
+| `pendingRtp.ts`（`PendingRtpQueue`、`resolvePendingRtpOptions`） | 129 | DTLS 接続前の RTP の保留（上限、送出、破棄） |
+| `rtpContinuity.ts`（`RtpContinuity`） | 82 | ソース切替をまたぐ出力 seq / timestamp の対応 |
+| `rtpWire.ts` | 180 | header extension の組み立て、TWCC / abs-send-time の書き込み、サイズの見積もり、DTLS への書き込み |
+| `senderStats.ts`（`SenderStatistics`） | 292 | 送信カウンタ、RR の RTT / ロス、SR の clock anchor と SR の組み立て、`getStats` の項目 |
+
+`rtpSender.ts` は 1,426 行になった。残したのは、交渉で決まる送信パラメータ（`prepareSend` / スナップショット / 復元）、track の付け外し、送信の手順（`sendRtp` → 振り分け → `sendRtpInternal`）、NACK による再送と NACK 用キャッシュ、キーフレーム要求（PLI / FIR）、RTCP の送信ループである。
+
+#### 設計上の判断
+
+- **送信の手順は `sendRtpInternal` の 1 か所に残した。** 世代の取得 → probe の予約 → pacing 待ち → 番号付け → TSN の割り当て → DTLS 書き込み → 推定器への報告、という順番そのものがこのクラスの不変条件なので、部品に分散させない。部品は各段の処理だけを受け持つ。
+- **部品は `RTCRtpSender` を直接参照しない。** 必要なものはコンストラクタの引数で受け取る（`EstimatorBinding` の hooks、`PaddingInjector` の `PaddingHost`、`OutgoingQueue` の `isBounded`）。依存の向きは sender → 部品の一方向で、循環しない。
+- **テストが差し替える private のフックは sender に残した。** `sendRtpInternal`、`createPaddingRtpPacket`、`awaitPacingBudget`、`buildSenderReport`、`rtpCache` の 5 つ。部品に移ったフィールドを読むテスト 4 か所（`outgoing.running`、`stats.packetCount` / `stats.octetCount`、`stats.lastSRtimestamp`、保留中 RTP の件数）は新しい場所に合わせた。
+- **公開 API は変えていない。** `appendRfc3550Padding` と `PendingRtpOptions` は `rtpSender.ts` から再 export し、import パスを保った。生成ドキュメントの差分は、`setBandwidthEstimator` の説明の番号の誤り（3 が 2 回）を直した箇所だけである。
+
+#### 完了条件（この追加分）
+
+- [x] 上の 8 ファイルに分け、`rtpSender.ts` を 2,256 行から 1,426 行にした。
+- [x] 型チェック（`packages/webrtc` とルート）が通り、テスト件数が分割前と同じ（1,586 件成功・5 件 skip）。
+- [x] 送信経路の性質テスト・シミュレーション・Chrome との 2 種類の E2E が分割前と同じく通る（検証記録 2026-11-04）。
+- [x] このチケットのレビュー文書（`reviews/c724daf9-*`）の `rtpSender.ts` へのリンクを分割後の行・ファイルに直し、レビューの手順書のパス 1 に新しいファイルを加えた。
+
 ---
 
 ## 3. 技術的な実装アプローチ（調査結果の要約）
@@ -872,6 +921,16 @@ set availableBitrate(v: number) {
 - `cd packages/webrtc && npm run test:sim`: 2 件成功。
 - examples smoke・WPT・Chrome との E2E は今回は実行していない。
 
+### 検証記録（2026-11-04、§2.13 RTCRtpSender のモジュール分割）
+
+- 作業開始時のリビジョンは `e331b08cf`（未コミット変更なし）。挙動を変えない分割なので、分割前と同じ検証を同じ結果で通すことを確認基準にした。
+- `cd packages/webrtc && npm run type`: 成功。ルートの `npm run type`: 成功。
+- `cd packages/webrtc && npx vitest run tests`: 73 ファイル、1,586 件成功・5 件 skip（分割前と同じ件数）。
+- `npm run pbt:deep -- --suite twcc,bwe,sender,receiver --seeds 300 --jobs 8`: 4,200 件すべて成功。
+- `cd packages/webrtc && npm run test:sim`: 2 件成功。`cd e2e && npm run test:sim`（Chrome、werift 側ボトルネック）: 1 件成功。`cd e2e && npm run test:sim:netns`（Chrome 受信側ボトルネック、Docker）: 3 件成功。
+- `npm run pbt:deep`（交渉の性質テスト、8 並列）: fuzz 306・scenario 2,163・model 351 件はすべて成功。leak は 653 件中 8 件失敗・15 件 flaky だった。分割前の `e331b08cf` を一時 worktree で同じ設定（`--suite leak --jobs 8`）で実行すると 10 件失敗・15 件 flaky で、失敗する seed は実行ごとに異なり（両方で失敗したのは seed 152 だけ）、seed 152 は単独で再実行すると成功した。分割による変化ではなく、並列負荷下での既存の不安定さと判断した（「未対応・未確認」に記録）。
+- `npm run doc`: 差分は `RTCRtpSender` の `setBandwidthEstimator` の説明だけ。
+
 ### ライセンス
 
 - GCC 実装（`packages/webrtc/src/media/sender/estimators/gcc/`）は libwebrtc（BSD-3-Clause + PATENTS）の移植。帰属はルート `NOTICE`、各ファイル先頭の `/*!` ヘッダー、`third_party/libwebrtc-ref/{LICENSE,PATENTS,AUTHORS}`（pin と同じコミットから取得）で示す。
@@ -881,7 +940,8 @@ set availableBitrate(v: number) {
 - ALR 専用 probe、完全な PacedSender、REMB の取り込み、RR 由来の loss 配線（`updatePacketsLost`）。
 - mediasoup interop、libwebrtc 実行結果との数値比較、E2E 全体実行時の ICE-TCP タイムアウトの原因。
 - worktree の `third_party/wpt/.git` の gitdir 破損そのもの（main checkout の module を共有すると HEAD / index が干渉するため修復していない。上記のとおり内容は pin と一致）。
-- GCC の送信キュー（`enqueueOutgoing`）と RTX padding の実トラフィック（Chrome 実機・mediasoup）での挙動は、sim と単体テスト以外では未検証。
+- `npm run pbt:deep` の leak 性質は、8 並列の実行で seed ごとに失敗・flaky が出る（2026-11-04 時点で 653 件中 8〜10 件失敗、15 件 flaky。§2.13 の分割前から同じ程度で、失敗する seed は実行ごとに異なり、単独では成功する）。原因（タイミング依存か、計測のしきい値か）は調べていない。
+- GCC の送信キュー（`OutgoingQueue`）と RTX padding の実トラフィック（Chrome 実機・mediasoup）での挙動は、sim と単体テスト以外では未検証。
 - `TwccFeedbackAdapter` の時計は `milliTime`（`Date.now`）の最大値で進むため、OS の壁時計が大きく進んでから戻ると、戻った幅の時間だけ照合されず推定が止まる。GCC の他の時刻処理も同じ時刻源を使っており、単調時計への切り替えは本チケットでは行っていない。
 - RTX を negotiate しない GCC sender は padding を送らない（`GCC_KNOWN_DIFFERENCES`）。media だけで probe cluster を埋められない場合の推定立ち上がりは libwebrtc より遅くなりうる。
 
@@ -905,7 +965,7 @@ set availableBitrate(v: number) {
 | libwebrtc 参照 | Chromium / libwebrtc の `goog_cc` / congestion_controller 周辺（実装時に該当パスを確定） |
 | 現行 BWE | `packages/webrtc/src/media/sender/senderBWE.ts` |
 | 累積統計 | `packages/webrtc/src/media/sender/cumulativeResult.ts` |
-| Sender 配線 | `packages/webrtc/src/media/rtpSender.ts` |
+| Sender 配線 | `packages/webrtc/src/media/rtpSender.ts`（部品は `packages/webrtc/src/media/sender/` の `estimatorBinding.ts`・`outgoingQueue.ts`・`sendPacer.ts`・`padding.ts`・`pendingRtp.ts`・`rtpContinuity.ts`・`rtpWire.ts`・`senderStats.ts`、§2.13） |
 | Receiver TWCC | `packages/webrtc/src/media/receiver/receiverTwcc.ts` |
 | TWCC RTCP | `packages/rtp/src/rtcp/rtpfb/twcc.ts` |
 | 利用例 | `examples/mediachannel/simulcast/abr.ts` |

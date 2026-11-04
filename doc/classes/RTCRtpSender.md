@@ -613,15 +613,15 @@ Default is the legacy [SenderBandwidthEstimator](LegacyCumulativeBandwidthEstima
 `new GccBandwidthEstimator()` to use Google Congestion Control.
 
 Behavior on swap:
-1. Bumps bweGeneration so in-flight sends discard `rtpPacketSent`
-   delivery and in-flight [maybeInjectProbePadding](#maybeinjectprobepadding) loops exit
-   (cancelled — no packets to disposed / previous estimator).
-2. Clears pendingUntrackedBytes so the next estimator's first
-   `SentInfo.priorUnackedBytes` is 0.
-3. Stops delivering `rtpPacketSent` / `receiveTWCC` to the previous instance.
+1. Bumps the estimator generation so in-flight sends discard
+   `rtpPacketSent` delivery and in-flight [maybeInjectProbePadding](#maybeinjectprobepadding)
+   loops exit (cancelled — no packets to disposed / previous estimator).
+2. Stops delivering `rtpPacketSent` / `receiveTWCC` to the previous instance.
 3. Unbinds the stable [onAvailableBitrate](#onavailablebitrate) bridge, then `dispose()`/`reset()` the old instance.
 4. **Always** `reset()` the injected `impl` so a previously used instance
    starts clean (no implicit state merge), then rebinds the bridge.
+5. Clears pendingUntrackedBytes and pacing credit so the next
+   estimator's first `SentInfo.priorUnackedBytes` is 0.
 
 Subscriptions to [onAvailableBitrate](#onavailablebitrate) on this sender are preserved.
 Re-subscribe algorithm-specific events on the new concrete instance.

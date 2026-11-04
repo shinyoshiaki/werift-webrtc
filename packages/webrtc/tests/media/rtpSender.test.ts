@@ -961,7 +961,7 @@ describe("media/rtpSender", () => {
 });
 
 function pendingRtpQueue(sender: RTCRtpSender) {
-  return (sender as unknown as { pendingRtp: unknown[] }).pendingRtp;
+  return (sender as unknown as { pendingRtp: { length: number } }).pendingRtp;
 }
 
 function senderStatsState(sender: RTCRtpSender) {
@@ -1840,7 +1840,7 @@ describe("media/rtpSender RTP continuity", () => {
 
     // Assert: develop と同じく保留を待たずに全件 DTLS へ渡す（破棄も送信キューもない）
     expect(sendRtp).toHaveBeenCalledTimes(100);
-    expect((sender as any).outgoingRunning).toBe(false);
+    expect((sender as any).outgoing.running).toBe(false);
     release();
     await sends[0];
     sender.stop();
@@ -2401,7 +2401,7 @@ describe("media/rtpSender RTCP Sender Report clock mapping", () => {
     expect(compactNtp(second.senderInfo.ntpTimestamp)).not.toBe(
       compactNtp(first.senderInfo.ntpTimestamp),
     );
-    expect((sender as any).lastSRtimestamp).toBe(
+    expect((sender as any).stats.lastSRtimestamp).toBe(
       compactNtp(second.senderInfo.ntpTimestamp),
     );
   });
