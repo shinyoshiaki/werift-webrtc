@@ -110,7 +110,11 @@ export class Connection implements IceConnection {
    * once those resolutions settle.
    */
   private remoteCandidatesEndRequested = false;
-  /** mDNS resolutions of remote candidates that arrived before end-of-candidates. */
+  /**
+   * mDNS resolutions of remote candidates that arrived before
+   * end-of-candidates. close() (and restart()) closes `lookup`, which rejects
+   * them at once.
+   */
   private readonly remoteResolutions = new Set<Promise<string>>();
   localCandidatesEnd = false;
   /** connect() began this generation's checks (their outcome sets the state). */
@@ -133,6 +137,9 @@ export class Connection implements IceConnection {
   private restarted = false;
   private readonly tieBreaker: bigint = randomBytes(8).readBigUInt64BE(0);
   state: IceState = "new";
+  /** close() ran; unlike `state`, a restart does not reset it. */
+  private closed = false;
+  /** Resolves remote mDNS candidates; closed (pending lookups cancelled) by restart() and close(). */
   lookup?: MdnsLookup;
 
   private _remoteCandidates: Candidate[] = [];
@@ -588,10 +595,12 @@ export class Connection implements IceConnection {
 
   async addProvisionalRemoteCandidate(remoteCandidate: Candidate | undefined) {
     const generation = this.provisional;
-    if (!generation) return;
+    if (!generation || this.closed) return;
     const revision = generation.revision;
     const current = () =>
-      this.provisional === generation && generation.revision === revision;
+      !this.closed &&
+      this.provisional === generation &&
+      generation.revision === revision;
     if (!remoteCandidate) {
       if (
         generation.remoteCandidatesEnd ||
@@ -2419,11 +2428,17 @@ export class Connection implements IceConnection {
     // Close the connection.
     // """
 
+    this.closed = true;
     this.setState("closed");
     this.cancelIncomingPairWait();
     this.closing.abort();
     this.cancelChecks();
     this.endProvisional();
+    // Before the first await: a pending mDNS lookup is cancelled here, so no
+    // response arriving while the protocols close adds a remote candidate.
+    this.lookup?.close?.();
+    this.lookup = undefined;
+    this.remoteResolutions.clear();
 
     // # stop consent freshness tests
     this.stopConsentLifecycle();
@@ -2449,8 +2464,6 @@ export class Connection implements IceConnection {
     this.protocols = [];
     this.localCandidates = [];
 
-    this.lookup?.close?.();
-    this.lookup = undefined;
     this.spedBindingCache.clear();
     this.spedRuntime?.abort();
     this.spedRuntime = undefined;
@@ -2481,6 +2494,9 @@ export class Connection implements IceConnection {
     // :param remote_candidate: A :class:`Candidate` instance or `None`.
     // """
 
+    // A closed agent takes no candidate (and opens no mDNS socket).
+    if (this.closed) return;
+
     if (!remoteCandidate) {
       if (this.remoteCandidatesEnd || this.remoteCandidatesEndRequested) {
         return;
@@ -2490,7 +2506,7 @@ export class Connection implements IceConnection {
       if (this.remoteResolutions.size > 0) {
         const generation = this.remoteGeneration;
         await Promise.allSettled([...this.remoteResolutions]);
-        if (this.remoteGeneration !== generation) return;
+        if (this.remoteGeneration !== generation || this.closed) return;
       }
       this.remoteCandidatesEnd = true;
       const settled = this.settleSpedUnconfirmed();
@@ -2519,8 +2535,12 @@ export class Connection implements IceConnection {
       } catch (error) {
         return;
       }
-      // An ICE restart or completion while resolving ends this candidate's generation.
-      if (this.remoteGeneration !== generation || this.remoteCandidatesEnd)
+      // An ICE restart, completion or close while resolving ends this candidate's generation.
+      if (
+        this.remoteGeneration !== generation ||
+        this.remoteCandidatesEnd ||
+        this.closed
+      )
         return;
     }
 

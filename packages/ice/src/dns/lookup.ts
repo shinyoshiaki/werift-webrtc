@@ -11,24 +11,43 @@ interface DnsLookupResult extends DnsLookupRequest {
   family?: number;
 }
 
+/**
+ * Resolves remote `.local` candidates. Every pending lookup is owned by the
+ * instance: `close()` cancels them (timer, listener and promise) at once.
+ */
 export class MdnsLookup {
   cache = new Map<string, Promise<string>>();
-  mdnsInstance = mdns();
+  mdnsInstance: mdns.MulticastDNS;
+  private closed = false;
+  /** Cancels each pending lookup (rejects it and releases its timer and listener). */
+  private readonly pending = new Set<() => void>();
 
-  constructor() {
+  /** @param createMdns creates the mDNS socket; tests inject a fake one. */
+  constructor(createMdns: () => mdns.MulticastDNS = () => mdns()) {
+    this.mdnsInstance = createMdns();
     this.mdnsInstance.setMaxListeners(50);
   }
 
+  /** @internal Number of lookups still waiting for a response. */
+  get pendingCount() {
+    return this.pending.size;
+  }
+
   lookup(host: string): Promise<string> {
+    if (this.closed) {
+      return Promise.reject(new Error("mDNS lookup closed"));
+    }
     return new Promise((r, f) => {
-      const cleanup = () => {
+      const settle = (settleWith: () => void) => {
+        if (!this.pending.delete(cancel)) return;
         this.mdnsInstance.removeListener("response", l);
         clearTimeout(timeout);
+        settleWith();
       };
+      const cancel = () => settle(() => f(new Error("mDNS lookup cancelled")));
 
       const timeout = setTimeout(() => {
-        cleanup();
-        f(new Error("No mDNS response"));
+        settle(() => f(new Error("No mDNS response")));
       }, 10000);
 
       const l = (response: mdns.ResponsePacket) => {
@@ -40,16 +59,20 @@ export class MdnsLookup {
           return;
         }
 
-        cleanup();
-        r(a.data);
+        settle(() => r(a.data));
       };
+      this.pending.add(cancel);
       this.mdnsInstance.on("response", l);
 
       this.mdnsInstance.query(host, "A");
     });
   }
 
+  /** Cancel every pending lookup and release the socket. Idempotent. */
   close() {
+    if (this.closed) return;
+    this.closed = true;
+    for (const cancel of [...this.pending]) cancel();
     this.mdnsInstance.destroy();
   }
 }
