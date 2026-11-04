@@ -98,6 +98,8 @@ Generated once per generation by restart() (the constructor runs the first).
 
 > `optional` **lookup?**: `MdnsLookup`
 
+Resolves remote mDNS candidates; closed (pending lookups cancelled) by restart() and close().
+
 #### Implementation of
 
 [`IceConnection`](../interfaces/IceConnection.md).[`lookup`](../interfaces/IceConnection.md#lookup)
