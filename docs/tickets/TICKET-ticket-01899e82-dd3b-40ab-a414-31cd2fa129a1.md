@@ -257,7 +257,7 @@ export type CandidatePairState =
 
 ## 6. 完了条件
 
-- [ ] `grep -rn "experimental-transform-types"` の結果が、`changelog.md` の過去の記述と `third_party/` を除いて 0 件になる（生成ドキュメントも再生成済み）。
+- [ ] `grep -rn "experimental-transform-types"` の結果が、`changelog.md` の過去の記述、`third_party/`、このチケット文書、別リポジトリのサブモジュール `integration/werift-mediasoup-interop`（別チケットで対応。4.6）を除いて 0 件になる（生成ドキュメントも再生成済み）。
 - [ ] `packages/*` / `e2e` / `examples/e2e` / `chrome-e2e` の tsconfig に `erasableSyntaxOnly: true` が入り、`npm run type` と `npm run type:all` が通る。
 - [ ] Node 26.x で次がすべて通る: `npm run test:node-ts`、`npm run test:small`、`npm run wpt:list`、`npm run wpt`、`npm run wpt:coverage`、`npm run e2e`、`npm run examples:e2e`。
 - [ ] Node 24.x（CI の既定）でも同じコマンドが通る。Node 22.18+ で少なくとも `test:node-ts` と `wpt:list` が通る。
@@ -285,4 +285,4 @@ export type CandidatePairState =
 - enum 11 個を 3.1 の L1 形式に置き換えた。`lib/**/*.d.ts` を基準リビジョンのものと比べて、想定外の差分（リテラル型への狭まり）がないことを確認した。
 - サブモジュール `integration/werift-mediasoup-interop`（4.6）: この変更には含めず、別チケットにする。サブモジュールは別リポジトリなので、そちらでフラグを外す PR を出してから、ポインタを更新する。それまでは、CI の `mediasoup-interop` ジョブを Node 24.x だけで動かす（matrix に 26.x を足していないのはこのため）。
 - 検証: Node 26.13.0 / 24.21.0 で `type:all`、`test:node-ts`、`test:small`、`wpt:list`、`wpt`、`wpt:coverage`、`e2e`、`examples:e2e`（68/68）を実行した。Node 22.23.4 では `test:node-ts` と `wpt:list` を実行した。
-- `e2e` について: 共有の Playwright キャッシュを使った最初の実行では、Node 24 / 26 のどちらでも `packetize_vp9` が 1 件失敗した。`PLAYWRIGHT_BROWSERS_PATH` を専用のディレクトリにして再実行すると、基準リビジョン・変更後・Node 26 のどれも 66/66 で通った。
+- `e2e` について: Node 24 / 26 のどちらでも `packetize_vp9` が 1 件失敗する（`waitVideoPlay` が 30 秒でタイムアウト）。2026-11-04 に、専用の `PLAYWRIGHT_BROWSERS_PATH` を使い、基準リビジョン（develop `c9906b16a`）の一時 worktree と変更後で、このテスト 1 件だけを同じ手順で実行したところ、どちらも同じ失敗になった。以前に 66/66 で通った記録は、この環境では再現しなかった。基準リビジョンでも落ちるため、この変更による回帰ではなく、実行環境の Chrome が VP9 を再生できないことによる失敗と判断している。残り 65 件は成功する。VP9 が再生できる環境での 66/66 の確認は未実施。
