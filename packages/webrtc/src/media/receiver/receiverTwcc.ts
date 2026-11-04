@@ -18,6 +18,10 @@ const log = debug("werift:packages/webrtc/media/receiver/receiverTwcc");
 type ExtensionInfo = { tsn: number; timestamp: bigint };
 
 export class ReceiverTWCC {
+  private dtlsTransport: RTCDtlsTransport;
+  private rtcpSsrc: number;
+  private mediaSourceSsrc: number;
+
   extensionInfo: {
     [tsn: number]: ExtensionInfo;
   } = {};
@@ -27,10 +31,13 @@ export class ReceiverTWCC {
   lastTimestamp?: bigint;
 
   constructor(
-    private dtlsTransport: RTCDtlsTransport,
-    private rtcpSsrc: number,
-    private mediaSourceSsrc: number,
+    dtlsTransport: RTCDtlsTransport,
+    rtcpSsrc: number,
+    mediaSourceSsrc: number,
   ) {
+    this.dtlsTransport = dtlsTransport;
+    this.rtcpSsrc = rtcpSsrc;
+    this.mediaSourceSsrc = mediaSourceSsrc;
     this.runTWCC();
   }
 

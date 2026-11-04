@@ -117,6 +117,10 @@ function simulcastFromSendEncodings(
  *   commit, and a change made during the transaction survives its rollback.
  */
 export class TransceiverManager {
+  private readonly cname: string;
+  private readonly config: Required<PeerConfig>;
+  private readonly router: RtpRouter;
+
   private readonly transceivers: RTCRtpTransceiver[] = [];
   private readonly notifiedRemoteTrack = new WeakMap<
     RTCRtpTransceiver,
@@ -276,11 +280,11 @@ export class TransceiverManager {
   >();
   readonly onNegotiationNeeded = new Event<[]>();
 
-  constructor(
-    private readonly cname: string,
-    private readonly config: Required<PeerConfig>,
-    private readonly router: RtpRouter,
-  ) {}
+  constructor(cname: string, config: Required<PeerConfig>, router: RtpRouter) {
+    this.cname = cname;
+    this.config = config;
+    this.router = router;
+  }
 
   getTransceivers(): RTCRtpTransceiver[] {
     return this.transceivers;

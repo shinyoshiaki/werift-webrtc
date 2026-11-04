@@ -253,7 +253,7 @@ export class TransportWideCC {
 // |T| S |       Run Length        |
 // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 export class RunLengthChunk {
-  type!: PacketChunk.TypeTCCRunLengthChunk;
+  type!: typeof PacketChunk.TypeTCCRunLengthChunk;
   packetStatus!: PacketStatus;
   /** 13bit */
   runLength!: number;
@@ -267,7 +267,11 @@ export class RunLengthChunk {
     const packetStatus = getBit(data[0], 1, 2);
     const runLength = (getBit(data[0], 3, 5) << 8) + data[1];
 
-    return new RunLengthChunk({ type: 0, packetStatus, runLength });
+    return new RunLengthChunk({
+      type: 0,
+      packetStatus: packetStatus as PacketStatus,
+      runLength,
+    });
   }
 
   serialize() {
@@ -351,8 +355,8 @@ export class StatusVectorChunk {
 export class RecvDelta {
   /**optional (If undefined, it will be set automatically.)*/
   type?:
-    | PacketStatus.TypeTCCPacketReceivedSmallDelta
-    | PacketStatus.TypeTCCPacketReceivedLargeDelta;
+    | typeof PacketStatus.TypeTCCPacketReceivedSmallDelta
+    | typeof PacketStatus.TypeTCCPacketReceivedLargeDelta;
   /**micro sec */
   delta!: number;
 
@@ -361,7 +365,7 @@ export class RecvDelta {
   }
 
   static deSerialize(data: Buffer) {
-    let type: number | undefined;
+    let type: RecvDelta["type"];
     let delta: number | undefined;
 
     if (data.length === 1) {
@@ -412,18 +416,26 @@ export class RecvDelta {
   }
 }
 
-export enum PacketChunk {
-  TypeTCCRunLengthChunk = 0,
-  TypeTCCStatusVectorChunk = 1,
-  packetStatusChunkLength = 2,
-}
+/**
+ * @enum
+ */
+export const PacketChunk = {
+  TypeTCCRunLengthChunk: 0,
+  TypeTCCStatusVectorChunk: 1,
+  packetStatusChunkLength: 2,
+} as const;
+export type PacketChunk = (typeof PacketChunk)[keyof typeof PacketChunk];
 
-export enum PacketStatus {
-  TypeTCCPacketNotReceived = 0,
-  TypeTCCPacketReceivedSmallDelta = 1,
-  TypeTCCPacketReceivedLargeDelta = 2,
-  TypeTCCPacketReceivedWithoutDelta = 3,
-}
+/**
+ * @enum
+ */
+export const PacketStatus = {
+  TypeTCCPacketNotReceived: 0,
+  TypeTCCPacketReceivedSmallDelta: 1,
+  TypeTCCPacketReceivedLargeDelta: 2,
+  TypeTCCPacketReceivedWithoutDelta: 3,
+} as const;
+export type PacketStatus = (typeof PacketStatus)[keyof typeof PacketStatus];
 
 export class PacketResult {
   sequenceNumber = 0;

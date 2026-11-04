@@ -278,3 +278,11 @@ export type CandidatePairState =
 - [nodejs/help#5153（v26 でフラグがなくなった件）](https://github.com/nodejs/help/issues/5153)
 - [nodejs/learn#87（ガイドからフラグの記述を削除）](https://github.com/nodejs/learn/pull/87)
 - [nodejs/amaro（`amaro/transform` ローダー）](https://github.com/nodejs/amaro)
+
+## 7. 実施結果（2026-11-04、基準リビジョン `c01c5be59`）
+
+- パラメータプロパティ 298 箇所（132 クラス）を TypeScript API を使った書き換えスクリプトで明示的なフィールドに変換した。フィールド宣言はクラス本体の先頭に置き、tsc が出力していたプロパティの定義順と同じにしている。
+- enum 11 個を 3.1 の L1 形式に置き換えた。`lib/**/*.d.ts` を基準リビジョンのものと比べて、想定外の差分（リテラル型への狭まり）がないことを確認した。
+- サブモジュール `integration/werift-mediasoup-interop`（4.6）: この変更には含めず、別チケットにする。サブモジュールは別リポジトリなので、そちらでフラグを外す PR を出してから、ポインタを更新する。それまでは、CI の `mediasoup-interop` ジョブを Node 24.x だけで動かす（matrix に 26.x を足していないのはこのため）。
+- 検証: Node 26.13.0 / 24.21.0 で `type:all`、`test:node-ts`、`test:small`、`wpt:list`、`wpt`、`wpt:coverage`、`e2e`、`examples:e2e`（68/68）を実行した。Node 22.23.4 では `test:node-ts` と `wpt:list` を実行した。
+- `e2e` について: 共有の Playwright キャッシュを使った最初の実行では、Node 24 / 26 のどちらでも `packetize_vp9` が 1 件失敗した。`PLAYWRIGHT_BROWSERS_PATH` を専用のディレクトリにして再実行すると、基準リビジョン・変更後・Node 26 のどれも 66/66 で通った。

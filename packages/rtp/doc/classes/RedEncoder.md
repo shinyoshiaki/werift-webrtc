@@ -32,7 +32,7 @@
 
 ### distance
 
-> **distance**: `number` = `1`
+> **distance**: `number`
 
 ## Methods
 

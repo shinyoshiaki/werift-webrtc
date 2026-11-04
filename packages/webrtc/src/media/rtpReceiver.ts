@@ -48,6 +48,10 @@ import { MediaStreamTrack } from "./track";
 const log = debug("werift:packages/webrtc/src/media/rtpReceiver.ts");
 
 export class RTCRtpReceiver {
+  readonly config: PeerConfig;
+  public kind: Kind;
+  public rtcpSsrc: number;
+
   private readonly codecs: { [pt: number]: RTCRtpCodecParameters } = {};
   private readonly defaultTrack: MediaStreamTrack;
   private get codecArray() {
@@ -106,11 +110,10 @@ export class RTCRtpReceiver {
   /** Media payload type last received on each SSRC (RTX resolved to its media SSRC). */
   private payloadTypeBySsrc: { [ssrc: number]: number } = {};
 
-  constructor(
-    readonly config: PeerConfig,
-    public kind: Kind,
-    public rtcpSsrc: number,
-  ) {
+  constructor(config: PeerConfig, kind: Kind, rtcpSsrc: number) {
+    this.config = config;
+    this.kind = kind;
+    this.rtcpSsrc = rtcpSsrc;
     this.defaultTrack = new MediaStreamTrack({ kind, remote: true });
     this.onPacketLost.subscribe((nack) => {
       this.nackCountBySsrc[nack.mediaSourceSsrc] =

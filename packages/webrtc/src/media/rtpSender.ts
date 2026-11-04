@@ -147,6 +147,8 @@ function freezeRtpContinuityOffsets(
 }
 
 export class RTCRtpSender {
+  public trackOrKind: Kind | MediaStreamTrack;
+
   readonly type = "sender";
   readonly kind: Kind;
   readonly ssrc = randomBytes(4).readUInt32BE(0);
@@ -249,9 +251,10 @@ export class RTCRtpSender {
   private rtcpCancel = new AbortController();
 
   constructor(
-    public trackOrKind: Kind | MediaStreamTrack,
+    trackOrKind: Kind | MediaStreamTrack,
     options: RTCRtpSenderOptions = {},
   ) {
+    this.trackOrKind = trackOrKind;
     const pendingRtp = resolvePendingRtpOptions(options.pendingRtp);
     this.pendingRtpEnabled = pendingRtp.enabled;
     this.pendingRtpMaxLength = pendingRtp.maxLength;

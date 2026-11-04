@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+### ⚠️ Breaking changes
+
+- **Public TypeScript `enum`s are now `as const` objects with a same-name union type** (`werift`, `werift-ice`, `werift-ice-server`, `werift-rtp`, `werift-sctp`): `CandidatePairState`, `classes`, `methods`, `PacketChunk`, `PacketStatus`, `H264NaluType` (`werift-rtp/extra`), `SCTP_STATE`, and `WEBRTC_PPID`. Node.js 26 removed its TypeScript transform mode, and Node.js type stripping cannot run `enum`. Every runtime value is unchanged, and so are value access (`SCTP_STATE.ESTABLISHED`), `===` / `switch` comparisons, type annotations (`state: CandidatePairState`) with `switch` exhaustiveness, `keyof typeof X`, the CJS / ESM export names, assignment from values of older `werift-*` versions, public field / argument / return types (`CandidatePair.state` is still `CandidatePairState`, `SCTP.associationState` is still `SCTP_STATE`), and the TypeDoc `enumerations/` pages. These uses change:
+  - Reverse lookup (`X[value]`, for example `CandidatePairState[pair.state]`) no longer exists. Use `Object.entries(X).find(([, v]) => v === value)?.[0]` or keep your own reverse map.
+  - `Object.keys/values/entries(X)` no longer contain the numeric reverse-mapping keys. Only member names remain, and `Object.values(X)` lists the values.
+  - A member can no longer be written as a type (`x: PacketChunk.TypeTCCRunLengthChunk`). Write `typeof PacketChunk.TypeTCCRunLengthChunk`.
+  - A plain `number` is no longer assignable to the type. Check the range first, then narrow with `as X`.
+  - A variable initialized from a member without a type annotation (`let s = X.A; s = X.B;`) is inferred as that member's literal type. Annotate it: `let s: X = X.A`.
+
+### 🧪 Testing & tooling
+
+- Repository scripts, examples, the e2e server, the WPT runner, and `.vscode/launch.json` no longer pass the TypeScript transform flag, which Node.js 26 removed. TypeScript now runs with Node.js type stripping plus the `tools/node-ts/register.mjs` resolve hook (`node --import <rel>/tools/node-ts/register.mjs`), so the same commands work on Node.js 22.18+, 24, and 26.
+  - Parameter properties are rewritten as explicit fields assigned at the start of the constructor (field definition order is unchanged), and the internal DTLS `enum`s (`ContentType`, `AlertDesc`, `HandshakeType`) use the same `as const` form. The DTLS alert reverse lookup is replaced by an internal `alertDescName()`.
+  - Every package tsconfig, plus `e2e`, `examples/e2e`, and `packages/ice-server/chrome-e2e`, enables `erasableSyntaxOnly`, so `npm run type` rejects `enum`, parameter properties, and other non-erasable syntax.
+  - CI also runs on Node.js 26.x.
+
 ## v0.26.0
 
 The 0.26 line collects everything merged since v0.25.2, including the `rc/0.26.0` branch (negotiation transaction, SCTP queue, PLI / FIR routing). `0.26.0` was never published.

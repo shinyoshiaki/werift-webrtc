@@ -82,6 +82,11 @@ export interface DtlsTransportStats {
 }
 
 export class RTCDtlsTransport implements DtlsTransportStats {
+  readonly config: { debug?: DebugConfig };
+  readonly iceTransport: RTCIceTransport;
+  public localCertificate?: RTCCertificate;
+  private readonly srtpProfiles: SrtpProfile[];
+
   id = randomUUID().toString();
   state: DtlsState = "new";
   role: DtlsRole = "auto";
@@ -124,11 +129,15 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   private remoteParameters?: RTCDtlsParameters;
 
   constructor(
-    readonly config: { debug?: DebugConfig },
-    readonly iceTransport: RTCIceTransport,
-    public localCertificate?: RTCCertificate,
-    private readonly srtpProfiles: SrtpProfile[] = [],
+    config: { debug?: DebugConfig },
+    iceTransport: RTCIceTransport,
+    localCertificate?: RTCCertificate,
+    srtpProfiles: SrtpProfile[] = [],
   ) {
+    this.config = config;
+    this.iceTransport = iceTransport;
+    this.localCertificate = localCertificate;
+    this.srtpProfiles = srtpProfiles;
     this.localCertificate ??= RTCDtlsTransport.localCertificate;
   }
 
@@ -646,14 +655,19 @@ export type DtlsState = (typeof DtlsStates)[number];
 export type DtlsRole = "auto" | "server" | "client";
 
 export class RTCCertificate {
+  public certPem: string;
+  public signatureHash: SignatureHash;
+
   publicKey: string;
   privateKey: string;
 
   constructor(
     privateKeyPem: string,
-    public certPem: string,
-    public signatureHash: SignatureHash,
+    certPem: string,
+    signatureHash: SignatureHash,
   ) {
+    this.certPem = certPem;
+    this.signatureHash = signatureHash;
     this.certPem = normalizePem(certPem);
     const cert = new X509Certificate(this.certPem);
     this.publicKey = cert.publicKey
@@ -681,17 +695,26 @@ export type DtlsKeys = {
 };
 
 export class RTCDtlsFingerprint {
-  constructor(
-    public algorithm: string,
-    public value: string,
-  ) {}
+  public algorithm: string;
+  public value: string;
+
+  constructor(algorithm: string, value: string) {
+    this.algorithm = algorithm;
+    this.value = value;
+  }
 }
 
 export class RTCDtlsParameters {
+  public fingerprints: RTCDtlsFingerprint[];
+  public role: "auto" | "client" | "server";
+
   constructor(
-    public fingerprints: RTCDtlsFingerprint[] = [],
-    public role: "auto" | "client" | "server",
-  ) {}
+    fingerprints: RTCDtlsFingerprint[] = [],
+    role: "auto" | "client" | "server",
+  ) {
+    this.fingerprints = fingerprints;
+    this.role = role;
+  }
 }
 
 const deduplicateFingerprints = (fingerprints: RTCDtlsFingerprint[]) => {
@@ -729,8 +752,11 @@ const selectPreferredFingerprintAlgorithm = (
 };
 
 class IceTransport implements Transport {
+  private ice: IceConnection;
+
   closed: boolean = false;
-  constructor(private ice: IceConnection) {
+  constructor(ice: IceConnection) {
+    this.ice = ice;
     ice.onData.subscribe((buf) => {
       if (isDtls(buf)) {
         if (this.onData) {

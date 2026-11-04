@@ -41,6 +41,9 @@ export interface DepacketizerOptions {
 export class DepacketizeBase
   implements Processor<DepacketizerInput, DepacketizerOutput>
 {
+  private codec: DepacketizerCodec;
+  private options: DepacketizerOptions;
+
   private rtpBuffer: DepacketizerInput[] = [];
   private frameFragmentBuffer?: Buffer;
   private lastSeqNum?: number;
@@ -50,10 +53,10 @@ export class DepacketizeBase
   readonly onNeedKeyFrame = new Event();
   private internalStats = {};
 
-  constructor(
-    private codec: DepacketizerCodec,
-    private options: DepacketizerOptions = {},
-  ) {}
+  constructor(codec: DepacketizerCodec, options: DepacketizerOptions = {}) {
+    this.codec = codec;
+    this.options = options;
+  }
 
   toJSON(): Record<string, any> {
     return {

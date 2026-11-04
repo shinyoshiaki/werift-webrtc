@@ -256,15 +256,21 @@ class MediaPlayer {
 }
 
 class TrackPlaybackRunner {
+  private readonly props: PlaybackTrack & {
+    mediaStartTimestamp: number;
+  };
+
   // Reused across loops so per-stream packetizer state (e.g. VP8 PictureID)
   // stays continuous; recreated only when the negotiated codec changes.
   private packetizer?: { codecKey: string; packetizer: Packetizer };
 
   constructor(
-    private readonly props: PlaybackTrack & {
+    props: PlaybackTrack & {
       mediaStartTimestamp: number;
     },
-  ) {}
+  ) {
+    this.props = props;
+  }
 
   async play({
     startedAt,

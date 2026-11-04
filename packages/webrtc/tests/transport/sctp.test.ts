@@ -1,7 +1,7 @@
 import { RTCDataChannel, RTCSctpTransport } from "../../src";
+import { WEBRTC_BINARY } from "../../src/const";
 import { RTCDataChannelParameters } from "../../src/dataChannel";
 import { dtlsTransportPair } from "../fixture";
-import { WEBRTC_BINARY } from "../../src/const";
 import {
   captureSctpDataChunks,
   DCEP_CHANNEL_TYPE_CASES,

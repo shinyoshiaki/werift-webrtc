@@ -17,12 +17,15 @@ export class Navigator {
 }
 
 export class MediaDevices extends EventTarget {
+  readonly props: MediaDeviceProps;
+
   video?: MediaStreamTrack;
   audio?: MediaStreamTrack;
   private readonly activeSourceStops = new Map<MediaStreamTrack, () => void>();
 
-  constructor(readonly props: MediaDeviceProps = {}) {
+  constructor(props: MediaDeviceProps = {}) {
     super();
+    this.props = props;
     this.video = props.video;
     this.audio = props.audio;
   }

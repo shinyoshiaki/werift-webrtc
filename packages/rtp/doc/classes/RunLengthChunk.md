@@ -40,7 +40,7 @@
 
 ### type
 
-> **type**: [`TypeTCCRunLengthChunk`](../enumerations/PacketChunk.md#typetccrunlengthchunk)
+> **type**: `0`
 
 ## Methods
 

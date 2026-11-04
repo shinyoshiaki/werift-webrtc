@@ -28,6 +28,10 @@ const { encode, types } = binaryData;
 const generateKeyPairAsync = promisify(generateKeyPair);
 
 export class CipherContext {
+  public sessionType: SessionTypes;
+  public certPem?: string;
+  public keyPem?: string;
+
   localRandom!: DtlsRandom;
   remoteRandom!: DtlsRandom;
   cipherSuite!: CipherSuites;
@@ -42,11 +46,14 @@ export class CipherContext {
   localPrivateKey!: KeyObject;
 
   constructor(
-    public sessionType: SessionTypes,
-    public certPem?: string,
-    public keyPem?: string,
+    sessionType: SessionTypes,
+    certPem?: string,
+    keyPem?: string,
     signatureHashAlgorithm?: SignatureHash,
   ) {
+    this.sessionType = sessionType;
+    this.certPem = certPem;
+    this.keyPem = keyPem;
     if (certPem && keyPem && signatureHashAlgorithm) {
       this.parseX509(certPem, keyPem, signatureHashAlgorithm);
     }

@@ -26,8 +26,8 @@ import {
   createVideoCodec,
   mockMonotonicClock,
   ntpDiffMs,
-  rfc3550Ntp,
   outboundRtpStats,
+  rfc3550Ntp,
   sentRtpHeaders,
 } from "../fixture";
 
