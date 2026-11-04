@@ -3,10 +3,13 @@ import * as dns from "node:dns";
 import * as net from "node:net";
 import * as tls from "node:tls";
 import { deepStrictEqual } from "assert";
+import { EventEmitter } from "events";
 import { readFileSync } from "fs";
 import { type Address, Event, type Transport } from "../../common/src";
 import { NodeStunServer, NodeTurnServer } from "../../ice-server/src";
 import { Candidate } from "../src/candidate";
+import type mdns from "multicast-dns";
+import { MdnsLookup } from "../src/dns/lookup";
 import {
   TransactionCancelled,
   TransactionFailed,
@@ -1647,4 +1650,68 @@ export async function deliverProvisionalCheck(
 /** The transport protocols (sockets / allocations) `connection` keeps. */
 export function connectionProtocols(connection: Connection) {
   return (connection as unknown as { protocols: Protocol[] }).protocols;
+}
+
+// --- mDNS lookup lifecycle ---
+
+/** Shared Arrange: an in-memory `multicast-dns` stand-in (no socket). */
+export function createFakeMdns() {
+  const emitter = new EventEmitter();
+  const queries: string[] = [];
+  let destroyCount = 0;
+  type MdnsInstance = mdns.MulticastDNS;
+  const instance = {
+    on: ((event: string, listener: (...args: any[]) => void) => {
+      emitter.on(event, listener);
+      return instance;
+    }) as MdnsInstance["on"],
+    removeListener: ((event: string, listener: (...args: any[]) => void) => {
+      emitter.removeListener(event, listener);
+      return instance;
+    }) as MdnsInstance["removeListener"],
+    setMaxListeners: ((n: number) => {
+      emitter.setMaxListeners(n);
+      return instance;
+    }) as MdnsInstance["setMaxListeners"],
+    query: ((name: string) => {
+      queries.push(name);
+    }) as MdnsInstance["query"],
+    destroy: (() => {
+      destroyCount++;
+    }) as MdnsInstance["destroy"],
+  } as unknown as MdnsInstance;
+  return {
+    factory: () => instance,
+    queries,
+    get destroyCount() {
+      return destroyCount;
+    },
+    get listenerCount() {
+      return emitter.listenerCount("response");
+    },
+    /** Answer `name` with an A record `address`. */
+    respond: (name: string, address = "127.0.0.1") => {
+      emitter.emit("response", {
+        answers: [{ type: "A", name, data: address }],
+      });
+    },
+  };
+}
+
+/** Shared Arrange: give `connection` an {@link MdnsLookup} backed by a fake mDNS. */
+export function installFakeMdnsLookup(connection: Connection) {
+  const mdns = createFakeMdns();
+  const lookup = new MdnsLookup(mdns.factory);
+  connection.lookup = lookup;
+  return { mdns, lookup };
+}
+
+/** Shared Arrange: a protocol whose close() runs `onClose` before it resolves. */
+export function addClosingProtocol(
+  connection: Connection,
+  onClose: () => void | Promise<void>,
+) {
+  (connection as unknown as { protocols: Partial<Protocol>[] }).protocols.push({
+    close: async () => onClose(),
+  });
 }
