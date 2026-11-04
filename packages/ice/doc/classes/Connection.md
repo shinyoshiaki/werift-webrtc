@@ -74,7 +74,7 @@
 
 ### localPassword
 
-> **localPassword**: `string`
+> **localPassword**: `string` = `""`
 
 #### Implementation of
 
@@ -84,7 +84,9 @@
 
 ### localUsername
 
-> **localUsername**: `string`
+> **localUsername**: `string` = `""`
+
+Generated once per generation by restart() (the constructor runs the first).
 
 #### Implementation of
 
