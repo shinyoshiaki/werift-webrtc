@@ -19,10 +19,10 @@ gst-launch-1.0 -e \
   ! webmmux \
   ! filesink location="${OUT}/vp8.webm"
 
-# VP9
+# VP9 WebRTC default profile (0): Chrome's negotiated profile-id is 0.
 gst-launch-1.0 -e \
   videotestsrc num-buffers=60 pattern=ball \
-  ! video/x-raw,width=320,height=240,framerate=30/1 \
+  ! video/x-raw,format=I420,width=320,height=240,framerate=30/1 \
   ! vp9enc deadline=1 keyframe-max-dist=30 \
   ! webmmux \
   ! filesink location="${OUT}/vp9.webm"
