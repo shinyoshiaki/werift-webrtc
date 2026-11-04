@@ -6,7 +6,7 @@
  * patent grant; both are reproduced in THIRD_PARTY_LICENSES_LIBWEBRTC.txt
  * (shipped with this package).
  */
-import { uint16Gt } from "../../../../imports/common";
+import { uint16Gt } from "../../imports/common";
 
 /** 16-bit transport-wide sequence modulus. */
 export const TWCC_SEQ_MOD = 0x10000;
@@ -45,8 +45,8 @@ export class TransportWideSeqUnwrapper {
 
   /**
    * Record a **send-time** TSN, which is already the extended transport-wide
-   * counter ({@link SentInfo.wideSeq} from
-   * {@link RTCDtlsTransport.transportSequenceNumberExtended}).
+   * counter (in werift, `SentInfo.wideSeq` from
+   * `RTCDtlsTransport.transportSequenceNumberExtended`).
    *
    * The value is exact, so it is kept as is: concurrent sends may report it
    * out of order (including across a 16-bit wrap) and an idle sender may see

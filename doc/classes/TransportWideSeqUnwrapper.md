@@ -46,8 +46,8 @@ Last extended sequence, or `undefined` before the first unwrap.
 > **advanceSent**(`seq`): `number`
 
 Record a **send-time** TSN, which is already the extended transport-wide
-counter ([SentInfo.wideSeq](../interfaces/SentInfo.md#wideseq) from
-[RTCDtlsTransport.transportSequenceNumberExtended](RTCDtlsTransport.md#transportsequencenumberextended)).
+counter (in werift, `SentInfo.wideSeq` from
+`RTCDtlsTransport.transportSequenceNumberExtended`).
 
 The value is exact, so it is kept as is: concurrent sends may report it
 out of order (including across a 16-bit wrap) and an idle sender may see

@@ -8,8 +8,6 @@ export * from "./router";
 export * from "./rtpReceiver";
 export * from "./rtpSender";
 export * from "./rtpTransceiver";
-export * from "./stats";
-export * from "./track";
 export type {
   BandwidthEstimator,
   BandwidthEstimatorProcessor,
@@ -29,81 +27,12 @@ export {
   isRoundTripTimeConsumer,
   setAvailableBitrateIfChanged,
 } from "./sender/bandwidthEstimator";
-export { createBandwidthEstimator } from "./sender/createBandwidthEstimator";
 export type {
   BandwidthEstimatorOption,
   BandwidthEstimatorPreset,
 } from "./sender/createBandwidthEstimator";
+export { createBandwidthEstimator } from "./sender/createBandwidthEstimator";
 export { DisabledBandwidthEstimator } from "./sender/estimators/disabledBwe";
-export {
-  LegacyCumulativeBandwidthEstimator,
-  SenderBandwidthEstimator,
-  isSenderBandwidthEstimator,
-} from "./sender/estimators/legacyCumulativeBwe";
-export {
-  TwccFeedbackAdapter,
-  kTwccFeedbackHistoryMaxSeqSpan,
-} from "./sender/estimators/twccFeedbackAdapter";
-export type { TwccPacketFeedback } from "./sender/estimators/twccFeedbackAdapter";
-export {
-  AlrDetector,
-  AcknowledgedBitrateEstimator,
-  IntervalBudget,
-  AimdRateControl,
-  BitrateEstimator,
-  GCC_KNOWN_DIFFERENCES,
-  GccBandwidthEstimator,
-  InterArrivalDelta,
-  LinkCapacityEstimator,
-  LossBasedBwe,
-  ProbeController,
-  RttBasedBackoff,
-  TrendlineEstimator,
-  TWCC_SEQ_MOD,
-  TransportWideSeqUnwrapper,
-  compareTransportWideSeq,
-  computeFeedbackRttStats,
-  getBandwidthLimitedCause,
-  hasTwccReceiveTiming,
-  isProbeInitiationAllowed,
-  isRttAboveLimit,
-  maxProbeBitrateBps,
-  TwccReferenceTimeUnwrapper,
-  TWCC_REFERENCE_TIME_MOD,
-  TWCC_REFERENCE_TIME_UNIT_MS,
-  kAlrProbeScale,
-  kAlrProbingIntervalMs,
-  kBeta,
-  kDefaultMaxProbingBitrateBps,
-  kDefaultPaceMultiplier,
-  kDefaultPaceMultiplierWithSendSideBwe,
-  kInitialMinProbeDeltaMs,
-  kMaxProbeDelayMs,
-  kMinProbeDeltaMs,
-  kProbeFractionAfterDrop,
-  kDefaultStartBitrateBps,
-  kGoogCcProcessIntervalMs,
-  kLossBasedPaddingDurationMs,
-  kLossBasedNotUseAckedRateInAlr,
-  kLossBasedMedianSendingRateFactor,
-  kLossBasedIncreaseFactor,
-  kLossDecreaseThreshold,
-  kLossIncreaseFactor,
-  kLossIncreaseThreshold,
-  kLossLimitedProbeScale,
-  kMaxBitrateBps,
-  kMinBitrateBps,
-  kProbePaddingPacketBytes,
-  kRttBasedBackOffBandwidthFloorBps,
-  kRttBasedBackOffDropFraction,
-  kRttBasedBackOffDropIntervalMs,
-  kRttBasedBackOffHighRttMs,
-  kSendTimeHistoryWindowMs,
-  kStartPhaseMs,
-  kStartPhaseLossReportMinPackets,
-  kTrendlineWindowSize,
-  sortPacketResultsByWideSeq,
-} from "./sender/estimators/gcc";
 export type {
   AckedPacketSample,
   BandwidthLimitedCause,
@@ -114,3 +43,66 @@ export type {
   LossBasedState,
   ProbeState,
 } from "./sender/estimators/gcc";
+export {
+  AcknowledgedBitrateEstimator,
+  AimdRateControl,
+  AlrDetector,
+  BitrateEstimator,
+  computeFeedbackRttStats,
+  GCC_KNOWN_DIFFERENCES,
+  GccBandwidthEstimator,
+  getBandwidthLimitedCause,
+  InterArrivalDelta,
+  IntervalBudget,
+  isProbeInitiationAllowed,
+  isRttAboveLimit,
+  kAlrProbeScale,
+  kAlrProbingIntervalMs,
+  kBeta,
+  kDefaultMaxProbingBitrateBps,
+  kDefaultPaceMultiplier,
+  kDefaultPaceMultiplierWithSendSideBwe,
+  kDefaultStartBitrateBps,
+  kGoogCcProcessIntervalMs,
+  kInitialMinProbeDeltaMs,
+  kLossBasedIncreaseFactor,
+  kLossBasedMedianSendingRateFactor,
+  kLossBasedNotUseAckedRateInAlr,
+  kLossBasedPaddingDurationMs,
+  kLossDecreaseThreshold,
+  kLossIncreaseFactor,
+  kLossIncreaseThreshold,
+  kLossLimitedProbeScale,
+  kMaxBitrateBps,
+  kMaxProbeDelayMs,
+  kMinBitrateBps,
+  kMinProbeDeltaMs,
+  kProbeFractionAfterDrop,
+  kProbePaddingPacketBytes,
+  kRttBasedBackOffBandwidthFloorBps,
+  kRttBasedBackOffDropFraction,
+  kRttBasedBackOffDropIntervalMs,
+  kRttBasedBackOffHighRttMs,
+  kSendTimeHistoryWindowMs,
+  kStartPhaseLossReportMinPackets,
+  kStartPhaseMs,
+  kTrendlineWindowSize,
+  LinkCapacityEstimator,
+  LossBasedBwe,
+  maxProbeBitrateBps,
+  ProbeController,
+  RttBasedBackoff,
+  TrendlineEstimator,
+} from "./sender/estimators/gcc";
+export {
+  isSenderBandwidthEstimator,
+  LegacyCumulativeBandwidthEstimator,
+  SenderBandwidthEstimator,
+} from "./sender/estimators/legacyCumulativeBwe";
+export type { TwccPacketFeedback } from "./sender/estimators/twccFeedbackAdapter";
+export {
+  kTwccFeedbackHistoryMaxSeqSpan,
+  TwccFeedbackAdapter,
+} from "./sender/estimators/twccFeedbackAdapter";
+export * from "./stats";
+export * from "./track";

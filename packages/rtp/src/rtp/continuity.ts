@@ -1,5 +1,5 @@
-import { uint16Add, uint32Add } from "../../imports/common";
-import type { RtpHeader } from "../../imports/rtp";
+import { uint16Add, uint32Add } from "../../../common/src";
+import type { RtpHeader } from "./rtp";
 
 /**
  * Output sequence number / timestamp of one sender's media stream.

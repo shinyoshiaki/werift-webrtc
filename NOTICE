@@ -171,7 +171,9 @@ Apache-2.0 license
 The GCC send-side bandwidth estimator in
 `packages/webrtc/src/media/sender/estimators/gcc/` is a TypeScript port of
 libwebrtc's goog_cc / AIMD / bitrate prober (pinned commit
-0fda16159e33adf59c71a7ad1173dcbe5a632102). The reference sources are kept in
+0fda16159e33adf59c71a7ad1173dcbe5a632102). The transport-wide sequence
+unwrapper in `packages/rtp/src/rtcp/rtpfb/transportWideSequence.ts` is ported
+from the same commit (`SeqNumUnwrapper`). The reference sources are kept in
 `third_party/libwebrtc-ref/` together with libwebrtc's `LICENSE`, `PATENTS`
 (Additional IP Rights Grant) and `AUTHORS` files.
 

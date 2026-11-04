@@ -26,6 +26,9 @@ import { codecParametersFromString } from "..";
 import { createWebRtcDomException } from "../errors";
 import { Event, random16, uint16Add } from "../imports/common";
 import {
+  appendRfc3550Padding,
+  buildSendHeaderExtensions,
+  createRtxPaddingPacket,
   debug,
   FullIntraRequest,
   GenericNack,
@@ -40,10 +43,12 @@ import {
   RtcpSourceDescriptionPacket,
   RtcpSrPacket,
   RtcpTransportLayerFeedback,
+  RtpContinuity,
   type RtpHeader,
   RtpPacket,
   SourceDescriptionChunk,
   SourceDescriptionItem,
+  stampHopByHopExtensions,
   TransportWideCC,
   wrapRtx,
 } from "../imports/rtp";
@@ -65,24 +70,13 @@ import {
 } from "./sender/bandwidthEstimator";
 import { EstimatorBinding } from "./sender/estimatorBinding";
 import { type OutgoingMeta, OutgoingQueue } from "./sender/outgoingQueue";
-import {
-  appendRfc3550Padding,
-  createRtxPaddingPacket,
-  PaddingInjector,
-} from "./sender/padding";
+import { PaddingInjector } from "./sender/padding";
 import {
   type PendingRtpOptions,
   PendingRtpQueue,
   resolvePendingRtpOptions,
 } from "./sender/pendingRtp";
-import { RtpContinuity } from "./sender/rtpContinuity";
-import {
-  buildSendHeaderExtensions,
-  estimateOutgoingBytes,
-  estimateRedPayloadLength,
-  sendDtlsRtp,
-  stampHopByHopExtensions,
-} from "./sender/rtpWire";
+import { estimateOutgoingBytes, sendDtlsRtp } from "./sender/rtpWire";
 import { SenderBandwidthEstimator, type SentInfo } from "./sender/senderBWE";
 import { SenderStatistics, senderStatsIds } from "./sender/senderStats";
 import { MediaPacer, waitForProbeSendTime } from "./sender/sendPacer";
@@ -99,7 +93,6 @@ import {
   type MediaStreamTrack,
 } from "./track";
 
-export { appendRfc3550Padding } from "./sender/padding";
 export type { PendingRtpOptions } from "./sender/pendingRtp";
 
 const log = debug("werift:packages/webrtc/src/media/rtpSender.ts");
@@ -124,11 +117,12 @@ export type RTCRtpSenderOptions = {
 //
 // - estimatorBinding.ts: the bandwidth estimator, its generation and process timer
 // - outgoingQueue.ts / sendPacer.ts: the GCC send FIFO and pacing
-// - padding.ts: probe / loss padding on the RTX stream
+// - padding.ts: probe / loss padding drain on the RTX stream
 // - pendingRtp.ts: RTP held until DTLS connects
-// - rtpContinuity.ts: output sequence / timestamp across source switches
 // - senderStats.ts: counters, reception reports, Sender Reports, stats
-// - rtpWire.ts: header extensions, hop-by-hop values and the DTLS write
+// - rtpWire.ts: send FIFO size estimate and the DTLS write
+// Generic RTP pieces (RtpContinuity, header extension rebuild / hop-by-hop
+// stamping, RTX padding packets, RED size estimate) live in werift-rtp.
 export class RTCRtpSender {
   readonly type = "sender";
   readonly kind: Kind;
@@ -1038,12 +1032,11 @@ export class RTCRtpSender {
       !opts.isProbePadding &&
       !opts.isRetransmission;
     const estimatedPayloadLen = useRed
-      ? estimateRedPayloadLength(
-          this.redEncoder,
-          payload,
-          header.timestamp,
-          this.redRedundantPayloadType!,
-        )
+      ? this.redEncoder.serializedLengthWith({
+          block: payload,
+          timestamp: header.timestamp,
+          blockPT: this.redRedundantPayloadType!,
+        })
       : payload.length;
     const rfcPaddingLen =
       header.padding && header.paddingSize > 0 ? header.paddingSize : 0;

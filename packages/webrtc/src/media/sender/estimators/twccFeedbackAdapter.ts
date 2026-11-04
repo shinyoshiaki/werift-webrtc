@@ -1,8 +1,10 @@
-import type { TransportWideCC } from "../../../imports/rtp";
+import {
+  hasTwccReceiveTiming,
+  type TransportWideCC,
+  TransportWideSeqUnwrapper,
+  TwccReferenceTimeUnwrapper,
+} from "../../../imports/rtp";
 import type { SentInfo } from "../bandwidthEstimator";
-import { TransportWideSeqUnwrapper } from "./gcc/sequenceNumber";
-import { hasTwccReceiveTiming } from "./twccReceiveTiming";
-import { TwccReferenceTimeUnwrapper } from "./twccReferenceTime";
 
 /**
  * History span limit in extended transport-wide sequence numbers.

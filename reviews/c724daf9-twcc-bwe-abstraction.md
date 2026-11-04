@@ -30,9 +30,9 @@ ide:
 - interface 定義: [packages/webrtc/src/media/sender/bandwidthEstimator.ts:76](review-file:packages/webrtc/src/media/sender/bandwidthEstimator.ts:76)。必須は `onAvailableBitrate`、`rtpPacketSent`、`receiveTWCC` などです。`resetNetworkRoute` は任意です。
 - 変動通知の共通ヘルパ: [packages/webrtc/src/media/sender/bandwidthEstimator.ts:341](review-file:packages/webrtc/src/media/sender/bandwidthEstimator.ts:341)。前回通知値と異なるときだけ `execute` します。
 - 選択ファクトリ: [packages/webrtc/src/media/sender/createBandwidthEstimator.ts](review-file:packages/webrtc/src/media/sender/createBandwidthEstimator.ts:27)。`PeerConfig.bandwidthEstimator`（[packages/webrtc/src/api/peerConfig.ts:145](review-file:packages/webrtc/src/api/peerConfig.ts:145)、既定 `"legacy"`）から sender ごとに 1 インスタンスを作ります。
-- 実行中の差し替え: [packages/webrtc/src/media/rtpSender.ts:372](review-file:packages/webrtc/src/media/rtpSender.ts:372) の `setBandwidthEstimator`。sender 側の `onAvailableBitrate` は橋渡しされ、差し替え後も購読し直す必要はありません。
+- 実行中の差し替え: [packages/webrtc/src/media/rtpSender.ts:366](review-file:packages/webrtc/src/media/rtpSender.ts:366) の `setBandwidthEstimator`。sender 側の `onAvailableBitrate` は橋渡しされ、差し替え後も購読し直す必要はありません。
 - 実装: legacy は [legacyCumulativeBwe.ts:32](review-file:packages/webrtc/src/media/sender/estimators/legacyCumulativeBwe.ts:32)、GCC は [gccBwe.ts:102](review-file:packages/webrtc/src/media/sender/estimators/gcc/gccBwe.ts:102) と `estimators/gcc/` 配下（trendline、AIMD、loss-based、probe など）です。
-- 両者に共通の TWCC feedback 正規化: [twccFeedbackAdapter.ts:62](review-file:packages/webrtc/src/media/sender/estimators/twccFeedbackAdapter.ts:62)。
+- 両者に共通の TWCC feedback 正規化: [twccFeedbackAdapter.ts:64](review-file:packages/webrtc/src/media/sender/estimators/twccFeedbackAdapter.ts:64)。
 
 ### 2.2 今回（4 周目）の変更
 
@@ -43,7 +43,7 @@ ide:
   <g fill="var(--review-muted)" font-size="12"><text x="6" y="125">resetNetworkRoute: 履歴・TSN 起点・推定・probe を捨て、setBitrates の min/max は保つ</text></g>
 </svg>
 
-- 経路依存の状態だけを初期化: [rtpSender.ts:390](review-file:packages/webrtc/src/media/rtpSender.ts:390) で `resetNetworkRoute()` を優先します。GCC 側は [gccBwe.ts:943](review-diff:packages/webrtc/src/media/sender/estimators/gcc/gccBwe.ts:943) で `reset()` 後に min / max を再適用します。以前は `reset()` でアプリ指定の帯域制約まで失われていました。
+- 経路依存の状態だけを初期化: [rtpSender.ts:384](review-file:packages/webrtc/src/media/rtpSender.ts:384) で `resetNetworkRoute()` を優先します。GCC 側は [gccBwe.ts:943](review-diff:packages/webrtc/src/media/sender/estimators/gcc/gccBwe.ts:943) で `reset()` 後に min / max を再適用します。以前は `reset()` でアプリ指定の帯域制約まで失われていました。
 - TWCC の配送先: [router.ts:510](review-diff:packages/webrtc/src/media/router.ts:510)。受信元 transport が分かるときは、その transport に今いる sender だけに配送し、SSRC fallback で別 transport の sender を選びません。TSN は transport ごとの番号空間なので、移動後に届いた旧 transport の feedback を新しい sender に渡すと誤推定になります。
 - 長い欠落後の再開: [receiverTwcc.ts:108](review-diff:packages/webrtc/src/media/receiver/receiverTwcc.ts:108)。拡張 TSN で報告窓を分けます。最大長の報告後は開始番号を進めます。
 - `TwccFeedbackAdapter` の時刻の取り決め（age / span を照合時に保証）は 345e235d5 で入っています。

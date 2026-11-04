@@ -610,6 +610,44 @@ RTP パケット生成・DTLS 送信・token-bucket 待ちは sender に残す�
 - [x] 送信経路の性質テスト・シミュレーション・Chrome との 2 種類の E2E が分割前と同じく通る（検証記録 2026-11-04）。
 - [x] このチケットのレビュー文書（`reviews/c724daf9-*`）の `rtpSender.ts` へのリンクを分割後の行・ファイルに直し、レビューの手順書のパス 1 に新しいファイルを加えた。
 
+上の表は分割した時点の構成である。RTP 一般の部品は、その後 §2.14 で `werift-rtp` に移した。
+
+### 2.14 RTP 一般の部品を `werift-rtp` に移す（追加要件・2026-11-04）
+
+#### 要件
+
+`packages/webrtc/src/media/sender/` のうち、RTP / RTCP の実装として一般化できるもの（WebRTC の送信者・推定器・DTLS に依存しないもの）を `packages/rtp` に移す。
+
+#### 判断の基準
+
+- **移す:** RTP / RTCP の形式と番号だけで完結し、`webrtc` の型（`RTCDtlsTransport`、`BandwidthEstimator`、stats の型）に依存しないもの。
+- **残す:** 送信者の段取り（FIFO、pacing、接続前の保留、推定器の寿命）、推定アルゴリズム（GCC、legacy、照合層）、`webrtc` の時刻・stats の部品に依存するもの。推定アルゴリズムを `webrtc` に置く構成（§3.2）は変えない。
+
+#### 移したもの
+
+| 移動先（`packages/rtp/src/`） | 行数 | 中身 | 移動元 |
+| --- | --- | --- | --- |
+| `rtp/padding.ts` | 50 | `appendRfc3550Padding`、`createRtxPaddingPacket` | `sender/padding.ts` |
+| `rtp/continuity.ts` | 82 | `RtpContinuity`（ソース切替をまたぐ seq / timestamp） | `sender/rtpContinuity.ts` |
+| `rtp/sendHeaderExtensions.ts` | 118 | `buildSendHeaderExtensions`、`stampHopByHopExtensions`、`NegotiatedHeaderExtension`（`{ id, uri }`。`webrtc` の `RTCRtpHeaderExtensionParameters` をそのまま渡せる） | `sender/rtpWire.ts` |
+| `rtp/red/encoder.ts` | — | `RedEncoder.serializedLengthWith()`（push した場合の RED の長さ。以前は `webrtc` 側で private の cache を型変換して読んでいた） | `sender/rtpWire.ts` の `estimateRedPayloadLength` |
+| `rtcp/rtpfb/transportWideSequence.ts` | 139 | `TransportWideSeqUnwrapper`、`TWCC_SEQ_MOD`、`compareTransportWideSeq`、`isOlderTransportWideSeq`、`sortPacketResultsByWideSeq` | `estimators/gcc/sequenceNumber.ts` |
+| `rtcp/rtpfb/twccReferenceTime.ts` | 82 | `TwccReferenceTimeUnwrapper`、`TWCC_REFERENCE_TIME_MOD`、`TWCC_REFERENCE_TIME_UNIT_MS` | `estimators/twccReferenceTime.ts` |
+| `rtcp/rtpfb/twccReceiveTiming.ts` | 27 | `hasTwccReceiveTiming` | `estimators/twccReceiveTiming.ts` |
+
+`webrtc` に残したもの: `estimatorBinding.ts`、`outgoingQueue.ts`、`sendPacer.ts`、`pendingRtp.ts`、`padding.ts`（`PaddingInjector` だけ）、`rtpWire.ts`（`sendDtlsRtp` と送信 FIFO 用のサイズ見積もりだけ、42 行）、`senderStats.ts`（`webrtc` の stats の型と NTP / 時刻の部品に依存する）、推定器一式。
+
+#### 公開 API と配布物
+
+- 移した名前は `werift-rtp` から export する。`werift` は `werift-rtp` をすべて再 export するので、`werift` からの import はそのまま使える。重複を避けるため、`webrtc` の `media/index.ts` と `gcc/index.ts` にあった同じ名前の再 export は削除した。`isOlderTransportWideSeq` は新たに公開される。
+- `transportWideSequence.ts` は libwebrtc（`SeqNumUnwrapper`）からの移植なので、`werift-rtp` の配布物にも `THIRD_PARTY_LICENSES_LIBWEBRTC.txt` を入れた（`packages/rtp/package.json` の `files`）。ルートの `NOTICE` にもこのファイルを書き加えた。
+
+#### 完了条件（この追加分）
+
+- [x] 上の表のとおり移し、`webrtc` 側は `imports/rtp` から使う。
+- [x] `packages/rtp/tests/rtp/sendPath.test.ts` に、移した部品の基本の約束を確かめるテスト 7 件を加えた（`werift-rtp` 単独のテストでも回帰を検出するため）。送信経路での組み合わせは、引き続き `packages/webrtc` の性質テストで確かめる。
+- [x] 生成ドキュメント（`packages/rtp/doc`、`doc/`）を作り直し、changelog に追記した。レビュー文書のリンクを移動後のファイル・行に直した。
+
 ---
 
 ## 3. 技術的な実装アプローチ（調査結果の要約）
@@ -930,6 +968,14 @@ set availableBitrate(v: number) {
 - `cd packages/webrtc && npm run test:sim`: 2 件成功。`cd e2e && npm run test:sim`（Chrome、werift 側ボトルネック）: 1 件成功。`cd e2e && npm run test:sim:netns`（Chrome 受信側ボトルネック、Docker）: 3 件成功。
 - `npm run pbt:deep`（交渉の性質テスト、8 並列）: fuzz 306・scenario 2,163・model 351 件はすべて成功。leak は 653 件中 8 件失敗・15 件 flaky だった。分割前の `e331b08cf` を一時 worktree で同じ設定（`--suite leak --jobs 8`）で実行すると 10 件失敗・15 件 flaky で、失敗する seed は実行ごとに異なり（両方で失敗したのは seed 152 だけ）、seed 152 は単独で再実行すると成功した。分割による変化ではなく、並列負荷下での既存の不安定さと判断した（「未対応・未確認」に記録）。
 - `npm run doc`: 差分は `RTCRtpSender` の `setBandwidthEstimator` の説明だけ。
+
+### 検証記録（2026-11-04、§2.14 RTP 一般の部品を `werift-rtp` に移す）
+
+- 作業開始時のリビジョンは `49dd486ec`（未コミット変更なし）。
+- `cd packages/rtp && npm test`（型チェック・公開宣言のチェック・テスト）: 47 ファイル、529 件成功（追加した `sendPath.test.ts` の 7 件を含む）。`npm run test:browser`: 3 件成功。
+- `cd packages/webrtc && npm run type`: 成功。`npx vitest run tests`: 73 ファイル、1,586 件成功・5 件 skip（移動前と同じ件数）。ルートの `npm run type`: 成功。
+- `npm run pbt:deep -- --suite twcc,bwe,sender,receiver --seeds 300 --jobs 8`: 4,200 件すべて成功。`cd packages/webrtc && npm run test:sim`: 2 件成功。
+- Chrome との E2E（`cd e2e && npm run test:sim` / `test:sim:netns`）は今回は実行していない（移したのは呼び出し先の置き場所だけで、送信経路の手順は変えていない）。
 
 ### ライセンス
 
