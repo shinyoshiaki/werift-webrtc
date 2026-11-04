@@ -163,9 +163,9 @@
   - L3 は typedoc の enum ページがなくなり、`keyof typeof X` に新しい非互換を生む。完全な互換にはならない。
   - `enum` のまま残す方法（`declare enum` / `const enum` を含む）は、strip-only の実行では値が存在しないか実行できないので、選択肢にならない。
 - リリースの扱い:
-  - 型レベルの破壊的変更を含むので、`changelog.md` では `### ⚠️ Breaking changes` に載せる。
+  - changelog は、`changelog.md` の先頭（`# Changelog` の直後、`## v0.26.0` の上）に `## Unreleased` を新しく作って書く。`## v0.26.0` は公開済みなので追記しない。
+  - 型レベルの破壊的変更を含むので、`## Unreleased` の中の `### ⚠️ Breaking changes` に載せる。
   - 影響するパッケージ（`werift`、`werift-ice`、`werift-ice-server`、`werift-rtp`、`werift-sctp`）は、次の公開時にマイナー版を上げる。
-  - 現在の changelog の先頭は `## v0.26.0`（未公開）である。そこに追記するか、`## Unreleased` を新しく作るかは、PR を出す時点の公開状況に合わせる。
 - 後からメンテナーがこの方針を覆して互換性を強めたい場合も、L2 と L3 は 2.5 で動作を確認済みなので、そのまま採用できる。どちらにしても 4.2 の型注釈ルールは必要である。
 
 ## 4. 実装内容
@@ -210,7 +210,7 @@ export type CandidatePairState =
 - `AlertDesc` の逆引きは、`packages/dtls/src/record/const.ts` に非公開の関数を作って置き換える。
   - 関数の形は `alertDescName(value: number): string | undefined`。`receive.ts` での「既知の値かどうか」の判定と、ログ出力の両方をこの関数で行う。
   - `dtls` の `src/index.ts` からは export しない。
-- `changelog.md` の Breaking changes に、3.1 の表の「保たない」行とその移行方法を書く。
+- `changelog.md` の `## Unreleased` > `### ⚠️ Breaking changes` に、3.1 の表の「保たない」行とその移行方法を書く。
 
 ### 4.3 再発防止
 
@@ -230,9 +230,9 @@ export type CandidatePairState =
 ### 4.5 ドキュメントと CI
 
 - ルートの `AGENTS.md:31` を「`node --import <rel>/tools/node-ts/register.mjs`（strip-only、erasable syntax のみ）」に改める。必要であれば、各パッケージの `AGENTS.md` や README の実行例も合わせる。
-- `changelog.md` に次を書く。載せる節は 3.1 の「リリースの扱い」に従う。
-  - Breaking changes: 公開 enum を const オブジェクトに移行したこと（3.1 の表の「保たない」行と、その移行方法）
-  - Testing & tooling: フラグの廃止と Node 26 への対応
+- `changelog.md` の先頭に `## Unreleased` を新しく作り、次を書く（公開済みの `## v0.26.0` には追記しない）。
+  - `### ⚠️ Breaking changes`: 公開 enum を const オブジェクトに移行したこと（3.1 の表の「保たない」行と、その移行方法）
+  - `### 🧪 Testing & tooling`: フラグの廃止と Node 26 への対応
 - `npm run doc` で typedoc（`doc/`、`packages/*/doc`）を再生成する。
 - `.github/workflows/nodejs.yml` の matrix に `26.x` を追加する。全ジョブで重い場合は、少なくとも `type` / `test:small` / `test:node-ts` / `wpt:list` を 26.x で実行する。
 
@@ -266,7 +266,8 @@ export type CandidatePairState =
 - [ ] 再生成した typedoc で、`enumerations/` のページ（`CandidatePairState`、`classes`、`methods`、`PacketChunk`、`PacketStatus`）がそのまま残っている。
 - [ ] `AlertDesc` の逆引きを、非公開の `alertDescName()` に置き換えている。テストで次を確認している: 既知の値なら名前を返し、未知の値なら `undefined` を返すこと。公開 const の代表的な値（`SCTP_STATE.ESTABLISHED === 4` など）が変わっていないこと。
 - [ ] `.github/workflows/nodejs.yml` に Node 26.x のジョブがある。
-- [ ] ルートの `AGENTS.md`、README、`changelog.md`（Breaking と移行方法を含む）、typedoc を更新している。
+- [ ] ルートの `AGENTS.md`、README、typedoc を更新している。
+- [ ] `changelog.md` の先頭に新しく作った `## Unreleased` に、Breaking changes（移行方法を含む）と Testing & tooling が書かれている。公開済みの `## v0.26.0` は変更していない。
 - [ ] `npm run format` を実行済み。
 - [ ] サブモジュール `werift-mediasoup-interop` 側の対応について、PR を出すか、別チケットにするかが決まり、記録されている。
 
