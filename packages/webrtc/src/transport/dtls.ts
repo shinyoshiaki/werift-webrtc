@@ -1463,6 +1463,13 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       }
       await this.iceTransport.stop();
     } finally {
+      // SPED transport の ICE datagram / state 購読を解放し、保留中の early
+      // 送信を reject する。close_notify を拒否しないよう ICE 停止の後に閉じる。
+      const spedTransport = this.spedTransport;
+      this.spedTransport = undefined;
+      await spedTransport
+        ?.close()
+        .catch((error) => log("sped transport close failed", error));
       this.onStopped.execute();
       this.onStopped.complete();
     }

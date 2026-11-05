@@ -4,6 +4,7 @@ import {
   CandidatePairState,
   type Connection,
 } from "../../../ice/src";
+import { connectionDatagramEvent } from "../../../ice/src/internal/datagram";
 import { getConnectionSpedRuntime } from "../../../ice/src/internal/sped-bind";
 import { classes } from "../../../ice/src/stun/const";
 import type { Message } from "../../../ice/src/stun/message";
@@ -1063,4 +1064,78 @@ export function coreHandshakeComplete(transport: RTCDtlsTransport) {
       }
     ).dtls?.readiness.handshakeComplete === true
   );
+}
+
+// --- RTCDtlsTransport.stop() releasing the SPED transport ---
+
+/**
+ * Arrange: a connected SPED (DTLS 1.3) DataChannel session, and spies on the
+ * offerer's SPED transport callbacks that its ICE datagram / state
+ * subscriptions run. `fireIceEvents` notifies both ICE events with the
+ * authenticated pair captured while connected. With `dtlsCloseFails`, the
+ * DTLS association's close() throws, so the association never closes the
+ * SPED transport itself.
+ */
+export async function prepareSpedTransportStop({
+  dtlsCloseFails = false,
+} = {}) {
+  const config = {
+    iceServers: [],
+    sped: true,
+    dtls: { protocolVersions: [DtlsVersion.V1_3] },
+  };
+  const offerer = new RTCPeerConnection(config);
+  const answerer = new RTCPeerConnection(config);
+  offerer.createDataChannel("stop");
+  exchangeIceCandidates(offerer, answerer);
+  await exchangeOfferAnswer(offerer, answerer);
+  await Promise.all(
+    [offerer, answerer].map((pc) =>
+      pc.connectionState === "connected"
+        ? undefined
+        : pc.connectionStateChange.watch((s) => s === "connected"),
+    ),
+  );
+  const transport = offerer.dtlsTransports[0];
+  const ice = transport.iceTransport.connection as Connection;
+  const pair = ice.nominated!;
+  const generation = ice.generation;
+  const sped = (
+    transport as unknown as {
+      spedTransport: {
+        close(): Promise<void>;
+        flushPendingEarlySends(): void;
+        rejectPendingEarlySends(error: Error): void;
+      };
+    }
+  ).spedTransport;
+  if (dtlsCloseFails) {
+    const dtls = (transport as unknown as { dtls: { close(): void } }).dtls;
+    vi.spyOn(dtls, "close").mockImplementation(() => {
+      throw new Error("injected DTLS close failure");
+    });
+  }
+  const close = vi.spyOn(sped, "close");
+  const listeners = [
+    vi.spyOn(sped, "flushPendingEarlySends"),
+    vi.spyOn(sped, "rejectPendingEarlySends"),
+  ];
+  return {
+    offerer,
+    answerer,
+    transport,
+    close,
+    listeners,
+    fireIceEvents: () => {
+      connectionDatagramEvent(ice).execute({
+        bytes: Buffer.from([0]),
+        source: pair.remoteAddr,
+        protocol: pair.protocol,
+        pair,
+        generation,
+        authenticated: true,
+      });
+      ice.stateChanged.execute("failed");
+    },
+  };
 }

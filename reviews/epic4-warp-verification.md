@@ -628,3 +628,16 @@ SCTP がない media-only の接続では後者が呼ばれず、`allowEarlyServ
 | heap property（seed 1〜8、200 cycle） | 8/8 成功 |
 
 **未実施:** Pion の相互接続。自動ビルドが「local pion-sped is missing or incompatible」で起動しませんでした。
+
+## 16. transport 停止で SPED transport の ICE 購読が解放されない（レビューの指摘への対応）
+
+**原因:** `RTCDtlsTransport.stop()` は DTLS を閉じて ICE を停止するだけで、`IceSpedTransport.close()` を呼んでいませんでした。通常は DTLS association の close 経路（engine の close 通知）が transport を閉じますが、`dtls.close()` が失敗すると `connectionDatagramEvent` と ICE 状態イベントの購読が残り、停止済み transport への参照と callback が ICE Connection に保持されます。
+
+**修正:** `packages/webrtc/src/transport/dtls.ts` の `runStop()` の `finally` で、ICE 停止の後に SPED transport を閉じて参照を外すようにしました。close_notify を拒否しないよう、閉じるのは ICE 停止の後です。
+
+| テスト | 確認内容 | 修正前 | 修正後 |
+|---|---|---|---|
+| `packages/webrtc/tests/integrate/spedTransportStop.test.ts`「通常の停止」 | `stop()` の完了時点で SPED transport が閉じられ、停止後の ICE datagram / state 通知が SPED transport の callback に届かない | 成功（DTLS の close 経路が閉じる） | 成功 |
+| 同「DTLS close が失敗する停止」 | 同上 | 失敗（`close` が呼ばれない） | 成功 |
+
+`packages/webrtc` の `npm test`: 1,851 passed / 6 skipped。
