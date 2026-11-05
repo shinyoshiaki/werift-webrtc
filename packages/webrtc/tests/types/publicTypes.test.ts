@@ -54,7 +54,7 @@ describe("public types (パラメータプロパティ変換後も互換)", () =
       cc.keyPem = undefined;
     `;
 
-    // Act
+    // Act: 利用者コードをソースに対してコンパイルして診断を集める
     const diagnostics = compileConsumer(code);
 
     // Assert: 型エラーが 0 件である
@@ -69,7 +69,7 @@ describe("public types (パラメータプロパティ変換後も互換)", () =
       export const u: Uint8Array<ArrayBuffer> = cc.localRandom.random_bytes;
     `;
 
-    // Act
+    // Act: 利用者コードをソースに対してコンパイルして診断を集める
     const diagnostics = compileConsumer(code);
 
     // Assert: 型エラーが 0 件である

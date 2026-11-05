@@ -11,15 +11,16 @@
   - A plain `number` is no longer assignable to the type. Check the range first, then narrow with `as X`.
   - A variable initialized from a member without a type annotation (`let s = X.A; s = X.B;`) is inferred as that member's literal type. Annotate it: `let s: X = X.A`.
 
-### 🧪 Testing & tooling
-
-- Repository scripts, examples, the e2e server, the WPT runner, and `.vscode/launch.json` no longer pass the TypeScript transform flag, which Node.js 26 removed. TypeScript now runs with Node.js type stripping plus the `tools/node-ts/register.mjs` resolve hook (`node --import <rel>/tools/node-ts/register.mjs`), so the same commands work on Node.js 22.18+, 24, and 26.
-  - Parameter properties are rewritten as explicit fields assigned at the start of the constructor (field definition order is unchanged), and the internal DTLS `enum`s (`ContentType`, `AlertDesc`, `HandshakeType`) use the same `as const` form. The DTLS alert reverse lookup is replaced by an internal `alertDescName()`.
-  - Every package tsconfig, plus `e2e`, `examples/e2e`, and `packages/ice-server/chrome-e2e`, enables `erasableSyntaxOnly`, so `npm run type` rejects `enum`, parameter properties, and other non-erasable syntax.
-  - CI also runs on Node.js 26.x.
 - **`sender.senderBWE` is a getter whose TypeScript type is `BandwidthEstimator`** (it was a `readonly` `SenderBandwidthEstimator` field). Replace the estimator with `sender.setBandwidthEstimator(impl)`, not by assigning the property. The `onCongestion` / `onCongestionScore` events of the default estimator still exist at runtime, and a one-release compatibility surface keeps those names on GCC / disabled estimators as no-op Events so `sender.senderBWE.onCongestion.subscribe(...)` compiles. Prefer `sender.senderBWE as LightweightBandwidthEstimator` or `isLightweightBandwidthEstimator`. The names are not part of the shared `BandwidthEstimator` contract and may be removed from the other estimators in a future major.
 - **`SenderBandwidthEstimator` is renamed to `LightweightBandwidthEstimator`** (the default, lightweight cumulative estimator: TWCC send / receive rates only, no probing or pacing). `SenderBandwidthEstimator` remains as a deprecated alias of the same class, so `new SenderBandwidthEstimator()` and `instanceof` keep working.
 - **`onAvailableBitrate` fires only when the estimate changes.** The default estimator used to fire on every update, even with the same value. The payload is still the bitrate in bps.
+
+### 🧪 Testing & tooling
+
+- Repository scripts, examples, the e2e server, the WPT runner, and `.vscode/launch.json` no longer pass the TypeScript transform flag, which Node.js 26 removed. TypeScript now runs with Node.js type stripping plus the `tools/node-ts/register.mjs` resolve hook (`node --import <rel>/tools/node-ts/register.mjs`), so the same commands work on Node.js 22.18+, 24, and 26.
+  - Parameter properties are rewritten as explicit fields assigned at the start of the constructor (field definition order is unchanged in the CJS build; the esbuild ESM build now matches the CJS order), and the internal DTLS `enum`s (`ContentType`, `AlertDesc`, `HandshakeType`) use the same `as const` form. The DTLS alert reverse lookup is replaced by an internal `alertDescName()`.
+  - Every package tsconfig, plus `e2e`, `examples/e2e`, and `packages/ice-server/chrome-e2e`, enables `erasableSyntaxOnly`, so `npm run type` rejects `enum`, parameter properties, and other non-erasable syntax.
+  - CI also runs on Node.js 26.x.
 
 ### 🚀 Features
 
