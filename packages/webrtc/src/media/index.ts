@@ -11,7 +11,7 @@ export * from "./rtpTransceiver";
 export type {
   BandwidthEstimator,
   BandwidthEstimatorProcessor,
-  LegacyCongestionCompatibility,
+  CongestionEventsCompatibility,
   NetworkAvailabilityConsumer,
   ProbeClusterConfig,
   ProbePacingController,
@@ -95,10 +95,10 @@ export {
   TrendlineEstimator,
 } from "./sender/estimators/gcc";
 export {
-  isSenderBandwidthEstimator,
-  LegacyCumulativeBandwidthEstimator,
+  isLightweightBandwidthEstimator,
+  LightweightBandwidthEstimator,
   SenderBandwidthEstimator,
-} from "./sender/estimators/legacyCumulativeBwe";
+} from "./sender/estimators/lightweightBwe";
 export type { TwccPacketFeedback } from "./sender/estimators/twccFeedbackAdapter";
 export {
   kTwccFeedbackHistoryMaxSeqSpan,

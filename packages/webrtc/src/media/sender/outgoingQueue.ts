@@ -39,7 +39,7 @@ export class OutgoingQueue {
   /**
    * @param kind Media kind of the sender (selects the queue caps).
    * @param isBounded Whether the caps apply now. Only a pacing estimator (GCC)
-   *   can stall the FIFO; with legacy / disabled, dropping queued media left
+   *   can stall the FIFO; with lightweight / disabled, dropping queued media left
    *   over from a previous pacing estimator would corrupt frames without any
    *   congestion signal.
    */

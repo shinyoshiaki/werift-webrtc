@@ -37,7 +37,7 @@ export interface SentInfo {
 /**
  * Probe cluster the sender should temporarily aim for (padding / encoder ramp).
  * GCC fires {@link BandwidthEstimator.onProbeClusterConfig} with this payload;
- * legacy / disabled estimators never emit it.
+ * lightweight / disabled estimators never emit it.
  */
 export interface ProbeClusterConfig {
   id: number;
@@ -69,7 +69,7 @@ export interface ProbeReservation {
  * TWCC I/O and recommended bitrate (`rtpPacketSent` / `receiveTWCC` /
  * `availableBitrate` / `onAvailableBitrate`) are required. GCC also needs
  * probe / pacing / RTT / process-interval hooks; those live on this same
- * interface so {@link RTCRtpSender} does not import GCC. Legacy and disabled
+ * interface so {@link RTCRtpSender} does not import GCC. Lightweight and disabled
  * estimators implement them as no-ops (`processIntervalMs === 0`, padding
  * sizes 0, methods return false / 0 / undefined).
  */
@@ -87,7 +87,7 @@ export interface BandwidthEstimator {
   readonly onAvailableBitrate: Event<[number]>;
 
   /**
-   * Fires when a probe cluster is activated. Legacy / disabled never fire.
+   * Fires when a probe cluster is activated. Lightweight / disabled never fire.
    */
   readonly onProbeClusterConfig: Event<[ProbeClusterConfig]>;
 
@@ -117,13 +117,13 @@ export interface BandwidthEstimator {
 
   /**
    * Sender-clock process interval in milliseconds (pin GoogCc 25ms).
-   * `0` — do not run a process timer (legacy / disabled).
+   * `0` — do not run a process timer (lightweight / disabled).
    */
   readonly processIntervalMs: number;
 
   /**
    * RTP padding size used when the sender injects probe / loss padding.
-   * `0` — do not inject padding (legacy / disabled).
+   * `0` — do not inject padding (lightweight / disabled).
    */
   readonly probePaddingPacketBytes: number;
 
@@ -139,7 +139,7 @@ export interface BandwidthEstimator {
    * Pacing target (bps) for the send engine.
    * pin GetPacingRates: estimate × 2.5 before first TWCC, × 1.1 after,
    * raised to the active probe target while probing.
-   * `0` — do not token-bucket pace (legacy / disabled).
+   * `0` — do not token-bucket pace (lightweight / disabled).
    */
   getPacingBitrateBps(): number;
 
@@ -186,7 +186,7 @@ export interface BandwidthEstimator {
 
 /**
  * GCC-oriented probe / pacing subset of {@link BandwidthEstimator}.
- * Legacy implements these as no-ops; use {@link isProbePacingController} to
+ * Lightweight implements these as no-ops; use {@link isProbePacingController} to
  * detect an estimator that actually injects probe padding.
  */
 export type ProbePacingController = Pick<
@@ -201,7 +201,7 @@ export type ProbePacingController = Pick<
 
 /**
  * True when the estimator actually drives probe padding (non-zero padding size).
- * Legacy / disabled no-ops return false.
+ * Lightweight / disabled no-ops return false.
  */
 export function isProbePacingController(
   e: BandwidthEstimator,
@@ -211,7 +211,7 @@ export function isProbePacingController(
 
 /**
  * True when the estimator needs the sender's paced send FIFO: a process
- * timer (GCC) or probe padding. Legacy / disabled return false, and
+ * timer (GCC) or probe padding. Lightweight / disabled return false, and
  * {@link RTCRtpSender} then writes RTP straight through without consulting the
  * pacing / probe hooks (same send path as before the BWE abstraction).
  */
@@ -227,7 +227,7 @@ export type RoundTripTimeConsumer = Pick<
 
 /**
  * True when the estimator consumes RTCP RTT for AIMD (non-zero process interval).
- * Legacy / disabled `setRoundTripTime` is a no-op.
+ * Lightweight / disabled `setRoundTripTime` is a no-op.
  */
 export function isRoundTripTimeConsumer(
   e: BandwidthEstimator,
@@ -258,41 +258,41 @@ export function isBandwidthEstimatorProcessor(
 }
 
 /**
- * Legacy congestion events kept on every estimator instance so
+ * Congestion events kept on every estimator instance so
  * `sender.senderBWE.onCongestion` still type-checks after the BWE abstraction.
- * Only SenderBandwidthEstimator fires them; GCC / disabled are no-ops.
+ * Only {@link LightweightBandwidthEstimator} fires them; GCC / disabled are no-ops.
  *
- * Not part of {@link BandwidthEstimator}. Prefer a `SenderBandwidthEstimator`
+ * Not part of {@link BandwidthEstimator}. Prefer a `LightweightBandwidthEstimator`
  * assertion for new code. This surface may be removed in a future major.
  */
-export type LegacyCongestionCompatibility = {
-  /** @deprecated Legacy-only. No-op on GCC / disabled. */
+export type CongestionEventsCompatibility = {
+  /** @deprecated Lightweight-only. No-op on GCC / disabled. */
   readonly onCongestion: Event<[boolean]>;
-  /** @deprecated Legacy-only. No-op on GCC / disabled. */
+  /** @deprecated Lightweight-only. No-op on GCC / disabled. */
   readonly onCongestionScore: Event<[number]>;
-  /** @deprecated Legacy-only. Always false on GCC / disabled. */
+  /** @deprecated Lightweight-only. Always false on GCC / disabled. */
   congestion: boolean;
-  /** @deprecated Legacy-only. Always 1 on GCC / disabled. */
+  /** @deprecated Lightweight-only. Always 1 on GCC / disabled. */
   congestionScore: number;
 };
 
 /**
  * Shared no-op implementations of GCC send-path hooks.
- * {@link SenderBandwidthEstimator} and {@link DisabledBandwidthEstimator} extend this.
+ * {@link LightweightBandwidthEstimator} and {@link DisabledBandwidthEstimator} extend this.
  */
 export abstract class BandwidthEstimatorNoopHooks {
   readonly processIntervalMs = 0;
   readonly probePaddingPacketBytes = 0;
   readonly probePaddingMaxBurst = 0;
   readonly onProbeClusterConfig = new Event<[ProbeClusterConfig]>();
-  /** @deprecated No-op except on {@link SenderBandwidthEstimator}. */
+  /** @deprecated No-op except on {@link LightweightBandwidthEstimator}. */
   readonly onCongestion = new Event<[boolean]>();
-  /** @deprecated No-op except on {@link SenderBandwidthEstimator}. */
+  /** @deprecated No-op except on {@link LightweightBandwidthEstimator}. */
   readonly onCongestionScore = new Event<[number]>();
-  /** @deprecated Always false except on {@link SenderBandwidthEstimator}. */
+  /** @deprecated Always false except on {@link LightweightBandwidthEstimator}. */
   congestion = false;
   protected _compatCongestionScore = 1;
-  /** @deprecated Always 1 except on {@link SenderBandwidthEstimator}. */
+  /** @deprecated Always 1 except on {@link LightweightBandwidthEstimator}. */
   get congestionScore() {
     return this._compatCongestionScore;
   }

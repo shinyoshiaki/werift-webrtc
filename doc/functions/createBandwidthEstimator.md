@@ -15,7 +15,7 @@ Each [RTCRtpSender](../classes/RTCRtpSender.md) must get its own instance.
 
 ### option?
 
-[`BandwidthEstimatorOption`](../type-aliases/BandwidthEstimatorOption.md) \| `undefined` = `"legacy"`
+[`BandwidthEstimatorOption`](../type-aliases/BandwidthEstimatorOption.md) \| `undefined` = `"lightweight"`
 
 ## Returns
 

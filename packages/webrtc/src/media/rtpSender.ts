@@ -63,8 +63,8 @@ import type {
 } from "./parameters";
 import {
   type BandwidthEstimator,
+  type CongestionEventsCompatibility,
   isProbePacingController,
-  type LegacyCongestionCompatibility,
   needsPacedSendPath,
   type ProbeClusterConfig,
 } from "./sender/bandwidthEstimator";
@@ -77,7 +77,10 @@ import {
   resolvePendingRtpOptions,
 } from "./sender/pendingRtp";
 import { estimateOutgoingBytes, sendDtlsRtp } from "./sender/rtpWire";
-import { SenderBandwidthEstimator, type SentInfo } from "./sender/senderBWE";
+import {
+  LightweightBandwidthEstimator,
+  type SentInfo,
+} from "./sender/senderBWE";
 import { SenderStatistics, senderStatsIds } from "./sender/senderStats";
 import { MediaPacer, waitForProbeSendTime } from "./sender/sendPacer";
 import {
@@ -103,7 +106,7 @@ const RTP_HISTORY_SIZE = 128;
 export type RTCRtpSenderOptions = {
   /**
    * Initial send-side bandwidth estimator. When omitted, the default is
-   * {@link SenderBandwidthEstimator}. {@link RTCPeerConnection} passes the
+   * {@link LightweightBandwidthEstimator}. {@link RTCPeerConnection} passes the
    * instance created from {@link PeerConfig.bandwidthEstimator}.
    */
   bandwidthEstimator?: BandwidthEstimator;
@@ -142,22 +145,22 @@ export class RTCRtpSender {
   /**
    * Active send-side bandwidth estimator (TWCC-driven).
    *
-   * Default is {@link SenderBandwidthEstimator} (legacy cumulative algorithm).
+   * Default is {@link LightweightBandwidthEstimator} (lightweight cumulative algorithm).
    * Replace only with {@link setBandwidthEstimator} (e.g. `new GccBandwidthEstimator()`).
    *
    * Prefer {@link onAvailableBitrate} on this sender for bitrate notifications that
    * survive estimator swaps. Algorithm-specific events remain on concrete instances.
    *
-   * **TypeScript compatibility:** {@link LegacyCongestionCompatibility} fields
+   * **TypeScript compatibility:** {@link CongestionEventsCompatibility} fields
    * (`onCongestion` / `onCongestionScore`) are present on every estimator so
    * existing `sender.senderBWE.onCongestion.subscribe(...)` still type-checks.
-   * They fire only on {@link SenderBandwidthEstimator}; GCC / disabled are no-ops.
-   * Prefer `sender.senderBWE as SenderBandwidthEstimator` (or
-   * {@link isSenderBandwidthEstimator}) for legacy-only APIs.
+   * They fire only on {@link LightweightBandwidthEstimator}; GCC / disabled are no-ops.
+   * Prefer `sender.senderBWE as LightweightBandwidthEstimator` (or
+   * {@link isLightweightBandwidthEstimator}) for lightweight-only APIs.
    */
-  get senderBWE(): BandwidthEstimator & LegacyCongestionCompatibility {
+  get senderBWE(): BandwidthEstimator & CongestionEventsCompatibility {
     return this.bwe.estimator as BandwidthEstimator &
-      LegacyCongestionCompatibility;
+      CongestionEventsCompatibility;
   }
 
   /**
@@ -171,7 +174,7 @@ export class RTCRtpSender {
 
   /**
    * Probe cluster configs (target bps / min packets). Bridged from the active
-   * {@link BandwidthEstimator}; GCC fires this, legacy / disabled never do.
+   * {@link BandwidthEstimator}; GCC fires this, lightweight / disabled never do.
    */
   readonly onProbeClusterConfig = new Event<[ProbeClusterConfig]>();
 
@@ -279,7 +282,7 @@ export class RTCRtpSender {
         ? this.trackOrKind
         : this.trackOrKind.kind;
     this.bwe = new EstimatorBinding(
-      options?.bandwidthEstimator ?? new SenderBandwidthEstimator(),
+      options?.bandwidthEstimator ?? new LightweightBandwidthEstimator(),
       {
         onAvailableBitrate: (bps) => this.onAvailableBitrate.execute(bps),
         onProbeClusterConfig: (cfg) => {
@@ -346,7 +349,7 @@ export class RTCRtpSender {
   /**
    * Replace the send-side bandwidth estimator used for TWCC-driven BWE.
    *
-   * Default is the legacy {@link SenderBandwidthEstimator}. Pass e.g.
+   * Default is the lightweight {@link LightweightBandwidthEstimator}. Pass e.g.
    * `new GccBandwidthEstimator()` to use Google Congestion Control.
    *
    * Behavior on swap:
@@ -400,7 +403,7 @@ export class RTCRtpSender {
 
   /**
    * Effective send pacing rate (bps): estimator estimate, raised to the active
-   * probe target while probing. 0 when unknown. Legacy returns 0 from
+   * probe target while probing. 0 when unknown. Lightweight returns 0 from
    * {@link BandwidthEstimator.getPacingBitrateBps} so media is unpaced.
    */
   get pacingBitrateBps(): number {
@@ -788,7 +791,7 @@ export class RTCRtpSender {
   }
 
   /**
-   * Legacy / disabled estimators neither pace nor probe, so RTP is written
+   * Lightweight / disabled estimators neither pace nor probe, so RTP is written
    * straight through as before the BWE abstraction: no FIFO, no queue limit,
    * and no wait before the DTLS write. Pacing estimators (GCC) go through
    * {@link outgoing}. A FIFO still draining after an estimator swap
@@ -971,7 +974,7 @@ export class RTCRtpSender {
     const estimatorAtStart = this.bwe.estimator;
 
     const twccOn = this.isTransportCcNegotiated();
-    // Legacy / disabled: no probe reservation or pacing wait (direct path).
+    // Lightweight / disabled: no probe reservation or pacing wait (direct path).
     const paced = needsPacedSendPath(estimatorAtStart);
 
     // Stale source: drop before touching probe reservation or pacing budget.
@@ -1235,7 +1238,7 @@ export class RTCRtpSender {
               const rawRttSeconds = this.stats.recordReceptionReport(report);
               // pin OnRoundTripTimeUpdate: only **unsmoothed** RTT goes to
               // AIMD (smoothed updates are discarded in GoogCc).
-              // Legacy / disabled no-op setRoundTripTime.
+              // Lightweight / disabled no-op setRoundTripTime.
               if (rawRttSeconds !== undefined && rawRttSeconds > 0) {
                 this.bwe.estimator.setRoundTripTime(rawRttSeconds * 1000);
               }

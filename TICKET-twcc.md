@@ -61,6 +61,8 @@
 
 ## 2. 実装すべき具体的な機能・変更内容
 
+> **用語の注記（2026-11-05、§2.15）:** 既定の推定器はこれまで「legacy」と呼んでいたが、§2.15 で「lightweight」（`LightweightBandwidthEstimator`、プリセット `"lightweight"`）に改名した。以下の各節と検証記録の「legacy」は、書かれた時点の名前のまま残している。
+
 ### 2.1 帯域推定アルゴリズムの抽象化
 
 - 送信側 BWE の **共通インターフェース** を定義する（名称は実装時に既存命名へ合わせてよい。例: `BandwidthEstimator` / `SenderSideBwe`）。
@@ -648,6 +650,37 @@ RTP パケット生成・DTLS 送信・token-bucket 待ちは sender に残す�
 - [x] `packages/rtp/tests/rtp/sendPath.test.ts` に、移した部品の基本の約束を確かめるテスト 7 件を加えた（`werift-rtp` 単独のテストでも回帰を検出するため）。送信経路での組み合わせは、引き続き `packages/webrtc` の性質テストで確かめる。
 - [x] 生成ドキュメント（`packages/rtp/doc`、`doc/`）を作り直し、changelog に追記した。レビュー文書のリンクを移動後のファイル・行に直した。
 
+### 2.15 既定の推定器を「lightweight」に改名する（追加要件・2026-11-05）
+
+#### 要件
+
+既定の帯域推定器（mediasoup 由来の累積 `min(送信, 受信)`）の名前から「legacy（古い・置き換え予定）」の意味を外し、「軽量な帯域推定」を表す名前にする。この推定器は probe・pacing・process タイマを持たず、TWCC で観測した送信・受信レートだけを使う。既定のまま使い続ける推定器であり、置き換え予定のものではない。
+
+#### 改名の内容
+
+| 以前の名前 | 新しい名前 | 互換の扱い |
+| --- | --- | --- |
+| `SenderBandwidthEstimator`（develop にもある公開名） | `LightweightBandwidthEstimator` | `SenderBandwidthEstimator` を `@deprecated` の別名として残す（同じクラスを指すので `new` も `instanceof` も使える） |
+| `LegacyCumulativeBandwidthEstimator`（このチケットで追加、未リリース） | 削除（`LightweightBandwidthEstimator` に一本化） | 別名なし |
+| `isSenderBandwidthEstimator`（未リリース） | `isLightweightBandwidthEstimator` | 別名なし |
+| `LegacyCongestionCompatibility`（未リリース） | `CongestionEventsCompatibility`（推定器名に依存しない名前） | 別名なし |
+| プリセット `"legacy"`（未リリース、既定値） | `"lightweight"`（既定値） | 別名なし |
+| `estimators/legacyCumulativeBwe.ts` | `estimators/lightweightBwe.ts` | 互換用の入口 `sender/senderBWE.ts` は残す |
+
+未リリースの名前は、このチケットの変更がまだリリースされていないため、別名を残さずに置き換えた。リリース済みの `SenderBandwidthEstimator` だけ、既存の利用者のために別名を残した。
+
+#### 範囲
+
+- `src` のコメント・TSDoc、テスト（名前、テスト名、性質テストの種別ラベル）、`examples/mediachannel` の 2 つの例、`packages/webrtc/README.md`、`changelog.md`、生成ドキュメント、このチケットのレビュー文書の「legacy」を「lightweight」に直した。この推定器と関係のない「legacy」（`mLineReuse` の旧挙動、AV1X の旧名、`userMedia` の旧オプションなど）は対象外。
+- レビュー文書の図解は `reviews/c724daf9-gcc-vs-lightweight.html` / `.trace.ts` に改名し、埋め込みデータを検証スクリプトの `--write` で作り直した（数値は改名前と同じ）。
+- このチケットの過去の節と検証記録は、書かれた時点の名前のまま残した（§2 冒頭の注記）。
+
+#### 完了条件（この追加分）
+
+- [x] 上の表のとおり改名し、`SenderBandwidthEstimator` は非推奨の別名として残した。
+- [x] `tests/media/senderBWE.test.ts` に「旧名 `SenderBandwidthEstimator` は `LightweightBandwidthEstimator` と同じクラスとして使える」を追加した。
+- [x] changelog の破壊的変更に改名と別名を書いた。
+
 ---
 
 ## 3. 技術的な実装アプローチ（調査結果の要約）
@@ -976,6 +1009,15 @@ set availableBitrate(v: number) {
 - `cd packages/webrtc && npm run type`: 成功。`npx vitest run tests`: 73 ファイル、1,586 件成功・5 件 skip（移動前と同じ件数）。ルートの `npm run type`: 成功。
 - `npm run pbt:deep -- --suite twcc,bwe,sender,receiver --seeds 300 --jobs 8`: 4,200 件すべて成功。`cd packages/webrtc && npm run test:sim`: 2 件成功。
 - Chrome との E2E（`cd e2e && npm run test:sim` / `test:sim:netns`）は今回は実行していない（移したのは呼び出し先の置き場所だけで、送信経路の手順は変えていない）。
+
+### 検証記録（2026-11-05、§2.15 既定の推定器を「lightweight」に改名）
+
+- 作業開始時のリビジョンは `3b4ca4dbc`（develop の取り込み後、未コミット変更なし）。
+- `cd packages/webrtc && npm run type`: 成功。ルートの `npm run type`（`examples` を含む）: 成功。
+- `cd packages/webrtc && npx vitest run tests`: 73 ファイル、1,587 件成功・5 件 skip（追加した別名のテスト 1 件を含む）。
+- `npm run pbt:deep -- --suite twcc,bwe,sender,receiver --seeds 300 --jobs 8`: 4,200 件すべて成功。`cd packages/webrtc && npm run test:sim`: 2 件成功。
+- `reviews/c724daf9-gcc-vs-lightweight.trace.ts`: 埋め込みデータと現在の実装の出力が一致した（`--write` で作り直したあと、検証のみの実行でも成功）。
+- レビュー文書 4 つの `review-document validate`: すべて ok。
 
 ### ライセンス
 

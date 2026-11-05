@@ -5,9 +5,9 @@ import {
   createBandwidthEstimator,
   DisabledBandwidthEstimator,
   GccBandwidthEstimator,
+  LightweightBandwidthEstimator,
   RTCPeerConnection,
   RTCRtpSender,
-  SenderBandwidthEstimator,
 } from "../../src";
 
 describe("PeerConfig.bandwidthEstimator", () => {
@@ -26,13 +26,13 @@ describe("PeerConfig.bandwidthEstimator", () => {
   test.each([
     {
       option: undefined,
-      configured: "legacy",
-      expected: SenderBandwidthEstimator,
+      configured: "lightweight",
+      expected: LightweightBandwidthEstimator,
     },
     {
-      option: "legacy",
-      configured: "legacy",
-      expected: SenderBandwidthEstimator,
+      option: "lightweight",
+      configured: "lightweight",
+      expected: LightweightBandwidthEstimator,
     },
     { option: "gcc", configured: "gcc", expected: GccBandwidthEstimator },
     { option: false, configured: false, expected: DisabledBandwidthEstimator },
@@ -85,7 +85,7 @@ describe("PeerConfig.bandwidthEstimator", () => {
     // Assert
     expect(created).toHaveLength(2);
     expect(peer.getSenders().map((s) => s.senderBWE)).toEqual(created);
-    const custom = new SenderBandwidthEstimator();
+    const custom = new LightweightBandwidthEstimator();
     expect(createBandwidthEstimator(() => custom)).toBe(custom);
   });
 

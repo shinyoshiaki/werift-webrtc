@@ -59,7 +59,7 @@ export interface TwccPacketFeedback {
  * time, so it never returns an out-of-range packet regardless of call order.
  * Pruning only bounds memory.
  *
- * Shared by every {@link BandwidthEstimator} that consumes TWCC (legacy, GCC).
+ * Shared by every {@link BandwidthEstimator} that consumes TWCC (lightweight, GCC).
  */
 export class TwccFeedbackAdapter {
   /**

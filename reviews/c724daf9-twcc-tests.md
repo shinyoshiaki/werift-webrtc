@@ -10,9 +10,9 @@ ide:
 
 ## 1. 概要
 
-このチケットでは、送信側の帯域推定（BWE）を差し替え可能にし、legacy（既定）と GCC を選べるようにしました。この文書は、その動作を確かめるテストの構成・考え方・各テストの役割をまとめたものです。
+このチケットでは、送信側の帯域推定（BWE）を差し替え可能にし、lightweight（既定）と GCC を選べるようにしました。この文書は、その動作を確かめるテストの構成・考え方・各テストの役割をまとめたものです。
 
-仕組みそのものの解説は [reviews/c724daf9-twcc-gcc-mechanism.md](review-file:reviews/c724daf9-twcc-gcc-mechanism.md)、legacy と GCC の数値つき比較は [reviews/c724daf9-gcc-vs-legacy.html](review-file:reviews/c724daf9-gcc-vs-legacy.html) にあります。
+仕組みそのものの解説は [reviews/c724daf9-twcc-gcc-mechanism.md](review-file:reviews/c724daf9-twcc-gcc-mechanism.md)、lightweight と GCC の数値つき比較は [reviews/c724daf9-gcc-vs-lightweight.html](review-file:reviews/c724daf9-gcc-vs-lightweight.html) にあります。
 
 テストの基準は、チケット §2.12 で決めた「**GCC として正しく機能すること**」です。libwebrtc と同じ処理順・同じ境界値で動くかは見ません。実装はいまも libwebrtc を参考にした処理を残していますが、それを 1 対 1 で固定するテストは削除しました。
 
@@ -52,23 +52,23 @@ AGENTS.md の規約（Arrange / Act / Assert、共有の準備は 1 つのユー
 
 | グループ | 確かめること |
 | --- | --- |
-| 共通契約 | probe / RTT / process は共通 interface にあり、legacy と disabled では何もしない。congestion 系 API は共通 interface に無い（型レベル）。`senderBWE` は getter だけ |
-| legacy | pacing で遅れない。送信履歴の掃除が償却 O(1) |
+| 共通契約 | probe / RTT / process は共通 interface にあり、lightweight と disabled では何もしない。congestion 系 API は共通 interface に無い（型レベル）。`senderBWE` は getter だけ |
+| lightweight | pacing で遅れない。送信履歴の掃除が償却 O(1) |
 | TWCC 入力の解釈 | 壁時計とずれた受信時刻、空の TWCC、24-bit `reference_time` の周回、`receivedAtMs = 0`、16-bit 周回した probe 番号 |
 | 送信経路 | padding は RTX の padding-only RTP で送り、`SentInfo` のサイズと一致し、SR の octetCount に数えない。BUNDLE での TSN 順、FIFO の上限、padding が待ち media に譲る、`sendingAtMs` の時刻、RED を組み立てた後のサイズ、TWCC 未交渉時 |
 | 差し替え・停止 | 差し替え後の配送、ProcessInterval のタイマー、送信中の差し替えや stop による汚染の防止、dispose |
-| transport 切替 | 別の DTLS transport に移ると、新 transport の TSN で送ったパケットが TWCC に照合される（legacy / GCC）。移ってもアプリ指定の min / max が保たれ、probe が max を超えない |
+| transport 切替 | 別の DTLS transport に移ると、新 transport の TSN で送ったパケットが TWCC に照合される（lightweight / GCC）。移ってもアプリ指定の min / max が保たれ、probe が max を超えない |
 
-共通契約は [bandwidthEstimator.test.ts:107](review-file:packages/webrtc/tests/media/bandwidthEstimator.test.ts:107)、送信経路は [bandwidthEstimator.test.ts:630](review-file:packages/webrtc/tests/media/bandwidthEstimator.test.ts:630)、差し替え・停止は [bandwidthEstimator.test.ts:925](review-file:packages/webrtc/tests/media/bandwidthEstimator.test.ts:925) から始まります。送信中の差し替えと stop の競合は、同じ骨格の [test.each (bandwidthEstimator.test.ts:1107)](review-file:packages/webrtc/tests/media/bandwidthEstimator.test.ts:1107) にまとめています。transport 切替は [bandwidthEstimator.test.ts:994](review-file:packages/webrtc/tests/media/bandwidthEstimator.test.ts:994) と [bandwidthEstimator.test.ts:1030](review-file:packages/webrtc/tests/media/bandwidthEstimator.test.ts:1030) です。
+共通契約は [bandwidthEstimator.test.ts:107](review-file:packages/webrtc/tests/media/bandwidthEstimator.test.ts:107)、送信経路は [bandwidthEstimator.test.ts:631](review-file:packages/webrtc/tests/media/bandwidthEstimator.test.ts:631)、差し替え・停止は [bandwidthEstimator.test.ts:926](review-file:packages/webrtc/tests/media/bandwidthEstimator.test.ts:926) から始まります。送信中の差し替えと stop の競合は、同じ骨格の [test.each (bandwidthEstimator.test.ts:1107)](review-file:packages/webrtc/tests/media/bandwidthEstimator.test.ts:1111) にまとめています。transport 切替は [bandwidthEstimator.test.ts:995](review-file:packages/webrtc/tests/media/bandwidthEstimator.test.ts:995) と [bandwidthEstimator.test.ts:1034](review-file:packages/webrtc/tests/media/bandwidthEstimator.test.ts:1034) です。
 
 **選択 API** — [packages/webrtc/tests/media/peerConfigBandwidthEstimator.test.ts](review-file:packages/webrtc/tests/media/peerConfigBandwidthEstimator.test.ts)
-- `bandwidthEstimator` の各 option（未指定 / `"legacy"` / `"gcc"` / `false` / `"none"`）から作られる estimator のクラスを、[表 (peerConfigBandwidthEstimator.test.ts:26)](review-file:packages/webrtc/tests/media/peerConfigBandwidthEstimator.test.ts:26) の 1 行ずつで確かめます。同じ行で `createBandwidthEstimator` の解釈も確かめます。
+- `bandwidthEstimator` の各 option（未指定 / `"lightweight"` / `"gcc"` / `false` / `"none"`）から作られる estimator のクラスを、[表 (peerConfigBandwidthEstimator.test.ts:26)](review-file:packages/webrtc/tests/media/peerConfigBandwidthEstimator.test.ts:26) の 1 行ずつで確かめます。同じ行で `createBandwidthEstimator` の解釈も確かめます。
 - factory で `setBitrates` した GCC は、`bundlePolicy: "balanced"` の初回交渉で video sender が audio の transport に統合されても制約を保つ [peerConfigBandwidthEstimator.test.ts:92](review-file:packages/webrtc/tests/media/peerConfigBandwidthEstimator.test.ts:92)。
 
 **送信側の回帰** — [packages/webrtc/tests/media/rtpSender.test.ts](review-file:packages/webrtc/tests/media/rtpSender.test.ts)
 - 古い TWCC で新しい TSN を上書きしない [rtpSender.test.ts:1681](review-file:packages/webrtc/tests/media/rtpSender.test.ts:1681)。NACK の再送は新しい TSN を使う [rtpSender.test.ts:1731](review-file:packages/webrtc/tests/media/rtpSender.test.ts:1731)。
 - probe padding は NACK されても再送せず、media の NACK だけを RTX で再送する [rtpSender.test.ts:1517](review-file:packages/webrtc/tests/media/rtpSender.test.ts:1517)。
-- legacy はバーストを欠落させず、送信キューも通さない（develop と同じ直接送信）[rtpSender.test.ts:1830](review-file:packages/webrtc/tests/media/rtpSender.test.ts:1830)。
+- lightweight はバーストを欠落させず、送信キューも通さない（develop と同じ直接送信）[rtpSender.test.ts:1830](review-file:packages/webrtc/tests/media/rtpSender.test.ts:1830)。
 - probe の送信予定が 250ms 先なら、100ms で早く出さない [rtpSender.test.ts:1804](review-file:packages/webrtc/tests/media/rtpSender.test.ts:1804)。
 - replaceTrack・estimator の差し替えで、送信キューや probe・pacing の待ちに残った旧パケットを送らない [rtpSender.test.ts:1120](review-file:packages/webrtc/tests/media/rtpSender.test.ts:1120)。
 
@@ -95,7 +95,7 @@ seed つきの乱数で入力を作り、どんな入力でも成り立つ性質
 | suite | 確かめる性質 | 場所 |
 | --- | --- | --- |
 | twcc（144 件） | 周回・重複・並べ替え・再報告を混ぜても受信は高々 1 回で正しい世代にだけ対応する。wire 形式の往復、`reference_time` の展開。送信履歴: 送信完了の遅れ・送信停止後の feedback を混ぜても、照合で返る行は照合時点で時間窓内・span 32768 未満で、範囲内の項目は消えない | [twccProperty.test.ts:74](review-file:packages/webrtc/tests/pbt/twcc/twccProperty.test.ts:74) |
-| bwe（72 件） | GCC の通知は有限・[min, max] 内・変化時だけ。legacy の推定値は min(送信, 受信) を独立に再計算した値と一致する | [bweProperty.test.ts:31](review-file:packages/webrtc/tests/pbt/bwe/bweProperty.test.ts:31) |
+| bwe（72 件） | GCC の通知は有限・[min, max] 内・変化時だけ。lightweight の推定値は min(送信, 受信) を独立に再計算した値と一致する | [bweProperty.test.ts:31](review-file:packages/webrtc/tests/pbt/bwe/bweProperty.test.ts:31) |
 | sender（24 件） | 転送した media の番号は source の差を保ち、切替では連続し、padding は RTX の連番だけ。並行送信でも DTLS 書き込みは 1 本ずつで TSN は送信順 | [senderProperty.test.ts:94](review-file:packages/webrtc/tests/pbt/sender/senderProperty.test.ts:94) |
 | receiver（72 件） | 順着なら出力 seq = 元の seq − それより前の padding 数。並べ替え・重複でも一意で順序を保つ。`ReceiverTWCC` は受信 TSN をちょうど 1 回、欠番を未受信としてだけ報告する（報告窓を埋める 32767 件以上の欠落は飛ばしてよく、そのあとも報告が再開する） | [receiverProperty.test.ts:70](review-file:packages/webrtc/tests/pbt/receiver/receiverProperty.test.ts:70) |
 
@@ -106,7 +106,7 @@ seed つきの乱数で入力を作り、どんな入力でも成り立つ性質
 
 ### ③ GCC 制御応答テスト
 
-[bandwidthEstimator.test.ts:436](review-file:packages/webrtc/tests/media/bandwidthEstimator.test.ts:436) の 8 件です。`gccSimulation.ts` の仮想ボトルネックで、結果の**傾向**を範囲で判定します。
+[bandwidthEstimator.test.ts:437](review-file:packages/webrtc/tests/media/bandwidthEstimator.test.ts:437) の 8 件です。`gccSimulation.ts` の仮想ボトルネックで、結果の**傾向**を範囲で判定します。
 
 | 場面 | 判定 |
 | --- | --- |

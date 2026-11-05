@@ -118,12 +118,12 @@ export class GccBandwidthEstimator
   readonly onOveruseDetected = new Event<[BandwidthUsage]>();
   readonly onProbeClusterConfig = new Event<[ProbeClusterConfig]>();
   /**
-   * @deprecated No-op compatibility with SenderBandwidthEstimator.
+   * @deprecated No-op compatibility with LightweightBandwidthEstimator.
    * Never fires.
    */
   readonly onCongestion = new Event<[boolean]>();
   /**
-   * @deprecated No-op compatibility with SenderBandwidthEstimator.
+   * @deprecated No-op compatibility with LightweightBandwidthEstimator.
    * Never fires.
    */
   readonly onCongestionScore = new Event<[number]>();

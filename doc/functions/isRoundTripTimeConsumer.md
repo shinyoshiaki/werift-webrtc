@@ -9,7 +9,7 @@
 > **isRoundTripTimeConsumer**(`e`): `e is BandwidthEstimator & RoundTripTimeConsumer`
 
 True when the estimator consumes RTCP RTT for AIMD (non-zero process interval).
-Legacy / disabled `setRoundTripTime` is a no-op.
+Lightweight / disabled `setRoundTripTime` is a no-op.
 
 ## Parameters
 

@@ -92,7 +92,7 @@ that is not a retransmission. Fires in addition to onPictureLossIndication / onF
 > `readonly` **onProbeClusterConfig**: [`Event`](Event.md)\<\[[`ProbeClusterConfig`](../interfaces/ProbeClusterConfig.md)\]\>
 
 Probe cluster configs (target bps / min packets). Bridged from the active
-[BandwidthEstimator](../interfaces/BandwidthEstimator.md); GCC fires this, legacy / disabled never do.
+[BandwidthEstimator](../interfaces/BandwidthEstimator.md); GCC fires this, lightweight / disabled never do.
 
 ***
 
@@ -187,7 +187,7 @@ Probe cluster configs (target bps / min packets). Bridged from the active
 > **get** **pacingBitrateBps**(): `number`
 
 Effective send pacing rate (bps): estimator estimate, raised to the active
-probe target while probing. 0 when unknown. Legacy returns 0 from
+probe target while probing. 0 when unknown. Lightweight returns 0 from
 [BandwidthEstimator.getPacingBitrateBps](../interfaces/BandwidthEstimator.md#getpacingbitratebps) so media is unpaced.
 
 ##### Returns
@@ -226,26 +226,26 @@ probe target while probing. 0 when unknown. Legacy returns 0 from
 
 #### Get Signature
 
-> **get** **senderBWE**(): [`BandwidthEstimator`](../interfaces/BandwidthEstimator.md) & [`LegacyCongestionCompatibility`](../type-aliases/LegacyCongestionCompatibility.md)
+> **get** **senderBWE**(): [`BandwidthEstimator`](../interfaces/BandwidthEstimator.md) & [`CongestionEventsCompatibility`](../type-aliases/CongestionEventsCompatibility.md)
 
 Active send-side bandwidth estimator (TWCC-driven).
 
-Default is [SenderBandwidthEstimator](LegacyCumulativeBandwidthEstimator.md) (legacy cumulative algorithm).
+Default is [LightweightBandwidthEstimator](LightweightBandwidthEstimator.md) (lightweight cumulative algorithm).
 Replace only with [setBandwidthEstimator](#setbandwidthestimator) (e.g. `new GccBandwidthEstimator()`).
 
 Prefer [onAvailableBitrate](#onavailablebitrate) on this sender for bitrate notifications that
 survive estimator swaps. Algorithm-specific events remain on concrete instances.
 
-**TypeScript compatibility:** [LegacyCongestionCompatibility](../type-aliases/LegacyCongestionCompatibility.md) fields
+**TypeScript compatibility:** [CongestionEventsCompatibility](../type-aliases/CongestionEventsCompatibility.md) fields
 (`onCongestion` / `onCongestionScore`) are present on every estimator so
 existing `sender.senderBWE.onCongestion.subscribe(...)` still type-checks.
-They fire only on [SenderBandwidthEstimator](LegacyCumulativeBandwidthEstimator.md); GCC / disabled are no-ops.
-Prefer `sender.senderBWE as SenderBandwidthEstimator` (or
-[isSenderBandwidthEstimator](../functions/isSenderBandwidthEstimator.md)) for legacy-only APIs.
+They fire only on [LightweightBandwidthEstimator](LightweightBandwidthEstimator.md); GCC / disabled are no-ops.
+Prefer `sender.senderBWE as LightweightBandwidthEstimator` (or
+[isLightweightBandwidthEstimator](../functions/isLightweightBandwidthEstimator.md)) for lightweight-only APIs.
 
 ##### Returns
 
-[`BandwidthEstimator`](../interfaces/BandwidthEstimator.md) & [`LegacyCongestionCompatibility`](../type-aliases/LegacyCongestionCompatibility.md)
+[`BandwidthEstimator`](../interfaces/BandwidthEstimator.md) & [`CongestionEventsCompatibility`](../type-aliases/CongestionEventsCompatibility.md)
 
 ***
 
@@ -609,7 +609,7 @@ is enabled. Each call settles only after its own packet is sent or dropped.
 
 Replace the send-side bandwidth estimator used for TWCC-driven BWE.
 
-Default is the legacy [SenderBandwidthEstimator](LegacyCumulativeBandwidthEstimator.md). Pass e.g.
+Default is the lightweight [LightweightBandwidthEstimator](LightweightBandwidthEstimator.md). Pass e.g.
 `new GccBandwidthEstimator()` to use Google Congestion Control.
 
 Behavior on swap:

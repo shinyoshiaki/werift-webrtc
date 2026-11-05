@@ -103,7 +103,7 @@ export function wireTwccFeedback(
   return rtpfb.feedback as TransportWideCC;
 }
 
-/** Internal TWCC adapter of a legacy / GCC estimator. */
+/** Internal TWCC adapter of a lightweight / GCC estimator. */
 export function feedbackAdapterOf(e: BandwidthEstimator): TwccFeedbackAdapter {
   return (e as unknown as { feedbackAdapter: TwccFeedbackAdapter })
     .feedbackAdapter;

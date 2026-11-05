@@ -1,18 +1,18 @@
 import type { BandwidthEstimator } from "./bandwidthEstimator";
 import { DisabledBandwidthEstimator } from "./estimators/disabledBwe";
 import { GccBandwidthEstimator } from "./estimators/gcc/gccBwe";
-import { SenderBandwidthEstimator } from "./estimators/legacyCumulativeBwe";
+import { LightweightBandwidthEstimator } from "./estimators/lightweightBwe";
 
 /**
  * Named presets for {@link PeerConfig.bandwidthEstimator}.
- * `"legacy"` is the default (backward compatible).
+ * `"lightweight"` is the default (the existing estimator, backward compatible).
  */
-export type BandwidthEstimatorPreset = "legacy" | "gcc" | "none";
+export type BandwidthEstimatorPreset = "lightweight" | "gcc" | "none";
 
 /**
  * How a new {@link RTCRtpSender} obtains its {@link BandwidthEstimator}.
  *
- * - `"legacy"` (default): {@link SenderBandwidthEstimator}
+ * - `"lightweight"` (default): {@link LightweightBandwidthEstimator}
  * - `"gcc"`: {@link GccBandwidthEstimator}
  * - `false` / `"none"`: {@link DisabledBandwidthEstimator}
  * - factory: called **once per sender** (do not share one instance)
@@ -27,10 +27,10 @@ export type BandwidthEstimatorOption =
  * Each {@link RTCRtpSender} must get its own instance.
  */
 export function createBandwidthEstimator(
-  option: BandwidthEstimatorOption | undefined = "legacy",
+  option: BandwidthEstimatorOption | undefined = "lightweight",
 ): BandwidthEstimator {
-  if (option === undefined || option === "legacy") {
-    return new SenderBandwidthEstimator();
+  if (option === undefined || option === "lightweight") {
+    return new LightweightBandwidthEstimator();
   }
   if (option === false || option === "none") {
     return new DisabledBandwidthEstimator();

@@ -87,7 +87,7 @@ Unit is always bits per second (bps). Change-only (not every recompute).
 
 #### Deprecated
 
-No-op compatibility with SenderBandwidthEstimator.
+No-op compatibility with LightweightBandwidthEstimator.
 Never fires.
 
 ***
@@ -98,7 +98,7 @@ Never fires.
 
 #### Deprecated
 
-No-op compatibility with SenderBandwidthEstimator.
+No-op compatibility with LightweightBandwidthEstimator.
 Never fires.
 
 ***
@@ -113,7 +113,7 @@ Never fires.
 
 > `readonly` **onProbeClusterConfig**: [`Event`](Event.md)\<\[[`ProbeClusterConfig`](../interfaces/ProbeClusterConfig.md)\]\>
 
-Fires when a probe cluster is activated. Legacy / disabled never fire.
+Fires when a probe cluster is activated. Lightweight / disabled never fire.
 
 #### Implementation of
 
@@ -138,7 +138,7 @@ Max padding packets per inner send burst. `0` when padding is disabled.
 > `readonly` **probePaddingPacketBytes**: `224` = `kProbePaddingPacketBytes`
 
 RTP padding size used when the sender injects probe / loss padding.
-`0` — do not inject padding (legacy / disabled).
+`0` — do not inject padding (lightweight / disabled).
 
 #### Implementation of
 
@@ -151,7 +151,7 @@ RTP padding size used when the sender injects probe / loss padding.
 > `readonly` **processIntervalMs**: `25` = `kGoogCcProcessIntervalMs`
 
 Sender-clock process interval in milliseconds (pin GoogCc 25ms).
-`0` — do not run a process timer (legacy / disabled).
+`0` — do not run a process timer (lightweight / disabled).
 
 #### Implementation of
 
@@ -295,7 +295,7 @@ Default remains false until the caller opts in.
 Pacing target (bps) for the send engine.
 pin GetPacingRates: estimate × 2.5 before first TWCC, × 1.1 after,
 raised to the active probe target while probing.
-`0` — do not token-bucket pace (legacy / disabled).
+`0` — do not token-bucket pace (lightweight / disabled).
 
 #### Returns
 

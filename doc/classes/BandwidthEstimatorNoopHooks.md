@@ -7,12 +7,12 @@
 # Abstract Class: BandwidthEstimatorNoopHooks
 
 Shared no-op implementations of GCC send-path hooks.
-[SenderBandwidthEstimator](LegacyCumulativeBandwidthEstimator.md) and [DisabledBandwidthEstimator](DisabledBandwidthEstimator.md) extend this.
+[LightweightBandwidthEstimator](LightweightBandwidthEstimator.md) and [DisabledBandwidthEstimator](DisabledBandwidthEstimator.md) extend this.
 
 ## Extended by
 
 - [`DisabledBandwidthEstimator`](DisabledBandwidthEstimator.md)
-- [`LegacyCumulativeBandwidthEstimator`](LegacyCumulativeBandwidthEstimator.md)
+- [`LightweightBandwidthEstimator`](LightweightBandwidthEstimator.md)
 
 ## Constructors
 
@@ -38,7 +38,7 @@ Shared no-op implementations of GCC send-path hooks.
 
 #### Deprecated
 
-Always false except on [SenderBandwidthEstimator](LegacyCumulativeBandwidthEstimator.md).
+Always false except on [LightweightBandwidthEstimator](LightweightBandwidthEstimator.md).
 
 ***
 
@@ -48,7 +48,7 @@ Always false except on [SenderBandwidthEstimator](LegacyCumulativeBandwidthEstim
 
 #### Deprecated
 
-No-op except on [SenderBandwidthEstimator](LegacyCumulativeBandwidthEstimator.md).
+No-op except on [LightweightBandwidthEstimator](LightweightBandwidthEstimator.md).
 
 ***
 
@@ -58,7 +58,7 @@ No-op except on [SenderBandwidthEstimator](LegacyCumulativeBandwidthEstimator.md
 
 #### Deprecated
 
-No-op except on [SenderBandwidthEstimator](LegacyCumulativeBandwidthEstimator.md).
+No-op except on [LightweightBandwidthEstimator](LightweightBandwidthEstimator.md).
 
 ***
 
@@ -94,7 +94,7 @@ No-op except on [SenderBandwidthEstimator](LegacyCumulativeBandwidthEstimator.md
 
 ##### Deprecated
 
-Always 1 except on [SenderBandwidthEstimator](LegacyCumulativeBandwidthEstimator.md).
+Always 1 except on [LightweightBandwidthEstimator](LightweightBandwidthEstimator.md).
 
 ##### Returns
 

@@ -2,11 +2,11 @@ import { setTimeout } from "node:timers/promises";
 import { describe, expect, test, vi } from "vitest";
 import {
   GccBandwidthEstimator,
+  kProbePaddingPacketBytes,
   MediaStreamTrack,
   type RtpHeader,
   type RtpPacket,
   type SentInfo,
-  kProbePaddingPacketBytes,
 } from "../../../src";
 import { attachPacedFifoEstimator, createRtpPacket } from "../../fixture";
 import {
@@ -19,7 +19,7 @@ import { type ForwardStep, randomForwardScript } from "./generator";
 
 /**
  * RTP sender property test: claims about `RTCRtpSender`'s send path for any
- * input a seed draws (`sender/generator.ts`), on the legacy direct path and
+ * input a seed draws (`sender/generator.ts`), on the lightweight direct path and
  * on the paced FIFO used by GCC.
  *
  * CI runs `WERIFT_SENDER_SEEDS` (default 12) seeds per property from
@@ -33,13 +33,13 @@ const { seeds, steps, replay } = propertySeeds("WERIFT_SENDER", {
 });
 const cases = seeds.map((seed) => ({
   seed,
-  path: (seed % 2 === 1 ? "legacy" : "paced") as "legacy" | "paced",
+  path: (seed % 2 === 1 ? "lightweight" : "paced") as "lightweight" | "paced",
 }));
 const title = (claim: string) =>
   `${claim}: seed $seed (replay: ${replay("$seed")})`;
 
 /** Act: forward `script` through a connected sender on the given path. */
-async function forward(script: ForwardStep[], path: "legacy" | "paced") {
+async function forward(script: ForwardStep[], path: "lightweight" | "paced") {
   const { sender, sentPackets } = await prepareConnectedSender();
   if (path === "paced") {
     // GCC の送信 FIFO を使い、呼び出しごとに 1 件の loss padding を許す

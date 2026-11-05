@@ -1,10 +1,6 @@
 export type { BandwidthEstimator, SentInfo } from "../bandwidthEstimator";
-export {
-  LegacyCumulativeBandwidthEstimator,
-  SenderBandwidthEstimator,
-  isSenderBandwidthEstimator,
-} from "./legacyCumulativeBwe";
 export { DisabledBandwidthEstimator } from "./disabledBwe";
+export type { BandwidthUsage, ProbeState } from "./gcc";
 export {
   GCC_KNOWN_DIFFERENCES,
   GccBandwidthEstimator,
@@ -12,9 +8,13 @@ export {
   kMaxBitrateBps,
   kMinBitrateBps,
 } from "./gcc";
-export type { BandwidthUsage, ProbeState } from "./gcc";
 export {
-  TwccFeedbackAdapter,
-  kTwccFeedbackHistoryMaxSeqSpan,
-} from "./twccFeedbackAdapter";
+  isLightweightBandwidthEstimator,
+  LightweightBandwidthEstimator,
+  SenderBandwidthEstimator,
+} from "./lightweightBwe";
 export type { TwccPacketFeedback } from "./twccFeedbackAdapter";
+export {
+  kTwccFeedbackHistoryMaxSeqSpan,
+  TwccFeedbackAdapter,
+} from "./twccFeedbackAdapter";

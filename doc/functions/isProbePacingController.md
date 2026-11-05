@@ -9,7 +9,7 @@
 > **isProbePacingController**(`e`): `e is BandwidthEstimator & ProbePacingController`
 
 True when the estimator actually drives probe padding (non-zero padding size).
-Legacy / disabled no-ops return false.
+Lightweight / disabled no-ops return false.
 
 ## Parameters
 

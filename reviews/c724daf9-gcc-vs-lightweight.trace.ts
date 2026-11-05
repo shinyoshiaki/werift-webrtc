@@ -1,7 +1,7 @@
 /**
- * Reproduce the worked examples embedded in c724daf9-gcc-vs-legacy.html.
+ * Reproduce the worked examples embedded in c724daf9-gcc-vs-lightweight.html.
  * Run from the repository root:
- * node --experimental-transform-types --import ./tools/node-ts/register.mjs reviews/c724daf9-gcc-vs-legacy.trace.ts
+ * node --experimental-transform-types --import ./tools/node-ts/register.mjs reviews/c724daf9-gcc-vs-lightweight.trace.ts
  * Use --write to refresh only the embedded JSON; otherwise check it.
  * This is an estimator-input illustration, not a network/encoder benchmark.
  */
@@ -13,7 +13,7 @@ import { kTrendlineSmoothingCoeff } from "../packages/webrtc/src/media/sender/es
 import { GccBandwidthEstimator } from "../packages/webrtc/src/media/sender/estimators/gcc/gccBwe";
 import { InterArrivalDelta } from "../packages/webrtc/src/media/sender/estimators/gcc/interArrivalDelta";
 import { TrendlineEstimator } from "../packages/webrtc/src/media/sender/estimators/gcc/trendlineEstimator";
-import { SenderBandwidthEstimator } from "../packages/webrtc/src/media/sender/estimators/legacyCumulativeBwe";
+import { LightweightBandwidthEstimator } from "../packages/webrtc/src/media/sender/estimators/lightweightBwe";
 
 const packetBytes = 1200;
 const sendIntervalMs = 12;
@@ -36,15 +36,15 @@ function observe(serviceMs: number, propagationMs: number) {
     };
   });
   const feedbackMs = packets[packets.length - 1].recvMs + 40;
-  // legacy uses Date.now internally; keep every sample in the recent past.
+  // lightweight uses Date.now internally; keep every sample in the recent past.
   const epochMs = Date.now() - feedbackMs;
   let nowMs = epochMs;
-  const legacy = new SenderBandwidthEstimator();
+  const lightweight = new LightweightBandwidthEstimator();
   const gcc = new GccBandwidthEstimator(800000, { clock: () => nowMs });
   const interArrival = new InterArrivalDelta();
   const trendline = new TrendlineEstimator();
-  const events = { legacy: [] as number[], gcc: [] as number[] };
-  legacy.onAvailableBitrate.subscribe((bps) => events.legacy.push(bps));
+  const events = { lightweight: [] as number[], gcc: [] as number[] };
+  lightweight.onAvailableBitrate.subscribe((bps) => events.lightweight.push(bps));
   gcc.onAvailableBitrate.subscribe((bps) => events.gcc.push(bps));
   // Isolate delay: equal initial target, no probe session or process timer.
   gcc.setBitrates(5000, 800000, 2000000);
@@ -57,7 +57,7 @@ function observe(serviceMs: number, propagationMs: number) {
       sendingAtMs: nowMs,
       sentAtMs: nowMs,
     };
-    legacy.rtpPacketSent(info);
+    lightweight.rtpPacketSent(info);
     gcc.rtpPacketSent(info);
   }
   nowMs = epochMs + feedbackMs;
@@ -99,7 +99,7 @@ function observe(serviceMs: number, propagationMs: number) {
   });
 
   // 同じ送信履歴と TWCC を、現在の二つの推定器へ入力する。
-  legacy.receiveTWCC(feedback);
+  lightweight.receiveTWCC(feedback);
   gcc.receiveTWCC(feedback);
 
   // 単独で採取した検出器の状態と、GCC 全体での状態が一致することを確認する。
@@ -115,19 +115,19 @@ function observe(serviceMs: number, propagationMs: number) {
     trace,
     sendSpanMs,
     recvSpanMs,
-    legacyBps: legacy.availableBitrate,
+    lightweightBps: lightweight.availableBitrate,
     gccBps: gcc.availableBitrate,
     events,
     usage: gcc.usageState,
   };
-  // legacy の累積計算と通知値を検証する。GCC は最終通知と公開値を照合する。
+  // lightweight の累積計算と通知値を検証する。GCC は最終通知と公開値を照合する。
   assert.equal(
-    result.legacyBps,
+    result.lightweightBps,
     Math.floor((totalBits * 1000) / Math.max(sendSpanMs, recvSpanMs)),
   );
-  assert.deepEqual(events.legacy, [result.legacyBps]);
+  assert.deepEqual(events.lightweight, [result.lightweightBps]);
   assert.deepEqual(events.gcc, [result.gccBps]);
-  legacy.dispose();
+  lightweight.dispose();
   gcc.dispose();
   return result;
 }
@@ -150,7 +150,7 @@ assert.equal(data.scenarios.steady.usage, "normal");
 assert.equal(data.scenarios.fixed.usage, "normal");
 assert.equal(data.scenarios.steady.gccBps, data.scenarios.fixed.gccBps);
 
-const htmlPath = resolve("reviews/c724daf9-gcc-vs-legacy.html");
+const htmlPath = resolve("reviews/c724daf9-gcc-vs-lightweight.html");
 const html = readFileSync(htmlPath, "utf8");
 const pattern =
   /(<script id="estimator-data" type="application\/json">\n)([\s\S]*?)(\n {2}<\/script>)/;
@@ -172,7 +172,7 @@ console.log(
       Object.entries(data.scenarios).map(([name, s]) => [
         name,
         {
-          legacyBps: s.legacyBps,
+          lightweightBps: s.lightweightBps,
           gccBps: s.gccBps,
           usage: s.usage,
           firstOveruseAtPacket: s.trace.find((t) => t.state === "overuse")?.seq,

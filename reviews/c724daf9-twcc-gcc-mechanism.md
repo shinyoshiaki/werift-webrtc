@@ -8,9 +8,9 @@ ide:
 ---
 # TWCC と GCC の仕組み — 実装の呼び出し順で読む
 
-この文書は、werift の **TWCC（観測を返す仕組み）** と **帯域推定（legacy / GCC）** を、現行コードの呼び出し順に沿って説明します。仕様ドラフトの要約ではなく、「どのファイルが何を担当し、パケットと feedback がどこを通るか」を追います。
+この文書は、werift の **TWCC（観測を返す仕組み）** と **帯域推定（lightweight / GCC）** を、現行コードの呼び出し順に沿って説明します。仕様ドラフトの要約ではなく、「どのファイルが何を担当し、パケットと feedback がどこを通るか」を追います。
 
-legacy と GCC が同じ観測から別の値を出す様子は、数値つきの図解 [reviews/c724daf9-gcc-vs-legacy.html](review-file:reviews/c724daf9-gcc-vs-legacy.html) にあります。テストの構成は [reviews/c724daf9-twcc-tests.md](review-file:reviews/c724daf9-twcc-tests.md) です。
+lightweight と GCC が同じ観測から別の値を出す様子は、数値つきの図解 [reviews/c724daf9-gcc-vs-lightweight.html](review-file:reviews/c724daf9-gcc-vs-lightweight.html) にあります。テストの構成は [reviews/c724daf9-twcc-tests.md](review-file:reviews/c724daf9-twcc-tests.md) です。
 
 ## 1. 概要
 
@@ -19,13 +19,13 @@ legacy と GCC が同じ観測から別の値を出す様子は、数値つき�
 | 層 | 役割 | 置き場 |
 | --- | --- | --- |
 | TWCC | 送信パケットに番号を付け、到達 / 未到達と受信時刻を **観測して返す**（[draft-holmer-rmcat-transport-wide-cc-extensions-01](https://datatracker.ietf.org/doc/html/draft-holmer-rmcat-transport-wide-cc-extensions-01)） | RTP 拡張、RTCP FB、`ReceiverTWCC` |
-| 照合 | feedback の 16-bit 番号を送信履歴に対応づける（legacy / GCC 共通） | `TwccFeedbackAdapter` |
-| 帯域推定 | 観測から **推奨送信ビットレート（bps）** を出す。既定は legacy、選択で GCC | `BandwidthEstimator` の実装 |
+| 照合 | feedback の 16-bit 番号を送信履歴に対応づける（lightweight / GCC 共通） | `TwccFeedbackAdapter` |
+| 帯域推定 | 観測から **推奨送信ビットレート（bps）** を出す。既定は lightweight、選択で GCC | `BandwidthEstimator` の実装 |
 | アプリ | 推定値に追従する | `RTCRtpSender.onAvailableBitrate` |
 
-TWCC はアルゴリズムを規定しません。werift ではこの分担を共通 interface [bandwidthEstimator.ts:76](review-file:packages/webrtc/src/media/sender/bandwidthEstimator.ts:76) に落としています。必須は入力 `rtpPacketSent` / `receiveTWCC` と出力 `availableBitrate` / `onAvailableBitrate` で、probe・RTT・process 周期は legacy / disabled では何もしないフックです。
+TWCC はアルゴリズムを規定しません。werift ではこの分担を共通 interface [bandwidthEstimator.ts:76](review-file:packages/webrtc/src/media/sender/bandwidthEstimator.ts:76) に落としています。必須は入力 `rtpPacketSent` / `receiveTWCC` と出力 `availableBitrate` / `onAvailableBitrate` で、probe・RTT・process 周期は lightweight / disabled では何もしないフックです。
 
-アプリが購読するのは estimator 本体ではなく sender のブリッジ [rtpSender.ts:170](review-file:packages/webrtc/src/media/rtpSender.ts:170) です。単位は **bps**、値が変わったときだけ発火し（[bandwidthEstimator.ts:341](review-file:packages/webrtc/src/media/sender/bandwidthEstimator.ts:341)）、`setBandwidthEstimator` で差し替えても購読は残ります。
+アプリが購読するのは estimator 本体ではなく sender のブリッジ [rtpSender.ts:173](review-file:packages/webrtc/src/media/rtpSender.ts:173) です。単位は **bps**、値が変わったときだけ発火し（[bandwidthEstimator.ts:341](review-file:packages/webrtc/src/media/sender/bandwidthEstimator.ts:341)）、`setBandwidthEstimator` で差し替えても購読は残ります。
 
 ```ts
 sender.onAvailableBitrate.subscribe((bps) => {
@@ -86,14 +86,14 @@ sequenceDiagram
 
 TSN のカウンタは **DTLS transport 共有**、推定器は **sender ごと** です。
 
-- TSN は送信の直前に同期で割り当てます: [rtpSender.ts:1102](review-file:packages/webrtc/src/media/rtpSender.ts:1102) → [dtls.ts:492](review-file:packages/webrtc/src/transport/dtls.ts:492) の `allocateTransportWideSequence()`。ワイヤーには下位 16 bit、`SentInfo.wideSeq` には拡張値（周回しても単調）を使います。await の後に transport の現在値を読むと、BUNDLE で他 sender の TSN を拾うためです。
+- TSN は送信の直前に同期で割り当てます: [rtpSender.ts:1105](review-file:packages/webrtc/src/media/rtpSender.ts:1105) → [dtls.ts:492](review-file:packages/webrtc/src/transport/dtls.ts:492) の `allocateTransportWideSequence()`。ワイヤーには下位 16 bit、`SentInfo.wideSeq` には拡張値（周回しても単調）を使います。await の後に transport の現在値を読むと、BUNDLE で他 sender の TSN を拾うためです。
 - 2 バイトの拡張は [headerExtension.ts:123](review-file:packages/rtp/src/rtp/headerExtension.ts:123) の `serializeTransportWideCC` が書きます。
 - TWCC / abs-send-time は hop-by-hop です。転送元パケットの古い値で上書きしないよう、[sendHeaderExtensions.ts:64](review-file:packages/rtp/src/rtp/sendHeaderExtensions.ts:64)（`werift-rtp`） で merge 対象から外しています。
-- 送信完了後、TWCC が交渉済みなら `SentInfo`（[bandwidthEstimator.ts:8](review-file:packages/webrtc/src/media/sender/bandwidthEstimator.ts:8)）を estimator に渡します（[rtpSender.ts:1163](review-file:packages/webrtc/src/media/rtpSender.ts:1163)）。`size` は SRTP 後の実バイト、`sendingAtMs` は ICE に渡す直前、`sentAtMs` は送信完了の時刻です。TWCC 未交渉なら BWE も probe padding も動きません。
+- 送信完了後、TWCC が交渉済みなら `SentInfo`（[bandwidthEstimator.ts:8](review-file:packages/webrtc/src/media/sender/bandwidthEstimator.ts:8)）を estimator に渡します（[rtpSender.ts:1166](review-file:packages/webrtc/src/media/rtpSender.ts:1166)）。`size` は SRTP 後の実バイト、`sendingAtMs` は ICE に渡す直前、`sentAtMs` は送信完了の時刻です。TWCC 未交渉なら BWE も probe padding も動きません。
 - estimator の差し替えや transport 切替の前に始まった送信は、推定器の世代番号（`EstimatorBinding.generation`、[estimatorBinding.ts:62](review-file:packages/webrtc/src/media/sender/estimatorBinding.ts:62)）が一致しないので estimator に報告しません。
 - NACK の再送も同じ送信経路を通り、**新しい TSN** が付きます。
 
-送信経路は estimator で分かれます。legacy / disabled（`processIntervalMs = 0` かつ padding 0）は develop と同じく DTLS へ直接書きます。GCC は上限付きの送信 FIFO と pacer を通ります（[rtpSender.ts:801](review-file:packages/webrtc/src/media/rtpSender.ts:801) の `needsPacedSendPath`）。
+送信経路は estimator で分かれます。lightweight / disabled（`processIntervalMs = 0` かつ padding 0）は develop と同じく DTLS へ直接書きます。GCC は上限付きの送信 FIFO と pacer を通ります（[rtpSender.ts:804](review-file:packages/webrtc/src/media/rtpSender.ts:804) の `needsPacedSendPath`）。
 
 ### 2.2 受信側: feedback 生成
 
@@ -109,9 +109,9 @@ TSN のカウンタは **DTLS transport 共有**、推定器は **sender ごと*
 
 - [router.ts:510](review-file:packages/webrtc/src/media/router.ts:510) が TWCC を、**受信元 transport に今いる全 sender** に配ります。`media_ssrc` は最後の RTP の SSRC にすぎず、TSN の持ち主を表さないためです。受信元 transport が分かるときは、SSRC で別 transport の sender を選びません。
 - [twcc.ts:238](review-file:packages/rtp/src/rtcp/rtpfb/twcc.ts:238) の `packetResults` は RunLength / StatusVector を単一の番号 cursor で展開し、受信済みだけに delta を積んで受信時刻を復元します。
-- sender は [rtpSender.ts:1252](review-file:packages/webrtc/src/media/rtpSender.ts:1252) で現在の estimator の `receiveTWCC` に渡します。
+- sender は [rtpSender.ts:1255](review-file:packages/webrtc/src/media/rtpSender.ts:1255) で現在の estimator の `receiveTWCC` に渡します。
 
-### 2.4 照合: `TwccFeedbackAdapter`（legacy / GCC 共通）
+### 2.4 照合: `TwccFeedbackAdapter`（lightweight / GCC 共通）
 
 [twccFeedbackAdapter.ts:64](review-file:packages/webrtc/src/media/sender/estimators/twccFeedbackAdapter.ts:64) は、どの estimator より先に feedback を正規化します（libwebrtc `TransportFeedbackAdapter` 相当）。
 
@@ -128,16 +128,16 @@ TSN のカウンタは **DTLS transport 共有**、推定器は **sender ごと*
 | `SentInfo.sentAtMs` | 送信完了（`onSent()` はこの時刻以降に呼ばれる） |
 | `onFeedback(feedback, nowMs)` / `prune(nowMs)` の `nowMs` | feedback の到着 / 呼び出し側の tick |
 
-adapter はこれらの最大値を単調な時計として持ち、パケットの age を `clock − sendingAtMs` とします。`onFeedback()` は照合した各エントリを **その場で** 範囲判定（age ≤ 時間窓、かつ最新番号から span 32768 未満）し、範囲外は返しません。掃除はメモリを抑えるだけで、正しさは照合時に保証します。時間窓は legacy 10 秒、GCC 60 秒です。
+adapter はこれらの最大値を単調な時計として持ち、パケットの age を `clock − sendingAtMs` とします。`onFeedback()` は照合した各エントリを **その場で** 範囲判定（age ≤ 時間窓、かつ最新番号から span 32768 未満）し、範囲外は返しません。掃除はメモリを抑えるだけで、正しさは照合時に保証します。時間窓は lightweight 10 秒、GCC 60 秒です。
 
-## 3. legacy（既定）
+## 3. lightweight（既定）
 
-[legacyCumulativeBwe.ts:32](review-file:packages/webrtc/src/media/sender/estimators/legacyCumulativeBwe.ts:32) の `SenderBandwidthEstimator` です（mediasoup 由来）。
+[lightweightBwe.ts:33](review-file:packages/webrtc/src/media/sender/estimators/lightweightBwe.ts:33) の `LightweightBandwidthEstimator` です（mediasoup 由来）。
 
 1. `rtpPacketSent` は adapter に送信履歴を記録するだけです。
-2. `receiveTWCC`（[legacyCumulativeBwe.ts:95](review-file:packages/webrtc/src/media/sender/estimators/legacyCumulativeBwe.ts:95)）は adapter が返した行のうち、受信済みで時刻を持つ行を `CumulativeResult` に積みます。照合が 0 件の feedback（他 sender 宛て）は無視します。
+2. `receiveTWCC`（[lightweightBwe.ts:98](review-file:packages/webrtc/src/media/sender/estimators/lightweightBwe.ts:98)）は adapter が返した行のうち、受信済みで時刻を持つ行を `CumulativeResult` に積みます。照合が 0 件の feedback（他 sender 宛て）は無視します。
 3. 経過 ≥ 100ms かつ ≥ 20 パケットで `min(sendBitrate, receiveBitrate)` を推定値にします。
-4. 1 秒を超えて更新できないと congestion counter / score を悪化させます（legacy 固有。共通 interface には載せない）。
+4. 1 秒を超えて更新できないと congestion counter / score を悪化させます（lightweight 固有。共通 interface には載せない）。
 
 probe・pacing・25ms process はありません。
 
@@ -171,7 +171,7 @@ flowchart TB
 
 [gccBwe.ts:552](review-file:packages/webrtc/src/media/sender/estimators/gcc/gccBwe.ts:552) では推定を更新しません（libwebrtc の `OnSentPacket` と同じ）。ALR のバイト計上、adapter への記録、最初のパケットでの propagation RTT の初期化、予約済み `probeClusterId` への send-fill だけです。
 
-probe 中の送信は、送信の **前** に cluster id を予約します（[rtpSender.ts:988](review-file:packages/webrtc/src/media/rtpSender.ts:988) → [probeController.ts:302](review-file:packages/webrtc/src/media/sender/estimators/gcc/probeController.ts:302)）。非同期の送信完了時に「その時点の cluster」へ誤って計上しないためです。
+probe 中の送信は、送信の **前** に cluster id を予約します（[rtpSender.ts:991](review-file:packages/webrtc/src/media/rtpSender.ts:991) → [probeController.ts:302](review-file:packages/webrtc/src/media/sender/estimators/gcc/probeController.ts:302)）。非同期の送信完了時に「その時点の cluster」へ誤って計上しないためです。
 
 ### 4.3 TWCC 時計 — GCC の本流
 
@@ -245,7 +245,7 @@ sequenceDiagram
 
 - 次の送信時刻は `started_at + sent_bytes / send_bitrate` です。最初の間隔は 20ms、その後 2ms。予定より 10ms 以上遅れた active cluster は捨てます。5 秒の期限切れは、まだ送っていない queued cluster だけです。
 - pacing の完了は「minBytes **かつ** minPackets を送った」ときです。ACK が 80% 来ただけでは切りません。
-- メディアだけで cluster が埋まらないときは padding-only RTP を足します（[rtpSender.ts:866](review-file:packages/webrtc/src/media/rtpSender.ts:866)）。padding は **RTX の SSRC・PT・seq** で送るので、media の seq はずれません（[rtpSender.ts:1012](review-file:packages/webrtc/src/media/rtpSender.ts:1012)）。RTX が交渉されていない sender は padding を送りません（`GCC_KNOWN_DIFFERENCES`）。
+- メディアだけで cluster が埋まらないときは padding-only RTP を足します（[rtpSender.ts:869](review-file:packages/webrtc/src/media/rtpSender.ts:869)）。padding は **RTX の SSRC・PT・seq** で送るので、media の seq はずれません（[rtpSender.ts:1015](review-file:packages/webrtc/src/media/rtpSender.ts:1015)）。RTX が交渉されていない sender は padding を送りません（`GCC_KNOWN_DIFFERENCES`）。
 - メディアの pacing レートは [gccBwe.ts:286](review-file:packages/webrtc/src/media/sender/estimators/gcc/gccBwe.ts:286) の `getPacingBitrateBps` です。初回 TWCC 前は 2.5 倍、以降は 1.1 倍、probe 中は probe 目標との大きい方です。
 
 新しい probe を出してよいかは [bandwidthLimitedCause.ts:42](review-file:packages/webrtc/src/media/sender/estimators/gcc/bandwidthLimitedCause.ts:42) の `getBandwidthLimitedCause` で決めます。
@@ -263,7 +263,7 @@ sequenceDiagram
 | 経路 | 入力 | 用途 |
 | --- | --- | --- |
 | TWCC propagation | `feedback_rtt − pending_time` の最小値 | [rttBasedBackoff.ts:22](review-file:packages/webrtc/src/media/sender/estimators/gcc/rttBasedBackoff.ts:22)。`CorrectedRtt = 返事が途絶えた時間 + propagation` が 3 秒を超えたら、1 秒ごとに目標を ×0.8（床 5 kbps） |
-| RTCP RR の生の値 | `now − lastSR − DLSR` | AIMD の `setRoundTripTime` だけ（[rtpSender.ts:1240](review-file:packages/webrtc/src/media/rtpSender.ts:1240) → [gccBwe.ts:469](review-file:packages/webrtc/src/media/sender/estimators/gcc/gccBwe.ts:469)）。stats 用に平滑化した値は渡さない |
+| RTCP RR の生の値 | `now − lastSR − DLSR` | AIMD の `setRoundTripTime` だけ（[rtpSender.ts:1243](review-file:packages/webrtc/src/media/rtpSender.ts:1243) → [gccBwe.ts:469](review-file:packages/webrtc/src/media/sender/estimators/gcc/gccBwe.ts:469)）。stats 用に平滑化した値は渡さない |
 
 ### 4.7 アプリ指定の制約
 
@@ -273,8 +273,8 @@ sequenceDiagram
 
 | 操作 | sender の処理 | estimator の状態 |
 | --- | --- | --- |
-| `setBandwidthEstimator(impl)`（[rtpSender.ts:366](review-file:packages/webrtc/src/media/rtpSender.ts:366)） | 世代番号を進め、旧インスタンスを dispose / reset、新インスタンスも reset、ブリッジを付け替える | すべて初期化（暗黙の引き継ぎなし） |
-| 別の DTLS transport へ移る（[rtpSender.ts:318](review-file:packages/webrtc/src/media/rtpSender.ts:318) → [rtpSender.ts:384](review-file:packages/webrtc/src/media/rtpSender.ts:384)） | 世代番号を進め、`resetNetworkRoute()` があれば呼び、なければ `reset()` | 経路に依存する状態（送信履歴、TSN 基準、推定、probe）だけを初期化。GCC は `setBitrates` の min / start / max を保つ（[gccBwe.ts:943](review-file:packages/webrtc/src/media/sender/estimators/gcc/gccBwe.ts:943)） |
+| `setBandwidthEstimator(impl)`（[rtpSender.ts:369](review-file:packages/webrtc/src/media/rtpSender.ts:369)） | 世代番号を進め、旧インスタンスを dispose / reset、新インスタンスも reset、ブリッジを付け替える | すべて初期化（暗黙の引き継ぎなし） |
+| 別の DTLS transport へ移る（[rtpSender.ts:321](review-file:packages/webrtc/src/media/rtpSender.ts:321) → [rtpSender.ts:387](review-file:packages/webrtc/src/media/rtpSender.ts:387)） | 世代番号を進め、`resetNetworkRoute()` があれば呼び、なければ `reset()` | 経路に依存する状態（送信履歴、TSN 基準、推定、probe）だけを初期化。GCC は `setBitrates` の min / start / max を保つ（[gccBwe.ts:943](review-file:packages/webrtc/src/media/sender/estimators/gcc/gccBwe.ts:943)） |
 
 transport 切替は、`bundlePolicy: "balanced"` の初回交渉で BUNDLE が受理され、video sender が audio の transport に統合されるときにも起きます。新しい transport は別の TSN 空間なので、旧 transport の番号基準や遅れて届く旧 transport の feedback（§2.3）を持ち込まないようにしています。
 
@@ -285,11 +285,11 @@ transport 切替は、`bundlePolicy: "balanced"` の初回交渉で BUNDLE が�
 3. **3 時計に分ける** — 送信ホットパスで AIMD を回すと、パケットレートで推定が暴れます。
 4. **delay のあとに loss** — 同じ feedback に高い probe 結果とロス観測があるとき、probe を載せてからロスで天井を掛けます。
 5. **GCC の完成度基準** — 「GCC として正しく機能すること」で判定し、libwebrtc との 1:1 一致は求めません（チケット §2.12）。意図的な差は [constants.ts:435](review-file:packages/webrtc/src/media/sender/estimators/gcc/constants.ts:435) の `GCC_KNOWN_DIFFERENCES` にあります。
-6. **既定は legacy** — 既存アプリの挙動を変えないためです。legacy の送信経路は develop と同じ直接送信です。
+6. **既定は lightweight** — 既存アプリの挙動を変えないためです。lightweight の送信経路は develop と同じ直接送信です。
 
 ## 7. リスク / 既知差分
 
-- 本家 `PacedSender` ではなく、メディアは token-bucket、probe は `next_probe_time` の軽量 pacer です。ボトルネック sim では輻輳期だけ `mediaPacingEnabled = false`（[rtpSender.ts:187](review-file:packages/webrtc/src/media/rtpSender.ts:187)）にします。
+- 本家 `PacedSender` ではなく、メディアは token-bucket、probe は `next_probe_time` の軽量 pacer です。ボトルネック sim では輻輳期だけ `mediaPacingEnabled = false`（[rtpSender.ts:190](review-file:packages/webrtc/src/media/rtpSender.ts:190)）にします。
 - REMB は未配線（TWCC のみ）、ALR の周期 probe は既定でオフ、RR 由来の loss（`updatePacketsLost`）は未配線です。
 - RTX を交渉しない GCC sender は padding を送らないので、立ち上がりが libwebrtc より遅くなることがあります。
 - adapter の時計は壁時計（`Date.now`）の最大値で進みます。OS の時計が大きく進んでから戻ると、戻った幅の時間だけ照合されません。
@@ -298,4 +298,4 @@ transport 切替は、`bundlePolicy: "balanced"` の初回交渉で BUNDLE が�
 
 ## 8. 検証結果
 
-この文書は解説で、コード変更はありません。数値の再現は [reviews/c724daf9-gcc-vs-legacy.trace.ts](review-file:reviews/c724daf9-gcc-vs-legacy.trace.ts) で確かめられます（この文書の作成時に実行し、HTML 内のデータと現在の実装の出力が一致しました）。テストと実行方法は [reviews/c724daf9-twcc-tests.md](review-file:reviews/c724daf9-twcc-tests.md) にあります。
+この文書は解説で、コード変更はありません。数値の再現は [reviews/c724daf9-gcc-vs-lightweight.trace.ts](review-file:reviews/c724daf9-gcc-vs-lightweight.trace.ts) で確かめられます（この文書の作成時に実行し、HTML 内のデータと現在の実装の出力が一致しました）。テストと実行方法は [reviews/c724daf9-twcc-tests.md](review-file:reviews/c724daf9-twcc-tests.md) にあります。

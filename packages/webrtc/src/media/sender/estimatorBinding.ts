@@ -99,7 +99,7 @@ export class EstimatorBinding {
 
   /**
    * pin `OnNetworkAvailability` — initial probes wait until DTLS can send.
-   * Legacy / disabled no-op `setNetworkAvailable`.
+   * Lightweight / disabled no-op `setNetworkAvailable`.
    */
   syncNetworkAvailability(connected: boolean) {
     this.current.setNetworkAvailable(connected);

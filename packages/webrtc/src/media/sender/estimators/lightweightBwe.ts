@@ -16,20 +16,21 @@ const SCORE_MAX = 10;
  * high packet rate plus delayed TWCC still matches (parent-ticket default
  * estimator must stay backward compatible).
  */
-const kLegacySentInfoMaxAgeMs = 10_000;
+const kLightweightSentInfoMaxAgeMs = 10_000;
 
 /**
- * Legacy cumulative min(send, recv) bandwidth estimator (mediasoup-inspired).
+ * Lightweight cumulative min(send, recv) bandwidth estimator (mediasoup-inspired).
  *
- * This is the **default** send-side BWE used by {@link RTCRtpSender}.
- * Implements {@link BandwidthEstimator}; congestion-related events are **legacy-only**
- * and are not part of the shared interface. GCC send-path hooks (probe, pacing,
+ * This is the **default** send-side BWE used by {@link RTCRtpSender}: no
+ * probing, pacing or process timer, only the TWCC-observed send and receive
+ * rates. Implements {@link BandwidthEstimator}; congestion-related events are
+ * specific to this estimator and are not part of the shared interface. GCC send-path hooks (probe, pacing,
  * RTT, process interval) are no-ops so {@link RTCRtpSender} can call them
  * unconditionally.
  *
  * @see CumulativeResult
  */
-export class SenderBandwidthEstimator
+export class LightweightBandwidthEstimator
   extends BandwidthEstimatorNoopHooks
   implements BandwidthEstimator
 {
@@ -48,9 +49,9 @@ export class SenderBandwidthEstimator
    */
   readonly onAvailableBitrate = new Event<[number]>();
 
-  /** Legacy-only: whether congestion is considered active. */
+  /** Lightweight-only: whether congestion is considered active. */
   readonly onCongestion = new Event<[boolean]>();
-  /** Legacy-only: congestion score 1–10 (higher is worse). */
+  /** Lightweight-only: congestion score 1–10 (higher is worse). */
   readonly onCongestionScore = new Event<[number]>();
 
   private congestionCounter = 0;
@@ -59,7 +60,9 @@ export class SenderBandwidthEstimator
    * Send history + feedback normalization shared with GCC. Each sent packet
    * is counted as received at most once, even across corrective feedback.
    */
-  private feedbackAdapter = new TwccFeedbackAdapter(kLegacySentInfoMaxAgeMs);
+  private feedbackAdapter = new TwccFeedbackAdapter(
+    kLightweightSentInfoMaxAgeMs,
+  );
   private _congestionScore = 1;
   private readonly clock: () => number;
 
@@ -74,7 +77,7 @@ export class SenderBandwidthEstimator
     this.clock = options?.clock ?? milliTime;
   }
 
-  /** 1–10; larger means worse congestion (legacy-specific). */
+  /** 1–10; larger means worse congestion (lightweight-specific). */
   get congestionScore() {
     return this._congestionScore;
   }
@@ -184,12 +187,17 @@ export class SenderBandwidthEstimator
   }
 }
 
-/** Alias emphasizing the cumulative min-bitrate nature of the legacy algorithm. */
-export { SenderBandwidthEstimator as LegacyCumulativeBandwidthEstimator };
+/**
+ * @deprecated Renamed to {@link LightweightBandwidthEstimator}. Kept so
+ * existing `new SenderBandwidthEstimator()` / `instanceof` code keeps working.
+ */
+export const SenderBandwidthEstimator = LightweightBandwidthEstimator;
+/** @deprecated Renamed to {@link LightweightBandwidthEstimator}. */
+export type SenderBandwidthEstimator = LightweightBandwidthEstimator;
 
-/** True when the estimator is the legacy cumulative implementation. */
-export function isSenderBandwidthEstimator(
+/** True when the estimator is the lightweight (default) implementation. */
+export function isLightweightBandwidthEstimator(
   e: BandwidthEstimator,
-): e is SenderBandwidthEstimator {
-  return e instanceof SenderBandwidthEstimator;
+): e is LightweightBandwidthEstimator {
+  return e instanceof LightweightBandwidthEstimator;
 }

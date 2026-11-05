@@ -51,7 +51,7 @@ Probe, pacing, RTT, and process-interval hooks are no-ops.
 
 #### Deprecated
 
-Always false except on [SenderBandwidthEstimator](LegacyCumulativeBandwidthEstimator.md).
+Always false except on [LightweightBandwidthEstimator](LightweightBandwidthEstimator.md).
 
 #### Inherited from
 
@@ -78,7 +78,7 @@ Unit is always bits per second (bps). Change-only (not every recompute).
 
 #### Deprecated
 
-No-op except on [SenderBandwidthEstimator](LegacyCumulativeBandwidthEstimator.md).
+No-op except on [LightweightBandwidthEstimator](LightweightBandwidthEstimator.md).
 
 #### Inherited from
 
@@ -92,7 +92,7 @@ No-op except on [SenderBandwidthEstimator](LegacyCumulativeBandwidthEstimator.md
 
 #### Deprecated
 
-No-op except on [SenderBandwidthEstimator](LegacyCumulativeBandwidthEstimator.md).
+No-op except on [LightweightBandwidthEstimator](LightweightBandwidthEstimator.md).
 
 #### Inherited from
 
@@ -104,7 +104,7 @@ No-op except on [SenderBandwidthEstimator](LegacyCumulativeBandwidthEstimator.md
 
 > `readonly` **onProbeClusterConfig**: [`Event`](Event.md)\<\[[`ProbeClusterConfig`](../interfaces/ProbeClusterConfig.md)\]\>
 
-Fires when a probe cluster is activated. Legacy / disabled never fire.
+Fires when a probe cluster is activated. Lightweight / disabled never fire.
 
 #### Implementation of
 
@@ -137,7 +137,7 @@ Max padding packets per inner send burst. `0` when padding is disabled.
 > `readonly` **probePaddingPacketBytes**: `0` = `0`
 
 RTP padding size used when the sender injects probe / loss padding.
-`0` — do not inject padding (legacy / disabled).
+`0` — do not inject padding (lightweight / disabled).
 
 #### Implementation of
 
@@ -154,7 +154,7 @@ RTP padding size used when the sender injects probe / loss padding.
 > `readonly` **processIntervalMs**: `0` = `0`
 
 Sender-clock process interval in milliseconds (pin GoogCc 25ms).
-`0` — do not run a process timer (legacy / disabled).
+`0` — do not run a process timer (lightweight / disabled).
 
 #### Implementation of
 
@@ -196,7 +196,7 @@ May remain `0` until TWCC is negotiated and enough samples are collected.
 
 ##### Deprecated
 
-Always 1 except on [SenderBandwidthEstimator](LegacyCumulativeBandwidthEstimator.md).
+Always 1 except on [LightweightBandwidthEstimator](LightweightBandwidthEstimator.md).
 
 ##### Returns
 
@@ -246,7 +246,7 @@ Release listeners / timers when the sender replaces the estimator.
 Pacing target (bps) for the send engine.
 pin GetPacingRates: estimate × 2.5 before first TWCC, × 1.1 after,
 raised to the active probe target while probing.
-`0` — do not token-bucket pace (legacy / disabled).
+`0` — do not token-bucket pace (lightweight / disabled).
 
 #### Returns
 

@@ -19,8 +19,8 @@ import {
   RTCRtpTransceiver,
   type RTCSessionDescription,
   RTP_EXTENSION_URI,
-  type RtcpSrPacket,
   RtcpPayloadSpecificFeedback,
+  type RtcpSrPacket,
   RtpHeader,
   RtpPacket,
 } from "../src";
@@ -33,7 +33,7 @@ import { type KeyFrameRequestRouting, RtpRouter } from "../src/media/router";
 import { RTCRtpReceiver } from "../src/media/rtpReceiver";
 import { RTCRtpSender } from "../src/media/rtpSender";
 import { GccBandwidthEstimator } from "../src/media/sender/estimators/gcc/gccBwe";
-import type { SenderBandwidthEstimator } from "../src/media/sender/senderBWE";
+import type { LightweightBandwidthEstimator } from "../src/media/sender/senderBWE";
 
 export const createRtpPacket = (
   sequenceNumber = 0,
@@ -198,7 +198,7 @@ export function createSrtpLoopback(
 /**
  * Attach a GCC estimator so the sender uses its paced send FIFO, with pacing,
  * probing, and padding disabled. For tests about FIFO order / source epochs
- * (legacy writes straight through and never queues).
+ * (lightweight writes straight through and never queues).
  */
 export function attachPacedFifoEstimator(sender: RTCRtpSender) {
   const gcc = new GccBandwidthEstimator(300_000);
@@ -571,7 +571,7 @@ export async function createConnectedSendrecvVideoPeers(
 
 /** Arrange: `count` packets sent through `estimator` from `firstSeq`, `sentAtMs` apart by `stepMs`. */
 export function recordSentPackets(
-  estimator: SenderBandwidthEstimator,
+  estimator: LightweightBandwidthEstimator,
   {
     count,
     firstSeq = 0,
@@ -592,7 +592,7 @@ export function recordSentPackets(
 }
 
 /** Test-only read: the packets `estimator` keeps for transport-cc feedback. */
-export function pendingFeedback(estimator: SenderBandwidthEstimator) {
+export function pendingFeedback(estimator: LightweightBandwidthEstimator) {
   const adapter = (
     estimator as unknown as {
       feedbackAdapter: {

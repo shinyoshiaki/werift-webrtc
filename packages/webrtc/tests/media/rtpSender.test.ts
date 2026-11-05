@@ -1119,7 +1119,7 @@ describe("media/rtpSender RTP continuity", () => {
 
   test("送信キュー待ちの旧パケットは replaceTrack 後に送られず、新ソース先頭が連続性補正を受ける", async () => {
     const { sender, track, sendRtp } = arrangeSender();
-    // Arrange: 送信キューを使う pacing 系 estimator（legacy はキューを持たない）
+    // Arrange: 送信キューを使う pacing 系 estimator（lightweight はキューを持たない）
     attachPacedFifoEstimator(sender);
     const { release } = holdFirstDtlsWrite(sendRtp);
     const track2 = new MediaStreamTrack({ kind: "audio", remote: true });
@@ -1207,7 +1207,7 @@ describe("media/rtpSender RTP continuity", () => {
 
   test("replaceTrack(null) 後は送信キュー待ちの旧パケットを送らない", async () => {
     const { sender, track, sendRtp } = arrangeSender();
-    // Arrange: 送信キューを使う pacing 系 estimator（legacy はキューを持たない）
+    // Arrange: 送信キューを使う pacing 系 estimator（lightweight はキューを持たない）
     attachPacedFifoEstimator(sender);
     const { release } = holdFirstDtlsWrite(sendRtp);
 
@@ -1827,8 +1827,8 @@ describe("media/rtpSender RTP continuity", () => {
     expect(sendTimes[0]! - t0).toBeGreaterThanOrEqual(200);
   }, 10_000);
 
-  test("legacy は DTLS 書き込みが保留中でもバーストを欠落させず、キューに溜めず直接送る", async () => {
-    // Arrange: 既定 (legacy) の video sender。1 件目の DTLS 書き込みを保留する
+  test("lightweight は DTLS 書き込みが保留中でもバーストを欠落させず、キューに溜めず直接送る", async () => {
+    // Arrange: 既定 (lightweight) の video sender。1 件目の DTLS 書き込みを保留する
     const { sender, sendRtp } = createConnectedRtpSender({ kind: "video" });
     const { release } = holdFirstDtlsWrite(sendRtp);
 

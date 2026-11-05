@@ -1115,7 +1115,7 @@ v6.0.0
 
 > **bandwidthEstimator**: [`BandwidthEstimatorOption`](../type-aliases/BandwidthEstimatorOption.md)
 
-Send-side estimator used by each new sender; defaults to legacy.
+Send-side estimator used by each new sender; defaults to `"lightweight"`.
 
 ##### bundlePolicy
 

@@ -6,7 +6,7 @@
 
 # Type Alias: BandwidthEstimatorPreset
 
-> **BandwidthEstimatorPreset** = `"legacy"` \| `"gcc"` \| `"none"`
+> **BandwidthEstimatorPreset** = `"lightweight"` \| `"gcc"` \| `"none"`
 
 Named presets for [PeerConfig.bandwidthEstimator](../interfaces/PeerConfig.md#bandwidthestimator).
-`"legacy"` is the default (backward compatible).
+`"lightweight"` is the default (the existing estimator, backward compatible).

@@ -141,7 +141,7 @@ export interface PeerConfig {
    * sequence numbers are compacted. Default false preserves wire RTP events.
    */
   filterProbePaddingOnReceiveRtp: boolean;
-  /** Send-side estimator used by each new sender; defaults to legacy. */
+  /** Send-side estimator used by each new sender; defaults to `"lightweight"`. */
   bandwidthEstimator: BandwidthEstimatorOption;
   /** SCTP outbound packet MTU used for DATA chunk fragmentation. */
   sctp: { mtu: number };
@@ -295,7 +295,7 @@ export function generateDefaultPeerConfig(): PeerConfig {
     forceTurnTCP: false,
     maxMessageSize: DEFAULT_MAX_MESSAGE_SIZE,
     filterProbePaddingOnReceiveRtp: false,
-    bandwidthEstimator: "legacy",
+    bandwidthEstimator: "lightweight",
     sctp: { mtu: DEFAULT_SCTP_MTU },
     pendingRtp: false,
     mLineReuse: "compatible",

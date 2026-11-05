@@ -33,7 +33,7 @@ is at most `maxAgeMs` and it lies less than
 time, so it never returns an out-of-range packet regardless of call order.
 Pruning only bounds memory.
 
-Shared by every [BandwidthEstimator](../interfaces/BandwidthEstimator.md) that consumes TWCC (legacy, GCC).
+Shared by every [BandwidthEstimator](../interfaces/BandwidthEstimator.md) that consumes TWCC (lightweight, GCC).
 
 ## Constructors
 

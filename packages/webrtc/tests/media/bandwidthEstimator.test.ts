@@ -5,12 +5,13 @@ import {
   GccBandwidthEstimator,
   hasTwccReceiveTiming,
   isBandwidthEstimatorProcessor,
+  isLightweightBandwidthEstimator,
   isNetworkAvailabilityConsumer,
   isProbePacingController,
   isRoundTripTimeConsumer,
-  isSenderBandwidthEstimator,
   kGoogCcProcessIntervalMs,
   kProbePaddingPacketBytes,
+  LightweightBandwidthEstimator,
   PacketResult,
   PacketStatus,
   type ProbePacingController,
@@ -19,7 +20,6 @@ import {
   RtcpTransportLayerFeedback,
   type RtpHeader,
   RtpPacket,
-  SenderBandwidthEstimator,
   type SentInfo,
   TransportWideCC,
   TWCC_REFERENCE_TIME_MOD,
@@ -105,14 +105,15 @@ function createClockGcc(
 
 describe("media/sender bandwidth estimator", () => {
   describe("共通契約（BandwidthEstimator / RTCRtpSender）", () => {
-    test("probe / RTT / process は共通 interface にあり、legacy と disabled は no-op", () => {
+    test("probe / RTT / process は共通 interface にあり、lightweight と disabled は no-op", () => {
       // Arrange
-      const legacy: BandwidthEstimator = new SenderBandwidthEstimator();
+      const lightweight: BandwidthEstimator =
+        new LightweightBandwidthEstimator();
       const disabled: BandwidthEstimator = new DisabledBandwidthEstimator();
       const gcc = new GccBandwidthEstimator();
 
       // Assert: 共通型から呼べる
-      for (const e of [legacy, disabled]) {
+      for (const e of [lightweight, disabled]) {
         expect(e.shouldTagProbePacket()).toBe(false);
         expect(e.getPacingBitrateBps()).toBe(0);
         expect(e.reserveOutgoingProbe(0)).toBeUndefined();
@@ -129,14 +130,14 @@ describe("media/sender bandwidth estimator", () => {
       }
 
       // Act / Assert: type guard は実効的な GCC のみ true
-      expect(isProbePacingController(legacy)).toBe(false);
+      expect(isProbePacingController(lightweight)).toBe(false);
       expect(isProbePacingController(disabled)).toBe(false);
       expect(isProbePacingController(gcc)).toBe(true);
-      expect(isRoundTripTimeConsumer(legacy)).toBe(false);
+      expect(isRoundTripTimeConsumer(lightweight)).toBe(false);
       expect(isRoundTripTimeConsumer(gcc)).toBe(true);
-      expect(isNetworkAvailabilityConsumer(legacy)).toBe(false);
+      expect(isNetworkAvailabilityConsumer(lightweight)).toBe(false);
       expect(isNetworkAvailabilityConsumer(gcc)).toBe(true);
-      expect(isBandwidthEstimatorProcessor(legacy)).toBe(false);
+      expect(isBandwidthEstimatorProcessor(lightweight)).toBe(false);
       expect(isBandwidthEstimatorProcessor(gcc)).toBe(true);
       const probe: ProbePacingController = gcc;
       expect(probe.getPacingBitrateBps()).toBeGreaterThan(0);
@@ -159,12 +160,12 @@ describe("media/sender bandwidth estimator", () => {
       expect(noCongestionOnCommon).toBe(true);
 
       // runtime: 具象の固有イベントは共通型経由では触れない（代入は型エラー）
-      const asCommon: BandwidthEstimator = new SenderBandwidthEstimator();
+      const asCommon: BandwidthEstimator = new LightweightBandwidthEstimator();
       expect(asCommon.availableBitrate).toBeDefined();
       expect(typeof asCommon.receiveTWCC).toBe("function");
       // 具象側には congestion があるが、共通契約外
-      const legacy = new SenderBandwidthEstimator();
-      expect(typeof legacy.onCongestion.subscribe).toBe("function");
+      const lightweight = new LightweightBandwidthEstimator();
+      expect(typeof lightweight.onCongestion.subscribe).toBe("function");
     });
 
     test("senderBWE は getter のみで直接代入できない", () => {
@@ -190,23 +191,23 @@ describe("media/sender bandwidth estimator", () => {
       // Arrange
       const sender = new RTCRtpSender("audio");
 
-      // Assert: 既定 legacy では具象イベントに到達できる
-      expect(isSenderBandwidthEstimator(sender.senderBWE)).toBe(true);
+      // Assert: 既定 lightweight では具象イベントに到達できる
+      expect(isLightweightBandwidthEstimator(sender.senderBWE)).toBe(true);
       expect(typeof sender.senderBWE.onCongestion.subscribe).toBe("function");
 
       // Act
       sender.setBandwidthEstimator(new GccBandwidthEstimator());
 
       // Assert: GCC でも同名の no-op Event があり、既存の参照が compile error にならない
-      expect(isSenderBandwidthEstimator(sender.senderBWE)).toBe(false);
+      expect(isLightweightBandwidthEstimator(sender.senderBWE)).toBe(false);
       expect(typeof sender.senderBWE.onCongestion.subscribe).toBe("function");
       expect(sender.senderBWE.congestionScore).toBe(1);
     });
   });
 
-  describe("legacy（SenderBandwidthEstimator）", () => {
-    test("legacy estimator では sendRtp が pacing で遅延しない", async () => {
-      // Arrange: デフォルト legacy
+  describe("lightweight（LightweightBandwidthEstimator）", () => {
+    test("lightweight estimator では sendRtp が pacing で遅延しない", async () => {
+      // Arrange: デフォルト lightweight
       const { sender } = await prepareConnectedSender();
       expect(isProbePacingController(sender.senderBWE)).toBe(false);
 
@@ -216,17 +217,17 @@ describe("media/sender bandwidth estimator", () => {
       }
       const elapsed = performance.now() - t0;
 
-      // Assert: token-bucket があれば数百 ms かかるが、legacy は即時
+      // Assert: token-bucket があれば数百 ms かかるが、lightweight は即時
       expect(elapsed).toBeLessThan(50);
     });
 
-    test("BUNDLE で他の sender 宛ての TWCC だけを受けても、送信していない legacy は輻輳と判定しない", () => {
-      // Arrange: 1 パケットも送っていない legacy と、その購読
-      const legacy = new SenderBandwidthEstimator();
+    test("BUNDLE で他の sender 宛ての TWCC だけを受けても、送信していない lightweight は輻輳と判定しない", () => {
+      // Arrange: 1 パケットも送っていない lightweight と、その購読
+      const lightweight = new LightweightBandwidthEstimator();
       const congestion: boolean[] = [];
       const scores: number[] = [];
-      legacy.onCongestion.subscribe((v) => congestion.push(v));
-      legacy.onCongestionScore.subscribe((v) => scores.push(v));
+      lightweight.onCongestion.subscribe((v) => congestion.push(v));
+      lightweight.onCongestionScore.subscribe((v) => scores.push(v));
       const others = Array.from(
         { length: 20 },
         (_, i) =>
@@ -239,21 +240,21 @@ describe("media/sender bandwidth estimator", () => {
 
       // Act: transport の fan-out で、他 sender の TWCC が 100ms 周期で約 4 秒分届く
       for (let i = 0; i < 40; i++) {
-        legacy.receiveTWCC(makeTwccFeedback(others));
+        lightweight.receiveTWCC(makeTwccFeedback(others));
       }
 
       // Assert: develop と同じく congestion=false・score=1 のままで、イベントも出ない
-      expect(legacy.congestion).toBe(false);
-      expect(legacy.congestionScore).toBe(1);
+      expect(lightweight.congestion).toBe(false);
+      expect(lightweight.congestionScore).toBe(1);
       expect(congestion).toEqual([]);
       expect(scores).toEqual([]);
     });
 
-    test("legacy sentInfos の時間窓 prune は先頭からのみ削除し、窓内件数で線形に走査しない", () => {
+    test("lightweight sentInfos の時間窓 prune は先頭からのみ削除し、窓内件数で線形に走査しない", () => {
       // Arrange: 1000 pps で 10s 窓が満杯（約 10,000 件）になる送信列
-      const legacy = new SenderBandwidthEstimator();
+      const lightweight = new LightweightBandwidthEstimator();
       const send = (i: number) =>
-        legacy.rtpPacketSent({
+        lightweight.rtpPacketSent({
           wideSeq: i,
           size: 100,
           sendingAtMs: i,
@@ -268,7 +269,7 @@ describe("media/sender bandwidth estimator", () => {
       const elapsedMs = performance.now() - t0;
 
       // Assert: 窓内（直近 10s）だけが送信順のまま残る
-      const keys = [...twccHistoryOf(legacy).keys()];
+      const keys = [...twccHistoryOf(lightweight).keys()];
       expect(keys.length).toBe(10_001);
       expect(keys[0]).toBe(10_000);
       expect(keys.at(-1)).toBe(20_000);
@@ -954,9 +955,9 @@ describe("media/sender bandwidth estimator", () => {
         act: (sender: RTCRtpSender) => sender.stop(),
       },
       {
-        action: "legacy への差し替え",
+        action: "lightweight への差し替え",
         act: (sender: RTCRtpSender) =>
-          sender.setBandwidthEstimator(new SenderBandwidthEstimator()),
+          sender.setBandwidthEstimator(new LightweightBandwidthEstimator()),
       },
     ])(
       "GCC は ProcessInterval ごとに process され、$action で旧 GCC の timer が止まる",
@@ -992,7 +993,10 @@ describe("media/sender bandwidth estimator", () => {
     );
 
     test.each([
-      { kind: "legacy", create: () => new SenderBandwidthEstimator() },
+      {
+        kind: "lightweight",
+        create: () => new LightweightBandwidthEstimator(),
+      },
       { kind: "gcc", create: () => new GccBandwidthEstimator(300_000) },
     ])(
       "別の DTLS transport に移ると、新 transport の TSN で送った packet が TWCC に照合される ($kind)",
@@ -1106,9 +1110,9 @@ describe("media/sender bandwidth estimator", () => {
 
     test.each([
       {
-        action: "legacy への差し替え",
+        action: "lightweight への差し替え",
         act: (sender: RTCRtpSender) =>
-          sender.setBandwidthEstimator(new SenderBandwidthEstimator()),
+          sender.setBandwidthEstimator(new LightweightBandwidthEstimator()),
       },
       { action: "stop", act: (sender: RTCRtpSender) => sender.stop() },
     ])(

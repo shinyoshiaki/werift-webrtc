@@ -58,7 +58,7 @@
 - [IceCandidate](classes/IceCandidate.md)
 - [InterArrivalDelta](classes/InterArrivalDelta.md)
 - [IntervalBudget](classes/IntervalBudget.md)
-- [LegacyCumulativeBandwidthEstimator](classes/LegacyCumulativeBandwidthEstimator.md)
+- [LightweightBandwidthEstimator](classes/LightweightBandwidthEstimator.md)
 - [LinkCapacityEstimator](classes/LinkCapacityEstimator.md)
 - [LossBasedBwe](classes/LossBasedBwe.md)
 - [MediaDescription](classes/MediaDescription.md)
@@ -249,6 +249,7 @@
 - [BandwidthUsage](type-aliases/BandwidthUsage.md)
 - [BundlePolicy](type-aliases/BundlePolicy.md)
 - [CipherSuites](type-aliases/CipherSuites.md)
+- [CongestionEventsCompatibility](type-aliases/CongestionEventsCompatibility.md)
 - [ConnectionState](type-aliases/ConnectionState.md)
 - [CurrentDirection](type-aliases/CurrentDirection.md)
 - [CurveTypes](type-aliases/CurveTypes.md)
@@ -276,7 +277,6 @@
 - [IpAddressFamily](type-aliases/IpAddressFamily.md)
 - [KeyFrameRequestRouting](type-aliases/KeyFrameRequestRouting.md)
 - [Kind](type-aliases/Kind.md)
-- [LegacyCongestionCompatibility](type-aliases/LegacyCongestionCompatibility.md)
 - [LossBasedState](type-aliases/LossBasedState.md)
 - [MediaDirection](type-aliases/MediaDirection.md)
 - [MLineReuse](type-aliases/MLineReuse.md)
@@ -319,6 +319,7 @@
 - [RtpMediaClockState](type-aliases/RtpMediaClockState.md)
 - [RtpReceiveInfo](type-aliases/RtpReceiveInfo.md)
 - [RtpReceivePacketType](type-aliases/RtpReceivePacketType.md)
+- [~~SenderBandwidthEstimator~~](type-aliases/SenderBandwidthEstimator.md)
 - [SendStreamIds](type-aliases/SendStreamIds.md)
 - [SignatureAlgorithms](type-aliases/SignatureAlgorithms.md)
 - [SignatureHash](type-aliases/SignatureHash.md)
@@ -436,6 +437,7 @@
 - [RTCP\_HEADER\_SIZE](variables/RTCP_HEADER_SIZE.md)
 - [RTP\_EXTENSION\_URI](variables/RTP_EXTENSION_URI.md)
 - [RtpReceivePacketType](variables/RtpReceivePacketType.md)
+- [~~SenderBandwidthEstimator~~](variables/SenderBandwidthEstimator.md)
 - [Sendonly](variables/Sendonly.md)
 - [Sendrecv](variables/Sendrecv.md)
 - [SignalingStates](variables/SignalingStates.md)
@@ -533,6 +535,7 @@
 - [isCodecCompatible](functions/isCodecCompatible.md)
 - [isComprehensionRequiredAttribute](functions/isComprehensionRequiredAttribute.md)
 - [isDtls](functions/isDtls.md)
+- [isLightweightBandwidthEstimator](functions/isLightweightBandwidthEstimator.md)
 - [isLinkLocalAddress](functions/isLinkLocalAddress.md)
 - [isMedia](functions/isMedia.md)
 - [isNetworkAvailabilityConsumer](functions/isNetworkAvailabilityConsumer.md)
@@ -544,7 +547,6 @@
 - [isRoundTripTimeConsumer](functions/isRoundTripTimeConsumer.md)
 - [isRtcp](functions/isRtcp.md)
 - [isRttAboveLimit](functions/isRttAboveLimit.md)
-- [isSenderBandwidthEstimator](functions/isSenderBandwidthEstimator.md)
 - [isStunMessage](functions/isStunMessage.md)
 - [keyLength](functions/keyLength.md)
 - [leb128decode](functions/leb128decode.md)
@@ -635,9 +637,3 @@
 - [validateRemoteCandidate](functions/validateRemoteCandidate.md)
 - [wrapRtx](functions/wrapRtx.md)
 - [writeH265PayloadHeader](functions/writeH265PayloadHeader.md)
-
-## References
-
-### SenderBandwidthEstimator
-
-Renames and re-exports [LegacyCumulativeBandwidthEstimator](classes/LegacyCumulativeBandwidthEstimator.md)

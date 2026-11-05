@@ -8,7 +8,7 @@
 
 Probe cluster the sender should temporarily aim for (padding / encoder ramp).
 GCC fires [BandwidthEstimator.onProbeClusterConfig](BandwidthEstimator.md#onprobeclusterconfig) with this payload;
-legacy / disabled estimators never emit it.
+lightweight / disabled estimators never emit it.
 
 ## Properties
 

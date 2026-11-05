@@ -11,7 +11,7 @@ Common contract for send-side bandwidth estimators driven by TWCC feedback.
 TWCC I/O and recommended bitrate (`rtpPacketSent` / `receiveTWCC` /
 `availableBitrate` / `onAvailableBitrate`) are required. GCC also needs
 probe / pacing / RTT / process-interval hooks; those live on this same
-interface so [RTCRtpSender](../classes/RTCRtpSender.md) does not import GCC. Legacy and disabled
+interface so [RTCRtpSender](../classes/RTCRtpSender.md) does not import GCC. Lightweight and disabled
 estimators implement them as no-ops (`processIntervalMs === 0`, padding
 sizes 0, methods return false / 0 / undefined).
 
@@ -39,7 +39,7 @@ Unit is always bits per second (bps). Change-only (not every recompute).
 
 > `readonly` **onProbeClusterConfig**: [`Event`](../classes/Event.md)\<\[[`ProbeClusterConfig`](ProbeClusterConfig.md)\]\>
 
-Fires when a probe cluster is activated. Legacy / disabled never fire.
+Fires when a probe cluster is activated. Lightweight / disabled never fire.
 
 ***
 
@@ -56,7 +56,7 @@ Max padding packets per inner send burst. `0` when padding is disabled.
 > `readonly` **probePaddingPacketBytes**: `number`
 
 RTP padding size used when the sender injects probe / loss padding.
-`0` — do not inject padding (legacy / disabled).
+`0` — do not inject padding (lightweight / disabled).
 
 ***
 
@@ -65,7 +65,7 @@ RTP padding size used when the sender injects probe / loss padding.
 > `readonly` **processIntervalMs**: `number`
 
 Sender-clock process interval in milliseconds (pin GoogCc 25ms).
-`0` — do not run a process timer (legacy / disabled).
+`0` — do not run a process timer (lightweight / disabled).
 
 ## Methods
 
@@ -89,7 +89,7 @@ Release listeners / timers when the sender replaces the estimator.
 Pacing target (bps) for the send engine.
 pin GetPacingRates: estimate × 2.5 before first TWCC, × 1.1 after,
 raised to the active probe target while probing.
-`0` — do not token-bucket pace (legacy / disabled).
+`0` — do not token-bucket pace (lightweight / disabled).
 
 #### Returns
 

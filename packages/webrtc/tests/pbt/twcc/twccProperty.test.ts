@@ -3,8 +3,8 @@ import {
   type BandwidthEstimator,
   GccBandwidthEstimator,
   kSendTimeHistoryWindowMs,
+  LightweightBandwidthEstimator,
   PacketResult,
-  SenderBandwidthEstimator,
   sortPacketResultsByWideSeq,
   TWCC_REFERENCE_TIME_MOD,
   TWCC_REFERENCE_TIME_UNIT_MS,
@@ -44,17 +44,17 @@ const { seeds, steps, replay } = propertySeeds("WERIFT_TWCC", {
 });
 const cases = seeds.map((seed) => ({
   seed,
-  kind: (seed % 2 === 1 ? "legacy" : "gcc") as "legacy" | "gcc",
+  kind: (seed % 2 === 1 ? "lightweight" : "gcc") as "lightweight" | "gcc",
 }));
 const title = (claim: string) =>
   `${claim}: seed $seed (replay: ${replay("$seed")})`;
 
 const createEstimator = (
-  kind: "legacy" | "gcc",
+  kind: "lightweight" | "gcc",
   clock?: () => number,
 ): BandwidthEstimator =>
-  kind === "legacy"
-    ? new SenderBandwidthEstimator({ clock })
+  kind === "lightweight"
+    ? new LightweightBandwidthEstimator({ clock })
     : new GccBandwidthEstimator(300_000, { clock });
 
 /** Act: feed every delivery and collect what each feedback reported. */
@@ -124,7 +124,7 @@ describe("twcc property", () => {
       "estimator ($kind): estimator に渡る受信報告は送信パケットごとに高々 1 回",
     ),
     ({ seed, kind }) => {
-      // Arrange: legacy / GCC は共通 adapter の出力だけを使う
+      // Arrange: lightweight / GCC は共通 adapter の出力だけを使う
       const { owned, sendOrder, deliveries } = randomTransport(
         seededRandom(seed),
         steps,
@@ -231,8 +231,9 @@ describe("twcc property", () => {
       "history ($kind): 送信完了の遅れ・送信停止後の feedback を混ぜても、照合で返るパケットは照合時点で時間窓内・番号 span 32768 未満で、範囲内の項目は消えない",
     ),
     ({ seed, kind }) => {
-      // Arrange: legacy は 10 秒窓、GCC は 60 秒窓。送信確認・process・feedback の時刻を同じ clock で与える
-      const windowMs = kind === "legacy" ? 10_000 : kSendTimeHistoryWindowMs;
+      // Arrange: lightweight は 10 秒窓、GCC は 60 秒窓。送信確認・process・feedback の時刻を同じ clock で与える
+      const windowMs =
+        kind === "lightweight" ? 10_000 : kSendTimeHistoryWindowMs;
       let clockMs = Number.NEGATIVE_INFINITY;
       const estimator = createEstimator(kind, () => clockMs);
       const matched = captureMatchedFeedback(estimator);

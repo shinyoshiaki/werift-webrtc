@@ -34,7 +34,7 @@ PR は分割せず、1 つの PR のまま、リスクの層ごとに読む範�
 | パス | 対象 | 読み方 | 完了の基準 | 目安 |
 | --- | --- | --- | --- | --- |
 | 0 | 参照コピー・生成ドキュメント・解説文書 | 読まない。コマンドで確認する | 2 項目のコマンドが通る（今回確認済み） | 数分 |
-| **1** | **既定経路（legacy）の `src`** | **行単位で読む** | 全ファイルを読み終え、§2.3 の「意図した変更」表の各項目に納得する | 1 回 400 行前後で 10〜11 回 |
+| **1** | **既定経路（lightweight）の `src`** | **行単位で読む** | 全ファイルを読み終え、§2.3 の「意図した変更」表の各項目に納得する | 1 回 400 行前後で 10〜11 回 |
 | 2 | 公開 API | changelog・生成ドキュメント・型で外形を見る | 名前・既定値・破壊的変更が changelog と一致する | 1 回 |
 | 3 | GCC 本体（opt-in） | 他との境界だけ行で読み、中身は挙動で判断する | 境界の読了と、既知差分・制御応答・E2E 結果への合意 | 2〜3 回 |
 | 4 | テスト・シミュレーション | 守っている不変条件と実装の対応を見る | 対応表に抜けがない | 1〜2 回 |
@@ -61,7 +61,7 @@ PR は分割せず、1 つの PR のまま、リスクの層ごとに読む範�
 
 ### 2.3 パス 1：既定経路（行単位、約 4,300 行）
 
-既定の推定器は legacy です（[packages/webrtc/src/api/peerConfig.ts:298](review-file:packages/webrtc/src/api/peerConfig.ts:298)）。このパスで答える問いは 1 つです。
+既定の推定器は lightweight です（[packages/webrtc/src/api/peerConfig.ts:298](review-file:packages/webrtc/src/api/peerConfig.ts:298)）。このパスで答える問いは 1 つです。
 
 > develop と比べて、既存の利用者の挙動が変わるか。変わるなら、それは意図した不具合修正か。
 
@@ -69,14 +69,14 @@ PR は分割せず、1 つの PR のまま、リスクの層ごとに読む範�
 
 | 意図した既定経路の変更 | 主な場所 |
 | --- | --- |
-| TSN を送信前に同期で割り当て、その値を `SentInfo.wideSeq` に使う（BUNDLE で他 sender の TSN を拾わない） | [packages/webrtc/src/media/rtpSender.ts:1102](review-file:packages/webrtc/src/media/rtpSender.ts:1102)、[packages/webrtc/src/transport/dtls.ts:492](review-file:packages/webrtc/src/transport/dtls.ts:492) |
+| TSN を送信前に同期で割り当て、その値を `SentInfo.wideSeq` に使う（BUNDLE で他 sender の TSN を拾わない） | [packages/webrtc/src/media/rtpSender.ts:1105](review-file:packages/webrtc/src/media/rtpSender.ts:1105)、[packages/webrtc/src/transport/dtls.ts:492](review-file:packages/webrtc/src/transport/dtls.ts:492) |
 | 転送元パケットの TWCC / abs-send-time 拡張で新しい値を上書きしない | [packages/rtp/src/rtp/sendHeaderExtensions.ts:64](review-file:packages/rtp/src/rtp/sendHeaderExtensions.ts:64) |
-| NACK 再送に新しい TSN を割り当てる | [packages/webrtc/src/media/rtpSender.ts:1286](review-file:packages/webrtc/src/media/rtpSender.ts:1286) |
-| padding-only パケットを NACK 用キャッシュに入れない | [packages/webrtc/src/media/rtpSender.ts:1120](review-file:packages/webrtc/src/media/rtpSender.ts:1120) |
-| `sendingAtMs` は ICE に渡す直前の時刻 | [packages/webrtc/src/media/rtpSender.ts:1124](review-file:packages/webrtc/src/media/rtpSender.ts:1124) |
-| legacy の送信履歴を 10 秒の時間窓で捨てる（develop は無制限に増えた） | [packages/webrtc/src/media/sender/estimators/legacyCumulativeBwe.ts:19](review-file:packages/webrtc/src/media/sender/estimators/legacyCumulativeBwe.ts:19) |
+| NACK 再送に新しい TSN を割り当てる | [packages/webrtc/src/media/rtpSender.ts:1289](review-file:packages/webrtc/src/media/rtpSender.ts:1289) |
+| padding-only パケットを NACK 用キャッシュに入れない | [packages/webrtc/src/media/rtpSender.ts:1123](review-file:packages/webrtc/src/media/rtpSender.ts:1123) |
+| `sendingAtMs` は ICE に渡す直前の時刻 | [packages/webrtc/src/media/rtpSender.ts:1127](review-file:packages/webrtc/src/media/rtpSender.ts:1127) |
+| lightweight の送信履歴を 10 秒の時間窓で捨てる（develop は無制限に増えた） | [packages/webrtc/src/media/sender/estimators/lightweightBwe.ts:19](review-file:packages/webrtc/src/media/sender/estimators/lightweightBwe.ts:19) |
 | TWCC の照合を共通の照合層で行う（重複・周回・他 sender の番号に強い） | [packages/webrtc/src/media/sender/estimators/twccFeedbackAdapter.ts:64](review-file:packages/webrtc/src/media/sender/estimators/twccFeedbackAdapter.ts:64) |
-| 別の DTLS transport に移ると推定器の経路依存の状態を初期化する | [packages/webrtc/src/media/rtpSender.ts:384](review-file:packages/webrtc/src/media/rtpSender.ts:384) |
+| 別の DTLS transport に移ると推定器の経路依存の状態を初期化する | [packages/webrtc/src/media/rtpSender.ts:387](review-file:packages/webrtc/src/media/rtpSender.ts:387) |
 | TWCC は受信元 transport に今いる sender だけに配る | [packages/webrtc/src/media/router.ts:510](review-file:packages/webrtc/src/media/router.ts:510) |
 | `ReceiverTWCC` を transport ごとに共有し、拡張 TSN と最大 32767 件の窓で報告する | [packages/webrtc/src/media/receiver/receiverTwcc.ts:108](review-file:packages/webrtc/src/media/receiver/receiverTwcc.ts:108) |
 | `onReceiveRtp` に第 3 引数（`media` / `padding` / `retransmission`）を渡し、padding-only では unmute しない | [packages/webrtc/src/media/track.ts](review-file:packages/webrtc/src/media/track.ts) |
@@ -86,14 +86,14 @@ PR は分割せず、1 つの PR のまま、リスクの層ごとに読む範�
 
 **1-1. 送信経路** — [packages/webrtc/src/media/rtpSender.ts](review-file:packages/webrtc/src/media/rtpSender.ts)と、そこから分けた部品（`packages/webrtc/src/media/sender/` の 7 ファイルと、RTP 一般の部品を移した `werift-rtp` のファイル。チケット §2.13・§2.14）。`rtpSender.ts` は部品を組み合わせる役で、送信の手順（世代の取得 → probe の予約 → pacing 待ち → 番号付け → TSN → DTLS 書き込み → 推定器への報告）は `sendRtpInternal` の 1 か所にあります。既定経路と GCC 経路が同居する部分なので、まず `rtpSender.ts` で手順を読み、各段の中身を部品で確かめます。
 
-- 送信経路の分岐: [packages/webrtc/src/media/rtpSender.ts:801](review-file:packages/webrtc/src/media/rtpSender.ts:801)。`needsPacedSendPath`（[packages/webrtc/src/media/sender/bandwidthEstimator.ts:218](review-file:packages/webrtc/src/media/sender/bandwidthEstimator.ts:218)）が false の legacy / disabled は、develop と同じく DTLS へ直接書くか。送信キュー（[packages/webrtc/src/media/sender/outgoingQueue.ts:56](review-file:packages/webrtc/src/media/sender/outgoingQueue.ts:56)）とその上限は GCC だけに効くか。
-- 実送信の本体: [packages/webrtc/src/media/rtpSender.ts:935](review-file:packages/webrtc/src/media/rtpSender.ts:935)。TSN の割り当て（[packages/webrtc/src/media/rtpSender.ts:1102](review-file:packages/webrtc/src/media/rtpSender.ts:1102)）から推定器への報告（[packages/webrtc/src/media/rtpSender.ts:1163](review-file:packages/webrtc/src/media/rtpSender.ts:1163)）までに await を挟む位置と、推定器の世代（[packages/webrtc/src/media/sender/estimatorBinding.ts:62](review-file:packages/webrtc/src/media/sender/estimatorBinding.ts:62)）の照合。
-- padding: [packages/webrtc/src/media/rtpSender.ts:866](review-file:packages/webrtc/src/media/rtpSender.ts:866) と送出ループの [packages/webrtc/src/media/sender/padding.ts](review-file:packages/webrtc/src/media/sender/padding.ts)（padding パケット自体は [packages/rtp/src/rtp/padding.ts](review-file:packages/rtp/src/rtp/padding.ts)）。legacy では padding 0 件で何も送らないこと。RTX の SSRC で送ること（[packages/webrtc/src/media/rtpSender.ts:1012](review-file:packages/webrtc/src/media/rtpSender.ts:1012)）。NACK されても padding を再送しないこと（[packages/webrtc/src/media/rtpSender.ts:1265](review-file:packages/webrtc/src/media/rtpSender.ts:1265)）。
-- 差し替えと transport 切替: [packages/webrtc/src/media/rtpSender.ts:366](review-file:packages/webrtc/src/media/rtpSender.ts:366)、[packages/webrtc/src/media/rtpSender.ts:318](review-file:packages/webrtc/src/media/rtpSender.ts:318)、推定器の寿命を持つ [packages/webrtc/src/media/sender/estimatorBinding.ts](review-file:packages/webrtc/src/media/sender/estimatorBinding.ts)。購読の付け替え漏れ、タイマの止め忘れ。
-- RTCP の受信: [packages/webrtc/src/media/rtpSender.ts:1223](review-file:packages/webrtc/src/media/rtpSender.ts:1223)。TWCC の推定器への配送（[packages/webrtc/src/media/rtpSender.ts:1252](review-file:packages/webrtc/src/media/rtpSender.ts:1252)）と RR の RTT（[packages/webrtc/src/media/rtpSender.ts:1240](review-file:packages/webrtc/src/media/rtpSender.ts:1240)）。
-- `mediaPacingEnabled`（[packages/webrtc/src/media/rtpSender.ts:187](review-file:packages/webrtc/src/media/rtpSender.ts:187)）はシミュレーション用のフックです。既定値 true で本番の挙動を変えないことだけ見ます。
+- 送信経路の分岐: [packages/webrtc/src/media/rtpSender.ts:804](review-file:packages/webrtc/src/media/rtpSender.ts:804)。`needsPacedSendPath`（[packages/webrtc/src/media/sender/bandwidthEstimator.ts:218](review-file:packages/webrtc/src/media/sender/bandwidthEstimator.ts:218)）が false の lightweight / disabled は、develop と同じく DTLS へ直接書くか。送信キュー（[packages/webrtc/src/media/sender/outgoingQueue.ts:56](review-file:packages/webrtc/src/media/sender/outgoingQueue.ts:56)）とその上限は GCC だけに効くか。
+- 実送信の本体: [packages/webrtc/src/media/rtpSender.ts:938](review-file:packages/webrtc/src/media/rtpSender.ts:938)。TSN の割り当て（[packages/webrtc/src/media/rtpSender.ts:1105](review-file:packages/webrtc/src/media/rtpSender.ts:1105)）から推定器への報告（[packages/webrtc/src/media/rtpSender.ts:1166](review-file:packages/webrtc/src/media/rtpSender.ts:1166)）までに await を挟む位置と、推定器の世代（[packages/webrtc/src/media/sender/estimatorBinding.ts:62](review-file:packages/webrtc/src/media/sender/estimatorBinding.ts:62)）の照合。
+- padding: [packages/webrtc/src/media/rtpSender.ts:869](review-file:packages/webrtc/src/media/rtpSender.ts:869) と送出ループの [packages/webrtc/src/media/sender/padding.ts](review-file:packages/webrtc/src/media/sender/padding.ts)（padding パケット自体は [packages/rtp/src/rtp/padding.ts](review-file:packages/rtp/src/rtp/padding.ts)）。lightweight では padding 0 件で何も送らないこと。RTX の SSRC で送ること（[packages/webrtc/src/media/rtpSender.ts:1015](review-file:packages/webrtc/src/media/rtpSender.ts:1015)）。NACK されても padding を再送しないこと（[packages/webrtc/src/media/rtpSender.ts:1268](review-file:packages/webrtc/src/media/rtpSender.ts:1268)）。
+- 差し替えと transport 切替: [packages/webrtc/src/media/rtpSender.ts:369](review-file:packages/webrtc/src/media/rtpSender.ts:369)、[packages/webrtc/src/media/rtpSender.ts:321](review-file:packages/webrtc/src/media/rtpSender.ts:321)、推定器の寿命を持つ [packages/webrtc/src/media/sender/estimatorBinding.ts](review-file:packages/webrtc/src/media/sender/estimatorBinding.ts)。購読の付け替え漏れ、タイマの止め忘れ。
+- RTCP の受信: [packages/webrtc/src/media/rtpSender.ts:1226](review-file:packages/webrtc/src/media/rtpSender.ts:1226)。TWCC の推定器への配送（[packages/webrtc/src/media/rtpSender.ts:1255](review-file:packages/webrtc/src/media/rtpSender.ts:1255)）と RR の RTT（[packages/webrtc/src/media/rtpSender.ts:1243](review-file:packages/webrtc/src/media/rtpSender.ts:1243)）。
+- `mediaPacingEnabled`（[packages/webrtc/src/media/rtpSender.ts:190](review-file:packages/webrtc/src/media/rtpSender.ts:190)）はシミュレーション用のフックです。既定値 true で本番の挙動を変えないことだけ見ます。
 - **develop から移しただけの部品**: [packages/webrtc/src/media/sender/senderStats.ts](review-file:packages/webrtc/src/media/sender/senderStats.ts)（SR・RR・stats）、[packages/webrtc/src/media/sender/pendingRtp.ts](review-file:packages/webrtc/src/media/sender/pendingRtp.ts)（接続前の RTP の保留）、[packages/rtp/src/rtp/continuity.ts](review-file:packages/rtp/src/rtp/continuity.ts)（seq / timestamp の連続性）、[packages/rtp/src/rtp/sendHeaderExtensions.ts](review-file:packages/rtp/src/rtp/sendHeaderExtensions.ts)（header extension の組み立て）、[packages/webrtc/src/media/sender/rtpWire.ts](review-file:packages/webrtc/src/media/sender/rtpWire.ts)（DTLS への書き込み）の多くは、develop の `rtpSender.ts` にあったコードの移動です。差分上は追加行に見えるので、`git show develop:packages/webrtc/src/media/rtpSender.ts` と並べて、移動の途中で変わった点がないかを見ます。このチケットで加わったのは hop-by-hop 拡張の上書き禁止（[packages/rtp/src/rtp/sendHeaderExtensions.ts:64](review-file:packages/rtp/src/rtp/sendHeaderExtensions.ts:64)）などで、§2.3 の表の各行で確かめます。
-- GCC だけが使う部品: [packages/webrtc/src/media/sender/outgoingQueue.ts](review-file:packages/webrtc/src/media/sender/outgoingQueue.ts)（送信 FIFO）、[packages/webrtc/src/media/sender/sendPacer.ts](review-file:packages/webrtc/src/media/sender/sendPacer.ts)（pacer と probe の送信時刻待ち）。legacy / disabled では呼ばれないことを、上の「送信経路の分岐」で確かめます。
+- GCC だけが使う部品: [packages/webrtc/src/media/sender/outgoingQueue.ts](review-file:packages/webrtc/src/media/sender/outgoingQueue.ts)（送信 FIFO）、[packages/webrtc/src/media/sender/sendPacer.ts](review-file:packages/webrtc/src/media/sender/sendPacer.ts)（pacer と probe の送信時刻待ち）。lightweight / disabled では呼ばれないことを、上の「送信経路の分岐」で確かめます。
 
 **1-2. 共通契約と照合層**（約 950 行）
 
@@ -102,7 +102,7 @@ PR は分割せず、1 つの PR のまま、リスクの層ごとに読む範�
 - **照合層が使う `werift-rtp` の部品**: 番号の展開 [packages/rtp/src/rtcp/rtpfb/transportWideSequence.ts:24](review-file:packages/rtp/src/rtcp/rtpfb/transportWideSequence.ts:24)（139 行、以前は `gcc/sequenceNumber.ts`）、`reference_time` の展開 [packages/rtp/src/rtcp/rtpfb/twccReferenceTime.ts](review-file:packages/rtp/src/rtcp/rtpfb/twccReferenceTime.ts)、受信時刻の有無の判定 [packages/rtp/src/rtcp/rtpfb/twccReceiveTiming.ts](review-file:packages/rtp/src/rtcp/rtpfb/twccReceiveTiming.ts)。`gcc/` には既定経路から使われるファイルはありません。
 - 小さなファイル: [packages/webrtc/src/media/sender/createBandwidthEstimator.ts](review-file:packages/webrtc/src/media/sender/createBandwidthEstimator.ts)、[packages/webrtc/src/media/sender/estimators/disabledBwe.ts](review-file:packages/webrtc/src/media/sender/estimators/disabledBwe.ts)、互換用の再エクスポートになった [packages/webrtc/src/media/sender/senderBWE.ts](review-file:packages/webrtc/src/media/sender/senderBWE.ts)。
 
-**1-3. legacy** — [packages/webrtc/src/media/sender/estimators/legacyCumulativeBwe.ts:95](review-file:packages/webrtc/src/media/sender/estimators/legacyCumulativeBwe.ts:95)（+195）。
+**1-3. lightweight** — [packages/webrtc/src/media/sender/estimators/lightweightBwe.ts:98](review-file:packages/webrtc/src/media/sender/estimators/lightweightBwe.ts:98)（+195）。
 
 - develop の実装（`git show develop:packages/webrtc/src/media/sender/senderBWE.ts`）と並べて読みます。判定式（経過 100ms 以上かつ 20 パケット以上で `min(送信, 受信)`、1 秒超で輻輳カウンタ）が同じであること。
 - 違ってよいのは、照合を共通層に任せたこと、照合 0 件の feedback（他 sender 宛て）を無視すること、10 秒の時間窓、テスト用の clock 注入だけです。
@@ -125,7 +125,7 @@ PR は分割せず、1 つの PR のまま、リスクの層ごとに読む範�
 行ではなく、外から見える形を changelog・生成ドキュメント・型で確かめます。
 
 - changelog の破壊的変更と機能: [changelog.md:5](review-file:changelog.md:5)。`senderBWE` が getter になったこと、`onAvailableBitrate` が値の変化時だけ発火するようになったこと。
-- 選択 API: [packages/webrtc/src/api/peerConfig.ts:145](review-file:packages/webrtc/src/api/peerConfig.ts:145)（`bandwidthEstimator`）、[packages/webrtc/src/api/peerConfig.ts:143](review-file:packages/webrtc/src/api/peerConfig.ts:143)（`filterProbePaddingOnReceiveRtp`）、[packages/webrtc/src/media/rtpSender.ts:158](review-file:packages/webrtc/src/media/rtpSender.ts:158)（`senderBWE` getter）。
+- 選択 API: [packages/webrtc/src/api/peerConfig.ts:145](review-file:packages/webrtc/src/api/peerConfig.ts:145)（`bandwidthEstimator`）、[packages/webrtc/src/api/peerConfig.ts:143](review-file:packages/webrtc/src/api/peerConfig.ts:143)（`filterProbePaddingOnReceiveRtp`）、[packages/webrtc/src/media/rtpSender.ts:161](review-file:packages/webrtc/src/media/rtpSender.ts:161)（`senderBWE` getter）。
 - export: [packages/webrtc/src/media/index.ts:12](review-file:packages/webrtc/src/media/index.ts:12)。内部向けの部品（例: `TwccFeedbackAdapter`）まで公開する必要があるか、名前が一貫しているか。
 - 利用者向けの説明: [packages/webrtc/README.md:86](review-file:packages/webrtc/README.md:86)。
 
@@ -148,7 +148,7 @@ GCC は opt-in です。チケット §2.12 で、完成度は「libwebrtc と 1
 | 材料 | 何が分かるか | 場所 |
 | --- | --- | --- |
 | 既知差分の一覧 | libwebrtc と意図して違う点。納得できるかを判断する | [packages/webrtc/src/media/sender/estimators/gcc/constants.ts:435](review-file:packages/webrtc/src/media/sender/estimators/gcc/constants.ts:435) |
-| 制御応答テスト（CI、8 件） | 混雑・容量変化・ロス・固定遅延・feedback 途絶への応答の傾向 | [packages/webrtc/tests/media/bandwidthEstimator.test.ts:436](review-file:packages/webrtc/tests/media/bandwidthEstimator.test.ts:436) |
+| 制御応答テスト（CI、8 件） | 混雑・容量変化・ロス・固定遅延・feedback 途絶への応答の傾向 | [packages/webrtc/tests/media/bandwidthEstimator.test.ts:437](review-file:packages/webrtc/tests/media/bandwidthEstimator.test.ts:437) |
 | 性質テスト（CI） | 通知値が常に有限で [min, max] に収まり、変化時だけ出る | [packages/webrtc/tests/pbt/bwe/bweProperty.test.ts](review-file:packages/webrtc/tests/pbt/bwe/bweProperty.test.ts) |
 | Chrome 受信側ボトルネックの E2E（CI 外、Docker） | 本物の Chrome の TWCC を相手にした応答 | [e2e/simulations/netns/chromeNetnsGcc.sim.ts](review-file:e2e/simulations/netns/chromeNetnsGcc.sim.ts) |
 
@@ -177,7 +177,7 @@ GCC は opt-in です。チケット §2.12 で、完成度は「libwebrtc と 1
 
 ## 3. 判断理由
 
-- **リスクは既定の利用者に集中しています。** 既定は legacy で、既存アプリはここを通ります。GCC は明示的に選んだ利用者にしか効きません。行単位の精読をパス 1 に集中させるのはそのためです。
+- **リスクは既定の利用者に集中しています。** 既定は lightweight で、既存アプリはここを通ります。GCC は明示的に選んだ利用者にしか効きません。行単位の精読をパス 1 に集中させるのはそのためです。
 - **GCC の判定基準は合意済みです。** チケット §2.12 で「GCC として正しく機能すること」を基準にしました。6,000 行を libwebrtc と突き合わせて読むのは、この基準に照らすと費用に見合いません。
 - **生成物と参照コピーは機械で十分です。** 再生成して差分が出ないこと、配布物に入らないことを確かめれば、行を読んでも得られる情報はありません。
 - **1 回の精読量を区切ります。** 長時間続けるほど見落としが増えるため、1 回 400 行前後を目安にしています。
