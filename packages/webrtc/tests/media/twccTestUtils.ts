@@ -1,0 +1,336 @@
+import { vi } from "vitest";
+import {
+  type BandwidthEstimator,
+  type GccBandwidthEstimator,
+  RTCRtpCodecParameters,
+  RTCRtpHeaderExtensionParameters,
+  RTCRtpSender,
+  RtpHeader,
+  type SentInfo,
+  type TwccFeedbackAdapter,
+  type TwccPacketFeedback,
+} from "../../src";
+import {
+  PacketResult,
+  PacketStatus,
+  RecvDelta,
+  RTP_EXTENSION_URI,
+  RtcpPacketConverter,
+  RtcpTransportLayerFeedback,
+  RunLengthChunk,
+  TransportWideCC,
+} from "../../src/imports/rtp";
+import { createDtlsTransport } from "../fixture";
+
+/** Arrange: SentInfo with matching send / sent times. */
+export function twccSentInfo(
+  wideSeq: number,
+  size: number,
+  sendingAtMs: number,
+  opts?: Partial<SentInfo>,
+): SentInfo {
+  return { wideSeq, size, sendingAtMs, sentAtMs: sendingAtMs, ...opts };
+}
+
+/** Arrange: synthetic feedback that returns `results` as-is. */
+export function syntheticTwccFeedback(
+  results: PacketResult[],
+  referenceTime = 0,
+): TransportWideCC {
+  const feedback = new TransportWideCC({
+    senderSsrc: 1,
+    mediaSourceSsrc: 2,
+    baseSequenceNumber: results[0]?.sequenceNumber ?? 0,
+    packetStatusCount: results.length,
+    referenceTime,
+    fbPktCount: 0,
+  });
+  Object.defineProperty(feedback, "packetResults", {
+    get: () => results,
+  });
+  return feedback;
+}
+
+/**
+ * Arrange: wire-accurate TWCC feedback for a contiguous 16-bit range.
+ * `recvUs[i]` is the receive time (µs) of `base + i`, or `undefined` for lost.
+ * Serialized and parsed again so 250µs delta quantization applies.
+ */
+export function wireTwccFeedback(
+  base16: number,
+  recvUs: (number | undefined)[],
+  fbPktCount = 0,
+): TransportWideCC {
+  const firstUs = recvUs.find((v) => v !== undefined) ?? 0;
+  const referenceTime = Math.floor(firstUs / 1000 / 64);
+  let prevUs = referenceTime * 64 * 1000;
+  const recvDeltas: RecvDelta[] = [];
+  const statuses: PacketStatus[] = [];
+  for (const us of recvUs) {
+    if (us === undefined) {
+      statuses.push(PacketStatus.TypeTCCPacketNotReceived);
+      continue;
+    }
+    const delta = new RecvDelta({ delta: Math.round(us - prevUs) });
+    delta.parseDelta();
+    recvDeltas.push(delta);
+    statuses.push(delta.type!);
+    prevUs = us;
+  }
+  const packetChunks: RunLengthChunk[] = [];
+  for (let i = 0; i < statuses.length; ) {
+    let j = i;
+    while (j < statuses.length && statuses[j] === statuses[i]) j++;
+    packetChunks.push(
+      new RunLengthChunk({ packetStatus: statuses[i], runLength: j - i }),
+    );
+    i = j;
+  }
+  const feedback = new TransportWideCC({
+    senderSsrc: 1,
+    mediaSourceSsrc: 2,
+    baseSequenceNumber: base16 & 0xffff,
+    packetStatusCount: recvUs.length,
+    referenceTime,
+    fbPktCount,
+    recvDeltas,
+    packetChunks,
+  });
+  const wire = new RtcpTransportLayerFeedback({ feedback }).serialize();
+  const [rtpfb] = RtcpPacketConverter.deSerialize(wire) as [
+    RtcpTransportLayerFeedback,
+  ];
+  return rtpfb.feedback as TransportWideCC;
+}
+
+/** Internal TWCC adapter of a lightweight / GCC estimator. */
+export function feedbackAdapterOf(e: BandwidthEstimator): TwccFeedbackAdapter {
+  return (e as unknown as { feedbackAdapter: TwccFeedbackAdapter })
+    .feedbackAdapter;
+}
+
+/** Send history still waiting for a received report (extended seq → info). */
+export function twccHistoryOf(
+  e: BandwidthEstimator | TwccFeedbackAdapter,
+): Map<number, SentInfo> {
+  const adapter =
+    "onFeedback" in e ? e : feedbackAdapterOf(e as BandwidthEstimator);
+  return (adapter as unknown as { history: Map<number, SentInfo> }).history;
+}
+
+/**
+ * Record the normalized packets the adapter hands to the estimator, one
+ * array per `receiveTWCC` call.
+ */
+export function captureMatchedFeedback(
+  e: BandwidthEstimator,
+): TwccPacketFeedback[][] {
+  const adapter = feedbackAdapterOf(e);
+  const calls: TwccPacketFeedback[][] = [];
+  const original = adapter.onFeedback.bind(adapter);
+  adapter.onFeedback = (feedback, nowMs) => {
+    const out = original(feedback, nowMs);
+    calls.push(out);
+    return out;
+  };
+  return calls;
+}
+
+export { PacketResult };
+
+/** pin OnNetworkAvailability(true) then first ProcessInterval SetBitrates. */
+export function startGccProbing(gcc: GccBandwidthEstimator, nowMs?: number) {
+  gcc.setNetworkAvailable(true);
+  // 合成 clock の GCC では Date.now() を使わない（ALR origin が壁時計になる）。
+  gcc.process(nowMs ?? (gcc as unknown as { clock: () => number }).clock());
+}
+
+/**
+ * 3x/6x を開始するが、RTCRtpSender の onProbeClusterConfig 自動 padding は抑止する。
+ * sendRtp 後の注入や maybeInjectProbePadding 自体を検証するテスト用。
+ */
+export function startGccProbingWithoutSenderPadding(
+  sender: RTCRtpSender,
+  gcc: GccBandwidthEstimator,
+  nowMs?: number,
+) {
+  const spy = vi.spyOn(sender, "maybeInjectProbePadding").mockResolvedValue(0);
+  try {
+    startGccProbing(gcc, nowMs);
+  } finally {
+    spy.mockRestore();
+  }
+}
+
+/**
+ * Stop the GCC startup probe so pacing / FIFO tests see media only.
+ * `configured` also blocks the next process() from starting a new probe;
+ * `pacingBps` pins the pacer rate.
+ */
+export function settleGccProbe(
+  gcc: GccBandwidthEstimator,
+  {
+    configured = false,
+    pacingBps,
+  }: { configured?: boolean; pacingBps?: number } = {},
+) {
+  const internal = gcc as unknown as {
+    probe: { abort(nowMs: number): void; state: string };
+    probingConfigured: boolean;
+  };
+  internal.probe.abort(0);
+  internal.probe.state = "complete";
+  if (configured) {
+    internal.probingConfigured = true;
+  }
+  if (pacingBps !== undefined) {
+    vi.spyOn(gcc, "getPacingBitrateBps").mockReturnValue(pacingBps);
+  }
+}
+
+type DtlsTransport = ReturnType<typeof createDtlsTransport>;
+
+/** One RTP write captured by {@link recordDtlsWrites} (header snapshotted). */
+export interface CapturedRtp {
+  header: RtpHeader;
+  payload: Buffer;
+  size: number;
+}
+
+/**
+ * Replace `dtls.sendRtp` with a mock that snapshots every write into the
+ * returned array and returns the on-wire size.
+ */
+export function recordDtlsWrites(dtls: DtlsTransport): CapturedRtp[] {
+  const sentPackets: CapturedRtp[] = [];
+  dtls.sendRtp = vi.fn(async (payload: Buffer, header: RtpHeader) => {
+    // payload already includes RFC 3550 padding bytes when P=1.
+    const size = payload.length + header.serializeSize;
+    // Snapshot header fields — the same object is mutated across sends.
+    sentPackets.push({
+      header: new RtpHeader({ ...header, extensions: [...header.extensions] }),
+      payload: Buffer.from(payload),
+      size,
+    });
+    return size;
+  }) as typeof dtls.sendRtp;
+  return sentPackets;
+}
+
+/**
+ * Hold the first DTLS RTP write until `release()`; later writes go straight
+ * to the previous `dtls.sendRtp`. `onWrite` sees every write before the hold.
+ */
+export function holdFirstWrite(
+  dtls: DtlsTransport,
+  onWrite?: (payload: Buffer, header: RtpHeader) => void,
+) {
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const inner = dtls.sendRtp.bind(dtls);
+  let first = true;
+  dtls.sendRtp = vi.fn(async (payload: Buffer, header: RtpHeader) => {
+    onWrite?.(payload, header);
+    if (first) {
+      first = false;
+      await held;
+    }
+    return inner(payload, header);
+  }) as typeof dtls.sendRtp;
+  return { release };
+}
+
+/** Let pending microtasks (sendRtp up to its first await) run. */
+export async function flushMicrotasks() {
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
+const vp8 = () =>
+  new RTCRtpCodecParameters({
+    mimeType: "video/VP8",
+    clockRate: 90000,
+    payloadType: 96,
+  });
+const vp8Rtx = () =>
+  new RTCRtpCodecParameters({
+    mimeType: "video/rtx",
+    clockRate: 90000,
+    payloadType: 97,
+    parameters: "apt=96",
+  });
+
+export interface SenderSetupOptions {
+  kind?: "audio" | "video";
+  /** Negotiate RTX (PT 97). Ignored when `codecs` is given. */
+  rtx?: boolean;
+  /** Negotiate transport-cc (header extension id 3). */
+  twcc?: boolean;
+  /** Override the negotiated codecs (default VP8 + optional RTX). */
+  codecs?: RTCRtpCodecParameters[];
+  muxId?: string;
+}
+
+/**
+ * Sender bound to an existing (connected) DTLS transport, e.g. a second
+ * BUNDLE sender next to {@link prepareConnectedSender}.
+ */
+export function attachSender(
+  dtls: DtlsTransport,
+  estimator?: BandwidthEstimator,
+  {
+    kind = "video",
+    rtx = true,
+    twcc = true,
+    codecs,
+    muxId = "0",
+  }: SenderSetupOptions = {},
+) {
+  const sender = new RTCRtpSender(kind);
+  sender.setDtlsTransport(dtls);
+  if (estimator) {
+    sender.setBandwidthEstimator(estimator);
+  }
+  sender.prepareSend({
+    codecs: codecs ?? [vp8(), ...(rtx ? [vp8Rtx()] : [])],
+    headerExtensions: twcc
+      ? [
+          new RTCRtpHeaderExtensionParameters({
+            id: 3,
+            uri: RTP_EXTENSION_URI.transportWideCC,
+          }),
+        ]
+      : [],
+    muxId,
+    rtcp: { cname: "test", mux: true },
+  });
+  return sender;
+}
+
+/**
+ * Connected video sender with VP8 + TWCC. RTX (PT 97) is negotiated by
+ * default because probe / loss padding is only sent on the RTX SSRC.
+ */
+export async function prepareConnectedSender(
+  estimator?: BandwidthEstimator,
+  options: SenderSetupOptions = {},
+) {
+  const { dtls, sentPackets } = connectedDtlsTransport();
+  const sender = attachSender(dtls, estimator, options);
+  return { sender, dtls, sentPackets };
+}
+
+/**
+ * Connected DTLS transport whose writes are recorded. The next
+ * transport-wide sequence number is `lastTsn + 1`.
+ */
+export function connectedDtlsTransport(lastTsn = 0) {
+  const dtls = createDtlsTransport();
+  (dtls as { state: string }).state = "connected";
+  const sentPackets = recordDtlsWrites(dtls);
+  dtls.transportSequenceNumber = lastTsn & 0xffff;
+  dtls.transportSequenceNumberExtended = lastTsn;
+  return { dtls, sentPackets };
+}
