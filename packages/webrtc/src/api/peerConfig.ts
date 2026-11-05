@@ -12,6 +12,7 @@ import type {
 import type { CandidatePair, Message, Protocol } from "../imports/ice";
 import { defaultCodecs } from "../media/codec";
 import { normalizeCodecMimeType } from "../media/codecCompatibility";
+import type { BandwidthEstimatorOption } from "../media/sender/createBandwidthEstimator";
 import type {
   RTCRtpCodecParameters,
   RTCRtpHeaderExtensionParameters,
@@ -135,6 +136,13 @@ export interface PeerConfig {
   midSuffix: boolean;
   /** Advertised local SCTP max-message-size in SDP. Use 0 for unlimited. */
   maxMessageSize: number;
+  /**
+   * When true, padding-only RTP is omitted from onReceiveRtp and later media
+   * sequence numbers are compacted. Default false preserves wire RTP events.
+   */
+  filterProbePaddingOnReceiveRtp: boolean;
+  /** Send-side estimator used by each new sender; defaults to `"lightweight"`. */
+  bandwidthEstimator: BandwidthEstimatorOption;
   /** SCTP outbound packet MTU used for DATA chunk fragmentation. */
   sctp: { mtu: number };
   /**
@@ -286,6 +294,8 @@ export function generateDefaultPeerConfig(): PeerConfig {
     midSuffix: false,
     forceTurnTCP: false,
     maxMessageSize: DEFAULT_MAX_MESSAGE_SIZE,
+    filterProbePaddingOnReceiveRtp: false,
+    bandwidthEstimator: "lightweight",
     sctp: { mtu: DEFAULT_SCTP_MTU },
     pendingRtp: false,
     mLineReuse: "compatible",

@@ -1,0 +1,96 @@
+/*!
+ * Portions of this file are ported from libwebrtc
+ * (https://webrtc.googlesource.com/src, commit 0fda16159e33adf59c71a7ad1173dcbe5a632102).
+ * Copyright (c) 2011, The WebRTC project authors. All rights reserved.
+ * Use of that source is governed by a BSD-style license and an additional
+ * patent grant; both are reproduced in THIRD_PARTY_LICENSES_LIBWEBRTC.txt
+ * (shipped with this package).
+ */
+/**
+ * libwebrtc `LinkCapacityEstimator` (pin goog_cc/link_capacity_estimator).
+ * Used by AimdRateControl to choose additive vs multiplicative increase and
+ * to refine overuse decreases.
+ */
+export class LinkCapacityEstimator {
+  private estimateKbps: number | undefined;
+  /** Normalized variance; constructor default 0.4. Pin Reset does **not** clear this. */
+  private deviationKbps = 0.4;
+
+  /**
+   * pin `LinkCapacityEstimator::Reset` — clear capacity estimate only.
+   * Deviation history is retained (used on AIMD throughput bound transitions).
+   */
+  reset() {
+    this.estimateKbps = undefined;
+  }
+
+  /**
+   * Full estimator re-init (route change / GccBandwidthEstimator.reset).
+   * Not the same as pin Reset() during AIMD state transitions.
+   */
+  resetAll() {
+    this.estimateKbps = undefined;
+    this.deviationKbps = 0.4;
+  }
+
+  hasEstimate(): boolean {
+    return this.estimateKbps !== undefined;
+  }
+
+  /** Estimated capacity in bps. */
+  estimateBps(): number {
+    return Math.round((this.estimateKbps ?? 0) * 1000);
+  }
+
+  /** Diagnostics: current deviation_kbps_ (normalized variance). */
+  get deviationKbpsValue(): number {
+    return this.deviationKbps;
+  }
+
+  /** Upper bound bps (estimate + 3σ), or +∞ if unknown. */
+  upperBoundBps(): number {
+    if (this.estimateKbps === undefined) {
+      return Number.POSITIVE_INFINITY;
+    }
+    return Math.round(
+      (this.estimateKbps + 3 * this.deviationEstimateKbps()) * 1000,
+    );
+  }
+
+  /** Lower bound bps (estimate − 3σ), or 0 if unknown. */
+  lowerBoundBps(): number {
+    if (this.estimateKbps === undefined) {
+      return 0;
+    }
+    return Math.round(
+      Math.max(0, this.estimateKbps - 3 * this.deviationEstimateKbps()) * 1000,
+    );
+  }
+
+  onOveruseDetected(acknowledgedRateBps: number) {
+    this.update(acknowledgedRateBps, 0.05);
+  }
+
+  onProbeRate(probeRateBps: number) {
+    this.update(probeRateBps, 0.5);
+  }
+
+  private update(capacitySampleBps: number, alpha: number) {
+    const sampleKbps = capacitySampleBps / 1000;
+    if (this.estimateKbps === undefined) {
+      this.estimateKbps = sampleKbps;
+    } else {
+      this.estimateKbps = (1 - alpha) * this.estimateKbps + alpha * sampleKbps;
+    }
+    const norm = Math.max(this.estimateKbps, 1.0);
+    const errorKbps = this.estimateKbps - sampleKbps;
+    this.deviationKbps =
+      (1 - alpha) * this.deviationKbps + (alpha * errorKbps * errorKbps) / norm;
+    // 0.4 ~= 14 kbit/s at 500 kbit/s; 2.5 ~= 35 kbit/s at 500 kbit/s
+    this.deviationKbps = Math.min(2.5, Math.max(0.4, this.deviationKbps));
+  }
+
+  private deviationEstimateKbps(): number {
+    return Math.sqrt(this.deviationKbps * (this.estimateKbps ?? 0));
+  }
+}
