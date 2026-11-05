@@ -4,7 +4,7 @@ ide:
   version: 1
   title: "Node 26 対応レビュー解説"
   dock: right
-  baseCommit: 111e33011c44938dd09ae8f05090a1c75aab0521
+  baseCommit: 699c15674b85b02a4f4443610b9bc115f863fcf8
 ---
 # Node 26 対応: `--experimental-transform-types` 廃止への対応レビュー
 
@@ -59,6 +59,19 @@ Node 26 でフラグを廃止しても動くよう、**ソースを「型注釈�
 
 - 公開 `.d.ts` は実装時に基準リビジョンのビルドと比較し、リテラル型への意図しない狭まりなし（今回の再レビュー対応では再実施していません）。
 - `npm run format` は実行済みで修正対象なし。
+
+## 再レビュー対応（HEAD 699c15674 まで）
+
+パラメータプロパティ展開で、利用者側の型が変わる箇所が見つかったため修正しました。
+
+- 省略可能な公開プロパティを `?: T | undefined` にしました。`exactOptionalPropertyTypes` を有効にした利用者が `undefined` を代入できる従来の型を保つためです。対象は [packages/ice/src/candidate.ts:11](review-diff:packages/ice/src/candidate.ts:11)、[packages/dtls/src/context/cipher.ts:30](review-diff:packages/dtls/src/context/cipher.ts:30)、[packages/dtls/src/flight/flight.ts](review-diff:packages/dtls/src/flight/flight.ts)、[packages/webrtc/src/transport/ice.ts](review-diff:packages/webrtc/src/transport/ice.ts)、[packages/webrtc/src/transport/dtls.ts](review-diff:packages/webrtc/src/transport/dtls.ts) です。
+- [packages/dtls/src/handshake/random.ts:9](review-diff:packages/dtls/src/handshake/random.ts:9) の `random_bytes` を `Buffer<ArrayBuffer>` にし、`Uint8Array<ArrayBuffer>` へ代入できる従来の型を保ちました。
+- 上記を固定する型テスト [packages/webrtc/tests/types/publicTypes.test.ts:7](review-file:packages/webrtc/tests/types/publicTypes.test.ts:7) を追加しました。利用者コードをソースに対してコンパイルし、診断 0 件を確認します（Arrange / Act / Assert、Japanese コメント付き）。
+- netns シミュレーションの [Dockerfile](review-diff:e2e/simulations/netns/Dockerfile) と [in-container.sh](review-diff:e2e/simulations/netns/in-container.sh) から旧フラグを削除し、Node 24 固定の理由を「Node 24 でしか検証していないため」に直しました（[README](review-diff:e2e/simulations/README.md)）。
+- [changelog.md](review-diff:changelog.md) の項目を整理し、ESM ビルドの定義順が CJS と一致する旨を追記しました。
+- import 順・コンストラクタ整形など、フォーマッタ由来の差分もあります。
+
+この再レビュー対応後に私が実行した検証は `npx vitest run tests/types/publicTypes.test.ts`（2 件成功）だけです。下の表は前回の実装時の結果で、再実行していません。
 
 ## リスク・未解決事項
 
