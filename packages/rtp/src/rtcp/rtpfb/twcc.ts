@@ -266,7 +266,7 @@ export class TransportWideCC {
             new PacketResult({
               sequenceNumber: seq,
               received: isTwccReceivedStatus(symbol),
-              status: symbol,
+              status: symbol as PacketStatus,
             }),
           );
           seq = (seq + 1) & 0xffff;
@@ -505,7 +505,7 @@ export class PacketResult {
   received = false;
   receivedAtMs = 0;
   /** TWCC packet status symbol (for delta presence). */
-  status = PacketStatus.TypeTCCPacketNotReceived;
+  status: PacketStatus = PacketStatus.TypeTCCPacketNotReceived;
   constructor(props: Partial<PacketResult>) {
     Object.assign(this, props);
   }

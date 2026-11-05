@@ -33,6 +33,8 @@ type OutgoingQueued = OutgoingMeta & {
  * with `undefined` instead of running.
  */
 export class OutgoingQueue {
+  private readonly kind: Kind;
+  private readonly isBounded: () => boolean;
   private _running = false;
   private queue: OutgoingQueued[] = [];
 
@@ -44,9 +46,12 @@ export class OutgoingQueue {
    *   congestion signal.
    */
   constructor(
-    private readonly kind: Kind,
-    private readonly isBounded: () => boolean,
-  ) {}
+    kind: Kind,
+    isBounded: () => boolean,
+  ) {
+    this.kind = kind;
+    this.isBounded = isBounded;
+  }
 
   /** True while a task runs (queued tasks keep it true until drained). */
   get running() {
