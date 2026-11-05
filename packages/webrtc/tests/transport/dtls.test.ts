@@ -12,23 +12,23 @@ import type { Connection } from "../../../ice/src";
 import { connectionDatagramEvent } from "../../../ice/src/internal/datagram";
 import {
   DtlsVersion,
+  defaultPeerConfig,
+  fingerprint,
   ProtectionProfileAes128CmHmacSha1_80,
+  RTCCertificate,
   RTCDtlsFingerprint,
   RTCDtlsParameters,
   RTCDtlsTransport,
   RtcpRrPacket,
   RtpHeader,
   RtpPacket,
-  defaultPeerConfig,
-  fingerprint,
-  RTCCertificate,
 } from "../../src";
+import type { RTCTransportStats } from "../../src/media/stats";
 import {
   createTestCertificate,
   dtlsTransportPair,
   iceTransportPair,
 } from "../fixture";
-import type { RTCTransportStats } from "../../src/media/stats";
 import { waitForDtlsState } from "../utils";
 
 describe("RTCDtlsTransportTest", () => {

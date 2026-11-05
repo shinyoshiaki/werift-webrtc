@@ -1,11 +1,9 @@
 import { vi } from "vitest";
-import { SCTPSendPermissionRevokedError } from "../../../sctp/src";
-
-import { SCTP_STATE } from "../../../sctp/src";
+import { SCTP_STATE, SCTPSendPermissionRevokedError } from "../../../sctp/src";
 import { Event, RTCDataChannel, RTCSctpTransport } from "../../src";
+import { WEBRTC_BINARY } from "../../src/const";
 import { RTCDataChannelParameters } from "../../src/dataChannel";
 import { dtlsTransportPair } from "../fixture";
-import { WEBRTC_BINARY } from "../../src/const";
 import {
   captureSctpDataChunks,
   DCEP_CHANNEL_TYPE_CASES,

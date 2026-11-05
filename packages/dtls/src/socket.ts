@@ -1,6 +1,4 @@
 import { setTimeout } from "timers/promises";
-import { Event, EventDisposer, binaryData, debug } from "./imports/common";
-import type { Address, DatagramRxMeta, Transport } from "./imports/common";
 import type { DtlsHandshakeCarrier } from "./carrier/types";
 import {
   NamedCurveAlgorithmList,
@@ -24,6 +22,8 @@ import { RenegotiationIndication } from "./handshake/extensions/renegotiationInd
 import { Signature } from "./handshake/extensions/signature";
 import { UseSRTP } from "./handshake/extensions/useSrtp";
 import type { Alert } from "./handshake/message/alert";
+import type { Address, DatagramRxMeta, Transport } from "./imports/common";
+import { binaryData, debug, Event, EventDisposer } from "./imports/common";
 import type { SrtpProfile } from "./imports/rtp";
 import {
   associationHasPeerAuth,

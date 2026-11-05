@@ -22,7 +22,7 @@ A small number of intentional or known edge-case differences remain for backward
 
 ## DTLS 1.3 opt-in
 
-Default `new RTCPeerConnection()` still uses DTLS 1.2 only. DTLS 1.3 is an explicit opt-in via `dtls.protocolVersions`. SPED (DTLS handshake in ICE Binding) is a separate opt-in via `sped: true` (default false) and requires DTLS 1.3 at `connect()`.
+Default `new RTCPeerConnection()` still uses DTLS 1.2 only. DTLS 1.3 is an explicit opt-in via `dtls.protocolVersions`. SPED (DTLS handshake in ICE Binding) is a separate opt-in via `sped: true` (default false) and requires DTLS 1.3; the constructor and `setConfiguration()` reject `sped: true` without it.
 
 On the ICE-selected path, DTLS 1.3 omits the HelloRetryRequest cookie exchange by default so the handshake does not pay an extra RTT. Set `dtls.helloRetryRequest: true` only when you want a cookie-bearing HRR. Group-only HRR for `key_share` correction is unrelated and may still be sent.
 
@@ -54,11 +54,11 @@ const cookieHrr = new RTCPeerConnection({
 
 ## SPED opt-in
 
-`PeerConfig.sped` defaults to `false`: ICE completes, then DTLS starts. Set `sped: true` together with DTLS 1.3 so this PeerConnection embeds the DTLS 1.3 handshake in authenticated ICE Binding attributes (`0xC070` / `0xC071`). `connect()` throws if `sped` is true and `dtls.protocolVersions` does not include `"1.3"`. `sped: true` cannot be combined with `dtls.helloRetryRequest: true` (SPED uses ICE-authenticated address validation, not a DTLS cookie).
+`PeerConfig.sped` defaults to `false`: ICE completes, then DTLS starts. Set `sped: true` together with DTLS 1.3 so this PeerConnection embeds the DTLS 1.3 handshake in authenticated ICE Binding attributes (`0xC070` / `0xC071`). The `RTCPeerConnection` constructor and `setConfiguration()` throw synchronously (and leave the configuration unchanged) if `sped` is true and `dtls.protocolVersions` does not include `"1.3"`. `sped: true` cannot be combined with `dtls.helloRetryRequest: true` (SPED uses ICE-authenticated address validation, not a DTLS cookie); this is rejected the same way.
 
 WARP early server traffic is separately and explicitly enabled with
 `warp: { allowEarlyServerData: true }`. It requires both `sped: true` and DTLS
-1.3. Inbound application data and media remain hidden until the SDP
+1.3; otherwise the constructor and `setConfiguration()` throw synchronously. Inbound application data and media remain hidden until the SDP
 fingerprint matches. Pre-authentication encrypted media is dropped by default;
 set `warp.earlyMediaPolicy` to `"buffer"` to retain up to 256 packets / 256 KiB
 for at most two seconds.

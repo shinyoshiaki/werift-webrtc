@@ -13,7 +13,7 @@ import { HandshakeType } from "../../handshake/const";
 import { peerKeyFromAddr } from "../../handshake/extensions/cookie";
 import { ClientHello } from "../../handshake/message/client/hello";
 import { DtlsRandom } from "../../handshake/random";
-import { type Transport, flushTransportSend } from "../../imports/common";
+import { flushTransportSend, type Transport } from "../../imports/common";
 import { normalizePeerTuple } from "../../peer";
 import { AlertDesc, ContentType } from "../../record/const";
 import {

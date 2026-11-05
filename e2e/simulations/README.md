@@ -2,18 +2,18 @@
 
 Chrome（ブラウザ）と werift（Node）の間で TWCC + GCC の帯域推定を検証します。ボトルネックの作り方が違う 2 種類があります。
 
-| シナリオ | ボトルネック | コマンド |
-| --- | --- | --- |
-| werift 側（既定） | werift の ICE `send` に仮想ボトルネックを装着 | `npm run test:sim` |
+| シナリオ                | ボトルネック                                                                        | コマンド                 |
+| ----------------------- | ----------------------------------------------------------------------------------- | ------------------------ |
+| werift 側（既定）       | werift の ICE `send` に仮想ボトルネックを装着                                       | `npm run test:sim`       |
 | Chrome 受信側（Docker） | Chrome を別 network namespace に置き、カーネルの `tc` で werift → Chrome 方向を絞る | `npm run test:sim:netns` |
 
 ## CI 対象外
 
-| コマンド | 対象 |
-| --- | --- |
-| `npm run ci` / `ci:silent` / `chrome:prod` | `./tests` のみ（本ディレクトリを含まない） |
-| `npm run test:sim` | **werift 側ボトルネックのシミュレーションのみ** |
-| `npm run test:sim:netns` | **Chrome 受信側ボトルネックのシミュレーションのみ**（Docker が必要） |
+| コマンド                                   | 対象                                                                 |
+| ------------------------------------------ | -------------------------------------------------------------------- |
+| `npm run ci` / `ci:silent` / `chrome:prod` | `./tests` のみ（本ディレクトリを含まない）                           |
+| `npm run test:sim`                         | **werift 側ボトルネックのシミュレーションのみ**                      |
+| `npm run test:sim:netns`                   | **Chrome 受信側ボトルネックのシミュレーションのみ**（Docker が必要） |
 
 ## 実行
 
@@ -23,7 +23,6 @@ npm run test:sim
 ```
 
 `test:sim` は内部で次を実行します。
-
 1. `install:browsers` — Chromium を `e2e/.playwright-browsers/` に確保
 2. `build` — サーバ TS を compile
 3. `simulations/run-sim.js` — サーバ + vitest を起動し、**同じ** `PLAYWRIGHT_BROWSERS_PATH` を子プロセスへ引き継ぐ
@@ -39,13 +38,13 @@ npm run chrome:sim
 
 ## 構成
 
-| パス | 内容 |
-| --- | --- |
+| パス                                                       | 内容                                                                       |
+| ---------------------------------------------------------- | -------------------------------------------------------------------------- |
 | `../packages/webrtc/simulations/helpers/bottleneckLink.ts` | 帯域上限・遅延・キュー溢れロス（werift 側。package の peer 間 sim と共有） |
-| `server/simulations/gccTwccChrome.ts` | protoo ハンドラ（GCC + TWCC + 合成 RTP） |
-| `simulations/tests/*.sim.test.ts` | Chrome ブラウザ側シナリオ |
-| `simulations/run-sim.js` | サーバ + vitest 起動（`PLAYWRIGHT_BROWSERS_PATH` 引き継ぎ） |
-| `ensure-browser.js` | 共有: ローカルキャッシュ path 解決 + install |
+| `server/simulations/gccTwccChrome.ts`                      | protoo ハンドラ（GCC + TWCC + 合成 RTP）                                   |
+| `simulations/tests/*.sim.test.ts`                          | Chrome ブラウザ側シナリオ                                                  |
+| `simulations/run-sim.js`                                   | サーバ + vitest 起動（`PLAYWRIGHT_BROWSERS_PATH` 引き継ぎ）                |
+| `ensure-browser.js`                                        | 共有: ローカルキャッシュ path 解決 + install                               |
 
 ## シナリオ概要
 
@@ -78,22 +77,22 @@ npm run test:sim:netns
 
 ### 構成
 
-| パス | 内容 |
-| --- | --- |
-| `netns/run-netns-sim.js` | ホスト側ランナー。イメージを作り、特権コンテナで `in-container.sh` を実行する |
-| `netns/Dockerfile` | 公式 Playwright イメージ + `iproute2` + Node 24 |
-| `netns/in-container.sh` | `chrome` namespace と veth（`vw` ⇔ `vc`）を作り、`vw` の送信に `netem`（遅延）+ `tbf`（帯域・キュー）を掛けて、シナリオを `node --test` で実行する |
-| `netns/chrome-in-netns.sh` | Playwright の Chromium を `chrome` namespace で起動するラッパー |
-| `netns/netnsSession.ts` | 共通の準備（`tc` の変更、werift sendonly + GCC ⇔ Chrome recvonly の接続、合成 VP8 の送信と 1 秒ごとの計測） |
-| `netns/chromeNetnsGcc.sim.ts` | シナリオ |
+| パス                          | 内容                                                                                                                                               |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `netns/run-netns-sim.js`      | ホスト側ランナー。イメージを作り、特権コンテナで `in-container.sh` を実行する                                                                      |
+| `netns/Dockerfile`            | 公式 Playwright イメージ + `iproute2` + Node 24                                                                                                    |
+| `netns/in-container.sh`       | `chrome` namespace と veth（`vw` ⇔ `vc`）を作り、`vw` の送信に `netem`（遅延）+ `tbf`（帯域・キュー）を掛けて、シナリオを `node --test` で実行する |
+| `netns/chrome-in-netns.sh`    | Playwright の Chromium を `chrome` namespace で起動するラッパー                                                                                    |
+| `netns/netnsSession.ts`       | 共通の準備（`tc` の変更、werift sendonly + GCC ⇔ Chrome recvonly の接続、合成 VP8 の送信と 1 秒ごとの計測）                                        |
+| `netns/chromeNetnsGcc.sim.ts` | シナリオ                                                                                                                                           |
 
 ### シナリオ
 
-| シナリオ | 確かめること |
-| --- | --- |
-| 200 kbit に 700 kbps を固定で送る（RTX なし） | 3 秒以内に推定が容量付近まで下がり、0 に張り付かない |
+| シナリオ                                                               | 確かめること                                                                                                                     |
+| ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| 200 kbit に 700 kbps を固定で送る（RTX なし）                          | 3 秒以内に推定が容量付近まで下がり、0 に張り付かない                                                                             |
 | 深いキュー（100 KB）で 3 Mbit → 1 Mbit、アプリは推定に追従（RTX あり） | probe で素早く上がり、遅延で輻輳を検出して容量の 50〜110% に収まる。容量低下後は 1 Mbit 付近以下に下がり、ロスは受信数の 5% 未満 |
-| 1 Mbit にランダムロス 20%、アプリは推定に追従（RTX あり） | ロスなしの推定の 70% 未満まで下がる |
+| 1 Mbit にランダムロス 20%、アプリは推定に追従（RTX あり）              | ロスなしの推定の 70% 未満まで下がる                                                                                              |
 
 判定は計測値のまわりの範囲で、libwebrtc と同じ値かは見ません。各シナリオの 1 秒ごとの推定と Chrome の `getStats` は `[netns-sim]` 行に JSON で出ます。
 

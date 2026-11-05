@@ -67,10 +67,13 @@ class IceTransport implements Transport {
     return this.ice.send(data);
   };
 
+  // The DTLS socket closes its transport on every teardown path
+  // ("Double-close is fine"), so close the ICE Connection only once.
   async close() {
+    if (this.closed) return;
     this.closed = true;
     this.datagramSubscription.unSubscribe();
-    this.ice.close();
+    if (this.ice.state !== "closed") this.ice.close();
   }
 
   private remotePeer(): Address {

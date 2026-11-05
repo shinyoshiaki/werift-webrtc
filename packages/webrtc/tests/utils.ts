@@ -1,6 +1,5 @@
 import { readFileSync } from "fs";
 import { setTimeout } from "timers/promises";
-import { SCTP_STATE } from "../../sctp/src";
 import type { Connection } from "../../ice/src";
 import { getHostAddresses } from "../../ice/src/utils";
 import {
@@ -8,6 +7,7 @@ import {
   createLocalTurnServer,
   turnAllocations,
 } from "../../ice/tests/utils";
+import { SCTP_STATE } from "../../sctp/src";
 import { DataChunk, parsePacket } from "../../sctp/src/chunk";
 import {
   type ConnectionState,

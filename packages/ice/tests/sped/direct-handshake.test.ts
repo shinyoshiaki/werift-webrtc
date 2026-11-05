@@ -3,7 +3,7 @@ import { DTLS_IN_STUN_DATA } from "../../src/sped/draft00/constants";
 import { classes, methods } from "../../src/stun/const";
 import { Message } from "../../src/stun/message";
 import { createTestConnection } from "../utils";
-import { SpedProtocolMock, attachTestSped, spedPair } from "./helpers";
+import { attachTestSped, SpedProtocolMock, spedPair } from "./helpers";
 
 function bindingResponse(data?: Buffer) {
   const response = new Message(methods.BINDING, classes.RESPONSE);

@@ -1139,3 +1139,45 @@ export async function prepareSpedTransportStop({
     },
   };
 }
+
+// --- RTCDtlsTransport over ICE: Connection.close() runs once per teardown ---
+
+/**
+ * Arrange: a connected non-SPED session with the given DTLS version, and
+ * counters for each peer's `Connection.close()` calls and the `closed`
+ * notifications its `stateChanged` delivers.
+ */
+export async function prepareIceCloseCounting(version: DtlsVersion) {
+  const config = {
+    iceServers: [],
+    dtls: { protocolVersions: [version] },
+  };
+  const offerer = new RTCPeerConnection(config);
+  const answerer = new RTCPeerConnection(config);
+  offerer.createDataChannel("close");
+  exchangeIceCandidates(offerer, answerer);
+  await exchangeOfferAnswer(offerer, answerer);
+  await Promise.all(
+    [offerer, answerer].map((pc) =>
+      pc.connectionState === "connected"
+        ? undefined
+        : pc.connectionStateChange.watch((s) => s === "connected"),
+    ),
+  );
+  const counters = [offerer, answerer].map((pc) => {
+    const ice = pc.iceTransports[0].connection as Connection;
+    const close = vi.spyOn(ice, "close");
+    const closedNotifications = { count: 0 };
+    ice.stateChanged.subscribe((state) => {
+      if (state === "closed") closedNotifications.count++;
+    });
+    return { close, closedNotifications };
+  });
+  return {
+    offerer,
+    answerer,
+    counters,
+    /** Wait until async DTLS / transport teardown has run. */
+    settle: () => new Promise((resolve) => setTimeout(resolve, 500)),
+  };
+}

@@ -8,9 +8,10 @@ import { EarlyDataBuffer } from "./engine/v1_3/early-data-buffer";
 import { EARLY_DATA_LIMITS } from "./engine/v1_3/types";
 import { DtlsServer } from "./server";
 import type { DtlsInternalOptions, DtlsSocket, Options } from "./socket";
-export { EarlyDataBuffer, EARLY_DATA_LIMITS };
+
 export type { EarlyDataBufferStats } from "./engine/v1_3/early-data-buffer";
 export type { DtlsReadiness } from "./engine/v1_3/types";
+export { EARLY_DATA_LIMITS, EarlyDataBuffer };
 
 /**
  * @internal Create a DtlsClient with internal-only options (e.g. handshakeCarrier).
@@ -65,7 +66,9 @@ export function refragmentPendingFlightIfNeeded(socket: DtlsSocket): boolean {
  */
 export function createPreAuthEarlyDataBuffer({
   enabled = true,
-}: { enabled?: boolean } = {}): EarlyDataBuffer {
+}: {
+  enabled?: boolean;
+} = {}): EarlyDataBuffer {
   return new EarlyDataBuffer(
     enabled ? EARLY_DATA_LIMITS.maxRecords : 0,
     enabled ? EARLY_DATA_LIMITS.maxBytes : 0,

@@ -4,8 +4,8 @@ import { DtlsVersion, RTCPeerConnection } from "../../src";
 import { awaitMessage } from "../utils";
 import {
   connectDualFamilyDataChannelPeers,
-  type SctpFaultScenario,
   runSctpFaultScenario,
+  type SctpFaultScenario,
   selectedPairOf,
 } from "./warpArrange";
 

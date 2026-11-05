@@ -4,7 +4,7 @@
 import type { Connection } from "../ice";
 import type { CandidatePair, IceConnection } from "../iceBase";
 import { SpedSession } from "../sped/draft00/session";
-import { type SpedRuntime, isSpedAdvertisablePair } from "../sped/runtime";
+import { isSpedAdvertisablePair, type SpedRuntime } from "../sped/runtime";
 import type { Message } from "../stun/message";
 
 const runtimes = new WeakMap<Connection, SpedRuntime>();

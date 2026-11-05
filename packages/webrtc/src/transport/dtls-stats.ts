@@ -2,10 +2,10 @@ import type { Connection } from "../../../ice/src";
 import { getConnectionSpedRuntime } from "../../../ice/src/internal/sped-bind";
 import type { DtlsSocket } from "../imports/dtls";
 import {
+  generateStatsId,
   type RTCCertificateStats,
   type RTCStats,
   type RTCTransportStats,
-  generateStatsId,
 } from "../media/stats";
 import type { RTCCertificate, RTCDtlsFingerprint } from "./dtls-certificate";
 import type { DtlsRole, DtlsState, DtlsTransportStats } from "./dtls-types";

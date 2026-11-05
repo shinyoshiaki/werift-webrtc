@@ -1400,6 +1400,8 @@ Requires explicit DTLS 1.3 in `dtls.protocolVersions`
 (`dtls.protocolVersions` defaults to empty / DTLS 1.2 only).
 Cannot be combined with `dtls.helloRetryRequest: true`
 (SPED uses ICE-authenticated address validation, not a DTLS cookie).
+Both are validated by the constructor and `setConfiguration()`, which
+throw synchronously and leave the configuration unchanged.
 
 ##### turnTlsOptions
 

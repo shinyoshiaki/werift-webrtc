@@ -2,8 +2,11 @@ import { expect, test } from "vitest";
 
 import { UdpTransport } from "../../../common/src";
 import { DtlsClient, DtlsVersion } from "../../src";
-import { HashAlgorithm, SignatureAlgorithm } from "../../src/cipher/const";
-import { CipherSuite } from "../../src/cipher/const";
+import {
+  CipherSuite,
+  HashAlgorithm,
+  SignatureAlgorithm,
+} from "../../src/cipher/const";
 import { SupportedVersions } from "../../src/handshake/extensions/supportedVersions";
 import { ServerHello } from "../../src/handshake/message/server/hello";
 import { ServerHelloVerifyRequest } from "../../src/handshake/message/server/helloVerifyRequest";

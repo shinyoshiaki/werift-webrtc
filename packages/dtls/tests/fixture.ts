@@ -1,6 +1,6 @@
 import { spawn } from "child_process";
-import { UdpTransport, randomPort } from "../../common/src";
 import type { Transport } from "../../common/src";
+import { randomPort, UdpTransport } from "../../common/src";
 import type { SrtpProfile } from "../../rtp/src/srtp/const";
 import { DtlsClient, DtlsServer, DtlsVersion, type Options } from "../src";
 import { SessionType } from "../src/cipher/suites/abstract";
@@ -227,7 +227,9 @@ export async function spawnOpensslDtls12Server(
  */
 export async function arrangeDtls13EnginePair({
   certificateRequest = false,
-}: { certificateRequest?: boolean } = {}) {
+}: {
+  certificateRequest?: boolean;
+} = {}) {
   const serverTransport = await UdpTransport.init("udp4");
   const clientTransport = await UdpTransport.init("udp4");
   clientTransport.rinfo = serverTransport.address;

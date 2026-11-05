@@ -1,23 +1,23 @@
 import { randomUUID } from "crypto";
 import { setTimeout } from "timers/promises";
-import { Event } from "../imports/common";
 import { DirectHandshakeCarrier } from "../../../dtls/src/carrier/direct";
 import {
-  type EarlyDataBuffer,
   createDtlsClientInternal,
   createDtlsServerInternal,
   createPreAuthEarlyDataBuffer,
+  type EarlyDataBuffer,
   refragmentPendingFlightIfNeeded,
 } from "../../../dtls/src/internal";
 import type { Connection } from "../../../ice/src";
 import {
-  type IceDatagramContext,
   connectionDatagramEvent,
+  type IceDatagramContext,
 } from "../../../ice/src/internal/datagram";
 import { attachSpedToConnection } from "../../../ice/src/internal/sped";
 import { getConnectionSpedRuntime } from "../../../ice/src/internal/sped-bind";
 import { SCTPSendPermissionRevokedError } from "../../../sctp/src";
 import { EventTarget as DomEventTarget } from "../helper";
+import { Event } from "../imports/common";
 import { DtlsClient, DtlsServer, type DtlsSocket } from "../imports/dtls";
 import {
   debug,
@@ -31,19 +31,19 @@ import {
   type SrtpProfile,
   type SrtpSession,
 } from "../imports/rtp";
-import { type RTCStats, getStatsTimestamp } from "../media/stats";
+import { getStatsTimestamp, type RTCStats } from "../media/stats";
+import { milliTime } from "../utils";
 import { InboundApplicationGate } from "./dtls-application-gate";
 import {
+  createSelfSignedCertificate,
   type RTCCertificate,
   RTCDtlsParameters,
-  createSelfSignedCertificate,
 } from "./dtls-certificate";
 import {
   deduplicateFingerprints,
   verifyRemoteCertificateFingerprint,
 } from "./dtls-fingerprint";
 import { createIceTransport } from "./dtls-ice-transport";
-import { milliTime } from "../utils";
 import { isDtlsTransportSped } from "./dtls-sped";
 import { createSrtpSessions, decryptRtcp, decryptRtp } from "./dtls-srtp";
 import { buildDtlsTransportStats } from "./dtls-stats";

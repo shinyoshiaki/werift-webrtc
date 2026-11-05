@@ -10,6 +10,7 @@ import {
   Dtls13Connection,
   type DualResumeClientHello,
 } from "./engine/v1_3/connection";
+import type { EarlyDataBufferStats } from "./engine/v1_3/early-data-buffer";
 import { Flight1 } from "./flight/client/flight1";
 import { Flight3 } from "./flight/client/flight3";
 import { Flight5 } from "./flight/client/flight5";
@@ -47,7 +48,6 @@ import {
   wireVersionToNumber,
 } from "./version";
 
-import type { EarlyDataBufferStats } from "./engine/v1_3/early-data-buffer";
 const log = debug("werift-dtls : packages/dtls/src/client.ts : log");
 
 /**

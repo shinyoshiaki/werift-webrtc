@@ -641,3 +641,19 @@ SCTP がない media-only の接続では後者が呼ばれず、`allowEarlyServ
 | 同「DTLS close が失敗する停止」 | 同上 | 失敗（`close` が呼ばれない） | 成功 |
 
 `packages/webrtc` の `npm test`: 1,851 passed / 6 skipped。
+
+## 17. マージで `IceTransport.close()` の二重 close guard が失われた（レビューの指摘への対応）
+
+**原因:** `warp` の `de807ac8c` が追加した `if (this.closed) return;` と `if (this.ice.state !== "closed")` は、本ブランチで `IceTransport` を `packages/webrtc/src/transport/dtls-ice-transport.ts` へ分割していたため、マージで移されませんでした。DTLS socket は teardown のたびに `transport.close()` を呼ぶため、非 SPED・DTLS 1.3 で `Connection.close()` と `stateChanged("closed")` が重複していました。
+
+**修正:** 2 つの guard を戻しました。
+
+| テスト（`packages/webrtc/tests/integrate/iceCloseOnce.test.ts`） | 修正前 | 修正後 |
+|---|---|---|
+| DTLS 1.3: ローカルで close → `Connection.close()` / `closed` 通知が各 1 回 | 失敗（3 回） | 成功 |
+| DTLS 1.3: 相手の close 後にローカルで close → 各 1 回 | 失敗（2 回） | 成功 |
+| DTLS 1.2: 上記 2 件 | 成功 | 成功 |
+
+あわせて、README・`PeerConfig` の JSDoc を「constructor / `setConfiguration()` が同期的に throw する」挙動に合わせ、`changelog.md` に DTLS 1.3 / SPED / WARP の設定と `RTCTransportStats` の追加項目、SCTP role を DTLS role で決める変更の互換性を追記しました。`npm run format` と `npm run doc` を実行しました。
+
+**未検証:** 旧 werift（ICE role で INIT 送信側を決める）との相互接続。ICE role と DTLS role の対応がずれる組み合わせ（旧 werift の ICE-lite offerer が DTLS server になる場合など）では、両側が INIT を待つ可能性があります（changelog に記載）。

@@ -18,8 +18,7 @@ export {
   spedDataCrc32,
 } from "../sped/draft00";
 export { SpedSession } from "../sped/draft00/session";
-export type { SpedHooks } from "../sped/runtime";
-export type { SpedDirectHandshakeReadiness } from "../sped/runtime";
+export type { SpedDirectHandshakeReadiness, SpedHooks } from "../sped/runtime";
 export {
   isSpedEligiblePair,
   isSpedEligibleProtocol,

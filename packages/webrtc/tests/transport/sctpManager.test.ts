@@ -1,7 +1,5 @@
 import { vi } from "vitest";
-import { SCTPSendPermissionRevokedError } from "../../../sctp/src";
-
-import { SCTP_STATE } from "../../../sctp/src";
+import { SCTP_STATE, SCTPSendPermissionRevokedError } from "../../../sctp/src";
 import { Event } from "../../src/imports/common";
 import { SctpTransportManager } from "../../src/sctpManager";
 

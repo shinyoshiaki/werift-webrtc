@@ -13,7 +13,6 @@ import type { DtlsVersion } from "../imports/dtls";
 import type { CandidatePair, Message, Protocol } from "../imports/ice";
 import { defaultCodecs } from "../media/codec";
 import { normalizeCodecMimeType } from "../media/codecCompatibility";
-import type { BandwidthEstimatorOption } from "../media/sender/createBandwidthEstimator";
 import type {
   RTCRtpCodecParameters,
   RTCRtpHeaderExtensionParameters,
@@ -23,6 +22,7 @@ import {
   KeyFrameRequestRoutingModes,
 } from "../media/router";
 import type { RTCRtpSenderOptions } from "../media/rtpSender";
+import type { BandwidthEstimatorOption } from "../media/sender/createBandwidthEstimator";
 import type { BundlePolicy } from "../sdp";
 import type { MLineReuse } from "../sdpManager";
 import type { DtlsKeys, RTCCertificate } from "../transport/dtls";
@@ -124,9 +124,22 @@ export interface PeerConfig {
    * (`dtls.protocolVersions` defaults to empty / DTLS 1.2 only).
    * Cannot be combined with `dtls.helloRetryRequest: true`
    * (SPED uses ICE-authenticated address validation, not a DTLS cookie).
+   * Both are validated by the constructor and `setConfiguration()`, which
+   * throw synchronously and leave the configuration unchanged.
    */
   sped?: boolean;
-  /** WARP early outbound and encrypted-media buffering policy. */
+  /**
+   * WARP early outbound and encrypted-media buffering policy.
+   * - `allowEarlyServerData` (default false): the DTLS server may send
+   *   application data / media before the SDP fingerprint is verified.
+   *   Requires {@link PeerConfig.sped} `true` and DTLS 1.3; the constructor
+   *   and `setConfiguration()` throw synchronously otherwise.
+   * - `earlyMediaPolicy` (default `"drop"`): `"buffer"` retains inbound
+   *   encrypted media received before authentication (bounded) instead of
+   *   dropping it. Inbound data is never delivered before authentication.
+   * `setConfiguration()` merges these fields and applies them to every open
+   * DTLS transport, including ones a pending description prepared.
+   */
   warp?: {
     allowEarlyServerData?: boolean;
     earlyMediaPolicy?: "drop" | "buffer";
@@ -136,7 +149,7 @@ export interface PeerConfig {
     /**
      * DTLS protocol versions in preference order.
      * Unspecified / empty keeps DTLS 1.2 only. DTLS 1.3 requires explicit opt-in.
-     * Independent of {@link PeerConfig.sped} (SPED also requires DTLS 1.3 at connect()).
+     * Independent of {@link PeerConfig.sped} (SPED also requires DTLS 1.3; validated by the constructor / setConfiguration()).
      */
     protocolVersions: readonly DtlsVersion[];
     /**
@@ -618,13 +631,22 @@ export function mergePeerConfiguration(
     (version) => String(version) === "1.3",
   );
   if (nextSped === true && !nextHasDtls13) {
-    throw new Error("PeerConfig.sped requires DTLS 1.3 in dtls.protocolVersions");
+    throw new Error(
+      "PeerConfig.sped requires DTLS 1.3 in dtls.protocolVersions",
+    );
   }
   if (nextSped === true && nextDtls.helloRetryRequest) {
-    throw new Error("PeerConfig.sped cannot be combined with dtls.helloRetryRequest");
+    throw new Error(
+      "PeerConfig.sped cannot be combined with dtls.helloRetryRequest",
+    );
   }
-  if (nextWarp.allowEarlyServerData === true && (nextSped !== true || !nextHasDtls13)) {
-    throw new Error("warp.allowEarlyServerData requires PeerConfig.sped and DTLS 1.3");
+  if (
+    nextWarp.allowEarlyServerData === true &&
+    (nextSped !== true || !nextHasDtls13)
+  ) {
+    throw new Error(
+      "warp.allowEarlyServerData requires PeerConfig.sped and DTLS 1.3",
+    );
   }
 
   if (dtlsTransportCreated) {

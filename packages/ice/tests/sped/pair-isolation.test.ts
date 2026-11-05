@@ -15,8 +15,8 @@ import { Message } from "../../src/stun/message";
 import { getRawAttributeValue } from "../../src/stun/rawAttributeValue";
 import { createTestConnection } from "../utils";
 import {
-  SpedProtocolMock,
   decoratedCheckRequest,
+  SpedProtocolMock,
   spedPair,
   tcpSpedPair,
 } from "./helpers";

@@ -2,16 +2,16 @@ import { type Address, crc32, Event } from "../../../common/src";
 import { CandidatePair, type Connection } from "../../src";
 import { Candidate } from "../../src/candidate";
 import {
+  attachSpedToConnection,
   type SpedHandle,
   type SpedHooks,
-  attachSpedToConnection,
 } from "../../src/internal/sped";
 import { DTLS_IN_STUN_DATA } from "../../src/sped/draft00/constants";
 import {
+  classes,
   FINGERPRINT_LENGTH,
   FINGERPRINT_XOR,
   HEADER_LENGTH,
-  classes,
   methods,
 } from "../../src/stun/const";
 import { Message, paddingLength } from "../../src/stun/message";

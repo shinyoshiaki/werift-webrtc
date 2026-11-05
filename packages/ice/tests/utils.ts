@@ -7,10 +7,10 @@ import { runInNewContext } from "node:vm";
 import { deepStrictEqual } from "assert";
 import { EventEmitter } from "events";
 import { readFileSync } from "fs";
+import type mdns from "multicast-dns";
 import { type Address, Event, type Transport } from "../../common/src";
 import { NodeStunServer, NodeTurnServer } from "../../ice-server/src";
 import { Candidate } from "../src/candidate";
-import type mdns from "multicast-dns";
 import { MdnsLookup } from "../src/dns/lookup";
 import {
   TransactionCancelled,
