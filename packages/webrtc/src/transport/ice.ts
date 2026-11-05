@@ -1139,8 +1139,8 @@ export class IceCandidate {
   public priority: number;
   public protocol: string;
   public type: string;
-  public generation?: number;
-  public ufrag?: string;
+  public generation?: number | undefined;
+  public ufrag?: string | undefined;
 
   // """
   // The :class:`RTCIceCandidate` interface represents a candidate Interactive

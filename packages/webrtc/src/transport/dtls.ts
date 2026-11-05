@@ -93,7 +93,7 @@ export interface DtlsTransportStats {
 export class RTCDtlsTransport implements DtlsTransportStats {
   readonly config: { debug?: DebugConfig };
   readonly iceTransport: RTCIceTransport;
-  public localCertificate?: RTCCertificate;
+  public localCertificate?: RTCCertificate | undefined;
   private readonly srtpProfiles: SrtpProfile[];
 
   id = randomUUID().toString();

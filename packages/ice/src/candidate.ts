@@ -11,11 +11,11 @@ export class Candidate {
   public host: string;
   public port: number;
   public type: string;
-  public relatedAddress?: string;
-  public relatedPort?: number;
-  public tcptype?: string;
-  public generation?: number;
-  public ufrag?: string;
+  public relatedAddress?: string | undefined;
+  public relatedPort?: number | undefined;
+  public tcptype?: string | undefined;
+  public generation?: number | undefined;
+  public ufrag?: string | undefined;
 
   // An ICE candidate.
   id = randomUUID().toString();

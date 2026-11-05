@@ -18,7 +18,7 @@ export abstract class Flight {
   private transport: TransportContext;
   public dtls: DtlsContext;
   private flight: number;
-  private nextFlight?: number;
+  private nextFlight?: number | undefined;
 
   state: FlightType = "PREPARING";
   static RetransmitCount = 10;

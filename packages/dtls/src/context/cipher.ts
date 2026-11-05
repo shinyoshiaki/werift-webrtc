@@ -29,8 +29,8 @@ const generateKeyPairAsync = promisify(generateKeyPair);
 
 export class CipherContext {
   public sessionType: SessionTypes;
-  public certPem?: string;
-  public keyPem?: string;
+  public certPem?: string | undefined;
+  public keyPem?: string | undefined;
 
   localRandom!: DtlsRandom;
   remoteRandom!: DtlsRandom;

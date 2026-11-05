@@ -45,10 +45,7 @@ export class OutgoingQueue {
    *   over from a previous pacing estimator would corrupt frames without any
    *   congestion signal.
    */
-  constructor(
-    kind: Kind,
-    isBounded: () => boolean,
-  ) {
+  constructor(kind: Kind, isBounded: () => boolean) {
     this.kind = kind;
     this.isBounded = isBounded;
   }

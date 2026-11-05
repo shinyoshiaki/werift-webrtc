@@ -38,10 +38,7 @@ export class EstimatorBinding {
   /** Interval from {@link BandwidthEstimator.processIntervalMs} (0 = none). */
   private processTimer?: ReturnType<typeof setInterval>;
 
-  constructor(
-    initial: BandwidthEstimator,
-    hooks: EstimatorBindingHooks,
-  ) {
+  constructor(initial: BandwidthEstimator, hooks: EstimatorBindingHooks) {
     this.hooks = hooks;
     this.current = initial;
     this.bind(initial);
