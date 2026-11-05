@@ -876,7 +876,7 @@ export class RTCPeerConnection extends EventTarget {
       this.router.routeRtp(rtp);
     });
     dtlsTransport.onRtcp.subscribe((rtcp) => {
-      this.router.routeRtcp(rtcp);
+      this.router.routeRtcp(rtcp, dtlsTransport);
     });
     this.negotiation.noteCreatedTransport(dtlsTransport);
     const iceTransport = dtlsTransport.iceTransport;

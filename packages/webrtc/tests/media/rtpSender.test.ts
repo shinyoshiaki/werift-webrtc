@@ -1,35 +1,48 @@
 import { setTimeout } from "timers/promises";
 
-import { vi } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import {
+  GccBandwidthEstimator,
   GenericNack,
+  kProbePaddingPacketBytes,
   MediaStreamTrack,
   RTCPeerConnection,
+  RTCRtpHeaderExtensionParameters,
+  RTP_EXTENSION_URI,
   type RtcpSrPacket,
   RtcpTransportLayerFeedback,
   RtpBuilder,
+  RtpHeader,
   RtpPacket,
+  serializeTransportWideCC,
   unwrapRtx,
 } from "../../src";
 import { NtpTimeBase } from "../../src/imports/rtpExtra";
 import { RTCRtpCodecParameters } from "../../src/media/parameters";
 import { RTCRtpSender } from "../../src/media/rtpSender";
 import { RTCStatsReport } from "../../src/media/stats";
-import { compactNtp } from "../../src/utils";
+import { compactNtp, milliTime } from "../../src/utils";
 import {
+  attachPacedFifoEstimator,
   buildSenderReportAt,
+  createAudioCodec,
   createConnectedRtpSender,
   createDtlsTransport,
   createFirPacket,
   createPliPacket,
   createRtpPacket,
   createVideoCodec,
+  holdFirstDtlsWrite,
   mockMonotonicClock,
   ntpDiffMs,
-  rfc3550Ntp,
   outboundRtpStats,
+  rfc3550Ntp,
   sentRtpHeaders,
 } from "../fixture";
+import {
+  prepareConnectedSender,
+  startGccProbingWithoutSenderPadding,
+} from "./twccTestUtils";
 
 describe("media/rtpSender", () => {
   test("stop releases the subscription on the DTLS transport", () => {
@@ -448,6 +461,37 @@ describe("media/rtpSender", () => {
       sender.stop();
     }));
 
+  test("送信しない方向の間は pendingRtp 有効でも RTP を積まず、再開後にまとめて送らない", async () => {
+    // Arrange: DTLS 接続済み・pendingRtp 有効で、交渉結果が送信しない方向
+    const track = new MediaStreamTrack({ kind: "audio" });
+    const dtls = createDtlsTransport();
+    dtls.state = "connected";
+    const sendRtp = vi.spyOn(dtls, "sendRtp").mockResolvedValue(12);
+    const sender = new RTCRtpSender(track, { pendingRtp: true });
+    sender.setDtlsTransport(dtls);
+    sender.prepareSend({ codecs: [createAudioCodec()], headerExtensions: [] });
+    sender.setSendSuppressed(true);
+
+    // Act: 送信しない間に RTP を 3 件渡す
+    const suppressed = [1, 2, 3].map((seq) =>
+      sender.sendRtp(createRtpPacket(seq, seq * 960)),
+    );
+    await setTimeout(0);
+
+    // Assert: develop と同じく破棄し、待機キューにも積まない
+    expect(pendingRtpQueue(sender)).toHaveLength(0);
+    expect(sendRtp).not.toHaveBeenCalled();
+
+    // Act: 送信を再開する
+    sender.setSendSuppressed(false);
+    await Promise.all(suppressed);
+    await setTimeout(0);
+
+    // Assert: 止めていた間の RTP はまとめて送られない
+    expect(sendRtp).not.toHaveBeenCalled();
+    sender.stop();
+  });
+
   test("stop discards pending RTP and does not flush after DTLS connects", async () => {
     const track = new MediaStreamTrack({ kind: "audio" });
     const dtls = createDtlsTransport();
@@ -553,6 +597,43 @@ describe("media/rtpSender", () => {
 
     original.sender.stop();
     cloned.sender.stop();
+  });
+
+  test("同じ track を共有する sender は送信待ち中も自分の SSRC で送る", async () => {
+    // Arrange: 1 つの track を 2 つの sender で共有し、A の DTLS 送信を保留可能にする。
+    const track = new MediaStreamTrack({ kind: "audio" });
+    const a = createConnectedRtpSender({ track });
+    const b = createConnectedRtpSender({ track });
+    const release = deferred();
+    a.sendRtp.mockImplementation(async () => {
+      if (a.sendRtp.mock.calls.length === 1) {
+        await release.promise;
+      }
+      return 12;
+    });
+
+    // Act: A の 1 件目を保留させ、2 件目は A の送信キューで待たせる。
+    track.writeRtp(createRtpPacket(1, 1000));
+    await waitForSent(a.sendRtp, 1);
+    track.writeRtp(createRtpPacket(2, 1040));
+    await waitForSent(b.sendRtp, 2);
+
+    // Act: B が共有パケットのヘッダーを書き換えた後で A を再開する。
+    release.resolve();
+    await waitForSent(a.sendRtp, 2);
+
+    // Assert: 各 sender の全送信が自分自身の SSRC を持つ。
+    expect(a.sender.ssrc).not.toBe(b.sender.ssrc);
+    expect(sentRtpHeaders(a.sendRtp).map((h) => h.ssrc)).toEqual([
+      a.sender.ssrc,
+      a.sender.ssrc,
+    ]);
+    expect(sentRtpHeaders(b.sendRtp).map((h) => h.ssrc)).toEqual([
+      b.sender.ssrc,
+      b.sender.ssrc,
+    ]);
+    a.sender.stop();
+    b.sender.stop();
   });
 
   test("sendRtp keeps media-clock timestamps including skip gaps as-is", async () => {
@@ -815,6 +896,39 @@ describe("media/rtpSender", () => {
     pc.close();
   });
 
+  test("getConfiguration pendingRtp snapshot does not change sender queue limit", async () => {
+    // Arrange: オブジェクト指定の pendingRtp で PC を作る
+    const pendingLimit = 2;
+    const pc = new RTCPeerConnection({
+      pendingRtp: { maxLength: pendingLimit },
+    });
+    const snapshot = pc.getConfiguration();
+
+    // Act: 公開スナップショットの maxLength だけ書き換える
+    expect(typeof snapshot.pendingRtp).toBe("object");
+    if (typeof snapshot.pendingRtp === "object" && snapshot.pendingRtp) {
+      snapshot.pendingRtp.maxLength = 99;
+    }
+
+    // Assert: 内部設定は元の上限のまま。後から作る sender も 2 件で溢れる
+    const reread = pc.getConfiguration().pendingRtp;
+    expect(typeof reread).toBe("object");
+    expect(
+      typeof reread === "object" && reread ? reread.maxLength : undefined,
+    ).toBe(pendingLimit);
+    const track = new MediaStreamTrack({ kind: "audio" });
+    const sender = pc.addTrack(track);
+    const first = sender.sendRtp(createRtpPacket(0, 0));
+    void sender.sendRtp(createRtpPacket(1, 1));
+    expect(pendingRtpQueue(sender)).toHaveLength(pendingLimit);
+    const overflow = sender.sendRtp(createRtpPacket(2, 2));
+    const overflowState = watchPromise(overflow);
+    await first;
+    expect(pendingRtpQueue(sender)).toHaveLength(pendingLimit);
+    expect(overflowState.status).toBe("pending");
+    pc.close();
+  });
+
   test("getStats returns a report rooted at outbound stats", async () => {
     const track = new MediaStreamTrack({ kind: "audio", remote: true });
     const dtls = createDtlsTransport();
@@ -864,7 +978,7 @@ describe("media/rtpSender", () => {
 });
 
 function pendingRtpQueue(sender: RTCRtpSender) {
-  return (sender as unknown as { pendingRtp: unknown[] }).pendingRtp;
+  return (sender as unknown as { pendingRtp: { length: number } }).pendingRtp;
 }
 
 function senderStatsState(sender: RTCRtpSender) {
@@ -939,6 +1053,45 @@ async function waitForSent(
   await waitUntil(() => sendRtp.mock.calls.length >= count);
 }
 
+describe("media/rtpSender encodings", () => {
+  test("setParameters の encoding RID を RID ヘッダー拡張で送信する", async () => {
+    const { sender, sendRtp } = createConnectedRtpSender({ rid: true });
+
+    // Act: encoding に RID を設定してから RTP を送る。
+    sender.setParameters({ encodings: [{ rid: "high" }] });
+    await sender.sendRtp(createRtpPacket(1, 1000));
+
+    // Assert: 送信ヘッダーに RID 拡張（id=4, "high"）が載る。
+    const [header] = sentRtpHeaders(sendRtp);
+    const rid = header.extensions.find((extension) => extension.id === 4);
+    expect(rid?.payload.toString()).toBe("high");
+    sender.stop();
+  });
+
+  test("encoding の RID は RID を含まない送信準備（SDP 交渉）後も保持される", async () => {
+    const { sender, sendRtp } = createConnectedRtpSender({ rid: true });
+
+    // Act: RID を設定した後、SDP 交渉相当の prepareSend を rtpStreamId なしで再実行する。
+    sender.setParameters({ encodings: [{ rid: "high" }] });
+    sender.prepareSend({
+      codecs: [createAudioCodec()],
+      headerExtensions: [
+        new RTCRtpHeaderExtensionParameters({
+          id: 4,
+          uri: RTP_EXTENSION_URI.sdesRTPStreamID,
+        }),
+      ],
+    });
+    await sender.sendRtp(createRtpPacket(1, 1000));
+
+    // Assert: RID 拡張に "high" が残る。
+    const [header] = sentRtpHeaders(sendRtp);
+    const rid = header.extensions.find((extension) => extension.id === 4);
+    expect(rid?.payload.toString()).toBe("high");
+    sender.stop();
+  });
+});
+
 describe("media/rtpSender RTP continuity", () => {
   const started: RTCRtpSender[] = [];
 
@@ -979,6 +1132,119 @@ describe("media/rtpSender RTP continuity", () => {
     const [header] = sentRtpHeaders(sendRtp);
     expect(header.sequenceNumber).toBe((last.sequenceNumber + 1) & 0xffff);
     expect(header.timestamp).toBe((last.timestamp + 1) >>> 0);
+  });
+
+  test("送信キュー待ちの旧パケットは replaceTrack 後に送られず、新ソース先頭が連続性補正を受ける", async () => {
+    const { sender, track, sendRtp } = arrangeSender();
+    // Arrange: 送信キューを使う pacing 系 estimator（lightweight はキューを持たない）
+    attachPacedFifoEstimator(sender);
+    const { release } = holdFirstDtlsWrite(sendRtp);
+    const track2 = new MediaStreamTrack({ kind: "audio", remote: true });
+
+    // Arrange: 旧ソース 1 件目の DTLS 送信を保留し、2〜3 件目を送信キューに残す。
+    track.onReceiveRtp.execute(createRtpPacket(1, 1000));
+    await waitForSent(sendRtp, 1);
+    track.onReceiveRtp.execute(createRtpPacket(2, 1040));
+    track.onReceiveRtp.execute(createRtpPacket(3, 1080));
+    const first = sentRtpHeaders(sendRtp)[0];
+
+    // Act: キュー待ちのまま新 track へ差し替え、新ソース先頭を送ってから保留を解く。
+    await sender.replaceTrack(track2);
+    track2.onReceiveRtp.execute(createRtpPacket(100, 5000));
+    release();
+    await waitForSent(sendRtp, 2);
+    await setTimeout(10);
+
+    // Assert: 旧 2〜3 件目は送られず、新ソース先頭は保留中の旧 1 件目から seq+1 / ts+1 で続く。
+    const headers = sentRtpHeaders(sendRtp);
+    expect(headers).toHaveLength(2);
+    expect(headers[1].sequenceNumber).toBe((first.sequenceNumber + 1) & 0xffff);
+    expect(headers[1].timestamp).toBe((first.timestamp + 1) >>> 0);
+  });
+
+  test("probe 待ち中の旧パケットは replaceTrack で待ちから解除され、新ソースを遅らせない", async () => {
+    const { sender, track, sendRtp } = arrangeSender({ twcc: true });
+    const gcc = new GccBandwidthEstimator(300_000);
+    sender.setBandwidthEstimator(gcc);
+    vi.spyOn(sender, "maybeInjectProbePadding").mockResolvedValue(0);
+    // Arrange: 最初の 1 件だけ 5 秒先の probe 予約を返し、media pacing は無効にする。
+    let reserved = 0;
+    gcc.getPacingBitrateBps = () => 0;
+    gcc.shouldTagProbePacket = () => reserved === 0;
+    gcc.reserveOutgoingProbe = () =>
+      reserved++ === 0
+        ? { clusterId: 1, nextSendTimeMs: milliTime() + 5_000 }
+        : undefined;
+    const track2 = new MediaStreamTrack({ kind: "audio", remote: true });
+
+    // Act: 旧パケットを probe 待ちにさせたまま新 track へ差し替え、新ソース先頭を送る。
+    track.onReceiveRtp.execute(createRtpPacket(1, 1000));
+    await setTimeout(10);
+    expect(sendRtp).not.toHaveBeenCalled();
+    const t0 = milliTime();
+    await sender.replaceTrack(track2);
+    track2.onReceiveRtp.execute(createRtpPacket(100, 5000));
+    await waitForSent(sendRtp, 1);
+
+    // Assert: 新ソースは probe 待ちの終了を待たずに送られ、旧パケットは送られない。
+    expect(milliTime() - t0).toBeLessThan(1_000);
+    await setTimeout(20);
+    expect(sendRtp).toHaveBeenCalledTimes(1);
+  });
+
+  test("pacing 待ち中に setBandwidthEstimator すると旧 estimator の待ちが解除され、新しい送信を遅らせない", async () => {
+    const { sender, track, sendRtp } = arrangeSender({ twcc: true });
+    vi.spyOn(sender, "maybeInjectProbePadding").mockResolvedValue(0);
+    // Arrange: 旧 estimator は 80 bps の pacing（1 パケットに数秒待つ）、probe なし。
+    const slow = new GccBandwidthEstimator(300_000);
+    slow.getPacingBitrateBps = () => 80;
+    slow.shouldTagProbePacket = () => false;
+    sender.setBandwidthEstimator(slow);
+    // Arrange: 新 estimator は pacing・probe なし。
+    const fast = new GccBandwidthEstimator(300_000);
+    fast.getPacingBitrateBps = () => 0;
+    fast.shouldTagProbePacket = () => false;
+
+    // Act: 旧 estimator の pacing 待ちに入れたまま estimator を差し替え、次のパケットを送る。
+    track.onReceiveRtp.execute(createRtpPacket(1, 1000));
+    await setTimeout(10);
+    expect(sendRtp).not.toHaveBeenCalled();
+    sender.setBandwidthEstimator(fast);
+    track.onReceiveRtp.execute(createRtpPacket(2, 1040));
+    // 旧待ちは 100ms 刻みで眠るため、残り約 90ms より十分短い 30ms で観測する。
+    await setTimeout(30);
+
+    // Assert: 新しい送信は旧 pacing の待ち時間（次の 100ms 刻み）を待たずに出る。
+    expect(sendRtp).toHaveBeenCalledTimes(1);
+    // Assert: 旧パケットはその後も送られない。
+    await setTimeout(150);
+    expect(sendRtp).toHaveBeenCalledTimes(1);
+    expect(sentRtpHeaders(sendRtp)[0].timestamp).toBe(1040);
+  });
+
+  test("replaceTrack(null) 後は送信キュー待ちの旧パケットを送らない", async () => {
+    const { sender, track, sendRtp } = arrangeSender();
+    // Arrange: 送信キューを使う pacing 系 estimator（lightweight はキューを持たない）
+    attachPacedFifoEstimator(sender);
+    const { release } = holdFirstDtlsWrite(sendRtp);
+
+    // Arrange: 1 件目の DTLS 送信を保留し、2〜3 件目を送信キューに残す。
+    track.onReceiveRtp.execute(createRtpPacket(1, 1000));
+    await waitForSent(sendRtp, 1);
+    const queued = [
+      sender.sendRtp(createRtpPacket(2, 1040)),
+      sender.sendRtp(createRtpPacket(3, 1080)),
+    ];
+
+    // Act: track を解除してから保留を解く。
+    await sender.replaceTrack(null);
+    release();
+    await Promise.all(queued);
+    await setTimeout(10);
+
+    // Assert: 解除前に DTLS へ渡した 1 件目だけが送られ、キュー待ちの promise も解決する。
+    expect(sendRtp).toHaveBeenCalledTimes(1);
+    expect(sender.track).toBeNull();
   });
 
   test("onSourceChanged は pending にし、直後の実送出でオフセットを確定する", async () => {
@@ -1124,6 +1390,26 @@ describe("media/rtpSender RTP continuity", () => {
     ]);
   });
 
+  test("遅れて届いた重複 RTP は初回と同じ seq を使い、後続 media と衝突しない", async () => {
+    const { sender, sendRtp } = arrangeSender();
+
+    // Act: 10, 11 の後に 10 の重複が遅着し、続けて 12 を送る。
+    await sender.sendRtp(createRtpPacket(10, 1000));
+    await sender.sendRtp(createRtpPacket(11, 1040));
+    await sender.sendRtp(createRtpPacket(10, 1000));
+    await sender.sendRtp(createRtpPacket(12, 1080));
+
+    // Assert: 重複は初回の seq を再利用し、12 は新しい seq を得る（10,11,12,12 にならない）。
+    const seqs = sentRtpHeaders(sendRtp).map((header) => header.sequenceNumber);
+    const base = seqs[0];
+    expect(seqs).toEqual([
+      base,
+      (base + 1) & 0xffff,
+      base,
+      (base + 2) & 0xffff,
+    ]);
+  });
+
   test("同一 timestamp の複数 RTP は切替後も同一出力 timestamp になる", async () => {
     const { sender, sendRtp } = arrangeSender();
 
@@ -1245,6 +1531,62 @@ describe("media/rtpSender RTP continuity", () => {
     expect(recovered.header.sequenceNumber).toBe(afterSeq);
   });
 
+  test("probe padding は NACK されても再送せず、media の NACK だけを RTX で再送する", async () => {
+    // Arrange: VP8 + RTX の sender で media 1 本と probe padding 1 本を送る
+    const { sender, sendRtp } = createConnectedRtpSender({
+      kind: "video",
+      codec: createVideoCodec(),
+      rtx: true,
+    });
+    const vp8 = Buffer.from([0x10, 0x01, 0x02, 0x03]);
+    await sender.sendRtp(createRtpPacket(10, 90000, vp8));
+    await (sender as any).sendRtpInternal(
+      new RtpPacket(
+        new RtpHeader({
+          payloadType: 96,
+          padding: true,
+          paddingSize: kProbePaddingPacketBytes,
+        }),
+        Buffer.alloc(0),
+      ),
+      { injectProbePadding: false, isProbePadding: true },
+    );
+    const [media, padding] = sentRtpHeaders(sendRtp);
+    expect(padding.padding).toBe(true);
+    expect(padding.ssrc).toBe(sender.rtxSsrc);
+    sendRtp.mockClear();
+    const nack = (mediaSourceSsrc: number, lost: number) =>
+      sender.handleRtcpPacket(
+        new RtcpTransportLayerFeedback({
+          feedback: new GenericNack({
+            lost: [lost],
+            senderSsrc: 1,
+            mediaSourceSsrc,
+          }),
+        }),
+      );
+
+    // Act: padding の番号を media / RTX どちらの SSRC 宛てに NACK しても
+    nack(sender.ssrc, padding.sequenceNumber);
+    nack(sender.rtxSsrc, padding.sequenceNumber);
+    await setTimeout(0);
+
+    // Assert: padding は再送対象にならない
+    expect(sendRtp).not.toHaveBeenCalled();
+
+    // Act: media の番号を NACK する
+    nack(sender.ssrc, media.sequenceNumber);
+    await setTimeout(0);
+
+    // Assert: RTX（PT 97）で、OSN 2 バイト + 元の VP8 payload を再送する
+    expect(sendRtp).toHaveBeenCalledTimes(1);
+    const [payload, header] = sendRtp.mock.calls[0]!;
+    expect(header.payloadType).toBe(97);
+    expect(header.ssrc).toBe(sender.rtxSsrc);
+    expect(payload.readUInt16BE(0)).toBe(media.sequenceNumber);
+    expect(payload.subarray(2)).toEqual(vp8);
+  });
+
   test("RTCP SR の rtpTimestamp は書き換え後値で、TWCC はメディア seq と独立に進む", async () => {
     const { sender, dtls, sendRtp } = arrangeSender({
       twcc: true,
@@ -1291,6 +1633,255 @@ describe("media/rtpSender RTP continuity", () => {
     const [header] = sentRtpHeaders(sendRtp);
     expect(header.sequenceNumber).toBe((last.sequenceNumber + 1) & 0xffff);
     expect(header.timestamp).toBe((last.timestamp + 1) >>> 0);
+  });
+
+  test("ソース切替後の padding は timestampOffset を重ねて適用しない", async () => {
+    // Arrange: padding は RTX SSRC でだけ送るので RTX を交渉する
+    const { sender, sendRtp } = arrangeSender({ rtx: true });
+
+    // Arrange: 切替後の先頭 media timestamp が 1001 になる状態
+    await sender.sendRtp(createRtpPacket(1, 1000));
+    sender.replaceRTP({ sequenceNumber: 0, timestamp: 0 });
+    await sender.sendRtp(createRtpPacket(0, 0));
+    const mediaTs = sentRtpHeaders(sendRtp).at(-1)!.timestamp;
+    expect(mediaTs).toBe(1001);
+    sendRtp.mockClear();
+
+    const sendPad = async () => {
+      await (sender as any).sendRtpInternal(
+        new RtpPacket(
+          new RtpHeader({
+            sequenceNumber: 0,
+            timestamp: 0,
+            payloadType: 96,
+            ssrc: sender.ssrc,
+            marker: false,
+            padding: true,
+            paddingSize: kProbePaddingPacketBytes,
+            payloadOffset: 12,
+          }),
+          Buffer.alloc(0),
+        ),
+        { injectProbePadding: false, isProbePadding: true },
+      );
+    };
+
+    // Act: 切替後に padding を 2 つ送る
+    await sendPad();
+    await sendPad();
+
+    // Assert: 補正済み timestamp を再加算しない（旧実装は 2002, 3003）
+    const pads = sentRtpHeaders(sendRtp);
+    expect(pads).toHaveLength(2);
+    expect(pads[0]!.timestamp).toBe(mediaTs);
+    expect(pads[1]!.timestamp).toBe(mediaTs);
+  });
+
+  test("stop は DTLS state listener を解除する", () => {
+    // Arrange
+    const dtls = createDtlsTransport();
+    const sender = new RTCRtpSender("audio");
+    const unsub = vi.fn();
+    dtls.onStateChange.subscribe = (() => ({
+      unSubscribe: unsub,
+      disposer: () => {},
+    })) as typeof dtls.onStateChange.subscribe;
+    sender.setDtlsTransport(dtls);
+
+    // Act
+    sender.stop();
+
+    // Assert
+    expect(unsub).toHaveBeenCalled();
+  });
+
+  test("入力 RTP の古い TWCC で新しい TSN を上書きしない", async () => {
+    // Arrange
+    const dtls = createDtlsTransport();
+    (dtls as { state: string }).state = "connected";
+    const seen: number[] = [];
+    dtls.sendRtp = vi.fn(async (_p: Buffer, header: RtpHeader) => {
+      const ext = header.extensions.find((e) => e.id === 3);
+      if (ext) seen.push(ext.payload.readUInt16BE(0));
+      return 80;
+    }) as typeof dtls.sendRtp;
+    const sender = new RTCRtpSender("video");
+    sender.setDtlsTransport(dtls);
+    sender.prepareSend({
+      codecs: [
+        new RTCRtpCodecParameters({
+          mimeType: "video/VP8",
+          clockRate: 90000,
+          payloadType: 96,
+        }),
+      ],
+      headerExtensions: [
+        new RTCRtpHeaderExtensionParameters({
+          id: 3,
+          uri: RTP_EXTENSION_URI.transportWideCC,
+        }),
+      ],
+      muxId: "0",
+      rtcp: { cname: "t", mux: true },
+    });
+
+    // Act: inbound が TSN=123 を持っていても
+    await sender.sendRtp(
+      new RtpPacket(
+        new RtpHeader({
+          sequenceNumber: 1,
+          timestamp: 1,
+          payloadType: 96,
+          ssrc: 1,
+          extension: true,
+          extensions: [{ id: 3, payload: serializeTransportWideCC(123) }],
+        }),
+        Buffer.alloc(40),
+      ),
+    );
+
+    // Assert: wire は新しい TSN（1）。123 ではない
+    expect(seen[0]).toBe(1);
+    expect(seen[0]).not.toBe(123);
+  });
+
+  test("NACK 再送は sendRtpInternal を通り新しい TWCC seq を使う", async () => {
+    // Arrange
+    const dtls = createDtlsTransport();
+    (dtls as { state: string }).state = "connected";
+    const wireTsns: number[] = [];
+    const wireSsrcs: number[] = [];
+    dtls.sendRtp = vi.fn(async (_p: Buffer, header: RtpHeader) => {
+      const ext = header.extensions.find((e) => e.id === 3);
+      if (ext) wireTsns.push(ext.payload.readUInt16BE(0));
+      wireSsrcs.push(header.ssrc);
+      return 80;
+    }) as typeof dtls.sendRtp;
+    const sender = new RTCRtpSender("video");
+    sender.setDtlsTransport(dtls);
+    sender.prepareSend({
+      codecs: [
+        new RTCRtpCodecParameters({
+          mimeType: "video/VP8",
+          clockRate: 90000,
+          payloadType: 96,
+        }),
+        new RTCRtpCodecParameters({
+          mimeType: "video/rtx",
+          clockRate: 90000,
+          payloadType: 97,
+          parameters: "apt=96",
+        }),
+      ],
+      headerExtensions: [
+        new RTCRtpHeaderExtensionParameters({
+          id: 3,
+          uri: RTP_EXTENSION_URI.transportWideCC,
+        }),
+      ],
+      muxId: "0",
+      rtcp: { cname: "t", mux: true },
+    });
+
+    await sender.sendRtp(
+      new RtpPacket(
+        new RtpHeader({
+          sequenceNumber: 7,
+          timestamp: 1000,
+          payloadType: 96,
+          ssrc: 1,
+        }),
+        Buffer.alloc(40),
+      ),
+    );
+    const firstTsn = wireTsns[0];
+    expect(firstTsn).toBeDefined();
+
+    // Act: Generic NACK
+    await sender.handleRtcpPacket(
+      new RtcpTransportLayerFeedback({
+        feedback: new GenericNack({
+          senderSsrc: 1,
+          mediaSourceSsrc: sender.ssrc,
+          lost: [7],
+        }),
+      }),
+    );
+    // NACK handler is async forEach — 再送完了を待つ
+    for (let i = 0; i < 30 && wireTsns.length < 2; i++) {
+      await setTimeout(5);
+    }
+
+    // Assert: 新しい TSN。元 TSN の再利用ではない。RTX SSRC
+    expect(wireTsns.length).toBeGreaterThanOrEqual(2);
+    expect(wireTsns[1]).not.toBe(firstTsn);
+    expect(wireSsrcs[1]).toBe(sender.rtxSsrc);
+  });
+
+  test("probe next_send が 250ms 先でも 100ms で早出ししない", async () => {
+    // Arrange: 実送信時刻を測り、reserve の next_send を now+250 に固定する
+    const gcc = new GccBandwidthEstimator(10_000);
+    const { sender, dtls } = await prepareConnectedSender(gcc);
+    const sendTimes: number[] = [];
+    const write = dtls.sendRtp.bind(dtls);
+    dtls.sendRtp = vi.fn(async (payload: Buffer, header: RtpHeader) => {
+      sendTimes.push(milliTime());
+      return write(payload, header);
+    }) as typeof dtls.sendRtp;
+    startGccProbingWithoutSenderPadding(sender, gcc, milliTime());
+    const orig = gcc.reserveOutgoingProbe.bind(gcc);
+    gcc.reserveOutgoingProbe = (nowMs: number) => {
+      const r = orig(nowMs);
+      return r && { ...r, nextSendTimeMs: milliTime() + 250 };
+    };
+
+    // Act
+    const t0 = milliTime();
+    await sender.maybeInjectProbePadding();
+
+    // Assert: 100ms キャップで出ていない（250ms まで待つ）
+    expect(sendTimes.length).toBeGreaterThan(0);
+    expect(sendTimes[0]! - t0).toBeGreaterThanOrEqual(200);
+  }, 10_000);
+
+  test("lightweight は DTLS 書き込みが保留中でもバーストを欠落させず、キューに溜めず直接送る", async () => {
+    // Arrange: 既定 (lightweight) の video sender。1 件目の DTLS 書き込みを保留する
+    const { sender, sendRtp } = createConnectedRtpSender({ kind: "video" });
+    const { release } = holdFirstDtlsWrite(sendRtp);
+
+    // Act: 保留中に、送信完了を待たず 100 パケットを同時投入する
+    const sends = Array.from({ length: 100 }, (_, i) =>
+      sender.sendRtp(createRtpPacket(i, 3000, Buffer.alloc(1200))),
+    );
+    await Promise.all(sends.slice(1));
+
+    // Assert: develop と同じく保留を待たずに全件 DTLS へ渡す（破棄も送信キューもない）
+    expect(sendRtp).toHaveBeenCalledTimes(100);
+    expect((sender as any).outgoing.running).toBe(false);
+    release();
+    await sends[0];
+    sender.stop();
+  });
+
+  test("転送では padding も source 相対の番号で中継し、欠番を作らない", async () => {
+    // Arrange: 受信 track を別 sender に接続する
+    const { sender, track, sendRtp } = createConnectedRtpSender({
+      kind: "video",
+    });
+
+    // Act: media 1000 → padding 1001 → media 1002 を受信側 track へ流す
+    track.onReceiveRtp.execute(createRtpPacket(1000, 3000, Buffer.alloc(10)));
+    track.onReceiveRtp.execute(createRtpPacket(1001, 3000), undefined, {
+      type: "padding",
+    } as never);
+    track.onReceiveRtp.execute(createRtpPacket(1002, 3000, Buffer.alloc(10)));
+    await setTimeout(10);
+
+    // Assert: sender は受信種別で間引かず、番号は入力どおり連続する
+    // （track 切替時の連続性・番号の保存は tests/pbt/sender の forward で確かめる）
+    const seqs = sentRtpHeaders(sendRtp).map((h) => h.sequenceNumber);
+    expect(seqs).toEqual([1000, 1001, 1002]);
+    sender.stop();
   });
 
   describe("keyframe requests", () => {
@@ -1830,7 +2421,7 @@ describe("media/rtpSender RTCP Sender Report clock mapping", () => {
     expect(compactNtp(second.senderInfo.ntpTimestamp)).not.toBe(
       compactNtp(first.senderInfo.ntpTimestamp),
     );
-    expect((sender as any).lastSRtimestamp).toBe(
+    expect((sender as any).stats.lastSRtimestamp).toBe(
       compactNtp(second.senderInfo.ntpTimestamp),
     );
   });

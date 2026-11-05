@@ -35,7 +35,11 @@ import { RTCRtpCodingParameters } from "../src/media/parameters";
 import { type KeyFrameRequestRouting, RtpRouter } from "../src/media/router";
 import { RTCRtpReceiver } from "../src/media/rtpReceiver";
 import { RTCRtpSender } from "../src/media/rtpSender";
-import type { SenderBandwidthEstimator } from "../src/media/sender/senderBWE";
+import { GccBandwidthEstimator } from "../src/media/sender/estimators/gcc/gccBwe";
+import type {
+  LightweightBandwidthEstimator,
+  SenderBandwidthEstimator,
+} from "../src/media/sender/senderBWE";
 import { exchangeIceCandidates } from "./utils";
 
 export const createRtpPacket = (
@@ -94,6 +98,8 @@ export function createConnectedRtpSender(options?: {
   track?: MediaStreamTrack;
   rtx?: boolean;
   twcc?: boolean;
+  /** Negotiate the SDES RTP stream id (RID) header extension as id 4. */
+  rid?: boolean;
   cname?: string;
   /** send codec (default: 48 kHz opus) */
   codec?: RTCRtpCodecParameters;
@@ -111,14 +117,23 @@ export function createConnectedRtpSender(options?: {
   if (options?.rtx) {
     codecs.push(createRtxCodec());
   }
-  const headerExtensions = options?.twcc
-    ? [
-        new RTCRtpHeaderExtensionParameters({
-          id: 3,
-          uri: RTP_EXTENSION_URI.transportWideCC,
-        }),
-      ]
-    : [];
+  const headerExtensions: RTCRtpHeaderExtensionParameters[] = [];
+  if (options?.twcc) {
+    headerExtensions.push(
+      new RTCRtpHeaderExtensionParameters({
+        id: 3,
+        uri: RTP_EXTENSION_URI.transportWideCC,
+      }),
+    );
+  }
+  if (options?.rid) {
+    headerExtensions.push(
+      new RTCRtpHeaderExtensionParameters({
+        id: 4,
+        uri: RTP_EXTENSION_URI.sdesRTPStreamID,
+      }),
+    );
+  }
 
   sender.prepareSend({
     codecs,
@@ -195,9 +210,44 @@ export function createSrtpLoopback(
   return { sender, receiver, received, failures, transmit, loseNext };
 }
 
+/**
+ * Attach a GCC estimator so the sender uses its paced send FIFO, with pacing,
+ * probing, and padding disabled. For tests about FIFO order / source epochs
+ * (lightweight writes straight through and never queues).
+ */
+export function attachPacedFifoEstimator(sender: RTCRtpSender) {
+  const gcc = new GccBandwidthEstimator(300_000);
+  gcc.getPacingBitrateBps = () => 0;
+  gcc.shouldTagProbePacket = () => false;
+  gcc.pendingProbePaddingPackets = () => 0;
+  gcc.pendingLossPaddingPackets = () => 0;
+  sender.setBandwidthEstimator(gcc);
+  return gcc;
+}
+
 export type ConnectedRtpSenderSetup = ReturnType<
   typeof createConnectedRtpSender
 >;
+
+/**
+ * Hold the first DTLS RTP write of a {@link createConnectedRtpSender} setup
+ * until `release()` so later sends stay in the sender's outgoing queue.
+ */
+export function holdFirstDtlsWrite(
+  sendRtp: ConnectedRtpSenderSetup["sendRtp"],
+) {
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  sendRtp.mockImplementation(async () => {
+    if (sendRtp.mock.calls.length === 1) {
+      await held;
+    }
+    return 12;
+  });
+  return { release };
+}
 
 export function sentRtpHeaders(sendRtp: ConnectedRtpSenderSetup["sendRtp"]) {
   return sendRtp.mock.calls.map(([, header]) => header);
@@ -632,7 +682,7 @@ export async function createConnectedSendrecvVideoPeers(
 
 /** Arrange: `count` packets sent through `estimator` from `firstSeq`, `sentAtMs` apart by `stepMs`. */
 export function recordSentPackets(
-  estimator: SenderBandwidthEstimator,
+  estimator: LightweightBandwidthEstimator,
   {
     count,
     firstSeq = 0,
@@ -643,7 +693,8 @@ export function recordSentPackets(
   for (let i = 0; i < count; i++) {
     const at = sentAtMs + i * stepMs;
     estimator.rtpPacketSent({
-      wideSeq: (firstSeq + i) & 0xffff,
+      // RTCRtpSender reports the extended transport-wide sequence number.
+      wideSeq: firstSeq + i,
       size: 1000,
       sendingAtMs: at,
       sentAtMs: at,
@@ -652,7 +703,21 @@ export function recordSentPackets(
 }
 
 /** Test-only read: the packets `estimator` keeps for transport-cc feedback. */
-export function pendingFeedback(estimator: SenderBandwidthEstimator) {
-  return (estimator as unknown as { sentInfos: Map<number, unknown> })
-    .sentInfos;
+export function pendingFeedback(estimator: LightweightBandwidthEstimator) {
+  const adapter = (
+    estimator as unknown as {
+      feedbackAdapter: {
+        history: Map<number, unknown>;
+        prune(nowMs: number): void;
+      };
+    }
+  ).feedbackAdapter;
+  // The source test uses an exact 10 s boundary; advance one millisecond so
+  // the adapter's strict "older than max age" rule is deterministic.
+  adapter.prune(Date.now() + 1);
+  // Tests that reason about the wire map should see the 16-bit sequence view;
+  // the adapter internally uses an extended sequence for generation safety.
+  return new Map(
+    [...adapter.history].map(([seq, info]) => [seq & 0xffff, info]),
+  );
 }

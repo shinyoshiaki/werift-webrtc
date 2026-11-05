@@ -1,0 +1,203 @@
+import { Event } from "../../../imports/common";
+import { Int, type TransportWideCC } from "../../../imports/rtp";
+import { milliTime } from "../../../utils";
+import type { BandwidthEstimator, SentInfo } from "../bandwidthEstimator";
+import {
+  BandwidthEstimatorNoopHooks,
+  setAvailableBitrateIfChanged,
+} from "../bandwidthEstimator";
+import { CumulativeResult } from "../cumulativeResult";
+import { TwccFeedbackAdapter } from "./twccFeedbackAdapter";
+
+const COUNTER_MAX = 20;
+const SCORE_MAX = 10;
+/**
+ * Time-based sent-info window. Prefer this over a sequence-count cap so a
+ * high packet rate plus delayed TWCC still matches (parent-ticket default
+ * estimator must stay backward compatible).
+ */
+const kLightweightSentInfoMaxAgeMs = 10_000;
+
+/**
+ * Lightweight cumulative min(send, recv) bandwidth estimator (mediasoup-inspired).
+ *
+ * This is the **default** send-side BWE used by {@link RTCRtpSender}: no
+ * probing, pacing or process timer, only the TWCC-observed send and receive
+ * rates. Implements {@link BandwidthEstimator}; congestion-related events are
+ * specific to this estimator and are not part of the shared interface. GCC send-path hooks (probe, pacing,
+ * RTT, process interval) are no-ops so {@link RTCRtpSender} can call them
+ * unconditionally.
+ *
+ * @see CumulativeResult
+ */
+export class LightweightBandwidthEstimator
+  extends BandwidthEstimatorNoopHooks
+  implements BandwidthEstimator
+{
+  congestion = false;
+
+  /**
+   * Recommended available send bitrate in **bps**.
+   * Notifies {@link onAvailableBitrate} only when the value changes.
+   */
+  /** @internal */
+  _availableBitrate = 0;
+
+  /**
+   * Fires when recommended send bitrate (**bps**) changes.
+   * @see BandwidthEstimator.onAvailableBitrate
+   */
+  readonly onAvailableBitrate = new Event<[number]>();
+
+  /** Lightweight-only: whether congestion is considered active. */
+  readonly onCongestion = new Event<[boolean]>();
+  /** Lightweight-only: congestion score 1–10 (higher is worse). */
+  readonly onCongestionScore = new Event<[number]>();
+
+  private congestionCounter = 0;
+  private cumulativeResult = new CumulativeResult();
+  /**
+   * Send history + feedback normalization shared with GCC. Each sent packet
+   * is counted as received at most once, even across corrective feedback.
+   */
+  private feedbackAdapter = new TwccFeedbackAdapter(
+    kLightweightSentInfoMaxAgeMs,
+  );
+  private _congestionScore = 1;
+  private readonly clock: () => number;
+
+  /**
+   * @param options.clock Optional sender clock for unit tests. Must match the
+   *   domain of {@link SentInfo.sendingAtMs} / {@link SentInfo.sentAtMs} used
+   *   with this instance. Production omits this (defaults to
+   *   {@link milliTime}).
+   */
+  constructor(options?: { clock?: () => number }) {
+    super();
+    this.clock = options?.clock ?? milliTime;
+  }
+
+  /** 1–10; larger means worse congestion (lightweight-specific). */
+  get congestionScore() {
+    return this._congestionScore;
+  }
+  set congestionScore(v: number) {
+    // Change-only: do not re-fire when the score is unchanged.
+    if (v === this._congestionScore) return;
+    this._congestionScore = v;
+    this.onCongestionScore.execute(v);
+  }
+
+  get availableBitrate() {
+    return this._availableBitrate;
+  }
+  set availableBitrate(v: number) {
+    setAvailableBitrateIfChanged(this, v);
+  }
+
+  receiveTWCC(feedback: TransportWideCC) {
+    // With BUNDLE, TWCC is fanned out to every sender on the transport. A
+    // feedback that matches none of this sender's packets is not about this
+    // sender: ignore it like GCC does, so an idle sender does not count it
+    // toward congestion (develop only ever delivered the sender's own TWCC).
+    const nowMs = this.clock();
+    const packets = this.feedbackAdapter.onFeedback(feedback, nowMs);
+    if (packets.length === 0) return;
+
+    const elapsedMs = nowMs - this.cumulativeResult.firstPacketSentAtMs;
+    if (elapsedMs > 1000) {
+      this.cumulativeResult.reset();
+
+      // Congestion may be occurring.
+
+      if (this.congestionCounter < COUNTER_MAX) {
+        this.congestionCounter++;
+      } else if (this.congestionScore < SCORE_MAX) {
+        this.congestionScore++;
+      }
+
+      if (this.congestionCounter >= COUNTER_MAX && !this.congestion) {
+        this.congestion = true;
+        this.onCongestion.execute(this.congestion);
+      }
+    }
+
+    for (const packet of packets) {
+      // Timing sample only: lost / ReceivedWithoutDelta carry no recvMs
+      // (recvMs === 0 is a valid time, not falsy).
+      if (packet.recvMs === undefined) continue;
+
+      this.cumulativeResult.addPacket(
+        packet.sent.size,
+        packet.sent.sendingAtMs,
+        packet.recvMs,
+      );
+    }
+
+    if (elapsedMs >= 100 && this.cumulativeResult.numPackets >= 20) {
+      this.availableBitrate = Math.min(
+        this.cumulativeResult.sendBitrate,
+        this.cumulativeResult.receiveBitrate,
+      );
+      this.cumulativeResult.reset();
+
+      if (this.congestionCounter > -COUNTER_MAX) {
+        const maxBonus = Int(COUNTER_MAX / 2) + 1;
+        const minBonus = Int(COUNTER_MAX / 4) + 1;
+        const bonus =
+          maxBonus - ((maxBonus - minBonus) / 10) * this.congestionScore;
+
+        this.congestionCounter = this.congestionCounter - bonus;
+      }
+
+      if (this.congestionCounter <= -COUNTER_MAX) {
+        if (this.congestionScore > 1) {
+          this.congestionScore--;
+          this.onCongestion.execute(false);
+        }
+        this.congestionCounter = 0;
+      }
+
+      if (this.congestionCounter <= 0 && this.congestion) {
+        this.congestion = false;
+        this.onCongestion.execute(this.congestion);
+      }
+    }
+  }
+
+  rtpPacketSent(sentInfo: SentInfo) {
+    this.feedbackAdapter.onSent(sentInfo);
+  }
+
+  reset() {
+    this.congestion = false;
+    this.congestionCounter = 0;
+    this._congestionScore = 1;
+    this._availableBitrate = 0;
+    this.cumulativeResult.reset();
+    this.feedbackAdapter.reset();
+  }
+
+  dispose() {
+    this.onAvailableBitrate.allUnsubscribe();
+    this.onCongestion.allUnsubscribe();
+    this.onCongestionScore.allUnsubscribe();
+    this.disposeNoopHooks();
+    this.reset();
+  }
+}
+
+/**
+ * @deprecated Renamed to {@link LightweightBandwidthEstimator}. Kept so
+ * existing `new SenderBandwidthEstimator()` / `instanceof` code keeps working.
+ */
+export const SenderBandwidthEstimator = LightweightBandwidthEstimator;
+/** @deprecated Renamed to {@link LightweightBandwidthEstimator}. */
+export type SenderBandwidthEstimator = LightweightBandwidthEstimator;
+
+/** True when the estimator is the lightweight (default) implementation. */
+export function isLightweightBandwidthEstimator(
+  e: BandwidthEstimator,
+): e is LightweightBandwidthEstimator {
+  return e instanceof LightweightBandwidthEstimator;
+}

@@ -43,6 +43,7 @@ import {
   verifyRemoteCertificateFingerprint,
 } from "./dtls-fingerprint";
 import { createIceTransport } from "./dtls-ice-transport";
+import { milliTime } from "../utils";
 import { isDtlsTransportSped } from "./dtls-sped";
 import { createSrtpSessions, decryptRtcp, decryptRtp } from "./dtls-srtp";
 import { buildDtlsTransportStats } from "./dtls-stats";
@@ -73,6 +74,13 @@ export {
 
 const log = debug("werift:packages/webrtc/src/transport/dtls.ts");
 
+/** Result of encrypting and enqueueing one RTP packet on ICE. */
+export type DtlsSendRtpResult = {
+  /** On-wire SRTP size in bytes. */
+  size: number;
+  /** Local clock immediately before ICE/UDP enqueue (RFC 8888 send time). */
+  sendingAtMs: number;
+};
 export class RTCDtlsTransport implements DtlsTransportStats {
   readonly config: DtlsTransportConfig;
   id = randomUUID().toString();
@@ -86,6 +94,13 @@ export class RTCDtlsTransport implements DtlsTransportStats {
    */
   iceRoleAtStart?: RTCIceTransport["role"];
   srtpStarted = false;
+  /**
+   * Monotonic transport-wide sequence allocated at ICE enqueue time.
+   * Never wraps in JS Number. {@link transportSequenceNumber} is the wire
+   * 16-bit view (`extended & 0xffff`).
+   */
+  transportSequenceNumberExtended = 0;
+  /** Wire 16-bit TWCC sequence (low bits of {@link transportSequenceNumberExtended}). */
   transportSequenceNumber = 0;
 
   // Statistics tracking
@@ -1281,10 +1296,50 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     await this.dtls.send(data);
   };
 
+  /**
+   * Allocate the next transport-wide sequence at send time.
+   * Call immediately before DTLS/ICE enqueue so BUNDLE senders cannot
+   * reserve a TSN then wait in a per-sender pacer.
+   */
+  allocateTransportWideSequence(): { wire: number; extended: number } {
+    const wireNow = this.transportSequenceNumber & 0xffff;
+    if ((this.transportSequenceNumberExtended & 0xffff) !== wireNow) {
+      const gen = Math.floor(this.transportSequenceNumberExtended / 0x10000);
+      this.transportSequenceNumberExtended = gen * 0x10000 + wireNow;
+    }
+    this.transportSequenceNumberExtended += 1;
+    this.transportSequenceNumber =
+      this.transportSequenceNumberExtended & 0xffff;
+    return {
+      wire: this.transportSequenceNumber,
+      extended: this.transportSequenceNumberExtended,
+    };
+  }
+
+  /**
+   * Encrypt RTP and enqueue on ICE. Returns on-wire size.
+   * Send-time metadata: {@link sendRtpWithMeta}.
+   */
   async sendRtp(payload: Buffer, header: RtpHeader): Promise<number> {
+    const { size } = await this.sendRtpWithMeta(payload, header);
+    return size;
+  }
+
+  /**
+   * Encrypt RTP and enqueue on ICE, capturing the clock immediately before
+   * the ICE write (RFC 8888). Prefer {@link sendRtp} unless send time is needed.
+   */
+  async sendRtpWithMeta(
+    payload: Buffer,
+    header: RtpHeader,
+  ): Promise<DtlsSendRtpResult> {
     try {
-      if (this.isTerminated()) return 0;
-      if (!this.srtpWriteReady) return 0;
+      if (this.isTerminated()) {
+        return { size: 0, sendingAtMs: milliTime() };
+      }
+      if (!this.srtpWriteReady) {
+        return { size: 0, sendingAtMs: milliTime() };
+      }
       if (!this.readiness.peerAuthenticated) this.earlyServerSendUsed = true;
       const enc = this.srtp.encrypt(payload, header);
 
@@ -1292,18 +1347,19 @@ export class RTCDtlsTransport implements DtlsTransportStats {
         this.config.debug?.outboundPacketLoss &&
         this.config.debug?.outboundPacketLoss / 100 < Math.random()
       ) {
-        return enc.length;
+        return { size: enc.length, sendingAtMs: milliTime() };
       }
 
+      const sendingAtMs = milliTime();
       await this.sendProtectedMedia(enc);
       // 実際の wire 送信が成功した後だけ統計を更新する。SPED の early
       // path は authenticated pair 待ちで reject することがある。
       this.bytesSent += enc.length;
       this.packetsSent++;
-      return enc.length;
+      return { size: enc.length, sendingAtMs };
     } catch (error) {
       log("failed to send", error);
-      return 0;
+      return { size: 0, sendingAtMs: milliTime() };
     }
   }
 

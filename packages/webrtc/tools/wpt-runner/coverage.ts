@@ -1,26 +1,26 @@
 import { spawn } from "child_process";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { dirname, resolve } from "path";
 import { fileURLToPath } from "url";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "fs/promises";
 import {
   type CoverageTotals,
   extractCoverageTotals,
   findCoverageRegressions,
 } from "./coverageLogic";
 import {
-  WPT_V8_COVERAGE_TEMP_PREFIX,
   consumeCoverageFiles,
   createEmptyProcessCoverage,
   isTargetSourceCoverageUrl,
   removeStaleCoverageTempDirs,
+  WPT_V8_COVERAGE_TEMP_PREFIX,
 } from "./coverageMerge";
 import { convertCoverage, generateCoverageReports } from "./coverageProvider";
 import {
-  type WptRunReport,
   defaultMarkdownReportPath,
   defaultReportPath,
   formatMarkdownReport,
+  type WptRunReport,
 } from "./runner";
 
 const toolDir = dirname(fileURLToPath(import.meta.url));
@@ -35,13 +35,34 @@ const coverageBaselinePath = resolve(
 );
 const sourceDir = resolve(packageDir, "src");
 
+/**
+ * GCC / selectable BWE algorithm sources are public API (barrel-exported) so
+ * they load during WPT, but allowlisted upstream WPT does not exercise them.
+ * Including ~350 mostly-uncovered functions dilutes the WPT coverage ratchet
+ * without reflecting WebRTC WPT surface regressions. Unit tests + package/e2e
+ * sims cover GCC; keep WPT coverage focused on the default media stack.
+ */
+function isWptCoverageTargetPath(filePath: string) {
+  if (!filePath.startsWith(sourceDir) || !filePath.endsWith(".ts")) {
+    return false;
+  }
+  const relative = filePath.slice(sourceDir.length).replaceAll("\\", "/");
+  // Exclude GCC files because allowlisted WPT does not exercise these APIs.
+  if (relative.includes("/media/sender/estimators/gcc/")) {
+    return false;
+  }
+  return true;
+}
+
 async function main() {
   await removeStaleCoverageTempDirs(tmpdir(), WPT_V8_COVERAGE_TEMP_PREFIX);
   const rawCoverageDir = await mkdtemp(
     resolve(tmpdir(), WPT_V8_COVERAGE_TEMP_PREFIX),
   );
   const isTargetUrl = (url: unknown) =>
-    isTargetSourceCoverageUrl(url, sourceDir);
+    isTargetSourceCoverageUrl(url, sourceDir) &&
+    typeof url === "string" &&
+    isWptCoverageTargetPath(url.slice("file://".length));
   let mergedCoverage = createEmptyProcessCoverage();
   let exitCode = 0;
 
@@ -53,6 +74,7 @@ async function main() {
         isTargetUrl,
       );
     });
+    await warnUnreadableCoverageFiles(rawCoverageDir);
 
     if (status !== 0) {
       exitCode = status;
@@ -66,9 +88,7 @@ async function main() {
     );
     const markdown = await readMarkdownReport();
     const coverageMap = await convertCoverage(mergedCoverage);
-    coverageMap.filter((filePath) => {
-      return filePath.startsWith(sourceDir) && filePath.endsWith(".ts");
-    });
+    coverageMap.filter((filePath) => isWptCoverageTargetPath(filePath));
     await generateCoverageReports(coverageMap, coverageDir);
     await mkdir(dirname(defaultMarkdownReportPath), { recursive: true });
     await writeFile(defaultMarkdownReportPath, markdown, "utf8");
@@ -104,6 +124,22 @@ async function main() {
   }
 
   process.exitCode = exitCode;
+}
+
+async function warnUnreadableCoverageFiles(directoryPath: string) {
+  for (const fileName of (await readdir(directoryPath)).filter((name) =>
+    name.endsWith(".json"),
+  )) {
+    try {
+      JSON.parse(await readFile(resolve(directoryPath, fileName), "utf8"));
+    } catch (error) {
+      // A worker may leave a truncated dump when it is terminated by WPT.
+      console.warn(
+        `[wpt:coverage] skip unreadable coverage dump ${fileName}:`,
+        error instanceof Error ? error.message : error,
+      );
+    }
+  }
 }
 
 async function runWptAndConsumeCoverage(

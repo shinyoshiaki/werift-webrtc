@@ -27,6 +27,7 @@ import {
   normalizeCodecMimeType,
   resolveCodecs,
 } from "./media/codecCompatibility";
+import { createBandwidthEstimator } from "./media/sender/createBandwidthEstimator";
 import type { RTCStats } from "./media/stats";
 import { captureTrackSourceCodecs, getTrackSourceCodecs } from "./media/track";
 import type {
@@ -454,6 +455,9 @@ export class TransceiverManager {
     }
 
     const sender = new RTCRtpSender(trackOrKind, {
+      bandwidthEstimator: createBandwidthEstimator(
+        this.config.bandwidthEstimator,
+      ),
       pendingRtp: this.config.pendingRtp,
     });
     const receiver = new RTCRtpReceiver(this.config, kind, sender.ssrc);

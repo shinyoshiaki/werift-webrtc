@@ -1,9 +1,25 @@
 const { spawnSync } = require("node:child_process");
-const { existsSync } = require("node:fs");
+const { existsSync, mkdirSync } = require("node:fs");
 const { basename, dirname, join } = require("node:path");
 const { ensurePlaywrightBrowsersPath } = require("./browsers-path");
 
 ensurePlaywrightBrowsersPath();
+
+/**
+ * Prefer a worktree-local browser cache so concurrent CI jobs sharing
+ * ~/.cache/ms-playwright cannot race / prune each other's installs.
+ * Matches e2e/.gitignore `.playwright-browsers/`.
+ *
+ * Exported for run-sim.js / run-ci.js / run-chrome-prod.js so every Playwright
+ * entrypoint uses the same path without requiring the user to export it.
+ */
+function ensureBrowsersPathEnv(env = process.env) {
+  if (!env.PLAYWRIGHT_BROWSERS_PATH) {
+    env.PLAYWRIGHT_BROWSERS_PATH = join(__dirname, ".playwright-browsers");
+  }
+  mkdirSync(env.PLAYWRIGHT_BROWSERS_PATH, { recursive: true });
+  return env.PLAYWRIGHT_BROWSERS_PATH;
+}
 
 function resolveSystemChrome() {
   return [
@@ -21,8 +37,8 @@ const {
 } = require("./browser-paths");
 
 /**
- * Prefer Google Chrome (proprietary H.264) for P0 H.264 codec E2E.
- * Downloads a user-local extract when system Chrome is missing (no root).
+ * Prefer Google Chrome (proprietary H.264) for H.264 E2E. Download a
+ * user-local extract when system Chrome is missing and the platform supports it.
  */
 function ensureGoogleChromeForH264() {
   const systemChrome =
@@ -38,11 +54,9 @@ function ensureGoogleChromeForH264() {
     return existing;
   }
 
-  // Skip auto-download when explicitly disabled
   if (process.env.E2E_SKIP_GOOGLE_CHROME === "1") {
     return existing;
   }
-
   if (!canAutoDownloadGoogleChrome()) {
     return existing;
   }
@@ -68,8 +82,31 @@ function ensureGoogleChromeForH264() {
   return existing;
 }
 
-function hasPlaywrightChromium(packageName) {
+/** Candidate headless-shell paths across Playwright layout generations. */
+function headlessShellCandidates(browsersRoot, revision) {
+  const base = join(browsersRoot, `chromium_headless_shell-${revision}`);
+  return [
+    join(base, "chrome-linux", "headless_shell"),
+    join(base, "chrome-linux64", "headless_shell"),
+    join(base, "chrome-headless-shell-linux64", "chrome-headless-shell"),
+    join(base, "chrome-headless-shell-linux", "chrome-headless-shell"),
+  ];
+}
+
+function resolveHeadlessShellPath(browsersRoot, revision) {
+  return headlessShellCandidates(browsersRoot, revision).find((p) =>
+    existsSync(p),
+  );
+}
+
+/**
+ * True when Playwright chromium + matching headless shell are both present.
+ * Headless shell is required for vitest --browser.headless with Playwright
+ * when no system Chrome executablePath is configured.
+ */
+function hasPlaywrightChromium(packageName = "playwright") {
   try {
+    // Require after PLAYWRIGHT_BROWSERS_PATH is set so paths resolve correctly.
     const { chromium } = require(packageName);
     const chromiumExecutablePath = chromium.executablePath();
     if (!existsSync(chromiumExecutablePath)) {
@@ -77,27 +114,20 @@ function hasPlaywrightChromium(packageName) {
     }
 
     const chromiumDir = dirname(dirname(chromiumExecutablePath));
-    const revision = basename(chromiumDir).replace("chromium-", "");
-    const headlessShellDir = join(
-      dirname(chromiumDir),
-      `chromium_headless_shell-${revision}`,
-    );
-    const headlessShellPaths = [
-      join(
-        headlessShellDir,
-        "chrome-headless-shell-linux64",
-        "chrome-headless-shell",
-      ),
-      join(headlessShellDir, "chrome-linux", "headless_shell"),
-    ];
+    const revision = basename(chromiumDir).replace(/^chromium-/, "");
+    if (!revision) return false;
 
-    return headlessShellPaths.some(existsSync);
-  } catch (error) {
+    const browsersRoot = dirname(chromiumDir);
+    return Boolean(resolveHeadlessShellPath(browsersRoot, revision));
+  } catch {
     return false;
   }
 }
 
-function installPlaywrightBrowsers(packageName, components) {
+function installPlaywrightBrowsers(
+  packageName = "playwright",
+  components = ["chromium", "chromium-headless-shell"],
+) {
   const playwrightPackageJson = require.resolve(`${packageName}/package.json`, {
     paths: [__dirname],
   });
@@ -111,20 +141,74 @@ function installPlaywrightBrowsers(packageName, components) {
   if (result.error) {
     throw result.error;
   }
-  if ((result.status ?? 1) !== 0) {
-    process.exit(result.status ?? 1);
+  return result.status ?? 1;
+}
+
+function main() {
+  ensureBrowsersPathEnv(process.env);
+  const chrome = ensureGoogleChromeForH264();
+  if (chrome) {
+    console.log(`[ensure-browser] using Chrome: ${chrome}`);
   }
+
+  // vitest.config.mts pins launch.executablePath when a system Chrome exists,
+  // so Playwright headless-shell is optional in that environment.
+  if (chrome || resolveSystemChrome() || hasPlaywrightChromium("playwright")) {
+    process.exit(0);
+  }
+
+  let status = installPlaywrightBrowsers("playwright");
+  if (status !== 0) {
+    process.exit(status);
+  }
+
+  // Verify immediately — incomplete unzip / cache races must not pass silently.
+  if (hasPlaywrightChromium("playwright")) {
+    process.exit(0);
+  }
+
+  console.error(
+    "[ensure-browser] Playwright chromium/headless-shell missing after install; retrying once…",
+  );
+  console.error(
+    `[ensure-browser] PLAYWRIGHT_BROWSERS_PATH=${process.env.PLAYWRIGHT_BROWSERS_PATH}`,
+  );
+  status = installPlaywrightBrowsers("playwright");
+  if (status !== 0) {
+    process.exit(status);
+  }
+
+  if (!hasPlaywrightChromium("playwright")) {
+    console.error(
+      "[ensure-browser] Failed to install a usable Playwright chromium + headless shell.",
+    );
+    console.error(
+      `[ensure-browser] PLAYWRIGHT_BROWSERS_PATH=${process.env.PLAYWRIGHT_BROWSERS_PATH}`,
+    );
+    try {
+      const { chromium } = require("playwright");
+      const path = chromium.executablePath();
+      console.error(
+        `[ensure-browser] chromium.executablePath()=${path} exists=${existsSync(path)}`,
+      );
+    } catch (error) {
+      console.error(
+        "[ensure-browser] could not resolve chromium.executablePath()",
+        error,
+      );
+    }
+    process.exit(1);
+  }
+
+  process.exit(0);
 }
 
-const chrome = ensureGoogleChromeForH264();
-if (chrome) {
-  console.log(`[ensure-browser] using Chrome: ${chrome}`);
-}
+module.exports = {
+  ensureBrowsersPathEnv,
+  hasPlaywrightChromium,
+  resolveSystemChrome,
+};
 
-if (!hasPlaywrightChromium("playwright")) {
-  // Regular and DTLS E2E both run on this package's pinned Chromium.
-  installPlaywrightBrowsers("playwright", [
-    "chromium",
-    "chromium-headless-shell",
-  ]);
+if (require.main === module) {
+  main();
 }
