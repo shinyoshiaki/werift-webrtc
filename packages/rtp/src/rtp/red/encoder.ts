@@ -18,6 +18,23 @@ export class RedEncoder {
     }
   }
 
+  /**
+   * Serialized RED payload length if `payload` were pushed now, without
+   * changing this encoder (a pacer needs the size before the packet is
+   * committed).
+   */
+  serializedLengthWith(payload: {
+    block: Buffer;
+    timestamp: number;
+    blockPT: number;
+  }): number {
+    const clone = new RedEncoder(this.distance);
+    clone.cacheSize = this.cacheSize;
+    clone.cache = [...this.cache];
+    clone.push(payload);
+    return clone.build().serialize().length;
+  }
+
   build() {
     const red = new Red();
     const redundantPayloads = this.cache.slice(-(this.distance + 1));

@@ -24,12 +24,15 @@ import { randomBytes, randomUUID } from "crypto";
 import { setTimeout } from "timers/promises";
 import { codecParametersFromString } from "..";
 import { createWebRtcDomException } from "../errors";
-import { Event, random16, uint16Add, uint32Add } from "../imports/common";
+import { Event, random16, uint16Add } from "../imports/common";
 import {
+  appendRfc3550Padding,
+  buildSendHeaderExtensions,
+  createRtxPaddingPacket,
   debug,
-  type Extension,
   FullIntraRequest,
   GenericNack,
+  isPaddingOnlyRtpPacket,
   PictureLossIndication,
   ReceiverEstimatedMaxBitrate,
   RedEncoder,
@@ -37,41 +40,52 @@ import {
   type RtcpPacket,
   RtcpPayloadSpecificFeedback,
   RtcpRrPacket,
-  RtcpSenderInfo,
   RtcpSourceDescriptionPacket,
   RtcpSrPacket,
   RtcpTransportLayerFeedback,
+  RtpContinuity,
   type RtpHeader,
   RtpPacket,
   SourceDescriptionChunk,
   SourceDescriptionItem,
-  serializeAbsSendTime,
-  serializeRepairedRtpStreamId,
-  serializeSdesMid,
-  serializeSdesRTPStreamID,
-  serializeTransportWideCC,
+  stampHopByHopExtensions,
   TransportWideCC,
   wrapRtx,
 } from "../imports/rtp";
 import type { RTCDtlsTransport } from "../transport/dtls";
 import type { Kind } from "../types/domain";
-import { compactNtp, milliTime, ntpTime, timestampSeconds } from "../utils";
+import { milliTime, ntpTime } from "../utils";
 import { isCodecCompatible } from "./codecCompatibility";
 import type {
   RTCRtpCodecParameters,
   RTCRtpHeaderExtensionParameters,
   RTCRtpSendParameters,
 } from "./parameters";
-import { SenderBandwidthEstimator, type SentInfo } from "./sender/senderBWE";
+import {
+  type BandwidthEstimator,
+  type CongestionEventsCompatibility,
+  isProbePacingController,
+  needsPacedSendPath,
+  type ProbeClusterConfig,
+} from "./sender/bandwidthEstimator";
+import { EstimatorBinding } from "./sender/estimatorBinding";
+import { type OutgoingMeta, OutgoingQueue } from "./sender/outgoingQueue";
+import { PaddingInjector } from "./sender/padding";
+import {
+  type PendingRtpOptions,
+  PendingRtpQueue,
+  resolvePendingRtpOptions,
+} from "./sender/pendingRtp";
+import { estimateOutgoingBytes, sendDtlsRtp } from "./sender/rtpWire";
+import {
+  LightweightBandwidthEstimator,
+  type SentInfo,
+} from "./sender/senderBWE";
+import { SenderStatistics, senderStatsIds } from "./sender/senderStats";
+import { MediaPacer, waitForProbeSendTime } from "./sender/sendPacer";
 import {
   buildStatsReport,
-  generateCodecStatsId,
-  generateStatsId,
   getStatsTimestamp,
-  type RTCCodecStats,
-  type RTCMediaSourceStats,
-  type RTCOutboundRtpStreamStats,
-  type RTCRemoteInboundRtpStreamStats,
   type RTCStats,
   type RTCStatsReport,
 } from "./stats";
@@ -82,70 +96,36 @@ import {
   type MediaStreamTrack,
 } from "./track";
 
+export type { PendingRtpOptions } from "./sender/pendingRtp";
+
 const log = debug("werift:packages/webrtc/src/media/rtpSender.ts");
 
+/** NACK history: the last sent media packets by sequence number modulo this. */
 const RTP_HISTORY_SIZE = 128;
-const DEFAULT_PENDING_RTP_MAX_LENGTH = 256;
-const RTT_ALPHA = 0.85;
-/**
- * A sent RTP timestamp at most this far behind the SR clock anchor is treated
- * as reordering (relay jitter, B-frames) and does not move the anchor. A larger
- * backward step is a source timestamp discontinuity without continuity rewrite.
- */
-const RTP_CLOCK_ANCHOR_MAX_REORDER_SEC = 3;
-
-export type PendingRtpOptions = {
-  /** Queue RTP until DTLS is connected and a codec is set. Default true when this object is passed. */
-  enabled?: boolean;
-  /** Max queued packets when enabled. Oldest packets are dropped. Default 256. */
-  maxLength?: number;
-};
 
 export type RTCRtpSenderOptions = {
+  /**
+   * Initial send-side bandwidth estimator. When omitted, the default is
+   * {@link LightweightBandwidthEstimator}. {@link RTCPeerConnection} passes the
+   * instance created from {@link PeerConfig.bandwidthEstimator}.
+   */
+  bandwidthEstimator?: BandwidthEstimator;
   /** Pending RTP cache. Disabled by default. Pass `true` or `{ maxLength }` to enable. */
   pendingRtp?: boolean | PendingRtpOptions;
 };
 
-type PendingRtpItem = {
-  packet: RtpPacket;
-  resolve: () => void;
-  reject: (error: unknown) => void;
-};
-
-function resolvePendingRtpOptions(
-  pendingRtp: RTCRtpSenderOptions["pendingRtp"],
-): { enabled: boolean; maxLength: number } {
-  if (pendingRtp === true) {
-    return { enabled: true, maxLength: DEFAULT_PENDING_RTP_MAX_LENGTH };
-  }
-  if (pendingRtp == undefined || pendingRtp === false) {
-    return { enabled: false, maxLength: DEFAULT_PENDING_RTP_MAX_LENGTH };
-  }
-  const maxLength =
-    typeof pendingRtp.maxLength === "number" &&
-    Number.isFinite(pendingRtp.maxLength) &&
-    pendingRtp.maxLength >= 1
-      ? Math.floor(pendingRtp.maxLength)
-      : DEFAULT_PENDING_RTP_MAX_LENGTH;
-  return { enabled: pendingRtp.enabled ?? true, maxLength };
-}
-
-function freezeRtpContinuityOffsets(
-  lastOutputSeq: number,
-  lastOutputTimestamp: number,
-  firstInputSeq: number,
-  firstInputTimestamp: number,
-  timestampStep: number,
-) {
-  return {
-    seqOffset: uint16Add(uint16Add(lastOutputSeq, 1), -firstInputSeq),
-    timestampOffset: uint32Add(
-      uint32Add(lastOutputTimestamp, timestampStep),
-      -firstInputTimestamp,
-    ),
-  };
-}
-
+// RTCRtpSender sends one media stream: negotiation parameters, track binding,
+// the RTP send path, RTCP feedback and stats. Parts with their own state live
+// in ./sender/ (internal, not exported):
+//
+// - estimatorBinding.ts: the bandwidth estimator, its generation and process timer
+// - outgoingQueue.ts / sendPacer.ts: the GCC send FIFO and pacing
+// - padding.ts: probe / loss padding drain on the RTX stream
+// - pendingRtp.ts: RTP held until DTLS connects
+// - senderStats.ts: counters, reception reports, Sender Reports, stats
+// - rtpWire.ts: send FIFO size estimate and the DTLS write
+// Generic RTP pieces (RtpContinuity, header extension rebuild / hop-by-hop
+// stamping, RTX padding packets, RED size estimate) live in werift-rtp.
 export class RTCRtpSender {
   public trackOrKind: Kind | MediaStreamTrack;
 
@@ -158,6 +138,79 @@ export class RTCRtpSender {
   readonly onRtcp = new Event<[RtcpPacket]>();
   readonly onPictureLossIndication = new Event<[]>();
   readonly onGenericNack = new Event<[GenericNack]>();
+  /**
+   * Active send-side bandwidth estimator (TWCC-driven) with its generation
+   * and process timer. Replaced only via {@link setBandwidthEstimator}.
+   */
+  private readonly bwe: EstimatorBinding;
+
+  /**
+   * Active send-side bandwidth estimator (TWCC-driven).
+   *
+   * Default is {@link LightweightBandwidthEstimator} (lightweight cumulative algorithm).
+   * Replace only with {@link setBandwidthEstimator} (e.g. `new GccBandwidthEstimator()`).
+   *
+   * Prefer {@link onAvailableBitrate} on this sender for bitrate notifications that
+   * survive estimator swaps. Algorithm-specific events remain on concrete instances.
+   *
+   * **TypeScript compatibility:** {@link CongestionEventsCompatibility} fields
+   * (`onCongestion` / `onCongestionScore`) are present on every estimator so
+   * existing `sender.senderBWE.onCongestion.subscribe(...)` still type-checks.
+   * They fire only on {@link LightweightBandwidthEstimator}; GCC / disabled are no-ops.
+   * Prefer `sender.senderBWE as LightweightBandwidthEstimator` (or
+   * {@link isLightweightBandwidthEstimator}) for lightweight-only APIs.
+   */
+  get senderBWE(): BandwidthEstimator & CongestionEventsCompatibility {
+    return this.bwe.estimator as BandwidthEstimator &
+      CongestionEventsCompatibility;
+  }
+
+  /**
+   * Stable recommended send bitrate event (**bps**, change-only).
+   * Bridged from the active {@link BandwidthEstimator}; subscriptions survive
+   * {@link setBandwidthEstimator} without re-subscribing.
+   *
+   * Prefer this over `senderBWE.onAvailableBitrate` for application adaptation.
+   */
+  readonly onAvailableBitrate = new Event<[number]>();
+
+  /**
+   * Probe cluster configs (target bps / min packets). Bridged from the active
+   * {@link BandwidthEstimator}; GCC fires this, lightweight / disabled never do.
+   */
+  readonly onProbeClusterConfig = new Event<[ProbeClusterConfig]>();
+
+  /**
+   * @internal Sim / test only. When false, skip the **media** token-bucket
+   * (pin GetPacingRates). Probe `next_probe_time` waits stay enabled so
+   * BitrateProber timing is not disabled by accident.
+   *
+   * Peer/Chrome sims turn this off during the congestion phase so the
+   * synthetic generate rate hits the bottleneck, then turn it back on
+   * when the app follows {@link onAvailableBitrate}.
+   */
+  mediaPacingEnabled = true;
+  /** Token-bucket pacer for **media** (not probe) rate enforcement. */
+  private readonly pacer = new MediaPacer();
+  /**
+   * pin `pending_untracked_size_` — bytes sent without TWCC tracking,
+   * attached to the next tracked packet as `priorUnackedBytes`.
+   */
+  private pendingUntrackedBytes = 0;
+  /**
+   * GCC send FIFO: reservation → pacing wait → seq / TSN assignment → DTLS write.
+   * Probe padding may call {@link sendRtpInternal} on this stack only after
+   * the current packet's DTLS write ({@link nestOutgoingPadding}); timer /
+   * cluster events always enqueue so they cannot share a DTLS write.
+   */
+  private readonly outgoing: OutgoingQueue;
+  /**
+   * Set only around post-DTLS {@link maybeInjectProbePadding} so padding can
+   * drain on the same FIFO task without deadlock. Must stay false during
+   * probe/pacing wait, or a cluster event would send in parallel.
+   */
+  private nestOutgoingPadding = false;
+  private readonly padding: PaddingInjector;
   /** Fires for a FIR addressed to this sender with a new sequence number (RFC 5104 4.3.1). */
   readonly onFullIntraRequest = new Event<[FullIntraRequest]>();
   /**
@@ -165,7 +218,6 @@ export class RTCRtpSender {
    * that is not a retransmission. Fires in addition to onPictureLossIndication / onFullIntraRequest.
    */
   readonly onKeyFrameRequest = new Event<["pli" | "fir"]>();
-  readonly senderBWE = new SenderBandwidthEstimator();
 
   private cname?: string;
   private mid?: string;
@@ -181,58 +233,28 @@ export class RTCRtpSender {
   private sendEncodings: Array<Record<string, unknown>> = [{}];
 
   // # stats
-  private lastSRtimestamp?: number;
-  private lastSentSRTimestamp?: number;
-  /**
-   * NTP<->RTP clock anchor for RTCP Sender Reports (RFC 3550 §6.4.1).
-   * The send time of the first packet of the newest RTP timestamp (output
-   * timeline, after continuity rewrite) approximates that frame's sampling
-   * instant; werift does not know the capture time, so for relayed RTP the
-   * send jitter becomes SR mapping error. Later packets with the same or a
-   * slightly older timestamp (frame fragments, reordered relay packets) and RTX
-   * retransmissions do not move it. A continuity rewrite, a clock rate change
-   * or a backward timestamp step beyond `RTP_CLOCK_ANCHOR_MAX_REORDER_SEC`
-   * resets it (libwebrtc follows the last frame unconditionally).
-   */
-  private rtpClockAnchor?: {
-    /** `performance.now()` when the anchor packet was sent */
-    monotonicMs: number;
-    rtpTimestamp: number;
-    clockRate: number;
-  };
-  private rtpClockAnchorReset = false;
-  private octetCount = 0;
-  private packetCount = 0;
-  private headerBytesSent = 0;
-  private rtt?: number;
-  private totalRoundTripTime = 0;
-  private roundTripTimeMeasurements = 0;
-  private retransmittedPacketsSent = 0;
-  private retransmittedBytesSent = 0;
-  private nackCount = 0;
-  private pliCount = 0;
-  private firCount = 0;
+  private readonly stats = new SenderStatistics();
   /**
    * Last FIR sequence number per (FIR sender SSRC, FCI target SSRC): RFC 5104
    * 4.3.1.1 keeps one sequence number space per pair.
    */
   private lastFirSequenceNumbers = new Map<string, number>();
-  private remotePacketsLost?: number;
-  private remoteFractionLost?: number;
   receiverEstimatedMaxBitrate = 0n;
 
   // rtp
-  private sequenceNumber?: number;
-  private timestamp?: number;
-  private timestampOffset = 0;
-  private seqOffset = 0;
-  private rtpContinuityPending = false;
-  private pendingTimestampStep = 1;
+  private readonly continuity = new RtpContinuity();
   private rtpCache: RtpPacket[] = [];
-  private pendingRtp: PendingRtpItem[] = [];
-  private drainingPendingRtp = false;
+  private readonly pendingRtp: PendingRtpQueue;
+  /**
+   * Bumped on replaceTrack / detachTrack / onSourceChanged. Media accepted
+   * under an older epoch is dropped before it can allocate seq/timestamp, so
+   * it neither consumes the new source's continuity offset nor leaks out
+   * after `replaceTrack(null)`.
+   */
+  private sourceEpoch = 0;
+  /** Aborted on every source epoch bump to wake probe / pacing waits. */
+  private sourceEpochCancel = new AbortController();
   private readonly pendingRtpEnabled: boolean;
-  private readonly pendingRtpMaxLength: number;
   codec?: RTCRtpCodecParameters;
   private negotiatedCodecs: RTCRtpCodecParameters[] = [];
   private sendPrimaryCodec?: RTCRtpCodecParameters;
@@ -257,14 +279,34 @@ export class RTCRtpSender {
     this.trackOrKind = trackOrKind;
     const pendingRtp = resolvePendingRtpOptions(options.pendingRtp);
     this.pendingRtpEnabled = pendingRtp.enabled;
-    this.pendingRtpMaxLength = pendingRtp.maxLength;
+    this.pendingRtp = new PendingRtpQueue(pendingRtp.maxLength);
     this.kind =
       typeof this.trackOrKind === "string"
         ? this.trackOrKind
         : this.trackOrKind.kind;
+    this.bwe = new EstimatorBinding(
+      options?.bandwidthEstimator ?? new LightweightBandwidthEstimator(),
+      {
+        onAvailableBitrate: (bps) => this.onAvailableBitrate.execute(bps),
+        onProbeClusterConfig: (cfg) => {
+          this.onProbeClusterConfig.execute(cfg);
+          // pin BitrateProber: no prepaid token-bucket credit. Probe packets
+          // wait on next_probe_time = started_at + sent_bytes / send_bitrate.
+          void this.maybeInjectProbePadding();
+        },
+        // pin GetPacingRates padding_rate while kIncreaseUsingPadding.
+        onProcessTick: () => void this.maybeInjectLossPadding(),
+        isStopped: () => this.stopped,
+      },
+    );
+    this.outgoing = new OutgoingQueue(this.kind, () =>
+      needsPacedSendPath(this.bwe.estimator),
+    );
+    this.padding = this.createPaddingInjector();
     if (typeof trackOrKind !== "string") {
       this.registerTrack(trackOrKind);
     }
+    this.bwe.syncProcessTimer();
   }
 
   get transport() {
@@ -280,7 +322,8 @@ export class RTCRtpSender {
   }
 
   setDtlsTransport(dtlsTransport: RTCDtlsTransport) {
-    if (this.dtlsTransport) {
+    const previous = this.dtlsTransport;
+    if (previous) {
       this.dtlsDisposer.forEach((dispose) => dispose());
     }
 
@@ -291,14 +334,85 @@ export class RTCRtpSender {
       this.dtlsDisposer = [];
       return;
     }
+    if (previous && previous !== dtlsTransport) {
+      this.resetBweForNewTransport();
+    }
     this.dtlsDisposer = [
       this.dtlsTransport.onStateChange.subscribe((state) => {
+        this.syncNetworkAvailability();
         if (state === "connected") {
           this.onReady.execute();
           void this.drainPendingRtp();
         }
       }).unSubscribe,
     ];
+    this.syncNetworkAvailability();
+  }
+
+  /**
+   * Replace the send-side bandwidth estimator used for TWCC-driven BWE.
+   *
+   * Default is the lightweight {@link LightweightBandwidthEstimator}. Pass e.g.
+   * `new GccBandwidthEstimator()` to use Google Congestion Control.
+   *
+   * Behavior on swap:
+   * 1. Bumps the estimator generation so in-flight sends discard
+   *    `rtpPacketSent` delivery and in-flight {@link maybeInjectProbePadding}
+   *    loops exit (cancelled — no packets to disposed / previous estimator).
+   * 2. Stops delivering `rtpPacketSent` / `receiveTWCC` to the previous instance.
+   * 3. Unbinds the stable {@link onAvailableBitrate} bridge, then `dispose()`/`reset()` the old instance.
+   * 4. **Always** `reset()` the injected `impl` so a previously used instance
+   *    starts clean (no implicit state merge), then rebinds the bridge.
+   * 5. Clears {@link pendingUntrackedBytes} and pacing credit so the next
+   *    estimator's first `SentInfo.priorUnackedBytes` is 0.
+   *
+   * Subscriptions to {@link onAvailableBitrate} on this sender are preserved.
+   * Re-subscribe algorithm-specific events on the new concrete instance.
+   */
+  setBandwidthEstimator(impl: BandwidthEstimator): void {
+    // Invalidate in-flight media/padding so they do not touch the next estimator
+    // (or revive a disposed probe controller after dispose/reset).
+    this.bwe.replace(impl);
+    this.resetBweSendTransientState();
+    this.syncNetworkAvailability();
+    this.bwe.syncProcessTimer();
+    // New generation may have missed onProbeClusterConfig while the previous
+    // drain still held the same-generation re-entry lock.
+    void this.maybeInjectProbePadding();
+  }
+
+  /**
+   * A new DTLS transport has its own transport-wide sequence space and path:
+   * drop the estimator's path state ({@link EstimatorBinding.resetForNewRoute},
+   * which also bumps the generation so in-flight sends on the old transport
+   * do not report their old TSN) and the pacing / unacked leftovers.
+   */
+  private resetBweForNewTransport(): void {
+    this.bwe.resetForNewRoute();
+    this.resetBweSendTransientState();
+    this.bwe.syncProcessTimer();
+  }
+
+  /** Drop pacing leftover and unacked bytes that belonged to the previous BWE generation. */
+  private resetBweSendTransientState(): void {
+    this.pacer.reset();
+    this.pendingUntrackedBytes = 0;
+  }
+
+  /** Initial probes wait until DTLS can send; also on a swap onto a connected sender. */
+  private syncNetworkAvailability(): void {
+    this.bwe.syncNetworkAvailability(this.dtlsTransport?.state === "connected");
+  }
+
+  /**
+   * Effective send pacing rate (bps): estimator estimate, raised to the active
+   * probe target while probing. 0 when unknown. Lightweight returns 0 from
+   * {@link BandwidthEstimator.getPacingBitrateBps} so media is unpaced.
+   */
+  get pacingBitrateBps(): number {
+    const estimator = this.bwe.estimator;
+    const paced = estimator.getPacingBitrateBps();
+    return paced > 0 ? paced : estimator.availableBitrate;
   }
 
   get redDistance() {
@@ -361,6 +475,7 @@ export class RTCRtpSender {
     this.cname = params.rtcp?.cname;
     this.mid = params.muxId;
     this.headerExtensions = params.headerExtensions;
+    // Keep a RID set via sendEncodings/setParameters when SDP carries none.
     this.rtpStreamId = params.rtpStreamId ?? this.rtpStreamId;
     this.repairedRtpStreamId = params.repairedRtpStreamId;
 
@@ -405,8 +520,12 @@ export class RTCRtpSender {
   setSendSuppressed(suppressed: boolean) {
     if (this.sendSuppressed === suppressed) return;
     this.sendSuppressed = suppressed;
-    if (suppressed) this.discardPendingRtp();
-    else void this.drainPendingRtp();
+    if (suppressed) {
+      this.pendingRtp.discard();
+      // Drop media already accepted into the send FIFO and release a packet
+      // parked in a probe / pacing wait (same path as a source switch).
+      this.invalidateQueuedSource();
+    } else void this.drainPendingRtp();
   }
 
   private canSendRtp() {
@@ -418,71 +537,15 @@ export class RTCRtpSender {
     );
   }
 
-  private settlePendingRtp(item: PendingRtpItem, error?: unknown) {
-    if (error == undefined) {
-      item.resolve();
-      return;
-    }
-    item.reject(error);
-  }
-
-  private discardPendingRtp() {
-    const dropped = this.pendingRtp.splice(0);
-    for (const item of dropped) {
-      this.settlePendingRtp(item);
-    }
-  }
-
-  private enqueuePendingRtp(
-    rtp: Buffer | RtpPacket,
-    resolve: () => void,
-    reject: (error: unknown) => void,
-  ) {
-    const packet = Buffer.isBuffer(rtp)
-      ? RtpPacket.deSerialize(rtp)
-      : rtp.clone();
-    this.pendingRtp.push({ packet, resolve, reject });
-    while (this.pendingRtp.length > this.pendingRtpMaxLength) {
-      const dropped = this.pendingRtp.shift();
-      if (dropped) {
-        this.settlePendingRtp(dropped);
-      }
-    }
-  }
-
   /**
-   * Send queued RTP once DTLS is connected and a codec is set. Used only when
-   * pending RTP is enabled: `writeRtp` / `sendRtp` may run before ICE/DTLS
-   * completes; dropping those packets would lose the start of a media source.
-   * `drainingPendingRtp` blocks re-entry while `dispatchRtp` is awaited;
-   * packets enqueued during that wait are drained by the recursive call after
-   * the flag is cleared.
+   * Send queued RTP once DTLS is connected and a codec is set.
+   * Drain uses {@link sendRtpInternal} so GCC pacing / TWCC stay on the send path.
    */
-  private async drainPendingRtp() {
-    if (this.drainingPendingRtp) {
-      return;
-    }
-    this.drainingPendingRtp = true;
-    try {
-      while (this.pendingRtp.length > 0 && this.canSendRtp()) {
-        const item = this.pendingRtp.shift()!;
-        if (!this.canSendRtp()) {
-          this.settlePendingRtp(item);
-          continue;
-        }
-        try {
-          await this.dispatchRtp(item.packet);
-          this.settlePendingRtp(item);
-        } catch (error) {
-          this.settlePendingRtp(item, error);
-        }
-      }
-    } finally {
-      this.drainingPendingRtp = false;
-    }
-    if (this.pendingRtp.length > 0 && this.canSendRtp()) {
-      await this.drainPendingRtp();
-    }
+  private drainPendingRtp() {
+    return this.pendingRtp.drain(
+      () => this.canSendRtp(),
+      (packet, sourceEpoch) => this.dispatchMedia(packet, sourceEpoch),
+    );
   }
 
   registerTrack(track: MediaStreamTrack) {
@@ -559,8 +622,10 @@ export class RTCRtpSender {
       );
     }
 
-    if (this.sequenceNumber != undefined) {
+    if (this.continuity.sequenceNumber != undefined) {
       this.scheduleRtpContinuity();
+    } else {
+      this.invalidateQueuedSource();
     }
 
     this.registerTrack(track);
@@ -572,8 +637,9 @@ export class RTCRtpSender {
    * The same sender can resume sending after `replaceTrack(track)`.
    */
   detachTrack() {
-    this.rtpContinuityPending = false;
-    this.discardPendingRtp();
+    this.continuity.cancel();
+    this.pendingRtp.discard();
+    this.invalidateQueuedSource();
     if (this.disposeTrack) {
       this.disposeTrack();
       this.disposeTrack = undefined;
@@ -587,10 +653,14 @@ export class RTCRtpSender {
     // (possibly BUNDLE-shared) DTLS transport, which outlives it.
     for (const dispose of this.dtlsDisposer) dispose();
     this.dtlsDisposer = [];
-    this.rtpContinuityPending = false;
-    this.discardPendingRtp();
+    this.continuity.cancel();
+    this.pendingRtp.discard();
+    // Invalidate in-flight sendRtp / maybeInjectProbePadding before dispose
+    // so they cannot emit padding or revive a disposed estimator.
+    this.bwe.bumpGeneration();
     this.rtcpRunning = false;
     this.rtcpCancel.abort();
+    this.bwe.close();
     if (this.disposeTrack) {
       this.disposeTrack();
       this.disposeTrack = undefined;
@@ -598,6 +668,8 @@ export class RTCRtpSender {
     if (!keepTrack) {
       this.track = null;
     }
+    this.dtlsDisposer.forEach((dispose) => dispose());
+    this.dtlsDisposer = [];
   }
 
   async runRtcp() {
@@ -637,93 +709,9 @@ export class RTCRtpSender {
     } catch (error) {}
   }
 
-  /**
-   * Build a Sender Report for the instant `nowMonotonicMs` (`performance.now()`).
-   * The NTP timestamp is the wall-clock time of that instant and the RTP
-   * timestamp is extrapolated from the clock anchor to the same instant with
-   * the send clock rate, so an SR sent long after the last RTP packet (idle,
-   * silence suppression) still maps the current time (as libwebrtc does).
-   * Records the LSR of the NTP timestamp actually sent.
-   */
+  /** Sender Report for the instant `nowMonotonicMs` ({@link SenderStatistics.buildSenderReport}). */
   private buildSenderReport(nowMonotonicMs = performance.now()) {
-    const ntpTimestamp = ntpTime(performance.timeOrigin + nowMonotonicMs);
-    let rtpTimestamp = 0;
-    const anchor = this.rtpClockAnchor;
-    if (anchor) {
-      const elapsedMs = Math.max(0, nowMonotonicMs - anchor.monotonicMs);
-      rtpTimestamp = uint32Add(
-        anchor.rtpTimestamp,
-        Math.round((elapsedMs * anchor.clockRate) / 1000) % 0x1_0000_0000,
-      );
-    }
-
-    this.lastSRtimestamp = compactNtp(ntpTimestamp);
-    this.lastSentSRTimestamp = timestampSeconds();
-
-    return new RtcpSrPacket({
-      ssrc: this.ssrc,
-      senderInfo: new RtcpSenderInfo({
-        ntpTimestamp,
-        rtpTimestamp,
-        packetCount: this.packetCount,
-        octetCount: this.octetCount,
-      }),
-    });
-  }
-
-  /**
-   * Move the SR clock anchor to a sent packet with a newer timestamp, or to a
-   * packet that steps back further than reordering can explain.
-   */
-  private updateRtpClockAnchor(rtpTimestamp: number, clockRate: number) {
-    const anchor = this.rtpClockAnchor;
-    if (anchor && !this.rtpClockAnchorReset && anchor.clockRate === clockRate) {
-      // 32bit signed difference: handles timestamp wraparound
-      const delta = (rtpTimestamp - anchor.rtpTimestamp) | 0;
-      if (
-        delta <= 0 &&
-        -delta <= clockRate * RTP_CLOCK_ANCHOR_MAX_REORDER_SEC
-      ) {
-        return;
-      }
-    }
-    this.rtpClockAnchorReset = false;
-    this.rtpClockAnchor = {
-      monotonicMs: performance.now(),
-      rtpTimestamp,
-      clockRate,
-    };
-  }
-
-  /**
-   * Send an RTP packet. Pending RTP is disabled by default: the packet is
-   * written immediately if DTLS is connected and a codec is set, otherwise
-   * dropped.
-   *
-   * When pending RTP is enabled, the packet is queued until it can be sent.
-   * The returned promise then settles for this packet only:
-   * - resolve: DTLS send completed, or the packet was dropped by `stop()`,
-   *   `replaceTrack(null)`, or pending-queue overflow
-   * - reject: DTLS send threw while writing this packet
-   *
-   * Later `sendRtp()` calls stay pending until their own packet is sent or
-   * dropped, even if a drain is already in progress.
-   */
-  async sendRtp(rtp: Buffer | RtpPacket) {
-    if (this.stopped || this.sendSuppressed) {
-      return;
-    }
-    if (!this.pendingRtpEnabled) {
-      if (!this.canSendRtp()) {
-        return;
-      }
-      await this.dispatchRtp(rtp);
-      return;
-    }
-    await new Promise<void>((resolve, reject) => {
-      this.enqueuePendingRtp(rtp, resolve, reject);
-      void this.drainPendingRtp();
-    });
+    return this.stats.buildSenderReport(this.ssrc, nowMonotonicMs);
   }
 
   /**
@@ -741,144 +729,496 @@ export class RTCRtpSender {
     this.scheduleRtpContinuity(timestampStep);
     log(
       "replaceRTP",
-      this.sequenceNumber,
+      this.continuity.sequenceNumber,
       header.sequenceNumber,
       discontinuity,
       timestampStep,
     );
   }
 
+  /**
+   * Start a new source epoch and drop queued media of the previous source.
+   * A packet already past sequence allocation (in its DTLS write) completes;
+   * one still waiting on pacing/probe is dropped by {@link sendRtpInternal}.
+   */
+  private invalidateQueuedSource() {
+    this.sourceEpoch++;
+    // Release the running FIFO task if it is a stale packet parked in a
+    // probe / pacing wait, so new-source media is not held behind it.
+    this.sourceEpochCancel.abort();
+    this.sourceEpochCancel = new AbortController();
+    this.outgoing.dropStaleSource(this.sourceEpoch);
+    this.pendingRtp.dropStaleSource(this.sourceEpoch);
+  }
+
+  private isStaleSource(sourceEpoch: number | undefined): boolean {
+    return sourceEpoch !== undefined && sourceEpoch !== this.sourceEpoch;
+  }
+
+  /**
+   * Abort signal for a send wait: sender stop, estimator swap, plus source
+   * switch for media.
+   */
+  private sendWaitSignal(sourceEpoch: number | undefined): AbortSignal {
+    const signals = [this.rtcpCancel.signal, this.bwe.generationSignal];
+    if (sourceEpoch !== undefined) {
+      signals.push(this.sourceEpochCancel.signal);
+    }
+    return AbortSignal.any(signals);
+  }
+
+  /** A waiting send may still go out: not stopped, same estimator, same source. */
+  private isSendAlive(generation: number, sourceEpoch: number | undefined) {
+    return (
+      !this.stopped &&
+      generation === this.bwe.generation &&
+      !this.isStaleSource(sourceEpoch)
+    );
+  }
+
   private scheduleRtpContinuity(timestampStep = 1) {
-    this.rtpContinuityPending = true;
-    this.pendingTimestampStep = timestampStep;
+    this.invalidateQueuedSource();
+    this.continuity.schedule(timestampStep);
     this.rtpCache = [];
   }
 
-  private async dispatchRtp(rtp: Buffer | RtpPacket) {
-    if (!this.canSendRtp()) {
+  private dispatchMedia(packet: RtpPacket, sourceEpoch: number) {
+    return this.dispatchOutgoing(
+      () =>
+        this.sendRtpInternal(packet, {
+          injectProbePadding: true,
+          sourceEpoch,
+        }),
+      { kind: "media", bytes: estimateOutgoingBytes(packet), sourceEpoch },
+    );
+  }
+
+  /**
+   * Lightweight / disabled estimators neither pace nor probe, so RTP is written
+   * straight through as before the BWE abstraction: no FIFO, no queue limit,
+   * and no wait before the DTLS write. Pacing estimators (GCC) go through
+   * {@link outgoing}. A FIFO still draining after an estimator swap
+   * keeps its order by queuing behind it.
+   */
+  private dispatchOutgoing(
+    task: () => Promise<void>,
+    meta: OutgoingMeta,
+  ): Promise<void | undefined> {
+    if (!this.outgoing.running && !needsPacedSendPath(this.bwe.estimator)) {
+      return task();
+    }
+    return this.outgoing.enqueue(task, meta);
+  }
+
+  /**
+   * Send immediately by default or queue until DTLS is ready when pending RTP
+   * is enabled. Each call settles only after its own packet is sent or dropped.
+   */
+  async sendRtp(rtp: Buffer | RtpPacket) {
+    // Drop (do not queue) while the negotiated direction does not send, so
+    // nothing is flushed in a burst when sending resumes.
+    if (this.stopped || this.sendSuppressed) {
       return;
     }
-
-    const codec = this.codec;
-    if (!codec) {
+    if (!this.pendingRtpEnabled) {
+      if (!this.canSendRtp()) {
+        return;
+      }
+      // Own the packet before any pacing wait: a track shared by several
+      // senders hands every subscriber the same RtpPacket, and header
+      // rewrites (SSRC/seq/extensions) must not leak across senders.
+      const packet = Buffer.isBuffer(rtp)
+        ? RtpPacket.deSerialize(rtp)
+        : rtp.clone();
+      await this.dispatchMedia(packet, this.sourceEpoch);
       return;
     }
+    await new Promise<void>((resolve, reject) => {
+      this.pendingRtp.enqueue(rtp, this.sourceEpoch, resolve, reject);
+      void this.drainPendingRtp();
+    });
+  }
 
-    rtp = Buffer.isBuffer(rtp) ? RtpPacket.deSerialize(rtp) : rtp.clone();
+  /** True when transport-wide CC header extension is negotiated. */
+  private isTransportCcNegotiated(): boolean {
+    return this.headerExtensions.some(
+      (e) => e.uri === RTP_EXTENSION_URI.transportWideCC,
+    );
+  }
+
+  /**
+   * Padding needs an estimator that asks for it, TWCC so feedback can see it,
+   * and a negotiated RTX stream to carry it. Without RTX no padding is sent
+   * (see `GCC_KNOWN_DIFFERENCES`): media sequence numbers stay untouched.
+   */
+  private canSendPadding(): boolean {
+    return (
+      !this.sendSuppressed &&
+      isProbePacingController(this.bwe.estimator) &&
+      this.rtxPayloadType !== undefined &&
+      this.isTransportCcNegotiated()
+    );
+  }
+
+  /**
+   * Inject RTP padding packets while a GCC probe cluster is active and media
+   * alone has not yet filled min packets / min bitrate×duration.
+   *
+   * Responsibility split:
+   * - Estimator (`ProbeController` / `pendingProbePaddingPackets`) decides need
+   * - Sender generates padding-only RTP on the RTX SSRC with a TWCC seq +
+   *   `isProbation` and paces them
+   */
+  async maybeInjectProbePadding(): Promise<number> {
+    if (!this.canSendPadding()) {
+      return 0;
+    }
+    if (this.nestOutgoingPadding) {
+      return this.padding.drainProbe();
+    }
+    return (
+      (await this.outgoing.enqueue(() => this.padding.drainProbe(), {
+        kind: "padding",
+        bytes: this.bwe.estimator.probePaddingPacketBytes,
+      })) ?? 0
+    );
+  }
+
+  /**
+   * pin padding_rate while LossBased is `kIncreaseUsingPadding`.
+   * Regular RTP padding (not probe/probation). Probe padding takes priority.
+   */
+  async maybeInjectLossPadding(): Promise<number> {
+    if (!this.canSendPadding()) {
+      return 0;
+    }
+    return (
+      (await this.outgoing.enqueue(() => this.padding.drainLoss(), {
+        kind: "padding",
+        bytes: this.bwe.estimator.probePaddingPacketBytes,
+      })) ?? 0
+    );
+  }
+
+  private createPaddingInjector() {
+    const sender = this;
+    return new PaddingInjector({
+      get estimator() {
+        return sender.bwe.estimator;
+      },
+      get generation() {
+        return sender.bwe.generation;
+      },
+      canDrain: () =>
+        !sender.stopped &&
+        sender.dtlsTransport?.state === "connected" &&
+        !!sender.codec &&
+        sender.canSendPadding(),
+      isCancelled: (generation) =>
+        sender.stopped ||
+        sender.sendSuppressed ||
+        generation !== sender.bwe.generation,
+      hasQueuedRealtimeMedia: () => sender.outgoing.hasQueuedRealtimeMedia(),
+      sendPadding: (packetBytes, probe) =>
+        sender.sendRtpInternal(sender.createPaddingRtpPacket(packetBytes), {
+          injectProbePadding: false,
+          forceProbeTag: probe,
+          isProbePadding: true,
+        }),
+    });
+  }
+
+  /** Padding-only RTP on the RTX SSRC / payload type ({@link createRtxPaddingPacket}). */
+  private createPaddingRtpPacket(paddingSize: number): RtpPacket {
+    return createRtxPaddingPacket({
+      paddingSize,
+      timestamp: this.continuity.timestamp ?? 0,
+      payloadType: this.rtxPayloadType!,
+      ssrc: this.rtxSsrc,
+    });
+  }
+
+  private async sendRtpInternal(
+    rtp: Buffer | RtpPacket,
+    opts: {
+      injectProbePadding?: boolean;
+      forceProbeTag?: boolean;
+      /**
+       * Padding-only packet on the RTX SSRC. Takes the next RTX sequence at
+       * send time and never touches the media sequence / timestamp mapping.
+       */
+      isProbePadding?: boolean;
+      /**
+       * RTX / same-SSRC retransmission. Keep wrapRtx identity (ssrc / PT /
+       * RTX sequence). Still allocate a **new** transport-wide seq.
+       */
+      isRetransmission?: boolean;
+      /** Source epoch at sendRtp acceptance; stale media is dropped. */
+      sourceEpoch?: number;
+    } = {},
+  ) {
+    if (this.stopped) return;
+    // Not sending in the negotiated direction: drop media and padding.
+    // NACK retransmissions keep develop's behavior.
+    if (this.sendSuppressed && !opts.isRetransmission) return;
+    if (this.dtlsTransport.state !== "connected" || !this.codec) {
+      return;
+    }
+    const sendClockRate = (this.sendPrimaryCodec ?? this.codec).clockRate;
+
+    rtp = Buffer.isBuffer(rtp) ? RtpPacket.deSerialize(rtp) : rtp;
 
     const { header, payload } = rtp;
+
+    // Capture BWE generation at send start. After await sendRtp, only deliver
+    // SentInfo when the generation is unchanged — mid-send setBandwidthEstimator
+    // must not pollute the new clean estimator with packets planned under the old one.
+    const sendGeneration = this.bwe.generation;
+    const estimatorAtStart = this.bwe.estimator;
+
+    const twccOn = this.isTransportCcNegotiated();
+    // Lightweight / disabled: no probe reservation or pacing wait (direct path).
+    const paced = needsPacedSendPath(estimatorAtStart);
+
+    // Stale source: drop before touching probe reservation or pacing budget.
+    if (this.isStaleSource(opts.sourceEpoch)) {
+      return;
+    }
+
+    // pin CurrentCluster: reserve probe id **before** the async send so a
+    // concurrent completion cannot re-attribute this packet to the next cluster.
+    let reservedClusterId: number | undefined;
+    const wantsProbe =
+      opts.forceProbeTag === true || estimatorAtStart.shouldTagProbePacket();
+    if (paced && twccOn && wantsProbe) {
+      const reservation = estimatorAtStart.reserveOutgoingProbe(milliTime());
+      if (reservation) {
+        reservedClusterId = reservation.clusterId;
+        if (
+          !(await this.awaitProbeSendTime(
+            reservation.nextSendTimeMs,
+            sendGeneration,
+            opts.sourceEpoch,
+          ))
+        ) {
+          return;
+        }
+      } else if (opts.forceProbeTag) {
+        // Cluster already filled / discarded — do not emit untagged padding.
+        return;
+      }
+    }
+
     const inputSequenceNumber = header.sequenceNumber;
     const inputTimestamp = header.timestamp;
 
-    if (this.rtpContinuityPending) {
-      if (this.sequenceNumber != undefined && this.timestamp != undefined) {
-        const offsets = freezeRtpContinuityOffsets(
-          this.sequenceNumber,
-          this.timestamp,
-          inputSequenceNumber,
-          inputTimestamp,
-          this.pendingTimestampStep,
-        );
-        this.seqOffset = offsets.seqOffset;
-        this.timestampOffset = offsets.timestampOffset;
-        // The boundary advances the output timestamp by `timestampStep`
-        // only, not by the elapsed wall-clock time.
-        this.rtpClockAnchorReset = true;
-      }
-      this.rtpContinuityPending = false;
-      this.pendingTimestampStep = 1;
+    if (opts.isProbePadding) {
+      // Padding is only ever sent on the negotiated RTX stream.
+      if (this.rtxPayloadType === undefined) return;
+      header.ssrc = this.rtxSsrc;
+      header.payloadType = this.rtxPayloadType;
+    } else if (!opts.isRetransmission) {
+      header.ssrc = this.ssrc;
+      header.payloadType = this.codec.payloadType;
+      header.timestamp = this.continuity.mapTimestamp(inputTimestamp);
     }
 
-    header.ssrc = this.ssrc;
-    header.payloadType = codec.payloadType;
-    header.timestamp = uint32Add(header.timestamp, this.timestampOffset);
-    header.sequenceNumber = uint16Add(header.sequenceNumber, this.seqOffset);
-    this.timestamp = header.timestamp;
-    this.sequenceNumber = header.sequenceNumber;
-
-    const ntpTimestamp = ntpTime();
-
-    const originalHeaderExtensions = [...header.extensions];
-    header.extensions = this.headerExtensions
-      .map((extension) => {
-        const payload = (() => {
-          switch (extension.uri) {
-            case RTP_EXTENSION_URI.sdesMid:
-              if (this.mid) {
-                return serializeSdesMid(this.mid);
-              }
-              return;
-            // todo : sender simulcast unsupported now
-            case RTP_EXTENSION_URI.sdesRTPStreamID:
-              if (this.rtpStreamId) {
-                return serializeSdesRTPStreamID(this.rtpStreamId);
-              }
-              return;
-            // todo : sender simulcast unsupported now
-            case RTP_EXTENSION_URI.repairedRtpStreamId:
-              if (this.repairedRtpStreamId) {
-                return serializeRepairedRtpStreamId(this.repairedRtpStreamId);
-              }
-              return;
-            case RTP_EXTENSION_URI.transportWideCC:
-              this.dtlsTransport.transportSequenceNumber = uint16Add(
-                this.dtlsTransport.transportSequenceNumber,
-                1,
-              );
-              return serializeTransportWideCC(
-                this.dtlsTransport.transportSequenceNumber,
-              );
-            case RTP_EXTENSION_URI.absSendTime:
-              return serializeAbsSendTime(ntpTimestamp);
-          }
-        })();
-
-        if (payload) return { id: extension.id, payload };
-      })
-      .filter((v) => v) as Extension[];
-    for (const ext of originalHeaderExtensions) {
-      const exist = header.extensions.find((v) => v.id === ext.id);
-      if (exist) {
-        exist.payload = ext.payload;
-      } else {
-        header.extensions.push(ext);
-      }
-    }
-    header.extensions = header.extensions.sort((a, b) => a.id - b.id);
-
-    this.updateRtpClockAnchor(
-      header.timestamp,
-      (this.sendPrimaryCodec ?? codec).clockRate,
+    header.extensions = buildSendHeaderExtensions(
+      header.extensions,
+      this.headerExtensions,
+      {
+        mid: this.mid,
+        rtpStreamId: this.rtpStreamId,
+        repairedRtpStreamId: this.repairedRtpStreamId,
+      },
     );
-    this.octetCount += payload.length;
-    this.headerBytesSent += header.serializeSize;
-    this.packetCount = uint32Add(this.packetCount, 1);
 
-    this.rtpCache[header.sequenceNumber % RTP_HISTORY_SIZE] = rtp;
+    const useRed =
+      !!this.redRedundantPayloadType &&
+      !opts.isProbePadding &&
+      !opts.isRetransmission;
+    const estimatedPayloadLen = useRed
+      ? this.redEncoder.serializedLengthWith({
+          block: payload,
+          timestamp: header.timestamp,
+          blockPT: this.redRedundantPayloadType!,
+        })
+      : payload.length;
+    const rfcPaddingLen =
+      header.padding && header.paddingSize > 0 ? header.paddingSize : 0;
+    const constructedBytes =
+      header.serializeSize + estimatedPayloadLen + rfcPaddingLen;
+    if (
+      paced &&
+      reservedClusterId === undefined &&
+      this.mediaPacingEnabled &&
+      twccOn &&
+      estimatorAtStart.getPacingBitrateBps() > 0
+    ) {
+      if (
+        !(await this.awaitPacingBudget(
+          constructedBytes,
+          sendGeneration,
+          opts.sourceEpoch,
+        ))
+      ) {
+        return;
+      }
+    }
+
+    if (this.stopped || sendGeneration !== this.bwe.generation) {
+      return;
+    }
+    // Direction changed to not sending while this packet waited.
+    if (this.sendSuppressed && !opts.isRetransmission) {
+      return;
+    }
+    // Accepted under a replaced/detached source: never send it, and never let
+    // it consume the new source's continuity offset.
+    if (this.isStaleSource(opts.sourceEpoch)) {
+      return;
+    }
+
+    if (opts.isProbePadding) {
+      // RTX owns its sequence space, so padding never shifts media numbers.
+      header.sequenceNumber = this.rtxSequenceNumber;
+      this.rtxSequenceNumber = uint16Add(this.rtxSequenceNumber, 1);
+      header.timestamp = this.continuity.timestamp ?? header.timestamp;
+    } else if (!opts.isRetransmission) {
+      if (this.continuity.assign(header, inputSequenceNumber, inputTimestamp)) {
+        // ソース境界を SR の RTP/NTP 基準にも反映する。
+        this.stats.resetClockAnchor();
+      }
+    }
 
     let rtpPayload = payload;
-
-    if (this.redRedundantPayloadType) {
+    if (useRed) {
       this.redEncoder.push({
         block: rtpPayload,
         timestamp: header.timestamp,
-        blockPT: this.redRedundantPayloadType,
+        blockPT: this.redRedundantPayloadType!,
       });
-      const red = this.redEncoder.build();
-      rtpPayload = red.serialize();
+      rtpPayload = this.redEncoder.build().serialize();
+    }
+    const payloadOctetsForSr = rtpPayload.length;
+    if (header.padding && header.paddingSize > 0) {
+      rtpPayload = appendRfc3550Padding(rtpPayload, header.paddingSize);
     }
 
-    const size = await this.dtlsTransport.sendRtp(rtpPayload, header);
+    const packetWideSeq = stampHopByHopExtensions(
+      header,
+      this.headerExtensions,
+      {
+        twccOn,
+        allocateTransportWideSequence: () =>
+          this.dtlsTransport.allocateTransportWideSequence(),
+        ntpTimestamp: ntpTime(),
+      },
+    );
+
+    if (opts.isProbePadding) {
+      // RTX padding: not part of the media SSRC's SR packet / octet counts.
+    } else if (opts.isRetransmission) {
+      this.stats.recordRetransmissionSent(header.serializeSize, payload.length);
+    } else {
+      this.stats.recordMediaSent(header.serializeSize, payloadOctetsForSr);
+      if (!isPaddingOnlyRtpPacket(rtp)) {
+        this.rtpCache[header.sequenceNumber % RTP_HISTORY_SIZE] = rtp;
+      }
+    }
+
+    const sendingAtMs = milliTime();
+    const { size, sendingAtMs: enqueueAtMs } = await sendDtlsRtp(
+      this.dtlsTransport,
+      rtpPayload,
+      header,
+      sendingAtMs,
+    );
+    const sentAtMs = milliTime();
+
+    if (
+      !opts.isProbePadding &&
+      !opts.isRetransmission &&
+      !isPaddingOnlyRtpPacket(rtp)
+    ) {
+      this.stats.updateClockAnchor(header.timestamp, sendClockRate);
+    }
 
     this.runRtcp();
-    const millitime = milliTime();
-    const sentInfo: SentInfo = {
-      wideSeq: this.dtlsTransport.transportSequenceNumber,
-      size,
-      sendingAtMs: millitime,
-      sentAtMs: millitime,
-    };
-    this.senderBWE.rtpPacketSent(sentInfo);
+    // BWE / TWCC only when transport-cc is negotiated — otherwise wideSeq would
+    // not advance and probe padding would be useless / harmful.
+    // Generation match: estimator was not swapped (or reset) while this packet
+    // was in flight. Mismatch → discard (do not feed disposed or new clean BWE).
+    if (
+      twccOn &&
+      packetWideSeq !== undefined &&
+      sendGeneration === this.bwe.generation
+    ) {
+      const priorUnacked = this.pendingUntrackedBytes;
+      this.pendingUntrackedBytes = 0;
+      const sentInfo: SentInfo = {
+        wideSeq: packetWideSeq,
+        size,
+        sendingAtMs: enqueueAtMs,
+        sentAtMs,
+        isProbation: reservedClusterId !== undefined,
+        probeClusterId: reservedClusterId,
+        priorUnackedBytes: priorUnacked,
+        isRetransmission: opts.isRetransmission === true,
+      };
+      estimatorAtStart.rtpPacketSent(sentInfo);
+    } else if (twccOn && sendGeneration === this.bwe.generation) {
+      // Same generation but no wideSeq (should be rare). Do not fold
+      // previous-generation bytes into the next estimator.
+      this.pendingUntrackedBytes += size;
+    }
+
+    if (
+      opts.injectProbePadding &&
+      twccOn &&
+      isProbePacingController(estimatorAtStart) &&
+      sendGeneration === this.bwe.generation
+    ) {
+      this.nestOutgoingPadding = true;
+      try {
+        await this.maybeInjectProbePadding();
+      } finally {
+        this.nestOutgoingPadding = false;
+      }
+    }
+  }
+
+  /** pin BitrateProber next_probe_time wait ({@link waitForProbeSendTime}). */
+  private awaitProbeSendTime(
+    nextSendTimeMs: number,
+    generation: number,
+    sourceEpoch?: number,
+  ): Promise<boolean> {
+    return waitForProbeSendTime(
+      nextSendTimeMs,
+      () => this.isSendAlive(generation, sourceEpoch),
+      () => this.sendWaitSignal(sourceEpoch),
+    );
+  }
+
+  /**
+   * Token-bucket wait against {@link pacingBitrateBps} for **media**.
+   * Probe packets use {@link awaitProbeSendTime} instead.
+   * Returns false if the sender is stopped, the estimator is swapped
+   * (`generation` changes), or the packet's source is replaced/detached while
+   * waiting (budget is not consumed then).
+   */
+  private awaitPacingBudget(
+    packetBytes: number,
+    generation: number,
+    sourceEpoch?: number,
+  ): Promise<boolean> {
+    return this.pacer.acquire(
+      packetBytes,
+      this.pacingBitrateBps,
+      () => this.isSendAlive(generation, sourceEpoch),
+      () => this.sendWaitSignal(sourceEpoch),
+    );
   }
 
   /**
@@ -898,22 +1238,12 @@ export class RTCRtpSender {
           packet.reports
             .filter((report) => report.ssrc === this.ssrc)
             .forEach((report) => {
-              this.remotePacketsLost = report.packetsLost;
-              this.remoteFractionLost = report.fractionLost / 256;
-              if (this.lastSRtimestamp === report.lsr && report.dlsr) {
-                if (this.lastSentSRTimestamp) {
-                  const rtt =
-                    timestampSeconds() -
-                    this.lastSentSRTimestamp -
-                    report.dlsr / 65536;
-                  this.totalRoundTripTime += rtt;
-                  this.roundTripTimeMeasurements++;
-                  if (this.rtt === undefined) {
-                    this.rtt = rtt;
-                  } else {
-                    this.rtt = RTT_ALPHA * this.rtt + (1 - RTT_ALPHA) * rtt;
-                  }
-                }
+              const rawRttSeconds = this.stats.recordReceptionReport(report);
+              // pin OnRoundTripTimeUpdate: only **unsmoothed** RTT goes to
+              // AIMD (smoothed updates are discarded in GoogCc).
+              // Lightweight / disabled no-op setRoundTripTime.
+              if (rawRttSeconds !== undefined && rawRttSeconds > 0) {
+                this.bwe.estimator.setRoundTripTime(rawRttSeconds * 1000);
               }
             });
         }
@@ -931,11 +1261,14 @@ export class RTCRtpSender {
             case GenericNack.count:
               {
                 const feedback = packet.feedback as GenericNack;
-                this.nackCount++;
+                this.stats.nackCount++;
                 feedback.lost.forEach(async (seqNum) => {
                   let packet: RtpPacket | undefined =
                     this.rtpCache[seqNum % RTP_HISTORY_SIZE];
                   if (packet && packet.header.sequenceNumber !== seqNum) {
+                    packet = undefined;
+                  }
+                  if (packet && isPaddingOnlyRtpPacket(packet)) {
                     packet = undefined;
                   }
                   if (packet) {
@@ -951,12 +1284,19 @@ export class RTCRtpSender {
                         1,
                       );
                     }
-                    this.retransmittedPacketsSent++;
-                    this.retransmittedBytesSent += packet.payload.length;
-                    this.headerBytesSent += packet.header.serializeSize;
-                    await this.dtlsTransport.sendRtp(
-                      packet.payload,
-                      packet.header,
+                    const retransmission = packet;
+                    // Route through sendRtpInternal: new TWCC seq, pacing,
+                    // BWE SentInfo. Do not reuse the original transport-wide seq.
+                    await this.dispatchOutgoing(
+                      () =>
+                        this.sendRtpInternal(retransmission, {
+                          injectProbePadding: false,
+                          isRetransmission: true,
+                        }),
+                      {
+                        kind: "rtx",
+                        bytes: estimateOutgoingBytes(retransmission),
+                      },
                     );
                   }
                 });
@@ -978,7 +1318,7 @@ export class RTCRtpSender {
               break;
             case PictureLossIndication.count:
               {
-                this.pliCount++;
+                this.stats.pliCount++;
                 this.onPictureLossIndication.execute();
                 this.onKeyFrameRequest.execute("pli");
               }
@@ -993,7 +1333,7 @@ export class RTCRtpSender {
 
                 // W3C webrtc-stats: firCount is the number of FIR packets received,
                 // however many FCI entries of the packet resolve to this sender
-                this.firCount++;
+                this.stats.firCount++;
                 // an entry with the same sequence number as the last one for its
                 // (sender, target) pair is a retransmission (RFC 5104 4.3.1.1)
                 let isNew = false;
@@ -1031,117 +1371,26 @@ export class RTCRtpSender {
     }
   }
 
-  private get outboundRtpStatsId() {
-    return generateStatsId("outbound-rtp", this.trackId);
-  }
-
-  private get mediaSourceStatsId() {
-    return generateStatsId("media-source", this.trackId);
-  }
-
-  private get remoteInboundRtpStatsId() {
-    return generateStatsId("remote-inbound-rtp", this.trackId);
-  }
-
   getStatsRootIds() {
-    return [this.outboundRtpStatsId];
+    return [senderStatsIds(this.trackId).outboundRtp];
   }
 
   collectStats(timestamp: number): RTCStats[] {
-    const stats: RTCStats[] = [];
-    const transportId = this.dtlsTransport
-      ? generateStatsId("transport", this.dtlsTransport.id)
-      : undefined;
-    const codecId =
-      this.codec && transportId
-        ? generateCodecStatsId(
-            transportId,
-            this.codec.payloadType,
-            this.trackId,
-          )
-        : undefined;
-
-    // Outbound RTP stats
-    const outboundRtpStats: RTCOutboundRtpStreamStats = {
-      type: "outbound-rtp",
-      id: this.outboundRtpStatsId,
-      timestamp,
-      ssrc: this.ssrc,
-      kind: this.kind,
-      transportId,
-      codecId,
-      mid: this.mid,
-      packetsSent: this.packetCount,
-      bytesSent: this.octetCount,
-      headerBytesSent: this.headerBytesSent,
-      retransmittedPacketsSent: this.retransmittedPacketsSent || undefined,
-      retransmittedBytesSent: this.retransmittedBytesSent || undefined,
-      rtxSsrc: this.rtxPayloadType ? this.rtxSsrc : undefined,
-      mediaSourceId: this.track ? this.mediaSourceStatsId : undefined,
-      remoteId:
-        this.rtt !== undefined ||
-        this.remotePacketsLost !== undefined ||
-        this.remoteFractionLost !== undefined
-          ? this.remoteInboundRtpStatsId
-          : undefined,
-      nackCount: this.nackCount || undefined,
-      pliCount: this.pliCount || undefined,
-      firCount: this.firCount || undefined,
-    };
-    stats.push(outboundRtpStats);
-
-    // Media source stats
-    if (this.track) {
-      const mediaSourceStats: RTCMediaSourceStats = {
-        type: "media-source",
-        id: this.mediaSourceStatsId,
-        timestamp,
-        trackIdentifier: this.track.id ?? this.trackId,
-        kind: this.kind,
-      };
-      stats.push(mediaSourceStats);
-    }
-
-    if (this.codec && transportId) {
-      const codecStats: RTCCodecStats = {
-        type: "codec",
-        id: codecId!,
-        timestamp,
-        payloadType: this.codec.payloadType,
-        transportId,
-        mimeType: this.codec.mimeType,
-        clockRate: this.codec.clockRate,
-        channels: this.codec.channels,
-        sdpFmtpLine: this.codec.parameters,
-      };
-      stats.push(codecStats);
-    }
-
-    // Remote inbound RTP stats (if we have RTT)
-    if (
-      this.rtt !== undefined ||
-      this.remotePacketsLost !== undefined ||
-      this.remoteFractionLost !== undefined
-    ) {
-      const remoteInboundStats: RTCRemoteInboundRtpStreamStats = {
-        type: "remote-inbound-rtp",
-        id: this.remoteInboundRtpStatsId,
-        timestamp,
+    return this.stats.collect(
+      {
+        trackId: this.trackId,
         ssrc: this.ssrc,
         kind: this.kind,
-        transportId,
-        codecId: outboundRtpStats.codecId,
-        localId: outboundRtpStats.id,
-        roundTripTime: this.rtt,
-        totalRoundTripTime: this.totalRoundTripTime,
-        roundTripTimeMeasurements: this.roundTripTimeMeasurements,
-        packetsLost: this.remotePacketsLost,
-        fractionLost: this.remoteFractionLost,
-      };
-      stats.push(remoteInboundStats);
-    }
-
-    return stats;
+        mid: this.mid,
+        dtlsTransport: this.dtlsTransport,
+        codec: this.codec,
+        rtxSsrc: this.rtxPayloadType ? this.rtxSsrc : undefined,
+        trackIdentifier: this.track
+          ? (this.track.id ?? this.trackId)
+          : undefined,
+      },
+      timestamp,
+    );
   }
 
   async getStats(): Promise<RTCStatsReport> {

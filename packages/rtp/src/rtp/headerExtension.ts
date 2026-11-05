@@ -71,28 +71,35 @@ export function rtpHeaderExtensionsParser(
       if (!uri) {
         return { uri: "unknown", value: extension.payload };
       }
-      switch (uri) {
-        case RTP_EXTENSION_URI.sdesMid:
-        case RTP_EXTENSION_URI.sdesRTPStreamID:
-        case RTP_EXTENSION_URI.repairedRtpStreamId:
-          return { uri, value: deserializeString(extension.payload) };
-        case RTP_EXTENSION_URI.transportWideCC:
-          return { uri, value: deserializeUint16BE(extension.payload) };
-        case RTP_EXTENSION_URI.absSendTime:
-          return {
-            uri,
-            value: deserializeAbsSendTime(extension.payload),
-          };
-        case RTP_EXTENSION_URI.audioLevelIndication: {
-          return {
-            uri,
-            value: deserializeAudioLevelIndication(extension.payload),
-          };
+      try {
+        switch (uri) {
+          case RTP_EXTENSION_URI.sdesMid:
+          case RTP_EXTENSION_URI.sdesRTPStreamID:
+          case RTP_EXTENSION_URI.repairedRtpStreamId:
+            return { uri, value: deserializeString(extension.payload) };
+          case RTP_EXTENSION_URI.transportWideCC:
+            return { uri, value: deserializeUint16BE(extension.payload) };
+          case RTP_EXTENSION_URI.absSendTime:
+            return {
+              uri,
+              value: deserializeAbsSendTime(extension.payload),
+            };
+          case RTP_EXTENSION_URI.audioLevelIndication:
+            return {
+              uri,
+              value: deserializeAudioLevelIndication(extension.payload),
+            };
+          case RTP_EXTENSION_URI.videoOrientation:
+            return {
+              uri,
+              value: deserializeVideoOrientation(extension.payload),
+            };
+          default:
+            return { uri, value: extension.payload };
         }
-        case RTP_EXTENSION_URI.videoOrientation:
-          return { uri, value: deserializeVideoOrientation(extension.payload) };
-        default:
-          return { uri, value: extension.payload };
+      } catch {
+        // Truncated or malformed extension: skip so routing can continue.
+        return undefined;
       }
     })
     .reduce((acc: { [uri: string]: any }, cur) => {
@@ -137,14 +144,23 @@ export function deserializeString(buf: Buffer) {
 }
 
 export function deserializeUint16BE(buf: Buffer) {
+  if (buf.length < 2) {
+    throw new Error("RTP header extension too short");
+  }
   return buf.readUInt16BE();
 }
 
 export function deserializeAbsSendTime(buf: Buffer) {
+  if (buf.length < 3) {
+    throw new Error("RTP header extension too short");
+  }
   return bufferReader(buf, [3])[0];
 }
 
 export function deserializeAudioLevelIndication(buf: Buffer) {
+  if (buf.length < 1) {
+    throw new Error("RTP header extension too short");
+  }
   const stream = new BitStream(buf);
   const value: AudioLevelIndicationPayload = {
     v: stream.readBits(1) === 1,
@@ -154,6 +170,9 @@ export function deserializeAudioLevelIndication(buf: Buffer) {
 }
 
 export function deserializeVideoOrientation(payload: Buffer) {
+  if (payload.length < 1) {
+    throw new Error("RTP header extension too short");
+  }
   const stream = new BitStream(payload);
   stream.readBits(4);
   const value: videoOrientationPayload = {

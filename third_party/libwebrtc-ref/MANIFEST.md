@@ -1,0 +1,44 @@
+# libwebrtc reference snapshot (goog_cc subset)
+
+**Not linked into builds or runtime.** Reference-only for GCC/TWCC BWE audits.
+
+| Item | Value |
+| --- | --- |
+| Repository | https://webrtc.googlesource.com/src |
+| Branch label | `main` |
+| **Pinned commit** | `0fda16159e33adf59c71a7ad1173dcbe5a632102` |
+| Pin date | 2026-08-11 |
+| Re-fetch | `python3 third_party/libwebrtc-ref/fetch_ref.py` |
+| Metadata | `PIN.json` |
+
+Browse tree:
+
+https://webrtc.googlesource.com/src/+/0fda16159e33adf59c71a7ad1173dcbe5a632102/modules/congestion_controller/goog_cc/
+
+## License
+
+The files in this directory are copied unmodified from libwebrtc and remain
+under its BSD-3-Clause license (`LICENSE`) with the additional patent grant in
+`PATENTS`; contributors are listed in `AUTHORS`. All three are fetched from the
+same pinned commit. The TypeScript GCC port in
+`packages/webrtc/src/media/sender/estimators/gcc/` is derived from these files;
+attribution is in the repository root `NOTICE`.
+
+## Included paths
+
+- `modules/congestion_controller/goog_cc/` — network control, delay BWE, trendline, inter-arrival, acked/robust throughput, loss-based V2, probe controller/estimator, **send_side_bandwidth_estimation, link_capacity_estimator** (RttBasedBackoff / IsRttAboveLimit / UpdatePropagationRtt), **alr_detector**
+- `modules/remote_bitrate_estimator/aimd_rate_control.{h,cc}`
+- `modules/remote_bitrate_estimator/include/bwe_defines.h` — `kCongestionControllerMinBitrate` (5 kbps) used by AIMD / send-side BWE
+- `modules/pacing/bitrate_prober.{h,cc}`
+- `modules/congestion_controller/rtp/transport_feedback_{adapter,demuxer}.{h,cc}`
+- `rtc_base/numerics/sequence_number_unwrapper.h` — `SeqNumUnwrapper` / `RtpSequenceNumberUnwrapper` used by TransportFeedbackAdapter
+- `rtc_base/numerics/sequence_number_util.h` — `ForwardDiff` / `AheadOrAt` helpers used by the unwrapper
+- `rtc_base/numerics/mod_ops.h` — modular arithmetic used by sequence_number_util
+- `api/transport/goog_cc_factory.{h,cc}` — `GetProcessInterval` / `kUpdateIntervalMs` (25ms)
+
+## Policy
+
+1. Do **not** full-clone WebRTC; only the curated list in `fetch_ref.py`.
+2. When reviewing werift GCC, use this pin only — do not mix unpinned web views.
+3. When draft-ietf-rmcat-gcc and this pin diverge, **prefer this pin**.
+4. After changing the pin: re-run `fetch_ref.py --commit <sha>`, update `PIN.json` and ticket tables together.

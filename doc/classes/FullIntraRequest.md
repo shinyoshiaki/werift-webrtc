@@ -60,6 +60,9 @@
 
 > **get** **length**(): `number`
 
+RTCP header `length` field: total packet size in 32-bit words minus 1.
+Body is `serialize()`; plus 1 header word → bodyWords = bodyBytes/4.
+
 ##### Returns
 
 `number`
