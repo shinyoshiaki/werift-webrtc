@@ -29,7 +29,7 @@ describe("SPED path selection", () => {
           remote.onopen = () => resolve();
         });
       }
-      // 両 family の pair が両端で check を終えるまで待つ。
+      // 両端で両 family の pair を明示的に check し、SUCCEEDED にする。
       await waitForBothFamilySucceeded([caller, callee]);
 
       // Act: caller は一方の family、callee は他方の family を選び、callee が送る。

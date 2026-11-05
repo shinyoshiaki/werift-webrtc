@@ -38,4 +38,25 @@ describe("WARP configuration", () => {
       await Promise.allSettled([offerer.close(), answerer.close()]);
     }
   }, 30_000);
+
+  test("WARP を指定しない設定変更 (iceServers のみ) は再交渉後も例外にならず、WARP 設定を保つ", async () => {
+    // Arrange: 接続済みで transport が開いている answerer。
+    const { offerer, answerer } =
+      await prepareSplitAnswerWithPreparedTransport();
+    try {
+      const before = answerer.getConfiguration().warp;
+
+      // Act: warp を含まない通常の setConfiguration を呼ぶ。
+      const act = () => answerer.setConfiguration({ iceServers: [] });
+
+      // Assert: 例外にならず、WARP 設定と各 transport の設定は変わらない。
+      expect(act).not.toThrow();
+      expect(answerer.getConfiguration().warp).toEqual(before);
+      for (const { id, warp } of openTransportWarpConfigs(answerer)) {
+        expect(warp, `transport ${id}`).toEqual(before);
+      }
+    } finally {
+      await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
+  }, 30_000);
 });

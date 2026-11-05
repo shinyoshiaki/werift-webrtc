@@ -255,7 +255,7 @@ ide:
 
 ### 8.4 その他の対応
 
-- **認証後の ICE restart で selected pair が実際に変わることの恒久テスト:** `transportFaultMatrix.test.ts` › `$name: 認証後の ICE restart` › `新しい selected pair (別ポート) へ移り、同じ SCTP association を維持する`（`sped:false` と SPED）。restart 後に、両側の generation が +1 になること、nominated pair のオブジェクト・ローカルポート・リモートポートがすべて変わること、SCTP association が同一のまま ESTABLISHED で双方向に通信できること、一度も `failed` にならないことを確認する。
+- **認証後の ICE restart で selected pair が実際に変わることの恒久テスト:** `transportFaultMatrix.test.ts` › `$name: 認証後の ICE restart` › `新しい selected pair (別の 5-tuple) へ移り、同じ SCTP association を維持する`（`sped:false` と SPED）。ICE restart は既存 socket を再利用するため、Arrange（`warpArrange.ts` の `connectDualFamilyDataChannelPeers`）で 127.0.0.1 / ::1 の 2 socket を持たせ、restart 時は旧選択経路の family の候補（trickle・SDP）を渡さないことで、新しい 5-tuple を確実に作る。restart 後に、両側の generation が +1 になること、nominated pair のオブジェクトと 5-tuple（ローカル host:port・リモート host:port）が変わること、SCTP association が同一のまま ESTABLISHED で双方向に通信できること、一度も `failed` にならないことを確認する。
 - **DTLS 1.2 readiness のライフサイクル:** `packages/dtls/src/socket.ts` の 1.2 readiness は `connected` から毎回導出していたため、close や renegotiation で false に戻っていた。1.3 engine と同じく、最初の接続で 3 つの milestone を一度だけ true にし、以後は戻さない latch にした（終了は `onClose` / `onError` で通知）。テスト: `packages/dtls/tests/e2e/self12_readiness_latch.test.ts`（修正前は失敗）。
 - **`EARLY_APP_DATA_UNLIMITED` の説明:** 「上限なしで onConnect まで保持」としていたが、実装には 2 秒の retention がある。外れるのは record / byte の上限だけで、retention は適用されると書き直した（`types.ts`、`socket.ts` の `Options`）。
 

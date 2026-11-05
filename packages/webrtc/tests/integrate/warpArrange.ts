@@ -26,6 +26,7 @@ import {
   useSdesRTPStreamId,
 } from "../../src";
 import type { RTCTransportStats } from "../../src/media/stats";
+import type { RTCSessionDescriptionInit } from "../../src/sdpManager";
 import { createSplitOffer } from "../negotiation/harness/negotiationTransactionUtils";
 import { exchangeIceCandidates, exchangeOfferAnswer } from "../utils";
 
@@ -716,17 +717,21 @@ export function selectedPairOf(pc: RTCPeerConnection) {
   };
 }
 
-/** Act helper: offerer-initiated ICE restart + renegotiation, until both nominate. */
+/**
+ * Act helper: offerer-initiated ICE restart + renegotiation, until both
+ * nominate. `signal` may rewrite each description on its way to the peer.
+ */
 export async function restartIceAndRenegotiate(
   offerer: RTCPeerConnection,
   answerer: RTCPeerConnection,
+  signal = (sdp: RTCSessionDescriptionInit) => sdp,
 ) {
   await offerer.setLocalDescription(
     await offerer.createOffer({ iceRestart: true }),
   );
-  await answerer.setRemoteDescription(offerer.localDescription!);
+  await answerer.setRemoteDescription(signal(offerer.localDescription!));
   await answerer.setLocalDescription(await answerer.createAnswer());
-  await offerer.setRemoteDescription(answerer.localDescription!);
+  await offerer.setRemoteDescription(signal(answerer.localDescription!));
   const generation = selectedPairOf(offerer).generation;
   for (const pc of [offerer, answerer]) {
     const deadline = Date.now() + 10_000;
@@ -739,6 +744,94 @@ export async function restartIceAndRenegotiate(
       await new Promise((r) => setTimeout(r, 20));
     }
   }
+}
+
+// --- ICE restart onto a new path (the other address family's socket) ---
+
+const candidateIsIpv6 = (candidateLine: string) =>
+  candidateLine.split(" ")[4].includes(":");
+
+/**
+ * Arrange: connected peers with a DataChannel whose only host candidates are
+ * 127.0.0.1 and ::1. ICE restart keeps the sockets, so a restart reaches a
+ * new 5-tuple only through the other family's socket: `restartOntoOtherFamily`
+ * drops the selected family's candidates from then on (trickle and SDP), so
+ * the restart can only select a pair on the other family.
+ */
+export async function connectDualFamilyDataChannelPeers(
+  config: ConstructorParameters<typeof RTCPeerConnection>[0],
+) {
+  const dualFamily = {
+    ...config,
+    iceUseIpv4: true,
+    iceUseIpv6: true,
+    iceInterfaceAddresses: { udp4: "127.0.0.1", udp6: "::1" },
+  };
+  const offerer = new RTCPeerConnection(dualFamily);
+  const answerer = new RTCPeerConnection(dualFamily);
+  let excludeIpv6: boolean | undefined;
+  const accepts = (candidateLine: string) =>
+    excludeIpv6 === undefined || candidateIsIpv6(candidateLine) !== excludeIpv6;
+  for (const [local, remote] of [
+    [offerer, answerer],
+    [answerer, offerer],
+  ]) {
+    local.onIceCandidate.subscribe((candidate) => {
+      if (
+        !candidate?.candidate ||
+        !accepts(candidate.candidate) ||
+        remote.signalingState === "closed"
+      ) {
+        return;
+      }
+      remote.addIceCandidate(candidate).catch(() => {});
+    });
+  }
+  const dc1 = offerer.createDataChannel("restart");
+  const dc2 = new Promise<RTCDataChannel>((resolve) => {
+    answerer.onDataChannel.subscribe(resolve);
+  });
+  await exchangeOfferAnswer(offerer, answerer);
+  const channels = [dc1, await dc2];
+  await Promise.all(
+    channels.map((dc) =>
+      dc.readyState === "open"
+        ? undefined
+        : new Promise<void>((resolve) => {
+            dc.onopen = () => resolve();
+          }),
+    ),
+  );
+  await Promise.all(
+    [offerer, answerer].map(async (pc) => {
+      const deadline = Date.now() + 10_000;
+      while (!(pc.iceTransports[0].connection as Connection).nominated) {
+        if (Date.now() > deadline) throw new Error("ICE did not nominate");
+        await new Promise((r) => setTimeout(r, 20));
+      }
+    }),
+  );
+  return {
+    offerer,
+    answerer,
+    dc1: channels[0],
+    dc2: channels[1],
+    /** Act helper: ICE restart that can only select the other family. */
+    restartOntoOtherFamily: async () => {
+      const selected = selectedPairOf(offerer).pair!;
+      excludeIpv6 = selected.remoteAddr[0].includes(":");
+      await restartIceAndRenegotiate(offerer, answerer, ({ type, sdp }) => ({
+        type,
+        sdp: sdp!
+          .split("\r\n")
+          .filter(
+            (line) =>
+              !line.startsWith("a=candidate:") || accepts(line.slice(2)),
+          )
+          .join("\r\n"),
+      }));
+    },
+  };
 }
 
 // --- SPED: the two peers select different paths (IPv4 / IPv6) ---
@@ -761,27 +854,48 @@ export function createDualFamilyLoopbackSpedPeers() {
 
 const isIpv6 = (host: string) => host.includes(":");
 
-/** Arrange: wait until both peers have a succeeded IPv4 and IPv6 pair. */
+/**
+ * Arrange: give both peers a succeeded IPv4 and IPv6 pair. ICE stops the
+ * remaining checks once a pair is nominated, so the other family may be left
+ * IN_PROGRESS / FAILED; run a connectivity check for it explicitly instead of
+ * waiting for one that will never come. The nominated pair stays untouched
+ * (checkComplete never overwrites it).
+ */
 export async function waitForBothFamilySucceeded(
   peers: RTCPeerConnection[],
   timeoutMs = 10_000,
 ) {
+  const succeededFamily = (ice: Connection, ipv6: boolean) =>
+    ice.checkList.some(
+      (pair) =>
+        pair.state === CandidatePairState.SUCCEEDED &&
+        isIpv6(pair.remoteAddr[0]) === ipv6,
+    );
   const ready = () =>
     peers.every((pc) => {
       const ice = pc.iceTransports[0].connection as Connection;
-      return [true, false].every((ipv6) =>
-        ice.checkList.some(
-          (pair) =>
-            pair.state === CandidatePairState.SUCCEEDED &&
-            isIpv6(pair.remoteAddr[0]) === ipv6,
-        ),
-      );
+      return [true, false].every((ipv6) => succeededFamily(ice, ipv6));
     });
   const deadline = Date.now() + timeoutMs;
   while (!ready()) {
     if (Date.now() > deadline) {
       throw new Error("both address families need a succeeded pair");
     }
+    await Promise.all(
+      peers.flatMap((pc) => {
+        const ice = pc.iceTransports[0].connection as Connection;
+        return [true, false]
+          .filter((ipv6) => !succeededFamily(ice, ipv6))
+          .flatMap((ipv6) =>
+            ice.checkList.filter((pair) => isIpv6(pair.remoteAddr[0]) === ipv6),
+          )
+          .map(async (pair) => {
+            pair.handle?.resolve();
+            pair.handle = ice.checkStart(pair);
+            await pair.handle.awaitable;
+          });
+      }),
+    );
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
 }

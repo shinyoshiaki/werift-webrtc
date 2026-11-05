@@ -1,14 +1,10 @@
 import { describe, expect, test } from "vitest";
 import { SCTP_STATE } from "../../../sctp/src";
 import { DtlsVersion, RTCPeerConnection } from "../../src";
+import { awaitMessage } from "../utils";
 import {
-  awaitMessage,
-  createDataChannelPair,
-  waitForIceNominated,
-} from "../utils";
-import {
+  connectDualFamilyDataChannelPeers,
   type SctpFaultScenario,
-  restartIceAndRenegotiate,
   runSctpFaultScenario,
   selectedPairOf,
 } from "./warpArrange";
@@ -114,37 +110,33 @@ describe.each([
     }),
   },
 ])("$name: 認証後の ICE restart", ({ config }) => {
-  test("新しい selected pair (別ポート) へ移り、同じ SCTP association を維持する", async () => {
-    // Arrange: 接続済みの 2 peer と DataChannel
-    const offerer = new RTCPeerConnection(config());
-    const answerer = new RTCPeerConnection(config());
+  test("新しい selected pair (別の 5-tuple) へ移り、同じ SCTP association を維持する", async () => {
+    // Arrange: 127.0.0.1 / ::1 の 2 socket を持つ接続済み 2 peer と DataChannel
+    const { offerer, answerer, dc1, dc2, restartOntoOtherFamily } =
+      await connectDualFamilyDataChannelPeers(config());
     const states: string[] = [];
     for (const pc of [offerer, answerer]) {
       pc.connectionStateChange.subscribe((s) => states.push(s));
     }
     try {
-      const [dc1, dc2] = await createDataChannelPair({}, offerer, answerer);
-      await Promise.all([
-        waitForIceNominated(offerer),
-        waitForIceNominated(answerer),
-      ]);
       const before = [offerer, answerer].map(selectedPairOf);
       const associations = [offerer, answerer].map((pc) => pc.sctp!.sctp);
 
-      // Act: offerer が ICE restart して再交渉する
-      await restartIceAndRenegotiate(offerer, answerer);
+      // Act: offerer が ICE restart して再交渉する (旧経路の family の候補は渡さない)
+      await restartOntoOtherFamily();
       const after = [offerer, answerer].map(selectedPairOf);
       dc1.send("after-restart-1");
       const toAnswerer = await awaitMessage(dc2);
       dc2.send("after-restart-2");
       const toOfferer = await awaitMessage(dc1);
 
-      // Assert: 両側とも新しい generation の別ポートの pair を選択している
+      // Assert: 両側とも新しい generation の、旧経路とは別の 5-tuple の pair を選択している
+      const tuple = ({ pair }: ReturnType<typeof selectedPairOf>) =>
+        `${pair!.localCandidate.host}:${pair!.localCandidate.port}->${pair!.remoteAddr.join(":")}`;
       after.forEach((selected, i) => {
         expect(selected.generation).toBe(before[i].generation + 1);
         expect(selected.pair).not.toBe(before[i].pair);
-        expect(selected.localPort).not.toBe(before[i].localPort);
-        expect(selected.remotePort).not.toBe(before[i].remotePort);
+        expect(tuple(selected)).not.toBe(tuple(before[i]));
       });
       // Assert: SCTP association は作り直されず ESTABLISHED のまま通信できる
       [offerer, answerer].forEach((pc, i) => {

@@ -531,7 +531,7 @@ export class RTCPeerConnection extends EventTarget {
     // Transports only use the first STUN/TURN, but any change in the
     // normalized list (e.g. a second TURN) counts as a configuration change.
     const previousIceServers = structuredClone(this.config.iceServers);
-    mergePeerConfiguration(this.config, config, {
+    const normalizedConfig = mergePeerConfiguration(this.config, config, {
       isReconfiguration,
       hasLocalDescription: isReconfiguration && !!this.localDescription,
       hasSctpTransport: !!this.sctpManager?.sctpTransport,
