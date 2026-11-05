@@ -161,6 +161,8 @@ export class SCTP {
   private wasEstablished = false;
   private startHandedOff = false;
   private _startCancellationError?: Error;
+  /** An INIT from the peer was accepted (answered with INIT_ACK). */
+  private receivedInit = false;
 
   private hmacKey = randomBytes(16);
   private localPartialReliability = true;
@@ -412,8 +414,14 @@ export class SCTP {
         break;
       case InitChunk.type:
         {
-          if (!this.isServer) return;
+          // RFC 9260 §5.2.1: an initiator that receives the peer's INIT in
+          // COOKIE-WAIT / COOKIE-ECHOED (both sides sent INIT) answers it
+          // with an INIT_ACK. A peer that picks the SCTP initiator by
+          // another rule (an older werift used the ICE role, this one the
+          // DTLS role) may also send INIT and ignore ours.
+          if (!this.isServer && !this.isInitiating) return;
           const init = chunk as InitChunk;
+          this.receivedInit = true;
 
           log("receive init", init);
           this.lastReceivedTsn = tsnMinusOne(init.initialTsn);
@@ -547,7 +555,18 @@ export class SCTP {
         break;
       case CookieEchoChunk.type:
         {
-          if (!this.isServer) return;
+          // An initiator accepts the COOKIE_ECHO that follows its INIT_ACK
+          // to a colliding INIT (RFC 9260 §5.2.1).
+          if (
+            !this.isServer &&
+            !(
+              this.receivedInit &&
+              (this.isInitiating ||
+                this.associationState === SCTP_STATE.ESTABLISHED)
+            )
+          ) {
+            return;
+          }
           const data = chunk as CookieEchoChunk;
           const cookie = data.body!;
           const digest = createHmac("sha1", this.hmacKey)
@@ -579,6 +598,9 @@ export class SCTP {
           // event. A failed send is packet loss: the initiator retransmits
           // COOKIE_ECHO and this association (same cookie key) answers again.
           this.startHandedOff = true;
+          // Our own INIT / COOKIE_ECHO (collision or passive fallback) is
+          // superseded by the association the peer's cookie established.
+          this.timer1Cancel();
           const sending = this.sendChunk(ack).catch((err: Error) => {
             log("send cookieAck failed; peer retransmits", err.message);
           });
@@ -1468,10 +1490,43 @@ export class SCTP {
         this.setRemotePort(remotePort);
       }
 
-      if (!this.isServer) {
+      // The peer's INIT may already have established the association
+      // before start(); a new INIT would reset it.
+      if (!this.isServer && this.associationState === SCTP_STATE.CLOSED) {
         await this.init();
       }
     }
+  }
+
+  /** Waiting for INIT_ACK / COOKIE_ACK of our own INIT. */
+  private get isInitiating() {
+    return (
+      this.associationState === SCTP_STATE.COOKIE_WAIT ||
+      this.associationState === SCTP_STATE.COOKIE_ECHOED
+    );
+  }
+
+  /**
+   * @internal Passive side: send INIT ourselves when the peer's INIT never
+   * came, e.g. when the peer also waits because it picks the SCTP initiator
+   * by another rule. No-op once the peer's INIT arrived or the association
+   * left CLOSED. A colliding INIT from the peer is answered as in RFC 9260
+   * §5.2.1.
+   * @returns whether an INIT was sent.
+   */
+  async startPassiveFallbackInit() {
+    if (
+      !this.isServer ||
+      !this.started ||
+      this.isStopped ||
+      this.receivedInit ||
+      this.associationState !== SCTP_STATE.CLOSED
+    ) {
+      return false;
+    }
+    log("passive side sends fallback INIT");
+    await this.init();
+    return true;
   }
 
   private async init() {

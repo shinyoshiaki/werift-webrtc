@@ -285,3 +285,43 @@ export const measureBurstTransfer = async (count: number, size: number) => {
     await pair.stop();
   }
 };
+
+/** Chunk types carried by one serialized SCTP packet. */
+const packetChunkTypes = (buf: Buffer) =>
+  parsePacket(buf)[3].map((chunk) => chunk.type);
+
+/**
+ * Arrange: two SCTP endpoints with the given roles over memory transports.
+ * `ignoredBySecond` drops the chunk types the first endpoint sends that the
+ * second endpoint would ignore, emulating a peer that picks the initiator by
+ * another rule (an older werift initiator ignores INIT and COOKIE_ECHO).
+ */
+export const createSctpEndpointPair = ({
+  roles,
+  ignoredBySecond = [],
+}: {
+  roles: ["client" | "server", "client" | "server"];
+  ignoredBySecond?: number[];
+}) => {
+  const transports = createMemoryTransportPair({
+    dropClient: (buf) =>
+      packetChunkTypes(buf).some((type) => ignoredBySecond.includes(type)),
+  });
+  const create = (role: "client" | "server", transport: MemoryTransport) =>
+    role === "client" ? SCTP.client(transport) : SCTP.server(transport);
+  const first = create(roles[0], transports.client);
+  const second = create(roles[1], transports.server);
+  const connected = Promise.all(
+    [first, second].map((sctp) => sctp.stateChanged.connected.asPromise()),
+  );
+  const stop = async () => {
+    await first.stop();
+    await second.stop();
+    transports.client.close();
+    transports.server.close();
+  };
+  return { first, second, connected, stop };
+};
+
+/** Arrange: chunk types an old werift initiator ignores. */
+export const LEGACY_INITIATOR_IGNORED = [InitChunk.type, CookieEchoChunk.type];

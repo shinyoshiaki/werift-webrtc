@@ -1181,3 +1181,83 @@ export async function prepareIceCloseCounting(version: DtlsVersion) {
     settle: () => new Promise((resolve) => setTimeout(resolve, 500)),
   };
 }
+
+// --- SCTP initiator chosen by another rule (older werift peers) ---
+
+/**
+ * Arrange: make `pc` start SCTP like an older werift: the ICE controlling
+ * side is the SCTP initiator and ignores incoming INIT / COOKIE_ECHO, the
+ * controlled side only waits for INIT (no fallback), and the stream ID
+ * parity follows the ICE role. Call before DTLS connects.
+ */
+export function emulateLegacySctpRole(pc: RTCPeerConnection) {
+  const sctpTransport = pc.sctpTransport!;
+  sctpTransport.start = async (remotePort: number) => {
+    const association = sctpTransport.prepareForStart();
+    const initiator = pc.iceTransports[0].role === "controlling";
+    (sctpTransport as unknown as { dataChannelId?: number }).dataChannelId =
+      initiator ? 1 : 0;
+    association.isServer = !initiator;
+    if (initiator) {
+      const dtls = sctpTransport.transport;
+      const receive = dtls.dataReceiver;
+      dtls.dataReceiver = (data) => {
+        const types = parsePacket(data)[3].map((chunk) => chunk.type);
+        if (
+          types.includes(InitChunk.type) ||
+          types.includes(CookieEchoChunk.type)
+        ) {
+          return;
+        }
+        receive(data);
+      };
+    }
+    await association.start(remotePort);
+  };
+}
+
+/**
+ * Arrange: connect a current werift peer with an emulated older one
+ * (`legacy`), the answerer taking `answererRole` as DTLS role. The offerer
+ * is ICE controlling, so `answererRole: "server"` puts the ICE and DTLS
+ * roles out of line. Resolves once both DataChannel ends are open.
+ */
+export async function connectWithLegacySctpPeer({
+  legacy,
+  answererRole,
+}: {
+  legacy: "offerer" | "answerer";
+  answererRole: "client" | "server";
+}) {
+  const offerer = new RTCPeerConnection({ iceServers: [] });
+  const answerer = new RTCPeerConnection({ iceServers: [] });
+  const offererChannel = offerer.createDataChannel("legacy-role");
+  const answererChannel = new Promise<RTCDataChannel>((resolve) => {
+    answerer.ondatachannel = ({ channel }) => resolve(channel);
+  });
+  exchangeIceCandidates(offerer, answerer);
+  await offerer.setLocalDescription(await offerer.createOffer());
+  await answerer.setRemoteDescription(offerer.localDescription!);
+  emulateLegacySctpRole(legacy === "offerer" ? offerer : answerer);
+  answerer.dtlsTransports[0].role = answererRole;
+  await answerer.setLocalDescription(await answerer.createAnswer());
+  await offerer.setRemoteDescription(answerer.localDescription!);
+  const startedAt = Date.now();
+  const remote = await answererChannel;
+  await Promise.all(
+    [offererChannel, remote].map((channel) =>
+      channel.readyState === "open"
+        ? undefined
+        : new Promise<void>((resolve) => {
+            channel.onopen = () => resolve();
+          }),
+    ),
+  );
+  return {
+    offerer,
+    answerer,
+    offererChannel,
+    answererChannel: remote,
+    openedAfterMs: Date.now() - startedAt,
+  };
+}

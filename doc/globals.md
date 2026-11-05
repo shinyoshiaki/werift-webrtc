@@ -435,6 +435,7 @@
 - [NamedCurveAlgorithm](variables/NamedCurveAlgorithm.md)
 - [NamedCurveAlgorithmList](variables/NamedCurveAlgorithmList.md)
 - [OPUS\_CLOCK\_RATE](variables/OPUS_CLOCK_RATE.md)
+- [PASSIVE\_INIT\_FALLBACK\_MS](variables/PASSIVE_INIT_FALLBACK_MS.md)
 - [PCMA\_PAYLOAD\_TYPE](variables/PCMA_PAYLOAD_TYPE.md)
 - [PCMU\_PAYLOAD\_TYPE](variables/PCMU_PAYLOAD_TYPE.md)
 - [Profiles](variables/Profiles.md)

@@ -32,6 +32,13 @@ import type { RTCDtlsTransport } from "./dtls";
 
 const log = debug("werift:packages/webrtc/src/transport/sctp.ts");
 export const DEFAULT_MAX_MESSAGE_SIZE = 65536;
+/**
+ * How long the DTLS client (passive SCTP side) waits for the peer's INIT
+ * after DTLS authentication before sending INIT itself. A peer that picks
+ * the SCTP initiator by the ICE role (older werift) may wait as well; well
+ * below the SCTP initial RTO (3 s), so a lost INIT also recovers sooner.
+ */
+export const PASSIVE_INIT_FALLBACK_MS = 1000;
 
 export class RTCSctpTransport {
   dtlsTransport!: RTCDtlsTransport;
@@ -562,8 +569,44 @@ export class RTCSctpTransport {
     // SCTP's `isServer` flag means passive COOKIE-WAIT peer. WARP assigns the
     // active INIT sender to the DTLS server, independently of the ICE role.
     this.sctp.isServer = !this.isServer;
+    if (!this.isServer) {
+      this.schedulePassiveInitFallback(this.sctp);
+    }
 
     await this.sctp.start(remotePort);
+  }
+
+  /**
+   * DTLS client: if the peer's INIT has not arrived
+   * {@link PASSIVE_INIT_FALLBACK_MS} after DTLS authentication, send INIT
+   * ourselves (SCTP answers a colliding INIT, RFC 9260 §5.2.1). Never before
+   * authentication: the DTLS client has no early send permission.
+   */
+  private schedulePassiveInitFallback(association: SCTP) {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const arm = () => {
+      if (timer) return;
+      timer = setTimeout(() => {
+        if (this.sctp !== association || this.stopping) return;
+        association.startPassiveFallbackInit().catch((error: Error) => {
+          log("passive fallback INIT failed", error.message);
+        });
+      }, PASSIVE_INIT_FALLBACK_MS);
+    };
+    if (this.dtlsTransport.state === "connected") {
+      arm();
+    } else {
+      const subscription = this.dtlsTransport.onStateChange.subscribe(
+        (state) => {
+          if (state !== "connected") return;
+          subscription.unSubscribe();
+          arm();
+        },
+      );
+      this.eventDisposer.push(subscription.unSubscribe);
+    }
+    // The association is replaced or the transport stops: drop the timer.
+    this.eventDisposer.push(() => clearTimeout(timer));
   }
 
   async stop() {

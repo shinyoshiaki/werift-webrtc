@@ -657,3 +657,22 @@ SCTP がない media-only の接続では後者が呼ばれず、`allowEarlyServ
 あわせて、README・`PeerConfig` の JSDoc を「constructor / `setConfiguration()` が同期的に throw する」挙動に合わせ、`changelog.md` に DTLS 1.3 / SPED / WARP の設定と `RTCTransportStats` の追加項目、SCTP role を DTLS role で決める変更の互換性を追記しました。`npm run format` と `npm run doc` を実行しました。
 
 **未検証:** 旧 werift（ICE role で INIT 送信側を決める）との相互接続。ICE role と DTLS role の対応がずれる組み合わせ（旧 werift の ICE-lite offerer が DTLS server になる場合など）では、両側が INIT を待つ可能性があります（changelog に記載）。
+
+## 18. 旧 werift peer と SCTP の INIT 送信側が食い違うと DataChannel が開かない（レビューの指摘への対応）
+
+**原因:** 現行は DTLS server を SCTP の INIT 送信側にしますが、旧 werift は ICE controlling 側を送信側にします。さらに SCTP の initiator は受け取った INIT / COOKIE_ECHO を無視していました（`packages/sctp/src/sctp.ts`）。ICE role と DTLS role の対応がずれると、両端が INIT を送って互いに無視するか、両端が INIT を待つだけになり、association が確立しませんでした。
+
+**修正:**
+- `packages/sctp/src/sctp.ts`: COOKIE-WAIT / COOKIE-ECHOED の initiator は相手の INIT に INIT_ACK で答え（RFC 9260 §5.2.1）、続く COOKIE_ECHO を受け入れて T1 を止めます。passive 側に `startPassiveFallbackInit()` を追加しました（相手の INIT を受け取っていない場合だけ自分で INIT を送る）。相手の INIT で確立済みの association では、遅れた `start()` が INIT を送り直しません。
+- `packages/webrtc/src/transport/sctp.ts`: DTLS client は DTLS 認証の 1 秒後（`PASSIVE_INIT_FALLBACK_MS`）までに INIT が届かなければ fallback INIT を送ります。認証前には送りません（DTLS client には early 送信の許可がない）。
+
+| テスト | 修正前 | 修正後 |
+|---|---|---|
+| `packages/sctp/tests/roleMismatch.test.ts`: 両端 initiator で相手が INIT / COOKIE_ECHO を無視 | 失敗（確立しない） | 成功 |
+| 同: 両端 initiator の同時開始 | 失敗 | 成功 |
+| 同: 両端 passive で fallback INIT | 失敗 | 成功 |
+| `packages/webrtc/tests/integrate/legacySctpRole.test.ts`: 旧 werift を模した peer（ICE role で開始側を決め、initiator は INIT / COOKIE_ECHO を無視、fallback なし）と、両端が INIT を送る組み合わせ | 失敗（15 秒で開かない） | 成功（3 秒未満で開き双方向に届く） |
+| 同: 両端が INIT を待つ組み合わせ | 失敗 | 成功 |
+| 同: role が揃う組み合わせ | 成功 | 成功 |
+
+**未検証:** 実際の旧 werift リリースとの相互接続（上の test は旧実装の開始側規則を模したもの）。role がずれる場合は両端の stream ID parity が同じになり得るため、両端が同時に in-band で DataChannel を開くと ID が衝突し得ます（changelog に記載）。
