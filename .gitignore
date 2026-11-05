@@ -29,10 +29,17 @@ packages/dtls/third_party/
 
 .cache/
 artifacts/
+e2e/.playwright-browsers/
 .sak
 packages/ice/tools/pion-sped/pion-sped
 packages/ice/tools/pion-ice-agent/pion-ice-agent
 packages/dtls/tools/boringssl-dtls13/dtls13_echo
 packages/dtls/report.*.json
 report.2*.json
+report.*.json
+**/report.*.json
+
+# Python
+__pycache__/
+*.py[cod]
 .vitest/

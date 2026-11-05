@@ -10,6 +10,7 @@
 
 import { BitWriter, getBit, paddingByte } from "../../../common/src";
 import type { RtpHeader, RtpPacket } from "../rtp/rtp";
+import { assertRtpCodecPayloadLength } from "./assertPayload";
 import type { DePacketizerBase } from "./base";
 import { PacketizerBase, type PacketizerBaseOptions } from "./base";
 
@@ -90,6 +91,7 @@ export class Vp9RtpPayload implements DePacketizerBase {
   static parseRtpPayload(buf: Buffer) {
     const p = new Vp9RtpPayload();
     let offset = 0;
+    assertRtpCodecPayloadLength(buf, 1, "VP9", offset);
 
     p.iBit = getBit(buf[offset], 0); // PictureId present .
     p.pBit = getBit(buf[offset], 1); // Inter-picture predicted.
@@ -102,9 +104,11 @@ export class Vp9RtpPayload implements DePacketizerBase {
     offset++;
 
     if (p.iBit) {
+      assertRtpCodecPayloadLength(buf, 1, "VP9", offset);
       p.m = getBit(buf[offset], 0);
 
       if (p.m) {
+        assertRtpCodecPayloadLength(buf, 2, "VP9", offset);
         const _7 = paddingByte(getBit(buf[offset], 1, 7));
         const _8 = paddingByte(buf[offset + 1]);
         p.pictureId = Number.parseInt(_7 + _8, 2);
@@ -116,12 +120,14 @@ export class Vp9RtpPayload implements DePacketizerBase {
     }
 
     if (p.lBit) {
+      assertRtpCodecPayloadLength(buf, 1, "VP9", offset);
       p.tid = getBit(buf[offset], 0, 3);
       p.u = getBit(buf[offset], 3);
       p.sid = getBit(buf[offset], 4, 3);
       p.d = getBit(buf[offset], 7);
       offset++;
       if (p.fBit === 0) {
+        assertRtpCodecPayloadLength(buf, 1, "VP9", offset);
         p.tl0PicIdx = buf[offset];
         offset++;
       }
@@ -129,6 +135,7 @@ export class Vp9RtpPayload implements DePacketizerBase {
 
     if (p.fBit && p.pBit) {
       for (;;) {
+        assertRtpCodecPayloadLength(buf, 1, "VP9", offset);
         p.pDiff = [...p.pDiff, getBit(buf[offset], 0, 7)];
         const n = getBit(buf[offset], 7);
         offset++;
@@ -157,6 +164,7 @@ export class Vp9RtpPayload implements DePacketizerBase {
     //      +-+-+-+-+-+-+-+-+              -|           -|
     //
     if (p.vBit) {
+      assertRtpCodecPayloadLength(buf, 1, "VP9", offset);
       p.n_s = getBit(buf[offset], 0, 3);
       p.y = getBit(buf[offset], 3);
       p.g = getBit(buf[offset], 4);
@@ -164,6 +172,7 @@ export class Vp9RtpPayload implements DePacketizerBase {
 
       if (p.y) {
         [...Array(p.n_s + 1)].forEach(() => {
+          assertRtpCodecPayloadLength(buf, 4, "VP9", offset);
           p.width.push(buf.readUInt16BE(offset));
           offset += 2;
           p.height.push(buf.readUInt16BE(offset));
@@ -172,12 +181,14 @@ export class Vp9RtpPayload implements DePacketizerBase {
       }
 
       if (p.g) {
+        assertRtpCodecPayloadLength(buf, 1, "VP9", offset);
         p.n_g = buf[offset];
         offset++;
       }
 
       if (p.n_g > 0) {
         [...Array(p.n_g).keys()].forEach((i) => {
+          assertRtpCodecPayloadLength(buf, 1, "VP9", offset);
           p.pgT.push(getBit(buf[offset], 0, 3));
           p.pgU.push(getBit(buf[offset], 3));
           const r = getBit(buf[offset], 4, 2);
@@ -186,6 +197,7 @@ export class Vp9RtpPayload implements DePacketizerBase {
           p.pgP_Diff[i] = [];
           if (r > 0) {
             [...Array(r)].forEach(() => {
+              assertRtpCodecPayloadLength(buf, 1, "VP9", offset);
               p.pgP_Diff[i].push(buf[offset]);
               offset++;
             });

@@ -53,6 +53,7 @@ import {
 import {
   fingerprint,
   isDtls,
+  milliTime,
   normalizeFingerprintAlgorithm,
   normalizeFingerprintValue,
 } from "../utils";
@@ -73,6 +74,14 @@ export interface DtlsTransportConfig {
   protocolVersions?: readonly DtlsVersion[];
   helloRetryRequest?: boolean;
 }
+
+/** Result of encrypting and enqueueing one RTP packet on ICE. */
+export type DtlsSendRtpResult = {
+  /** On-wire SRTP size in bytes. */
+  size: number;
+  /** Local clock immediately before ICE/UDP enqueue (RFC 8888 send time). */
+  sendingAtMs: number;
+};
 
 function formatDtlsVersion(socket?: DtlsSocket) {
   if (!socket) {
@@ -130,6 +139,13 @@ export class RTCDtlsTransport implements DtlsTransportStats {
    */
   iceRoleAtStart?: RTCIceTransport["role"];
   srtpStarted = false;
+  /**
+   * Monotonic transport-wide sequence allocated at ICE enqueue time.
+   * Never wraps in JS Number. {@link transportSequenceNumber} is the wire
+   * 16-bit view (`extended & 0xffff`).
+   */
+  transportSequenceNumberExtended = 0;
+  /** Wire 16-bit TWCC sequence (low bits of {@link transportSequenceNumberExtended}). */
   transportSequenceNumber = 0;
 
   // Statistics tracking
@@ -676,7 +692,43 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     await this.dtls.send(data);
   };
 
+  /**
+   * Allocate the next transport-wide sequence at send time.
+   * Call immediately before DTLS/ICE enqueue so BUNDLE senders cannot
+   * reserve a TSN then wait in a per-sender pacer.
+   */
+  allocateTransportWideSequence(): { wire: number; extended: number } {
+    const wireNow = this.transportSequenceNumber & 0xffff;
+    if ((this.transportSequenceNumberExtended & 0xffff) !== wireNow) {
+      const gen = Math.floor(this.transportSequenceNumberExtended / 0x10000);
+      this.transportSequenceNumberExtended = gen * 0x10000 + wireNow;
+    }
+    this.transportSequenceNumberExtended += 1;
+    this.transportSequenceNumber =
+      this.transportSequenceNumberExtended & 0xffff;
+    return {
+      wire: this.transportSequenceNumber,
+      extended: this.transportSequenceNumberExtended,
+    };
+  }
+
+  /**
+   * Encrypt RTP and enqueue on ICE. Returns on-wire size.
+   * Send-time metadata: {@link sendRtpWithMeta}.
+   */
   async sendRtp(payload: Buffer, header: RtpHeader): Promise<number> {
+    const { size } = await this.sendRtpWithMeta(payload, header);
+    return size;
+  }
+
+  /**
+   * Encrypt RTP and enqueue on ICE, capturing the clock immediately before
+   * the ICE write (RFC 8888). Prefer {@link sendRtp} unless send time is needed.
+   */
+  async sendRtpWithMeta(
+    payload: Buffer,
+    header: RtpHeader,
+  ): Promise<DtlsSendRtpResult> {
     try {
       const enc = this.srtp.encrypt(payload, header);
 
@@ -684,18 +736,19 @@ export class RTCDtlsTransport implements DtlsTransportStats {
         this.config.debug?.outboundPacketLoss &&
         this.config.debug?.outboundPacketLoss / 100 < Math.random()
       ) {
-        return enc.length;
+        return { size: enc.length, sendingAtMs: milliTime() };
       }
 
       // Track statistics
       this.bytesSent += enc.length;
       this.packetsSent++;
 
+      const sendingAtMs = milliTime();
       await this.iceTransport.connection.send(enc).catch(() => {});
-      return enc.length;
+      return { size: enc.length, sendingAtMs };
     } catch (error) {
       log("failed to send", error);
-      return 0;
+      return { size: 0, sendingAtMs: milliTime() };
     }
   }
 
