@@ -1,0 +1,190 @@
+import { wrapRtx } from "../../../rtp/src";
+import {
+  codecParametersToString,
+  defaultPeerConfig,
+  MediaStreamTrack,
+  type PeerConfig,
+  RTCRtpCodecParameters,
+  RTCRtpCodingParameters,
+  RtpHeader,
+  RtpPacket,
+} from "../../src";
+import type { NackHandler } from "../../src/media/receiver/nack";
+import { RTCRtpReceiver } from "../../src/media/rtpReceiver";
+import { createDtlsTransport } from "../fixture";
+
+export const defaultVideoSsrc = 777;
+export const defaultRtxSsrc = 666;
+
+export function createVideoReceiver(
+  options: {
+    nack?: boolean;
+    rtx?: boolean;
+    red?: boolean;
+    payloadType?: number;
+    ssrc?: number;
+    rtxSsrc?: number;
+    kind?: "audio" | "video";
+    peerConfig?: PeerConfig;
+  } = {},
+) {
+  const kind = options.kind ?? "video";
+  const payloadType = options.payloadType ?? 96;
+  const ssrc = options.ssrc ?? defaultVideoSsrc;
+  const rtxSsrc = options.rtxSsrc ?? defaultRtxSsrc;
+  const dtls = createDtlsTransport();
+  const receiver = new RTCRtpReceiver(
+    options.peerConfig ?? defaultPeerConfig,
+    kind,
+    1234,
+  );
+  receiver.setDtlsTransport(dtls);
+
+  const track = new MediaStreamTrack({ kind, remote: true });
+  track.ssrc = ssrc;
+  receiver.addTrack(track);
+
+  const codecs = [
+    new RTCRtpCodecParameters({
+      mimeType: kind === "audio" ? "audio/opus" : "video/vp8",
+      clockRate: kind === "audio" ? 48000 : 90000,
+      payloadType,
+      rtcpFeedback: options.nack ? [{ type: "nack" }] : [],
+    }),
+  ];
+  const encodings = [
+    new RTCRtpCodingParameters({
+      ssrc,
+      payloadType,
+      rtx: options.rtx ? { ssrc: rtxSsrc } : undefined,
+    }),
+  ];
+
+  if (options.rtx) {
+    codecs.push(
+      new RTCRtpCodecParameters({
+        mimeType: "video/rtx",
+        clockRate: 90000,
+        payloadType: 97,
+        parameters: codecParametersToString({ apt: payloadType }),
+      }),
+    );
+    encodings.push(
+      new RTCRtpCodingParameters({
+        ssrc: rtxSsrc,
+        payloadType: 97,
+      }),
+    );
+  }
+
+  if (options.red) {
+    codecs.unshift(
+      new RTCRtpCodecParameters({
+        mimeType: "audio/red",
+        clockRate: 48000,
+        channels: 2,
+        payloadType: 111,
+      }),
+    );
+  }
+
+  receiver.prepareReceive({
+    codecs,
+    encodings,
+    headerExtensions: [],
+  });
+
+  return { receiver, track, dtls, payloadType, ssrc };
+}
+
+export function createMediaRtpPacket(options: {
+  sequenceNumber?: number;
+  timestamp?: number;
+  payloadType?: number;
+  ssrc?: number;
+  payload?: Buffer;
+  marker?: boolean;
+}) {
+  return new RtpPacket(
+    new RtpHeader({
+      sequenceNumber: options.sequenceNumber ?? 1,
+      timestamp: options.timestamp ?? 1,
+      payloadType: options.payloadType ?? 96,
+      ssrc: options.ssrc ?? defaultVideoSsrc,
+      marker: options.marker ?? false,
+    }),
+    options.payload ?? Buffer.from([1, 2, 3, 4]),
+  );
+}
+
+export function createPaddingOnlyRtpPacket(options: {
+  sequenceNumber?: number;
+  timestamp?: number;
+  payloadType?: number;
+  ssrc?: number;
+  paddingSize?: number;
+}) {
+  return new RtpPacket(
+    new RtpHeader({
+      sequenceNumber: options.sequenceNumber ?? 1,
+      timestamp: options.timestamp ?? 1,
+      payloadType: options.payloadType ?? 96,
+      ssrc: options.ssrc ?? defaultVideoSsrc,
+      padding: true,
+      paddingSize: options.paddingSize ?? 224,
+    }),
+    Buffer.alloc(0),
+  );
+}
+
+export function createRtxRtpPacket(
+  media: RtpPacket,
+  rtxPt = 97,
+  rtxSeq = 0,
+  rtxSsrc = defaultRtxSsrc,
+) {
+  return wrapRtx(media, rtxPt, rtxSeq, rtxSsrc);
+}
+
+export function getReceiverNack(receiver: RTCRtpReceiver) {
+  return (receiver as unknown as { nack: NackHandler }).nack;
+}
+
+/** One `onReceiveRtp` delivery captured by {@link collectReceivedRtp}. */
+export interface ReceivedRtp {
+  seq: number;
+  type?: string;
+  payloadLen: number;
+}
+
+/** Arrange: record every `track.onReceiveRtp` delivery. */
+export function collectReceivedRtp(track: MediaStreamTrack): ReceivedRtp[] {
+  const received: ReceivedRtp[] = [];
+  track.onReceiveRtp.subscribe((rtp, _ext, info) => {
+    received.push({
+      seq: rtp.header.sequenceNumber,
+      type: info?.type,
+      payloadLen: rtp.payload.length,
+    });
+  });
+  return received;
+}
+
+/** `m<seq>` = media packet, `p<seq>` = padding-only packet. */
+export type MediaOrPadding = `${"m" | "p"}${number}`;
+
+/** Act: hand media / padding-only packets to the receiver in order. */
+export function receiveMediaOrPadding(
+  receiver: RTCRtpReceiver,
+  packets: MediaOrPadding[],
+) {
+  for (const p of packets) {
+    const sequenceNumber = Number(p.slice(1));
+    receiver.handleRtpBySsrc(
+      p[0] === "m"
+        ? createMediaRtpPacket({ sequenceNumber })
+        : createPaddingOnlyRtpPacket({ sequenceNumber }),
+      {},
+    );
+  }
+}

@@ -84,7 +84,7 @@ todo impl
 
 ### onReceiveRtp
 
-> `readonly` **onReceiveRtp**: [`Event`](Event.md)\<\[[`RtpPacket`](RtpPacket.md), [`Extensions`](../interfaces/Extensions.md)?\]\>
+> `readonly` **onReceiveRtp**: [`Event`](Event.md)\<\[[`RtpPacket`](RtpPacket.md), [`Extensions`](../interfaces/Extensions.md)?, [`RtpReceiveInfo`](../type-aliases/RtpReceiveInfo.md)?\]\>
 
 ***
 
@@ -351,7 +351,7 @@ v0.1.26
 
 ### applyIncomingRtp()
 
-> **applyIncomingRtp**(`packet`, `extensions?`): `void`
+> **applyIncomingRtp**(`packet`, `extensions?`, `info?`): `void`
 
 #### Parameters
 
@@ -362,6 +362,10 @@ v0.1.26
 ##### extensions?
 
 [`Extensions`](../interfaces/Extensions.md)
+
+##### info?
+
+[`RtpReceiveInfo`](../type-aliases/RtpReceiveInfo.md)
 
 #### Returns
 

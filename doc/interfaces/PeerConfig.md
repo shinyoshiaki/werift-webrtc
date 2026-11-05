@@ -8,6 +8,14 @@
 
 ## Properties
 
+### bandwidthEstimator
+
+> **bandwidthEstimator**: [`BandwidthEstimatorOption`](../type-aliases/BandwidthEstimatorOption.md)
+
+Send-side estimator used by each new sender; defaults to `"lightweight"`.
+
+***
+
 ### bundlePolicy
 
 > **bundlePolicy**: [`BundlePolicy`](../type-aliases/BundlePolicy.md)
@@ -48,6 +56,15 @@ Cannot be changed after construction.
 ### dtls
 
 > **dtls**: `Partial`\<\{ `keys`: [`DtlsKeys`](../type-aliases/DtlsKeys.md); \}\>
+
+***
+
+### filterProbePaddingOnReceiveRtp
+
+> **filterProbePaddingOnReceiveRtp**: `boolean`
+
+When true, padding-only RTP is omitted from onReceiveRtp and later media
+sequence numbers are compacted. Default false preserves wire RTP events.
 
 ***
 

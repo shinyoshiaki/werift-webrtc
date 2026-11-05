@@ -1111,6 +1111,12 @@ v6.0.0
 
 #### Returns
 
+##### bandwidthEstimator
+
+> **bandwidthEstimator**: [`BandwidthEstimatorOption`](../type-aliases/BandwidthEstimatorOption.md)
+
+Send-side estimator used by each new sender; defaults to `"lightweight"`.
+
 ##### bundlePolicy
 
 > **bundlePolicy**: [`BundlePolicy`](../type-aliases/BundlePolicy.md)
@@ -1179,6 +1185,13 @@ ms
 ###### dtls.keys?
 
 > `optional` **keys?**: [`DtlsKeys`](../type-aliases/DtlsKeys.md)
+
+##### filterProbePaddingOnReceiveRtp
+
+> **filterProbePaddingOnReceiveRtp**: `boolean`
+
+When true, padding-only RTP is omitted from onReceiveRtp and later media
+sequence numbers are compacted. Default false preserves wire RTP events.
 
 ##### ~~forceTurnTCP~~
 

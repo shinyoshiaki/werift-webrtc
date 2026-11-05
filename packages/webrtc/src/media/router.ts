@@ -13,8 +13,10 @@ import {
   RtcpTransportLayerFeedback,
   type RtpPacket,
   rtpHeaderExtensionsParser,
+  TransportWideCC,
 } from "../imports/rtp";
 import { type RouterSnapshot, ridRouteKey } from "../negotiation/internalState";
+import type { RTCDtlsTransport } from "../transport/dtls";
 import { deliveredTrackCodec } from "./codecCompatibility";
 import type {
   RTCRtpReceiveParameters,
@@ -394,7 +396,7 @@ export class RtpRouter {
     }
   };
 
-  routeRtcp = (packet: RtcpPacket) => {
+  routeRtcp = (packet: RtcpPacket, dtlsTransport?: RTCDtlsTransport) => {
     const recipients: (RTCRtpReceiver | RTCRtpSender)[] = [];
 
     switch (packet.type) {
@@ -421,7 +423,11 @@ export class RtpRouter {
       case RtcpTransportLayerFeedback.type:
         {
           const rtpfb = packet as RtcpTransportLayerFeedback;
-          if (rtpfb.feedback) {
+          if (rtpfb.feedback?.count === TransportWideCC.count) {
+            recipients.push(
+              ...this.twccFeedbackRecipients(rtpfb, dtlsTransport),
+            );
+          } else if (rtpfb.feedback) {
             recipients.push(this.ssrcTable[rtpfb.feedback.mediaSourceSsrc]);
           }
         }
@@ -490,6 +496,53 @@ export class RtpRouter {
       .filter((v) => v) // todo simulcast
       .forEach((recipient) => recipient.handleRtcpPacket(packet));
   };
+
+  /**
+   * TWCC `media_ssrc` is the latest RTP SSRC, not the owner of the TSN range.
+   * Fan-out the whole feedback to every sender on the same DTLS transport;
+   * each estimator ignores sequences it did not send.
+   *
+   * When the incoming transport is known, only senders currently on it are
+   * recipients: TSNs belong to that transport's sequence space, so a late
+   * feedback for a sender that has moved elsewhere must not reach it (no
+   * SSRC fallback to another transport).
+   */
+  private twccFeedbackRecipients(
+    rtpfb: RtcpTransportLayerFeedback,
+    incomingTransport?: RTCDtlsTransport,
+  ): (RTCRtpReceiver | RTCRtpSender)[] {
+    if (incomingTransport) {
+      return this.sendersOnTransport(incomingTransport);
+    }
+    const seed = this.ssrcTable[rtpfb.feedback.mediaSourceSsrc];
+    const transport =
+      seed && "dtlsTransport" in seed ? seed.dtlsTransport : undefined;
+    const senders = this.sendersOnTransport(transport);
+    if (senders.length > 0) {
+      return senders;
+    }
+    return seed ? [seed] : [];
+  }
+
+  private sendersOnTransport(transport?: RTCDtlsTransport): RTCRtpSender[] {
+    const seen = new Set<RTCRtpSender>();
+    const out: RTCRtpSender[] = [];
+    for (const recipient of Object.values(this.ssrcTable)) {
+      if (!recipient || recipient.type !== "sender") {
+        continue;
+      }
+      const sender = recipient as RTCRtpSender;
+      if (transport && sender.dtlsTransport !== transport) {
+        continue;
+      }
+      if (seen.has(sender)) {
+        continue;
+      }
+      seen.add(sender);
+      out.push(sender);
+    }
+    return out;
+  }
 
   /** Endpoint a keyframe request for `ssrc` reaches; see {@link KeyFrameRequestRouting}. */
   private keyFrameRequestTarget(
