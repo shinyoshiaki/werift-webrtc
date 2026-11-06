@@ -79,6 +79,12 @@ export class RTCRtpReceiver {
    */
   readonly ssrcByRid: { [rid: string]: number } = {};
   readonly ridByRtxSsrc: { [rtxSsrc: number]: string } = {};
+  /**
+   * The media SSRC an RTX SSRC repaired when it was first resolved. Kept apart
+   * from {@link ssrcByRid}, whose value follows the RID's latest media SSRC, so
+   * a delayed RTX of an earlier media SSRC is not restored to the newer one.
+   */
+  readonly pinnedMediaSsrcByRtx: { [rtxSsrc: number]: number } = {};
   private readonly nack = new NackHandler(this);
   private readonly audioRedHandler = new RedHandler();
 
@@ -443,6 +449,7 @@ export class RTCRtpReceiver {
     this.nack.close();
     replaceTable(this.ssrcByRid, {});
     clearTable(this.ridByRtxSsrc);
+    clearTable(this.pinnedMediaSsrcByRtx);
   }
 
   /**transceiver の停止確定時に remote track を ended にする */
@@ -714,6 +721,15 @@ export class RTCRtpReceiver {
       this.learnedTrackSsrcs.add(ssrc);
     }
     if (track && !isRtxCodec(this.codecs[packet.header.payloadType])) {
+      const previous = this.ssrcByRid[rid];
+      if (previous !== undefined && previous !== ssrc) {
+        // The RID moves to a new media SSRC: RTX streams already bound to the
+        // RID keep repairing the one they were bound to.
+        for (const [rtx, boundRid] of Object.entries(this.ridByRtxSsrc)) {
+          if (boundRid === rid && this.pinnedMediaSsrcByRtx[+rtx] === undefined)
+            this.pinnedMediaSsrcByRtx[+rtx] = previous;
+        }
+      }
       this.ssrcByRid[rid] = ssrc;
     }
 
@@ -742,8 +758,12 @@ export class RTCRtpReceiver {
   private mediaSsrcOfRtx(rtxSsrc: number): number | undefined {
     const bySdp = this.ssrcByRtx[rtxSsrc];
     if (bySdp !== undefined) return bySdp;
+    const pinned = this.pinnedMediaSsrcByRtx[rtxSsrc];
+    if (pinned !== undefined) return pinned;
     const rid = this.ridByRtxSsrc[rtxSsrc];
-    return rid === undefined ? undefined : this.ssrcByRid[rid];
+    const bySsrc = rid === undefined ? undefined : this.ssrcByRid[rid];
+    if (bySsrc !== undefined) this.pinnedMediaSsrcByRtx[rtxSsrc] = bySsrc;
+    return bySsrc;
   }
 
   private handleRTP(

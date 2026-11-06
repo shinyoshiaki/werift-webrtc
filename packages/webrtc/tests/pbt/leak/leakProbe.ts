@@ -400,6 +400,7 @@ export function leakFootprint(pc: RTCPeerConnection): Footprint {
       ({ receiver }) =>
         Object.keys(receiver.ssrcByRid).length +
         Object.keys(receiver.ridByRtxSsrc).length +
+        Object.keys(receiver.pinnedMediaSsrcByRtx).length +
         (receiver as unknown as { nack: { ssrcs: number[] } }).nack.ssrcs
           .length,
     ),

@@ -206,11 +206,17 @@ export const simulcastExtensionIds = { mid: 1, rid: 2, rrid: 3 } as const;
  * RTX codec is listed first so the track codec must skip it.
  */
 export function createSimulcastRtxReceiver(
-  options: { rids?: string[]; rtx?: boolean } = {},
+  options: {
+    rids?: string[];
+    rtx?: boolean;
+    mid?: string;
+    /** Register on an existing router (several m-lines sharing RIDs). */
+    router?: RtpRouter;
+  } = {},
 ) {
   const rids = options.rids ?? ["high", "low"];
-  const mid = "0";
-  const router = new RtpRouter();
+  const mid = options.mid ?? "0";
+  const router = options.router ?? new RtpRouter();
   const dtls = createDtlsTransport();
   const sentRtcp: unknown[] = [];
   dtls.sendRtcp = async (packets) => {
@@ -295,6 +301,8 @@ export function createSimulcastMediaPacket(options: {
   ssrc: number;
   sequenceNumber: number;
   rid?: string;
+  /** `null` omits the MID extension. */
+  mid?: string | null;
   payload?: Buffer;
 }) {
   return new RtpPacket(
@@ -303,7 +311,10 @@ export function createSimulcastMediaPacket(options: {
       payloadType: 96,
       sequenceNumber: options.sequenceNumber,
       timestamp: options.sequenceNumber * 3000,
-      extensions: simulcastExtensions({ mid: "0", rid: options.rid }),
+      extensions: simulcastExtensions({
+        mid: options.mid === null ? undefined : (options.mid ?? "0"),
+        rid: options.rid,
+      }),
     }),
     options.payload ?? Buffer.from(`media-${options.sequenceNumber}`),
   );
@@ -315,7 +326,13 @@ export function createSimulcastMediaPacket(options: {
  */
 export function createSimulcastRtxPacket(
   media: RtpPacket,
-  options: { rtxSsrc: number; rtxSequenceNumber: number; rrid?: string },
+  options: {
+    rtxSsrc: number;
+    rtxSequenceNumber: number;
+    rrid?: string;
+    /** `null` omits the MID extension. */
+    mid?: string | null;
+  },
 ) {
   const rtx = wrapRtx(
     media,
@@ -324,7 +341,7 @@ export function createSimulcastRtxPacket(
     options.rtxSsrc,
   );
   rtx.header.extensions = simulcastExtensions({
-    mid: "0",
+    mid: options.mid === null ? undefined : (options.mid ?? "0"),
     rrid: options.rrid,
   });
   return rtx;

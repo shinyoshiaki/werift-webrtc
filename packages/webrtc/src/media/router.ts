@@ -368,7 +368,7 @@ export class RtpRouter {
     const repairedReceiver =
       typeof rid !== "string" &&
       typeof repairedRid === "string" &&
-      (!rtpReceiver || rtpReceiver.type === "receiver")
+      !rtpReceiver
         ? this.receiverByRid(repairedRid, mid)
         : undefined;
     if (typeof rid === "string") {
