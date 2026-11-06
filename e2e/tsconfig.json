@@ -7,6 +7,7 @@
       "DOM"
     ],
     "strict": true,
+    "erasableSyntaxOnly": true,
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
     "importHelpers": true,

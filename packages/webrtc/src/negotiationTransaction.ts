@@ -172,6 +172,11 @@ const RETIRED_UFRAG_HISTORY = 64;
  * | `SctpTransportManager` | `snapshotNegotiationState` / `restoreNegotiationState` | an application-created SCTP transport whose association never ran |
  */
 export class NegotiationTransaction {
+  private readonly sdp: SDPManager;
+  private readonly transceivers: TransceiverManager;
+  private readonly router: RtpRouter;
+  private readonly sctp: SctpTransportManager;
+
   private baseline?: Baseline;
   private offerSnapshot?: Baseline;
   private readonly resources = new ProposalResources();
@@ -195,11 +200,16 @@ export class NegotiationTransaction {
     | "committing" = "idle";
 
   constructor(
-    private readonly sdp: SDPManager,
-    private readonly transceivers: TransceiverManager,
-    private readonly router: RtpRouter,
-    private readonly sctp: SctpTransportManager,
-  ) {}
+    sdp: SDPManager,
+    transceivers: TransceiverManager,
+    router: RtpRouter,
+    sctp: SctpTransportManager,
+  ) {
+    this.sdp = sdp;
+    this.transceivers = transceivers;
+    this.router = router;
+    this.sctp = sctp;
+  }
 
   // # lifecycle
 

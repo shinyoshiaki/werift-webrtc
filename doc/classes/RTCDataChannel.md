@@ -164,7 +164,7 @@
 
 ### sendOpen
 
-> `readonly` **sendOpen**: `boolean` = `true`
+> `readonly` **sendOpen**: `boolean`
 
 ***
 

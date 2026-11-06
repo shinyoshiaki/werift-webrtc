@@ -22,10 +22,6 @@
 
 readonly \[`string`, `number`\]
 
-TURN server the allocation is made on; the host may be a hostname.
-Starts as the configured server and becomes the ALTERNATE-SERVER when
-an Allocate is redirected with 300 (Try Alternate).
-
 ##### username
 
 `string`
@@ -141,7 +137,7 @@ TURN server as configured, before any 300 (Try Alternate) redirect.
 
 ### options
 
-> **options**: `object` = `{}`
+> **options**: `object`
 
 #### channelRefreshTime?
 

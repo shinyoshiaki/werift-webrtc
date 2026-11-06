@@ -11,11 +11,11 @@
  *
  *   git worktree add --detach /tmp/werift-develop origin/develop
  *   # share the dependencies: link node_modules (root and packages/*)
- *   node --experimental-transform-types --import ../../tools/node-ts/register.mjs tools/negotiation-diff/run.ts \
+ *   node --import ../../tools/node-ts/register.mjs tools/negotiation-diff/run.ts \
  *     --root /tmp/werift-develop --seeds 200 --steps 12 --out /tmp/develop.jsonl
- *   node --experimental-transform-types --import ../../tools/node-ts/register.mjs tools/negotiation-diff/run.ts \
+ *   node --import ../../tools/node-ts/register.mjs tools/negotiation-diff/run.ts \
  *     --root ../.. --seeds 200 --steps 12 --out /tmp/head.jsonl [--mutate 0.3]
- *   node --experimental-transform-types --import ../../tools/node-ts/register.mjs tools/negotiation-diff/compare.ts /tmp/develop.jsonl /tmp/head.jsonl
+ *   node --import ../../tools/node-ts/register.mjs tools/negotiation-diff/compare.ts /tmp/develop.jsonl /tmp/head.jsonl
  *
  * A change to how created descriptions are applied later or again keeps the
  * regression count of compare.ts at 0 and the contract of scenarios.ts.

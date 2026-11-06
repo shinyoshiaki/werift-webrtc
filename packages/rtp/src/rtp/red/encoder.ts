@@ -2,10 +2,14 @@ import { uint32Add } from "../../../../common/src";
 import { Red } from "./packet";
 
 export class RedEncoder {
+  public distance: number;
+
   private cache: { block: Buffer; timestamp: number; blockPT: number }[] = [];
   cacheSize = 10;
 
-  constructor(public distance = 1) {}
+  constructor(distance = 1) {
+    this.distance = distance;
+  }
 
   push(payload: { block: Buffer; timestamp: number; blockPT: number }) {
     this.cache.push(payload);

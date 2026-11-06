@@ -62,7 +62,7 @@
 
 ### maxMessageSize
 
-> **maxMessageSize**: `number` = `DEFAULT_MAX_MESSAGE_SIZE`
+> **maxMessageSize**: `number`
 
 ***
 
@@ -86,7 +86,7 @@
 
 ### port
 
-> **port**: `number` = `5000`
+> **port**: `number`
 
 ***
 
