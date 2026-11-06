@@ -195,6 +195,7 @@ export class DataChunk extends Chunk {
   retransmit: boolean = false;
   sentCount: number = 0;
   bookSize: number = 0;
+  /** Absolute time in `Date.now()` epoch milliseconds after which the chunk may be abandoned. */
   expiry?: number;
   maxRetransmits?: number;
   sentTime?: number;

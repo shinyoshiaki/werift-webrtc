@@ -7,6 +7,7 @@
 - **`sender.senderBWE` is a getter whose TypeScript type is `BandwidthEstimator`** (it was a `readonly` `SenderBandwidthEstimator` field). Replace the estimator with `sender.setBandwidthEstimator(impl)`, not by assigning the property. The `onCongestion` / `onCongestionScore` events of the default estimator still exist at runtime, and a one-release compatibility surface keeps those names on GCC / disabled estimators as no-op Events so `sender.senderBWE.onCongestion.subscribe(...)` compiles. Prefer `sender.senderBWE as LightweightBandwidthEstimator` or `isLightweightBandwidthEstimator`. The names are not part of the shared `BandwidthEstimator` contract and may be removed from the other estimators in a future major.
 - **`SenderBandwidthEstimator` is renamed to `LightweightBandwidthEstimator`** (the default, lightweight cumulative estimator: TWCC send / receive rates only, no probing or pacing). `SenderBandwidthEstimator` remains as a deprecated alias of the same class, so `new SenderBandwidthEstimator()` and `instanceof` keep working.
 - **`onAvailableBitrate` fires only when the estimate changes.** The default estimator used to fire on every update, even with the same value. The payload is still the bitrate in bps.
+- **`werift-sctp`: `SCTP.send({ expiry })` is absolute time in `Date.now()` epoch milliseconds** (it was compared against epoch seconds, so it never took effect). A caller that passed epoch seconds now gets every chunk abandoned at its first retransmission decision; pass `Date.now() + lifetimeMs` instead.
 
 ### 🚀 Features
 
@@ -30,6 +31,8 @@
 - **NACK retransmissions get a new transport-wide sequence number** instead of reusing the original one.
 - **Padding-only packets are no longer stored in the NACK cache.**
 - **The default (lightweight) estimator's send history is pruned to a 10 s window**; it used to grow without bound.
+- **DataChannel `maxPacketLifeTime` abandons messages after the given milliseconds.** The lifetime was divided by 1000 and compared in epoch seconds, so lifetime-limited messages were never abandoned. Now an unacknowledged message is abandoned with PR-SCTP (RFC 3758) after `maxPacketLifeTime` ms, and FORWARD-TSN moves the peer past it.
+- **PR-SCTP abandons only the fragments of the expired message** (`werift-sctp`). Abandonment used to start at the first DATA chunk of the send queue and could spread to the preceding message, so a different, still-valid message could be dropped.
 
 
 ## v0.26.0

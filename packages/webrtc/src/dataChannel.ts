@@ -158,7 +158,8 @@ export type DCState = "open" | "closed" | "connecting" | "closing";
 
 export class RTCDataChannelParameters {
   label = "";
-  maxPacketLifeTime?: number; // sec
+  /** Lifetime in milliseconds (RFC 8832 / WebRTC). */
+  maxPacketLifeTime?: number;
   maxRetransmits?: number;
   ordered = true;
   protocol = "";

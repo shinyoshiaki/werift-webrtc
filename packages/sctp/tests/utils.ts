@@ -1,7 +1,9 @@
 import { readFileSync } from "fs";
 
+import { vi } from "vitest";
+
 import { SCTP } from "../src";
-import type { DataChunk } from "../src/chunk";
+import { type Chunk, DataChunk, parsePacket } from "../src/chunk";
 import { FifoQueue } from "../src/imports/common";
 import type { Transport } from "../src/transport";
 
@@ -174,5 +176,47 @@ export const measureBurstTransfer = async (count: number, size: number) => {
     );
   } finally {
     await pair.stop();
+  }
+};
+
+/**
+ * Drop predicate for MemoryTransport that records every chunk sent and drops
+ * packets carrying DATA while `dropData` is true (FORWARD-TSN, SACK etc. pass).
+ */
+export const createDataDropRecorder = () => {
+  const recorder = {
+    dropData: false,
+    sentChunks: [] as Chunk[],
+    drop: (buf: Buffer) => {
+      const [, , , chunks] = parsePacket(buf);
+      recorder.sentChunks.push(...chunks);
+      return recorder.dropData && chunks.some((c) => c instanceof DataChunk);
+    },
+  };
+  return recorder;
+};
+
+/**
+ * Connected pair whose client DATA packets can be dropped, with fake
+ * setTimeout / Date installed after the handshake so T3-rtx and chunk
+ * lifetimes can be advanced. MemoryTransport's setImmediate stays real.
+ */
+export const createLossyPrSctpPair = async () => {
+  const recorder = createDataDropRecorder();
+  const pair = await createConnectedSctpPair({ dropClient: recorder.drop });
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+
+  const stop = async () => {
+    vi.useRealTimers();
+    await pair.stop();
+  };
+
+  return { ...pair, recorder, stop };
+};
+
+/** Lets MemoryTransport deliveries (setImmediate) and their handlers run. */
+export const flushImmediates = async (rounds = 10) => {
+  for (let i = 0; i < rounds; i++) {
+    await new Promise<void>((resolve) => setImmediate(resolve));
   }
 };

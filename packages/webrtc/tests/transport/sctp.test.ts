@@ -1,9 +1,10 @@
 import { RTCDataChannel, RTCSctpTransport } from "../../src";
+import { WEBRTC_BINARY } from "../../src/const";
 import { RTCDataChannelParameters } from "../../src/dataChannel";
 import { dtlsTransportPair } from "../fixture";
-import { WEBRTC_BINARY } from "../../src/const";
 import {
   captureSctpDataChunks,
+  captureSctpSendOptions,
   DCEP_CHANNEL_TYPE_CASES,
   SCTP_DATA_UNORDERED,
 } from "../utils";
@@ -235,4 +236,36 @@ describe("RTCSctpTransportTest", () => {
       await Promise.all([client.stop(), server.stop()]);
     },
   );
+
+  test("passes maxPacketLifeTime (ms) to SCTP as an epoch-ms expiry", async () => {
+    // Arrange: SCTP association を確立し、client の SCTP.send 呼び出しを記録する。
+    const [clientTransport, serverTransport] = await dtlsTransportPair();
+    const client = new RTCSctpTransport();
+    client.setDtlsTransport(clientTransport);
+    const server = new RTCSctpTransport();
+    server.setDtlsTransport(serverTransport);
+    await Promise.all([server.start(client.port), client.start(server.port)]);
+    await waitForOutcome(client, server);
+    const calls = captureSctpSendOptions(client);
+    const channel = new RTCDataChannel(
+      client,
+      new RTCDataChannelParameters({
+        label: "lifetime",
+        id: 1,
+        maxPacketLifeTime: 500,
+      }),
+    );
+
+    // Act: 寿命 500ms のチャネルでユーザーメッセージを送る。
+    const before = Date.now();
+    channel.send(Buffer.from("ping"));
+    const after = Date.now();
+
+    // Assert: expiry は送信時刻 + 500ms (epoch ミリ秒) として SCTP に渡される。
+    const userCall = calls.find((c) => c.ppId === WEBRTC_BINARY);
+    expect(userCall?.options?.expiry).toBeGreaterThanOrEqual(before + 500);
+    expect(userCall?.options?.expiry).toBeLessThanOrEqual(after + 500);
+
+    await Promise.all([client.stop(), server.stop()]);
+  });
 });

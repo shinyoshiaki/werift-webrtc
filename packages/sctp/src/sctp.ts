@@ -885,6 +885,10 @@ export class SCTP {
       maxRetransmits,
       ordered,
     }: {
+      /**
+       * Absolute time in `Date.now()` epoch milliseconds after which the
+       * message is abandoned (PR-SCTP, RFC 3758) if it is still unacknowledged.
+       */
       expiry?: number | undefined;
       maxRetransmits?: number | undefined;
       ordered?: boolean;
@@ -1350,15 +1354,18 @@ export class SCTP {
     if (chunk.abandoned) return true;
     const abandon =
       (!!chunk.maxRetransmits && chunk.maxRetransmits < chunk.sentCount!) ||
-      (!!chunk.expiry && chunk.expiry < Date.now() / 1000);
+      (chunk.expiry !== undefined && chunk.expiry <= Date.now());
     if (!abandon) return false;
 
-    const chunkPos = this.sentQueue.findIndex((v) => v.type === chunk.type);
+    const chunkPos = this.sentQueue.findIndex((v) => v === chunk);
+    if (chunkPos < 0) return false;
+    // Abandon the whole message: walk back to its first fragment and forward
+    // to its last fragment (RFC 3758 3.5 A3).
     for (let pos = chunkPos; pos >= 0; pos--) {
       const oChunk = this.sentQueue.at(pos)!;
       oChunk.abandoned = true;
       oChunk.retransmit = false;
-      if (oChunk.flags & SCTP_DATA_LAST_FRAG) {
+      if (oChunk.flags & SCTP_DATA_FIRST_FRAG) {
         break;
       }
     }

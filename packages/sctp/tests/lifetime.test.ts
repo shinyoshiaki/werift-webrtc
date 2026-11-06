@@ -1,0 +1,119 @@
+import { afterEach, describe, expect, test, vi } from "vitest";
+
+import { DataChunk, ForwardTsnChunk } from "../src/chunk";
+import { createLossyPrSctpPair, flushImmediates } from "./utils";
+
+// T3-rtx の初期値 (SCTP_RTO_INITIAL = 3s) を確実に超える時間
+const PAST_T3_MS = 3_100;
+
+describe("PR-SCTP lifetime (expiry) abandonment", () => {
+  let stop: (() => Promise<void>) | undefined;
+
+  afterEach(async () => {
+    await stop?.();
+    stop = undefined;
+  });
+
+  test("abandons an undelivered chunk after its lifetime, sends FORWARD-TSN, and the next message is delivered", async () => {
+    // Arrange: クライアントの DATA を破棄し、寿命 100ms のメッセージを送る準備
+    const pair = await createLossyPrSctpPair();
+    stop = pair.stop;
+    pair.recorder.dropData = true;
+    const received: Buffer[] = [];
+    pair.server.onReceive.subscribe((_streamId, _ppId, data) => {
+      received.push(data);
+    });
+
+    // Act: 寿命付きメッセージを送信し (破棄される)、寿命と T3-rtx を超えて時間を進める
+    await pair.client.send(0, 53, Buffer.from("expired"), {
+      expiry: Date.now() + 100,
+      ordered: true,
+    });
+    await flushImmediates();
+    const abandoned = pair.recorder.sentChunks.find(
+      (c): c is DataChunk => c instanceof DataChunk,
+    )!;
+    await vi.advanceTimersByTimeAsync(PAST_T3_MS);
+    await flushImmediates();
+
+    // Assert: FORWARD-TSN が破棄チャンクの TSN を累積 TSN として送られ、送信キューから外れる
+    const forwardTsn = pair.recorder.sentChunks.find(
+      (c): c is ForwardTsnChunk => c instanceof ForwardTsnChunk,
+    );
+    expect(forwardTsn?.cumulativeTsn).toBe(abandoned.tsn);
+    expect(forwardTsn?.streams).toEqual([[0, abandoned.streamSeqNum]]);
+    expect((pair.client as any).sentQueue.length).toBe(0);
+    // Assert: 受信側の累積 TSN が破棄チャンクまで進む
+    expect((pair.server as any).lastReceivedTsn).toBe(abandoned.tsn);
+
+    // Act: 同じストリームで次のメッセージを (破棄なしで) 送る
+    pair.recorder.dropData = false;
+    await pair.client.send(0, 53, Buffer.from("next"), { ordered: true });
+    await flushImmediates();
+
+    // Assert: 順序付き配送が止まらず、次のメッセージだけが届く
+    expect(received.map((d) => d.toString())).toEqual(["next"]);
+  });
+
+  test("retransmits instead of abandoning a chunk whose lifetime has not expired", async () => {
+    // Arrange: クライアントの DATA を破棄し、寿命 10s のメッセージを送る準備
+    const pair = await createLossyPrSctpPair();
+    stop = pair.stop;
+    pair.recorder.dropData = true;
+
+    // Act: 寿命付きメッセージを送信し、T3-rtx だけを超えて時間を進める
+    await pair.client.send(0, 53, Buffer.from("alive"), {
+      expiry: Date.now() + 10_000,
+      ordered: true,
+    });
+    await flushImmediates();
+    await vi.advanceTimersByTimeAsync(PAST_T3_MS);
+    await flushImmediates();
+
+    // Assert: 同じ TSN の DATA が再送され、FORWARD-TSN は送られず、チャンクは破棄されていない
+    const dataTsns = pair.recorder.sentChunks
+      .filter((c): c is DataChunk => c instanceof DataChunk)
+      .map((c) => c.tsn);
+    expect(dataTsns.length).toBe(2);
+    expect(dataTsns[1]).toBe(dataTsns[0]);
+    expect(
+      pair.recorder.sentChunks.some((c) => c instanceof ForwardTsnChunk),
+    ).toBe(false);
+    const sentQueue: DataChunk[] = [...(pair.client as any).sentQueue];
+    expect(sentQueue.map((c) => c.abandoned)).toEqual([false]);
+  });
+
+  test("abandons all fragments of the expired message and only those", async () => {
+    // Arrange: クライアントの DATA を破棄し、未失効メッセージの後ろに失効する断片化メッセージを置く
+    const pair = await createLossyPrSctpPair();
+    stop = pair.stop;
+    pair.recorder.dropData = true;
+
+    // Act: 寿命 10s の単一チャンクと、寿命 100ms の断片化メッセージを送り、T3-rtx を超えて時間を進める
+    await pair.client.send(0, 53, Buffer.from("alive"), {
+      expiry: Date.now() + 10_000,
+      ordered: true,
+    });
+    await pair.client.send(0, 53, Buffer.alloc(3_000, 1), {
+      expiry: Date.now() + 100,
+      ordered: true,
+    });
+    await flushImmediates();
+    await vi.advanceTimersByTimeAsync(PAST_T3_MS);
+    await flushImmediates();
+
+    // Assert: 先頭の未失効チャンクは再送対象のまま、失効メッセージの全断片だけが破棄される
+    const sentQueue: DataChunk[] = [...(pair.client as any).sentQueue];
+    expect(sentQueue.length).toBe(4);
+    expect(sentQueue.map((c) => c.abandoned)).toEqual([
+      false,
+      true,
+      true,
+      true,
+    ]);
+    // Assert: 先頭が未確認のため累積 TSN は進められず FORWARD-TSN は送られない
+    expect(
+      pair.recorder.sentChunks.some((c) => c instanceof ForwardTsnChunk),
+    ).toBe(false);
+  });
+});
