@@ -383,9 +383,9 @@ sender.setBandwidthEstimator(new GccBandwidthEstimator());</code></pre>
         <tr><td>werift 固有の回帰</td><td>過去のレビューで見つかった送信経路・番号・padding・差し替え・停止・transport 切替・TWCC の解釈と配送・受信側の報告窓の不具合</td><td><a href="../packages/webrtc/tests/media/bandwidthEstimator.test.ts">bandwidthEstimator.test.ts</a> / <a href="../packages/webrtc/tests/media/rtpSender.test.ts">rtpSender.test.ts</a> / <a href="../packages/webrtc/tests/media/twccFeedbackAdapter.test.ts">twccFeedbackAdapter.test.ts</a> / <a href="../packages/webrtc/tests/media/receiverTwcc.test.ts">receiverTwcc.test.ts</a> / <a href="../packages/webrtc/tests/media/router.test.ts">router.test.ts</a></td></tr>
       </tbody></table></div>
       <p class="note">性質テストは固定 seed で決まった系列を回します。失敗したテスト名に、その seed だけを再現する環境変数が出ます。seed を増やした探索は <code>cd packages/webrtc &amp;&amp; npm run pbt:deep -- --suite twcc,bwe,sender,receiver</code> です。範囲で判定するので、わずかな性能の悪化や Chrome との細かい挙動差は検出しません。</p>
-      <details><summary>数値を現在のコードで再検証する</summary><p><a href="./c724daf9-gcc-vs-lightweight.trace.ts">c724daf9-gcc-vs-lightweight.trace.ts</a> が HTML 内のデータと現在の実装の出力を照合します。リポジトリのルートで実行してください。</p><pre><code>node --experimental-transform-types --import ./tools/node-ts/register.mjs reviews/c724daf9-gcc-vs-lightweight.trace.ts
+      <details><summary>数値を現在のコードで再検証する</summary><p><a href="./c724daf9-gcc-vs-lightweight.trace.ts">c724daf9-gcc-vs-lightweight.trace.ts</a> が HTML 内のデータと現在の実装の出力を照合します。リポジトリのルートで実行してください。</p><pre><code>node --import ./tools/node-ts/register.mjs reviews/c724daf9-gcc-vs-lightweight.trace.ts
 # 実装の変更後、埋め込みデータを更新する場合:
-node --experimental-transform-types --import ./tools/node-ts/register.mjs reviews/c724daf9-gcc-vs-lightweight.trace.ts --write</code></pre><p class="note">フィードバックはパース後の入力として与えます。wire シリアライズやネットワーク・pacer・エンコーダを含む E2E 検証ではありません。</p></details>
+node --import ./tools/node-ts/register.mjs reviews/c724daf9-gcc-vs-lightweight.trace.ts --write</code></pre><p class="note">フィードバックはパース後の入力として与えます。wire シリアライズやネットワーク・pacer・エンコーダを含む E2E 検証ではありません。</p></details>
     </section>
   </main>
   <footer>このページは、このリポジトリの GCC と lightweight の実装を比較する資料です。GCC 一般やブラウザの全実装が、どの条件でも同じ数値を返すという意味ではありません。</footer>

@@ -17,6 +17,10 @@ export function aes128EcbEncrypt(key: Buffer, plaintext: Buffer): Buffer {
 }
 
 export class Context {
+  public masterKey: Buffer;
+  public masterSalt: Buffer;
+  public profile: SrtpProfile;
+
   srtpSSRCStates: { [ssrc: number]: SrtpSsrcState } = {};
   srtpSessionKey: Buffer;
   srtpSessionSalt: Buffer;
@@ -30,11 +34,10 @@ export class Context {
 
   cipher: CipherAesBase;
 
-  constructor(
-    public masterKey: Buffer,
-    public masterSalt: Buffer,
-    public profile: SrtpProfile,
-  ) {
+  constructor(masterKey: Buffer, masterSalt: Buffer, profile: SrtpProfile) {
+    this.masterKey = masterKey;
+    this.masterSalt = masterSalt;
+    this.profile = profile;
     {
       // AES-ECB plaintext require 16byte
       // so need to padding to 14 byte

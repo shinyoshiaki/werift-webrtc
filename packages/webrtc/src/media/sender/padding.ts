@@ -36,10 +36,13 @@ export interface PaddingHost {
  * generation; a newer generation may start while an older loop unwinds.
  */
 export class PaddingInjector {
+  private readonly host: PaddingHost;
   /** Generation that currently owns the drain, or `undefined`. */
   private flightGeneration: number | undefined;
 
-  constructor(private readonly host: PaddingHost) {}
+  constructor(host: PaddingHost) {
+    this.host = host;
+  }
 
   /** Fill the active probe cluster, across bursts. Returns packets sent. */
   async drainProbe(): Promise<number> {

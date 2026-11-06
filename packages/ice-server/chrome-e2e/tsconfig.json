@@ -5,6 +5,7 @@
     "moduleResolution": "Bundler",
     "lib": ["esnext", "DOM", "DOM.Iterable"],
     "strict": true,
+    "erasableSyntaxOnly": true,
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
     "skipLibCheck": true,

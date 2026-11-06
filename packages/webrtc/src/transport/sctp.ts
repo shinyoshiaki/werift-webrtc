@@ -33,6 +33,10 @@ const log = debug("werift:packages/webrtc/src/transport/sctp.ts");
 export const DEFAULT_MAX_MESSAGE_SIZE = 65536;
 
 export class RTCSctpTransport {
+  public port: number;
+  public maxMessageSize: number;
+  private readonly sctpOptions: SCTPOptions;
+
   dtlsTransport!: RTCDtlsTransport;
   sctp!: SCTP;
 
@@ -52,10 +56,14 @@ export class RTCSctpTransport {
   private eventDisposer: (() => void)[] = [];
 
   constructor(
-    public port = 5000,
-    public maxMessageSize = DEFAULT_MAX_MESSAGE_SIZE,
-    private readonly sctpOptions: SCTPOptions = {},
-  ) {}
+    port = 5000,
+    maxMessageSize = DEFAULT_MAX_MESSAGE_SIZE,
+    sctpOptions: SCTPOptions = {},
+  ) {
+    this.port = port;
+    this.maxMessageSize = maxMessageSize;
+    this.sctpOptions = sctpOptions;
+  }
 
   get transport() {
     return this.dtlsTransport;
@@ -491,11 +499,19 @@ export class RTCSctpTransport {
 }
 
 export class RTCSctpCapabilities {
-  constructor(public maxMessageSize: number) {}
+  public maxMessageSize: number;
+
+  constructor(maxMessageSize: number) {
+    this.maxMessageSize = maxMessageSize;
+  }
 }
 
 class BridgeDtls implements Transport {
-  constructor(private dtls: RTCDtlsTransport) {}
+  private dtls: RTCDtlsTransport;
+
+  constructor(dtls: RTCDtlsTransport) {
+    this.dtls = dtls;
+  }
   set onData(onData: (buf: Buffer) => void) {
     this.dtls.dataReceiver = onData;
   }

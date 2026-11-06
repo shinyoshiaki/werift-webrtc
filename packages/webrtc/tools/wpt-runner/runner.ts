@@ -354,7 +354,6 @@ async function runTargetInWorker(
 
   return await new Promise<WptResultRecord[]>((resolveResult) => {
     const worker = spawn(process.execPath, [
-      "--experimental-transform-types",
       "--disable-warning=ExperimentalWarning",
       "--disable-warning=MODULE_TYPELESS_PACKAGE_JSON",
       "--import",

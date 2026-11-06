@@ -61,19 +61,34 @@ export function normalizeCandidateUfrag(
  *   generation cannot reach its replacement.
  */
 export class RemoteCandidates {
+  private readonly sdp: SDPManager;
+  private readonly secure: SecureTransportManager;
+  private readonly negotiation: NegotiationTransaction;
+  private readonly topology: BundleTopology;
+  private readonly host: {
+    signalingState: () => RTCSignalingState;
+    hasRemoteDescription: () => boolean;
+  };
+
   /** Candidates added before a remote description was applied. */
   readonly queued: Array<RTCIceCandidate | RTCIceCandidateInit | null> = [];
 
   constructor(
-    private readonly sdp: SDPManager,
-    private readonly secure: SecureTransportManager,
-    private readonly negotiation: NegotiationTransaction,
-    private readonly topology: BundleTopology,
-    private readonly host: {
+    sdp: SDPManager,
+    secure: SecureTransportManager,
+    negotiation: NegotiationTransaction,
+    topology: BundleTopology,
+    host: {
       signalingState: () => RTCSignalingState;
       hasRemoteDescription: () => boolean;
     },
-  ) {}
+  ) {
+    this.sdp = sdp;
+    this.secure = secure;
+    this.negotiation = negotiation;
+    this.topology = topology;
+    this.host = host;
+  }
 
   /** Route a trickled candidate or end-of-candidates to its ICE generation. */
   async apply(candidateMessage: RTCIceCandidate | RTCIceCandidateInit | null) {

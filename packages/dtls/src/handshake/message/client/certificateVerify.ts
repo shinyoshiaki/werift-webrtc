@@ -7,7 +7,10 @@ import { HandshakeType } from "../../const";
 const { decode, encode, types } = binaryData;
 
 export class CertificateVerify implements Handshake {
-  msgType = HandshakeType.certificate_verify_15;
+  public algorithm: SignatureSchemes;
+  public signature: Buffer;
+
+  msgType: HandshakeType = HandshakeType.certificate_verify_15;
   messageSeq?: number;
 
   static readonly spec = {
@@ -15,10 +18,10 @@ export class CertificateVerify implements Handshake {
     signature: types.buffer(types.uint16be),
   };
 
-  constructor(
-    public algorithm: SignatureSchemes,
-    public signature: Buffer,
-  ) {}
+  constructor(algorithm: SignatureSchemes, signature: Buffer) {
+    this.algorithm = algorithm;
+    this.signature = signature;
+  }
 
   static createEmpty() {
     return new CertificateVerify(undefined as any, undefined as any);

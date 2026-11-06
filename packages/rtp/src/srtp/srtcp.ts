@@ -2,8 +2,11 @@ import { SrtcpContext } from "./context/srtcp";
 import { type Config, Session } from "./session";
 
 export class SrtcpSession extends Session<SrtcpContext> {
-  constructor(public config: Config) {
+  public config: Config;
+
+  constructor(config: Config) {
     super(SrtcpContext);
+    this.config = config;
 
     this.start(
       config.keys.localMasterKey,
