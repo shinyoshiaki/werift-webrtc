@@ -720,3 +720,16 @@ SCTP がない media-only の接続では後者が呼ばれず、`allowEarlyServ
 | `packages/webrtc/tests/transport/sped.test.ts` › `IceSpedTransport placeholder destination`（認証済み pair が既にある / 後からできる） | 失敗（2 秒で失効） | 成功（認証済み pair の 5-tuple へ送られる） |
 
 レビューの再現スクリプト（`/tmp/werift-review-delayed-nomination-loopback.mjs`）も修正後は exit 0 です。
+
+## 21. handshake 途中の close / 失敗で readiness の到達状態が書き換わる（レビューの指摘への対応）
+
+**原因:** `DtlsSocket.readiness` は、1.3 engine を破棄した後は DTLS 1.2 用の単一 latch（`legacyReadinessReached`、`connected` の立ち上がりで 3 milestone を同時に true にする）を 3 つすべてに返していました。1.3 では client の接続通知でこの latch が立つため、最終 ACK 未受信の client は close 後に `handshakeComplete` が true になって waiter が resolve し、接続通知前の server は到達済みの `writeReady` が false に戻って waiter が reject していました。
+
+**修正:** `packages/dtls/src/socket.ts` に `retireSelectedEngine13()` を追加し、選択中の 1.3 engine を破棄する経路（`failAssociationFromEngine13`、`onEngine13PeerOrLocalClose`、`packages/dtls/src/client.ts` の `closeAllDtls13Candidates`）で、破棄前に milestone ごとの到達状態を保存します。engine 破棄後の `readiness` と waiter はこの保存値を使います。1.2 と、1.2 を選んだ dual 設定は従来どおり 1.2 latch を使います（dual probe で park した未選択の 1.3 候補は保存しません）。
+
+| テスト（`packages/dtls/tests/e2e/self_readiness_latch.test.ts` › `handshake 途中の終了`） | 修正前 | 修正後 |
+|---|---|---|
+| server: writeReady 後・client Finished 受理前に close / 致命的失敗 → `writeReady` だけ true、その waiter だけ resolve | 失敗（`writeReady` が false に戻る） | 成功 |
+| client: 接続通知後・最終 ACK 未受信で close / 致命的失敗 → `handshakeComplete` は false、その waiter は reject | 失敗（`handshakeComplete` が true になる） | 成功 |
+
+Arrange は `packages/dtls/tests/fixture.ts` の `arrangePartialDtls13Handshake`。レビューの再現スクリプト（`/tmp/werift-review-readiness-partial.mjs`）も修正後は exit 0 です。

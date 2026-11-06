@@ -3,6 +3,7 @@ import type { Transport } from "../../common/src";
 import { randomPort, UdpTransport } from "../../common/src";
 import type { SrtpProfile } from "../../rtp/src/srtp/const";
 import { DtlsClient, DtlsServer, DtlsVersion, type Options } from "../src";
+import { HashAlgorithm, SignatureAlgorithm } from "../src/cipher/const";
 import { SessionType } from "../src/cipher/suites/abstract";
 import { Dtls13Connection } from "../src/engine/v1_3/connection";
 
@@ -357,4 +358,50 @@ export function createSilentTransport() {
     },
   };
   return { transport, sent };
+}
+
+/**
+ * Arrange: a DTLS 1.3 self pair stopped part-way through the handshake.
+ * - `server-before-peer-finished`: the server is write-ready but holds the
+ *   client's Finished (peer not authenticated, handshake not complete).
+ * - `client-before-final-ack`: the client is connected (peer authenticated)
+ *   but the server never ACKs the client's final flight.
+ * `release()` lets a held handshake continue so the pair can shut down.
+ */
+export async function arrangePartialDtls13Handshake(
+  stop: "server-before-peer-finished" | "client-before-final-ack",
+) {
+  const pair = await arrangeDtls13Pair({
+    signatureHash: {
+      hash: HashAlgorithm.sha256_4,
+      signature: SignatureAlgorithm.rsa_1,
+    },
+  });
+  const { server, client } = pair;
+  let release = () => {};
+  const engine = (
+    server as unknown as {
+      engine13: {
+        onClientFinished: () => Promise<void>;
+        sendAck: () => Promise<number>;
+      };
+    }
+  ).engine13;
+  if (stop === "server-before-peer-finished") {
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    engine.onClientFinished = async () => {
+      await held;
+    };
+    await client.connect();
+    await server.waitForWriteReady();
+  } else {
+    engine.sendAck = async () => 0;
+    const connected = client.onConnect.asPromise();
+    await client.connect();
+    await connected;
+  }
+  const stopped = stop === "server-before-peer-finished" ? server : client;
+  return { ...pair, stopped, release: () => release() };
 }

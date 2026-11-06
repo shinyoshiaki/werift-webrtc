@@ -68,6 +68,12 @@ export class DtlsSocket {
    * never resets on close or renegotiation.
    */
   private legacyReadinessReached = false;
+  /**
+   * Milestones the selected DTLS 1.3 engine reached, kept per milestone when
+   * that engine is retired (close / failure), so readiness and its waiters
+   * keep reporting exactly what was reached.
+   */
+  private retiredEngine13Readiness?: DtlsReadiness;
 
   get connected(): boolean {
     return this._connected;
@@ -143,6 +149,9 @@ export class DtlsSocket {
    */
   get readiness(): DtlsReadiness {
     if (this.engine13) return { ...this.engine13.readiness };
+    if (this.retiredEngine13Readiness) {
+      return { ...this.retiredEngine13Readiness };
+    }
     const reached = this.legacyReadinessReached;
     return {
       writeReady: reached,
@@ -1204,6 +1213,26 @@ export class DtlsSocket {
   }
 
   /** Drop bridge subscriptions for a disposed or replaced 1.3 candidate. */
+  /**
+   * Keep the selected DTLS 1.3 engine's milestones before dropping it. The
+   * 1.2 latch must not stand in for them: it reaches all three at once.
+   */
+  protected retireSelectedEngine13(): void {
+    const engine = this.engine13;
+    if (!engine) return;
+    const reached = engine.readiness;
+    const previous = this.retiredEngine13Readiness;
+    this.retiredEngine13Readiness = {
+      writeReady: reached.writeReady || !!previous?.writeReady,
+      peerHandshakeAuthenticated:
+        reached.peerHandshakeAuthenticated ||
+        !!previous?.peerHandshakeAuthenticated,
+      handshakeComplete:
+        reached.handshakeComplete || !!previous?.handshakeComplete,
+    };
+    this.engine13 = undefined;
+  }
+
   protected unbridgeEngine13(): void {
     this.engine13Bridge.dispose();
   }
@@ -1235,7 +1264,7 @@ export class DtlsSocket {
     // double-fire public callbacks when fail() continues to onClose.
     this.unbridgeEngine13();
     const eng = this.engine13;
-    this.engine13 = undefined;
+    this.retireSelectedEngine13();
     if (eng) {
       // Soft ProtocolVersionError leaves carrier open; hard fail may already
       // have closed it. Always force resource dispose without re-firing events.
@@ -1272,7 +1301,7 @@ export class DtlsSocket {
     this.connected = false;
     this.clearSendPeerPin();
     this.unbridgeEngine13();
-    this.engine13 = undefined;
+    this.retireSelectedEngine13();
     void this.transport.close().catch(() => {});
   }
 

@@ -291,7 +291,7 @@ export class DtlsClient extends DtlsSocket {
     const candidates = new Set<Dtls13Connection>();
     if (this.engine13) candidates.add(this.engine13);
     if (this.parkedEngine13) candidates.add(this.parkedEngine13);
-    this.engine13 = undefined;
+    this.retireSelectedEngine13();
     this.parkedEngine13 = undefined;
     this.dualResume = undefined;
     this.dualAssociationPeerKey = undefined;
