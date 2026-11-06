@@ -30,6 +30,9 @@
 - **NACK retransmissions get a new transport-wide sequence number** instead of reusing the original one.
 - **Padding-only packets are no longer stored in the NACK cache.**
 - **The default (lightweight) estimator's send history is pruned to a 10 s window**; it used to grow without bound.
+- **RTX with RID-based simulcast is received.** An RTX packet carrying `repaired-rtp-stream-id` (Chrome sends simulcast without `a=ssrc` / `a=ssrc-group:FID`) is now bound to the media SSRC of that RID and delivered restored (media SSRC, sequence number and payload type, `{ type: "retransmission" }`) on the RID's track; it used to be dropped. The first packet with `rtp-stream-id` / `repaired-rtp-stream-id` registers its SSRC, so later packets without these extensions keep their route. RTX whose media SSRC is not known yet, whose RID is unknown, or whose `apt` codec is missing is dropped instead of being delivered broken.
+- **NACK is tracked per media SSRC.** Simulcast layers no longer compare each other's sequence numbers (false losses) or send a NACK to the wrong SSRC. `receiver.onPacketLost` still fires once per sent NACK, and an idle NACK timer now stops when no loss remains.
+- **The track codec of a RID receiver and of `resyncCodecs` skips RTX / RED**, so a description that lists `video/rtx` first no longer gives the remote track the RTX codec.
 
 
 ## v0.26.0

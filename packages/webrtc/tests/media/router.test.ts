@@ -30,6 +30,12 @@ import {
   createSingleVideoSenderRouter,
   outboundRtpStats,
 } from "../fixture";
+import {
+  collectDeliveredRtp,
+  createSimulcastMediaPacket,
+  createSimulcastRtxPacket,
+  createSimulcastRtxReceiver,
+} from "./rtpReceiverTestUtils";
 
 describe("media/router", () => {
   test("routeRtp", () =>
@@ -585,6 +591,295 @@ describe("media/router", () => {
       Object.values(rtcpSpies).forEach((spy) =>
         expect(spy).not.toHaveBeenCalled(),
       );
+    });
+  });
+
+  describe("simulcast RTX (repaired-rtp-stream-id)", () => {
+    const high = { rid: "high", ssrc: 1000, rtxSsrc: 1001 };
+    const low = { rid: "low", ssrc: 2000, rtxSsrc: 2001 };
+
+    test("RID の track の codec は先頭の RTX ではなく媒体 codec になる", () => {
+      // Arrange / Act: RTX を先頭に並べた codec 列で RID receiver を登録する。
+      const { receiver } = createSimulcastRtxReceiver();
+
+      // Assert: どの RID の track も VP8 を codec に持つ。
+      for (const rid of ["high", "low"]) {
+        expect(receiver.trackByRID[rid].codec?.mimeType).toBe("video/VP8");
+      }
+    });
+
+    test("rrid 付き RTX は該当 RID の track に元の SSRC / seq / PT で届く", () => {
+      // Arrange
+      const { router, receiver } = createSimulcastRtxReceiver();
+      const highReceived = collectDeliveredRtp(receiver.trackByRID.high);
+      const lowReceived = collectDeliveredRtp(receiver.trackByRID.low);
+      const lost = createSimulcastMediaPacket({
+        ssrc: high.ssrc,
+        sequenceNumber: 11,
+        rid: high.rid,
+      });
+
+      // Act: 両レイヤーの媒体を受けたあと、high の seq 11 を RTX で受ける。
+      router.routeRtp(
+        createSimulcastMediaPacket({
+          ssrc: high.ssrc,
+          sequenceNumber: 10,
+          rid: high.rid,
+        }),
+      );
+      router.routeRtp(
+        createSimulcastMediaPacket({
+          ssrc: low.ssrc,
+          sequenceNumber: 500,
+          rid: low.rid,
+        }),
+      );
+      router.routeRtp(
+        createSimulcastRtxPacket(lost, {
+          rtxSsrc: high.rtxSsrc,
+          rtxSequenceNumber: 7,
+          rrid: high.rid,
+        }),
+      );
+
+      // Assert: 復元パケットは high の track にだけ、媒体 SSRC / seq / PT で届く。
+      expect(highReceived).toEqual([
+        {
+          ssrc: high.ssrc,
+          seq: 10,
+          payloadType: 96,
+          payload: "media-10",
+          type: "media",
+        },
+        {
+          ssrc: high.ssrc,
+          seq: 11,
+          payloadType: 96,
+          payload: "media-11",
+          type: "retransmission",
+        },
+      ]);
+      expect(lowReceived.map((p) => p.seq)).toEqual([500]);
+      // Assert: 媒体 SSRC と RTX SSRC は学習済みの route として登録される。
+      for (const ssrc of [high.ssrc, low.ssrc, high.rtxSsrc]) {
+        expect(router.ssrcTable[ssrc]).toBe(receiver);
+        expect(router.learnedSsrcs.has(ssrc)).toBe(true);
+      }
+    });
+
+    test("rid / rrid 拡張が省略された後続パケットも SSRC で届き、RTX は復元される", () => {
+      // Arrange: 最初の拡張付きパケットで媒体 SSRC と RTX SSRC を学習させる。
+      const { router, receiver } = createSimulcastRtxReceiver();
+      const lowReceived = collectDeliveredRtp(receiver.trackByRID.low);
+      router.routeRtp(
+        createSimulcastMediaPacket({
+          ssrc: low.ssrc,
+          sequenceNumber: 1,
+          rid: low.rid,
+        }),
+      );
+      router.routeRtp(
+        createSimulcastRtxPacket(
+          createSimulcastMediaPacket({ ssrc: low.ssrc, sequenceNumber: 0 }),
+          { rtxSsrc: low.rtxSsrc, rtxSequenceNumber: 1, rrid: low.rid },
+        ),
+      );
+
+      // Act: RR 受信後のブラウザのように rid / rrid を付けずに送る。
+      router.routeRtp(
+        createSimulcastMediaPacket({ ssrc: low.ssrc, sequenceNumber: 3 }),
+      );
+      router.routeRtp(
+        createSimulcastRtxPacket(
+          createSimulcastMediaPacket({ ssrc: low.ssrc, sequenceNumber: 2 }),
+          { rtxSsrc: low.rtxSsrc, rtxSequenceNumber: 2 },
+        ),
+      );
+
+      // Assert: 媒体も RTX も low の track に媒体 SSRC で届く。
+      expect(
+        lowReceived.map(({ ssrc, seq, type }) => ({ ssrc, seq, type })),
+      ).toEqual([
+        { ssrc: low.ssrc, seq: 1, type: "media" },
+        { ssrc: low.ssrc, seq: 0, type: "retransmission" },
+        { ssrc: low.ssrc, seq: 3, type: "media" },
+        { ssrc: low.ssrc, seq: 2, type: "retransmission" },
+      ]);
+    });
+
+    test("媒体 SSRC 未学習の RTX は破棄し、RID の学習後は同じ RTX SSRC を復元する", () => {
+      // Arrange
+      const { router, receiver } = createSimulcastRtxReceiver();
+      const highReceived = collectDeliveredRtp(receiver.trackByRID.high);
+      const rtxOf = (sequenceNumber: number, rtxSequenceNumber: number) =>
+        createSimulcastRtxPacket(
+          createSimulcastMediaPacket({ ssrc: high.ssrc, sequenceNumber }),
+          { rtxSsrc: high.rtxSsrc, rtxSequenceNumber, rrid: high.rid },
+        );
+
+      // Act: 媒体より先に RTX が届く。
+      expect(() => router.routeRtp(rtxOf(5, 1))).not.toThrow();
+
+      // Assert: 媒体 SSRC が分からないので何も届かない。
+      expect(highReceived).toEqual([]);
+
+      // Act: 媒体を受けて RID の SSRC を学習したあと、rrid なしの RTX を受ける。
+      router.routeRtp(
+        createSimulcastMediaPacket({
+          ssrc: high.ssrc,
+          sequenceNumber: 7,
+          rid: high.rid,
+        }),
+      );
+      const late = rtxOf(6, 2);
+      late.header.extensions = [];
+      router.routeRtp(late);
+
+      // Assert: 先に学習した RTX SSRC → RID の対応で復元される。
+      expect(highReceived.map(({ ssrc, seq }) => ({ ssrc, seq }))).toEqual([
+        { ssrc: high.ssrc, seq: 7 },
+        { ssrc: high.ssrc, seq: 6 },
+      ]);
+    });
+
+    test("未知の rrid、rrid なしの未知 RTX SSRC、apt codec のない RTX は破棄される", () => {
+      // Arrange
+      const { router, receiver } = createSimulcastRtxReceiver();
+      const received = [
+        ...["high", "low"].map((rid) =>
+          collectDeliveredRtp(receiver.trackByRID[rid]),
+        ),
+      ];
+      router.routeRtp(
+        createSimulcastMediaPacket({
+          ssrc: high.ssrc,
+          sequenceNumber: 1,
+          rid: high.rid,
+        }),
+      );
+      const lost = createSimulcastMediaPacket({
+        ssrc: high.ssrc,
+        sequenceNumber: 0,
+      });
+      const before = received.map((r) => r.length);
+
+      // Act: 未知の rrid と、rrid のない未知 SSRC の RTX を受ける。
+      router.routeRtp(
+        createSimulcastRtxPacket(lost, {
+          rtxSsrc: 3001,
+          rtxSequenceNumber: 1,
+          rrid: "unknown",
+        }),
+      );
+      router.routeRtp(
+        createSimulcastRtxPacket(lost, { rtxSsrc: 3002, rtxSequenceNumber: 1 }),
+      );
+
+      // Assert: どの track にも届かず、route も学習しない。
+      expect(received.map((r) => r.length)).toEqual(before);
+      expect(router.ssrcTable[3001]).toBeUndefined();
+      expect(router.ssrcTable[3002]).toBeUndefined();
+
+      // Act: apt (VP8) を持たない codec 表のまま RTX を受ける。
+      const { router: noApt, receiver: noAptReceiver } =
+        createSimulcastRtxReceiver();
+      noAptReceiver.resyncCodecs({
+        codecs: [
+          new RTCRtpCodecParameters({
+            mimeType: "video/rtx",
+            clockRate: 90000,
+            payloadType: 97,
+            parameters: "apt=96",
+          }),
+        ],
+        encodings: [],
+        headerExtensions: [],
+      });
+      const noAptReceived = collectDeliveredRtp(
+        noAptReceiver.trackByRID.high,
+      );
+
+      // Assert: 例外なく破棄される。
+      expect(() =>
+        noApt.routeRtp(
+          createSimulcastRtxPacket(lost, {
+            rtxSsrc: high.rtxSsrc,
+            rtxSequenceNumber: 1,
+            rrid: high.rid,
+          }),
+        ),
+      ).not.toThrow();
+      expect(noAptReceived).toEqual([]);
+    });
+
+    test("RTX なし simulcast は従来どおり rid で届き、rid 省略後も SSRC で届く", () => {
+      // Arrange
+      const { router, receiver } = createSimulcastRtxReceiver({ rtx: false });
+      const highReceived = collectDeliveredRtp(receiver.trackByRID.high);
+
+      // Act: rid 付きのあと rid なしの媒体を受ける。
+      router.routeRtp(
+        createSimulcastMediaPacket({
+          ssrc: high.ssrc,
+          sequenceNumber: 1,
+          rid: high.rid,
+        }),
+      );
+      router.routeRtp(
+        createSimulcastMediaPacket({ ssrc: high.ssrc, sequenceNumber: 2 }),
+      );
+
+      // Assert
+      expect(highReceived.map((p) => p.seq)).toEqual([1, 2]);
+    });
+
+    test("レイヤーごとの NACK は自分の媒体 SSRC 宛てで、交互受信で偽ロスが出ない", async () => {
+      // Arrange
+      vi.useFakeTimers();
+      try {
+        const { router, receiver, sentNacks } = createSimulcastRtxReceiver();
+        const send = (layer: typeof high, sequenceNumber: number) =>
+          router.routeRtp(
+            createSimulcastMediaPacket({
+              ssrc: layer.ssrc,
+              sequenceNumber,
+              rid: layer.rid,
+            }),
+          );
+
+        // Act: 2 レイヤーを交互に受け、low だけ seq 502 を失う。
+        send(high, 10);
+        send(low, 500);
+        send(high, 11);
+        send(low, 501);
+        send(high, 12);
+        send(low, 503);
+        await vi.advanceTimersByTimeAsync(10);
+
+        // Assert: NACK は low の SSRC 宛てで 502 だけを要求する。
+        const nacks = sentNacks();
+        expect(nacks.length).toBeGreaterThan(0);
+        for (const nack of nacks) {
+          expect(nack.mediaSourceSsrc).toBe(low.ssrc);
+          expect(nack.lost).toEqual([502]);
+        }
+
+        // Act: low の 502 を RTX で受ける。
+        router.routeRtp(
+          createSimulcastRtxPacket(
+            createSimulcastMediaPacket({ ssrc: low.ssrc, sequenceNumber: 502 }),
+            { rtxSsrc: low.rtxSsrc, rtxSequenceNumber: 1, rrid: low.rid },
+          ),
+        );
+        const sent = sentNacks().length;
+        await vi.advanceTimersByTimeAsync(20);
+
+        // Assert: ロスが解消され、以降 NACK は送られない。
+        expect(sentNacks().length).toBe(sent);
+        receiver.stop();
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 });

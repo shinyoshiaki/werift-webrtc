@@ -24,7 +24,7 @@ import { codecParametersFromString } from "../sdp";
 import type { RTCDtlsTransport } from "../transport/dtls";
 import type { Kind } from "../types/domain";
 import { compactNtp, ntpTimeToEpochMs, timestampSeconds } from "../utils";
-import { deliveredTrackCodec } from "./codecCompatibility";
+import { primaryTrackCodec } from "./codecCompatibility";
 import { usePLI, useTWCC } from "./extension/rtcpFeedback";
 import type {
   RTCRtpCodecParameters,
@@ -69,6 +69,16 @@ export class RTCRtpReceiver {
   private readonly stagedSsrcByRtx: { [rtxSsrc: number]: number } = {};
   /** SSRCs of `trackBySSRC` learned from RID packets rather than SDP. */
   readonly learnedTrackSsrcs = new Set<number>();
+  /**
+   * Simulcast RTX without `a=ssrc-group:FID` (RFC 8852): the media SSRC of
+   * each RID, learned from packets carrying `rtp-stream-id`, and the RID each
+   * RTX SSRC repairs, learned from `repaired-rtp-stream-id`. The pair resolves
+   * an RTX SSRC to its media SSRC when {@link ssrcByRtx} (SDP) has no entry.
+   * Packet-driven live state like {@link learnedTrackSsrcs}: a negotiation
+   * (commit, rollback, `resyncCodecs`) keeps it, a later packet updates it.
+   */
+  readonly ssrcByRid: { [rid: string]: number } = {};
+  readonly ridByRtxSsrc: { [rtxSsrc: number]: string } = {};
   private readonly nack = new NackHandler(this);
   private readonly audioRedHandler = new RedHandler();
 
@@ -325,11 +335,7 @@ export class RTCRtpReceiver {
     clearTable(this.codecs);
     clearTable(this.ssrcByRtx);
     this.prepareReceive(params);
-    const codec = deliveredTrackCodec(
-      this.kind,
-      params.codecs[0],
-      params.codecs,
-    );
+    const codec = primaryTrackCodec(this.kind, params.codecs);
     if (codec) {
       for (const track of this.tracks) track.codec = codec;
     }
@@ -435,6 +441,8 @@ export class RTCRtpReceiver {
 
     this.releaseReceiverTWCC();
     this.nack.close();
+    replaceTable(this.ssrcByRid, {});
+    clearTable(this.ridByRtxSsrc);
   }
 
   /**transceiver の停止確定時に remote track を ended にする */
@@ -700,13 +708,43 @@ export class RTCRtpReceiver {
 
   handleRtpByRid = (packet: RtpPacket, rid: string, extensions: Extensions) => {
     const track = this.trackByRID[rid];
-    if (!this.trackBySSRC[packet.header.ssrc]) {
-      this.trackBySSRC[packet.header.ssrc] = track;
-      this.learnedTrackSsrcs.add(packet.header.ssrc);
+    const { ssrc } = packet.header;
+    if (track && !this.trackBySSRC[ssrc]) {
+      this.trackBySSRC[ssrc] = track;
+      this.learnedTrackSsrcs.add(ssrc);
+    }
+    if (track && !isRtxCodec(this.codecs[packet.header.payloadType])) {
+      this.ssrcByRid[rid] = ssrc;
     }
 
     this.handleRTP(packet, extensions, track);
   };
+
+  /**
+   * An RTX packet that names the RID it repairs (`repaired-rtp-stream-id`).
+   * The RTX SSRC is bound to that RID; the packet is restored once the RID's
+   * media SSRC is known (until then it is dropped, see {@link handleRTP}).
+   */
+  handleRtxByRid = (
+    packet: RtpPacket,
+    repairedRid: string,
+    extensions: Extensions,
+  ) => {
+    if (!this.trackByRID[repairedRid]) {
+      log("repaired rid has no track", repairedRid);
+      return;
+    }
+    this.ridByRtxSsrc[packet.header.ssrc] = repairedRid;
+    this.handleRTP(packet, extensions);
+  };
+
+  /** Media SSRC an RTX SSRC repairs: SDP pairing first, then the learned RID. */
+  private mediaSsrcOfRtx(rtxSsrc: number): number | undefined {
+    const bySdp = this.ssrcByRtx[rtxSsrc];
+    if (bySdp !== undefined) return bySdp;
+    const rid = this.ridByRtxSsrc[rtxSsrc];
+    return rid === undefined ? undefined : this.ssrcByRid[rid];
+  }
 
   private handleRTP(
     packet: RtpPacket,
@@ -733,9 +771,14 @@ export class RTCRtpReceiver {
       ? RtpReceivePacketType.padding
       : RtpReceivePacketType.media;
     let mediaCodec = codec;
-    if (codec.name.toLowerCase() === "rtx") {
+    if (isRtxCodec(codec)) {
       const codecParams = codecParametersFromString(codec.parameters ?? "");
-      mediaCodec = this.codecs[codecParams.apt] ?? codec;
+      const aptCodec = this.codecs[codecParams.apt];
+      if (!aptCodec) {
+        log("rtx apt codec not found", { apt: codecParams.apt });
+        return;
+      }
+      mediaCodec = aptCodec;
     }
 
     if (hasFeedback(mediaCodec, useTWCC().type)) {
@@ -754,11 +797,15 @@ export class RTCRtpReceiver {
 
     // RTCP feedback follows the codec this packet was negotiated with, not
     // whichever payload type happens to sort first in the receive table.
-    if (codec.name.toLowerCase() === "rtx") {
-      const originalSsrc = this.ssrcByRtx[packet.header.ssrc];
+    if (isRtxCodec(codec)) {
       // Padding-only RTX (probe / bandwidth padding) carries no original
       // packet: TWCC above already observed it, nothing is delivered.
       if (packet.payload.length < 2) return;
+      const originalSsrc = this.mediaSsrcOfRtx(packet.header.ssrc);
+      if (originalSsrc === undefined) {
+        log("rtx media ssrc not resolved", { rtxSsrc: packet.header.ssrc });
+        return;
+      }
 
       packet = unwrapRtx(packet, mediaCodec.payloadType, originalSsrc);
       track = this.trackBySSRC[originalSsrc];
@@ -918,6 +965,10 @@ function extendRtpSequence(seq: number, lastExt: number | undefined): number {
     roc -= 1;
   }
   return roc * 0x10000 + seq16;
+}
+
+function isRtxCodec(codec: RTCRtpCodecParameters | undefined) {
+  return codec?.name.toLowerCase() === "rtx";
 }
 
 function clearTable(table: Record<number, unknown>) {
