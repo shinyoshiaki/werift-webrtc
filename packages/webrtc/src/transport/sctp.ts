@@ -257,6 +257,22 @@ export class RTCSctpTransport {
   }
 
   dataChannelOpen(channel: RTCDataChannel) {
+    // Label / Protocol Length are byte counts of the UTF-8 fields (RFC 8832
+    // 5.1), so they come from the encoded buffers, not from string.length.
+    // Validate before touching any state so a failure leaves the ID free.
+    const label = Buffer.from(channel.label, "utf8");
+    const protocol = Buffer.from(channel.protocol, "utf8");
+    if (label.length > 0xffff) {
+      throw new RangeError(
+        `Data channel label is ${label.length} bytes in UTF-8; the maximum is 65535`,
+      );
+    }
+    if (protocol.length > 0xffff) {
+      throw new RangeError(
+        `Data channel protocol is ${protocol.length} bytes in UTF-8; the maximum is 65535`,
+      );
+    }
+
     if (channel.id !== undefined) {
       if (this.dataChannels[channel.id])
         throw new Error(
@@ -288,10 +304,6 @@ export class RTCSctpTransport {
 
     // 5.1.  DATA_CHANNEL_OPEN Message
     // !BBHLHH — message type / channel type / priority / reliability / label len / protocol len
-    // Label / Protocol Length are byte counts of the UTF-8 fields (RFC 8832
-    // 5.1), so they come from the encoded buffers, not from string.length.
-    const label = Buffer.from(channel.label, "utf8");
-    const protocol = Buffer.from(channel.protocol, "utf8");
     const data = Buffer.allocUnsafe(12);
     data.writeUInt8(DATA_CHANNEL_OPEN, 0);
     data.writeUInt8(channelType, 1);

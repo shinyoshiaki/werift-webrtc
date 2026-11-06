@@ -282,4 +282,48 @@ describe("RTCSctpTransportTest", () => {
       await Promise.all([client.stop(), server.stop()]);
     },
   );
+
+  test.each([
+    {
+      name: "label",
+      // "あ" は 3 バイトなので 21846 文字 = 65538 バイトで 16 ビットを超える。
+      parameters: { label: "あ".repeat(21846), protocol: "" },
+    },
+    {
+      name: "protocol",
+      parameters: { label: "ok", protocol: "あ".repeat(21846) },
+    },
+  ])(
+    "DATA_CHANNEL_OPEN rejects an over-long $name without registering the ID",
+    async ({ parameters }) => {
+      // Arrange: SCTP association を確立し、client が送る DCEP を記録する。
+      const { client, server } = await connectedPair();
+      const dcep = captureDcep(client);
+
+      // Act: UTF-8 で 65535 バイトを超える値を ID 指定で作成する。
+      const create = () =>
+        new RTCDataChannel(
+          client,
+          new RTCDataChannelParameters({ ...parameters, id: 42 }),
+        );
+
+      // Assert: RangeError で失敗し、OPEN は送られない。
+      expect(create).toThrow(RangeError);
+      expect(dcep).toHaveLength(0);
+
+      // Act: 同じ ID で有効な label を使って作り直す。
+      const remote = server.onDataChannel.asPromise();
+      const retry = new RTCDataChannel(
+        client,
+        new RTCDataChannelParameters({ label: "retry", id: 42 }),
+      );
+      const [received] = await remote;
+
+      // Assert: ID が解放されており、作り直したチャネルが相手側に届く。
+      expect(retry.id).toBe(42);
+      expect(received.label).toBe("retry");
+
+      await Promise.all([client.stop(), server.stop()]);
+    },
+  );
 });
