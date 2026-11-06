@@ -290,4 +290,68 @@ describe("PR-SCTP lifetime (expiry) abandonment", () => {
     // Assert: 折り返しでも期待 SSN は 0 のまま進まない/戻らない
     expect(server.getInboundStream(2).streamSequenceNumber).toBe(0);
   });
+  test("delivers a following message that was received and acked while the expired message is skipped", async () => {
+    // Arrange: 失効する A の DATA だけを破棄し、後続の B は正常に届く状態にする
+    const pair = await createLossyPrSctpPair();
+    stop = pair.stop;
+    const received: Buffer[] = [];
+    pair.server.onReceive.subscribe((_streamId, _ppId, data) => {
+      received.push(data);
+    });
+    pair.recorder.dropData = true;
+    await pair.client.send(0, 53, Buffer.from("A"), {
+      expiry: Date.now() + 100,
+      ordered: true,
+    });
+    pair.recorder.dropData = false;
+
+    // Act: B を送信し (ギャップ SACK で確認済みになる)、A の失効と T3-rtx まで時間を進める
+    await pair.client.send(0, 53, Buffer.from("B"), { ordered: true });
+    await flushImmediates();
+    const sentQueue: DataChunk[] = [...(pair.client as any).sentQueue];
+    const b = sentQueue.find((c) => c.userData.toString() === "B")!;
+    // Assert: B は確認済みで、順序待ちのため未配送
+    expect(b.acked).toBe(true);
+    expect(received).toEqual([]);
+    await vi.advanceTimersByTimeAsync(PAST_T3_MS);
+    await flushImmediates();
+
+    // Assert: B は失効扱いにならず、FORWARD-TSN で A だけが飛ばされ B が配送される
+    expect(b.abandoned).toBe(false);
+    expect(received.map((d) => d.toString())).toEqual(["B"]);
+  });
+
+  test("keeps a complete ordered message whose TSN is inside the FORWARD-TSN range", async () => {
+    // Arrange: A1 A3(A2 欠落) と完全な B を受信済みにする
+    const pair = await createLossyPrSctpPair();
+    stop = pair.stop;
+    const server = pair.server as any;
+    const received: Buffer[] = [];
+    pair.server.onReceive.subscribe((_streamId, _ppId, data) => {
+      received.push(data);
+    });
+    const base: number = server.lastReceivedTsn;
+    const make = (offset: number, ssn: number, flags: number, data: string) => {
+      const chunk = new DataChunk(0, undefined);
+      chunk.tsn = (base + offset) % 0x100000000;
+      chunk.streamId = 0;
+      chunk.streamSeqNum = ssn;
+      chunk.protocol = 53;
+      chunk.flags = flags;
+      chunk.userData = Buffer.from(data);
+      return chunk;
+    };
+    server.receiveDataChunk(make(1, 0, 0x02, "A1"));
+    server.receiveDataChunk(make(3, 0, 0x01, "A3"));
+    server.receiveDataChunk(make(4, 1, 0x03, "B"));
+
+    // Act: B の TSN まで含む累積 TSN で A のみを飛ばす FORWARD-TSN を受信する
+    const forward = new ForwardTsnChunk(0, undefined);
+    forward.cumulativeTsn = (base + 4) % 0x100000000;
+    forward.streams = [[0, 0]];
+    server.receiveForwardTsnChunk(forward);
+
+    // Assert: B が破棄されず配送される
+    expect(received.map((d) => d.toString())).toEqual(["B"]);
+  });
 });

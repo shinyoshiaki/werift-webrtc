@@ -34,6 +34,7 @@ import {
   random32,
   uint16Add,
   uint16Gt,
+  uint16Gte,
   uint32Gt,
   uint32Gte,
 } from "./imports/common";
@@ -811,13 +812,7 @@ export class SCTP {
     this.sackDuplicates = this.sackDuplicates.filter(isObsolete);
     this.sackMisOrdered = new Set([...this.sackMisOrdered].filter(isObsolete));
 
-    // # drop chunks covered by the FORWARD-TSN itself. Chunks received beyond
-    // it (already contiguous via sackMisOrdered) are kept so they can be delivered.
-    for (const inboundStream of Object.values(this.inboundStreams)) {
-      this.advertisedRwnd += inboundStream.pruneChunks(chunk.cumulativeTsn);
-    }
-
-    // # update reassembly
+    // # update reassembly (RFC 3758 3.6)
     for (const [streamId, streamSeqNum] of chunk.streams) {
       const inboundStream = this.getInboundStream(streamId);
 
@@ -828,10 +823,20 @@ export class SCTP {
       if (uint16Gt(nextSsn, inboundStream.streamSequenceNumber)) {
         inboundStream.streamSequenceNumber = nextSsn;
       }
+      // Drop only the skipped ordered messages (incomplete or not). Later
+      // messages, even with TSNs inside the FORWARD-TSN range, stay deliverable.
+      this.advertisedRwnd += inboundStream.skipOrderedMessages(streamSeqNum);
       for (const message of inboundStream.popMessages()) {
         this.advertisedRwnd += message[2].length;
         this.receive(...message);
       }
+    }
+
+    // # unordered chunks covered by the cumulative TSN will never complete
+    for (const inboundStream of Object.values(this.inboundStreams)) {
+      this.advertisedRwnd += inboundStream.pruneUnorderedChunks(
+        chunk.cumulativeTsn,
+      );
     }
   }
 
@@ -1381,6 +1386,9 @@ export class SCTP {
 
   private maybeAbandon(chunk: DataChunk): boolean {
     if (chunk.abandoned) return true;
+    // The peer already holds an acked chunk (gap SACK); abandoning it would
+    // make the FORWARD-TSN discard data the receiver could deliver.
+    if (chunk.acked) return false;
     const abandon =
       (!!chunk.maxRetransmits && chunk.maxRetransmits < chunk.sentCount!) ||
       (chunk.expiry !== undefined && chunk.expiry <= Date.now());
@@ -1651,6 +1659,35 @@ export class InboundStream {
       }
       expectedTsn = tsnPlusOne(expectedTsn);
     }
+  }
+
+  /** Removes ordered chunks of messages with SSN up to `ssn` (skipped by FORWARD-TSN). */
+  skipOrderedMessages(ssn: number) {
+    let size = 0;
+    this.reassembly = this.reassembly.filter((chunk) => {
+      if (
+        !(chunk.flags & SCTP_DATA_UNORDERED) &&
+        uint16Gte(ssn, chunk.streamSeqNum)
+      ) {
+        size += chunk.userData.length;
+        return false;
+      }
+      return true;
+    });
+    return size;
+  }
+
+  /** Removes unordered chunks with TSN up to `tsn`. */
+  pruneUnorderedChunks(tsn: number) {
+    let size = 0;
+    this.reassembly = this.reassembly.filter((chunk) => {
+      if (chunk.flags & SCTP_DATA_UNORDERED && uint32Gte(tsn, chunk.tsn)) {
+        size += chunk.userData.length;
+        return false;
+      }
+      return true;
+    });
+    return size;
   }
 
   pruneChunks(tsn: number) {
