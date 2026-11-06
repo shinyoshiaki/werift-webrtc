@@ -204,8 +204,8 @@ export function parseMessage(
   }
 
   const message = new Message(
-    messageType & 0x3eef,
-    messageType & 0x0110,
+    (messageType & 0x3eef) as methods,
+    (messageType & 0x0110) as classes,
     transactionId,
     attributeRepository.getAttributes(),
     [],
@@ -217,16 +217,26 @@ export function parseMessage(
 }
 
 export class Message extends AttributeRepository {
+  public messageMethod: methods;
+  public messageClass: classes;
+  public transactionId: Buffer;
+  /** Every ALTERNATE-SERVER attribute, in wire order. */
+  public alternateServers: [string, number][];
+
   constructor(
-    public messageMethod: methods,
-    public messageClass: classes,
-    public transactionId: Buffer = randomBytes(12),
+    messageMethod: methods,
+    messageClass: classes,
+    transactionId: Buffer = randomBytes(12),
     attributes: AttributePair[] = [],
     rawAttributes: RawAttribute[] = [],
-    /** Every ALTERNATE-SERVER attribute, in wire order. */
-    public alternateServers: [string, number][] = [],
+    alternateServers: [string, number][] = [],
   ) {
     super(attributes);
+    this.messageMethod = messageMethod;
+    this.messageClass = messageClass;
+    this.transactionId = transactionId;
+    this.rawAttributes = rawAttributes;
+    this.alternateServers = alternateServers;
     setRawAttributeList(this, rawAttributes);
     setMessageWireAttributes(this, [
       ...attributes.map(

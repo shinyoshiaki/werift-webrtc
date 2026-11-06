@@ -22,12 +22,11 @@ import { Flight } from "../flight";
 const log = debug("werift-dtls : packages/dtls/flight/server/flight6.ts");
 
 export class Flight6 extends Flight {
-  constructor(
-    udp: TransportContext,
-    dtls: DtlsContext,
-    private cipher: CipherContext,
-  ) {
+  private cipher: CipherContext;
+
+  constructor(udp: TransportContext, dtls: DtlsContext, cipher: CipherContext) {
     super(udp, dtls, 6);
+    this.cipher = cipher;
   }
 
   handleHandshake(handshake: FragmentedHandshake) {

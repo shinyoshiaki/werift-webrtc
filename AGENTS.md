@@ -38,7 +38,7 @@ Rules that apply to one package or directory belong in the nearest `AGENTS.md`.
 
 ## Don't
 
-* Don't reintroduce third-party TypeScript runners such as `tsx`. Run TypeScript with `node --experimental-transform-types --import <rel>/tools/node-ts/register.mjs` (Node.js 22.18+, see `devEngines`).
+* Don't reintroduce third-party TypeScript runners such as `tsx`. Run TypeScript with `node --import <rel>/tools/node-ts/register.mjs` (Node.js type stripping, Node.js 22.18+, see `devEngines`). Node.js 26 removed the TypeScript transform mode, so don't add transform flags or loaders back and keep sources erasable: no `enum` (use an `as const` object plus a same-name union type tagged `@enum`) and no parameter properties. `erasableSyntaxOnly` in each tsconfig enforces this.
 * Don't add multi-level class inheritance in `packages/dtls/src/engine/v1_3` (see that directory's `AGENTS.md`).
 * Don't stop test servers or browsers with pattern-based kills (`pkill -f`, `killall`); they can match the agent's own shell. Stop them by PID or through the runner's stop path.
 * Don't end a turn while a background test or build you started is still running, unless you report it as unfinished.

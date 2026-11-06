@@ -42,8 +42,6 @@
 
 \[`string`, `number`\][] = `[]`
 
-Every ALTERNATE-SERVER attribute, in wire order.
-
 #### Returns
 
 `Message`
@@ -56,7 +54,7 @@ Every ALTERNATE-SERVER attribute, in wire order.
 
 ### alternateServers
 
-> **alternateServers**: \[`string`, `number`\][] = `[]`
+> **alternateServers**: \[`string`, `number`\][]
 
 Every ALTERNATE-SERVER attribute, in wire order.
 
@@ -64,7 +62,7 @@ Every ALTERNATE-SERVER attribute, in wire order.
 
 ### attributes
 
-> `protected` **attributes**: `AttributePair`[] = `[]`
+> `protected` **attributes**: `AttributePair`[]
 
 #### Inherited from
 

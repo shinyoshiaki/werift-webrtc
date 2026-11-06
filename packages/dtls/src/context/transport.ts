@@ -5,6 +5,8 @@ import {
 } from "../imports/common";
 
 export class TransportContext {
+  public socket: Transport;
+
   /**
    * Association-owned peer destination for DTLS 1.2 TX.
    * When set, {@link send} without an explicit addr uses this tuple instead of
@@ -15,7 +17,9 @@ export class TransportContext {
   /** Aborted by `close()`: a flight waiting to retransmit stops. */
   private readonly closing = new AbortController();
 
-  constructor(public socket: Transport) {}
+  constructor(socket: Transport) {
+    this.socket = socket;
+  }
 
   readonly send = (buf: Buffer, addr?: Address) => {
     return this.socket.send(buf, addr ?? this.pinnedPeer);

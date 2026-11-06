@@ -83,6 +83,9 @@ export type DtlsSendRtpResult = {
 };
 export class RTCDtlsTransport implements DtlsTransportStats {
   readonly config: DtlsTransportConfig;
+  readonly iceTransport: RTCIceTransport;
+  public localCertificate?: RTCCertificate;
+  private readonly srtpProfiles: SrtpProfile[];
   id = randomUUID().toString();
   state: DtlsState = "new";
   role: DtlsRole = "auto";
@@ -166,10 +169,13 @@ export class RTCDtlsTransport implements DtlsTransportStats {
 
   constructor(
     config: DtlsTransportConfig,
-    readonly iceTransport: RTCIceTransport,
-    public localCertificate?: RTCCertificate,
-    private readonly srtpProfiles: SrtpProfile[] = [],
+    iceTransport: RTCIceTransport,
+    localCertificate?: RTCCertificate,
+    srtpProfiles: SrtpProfile[] = [],
   ) {
+    this.iceTransport = iceTransport;
+    this.localCertificate = localCertificate;
+    this.srtpProfiles = srtpProfiles;
     // Keep the transport-local policy independent from the caller's mutable
     // PeerConfig object. setConfiguration() updates this copy explicitly.
     this.config = {

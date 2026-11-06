@@ -73,7 +73,7 @@ npm run test:sim:netns
 
 - Docker が使え、`--privileged` のコンテナを起動できること（network namespace・veth・`tc` をコンテナ内で作るため）。ホストのネットワーク設定は変更しません。
 - repo の依存がホストでインストール済みであること（コンテナは repo をマウントしてそのまま使います）。
-- 初回は公式イメージ `mcr.microsoft.com/playwright:v<e2e の Playwright の版>-noble` を取得し、`iproute2` と Node 24 を足したイメージ `werift-e2e-netns:<版>` を作ります（2 回目以降はキャッシュ）。Node 24 を入れるのは、Playwright イメージ既定の Node 26 に `--experimental-transform-types` が無いためです。
+- 初回は公式イメージ `mcr.microsoft.com/playwright:v<e2e の Playwright の版>-noble` を取得し、`iproute2` と Node 24 を足したイメージ `werift-e2e-netns:<版>` を作ります（2 回目以降はキャッシュ）。Node 24 に固定しているのは、このシミュレーションを Node 24 でしか検証していないためです（TypeScript 実行に追加フラグは不要です）。
 
 ### 構成
 

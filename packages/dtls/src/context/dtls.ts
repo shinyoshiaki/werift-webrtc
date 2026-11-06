@@ -9,6 +9,9 @@ import type { Handshake } from "../typings/domain";
 const log = debug("werift-dtls : packages/dtls/src/context/dtls.ts : log");
 
 export class DtlsContext {
+  public options: Options;
+  public sessionType: SessionTypes;
+
   version = { major: 255 - 1, minor: 255 - 2 };
 
   lastFlight: Handshake[] = [];
@@ -71,10 +74,10 @@ export class DtlsContext {
   private flightTimers = new Set<ReturnType<typeof setTimeout>>();
   private flightSleepResolvers = new Set<() => void>();
 
-  constructor(
-    public options: Options,
-    public sessionType: SessionTypes,
-  ) {}
+  constructor(options: Options, sessionType: SessionTypes) {
+    this.options = options;
+    this.sessionType = sessionType;
+  }
 
   /**
    * Association-owned cancelable sleep (replaces bare timers/promises setTimeout

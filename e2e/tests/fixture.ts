@@ -589,11 +589,14 @@ export async function getPeerConnectionDiagnostics(
 }
 
 export class Counter {
+  private times: number;
+  private finished: () => void;
+
   private now = 0;
-  constructor(
-    private times: number,
-    private finished: () => void,
-  ) {}
+  constructor(times: number, finished: () => void) {
+    this.times = times;
+    this.finished = finished;
+  }
 
   done() {
     if (++this.now === this.times) {

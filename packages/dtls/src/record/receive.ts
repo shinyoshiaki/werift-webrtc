@@ -2,7 +2,7 @@ import type { CipherContext } from "../context/cipher";
 import type { DtlsContext } from "../context/dtls";
 import { Alert } from "../handshake/message/alert";
 import { debug } from "../imports/common";
-import { AlertDesc, ContentType } from "./const";
+import { alertDescName, ContentType } from "./const";
 import { FragmentedHandshake } from "./message/fragment";
 import { DtlsPlaintext } from "./message/plaintext";
 
@@ -88,10 +88,13 @@ export const parsePlainText =
         // (dual probing distinguishes epoch-0 vs epoch≥1 suppress filters);
         // post-handshake lifecycle ignores unauthenticated epoch-0 at socket.
         let alert: Alert;
+        let triedDecrypt = false;
         if (plain.recordLayerHeader.epoch > 0 && dtls.epoch > 0) {
+          triedDecrypt = true;
           const dec = cipher.decryptPacket(plain);
           alert = Alert.deSerialize(dec);
         } else if (plain.recordLayerHeader.epoch > 0 && dtls.epoch === 0) {
+          triedDecrypt = true;
           try {
             const dec = cipher.decryptPacket(plain);
             alert = Alert.deSerialize(dec);
@@ -102,11 +105,15 @@ export const parsePlainText =
         } else {
           alert = Alert.deSerialize(plain.fragment);
         }
+        if (!triedDecrypt && alertDescName(alert.description) === undefined) {
+          const dec = cipher.decryptPacket(plain);
+          alert = Alert.deSerialize(dec);
+        }
         err(
           dtls.sessionId,
           "ContentType.alert",
           alert,
-          AlertDesc[alert.description],
+          alertDescName(alert.description),
           "flight",
           dtls.flight,
           "lastFlight",

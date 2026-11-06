@@ -353,10 +353,13 @@ export class RtpHeader {
 }
 
 export class RtpPacket {
-  constructor(
-    public header: RtpHeader,
-    public payload: Buffer,
-  ) {}
+  public header: RtpHeader;
+  public payload: Buffer;
+
+  constructor(header: RtpHeader, payload: Buffer) {
+    this.header = header;
+    this.payload = payload;
+  }
 
   get serializeSize() {
     const paddingBytes = this.header.padding ? this.header.paddingSize : 0;

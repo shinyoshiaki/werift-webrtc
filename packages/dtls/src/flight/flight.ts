@@ -13,6 +13,11 @@ const flightTypes = ["PREPARING", "SENDING", "WAITING", "FINISHED"] as const;
 type FlightType = (typeof flightTypes)[number];
 
 export abstract class Flight {
+  private transport: TransportContext;
+  public dtls: DtlsContext;
+  private flight: number;
+  private nextFlight?: number | undefined;
+
   state: FlightType = "PREPARING";
   static RetransmitCount = 10;
   /**
@@ -28,11 +33,15 @@ export abstract class Flight {
   private sendGeneration: number;
 
   constructor(
-    private transport: TransportContext,
-    public dtls: DtlsContext,
-    private flight: number,
-    private nextFlight?: number,
+    transport: TransportContext,
+    dtls: DtlsContext,
+    flight: number,
+    nextFlight?: number,
   ) {
+    this.transport = transport;
+    this.dtls = dtls;
+    this.flight = flight;
+    this.nextFlight = nextFlight;
     this.sendGeneration = dtls.flightTxGeneration;
   }
 

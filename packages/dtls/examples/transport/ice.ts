@@ -3,10 +3,13 @@ import type { Address, Transport } from "../../../common/src";
 import type { Connection } from "../../../ice/src";
 
 export class IceTransport implements Transport {
+  private ice: Connection;
+
   closed: boolean = false;
   /** ICE selected pair is peer-authenticated (no UDP 5-tuple on RX). */
   readonly peerAuthenticated = true;
-  constructor(private ice: Connection) {
+  constructor(ice: Connection) {
+    this.ice = ice;
     ice.onData.subscribe((buf) => {
       if (this.onData) this.onData(buf);
     });

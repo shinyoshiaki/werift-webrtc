@@ -156,6 +156,8 @@ type StagedLocalRestart = {
  * dropped at the commit, so RTP pauses until the new generation nominates.
  */
 export class RTCIceTransport {
+  private iceGather: RTCIceGatherer;
+
   readonly id = randomUUID().toString();
   connection: IceConnection;
   state: RTCIceConnectionState = "new";
@@ -212,7 +214,8 @@ export class RTCIceTransport {
   readonly onIceCandidate = new Event<[IceCandidate | undefined]>();
   readonly onNegotiationNeeded = new Event<[]>();
 
-  constructor(private iceGather: RTCIceGatherer) {
+  constructor(iceGather: RTCIceGatherer) {
+    this.iceGather = iceGather;
     this.connection = this.iceGather.connection;
     this.connection.stateChanged.subscribe((state) => {
       this.setState(state);
@@ -932,13 +935,16 @@ export const IceGathererStates = ["new", "gathering", "complete"] as const;
 export type IceGathererState = (typeof IceGathererStates)[number];
 
 export class RTCIceGatherer {
+  private options: Partial<IceOptions>;
+
   onIceCandidate: (candidate: IceCandidate | undefined) => void = () => {};
   gatheringState: IceGathererState = "new";
   readonly connection: IceConnection;
 
   readonly onGatheringStateChange = new Event<[IceGathererState]>();
 
-  constructor(private options: Partial<IceOptions> = {}) {
+  constructor(options: Partial<IceOptions> = {}) {
+    this.options = options;
     this.connection = new Connection(false, this.options);
     this.connection.onIceCandidate.subscribe((candidate) => {
       this.onIceCandidate(candidateFromIce(candidate));
@@ -1133,6 +1139,16 @@ export class RTCIceCandidate implements RTCIceCandidateFields {
 }
 
 export class IceCandidate {
+  public component: number;
+  public foundation: string;
+  public ip: string;
+  public port: number;
+  public priority: number;
+  public protocol: string;
+  public type: string;
+  public generation?: number | undefined;
+  public ufrag?: string | undefined;
+
   // """
   // The :class:`RTCIceCandidate` interface represents a candidate Interactive
   // Connectivity Establishment (ICE) configuration which may be used to
@@ -1145,16 +1161,26 @@ export class IceCandidate {
   public tcpType?: string;
 
   constructor(
-    public component: number,
-    public foundation: string,
-    public ip: string,
-    public port: number,
-    public priority: number,
-    public protocol: string,
-    public type: string,
-    public generation?: number,
-    public ufrag?: string,
-  ) {}
+    component: number,
+    foundation: string,
+    ip: string,
+    port: number,
+    priority: number,
+    protocol: string,
+    type: string,
+    generation?: number,
+    ufrag?: string,
+  ) {
+    this.component = component;
+    this.foundation = foundation;
+    this.ip = ip;
+    this.port = port;
+    this.priority = priority;
+    this.protocol = protocol;
+    this.type = type;
+    this.generation = generation;
+    this.ufrag = ufrag;
+  }
 
   /** The parsed fields are validated from these typed values, not by reparsing. */
   toJSON(): RTCIceCandidate {

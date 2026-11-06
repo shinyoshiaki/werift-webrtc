@@ -9,6 +9,17 @@ export type MuteInput = DepacketizerOutput;
 export type MuteOutput = MuteInput;
 
 export class MuteHandlerBase implements Processor<MuteInput, MuteOutput> {
+  private output: (o: MuteOutput) => void;
+  private props: {
+    ptime: number;
+    dummyPacket: Buffer;
+    /**ms
+     * @description intervalごとに無音区間に空パケットを挿入する
+     */
+    interval: number;
+    bufferLength: number;
+  };
+
   readonly id = randomUUID().toString();
   private buffer: CodecFrame[][];
   private index = 0;
@@ -27,8 +38,8 @@ export class MuteHandlerBase implements Processor<MuteInput, MuteOutput> {
   private lastFrameReceivedAt = 0;
 
   constructor(
-    private output: (o: MuteOutput) => void,
-    private props: {
+    output: (o: MuteOutput) => void,
+    props: {
       ptime: number;
       dummyPacket: Buffer;
       /**ms
@@ -38,6 +49,8 @@ export class MuteHandlerBase implements Processor<MuteInput, MuteOutput> {
       bufferLength: number;
     },
   ) {
+    this.output = output;
+    this.props = props;
     this.interval = props.interval;
     this.bufferDuration = this.interval / 2;
     this.bufferLength = this.props.bufferLength * 2;

@@ -22,10 +22,6 @@
 
 readonly \[`string`, `number`\]
 
-TURN server the allocation is made on; the host may be a hostname.
-Starts as the configured server and becomes the ALTERNATE-SERVER when
-an Allocate is redirected with 300 (Try Alternate).
-
 ##### username
 
 `string`
@@ -144,7 +140,7 @@ required to route handshake DTLS to the matching CandidatePair.
 
 ### options
 
-> **options**: `object` = `{}`
+> **options**: `object`
 
 #### channelRefreshTime?
 

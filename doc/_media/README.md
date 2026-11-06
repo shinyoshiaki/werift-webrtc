@@ -283,7 +283,11 @@ If you are contributing to werift itself, initialize the pinned upstream Web Pla
 git submodule update --init --recursive
 ```
 
-The repository-level and core protocol package metadata declare Node.js 22 or newer. GitHub Actions validates Node.js 24, which is also required by the opt-in memory-leak harness.
+Node.js version requirements:
+
+- **Using the published packages:** the published `werift` package and the core protocol packages declare Node.js 22 or newer.
+- **Developing in this repository:** running the repository's TypeScript sources directly (`node --import ./tools/node-ts/register.mjs ...`) relies on Node.js type stripping, so it needs Node.js 22.18 or newer (`devEngines`). Sources are kept erasable (no `enum`, no parameter properties), so no extra Node.js flags are needed and Node.js 26 works.
+- **CI:** GitHub Actions builds and tests on Node.js 24 and 26; the `mediasoup-interop` job runs on Node.js 24 only. The `integration/werift-mediasoup-interop` submodule still passes the removed flag in its own scripts (to be handled in its own repository); if `WERIFT_REPO_ROOT` points at an older werift checkout (which still contains `enum`), run it on Node.js 24, where that flag still works. Node.js 24 or newer is also required by the opt-in memory-leak harness.
 
 ## Roadmap
 

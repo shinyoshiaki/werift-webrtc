@@ -326,7 +326,7 @@ prepare_tls_material() {
 }
 
 start_werift_server() {
-  node --experimental-transform-types \
+  node \
     --disable-warning=ExperimentalWarning \
     --disable-warning=MODULE_TYPELESS_PACKAGE_JSON \
     --import ../../tools/node-ts/register.mjs server/main.ts &

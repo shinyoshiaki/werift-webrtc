@@ -127,6 +127,8 @@ export const createChunkQueue = (chunks: DataChunk[] = []) =>
  * macrotask (setImmediate) like a real socket would, so timers keep running.
  */
 export class MemoryTransport implements Transport {
+  private readonly drop?: (buf: Buffer, index: number) => boolean;
+
   onData?: (buf: Buffer) => void;
   peer?: MemoryTransport;
   closed = false;
@@ -135,8 +137,10 @@ export class MemoryTransport implements Transport {
 
   /** Return true to drop the packet (index = number of packets sent before). */
   constructor(
-    private readonly drop?: (buf: Buffer, index: number) => boolean,
-  ) {}
+    drop?: (buf: Buffer, index: number) => boolean,
+  ) {
+    this.drop = drop;
+  }
 
   send = async (buf: Buffer) => {
     const index = this.sentPackets++;
