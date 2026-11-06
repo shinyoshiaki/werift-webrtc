@@ -91,6 +91,26 @@ describe("lipsync", () => {
     expect(harness.output.audio[0].time).toBe(T);
   });
 
+  it("keeps frames of the drained interval that arrive after the timer start", async () => {
+    // Arrange
+    harness = createLipsyncHarness({ startTimeout: 20 });
+    harness.inputVideo(createLipsyncFrames(T, 110, 20));
+    harness.lipsync.inputVideo({
+      frame: { time: T + 130, data: Buffer.alloc(1), isKeyframe: false },
+    });
+    // Act: 期限でタイマー開始した後、同じ区間の入力が続く
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const before = harness.output.video.length;
+    harness.inputVideo(createLipsyncFrames(T + 140, 20, 20));
+    harness.inputVideo(createLipsyncFrames(T + 160, 1_500, 20));
+
+    // Assert: 時刻順にすべて出力され、取りこぼしがない
+    const times = harness.output.video.map((f) => f.time);
+    expect(before).toBeGreaterThan(0);
+    expect(times).toContain(T + 140);
+    expect(times).toEqual([...times].sort((a, b) => a - b));
+  });
+
   it("clears the start timer on stop", async () => {
     // Arrange
     harness = createLipsyncHarness({ startTimeout: 20 });

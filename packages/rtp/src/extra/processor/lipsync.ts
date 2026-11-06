@@ -259,7 +259,12 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
     while (this.currentTimestamp <= last) {
       this.executeTask();
     }
+    // the ring buffer is empty and the slot of the latest frame has been
+    // consumed: restart the slots from the next boundary, so that frames still
+    // arriving for the drained interval go to the first slot (not lost).
+    this.baseTime = this.currentTimestamp;
     this.lastExecutionTime = this.currentTimestamp;
+    this.index = 0;
   }
 
   private start(now: number) {
@@ -305,7 +310,7 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
     }
     this.lastFrameReceivedAt = now;
 
-    const elapsed = frame.time - this.baseTime!;
+    const elapsed = Math.max(0, frame.time - this.baseTime!);
     const index = int(elapsed / this.bufferDuration) % this.bufferLength;
     buffer[index].push({
       frame,
