@@ -1370,12 +1370,29 @@ export class SCTP {
       }
     }
 
+    let lastFragReached = false;
     for (let pos = chunkPos; pos < this.sentQueue.length; pos++) {
       const oChunk = this.sentQueue.at(pos)!;
       oChunk.abandoned = true;
       oChunk.retransmit = false;
       if (oChunk.flags & SCTP_DATA_LAST_FRAG) {
+        lastFragReached = true;
         break;
+      }
+    }
+
+    // The remaining fragments may still be waiting in outboundQueue (cwnd/rwnd
+    // limited). Sending them would leave the receiver with a headless message,
+    // so move them to sentQueue as abandoned without transmitting; they are then
+    // covered by the FORWARD-TSN like the rest of the message.
+    while (!lastFragReached && this.outboundQueue.length > 0) {
+      const oChunk = this.outboundQueue.shift()!;
+      oChunk.abandoned = true;
+      oChunk.retransmit = false;
+      this.sentQueue.push(oChunk);
+      this.resolveSendWaiters(oChunk);
+      if (oChunk.flags & SCTP_DATA_LAST_FRAG) {
+        lastFragReached = true;
       }
     }
 

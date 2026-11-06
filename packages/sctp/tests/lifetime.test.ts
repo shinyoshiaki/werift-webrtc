@@ -116,4 +116,46 @@ describe("PR-SCTP lifetime (expiry) abandonment", () => {
       pair.recorder.sentChunks.some((c) => c instanceof ForwardTsnChunk),
     ).toBe(false);
   });
+
+  test("abandons fragments still waiting in outboundQueue so the next ordered message is delivered", async () => {
+    // Arrange: クライアントの DATA を破棄し、輻輳ウィンドウに収まらない大きな失効メッセージを送る準備
+    const pair = await createLossyPrSctpPair();
+    stop = pair.stop;
+    pair.recorder.dropData = true;
+    const received: Buffer[] = [];
+    pair.server.onReceive.subscribe((_streamId, _ppId, data) => {
+      received.push(data);
+    });
+    const sending = pair.client.send(0, 53, Buffer.alloc(20_000, 1), {
+      expiry: Date.now() + 100,
+      ordered: true,
+    });
+    await flushImmediates();
+    const client = pair.client as any;
+    const queuedBefore = client.outboundQueue.length;
+    const lastTsn = (client.localTsn + 0xffffffff) % 0x100000000;
+
+    // Act: 寿命と T3-rtx を超えて時間を進める
+    await vi.advanceTimersByTimeAsync(PAST_T3_MS);
+    await flushImmediates();
+    await sending;
+
+    // Assert: 一部の断片が未送信だったことを前提に、未送信断片も含めて全て破棄され送信キューが空になる
+    expect(queuedBefore).toBeGreaterThan(0);
+    expect(client.outboundQueue.length).toBe(0);
+    expect(client.sentQueue.length).toBe(0);
+    // Assert: FORWARD-TSN がメッセージ最終断片の TSN まで累積 TSN を進める
+    const forwardTsn = pair.recorder.sentChunks.find(
+      (c): c is ForwardTsnChunk => c instanceof ForwardTsnChunk,
+    );
+    expect(forwardTsn?.cumulativeTsn).toBe(lastTsn);
+
+    // Act: 同じストリームで次のメッセージを送る
+    pair.recorder.dropData = false;
+    await pair.client.send(0, 53, Buffer.from("next"), { ordered: true });
+    await flushImmediates();
+
+    // Assert: 未送信断片は送られず、後続の順序付きメッセージが届く
+    expect(received.map((d) => d.toString())).toEqual(["next"]);
+  });
 });
