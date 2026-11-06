@@ -766,13 +766,14 @@ export class RTCRtpReceiver {
 
   /**
    * Media SSRC an RTX SSRC repairs: SDP pairing first, then the learned RID.
-   * An RTX SSRC is pinned to a media SSRC only when it is the single one of
-   * the RID's SSRCs whose newest sequence number the RTX's original sequence
-   * number is close behind. Neither "one SSRC known so far" nor an
-   * outstanding NACK proves the pairing: the RTX of a media SSRC that has not
-   * arrived yet, or a late original packet, would be bound to another one.
-   * Anything not single is dropped without pinning, so a later packet can
-   * still resolve it.
+   * RFC 8852 gives a RID one media SSRC, so the RID alone pairs an RTX SSRC
+   * with it. Once a RID has used a second media SSRC nothing in an unpinned
+   * RTX packet says which one it repairs (sequence numbers are per SSRC, a
+   * NACK may be outstanding on either), so such an RTX SSRC is dropped
+   * without pinning; RTX SSRCs pinned before the change keep working and the
+   * pairing is complete again after renegotiation (SDP). With one media SSRC
+   * the original sequence number must also be close behind its newest one, so
+   * an RTX of a media SSRC not seen yet is not taken for it.
    */
   private mediaSsrcOfRtx(rtx: RtpPacket): number | undefined {
     const rtxSsrc = rtx.header.ssrc;
@@ -781,15 +782,13 @@ export class RTCRtpReceiver {
     const pinned = this.pinnedMediaSsrcByRtx[rtxSsrc];
     if (pinned !== undefined) return pinned;
     const rid = this.ridByRtxSsrc[rtxSsrc];
-    if (rid === undefined) return undefined;
-    const originalSeq = rtx.payload.readUInt16BE(0);
-    const plausible = (this.mediaSsrcsByRid[rid] ?? []).filter(
-      ({ highestSeq }) =>
-        uint16Sub(highestSeq, originalSeq) <= RTX_REPAIR_WINDOW,
-    );
-    if (plausible.length !== 1) return undefined;
-    this.pinnedMediaSsrcByRtx[rtxSsrc] = plausible[0].ssrc;
-    return plausible[0].ssrc;
+    const candidates = rid === undefined ? [] : this.mediaSsrcsByRid[rid] ?? [];
+    if (candidates.length !== 1) return undefined;
+    const [{ ssrc, highestSeq }] = candidates;
+    if (uint16Sub(highestSeq, rtx.payload.readUInt16BE(0)) > RTX_REPAIR_WINDOW)
+      return undefined;
+    this.pinnedMediaSsrcByRtx[rtxSsrc] = ssrc;
+    return ssrc;
   }
 
   /** Keep the newest sequence number of the RIDs' media SSRCs current. */

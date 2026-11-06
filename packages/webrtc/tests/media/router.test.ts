@@ -791,7 +791,7 @@ describe("media/router", () => {
       expect(receiver.pinnedMediaSsrcByRtx[high.rtxSsrc]).toBeUndefined();
     });
 
-    test("媒体より先に届いた RTX は切り替え後も旧媒体に固定されず、NACK 済みの新媒体に復元される", () => {
+    test("媒体より先に届いた RTX は、切り替え後に旧媒体へ固定されず破棄される", () => {
       // Arrange: 新媒体 2000 の RTX 2001 が媒体より先に届いて破棄される。
       const { router, receiver } = createSimulcastRtxReceiver();
       const received = collectDeliveredRtp(receiver.trackByRID.high);
@@ -804,47 +804,48 @@ describe("media/router", () => {
         );
       router.routeRtp(rtxOf(1, 1));
 
-      // Act: 旧媒体 1000、新媒体 2000 の順に届き、新媒体の seq 101 が欠けて NACK 対象になる。
+      // Act: 旧媒体 1000、新媒体 2000 の順に届き、新媒体の seq 101 が欠けた後に RTX が届く。
       router.routeRtp(mediaOf(1000, 1));
       router.routeRtp(mediaOf(2000, 100));
       router.routeRtp(mediaOf(2000, 102));
       router.routeRtp(rtxOf(101, 2));
 
-      // Assert: 欠けた seq を持つ新媒体 2000 として復元される (旧媒体 1000 ではない)。
-      expect(
-        received
-          .filter((p) => p.type === "retransmission")
-          .map((p) => [p.ssrc, p.seq]),
-      ).toEqual([[2000, 101]]);
+      // Assert: 旧媒体 1000 としては復元されず、対応も固定されない。
+      expect(received.filter((p) => p.type === "retransmission")).toEqual([]);
+      expect(receiver.pinnedMediaSsrcByRtx[2001]).toBeUndefined();
       receiver.stop();
     });
 
-    test("媒体切り替え後も、新媒体の NACK 済みパケットの RTX は継続して復元される", () => {
-      // Arrange: 媒体 1000 から 5000 に切り替わり、新媒体で複数の欠落が出る。
+    test("媒体切り替え後は、切り替え前に固定済みの RTX だけが復元され、新しい RTX SSRC は破棄される", () => {
+      // Arrange: 媒体 1000 の RTX 1001 を固定してから、RID が媒体 5000 に切り替わる。
       const { router, receiver } = createSimulcastRtxReceiver();
       const received = collectDeliveredRtp(receiver.trackByRID.high);
       const mediaOf = (ssrc: number, sequenceNumber: number) =>
         createSimulcastMediaPacket({ ssrc, sequenceNumber, rid: high.rid });
-      router.routeRtp(mediaOf(1000, 1));
+      const rtxOf = (rtxSsrc: number, mediaSsrc: number, seq: number) =>
+        createSimulcastRtxPacket(
+          createSimulcastMediaPacket({ ssrc: mediaSsrc, sequenceNumber: seq }),
+          { rtxSsrc, rtxSequenceNumber: seq, rrid: high.rid },
+        );
+      router.routeRtp(mediaOf(1000, 2));
+      router.routeRtp(rtxOf(1001, 1000, 1));
       router.routeRtp(mediaOf(5000, 100));
       router.routeRtp(mediaOf(5000, 106));
 
-      // Act: 新媒体の欠落 101..105 を新しい RTX SSRC で順に再送する。
-      for (const [i, seq] of [101, 102, 103, 104, 105].entries()) {
-        router.routeRtp(
-          createSimulcastRtxPacket(
-            createSimulcastMediaPacket({ ssrc: 5000, sequenceNumber: seq }),
-            { rtxSsrc: 5001, rtxSequenceNumber: i + 1, rrid: high.rid },
-          ),
-        );
-      }
+      // Act: 旧 RTX の遅延パケットと、新しい RTX SSRC 5001 のパケットが届く。
+      router.routeRtp(rtxOf(1001, 1000, 0));
+      router.routeRtp(rtxOf(5001, 5000, 103));
 
-      // Assert: 5 パケットすべてが新媒体 5000 として届く。
+      // Assert: 旧 RTX だけが旧媒体 1000 で復元され、5001 は誤った SSRC に固定されない。
       expect(
         received
           .filter((p) => p.type === "retransmission")
           .map((p) => [p.ssrc, p.seq]),
-      ).toEqual([101, 102, 103, 104, 105].map((seq) => [5000, seq]));
+      ).toEqual([
+        [1000, 1],
+        [1000, 0],
+      ]);
+      expect(receiver.pinnedMediaSsrcByRtx[5001]).toBeUndefined();
       receiver.stop();
     });
 
@@ -867,12 +868,13 @@ describe("media/router", () => {
       router.routeRtp(mediaOf(2000, 5003));
       router.routeRtp(rtxOf(5002, 2));
 
-      // Assert: 先行 RTX は破棄され、対応は固定されず、後続の RTX は新媒体 2000 で復元される。
+      // Assert: 先行 RTX は破棄され、切り替え後の RTX も推測では復元されず、対応は固定されない。
       expect(
         received
           .filter((p) => p.type === "retransmission")
           .map((p) => [p.ssrc, p.seq]),
-      ).toEqual([[2000, 5002]]);
+      ).toEqual([]);
+      expect(receiver.pinnedMediaSsrcByRtx[2001]).toBeUndefined();
       receiver.stop();
     });
 
