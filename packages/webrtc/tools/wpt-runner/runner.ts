@@ -57,7 +57,6 @@ const repoRoot = resolve(packageDir, "..", "..");
 const wptRoot = resolve(repoRoot, "third_party", "wpt");
 const allowlistPath = resolve(packageDir, "wpt", "allowlist.json");
 const baselinePath = resolve(packageDir, "wpt", "baseline.json");
-const tsconfigPath = resolve(packageDir, "tsconfig.json");
 export const defaultReportPath = resolve(
   repoRoot,
   "coverage",
@@ -71,12 +70,7 @@ export const defaultMarkdownReportPath = resolve(
   "results.md",
 );
 const workerPath = resolve(packageDir, "tools", "wpt-runner", "worker.ts");
-const tsxPath = resolve(
-  repoRoot,
-  "node_modules",
-  ".bin",
-  process.platform === "win32" ? "tsx.cmd" : "tsx",
-);
+const registerHookPath = resolve(repoRoot, "tools/node-ts/register.mjs");
 const WORKER_RESULT_PREFIX = "__WPT_WORKER_RESULT__:";
 const USE_WORKERS = process.env.WPT_USE_WORKERS !== "0";
 const PROGRESS_MODE = process.env.WPT_PROGRESS;
@@ -359,7 +353,14 @@ async function runTargetInWorker(
   const timeoutMs = resolveWorkerTimeoutMs(resolveTimeoutProfile(target));
 
   return await new Promise<WptResultRecord[]>((resolveResult) => {
-    const worker = spawn(tsxPath, ["--tsconfig", tsconfigPath, workerPath], {
+    const worker = spawn(process.execPath, [
+      "--experimental-transform-types",
+      "--disable-warning=ExperimentalWarning",
+      "--disable-warning=MODULE_TYPELESS_PACKAGE_JSON",
+      "--import",
+      registerHookPath,
+      workerPath,
+    ], {
       cwd: packageDir,
       detached: process.platform !== "win32",
       env: {

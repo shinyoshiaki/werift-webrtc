@@ -1,4 +1,5 @@
 const { spawn } = require("node:child_process");
+const { ensureBrowsersPathEnv } = require("./ensure-browser");
 const { requestServerStop } = require("./stop");
 
 function npmCommand() {
@@ -23,6 +24,9 @@ function waitForExit(child) {
 }
 
 async function main() {
+  // Do not pass "./tests" as a path filter: vitest treats it as a substring
+  // match and would also pick up simulations/tests. Discovery is limited via
+  // vitest.config.mts include/exclude instead.
   const child = spawn(
     npmCommand(),
     [
@@ -30,13 +34,16 @@ async function main() {
       "--",
       "vitest",
       "run",
-      "./tests",
       "--browser.headless",
       "--reporter=dot",
     ],
     {
       cwd: __dirname,
-      env: process.env,
+      env: (() => {
+        const env = { ...process.env };
+        ensureBrowsersPathEnv(env);
+        return env;
+      })(),
       stdio: "inherit",
     },
   );

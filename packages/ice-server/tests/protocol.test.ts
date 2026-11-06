@@ -4,12 +4,12 @@ import { describe, expect, test } from "vitest";
 
 import type { Address } from "../../common/src";
 import {
-  Message,
-  NodeStunServer,
-  StunServerProtocol,
   classes,
+  Message,
   methods,
+  NodeStunServer,
   parseMessage,
+  StunServerProtocol,
 } from "../src";
 
 describe("StunServerProtocol", () => {

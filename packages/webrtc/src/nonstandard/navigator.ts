@@ -2,10 +2,10 @@ import { createSocket } from "dgram";
 import { RTCRtpCodecParameters } from "..";
 import { MediaStream, MediaStreamTrack } from "../media/track";
 import {
-  type DummyAudioOptions,
-  type DummyVideoOptions,
   createDummyAudioTrack,
   createDummyVideoTrack,
+  type DummyAudioOptions,
+  type DummyVideoOptions,
 } from "./dummyMedia";
 
 export class Navigator {
@@ -102,9 +102,11 @@ export class MediaDevices extends EventTarget {
     sourceTrack: MediaStreamTrack,
   ) {
     const track = new MediaStreamTrack({ kind });
-    const { unSubscribe } = sourceTrack.onReceiveRtp.subscribe((rtp) => {
-      track.onReceiveRtp.execute(rtp.clone());
-    });
+    const { unSubscribe } = sourceTrack.onReceiveRtp.subscribe(
+      (rtp, extensions, info) => {
+        track.onReceiveRtp.execute(rtp.clone(), extensions, info);
+      },
+    );
     this.attachTrackStop(track, () => {
       unSubscribe();
     });

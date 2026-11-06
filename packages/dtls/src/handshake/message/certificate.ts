@@ -25,7 +25,7 @@ export class Certificate implements Handshake {
 
   static deSerialize(buf: Buffer) {
     return new Certificate(
-      //@ts-ignore
+      //@ts-expect-error
       ...Object.values(decode(buf, Certificate.spec)),
     );
   }

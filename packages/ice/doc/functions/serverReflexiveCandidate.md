@@ -6,7 +6,7 @@
 
 # Function: serverReflexiveCandidate()
 
-> **serverReflexiveCandidate**(`protocol`, `stunServer`): `Promise`\<`undefined` \| [`Candidate`](../classes/Candidate.md)\>
+> **serverReflexiveCandidate**(`protocol`, `stunServer`): `Promise`\<[`Candidate`](../classes/Candidate.md) \| `undefined`\>
 
 ## Parameters
 
@@ -20,4 +20,4 @@ readonly \[`string`, `number`\]
 
 ## Returns
 
-`Promise`\<`undefined` \| [`Candidate`](../classes/Candidate.md)\>
+`Promise`\<[`Candidate`](../classes/Candidate.md) \| `undefined`\>

@@ -8,19 +8,19 @@
 
 ## Constructors
 
-### new RedEncoder()
+### Constructor
 
-> **new RedEncoder**(`distance`): [`RedEncoder`](RedEncoder.md)
+> **new RedEncoder**(`distance?`): `RedEncoder`
 
 #### Parameters
 
-##### distance
+##### distance?
 
 `number` = `1`
 
 #### Returns
 
-[`RedEncoder`](RedEncoder.md)
+`RedEncoder`
 
 ## Properties
 
@@ -69,3 +69,33 @@
 #### Returns
 
 `void`
+
+***
+
+### serializedLengthWith()
+
+> **serializedLengthWith**(`payload`): `number`
+
+Serialized RED payload length if `payload` were pushed now, without
+changing this encoder (a pacer needs the size before the packet is
+committed).
+
+#### Parameters
+
+##### payload
+
+###### block
+
+`Buffer`
+
+###### blockPT
+
+`number`
+
+###### timestamp
+
+`number`
+
+#### Returns
+
+`number`

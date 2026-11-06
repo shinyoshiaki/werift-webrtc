@@ -8,29 +8,29 @@
 
 ## Constructors
 
-### new RTCRtpSender()
+### Constructor
 
-> **new RTCRtpSender**(`trackOrKind`, `options`): [`RTCRtpSender`](RTCRtpSender.md)
+> **new RTCRtpSender**(`trackOrKind`, `options?`): `RTCRtpSender`
 
 #### Parameters
 
 ##### trackOrKind
 
-[`Kind`](../type-aliases/Kind.md) | [`MediaStreamTrack`](MediaStreamTrack.md)
+[`Kind`](../type-aliases/Kind.md) \| [`MediaStreamTrack`](MediaStreamTrack.md)
 
-##### options
+##### options?
 
-[`RTCRtpSenderOptions`](../type-aliases/RTCRtpSenderOptions.md) = `{}`
+[`RTCRtpSenderOptions`](../type-aliases/RTCRtpSenderOptions.md)
 
 #### Returns
 
-[`RTCRtpSender`](RTCRtpSender.md)
+`RTCRtpSender`
 
 ## Properties
 
 ### codec?
 
-> `optional` **codec**: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
+> `optional` **codec?**: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
 
 ***
 
@@ -46,15 +46,53 @@
 
 ***
 
+### onAvailableBitrate
+
+> `readonly` **onAvailableBitrate**: [`Event`](Event.md)\<\[`number`\]\>
+
+Stable recommended send bitrate event (**bps**, change-only).
+Bridged from the active [BandwidthEstimator](../interfaces/BandwidthEstimator.md); subscriptions survive
+[setBandwidthEstimator](#setbandwidthestimator) without re-subscribing.
+
+Prefer this over `senderBWE.onAvailableBitrate` for application adaptation.
+
+***
+
+### onFullIntraRequest
+
+> `readonly` **onFullIntraRequest**: [`Event`](Event.md)\<\[[`FullIntraRequest`](FullIntraRequest.md)\]\>
+
+Fires for a FIR addressed to this sender with a new sequence number (RFC 5104 4.3.1).
+
+***
+
 ### onGenericNack
 
 > `readonly` **onGenericNack**: [`Event`](Event.md)\<\[[`GenericNack`](GenericNack.md)\]\>
 
 ***
 
+### onKeyFrameRequest
+
+> `readonly` **onKeyFrameRequest**: [`Event`](Event.md)\<\[`"fir"` \| `"pli"`\]\>
+
+Fires for every key frame request addressed to this sender: each PLI, and each FIR
+that is not a retransmission. Fires in addition to onPictureLossIndication / onFullIntraRequest.
+
+***
+
 ### onPictureLossIndication
 
 > `readonly` **onPictureLossIndication**: [`Event`](Event.md)\<\[\]\>
+
+***
+
+### onProbeClusterConfig
+
+> `readonly` **onProbeClusterConfig**: [`Event`](Event.md)\<\[[`ProbeClusterConfig`](../interfaces/ProbeClusterConfig.md)\]\>
+
+Probe cluster configs (target bps / min packets). Bridged from the active
+[BandwidthEstimator](../interfaces/BandwidthEstimator.md); GCC fires this, lightweight / disabled never do.
 
 ***
 
@@ -84,7 +122,7 @@
 
 ### redRedundantPayloadType?
 
-> `optional` **redRedundantPayloadType**: `number`
+> `optional` **redRedundantPayloadType?**: `number`
 
 ***
 
@@ -97,12 +135,6 @@
 ### rtxSsrc
 
 > `readonly` **rtxSsrc**: `number`
-
-***
-
-### senderBWE
-
-> `readonly` **senderBWE**: `SenderBandwidthEstimator`
 
 ***
 
@@ -126,7 +158,7 @@
 
 ### track
 
-> **track**: `null` \| [`MediaStreamTrack`](MediaStreamTrack.md) = `null`
+> **track**: [`MediaStreamTrack`](MediaStreamTrack.md) \| `null` = `null`
 
 ***
 
@@ -147,6 +179,22 @@
 > `readonly` **type**: `"sender"` = `"sender"`
 
 ## Accessors
+
+### pacingBitrateBps
+
+#### Get Signature
+
+> **get** **pacingBitrateBps**(): `number`
+
+Effective send pacing rate (bps): estimator estimate, raised to the active
+probe target while probing. 0 when unknown. Lightweight returns 0 from
+[BandwidthEstimator.getPacingBitrateBps](../interfaces/BandwidthEstimator.md#getpacingbitratebps) so media is unpaced.
+
+##### Returns
+
+`number`
+
+***
 
 ### redDistance
 
@@ -174,15 +222,42 @@
 
 ***
 
+### senderBWE
+
+#### Get Signature
+
+> **get** **senderBWE**(): [`BandwidthEstimator`](../interfaces/BandwidthEstimator.md) & [`CongestionEventsCompatibility`](../type-aliases/CongestionEventsCompatibility.md)
+
+Active send-side bandwidth estimator (TWCC-driven).
+
+Default is [LightweightBandwidthEstimator](LightweightBandwidthEstimator.md) (lightweight cumulative algorithm).
+Replace only with [setBandwidthEstimator](#setbandwidthestimator) (e.g. `new GccBandwidthEstimator()`).
+
+Prefer [onAvailableBitrate](#onavailablebitrate) on this sender for bitrate notifications that
+survive estimator swaps. Algorithm-specific events remain on concrete instances.
+
+**TypeScript compatibility:** [CongestionEventsCompatibility](../type-aliases/CongestionEventsCompatibility.md) fields
+(`onCongestion` / `onCongestionScore`) are present on every estimator so
+existing `sender.senderBWE.onCongestion.subscribe(...)` still type-checks.
+They fire only on [LightweightBandwidthEstimator](LightweightBandwidthEstimator.md); GCC / disabled are no-ops.
+Prefer `sender.senderBWE as LightweightBandwidthEstimator` (or
+[isLightweightBandwidthEstimator](../functions/isLightweightBandwidthEstimator.md)) for lightweight-only APIs.
+
+##### Returns
+
+[`BandwidthEstimator`](../interfaces/BandwidthEstimator.md) & [`CongestionEventsCompatibility`](../type-aliases/CongestionEventsCompatibility.md)
+
+***
+
 ### streamId
 
 #### Get Signature
 
-> **get** **streamId**(): `undefined` \| `string`
+> **get** **streamId**(): `string` \| `undefined`
 
 ##### Returns
 
-`undefined` \| `string`
+`string` \| `undefined`
 
 #### Set Signature
 
@@ -192,7 +267,7 @@
 
 ###### value
 
-`undefined` | `string`
+`string` \| `undefined`
 
 ##### Returns
 
@@ -281,7 +356,7 @@ The same sender can resume sending after `replaceTrack(track)`.
 
 ### handleRtcpPacket()
 
-> **handleRtcpPacket**(`rtcpPacket`): `void`
+> **handleRtcpPacket**(`rtcpPacket`, `firEntries?`): `void`
 
 #### Parameters
 
@@ -289,9 +364,48 @@ The same sender can resume sending after `replaceTrack(track)`.
 
 [`RtcpPacket`](../type-aliases/RtcpPacket.md)
 
+##### firEntries?
+
+`firEntry`[]
+
+Internal: the FCI entries of a FIR the router resolved to
+this sender (see `KeyFrameRequestRouting`). Defaults to the entries for
+the own SSRC.
+
 #### Returns
 
 `void`
+
+***
+
+### maybeInjectLossPadding()
+
+> **maybeInjectLossPadding**(): `Promise`\<`number`\>
+
+pin padding_rate while LossBased is `kIncreaseUsingPadding`.
+Regular RTP padding (not probe/probation). Probe padding takes priority.
+
+#### Returns
+
+`Promise`\<`number`\>
+
+***
+
+### maybeInjectProbePadding()
+
+> **maybeInjectProbePadding**(): `Promise`\<`number`\>
+
+Inject RTP padding packets while a GCC probe cluster is active and media
+alone has not yet filled min packets / min bitrate×duration.
+
+Responsibility split:
+- Estimator (`ProbeController` / `pendingProbePaddingPackets`) decides need
+- Sender generates padding-only RTP on the RTX SSRC with a TWCC seq +
+  `isProbation` and paces them
+
+#### Returns
+
+`Promise`\<`number`\>
 
 ***
 
@@ -348,7 +462,7 @@ the committed codec keeps sending until the final answer.
 
 ### replaceRTP()
 
-> **replaceRTP**(`header`, `discontinuity`, `timestampStep`): `void`
+> **replaceRTP**(`header`, `discontinuity?`, `timestampStep?`): `void`
 
 Schedule RTP continuity rewrite for the next packet that is actually sent.
 The header argument is kept for API compatibility and is not used to compute
@@ -362,11 +476,11 @@ at the source-switch boundary.
 
 `Pick`\<[`RtpHeader`](RtpHeader.md), `"sequenceNumber"` \| `"timestamp"`\>
 
-##### discontinuity
+##### discontinuity?
 
 `boolean` = `false`
 
-##### timestampStep
+##### timestampStep?
 
 `number` = `1`
 
@@ -384,7 +498,7 @@ at the source-switch boundary.
 
 ##### track
 
-`null` | [`MediaStreamTrack`](MediaStreamTrack.md)
+[`MediaStreamTrack`](MediaStreamTrack.md) \| `null`
 
 #### Returns
 
@@ -404,11 +518,11 @@ Internal: return to a negotiation baseline's send parameters.
 
 ###### cname
 
-`undefined` \| `string` = `...`
+`string` \| `undefined` = `...`
 
 ###### codec
 
-`undefined` \| [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) = `...`
+[`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined` = `...`
 
 ###### headerExtensions
 
@@ -416,7 +530,7 @@ Internal: return to a negotiation baseline's send parameters.
 
 ###### mid
 
-`undefined` \| `string` = `...`
+`string` \| `undefined` = `...`
 
 ###### negotiatedCodecs
 
@@ -424,35 +538,35 @@ Internal: return to a negotiation baseline's send parameters.
 
 ###### proposedPrimaryCodec
 
-`undefined` \| [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) = `...`
+[`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined` = `...`
 
 ###### redRedundantPayloadType
 
-`undefined` \| `number` = `...`
+`number` \| `undefined` = `...`
 
 ###### repairedRtpStreamId
 
-`undefined` \| `string` = `...`
+`string` \| `undefined` = `...`
 
 ###### rtpStreamId
 
-`undefined` \| `string` = `...`
+`string` \| `undefined` = `...`
 
 ###### rtxPayloadType
 
-`undefined` \| `number` = `...`
+`number` \| `undefined` = `...`
 
 ###### sendPrimaryCodec
 
-`undefined` \| [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) = `...`
+[`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined` = `...`
 
 ###### track
 
-`null` \| [`MediaStreamTrack`](MediaStreamTrack.md) = `...`
+[`MediaStreamTrack`](MediaStreamTrack.md) \| `null` = `...`
 
 ###### trackCodec
 
-`undefined` \| [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) = `...`
+[`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined` = `...`
 
 #### Returns
 
@@ -474,28 +588,53 @@ Internal: return to a negotiation baseline's send parameters.
 
 > **sendRtp**(`rtp`): `Promise`\<`void`\>
 
-Send an RTP packet. Pending RTP is disabled by default: the packet is
-written immediately if DTLS is connected and a codec is set, otherwise
-dropped.
-
-When pending RTP is enabled, the packet is queued until it can be sent.
-The returned promise then settles for this packet only:
-- resolve: DTLS send completed, or the packet was dropped by `stop()`,
-  `replaceTrack(null)`, or pending-queue overflow
-- reject: DTLS send threw while writing this packet
-
-Later `sendRtp()` calls stay pending until their own packet is sent or
-dropped, even if a drain is already in progress.
+Send immediately by default or queue until DTLS is ready when pending RTP
+is enabled. Each call settles only after its own packet is sent or dropped.
 
 #### Parameters
 
 ##### rtp
 
-`Buffer`\<`ArrayBufferLike`\> | [`RtpPacket`](RtpPacket.md)
+`Buffer`\<`ArrayBufferLike`\> \| [`RtpPacket`](RtpPacket.md)
 
 #### Returns
 
 `Promise`\<`void`\>
+
+***
+
+### setBandwidthEstimator()
+
+> **setBandwidthEstimator**(`impl`): `void`
+
+Replace the send-side bandwidth estimator used for TWCC-driven BWE.
+
+Default is the lightweight [LightweightBandwidthEstimator](LightweightBandwidthEstimator.md). Pass e.g.
+`new GccBandwidthEstimator()` to use Google Congestion Control.
+
+Behavior on swap:
+1. Bumps the estimator generation so in-flight sends discard
+   `rtpPacketSent` delivery and in-flight [maybeInjectProbePadding](#maybeinjectprobepadding)
+   loops exit (cancelled — no packets to disposed / previous estimator).
+2. Stops delivering `rtpPacketSent` / `receiveTWCC` to the previous instance.
+3. Unbinds the stable [onAvailableBitrate](#onavailablebitrate) bridge, then `dispose()`/`reset()` the old instance.
+4. **Always** `reset()` the injected `impl` so a previously used instance
+   starts clean (no implicit state merge), then rebinds the bridge.
+5. Clears pendingUntrackedBytes and pacing credit so the next
+   estimator's first `SentInfo.priorUnackedBytes` is 0.
+
+Subscriptions to [onAvailableBitrate](#onavailablebitrate) on this sender are preserved.
+Re-subscribe algorithm-specific events on the new concrete instance.
+
+#### Parameters
+
+##### impl
+
+[`BandwidthEstimator`](../interfaces/BandwidthEstimator.md)
+
+#### Returns
+
+`void`
 
 ***
 
@@ -535,11 +674,11 @@ dropped, even if a drain is already in progress.
 
 ### setSendEncodings()
 
-> **setSendEncodings**(`encodings`): `void`
+> **setSendEncodings**(`encodings?`): `void`
 
 #### Parameters
 
-##### encodings
+##### encodings?
 
 `Record`\<`string`, `unknown`\>[] = `[]`
 
@@ -551,11 +690,11 @@ dropped, even if a drain is already in progress.
 
 ### setStreams()
 
-> **setStreams**(`streams`): `void`
+> **setStreams**(`streams?`): `void`
 
 #### Parameters
 
-##### streams
+##### streams?
 
 [`MediaStream`](MediaStream.md)[] = `[]`
 
@@ -577,11 +716,11 @@ Internal: the negotiated send parameters, for a negotiation baseline.
 
 ##### cname
 
-> **cname**: `undefined` \| `string`
+> **cname**: `string` \| `undefined`
 
 ##### codec
 
-> **codec**: `undefined` \| [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
+> **codec**: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined`
 
 ##### headerExtensions
 
@@ -589,7 +728,7 @@ Internal: the negotiated send parameters, for a negotiation baseline.
 
 ##### mid
 
-> **mid**: `undefined` \| `string`
+> **mid**: `string` \| `undefined`
 
 ##### negotiatedCodecs
 
@@ -597,45 +736,45 @@ Internal: the negotiated send parameters, for a negotiation baseline.
 
 ##### proposedPrimaryCodec
 
-> **proposedPrimaryCodec**: `undefined` \| [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
+> **proposedPrimaryCodec**: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined`
 
 ##### redRedundantPayloadType
 
-> **redRedundantPayloadType**: `undefined` \| `number`
+> **redRedundantPayloadType**: `number` \| `undefined`
 
 ##### repairedRtpStreamId
 
-> **repairedRtpStreamId**: `undefined` \| `string`
+> **repairedRtpStreamId**: `string` \| `undefined`
 
 ##### rtpStreamId
 
-> **rtpStreamId**: `undefined` \| `string`
+> **rtpStreamId**: `string` \| `undefined`
 
 ##### rtxPayloadType
 
-> **rtxPayloadType**: `undefined` \| `number`
+> **rtxPayloadType**: `number` \| `undefined`
 
 ##### sendPrimaryCodec
 
-> **sendPrimaryCodec**: `undefined` \| [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
+> **sendPrimaryCodec**: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined`
 
 ##### track
 
-> **track**: `null` \| [`MediaStreamTrack`](MediaStreamTrack.md)
+> **track**: [`MediaStreamTrack`](MediaStreamTrack.md) \| `null`
 
 ##### trackCodec
 
-> **trackCodec**: `undefined` \| [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
+> **trackCodec**: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined`
 
 ***
 
 ### stop()
 
-> **stop**(`__namedParameters`): `void`
+> **stop**(`__namedParameters?`): `void`
 
 #### Parameters
 
-##### \_\_namedParameters
+##### \_\_namedParameters?
 
 ###### keepTrack?
 

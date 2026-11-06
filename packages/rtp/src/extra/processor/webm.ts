@@ -1,10 +1,11 @@
 import { Event } from "../../imports/common";
 
 import {
-  WEBMContainer,
   getEBMLByteLength,
   numberToByteArray,
   vintEncode,
+  vintEncodeFixed,
+  WEBMContainer,
 } from "../container";
 import type { WebmSupportedCodec } from "../container/webm";
 import type { AVProcessor } from "./interface";
@@ -39,7 +40,20 @@ export interface WebmOutput {
     duration: number;
     durationElement: Uint8Array;
     header: Buffer;
+    /**
+     * Every Cluster written so far. Clusters are emitted with an unknown size;
+     * when saving to a file, overwrite `ClusterSizeOffset` bytes after each
+     * `position` with `replaceClusterSize(size)`.
+     */
+    clusters: WebmClusterInfo[];
   };
+}
+
+export interface WebmClusterInfo {
+  /** byte offset of the Cluster element (its ID) from the start of the output */
+  position: number;
+  /** byte length of the Cluster body (excluding its ID and size field) */
+  size: number;
 }
 
 export interface WebmOption {
@@ -56,6 +70,7 @@ export class WebmBase implements AVProcessor<WebmInput> {
   private cuePoints: CuePoint[] = [];
   private position = 0;
   private clusterCounts = 0;
+  private clusters: WebmClusterInfo[] = [];
   /**ms */
   elapsed?: number;
   audioStopped = false;
@@ -236,6 +251,8 @@ export class WebmBase implements AVProcessor<WebmInput> {
   ) {
     const cluster = this.builder.createCluster(timestamp);
     this.clusterCounts++;
+    this.closeCluster();
+    this.clusters.push({ position: this.position, size: 0 });
     this.output({
       saveToFile: Buffer.from(cluster),
       kind: "cluster",
@@ -297,6 +314,14 @@ export class WebmBase implements AVProcessor<WebmInput> {
     }
   }
 
+  /** fix the body size of the latest Cluster at the current position */
+  private closeCluster() {
+    const latest = this.clusters.at(-1);
+    if (latest) {
+      latest.size = this.position - (latest.position + ClusterHeaderLength);
+    }
+  }
+
   stop() {
     if (this.stopped) {
       return;
@@ -311,6 +336,9 @@ export class WebmBase implements AVProcessor<WebmInput> {
       .reverse()[0].elapsed;
     const duration = this.relativeTimestamp + latestTimestamp;
 
+    // Cues is a child of Segment, so the last Cluster ends here
+    this.closeCluster();
+
     const cues = this.builder.createCues(this.cuePoints.map((c) => c.build()));
     this.output({
       saveToFile: Buffer.from(cues),
@@ -324,9 +352,12 @@ export class WebmBase implements AVProcessor<WebmInput> {
       this.builder.createSegment(duration),
     ]);
 
-    this.output({ eol: { duration, durationElement, header } });
+    this.output({
+      eol: { duration, durationElement, header, clusters: this.clusters },
+    });
 
     this.timestamps = {};
+    this.clusters = [];
     this.cuePoints = [];
     this.internalStats = {};
     this.output = undefined as any;
@@ -382,7 +413,7 @@ class CuePoint {
     return this.builder.createCuePoint(
       this.relativeTimestamp,
       this.trackNumber,
-      this.position - 48 + this.cuesLength,
+      this.position - SegmentHeaderLength + this.cuesLength,
       this.blockNumber,
     );
   }
@@ -397,22 +428,30 @@ export const DurationPosition = 83;
 
 export const SegmentSizePosition = 40;
 
+/** Segment ID + 8 byte (unknown) size field */
+const SegmentHeaderLength = SegmentSizePosition + 8;
+
+/**
+ * 8 byte size field for the Segment that starts at {@link SegmentSizePosition}.
+ * It keeps the width of the unknown size written by `createSegment`, so the
+ * Segment body (and CueClusterPosition) keeps starting at the same offset.
+ */
 export function replaceSegmentSize(totalFileSize: number) {
-  const bodySize = totalFileSize - SegmentSizePosition;
-  const resize = [
-    ...vintEncode(numberToByteArray(bodySize, getEBMLByteLength(bodySize))),
-  ];
-  const todoFill = 8 - resize.length - 2;
-  if (todoFill > 0) {
-    resize.push(0xec);
-    if (todoFill > 1) {
-      const voidSize = vintEncode(
-        numberToByteArray(todoFill, getEBMLByteLength(todoFill)),
-      );
-      [...voidSize].forEach((i) => resize.push(i));
-    }
-  }
-  return Buffer.from(resize);
+  return Buffer.from(vintEncodeFixed(totalFileSize - SegmentHeaderLength, 8));
+}
+
+/** byte offset of the size field from the start of a Cluster (ID length) */
+export const ClusterSizeOffset = 4;
+
+/** Cluster ID + 8 byte (unknown) size field */
+const ClusterHeaderLength = ClusterSizeOffset + 8;
+
+/**
+ * 8 byte size field for a Cluster, the same width as the unknown size
+ * written by `WEBMContainer.createCluster`, so it can be overwritten in place.
+ */
+export function replaceClusterSize(size: number) {
+  return Buffer.from(vintEncodeFixed(size, 8));
 }
 
 export type MediaKind = "video" | "audio";

@@ -1,13 +1,14 @@
 import { Readable } from "stream";
 
 import {
-  type RtpPacket,
   dePacketizeRtpPackets,
+  type RtpPacket,
   useAV1X,
   useH264,
   useOPUS,
   useVP8,
   useVP9,
+  Vp8RtpPayload,
 } from "../../src";
 import { createFileMediaPlayer } from "../../src/nonstandard/userMedia";
 import * as packetizerModule from "../../src/nonstandard/userMedia/packetizer";
@@ -81,6 +82,36 @@ describe("nonstandard/userMedia file playback", () => {
     );
   });
 
+  test("keeps VP8 PictureID continuous across loops when the sender re-assigns the negotiated codec", async () => {
+    const media = await createFileMediaPlayer({
+      buffer: await createAvWebmBuffer(),
+      loop: true,
+    });
+    media.audio!.codec = useOPUS();
+    media.video!.codec = useVP8();
+    // RTCRtpSender は offer / answer ごとに新しい codec オブジェクトを track に代入し、
+    // 再生開始後に payloadType が確定することもある。
+    const { unSubscribe } = media.video!.onReceiveRtp.subscribe(() => {
+      unSubscribe();
+      media.video!.codec = useVP8({ payloadType: 96 });
+    });
+    const videoFramesPromise = collectFrames(media.video!, 6);
+
+    // 実行: 1 周目の再生中に codec を payloadType 付きの新オブジェクトへ差し替え、2 周目のフレームまで受け取る。
+    const startPromise = media.start();
+    const videoFrames = await videoFramesPromise;
+    media.stop();
+    await startPromise;
+
+    // 検証: loop 境界（3 枚目 → 4 枚目）を含め、PictureID がフレームごとに +1 され続ける。
+    const pictureIds = videoFrames.map(
+      ([first]) => Vp8RtpPayload.deSerialize(first.payload).pictureId!,
+    );
+    for (let index = 1; index < pictureIds.length; index++) {
+      expect(pictureIds[index]).toBe((pictureIds[index - 1] + 1) & 0x7fff);
+    }
+  });
+
   test("createFileMediaPlayer({ path }) packetizes MP4 H264/Opus in-process", async () => {
     const mediaBuffer = await createAvMp4Buffer();
     const tempFile = await createTempMediaFile(mediaBuffer, "mp4");
@@ -101,9 +132,10 @@ describe("nonstandard/userMedia file playback", () => {
       });
 
       // 実行: path source の MP4 を再生し、映像 3 フレームと音声 2 packet 分の RTP が揃うまで待つ。
+      // （keyframe の SPS/PPS は STAP-A に集約されるため packet 数ではなく marker 区切りのフレーム数で待つ）
       await media.start();
       await waitUntil(
-        () => videoPackets.length >= 5 && audioPackets.length >= 2,
+        () => splitFrames(videoPackets).length >= 3 && audioPackets.length >= 2,
         10_000,
       );
       media.stop();
@@ -283,8 +315,9 @@ describe("nonstandard/userMedia file playback", () => {
     const startPromise = media.start();
 
     // 検証: codec 不一致を明示するエラーで start が失敗する。
+    // useH264() は Chrome 互換のため mimeType が video/H264（大文字）
     await expect(startPromise).rejects.toThrow(
-      "Input video codec video/vp8 does not match negotiated codec video/h264",
+      "Input video codec video/vp8 does not match negotiated codec video/H264",
     );
   });
 

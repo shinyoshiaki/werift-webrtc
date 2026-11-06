@@ -14,7 +14,9 @@ the value of the property in the destination object.
 
 ## Type Parameters
 
-• **T**
+### T
+
+`T`
 
 ## Parameters
 

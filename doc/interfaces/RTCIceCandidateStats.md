@@ -14,7 +14,7 @@
 
 ### address?
 
-> `optional` **address**: `string`
+> `optional` **address?**: `string`
 
 ***
 
@@ -26,7 +26,7 @@
 
 ### foundation?
 
-> `optional` **foundation**: `string`
+> `optional` **foundation?**: `string`
 
 ***
 
@@ -42,43 +42,43 @@
 
 ### port?
 
-> `optional` **port**: `number`
+> `optional` **port?**: `number`
 
 ***
 
 ### priority?
 
-> `optional` **priority**: `number`
+> `optional` **priority?**: `number`
 
 ***
 
 ### protocol?
 
-> `optional` **protocol**: `string`
+> `optional` **protocol?**: `string`
 
 ***
 
 ### relatedAddress?
 
-> `optional` **relatedAddress**: `string`
+> `optional` **relatedAddress?**: `string`
 
 ***
 
 ### relatedPort?
 
-> `optional` **relatedPort**: `number`
+> `optional` **relatedPort?**: `number`
 
 ***
 
 ### relayProtocol?
 
-> `optional` **relayProtocol**: `string`
+> `optional` **relayProtocol?**: `string`
 
 ***
 
 ### tcpType?
 
-> `optional` **tcpType**: [`RTCIceTcpCandidateType`](../type-aliases/RTCIceTcpCandidateType.md)
+> `optional` **tcpType?**: [`RTCIceTcpCandidateType`](../type-aliases/RTCIceTcpCandidateType.md)
 
 ***
 
@@ -94,7 +94,7 @@
 
 ### transportId?
 
-> `optional` **transportId**: `string`
+> `optional` **transportId?**: `string`
 
 ***
 
@@ -110,10 +110,10 @@
 
 ### url?
 
-> `optional` **url**: `string`
+> `optional` **url?**: `string`
 
 ***
 
 ### usernameFragment?
 
-> `optional` **usernameFragment**: `string`
+> `optional` **usernameFragment?**: `string`

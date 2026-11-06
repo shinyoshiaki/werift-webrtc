@@ -57,4 +57,34 @@ describe("srtp", () => {
     );
     aPair.transport.send(enc);
   });
+
+  test("padding-only RTP (RFC 3550 P bit) は SRTP の暗号化・復号後も padding として復元できる", () => {
+    // Arrange: payload は padding だけ（ゼロ埋め + 末尾に padding 長）
+    const [aPair, bPair] = buildSessionSRTPPair();
+    const padSize = 200;
+    const padding = Buffer.alloc(padSize);
+    padding[padSize - 1] = padSize;
+    const header = new RtpHeader({
+      padding: true,
+      paddingSize: padSize,
+      sequenceNumber: 42,
+      timestamp: 90000,
+      ssrc: 0x12345678,
+      payloadType: 96,
+    });
+
+    // Act: 暗号化して復号し、RTP として読み直す
+    const encrypted = aPair.session.encrypt(padding, header);
+    const decrypted = bPair.session.decrypt(encrypted);
+    const rtp = RtpPacket.deSerialize(decrypted);
+
+    // Assert: 暗号文は auth tag の分だけ長く、復号後は padding-only のまま
+    expect(encrypted.length).toBeGreaterThan(padSize + 12);
+    expect(rtp.header.padding).toBe(true);
+    expect(rtp.header.paddingSize).toBe(padSize);
+    expect(rtp.header.sequenceNumber).toBe(42);
+    expect(rtp.header.ssrc).toBe(0x12345678);
+    expect(rtp.payload.length).toBe(0);
+    expect(decrypted[decrypted.length - 1]).toBe(padSize);
+  });
 });

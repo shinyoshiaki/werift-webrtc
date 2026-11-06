@@ -6,4 +6,4 @@
 
 # Variable: depacketizerCodecs
 
-> `const` **depacketizerCodecs**: readonly \[`"MPEG4/ISO/AVC"`, `"VP8"`, `"VP9"`, `"OPUS"`, `"AV1"`\]
+> `const` **depacketizerCodecs**: readonly \[`"MPEG4/ISO/AVC"`, `"H265"`, `"VP8"`, `"VP9"`, `"OPUS"`, `"AV1"`, `"PCMU"`, `"PCMA"`, `"G722"`, `"MPEG4-GENERIC"`\]

@@ -8,17 +8,17 @@ import {
   type AttributeKey,
   type AttributePair,
   AttributeRepository,
-  type RawAttribute,
   packXorAddress,
+  type RawAttribute,
   unpackXorAddress,
 } from "./attributes";
 import {
   COOKIE,
+  type classes,
   FINGERPRINT_LENGTH,
   FINGERPRINT_XOR,
   HEADER_LENGTH,
   INTEGRITY_LENGTH,
-  type classes,
   isStunMessage,
   type methods,
 } from "./const";
@@ -38,9 +38,12 @@ export function parseMessage(
 
   const attributeRepository = new AttributeRepository();
   const rawAttributes: RawAttribute[] = [];
+  const alternateServers: unknown[] = [];
   // When integrityKey is provided, MESSAGE-INTEGRITY must be present and valid
   // (RFC 5389 short-term credentials / RFC 7675 authenticated consent responses).
   let messageIntegrityVerified = false;
+  let sawIntegrity = false;
+  let sawIntegritySha256 = false;
 
   for (let pos = HEADER_LENGTH; pos < data.length; ) {
     if (pos + 4 > data.length) {
@@ -62,6 +65,23 @@ export function parseMessage(
       return undefined;
     }
 
+    // RFC 8489 §14.5/§14.6: attributes after MESSAGE-INTEGRITY are not covered
+    // by the HMAC and must be ignored, except MESSAGE-INTEGRITY-SHA256 and
+    // FINGERPRINT (after MESSAGE-INTEGRITY-SHA256 only FINGERPRINT).
+    const attrNameOnWire = ATTRIBUTES_BY_TYPE[attrType]?.[1];
+    if (
+      (sawIntegritySha256 && attrNameOnWire !== "FINGERPRINT") ||
+      (sawIntegrity &&
+        attrNameOnWire !== "FINGERPRINT" &&
+        attrNameOnWire !== "MESSAGE-INTEGRITY-SHA256")
+    ) {
+      pos = valueEnd + padLen;
+      continue;
+    }
+    if (attrNameOnWire === "MESSAGE-INTEGRITY") sawIntegrity = true;
+    if (attrNameOnWire === "MESSAGE-INTEGRITY-SHA256")
+      sawIntegritySha256 = true;
+
     const attribute = ATTRIBUTES_BY_TYPE[attrType];
     if (attribute) {
       const [, attrName, , attrUnpack] = attribute;
@@ -75,6 +95,11 @@ export function parseMessage(
         return undefined;
       }
       attributeRepository.setAttribute(attrName as AttributeKey, value);
+      if (attrName === "ALTERNATE-SERVER") {
+        // Repeatable (RFC 8489 §14.15, e.g. one per address family); the
+        // repository only keeps the last one.
+        alternateServers.push(value);
+      }
 
       if (attrName === "FINGERPRINT") {
         const fingerprint = messageFingerprint(data.slice(0, pos));
@@ -114,6 +139,7 @@ export function parseMessage(
     transactionId,
     attributeRepository.getAttributes(),
     rawAttributes,
+    alternateServers as [string, number][],
   );
 }
 
@@ -124,6 +150,8 @@ export class Message extends AttributeRepository {
     public transactionId: Buffer = randomBytes(12),
     attributes: AttributePair[] = [],
     public rawAttributes: RawAttribute[] = [],
+    /** Every ALTERNATE-SERVER attribute, in wire order. */
+    public alternateServers: [string, number][] = [],
   ) {
     super(attributes);
   }
