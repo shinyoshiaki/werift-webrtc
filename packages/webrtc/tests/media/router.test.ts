@@ -629,6 +629,13 @@ describe("media/router", () => {
       );
       router.routeRtp(
         createSimulcastMediaPacket({
+          ssrc: high.ssrc,
+          sequenceNumber: 12,
+          rid: high.rid,
+        }),
+      );
+      router.routeRtp(
+        createSimulcastMediaPacket({
           ssrc: low.ssrc,
           sequenceNumber: 500,
           rid: low.rid,
@@ -649,6 +656,13 @@ describe("media/router", () => {
           seq: 10,
           payloadType: 96,
           payload: "media-10",
+          type: "media",
+        },
+        {
+          ssrc: high.ssrc,
+          seq: 12,
+          payloadType: 96,
+          payload: "media-12",
           type: "media",
         },
         {
@@ -831,6 +845,60 @@ describe("media/router", () => {
           .filter((p) => p.type === "retransmission")
           .map((p) => [p.ssrc, p.seq]),
       ).toEqual([101, 102, 103, 104, 105].map((seq) => [5000, seq]));
+      receiver.stop();
+    });
+
+    test("新媒体の RTX が新媒体の最初のパケットより先に届いても、旧媒体に固定されない", () => {
+      // Arrange: 旧媒体 1000 だけを学習済みにする。
+      const { router, receiver } = createSimulcastRtxReceiver();
+      const received = collectDeliveredRtp(receiver.trackByRID.high);
+      const mediaOf = (ssrc: number, sequenceNumber: number) =>
+        createSimulcastMediaPacket({ ssrc, sequenceNumber, rid: high.rid });
+      const rtxOf = (sequenceNumber: number, rtxSequenceNumber: number) =>
+        createSimulcastRtxPacket(
+          createSimulcastMediaPacket({ ssrc: 2000, sequenceNumber }),
+          { rtxSsrc: 2001, rtxSequenceNumber, rrid: high.rid },
+        );
+      router.routeRtp(mediaOf(1000, 10));
+
+      // Act: 新媒体 2000 の RTX が媒体より先に届き、その後で新媒体が届く。
+      router.routeRtp(rtxOf(5000, 1));
+      router.routeRtp(mediaOf(2000, 5001));
+      router.routeRtp(mediaOf(2000, 5003));
+      router.routeRtp(rtxOf(5002, 2));
+
+      // Assert: 先行 RTX は破棄され、対応は固定されず、後続の RTX は新媒体 2000 で復元される。
+      expect(
+        received
+          .filter((p) => p.type === "retransmission")
+          .map((p) => [p.ssrc, p.seq]),
+      ).toEqual([[2000, 5002]]);
+      receiver.stop();
+    });
+
+    test("旧・新媒体が同じ番号を失っても、新たに届いた RTX はどちらかに固定されず破棄される", () => {
+      // Arrange: 旧媒体 1000 と新媒体 2000 がどちらも seq 101 を失い、どちらにも NACK が出ている。
+      const { router, receiver } = createSimulcastRtxReceiver();
+      const received = collectDeliveredRtp(receiver.trackByRID.high);
+      const mediaOf = (ssrc: number, sequenceNumber: number) =>
+        createSimulcastMediaPacket({ ssrc, sequenceNumber, rid: high.rid });
+      router.routeRtp(mediaOf(1000, 100));
+      router.routeRtp(mediaOf(1000, 102));
+      router.routeRtp(mediaOf(2000, 100));
+      router.routeRtp(mediaOf(2000, 102));
+
+      // Act: 新媒体の元パケット 101 が遅れて届き新媒体の NACK だけ解消された後、新媒体の RTX が初めて届く。
+      router.routeRtp(mediaOf(2000, 101));
+      router.routeRtp(
+        createSimulcastRtxPacket(
+          createSimulcastMediaPacket({ ssrc: 2000, sequenceNumber: 101 }),
+          { rtxSsrc: 2001, rtxSequenceNumber: 1, rrid: high.rid },
+        ),
+      );
+
+      // Assert: 旧媒体 1000 としては復元されず、対応も固定されない。
+      expect(received.filter((p) => p.type === "retransmission")).toEqual([]);
+      expect(receiver.pinnedMediaSsrcByRtx[2001]).toBeUndefined();
       receiver.stop();
     });
 

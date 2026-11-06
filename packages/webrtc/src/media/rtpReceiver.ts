@@ -55,6 +55,14 @@ import {
 } from "./track";
 
 const MAX_MEDIA_SSRCS_PER_RID = 4;
+/** How far behind a media SSRC's newest sequence number an RTX can repair. */
+const RTX_REPAIR_WINDOW = 1000;
+
+/** A media SSRC a RID has used and the newest sequence number seen on it. */
+export interface RidMediaSsrc {
+  ssrc: number;
+  highestSeq: number;
+}
 
 const log = debug("werift:packages/webrtc/src/media/rtpReceiver.ts");
 
@@ -91,7 +99,7 @@ export class RTCRtpReceiver {
    * RTX SSRC that is not pinned yet may repair any of them; it is resolved by
    * the NACK state (see {@link mediaSsrcOfRtx}) instead of by a guess.
    */
-  readonly mediaSsrcsByRid: { [rid: string]: number[] } = {};
+  readonly mediaSsrcsByRid: { [rid: string]: RidMediaSsrc[] } = {};
   private readonly nack = new NackHandler(this);
   private readonly audioRedHandler = new RedHandler();
 
@@ -729,8 +737,8 @@ export class RTCRtpReceiver {
     }
     if (track && !isRtxCodec(this.codecs[packet.header.payloadType])) {
       const history = (this.mediaSsrcsByRid[rid] ??= []);
-      if (!history.includes(ssrc)) {
-        history.push(ssrc);
+      if (!history.some((entry) => entry.ssrc === ssrc)) {
+        history.push({ ssrc, highestSeq: packet.header.sequenceNumber });
         if (history.length > MAX_MEDIA_SSRCS_PER_RID) history.shift();
       }
     }
@@ -758,10 +766,13 @@ export class RTCRtpReceiver {
 
   /**
    * Media SSRC an RTX SSRC repairs: SDP pairing first, then the learned RID.
-   * When the RID has used several media SSRCs the RTX SSRC is pinned only on
-   * evidence: the original sequence number must be outstanding in the NACK
-   * state of exactly one of them. Otherwise the packet is dropped and nothing
-   * is pinned, so a later packet can still resolve it.
+   * An RTX SSRC is pinned to a media SSRC only when it is the single one of
+   * the RID's SSRCs whose newest sequence number the RTX's original sequence
+   * number is close behind. Neither "one SSRC known so far" nor an
+   * outstanding NACK proves the pairing: the RTX of a media SSRC that has not
+   * arrived yet, or a late original packet, would be bound to another one.
+   * Anything not single is dropped without pinning, so a later packet can
+   * still resolve it.
    */
   private mediaSsrcOfRtx(rtx: RtpPacket): number | undefined {
     const rtxSsrc = rtx.header.ssrc;
@@ -770,19 +781,30 @@ export class RTCRtpReceiver {
     const pinned = this.pinnedMediaSsrcByRtx[rtxSsrc];
     if (pinned !== undefined) return pinned;
     const rid = this.ridByRtxSsrc[rtxSsrc];
-    const candidates = rid === undefined ? [] : this.mediaSsrcsByRid[rid] ?? [];
-    let resolved: number | undefined;
-    if (candidates.length === 1) {
-      resolved = candidates[0];
-    } else if (candidates.length > 1) {
-      const originalSeq = rtx.payload.readUInt16BE(0);
-      const requested = candidates.filter((candidate) =>
-        this.nack.lostSeqNumbersOf(candidate).includes(originalSeq),
-      );
-      if (requested.length === 1) resolved = requested[0];
+    if (rid === undefined) return undefined;
+    const originalSeq = rtx.payload.readUInt16BE(0);
+    const plausible = (this.mediaSsrcsByRid[rid] ?? []).filter(
+      ({ highestSeq }) =>
+        uint16Sub(highestSeq, originalSeq) <= RTX_REPAIR_WINDOW,
+    );
+    if (plausible.length !== 1) return undefined;
+    this.pinnedMediaSsrcByRtx[rtxSsrc] = plausible[0].ssrc;
+    return plausible[0].ssrc;
+  }
+
+  /** Keep the newest sequence number of the RIDs' media SSRCs current. */
+  private noteMediaSeq(packet: RtpPacket) {
+    const { ssrc, sequenceNumber } = packet.header;
+    for (const history of Object.values(this.mediaSsrcsByRid)) {
+      for (const entry of history) {
+        if (
+          entry.ssrc === ssrc &&
+          uint16Sub(sequenceNumber, entry.highestSeq) < 0x8000
+        ) {
+          entry.highestSeq = sequenceNumber;
+        }
+      }
     }
-    if (resolved !== undefined) this.pinnedMediaSsrcByRtx[rtxSsrc] = resolved;
-    return resolved;
   }
 
   private handleRTP(
@@ -864,6 +886,7 @@ export class RTCRtpReceiver {
     }
 
     this.payloadTypeBySsrc[packet.header.ssrc] = mediaCodec.payloadType;
+    if (!paddingOnly) this.noteMediaSeq(packet);
 
     if (track?.kind === "video" && hasFeedback(mediaCodec, "nack")) {
       this.nack.addPacket(packet);
@@ -1045,4 +1068,9 @@ function hasFeedback(
     (f) =>
       f.type === type && (parameter === undefined || f.parameter === parameter),
   );
+}
+
+/** `(a - b)` on the 16-bit sequence number circle. */
+function uint16Sub(a: number, b: number) {
+  return (a - b + 0x10000) & 0xffff;
 }
