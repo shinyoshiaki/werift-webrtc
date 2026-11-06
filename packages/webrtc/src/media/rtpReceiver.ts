@@ -54,6 +54,8 @@ import {
   RtpReceivePacketType,
 } from "./track";
 
+const MAX_MEDIA_SSRCS_PER_RID = 4;
+
 const log = debug("werift:packages/webrtc/src/media/rtpReceiver.ts");
 
 export class RTCRtpReceiver {
@@ -77,7 +79,6 @@ export class RTCRtpReceiver {
    * Packet-driven live state like {@link learnedTrackSsrcs}: a negotiation
    * (commit, rollback, `resyncCodecs`) keeps it, a later packet updates it.
    */
-  readonly ssrcByRid: { [rid: string]: number } = {};
   readonly ridByRtxSsrc: { [rtxSsrc: number]: string } = {};
   /**
    * The media SSRC an RTX SSRC repaired when it was first resolved. Kept apart
@@ -86,11 +87,11 @@ export class RTCRtpReceiver {
    */
   readonly pinnedMediaSsrcByRtx: { [rtxSsrc: number]: number } = {};
   /**
-   * RIDs whose media SSRC changed. An RTX SSRC not yet pinned for such a RID
-   * may repair the old or the new media SSRC, so it is dropped rather than
-   * bound to a guess.
+   * Media SSRCs a RID has used (oldest first, bounded). With more than one, an
+   * RTX SSRC that is not pinned yet may repair any of them; it is resolved by
+   * the NACK state (see {@link mediaSsrcOfRtx}) instead of by a guess.
    */
-  readonly switchedRids = new Set<string>();
+  readonly mediaSsrcsByRid: { [rid: string]: number[] } = {};
   private readonly nack = new NackHandler(this);
   private readonly audioRedHandler = new RedHandler();
 
@@ -453,10 +454,9 @@ export class RTCRtpReceiver {
 
     this.releaseReceiverTWCC();
     this.nack.close();
-    replaceTable(this.ssrcByRid, {});
     clearTable(this.ridByRtxSsrc);
     clearTable(this.pinnedMediaSsrcByRtx);
-    this.switchedRids.clear();
+    clearTable(this.mediaSsrcsByRid);
   }
 
   /**transceiver の停止確定時に remote track を ended にする */
@@ -728,17 +728,11 @@ export class RTCRtpReceiver {
       this.learnedTrackSsrcs.add(ssrc);
     }
     if (track && !isRtxCodec(this.codecs[packet.header.payloadType])) {
-      const previous = this.ssrcByRid[rid];
-      if (previous !== undefined && previous !== ssrc) {
-        this.switchedRids.add(rid);
-        // The RID moves to a new media SSRC: RTX streams already bound to the
-        // RID keep repairing the one they were bound to.
-        for (const [rtx, boundRid] of Object.entries(this.ridByRtxSsrc)) {
-          if (boundRid === rid && this.pinnedMediaSsrcByRtx[+rtx] === undefined)
-            this.pinnedMediaSsrcByRtx[+rtx] = previous;
-        }
+      const history = (this.mediaSsrcsByRid[rid] ??= []);
+      if (!history.includes(ssrc)) {
+        history.push(ssrc);
+        if (history.length > MAX_MEDIA_SSRCS_PER_RID) history.shift();
       }
-      this.ssrcByRid[rid] = ssrc;
     }
 
     this.handleRTP(packet, extensions, track);
@@ -762,17 +756,33 @@ export class RTCRtpReceiver {
     this.handleRTP(packet, extensions);
   };
 
-  /** Media SSRC an RTX SSRC repairs: SDP pairing first, then the learned RID. */
-  private mediaSsrcOfRtx(rtxSsrc: number): number | undefined {
+  /**
+   * Media SSRC an RTX SSRC repairs: SDP pairing first, then the learned RID.
+   * When the RID has used several media SSRCs the RTX SSRC is pinned only on
+   * evidence: the original sequence number must be outstanding in the NACK
+   * state of exactly one of them. Otherwise the packet is dropped and nothing
+   * is pinned, so a later packet can still resolve it.
+   */
+  private mediaSsrcOfRtx(rtx: RtpPacket): number | undefined {
+    const rtxSsrc = rtx.header.ssrc;
     const bySdp = this.ssrcByRtx[rtxSsrc];
     if (bySdp !== undefined) return bySdp;
     const pinned = this.pinnedMediaSsrcByRtx[rtxSsrc];
     if (pinned !== undefined) return pinned;
     const rid = this.ridByRtxSsrc[rtxSsrc];
-    if (rid !== undefined && this.switchedRids.has(rid)) return undefined;
-    const bySsrc = rid === undefined ? undefined : this.ssrcByRid[rid];
-    if (bySsrc !== undefined) this.pinnedMediaSsrcByRtx[rtxSsrc] = bySsrc;
-    return bySsrc;
+    const candidates = rid === undefined ? [] : this.mediaSsrcsByRid[rid] ?? [];
+    let resolved: number | undefined;
+    if (candidates.length === 1) {
+      resolved = candidates[0];
+    } else if (candidates.length > 1) {
+      const originalSeq = rtx.payload.readUInt16BE(0);
+      const requested = candidates.filter((candidate) =>
+        this.nack.lostSeqNumbersOf(candidate).includes(originalSeq),
+      );
+      if (requested.length === 1) resolved = requested[0];
+    }
+    if (resolved !== undefined) this.pinnedMediaSsrcByRtx[rtxSsrc] = resolved;
+    return resolved;
   }
 
   private handleRTP(
@@ -830,7 +840,7 @@ export class RTCRtpReceiver {
       // Padding-only RTX (probe / bandwidth padding) carries no original
       // packet: TWCC above already observed it, nothing is delivered.
       if (packet.payload.length < 2) return;
-      const originalSsrc = this.mediaSsrcOfRtx(packet.header.ssrc);
+      const originalSsrc = this.mediaSsrcOfRtx(packet);
       if (originalSsrc === undefined) {
         log("rtx media ssrc not resolved", { rtxSsrc: packet.header.ssrc });
         return;

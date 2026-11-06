@@ -76,7 +76,7 @@ type StagedRoutes = {
  * Packet-driven routes are not description state: an SSRC first seen with
  * `rtp-stream-id` / `repaired-rtp-stream-id` is added to `ssrcTable` as
  * learned (`learnedSsrcs`), and the receiver learns RID → media SSRC and RTX
- * SSRC → RID (`ssrcByRid` / `ridByRtxSsrc`). Commit and rollback keep them.
+ * SSRC → RID (`mediaSsrcsByRid` / `ridByRtxSsrc`). Commit and rollback keep them.
  *
  * A payload type or extension ID counts as in use only when both current
  * descriptions carry it for the m-line. RID lookup uses MID+RID when the

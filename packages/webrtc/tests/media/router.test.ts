@@ -777,6 +777,63 @@ describe("media/router", () => {
       expect(receiver.pinnedMediaSsrcByRtx[high.rtxSsrc]).toBeUndefined();
     });
 
+    test("媒体より先に届いた RTX は切り替え後も旧媒体に固定されず、NACK 済みの新媒体に復元される", () => {
+      // Arrange: 新媒体 2000 の RTX 2001 が媒体より先に届いて破棄される。
+      const { router, receiver } = createSimulcastRtxReceiver();
+      const received = collectDeliveredRtp(receiver.trackByRID.high);
+      const mediaOf = (ssrc: number, sequenceNumber: number) =>
+        createSimulcastMediaPacket({ ssrc, sequenceNumber, rid: high.rid });
+      const rtxOf = (sequenceNumber: number, rtxSequenceNumber: number) =>
+        createSimulcastRtxPacket(
+          createSimulcastMediaPacket({ ssrc: 2000, sequenceNumber }),
+          { rtxSsrc: 2001, rtxSequenceNumber, rrid: high.rid },
+        );
+      router.routeRtp(rtxOf(1, 1));
+
+      // Act: 旧媒体 1000、新媒体 2000 の順に届き、新媒体の seq 101 が欠けて NACK 対象になる。
+      router.routeRtp(mediaOf(1000, 1));
+      router.routeRtp(mediaOf(2000, 100));
+      router.routeRtp(mediaOf(2000, 102));
+      router.routeRtp(rtxOf(101, 2));
+
+      // Assert: 欠けた seq を持つ新媒体 2000 として復元される (旧媒体 1000 ではない)。
+      expect(
+        received
+          .filter((p) => p.type === "retransmission")
+          .map((p) => [p.ssrc, p.seq]),
+      ).toEqual([[2000, 101]]);
+      receiver.stop();
+    });
+
+    test("媒体切り替え後も、新媒体の NACK 済みパケットの RTX は継続して復元される", () => {
+      // Arrange: 媒体 1000 から 5000 に切り替わり、新媒体で複数の欠落が出る。
+      const { router, receiver } = createSimulcastRtxReceiver();
+      const received = collectDeliveredRtp(receiver.trackByRID.high);
+      const mediaOf = (ssrc: number, sequenceNumber: number) =>
+        createSimulcastMediaPacket({ ssrc, sequenceNumber, rid: high.rid });
+      router.routeRtp(mediaOf(1000, 1));
+      router.routeRtp(mediaOf(5000, 100));
+      router.routeRtp(mediaOf(5000, 106));
+
+      // Act: 新媒体の欠落 101..105 を新しい RTX SSRC で順に再送する。
+      for (const [i, seq] of [101, 102, 103, 104, 105].entries()) {
+        router.routeRtp(
+          createSimulcastRtxPacket(
+            createSimulcastMediaPacket({ ssrc: 5000, sequenceNumber: seq }),
+            { rtxSsrc: 5001, rtxSequenceNumber: i + 1, rrid: high.rid },
+          ),
+        );
+      }
+
+      // Assert: 5 パケットすべてが新媒体 5000 として届く。
+      expect(
+        received
+          .filter((p) => p.type === "retransmission")
+          .map((p) => [p.ssrc, p.seq]),
+      ).toEqual([101, 102, 103, 104, 105].map((seq) => [5000, seq]));
+      receiver.stop();
+    });
+
     test("同じ RID を使う複数 m-line でも、学習済み RTX SSRC は MID 省略後に元の受信先へ届く", () => {
       // Arrange: mid "1" を先に登録し、同じ RID を使う mid "0" の receiver に RTX を学習させる。
       const { router, receiver: other } = createSimulcastRtxReceiver({
