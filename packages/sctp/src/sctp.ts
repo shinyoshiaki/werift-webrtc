@@ -822,7 +822,12 @@ export class SCTP {
       const inboundStream = this.getInboundStream(streamId);
 
       // # advance sequence number and perform delivery
-      inboundStream.streamSequenceNumber = uint16Add(streamSeqNum, 1);
+      // A duplicated/delayed entry (e.g. carried over by a resent FORWARD-TSN)
+      // must never move the expected SSN backwards.
+      const nextSsn = uint16Add(streamSeqNum, 1);
+      if (uint16Gt(nextSsn, inboundStream.streamSequenceNumber)) {
+        inboundStream.streamSequenceNumber = nextSsn;
+      }
       for (const message of inboundStream.popMessages()) {
         this.advertisedRwnd += message[2].length;
         this.receive(...message);

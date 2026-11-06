@@ -237,4 +237,57 @@ describe("PR-SCTP lifetime (expiry) abandonment", () => {
     expect(received.map((d) => d.toString())).toEqual(["B"]);
     expect(server.lastReceivedTsn).toBe((base + 4) % 0x100000000);
   });
+  test("does not move the expected SSN backwards on a stale stream entry in a FORWARD-TSN", async () => {
+    // Arrange: ストリーム 0 は SSN 0,1 を配送済み (期待 SSN = 2)。ストリーム 1 は未着
+    const pair = await createLossyPrSctpPair();
+    stop = pair.stop;
+    const server = pair.server as any;
+    const received: Buffer[] = [];
+    pair.server.onReceive.subscribe((_streamId, _ppId, data) => {
+      received.push(data);
+    });
+    const base: number = server.lastReceivedTsn;
+    const make = (
+      offset: number,
+      streamId: number,
+      ssn: number,
+      data: string,
+    ) => {
+      const chunk = new DataChunk(0, undefined);
+      chunk.tsn = (base + offset) % 0x100000000;
+      chunk.streamId = streamId;
+      chunk.streamSeqNum = ssn;
+      chunk.protocol = 53;
+      chunk.flags = 0x03;
+      chunk.userData = Buffer.from(data);
+      return chunk;
+    };
+    server.receiveDataChunk(make(1, 0, 0, "a0"));
+    server.receiveDataChunk(make(2, 0, 1, "a1"));
+    expect(server.getInboundStream(0).streamSequenceNumber).toBe(2);
+
+    // Act: ストリーム 0 の古いエントリ (SSN 0) を引き継いだ FORWARD-TSN を受信し、続けてストリーム 0 の次のメッセージを受信する
+    const forward = new ForwardTsnChunk(0, undefined);
+    forward.cumulativeTsn = (base + 4) % 0x100000000;
+    forward.streams = [
+      [0, 0],
+      [1, 0],
+    ];
+    server.receiveForwardTsnChunk(forward);
+    server.receiveDataChunk(make(5, 0, 2, "a2"));
+
+    // Assert: ストリーム 0 の期待 SSN は後退せず、後続メッセージが配送される
+    expect(received.map((d) => d.toString())).toEqual(["a0", "a1", "a2"]);
+    expect(server.getInboundStream(1).streamSequenceNumber).toBe(1);
+
+    // Act: SSN の折り返し (期待 SSN 0 に対し古いエントリ 65535) を受信する
+    server.getInboundStream(2).streamSequenceNumber = 0;
+    const wrap = new ForwardTsnChunk(0, undefined);
+    wrap.cumulativeTsn = (base + 6) % 0x100000000;
+    wrap.streams = [[2, 0xffff]];
+    server.receiveForwardTsnChunk(wrap);
+
+    // Assert: 折り返しでも期待 SSN は 0 のまま進まない/戻らない
+    expect(server.getInboundStream(2).streamSequenceNumber).toBe(0);
+  });
 });
