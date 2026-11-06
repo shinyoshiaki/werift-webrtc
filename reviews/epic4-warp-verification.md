@@ -148,11 +148,11 @@ ide:
 - **§44 auth tag failure / ROC:** rtp package の unit テストで確認しています（`Rejects tampered SRTP auth tag without advancing rollover state`、`TestRolloverCount` など）。E2E 相当の確認は、上記の replay テストの rollover ケースです。
 - **§45 ICE restart:** `sped.test.ts` › `handshake 開始後の ICE restart でも datachannel が開く`、`ICE restart 後も datachannel が使える`、`dtls13.test.ts` › `ICE restart 後も DTLS 1.3 の DataChannel / RTP / RTCP が使える`、上記の `iceGeneration` テスト、Chromium E2E の `tests/ice/restart.test.ts`。
 
-**未カバーとして残るもの**
+**未カバーとして残るもの**（§19 で対応済み）
 
-- §42 row 1/2 の「SPED on・Full×Full」を DTLS role ごとに確認する専用テスト。現状は `spedTiming.test.ts` の `回答側の DTLS %s 開始が遅れても…` が両 role をカバーしていますが、DTLS 開始の遅延条件付きです。
-- §43 の「early disabled 時に writeReady から peerAuthenticated まで送信を保留する」を DataChannel レベルで確認するテスト。
-- §45 の「restart 後に新しい selected pair へ切り替わったこと」を直接確認するテスト。
+- ~~§42 row 1/2 の「SPED on・Full×Full」を DTLS role ごとに確認する専用テスト~~ → `connectionMatrix.test.ts`（§19）。
+- ~~§43 の「early disabled 時に writeReady から peerAuthenticated まで送信を保留する」を DataChannel レベルで確認するテスト~~ → `earlyOutboundBoundary.test.ts`（§19）。
+- ~~§45 の「restart 後に新しい selected pair へ切り替わったこと」を直接確認するテスト~~ → `transportFaultMatrix.test.ts` › `$name: 認証後の ICE restart` › `新しい selected pair (別の 5-tuple) へ移り、同じ SCTP association を維持する`（§8.4 の恒久テストの項）。
 
 ## 7. `sped:false` 非回帰の証跡
 
@@ -676,3 +676,34 @@ SCTP がない media-only の接続では後者が呼ばれず、`allowEarlyServ
 | 同: role が揃う組み合わせ | 成功 | 成功 |
 
 **未検証:** 実際の旧 werift リリースとの相互接続（上の test は旧実装の開始側規則を模したもの）。role がずれる場合は両端の stream ID parity が同じになり得るため、両端が同時に in-band で DataChannel を開くと ID が衝突し得ます（changelog に記載）。
+
+## 19. 完了条件の検証の補完（レビューの指摘への対応）
+
+**early outbound 無効時の送信保留（DataChannel レベル）:** `packages/webrtc/tests/integrate/earlyOutboundBoundary.test.ts`。SPED / DTLS 1.3 で offerer を DTLS server にし、server の peer 認証を保留して writeReady から fingerprint 認証の間に留めます。server が DTLS に渡した application record を、その時点の readiness と一緒に記録します。
+
+| テスト | 確認内容 | 結果 |
+|---|---|---|
+| early outbound 無効 | writeReady かつ未認証の間（1 秒）、application record は 0 件で、client に DataChannel は公開されない。認証後は DataChannel が開いて双方向に届き、送った record はすべて認証後のもの | 成功 |
+| 比較: early outbound 有効 | 同じ保留中に未認証のまま SCTP の record が送られ、受信側は認証前に DataChannel を公開しない | 成功 |
+
+送信を止めている gate は 2 つあります。transport activation の early SCTP 開始条件と、`RTCDtlsTransport.sendData` の early 送信許可です。両方の設定判定を外す（常に許可にする）と無効側のテストは失敗しました（`expected [ … ] to have a length of +0 but got 1`）。片方だけを外した場合は、もう一方が送信を止めるため成功します。
+
+**接続マトリクス:** `packages/webrtc/tests/integrate/connectionMatrix.test.ts`。2 つの実 `RTCPeerConnection` で、setup:active / setup:passive（answerer の DTLS role）× Full×Full / Full×Lite（answerer が ICE-lite）× SPED on/off × `[1.3]` / `[1.3, 1.2]` の 16 通りを接続します。各組み合わせで次を確認します。
+
+- 両側から開いた in-band DataChannel で、text / binary を交互に 5 件ずつ送り、両方向とも順序と型を保って届く
+- DTLS role が setup の指定どおりで、stream ID parity が DTLS client = 偶数 / server = 奇数
+- Full×Lite では answerer が lite、offerer が ICE controlling
+- `tlsVersion` が `DTLS 1.3`、SPED on なら `warpSpedState` が `disabled` 以外、off なら `disabled`
+
+16/16 成功（`--retry=0` で 4 回）。
+
+**公開済み旧 werift との相互接続:** `packages/webrtc/tests/integrate/legacyWeriftRelease.test.ts`（opt-in。`npm run test:legacy-werift`）。npm の `werift@0.26.0`（SCTP の INIT 送信側を ICE role で決め、initiator は INIT / COOKIE_ECHO を無視する実装であることを公開パッケージのコードで確認）と現行 werift を、plain な SDP / candidate だけで接続します。
+
+| 組み合わせ | §18 の修正前（`1d650aeb0` の SCTP 2 ファイル） | 修正後 |
+|---|---|---|
+| 旧 offerer（ICE controlling）× 現行 answerer DTLS server（両端が INIT を送る） | 失敗（15 秒で開かない） | 成功 |
+| 現行 offerer DTLS client × 旧 answerer（ICE controlled）DTLS server（両端が INIT を待つ） | 失敗（同上） | 成功 |
+| 旧 ICE-lite offerer（ICE controlled）DTLS server × 現行 answerer DTLS client（両端が INIT を待つ） | 未確認 | 成功 |
+| role が揃う 2 通り | 成功 | 成功 |
+
+修正後はいずれも 3 秒未満で開き、双方向に届きました。`WERIFT_LEGACY_RELEASE_AUTO_INSTALL=1 npm run test:legacy-werift` は一時ディレクトリへ `--ignore-scripts` で install し、終了時に削除します。既定の `npm test` では skip されます。

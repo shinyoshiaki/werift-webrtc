@@ -55,6 +55,7 @@
     "knip": "knip",
     "test": "vitest run ./tests",
     "test:pion-ice-agent": "WERIFT_PION_ICE_AGENT_REQUIRED=1 vitest run ./tests/integrate/sped-pion-ice.test.ts",
+    "test:legacy-werift": "WERIFT_LEGACY_RELEASE_REQUIRED=1 vitest run ./tests/integrate/legacyWeriftRelease.test.ts",
     "memleak": "vitest run --config ./tests/memleak/memleak.vitest.config.mts",
     "leak:verify": "bash tools/leak-verify/run.sh",
     "pbt:deep": "node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs tools/pbt-deep/run.ts",

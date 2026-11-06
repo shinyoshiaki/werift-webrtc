@@ -1,3 +1,7 @@
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join as joinPath, resolve as resolvePath } from "node:path";
 import { vi } from "vitest";
 import {
   Candidate,
@@ -1256,6 +1260,318 @@ export async function connectWithLegacySctpPeer({
   return {
     offerer,
     answerer,
+    offererChannel,
+    answererChannel: remote,
+    openedAfterMs: Date.now() - startedAt,
+  };
+}
+
+// --- Early server outbound opt-in boundary at the DataChannel level ---
+
+type ReadinessSnapshot = { writeReady: boolean; peerAuthenticated: boolean };
+const readinessOf = (transport: RTCDtlsTransport) =>
+  ({
+    ...(transport as unknown as { readiness: ReadinessSnapshot }).readiness,
+  }) as ReadinessSnapshot;
+
+/**
+ * Arrange: SPED / DTLS 1.3 peers whose offerer is the DTLS server and owns a
+ * DataChannel. The server's peer authentication is held (it stays between
+ * `writeReady` and fingerprint authentication) and every application record
+ * it hands to DTLS is recorded with the readiness at that moment.
+ */
+export async function prepareHeldServerDataChannel(
+  allowEarlyServerData: boolean,
+) {
+  const config = {
+    iceServers: [],
+    sped: true,
+    dtls: { protocolVersions: [DtlsVersion.V1_3] },
+    warp: { allowEarlyServerData },
+  };
+  const server = new RTCPeerConnection(config);
+  const client = new RTCPeerConnection(config);
+  const serverChannel = server.createDataChannel("early-boundary");
+  const clientChannel = new Promise<RTCDataChannel>((resolve) => {
+    client.ondatachannel = ({ channel }) => resolve(channel);
+  });
+  let clientChannelOpened = false;
+  void clientChannel.then(() => {
+    clientChannelOpened = true;
+  });
+  exchangeIceCandidates(server, client);
+  await server.setLocalDescription(await server.createOffer());
+  await client.setRemoteDescription(server.localDescription!);
+  await client.setLocalDescription(await client.createAnswer());
+  const transport = server.dtlsTransports[0];
+  const { release } = holdPeerAuthentication(transport);
+  const sends: ReadinessSnapshot[] = [];
+  const heldStart = transport.start.bind(transport);
+  transport.start = async () => {
+    const started = heldStart();
+    while (!transport.dtls) await nextTurn();
+    const dtls = transport.dtls;
+    const send = dtls.send.bind(dtls);
+    dtls.send = async (...args: Parameters<typeof dtls.send>) => {
+      sends.push(readinessOf(transport));
+      return send(...args);
+    };
+    return started;
+  };
+  return {
+    server,
+    client,
+    transport,
+    serverChannel,
+    clientChannel,
+    sends,
+    release,
+    clientChannelOpened: () => clientChannelOpened,
+    readiness: () => readinessOf(transport),
+    /** Act helper: apply the answer and wait until the server is write-ready. */
+    applyAnswerUntilWriteReady: async () => {
+      void server.setRemoteDescription(client.localDescription!);
+      const deadline = Date.now() + 10_000;
+      while (!readinessOf(transport).writeReady) {
+        if (Date.now() > deadline) throw new Error("server not write-ready");
+        await new Promise((r) => setTimeout(r, 10));
+      }
+    },
+  };
+}
+
+// --- Connection matrix: setup role × Full/Lite × SPED × DTLS versions ---
+
+export type ConnectionMatrixCase = {
+  /** DTLS role the answerer takes: "client" = setup:active, "server" = setup:passive. */
+  answererRole: "client" | "server";
+  /** "full-lite": the answerer is an ICE-lite agent. */
+  ice: "full-full" | "full-lite";
+  sped: boolean;
+  protocolVersions: DtlsVersion[];
+};
+
+/** Arrange: every combination of {@link ConnectionMatrixCase}. */
+export const connectionMatrixCases = (): (ConnectionMatrixCase & {
+  name: string;
+})[] =>
+  (["client", "server"] as const).flatMap((answererRole) =>
+    (["full-full", "full-lite"] as const).flatMap((ice) =>
+      [false, true].flatMap((sped) =>
+        [[DtlsVersion.V1_3], [DtlsVersion.V1_3, DtlsVersion.V1_2]].map(
+          (protocolVersions) => ({
+            name: `setup:${answererRole === "client" ? "active" : "passive"} ${ice} sped:${sped} [${protocolVersions.join(",")}]`,
+            answererRole,
+            ice,
+            sped,
+            protocolVersions,
+          }),
+        ),
+      ),
+    ),
+  );
+
+const waitOpen = (channel: RTCDataChannel) =>
+  channel.readyState === "open"
+    ? Promise.resolve()
+    : new Promise<void>((resolve, reject) => {
+        channel.onopen = () => resolve();
+        channel.onerror = ({ error }) => reject(error);
+      });
+
+/**
+ * Arrange: two real RTCPeerConnections connected for one matrix case, with
+ * an in-band DataChannel opened from each side.
+ */
+export async function connectMatrixCase({
+  answererRole,
+  ice,
+  sped,
+  protocolVersions,
+}: ConnectionMatrixCase) {
+  const config = {
+    iceServers: [],
+    sped,
+    dtls: { protocolVersions },
+  };
+  const offerer = new RTCPeerConnection(config);
+  const answerer = new RTCPeerConnection({
+    ...config,
+    iceLite: ice === "full-lite",
+  });
+  const offererChannel = offerer.createDataChannel("from-offerer");
+  const received = (pc: RTCPeerConnection) => {
+    const channels: RTCDataChannel[] = [];
+    pc.onDataChannel.subscribe((channel) => channels.push(channel));
+    return channels;
+  };
+  const receivedByAnswerer = received(answerer);
+  const receivedByOfferer = received(offerer);
+  exchangeIceCandidates(offerer, answerer);
+  await offerer.setLocalDescription(await offerer.createOffer());
+  await answerer.setRemoteDescription(offerer.localDescription!);
+  answerer.dtlsTransports[0].role = answererRole;
+  await answerer.setLocalDescription(await answerer.createAnswer());
+  await offerer.setRemoteDescription(answerer.localDescription!);
+  await waitOpen(offererChannel);
+  const answererChannel = answerer.createDataChannel("from-answerer");
+  await waitOpen(answererChannel);
+  const deadline = Date.now() + 10_000;
+  while (receivedByAnswerer.length < 1 || receivedByOfferer.length < 1) {
+    if (Date.now() > deadline) throw new Error("remote DataChannel missing");
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  await Promise.all(
+    [receivedByAnswerer[0], receivedByOfferer[0]].map(waitOpen),
+  );
+  return {
+    offerer,
+    answerer,
+    /** [local, remote] pairs: offerer → answerer, answerer → offerer. */
+    channels: [
+      [offererChannel, receivedByAnswerer[0]],
+      [answererChannel, receivedByOfferer[0]],
+    ] as const,
+  };
+}
+
+/** Act helper: send `messages` in order and collect what the remote end receives. */
+export async function sendInOrder(
+  local: RTCDataChannel,
+  remote: RTCDataChannel,
+  messages: (string | Buffer)[],
+) {
+  const arrived = collectMessages(remote, messages.length);
+  for (const message of messages) local.send(message);
+  return arrived;
+}
+
+// --- Interop with a released (older) werift ---
+
+/** Default released werift for the legacy interop test (SCTP initiator by ICE role). */
+export const LEGACY_WERIFT_DEFAULT_VERSION = "0.26.0";
+
+/**
+ * Arrange: locate a released werift package directory.
+ * - `WERIFT_LEGACY_RELEASE`: path to an installed `werift` package directory.
+ * - `WERIFT_LEGACY_RELEASE_AUTO_INSTALL=1`: install
+ *   `werift@${WERIFT_LEGACY_RELEASE_VERSION ?? LEGACY_WERIFT_DEFAULT_VERSION}`
+ *   with `--ignore-scripts` into a temporary directory.
+ * Returns undefined when neither is set.
+ */
+export function resolveLegacyWeriftRelease(env = process.env) {
+  if (env.WERIFT_LEGACY_RELEASE) {
+    return { dir: resolvePath(env.WERIFT_LEGACY_RELEASE), cleanup: () => {} };
+  }
+  if (env.WERIFT_LEGACY_RELEASE_AUTO_INSTALL !== "1") return undefined;
+  const version =
+    env.WERIFT_LEGACY_RELEASE_VERSION ?? LEGACY_WERIFT_DEFAULT_VERSION;
+  const prefix = mkdtempSync(joinPath(tmpdir(), "werift-legacy-"));
+  execFileSync(
+    "npm",
+    [
+      "install",
+      "--prefix",
+      prefix,
+      "--ignore-scripts",
+      "--prefer-offline",
+      "--no-audit",
+      "--no-fund",
+      "--no-update-notifier",
+      `werift@${version}`,
+    ],
+    { stdio: "inherit" },
+  );
+  return {
+    dir: joinPath(prefix, "node_modules", "werift"),
+    /** Remove the temporary install. */
+    cleanup: () => rmSync(prefix, { recursive: true, force: true }),
+  };
+}
+
+type AnyPeerConnection = {
+  createDataChannel(label: string): any;
+  createOffer(): Promise<any>;
+  createAnswer(): Promise<any>;
+  setLocalDescription(description: any): Promise<any>;
+  setRemoteDescription(description: any): Promise<any>;
+  addIceCandidate(candidate: any): Promise<void>;
+  onIceCandidate: { subscribe(fn: (candidate: any) => void): unknown };
+  onDataChannel: { subscribe(fn: (channel: any) => void): unknown };
+  localDescription: { type: string; sdp: string } | null;
+  dtlsTransports: { role: string }[];
+  close(): Promise<void>;
+};
+
+/**
+ * Arrange: connect an offerer and an answerer that may come from different
+ * werift builds, exchanging only plain SDP / candidate JSON. The answerer
+ * takes `answererRole` as DTLS role; the offerer opens the DataChannel.
+ * Resolves with both ends once they are open (rejects after `timeoutMs`).
+ */
+export async function connectAcrossBuilds({
+  offerer,
+  answerer,
+  answererRole,
+  timeoutMs = 15_000,
+}: {
+  offerer: AnyPeerConnection;
+  answerer: AnyPeerConnection;
+  answererRole: "client" | "server";
+  timeoutMs?: number;
+}) {
+  for (const [local, remote] of [
+    [offerer, answerer],
+    [answerer, offerer],
+  ] as const) {
+    local.onIceCandidate.subscribe((candidate) => {
+      if (!candidate) return;
+      remote
+        .addIceCandidate(
+          typeof candidate.toJSON === "function"
+            ? candidate.toJSON()
+            : candidate,
+        )
+        .catch(() => {});
+    });
+  }
+  const offererChannel = offerer.createDataChannel("cross-build");
+  const answererChannel = new Promise<any>((resolve) => {
+    answerer.onDataChannel.subscribe(resolve);
+  });
+  const plain = (pc: AnyPeerConnection) => ({
+    type: pc.localDescription!.type,
+    sdp: pc.localDescription!.sdp,
+  });
+  await offerer.setLocalDescription(await offerer.createOffer());
+  await answerer.setRemoteDescription(plain(offerer));
+  answerer.dtlsTransports[0].role = answererRole;
+  await answerer.setLocalDescription(await answerer.createAnswer());
+  await offerer.setRemoteDescription(plain(answerer));
+  const startedAt = Date.now();
+  const opened = (async () => {
+    const remote = await answererChannel;
+    await Promise.all(
+      [offererChannel, remote].map((channel) =>
+        channel.readyState === "open"
+          ? undefined
+          : new Promise<void>((resolve) => {
+              channel.onopen = () => resolve();
+            }),
+      ),
+    );
+    return remote;
+  })();
+  const remote = await Promise.race([
+    opened,
+    new Promise<never>((_, reject) =>
+      setTimeout(
+        () => reject(new Error("DataChannel did not open")),
+        timeoutMs,
+      ),
+    ),
+  ]);
+  return {
     offererChannel,
     answererChannel: remote,
     openedAfterMs: Date.now() - startedAt,
