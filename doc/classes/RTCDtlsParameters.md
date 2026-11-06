@@ -30,7 +30,7 @@
 
 ### fingerprints
 
-> **fingerprints**: [`RTCDtlsFingerprint`](RTCDtlsFingerprint.md)[] = `[]`
+> **fingerprints**: [`RTCDtlsFingerprint`](RTCDtlsFingerprint.md)[]
 
 ***
 

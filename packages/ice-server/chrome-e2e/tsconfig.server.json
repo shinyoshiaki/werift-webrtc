@@ -6,6 +6,7 @@
       "esnext"
     ],
     "strict": true,
+    "erasableSyntaxOnly": true,
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
     "skipLibCheck": true,

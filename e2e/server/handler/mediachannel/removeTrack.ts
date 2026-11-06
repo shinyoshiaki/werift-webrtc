@@ -10,13 +10,17 @@ import { peerConfig } from "../../fixture";
 import { spawnGstreamerPipeline, stopGstreamerProcess } from "../../gstreamer";
 
 export class mediachannel_removetrack_answer_base {
+  private readonly mLineReuse: MLineReuse;
+
   pc!: RTCPeerConnection;
   private trackSources = new Map<
     MediaStreamTrack,
     { dispose: () => void; process: ChildProcess }
   >();
 
-  constructor(private readonly mLineReuse: MLineReuse = "compatible") {}
+  constructor(mLineReuse: MLineReuse = "compatible") {
+    this.mLineReuse = mLineReuse;
+  }
 
   private async createTrackSource() {
     const [track, port, dispose] = await MediaStreamTrackFactory.rtpSource({
@@ -119,9 +123,13 @@ export class mediachannel_removetrack_addtrack extends mediachannel_removetrack_
 export class mediachannel_addtrack_removefirst_addtrack extends mediachannel_removetrack_answer_base {}
 
 class mediachannel_removetrack_offer_base {
+  private readonly mLineReuse: MLineReuse;
+
   pc!: RTCPeerConnection;
 
-  constructor(private readonly mLineReuse: MLineReuse = "compatible") {}
+  constructor(mLineReuse: MLineReuse = "compatible") {
+    this.mLineReuse = mLineReuse;
+  }
 
   async exec(type: string, payload: any, accept: AcceptFn) {
     switch (type) {

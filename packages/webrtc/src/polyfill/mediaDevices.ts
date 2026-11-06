@@ -16,14 +16,17 @@ import {
 } from "./selectSettings";
 
 export class MediaDevices extends EventTarget {
+  private readonly registers: BoundMediaRegister[];
+
   ondevicechange: ((this: MediaDevices, ev: Event) => unknown) | null = null;
   private readonly activeStops = new Map<MediaStreamTrack, () => void>();
   private readonly failedRegisters = new Set<BoundMediaRegister>();
   private readonly disposeAbort = new AbortController();
   private disposed = false;
 
-  constructor(private readonly registers: BoundMediaRegister[]) {
+  constructor(registers: BoundMediaRegister[]) {
     super();
+    this.registers = registers;
   }
 
   getSupportedConstraints() {

@@ -117,6 +117,9 @@ const SCTPConnectionStates = [
 type SCTPConnectionState = Unpacked<typeof SCTPConnectionStates>;
 
 export class SCTP {
+  public transport: Transport;
+  public port: number;
+
   flush = new Event<[void]>();
   readonly stateChanged: {
     [key in SCTPConnectionState]: Event<[]>;
@@ -126,7 +129,7 @@ export class SCTP {
   readonly onReceive = new Event<[number, number, Buffer]>();
   onSackReceived: () => Promise<void> = async () => {};
 
-  associationState = SCTP_STATE.CLOSED;
+  associationState: SCTP_STATE = SCTP_STATE.CLOSED;
   started = false;
   state: SCTPConnectionState = "new";
   isServer = true;
@@ -225,11 +228,9 @@ export class SCTP {
   // etc
   private ssthresh?: number; // slow start threshold
 
-  constructor(
-    public transport: Transport,
-    public port = 5000,
-    options: SCTPOptions = {},
-  ) {
+  constructor(transport: Transport, port = 5000, options: SCTPOptions = {}) {
+    this.transport = transport;
+    this.port = port;
     this.mtu = options.mtu ?? DEFAULT_SCTP_MTU;
     validateSctpMtu(this.mtu);
     this.maxPayloadSize = maxPayloadSizeForMtu(this.mtu);
@@ -1623,7 +1624,11 @@ export class InboundStream {
 }
 
 export class RTCSctpCapabilities {
-  constructor(public maxMessageSize: number) {}
+  public maxMessageSize: number;
+
+  constructor(maxMessageSize: number) {
+    this.maxMessageSize = maxMessageSize;
+  }
 }
 
 function tsnMinusOne(a: number) {

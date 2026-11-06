@@ -34,8 +34,6 @@
 
 `"inactive"` \| `"sendonly"` \| `"recvonly"` \| `"sendrecv"`
 
-RFC 8829 4.2.4.  direction the transceiver was initialized with
-
 #### Returns
 
 `RTCRtpTransceiver`

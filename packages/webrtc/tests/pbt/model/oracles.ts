@@ -273,6 +273,8 @@ type Before = {
 };
 
 export class ModelOracles implements Observer {
+  private readonly c: NegotiationCase;
+
   private readonly events = new Map<RTCPeerConnection, NegotiationEvents>();
   /** The world a peer's open transaction started from. */
   private readonly baselines = new Map<RTCPeerConnection, World>();
@@ -302,7 +304,9 @@ export class ModelOracles implements Observer {
     this.applicationChannels.set(channel, pc);
   }
 
-  constructor(private readonly c: NegotiationCase) {}
+  constructor(c: NegotiationCase) {
+    this.c = c;
+  }
 
   /** Arrange: observe the two peers of the scene from now on. */
   watch(a: RTCPeerConnection, b: RTCPeerConnection) {

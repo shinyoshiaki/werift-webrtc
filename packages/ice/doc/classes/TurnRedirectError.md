@@ -30,13 +30,9 @@ kept as `cause`.
 
 readonly \[`string`, `number`\]
 
-Server that answered 300.
-
 ##### alternate
 
 readonly \[`string`, `number`\] \| `undefined`
-
-ALTERNATE-SERVER of the 300 response, when present.
 
 ##### cause
 

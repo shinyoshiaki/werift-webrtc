@@ -13,11 +13,15 @@ export type Config = {
 };
 
 export class Session<T extends Context> {
+  private ContextCls: any;
+
   localContext!: T;
   remoteContext!: T;
   onData?: (buf: Buffer) => void;
 
-  constructor(private ContextCls: any) {}
+  constructor(ContextCls: any) {
+    this.ContextCls = ContextCls;
+  }
 
   start(
     localMasterKey: Buffer,

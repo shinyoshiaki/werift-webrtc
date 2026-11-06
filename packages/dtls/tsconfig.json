@@ -9,6 +9,7 @@
     "declaration": true,
     "outDir": "lib",
     "strict": true,
+    "erasableSyntaxOnly": true,
     "esModuleInterop": true,
     "pretty": true,
     "sourceMap": true,

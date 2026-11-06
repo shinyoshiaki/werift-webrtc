@@ -80,6 +80,10 @@ function canonicalHost(host: string): string {
 }
 
 export class Transaction {
+  private request: Message;
+  private addr: Address;
+  private protocol: Protocol;
+
   private timeoutDelay: number;
   ended = false;
   private tries = 0;
@@ -103,12 +107,15 @@ export class Transaction {
   private readonly requestBytes: Buffer;
 
   constructor(
-    private request: Message,
-    private addr: Address,
-    private protocol: Protocol,
+    request: Message,
+    addr: Address,
+    protocol: Protocol,
     retransmissionsOrOptions?: number | TransactionRequestOptions,
     onRequestSent?: (attempt: number) => void,
   ) {
+    this.request = request;
+    this.addr = addr;
+    this.protocol = protocol;
     const options = normalizeTransactionOptions(
       retransmissionsOrOptions,
       onRequestSent,

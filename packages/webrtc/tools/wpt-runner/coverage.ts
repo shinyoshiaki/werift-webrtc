@@ -1,4 +1,4 @@
-import { spawn } from "child_process";
+import { spawnSync } from "child_process";
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { dirname, resolve } from "path";
@@ -67,13 +67,29 @@ async function main() {
   let exitCode = 0;
 
   try {
-    const status = await runWptAndConsumeCoverage(rawCoverageDir, async () => {
-      mergedCoverage = await consumeCoverageFiles(
-        rawCoverageDir,
-        mergedCoverage,
-        isTargetUrl,
-      );
-    });
+    const result = spawnSync(
+      process.execPath,
+      [
+        "--disable-warning=ExperimentalWarning",
+        "--disable-warning=MODULE_TYPELESS_PACKAGE_JSON",
+        "--import",
+        resolve(repoRoot, "tools/node-ts/register.mjs"),
+        "tools/wpt-runner/run.ts",
+      ],
+      {
+        cwd: packageDir,
+        env: {
+          ...process.env,
+          NODE_V8_COVERAGE: rawCoverageDir,
+          WPT_USE_WORKERS: "1",
+        },
+        stdio: "inherit",
+      },
+    );
+    if (result.error) {
+      throw result.error;
+    }
+    const status = result.status ?? 1;
     await warnUnreadableCoverageFiles(rawCoverageDir);
 
     if (status !== 0) {
@@ -139,53 +155,6 @@ async function warnUnreadableCoverageFiles(directoryPath: string) {
         error instanceof Error ? error.message : error,
       );
     }
-  }
-}
-
-async function runWptAndConsumeCoverage(
-  rawCoverageDir: string,
-  consume: () => Promise<void>,
-) {
-  const child = spawn(
-    process.execPath,
-    [
-      "--experimental-transform-types",
-      "--disable-warning=ExperimentalWarning",
-      "--disable-warning=MODULE_TYPELESS_PACKAGE_JSON",
-      "--import",
-      resolve(repoRoot, "tools/node-ts/register.mjs"),
-      "tools/wpt-runner/run.ts",
-    ],
-    {
-      cwd: packageDir,
-      env: {
-        ...process.env,
-        NODE_V8_COVERAGE: rawCoverageDir,
-        WPT_USE_WORKERS: "1",
-      },
-      stdio: "inherit",
-    },
-  );
-
-  let consumeChain = Promise.resolve();
-  const scheduleConsume = () => {
-    consumeChain = consumeChain.then(consume).catch((error) => {
-      console.error(error);
-    });
-  };
-  const timer = setInterval(scheduleConsume, 1_000);
-
-  try {
-    return await new Promise<number>((resolve, reject) => {
-      child.on("error", reject);
-      child.on("exit", (code, signal) => {
-        resolve(signal ? 1 : (code ?? 1));
-      });
-    });
-  } finally {
-    clearInterval(timer);
-    scheduleConsume();
-    await consumeChain;
   }
 }
 

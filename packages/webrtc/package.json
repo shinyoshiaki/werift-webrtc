@@ -57,12 +57,12 @@
     "test:pion-ice-agent": "WERIFT_PION_ICE_AGENT_REQUIRED=1 vitest run ./tests/integrate/sped-pion-ice.test.ts",
     "memleak": "vitest run --config ./tests/memleak/memleak.vitest.config.mts",
     "leak:verify": "bash tools/leak-verify/run.sh",
-    "pbt:deep": "node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs tools/pbt-deep/run.ts",
+    "pbt:deep": "node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs tools/pbt-deep/run.ts",
     "type": "tsc --noEmit --project ./tsconfig.json --rootDir ..",
     "upgrade-interactive": "npx npm-check-updates -i",
-    "wpt:list": "node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs tools/wpt-runner/list.ts",
-    "wpt": "node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs tools/wpt-runner/run.ts",
-    "wpt:coverage": "node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs tools/wpt-runner/coverage.ts",
+    "wpt:list": "node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs tools/wpt-runner/list.ts",
+    "wpt": "node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs tools/wpt-runner/run.ts",
+    "wpt:coverage": "node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs tools/wpt-runner/coverage.ts",
     "test:sim": "vitest run --config ./simulations/vitest.config.mts"
   },
   "dependencies": {
