@@ -3,7 +3,12 @@ import { readFileSync } from "fs";
 import { vi } from "vitest";
 
 import { SCTP } from "../src";
-import { type Chunk, DataChunk, parsePacket } from "../src/chunk";
+import {
+  type Chunk,
+  DataChunk,
+  ForwardTsnChunk,
+  parsePacket,
+} from "../src/chunk";
 import { FifoQueue } from "../src/imports/common";
 import type { Transport } from "../src/transport";
 
@@ -186,10 +191,19 @@ export const measureBurstTransfer = async (count: number, size: number) => {
 export const createDataDropRecorder = () => {
   const recorder = {
     dropData: false,
+    /** Number of upcoming FORWARD-TSN packets to drop. */
+    dropForwardTsnCount: 0,
     sentChunks: [] as Chunk[],
     drop: (buf: Buffer) => {
       const [, , , chunks] = parsePacket(buf);
       recorder.sentChunks.push(...chunks);
+      if (
+        recorder.dropForwardTsnCount > 0 &&
+        chunks.some((c) => c instanceof ForwardTsnChunk)
+      ) {
+        recorder.dropForwardTsnCount--;
+        return true;
+      }
       return recorder.dropData && chunks.some((c) => c instanceof DataChunk);
     },
   };

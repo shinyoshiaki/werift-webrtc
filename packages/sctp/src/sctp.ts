@@ -168,7 +168,9 @@ export class SCTP {
   private readonly maxPayloadSize: number;
   private fastRecoveryExit?: number;
   private fastRecoveryTransmit = false;
+  /** FORWARD-TSN kept until the peer's SACK covers it, so a lost one can be resent. */
   private forwardTsnChunk?: ForwardTsnChunk;
+  private forwardTsnPending = false;
   private flightSize = 0;
   /** DATA chunks waiting to be transmitted for the first time. */
   readonly outboundQueue = new FifoQueue<DataChunk>();
@@ -779,6 +781,7 @@ export class SCTP {
     this.peerAdvertisedRwnd = chunk.advertisedRwnd;
 
     this.updateAdvancedPeerAckPoint();
+    this.settleForwardTsn(chunk.cumulativeTsn);
     await this.onSackReceived();
     await this.transmit();
   }
@@ -808,6 +811,12 @@ export class SCTP {
     this.sackDuplicates = this.sackDuplicates.filter(isObsolete);
     this.sackMisOrdered = new Set([...this.sackMisOrdered].filter(isObsolete));
 
+    // # drop chunks covered by the FORWARD-TSN itself. Chunks received beyond
+    // it (already contiguous via sackMisOrdered) are kept so they can be delivered.
+    for (const inboundStream of Object.values(this.inboundStreams)) {
+      this.advertisedRwnd += inboundStream.pruneChunks(chunk.cumulativeTsn);
+    }
+
     // # update reassembly
     for (const [streamId, streamSeqNum] of chunk.streams) {
       const inboundStream = this.getInboundStream(streamId);
@@ -819,11 +828,6 @@ export class SCTP {
         this.receive(...message);
       }
     }
-
-    // # prune obsolete chunks
-    Object.values(this.inboundStreams).forEach((inboundStream) => {
-      this.advertisedRwnd += inboundStream.pruneChunks(this.lastReceivedTsn!);
-    });
   }
 
   private updateRto(R: number) {
@@ -988,11 +992,11 @@ export class SCTP {
     // """
 
     // # send FORWARD TSN
-    if (this.forwardTsnChunk) {
+    if (this.forwardTsnChunk && this.forwardTsnPending) {
+      this.forwardTsnPending = false;
       await this.sendChunk(this.forwardTsnChunk).catch((err: Error) => {
         log("send forwardTsn failed", err.message);
       });
-      this.forwardTsnChunk = undefined;
 
       if (!this.timer3Handle) {
         this.timer3Start();
@@ -1208,6 +1212,10 @@ export class SCTP {
       }
     });
     this.updateAdvancedPeerAckPoint();
+    // An unacknowledged FORWARD-TSN may have been lost; resend it.
+    if (this.forwardTsnChunk) {
+      this.forwardTsnPending = true;
+    }
 
     // # adjust congestion window
     this.fastRecoveryExit = undefined;
@@ -1325,13 +1333,28 @@ export class SCTP {
     this.heartbeatRestart();
   }
 
+  /** Drops the FORWARD-TSN once acknowledged; otherwise keeps T3 running to resend it. */
+  private settleForwardTsn(sackedTsn: number) {
+    if (!this.forwardTsnChunk) return;
+    if (uint32Gte(sackedTsn, this.forwardTsnChunk.cumulativeTsn)) {
+      this.forwardTsnChunk = undefined;
+      this.forwardTsnPending = false;
+      if (this.sentQueue.length === 0) this.timer3Cancel();
+    } else if (!this.timer3Handle) {
+      this.timer3Start();
+    }
+  }
+
   private updateAdvancedPeerAckPoint() {
     if (uint32Gt(this.lastSackedTsn, this.advancedPeerAckTsn)) {
       this.advancedPeerAckTsn = this.lastSackedTsn;
     }
 
     let done = 0;
-    const streams: { [key: number]: number } = {};
+    // Carry over streams of an unacknowledged FORWARD-TSN that this one replaces.
+    const streams: { [key: number]: number } = Object.fromEntries(
+      this.forwardTsnChunk?.streams ?? [],
+    );
     while (this.sentQueue.length > 0 && this.sentQueue.peek()!.abandoned) {
       const chunk = this.sentQueue.shift()!;
       this.advancedPeerAckTsn = chunk.tsn;
@@ -1341,6 +1364,7 @@ export class SCTP {
       }
     }
     if (done) {
+      this.forwardTsnPending = true;
       this.forwardTsnChunk = new ForwardTsnChunk(0, undefined);
       this.forwardTsnChunk.cumulativeTsn = this.advancedPeerAckTsn;
       this.forwardTsnChunk.streams = Object.entries(streams).map(([k, v]) => [
