@@ -10,6 +10,27 @@ import {
 import type { Kind } from "../types/domain";
 import type { RTCRtpCodecParameters } from "./parameters";
 
+/**
+ * How an RTP packet is classified at the moment it is delivered on
+ * {@link MediaStreamTrack.onReceiveRtp}.
+ *
+ * - `media`: normal media (including RED-recovered audio blocks)
+ * - `padding`: RFC 3550 padding-only (e.g. GCC probe). Payload is empty after
+ *   deserialize; do not decode. TWCC/NACK still observed it.
+ * - `retransmission`: RTX unwrapped onto the original media SSRC
+ */
+export const RtpReceivePacketType = {
+  media: "media",
+  padding: "padding",
+  retransmission: "retransmission",
+} as const;
+export type RtpReceivePacketType =
+  (typeof RtpReceivePacketType)[keyof typeof RtpReceivePacketType];
+
+export type RtpReceiveInfo = {
+  type: RtpReceivePacketType;
+};
+
 const sourceCodecsByTrack = new WeakMap<
   MediaStreamTrack,
   readonly RTCRtpCodecParameters[]
@@ -114,7 +135,9 @@ export class MediaStreamTrack extends EventTarget {
   /**todo impl */
   enabled = true;
 
-  readonly onReceiveRtp = new Event<[RtpPacket, Extensions?]>();
+  readonly onReceiveRtp = new Event<
+    [RtpPacket, Extensions?, RtpReceiveInfo?]
+  >();
   readonly onReceiveRtcp = new Event<[RtcpPacket]>();
   readonly onSourceChanged = new Event<
     [Pick<RtpHeader, "sequenceNumber" | "timestamp">]
@@ -139,9 +162,15 @@ export class MediaStreamTrack extends EventTarget {
       this.broadcastSource.attach(this);
     }
 
-    this.onReceiveRtp.subscribe((rtp) => {
-      this.muted = false;
+    this.onReceiveRtp.subscribe((rtp, _extensions, info) => {
       this.header = rtp.header;
+      if (
+        info?.type === RtpReceivePacketType.media ||
+        info?.type === RtpReceivePacketType.retransmission ||
+        info?.type === undefined
+      ) {
+        this.muted = false;
+      }
     });
 
     this.label = `${this.remote ? "remote" : "local"} ${this.kind}`;
@@ -183,11 +212,15 @@ export class MediaStreamTrack extends EventTarget {
     this.broadcastSource.deliverSourceChanged(header);
   }
 
-  applyIncomingRtp(packet: RtpPacket, extensions?: Extensions) {
+  applyIncomingRtp(
+    packet: RtpPacket,
+    extensions?: Extensions,
+    info?: RtpReceiveInfo,
+  ) {
     if (this.stopped) {
       return;
     }
-    this.onReceiveRtp.execute(packet, extensions);
+    this.onReceiveRtp.execute(packet, extensions, info);
   }
 
   bindUpstreamStop(stop: () => void) {

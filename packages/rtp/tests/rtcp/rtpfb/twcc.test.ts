@@ -287,7 +287,11 @@ describe("rtcp/rtpfb/twcc", () => {
         }),
       ]);
       const buf = rtpfb.serialize();
-      expect(buf).toEqual(data);
+      // Body is already 32-bit aligned without padding octets; serialize must
+      // clear the stale wire P bit (0xaf → 0x8f) rather than emit P=1 with no pad.
+      const expected = Buffer.from(data);
+      expected[0] = 0x8f;
+      expect(buf).toEqual(expected);
     });
     test("example4", () => {
       const data = Buffer.from([
@@ -592,6 +596,59 @@ describe("rtcp/rtpfb/twcc", () => {
         0xd0, 0x0, 0x0, 0x1,
       ]);
       expect(buf).toEqual(data);
+    });
+
+    test("aligned body では stale P bit を解除し packetResults が復元できる", () => {
+      // Arrange: body が既に 32-bit aligned（const 16 + chunk 2 + delta 1+1 = 20）
+      // なのに header.padding=true が残っている状態（再利用 / 手動設定）
+      const twcc = new TransportWideCC({
+        header: new RtcpHeader({
+          padding: true,
+          count: TransportWideCC.count,
+          type: RtcpTransportLayerFeedback.type,
+        }),
+        senderSsrc: 1,
+        mediaSourceSsrc: 2,
+        baseSequenceNumber: 10,
+        packetStatusCount: 2,
+        referenceTime: 100,
+        fbPktCount: 0,
+        packetChunks: [
+          new RunLengthChunk({
+            type: PacketChunk.TypeTCCRunLengthChunk,
+            packetStatus: PacketStatus.TypeTCCPacketReceivedSmallDelta,
+            runLength: 2,
+          }),
+        ],
+        recvDeltas: [
+          new RecvDelta({
+            type: PacketStatus.TypeTCCPacketReceivedSmallDelta,
+            delta: 250,
+          }),
+          new RecvDelta({
+            type: PacketStatus.TypeTCCPacketReceivedSmallDelta,
+            delta: 250,
+          }),
+        ],
+      });
+
+      // Act
+      const buf = twcc.serialize();
+
+      // Assert: P bit 解除、body は実 padding なし
+      expect(twcc.header.padding).toBe(false);
+      // RTCP first byte: V=2, P=0, FMT=15 → 0x8f (not 0xaf)
+      expect(buf[0] & 0x20).toBe(0);
+
+      const [rtpfb] = RtcpPacketConverter.deSerialize(buf) as [
+        RtcpTransportLayerFeedback,
+      ];
+      const parsed = rtpfb.feedback as TransportWideCC;
+      expect(parsed.packetStatusCount).toBe(2);
+      expect(parsed.packetResults.length).toBe(2);
+      expect(parsed.packetResults.map((r) => r.sequenceNumber)).toEqual([
+        10, 11,
+      ]);
     });
   });
 });

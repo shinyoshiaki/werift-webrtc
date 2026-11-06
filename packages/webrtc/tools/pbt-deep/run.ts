@@ -16,6 +16,13 @@
  *   leak      tests/pbt/leak/negotiationLeakProperty.test.ts, 300 seeds x 10 steps
  *             (P1 and P2 with 6 cycles) and P3 (heap slope over 200 cycles)
  *             for `--heap-seeds` (default 4) seeds
+ * Media suites (not in the default list; pass them with `--suite`):
+ *   twcc      tests/pbt/twcc/twccProperty.test.ts, 300 seeds x 3000 steps
+ *   bwe       tests/pbt/bwe/bweProperty.test.ts, 300 seeds x 3 phases
+ *   sender    tests/pbt/sender/senderProperty.test.ts, 300 seeds x 300 steps
+ *   receiver  tests/pbt/receiver/receiverProperty.test.ts, 300 seeds x 300 steps
+ *
+ *   npm run pbt:deep -- --suite twcc,bwe,sender,receiver
  * The fixed scenes and regression seeds run once in their own shard. Every
  * shard is its own vitest process running one file, so the leak property's
  * process-wide measurements (active resources, heap) never mix with another
@@ -24,11 +31,26 @@
  */
 import { spawn } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { createRequire } from "node:module";
 import { cpus, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { createRequire } from "node:module";
 
-type Suite = "fuzz" | "scenario" | "model" | "leak";
+type Suite = "fuzz" | "scenario" | "model" | "leak" | MediaSuite;
+type MediaSuite = "twcc" | "bwe" | "sender" | "receiver";
+
+/** Media property tests: one file, seeds from `<prefix>_SEED(S)` (tests/pbt/shared/seeds.ts). */
+const mediaSuites: Record<MediaSuite, { file: string; prefix: string }> = {
+  twcc: { file: "tests/pbt/twcc/twccProperty.test.ts", prefix: "WERIFT_TWCC" },
+  bwe: { file: "tests/pbt/bwe/bweProperty.test.ts", prefix: "WERIFT_BWE" },
+  sender: {
+    file: "tests/pbt/sender/senderProperty.test.ts",
+    prefix: "WERIFT_SENDER",
+  },
+  receiver: {
+    file: "tests/pbt/receiver/receiverProperty.test.ts",
+    prefix: "WERIFT_RECEIVER",
+  },
+};
 type Shard = {
   label: string;
   file: string;
@@ -116,6 +138,22 @@ function shards(suite: Suite): Shard[] {
           },
         })),
       ];
+    }
+    case "twcc":
+    case "bwe":
+    case "sender":
+    case "receiver": {
+      const { file, prefix } = mediaSuites[suite];
+      return ranges(seeds).map(({ first, count }) => ({
+        label: `${suite} seeds ${first}-${first + count - 1}`,
+        file,
+        pattern: ": seed \\d+ \\(replay",
+        env: {
+          [`${prefix}_SEED`]: String(first),
+          [`${prefix}_SEEDS`]: String(count),
+          ...(stepsOption ? { [`${prefix}_STEPS`]: stepsOption } : {}),
+        },
+      }));
     }
     case "model": {
       const file = "tests/pbt/model/negotiationModelProperty.test.ts";
@@ -251,7 +289,16 @@ async function main() {
   const started = Date.now();
   // 全 suite の分割を 1 つの pool に入れ、suite の境目で待たない。1 分割あたりの
   // 時間が長い順 (20 step の fuzz、…) に並べ、最後に待つ時間を減らす。
-  const order: Suite[] = ["leak", "fuzz", "model", "scenario"];
+  const order: Suite[] = [
+    "leak",
+    "fuzz",
+    "model",
+    "scenario",
+    "sender",
+    "receiver",
+    "bwe",
+    "twcc",
+  ];
   const list = order
     .filter((suite) => suites.includes(suite))
     .flatMap((suite) => shards(suite).map((shard) => ({ suite, shard })));

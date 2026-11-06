@@ -87,6 +87,8 @@ export class WebmFactory extends MediaWriter {
       const rtcpSource = new RtcpSourceCallback();
       track.onReceiveRtp
         .subscribe((rtp) => {
+          // Padding-only GCC probes stay in the jitter buffer for sequence
+          // continuity; DepacketizeBase drops them before codec parse.
           rtpSource.input(rtp.clone());
         })
         .disposer(this.unSubscribers);

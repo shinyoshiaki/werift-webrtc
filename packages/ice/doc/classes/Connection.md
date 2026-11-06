@@ -96,6 +96,8 @@
 
 > `optional` **lookup?**: `MdnsLookup`
 
+Resolves remote mDNS candidates; closed (pending lookups cancelled) by restart() and close().
+
 #### Implementation of
 
 [`IceConnection`](../interfaces/IceConnection.md).[`lookup`](../interfaces/IceConnection.md#lookup)
@@ -770,7 +772,7 @@ Remote credentials of the provisional generation (pranswer).
 
 ### stageLocalCredentials()
 
-> **stageLocalCredentials**(`usernameFragment`, `password`): `void`
+> **stageLocalCredentials**(`usernameFragment`, `password`, `gatherOptions?`): `void`
 
 Accept provisional checks without changing the selected current pair.
 
@@ -783,6 +785,10 @@ Accept provisional checks without changing the selected current pair.
 ##### password
 
 `string`
+
+##### gatherOptions?
+
+`Partial`\<[`IceOptions`](../interfaces/IceOptions.md)\>
 
 #### Returns
 

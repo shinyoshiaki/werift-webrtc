@@ -5,16 +5,22 @@ import { vi } from "vitest";
 import {
   codecParametersToString,
   defaultPeerConfig,
+  FullIntraRequest,
   type Kind,
   MediaStreamTrack,
+  PictureLossIndication,
   RTCDtlsTransport,
   RTCIceGatherer,
   RTCIceTransport,
   RTCPeerConnection,
+  type RTCPeerConnectionConfig,
   RTCRtpCodecParameters,
   RTCRtpHeaderExtensionParameters,
+  RTCRtpTransceiver,
   type RTCSessionDescription,
   RTP_EXTENSION_URI,
+  RtcpPayloadSpecificFeedback,
+  type RtcpSrPacket,
   RtpHeader,
   RtpPacket,
 } from "../src";
@@ -22,8 +28,12 @@ import {
   ProtectionProfileAes128CmHmacSha1_80,
   SrtpSession,
 } from "../src/imports/rtp";
+import { RTCRtpCodingParameters } from "../src/media/parameters";
+import { type KeyFrameRequestRouting, RtpRouter } from "../src/media/router";
+import { RTCRtpReceiver } from "../src/media/rtpReceiver";
 import { RTCRtpSender } from "../src/media/rtpSender";
-import type { SenderBandwidthEstimator } from "../src/media/sender/senderBWE";
+import { GccBandwidthEstimator } from "../src/media/sender/estimators/gcc/gccBwe";
+import type { LightweightBandwidthEstimator } from "../src/media/sender/senderBWE";
 
 export const createRtpPacket = (
   sequenceNumber = 0,
@@ -59,6 +69,14 @@ export function createAudioCodec(payloadType = 96) {
   });
 }
 
+export function createVideoCodec(payloadType = 96) {
+  return new RTCRtpCodecParameters({
+    mimeType: "video/VP8",
+    clockRate: 90000,
+    payloadType,
+  });
+}
+
 export function createRtxCodec(payloadType = 97, apt = 96) {
   return new RTCRtpCodecParameters({
     mimeType: "audio/rtx",
@@ -73,7 +91,11 @@ export function createConnectedRtpSender(options?: {
   track?: MediaStreamTrack;
   rtx?: boolean;
   twcc?: boolean;
+  /** Negotiate the SDES RTP stream id (RID) header extension as id 4. */
+  rid?: boolean;
   cname?: string;
+  /** send codec (default: 48 kHz opus) */
+  codec?: RTCRtpCodecParameters;
   /** encrypt sendRtp with a real SrtpSession and decrypt it on a peer session */
   srtpLoopback?: boolean;
 }) {
@@ -84,18 +106,27 @@ export function createConnectedRtpSender(options?: {
   const sender = new RTCRtpSender(track);
   sender.setDtlsTransport(dtls);
 
-  const codecs = [createAudioCodec()];
+  const codecs = [options?.codec ?? createAudioCodec()];
   if (options?.rtx) {
     codecs.push(createRtxCodec());
   }
-  const headerExtensions = options?.twcc
-    ? [
-        new RTCRtpHeaderExtensionParameters({
-          id: 3,
-          uri: RTP_EXTENSION_URI.transportWideCC,
-        }),
-      ]
-    : [];
+  const headerExtensions: RTCRtpHeaderExtensionParameters[] = [];
+  if (options?.twcc) {
+    headerExtensions.push(
+      new RTCRtpHeaderExtensionParameters({
+        id: 3,
+        uri: RTP_EXTENSION_URI.transportWideCC,
+      }),
+    );
+  }
+  if (options?.rid) {
+    headerExtensions.push(
+      new RTCRtpHeaderExtensionParameters({
+        id: 4,
+        uri: RTP_EXTENSION_URI.sdesRTPStreamID,
+      }),
+    );
+  }
 
   sender.prepareSend({
     codecs,
@@ -164,12 +195,94 @@ export function createSrtpLoopback(
   return { sender, receiver, received, failures, transmit };
 }
 
+/**
+ * Attach a GCC estimator so the sender uses its paced send FIFO, with pacing,
+ * probing, and padding disabled. For tests about FIFO order / source epochs
+ * (lightweight writes straight through and never queues).
+ */
+export function attachPacedFifoEstimator(sender: RTCRtpSender) {
+  const gcc = new GccBandwidthEstimator(300_000);
+  gcc.getPacingBitrateBps = () => 0;
+  gcc.shouldTagProbePacket = () => false;
+  gcc.pendingProbePaddingPackets = () => 0;
+  gcc.pendingLossPaddingPackets = () => 0;
+  sender.setBandwidthEstimator(gcc);
+  return gcc;
+}
+
 export type ConnectedRtpSenderSetup = ReturnType<
   typeof createConnectedRtpSender
 >;
 
+/**
+ * Hold the first DTLS RTP write of a {@link createConnectedRtpSender} setup
+ * until `release()` so later sends stay in the sender's outgoing queue.
+ */
+export function holdFirstDtlsWrite(
+  sendRtp: ConnectedRtpSenderSetup["sendRtp"],
+) {
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  sendRtp.mockImplementation(async () => {
+    if (sendRtp.mock.calls.length === 1) {
+      await held;
+    }
+    return 12;
+  });
+  return { release };
+}
+
 export function sentRtpHeaders(sendRtp: ConnectedRtpSenderSetup["sendRtp"]) {
   return sendRtp.mock.calls.map(([, header]) => header);
+}
+
+/**
+ * Replace `performance.now()` with a manually advanced monotonic clock so
+ * RTP send times and SR generation times are deterministic.
+ * Call `restore()` (or `vi.restoreAllMocks()`) after the test.
+ */
+export function mockMonotonicClock(startMs = 1000) {
+  let nowMs = startMs;
+  const spy = vi.spyOn(performance, "now").mockImplementation(() => nowMs);
+  return {
+    get nowMs() {
+      return nowMs;
+    },
+    set(ms: number) {
+      nowMs = ms;
+    },
+    advance(ms: number) {
+      nowMs += ms;
+    },
+    restore: () => spy.mockRestore(),
+  };
+}
+
+/** Build the RTCP Sender Report the sender would send at `nowMs` (`performance.now()`). */
+export function buildSenderReportAt(sender: RTCRtpSender, nowMs: number) {
+  return (sender as any).buildSenderReport(nowMs) as RtcpSrPacket;
+}
+
+/** Seconds between the NTP epoch (1900) and the Unix epoch (1970). */
+const NTP_UNIX_OFFSET_SEC = 2208988800;
+
+/**
+ * RFC 3550 の 64bit NTP timestamp を実装とは独立に組み立てる。
+ * 上位32bit=秒、下位32bit=秒の小数部 (x / 2^32)。
+ */
+export function rfc3550Ntp(epochMs: number) {
+  const wholeSec = Math.floor(epochMs / 1000);
+  const fractionMs = epochMs - wholeSec * 1000;
+  const seconds = BigInt(wholeSec + NTP_UNIX_OFFSET_SEC);
+  const fraction = BigInt(Math.floor((fractionMs * 2 ** 32) / 1000));
+  return (seconds << 32n) | fraction;
+}
+
+/** 2 つの NTP timestamp の差を RFC 3550 の定義に従い ms で返す。 */
+export function ntpDiffMs(later: bigint, earlier: bigint) {
+  return (Number(later - earlier) / 2 ** 32) * 1000;
 }
 
 export async function generateOffer() {
@@ -193,11 +306,19 @@ export async function dtlsTransportPair() {
   transport1.connection.iceControlling = true;
   transport2.connection.iceControlling = false;
 
-  await RTCDtlsTransport.SetupCertificate();
+  const certificate = await createTestCertificate();
 
-  const session1 = new RTCDtlsTransport(defaultPeerConfig, transport1);
+  const session1 = new RTCDtlsTransport(
+    defaultPeerConfig,
+    transport1,
+    certificate,
+  );
 
-  const session2 = new RTCDtlsTransport(defaultPeerConfig, transport2);
+  const session2 = new RTCDtlsTransport(
+    defaultPeerConfig,
+    transport2,
+    certificate,
+  );
 
   session1.setRemoteParams(session2.localParameters);
   session2.setRemoteParams(session1.localParameters);
@@ -209,6 +330,36 @@ export async function dtlsTransportPair() {
     return [session2, session1];
   }
 }
+
+/**ICE 接続済み・DTLS 未開始の transport ペア (証明書は明示的に渡す) */
+export async function createDtlsSessions() {
+  const [transport1, transport2] = await iceTransportPair();
+  const certificate = await createTestCertificate();
+
+  const session1 = new RTCDtlsTransport(
+    defaultPeerConfig,
+    transport1,
+    certificate,
+  );
+  const session2 = new RTCDtlsTransport(
+    defaultPeerConfig,
+    transport2,
+    certificate,
+  );
+
+  return [session1, session2] as const;
+}
+
+/**キャッシュされない新しい DTLS 証明書 */
+export const createTestCertificate = () =>
+  RTCDtlsTransport.generateCertificate();
+
+/**SDP 内の全 a=fingerprint の値 */
+export const getSdpFingerprints = (sdp: string) =>
+  sdp
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith("a=fingerprint:"))
+    .map((line) => line.slice("a=fingerprint:".length).trim());
 
 export const iceTransportPair = async () => {
   const gatherer1 = new RTCIceGatherer();
@@ -235,9 +386,192 @@ export const iceTransportPair = async () => {
   return [transport1, transport2];
 };
 
+/** router に受信 stream R (sendrecv 相当) を SSRC で登録する。 */
+function registerRemoteVideoReceiver(router: RtpRouter) {
+  const receiverTransceiver = new RTCRtpTransceiver(
+    "video",
+    createDtlsTransport(),
+    new RTCRtpReceiver(defaultPeerConfig, "video", 0),
+    new RTCRtpSender("video"),
+    "recvonly",
+  );
+  const remoteSsrc = 0x0abc0001;
+  router.registerRtpReceiverBySsrc(receiverTransceiver, {
+    encodings: [
+      new RTCRtpCodingParameters({ ssrc: remoteSsrc, payloadType: 96 }),
+    ],
+    codecs: [],
+    headerExtensions: [],
+  });
+  return { receiver: receiverTransceiver.receiver, remoteSsrc };
+}
+
+/**
+ * router に送信 stream A / B / C と受信 stream R (sendrecv 相当) を登録する。
+ * RTCP feedback の配送先を検証するための Arrange。
+ */
+export function createRtcpFeedbackRouter() {
+  const router = new RtpRouter();
+  const createSender = () => {
+    const sender = new RTCRtpSender("video");
+    router.registerRtpSender(sender);
+    return sender;
+  };
+  const senderA = createSender();
+  const senderB = createSender();
+  const senderC = createSender();
+  const { receiver, remoteSsrc } = registerRemoteVideoReceiver(router);
+
+  const rtcpSpies = {
+    senderA: vi.spyOn(senderA, "handleRtcpPacket"),
+    senderB: vi.spyOn(senderB, "handleRtcpPacket"),
+    senderC: vi.spyOn(senderC, "handleRtcpPacket"),
+    receiver: vi.spyOn(receiver, "handleRtcpPacket"),
+  };
+
+  return { router, senderA, senderB, senderC, receiver, remoteSsrc, rtcpSpies };
+}
+
+/**
+ * video sender 1 本と audio sender 1 本、受信 stream R を登録した router。
+ * target SSRC が未登録の keyframe request の扱い (KeyFrameRequestRouting) を検証する Arrange。
+ */
+export function createSingleVideoSenderRouter(
+  keyFrameRequestRouting: KeyFrameRequestRouting = "compatible",
+) {
+  const router = new RtpRouter();
+  router.keyFrameRequestRouting = keyFrameRequestRouting;
+  const video = new RTCRtpSender("video");
+  const audio = new RTCRtpSender("audio");
+  router.registerRtpSender(video);
+  router.registerRtpSender(audio);
+  const { receiver, remoteSsrc } = registerRemoteVideoReceiver(router);
+
+  const rtcpSpies = {
+    video: vi.spyOn(video, "handleRtcpPacket"),
+    audio: vi.spyOn(audio, "handleRtcpPacket"),
+    receiver: vi.spyOn(receiver, "handleRtcpPacket"),
+  };
+
+  return { router, video, audio, receiver, remoteSsrc, rtcpSpies };
+}
+
+export function createPliPacket(props: {
+  senderSsrc: number;
+  mediaSsrc: number;
+}) {
+  return new RtcpPayloadSpecificFeedback({
+    feedback: new PictureLossIndication(props),
+  });
+}
+
+/** transceiver の transport から RTCP をそのまま送る (sendRtcpPLI の codec 判定を通さない)。 */
+export function sendRawRtcp(
+  transceiver: RTCRtpTransceiver,
+  packet: RtcpPayloadSpecificFeedback,
+) {
+  return transceiver.dtlsTransport!.sendRtcp([packet]);
+}
+
+export function createFirPacket(props: {
+  senderSsrc: number;
+  mediaSsrc?: number;
+  fir: { ssrc: number; sequenceNumber: number }[];
+}) {
+  return new RtcpPayloadSpecificFeedback({
+    feedback: new FullIntraRequest({ mediaSsrc: 0, ...props }),
+  });
+}
+
+/**
+ * RR + SDES + FIR + PLI の複合 RTCP を RFC どおりの実バイト列で組み立てる (serializer を通さない)。
+ * FIR は 1 エントリ (RFC 5104 4.3.1.1: length = 2 + 2 * 1)、media SSRC = 0 の libwebrtc 形式。
+ */
+export function createCompoundFeedbackBytes(props: {
+  senderSsrc: number;
+  fir: { ssrc: number; sequenceNumber: number };
+  pliMediaSsrc: number;
+}) {
+  const word = (value: number) => {
+    const buf = Buffer.alloc(4);
+    buf.writeUInt32BE(value >>> 0);
+    return buf;
+  };
+  const sender = word(props.senderSsrc);
+  return Buffer.concat([
+    // RR: rc=0, length=1
+    Buffer.from("80c90001", "hex"),
+    sender,
+    // SDES: sc=1, length=2, CNAME "r" + END
+    Buffer.from("81ca0002", "hex"),
+    sender,
+    Buffer.from("01017200", "hex"),
+    // FIR: FMT=4, length=4, media SSRC=0, FCI = SSRC + Seq nr + reserved
+    Buffer.from("84ce0004", "hex"),
+    sender,
+    word(0),
+    word(props.fir.ssrc),
+    Buffer.from([props.fir.sequenceNumber, 0, 0, 0]),
+    // PLI: FMT=1, length=2
+    Buffer.from("81ce0002", "hex"),
+    sender,
+    word(props.pliMediaSsrc),
+  ]);
+}
+
+export async function outboundRtpStats(sender: RTCRtpSender) {
+  const report = await sender.getStats();
+  return Array.from(report.values()).find(
+    (stat) => stat.type === "outbound-rtp",
+  ) as { pliCount?: number; firCount?: number };
+}
+
+/**
+ * werift 同士で sendrecv video を 1 本ずつ接続し、双方が相手の RTP を 1 つ受けた状態にする。
+ * 受信側の SSRC と codec が確定するので、PLI を送れる。
+ */
+export async function createConnectedSendrecvVideoPeers(
+  pc1Config?: RTCPeerConnectionConfig,
+) {
+  const connect = (pc: RTCPeerConnection) => {
+    const track = new MediaStreamTrack({ kind: "video" });
+    const transceiver = pc.addTransceiver(track, { direction: "sendrecv" });
+    const received = new Promise<void>((resolve) =>
+      transceiver.onTrack.subscribe((remote) =>
+        remote.onReceiveRtp.once(() => resolve()),
+      ),
+    );
+    transceiver.sender.onReady.subscribe(() => {
+      const timer = setInterval(() => {
+        if (transceiver.sender.stopped) return clearInterval(timer);
+        track.writeRtp(new RtpPacket(new RtpHeader(), Buffer.from("rtp")));
+      }, 20);
+      received.finally(() => setTimeout(100).then(() => clearInterval(timer)));
+    });
+    return { transceiver, received };
+  };
+  const pc1 = new RTCPeerConnection(pc1Config);
+  const pc2 = new RTCPeerConnection();
+  const peer1 = connect(pc1);
+  const peer2 = connect(pc2);
+
+  await pc1.setLocalDescription(await pc1.createOffer());
+  await pc2.setRemoteDescription(pc1.localDescription!);
+  await pc2.setLocalDescription(await pc2.createAnswer());
+  await pc1.setRemoteDescription(pc2.localDescription!);
+  await Promise.all([peer1.received, peer2.received]);
+
+  return {
+    pc1,
+    pc2,
+    transceiver1: peer1.transceiver,
+    transceiver2: peer2.transceiver,
+  };
+}
+
 /** Arrange: `count` packets sent through `estimator` from `firstSeq`, `sentAtMs` apart by `stepMs`. */
 export function recordSentPackets(
-  estimator: SenderBandwidthEstimator,
+  estimator: LightweightBandwidthEstimator,
   {
     count,
     firstSeq = 0,
@@ -248,7 +582,8 @@ export function recordSentPackets(
   for (let i = 0; i < count; i++) {
     const at = sentAtMs + i * stepMs;
     estimator.rtpPacketSent({
-      wideSeq: (firstSeq + i) & 0xffff,
+      // RTCRtpSender reports the extended transport-wide sequence number.
+      wideSeq: firstSeq + i,
       size: 1000,
       sendingAtMs: at,
       sentAtMs: at,
@@ -257,7 +592,21 @@ export function recordSentPackets(
 }
 
 /** Test-only read: the packets `estimator` keeps for transport-cc feedback. */
-export function pendingFeedback(estimator: SenderBandwidthEstimator) {
-  return (estimator as unknown as { sentInfos: Map<number, unknown> })
-    .sentInfos;
+export function pendingFeedback(estimator: LightweightBandwidthEstimator) {
+  const adapter = (
+    estimator as unknown as {
+      feedbackAdapter: {
+        history: Map<number, unknown>;
+        prune(nowMs: number): void;
+      };
+    }
+  ).feedbackAdapter;
+  // The source test uses an exact 10 s boundary; advance one millisecond so
+  // the adapter's strict "older than max age" rule is deterministic.
+  adapter.prune(Date.now() + 1);
+  // Tests that reason about the wire map should see the 16-bit sequence view;
+  // the adapter internally uses an extended sequence for generation safety.
+  return new Map(
+    [...adapter.history].map(([seq, info]) => [seq & 0xffff, info]),
+  );
 }
