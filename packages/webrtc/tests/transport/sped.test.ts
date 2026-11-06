@@ -669,6 +669,30 @@ describe("IceSpedTransport after an ICE restart to another 5-tuple", () => {
     await transport.close();
   });
 
+  it("旧宛先の候補が現世代の一覧に残っていても未認証なら、nomination 前の制御 record は認証済み pair へ送られる", async () => {
+    // Arrange: restart 後の一覧に旧宛先 (未認証) と新しい認証済み pair がある。handshake 済み
+    const old = mockProtocol("127.0.0.1", 1);
+    const retained = new CandidatePair(
+      old.protocol,
+      new Candidate("r", 1, "udp", 1, "127.0.0.1", 4000, "host"),
+      true,
+    );
+    const next = mockProtocol("::1", 2);
+    const newPair = authenticatedPair(next.protocol, "::1", 5000);
+    const ice = createIceStub(2, [newPair, retained]);
+    const transport = new IceSpedTransport(ice);
+    transport.markApplicationReady();
+    const ack = Buffer.from([0x2f, 0x00, 0x01, 0x02]);
+
+    // Act: DTLS が保持する旧宛先で制御 record (KeyUpdate の ACK) を送る
+    await transport.send(ack, ["127.0.0.1", 4000]);
+
+    // Assert: 未認証の旧候補ではなく、認証済み pair の 5-tuple へ送られる
+    expect(old.sent).toHaveLength(0);
+    expect(next.sent[0]!.addr).toEqual(["::1", 5000]);
+    await transport.close();
+  });
+
   it("現世代の pair を指す宛先は従来どおりその pair にだけ送る", async () => {
     // Arrange: 現世代に認証済み pair が 2 つある
     const a = mockProtocol("::1", 2);

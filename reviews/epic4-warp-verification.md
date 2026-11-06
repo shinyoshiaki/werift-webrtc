@@ -753,3 +753,18 @@ Arrange は `packages/dtls/tests/fixture.ts` の `arrangePartialDtls13Handshake`
 レビューの再現スクリプト（`/tmp/werift-review-migrated-keyupdate.mjs`）と §20 の再現スクリプトは、修正後どちらも exit 0 です。
 
 **未特定:** レビューで並列探索中に 1 件失敗した scenario seed 123（`tests/pbt/scenario/negotiationScenarioProperty.test.ts`）は、単独で 5 回、seed 100〜149 の 50 件でいずれも成功し、再現できていません。
+
+## 23. 旧宛先の候補が一覧に残る ICE restart で KeyUpdate が接続を切断する（レビューの指摘への対応）
+
+**原因:** §22 の修正は「現世代の一覧のどの pair も指さない宛先」だけを宛先なしとして扱いました。旧経路の候補が restart 後の一覧に残る（ただし経路が失われて未認証のまま）場合は、DTLS が保持する旧宛先がその候補を指すため宛先として維持され、認証済みの新しい経路があっても ACK を送れず、2 秒の保持期限で DTLS が失敗していました。
+
+**修正:** `packages/webrtc/src/transport/sped.ts` で、handshake 完了後（applicationReady）の送信先解決を `resolveEstablishedSendPair` に分けました。確立後は DTLS が保持する宛先を association の相手を指す「優先候補」としてだけ扱い、現世代の認証済み pair を次の順で選びます: 宛先が指す pair → nominated → 固定した SPED 経路 → 一覧の任意の認証済み pair。宛先が指す pair が未認証・旧世代なら他の認証済み pair へ送ります（`warp` の `ice.send()` と同じく経路は ICE が決める）。handshake 中の規則（明示的な宛先が認証済み pair の外なら送らない、固定経路を所有境界にする）は §22 以前の形に戻して維持し、§22 で入れた「一覧に無い宛先」の判定は不要になったため削除しました。
+
+| テスト | 修正前（§22 の状態） | 修正後 |
+|---|---|---|
+| `packages/webrtc/tests/integrate/spedMigratedKeyUpdate.test.ts` › 旧経路 (IPv4) の候補が一覧に残るが経路は失われている | 失敗 | 成功（接続を保ち、双方向に届き、両側が IPv6 の経路を使う） |
+| 同 › 旧経路の候補は一覧から消える（§22） | 成功 | 成功 |
+| `packages/webrtc/tests/transport/sped.test.ts` › 旧宛先の候補が現世代の一覧に残っていても未認証なら… | 失敗（2 秒で失効） | 成功 |
+| 同 › 旧世代の宛先・旧世代で固定した SPED 経路しかなくても…（§22）、現世代の pair を指す宛先はその pair にだけ送る、carrier の明示 addr が認証済み pair と一致しないと送らない | 成功 | 成功 |
+
+レビューの再現スクリプト（`/tmp/werift-review-retained-candidate-keyupdate.mjs`）と、§20・§22 の再現スクリプトは、修正後いずれも exit 0 です。

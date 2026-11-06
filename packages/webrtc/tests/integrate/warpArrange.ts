@@ -1641,18 +1641,27 @@ export function createTcpLoopbackSpedPeers() {
  * only are allowed: IPv4 first; `restartOntoIpv6(holdMs)` allows only IPv6,
  * restarts ICE (offerer) and delays the controlling side's handling of every
  * USE-CANDIDATE response by `holdMs`, so the controlled side nominates the
- * new 5-tuple first while the controlling side has none yet. `restore()`
- * removes the delay.
+ * new 5-tuple first while the controlling side has none yet. With
+ * `{ retainIpv4: true }` the IPv4 pairs stay listed after the restart but
+ * the IPv4 path is lost (requests to 127.0.0.1 fail), so the old 5-tuple
+ * remains a current, unauthenticated candidate. `restore()` removes the
+ * delay and the path loss.
  */
 export async function prepareMigratingSpedPeers() {
-  let family: "v4" | "v6" = "v4";
+  let family: "v4" | "v6" | "both" = "v4";
   let holdMs = 0;
+  let ipv4Lost = false;
   const originalRequest = StunProtocol.prototype.request;
   StunProtocol.prototype.request = async function (
     this: StunProtocol,
     message: Message,
     ...args: unknown[]
   ) {
+    const destination = args[0] as [string, number] | undefined;
+    if (ipv4Lost && destination?.[0] === "127.0.0.1") {
+      await new Promise((resolve) => setTimeout(resolve, 6_500));
+      throw new Error("simulated IPv4 path loss");
+    }
     const result = await (
       originalRequest as (...a: unknown[]) => Promise<unknown>
     ).call(this, message, ...args);
@@ -1673,8 +1682,10 @@ export async function prepareMigratingSpedPeers() {
       localCandidate: Candidate;
       remoteCandidate: Candidate;
     }) =>
-      pair.localCandidate.host === host() &&
-      pair.remoteCandidate.host === host(),
+      family === "both"
+        ? pair.localCandidate.host === pair.remoteCandidate.host
+        : pair.localCandidate.host === host() &&
+          pair.remoteCandidate.host === host(),
   };
   const offerer = new RTCPeerConnection(config);
   const answerer = new RTCPeerConnection(config);
@@ -1707,13 +1718,18 @@ export async function prepareMigratingSpedPeers() {
     channels,
     iceOf,
     until,
-    restartOntoIpv6: async (delayMs: number) => {
-      family = "v6";
+    restartOntoIpv6: async (
+      delayMs: number,
+      { retainIpv4 = false }: { retainIpv4?: boolean } = {},
+    ) => {
+      family = retainIpv4 ? "both" : "v6";
+      ipv4Lost = retainIpv4;
       holdMs = delayMs;
       offerer.restartIce();
       await exchange();
     },
     restore: () => {
+      ipv4Lost = false;
       StunProtocol.prototype.request = originalRequest;
     },
   };

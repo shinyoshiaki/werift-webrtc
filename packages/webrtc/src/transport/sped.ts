@@ -611,43 +611,31 @@ export class IceSpedTransport implements Transport {
   private resolveAuthenticatedSendPair(
     addr?: Address,
   ): CandidatePair | undefined {
-    // The destination DTLS holds can name no ICE path:
-    // - the DTLS client fixes it at connect(), before any pair exists, as
-    //   remotePeer()'s placeholder (port 0 is never a peer port);
-    // - after the handshake it only names the association's peer, and an ICE
-    //   restart that moves to another 5-tuple does not update it.
-    // Route those by the current authenticated pair. During the handshake an
-    // explicit destination outside the authenticated pairs is still refused.
-    if (
-      addr &&
-      (isPlaceholderAddress(addr) ||
-        (this.applicationReady && !this.namesCurrentPair(addr)))
-    ) {
+    // The DTLS client fixes its destination at connect(), before any pair
+    // exists, as remotePeer()'s placeholder (port 0 is never a peer port).
+    if (addr && isPlaceholderAddress(addr)) {
       addr = undefined;
     }
-    // A SPED path pinned in a generation an ICE restart replaced is no
-    // ownership boundary: that pair never becomes current again.
+    if (this.applicationReady) {
+      return this.resolveEstablishedSendPair(addr);
+    }
     const pinned = this.runtime?.lastPath;
-    const livePin =
-      pinned && (this.ice.checkList ?? []).includes(pinned)
-        ? pinned
-        : undefined;
-    if (livePin && this.isCurrentAuthenticatedPair(livePin)) {
+    if (pinned && this.isCurrentAuthenticatedPair(pinned)) {
       if (!addr) {
-        return livePin;
+        return pinned;
       }
       if (
-        livePin.remoteAddr[0] === addr[0] &&
-        livePin.remoteAddr[1] === addr[1]
+        pinned.remoteAddr[0] === addr[0] &&
+        pinned.remoteAddr[1] === addr[1]
       ) {
-        return livePin;
+        return pinned;
       }
       return undefined;
     }
     // An existing association pin is an ownership boundary.  Wait for that
     // same pair to become authenticated instead of switching an early record
     // to an unrelated candidate merely because it became available first.
-    if (livePin && !addr) {
+    if (pinned && !addr) {
       return undefined;
     }
     if (!addr) {
@@ -668,10 +656,26 @@ export class IceSpedTransport implements Transport {
     );
   }
 
-  private namesCurrentPair(addr: Address): boolean {
-    return (this.ice.checkList ?? []).some(
-      (pair) =>
-        pair.remoteAddr[0] === addr[0] && pair.remoteAddr[1] === addr[1],
+  /**
+   * After the handshake the destination DTLS holds names the association's
+   * peer, not a path: an ICE restart or a path failure leaves it on a 5-tuple
+   * that may still be listed but no longer works. It is only a preference;
+   * ICE decides the path. Use the first current-generation authenticated
+   * pair of: the one it names, the nominated one, the pinned SPED path, any.
+   */
+  private resolveEstablishedSendPair(
+    addr?: Address,
+  ): CandidatePair | undefined {
+    const list = this.ice.checkList ?? [];
+    const named = addr
+      ? list.find(
+          (pair) =>
+            pair.remoteAddr[0] === addr[0] && pair.remoteAddr[1] === addr[1],
+        )
+      : undefined;
+    return [named, this.ice.nominated, this.runtime?.lastPath, ...list].find(
+      (pair): pair is CandidatePair =>
+        pair !== undefined && this.isCurrentAuthenticatedPair(pair),
     );
   }
 
