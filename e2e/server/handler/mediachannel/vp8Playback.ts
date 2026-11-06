@@ -102,12 +102,16 @@ function createDescriptorObserver() {
 }
 
 class Vp8PlaybackHandler {
+  private readonly source: Vp8PlaybackSource;
+
   private pc?: RTCPeerConnection;
   private stoppers: (() => void)[] = [];
   private descriptor = createDescriptorObserver();
   private sourceError?: string;
 
-  constructor(private readonly source: Vp8PlaybackSource) {}
+  constructor(source: Vp8PlaybackSource) {
+    this.source = source;
+  }
 
   async exec(type: string, payload: any, accept: AcceptFn) {
     switch (type) {

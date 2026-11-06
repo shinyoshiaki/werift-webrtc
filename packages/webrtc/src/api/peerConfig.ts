@@ -12,7 +12,6 @@ import type {
 import type { CandidatePair, Message, Protocol } from "../imports/ice";
 import { defaultCodecs } from "../media/codec";
 import { normalizeCodecMimeType } from "../media/codecCompatibility";
-import type { BandwidthEstimatorOption } from "../media/sender/createBandwidthEstimator";
 import type {
   RTCRtpCodecParameters,
   RTCRtpHeaderExtensionParameters,
@@ -22,6 +21,7 @@ import {
   KeyFrameRequestRoutingModes,
 } from "../media/router";
 import type { RTCRtpSenderOptions } from "../media/rtpSender";
+import type { BandwidthEstimatorOption } from "../media/sender/createBandwidthEstimator";
 import type { BundlePolicy } from "../sdp";
 import type { MLineReuse } from "../sdpManager";
 import type { DtlsKeys, RTCCertificate } from "../transport/dtls";

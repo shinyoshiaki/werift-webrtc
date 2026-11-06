@@ -4,6 +4,7 @@ import { PromiseQueue } from "../..";
 import {
   ClusterSizeOffset,
   DurationPosition,
+  replaceClusterSize,
   replaceSegmentSize,
   SegmentSizePosition,
   WebmBase,
@@ -11,7 +12,6 @@ import {
   type WebmOption,
   type WebmOutput,
   type WebmTrack,
-  replaceClusterSize,
 } from "./webm";
 
 export class WebmCallback extends WebmBase {

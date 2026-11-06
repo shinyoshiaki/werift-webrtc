@@ -125,12 +125,16 @@ export interface CandidatePairStats {
 }
 
 export class CandidatePair implements CandidatePairStats {
+  public protocol: Protocol;
+  public remoteCandidate: Candidate;
+  public iceControlling: boolean;
+
   readonly id = randomUUID().toString();
   handle?: Cancelable<void>;
   nominated = false;
   remoteNominated = false;
   // 5.7.4.  Computing States
-  private _state = CandidatePairState.FROZEN;
+  private _state: CandidatePairState = CandidatePairState.FROZEN;
   get state() {
     return this._state;
   }
@@ -165,10 +169,14 @@ export class CandidatePair implements CandidatePairStats {
   }
 
   constructor(
-    public protocol: Protocol,
-    public remoteCandidate: Candidate,
-    public iceControlling: boolean,
-  ) {}
+    protocol: Protocol,
+    remoteCandidate: Candidate,
+    iceControlling: boolean,
+  ) {
+    this.protocol = protocol;
+    this.remoteCandidate = remoteCandidate;
+    this.iceControlling = iceControlling;
+  }
 
   updateState(state: CandidatePairState) {
     this._state = state;
@@ -256,13 +264,18 @@ export function consentResponseTimeoutMs(rttSeconds?: number): number {
   );
 }
 
-export enum CandidatePairState {
-  FROZEN = 0,
-  WAITING = 1,
-  IN_PROGRESS = 2,
-  SUCCEEDED = 3,
-  FAILED = 4,
-}
+/**
+ * @enum
+ */
+export const CandidatePairState = {
+  FROZEN: 0,
+  WAITING: 1,
+  IN_PROGRESS: 2,
+  SUCCEEDED: 3,
+  FAILED: 4,
+} as const;
+export type CandidatePairState =
+  (typeof CandidatePairState)[keyof typeof CandidatePairState];
 
 export type IceState =
   | "disconnected"

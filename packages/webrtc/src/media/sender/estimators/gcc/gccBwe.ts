@@ -53,7 +53,7 @@ import { LossBasedBwe, type LossPacketFeedback } from "./lossBasedBwe";
 import type { BandwidthUsage } from "./overuseDetector";
 import type { ProbeClusterConfig, ProbeState } from "./probeController";
 import { ProbeController } from "./probeController";
-import { RttBasedBackoff, computeFeedbackRttStats } from "./rttBasedBackoff";
+import { computeFeedbackRttStats, RttBasedBackoff } from "./rttBasedBackoff";
 import { TrendlineEstimator } from "./trendlineEstimator";
 
 /**

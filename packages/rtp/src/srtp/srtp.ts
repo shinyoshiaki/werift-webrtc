@@ -3,8 +3,11 @@ import { SrtpContext } from "./context/srtp";
 import { type Config, Session } from "./session";
 
 export class SrtpSession extends Session<SrtpContext> {
-  constructor(public config: Config) {
+  public config: Config;
+
+  constructor(config: Config) {
     super(SrtpContext);
+    this.config = config;
     this.start(
       config.keys.localMasterKey,
       config.keys.localMasterSalt,

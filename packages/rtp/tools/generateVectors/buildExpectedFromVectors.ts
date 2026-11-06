@@ -4,7 +4,7 @@
  * depacketized media.
  *
  * Usage (from packages/rtp):
- *   node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs tools/generateVectors/buildExpectedFromVectors.ts
+ *   node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs tools/generateVectors/buildExpectedFromVectors.ts
  */
 
 import { existsSync, readFileSync, writeFileSync } from "fs";

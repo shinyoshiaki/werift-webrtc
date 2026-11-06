@@ -20,7 +20,7 @@
 
 ##### options?
 
-[`RTCRtpSenderOptions`](../type-aliases/RTCRtpSenderOptions.md)
+[`RTCRtpSenderOptions`](../type-aliases/RTCRtpSenderOptions.md) = `{}`
 
 #### Returns
 

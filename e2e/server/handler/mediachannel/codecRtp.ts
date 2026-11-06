@@ -188,8 +188,12 @@ function livePacketizeStatus(
  * Success requires RTP that arrived on the receive track (source: "chrome"); no fixture fallback.
  */
 class DepacketizeHandler {
+  private readonly codec: CodecRtpName;
+
   private state: HandlerState = { stoppers: [] };
-  constructor(private readonly codec: CodecRtpName) {}
+  constructor(codec: CodecRtpName) {
+    this.codec = codec;
+  }
 
   async exec(type: string, payload: any, accept: AcceptFn) {
     switch (type) {
@@ -305,8 +309,12 @@ class DepacketizeHandler {
 
 /** Scenario B: fixture → packages/rtp Packetizer → Chrome */
 class PacketizeHandler {
+  private readonly codec: CodecRtpName;
+
   private state: HandlerState = { stoppers: [] };
-  constructor(private readonly codec: CodecRtpName) {}
+  constructor(codec: CodecRtpName) {
+    this.codec = codec;
+  }
 
   async exec(type: string, payload: any, accept: AcceptFn) {
     switch (type) {
@@ -441,8 +449,12 @@ class PacketizeHandler {
  * as answerer can software-encode; lowercase `h264` yields 0 outbound RTP.
  */
 class RepacketizeHandler {
+  private readonly codec: CodecRtpName;
+
   private state: HandlerState = { stoppers: [] };
-  constructor(private readonly codec: CodecRtpName) {}
+  constructor(codec: CodecRtpName) {
+    this.codec = codec;
+  }
 
   async exec(type: string, payload: any, accept: AcceptFn) {
     switch (type) {

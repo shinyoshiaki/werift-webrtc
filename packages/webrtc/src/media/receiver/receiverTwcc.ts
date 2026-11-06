@@ -106,6 +106,10 @@ export function releaseTransportReceiverTWCC(
  * it (the gap is not reported), so feedback never stalls after a long loss.
  */
 export class ReceiverTWCC {
+  private dtlsTransport: RTCDtlsTransport;
+  private rtcpSsrc: number;
+  private mediaSourceSsrc: number;
+
   extensionInfo: {
     [tsn: number]: ExtensionInfo;
   } = {};
@@ -133,10 +137,13 @@ export class ReceiverTWCC {
   }
 
   constructor(
-    private dtlsTransport: RTCDtlsTransport,
-    private rtcpSsrc: number,
-    private mediaSourceSsrc: number,
+    dtlsTransport: RTCDtlsTransport,
+    rtcpSsrc: number,
+    mediaSourceSsrc: number,
   ) {
+    this.dtlsTransport = dtlsTransport;
+    this.rtcpSsrc = rtcpSsrc;
+    this.mediaSourceSsrc = mediaSourceSsrc;
     this.runTWCC();
   }
 

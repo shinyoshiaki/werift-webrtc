@@ -76,6 +76,8 @@ const ICE_NOMINATION_ABANDONED = 3;
 const PREFERRED_PAIR_WAIT_MS = 3000;
 
 export class Connection implements IceConnection {
+  private _iceControlling: boolean;
+
   localUsername = randomString(4);
   localPassword = randomString(22);
   remoteIsLite = false;
@@ -203,10 +205,8 @@ export class Connection implements IceConnection {
   readonly stateChanged = new Event<[IceState]>();
   readonly onIceCandidate: Event<[Candidate]> = new Event();
 
-  constructor(
-    private _iceControlling: boolean,
-    options?: Partial<IceOptions>,
-  ) {
+  constructor(_iceControlling: boolean, options?: Partial<IceOptions>) {
+    this._iceControlling = _iceControlling;
     this.closedSignal = new Promise<void>((resolve) => {
       this.signalClosed = resolve;
     });
@@ -610,9 +610,12 @@ export class Connection implements IceConnection {
       !generation.started ||
       !generation.remoteUsername ||
       !generation.remotePassword ||
-      [CandidatePairState.IN_PROGRESS, CandidatePairState.SUCCEEDED].includes(
-        pair.state,
-      )
+      (
+        [
+          CandidatePairState.IN_PROGRESS,
+          CandidatePairState.SUCCEEDED,
+        ] as CandidatePairState[]
+      ).includes(pair.state)
     ) {
       return;
     }
@@ -859,9 +862,12 @@ export class Connection implements IceConnection {
     }
     if (
       !this.iceLite &&
-      [CandidatePairState.WAITING, CandidatePairState.FAILED].includes(
-        pair.state,
-      )
+      (
+        [
+          CandidatePairState.WAITING,
+          CandidatePairState.FAILED,
+        ] as CandidatePairState[]
+      ).includes(pair.state)
     ) {
       void this.checkProvisional(generation, pair);
     }
@@ -2375,9 +2381,12 @@ export class Connection implements IceConnection {
         for (const p of this.checkList) {
           if (
             p.component === pair.component &&
-            [CandidatePairState.WAITING, CandidatePairState.FROZEN].includes(
-              p.state,
-            )
+            (
+              [
+                CandidatePairState.WAITING,
+                CandidatePairState.FROZEN,
+              ] as CandidatePairState[]
+            ).includes(p.state)
           ) {
             p.updateState(CandidatePairState.FAILED);
           }
@@ -2431,7 +2440,10 @@ export class Connection implements IceConnection {
     }
 
     {
-      const list = [CandidatePairState.SUCCEEDED, CandidatePairState.FAILED];
+      const list: CandidatePairState[] = [
+        CandidatePairState.SUCCEEDED,
+        CandidatePairState.FAILED,
+      ];
       if (this.checkList.find(({ state }) => !list.includes(state))) {
         return;
       }
@@ -2946,9 +2958,12 @@ export class Connection implements IceConnection {
 
     // 7.2.1.4.  Triggered Checks
     if (
-      [CandidatePairState.WAITING, CandidatePairState.FAILED].includes(
-        pair.state,
-      )
+      (
+        [
+          CandidatePairState.WAITING,
+          CandidatePairState.FAILED,
+        ] as CandidatePairState[]
+      ).includes(pair.state)
     ) {
       pair.handle = this.checkStart(pair);
     }
