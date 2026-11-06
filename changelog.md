@@ -30,6 +30,7 @@
 - **NACK retransmissions get a new transport-wide sequence number** instead of reusing the original one.
 - **Padding-only packets are no longer stored in the NACK cache.**
 - **The default (lightweight) estimator's send history is pruned to a 10 s window**; it used to grow without bound.
+- **DCEP `DATA_CHANNEL_OPEN` writes Label / Protocol Length as UTF-8 byte counts** (RFC 8832 §5.1) instead of UTF-16 `string.length`. A non-ASCII data channel `label` / `protocol` (e.g. `"日本語"`, emoji) used to arrive truncated or spill into the protocol on the remote side; ASCII values are unchanged on the wire.
 
 
 ## v0.26.0

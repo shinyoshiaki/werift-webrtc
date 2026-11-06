@@ -288,18 +288,18 @@ export class RTCSctpTransport {
 
     // 5.1.  DATA_CHANNEL_OPEN Message
     // !BBHLHH — message type / channel type / priority / reliability / label len / protocol len
+    // Label / Protocol Length are byte counts of the UTF-8 fields (RFC 8832
+    // 5.1), so they come from the encoded buffers, not from string.length.
+    const label = Buffer.from(channel.label, "utf8");
+    const protocol = Buffer.from(channel.protocol, "utf8");
     const data = Buffer.allocUnsafe(12);
     data.writeUInt8(DATA_CHANNEL_OPEN, 0);
     data.writeUInt8(channelType, 1);
     data.writeUInt16BE(priority, 2);
     data.writeUInt32BE(reliability, 4);
-    data.writeUInt16BE(channel.label.length, 8);
-    data.writeUInt16BE(channel.protocol.length, 10);
-    const send = Buffer.concat([
-      data,
-      Buffer.from(channel.label, "utf8"),
-      Buffer.from(channel.protocol, "utf8"),
-    ]);
+    data.writeUInt16BE(label.length, 8);
+    data.writeUInt16BE(protocol.length, 10);
+    const send = Buffer.concat([data, label, protocol]);
     this.dataChannelQueue.push([channel, WEBRTC_DCEP, send]);
     this.dataChannelFlush();
   }
