@@ -307,8 +307,8 @@ describe("RTCSctpTransportTest", () => {
           new RTCDataChannelParameters({ ...parameters, id: 42 }),
         );
 
-      // Assert: RangeError で失敗し、OPEN は送られない。
-      expect(create).toThrow(RangeError);
+      // Assert: TypeError で失敗し、OPEN は送られない。
+      expect(create).toThrow(TypeError);
       expect(dcep).toHaveLength(0);
 
       // Act: 同じ ID で有効な label を使って作り直す。

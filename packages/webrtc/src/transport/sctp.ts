@@ -26,6 +26,7 @@ import {
   RTCDataChannel,
   RTCDataChannelParameters,
 } from "../dataChannel";
+import { createWebRtcTypeError } from "../errors";
 import { debug, Event, FifoQueue } from "../imports/common";
 import type { RTCDtlsTransport } from "./dtls";
 
@@ -263,12 +264,12 @@ export class RTCSctpTransport {
     const label = Buffer.from(channel.label, "utf8");
     const protocol = Buffer.from(channel.protocol, "utf8");
     if (label.length > 0xffff) {
-      throw new RangeError(
+      throw createWebRtcTypeError(
         `Data channel label is ${label.length} bytes in UTF-8; the maximum is 65535`,
       );
     }
     if (protocol.length > 0xffff) {
-      throw new RangeError(
+      throw createWebRtcTypeError(
         `Data channel protocol is ${protocol.length} bytes in UTF-8; the maximum is 65535`,
       );
     }
