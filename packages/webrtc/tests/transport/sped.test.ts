@@ -607,6 +607,40 @@ describe("IceSpedTransport handshake control after the handshake", () => {
   });
 });
 
+describe("IceSpedTransport placeholder destination", () => {
+  it.each([
+    { name: "認証済み pair が既にある", pairFirst: true },
+    { name: "認証済み pair が後からできる", pairFirst: false },
+  ])(
+    "DTLS client が connect 時に固定した宛先 (port 0) の制御 record は、nomination 前でも現世代の認証済み pair へ送られる ($name)",
+    async ({ pairFirst }) => {
+      // Arrange: handshake 後 (applicationReady) で nomination 前。
+      // DTLS client は pair 選択前の placeholder (0.0.0.0:0 → 127.0.0.1:0) を宛先に持つ
+      const ice = createIceStub(1);
+      const transport = new IceSpedTransport(ice);
+      transport.markApplicationReady();
+      const { protocol, sent } = mockProtocol("1.2.3.4", 1);
+      const pair = authenticatedPair(protocol, "10.0.0.1", 1111);
+      if (pairFirst) ice.checkList.push(pair);
+      const ack = Buffer.from([0x2f, 0x00, 0x01, 0x02]);
+
+      // Act: placeholder 宛ての制御 record (最終 ACK) を送る
+      const sending = transport.send(ack, ["127.0.0.1", 0]);
+      if (!pairFirst) {
+        await new Promise((resolve) => setImmediate(resolve));
+        ice.checkList.push(pair);
+        ice.stateChanged.execute("connected");
+      }
+      await sending;
+
+      // Assert: placeholder ではなく認証済み pair の 5-tuple へ実際に送られる
+      expect(sent.map(({ data }) => data)).toEqual([ack]);
+      expect(sent[0]!.addr).toEqual(["10.0.0.1", 1111]);
+      await transport.close();
+    },
+  );
+});
+
 describe("IceSpedTransport pre-nomination send", () => {
   it("writeReady application data bypasses SPED embedding on the authenticated pair", async () => {
     // Arrange: SPED active 中で nomination 前の認証済み pair を用意する。

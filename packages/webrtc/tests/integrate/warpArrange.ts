@@ -12,6 +12,7 @@ import { connectionDatagramEvent } from "../../../ice/src/internal/datagram";
 import { getConnectionSpedRuntime } from "../../../ice/src/internal/sped-bind";
 import { classes } from "../../../ice/src/stun/const";
 import type { Message } from "../../../ice/src/stun/message";
+import { TcpActiveProtocol } from "../../../ice/src/stun/tcpProtocol";
 import type { SCTP } from "../../../sctp/src";
 import {
   CookieAckChunk,
@@ -1576,4 +1577,57 @@ export async function connectAcrossBuilds({
     answererChannel: remote,
     openedAfterMs: Date.now() - startedAt,
   };
+}
+
+// --- SPED over TCP with a delayed nomination ---
+
+/**
+ * Arrange: delay every ICE-TCP request that carries USE-CANDIDATE (regular
+ * nomination) by `delayMs`; connectivity checks are untouched. Call
+ * `restore()` afterwards.
+ */
+export function delayTcpNomination(delayMs: number) {
+  const base = Object.getPrototypeOf(TcpActiveProtocol.prototype) as {
+    request: (message: Message, ...args: unknown[]) => Promise<unknown>;
+  };
+  const request = base.request;
+  base.request = async function (this: unknown, message, ...args) {
+    if (message.attributesKeys.includes("USE-CANDIDATE")) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+    return request.call(this, message, ...args);
+  };
+  return {
+    restore: () => {
+      base.request = request;
+    },
+  };
+}
+
+/**
+ * Arrange: SPED / DTLS 1.3 peers that connect only over ICE-TCP on
+ * 127.0.0.1 (early outbound disabled), each with a negotiated DataChannel.
+ */
+export function createTcpLoopbackSpedPeers() {
+  const config = {
+    iceServers: [],
+    iceUseIpv6: false,
+    iceAdditionalHostAddresses: ["127.0.0.1"],
+    iceUseTcp: true,
+    iceFilterCandidatePair: (pair: {
+      localCandidate: Candidate;
+      remoteCandidate: Candidate;
+    }) =>
+      pair.localCandidate.transport.toLowerCase() === "tcp" &&
+      pair.remoteCandidate.transport.toLowerCase() === "tcp" &&
+      pair.localCandidate.host === "127.0.0.1" &&
+      pair.remoteCandidate.host === "127.0.0.1",
+    sped: true,
+    dtls: { protocolVersions: [DtlsVersion.V1_3] },
+  };
+  const peers = [new RTCPeerConnection(config), new RTCPeerConnection(config)];
+  const channels = peers.map((pc) =>
+    pc.createDataChannel("tcp", { negotiated: true, id: 0 }),
+  );
+  return { peers, channels };
 }

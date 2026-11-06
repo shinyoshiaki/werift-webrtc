@@ -228,6 +228,12 @@ export class IceSpedTransport implements Transport {
     handshakeControl: boolean,
   ) {
     this.assertIceSendable();
+    // The DTLS client pins its destination at connect(), before any pair is
+    // selected; it then holds remotePeer()'s placeholder (port 0, normalized
+    // to loopback). That names no 5-tuple: route by the authenticated pair.
+    if (addr && isPlaceholderAddress(addr)) {
+      addr = undefined;
+    }
     if (this.applicationReady) {
       if (!this.ice.canSendApplicationData() && !application) {
         // Handshake control records (the final ACK, alerts) decide when the
@@ -667,6 +673,11 @@ export class IceSpedTransport implements Transport {
     }
     return ["0.0.0.0", 0];
   }
+}
+
+/** A destination that names no real peer (port 0 is never a peer port). */
+function isPlaceholderAddress(addr: Address): boolean {
+  return addr[1] === 0;
 }
 
 function isDtlsApplicationData(data: Buffer): boolean {

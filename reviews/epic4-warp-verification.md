@@ -707,3 +707,16 @@ SCTP がない media-only の接続では後者が呼ばれず、`allowEarlyServ
 | role が揃う 2 通り | 成功 | 成功 |
 
 修正後はいずれも 3 秒未満で開き、双方向に届きました。`WERIFT_LEGACY_RELEASE_AUTO_INSTALL=1 npm run test:legacy-werift` は一時ディレクトリへ `--ignore-scripts` で install し、終了時に削除します。既定の `npm test` では skip されます。
+
+## 20. SPED / ICE-TCP で nomination が遅れると DTLS が失敗する（レビューの指摘への対応）
+
+**原因:** DTLS client は `connect()` 時に宛先を固定します。pair 選択前は `IceSpedTransport.remotePeer()` が placeholder の `0.0.0.0:0` を返し、DTLS がそれを `127.0.0.1:0` に正規化して保持します。handshake 後・nomination 前（applicationReady で application path なし）の最終 ACK は、この宛先で認証済み pair を照合するため一致する pair が見つからず、キューに残ったまま 2 秒の保持期限で失効し、DTLS の致命的エラーになっていました。`warp` ではこの経路が宛先を使わず `ice.send()` を呼んでいたため顕在化しませんでした。ICE-TCP は regular nomination（USE-CANDIDATE を別 Request で送る）なので、nomination だけが遅れる状況が起こります。
+
+**修正:** `packages/webrtc/src/transport/sped.ts` の `sendInternal` で、port 0 の宛先（どの 5-tuple も指さない placeholder）を宛先なしとして扱い、現世代の認証済み handshake pair（固定済みの SPED 経路 → nominated → 認証済みの checklist pair）へ送ります。実在の宛先の照合規則は変えていません。
+
+| テスト | 修正前 | 修正後 |
+|---|---|---|
+| `packages/webrtc/tests/integrate/spedDelayedNomination.test.ts`: TCP loopback・early outbound 無効で nomination Request だけを 2.5 秒遅らせる | 失敗（両端の DTLS が `failed`、DataChannel が閉じる） | 成功（DTLS `connected`、両 DataChannel が open でメッセージが届く） |
+| `packages/webrtc/tests/transport/sped.test.ts` › `IceSpedTransport placeholder destination`（認証済み pair が既にある / 後からできる） | 失敗（2 秒で失効） | 成功（認証済み pair の 5-tuple へ送られる） |
+
+レビューの再現スクリプト（`/tmp/werift-review-delayed-nomination-loopback.mjs`）も修正後は exit 0 です。
