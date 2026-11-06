@@ -10,7 +10,7 @@
     "chrome-e2e:verbose": "cd chrome-e2e && npm i && npm run ci",
     "docker:build": ". ./.env && cd ../.. && docker build -f examples/turn-loopback/Dockerfile -t $IMAGE_TAG .",
     "preview": "vite preview",
-    "server": "node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs server/main.ts",
+    "server": "node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs server/main.ts",
     "type": "tsc --noEmit -p tsconfig.client.json && tsc --noEmit -p tsconfig.server.json"
   },
   "devDependencies": {

@@ -8,7 +8,7 @@
     "ci": "npm run install:browsers && node run-ci.js",
     "ci:silent": "npm run install:browsers && node run-ci.js silent",
     "install:browsers": "node ensure-browser.js",
-    "server": "node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../../tools/node-ts/register.mjs ./server/main.ts",
+    "server": "node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../../tools/node-ts/register.mjs ./server/main.ts",
     "stop": "node stop.js",
     "type": "tsc --noEmit -p tsconfig.server.json && tsc --noEmit -p tsconfig.json"
   },

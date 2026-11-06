@@ -17,7 +17,14 @@ const { decode, encode, types } = binaryData;
 // 7.4.4.  Certificate Request
 
 export class ServerCertificateRequest implements Handshake {
-  msgType = HandshakeType.certificate_request_13;
+  public certificateTypes: number[];
+  public signatures: {
+    hash: HashAlgorithms;
+    signature: SignatureAlgorithms;
+  }[];
+  public authorities: number[];
+
+  msgType: HandshakeType = HandshakeType.certificate_request_13;
   messageSeq?: number;
   static readonly spec = {
     certificateTypes: types.array(ClientCertificateType, types.uint8, "bytes"),
@@ -26,13 +33,17 @@ export class ServerCertificateRequest implements Handshake {
   };
 
   constructor(
-    public certificateTypes: number[],
-    public signatures: {
+    certificateTypes: number[],
+    signatures: {
       hash: HashAlgorithms;
       signature: SignatureAlgorithms;
     }[],
-    public authorities: number[],
-  ) {}
+    authorities: number[],
+  ) {
+    this.certificateTypes = certificateTypes;
+    this.signatures = signatures;
+    this.authorities = authorities;
+  }
 
   static createEmpty() {
     return new ServerCertificateRequest(

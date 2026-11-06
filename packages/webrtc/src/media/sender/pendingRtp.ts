@@ -41,10 +41,13 @@ export function resolvePendingRtpOptions(
  * sent, dropped (oldest first over the cap, stale source, discard), or fails.
  */
 export class PendingRtpQueue {
+  private readonly maxLength: number;
   private items: PendingRtpItem[] = [];
   private draining = false;
 
-  constructor(private readonly maxLength: number) {}
+  constructor(maxLength: number) {
+    this.maxLength = maxLength;
+  }
 
   get length() {
     return this.items.length;

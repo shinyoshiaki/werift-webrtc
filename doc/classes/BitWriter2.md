@@ -20,8 +20,6 @@
 
 `number`
 
-Max 32bit
-
 #### Returns
 
 `BitWriter2`

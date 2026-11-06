@@ -7,16 +7,22 @@ import { RtpPacket } from "../../rtp/rtp";
 import type { RtpOutput } from "./rtpCallback";
 
 export class RtpSourceStream {
+  private options: {
+    payloadType?: number;
+    clearInvalidPTPacket?: boolean;
+  };
+
   readable: ReadableStream<RtpOutput>;
   write!: (chunk: RtpOutput) => void;
   protected controller!: ReadableStreamDefaultController<RtpOutput>;
 
   constructor(
-    private options: {
+    options: {
       payloadType?: number;
       clearInvalidPTPacket?: boolean;
     } = {},
   ) {
+    this.options = options;
     options.clearInvalidPTPacket = options.clearInvalidPTPacket ?? true;
 
     this.readable = new ReadableStream({

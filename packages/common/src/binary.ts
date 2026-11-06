@@ -42,9 +42,13 @@ export function bufferArrayXor(arr: Buffer[]): Buffer {
 }
 
 export class BitWriter {
+  private bitLength: number;
+
   value = 0;
 
-  constructor(private bitLength: number) {}
+  constructor(bitLength: number) {
+    this.bitLength = bitLength;
+  }
 
   set(size: number, startIndex: number, value: number) {
     value &= (1 << size) - 1;
@@ -62,16 +66,17 @@ export class BitWriter {
 }
 
 export class BitWriter2 {
+  /**Max 32bit */
+  private bitLength: number;
+
   private _value = 0n;
   offset = 0n;
 
   /**
    * 各valueがオクテットを跨いではならない
    */
-  constructor(
-    /**Max 32bit */
-    private bitLength: number,
-  ) {
+  constructor(bitLength: number) {
+    this.bitLength = bitLength;
     if (bitLength > 32) {
       throw new Error();
     }
@@ -204,10 +209,14 @@ export function buffer2ArrayBuffer(buf: Buffer) {
 }
 
 export class BitStream {
+  public uint8Array: Buffer;
+
   private position = 0;
   private bitsPending = 0;
 
-  constructor(public uint8Array: Buffer) {}
+  constructor(uint8Array: Buffer) {
+    this.uint8Array = uint8Array;
+  }
 
   writeBits(bits: number, value: number): BitStream {
     if (bits == 0) {

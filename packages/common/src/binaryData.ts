@@ -38,9 +38,13 @@ export class NotEnoughDataError extends Error {
 
 /** Sequential reader over a single Buffer. Returned buffers share memory with the input. */
 export class BinaryReader {
+  private readonly buf: Buffer;
+
   private offset = 0;
 
-  constructor(private readonly buf: Buffer) {}
+  constructor(buf: Buffer) {
+    this.buf = buf;
+  }
 
   /** The number of unread bytes. */
   get length() {
