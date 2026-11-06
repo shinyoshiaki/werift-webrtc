@@ -8,6 +8,14 @@
 
 ## Properties
 
+### bandwidthEstimator
+
+> **bandwidthEstimator**: [`BandwidthEstimatorOption`](../type-aliases/BandwidthEstimatorOption.md)
+
+Send-side estimator used by each new sender; defaults to `"lightweight"`.
+
+***
+
 ### bundlePolicy
 
 > **bundlePolicy**: [`BundlePolicy`](../type-aliases/BundlePolicy.md)
@@ -17,6 +25,19 @@
 ### certificates
 
 > **certificates**: [`RTCCertificate`](../classes/RTCCertificate.md)[]
+
+***
+
+### certificateScope
+
+> **certificateScope**: `CertificateScope`
+
+Which default DTLS certificate is used when neither `certificates` nor `dtls.keys` is given.
+Cannot be changed after construction.
+- `"process"` (default): one certificate shared by every RTCPeerConnection in the process
+  (legacy behavior), so their `a=fingerprint` values are identical.
+- `"peerConnection"`: each RTCPeerConnection generates its own certificate (browser behavior).
+  All DTLS transports of that connection share it.
 
 ***
 
@@ -35,6 +56,15 @@
 ### dtls
 
 > **dtls**: `Partial`\<\{ `keys`: [`DtlsKeys`](../type-aliases/DtlsKeys.md); \}\>
+
+***
+
+### filterProbePaddingOnReceiveRtp
+
+> **filterProbePaddingOnReceiveRtp**: `boolean`
+
+When true, padding-only RTP is omitted from onReceiveRtp and later media
+sequence numbers are compacted. Default false preserves wire RTP events.
 
 ***
 
@@ -161,6 +191,17 @@ Defaults to 8 when undefined.
 
 ***
 
+### iceUseDefaultStunServer
+
+> **iceUseDefaultStunServer**: `boolean`
+
+Fall back to the built-in public STUN server (`stun.l.google.com:19302`)
+when `iceServers` contains no STUN URL (empty or TURN-only).
+Set to false to gather server-reflexive candidates only from the STUN
+servers given in `iceServers`. Defaults to true.
+
+***
+
 ### iceUseIpv4
 
 > **iceUseIpv4**: `boolean`
@@ -184,6 +225,16 @@ such as google cloud run
 ### iceUseTcp
 
 > **iceUseTcp**: `boolean`
+
+***
+
+### keyFrameRequestRouting
+
+> **keyFrameRequestRouting**: [`KeyFrameRequestRouting`](../type-aliases/KeyFrameRequestRouting.md)
+
+Where a PLI / FIR goes when no route has its target SSRC. See [KeyFrameRequestRouting](../type-aliases/KeyFrameRequestRouting.md).
+- `"compatible"` (default): the sender whose RTX SSRC it is, else the only video sender.
+- `"strict"`: not delivered, as RFC 4585 / RFC 5104 define the target.
 
 ***
 

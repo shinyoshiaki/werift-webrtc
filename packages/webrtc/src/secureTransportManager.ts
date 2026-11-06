@@ -30,6 +30,8 @@ export class SecureTransportManager {
   iceConnectionState: RTCIceConnectionState = "new";
   iceGatheringState: IceGathererState = "new";
   certificate?: RTCCertificate;
+  /**Generation of this peer connection's own certificate, shared by concurrent createOffer / createAnswer calls */
+  private certificatePromise?: Promise<RTCCertificate>;
 
   readonly iceGatheringStateChange = new Event<[IceGathererState]>();
   readonly iceConnectionStateChange = new Event<[RTCIceConnectionState]>();
@@ -40,6 +42,15 @@ export class SecureTransportManager {
   private lastLocalCredentials?: { usernameFragment: string; password: string };
   private transceiverManager: TransceiverManager;
   private sctpManager: SctpTransportManager;
+  /**
+   * Every transport `createTransport` made that has not finished stopping
+   * (`onStopped`). `close` stops all of them, so a transport no m-line
+   * references any more (e.g. a max-compat transport a BUNDLE answer
+   * replaced) never outlives the peer connection, and a transport whose DTLS
+   * closed by alert keeps its ICE owned until stopped. Renegotiation does not
+   * grow the set. Never used for the live-transport getters.
+   */
+  private readonly ownedTransports = new Set<RTCDtlsTransport>();
 
   constructor({
     config,
@@ -118,9 +129,30 @@ export class SecureTransportManager {
   }
 
   /**
+   * The STUN/TURN settings the next gathering phase uses, resolved from the
+   * current config (what `updateIceServers` hands to each transport).
+   */
+  iceServerSettings() {
+    return {
+      ...this.resolveIceServerOptions(),
+      forceTurn: this.config.iceTransportPolicy === "relay",
+      useTcp: this.config.iceUseTcp,
+      turnTlsOptions: this.config.turnTlsOptions,
+      turnUdpFamily: this.config.turnUdpFamily,
+    };
+  }
+
+  /** Whether a live transport started gathering (its servers are in use). */
+  get gatheringStarted() {
+    return this.iceTransports.some(
+      (iceTransport) => iceTransport.gatheringState !== "new",
+    );
+  }
+
+  /**
    * Re-apply ICE servers from the current config.
    *
-   * JSEP (RFC 8829 §4.1.18): server changes affect the next gathering phase.
+   * JSEP (RFC 9429 §4.1.18): server changes affect the next gathering phase.
    * A transport that has not gathered yet (`gatheringState === "new"`) takes
    * them now (e.g. TURN learned from a WHIP Link header before
    * setLocalDescription gathers). A transport that already gathered keeps its
@@ -128,12 +160,7 @@ export class SecureTransportManager {
    * also replaces a TURN allocation made with the old settings.
    */
   updateIceServers() {
-    const options = {
-      ...this.resolveIceServerOptions(),
-      forceTurn: this.config.iceTransportPolicy === "relay",
-      useTcp: this.config.iceUseTcp,
-      turnUdpFamily: this.config.turnUdpFamily,
-    };
+    const options = this.iceServerSettings();
     for (const iceTransport of this.iceTransports) {
       if (iceTransport.gatheringState === "new") {
         iceTransport.setIceServers(options);
@@ -156,6 +183,7 @@ export class SecureTransportManager {
     const iceGatherer = new RTCIceGatherer({
       ...this.resolveIceServerOptions(),
       iceLite: this.config.iceLite,
+      useDefaultStunServer: this.config.iceUseDefaultStunServer,
       forceTurn: this.config.iceTransportPolicy === "relay",
       portRange: this.config.icePortRange,
       interfaceAddresses: this.config.iceInterfaceAddresses,
@@ -212,6 +240,10 @@ export class SecureTransportManager {
       this.certificate,
       srtpProfiles,
     );
+    this.ownedTransports.add(dtlsTransport);
+    dtlsTransport.onStopped.once(() => {
+      this.ownedTransports.delete(dtlsTransport);
+    });
 
     return dtlsTransport;
   }
@@ -692,9 +724,26 @@ export class SecureTransportManager {
     return stats;
   }
 
+  /**
+   * Without `certificates` / `dtls.keys`, `certificateScope` decides the default:
+   * - `"process"` (default): the certificate shared by the whole process.
+   * - `"peerConnection"`: a certificate generated for this peer connection (like browsers),
+   *   kept for its lifetime; every DTLS transport of this peer connection uses it.
+   */
   async ensureCerts() {
     if (!this.certificate) {
-      this.certificate = await RTCDtlsTransport.SetupCertificate();
+      if (this.config.certificateScope === "peerConnection") {
+        this.certificatePromise ??= RTCDtlsTransport.generateCertificate();
+        try {
+          this.certificate ??= await this.certificatePromise;
+        } catch (error) {
+          // let the next createOffer / createAnswer retry the generation
+          this.certificatePromise = undefined;
+          throw error;
+        }
+      } else {
+        this.certificate = await RTCDtlsTransport.SetupCertificate();
+      }
     }
 
     for (const dtlsTransport of this.dtlsTransports) {
@@ -705,7 +754,14 @@ export class SecureTransportManager {
   async close() {
     this.setConnectionState("closed");
 
-    await Promise.allSettled([...this.allDtlsTransports.map((t) => t.stop())]);
+    // Owned transports cover the ones no binding references any more.
+    await Promise.allSettled(
+      uniqueTransports([
+        ...this.allDtlsTransports,
+        ...this.ownedTransports,
+      ]).map((t) => t.stop()),
+    );
+    this.ownedTransports.clear();
 
     this.iceGatheringStateChange.allUnsubscribe();
     this.iceConnectionStateChange.allUnsubscribe();

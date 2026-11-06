@@ -24,7 +24,8 @@
   "main": "lib/rtp/src/index.js",
   "types": "lib/rtp/src/index.d.ts",
   "files": [
-    "lib"
+    "lib",
+    "THIRD_PARTY_LICENSES_LIBWEBRTC.txt"
   ],
   "scripts": {
     "build": "rm -rf lib && tsc -p ./tsconfig.production.json && node ../write-package-entrypoint.mjs rtp",

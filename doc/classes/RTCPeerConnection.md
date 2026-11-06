@@ -1111,6 +1111,12 @@ v6.0.0
 
 #### Returns
 
+##### bandwidthEstimator
+
+> **bandwidthEstimator**: [`BandwidthEstimatorOption`](../type-aliases/BandwidthEstimatorOption.md)
+
+Send-side estimator used by each new sender; defaults to `"lightweight"`.
+
 ##### bundlePolicy
 
 > **bundlePolicy**: [`BundlePolicy`](../type-aliases/BundlePolicy.md)
@@ -1118,6 +1124,17 @@ v6.0.0
 ##### certificates
 
 > **certificates**: [`RTCCertificate`](RTCCertificate.md)[]
+
+##### certificateScope
+
+> **certificateScope**: `CertificateScope`
+
+Which default DTLS certificate is used when neither `certificates` nor `dtls.keys` is given.
+Cannot be changed after construction.
+- `"process"` (default): one certificate shared by every RTCPeerConnection in the process
+  (legacy behavior), so their `a=fingerprint` values are identical.
+- `"peerConnection"`: each RTCPeerConnection generates its own certificate (browser behavior).
+  All DTLS transports of that connection share it.
 
 ##### codecs
 
@@ -1168,6 +1185,13 @@ ms
 ###### dtls.keys?
 
 > `optional` **keys?**: [`DtlsKeys`](../type-aliases/DtlsKeys.md)
+
+##### filterProbePaddingOnReceiveRtp
+
+> **filterProbePaddingOnReceiveRtp**: `boolean`
+
+When true, padding-only RTP is omitted from onReceiveRtp and later media
+sequence numbers are compacted. Default false preserves wire RTP events.
 
 ##### ~~forceTurnTCP~~
 
@@ -1264,6 +1288,15 @@ Gather passive (listening) TCP host candidates. Defaults to true.
 Seconds to wait for a TURN TCP/TLS connection to be established.
 Defaults to 8 when undefined.
 
+##### iceUseDefaultStunServer
+
+> **iceUseDefaultStunServer**: `boolean`
+
+Fall back to the built-in public STUN server (`stun.l.google.com:19302`)
+when `iceServers` contains no STUN URL (empty or TURN-only).
+Set to false to gather server-reflexive candidates only from the STUN
+servers given in `iceServers`. Defaults to true.
+
 ##### iceUseIpv4
 
 > **iceUseIpv4**: `boolean`
@@ -1281,6 +1314,14 @@ such as google cloud run
 ##### iceUseTcp
 
 > **iceUseTcp**: `boolean`
+
+##### keyFrameRequestRouting
+
+> **keyFrameRequestRouting**: [`KeyFrameRequestRouting`](../type-aliases/KeyFrameRequestRouting.md)
+
+Where a PLI / FIR goes when no route has its target SSRC. See [KeyFrameRequestRouting](../type-aliases/KeyFrameRequestRouting.md).
+- `"compatible"` (default): the sender whose RTX SSRC it is, else the only video sender.
+- `"strict"`: not delivered, as RFC 4585 / RFC 5104 define the target.
 
 ##### maxMessageSize
 
@@ -2019,6 +2060,15 @@ v0.1.26
 
 > **restartIce**(): `void`
 
+Request an ICE restart (W3C `restartIce`): the next `createOffer()`
+carries new ICE credentials and fires `negotiationneeded`.
+
+The restarted generation gathers with the current configuration, so
+`setConfiguration({ iceServers })` followed by `restartIce()` rotates
+STUN/TURN servers or credentials: the new TURN allocation authenticates
+with the new credentials and the old allocation is released. Media keeps
+flowing on the current pair until the restart is committed by the answer.
+
 #### Returns
 
 `void`
@@ -2028,6 +2078,34 @@ v0.1.26
 ### setConfiguration()
 
 > **setConfiguration**(`config`): `void`
+
+Update the configuration (W3C `setConfiguration`).
+
+STUN/TURN settings (`iceServers`, `iceTransportPolicy`, `turnUdpFamily`)
+apply to the next ICE gathering phase (JSEP, RFC 9429 §4.1.18):
+
+- A transport that has not gathered yet takes them at once, so servers
+  learned after `createOffer()` (e.g. a WHIP Link header) are used by the
+  following `setLocalDescription()`. No ICE restart is needed.
+- Once gathering has started, the live ICE session is left untouched (its
+  selected pair and TURN allocation keep working) and, if the settings
+  actually changed, the next `createOffer()` performs an ICE restart. That
+  restart gathers with the new settings and releases the TURN allocation
+  made with the old ones; its relay candidates are not carried over.
+  Setting the same servers again (e.g. `setConfiguration(getConfiguration())`)
+  requests no restart. `negotiationneeded` does not fire for this, so call
+  `restartIce()` (or renegotiate) to apply the change now.
+- On the answering side the new settings are used when the remote peer
+  restarts ICE.
+
+Rotating expiring TURN credentials on a live connection:
+
+```ts
+pc.setConfiguration({ iceServers: freshIceServers });
+pc.restartIce();
+// in onnegotiationneeded:
+await pc.setLocalDescription(await pc.createOffer());
+```
 
 #### Parameters
 

@@ -51,6 +51,12 @@ omits stays routed; only SSRCs a replaced pranswer alone added are dropped.
 
 ***
 
+### keyFrameRequestRouting
+
+> **keyFrameRequestRouting**: [`KeyFrameRequestRouting`](../type-aliases/KeyFrameRequestRouting.md) = `"compatible"`
+
+***
+
 ### learnedSsrcs
 
 > `readonly` **learnedSsrcs**: `Set`\<`number`\>
@@ -261,13 +267,17 @@ Internal: restore staged routes (an empty snapshot discards them).
 
 ### routeRtcp()
 
-> **routeRtcp**(`packet`): `void`
+> **routeRtcp**(`packet`, `dtlsTransport?`): `void`
 
 #### Parameters
 
 ##### packet
 
 [`RtcpPacket`](../type-aliases/RtcpPacket.md)
+
+##### dtlsTransport?
+
+[`RTCDtlsTransport`](RTCDtlsTransport.md)
 
 #### Returns
 

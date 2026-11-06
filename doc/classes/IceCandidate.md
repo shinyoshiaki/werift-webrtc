@@ -144,6 +144,8 @@
 
 > **toJSON**(): [`RTCIceCandidate`](RTCIceCandidate.md)
 
+The parsed fields are validated from these typed values, not by reparsing.
+
 #### Returns
 
 [`RTCIceCandidate`](RTCIceCandidate.md)
@@ -153,6 +155,9 @@
 ### fromJSON()
 
 > `static` **fromJSON**(`data`): `IceCandidate` \| `undefined`
+
+Returns `undefined` when `data.candidate` is empty or violates the grammar
+documented on [RTCIceCandidateFields](../interfaces/RTCIceCandidateFields.md).
 
 #### Parameters
 

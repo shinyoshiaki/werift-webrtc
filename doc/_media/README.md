@@ -129,7 +129,7 @@ DTLS and SRTP share the ICE transport, but media is **not tunneled through DTLS*
 | **Simulcast** | Receive-side simulcast |
 | **Bandwidth estimation** | Sender-side estimator driven by Transport-Wide CC feedback |
 | **Statistics** | Browser-compatible `getStats()` report model for RTP, transport, ICE, codec, certificate, DataChannel, and related stats |
-| **Recording** | Nonstandard `MediaRecorder` / WebM writer paths for Opus, VP8, VP9, H.264, and AV1 tracks |
+| **Recording** | Nonstandard `MediaRecorder` / WebM writer paths for Opus, VP8, VP9, H.264, and AV1 tracks; Ogg Opus (`.ogg` / `.opus`, or `format: "ogg"` for `stream`) for a single Opus audio track |
 | **Nonstandard media** | MP4/WebM file playback via mediabunny plus configurable/dummy media-device sources |
 | **RTP processing** | Jitter buffer, RED encoder/decoder, DTX, NACK, lip sync, and other packet processors |
 
