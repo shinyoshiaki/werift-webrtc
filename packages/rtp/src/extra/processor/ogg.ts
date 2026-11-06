@@ -67,6 +67,9 @@ export interface OggOption {
  * audio pages follow and the last page carries the EOS flag.
  */
 export class OggBase {
+  private output: (output: OggOutput) => void;
+  private options: OggOption;
+
   private pager: OggPager;
   private preSkip: number;
   private channels: number;
@@ -88,9 +91,11 @@ export class OggBase {
 
   constructor(
     track: OggTrack,
-    private output: (output: OggOutput) => void,
-    private options: OggOption = {},
+    output: (output: OggOutput) => void,
+    options: OggOption = {},
   ) {
+    this.output = output;
+    this.options = options;
     this.channels = track.channels ?? 2;
     this.preSkip = track.preSkip ?? 0;
     this.pager = new OggPager(

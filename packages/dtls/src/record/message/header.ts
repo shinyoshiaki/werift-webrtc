@@ -15,6 +15,12 @@ export interface DtlsPlaintextHeader {
 }
 
 export class MACHeader {
+  public epoch: number;
+  public sequenceNumber: number;
+  public contentType: number;
+  public protocolVersion: { major: number; minor: number };
+  public contentLen: number;
+
   static readonly spec = {
     epoch: types.uint16be,
     sequenceNumber: types.uint48be,
@@ -24,12 +30,18 @@ export class MACHeader {
   };
 
   constructor(
-    public epoch: number,
-    public sequenceNumber: number,
-    public contentType: number,
-    public protocolVersion: { major: number; minor: number },
-    public contentLen: number,
-  ) {}
+    epoch: number,
+    sequenceNumber: number,
+    contentType: number,
+    protocolVersion: { major: number; minor: number },
+    contentLen: number,
+  ) {
+    this.epoch = epoch;
+    this.sequenceNumber = sequenceNumber;
+    this.contentType = contentType;
+    this.protocolVersion = protocolVersion;
+    this.contentLen = contentLen;
+  }
 
   static createEmpty() {
     return new MACHeader(

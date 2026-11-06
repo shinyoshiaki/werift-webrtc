@@ -29,6 +29,7 @@ export type EstimatorBindingHooks = {
  * same moment to release waits running at the old estimator's rate.
  */
 export class EstimatorBinding {
+  private readonly hooks: EstimatorBindingHooks;
   private current: BandwidthEstimator;
   private _generation = 0;
   private generationCancel = new AbortController();
@@ -37,10 +38,8 @@ export class EstimatorBinding {
   /** Interval from {@link BandwidthEstimator.processIntervalMs} (0 = none). */
   private processTimer?: ReturnType<typeof setInterval>;
 
-  constructor(
-    initial: BandwidthEstimator,
-    private readonly hooks: EstimatorBindingHooks,
-  ) {
+  constructor(initial: BandwidthEstimator, hooks: EstimatorBindingHooks) {
+    this.hooks = hooks;
     this.current = initial;
     this.bind(initial);
   }

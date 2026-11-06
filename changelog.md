@@ -4,9 +4,23 @@
 
 ### ⚠️ Breaking changes
 
+- **Public TypeScript `enum`s are now `as const` objects with a same-name union type** (`werift`, `werift-ice`, `werift-ice-server`, `werift-rtp`, `werift-sctp`): `CandidatePairState`, `classes`, `methods`, `PacketChunk`, `PacketStatus`, `H264NaluType` (`werift-rtp/extra`), `SCTP_STATE`, and `WEBRTC_PPID`. Node.js 26 removed its TypeScript transform mode, and Node.js type stripping cannot run `enum`. Every runtime value is unchanged, and so are value access (`SCTP_STATE.ESTABLISHED`), `===` / `switch` comparisons, type annotations (`state: CandidatePairState`) with `switch` exhaustiveness, `keyof typeof X`, the CJS / ESM export names, assignment from values of older `werift-*` versions, public field / argument / return types (`CandidatePair.state` is still `CandidatePairState`, `SCTP.associationState` is still `SCTP_STATE`), and the TypeDoc `enumerations/` pages. These uses change:
+  - Reverse lookup (`X[value]`, for example `CandidatePairState[pair.state]`) no longer exists. Use `Object.entries(X).find(([, v]) => v === value)?.[0]` or keep your own reverse map.
+  - `Object.keys/values/entries(X)` no longer contain the numeric reverse-mapping keys. Only member names remain, and `Object.values(X)` lists the values.
+  - A member can no longer be written as a type (`x: PacketChunk.TypeTCCRunLengthChunk`). Write `typeof PacketChunk.TypeTCCRunLengthChunk`.
+  - A plain `number` is no longer assignable to the type. Check the range first, then narrow with `as X`.
+  - A variable initialized from a member without a type annotation (`let s = X.A; s = X.B;`) is inferred as that member's literal type. Annotate it: `let s: X = X.A`.
+
 - **`sender.senderBWE` is a getter whose TypeScript type is `BandwidthEstimator`** (it was a `readonly` `SenderBandwidthEstimator` field). Replace the estimator with `sender.setBandwidthEstimator(impl)`, not by assigning the property. The `onCongestion` / `onCongestionScore` events of the default estimator still exist at runtime, and a one-release compatibility surface keeps those names on GCC / disabled estimators as no-op Events so `sender.senderBWE.onCongestion.subscribe(...)` compiles. Prefer `sender.senderBWE as LightweightBandwidthEstimator` or `isLightweightBandwidthEstimator`. The names are not part of the shared `BandwidthEstimator` contract and may be removed from the other estimators in a future major.
 - **`SenderBandwidthEstimator` is renamed to `LightweightBandwidthEstimator`** (the default, lightweight cumulative estimator: TWCC send / receive rates only, no probing or pacing). `SenderBandwidthEstimator` remains as a deprecated alias of the same class, so `new SenderBandwidthEstimator()` and `instanceof` keep working.
 - **`onAvailableBitrate` fires only when the estimate changes.** The default estimator used to fire on every update, even with the same value. The payload is still the bitrate in bps.
+
+### 🧪 Testing & tooling
+
+- Repository scripts, examples, the e2e server, the WPT runner, and `.vscode/launch.json` no longer pass the TypeScript transform flag, which Node.js 26 removed. TypeScript now runs with Node.js type stripping plus the `tools/node-ts/register.mjs` resolve hook (`node --import <rel>/tools/node-ts/register.mjs`), so the same commands work on Node.js 22.18+, 24, and 26.
+  - Parameter properties are rewritten as explicit fields assigned at the start of the constructor (field definition order is unchanged in the CJS build; the esbuild ESM build now matches the CJS order), and the internal DTLS `enum`s (`ContentType`, `AlertDesc`, `HandshakeType`) use the same `as const` form. The DTLS alert reverse lookup is replaced by an internal `alertDescName()`.
+  - Every package tsconfig, plus `e2e`, `examples/e2e`, and `packages/ice-server/chrome-e2e`, enables `erasableSyntaxOnly`, so `npm run type` rejects `enum`, parameter properties, and other non-erasable syntax.
+  - CI also runs on Node.js 26.x.
 
 ### 🚀 Features
 
@@ -35,7 +49,6 @@
   - New `LipSyncOptions.startTimeout` (ms, default `10000`): when some kind has not arrived by then (timer-based, so it also fires when no further frame arrives), the frames received so far are output immediately and output continues with the received tracks only, and older frames of a track that arrives later are still dropped. Until the start, frames are held in memory and output (including `stream`) is delayed by up to this time.
   - An EOL before the start outputs the held frames in time order before the EOL.
   - Not changed: a track whose sender never sends an SR is still never output by `NtpTimeCallback`, and `disableLipSync: true` still drops the head of the later track (its frames older than the first frame `WebmCallback` received).
-
 
 ## v0.26.0
 

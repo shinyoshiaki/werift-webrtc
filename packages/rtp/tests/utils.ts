@@ -841,7 +841,6 @@ export function runExample(
   const child = spawn(
     process.execPath,
     [
-      "--experimental-transform-types",
       "--disable-warning=ExperimentalWarning",
       "--disable-warning=MODULE_TYPELESS_PACKAGE_JSON",
       "--import",

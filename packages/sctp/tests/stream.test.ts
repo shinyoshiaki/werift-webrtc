@@ -58,8 +58,12 @@ describe("SctpStreamTest", () => {
 });
 
 class ChunkFactory {
+  private tsn: number;
+
   streamSeq = 0;
-  constructor(private tsn = 1) {}
+  constructor(tsn = 1) {
+    this.tsn = tsn;
+  }
 
   create(frags: Buffer[], ordered = true) {
     const chunks: DataChunk[] = [];

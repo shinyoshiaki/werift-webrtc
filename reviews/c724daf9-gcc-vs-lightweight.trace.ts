@@ -1,7 +1,7 @@
 /**
  * Reproduce the worked examples embedded in c724daf9-gcc-vs-lightweight.html.
  * Run from the repository root:
- * node --experimental-transform-types --import ./tools/node-ts/register.mjs reviews/c724daf9-gcc-vs-lightweight.trace.ts
+ * node --import ./tools/node-ts/register.mjs reviews/c724daf9-gcc-vs-lightweight.trace.ts
  * Use --write to refresh only the embedded JSON; otherwise check it.
  * This is an estimator-input illustration, not a network/encoder benchmark.
  */
