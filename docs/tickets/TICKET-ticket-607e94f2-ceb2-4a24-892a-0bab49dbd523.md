@@ -126,21 +126,21 @@ RTCP:  RtcpSource → NtpTimeCallback（トラックごと）
 
 ## 5. 完了条件
 
-- [ ] `packages/rtp/tests/processor/lipsync.test.ts` に再現テストがあり、修正前は失敗し、修正後は通る。テストの内容:
-  - [ ] 一方のトラックのフレームが遅れて、より古い時刻で届いても、その先頭が捨てられずに出力される。
-  - [ ] 必要な kind がそろわないときは、タイムアウト後に届いているトラックだけで出力が始まる。
-  - [ ] 映像だけ（kind が 1 つ）の構成では、待たずにすぐ始まる。
-  - [ ] 開始待ちの間に eol が来たときの挙動が固定されている。
-- [ ] `WebmFactory` が入力トラックの kind を lipsync に渡しており、映像だけの録画が以前と同じように動く。
-- [ ] `cd packages/rtp && npm test` と、webrtc 側の recorder テスト（`packages/webrtc/tests/nonstandard/recorder.test.ts`）が通る。public API を変えた場合は `npm run type` と `npm run test:small` も通る。
-- [ ] E2E `recordPlayback.test.ts` の `av` ケースで、次の 2 つを確認できる:
+- [x] `packages/rtp/tests/processor/lipsync.test.ts` に再現テストがあり、修正前は失敗し、修正後は通る。テストの内容:
+  - [x] 一方のトラックのフレームが遅れて、より古い時刻で届いても、その先頭が捨てられずに出力される。
+  - [x] 必要な kind がそろわないときは、タイムアウト後に届いているトラックだけで出力が始まる。
+  - [x] 映像だけ（kind が 1 つ）の構成では、待たずにすぐ始まる。
+  - [x] 開始待ちの間に eol が来たときの挙動が固定されている。
+- [x] `WebmFactory` が入力トラックの kind を lipsync に渡しており、映像だけの録画が以前と同じように動く。
+- [x] `cd packages/rtp && npm test` と、webrtc 側の recorder テスト（`packages/webrtc/tests/nonstandard/recorder.test.ts`）が通る。public API を変えた場合は `npm run type` と `npm run test:small` も通る。
+- [x] E2E `recordPlayback.test.ts` の `av` ケースで、次の 2 つを確認できる:
   - 録画の長さが録画時間に近い（目安: `RECORD_MS / 1000 - 1` 秒以上）。
   - 音声の開始時刻が映像とほぼ同じ（`ffprobe` の stream `start_time` などで確認）。
   
   確認できたら、`duration > RECORD_MS / 1000 / 2` の緩い条件を実測に合わせて厳しくする。対象ファイルだけで通ることを確認した後、`npm run e2e` を通す。
-- [ ] `disableLipSync: true` / `disableNtp: true` での実測結果がチケットに記録されている。対応が必要な場合は、修正したか別チケットにしたかが明記されている。
-- [ ] `changelog.md` と `MediaRecorderOptions.lipsync` / `LipSyncOptions` の JSDoc が更新されている。サンプルや生成ドキュメントに影響がある場合は `npm run doc` で再生成されている。
-- [ ] `npm run format` を実行してある。
+- [x] `disableLipSync: true` / `disableNtp: true` での実測結果がチケットに記録されている。対応が必要な場合は、修正したか別チケットにしたかが明記されている。
+- [x] `changelog.md` と `MediaRecorderOptions.lipsync` / `LipSyncOptions` の JSDoc が更新されている。サンプルや生成ドキュメントに影響がある場合は `npm run doc` で再生成されている。
+- [x] `npm run format` を実行してある。
 
 ## 6. 再現手順（元の記載）
 
@@ -156,14 +156,14 @@ RTCP:  RtcpSource → NtpTimeCallback（トラックごと）
   - 開始前のフレームは開始前用の配列（`pendingFrames`）に溜める。
   - 開始条件: `kinds` のすべてからフレームを受け取り、かつ各 kind の最新時刻の差が `bufferDuration`（`syncInterval / 2`）以内になったとき。遅れたトラックの溜め込み分は同期的にまとめて届くので、最初の 1 フレームで開始すると残りが commit 済みの時刻より古くなって捨てられる。追いつくまで待つことで、開始後のフレームが `lastCommittedTime` より古くならない。
   - `baseTime` は溜めたフレームの最小時刻。溜めたフレームは時刻順に既存の挿入処理へ流す（`executeTask` が時刻に合わせて進むので、5 s のリングを溢れさせない）。`lastFrameReceivedAt` も開始時に初期化する。
-  - タイムアウト `startTimeout`（既定 10000 ms）は、次のフレーム入力時に `Date.now()` で判定する。lipsync はフレーム入力でしか動かないこと、`stop()` でタイマーを片付ける必要がないことが理由。
+  - タイムアウト `startTimeout`（既定 10000 ms）は、最初のフレーム受信時に `setTimeout`（`unref`）で仕掛ける。入力が止まっていても期限で、溜めたフレームを時刻順に出力して開始する（以降は最後の出力時刻より古いフレームを捨てる）。開始時と `stop()` でタイマーを解除する。次のフレーム入力時の `Date.now()` 判定も併用する（レビュー指摘 P2 対応）。
   - 開始前に eol が来たときは、溜めたフレームを時刻順に出力してから eol を出力する（短い録画で SR が片方しか来なかった場合も中身を残すため）。
 - 新オプション `LipSyncOptions.kinds`（既定 `["audio", "video"]`）と `startTimeout`。`WebmFactory` は録画するトラックの kind を必ず渡す（ユーザー指定の `lipsync.kinds` より優先）。
 - `examples/save_to_disk/pipeline.ts` と `examples/untested/dash` は音声 + 映像なので既定値のままでよく、変更していない。生成ドキュメントには `LipSyncOptions` / `MediaRecorderOptions` が含まれないので再生成していない。
 
 ### テスト
 
-- `packages/rtp/tests/processor/lipsync.test.ts`（新規）: 遅れて古い時刻で届いたトラックの先頭が出力される / タイムアウト後に届いているトラックだけで始まる / `kinds: ["video"]` は待たない / 開始前の eol。修正前は 4 件中 3 件が失敗することを確認した（音声の出力開始が T + 2.5 s だった）。
+- `packages/rtp/tests/processor/lipsync.test.ts`（新規）: 遅れて古い時刻で届いたトラックの先頭が出力される / タイムアウト後に届いているトラックだけで始まる / `kinds: ["video"]` は待たない / 開始前の eol / 入力が止まっても `startTimeout` で出力される / `stop()` でタイマーが解除される。修正前は 4 件中 3 件が失敗することを確認した（音声の出力開始が T + 2.5 s だった）。
 - `packages/rtp/tests/processor/ntpTime.test.ts`: SR より前の RTP がまとめて SR より前の時刻で出てくることを固定した。
 - `packages/webrtc/tests/nonstandard/recorder.test.ts`: 映像だけの WebM 録画が停止前から書き出される（`kinds` を渡さないと失敗することを確認）/ SR が遅れた音声の先頭が書き出される。
 - E2E `recordPlayback.test.ts`: `duration > RECORD_MS / 1000 - 1` に厳しくし、MSE の共通区間の開始が 0.2 s 未満であること（av では音声の開始が映像とほぼ同じこと）を追加した。
