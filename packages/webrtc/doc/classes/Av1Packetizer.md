@@ -1,0 +1,163 @@
+[**werift**](../README.md)
+
+***
+
+[werift](../globals.md) / Av1Packetizer
+
+# Class: Av1Packetizer
+
+Packetize one AV1 access unit (OBU sequence) into RTP packets.
+Packs OBU elements (W=1..3) and fragments them across packets with Z/Y bits.
+
+## Extends
+
+- [`PacketizerBase`](PacketizerBase.md)
+
+## Constructors
+
+### Constructor
+
+> **new Av1Packetizer**(`options?`): `Av1Packetizer`
+
+#### Parameters
+
+##### options?
+
+[`Av1PacketizerOptions`](../type-aliases/Av1PacketizerOptions.md) = `{}`
+
+#### Returns
+
+`Av1Packetizer`
+
+#### Overrides
+
+[`PacketizerBase`](PacketizerBase.md).[`constructor`](PacketizerBase.md#constructor)
+
+## Properties
+
+### maxPayloadSize
+
+> `protected` `readonly` **maxPayloadSize**: `number`
+
+#### Inherited from
+
+[`PacketizerBase`](PacketizerBase.md).[`maxPayloadSize`](PacketizerBase.md#maxpayloadsize)
+
+***
+
+### payloadType
+
+> `protected` `readonly` **payloadType**: `number`
+
+#### Inherited from
+
+[`PacketizerBase`](PacketizerBase.md).[`payloadType`](PacketizerBase.md#payloadtype)
+
+***
+
+### sequenceNumber
+
+> `protected` **sequenceNumber**: `number`
+
+#### Inherited from
+
+[`PacketizerBase`](PacketizerBase.md).[`sequenceNumber`](PacketizerBase.md#sequencenumber)
+
+***
+
+### ssrc
+
+> `protected` `readonly` **ssrc**: `number`
+
+#### Inherited from
+
+[`PacketizerBase`](PacketizerBase.md).[`ssrc`](PacketizerBase.md#ssrc)
+
+## Methods
+
+### buildPacket()
+
+> `protected` **buildPacket**(`payload`, `timestamp`, `marker`): [`RtpPacket`](RtpPacket.md)
+
+#### Parameters
+
+##### payload
+
+`Buffer`
+
+##### timestamp
+
+`number`
+
+##### marker
+
+`boolean`
+
+#### Returns
+
+[`RtpPacket`](RtpPacket.md)
+
+#### Inherited from
+
+[`PacketizerBase`](PacketizerBase.md).[`buildPacket`](PacketizerBase.md#buildpacket)
+
+***
+
+### packetize()
+
+> **packetize**(`data`, `rtpTimestamp`, `options?`): [`RtpPacket`](RtpPacket.md)[]
+
+#### Parameters
+
+##### data
+
+`Buffer`
+
+##### rtpTimestamp
+
+`number`
+
+##### options?
+
+[`Av1PacketizeOptions`](../type-aliases/Av1PacketizeOptions.md) = `{}`
+
+#### Returns
+
+[`RtpPacket`](RtpPacket.md)[]
+
+#### Overrides
+
+[`PacketizerBase`](PacketizerBase.md).[`packetize`](PacketizerBase.md#packetize)
+
+***
+
+### startTalkspurt()
+
+> **startTalkspurt**(): `void`
+
+Mark the next audio packet as the first of a talkspurt (e.g. after
+silence suppression). The first packet of a new packetizer is also one.
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+[`PacketizerBase`](PacketizerBase.md).[`startTalkspurt`](PacketizerBase.md#starttalkspurt)
+
+***
+
+### takeTalkspurtMarker()
+
+> `protected` **takeTalkspurtMarker**(): `boolean`
+
+Marker for audio packets: true once per talkspurt, false otherwise.
+
+#### Returns
+
+`boolean`
+
+#### Inherited from
+
+[`PacketizerBase`](PacketizerBase.md).[`takeTalkspurtMarker`](PacketizerBase.md#taketalkspurtmarker)
