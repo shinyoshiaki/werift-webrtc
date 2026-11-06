@@ -12,6 +12,7 @@ import { connectionDatagramEvent } from "../../../ice/src/internal/datagram";
 import { getConnectionSpedRuntime } from "../../../ice/src/internal/sped-bind";
 import { classes } from "../../../ice/src/stun/const";
 import type { Message } from "../../../ice/src/stun/message";
+import { StunProtocol } from "../../../ice/src/stun/protocol";
 import { TcpActiveProtocol } from "../../../ice/src/stun/tcpProtocol";
 import type { SCTP } from "../../../sctp/src";
 import {
@@ -1630,4 +1631,90 @@ export function createTcpLoopbackSpedPeers() {
     pc.createDataChannel("tcp", { negotiated: true, id: 0 }),
   );
   return { peers, channels };
+}
+
+// --- SPED: ICE restart to another 5-tuple while nomination is delayed ---
+
+/**
+ * Arrange: connected SPED / DTLS 1.3 peers whose candidates are 127.0.0.1
+ * and ::1, with a negotiated DataChannel each. Pairs of one address family
+ * only are allowed: IPv4 first; `restartOntoIpv6(holdMs)` allows only IPv6,
+ * restarts ICE (offerer) and delays the controlling side's handling of every
+ * USE-CANDIDATE response by `holdMs`, so the controlled side nominates the
+ * new 5-tuple first while the controlling side has none yet. `restore()`
+ * removes the delay.
+ */
+export async function prepareMigratingSpedPeers() {
+  let family: "v4" | "v6" = "v4";
+  let holdMs = 0;
+  const originalRequest = StunProtocol.prototype.request;
+  StunProtocol.prototype.request = async function (
+    this: StunProtocol,
+    message: Message,
+    ...args: unknown[]
+  ) {
+    const result = await (
+      originalRequest as (...a: unknown[]) => Promise<unknown>
+    ).call(this, message, ...args);
+    if (holdMs > 0 && message.attributesKeys.includes("USE-CANDIDATE")) {
+      await new Promise((resolve) => setTimeout(resolve, holdMs));
+    }
+    return result;
+  } as typeof originalRequest;
+  const host = () => (family === "v4" ? "127.0.0.1" : "::1");
+  const config = {
+    iceServers: [],
+    sped: true,
+    dtls: { protocolVersions: [DtlsVersion.V1_3] },
+    iceUseIpv4: true,
+    iceUseIpv6: true,
+    iceInterfaceAddresses: { udp4: "127.0.0.1", udp6: "::1" },
+    iceFilterCandidatePair: (pair: {
+      localCandidate: Candidate;
+      remoteCandidate: Candidate;
+    }) =>
+      pair.localCandidate.host === host() &&
+      pair.remoteCandidate.host === host(),
+  };
+  const offerer = new RTCPeerConnection(config);
+  const answerer = new RTCPeerConnection(config);
+  const channels = [offerer, answerer].map((pc) =>
+    pc.createDataChannel("migration", { negotiated: true, id: 0 }),
+  );
+  const exchange = async () => {
+    await offerer.setLocalDescription(await offerer.createOffer());
+    await answerer.setRemoteDescription(offerer.localDescription!);
+    await answerer.setLocalDescription(await answerer.createAnswer());
+    await offerer.setRemoteDescription(answerer.localDescription!);
+  };
+  const until = async (predicate: () => boolean, label: string) => {
+    const deadline = Date.now() + 12_000;
+    while (!predicate()) {
+      if (Date.now() > deadline) throw new Error(`timeout: ${label}`);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  };
+  await exchange();
+  await until(
+    () => channels.every((c) => c.readyState === "open"),
+    "initial DataChannel",
+  );
+  const iceOf = (pc: RTCPeerConnection) =>
+    pc.iceTransports[0].connection as Connection;
+  return {
+    offerer,
+    answerer,
+    channels,
+    iceOf,
+    until,
+    restartOntoIpv6: async (delayMs: number) => {
+      family = "v6";
+      holdMs = delayMs;
+      offerer.restartIce();
+      await exchange();
+    },
+    restore: () => {
+      StunProtocol.prototype.request = originalRequest;
+    },
+  };
 }

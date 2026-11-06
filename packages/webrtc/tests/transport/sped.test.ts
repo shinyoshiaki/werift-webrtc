@@ -641,6 +641,55 @@ describe("IceSpedTransport placeholder destination", () => {
   );
 });
 
+describe("IceSpedTransport after an ICE restart to another 5-tuple", () => {
+  it("旧世代の宛先・旧世代で固定した SPED 経路しかなくても、nomination 前の制御 record (KeyUpdate の ACK) は現世代の認証済み pair へ送られる", async () => {
+    // Arrange: 旧世代の pair で handshake 経路を固定し、接続後の状態にする
+    const old = mockProtocol("127.0.0.1", 1);
+    const oldPair = authenticatedPair(old.protocol, "127.0.0.1", 4000);
+    const ice = createIceStub(1, [oldPair]);
+    const session = new SpedSession(1, "active");
+    const runtime = new SpedRuntime(session, dummySpedHooks());
+    runtime.pinHandshakePath(oldPair);
+    const transport = new IceSpedTransport(ice);
+    transport.setRuntime(runtime);
+    transport.markApplicationReady();
+    // ICE restart: checklist が置き換わり、新しい 5-tuple の認証済み pair だけがある (nomination 前)
+    const next = mockProtocol("::1", 2);
+    const newPair = authenticatedPair(next.protocol, "::1", 5000);
+    ice.checkList.splice(0, ice.checkList.length, newPair);
+    const ack = Buffer.from([0x2f, 0x00, 0x01, 0x02]);
+
+    // Act: DTLS が保持する旧世代の宛先で制御 record を送る
+    await transport.send(ack, ["127.0.0.1", 4000]);
+
+    // Assert: 旧経路ではなく、現世代の認証済み pair の 5-tuple へ送られる
+    expect(old.sent).toHaveLength(0);
+    expect(next.sent.map(({ data }) => data)).toEqual([ack]);
+    expect(next.sent[0]!.addr).toEqual(["::1", 5000]);
+    await transport.close();
+  });
+
+  it("現世代の pair を指す宛先は従来どおりその pair にだけ送る", async () => {
+    // Arrange: 現世代に認証済み pair が 2 つある
+    const a = mockProtocol("::1", 2);
+    const pairA = authenticatedPair(a.protocol, "::1", 5000);
+    const b = mockProtocol("::1", 3);
+    const pairB = authenticatedPair(b.protocol, "::1", 6000);
+    const ice = createIceStub(2, [pairA, pairB]);
+    const transport = new IceSpedTransport(ice);
+    transport.markApplicationReady();
+    const ack = Buffer.from([0x2f, 0x00, 0x01, 0x02]);
+
+    // Act: 2 つ目の pair の 5-tuple を宛先に送る
+    await transport.send(ack, ["::1", 6000]);
+
+    // Assert: 宛先の pair にだけ送られる
+    expect(a.sent).toHaveLength(0);
+    expect(b.sent[0]!.addr).toEqual(["::1", 6000]);
+    await transport.close();
+  });
+});
+
 describe("IceSpedTransport pre-nomination send", () => {
   it("writeReady application data bypasses SPED embedding on the authenticated pair", async () => {
     // Arrange: SPED active 中で nomination 前の認証済み pair を用意する。

@@ -228,12 +228,6 @@ export class IceSpedTransport implements Transport {
     handshakeControl: boolean,
   ) {
     this.assertIceSendable();
-    // The DTLS client pins its destination at connect(), before any pair is
-    // selected; it then holds remotePeer()'s placeholder (port 0, normalized
-    // to loopback). That names no 5-tuple: route by the authenticated pair.
-    if (addr && isPlaceholderAddress(addr)) {
-      addr = undefined;
-    }
     if (this.applicationReady) {
       if (!this.ice.canSendApplicationData() && !application) {
         // Handshake control records (the final ACK, alerts) decide when the
@@ -617,23 +611,43 @@ export class IceSpedTransport implements Transport {
   private resolveAuthenticatedSendPair(
     addr?: Address,
   ): CandidatePair | undefined {
+    // The destination DTLS holds can name no ICE path:
+    // - the DTLS client fixes it at connect(), before any pair exists, as
+    //   remotePeer()'s placeholder (port 0 is never a peer port);
+    // - after the handshake it only names the association's peer, and an ICE
+    //   restart that moves to another 5-tuple does not update it.
+    // Route those by the current authenticated pair. During the handshake an
+    // explicit destination outside the authenticated pairs is still refused.
+    if (
+      addr &&
+      (isPlaceholderAddress(addr) ||
+        (this.applicationReady && !this.namesCurrentPair(addr)))
+    ) {
+      addr = undefined;
+    }
+    // A SPED path pinned in a generation an ICE restart replaced is no
+    // ownership boundary: that pair never becomes current again.
     const pinned = this.runtime?.lastPath;
-    if (pinned && this.isCurrentAuthenticatedPair(pinned)) {
+    const livePin =
+      pinned && (this.ice.checkList ?? []).includes(pinned)
+        ? pinned
+        : undefined;
+    if (livePin && this.isCurrentAuthenticatedPair(livePin)) {
       if (!addr) {
-        return pinned;
+        return livePin;
       }
       if (
-        pinned.remoteAddr[0] === addr[0] &&
-        pinned.remoteAddr[1] === addr[1]
+        livePin.remoteAddr[0] === addr[0] &&
+        livePin.remoteAddr[1] === addr[1]
       ) {
-        return pinned;
+        return livePin;
       }
       return undefined;
     }
     // An existing association pin is an ownership boundary.  Wait for that
     // same pair to become authenticated instead of switching an early record
     // to an unrelated candidate merely because it became available first.
-    if (pinned && !addr) {
+    if (livePin && !addr) {
       return undefined;
     }
     if (!addr) {
@@ -651,6 +665,13 @@ export class IceSpedTransport implements Transport {
         pair.remoteAddr[0] === addr[0] &&
         pair.remoteAddr[1] === addr[1] &&
         this.isCurrentAuthenticatedPair(pair),
+    );
+  }
+
+  private namesCurrentPair(addr: Address): boolean {
+    return (this.ice.checkList ?? []).some(
+      (pair) =>
+        pair.remoteAddr[0] === addr[0] && pair.remoteAddr[1] === addr[1],
     );
   }
 

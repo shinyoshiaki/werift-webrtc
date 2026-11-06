@@ -733,3 +733,23 @@ SCTP がない media-only の接続では後者が呼ばれず、`allowEarlyServ
 | client: 接続通知後・最終 ACK 未受信で close / 致命的失敗 → `handshakeComplete` は false、その waiter は reject | 失敗（`handshakeComplete` が true になる） | 成功 |
 
 Arrange は `packages/dtls/tests/fixture.ts` の `arrangePartialDtls13Handshake`。レビューの再現スクリプト（`/tmp/werift-review-readiness-partial.mjs`）も修正後は exit 0 です。
+
+## 22. ICE restart で別の 5-tuple へ移った後、KeyUpdate の ACK を返せず接続が失敗する（レビューの指摘への対応）
+
+**原因:** DTLS が保持する宛先は association の相手を指すもので、ICE restart で別の 5-tuple へ移っても更新されません。`IceSpedTransport.resolveAuthenticatedSendPair` はこの宛先と一致する認証済み pair を要求し、さらに旧世代で固定した SPED 経路（`lastPath`）が「所有境界」として新しい pair への送信を止めていました。nomination 前（application path なし）の KeyUpdate の ACK は一致する pair が見つからずキューに残り、2 秒の保持期限で DTLS の致命的エラーになっていました。`warp` ではこの経路が宛先を使わず `ice.send()` を呼んでいました。
+
+**修正:** `packages/webrtc/src/transport/sped.ts` の `resolveAuthenticatedSendPair`（送信時とキューの flush の両方が使う）で次のように扱います。
+- port 0 の placeholder（§20）は全フェーズで宛先なしとして扱う。
+- handshake 完了後（applicationReady）は、現在の checklist のどの pair も指さない宛先を宛先なしとして扱い、現世代の認証済み pair へ送る。
+- ICE restart で置き換わった世代の `lastPath` は所有境界にしない。
+- handshake 中に、認証済み pair の外にある明示的な宛先へは送らない規則（既存テスト `carrier の明示 addr が認証済み pair と一致しないと送らない`）は維持。現世代の pair を指す宛先は従来どおりその pair にだけ送る。
+
+| テスト | 修正前 | 修正後 |
+|---|---|---|
+| `packages/webrtc/tests/integrate/spedMigratedKeyUpdate.test.ts`: IPv4 で接続後、IPv6 だけを許可して restart。controlling 側の nomination 応答の処理を 2.5 秒遅らせ、その間に DTLS client が KeyUpdate | 失敗（両 peer が `failed`） | 成功（接続を保ち、両 DataChannel が双方向に届き、両側が IPv6 の経路を使う） |
+| `packages/webrtc/tests/transport/sped.test.ts` › 旧世代の宛先・旧世代で固定した SPED 経路しかない場合の制御 record | 失敗（2 秒で失効） | 成功（現世代の認証済み pair へ送られる） |
+| 同 › 現世代の pair を指す宛先はその pair にだけ送る | 成功 | 成功 |
+
+レビューの再現スクリプト（`/tmp/werift-review-migrated-keyupdate.mjs`）と §20 の再現スクリプトは、修正後どちらも exit 0 です。
+
+**未特定:** レビューで並列探索中に 1 件失敗した scenario seed 123（`tests/pbt/scenario/negotiationScenarioProperty.test.ts`）は、単独で 5 回、seed 100〜149 の 50 件でいずれも成功し、再現できていません。
