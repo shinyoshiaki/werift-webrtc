@@ -50,6 +50,7 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
   private pendingLatestTime: Partial<Record<MediaKind, number>> = {};
   /** wall clock (ms) when the first pending frame was received */
   private pendingSince?: number;
+  private startTimer?: ReturnType<typeof setTimeout>;
 
   constructor(
     private audioOutput: (output: LipsyncOutput) => void,
@@ -143,6 +144,7 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
   }
 
   private stop() {
+    this.clearStartTimer();
     if (!this.stopped && this.baseTime == undefined) {
       this.flushPendingFrames();
     }
@@ -193,13 +195,20 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
    * backlog with times older than the frames already received from the other
    * track. Starting on the first frame would discard that backlog.
    *
-   * The start timeout is checked with `Date.now()` on frame input instead of
-   * a timer: lipsync only works on frame input, and nothing has to be
-   * cleaned up in `stop()`.
+   * The start timeout is also armed as an (unref'd) timer, so that the pending
+   * frames are output even if no further frame arrives. The timer is cleared
+   * on start and on `stop()`.
    */
   private processPendingInput(frame: CodecFrame, kind: MediaKind) {
     const now = Date.now();
-    this.pendingSince ??= now;
+    if (this.pendingSince == undefined) {
+      this.pendingSince = now;
+      this.startTimer = setTimeout(
+        () => this.startByTimer(),
+        this.startTimeout,
+      );
+      this.startTimer.unref?.();
+    }
     this.pendingFrames.push({ frame, kind });
     this.pendingLatestTime[kind] = Math.max(
       this.pendingLatestTime[kind] ?? -Infinity,
@@ -220,7 +229,37 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
     }
   }
 
+  private clearStartTimer() {
+    if (this.startTimer) {
+      clearTimeout(this.startTimer);
+      this.startTimer = undefined;
+    }
+  }
+
+  /** timeout without further input: output the pending frames immediately */
+  private startByTimer() {
+    this.startTimer = undefined;
+    if (this.stopped || this.baseTime != undefined) {
+      return;
+    }
+    const last = this.pendingFrames.reduce(
+      (max, { frame }) => Math.max(max, frame.time),
+      -Infinity,
+    );
+    if (last === -Infinity) {
+      return;
+    }
+    this.flushPendingFrames();
+    this.pendingLatestTime = {};
+    this.baseTime = last;
+    this.currentTimestamp = last;
+    this.lastExecutionTime = last;
+    this.lastCommittedTime = last;
+    this.lastFrameReceivedAt = Date.now();
+  }
+
   private start(now: number) {
+    this.clearStartTimer();
     const pending = this.pendingFrames.sort(
       (a, b) => a.frame.time - b.frame.time,
     );

@@ -57,6 +57,39 @@ describe("lipsync", () => {
     expect(harness.output.audio).toHaveLength(0);
   });
 
+  it("outputs the pending frames after startTimeout even without further input", async () => {
+    // Arrange
+    harness = createLipsyncHarness({ startTimeout: 20 });
+    const video = createLipsyncFrames(T, 500, 20);
+
+    // Act: 映像だけが届き、その後は入力が止まったまま期限を過ぎる
+    harness.inputVideo(video);
+    expect(harness.output.video).toHaveLength(0);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    // Assert: 追加入力なしでも、溜めた映像がすべて時刻順に出力されている
+    expect(harness.output.video.map((f) => f.time)).toEqual(
+      video.map((f) => f.time),
+    );
+    expect(harness.output.audio).toHaveLength(0);
+  });
+
+  it("clears the start timer on stop", async () => {
+    // Arrange
+    harness = createLipsyncHarness({ startTimeout: 20 });
+    harness.inputVideo(createLipsyncFrames(T, 100, 20));
+
+    // Act: 期限前に終了し、期限を過ぎるまで待つ
+    harness.lipsync.inputVideo({ eol: true });
+    const outputLength = harness.output.video.length;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    // Assert: 終了時に溜めた分が出力済みで、期限後に追加出力されない
+    expect(outputLength).toBe(5);
+    expect(harness.output.video).toHaveLength(outputLength);
+    expect(harness.output.videoEol).toBe(true);
+  });
+
   it("starts without waiting when only video is configured", () => {
     // Arrange
     harness = createLipsyncHarness({ kinds: ["video"] });
