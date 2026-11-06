@@ -1212,10 +1212,9 @@ export class DtlsSocket {
     await this.engine13.keyUpdate(requestUpdate);
   }
 
-  /** Drop bridge subscriptions for a disposed or replaced 1.3 candidate. */
   /**
-   * Keep the selected DTLS 1.3 engine's milestones before dropping it. The
-   * 1.2 latch must not stand in for them: it reaches all three at once.
+   * @internal Keep the selected DTLS 1.3 engine's milestones before dropping
+   * it. The 1.2 latch must not stand in for them: it reaches all three at once.
    */
   protected retireSelectedEngine13(): void {
     const engine = this.engine13;
@@ -1233,6 +1232,7 @@ export class DtlsSocket {
     this.engine13 = undefined;
   }
 
+  /** Drop bridge subscriptions for a disposed or replaced 1.3 candidate. */
   protected unbridgeEngine13(): void {
     this.engine13Bridge.dispose();
   }
