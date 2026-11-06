@@ -745,6 +745,38 @@ describe("media/router", () => {
       ]);
     });
 
+    test("媒体 SSRC 切り替え後に初めて届く RTX は、旧新どちらか判定できないため固定せず破棄する", () => {
+      // Arrange: 媒体 1000 を学習し、RTX 1001 は未学習のまま RID が媒体 5000 に切り替わる。
+      const { router, receiver } = createSimulcastRtxReceiver();
+      const received = collectDeliveredRtp(receiver.trackByRID.high);
+      router.routeRtp(
+        createSimulcastMediaPacket({
+          ssrc: high.ssrc,
+          sequenceNumber: 1,
+          rid: high.rid,
+        }),
+      );
+      router.routeRtp(
+        createSimulcastMediaPacket({
+          ssrc: 5000,
+          sequenceNumber: 100,
+          rid: high.rid,
+        }),
+      );
+
+      // Act: 切り替え後に初めて RTX 1001 が届く。
+      router.routeRtp(
+        createSimulcastRtxPacket(
+          createSimulcastMediaPacket({ ssrc: high.ssrc, sequenceNumber: 0 }),
+          { rtxSsrc: high.rtxSsrc, rtxSequenceNumber: 1, rrid: high.rid },
+        ),
+      );
+
+      // Assert: どちらの媒体 SSRC にも復元されず、対応も固定されない。
+      expect(received.filter((p) => p.type === "retransmission")).toEqual([]);
+      expect(receiver.pinnedMediaSsrcByRtx[high.rtxSsrc]).toBeUndefined();
+    });
+
     test("同じ RID を使う複数 m-line でも、学習済み RTX SSRC は MID 省略後に元の受信先へ届く", () => {
       // Arrange: mid "1" を先に登録し、同じ RID を使う mid "0" の receiver に RTX を学習させる。
       const { router, receiver: other } = createSimulcastRtxReceiver({
