@@ -96,6 +96,8 @@
 
 > `optional` **lookup?**: `MdnsLookup`
 
+Resolves remote mDNS candidates; closed (pending lookups cancelled) by restart() and close().
+
 #### Implementation of
 
 [`IceConnection`](../interfaces/IceConnection.md).[`lookup`](../interfaces/IceConnection.md#lookup)
