@@ -30,6 +30,11 @@
 - **NACK retransmissions get a new transport-wide sequence number** instead of reusing the original one.
 - **Padding-only packets are no longer stored in the NACK cache.**
 - **The default (lightweight) estimator's send history is pruned to a 10 s window**; it used to grow without bound.
+- **`MediaRecorder` WebM recordings of audio + video no longer lose their head** (`werift-rtp` `LipsyncBase` / `LipsyncCallback`, `werift` `MediaRecorder`): a track's frames get their NTP time only after its first RTCP SR, which can arrive seconds after the media (with Chrome, about 2 s for audio). Lipsync started on the first frame of whichever track was ready first and dropped everything older from the other track, so a 5 s Chrome recording lost about 2 s of audio. Now lipsync holds frames until a frame of every input kind has arrived and the late track's backlog has caught up, then starts from the earliest frame.
+  - New `LipSyncOptions.kinds` (`MediaKind[]`, default `["audio", "video"]`): the kinds to wait for. `MediaRecorder` always sets it from the recorded tracks, so a video-only recording starts on its first frame as before. If you use `LipsyncCallback` directly for a single track, pass `kinds: ["video"]` / `["audio"]`; otherwise output waits for `startTimeout`.
+  - New `LipSyncOptions.startTimeout` (ms, default `10000`): when some kind has not arrived by then (checked on the next frame input), output starts with the received tracks only, and older frames of a track that arrives later are still dropped. Until the start, frames are held in memory and output (including `stream`) is delayed by up to this time.
+  - An EOL before the start outputs the held frames in time order before the EOL.
+  - Not changed: a track whose sender never sends an SR is still never output by `NtpTimeCallback`, and `disableLipSync: true` still drops the head of the later track (its frames older than the first frame `WebmCallback` received).
 
 
 ## v0.26.0

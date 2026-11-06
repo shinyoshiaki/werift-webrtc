@@ -147,3 +147,37 @@ RTCP:  RtcpSource → NtpTimeCallback（トラックごと）
 1. 1 つ目のシェルで E2E サーバーを起動する: `cd e2e && npm run server`
 2. 別のシェルでテストを実行する: `npx vitest run tests/mediachannel/recordPlayback.test.ts --browser.headless`
 3. 出力された WebM の長さ（`ffprobe` など）と録画時間を比べる。音声トラックの開始が録画開始より明らかに遅れている。
+
+## 7. 実施結果（2026-11-06）
+
+### 修正内容
+
+- `LipsyncBase` に開始待ちを追加した（`packages/rtp/src/extra/processor/lipsync.ts`）。
+  - 開始前のフレームは開始前用の配列（`pendingFrames`）に溜める。
+  - 開始条件: `kinds` のすべてからフレームを受け取り、かつ各 kind の最新時刻の差が `bufferDuration`（`syncInterval / 2`）以内になったとき。遅れたトラックの溜め込み分は同期的にまとめて届くので、最初の 1 フレームで開始すると残りが commit 済みの時刻より古くなって捨てられる。追いつくまで待つことで、開始後のフレームが `lastCommittedTime` より古くならない。
+  - `baseTime` は溜めたフレームの最小時刻。溜めたフレームは時刻順に既存の挿入処理へ流す（`executeTask` が時刻に合わせて進むので、5 s のリングを溢れさせない）。`lastFrameReceivedAt` も開始時に初期化する。
+  - タイムアウト `startTimeout`（既定 10000 ms）は、次のフレーム入力時に `Date.now()` で判定する。lipsync はフレーム入力でしか動かないこと、`stop()` でタイマーを片付ける必要がないことが理由。
+  - 開始前に eol が来たときは、溜めたフレームを時刻順に出力してから eol を出力する（短い録画で SR が片方しか来なかった場合も中身を残すため）。
+- 新オプション `LipSyncOptions.kinds`（既定 `["audio", "video"]`）と `startTimeout`。`WebmFactory` は録画するトラックの kind を必ず渡す（ユーザー指定の `lipsync.kinds` より優先）。
+- `examples/save_to_disk/pipeline.ts` と `examples/untested/dash` は音声 + 映像なので既定値のままでよく、変更していない。生成ドキュメントには `LipSyncOptions` / `MediaRecorderOptions` が含まれないので再生成していない。
+
+### テスト
+
+- `packages/rtp/tests/processor/lipsync.test.ts`（新規）: 遅れて古い時刻で届いたトラックの先頭が出力される / タイムアウト後に届いているトラックだけで始まる / `kinds: ["video"]` は待たない / 開始前の eol。修正前は 4 件中 3 件が失敗することを確認した（音声の出力開始が T + 2.5 s だった）。
+- `packages/rtp/tests/processor/ntpTime.test.ts`: SR より前の RTP がまとめて SR より前の時刻で出てくることを固定した。
+- `packages/webrtc/tests/nonstandard/recorder.test.ts`: 映像だけの WebM 録画が停止前から書き出される（`kinds` を渡さないと失敗することを確認）/ SR が遅れた音声の先頭が書き出される。
+- E2E `recordPlayback.test.ts`: `duration > RECORD_MS / 1000 - 1` に厳しくし、MSE の共通区間の開始が 0.2 s 未満であること（av では音声の開始が映像とほぼ同じこと）を追加した。
+
+### 実測（Chrome fake camera、5 s 録画、ffprobe）
+
+| 設定 | 種類 | duration | 音声 start_time | 映像 start_time |
+| --- | --- | --- | --- | --- |
+| 既定（修正後） | av | 4.48 s | 0.001 s | 0.000 s |
+| 既定（修正後） | video | 4.45 s | - | 0.000 s |
+| `disableLipSync: true` | av | 4.98 s / 4.97 s | 1.90 s / 1.91 s | 0.000 s |
+| `disableNtp: true` | av | 4.48 s | 0.000 s | 0.000 s |
+
+- `disableLipSync: true`: 推定どおり、遅れて SR が来た音声の先頭（≈1.9 s）が `WebmBase` の `delayed_frame` で捨てられる。この設定では E2E の `av` ケースも失敗する（MSE の共通区間）。今回は直さず changelog に書いた。`WebmBase` 側の修正（最初の SR がそろうまで待つ、など）は別チケットにする想定。
+- `disableNtp: true`: 先頭欠落はないが、各トラックが独立して 0 から始まるので A/V は同期しない（推定どおり）。
+- 既定と `disableLipSync` の duration の差（≈0.5 s）は、`LipsyncBase.stop()` がリングバッファを flush せずに捨てる末尾欠落（対象外として記載済み）によるもの。
+- SR を送らない送信者のトラックは、今回も `NtpTimeBase` が出力しない（既存の挙動のまま。`NtpTimeBase.buffer` の上限もスコープ外）。

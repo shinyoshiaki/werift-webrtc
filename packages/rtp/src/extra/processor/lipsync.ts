@@ -40,6 +40,16 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
   private internalStats = {};
   /**ms */
   private lastFrameReceivedAt = 0;
+  /** kinds whose first frame is awaited before starting */
+  private kinds: MediaKind[];
+  /**ms */
+  private startTimeout: number;
+  /** frames received before the start (before baseTime is fixed) */
+  private pendingFrames: { frame: CodecFrame; kind: MediaKind }[] = [];
+  /** latest frame time of each kind received before the start */
+  private pendingLatestTime: Partial<Record<MediaKind, number>> = {};
+  /** wall clock (ms) when the first pending frame was received */
+  private pendingSince?: number;
 
   constructor(
     private audioOutput: (output: LipsyncOutput) => void,
@@ -52,6 +62,10 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
     this.audioBuffer = [...new Array(this.bufferLength)].map(() => []);
     this.videoBuffer = [...new Array(this.bufferLength)].map(() => []);
     this.ptime = this.options.ptime ?? 20;
+    this.kinds = [
+      ...new Set<MediaKind>(this.options.kinds ?? ["audio", "video"]),
+    ];
+    this.startTimeout = this.options.startTimeout ?? 10_000;
   }
 
   toJSON(): Record<string, any> {
@@ -61,6 +75,7 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
       audioBufferLength: this.audioBuffer.flat().length,
       videoBufferLength: this.videoBuffer.flat().length,
       baseTime: this.baseTime,
+      pendingFrameLength: this.pendingFrames.length,
       lastCommittedTimeSec: this.lastCommittedTime / 1000,
     };
   }
@@ -128,52 +143,118 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
   }
 
   private stop() {
+    if (!this.stopped && this.baseTime == undefined) {
+      this.flushPendingFrames();
+    }
     this.stopped = true;
+    this.pendingFrames = [];
     this.audioBuffer = [];
     this.videoBuffer = [];
   }
 
   processAudioInput = ({ frame, eol }: LipsyncInput) => {
     if (!frame) {
-      this.audioOutput({ eol });
       this.stop();
+      this.audioOutput({ eol });
       this.audioOutput = undefined as any;
       return;
     }
 
-    this.processInput(frame, this.audioBuffer, "audio");
+    this.processInput(frame, "audio");
   };
 
   processVideoInput = ({ frame, eol }: LipsyncInput) => {
     if (!frame) {
-      this.videoOutput({ eol });
       this.stop();
+      this.videoOutput({ eol });
       this.videoOutput = undefined as any;
       return;
     }
 
-    this.processInput(frame, this.videoBuffer, "video");
+    this.processInput(frame, "video");
   };
 
-  private processInput = (
-    frame: CodecFrame,
-    buffer: {
-      frame: CodecFrame;
-      kind: MediaKind;
-    }[][],
-    kind: MediaKind,
-  ) => {
+  private processInput = (frame: CodecFrame, kind: MediaKind) => {
     if (this.stopped) {
       return;
     }
 
     if (this.baseTime == undefined) {
-      this.baseTime = frame.time;
-      this.currentTimestamp = this.baseTime;
-      this.lastExecutionTime = this.baseTime;
-      this.lastCommittedTime = this.baseTime;
-      this.lastFrameReceivedAt = Date.now();
+      this.processPendingInput(frame, kind);
+      return;
     }
+
+    this.insertFrame(frame, kind);
+  };
+
+  /**
+   * Before the start, frames are kept in `pendingFrames` instead of the ring
+   * buffer, because a track whose first RTCP SR arrives late delivers its
+   * backlog with times older than the frames already received from the other
+   * track. Starting on the first frame would discard that backlog.
+   *
+   * The start timeout is checked with `Date.now()` on frame input instead of
+   * a timer: lipsync only works on frame input, and nothing has to be
+   * cleaned up in `stop()`.
+   */
+  private processPendingInput(frame: CodecFrame, kind: MediaKind) {
+    const now = Date.now();
+    this.pendingSince ??= now;
+    this.pendingFrames.push({ frame, kind });
+    this.pendingLatestTime[kind] = Math.max(
+      this.pendingLatestTime[kind] ?? -Infinity,
+      frame.time,
+    );
+
+    const latest = this.kinds.map((k) => this.pendingLatestTime[k]);
+    const ready =
+      latest.every((time) => time != undefined) &&
+      // wait until the backlog of the late track has caught up with the
+      // others, so that frames after the start are not older than the
+      // committed time
+      Math.max(...(latest as number[])) - Math.min(...(latest as number[])) <=
+        this.bufferDuration;
+    const timedOut = now - this.pendingSince >= this.startTimeout;
+    if (ready || timedOut) {
+      this.start(now);
+    }
+  }
+
+  private start(now: number) {
+    const pending = this.pendingFrames.sort(
+      (a, b) => a.frame.time - b.frame.time,
+    );
+    this.pendingFrames = [];
+    this.pendingLatestTime = {};
+
+    this.baseTime = pending[0].frame.time;
+    this.currentTimestamp = this.baseTime;
+    this.lastExecutionTime = this.baseTime;
+    this.lastCommittedTime = this.baseTime;
+    this.lastFrameReceivedAt = now;
+
+    for (const { frame, kind } of pending) {
+      this.insertFrame(frame, kind);
+    }
+  }
+
+  /** outputs the pending frames in time order (EOL before the start) */
+  private flushPendingFrames() {
+    const pending = this.pendingFrames.sort(
+      (a, b) => a.frame.time - b.frame.time,
+    );
+    this.pendingFrames = [];
+    for (const output of pending) {
+      if (output.kind === "audio") {
+        this.audioOutput?.(output);
+      } else {
+        this.videoOutput?.(output);
+      }
+    }
+  }
+
+  private insertFrame(frame: CodecFrame, kind: MediaKind) {
+    const buffer = kind === "audio" ? this.audioBuffer : this.videoBuffer;
 
     // 過去のフレームを捨てる
     if (frame.time < this.lastCommittedTime) {
@@ -196,7 +277,7 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
     }
     this.lastFrameReceivedAt = now;
 
-    const elapsed = frame.time - this.baseTime;
+    const elapsed = frame.time - this.baseTime!;
     const index = int(elapsed / this.bufferDuration) % this.bufferLength;
     buffer[index].push({
       frame,
@@ -212,8 +293,7 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
         this.lastExecutionTime += this.bufferDuration;
       }
     }
-    return;
-  };
+  }
 }
 
 export interface LipSyncOptions {
@@ -226,4 +306,21 @@ export interface LipSyncOptions {
   bufferLength: number;
   fillDummyAudioPacket: Buffer;
   ptime: number;
+  /**
+   * kinds of the input tracks. Output starts after a frame of every kind has
+   * been received (or after `startTimeout`), so that a track whose first
+   * RTCP SR arrives late does not lose its head.
+   * Pass `["video"]` / `["audio"]` for a single track.
+   * @default ["audio", "video"]
+   */
+  kinds: MediaKind[];
+  /**
+   * ms (wall clock). When a frame of some `kinds` has not arrived within this
+   * time after the first frame, output starts with the received tracks only,
+   * and frames of a track that arrives later are dropped if they are older
+   * than the already output position. Until the start, frames are held in
+   * memory and output is delayed by up to this time.
+   * @default 10000
+   */
+  startTimeout: number;
 }

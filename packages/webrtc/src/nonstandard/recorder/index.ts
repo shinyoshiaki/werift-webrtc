@@ -175,7 +175,13 @@ export interface MediaRecorderOptions {
   /** WebM only */
   defaultDuration: number;
   tracks: MediaStreamTrack[];
-  /** WebM only */
+  /**
+   * WebM only. Output starts after a frame of every recorded track has
+   * arrived (each track's frame time is fixed by its first RTCP SR), or after
+   * `lipsync.startTimeout` (default 10000 ms) with the tracks received so far.
+   * Until then, frames are held in memory and `stream` output is delayed.
+   * `lipsync.kinds` is always set from the recorded tracks.
+   */
   lipsync: Partial<LipSyncOptions>;
   /** applied to video tracks only (WebM) */
   jitterBuffer: Partial<JitterBufferOptions>;
