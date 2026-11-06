@@ -146,7 +146,7 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
   private stop() {
     this.clearStartTimer();
     if (!this.stopped && this.baseTime == undefined) {
-      this.flushPendingFrames();
+      this.startAndDrain();
     }
     this.stopped = true;
     this.pendingFrames = [];
@@ -242,20 +242,24 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
     if (this.stopped || this.baseTime != undefined) {
       return;
     }
-    const last = this.pendingFrames.reduce(
-      (max, { frame }) => Math.max(max, frame.time),
-      -Infinity,
-    );
-    if (last === -Infinity) {
+    this.startAndDrain();
+  }
+
+  /**
+   * Starts with the pending frames and runs the ring buffer tasks up to the
+   * latest pending frame, so that every output (including the dummy audio
+   * fill) goes through the same path as the normal flow.
+   */
+  private startAndDrain() {
+    if (this.pendingFrames.length === 0) {
       return;
     }
-    this.flushPendingFrames();
-    this.pendingLatestTime = {};
-    this.baseTime = last;
-    this.currentTimestamp = last;
-    this.lastExecutionTime = last;
-    this.lastCommittedTime = last;
-    this.lastFrameReceivedAt = Date.now();
+    const last = Math.max(...this.pendingFrames.map((p) => p.frame.time));
+    this.start(Date.now());
+    while (this.currentTimestamp <= last) {
+      this.executeTask();
+    }
+    this.lastExecutionTime = this.currentTimestamp;
   }
 
   private start(now: number) {
@@ -274,21 +278,6 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
 
     for (const { frame, kind } of pending) {
       this.insertFrame(frame, kind);
-    }
-  }
-
-  /** outputs the pending frames in time order (EOL before the start) */
-  private flushPendingFrames() {
-    const pending = this.pendingFrames.sort(
-      (a, b) => a.frame.time - b.frame.time,
-    );
-    this.pendingFrames = [];
-    for (const output of pending) {
-      if (output.kind === "audio") {
-        this.audioOutput?.(output);
-      } else {
-        this.videoOutput?.(output);
-      }
     }
   }
 

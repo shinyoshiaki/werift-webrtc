@@ -74,6 +74,23 @@ describe("lipsync", () => {
     expect(harness.output.audio).toHaveLength(0);
   });
 
+  it("fills dummy audio for the pending span when started by the timer", async () => {
+    // Arrange
+    harness = createLipsyncHarness({
+      startTimeout: 20,
+      fillDummyAudioPacket: Buffer.from([1]),
+    });
+
+    // Act: 映像だけが届き、音声なしのまま期限を過ぎる
+    harness.inputVideo(createLipsyncFrames(T, 1_000, 20));
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    // Assert: 映像が時刻順に出力され、音声なしの区間にダミー音声が補完される
+    expect(harness.output.video[0].time).toBe(T);
+    expect(harness.output.audio.length).toBeGreaterThan(0);
+    expect(harness.output.audio[0].time).toBe(T);
+  });
+
   it("clears the start timer on stop", async () => {
     // Arrange
     harness = createLipsyncHarness({ startTimeout: 20 });
