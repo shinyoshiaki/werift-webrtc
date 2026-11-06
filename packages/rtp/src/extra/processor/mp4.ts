@@ -42,6 +42,10 @@ export interface MP4Option {
 }
 
 export class MP4Base implements AVProcessor<Mp4Input> {
+  public tracks: Track[];
+  private output: (output: Mp4Output) => void | Promise<void>;
+  private options: MP4Option;
+
   audioStopped = false;
   private internalStats = {};
   private container: Mp4Container;
@@ -50,10 +54,13 @@ export class MP4Base implements AVProcessor<Mp4Input> {
   videoStopped = false;
 
   constructor(
-    public tracks: Track[],
-    private output: (output: Mp4Output) => void | Promise<void>,
-    private options: MP4Option = {},
+    tracks: Track[],
+    output: (output: Mp4Output) => void | Promise<void>,
+    options: MP4Option = {},
   ) {
+    this.tracks = tracks;
+    this.output = output;
+    this.options = options;
     this.container = new Mp4Container({
       track: {
         audio: !!this.tracks.find((t) => t.kind === "audio"),

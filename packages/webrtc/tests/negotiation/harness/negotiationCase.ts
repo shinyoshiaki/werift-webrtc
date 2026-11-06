@@ -200,6 +200,9 @@ async function flows<T>(
 
 /** The state of one running case; the body receives it as `c`. */
 export class NegotiationCase {
+  readonly name: string;
+  readonly meta: CaseMeta;
+
   private readonly peers = new Map<RTCPeerConnection, string>();
   private readonly cleanup: (() => unknown)[] = [];
   /** The last `OPERATION_LOG` operations (a failure prints them). */
@@ -215,10 +218,9 @@ export class NegotiationCase {
   /** The streams the last traffic check delivered. */
   delivered: DeliveredStream[] = [];
 
-  constructor(
-    readonly name: string,
-    readonly meta: CaseMeta,
-  ) {
+  constructor(name: string, meta: CaseMeta) {
+    this.name = name;
+    this.meta = meta;
     this.exemptReason = meta.exempt;
   }
 

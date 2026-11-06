@@ -50,6 +50,10 @@ export interface Mp4Data {
 }
 
 export class Mp4Container {
+  private props: {
+    track: { audio: boolean; video: boolean };
+  };
+
   #audioFrame?: (EncodedChunk & { track: TrackKind }) | undefined;
   #audioMeta?: AudioChunkMetadata;
   #audioSource?: EncodedAudioPacketSource;
@@ -79,11 +83,11 @@ export class Mp4Container {
   onData = new Event<[Mp4Data | { eol: true }]>();
   videoTrack?: number;
 
-  constructor(
-    private props: {
-      track: { audio: boolean; video: boolean };
-    },
-  ) {}
+  constructor(props: {
+    track: { audio: boolean; video: boolean };
+  }) {
+    this.props = props;
+  }
 
   get tracksReady() {
     let ready = true;

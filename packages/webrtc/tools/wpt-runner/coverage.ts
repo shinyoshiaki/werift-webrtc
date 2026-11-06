@@ -50,7 +50,6 @@ async function main() {
 
   try {
     const result = spawnSync(process.execPath, [
-      "--experimental-transform-types",
       "--disable-warning=ExperimentalWarning",
       "--disable-warning=MODULE_TYPELESS_PACKAGE_JSON",
       "--import",

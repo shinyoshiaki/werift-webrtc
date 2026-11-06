@@ -392,6 +392,11 @@ export class SessionDescription {
 }
 
 export class MediaDescription {
+  public kind: Kind;
+  public port: number;
+  public profile: string;
+  public fmt: string[] | number[];
+
   // rtp
   host?: string;
   direction?: MediaDirection;
@@ -427,11 +432,16 @@ export class MediaDescription {
   simulcastParameters: RTCRtpSimulcastParameters[] = [];
 
   constructor(
-    public kind: Kind,
-    public port: number,
-    public profile: string,
-    public fmt: string[] | number[],
-  ) {}
+    kind: Kind,
+    port: number,
+    profile: string,
+    fmt: string[] | number[],
+  ) {
+    this.kind = kind;
+    this.port = port;
+    this.profile = profile;
+    this.fmt = fmt;
+  }
 
   get msid() {
     return this.msids[0];
@@ -565,10 +575,13 @@ export class MediaDescription {
 }
 
 export class GroupDescription {
-  constructor(
-    public semantic: string,
-    public items: string[],
-  ) {}
+  public semantic: string;
+  public items: string[];
+
+  constructor(semantic: string, items: string[]) {
+    this.semantic = semantic;
+    this.items = items;
+  }
 
   get str() {
     return `${this.semantic} ${this.items.join(" ")}`;

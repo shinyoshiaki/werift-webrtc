@@ -8,14 +8,17 @@ export type DtxInput = DepacketizerOutput;
 export type DtxOutput = DtxInput;
 
 export class DtxBase implements Processor<DtxInput, DtxOutput> {
+  public ptime: number;
+  private dummyPacket: Buffer;
+
   readonly id = randomUUID().toString();
   previousTimestamp?: number;
   private fillCount = 0;
   private internalStats = {};
-  constructor(
-    public ptime: number,
-    private dummyPacket: Buffer,
-  ) {}
+  constructor(ptime: number, dummyPacket: Buffer) {
+    this.ptime = ptime;
+    this.dummyPacket = dummyPacket;
+  }
 
   toJSON(): Record<string, any> {
     return { ...this.internalStats, id: this.id, fillCount: this.fillCount };

@@ -34,13 +34,17 @@ export type RecordPlaybackStatus = {
 };
 
 class RecordPlaybackHandler {
+  private readonly kinds: RecordKinds;
+
   private pc?: RTCPeerConnection;
   private recorder?: MediaRecorder;
   private path?: string;
   private intervals: NodeJS.Timeout[] = [];
   private status!: RecordPlaybackStatus;
 
-  constructor(private readonly kinds: RecordKinds) {}
+  constructor(kinds: RecordKinds) {
+    this.kinds = kinds;
+  }
 
   async exec(type: string, payload: any, accept: AcceptFn) {
     switch (type) {

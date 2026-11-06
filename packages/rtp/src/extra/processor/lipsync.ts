@@ -16,6 +16,10 @@ export type LipsyncOutput = {
 };
 
 export class LipsyncBase implements AVProcessor<LipsyncInput> {
+  private audioOutput: (output: LipsyncOutput) => void;
+  private videoOutput: (output: LipsyncOutput) => void;
+  private options: Partial<LipSyncOptions>;
+
   private id = randomUUID().toString();
   bufferLength: number;
   /**ms */
@@ -42,10 +46,13 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
   private lastFrameReceivedAt = 0;
 
   constructor(
-    private audioOutput: (output: LipsyncOutput) => void,
-    private videoOutput: (output: LipsyncOutput) => void,
-    private options: Partial<LipSyncOptions> = {},
+    audioOutput: (output: LipsyncOutput) => void,
+    videoOutput: (output: LipsyncOutput) => void,
+    options: Partial<LipSyncOptions> = {},
   ) {
+    this.audioOutput = audioOutput;
+    this.videoOutput = videoOutput;
+    this.options = options;
     this.interval = this.options.syncInterval ?? 500;
     this.bufferDuration = this.interval / 2;
     this.bufferLength = (this.options.bufferLength ?? 10) * 2;

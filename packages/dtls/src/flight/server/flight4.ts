@@ -21,13 +21,18 @@ import { Flight } from "../flight";
 const log = debug("werift-dtls : packages/dtls/flight/server/flight4.ts : log");
 
 export class Flight4 extends Flight {
+  private cipher: CipherContext;
+  private srtp: SrtpContext;
+
   constructor(
     udp: TransportContext,
     dtls: DtlsContext,
-    private cipher: CipherContext,
-    private srtp: SrtpContext,
+    cipher: CipherContext,
+    srtp: SrtpContext,
   ) {
     super(udp, dtls, 4, 6);
+    this.cipher = cipher;
+    this.srtp = srtp;
   }
 
   async exec(

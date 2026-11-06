@@ -130,6 +130,8 @@ export type RTCRtpSenderOptions = {
 // Generic RTP pieces (RtpContinuity, header extension rebuild / hop-by-hop
 // stamping, RTX padding packets, RED size estimate) live in werift-rtp.
 export class RTCRtpSender {
+  public trackOrKind: Kind | MediaStreamTrack;
+
   readonly type = "sender";
   readonly kind: Kind;
   readonly ssrc = randomBytes(4).readUInt32BE(0);
@@ -280,10 +282,11 @@ export class RTCRtpSender {
   private rtcpCancel = new AbortController();
 
   constructor(
-    public trackOrKind: Kind | MediaStreamTrack,
-    options?: RTCRtpSenderOptions,
+    trackOrKind: Kind | MediaStreamTrack,
+    options: RTCRtpSenderOptions = {},
   ) {
-    const pendingRtp = resolvePendingRtpOptions(options?.pendingRtp);
+    this.trackOrKind = trackOrKind;
+    const pendingRtp = resolvePendingRtpOptions(options.pendingRtp);
     this.pendingRtpEnabled = pendingRtp.enabled;
     this.pendingRtp = new PendingRtpQueue(pendingRtp.maxLength);
     this.kind =

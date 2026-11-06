@@ -62,6 +62,7 @@ export interface TwccPacketFeedback {
  * Shared by every {@link BandwidthEstimator} that consumes TWCC (lightweight, GCC).
  */
 export class TwccFeedbackAdapter {
+  private readonly maxAgeMs: number;
   /**
    * Send history by extended sequence. Entries confirmed in order are kept in
    * ascending sequence and send-time order (`RTCRtpSender` samples
@@ -85,7 +86,9 @@ export class TwccFeedbackAdapter {
    * @param maxAgeMs Max age (`clock - sendingAtMs`) of a packet that may
    *   still be matched.
    */
-  constructor(private readonly maxAgeMs: number) {}
+  constructor(maxAgeMs: number) {
+    this.maxAgeMs = maxAgeMs;
+  }
 
   /** Number of packets still waiting for a received report. */
   get size(): number {
