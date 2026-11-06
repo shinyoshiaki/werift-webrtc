@@ -1,0 +1,529 @@
+[**werift**](../README.md)
+
+***
+
+[werift](../globals.md) / RTCDtlsTransport
+
+# Class: RTCDtlsTransport
+
+## Implements
+
+- [`DtlsTransportStats`](../interfaces/DtlsTransportStats.md)
+
+## Constructors
+
+### Constructor
+
+> **new RTCDtlsTransport**(`config`, `iceTransport`, `localCertificate?`, `srtpProfiles?`): `RTCDtlsTransport`
+
+#### Parameters
+
+##### config
+
+[`DtlsTransportConfig`](../interfaces/DtlsTransportConfig.md)
+
+##### iceTransport
+
+[`RTCIceTransport`](RTCIceTransport.md)
+
+##### localCertificate?
+
+[`RTCCertificate`](RTCCertificate.md)
+
+##### srtpProfiles?
+
+(`1` \| `7`)[] = `[]`
+
+#### Returns
+
+`RTCDtlsTransport`
+
+## Properties
+
+### bytesReceived
+
+> **bytesReceived**: `number` = `0`
+
+#### Implementation of
+
+[`DtlsTransportStats`](../interfaces/DtlsTransportStats.md).[`bytesReceived`](../interfaces/DtlsTransportStats.md#bytesreceived)
+
+***
+
+### bytesSent
+
+> **bytesSent**: `number` = `0`
+
+#### Implementation of
+
+[`DtlsTransportStats`](../interfaces/DtlsTransportStats.md).[`bytesSent`](../interfaces/DtlsTransportStats.md#bytessent)
+
+***
+
+### config
+
+> `readonly` **config**: [`DtlsTransportConfig`](../interfaces/DtlsTransportConfig.md)
+
+***
+
+### dataReceiver
+
+> **dataReceiver**: (`buf`) => `void`
+
+#### Parameters
+
+##### buf
+
+`Buffer`
+
+#### Returns
+
+`void`
+
+***
+
+### dtls?
+
+> `optional` **dtls?**: [`DtlsSocket`](DtlsSocket.md)
+
+***
+
+### iceRoleAtStart?
+
+> `optional` **iceRoleAtStart?**: `"unknown"` \| `"controlling"` \| `"controlled"`
+
+Internal: the ICE role when the handshake started. werift sets the ICE role at
+every offer / answer, so an SCTP association that starts later on this
+transport takes its client / server side from here, as both peers agreed
+on it when they started DTLS.
+
+***
+
+### iceTransport
+
+> `readonly` **iceTransport**: [`RTCIceTransport`](RTCIceTransport.md)
+
+***
+
+### id
+
+> **id**: `string`
+
+***
+
+### lastError?
+
+> `optional` **lastError?**: `Error`
+
+***
+
+### localCertificate?
+
+> `optional` **localCertificate?**: [`RTCCertificate`](RTCCertificate.md)
+
+***
+
+### onRtcp
+
+> `readonly` **onRtcp**: [`Event`](Event.md)\<\[[`RtcpPacket`](../type-aliases/RtcpPacket.md)\]\>
+
+***
+
+### onRtp
+
+> `readonly` **onRtp**: [`Event`](Event.md)\<\[[`RtpPacket`](RtpPacket.md)\]\>
+
+***
+
+### onstatechange?
+
+> `optional` **onstatechange?**: () => `void`
+
+#### Returns
+
+`void`
+
+***
+
+### onStateChange
+
+> `readonly` **onStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"connecting"` \| `"new"` \| `"connected"` \| `"failed"`\]\>
+
+***
+
+### onStopped
+
+> `readonly` **onStopped**: [`Event`](Event.md)\<\[\]\>
+
+Fires once when [RTCDtlsTransport.stop](#stop) has finished, i.e. ICE has
+stopped too. The DTLS "closed" state alone (e.g. a received alert) does
+not mean ICE has released its resources.
+
+***
+
+### packetsReceived
+
+> **packetsReceived**: `number` = `0`
+
+#### Implementation of
+
+[`DtlsTransportStats`](../interfaces/DtlsTransportStats.md).[`packetsReceived`](../interfaces/DtlsTransportStats.md#packetsreceived)
+
+***
+
+### packetsSent
+
+> **packetsSent**: `number` = `0`
+
+#### Implementation of
+
+[`DtlsTransportStats`](../interfaces/DtlsTransportStats.md).[`packetsSent`](../interfaces/DtlsTransportStats.md#packetssent)
+
+***
+
+### role
+
+> **role**: [`DtlsRole`](../type-aliases/DtlsRole.md) = `"auto"`
+
+***
+
+### srtcp
+
+> **srtcp**: [`SrtcpSession`](SrtcpSession.md)
+
+***
+
+### srtp
+
+> **srtp**: [`SrtpSession`](SrtpSession.md)
+
+***
+
+### srtpStarted
+
+> **srtpStarted**: `boolean` = `false`
+
+***
+
+### state
+
+> **state**: `"closed"` \| `"connecting"` \| `"new"` \| `"connected"` \| `"failed"` = `"new"`
+
+***
+
+### transportSequenceNumber
+
+> **transportSequenceNumber**: `number` = `0`
+
+Wire 16-bit TWCC sequence (low bits of [transportSequenceNumberExtended](#transportsequencenumberextended)).
+
+***
+
+### transportSequenceNumberExtended
+
+> **transportSequenceNumberExtended**: `number` = `0`
+
+Monotonic transport-wide sequence allocated at ICE enqueue time.
+Never wraps in JS Number. [transportSequenceNumber](#transportsequencenumber) is the wire
+16-bit view (`extended & 0xffff`).
+
+***
+
+### localCertificate?
+
+> `static` `optional` **localCertificate?**: [`RTCCertificate`](RTCCertificate.md)
+
+Process-wide default certificate cache, see [RTCDtlsTransport.SetupCertificate](#setupcertificate).
+
+***
+
+### localCertificatePromise?
+
+> `static` `optional` **localCertificatePromise?**: `Promise`\<[`RTCCertificate`](RTCCertificate.md)\>
+
+## Accessors
+
+### hasRemoteParameters
+
+#### Get Signature
+
+> **get** **hasRemoteParameters**(): `boolean`
+
+Internal: whether a description gave this transport the peer's DTLS parameters.
+
+##### Returns
+
+`boolean`
+
+***
+
+### localParameters
+
+#### Get Signature
+
+> **get** **localParameters**(): [`RTCDtlsParameters`](RTCDtlsParameters.md)
+
+##### Returns
+
+[`RTCDtlsParameters`](RTCDtlsParameters.md)
+
+## Methods
+
+### addEventListener()
+
+> **addEventListener**(`type`, `listener`, `options?`): `void`
+
+#### Parameters
+
+##### type
+
+`string`
+
+##### listener
+
+(...`args`) => `void`
+
+##### options?
+
+`boolean` \| \{ `once?`: `boolean`; \}
+
+#### Returns
+
+`void`
+
+***
+
+### allocateTransportWideSequence()
+
+> **allocateTransportWideSequence**(): `object`
+
+Allocate the next transport-wide sequence at send time.
+Call immediately before DTLS/ICE enqueue so BUNDLE senders cannot
+reserve a TSN then wait in a per-sender pacer.
+
+#### Returns
+
+`object`
+
+##### extended
+
+> **extended**: `number`
+
+##### wire
+
+> **wire**: `number`
+
+***
+
+### dispatchEvent()
+
+> **dispatchEvent**(`event`): `boolean`
+
+#### Parameters
+
+##### event
+
+`Event`
+
+#### Returns
+
+`boolean`
+
+***
+
+### getStats()
+
+> **getStats**(`timestamp?`): `Promise`\<[`RTCStats`](../interfaces/RTCStats.md)[]\>
+
+#### Parameters
+
+##### timestamp?
+
+`number` = `...`
+
+#### Returns
+
+`Promise`\<[`RTCStats`](../interfaces/RTCStats.md)[]\>
+
+***
+
+### removeEventListener()
+
+> **removeEventListener**(`type`, `listener`): `void`
+
+#### Parameters
+
+##### type
+
+`string`
+
+##### listener
+
+(...`args`) => `void`
+
+#### Returns
+
+`void`
+
+***
+
+### sendData()
+
+> `readonly` **sendData**(`data`): `Promise`\<`void`\>
+
+#### Parameters
+
+##### data
+
+`Buffer`
+
+#### Returns
+
+`Promise`\<`void`\>
+
+***
+
+### sendRtcp()
+
+> **sendRtcp**(`packets`): `Promise`\<`number` \| `undefined`\>
+
+#### Parameters
+
+##### packets
+
+[`RtcpPacket`](../type-aliases/RtcpPacket.md)[]
+
+#### Returns
+
+`Promise`\<`number` \| `undefined`\>
+
+***
+
+### sendRtp()
+
+> **sendRtp**(`payload`, `header`): `Promise`\<`number`\>
+
+Encrypt RTP and enqueue on ICE. Returns on-wire size.
+Send-time metadata: [sendRtpWithMeta](#sendrtpwithmeta).
+
+#### Parameters
+
+##### payload
+
+`Buffer`
+
+##### header
+
+[`RtpHeader`](RtpHeader.md)
+
+#### Returns
+
+`Promise`\<`number`\>
+
+***
+
+### sendRtpWithMeta()
+
+> **sendRtpWithMeta**(`payload`, `header`): `Promise`\<[`DtlsSendRtpResult`](../type-aliases/DtlsSendRtpResult.md)\>
+
+Encrypt RTP and enqueue on ICE, capturing the clock immediately before
+the ICE write (RFC 8888). Prefer [sendRtp](#sendrtp) unless send time is needed.
+
+#### Parameters
+
+##### payload
+
+`Buffer`
+
+##### header
+
+[`RtpHeader`](RtpHeader.md)
+
+#### Returns
+
+`Promise`\<[`DtlsSendRtpResult`](../type-aliases/DtlsSendRtpResult.md)\>
+
+***
+
+### setRemoteParams()
+
+> **setRemoteParams**(`remoteParameters`): `void`
+
+#### Parameters
+
+##### remoteParameters
+
+[`RTCDtlsParameters`](RTCDtlsParameters.md)
+
+#### Returns
+
+`void`
+
+***
+
+### start()
+
+> **start**(): `Promise`\<`void`\>
+
+#### Returns
+
+`Promise`\<`void`\>
+
+***
+
+### startSrtp()
+
+> **startSrtp**(): `void`
+
+#### Returns
+
+`void`
+
+***
+
+### stop()
+
+> **stop**(): `Promise`\<`void`\>
+
+Resolves once ICE has stopped; concurrent callers share one stop.
+
+#### Returns
+
+`Promise`\<`void`\>
+
+***
+
+### updateSrtpSession()
+
+> **updateSrtpSession**(): `void`
+
+#### Returns
+
+`void`
+
+***
+
+### generateCertificate()
+
+> `static` **generateCertificate**(): `Promise`\<[`RTCCertificate`](RTCCertificate.md)\>
+
+Generates a new self-signed certificate (ECDSA P-256 / SHA-256) on every call.
+Used by an RTCPeerConnection created with `certificateScope: "peerConnection"`
+when `RTCConfiguration.certificates` is not given.
+
+#### Returns
+
+`Promise`\<[`RTCCertificate`](RTCCertificate.md)\>
+
+***
+
+### SetupCertificate()
+
+> `static` **SetupCertificate**(): `Promise`\<[`RTCCertificate`](RTCCertificate.md)\>
+
+Returns the default certificate cached for the whole process
+(the default `certificateScope: "process"`).
+
+#### Returns
+
+`Promise`\<[`RTCCertificate`](RTCCertificate.md)\>
