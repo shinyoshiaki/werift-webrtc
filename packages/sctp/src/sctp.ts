@@ -703,6 +703,7 @@ export class SCTP {
     // # handle gap blocks
     let loss = false;
     const seen = new Set<number>();
+    let highestNewlyAcked = chunk.cumulativeTsn;
     if (chunk.gaps.length > 0) {
       let highestSeenTsn: number;
       chunk.gaps.forEach((gap) => {
@@ -712,7 +713,6 @@ export class SCTP {
         }
       });
 
-      let highestNewlyAcked = chunk.cumulativeTsn;
       for (const sChunk of this.sentQueue) {
         if (uint32Gt(sChunk.tsn, highestSeenTsn!)) {
           break;
@@ -720,41 +720,46 @@ export class SCTP {
         if (seen.has(sChunk.tsn) && !sChunk.acked) {
           doneBytes += sChunk.bookSize;
           sChunk.acked = true;
+          sChunk.reneged = false;
           // A pending retransmission is moot once the peer holds the chunk.
           sChunk.retransmit = false;
           this.flightSizeDecrease(sChunk);
           highestNewlyAcked = sChunk.tsn;
         }
       }
+    }
 
-      // # strike missing chunks prior to HTNA
+    // # detect reneging (RFC 9260 6.2.1 D-iii)
+    // A chunk gap-acked before but missing from this SACK was dropped by the
+    // peer: it is outstanding again, and every SACK still missing it counts one
+    // miss indication towards Fast Retransmit. Chunks up to HTNA are struck by
+    // the loop below, so only the ones beyond it are struck here.
+    let reneged = false;
+    for (const sChunk of this.sentQueue) {
+      if (seen.has(sChunk.tsn)) continue;
+      if (sChunk.acked) {
+        sChunk.acked = false;
+        sChunk.reneged = true;
+      }
+      if (!sChunk.reneged) continue;
+      reneged = true;
+      if (
+        !sChunk.retransmit &&
+        (chunk.gaps.length === 0 || uint32Gt(sChunk.tsn, highestNewlyAcked))
+      ) {
+        loss = this.strikeChunk(sChunk) || loss;
+      }
+    }
+
+    // # strike missing chunks prior to HTNA
+    if (chunk.gaps.length > 0) {
       for (const sChunk of this.sentQueue) {
         if (uint32Gt(sChunk.tsn, highestNewlyAcked)) {
           break;
         }
         if (!seen.has(sChunk.tsn)) {
-          sChunk.misses++;
-          if (sChunk.misses === 3) {
-            sChunk.misses = 0;
-            if (!this.maybeAbandon(sChunk)) {
-              sChunk.retransmit = true;
-            }
-            sChunk.acked = false;
-            this.flightSizeDecrease(sChunk);
-            loss = true;
-          }
+          loss = this.strikeChunk(sChunk) || loss;
         }
-      }
-    }
-
-    // # detect reneging (RFC 9260 6.2.1 D-iii)
-    // A chunk gap-acked before but missing from this SACK was dropped by the
-    // peer; make it outstanding again so T3-rtx retransmits it.
-    let reneged = false;
-    for (const sChunk of this.sentQueue) {
-      if (sChunk.acked && !seen.has(sChunk.tsn)) {
-        sChunk.acked = false;
-        reneged = true;
       }
     }
 
@@ -1047,6 +1052,7 @@ export class SCTP {
 
         dataChunk.misses = 0;
         dataChunk.retransmit = false;
+        dataChunk.reneged = false;
         dataChunk.sentCount++;
         await this.sendChunk(dataChunk).catch((err: Error) => {
           log("send data failed", err.message);
@@ -1435,6 +1441,19 @@ export class SCTP {
     const chunkPos = this.sentQueue.findIndex((v) => v === chunk);
     if (chunkPos < 0) return false;
     this.abandonMessage(chunkPos);
+    return true;
+  }
+
+  /** Counts a miss indication; on the third, marks the chunk for Fast Retransmit (or abandons it). */
+  private strikeChunk(chunk: DataChunk) {
+    chunk.misses++;
+    if (chunk.misses < 3) return false;
+    chunk.misses = 0;
+    if (!this.maybeAbandon(chunk)) {
+      chunk.retransmit = true;
+    }
+    chunk.acked = false;
+    this.flightSizeDecrease(chunk);
     return true;
   }
 

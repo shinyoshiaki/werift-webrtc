@@ -198,6 +198,8 @@ export class DataChunk extends Chunk {
   acked: boolean = false;
   /** Whether bookSize is currently counted in the sender's flightSize. */
   inFlight: boolean = false;
+  /** Gap-acked before, then dropped by the peer (reneged) and not resent yet. */
+  reneged: boolean = false;
   misses: number = 0;
   retransmit: boolean = false;
   sentCount: number = 0;

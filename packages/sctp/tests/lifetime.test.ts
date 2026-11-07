@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 
-import { DataChunk, ForwardTsnChunk } from "../src/chunk";
+import { DataChunk, ForwardTsnChunk, SackChunk } from "../src/chunk";
 import {
   createLossyPrSctpPair,
   createSeededRandom,
@@ -657,6 +657,68 @@ describe("PR-SCTP lifetime (expiry) abandonment", () => {
       (c) => c instanceof DataChunk && c.tsn === b.tsn,
     ).length;
     expect(bSends).toBe(2);
+    expect(received).toEqual(["A", "B"]);
+    expect(client.sentQueue.length).toBe(0);
+    expect(client.flightSize).toBe(0);
+  });
+
+  test("fast-retransmits a reneged chunk after three SACKs keep missing it", async () => {
+    // Arrange: A を失い、後続の B はギャップ ACK 済み。受信側は B を破棄 (撤回) する
+    const pair = await createLossyPrSctpPair();
+    stop = pair.stop;
+    const client = pair.client as any;
+    const server = pair.server as any;
+    const received: string[] = [];
+    pair.server.onReceive.subscribe((_streamId, _ppId, data) => {
+      received.push(data.toString());
+    });
+    pair.recorder.dropData = true;
+    await pair.client.send(0, 53, Buffer.from("A"), { ordered: true });
+    pair.recorder.dropData = false;
+    await pair.client.send(0, 53, Buffer.from("B"), { ordered: true });
+    await flushImmediates();
+    const [a, b]: DataChunk[] = [...client.sentQueue];
+    expect(b.acked).toBe(true);
+    const stream = server.getInboundStream(0);
+    server.advertisedRwnd += stream.reassembly.length;
+    stream.reassembly = [];
+    server.sackMisOrdered.delete(b.tsn);
+    /** 受信側が B を報告しなくなった SACK (ギャップなし) を送信側に届ける。 */
+    const receiveSackWithoutB = async () => {
+      const sack = new SackChunk(0, undefined);
+      sack.cumulativeTsn = (a.tsn + 0xffffffff) % 0x100000000;
+      sack.advertisedRwnd = server.advertisedRwnd;
+      await client.receiveSackChunk(sack);
+      await flushImmediates();
+    };
+    const bSends = () =>
+      pair.recorder.sentChunks.filter(
+        (c) => c instanceof DataChunk && c.tsn === b.tsn,
+      ).length;
+
+    // Act: B を含まない SACK を 2 回受け取る (時間は進めない)
+    await receiveSackWithoutB();
+    await receiveSackWithoutB();
+
+    // Assert: 撤回を検出して未確認に戻し、ミス指示を 1 回ずつ数えるがまだ再送しない
+    expect(b.acked).toBe(false);
+    expect(b.misses).toBe(2);
+    expect(bSends()).toBe(1);
+
+    // Act: 3 回目の SACK を受け取る
+    await receiveSackWithoutB();
+
+    // Assert: T3-rtx を待たずに Fast Retransmit で B が再送され、受信側が B を再び保持する
+    expect(bSends()).toBe(2);
+    expect(b.reneged).toBe(false);
+    expect(b.acked).toBe(true);
+    expect(server.sackMisOrdered.has(b.tsn)).toBe(true);
+
+    // Act: T3-rtx で A を再送させる
+    await vi.advanceTimersByTimeAsync(PAST_T3_MS);
+    await flushImmediates();
+
+    // Assert: 順序付き配送が回復し、送信側の状態も片付く
     expect(received).toEqual(["A", "B"]);
     expect(client.sentQueue.length).toBe(0);
     expect(client.flightSize).toBe(0);
