@@ -339,6 +339,35 @@ describe("incoming stream reset (RFC 6525 deferred reset)", () => {
     ]);
   });
 
+  test("stream list が空の request は全 stream を reset し、保留中の全 stream の新 DATA も退避する", async () => {
+    // Arrange: stream 1 と 2 にメッセージがあり、境界 TSN 103 が欠けている
+    const { inject, events, responses } = setup();
+    await inject(
+      createDataChunk({ tsn: 101, streamId: 1, data: "s1" }),
+      createDataChunk({ tsn: 102, streamId: 2, data: "s2" }),
+    );
+    await inject(
+      createResetRequestChunk({ requestSequence: 1001, lastTsn: 103, streams: [] }),
+    );
+
+    // Act: reset 後の stream 3 の DATA と、境界の DATA が届く
+    await inject(createDataChunk({ tsn: 104, streamId: 3, data: "new-3" }));
+    await inject(createDataChunk({ tsn: 103, streamId: 1, ssn: 1, data: "s1b" }));
+
+    // Assert: 既存の全 stream が reset され、stream 3 の新 DATA は reset 後に配信される
+    expect(responses().map((r) => r.result)).toEqual([
+      reconfigResult.InProgress,
+      reconfigResult.ReconfigResultSuccessPerformed,
+    ]);
+    expect(events).toEqual([
+      { type: "message", streamId: 1, data: "s1" },
+      { type: "message", streamId: 2, data: "s2" },
+      { type: "message", streamId: 1, data: "s1b" },
+      { type: "reset", streamIds: [1, 2] },
+      { type: "message", streamId: 3, data: "new-3" },
+    ]);
+  });
+
   test("stop で保留状態と退避した DATA を破棄する", async () => {
     // Arrange
     const { sctp, inject, internal } = setup();
@@ -424,6 +453,35 @@ describe("outgoing stream reset answered with In progress", () => {
     expect(internal.timerReconfigFailures).toBe(0);
     expect(sctp.associationState).toBe(SCTP_STATE.ESTABLISHED);
     expect(resetRequests()).toHaveLength(21);
+
+    await sctp.stop();
+  });
+});
+
+describe("incoming reset request acknowledging our outstanding request", () => {
+  test("responseSequence が自分の request と一致すれば確認済みにしてタイマーを止める", async () => {
+    // Arrange: 自分の reset request が未応答のまま残っている
+    const { sctp, inject, internal } = createEstablishedMockSctp();
+    internal.outboundStreamSeq[1] = 1;
+    sctp.reconfigQueue.push(1);
+    await sctp.transmitReconfigRequest();
+    const request = sctp.reconfigRequest!;
+    expect(internal.timerReconfigHandle).toBeDefined();
+
+    // Act: 相手が自分の request を受信済みとして responseSequence に載せた request を送る
+    await inject(
+      createResetRequestChunk({
+        requestSequence: 1001,
+        lastTsn: 100,
+        streams: [2],
+        responseSequence: request.requestSequence,
+      }),
+    );
+
+    // Assert: 自分の request は確認済みになり、再構成タイマーが止まる
+    expect(sctp.reconfigRequest).toBeUndefined();
+    expect(internal.timerReconfigHandle).toBeUndefined();
+    expect(internal.outboundStreamSeq[1]).toBeUndefined();
 
     await sctp.stop();
   });

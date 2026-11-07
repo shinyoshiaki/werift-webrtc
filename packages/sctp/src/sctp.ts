@@ -615,22 +615,7 @@ export class SCTP {
               ),
             );
           } else if (isCurrentRequest) {
-            const streamIds = this.reconfigRequest!.streams.map((streamId) => {
-              delete this.outboundStreamSeq[streamId];
-              return streamId;
-            });
-
-            this.onReconfigStreams.execute(streamIds);
-
-            this.reconfigRequest = undefined;
-            this.reconfigRequestInProgress = false;
-            this.timerReconfigCancel();
-            // Reset RTO backoff on successful reconfiguration
-            this.rto = SCTP_RTO_INITIAL;
-            this.timerReconfigFailures = 0;
-            if (this.reconfigQueue.length > 0) {
-              await this.transmitReconfigRequest();
-            }
+            await this.completeOutgoingReset();
           }
         }
         break;
@@ -648,6 +633,37 @@ export class SCTP {
         }
         break;
     }
+  }
+
+  /** Our outstanding reset request was acknowledged (by a response or RFC 6525 §5.2.2 E1). */
+  private async completeOutgoingReset() {
+    const streamIds = this.reconfigRequest!.streams.map((streamId) => {
+      delete this.outboundStreamSeq[streamId];
+      return streamId;
+    });
+
+    this.onReconfigStreams.execute(streamIds);
+
+    this.reconfigRequest = undefined;
+    this.reconfigRequestInProgress = false;
+    this.timerReconfigCancel();
+    // Reset RTO backoff on successful reconfiguration
+    this.rto = SCTP_RTO_INITIAL;
+    this.timerReconfigFailures = 0;
+    if (this.reconfigQueue.length > 0) {
+      await this.transmitReconfigRequest();
+    }
+  }
+
+  /** RFC 6525 §4.1: an empty stream list means every stream. */
+  private resetTargetStreams(request: OutgoingSSNResetRequestParam) {
+    if (request.streams.length > 0) return request.streams;
+    return [
+      ...new Set([
+        ...Object.keys(this.inboundStreams).map(Number),
+        ...Object.keys(this.outboundStreamSeq).map(Number),
+      ]),
+    ];
   }
 
   /** RFC 6525 §5.2.1 sequence check, then §5.2.2 immediate or deferred reset. */
@@ -675,6 +691,14 @@ export class SCTP {
     if (request.requestSequence !== expected) {
       await respond(reconfigResult.BadSequenceNumber);
       return;
+    }
+
+    // RFC 6525 §5.2.2 E1: the peer has received our outstanding request.
+    if (
+      this.reconfigRequest &&
+      request.responseSequence === this.reconfigRequest.requestSequence
+    ) {
+      await this.completeOutgoingReset();
     }
 
     const target = pending?.request ?? request;
@@ -728,7 +752,8 @@ export class SCTP {
     this.reconfigResponseSeq = request.requestSequence;
     this.lastReconfigResult = reconfigResult.ReconfigResultSuccessPerformed;
 
-    for (const streamId of request.streams) {
+    const resetStreams = this.resetTargetStreams(request);
+    for (const streamId of resetStreams) {
       const inboundStream = this.inboundStreams[streamId];
       if (inboundStream) {
         // Incomplete messages of the old stream are discarded.
@@ -746,7 +771,7 @@ export class SCTP {
     }
 
     // # close data channel
-    this.onReconfigStreams.execute(request.streams);
+    this.onReconfigStreams.execute(resetStreams);
 
     // DATA beyond the boundary belongs to the reset streams (SSN starts at 0).
     const streamIds = new Set<number>();
@@ -792,7 +817,8 @@ export class SCTP {
     const pending = this.deferredReset;
     if (
       pending &&
-      pending.request.streams.includes(chunk.streamId) &&
+      (pending.request.streams.length === 0 ||
+        pending.request.streams.includes(chunk.streamId)) &&
       uint32Gt(chunk.tsn, pending.request.lastTsn)
     ) {
       // RFC 6525 §5.2.2: hold DATA for the new stream until the reset is performed.
