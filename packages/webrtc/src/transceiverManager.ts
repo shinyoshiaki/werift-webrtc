@@ -27,6 +27,7 @@ import {
   normalizeCodecMimeType,
   resolveCodecs,
 } from "./media/codecCompatibility";
+import { createBandwidthEstimator } from "./media/sender/createBandwidthEstimator";
 import type { RTCStats } from "./media/stats";
 import { captureTrackSourceCodecs, getTrackSourceCodecs } from "./media/track";
 import type {
@@ -117,6 +118,10 @@ function simulcastFromSendEncodings(
  *   commit, and a change made during the transaction survives its rollback.
  */
 export class TransceiverManager {
+  private readonly cname: string;
+  private readonly config: Required<PeerConfig>;
+  private readonly router: RtpRouter;
+
   private readonly transceivers: RTCRtpTransceiver[] = [];
   private readonly notifiedRemoteTrack = new WeakMap<
     RTCRtpTransceiver,
@@ -276,11 +281,11 @@ export class TransceiverManager {
   >();
   readonly onNegotiationNeeded = new Event<[]>();
 
-  constructor(
-    private readonly cname: string,
-    private readonly config: Required<PeerConfig>,
-    private readonly router: RtpRouter,
-  ) {}
+  constructor(cname: string, config: Required<PeerConfig>, router: RtpRouter) {
+    this.cname = cname;
+    this.config = config;
+    this.router = router;
+  }
 
   getTransceivers(): RTCRtpTransceiver[] {
     return this.transceivers;
@@ -454,6 +459,9 @@ export class TransceiverManager {
     }
 
     const sender = new RTCRtpSender(trackOrKind, {
+      bandwidthEstimator: createBandwidthEstimator(
+        this.config.bandwidthEstimator,
+      ),
       pendingRtp: this.config.pendingRtp,
     });
     const receiver = new RTCRtpReceiver(this.config, kind, sender.ssrc);

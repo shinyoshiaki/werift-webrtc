@@ -22,6 +22,8 @@ export interface NtpTimeOutput {
 }
 
 export class NtpTimeBase implements Processor<NtpTimeInput, NtpTimeOutput> {
+  public clockRate: number;
+
   readonly id = randomUUID().toString();
   private baseNtpTimestamp?: bigint;
   private baseRtpTimestamp?: number;
@@ -32,7 +34,9 @@ export class NtpTimeBase implements Processor<NtpTimeInput, NtpTimeOutput> {
   private internalStats = {};
   started = false;
 
-  constructor(public clockRate: number) {}
+  constructor(clockRate: number) {
+    this.clockRate = clockRate;
+  }
 
   toJSON(): Record<string, any> {
     return {

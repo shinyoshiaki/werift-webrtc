@@ -18,7 +18,7 @@
  * Run it on HEAD (`--check` exits 1 on a mismatch) and on a develop worktree
  * to measure develop's column of the basis:
  *
- *   node --experimental-transform-types --import ../../tools/node-ts/register.mjs tools/negotiation-diff/scenarios.ts --root <repo> [--check 1]
+ *   node --import ../../tools/node-ts/register.mjs tools/negotiation-diff/scenarios.ts --root <repo> [--check 1]
  *
  * In CI the description-pool episodes of the episode fuzzer
  * (`tests/pbt/fuzz`) check the same contract with an atomicity oracle (a

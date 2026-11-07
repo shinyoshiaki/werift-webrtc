@@ -1,22 +1,26 @@
 import SPSParser from "./sps-parser";
 
-export enum H264NaluType {
-  kUnspecified = 0,
-  kSliceNonIDR = 1,
-  kSliceDPA = 2,
-  kSliceDPB = 3,
-  kSliceDPC = 4,
-  kSliceIDR = 5,
-  kSliceSEI = 6,
-  kSliceSPS = 7,
-  kSlicePPS = 8,
-  kSliceAUD = 9,
-  kEndOfSequence = 10,
-  kEndOfStream = 11,
-  kFiller = 12,
-  kSPSExt = 13,
-  kReserved0 = 14,
-}
+/**
+ * @enum
+ */
+export const H264NaluType = {
+  kUnspecified: 0,
+  kSliceNonIDR: 1,
+  kSliceDPA: 2,
+  kSliceDPB: 3,
+  kSliceDPC: 4,
+  kSliceIDR: 5,
+  kSliceSEI: 6,
+  kSliceSPS: 7,
+  kSlicePPS: 8,
+  kSliceAUD: 9,
+  kEndOfSequence: 10,
+  kEndOfStream: 11,
+  kFiller: 12,
+  kSPSExt: 13,
+  kReserved0: 14,
+} as const;
+export type H264NaluType = (typeof H264NaluType)[keyof typeof H264NaluType];
 
 export class H264NaluPayload {
   type!: H264NaluType;
@@ -102,7 +106,7 @@ export class H264AnnexBParser {
         offset += 3;
       }
 
-      const nalu_type: H264NaluType = data[offset] & 0x1f;
+      const nalu_type = (data[offset] & 0x1f) as H264NaluType;
       const forbidden_bit = (data[offset] & 0x80) >>> 7;
 
       const next_startcode_offset = this.findNextStartCodeOffset(offset);

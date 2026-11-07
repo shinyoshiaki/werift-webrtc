@@ -32,7 +32,7 @@
 
 ### distance
 
-> **distance**: `number` = `1`
+> **distance**: `number`
 
 ## Methods
 
@@ -69,3 +69,33 @@
 #### Returns
 
 `void`
+
+***
+
+### serializedLengthWith()
+
+> **serializedLengthWith**(`payload`): `number`
+
+Serialized RED payload length if `payload` were pushed now, without
+changing this encoder (a pacer needs the size before the packet is
+committed).
+
+#### Parameters
+
+##### payload
+
+###### block
+
+`Buffer`
+
+###### blockPT
+
+`number`
+
+###### timestamp
+
+`number`
+
+#### Returns
+
+`number`

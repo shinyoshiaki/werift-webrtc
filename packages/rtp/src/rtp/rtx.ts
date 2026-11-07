@@ -1,6 +1,9 @@
 import { RtpHeader, RtpPacket } from "./rtp";
 
 export function unwrapRtx(rtx: RtpPacket, payloadType: number, ssrc: number) {
+  if (rtx.payload.length < 2) {
+    throw new Error("RTX payload too short");
+  }
   const packet = new RtpPacket(
     new RtpHeader({
       payloadType,

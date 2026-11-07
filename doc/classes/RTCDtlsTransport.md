@@ -151,6 +151,16 @@ on it when they started DTLS.
 
 ***
 
+### onStopped
+
+> `readonly` **onStopped**: [`Event`](Event.md)\<\[\]\>
+
+Fires once when [RTCDtlsTransport.stop](#stop) has finished, i.e. ICE has
+stopped too. The DTLS "closed" state alone (e.g. a received alert) does
+not mean ICE has released its resources.
+
+***
+
 ### packetsReceived
 
 > **packetsReceived**: `number` = `0`
@@ -204,6 +214,18 @@ on it when they started DTLS.
 ### transportSequenceNumber
 
 > **transportSequenceNumber**: `number` = `0`
+
+Wire 16-bit TWCC sequence (low bits of [transportSequenceNumberExtended](#transportsequencenumberextended)).
+
+***
+
+### transportSequenceNumberExtended
+
+> **transportSequenceNumberExtended**: `number` = `0`
+
+Monotonic transport-wide sequence allocated at ICE enqueue time.
+Never wraps in JS Number. [transportSequenceNumber](#transportsequencenumber) is the wire
+16-bit view (`extended & 0xffff`).
 
 ***
 
@@ -268,6 +290,28 @@ Internal: whether a description gave this transport the peer's DTLS parameters.
 #### Returns
 
 `void`
+
+***
+
+### allocateTransportWideSequence()
+
+> **allocateTransportWideSequence**(): `object`
+
+Allocate the next transport-wide sequence at send time.
+Call immediately before DTLS/ICE enqueue so BUNDLE senders cannot
+reserve a TSN then wait in a per-sender pacer.
+
+#### Returns
+
+`object`
+
+##### extended
+
+> **extended**: `number`
+
+##### wire
+
+> **wire**: `number`
 
 ***
 
@@ -359,6 +403,9 @@ Internal: whether a description gave this transport the peer's DTLS parameters.
 
 > **sendRtp**(`payload`, `header`): `Promise`\<`number`\>
 
+Encrypt RTP and enqueue on ICE. Returns on-wire size.
+Send-time metadata: [sendRtpWithMeta](#sendrtpwithmeta).
+
 #### Parameters
 
 ##### payload
@@ -372,6 +419,29 @@ Internal: whether a description gave this transport the peer's DTLS parameters.
 #### Returns
 
 `Promise`\<`number`\>
+
+***
+
+### sendRtpWithMeta()
+
+> **sendRtpWithMeta**(`payload`, `header`): `Promise`\<[`DtlsSendRtpResult`](../type-aliases/DtlsSendRtpResult.md)\>
+
+Encrypt RTP and enqueue on ICE, capturing the clock immediately before
+the ICE write (RFC 8888). Prefer [sendRtp](#sendrtp) unless send time is needed.
+
+#### Parameters
+
+##### payload
+
+`Buffer`
+
+##### header
+
+[`RtpHeader`](RtpHeader.md)
+
+#### Returns
+
+`Promise`\<[`DtlsSendRtpResult`](../type-aliases/DtlsSendRtpResult.md)\>
 
 ***
 
@@ -414,6 +484,8 @@ Internal: whether a description gave this transport the peer's DTLS parameters.
 ### stop()
 
 > **stop**(): `Promise`\<`void`\>
+
+Resolves once ICE has stopped; concurrent callers share one stop.
 
 #### Returns
 

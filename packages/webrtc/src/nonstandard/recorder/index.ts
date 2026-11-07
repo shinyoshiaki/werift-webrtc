@@ -23,6 +23,28 @@ const formatByExtension: Record<string, MediaRecorderFormat> = {
 const sourcePath = "packages/webrtc/src/nonstandard/recorder/index.ts";
 
 export class MediaRecorder {
+  public props: Partial<MediaRecorderOptions> &
+    (
+      | {
+          numOfTracks: number;
+          tracks?: MediaStreamTrack[];
+        }
+      | {
+          numOfTracks?: number;
+          tracks: MediaStreamTrack[];
+        }
+    ) &
+    (
+      | {
+          path: string;
+          stream?: StreamEvent | StreamEvent<OggOutput>;
+        }
+      | {
+          path?: string;
+          stream: StreamEvent | StreamEvent<OggOutput>;
+        }
+    );
+
   writer: MediaWriter<any>;
   ext?: string;
   format: MediaRecorderFormat;
@@ -32,7 +54,7 @@ export class MediaRecorder {
   onError = new Event<[Error]>();
 
   constructor(
-    public props: Partial<MediaRecorderOptions> &
+    props: Partial<MediaRecorderOptions> &
       (
         | {
             numOfTracks: number;
@@ -54,6 +76,7 @@ export class MediaRecorder {
           }
       ),
   ) {
+    this.props = props;
     this.tracks = props.tracks ?? this.tracks;
 
     const { path, stream } = props;

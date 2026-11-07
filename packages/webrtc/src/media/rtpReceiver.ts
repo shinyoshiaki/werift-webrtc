@@ -5,6 +5,7 @@ import { Event, int } from "../imports/common";
 import {
   debug,
   type Extensions,
+  isPaddingOnlyRtpPacket,
   PictureLossIndication,
   Red,
   RedHandler,
@@ -30,7 +31,11 @@ import type {
   RTCRtpReceiveParameters,
 } from "./parameters";
 import { NackHandler } from "./receiver/nack";
-import { ReceiverTWCC } from "./receiver/receiverTwcc";
+import {
+  acquireTransportReceiverTWCC,
+  type ReceiverTWCC,
+  releaseTransportReceiverTWCC,
+} from "./receiver/receiverTwcc";
 import { StreamStatistics } from "./receiver/statistics";
 import {
   buildStatsReport,
@@ -43,11 +48,19 @@ import {
   type RTCStats,
   type RTCStatsReport,
 } from "./stats";
-import { MediaStreamTrack } from "./track";
+import {
+  MediaStreamTrack,
+  type RtpReceiveInfo,
+  RtpReceivePacketType,
+} from "./track";
 
 const log = debug("werift:packages/webrtc/src/media/rtpReceiver.ts");
 
 export class RTCRtpReceiver {
+  readonly config: PeerConfig;
+  public kind: Kind;
+  public rtcpSsrc: number;
+
   private readonly codecs: { [pt: number]: RTCRtpCodecParameters } = {};
   private readonly defaultTrack: MediaStreamTrack;
   private get codecArray() {
@@ -89,6 +102,8 @@ export class RTCRtpReceiver {
   latestRepairedRid?: string;
 
   receiverTWCC?: ReceiverTWCC;
+  /** DTLS transport {@link receiverTWCC} was acquired from (release key). */
+  private receiverTWCCTransport?: RTCDtlsTransport;
   stopped = false;
   remoteStreamId?: string;
   remoteStreamIds: string[] = [];
@@ -103,14 +118,21 @@ export class RTCRtpReceiver {
   private remoteOctetCountBySsrc: { [ssrc: number]: number } = {};
   private nackCountBySsrc: { [ssrc: number]: number } = {};
   private pliCountBySsrc: { [ssrc: number]: number } = {};
+  /**
+   * Per-SSRC compaction of {@link MediaStreamTrack.onReceiveRtp} sequence
+   * numbers when probe padding is filtered. Uses extended sequence numbers so
+   * late padding cannot rewrite packets already delivered past that seq.
+   */
+  private probePaddingCompactBySsrc: {
+    [ssrc: number]: ProbePaddingCompactState;
+  } = {};
   /** Media payload type last received on each SSRC (RTX resolved to its media SSRC). */
   private payloadTypeBySsrc: { [ssrc: number]: number } = {};
 
-  constructor(
-    readonly config: PeerConfig,
-    public kind: Kind,
-    public rtcpSsrc: number,
-  ) {
+  constructor(config: PeerConfig, kind: Kind, rtcpSsrc: number) {
+    this.config = config;
+    this.kind = kind;
+    this.rtcpSsrc = rtcpSsrc;
     this.defaultTrack = new MediaStreamTrack({ kind, remote: true });
     this.onPacketLost.subscribe((nack) => {
       this.nackCountBySsrc[nack.mediaSourceSsrc] =
@@ -123,7 +145,22 @@ export class RTCRtpReceiver {
   }
 
   setDtlsTransport(dtls: RTCDtlsTransport) {
+    if (this.receiverTWCCTransport && this.receiverTWCCTransport !== dtls) {
+      this.releaseReceiverTWCC();
+    }
     this.dtlsTransport = dtls;
+  }
+
+  /** Drop this receiver's reference to the transport-shared TWCC generator. */
+  private releaseReceiverTWCC() {
+    if (this.receiverTWCC && this.receiverTWCCTransport) {
+      releaseTransportReceiverTWCC(
+        this.receiverTWCCTransport,
+        this.receiverTWCC,
+      );
+    }
+    this.receiverTWCC = undefined;
+    this.receiverTWCCTransport = undefined;
   }
 
   // todo fix
@@ -299,23 +336,39 @@ export class RTCRtpReceiver {
     if (codec) {
       for (const track of this.tracks) track.codec = codec;
     }
+    // Re-acquire before releasing the previous reference so a still-enabled
+    // receiver keeps the same transport-wide history instead of recreating it.
+    const previous = this.receiverTWCC;
+    const previousTransport = this.receiverTWCCTransport;
     this.receiverTWCC = undefined;
-    if (mediaSourceSsrc != undefined) this.setupTWCC(mediaSourceSsrc);
+    this.receiverTWCCTransport = undefined;
+    if (mediaSourceSsrc != undefined) {
+      this.setupTWCC(mediaSourceSsrc);
+    }
+    if (previous && previousTransport) {
+      releaseTransportReceiverTWCC(previousTransport, previous);
+    }
   }
 
   /**
-   * setup TWCC if supported
+   * Attach this receiver to the DTLS-transport-scoped TWCC generator.
+   * BUNDLE audio/video share one {@link ReceiverTWCC} so interleaved
+   * transport-wide sequences are not reported as loss.
    */
   setupTWCC(mediaSourceSsrc: number, negotiated = !!this.twccEnabled) {
-    // `negotiated`: a received packet's own codec negotiated transport-cc
-    // (whatever codec has the lowest payload type).
-    if (negotiated && !this.receiverTWCC) {
-      this.receiverTWCC = new ReceiverTWCC(
+    if (!negotiated || !this.dtlsTransport) {
+      return;
+    }
+    if (!this.receiverTWCC) {
+      this.receiverTWCC = acquireTransportReceiverTWCC(
         this.dtlsTransport,
         this.rtcpSsrc,
         mediaSourceSsrc,
       );
+      this.receiverTWCCTransport = this.dtlsTransport;
+      return;
     }
+    this.receiverTWCC.setMediaSourceSsrc(mediaSourceSsrc);
   }
 
   /**
@@ -383,7 +436,7 @@ export class RTCRtpReceiver {
     this.rtcpRunning = false;
     this.rtcpCancel.abort();
 
-    if (this.receiverTWCC) this.receiverTWCC.twccRunning = false;
+    this.releaseReceiverTWCC();
     this.nack.close();
   }
 
@@ -678,36 +731,45 @@ export class RTCRtpReceiver {
       new StreamStatistics(codec.clockRate);
     this.remoteStreams[packet.header.ssrc].add(packet);
 
+    const paddingOnly = isPaddingOnlyRtpPacket(packet);
+    let receiveType: RtpReceivePacketType = paddingOnly
+      ? RtpReceivePacketType.padding
+      : RtpReceivePacketType.media;
+    let mediaCodec = codec;
+    if (codec.name.toLowerCase() === "rtx") {
+      const codecParams = codecParametersFromString(codec.parameters ?? "");
+      mediaCodec = this.codecs[codecParams.apt] ?? codec;
+    }
+
+    if (hasFeedback(mediaCodec, useTWCC().type)) {
+      this.setupTWCC(packet.header.ssrc, true);
+    }
     if (this.receiverTWCC) {
       const transportSequenceNumber = extensions[
         RTP_EXTENSION_URI.transportWideCC
       ] as TransportWideCCPayload;
 
-      if (!transportSequenceNumber == undefined) {
-        throw new Error("undefined");
+      if (transportSequenceNumber !== undefined) {
+        this.receiverTWCC.setMediaSourceSsrc?.(packet.header.ssrc);
+        this.receiverTWCC.handleTWCC(transportSequenceNumber);
       }
-
-      this.receiverTWCC.handleTWCC(transportSequenceNumber);
-    } else if (hasFeedback(codec, useTWCC().type)) {
-      this.setupTWCC(packet.header.ssrc, true);
     }
 
     // RTCP feedback follows the codec this packet was negotiated with, not
     // whichever payload type happens to sort first in the receive table.
-    let mediaCodec = codec;
     if (codec.name.toLowerCase() === "rtx") {
       const originalSsrc = this.ssrcByRtx[packet.header.ssrc];
-      const codecParams = codecParametersFromString(codec.parameters ?? "");
-      const rtxCodec = this.codecs[codecParams["apt"]];
+      // Padding-only RTX (probe / bandwidth padding) carries no original
+      // packet: TWCC above already observed it, nothing is delivered.
       if (packet.payload.length < 2) return;
 
-      packet = unwrapRtx(packet, rtxCodec.payloadType, originalSsrc);
+      packet = unwrapRtx(packet, mediaCodec.payloadType, originalSsrc);
       track = this.trackBySSRC[originalSsrc];
-      mediaCodec = rtxCodec;
+      receiveType = RtpReceivePacketType.retransmission;
     }
 
     let red: Red | undefined;
-    if (codec.name.toLowerCase() === "red") {
+    if (!paddingOnly && codec.name.toLowerCase() === "red") {
       red = Red.deSerialize(packet.payload);
       if (
         !Object.keys(this.codecs).includes(
@@ -725,21 +787,140 @@ export class RTCRtpReceiver {
     }
 
     if (track) {
+      const info: RtpReceiveInfo = { type: receiveType };
       if (red) {
         if (track.kind === "audio") {
           const payloads = this.audioRedHandler.push(red, packet);
-          for (const packet of payloads) {
-            track.onReceiveRtp.execute(packet.clone(), extensions);
+          for (const recovered of payloads) {
+            this.emitReceiveRtp(track, recovered, extensions, {
+              type: RtpReceivePacketType.media,
+            });
           }
         } else {
         }
       } else {
-        track.onReceiveRtp.execute(packet.clone(), extensions);
+        this.emitReceiveRtp(track, packet, extensions, info);
       }
     }
 
     this.runRtcp();
   }
+
+  /**
+   * Deliver a packet on {@link MediaStreamTrack.onReceiveRtp}.
+   * When {@link PeerConfig.filterProbePaddingOnReceiveRtp} is true (opt-in),
+   * padding-only probes are omitted and media sequence numbers are compacted
+   * by on-time padding strictly before that packet in extended seq space.
+   * Late padding (arriving after media with a higher original seq) is ignored
+   * so already-delivered mappings are not rewritten.
+   * Default is false so `onReceiveRtp` matches the wire sequence.
+   */
+  private emitReceiveRtp(
+    track: MediaStreamTrack,
+    packet: RtpPacket,
+    extensions: Extensions,
+    info: RtpReceiveInfo,
+  ) {
+    if (this.config.filterProbePaddingOnReceiveRtp === true) {
+      const compacted = this.compactProbePaddingSequence(packet, info);
+      if (!compacted) {
+        return;
+      }
+      track.onReceiveRtp.execute(compacted, extensions, info);
+      return;
+    }
+
+    track.onReceiveRtp.execute(packet.clone(), extensions, info);
+  }
+
+  /**
+   * Filter padding and compact media seq using extended sequence position.
+   * Returns undefined when the packet is skipped padding.
+   */
+  private compactProbePaddingSequence(
+    packet: RtpPacket,
+    info: RtpReceiveInfo,
+  ): RtpPacket | undefined {
+    const ssrc = packet.header.ssrc;
+    let state = this.probePaddingCompactBySsrc[ssrc];
+    if (!state) {
+      state = {
+        onTimePaddingExt: new Set<number>(),
+        prunedOnTimeCount: 0,
+      };
+      this.probePaddingCompactBySsrc[ssrc] = state;
+    }
+
+    const ext = extendRtpSequence(packet.header.sequenceNumber, state.lastExt);
+    state.lastExt = ext;
+
+    if (info.type === RtpReceivePacketType.padding) {
+      const late =
+        state.maxDeliveredMediaExt !== undefined &&
+        ext <= state.maxDeliveredMediaExt;
+      if (!late) {
+        state.onTimePaddingExt.add(ext);
+      }
+      this.pruneProbePaddingCompact(state);
+      return undefined;
+    }
+
+    let skip = state.prunedOnTimeCount;
+    for (const paddingExt of state.onTimePaddingExt) {
+      if (paddingExt < ext) {
+        skip++;
+      }
+    }
+
+    const delivered = packet.clone();
+    delivered.header.sequenceNumber = (ext - skip) & 0xffff;
+    state.maxDeliveredMediaExt =
+      state.maxDeliveredMediaExt === undefined
+        ? ext
+        : Math.max(state.maxDeliveredMediaExt, ext);
+    this.pruneProbePaddingCompact(state);
+    return delivered;
+  }
+
+  private pruneProbePaddingCompact(state: ProbePaddingCompactState) {
+    if (state.lastExt === undefined) {
+      return;
+    }
+    const horizon = state.lastExt - 0x10000;
+    if (horizon <= 0) {
+      return;
+    }
+    for (const paddingExt of state.onTimePaddingExt) {
+      if (paddingExt < horizon) {
+        state.onTimePaddingExt.delete(paddingExt);
+        state.prunedOnTimeCount++;
+      }
+    }
+  }
+}
+
+type ProbePaddingCompactState = {
+  lastExt?: number;
+  maxDeliveredMediaExt?: number;
+  onTimePaddingExt: Set<number>;
+  prunedOnTimeCount: number;
+};
+
+/** RFC 3550-style 16-bit sequence extension from the previous packet. */
+function extendRtpSequence(seq: number, lastExt: number | undefined): number {
+  const seq16 = seq & 0xffff;
+  if (lastExt === undefined) {
+    return seq16;
+  }
+  const lastSeq = lastExt & 0xffff;
+  let roc = (lastExt - lastSeq) / 0x10000;
+  const delta = seq16 - lastSeq;
+  if (delta < -0x8000) {
+    roc += 1;
+  } else if (delta > 0x8000) {
+    roc -= 1;
+  }
+  return roc * 0x10000 + seq16;
 }
 
 function clearTable(table: Record<number, unknown>) {

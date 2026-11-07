@@ -10,7 +10,11 @@ export interface EBMLData {
 }
 
 export class Value implements EBMLData {
-  constructor(public bytes: Uint8Array) {}
+  public bytes: Uint8Array;
+
+  constructor(bytes: Uint8Array) {
+    this.bytes = bytes;
+  }
 
   public write(buf: Uint8Array, pos: number): number {
     buf.set(this.bytes, pos);
@@ -23,14 +27,15 @@ export class Value implements EBMLData {
 }
 
 export class Element implements EBMLData {
+  private id: Uint8Array;
+  private children: EBMLData[];
+
   private readonly size: number;
   private readonly sizeMetaData: Uint8Array;
 
-  constructor(
-    private id: Uint8Array,
-    private children: EBMLData[],
-    isSizeUnknown: boolean,
-  ) {
+  constructor(id: Uint8Array, children: EBMLData[], isSizeUnknown: boolean) {
+    this.id = id;
+    this.children = children;
     const bodySize = this.children.reduce((p, c) => p + c.countSize(), 0);
     this.sizeMetaData = isSizeUnknown
       ? UNKNOWN_SIZE

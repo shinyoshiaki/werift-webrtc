@@ -40,13 +40,17 @@
 
 ### type
 
-> **type**: [`TypeTCCRunLengthChunk`](../enumerations/PacketChunk.md#typetccrunlengthchunk)
+> **type**: `0`
 
 ## Methods
 
 ### results()
 
 > **results**(`currentSequenceNumber`): [`PacketResult`](PacketResult.md)[]
+
+Expand this run into `runLength` packet results starting after
+`currentSequenceNumber` (caller passes last assigned seq, or
+`baseSequenceNumber - 1` for the first chunk).
 
 #### Parameters
 

@@ -33,6 +33,10 @@ const log = debug("werift:packages/webrtc/src/transport/sctp.ts");
 export const DEFAULT_MAX_MESSAGE_SIZE = 65536;
 
 export class RTCSctpTransport {
+  public port: number;
+  public maxMessageSize: number;
+  private readonly sctpOptions: SCTPOptions;
+
   dtlsTransport!: RTCDtlsTransport;
   sctp!: SCTP;
 
@@ -52,10 +56,14 @@ export class RTCSctpTransport {
   private eventDisposer: (() => void)[] = [];
 
   constructor(
-    public port = 5000,
-    public maxMessageSize = DEFAULT_MAX_MESSAGE_SIZE,
-    private readonly sctpOptions: SCTPOptions = {},
-  ) {}
+    port = 5000,
+    maxMessageSize = DEFAULT_MAX_MESSAGE_SIZE,
+    sctpOptions: SCTPOptions = {},
+  ) {
+    this.port = port;
+    this.maxMessageSize = maxMessageSize;
+    this.sctpOptions = sctpOptions;
+  }
 
   get transport() {
     return this.dtlsTransport;
@@ -257,6 +265,12 @@ export class RTCSctpTransport {
   }
 
   dataChannelOpen(channel: RTCDataChannel) {
+    // Label / Protocol Length are byte counts of the UTF-8 fields (RFC 8832
+    // 5.1), so they come from the encoded buffers, not from string.length.
+    // Their 16-bit limit is enforced by the RTCDataChannel constructor.
+    const label = Buffer.from(channel.label, "utf8");
+    const protocol = Buffer.from(channel.protocol, "utf8");
+
     if (channel.id !== undefined) {
       if (this.dataChannels[channel.id])
         throw new Error(
@@ -293,13 +307,9 @@ export class RTCSctpTransport {
     data.writeUInt8(channelType, 1);
     data.writeUInt16BE(priority, 2);
     data.writeUInt32BE(reliability, 4);
-    data.writeUInt16BE(channel.label.length, 8);
-    data.writeUInt16BE(channel.protocol.length, 10);
-    const send = Buffer.concat([
-      data,
-      Buffer.from(channel.label, "utf8"),
-      Buffer.from(channel.protocol, "utf8"),
-    ]);
+    data.writeUInt16BE(label.length, 8);
+    data.writeUInt16BE(protocol.length, 10);
+    const send = Buffer.concat([data, label, protocol]);
     this.dataChannelQueue.push([channel, WEBRTC_DCEP, send]);
     this.dataChannelFlush();
   }
@@ -489,11 +499,19 @@ export class RTCSctpTransport {
 }
 
 export class RTCSctpCapabilities {
-  constructor(public maxMessageSize: number) {}
+  public maxMessageSize: number;
+
+  constructor(maxMessageSize: number) {
+    this.maxMessageSize = maxMessageSize;
+  }
 }
 
 class BridgeDtls implements Transport {
-  constructor(private dtls: RTCDtlsTransport) {}
+  private dtls: RTCDtlsTransport;
+
+  constructor(dtls: RTCDtlsTransport) {
+    this.dtls = dtls;
+  }
   set onData(onData: (buf: Buffer) => void) {
     this.dtls.dataReceiver = onData;
   }

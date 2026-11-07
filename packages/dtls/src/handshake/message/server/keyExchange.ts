@@ -8,7 +8,16 @@ import { HandshakeType } from "../../const";
 const { decode, types } = binaryData;
 
 export class ServerKeyExchange implements Handshake {
-  msgType = HandshakeType.server_key_exchange_12;
+  public ellipticCurveType: CurveTypes;
+  public namedCurve: NamedCurveAlgorithms;
+  public publicKeyLength: number;
+  public publicKey: Buffer;
+  public hashAlgorithm: number;
+  public signatureAlgorithm: number;
+  public signatureLength: number;
+  public signature: Buffer;
+
+  msgType: HandshakeType = HandshakeType.server_key_exchange_12;
   messageSeq?: number;
 
   static readonly spec = {
@@ -23,15 +32,24 @@ export class ServerKeyExchange implements Handshake {
   };
 
   constructor(
-    public ellipticCurveType: CurveTypes,
-    public namedCurve: NamedCurveAlgorithms,
-    public publicKeyLength: number,
-    public publicKey: Buffer,
-    public hashAlgorithm: number,
-    public signatureAlgorithm: number,
-    public signatureLength: number,
-    public signature: Buffer,
-  ) {}
+    ellipticCurveType: CurveTypes,
+    namedCurve: NamedCurveAlgorithms,
+    publicKeyLength: number,
+    publicKey: Buffer,
+    hashAlgorithm: number,
+    signatureAlgorithm: number,
+    signatureLength: number,
+    signature: Buffer,
+  ) {
+    this.ellipticCurveType = ellipticCurveType;
+    this.namedCurve = namedCurve;
+    this.publicKeyLength = publicKeyLength;
+    this.publicKey = publicKey;
+    this.hashAlgorithm = hashAlgorithm;
+    this.signatureAlgorithm = signatureAlgorithm;
+    this.signatureLength = signatureLength;
+    this.signature = signature;
+  }
 
   static createEmpty() {
     return new ServerKeyExchange(

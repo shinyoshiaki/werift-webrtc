@@ -75,6 +75,7 @@ import {
   mediachannel_simulcast_offer,
 } from "./handler/mediachannel/simulcast";
 import { vp8PlaybackHandlers } from "./handler/mediachannel/vp8Playback";
+import { sim_gcc_twcc_chrome } from "./simulations/gccTwccChrome";
 import { getTurnRelayConfig, startTurnServer, stopTurnServer } from "./turn";
 
 const app = express();
@@ -211,6 +212,8 @@ function attachWebSocketServer() {
         new mediachannel_reject_unsupported_video(),
       ice_restart_web_trigger: new ice_restart_web_trigger(),
       ice_restart_node_trigger: new ice_restart_node_trigger(),
+      // CI 対象外: e2e/simulations/ から明示実行される帯域 sim
+      sim_gcc_twcc_chrome: new sim_gcc_twcc_chrome(),
       // packages/rtp Packetizer / Depacketizer Chrome E2E
       ...codecRtpHandlers,
       // werift VP8 sources (file playback / dummy media) → Chrome decode E2E

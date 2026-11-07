@@ -45,3 +45,11 @@
 ### sequenceNumber
 
 > **sequenceNumber**: `number` = `0`
+
+***
+
+### status
+
+> **status**: [`PacketStatus`](../enumerations/PacketStatus.md) = `PacketStatus.TypeTCCPacketNotReceived`
+
+TWCC packet status symbol (for delta presence).
