@@ -371,6 +371,7 @@ export class RtpRouter {
     );
     const { ssrc } = packet.header;
     const mid = extensions[RTP_EXTENSION_URI.sdesMid];
+    let learnedNow = false;
 
     let rtpReceiver: RTCRtpReceiver | undefined = this.ssrcTable[
       ssrc
@@ -388,12 +389,12 @@ export class RtpRouter {
         log("rid receiver not found", rid);
         return;
       }
-      this.learnSsrc(ssrc, rtpReceiver);
+      learnedNow = this.learnSsrc(ssrc, rtpReceiver);
       rtpReceiver.latestRid = rid;
       rtpReceiver.handleRtpByRid(packet, rid, extensions);
     } else if (repairedReceiver) {
       rtpReceiver = repairedReceiver;
-      this.learnSsrc(ssrc, rtpReceiver);
+      learnedNow = this.learnSsrc(ssrc, rtpReceiver);
       rtpReceiver.handleRtxByRid(packet, repairedRid as string, extensions);
     } else if (rtpReceiver) {
       rtpReceiver.handleRtpBySsrc(packet, extensions);
@@ -404,7 +405,7 @@ export class RtpRouter {
         .find((r) => r.trackBySSRC[ssrc]);
       if (rtpReceiver) {
         log("simulcast register receiver by ssrc", ssrc);
-        this.learnSsrc(ssrc, rtpReceiver);
+        learnedNow = this.learnSsrc(ssrc, rtpReceiver);
         rtpReceiver.handleRtpBySsrc(packet, extensions);
       } else {
         // An RTX SSRC is only known from SDP (ssrc-group:FID) or from a
@@ -419,6 +420,11 @@ export class RtpRouter {
     }
     for (const forgotten of rtpReceiver.takeForgottenSsrcs()) {
       this.unlearnSsrc(forgotten, rtpReceiver);
+    }
+    // 無効なパケットは経路を教えない。取り消すのはこのパケットが今追加した経路だけ。
+    for (const rejected of rtpReceiver.takeRejectedSsrcs()) {
+      if (learnedNow && rejected === ssrc)
+        this.unlearnSsrc(rejected, rtpReceiver);
     }
 
     if (typeof mid === "string") {
@@ -436,10 +442,11 @@ export class RtpRouter {
    * that route.
    */
   private learnSsrc(ssrc: number, receiver: RTCRtpReceiver) {
-    if (this.ssrcTable[ssrc]) return;
+    if (this.ssrcTable[ssrc]) return false;
     log("simulcast register receiver by ssrc", ssrc);
     this.ssrcTable[ssrc] = receiver;
     this.learnedSsrcs.add(ssrc);
+    return true;
   }
 
   /** Drop a learned route of `receiver`; a description's route stays. */

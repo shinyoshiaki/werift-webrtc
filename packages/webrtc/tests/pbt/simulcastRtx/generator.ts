@@ -35,8 +35,9 @@ export type SimulcastArrival =
     }
   | {
       /**
-       * A packet of an unrelated SSRC naming `stream`'s RID (`rtp-stream-id`
-       * or `repaired-rtp-stream-id`) with a payload type never negotiated.
+       * A packet naming `stream`'s RID (`rtp-stream-id` or
+       * `repaired-rtp-stream-id`) with a payload type never negotiated, on an
+       * unrelated SSRC or on the stream's own media / RTX SSRC.
        */
       kind: "foreign";
       stream: SimulcastStream;
@@ -215,7 +216,12 @@ export function randomSimulcastRtxTraffic(
             arrival: {
               kind: "foreign",
               stream,
-              ssrc: newSsrc(),
+              // 未知の SSRC だけでなく、学習済みの媒体 / RTX SSRC にも挟まる。
+              ssrc: rng.pick([
+                newSsrc,
+                () => stream.ssrc,
+                () => stream.rtxSsrc,
+              ])(),
               seq: rng.int(0, 0x10000),
               index: -1,
               repaired: rng.chance(0.5),

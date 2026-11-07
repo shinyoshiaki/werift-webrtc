@@ -110,6 +110,7 @@ export class RTCRtpReceiver {
   /** SSRCs retired by a media SSRC change, per RID, oldest first. */
   readonly retiredSsrcsByRid: { [rid: string]: number[] } = {};
   private readonly forgottenSsrcs: number[] = [];
+  private readonly rejectedSsrcs: number[] = [];
   private readonly nack = new NackHandler(this);
   private readonly audioRedHandler = new RedHandler();
 
@@ -486,6 +487,7 @@ export class RTCRtpReceiver {
     clearTable(this.repairedMediaByRtx);
     clearTable(this.retiredSsrcsByRid);
     this.forgottenSsrcs.length = 0;
+    this.rejectedSsrcs.length = 0;
   }
 
   /**transceiver の停止確定時に remote track を ended にする */
@@ -755,7 +757,7 @@ export class RTCRtpReceiver {
     if (!track) {
       // TWCC は transport 全体の番号なので記録し、経路は学習させない。
       log("rid has no track", rid);
-      this.forgottenSsrcs.push(ssrc);
+      this.rejectedSsrcs.push(ssrc);
       this.handleRTP(packet, extensions);
       return;
     }
@@ -768,7 +770,7 @@ export class RTCRtpReceiver {
         ssrc,
         payloadType: packet.header.payloadType,
       });
-      this.forgottenSsrcs.push(ssrc);
+      this.rejectedSsrcs.push(ssrc);
       return;
     }
     if (isRtxCodec(codec)) {
@@ -801,14 +803,14 @@ export class RTCRtpReceiver {
   ) => {
     if (!this.trackByRID[repairedRid]) {
       log("repaired rid has no track", repairedRid);
-      this.forgottenSsrcs.push(packet.header.ssrc);
+      this.rejectedSsrcs.push(packet.header.ssrc);
       this.handleRTP(packet, extensions);
       return;
     }
     if (!isRtxCodec(this.codecs[packet.header.payloadType])) {
       // 交渉済みの RTX でないパケットは RTX SSRC として結び付けない。
       log("repaired rid packet is not rtx", packet.header.payloadType);
-      this.forgottenSsrcs.push(packet.header.ssrc);
+      this.rejectedSsrcs.push(packet.header.ssrc);
       this.handleRTP(packet, extensions);
       return;
     }
@@ -935,13 +937,24 @@ export class RTCRtpReceiver {
 
   /**
    * Internal (router): SSRCs whose packet-driven route is no longer wanted:
-   * evicted by the per-RID bound, or naming a RID without a track. The
+   * retired by a media SSRC change of their RID or evicted by a bound. The
    * router drops their learned routes after each packet.
    */
   takeForgottenSsrcs() {
     return this.forgottenSsrcs.length === 0
       ? []
       : this.forgottenSsrcs.splice(0);
+  }
+
+  /**
+   * Internal (router): SSRCs of packets this receiver rejected as invalid
+   * (an unnegotiated payload type, a non-RTX packet naming a repaired RID, a
+   * RID without a track). Such a packet must not teach a route, but it says
+   * nothing against a route learned before it: the router undoes only a
+   * route the rejected packet itself just added.
+   */
+  takeRejectedSsrcs() {
+    return this.rejectedSsrcs.length === 0 ? [] : this.rejectedSsrcs.splice(0);
   }
 
   /**

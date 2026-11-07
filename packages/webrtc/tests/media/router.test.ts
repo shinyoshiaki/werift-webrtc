@@ -1305,6 +1305,63 @@ describe("media/router", () => {
       receiver.stop();
     });
 
+    test("学習済みの RTX SSRC に無効なパケットが挟まっても経路は残り、拡張なしの後続 RTX は復元される", () => {
+      // Arrange: 媒体 1000 の欠落 2 を RTX 1001 (rrid 付き) で修復し、1000 は 4 も失う。
+      const { router, receiver } = createSimulcastRtxReceiver();
+      const received = collectDeliveredRtp(receiver.trackByRID.high);
+      for (const seq of [1, 3, 5]) {
+        router.routeRtp(mediaOf(1000, seq, high.rid));
+      }
+      router.routeRtp(
+        createSimulcastRtxFor(1000, 2, { rtxSsrc: 1001, rrid: high.rid }),
+      );
+
+      // Act: 同じ RTX SSRC 1001 で、未交渉の payload type と rid / rrid を持つ無効パケットが届く。
+      const withRid = mediaOf(1001, 900, high.rid);
+      withRid.header.payloadType = 120;
+      router.routeRtp(withRid);
+      const withRrid = createSimulcastRtxFor(1000, 901, {
+        rtxSsrc: 1001,
+        rrid: high.rid,
+      });
+      withRrid.header.payloadType = 120;
+      router.routeRtp(withRrid);
+      // Act: その後、拡張なしの RTX で 4 が再送される。
+      router.routeRtp(
+        createSimulcastRtxFor(1000, 4, {
+          rtxSsrc: 1001,
+          rtxSequenceNumber: 3,
+          mid: null,
+        }),
+      );
+
+      // Assert: 1001 の経路は残り、2 と 4 が 1000 で復元される。
+      expect(router.ssrcTable[1001]).toBe(receiver);
+      expect(router.learnedSsrcs.has(1001)).toBe(true);
+      expect(retransmissionsOf(received)).toEqual([
+        [1000, 2],
+        [1000, 4],
+      ]);
+      receiver.stop();
+    });
+
+    test("新しい SSRC の無効なパケットは、そのパケットで追加された経路だけが取り消される", () => {
+      // Arrange
+      const { router, receiver } = createSimulcastRtxReceiver();
+      router.routeRtp(mediaOf(1000, 1, high.rid));
+      const invalid = mediaOf(3000, 1, high.rid);
+      invalid.header.payloadType = 120;
+
+      // Act: 未学習の SSRC 3000 から、未交渉の payload type のパケットが届く。
+      router.routeRtp(invalid);
+
+      // Assert: 3000 は経路を学習せず、1000 の経路は残る。
+      expect(router.ssrcTable[3000]).toBeUndefined();
+      expect(router.learnedSsrcs.has(3000)).toBe(false);
+      expect(router.ssrcTable[1000]).toBe(receiver);
+      receiver.stop();
+    });
+
     test("transceiver の登録解除で、学習済み SSRC の印も経路と一緒に消える", () => {
       // Arrange: 媒体 SSRC と RTX SSRC を学習させる。
       const { router, transceiver } = createSimulcastRtxReceiver();
