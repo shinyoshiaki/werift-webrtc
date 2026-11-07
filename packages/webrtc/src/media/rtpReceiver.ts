@@ -312,6 +312,8 @@ export class RTCRtpReceiver {
       remoteTrackId: this.remoteTrackId,
       tracks: [...this.tracks],
       trackBySSRC: { ...this.trackBySSRC },
+      /** SSRCs of `trackBySSRC` that packets taught (not description state). */
+      learnedTrackSsrcs: [...this.learnedTrackSsrcs],
       trackByRID: { ...this.trackByRID },
       unboundTracks: [...this.unboundTracks],
       receiveTables: this.snapshotReceiveTables(),
@@ -338,7 +340,14 @@ export class RTCRtpReceiver {
         !(ssrc in state.trackBySSRC) &&
         state.tracks.includes(track),
     );
+    // Packets taught before the baseline and later dropped (an SSRC retired
+    // by a media SSRC change of its RID, or evicted): the baseline does not
+    // bring them back.
+    const forgotten = state.learnedTrackSsrcs.filter(
+      (ssrc) => !(ssrc in this.trackBySSRC),
+    );
     replaceTable(this.trackBySSRC, state.trackBySSRC);
+    for (const ssrc of forgotten) delete this.trackBySSRC[ssrc];
     for (const [ssrc, track] of learnedTracks) {
       this.trackBySSRC[ssrc] = track;
     }

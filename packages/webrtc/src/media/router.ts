@@ -167,6 +167,8 @@ export class RtpRouter {
       ridTable: { ...this.ridTable },
       extIdUriMap: { ...this.extIdUriMap },
       staged: this.snapshotStaged(),
+      /** Routes of `ssrcTable` that packets taught (not description state). */
+      learnedSsrcs: [...this.learnedSsrcs],
     };
   }
 
@@ -174,7 +176,10 @@ export class RtpRouter {
    * Internal: return to a negotiation baseline. Two kinds of route are not
    * description state and survive: SSRCs learned from packets for an endpoint
    * still attached, and the own SSRC of every live sender (including one the
-   * application added while the description was pending).
+   * application added while the description was pending). Likewise a route
+   * packets taught before the baseline and later dropped (an SSRC retired by
+   * a media SSRC change of its RID, or evicted) stays dropped: the baseline
+   * does not bring packet-driven routes back.
    */
   restoreRoutes(
     snapshot: RouterSnapshot,
@@ -192,7 +197,11 @@ export class RtpRouter {
         !(ssrc in snapshot.ssrcTable) &&
         endpoints.has(endpoint),
     );
+    const forgotten = snapshot.learnedSsrcs.filter(
+      (ssrc) => !(ssrc in this.ssrcTable),
+    );
     this.ssrcTable = { ...snapshot.ssrcTable };
+    for (const ssrc of forgotten) delete this.ssrcTable[ssrc];
     for (const [ssrc, endpoint] of learnedRoutes) {
       this.ssrcTable[Number(ssrc)] = endpoint;
     }

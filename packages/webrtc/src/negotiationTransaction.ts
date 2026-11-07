@@ -166,9 +166,9 @@ const RETIRED_UFRAG_HISTORY = 64;
  * | Component | Snapshot / restore | Kept across rollback |
  * | --- | --- | --- |
  * | `RTCRtpTransceiver` (with sender, receiver) | `snapshotNegotiationState` / `restoreNegotiationState` | an application `stop()` made during the transaction |
- * | `RTCRtpReceiver` | `snapshotNegotiationState` / `restoreNegotiationState` | SSRCs learned from RID packets whose track survives |
+ * | `RTCRtpReceiver` | `snapshotNegotiationState` / `restoreNegotiationState` | SSRCs learned from RID packets whose track survives; one packets dropped after the baseline (retired by a media SSRC change of its RID, or evicted) is not restored |
  * | `TransceiverManager` | `snapshotNegotiationState` / `restoreNegotiationState` | transceivers the application uses (`heldByApplication`) |
- * | `RtpRouter` | `snapshotRoutes` / `restoreRoutes` | packet-learned SSRC routes, every live sender's route |
+ * | `RtpRouter` | `snapshotRoutes` / `restoreRoutes` | packet-learned SSRC routes (one packets dropped after the baseline is not restored), every live sender's route |
  * | `SctpTransportManager` | `snapshotNegotiationState` / `restoreNegotiationState` | an application-created SCTP transport whose association never ran |
  */
 export class NegotiationTransaction {

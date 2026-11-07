@@ -1217,6 +1217,61 @@ describe("media/router", () => {
       expect([...receiver.learnedTrackSsrcs]).toEqual([10040]);
       receiver.stop();
     });
+    test("媒体 SSRC の切り替え後にロールバックしても、退役した旧 SSRC の経路と track 対応は復活しない", () => {
+      // Arrange: 旧 1000 を学習した時点で交渉の基準 (ロールバック先) を取り、その後 RID が 2000 に切り替わる。
+      const { router, receiver } = createSimulcastRtxReceiver();
+      const received = collectDeliveredRtp(receiver.trackByRID.high);
+      router.routeRtp(mediaOf(1000, 1, high.rid));
+      router.routeRtp(mediaOf(1000, 2, high.rid));
+      const routes = router.snapshotRoutes();
+      const receiverState = receiver.snapshotNegotiationState();
+      router.routeRtp(mediaOf(2000, 100, high.rid));
+
+      // Act: ロールバックで基準に戻し、RID 拡張のない旧 1000 の遅着パケットと新 2000 のパケットが届く。
+      router.restoreRoutes(routes, {
+        endpoints: new Set([receiver]),
+        liveSenders: [],
+      });
+      receiver.restoreNegotiationState(receiverState);
+      router.routeRtp(mediaOf(1000, 4));
+      router.routeRtp(mediaOf(2000, 101));
+
+      // Assert: 旧 1000 は経路も track 対応もなく届かず、NACK 状態も作られない。新 2000 は届く。
+      expect(router.ssrcTable[1000]).toBeUndefined();
+      expect(receiver.trackBySSRC[1000]).toBeUndefined();
+      expect(received.map((p) => [p.ssrc, p.seq])).toEqual([
+        [1000, 1],
+        [1000, 2],
+        [2000, 100],
+        [2000, 101],
+      ]);
+      expect(getReceiverNack(receiver).ssrcs).toEqual([2000]);
+      receiver.stop();
+    });
+
+    test("ロールバックしても、交渉の基準より後に学習した経路と、まだ学習中の経路はそのまま残る", () => {
+      // Arrange: 基準の時点で 1000 を学習済み。その後 low の 2000 を学習する。
+      const { router, receiver } = createSimulcastRtxReceiver();
+      router.routeRtp(mediaOf(1000, 1, high.rid));
+      const routes = router.snapshotRoutes();
+      const receiverState = receiver.snapshotNegotiationState();
+      router.routeRtp(mediaOf(2000, 1, low.rid));
+
+      // Act
+      router.restoreRoutes(routes, {
+        endpoints: new Set([receiver]),
+        liveSenders: [],
+      });
+      receiver.restoreNegotiationState(receiverState);
+
+      // Assert: どちらの経路と track 対応も残る。
+      for (const ssrc of [1000, 2000]) {
+        expect(router.ssrcTable[ssrc]).toBe(receiver);
+        expect(receiver.trackBySSRC[ssrc]).toBeDefined();
+      }
+      receiver.stop();
+    });
+
     test("transceiver の登録解除で、学習済み SSRC の印も経路と一緒に消える", () => {
       // Arrange: 媒体 SSRC と RTX SSRC を学習させる。
       const { router, transceiver } = createSimulcastRtxReceiver();
