@@ -592,4 +592,49 @@ describe("sctp flight size accounting", () => {
       await disposeMockSctp(sctp);
     }
   });
+  test("破棄済みの Gap ACK 断片は取り消されても再計上されない", async () => {
+    // Arrange: 先頭の信頼性ありチャンク A と、3 断片のメッセージを送る
+    const { sctp, transport } = createMockSctp({ established: true });
+    try {
+      const maxPayloadSize: number = (sctp as any).maxPayloadSize;
+      await sctp.send(0, 51, Buffer.alloc(100));
+      await sctp.send(0, 51, Buffer.alloc(maxPayloadSize * 2 + 10), {
+        expiry: Date.now() / 1000 + 60,
+      });
+      await settle();
+      const [head, f1, f2, f3] = sentQueueOf(sctp);
+      // 2 番目の断片だけ Gap ACK され、その後メッセージが期限切れになる
+      await receiveSack(sctp, buildSack(tsnBefore(head.tsn), [[3, 3]]));
+      expect(f2.acked).toBe(true);
+      for (const f of [f1, f2, f3]) f.expiry = Date.now() / 1000 - 1;
+      await fireT3(sctp);
+      expect(f2.abandoned).toBe(true);
+
+      // Act: 断片を含まない SACK を受け、再度 T3 が発火する
+      await receiveSack(sctp, buildSack(tsnBefore(head.tsn)));
+      const before = transport.send.mock.calls.length;
+      await fireT3(sctp);
+
+      // Assert: 破棄済み断片は再計上されず、A だけが再送される
+      expect(sentDataTsns(transport, before)).toEqual([head.tsn]);
+      expect(flightSizeOf(sctp)).toBe(100);
+      expectFlightSizeInvariant(sctp);
+      expect((sctp as any).timer3Handle).toBeDefined();
+
+      // Act: A を累積 ACK する
+      const beforeAck = transport.send.mock.calls.length;
+      await receiveSack(sctp, buildSack(head.tsn));
+      await settle();
+
+      // Assert: FORWARD TSN で破棄分が進められ、計上が残らない
+      const forwardTsn = sentChunks(transport, beforeAck).find(
+        (c): c is ForwardTsnChunk => c instanceof ForwardTsnChunk,
+      );
+      expect(forwardTsn?.cumulativeTsn).toBe(f3.tsn);
+      expect(sentQueueOf(sctp)).toHaveLength(0);
+      expect(flightSizeOf(sctp)).toBe(0);
+    } finally {
+      await disposeMockSctp(sctp);
+    }
+  });
 });

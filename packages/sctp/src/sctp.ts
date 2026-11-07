@@ -709,7 +709,8 @@ export class SCTP {
       }
     }
     for (const sChunk of this.sentQueue) {
-      if (sChunk.acked && !gapAcked.has(sChunk.tsn)) {
+      // Abandoned chunks are never retransmitted nor counted in flight again.
+      if (sChunk.acked && !sChunk.abandoned && !gapAcked.has(sChunk.tsn)) {
         sChunk.acked = false;
         this.flightSizeIncrease(sChunk);
         reneged = true;
