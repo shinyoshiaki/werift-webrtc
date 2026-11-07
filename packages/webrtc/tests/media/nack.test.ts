@@ -9,7 +9,7 @@ import {
   RtpHeader,
   RtpPacket,
 } from "../../../rtp/src";
-import { NackHandler } from "../../src/media/receiver/nack";
+import { MAX_NACK_STREAMS, NackHandler } from "../../src/media/receiver/nack";
 
 const packet = (ssrc: number, sequenceNumber: number) =>
   new RtpPacket(new RtpHeader({ sequenceNumber, ssrc }), Buffer.from(""));
@@ -101,6 +101,54 @@ describe("media/nack", () => {
     nack.addPacket(packet(1, 10));
     nack.addPacket(packet(1, 20));
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  test("SSRC が入れ替わり続けても NACK 状態は上限を超えず、最も古い SSRC から timer ごと解放される", async () => {
+    // Arrange: SSRC 1 が seq 2〜4 を失い、NACK timer が動いている。
+    vi.useFakeTimers();
+    const receiver = new MockRTCRtpReceiver();
+    const nack = new NackHandler(receiver as any);
+    nack.addPacket(packet(1, 1));
+    nack.addPacket(packet(1, 5));
+    expect(vi.getTimerCount()).toBe(1);
+
+    // Act: 送信側が SSRC を上限を超えて次々に切り替える (各 SSRC も欠落する)。
+    const total = MAX_NACK_STREAMS * 4;
+    for (let ssrc = 2; ssrc <= total; ssrc++) {
+      nack.addPacket(packet(ssrc, 100));
+      nack.addPacket(packet(ssrc, 102));
+    }
+
+    // Assert: 状態と timer は直近 MAX_NACK_STREAMS 個の SSRC 分だけ残る。
+    expect(nack.ssrcs.length).toBe(MAX_NACK_STREAMS);
+    expect(nack.ssrcs).not.toContain(1);
+    expect(nack.ssrcs).toContain(total);
+    expect(vi.getTimerCount()).toBe(MAX_NACK_STREAMS);
+
+    // Act: NACK 送信周期を進める。
+    receiver.nacks.length = 0;
+    await vi.advanceTimersByTimeAsync(5);
+
+    // Assert: 解放済みの SSRC 1 宛ての NACK は出ない。
+    expect(receiver.nacks.map((n) => n.mediaSourceSsrc)).not.toContain(1);
+    nack.close();
+  });
+
+  test("受信中の SSRC は、新しい SSRC が上限まで増えても解放されない", () => {
+    // Arrange
+    const nack = new NackHandler(new MockRTCRtpReceiver() as any);
+    nack.addPacket(packet(1, 1));
+
+    // Act: 新しい SSRC の合間に SSRC 1 も受け続ける。
+    for (let ssrc = 2; ssrc <= MAX_NACK_STREAMS * 2; ssrc++) {
+      nack.addPacket(packet(ssrc, 1));
+      nack.addPacket(packet(1, ssrc));
+    }
+
+    // Assert: 直近に受けた SSRC 1 は残り、欠落もない。
+    expect(nack.ssrcs).toContain(1);
+    expect(nack.lostSeqNumbersOf(1)).toEqual([]);
+    nack.close();
   });
 });
 

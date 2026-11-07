@@ -951,6 +951,44 @@ describe("media/router", () => {
       receiver.stop();
     });
 
+    test("SSRC が切り替わり続けても RID ごとの媒体 / RTX SSRC の記録は上限内に収まり、使用中の RTX SSRC は残る", () => {
+      // Arrange: RTX 1001 が媒体 1000 の欠落を回復し続ける。
+      const { router, receiver } = createSimulcastRtxReceiver();
+      const received = collectDeliveredRtp(receiver.trackByRID.high);
+      router.routeRtp(mediaOf(1000, 0, high.rid));
+
+      // Act: 同じ RID で媒体 / RTX SSRC が 20 回切り替わる。その間も 1000 は欠落を 1001 で回復する。
+      for (let i = 1; i <= 20; i++) {
+        const ssrc = 10000 + i * 2;
+        router.routeRtp(mediaOf(ssrc, 0, high.rid));
+        router.routeRtp(mediaOf(ssrc, 2, high.rid));
+        router.routeRtp(
+          createSimulcastRtxFor(ssrc, 1, { rtxSsrc: ssrc + 1, rrid: high.rid }),
+        );
+        router.routeRtp(mediaOf(1000, i * 2, high.rid));
+        router.routeRtp(
+          createSimulcastRtxFor(1000, i * 2 - 1, {
+            rtxSsrc: 1001,
+            rtxSequenceNumber: i,
+            rrid: i === 1 ? high.rid : undefined,
+          }),
+        );
+      }
+
+      // Assert: 記録は RID ごとの上限 (4) 以内で、回復し続ける RTX 1001 は残る。
+      expect(receiver.rtxSsrcsByRid.high.length).toBeLessThanOrEqual(4);
+      expect(Object.keys(receiver.ridByRtxSsrc).length).toBeLessThanOrEqual(4);
+      expect(receiver.ridByRtxSsrc[1001]).toBe(high.rid);
+      expect(receiver.mediaSsrcsByRid.high.length).toBeLessThanOrEqual(4);
+      expect(receiver.receivedBySsrc.size).toBeLessThanOrEqual(4);
+      // Assert: 1000 の 20 個の欠落と、各新媒体の欠落がすべて回復する。
+      expect(
+        retransmissionsOf(received).filter(([ssrc]) => ssrc === 1000),
+      ).toHaveLength(20);
+      expect(retransmissionsOf(received)).toHaveLength(40);
+      receiver.stop();
+    });
+
     test("同じ RID を使う複数 m-line でも、学習済み RTX SSRC は MID 省略後に元の受信先へ届く", () => {
       // Arrange: mid "1" を先に登録し、同じ RID を使う mid "0" の receiver に RTX を学習させる。
       const { router, receiver: other } = createSimulcastRtxReceiver({

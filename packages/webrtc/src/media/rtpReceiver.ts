@@ -55,7 +55,12 @@ import {
   RtpReceivePacketType,
 } from "./track";
 
-const MAX_MEDIA_SSRCS_PER_RID = 4;
+/**
+ * Media SSRCs and RTX SSRCs kept per RID. A RID has one of each at a time
+ * (RFC 8852); the bound keeps a few earlier ones for late packets after a
+ * change without letting a sender that keeps changing SSRCs grow the state.
+ */
+const MAX_SSRCS_PER_RID = 4;
 
 const log = debug("werift:packages/webrtc/src/media/rtpReceiver.ts");
 
@@ -79,13 +84,16 @@ export class RTCRtpReceiver {
   /**
    * Simulcast RTX without `a=ssrc-group:FID` (RFC 8852): the RID each RTX
    * SSRC repairs, learned from `repaired-rtp-stream-id`, and the media SSRCs
-   * each RID has used (oldest first, bounded), learned from `rtp-stream-id`.
+   * each RID has used (least recently received first, at most
+   * `MAX_SSRCS_PER_RID`), learned from `rtp-stream-id`.
    * They name the candidates of an RTX packet when {@link ssrcByRtx} (SDP)
    * has no entry; {@link receivedBySsrc} decides between them per packet.
    * Packet-driven live state like {@link learnedTrackSsrcs}: a negotiation
    * (commit, rollback, `resyncCodecs`) keeps it, a later packet updates it.
    */
   readonly ridByRtxSsrc: { [rtxSsrc: number]: string } = {};
+  /** RTX SSRCs of {@link ridByRtxSsrc} per RID, least recently repairing first. */
+  readonly rtxSsrcsByRid: { [rid: string]: number[] } = {};
   readonly mediaSsrcsByRid: { [rid: string]: number[] } = {};
   /** Received packets of the media SSRCs in {@link mediaSsrcsByRid}. */
   readonly receivedBySsrc = new Map<number, ReceivedPacketHistory>();
@@ -451,6 +459,7 @@ export class RTCRtpReceiver {
     this.releaseReceiverTWCC();
     this.nack.close();
     clearTable(this.ridByRtxSsrc);
+    clearTable(this.rtxSsrcsByRid);
     clearTable(this.mediaSsrcsByRid);
     this.receivedBySsrc.clear();
   }
@@ -744,18 +753,44 @@ export class RTCRtpReceiver {
       log("repaired rid has no track", repairedRid);
       return;
     }
-    this.ridByRtxSsrc[packet.header.ssrc] = repairedRid;
+    this.bindRtxSsrc(packet.header.ssrc, repairedRid);
     this.handleRTP(packet, extensions);
   };
 
+  /** Bind `rtxSsrc` to `rid` (or mark it the most recent), evicting beyond the bound. */
+  private bindRtxSsrc(rtxSsrc: number, rid: string) {
+    const previous = this.ridByRtxSsrc[rtxSsrc];
+    if (previous !== undefined) {
+      const list = this.rtxSsrcsByRid[previous] ?? [];
+      const index = list.indexOf(rtxSsrc);
+      if (index >= 0) list.splice(index, 1);
+    }
+    this.ridByRtxSsrc[rtxSsrc] = rid;
+    const ssrcs = (this.rtxSsrcsByRid[rid] ??= []);
+    ssrcs.push(rtxSsrc);
+    if (ssrcs.length > MAX_SSRCS_PER_RID) {
+      delete this.ridByRtxSsrc[ssrcs.shift()!];
+    }
+  }
+
+  /**
+   * Record `ssrc` as the RID's most recently received media SSRC, evicting
+   * the least recently received one (and its history) beyond the bound.
+   */
   private learnRidMediaSsrc(rid: string, ssrc: number) {
     const ssrcs = (this.mediaSsrcsByRid[rid] ??= []);
-    if (ssrcs.includes(ssrc)) return;
+    if (ssrcs[ssrcs.length - 1] === ssrc) return;
+    const index = ssrcs.indexOf(ssrc);
+    if (index >= 0) {
+      ssrcs.splice(index, 1);
+      ssrcs.push(ssrc);
+      return;
+    }
     ssrcs.push(ssrc);
     if (!this.receivedBySsrc.has(ssrc)) {
       this.receivedBySsrc.set(ssrc, new ReceivedPacketHistory());
     }
-    if (ssrcs.length <= MAX_MEDIA_SSRCS_PER_RID) return;
+    if (ssrcs.length <= MAX_SSRCS_PER_RID) return;
     const evicted = ssrcs.shift()!;
     const inUse = Object.values(this.mediaSsrcsByRid).some((other) =>
       other.includes(evicted),
@@ -785,7 +820,9 @@ export class RTCRtpReceiver {
         .get(ssrc)
         ?.fitsHole(originalSeq, rtx.header.timestamp),
     );
-    return matches.length === 1 ? matches[0] : undefined;
+    if (matches.length !== 1) return undefined;
+    this.bindRtxSsrc(rtxSsrc, rid);
+    return matches[0];
   }
 
   private handleRTP(
@@ -867,9 +904,12 @@ export class RTCRtpReceiver {
     }
 
     this.payloadTypeBySsrc[packet.header.ssrc] = mediaCodec.payloadType;
-    this.receivedBySsrc
-      .get(packet.header.ssrc)
-      ?.add(packet.header.sequenceNumber, packet.header.timestamp);
+    const received = this.receivedBySsrc.get(packet.header.ssrc);
+    if (received) {
+      received.add(packet.header.sequenceNumber, packet.header.timestamp);
+      // rid 拡張が省略された後のパケットも、その RID の受信順に反映する。
+      if (track?.rid) this.learnRidMediaSsrc(track.rid, packet.header.ssrc);
+    }
 
     if (track?.kind === "video" && hasFeedback(mediaCodec, "nack")) {
       this.nack.addPacket(packet);

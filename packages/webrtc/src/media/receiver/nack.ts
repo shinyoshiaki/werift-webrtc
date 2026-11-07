@@ -10,12 +10,21 @@ import type { RTCRtpReceiver } from "../rtpReceiver";
 const log = debug("werift:packages/webrtc/src/media/receiver/nack.ts");
 
 const LOST_SIZE = 30 * 5;
+/**
+ * Media SSRCs with NACK state at once. A receiver has a few live SSRCs (one
+ * per simulcast layer); a sender that keeps changing SSRCs must not grow the
+ * state for the receiver's lifetime, so the least recently received SSRC is
+ * dropped (its timer stopped) beyond this. Its next packet starts afresh.
+ */
+export const MAX_NACK_STREAMS = 16;
 
 /**
  * Generic NACK (RFC 4585 section 6.2.1) for the media SSRCs of one receiver.
  * Loss detection and retransmission requests are kept per media SSRC, so the
  * layers of a simulcast receiver (one SSRC each) never compare their sequence
  * numbers with each other and each NACK names the SSRC that lost the packets.
+ * At most {@link MAX_NACK_STREAMS} SSRCs keep state (least recently received
+ * evicted first).
  */
 export class NackHandler {
   private readonly receiver: RTCRtpReceiver;
@@ -54,9 +63,17 @@ export class NackHandler {
     if (this.closed) return;
 
     let stream = this.streams.get(ssrc);
-    if (!stream) {
+    if (stream) {
+      // Map の挿入順を受信順に保ち、先頭を最も古い SSRC にする。
+      this.streams.delete(ssrc);
+    } else {
       stream = new NackStream(ssrc, this);
-      this.streams.set(ssrc, stream);
+    }
+    this.streams.set(ssrc, stream);
+    if (this.streams.size > MAX_NACK_STREAMS) {
+      const [oldest, evicted] = this.streams.entries().next().value!;
+      evicted.close();
+      this.streams.delete(oldest);
     }
     stream.addPacket(packet.header.sequenceNumber);
   }
