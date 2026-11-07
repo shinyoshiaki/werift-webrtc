@@ -702,8 +702,8 @@ export class SCTP {
     }
     // # handle gap blocks
     let loss = false;
+    const seen = new Set<number>();
     if (chunk.gaps.length > 0) {
-      const seen = new Set();
       let highestSeenTsn: number;
       chunk.gaps.forEach((gap) => {
         for (let pos = gap[0]; pos < gap[1] + 1; pos++) {
@@ -747,6 +747,17 @@ export class SCTP {
       }
     }
 
+    // # detect reneging (RFC 9260 6.2.1 D-iii)
+    // A chunk gap-acked before but missing from this SACK was dropped by the
+    // peer; make it outstanding again so T3-rtx retransmits it.
+    let reneged = false;
+    for (const sChunk of this.sentQueue) {
+      if (sChunk.acked && !seen.has(sChunk.tsn)) {
+        sChunk.acked = false;
+        reneged = true;
+      }
+    }
+
     // # adjust congestion window
     if (this.fastRecoveryExit === undefined) {
       if (done && cwndFullyUtilized) {
@@ -778,6 +789,8 @@ export class SCTP {
       this.timer3Cancel();
     } else if (done > 0) {
       this.timer3Restart();
+    } else if (reneged && !this.timer3Handle) {
+      this.timer3Start();
     }
 
     // RFC 9260 §6.2.1(D-ii): keep latest peer a_rwnd; available window is derived via flightSize.

@@ -619,6 +619,48 @@ describe("PR-SCTP lifetime (expiry) abandonment", () => {
     expect(client.sentQueue.length).toBe(0);
     expect(received).toEqual(["A", "B"]);
   });
+
+  test("retransmits a gap-acked chunk after the receiver reneges on it", async () => {
+    // Arrange: 寿命なしの A を失い、後続の B は届いてギャップ ACK 済みになる
+    const pair = await createLossyPrSctpPair();
+    stop = pair.stop;
+    const client = pair.client as any;
+    const server = pair.server as any;
+    const received: string[] = [];
+    pair.server.onReceive.subscribe((_streamId, _ppId, data) => {
+      received.push(data.toString());
+    });
+    pair.recorder.dropData = true;
+    await pair.client.send(0, 53, Buffer.from("A"), { ordered: true });
+    pair.recorder.dropData = false;
+    await pair.client.send(0, 53, Buffer.from("B"), { ordered: true });
+    await flushImmediates();
+    const b: DataChunk = [...client.sentQueue][1];
+    expect(b.acked).toBe(true);
+    // Arrange: 受信側がバッファ逼迫で、順序待ちの B を破棄したことを模擬する
+    const stream = server.getInboundStream(0);
+    server.advertisedRwnd += stream.reassembly.length;
+    stream.reassembly = [];
+    server.sackMisOrdered.delete(b.tsn);
+
+    // Act: T3-rtx で A を再送させ、B を含まない SACK を受け取った後も時間を進める
+    await vi.advanceTimersByTimeAsync(PAST_T3_MS);
+    await flushImmediates();
+    // Assert: B のギャップ ACK 撤回を検出し、未確認に戻す
+    expect(received).toEqual(["A"]);
+    expect(b.acked).toBe(false);
+    await vi.advanceTimersByTimeAsync(PAST_T3_MS);
+    await flushImmediates();
+
+    // Assert: B が再送されて配送が回復し、送信側の状態も片付く
+    const bSends = pair.recorder.sentChunks.filter(
+      (c) => c instanceof DataChunk && c.tsn === b.tsn,
+    ).length;
+    expect(bSends).toBe(2);
+    expect(received).toEqual(["A", "B"]);
+    expect(client.sentQueue.length).toBe(0);
+    expect(client.flightSize).toBe(0);
+  });
 });
 
 describe("PR-SCTP under seeded random loss of DATA / SACK / FORWARD-TSN", () => {
