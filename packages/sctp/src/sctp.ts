@@ -327,7 +327,14 @@ export class SCTP {
       if (chunks.length != 1) {
         throw new Error();
       }
-      expectedTag = 0;
+      // RFC 9260 §8.5.1 (A): an INIT carries verification tag 0. An older
+      // werift (<= 0.26) that answered our INIT before its own start() then
+      // sends its INIT with the tag it learned from ours; only a peer that
+      // received our INIT knows that tag, so accept it as well.
+      expectedTag =
+        verificationTag === this.localVerificationTag
+          ? this.localVerificationTag
+          : 0;
     } else {
       expectedTag = this.localVerificationTag;
     }
@@ -1585,7 +1592,9 @@ export class SCTP {
     const packet = serializePacket(
       this.localPort,
       this.remotePort,
-      this.remoteVerificationTag,
+      // RFC 9260 §8.5.1: INIT is always sent with verification tag 0, also
+      // when an INIT answered before start() taught us the peer's tag.
+      chunk.type === InitChunk.type ? 0 : this.remoteVerificationTag,
       chunk,
     );
     await this.transport.send(packet);

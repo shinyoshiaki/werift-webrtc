@@ -768,3 +768,7 @@ Arrange は `packages/dtls/tests/fixture.ts` の `arrangePartialDtls13Handshake`
 | 同 › 旧世代の宛先・旧世代で固定した SPED 経路しかなくても…（§22）、現世代の pair を指す宛先はその pair にだけ送る、carrier の明示 addr が認証済み pair と一致しないと送らない | 成功 | 成功 |
 
 レビューの再現スクリプト（`/tmp/werift-review-retained-candidate-keyupdate.mjs`）と、§20・§22 の再現スクリプトは、修正後いずれも exit 0 です。
+
+## 24. 旧バージョンの werift との互換性の再確認
+
+公開済みの旧リリース（主に 0.26.0、ほかに 0.25.2〜0.19.9）と実際に接続して再確認し、本ブランチが原因の非互換を 3 件修正しました。DTLS `[1.3, 1.2]`（SPED を含む）の client が旧 werift の DTLS 1.2 server とつながらない件、旧 werift の INIT の verification tag で SCTP が確立しない件、role がずれる構成で両側から同時に開いた DataChannel の stream ID が衝突する件です。調査方法・結果・修正しなかったもの・別に見つかった問題は `reviews/legacy-werift-compatibility.md` にまとめました。

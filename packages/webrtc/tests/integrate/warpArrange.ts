@@ -1193,16 +1193,26 @@ export async function prepareIceCloseCounting(version: DtlsVersion) {
 /**
  * Arrange: make `pc` start SCTP like an older werift: the ICE controlling
  * side is the SCTP initiator and ignores incoming INIT / COOKIE_ECHO, the
- * controlled side only waits for INIT (no fallback), and the stream ID
- * parity follows the ICE role. Call before DTLS connects.
+ * controlled side only waits for INIT (no fallback), and in-band stream IDs
+ * follow the ICE-role parity, counting up from the bottom. Call before DTLS
+ * connects.
  */
 export function emulateLegacySctpRole(pc: RTCPeerConnection) {
   const sctpTransport = pc.sctpTransport!;
+  const internals = sctpTransport as unknown as {
+    dataChannelId?: number;
+    dataChannels: Record<number, unknown>;
+    allocateLocalStreamId: () => number;
+  };
+  internals.allocateLocalStreamId = () => {
+    let streamId = internals.dataChannelId!;
+    while (internals.dataChannels[streamId] !== undefined) streamId += 2;
+    return streamId;
+  };
   sctpTransport.start = async (remotePort: number) => {
     const association = sctpTransport.prepareForStart();
     const initiator = pc.iceTransports[0].role === "controlling";
-    (sctpTransport as unknown as { dataChannelId?: number }).dataChannelId =
-      initiator ? 1 : 0;
+    internals.dataChannelId = initiator ? 1 : 0;
     association.isServer = !initiator;
     if (initiator) {
       const dtls = sctpTransport.transport;
@@ -1220,6 +1230,51 @@ export function emulateLegacySctpRole(pc: RTCPeerConnection) {
     }
     await association.start(remotePort);
   };
+}
+
+/**
+ * Act helper: open an in-band DataChannel from each side at the same moment
+ * and wait until each side received the other's channel and both are open.
+ * Returns the [local, remote] pair of each direction.
+ */
+export async function openChannelsFromBothSides(
+  offerer: { createDataChannel(label: string): any; onDataChannel: any },
+  answerer: { createDataChannel(label: string): any; onDataChannel: any },
+  timeoutMs = 5_000,
+) {
+  const seenByOfferer: any[] = [];
+  const seenByAnswerer: any[] = [];
+  offerer.onDataChannel.subscribe((c: any) => seenByOfferer.push(c));
+  answerer.onDataChannel.subscribe((c: any) => seenByAnswerer.push(c));
+  const fromOfferer = offerer.createDataChannel("from-offerer");
+  const fromAnswerer = answerer.createDataChannel("from-answerer");
+  const deadline = Date.now() + timeoutMs;
+  while (
+    !(
+      seenByAnswerer.length > 0 &&
+      seenByOfferer.length > 0 &&
+      [fromOfferer, fromAnswerer, seenByAnswerer[0], seenByOfferer[0]].every(
+        (c) => c.readyState === "open",
+      )
+    )
+  ) {
+    if (Date.now() > deadline) {
+      throw new Error(
+        `channels from both sides did not open: ${JSON.stringify({
+          offerer: [fromOfferer.id, seenByOfferer.map((c) => [c.label, c.id])],
+          answerer: [
+            fromAnswerer.id,
+            seenByAnswerer.map((c) => [c.label, c.id]),
+          ],
+        })}`,
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  return [
+    [fromOfferer, seenByAnswerer[0]],
+    [fromAnswerer, seenByOfferer[0]],
+  ] as const;
 }
 
 /**
@@ -1581,6 +1636,51 @@ export async function connectAcrossBuilds({
 }
 
 // --- SPED over TCP with a delayed nomination ---
+
+/**
+ * Arrange: the four ways a released werift (`legacy`) can meet the current
+ * one: as offerer or answerer, with the answerer taking DTLS client
+ * (setup:active) or server (setup:passive). The offerer is ICE controlling,
+ * so `answererRole: "server"` puts the ICE and DTLS roles out of line.
+ */
+export const legacyRoleCombos = () =>
+  (["offerer", "answerer"] as const).flatMap((legacy) =>
+    (["client", "server"] as const).map((answererRole) => ({
+      name: `旧 ${legacy} × answerer DTLS ${answererRole}`,
+      legacy,
+      answererRole,
+    })),
+  );
+
+/** Arrange: candidate pairs over ICE-TCP only (both builds accept these options). */
+export const iceTcpOnlyConfig = () => ({
+  iceUseTcp: true,
+  iceUseIpv6: false,
+  iceFilterCandidatePair: (pair: {
+    localCandidate: { transport: string };
+    remoteCandidate: { transport: string };
+  }) =>
+    pair.localCandidate.transport.toLowerCase() === "tcp" &&
+    pair.remoteCandidate.transport.toLowerCase() === "tcp",
+});
+
+/** Act helper: send one text message each way and return what arrived. */
+export async function sendBothWays(
+  offererChannel: { send(m: string): void; onMessage: any },
+  answererChannel: { send(m: string): void; onMessage: any },
+) {
+  const received = (channel: { onMessage: any }) =>
+    new Promise<string>((resolve) => {
+      channel.onMessage.subscribe((message: string | Buffer) =>
+        resolve(message.toString()),
+      );
+    });
+  const toAnswerer = received(answererChannel);
+  const toOfferer = received(offererChannel);
+  offererChannel.send("from-offerer");
+  answererChannel.send("from-answerer");
+  return Promise.all([toAnswerer, toOfferer]);
+}
 
 /**
  * Arrange: delay every ICE-TCP request that carries USE-CANDIDATE (regular

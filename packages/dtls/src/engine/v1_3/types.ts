@@ -165,6 +165,12 @@ export interface Dtls13Options {
   key?: string;
   srtpProfiles?: SrtpProfile[];
   certificateRequest?: boolean;
+  /**
+   * Client: offer extended_master_secret (RFC 7627) in a ClientHello that
+   * also offers DTLS 1.2, so a 1.2 server that answers it sees the offer.
+   * A DTLS 1.3 server ignores it.
+   */
+  extendedMasterSecret?: boolean;
   /** Preferred named groups order */
   groups?: NamedCurveAlgorithms[];
   mtu?: number;

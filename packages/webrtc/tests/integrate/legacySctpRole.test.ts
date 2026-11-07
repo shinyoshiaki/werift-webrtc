@@ -1,6 +1,10 @@
 import { setTimeout } from "timers/promises";
 
-import { collectMessages, connectWithLegacySctpPeer } from "./warpArrange";
+import {
+  collectMessages,
+  connectWithLegacySctpPeer,
+  openChannelsFromBothSides,
+} from "./warpArrange";
 
 /**
  * 旧 werift (SCTP の INIT 送信側を ICE role で決める) と現行 (DTLS role で
@@ -47,6 +51,59 @@ describe("旧 werift peer との SCTP 開始側の不一致", () => {
         expect(await toOfferer).toEqual(["from-answerer"]);
         // Assert: SCTP の T1 再送 (初期 RTO 3 秒) を待たずに開く
         expect(connection.openedAfterMs).toBeLessThan(3_000);
+      } finally {
+        await Promise.allSettled([offerer.close(), answerer.close()]);
+      }
+    },
+    30_000,
+  );
+
+  test.each([
+    {
+      name: "現行 DTLS server ↔ 旧 controlling (同じ parity を使う)",
+      legacy: "offerer" as const,
+      answererRole: "server" as const,
+    },
+    {
+      name: "現行 DTLS client ↔ 旧 controlled (同じ parity を使う)",
+      legacy: "answerer" as const,
+      answererRole: "server" as const,
+    },
+    {
+      name: "role が揃う通常の組み合わせ",
+      legacy: "answerer" as const,
+      answererRole: "client" as const,
+    },
+  ])(
+    "$name: 両側から同時に in-band DataChannel を開いても stream ID が衝突せず、label どおりに届く",
+    async ({ legacy, answererRole }) => {
+      // Arrange: 旧 werift を模した peer と接続する
+      const { offerer, answerer } = await connectWithLegacySctpPeer({
+        legacy,
+        answererRole,
+      });
+      try {
+        // Act: 両側から同時に DataChannel を開き、それぞれで 1 件送る
+        const pairs = await openChannelsFromBothSides(offerer, answerer);
+        const arrived = pairs.map(([, remote]) => collectMessages(remote, 1));
+        pairs.forEach(([local]) => local.send(`via-${local.label}`));
+
+        // Assert: 相手側に同じ label・同じ ID で現れ、両方向とも届く
+        for (const [local, remote] of pairs) {
+          expect(remote.label).toBe(local.label);
+          expect(remote.id).toBe(local.id);
+        }
+        expect(pairs[0][0].id).not.toBe(pairs[1][0].id);
+        expect(await Promise.all(arrived)).toEqual([
+          ["via-from-offerer"],
+          ["via-from-answerer"],
+        ]);
+        // Assert: 現行側の ID は DTLS role の parity に従う (RFC 8832 §6)
+        const current = legacy === "offerer" ? answerer : offerer;
+        const currentChannel = legacy === "offerer" ? pairs[1][0] : pairs[0][0];
+        expect(currentChannel.id % 2).toBe(
+          current.dtlsTransports[0].role === "server" ? 1 : 0,
+        );
       } finally {
         await Promise.allSettled([offerer.close(), answerer.close()]);
       }

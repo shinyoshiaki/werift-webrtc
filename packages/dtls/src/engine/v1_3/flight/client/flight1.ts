@@ -6,6 +6,7 @@ import { generateKeyPair } from "../../../../cipher/namedCurve";
 import { HandshakeType } from "../../../../handshake/const";
 import { CookieExtension } from "../../../../handshake/extensions/cookie";
 import { EllipticCurves } from "../../../../handshake/extensions/ellipticCurves";
+import { ExtendedMasterSecret } from "../../../../handshake/extensions/extendedMasterSecret";
 import { KeyShare } from "../../../../handshake/extensions/keyShare";
 import { SignatureAlgorithms } from "../../../../handshake/extensions/signatureAlgorithms";
 import { SupportedVersions } from "../../../../handshake/extensions/supportedVersions";
@@ -122,6 +123,17 @@ export function buildClientHelloExtensions(this: Dtls13Host): Extension[] {
 
   if (this.tlsCookie.length > 0) {
     exts.push(new CookieExtension(this.tlsCookie).extension);
+  }
+
+  // A DTLS 1.2 server may answer this ClientHello (or record its extensions
+  // before a HelloVerifyRequest), so offer extended_master_secret as the 1.2
+  // ClientHello does. Older werift servers echo it in the ServerHello of the
+  // cookie round trip but derive the master secret from this offer only.
+  if (
+    this.options.extendedMasterSecret &&
+    supportsVersion(this.offeredProtocolVersions, DtlsVersion.V1_2)
+  ) {
+    exts.push({ type: ExtendedMasterSecret.type, data: Buffer.alloc(0) });
   }
 
   if (this.options.srtpProfiles?.length) {

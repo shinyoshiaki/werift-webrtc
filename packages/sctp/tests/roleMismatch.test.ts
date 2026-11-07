@@ -1,10 +1,16 @@
 import { setTimeout } from "timers/promises";
 
-import { SCTP_STATE } from "../src";
+import { SCTP, SCTP_STATE } from "../src";
+import { InitAckChunk, InitChunk } from "../src/chunk";
 import {
   collectMessages,
   createSctpEndpointPair,
   LEGACY_INITIATOR_IGNORED,
+  createControlledTransport,
+  localVerificationTagOf,
+  receiveInitAndTakeCookie,
+  receiveInitTagged,
+  sentTagsAndTypes,
 } from "./utils";
 
 /**
@@ -108,5 +114,55 @@ describe("SCTP initiator role mismatch", () => {
     } finally {
       await stop();
     }
+  });
+
+  test("相手の INIT に start() 前に答えた後でも、自分の INIT は verification tag 0 で送る (RFC 9260 §8.5.1)", async () => {
+    // Arrange: passive のまま相手の INIT に INIT_ACK で答え、相手の tag を覚えた association
+    // (WebRTC sets the remote port from SDP before SCTP starts)
+    const { transport, sent } = createControlledTransport();
+    const sctp = SCTP.server(transport);
+    sctp.setRemotePort(5000);
+    await receiveInitAndTakeCookie(sctp, sent);
+
+    // Act: その後 initiator として start する
+    sctp.isServer = false;
+    await sctp.start(5000);
+
+    // Assert: INIT_ACK は相手の tag で、INIT は tag 0 で送られる
+    expect(sentTagsAndTypes(sent)).toEqual([
+      [0x5678, InitAckChunk.type],
+      [0, InitChunk.type],
+    ]);
+    await sctp.stop();
+  });
+
+  test("自分の INIT を待つ間に、自分の verification tag 付きで届いた INIT (旧 werift) にも INIT_ACK で答える", async () => {
+    // Arrange: INIT を送って COOKIE_WAIT にいる initiator
+    const { transport, sent } = createControlledTransport();
+    const sctp = SCTP.client(transport);
+    await sctp.start(5000);
+    expect(sctp.associationState).toBe(SCTP_STATE.COOKIE_WAIT);
+
+    // Act: 相手が学習済みの自分の tag を付けた INIT を受け取る
+    await receiveInitTagged(sctp, localVerificationTagOf(sctp));
+
+    // Assert: 破棄せず、相手の initiate tag 宛てに INIT_ACK を返す
+    expect(sentTagsAndTypes(sent).at(-1)).toEqual([0x5678, InitAckChunk.type]);
+    await sctp.stop();
+  });
+
+  test("自分のものでも 0 でもない verification tag の INIT は破棄する", async () => {
+    // Arrange: INIT を送って COOKIE_WAIT にいる initiator
+    const { transport, sent } = createControlledTransport();
+    const sctp = SCTP.client(transport);
+    await sctp.start(5000);
+    const before = sent.length;
+
+    // Act: 無関係な tag の INIT を受け取る
+    await receiveInitTagged(sctp, (localVerificationTagOf(sctp) ^ 1) >>> 0);
+
+    // Assert: 何も返さない
+    expect(sent.length).toBe(before);
+    await sctp.stop();
   });
 });

@@ -244,6 +244,43 @@ export class RTCSctpTransport {
     return this.dtlsTransport.role === "server";
   }
 
+  /**
+   * An older werift (<= 0.26) picks its stream ID parity by the ICE role
+   * (controlling = odd), not by the DTLS role. When the two roles are not
+   * aligned that way (we are DTLS server but ICE controlled, or DTLS client
+   * but ICE controlling), such a peer uses our parity, counting up from the
+   * bottom.
+   */
+  private get legacyPeerSharesParity() {
+    const iceRole =
+      this.dtlsTransport.iceRoleAtStart ?? this.dtlsTransport.iceTransport.role;
+    return this.isServer !== (iceRole === "controlling");
+  }
+
+  /**
+   * Next free in-band stream ID with the DTLS-role parity (RFC 8832 §6).
+   * When an older werift peer would share that parity, count down from the
+   * top of the negotiated range instead, so its IDs (counting up) and ours
+   * cannot collide even when both sides open channels at the same time.
+   */
+  private allocateLocalStreamId() {
+    const used = (id: number) =>
+      Object.keys(this.dataChannels).includes(id.toString());
+    if (!this.legacyPeerSharesParity) {
+      let streamId = this.dataChannelId!;
+      while (used(streamId)) streamId += 2;
+      return streamId;
+    }
+    const streams = this.sctp.maxChannels ?? this.sctp._outboundStreamsCount;
+    let streamId = Math.min(streams, 65535) - 1;
+    if (streamId % 2 !== this.firstLocalStreamId) streamId -= 1;
+    while (streamId >= 0 && used(streamId)) streamId -= 2;
+    if (streamId < 0) {
+      throw new Error("no free SCTP stream for a new data channel");
+    }
+    return streamId;
+  }
+
   channelByLabel(label: string) {
     return Object.values(this.dataChannels).find((d) => d.label === label);
   }
@@ -454,10 +491,7 @@ export class RTCSctpTransport {
 
       let streamId = channel.id;
       if (streamId === undefined) {
-        streamId = this.dataChannelId!;
-        while (Object.keys(this.dataChannels).includes(streamId.toString())) {
-          streamId += 2;
-        }
+        streamId = this.allocateLocalStreamId();
         this.dataChannels[streamId] = channel;
         channel.setId(streamId);
       }

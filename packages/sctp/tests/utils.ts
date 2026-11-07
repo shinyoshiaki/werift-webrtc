@@ -102,6 +102,36 @@ export async function receiveInitAndTakeCookie(
   return initAck.params.find(([type]) => type === 0x0007)![1];
 }
 
+/**
+ * Arrange: deliver an INIT whose common-header verification tag is `tag`.
+ * RFC 9260 requires 0; an older werift (<= 0.26) that answered our INIT
+ * before its own start() sends its INIT with the tag it learned from ours.
+ */
+export async function receiveInitTagged(sctp: SCTP, tag: number) {
+  const init = new InitChunk();
+  init.initiateTag = 0x5678;
+  init.advertisedRwnd = 131072;
+  init.outboundStreams = 65535;
+  init.inboundStreams = 65535;
+  init.initialTsn = 1;
+  await (sctp as unknown as SctpInternals).handleData(
+    serializePacket(5001, 5000, tag, init),
+  );
+}
+
+/** Arrange: the verification tag `sctp` puts in its INIT / INIT_ACK. */
+export function localVerificationTagOf(sctp: SCTP) {
+  return (sctp as unknown as SctpInternals).localVerificationTag;
+}
+
+/** Assert helper: [verification tag, first chunk type] of each sent packet. */
+export function sentTagsAndTypes(sent: Buffer[]) {
+  return sent.map((packet) => {
+    const [, , tag, chunks] = parsePacket(packet);
+    return [tag, chunks[0].type] as const;
+  });
+}
+
 /** Arrange: deliver a COOKIE_ECHO carrying `cookie` to a responder. */
 export async function receiveCookieEcho(sctp: SCTP, cookie: Buffer) {
   const echo = new CookieEchoChunk();
