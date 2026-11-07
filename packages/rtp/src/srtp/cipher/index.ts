@@ -2,12 +2,22 @@ import type { RtcpHeader } from "../../rtcp/header";
 import type { RtpHeader } from "../../rtp/rtp";
 
 export abstract class CipherAesBase {
+  public srtpSessionKey: Buffer;
+  public srtpSessionSalt: Buffer;
+  public srtcpSessionKey: Buffer;
+  public srtcpSessionSalt: Buffer;
+
   constructor(
-    public srtpSessionKey: Buffer,
-    public srtpSessionSalt: Buffer,
-    public srtcpSessionKey: Buffer,
-    public srtcpSessionSalt: Buffer,
-  ) {}
+    srtpSessionKey: Buffer,
+    srtpSessionSalt: Buffer,
+    srtcpSessionKey: Buffer,
+    srtcpSessionSalt: Buffer,
+  ) {
+    this.srtpSessionKey = srtpSessionKey;
+    this.srtpSessionSalt = srtpSessionSalt;
+    this.srtcpSessionKey = srtcpSessionKey;
+    this.srtcpSessionSalt = srtcpSessionSalt;
+  }
 
   encryptRtp(
     header: RtpHeader,

@@ -6,4 +6,4 @@
 
 # Type Alias: RTCDataChannelState
 
-> **RTCDataChannelState**: `"connecting"` \| `"open"` \| `"closing"` \| `"closed"`
+> **RTCDataChannelState** = `"connecting"` \| `"open"` \| `"closing"` \| `"closed"`

@@ -19,13 +19,13 @@
 
 ### bytesSent?
 
-> `optional` **bytesSent**: `number`
+> `optional` **bytesSent?**: `number`
 
 ***
 
 ### codecId?
 
-> `optional` **codecId**: `string`
+> `optional` **codecId?**: `string`
 
 #### Inherited from
 
@@ -55,7 +55,7 @@
 
 ### packetsSent?
 
-> `optional` **packetsSent**: `number`
+> `optional` **packetsSent?**: `number`
 
 ***
 
@@ -81,7 +81,7 @@
 
 ### transportId?
 
-> `optional` **transportId**: `string`
+> `optional` **transportId?**: `string`
 
 #### Inherited from
 

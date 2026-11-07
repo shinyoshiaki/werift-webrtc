@@ -55,7 +55,7 @@ m=audio 9 UDP/TLS/RTP/SAVPF 111 (mid 1) m=audio 9 UDP/TLS/RTP/SAVPF 111  ← ans
 - 確立済み BUNDLE の re-offer では negotiated tag を group 先頭に保つ。共有 transport の member を group 外へ出す、
   または別々の group に分割する re-offer (RFC 8843 7.5) は、negotiation transaction (`0ad06d37`) が
   staged topology として pending にし、answer の確定まで current の共有 transport を変えない
-  (`packages/webrtc/NEGOTIATION_TRANSACTION.md`)。
+  (`packages/webrtc/src/negotiationTransaction.ts`、`packages/webrtc/src/negotiation/bundleTopology.ts`)。
 - 非ゼロ port の remote answer / pranswer が pending local offer と共通 codec を持たない場合、
   `InvalidAccessError` で拒否し、signaling state と descriptions を変更しない。
 

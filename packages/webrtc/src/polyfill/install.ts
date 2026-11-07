@@ -286,7 +286,7 @@ function restoreOwnProperty(
 }
 
 function hasOwn(target: object, key: string) {
-  return Object.prototype.hasOwnProperty.call(target, key);
+  return Object.hasOwn(target, key);
 }
 
 function restore(target: Record<string, unknown>, previous: Snapshot) {

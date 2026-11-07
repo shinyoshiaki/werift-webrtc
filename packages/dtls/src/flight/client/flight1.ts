@@ -8,12 +8,11 @@ import type { Extension } from "../../typings/domain";
 import { Flight } from "../flight";
 
 export class Flight1 extends Flight {
-  constructor(
-    udp: TransportContext,
-    dtls: DtlsContext,
-    private cipher: CipherContext,
-  ) {
+  private cipher: CipherContext;
+
+  constructor(udp: TransportContext, dtls: DtlsContext, cipher: CipherContext) {
     super(udp, dtls, 1, 3);
+    this.cipher = cipher;
   }
 
   async exec(extensions: Extension[]) {

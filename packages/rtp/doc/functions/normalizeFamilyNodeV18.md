@@ -12,7 +12,7 @@
 
 ### family
 
-`string` | `number`
+`string` \| `number`
 
 ## Returns
 

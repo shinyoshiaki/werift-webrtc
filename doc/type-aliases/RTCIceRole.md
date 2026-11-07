@@ -6,4 +6,4 @@
 
 # Type Alias: RTCIceRole
 
-> **RTCIceRole**: `"controlling"` \| `"controlled"`
+> **RTCIceRole** = `"controlling"` \| `"controlled"`

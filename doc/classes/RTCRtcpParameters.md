@@ -8,25 +8,25 @@
 
 ## Constructors
 
-### new RTCRtcpParameters()
+### Constructor
 
-> **new RTCRtcpParameters**(`props`): [`RTCRtcpParameters`](RTCRtcpParameters.md)
+> **new RTCRtcpParameters**(`props?`): `RTCRtcpParameters`
 
 #### Parameters
 
-##### props
+##### props?
 
-`Partial`\<[`RTCRtcpParameters`](RTCRtcpParameters.md)\> = `{}`
+`Partial`\<`RTCRtcpParameters`\> = `{}`
 
 #### Returns
 
-[`RTCRtcpParameters`](RTCRtcpParameters.md)
+`RTCRtcpParameters`
 
 ## Properties
 
 ### cname?
 
-> `optional` **cname**: `string`
+> `optional` **cname?**: `string`
 
 ***
 
@@ -38,4 +38,4 @@
 
 ### ssrc?
 
-> `optional` **ssrc**: `number`
+> `optional` **ssrc?**: `number`

@@ -1,6 +1,6 @@
 import { createSocket } from "dgram";
 
-import { UdpTransport, randomPort } from "../../../common/src";
+import { randomPort, UdpTransport } from "../../../common/src";
 import { DtlsClient, DtlsServer } from "../../src";
 import { HashAlgorithm, SignatureAlgorithm } from "../../src/cipher/const";
 import { certPem, keyPem } from "../fixture";

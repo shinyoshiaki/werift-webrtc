@@ -2,10 +2,14 @@
   "compilerOptions": {
     "target": "ESNext",
     "module": "commonjs",
-    "lib": ["esnext"],
+    "moduleResolution": "bundler",
+    "lib": [
+      "esnext"
+    ],
     "declaration": true,
     "outDir": "lib",
     "strict": true,
+    "erasableSyntaxOnly": true,
     "esModuleInterop": true,
     "pretty": true,
     "sourceMap": true,
@@ -15,7 +19,14 @@
     "strictNullChecks": true,
     "noImplicitAny": false,
     "useDefineForClassFields": true,
-    "types": ["node", "vitest/globals"]
+    "types": [
+      "node",
+      "vitest/globals"
+    ],
+    "rootDir": ".."
   },
-  "include": ["src", "tests"]
+  "include": [
+    "src",
+    "tests"
+  ]
 }

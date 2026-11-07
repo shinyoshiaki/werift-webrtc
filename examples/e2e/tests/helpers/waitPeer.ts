@@ -27,9 +27,7 @@ async function waitUntil(
     await new Promise((resolve) => setTimeout(resolve, POLL_MS));
   }
   const text = typeof message === "function" ? message() : message;
-  throw new Error(
-    lastError ? `${text}: ${String(lastError)}` : text,
-  );
+  throw new Error(lastError ? `${text}: ${String(lastError)}` : text);
 }
 
 export async function waitPeerConnected(
@@ -67,7 +65,10 @@ export async function waitPeerConnected(
   );
 }
 
-export async function waitWeriftRtp(serverLogs: () => string, timeoutMs = 25_000) {
+export async function waitWeriftRtp(
+  serverLogs: () => string,
+  timeoutMs = 25_000,
+) {
   await waitUntil(
     () => /on keyframe/i.test(serverLogs()),
     timeoutMs,
@@ -105,26 +106,30 @@ export async function waitUdpPackets(
 }
 
 export async function waitInboundRtp(page: Page, timeoutMs = 25_000) {
-  await waitUntil(async () => {
-    const received = await page.evaluate(async () => {
-      const pc = (window as unknown as { rtc?: RTCPeerConnection }).rtc;
-      if (!pc) {
-        return 0;
-      }
-      const stats = await pc.getStats();
-      let packets = 0;
-      stats.forEach((report) => {
-        if (
-          report.type === "inbound-rtp" &&
-          typeof report.packetsReceived === "number"
-        ) {
-          packets += report.packetsReceived;
+  await waitUntil(
+    async () => {
+      const received = await page.evaluate(async () => {
+        const pc = (window as unknown as { rtc?: RTCPeerConnection }).rtc;
+        if (!pc) {
+          return 0;
         }
+        const stats = await pc.getStats();
+        let packets = 0;
+        stats.forEach((report) => {
+          if (
+            report.type === "inbound-rtp" &&
+            typeof report.packetsReceived === "number"
+          ) {
+            packets += report.packetsReceived;
+          }
+        });
+        return packets;
       });
-      return packets;
-    });
-    return received > 0;
-  }, timeoutMs, "inbound RTP packetsReceived stayed 0");
+      return received > 0;
+    },
+    timeoutMs,
+    "inbound RTP packetsReceived stayed 0",
+  );
 }
 
 export async function waitDataChannelRoundtrip(
@@ -133,36 +138,40 @@ export async function waitDataChannelRoundtrip(
   serverLogs?: () => string,
 ) {
   let snapshot = "";
-  await waitUntil(async () => {
-    const hooked = await page.evaluate(() => {
-      const bag = (
-        window as unknown as {
-          __weriftE2e?: { dcMessages: string[]; dcStates: string[] };
+  await waitUntil(
+    async () => {
+      const hooked = await page.evaluate(() => {
+        const bag = (
+          window as unknown as {
+            __weriftE2e?: { dcMessages: string[]; dcStates: string[] };
+          }
+        ).__weriftE2e;
+        if (!bag) {
+          return { ok: false, detail: "no-bag" };
         }
-      ).__weriftE2e;
-      if (!bag) {
-        return { ok: false, detail: "no-bag" };
+        const ping = bag.dcMessages.some((text) => /ping/i.test(text));
+        const pong = bag.dcMessages.some((text) => /pong/i.test(text));
+        return {
+          ok: ping && pong,
+          detail: JSON.stringify({
+            states: bag.dcStates,
+            messages: bag.dcMessages.slice(-8),
+          }),
+        };
+      });
+      const body = (await page.locator("body").innerText()).toLowerCase();
+      const url = page.url();
+      snapshot = `url=${url} hooked=${hooked.detail} body=${body.slice(0, 300)}`;
+      if (hooked.ok) {
+        return true;
       }
-      const ping = bag.dcMessages.some((text) => /ping/i.test(text));
-      const pong = bag.dcMessages.some((text) => /pong/i.test(text));
-      return {
-        ok: ping && pong,
-        detail: JSON.stringify({
-          states: bag.dcStates,
-          messages: bag.dcMessages.slice(-8),
-        }),
-      };
-    });
-    const body = (await page.locator("body").innerText()).toLowerCase();
-    const url = page.url();
-    snapshot = `url=${url} hooked=${hooked.detail} body=${body.slice(0, 300)}`;
-    if (hooked.ok) {
-      return true;
-    }
-    const browserSaw = body.includes("pong") || body.includes("ping");
-    const serverSaw = serverLogs ? /ping|pong/i.test(serverLogs()) : true;
-    return browserSaw && serverSaw;
-  }, timeoutMs, () => `datachannel ping/pong roundtrip not observed (${snapshot})`);
+      const browserSaw = body.includes("pong") || body.includes("ping");
+      const serverSaw = serverLogs ? /ping|pong/i.test(serverLogs()) : true;
+      return browserSaw && serverSaw;
+    },
+    timeoutMs,
+    () => `datachannel ping/pong roundtrip not observed (${snapshot})`,
+  );
 }
 
 export async function waitDataChannelClosed(
@@ -170,22 +179,26 @@ export async function waitDataChannelClosed(
   timeoutMs = 25_000,
   serverLogs?: () => string,
 ) {
-  await waitUntil(async () => {
-    const hooked = await page.evaluate(() => {
-      const bag = (
-        window as unknown as { __weriftE2e?: { dcStates: string[] } }
-      ).__weriftE2e;
-      return Boolean(
-        bag?.dcStates.includes("closed") || bag?.dcStates.includes("closing"),
-      );
-    });
-    if (hooked) {
-      return true;
-    }
-    return serverLogs
-      ? /dc\.state (closing|closed)/i.test(serverLogs())
-      : false;
-  }, timeoutMs, "datachannel did not reach closing/closed");
+  await waitUntil(
+    async () => {
+      const hooked = await page.evaluate(() => {
+        const bag = (
+          window as unknown as { __weriftE2e?: { dcStates: string[] } }
+        ).__weriftE2e;
+        return Boolean(
+          bag?.dcStates.includes("closed") || bag?.dcStates.includes("closing"),
+        );
+      });
+      if (hooked) {
+        return true;
+      }
+      return serverLogs
+        ? /dc\.state (closing|closed)/i.test(serverLogs())
+        : false;
+    },
+    timeoutMs,
+    "datachannel did not reach closing/closed",
+  );
 }
 
 export async function waitPeerClosed(
@@ -193,28 +206,32 @@ export async function waitPeerClosed(
   timeoutMs = 25_000,
   serverLogs?: () => string,
 ) {
-  await waitUntil(async () => {
-    const hooked = await page.evaluate(() => {
-      const pc = (window as unknown as { rtc?: RTCPeerConnection }).rtc;
-      if (!pc) {
-        return false;
+  await waitUntil(
+    async () => {
+      const hooked = await page.evaluate(() => {
+        const pc = (window as unknown as { rtc?: RTCPeerConnection }).rtc;
+        if (!pc) {
+          return false;
+        }
+        return (
+          pc.connectionState === "closed" ||
+          pc.connectionState === "disconnected" ||
+          pc.iceConnectionState === "closed" ||
+          pc.iceConnectionState === "disconnected"
+        );
+      });
+      if (hooked) {
+        return true;
       }
-      return (
-        pc.connectionState === "closed" ||
-        pc.connectionState === "disconnected" ||
-        pc.iceConnectionState === "closed" ||
-        pc.iceConnectionState === "disconnected"
-      );
-    });
-    if (hooked) {
-      return true;
-    }
-    return serverLogs
-      ? /iceConnectionStateChange closed|connectionStateChange closed/i.test(
-          serverLogs(),
-        )
-      : false;
-  }, timeoutMs, "peer connection did not close");
+      return serverLogs
+        ? /iceConnectionStateChange closed|connectionStateChange closed/i.test(
+            serverLogs(),
+          )
+        : false;
+    },
+    timeoutMs,
+    "peer connection did not close",
+  );
 }
 
 export async function waitNonEmptyOutput(
@@ -223,19 +240,23 @@ export async function waitNonEmptyOutput(
   timeoutMs = 30_000,
 ) {
   let output: string | undefined;
-  await waitUntil(() => {
-    if (!existsDir(directory)) {
-      return false;
-    }
-    output = listOutputFiles(directory, glob).find((file) => {
-      try {
-        return statSync(file).size > 0;
-      } catch {
+  await waitUntil(
+    () => {
+      if (!existsDir(directory)) {
         return false;
       }
-    });
-    return output != null;
-  }, timeoutMs, `no non-empty output matching ${glob} in ${directory}`);
+      output = listOutputFiles(directory, glob).find((file) => {
+        try {
+          return statSync(file).size > 0;
+        } catch {
+          return false;
+        }
+      });
+      return output != null;
+    },
+    timeoutMs,
+    `no non-empty output matching ${glob} in ${directory}`,
+  );
   return output;
 }
 
@@ -298,9 +319,10 @@ export async function assertValidMediaContainer(
     );
   }
   const formats = result.stdout.trim().toLowerCase().split(",");
-  const valid = expected === "webm"
-    ? formats.includes("webm") || formats.includes("matroska")
-    : formats.includes("mp4") || formats.includes("mov");
+  const valid =
+    expected === "webm"
+      ? formats.includes("webm") || formats.includes("matroska")
+      : formats.includes("mp4") || formats.includes("mov");
   if (!valid) {
     throw new Error(
       `unexpected ${expected} container for ${output}: ${result.stdout.trim()}`,
@@ -338,7 +360,12 @@ export async function waitSpawnedExit(
     spawned.waitForExit(),
     new Promise<never>((_, reject) =>
       setTimeout(
-        () => reject(new Error(`process did not exit in time\n${spawned.logs.slice(-2_000)}`)),
+        () =>
+          reject(
+            new Error(
+              `process did not exit in time\n${spawned.logs.slice(-2_000)}`,
+            ),
+          ),
         timeoutMs,
       ),
     ),

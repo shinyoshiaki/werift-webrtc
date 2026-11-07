@@ -24,7 +24,7 @@ import { ServerHello } from "../../handshake/message/server/hello";
 import { ServerHelloDone } from "../../handshake/message/server/helloDone";
 import { ServerKeyExchange } from "../../handshake/message/server/keyExchange";
 import { DtlsRandom } from "../../handshake/random";
-import { type SrtpProfile, debug } from "../../imports/rtp";
+import { debug, type SrtpProfile } from "../../imports/rtp";
 import { createPlaintext } from "../../record/builder";
 import { ContentType } from "../../record/const";
 import type { FragmentedHandshake } from "../../record/message/fragment";
@@ -35,13 +35,18 @@ const log = debug(
 );
 
 export class Flight5 extends Flight {
+  private cipher: CipherContext;
+  private srtp: SrtpContext;
+
   constructor(
     udp: TransportContext,
     dtls: DtlsContext,
-    private cipher: CipherContext,
-    private srtp: SrtpContext,
+    cipher: CipherContext,
+    srtp: SrtpContext,
   ) {
     super(udp, dtls, 5, 7);
+    this.cipher = cipher;
+    this.srtp = srtp;
   }
 
   handleHandshake(handshake: FragmentedHandshake) {

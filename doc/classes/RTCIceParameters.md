@@ -8,19 +8,19 @@
 
 ## Constructors
 
-### new RTCIceParameters()
+### Constructor
 
-> **new RTCIceParameters**(`props`): [`RTCIceParameters`](RTCIceParameters.md)
+> **new RTCIceParameters**(`props?`): `RTCIceParameters`
 
 #### Parameters
 
-##### props
+##### props?
 
-`Partial`\<[`RTCIceParameters`](RTCIceParameters.md)\> = `{}`
+`Partial`\<`RTCIceParameters`\> = `{}`
 
 #### Returns
 
-[`RTCIceParameters`](RTCIceParameters.md)
+`RTCIceParameters`
 
 ## Properties
 

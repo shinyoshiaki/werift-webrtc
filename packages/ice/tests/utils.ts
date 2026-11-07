@@ -1,12 +1,20 @@
-import { deepStrictEqual } from "assert";
-import { readFileSync } from "fs";
 import * as dgram from "node:dgram";
 import * as dns from "node:dns";
 import * as net from "node:net";
 import * as tls from "node:tls";
+import { deepStrictEqual } from "assert";
+import { EventEmitter } from "events";
+import { readFileSync } from "fs";
+import type mdns from "multicast-dns";
 import { type Address, Event, type Transport } from "../../common/src";
 import { NodeStunServer, NodeTurnServer } from "../../ice-server/src";
 import { Candidate } from "../src/candidate";
+import { MdnsLookup } from "../src/dns/lookup";
+import {
+  TransactionCancelled,
+  TransactionFailed,
+  TransactionTimeout,
+} from "../src/exceptions";
 import { Connection } from "../src/ice";
 import {
   CandidatePair,
@@ -15,6 +23,7 @@ import {
 } from "../src/iceBase";
 import { classes, methods } from "../src/stun/const";
 import { Message, parseMessage } from "../src/stun/message";
+import { StunProtocol } from "../src/stun/protocol";
 import { splitTurnTcpFrames } from "../src/turn/frame";
 import type { StunOverTurnProtocol } from "../src/turn/protocol";
 import type { Protocol, TransactionRequestOptions } from "../src/types/model";
@@ -320,6 +329,37 @@ export function createTestConnection(
   return connection;
 }
 
+/**
+ * Shared Arrange: an agent with UDP host sockets bound to `interfaceAddresses`
+ * and no STUN server (only host candidates are gathered).
+ */
+export function createInterfaceBoundConnection(
+  iceControlling: boolean,
+  interfaceAddresses: IceOptions["interfaceAddresses"],
+  options: Partial<IceOptions> = {},
+) {
+  return createTestConnection(iceControlling, {
+    interfaceAddresses,
+    ...options,
+  });
+}
+
+/** UDP host candidates of `connection` with the address their socket is bound to. */
+export function udpHostCandidatesWithBinding(connection: Connection) {
+  return (connection as unknown as { protocols: Protocol[] }).protocols
+    .filter(
+      (protocol): protocol is StunProtocol =>
+        protocol instanceof StunProtocol &&
+        protocol.localCandidate?.type === "host" &&
+        protocol.localCandidate.transport === "udp",
+    )
+    .map((protocol) => ({
+      candidate: [protocol.localCandidate!.host, protocol.localCandidate!.port],
+      bound: protocol.getExtraInfo(),
+      localIp: protocol.localIp,
+    }));
+}
+
 export async function createLocalStunServer(host: string) {
   const server = new NodeStunServer({
     host,
@@ -330,26 +370,38 @@ export async function createLocalStunServer(host: string) {
   return server;
 }
 
+/**
+ * Shared Arrange: a local TURN server. `credentials` replaces the default
+ * test user; `authenticatedUsernames` records the username of every request
+ * the server authenticated, in order.
+ */
 export async function createLocalTurnServer(
   host: string,
   options: {
     tls?: boolean;
+    credentials?: Record<string, string>;
   } = {},
 ) {
+  const credentials = options.credentials ?? {
+    [TURN_TEST_USERNAME]: TURN_TEST_PASSWORD,
+  };
+  const authenticatedUsernames: string[] = [];
   const server = new NodeTurnServer({
     host,
     port: 0,
     relayAddress: host,
     relayBindAddress: host,
-    credentials: {
-      [TURN_TEST_USERNAME]: TURN_TEST_PASSWORD,
+    getPassword: (username) => {
+      const password = credentials[username];
+      if (password !== undefined) authenticatedUsernames.push(username);
+      return password;
     },
     realm: "werift.local",
     software: "werift-ice-server/test",
     tls: options.tls ? getLocalTurnServerTlsOptions() : undefined,
   });
   await server.listen();
-  return server;
+  return Object.assign(server, { authenticatedUsernames });
 }
 
 /** Shared Arrange helper: two host-only connections with a nominated pair. */
@@ -380,7 +432,16 @@ export async function createConnectedLitePair() {
  * each side the other's staged credentials and candidates, as a pranswer
  * carrying an ICE restart would.
  */
-export async function stageProvisionalGeneration(a: Connection, b: Connection) {
+export async function stageProvisionalGeneration(
+  a: Connection,
+  b: Connection,
+  {
+    gatherOptionsA,
+  }: {
+    /** The options `a`'s staged generation gathers with. */
+    gatherOptionsA?: Partial<IceOptions>;
+  } = {},
+) {
   const credentials = {
     a: { usernameFragment: "provA", password: "provisional-password-a-000" },
     b: { usernameFragment: "provB", password: "provisional-password-b-000" },
@@ -388,6 +449,7 @@ export async function stageProvisionalGeneration(a: Connection, b: Connection) {
   a.stageLocalCredentials(
     credentials.a.usernameFragment,
     credentials.a.password,
+    gatherOptionsA,
   );
   b.stageLocalCredentials(
     credentials.b.usernameFragment,
@@ -649,18 +711,22 @@ export function createRecordingTransport(
   metadata: Pick<Transport, "addressFamily" | "remoteAddress"> = {},
 ) {
   const sentTo: Address[] = [];
+  /** Every STUN message sent, in order. */
+  const sentMessages: Message[] = [];
   const transport: Transport = {
     type,
     closed: false,
     onData: () => {},
     address: { address: "127.0.0.1", port: 0, family: "IPv4" },
-    send: async (_data: Buffer, addr?: Address) => {
+    send: async (data: Buffer, addr?: Address) => {
       if (addr) sentTo.push(addr);
+      const message = parseMessage(data);
+      if (message) sentMessages.push(message);
     },
     close: async () => {},
     ...metadata,
   };
-  return { transport, sentTo };
+  return { transport, sentTo, sentMessages };
 }
 
 /**
@@ -729,15 +795,100 @@ export function createTurnSuccessResponse(request: Message) {
   return response;
 }
 
+/** Where a redirecting test TURN server sends clients; mutable. */
+export interface TurnRedirectTarget {
+  alternate?: Address;
+  /** Sent after `alternate` as further ALTERNATE-SERVER attributes. */
+  extraAlternates?: Address[];
+  alternateDomain?: string;
+}
+
+/** 300 (Try Alternate) error response a TURN server would send for a request. */
+export function createTurnTryAlternateResponse(
+  request: Message,
+  { alternate, extraAlternates = [], alternateDomain }: TurnRedirectTarget,
+) {
+  const response = new Message(
+    request.messageMethod,
+    classes.ERROR,
+    request.transactionId,
+  ).setAttribute("ERROR-CODE", [300, "Try Alternate"]);
+  if (alternate) {
+    response.setAttribute("ALTERNATE-SERVER", alternate);
+    // Message#setAttribute keeps one value per name, so the repeated
+    // attributes are appended as raw wire attributes (RFC 8489 §14.15).
+    for (const extra of extraAlternates) {
+      const packed = new Message(methods.ALLOCATE, classes.ERROR)
+        .setAttribute("ALTERNATE-SERVER", extra)
+        .bytes.subarray(24); // 20 byte header + 4 byte attribute header
+      response.appendRawAttribute(0x8023, packed);
+    }
+  }
+  if (alternateDomain) {
+    response.setAttribute("ALTERNATE-DOMAIN", alternateDomain);
+  }
+  return response;
+}
+
+/**
+ * TURN server on UDP 127.0.0.1 that answers every request with 300 (Try
+ * Alternate) to `target`, read when each request arrives, and records the
+ * requests it receives.
+ */
+export async function createUdpTurnRedirectServer(
+  target: TurnRedirectTarget = {},
+) {
+  const requests: Message[] = [];
+  const socket = dgram.createSocket("udp4");
+  socket.on("message", (data, rinfo) => {
+    const request = parseMessage(data);
+    if (!request) return;
+    requests.push(request);
+    socket.send(
+      createTurnTryAlternateResponse(request, target).bytes,
+      rinfo.port,
+      rinfo.address,
+    );
+  });
+  await new Promise<void>((resolve) =>
+    socket.bind(0, "127.0.0.1", () => resolve()),
+  );
+  const address: Address = ["127.0.0.1", socket.address().port];
+  return {
+    address,
+    requests,
+    target,
+    close: () => new Promise<void>((resolve) => socket.close(() => resolve())),
+  };
+}
+
+/** Stream (TCP/TLS) counterpart of createUdpTurnRedirectServer. */
+export async function createStreamTurnRedirectServer(
+  target: TurnRedirectTarget = {},
+  { tls: useTls = false }: { tls?: boolean } = {},
+) {
+  const server = await createStreamTurnServer({
+    tls: useTls,
+    reply: (request) => createTurnTryAlternateResponse(request, target),
+  });
+  const address: Address = ["127.0.0.1", server.port];
+  return { ...server, address, target };
+}
+
 /**
  * Minimal TURN server over TCP or TLS on 127.0.0.1. It records the requests
- * it receives. With `respond`, it answers every request with
- * createTurnSuccessResponse (no authentication).
+ * it receives. With `respond`, it answers every request with `reply`,
+ * createTurnSuccessResponse (no authentication) by default.
  */
 export async function createStreamTurnServer({
   tls: useTls = false,
   respond = true,
-}: { tls?: boolean; respond?: boolean } = {}) {
+  reply = createTurnSuccessResponse,
+}: {
+  tls?: boolean;
+  respond?: boolean;
+  reply?: (request: Message) => Message;
+} = {}) {
   const requests: Message[] = [];
   const sockets = new Set<net.Socket>();
   const onConnection = (socket: net.Socket) => {
@@ -754,7 +905,7 @@ export async function createStreamTurnServer({
         if (!request) continue;
         requests.push(request);
         if (respond) {
-          socket.write(createTurnSuccessResponse(request).bytes);
+          socket.write(reply(request).bytes);
         }
       }
     });
@@ -797,12 +948,16 @@ export async function canBindIpv6Loopback() {
 /** Relay-only TURN options of a local test server for `createTestConnection`. */
 export function localTurnOptions(
   server: Awaited<ReturnType<typeof createLocalTurnServer>>,
+  {
+    username = TURN_TEST_USERNAME,
+    password = TURN_TEST_PASSWORD,
+  }: { username?: string; password?: string } = {},
 ) {
   return {
     stunServer: undefined,
     turnServer: server.address!,
-    turnUsername: TURN_TEST_USERNAME,
-    turnPassword: TURN_TEST_PASSWORD,
+    turnUsername: username,
+    turnPassword: password,
     forceTurn: true,
   };
 }
@@ -1013,4 +1168,548 @@ export function atFirstSelection<T>(
     },
   });
   return result;
+}
+
+/**
+ * Stub dns.promises.lookup so every lookup waits until `release()`, then
+ * answers `address` (a request whose lookup outlives its protocol).
+ */
+export function holdLookup(address: string) {
+  let release!: () => void;
+  const released = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const spy = vi.spyOn(dns.promises, "lookup").mockImplementation((async () => {
+    await released;
+    return { address, family: net.isIP(address) };
+  }) as unknown as typeof dns.promises.lookup);
+  return { release, restore: () => spy.mockRestore() };
+}
+
+/** `process.getActiveResourcesInfo()` entries of `type` (e.g. `Timeout`). */
+export function activeResourceCount(type: string) {
+  return process.getActiveResourcesInfo().filter((t) => t === type).length;
+}
+
+/** Shared Arrange: a bound IPv4 STUN protocol on the loopback interface. */
+export async function createLoopbackStunProtocol() {
+  const protocol = new StunProtocol();
+  await protocol.connectionMade(true);
+  return protocol;
+}
+
+/**
+ * Shared Arrange: a controlling agent with gathered host candidates whose
+ * checks go to a remote candidate that never answers (the discard port), so
+ * a check stays in flight; `transactions()` counts the STUN transactions
+ * its sockets wait on.
+ */
+export async function createUnansweredCheckAgent() {
+  const agent = createTestConnection(true);
+  await agent.gatherCandidates();
+  agent.remoteUsername = "remote";
+  agent.remotePassword = "remote-password-0000000000";
+  await agent.addRemoteCandidate(remoteHostCandidate(9));
+  await agent.addRemoteCandidate(undefined);
+  const transactions = () =>
+    (
+      agent as unknown as {
+        protocols: { transactions?: Record<string, unknown> }[];
+      }
+    ).protocols.reduce(
+      (sum, p) => sum + Object.keys(p.transactions ?? {}).length,
+      0,
+    );
+  return { agent, transactions };
+}
+
+/** Shared Arrange: a UDP socket that receives and never answers (an unreachable TURN or STUN server). */
+export async function createSilentUdpServer(host = "127.0.0.1") {
+  const socket = dgram.createSocket("udp4");
+  await new Promise<void>((resolve) => socket.bind(0, host, () => resolve()));
+  return {
+    address: [host, socket.address().port] as Address,
+    close: () => new Promise<void>((resolve) => socket.close(() => resolve())),
+  };
+}
+
+// --- late TURN relay candidates ---
+
+/** Poll until `predicate` holds (rejects after `timeoutMs`). */
+export async function waitUntil(predicate: () => boolean, timeoutMs = 10000) {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() > deadline) throw new Error("waitUntil timed out");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+}
+
+/**
+ * Shared Arrange: deliver `from`'s local candidates gathered so far to `to`,
+ * and every later one as `from` trickles it.
+ */
+export function forwardLocalCandidates(from: Connection, to: Connection) {
+  for (const candidate of from.localCandidates) {
+    void to.addRemoteCandidate(Candidate.fromSdp(candidate.toSdp()));
+  }
+  from.onIceCandidate.subscribe((candidate) => {
+    void to.addRemoteCandidate(Candidate.fromSdp(candidate.toSdp()));
+  });
+}
+
+/**
+ * Shared Arrange: `late` (controlling) gathers host candidates and a TURN
+ * allocation that reaches the local server through a held proxy, so its relay
+ * candidate arrives only on `proxy.release()`. `early` (controlled) has
+ * finished gathering (relay-only by default) and both know each other's ICE
+ * credentials. `gathering` is `late`'s pending gatherCandidates().
+ */
+export async function createLateRelaySetup({
+  late: lateOptions = {},
+  early: earlyOptions,
+}: {
+  late?: Partial<IceOptions>;
+  early?: (
+    server: Awaited<ReturnType<typeof createLocalTurnServer>>,
+    late: Connection,
+  ) => Partial<IceOptions>;
+} = {}) {
+  const server = await createLocalTurnServer(getHostAddresses(true, false)[0]!);
+  const proxy = await createHeldUdpProxy(server.address!);
+  const late = createTestConnection(true, {
+    ...proxiedTurnOptions(proxy),
+    forceTurn: false,
+    ...lateOptions,
+  });
+  const early = createTestConnection(
+    false,
+    earlyOptions ? earlyOptions(server, late) : localTurnOptions(server),
+  );
+  await early.gatherCandidates();
+  const gathering = late.gatherCandidates();
+  exchangeIceCredentials(late, early);
+  return {
+    server,
+    proxy,
+    late,
+    early,
+    gathering,
+    close: async () => {
+      proxy.release();
+      await Promise.allSettled([late.close(), early.close()]);
+      proxy.close();
+      await server.close();
+    },
+  };
+}
+
+/** Pairs of `connection`'s check list whose local candidate is a relay. */
+export function relayPairs(connection: Connection) {
+  return connection.checkList.filter(
+    (pair) => pair.localCandidate.type === "relay",
+  );
+}
+
+/** Check list results `connection` has queued for connect() (ICE_FAILED / ICE_COMPLETED). */
+export function queuedCheckListResults(connection: Connection) {
+  return (
+    connection as unknown as {
+      checkListState: { queue: Promise<number>[] };
+    }
+  ).checkListState.queue.length;
+}
+
+/** Shared Arrange: a filterStunResponse that answers only checks from `peer`'s relay candidates. */
+export function answerOnlyRelayOf(peer: Connection) {
+  return (_message: Message, addr: Address) =>
+    peer.localCandidates.some(
+      (candidate) =>
+        candidate.type === "relay" &&
+        candidate.host === addr[0] &&
+        candidate.port === addr[1],
+    );
+}
+
+/** Wire bytes of one STUN attribute (4 byte header, value padded to 4 bytes). */
+export function stunAttributeBytes(type: number, value: Buffer) {
+  const header = Buffer.alloc(4);
+  header.writeUInt16BE(type, 0);
+  header.writeUInt16BE(value.length, 2);
+  return Buffer.concat([
+    header,
+    value,
+    Buffer.alloc((4 - (value.length % 4)) % 4),
+  ]);
+}
+
+/** `message` bytes with `attribute` appended and the header length updated. */
+export function appendStunAttributeBytes(message: Buffer, attribute: Buffer) {
+  const bytes = Buffer.concat([message, attribute]);
+  bytes.writeUInt16BE(bytes.length - 20, 2);
+  return bytes;
+}
+
+/**
+ * Wire bytes of `message` (typed and raw attributes as they are) followed by a
+ * MESSAGE-INTEGRITY computed over all of them, so every attribute in `message`
+ * is inside the signed range.
+ */
+export function signStunMessageBytes(message: Message, key: Buffer) {
+  const body = message.bytes;
+  const integrity = stunAttributeBytes(0x0008, message.messageIntegrity(key));
+  return appendStunAttributeBytes(body, integrity);
+}
+
+/** Wire value of an ALTERNATE-SERVER attribute for `address`. */
+export function alternateServerValue(address: Address) {
+  return new Message(methods.ALLOCATE, classes.ERROR)
+    .setAttribute("ALTERNATE-SERVER", address)
+    .bytes.subarray(24);
+}
+
+// --- check / nomination cancellation ---
+
+/** How ScriptedCheckProtocol answers one request: a response, an error code, or no answer until released. */
+export type ScriptedReply = "success" | "hold" | 401 | 487;
+
+/** One request ScriptedCheckProtocol received. */
+export type ScriptedRequest = {
+  message: Message;
+  nominate: boolean;
+  /** Settled (answered, failed, or cancelled by its signal). */
+  done: boolean;
+  /** Answer a held request now (success, or a failure without response). */
+  release: (outcome: "success" | "failure") => void;
+};
+
+/**
+ * Mock Protocol whose request() answers as `reply` scripts it. A held request
+ * stays in flight until its signal aborts (as a real transaction cancels) or
+ * until `release`; `honorSignal: false` models a result that arrives after
+ * the generation ended (the signal is ignored).
+ */
+export class ScriptedCheckProtocol implements Protocol {
+  type: string;
+  localCandidate: Candidate;
+  onRequestReceived = new Event<[Message, any, Buffer]>();
+  onDataReceived = new Event<[Buffer]>();
+  readonly requests: ScriptedRequest[] = [];
+  readonly request: Protocol["request"];
+
+  constructor(
+    transport: "udp" | "tcp",
+    reply: (request: { nominate: boolean; index: number }) => ScriptedReply,
+    honorSignal = true,
+  ) {
+    this.type = transport;
+    this.localCandidate = createConsentCandidate(
+      "192.0.2.1",
+      4000,
+      "local",
+      transport,
+    );
+    this.request = ((
+      message: Message,
+      addr: Address,
+      _integrityKey?: Buffer,
+      options?: number | TransactionRequestOptions,
+    ) => {
+      const signal = typeof options === "object" ? options.signal : undefined;
+      const nominate = message.attributesKeys.includes("USE-CANDIDATE");
+      const answer = reply({ nominate, index: this.requests.length });
+      return new Promise((resolve, reject) => {
+        const entry: ScriptedRequest = {
+          message,
+          nominate,
+          done: false,
+          release: (outcome) => {
+            if (entry.done) return;
+            entry.done = true;
+            if (outcome === "success") {
+              resolve([new Message(methods.BINDING, classes.RESPONSE), addr]);
+            } else {
+              reject(new TransactionTimeout());
+            }
+          },
+        };
+        this.requests.push(entry);
+        if (answer === "success") {
+          entry.release("success");
+          return;
+        }
+        if (answer === 401 || answer === 487) {
+          entry.done = true;
+          const response = new Message(methods.BINDING, classes.ERROR);
+          response.setAttribute("ERROR-CODE", [answer, "scripted"]);
+          reject(new TransactionFailed(response, addr));
+          return;
+        }
+        if (!honorSignal || !signal) return;
+        const cancel = () => {
+          if (entry.done) return;
+          entry.done = true;
+          reject(new TransactionCancelled());
+        };
+        if (signal.aborted) cancel();
+        else signal.addEventListener("abort", cancel, { once: true });
+      });
+    }) as Protocol["request"];
+  }
+
+  /** Requests still waiting for an answer (each one is a live STUN transaction). */
+  pending() {
+    return this.requests.filter((request) => !request.done).length;
+  }
+
+  async sendStun() {}
+  async sendData() {}
+  async connectionMade() {}
+  async close() {}
+}
+
+/**
+ * Shared Arrange: a controlling Connection whose remote credentials are set
+ * and whose single protocol is a ScriptedCheckProtocol; `addPair()` puts a
+ * WAITING pair on the checklist and `check(pair)` starts its check the way
+ * the scheduler does (the handle is kept on the pair).
+ */
+export function createScriptedCheckHarness({
+  transport = "udp",
+  remoteIsLite = false,
+  honorSignal = true,
+  reply,
+}: {
+  transport?: "udp" | "tcp";
+  remoteIsLite?: boolean;
+  honorSignal?: boolean;
+  reply: (request: { nominate: boolean; index: number }) => ScriptedReply;
+}) {
+  const protocol = new ScriptedCheckProtocol(transport, reply, honorSignal);
+  const connection = new Connection(true);
+  connection.remoteIsLite = remoteIsLite;
+  const setRemoteCredentials = () => {
+    connection.remoteUsername = "remote";
+    connection.remotePassword = "remote-password-0000000000";
+  };
+  setRemoteCredentials();
+  let port = 5000;
+  const addPair = () => {
+    const remoteCandidate = createConsentCandidate(
+      "192.0.2.2",
+      port++,
+      "remote",
+      transport,
+    );
+    if (transport === "tcp") remoteCandidate.tcptype = "passive";
+    const pair = new CandidatePair(protocol, remoteCandidate, true);
+    pair.updateState(CandidatePairState.WAITING);
+    connection.checkList.push(pair);
+    return pair;
+  };
+  const check = (pair: CandidatePair) => {
+    pair.handle = connection.checkStart(pair);
+    return pair.handle;
+  };
+  const nominating = () =>
+    (connection as unknown as { nominating: boolean }).nominating;
+  return {
+    connection,
+    protocol,
+    addPair,
+    check,
+    nominating,
+    setRemoteCredentials,
+  };
+}
+
+/** `udp/host`, `tcp/host`, `udp/srflx`, `udp/relay`, ... of the local candidates. */
+export function localCandidateKinds(connection: Connection) {
+  return [
+    ...new Set(
+      connection.localCandidates.map(
+        (candidate) => `${candidate.transport.toLowerCase()}/${candidate.type}`,
+      ),
+    ),
+  ].sort();
+}
+
+/**
+ * Shared Arrange: a local STUN server and a local TURN server, and a
+ * connection built with `options(servers)` that gathered once. `stunOptions`
+ * / `turnOptions` are the server fields of an update for setIceServers.
+ */
+export async function createGatheredConnectionWithLocalServers(
+  options: (servers: {
+    stunOptions: { stunServer: Address };
+    turnOptions: ReturnType<typeof localTurnOptions>;
+  }) => Partial<IceOptions>,
+) {
+  const host = getHostAddresses(true, false)[0]!;
+  const stun = await createLocalStunServer(host);
+  const turn = await createLocalTurnServer(host);
+  const servers = {
+    stunOptions: { stunServer: stun.address! },
+    turnOptions: localTurnOptions(turn),
+  };
+  const connection = createTestConnection(true, options(servers));
+  await connection.gatherCandidates();
+  return {
+    ...servers,
+    connection,
+    close: async () => {
+      await connection.close();
+      await turn.close();
+      await stun.close();
+    },
+  };
+}
+
+/** Act: apply an ICE server update, restart ICE and gather the new generation. */
+export async function restartWithIceServers(
+  connection: Connection,
+  update: Partial<IceOptions>,
+) {
+  connection.setIceServers(update);
+  await connection.restart();
+  await connection.gatherCandidates();
+}
+
+/**
+ * Arrange: stage a provisional generation on `connection` that gathers with
+ * `gatherOptions`, with remote credentials and one remote host candidate, as
+ * an ICE restart offer applied before its answer would. `relay` is the TURN
+ * allocation `connection` kept from its current generation.
+ */
+export async function stageProvisionalWithKeptRelay(
+  connection: Connection,
+  gatherOptions: Partial<IceOptions>,
+) {
+  const relay = connectionProtocols(connection).find(
+    (protocol) => protocol.localCandidate?.type === "relay",
+  );
+  if (!relay) throw new Error("expected a kept TURN allocation");
+  const local = {
+    usernameFragment: "provL",
+    password: "provisional-local-000",
+  };
+  const remote = {
+    usernameFragment: "provR",
+    password: "provisional-remote-000",
+  };
+  connection.stageLocalCredentials(
+    local.usernameFragment,
+    local.password,
+    gatherOptions,
+  );
+  connection.setProvisionalRemoteParams(remote);
+  await connection.addProvisionalRemoteCandidate(
+    new Candidate("1", 1, "udp", 100, "127.0.0.1", 50000, "host"),
+  );
+  return { relay, local, remote };
+}
+
+/** The pairs of the provisional checklist `connection` staged. */
+export function provisionalPairs(connection: Connection) {
+  return (
+    (
+      connection as unknown as {
+        provisional?: { pairs: CandidatePair[] };
+      }
+    ).provisional?.pairs ?? []
+  );
+}
+
+/**
+ * Act: deliver a connectivity check for the staged generation on `protocol`
+ * from `addr`; resolves with whether `protocol` sent a response.
+ */
+export async function deliverProvisionalCheck(
+  protocol: Protocol,
+  { local, remote }: Awaited<ReturnType<typeof stageProvisionalWithKeptRelay>>,
+  addr: Address = ["127.0.0.1", 50001],
+) {
+  const sendStun = vi
+    .spyOn(protocol, "sendStun")
+    .mockResolvedValue(undefined as never);
+  const request = new Message(methods.BINDING, classes.REQUEST)
+    .setAttribute(
+      "USERNAME",
+      `${local.usernameFragment}:${remote.usernameFragment}`,
+    )
+    .setAttribute("PRIORITY", 1_000)
+    .setAttribute("ICE-CONTROLLED", 1n);
+  protocol.onRequestReceived.execute(request, addr, Buffer.alloc(0));
+  await new Promise((resolve) => setImmediate(resolve));
+  const responded = sendStun.mock.calls.length > 0;
+  sendStun.mockRestore();
+  return responded;
+}
+
+/** The transport protocols (sockets / allocations) `connection` keeps. */
+export function connectionProtocols(connection: Connection) {
+  return (connection as unknown as { protocols: Protocol[] }).protocols;
+}
+
+// --- mDNS lookup lifecycle ---
+
+/** Shared Arrange: an in-memory `multicast-dns` stand-in (no socket). */
+export function createFakeMdns() {
+  const emitter = new EventEmitter();
+  const queries: string[] = [];
+  let destroyCount = 0;
+  type MdnsInstance = mdns.MulticastDNS;
+  const instance = {
+    on: ((event: string, listener: (...args: any[]) => void) => {
+      emitter.on(event, listener);
+      return instance;
+    }) as MdnsInstance["on"],
+    removeListener: ((event: string, listener: (...args: any[]) => void) => {
+      emitter.removeListener(event, listener);
+      return instance;
+    }) as MdnsInstance["removeListener"],
+    setMaxListeners: ((n: number) => {
+      emitter.setMaxListeners(n);
+      return instance;
+    }) as MdnsInstance["setMaxListeners"],
+    query: ((name: string) => {
+      queries.push(name);
+    }) as MdnsInstance["query"],
+    destroy: (() => {
+      destroyCount++;
+    }) as MdnsInstance["destroy"],
+  } as unknown as MdnsInstance;
+  return {
+    factory: () => instance,
+    queries,
+    get destroyCount() {
+      return destroyCount;
+    },
+    get listenerCount() {
+      return emitter.listenerCount("response");
+    },
+    /** Answer `name` with an A record `address`. */
+    respond: (name: string, address = "127.0.0.1") => {
+      emitter.emit("response", {
+        answers: [{ type: "A", name, data: address }],
+      });
+    },
+  };
+}
+
+/** Shared Arrange: give `connection` an {@link MdnsLookup} backed by a fake mDNS. */
+export function installFakeMdnsLookup(connection: Connection) {
+  const mdns = createFakeMdns();
+  const lookup = new MdnsLookup(mdns.factory);
+  connection.lookup = lookup;
+  return { mdns, lookup };
+}
+
+/** Shared Arrange: a protocol whose close() runs `onClose` before it resolves. */
+export function addClosingProtocol(
+  connection: Connection,
+  onClose: () => void | Promise<void>,
+) {
+  (connection as unknown as { protocols: Partial<Protocol>[] }).protocols.push({
+    close: async () => onClose(),
+  });
 }

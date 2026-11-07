@@ -10,10 +10,10 @@
 
 ### candidate?
 
-> `optional` **candidate**: [`RTCIceCandidate`](../classes/RTCIceCandidate.md)
+> `optional` **candidate?**: [`RTCIceCandidate`](../classes/RTCIceCandidate.md)
 
 ***
 
 ### type?
 
-> `optional` **type**: `"icecandidate"`
+> `optional` **type?**: `"icecandidate"`

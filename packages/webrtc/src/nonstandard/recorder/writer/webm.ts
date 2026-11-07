@@ -1,8 +1,6 @@
 import { unlink } from "fs/promises";
-import { Event, EventDisposer } from "../../../imports/common";
-
-import { MediaWriter } from ".";
 import { type MediaStreamTrack, WeriftError } from "../../..";
+import { Event, EventDisposer } from "../../../imports/common";
 import {
   DepacketizeCallback,
   JitterBufferCallback,
@@ -11,11 +9,12 @@ import {
   RtcpSourceCallback,
   RtpSourceCallback,
   RtpTimeCallback,
+  saveToFileSystem,
   WebmCallback,
   type WebmSupportedCodec,
   type WebmTrack,
-  saveToFileSystem,
 } from "../../../imports/rtpExtra";
+import { MediaWriter } from ".";
 
 const sourcePath = "packages/webrtc/src/nonstandard/recorder/writer/webm.ts";
 
@@ -88,6 +87,8 @@ export class WebmFactory extends MediaWriter {
       const rtcpSource = new RtcpSourceCallback();
       track.onReceiveRtp
         .subscribe((rtp) => {
+          // Padding-only GCC probes stay in the jitter buffer for sequence
+          // continuity; DepacketizeBase drops them before codec parse.
           rtpSource.input(rtp.clone());
         })
         .disposer(this.unSubscribers);

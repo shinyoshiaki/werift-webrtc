@@ -1,6 +1,6 @@
 import { spawn } from "child_process";
 import { createSocket } from "dgram";
-import { Server } from "ws";
+import { WebSocketServer } from "ws";
 import { RTCPeerConnection, randomPorts } from "../../packages/webrtc/src";
 
 (async () => {
@@ -104,7 +104,7 @@ import { RTCPeerConnection, randomPorts } from "../../packages/webrtc/src";
   process.on("SIGTERM", stopGst);
 
   const udp = createSocket("udp4");
-  const server = new Server({ port: 8878 });
+  const server = new WebSocketServer({ port: 8878 });
   console.log("start");
 
   server.on("connection", async (socket) => {

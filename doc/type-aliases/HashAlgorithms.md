@@ -6,4 +6,4 @@
 
 # Type Alias: HashAlgorithms
 
-> **HashAlgorithms**: *typeof* [`HashAlgorithm`](../variables/HashAlgorithm.md)\[keyof *typeof* [`HashAlgorithm`](../variables/HashAlgorithm.md)\]
+> **HashAlgorithms** = *typeof* [`HashAlgorithm`](../variables/HashAlgorithm.md)\[keyof *typeof* [`HashAlgorithm`](../variables/HashAlgorithm.md)\]

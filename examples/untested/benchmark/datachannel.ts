@@ -4,8 +4,8 @@
  * a message back.
  */
 
-import { randomBytes } from "crypto";
 import Benchmark from "benchmark";
+import { randomBytes } from "crypto";
 import * as Werift from "../../../packages/webrtc/src";
 
 console.log("Setting up...");

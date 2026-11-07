@@ -35,7 +35,7 @@ function createTurnProtocol(
   return turn;
 }
 
-function successResponse(method: number): Message {
+function successResponse(method: methods): Message {
   return new Message(method, classes.RESPONSE);
 }
 

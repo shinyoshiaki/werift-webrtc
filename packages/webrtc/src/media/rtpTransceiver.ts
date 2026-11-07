@@ -1,13 +1,12 @@
 import { randomUUID } from "crypto";
-import { Event } from "../imports/common";
-
 import type { RTCDtlsTransport } from "..";
 import { SenderDirections } from "../const";
 import { createWebRtcTypeError } from "../errors";
+import { Event } from "../imports/common";
 import {
-  type TransceiverNegotiationState,
   getApplicationStopRevision,
   noteApplicationStop,
+  type TransceiverNegotiationState,
 } from "../negotiation/internalState";
 import type { Kind } from "../types/domain";
 import { cloneCodecParameters } from "./codec";
@@ -18,15 +17,21 @@ import type {
 import type { RTCRtpReceiver } from "./rtpReceiver";
 import type { RTCRtpSender } from "./rtpSender";
 import {
-  type RTCCodecStats,
-  type RTCStats,
   generateCodecStatsId,
   generateStatsId,
   getStatsTimestamp,
+  type RTCCodecStats,
+  type RTCStats,
 } from "./stats";
 import type { MediaStream, MediaStreamTrack } from "./track";
 
 export class RTCRtpTransceiver {
+  public readonly kind: Kind;
+  public receiver: RTCRtpReceiver;
+  public sender: RTCRtpSender;
+  /**RFC 8829 4.2.4.  direction the transceiver was initialized with */
+  private _direction: MediaDirection;
+
   readonly id = randomUUID().toString();
   readonly onTrack = new Event<[MediaStreamTrack, RTCRtpTransceiver]>();
   mid: string | null = null;
@@ -106,13 +111,16 @@ export class RTCRtpTransceiver {
   readonly onRelease = new Event<[]>();
 
   constructor(
-    public readonly kind: Kind,
+    kind: Kind,
     dtlsTransport: RTCDtlsTransport | undefined,
-    public receiver: RTCRtpReceiver,
-    public sender: RTCRtpSender,
-    /**RFC 8829 4.2.4.  direction the transceiver was initialized with */
-    private _direction: MediaDirection,
+    receiver: RTCRtpReceiver,
+    sender: RTCRtpSender,
+    _direction: MediaDirection,
   ) {
+    this.kind = kind;
+    this.receiver = receiver;
+    this.sender = sender;
+    this._direction = _direction;
     if (dtlsTransport) {
       this.setDtlsTransport(dtlsTransport);
     }

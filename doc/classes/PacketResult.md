@@ -8,19 +8,19 @@
 
 ## Constructors
 
-### new PacketResult()
+### Constructor
 
-> **new PacketResult**(`props`): [`PacketResult`](PacketResult.md)
+> **new PacketResult**(`props`): `PacketResult`
 
 #### Parameters
 
 ##### props
 
-`Partial`\<[`PacketResult`](PacketResult.md)\>
+`Partial`\<`PacketResult`\>
 
 #### Returns
 
-[`PacketResult`](PacketResult.md)
+`PacketResult`
 
 ## Properties
 
@@ -45,3 +45,11 @@
 ### sequenceNumber
 
 > **sequenceNumber**: `number` = `0`
+
+***
+
+### status
+
+> **status**: [`PacketStatus`](../enumerations/PacketStatus.md) = `PacketStatus.TypeTCCPacketNotReceived`
+
+TWCC packet status symbol (for delta presence).
