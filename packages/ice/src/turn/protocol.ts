@@ -603,11 +603,17 @@ export class TurnProtocol implements Protocol {
     _integrityKey?: Buffer,
     retransmissionsOrOptions?: number | TransactionRequestOptions,
     onRequestSent?: (attempt: number) => void,
+    credentials?: { realm: string; nonce: Buffer; integrityKey: Buffer },
   ): Promise<[Message, Address]> {
     if (this.transactions[request.transactionIdHex]) {
       throw new Error("exist");
     }
-    if (this.integrityKey) {
+    const signing = credentials ?? {
+      realm: this.realm,
+      nonce: this.nonce,
+      integrityKey: this.integrityKey,
+    };
+    if (signing.integrityKey) {
       // A retried request still carries the previous signature, which would
       // otherwise be covered by the new MESSAGE-INTEGRITY.
       request
@@ -615,9 +621,9 @@ export class TurnProtocol implements Protocol {
         .removeAttribute("MESSAGE-INTEGRITY-SHA256")
         .removeAttribute("FINGERPRINT")
         .setAttribute("USERNAME", this.username)
-        .setAttribute("REALM", this.realm)
-        .setAttribute("NONCE", this.nonce)
-        .addMessageIntegrity(this.integrityKey)
+        .setAttribute("REALM", signing.realm)
+        .setAttribute("NONCE", signing.nonce)
+        .addMessageIntegrity(signing.integrityKey)
         .addFingerprint();
     }
 
@@ -628,7 +634,7 @@ export class TurnProtocol implements Protocol {
     // close() ran during the lookup: no transaction starts on a closed client.
     if (this.closed) throw new TransactionCancelled();
     const options = buildTransactionOptions(
-      this.integrityKey,
+      signing.integrityKey,
       retransmissionsOrOptions,
       onRequestSent,
     );
@@ -749,39 +755,41 @@ export class TurnProtocol implements Protocol {
         signedError: !(error instanceof TransactionChallenge),
       });
 
-      const previous = {
-        nonce: this.nonce,
-        realm: this.realm,
-        integrityKey: this.integrityKey,
-      };
       const integrityKey = makeIntegrityKey(
         this.username,
         retry.realm,
         this.password,
       );
+      request.transactionId = randomTransactionId();
+
+      // A new realm on an authenticated request rekeys the whole allocation.
+      // Sign the retry with its own credentials and adopt them only once the
+      // server accepted it, so concurrent failures never overwrite the shared
+      // state with credentials that were rejected.
+      if (authenticated && retry.realm !== sentRealm) {
+        const credentials = {
+          realm: retry.realm,
+          nonce: retry.nonce,
+          integrityKey,
+        };
+        const result = await this.request(
+          request,
+          this.server,
+          undefined,
+          { signal },
+          undefined,
+          credentials,
+        );
+        this.nonce = credentials.nonce;
+        this.realm = credentials.realm;
+        this.integrityKey = credentials.integrityKey;
+        return result;
+      }
+
       this.nonce = retry.nonce;
       this.realm = retry.realm;
       this.integrityKey = integrityKey;
-
-      request.transactionId = randomTransactionId();
-      try {
-        return await this.request(request, this.server, undefined, {
-          signal,
-        });
-      } catch (retryError) {
-        // A new realm on an authenticated request rekeys the whole
-        // allocation; keep it only once the server accepted it.
-        if (
-          authenticated &&
-          retry.realm !== sentRealm &&
-          this.integrityKey === integrityKey
-        ) {
-          this.nonce = previous.nonce;
-          this.realm = previous.realm;
-          this.integrityKey = previous.integrityKey;
-        }
-        throw retryError;
-      }
+      return await this.request(request, this.server, undefined, { signal });
     }
   }
 

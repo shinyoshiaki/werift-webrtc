@@ -189,6 +189,16 @@ describe("credentialRetryOf", () => {
       currentRealm: TURN_TEST_REALM,
     },
     {
+      name: "cookie のない NONCE と PASSWORD-ALGORITHMS を含む 401",
+      code: 401,
+      attributes: [
+        ["REALM", "new.realm"],
+        ["NONCE", Buffer.from("plain-nonce")],
+        ["PASSWORD-ALGORITHMS", Buffer.from([0, 2, 0, 0])],
+      ],
+      currentRealm: TURN_TEST_REALM,
+    },
+    {
       name: "PASSWORD-ALGORITHMS 付き nonce cookie",
       code: 401,
       attributes: [

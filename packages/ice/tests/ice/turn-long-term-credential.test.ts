@@ -527,6 +527,29 @@ describe("TURN long-term credential retry decisions", () => {
     expect(turnCredentialState(harness.turn)).toEqual(before);
   });
 
+  test("異なる REALM の 401 で並行する request が失敗しても allocation の認証状態は変わらない", async () => {
+    // Arrange: request ごとに別の REALM の署名なし 401 を返す
+    const harness = harnessFor({ transport: "udp" });
+    const before = turnCredentialState(harness.turn);
+    let count = 0;
+    harness.answer = (request) =>
+      createTurnErrorResponse(request, 401, {
+        realm: `realm-${Math.floor(count++ / 2)}`,
+        nonce: freshNonce,
+      });
+
+    // Act: CreatePermission と ChannelBind を同時に送り、両方を失敗させる
+    const [permission, channel] = await Promise.all([
+      timeSettle(harness.turn.getPermission(peer)),
+      timeSettle(harness.turn.getChannel(peer)),
+    ]);
+
+    // Assert: どちらも失敗し、失敗した認証情報は共有状態に残らない
+    expect(permission.error).toBeDefined();
+    expect(channel.error).toBeDefined();
+    expect(turnCredentialState(harness.turn)).toEqual(before);
+  });
+
   test("CreatePermission と ChannelBind が同時に 438 を受けてもどちらのリトライも成功する", async () => {
     // Arrange: 古い NONCE には request ごとに別の新しい NONCE で 438、新しい NONCE なら成功を返す
     const harness = harnessFor({ transport: "udp" });

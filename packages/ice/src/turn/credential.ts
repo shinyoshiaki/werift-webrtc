@@ -84,10 +84,9 @@ export function credentialRetryOf(
   }
   const features = parseNonceSecurityFeatures(nonce);
   if (
-    features &&
-    (features.passwordAlgorithms ||
-      features.usernameAnonymity ||
-      response.getAttributeValue("PASSWORD-ALGORITHMS") !== undefined)
+    features?.passwordAlgorithms ||
+    features?.usernameAnonymity ||
+    response.getAttributeValue("PASSWORD-ALGORITHMS") !== undefined
   ) {
     // Only MD5 MESSAGE-INTEGRITY with a plain USERNAME is implemented.
     return undefined;
