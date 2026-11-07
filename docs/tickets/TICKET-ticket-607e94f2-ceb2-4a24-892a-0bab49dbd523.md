@@ -142,7 +142,7 @@ RTCP:  RtcpSource → NtpTimeCallback（トラックごと）
 - [x] `changelog.md` と `MediaRecorderOptions.lipsync` / `LipSyncOptions` の JSDoc が更新されている。サンプルや生成ドキュメントに影響がある場合は `npm run doc` で再生成されている。
 - [x] `npm run format` を実行してある。
 - [x] 追加要件（打開策・案D、2026-11-07）: タイマーで開始するとき（と開始前の eol）も、確定時刻（無音補完を含む）は受信済みの最新フレームの時刻を越えない。無音補完のあり／なし × {入力停止、タイムアウト後に同じ区間の入力が続く} の 4 ケースで、欠落なし（期待する時刻列と完全一致）・時刻順・ダミー音声の最大時刻 ≤ 実フレームの最新時刻をテストで固定している。コメント・changelog・JSDoc にこの条件が書かれている。
-- [x] レビュー指摘対応（2026-11-07）: 入力時に期限切れを検出したときもタイマーと同じく保留フレームを排出し、直後の停止で失われない（回帰テストあり）。`LipSyncOptions.kinds` / `startTimeout` は省略可能なプロパティで、従来の全指定の `LipSyncOptions` が型エラーにならないことを `type:public` で検証している。
+- [x] レビュー指摘対応（2026-11-07）: 入力時に期限切れを検出したときも（その入力で全 kind がそろった場合を含む）タイマーと同じく保留フレームを排出し、直後の停止で失われない（回帰テストあり）。`LipSyncOptions.kinds` / `startTimeout` は省略可能なプロパティで、従来の全指定の `LipSyncOptions` が型エラーにならないことを `type:public` で検証している。
 
 ## 6. 再現手順（元の記載）
 
@@ -198,6 +198,10 @@ RTCP:  RtcpSource → NtpTimeCallback（トラックごと）
 - **[P2] 公開型 `LipSyncOptions` に `kinds` / `startTimeout` が必須で追加されていた**: 従来の全プロパティを指定した `LipSyncOptions` 型のオブジェクトが型エラーになる。
   - 対応: 2 つとも省略可能（`?`）にした（既定値は実行時に入る）。
   - `packages/rtp/tools/publicTypes/consumer.ts` に従来の全指定オブジェクトを追加し、`npm run type:public` で検証する。修正前は `TS2739`（`kinds, startTimeout` が無い）で失敗することを確認した。
+- **[P1] 期限切れと同時に全 kind がそろうと、直後の EOL で保留フレームが失われる**: 上の対応では `ready` 分岐を期限切れより先に判定していたため、期限切れの入力で全 kind がそろうと `start()` だけが呼ばれ、続く `stop()` で破棄されていた（例: `startTimeout: 20` で映像 10000 ms、20 ms 後に音声 10020 ms、直後に EOL → 両トラックとも出力 0 件）。
+  - 対応: 期限切れの判定を先に行い、期限切れなら `ready` でも `startAndDrain()` を使う。期限前に全 kind がそろった場合だけ `start()`。
+  - 回帰テスト `outputs the pending frames when every kind becomes ready on the timed-out input and stop follows`。修正前（`b9b8efc86`、一時 worktree）で失敗することを確認した。
+  - 補足: 期限前に全 kind がそろって `start()` で開始した直後の停止では、リングバッファに残った末尾（最大 `syncInterval` 程度）が `stop()` で破棄される。これは develop からある `LipsyncBase.stop()` の末尾欠落で、§4 のとおり対象外。
 
 ### テスト
 

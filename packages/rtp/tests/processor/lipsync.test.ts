@@ -193,6 +193,27 @@ describe("lipsync", () => {
     expect(harness.output.videoEol).toBe(true);
   });
 
+  it("outputs the pending frames when every kind becomes ready on the timed-out input and stop follows", () => {
+    // Arrange
+    harness = createLipsyncHarness({ startTimeout: 20 });
+    const video = createLipsyncFrames(T, 20, 20);
+    const audio = createLipsyncFrames(T + 20, 20, 20);
+
+    // Act: 映像の入力後、タイマーより先に期限切れの音声が入力され、両 kind がそろう
+    harness.inputVideo(video);
+    harness.advanceWallClock(20);
+    harness.inputAudio(audio);
+    // Act: 直後に映像と音声の EOL が届く
+    harness.lipsync.inputVideo({ eol: true });
+    harness.lipsync.inputAudio({ eol: true });
+
+    // Assert: 両 kind がそろっても期限切れの入力で保留フレームが出力され、停止で失われない
+    expect(harness.output.video.map((f) => f.time)).toEqual([T]);
+    expect(harness.output.audio.map((f) => f.time)).toEqual([T + 20]);
+    expect(harness.output.videoEol).toBe(true);
+    expect(harness.output.audioEol).toBe(true);
+  });
+
   it("starts without waiting when only video is configured", () => {
     // Arrange
     harness = createLipsyncHarness({ kinds: ["video"] });

@@ -231,15 +231,14 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
       // committed time
       Math.max(...(latest as number[])) - Math.min(...(latest as number[])) <=
         this.bufferDuration;
-    if (ready) {
-      this.start(now);
-      return;
-    }
     // the timeout detected on input (e.g. the timer callback is delayed by
-    // the event loop) takes the same path as the timer, so that the pending
-    // frames are output now and not lost on a following stop()
+    // the event loop) takes the same path as the timer, even if every kind
+    // has become ready with this frame, so that the pending frames are output
+    // now and not lost on a following stop()
     if (now - this.pendingSince >= this.startTimeout) {
       this.startAndDrain();
+    } else if (ready) {
+      this.start(now);
     }
   }
 
