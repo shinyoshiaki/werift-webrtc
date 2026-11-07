@@ -1,0 +1,163 @@
+[**werift-rtp**](../README.md)
+
+***
+
+[werift-rtp](../globals.md) / H264Packetizer
+
+# Class: H264Packetizer
+
+Packetize H.264 access units (Annex-B or length-prefixed) for mode=1.
+Single NAL / STAP-A (SPS+PPS) / FU-A fragmentation (RFC 6184).
+
+## Extends
+
+- [`PacketizerBase`](PacketizerBase.md)
+
+## Constructors
+
+### Constructor
+
+> **new H264Packetizer**(`options?`): `H264Packetizer`
+
+#### Parameters
+
+##### options?
+
+[`H264PacketizerOptions`](../type-aliases/H264PacketizerOptions.md) = `{}`
+
+#### Returns
+
+`H264Packetizer`
+
+#### Overrides
+
+[`PacketizerBase`](PacketizerBase.md).[`constructor`](PacketizerBase.md#constructor)
+
+## Properties
+
+### maxPayloadSize
+
+> `protected` `readonly` **maxPayloadSize**: `number`
+
+#### Inherited from
+
+[`PacketizerBase`](PacketizerBase.md).[`maxPayloadSize`](PacketizerBase.md#maxpayloadsize)
+
+***
+
+### payloadType
+
+> `protected` `readonly` **payloadType**: `number`
+
+#### Inherited from
+
+[`PacketizerBase`](PacketizerBase.md).[`payloadType`](PacketizerBase.md#payloadtype)
+
+***
+
+### sequenceNumber
+
+> `protected` **sequenceNumber**: `number`
+
+#### Inherited from
+
+[`PacketizerBase`](PacketizerBase.md).[`sequenceNumber`](PacketizerBase.md#sequencenumber)
+
+***
+
+### ssrc
+
+> `protected` `readonly` **ssrc**: `number`
+
+#### Inherited from
+
+[`PacketizerBase`](PacketizerBase.md).[`ssrc`](PacketizerBase.md#ssrc)
+
+## Methods
+
+### buildPacket()
+
+> `protected` **buildPacket**(`payload`, `timestamp`, `marker`): [`RtpPacket`](RtpPacket.md)
+
+#### Parameters
+
+##### payload
+
+`Buffer`
+
+##### timestamp
+
+`number`
+
+##### marker
+
+`boolean`
+
+#### Returns
+
+[`RtpPacket`](RtpPacket.md)
+
+#### Inherited from
+
+[`PacketizerBase`](PacketizerBase.md).[`buildPacket`](PacketizerBase.md#buildpacket)
+
+***
+
+### packetize()
+
+> **packetize**(`data`, `rtpTimestamp`, `options?`): [`RtpPacket`](RtpPacket.md)[]
+
+#### Parameters
+
+##### data
+
+`Buffer`
+
+##### rtpTimestamp
+
+`number`
+
+##### options?
+
+[`H264PacketizeOptions`](../type-aliases/H264PacketizeOptions.md) = `{}`
+
+#### Returns
+
+[`RtpPacket`](RtpPacket.md)[]
+
+#### Overrides
+
+[`PacketizerBase`](PacketizerBase.md).[`packetize`](PacketizerBase.md#packetize)
+
+***
+
+### startTalkspurt()
+
+> **startTalkspurt**(): `void`
+
+Mark the next audio packet as the first of a talkspurt (e.g. after
+silence suppression). The first packet of a new packetizer is also one.
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+[`PacketizerBase`](PacketizerBase.md).[`startTalkspurt`](PacketizerBase.md#starttalkspurt)
+
+***
+
+### takeTalkspurtMarker()
+
+> `protected` **takeTalkspurtMarker**(): `boolean`
+
+Marker for audio packets: true once per talkspurt, false otherwise.
+
+#### Returns
+
+`boolean`
+
+#### Inherited from
+
+[`PacketizerBase`](PacketizerBase.md).[`takeTalkspurtMarker`](PacketizerBase.md#taketalkspurtmarker)

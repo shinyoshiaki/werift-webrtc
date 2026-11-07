@@ -2,12 +2,14 @@
   "compilerOptions": {
     "target": "ESNext",
     "module": "commonjs",
+    "moduleResolution": "bundler",
     "lib": [
       "esnext"
     ],
     "declaration": true,
     "outDir": "lib",
     "strict": true,
+    "erasableSyntaxOnly": true,
     "pretty": true,
     "sourceMap": true,
     "inlineSources": true,
@@ -19,7 +21,8 @@
     "types": [
       "node",
       "vitest/globals"
-    ]
+    ],
+    "rootDir": ".."
   },
   "include": [
     "src",

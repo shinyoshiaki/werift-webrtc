@@ -25,7 +25,7 @@ describe("polyfill peerConnectionConfig", () => {
 
     // Assert: kind 単位で補完し、明示 constructor 値を優先する。
     expect(installed.getConfiguration().codecs.video?.[0].mimeType).toBe(
-      "video/h264",
+      "video/H264",
     );
     expect(installed.getConfiguration().codecs.audio?.[0].mimeType).toBe(
       "audio/OPUS",
@@ -65,7 +65,7 @@ describe("polyfill peerConnectionConfig", () => {
     expect(offer.sdp.toLowerCase()).toContain("h264/90000");
     expect(offer.sdp.toLowerCase()).not.toContain("vp8/90000");
     expect(transport.getConfiguration().codecs.video?.[0].mimeType).toBe(
-      "video/h264",
+      "video/H264",
     );
     probe.close();
     transport.close();

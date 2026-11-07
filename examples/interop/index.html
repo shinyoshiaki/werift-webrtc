@@ -6,15 +6,13 @@
     "use strict";
 
     function RestSignaler(signalUrl) {
-      this.sendOffer = async function (offer) {
-        return (
+      this.sendOffer = async (offer) => (
           await fetch(signalUrl, {
             method: "POST",
             body: JSON.stringify(offer),
             headers: { "Content-Type": "application/json" },
           })
         ).json();
-      };
     }
   </script>
 
@@ -32,7 +30,7 @@
     var isOfferSent = false;
 
     window.onload = () => {
-      let host = window.location.hostname.concat(
+      const host = window.location.hostname.concat(
         window.location.port ? `:${window.location.port}` : ""
       );
       document.getElementById(
@@ -48,10 +46,10 @@
 
       isOfferSent = false;
 
-      let signalingUrl = document.getElementById("signalingUrl").value;
+      const signalingUrl = document.getElementById("signalingUrl").value;
 
       // Create the noise.
-      let noiseStm = whiteNoise(NOISE_FRAME_WIDTH, NOISE_FRAME_HEIGHT);
+      const noiseStm = whiteNoise(NOISE_FRAME_WIDTH, NOISE_FRAME_HEIGHT);
       document.getElementById("localVideoCtl").srcObject = noiseStm;
 
       signaler = new RestSignaler(signalingUrl);
@@ -67,7 +65,7 @@
         }
       };
 
-      let offer = await pc.createOffer();
+      const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
 
       setTimeout(sendOffer, ICE_GATHERING_TIMEOUT);
@@ -95,7 +93,7 @@
       console.log("Creating peer ...");
       isClosed = false;
 
-      let pc = new RTCPeerConnection({ iceServers: [{ urls: STUN_SERVER }] });
+      const pc = new RTCPeerConnection({ iceServers: [{ urls: STUN_SERVER }] });
       noiseStm.getTracks().forEach((track) => pc.addTrack(track, noiseStm));
       pc.ontrack = (evt) =>
         (document.getElementById(videoCtlID).srcObject = evt.streams[0]);
@@ -174,7 +172,7 @@
   </table>
 
   <div>
-    <label>Signaling URL:</label>
+    <label for="signalingUrl">Signaling URL:</label>
     <input type="text" id="signalingUrl" size="40" /><br />
     <button type="button" class="btn btn-success" onclick="start();">
       Start

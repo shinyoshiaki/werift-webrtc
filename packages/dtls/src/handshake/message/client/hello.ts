@@ -11,7 +11,15 @@ const { decode, encode, types } = binaryData;
 // 7.4.1.2.  Client Hello
 
 export class ClientHello {
-  msgType = HandshakeType.client_hello_1;
+  public clientVersion: { major: number; minor: number };
+  public random: { gmt_unix_time: number; random_bytes: Buffer };
+  public sessionId: Buffer;
+  public cookie: Buffer;
+  public cipherSuites: number[];
+  public compressionMethods: number[];
+  public extensions: Extension[];
+
+  msgType: HandshakeType = HandshakeType.client_hello_1;
   messageSeq: number = 0;
   static readonly spec = {
     clientVersion: { major: types.uint8, minor: types.uint8 },
@@ -24,14 +32,22 @@ export class ClientHello {
   };
 
   constructor(
-    public clientVersion: { major: number; minor: number },
-    public random: { gmt_unix_time: number; random_bytes: Buffer },
-    public sessionId: Buffer,
-    public cookie: Buffer,
-    public cipherSuites: number[],
-    public compressionMethods: number[],
-    public extensions: Extension[],
-  ) {}
+    clientVersion: { major: number; minor: number },
+    random: { gmt_unix_time: number; random_bytes: Buffer },
+    sessionId: Buffer,
+    cookie: Buffer,
+    cipherSuites: number[],
+    compressionMethods: number[],
+    extensions: Extension[],
+  ) {
+    this.clientVersion = clientVersion;
+    this.random = random;
+    this.sessionId = sessionId;
+    this.cookie = cookie;
+    this.cipherSuites = cipherSuites;
+    this.compressionMethods = compressionMethods;
+    this.extensions = extensions;
+  }
 
   static createEmpty() {
     return new ClientHello(
@@ -47,7 +63,7 @@ export class ClientHello {
 
   static deSerialize(buf: Buffer) {
     return new ClientHello(
-      //@ts-ignore
+      //@ts-expect-error
       ...Object.values(decode(buf, ClientHello.spec)),
     );
   }

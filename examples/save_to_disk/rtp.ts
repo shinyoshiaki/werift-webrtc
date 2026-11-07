@@ -10,7 +10,7 @@ import {
 (async () => {
   const path =
     process.env.WERIFT_EXAMPLE_OUTPUT_PATH ??
-    `${__dirname}/tmp${randomUUID()}.webm`;
+    `${import.meta.dirname}/tmp${randomUUID()}.webm`;
   const recorder = new MediaRecorder({
     numOfTracks: 1,
     path,

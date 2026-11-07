@@ -1,12 +1,19 @@
 /* eslint-disable @typescript-eslint/ban-ts-comment */
-import { binaryData } from "../../imports/common";
 
 import type { HandshakeType } from "../../handshake/const";
 import { getObjectSummary } from "../../helper";
+import { binaryData } from "../../imports/common";
 
 const { decode, encode, types } = binaryData;
 
 export class FragmentedHandshake {
+  public msg_type: number;
+  public length: number;
+  public message_seq: number;
+  public fragment_offset: number;
+  public fragment_length: number;
+  public fragment: Buffer;
+
   static readonly spec = {
     msg_type: types.uint8,
     length: types.uint24be,
@@ -17,13 +24,20 @@ export class FragmentedHandshake {
   };
 
   constructor(
-    public msg_type: number,
-    public length: number,
-    public message_seq: number,
-    public fragment_offset: number,
-    public fragment_length: number,
-    public fragment: Buffer,
-  ) {}
+    msg_type: number,
+    length: number,
+    message_seq: number,
+    fragment_offset: number,
+    fragment_length: number,
+    fragment: Buffer,
+  ) {
+    this.msg_type = msg_type;
+    this.length = length;
+    this.message_seq = message_seq;
+    this.fragment_offset = fragment_offset;
+    this.fragment_length = fragment_length;
+    this.fragment = fragment;
+  }
 
   get summary() {
     return getObjectSummary(this);
@@ -42,7 +56,7 @@ export class FragmentedHandshake {
 
   static deSerialize(buf: Buffer) {
     return new FragmentedHandshake(
-      //@ts-ignore
+      //@ts-expect-error
       ...Object.values(decode(buf, FragmentedHandshake.spec)),
     );
   }

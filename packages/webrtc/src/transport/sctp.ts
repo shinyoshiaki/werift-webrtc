@@ -1,17 +1,19 @@
 import { randomUUID } from "crypto";
-
-import { Event, debug } from "../imports/common";
-
 import {
   SCTP,
-  type SCTPOptions,
   SCTP_STATE,
+  type SCTPOptions,
   type Transport,
 } from "../../../sctp/src";
 import {
   DATA_CHANNEL_ACK,
   DATA_CHANNEL_OPEN,
+  DATA_CHANNEL_PARTIAL_RELIABLE_REXMIT,
+  DATA_CHANNEL_PARTIAL_RELIABLE_REXMIT_UNORDERED,
+  DATA_CHANNEL_PARTIAL_RELIABLE_TIMED,
+  DATA_CHANNEL_PARTIAL_RELIABLE_TIMED_UNORDERED,
   DATA_CHANNEL_RELIABLE,
+  DATA_CHANNEL_RELIABLE_UNORDERED,
   WEBRTC_BINARY,
   WEBRTC_BINARY_EMPTY,
   WEBRTC_DCEP,
@@ -20,16 +22,21 @@ import {
 } from "../const";
 import {
   type DCState,
+  getDataChannelMessageSize,
   RTCDataChannel,
   RTCDataChannelParameters,
-  getDataChannelMessageSize,
 } from "../dataChannel";
+import { debug, Event, FifoQueue } from "../imports/common";
 import type { RTCDtlsTransport } from "./dtls";
 
 const log = debug("werift:packages/webrtc/src/transport/sctp.ts");
 export const DEFAULT_MAX_MESSAGE_SIZE = 65536;
 
 export class RTCSctpTransport {
+  public port: number;
+  public maxMessageSize: number;
+  private readonly sctpOptions: SCTPOptions;
+
   dtlsTransport!: RTCDtlsTransport;
   sctp!: SCTP;
 
@@ -44,15 +51,19 @@ export class RTCSctpTransport {
   private stopped = false;
   remoteMaxMessageSize = DEFAULT_MAX_MESSAGE_SIZE;
 
-  private dataChannelQueue: [RTCDataChannel, number, Buffer][] = [];
+  private dataChannelQueue = new FifoQueue<[RTCDataChannel, number, Buffer]>();
   private dataChannelId?: number;
   private eventDisposer: (() => void)[] = [];
 
   constructor(
-    public port = 5000,
-    public maxMessageSize = DEFAULT_MAX_MESSAGE_SIZE,
-    private readonly sctpOptions: SCTPOptions = {},
-  ) {}
+    port = 5000,
+    maxMessageSize = DEFAULT_MAX_MESSAGE_SIZE,
+    sctpOptions: SCTPOptions = {},
+  ) {
+    this.port = port;
+    this.maxMessageSize = maxMessageSize;
+    this.sctpOptions = sctpOptions;
+  }
 
   get transport() {
     return this.dtlsTransport;
@@ -111,7 +122,7 @@ export class RTCSctpTransport {
     ];
 
     this.sctp.onSackReceived = async () => {
-      await this.dataChannelFlush();
+      this.dataChannelFlush();
     };
   }
 
@@ -193,7 +204,7 @@ export class RTCSctpTransport {
             const ack = Buffer.allocUnsafe(1);
             ack.writeUInt8(DATA_CHANNEL_ACK, 0);
             this.dataChannelQueue.push([channel, WEBRTC_DCEP, ack]);
-            await this.dataChannelFlush();
+            this.dataChannelFlush();
           }
           break;
         case DATA_CHANNEL_ACK:
@@ -262,19 +273,25 @@ export class RTCSctpTransport {
       this.dataChannels[channel.id] = channel;
     }
 
-    let channelType = DATA_CHANNEL_RELIABLE;
     const priority = 0;
+    // RFC 8832 5.1: the reliability mode and the unordered bit (0x80) are
+    // independent, so a partially reliable channel keeps its unordered bit.
+    let channelType: number;
     let reliability = 0;
-
-    if (!channel.ordered) {
-      channelType = 0x80;
-    }
     if (channel.maxRetransmits !== null) {
-      channelType = 1;
+      channelType = channel.ordered
+        ? DATA_CHANNEL_PARTIAL_RELIABLE_REXMIT
+        : DATA_CHANNEL_PARTIAL_RELIABLE_REXMIT_UNORDERED;
       reliability = channel.maxRetransmits;
     } else if (channel.maxPacketLifeTime !== null) {
-      channelType = 2;
+      channelType = channel.ordered
+        ? DATA_CHANNEL_PARTIAL_RELIABLE_TIMED
+        : DATA_CHANNEL_PARTIAL_RELIABLE_TIMED_UNORDERED;
       reliability = channel.maxPacketLifeTime;
+    } else {
+      channelType = channel.ordered
+        ? DATA_CHANNEL_RELIABLE
+        : DATA_CHANNEL_RELIABLE_UNORDERED;
     }
 
     // 5.1.  DATA_CHANNEL_OPEN Message
@@ -295,7 +312,7 @@ export class RTCSctpTransport {
     this.dataChannelFlush();
   }
 
-  private async dataChannelFlush() {
+  private dataChannelFlush() {
     // """
     // Try to flush buffered data to the SCTP layer.
 
@@ -309,8 +326,19 @@ export class RTCSctpTransport {
     // DTLS transport before start() ran here; the same side decides the IDs.
     this.dataChannelId ??= this.isServer ? 0 : 1;
 
+    // Hands every queued message to SCTP synchronously (SCTP.send enqueues
+    // before its first await) and tracks completion per message, so repeated
+    // datachannelSend() calls never spawn concurrent flush loops.
     while (this.dataChannelQueue.length > 0) {
       const [channel, protocol, userData] = this.dataChannelQueue.shift()!;
+
+      // A channel closed while its message was queued (e.g. the association
+      // closed and was re-established) is no longer managed; never announce it.
+      if (channel.readyState === "closed" || channel.readyState === "closing") {
+        if (protocol !== WEBRTC_DCEP)
+          channel.addBufferedAmount(-userData.length);
+        continue;
+      }
 
       let streamId = channel.id;
       if (streamId === undefined) {
@@ -323,25 +351,34 @@ export class RTCSctpTransport {
       }
 
       if (protocol === WEBRTC_DCEP) {
-        await this.sctp.send(streamId, protocol, userData, {
-          ordered: true,
-        });
+        this.sctp
+          .send(streamId, protocol, userData, {
+            ordered: true,
+          })
+          .catch((err: Error) => {
+            log("send DCEP failed", err.message);
+          });
       } else {
         const expiry =
           channel.maxPacketLifeTime !== null
             ? Date.now() + channel.maxPacketLifeTime / 1000
             : undefined;
 
-        await this.sctp.send(streamId, protocol, userData, {
-          expiry,
-          maxRetransmits: channel.maxRetransmits ?? undefined,
-          ordered: channel.ordered,
-        });
-        channel.addBufferedAmount(-userData.length);
+        this.sctp
+          .send(streamId, protocol, userData, {
+            expiry,
+            maxRetransmits: channel.maxRetransmits ?? undefined,
+            ordered: channel.ordered,
+          })
+          .catch((err: Error) => {
+            log("send data failed", err.message);
+          })
+          .then(() => channel.addBufferedAmount(-userData.length))
+          .catch((err: Error) => {
+            log("update bufferedAmount failed", err.message);
+          });
       }
     }
-    // Resetting the queue to empty array mitigates this.
-    this.dataChannelQueue = [];
   }
 
   private assertSendableMessageSize(size: number) {
@@ -404,7 +441,30 @@ export class RTCSctpTransport {
   async stop() {
     this.stopped = true;
     this.dtlsTransport.dataReceiver = () => {};
+    this.discardUnsentMessages();
     await this.sctp.stop();
+  }
+
+  // Messages not yet handed to SCTP belong to the stopped association and must
+  // not leak into a later one. User messages are dropped and removed from
+  // bufferedAmount; DATA_CHANNEL_OPEN is kept only for channels still alive, so
+  // a channel that outlives the transport (e.g. rollback) can be announced,
+  // while closed channels and stale ACKs go.
+  private discardUnsentMessages() {
+    const kept = new FifoQueue<[RTCDataChannel, number, Buffer]>();
+    for (const item of this.dataChannelQueue.toArray()) {
+      const [channel, protocol, userData] = item;
+      if (protocol !== WEBRTC_DCEP) {
+        channel.addBufferedAmount(-userData.length);
+      } else if (
+        userData[0] === DATA_CHANNEL_OPEN &&
+        channel.readyState !== "closed" &&
+        channel.readyState !== "closing"
+      ) {
+        kept.push(item);
+      }
+    }
+    this.dataChannelQueue = kept;
   }
 
   dataChannelClose(channel: RTCDataChannel) {
@@ -437,11 +497,19 @@ export class RTCSctpTransport {
 }
 
 export class RTCSctpCapabilities {
-  constructor(public maxMessageSize: number) {}
+  public maxMessageSize: number;
+
+  constructor(maxMessageSize: number) {
+    this.maxMessageSize = maxMessageSize;
+  }
 }
 
 class BridgeDtls implements Transport {
-  constructor(private dtls: RTCDtlsTransport) {}
+  private dtls: RTCDtlsTransport;
+
+  constructor(dtls: RTCDtlsTransport) {
+    this.dtls = dtls;
+  }
   set onData(onData: (buf: Buffer) => void) {
     this.dtls.dataReceiver = onData;
   }

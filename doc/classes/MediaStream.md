@@ -8,19 +8,19 @@
 
 ## Constructors
 
-### new MediaStream()
+### Constructor
 
-> **new MediaStream**(`props`): [`MediaStream`](MediaStream.md)
+> **new MediaStream**(`props?`): `MediaStream`
 
 #### Parameters
 
-##### props
+##### props?
 
-[`MediaStreamTrack`](MediaStreamTrack.md)[] | `Partial`\<[`MediaStream`](MediaStream.md)\>
+[`MediaStreamTrack`](MediaStreamTrack.md)[] \| `Partial`\<`MediaStream`\> = `{}`
 
 #### Returns
 
-[`MediaStream`](MediaStream.md)
+`MediaStream`
 
 ## Properties
 
@@ -66,11 +66,11 @@
 
 ### clone()
 
-> **clone**(): [`MediaStream`](MediaStream.md)
+> **clone**(): `MediaStream`
 
 #### Returns
 
-[`MediaStream`](MediaStream.md)
+`MediaStream`
 
 ***
 
@@ -86,7 +86,7 @@
 
 ### getTrackById()
 
-> **getTrackById**(`id`): `undefined` \| [`MediaStreamTrack`](MediaStreamTrack.md)
+> **getTrackById**(`id`): [`MediaStreamTrack`](MediaStreamTrack.md) \| `undefined`
 
 #### Parameters
 
@@ -96,7 +96,7 @@
 
 #### Returns
 
-`undefined` \| [`MediaStreamTrack`](MediaStreamTrack.md)
+[`MediaStreamTrack`](MediaStreamTrack.md) \| `undefined`
 
 ***
 

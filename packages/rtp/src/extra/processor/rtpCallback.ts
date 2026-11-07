@@ -1,6 +1,5 @@
-import { Event } from "../../imports/common";
-
 import { RtpPacket } from "../..";
+import { Event } from "../../imports/common";
 import type { SimpleProcessorCallback } from "./interface";
 
 export type RtpInput = Buffer | RtpPacket;
@@ -13,6 +12,12 @@ export interface RtpOutput {
 export class RtpSourceCallback
   implements SimpleProcessorCallback<RtpInput, RtpOutput>
 {
+  private options: {
+    payloadType?: number;
+    clearInvalidPTPacket?: boolean;
+    initialBufferLength?: number;
+  };
+
   private cb?: (chunk: RtpOutput) => void;
   private destructor?: () => void;
   onStopped = new Event();
@@ -21,12 +26,13 @@ export class RtpSourceCallback
   bufferFulfilled = false;
 
   constructor(
-    private options: {
+    options: {
       payloadType?: number;
       clearInvalidPTPacket?: boolean;
       initialBufferLength?: number;
     } = {},
   ) {
+    this.options = options;
     options.clearInvalidPTPacket = options.clearInvalidPTPacket ?? true;
   }
 

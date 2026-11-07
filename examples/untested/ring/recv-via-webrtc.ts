@@ -1,6 +1,9 @@
 import { RingApi } from "ring-client-api";
-import { Server } from "ws";
-import { MediaStreamTrack, RTCPeerConnection } from "../../../packages/webrtc/src";
+import { WebSocketServer } from "ws";
+import {
+  MediaStreamTrack,
+  RTCPeerConnection,
+} from "../../../packages/webrtc/src";
 import {
   createCallbackRegister,
   installPolyfill,
@@ -42,7 +45,7 @@ const example = async () => {
   await camera.startLiveCall({
     createPeerConnection: () => ring,
   });
-  const server = new Server({ port: 8888 });
+  const server = new WebSocketServer({ port: 8888 });
 
   console.log(new Date().toISOString(), "session start");
 

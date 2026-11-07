@@ -8,27 +8,27 @@
 
 ## Constructors
 
-### new RTCSctpTransport()
+### Constructor
 
-> **new RTCSctpTransport**(`port`, `maxMessageSize`, `sctpOptions`): [`RTCSctpTransport`](RTCSctpTransport.md)
+> **new RTCSctpTransport**(`port?`, `maxMessageSize?`, `sctpOptions?`): `RTCSctpTransport`
 
 #### Parameters
 
-##### port
+##### port?
 
 `number` = `5000`
 
-##### maxMessageSize
+##### maxMessageSize?
 
 `number` = `DEFAULT_MAX_MESSAGE_SIZE`
 
-##### sctpOptions
+##### sctpOptions?
 
 `SCTPOptions` = `{}`
 
 #### Returns
 
-[`RTCSctpTransport`](RTCSctpTransport.md)
+`RTCSctpTransport`
 
 ## Properties
 
@@ -62,19 +62,19 @@
 
 ### maxMessageSize
 
-> **maxMessageSize**: `number` = `DEFAULT_MAX_MESSAGE_SIZE`
+> **maxMessageSize**: `number`
 
 ***
 
 ### mid?
 
-> `optional` **mid**: `string`
+> `optional` **mid?**: `string`
 
 ***
 
 ### mLineIndex?
 
-> `optional` **mLineIndex**: `number`
+> `optional` **mLineIndex?**: `number`
 
 ***
 
@@ -86,7 +86,7 @@
 
 ### port
 
-> **port**: `number` = `5000`
+> **port**: `number`
 
 ***
 
@@ -116,7 +116,7 @@
 
 ### channelByLabel()
 
-> **channelByLabel**(`label`): `undefined` \| [`RTCDataChannel`](RTCDataChannel.md)
+> **channelByLabel**(`label`): [`RTCDataChannel`](RTCDataChannel.md) \| `undefined`
 
 #### Parameters
 
@@ -126,7 +126,7 @@
 
 #### Returns
 
-`undefined` \| [`RTCDataChannel`](RTCDataChannel.md)
+[`RTCDataChannel`](RTCDataChannel.md) \| `undefined`
 
 ***
 
@@ -190,7 +190,7 @@
 
 ##### data
 
-`string` | `Buffer`\<`ArrayBufferLike`\>
+`string` \| `Buffer`\<`ArrayBufferLike`\>
 
 #### Returns
 
@@ -226,7 +226,7 @@
 
 ### setRemoteMaxMessageSize()
 
-> **setRemoteMaxMessageSize**(`maxMessageSize`?): `void`
+> **setRemoteMaxMessageSize**(`maxMessageSize?`): `void`
 
 #### Parameters
 
@@ -284,11 +284,11 @@
 
 ### getCapabilities()
 
-> `static` **getCapabilities**(`maxMessageSize`): [`RTCSctpCapabilities`](RTCSctpCapabilities.md)
+> `static` **getCapabilities**(`maxMessageSize?`): [`RTCSctpCapabilities`](RTCSctpCapabilities.md)
 
 #### Parameters
 
-##### maxMessageSize
+##### maxMessageSize?
 
 `number` = `DEFAULT_MAX_MESSAGE_SIZE`
 

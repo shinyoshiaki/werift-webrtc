@@ -6,7 +6,7 @@
 
 # Function: randomPorts()
 
-> **randomPorts**(`num`, `protocol`, `interfaceAddresses`?): `Promise`\<`number`[]\>
+> **randomPorts**(`num`, `protocol?`, `interfaceAddresses?`): `Promise`\<`number`[]\>
 
 ## Parameters
 
@@ -14,7 +14,7 @@
 
 `number`
 
-### protocol
+### protocol?
 
 `SocketType` = `"udp4"`
 

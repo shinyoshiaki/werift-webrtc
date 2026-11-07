@@ -7,14 +7,18 @@ import { HandshakeType } from "../../const";
 const { decode, encode, types } = binaryData;
 
 export class ClientKeyExchange implements Handshake {
-  msgType = HandshakeType.client_key_exchange_16;
+  public publicKey: Buffer;
+
+  msgType: HandshakeType = HandshakeType.client_key_exchange_16;
   messageSeq?: number;
 
   static readonly spec = {
     publicKey: types.buffer(types.uint8),
   };
 
-  constructor(public publicKey: Buffer) {}
+  constructor(publicKey: Buffer) {
+    this.publicKey = publicKey;
+  }
 
   static createEmpty() {
     return new ClientKeyExchange(undefined as any);
@@ -23,7 +27,7 @@ export class ClientKeyExchange implements Handshake {
   static deSerialize(buf: Buffer) {
     const res = decode(buf, ClientKeyExchange.spec);
     return new ClientKeyExchange(
-      //@ts-ignore
+      //@ts-expect-error
       ...Object.values(res),
     );
   }

@@ -8,19 +8,19 @@
 
 ## Constructors
 
-### new StatusVectorChunk()
+### Constructor
 
-> **new StatusVectorChunk**(`props`): [`StatusVectorChunk`](StatusVectorChunk.md)
+> **new StatusVectorChunk**(`props?`): `StatusVectorChunk`
 
 #### Parameters
 
-##### props
+##### props?
 
-`Partial`\<[`StatusVectorChunk`](StatusVectorChunk.md)\> = `{}`
+`Partial`\<`StatusVectorChunk`\> = `{}`
 
 #### Returns
 
-[`StatusVectorChunk`](StatusVectorChunk.md)
+`StatusVectorChunk`
 
 ## Properties
 
@@ -54,7 +54,7 @@
 
 ### deSerialize()
 
-> `static` **deSerialize**(`data`): [`StatusVectorChunk`](StatusVectorChunk.md)
+> `static` **deSerialize**(`data`): `StatusVectorChunk`
 
 #### Parameters
 
@@ -64,4 +64,4 @@
 
 #### Returns
 
-[`StatusVectorChunk`](StatusVectorChunk.md)
+`StatusVectorChunk`

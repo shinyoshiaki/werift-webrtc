@@ -6,16 +6,18 @@
 
 # Function: codecParametersToString()
 
-> **codecParametersToString**(`parameters`, `joint`): `undefined` \| `string`
+> **codecParametersToString**(`parameters`, `joint?`): `string` \| `undefined`
 
 ## Parameters
 
 ### parameters
 
-### joint
+\{\[`key`: `string`\]: `string` \| `number` \| `undefined`; \}
+
+### joint?
 
 `string` = `"="`
 
 ## Returns
 
-`undefined` \| `string`
+`string` \| `undefined`

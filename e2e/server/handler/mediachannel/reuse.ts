@@ -1,7 +1,7 @@
 import type { AcceptFn } from "protoo-server";
 import {
-  type MLineReuse,
   MediaStreamTrack,
+  type MLineReuse,
   RTCPeerConnection,
   type RTCRtpTransceiver,
   useOPUS,
@@ -27,9 +27,13 @@ function waitRtp(transceiver: RTCRtpTransceiver, timeoutMs = 10_000) {
  * 新 MID で再利用する。Chromium は各 transceiver に camera を載せて送り返す。
  */
 class mediachannel_reuse_offer_base {
+  private readonly mLineReuse: MLineReuse;
+
   pc!: RTCPeerConnection;
 
-  constructor(private readonly mLineReuse: MLineReuse) {}
+  constructor(mLineReuse: MLineReuse) {
+    this.mLineReuse = mLineReuse;
+  }
 
   private async offer(accept: AcceptFn) {
     await this.pc.setLocalDescription(await this.pc.createOffer());

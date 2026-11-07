@@ -34,16 +34,24 @@ export class Red {
     let offset = 0;
     [red.header, offset] = RedHeader.deSerialize(buf);
 
-    red.header.fields.forEach(({ blockLength, timestampOffset, blockPT }) => {
-      if (blockLength && timestampOffset) {
-        const block = buf.subarray(offset, offset + blockLength);
-        red.blocks.push({ block, blockPT, timestampOffset });
-        offset += blockLength;
-      } else {
-        const block = buf.subarray(offset);
-        red.blocks.push({ block, blockPT });
-      }
-    });
+    // RFC 2198: F=1 blocks always carry timestamp offset + block length,
+    // including timestampOffset=0. Do not gate on truthiness of offset.
+    red.header.fields.forEach(
+      ({ fBit, blockLength, timestampOffset, blockPT }) => {
+        if (fBit === 1) {
+          const length = blockLength ?? 0;
+          if (offset + length > buf.length) {
+            throw new Error("RED block truncated");
+          }
+          const block = buf.subarray(offset, offset + length);
+          red.blocks.push({ block, blockPT, timestampOffset });
+          offset += length;
+        } else {
+          const block = buf.subarray(offset);
+          red.blocks.push({ block, blockPT });
+        }
+      },
+    );
 
     return red;
   }
@@ -52,7 +60,8 @@ export class Red {
     this.header = new RedHeader();
 
     for (const { timestampOffset, blockPT, block } of this.blocks) {
-      if (timestampOffset) {
+      // timestampOffset=0 is a valid redundant block (same timestamp as primary).
+      if (timestampOffset != null) {
         this.header.fields.push({
           fBit: 1,
           blockPT,
@@ -77,10 +86,16 @@ export class RedHeader {
   fields: RedHeaderField[] = [];
 
   static deSerialize(buf: Buffer) {
+    if (buf.length < 1) {
+      throw new Error("RED payload truncated: need 1 byte, got 0");
+    }
     let offset = 0;
     const header = new RedHeader();
 
     for (;;) {
+      if (offset >= buf.length) {
+        throw new Error("RED header truncated");
+      }
       const field: RedHeaderField = {} as any;
       header.fields.push(field);
 
@@ -94,6 +109,9 @@ export class RedHeader {
         break;
       }
 
+      if (offset + 3 > buf.length) {
+        throw new Error("RED header truncated");
+      }
       field.timestampOffset = bitStream.readBits(14);
       field.blockLength = bitStream.readBits(10);
 
@@ -107,12 +125,12 @@ export class RedHeader {
     let buf = Buffer.alloc(0);
     for (const field of this.fields) {
       try {
-        if (field.timestampOffset && field.blockLength) {
+        if (field.fBit === 1 || field.blockLength != null) {
           const bitStream = new BitStream(Buffer.alloc(4))
             .writeBits(1, field.fBit)
             .writeBits(7, field.blockPT)
-            .writeBits(14, field.timestampOffset)
-            .writeBits(10, field.blockLength);
+            .writeBits(14, field.timestampOffset ?? 0)
+            .writeBits(10, field.blockLength ?? 0);
           buf = Buffer.concat([buf, bitStream.uint8Array]);
         } else {
           const bitStream = new BitStream(Buffer.alloc(1))

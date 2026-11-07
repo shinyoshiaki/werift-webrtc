@@ -1,0 +1,800 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>GCC と lightweight — 同じ TWCC から帯域をどう決めるか</title>
+  <style>
+    :root {
+      --paper: #f3eee4; --cream: #fffaf3; --ink: #211d18; --muted: #62594e;
+      --line: #d6cbbb; --lightweight: #795625; --gcc: #236566; --wait: #bb551c;
+      --loss: #b32622; --receive: #3b704d;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--paper); color: var(--ink); font: 16px/1.8 "Hiragino Sans", "Noto Sans JP", sans-serif; }
+    header, main, footer { max-width: 1120px; margin: auto; padding: 32px 24px; }
+    header { padding-top: 64px; }
+    section { margin-bottom: 64px; scroll-margin-top: 20px; }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 { font-size: clamp(30px, 4.5vw, 49px); line-height: 1.4; letter-spacing: -.025em; }
+    h2 { font-size: clamp(24px, 3vw, 31px); line-height: 1.5; margin-bottom: 16px; }
+    h3 { font-size: 19px; line-height: 1.6; margin-bottom: 10px; }
+    a { color: var(--gcc); text-underline-offset: 3px; }
+    button, input { font: inherit; }
+    button { cursor: pointer; }
+    button:disabled { cursor: default; opacity: .5; }
+    :focus-visible { outline: 3px solid var(--gcc); outline-offset: 4px; }
+    [hidden] { display: none !important; }
+    .eyebrow { color: var(--gcc); font-size: 12px; letter-spacing: .15em; margin-bottom: 16px; }
+    .lead { max-width: 900px; color: var(--muted); font-size: 18px; }
+    .note, figcaption, footer { color: var(--muted); font-size: 13px; }
+    .note { margin: 10px 0 0; }
+    nav, .controls, .scenario-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+    nav { margin-top: 24px; }
+    nav a, .chip { border: 1px solid var(--line); border-radius: 24px; background: var(--cream); padding: 8px 14px; color: var(--ink); font-size: 14px; text-decoration: none; }
+    .chip[aria-pressed="true"] { color: var(--cream); background: var(--ink); border-color: var(--ink); }
+    .card { border: 1px solid var(--line); border-radius: 18px; background: var(--cream); padding: 24px; }
+    .split { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    .split > *, .card, section { min-width: 0; }
+    .lightweight { border-top: 4px solid var(--lightweight); }
+    .gcc { border-top: 4px solid var(--gcc); }
+    .badge { display: inline-block; border-radius: 5px; padding: 2px 8px; background: var(--gcc); color: white; font-size: 11px; letter-spacing: .06em; margin-bottom: 10px; }
+    .badge.l { background: var(--lightweight); }
+    .callout { border-left: 4px solid var(--wait); padding: 12px 18px; background: #f5e6d7; margin: 18px 0; }
+    .formula, pre { border: 1px solid var(--line); border-radius: 10px; background: #f4eee4; padding: 14px; font: 13px/1.9 ui-monospace, Menlo, monospace; overflow-x: auto; }
+    .formula strong { color: var(--gcc); }
+    .table-scroll, .diagram-scroll { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { padding: 10px 12px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+    th { background: #eee6d9; }
+    caption { text-align: left; margin-bottom: 8px; color: var(--muted); }
+    code, .number { font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+    .scenario-buttons { margin-bottom: 12px; }
+    .scenario-summary { margin: 12px 0 16px; font-size: 14px; }
+    .phase-buttons { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; margin: 20px 0; }
+    .phase-buttons button { border: 1px solid var(--line); background: white; border-radius: 8px; padding: 10px 4px; font-size: 12px; color: var(--muted); }
+    .phase-buttons button[aria-current="step"] { background: var(--gcc); color: white; border-color: var(--gcc); }
+    .controls { align-items: center; margin: 12px 0; }
+    .controls output { font-size: 13px; color: var(--muted); margin-left: auto; }
+    .seek { width: 100%; accent-color: var(--gcc); }
+    .step-copy { min-height: 120px; margin: 24px 0 12px; }
+    .step-copy p { font-size: 14px; margin: 0; }
+    .player-panel { border-top: 1px solid var(--line); padding-top: 16px; min-height: 440px; }
+    figure { margin: 0; }
+    svg { display: block; width: 100%; height: auto; font-family: "Hiragino Sans", "Noto Sans JP", sans-serif; }
+    .network-svg { min-width: 740px; }
+    .chart-svg { min-width: 390px; }
+    svg text { fill: var(--ink); font-size: 13px; }
+    svg .minor { fill: var(--muted); font-size: 11px; }
+    svg .white { fill: white; font-size: 11px; }
+    svg .axis { stroke: var(--line); stroke-width: 1; }
+    .legend { display: flex; flex-wrap: wrap; gap: 16px; font-size: 12px; color: var(--muted); margin: 8px 0; }
+    .legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; background: var(--color); margin-right: 6px; }
+    .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 16px 0; }
+    .stats div { padding: 10px; background: #eee7da; border-radius: 8px; font-size: 12px; }
+    .stats strong { display: block; font-size: 23px; }
+    .result { font-size: 30px; line-height: 1.4; margin: 12px 0; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .result small { font-size: 13px; font-weight: 400; }
+    .bar { height: 14px; background: #e6dece; border-radius: 4px; overflow: hidden; }
+    .bar span { display: block; height: 100%; background: var(--gcc); }
+    .lightweight .bar span { background: var(--lightweight); }
+    .substep { border-left: 3px solid var(--line); padding: 8px 12px; margin: 8px 0; font-size: 14px; }
+    .substep.active { border-color: var(--gcc); background: #e4eeea; }
+    .compact-flow { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 16px 0; }
+    .compact-flow button { text-align: left; padding: 12px; border-radius: 8px; border: 1px solid var(--line); background: white; font-size: 13px; color: var(--ink); }
+    .compact-flow button[aria-pressed="true"] { border-color: var(--gcc); background: #e3ede8; }
+    .packet-list { display: flex; gap: 10px; margin: 18px 0; flex-wrap: wrap; }
+    .packet-label { padding: 10px; background: var(--receive); color: white; border-radius: 6px; text-align: center; font-size: 13px; }
+    .packet-label.missing { border: 2px dashed var(--loss); color: var(--loss); background: transparent; padding: 8px; }
+    .packet-label.soft { border: 2px dashed var(--wait); color: var(--wait); background: transparent; padding: 8px; }
+    .soft-maps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 16px 0; }
+    .soft-maps article { border: 1px solid var(--line); border-radius: 10px; padding: 12px; background: white; font-size: 13px; min-width: 0; }
+    .soft-maps article.active { border-color: var(--gcc); background: #e3ede8; }
+    .soft-maps .value { font-size: 15px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+    .ratio-box { margin: 4px 0 0; padding: 12px; background: #eee7da; border-radius: 8px; font-size: 13px; }
+    .ratio-box strong { display: block; font-size: 23px; font-variant-numeric: tabular-nums; }
+    .mini-detail { min-height: 135px; }
+    .timeline { border-left: 3px solid var(--line); padding-left: 20px; }
+    .timeline p { font-size: 14px; }
+    .scroll-hint { display: none; }
+    details { margin-top: 18px; }
+    summary { cursor: pointer; color: var(--gcc); }
+    .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+    @media (max-width: 760px) {
+      header, main, footer { padding: 24px 16px; }
+      .card { padding: 16px; }
+      .split { grid-template-columns: 1fr; }
+      .phase-buttons { grid-template-columns: repeat(4, 1fr); }
+      .stats, .compact-flow { grid-template-columns: 1fr 1fr; }
+      .soft-maps { grid-template-columns: 1fr; }
+      .player-panel { min-height: 0; }
+      .step-copy { min-height: 0; }
+      .result { font-size: 27px; }
+      .scroll-hint { display: block; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <p class="eyebrow">WERIFT / TWCC / SENDER BANDWIDTH ESTIMATION</p>
+    <h1>同じ TWCC から、<br />帯域をどう決めるか</h1>
+    <p class="lead">lightweight は、受信が確認できたパケットのサイズと送受信時刻から平均速度を計算します。GCC は、それに加えて<strong>受信間隔が送信間隔より長い状態が続くか</strong>を調べ、待ち時間の増加を検出すると送信目標を下げます。</p>
+    <p class="lead">違いは「ロスが出るまで待つか」だけではありません。<strong>受信済みデータの平均速度を出す処理</strong>と、<strong>増え続ける待ち時間を解消するために目標を下げる処理</strong>を、同じ入力で比べます。</p>
+    <nav aria-label="目次">
+      <a href="#play">数値で追うアニメーション</a><a href="#pipeline">実装の処理順</a>
+      <a href="#loss">未受信とロス</a><a href="#soft-loss">GCC の soft loss</a>
+      <a href="#probe">probe と pacing</a><a href="#events">帯域変更イベント</a>
+      <a href="#sources">根拠と再現方法</a>
+    </nav>
+  </header>
+  <main>
+    <section id="play">
+      <h2>ロスがなくても、待ち時間は増える</h2>
+      <p>1,200 byte のパケットを 12 ms ごとに送ると、送信レートは 800 kbps です。600 kbps の区間では 1 個を通すのに 16 ms かかるため、次のパケットが 4 ms 早く来て待たされます。バッファに収まる間は、<strong>全パケットが届いていても待ち行列が増えます。</strong></p>
+      <div class="callout">lightweight も受信間隔が広がれば推定値は下がります。GCC の違いは、遅延増加を検出した後、到達スループットより低い目標を選んで待ち行列を減らそうとする点です。GCC が常に低い値になるわけではありません。</div>
+      <div class="card" id="comparison">
+        <div class="scenario-buttons" role="group" aria-label="比較する通信条件">
+          <button class="chip" type="button" data-scene="queue" aria-pressed="true">待ち行列が増える</button>
+          <button class="chip" type="button" data-scene="steady" aria-pressed="false">間隔が変わらない</button>
+          <button class="chip" type="button" data-scene="fixed" aria-pressed="false">固定の遅延だけ大きい</button>
+        </div>
+        <p class="scenario-summary" id="scenario-summary"></p>
+        <p class="note">推定器に与える合成入力の例です。40 個を送った後の TWCC 1 通を両方式に入力します。GCC の内部開始目標は比較用に 800 kbps、probe は発生させず、RTT 制限・追加のロス制限がかからない条件です。実際の通話のフィードバック周期や送信適応を再現するベンチマークではありません。</p>
+        <div class="phase-buttons" id="phases" role="group" aria-label="処理の手順">
+          <button type="button" data-phase="0">1. 送信</button><button type="button" data-phase="1">2. 待機と受信</button>
+          <button type="button" data-phase="2">3. TWCC</button><button type="button" data-phase="3">4. lightweight</button>
+          <button type="button" data-phase="4">5. GCC</button><button type="button" data-phase="5">6. 通知</button>
+          <button type="button" data-phase="6">7. 送信量の調整</button>
+        </div>
+        <div class="controls">
+          <button class="chip" type="button" id="play-toggle" aria-pressed="false">再生</button>
+          <button class="chip" type="button" id="restart">先頭へ</button>
+          <button class="chip" type="button" id="previous">前の手順</button>
+          <button class="chip" type="button" id="next">次の手順</button>
+          <output id="position-label" for="position"></output>
+        </div>
+        <label class="sr-only" for="position">アニメーションの再生位置</label>
+        <input class="seek" type="range" id="position" min="0" max="699" value="0" step="1" />
+        <p class="note" id="motion-note">各手順のボタンで途中へ移動できます。スライダーを動かすと一時停止します。図の時間は説明用に遅く再生しています。</p>
+        <div class="step-copy" aria-live="polite" aria-atomic="true">
+          <h3 id="step-title"></h3><p id="step-detail"></p>
+        </div>
+
+        <div class="player-panel" id="network-panel">
+          <figure>
+            <div class="diagram-scroll"><svg class="network-svg" id="network" viewBox="0 0 960 275" role="img" aria-labelledby="network-title network-desc"></svg></div>
+            <figcaption id="network-caption"></figcaption>
+          </figure>
+          <div class="legend"><span style="--color:var(--wait)">バッファで待機</span><span style="--color:var(--gcc)">区間を通過中</span><span style="--color:var(--receive)">伝搬中 → 受信側の個数に加算</span></div>
+          <p class="note scroll-hint">図と表は横にスクロールできます。</p>
+          <div class="stats" id="network-stats"></div>
+          <div class="table-scroll">
+            <table>
+              <caption>入力データの抜粋（図示用の共通原点からの ms）。各パケットは 1,200 byte。</caption>
+              <thead><tr><th scope="col">TWCC 番号</th><th scope="col">送信 S</th><th scope="col">待機時間</th><th scope="col">受信 R</th><th scope="col">R − S</th><th scope="col">受信状態</th></tr></thead>
+              <tbody id="packet-table"></tbody>
+            </table>
+          </div>
+          <p class="note">入口までの伝搬は 0 ms とし、区間通過後に固定の伝搬遅延を足しています。実装は送受信の時計を同期させず、それぞれの時計内の差分 ΔS・ΔR を使います。R − S はモデル内の説明用です。</p>
+        </div>
+
+        <div class="player-panel" id="lightweight-panel" hidden>
+          <div class="split">
+            <article class="card lightweight">
+              <span class="badge l">LIGHTWEIGHT / 受信済みの平均</span><h3>同じバイト数を、二つの時刻幅で割る</h3>
+              <div id="lightweight-calculation"></div>
+              <p class="result" id="lightweight-result"></p>
+              <p class="note">送信レート側も「受信が確認できたパケット」だけが分子・時刻幅の対象です。全送信パケットの平均とは限りません。</p>
+            </article>
+            <article>
+              <h3>なぜ受信速度と完全には一致しないか</h3>
+              <p>この実装は 40 個分のバイト数を、最初と最後の間の 39 間隔で割ります。一定間隔でも、実際の定常レートに対し 40 / 39 倍の値になります。</p>
+              <p id="lightweight-conclusion"></p>
+              <div class="formula">B = 受信済みパケットの合計 byte<br />send = B × 8 × 1000 / (S最大 − S最小)<br />recv = B × 8 × 1000 / (R最大 − R最小)<br />availableBitrate = min(send, recv)</div>
+              <p class="note">計算の目安は 100 ms 以上の経過と 20 パケット以上の蓄積。receiveTWCC 冒頭で 1 秒超の古い累積は破棄されます。遅延の傾きや「平均速度から一定割合を引く」処理はありません。</p>
+            </article>
+          </div>
+        </div>
+
+        <div class="player-panel" id="gcc-panel" hidden>
+          <div class="split">
+            <figure>
+              <h3>① 累積・平滑化した遅延の傾き</h3>
+              <div class="diagram-scroll"><svg class="chart-svg" id="delay-chart" viewBox="0 0 470 250" role="img" aria-labelledby="delay-title delay-desc"></svg></div>
+              <p class="note">縦軸は群間の間隔差 ΔR − ΔS の累積です。待機時間の絶対値ではありません。橙線は直近 20 点の平滑値に当てはめた回帰直線です。</p>
+              <h3 style="margin-top:22px">② 傾きをスコアに変換して判定</h3>
+              <div class="diagram-scroll"><svg class="chart-svg" id="trend-chart" viewBox="0 0 470 300" role="img" aria-labelledby="trend-title trend-desc"></svg></div>
+              <figcaption>現在の TrendlineEstimator から採取した判定用スコアと適応閾値。横軸はフィードバック内の受信時刻です。パケットが届く場面を再生し直しているのではなく、届いた TWCC を送信側で処理しています。</figcaption>
+              <p class="note scroll-hint">グラフは横にスクロールできます。</p>
+              <p class="formula" id="detector-readout"></p>
+            </figure>
+            <article class="card gcc">
+              <span class="badge">GCC / 遅延増加から目標を制御</span><h3>間隔の差 → 平滑化 → 傾き → 判定</h3>
+              <div id="gcc-calculation"></div>
+              <p id="gcc-conclusion"></p>
+              <div class="formula" id="delay-calculation"></div>
+              <p class="note">GCC の到達スループット推定も、送信側・受信側の両方を使います。既定の RobustThroughputEstimator は窓の端の 1 パケットを除いて計算し、極端な受信間隔にも補正をかけます。等間隔のこの例では 600 kbps（待機あり）、800 kbps（待機なし）です。</p>
+              <p class="note">実際は送信時刻でグループ化し、完了した群同士の間隔を使います。この例は送信間隔が 12 ms なので 1 個ずつ別の群です。次の群が必要なため、40 個から得られる間隔差は 38 個です。</p>
+            </article>
+          </div>
+          <p class="callout">右肩上がりの点が一つ出ただけでは減速しません。履歴 20 個で回帰し、正の判定用スコアが適応閾値を超え、継続時間・回数・傾きの条件を満たすと overuse になります。減速の実行には AIMD の更新間隔条件もあります。</p>
+        </div>
+
+        <div class="player-panel" id="event-panel" hidden>
+          <div class="split">
+            <article class="card lightweight"><span class="badge l">LIGHTWEIGHT</span><h3>累積の min(send, recv)</h3><p class="result" id="event-lightweight"></p><div class="bar"><span id="bar-lightweight"></span></div><p class="formula" id="event-lightweight-log"></p></article>
+            <article class="card gcc"><span class="badge">GCC</span><h3>遅延制御後の送信目標</h3><p class="result" id="event-gcc"></p><div class="bar"><span id="bar-gcc"></span></div><p class="formula" id="event-gcc-log"></p></article>
+          </div>
+          <p class="note">棒の共通スケールは 0〜1,000 kbps。数値は現在の推定器に同じ入力を与えた出力で、回線容量そのものを測った値ではありません。初回観測前の公開値は、この例では両方とも 0 bps です。</p>
+          <div class="callout">両方とも <code>onAvailableBitrate</code> は <strong>bps が変わったときだけ</strong>発火します。同じ値の再計算では通知しません。アプリは <code>sender.onAvailableBitrate</code> を購読し、エンコーダやメディア生成量に反映します。</div>
+        </div>
+
+        <div class="player-panel" id="adapt-panel" hidden>
+          <figure><div class="diagram-scroll"><svg class="chart-svg" id="queue-chart" viewBox="0 0 800 300" role="img" aria-labelledby="queue-title queue-desc"></svg></div><figcaption id="adapt-caption"></figcaption></figure>
+          <p class="note scroll-hint">グラフは横にスクロールできます。</p>
+          <div class="split" style="margin-top:20px"><p class="formula" id="adapt-lightweight"></p><p class="formula" id="adapt-gcc"></p></div>
+          <p class="note">ここだけ「アプリが通知値に送信量を合わせ、その値を 2 秒間保つ」という別の連続流モデルです。両方とも 12,000 byte の待ち行列から始めます。40 パケットの図の続きでも、実際の推定器の継続シミュレーションでもありません。後続 TWCC による再推定や probe は省いています。</p>
+        </div>
+      </div>
+      <noscript><p class="callout">アニメーションには JavaScript が必要です。600 kbps の例では ΔS = 12 ms、ΔR = 16 ms、待機が 1 個ごとに 4 ms 増えます。40 個の同じ観測から lightweight は 615,384 bps、GCC は overuse を検出して 505,000 bps を通知します。以下の処理順・イベントの説明はそのまま読めます。</p></noscript>
+    </section>
+
+    <section id="pipeline">
+      <h2>実装は、この順にフィードバックを処理する</h2>
+      <p>上のプレイヤーは比較のため lightweight と GCC を順に見せました。実際の <code>RTCRtpSender</code> では選択した一方だけが動きます。TWCC は番号と受信状態・受信時刻の情報を返し、帯域を決めるのは送信側です。どちらの方式も、TWCC はまず共通の照合層 <code>TwccFeedbackAdapter</code> を通ります。照合層は 16-bit 番号を直前の TWCC を基準に拡張し、送信履歴と突き合わせます。受信と確定した番号は履歴から消すので、重複・重なり合う TWCC が来ても同じパケットを二度「受信」と数えません。<a href="https://datatracker.ietf.org/doc/html/draft-holmer-rmcat-transport-wide-cc-extensions-01#section-3">TWCC draft §3</a></p>
+      <div class="split">
+        <article class="card lightweight"><span class="badge l">LIGHTWEIGHT</span><div class="timeline">
+          <p><strong>① 共通の照合層で番号を照合</strong><br />照合層が返した行のうち、受信済みで時刻を持つ行だけを使う。受信確定済みの番号は照合層の時点で除かれている。</p>
+          <p><strong>② サイズと時刻を累積</strong><br />合計 byte と送受信時刻の最小・最大を更新する。</p>
+          <p><strong>③ 平均速度を計算</strong><br />サンプルが揃ったら min(send, recv) を採用し、累積をリセットする。</p>
+          <p><strong>④ 値が変われば通知</strong><br />帯域イベントのほかに、lightweight 固有の混雑カウンタの更新もある。</p>
+        </div></article>
+        <article class="card gcc"><span class="badge">GCC</span><div class="timeline">
+          <p><strong>① 共通の照合層で番号順に照合・ロス用の記録を作成</strong><br />受信確定済みの重複は照合層の時点で除かれている。未受信は送信履歴に残り、後着で訂正できる。</p>
+          <p><strong>② 受信時刻順で入力</strong><br />到達スループット、probe の受信結果、群間の遅延変化を更新する。</p>
+          <p><strong>③ delay / probe → loss → 最終目標</strong><br />overuse なら AIMD の減速経路。有効な probe 結果があり overuse でなければ delay 推定へ反映。その後 LossBasedBwe を更新し、利用可能なら採用する。RTT 制限や上下限も適用する。</p>
+          <p><strong>④ 変更を通知し、次の probe 条件を更新</strong><br />TWCC 処理中の通知は delay 結果の更新時。全未受信などで更新されない場合も、25 ms の process 経路で目標を公開できる。</p>
+        </div></article>
+      </div>
+      <p class="note">単純な <code>min(delay, loss)</code> は loss 推定が利用可能な通常経路の説明です。開始直後・RTT 制限時・受信時刻のないフィードバックまで、常にこの一式で決まるわけではありません。</p>
+      <details><summary>時刻・番号・タイマの補足</summary>
+        <div class="table-scroll"><table><thead><tr><th>項目</th><th>lightweight</th><th>GCC</th></tr></thead><tbody>
+          <tr><td>送信履歴</td><td>共通の照合層が拡張番号をキーに持つ。10 秒の時間窓。送信時と TWCC の照合時に掃除する。</td><td>同じ照合層で 60 秒の時間窓。送信時・TWCC の照合時・process 時に掃除する。</td></tr>
+          <tr><td>時間窓の判定（共通）</td><td colspan="2">照合層は送信完了・TWCC 到着・process の時刻の最大値を時計にし、age = 時計 − 送信時刻とする。TWCC を照合するその場で、時間窓と番号 span（32768 未満）の外の行を捨てるので、送信完了が遅れた行や送信停止後に届いた TWCC でも古い履歴には対応しない。掃除はメモリを抑えるためだけ。</td></tr>
+          <tr><td>TWCC の番号の解決（共通）</td><td colspan="2">16-bit 番号は、直前の TWCC を基準に最も近い拡張番号へ戻す（初回は最新の送信番号が基準）。履歴は 32768 番号未満に制限するので、同じ 16-bit 番号の候補は常に 1 つ。受信時刻の近さで重複を推測しない。受信確定した番号は履歴から消え、未受信の番号は残る。他の BUNDLE sender の番号は履歴にないので捨てる。</td></tr>
+          <tr><td>送信経路</td><td>develop と同じく DTLS へ直接書く。送信キュー・キュー上限・pacing はない。</td><td>上限付きの送信 FIFO を通す（予約 → pacing 待ち → 番号付け → DTLS 書き込み）。</td></tr>
+          <tr><td>送信時</td><td>送信履歴を記録。</td><td>履歴、アプリが送信量を制限している状態（ALR）、probe 送信量などを更新。ここで帯域を再推定しない。</td></tr>
+          <tr><td>25 ms process</td><td>なし。</td><td>RTT backoff、probe の進行、目標の公開。新しい遅延サンプルを作る処理ではない。</td></tr>
+          <tr><td>RTT</td><td>帯域計算には使わない。</td><td>TWCC 由来の補正 RTT は backoff に、RTCP RR 由来の生 RTT は AIMD の減速間隔などに使う。</td></tr>
+        </tbody></table></div>
+      </details>
+    </section>
+
+    <section id="loss">
+      <h2>「未受信」は、その報告時点の状態</h2>
+      <p>番号 10〜14 のうち 12 だけ未受信と報告された例です。経路で破棄された可能性も、まだ到着していない可能性もあります。<strong>一つの未受信報告だけで、GCC が一定割合減速するわけではありません。</strong></p>
+      <div class="card">
+        <div class="compact-flow" id="loss-steps" role="group" aria-label="未受信報告の処理">
+          <button type="button" data-loss="0" aria-pressed="true">1. TWCC で未受信</button><button type="button" data-loss="1" aria-pressed="false">2. 両方式で処理</button>
+          <button type="button" data-loss="2" aria-pressed="false">3. 同じ未受信の再報告</button><button type="button" data-loss="3" aria-pressed="false">4. 後から受信報告</button>
+        </div>
+        <div class="packet-list" aria-label="TWCC 受信状態"><span class="packet-label">10<br />受信済み</span><span class="packet-label">11<br />受信済み</span><span class="packet-label missing" id="loss-packet">12<br />未受信</span><span class="packet-label">13<br />受信済み</span><span class="packet-label">14<br />受信済み</span></div>
+        <div class="split mini-detail" aria-live="polite" aria-atomic="true"><div><span class="badge l">LIGHTWEIGHT</span><p id="loss-lightweight"></p></div><div><span class="badge">GCC</span><p id="loss-gcc"></p></div></div>
+        <p class="note">操作で状態を進める模式図です。5 個の報告から帯域値が出るという意味ではありません。GCC の loss 経路は byte ベースの観測を蓄積し、既定では送信時刻幅 250 ms 以上の観測が最低 3 個必要です。後着によるロス取消しは未確定の観測内だけで、確定済みの過去の観測は書き換えません。訂正可能な未受信の扱いが <a href="#soft-loss">soft loss</a> です。</p>
+      </div>
+      <p class="callout">lightweight はロス率を明示的にモデル化しません。ただし、受信済みの合計 byte が減ったり時刻幅が広がったりすれば推定値は下がり得ます。「未受信を飛ばすから帯域が下がらない」という説明は正しくありません。</p>
+    </section>
+
+    <section id="soft-loss">
+      <h2>GCC の soft loss：未受信を「確定ロス」にしない</h2>
+      <p>TWCC の <code>PacketNotReceived</code> は、「この報告の対象範囲では、まだ届いていない」という意味です。経路で破棄された可能性も、フィードバックを作ったあとに届く可能性もあります。GCC は未受信番号を永久確定せず、後の受信報告で取り消せる状態として記録します。この訂正可能な未受信が <strong>soft loss</strong> です。仕組みは単純で、共通の照合層が受信報告の来た番号だけを送信履歴から消し、未受信の番号は残します。履歴に残っている限り、後の受信報告を照合できます。</p>
+      <p>1 件の未受信で一定割合減速する処理ではありません。LossBased が最終目標を動かすのは、既定では送信時刻幅 250 ms 以上の観測が最低 3 個揃ってからです。その前は delay 推定を返します。</p>
+      <div class="card">
+        <div class="scenario-buttons" role="group" aria-label="後着と観測確定のどちらが先か">
+          <button class="chip" type="button" data-soft-scene="before" aria-pressed="true">確定前に後着する</button>
+          <button class="chip" type="button" data-soft-scene="after" aria-pressed="false">観測が先に確定する</button>
+        </div>
+        <p class="scenario-summary" id="soft-summary"></p>
+        <div class="compact-flow" id="soft-steps" role="group" aria-label="soft loss の処理順"></div>
+        <figure>
+          <div class="diagram-scroll"><svg class="network-svg" id="soft-diagram" viewBox="0 0 940 210" role="img" aria-labelledby="soft-title soft-desc"></svg></div>
+          <figcaption id="soft-caption"></figcaption>
+        </figure>
+        <div class="legend"><span style="--color:var(--receive)">受信済み</span><span style="--color:var(--wait)">soft loss（訂正可能）</span><span style="--color:var(--loss)">観測確定後のロス</span><span style="--color:#d6cbbb">未照合</span></div>
+        <p class="note scroll-hint">図は横にスクロールできます。</p>
+        <div class="soft-maps">
+          <article id="map-finalized"><span class="badge">受信確定</span><strong>送信履歴から削除済み</strong><p class="value" id="map-finalized-value"></p><p class="note">受信報告が来た番号だけです。照合層の履歴から消えるので、以後の再報告は照合されません。</p></article>
+          <article id="map-soft"><span class="badge">SOFT LOSS</span><strong>送信履歴に残る未受信</strong><p class="value" id="map-soft-value"></p><p class="note">未受信の番号は照合層の履歴に残り、後着の受信報告を受け付けます。</p></article>
+          <article id="map-partial"><span class="badge">LOSSBASED 未確定</span><strong>partial.lostPackets</strong><p class="value" id="map-partial-value"></p><p class="note">送信時刻幅が 250 ms 未満なら、まだ観測として確定しません。</p></article>
+        </div>
+        <div class="ratio-box" id="soft-ratio"></div>
+        <p class="mini-detail" id="soft-detail" aria-live="polite"></p>
+      </div>
+      <div class="table-scroll" style="margin-top:20px"><table>
+        <caption>番号 12（1,200 byte）が報告されたときの実装の分岐</caption>
+        <thead><tr><th>入力</th><th>GCC の処理</th></tr></thead>
+        <tbody>
+          <tr><td>送信履歴にない番号</td><td>ロスにも受信にもしない。未知のフィードバックは捨てる。</td></tr>
+          <tr><td>すでに受信確定した番号</td><td>照合層の履歴から消えているので、照合されない。重複・重なり合う TWCC はここで落ちる（lightweight も同じ照合層を使う）。</td></tr>
+          <tr><td>PacketNotReceived</td><td>送信履歴に残したまま、LossBased の lost map に seq → size を載せる。遅延・到達スループット・probe には入れない（受信時刻がない）。</td></tr>
+          <tr><td>同じ未受信の再報告</td><td>LossBased へ再び渡す。<code>numPackets</code> と <code>size</code> は加算する。lost map は初回の size を保つ（lost_size は増えない）。</td></tr>
+          <tr><td>受信報告（観測の確定前）</td><td>受信確定し、送信履歴から消す。lost map からその番号を消す。未確定観測のロスだけが取り消される。</td></tr>
+          <tr><td>受信報告（観測の確定後）</td><td>新しい未確定観測の受信として数える。すでに commit した observation のロス数・lostSize は書き換えない。</td></tr>
+        </tbody>
+      </table></div>
+      <div class="callout">ロス用の照合は番号順、遅延・到達スループット・probe は受信時刻順です。soft loss の番号は遅延経路に入らないので、「未受信なのに傾き計算へ混ぜる」ことはありません。</div>
+      <p class="note">図の byte ロス率は、いま未確定の観測（または直前に確定した 1 観測）の <code>lostSize / size</code> です。最終帯域は delay / AIMD / probe / 観測 3 個の準備条件と合成されます。この比率そのものが <code>onAvailableBitrate</code> ではありません。</p>
+    </section>
+
+    <section id="probe">
+      <h2>probe は測定のための送信。pacing は送信時刻の調整</h2>
+      <p>GCC は短いパケット群（probe cluster）を決めたレートで送り、TWCC の受信結果から帯域の候補を得ます。<strong>probe の設定値は、使えると確認できた帯域ではありません。</strong>pacing はパケットを送る間隔を調整します。画質やエンコーダの生成量を自動で変える機能とは別です。</p>
+      <div class="card">
+        <div class="compact-flow" id="probe-steps" role="group" aria-label="probe の処理順">
+          <button type="button" data-probe="0" aria-pressed="true">1. クラスタを設定</button><button type="button" data-probe="1" aria-pressed="false">2. 送信量を満たす</button>
+          <button type="button" data-probe="2" aria-pressed="false">3. TWCC で測定</button><button type="button" data-probe="3" aria-pressed="false">4. delay / loss に統合</button>
+        </div>
+        <figure><div class="diagram-scroll"><svg class="network-svg" id="probe-diagram" viewBox="0 0 940 160" role="img" aria-labelledby="probe-title probe-desc"></svg></div><figcaption>時間軸の長さは模式的です。A → B の送信進行と、後から返る TWCC による推定は別の処理です。</figcaption></figure>
+        <p class="mini-detail" id="probe-detail" aria-live="polite"></p>
+      </div>
+      <div class="table-scroll" style="margin-top:20px"><table><thead><tr><th>項目</th><th>lightweight</th><th>GCC の現在の実装</th></tr></thead><tbody>
+        <tr><td>初期 probe</td><td>なし。</td><td>既定の内部開始値 300 kbps に対し 3 倍 / 6 倍のクラスタを要求（上限等の条件あり）。FIFO で一つずつ送信。</td></tr>
+        <tr><td>probe のパケット</td><td>なし。</td><td>メディアに加え、不足分を padding だけの RTP で補う。padding は RTX の SSRC・payload type・番号で送るので、メディアの番号はずれない。RTX が交渉されていなければ padding は送らない（メディアだけで probe する）。送信前に cluster id を予約し、送信後に実サイズを記録。</td></tr>
+        <tr><td>通常メディアの pacing</td><td>BWE による token bucket はなし。</td><td>目標の 2.5 倍（初回有効 TWCC 前）、1.1 倍（以降）。probe 中はそのレートまで引き上げる。エンコーダの目標値ではない。</td></tr>
+        <tr><td>開始値・公開値</td><td>サンプルが揃うまで 0 bps。</td><td>内部開始値は既定 300 kbps。公開値も最初から 300 kbps になるわけではない。通常は有効 TWCC 後に公開し、RTT backoff の安全動作はそれより前に通知し得る。</td></tr>
+      </tbody></table></div>
+      <p class="note">GCC には追加・回復・任意設定の ALR probe 等の経路もあります。この図は初期クラスタの流れです。werift の送信器は軽量な token bucket と RTX への padding 注入を使っており、libwebrtc の PacedSender 全体と同一ではありません。RTX がない場合に padding を送らない点も libwebrtc との差分です（<code>GCC_KNOWN_DIFFERENCES</code>）。</p>
+    </section>
+
+    <section id="events">
+      <h2>帯域の変化は、共通のイベントで受け取る</h2>
+      <p><code>RTCRtpSender.onAvailableBitrate</code> の引数は、新しい推定送信可能帯域の <strong>整数 bps（bits per second）</strong>です。kbps への換算は表示側で行います。値が変わったときだけ通知し、毎パケット・毎 TWCC・毎タイマで必ず発火するものではありません。</p>
+      <pre><code>sender.onAvailableBitrate.subscribe((bps) =&gt; {
+  // 例: 505000 は 505 kbps。アプリのエンコーダや生成量に反映する。
+  // この購読は推定器を差し替えた後も有効。
+});
+sender.setBandwidthEstimator(new GccBandwidthEstimator());</code></pre>
+      <div class="split">
+        <article class="card"><h3>共通の入口と出口</h3><div class="formula">rtpPacketSent(SentInfo)<br />receiveTWCC(TransportWideCC)<br />availableBitrate<br />onAvailableBitrate → bps（値の変更時）</div><p class="note">既定は LightweightBandwidthEstimator（lightweight）。差し替えは setBandwidthEstimator を使います。通常の RTP/TWCC 観測と probe 送信・pacing は TWCC 拡張の交渉が前提です。probe の padding はさらに RTX の交渉が前提です。</p></article>
+        <article class="card"><h3>差し替え時は推定を引き継がない</h3><p>旧推定器を dispose / reset し、注入する推定器も reset します。sender の共通イベント購読は残ります。リセットで公開値が 0 に戻ること自体は、帯域変更通知を発火しません。</p><p class="note">lightweight 固有: onCongestion / onCongestionScore（1〜10）。GCC 固有: onOveruseDetected / onProbeClusterConfig。これらは共通 interface の帯域イベントとは別です。</p></article>
+      </div>
+      <p class="callout">推定器は通知する帯域を決めます。実際にエンコーダの目標を下げたり、メディアの生成量を減らしたりする処理はアプリ側に必要です。pacing だけで生成量を減らせるわけではありません。</p>
+    </section>
+
+    <section id="sources">
+      <h2>実装との対応と再現方法</h2>
+      <p>アニメーションの送受信時刻・待機量は一つのキューモデルから生成し、同じ履歴と TWCC の展開結果を現在の二つの推定器に入力しています。グラフのスコアと閾値も現在の TrendlineEstimator の出力です。HTML は単独で開け、外部ライブラリや通信を必要としません。</p>
+      <p>関数名とファイルの行まで追う解説は <a href="./c724daf9-twcc-gcc-mechanism.md">c724daf9-twcc-gcc-mechanism.md</a>、テストの構成は <a href="./c724daf9-twcc-tests.md">c724daf9-twcc-tests.md</a> にあります。</p>
+      <div class="table-scroll"><table><thead><tr><th>説明</th><th>対応する実装</th></tr></thead><tbody>
+        <tr><td>lightweight の入力条件・計算</td><td><a href="../packages/webrtc/src/media/sender/estimators/lightweightBwe.ts">lightweightBwe.ts</a> / <a href="../packages/webrtc/src/media/sender/cumulativeResult.ts">cumulativeResult.ts</a></td></tr>
+        <tr><td>群間の間隔差・傾き・AIMD</td><td><a href="../packages/webrtc/src/media/sender/estimators/gcc/interArrivalDelta.ts">interArrivalDelta.ts</a> / <a href="../packages/webrtc/src/media/sender/estimators/gcc/trendlineEstimator.ts">trendlineEstimator.ts</a> / <a href="../packages/webrtc/src/media/sender/estimators/gcc/aimdRateControl.ts">aimdRateControl.ts</a></td></tr>
+        <tr><td>到達スループット・loss・probe</td><td><a href="../packages/webrtc/src/media/sender/estimators/gcc/acknowledgedBitrateEstimator.ts">acknowledgedBitrateEstimator.ts</a> / <a href="../packages/webrtc/src/media/sender/estimators/gcc/lossBasedBwe.ts">lossBasedBwe.ts</a> / <a href="../packages/webrtc/src/media/sender/estimators/gcc/probeController.ts">probeController.ts</a></td></tr>
+        <tr><td>TWCC の照合（両方式共通）・soft loss</td><td><a href="../packages/webrtc/src/media/sender/estimators/twccFeedbackAdapter.ts">twccFeedbackAdapter.ts</a>（受信確定で履歴から削除、未受信は残す）。LossBased の <code>partial.lostPackets</code>（commit 前だけ unmark）</td></tr>
+        <tr><td>統合・イベント・差し替え</td><td><a href="../packages/webrtc/src/media/sender/estimators/gcc/gccBwe.ts">gccBwe.ts</a> / <a href="../packages/webrtc/src/media/sender/bandwidthEstimator.ts">bandwidthEstimator.ts</a> / <a href="../packages/webrtc/src/media/rtpSender.ts">rtpSender.ts</a></td></tr>
+      </tbody></table></div>
+      <h3>動作をどう確かめているか</h3>
+      <p>GCC の実装は libwebrtc の goog_cc を参考にしており、境界値や処理順も今は libwebrtc に合わせたままです。ただし完成度は「libwebrtc と 1:1 で一致すること」ではなく、「GCC として正しく機能すること」で判定します。テストも libwebrtc と同じ処理順・境界値かどうかは固定せず、次の 3 種類で確かめます。</p>
+      <div class="table-scroll"><table><thead><tr><th>種類</th><th>確かめること</th><th>テスト</th></tr></thead><tbody>
+        <tr><td>制御応答（仕様ベース）</td><td>仮想ボトルネック（容量・片道遅延・キュー上限・ランダムロス）を通した決定的なシミュレーション。混雑やロスで下がる、余裕があれば probe で上がる、固定遅延だけでは下げない、feedback が途絶えたら下げる、を範囲で判定</td><td><a href="../packages/webrtc/tests/media/bandwidthEstimator.test.ts">bandwidthEstimator.test.ts</a>「GCC 制御応答（仕様ベース）」/ <a href="../packages/webrtc/tests/media/gccSimulation.ts">gccSimulation.ts</a></td></tr>
+        <tr><td>不変条件（性質テスト）</td><td>TWCC の照合で各パケットの受信を高々 1 回だけ数える、正しい世代にだけ対応する、送信履歴が時間窓内かつ 32768 番号未満で、照合で返る行も照合時点で窓の内側にある（送信完了の遅れ・送信停止後の TWCC を含む）。通知値は [min, max] に収まり、変化時だけ出る。lightweight の推定値は min(送信レート, 受信レート)。media の番号はずれず、padding は RTX にだけ出る</td><td><a href="../packages/webrtc/tests/pbt/twcc/twccProperty.test.ts">tests/pbt/twcc</a> / <a href="../packages/webrtc/tests/pbt/bwe/bweProperty.test.ts">tests/pbt/bwe</a> / <a href="../packages/webrtc/tests/pbt/sender/senderProperty.test.ts">tests/pbt/sender</a>（共通基盤 <code>tests/pbt/shared</code>）</td></tr>
+        <tr><td>werift 固有の回帰</td><td>過去のレビューで見つかった送信経路・番号・padding・差し替え・停止・transport 切替・TWCC の解釈と配送・受信側の報告窓の不具合</td><td><a href="../packages/webrtc/tests/media/bandwidthEstimator.test.ts">bandwidthEstimator.test.ts</a> / <a href="../packages/webrtc/tests/media/rtpSender.test.ts">rtpSender.test.ts</a> / <a href="../packages/webrtc/tests/media/twccFeedbackAdapter.test.ts">twccFeedbackAdapter.test.ts</a> / <a href="../packages/webrtc/tests/media/receiverTwcc.test.ts">receiverTwcc.test.ts</a> / <a href="../packages/webrtc/tests/media/router.test.ts">router.test.ts</a></td></tr>
+      </tbody></table></div>
+      <p class="note">性質テストは固定 seed で決まった系列を回します。失敗したテスト名に、その seed だけを再現する環境変数が出ます。seed を増やした探索は <code>cd packages/webrtc &amp;&amp; npm run pbt:deep -- --suite twcc,bwe,sender,receiver</code> です。範囲で判定するので、わずかな性能の悪化や Chrome との細かい挙動差は検出しません。</p>
+      <details><summary>数値を現在のコードで再検証する</summary><p><a href="./c724daf9-gcc-vs-lightweight.trace.ts">c724daf9-gcc-vs-lightweight.trace.ts</a> が HTML 内のデータと現在の実装の出力を照合します。リポジトリのルートで実行してください。</p><pre><code>node --import ./tools/node-ts/register.mjs reviews/c724daf9-gcc-vs-lightweight.trace.ts
+# 実装の変更後、埋め込みデータを更新する場合:
+node --import ./tools/node-ts/register.mjs reviews/c724daf9-gcc-vs-lightweight.trace.ts --write</code></pre><p class="note">フィードバックはパース後の入力として与えます。wire シリアライズやネットワーク・pacer・エンコーダを含む E2E 検証ではありません。</p></details>
+    </section>
+  </main>
+  <footer>このページは、このリポジトリの GCC と lightweight の実装を比較する資料です。GCC 一般やブラウザの全実装が、どの条件でも同じ数値を返すという意味ではありません。</footer>
+  <script id="estimator-data" type="application/json">
+{"packetBytes":1200,"sendIntervalMs":12,"packetCount":40,"initialTargetBps":800000,"scenarios":{"steady":{"serviceMs":12,"propagationMs":40,"feedbackMs":560,"packets":[{"seq":1,"sendMs":0,"startMs":0,"exitMs":12,"recvMs":52,"waitMs":0},{"seq":2,"sendMs":12,"startMs":12,"exitMs":24,"recvMs":64,"waitMs":0},{"seq":3,"sendMs":24,"startMs":24,"exitMs":36,"recvMs":76,"waitMs":0},{"seq":4,"sendMs":36,"startMs":36,"exitMs":48,"recvMs":88,"waitMs":0},{"seq":5,"sendMs":48,"startMs":48,"exitMs":60,"recvMs":100,"waitMs":0},{"seq":6,"sendMs":60,"startMs":60,"exitMs":72,"recvMs":112,"waitMs":0},{"seq":7,"sendMs":72,"startMs":72,"exitMs":84,"recvMs":124,"waitMs":0},{"seq":8,"sendMs":84,"startMs":84,"exitMs":96,"recvMs":136,"waitMs":0},{"seq":9,"sendMs":96,"startMs":96,"exitMs":108,"recvMs":148,"waitMs":0},{"seq":10,"sendMs":108,"startMs":108,"exitMs":120,"recvMs":160,"waitMs":0},{"seq":11,"sendMs":120,"startMs":120,"exitMs":132,"recvMs":172,"waitMs":0},{"seq":12,"sendMs":132,"startMs":132,"exitMs":144,"recvMs":184,"waitMs":0},{"seq":13,"sendMs":144,"startMs":144,"exitMs":156,"recvMs":196,"waitMs":0},{"seq":14,"sendMs":156,"startMs":156,"exitMs":168,"recvMs":208,"waitMs":0},{"seq":15,"sendMs":168,"startMs":168,"exitMs":180,"recvMs":220,"waitMs":0},{"seq":16,"sendMs":180,"startMs":180,"exitMs":192,"recvMs":232,"waitMs":0},{"seq":17,"sendMs":192,"startMs":192,"exitMs":204,"recvMs":244,"waitMs":0},{"seq":18,"sendMs":204,"startMs":204,"exitMs":216,"recvMs":256,"waitMs":0},{"seq":19,"sendMs":216,"startMs":216,"exitMs":228,"recvMs":268,"waitMs":0},{"seq":20,"sendMs":228,"startMs":228,"exitMs":240,"recvMs":280,"waitMs":0},{"seq":21,"sendMs":240,"startMs":240,"exitMs":252,"recvMs":292,"waitMs":0},{"seq":22,"sendMs":252,"startMs":252,"exitMs":264,"recvMs":304,"waitMs":0},{"seq":23,"sendMs":264,"startMs":264,"exitMs":276,"recvMs":316,"waitMs":0},{"seq":24,"sendMs":276,"startMs":276,"exitMs":288,"recvMs":328,"waitMs":0},{"seq":25,"sendMs":288,"startMs":288,"exitMs":300,"recvMs":340,"waitMs":0},{"seq":26,"sendMs":300,"startMs":300,"exitMs":312,"recvMs":352,"waitMs":0},{"seq":27,"sendMs":312,"startMs":312,"exitMs":324,"recvMs":364,"waitMs":0},{"seq":28,"sendMs":324,"startMs":324,"exitMs":336,"recvMs":376,"waitMs":0},{"seq":29,"sendMs":336,"startMs":336,"exitMs":348,"recvMs":388,"waitMs":0},{"seq":30,"sendMs":348,"startMs":348,"exitMs":360,"recvMs":400,"waitMs":0},{"seq":31,"sendMs":360,"startMs":360,"exitMs":372,"recvMs":412,"waitMs":0},{"seq":32,"sendMs":372,"startMs":372,"exitMs":384,"recvMs":424,"waitMs":0},{"seq":33,"sendMs":384,"startMs":384,"exitMs":396,"recvMs":436,"waitMs":0},{"seq":34,"sendMs":396,"startMs":396,"exitMs":408,"recvMs":448,"waitMs":0},{"seq":35,"sendMs":408,"startMs":408,"exitMs":420,"recvMs":460,"waitMs":0},{"seq":36,"sendMs":420,"startMs":420,"exitMs":432,"recvMs":472,"waitMs":0},{"seq":37,"sendMs":432,"startMs":432,"exitMs":444,"recvMs":484,"waitMs":0},{"seq":38,"sendMs":444,"startMs":444,"exitMs":456,"recvMs":496,"waitMs":0},{"seq":39,"sendMs":456,"startMs":456,"exitMs":468,"recvMs":508,"waitMs":0},{"seq":40,"sendMs":468,"startMs":468,"exitMs":480,"recvMs":520,"waitMs":0}],"trace":[{"seq":1,"deltas":0,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":12.5,"state":"normal"},{"seq":2,"deltas":0,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":12.5,"state":"normal"},{"seq":3,"deltas":1,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":12.5,"state":"normal"},{"seq":4,"deltas":2,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":12.5,"state":"normal"},{"seq":5,"deltas":3,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6.65,"state":"normal"},{"seq":6,"deltas":4,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":7,"deltas":5,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":8,"deltas":6,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":9,"deltas":7,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":10,"deltas":8,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":11,"deltas":9,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":12,"deltas":10,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":13,"deltas":11,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":14,"deltas":12,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":15,"deltas":13,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":16,"deltas":14,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":17,"deltas":15,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":18,"deltas":16,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":19,"deltas":17,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":20,"deltas":18,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":21,"deltas":19,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":22,"deltas":20,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":23,"deltas":21,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":24,"deltas":22,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":25,"deltas":23,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":26,"deltas":24,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":27,"deltas":25,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":28,"deltas":26,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":29,"deltas":27,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":30,"deltas":28,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":31,"deltas":29,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":32,"deltas":30,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":33,"deltas":31,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":34,"deltas":32,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":35,"deltas":33,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":36,"deltas":34,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":37,"deltas":35,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":38,"deltas":36,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":39,"deltas":37,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":40,"deltas":38,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"}],"sendSpanMs":468,"recvSpanMs":468,"lightweightBps":820512,"gccBps":801000,"events":{"lightweight":[820512],"gcc":[801000]},"usage":"normal"},"queue":{"serviceMs":16,"propagationMs":40,"feedbackMs":720,"packets":[{"seq":1,"sendMs":0,"startMs":0,"exitMs":16,"recvMs":56,"waitMs":0},{"seq":2,"sendMs":12,"startMs":16,"exitMs":32,"recvMs":72,"waitMs":4},{"seq":3,"sendMs":24,"startMs":32,"exitMs":48,"recvMs":88,"waitMs":8},{"seq":4,"sendMs":36,"startMs":48,"exitMs":64,"recvMs":104,"waitMs":12},{"seq":5,"sendMs":48,"startMs":64,"exitMs":80,"recvMs":120,"waitMs":16},{"seq":6,"sendMs":60,"startMs":80,"exitMs":96,"recvMs":136,"waitMs":20},{"seq":7,"sendMs":72,"startMs":96,"exitMs":112,"recvMs":152,"waitMs":24},{"seq":8,"sendMs":84,"startMs":112,"exitMs":128,"recvMs":168,"waitMs":28},{"seq":9,"sendMs":96,"startMs":128,"exitMs":144,"recvMs":184,"waitMs":32},{"seq":10,"sendMs":108,"startMs":144,"exitMs":160,"recvMs":200,"waitMs":36},{"seq":11,"sendMs":120,"startMs":160,"exitMs":176,"recvMs":216,"waitMs":40},{"seq":12,"sendMs":132,"startMs":176,"exitMs":192,"recvMs":232,"waitMs":44},{"seq":13,"sendMs":144,"startMs":192,"exitMs":208,"recvMs":248,"waitMs":48},{"seq":14,"sendMs":156,"startMs":208,"exitMs":224,"recvMs":264,"waitMs":52},{"seq":15,"sendMs":168,"startMs":224,"exitMs":240,"recvMs":280,"waitMs":56},{"seq":16,"sendMs":180,"startMs":240,"exitMs":256,"recvMs":296,"waitMs":60},{"seq":17,"sendMs":192,"startMs":256,"exitMs":272,"recvMs":312,"waitMs":64},{"seq":18,"sendMs":204,"startMs":272,"exitMs":288,"recvMs":328,"waitMs":68},{"seq":19,"sendMs":216,"startMs":288,"exitMs":304,"recvMs":344,"waitMs":72},{"seq":20,"sendMs":228,"startMs":304,"exitMs":320,"recvMs":360,"waitMs":76},{"seq":21,"sendMs":240,"startMs":320,"exitMs":336,"recvMs":376,"waitMs":80},{"seq":22,"sendMs":252,"startMs":336,"exitMs":352,"recvMs":392,"waitMs":84},{"seq":23,"sendMs":264,"startMs":352,"exitMs":368,"recvMs":408,"waitMs":88},{"seq":24,"sendMs":276,"startMs":368,"exitMs":384,"recvMs":424,"waitMs":92},{"seq":25,"sendMs":288,"startMs":384,"exitMs":400,"recvMs":440,"waitMs":96},{"seq":26,"sendMs":300,"startMs":400,"exitMs":416,"recvMs":456,"waitMs":100},{"seq":27,"sendMs":312,"startMs":416,"exitMs":432,"recvMs":472,"waitMs":104},{"seq":28,"sendMs":324,"startMs":432,"exitMs":448,"recvMs":488,"waitMs":108},{"seq":29,"sendMs":336,"startMs":448,"exitMs":464,"recvMs":504,"waitMs":112},{"seq":30,"sendMs":348,"startMs":464,"exitMs":480,"recvMs":520,"waitMs":116},{"seq":31,"sendMs":360,"startMs":480,"exitMs":496,"recvMs":536,"waitMs":120},{"seq":32,"sendMs":372,"startMs":496,"exitMs":512,"recvMs":552,"waitMs":124},{"seq":33,"sendMs":384,"startMs":512,"exitMs":528,"recvMs":568,"waitMs":128},{"seq":34,"sendMs":396,"startMs":528,"exitMs":544,"recvMs":584,"waitMs":132},{"seq":35,"sendMs":408,"startMs":544,"exitMs":560,"recvMs":600,"waitMs":136},{"seq":36,"sendMs":420,"startMs":560,"exitMs":576,"recvMs":616,"waitMs":140},{"seq":37,"sendMs":432,"startMs":576,"exitMs":592,"recvMs":632,"waitMs":144},{"seq":38,"sendMs":444,"startMs":592,"exitMs":608,"recvMs":648,"waitMs":148},{"seq":39,"sendMs":456,"startMs":608,"exitMs":624,"recvMs":664,"waitMs":152},{"seq":40,"sendMs":468,"startMs":624,"exitMs":640,"recvMs":680,"waitMs":156}],"trace":[{"seq":1,"deltas":0,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":12.5,"state":"normal"},{"seq":2,"deltas":0,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":12.5,"state":"normal"},{"seq":3,"deltas":1,"accumulatedDelayMs":4,"smoothedDelayMs":0.3999999999999999,"slope":0,"trend":0,"threshold":12.5,"state":"normal"},{"seq":4,"deltas":2,"accumulatedDelayMs":8,"smoothedDelayMs":1.1599999999999997,"slope":0,"trend":0,"threshold":12.5,"state":"normal"},{"seq":5,"deltas":3,"accumulatedDelayMs":12,"smoothedDelayMs":2.2439999999999998,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":6,"deltas":4,"accumulatedDelayMs":16,"smoothedDelayMs":3.6195999999999997,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":7,"deltas":5,"accumulatedDelayMs":20,"smoothedDelayMs":5.257639999999999,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":8,"deltas":6,"accumulatedDelayMs":24,"smoothedDelayMs":7.131875999999999,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":9,"deltas":7,"accumulatedDelayMs":28,"smoothedDelayMs":9.2186884,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":10,"deltas":8,"accumulatedDelayMs":32,"smoothedDelayMs":11.496819559999999,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":11,"deltas":9,"accumulatedDelayMs":36,"smoothedDelayMs":13.947137603999998,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":12,"deltas":10,"accumulatedDelayMs":40,"smoothedDelayMs":16.552423843599996,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":13,"deltas":11,"accumulatedDelayMs":44,"smoothedDelayMs":19.297181459239994,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":14,"deltas":12,"accumulatedDelayMs":48,"smoothedDelayMs":22.16746331331599,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":15,"deltas":13,"accumulatedDelayMs":52,"smoothedDelayMs":25.15071698198439,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":16,"deltas":14,"accumulatedDelayMs":56,"smoothedDelayMs":28.23564528378595,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":17,"deltas":15,"accumulatedDelayMs":60,"smoothedDelayMs":31.412080755407352,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":18,"deltas":16,"accumulatedDelayMs":64,"smoothedDelayMs":34.67087267986662,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":19,"deltas":17,"accumulatedDelayMs":68,"smoothedDelayMs":38.00378541187996,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":20,"deltas":18,"accumulatedDelayMs":72,"smoothedDelayMs":41.40340687069196,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":21,"deltas":19,"accumulatedDelayMs":76,"smoothedDelayMs":44.86306618362276,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":22,"deltas":20,"accumulatedDelayMs":80,"smoothedDelayMs":48.376759565260485,"slope":0.16258258423841945,"trend":13.006606739073556,"threshold":6.975319658079039,"state":"normal"},{"seq":23,"deltas":21,"accumulatedDelayMs":84,"smoothedDelayMs":51.939083608734435,"slope":0.17132432581457752,"trend":14.391243368424512,"threshold":8.007616238559129,"state":"overuse"},{"seq":24,"deltas":22,"accumulatedDelayMs":88,"smoothedDelayMs":55.54517524786099,"slope":0.17919189323311974,"trend":15.768886604514536,"threshold":9.087985073500121,"state":"overuse"},{"seq":25,"deltas":23,"accumulatedDelayMs":92,"smoothedDelayMs":59.190657723074885,"slope":0.18627270390980777,"trend":17.137088759702316,"threshold":10.208420306619466,"state":"overuse"},{"seq":26,"deltas":24,"accumulatedDelayMs":96,"smoothedDelayMs":62.871591950767396,"slope":0.192645433518827,"trend":18.49396161780739,"threshold":11.361767657136825,"state":"overuse"},{"seq":27,"deltas":25,"accumulatedDelayMs":100,"smoothedDelayMs":66.58443275569066,"slope":0.1983808901669443,"trend":19.83808901669443,"threshold":12.541671590387244,"state":"overuse"},{"seq":28,"deltas":26,"accumulatedDelayMs":104,"smoothedDelayMs":70.32598948012159,"slope":0.20354280115024992,"trend":21.16845131962599,"threshold":13.742519328697277,"state":"overuse"},{"seq":29,"deltas":27,"accumulatedDelayMs":108,"smoothedDelayMs":74.09339053210942,"slope":0.20818852103522484,"trend":22.48436027180428,"threshold":14.959383587977772,"state":"overuse"},{"seq":30,"deltas":28,"accumulatedDelayMs":112,"smoothedDelayMs":77.88405147889848,"slope":0.21236966893170242,"trend":23.78540292035067,"threshold":16.18796547904408,"state":"overuse"},{"seq":31,"deltas":29,"accumulatedDelayMs":116,"smoothedDelayMs":81.69564633100863,"slope":0.21613270203853213,"trend":25.071393436469727,"threshold":17.424538650717732,"state":"overuse"},{"seq":32,"deltas":30,"accumulatedDelayMs":120,"smoothedDelayMs":85.52608169790777,"slope":0.2195194318346789,"trend":26.34233182016147,"threshold":18.6658954599043,"state":"overuse"},{"seq":33,"deltas":31,"accumulatedDelayMs":124,"smoothedDelayMs":89.37347352811699,"slope":0.22256748865121104,"trend":27.59836859275017,"threshold":19.909295719996443,"state":"overuse"},{"seq":34,"deltas":32,"accumulatedDelayMs":128,"smoothedDelayMs":93.23612617530529,"slope":0.22531073978608995,"trend":28.839774692619514,"threshold":21.152418392985574,"state":"overuse"},{"seq":35,"deltas":33,"accumulatedDelayMs":132,"smoothedDelayMs":97.11251355777476,"slope":0.22777966580748096,"trend":30.066915886587488,"threshold":22.39331644409496,"state":"overuse"},{"seq":36,"deltas":34,"accumulatedDelayMs":136,"smoothedDelayMs":101.00126220199728,"slope":0.23000169922673278,"trend":31.280231094835656,"threshold":23.630374963478065,"state":"overuse"},{"seq":37,"deltas":35,"accumulatedDelayMs":140,"smoothedDelayMs":104.90113598179755,"slope":0.23200152930405948,"trend":32.480214102568326,"threshold":24.86227257163943,"state":"overuse"},{"seq":38,"deltas":36,"accumulatedDelayMs":144,"smoothedDelayMs":108.8110223836178,"slope":0.23380137637365359,"trend":33.667398197806115,"threshold":26.087946058801833,"state":"overuse"},{"seq":39,"deltas":37,"accumulatedDelayMs":148,"smoothedDelayMs":112.72992014525602,"slope":0.23542123873628826,"trend":34.842343332970664,"threshold":27.306558159366134,"state":"overuse"},{"seq":40,"deltas":38,"accumulatedDelayMs":152,"smoothedDelayMs":116.65692813073042,"slope":0.23687911486265942,"trend":36.00562545912423,"threshold":28.51746832749246,"state":"overuse"}],"sendSpanMs":468,"recvSpanMs":624,"lightweightBps":615384,"gccBps":505000,"events":{"lightweight":[615384],"gcc":[505000]},"usage":"overuse"},"fixed":{"serviceMs":12,"propagationMs":160,"feedbackMs":680,"packets":[{"seq":1,"sendMs":0,"startMs":0,"exitMs":12,"recvMs":172,"waitMs":0},{"seq":2,"sendMs":12,"startMs":12,"exitMs":24,"recvMs":184,"waitMs":0},{"seq":3,"sendMs":24,"startMs":24,"exitMs":36,"recvMs":196,"waitMs":0},{"seq":4,"sendMs":36,"startMs":36,"exitMs":48,"recvMs":208,"waitMs":0},{"seq":5,"sendMs":48,"startMs":48,"exitMs":60,"recvMs":220,"waitMs":0},{"seq":6,"sendMs":60,"startMs":60,"exitMs":72,"recvMs":232,"waitMs":0},{"seq":7,"sendMs":72,"startMs":72,"exitMs":84,"recvMs":244,"waitMs":0},{"seq":8,"sendMs":84,"startMs":84,"exitMs":96,"recvMs":256,"waitMs":0},{"seq":9,"sendMs":96,"startMs":96,"exitMs":108,"recvMs":268,"waitMs":0},{"seq":10,"sendMs":108,"startMs":108,"exitMs":120,"recvMs":280,"waitMs":0},{"seq":11,"sendMs":120,"startMs":120,"exitMs":132,"recvMs":292,"waitMs":0},{"seq":12,"sendMs":132,"startMs":132,"exitMs":144,"recvMs":304,"waitMs":0},{"seq":13,"sendMs":144,"startMs":144,"exitMs":156,"recvMs":316,"waitMs":0},{"seq":14,"sendMs":156,"startMs":156,"exitMs":168,"recvMs":328,"waitMs":0},{"seq":15,"sendMs":168,"startMs":168,"exitMs":180,"recvMs":340,"waitMs":0},{"seq":16,"sendMs":180,"startMs":180,"exitMs":192,"recvMs":352,"waitMs":0},{"seq":17,"sendMs":192,"startMs":192,"exitMs":204,"recvMs":364,"waitMs":0},{"seq":18,"sendMs":204,"startMs":204,"exitMs":216,"recvMs":376,"waitMs":0},{"seq":19,"sendMs":216,"startMs":216,"exitMs":228,"recvMs":388,"waitMs":0},{"seq":20,"sendMs":228,"startMs":228,"exitMs":240,"recvMs":400,"waitMs":0},{"seq":21,"sendMs":240,"startMs":240,"exitMs":252,"recvMs":412,"waitMs":0},{"seq":22,"sendMs":252,"startMs":252,"exitMs":264,"recvMs":424,"waitMs":0},{"seq":23,"sendMs":264,"startMs":264,"exitMs":276,"recvMs":436,"waitMs":0},{"seq":24,"sendMs":276,"startMs":276,"exitMs":288,"recvMs":448,"waitMs":0},{"seq":25,"sendMs":288,"startMs":288,"exitMs":300,"recvMs":460,"waitMs":0},{"seq":26,"sendMs":300,"startMs":300,"exitMs":312,"recvMs":472,"waitMs":0},{"seq":27,"sendMs":312,"startMs":312,"exitMs":324,"recvMs":484,"waitMs":0},{"seq":28,"sendMs":324,"startMs":324,"exitMs":336,"recvMs":496,"waitMs":0},{"seq":29,"sendMs":336,"startMs":336,"exitMs":348,"recvMs":508,"waitMs":0},{"seq":30,"sendMs":348,"startMs":348,"exitMs":360,"recvMs":520,"waitMs":0},{"seq":31,"sendMs":360,"startMs":360,"exitMs":372,"recvMs":532,"waitMs":0},{"seq":32,"sendMs":372,"startMs":372,"exitMs":384,"recvMs":544,"waitMs":0},{"seq":33,"sendMs":384,"startMs":384,"exitMs":396,"recvMs":556,"waitMs":0},{"seq":34,"sendMs":396,"startMs":396,"exitMs":408,"recvMs":568,"waitMs":0},{"seq":35,"sendMs":408,"startMs":408,"exitMs":420,"recvMs":580,"waitMs":0},{"seq":36,"sendMs":420,"startMs":420,"exitMs":432,"recvMs":592,"waitMs":0},{"seq":37,"sendMs":432,"startMs":432,"exitMs":444,"recvMs":604,"waitMs":0},{"seq":38,"sendMs":444,"startMs":444,"exitMs":456,"recvMs":616,"waitMs":0},{"seq":39,"sendMs":456,"startMs":456,"exitMs":468,"recvMs":628,"waitMs":0},{"seq":40,"sendMs":468,"startMs":468,"exitMs":480,"recvMs":640,"waitMs":0}],"trace":[{"seq":1,"deltas":0,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":12.5,"state":"normal"},{"seq":2,"deltas":0,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":12.5,"state":"normal"},{"seq":3,"deltas":1,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":12.5,"state":"normal"},{"seq":4,"deltas":2,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":12.5,"state":"normal"},{"seq":5,"deltas":3,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6.65,"state":"normal"},{"seq":6,"deltas":4,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":7,"deltas":5,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":8,"deltas":6,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":9,"deltas":7,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":10,"deltas":8,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":11,"deltas":9,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":12,"deltas":10,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":13,"deltas":11,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":14,"deltas":12,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":15,"deltas":13,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":16,"deltas":14,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":17,"deltas":15,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":18,"deltas":16,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":19,"deltas":17,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":20,"deltas":18,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":21,"deltas":19,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":22,"deltas":20,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":23,"deltas":21,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":24,"deltas":22,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":25,"deltas":23,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":26,"deltas":24,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":27,"deltas":25,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":28,"deltas":26,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":29,"deltas":27,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":30,"deltas":28,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":31,"deltas":29,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":32,"deltas":30,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":33,"deltas":31,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":34,"deltas":32,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":35,"deltas":33,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":36,"deltas":34,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":37,"deltas":35,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":38,"deltas":36,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":39,"deltas":37,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"},{"seq":40,"deltas":38,"accumulatedDelayMs":0,"smoothedDelayMs":0,"slope":0,"trend":0,"threshold":6,"state":"normal"}],"sendSpanMs":468,"recvSpanMs":468,"lightweightBps":820512,"gccBps":801000,"events":{"lightweight":[820512],"gcc":[801000]},"usage":"normal"}}}
+  </script>
+  <script>
+    "use strict";
+    const data = JSON.parse(document.getElementById("estimator-data").textContent);
+    const byId = (id) => document.getElementById(id);
+    const fmt = (n, digits = 0) => n.toLocaleString("ja-JP", { maximumFractionDigits: digits });
+    const kbps = (bps) => fmt(bps / 1000, 3);
+    const phaseNames = ["送信履歴を記録する", "区間に入りきらないパケットは待つ", "受信結果を TWCC にまとめて返す", "lightweight は受信済みの平均速度を計算する", "GCC は間隔の差から遅延増加を検出する", "新しい推定帯域を bps で通知する", "アプリが送信量を下げると、待ち行列が減る"];
+    const descriptions = {
+      queue: "送信 800 kbps / 区間の容量 600 kbps / 固定伝搬 40 ms。ΔS = 12 ms、ΔR = 16 ms、待機は 1 個ごとに 4 ms 増加。全 40 個を受信。",
+      steady: "送信 800 kbps / 区間の容量 800 kbps / 固定伝搬 40 ms。ΔS = ΔR = 12 ms。各パケットの待機は 0 ms。全 40 個を受信。",
+      fixed: "送信 800 kbps / 区間の容量 800 kbps / 固定伝搬 160 ms。伝搬は長くても ΔS = ΔR = 12 ms、待機は 0 ms。全 40 個を受信。",
+    };
+    const panels = ["network-panel", "network-panel", "network-panel", "lightweight-panel", "gcc-panel", "event-panel", "adapt-panel"];
+    const motion = matchMedia("(prefers-reduced-motion: reduce)");
+    let scene = "queue", position = 0, playing = false, frame = 0, lastTime = null, lastCopy = "";
+    const scenario = () => data.scenarios[scene];
+    const fraction = () => Math.min(1, (position % 100) / 99);
+
+    function stepDescription(phase, s) {
+      const delta = s.serviceMs - data.sendIntervalMs;
+      return [
+        "番号 1〜40、各 1,200 byte を 12 ms 間隔で送ります。送信側は番号・サイズ・送信時刻を履歴に記録します。この時点では、まだ受信結果も新しい帯域推定値もありません。",
+        delta > 0 ? "送信間隔 12 ms に対して区間の処理時間は 16 ms。番号 2 は 4 ms、3 は 8 ms、40 は 156 ms 待ちます。通過後の伝搬時間はどれも 40 ms です。全パケットを一様に遅くするのではなく、待つ時間が順に長くなります。" : "区間の処理時間と送信間隔は同じ 12 ms。次のパケットが来るときには前の通過が終わるので、待ち行列は増えません。固定伝搬が長くても、パケットの受信間隔は 12 ms のままです。",
+        "この例では全 40 個を受信してから、番号と受信状態・時刻情報を一つの TWCC にして返します。受信側から帯域の数値が返るわけではありません。送信側で履歴と照合します。",
+        "受信が確認できて時刻を持つ 40 個の合計は 48,000 byte。最初と最後の送信時刻幅・受信時刻幅でそれぞれ割り、小さい方を採用します。",
+        "受信時刻順に処理し、送信時刻で作った群の ΔR − ΔS を累積・平滑化します。履歴 20 個で回帰した傾きをスコアに変換し、適応閾値と継続条件で判定します。グラフはこの処理を 1 パケットずつ展開しています。",
+        "比較用に二つの実装の出力を並べています。実際の sender は選択した一方を使用します。値が前回と変わったときだけ sender.onAvailableBitrate(bps) に通知し、購読したアプリが受け取ります。",
+        "通知を受けたアプリが生成量を調整して初めて、継続的に送り込む量が変わります。次の図は値を 2 秒間固定した連続流の計算例です。入力が区間の容量より小さいと、溜まっていたデータが減ります。",
+      ][phase];
+    }
+    function text(x, y, value, cls = "", extra = "") { return `<text x="${x}" y="${y}" class="${cls}" ${extra}>${value}</text>`; }
+    function line(x1, y1, x2, y2, color, extra = "") { return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${color}" ${extra}/>`; }
+    function packet(x, y, seq, color) { return `<rect x="${x - 13}" y="${y - 13}" width="26" height="26" rx="5" fill="${color}"/>${text(x, y + 4, seq, "white", 'text-anchor="middle"')}`; }
+    function renderNetwork(s, phase, p) {
+      const end = s.packets.at(-1).recvMs;
+      const time = phase === 0 ? 0 : phase === 1 ? p * end : end + p * (s.feedbackMs - end);
+      const sent = s.packets.filter((v) => v.sendMs <= time);
+      const waiting = s.packets.filter((v) => v.sendMs <= time && time < v.startMs);
+      const crossing = s.packets.filter((v) => v.startMs <= time && time < v.exitMs);
+      const received = s.packets.filter((v) => v.recvMs <= time);
+      const flying = s.packets.filter((v) => v.exitMs <= time && time < v.recvMs);
+      const parts = [
+        '<title id="network-title">送信・バッファ待機・区間通過・受信のシーケンス</title>',
+        `<desc id="network-desc">送信済み ${sent.length} 個、待機 ${waiting.length} 個、受信済み ${received.length} 個。処理時間 ${s.serviceMs} ms、固定伝搬 ${s.propagationMs} ms。</desc>`,
+        text(20, 24, `図の時刻 ${fmt(time)} ms`),
+        text(150, 65, "送信履歴", "", 'text-anchor="middle"'),
+        text(370, 65, `バッファ待機：${waiting.length} 個`, "", 'text-anchor="middle"'),
+        text(556, 65, `区間：1 個 / ${s.serviceMs} ms`, "", 'text-anchor="middle"'),
+        text(737, 65, `固定伝搬 ${s.propagationMs} ms`, "", 'text-anchor="middle"'),
+        text(901, 65, "受信側", "", 'text-anchor="middle"'),
+        '<rect x="18" y="82" width="240" height="115" rx="10" fill="#eee6d9"/>',
+        '<rect x="285" y="82" width="175" height="115" rx="10" fill="#f5e6d7"/>',
+        '<rect x="482" y="82" width="144" height="115" rx="10" fill="#d9e7e3"/>',
+        line(639, 135, 840, 135, "#a6b8ac", 'stroke-width="3" stroke-dasharray="6 5"'),
+        text(272, 146, "→", "", 'text-anchor="middle"'),
+        text(472, 146, "→", "", 'text-anchor="middle"'),
+        '<rect x="850" y="82" width="96" height="115" rx="10" fill="#d9e7d8"/>',
+        text(898, 155, `${received.length} / 40`, "", 'text-anchor="middle"'),
+      ];
+      sent.slice(-12).forEach((v, i) => parts.push(packet(45 + (i % 6) * 36, 112 + Math.floor(i / 6) * 42, v.seq, "#795625")));
+      waiting.slice(0, 12).forEach((v, i) => parts.push(packet(312 + (i % 4) * 39, 109 + Math.floor(i / 4) * 31, v.seq, "#bb551c")));
+      crossing.forEach((v) => parts.push(packet(500 + (time - v.startMs) / s.serviceMs * 106, 128, v.seq, "#236566")));
+      flying.forEach((v) => parts.push(packet(652 + (time - v.exitMs) / s.propagationMs * 176, 106 + (v.seq % 3) * 28, v.seq, "#3b704d")));
+      parts.push(text(150, 220, "番号と送信時刻を記録（直近 12 個）", "minor", 'text-anchor="middle"'));
+      parts.push(text(372, 220, "まだ届いていない ≠ 破棄された", "minor", 'text-anchor="middle"'));
+      if (phase === 2) {
+        parts.push(line(899, 250, 130, 250, "#236566", 'stroke-width="2"'));
+        parts.push('<path d="M 143 242 L 130 250 L 143 258" fill="none" stroke="#236566" stroke-width="2"/>');
+        const x = 860 - p * 680;
+        parts.push(`<rect x="${x - 62}" y="236" width="124" height="28" rx="6" fill="#236566"/>${text(x, 255, "TWCC：40 個分", "white", 'text-anchor="middle"')}`);
+      }
+      byId("network").innerHTML = parts.join("");
+      byId("network-caption").textContent = phase === 2 ? "TWCC は受信情報をまとめて戻す RTCP フィードバックです。この矢印は 1 パケットにつき 1 ACK を返す動きを表していません。" : "パケットは番号順に、待機 → 区間通過 → 固定時間の伝搬 → 受信へ進みます。待機数は送受信時刻から計算しています。";
+      byId("network-stats").innerHTML = [["送信済み", sent.length], ["バッファで待機", waiting.length], ["通過・伝搬中", crossing.length + flying.length], ["受信済み", received.length]].map(([label, n]) => `<div>${label}<strong>${n} 個</strong></div>`).join("");
+      byId("packet-table").innerHTML = [0, 1, 2, 3, 39].map((i) => {
+        const v = s.packets[i];
+        return `<tr><th scope="row">${v.seq}</th><td>${v.sendMs}</td><td>${v.waitMs} ms</td><td>${v.recvMs}</td><td>${v.recvMs - v.sendMs} ms</td><td>${time >= v.recvMs ? "受信済み" : time >= v.sendMs ? "送信済み・受信前" : "送信前"}</td></tr>`;
+      }).join("");
+    }
+    function renderLightweight(s, p) {
+      const totalBits = data.packetCount * data.packetBytes * 8;
+      const rows = [`B = 40 × 1,200 = 48,000 byte`, `send = 384,000 bit / ${s.sendSpanMs} ms × 1000<br />= ${kbps(Math.floor(totalBits * 1000 / s.sendSpanMs))} kbps`, `recv = 384,000 bit / ${s.recvSpanMs} ms × 1000<br />= ${kbps(Math.floor(totalBits * 1000 / s.recvSpanMs))} kbps`];
+      byId("lightweight-calculation").innerHTML = rows.map((r, i) => `<div class="substep ${i === Math.min(2, Math.floor(p * 3)) ? "active" : ""}">${r}</div>`).join("");
+      byId("lightweight-result").innerHTML = `${kbps(s.lightweightBps)} <small>kbps</small>`;
+      byId("lightweight-conclusion").textContent = scene === "queue" ? "間隔が変わらない比較ケースの 820.512 kbps から、このケースでは 615.384 kbps になります。lightweight も下がっています。ただし、遅延の増加を検出して待ち行列を減らすための余裕を引いた値ではありません。" : "待ち時間が増えていないケースでは 820.512 kbps です。固定伝搬が 40 ms でも 160 ms でも、最初と最後の間隔は同じなので結果も同じです。";
+    }
+    function renderTrend(s, p) {
+      const count = Math.max(1, Math.min(40, Math.floor(p * 40) + 1));
+      const trace = s.trace.slice(0, count), last = trace.at(-1);
+      const yMax = Math.ceil(Math.max(...Object.values(data.scenarios).flatMap((v) => v.trace.map((t) => Math.max(t.trend, t.threshold)))) / 5) * 5 + 5;
+      const x = (i) => 52 + (s.packets[i].recvMs - s.packets[0].recvMs) / s.recvSpanMs * 380;
+      const y = (v) => 238 - v / yMax * 186;
+      const path = (key) => trace.map((t, i) => `${i ? "L" : "M"}${x(i).toFixed(2)},${y(t[key]).toFixed(2)}`).join(" ");
+      const parts = ['<title id="trend-title">GCC の判定スコアと適応閾値</title>', `<desc id="trend-desc">${count} 個処理済み。間隔差 ${last.deltas} 個、状態 ${last.state}。</desc>`, text(16, 20, "判定用スコア（平滑化した累積遅延の傾きから計算）")];
+      for (let v = 0; v <= yMax; v += 5) { parts.push(line(52, y(v), 432, y(v), "#ded5c7"), text(42, y(v) + 4, v, "minor", 'text-anchor="end"')); }
+      [0, 13, 26, 39].forEach((i) => parts.push(text(x(i), 258, s.packets[i].recvMs, "minor", 'text-anchor="middle"')));
+      parts.push(text(230, 280, "TWCC の受信時刻 R（ms）", "minor", 'text-anchor="middle"'));
+      parts.push(`<path d="${path("threshold")}" fill="none" stroke="#bb551c" stroke-width="2" stroke-dasharray="6 4"/>`);
+      parts.push(`<path d="${path("trend")}" fill="none" stroke="#236566" stroke-width="3"/>`);
+      parts.push(`<circle cx="${x(count - 1)}" cy="${y(last.trend)}" r="4" fill="#236566"/>`);
+      parts.push(text(65, 43, "実線：スコア", "minor"), text(200, 43, "破線：適応閾値", "minor"));
+      byId("trend-chart").innerHTML = parts.join("");
+      byId("detector-readout").textContent = `処理 ${count}/40 個 → 間隔差 ${last.deltas} 個 → ${last.state} / スコア ${fmt(last.trend, 2)} / 閾値 ${fmt(last.threshold, 2)}`;
+      const firstOveruse = s.trace.find((t) => t.state === "overuse");
+      const delta = s.serviceMs - data.sendIntervalMs;
+      const detection = last.deltas < 20 ? `履歴 ${last.deltas} / 20 個：回帰用のサンプルを収集中` : last.state === "overuse" ? `${firstOveruse.seq} 個目の処理で overuse → 現在も overuse` : firstOveruse ? "閾値を超えたが、overuse の継続条件を確認中" : "スコア 0 → normal";
+      byId("gcc-calculation").innerHTML = `<div class="substep">ΔR − ΔS = ${s.serviceMs} − 12 = ${delta} ms</div><div class="substep">累積・平滑化 → 履歴 20 個で回帰<br />判定スコア = min(間隔差数, 60) × 傾き × 4</div><div class="substep active">${detection}</div>`;
+      byId("gcc-conclusion").innerHTML = count < 40 ? `現在 ${count} / 40 個を処理済みです。帯域目標は、この TWCC の全行を処理してから更新します。スライダーを進めると、残りの入力と判定を追えます。` : scene === "queue" ? "到達スループットは 600 kbps。今回の AIMD は <strong>600 × 0.85 − 5 = 505 kbps</strong> を選びます。現在値より下がり、下限等にも当たらないため、この値が最終目標になります。" : `間隔差が 0 なので、この条件では遅延による減速はありません。AIMD の normal 経路で内部開始目標 800 kbps から ${kbps(s.gccBps)} kbps になります。固定遅延が大きいことだけで overuse にはなりません。`;
+      byId("delay-calculation").innerHTML = scene === "queue" ? "群間差：+4, +4, +4, … ms<br />累積：4, 8, 12, … ms<br />平滑化：0.9 × 前回 + 0.1 × 累積<br />→ 0.4, 1.16, 2.244, … ms" : "群間差：0, 0, 0, … ms<br />累積：0, 0, 0, … ms<br />平滑化：0.9 × 前回 + 0.1 × 累積<br />→ 0, 0, 0, … ms";
+      const delayY = (v) => 190 - v / 160 * 138;
+      const delays = trace.map((v, i) => ({ ...v, i })).filter((v) => v.deltas > 0);
+      const delayParts = ['<title id="delay-title">累積した群間差と平滑化した値、直近20点の回帰直線</title>', `<desc id="delay-desc">間隔差 ${delta} ms、累積 ${fmt(last.accumulatedDelayMs, 2)} ms、平滑値 ${fmt(last.smoothedDelayMs, 2)} ms。</desc>`, text(16, 20, "累積した間隔差（ms）")];
+      [0, 40, 80, 120, 160].forEach((v) => delayParts.push(line(52, delayY(v), 432, delayY(v), "#ded5c7"), text(42, delayY(v) + 4, v, "minor", 'text-anchor="end"')));
+      [0, 13, 26, 39].forEach((i) => delayParts.push(text(x(i), 210, s.packets[i].recvMs, "minor", 'text-anchor="middle"')));
+      for (const [key, color, dash] of [["accumulatedDelayMs", "#795625", "6 4"], ["smoothedDelayMs", "#236566", ""]]) {
+        const points = delays.map((v, i) => `${i ? "L" : "M"}${x(v.i)},${delayY(v[key])}`).join(" ");
+        delayParts.push(`<path d="${points}" fill="none" stroke="${color}" stroke-width="2" stroke-dasharray="${dash}"/>`);
+      }
+      if (delays.length >= 20) {
+        const window = delays.slice(-20);
+        const meanR = window.reduce((sum, v) => sum + s.packets[v.i].recvMs, 0) / 20;
+        const meanD = window.reduce((sum, v) => sum + v.smoothedDelayMs, 0) / 20;
+        const fit = (i) => meanD + last.slope * (s.packets[i].recvMs - meanR);
+        delayParts.push(line(x(window[0].i), delayY(fit(window[0].i)), x(count - 1), delayY(fit(count - 1)), "#bb551c", 'stroke-width="3"'));
+      }
+      delayParts.push(text(55, 42, "破線：累積", "minor"), text(185, 42, "実線：平滑", "minor"), text(315, 42, "橙：回帰", "minor"), text(230, 233, "TWCC の受信時刻 R（ms）", "minor", 'text-anchor="middle"'));
+      byId("delay-chart").innerHTML = delayParts.join("");
+    }
+    function renderEvents(s) {
+      for (const name of ["lightweight", "gcc"]) {
+        const bps = s[name + "Bps"];
+        byId("event-" + name).innerHTML = `${kbps(bps)} <small>kbps</small>`;
+        byId("bar-" + name).style.width = bps / 10000 + "%";
+        byId("event-" + name + "-log").textContent = `公開値 0 → ${fmt(bps)} bps\nonAvailableBitrate(${bps})`;
+        byId("event-" + name + "-log").style.whiteSpace = "pre-wrap";
+      }
+    }
+    function renderAdapt(s, p) {
+      const capacity = data.packetBytes * 8 * 1000 / s.serviceMs;
+      const t = p * 2;
+      const queue = (rate, sec) => Math.max(0, 12000 + (rate - capacity) / 8 * sec);
+      const x = (sec) => 65 + sec / 2 * 675, y = (bytes) => 238 - bytes / 20000 * 184;
+      const parts = ['<title id="queue-title">通知値に送信量を合わせた場合の待ち行列</title>', `<desc id="queue-desc">初期 12000 byte。${fmt(t, 2)} 秒後、lightweight ${fmt(queue(s.lightweightBps, t))} byte、GCC ${fmt(queue(s.gccBps, t))} byte。</desc>`, text(15, 22, "バッファで待機している量（byte）")];
+      [0, 5000, 10000, 15000, 20000].forEach((v) => parts.push(line(65, y(v), 740, y(v), "#ded5c7"), text(55, y(v) + 4, fmt(v), "minor", 'text-anchor="end"')));
+      [0, .5, 1, 1.5, 2].forEach((sec) => parts.push(text(x(sec), 258, sec, "minor", 'text-anchor="middle"')));
+      parts.push(text(400, 284, "送信量の調整からの時間（秒）", "minor", 'text-anchor="middle"'));
+      for (const [name, color] of [["lightweight", "#795625"], ["gcc", "#236566"]]) {
+        const rate = s[name + "Bps"];
+        const points = Array.from({ length: 101 }, (_, i) => { const sec = i / 100 * t; return `${i ? "L" : "M"}${x(sec)},${y(queue(rate, sec))}`; }).join(" ");
+        parts.push(`<path d="${points}" fill="none" stroke="${color}" stroke-width="3" ${name === "lightweight" ? 'stroke-dasharray="8 4"' : ""}/>`);
+        parts.push(`<circle cx="${x(t)}" cy="${y(queue(rate, t))}" r="4" fill="${color}"/>`);
+      }
+      parts.push(text(360, 44, "破線：lightweight", "minor"), text(535, 44, "実線：GCC", "minor"));
+      byId("queue-chart").innerHTML = parts.join("");
+      byId("adapt-caption").textContent = scene === "queue" ? "GCC の目標 505 kbps は容量 600 kbps より低いので、差の 95 kbps ぶん待機量を減らせます。この仮定なら約 1.01 秒で空になります。lightweight の今回の値は容量近くで、待機量は減りません。" : "今回の 1 回の出力を固定すると、両方式とも容量 800 kbps を少し上回り、待機量は減りません。normal は混雑が永久に起こらない保証ではなく、実際は後続の TWCC で制御を続けます。";
+      byId("adapt-lightweight").textContent = `lightweight: 入力 ${kbps(s.lightweightBps)} − 出力 ${kbps(capacity)} kbps\n${fmt(t, 2)} 秒後：${fmt(queue(s.lightweightBps, t))} byte`;
+      byId("adapt-gcc").textContent = `GCC: 入力 ${kbps(s.gccBps)} − 出力 ${kbps(capacity)} kbps\n${fmt(t, 2)} 秒後：${fmt(queue(s.gccBps, t))} byte`;
+      byId("adapt-lightweight").style.whiteSpace = byId("adapt-gcc").style.whiteSpace = "pre-wrap";
+    }
+    function render() {
+      const s = scenario(), phase = Math.floor(position / 100), p = fraction();
+      byId("position").value = Math.round(position);
+      byId("position").setAttribute("aria-valuetext", `手順 ${phase + 1}: ${phaseNames[phase]}`);
+      byId("position-label").textContent = `${phase + 1} / 7 · ${Math.round(p * 100)}%`;
+      byId("previous").disabled = phase === 0;
+      byId("next").disabled = phase === 6;
+      if (lastCopy !== scene + phase) {
+        byId("scenario-summary").textContent = descriptions[scene];
+        byId("step-title").textContent = `${phase + 1}. ${phase === 6 && scene !== "queue" ? "この一回の推定値では待ち行列が減らない" : phaseNames[phase]}`;
+        byId("step-detail").textContent = stepDescription(phase, s);
+        document.querySelectorAll("[data-phase]").forEach((b) => { if (Number(b.dataset.phase) === phase) b.setAttribute("aria-current", "step"); else b.removeAttribute("aria-current"); });
+        new Set(panels).forEach((id) => { byId(id).hidden = id !== panels[phase]; });
+        lastCopy = scene + phase;
+      }
+      if (phase <= 2) renderNetwork(s, phase, p);
+      else if (phase === 3) renderLightweight(s, p);
+      else if (phase === 4) renderTrend(s, p);
+      else if (phase === 5) renderEvents(s);
+      else renderAdapt(s, p);
+    }
+    function pause() {
+      playing = false; cancelAnimationFrame(frame); lastTime = null;
+      byId("play-toggle").textContent = "再生"; byId("play-toggle").setAttribute("aria-pressed", "false");
+    }
+    function tick(now) {
+      if (!playing) return;
+      if (lastTime !== null) position = Math.min(699, position + Math.min(now - lastTime, 100) / 60);
+      lastTime = now; render();
+      if (position >= 699) pause(); else frame = requestAnimationFrame(tick);
+    }
+    function seek(value) { pause(); position = Math.min(699, Math.max(0, value)); render(); }
+    // Manual navigation shows a useful paused frame; replay can start at zero.
+    function goToPhase(i) { seek(i * 100 + (i === 1 ? 60 : i === 4 || i === 6 ? 99 : 0)); }
+    byId("play-toggle").addEventListener("click", () => {
+      if (playing) { pause(); return; }
+      if (motion.matches) return;
+      if (position >= 699) position = 0;
+      playing = true; lastTime = null;
+      byId("play-toggle").textContent = "一時停止"; byId("play-toggle").setAttribute("aria-pressed", "true");
+      frame = requestAnimationFrame(tick);
+    });
+    byId("restart").addEventListener("click", () => seek(0));
+    byId("previous").addEventListener("click", () => goToPhase(Math.max(0, Math.floor(position / 100) - 1)));
+    byId("next").addEventListener("click", () => goToPhase(Math.min(6, Math.floor(position / 100) + 1)));
+    byId("position").addEventListener("input", (e) => seek(Number(e.target.value)));
+    document.querySelectorAll("[data-phase]").forEach((b) => b.addEventListener("click", () => goToPhase(Number(b.dataset.phase))));
+    document.querySelectorAll("[data-scene]").forEach((b) => b.addEventListener("click", () => {
+      pause(); scene = b.dataset.scene;
+      document.querySelectorAll("[data-scene]").forEach((button) => button.setAttribute("aria-pressed", String(button === b)));
+      render();
+    }));
+    function applyMotionPreference() { pause(); byId("play-toggle").disabled = motion.matches; byId("motion-note").textContent = motion.matches ? "動きを減らす設定に合わせ、自動再生は無効です。手順ボタンとスライダーですべての図・結果を確認できます。" : "各手順のボタンで途中へ移動できます。スライダーを動かすと一時停止します。図の時間は説明用に遅く再生しています。"; }
+    motion.addEventListener("change", applyMotionPreference);
+    document.addEventListener("visibilitychange", () => { if (document.hidden) pause(); });
+
+    const lossCopy = [
+      ["TWCC の受信済み行を送信履歴と照合します。12 は未受信なので、サイズ・時刻の累積対象にしません。", "12 はこの報告時点では未受信です。履歴にある 12 だけを soft loss として記録し、後着の受信報告を受け付けられるようにします。受信済みの 10・11・13・14 は受信確定です。"],
+      ["10・11・13・14 の byte と送受信時刻幅を使います。12 の分だけ分子が小さくなるため、平均速度も下がり得ます。", "12 の送信サイズをロス観測に含めます。受信済み行は受信時刻順で delay / 到達スループット / probe に入力します。ロス観測の順番とは別です。"],
+      ["同じ「12 が未受信」の行は再びスキップします。明示的なロス率や、未受信回数に応じた減速係数はありません。受信済みの 13・14 が再報告されても、共通の照合層が除くので二重に累積しません。", "12 の未受信報告は LossBasedBwe に再び渡します。観測のパケット数・byte は加算されますが、ロスの記録は番号で管理します。受信確認済みの行の重複は、両方式共通の照合層で除外されます。"],
+      ["後の TWCC に 12 の受信時刻が載り、送信履歴が残っていれば、受信済みパケットとして累積に加えます。", "12 を受信済みに確定します。同じ番号のロスがまだ未確定の観測にあれば取り消します。すでに確定した過去の観測までは訂正しません。"],
+    ];
+    function renderLoss(index) {
+      document.querySelectorAll("[data-loss]").forEach((b) => b.setAttribute("aria-pressed", String(Number(b.dataset.loss) === index)));
+      byId("loss-packet").classList.toggle("missing", index !== 3);
+      byId("loss-packet").innerHTML = index === 3 ? "12<br />後から受信" : "12<br />未受信";
+      byId("loss-lightweight").textContent = lossCopy[index][0]; byId("loss-gcc").textContent = lossCopy[index][1];
+    }
+    document.querySelectorAll("[data-loss]").forEach((b) => b.addEventListener("click", () => renderLoss(Number(b.dataset.loss))));
+    const probeCopy = [
+      "例: 内部開始目標 300 kbps に対し A = 900 kbps、B = 1,800 kbps を要求します（上限に当たらない場合）。送信可能なネットワークになると開始します。この段階で 1,800 kbps を利用可能帯域として通知するわけではありません。",
+      "A を pacing して送信し、必要な byte 数とパケット数の両方を満たしたら B へ進みます。メディアだけで不足する場合は RTX の SSRC で padding を補います（RTX がなければ補いません）。進行条件は送った量です。80% の ACK を得たから送信を打ち切る、という処理ではありません。",
+      "TWCC を送信履歴・cluster id と照合し、送受信の byte と時刻幅から候補を計算します。受信数・byte の 80% 条件や時間幅・送受信レート比なども検証します。A の送信完了や B の開始と、A の測定結果が届く時刻は一致しません。",
+      "overuse 中は probe 結果を採用せず AIMD の減速経路を使います。それ以外で有効な probe 結果があれば delay 推定へ反映し、その後 loss・RTT・上下限を適用します。最終値が変われば帯域イベントを通知します。混雑は新しい probe の開始も制限します。",
+    ];
+    function renderProbe(index) {
+      document.querySelectorAll("[data-probe]").forEach((b) => b.setAttribute("aria-pressed", String(Number(b.dataset.probe) === index)));
+      const parts = ['<title id="probe-title">probe 設定、A と B の送信、TWCC、最終目標の順序</title>', `<desc id="probe-desc">手順 ${index + 1}。${probeCopy[index]}</desc>`, text(10, 40, "送信側"), text(10, 112, "受信側"), line(88, 36, 920, 36, "#b4a995"), line(88, 108, 920, 108, "#b4a995")];
+      const items = [[110, "設定 A / B", 0], [285, "A を送信", 1], [450, "B を送信", 1], [795, "統合・通知", 3]];
+      items.forEach(([x, label, at]) => parts.push(`<rect x="${x}" y="18" width="115" height="34" rx="6" fill="${index >= at ? "#236566" : "#d6cbbb"}"/>${text(x + 57, 40, label, index >= at ? "white" : "minor", 'text-anchor="middle"')}`));
+      parts.push(line(340, 55, 398, 104, index >= 1 ? "#236566" : "#d6cbbb", 'stroke-width="2"'), `<path d="M 387 103 L 398 104 L 395 93" fill="none" stroke="${index >= 1 ? "#236566" : "#d6cbbb"}"/>`, text(365, 80, "RTP A", "minor"));
+      parts.push(line(505, 55, 562, 104, index >= 1 ? "#236566" : "#d6cbbb", 'stroke-width="2"'), `<path d="M 551 103 L 562 104 L 559 93" fill="none" stroke="${index >= 1 ? "#236566" : "#d6cbbb"}"/>`, text(532, 80, "RTP B", "minor"));
+      parts.push(line(630, 104, 738, 40, index >= 2 ? "#bb551c" : "#d6cbbb", 'stroke-width="2"'), `<path d="M 726 41 L 738 40 L 733 52" fill="none" stroke="${index >= 2 ? "#bb551c" : "#d6cbbb"}"/>`, text(672, 127, "TWCC の受信結果", "minor"));
+      parts.push(text(275, 145, "A → B は送信量の充足で進む", "minor"), text(650, 145, "結果の評価は後から", "minor"));
+      byId("probe-diagram").innerHTML = parts.join(""); byId("probe-detail").textContent = probeCopy[index];
+    }
+    document.querySelectorAll("[data-probe]").forEach((b) => b.addEventListener("click", () => renderProbe(Number(b.dataset.probe))));
+
+    const softSummaries = {
+      before: "番号 10〜14 を各 1,200 byte で送る例です。送信時刻幅は 80 ms（250 ms 未満）なので、最初の TWCC では観測が確定しません。12 だけ未受信と報告されたあと、同じ未受信の再報告、確定前の後着受信の順です。",
+      after: "同じ 10〜14、各 1,200 byte です。こちらは送信時刻幅 300 ms なので、最初の未受信報告で観測が確定します。その後に 12 の受信報告が来ても、確定済み observation のロスは残り、新しい未確定観測の受信として数えます。",
+    };
+    const softStepLabels = {
+      before: ["1. TWCC で未受信", "2. 3 つの記録に載せる", "3. 同じ未受信の再報告", "4. 確定前の後着で解除"],
+      after: ["1. TWCC で未受信", "2. 3 つの記録に載せる", "3. 250 ms で観測確定", "4. 確定後の後着は残る"],
+    };
+    const softCopy = {
+      before: [
+        "受信側は番号の穴を PacketNotReceived として返します。12 が破棄されたとは限りません。フィードバックを作ったあとに届くこともあります。この報告単体では帯域イベントは出ません。",
+        "共通の照合層が、送信履歴にある番号だけ照合します。10・11・13・14 は受信確定として履歴から消します。12 は履歴に残し、LossBased の lost map に 12 → 1,200 byte を載せます。受信時刻がないので遅延経路には入りません。",
+        "12 はまだ履歴に残っているので、同じ未受信を LossBased へ再び渡します。numPackets と size は加算されますが、lost map は初回の 1,200 byte のままです。受信確定済みの 10・11・13・14 は履歴にないので、再報告されても照合されません。",
+        "12 の受信時刻が載った TWCC が、観測の確定前に届きます。12 を受信確定として履歴から消し、lost map からも消します。未確定観測のロスは 0 になります。受信時刻があれば、この後着は遅延経路にも入ります。",
+      ],
+      after: [
+        "受信側は番号の穴を PacketNotReceived として返します。12 が破棄されたとは限りません。ただしこの分岐では、報告に含まれる送信時刻幅がすでに 300 ms あります。",
+        "照合自体は左の分岐と同じです。10・11・13・14 を受信確定し、12 を soft loss として記録します。実装ではこの照合の直後に、送信時刻幅を見て commit するかを決めます。図では記録と確定を分けています。",
+        "同じ receiveTWCC の後半で、送信時刻幅 300 ms ≥ 250 ms のため partial を observation として commit します。確定内容は 5 パケット・6,000 byte・ロス 1 個・lostSize 1,200 byte です。commit すると lost map は空に戻ります。12 は送信側の履歴には残ります。",
+        "後から 12 の受信報告が来ても、確定済み observation のロス数と lostSize は変わりません。12 は新しい partial の受信として加算されます。受信時刻があれば遅延・到達スループット・probe にはこの後着を入力します。ただし、すでに確定したロス統計は戻りません。",
+      ],
+    };
+    const softCaptions = {
+      before: [
+        "TWCC は番号と受信状態を返します。未受信は、この報告時点の穴です。",
+        "送信側は履歴と照合し、受信と soft loss を分けて記録します。",
+        "同じ未受信の再報告は回数・byte を増やしますが、ロス byte は二重に数えません。",
+        "確定前の後着は、未確定観測のロスだけを取り消します。",
+      ],
+      after: [
+        "TWCC は番号と受信状態を返します。未受信は、この報告時点の穴です。",
+        "送信側は履歴と照合し、受信と soft loss を分けて記録します。",
+        "送信時刻幅が 250 ms 以上になると、その時点の lost map で観測を確定します。",
+        "確定後の後着は新しい観測の受信であり、過去の確定ロスは残り続けます。",
+      ],
+    };
+    let softScene = "before", softStep = 0;
+
+    function chipFill(kind) {
+      if (kind === "recv") return "#3b704d";
+      if (kind === "soft") return "#bb551c";
+      if (kind === "committed") return "#b32622";
+      if (kind === "pending") return "#d6cbbb";
+      return "#795625";
+    }
+    function chipText(kind) {
+      return kind === "recv" || kind === "sent" ? "white" : kind === "pending" ? "minor" : "white";
+    }
+    function renderSoftLoss(index = softStep) {
+      softStep = index;
+      const scene = softScene;
+      const labels = softStepLabels[scene];
+      const stepsEl = byId("soft-steps");
+      if (stepsEl.childElementCount !== 4) {
+        stepsEl.innerHTML = labels.map((label, i) => `<button type="button" data-soft="${i}" aria-pressed="${i === index}">${label}</button>`).join("");
+        stepsEl.querySelectorAll("[data-soft]").forEach((b) => b.addEventListener("click", () => renderSoftLoss(Number(b.dataset.soft))));
+      } else {
+        stepsEl.querySelectorAll("[data-soft]").forEach((b, i) => {
+          b.textContent = labels[i];
+          b.setAttribute("aria-pressed", String(i === index));
+        });
+      }
+      document.querySelectorAll("[data-soft-scene]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.softScene === scene)));
+      byId("soft-summary").textContent = softSummaries[scene];
+      byId("soft-detail").textContent = softCopy[scene][index];
+      byId("soft-caption").textContent = softCaptions[scene][index];
+
+      const kinds = { 10: "sent", 11: "sent", 12: "sent", 13: "sent", 14: "sent" };
+      let report = { 10: "pending", 11: "pending", 12: "pending", 13: "pending", 14: "pending" };
+      let finalized = "（空）";
+      let softLost = "（空）";
+      let partialLost = "（空）";
+      let packets = 0, size = 0, lostSize = 0, committed = false, latePartial = "";
+      let active = [false, false, false];
+      if (index >= 0) {
+        report = { 10: "recv", 11: "recv", 12: "soft", 13: "recv", 14: "recv" };
+      }
+      if (index === 1) {
+        finalized = "10, 11, 13, 14";
+        softLost = "12";
+        partialLost = "12 → 1,200 byte";
+        packets = 5; size = 6000; lostSize = 1200;
+        active = [true, true, true];
+      } else if (scene === "before" && index === 2) {
+        report[12] = "soft";
+        finalized = "10, 11, 13, 14";
+        softLost = "12";
+        partialLost = "12 → 1,200 byte（size は増えても lost は据え置き）";
+        packets = 6; size = 7200; lostSize = 1200;
+        active = [false, true, true];
+      } else if (scene === "before" && index === 3) {
+        report[12] = "recv";
+        finalized = "10, 11, 12, 13, 14";
+        softLost = "（空）";
+        partialLost = "（空）";
+        packets = 7; size = 8400; lostSize = 0;
+        active = [true, true, true];
+      } else if (scene === "after" && index === 2) {
+        report[12] = "committed";
+        finalized = "10, 11, 13, 14";
+        softLost = "12（送信履歴で訂正待ち）";
+        partialLost = "commit 済みのため空。observation: ロス 1 / 1,200 byte";
+        packets = 5; size = 6000; lostSize = 1200; committed = true;
+        active = [false, true, true];
+      } else if (scene === "after" && index === 3) {
+        report[12] = "recv";
+        finalized = "10, 11, 12, 13, 14";
+        softLost = "（空）";
+        partialLost = "（空）";
+        packets = 5; size = 6000; lostSize = 1200; committed = true;
+        latePartial = "新しい partial: 受信 1 個・1,200 byte・ロス 0";
+        active = [true, true, false];
+      }
+
+      const seqs = [10, 11, 12, 13, 14];
+      const parts = [
+        '<title id="soft-title">TWCC の未受信報告と GCC の soft loss 記録</title>',
+        `<desc id="soft-desc">${softCopy[scene][index]}</desc>`,
+        text(20, 28, "送信履歴"),
+        text(20, 108, "TWCC 報告"),
+      ];
+      seqs.forEach((seq, i) => {
+        const x = 160 + i * 150;
+        const sendKind = kinds[seq];
+        const repKind = report[seq];
+        parts.push(`<rect x="${x}" y="8" width="120" height="36" rx="6" fill="${chipFill(sendKind)}"/>${text(x + 60, 31, String(seq), chipText(sendKind), 'text-anchor="middle"')}`);
+        parts.push(line(x + 60, 44, x + 60, 82, index === 0 && seq === 12 ? "#bb551c" : "#b4a995", 'stroke-width="2"'));
+        parts.push(`<rect x="${x}" y="88" width="120" height="36" rx="6" fill="${chipFill(repKind)}" ${repKind === "soft" || repKind === "committed" ? 'stroke="#211d18" stroke-dasharray="5 4" stroke-width="1.5"' : ""}/>`);
+        const label = repKind === "recv" ? `${seq} 受信` : repKind === "soft" ? `${seq} 未受信` : repKind === "committed" ? `${seq} 確定ロス` : `${seq}`;
+        parts.push(text(x + 60, 111, label, chipText(repKind), 'text-anchor="middle"'));
+      });
+      const arrowY = 160;
+      parts.push(line(220, arrowY, 720, arrowY, index === 0 ? "#d6cbbb" : "#236566", 'stroke-width="2"'));
+      parts.push(`<path d="M 708 152 L 720 160 L 708 168" fill="none" stroke="${index === 0 ? "#d6cbbb" : "#236566"}" stroke-width="2"/>`);
+      parts.push(text(470, 186, index === 0 ? "送信側で履歴と照合する前" : scene === "after" && index >= 2 ? "LossBased の観測へ（番号順）" : "送信側の 3 つの記録へ（番号順）", "minor", 'text-anchor="middle"'));
+      byId("soft-diagram").innerHTML = parts.join("");
+
+      byId("map-finalized-value").textContent = finalized;
+      byId("map-soft-value").textContent = softLost;
+      byId("map-partial-value").textContent = partialLost;
+      byId("map-finalized").classList.toggle("active", active[0]);
+      byId("map-soft").classList.toggle("active", active[1]);
+      byId("map-partial").classList.toggle("active", active[2]);
+
+      const ratio = size > 0 ? lostSize / size : 0;
+      const ratioLabel = committed ? "確定した観測の byte ロス率" : "未確定観測の byte ロス率";
+      const extra = latePartial ? `<p class="note" style="margin:8px 0 0">${latePartial}</p>` : "";
+      byId("soft-ratio").innerHTML = index === 0
+        ? `<strong>—</strong>${ratioLabel}は、照合後に計算します。`
+        : `<strong>${fmt(ratio * 100, 1)}%</strong>${ratioLabel} = ${fmt(lostSize)} / ${fmt(size)} byte${packets ? `（見かけのパケット数 ${packets}）` : ""}${extra}`;
+    }
+    document.querySelectorAll("[data-soft-scene]").forEach((b) => b.addEventListener("click", () => {
+      softScene = b.dataset.softScene;
+      renderSoftLoss(0);
+    }));
+    applyMotionPreference(); render(); renderLoss(0); renderProbe(0); renderSoftLoss(0);
+  </script>
+</body>
+</html>

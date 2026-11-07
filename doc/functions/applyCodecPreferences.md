@@ -16,7 +16,7 @@
 
 ### preferences
 
-`undefined` | readonly [`RTCRtpCodecParameters`](../classes/RTCRtpCodecParameters.md)[]
+readonly [`RTCRtpCodecParameters`](../classes/RTCRtpCodecParameters.md)[] \| `undefined`
 
 ## Returns
 

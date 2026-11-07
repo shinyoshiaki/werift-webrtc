@@ -6,4 +6,4 @@
 
 # Type Alias: TransportWideCCPayload
 
-> **TransportWideCCPayload**: `number`
+> **TransportWideCCPayload** = `number`

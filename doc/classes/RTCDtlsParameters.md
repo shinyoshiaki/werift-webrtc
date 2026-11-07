@@ -8,32 +8,32 @@
 
 ## Constructors
 
-### new RTCDtlsParameters()
+### Constructor
 
-> **new RTCDtlsParameters**(`fingerprints`, `role`): [`RTCDtlsParameters`](RTCDtlsParameters.md)
+> **new RTCDtlsParameters**(`fingerprints?`, `role`): `RTCDtlsParameters`
 
 #### Parameters
 
-##### fingerprints
+##### fingerprints?
 
 [`RTCDtlsFingerprint`](RTCDtlsFingerprint.md)[] = `[]`
 
 ##### role
 
-`"client"` | `"server"` | `"auto"`
+`"auto"` \| `"server"` \| `"client"`
 
 #### Returns
 
-[`RTCDtlsParameters`](RTCDtlsParameters.md)
+`RTCDtlsParameters`
 
 ## Properties
 
 ### fingerprints
 
-> **fingerprints**: [`RTCDtlsFingerprint`](RTCDtlsFingerprint.md)[] = `[]`
+> **fingerprints**: [`RTCDtlsFingerprint`](RTCDtlsFingerprint.md)[]
 
 ***
 
 ### role
 
-> **role**: `"client"` \| `"server"` \| `"auto"`
+> **role**: `"auto"` \| `"server"` \| `"client"`

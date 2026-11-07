@@ -1,22 +1,26 @@
 import SPSParser from "./sps-parser";
 
-export enum H264NaluType {
-  kUnspecified = 0,
-  kSliceNonIDR = 1,
-  kSliceDPA = 2,
-  kSliceDPB = 3,
-  kSliceDPC = 4,
-  kSliceIDR = 5,
-  kSliceSEI = 6,
-  kSliceSPS = 7,
-  kSlicePPS = 8,
-  kSliceAUD = 9,
-  kEndOfSequence = 10,
-  kEndOfStream = 11,
-  kFiller = 12,
-  kSPSExt = 13,
-  kReserved0 = 14,
-}
+/**
+ * @enum
+ */
+export const H264NaluType = {
+  kUnspecified: 0,
+  kSliceNonIDR: 1,
+  kSliceDPA: 2,
+  kSliceDPB: 3,
+  kSliceDPC: 4,
+  kSliceIDR: 5,
+  kSliceSEI: 6,
+  kSliceSPS: 7,
+  kSlicePPS: 8,
+  kSliceAUD: 9,
+  kEndOfSequence: 10,
+  kEndOfStream: 11,
+  kFiller: 12,
+  kSPSExt: 13,
+  kReserved0: 14,
+} as const;
+export type H264NaluType = (typeof H264NaluType)[keyof typeof H264NaluType];
 
 export class H264NaluPayload {
   type!: H264NaluType;
@@ -102,7 +106,7 @@ export class H264AnnexBParser {
         offset += 3;
       }
 
-      const nalu_type: H264NaluType = data[offset] & 0x1f;
+      const nalu_type = (data[offset] & 0x1f) as H264NaluType;
       const forbidden_bit = (data[offset] & 0x80) >>> 7;
 
       const next_startcode_offset = this.findNextStartCodeOffset(offset);
@@ -223,6 +227,86 @@ export function annexb2avcc(data: Buffer) {
     details,
   );
   return avcc.getData();
+}
+
+export interface AvcDecoderConfig {
+  /** AVCDecoderConfigurationRecord (avcC) bytes */
+  avcc: Uint8Array;
+  /** coded frame size after SPS cropping */
+  codedSize: { width: number; height: number };
+  /**
+   * sample (pixel) aspect ratio from the SPS VUI.
+   * `1:1` when absent or unspecified (e.g. extended SAR `0:0`).
+   */
+  sampleAspectRatio: { width: number; height: number };
+}
+
+/**
+ * Builds the avcC record and frame dimensions from the SPS / PPS contained in
+ * an Annex B access unit.
+ *
+ * Unlike {@link annexb2avcc}, this does not throw: it returns `undefined` when
+ * the access unit lacks an SPS or PPS, when the SPS cannot be parsed, or when
+ * the SPS does not describe positive integer dimensions.
+ */
+export function parseAvcDecoderConfig(
+  data: Buffer,
+): AvcDecoderConfig | undefined {
+  const annexbParser = new H264AnnexBParser(data);
+  let naluPayload: H264NaluPayload | null = null;
+  let sps: H264NaluPayload | undefined;
+  let pps: H264NaluPayload | undefined;
+
+  while ((naluPayload = annexbParser.readNextNaluPayload()) != null) {
+    if (naluPayload.type === H264NaluType.kSliceSPS) {
+      sps = naluPayload;
+    } else if (naluPayload.type === H264NaluType.kSlicePPS) {
+      pps = naluPayload;
+    }
+  }
+
+  if (!sps || !pps) {
+    return undefined;
+  }
+
+  let details: ReturnType<typeof SPSParser.parseSPS>;
+  try {
+    // Notice: parseSPS requires Nalu without startcode or length-header
+    details = SPSParser.parseSPS(sps.data);
+  } catch {
+    // ExpGolomb throws when a truncated SPS runs out of bits.
+    return undefined;
+  }
+
+  const { codec_size: codedSize, sar_ratio: sar } = details;
+  if (
+    !isPositiveInteger(codedSize.width) ||
+    !isPositiveInteger(codedSize.height)
+  ) {
+    return undefined;
+  }
+  // present_size is not used: it rounds the SAR-scaled width (427 for
+  // 320x240 @ 4:3) and becomes NaN when the SPS signals SAR 0:0.
+  const sampleAspectRatio =
+    isPositiveInteger(sar.width) && isPositiveInteger(sar.height)
+      ? { width: sar.width, height: sar.height }
+      : { width: 1, height: 1 };
+
+  const avcc = new AVCDecoderConfigurationRecord(
+    sps.data,
+    pps.data,
+    details,
+  ).getData();
+
+  return {
+    avcc,
+    codedSize: { width: codedSize.width, height: codedSize.height },
+    sampleAspectRatio,
+  };
+}
+
+function isPositiveInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value > 0;
 }
 
 export function annexb2avcSample(data: Buffer) {

@@ -1,7 +1,7 @@
 /**
  * Compare two negotiation-diff runs (see run.ts) seed by seed:
  *
- *   npx tsx tools/negotiation-diff/compare.ts <develop.jsonl> <head.jsonl>
+ *   node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs tools/negotiation-diff/compare.ts <develop.jsonl> <head.jsonl>
  *
  * For every seed it walks the operations in order up to the first step whose
  * outcome differs (after that the two sessions are no longer comparable) and
@@ -20,10 +20,10 @@
  *   difference is intended and only counted: a transceiver never negotiated
  *   (no currentDirection) whose MID develop assigned at an unapplied
  *   createOffer() while HEAD associates it when a description is applied
- *   (W3C; NEGOTIATION_TRANSACTION.md "Description reuse contract"); such a
+ *   (W3C; the description reuse contract of scenarios.ts); such a
  *   transceiver is compared by kind and direction only. The same holds when
  *   develop then stopped that transceiver at the answer as a rejected m-line
- *   while HEAD released the reserved MID (TICKET 2.19). MID values may
+ *   while HEAD released the reserved MID. MID values may
  *   differ (HEAD keeps MIDs an unapplied offer reserved) but HEAD's must be
  *   unique; a record where develop gave two transceivers one MID (develop's
  *   defect) is counted, not compared. Once a peer is closed, states are not

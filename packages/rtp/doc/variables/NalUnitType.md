@@ -8,7 +8,7 @@
 
 > `const` **NalUnitType**: `object`
 
-## Type declaration
+## Type Declaration
 
 ### fu\_a
 
@@ -29,6 +29,14 @@
 ### mtap24
 
 > `readonly` **mtap24**: `27` = `27`
+
+### pps
+
+> `readonly` **pps**: `8` = `8`
+
+### sps
+
+> `readonly` **sps**: `7` = `7`
 
 ### stap\_a
 

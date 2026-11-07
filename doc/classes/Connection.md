@@ -12,9 +12,9 @@
 
 ## Constructors
 
-### new Connection()
+### Constructor
 
-> **new Connection**(`_iceControlling`, `options`?): [`Connection`](Connection.md)
+> **new Connection**(`_iceControlling`, `options?`): `Connection`
 
 #### Parameters
 
@@ -28,7 +28,7 @@
 
 #### Returns
 
-[`Connection`](Connection.md)
+`Connection`
 
 ## Properties
 
@@ -94,7 +94,9 @@
 
 ### lookup?
 
-> `optional` **lookup**: `MdnsLookup`
+> `optional` **lookup?**: `MdnsLookup`
+
+Resolves remote mDNS candidates; closed (pending lookups cancelled) by restart() and close().
 
 #### Implementation of
 
@@ -104,7 +106,7 @@
 
 ### nominated?
 
-> `optional` **nominated**: [`CandidatePair`](CandidatePair.md)
+> `optional` **nominated?**: [`CandidatePair`](CandidatePair.md)
 
 #### Implementation of
 
@@ -204,7 +206,7 @@
 
 ### stunServer?
 
-> `optional` **stunServer**: readonly \[`string`, `number`\]
+> `optional` **stunServer?**: readonly \[`string`, `number`\]
 
 #### Implementation of
 
@@ -214,7 +216,7 @@
 
 ### turnServer?
 
-> `optional` **turnServer**: readonly \[`string`, `number`\]
+> `optional` **turnServer?**: readonly \[`string`, `number`\]
 
 #### Implementation of
 
@@ -225,6 +227,9 @@
 ### userHistory
 
 > **userHistory**: `object` = `{}`
+
+Local credentials STUN requests may use, by ufrag: the current ones, the
+generation the last restart replaced and a staged (provisional) one.
 
 #### Index Signature
 
@@ -318,11 +323,11 @@ Whether gathering contacts a STUN or TURN server.
 
 #### Get Signature
 
-> **get** **provisionalNominated**(): `undefined` \| [`CandidatePair`](CandidatePair.md)
+> **get** **provisionalNominated**(): [`CandidatePair`](CandidatePair.md) \| `undefined`
 
 ##### Returns
 
-`undefined` \| [`CandidatePair`](CandidatePair.md)
+[`CandidatePair`](CandidatePair.md) \| `undefined`
 
 #### Implementation of
 
@@ -368,7 +373,7 @@ Whether gathering contacts a STUN or TURN server.
 
 ##### remoteCandidate
 
-`undefined` | [`Candidate`](Candidate.md)
+[`Candidate`](Candidate.md) \| `undefined`
 
 #### Returns
 
@@ -384,11 +389,18 @@ Whether gathering contacts a STUN or TURN server.
 
 > **addRemoteCandidate**(`remoteCandidate`): `Promise`\<`void`\>
 
+Known constraint (as in develop): candidates are not deduplicated. A
+description applied again in the same generation (BUNDLE split and
+merge after an ICE restart) adds its candidates and pairs a second time,
+until the next restart. Deduplicating here alone breaks the pairs a
+provisional generation dropped and the repeated add rebuilds; a fix needs
+the pairing and provisional lifecycle together.
+
 #### Parameters
 
 ##### remoteCandidate
 
-`undefined` | [`Candidate`](Candidate.md)
+[`Candidate`](Candidate.md) \| `undefined`
 
 #### Returns
 
@@ -442,9 +454,9 @@ readonly \[`string`, `number`\]
 
 > **awaitable**: `Promise`\<`void`\> = `p`
 
-##### reject()
+##### reject
 
-> **reject**: (`reason`?) => `void`
+> **reject**: (`reason?`) => `void`
 
 ###### Parameters
 
@@ -456,7 +468,7 @@ readonly \[`string`, `number`\]
 
 `void`
 
-##### resolve()
+##### resolve
 
 > **resolve**: (`value`) => `void`
 
@@ -464,7 +476,7 @@ readonly \[`string`, `number`\]
 
 ###### value
 
-`void` | `PromiseLike`\<`void`\>
+`void` \| `PromiseLike`\<`void`\>
 
 ###### Returns
 
@@ -760,7 +772,7 @@ Remote credentials of the provisional generation (pranswer).
 
 ### stageLocalCredentials()
 
-> **stageLocalCredentials**(`usernameFragment`, `password`): `void`
+> **stageLocalCredentials**(`usernameFragment`, `password`, `gatherOptions?`): `void`
 
 Accept provisional checks without changing the selected current pair.
 
@@ -773,6 +785,10 @@ Accept provisional checks without changing the selected current pair.
 ##### password
 
 `string`
+
+##### gatherOptions?
+
+`Partial`\<[`IceOptions`](../interfaces/IceOptions.md)\>
 
 #### Returns
 

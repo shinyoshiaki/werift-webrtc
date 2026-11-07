@@ -1,8 +1,8 @@
 import { writeFileSync } from "fs";
-import { Server } from "ws";
+import { WebSocketServer } from "ws";
 import { RTCPeerConnection, Vp8RtpPayload } from "../../../packages/webrtc/src";
 
-const server = new Server({ port: 8888 });
+const server = new WebSocketServer({ port: 8888 });
 console.log("start");
 
 server.on("connection", async (socket) => {
@@ -19,7 +19,10 @@ server.on("connection", async (socket) => {
       if (index > 0 && vp8.isKeyframe) {
         process.exit();
       }
-      writeFileSync(`${__dirname}/dump_${index++}.rtp`, packet.serialize());
+      writeFileSync(
+        `${import.meta.dirname}/dump_${index++}.rtp`,
+        packet.serialize(),
+      );
     });
     track.onReceiveRtp.once(() => {
       setTimeout(() => {
