@@ -1,7 +1,7 @@
+import { X509Certificate } from "node:crypto";
 import { createSocket } from "dgram";
-import { Certificate } from "@fidm/x509";
 
-import { UdpTransport, randomPort } from "../../../../common/src";
+import { randomPort, UdpTransport } from "../../../../common/src";
 import { DtlsClient, DtlsServer } from "../../../src";
 import { HashAlgorithm, SignatureAlgorithm } from "../../../src/cipher/const";
 import { certPem, keyPem } from "../../fixture";
@@ -12,7 +12,7 @@ test(
     new Promise<void>(async (done) => {
       const word = "self";
       const port = await randomPort();
-      const remoteCertificate = Certificate.fromPEM(Buffer.from(certPem)).raw;
+      const remoteCertificate = new X509Certificate(certPem).raw;
 
       const server = new DtlsServer({
         cert: certPem,

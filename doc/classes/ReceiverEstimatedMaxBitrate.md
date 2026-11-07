@@ -8,19 +8,19 @@
 
 ## Constructors
 
-### new ReceiverEstimatedMaxBitrate()
+### Constructor
 
-> **new ReceiverEstimatedMaxBitrate**(`props`): [`ReceiverEstimatedMaxBitrate`](ReceiverEstimatedMaxBitrate.md)
+> **new ReceiverEstimatedMaxBitrate**(`props?`): `ReceiverEstimatedMaxBitrate`
 
 #### Parameters
 
-##### props
+##### props?
 
-`Partial`\<[`ReceiverEstimatedMaxBitrate`](ReceiverEstimatedMaxBitrate.md)\> = `{}`
+`Partial`\<`ReceiverEstimatedMaxBitrate`\> = `{}`
 
 #### Returns
 
-[`ReceiverEstimatedMaxBitrate`](ReceiverEstimatedMaxBitrate.md)
+`ReceiverEstimatedMaxBitrate`
 
 ## Properties
 
@@ -102,7 +102,7 @@
 
 ### deSerialize()
 
-> `static` **deSerialize**(`data`): [`ReceiverEstimatedMaxBitrate`](ReceiverEstimatedMaxBitrate.md)
+> `static` **deSerialize**(`data`): `ReceiverEstimatedMaxBitrate`
 
 #### Parameters
 
@@ -112,4 +112,4 @@
 
 #### Returns
 
-[`ReceiverEstimatedMaxBitrate`](ReceiverEstimatedMaxBitrate.md)
+`ReceiverEstimatedMaxBitrate`

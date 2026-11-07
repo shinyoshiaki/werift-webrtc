@@ -6,10 +6,10 @@
 
 # Type Alias: RTCPeerConnectionConfig
 
-> **RTCPeerConnectionConfig**: `Partial`\<`Omit`\<[`PeerConfig`](../interfaces/PeerConfig.md), `"bundlePolicy"` \| `"rtcpMuxPolicy"` \| `"iceCandidatePoolSize"` \| `"certificates"` \| `"sctp"`\>\> & `RTCPeerConnectionRTCConfiguration` & `object`
+> **RTCPeerConnectionConfig** = `Partial`\<`Omit`\<[`PeerConfig`](../interfaces/PeerConfig.md), `"bundlePolicy"` \| `"rtcpMuxPolicy"` \| `"iceCandidatePoolSize"` \| `"certificates"` \| `"sctp"`\>\> & `RTCPeerConnectionRTCConfiguration` & `object`
 
-## Type declaration
+## Type Declaration
 
 ### sctp?
 
-> `optional` **sctp**: [`RTCSctpConfiguration`](../interfaces/RTCSctpConfiguration.md)
+> `optional` **sctp?**: [`RTCSctpConfiguration`](../interfaces/RTCSctpConfiguration.md)

@@ -19,8 +19,35 @@ reference TURN server over UDP, TCP, and TLS (`turns:`) control transports.
   (`Transport.remoteAddress`); the hostname is not resolved again. TLS still
   verifies the certificate against the configured hostname. SNI is sent only
   when `tlsOptions.servername` is set.
-- `TurnProtocol.server` always holds the configured address; the resolved
-  endpoint is `TurnProtocol.serverEndpoint`.
+- `TurnProtocol.configuredServer` always holds the configured address.
+  `TurnProtocol.server` is the server the allocation lives on (the configured
+  one unless the Allocate was redirected, see below); the resolved endpoint
+  is `TurnProtocol.serverEndpoint`.
+
+## TURN 300 (Try Alternate)
+
+An Allocate answered with `300 (Try Alternate)` is retried against its
+`ALTERNATE-SERVER` (RFC 8656 §7.4, RFC 8489 §10):
+
+- Same transport protocol and the same username/password. The alternate
+  starts with an unauthenticated Allocate and its own 401 realm/nonce; the
+  previous server's realm/nonce are not reused.
+- After the redirect, the allocation and every later Refresh,
+  CreatePermission, ChannelBind and data packet are pinned to the alternate.
+- When a 300 carries several `ALTERNATE-SERVER` attributes (e.g. one per IP
+  family), the first one the socket's IP family can reach is used.
+- UDP keeps the same socket. An alternate of the other IP family only fails
+  with `AddressFamilyMismatch` when no listed alternate matches.
+- TCP/TLS (via `createTurnClient`) close the stream and connect to the
+  alternate. TLS validates the alternate's certificate against
+  `ALTERNATE-DOMAIN` when present, otherwise against the name the original
+  server is validated with (`tlsOptions.servername`, else the configured
+  host). `new TurnProtocol(...)` over a stream needs the `reconnect` option to
+  follow a redirect.
+- Only Allocate is redirected. A redirect fails with `TurnRedirectError`
+  (`reason`: `missing-alternate`, `loop` for a server already tried by this
+  Allocate, including the resolved IP of a configured host name, `too-many-redirects` beyond `maxAllocateRedirects` (default 3),
+  or `unsupported-transport`).
 
 ## pion TURN interop (opt-in)
 

@@ -1,7 +1,7 @@
 import { exec } from "child_process";
 import { createSocket } from "dgram";
 import { setTimeout } from "timers/promises";
-import { Server } from "ws";
+import { WebSocketServer } from "ws";
 import {
   RTCPeerConnection,
   RtcpSrPacket,
@@ -12,9 +12,9 @@ import {
   installPolyfill,
 } from "../../../../packages/webrtc/src/polyfill";
 
-console.log("start", __dirname);
+console.log("start", import.meta.dirname);
 
-new Server({ port: 8887 }).on("connection", async (socket) => {
+new WebSocketServer({ port: 8887 }).on("connection", async (socket) => {
   const pc = new RTCPeerConnection();
 
   installPolyfill({
@@ -52,7 +52,7 @@ new Server({ port: 8887 }).on("connection", async (socket) => {
   });
 });
 
-new Server({ port: 8888 }).on("connection", async (socket) => {
+new WebSocketServer({ port: 8888 }).on("connection", async (socket) => {
   const pc = new RTCPeerConnection();
 
   const audioPt = 111;

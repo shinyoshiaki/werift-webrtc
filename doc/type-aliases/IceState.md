@@ -6,4 +6,4 @@
 
 # Type Alias: IceState
 
-> **IceState**: `"disconnected"` \| `"closed"` \| `"completed"` \| `"new"` \| `"connected"` \| `"failed"`
+> **IceState** = `"disconnected"` \| `"closed"` \| `"completed"` \| `"new"` \| `"connected"` \| `"failed"`

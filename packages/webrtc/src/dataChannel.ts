@@ -1,7 +1,6 @@
 import { randomUUID } from "crypto";
-import { Event, debug } from "./imports/common";
-
 import { EventTarget } from "./helper";
+import { debug, Event } from "./imports/common";
 import type { RTCSctpTransport } from "./transport/sctp";
 import type { Callback, CallbackWithValue } from "./types/util";
 
@@ -19,6 +18,10 @@ export function getDataChannelMessageSize(data: Buffer | string) {
 }
 
 export class RTCDataChannel extends EventTarget implements DataChannelStats {
+  readonly sctp: RTCSctpTransport;
+  private readonly parameters: RTCDataChannelParameters;
+  public readonly sendOpen: boolean;
+
   readonly statsId = randomUUID().toString();
   readonly stateChange = new Event<[DCState]>();
   readonly stateChanged = new Event<[DCState]>();
@@ -46,11 +49,14 @@ export class RTCDataChannel extends EventTarget implements DataChannelStats {
   bytesReceived = 0;
 
   constructor(
-    readonly sctp: RTCSctpTransport,
-    private readonly parameters: RTCDataChannelParameters,
-    public readonly sendOpen = true,
+    sctp: RTCSctpTransport,
+    parameters: RTCDataChannelParameters,
+    sendOpen = true,
   ) {
     super();
+    this.sctp = sctp;
+    this.parameters = parameters;
+    this.sendOpen = sendOpen;
 
     this.id = this.parameters.id;
 

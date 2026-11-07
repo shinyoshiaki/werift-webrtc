@@ -14,7 +14,7 @@
 
 ### burstDiscardCount?
 
-> `optional` **burstDiscardCount**: `number`
+> `optional` **burstDiscardCount?**: `number`
 
 #### Inherited from
 
@@ -24,7 +24,7 @@
 
 ### burstDiscardRate?
 
-> `optional` **burstDiscardRate**: `number`
+> `optional` **burstDiscardRate?**: `number`
 
 #### Inherited from
 
@@ -34,7 +34,7 @@
 
 ### burstLossCount?
 
-> `optional` **burstLossCount**: `number`
+> `optional` **burstLossCount?**: `number`
 
 #### Inherited from
 
@@ -44,7 +44,7 @@
 
 ### burstLossRate?
 
-> `optional` **burstLossRate**: `number`
+> `optional` **burstLossRate?**: `number`
 
 #### Inherited from
 
@@ -54,7 +54,7 @@
 
 ### burstPacketsDiscarded?
 
-> `optional` **burstPacketsDiscarded**: `number`
+> `optional` **burstPacketsDiscarded?**: `number`
 
 #### Inherited from
 
@@ -64,7 +64,7 @@
 
 ### burstPacketsLost?
 
-> `optional` **burstPacketsLost**: `number`
+> `optional` **burstPacketsLost?**: `number`
 
 #### Inherited from
 
@@ -74,7 +74,7 @@
 
 ### bytesReceived?
 
-> `optional` **bytesReceived**: `number`
+> `optional` **bytesReceived?**: `number`
 
 #### Inherited from
 
@@ -84,7 +84,7 @@
 
 ### codecId?
 
-> `optional` **codecId**: `string`
+> `optional` **codecId?**: `string`
 
 #### Inherited from
 
@@ -94,13 +94,13 @@
 
 ### fractionLost?
 
-> `optional` **fractionLost**: `number`
+> `optional` **fractionLost?**: `number`
 
 ***
 
 ### framesDropped?
 
-> `optional` **framesDropped**: `number`
+> `optional` **framesDropped?**: `number`
 
 #### Inherited from
 
@@ -110,7 +110,7 @@
 
 ### fullFramesLost?
 
-> `optional` **fullFramesLost**: `number`
+> `optional` **fullFramesLost?**: `number`
 
 #### Inherited from
 
@@ -120,7 +120,7 @@
 
 ### gapDiscardRate?
 
-> `optional` **gapDiscardRate**: `number`
+> `optional` **gapDiscardRate?**: `number`
 
 #### Inherited from
 
@@ -130,7 +130,7 @@
 
 ### gapLossRate?
 
-> `optional` **gapLossRate**: `number`
+> `optional` **gapLossRate?**: `number`
 
 #### Inherited from
 
@@ -150,7 +150,7 @@
 
 ### jitter?
 
-> `optional` **jitter**: `number`
+> `optional` **jitter?**: `number`
 
 #### Inherited from
 
@@ -170,13 +170,13 @@
 
 ### localId?
 
-> `optional` **localId**: `string`
+> `optional` **localId?**: `string`
 
 ***
 
 ### packetsDiscarded?
 
-> `optional` **packetsDiscarded**: `number`
+> `optional` **packetsDiscarded?**: `number`
 
 #### Inherited from
 
@@ -186,7 +186,7 @@
 
 ### packetsLost?
 
-> `optional` **packetsLost**: `number`
+> `optional` **packetsLost?**: `number`
 
 #### Inherited from
 
@@ -196,7 +196,7 @@
 
 ### packetsReceived?
 
-> `optional` **packetsReceived**: `number`
+> `optional` **packetsReceived?**: `number`
 
 #### Inherited from
 
@@ -206,7 +206,7 @@
 
 ### packetsRepaired?
 
-> `optional` **packetsRepaired**: `number`
+> `optional` **packetsRepaired?**: `number`
 
 #### Inherited from
 
@@ -216,7 +216,7 @@
 
 ### partialFramesLost?
 
-> `optional` **partialFramesLost**: `number`
+> `optional` **partialFramesLost?**: `number`
 
 #### Inherited from
 
@@ -226,13 +226,13 @@
 
 ### roundTripTime?
 
-> `optional` **roundTripTime**: `number`
+> `optional` **roundTripTime?**: `number`
 
 ***
 
 ### roundTripTimeMeasurements?
 
-> `optional` **roundTripTimeMeasurements**: `number`
+> `optional` **roundTripTimeMeasurements?**: `number`
 
 ***
 
@@ -258,13 +258,13 @@
 
 ### totalRoundTripTime?
 
-> `optional` **totalRoundTripTime**: `number`
+> `optional` **totalRoundTripTime?**: `number`
 
 ***
 
 ### transportId?
 
-> `optional` **transportId**: `string`
+> `optional` **transportId?**: `string`
 
 #### Inherited from
 

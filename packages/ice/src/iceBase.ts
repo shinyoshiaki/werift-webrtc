@@ -4,10 +4,10 @@ import type { MdnsLookup } from "./dns/lookup";
 import type { Cancelable } from "./helper";
 import {
   type Address,
+  debug,
   type Event,
   type InterfaceAddresses,
   type TlsConnectionOptions,
-  debug,
 } from "./imports/common";
 import { classes, methods } from "./stun/const";
 import { Message } from "./stun/message";
@@ -47,7 +47,16 @@ export interface IceConnection {
    * implementation without them still restarts ICE at the final answer, but
    * cannot answer or run checks for the new generation during pranswer.
    */
-  stageLocalCredentials?(usernameFragment: string, password: string): void;
+  /**
+   * `gatherOptions`: the options the staged generation gathers with (an ICE
+   * server update applied at the commit); its provisional checks use only
+   * the sockets those options allow. Defaults to the current options.
+   */
+  stageLocalCredentials?(
+    usernameFragment: string,
+    password: string,
+    gatherOptions?: Partial<IceOptions>,
+  ): void;
   discardStagedLocalCredentials?(usernameFragment: string): void;
   commitLocalCredentials?(usernameFragment: string, password: string): void;
   /**
@@ -116,12 +125,16 @@ export interface CandidatePairStats {
 }
 
 export class CandidatePair implements CandidatePairStats {
+  public protocol: Protocol;
+  public remoteCandidate: Candidate;
+  public iceControlling: boolean;
+
   readonly id = randomUUID().toString();
   handle?: Cancelable<void>;
   nominated = false;
   remoteNominated = false;
   // 5.7.4.  Computing States
-  private _state = CandidatePairState.FROZEN;
+  private _state: CandidatePairState = CandidatePairState.FROZEN;
   get state() {
     return this._state;
   }
@@ -156,10 +169,14 @@ export class CandidatePair implements CandidatePairStats {
   }
 
   constructor(
-    public protocol: Protocol,
-    public remoteCandidate: Candidate,
-    public iceControlling: boolean,
-  ) {}
+    protocol: Protocol,
+    remoteCandidate: Candidate,
+    iceControlling: boolean,
+  ) {
+    this.protocol = protocol;
+    this.remoteCandidate = remoteCandidate;
+    this.iceControlling = iceControlling;
+  }
 
   updateState(state: CandidatePairState) {
     this._state = state;
@@ -247,13 +264,18 @@ export function consentResponseTimeoutMs(rttSeconds?: number): number {
   );
 }
 
-export enum CandidatePairState {
-  FROZEN = 0,
-  WAITING = 1,
-  IN_PROGRESS = 2,
-  SUCCEEDED = 3,
-  FAILED = 4,
-}
+/**
+ * @enum
+ */
+export const CandidatePairState = {
+  FROZEN: 0,
+  WAITING: 1,
+  IN_PROGRESS: 2,
+  SUCCEEDED: 3,
+  FAILED: 4,
+} as const;
+export type CandidatePairState =
+  (typeof CandidatePairState)[keyof typeof CandidatePairState];
 
 export type IceState =
   | "disconnected"
@@ -287,6 +309,12 @@ export interface IceOptions {
    */
   turnConnectTimeout?: number;
   stunServer?: Address;
+  /**
+   * Whether the built-in public STUN server (stun.l.google.com:19302) is used
+   * when `stunServer` is not given. Defaults to true; false gathers no
+   * server-reflexive candidate unless `stunServer` is set.
+   */
+  useDefaultStunServer?: boolean;
   turnServer?: Address;
   turnUsername?: string;
   turnPassword?: string;
@@ -304,7 +332,26 @@ export interface IceOptions {
   useIpv6: boolean;
   useLinkLocalAddress?: boolean;
   portRange?: [number, number];
+  /**
+   * Local addresses to bind the UDP host sockets to, per family.
+   *
+   * The address given for a family (`udp4` / `udp6`) is the only host
+   * address of that family: its UDP host candidate advertises the address and
+   * port the socket is actually bound to, even when the address is not among
+   * the enumerated network interfaces (loopback, tun, ...), and its TCP host
+   * candidates use it too. Other enumerated addresses of that family are not
+   * gathered. If the bind fails, the family has no UDP host candidate.
+   *
+   * A family left unspecified while the other one is set gathers no
+   * enumerated addresses (only its `additionalHostAddresses`). Without any
+   * family set, every enumerated address is gathered over wildcard sockets.
+   */
   interfaceAddresses?: InterfaceAddresses;
+  /**
+   * Host addresses gathered in addition to the enumerated ones. For a family
+   * bound by `interfaceAddresses`, addresses other than the bound one are
+   * ignored.
+   */
   additionalHostAddresses?: string[];
   filterStunResponse?: (
     message: Message,
@@ -416,4 +463,82 @@ export function validateAddress(addr?: Address): Address | undefined {
     return [addr[0], 443];
   }
   return addr;
+}
+
+/**
+ * `current` with an ICE server update applied (Connection.setIceServers): the
+ * STUN/TURN fields are replaced, an undefined one included, so a STUN-only
+ * update cannot leave a previous TURN host/credential behind; forceTurn and
+ * useTcp change only when given.
+ */
+export function mergeIceServerOptions<T extends Partial<IceOptions>>(
+  current: T,
+  update: Partial<IceOptions>,
+): T {
+  return {
+    ...current,
+    stunServer: update.stunServer,
+    turnServer: update.turnServer,
+    turnUsername: update.turnUsername,
+    turnPassword: update.turnPassword,
+    turnTransport: update.turnTransport,
+    turnTlsOptions: update.turnTlsOptions,
+    turnUdpFamily: update.turnUdpFamily,
+    forceTurn: update.forceTurn ?? current.forceTurn,
+    useTcp: update.useTcp ?? current.useTcp,
+  };
+}
+
+/**
+ * Whether a generation gathered with `options` is relay-only: forceTurn (the
+ * "relay" ICE transport policy). The policy holds whatever the TURN settings
+ * are: without a usable TURN server / credential (or for an ICE-lite agent,
+ * which gathers no relay candidate) the generation has no candidate at all
+ * rather than falling back to host / server-reflexive ones, so the local and
+ * public addresses are neither advertised nor used for checks.
+ */
+export function isRelayOnlyGathering(options: Pick<IceOptions, "forceTurn">) {
+  return !!options.forceTurn;
+}
+
+/**
+ * Whether `options` carry a usable TURN server and credential, the ones a
+ * gathering with them allocates relay candidates from.
+ */
+export function hasTurnServer(
+  options: Partial<
+    Pick<IceOptions, "turnServer" | "turnUsername" | "turnPassword">
+  >,
+) {
+  return !!(
+    validateAddress(options.turnServer) &&
+    options.turnUsername &&
+    options.turnPassword
+  );
+}
+
+/**
+ * Whether `candidate`, kept from an earlier generation (an ICE restart keeps
+ * the sockets), may be advertised and paired in a generation gathered with
+ * `options`. A fresh gathering with the same options would not have produced
+ * a host / server-reflexive candidate for a relay-only policy, a TCP host
+ * candidate without useTcp, nor a relay candidate without a TURN server;
+ * the kept ones are held back the same way.
+ */
+export function isCandidateAllowedByGatherOptions(
+  candidate: Pick<Candidate, "type" | "transport">,
+  options: Pick<IceOptions, "forceTurn"> &
+    Partial<
+      Pick<
+        IceOptions,
+        "useTcp" | "turnServer" | "turnUsername" | "turnPassword"
+      >
+    >,
+) {
+  if (candidate.type === "relay") return hasTurnServer(options);
+  if (isRelayOnlyGathering(options)) return false;
+  if (candidate.transport.toLowerCase() === "tcp" && !options.useTcp) {
+    return false;
+  }
+  return true;
 }

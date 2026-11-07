@@ -1,16 +1,14 @@
 import { spawn } from "child_process";
 import { createSocket } from "dgram";
-import { appendFile, open, stat, unlink } from "fs/promises";
+import { unlink } from "fs/promises";
 import type { ReadableStreamDefaultReadResult } from "stream/web";
 
 import {
   depacketizeTransformer,
-  DurationPosition,
   jitterBufferTransformer,
   randomPort,
-  replaceSegmentSize,
   RtpSourceStream,
-  SegmentSizePosition,
+  saveToFileSystem,
   WebmStream,
   type WebmStreamOutput,
 } from "../../../src";
@@ -85,6 +83,7 @@ randomPort().then(async (port) => {
     .pipeThrough(depacketizeTransformer("opus"))
     .pipeTo(webm.audioStream);
 
+  const save = saveToFileSystem(path);
   const reader = webm.webmStream.getReader();
   const readChunk = async ({
     value,
@@ -92,24 +91,8 @@ randomPort().then(async (port) => {
   }: ReadableStreamDefaultReadResult<WebmStreamOutput>) => {
     if (done) return;
 
-    if (value.saveToFile) {
-      await appendFile(path, value.saveToFile);
-    } else if (value.eol) {
-      const { durationElement } = value.eol;
-      const handler = await open(path, "r+");
-      await handler.write(
-        durationElement,
-        0,
-        durationElement.length,
-        DurationPosition
-      );
-
-      const meta = await stat(path);
-      const resize = replaceSegmentSize(meta.size);
-      await handler.write(resize, 0, resize.length, SegmentSizePosition);
-
-      await handler.close();
-    }
+    // appends chunks, then fixes Duration / Segment / Cluster sizes on eol
+    await save(value);
     reader.read().then(readChunk);
   };
   reader.read().then(readChunk);

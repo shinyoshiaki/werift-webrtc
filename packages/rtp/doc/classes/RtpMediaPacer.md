@@ -33,13 +33,15 @@ time with jitter (live encoders, pipes, network ingest).
 
 ## Type Parameters
 
-• **T** = `Buffer`
+### T
+
+`T` = `Buffer`
 
 ## Constructors
 
-### new RtpMediaPacer()
+### Constructor
 
-> **new RtpMediaPacer**\<`T`\>(`options`): [`RtpMediaPacer`](RtpMediaPacer.md)\<`T`\>
+> **new RtpMediaPacer**\<`T`\>(`options`): `RtpMediaPacer`\<`T`\>
 
 #### Parameters
 
@@ -49,7 +51,7 @@ time with jitter (live encoders, pipes, network ingest).
 
 #### Returns
 
-[`RtpMediaPacer`](RtpMediaPacer.md)\<`T`\>
+`RtpMediaPacer`\<`T`\>
 
 ## Properties
 
@@ -89,13 +91,13 @@ Total time (ms) the timeline has been shifted so far.
 
 #### Get Signature
 
-> **get** **lastTick**(): `undefined` \| [`RtpMediaPacerTick`](../interfaces/RtpMediaPacerTick.md)\<`T`\>
+> **get** **lastTick**(): [`RtpMediaPacerTick`](../interfaces/RtpMediaPacerTick.md)\<`T`\> \| `undefined`
 
 The most recently emitted tick.
 
 ##### Returns
 
-`undefined` \| [`RtpMediaPacerTick`](../interfaces/RtpMediaPacerTick.md)\<`T`\>
+[`RtpMediaPacerTick`](../interfaces/RtpMediaPacerTick.md)\<`T`\> \| `undefined`
 
 ***
 
@@ -169,7 +171,7 @@ Queues a frame. Frames may be pushed before `start()`.
 
 ### start()
 
-> **start**(`onTick`?): `void`
+> **start**(`onTick?`): `void`
 
 #### Parameters
 

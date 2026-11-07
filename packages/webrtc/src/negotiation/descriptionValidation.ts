@@ -1,7 +1,7 @@
 import { SCTP_STATE } from "../../../sctp/src";
 import type { PeerConfig } from "../api/peerConfig";
 import { createWebRtcDomException } from "../errors";
-import { type TransceiverManager, negotiateRemoteCodecs } from "../media";
+import { negotiateRemoteCodecs, type TransceiverManager } from "../media";
 import type { NegotiationTransaction } from "../negotiationTransaction";
 import type { SctpTransportManager } from "../sctpManager";
 import type { MediaDescription, SessionDescription } from "../sdp";
@@ -26,14 +26,28 @@ function fingerprintKey(params: NonNullable<MediaDescription["dtlsParams"]>) {
  * descriptions and every transport as they were.
  */
 export class DescriptionValidation {
+  private readonly config: PeerConfig;
+  private readonly sdp: SDPManager;
+  private readonly transceivers: TransceiverManager;
+  private readonly sctp: SctpTransportManager;
+  private readonly negotiation: NegotiationTransaction;
+  private readonly topology: BundleTopology;
+
   constructor(
-    private readonly config: PeerConfig,
-    private readonly sdp: SDPManager,
-    private readonly transceivers: TransceiverManager,
-    private readonly sctp: SctpTransportManager,
-    private readonly negotiation: NegotiationTransaction,
-    private readonly topology: BundleTopology,
-  ) {}
+    config: PeerConfig,
+    sdp: SDPManager,
+    transceivers: TransceiverManager,
+    sctp: SctpTransportManager,
+    negotiation: NegotiationTransaction,
+    topology: BundleTopology,
+  ) {
+    this.config = config;
+    this.sdp = sdp;
+    this.transceivers = transceivers;
+    this.sctp = sctp;
+    this.negotiation = negotiation;
+    this.topology = topology;
+  }
 
   /**
    * A local description must use the ICE credentials of the transports

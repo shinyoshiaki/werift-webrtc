@@ -1,8 +1,18 @@
-// RTP Payload Format for VP9 Video draft-ietf-payload-vp9-16 https://datatracker.ietf.org/doc/html/draft-ietf-payload-vp9
+// RFC 9628 — RTP Payload Format for VP9 Video (Standards Track, March 2025)
+// docs/rfc/rfc9628.txt
+// (Supersedes draft-ietf-payload-vp9; implement against the RFC, not the draft.)
+//
+// Payload Descriptor first octet (RFC 9628):
+//   I|P|L|F|B|E|V|Z
+// Minimal packetizer subset (legal RFC profile):
+//   I=L=F=V=Z=0, P=0 key / P=1 inter, B=start of frame, E=end of frame.
+// Marker: last RTP packet of the frame.
 
-import { getBit, paddingByte } from "../../../common/src";
-import type { RtpHeader } from "../rtp/rtp";
+import { BitWriter, getBit, paddingByte } from "../../../common/src";
+import type { RtpHeader, RtpPacket } from "../rtp/rtp";
+import { assertRtpCodecPayloadLength } from "./assertPayload";
 import type { DePacketizerBase } from "./base";
+import { PacketizerBase, type PacketizerBaseOptions } from "./base";
 
 //          0 1 2 3 4 5 6 7
 //         +-+-+-+-+-+-+-+-+
@@ -81,6 +91,7 @@ export class Vp9RtpPayload implements DePacketizerBase {
   static parseRtpPayload(buf: Buffer) {
     const p = new Vp9RtpPayload();
     let offset = 0;
+    assertRtpCodecPayloadLength(buf, 1, "VP9", offset);
 
     p.iBit = getBit(buf[offset], 0); // PictureId present .
     p.pBit = getBit(buf[offset], 1); // Inter-picture predicted.
@@ -93,9 +104,11 @@ export class Vp9RtpPayload implements DePacketizerBase {
     offset++;
 
     if (p.iBit) {
+      assertRtpCodecPayloadLength(buf, 1, "VP9", offset);
       p.m = getBit(buf[offset], 0);
 
       if (p.m) {
+        assertRtpCodecPayloadLength(buf, 2, "VP9", offset);
         const _7 = paddingByte(getBit(buf[offset], 1, 7));
         const _8 = paddingByte(buf[offset + 1]);
         p.pictureId = Number.parseInt(_7 + _8, 2);
@@ -107,12 +120,14 @@ export class Vp9RtpPayload implements DePacketizerBase {
     }
 
     if (p.lBit) {
+      assertRtpCodecPayloadLength(buf, 1, "VP9", offset);
       p.tid = getBit(buf[offset], 0, 3);
       p.u = getBit(buf[offset], 3);
       p.sid = getBit(buf[offset], 4, 3);
       p.d = getBit(buf[offset], 7);
       offset++;
       if (p.fBit === 0) {
+        assertRtpCodecPayloadLength(buf, 1, "VP9", offset);
         p.tl0PicIdx = buf[offset];
         offset++;
       }
@@ -120,6 +135,7 @@ export class Vp9RtpPayload implements DePacketizerBase {
 
     if (p.fBit && p.pBit) {
       for (;;) {
+        assertRtpCodecPayloadLength(buf, 1, "VP9", offset);
         p.pDiff = [...p.pDiff, getBit(buf[offset], 0, 7)];
         const n = getBit(buf[offset], 7);
         offset++;
@@ -148,6 +164,7 @@ export class Vp9RtpPayload implements DePacketizerBase {
     //      +-+-+-+-+-+-+-+-+              -|           -|
     //
     if (p.vBit) {
+      assertRtpCodecPayloadLength(buf, 1, "VP9", offset);
       p.n_s = getBit(buf[offset], 0, 3);
       p.y = getBit(buf[offset], 3);
       p.g = getBit(buf[offset], 4);
@@ -155,6 +172,7 @@ export class Vp9RtpPayload implements DePacketizerBase {
 
       if (p.y) {
         [...Array(p.n_s + 1)].forEach(() => {
+          assertRtpCodecPayloadLength(buf, 4, "VP9", offset);
           p.width.push(buf.readUInt16BE(offset));
           offset += 2;
           p.height.push(buf.readUInt16BE(offset));
@@ -163,12 +181,14 @@ export class Vp9RtpPayload implements DePacketizerBase {
       }
 
       if (p.g) {
+        assertRtpCodecPayloadLength(buf, 1, "VP9", offset);
         p.n_g = buf[offset];
         offset++;
       }
 
       if (p.n_g > 0) {
         [...Array(p.n_g).keys()].forEach((i) => {
+          assertRtpCodecPayloadLength(buf, 1, "VP9", offset);
           p.pgT.push(getBit(buf[offset], 0, 3));
           p.pgU.push(getBit(buf[offset], 3));
           const r = getBit(buf[offset], 4, 2);
@@ -177,6 +197,7 @@ export class Vp9RtpPayload implements DePacketizerBase {
           p.pgP_Diff[i] = [];
           if (r > 0) {
             [...Array(r)].forEach(() => {
+              assertRtpCodecPayloadLength(buf, 1, "VP9", offset);
               p.pgP_Diff[i].push(buf[offset]);
               offset++;
             });
@@ -197,5 +218,86 @@ export class Vp9RtpPayload implements DePacketizerBase {
 
   get isPartitionHead() {
     return this.bBit && (!this.lBit || !this.d);
+  }
+}
+
+export type Vp9PacketizerOptions = PacketizerBaseOptions & {
+  /**
+   * When true, set P=0 (not inter-predicted = keyframe).
+   * When false, set P=1 (inter-predicted / delta). Default false.
+   * Also accept via packetize(..., { isKeyframe }) override.
+   */
+  isKeyframe?: boolean;
+};
+
+export type Vp9PacketizeOptions = {
+  /** Override keyframe (P bit). Key → P=0, delta → P=1 (RFC 9628). */
+  isKeyframe?: boolean;
+  /** Alias for isKeyframe false / true: "key" | "delta". */
+  frameType?: "key" | "delta";
+};
+
+/**
+ * Packetize one VP9 frame with the minimal 1-byte descriptor (RFC 9628).
+ * Picture ID / layer / SS extensions are not sent (legal optional subset).
+ */
+export class Vp9Packetizer extends PacketizerBase {
+  private readonly defaultIsKeyframe: boolean;
+
+  constructor(options: Vp9PacketizerOptions = {}) {
+    super(options);
+    this.defaultIsKeyframe = options.isKeyframe ?? false;
+  }
+
+  packetize(
+    data: Buffer,
+    rtpTimestamp: number,
+    options: Vp9PacketizeOptions = {},
+  ): RtpPacket[] {
+    if (data.length === 0) {
+      return [];
+    }
+    const chunkSize = this.maxPayloadSize - 1;
+    if (chunkSize <= 0) {
+      throw new Error(
+        `Vp9Packetizer: maxPayloadSize ${this.maxPayloadSize} too small for VP9 descriptor`,
+      );
+    }
+
+    let isKeyframe = this.defaultIsKeyframe;
+    if (options.frameType === "key") isKeyframe = true;
+    else if (options.frameType === "delta") isKeyframe = false;
+    else if (options.isKeyframe !== undefined) isKeyframe = options.isKeyframe;
+
+    // P=1 when inter-predicted (delta), P=0 for key (RFC 9628)
+    const pBit = isKeyframe ? 0 : 1;
+
+    const packets: RtpPacket[] = [];
+    for (let offset = 0; offset < data.length; offset += chunkSize) {
+      const chunk = data.subarray(
+        offset,
+        Math.min(data.length, offset + chunkSize),
+      );
+      const isStart = offset === 0;
+      const isEnd = offset + chunk.length >= data.length;
+      // I|P|L|F|B|E|V|Z — only P, B, E set in the minimal form
+      const descriptor = new BitWriter(8)
+        .set(1, 0, 0) // I
+        .set(1, 1, pBit) // P
+        .set(1, 2, 0) // L
+        .set(1, 3, 0) // F
+        .set(1, 4, isStart ? 1 : 0) // B
+        .set(1, 5, isEnd ? 1 : 0) // E
+        .set(1, 6, 0) // V
+        .set(1, 7, 0).buffer; // Z
+      packets.push(
+        this.buildPacket(
+          Buffer.concat([descriptor, chunk]),
+          rtpTimestamp,
+          isEnd,
+        ),
+      );
+    }
+    return packets;
   }
 }

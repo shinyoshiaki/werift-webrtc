@@ -1,5 +1,3 @@
-import { Event, debug } from "../../imports/common";
-
 import {
   GenericNack,
   RtcpTransportLayerFeedback,
@@ -7,6 +5,7 @@ import {
   timer,
   uint16Add,
 } from "../..";
+import { debug, Event } from "../../imports/common";
 import type { Processor } from "./interface";
 import type { RtpOutput } from "./rtpCallback";
 
@@ -21,6 +20,9 @@ export type NackHandlerOutput = RtpOutput;
 export class NackHandlerBase
   implements Processor<NackHandlerInput, NackHandlerOutput>
 {
+  private senderSsrc: number;
+  private onNack: (rtcp: RtcpTransportLayerFeedback) => Promise<void>;
+
   private newEstSeqNum = 0;
   private _lost: { [seqNum: number]: number } = {};
   private clearNackInterval?: () => void;
@@ -33,9 +35,12 @@ export class NackHandlerBase
   stopped = false;
 
   constructor(
-    private senderSsrc: number,
-    private onNack: (rtcp: RtcpTransportLayerFeedback) => Promise<void>,
-  ) {}
+    senderSsrc: number,
+    onNack: (rtcp: RtcpTransportLayerFeedback) => Promise<void>,
+  ) {
+    this.senderSsrc = senderSsrc;
+    this.onNack = onNack;
+  }
 
   toJSON(): Record<string, any> {
     return {

@@ -8,19 +8,19 @@
 
 ## Constructors
 
-### new GenericNack()
+### Constructor
 
-> **new GenericNack**(`props`): [`GenericNack`](GenericNack.md)
+> **new GenericNack**(`props?`): `GenericNack`
 
 #### Parameters
 
-##### props
+##### props?
 
-`Partial`\<[`GenericNack`](GenericNack.md)\> = `{}`
+`Partial`\<`GenericNack`\> = `{}`
 
 #### Returns
 
-[`GenericNack`](GenericNack.md)
+`GenericNack`
 
 ## Properties
 
@@ -94,7 +94,7 @@
 
 ### deSerialize()
 
-> `static` **deSerialize**(`data`, `header`): [`GenericNack`](GenericNack.md)
+> `static` **deSerialize**(`data`, `header`): `GenericNack`
 
 #### Parameters
 
@@ -108,4 +108,4 @@
 
 #### Returns
 
-[`GenericNack`](GenericNack.md)
+`GenericNack`

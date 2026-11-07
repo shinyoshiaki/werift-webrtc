@@ -1,11 +1,12 @@
+import express from "express";
 import { readFileSync } from "fs";
 import https from "https";
-import express from "express";
-import * as yargs from "yargs";
+import yargs from "yargs";
+import { hideBin } from "yargs/helpers";
 import { RTCPeerConnection } from "../../packages/webrtc/src";
 
 (async () => {
-  const args = await yargs
+  const args = await yargs(hideBin(process.argv))
     .option("host", {
       description: "Host for HTTP server (default: 0.0.0.0)",
       default: "0.0.0.0",

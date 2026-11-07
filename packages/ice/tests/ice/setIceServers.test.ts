@@ -93,4 +93,37 @@ describe("Connection.setIceServers", () => {
       await connection.close();
     }
   });
+
+  test("turnTlsOptions / turnUdpFamily を未指定にすると古い値が残らない", async () => {
+    // Arrange: TLS オプションと address family を持つ設定で構築
+    const connection = new Connection(true, {
+      turnServer: ["turn-a.example.com", 5349],
+      turnUsername: "user-a",
+      turnPassword: "pass-a",
+      turnTransport: "tls",
+      turnTlsOptions: { rejectUnauthorized: false },
+      turnUdpFamily: 4,
+    });
+
+    try {
+      expect(connection.options.turnTlsOptions).toEqual({
+        rejectUnauthorized: false,
+      });
+      expect(connection.options.turnUdpFamily).toBe(4);
+
+      // Act: これらを未指定にして TURN 設定を更新する
+      connection.setIceServers({
+        turnServer: ["turn-b.example.com", 3478],
+        turnUsername: "user-b",
+        turnPassword: "pass-b",
+        turnTransport: "udp",
+      });
+
+      // Assert: 次の gathering に古い TLS / family が使われない
+      expect(connection.options.turnTlsOptions).toBeUndefined();
+      expect(connection.options.turnUdpFamily).toBeUndefined();
+    } finally {
+      await connection.close();
+    }
+  });
 });

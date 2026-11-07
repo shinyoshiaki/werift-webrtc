@@ -1,17 +1,19 @@
 import { randomUUID } from "crypto";
-
-import { Event, FifoQueue, debug } from "../imports/common";
-
 import {
   SCTP,
-  type SCTPOptions,
   SCTP_STATE,
+  type SCTPOptions,
   type Transport,
 } from "../../../sctp/src";
 import {
   DATA_CHANNEL_ACK,
   DATA_CHANNEL_OPEN,
+  DATA_CHANNEL_PARTIAL_RELIABLE_REXMIT,
+  DATA_CHANNEL_PARTIAL_RELIABLE_REXMIT_UNORDERED,
+  DATA_CHANNEL_PARTIAL_RELIABLE_TIMED,
+  DATA_CHANNEL_PARTIAL_RELIABLE_TIMED_UNORDERED,
   DATA_CHANNEL_RELIABLE,
+  DATA_CHANNEL_RELIABLE_UNORDERED,
   WEBRTC_BINARY,
   WEBRTC_BINARY_EMPTY,
   WEBRTC_DCEP,
@@ -20,16 +22,21 @@ import {
 } from "../const";
 import {
   type DCState,
+  getDataChannelMessageSize,
   RTCDataChannel,
   RTCDataChannelParameters,
-  getDataChannelMessageSize,
 } from "../dataChannel";
+import { debug, Event, FifoQueue } from "../imports/common";
 import type { RTCDtlsTransport } from "./dtls";
 
 const log = debug("werift:packages/webrtc/src/transport/sctp.ts");
 export const DEFAULT_MAX_MESSAGE_SIZE = 65536;
 
 export class RTCSctpTransport {
+  public port: number;
+  public maxMessageSize: number;
+  private readonly sctpOptions: SCTPOptions;
+
   dtlsTransport!: RTCDtlsTransport;
   sctp!: SCTP;
 
@@ -49,10 +56,14 @@ export class RTCSctpTransport {
   private eventDisposer: (() => void)[] = [];
 
   constructor(
-    public port = 5000,
-    public maxMessageSize = DEFAULT_MAX_MESSAGE_SIZE,
-    private readonly sctpOptions: SCTPOptions = {},
-  ) {}
+    port = 5000,
+    maxMessageSize = DEFAULT_MAX_MESSAGE_SIZE,
+    sctpOptions: SCTPOptions = {},
+  ) {
+    this.port = port;
+    this.maxMessageSize = maxMessageSize;
+    this.sctpOptions = sctpOptions;
+  }
 
   get transport() {
     return this.dtlsTransport;
@@ -262,19 +273,25 @@ export class RTCSctpTransport {
       this.dataChannels[channel.id] = channel;
     }
 
-    let channelType = DATA_CHANNEL_RELIABLE;
     const priority = 0;
+    // RFC 8832 5.1: the reliability mode and the unordered bit (0x80) are
+    // independent, so a partially reliable channel keeps its unordered bit.
+    let channelType: number;
     let reliability = 0;
-
-    if (!channel.ordered) {
-      channelType = 0x80;
-    }
     if (channel.maxRetransmits !== null) {
-      channelType = 1;
+      channelType = channel.ordered
+        ? DATA_CHANNEL_PARTIAL_RELIABLE_REXMIT
+        : DATA_CHANNEL_PARTIAL_RELIABLE_REXMIT_UNORDERED;
       reliability = channel.maxRetransmits;
     } else if (channel.maxPacketLifeTime !== null) {
-      channelType = 2;
+      channelType = channel.ordered
+        ? DATA_CHANNEL_PARTIAL_RELIABLE_TIMED
+        : DATA_CHANNEL_PARTIAL_RELIABLE_TIMED_UNORDERED;
       reliability = channel.maxPacketLifeTime;
+    } else {
+      channelType = channel.ordered
+        ? DATA_CHANNEL_RELIABLE
+        : DATA_CHANNEL_RELIABLE_UNORDERED;
     }
 
     // 5.1.  DATA_CHANNEL_OPEN Message
@@ -480,11 +497,19 @@ export class RTCSctpTransport {
 }
 
 export class RTCSctpCapabilities {
-  constructor(public maxMessageSize: number) {}
+  public maxMessageSize: number;
+
+  constructor(maxMessageSize: number) {
+    this.maxMessageSize = maxMessageSize;
+  }
 }
 
 class BridgeDtls implements Transport {
-  constructor(private dtls: RTCDtlsTransport) {}
+  private dtls: RTCDtlsTransport;
+
+  constructor(dtls: RTCDtlsTransport) {
+    this.dtls = dtls;
+  }
   set onData(onData: (buf: Buffer) => void) {
     this.dtls.dataReceiver = onData;
   }

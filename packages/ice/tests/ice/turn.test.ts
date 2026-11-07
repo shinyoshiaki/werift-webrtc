@@ -8,11 +8,11 @@ import type {
 } from "../../src/turn/protocol";
 import { getHostAddresses } from "../../src/utils";
 import {
-  TURN_TEST_PASSWORD,
-  TURN_TEST_USERNAME,
   createLocalTurnServer,
   createTestConnection,
   getLocalTurnClientTlsOptions,
+  TURN_TEST_PASSWORD,
+  TURN_TEST_USERNAME,
 } from "../utils";
 
 const localTurnHost = getHostAddresses(true, false)[0]!;

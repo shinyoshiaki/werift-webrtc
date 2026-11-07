@@ -8,10 +8,10 @@ import {
   parseWptProgressState as parseProgressState,
 } from "../../tools/wpt-runner/progress";
 import {
-  type WptRunReport,
   formatMarkdownReport,
   formatProgressEvent,
   serializeWorkerResults,
+  type WptRunReport,
 } from "../../tools/wpt-runner/runner";
 
 test("WPT progress output includes the running target name and counts", () => {

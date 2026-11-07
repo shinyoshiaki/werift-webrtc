@@ -6,13 +6,15 @@
 
 # Type Alias: AudioLevelIndicationPayload
 
-> **AudioLevelIndicationPayload**: `object`
+> **AudioLevelIndicationPayload** = `object`
 
-## Type declaration
+## Properties
 
 ### level
 
 > **level**: `number`
+
+***
 
 ### v
 

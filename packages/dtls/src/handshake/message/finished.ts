@@ -5,10 +5,14 @@ import { HandshakeType } from "../const";
 // 7.4.9.  Finished
 
 export class Finished implements Handshake {
-  msgType = HandshakeType.finished_20;
+  public verifyData: Buffer;
+
+  msgType: HandshakeType = HandshakeType.finished_20;
   messageSeq?: number;
 
-  constructor(public verifyData: Buffer) {}
+  constructor(verifyData: Buffer) {
+    this.verifyData = verifyData;
+  }
 
   static createEmpty() {
     return new Finished(undefined as any);

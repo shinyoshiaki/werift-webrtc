@@ -8,4 +8,4 @@
 
 ## Indexable
 
-\[`uri`: `string`\]: `any`
+> \[`uri`: `string`\]: `any`
