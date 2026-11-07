@@ -355,6 +355,13 @@ readonly \[`string`, `number`\]
 
 > **requestWithRetry**(`request`, `addr`, `signal?`): `Promise`\<\[[`Message`](Message.md), readonly \[`string`, `number`\]\]\>
 
+Send a request and follow the long-term credential mechanism of
+RFC 8489 §9.2.5: a 401 (Unauthenticated) or 438 (Stale Nonce) that
+allows it (see credentialRetryOf) is retried once with the new realm and
+nonce; any other error, or a second challenge, is thrown. The allocation's
+realm, nonce and integrity key change only when a retry is made, and a
+retry under a new realm restores them when it fails.
+
 #### Parameters
 
 ##### request
