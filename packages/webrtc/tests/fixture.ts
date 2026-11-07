@@ -34,11 +34,10 @@ import { RTCRtpCodingParameters } from "../src/media/parameters";
 import { type KeyFrameRequestRouting, RtpRouter } from "../src/media/router";
 import { RTCRtpReceiver } from "../src/media/rtpReceiver";
 import { RTCRtpSender } from "../src/media/rtpSender";
-import type { RTCRemoteInboundRtpStreamStats } from "../src/media/stats";
-import type { SenderBandwidthEstimator } from "../src/media/sender/senderBWE";
-import { compactNtp } from "../src/utils";
 import { GccBandwidthEstimator } from "../src/media/sender/estimators/gcc/gccBwe";
 import type { LightweightBandwidthEstimator } from "../src/media/sender/senderBWE";
+import type { RTCRemoteInboundRtpStreamStats } from "../src/media/stats";
+import { compactNtp } from "../src/utils";
 
 export const createRtpPacket = (
   sequenceNumber = 0,

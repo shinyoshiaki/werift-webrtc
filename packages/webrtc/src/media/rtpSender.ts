@@ -54,7 +54,7 @@ import {
 } from "../imports/rtp";
 import type { RTCDtlsTransport } from "../transport/dtls";
 import type { Kind } from "../types/domain";
-import { compactNtp, milliTime, ntpTime } from "../utils";
+import { milliTime, ntpTime } from "../utils";
 import { isCodecCompatible } from "./codecCompatibility";
 import type {
   RTCRtpCodecParameters,
@@ -82,14 +82,12 @@ import {
   type SentInfo,
 } from "./sender/senderBWE";
 import { SenderStatistics, senderStatsIds } from "./sender/senderStats";
-import { SenderReportHistory } from "./sender/senderReportHistory";
 import { MediaPacer, waitForProbeSendTime } from "./sender/sendPacer";
 import {
   buildStatsReport,
   getStatsTimestamp,
   type RTCStats,
   type RTCStatsReport,
-  type RTCRemoteInboundRtpStreamStats,
 } from "./stats";
 import {
   captureTrackSourceCodecs,
@@ -104,7 +102,6 @@ const log = debug("werift:packages/webrtc/src/media/rtpSender.ts");
 
 /** NACK history: the last sent media packets by sequence number modulo this. */
 const RTP_HISTORY_SIZE = 128;
-const RTT_ALPHA = 0.85;
 
 export type RTCRtpSenderOptions = {
   /**
@@ -237,12 +234,6 @@ export class RTCRtpSender {
 
   // # stats
   private readonly stats = new SenderStatistics();
-  /** Bounded SR identity/time history for delayed RR RTT samples. */
-  private readonly senderReports = new SenderReportHistory();
-  /** RTT values exposed in remote-inbound-rtp stats and consumed by BWE. */
-  private rtt?: number;
-  private totalRoundTripTime = 0;
-  private roundTripTimeMeasurements = 0;
   /**
    * Last FIR sequence number per (FIR sender SSRC, FCI target SSRC): RFC 5104
    * 4.3.1.1 keeps one sequence number space per pair.
@@ -669,7 +660,7 @@ export class RTCRtpSender {
     this.bwe.bumpGeneration();
     this.rtcpRunning = false;
     this.rtcpCancel.abort();
-    this.senderReports.clear();
+    this.stats.clearSenderReports();
     this.bwe.close();
     if (this.disposeTrack) {
       this.disposeTrack();
@@ -721,12 +712,7 @@ export class RTCRtpSender {
 
   /** Sender Report for the instant `nowMonotonicMs` ({@link SenderStatistics.buildSenderReport}). */
   private buildSenderReport(nowMonotonicMs = performance.now()) {
-    const report = this.stats.buildSenderReport(this.ssrc, nowMonotonicMs);
-    this.senderReports.record(
-      compactNtp(report.senderInfo.ntpTimestamp),
-      nowMonotonicMs / 1000,
-    );
-    return report;
+    return this.stats.buildSenderReport(this.ssrc, nowMonotonicMs);
   }
 
   /**
@@ -1236,7 +1222,6 @@ export class RTCRtpSender {
     );
   }
 
-
   /**
    * @param firEntries Internal: the FCI entries of a FIR the router resolved to
    * this sender (see `KeyFrameRequestRouting`). Defaults to the entries for
@@ -1254,20 +1239,10 @@ export class RTCRtpSender {
           packet.reports
             .filter((report) => report.ssrc === this.ssrc)
             .forEach((report) => {
-              // Always update reception loss fields; RTT is resolved by the
-              // LSR history below instead of SenderStatistics' newest-SR slot.
-              this.stats.recordReceptionReport({ ...report, lsr: 0, dlsr: 0 });
-              const rawRttSeconds = this.senderReports.roundTripTime(
-                report.lsr,
-                report.dlsr,
-                performance.now() / 1000,
-              );
-              if (rawRttSeconds !== undefined) {
-                this.addRoundTripTimeSample(rawRttSeconds);
-                // Only unsmoothed RTT goes to AIMD.
-                if (rawRttSeconds > 0) {
-                  this.bwe.estimator.setRoundTripTime(rawRttSeconds * 1000);
-                }
+              const rawRttSeconds = this.stats.recordReceptionReport(report);
+              // Only unsmoothed RTT goes to AIMD.
+              if (rawRttSeconds !== undefined && rawRttSeconds > 0) {
+                this.bwe.estimator.setRoundTripTime(rawRttSeconds * 1000);
               }
             });
         }
@@ -1400,7 +1375,7 @@ export class RTCRtpSender {
   }
 
   collectStats(timestamp: number): RTCStats[] {
-    const stats = this.stats.collect(
+    return this.stats.collect(
       {
         trackId: this.trackId,
         ssrc: this.ssrc,
@@ -1415,24 +1390,6 @@ export class RTCRtpSender {
       },
       timestamp,
     );
-    const remoteInbound = stats.find(
-      (stat) => stat.type === "remote-inbound-rtp",
-    ) as RTCRemoteInboundRtpStreamStats | undefined;
-    if (remoteInbound) {
-      remoteInbound.roundTripTime = this.rtt;
-      remoteInbound.totalRoundTripTime = this.totalRoundTripTime;
-      remoteInbound.roundTripTimeMeasurements = this.roundTripTimeMeasurements;
-    }
-    return stats;
-  }
-
-  private addRoundTripTimeSample(rtt: number) {
-    this.totalRoundTripTime += rtt;
-    this.roundTripTimeMeasurements++;
-    this.rtt =
-      this.rtt === undefined
-        ? rtt
-        : RTT_ALPHA * this.rtt + (1 - RTT_ALPHA) * rtt;
   }
 
   async getStats(): Promise<RTCStatsReport> {

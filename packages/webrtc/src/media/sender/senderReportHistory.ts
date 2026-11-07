@@ -19,11 +19,16 @@ export const SENDER_REPORT_HISTORY_MAX_AGE_SEC = 30;
  */
 export class SenderReportHistory {
   private entries: { lsr: number; sentAtSec: number }[] = [];
+  readonly maxEntries: number;
+  readonly maxAgeSec: number;
 
   constructor(
-    readonly maxEntries = SENDER_REPORT_HISTORY_MAX_ENTRIES,
-    readonly maxAgeSec = SENDER_REPORT_HISTORY_MAX_AGE_SEC,
-  ) {}
+    maxEntries = SENDER_REPORT_HISTORY_MAX_ENTRIES,
+    maxAgeSec = SENDER_REPORT_HISTORY_MAX_AGE_SEC,
+  ) {
+    this.maxEntries = maxEntries;
+    this.maxAgeSec = maxAgeSec;
+  }
 
   get size() {
     return this.entries.length;

@@ -150,19 +150,19 @@ RFC 3550 §6.4.1 の RTT は、RR の `LSR` が指す SR を基準に計算す�
   </div>
 </div>
 
-照合ロジックの本体は [packages/webrtc/src/media/sender/senderReportHistory.ts:53](review-file:packages/webrtc/src/media/sender/senderReportHistory.ts:53)、記録は [senderReportHistory.ts:36](review-file:packages/webrtc/src/media/sender/senderReportHistory.ts:36)、期限切れの削除は [senderReportHistory.ts:77](review-file:packages/webrtc/src/media/sender/senderReportHistory.ts:77) です。差分は [senderReportHistory.ts:20 の追加差分](review-diff:packages/webrtc/src/media/sender/senderReportHistory.ts:commit:95fba0c33:20) で確認できます。
+照合ロジックの本体は [packages/webrtc/src/media/sender/senderReportHistory.ts:58](review-file:packages/webrtc/src/media/sender/senderReportHistory.ts:58)、記録は [senderReportHistory.ts:41](review-file:packages/webrtc/src/media/sender/senderReportHistory.ts:41)、期限切れの削除は [senderReportHistory.ts:82](review-file:packages/webrtc/src/media/sender/senderReportHistory.ts:82) です。差分は [senderReportHistory.ts:20 の追加差分](review-diff:packages/webrtc/src/media/sender/senderReportHistory.ts:commit:95fba0c33:20) で確認できます。
 
 ### 2. Sender への組み込み
 
-- SR 生成時に、SR に載せた `LSR` とその単調時刻を記録します: [packages/webrtc/src/media/rtpSender.ts:660](review-file:packages/webrtc/src/media/rtpSender.ts:660)。差分は [packages/webrtc/src/media/rtpSender.ts:660 の差分](review-diff:packages/webrtc/src/media/rtpSender.ts:commit:95fba0c33:660)。
-- RR 受信時は履歴に問い合わせ、返ったサンプルだけを統計へ渡します: [packages/webrtc/src/media/rtpSender.ts:912](review-file:packages/webrtc/src/media/rtpSender.ts:912)。
-- EWMA・合計・回数の更新は [packages/webrtc/src/media/rtpSender.ts:883](review-file:packages/webrtc/src/media/rtpSender.ts:883) に切り出しただけで、計算式と順序は変えていません。
-- `stop()` で履歴をクリアします: [packages/webrtc/src/media/rtpSender.ts:592](review-file:packages/webrtc/src/media/rtpSender.ts:592)。
-- 単一値の `lastSRtimestamp` / `lastSentSRTimestamp` は削除しました。フィールド定義は [packages/webrtc/src/media/rtpSender.ts:184](review-file:packages/webrtc/src/media/rtpSender.ts:184)。
+- 履歴は `SenderStatistics` が持ちます（統計の責務を `rtpSender.ts` ではなく `SenderStatistics` に一本化）: [packages/webrtc/src/media/sender/senderStats.ts:72](review-file:packages/webrtc/src/media/sender/senderStats.ts:72)。
+- SR 生成時に、SR に載せた `LSR` とその単調時刻を `buildSenderReport` で記録します: [senderStats.ts:187](review-file:packages/webrtc/src/media/sender/senderStats.ts:187)。
+- RR 受信時は `recordReceptionReport` が履歴を引き、損失フィールド・EWMA・合計・回数を更新して生の RTT を返します: [senderStats.ts:110](review-file:packages/webrtc/src/media/sender/senderStats.ts:110)。`rtpSender.ts` はその生の RTT を BWE に渡すだけです: [packages/webrtc/src/media/rtpSender.ts:1242](review-file:packages/webrtc/src/media/rtpSender.ts:1242)。
+- `stop()` で履歴をクリアします（`clearSenderReports`）: [rtpSender.ts:663](review-file:packages/webrtc/src/media/rtpSender.ts:663)。
+- 旧来の `lastSRtimestamp` / `lastSentSRTimestamp`（`Date.now()` ベース）、`rtpSender.ts` 側の重複した RTT 状態・`RTT_ALPHA`、`collectStats` での `remote-inbound-rtp` 上書きは、すべて削除しました。RTT の状態は `SenderStatistics` の 1 か所だけです。
 
 ### 3. 意図的に変わる挙動: DLSR = 0
 
-旧実装は `report.dlsr` の truthy 判定で、`DLSR = 0`（受信側が即時応答）の RR を捨てていました。新実装は `LSR != 0` を条件にするため、この RR からも RTT を記録します。これは RFC 上正当なサンプルで、回帰テストにも追加しています（[rtpSender.test.ts:2048](review-file:packages/webrtc/tests/media/rtpSender.test.ts:2048)）。
+旧実装は `report.dlsr` の truthy 判定で、`DLSR = 0`（受信側が即時応答）の RR を捨てていました。新実装は `LSR != 0` を条件にするため、この RR からも RTT を記録します。これは RFC 上正当なサンプルで、回帰テストにも追加しています（[rtpSender.test.ts:2640](review-file:packages/webrtc/tests/media/rtpSender.test.ts:2640)）。
 
 ## 判断理由
 
@@ -182,22 +182,22 @@ RFC 3550 §6.4.1 の RTT は、RR の `LSR` が指す SR を基準に計算す�
 
 ## テスト
 
-共通 Arrange は [packages/webrtc/tests/fixture.ts:226](review-file:packages/webrtc/tests/fixture.ts:226) の `lsrOf` / `dlsrUnits` / `createReceiverReport` / `remoteInboundRtpStats` に集約しました。回帰テストは [rtpSender.test.ts:1877](review-file:packages/webrtc/tests/media/rtpSender.test.ts:1877) の新しい describe と、履歴単体の [senderReportHistory.test.ts:4](review-file:packages/webrtc/tests/media/senderReportHistory.test.ts:4) です。
+共通 Arrange は [packages/webrtc/tests/fixture.ts:273](review-file:packages/webrtc/tests/fixture.ts:273) の `lsrOf` / `dlsrUnits` / `createReceiverReport` / `remoteInboundRtpStats` に集約しました。回帰テストは [rtpSender.test.ts:2468](review-file:packages/webrtc/tests/media/rtpSender.test.ts:2468) の新しい describe と、履歴単体の [senderReportHistory.test.ts:4](review-file:packages/webrtc/tests/media/senderReportHistory.test.ts:4) です。
 
 | チケットのケース | テスト | 場所 |
 | --- | --- | --- |
-| 1. SR A → B の後に RR(A) | `SR A → SR B の後に A を参照する RR が届いても RTT を更新する` | [rtpSender.test.ts:1918](review-file:packages/webrtc/tests/media/rtpSender.test.ts:1918) |
-| 2. 複数 SR 送信後でも保持範囲内の A | `A の後に SR を複数送っても保持範囲内なら A を照合する` | [rtpSender.test.ts:1934](review-file:packages/webrtc/tests/media/rtpSender.test.ts:1934) |
-| 3. 最新 SR を参照 | `最新 SR を参照する RR から now - 送信時刻 - DLSR を RTT とする` | [rtpSender.test.ts:1903](review-file:packages/webrtc/tests/media/rtpSender.test.ts:1903) |
-| 4. 未知の LSR | `未知の LSR は RTT を記録しない` | [rtpSender.test.ts:1952](review-file:packages/webrtc/tests/media/rtpSender.test.ts:1952) |
-| 5. 件数上限・保持時間の追い出し | `件数上限を超えて追い出された...` / `保持時間を過ぎた...` | [rtpSender.test.ts:1967](review-file:packages/webrtc/tests/media/rtpSender.test.ts:1967) / [rtpSender.test.ts:1988](review-file:packages/webrtc/tests/media/rtpSender.test.ts:1988) |
-| 6. compact NTP のラップ | `compact NTP の秒がラップ...しても参照先の SR を照合する` | [rtpSender.test.ts:2007](review-file:packages/webrtc/tests/media/rtpSender.test.ts:2007) |
+| 1. SR A → B の後に RR(A) | `SR A → SR B の後に A を参照する RR が届いても RTT を更新する` | [rtpSender.test.ts:2510](review-file:packages/webrtc/tests/media/rtpSender.test.ts:2510) |
+| 2. 複数 SR 送信後でも保持範囲内の A | `A の後に SR を複数送っても保持範囲内なら A を照合する` | [rtpSender.test.ts:2526](review-file:packages/webrtc/tests/media/rtpSender.test.ts:2526) |
+| 3. 最新 SR を参照 | `最新 SR を参照する RR から now - 送信時刻 - DLSR を RTT とする` | [rtpSender.test.ts:2495](review-file:packages/webrtc/tests/media/rtpSender.test.ts:2495) |
+| 4. 未知の LSR | `未知の LSR は RTT を記録しない` | [rtpSender.test.ts:2544](review-file:packages/webrtc/tests/media/rtpSender.test.ts:2544) |
+| 5. 件数上限・保持時間の追い出し | `件数上限を超えて追い出された...` / `保持時間を過ぎた...` | [rtpSender.test.ts:2559](review-file:packages/webrtc/tests/media/rtpSender.test.ts:2559) / [rtpSender.test.ts:2580](review-file:packages/webrtc/tests/media/rtpSender.test.ts:2580) |
+| 6. compact NTP のラップ | `compact NTP の秒がラップ...しても参照先の SR を照合する` | [rtpSender.test.ts:2599](review-file:packages/webrtc/tests/media/rtpSender.test.ts:2599) |
 | 7. 同じ LSR の衝突 | `同じ LSR が複数あるときは...最新の SR を選ぶ` / `...負になる RTT は棄却する` | [senderReportHistory.test.ts:5](review-file:packages/webrtc/tests/media/senderReportHistory.test.ts:5) / [senderReportHistory.test.ts:20](review-file:packages/webrtc/tests/media/senderReportHistory.test.ts:20) |
-| 8. 負の RTT | `DLSR が SR からの経過時間より大きい...` | [rtpSender.test.ts:2033](review-file:packages/webrtc/tests/media/rtpSender.test.ts:2033) |
-| 9. 統計（EWMA / 合計 / 件数） | `複数サンプルで roundTripTime は EWMA...` | [rtpSender.test.ts:2062](review-file:packages/webrtc/tests/media/rtpSender.test.ts:2062) |
-| 10. `LSR = 0` と損失統計 | `LSR = 0 の RR は RTT を更新せず...` | [rtpSender.test.ts:2081](review-file:packages/webrtc/tests/media/rtpSender.test.ts:2081) |
-| 11. #701 との統合（実際の SR 送信経路） | `runRtcp が実際に送った SR を参照する RR から RTT を計算する` | [rtpSender.test.ts:2097](review-file:packages/webrtc/tests/media/rtpSender.test.ts:2097) |
-| 追加. `DLSR = 0` | `DLSR = 0 (即時応答) の RR も RTT を記録する` | [rtpSender.test.ts:2048](review-file:packages/webrtc/tests/media/rtpSender.test.ts:2048) |
+| 8. 負の RTT | `DLSR が SR からの経過時間より大きい...` | [rtpSender.test.ts:2625](review-file:packages/webrtc/tests/media/rtpSender.test.ts:2625) |
+| 9. 統計（EWMA / 合計 / 件数） | `複数サンプルで roundTripTime は EWMA...` | [rtpSender.test.ts:2654](review-file:packages/webrtc/tests/media/rtpSender.test.ts:2654) |
+| 10. `LSR = 0` と損失統計 | `LSR = 0 の RR は RTT を更新せず...` | [rtpSender.test.ts:2673](review-file:packages/webrtc/tests/media/rtpSender.test.ts:2673) |
+| 11. #701 との統合（実際の SR 送信経路） | `runRtcp が実際に送った SR を参照する RR から RTT を計算する` | [rtpSender.test.ts:2689](review-file:packages/webrtc/tests/media/rtpSender.test.ts:2689) |
+| 追加. `DLSR = 0` | `DLSR = 0 (即時応答) の RR も RTT を記録する` | [rtpSender.test.ts:2640](review-file:packages/webrtc/tests/media/rtpSender.test.ts:2640) |
 | 追加. 有界性・clear | `件数と保持時間の両方で有界になる` / `clear で履歴を空にする` | [senderReportHistory.test.ts:46](review-file:packages/webrtc/tests/media/senderReportHistory.test.ts:46) / [senderReportHistory.test.ts:66](review-file:packages/webrtc/tests/media/senderReportHistory.test.ts:66) |
 
 ## 検証結果
@@ -210,7 +210,7 @@ RFC 3550 §6.4.1 の RTT は、RR の `LSR` が指す SR を基準に計算す�
     <div style="font-size:12px;color:var(--review-muted)">対象テスト成功<br>2 ファイル</div>
   </div>
   <div style="flex:1;min-width:150px;padding:12px 16px;border:1px solid var(--review-border);border-radius:8px;background:var(--review-surface);text-align:center">
-    <div style="font-size:24px;font-weight:bold;color:var(--review-success)">1179</div>
+    <div style="font-size:24px;font-weight:bold;color:var(--review-success)">1609</div>
     <div style="font-size:12px;color:var(--review-muted)">webrtc 全体成功<br>5 skipped / 63 files</div>
   </div>
   <div style="flex:1;min-width:150px;padding:12px 16px;border:1px solid var(--review-border);border-radius:8px;background:var(--review-surface);text-align:center">
@@ -222,13 +222,13 @@ RFC 3550 §6.4.1 の RTT は、RR の `LSR` が指す SR を基準に計算す�
 ```bash
 cd packages/webrtc
 npx vitest run ./tests/media/rtpSender.test.ts ./tests/media/senderReportHistory.test.ts
-# 2 files / 82 tests passed
+# 2 files / 100 tests passed
 
 npm run type
 # tsc --noEmit ... 成功
 
 npm test
-# 63 files passed / 1179 passed, 5 skipped（133.31s）
+# 77 files passed / 1609 passed, 5 skipped（134.81s）
 ```
 
 レビュー時には、ロックファイルどおりの依存関係を用意した一時 worktree でワークスペースの `npm run type` と `npm run test:small` も通過しています。今回の再実行でも、変更パッケージの型検査・全体テストに対象テストを含めて成功を確認しました。

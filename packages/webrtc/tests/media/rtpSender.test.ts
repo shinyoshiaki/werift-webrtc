@@ -38,8 +38,8 @@ import {
   createRtpPacket,
   createVideoCodec,
   dlsrUnits,
-  lsrOf,
   holdFirstDtlsWrite,
+  lsrOf,
   mockMonotonicClock,
   ntpDiffMs,
   outboundRtpStats,
@@ -2481,7 +2481,8 @@ describe("media/rtpSender RTT from Receiver Reports", () => {
     const setup = createConnectedRtpSender();
     started.push(setup.sender);
     const clock = mockMonotonicClock();
-    const sendSenderReport = () => buildSenderReportAt(setup.sender, clock.nowMs);
+    const sendSenderReport = () =>
+      buildSenderReportAt(setup.sender, clock.nowMs);
     const receiveReport = (
       props: Omit<Parameters<typeof createReceiverReport>[0], "ssrc">,
     ) =>
