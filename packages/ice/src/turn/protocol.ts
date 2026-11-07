@@ -721,8 +721,8 @@ export class TurnProtocol implements Protocol {
    * RFC 8489 §9.2.5: a 401 (Unauthenticated) or 438 (Stale Nonce) that
    * allows it (see credentialRetryOf) is retried once with the new realm and
    * nonce; any other error, or a second challenge, is thrown. The allocation's
-   * realm, nonce and integrity key change only when a retry is made, and a
-   * retry under a new realm restores them when it fails.
+   * realm, nonce and integrity key change only when a retry is made; a retry
+   * under a new realm adopts them only once the server accepted it.
    */
   async requestWithRetry(
     request: Message,

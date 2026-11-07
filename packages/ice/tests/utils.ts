@@ -1878,3 +1878,124 @@ export async function timeSettle<T>(promise: Promise<T>) {
   );
   return { ...result, elapsedMs: performance.now() - started };
 }
+
+/**
+ * Shared Arrange: two relay-only connections on one werift TURN server over
+ * `transport`, with a nominated relay pair. `advanceServerClock` moves only
+ * the server's clock (to expire its nonces), and `credentials` is the live
+ * table the server looks passwords up in (delete a user to revoke it).
+ */
+export async function createRelayPairOnLocalTurnServer(
+  transport: "udp" | "tcp" | "tls",
+  { nonceLifetime }: { nonceLifetime?: number } = {},
+) {
+  let clockOffsetMs = 0;
+  const credentials: Record<string, string> = {
+    [TURN_TEST_USERNAME]: TURN_TEST_PASSWORD,
+  };
+  const server = await createLocalTurnServer(
+    getHostAddresses(true, false)[0]!,
+    {
+      tls: transport === "tls",
+      credentials,
+      nonceLifetime,
+      now: () => Date.now() + clockOffsetMs,
+    },
+  );
+  const options = {
+    ...localTurnOptions(server),
+    turnServer: transport === "tls" ? server.tlsAddress! : server.address!,
+    turnTransport: transport,
+    turnTlsOptions:
+      transport === "tls" ? getLocalTurnClientTlsOptions() : undefined,
+  };
+  const a = createTestConnection(true, options);
+  const b = createTestConnection(false, options);
+  const close = async () => {
+    await Promise.allSettled([a.close(), b.close()]);
+    await server.close();
+  };
+  try {
+    await Promise.all([a.gatherCandidates(), b.gatherCandidates()]);
+    exchangeIceCredentials(a, b);
+    await deliverLocalCandidates(a, b, { endOfCandidates: true });
+    await deliverLocalCandidates(b, a, { endOfCandidates: true });
+    await Promise.all([a.connect(), b.connect()]);
+  } catch (error) {
+    await close();
+    throw error;
+  }
+  return {
+    a,
+    b,
+    credentials,
+    advanceServerClock: (ms: number) => {
+      clockOffsetMs += ms;
+    },
+    close,
+  };
+}
+
+/** Internal ChannelBind state of a TURN client. */
+function turnChannels(turn: TurnProtocol) {
+  return Object.values(
+    (
+      turn as unknown as {
+        channelByAddr: Record<string, { number: number; refreshAt: number }>;
+      }
+    ).channelByAddr,
+  );
+}
+
+/**
+ * Arrange: make every channel of `turn` due for refresh, so the next data
+ * sent on it issues an authenticated ChannelBind first.
+ */
+export function makeTurnChannelsDue(turn: TurnProtocol) {
+  const channels = turnChannels(turn);
+  for (const channel of channels) channel.refreshAt = 0;
+  return channels;
+}
+
+/**
+ * Arrange: record the TURN requests `turn` makes from now on. `calls` are
+ * the operations (requestWithRetry), `attempts` each transaction they sent
+ * with its outcome: "success", the ERROR-CODE, or "error" for anything else.
+ */
+export function recordTurnRequests(turn: TurnProtocol) {
+  const calls: methods[] = [];
+  const attempts: { method: methods; result: "success" | "error" | number }[] =
+    [];
+  const request = turn.request.bind(turn);
+  turn.request = async (...args: Parameters<TurnProtocol["request"]>) => {
+    const method = args[0].messageMethod;
+    try {
+      const result = await request(...args);
+      attempts.push({ method, result: "success" });
+      return result;
+    } catch (error) {
+      attempts.push({
+        method,
+        result:
+          error instanceof TransactionFailed
+            ? error.response.getAttributeValue("ERROR-CODE")[0]
+            : "error",
+      });
+      throw error;
+    }
+  };
+  const requestWithRetry = turn.requestWithRetry.bind(turn);
+  turn.requestWithRetry = (
+    ...args: Parameters<TurnProtocol["requestWithRetry"]>
+  ) => {
+    calls.push(args[0].messageMethod);
+    return requestWithRetry(...args);
+  };
+  return {
+    calls: (method: methods) => calls.filter((value) => value === method),
+    attempts: (method: methods) =>
+      attempts
+        .filter((attempt) => attempt.method === method)
+        .map((attempt) => attempt.result),
+  };
+}
