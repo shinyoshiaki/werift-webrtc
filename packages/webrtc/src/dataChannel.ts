@@ -1,8 +1,28 @@
 import { randomUUID } from "crypto";
+import { createWebRtcTypeError } from "./errors";
 import { EventTarget } from "./helper";
 import { debug, Event } from "./imports/common";
 import type { RTCSctpTransport } from "./transport/sctp";
 import type { Callback, CallbackWithValue } from "./types/util";
+
+/**
+ * Label / Protocol Length are 16-bit byte counts of the UTF-8 fields
+ * (RFC 8832 5.1); W3C createDataChannel rejects longer values for both
+ * negotiated and in-band channels. Call before any state is touched.
+ */
+export function assertDataChannelFieldLengths(fields: {
+  label: string;
+  protocol?: string;
+}) {
+  for (const name of ["label", "protocol"] as const) {
+    const bytes = Buffer.byteLength(fields[name] ?? "", "utf8");
+    if (bytes > 0xffff) {
+      throw createWebRtcTypeError(
+        `Data channel ${name} is ${bytes} bytes in UTF-8; the maximum is 65535`,
+      );
+    }
+  }
+}
 
 const log = debug("werift:packages/webrtc/src/dataChannel.ts");
 
@@ -57,6 +77,8 @@ export class RTCDataChannel extends EventTarget implements DataChannelStats {
     this.sctp = sctp;
     this.parameters = parameters;
     this.sendOpen = sendOpen;
+
+    assertDataChannelFieldLengths(this.parameters);
 
     this.id = this.parameters.id;
 
