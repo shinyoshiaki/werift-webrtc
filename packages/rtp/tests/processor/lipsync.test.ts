@@ -174,6 +174,25 @@ describe("lipsync", () => {
     expect(harness.output.videoEol).toBe(true);
   });
 
+  it("outputs the pending frames when the timeout is detected on input and stop follows", () => {
+    // Arrange
+    harness = createLipsyncHarness({ startTimeout: 20 });
+    const video = createLipsyncFrames(T, 40, 20);
+
+    // Act: 1 枚目の入力後、タイマーより先に期限切れの 2 枚目が入力される
+    harness.inputVideo(video.slice(0, 1));
+    harness.advanceWallClock(20);
+    harness.inputVideo(video.slice(1));
+    // Act: 直後に映像の EOL が届く
+    harness.lipsync.inputVideo({ eol: true });
+
+    // Assert: 期限切れを検出した入力で溜めた映像が出力され、停止で失われない
+    expect(harness.output.video.map((f) => f.time)).toEqual(
+      video.map((f) => f.time),
+    );
+    expect(harness.output.videoEol).toBe(true);
+  });
+
   it("starts without waiting when only video is configured", () => {
     // Arrange
     harness = createLipsyncHarness({ kinds: ["video"] });

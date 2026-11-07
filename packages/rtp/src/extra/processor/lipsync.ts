@@ -231,9 +231,15 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
       // committed time
       Math.max(...(latest as number[])) - Math.min(...(latest as number[])) <=
         this.bufferDuration;
-    const timedOut = now - this.pendingSince >= this.startTimeout;
-    if (ready || timedOut) {
+    if (ready) {
       this.start(now);
+      return;
+    }
+    // the timeout detected on input (e.g. the timer callback is delayed by
+    // the event loop) takes the same path as the timer, so that the pending
+    // frames are output now and not lost on a following stop()
+    if (now - this.pendingSince >= this.startTimeout) {
+      this.startAndDrain();
     }
   }
 
@@ -360,7 +366,7 @@ export interface LipSyncOptions {
    * Pass `["video"]` / `["audio"]` for a single track.
    * @default ["audio", "video"]
    */
-  kinds: MediaKind[];
+  kinds?: MediaKind[];
   /**
    * ms (wall clock). When a frame of some `kinds` has not arrived within this
    * time after the first frame (timer-based, also without further input), the
@@ -372,5 +378,5 @@ export interface LipSyncOptions {
    * memory and output is delayed by up to this time.
    * @default 10000
    */
-  startTimeout: number;
+  startTimeout?: number;
 }

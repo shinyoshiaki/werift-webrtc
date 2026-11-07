@@ -142,6 +142,7 @@ RTCP:  RtcpSource → NtpTimeCallback（トラックごと）
 - [x] `changelog.md` と `MediaRecorderOptions.lipsync` / `LipSyncOptions` の JSDoc が更新されている。サンプルや生成ドキュメントに影響がある場合は `npm run doc` で再生成されている。
 - [x] `npm run format` を実行してある。
 - [x] 追加要件（打開策・案D、2026-11-07）: タイマーで開始するとき（と開始前の eol）も、確定時刻（無音補完を含む）は受信済みの最新フレームの時刻を越えない。無音補完のあり／なし × {入力停止、タイムアウト後に同じ区間の入力が続く} の 4 ケースで、欠落なし（期待する時刻列と完全一致）・時刻順・ダミー音声の最大時刻 ≤ 実フレームの最新時刻をテストで固定している。コメント・changelog・JSDoc にこの条件が書かれている。
+- [x] レビュー指摘対応（2026-11-07）: 入力時に期限切れを検出したときもタイマーと同じく保留フレームを排出し、直後の停止で失われない（回帰テストあり）。`LipSyncOptions.kinds` / `startTimeout` は省略可能なプロパティで、従来の全指定の `LipSyncOptions` が型エラーにならないことを `type:public` で検証している。
 
 ## 6. 再現手順（元の記載）
 
@@ -188,6 +189,15 @@ RTCP:  RtcpSource → NtpTimeCallback（トラックごと）
   - 無音補完ありでは、ダミー音声が T から時刻順に ptime 以下の間隔で続き、最大時刻が実フレームの最新時刻以下。
   - 修正前の実装（HEAD `29e6c1ac6`、一時 worktree）では無音補完ありの 2 ケースが失敗することを確認した（ダミー音声が 10490 ms まで出る、10420 ms 以降の映像が欠落）。
 - **補足**: ダミー音声の時刻は 250 ms のスロット境界ごとに格子が取り直される（例: 240 → 250 ms）。これは develop からの既存挙動で、今回は変えていない。
+
+### レビュー指摘対応（2026-11-07、案D の後）
+
+- **[P1] 入力時の期限切れ検出後すぐの停止でフレームが失われる**: `processPendingInput` は入力時に期限切れを検出すると `start()` だけを呼び、リングバッファを排出していなかった。続く `stop()` は `baseTime` 設定済みのため排出せず破棄していた（例: 映像 10000 / 10020 ms、2 枚目で期限切れ、直後に EOL → 出力は EOL のみ）。イベントループの遅延でタイマーより先に期限後の入力が処理されると起きる。
+  - 対応: 入力時の期限切れも `startAndDrain()`（タイマーと同じ経路。確定は受信済みの最新フレームまで）を使う。全 kind がそろったときの開始は従来どおり `start()`。
+  - 回帰テスト `outputs the pending frames when the timeout is detected on input and stop follows`。修正前（`e9b16c2d0`、一時 worktree）で失敗することを確認した。
+- **[P2] 公開型 `LipSyncOptions` に `kinds` / `startTimeout` が必須で追加されていた**: 従来の全プロパティを指定した `LipSyncOptions` 型のオブジェクトが型エラーになる。
+  - 対応: 2 つとも省略可能（`?`）にした（既定値は実行時に入る）。
+  - `packages/rtp/tools/publicTypes/consumer.ts` に従来の全指定オブジェクトを追加し、`npm run type:public` で検証する。修正前は `TS2739`（`kinds, startTimeout` が無い）で失敗することを確認した。
 
 ### テスト
 
