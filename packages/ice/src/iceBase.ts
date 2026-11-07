@@ -9,7 +9,7 @@ import {
   type InterfaceAddresses,
   type TlsConnectionOptions,
 } from "./imports/common";
-import { classes, methods } from "./stun/const";
+import { classes, type MessageIntegrityMode, methods } from "./stun/const";
 import { Message } from "./stun/message";
 import type { Protocol } from "./types/model";
 
@@ -23,6 +23,14 @@ export interface IceConnection {
   remotePassword: string;
   remoteUsername: string;
   remoteIsLite: boolean;
+  /**
+   * The remote `a=ice-options` tokens (RFC 8839 §5.6), e.g. `trickle`,
+   * `ice2`. Informational: werift already follows RFC 8445, so no token
+   * changes how checks or nomination run.
+   */
+  remoteIceOptions?: string[];
+  /** The remote declared `ice2`: an RFC 8445 agent (RFC 8445 §10). */
+  readonly remoteIce2?: boolean;
   checkList: CandidatePair[];
   localCandidates: Candidate[];
   remoteCandidates: Candidate[];
@@ -42,6 +50,8 @@ export interface IceConnection {
   readonly onIceCandidate: Event<[Candidate]>;
 
   restart(): void;
+  /** Record the remote `a=ice-options` tokens (see remoteIceOptions). */
+  setRemoteIceOptions?(options: string[]): void;
   /**
    * Optional staged-restart and provisional-generation support. An
    * implementation without them still restarts ICE at the final answer, but
@@ -359,6 +369,20 @@ export interface IceOptions {
     protocol: Protocol,
   ) => boolean;
   filterCandidatePair?: (pair: CandidatePair) => boolean;
+  /**
+   * Integrity attributes of the connectivity checks and consent requests this
+   * agent sends (short-term credentials, RFC 8489):
+   * - `"sha1"` (default): MESSAGE-INTEGRITY only, what every browser accepts.
+   * - `"sha256"`: MESSAGE-INTEGRITY-SHA256 only. A peer that does not know
+   *   the comprehension-required 0x001C attribute rejects such checks (420
+   *   or no answer), so use it only with a peer known to support it.
+   * - `"both"`: MESSAGE-INTEGRITY followed by MESSAGE-INTEGRITY-SHA256.
+   *
+   * Received requests and responses are accepted with either algorithm, and
+   * a response is always signed with the algorithm of its request
+   * (MESSAGE-INTEGRITY-SHA256 when the request carried it, RFC 8489 §9.1.3).
+   */
+  messageIntegrity?: MessageIntegrityMode;
 }
 
 export const defaultOptions: IceOptions = {

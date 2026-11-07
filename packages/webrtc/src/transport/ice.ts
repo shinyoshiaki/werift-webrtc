@@ -645,6 +645,27 @@ export class RTCIceTransport {
     return this.localParameters ?? null;
   }
 
+  /**
+   * The `a=ice-options` tokens of the applied remote description for this
+   * transport (session level and its m-line), e.g. `trickle`, `ice2`.
+   */
+  get remoteIceOptions(): readonly string[] {
+    return this.connection.remoteIceOptions ?? [];
+  }
+
+  /**
+   * The remote declared the `ice2` ice-option (an RFC 8445 agent). Only
+   * informational: werift follows RFC 8445 regardless.
+   */
+  get remoteIce2() {
+    return this.connection.remoteIce2 ?? false;
+  }
+
+  /** Internal: record the remote ice-options a remote description applied. */
+  setRemoteIceOptions(options: string[]) {
+    this.connection.setRemoteIceOptions?.(options);
+  }
+
   getRemoteParameters() {
     if (!this.connection.remoteUsername || !this.connection.remotePassword) {
       return null;

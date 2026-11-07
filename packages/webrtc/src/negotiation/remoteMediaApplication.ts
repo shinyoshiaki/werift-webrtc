@@ -6,10 +6,11 @@ import type {
 } from "../media";
 import type { NegotiationTransaction } from "../negotiationTransaction";
 import type { SctpTransportManager } from "../sctpManager";
-import type {
-  GroupDescription,
-  MediaDescription,
-  SessionDescription,
+import {
+  type GroupDescription,
+  type MediaDescription,
+  parseIceOptions,
+  type SessionDescription,
 } from "../sdp";
 import type { SDPManager } from "../sdpManager";
 import type { RTCDtlsTransport } from "../transport/dtls";
@@ -489,6 +490,11 @@ export class RemoteMediaApplication {
           iceTransport.setRemoteParams(remoteMedia.iceParams, renomination, {
             keepLocalCredentials: remoteSdp.type !== "offer",
           });
+          // A media's ice-options already include the session-level value
+          // (sdp.ts copies it when the m-line has none).
+          iceTransport.setRemoteIceOptions(
+            parseIceOptions(remoteMedia.iceOptions),
+          );
 
           // One agent full, one lite:  The full agent MUST take the controlling role, and the lite agent MUST take the controlled role
           // RFC 8445 S6.1.1

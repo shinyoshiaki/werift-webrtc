@@ -154,6 +154,20 @@ Resolves remote mDNS candidates; closed (pending lookups cancelled) by restart()
 
 ***
 
+### remoteIceOptions
+
+> **remoteIceOptions**: `string`[] = `[]`
+
+The remote `a=ice-options` tokens (RFC 8839 §5.6), e.g. `trickle`,
+`ice2`. Informational: werift already follows RFC 8445, so no token
+changes how checks or nomination run.
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`remoteIceOptions`](../interfaces/IceConnection.md#remoteiceoptions)
+
+***
+
 ### remoteIsLite
 
 > **remoteIsLite**: `boolean` = `false`
@@ -362,6 +376,26 @@ Whether gathering contacts a STUN or TURN server.
 #### Implementation of
 
 [`IceConnection`](../interfaces/IceConnection.md).[`remoteCandidates`](../interfaces/IceConnection.md#remotecandidates)
+
+***
+
+### remoteIce2
+
+#### Get Signature
+
+> **get** **remoteIce2**(): `boolean`
+
+The remote declared `ice2`: an RFC 8445 agent (RFC 8445 §10).
+
+##### Returns
+
+`boolean`
+
+The remote declared `ice2`: an RFC 8445 agent (RFC 8445 §10).
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`remoteIce2`](../interfaces/IceConnection.md#remoteice2)
 
 ## Methods
 
@@ -737,6 +771,28 @@ Remote credentials of the provisional generation (pranswer).
 #### Implementation of
 
 [`IceConnection`](../interfaces/IceConnection.md).[`setProvisionalRemoteParams`](../interfaces/IceConnection.md#setprovisionalremoteparams)
+
+***
+
+### setRemoteIceOptions()
+
+> **setRemoteIceOptions**(`options`): `void`
+
+Record the remote `a=ice-options` tokens (see remoteIceOptions).
+
+#### Parameters
+
+##### options
+
+`string`[]
+
+#### Returns
+
+`void`
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`setRemoteIceOptions`](../interfaces/IceConnection.md#setremoteiceoptions)
 
 ***
 

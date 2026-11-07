@@ -154,8 +154,13 @@ export class StunOverTurnProtocol implements Protocol {
       throw new Error("exist");
     }
 
+    const options = buildTransactionOptions(
+      integrityKey,
+      retransmissionsOrOptions,
+      onRequestSent,
+    );
     if (integrityKey) {
-      request.addMessageIntegrity(integrityKey);
+      request.addIntegrity(integrityKey, options.integrityAlgorithm);
       request.addFingerprint();
     }
 
@@ -164,11 +169,6 @@ export class StunOverTurnProtocol implements Protocol {
     // allocation/refresh policy on TurnProtocol.
     // Peer addresses are already IPs from candidates; resolve for safety.
     const resolvedAddr = await resolveRequestAddress(addr);
-    const options = buildTransactionOptions(
-      integrityKey,
-      retransmissionsOrOptions,
-      onRequestSent,
-    );
     const transaction = new Transaction(request, resolvedAddr, this, options);
     this.turn.transactions[request.transactionIdHex] = transaction;
 
@@ -572,6 +572,9 @@ export class TurnProtocol implements Protocol {
     if (this.transactions[request.transactionIdHex]) {
       throw new Error("exist");
     }
+    // Long-term credentials stay MESSAGE-INTEGRITY (SHA-1): SHA-256 needs the
+    // PASSWORD-ALGORITHM(S) negotiation of RFC 8489 §9.2, which is out of
+    // scope here (options.integrityAlgorithm is not applied).
     if (this.integrityKey) {
       request
         .setAttribute("USERNAME", this.username)

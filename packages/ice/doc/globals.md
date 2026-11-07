@@ -37,6 +37,8 @@
 ## Type Aliases
 
 - [IceState](type-aliases/IceState.md)
+- [MessageIntegrityAlgorithm](type-aliases/MessageIntegrityAlgorithm.md)
+- [MessageIntegrityMode](type-aliases/MessageIntegrityMode.md)
 - [TcpCandidateType](type-aliases/TcpCandidateType.md)
 - [TurnRedirectFailureReason](type-aliases/TurnRedirectFailureReason.md)
 - [TurnStreamReconnect](type-aliases/TurnStreamReconnect.md)
@@ -57,6 +59,9 @@
 - [ICE\_COMPLETED](variables/ICE_COMPLETED.md)
 - [ICE\_FAILED](variables/ICE_FAILED.md)
 - [INTEGRITY\_LENGTH](variables/INTEGRITY_LENGTH.md)
+- [INTEGRITY\_SHA256\_LENGTH](variables/INTEGRITY_SHA256_LENGTH.md)
+- [INTEGRITY\_SHA256\_MIN\_VALUE\_LENGTH](variables/INTEGRITY_SHA256_MIN_VALUE_LENGTH.md)
+- [INTEGRITY\_SHA256\_VALUE\_LENGTH](variables/INTEGRITY_SHA256_VALUE_LENGTH.md)
 - [IPV4\_PROTOCOL](variables/IPV4_PROTOCOL.md)
 - [IPV6\_PROTOCOL](variables/IPV6_PROTOCOL.md)
 - [RETRY\_MAX](variables/RETRY_MAX.md)
@@ -81,6 +86,7 @@
 - [isLinkLocalAddress](functions/isLinkLocalAddress.md)
 - [isRelayOnlyGathering](functions/isRelayOnlyGathering.md)
 - [isStunMessage](functions/isStunMessage.md)
+- [isValidIntegritySha256Length](functions/isValidIntegritySha256Length.md)
 - [makeIntegrityKey](functions/makeIntegrityKey.md)
 - [mergeIceServerOptions](functions/mergeIceServerOptions.md)
 - [nodeIpAddress](functions/nodeIpAddress.md)

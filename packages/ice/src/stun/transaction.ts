@@ -150,8 +150,10 @@ export class Transaction {
       return;
     }
 
-    // RFC 7675 authenticated consent: integrityKey requires MESSAGE-INTEGRITY.
-    // Wire HMAC is verified by protocol layers via parseMessage(data, key);
+    // RFC 7675 authenticated consent: integrityKey requires MESSAGE-INTEGRITY
+    // or MESSAGE-INTEGRITY-SHA256 (RFC 8489; with both, SHA-256 is the one
+    // verified). Wire HMAC is verified by protocol layers via
+    // parseMessage(data, key), which accepts either algorithm;
     // this presence check is defense-in-depth if responseReceived is called
     // with a constructed Message that skipped the wire re-parse path.
     if (this.integrityKey) {

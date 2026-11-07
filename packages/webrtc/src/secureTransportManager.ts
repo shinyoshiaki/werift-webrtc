@@ -190,6 +190,7 @@ export class SecureTransportManager {
       additionalHostAddresses: this.config.iceAdditionalHostAddresses,
       filterStunResponse: this.config.iceFilterStunResponse,
       filterCandidatePair: this.config.iceFilterCandidatePair,
+      messageIntegrity: this.config.iceMessageIntegrity,
       localPasswordPrefix: this.config.icePasswordPrefix,
       useIpv4: this.config.iceUseIpv4,
       useIpv6: this.config.iceUseIpv6,
