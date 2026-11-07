@@ -37,6 +37,7 @@ import {
   createSimulcastRtxPacket,
   createSimulcastRtxReceiver,
   retransmissionsOf,
+  simulcastTimestampBase,
 } from "./rtpReceiverTestUtils";
 
 describe("media/router", () => {
@@ -749,6 +750,112 @@ describe("media/router", () => {
 
       // Assert: 1 回目だけ復元され、2 回目は受信済みとして破棄される。
       expect(retransmissionsOf(received)).toEqual([[high.ssrc, 11]]);
+    });
+
+    test("表示順と送信順が異なるフレーム (B フレーム) の欠落も RTX で復元される", () => {
+      // Arrange: seq 10, 11, 12 の timestamp が 12000, 6000, 9000 (送信順で単調でない)。
+      const { router, receiver } = createSimulcastRtxReceiver();
+      const received = collectDeliveredRtp(receiver.trackByRID.high);
+      const base = simulcastTimestampBase(high.ssrc);
+      const at = (sequenceNumber: number, offset: number) => ({
+        sequenceNumber,
+        timestamp: (base + offset) >>> 0,
+      });
+      const [i, b, p] = [at(10, 12000), at(11, 6000), at(12, 9000)];
+      for (const packet of [i, p]) {
+        router.routeRtp(
+          createSimulcastMediaPacket({
+            ssrc: high.ssrc,
+            rid: high.rid,
+            ...packet,
+          }),
+        );
+      }
+
+      // Act: 失った seq 11 (timestamp 6000) が RTX で届く。
+      router.routeRtp(
+        createSimulcastRtxFor(high.ssrc, b.sequenceNumber, {
+          rtxSsrc: high.rtxSsrc,
+          rrid: high.rid,
+          timestamp: b.timestamp,
+        }),
+      );
+
+      // Assert: 元の timestamp のまま復元される。
+      expect(retransmissionsOf(received)).toEqual([[high.ssrc, 11]]);
+      expect(received.find((p) => p.type === "retransmission")?.payload).toBe(
+        "media-11",
+      );
+    });
+
+    test("長い連続欠落でも、NACK した番号の RTX は欠落の位置によらず復元される", () => {
+      // Arrange: seq 1 の次に 602 を受け、2〜601 を失う。
+      const { router, receiver } = createSimulcastRtxReceiver();
+      const received = collectDeliveredRtp(receiver.trackByRID.high);
+      router.routeRtp(mediaOf(high.ssrc, 1, high.rid));
+      router.routeRtp(mediaOf(high.ssrc, 602, high.rid));
+
+      // Act: 欠落の末尾 (600)、中央 (300)、先頭 (2) の RTX が届く。
+      for (const [seq, rtxSequenceNumber] of [
+        [600, 1],
+        [300, 2],
+        [2, 3],
+      ]) {
+        router.routeRtp(
+          createSimulcastRtxFor(high.ssrc, seq, {
+            rtxSsrc: high.rtxSsrc,
+            rtxSequenceNumber,
+            rrid: high.rid,
+          }),
+        );
+      }
+
+      // Assert: すべて元の SSRC で復元される。
+      expect(retransmissionsOf(received)).toEqual([
+        [high.ssrc, 600],
+        [high.ssrc, 300],
+        [high.ssrc, 2],
+      ]);
+    });
+
+    test("長い連続欠落の直前のパケットが履歴から外れても、欠落の末尾の RTX は復元される", () => {
+      // Arrange: seq 1 の次に 1000 を受け、その後 1001〜1100 を受けて seq 1 が履歴の範囲外になる。
+      const { router, receiver } = createSimulcastRtxReceiver();
+      const received = collectDeliveredRtp(receiver.trackByRID.high);
+      router.routeRtp(mediaOf(high.ssrc, 1, high.rid));
+      for (let seq = 1000; seq <= 1100; seq++) {
+        router.routeRtp(mediaOf(high.ssrc, seq, high.rid));
+      }
+
+      // Act: 欠落の末尾 999 の RTX が届く。
+      router.routeRtp(
+        createSimulcastRtxFor(high.ssrc, 999, {
+          rtxSsrc: high.rtxSsrc,
+          rrid: high.rid,
+        }),
+      );
+
+      // Assert: 記録された欠落直前のパケットを下側の隣として復元される。
+      expect(retransmissionsOf(received)).toEqual([[high.ssrc, 999]]);
+    });
+
+    test("長い連続欠落の番号でも、timestamp が合わない別 SSRC の RTX は復元されない", () => {
+      // Arrange: 旧媒体 1000 が seq 1〜602 の間を失い、同じ RID で新媒体 2000 も受信している。
+      const { router, receiver } = createSimulcastRtxReceiver();
+      const received = collectDeliveredRtp(receiver.trackByRID.high);
+      router.routeRtp(mediaOf(1000, 1, high.rid));
+      router.routeRtp(mediaOf(1000, 602, high.rid));
+      router.routeRtp(mediaOf(2000, 10, high.rid));
+      router.routeRtp(mediaOf(2000, 12, high.rid));
+
+      // Act: 新媒体 2000 の RTX (元 seq 300、2000 の timestamp) が届く。
+      router.routeRtp(
+        createSimulcastRtxFor(2000, 300, { rtxSsrc: 2001, rrid: high.rid }),
+      );
+
+      // Assert: 旧媒体 1000 の欠落としては復元されない。
+      expect(retransmissionsOf(received)).toEqual([]);
+      receiver.stop();
     });
 
     test("同じ RID の媒体 SSRC が切り替わっても、遅れて届いた旧 RTX は旧 SSRC で復元される", () => {

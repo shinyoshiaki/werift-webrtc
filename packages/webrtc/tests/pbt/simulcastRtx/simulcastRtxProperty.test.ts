@@ -60,12 +60,25 @@ function wire(arrival: SimulcastArrival) {
   );
 }
 
-/** Nearest delivered sequence number within 512 of `seq` in `step` direction. */
-function hasNeighbor(delivered: Set<number>, seq: number, step: 1 | -1) {
-  for (let distance = 1; distance <= 512; distance++) {
-    if (delivered.has((seq + step * distance) & 0xffff)) return true;
+/**
+ * Whether the receiver can know `index` is a hole worth repairing: delivered
+ * packets on both sides, the newest less than 1024 (its history) ahead, and
+ * the one before the hole still inside that history.
+ */
+function repairable(delivered: Set<number>, index: number) {
+  if (delivered.has(index)) return false;
+  let lo: number | undefined;
+  let newest: number | undefined;
+  for (const d of delivered) {
+    if (d < index && (lo === undefined || d > lo)) lo = d;
+    if (newest === undefined || d > newest) newest = d;
   }
-  return false;
+  return (
+    lo !== undefined &&
+    newest !== undefined &&
+    newest > index &&
+    newest - lo < 1024
+  );
 }
 
 describe("simulcast RTX property", () => {
@@ -95,7 +108,8 @@ describe("simulcast RTX property", () => {
           ) {
             wrong.push(`${rid} ${ssrc}:${sequenceNumber}`);
           }
-          deliveredBySsrc.get(ssrc)?.add(sequenceNumber);
+          const index = stream?.indexBySeq.get(sequenceNumber);
+          if (index !== undefined) deliveredBySsrc.get(ssrc)?.add(index);
         });
       }
       const boundRtx = new Set<number>();
@@ -103,13 +117,11 @@ describe("simulcast RTX property", () => {
 
       for (const arrival of arrivals) {
         const delivered = deliveredBySsrc.get(arrival.stream.ssrc)!;
-        // NACK に応える RTX: RTX SSRC が RID に結び付き、元の番号は未受信で、前後に受信済みがある。
+        // NACK に応える RTX: RTX SSRC が RID に結び付き、元の番号は受信側が知る範囲の欠落。
         const answersNack =
           arrival.kind === "rtx" &&
           (boundRtx.has(arrival.stream.rtxSsrc) || arrival.withRrid) &&
-          !delivered.has(arrival.seq) &&
-          hasNeighbor(delivered, arrival.seq, -1) &&
-          hasNeighbor(delivered, arrival.seq, 1);
+          repairable(delivered, arrival.index);
 
         // Act: 到着順にパケットを router へ渡す。
         router.routeRtp(wire(arrival));
@@ -117,7 +129,7 @@ describe("simulcast RTX property", () => {
           boundRtx.add(arrival.stream.rtxSsrc);
         }
 
-        if (answersNack && !delivered.has(arrival.seq)) {
+        if (answersNack && !delivered.has(arrival.index)) {
           unrepaired.push(`${arrival.stream.ssrc}:${arrival.seq}`);
         }
       }

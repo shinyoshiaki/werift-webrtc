@@ -746,7 +746,11 @@ export class RTCRtpReceiver {
       this.trackBySSRC[ssrc] = track;
       this.learnedTrackSsrcs.add(ssrc);
     }
-    this.learnRidMediaSsrc(rid, ssrc);
+    this.learnRidMediaSsrc(
+      rid,
+      ssrc,
+      this.codecs[packet.header.payloadType]?.clockRate,
+    );
 
     this.handleRTP(packet, extensions, track);
   };
@@ -841,7 +845,7 @@ export class RTCRtpReceiver {
    * Record `ssrc` as the RID's most recently received media SSRC, evicting
    * the least recently received one (and its history) beyond the bound.
    */
-  private learnRidMediaSsrc(rid: string, ssrc: number) {
+  private learnRidMediaSsrc(rid: string, ssrc: number, clockRate = 90000) {
     const ssrcs = (this.mediaSsrcsByRid[rid] ??= []);
     if (ssrcs[ssrcs.length - 1] === ssrc) return;
     const index = ssrcs.indexOf(ssrc);
@@ -852,7 +856,7 @@ export class RTCRtpReceiver {
     }
     ssrcs.push(ssrc);
     if (!this.receivedBySsrc.has(ssrc)) {
-      this.receivedBySsrc.set(ssrc, new ReceivedPacketHistory());
+      this.receivedBySsrc.set(ssrc, new ReceivedPacketHistory(clockRate));
     }
     if (ssrcs.length <= MAX_SSRCS_PER_RID) return;
     const evicted = ssrcs.shift()!;
