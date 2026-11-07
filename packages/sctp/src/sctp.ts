@@ -1040,12 +1040,22 @@ export class SCTP {
     }
 
     // Drain queued outbound DATA; retransmission pacing is controlled by RTO/T3.
-    while (
-      this.outboundQueue.length > 0 &&
-      this.flightSize < cwnd &&
-      this.peerRwnd > 0
-    ) {
+    let abandonedUnsent = false;
+    while (this.outboundQueue.length > 0) {
       const chunk = this.outboundQueue.peek()!;
+      // A message that expired while waiting for cwnd/rwnd is never sent; its
+      // TSNs are already assigned, so it is abandoned and skipped by FORWARD-TSN.
+      if (this.isExpired(chunk)) {
+        this.outboundQueue.shift();
+        this.sentQueue.push(chunk);
+        this.resolveSendWaiters(chunk);
+        this.abandonMessage(this.sentQueue.length - 1);
+        abandonedUnsent = true;
+        continue;
+      }
+      if (this.flightSize >= cwnd || this.peerRwnd <= 0) {
+        break;
+      }
       if (chunk.bookSize > this.peerRwnd && this.flightSize > 0) {
         break;
       }
@@ -1065,6 +1075,11 @@ export class SCTP {
       if (!this.timer3Handle) {
         this.timer3Start();
       }
+    }
+    if (abandonedUnsent) {
+      this.updateAdvancedPeerAckPoint();
+      // Send the FORWARD-TSN in the next round of transmit().
+      if (this.forwardTsnPending) this.transmitRequested = true;
     }
     this.flush.execute();
   }
@@ -1395,11 +1410,21 @@ export class SCTP {
     if (chunk.acked) return false;
     const abandon =
       (!!chunk.maxRetransmits && chunk.maxRetransmits < chunk.sentCount!) ||
-      (chunk.expiry !== undefined && chunk.expiry <= Date.now());
+      this.isExpired(chunk);
     if (!abandon) return false;
 
     const chunkPos = this.sentQueue.findIndex((v) => v === chunk);
     if (chunkPos < 0) return false;
+    this.abandonMessage(chunkPos);
+    return true;
+  }
+
+  private isExpired(chunk: DataChunk) {
+    return chunk.expiry !== undefined && chunk.expiry <= Date.now();
+  }
+
+  /** Marks every fragment of the message at sentQueue[chunkPos] abandoned. */
+  private abandonMessage(chunkPos: number) {
     // Abandon the whole message: walk back to its first fragment and forward
     // to its last fragment (RFC 3758 3.5 A3).
     for (let pos = chunkPos; pos >= 0; pos--) {
@@ -1436,8 +1461,6 @@ export class SCTP {
         lastFragReached = true;
       }
     }
-
-    return true;
   }
 
   static getCapabilities() {

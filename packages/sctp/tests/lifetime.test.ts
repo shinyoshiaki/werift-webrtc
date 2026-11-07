@@ -433,6 +433,100 @@ describe("PR-SCTP lifetime (expiry) abandonment", () => {
     expect(client.sentQueue.length).toBe(0);
     expect(client.flightSize).toBe(0);
   });
+
+  /**
+   * 大きな寿命なしメッセージ A の DATA を落として輻輳ウィンドウを埋め、
+   * その後ろで寿命 lifetimeMs のメッセージ B を送信待ちにする。
+   */
+  const queueBehindCongestedMessage = async (lifetimeMs: number) => {
+    const pair = await createLossyPrSctpPair();
+    stop = pair.stop;
+    const client = pair.client as any;
+    const received: string[] = [];
+    pair.server.onReceive.subscribe((_streamId, _ppId, data) => {
+      received.push(data.length > 100 ? "A" : data.toString());
+    });
+    pair.recorder.dropData = true;
+    const sends = [
+      pair.client.send(0, 53, Buffer.alloc(20_000, 1), { ordered: true }),
+      pair.client.send(0, 53, Buffer.from("B"), {
+        expiry: Date.now() + lifetimeMs,
+        ordered: true,
+      }),
+    ];
+    await flushImmediates();
+    const queued: DataChunk[] = [...client.outboundQueue];
+    const b = queued[queued.length - 1];
+    return { pair, client, received, sends, b };
+  };
+
+  /** 損失を止め、送信側のキューが空になるまで T3-rtx を繰り返し進める。 */
+  const drainClient = async (pair: { client: unknown }) => {
+    const client = pair.client as any;
+    for (
+      let i = 0;
+      i < 20 &&
+      (client.outboundQueue.length > 0 ||
+        client.sentQueue.length > 0 ||
+        client.forwardTsnChunk);
+      i++
+    ) {
+      await vi.advanceTimersByTimeAsync(PAST_T3_MS);
+      await flushImmediates();
+    }
+  };
+
+  test("abandons a message that expires before its first transmission", async () => {
+    // Arrange: 寿命 100ms の B が輻輳ウィンドウ待ちで未送信のまま残る
+    const { pair, client, received, sends, b } =
+      await queueBehindCongestedMessage(100);
+    expect(b.userData.toString()).toBe("B");
+    expect(b.sentCount).toBe(0);
+
+    // Act: 損失を止め、B の寿命を過ぎてから A の再送で送信可能にする
+    pair.recorder.dropData = false;
+    await drainClient(pair);
+    await Promise.all(sends);
+
+    // Assert: B は一度も送られず破棄され、FORWARD-TSN が B の TSN まで進める
+    const bSends = pair.recorder.sentChunks.filter(
+      (c) => c instanceof DataChunk && c.tsn === b.tsn,
+    ).length;
+    expect(bSends).toBe(0);
+    expect(b.abandoned).toBe(true);
+    expect((pair.server as any).lastReceivedTsn).toBe(b.tsn);
+    expect(client.outboundQueue.length).toBe(0);
+    expect(client.sentQueue.length).toBe(0);
+    expect(client.flightSize).toBe(0);
+
+    // Act: 同じストリームで次のメッセージを送る
+    await pair.client.send(0, 53, Buffer.from("next"), { ordered: true });
+    await flushImmediates();
+
+    // Assert: A と後続メッセージだけが順に届き、B は配送されない
+    expect(received).toEqual(["A", "next"]);
+  });
+
+  test("sends a queued message that becomes sendable within its lifetime", async () => {
+    // Arrange: 寿命 60s の B が輻輳ウィンドウ待ちで未送信のまま残る
+    const { pair, client, received, sends, b } =
+      await queueBehindCongestedMessage(60_000);
+    expect(b.sentCount).toBe(0);
+
+    // Act: 損失を止め、寿命内に A の再送で送信可能にする
+    pair.recorder.dropData = false;
+    await drainClient(pair);
+    await Promise.all(sends);
+
+    // Assert: B は破棄されずに送られ、A に続いて配送される
+    expect(b.abandoned).toBe(false);
+    expect(b.sentCount).toBe(1);
+    expect(client.sentQueue.length).toBe(0);
+    expect(
+      pair.recorder.sentChunks.some((c) => c instanceof ForwardTsnChunk),
+    ).toBe(false);
+    expect(received).toEqual(["A", "B"]);
+  });
 });
 
 describe("PR-SCTP under seeded random loss of DATA / SACK / FORWARD-TSN", () => {
