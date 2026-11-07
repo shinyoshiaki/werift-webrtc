@@ -937,7 +937,7 @@ export class Connection implements IceConnection {
    * Whether the provisional generation may use `protocol`: the staged
    * generation drops the sockets its gather options exclude at the commit,
    * so its checks never use them. A kept TURN allocation serves it only when
-   * the generation still uses that TURN server and credential (any of its
+   * the generation still uses that TURN server, credential and transport (any of its
    * TURN servers): one whose server was removed or replaced (a credential
    * rotation) is not part of it.
    */
@@ -959,7 +959,8 @@ export class Connection implements IceConnection {
           configuredServer[0] === server.address[0] &&
           configuredServer[1] === server.address[1] &&
           username === server.username &&
-          password === server.password,
+          password === server.password &&
+          protocol.configuredTransport === server.transport,
       );
     }
     return true;
@@ -1501,6 +1502,7 @@ export class Connection implements IceConnection {
       await protocol.close();
       return;
     }
+    protocol.configuredTransport = transport;
     this.ensureProtocol(protocol);
     this.protocols.push(protocol);
 

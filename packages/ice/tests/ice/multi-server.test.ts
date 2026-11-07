@@ -343,6 +343,51 @@ describe("gathering from multiple TURN servers", () => {
     }
   });
 
+  test("同じ TURN server の UDP / TCP から TCP だけ残した暫定世代は、UDP の allocation を使わない", async () => {
+    // Arrange: 同じアドレス・credential で UDP と TCP の 2 つを gather 済みの connection
+    const server = await createCountingTurnServer(localHost);
+    const connection = createTestConnection(true, {
+      forceTurn: true,
+      turnServers: [
+        localTurnServerEntry(server, { transport: "udp" }),
+        localTurnServerEntry(server, { transport: "tcp" }),
+      ],
+    });
+    try {
+      await connection.gatherCandidates();
+      const allocations = turnAllocations(connection);
+      expect(allocations).toHaveLength(2);
+      const allows = (
+        generation: unknown,
+        protocol: (typeof allocations)[number],
+      ) =>
+        (
+          connection as unknown as {
+            allowsProvisional(g: unknown, p: unknown): boolean;
+          }
+        ).allowsProvisional(generation, protocol);
+      const byTransport = (transport: "udp" | "tcp") =>
+        allocations.find(
+          ({ configuredTransport }) => configuredTransport === transport,
+        )!;
+
+      // Act: TCP だけを残す設定の暫定世代で、各 allocation が許可されるか調べる
+      const tcpOnly = {
+        gatherOptions: {
+          forceTurn: true,
+          turnServers: [localTurnServerEntry(server, { transport: "tcp" })],
+        },
+      };
+
+      // Assert: TCP の allocation だけ許可され、削除した UDP は許可されない
+      expect(allows(tcpOnly, byTransport("tcp"))).toBe(true);
+      expect(allows(tcpOnly, byTransport("udp"))).toBe(false);
+    } finally {
+      await connection.close();
+      await server.close();
+    }
+  });
+
   test("setIceServers + ICE restart で複数の TURN server が置き換わり、古い allocation はすべて閉じる", async () => {
     // Arrange: TURN A / B の 2 つで gather 済みの connection と、置き換え先の TURN C
     const first = await createCountingTurnServer(localHost);
