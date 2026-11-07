@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### 🐛 Bug Fixes
+
+- **`Vp8RtpPayload.deSerialize` now detects the TID/Y/KEYIDX octet by `T || K` instead of `L || K`** (`werift-rtp`, RFC 7741 §4.2): with `T=1, L=0, K=0` the octet was treated as the start of the VP8 payload (frame one byte too long, P bit / `isKeyframe` read from the wrong byte), and with the RFC-violating `L=1, T=0` the first payload header byte was skipped. `L=1, T=1` (browser temporal layers), `K=1` and werift's own X/I/M descriptor were already parsed correctly.
+
 ## v0.25.2
 
 ### ⚠️ Breaking changes

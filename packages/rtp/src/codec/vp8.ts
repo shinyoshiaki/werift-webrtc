@@ -102,15 +102,13 @@ export class Vp8RtpPayload implements DePacketizerBase {
       }
     }
 
+    // TL0PICIDX (L=1)
     if (p.lBit) {
       offset++;
     }
 
-    if (p.lBit || p.kBit) {
-      if (p.tBit) {
-      }
-      if (p.kBit) {
-      }
+    // TID/Y/KEYIDX present when T=1 or K=1 (RFC 7741 §4.2)
+    if (p.tBit || p.kBit) {
       offset++;
     }
 

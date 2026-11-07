@@ -726,3 +726,32 @@ export function createH264RtpPackets(payloads: Buffer[], timestamp = 0) {
       ),
   );
 }
+
+// ---------------------------------------------------------------------------
+// VP8 RTP payload builders (RFC 7741)
+
+/**
+ * Minimal VP8 frame starting with a 3-byte payload header (RFC 7741 §4.3).
+ * keyframe → P=0, otherwise P=1 (LSB of the first byte).
+ */
+export function createVp8Frame({
+  keyframe,
+  bodyLen = 20,
+}: {
+  keyframe: boolean;
+  bodyLen?: number;
+}): Buffer {
+  const header = Buffer.from([keyframe ? 0x00 : 0x01, 0x00, 0x00]);
+  return Buffer.concat([header, Buffer.alloc(bodyLen, keyframe ? 0x7b : 0x55)]);
+}
+
+/** VP8 RTP payload: raw payload descriptor bytes (RFC 7741 §4.2) + frame. */
+export function createVp8Payload({
+  descriptor,
+  frame,
+}: {
+  descriptor: number[];
+  frame: Buffer;
+}): Buffer {
+  return Buffer.concat([Buffer.from(descriptor), frame]);
+}
