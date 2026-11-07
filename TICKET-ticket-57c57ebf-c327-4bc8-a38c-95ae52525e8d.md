@@ -99,6 +99,10 @@ simulcast 送信時、ブラウザはレイヤーごとに RTX 用の別 SSRC �
 - **memleak**: SSRC ごとの NACK タイマー・対応表を増やすため、`stop()` / `unregisterTransceiver()` で確実に解放する。
 - **既存パターン**: 通知は独自の `Event` クラスを使う。広範な catch-and-ignore は使わない。テストは Arrange / Act / Assert の 3 フェーズで書き、Act / Assert に日本語コメントを付ける。
 - WPT 専用の厳格挙動は `tools/wpt-runner/*` に閉じ込め、`src` に漏らさない。
+- **保証範囲（追加要件、§8 参照）**:
+  - SDP に RTX の対応（`ssrc-group:FID`）がない RTX は、RID の**現在の**媒体 SSRC で NACK が検出した欠落に応えるものだけを復元する。
+  - 再交渉なしの媒体 SSRC 変更は、その RID の復元状態のリセットとして扱う。旧 SSRC の NACK 要求・欠落の台帳・RTX の対応を同時に捨て、旧媒体 SSRC と旧媒体を修復した RTX SSRC の遅着パケットは破棄する（判別できないパケットの破棄は妥当とする）。
+  - seq と timestamp の基点が同じストリーム（RFC 3550 §5.1 違反）は判別の対象外とする。
 
 ## 6. 完了条件
 
@@ -112,6 +116,10 @@ simulcast 送信時、ブラウザはレイヤーごとに RTX 用の別 SSRC �
 - [ ] `cd packages/webrtc && npm run type && npm test` が通る。public な受信挙動の変更なので、`npm run type` と `npm run test:small` も通す
 - [ ] 必要に応じて `cd packages/webrtc && npm run memleak` でリークがないことを確認する（ローカル、Node 24+）
 - [ ] `changelog.md` など関連ドキュメントを更新する
+- [ ] NACK の要求と RTX の検証が同じ欠落の台帳を使い、「NACK が (媒体 SSRC, seq) を要求している間は、その RTX を検証できる」ことを unit テストで確認する（欠落後に後続 1024 個以上を受信してから届く RTX を含む）
+- [ ] 同じ RID で同時に扱う媒体 SSRC は 1 つで、SSRC 変更時に旧 SSRC の NACK・台帳・RTX 対応が同時に解放されることをテストで確認する
+- [ ] property テストの復元の判定基準が `receiver.nack` の要求リストであり、生成器が §8 のケースを含む
+- [ ] 修正報告に、すべての保持上限と「なぜ NACK の要求を途中で切らないか」の一覧を載せる
 
 ## 7. 主な関連ファイル
 
@@ -124,3 +132,21 @@ simulcast 送信時、ブラウザはレイヤーごとに RTX 用の別 SSRC �
 | `packages/webrtc/tests/media/router.test.ts`, `rtpReceiver.test.ts`, `nack.test.ts` | 追加テスト |
 | `examples/mediachannel/rtx/simulcast_offer.ts`, `simulcast_answer.html` | 動作確認用 example |
 | `e2e/server/handler/mediachannel/simulcast.ts`, `e2e/tests/mediachannel/simulcast.test.ts` | e2e（RTX シナリオ追加候補） |
+
+## 8. 追加要件（レビュー 9 以降の打開策）
+
+レビューが通らなかった根本原因は、「NACK がまだ再送を要求している」状態と「届いた RTX を復元できる」状態が、別々の上限で別々に保持・破棄されていたことにある。個々の上限を直すのではなく、両者の状態をそろえる構造に変える。
+
+1. **要求と復元の状態をひとつにそろえる。**
+   - 欠落の台帳を NACK の欠落検出と同じ場所（`media/receiver/nack.ts`）で作る。欠落ごとに番号と前後の受信パケットの timestamp を記録する。
+   - 台帳の保持範囲は NACK の要求範囲以上にする（seq の距離の上限は 0x8000）。台帳から欠落を捨てるときは、必ず NACK の要求も同時に止める。
+   - 守る性質: 「NACK が (SSRC, seq) を要求している間は、その RTX を検証できる」。受信済みパケットのリング、窓 1024、隙間の記録、`firstExt` のような独立した境目は持たない。
+2. **同じ RID で同時に扱う媒体 SSRC を 1 つにする。**
+   - 再交渉なしで媒体 SSRC が変わったら、ストリームのリセットとして扱い、旧 SSRC の NACK、欠落の台帳、RTX の対応を同時に捨てる。
+   - 切り替えの途中で届いた旧 SSRC の RTX は破棄する。
+   - RID ごとに複数の媒体 SSRC を持つリストと、複数候補の判定は持たない。
+3. **保証範囲を §5 に明記する**（§5「保証範囲」）。
+4. **テストの判定基準を NACK に変える。**
+   - property テストの復元の判定基準を、実装を写した判定（`repairable`）から `receiver.nack` の要求リストに変える。
+   - 生成器に次のケースを加える: 後続 1024 個以上の受信後に届く RTX、5 回以上の SSRC 切り替えと遅れて届く RTX、seq と timestamp の基点が同じストリーム（この場合は誤った SSRC に配信しないことだけを確認し、パケット単体で判別できない到着は対象外とする）。
+5. **修正報告に上限の一覧を載せる。** すべての保持上限について、なぜ NACK の要求を途中で切らないか（または、切るときは台帳も同時に捨てるか）を表にする。

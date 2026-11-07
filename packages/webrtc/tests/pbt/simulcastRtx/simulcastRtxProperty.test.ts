@@ -3,6 +3,7 @@ import {
   createSimulcastMediaPacket,
   createSimulcastRtxPacket,
   createSimulcastRtxReceiver,
+  getReceiverNack,
 } from "../../media/rtpReceiverTestUtils";
 import { seededRandom } from "../shared/random";
 import { propertySeeds } from "../shared/seeds";
@@ -18,6 +19,16 @@ import {
  * (`simulcastRtx/generator.ts`): media SSRC changes of a RID without
  * renegotiation, loss, reordering, late originals, duplicate and unsolicited
  * RTX, and RID extensions that stop after the first packets.
+ *
+ * The judge of recovery is the receiver's NACK, not a copy of the repair
+ * logic: an RTX packet arriving while `receiver.nack` requests its
+ * (media SSRC, sequence number), on an RTX SSRC that told its RID, must be
+ * restored. Delivery must never be wrong (SSRC, RID, timestamp, payload) and
+ * a retransmission never repeats a delivered number. Streams with identical
+ * bases are told apart only by SSRC; for them an RTX SSRC is exempt from the
+ * moment it carried a packet while its media SSRC was not the RID's current
+ * one (before the stream started or after it was replaced): no packet
+ * content tells such an RTX from the current stream's.
  *
  * CI runs `WERIFT_SIMULCAST_RTX_SEEDS` (default 24) seeds per property from
  * `WERIFT_SIMULCAST_RTX_SEED` (default 1); `WERIFT_SIMULCAST_RTX_STEPS`
@@ -61,24 +72,52 @@ function wire(arrival: SimulcastArrival) {
 }
 
 /**
- * Whether the receiver can know `index` is a hole worth repairing: delivered
- * packets on both sides, the newest less than 1024 (its history) ahead, and
- * the one before the hole still inside that history.
+ * Ground truth of the RID's current stream: a stream is current from its
+ * first media packet with `rtp-stream-id` until the next stream's. Returns,
+ * per RTX SSRC, the first arrival position at which it carried a packet
+ * while its stream was not current (before it started or after it was
+ * replaced), when that ever happened.
  */
-function repairable(delivered: Set<number>, index: number) {
-  if (delivered.has(index)) return false;
-  let lo: number | undefined;
-  let newest: number | undefined;
-  for (const d of delivered) {
-    if (d < index && (lo === undefined || d > lo)) lo = d;
-    if (newest === undefined || d > newest) newest = d;
-  }
-  return (
-    lo !== undefined &&
-    newest !== undefined &&
-    newest > index &&
-    newest - lo < 1024
-  );
+function rtxOffCurrent(
+  streams: SimulcastStream[],
+  arrivals: SimulcastArrival[],
+) {
+  const became = new Map<SimulcastStream, number>();
+  arrivals.forEach((arrival, position) => {
+    if (arrival.kind === "media" && arrival.withRid) {
+      if (!became.has(arrival.stream)) became.set(arrival.stream, position);
+    }
+  });
+  const isCurrent = (stream: SimulcastStream, position: number) => {
+    const from = became.get(stream);
+    const next = streams.find(
+      (s) => s.rid === stream.rid && s.order === stream.order + 1,
+    );
+    const until = next ? became.get(next) : undefined;
+    return (
+      from !== undefined &&
+      from <= position &&
+      (until === undefined || position < until)
+    );
+  };
+  const offCurrent = new Map<number, number>();
+  arrivals.forEach((arrival, position) => {
+    if (arrival.kind !== "rtx" || offCurrent.has(arrival.stream.rtxSsrc)) {
+      return;
+    }
+    if (!isCurrent(arrival.stream, position)) {
+      offCurrent.set(arrival.stream.rtxSsrc, position);
+    }
+  });
+  return offCurrent;
+}
+
+/** Whether `arrival`'s number is delivered on its stream (to see a restore). */
+function retransmitted(
+  deliveredBySsrc: Map<number, Set<number>>,
+  arrival: SimulcastArrival,
+) {
+  return deliveredBySsrc.get(arrival.stream.ssrc)!.has(arrival.index);
 }
 
 describe("simulcast RTX property", () => {
@@ -91,10 +130,18 @@ describe("simulcast RTX property", () => {
       const rng = seededRandom(seed);
       const { streams, arrivals } = randomSimulcastRtxTraffic(rng, steps);
       const { router, receiver } = createSimulcastRtxReceiver();
+      const nack = getReceiverNack(receiver);
       const streamBySsrc = new Map(streams.map((s) => [s.ssrc, s]));
       const deliveredBySsrc = new Map(
         streams.map((s) => [s.ssrc, new Set<number>()]),
       );
+      const offCurrent = rtxOffCurrent(streams, arrivals);
+      // 基点が同じストリームの RTX SSRC は、自分の媒体が現在でない間にパケットを運んだ時点から判別できない。
+      const indistinguishable = (arrival: SimulcastArrival, at: number) =>
+        arrival.kind === "rtx" &&
+        arrival.stream.identicalBases &&
+        (offCurrent.get(arrival.stream.rtxSsrc) ?? Infinity) <= at;
+      let position = 0;
       const wrong: string[] = [];
       const duplicated: string[] = [];
       for (const rid of ["high", "low"]) {
@@ -102,15 +149,18 @@ describe("simulcast RTX property", () => {
           const { ssrc, sequenceNumber, timestamp } = rtp.header;
           const stream = streamBySsrc.get(ssrc);
           const sent = stream?.packets.get(sequenceNumber);
+          const cause = arrivals[position];
           if (
             stream?.rid !== rid ||
             sent?.timestamp !== timestamp ||
             sent.payload !== rtp.payload.toString()
           ) {
-            wrong.push(`${rid} ${ssrc}:${sequenceNumber}`);
+            if (!indistinguishable(cause, position)) {
+              wrong.push(`${rid} ${ssrc}:${sequenceNumber}`);
+            }
+            return;
           }
-          const index = stream?.indexBySeq.get(sequenceNumber);
-          if (index === undefined) return;
+          const index = stream.indexBySeq.get(sequenceNumber)!;
           const delivered = deliveredBySsrc.get(ssrc)!;
           // 再送は受信済みの番号を埋め直さない (重複 RTX の二重配送がない)。
           if (info?.type === "retransmission" && delivered.has(index)) {
@@ -119,40 +169,48 @@ describe("simulcast RTX property", () => {
           delivered.add(index);
         });
       }
-      const boundRtx = new Set<number>();
+      const ridKnownRtx = new Set<number>();
       const unrepaired: string[] = [];
 
-      for (const arrival of arrivals) {
-        const delivered = deliveredBySsrc.get(arrival.stream.ssrc)!;
-        // NACK に応える RTX: RTX SSRC が RID に結び付き、元の番号は受信側が知る範囲の欠落。
-        const answersNack =
+      for (; position < arrivals.length; position++) {
+        const arrival = arrivals[position];
+        // 判定基準: NACK がこの (媒体 SSRC, seq) を要求中で、RTX SSRC が RID を名乗ったことがある。
+        const requested =
           arrival.kind === "rtx" &&
-          (boundRtx.has(arrival.stream.rtxSsrc) || arrival.withRrid) &&
-          repairable(delivered, arrival.index);
+          (ridKnownRtx.has(arrival.stream.rtxSsrc) || arrival.withRrid) &&
+          nack.lostSeqNumbersOf(arrival.stream.ssrc).includes(arrival.seq) &&
+          !indistinguishable(arrival, position);
+        const before = retransmitted(deliveredBySsrc, arrival);
 
         // Act: 到着順にパケットを router へ渡す。
         router.routeRtp(wire(arrival));
         if (arrival.kind === "rtx" && arrival.withRrid) {
-          boundRtx.add(arrival.stream.rtxSsrc);
+          ridKnownRtx.add(arrival.stream.rtxSsrc);
         }
 
-        if (answersNack && !delivered.has(arrival.index)) {
+        if (requested && before === retransmitted(deliveredBySsrc, arrival)) {
           unrepaired.push(`${arrival.stream.ssrc}:${arrival.seq}`);
         }
       }
-      // Assert: パケット駆動の経路・対応表は RID ごとの上限 (媒体 4 + RTX 4) を超えない。
-      expect(router.learnedSsrcs.size).toBeLessThanOrEqual(2 * 8);
-      expect(receiver.learnedTrackSsrcs.size).toBeLessThanOrEqual(2 * 4);
-      expect(Object.keys(receiver.ridByRtxSsrc).length).toBeLessThanOrEqual(
-        2 * 4,
+      // Assert: パケット駆動の経路・対応表は RID ごとの上限 (媒体 1、RTX 8、退役 8) を超えない。
+      expect(Object.keys(receiver.mediaSsrcByRid).length).toBeLessThanOrEqual(
+        2,
       );
+      expect(Object.keys(receiver.ridByRtxSsrc).length).toBeLessThanOrEqual(
+        2 * 8,
+      );
+      for (const retired of Object.values(receiver.retiredSsrcsByRid)) {
+        expect(retired.length).toBeLessThanOrEqual(8);
+      }
+      expect(receiver.learnedTrackSsrcs.size).toBeLessThanOrEqual(2);
+      expect(router.learnedSsrcs.size).toBeLessThanOrEqual(2 + 2 * 8);
       receiver.stop();
 
       // Assert: 誤った SSRC / RID / 内容のパケットは 1 つも届かない。
       expect(wrong).toEqual([]);
       // Assert: 受信済みの番号が再送として二重に届くことはない。
       expect(duplicated).toEqual([]);
-      // Assert: NACK に応える RTX はすべて元の媒体 SSRC に復元される。
+      // Assert: NACK が要求している番号の RTX はすべて元の媒体 SSRC に復元される。
       expect(unrepaired).toEqual([]);
     },
   );

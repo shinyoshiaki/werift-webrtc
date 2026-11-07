@@ -9,10 +9,17 @@ import {
   RtpHeader,
   RtpPacket,
 } from "../../../rtp/src";
-import { MAX_NACK_STREAMS, NackHandler } from "../../src/media/receiver/nack";
+import {
+  MAX_HOLES,
+  MAX_NACK_STREAMS,
+  NackHandler,
+} from "../../src/media/receiver/nack";
 
-const packet = (ssrc: number, sequenceNumber: number) =>
-  new RtpPacket(new RtpHeader({ sequenceNumber, ssrc }), Buffer.from(""));
+const packet = (ssrc: number, sequenceNumber: number, timestamp = 0) =>
+  new RtpPacket(
+    new RtpHeader({ sequenceNumber, ssrc, timestamp }),
+    Buffer.from(""),
+  );
 
 describe("media/nack", () => {
   afterEach(() => {
@@ -149,6 +156,123 @@ describe("media/nack", () => {
     expect(nack.ssrcs).toContain(1);
     expect(nack.lostSeqNumbersOf(1)).toEqual([]);
     nack.close();
+  });
+
+  describe("欠落の台帳 (NACK の要求と RTX の検証は同じ欠落を見る)", () => {
+    test("要求中の欠落は検証でき、受信で要求と台帳から同時に消える", () => {
+      // Arrange: seq 10 (ts 1000) と 12 (ts 3000) を受け、11 を失う。
+      const nack = new NackHandler(new MockRTCRtpReceiver() as any);
+      nack.addPacket(packet(1, 10, 1000));
+      nack.addPacket(packet(1, 12, 3000));
+
+      // Assert: 11 は要求中で、間の timestamp なら検証でき、範囲外や別番号は検証できない。
+      expect(nack.lostSeqNumbersOf(1)).toEqual([11]);
+      expect(nack.canRepair(1, 11, 2000, 0)).toBe(true);
+      expect(nack.canRepair(1, 11, 9000, 0)).toBe(false);
+      expect(nack.canRepair(1, 12, 3000, 0)).toBe(false);
+      expect(nack.canRepair(2, 11, 2000, 0)).toBe(false);
+
+      // Act: 11 が届く。
+      nack.addPacket(packet(1, 11, 2000));
+
+      // Assert: 要求も台帳も消える。
+      expect(nack.lostSeqNumbersOf(1)).toEqual([]);
+      expect(nack.canRepair(1, 11, 2000, 0)).toBe(false);
+      nack.close();
+    });
+
+    test("前後の timestamp が逆順 (B フレーム) でも、その範囲と余裕の中なら検証できる", () => {
+      // Arrange: ts 12000 の後に ts 9000 を受け、間の欠落 (実際は ts 6000) を検出する。
+      const nack = new NackHandler(new MockRTCRtpReceiver() as any);
+      nack.addPacket(packet(1, 10, 12000));
+      nack.addPacket(packet(1, 12, 9000));
+
+      // Assert: 余裕 3000 で 6000 は範囲内、余裕 0 なら範囲外。
+      expect(nack.canRepair(1, 11, 6000, 3000)).toBe(true);
+      expect(nack.canRepair(1, 11, 6000, 0)).toBe(false);
+      nack.close();
+    });
+
+    test("要求は新しい 150 個までだが、それより古い欠落も台帳に残り検証できる", () => {
+      // Arrange: seq 0 の次に 1001 を受け、1〜1000 を失う。
+      const nack = new NackHandler(new MockRTCRtpReceiver() as any);
+      nack.addPacket(packet(1, 0, 0));
+      nack.addPacket(packet(1, 1001, 0));
+
+      // Assert: 要求は末尾 150 個、台帳は 1000 個すべて。
+      expect(nack.lostSeqNumbersOf(1)).toHaveLength(150);
+      expect(nack.lostSeqNumbersOf(1)[0]).toBe(851);
+      expect(nack.holeCountOf(1)).toBe(1000);
+      expect(nack.canRepair(1, 1, 0, 0)).toBe(true);
+      nack.close();
+    });
+
+    test("台帳の上限を超えた欠落は、要求と台帳から同時に消える", () => {
+      // Arrange: seq 0 を受ける。
+      const nack = new NackHandler(new MockRTCRtpReceiver() as any);
+      nack.addPacket(packet(1, 0, 0));
+
+      // Act: MAX_HOLES + 101 を受け、1〜MAX_HOLES + 100 を失う。
+      nack.addPacket(packet(1, MAX_HOLES + 101, 0));
+
+      // Assert: 台帳は上限まで。上限より古い番号は要求も検証もされない。
+      expect(nack.holeCountOf(1)).toBe(MAX_HOLES);
+      expect(nack.canRepair(1, 100, 0, 0)).toBe(false);
+      expect(nack.lostSeqNumbersOf(1)).not.toContain(100);
+      expect(nack.canRepair(1, 101, 0, 0)).toBe(true);
+      nack.close();
+    });
+
+    test("再試行を使い切った欠落は要求をやめるが、台帳に残って検証できる", async () => {
+      // Arrange
+      vi.useFakeTimers();
+      const receiver = new MockRTCRtpReceiver();
+      const nack = new NackHandler(receiver as any);
+      nack.addPacket(packet(1, 10, 0));
+      nack.addPacket(packet(1, 12, 0));
+
+      // Act: 再試行回数を超えるまで NACK 周期を進める。
+      await vi.advanceTimersByTimeAsync(5 * (nack.retryCount + 3));
+
+      // Assert: 要求は止まり timer も止まるが、欠落は検証できる。
+      expect(receiver.nacks.length).toBeGreaterThan(0);
+      expect(nack.lostSeqNumbersOf(1)).toEqual([]);
+      await vi.advanceTimersByTimeAsync(10);
+      expect(vi.getTimerCount()).toBe(0);
+      expect(nack.canRepair(1, 11, 0, 0)).toBe(true);
+      nack.close();
+    });
+
+    test("forget はその SSRC の要求と台帳を同時に消す", () => {
+      // Arrange
+      vi.useFakeTimers();
+      const nack = new NackHandler(new MockRTCRtpReceiver() as any);
+      nack.addPacket(packet(1, 10, 0));
+      nack.addPacket(packet(1, 12, 0));
+
+      // Act
+      nack.forget(1);
+
+      // Assert
+      expect(nack.lostSeqNumbersOf(1)).toEqual([]);
+      expect(nack.canRepair(1, 11, 0, 0)).toBe(false);
+      expect(nack.ssrcs).toEqual([]);
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    test("番号の折り返し前の遅着パケットは、巨大な欠落として扱われない", () => {
+      // Arrange: 65534, 65535, 0, 1 を受ける。
+      const nack = new NackHandler(new MockRTCRtpReceiver() as any);
+      for (const seq of [65534, 65535, 0, 1]) nack.addPacket(packet(1, seq));
+
+      // Act: 折り返し前の 65533 が遅れて届く。
+      nack.addPacket(packet(1, 65533));
+
+      // Assert: 欠落は検出されない。
+      expect(nack.lostSeqNumbersOf(1)).toEqual([]);
+      expect(nack.holeCountOf(1)).toBe(0);
+      nack.close();
+    });
   });
 });
 

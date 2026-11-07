@@ -52,7 +52,7 @@ Bottleneck simulations live in `simulations/` (`npm run test:sim`); the Chrome p
 
 * Logic changes in `src`: `npm run type` and relevant `npm test` paths.
 * GCC / TWCC / bottleneck simulation changes: `npm run test:sim`, plus `cd e2e && npm run test:sim` when the Chrome path may be affected, and `cd e2e && npm run test:sim:netns` (needs Docker) when the estimator's response to a real Chrome receiver matters.
-* TWCC feedback / BWE / sender send-path / receiver padding, `ReceiverTWCC` or RID-based RTX repair (`receiver/rtxRepair.ts`) changes: the relevant `npm test` paths, plus `npm run pbt:deep -- --suite twcc,bwe,sender,receiver,simulcastRtx` before review; replay a failed seed with the environment variables printed in its test title.
+* TWCC feedback / BWE / sender send-path / receiver padding, `ReceiverTWCC` or RID-based RTX repair (the hole ledger of `receiver/nack.ts`, `mediaSsrcOfRtx` / `switchRidMedia` in `rtpReceiver.ts`) changes: the relevant `npm test` paths, plus `npm run pbt:deep -- --suite twcc,bwe,sender,receiver,simulcastRtx` before review; replay a failed seed with the environment variables printed in its test title.
 * Negotiation changes: the full `npm test` (includes the negotiation property tests with their fixed scenes and regression seeds), plus the deeper property searches above before review.
 * Memleak harness changes: short smoke with reduced env (see `tests/memleak/README.md`), then optional full `npm run memleak`.
 * WPT runner / allowlist: `npm run wpt`.
