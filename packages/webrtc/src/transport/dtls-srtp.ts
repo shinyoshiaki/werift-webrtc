@@ -37,6 +37,62 @@ export function createSrtpSessions(dtls: DtlsSocket) {
 }
 
 /**
+ * @internal SRTP / SRTCP keys of a DTLS association and the read / write
+ * permissions they are used under. Keys alone never grant access: reading
+ * needs peer (SDP fingerprint) authentication, writing needs it too unless
+ * the WARP early-server policy allows 0.5-RTT output.
+ */
+export class SrtpAccess {
+  private sessions?: { srtp: SrtpSession; srtcp: SrtcpSession };
+  private readable = false;
+  private writable = false;
+
+  get keysInstalled(): boolean {
+    return this.sessions !== undefined;
+  }
+
+  /** Decrypting and delivering inbound media is allowed. */
+  get canRead(): boolean {
+    return this.readable;
+  }
+
+  /** Encrypting and sending media is allowed. */
+  get canWrite(): boolean {
+    return this.writable;
+  }
+
+  /** Derive the sessions from `dtls` once; later calls return the same pair. */
+  installKeys(dtls: DtlsSocket): { srtp: SrtpSession; srtcp: SrtcpSession } {
+    this.sessions ??= createSrtpSessions(dtls);
+    return this.sessions;
+  }
+
+  /** Re-derive both permissions from key availability and the auth state. */
+  update({
+    peerAuthenticated,
+    earlyServerWriteAllowed,
+  }: {
+    peerAuthenticated: boolean;
+    earlyServerWriteAllowed: boolean;
+  }): void {
+    this.readable = this.keysInstalled && peerAuthenticated;
+    this.writable =
+      this.keysInstalled && (peerAuthenticated || earlyServerWriteAllowed);
+  }
+
+  /** Stop reading and writing until the next {@link update}. */
+  revoke(): void {
+    this.readable = false;
+    this.writable = false;
+  }
+
+  /** Stop writing (early output withdrawn) until the next {@link update}. */
+  revokeWrite(): void {
+    this.writable = false;
+  }
+}
+
+/**
  * @internal Decrypt and parse one SRTCP datagram. Packets failing
  * authentication or parsing are dropped (undefined); other errors propagate.
  */

@@ -440,23 +440,23 @@ describe("RTCDtlsTransportTest", () => {
         new RtpHeader({ ssrc: 9, payloadType: 96 }),
         Buffer.from("encrypted-like"),
       ).serialize();
-      const mediaBuffer = (
+      const mediaQueue = (
         session as unknown as {
-          mediaBuffer: {
+          mediaQueue: {
             snapshot(): {
               bufferedPackets: number;
               droppedPackets: number;
             };
           };
         }
-      ).mediaBuffer;
+      ).mediaQueue;
 
       try {
         // Act: 上限を一件超える pre-auth media を世代検証付き demux へ投入する。
         for (let i = 0; i < 257; i++) {
           injectAuthenticatedMedia(session, protectedLikeRtp);
         }
-        const beforeAbort = mediaBuffer.snapshot();
+        const beforeAbort = mediaQueue.snapshot();
 
         // Assert: drop は全破棄、buffer は古い256件を維持して最新を drop する。
         expect(beforeAbort).toMatchObject(
@@ -469,7 +469,7 @@ describe("RTCDtlsTransportTest", () => {
         await session.stop();
 
         // Assert: close 後に認証前 packet は残らない。
-        expect(mediaBuffer.snapshot().bufferedPackets).toBe(0);
+        expect(mediaQueue.snapshot().bufferedPackets).toBe(0);
       } finally {
         await session.stop();
       }
@@ -484,9 +484,9 @@ describe("RTCDtlsTransportTest", () => {
       Buffer.alloc(2048 - 12, 1),
     ).serialize();
     expect(largeRtp.length).toBe(2048);
-    const mediaBuffer = (
+    const mediaQueue = (
       session as unknown as {
-        mediaBuffer: {
+        mediaQueue: {
           snapshot(): {
             bufferedPackets: number;
             bufferedBytes: number;
@@ -495,7 +495,7 @@ describe("RTCDtlsTransportTest", () => {
           };
         };
       }
-    ).mediaBuffer;
+    ).mediaQueue;
 
     try {
       // Act: packet 数 (256) より先に byte 上限 (256 KiB = 128 件分) を超えさせる
@@ -504,7 +504,7 @@ describe("RTCDtlsTransportTest", () => {
       }
 
       // Assert: byte 上限で新しい 2 件だけを drop し、古い 128 件を保持する
-      expect(mediaBuffer.snapshot()).toEqual({
+      expect(mediaQueue.snapshot()).toEqual({
         bufferedPackets: 128,
         bufferedBytes: 256 * 1024,
         droppedPackets: 2,
@@ -513,17 +513,17 @@ describe("RTCDtlsTransportTest", () => {
 
       // Act: retention (2 秒) 内では保持し、期限後まで待つ
       await setTimeout(1_500);
-      expect(mediaBuffer.snapshot().bufferedPackets).toBe(128);
+      expect(mediaQueue.snapshot().bufferedPackets).toBe(128);
       const deadline = Date.now() + 5_000;
       while (
-        mediaBuffer.snapshot().bufferedPackets > 0 &&
+        mediaQueue.snapshot().bufferedPackets > 0 &&
         Date.now() < deadline
       ) {
         await setTimeout(50);
       }
 
       // Assert: 期限切れで queue 全体を drop として計上する
-      expect(mediaBuffer.snapshot()).toEqual({
+      expect(mediaQueue.snapshot()).toEqual({
         bufferedPackets: 0,
         bufferedBytes: 0,
         droppedPackets: 130,
@@ -541,11 +541,11 @@ describe("RTCDtlsTransportTest", () => {
       new RtpHeader({ ssrc: 11, payloadType: 96 }),
       Buffer.from("encrypted-like"),
     ).serialize();
-    const mediaBuffer = (
+    const mediaQueue = (
       session as unknown as {
-        mediaBuffer: { snapshot(): { bufferedPackets: number } };
+        mediaQueue: { snapshot(): { bufferedPackets: number } };
       }
-    ).mediaBuffer;
+    ).mediaQueue;
 
     try {
       // Act: 未認証 pair・不一致 source・旧世代の media を投入する。
@@ -570,7 +570,7 @@ describe("RTCDtlsTransportTest", () => {
       });
 
       // Assert: いずれも buffer されず、上位へも届かない。
-      expect(mediaBuffer.snapshot().bufferedPackets).toBe(0);
+      expect(mediaQueue.snapshot().bufferedPackets).toBe(0);
     } finally {
       await session.stop();
     }
@@ -584,12 +584,15 @@ describe("RTCDtlsTransportTest", () => {
       Buffer.from("encrypted-like"),
     ).serialize();
     const internals = session as unknown as {
-      mediaBuffer: {
-        push(data: Buffer): boolean;
-        snapshot(): {
-          bufferedPackets: number;
-          bufferedBytes: number;
-          droppedPackets: number;
+      mediaQueue: {
+        /** Per-generation buffer, replaced by an ICE restart. */
+        buffer: {
+          push(data: Buffer): boolean;
+          snapshot(): {
+            bufferedPackets: number;
+            bufferedBytes: number;
+            droppedPackets: number;
+          };
         };
       };
       handleIceRestart(): void;
@@ -603,7 +606,7 @@ describe("RTCDtlsTransportTest", () => {
     try {
       // Act: 旧世代の packet を実際の ICE datagram demux 経由で保留する。
       injectAuthenticatedMedia(session, protectedLikeRtp);
-      const oldBuffer = internals.mediaBuffer;
+      const oldBuffer = internals.mediaQueue.buffer;
       const oldBeforeRestart = oldBuffer.snapshot();
       const timersBeforeRestart = vi.getTimerCount();
       expect(oldBeforeRestart.bufferedPackets).toBe(1);
@@ -613,7 +616,7 @@ describe("RTCDtlsTransportTest", () => {
       // Act: attempt 未発行のまま ICE generation を進めて restart を通知する。
       ice.generation++;
       session.handleIceRestart();
-      const newBuffer = internals.mediaBuffer;
+      const newBuffer = internals.mediaQueue.buffer;
 
       // Assert: 旧 queue と timer は破棄され、新 buffer は空である。
       expect(newBuffer).not.toBe(oldBuffer);
@@ -669,12 +672,18 @@ describe("RTCDtlsTransportTest", () => {
     receiver.setRemoteParams(sender.localParameters);
     await Promise.all([sender.start(), receiver.start()]);
     const internals = receiver as unknown as {
-      srtpReadReady: boolean;
-      currentAttempt: { id: number; iceGeneration: number };
+      srtpAccess: {
+        revoke(): void;
+        update(state: {
+          peerAuthenticated: boolean;
+          earlyServerWriteAllowed: boolean;
+        }): void;
+      };
+      attempts: { current: { id: number; iceGeneration: number } };
       drainMediaBuffer(attempt: { id: number; iceGeneration: number }): void;
-      mediaBuffer: { snapshot(): { bufferedPackets: number } };
+      mediaQueue: { snapshot(): { bufferedPackets: number } };
     };
-    internals.srtpReadReady = false;
+    internals.srtpAccess.revoke();
 
     try {
       // Act: 実 SRTP 3 件を buffer させる。
@@ -687,7 +696,7 @@ describe("RTCDtlsTransportTest", () => {
         ).toBeGreaterThan(0);
       }
       const deadline = Date.now() + 5_000;
-      while (internals.mediaBuffer.snapshot().bufferedPackets < 3) {
+      while (internals.mediaQueue.snapshot().bufferedPackets < 3) {
         if (Date.now() > deadline) throw new Error("media が buffer されない");
         await setTimeout(20);
       }
@@ -698,14 +707,17 @@ describe("RTCDtlsTransportTest", () => {
         received++;
         if (received === 1) void receiver.stop();
       });
-      internals.srtpReadReady = true;
-      internals.drainMediaBuffer(internals.currentAttempt);
+      internals.srtpAccess.update({
+        peerAuthenticated: true,
+        earlyServerWriteAllowed: false,
+      });
+      internals.drainMediaBuffer(internals.attempts.current);
       await setTimeout(20);
 
       // Assert: 残りは配送されず、connected へ戻らない。
       expect(received).toBe(1);
       expect(receiver.state).toBe("closed");
-      expect(internals.mediaBuffer.snapshot().bufferedPackets).toBe(0);
+      expect(internals.mediaQueue.snapshot().bufferedPackets).toBe(0);
       const closeStats = (await receiver.getStats()).find(
         (stat): stat is RTCTransportStats => stat.type === "transport",
       );
@@ -733,12 +745,18 @@ describe("RTCDtlsTransportTest", () => {
     receiver.setRemoteParams(sender.localParameters);
     await Promise.all([sender.start(), receiver.start()]);
     const internals = receiver as unknown as {
-      srtpReadReady: boolean;
-      currentAttempt: { id: number; iceGeneration: number };
+      srtpAccess: {
+        revoke(): void;
+        update(state: {
+          peerAuthenticated: boolean;
+          earlyServerWriteAllowed: boolean;
+        }): void;
+      };
+      attempts: { current: { id: number; iceGeneration: number } };
       drainMediaBuffer(attempt: { id: number; iceGeneration: number }): void;
-      mediaBuffer: { snapshot(): { bufferedPackets: number } };
+      mediaQueue: { snapshot(): { bufferedPackets: number } };
     };
-    internals.srtpReadReady = false;
+    internals.srtpAccess.revoke();
     const ice = receiver.iceTransport.connection as unknown as {
       generation: number;
     };
@@ -754,7 +772,7 @@ describe("RTCDtlsTransportTest", () => {
         ).toBeGreaterThan(0);
       }
       const deadline = Date.now() + 5_000;
-      while (internals.mediaBuffer.snapshot().bufferedPackets < 3) {
+      while (internals.mediaQueue.snapshot().bufferedPackets < 3) {
         if (Date.now() > deadline) throw new Error("media が buffer されない");
         await setTimeout(20);
       }
@@ -768,13 +786,16 @@ describe("RTCDtlsTransportTest", () => {
           receiver.handleIceRestart();
         }
       });
-      internals.srtpReadReady = true;
-      internals.drainMediaBuffer(internals.currentAttempt);
+      internals.srtpAccess.update({
+        peerAuthenticated: true,
+        earlyServerWriteAllowed: false,
+      });
+      internals.drainMediaBuffer(internals.attempts.current);
 
       // Assert: 旧 attempt の残りは配送されず、公開 drop 統計へ計上される。
       expect(received).toBe(1);
       expect(receiver.state).toBe("connected");
-      expect(internals.mediaBuffer.snapshot().bufferedPackets).toBe(0);
+      expect(internals.mediaQueue.snapshot().bufferedPackets).toBe(0);
       const restartStats = (await receiver.getStats()).find(
         (stat): stat is RTCTransportStats => stat.type === "transport",
       );
@@ -1004,9 +1025,11 @@ describe("RTCDtlsTransportTest", () => {
     // Arrange: handshake 開始前の attempt を connecting 状態で発行する。
     const [session] = await createDtlsSessions();
     const internals = session as unknown as {
-      beginAttempt(generation: number): { id: number; iceGeneration: number };
+      attempts: {
+        begin(generation: number): { id: number; iceGeneration: number };
+        current?: { id: number; iceGeneration: number };
+      };
       syncAttemptToIceGeneration(): void;
-      currentAttempt?: { id: number; iceGeneration: number };
       applicationGate: {
         receive(data: Buffer): void;
         authenticate(shouldContinue?: () => boolean): void;
@@ -1017,7 +1040,7 @@ describe("RTCDtlsTransportTest", () => {
     const ice = session.iceTransport.connection as unknown as {
       generation: number;
     };
-    internals.beginAttempt(ice.generation);
+    internals.attempts.begin(ice.generation);
     const received: string[] = [];
     session.dataReceiver = (buf: Buffer) => {
       received.push(buf.toString());
@@ -1030,7 +1053,7 @@ describe("RTCDtlsTransportTest", () => {
       internals.syncAttemptToIceGeneration();
 
       // Assert: attempt が新世代へ付け替わり、旧 buffer は破棄される。
-      expect(internals.currentAttempt?.iceGeneration).toBe(ice.generation);
+      expect(internals.attempts.current?.iceGeneration).toBe(ice.generation);
       expect(internals.applicationGate.snapshot().bufferedPackets).toBe(0);
 
       // Act: 新世代の pre-auth data を受けて認証する。
@@ -1052,19 +1075,19 @@ describe("RTCDtlsTransportTest", () => {
     let peerAuthenticatedFires = 0;
     let peerAuthenticatedOutcome = "pending";
     let handshakeCompleteOutcome = "pending";
-    (
+    const readiness = (
       session1 as unknown as {
-        onPeerAuthenticated: { subscribe(cb: () => void): void };
+        readiness: {
+          onPeerAuthenticated: { subscribe(cb: () => void): void };
+          onHandshakeComplete: { subscribe(cb: () => void): void };
+        };
       }
-    ).onPeerAuthenticated.subscribe(() => {
+    ).readiness;
+    readiness.onPeerAuthenticated.subscribe(() => {
       peerAuthenticatedFires++;
     });
     let handshakeCompleteFires = 0;
-    (
-      session1 as unknown as {
-        onHandshakeComplete: { subscribe(cb: () => void): void };
-      }
-    ).onHandshakeComplete.subscribe(() => {
+    readiness.onHandshakeComplete.subscribe(() => {
       handshakeCompleteFires++;
     });
     const peerAuthenticatedWait = session1.waitForPeerAuthenticated().then(
@@ -1237,10 +1260,8 @@ describe("RTCDtlsTransportTest", () => {
         close(): void;
         waitForWriteReady(): Promise<void>;
       };
-      currentAttempt?: { id: number; iceGeneration: number };
-      beginAttempt(generation: number): unknown;
-      readiness: { writeReady: boolean };
-      onWriteReady: { execute(): void };
+      attempts: { begin(generation: number): unknown };
+      readiness: { writeReady: boolean; reachWriteReady(): boolean };
     };
     let resolveWriteReady!: () => void;
     const writeReady = new Promise<void>((resolve) => {
@@ -1257,12 +1278,12 @@ describe("RTCDtlsTransportTest", () => {
 
     try {
       internals.state = "connecting";
-      internals.beginAttempt(connection.generation);
+      internals.attempts.begin(connection.generation);
       const oldWaiter = transport.waitForWriteReady();
 
       // Act: lower DTLS の完了前に ICE generation を進めて新 attempt を開始する。
       connection.generation++;
-      internals.beginAttempt(connection.generation);
+      internals.attempts.begin(connection.generation);
       resolveWriteReady();
       await Promise.resolve();
       await Promise.resolve();
@@ -1271,8 +1292,7 @@ describe("RTCDtlsTransportTest", () => {
       expect(internals.readiness.writeReady).toBe(false);
 
       // Act: 新 attempt の上位 readiness edge を発火して旧 waiter を解放する。
-      internals.readiness.writeReady = true;
-      internals.onWriteReady.execute();
+      internals.readiness.reachWriteReady();
       await oldWaiter;
 
       // Assert: write-ready は新 attempt による明示通知後だけ有効になる。

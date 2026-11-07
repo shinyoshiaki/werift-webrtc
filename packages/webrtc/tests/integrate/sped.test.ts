@@ -39,6 +39,7 @@ import {
   collectMessages,
   connectWithAnswererDtlsRole,
   dtls13EngineOf,
+  srtpAccessOf,
   transportStatsOf,
   warpDiagnosticsSourceOf,
   warpFieldsOf,
@@ -1446,10 +1447,7 @@ describe("RTCPeerConnection SPED opt-in", () => {
       const serverDtls = server.dtlsTransports[0]!;
       await serverDtls.waitForWriteReady();
       expect(serverDtls.isEarlyServerWriteAllowed()).toBe(false);
-      expect(
-        (serverDtls as unknown as { srtpKeysInstalled: boolean })
-          .srtpKeysInstalled,
-      ).toBe(false);
+      expect(srtpAccessOf(serverDtls).keysInstalled).toBe(false);
 
       // Act: write-ready 通知後に公開設定で early outbound を有効化する。
       server.setConfiguration({
@@ -1465,10 +1463,7 @@ describe("RTCPeerConnection SPED opt-in", () => {
 
       // Assert: 設定変更で鍵が導入され、RTP/RTCP が実際に wire へ届く。
       expect(serverDtls.isEarlyServerWriteAllowed()).toBe(true);
-      expect(
-        (serverDtls as unknown as { srtpKeysInstalled: boolean })
-          .srtpKeysInstalled,
-      ).toBe(true);
+      expect(srtpAccessOf(serverDtls).keysInstalled).toBe(true);
       expect(sentRtp).toBeGreaterThan(0);
       expect(sentRtcp).not.toBe(0);
       await waitUntil(() => receivedRtp === 1 && receivedRtcp === 1);
@@ -1501,9 +1496,7 @@ describe("RTCPeerConnection SPED opt-in", () => {
       const server = pc1.dtlsTransports[0]!;
       const serverIce = iceOf(pc1);
       await server.waitForWriteReady();
-      expect(
-        (server as unknown as { srtpWriteReady: boolean }).srtpWriteReady,
-      ).toBe(true);
+      expect(srtpAccessOf(server).canWrite).toBe(true);
 
       // Act: consent 失効相当の ICE failed 通知で SPED を abort する。
       (
@@ -1511,9 +1504,7 @@ describe("RTCPeerConnection SPED opt-in", () => {
       ).setState("failed");
 
       // Assert: abort は early SRTP permission も取り消す。
-      expect(
-        (server as unknown as { srtpWriteReady: boolean }).srtpWriteReady,
-      ).toBe(false);
+      expect(srtpAccessOf(server).canWrite).toBe(false);
       expect(
         await server.sendRtp(
           Buffer.from("after-consent-expiry"),
@@ -1558,12 +1549,8 @@ describe("RTCPeerConnection SPED opt-in", () => {
       (pc2Ice as unknown as { setState: (state: "failed") => void }).setState(
         "failed",
       );
-      expect(
-        (pc1Dtls as unknown as { srtpWriteReady: boolean }).srtpWriteReady,
-      ).toBe(false);
-      expect(
-        (pc2Dtls as unknown as { srtpWriteReady: boolean }).srtpWriteReady,
-      ).toBe(false);
+      expect(srtpAccessOf(pc1Dtls).canWrite).toBe(false);
+      expect(srtpAccessOf(pc2Dtls).canWrite).toBe(false);
 
       // Act: 新しい ICE generation を negotiation して selected pair を復旧する。
       await pc1.setLocalDescription(
@@ -1575,12 +1562,8 @@ describe("RTCPeerConnection SPED opt-in", () => {
       await Promise.all([waitForIceNominated(pc1), waitForIceNominated(pc2)]);
 
       // Assert: 認証済み association の SRTP permission が新世代で再評価される。
-      expect(
-        (pc1Dtls as unknown as { srtpWriteReady: boolean }).srtpWriteReady,
-      ).toBe(true);
-      expect(
-        (pc2Dtls as unknown as { srtpWriteReady: boolean }).srtpWriteReady,
-      ).toBe(true);
+      expect(srtpAccessOf(pc1Dtls).canWrite).toBe(true);
+      expect(srtpAccessOf(pc2Dtls).canWrite).toBe(true);
 
       // Act: 双方向の RTP/RTCP を送信する。
       await pc1Dtls.sendRtp(

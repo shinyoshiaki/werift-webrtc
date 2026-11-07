@@ -1,19 +1,14 @@
 import { randomUUID } from "crypto";
 import { setTimeout } from "timers/promises";
-import { DirectHandshakeCarrier } from "../../../dtls/src/carrier/direct";
 import {
   createDtlsClientInternal,
   createDtlsServerInternal,
-  createPreAuthEarlyDataBuffer,
-  type EarlyDataBuffer,
-  refragmentPendingFlightIfNeeded,
 } from "../../../dtls/src/internal";
 import type { Connection } from "../../../ice/src";
 import {
   connectionDatagramEvent,
   type IceDatagramContext,
 } from "../../../ice/src/internal/datagram";
-import { attachSpedToConnection } from "../../../ice/src/internal/sped";
 import { getConnectionSpedRuntime } from "../../../ice/src/internal/sped-bind";
 import { SCTPSendPermissionRevokedError } from "../../../sctp/src";
 import { EventTarget as DomEventTarget } from "../helper";
@@ -23,7 +18,6 @@ import {
   debug,
   isMedia,
   isRtcp,
-  keyLength,
   type RtcpPacket,
   type RtpHeader,
   type RtpPacket,
@@ -34,6 +28,7 @@ import {
 import { getStatsTimestamp, type RTCStats } from "../media/stats";
 import { milliTime } from "../utils";
 import { InboundApplicationGate } from "./dtls-application-gate";
+import { TransportAttempts } from "./dtls-attempt";
 import {
   createSelfSignedCertificate,
   type RTCCertificate,
@@ -44,8 +39,11 @@ import {
   verifyRemoteCertificateFingerprint,
 } from "./dtls-fingerprint";
 import { createIceTransport } from "./dtls-ice-transport";
+import { PreAuthMediaQueue } from "./dtls-media-queue";
+import { TransportReadiness } from "./dtls-readiness";
 import { isDtlsTransportSped } from "./dtls-sped";
-import { createSrtpSessions, decryptRtcp, decryptRtp } from "./dtls-srtp";
+import { runSpedHandshake } from "./dtls-sped-handshake";
+import { decryptRtcp, decryptRtp, SrtpAccess } from "./dtls-srtp";
 import { buildDtlsTransportStats } from "./dtls-stats";
 import type {
   DtlsRole,
@@ -53,10 +51,9 @@ import type {
   DtlsTransportConfig,
   DtlsTransportStats,
   TransportAttempt,
-  WebRtcDtlsReadiness,
 } from "./dtls-types";
 import type { RTCIceTransport } from "./ice";
-import { IceSpedTransport } from "./sped";
+import type { IceSpedTransport } from "./sped";
 
 export {
   type DtlsKeys,
@@ -74,6 +71,8 @@ export {
 
 const log = debug("werift:packages/webrtc/src/transport/dtls.ts");
 
+type AddressValidation = "dtls-cookie" | "ice-authenticated";
+
 /** Result of encrypting and enqueueing one RTP packet on ICE. */
 export type DtlsSendRtpResult = {
   /** On-wire SRTP size in bytes. */
@@ -81,6 +80,23 @@ export type DtlsSendRtpResult = {
   /** Local clock immediately before ICE/UDP enqueue (RFC 8888 send time). */
   sendingAtMs: number;
 };
+
+// DTLS over an RTCIceTransport, with the WebRTC rules on top: nothing from
+// the peer (application data, RTP, RTCP) reaches upper layers before its
+// certificate matches the SDP fingerprint.
+//
+// The transport's state is split by concern, each part owning the fields
+// that change together:
+// - TransportAttempts (dtls-attempt.ts): which handshake / authentication
+//   attempt owns the continuations (an ICE restart starts a new one);
+// - TransportReadiness (dtls-readiness.ts): write-ready / peer-authenticated
+//   / handshake-complete and the handshake timing;
+// - SrtpAccess (dtls-srtp.ts): SRTP keys and the read / write permissions;
+// - InboundApplicationGate (dtls-application-gate.ts) / PreAuthMediaQueue
+//   (dtls-media-queue.ts): application data and media held until
+//   authentication;
+// - runSpedHandshake (dtls-sped-handshake.ts): the SPED carrier and runtime
+//   when PeerConfig.sped is enabled.
 export class RTCDtlsTransport implements DtlsTransportStats {
   readonly config: DtlsTransportConfig;
   readonly iceTransport: RTCIceTransport;
@@ -118,35 +134,23 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   srtcp!: SrtcpSession;
   lastError?: Error;
   private startPromise?: Promise<void>;
-  private readiness: WebRtcDtlsReadiness = {
-    writeReady: false,
-    peerAuthenticated: false,
-    handshakeComplete: false,
-  };
-  private readonly onWriteReady = new Event<[]>();
-  private readonly onPeerAuthenticated = new Event<[]>();
-  private readonly onHandshakeComplete = new Event<[]>();
   /** @internal Notifies SCTP that its pre-authenticated early start was revoked. */
   readonly onEarlyApplicationSendRevoked = new Event<[]>();
   /** @internal Cancels pre-established associations owned by an old attempt. */
   readonly onEarlyApplicationAttemptCancelled = new Event<[]>();
-  /** Wakes readiness waiters when a connected association adopts a new attempt. */
-  private readonly onAttemptChanged = new Event<[]>();
+
+  private readonly attempts = new TransportAttempts();
+  private readonly readiness: TransportReadiness;
+  private readonly srtpAccess = new SrtpAccess();
   private readonly applicationGate: InboundApplicationGate;
-  private mediaBuffer: EarlyDataBuffer;
-  private retiredMediaDroppedPackets = 0;
-  private retiredMediaDroppedBytes = 0;
-  private srtpKeysInstalled = false;
-  private srtpWriteReady = false;
-  private srtpReadReady = false;
-  private mediaListenerStarted = false;
-  private attemptCounter = 0;
-  private currentAttempt?: TransportAttempt;
-  private handshakeStartedAt?: number;
-  private peerAuthenticatedAt?: number;
-  private handshakeWaitAttemptId?: number;
-  private earlyServerSendUsed = false;
+  private readonly mediaQueue: PreAuthMediaQueue;
+  /**
+   * WARP early server output was withdrawn for this attempt (SPED abort,
+   * direct DTLS fallback); a new attempt allows it again.
+   */
   private earlyModeDisabled = false;
+  /** Application data or media left before peer authentication (stats). */
+  private earlyServerSendUsed = false;
   private spedTransport?: IceSpedTransport;
   private iceDatagramSubscription?: { unSubscribe(): void };
 
@@ -183,29 +187,46 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       warp: config.warp ? { ...config.warp } : undefined,
     };
     this.localCertificate ??= RTCDtlsTransport.localCertificate;
+    this.readiness = new TransportReadiness({
+      onAttemptChanged: this.attempts.onChanged,
+      onStateChange: this.onStateChange,
+      isTerminated: () => this.isTerminated(),
+      lastError: () => this.lastError,
+    });
     this.applicationGate = new InboundApplicationGate((data) =>
       this.dataReceiver?.(data),
     );
-    this.mediaBuffer = createPreAuthEarlyDataBuffer({
-      enabled: this.config.warp?.earlyMediaPolicy === "buffer",
-    });
+    this.mediaQueue = new PreAuthMediaQueue(this.bufferEarlyMedia);
     // start() までの到着も落とさないよう、ICE datagram 購読は生成直後に開始
-    // する。認証前の到着は gate / mediaBuffer 側で保持し、上位へは出さない。
+    // する。認証前の到着は gate / mediaQueue 側で保持し、上位へは出さない。
     const ice = this.iceTransport.connection as Connection;
     this.iceDatagramSubscription = connectionDatagramEvent(ice).subscribe(
       (ctx) => this.onIceDatagram(ctx),
     );
   }
 
+  /** WARP: the DTLS server may send before the peer is authenticated. */
+  private get allowsEarlyServerData(): boolean {
+    return this.config.warp?.allowEarlyServerData === true;
+  }
+
+  /** WARP: keep (instead of drop) media that arrives before authentication. */
+  private get bufferEarlyMedia(): boolean {
+    return this.config.warp?.earlyMediaPolicy === "buffer";
+  }
+
+  private get liveIceGeneration(): number {
+    return (this.iceTransport.connection as Connection).generation;
+  }
+
   /** @internal Update the live WARP policy without leaving a stale snapshot. */
   updateWarpConfig(warp: DtlsTransportConfig["warp"]): void {
-    const previousAllowEarlyServerData =
-      this.config.warp?.allowEarlyServerData === true;
+    const previousAllowEarlyServerData = this.allowsEarlyServerData;
+    const previousPolicy = this.config.warp?.earlyMediaPolicy ?? "drop";
     const nextWarp = {
       allowEarlyServerData: warp?.allowEarlyServerData === true,
       earlyMediaPolicy: warp?.earlyMediaPolicy ?? "drop",
     } as const;
-    const previousPolicy = this.config.warp?.earlyMediaPolicy ?? "drop";
 
     this.config.warp = nextWarp;
     this.spedTransport?.setEarlyApplicationSendEnabled(
@@ -222,8 +243,8 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     }
     if (previousPolicy !== nextWarp.earlyMediaPolicy) {
       // A policy change invalidates protected media accumulated under the old
-      // policy. Dispose the old retention timer before replacing the queue.
-      this.replaceMediaBuffer();
+      // policy; the old retention timer is disposed with its queue.
+      this.mediaQueue.renew(this.bufferEarlyMedia);
     }
     // A live policy change can happen after DTLS 1.3 write-ready.  Re-run the
     // same key-install edge used by markWriteReady so enabling early outbound
@@ -297,9 +318,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       try {
         this.verifyRemoteCertificateFingerprint();
       } catch (error) {
-        this.lastError =
-          error instanceof Error ? error : new Error(String(error));
-        this.failAuthenticatedTransport();
+        this.failAuthenticatedTransport(toError(error));
       }
     }
   }
@@ -308,15 +327,10 @@ export class RTCDtlsTransport implements DtlsTransportStats {
    * 認証済み association の事後失敗処理。fingerprint 不一致の再検証など、
    * handshake 完了後に認証が崩れた場合に状態・gate・queue を確実に落とす。
    */
-  private failAuthenticatedTransport(): void {
-    this.readiness.peerAuthenticated = false;
-    this.peerAuthenticatedAt = undefined;
-    this.srtpReadReady = false;
-    this.srtpWriteReady = false;
-    this.setState("failed");
-    this.applicationGate.abort();
-    this.mediaBuffer.clear(true);
-    this.mediaBuffer.dispose();
+  private failAuthenticatedTransport(error: Error): void {
+    this.readiness.revokePeerAuthentication();
+    this.enterFailed(error);
+    this.releasePreAuthData();
     this.abortSpedSession();
     this.dtls?.close();
   }
@@ -360,7 +374,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     }
 
     this.setState("connecting");
-    this.bindMediaListener();
+    this.srtpStarted = true;
     this.startPromise = this.completeHandshake();
     await this.startPromise;
   }
@@ -370,7 +384,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     if (this.readiness.writeReady) return;
     if (!this.dtls) await Promise.resolve();
     if (!this.dtls) throw new Error("DTLS handshake has not started");
-    const attempt = this.currentAttempt;
+    const attempt = this.attempts.current;
     await this.dtls.waitForWriteReady();
     // The lower socket can finish an old carrier generation after ICE restart.
     // That completion may never re-grant upper-layer permission: only the
@@ -379,8 +393,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       this.markWriteReady(attempt);
       return;
     }
-    if (this.readiness.writeReady) return;
-    await this.waitForCurrentWriteReady();
+    await this.readiness.waitFor("writeReady");
   }
 
   /** @internal */
@@ -394,11 +407,11 @@ export class RTCDtlsTransport implements DtlsTransportStats {
    * the marker is installed only by SecureTransportManager for PeerConfig.sped.
    */
   private isEarlyServerOutboundReady(): boolean {
-    const attempt = this.currentAttempt;
+    const attempt = this.attempts.current;
     return (
       isDtlsTransportSped(this) &&
       this.role === "server" &&
-      this.config.warp?.allowEarlyServerData === true &&
+      this.allowsEarlyServerData &&
       !this.earlyModeDisabled &&
       this.readiness.writeReady &&
       this.dtls?.isDtls13 === true &&
@@ -409,18 +422,12 @@ export class RTCDtlsTransport implements DtlsTransportStats {
 
   /** @internal */
   waitForPeerAuthenticated(): Promise<void> {
-    return this.waitForWebRtcMilestone(
-      () => this.readiness.peerAuthenticated,
-      this.onPeerAuthenticated,
-    );
+    return this.readiness.waitFor("peerAuthenticated");
   }
 
   /** @internal */
   waitForHandshakeComplete(): Promise<void> {
-    return this.waitForWebRtcMilestone(
-      () => this.readiness.handshakeComplete,
-      this.onHandshakeComplete,
-    );
+    return this.readiness.waitFor("handshakeComplete");
   }
 
   /** @internal Rebind an in-flight direct handshake to the new ICE generation. */
@@ -434,128 +441,100 @@ export class RTCDtlsTransport implements DtlsTransportStats {
    * drift 検出を同じ処理にまとめ、旧 attempt の継続を無効化する。
    */
   private syncAttemptToIceGeneration(): void {
-    // start() 前にも authenticated media は mediaBuffer に到着し得る。
+    const current = this.attempts.current;
+    // start() 前にも authenticated media は mediaQueue に到着し得る。
     // attempt 未発行のまま ICE restart された場合も、旧世代の queue と
     // retention timer を新世代へ持ち越さない。
-    if (!this.currentAttempt) {
-      this.resetMediaBufferForNewAttempt();
+    if (!current) {
+      this.mediaQueue.renew(this.bufferEarlyMedia);
       return;
     }
     if (isDtlsTransportSped(this)) return;
 
-    const generation = (this.iceTransport.connection as Connection).generation;
-    if (generation === this.currentAttempt.iceGeneration) return;
+    const generation = this.liveIceGeneration;
+    if (generation === current.iceGeneration) return;
     // ここに来るのは SPED でない transport だけで、early 送信は SPED 専用
     // (isEarlyServerOutboundReady) なので early attempt は存在しない。
     // onEarlyApplicationAttemptCancelled を発火すると、確立前の通常 SCTP
     // association まで cancelStart で閉じてしまうため発火しない。
     if (this.state === "connected") {
       // 認証済み association は維持し、新 generation へ attempt を付け替える。
-      this.rebindConnectedAttempt(this.beginAttempt(generation));
+      this.rebindConnectedAttempt(this.attempts.begin(generation));
       return;
     }
     if (this.state !== "connecting") return;
+    this.restartConnectingAttempt(generation);
+  }
 
-    // A restart never mutates an in-flight attempt.  Continuations captured
-    // by the previous generation must fail the identity check below.
-    this.beginAttempt(generation);
+  /**
+   * An ICE restart replaced the generation of a handshake that is still
+   * connecting. The cryptographic association continues as a new attempt:
+   * continuations captured by the previous generation fail the identity
+   * check, and the pre-authentication state starts over for the new one.
+   */
+  private restartConnectingAttempt(generation: number): void {
+    // A restart never mutates an in-flight attempt; the owning
+    // completeHandshake loop adopts this new immutable token.
+    this.attempts.begin(generation);
     // 新 attempt 用に gate を開き直す (旧 drain 残余は呼び出し側が破棄する)。
     this.applicationGate.restartForNewAttempt();
-    this.resetMediaBufferForNewAttempt();
+    this.mediaQueue.renew(this.bufferEarlyMedia);
     this.dtls?.clearEarlyDataBuffer();
-    this.readiness.writeReady = false;
-    this.srtpWriteReady = false;
-    this.srtpReadReady = false;
-    this.handshakeStartedAt = Date.now();
-    this.peerAuthenticatedAt = undefined;
+    this.earlyModeDisabled = false;
+    this.readiness.restartAttempt();
+    this.srtpAccess.revoke();
   }
 
-  private waitForWebRtcMilestone(
-    reached: () => boolean,
-    event: Event<[]>,
-  ): Promise<void> {
-    if (reached()) return Promise.resolve();
-    if (this.state === "failed" || this.state === "closed") {
-      return Promise.reject(
-        this.lastError ?? new Error("DTLS transport closed before readiness"),
-      );
+  /**
+   * SPED: the session restarted for `generation` (ICE restart, or a reset in
+   * the same generation). The early attempt is cancelled; a connected
+   * association moves to a new attempt, a connecting one starts over.
+   */
+  private resetSpedGeneration(generation: number): void {
+    this.onEarlyApplicationAttemptCancelled.execute();
+    this.mediaQueue.renew(this.bufferEarlyMedia);
+    this.spedTransport?.setEarlyApplicationSendEnabled(
+      this.allowsEarlyServerData,
+    );
+    this.dtls?.clearEarlyDataBuffer();
+    const current = this.attempts.current;
+    if (
+      this.state === "connected" &&
+      current &&
+      current.iceGeneration !== generation
+    ) {
+      // SPED owns the generation reset callback; connected associations
+      // still need to rebind upper readiness waiters to the new attempt.
+      this.rebindConnectedAttempt(this.attempts.begin(generation));
     }
-    return new Promise<void>((resolve, reject) => {
-      const ready = event.subscribe(() => {
-        cleanup();
-        resolve();
-      });
-      const attempt = this.onAttemptChanged.subscribe(() => {
-        if (!reached()) return;
-        cleanup();
-        resolve();
-      });
-      const state = this.onStateChange.subscribe((next) => {
-        if (next !== "failed" && next !== "closed") return;
-        cleanup();
-        reject(
-          this.lastError ?? new Error("DTLS transport closed before readiness"),
-        );
-      });
-      const cleanup = () => {
-        ready.unSubscribe();
-        attempt.unSubscribe();
-        state.unSubscribe();
-      };
-      if (reached()) {
-        cleanup();
-        resolve();
-      }
-    });
+    if (this.state === "connecting" && this.attempts.current) {
+      this.restartConnectingAttempt(generation);
+    } else {
+      this.applicationGate.discardPending();
+    }
   }
 
-  /** Wait for the current attempt's upper write-ready edge after a drift. */
-  private waitForCurrentWriteReady(): Promise<void> {
-    if (this.readiness.writeReady) return Promise.resolve();
-    if (this.state === "failed" || this.state === "closed") {
-      return Promise.reject(
-        this.lastError ??
-          new Error("DTLS transport closed before write readiness"),
-      );
-    }
-    return new Promise<void>((resolve, reject) => {
-      const ready = this.onWriteReady.subscribe(() => {
-        if (!this.readiness.writeReady) return;
-        cleanup();
-        resolve();
-      });
-      const attempt = this.onAttemptChanged.subscribe(() => {
-        if (!this.readiness.writeReady) return;
-        cleanup();
-        resolve();
-      });
-      const state = this.onStateChange.subscribe((next) => {
-        if (next !== "failed" && next !== "closed") return;
-        cleanup();
-        reject(
-          this.lastError ??
-            new Error("DTLS transport closed before write readiness"),
-        );
-      });
-      const cleanup = () => {
-        ready.unSubscribe();
-        attempt.unSubscribe();
-        state.unSubscribe();
-      };
-      if (this.readiness.writeReady) {
-        cleanup();
-        resolve();
-      }
-    });
+  /**
+   * SPED: early application data of the current attempt is abandoned (SPED
+   * session abort, direct DTLS fallback). Early server output stays off until
+   * a new attempt; `revoke` names the SRTP permissions withdrawn now.
+   */
+  private abandonEarlyApplication(revoke: "read-and-write" | "write"): void {
+    this.onEarlyApplicationAttemptCancelled.execute();
+    this.earlyModeDisabled = true;
+    this.spedTransport?.setEarlyApplicationSendEnabled(false);
+    if (revoke === "write") this.srtpAccess.revokeWrite();
+    else this.srtpAccess.revoke();
+    this.applicationGate.discardPending();
+    this.mediaQueue.discard();
+    this.dtls?.clearEarlyDataBuffer();
   }
 
   private async completeHandshake() {
-    let attempt = this.beginAttempt(
-      (this.iceTransport.connection as Connection).generation,
-    );
-    this.handshakeStartedAt = Date.now();
+    let attempt = this.attempts.begin(this.liveIceGeneration);
+    this.readiness.startHandshake();
     const sped = isDtlsTransportSped(this);
-    const addressValidation = sped
+    const addressValidation: AddressValidation = sped
       ? "ice-authenticated"
       : this.config.helloRetryRequest
         ? "dtls-cookie"
@@ -578,7 +557,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       this.syncAttemptToIceGeneration();
       if (!this.isCurrentAttempt(attempt)) {
         if (this.isTerminated()) return;
-        const current = this.currentAttempt;
+        const current = this.attempts.current;
         if (!current) return;
         attempt = current;
         continue;
@@ -590,16 +569,13 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       try {
         this.verifyRemoteCertificateFingerprint();
       } catch (error) {
-        this.lastError =
-          error instanceof Error ? error : new Error(String(error));
-        this.failAuthenticatedTransport();
+        this.failAuthenticatedTransport(toError(error));
         throw error;
       }
 
       if (!this.isCurrentAttempt(attempt)) continue;
       if (this.state !== "connecting") return;
-      this.readiness.peerAuthenticated = true;
-      this.peerAuthenticatedAt = Date.now();
+      this.readiness.authenticatePeer();
       if (this.srtpProfiles.length > 0) {
         this.installSrtpKeys();
         this.updateSrtpPermissions();
@@ -623,14 +599,14 @@ export class RTCDtlsTransport implements DtlsTransportStats {
         if (this.isTerminated()) return;
         // connected association の restart は rebindConnectedAttempt() が
         // readiness waiter と DTLS 完了待機を新 attempt へ引き継いだ。
-        if (this.currentAttempt) {
-          this.bindHandshakeCompletion(this.currentAttempt);
+        if (this.attempts.current) {
+          this.bindHandshakeCompletion(this.attempts.current);
           return;
         }
         continue;
       }
       if (this.isTerminated()) return;
-      this.onPeerAuthenticated.execute();
+      this.readiness.announcePeerAuthenticated();
       this.bindHandshakeCompletion(attempt);
 
       log("dtls connected");
@@ -639,23 +615,8 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   }
 
   private isCurrentAttempt(attempt: TransportAttempt): boolean {
-    if (this.state === "closed" || this.state === "failed") return false;
-    return (
-      this.currentAttempt?.id === attempt.id &&
-      this.currentAttempt.iceGeneration === attempt.iceGeneration &&
-      (this.iceTransport.connection as Connection).generation ===
-        attempt.iceGeneration
-    );
-  }
-
-  private beginAttempt(iceGeneration: number): TransportAttempt {
-    const attempt: TransportAttempt = {
-      id: ++this.attemptCounter,
-      iceGeneration,
-    };
-    this.currentAttempt = attempt;
-    this.onAttemptChanged.execute();
-    return attempt;
+    if (this.isTerminated()) return false;
+    return this.attempts.isCurrent(attempt, this.liveIceGeneration);
   }
 
   /**
@@ -681,8 +642,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   private bindHandshakeCompletion(attempt: TransportAttempt): void {
     if (this.readiness.handshakeComplete) return;
     const dtls = this.dtls;
-    if (!dtls || this.handshakeWaitAttemptId === attempt.id) return;
-    this.handshakeWaitAttemptId = attempt.id;
+    if (!dtls || !this.attempts.claimHandshakeWait(attempt)) return;
 
     if (dtls.readiness.handshakeComplete) {
       this.markHandshakeComplete(attempt);
@@ -698,20 +658,17 @@ export class RTCDtlsTransport implements DtlsTransportStats {
 
   private markHandshakeComplete(attempt: TransportAttempt): void {
     if (!this.isCurrentAttempt(attempt) || this.isTerminated()) return;
-    if (this.readiness.handshakeComplete) return;
-    this.readiness.handshakeComplete = true;
-    this.onHandshakeComplete.execute();
+    this.readiness.reachHandshakeComplete();
   }
 
   private markWriteReady(attempt?: TransportAttempt): void {
-    const current = attempt ?? this.currentAttempt;
+    const current = attempt ?? this.attempts.current;
     if (!current || !this.isCurrentAttempt(current)) return;
-    if (this.readiness.writeReady) return;
-    this.readiness.writeReady = true;
-    this.spedTransport?.markApplicationWriteReady();
-    this.ensureEarlySrtpKeys();
-    this.updateSrtpPermissions();
-    this.onWriteReady.execute();
+    this.readiness.reachWriteReady(() => {
+      this.spedTransport?.markApplicationWriteReady();
+      this.ensureEarlySrtpKeys();
+      this.updateSrtpPermissions();
+    });
   }
 
   private ensureEarlySrtpKeys(): void {
@@ -720,209 +677,12 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     }
   }
 
-  private async startSerial(
-    addressValidation: "dtls-cookie" | "ice-authenticated",
-  ) {
-    await new Promise<void>(async (r, f) => {
-      if (this.role === "server") {
-        this.dtls = new DtlsServer({
-          cert: this.localCertificate?.certPem,
-          key: this.localCertificate?.privateKey,
-          signatureHash: this.localCertificate?.signatureHash,
-          transport: createIceTransport(this.iceTransport.connection),
-          srtpProfiles: this.srtpProfiles,
-          extendedMasterSecret: true,
-          certificateRequest: true,
-          protocolVersions: this.config.protocolVersions,
-          peerIdentityMode: "authenticated-single-peer",
-          addressValidation,
-        });
-      } else {
-        this.dtls = new DtlsClient({
-          cert: this.localCertificate?.certPem,
-          key: this.localCertificate?.privateKey,
-          signatureHash: this.localCertificate?.signatureHash,
-          transport: createIceTransport(this.iceTransport.connection),
-          srtpProfiles: this.srtpProfiles,
-          extendedMasterSecret: true,
-          protocolVersions: this.config.protocolVersions,
-          peerIdentityMode: "authenticated-single-peer",
-          addressValidation,
-        });
-      }
-      this.bindDtlsSocketEvents(r, f);
-
-      if (this.dtls instanceof DtlsClient) {
-        await setTimeout(100);
-        this.dtls.connect().catch((error) => {
-          // stop()/close() 後の遅延失敗で closed を failed へ上書きしない。
-          if (this.isTerminated()) return;
-          // ICE restart で attempt を付け替えても DTLS socket は同じで、
-          // connect() をやり直す経路はない。失敗を捨てると start() が
-          // 終わらないため、attempt に関係なく現在の失敗として扱う。
-          this.lastError = error;
-          this.setState("failed");
-          log("dtls connect failed", error);
-          f(error);
-        });
-      }
-    });
-  }
-
-  private async startWithSped(
-    addressValidation: "dtls-cookie" | "ice-authenticated",
-  ) {
-    const ice = this.iceTransport.connection as Connection;
-    const transport = new IceSpedTransport(ice);
-    this.spedTransport = transport;
-    transport.setEarlyApplicationSendEnabled(
-      this.config.warp?.allowEarlyServerData === true,
-    );
-    const carrier = new DirectHandshakeCarrier(transport);
-    carrier.setWireSendEnabled(false);
-    carrier.setRetransmissionMode("external");
-
-    let lastFlight: Buffer[] = [];
-    let handshakeDone = false;
-    let dtlsSocket: DtlsSocket | undefined;
-    const handle = attachSpedToConnection(ice, {
-      inject: async (bytes, peer, generation) => {
-        if (ice.generation !== generation) {
-          return;
-        }
-        await carrier.inject(bytes, peer ? [peer[0], peer[1]] : undefined, {
-          rxGeneration: generation,
-        });
-      },
-      onSessionReset: () => {
-        carrier.invalidateInboundInjects?.();
-        this.onEarlyApplicationAttemptCancelled.execute();
-        this.resetMediaBufferForNewAttempt();
-        transport.setEarlyApplicationSendEnabled(
-          this.config.warp?.allowEarlyServerData === true,
-        );
-        dtlsSocket?.clearEarlyDataBuffer();
-        if (
-          this.state === "connected" &&
-          this.currentAttempt &&
-          this.currentAttempt.iceGeneration !== ice.generation
-        ) {
-          // SPED owns the generation reset callback; connected associations
-          // still need to rebind upper readiness waiters to the new attempt.
-          this.rebindConnectedAttempt(this.beginAttempt(ice.generation));
-        }
-        if (this.state === "connecting" && this.currentAttempt) {
-          // The cryptographic association continues, but every subsequent
-          // continuation is now owned by the new authenticated ICE generation.
-          // Invalidate every closure that captured the prior ICE generation.
-          // The owning completeHandshake loop adopts this new immutable token.
-          this.beginAttempt(ice.generation);
-          // 新 attempt 用に gate を開き直す (旧 drain 残余は呼び出し側が破棄する)。
-          this.applicationGate.restartForNewAttempt();
-          this.earlyModeDisabled = false;
-          this.readiness.writeReady = false;
-          this.srtpWriteReady = false;
-          this.handshakeStartedAt = Date.now();
-          this.peerAuthenticatedAt = undefined;
-        } else {
-          this.applicationGate.discardPending();
-        }
-        if (this.state === "connected" || handshakeDone) {
-          if (handle.runtime.isDirectCarrierSelected()) {
-            if (dtlsSocket?.isDtls13) {
-              handle.runtime.completeDirectFallback();
-            } else {
-              handle.runtime.commitDirectFallback();
-            }
-          } else if (dtlsSocket?.isDtls13) {
-            handle.runtime.completeHandshake();
-          } else {
-            handle.runtime.commitDirectFallback();
-          }
-          return;
-        }
-        // New ICE generation starts SPED probing again.
-        transport.disableHandshakeDirect();
-        carrier.setWireSendEnabled(false);
-        carrier.setRetransmissionMode("external");
-        if (this.state === "connecting" && lastFlight.length > 0) {
-          handle.onFlightCreated(lastFlight);
-          if (dtlsSocket?.readiness.writeReady) {
-            this.markWriteReady(this.currentAttempt);
-          }
-        }
-      },
-      onSessionAbort: () => {
-        this.onEarlyApplicationAttemptCancelled.execute();
-        this.earlyModeDisabled = true;
-        transport.setEarlyApplicationSendEnabled(false);
-        transport.disableHandshakeDirect();
-        // ICE/SPED abort invalidates early SRTP permission immediately.  The
-        // DTLS association may still be connecting, so peer authentication is
-        // not sufficient to reconstruct this permission until a new attempt.
-        this.srtpWriteReady = false;
-        this.srtpReadReady = false;
-        this.applicationGate.discardPending();
-        this.mediaBuffer.clear(true);
-        dtlsSocket?.clearEarlyDataBuffer();
-        carrier.invalidateInboundInjects?.();
-        carrier.cancelAllTimers();
-      },
-      onFallbackFlight: async () => {
-        this.onEarlyApplicationAttemptCancelled.execute();
-        this.earlyModeDisabled = true;
-        transport.setEarlyApplicationSendEnabled(false);
-        this.srtpWriteReady = false;
-        this.applicationGate.discardPending();
-        this.mediaBuffer.clear(true);
-        dtlsSocket?.clearEarlyDataBuffer();
-        carrier.setWireSendEnabled(true);
-      },
-      onHandshakeComplete: () => {
-        handshakeDone = true;
-        carrier.setWireSendEnabled(true);
-        transport.markApplicationReady();
-      },
-      onDirectHandshakeReady: (readiness) => {
-        if (readiness.generation !== ice.generation) {
-          return;
-        }
-        if (!readiness.ready || !readiness.pair) {
-          transport.disableHandshakeDirect();
-          if (this.state === "connecting" && !handshakeDone) {
-            carrier.setWireSendEnabled(false);
-            carrier.setRetransmissionMode("external");
-          }
-          return;
-        }
-        transport.enableHandshakeDirect(readiness.pair, readiness.generation);
-        carrier.setWireSendEnabled(true);
-      },
-      setRetransmissionMode: (mode) => carrier.setRetransmissionMode(mode),
-      updateRtt: (rttMs) => carrier.updateRtt(rttMs),
-      resetRtt: () => carrier.resetRtt(),
-      setMtu: (mtu) => carrier.setMtu(mtu),
-      refragmentPendingFlight: () => {
-        if (dtlsSocket) {
-          refragmentPendingFlightIfNeeded(dtlsSocket);
-        }
-      },
-    });
-    transport.setRuntime(handle.runtime);
-
-    carrier.events.onFlightCreated = (_flightId, packets) => {
-      if (handle.runtime.isStaleCarrierFlight()) {
-        return;
-      }
-      lastFlight = packets.map((packet) => Buffer.from(packet.bytes));
-      handle.onFlightCreated(lastFlight, { fromCarrier: true });
-    };
-
-    const common = {
+  /** Options every DTLS socket of this transport shares. */
+  private dtlsSocketOptions(addressValidation: AddressValidation) {
+    return {
       cert: this.localCertificate?.certPem,
       key: this.localCertificate?.privateKey,
       signatureHash: this.localCertificate?.signatureHash,
-      transport,
       srtpProfiles: this.srtpProfiles,
       extendedMasterSecret: true,
       // The association owns version selection. SPED carries the 1.3
@@ -930,59 +690,77 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       protocolVersions: this.config.protocolVersions,
       peerIdentityMode: "authenticated-single-peer" as const,
       addressValidation,
-      handshakeCarrier: carrier,
     };
+  }
 
-    await new Promise<void>(async (r, f) => {
-      if (this.role === "server") {
-        this.dtls = createDtlsServerInternal({
-          ...common,
-          certificateRequest: true,
-        });
-      } else {
-        this.dtls = createDtlsClientInternal(common);
-      }
-      dtlsSocket = this.dtls;
-      this.bindDtlsSocketEvents(r, f);
-      this.dtls.onConnect.once(() => {
-        const directFallback =
-          handle.runtime.fallbackStarted ||
-          handle.runtime.session.state === "fallback" ||
-          handle.runtime.session.peerSupport === "unsupported";
-        if (this.dtls?.isDtls13 && !directFallback) {
-          handle.onHandshakeComplete();
-        } else if (this.dtls?.isDtls13) {
-          handshakeDone = true;
-          this.earlyModeDisabled = true;
-          carrier.setWireSendEnabled(true);
-          handle.runtime.completeDirectFallback();
-          transport.markApplicationReady();
-        } else {
-          handshakeDone = true;
-          this.earlyModeDisabled = true;
-          carrier.setWireSendEnabled(true);
-          handle.runtime.commitDirectFallback();
-          transport.markApplicationReady();
-        }
-      });
+  private async startSerial(addressValidation: AddressValidation) {
+    await new Promise<void>(async (resolve, reject) => {
+      const options = {
+        ...this.dtlsSocketOptions(addressValidation),
+        transport: createIceTransport(this.iceTransport.connection),
+      };
+      this.dtls =
+        this.role === "server"
+          ? new DtlsServer({ ...options, certificateRequest: true })
+          : new DtlsClient(options);
+      this.bindDtlsSocketEvents(resolve, reject);
 
       if (this.dtls instanceof DtlsClient) {
-        this.dtls.connect().catch((error) => {
-          // stop()/close() 後の遅延失敗で closed を failed へ上書きしない。
-          if (this.isTerminated()) return;
-          // SPED でも restart 後に同じ socket で connect() をやり直す経路は
-          // ないため、attempt の付け替えに関係なく現在の失敗として扱う。
-          this.lastError = error;
-          this.setState("failed");
-          this.abortSpedSession();
-          log("dtls connect failed", error);
-          f(error);
-        });
+        await setTimeout(100);
+        this.dtls.connect().catch((error) => this.failStart(error, reject));
       }
     });
   }
 
-  private bindDtlsSocketEvents(r: () => void, f: (error: Error) => void) {
+  private startWithSped(addressValidation: AddressValidation) {
+    return runSpedHandshake({
+      connection: this.iceTransport.connection as Connection,
+      allowsEarlyServerData: () => this.allowsEarlyServerData,
+      state: () => this.state,
+      adoptSpedTransport: (transport) => {
+        this.spedTransport = transport;
+      },
+      createSocket: (transport, carrier, resolve, reject) => {
+        const options = {
+          ...this.dtlsSocketOptions(addressValidation),
+          transport,
+          handshakeCarrier: carrier,
+        };
+        const socket =
+          this.role === "server"
+            ? createDtlsServerInternal({ ...options, certificateRequest: true })
+            : createDtlsClientInternal(options);
+        this.dtls = socket;
+        this.bindDtlsSocketEvents(resolve, reject);
+        return socket;
+      },
+      failStart: (error, reject) => this.failStart(error, reject),
+      resetForGeneration: (generation) => this.resetSpedGeneration(generation),
+      abandonEarlyApplication: (revoke) => this.abandonEarlyApplication(revoke),
+      endEarlyServerMode: () => {
+        this.earlyModeDisabled = true;
+      },
+      markWriteReady: () => this.markWriteReady(),
+    });
+  }
+
+  /** connect() of the DTLS client failed: the start fails with `error`. */
+  private failStart(error: Error, reject: (error: Error) => void): void {
+    // stop()/close() 後の遅延失敗で closed を failed へ上書きしない。
+    if (this.isTerminated()) return;
+    // ICE restart で attempt を付け替えても DTLS socket は同じで、
+    // connect() をやり直す経路はない。失敗を捨てると start() が
+    // 終わらないため、attempt に関係なく現在の失敗として扱う。
+    this.enterFailed(error);
+    this.abortSpedSession();
+    log("dtls connect failed", error);
+    reject(error);
+  }
+
+  private bindDtlsSocketEvents(
+    resolve: () => void,
+    reject: (error: Error) => void,
+  ) {
     if (!this.dtls) {
       return;
     }
@@ -990,28 +768,20 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     // 対象は世代ごとに注入される SPED carrier だけ。非 SPED では restart を
     // またいでも同じ DTLS association の datagram なので遮断しない (warp と同じ)。
     if (isDtlsTransportSped(this)) {
-      this.dtls.setExpectedRxGeneration(
-        () => (this.iceTransport.connection as Connection).generation,
-      );
+      this.dtls.setExpectedRxGeneration(() => this.liveIceGeneration);
     }
     this.dtls.onData.subscribe((buf) => {
-      if (
-        this.config.debug?.inboundPacketLoss &&
-        this.config.debug?.inboundPacketLoss / 100 < Math.random()
-      ) {
-        return;
-      }
+      if (this.dropForDebug("inbound")) return;
       // restart 後に engine queue から遅延配送された旧世代 data は gate に入れない。
       if (!this.isFreshApplicationReceive()) return;
       this.applicationGate.receive(buf);
     });
     this.dtls.onClose.subscribe(() => {
       // 全 close 経路で送信許可を解除し、close 後の SRTP/SRTCP 送信を防ぐ。
-      this.srtpReadReady = false;
-      this.srtpWriteReady = false;
+      this.srtpAccess.revoke();
       if (this.state === "connecting") {
         this.abortSpedSession();
-        this.abortPreAuthBuffers();
+        this.discardUnauthenticatedData();
       }
       if (this.state !== "failed") {
         this.setState("closed");
@@ -1019,12 +789,12 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       // onClose may be the only terminal edge observed by the start wrapper
       // (notably when stop() closes a handshake before onConnect).  Reject it
       // so every caller awaiting the shared startPromise is released.
-      f(
+      reject(
         this.lastError ??
           new Error("DTLS transport closed before start completed"),
       );
     });
-    this.dtls.onConnect.once(r);
+    this.dtls.onConnect.once(resolve);
     // Reflect the core's write readiness (DTLS 1.3 server: after its own
     // Finished) as soon as it exists, independent of SCTP. Media-only early
     // server sends depend on it; the permission itself is still decided by
@@ -1034,20 +804,36 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       log("core write readiness not reached", error);
     });
     this.dtls.onError.once((error) => {
-      this.lastError = error;
-      this.srtpReadReady = false;
-      this.srtpWriteReady = false;
-      this.setState("failed");
+      this.enterFailed(error);
       this.abortSpedSession();
-      this.abortPreAuthBuffers();
+      this.discardUnauthenticatedData();
       log("dtls failed", error);
-      f(error);
+      reject(error);
     });
+  }
+
+  /** Enter "failed" with `error`; media permissions end with it. */
+  private enterFailed(error: Error): void {
+    this.lastError = error;
+    this.srtpAccess.revoke();
+    this.setState("failed");
   }
 
   private abortSpedSession() {
     const ice = this.iceTransport.connection as Connection;
     getConnectionSpedRuntime(ice)?.abort();
+  }
+
+  /** Drop every application / media record held for authentication, for good. */
+  private releasePreAuthData(): void {
+    this.applicationGate.abort();
+    this.mediaQueue.close();
+  }
+
+  /** {@link releasePreAuthData}, unless the peer was already authenticated. */
+  private discardUnauthenticatedData(): void {
+    if (this.readiness.peerAuthenticated) return;
+    this.releasePreAuthData();
   }
 
   /**
@@ -1057,56 +843,16 @@ export class RTCDtlsTransport implements DtlsTransportStats {
    */
   private isFreshApplicationReceive(): boolean {
     if (this.isTerminated()) return false;
-    const ice = this.iceTransport.connection as Connection;
+    const generation = this.liveIceGeneration;
     if (this.state === "connected") {
       this.syncConnectedAttempt();
-      const synced = this.currentAttempt;
+      const synced = this.attempts.current;
       if (!synced) return false;
-      return ice.generation === synced.iceGeneration;
+      return generation === synced.iceGeneration;
     }
-    const current = this.currentAttempt;
+    const current = this.attempts.current;
     if (!current) return true;
-    return ice.generation === current.iceGeneration;
-  }
-
-  private abortPreAuthBuffers() {
-    if (this.readiness.peerAuthenticated) return;
-    this.applicationGate.abort();
-    this.mediaBuffer.clear(true);
-    this.mediaBuffer.dispose();
-  }
-
-  /**
-   * ICE generation をまたぐ media queue の所有権を切り替える。
-   * clear() だけでは旧 buffer を再利用でき、dispose() だけでは drop
-   * 計上を失うため、旧 queue を明示的に破棄してから新しい buffer を作る。
-   */
-  private resetMediaBufferForNewAttempt(): void {
-    this.mediaBuffer.clear(true);
-    this.retainMediaDroppedStats();
-    this.mediaBuffer.dispose();
-    this.mediaBuffer = createPreAuthEarlyDataBuffer({
-      enabled: this.config.warp?.earlyMediaPolicy === "buffer",
-    });
-  }
-
-  private replaceMediaBuffer(): void {
-    this.resetMediaBufferForNewAttempt();
-  }
-
-  private retainMediaDroppedStats(): void {
-    const stats = this.mediaBuffer.snapshot();
-    this.retiredMediaDroppedPackets += stats.droppedPackets;
-    this.retiredMediaDroppedBytes += stats.droppedBytes;
-  }
-
-  private mediaBufferStats() {
-    const current = this.mediaBuffer.snapshot();
-    return {
-      ...current,
-      droppedPackets: current.droppedPackets + this.retiredMediaDroppedPackets,
-      droppedBytes: current.droppedBytes + this.retiredMediaDroppedBytes,
-    };
+    return generation === current.iceGeneration;
   }
 
   private verifyRemoteCertificateFingerprint() {
@@ -1121,34 +867,25 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   }
 
   private installSrtpKeys() {
-    if (this.srtpKeysInstalled) return;
+    if (this.srtpAccess.keysInstalled) return;
     if (!this.dtls) throw new Error();
-
-    const { srtp, srtcp } = createSrtpSessions(this.dtls);
+    const { srtp, srtcp } = this.srtpAccess.installKeys(this.dtls);
     this.srtp = srtp;
     this.srtcp = srtcp;
-    this.srtpKeysInstalled = true;
   }
 
   startSrtp() {
-    this.bindMediaListener();
+    this.srtpStarted = true;
     this.installSrtpKeys();
     this.updateSrtpPermissions();
   }
 
   /** Key availability never grants media access by itself. */
   private updateSrtpPermissions() {
-    this.srtpReadReady =
-      this.srtpKeysInstalled && this.readiness.peerAuthenticated;
-    this.srtpWriteReady =
-      this.srtpKeysInstalled &&
-      (this.readiness.peerAuthenticated || this.isEarlyServerWriteAllowed());
-  }
-
-  private bindMediaListener() {
-    if (this.mediaListenerStarted) return;
-    this.mediaListenerStarted = true;
-    this.srtpStarted = true;
+    this.srtpAccess.update({
+      peerAuthenticated: this.readiness.peerAuthenticated,
+      earlyServerWriteAllowed: this.isEarlyServerOutboundReady(),
+    });
   }
 
   /**
@@ -1157,19 +894,13 @@ export class RTCDtlsTransport implements DtlsTransportStats {
    * は encrypted のまま buffer/drop し、復号・配送は fingerprint 認証後だけ。
    */
   private onIceDatagram(ctx: IceDatagramContext): void {
-    if (
-      this.config.debug?.inboundPacketLoss &&
-      this.config.debug?.inboundPacketLoss / 100 < Math.random()
-    ) {
-      return;
-    }
+    if (this.dropForDebug("inbound")) return;
 
     // 旧 generation・close 後・未認証 pair の media は配送も buffer もしない。
     if (this.isTerminated()) return;
     this.syncConnectedAttempt();
-    const ice = this.iceTransport.connection as Connection;
-    const current = this.currentAttempt;
-    if (ctx.generation !== ice.generation) return;
+    const current = this.attempts.current;
+    if (ctx.generation !== this.liveIceGeneration) return;
     // ICE restart 後も相手が新 pair へ移るまでは、旧世代の選択 pair の media を
     // 受け付ける (RFC 8445 §9)。DTLS の認証経路には使わない。
     if (!ctx.fromPreviousSelectedPair) {
@@ -1181,17 +912,14 @@ export class RTCDtlsTransport implements DtlsTransportStats {
 
     const data = ctx.bytes;
     if (!isMedia(data)) return;
+    this.recordReceived(data.length);
 
-    // Track received data statistics
-    this.bytesReceived += data.length;
-    this.packetsReceived++;
-
-    if (!this.srtpReadReady) {
+    if (!this.srtpAccess.canRead) {
       // handshake 開始前 (attempt 未発行) の pre-auth media は現世代に
       // 限り buffer し、配送は認証後の drain に委ねる。
       if (current && !this.isCurrentAttempt(current)) return;
       if (current && ctx.generation !== current.iceGeneration) return;
-      this.mediaBuffer.push(data);
+      this.mediaQueue.push(data);
       return;
     }
 
@@ -1228,35 +956,18 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     }
   }
 
+  /** Deliver media queued before authentication while `attempt` stays current. */
   private drainMediaBuffer(attempt: TransportAttempt) {
-    const buffer = this.mediaBuffer;
-    while (true) {
-      // 各要素配送前と配送後に attempt/state を再検証し、close/restart で中断する。
-      if (
-        !this.isCurrentAttempt(attempt) ||
-        !this.srtpReadReady ||
-        this.isTerminated()
-      ) {
-        buffer.clear(true);
-        return;
-      }
-      const data = buffer.takeOne();
-      if (!data) return;
-      this.handleMediaPacket(data, attempt);
-      if (
-        !this.isCurrentAttempt(attempt) ||
-        this.isTerminated() ||
-        !this.srtpReadReady
-      ) {
-        buffer.clear(true);
-        return;
-      }
-    }
+    // 各要素配送前と配送後に attempt/state を再検証し、close/restart で中断する。
+    this.mediaQueue.drain(
+      (data) => this.handleMediaPacket(data, attempt),
+      () => this.canDeliverMedia(attempt),
+    );
   }
 
   private canDeliverMedia(attempt: TransportAttempt): boolean {
     return (
-      this.srtpReadReady &&
+      this.srtpAccess.canRead &&
       !this.isTerminated() &&
       this.isCurrentAttempt(attempt)
     );
@@ -1273,32 +984,53 @@ export class RTCDtlsTransport implements DtlsTransportStats {
    * queue 破棄を伴わないため SPED でも共通に扱える。
    */
   private syncConnectedAttempt(): void {
-    if (this.state !== "connected" || !this.currentAttempt) return;
-    const generation = (this.iceTransport.connection as Connection).generation;
-    if (generation !== this.currentAttempt.iceGeneration) {
-      this.rebindConnectedAttempt(this.beginAttempt(generation));
+    const current = this.attempts.current;
+    if (this.state !== "connected" || !current) return;
+    const generation = this.liveIceGeneration;
+    if (generation !== current.iceGeneration) {
+      this.rebindConnectedAttempt(this.attempts.begin(generation));
     }
   }
 
+  /** `config.debug` packet loss simulation for `direction`. */
+  private dropForDebug(direction: "inbound" | "outbound"): boolean {
+    const loss =
+      direction === "inbound"
+        ? this.config.debug?.inboundPacketLoss
+        : this.config.debug?.outboundPacketLoss;
+    return !!loss && loss / 100 < Math.random();
+  }
+
+  /** Record that output left before the peer was authenticated (stats). */
+  private noteEarlyServerSend(): void {
+    if (!this.readiness.peerAuthenticated) this.earlyServerSendUsed = true;
+  }
+
+  private recordSent(size: number): void {
+    this.bytesSent += size;
+    this.packetsSent++;
+  }
+
+  private recordReceived(size: number): void {
+    this.bytesReceived += size;
+    this.packetsReceived++;
+  }
+
   readonly sendData = async (data: Buffer) => {
-    if (
-      this.config.debug?.outboundPacketLoss &&
-      this.config.debug?.outboundPacketLoss / 100 < Math.random()
-    ) {
-      return;
-    }
+    if (this.dropForDebug("outbound")) return;
 
     if (!this.dtls) {
       throw new Error("dtls not established");
     }
-    if (!this.readiness.peerAuthenticated) {
-      if (!this.isEarlyServerOutboundReady()) {
-        throw new SCTPSendPermissionRevokedError(
-          "DTLS peer is not authenticated",
-        );
-      }
-      this.earlyServerSendUsed = true;
+    if (
+      !this.readiness.peerAuthenticated &&
+      !this.isEarlyServerOutboundReady()
+    ) {
+      throw new SCTPSendPermissionRevokedError(
+        "DTLS peer is not authenticated",
+      );
     }
+    this.noteEarlyServerSend();
     await this.dtls.send(data);
   };
 
@@ -1340,19 +1072,13 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     header: RtpHeader,
   ): Promise<DtlsSendRtpResult> {
     try {
-      if (this.isTerminated()) {
+      if (this.isTerminated() || !this.srtpAccess.canWrite) {
         return { size: 0, sendingAtMs: milliTime() };
       }
-      if (!this.srtpWriteReady) {
-        return { size: 0, sendingAtMs: milliTime() };
-      }
-      if (!this.readiness.peerAuthenticated) this.earlyServerSendUsed = true;
+      this.noteEarlyServerSend();
       const enc = this.srtp.encrypt(payload, header);
 
-      if (
-        this.config.debug?.outboundPacketLoss &&
-        this.config.debug?.outboundPacketLoss / 100 < Math.random()
-      ) {
+      if (this.dropForDebug("outbound")) {
         return { size: enc.length, sendingAtMs: milliTime() };
       }
 
@@ -1360,8 +1086,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       await this.sendProtectedMedia(enc);
       // 実際の wire 送信が成功した後だけ統計を更新する。SPED の early
       // path は authenticated pair 待ちで reject することがある。
-      this.bytesSent += enc.length;
-      this.packetsSent++;
+      this.recordSent(enc.length);
       return { size: enc.length, sendingAtMs };
     } catch (error) {
       log("failed to send", error);
@@ -1370,24 +1095,19 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   }
 
   async sendRtcp(packets: RtcpPacket[]): Promise<number> {
-    if (this.isTerminated()) return 0;
-    if (!this.srtpWriteReady) return 0;
-    if (!this.readiness.peerAuthenticated) this.earlyServerSendUsed = true;
+    if (this.isTerminated() || !this.srtpAccess.canWrite) return 0;
+    this.noteEarlyServerSend();
     const payload = Buffer.concat(packets.map((packet) => packet.serialize()));
     const enc = this.srtcp.encrypt(payload);
 
-    if (
-      this.config.debug?.outboundPacketLoss &&
-      this.config.debug?.outboundPacketLoss / 100 < Math.random()
-    ) {
+    if (this.dropForDebug("outbound")) {
       return enc.length;
     }
 
     try {
       await this.sendProtectedMedia(enc);
       // 実際の wire 送信が成功した後だけ統計を更新する。
-      this.bytesSent += enc.length;
-      this.packetsSent++;
+      this.recordSent(enc.length);
       return enc.length;
     } catch (error) {
       log("failed to send RTCP", error);
@@ -1452,15 +1172,12 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   private async runStop() {
     try {
       // 旧 attempt の callback・drain が再開しないよう先に無効化する。
-      this.currentAttempt = undefined;
+      this.attempts.invalidate();
       this.iceDatagramSubscription?.unSubscribe();
       this.iceDatagramSubscription = undefined;
-      this.srtpReadReady = false;
-      this.srtpWriteReady = false;
+      this.srtpAccess.revoke();
       this.setState("closed", false);
-      this.applicationGate.abort();
-      this.mediaBuffer.clear(true);
-      this.mediaBuffer.dispose();
+      this.releasePreAuthData();
       // DTLS engine の early queue・pending flight・再送 timer を破棄する。
       try {
         this.dtls?.close();
@@ -1497,9 +1214,9 @@ export class RTCDtlsTransport implements DtlsTransportStats {
         packetsSent: this.packetsSent,
         packetsReceived: this.packetsReceived,
         applicationQueue: this.applicationGate.snapshot(),
-        mediaQueue: this.mediaBufferStats(),
-        handshakeStartedAt: this.handshakeStartedAt,
-        peerAuthenticatedAt: this.peerAuthenticatedAt,
+        mediaQueue: this.mediaQueue.snapshot(),
+        handshakeStartedAt: this.readiness.handshakeStartedAt,
+        peerAuthenticatedAt: this.readiness.peerAuthenticatedAt,
         earlyServerSendUsed: this.earlyServerSendUsed,
       },
       timestamp,
@@ -1511,4 +1228,8 @@ export class RTCDtlsTransport implements DtlsTransportStats {
 
     return stats;
   }
+}
+
+function toError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error));
 }

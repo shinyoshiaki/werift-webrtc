@@ -462,18 +462,20 @@ export function warpFieldsOf(stats: RTCTransportStats) {
 export function warpDiagnosticsSourceOf(pc: RTCPeerConnection) {
   const transport = pc.dtlsTransports[0] as unknown as {
     state: string;
-    handshakeStartedAt?: number;
-    peerAuthenticatedAt?: number;
     earlyServerSendUsed: boolean;
-    readiness: Record<string, boolean>;
+    readiness: {
+      handshakeStartedAt?: number;
+      peerAuthenticatedAt?: number;
+      snapshot(): Record<string, boolean>;
+    };
     dtls?: { totalRetransmitCount: number };
   };
   const ice = pc.iceTransports[0].connection as Connection;
   return {
     state: transport.state,
-    readiness: { ...transport.readiness },
-    handshakeStartedAt: transport.handshakeStartedAt,
-    peerAuthenticatedAt: transport.peerAuthenticatedAt,
+    readiness: transport.readiness.snapshot(),
+    handshakeStartedAt: transport.readiness.handshakeStartedAt,
+    peerAuthenticatedAt: transport.readiness.peerAuthenticatedAt,
     earlyServerSendUsed: transport.earlyServerSendUsed,
     dtlsRetransmissions: transport.dtls?.totalRetransmitCount ?? 0,
     sped: getConnectionSpedRuntime(ice)?.diagnosticsSnapshot(),
@@ -1051,6 +1053,19 @@ export function holdApplicationPath(pc: RTCPeerConnection) {
   };
 }
 
+/** Assert helper: SRTP keys / permissions of a DTLS transport. */
+export function srtpAccessOf(transport: RTCDtlsTransport) {
+  return (
+    transport as unknown as {
+      srtpAccess: {
+        keysInstalled: boolean;
+        canRead: boolean;
+        canWrite: boolean;
+      };
+    }
+  ).srtpAccess;
+}
+
 /** Assert helper: records the SPED transport still holds in its send queue. */
 export function queuedSpedSendsOf(transport: RTCDtlsTransport) {
   const sped = (
@@ -1327,9 +1342,9 @@ export async function connectWithLegacySctpPeer({
 
 type ReadinessSnapshot = { writeReady: boolean; peerAuthenticated: boolean };
 const readinessOf = (transport: RTCDtlsTransport) =>
-  ({
-    ...(transport as unknown as { readiness: ReadinessSnapshot }).readiness,
-  }) as ReadinessSnapshot;
+  (
+    transport as unknown as { readiness: { snapshot(): ReadinessSnapshot } }
+  ).readiness.snapshot();
 
 /**
  * Arrange: SPED / DTLS 1.3 peers whose offerer is the DTLS server and owns a
