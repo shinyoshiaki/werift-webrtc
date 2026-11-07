@@ -4,7 +4,7 @@ ide:
   version: 1
   title: "RTCRtpSender RTT: 古い SR を参照する RR の受け入れ"
   dock: right
-  baseCommit: 95fba0c33dc504363ad1b3acf642ac3565f9202f
+  baseCommit: 291b955fae56bf4ade33c907faadd9a4895372f8
 ---
 # RTCRtpSender RTT: 古い SR を参照する RR を受け入れる
 
@@ -206,12 +206,12 @@ RFC 3550 §6.4.1 の RTT は、RR の `LSR` が指す SR を基準に計算す�
 
 <div style="display:flex;gap:12px;flex-wrap:wrap;margin:12px 0">
   <div style="flex:1;min-width:150px;padding:12px 16px;border:1px solid var(--review-border);border-radius:8px;background:var(--review-surface);text-align:center">
-    <div style="font-size:24px;font-weight:bold;color:var(--review-success)">82</div>
+    <div style="font-size:24px;font-weight:bold;color:var(--review-success)">100</div>
     <div style="font-size:12px;color:var(--review-muted)">対象テスト成功<br>2 ファイル</div>
   </div>
   <div style="flex:1;min-width:150px;padding:12px 16px;border:1px solid var(--review-border);border-radius:8px;background:var(--review-surface);text-align:center">
     <div style="font-size:24px;font-weight:bold;color:var(--review-success)">1609</div>
-    <div style="font-size:12px;color:var(--review-muted)">webrtc 全体成功<br>5 skipped / 63 files</div>
+    <div style="font-size:12px;color:var(--review-muted)">webrtc 全体成功<br>5 skipped / 77 files</div>
   </div>
   <div style="flex:1;min-width:150px;padding:12px 16px;border:1px solid var(--review-border);border-radius:8px;background:var(--review-surface);text-align:center">
     <div style="font-size:24px;font-weight:bold;color:var(--review-success)">Pass</div>
@@ -237,7 +237,7 @@ npm test
 
 - 起票元の実環境（実 Chrome 受信側 + 帯域制約 TURN 経路）での再現・改善効果は未確認です。今回の検証は単体・結合テストと型検査までです。
 - PR はまだ作成していません。チケット完了条件にある「#701 修正後も両立すること」を PR 説明に記載する必要があります。
-- 変更は HEAD `95fba0c33` にコミット済みで、作業ツリーはクリーンです。`changelog.md` の追記は [changelog.md:17](review-file:changelog.md:17)、リーク検査の有界状態の記載は [leakProbe.ts:1007](review-file:packages/webrtc/tests/pbt/leak/leakProbe.ts:1007) です。
+- 変更は HEAD `b4b016142` を基点に、SR 履歴の `SenderStatistics` への統合・フォーマット修正を未コミットで加えています。`changelog.md` の追記は [changelog.md:17](review-file:changelog.md:17)、リーク検査の有界状態の記載は [leakProbe.ts:1007](review-file:packages/webrtc/tests/pbt/leak/leakProbe.ts:1007) です。
 
 ## まとめ
 
