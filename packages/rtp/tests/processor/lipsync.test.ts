@@ -91,24 +91,71 @@ describe("lipsync", () => {
     expect(harness.output.audio[0].time).toBe(T);
   });
 
-  it("keeps frames of the drained interval that arrive after the timer start", async () => {
-    // Arrange
-    harness = createLipsyncHarness({ startTimeout: 20 });
-    harness.inputVideo(createLipsyncFrames(T, 110, 20));
-    harness.lipsync.inputVideo({
-      frame: { time: T + 130, data: Buffer.alloc(1), isKeyframe: false },
-    });
-    // Act: 期限でタイマー開始した後、同じ区間の入力が続く
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    const before = harness.output.video.length;
-    harness.inputVideo(createLipsyncFrames(T + 140, 20, 20));
-    harness.inputVideo(createLipsyncFrames(T + 160, 1_500, 20));
+  describe.each([
+    { name: "without dummy audio", fillDummyAudioPacket: undefined },
+    { name: "with dummy audio", fillDummyAudioPacket: Buffer.from([1]) },
+  ])("timer start $name", ({ fillDummyAudioPacket }) => {
+    // 期限前に届く映像（最後のフレームは区間の途中の T+400）
+    const pending = createLipsyncFrames(T, 420, 20);
+    // 期限後に届く映像（T+400 と同じ区間の T+420 から続く）
+    const resumed = createLipsyncFrames(T + 420, 1_600, 20);
 
-    // Assert: 時刻順にすべて出力され、取りこぼしがない
-    const times = harness.output.video.map((f) => f.time);
-    expect(before).toBeGreaterThan(0);
-    expect(times).toContain(T + 140);
-    expect(times).toEqual([...times].sort((a, b) => a - b));
+    const expectNoDummyAudioBeyond = (latest: number) => {
+      const times = harness.output.audio.map((f) => f.time);
+      if (fillDummyAudioPacket) {
+        // Assert: ダミー音声は先頭から時刻順に ptime 以下の間隔で隙間なく続き、
+        // 受信済みの最新フレームを越えない
+        expect(times[0]).toBe(T);
+        const steps = times.slice(1).map((t, i) => t - times[i]);
+        expect(steps.every((step) => step > 0 && step <= 20)).toBe(true);
+        expect(Math.max(...times)).toBeLessThanOrEqual(latest);
+      } else {
+        // Assert: 無音補完なしでは音声は出力されない
+        expect(times).toHaveLength(0);
+      }
+    };
+
+    it("outputs every pending frame when input stops", async () => {
+      // Arrange
+      harness = createLipsyncHarness({
+        startTimeout: 20,
+        fillDummyAudioPacket,
+      });
+
+      // Act: 映像だけが届き、その後は入力が止まったまま期限を過ぎる
+      harness.inputVideo(pending);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      // Assert: 溜めた映像が欠落なく時刻順に出力される
+      expect(harness.output.video.map((f) => f.time)).toEqual(
+        pending.map((f) => f.time),
+      );
+      expectNoDummyAudioBeyond(T + 400);
+    });
+
+    it("keeps the frames of the same interval that arrive after the start", async () => {
+      // Arrange
+      harness = createLipsyncHarness({
+        startTimeout: 20,
+        fillDummyAudioPacket,
+      });
+      harness.inputVideo(pending);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      const outputAtStart = harness.output.video.length;
+
+      // Act: タイマー開始の後、同じ区間（T+420〜）から映像の入力が続く
+      harness.inputVideo(resumed);
+
+      // Assert: タイマー開始で溜めた映像がすべて出力済みだった
+      expect(outputAtStart).toBe(pending.length);
+      // Assert: 出力は入力の先頭からの連続した列と完全一致し、欠落がない
+      const all = [...pending, ...resumed].map((f) => f.time);
+      const times = harness.output.video.map((f) => f.time);
+      expect(times).toEqual(all.slice(0, times.length));
+      // Assert: 指摘された T+420〜T+480 を含め、期限後の入力も出力が進んでいる
+      expect(times.length).toBeGreaterThan(pending.length + 4);
+      expectNoDummyAudioBeyond(Math.max(...all));
+    });
   });
 
   it("clears the start timer on stop", async () => {

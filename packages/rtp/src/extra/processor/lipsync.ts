@@ -88,7 +88,12 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
     };
   }
 
-  private executeTask() {
+  /**
+   * Outputs the current slot and commits up to `end`. `end` defaults to the
+   * end of the slot; the timer start passes the latest received frame time so
+   * that the dummy audio fill does not commit beyond the received frames.
+   */
+  private executeTask(end = this.currentTimestamp + this.bufferDuration) {
     const audioBuffer = this.audioBuffer[this.index].sort(
       (a, b) => a.frame.time - b.frame.time,
     );
@@ -103,13 +108,9 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
 
       // パケット間の損失/muteはdtxプラグインでダミーパケットを挿入する
       // interval中のパケットが途中から無いもしくはinterval中にパケットが無い場合はここでダミーパケットを挿入する
-      const audioDiff = this.currentTimestamp + this.bufferDuration - expect;
+      const audioDiff = end - expect;
       if (audioDiff > 0) {
-        for (
-          let time = expect;
-          time < this.currentTimestamp + this.bufferDuration;
-          time += this.ptime
-        ) {
+        for (let time = expect; time < end; time += this.ptime) {
           audioBuffer.push({
             frame: {
               time,
@@ -126,7 +127,7 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
         }
       }
     }
-    this.currentTimestamp += this.bufferDuration;
+    this.currentTimestamp = end;
     const joined = [...audioBuffer, ...this.videoBuffer[this.index]].filter(
       (b) => b.frame.time >= this.lastCommittedTime,
     );
@@ -256,6 +257,11 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
    * Starts with the pending frames and runs the ring buffer tasks up to the
    * latest pending frame, so that every output (including the dummy audio
    * fill) goes through the same path as the normal flow.
+   *
+   * Invariant: the committed time never goes beyond the latest received
+   * frame. The last slot is committed only up to that frame (not to the end
+   * of the slot), so frames still arriving after it (e.g. the rest of that
+   * slot) are not older than the committed time and are not dropped.
    */
   private startAndDrain() {
     if (this.pendingFrames.length === 0) {
@@ -263,12 +269,13 @@ export class LipsyncBase implements AVProcessor<LipsyncInput> {
     }
     const last = Math.max(...this.pendingFrames.map((p) => p.frame.time));
     this.start(Date.now());
-    while (this.currentTimestamp <= last) {
+    while (this.currentTimestamp + this.bufferDuration <= last) {
       this.executeTask();
     }
-    // the ring buffer is empty and the slot of the latest frame has been
-    // consumed: restart the slots from the next boundary, so that frames still
-    // arriving for the drained interval go to the first slot (not lost).
+    this.executeTask(last);
+    // the ring buffer is empty: restart the slots from the latest frame, so
+    // that the following frames (and the dummy audio fill) continue from it
+    // without a gap.
     this.baseTime = this.currentTimestamp;
     this.lastExecutionTime = this.currentTimestamp;
     this.index = 0;
@@ -356,9 +363,12 @@ export interface LipSyncOptions {
   kinds: MediaKind[];
   /**
    * ms (wall clock). When a frame of some `kinds` has not arrived within this
-   * time after the first frame, output starts with the received tracks only,
-   * and frames of a track that arrives later are dropped if they are older
-   * than the already output position. Until the start, frames are held in
+   * time after the first frame (timer-based, also without further input), the
+   * received frames are output immediately and output continues with the
+   * received tracks only. This start commits (including the
+   * `fillDummyAudioPacket` fill) only up to the latest received frame, so
+   * frames that keep arriving afterwards are not dropped. Frames of a track
+   * that arrives later are dropped if they are older than the committed time. Until the start, frames are held in
    * memory and output is delayed by up to this time.
    * @default 10000
    */
