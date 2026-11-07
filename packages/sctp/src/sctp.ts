@@ -205,6 +205,8 @@ export class SCTP {
   reconfigQueue: number[] = [];
   /** Result returned for the incoming request reconfigResponseSeq; resent to a retransmitted request. */
   private lastReconfigResult?: ReconfigResult;
+  /** The peer answered our outstanding reset request with In progress (RFC 6525 §5.2.7). */
+  private reconfigRequestInProgress = false;
   /**
    * RFC 6525 §5.2.2 deferred reset: an incoming Outgoing SSN Reset Request whose
    * Sender's Last Assigned TSN has not been received yet. DATA for the reset
@@ -600,6 +602,7 @@ export class SCTP {
               // Re-configuration timer retransmits it; the peer answered, so this is
               // not a reachability failure.
               log("OutgoingSSNResetRequestParam in progress");
+              this.reconfigRequestInProgress = true;
               this.timerReconfigFailures = 0;
             }
           } else if (
@@ -620,6 +623,7 @@ export class SCTP {
             this.onReconfigStreams.execute(streamIds);
 
             this.reconfigRequest = undefined;
+            this.reconfigRequestInProgress = false;
             this.timerReconfigCancel();
             // Reset RTO backoff on successful reconfiguration
             this.rto = SCTP_RTO_INITIAL;
@@ -697,9 +701,15 @@ export class SCTP {
   private async maybePerformDeferredReset() {
     const pending = this.deferredReset;
     if (!pending || !this.reachedResetBoundary(pending.request)) return;
-    // The peer gets Success - Performed when it retransmits the request.
+    // RFC 6525 §5.2.2: answer Success - Performed once the deferred reset is done.
     const { transmitReverseReset } = this.performIncomingStreamReset(
       pending.request,
+    );
+    await this.sendReconfigParam(
+      new ReconfigResponseParam(
+        pending.request.requestSequence,
+        reconfigResult.ReconfigResultSuccessPerformed,
+      ),
     );
     await transmitReverseReset();
   }
@@ -951,7 +961,8 @@ export class SCTP {
     const pending = this.deferredReset;
     if (pending) {
       pending.heldChunks = pending.heldChunks.filter((held) => {
-        if (uint32Gt(held.tsn, this.lastReceivedTsn!)) return true;
+        // Only DATA the FORWARD-TSN skipped is dropped; later received DATA stays.
+        if (uint32Gt(held.tsn, chunk.cumulativeTsn)) return true;
         this.advertisedRwnd += held.userData.length;
         return false;
       });
@@ -1207,6 +1218,7 @@ export class SCTP {
       this.reconfigRequestSeq = tsnPlusOne(this.reconfigRequestSeq);
 
       this.reconfigRequest = param;
+      this.reconfigRequestInProgress = false;
       await this.sendReconfigParam(param);
       this.timerReconfigHandleStart();
     }
@@ -1372,7 +1384,9 @@ export class SCTP {
 
   private timerReconfigHandleExpired = async () => {
     if (this.isStopped) return;
-    this.timerReconfigFailures++;
+    // RFC 6525 §5.2.7: no error count while the peer reports In progress.
+    if (this.reconfigRequestInProgress) this.timerReconfigFailures = 0;
+    else this.timerReconfigFailures++;
     // back off
     this.rto = Math.min(Math.ceil(this.rto * 1.5), SCTP_RTO_MAX);
 

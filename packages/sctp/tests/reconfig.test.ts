@@ -50,6 +50,12 @@ describe("incoming stream reset (RFC 6525 deferred reset)", () => {
     // Act: 欠けていた最後のフラグメントが再送で届く
     await inject(createDataChunk({ tsn: 103, data: "c", fragment: "last" }));
 
+    // Assert: 保留解除時に Success - Performed が自発的に送られる
+    expect(responses().map((r) => r.result)).toEqual([
+      reconfigResult.InProgress,
+      reconfigResult.ReconfigResultSuccessPerformed,
+    ]);
+
     // Assert: 完全なメッセージが配信されてから reset が発火し、逆方向の reset も送られる
     expect(events).toEqual([
       { type: "message", streamId: 1, data: "abc" },
@@ -176,9 +182,10 @@ describe("incoming stream reset (RFC 6525 deferred reset)", () => {
     // Act: 相手が TSN 102 (SSN 1) を破棄し FORWARD-TSN を送ってくる
     await inject(createForwardTsnChunk(102, [[1, 1]]));
 
-    // Assert: 保留が解消されて reset が発火する
+    // Assert: 保留が解消されて reset が発火し、Success - Performed が送られる
     expect(responses().map((r) => r.result)).toEqual([
       reconfigResult.InProgress,
+      reconfigResult.ReconfigResultSuccessPerformed,
     ]);
     expect(events).toEqual([
       { type: "message", streamId: 1, data: "kept" },
@@ -244,10 +251,11 @@ describe("incoming stream reset (RFC 6525 deferred reset)", () => {
     await inject(request());
     await inject(request());
 
-    // Assert: 実行後の再送は Success - Performed で、reset と逆方向の reset は 1 回だけ
+    // Assert: 保留解除時と実行後の再送は Success - Performed で、reset と逆方向の reset は 1 回だけ
     expect(responses().map((r) => r.result)).toEqual([
       reconfigResult.InProgress,
       reconfigResult.InProgress,
+      reconfigResult.ReconfigResultSuccessPerformed,
       reconfigResult.ReconfigResultSuccessPerformed,
       reconfigResult.ReconfigResultSuccessPerformed,
     ]);
@@ -303,6 +311,32 @@ describe("incoming stream reset (RFC 6525 deferred reset)", () => {
       reconfigResult.BadSequenceNumber,
     ]);
     expect(internal.deferredReset.request.requestSequence).toBe(1001);
+  });
+
+  test("FORWARD-TSN は保留中の lastTsn より後の受信済み DATA を破棄しない", async () => {
+    // Arrange: 境界 TSN 102 が欠けたまま、reset 後の stream の DATA 103 を保留する
+    const { inject, events, responses } = setup();
+    await inject(
+      createResetRequestChunk({
+        requestSequence: 1001,
+        lastTsn: 102,
+        streams: [1],
+      }),
+    );
+    await inject(createDataChunk({ tsn: 103, ssn: 0, data: "new-0" }));
+
+    // Act: 相手が TSN 102 を破棄する FORWARD-TSN を送ってくる
+    await inject(createForwardTsnChunk(102));
+
+    // Assert: reset が実行され、受信済みの DATA 103 は新しい stream で配信される
+    expect(responses().map((r) => r.result)).toEqual([
+      reconfigResult.InProgress,
+      reconfigResult.ReconfigResultSuccessPerformed,
+    ]);
+    expect(events).toEqual([
+      { type: "reset", streamIds: [1] },
+      { type: "message", streamId: 1, data: "new-0" },
+    ]);
   });
 
   test("stop で保留状態と退避した DATA を破棄する", async () => {
@@ -361,6 +395,35 @@ describe("outgoing stream reset answered with In progress", () => {
     // Assert: reset が完了する
     expect(sctp.reconfigRequest).toBeUndefined();
     expect(resetRequests()).toHaveLength(1);
+
+    await sctp.stop();
+  });
+
+  test("In progress を受けた後のタイマー満了は失敗回数を加算せず、association を閉じない", async () => {
+    // Arrange
+    const { sctp, inject, internal, resetRequests } =
+      createEstablishedMockSctp();
+    internal.outboundStreamSeq[1] = 1;
+    sctp.reconfigQueue.push(1);
+    await sctp.transmitReconfigRequest();
+    const request = sctp.reconfigRequest!;
+    await inject(
+      createReconfigResponseChunk(
+        request.requestSequence,
+        reconfigResult.InProgress,
+      ),
+    );
+    internal.timerReconfigFailures = 0;
+
+    // Act: 応答がないままタイマーが何度も満了する
+    for (let i = 0; i < 20; i++) {
+      await internal.timerReconfigHandleExpired();
+    }
+
+    // Assert: 失敗回数は加算されず、association は閉じず、request は再送され続ける
+    expect(internal.timerReconfigFailures).toBe(0);
+    expect(sctp.associationState).toBe(SCTP_STATE.ESTABLISHED);
+    expect(resetRequests()).toHaveLength(21);
 
     await sctp.stop();
   });
