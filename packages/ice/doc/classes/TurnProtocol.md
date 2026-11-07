@@ -317,7 +317,7 @@ readonly \[`string`, `number`\]
 
 ### request()
 
-> **request**(`request`, `addr`, `_integrityKey?`, `retransmissionsOrOptions?`, `onRequestSent?`): `Promise`\<\[[`Message`](Message.md), readonly \[`string`, `number`\]\]\>
+> **request**(`request`, `addr`, `_integrityKey?`, `retransmissionsOrOptions?`, `onRequestSent?`, `credentials?`): `Promise`\<\[[`Message`](Message.md), readonly \[`string`, `number`\]\]\>
 
 #### Parameters
 
@@ -340,6 +340,20 @@ readonly \[`string`, `number`\]
 ##### onRequestSent?
 
 (`attempt`) => `void`
+
+##### credentials?
+
+###### integrityKey
+
+`Buffer`
+
+###### nonce
+
+`Buffer`
+
+###### realm
+
+`string`
 
 #### Returns
 
