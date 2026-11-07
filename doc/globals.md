@@ -470,6 +470,7 @@
 - [appendRfc3550Padding](functions/appendRfc3550Padding.md)
 - [applyCodecPreferences](functions/applyCodecPreferences.md)
 - [assertCodecsSupported](functions/assertCodecsSupported.md)
+- [assertDataChannelFieldLengths](functions/assertDataChannelFieldLengths.md)
 - [buffer2ArrayBuffer](functions/buffer2ArrayBuffer.md)
 - [bufferArrayXor](functions/bufferArrayXor.md)
 - [bufferReader](functions/bufferReader.md)
