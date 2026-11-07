@@ -527,6 +527,98 @@ describe("PR-SCTP lifetime (expiry) abandonment", () => {
     ).toBe(false);
     expect(received).toEqual(["A", "B"]);
   });
+
+  /**
+   * 寿命なしで最大ペイロードの A と寿命 lifetimeMs の B を失い、T3-rtx で両方を
+   * 再送対象にする。cwnd が 1 MTU に絞られるため A だけが再送され、B は再送待ちに
+   * なる。A を確認する SACK は保留し、後から届けられるようにする。
+   */
+  const holdRetransmissionBehindCwnd = async (lifetimeMs: number) => {
+    const pair = await createLossyPrSctpPair();
+    stop = pair.stop;
+    const client = pair.client as any;
+    const received: string[] = [];
+    pair.server.onReceive.subscribe((_streamId, _ppId, data) => {
+      received.push(data.length > 100 ? "A" : data.toString());
+    });
+    pair.recorder.dropData = true;
+    await pair.client.send(0, 53, Buffer.alloc(client.maxPayloadSize, 1), {
+      ordered: true,
+    });
+    await pair.client.send(0, 53, Buffer.from("B"), {
+      expiry: Date.now() + lifetimeMs,
+      ordered: true,
+    });
+    await flushImmediates();
+    const b: DataChunk = [...client.sentQueue][1];
+    pair.recorder.dropData = false;
+    pair.serverRecorder.dropSack = true;
+    await vi.advanceTimersByTimeAsync(PAST_T3_MS);
+    await flushImmediates();
+    pair.serverRecorder.dropSack = false;
+    /** 保留していた SACK を送信側へ届ける。 */
+    const deliverHeldSacks = async () => {
+      for (const buf of pair.serverRecorder.heldSacks.splice(0)) {
+        pair.transports.client.onData?.(buf);
+      }
+      await flushImmediates();
+    };
+    return { pair, client, received, b, deliverHeldSacks };
+  };
+
+  const countDataSends = (chunks: unknown[], tsn: number) =>
+    chunks.filter((c) => c instanceof DataChunk && c.tsn === tsn).length;
+
+  test("abandons a chunk whose lifetime expires while it waits for retransmission", async () => {
+    // Arrange: 寿命 3.5s の B が T3-rtx 時点 (寿命内) で再送対象になり、cwnd 待ちで残る
+    const { pair, client, received, b, deliverHeldSacks } =
+      await holdRetransmissionBehindCwnd(3_500);
+    expect(b.retransmit).toBe(true);
+    expect(b.abandoned).toBe(false);
+    expect(pair.serverRecorder.heldSacks.length).toBeGreaterThan(0);
+
+    // Act: B の寿命を過ぎてから、A を確認する SACK を届けて送信枠を空ける
+    await vi.advanceTimersByTimeAsync(500);
+    await deliverHeldSacks();
+
+    // Assert: B は再送されずに破棄され、FORWARD-TSN が B の TSN まで進める
+    expect(countDataSends(pair.recorder.sentChunks, b.tsn)).toBe(1);
+    expect(b.abandoned).toBe(true);
+    const forwardTsn = pair.recorder.sentChunks.find(
+      (c): c is ForwardTsnChunk => c instanceof ForwardTsnChunk,
+    );
+    expect(forwardTsn?.cumulativeTsn).toBe(b.tsn);
+    expect((pair.server as any).lastReceivedTsn).toBe(b.tsn);
+    expect(client.sentQueue.length).toBe(0);
+    expect(client.flightSize).toBe(0);
+
+    // Act: 同じストリームで次のメッセージを送る
+    await pair.client.send(0, 53, Buffer.from("next"), { ordered: true });
+    await flushImmediates();
+
+    // Assert: A と後続メッセージだけが届き、B は配送されない
+    expect(received).toEqual(["A", "next"]);
+  });
+
+  test("retransmits a chunk that is still alive when the window opens", async () => {
+    // Arrange: 寿命 60s の B が T3-rtx で再送対象になり、cwnd 待ちで残る
+    const { pair, client, received, b, deliverHeldSacks } =
+      await holdRetransmissionBehindCwnd(60_000);
+    expect(b.retransmit).toBe(true);
+
+    // Act: 寿命内に、A を確認する SACK を届けて送信枠を空ける
+    await vi.advanceTimersByTimeAsync(500);
+    await deliverHeldSacks();
+
+    // Assert: B は破棄されずに再送され、A に続いて配送される
+    expect(countDataSends(pair.recorder.sentChunks, b.tsn)).toBe(2);
+    expect(b.abandoned).toBe(false);
+    expect(
+      pair.recorder.sentChunks.some((c) => c instanceof ForwardTsnChunk),
+    ).toBe(false);
+    expect(client.sentQueue.length).toBe(0);
+    expect(received).toEqual(["A", "B"]);
+  });
 });
 
 describe("PR-SCTP under seeded random loss of DATA / SACK / FORWARD-TSN", () => {

@@ -1015,9 +1015,16 @@ export class SCTP {
         : 4 * this.maxPayloadSize;
     const cwnd = Math.min(this.flightSize + burstSize, this.cwnd);
 
+    // Set when expired data is abandoned here, so the FORWARD-TSN goes out.
+    let abandoned = false;
     let retransmitEarliest = true;
     for (const dataChunk of this.sentQueue) {
       if (dataChunk.retransmit) {
+        // The lifetime may have run out while the chunk waited for cwnd.
+        if (this.isExpired(dataChunk) && this.maybeAbandon(dataChunk)) {
+          abandoned = true;
+          continue;
+        }
         if (this.fastRecoveryTransmit) {
           this.fastRecoveryTransmit = false;
         } else if (this.flightSize >= cwnd) {
@@ -1040,7 +1047,6 @@ export class SCTP {
     }
 
     // Drain queued outbound DATA; retransmission pacing is controlled by RTO/T3.
-    let abandonedUnsent = false;
     while (this.outboundQueue.length > 0) {
       const chunk = this.outboundQueue.peek()!;
       // A message that expired while waiting for cwnd/rwnd is never sent; its
@@ -1050,7 +1056,7 @@ export class SCTP {
         this.sentQueue.push(chunk);
         this.resolveSendWaiters(chunk);
         this.abandonMessage(this.sentQueue.length - 1);
-        abandonedUnsent = true;
+        abandoned = true;
         continue;
       }
       if (this.flightSize >= cwnd || this.peerRwnd <= 0) {
@@ -1076,7 +1082,7 @@ export class SCTP {
         this.timer3Start();
       }
     }
-    if (abandonedUnsent) {
+    if (abandoned) {
       this.updateAdvancedPeerAckPoint();
       // Send the FORWARD-TSN in the next round of transmit().
       if (this.forwardTsnPending) this.transmitRequested = true;

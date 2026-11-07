@@ -191,7 +191,8 @@ export const measureBurstTransfer = async (count: number, size: number) => {
  * Drop predicate for MemoryTransport that records every chunk sent and drops
  * packets by chunk kind: DATA while `dropData`, SACK while `dropSack`, the next
  * `dropForwardTsnCount` FORWARD-TSNs, and whatever `dropIf` (e.g. seeded random
- * loss) selects. Other packets pass.
+ * loss) selects. Other packets pass. Dropped SACK packets are kept in
+ * `heldSacks` so a test can deliver them late.
  */
 export const createDataDropRecorder = () => {
   const recorder = {
@@ -201,6 +202,7 @@ export const createDataDropRecorder = () => {
     dropForwardTsnCount: 0,
     dropIf: undefined as ((chunks: Chunk[]) => boolean) | undefined,
     sentChunks: [] as Chunk[],
+    heldSacks: [] as Buffer[],
     drop: (buf: Buffer) => {
       const [, , , chunks] = parsePacket(buf);
       recorder.sentChunks.push(...chunks);
@@ -212,6 +214,7 @@ export const createDataDropRecorder = () => {
         return true;
       }
       if (recorder.dropSack && chunks.some((c) => c instanceof SackChunk)) {
+        recorder.heldSacks.push(buf);
         return true;
       }
       if (recorder.dropIf?.(chunks)) return true;
