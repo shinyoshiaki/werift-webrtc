@@ -189,3 +189,8 @@ private flightSizeDecrease(chunk: DataChunk) {
 - [ ] `burst.test.ts` の性能系テストが従来どおり通る（正常系の転送性能を劣化させない）
 
 参考: [RFC 9260 §6.2.1 / §6.3.2 / §6.3.3 / §7.2.4](https://www.rfc-editor.org/rfc/rfc9260.html)、#806
+
+
+## 元 GitHub issue
+
+https://github.com/shinyoshiaki/werift-webrtc/issues/807
