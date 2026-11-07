@@ -22,6 +22,14 @@ staged and restores the baseline (`snapshotRoutes` / `restoreRoutes`).
 | MID+RID → receiver | `ridTable` | RIDs are scoped to their m-line (RFC 8851): no conflict |
 | Sender SSRC → sender | `ssrcTable` | application state: rollback keeps every live sender's route |
 
+Packet-driven routes are not description state: an SSRC first seen with
+`rtp-stream-id` / `repaired-rtp-stream-id` is added to `ssrcTable` as
+learned (`learnedSsrcs`), and the receiver learns RID → media SSRC and RTX
+SSRC → RID (`mediaSsrcByRid` / `ridByRtxSsrc`). Commit and rollback keep them.
+They are bounded per RID: an SSRC the receiver retires (a media SSRC change
+of the RID) or evicts loses its learned route here (`takeForgottenSsrcs`),
+and unregistering a transceiver drops its learned SSRCs.
+
 A payload type or extension ID counts as in use only when both current
 descriptions carry it for the m-line. RID lookup uses MID+RID when the
 packet's MID names a route, else the RID alone. `extIdUriMap` is shared by
@@ -209,7 +217,10 @@ at once so provisional RTP flows.
 Internal: return to a negotiation baseline. Two kinds of route are not
 description state and survive: SSRCs learned from packets for an endpoint
 still attached, and the own SSRC of every live sender (including one the
-application added while the description was pending).
+application added while the description was pending). Likewise a route
+packets taught before the baseline and later dropped (an SSRC retired by
+a media SSRC change of its RID, or evicted) stays dropped: the baseline
+does not bring packet-driven routes back.
 
 #### Parameters
 
@@ -218,6 +229,12 @@ application added while the description was pending).
 ###### extIdUriMap
 
 \{\[`id`: `number`\]: `string`; \} = `...`
+
+###### learnedSsrcs
+
+`number`[] = `...`
+
+Routes of `ssrcTable` that packets taught (not description state).
 
 ###### ridTable
 
@@ -289,6 +306,12 @@ Internal: restore staged routes (an empty snapshot discards them).
 
 > **routeRtp**(`packet`): `void`
 
+Simulcast (RFC 8852): a packet with `rtp-stream-id` is a layer's media,
+one with `repaired-rtp-stream-id` is the RTX stream repairing that layer.
+The first such packet registers its SSRC as a learned route, because the
+sender may stop sending these extensions (libwebrtc does once it receives
+an RTCP RR); later packets of the SSRC are routed by SSRC alone.
+
 #### Parameters
 
 ##### packet
@@ -309,8 +332,6 @@ Internal: every route a negotiation may change, for a rollback baseline.
 
 #### Returns
 
-`object`
-
 ##### extIdUriMap
 
 > **extIdUriMap**: `object`
@@ -318,6 +339,12 @@ Internal: every route a negotiation may change, for a rollback baseline.
 ###### Index Signature
 
 \[`id`: `number`\]: `string`
+
+##### learnedSsrcs
+
+> **learnedSsrcs**: `number`[]
+
+Routes of `ssrcTable` that packets taught (not description state).
 
 ##### ridTable
 

@@ -573,6 +573,7 @@
 - [parseH265PayloadHeader](functions/parseH265PayloadHeader.md)
 - [parseIceServers](functions/parseIceServers.md)
 - [parseMessage](functions/parseMessage.md)
+- [primaryTrackCodec](functions/primaryTrackCodec.md)
 - [random16](functions/random16.md)
 - [random32](functions/random32.md)
 - [randomPort](functions/randomPort.md)
