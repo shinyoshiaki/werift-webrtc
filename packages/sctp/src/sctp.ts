@@ -689,10 +689,10 @@ export class SCTP {
     ) {
       const sChunk = this.sentQueue.shift()!;
       done++;
-      if (!sChunk?.acked) {
+      if (!sChunk.acked) {
         doneBytes += sChunk.bookSize;
-        this.flightSizeDecrease(sChunk);
       }
+      this.flightSizeDecrease(sChunk);
 
       if (done === 1 && sChunk.sentCount === 1) {
         this.updateRto(receivedTime - sChunk.sentTime!);
@@ -718,6 +718,8 @@ export class SCTP {
         if (seen.has(sChunk.tsn) && !sChunk.acked) {
           doneBytes += sChunk.bookSize;
           sChunk.acked = true;
+          // A pending retransmission is no longer needed once gap-acked.
+          sChunk.retransmit = false;
           this.flightSizeDecrease(sChunk);
           highestNewlyAcked = sChunk.tsn;
         }
@@ -1004,6 +1006,10 @@ export class SCTP {
 
     let retransmitEarliest = true;
     for (const dataChunk of this.sentQueue) {
+      if (dataChunk.retransmit && (dataChunk.acked || dataChunk.abandoned)) {
+        // Acked or abandoned after being marked; nothing to resend.
+        dataChunk.retransmit = false;
+      }
       if (dataChunk.retransmit) {
         if (this.fastRecoveryTransmit) {
           this.fastRecoveryTransmit = false;
@@ -1101,12 +1107,18 @@ export class SCTP {
     }
   }
 
+  // flightSize always equals the bookSize sum of inFlight chunks in sentQueue,
+  // so both helpers are idempotent per chunk.
   private flightSizeIncrease(chunk: DataChunk) {
+    if (chunk.inFlight) return;
+    chunk.inFlight = true;
     this.flightSize += chunk.bookSize;
   }
 
   private flightSizeDecrease(chunk: DataChunk) {
-    this.flightSize = Math.max(0, this.flightSize - chunk.bookSize);
+    if (!chunk.inFlight) return;
+    chunk.inFlight = false;
+    this.flightSize -= chunk.bookSize;
   }
 
   // # timers
@@ -1199,16 +1211,19 @@ export class SCTP {
     this.timer3Handle = undefined;
 
     // # mark retransmit or abandoned chunks
+    // RFC 9260 §6.3.3 (E3): only outstanding chunks; gap-acked ones are kept
+    // for reneging but not retransmitted.
     this.sentQueue.forEach((chunk) => {
+      if (chunk.acked || chunk.abandoned) return;
       if (!this.maybeAbandon(chunk)) {
         chunk.retransmit = true;
       }
+      this.flightSizeDecrease(chunk);
     });
     this.updateAdvancedPeerAckPoint();
 
     // # adjust congestion window
     this.fastRecoveryExit = undefined;
-    this.flightSize = 0;
     this.partialBytesAcked = 0;
 
     this.ssthresh = Math.max(
@@ -1331,6 +1346,7 @@ export class SCTP {
     const streams: { [key: number]: number } = {};
     while (this.sentQueue.length > 0 && this.sentQueue.peek()!.abandoned) {
       const chunk = this.sentQueue.shift()!;
+      this.flightSizeDecrease(chunk);
       this.advancedPeerAckTsn = chunk.tsn;
       done++;
       if (!(chunk.flags & SCTP_DATA_UNORDERED)) {
@@ -1354,12 +1370,19 @@ export class SCTP {
       (!!chunk.expiry && chunk.expiry < Date.now() / 1000);
     if (!abandon) return false;
 
-    const chunkPos = this.sentQueue.findIndex((v) => v.type === chunk.type);
+    const chunkPos = this.sentQueue.findIndex((v) => v === chunk);
+    if (chunkPos < 0) {
+      chunk.abandoned = true;
+      chunk.retransmit = false;
+      this.flightSizeDecrease(chunk);
+      return true;
+    }
     for (let pos = chunkPos; pos >= 0; pos--) {
       const oChunk = this.sentQueue.at(pos)!;
       oChunk.abandoned = true;
       oChunk.retransmit = false;
-      if (oChunk.flags & SCTP_DATA_LAST_FRAG) {
+      this.flightSizeDecrease(oChunk);
+      if (oChunk.flags & SCTP_DATA_FIRST_FRAG) {
         break;
       }
     }
@@ -1368,6 +1391,7 @@ export class SCTP {
       const oChunk = this.sentQueue.at(pos)!;
       oChunk.abandoned = true;
       oChunk.retransmit = false;
+      this.flightSizeDecrease(oChunk);
       if (oChunk.flags & SCTP_DATA_LAST_FRAG) {
         break;
       }

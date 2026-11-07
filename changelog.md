@@ -45,6 +45,7 @@
 - **Padding-only packets are no longer stored in the NACK cache.**
 - **The default (lightweight) estimator's send history is pruned to a 10 s window**; it used to grow without bound.
 - **DCEP `DATA_CHANNEL_OPEN` writes Label / Protocol Length as UTF-8 byte counts** (RFC 8832 §5.1) instead of UTF-16 `string.length`. A non-ASCII data channel `label` / `protocol` (e.g. `"日本語"`, emoji) used to arrive truncated or spill into the protocol on the remote side; ASCII values are unchanged on the wire.
+- **SCTP no longer stops sending DATA after a T3-rtx timeout that follows a Gap ACK** (`werift-sctp`, #806). T3 used to retransmit gap-acked chunks and count them in `flightSize` again, and the later cumulative ACK never removed them, so `flightSize` stayed at or above `cwnd`: the DataChannel stopped sending (and sending HEARTBEAT) while the connection looked healthy, and `send()` never resolved. Each `DataChunk` now tracks whether it is counted with the new public `inFlight` field, so `flightSize` always equals the bytes of the in-flight chunks in the sent queue on every path (first send, Gap / cumulative ACK, fast retransmit, T3, retransmission, abandonment, FORWARD TSN). T3 skips gap-acked and abandoned chunks (reneged chunks are still retransmitted after three misses), and a chunk acked after it was marked for retransmission is not resent. Partial reliability now abandons the fragments of the expired message instead of the message at the head of the sent queue.
 
 ## v0.26.0
 

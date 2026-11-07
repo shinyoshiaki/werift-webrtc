@@ -3,12 +3,31 @@ import { setTimeout } from "timers/promises";
 import { vi } from "vitest";
 
 import { SCTP, SCTP_STATE } from "../src";
-import { AbortChunk, DataChunk, SackChunk } from "../src/chunk";
-import { serializePacket } from "../src/chunk";
+import {
+  AbortChunk,
+  DataChunk,
+  ForwardTsnChunk,
+  HeartbeatChunk,
+  SackChunk,
+  serializePacket,
+} from "../src/chunk";
 import { StreamAddOutgoingParam } from "../src/param";
-import type { Transport } from "../src/transport";
 import { createUdpTransport } from "../src/transport";
-import { createChunkQueue } from "./utils";
+import {
+  buildSack,
+  createChunkQueue,
+  createMockSctp,
+  disposeMockSctp,
+  expectFlightSizeInvariant,
+  flightSizeOf,
+  holdTransport,
+  receiveSack,
+  sentChunks,
+  sentDataTsns,
+  sentQueueOf,
+  settle,
+  tsnBefore,
+} from "./utils";
 
 describe("sctp", () => {
   test("test_connect_client_limits_streams", async () => {
@@ -22,7 +41,7 @@ describe("sctp", () => {
       createUdpTransport(createSocket("udp4"), {
         port,
         address: "127.0.0.1",
-      })
+      }),
     );
 
     client._inboundStreamsMax = 2048;
@@ -63,16 +82,6 @@ describe("sctp", () => {
 });
 
 describe("sctp timers and ack policy", () => {
-  const createMockSctp = () => {
-    const transport: Transport = {
-      send: vi.fn(async () => {}),
-      close: vi.fn(),
-    };
-    const sctp = SCTP.client(transport, 5000);
-    sctp.setRemotePort(5001);
-    return { sctp, transport };
-  };
-
   const createDataChunk = (tsn: number) => {
     const chunk = new DataChunk(0, undefined);
     chunk.flags = 0x03;
@@ -118,6 +127,7 @@ describe("sctp timers and ack policy", () => {
     (sctp as any).lastSackedTsn = 0;
     const sent = createDataChunk(1);
     sent.bookSize = 100;
+    sent.inFlight = true;
     (sctp as any).sentQueue = createChunkQueue([sent]);
     (sctp as any).flightSize = 100;
 
@@ -255,6 +265,305 @@ describe("sctp timers and ack policy", () => {
       expect(slow.associationState).toBe(SCTP_STATE.CLOSED);
     } finally {
       vi.useRealTimers();
+    }
+  });
+});
+
+describe("sctp flight size accounting", () => {
+  /** Sends one single-chunk message per size and returns their TSNs. */
+  const sendMessages = async (sctp: SCTP, sizes: number[]) => {
+    for (const size of sizes) {
+      await sctp.send(0, 51, Buffer.alloc(size));
+    }
+    await settle();
+    return sentQueueOf(sctp)
+      .slice(-sizes.length)
+      .map((c) => c.tsn);
+  };
+
+  const fireT3 = async (sctp: SCTP) => {
+    (sctp as any).timer3Cancel();
+    (sctp as any).timer3Expired();
+    await settle();
+  };
+
+  test("T3 after gap ACK retransmits only the missing chunk and send keeps working (#806)", async () => {
+    const { sctp, transport } = createMockSctp({ established: true });
+    try {
+      const [t0, t1, t2] = await sendMessages(sctp, [36, 652, 652]);
+      expect(flightSizeOf(sctp)).toBe(1340);
+
+      // 先頭 TSN を失い、後ろの 2 件を Gap ACK する
+      await receiveSack(sctp, buildSack(tsnBefore(t0), [[2, 3]]));
+      // Gap ACK 分だけ flightSize が減る
+      expect(flightSizeOf(sctp)).toBe(36);
+      expectFlightSizeInvariant(sctp);
+
+      // T3 を発火させる
+      const beforeT3 = transport.send.mock.calls.length;
+      await fireT3(sctp);
+      // 欠落した先頭 TSN だけが再送される
+      expect(sentDataTsns(transport, beforeT3)).toEqual([t0]);
+      expect(flightSizeOf(sctp)).toBe(36);
+      expectFlightSizeInvariant(sctp);
+
+      // 全件を累積 ACK する
+      await receiveSack(sctp, buildSack(t2));
+      // sentQueue が空になり flightSize も 0 に戻る
+      expect(sentQueueOf(sctp)).toHaveLength(0);
+      expect(flightSizeOf(sctp)).toBe(0);
+      expect(t1).toBe((t0 + 1) % 0x100000000);
+
+      // 新しいメッセージを送る
+      const beforeSend = transport.send.mock.calls.length;
+      await sctp.send(0, 51, Buffer.alloc(100));
+      await settle();
+      // outboundQueue から送出され、send() が resolve している
+      expect((sctp as any).outboundQueue.length).toBe(0);
+      expect(sentDataTsns(transport, beforeSend)).toHaveLength(1);
+      expectFlightSizeInvariant(sctp);
+    } finally {
+      await disposeMockSctp(sctp);
+    }
+  });
+
+  test("heartbeat is sent again once everything is acked after T3", async () => {
+    const { sctp, transport } = createMockSctp({ established: true });
+    try {
+      const [t0, , t2] = await sendMessages(sctp, [36, 652, 652]);
+      await receiveSack(sctp, buildSack(tsnBefore(t0), [[2, 3]]));
+      await fireT3(sctp);
+      await receiveSack(sctp, buildSack(t2));
+
+      // heartbeat タイマーを発火させる
+      const before = transport.send.mock.calls.length;
+      await (sctp as any).timerHeartbeatExpired();
+      // HEARTBEAT チャンクが送られる
+      expect(sentChunks(transport, before).map((c) => c.type)).toEqual([
+        HeartbeatChunk.type,
+      ]);
+    } finally {
+      await disposeMockSctp(sctp);
+    }
+  });
+
+  test("chunk gap-acked while its T3 retransmission is pending is not resent", async () => {
+    const { sctp, transport } = createMockSctp({ established: true });
+    try {
+      const [t0, t1, t2] = await sendMessages(sctp, [100, 100, 100]);
+      const hold = holdTransport(transport);
+
+      // T3 で全件を再送予約し、先頭の再送送出で止める
+      const beforeT3 = transport.send.mock.calls.length;
+      (sctp as any).timer3Cancel();
+      (sctp as any).timer3Expired();
+      await settle();
+      // 再送前に 2 件目が Gap ACK される
+      await receiveSack(sctp, buildSack(tsnBefore(t0), [[2, 2]]));
+      // 二重計上せず、2 件目の再送予約が取り消される
+      expectFlightSizeInvariant(sctp);
+      expect(sentQueueOf(sctp)[1].retransmit).toBe(false);
+
+      // 送信を再開する
+      hold.release();
+      await settle();
+      // Gap ACK 済みの 2 件目は再送されない
+      expect(sentDataTsns(transport, beforeT3)).toEqual([t0, t2]);
+      expect(flightSizeOf(sctp)).toBe(200);
+      expectFlightSizeInvariant(sctp);
+      expect(t1).not.toBe(t0);
+    } finally {
+      await disposeMockSctp(sctp);
+    }
+  });
+
+  test("chunk gap-acked while its fast retransmission is pending is not resent", async () => {
+    const { sctp, transport } = createMockSctp({ established: true });
+    try {
+      const [t0, t1] = await sendMessages(sctp, [100, 100, 100, 100, 100]);
+      await receiveSack(sctp, buildSack(t0, [[2, 2]]));
+      await receiveSack(sctp, buildSack(t0, [[2, 3]]));
+      const hold = holdTransport(transport);
+      const beforeLoss = transport.send.mock.calls.length;
+      // 送出中の新規メッセージで送信を止める
+      const pendingSend = sctp.send(0, 51, Buffer.alloc(100));
+      await settle();
+
+      // 3 回目の miss で 2 件目が Fast Retransmit 予約される
+      await receiveSack(sctp, buildSack(t0, [[2, 4]]));
+      // 再送予約されたチャンクは計上から外れる
+      expect(sentQueueOf(sctp)[0].retransmit).toBe(true);
+      expect(sentQueueOf(sctp)[0].inFlight).toBe(false);
+      expectFlightSizeInvariant(sctp);
+
+      // 再送前に 2 件目が Gap ACK される
+      await receiveSack(sctp, buildSack(t0, [[1, 4]]));
+      // 二重減算せず不変条件が保たれる
+      expectFlightSizeInvariant(sctp);
+
+      // 送信を再開する
+      hold.release();
+      await pendingSend;
+      await settle();
+      // 2 件目は再送されない
+      expect(sentDataTsns(transport, beforeLoss)).not.toContain(t1);
+      expectFlightSizeInvariant(sctp);
+    } finally {
+      await disposeMockSctp(sctp);
+    }
+  });
+
+  test("duplicate acks and consecutive T3 keep the invariant", async () => {
+    const { sctp, transport } = createMockSctp({ established: true });
+    try {
+      const [t0, , t2] = await sendMessages(sctp, [100, 200, 300]);
+
+      // 同じチャンクへの Gap ACK を重複して受ける
+      await receiveSack(sctp, buildSack(tsnBefore(t0), [[2, 2]]));
+      await receiveSack(sctp, buildSack(tsnBefore(t0), [[2, 2]]));
+      // Gap ACK 済みの分は一度だけ減算される
+      expect(flightSizeOf(sctp)).toBe(400);
+      expectFlightSizeInvariant(sctp);
+
+      // 再送を止めたまま T3 を 2 回連続で発火させる
+      const hold = holdTransport(transport);
+      (sctp as any).timer3Cancel();
+      (sctp as any).timer3Expired();
+      await settle();
+      (sctp as any).timer3Cancel();
+      (sctp as any).timer3Expired();
+      await settle();
+      // 2 回目の T3 で送出中の先頭も再送予約に戻り、計上は 0 になる
+      expect(flightSizeOf(sctp)).toBe(0);
+      expect(sentQueueOf(sctp)[0].retransmit).toBe(true);
+      expectFlightSizeInvariant(sctp);
+
+      // 再送前に全件を累積 ACK する
+      await receiveSack(sctp, buildSack(t2));
+      // 過少計上も残存もなく 0 になる
+      expect(sentQueueOf(sctp)).toHaveLength(0);
+      expect(flightSizeOf(sctp)).toBe(0);
+
+      // 送信を再開する
+      hold.release();
+      await settle();
+      // 計上は 0 のまま
+      expect(flightSizeOf(sctp)).toBe(0);
+      expectFlightSizeInvariant(sctp);
+    } finally {
+      await disposeMockSctp(sctp);
+    }
+  });
+
+  test("gap ACK after cumulative ACK of a gap-acked chunk keeps the invariant", async () => {
+    const { sctp } = createMockSctp({ established: true });
+    try {
+      const [t0, t1] = await sendMessages(sctp, [100, 200, 300]);
+
+      // 2 件目を Gap ACK した後、2 件目まで累積 ACK する
+      await receiveSack(sctp, buildSack(tsnBefore(t0), [[2, 2]]));
+      await receiveSack(sctp, buildSack(t1));
+      // 残る 3 件目だけが計上されている
+      expect(flightSizeOf(sctp)).toBe(300);
+      expectFlightSizeInvariant(sctp);
+    } finally {
+      await disposeMockSctp(sctp);
+    }
+  });
+
+  test("abandoned chunks of the expired message are not counted after FORWARD TSN", async () => {
+    const { sctp, transport } = createMockSctp({ established: true });
+    try {
+      const maxPayloadSize: number = (sctp as any).maxPayloadSize;
+      await sctp.send(0, 51, Buffer.alloc(100));
+      await sctp.send(0, 51, Buffer.alloc(maxPayloadSize * 2 + 10), {
+        expiry: Date.now() / 1000 + 60,
+      });
+      await settle();
+      const [head, ...fragments] = sentQueueOf(sctp);
+      expect(fragments).toHaveLength(3);
+      for (const fragment of fragments) {
+        fragment.expiry = Date.now() / 1000 - 1;
+      }
+
+      // T3 で期限切れの複数フラグメントメッセージを破棄判定する
+      const beforeT3 = transport.send.mock.calls.length;
+      await fireT3(sctp);
+      // 対象メッセージのフラグメントだけが破棄され、先頭は再送される
+      expect(head.abandoned).toBe(false);
+      expect(fragments.every((c) => c.abandoned)).toBe(true);
+      expect(sentDataTsns(transport, beforeT3)).toEqual([head.tsn]);
+      expect(flightSizeOf(sctp)).toBe(100);
+      expectFlightSizeInvariant(sctp);
+
+      // 先頭を累積 ACK する
+      const beforeAck = transport.send.mock.calls.length;
+      await receiveSack(sctp, buildSack(head.tsn));
+      await settle();
+      // 破棄分が FORWARD TSN で進められ、計上が残らない
+      const forwardTsn = sentChunks(transport, beforeAck).find(
+        (c): c is ForwardTsnChunk => c instanceof ForwardTsnChunk,
+      );
+      expect(forwardTsn?.cumulativeTsn).toBe(fragments[2].tsn);
+      expect(sentQueueOf(sctp)).toHaveLength(0);
+      expect(flightSizeOf(sctp)).toBe(0);
+    } finally {
+      await disposeMockSctp(sctp);
+    }
+  });
+
+  test("maxRetransmits abandonment releases the flight size", async () => {
+    const { sctp, transport } = createMockSctp({ established: true });
+    try {
+      await sctp.send(0, 51, Buffer.alloc(100), { maxRetransmits: 1 });
+      await settle();
+
+      // T3 を 2 回発火させ、再送上限を超えさせる
+      await fireT3(sctp);
+      const before = transport.send.mock.calls.length;
+      await fireT3(sctp);
+      // DATA は再送されず FORWARD TSN が送られ、計上が残らない
+      expect(sentDataTsns(transport, before)).toEqual([]);
+      expect(
+        sentChunks(transport, before).some((c) => c instanceof ForwardTsnChunk),
+      ).toBe(true);
+      expect(sentQueueOf(sctp)).toHaveLength(0);
+      expect(flightSizeOf(sctp)).toBe(0);
+    } finally {
+      await disposeMockSctp(sctp);
+    }
+  });
+
+  test("reneged gap-acked chunk is retransmitted after three misses", async () => {
+    const { sctp, transport } = createMockSctp({ established: true });
+    try {
+      const [t0, t1, , , t4] = await sendMessages(
+        sctp,
+        [100, 100, 100, 100, 100],
+      );
+      await receiveSack(sctp, buildSack(tsnBefore(t0), [[2, 2]]));
+      const reneged = sentQueueOf(sctp)[1];
+      expect(reneged.acked).toBe(true);
+
+      // Gap ACK した 2 件目を含まない SACK を 3 回受ける
+      const before = transport.send.mock.calls.length;
+      await receiveSack(sctp, buildSack(tsnBefore(t0), [[3, 3]]));
+      await receiveSack(sctp, buildSack(tsnBefore(t0), [[3, 4]]));
+      await receiveSack(sctp, buildSack(tsnBefore(t0), [[3, 5]]));
+      await settle();
+      // 2 件目は acked が外れて再送され、一度だけ計上される
+      expect(reneged.acked).toBe(false);
+      expect(sentDataTsns(transport, before)).toContain(t1);
+      expect(reneged.inFlight).toBe(true);
+      expectFlightSizeInvariant(sctp);
+
+      // 全件を累積 ACK する
+      await receiveSack(sctp, buildSack(t4));
+      // 計上が残らない
+      expect(sentQueueOf(sctp)).toHaveLength(0);
+      expect(flightSizeOf(sctp)).toBe(0);
+    } finally {
+      await disposeMockSctp(sctp);
     }
   });
 });

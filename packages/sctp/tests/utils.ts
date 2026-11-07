@@ -1,7 +1,9 @@
 import { readFileSync } from "fs";
+import { setImmediate as waitImmediate } from "timers/promises";
+import { expect, type Mock, vi } from "vitest";
 
-import { SCTP } from "../src";
-import type { DataChunk } from "../src/chunk";
+import { SCTP, SCTP_STATE } from "../src";
+import { type Chunk, DataChunk, parsePacket, SackChunk } from "../src/chunk";
 import { FifoQueue } from "../src/imports/common";
 import type { Transport } from "../src/transport";
 
@@ -27,9 +29,7 @@ export class MemoryTransport implements Transport {
   droppedPackets = 0;
 
   /** Return true to drop the packet (index = number of packets sent before). */
-  constructor(
-    drop?: (buf: Buffer, index: number) => boolean,
-  ) {
+  constructor(drop?: (buf: Buffer, index: number) => boolean) {
     this.drop = drop;
   }
 
@@ -179,4 +179,115 @@ export const measureBurstTransfer = async (count: number, size: number) => {
   } finally {
     await pair.stop();
   }
+};
+
+/**
+ * Unstarted client SCTP over a vi.fn transport that records sent packets.
+ * `established` puts it in ESTABLISHED state so DATA/HEARTBEAT can flow.
+ */
+export type MockSctpTransport = Transport & {
+  send: Mock<(buf: Buffer) => Promise<void>>;
+  close: Mock<() => void>;
+};
+
+export const createMockSctp = ({ established = false } = {}) => {
+  const transport: MockSctpTransport = {
+    send: vi.fn(async (_buf: Buffer) => {}),
+    close: vi.fn(),
+  };
+  const sctp = SCTP.client(transport, 5000);
+  sctp.setRemotePort(5001);
+  if (established) {
+    (sctp as any).associationState = SCTP_STATE.ESTABLISHED;
+  }
+  return { sctp, transport };
+};
+
+/** Lets pending async sends / transmits settle. */
+export const settle = async (times = 5) => {
+  for (let i = 0; i < times; i++) {
+    await waitImmediate();
+  }
+};
+
+/** Chunks of every packet sent through the mock transport from call index `from`. */
+export const sentChunks = (transport: MockSctpTransport, from = 0): Chunk[] =>
+  transport.send.mock.calls
+    .slice(from)
+    .flatMap(([buf]) => parsePacket(buf as Buffer)[3]);
+
+/** TSNs of DATA chunks sent from call index `from`. */
+export const sentDataTsns = (transport: MockSctpTransport, from = 0) =>
+  sentChunks(transport, from)
+    .filter((c): c is DataChunk => c instanceof DataChunk)
+    .map((c) => c.tsn);
+
+/**
+ * Blocks transport.send until `release()` so chunks marked for retransmission
+ * stay pending while other events (SACK, T3) are processed.
+ */
+export const holdTransport = (transport: MockSctpTransport) => {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  transport.send.mockImplementation(async () => {
+    await gate;
+  });
+  return {
+    release: () => {
+      transport.send.mockImplementation(async () => {});
+      release();
+    },
+  };
+};
+
+export const buildSack = (
+  cumulativeTsn: number,
+  gaps: [number, number][] = [],
+  advertisedRwnd = 1024 * 1024,
+) => {
+  const sack = new SackChunk(0, undefined);
+  sack.cumulativeTsn = cumulativeTsn;
+  sack.gaps = gaps;
+  sack.advertisedRwnd = advertisedRwnd;
+  return sack;
+};
+
+export const receiveSack = (sctp: SCTP, sack: SackChunk): Promise<void> =>
+  (sctp as any).receiveSackChunk(sack);
+
+/** TSN preceding `tsn` with uint32 wrap-around. */
+export const tsnBefore = (tsn: number) => (tsn + 0xffffffff) % 0x100000000;
+
+export const sentQueueOf = (sctp: SCTP): DataChunk[] => [
+  ...(sctp as any).sentQueue,
+];
+
+export const flightSizeOf = (sctp: SCTP): number => (sctp as any).flightSize;
+
+/**
+ * flightSize must equal the bookSize sum of in-flight chunks in sentQueue,
+ * never be negative, and be 0 once sentQueue is empty.
+ */
+export const expectFlightSizeInvariant = (sctp: SCTP) => {
+  const sentQueue = sentQueueOf(sctp);
+  const inFlightBytes = sentQueue
+    .filter((c) => c.inFlight)
+    .reduce((sum, c) => sum + c.bookSize, 0);
+  const flightSize = flightSizeOf(sctp);
+  expect(flightSize).toBe(inFlightBytes);
+  expect(flightSize).toBeGreaterThanOrEqual(0);
+  if (sentQueue.length === 0) {
+    expect(flightSize).toBe(0);
+  }
+};
+
+/** Cancels timers and stops the SCTP so no open handle is left. */
+export const disposeMockSctp = async (sctp: SCTP) => {
+  // Unblock a transport held by holdTransport() so stop() can send ABORT.
+  (sctp as any).transport.send.mockImplementation?.(async () => {});
+  (sctp as any).timer3Cancel();
+  (sctp as any).heartbeatCancel();
+  await sctp.stop();
 };
