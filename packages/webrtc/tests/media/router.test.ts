@@ -839,6 +839,62 @@ describe("media/router", () => {
       expect(retransmissionsOf(received)).toEqual([[high.ssrc, 999]]);
     });
 
+    test("履歴の窓より古い遅着パケットは受信記録を消さず、受信済みの番号の重複 RTX は二重に届かない", () => {
+      // Arrange: seq 2000〜2002 を受けた後、1024 以上古い seq 977 (2001 と同じ枠) が遅れて届く。
+      const { router, receiver } = createSimulcastRtxReceiver();
+      const received = collectDeliveredRtp(receiver.trackByRID.high);
+      for (const seq of [2000, 2001, 2002]) {
+        router.routeRtp(mediaOf(high.ssrc, seq, high.rid));
+      }
+      router.routeRtp(mediaOf(high.ssrc, 977));
+
+      // Act: 受信済みの seq 2001 の重複 RTX が届く。
+      router.routeRtp(
+        createSimulcastRtxFor(high.ssrc, 2001, {
+          rtxSsrc: high.rtxSsrc,
+          rrid: high.rid,
+        }),
+      );
+
+      // Assert: 2001 は一度だけ (媒体として) 届き、再送としては届かない。
+      expect(received.filter((p) => p.seq === 2001)).toHaveLength(1);
+      expect(retransmissionsOf(received)).toEqual([]);
+    });
+
+    test("旧 SSRC に古い遅着パケットが届いても、受信済みの番号では候補にならず、新 SSRC の RTX は復元される", () => {
+      // Arrange: 旧 1000 は 2000〜2002 を受信済み、新 2000 は 2001 を失う (timestamp も同じ並び)。
+      const { router, receiver } = createSimulcastRtxReceiver();
+      const received = collectDeliveredRtp(receiver.trackByRID.high);
+      const media = (ssrc: number, seq: number, rid?: string) =>
+        createSimulcastMediaPacket({
+          ssrc,
+          sequenceNumber: seq,
+          rid,
+          timestamp: seq * 3000,
+        });
+      for (const seq of [2000, 2001, 2002]) {
+        router.routeRtp(media(1000, seq, high.rid));
+      }
+      for (const seq of [2000, 2002]) {
+        router.routeRtp(media(2000, seq, high.rid));
+      }
+      // 旧 1000 の 1024 以上古い遅着パケット (2001 と同じ枠)。
+      router.routeRtp(media(1000, 977));
+
+      // Act: 新 2000 の seq 2001 の RTX が届く。
+      router.routeRtp(
+        createSimulcastRtxFor(2000, 2001, {
+          rtxSsrc: 2001,
+          rrid: high.rid,
+          timestamp: 2001 * 3000,
+        }),
+      );
+
+      // Assert: 旧 1000 は受信済みなので候補にならず、新 2000 で復元される。
+      expect(retransmissionsOf(received)).toEqual([[2000, 2001]]);
+      receiver.stop();
+    });
+
     test("長い連続欠落の番号でも、timestamp が合わない別 SSRC の RTX は復元されない", () => {
       // Arrange: 旧媒体 1000 が seq 1〜602 の間を失い、同じ RID で新媒体 2000 も受信している。
       const { router, receiver } = createSimulcastRtxReceiver();

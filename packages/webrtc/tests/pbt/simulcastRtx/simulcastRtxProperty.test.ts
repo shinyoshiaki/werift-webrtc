@@ -96,8 +96,9 @@ describe("simulcast RTX property", () => {
         streams.map((s) => [s.ssrc, new Set<number>()]),
       );
       const wrong: string[] = [];
+      const duplicated: string[] = [];
       for (const rid of ["high", "low"]) {
-        receiver.trackByRID[rid].onReceiveRtp.subscribe((rtp) => {
+        receiver.trackByRID[rid].onReceiveRtp.subscribe((rtp, _ext, info) => {
           const { ssrc, sequenceNumber, timestamp } = rtp.header;
           const stream = streamBySsrc.get(ssrc);
           const sent = stream?.packets.get(sequenceNumber);
@@ -109,7 +110,13 @@ describe("simulcast RTX property", () => {
             wrong.push(`${rid} ${ssrc}:${sequenceNumber}`);
           }
           const index = stream?.indexBySeq.get(sequenceNumber);
-          if (index !== undefined) deliveredBySsrc.get(ssrc)?.add(index);
+          if (index === undefined) return;
+          const delivered = deliveredBySsrc.get(ssrc)!;
+          // 再送は受信済みの番号を埋め直さない (重複 RTX の二重配送がない)。
+          if (info?.type === "retransmission" && delivered.has(index)) {
+            duplicated.push(`${ssrc}:${sequenceNumber}`);
+          }
+          delivered.add(index);
         });
       }
       const boundRtx = new Set<number>();
@@ -143,6 +150,8 @@ describe("simulcast RTX property", () => {
 
       // Assert: 誤った SSRC / RID / 内容のパケットは 1 つも届かない。
       expect(wrong).toEqual([]);
+      // Assert: 受信済みの番号が再送として二重に届くことはない。
+      expect(duplicated).toEqual([]);
       // Assert: NACK に応える RTX はすべて元の媒体 SSRC に復元される。
       expect(unrepaired).toEqual([]);
     },

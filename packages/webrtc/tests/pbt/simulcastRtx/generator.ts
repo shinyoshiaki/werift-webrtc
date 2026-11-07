@@ -55,6 +55,7 @@ function uint32(rng: SeededRandom) {
  * send frames out of display order (B-frames: timestamps not monotonic in
  * sending order), and some lose long bursts (100-900 packets) of which only
  * the newest 150, the numbers `NackHandler` keeps asking for, are repaired.
+ * Long streams also get duplicates more than 1024 packets late.
  */
 export function randomSimulcastRtxTraffic(
   rng: SeededRandom,
@@ -158,6 +159,10 @@ export function randomSimulcastRtxTraffic(
           if (rng.chance(0.2)) media(time + rng.between(2, 60));
         } else {
           media(time);
+          // 1024 個以上後に届く遅着の重複 (受信履歴の同じ枠に当たる)。
+          if (i + 1100 < streamLength && rng.chance(0.05)) {
+            media(time + rng.between(1030, 1100));
+          }
         }
         // NACK に応えていない RTX: 受信済みの重複、まだ送っていない番号、媒体より前。
         if (rng.chance(0.03)) rtx(i, seq, time + rng.between(-20, 20));

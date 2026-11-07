@@ -64,6 +64,10 @@ export class ReceivedPacketHistory {
 
   add(sequenceNumber: number, timestamp: number) {
     const ext = this.extend(sequenceNumber);
+    // 履歴の窓より古い遅着パケットは、同じ枠にある新しい受信記録を消さないよう捨てる。
+    if (this.firstExt !== undefined && this.newestExt - ext >= HISTORY_SIZE) {
+      return;
+    }
     if (this.firstExt === undefined) {
       this.firstExt = this.newestExt = ext;
     } else if (ext > this.newestExt) {
@@ -76,6 +80,11 @@ export class ReceivedPacketHistory {
           timestamp: this.timestamps[this.newestExt & HISTORY_MASK],
         });
         if (this.gapStarts.length > MAX_GAP_STARTS) this.gapStarts.shift();
+      }
+      // 飛ばした番号の枠を空け、古い周回の記録が受信済みに見えないようにする。
+      const skipped = Math.min(ext - this.newestExt - 1, HISTORY_SIZE);
+      for (let i = 1; i <= skipped; i++) {
+        this.sequenceNumbers[(this.newestExt + i) & HISTORY_MASK] = -1;
       }
       this.newestExt = ext;
     } else if (ext < this.firstExt) {
