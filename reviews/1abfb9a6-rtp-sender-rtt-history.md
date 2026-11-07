@@ -4,7 +4,7 @@ ide:
   version: 1
   title: "RTCRtpSender RTT: 古い SR を参照する RR の受け入れ"
   dock: right
-  baseCommit: 291b955fae56bf4ade33c907faadd9a4895372f8
+  baseCommit: ee20dd2f4f8d0a6b33fa78cd4981043a85ccd7b2
 ---
 # RTCRtpSender RTT: 古い SR を参照する RR を受け入れる
 
@@ -237,8 +237,8 @@ npm test
 
 - 起票元の実環境（実 Chrome 受信側 + 帯域制約 TURN 経路）での再現・改善効果は未確認です。今回の検証は単体・結合テストと型検査までです。
 - PR はまだ作成していません。チケット完了条件にある「#701 修正後も両立すること」を PR 説明に記載する必要があります。
-- 変更は HEAD `b4b016142` を基点に、SR 履歴の `SenderStatistics` への統合・フォーマット修正を未コミットで加えています。`changelog.md` の追記は [changelog.md:17](review-file:changelog.md:17)、リーク検査の有界状態の記載は [leakProbe.ts:1007](review-file:packages/webrtc/tests/pbt/leak/leakProbe.ts:1007) です。
+- 変更は HEAD `ee20dd2f4`（`291b955fa` の上に SR 履歴の `SenderStatistics` への統合・フォーマット修正を追加）にコミット済みです（このレビュー文書のみ未コミット）。上記の検証件数はこの内容で取得しました。`changelog.md` の追記は [changelog.md:17](review-file:changelog.md:17)、リーク検査の有界状態の記載は [leakProbe.ts:1007](review-file:packages/webrtc/tests/pbt/leak/leakProbe.ts:1007) です。
 
 ## まとめ
 
-最新 SR だけでなく、保持範囲内の SR を参照する RR から RTT を計算できるようになりました。照合は `LSR` と単調時刻の履歴で行い、`LSR = 0`・未知・期限切れ・負値は安全に無視します。EWMA・累積・回数の計算は変えず、対象テスト 82 件と webrtc 全体 1179 件、型検査が通っています。実 Chrome + TURN 経路の再現と PR 作成は残っています。
+最新 SR だけでなく、保持範囲内の SR を参照する RR から RTT を計算できるようになりました。照合は `LSR` と単調時刻の履歴で行い、`LSR = 0`・未知・期限切れ・負値は安全に無視します。EWMA・累積・回数の計算は変えず、対象テスト 100 件と webrtc 全体 1609 件（5 skipped）、型検査が通っています。実 Chrome + TURN 経路の再現と PR 作成は残っています。
