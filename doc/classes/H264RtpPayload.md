@@ -22,11 +22,19 @@
 
 ## Properties
 
-### e
+### aggregatedNalUnitTypes
 
-> **e**: `number`
+> **aggregatedNalUnitTypes**: `number`[] = `[]`
 
-end of a fragmented NAL unit
+nal_unit_types of the NAL units aggregated in a STAP-A packet
+
+***
+
+### e?
+
+> `optional` **e**: `number`
+
+end of a fragmented NAL unit (FU-A / FU-B only)
 
 ***
 
@@ -48,9 +56,11 @@ forbidden_zero_bit
 
 ***
 
-### nalUnitPayloadType
+### nalUnitPayloadType?
 
-> **nalUnitPayloadType**: `number`
+> `optional` **nalUnitPayloadType**: `number`
+
+nal_unit_type of the fragmented NAL unit (FU-A / FU-B only)
 
 ***
 
@@ -80,17 +90,19 @@ nal_ref_idc
 
 ***
 
-### r
+### r?
 
-> **r**: `number`
+> `optional` **r**: `number`
+
+reserved bit of the FU header (FU-A / FU-B only)
 
 ***
 
-### s
+### s?
 
-> **s**: `number`
+> `optional` **s**: `number`
 
-start of a fragmented NAL unit
+start of a fragmented NAL unit (FU-A / FU-B only)
 
 ## Accessors
 
@@ -99,6 +111,8 @@ start of a fragmented NAL unit
 #### Get Signature
 
 > **get** **isKeyframe**(): `boolean`
+
+true only when this packet carries (a part of) an IDR slice
 
 ##### Returns
 

@@ -34,6 +34,15 @@ Maximum time to wait for TCP/TLS connection establishment, in milliseconds.
 
 ***
 
+### signal?
+
+> `optional` **signal**: `AbortSignal`
+
+Aborting it while the allocation runs closes the client (its socket and
+transactions) and rejects with `TransactionCancelled`.
+
+***
+
 ### ssl?
 
 > `optional` **ssl**: `boolean`

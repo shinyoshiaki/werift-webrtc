@@ -21,6 +21,7 @@
 - [TcpActiveProtocol](classes/TcpActiveProtocol.md)
 - [TcpPassiveProtocol](classes/TcpPassiveProtocol.md)
 - [TurnProtocol](classes/TurnProtocol.md)
+- [TurnRedirectError](classes/TurnRedirectError.md)
 
 ## Interfaces
 
@@ -37,6 +38,8 @@
 
 - [IceState](type-aliases/IceState.md)
 - [TcpCandidateType](type-aliases/TcpCandidateType.md)
+- [TurnRedirectFailureReason](type-aliases/TurnRedirectFailureReason.md)
+- [TurnStreamReconnect](type-aliases/TurnStreamReconnect.md)
 
 ## Variables
 

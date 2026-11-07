@@ -108,7 +108,6 @@ describeCases("negotiation transaction events and object lifetime", () => {
       expect(repeatedStates(offererEvents.connection)).toEqual([]);
       expect(repeatedStates(answererEvents.connection)).toEqual([]);
 
-      // Act: 両側で rollback する。
       await c.setLocal(a, "rollback");
       await c.setRemote(b, "rollback");
 
@@ -143,7 +142,6 @@ describeCases("negotiation transaction events and object lifetime", () => {
       // Assert: stable でない間は negotiationneeded を通知しない。
       expect(aEvents.negotiationNeeded).toEqual(0);
 
-      // Act: 両側で rollback する。
       await c.rollback(a);
 
       // Assert: stable に戻った時点で必要性を再計算し、1 回だけ通知する。

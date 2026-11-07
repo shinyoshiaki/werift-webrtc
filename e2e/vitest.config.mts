@@ -1,17 +1,17 @@
 /// <reference types="@vitest/browser/providers/playwright" />
 
-import { existsSync } from "node:fs";
+import { createRequire } from "node:module";
 
 import { nodePolyfills } from "vite-plugin-node-polyfills";
 import { defineConfig } from "vitest/config";
 
-const chromiumExecutablePath = [
-  process.env.CHROME_BIN,
-  process.env.GOOGLE_CHROME_BIN,
-  "/usr/bin/google-chrome",
-  "/usr/bin/chromium",
-  "/usr/bin/chromium-browser",
-].find((candidate) => candidate && existsSync(candidate));
+// Loaded via require so Vite does not bundle the CommonJS helper.
+const { resolveChromeExecutable } = createRequire(import.meta.url)(
+  "./browser-paths.js",
+) as { resolveChromeExecutable: () => string | undefined };
+
+/** Prefer Google Chrome for proprietary H.264 (P0 codec E2E). */
+const chromiumExecutablePath = resolveChromeExecutable();
 
 export default defineConfig({
   plugins: [nodePolyfills()],
@@ -24,6 +24,8 @@ export default defineConfig({
   },
   test: {
     globals: true,
+    // Node-only tests live in tools/tests (npm run test:tools)
+    include: ["tests/**/*.test.ts"],
     testTimeout: 20_000,
     // Browser テストは 1 台のブラウザと e2e サーバ資源を共有するため、
     // ファイル並列で実行すると負荷でタイミング依存のテストが不安定になる。
@@ -47,6 +49,9 @@ export default defineConfig({
               "--allow-insecure-localhost",
               "--disable-features=WebRtcHideLocalIpsWithMdns",
               "--force-webrtc-ip-handling-policy=default_public_interface_only",
+              // Extracted Chrome often needs these in CI/containers
+              "--no-sandbox",
+              "--disable-dev-shm-usage",
             ],
           },
         },

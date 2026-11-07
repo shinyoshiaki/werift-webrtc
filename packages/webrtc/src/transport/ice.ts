@@ -80,6 +80,59 @@ type StagedLocalRestart = {
   createdBy: "offer" | "answer";
 };
 
+/**
+ * ICE generations of one transport. An ICE restart (new ufrag/pwd without a
+ * BUNDLE topology change) keeps the transport, its sockets and its DTLS
+ * association: no role renegotiation, no second handshake (RFC 8842, JSEP).
+ * Only a BUNDLE owner change creates a separate pending transport.
+ *
+ * Restart generations are registered by ufrag (`localGenerationFor`): the
+ * latest created offer and the latest created answer each keep theirs until a
+ * newer description of the same kind replaces it, whatever is applied, rolled
+ * back or committed meanwhile. Applying a description selects the generation
+ * its SDP carries, and the final answer switches exactly that one. A new offer
+ * reuses the applied pending offer's generation (JSEP 5.2.1) unless
+ * `restartIce()` asked to replace it; an answer created again reuses the
+ * earlier answer's (JSEP 5.3.1).
+ *
+ * Provisional generation: while a restart of an established transport is
+ * negotiated, a second checklist runs beside the live one on the same sockets.
+ * It only exchanges STUN checks; RTP and DataChannel stay on the live selected
+ * pair, and it follows the live checklist's rules (pair filter, ICE-lite,
+ * nomination, staged-password error responses).
+ *
+ * - Created when the restart credentials are staged (`stageLocalRestart`): by
+ *   `createOffer()` while a `restartIce()` request stands, or by
+ *   `createAnswer()` for a remote offer that changes a live transport's ufrag.
+ *   It then answers checks for that ufrag.
+ * - Fed by the pranswer with the peer's credentials, candidates and
+ *   end-of-candidates (`setProvisionalRemoteParams`,
+ *   `addProvisionalRemoteCandidate`); a replacement pranswer restarts it.
+ * - Checks start when the pranswer is applied (`startProvisionalChecks`); the
+ *   controlling side nominates a provisional pair, but the live selected pair
+ *   and send target never change. A response for an earlier checklist is
+ *   ignored.
+ * - Ends at the final answer, which recreates the live agent with the staged
+ *   credentials and checks the answered generation from scratch, or at
+ *   rollback / a replacement offer / selecting another generation, which
+ *   stops its checks and keeps the live generation.
+ *
+ * A first negotiation and transports created for a proposal have no
+ * provisional generation; they connect normally from the pranswer. The
+ * staged-credential methods of `IceConnection` are optional: without them a
+ * restart still happens at the final answer, without provisional checks.
+ *
+ * A restart generation's candidates are fixed when its description is
+ * created (host candidates of the kept sockets and their server-reflexive
+ * addresses) and are re-advertised at the commit without waiting. With STUN
+ * or TURN servers the description carries neither the relay candidate nor
+ * end-of-candidates: after the commit the generation gathers again (a new TURN
+ * allocation replaces and closes the previous one) and trickles them. A
+ * restart's background gathering that a later restart or `close()` replaced
+ * signals nothing more. ICE server settings changed after gathering take
+ * effect at the next restart (JSEP 4.1.18). The old selected pair is dropped
+ * at the commit, so RTP pauses until the new generation nominates.
+ */
 export class RTCIceTransport {
   readonly id = randomUUID().toString();
   connection: IceConnection;

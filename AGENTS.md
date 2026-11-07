@@ -35,6 +35,9 @@ If a rule applies only to a specific package or subdirectory, put it in the near
 15. Compare behavior against another revision in a separate temporary worktree (`git worktree add --detach <tmp-dir> <rev>`), never by checking out, resetting, or stashing the active worktree. External tooling may auto-commit the active worktree at any time.
 16. Reproduce a failing E2E with only the affected test file first; run the full E2E suite as final validation.
 17. Before long-running verification, state the current revision, uncommitted changes, and intent so interrupted work can be resumed.
+18. Resolve conflicts in generated docs (`doc/`, `packages/*/doc`) by regenerating them from the finalized source (`npm run doc`), not by merging the text.
+19. After a merge, check that public APIs match the generated docs, READMEs, and `changelog.md`.
+20. When code and docs disagree, decide the correct behavior from history, requirements, specs, and compatibility, then fix the side that is wrong.
 
 ## Don't
 

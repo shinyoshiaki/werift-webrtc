@@ -40,7 +40,11 @@ export abstract class Flight {
 
   protected async transmit(buffers: Buffer[]) {
     let retransmitCount = 0;
+    const closed = this.transport.closedSignal;
     for (; retransmitCount <= Flight.RetransmitCount; retransmitCount++) {
+      // The socket closed: nothing is sent or retransmitted any more (the
+      // retransmission timer would keep the handshake alive for ~30 s).
+      if (closed.aborted) return;
       this.setState("SENDING");
       this.send(buffers).catch((e) => {
         err("fail to send", err);
@@ -52,7 +56,12 @@ export abstract class Flight {
         break;
       }
 
-      await setTimeout(1000 * ((retransmitCount + 1) / 2));
+      const waited = await setTimeout(
+        1000 * ((retransmitCount + 1) / 2),
+        true,
+        { signal: closed },
+      ).catch(() => false);
+      if (!waited) return;
 
       if (this.dtls.flight >= this.nextFlight) {
         this.setState("FINISHED");

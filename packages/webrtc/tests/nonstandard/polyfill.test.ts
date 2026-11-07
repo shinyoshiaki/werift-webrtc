@@ -29,6 +29,7 @@ import {
   expectDomException,
   expectOverconstrainedError,
   installTestPolyfill,
+  parseVp8Rtp,
   receivesRtpWithin,
   waitForRtp,
   waitUntil,
@@ -1019,7 +1020,20 @@ describe("werift/polyfill builtin registers", () => {
         const stream = await navigator.mediaDevices.getUserMedia({
           video: true,
         });
-        await waitForRtp(stream.getVideoTracks()[0] as MediaStreamTrack);
+        const rtps = await waitForRtp(
+          stream.getVideoTracks()[0] as MediaStreamTrack,
+          2,
+        );
+
+        // 検証: VP8 WebM 再生の RTP は X/I/M descriptor (先頭 0x90) で、PictureID が frame ごとに +1 される。
+        const [first, second] = parseVp8Rtp(rtps);
+        expect(first.firstByte).toBe(0x90);
+        expect(first.vp8.xBit).toBe(1);
+        expect(first.vp8.iBit).toBe(1);
+        expect(first.vp8.mBit).toBe(1);
+        expect(second.vp8.pictureId).toBe(
+          ((first.vp8.pictureId ?? 0) + 1) & 0x7fff,
+        );
       });
       await withRegister(
         createMp4WebmRegister({ path: temp.path }),
@@ -1383,7 +1397,15 @@ describe("werift/polyfill builtin registers", () => {
         });
         const wait = waitForRtp(stream.getVideoTracks()[0] as MediaStreamTrack);
         passthrough.end(encodeLengthPrefixed(au));
-        await wait;
+        const rtps = await wait;
+
+        // 検証: encoded-binary 経路の VP8 RTP も X/I/M descriptor (先頭 0x90) を持つ。
+        const [first] = parseVp8Rtp(rtps);
+        expect(first.firstByte).toBe(0x90);
+        expect(first.vp8.xBit).toBe(1);
+        expect(first.vp8.iBit).toBe(1);
+        expect(first.vp8.mBit).toBe(1);
+        expect(first.vp8.payload.equals(au)).toBe(true);
       },
     );
   });

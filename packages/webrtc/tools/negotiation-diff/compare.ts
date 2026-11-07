@@ -20,10 +20,10 @@
  *   difference is intended and only counted: a transceiver never negotiated
  *   (no currentDirection) whose MID develop assigned at an unapplied
  *   createOffer() while HEAD associates it when a description is applied
- *   (W3C; NEGOTIATION_TRANSACTION.md "Description reuse contract"); such a
+ *   (W3C; the description reuse contract of scenarios.ts); such a
  *   transceiver is compared by kind and direction only. The same holds when
  *   develop then stopped that transceiver at the answer as a rejected m-line
- *   while HEAD released the reserved MID (TICKET 2.19). MID values may
+ *   while HEAD released the reserved MID. MID values may
  *   differ (HEAD keeps MIDs an unapplied offer reserved) but HEAD's must be
  *   unique; a record where develop gave two transceivers one MID (develop's
  *   defect) is counted, not compared. Once a peer is closed, states are not

@@ -202,7 +202,7 @@ export class DtlsSocket {
   };
 
   close() {
-    this.transport.socket.close();
+    this.transport.close();
   }
 
   extractSessionKeys(keyLength: number, saltLength: number) {

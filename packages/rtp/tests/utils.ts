@@ -16,13 +16,41 @@ import {
   type RtpMediaPacerOptions,
   type RtpMediaPacerTick,
 } from "../src/rtp/mediaClock";
-import { RtpPacket } from "../src/rtp/rtp";
+import { RtpHeader, RtpPacket } from "../src/rtp/rtp";
 import type { Transport } from "../src/transport";
 
 export function load(name: string) {
   const base = __dirname;
   const data = readFileSync(`${base}/data/` + name);
   return data;
+}
+
+/**
+ * Decode committed RTP payload vectors from tools/generateVectors:
+ * repeated [u16be length][payload] records.
+ */
+export function loadPayloadVector(name: string): Buffer[] {
+  const path = join(__dirname, "data", name);
+  let buf: Buffer;
+  try {
+    buf = readFileSync(path);
+  } catch {
+    return [];
+  }
+  const out: Buffer[] = [];
+  let offset = 0;
+  while (offset + 2 <= buf.length) {
+    const len = buf.readUInt16BE(offset);
+    offset += 2;
+    if (offset + len > buf.length) {
+      throw new Error(
+        `vector ${name}: truncated payload at offset ${offset}, len ${len}`,
+      );
+    }
+    out.push(buf.subarray(offset, offset + len));
+    offset += len;
+  }
+  return out;
 }
 
 export function createMockTransportPair(): [Transport, Transport] {
@@ -129,6 +157,33 @@ export const avcTestSps =
 export const avcTestPps = "0000000168ce06e2";
 /** IDR slice without parameter sets */
 export const avcTestIdrSlice = "0000000165888421a0";
+
+/**
+ * Build an avcC record (ISO/IEC 14496-15 §5.3.3.1) from raw SPS/PPS NAL units
+ * (no start code / length prefix).
+ */
+export function createAvcDecoderConfigurationRecord({
+  sps,
+  pps,
+  naluLengthSize = 4,
+}: {
+  sps: Buffer[];
+  pps: Buffer[];
+  naluLengthSize?: 1 | 2 | 4;
+}): Buffer {
+  const withLength = (nal: Buffer) => {
+    const length = Buffer.alloc(2);
+    length.writeUInt16BE(nal.length);
+    return [length, nal];
+  };
+  return Buffer.concat([
+    Buffer.from([0x01, sps[0][1], sps[0][2], sps[0][3]]),
+    Buffer.from([0xfc | (naluLengthSize - 1), 0xe0 | sps.length]),
+    ...sps.flatMap(withLength),
+    Buffer.from([pps.length]),
+    ...pps.flatMap(withLength),
+  ]);
+}
 
 /**
  * SPS/PPS + IDR keyframe followed by two delta frames.
@@ -612,4 +667,62 @@ export async function createRtpUdpCollector() {
     packets,
     close: () => new Promise<void>((resolve) => socket.close(() => resolve())),
   };
+}
+
+// ---------------------------------------------------------------------------
+// H.264 RTP payload builders (RFC 6184)
+
+/** H.264 NAL unit: header (F=0, NRI, type) + body */
+export function createH264Nal(type: number, body: Buffer, nri = 3): Buffer {
+  return Buffer.concat([Buffer.from([(nri << 5) | (type & 0x1f)]), body]);
+}
+
+/** STAP-A payload (RFC 6184 §5.7.1): STAP-A NAL header + [u16be size][NALU]... */
+export function createH264StapAPayload(nalus: Buffer[], nri = 3): Buffer {
+  const parts: Buffer[] = [Buffer.from([(nri << 5) | 24])];
+  for (const nalu of nalus) {
+    const size = Buffer.alloc(2);
+    size.writeUInt16BE(nalu.length, 0);
+    parts.push(size, nalu);
+  }
+  return Buffer.concat(parts);
+}
+
+/**
+ * FU-A payloads (RFC 6184 §5.8) splitting `nal` body into `fragmentCount`
+ * fragments. Returned in order: start (S=1) ... end (E=1).
+ */
+export function createH264FuAPayloads(nal: Buffer, fragmentCount: number) {
+  const nri = (nal[0] >> 5) & 0x03;
+  const type = nal[0] & 0x1f;
+  const body = nal.subarray(1);
+  const chunkSize = Math.ceil(body.length / fragmentCount);
+  const payloads: Buffer[] = [];
+  for (let i = 0; i < fragmentCount; i++) {
+    const s = i === 0 ? 0x80 : 0;
+    const e = i === fragmentCount - 1 ? 0x40 : 0;
+    payloads.push(
+      Buffer.concat([
+        Buffer.from([(nri << 5) | 28, s | e | type]),
+        body.subarray(i * chunkSize, (i + 1) * chunkSize),
+      ]),
+    );
+  }
+  return payloads;
+}
+
+/** Wrap payloads of one frame into RTP packets (marker on the last one). */
+export function createH264RtpPackets(payloads: Buffer[], timestamp = 0) {
+  return payloads.map(
+    (payload, i) =>
+      new RtpPacket(
+        new RtpHeader({
+          payloadType: 96,
+          sequenceNumber: i,
+          timestamp,
+          marker: i === payloads.length - 1,
+        }),
+        payload,
+      ),
+  );
 }

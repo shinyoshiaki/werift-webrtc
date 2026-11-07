@@ -3,6 +3,7 @@ import { Event, UdpTransport, debug } from "../imports/common";
 import type { Address, InterfaceAddresses } from "../../../common/src/network";
 import type { Candidate } from "../candidate";
 
+import { TransactionCancelled } from "../exceptions";
 import type { Protocol, TransactionRequestOptions } from "../types/model";
 import { classes } from "./const";
 import { type Message, parseMessage } from "./message";
@@ -25,6 +26,8 @@ export class StunProtocol implements Protocol {
   localCandidate?: Candidate;
   sentMessage?: Message;
   localIp?: string;
+  /** close() ran: no new transaction starts. */
+  private closed = false;
 
   readonly onRequestReceived = new Event<[Message, Address, Buffer]>();
   readonly onDataReceived = new Event<[Buffer]>();
@@ -133,6 +136,9 @@ export class StunProtocol implements Protocol {
       addr,
       this.transport.addressFamily,
     );
+    // close() ran during the lookup: a transaction started now would
+    // retransmit on the closed socket and keep its timers.
+    if (this.closed) throw new TransactionCancelled();
 
     const options = buildTransactionOptions(
       integrityKey,
@@ -157,6 +163,7 @@ export class StunProtocol implements Protocol {
   }
 
   async close() {
+    this.closed = true;
     Object.values(this.transactions).forEach((transaction) => {
       transaction.cancel();
     });

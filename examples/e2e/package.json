@@ -21,7 +21,7 @@
     "react-dom": "^19.0.0",
     "sdp-transform": "^2.15.0",
     "typescript": "^5.7.3",
-    "vite": "^6.4.2",
+    "vite": "^6.4.5",
     "vite-plugin-node-polyfills": "^0.24.0",
     "vitest": "4.1.11"
   }

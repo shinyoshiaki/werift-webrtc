@@ -915,6 +915,11 @@ v0.1.26
 
 > **close**(): `Promise`\<`void`\>
 
+`"closed"` is final: a description operation that close() overtook
+rejects with InvalidStateError and changes nothing more, and every
+transport only the negotiation holds (proposal, pending-only, prepared)
+stops with the live ones.
+
 #### Returns
 
 `Promise`\<`void`\>
@@ -1996,6 +2001,17 @@ v0.1.26
 
 > **setLocalDescription**(`sessionDescription`): `Promise`\<`void`\>
 
+Applying a created description is built only from its SDP and its
+generation record (`createdOffer`, the ICE generations registered on the
+transports), never from state kept elsewhere, so a description may be
+applied later or again (after other descriptions were created, after a
+rollback, as a replacement). First the proposal: parse, plan the MID /
+m-line assignments, validate every m-line's credentials against its
+transport and stage the transports the topology needs. Only after all of
+that passed are pending descriptions retired, assignments written and
+each transport switched to the generation the SDP carries, so a failure
+leaves the peer exactly as it was.
+
 ##### Parameters
 
 ###### sessionDescription
@@ -2011,6 +2027,17 @@ v0.1.26
 #### Call Signature
 
 > **setLocalDescription**(`sessionDescription`?): `Promise`\<[`SessionDescription`](SessionDescription.md)\>
+
+Applying a created description is built only from its SDP and its
+generation record (`createdOffer`, the ICE generations registered on the
+transports), never from state kept elsewhere, so a description may be
+applied later or again (after other descriptions were created, after a
+rollback, as a replacement). First the proposal: parse, plan the MID /
+m-line assignments, validate every m-line's credentials against its
+transport and stage the transports the topology needs. Only after all of
+that passed are pending descriptions retired, assignments written and
+each transport switched to the generation the SDP carries, so a failure
+leaves the peer exactly as it was.
 
 ##### Parameters
 

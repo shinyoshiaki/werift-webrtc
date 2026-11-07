@@ -31,9 +31,21 @@ MUST be set to 1 if the packet is the first packet of a coded video sequence, an
 
 > **obu\_or\_fragment**: `object`[] = `[]`
 
+#### continues?
+
+> `optional` **continues**: `boolean`
+
+Fragment continues in the next packet (last element with Y=1).
+
 #### data
 
 > **data**: `Buffer`
+
+#### isContinuation?
+
+> `optional` **isContinuation**: `boolean`
+
+Fragment continues an OBU from the previous packet (first element with Z=1).
 
 #### isFragment
 

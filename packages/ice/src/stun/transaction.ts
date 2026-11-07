@@ -5,6 +5,7 @@ import { type Address, Event, debug } from "../imports/common";
 
 import {
   AddressFamilyMismatch,
+  TransactionCancelled,
   TransactionFailed,
   TransactionTimeout,
 } from "../exceptions";
@@ -259,7 +260,13 @@ export class Transaction {
     }
   };
 
+  /**
+   * End the transaction. A `run()` still waiting for a response rejects with
+   * `TransactionCancelled`, so whoever awaits it (and its timers) settles
+   * instead of waiting forever on a closed protocol.
+   */
   cancel() {
+    this.fail(new TransactionCancelled());
     this.ended = true;
     this.clearWait();
     if (this.signal && this.onAbort) {

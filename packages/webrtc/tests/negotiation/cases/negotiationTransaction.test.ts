@@ -155,7 +155,6 @@ describeCases("negotiation transaction", () => {
       );
       await c.rtp(outgoing, incoming);
 
-      // Act: 同じ answer を改めて適用する。
       await c.setRemote(a, b.localDescription);
 
       // Assert: 交渉が完了し RTP も継続する。
@@ -192,7 +191,6 @@ describeCases("negotiation transaction", () => {
       expect(transport.getSelectedCandidatePair()).toEqual(pair);
       await c.rtp(outgoing, incoming);
 
-      // Act: 同じ answer を改めて適用する。
       await c.setRemote(a, b.localDescription);
       await waitForCommittedNomination(a);
 
@@ -356,7 +354,6 @@ describeCases("negotiation transaction", () => {
       a.createDataChannel("references");
       await a.createOffer();
 
-      // Act: rollback する。
       await c.setLocal(a, "rollback");
 
       // Assert: 停止した transport への参照は残らない。
@@ -406,7 +403,6 @@ describeCases("negotiation transaction", () => {
       expect(a.signalingState).toEqual("stable");
       expect(a.pendingLocalDescription).toEqual(null);
 
-      // Act: 最新の offer を適用する。
       await c.setLocal(a, latest);
 
       // Assert: 最新 offer だけが pending になる。

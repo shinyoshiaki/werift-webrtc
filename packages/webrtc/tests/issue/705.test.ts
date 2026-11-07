@@ -628,7 +628,6 @@ describe("issue 705: BUNDLE membership, transports and ICE ownership", () => {
           REMOTE_UFRAG,
         );
 
-        // Act: rollback する
         await pc.setRemoteDescription({ type: "rollback" });
 
         // Assert: signaling state と descriptions、共有 transport が元に戻る
