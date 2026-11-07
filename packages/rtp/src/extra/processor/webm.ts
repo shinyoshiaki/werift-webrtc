@@ -64,6 +64,10 @@ export interface WebmOption {
 }
 
 export class WebmBase implements AVProcessor<WebmInput> {
+  public tracks: WebmTrack[];
+  private output: (output: WebmOutput) => void;
+  private options: WebmOption;
+
   private builder: WEBMContainer;
   private relativeTimestamp = 0;
   private timestamps: { [pt: number]: ClusterTimestamp } = {};
@@ -81,10 +85,13 @@ export class WebmBase implements AVProcessor<WebmInput> {
   onStopped = new Event();
 
   constructor(
-    public tracks: WebmTrack[],
-    private output: (output: WebmOutput) => void,
-    private options: WebmOption = {},
+    tracks: WebmTrack[],
+    output: (output: WebmOutput) => void,
+    options: WebmOption = {},
   ) {
+    this.tracks = tracks;
+    this.output = output;
+    this.options = options;
     this.builder = new WEBMContainer(tracks, options.encryptionKey);
 
     tracks.forEach((t) => {
@@ -395,6 +402,11 @@ class ClusterTimestamp {
 }
 
 class CuePoint {
+  private readonly builder: WEBMContainer;
+  private readonly trackNumber: number;
+  private readonly relativeTimestamp: number;
+  public position: number;
+
   /**
    * cuesの後のclusterのあるべき位置
    * cuesはclusterの前に挿入される
@@ -403,11 +415,16 @@ class CuePoint {
   blockNumber = 0;
 
   constructor(
-    private readonly builder: WEBMContainer,
-    private readonly trackNumber: number,
-    private readonly relativeTimestamp: number,
-    public position: number,
-  ) {}
+    builder: WEBMContainer,
+    trackNumber: number,
+    relativeTimestamp: number,
+    position: number,
+  ) {
+    this.builder = builder;
+    this.trackNumber = trackNumber;
+    this.relativeTimestamp = relativeTimestamp;
+    this.position = position;
+  }
 
   build() {
     return this.builder.createCuePoint(

@@ -40,7 +40,7 @@ micro sec
 
 ### type?
 
-> `optional` **type?**: [`TypeTCCPacketReceivedSmallDelta`](../enumerations/PacketStatus.md#typetccpacketreceivedsmalldelta) \| [`TypeTCCPacketReceivedLargeDelta`](../enumerations/PacketStatus.md#typetccpacketreceivedlargedelta)
+> `optional` **type?**: `1` \| `2`
 
 optional (If undefined, it will be set automatically.)
 

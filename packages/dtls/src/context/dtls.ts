@@ -8,6 +8,9 @@ import type { Handshake } from "../typings/domain";
 const log = debug("werift-dtls : packages/dtls/src/context/dtls.ts : log");
 
 export class DtlsContext {
+  public options: Options;
+  public sessionType: SessionTypes;
+
   version = { major: 255 - 1, minor: 255 - 2 };
 
   lastFlight: Handshake[] = [];
@@ -31,10 +34,10 @@ export class DtlsContext {
   }[] = [];
   remoteExtendedMasterSecret = false;
 
-  constructor(
-    public options: Options,
-    public sessionType: SessionTypes,
-  ) {}
+  constructor(options: Options, sessionType: SessionTypes) {
+    this.options = options;
+    this.sessionType = sessionType;
+  }
 
   get sessionId() {
     return this.cookie ? this.cookie.toString("hex").slice(0, 10) : "";

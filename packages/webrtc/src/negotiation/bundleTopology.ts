@@ -29,16 +29,30 @@ import type { RTCSignalingState } from "../types/domain";
  *   7.3.3); werift's port-0 `inactive` m-lines are not rejections and stay.
  */
 export class BundleTopology {
+  private readonly sdp: SDPManager;
+  private readonly transceivers: TransceiverManager;
+  private readonly sctp: SctpTransportManager;
+  private readonly negotiation: NegotiationTransaction;
+  /** A new transport with its own ICE credentials. */
+  private readonly createTransport: () => RTCDtlsTransport;
+  /** The PeerConnection was closed (checked after every await). */
+  private readonly isClosed: () => boolean;
+
   constructor(
-    private readonly sdp: SDPManager,
-    private readonly transceivers: TransceiverManager,
-    private readonly sctp: SctpTransportManager,
-    private readonly negotiation: NegotiationTransaction,
-    /** A new transport with its own ICE credentials. */
-    private readonly createTransport: () => RTCDtlsTransport,
-    /** The PeerConnection was closed (checked after every await). */
-    private readonly isClosed: () => boolean = () => false,
-  ) {}
+    sdp: SDPManager,
+    transceivers: TransceiverManager,
+    sctp: SctpTransportManager,
+    negotiation: NegotiationTransaction,
+    createTransport: () => RTCDtlsTransport,
+    isClosed: () => boolean = () => false,
+  ) {
+    this.sdp = sdp;
+    this.transceivers = transceivers;
+    this.sctp = sctp;
+    this.negotiation = negotiation;
+    this.createTransport = createTransport;
+    this.isClosed = isClosed;
+  }
 
   /**
    * After an await while preparing transports: a close() that ran meanwhile

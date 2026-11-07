@@ -145,7 +145,6 @@ export function spawnExampleNodeTs(
   return spawnLogged(
     process.execPath,
     [
-      "--experimental-transform-types",
       "--disable-warning=ExperimentalWarning",
       "--disable-warning=MODULE_TYPELESS_PACKAGE_JSON",
       "--import",

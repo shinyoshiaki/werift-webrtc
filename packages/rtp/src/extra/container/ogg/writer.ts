@@ -102,6 +102,8 @@ export function createOggPage({
  * across pages with the continued flag.
  */
 export class OggPager {
+  readonly serialNumber: number;
+
   private pageSequence = 0;
   private segmentTable: number[] = [];
   private chunks: Buffer[] = [];
@@ -114,7 +116,9 @@ export class OggPager {
   lastGranulePosition = 0n;
   ended = false;
 
-  constructor(readonly serialNumber: number) {}
+  constructor(serialNumber: number) {
+    this.serialNumber = serialNumber;
+  }
 
   get pendingPackets() {
     return this.segmentTable.filter((v) => v < 255).length;

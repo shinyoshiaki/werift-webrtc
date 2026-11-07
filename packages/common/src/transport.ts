@@ -36,6 +36,13 @@ export interface StreamTransportOptions {
 const DEFAULT_CONNECT_TIMEOUT_MS = 8000;
 
 export class UdpTransport implements Transport {
+  private socketType: SocketType;
+  private options: {
+    portRange?: [number, number];
+    interfaceAddresses?: InterfaceAddresses;
+    port?: number;
+  };
+
   readonly type = "udp";
   readonly socket: Socket;
   rinfo?: Partial<Pick<RemoteInfo, "address" | "port">>;
@@ -50,13 +57,15 @@ export class UdpTransport implements Transport {
   private listening = false;
 
   private constructor(
-    private socketType: SocketType,
-    private options: {
+    socketType: SocketType,
+    options: {
       portRange?: [number, number];
       interfaceAddresses?: InterfaceAddresses;
       port?: number;
     } = {},
   ) {
+    this.socketType = socketType;
+    this.options = options;
     this.socket = createSocket(socketType);
     this.socket.on("message", (data, info) => {
       if (normalizeFamilyNodeV18(info.family) === 6) {
@@ -346,6 +355,10 @@ export class TlsTransport implements Transport {
 }
 
 class StreamTransport implements Transport {
+  private createClient: () => StreamSocket;
+  private connectEvent: StreamConnectEvent;
+  private connectTimeoutMs: number;
+
   readonly type: StreamTransportType;
   private connecting!: Promise<void>;
   private client!: StreamSocket;
@@ -355,12 +368,15 @@ class StreamTransport implements Transport {
 
   constructor(
     type: StreamTransportType,
-    private createClient: () => StreamSocket,
-    private connectEvent: StreamConnectEvent = type === "tls"
+    createClient: () => StreamSocket,
+    connectEvent: StreamConnectEvent = type === "tls"
       ? "secureConnect"
       : "connect",
-    private connectTimeoutMs = DEFAULT_CONNECT_TIMEOUT_MS,
+    connectTimeoutMs = DEFAULT_CONNECT_TIMEOUT_MS,
   ) {
+    this.createClient = createClient;
+    this.connectEvent = connectEvent;
+    this.connectTimeoutMs = connectTimeoutMs;
     this.type = type;
     this.connect();
   }

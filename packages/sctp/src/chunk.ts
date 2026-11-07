@@ -35,6 +35,9 @@ export const SCTP_DATA_CHUNK_HEADER_SIZE =
   SCTP_CHUNK_HEADER_SIZE + SCTP_DATA_FIXED_HEADER_SIZE;
 
 export class Chunk {
+  public flags: number;
+  private _body: Buffer | undefined;
+
   public get body(): Buffer | undefined {
     return this._body;
   }
@@ -43,10 +46,10 @@ export class Chunk {
   }
   static type = -1;
 
-  constructor(
-    public flags = 0,
-    private _body: Buffer | undefined = Buffer.from(""),
-  ) {}
+  constructor(flags = 0, _body: Buffer | undefined = Buffer.from("")) {
+    this.flags = flags;
+    this._body = _body;
+  }
 
   get type() {
     return Chunk.type;
@@ -70,6 +73,8 @@ export class Chunk {
 }
 
 export class BaseInitChunk extends Chunk {
+  public flags: number;
+
   initiateTag: number;
   advertisedRwnd: number;
   outboundStreams: number;
@@ -77,11 +82,9 @@ export class BaseInitChunk extends Chunk {
   initialTsn: number;
   params: [number, Buffer][];
 
-  constructor(
-    public flags = 0,
-    body?: Buffer,
-  ) {
+  constructor(flags = 0, body?: Buffer) {
     super(flags, body);
+    this.flags = flags;
 
     if (body) {
       this.initiateTag = body.readUInt32BE(0);
@@ -136,15 +139,15 @@ export class ReConfigChunk extends BaseInitChunk {
 }
 
 export class ForwardTsnChunk extends Chunk {
+  public flags: number;
+
   static type = 192 as const;
   streams: [number, number][] = [];
   cumulativeTsn: number;
 
-  constructor(
-    public flags = 0,
-    body: Buffer | undefined,
-  ) {
+  constructor(flags = 0, body: Buffer | undefined) {
     super(flags, body);
+    this.flags = flags;
 
     if (body) {
       this.cumulativeTsn = body.readUInt32BE(0);
@@ -180,6 +183,8 @@ export class ForwardTsnChunk extends Chunk {
 }
 
 export class DataChunk extends Chunk {
+  public flags: number;
+
   static type = 0 as const;
   get type() {
     return DataChunk.type;
@@ -199,11 +204,9 @@ export class DataChunk extends Chunk {
   maxRetransmits?: number;
   sentTime?: number;
 
-  constructor(
-    public flags = 0,
-    body: Buffer | undefined,
-  ) {
+  constructor(flags = 0, body: Buffer | undefined) {
     super(flags, body);
+    this.flags = flags;
     if (body) {
       this.tsn = body.readUInt32BE(0);
       this.streamId = body.readUInt16BE(4);
@@ -252,12 +255,12 @@ export class CookieAckChunk extends Chunk {
 }
 
 export class BaseParamsChunk extends Chunk {
+  public flags: number;
+
   params: [number, Buffer][] = [];
-  constructor(
-    public flags = 0,
-    body: Buffer | undefined = undefined,
-  ) {
+  constructor(flags = 0, body: Buffer | undefined = undefined) {
     super(flags, body);
+    this.flags = flags;
     if (body) {
       this.params = decodeParams(body);
     }
@@ -349,6 +352,8 @@ export class ReconfigChunk extends BaseParamsChunk {
 }
 
 export class SackChunk extends Chunk {
+  public flags: number;
+
   static type = 3;
   get type() {
     return SackChunk.type;
@@ -359,11 +364,9 @@ export class SackChunk extends Chunk {
   cumulativeTsn = 0;
   advertisedRwnd = 0;
 
-  constructor(
-    public flags = 0,
-    body: Buffer | undefined,
-  ) {
+  constructor(flags = 0, body: Buffer | undefined) {
     super(flags, body);
+    this.flags = flags;
 
     if (body) {
       this.cumulativeTsn = body.readUInt32BE(0);
@@ -418,6 +421,8 @@ export class SackChunk extends Chunk {
 }
 
 export class ShutdownChunk extends Chunk {
+  public flags: number;
+
   static type = 7;
   get type() {
     return ShutdownChunk.type;
@@ -425,11 +430,9 @@ export class ShutdownChunk extends Chunk {
 
   cumulativeTsn = 0;
 
-  constructor(
-    public flags = 0,
-    body: Buffer | undefined,
-  ) {
+  constructor(flags = 0, body: Buffer | undefined) {
     super(flags, body);
+    this.flags = flags;
 
     if (body) {
       this.cumulativeTsn = body.readUInt32BE(0);
