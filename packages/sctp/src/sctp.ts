@@ -698,6 +698,24 @@ export class SCTP {
         this.updateRto(receivedTime - sChunk.sentTime!);
       }
     }
+    // # handle reneging
+    // RFC 9260 §6.2.1: a previously gap-acked TSN missing from this SACK is
+    // outstanding again; T3-rtx must cover it even if no new ACK follows.
+    let reneged = false;
+    const gapAcked = new Set<number>();
+    for (const gap of chunk.gaps) {
+      for (let pos = gap[0]; pos < gap[1] + 1; pos++) {
+        gapAcked.add((chunk.cumulativeTsn + pos) % SCTP_TSN_MODULO);
+      }
+    }
+    for (const sChunk of this.sentQueue) {
+      if (sChunk.acked && !gapAcked.has(sChunk.tsn)) {
+        sChunk.acked = false;
+        this.flightSizeIncrease(sChunk);
+        reneged = true;
+      }
+    }
+
     // # handle gap blocks
     let loss = false;
     if (chunk.gaps.length > 0) {
@@ -774,7 +792,7 @@ export class SCTP {
 
     if (this.sentQueue.length === 0) {
       this.timer3Cancel();
-    } else if (done > 0) {
+    } else if (done > 0 || (reneged && !this.timer3Handle)) {
       this.timer3Restart();
     }
 

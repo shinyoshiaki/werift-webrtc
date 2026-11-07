@@ -566,4 +566,30 @@ describe("sctp flight size accounting", () => {
       await disposeMockSctp(sctp);
     }
   });
+  test("gap ACK の取り消し後に新規 ACK がなくても T3 で再送される", async () => {
+    // Arrange: 3 件送信し、2 件目(B)だけ Gap ACK される
+    const { sctp, transport } = createMockSctp({ established: true });
+    try {
+      const [t0, t1] = await sendMessages(sctp, [100, 100, 100]);
+      await receiveSack(sctp, buildSack(tsnBefore(t0), [[2, 2]]));
+      expect(sentQueueOf(sctp)[1].acked).toBe(true);
+
+      // Act: B を含まず、A(t0)までの累積 ACK のみの SACK を受け、T3 が発火する
+      await receiveSack(sctp, buildSack(t0));
+      const before = transport.send.mock.calls.length;
+      (sctp as any).timer3Expired();
+      await settle();
+
+      // Assert: B の acked が外れ、T3 で再送され、計上が整合している
+      const reneged = sentQueueOf(sctp)[0];
+      expect(reneged.tsn).toBe(t1);
+      expect(reneged.acked).toBe(false);
+      expect(sentDataTsns(transport, before)).toContain(t1);
+      expectFlightSizeInvariant(sctp);
+      // 再送後も T3 が動作している
+      expect((sctp as any).timer3Handle).toBeDefined();
+    } finally {
+      await disposeMockSctp(sctp);
+    }
+  });
 });
