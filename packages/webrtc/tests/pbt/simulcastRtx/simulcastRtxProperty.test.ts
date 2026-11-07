@@ -57,6 +57,22 @@ function original(stream: SimulcastStream, seq: number, withRid: boolean) {
 }
 
 function wire(arrival: SimulcastArrival) {
+  if (arrival.kind === "foreign") {
+    const packet = createSimulcastMediaPacket({
+      ssrc: arrival.ssrc,
+      sequenceNumber: arrival.seq,
+      rid: arrival.repaired ? undefined : arrival.stream.rid,
+    });
+    packet.header.payloadType = 120;
+    if (arrival.repaired) {
+      packet.header.extensions = createSimulcastRtxPacket(packet, {
+        rtxSsrc: arrival.ssrc,
+        rtxSequenceNumber: arrival.seq,
+        rrid: arrival.stream.rid,
+      }).header.extensions;
+    }
+    return packet;
+  }
   if (arrival.kind === "media") {
     return original(arrival.stream, arrival.seq, arrival.withRid);
   }

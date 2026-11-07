@@ -1272,6 +1272,39 @@ describe("media/router", () => {
       receiver.stop();
     });
 
+    test("未交渉の payload type のパケットは、RID の媒体 SSRC を切り替えず、既存のストリームと NACK 状態を保つ", () => {
+      // Arrange: 媒体 1000 が seq 2 を失い、NACK が要求している。
+      const { router, receiver } = createSimulcastRtxReceiver();
+      const received = collectDeliveredRtp(receiver.trackByRID.high);
+      const nack = getReceiverNack(receiver);
+      router.routeRtp(mediaOf(1000, 1, high.rid));
+      router.routeRtp(mediaOf(1000, 3, high.rid));
+      const unknown = mediaOf(2000, 50, high.rid);
+      unknown.header.payloadType = 120;
+
+      // Act: 同じ RID で未交渉の payload type (120) の SSRC 2000 が届き、その後 1000 の後続と RTX が届く。
+      router.routeRtp(unknown);
+      router.routeRtp(mediaOf(1000, 4));
+      router.routeRtp(
+        createSimulcastRtxFor(1000, 2, { rtxSsrc: 1001, rrid: high.rid }),
+      );
+
+      // Assert: RID の媒体 SSRC は 1000 のまま、2000 は経路も track 対応も学習せず届かない。
+      expect(receiver.mediaSsrcByRid.high).toBe(1000);
+      expect(receiver.retiredSsrcsByRid.high ?? []).toEqual([]);
+      expect(router.ssrcTable[2000]).toBeUndefined();
+      expect(receiver.trackBySSRC[2000]).toBeUndefined();
+      // Assert: 1000 の後続は届き、要求中の欠落は RTX で回復する。
+      expect(received.map((p) => [p.ssrc, p.seq, p.type])).toEqual([
+        [1000, 1, "media"],
+        [1000, 3, "media"],
+        [1000, 4, "media"],
+        [1000, 2, "retransmission"],
+      ]);
+      expect(nack.lostSeqNumbersOf(1000)).toEqual([]);
+      receiver.stop();
+    });
+
     test("transceiver の登録解除で、学習済み SSRC の印も経路と一緒に消える", () => {
       // Arrange: 媒体 SSRC と RTX SSRC を学習させる。
       const { router, transceiver } = createSimulcastRtxReceiver();

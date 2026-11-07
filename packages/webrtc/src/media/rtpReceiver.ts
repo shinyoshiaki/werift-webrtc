@@ -759,7 +759,19 @@ export class RTCRtpReceiver {
       this.handleRTP(packet, extensions);
       return;
     }
-    if (isRtxCodec(this.codecs[packet.header.payloadType])) {
+    const codec = this.codecs[packet.header.payloadType];
+    if (!codec) {
+      // 未交渉の payload type は媒体として扱わない (handleRTP も破棄する)。
+      // RID の媒体 SSRC の切り替えや経路・track の学習には使わない。
+      log("rid packet with unknown payload type", {
+        rid,
+        ssrc,
+        payloadType: packet.header.payloadType,
+      });
+      this.forgottenSsrcs.push(ssrc);
+      return;
+    }
+    if (isRtxCodec(codec)) {
       // RTX that names its RID with rtp-stream-id instead of the repaired one.
       this.handleRtxByRid(packet, rid, extensions);
       return;
@@ -789,6 +801,13 @@ export class RTCRtpReceiver {
   ) => {
     if (!this.trackByRID[repairedRid]) {
       log("repaired rid has no track", repairedRid);
+      this.forgottenSsrcs.push(packet.header.ssrc);
+      this.handleRTP(packet, extensions);
+      return;
+    }
+    if (!isRtxCodec(this.codecs[packet.header.payloadType])) {
+      // 交渉済みの RTX でないパケットは RTX SSRC として結び付けない。
+      log("repaired rid packet is not rtx", packet.header.payloadType);
       this.forgottenSsrcs.push(packet.header.ssrc);
       this.handleRTP(packet, extensions);
       return;

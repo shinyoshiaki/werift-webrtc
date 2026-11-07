@@ -34,6 +34,18 @@ export type SimulcastArrival =
       withRid: boolean;
     }
   | {
+      /**
+       * A packet of an unrelated SSRC naming `stream`'s RID (`rtp-stream-id`
+       * or `repaired-rtp-stream-id`) with a payload type never negotiated.
+       */
+      kind: "foreign";
+      stream: SimulcastStream;
+      ssrc: number;
+      seq: number;
+      index: -1;
+      repaired: boolean;
+    }
+  | {
       kind: "rtx";
       stream: SimulcastStream;
       seq: number;
@@ -65,7 +77,8 @@ function uint32(rng: SeededRandom) {
  * Long streams also get duplicates more than 1024 packets late, 5% of the
  * repairs arrive after more than 1024 later packets, 30% of the RIDs change
  * their media SSRC 5-9 times, and 15% of the RIDs give all their streams the
- * same sequence / timestamp bases and frame pattern.
+ * same sequence / timestamp bases and frame pattern. Packets of unrelated
+ * SSRCs with an unnegotiated payload type sometimes name a RID.
  */
 export function randomSimulcastRtxTraffic(
   rng: SeededRandom,
@@ -195,6 +208,20 @@ export function randomSimulcastRtxTraffic(
         }
         // NACK に応えていない RTX: 受信済みの重複、まだ送っていない番号、媒体より前。
         if (rng.chance(0.03)) rtx(i, seq, time + rng.between(-20, 20));
+        // 同じ RID を名乗る、未交渉の payload type の別 SSRC のパケット。
+        if (rng.chance(0.01)) {
+          timed.push({
+            time: time + rng.between(0, 3),
+            arrival: {
+              kind: "foreign",
+              stream,
+              ssrc: newSsrc(),
+              seq: rng.int(0, 0x10000),
+              index: -1,
+              repaired: rng.chance(0.5),
+            },
+          });
+        }
       }
     }
   }
