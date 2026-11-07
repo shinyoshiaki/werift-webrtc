@@ -13,10 +13,13 @@
  * lets unused budget accumulate up to that cap.
  */
 export class IntervalBudget {
+  private readonly canBuildUpUnderuse: boolean;
   private targetRateKbps = 0;
   private bytesRemaining = 0;
 
-  constructor(private readonly canBuildUpUnderuse = true) {}
+  constructor(canBuildUpUnderuse = true) {
+    this.canBuildUpUnderuse = canBuildUpUnderuse;
+  }
 
   reset() {
     this.targetRateKbps = 0;

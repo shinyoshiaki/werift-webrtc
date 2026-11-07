@@ -26,7 +26,9 @@ export class NackHandler {
   retryCount = 10;
   closed = false;
 
-  constructor(private receiver: RTCRtpReceiver) {}
+  constructor(receiver: RTCRtpReceiver) {
+    this.receiver = receiver;
+  }
 
   /** Lost sequence numbers of the latest media SSRC. */
   get lostSeqNumbers() {

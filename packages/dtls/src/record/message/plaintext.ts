@@ -2,10 +2,13 @@ import { dumpBuffer } from "../../helper";
 import { type DtlsPlaintextHeader, MACHeader } from "./header";
 
 export class DtlsPlaintext {
-  constructor(
-    public recordLayerHeader: DtlsPlaintextHeader,
-    public fragment: Buffer,
-  ) {}
+  public recordLayerHeader: DtlsPlaintextHeader;
+  public fragment: Buffer;
+
+  constructor(recordLayerHeader: DtlsPlaintextHeader, fragment: Buffer) {
+    this.recordLayerHeader = recordLayerHeader;
+    this.fragment = fragment;
+  }
 
   get summary() {
     return {

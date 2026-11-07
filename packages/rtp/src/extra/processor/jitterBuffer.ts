@@ -33,6 +33,8 @@ export interface JitterBufferOutput extends RtpOutput {
 export class JitterBufferBase
   implements Processor<JitterBufferInput, JitterBufferOutput>
 {
+  public clockRate: number;
+
   private options: JitterBufferOptions;
   /**uint16. sequence number of the last output packet */
   private presentSeqNum?: number;
@@ -42,10 +44,8 @@ export class JitterBufferBase
   }
   private internalStats = {};
 
-  constructor(
-    public clockRate: number,
-    options: Partial<JitterBufferOptions> = {},
-  ) {
+  constructor(clockRate: number, options: Partial<JitterBufferOptions> = {}) {
+    this.clockRate = clockRate;
     this.options = {
       latency: options.latency ?? 200,
       bufferSize: options.bufferSize ?? 10000,

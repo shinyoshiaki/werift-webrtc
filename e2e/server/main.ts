@@ -75,8 +75,8 @@ import {
   mediachannel_simulcast_offer,
   mediachannel_simulcast_rtx_answer,
 } from "./handler/mediachannel/simulcast";
-import { sim_gcc_twcc_chrome } from "./simulations/gccTwccChrome";
 import { vp8PlaybackHandlers } from "./handler/mediachannel/vp8Playback";
+import { sim_gcc_twcc_chrome } from "./simulations/gccTwccChrome";
 import { getTurnRelayConfig, startTurnServer, stopTurnServer } from "./turn";
 
 const app = express();

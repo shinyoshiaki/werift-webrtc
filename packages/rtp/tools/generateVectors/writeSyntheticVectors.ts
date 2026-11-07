@@ -237,7 +237,7 @@ export function writeSyntheticVectors(): void {
 When GStreamer (\`gst-launch-1.0\`) is available, prefer:
 
 \`\`\`bash
-node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs tools/generateVectors/generate.ts
+node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs tools/generateVectors/generate.ts
 \`\`\`
 
 Otherwise this file is written by \`writeSyntheticVectors.ts\`: RFC-accurate

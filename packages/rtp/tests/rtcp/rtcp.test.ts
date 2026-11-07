@@ -6,7 +6,7 @@ import {
 } from "../../src";
 import { RtcpRrPacket } from "../../src/rtcp/rr";
 import { RtcpPacketConverter } from "../../src/rtcp/rtcp";
-import { RtcpSrPacket, ntpTime2Sec } from "../../src/rtcp/sr";
+import { ntpTime2Sec, RtcpSrPacket } from "../../src/rtcp/sr";
 import { load } from "../utils";
 
 describe("rtcp/rtcp", () => {

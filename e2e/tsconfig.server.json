@@ -9,6 +9,7 @@
     "declaration": true,
     "outDir": "lib",
     "strict": true,
+    "erasableSyntaxOnly": true,
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
     "importHelpers": true,
