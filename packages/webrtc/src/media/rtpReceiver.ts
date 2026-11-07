@@ -97,6 +97,7 @@ export class RTCRtpReceiver {
   readonly mediaSsrcsByRid: { [rid: string]: number[] } = {};
   /** Received packets of the media SSRCs in {@link mediaSsrcsByRid}. */
   readonly receivedBySsrc = new Map<number, ReceivedPacketHistory>();
+  private readonly forgottenSsrcs: number[] = [];
   private readonly nack = new NackHandler(this);
   private readonly audioRedHandler = new RedHandler();
 
@@ -462,6 +463,7 @@ export class RTCRtpReceiver {
     clearTable(this.rtxSsrcsByRid);
     clearTable(this.mediaSsrcsByRid);
     this.receivedBySsrc.clear();
+    this.forgottenSsrcs.length = 0;
   }
 
   /**transceiver の停止確定時に remote track を ended にする */
@@ -728,13 +730,23 @@ export class RTCRtpReceiver {
   handleRtpByRid = (packet: RtpPacket, rid: string, extensions: Extensions) => {
     const track = this.trackByRID[rid];
     const { ssrc } = packet.header;
-    if (track && !this.trackBySSRC[ssrc]) {
+    if (!track) {
+      // TWCC は transport 全体の番号なので記録し、経路は学習させない。
+      log("rid has no track", rid);
+      this.forgottenSsrcs.push(ssrc);
+      this.handleRTP(packet, extensions);
+      return;
+    }
+    if (isRtxCodec(this.codecs[packet.header.payloadType])) {
+      // RTX that names its RID with rtp-stream-id instead of the repaired one.
+      this.handleRtxByRid(packet, rid, extensions);
+      return;
+    }
+    if (!this.trackBySSRC[ssrc]) {
       this.trackBySSRC[ssrc] = track;
       this.learnedTrackSsrcs.add(ssrc);
     }
-    if (track && !isRtxCodec(this.codecs[packet.header.payloadType])) {
-      this.learnRidMediaSsrc(rid, ssrc);
-    }
+    this.learnRidMediaSsrc(rid, ssrc);
 
     this.handleRTP(packet, extensions, track);
   };
@@ -751,6 +763,8 @@ export class RTCRtpReceiver {
   ) => {
     if (!this.trackByRID[repairedRid]) {
       log("repaired rid has no track", repairedRid);
+      this.forgottenSsrcs.push(packet.header.ssrc);
+      this.handleRTP(packet, extensions);
       return;
     }
     this.bindRtxSsrc(packet.header.ssrc, repairedRid);
@@ -769,8 +783,58 @@ export class RTCRtpReceiver {
     const ssrcs = (this.rtxSsrcsByRid[rid] ??= []);
     ssrcs.push(rtxSsrc);
     if (ssrcs.length > MAX_SSRCS_PER_RID) {
-      delete this.ridByRtxSsrc[ssrcs.shift()!];
+      const evicted = ssrcs.shift()!;
+      delete this.ridByRtxSsrc[evicted];
+      this.forgetLearnedSsrc(evicted);
     }
+  }
+
+  /**
+   * Drop what packets taught about an SSRC the per-RID bound evicted: its
+   * learned track, its per-SSRC receive state (unless a description or a
+   * track still names it) and, through {@link takeForgottenSsrcs}, its
+   * learned route in the router.
+   */
+  private forgetLearnedSsrc(ssrc: number) {
+    if (this.learnedTrackSsrcs.has(ssrc)) {
+      delete this.trackBySSRC[ssrc];
+      this.learnedTrackSsrcs.delete(ssrc);
+    }
+    const described =
+      this.trackBySSRC[ssrc] !== undefined ||
+      this.tracks.some((track) => track.ssrc === ssrc) ||
+      Object.entries(this.ssrcByRtx).some(
+        ([rtx, media]) => Number(rtx) === ssrc || media === ssrc,
+      );
+    if (!described) {
+      for (const table of [
+        this.remoteStreams,
+        this.senderReportsReceivedBySsrc,
+        this.remoteTimestampsBySsrc,
+        this.remotePacketCountBySsrc,
+        this.remoteOctetCountBySsrc,
+        this.nackCountBySsrc,
+        this.pliCountBySsrc,
+        this.probePaddingCompactBySsrc,
+        this.payloadTypeBySsrc,
+        this.lastSRtimestamp,
+        this.receiveLastSRTimestamp,
+      ]) {
+        delete table[ssrc];
+      }
+    }
+    this.forgottenSsrcs.push(ssrc);
+  }
+
+  /**
+   * Internal (router): SSRCs whose packet-driven route is no longer wanted:
+   * evicted by the per-RID bound, or naming a RID without a track. The
+   * router drops their learned routes after each packet.
+   */
+  takeForgottenSsrcs() {
+    return this.forgottenSsrcs.length === 0
+      ? []
+      : this.forgottenSsrcs.splice(0);
   }
 
   /**
@@ -795,7 +859,10 @@ export class RTCRtpReceiver {
     const inUse = Object.values(this.mediaSsrcsByRid).some((other) =>
       other.includes(evicted),
     );
-    if (!inUse) this.receivedBySsrc.delete(evicted);
+    if (!inUse) {
+      this.receivedBySsrc.delete(evicted);
+      this.forgetLearnedSsrc(evicted);
+    }
   }
 
   /**

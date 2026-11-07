@@ -33,7 +33,8 @@ function uint32(rng: SeededRandom) {
 }
 
 /**
- * Two RIDs whose media SSRC changes 0-2 times without renegotiation (the old
+ * Two RIDs whose media SSRC changes 0-5 times without renegotiation (beyond
+ * the receiver's per-RID bound of 4, so old SSRCs are evicted; the old
  * stream's late packets overlap the new one), RTP bases random per SSRC as
  * RFC 3550 requires (sequence bases sometimes shared, so the streams of a RID
  * lose the same numbers). Packets are lost, delayed or reordered; a lost
@@ -58,7 +59,7 @@ export function randomSimulcastRtxTraffic(
   };
 
   for (const rid of RIDS) {
-    const count = rng.int(1, 4);
+    const count = rng.int(1, 7);
     const sharedSeqBase = rng.chance(0.5) ? rng.int(0, 0x10000) : undefined;
     for (let k = 0; k < count; k++) {
       const stream: SimulcastStream = {

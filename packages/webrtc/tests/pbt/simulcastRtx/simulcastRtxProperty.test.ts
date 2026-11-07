@@ -121,6 +121,12 @@ describe("simulcast RTX property", () => {
           unrepaired.push(`${arrival.stream.ssrc}:${arrival.seq}`);
         }
       }
+      // Assert: パケット駆動の経路・対応表は RID ごとの上限 (媒体 4 + RTX 4) を超えない。
+      expect(router.learnedSsrcs.size).toBeLessThanOrEqual(2 * 8);
+      expect(receiver.learnedTrackSsrcs.size).toBeLessThanOrEqual(2 * 4);
+      expect(Object.keys(receiver.ridByRtxSsrc).length).toBeLessThanOrEqual(
+        2 * 4,
+      );
       receiver.stop();
 
       // Assert: 誤った SSRC / RID / 内容のパケットは 1 つも届かない。

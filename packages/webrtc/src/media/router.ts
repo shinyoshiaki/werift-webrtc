@@ -77,6 +77,9 @@ type StagedRoutes = {
  * `rtp-stream-id` / `repaired-rtp-stream-id` is added to `ssrcTable` as
  * learned (`learnedSsrcs`), and the receiver learns RID → media SSRC and RTX
  * SSRC → RID (`mediaSsrcsByRid` / `ridByRtxSsrc`). Commit and rollback keep them.
+ * They are bounded per RID: an SSRC the receiver evicts (least recently used)
+ * loses its learned route here (`takeForgottenSsrcs`), and unregistering a
+ * transceiver drops its learned SSRCs.
  *
  * A payload type or extension ID counts as in use only when both current
  * descriptions carry it for the m-line. RID lookup uses MID+RID when the
@@ -219,6 +222,7 @@ export class RtpRouter {
         endpoint === transceiver.receiver
       ) {
         delete this.ssrcTable[Number(ssrc)];
+        this.learnedSsrcs.delete(Number(ssrc));
       }
     }
     for (const [rid, endpoint] of Object.entries(this.ridTable)) {
@@ -404,6 +408,9 @@ export class RtpRouter {
       log("ssrcReceiver not found");
       return;
     }
+    for (const forgotten of rtpReceiver.takeForgottenSsrcs()) {
+      this.unlearnSsrc(forgotten, rtpReceiver);
+    }
 
     if (typeof mid === "string") {
       rtpReceiver.sdesMid = mid;
@@ -424,6 +431,16 @@ export class RtpRouter {
     log("simulcast register receiver by ssrc", ssrc);
     this.ssrcTable[ssrc] = receiver;
     this.learnedSsrcs.add(ssrc);
+  }
+
+  /** Drop a learned route of `receiver`; a description's route stays. */
+  private unlearnSsrc(ssrc: number, receiver: RTCRtpReceiver) {
+    if (!this.learnedSsrcs.has(ssrc) || this.ssrcTable[ssrc] !== receiver) {
+      return;
+    }
+    log("forget learned ssrc", ssrc);
+    delete this.ssrcTable[ssrc];
+    this.learnedSsrcs.delete(ssrc);
   }
 
   routeRtcp = (packet: RtcpPacket, dtlsTransport?: RTCDtlsTransport) => {

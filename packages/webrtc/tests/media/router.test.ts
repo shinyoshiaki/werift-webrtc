@@ -981,12 +981,44 @@ describe("media/router", () => {
       expect(receiver.ridByRtxSsrc[1001]).toBe(high.rid);
       expect(receiver.mediaSsrcsByRid.high.length).toBeLessThanOrEqual(4);
       expect(receiver.receivedBySsrc.size).toBeLessThanOrEqual(4);
+      // Assert: 学習済みの経路と track 対応も、追い出された SSRC の分は解放される。
+      expect(router.learnedSsrcs.size).toBeLessThanOrEqual(8);
+      expect(Object.keys(router.ssrcTable).length).toBeLessThanOrEqual(8);
+      expect(receiver.learnedTrackSsrcs.size).toBeLessThanOrEqual(4);
+      expect(Object.keys(receiver.trackBySSRC).length).toBeLessThanOrEqual(4);
+      for (const ssrc of [1000, 1001]) {
+        expect(router.ssrcTable[ssrc]).toBe(receiver);
+      }
+      expect(router.ssrcTable[10002]).toBeUndefined();
+      expect(router.ssrcTable[10003]).toBeUndefined();
       // Assert: 1000 の 20 個の欠落と、各新媒体の欠落がすべて回復する。
       expect(
         retransmissionsOf(received).filter(([ssrc]) => ssrc === 1000),
       ).toHaveLength(20);
       expect(retransmissionsOf(received)).toHaveLength(40);
       receiver.stop();
+    });
+
+    test("transceiver の登録解除で、学習済み SSRC の印も経路と一緒に消える", () => {
+      // Arrange: 媒体 SSRC と RTX SSRC を学習させる。
+      const { router, transceiver } = createSimulcastRtxReceiver();
+      router.routeRtp(mediaOf(high.ssrc, 1, high.rid));
+      router.routeRtp(mediaOf(high.ssrc, 3, high.rid));
+      router.routeRtp(
+        createSimulcastRtxFor(high.ssrc, 2, {
+          rtxSsrc: high.rtxSsrc,
+          rrid: high.rid,
+        }),
+      );
+      expect(router.learnedSsrcs.size).toBe(2);
+
+      // Act
+      router.unregisterTransceiver(transceiver);
+
+      // Assert
+      expect(router.ssrcTable[high.ssrc]).toBeUndefined();
+      expect(router.ssrcTable[high.rtxSsrc]).toBeUndefined();
+      expect(router.learnedSsrcs.size).toBe(0);
     });
 
     test("同じ RID を使う複数 m-line でも、学習済み RTX SSRC は MID 省略後に元の受信先へ届く", () => {
