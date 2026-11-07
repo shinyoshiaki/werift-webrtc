@@ -136,7 +136,7 @@ RTCP:  RtcpSource → NtpTimeCallback（トラックごと）
 - [x] E2E `recordPlayback.test.ts` の `av` ケースで、次の 2 つを確認できる:
   - 録画の長さが録画時間に近い（目安: `RECORD_MS / 1000 - 1` 秒以上）。
   - 音声の開始時刻が映像とほぼ同じ（`ffprobe` の stream `start_time` などで確認）。
-  
+
   確認できたら、`duration > RECORD_MS / 1000 / 2` の緩い条件を実測に合わせて厳しくする。対象ファイルだけで通ることを確認した後、`npm run e2e` を通す。
 - [x] `disableLipSync: true` / `disableNtp: true` での実測結果がチケットに記録されている。対応が必要な場合は、修正したか別チケットにしたかが明記されている。
 - [x] `changelog.md` と `MediaRecorderOptions.lipsync` / `LipSyncOptions` の JSDoc が更新されている。サンプルや生成ドキュメントに影響がある場合は `npm run doc` で再生成されている。
