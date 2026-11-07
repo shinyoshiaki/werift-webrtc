@@ -1,7 +1,12 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { DataChunk, ForwardTsnChunk } from "../src/chunk";
-import { createLossyPrSctpPair, flushImmediates } from "./utils";
+import {
+  createLossyPrSctpPair,
+  createSeededRandom,
+  findFlightSizeViolation,
+  flushImmediates,
+} from "./utils";
 
 // T3-rtx の初期値 (SCTP_RTO_INITIAL = 3s) を確実に超える時間
 const PAST_T3_MS = 3_100;
@@ -354,4 +359,192 @@ describe("PR-SCTP lifetime (expiry) abandonment", () => {
     // Assert: B が破棄されず配送される
     expect(received.map((d) => d.toString())).toEqual(["B"]);
   });
+
+  test("delivers a complete message the sender abandoned because its SACK was lost", async () => {
+    // Arrange: 失効する A の DATA を破棄し、同じく寿命付きの B は届くが B を確認する SACK を失う
+    const pair = await createLossyPrSctpPair();
+    stop = pair.stop;
+    const received: Buffer[] = [];
+    pair.server.onReceive.subscribe((_streamId, _ppId, data) => {
+      received.push(data);
+    });
+    pair.recorder.dropData = true;
+    await pair.client.send(0, 53, Buffer.from("A"), {
+      expiry: Date.now() + 100,
+      ordered: true,
+    });
+    pair.recorder.dropData = false;
+    pair.serverRecorder.dropSack = true;
+    await pair.client.send(0, 53, Buffer.from("B"), {
+      expiry: Date.now() + 100,
+      ordered: true,
+    });
+    await flushImmediates();
+    pair.serverRecorder.dropSack = false;
+    const sentQueue: DataChunk[] = [...(pair.client as any).sentQueue];
+    const b = sentQueue.find((c) => c.userData.toString() === "B")!;
+    // Assert: 送信側は B の受信を知らず、受信側は A 待ちで B を保持している
+    expect(b.acked).toBe(false);
+    expect(received).toEqual([]);
+
+    // Act: 寿命と T3-rtx を超えて時間を進め、A と B を飛ばす FORWARD-TSN を送らせる
+    await vi.advanceTimersByTimeAsync(PAST_T3_MS);
+    await flushImmediates();
+
+    // Assert: FORWARD-TSN は B まで含むが、受信済みで完全な B は破棄されず配送される
+    const forwardTsn = pair.recorder.sentChunks.find(
+      (c): c is ForwardTsnChunk => c instanceof ForwardTsnChunk,
+    );
+    expect(forwardTsn?.cumulativeTsn).toBe(b.tsn);
+    expect(received.map((d) => d.toString())).toEqual(["B"]);
+    // Assert: 受信ウィンドウが初期値 (1MiB) に戻り、受信バッファの勘定がずれない
+    expect((pair.server as any).advertisedRwnd).toBe(1024 * 1024);
+  });
+
+  test("does not retransmit a gap-acked chunk on T3-rtx and keeps flightSize consistent", async () => {
+    // Arrange: 寿命なしの A を失い、最大ペイロードの B は届いてギャップ SACK で確認済みにする
+    const pair = await createLossyPrSctpPair();
+    stop = pair.stop;
+    const client = pair.client as any;
+    const received: Buffer[] = [];
+    pair.server.onReceive.subscribe((_streamId, _ppId, data) => {
+      received.push(data);
+    });
+    pair.recorder.dropData = true;
+    await pair.client.send(0, 53, Buffer.from("A"), { ordered: true });
+    pair.recorder.dropData = false;
+    await pair.client.send(0, 53, Buffer.alloc(client.maxPayloadSize, 2), {
+      ordered: true,
+    });
+    await flushImmediates();
+    const b: DataChunk = [...client.sentQueue][1];
+    expect(b.acked).toBe(true);
+
+    // Act: T3-rtx を満了させて A を再送させ、累積 SACK を受け取る
+    await vi.advanceTimersByTimeAsync(PAST_T3_MS);
+    await flushImmediates();
+
+    // Assert: 確認済みの B は再送されず、全確認後の flightSize が 0 に戻る
+    const bSends = pair.recorder.sentChunks.filter(
+      (c) => c instanceof DataChunk && c.tsn === b.tsn,
+    ).length;
+    expect(bSends).toBe(1);
+    expect(received.length).toBe(2);
+    expect(client.sentQueue.length).toBe(0);
+    expect(client.flightSize).toBe(0);
+  });
+});
+
+describe("PR-SCTP under seeded random loss of DATA / SACK / FORWARD-TSN", () => {
+  // Fixed seeds keep failures replayable; seeds 6, 37, 38 and 78 reproduced
+  // reassembly / flightSize bugs before they were fixed.
+  const SEEDS = Array.from({ length: 100 }, (_, i) => i + 1);
+  const LOSS_RATE = 0.2;
+  const STREAMS = 3;
+  const SIZES = [16, 1_500, 4_000];
+
+  test.each(SEEDS)(
+    "keeps delivery and flightSize consistent (seed %i)",
+    async (seed) => {
+      // Arrange: シード付き乱数で両方向のパケットを落とすペアと、複数ストリーム・断片化・寿命有無を混ぜたメッセージ
+      const pair = await createLossyPrSctpPair();
+      try {
+        const random = createSeededRandom(seed);
+        pair.recorder.dropIf = () => random() < LOSS_RATE;
+        pair.serverRecorder.dropIf = () => random() < LOSS_RATE;
+        const messages = Array.from({ length: 12 }, (_, id) => {
+          const data = Buffer.alloc(
+            SIZES[Math.floor(random() * SIZES.length)],
+            id,
+          );
+          data.writeUInt32BE(id, 0);
+          return {
+            id,
+            streamId: Math.floor(random() * STREAMS),
+            ordered: random() < 0.8,
+            lifetime:
+              random() < 0.5 ? 50 + Math.floor(random() * 2_000) : undefined,
+            data,
+          };
+        });
+        const delivered: { streamId: number; data: Buffer }[] = [];
+        pair.server.onReceive.subscribe((streamId, _ppId, data) => {
+          delivered.push({ streamId, data });
+        });
+        const violations: string[] = [];
+        const check = () => {
+          const v = findFlightSizeViolation(pair.client);
+          if (v) violations.push(v);
+        };
+
+        // Act: 損失ありで送信と時間経過を乱数で織り交ぜる
+        const sends: Promise<void>[] = [];
+        for (const m of messages) {
+          sends.push(
+            pair.client.send(m.streamId, 53, m.data, {
+              ordered: m.ordered,
+              expiry:
+                m.lifetime === undefined ? undefined : Date.now() + m.lifetime,
+            }),
+          );
+          await flushImmediates(3);
+          check();
+          await vi.advanceTimersByTimeAsync(Math.floor(random() * 800));
+          await flushImmediates(3);
+          check();
+        }
+        // Act: 損失を止め、送信側の全キューと FORWARD-TSN が片付くまで時間を進める
+        pair.recorder.dropIf = undefined;
+        pair.serverRecorder.dropIf = undefined;
+        const client = pair.client as any;
+        for (
+          let i = 0;
+          i < 60 &&
+          (client.outboundQueue.length > 0 ||
+            client.sentQueue.length > 0 ||
+            client.forwardTsnChunk);
+          i++
+        ) {
+          await vi.advanceTimersByTimeAsync(3_100);
+          await flushImmediates();
+          check();
+        }
+        await Promise.all(sends);
+
+        // Assert: 送信側が停止せず全て片付き、flightSize の勘定が常に一致している
+        expect(violations).toEqual([]);
+        expect(client.outboundQueue.length).toBe(0);
+        expect(client.sentQueue.length).toBe(0);
+        expect(client.forwardTsnChunk).toBeUndefined();
+        expect(client.flightSize).toBe(0);
+        // Assert: 受信側に取り残された断片がなく、受信ウィンドウが初期値に戻る
+        const server = pair.server as any;
+        for (const stream of Object.values(server.inboundStreams) as any[]) {
+          expect(stream.reassembly).toEqual([]);
+        }
+        expect(server.advertisedRwnd).toBe(1024 * 1024);
+        // Assert: 二重配送も内容破損もなく、寿命なしのメッセージは必ず届く
+        const ids = delivered.map((d) => d.data.readUInt32BE(0));
+        expect(new Set(ids).size).toBe(ids.length);
+        for (const d of delivered) {
+          const m = messages[d.data.readUInt32BE(0)];
+          expect(d.streamId).toBe(m.streamId);
+          expect(d.data.equals(m.data)).toBe(true);
+        }
+        for (const m of messages.filter((m) => m.lifetime === undefined)) {
+          expect(ids).toContain(m.id);
+        }
+        // Assert: 各ストリームの順序付きメッセージは送信順に届く
+        for (let streamId = 0; streamId < STREAMS; streamId++) {
+          const orderedIds = ids.filter((id) => {
+            const m = messages[id];
+            return m.streamId === streamId && m.ordered;
+          });
+          expect(orderedIds).toEqual([...orderedIds].sort((a, b) => a - b));
+        }
+      } finally {
+        await pair.stop();
+      }
+    },
+  );
 });

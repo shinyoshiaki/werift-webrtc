@@ -34,7 +34,6 @@ import {
   random32,
   uint16Add,
   uint16Gt,
-  uint16Gte,
   uint32Gt,
   uint32Gte,
 } from "./imports/common";
@@ -692,10 +691,10 @@ export class SCTP {
     ) {
       const sChunk = this.sentQueue.shift()!;
       done++;
-      if (!sChunk?.acked) {
+      if (!sChunk.acked) {
         doneBytes += sChunk.bookSize;
-        this.flightSizeDecrease(sChunk);
       }
+      this.flightSizeDecrease(sChunk);
 
       if (done === 1 && sChunk.sentCount === 1) {
         this.updateRto(receivedTime - sChunk.sentTime!);
@@ -721,6 +720,8 @@ export class SCTP {
         if (seen.has(sChunk.tsn) && !sChunk.acked) {
           doneBytes += sChunk.bookSize;
           sChunk.acked = true;
+          // A pending retransmission is moot once the peer holds the chunk.
+          sChunk.retransmit = false;
           this.flightSizeDecrease(sChunk);
           highestNewlyAcked = sChunk.tsn;
         }
@@ -817,17 +818,11 @@ export class SCTP {
     for (const [streamId, streamSeqNum] of chunk.streams) {
       const inboundStream = this.getInboundStream(streamId);
 
-      // # advance sequence number and perform delivery
-      // A duplicated/delayed entry (e.g. carried over by a resent FORWARD-TSN)
-      // must never move the expected SSN backwards.
-      const nextSsn = uint16Add(streamSeqNum, 1);
-      if (uint16Gt(nextSsn, inboundStream.streamSequenceNumber)) {
-        inboundStream.streamSequenceNumber = nextSsn;
-      }
-      // Drop only the skipped ordered messages (incomplete or not). Later
-      // messages, even with TSNs inside the FORWARD-TSN range, stay deliverable.
-      this.advertisedRwnd += inboundStream.skipOrderedMessages(streamSeqNum);
-      for (const message of inboundStream.popMessages()) {
+      // # deliver stranded complete messages, drop broken ones, then advance
+      const { messages, prunedSize } =
+        inboundStream.forwardSequenceNumber(streamSeqNum);
+      this.advertisedRwnd += prunedSize;
+      for (const message of [...messages, ...inboundStream.popMessages()]) {
         this.advertisedRwnd += message[2].length;
         this.receive(...message);
       }
@@ -1120,10 +1115,15 @@ export class SCTP {
   }
 
   private flightSizeIncrease(chunk: DataChunk) {
+    if (chunk.inFlight) return;
+    chunk.inFlight = true;
     this.flightSize += chunk.bookSize;
   }
 
+  /** No-op for chunks not counted in flightSize, so every exit path can call it. */
   private flightSizeDecrease(chunk: DataChunk) {
+    if (!chunk.inFlight) return;
+    chunk.inFlight = false;
     this.flightSize = Math.max(0, this.flightSize - chunk.bookSize);
   }
 
@@ -1217,8 +1217,10 @@ export class SCTP {
     this.timer3Handle = undefined;
 
     // # mark retransmit or abandoned chunks
+    // Gap-acked chunks are not outstanding (RFC 9260 6.3.3 E3); the peer holds them.
     this.sentQueue.forEach((chunk) => {
-      if (!this.maybeAbandon(chunk)) {
+      chunk.inFlight = false;
+      if (!chunk.acked && !this.maybeAbandon(chunk)) {
         chunk.retransmit = true;
       }
     });
@@ -1368,6 +1370,7 @@ export class SCTP {
     );
     while (this.sentQueue.length > 0 && this.sentQueue.peek()!.abandoned) {
       const chunk = this.sentQueue.shift()!;
+      this.flightSizeDecrease(chunk);
       this.advancedPeerAckTsn = chunk.tsn;
       done++;
       if (!(chunk.flags & SCTP_DATA_UNORDERED)) {
@@ -1628,8 +1631,8 @@ export class InboundStream {
         if (ordered!) {
           break;
         } else {
+          // The partial message is broken; this chunk may start the next one.
           startPos = undefined;
-          pos++;
           continue;
         }
       }
@@ -1653,8 +1656,12 @@ export class InboundStream {
         if (ordered && chunk.streamSeqNum === this.streamSequenceNumber) {
           this.streamSequenceNumber = uint16Add(this.streamSequenceNumber, 1);
         }
+        // The next message starts at the removed one's position and need not
+        // be TSN-contiguous with it, so restart the search there.
         pos = startPos;
+        startPos = undefined;
         yield [chunk.streamId, chunk.protocol, userData];
+        continue;
       } else {
         pos++;
       }
@@ -1662,20 +1669,58 @@ export class InboundStream {
     }
   }
 
-  /** Removes ordered chunks of messages with SSN up to `ssn` (skipped by FORWARD-TSN). */
-  skipOrderedMessages(ssn: number) {
-    let size = 0;
+  /**
+   * Applies a FORWARD-TSN entry (RFC 3758 3.6): ordered messages with SSN up to
+   * `ssn` are no longer waited for. Complete ones are returned for delivery in
+   * order, incomplete ones are dropped, and the expected SSN moves past `ssn`
+   * (never backwards, so a stale/duplicated entry is harmless).
+   */
+  forwardSequenceNumber(ssn: number) {
+    const messages: [number, number, Buffer][] = [];
+    let prunedSize = 0;
+    let fragments: DataChunk[] = [];
+    const dropFragments = () => {
+      for (const c of fragments) prunedSize += c.userData.length;
+      fragments = [];
+    };
+
     this.reassembly = this.reassembly.filter((chunk) => {
       if (
-        !(chunk.flags & SCTP_DATA_UNORDERED) &&
-        uint16Gte(ssn, chunk.streamSeqNum)
+        chunk.flags & SCTP_DATA_UNORDERED ||
+        uint16Gt(chunk.streamSeqNum, ssn)
       ) {
-        size += chunk.userData.length;
+        return true;
+      }
+      const prev = fragments[fragments.length - 1];
+      if (chunk.flags & SCTP_DATA_FIRST_FRAG) {
+        dropFragments();
+      } else if (
+        !prev ||
+        chunk.tsn !== tsnPlusOne(prev.tsn) ||
+        chunk.streamSeqNum !== prev.streamSeqNum
+      ) {
+        dropFragments();
+        prunedSize += chunk.userData.length;
         return false;
       }
-      return true;
+      fragments.push(chunk);
+      if (chunk.flags & SCTP_DATA_LAST_FRAG) {
+        messages.push([
+          chunk.streamId,
+          chunk.protocol,
+          Buffer.concat(fragments.map((c) => c.userData)),
+        ]);
+        fragments = [];
+      }
+      return false;
     });
-    return size;
+    dropFragments();
+
+    const nextSsn = uint16Add(ssn, 1);
+    if (uint16Gt(nextSsn, this.streamSequenceNumber)) {
+      this.streamSequenceNumber = nextSsn;
+    }
+    return { messages, prunedSize };
   }
 
   /** Removes unordered chunks with TSN up to `tsn`. */
