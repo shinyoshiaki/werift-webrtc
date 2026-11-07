@@ -603,7 +603,9 @@ export class SCTP {
               // not a reachability failure.
               log("OutgoingSSNResetRequestParam in progress");
               this.reconfigRequestInProgress = true;
-              this.timerReconfigFailures = 0;
+              // RFC 6525 §5.2.7 H2: restart the timer for this request.
+              this.timerReconfigCancel();
+              this.timerReconfigHandleStart();
             }
           } else if (
             reset.result !== reconfigResult.ReconfigResultSuccessPerformed

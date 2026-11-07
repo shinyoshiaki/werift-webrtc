@@ -399,7 +399,9 @@ describe("outgoing stream reset answered with In progress", () => {
     const request = sctp.reconfigRequest!;
     internal.timerReconfigFailures = 5;
 
-    // Act: 相手が In progress を返す
+    // Act: 受信確認でタイマーが止まった後に、相手が In progress を返す
+    internal.timerReconfigCancel();
+    internal.timerReconfigFailures = 5;
     await inject(
       createReconfigResponseChunk(
         request.requestSequence,
