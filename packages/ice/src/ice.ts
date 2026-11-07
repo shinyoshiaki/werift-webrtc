@@ -25,9 +25,10 @@ import {
   isCandidateAllowedByGatherOptions,
   isRelayOnlyGathering,
   mergeIceServerOptions,
+  normalizeIceServerOptions,
   serverReflexiveCandidate,
   sortCandidatePairs,
-  validateAddress,
+  type TurnServerOptions,
   validateRemoteCandidate,
 } from "./iceBase";
 import { type Address, debug, Event, interfaceAddress } from "./imports/common";
@@ -58,8 +59,14 @@ export class Connection implements IceConnection {
   remoteUsername: string = "";
   checkList: CandidatePair[] = [];
   localCandidates: Candidate[] = [];
-  stunServer?: Address;
-  turnServer?: Address;
+  /**
+   * STUN servers gathering queries: the configured ones (see
+   * normalizeIceServerOptions), or the built-in default when none is
+   * configured and useDefaultStunServer is not false.
+   */
+  stunServers: Address[] = [];
+  /** TURN servers gathering allocates on, one allocation each. */
+  turnServers: Required<TurnServerOptions>[] = [];
   options: IceOptions;
   remoteCandidatesEnd = false;
   /**
@@ -157,8 +164,11 @@ export class Connection implements IceConnection {
   private consentRequestAbort?: AbortController;
   /** ICE restart generation checked beside the selected current pair. */
   private provisional?: ProvisionalGeneration;
-  /** Last server-reflexive candidate each UDP socket advertised. */
-  private readonly reflexiveBySocket = new WeakMap<Protocol, Candidate>();
+  /**
+   * Server-reflexive candidates each UDP socket advertised in its last
+   * gathering (one per distinct mapping its STUN servers returned).
+   */
+  private readonly reflexiveBySocket = new WeakMap<Protocol, Candidate[]>();
 
   readonly onData = new Event<[Buffer]>();
   readonly stateChanged = new Event<[IceState]>();
@@ -199,17 +209,50 @@ export class Connection implements IceConnection {
   }
 
   /**
-   * Derive Connection.stunServer / turnServer from this.options.
+   * Derive Connection.stunServers / turnServers from this.options.
    * Shared by the constructor and setIceServers so both paths validate and
    * default identically.
    */
   private applyStunTurnServersFromOptions() {
-    this.stunServer =
-      validateAddress(this.options.stunServer) ??
-      (this.options.useDefaultStunServer === false
-        ? undefined
-        : DEFAULT_STUN_SERVER);
-    this.turnServer = validateAddress(this.options.turnServer);
+    const { stunServers, turnServers } = normalizeIceServerOptions(
+      this.options,
+    );
+    this.stunServers =
+      stunServers.length > 0 || this.options.useDefaultStunServer === false
+        ? stunServers
+        : [DEFAULT_STUN_SERVER];
+    this.turnServers = turnServers;
+  }
+
+  /** @deprecated The first of {@link Connection.stunServers}. */
+  get stunServer(): Address | undefined {
+    return this.stunServers[0];
+  }
+
+  /** @deprecated Replaces {@link Connection.stunServers} with this one server (none for undefined). */
+  set stunServer(server: Address | undefined) {
+    this.stunServers = server ? [server] : [];
+  }
+
+  /** @deprecated The address of the first of {@link Connection.turnServers}. */
+  get turnServer(): Address | undefined {
+    return this.turnServers[0]?.address;
+  }
+
+  /**
+   * @deprecated Replaces {@link Connection.turnServers} with this one server
+   * and the deprecated turnUsername / turnPassword / turnTransport options
+   * (none for undefined).
+   */
+  set turnServer(server: Address | undefined) {
+    this.turnServers = server
+      ? normalizeIceServerOptions({
+          turnServer: server,
+          turnUsername: this.options.turnUsername,
+          turnPassword: this.options.turnPassword,
+          turnTransport: this.options.turnTransport,
+        }).turnServers
+      : [];
   }
 
   get iceControlling() {
@@ -836,8 +879,7 @@ export class Connection implements IceConnection {
           protocol.localCandidate.generation = this.generation;
           protocol.localCandidate.ufrag = this.localUsername;
           this.appendLocalCandidate(protocol.localCandidate);
-          const reflexive = this.reflexiveBySocket.get(protocol);
-          if (reflexive) {
+          for (const reflexive of this.reflexiveBySocket.get(protocol) ?? []) {
             this.appendLocalCandidate(this.withGeneration(reflexive));
           }
         }
@@ -895,8 +937,9 @@ export class Connection implements IceConnection {
    * Whether the provisional generation may use `protocol`: the staged
    * generation drops the sockets its gather options exclude at the commit,
    * so its checks never use them. A kept TURN allocation serves it only when
-   * the generation still uses that TURN server and credential: one whose
-   * server was removed or replaced (a credential rotation) is not part of it.
+   * the generation still uses that TURN server and credential (any of its
+   * TURN servers): one whose server was removed or replaced (a credential
+   * rotation) is not part of it.
    */
   private allowsProvisional(
     generation: ProvisionalGeneration,
@@ -911,13 +954,12 @@ export class Connection implements IceConnection {
     }
     if (protocol instanceof StunOverTurnProtocol) {
       const { configuredServer, username, password } = protocol.turn;
-      const turnServer = validateAddress(options.turnServer);
-      return (
-        !!turnServer &&
-        configuredServer[0] === turnServer[0] &&
-        configuredServer[1] === turnServer[1] &&
-        username === options.turnUsername &&
-        password === options.turnPassword
+      return normalizeIceServerOptions(options).turnServers.some(
+        (server) =>
+          configuredServer[0] === server.address[0] &&
+          configuredServer[1] === server.address[1] &&
+          username === server.username &&
+          password === server.password,
       );
     }
     return true;
@@ -943,7 +985,7 @@ export class Connection implements IceConnection {
 
   /** Whether gathering contacts a STUN or TURN server (more than re-advertising sockets). */
   get gathersFromServers() {
-    return !!this.stunServer || !!this.turnServer;
+    return this.stunServers.length > 0 || this.turnServers.length > 0;
   }
 
   private appendLocalCandidate(candidate: Candidate) {
@@ -1106,8 +1148,8 @@ export class Connection implements IceConnection {
     // opened for a replaced generation (or a closed agent) is closed, and
     // nothing is added to the current one.
     const stale = () => !this.isGathering(generation);
-    const { stunServer, turnServer } = this;
-    const { turnUsername, turnPassword, interfaceAddresses } = this.options;
+    const { stunServers, turnServers } = this;
+    const { interfaceAddresses } = this.options;
     const gatherIceLite = this.iceLite;
     const gatherRelayOnly = isRelayOnlyGathering(this.options);
 
@@ -1309,165 +1351,191 @@ export class Connection implements IceConnection {
       candidatePromises.push(...tcpCandidatePromises);
     }
 
-    if (!gatherIceLite && !gatherRelayOnly && stunServer) {
-      // Sockets kept across an ICE restart query STUN again. The mapping they
-      // already advertised is in the new generation from the start; a
-      // different fresh mapping (the NAT rebound) is added to it.
+    // A server-reflexive query of one socket to one STUN server, bounded by
+    // the STUN gather timeout; an unanswered one yields nothing.
+    const queryReflexive = async (protocol: StunProtocol, server: Address) => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const candidate = await Promise.race([
+        serverReflexiveCandidate(protocol, server).catch((error) => {
+          log("query STUN server", server, error);
+          return undefined;
+        }),
+        new Promise<undefined>((resolve) => {
+          timer = setTimeout(() => resolve(undefined), timeout * 1000);
+        }),
+      ]);
+      clearTimeout(timer);
+      return candidate;
+    };
+    // RFC 8445 §5.1.3: a mapping equal to one the socket already advertised
+    // (same base, same transport address) is redundant.
+    const sameMapping = (a: Candidate, b: Candidate) =>
+      a.host === b.host && a.port === b.port;
+
+    if (!gatherIceLite && !gatherRelayOnly && stunServers.length > 0) {
+      // Sockets kept across an ICE restart query every STUN server again.
+      // The mappings they already advertised are in the new generation from
+      // the start; a different fresh mapping (the NAT rebound) is added to
+      // it, and the fresh mappings replace the kept ones for the next restart.
       const reusedReflexivePromises = reusedStunProtocols
         .filter((protocol) => isIPv4(protocol.localCandidate!.host))
         .map(async (protocol) => {
-          let timer: ReturnType<typeof setTimeout> | undefined;
-          const fresh = await Promise.race([
-            serverReflexiveCandidate(protocol, stunServer).catch(
-              () => undefined,
-            ),
-            new Promise<undefined>((resolve) => {
-              timer = setTimeout(() => resolve(undefined), timeout * 1000);
+          const previous = this.reflexiveBySocket.get(protocol) ?? [];
+          const advertised = [...previous];
+          const fresh: Candidate[] = [];
+          await Promise.all(
+            stunServers.map(async (server) => {
+              const candidate = await queryReflexive(protocol, server);
+              if (!candidate || stale()) return;
+              if (!fresh.some((known) => sameMapping(known, candidate))) {
+                fresh.push(candidate);
+              }
+              if (advertised.some((known) => sameMapping(known, candidate))) {
+                return;
+              }
+              advertised.push(candidate);
+              this.appendLocalCandidate(candidate);
             }),
-          ]);
-          clearTimeout(timer);
+          );
           if (stale()) return;
-          const previous = this.reflexiveBySocket.get(protocol);
-          if (
-            fresh &&
-            (fresh.host !== previous?.host || fresh.port !== previous?.port)
-          ) {
-            this.reflexiveBySocket.set(protocol, fresh);
-            this.appendLocalCandidate(fresh);
-          }
-          return fresh ?? previous;
-        });
+          if (fresh.length > 0) this.reflexiveBySocket.set(protocol, fresh);
+          return fresh.length > 0 ? fresh : previous;
+        })
+        .map((promise) =>
+          promise.catch((error) => {
+            log("query STUN server", error);
+          }),
+        );
       candidatePromises.push(...reusedReflexivePromises);
 
+      // Every new IPv4 socket queries every STUN server in parallel.
       const stunCandidatePromises = localStunPromises.map(
         async (protocolPromise) => {
           const protocol = await protocolPromise;
-          if (!protocol) return;
-
-          const stunCandidatePromise = new Promise<Candidate | void>(
-            async (r, f) => {
-              const timer = setTimeout(f, timeout * 1000);
-              if (
-                protocol.localCandidate?.host &&
-                isIPv4(protocol.localCandidate?.host)
-              ) {
-                const candidate = await serverReflexiveCandidate(
-                  protocol,
-                  stunServer,
-                ).catch((error) => {
-                  log("error", error);
-                });
-                if (candidate && !stale()) {
-                  this.reflexiveBySocket.set(protocol, candidate);
-                  this.appendLocalCandidate(candidate);
-                }
-
-                clearTimeout(timer);
-                r(candidate);
-              } else {
-                clearTimeout(timer);
-                r();
+          if (
+            !protocol?.localCandidate ||
+            !isIPv4(protocol.localCandidate.host)
+          )
+            return;
+          const advertised: Candidate[] = [];
+          await Promise.all(
+            stunServers.map(async (server) => {
+              const candidate = await queryReflexive(protocol, server);
+              if (!candidate || stale()) return;
+              if (advertised.some((known) => sameMapping(known, candidate))) {
+                return;
               }
-            },
+              advertised.push(candidate);
+              this.reflexiveBySocket.set(protocol, advertised);
+              this.appendLocalCandidate(candidate);
+            }),
           ).catch((error) => {
             log("query STUN server", error);
           });
-
-          return stunCandidatePromise;
+          return advertised;
         },
       );
 
       candidatePromises.push(...stunCandidatePromises);
     }
 
-    if (!gatherIceLite && turnServer && turnUsername && turnPassword) {
-      const turnCandidatePromise = (async () => {
-        const turnTransport = this.options.turnTransport ?? "udp";
-        const protocol = await createStunOverTurnClient(
-          {
-            address: turnServer,
-            username: turnUsername,
-            password: turnPassword,
+    if (!gatherIceLite) {
+      // Every TURN server gets its own allocation, made with its own
+      // credential and transport; one that fails does not stop the others.
+      const turnCandidatePromises = turnServers.map((server) =>
+        this.gatherRelayCandidate(server, gatherRelayOnly, stale).catch(
+          (error) => {
+            log("query TURN server", server.address, error);
           },
-          {
-            portRange: this.options.portRange,
-            interfaceAddresses: this.options.interfaceAddresses,
-            transport: turnTransport,
-            tlsOptions: this.options.turnTlsOptions,
-            connectTimeoutMs: (this.options.turnConnectTimeout ?? 8) * 1000,
-            udpFamily: this.options.turnUdpFamily,
-            signal: this.closing.signal,
-          },
-        ).catch(async (e) => {
-          // close() cancelled the allocation: no TCP fallback.
-          if (turnTransport === "udp" && !this.closing.signal.aborted) {
-            return await createStunOverTurnClient(
-              {
-                address: turnServer,
-                username: turnUsername,
-                password: turnPassword,
-              },
-              {
-                portRange: this.options.portRange,
-                interfaceAddresses: this.options.interfaceAddresses,
-                transport: "tcp",
-                connectTimeoutMs: (this.options.turnConnectTimeout ?? 8) * 1000,
-                signal: this.closing.signal,
-              },
-            );
-          } else {
-            throw e;
-          }
-        });
-        if (stale()) {
-          // The allocation never joins a generation: release it (and its
-          // refresh timer) instead of keeping a second one alive.
-          await protocol.close();
-          return;
-        }
-        this.ensureProtocol(protocol);
-        this.protocols.push(protocol);
-
-        const candidateAddress = protocol.turn.relayedAddress;
-        // The related address of a relay candidate is the address the TURN
-        // server saw the agent at. A relay-only policy hides the agent's
-        // addresses from the peer, so it advertises the unspecified address
-        // and port 9 instead (RFC 8839 §5.1), in SDP and trickle alike.
-        const relatedAddress: Address = gatherRelayOnly
-          ? [isIPv4(candidateAddress[0]) ? "0.0.0.0" : "::", 9]
-          : protocol.turn.mappedAddress;
-
-        log("turn candidateAddress", candidateAddress);
-
-        protocol.localCandidate = new Candidate(
-          candidateFoundation("relay", "udp", candidateAddress[0]),
-          1,
-          "udp",
-          candidatePriority("relay"),
-          candidateAddress[0],
-          candidateAddress[1],
-          "relay",
-          relatedAddress[0],
-          relatedAddress[1],
-          undefined,
-          this.generation,
-          this.localUsername,
-        );
-        // An allocation that completes after the remote candidates arrived
-        // (early signaling, or an ICE restart that allocates afresh) pairs
-        // with them; a connect() already running schedules the new pairs.
-        this.pairLocalProtocol(protocol);
-        this.appendLocalCandidate(protocol.localCandidate);
-
-        return protocol.localCandidate;
-      })().catch((error) => {
-        log("query TURN server", error);
-      });
-
-      candidatePromises.push(turnCandidatePromise);
+        ),
+      );
+      candidatePromises.push(...turnCandidatePromises);
     }
 
     return candidatePromises;
+  }
+
+  /**
+   * Allocate on one TURN server and add its relay candidate. A UDP
+   * allocation that fails falls back to TCP on the same server. An
+   * allocation that completes for a replaced generation (or a closed agent)
+   * is released.
+   */
+  private async gatherRelayCandidate(
+    server: Required<TurnServerOptions>,
+    relayOnly: boolean,
+    stale: () => boolean,
+  ) {
+    const { address, username, password, transport } = server;
+    const protocol = await createStunOverTurnClient(
+      { address, username, password },
+      {
+        portRange: this.options.portRange,
+        interfaceAddresses: this.options.interfaceAddresses,
+        transport,
+        tlsOptions: this.options.turnTlsOptions,
+        connectTimeoutMs: (this.options.turnConnectTimeout ?? 8) * 1000,
+        udpFamily: this.options.turnUdpFamily,
+        signal: this.closing.signal,
+      },
+    ).catch(async (e) => {
+      // close() cancelled the allocation: no TCP fallback.
+      if (transport === "udp" && !this.closing.signal.aborted) {
+        return await createStunOverTurnClient(
+          { address, username, password },
+          {
+            portRange: this.options.portRange,
+            interfaceAddresses: this.options.interfaceAddresses,
+            transport: "tcp",
+            connectTimeoutMs: (this.options.turnConnectTimeout ?? 8) * 1000,
+            signal: this.closing.signal,
+          },
+        );
+      } else {
+        throw e;
+      }
+    });
+    if (stale()) {
+      // The allocation never joins a generation: release it (and its
+      // refresh timer) instead of keeping a second one alive.
+      await protocol.close();
+      return;
+    }
+    this.ensureProtocol(protocol);
+    this.protocols.push(protocol);
+
+    const candidateAddress = protocol.turn.relayedAddress;
+    // The related address of a relay candidate is the address the TURN
+    // server saw the agent at. A relay-only policy hides the agent's
+    // addresses from the peer, so it advertises the unspecified address
+    // and port 9 instead (RFC 8839 §5.1), in SDP and trickle alike.
+    const relatedAddress: Address = relayOnly
+      ? [isIPv4(candidateAddress[0]) ? "0.0.0.0" : "::", 9]
+      : protocol.turn.mappedAddress;
+
+    log("turn candidateAddress", candidateAddress);
+
+    protocol.localCandidate = new Candidate(
+      candidateFoundation("relay", "udp", candidateAddress[0]),
+      1,
+      "udp",
+      candidatePriority("relay"),
+      candidateAddress[0],
+      candidateAddress[1],
+      "relay",
+      relatedAddress[0],
+      relatedAddress[1],
+      undefined,
+      this.generation,
+      this.localUsername,
+    );
+    // An allocation that completes after the remote candidates arrived
+    // (early signaling, or an ICE restart that allocates afresh) pairs
+    // with them; a connect() already running schedules the new pairs.
+    this.pairLocalProtocol(protocol);
+    this.appendLocalCandidate(protocol.localCandidate);
+
+    return protocol.localCandidate;
   }
 
   async connect() {

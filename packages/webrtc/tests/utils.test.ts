@@ -191,6 +191,111 @@ describe("utils", () => {
       expect(turnUsername).toBe("username");
       expect(turnPassword).toBe("credential");
     });
+
+    test("複数の RTCIceServer と urls 配列のすべての STUN / TURN URL を設定順に返す", () => {
+      // Arrange: STUN と TURN が混在する 2 つの RTCIceServer
+      const iceServers: RTCIceServer[] = [
+        {
+          urls: [
+            "stun:stun-a.example.com:3478",
+            "turn:turn-a.example.com:3478",
+            "turn:turn-a.example.com:3478?transport=tcp",
+          ],
+          username: "user-a",
+          credential: "pass-a",
+        },
+        { urls: "stun:stun-b.example.com" },
+        {
+          urls: ["turns:turn-b.example.com", "turn:turn-c.example.com:3479"],
+          username: "user-b",
+          credential: "pass-b",
+        },
+      ];
+
+      // Act
+      const { stunServers, turnServers } = parseIceServers(iceServers);
+
+      // Assert: STUN はすべての URL を設定順に返す
+      expect(stunServers).toEqual([
+        ["stun-a.example.com", 3478],
+        ["stun-b.example.com", 3478],
+      ]);
+      // Assert: TURN は URL ごとに、その URL を含む RTCIceServer の credential と URL の transport を持つ
+      expect(turnServers).toEqual([
+        {
+          address: ["turn-a.example.com", 3478],
+          username: "user-a",
+          password: "pass-a",
+          transport: undefined,
+        },
+        {
+          address: ["turn-a.example.com", 3478],
+          username: "user-a",
+          password: "pass-a",
+          transport: "tcp",
+        },
+        {
+          address: ["turn-b.example.com", 5349],
+          username: "user-b",
+          password: "pass-b",
+          transport: "tls",
+        },
+        {
+          address: ["turn-c.example.com", 3479],
+          username: "user-b",
+          password: "pass-b",
+          transport: undefined,
+        },
+      ]);
+    });
+
+    test("重複した URL は 1 件にまとめ、credential の違う同じ TURN は別に扱う", () => {
+      // Arrange
+      const iceServers: RTCIceServer[] = [
+        {
+          urls: ["stun:stun.example.com:3478", "stun:stun.example.com:3478"],
+        },
+        {
+          urls: ["turn:turn.example.com:3478", "turn:turn.example.com:3478"],
+          username: "user-a",
+          credential: "pass-a",
+        },
+        {
+          urls: "turn:turn.example.com:3478",
+          username: "user-b",
+          credential: "pass-b",
+        },
+        { urls: "stun:stun.example.com:3478" },
+      ];
+
+      // Act
+      const { stunServers, turnServers } = parseIceServers(iceServers);
+
+      // Assert: 同じ STUN は 1 件、同じ TURN + credential は 1 件、credential 違いは別の要素
+      expect(stunServers).toEqual([["stun.example.com", 3478]]);
+      expect(turnServers.map(({ username }) => username)).toEqual([
+        "user-a",
+        "user-b",
+      ]);
+    });
+
+    test("単数フィールドは最初の STUN / TURN URL を返す (互換)", () => {
+      // Arrange
+      const iceServers: RTCIceServer[] = [
+        { urls: "turn:turn-a.example.com", username: "a", credential: "pa" },
+        { urls: "turn:turn-b.example.com", username: "b", credential: "pb" },
+        { urls: ["stun:stun-a.example.com", "stun:stun-b.example.com"] },
+      ];
+
+      // Act
+      const parsed = parseIceServers(iceServers);
+
+      // Assert: 単数フィールドは配列の先頭要素と一致する
+      expect(parsed.stunServer).toEqual(["stun-a.example.com", 3478]);
+      expect(parsed.turnServer).toEqual(["turn-a.example.com", 3478]);
+      expect(parsed.turnUsername).toBe("a");
+      expect(parsed.turnPassword).toBe("pa");
+    });
   });
 
   describe("resolveTurnTransport", () => {
