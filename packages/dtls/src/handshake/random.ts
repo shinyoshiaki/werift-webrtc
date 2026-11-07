@@ -6,7 +6,7 @@ const { decode, encode, types } = binaryData;
 
 export class DtlsRandom {
   public gmt_unix_time: number;
-  public random_bytes: Buffer;
+  public random_bytes: Buffer<ArrayBuffer>;
 
   static readonly spec = {
     gmt_unix_time: types.uint32be,
@@ -15,7 +15,7 @@ export class DtlsRandom {
 
   constructor(
     gmt_unix_time = Math.floor(Date.now() / 1000),
-    random_bytes = randomBytes(28),
+    random_bytes: Buffer<ArrayBuffer> = randomBytes(28) as Buffer<ArrayBuffer>,
   ) {
     this.gmt_unix_time = gmt_unix_time;
     this.random_bytes = random_bytes;
