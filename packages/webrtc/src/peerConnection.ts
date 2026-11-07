@@ -13,7 +13,10 @@ import {
   type RTCPeerConnectionIceEvent,
   RTCTrackEvent,
 } from "./api/peerConnectionEvents";
-import type { RTCDataChannel } from "./dataChannel";
+import {
+  assertDataChannelFieldLengths,
+  type RTCDataChannel,
+} from "./dataChannel";
 import { createWebRtcDomException } from "./errors";
 import { EventTarget, enumerate } from "./helper";
 import { debug, Event } from "./imports/common";
@@ -701,6 +704,10 @@ export class RTCPeerConnection extends EventTarget {
       id?: number;
     }> = {},
   ): RTCDataChannel {
+    // Reject invalid input before creating the transport or scheduling
+    // negotiation, so a failed call leaves the connection unchanged.
+    assertDataChannelFieldLengths({ label, protocol: options.protocol });
+
     if (!this.sctpTransport) {
       this.createSctpTransport();
       this.needNegotiation();
