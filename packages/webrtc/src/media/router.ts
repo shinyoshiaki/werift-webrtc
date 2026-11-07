@@ -366,9 +366,7 @@ export class RtpRouter {
     const rid = extensions[RTP_EXTENSION_URI.sdesRTPStreamID];
     const repairedRid = extensions[RTP_EXTENSION_URI.repairedRtpStreamId];
     const repairedReceiver =
-      typeof rid !== "string" &&
-      typeof repairedRid === "string" &&
-      !rtpReceiver
+      typeof rid !== "string" && typeof repairedRid === "string" && !rtpReceiver
         ? this.receiverByRid(repairedRid, mid)
         : undefined;
     if (typeof rid === "string") {

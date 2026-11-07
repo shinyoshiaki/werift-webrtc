@@ -36,6 +36,7 @@ import {
   type ReceiverTWCC,
   releaseTransportReceiverTWCC,
 } from "./receiver/receiverTwcc";
+import { ReceivedPacketHistory } from "./receiver/rtxRepair";
 import { StreamStatistics } from "./receiver/statistics";
 import {
   buildStatsReport,
@@ -55,14 +56,6 @@ import {
 } from "./track";
 
 const MAX_MEDIA_SSRCS_PER_RID = 4;
-/** How far behind a media SSRC's newest sequence number an RTX can repair. */
-const RTX_REPAIR_WINDOW = 1000;
-
-/** A media SSRC a RID has used and the newest sequence number seen on it. */
-export interface RidMediaSsrc {
-  ssrc: number;
-  highestSeq: number;
-}
 
 const log = debug("werift:packages/webrtc/src/media/rtpReceiver.ts");
 
@@ -84,26 +77,18 @@ export class RTCRtpReceiver {
   /** SSRCs of `trackBySSRC` learned from RID packets rather than SDP. */
   readonly learnedTrackSsrcs = new Set<number>();
   /**
-   * Simulcast RTX without `a=ssrc-group:FID` (RFC 8852): the media SSRC of
-   * each RID, learned from packets carrying `rtp-stream-id`, and the RID each
-   * RTX SSRC repairs, learned from `repaired-rtp-stream-id`. The pair resolves
-   * an RTX SSRC to its media SSRC when {@link ssrcByRtx} (SDP) has no entry.
+   * Simulcast RTX without `a=ssrc-group:FID` (RFC 8852): the RID each RTX
+   * SSRC repairs, learned from `repaired-rtp-stream-id`, and the media SSRCs
+   * each RID has used (oldest first, bounded), learned from `rtp-stream-id`.
+   * They name the candidates of an RTX packet when {@link ssrcByRtx} (SDP)
+   * has no entry; {@link receivedBySsrc} decides between them per packet.
    * Packet-driven live state like {@link learnedTrackSsrcs}: a negotiation
    * (commit, rollback, `resyncCodecs`) keeps it, a later packet updates it.
    */
   readonly ridByRtxSsrc: { [rtxSsrc: number]: string } = {};
-  /**
-   * The media SSRC an RTX SSRC repaired when it was first resolved. Kept apart
-   * from {@link ssrcByRid}, whose value follows the RID's latest media SSRC, so
-   * a delayed RTX of an earlier media SSRC is not restored to the newer one.
-   */
-  readonly pinnedMediaSsrcByRtx: { [rtxSsrc: number]: number } = {};
-  /**
-   * Media SSRCs a RID has used (oldest first, bounded). With more than one, an
-   * RTX SSRC that is not pinned yet may repair any of them; it is resolved by
-   * the NACK state (see {@link mediaSsrcOfRtx}) instead of by a guess.
-   */
-  readonly mediaSsrcsByRid: { [rid: string]: RidMediaSsrc[] } = {};
+  readonly mediaSsrcsByRid: { [rid: string]: number[] } = {};
+  /** Received packets of the media SSRCs in {@link mediaSsrcsByRid}. */
+  readonly receivedBySsrc = new Map<number, ReceivedPacketHistory>();
   private readonly nack = new NackHandler(this);
   private readonly audioRedHandler = new RedHandler();
 
@@ -466,8 +451,8 @@ export class RTCRtpReceiver {
     this.releaseReceiverTWCC();
     this.nack.close();
     clearTable(this.ridByRtxSsrc);
-    clearTable(this.pinnedMediaSsrcByRtx);
     clearTable(this.mediaSsrcsByRid);
+    this.receivedBySsrc.clear();
   }
 
   /**transceiver の停止確定時に remote track を ended にする */
@@ -739,11 +724,7 @@ export class RTCRtpReceiver {
       this.learnedTrackSsrcs.add(ssrc);
     }
     if (track && !isRtxCodec(this.codecs[packet.header.payloadType])) {
-      const history = (this.mediaSsrcsByRid[rid] ??= []);
-      if (!history.some((entry) => entry.ssrc === ssrc)) {
-        history.push({ ssrc, highestSeq: packet.header.sequenceNumber });
-        if (history.length > MAX_MEDIA_SSRCS_PER_RID) history.shift();
-      }
+      this.learnRidMediaSsrc(rid, ssrc);
     }
 
     this.handleRTP(packet, extensions, track);
@@ -767,46 +748,44 @@ export class RTCRtpReceiver {
     this.handleRTP(packet, extensions);
   };
 
+  private learnRidMediaSsrc(rid: string, ssrc: number) {
+    const ssrcs = (this.mediaSsrcsByRid[rid] ??= []);
+    if (ssrcs.includes(ssrc)) return;
+    ssrcs.push(ssrc);
+    if (!this.receivedBySsrc.has(ssrc)) {
+      this.receivedBySsrc.set(ssrc, new ReceivedPacketHistory());
+    }
+    if (ssrcs.length <= MAX_MEDIA_SSRCS_PER_RID) return;
+    const evicted = ssrcs.shift()!;
+    const inUse = Object.values(this.mediaSsrcsByRid).some((other) =>
+      other.includes(evicted),
+    );
+    if (!inUse) this.receivedBySsrc.delete(evicted);
+  }
+
   /**
-   * Media SSRC an RTX SSRC repairs: SDP pairing first, then the learned RID.
-   * RFC 8852 gives a RID one media SSRC, so the RID alone pairs an RTX SSRC
-   * with it. Once a RID has used a second media SSRC nothing in an unpinned
-   * RTX packet says which one it repairs (sequence numbers are per SSRC, a
-   * NACK may be outstanding on either), so such an RTX SSRC is dropped
-   * without pinning; RTX SSRCs pinned before the change keep working and the
-   * pairing is complete again after renegotiation (SDP). With one media SSRC
-   * the original sequence number must also be close behind its newest one, so
-   * an RTX of a media SSRC not seen yet is not taken for it.
+   * Media SSRC an RTX packet repairs. SDP pairing (`ssrc-group:FID`) names
+   * it. Otherwise the packet itself is checked against each media SSRC its
+   * RID has used: it must fill a hole of exactly one of them (see
+   * {@link ReceivedPacketHistory} for why this identifies the stream). Each
+   * packet is checked on its own and nothing is pinned, so a media SSRC
+   * change of the RID, an RTX packet arriving before its media, or an RTX
+   * SSRC first seen after the change cannot carry a wrong pairing forward.
+   * A packet that fits no hole, or the holes of several SSRCs, is dropped.
    */
   private mediaSsrcOfRtx(rtx: RtpPacket): number | undefined {
     const rtxSsrc = rtx.header.ssrc;
     const bySdp = this.ssrcByRtx[rtxSsrc];
     if (bySdp !== undefined) return bySdp;
-    const pinned = this.pinnedMediaSsrcByRtx[rtxSsrc];
-    if (pinned !== undefined) return pinned;
     const rid = this.ridByRtxSsrc[rtxSsrc];
-    const candidates = rid === undefined ? [] : this.mediaSsrcsByRid[rid] ?? [];
-    if (candidates.length !== 1) return undefined;
-    const [{ ssrc, highestSeq }] = candidates;
-    if (uint16Sub(highestSeq, rtx.payload.readUInt16BE(0)) > RTX_REPAIR_WINDOW)
-      return undefined;
-    this.pinnedMediaSsrcByRtx[rtxSsrc] = ssrc;
-    return ssrc;
-  }
-
-  /** Keep the newest sequence number of the RIDs' media SSRCs current. */
-  private noteMediaSeq(packet: RtpPacket) {
-    const { ssrc, sequenceNumber } = packet.header;
-    for (const history of Object.values(this.mediaSsrcsByRid)) {
-      for (const entry of history) {
-        if (
-          entry.ssrc === ssrc &&
-          uint16Sub(sequenceNumber, entry.highestSeq) < 0x8000
-        ) {
-          entry.highestSeq = sequenceNumber;
-        }
-      }
-    }
+    if (rid === undefined) return undefined;
+    const originalSeq = rtx.payload.readUInt16BE(0);
+    const matches = (this.mediaSsrcsByRid[rid] ?? []).filter((ssrc) =>
+      this.receivedBySsrc
+        .get(ssrc)
+        ?.fitsHole(originalSeq, rtx.header.timestamp),
+    );
+    return matches.length === 1 ? matches[0] : undefined;
   }
 
   private handleRTP(
@@ -888,7 +867,9 @@ export class RTCRtpReceiver {
     }
 
     this.payloadTypeBySsrc[packet.header.ssrc] = mediaCodec.payloadType;
-    if (!paddingOnly) this.noteMediaSeq(packet);
+    this.receivedBySsrc
+      .get(packet.header.ssrc)
+      ?.add(packet.header.sequenceNumber, packet.header.timestamp);
 
     if (track?.kind === "video" && hasFeedback(mediaCodec, "nack")) {
       this.nack.addPacket(packet);
@@ -1070,9 +1051,4 @@ function hasFeedback(
     (f) =>
       f.type === type && (parameter === undefined || f.parameter === parameter),
   );
-}
-
-/** `(a - b)` on the 16-bit sequence number circle. */
-function uint16Sub(a: number, b: number) {
-  return (a - b + 0x10000) & 0xffff;
 }

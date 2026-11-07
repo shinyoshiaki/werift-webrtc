@@ -1,11 +1,10 @@
 import type { AcceptFn } from "protoo-server";
 import {
-  GenericNack,
-  MediaStreamTrack,
+  type MediaStreamTrack,
   RTCPeerConnection,
   RTCRtpCodecParameters,
   type RTCRtpReceiver,
-  RtcpTransportLayerFeedback,
+  type RtpPacket,
   RtpReceivePacketType,
   useNACK,
   usePLI,
@@ -112,14 +111,16 @@ export class mediachannel_simulcast_offer {
 
 /**
  * Simulcast with RTX (RFC 4588) and `repaired-rtp-stream-id`, without
- * `a=ssrc` lines. werift NACKs a recently received packet of each layer and
- * waits for Chrome's RTX to arrive restored on that layer's track.
+ * `a=ssrc` lines. A media packet of each layer is lost before the receiver
+ * sees it; werift's own NACK asks for it and Chrome's RTX must arrive
+ * restored (media SSRC and sequence number) on that layer's track.
  */
 export class mediachannel_simulcast_rtx_answer {
   pc!: RTCPeerConnection;
   private readonly repaired = new Set<string>();
   private readonly onRepaired: (() => void)[] = [];
-  private nackTimers: ReturnType<typeof setInterval>[] = [];
+  /** `ssrc:seq` of the media packets lost on purpose. */
+  private readonly dropped = new Set<string>();
 
   async exec(type: string, payload: any, accept: AcceptFn) {
     switch (type) {
@@ -151,9 +152,6 @@ export class mediachannel_simulcast_rtx_answer {
               audio: [],
             },
           });
-          this.pc.connectionStateChange.subscribe((state) => {
-            if (state === "closed" || state === "failed") this.stopNack();
-          });
           const transceiver = this.pc.addTransceiver("video", {
             direction: "recvonly",
             simulcast: [
@@ -165,11 +163,12 @@ export class mediachannel_simulcast_rtx_answer {
             high: this.pc.addTransceiver("video", { direction: "sendonly" }),
             low: this.pc.addTransceiver("video", { direction: "sendonly" }),
           };
+          this.loseMediaPackets(transceiver.receiver);
           transceiver.onTrack.subscribe((track) => {
             const sender = multiCast[track.rid as keyof typeof multiCast];
             if (sender) {
               sender.sender.replaceTrack(track);
-              this.requestRetransmission(transceiver.receiver, track);
+              this.watchRepair(track);
             }
           });
           await this.pc.setLocalDescription(await this.pc.createOffer());
@@ -198,46 +197,53 @@ export class mediachannel_simulcast_rtx_answer {
             };
             check();
           });
-          this.stopNack();
           accept({ rids: [...this.repaired].sort() });
         }
         break;
     }
   }
 
-  /** NACK a packet the layer already delivered until its RTX comes back. */
-  private requestRetransmission(
-    receiver: RTCRtpReceiver,
-    track: MediaStreamTrack,
-  ) {
-    const rid = track.rid!;
-    let latest: { ssrc: number; seq: number } | undefined;
-    track.onReceiveRtp.subscribe((rtp, _ext, info) => {
-      if (info?.type === RtpReceivePacketType.retransmission) {
-        if (rtp.header.ssrc === latest?.ssrc && !this.repaired.has(rid)) {
-          this.repaired.add(rid);
-          this.onRepaired.splice(0).forEach((f) => f());
-        }
-        return;
+  /**
+   * Lose the 50th media packet of each layer, and again every 100 packets
+   * until the layer is repaired, as if it were lost on the wire: the
+   * receiver never sees it, so its NACK asks Chrome for a real hole.
+   */
+  private loseMediaPackets(receiver: RTCRtpReceiver) {
+    const ridBySsrc = new Map<number, string>();
+    const countByRid = new Map<string, number>();
+    const lose = (packet: RtpPacket, rid: string | undefined) => {
+      if (rid === undefined || this.repaired.has(rid)) return false;
+      if (packet.header.padding || packet.payload.length === 0) return false;
+      const count = (countByRid.get(rid) ?? 0) + 1;
+      countByRid.set(rid, count);
+      if (count % 100 !== 50) return false;
+      this.dropped.add(`${packet.header.ssrc}:${packet.header.sequenceNumber}`);
+      return true;
+    };
+    const byRid = receiver.handleRtpByRid;
+    const bySsrc = receiver.handleRtpBySsrc;
+    // rid 付きは媒体パケットだけ。RTX SSRC は ridBySsrc に入らないので落とさない。
+    receiver.handleRtpByRid = (packet, rid, extensions) => {
+      ridBySsrc.set(packet.header.ssrc, rid);
+      if (!lose(packet, rid)) byRid(packet, rid, extensions);
+    };
+    receiver.handleRtpBySsrc = (packet, extensions) => {
+      if (!lose(packet, ridBySsrc.get(packet.header.ssrc))) {
+        bySsrc(packet, extensions);
       }
-      latest = { ssrc: rtp.header.ssrc, seq: rtp.header.sequenceNumber };
-    });
-    const timer = setInterval(() => {
-      if (!latest || this.repaired.has(rid)) return;
-      const nack = new GenericNack({
-        senderSsrc: receiver.rtcpSsrc,
-        mediaSourceSsrc: latest.ssrc,
-        lost: [(latest.seq - 3 + 0x10000) & 0xffff],
-      });
-      receiver.dtlsTransport
-        .sendRtcp([new RtcpTransportLayerFeedback({ feedback: nack })])
-        .catch(() => {});
-    }, 200);
-    this.nackTimers.push(timer);
+    };
   }
 
-  private stopNack() {
-    this.nackTimers.forEach(clearInterval);
-    this.nackTimers = [];
+  /** Mark the layer repaired when a lost packet arrives restored from RTX. */
+  private watchRepair(track: MediaStreamTrack) {
+    const rid = track.rid!;
+    track.onReceiveRtp.subscribe((rtp, _ext, info) => {
+      if (info?.type !== RtpReceivePacketType.retransmission) return;
+      const key = `${rtp.header.ssrc}:${rtp.header.sequenceNumber}`;
+      if (this.dropped.has(key) && !this.repaired.has(rid)) {
+        this.repaired.add(rid);
+        this.onRepaired.splice(0).forEach((f) => f());
+      }
+    });
   }
 }

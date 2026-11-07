@@ -18,6 +18,7 @@ const LOST_SIZE = 30 * 5;
  * numbers with each other and each NACK names the SSRC that lost the packets.
  */
 export class NackHandler {
+  private readonly receiver: RTCRtpReceiver;
   private readonly streams = new Map<number, NackStream>();
 
   readonly onPacketLost = new Event<[GenericNack]>();
@@ -85,11 +86,13 @@ class NackStream {
   private newEstSeqNum?: number;
   private lost: { [seqNum: number]: number } = {};
   private nackLoop?: ReturnType<typeof setInterval>;
+  private readonly ssrc: number;
+  private readonly handler: NackHandler;
 
-  constructor(
-    private readonly ssrc: number,
-    private readonly handler: NackHandler,
-  ) {}
+  constructor(ssrc: number, handler: NackHandler) {
+    this.ssrc = ssrc;
+    this.handler = handler;
+  }
 
   get lostSeqNumbers() {
     return Object.keys(this.lost)

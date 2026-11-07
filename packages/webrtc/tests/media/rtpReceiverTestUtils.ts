@@ -13,8 +13,8 @@ import {
   RtpHeader,
   RtpPacket,
 } from "../../src";
-import type { NackHandler } from "../../src/media/receiver/nack";
 import { RTCRtpSimulcastParameters } from "../../src/media/parameters";
+import type { NackHandler } from "../../src/media/receiver/nack";
 import { RtpRouter } from "../../src/media/router";
 import { RTCRtpReceiver } from "../../src/media/rtpReceiver";
 import { RTCRtpSender } from "../../src/media/rtpSender";
@@ -296,6 +296,14 @@ export function simulcastExtensions(
     .map((key) => ({ id: ids[key], payload: Buffer.from(values[key]!) }));
 }
 
+/**
+ * Arrange: the RTP timestamp base of `ssrc`. RFC 3550 starts each SSRC at a
+ * random timestamp; a fixed hash keeps the fixtures deterministic.
+ */
+export function simulcastTimestampBase(ssrc: number) {
+  return Math.imul(ssrc, 0x9e3779b1) >>> 0;
+}
+
 /** Arrange: a simulcast layer's media packet (VP8, PT 96). */
 export function createSimulcastMediaPacket(options: {
   ssrc: number;
@@ -304,13 +312,19 @@ export function createSimulcastMediaPacket(options: {
   /** `null` omits the MID extension. */
   mid?: string | null;
   payload?: Buffer;
+  /** Defaults to the SSRC's own base + 3000 per sequence number. */
+  timestamp?: number;
 }) {
   return new RtpPacket(
     new RtpHeader({
       ssrc: options.ssrc,
       payloadType: 96,
       sequenceNumber: options.sequenceNumber,
-      timestamp: options.sequenceNumber * 3000,
+      timestamp:
+        options.timestamp ??
+        (simulcastTimestampBase(options.ssrc) +
+          options.sequenceNumber * 3000) >>>
+          0,
       extensions: simulcastExtensions({
         mid: options.mid === null ? undefined : (options.mid ?? "0"),
         rid: options.rid,
@@ -334,17 +348,51 @@ export function createSimulcastRtxPacket(
     mid?: string | null;
   },
 ) {
-  const rtx = wrapRtx(
-    media,
-    97,
-    options.rtxSequenceNumber,
-    options.rtxSsrc,
-  );
+  const rtx = wrapRtx(media, 97, options.rtxSequenceNumber, options.rtxSsrc);
   rtx.header.extensions = simulcastExtensions({
     mid: options.mid === null ? undefined : (options.mid ?? "0"),
     rrid: options.rrid,
   });
   return rtx;
+}
+
+/**
+ * Arrange: the RTX packet on `rtxSsrc` repairing `sequenceNumber` of the
+ * media SSRC `mediaSsrc` (see {@link createSimulcastRtxPacket}).
+ */
+export function createSimulcastRtxFor(
+  mediaSsrc: number,
+  sequenceNumber: number,
+  options: {
+    rtxSsrc: number;
+    rtxSequenceNumber?: number;
+    rrid?: string;
+    mid?: string | null;
+    timestamp?: number;
+  },
+) {
+  return createSimulcastRtxPacket(
+    createSimulcastMediaPacket({
+      ssrc: mediaSsrc,
+      sequenceNumber,
+      timestamp: options.timestamp,
+    }),
+    {
+      rtxSsrc: options.rtxSsrc,
+      rtxSequenceNumber: options.rtxSequenceNumber ?? sequenceNumber,
+      rrid: options.rrid,
+      mid: options.mid,
+    },
+  );
+}
+
+/** Assert helper: `[ssrc, seq]` of the retransmissions in `delivered`. */
+export function retransmissionsOf(
+  delivered: ReturnType<typeof collectDeliveredRtp>,
+) {
+  return delivered
+    .filter((p) => p.type === "retransmission")
+    .map((p) => [p.ssrc, p.seq]);
 }
 
 /** Arrange: record `onReceiveRtp` deliveries with SSRC / PT / payload. */
