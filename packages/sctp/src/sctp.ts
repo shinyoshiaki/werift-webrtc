@@ -635,7 +635,7 @@ export class SCTP {
     }
   }
 
-  /** Our outstanding reset request was acknowledged (by a response or RFC 6525 §5.2.2 E1). */
+  /** The peer answered our outstanding reset request with Success - Performed. */
   private async completeOutgoingReset() {
     const streamIds = this.reconfigRequest!.streams.map((streamId) => {
       delete this.outboundStreamSeq[streamId];
@@ -693,12 +693,13 @@ export class SCTP {
       return;
     }
 
-    // RFC 6525 §5.2.2 E1: the peer has received our outstanding request.
+    // RFC 6525 §5.2.2 E1: the peer has received our outstanding request, so stop
+    // retransmitting it. The reset itself completes with the peer's response.
     if (
       this.reconfigRequest &&
       request.responseSequence === this.reconfigRequest.requestSequence
     ) {
-      await this.completeOutgoingReset();
+      this.timerReconfigCancel();
     }
 
     const target = pending?.request ?? request;

@@ -459,7 +459,7 @@ describe("outgoing stream reset answered with In progress", () => {
 });
 
 describe("incoming reset request acknowledging our outstanding request", () => {
-  test("responseSequence が自分の request と一致すれば確認済みにしてタイマーを止める", async () => {
+  test("responseSequence が自分の request と一致すればタイマーを止めるが、成功応答までは完了にしない", async () => {
     // Arrange: 自分の reset request が未応答のまま残っている
     const { sctp, inject, internal } = createEstablishedMockSctp();
     internal.outboundStreamSeq[1] = 1;
@@ -478,9 +478,21 @@ describe("incoming reset request acknowledging our outstanding request", () => {
       }),
     );
 
-    // Assert: 自分の request は確認済みになり、再構成タイマーが止まる
-    expect(sctp.reconfigRequest).toBeUndefined();
+    // Assert: 再構成タイマーは止まるが、request と stream の状態は維持される
     expect(internal.timerReconfigHandle).toBeUndefined();
+    expect(sctp.reconfigRequest).toBe(request);
+    expect(internal.outboundStreamSeq[1]).toBe(1);
+
+    // Act: 相手から成功応答が届く
+    await inject(
+      createReconfigResponseChunk(
+        request.requestSequence,
+        reconfigResult.ReconfigResultSuccessPerformed,
+      ),
+    );
+
+    // Assert: ここで reset が完了する
+    expect(sctp.reconfigRequest).toBeUndefined();
     expect(internal.outboundStreamSeq[1]).toBeUndefined();
 
     await sctp.stop();
