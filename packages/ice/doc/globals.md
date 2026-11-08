@@ -36,11 +36,13 @@
 
 ## Type Aliases
 
+- [IceServerFields](type-aliases/IceServerFields.md)
 - [IceState](type-aliases/IceState.md)
 - [MessageIntegrityAlgorithm](type-aliases/MessageIntegrityAlgorithm.md)
 - [MessageIntegrityMode](type-aliases/MessageIntegrityMode.md)
 - [TcpCandidateType](type-aliases/TcpCandidateType.md)
 - [TurnRedirectFailureReason](type-aliases/TurnRedirectFailureReason.md)
+- [TurnServerOptions](type-aliases/TurnServerOptions.md)
 - [TurnStreamReconnect](type-aliases/TurnStreamReconnect.md)
 
 ## Variables
@@ -90,6 +92,7 @@
 - [makeIntegrityKey](functions/makeIntegrityKey.md)
 - [mergeIceServerOptions](functions/mergeIceServerOptions.md)
 - [nodeIpAddress](functions/nodeIpAddress.md)
+- [normalizeIceServerOptions](functions/normalizeIceServerOptions.md)
 - [paddingLength](functions/paddingLength.md)
 - [parseMessage](functions/parseMessage.md)
 - [randomPort](functions/randomPort.md)
