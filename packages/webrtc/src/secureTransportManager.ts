@@ -109,23 +109,48 @@ export class SecureTransportManager {
   }
 
   /**
-   * Resolve STUN/TURN options from the current PeerConfig.
-   * Always returns every server-related field (including undefined) so
-   * Connection.setIceServers can fully replace residual TURN credentials.
+   * Resolve STUN/TURN options from the current PeerConfig: every STUN URL and
+   * every TURN URL of every RTCIceServer, in order. Each TURN URL keeps the
+   * credential of its own RTCIceServer and its own transport (the URL's,
+   * else turnTransport, else forceTurnTCP). A TURN URL without username /
+   * credential cannot allocate and is left out (logged); W3C's
+   * InvalidAccessError for it is not raised, for compatibility.
+   *
+   * Always returns every server-related field (the deprecated singular ones
+   * as undefined) so Connection.setIceServers fully replaces residual TURN
+   * servers and credentials.
    */
   private resolveIceServerOptions() {
-    const iceServerOptions = parseIceServers(this.config.iceServers);
-    const turnTransport = resolveTurnTransport({
-      parsedTurnTransport: iceServerOptions.turnTransport,
-      configuredTurnTransport: this.config.turnTransport,
-      forceTurnTCP: this.config.forceTurnTCP,
-    });
+    const { stunServers, turnServers } = parseIceServers(
+      this.config.iceServers,
+    );
     return {
-      stunServer: iceServerOptions.stunServer,
-      turnServer: iceServerOptions.turnServer,
-      turnUsername: iceServerOptions.turnUsername,
-      turnPassword: iceServerOptions.turnPassword,
-      turnTransport,
+      stunServers,
+      turnServers: turnServers.flatMap(
+        ({ address, username, password, transport }) => {
+          if (!username || !password) {
+            log("TURN server without username / credential ignored", address);
+            return [];
+          }
+          return [
+            {
+              address,
+              username,
+              password,
+              transport: resolveTurnTransport({
+                parsedTurnTransport: transport,
+                configuredTurnTransport: this.config.turnTransport,
+                forceTurnTCP: this.config.forceTurnTCP,
+              }),
+            },
+          ];
+        },
+      ),
+      stunServer: undefined,
+      turnServer: undefined,
+      turnUsername: undefined,
+      turnPassword: undefined,
+      turnTransport: undefined,
     };
   }
 
