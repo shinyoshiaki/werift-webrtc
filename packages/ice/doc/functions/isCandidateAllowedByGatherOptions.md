@@ -23,7 +23,7 @@ the kept ones are held back the same way.
 
 ### options
 
-`Pick`\<[`IceOptions`](../interfaces/IceOptions.md), `"forceTurn"`\> & `Partial`\<`Pick`\<[`IceOptions`](../interfaces/IceOptions.md), `"useTcp"` \| `"turnServer"` \| `"turnUsername"` \| `"turnPassword"`\>\>
+`Pick`\<[`IceOptions`](../interfaces/IceOptions.md), `"forceTurn"`\> & `Partial`\<`Pick`\<[`IceOptions`](../interfaces/IceOptions.md), `"useTcp"`\>\> & `Partial`\<`Pick`\<[`IceOptions`](../interfaces/IceOptions.md), `"stunServer"` \| `"stunServers"` \| `"turnServer"` \| `"turnServers"` \| `"turnUsername"` \| `"turnPassword"` \| `"turnTransport"`\>\>
 
 ## Returns
 

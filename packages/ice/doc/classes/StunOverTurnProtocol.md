@@ -28,6 +28,16 @@
 
 ## Properties
 
+### configuredTransport?
+
+> `optional` **configuredTransport?**: `"udp"` \| `"tcp"` \| `"tls"`
+
+The transport the TURN server was configured with. A UDP entry whose
+allocation fell back to TCP keeps "udp" here, so a restart that removes
+that entry also releases the fallback allocation.
+
+***
+
 ### localCandidate
 
 > **localCandidate**: [`Candidate`](Candidate.md)
