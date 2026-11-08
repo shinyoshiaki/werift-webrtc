@@ -148,15 +148,41 @@ Whether gathering contacts a STUN or TURN server.
 
 ***
 
-### stunServer?
+### ~~stunServer?~~
 
 > `optional` **stunServer?**: readonly \[`string`, `number`\]
 
+#### Deprecated
+
+The first of [IceConnection.stunServers](#stunservers).
+
 ***
 
-### turnServer?
+### stunServers?
+
+> `optional` **stunServers?**: (readonly \[`string`, `number`\])[]
+
+STUN servers gathering queries, normalized from the options (see
+[normalizeIceServerOptions](../functions/normalizeIceServerOptions.md)). Optional so that other
+implementations of this interface keep compiling.
+
+***
+
+### ~~turnServer?~~
 
 > `optional` **turnServer?**: readonly \[`string`, `number`\]
+
+#### Deprecated
+
+The address of the first of [IceConnection.turnServers](#turnservers).
+
+***
+
+### turnServers?
+
+> `optional` **turnServers?**: [`TurnServerOptions`](../type-aliases/TurnServerOptions.md)[]
+
+TURN servers gathering allocates on, each with its own credential.
 
 ## Methods
 
