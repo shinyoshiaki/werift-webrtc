@@ -119,14 +119,43 @@ export const compactNtp = (ntp: bigint) => {
   return bufferWriter([2, 2], [sec, msec]).readUInt32BE();
 };
 
+/** A TURN URL of `RTCIceServer.urls` with the credential of its `RTCIceServer`. */
+export type ParsedTurnServer = {
+  address: Address;
+  username?: string;
+  password?: string;
+  /** From the URL (scheme / `?transport=`); undefined when it names none. */
+  transport?: "udp" | "tcp" | "tls";
+};
+
+/**
+ * The STUN and TURN servers of `iceServers`: every valid `stun:` / `stuns:`
+ * URL and every valid `turn:` / `turns:` URL of every `RTCIceServer`, in
+ * configuration order. A TURN URL carries the `username` / `credential` of
+ * the `RTCIceServer` that lists it. Duplicates (the same STUN address; the
+ * same TURN address, transport and credential) are kept once.
+ *
+ * The singular fields are the first STUN URL and the first TURN URL, kept
+ * for compatibility.
+ */
 export function parseIceServers(iceServers: RTCIceServer[]) {
   const options: {
+    stunServers: Address[];
+    turnServers: ParsedTurnServer[];
+    /** @deprecated The first of `stunServers`. */
     stunServer?: Address;
+    /** @deprecated The address of the first of `turnServers`. */
     turnServer?: Address;
+    /** @deprecated The username of the first of `turnServers`. */
     turnUsername?: string;
+    /** @deprecated The password of the first of `turnServers`. */
     turnPassword?: string;
+    /** @deprecated The transport of the first of `turnServers`. */
     turnTransport?: "udp" | "tcp" | "tls";
-  } = {};
+  } = { stunServers: [], turnServers: [] };
+
+  const sameAddress = (a: Address, b: Address) =>
+    a[0] === b[0] && a[1] === b[1];
 
   for (const iceServer of iceServers) {
     const urls = Array.isArray(iceServer.urls)
@@ -138,23 +167,56 @@ export function parseIceServers(iceServers: RTCIceServer[]) {
         continue;
       }
 
-      if (!options.stunServer && parsed.kind === "stun") {
-        options.stunServer = parsed.address;
+      if (parsed.kind === "stun") {
+        if (
+          !options.stunServers.some((address) =>
+            sameAddress(address, parsed.address),
+          )
+        ) {
+          options.stunServers.push(parsed.address);
+        }
+        continue;
       }
 
-      if (!options.turnServer && parsed.kind === "turn") {
-        options.turnServer = parsed.address;
-        options.turnTransport = parsed.transport;
-        options.turnUsername = iceServer.username;
-        options.turnPassword = iceServer.credential;
+      const turnServer: ParsedTurnServer = {
+        address: parsed.address,
+        username: iceServer.username,
+        password: iceServer.credential,
+        transport: parsed.transport,
+      };
+      if (
+        !options.turnServers.some(
+          (known) =>
+            sameAddress(known.address, turnServer.address) &&
+            known.transport === turnServer.transport &&
+            known.username === turnServer.username &&
+            known.password === turnServer.password,
+        )
+      ) {
+        options.turnServers.push(turnServer);
       }
     }
+  }
+
+  const [stunServer] = options.stunServers;
+  const [turnServer] = options.turnServers;
+  options.stunServer = stunServer;
+  if (turnServer) {
+    options.turnServer = turnServer.address;
+    options.turnTransport = turnServer.transport;
+    options.turnUsername = turnServer.username;
+    options.turnPassword = turnServer.password;
   }
 
   log("iceOptions", options);
   return options;
 }
 
+/**
+ * The transport one TURN URL allocates over: the URL's own (scheme /
+ * `?transport=`), else the configured `turnTransport`, else TCP for the
+ * legacy `forceTurnTCP`, else undefined (UDP).
+ */
 export function resolveTurnTransport({
   configuredTurnTransport,
   forceTurnTCP,

@@ -22,6 +22,7 @@ import {
   CandidatePair,
   CandidatePairState,
   type IceOptions,
+  normalizeIceServerOptions,
 } from "../src/iceBase";
 import {
   connectionDatagramEvent,
@@ -332,7 +333,9 @@ export function createTestConnection(
   options: Partial<IceOptions> = {},
 ) {
   const connection = new Connection(iceControlling, options);
-  connection.stunServer = options.stunServer;
+  // Tests query only the STUN servers they configure, never the built-in
+  // public default.
+  connection.stunServers = normalizeIceServerOptions(options).stunServers;
   return connection;
 }
 
@@ -1758,4 +1761,128 @@ export function addClosingProtocol(
   (connection as unknown as { protocols: Partial<Protocol>[] }).protocols.push({
     close: async () => onClose(),
   });
+}
+
+// --- multiple STUN / TURN servers ---
+
+/**
+ * Shared Arrange: a local STUN server that records the source address of
+ * every Binding request it receives.
+ */
+export async function createCountingStunServer(host: string) {
+  const server = await createLocalStunServer(host);
+  const bindingRequests: Address[] = [];
+  const { protocol } = server;
+  const handleDatagram = protocol.handleDatagram.bind(protocol);
+  protocol.handleDatagram = (input) => {
+    const message = parseMessage(input.data);
+    if (
+      message?.messageMethod === methods.BINDING &&
+      message.messageClass === classes.REQUEST
+    ) {
+      bindingRequests.push(input.remoteAddress);
+    }
+    return handleDatagram(input);
+  };
+  return Object.assign(server, { bindingRequests });
+}
+
+/**
+ * Shared Arrange: a UDP STUN server that answers every Binding request with
+ * `mapped` as the XOR-MAPPED-ADDRESS (a NAT that maps per destination), and
+ * records the source address of each request.
+ */
+export async function createFixedMappingStunServer(
+  host: string,
+  mapped: Address,
+) {
+  const socket = dgram.createSocket("udp4");
+  await new Promise<void>((resolve) => socket.bind(0, host, () => resolve()));
+  const bindingRequests: Address[] = [];
+  socket.on("message", (data, remote) => {
+    const request = parseMessage(data);
+    if (
+      request?.messageMethod !== methods.BINDING ||
+      request.messageClass !== classes.REQUEST
+    ) {
+      return;
+    }
+    bindingRequests.push([remote.address, remote.port]);
+    const response = new Message(
+      methods.BINDING,
+      classes.RESPONSE,
+      request.transactionId,
+    ).setAttribute("XOR-MAPPED-ADDRESS", mapped);
+    socket.send(response.bytes, remote.port, remote.address);
+  });
+  return {
+    address: [host, socket.address().port] as Address,
+    bindingRequests,
+    close: () => new Promise<void>((resolve) => socket.close(() => resolve())),
+  };
+}
+
+/** An Allocate request a counting TURN server received. */
+export type AllocateRequestRecord = {
+  transport: "udp" | "tcp" | "tls";
+  /** USERNAME of the request; undefined for the first, unauthenticated one. */
+  username?: string;
+};
+
+/**
+ * Shared Arrange: a local TURN server (see {@link createLocalTurnServer})
+ * that records every Allocate request it receives, with the transport it
+ * arrived over and its USERNAME. With `credentials` it authenticates only
+ * those users, so an Allocate with another server's credential gets 401.
+ */
+export async function createCountingTurnServer(
+  host: string,
+  options: Parameters<typeof createLocalTurnServer>[1] = {},
+) {
+  const server = await createLocalTurnServer(host, options);
+  const allocateRequests: AllocateRequestRecord[] = [];
+  const protocol = server.protocol as unknown as {
+    handleAllocateRequest: (
+      input: { transport: AllocateRequestRecord["transport"] },
+      message: Message,
+      now: number,
+    ) => unknown;
+  };
+  const handleAllocateRequest = protocol.handleAllocateRequest.bind(protocol);
+  protocol.handleAllocateRequest = (input, message, now) => {
+    allocateRequests.push({
+      transport: input.transport,
+      username: message.getAttributeValue("USERNAME"),
+    });
+    return handleAllocateRequest(input, message, now);
+  };
+  return Object.assign(server, { allocateRequests });
+}
+
+/** TURN options entry of a local test server for `IceOptions.turnServers`. */
+export function localTurnServerEntry(
+  server: Awaited<ReturnType<typeof createLocalTurnServer>>,
+  {
+    username = TURN_TEST_USERNAME,
+    password = TURN_TEST_PASSWORD,
+    transport = "udp",
+  }: {
+    username?: string;
+    password?: string;
+    transport?: "udp" | "tcp" | "tls";
+  } = {},
+) {
+  return {
+    address: transport === "tls" ? server.tlsAddress! : server.address!,
+    username,
+    password,
+    transport,
+  };
+}
+
+/** Server-reflexive candidates of `connection`. */
+export function localReflexiveCandidates(connection: Connection) {
+  return connection.localCandidates.filter(
+    (candidate) => candidate.type === "srflx",
+  );
 }
