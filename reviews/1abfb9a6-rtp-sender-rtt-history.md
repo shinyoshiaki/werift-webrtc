@@ -101,7 +101,23 @@ RFC 3550 §6.4.1 の RTT は、RR の `LSR` が指す SR を基準に計算す�
 
 ### 1. 送信 SR の履歴クラス
 
-履歴は [packages/webrtc/src/media/sender/senderReportHistory.ts:20](review-file:packages/webrtc/src/media/sender/senderReportHistory.ts:20) の小さなクラスに閉じています。エントリは「SR に実際に載せた `LSR`」と「単調時刻の送信時刻」の組だけです。件数上限 32 件・保持時間 30 秒は [senderReportHistory.ts:2](review-file:packages/webrtc/src/media/sender/senderReportHistory.ts:2) と [senderReportHistory.ts:4](review-file:packages/webrtc/src/media/sender/senderReportHistory.ts:4) で定義しています。
+履歴は [packages/webrtc/src/media/sender/senderReportHistory.ts:29](review-file:packages/webrtc/src/media/sender/senderReportHistory.ts:29) の小さなクラスに閉じています。エントリは「SR に実際に載せた `LSR`」と「単調時刻の送信時刻」の組だけです。件数上限 32 件・保持時間 30 秒は [senderReportHistory.ts:6](review-file:packages/webrtc/src/media/sender/senderReportHistory.ts:6) と [senderReportHistory.ts:13](review-file:packages/webrtc/src/media/sender/senderReportHistory.ts:13) で定義しています。
+
+#### 上限値（32 件・30 秒）の根拠と妥当性
+
+照合できるのは、受信時点で「経過時間 = RTT + DLSR」以内に送った SR だけです。上限値はこの経過時間を十分に覆うように決めました。
+
+| 前提 | 値 | 出典 |
+| --- | --- | --- |
+| werift の SR 送信間隔 | 0.5〜1.5 秒の一様乱数（平均 1 秒） | [rtpSender.ts:682](review-file:packages/webrtc/src/media/rtpSender.ts:682) |
+| `DLSR` の通常の大きさ | 受信側が最後の SR を受け取ってからの時間なので、SR が届いていれば通常は 1.5 秒以内。SR が失われると、その分だけ伸びる | RFC 3550 §6.4.1 |
+| 受信側（Chrome / libwebrtc）の RR 送信間隔の既定値 | 映像 1 秒・音声 5 秒 | libwebrtc `media_config.h` |
+| 通常の RTT | 数十〜数百 ms。帯域制約のある TURN 経路のキュー遅延でも、数秒程度 | — |
+
+- **保持時間 30 秒:** 経過時間は通常 2 秒前後で、悪条件が重なっても数秒〜十数秒です（遅い音声 RR、SR の連続損失、数秒のキュー遅延）。30 秒あれば、これを 2 倍以上の余裕で覆えます。これより古い SR を参照する RR は、RTT 20 秒超を意味します。この RR は経路が事実上壊れていることを示すだけなので、`roundTripTime` に混ぜない方が有用です。逆に数秒まで短くすると、起票の原因である遅延 RR を再び捨てるおそれがあります。
+- **件数 32 件:** 主な役割は、メモリと探索コストを固定するための安全上限です。32 件で覆える時間は、平均間隔 1 秒なら約 32 秒です（乱数間隔の和なので、標準偏差は約 1.6 秒）。保持時間 30 秒とほぼ同じ長さなので、通常はどちらか一方だけが先に効くことはありません。全間隔が 0.5 秒という最悪の場合は約 16 秒に縮みます。それでも上の経過時間は覆えます。
+- **コスト:** sender 1 つあたり 32 エントリ（数値 2 つ）の配列で、RR 1 件あたりの探索は最大 32 件です。値を大きくしても得るものはほとんどなく、小さくすると取りこぼしが増えるだけなので、現在の値を維持しました。
+- **誤照合の余地:** `LSR` の分解能は 1/65536 秒で、照合は等値比較です。そのため、値を大きくしても誤照合はほとんど増えません。上限は、誤照合ではなく古すぎるサンプルを除くためのものです。
 
 <div style="display:flex;gap:16px;flex-wrap:wrap;margin:12px 0">
   <div style="flex:1.15;min-width:300px;padding:12px 16px;border:1px solid var(--review-border);border-radius:8px;background:var(--review-surface)">
@@ -150,7 +166,7 @@ RFC 3550 §6.4.1 の RTT は、RR の `LSR` が指す SR を基準に計算す�
   </div>
 </div>
 
-照合ロジックの本体は [packages/webrtc/src/media/sender/senderReportHistory.ts:58](review-file:packages/webrtc/src/media/sender/senderReportHistory.ts:58)、記録は [senderReportHistory.ts:41](review-file:packages/webrtc/src/media/sender/senderReportHistory.ts:41)、期限切れの削除は [senderReportHistory.ts:82](review-file:packages/webrtc/src/media/sender/senderReportHistory.ts:82) です。差分は [senderReportHistory.ts:20 の追加差分](review-diff:packages/webrtc/src/media/sender/senderReportHistory.ts:commit:95fba0c33:20) で確認できます。
+照合ロジックの本体は [packages/webrtc/src/media/sender/senderReportHistory.ts:67](review-file:packages/webrtc/src/media/sender/senderReportHistory.ts:67)、記録は [senderReportHistory.ts:50](review-file:packages/webrtc/src/media/sender/senderReportHistory.ts:50)、期限切れの削除は [senderReportHistory.ts:91](review-file:packages/webrtc/src/media/sender/senderReportHistory.ts:91) です。差分は [senderReportHistory.ts:20 の追加差分（95fba0c33 時点）](review-diff:packages/webrtc/src/media/sender/senderReportHistory.ts:commit:95fba0c33:20) で確認できます。
 
 ### 2. Sender への組み込み
 
@@ -167,7 +183,7 @@ RFC 3550 §6.4.1 の RTT は、RR の `LSR` が指す SR を基準に計算す�
 ## 判断理由
 
 - **履歴方式を採用**: SR の NTP タイムスタンプを直接使う compact-NTP 演算は、#701（SR の NTP/RTP ペアが送信時刻を表さない問題）と `ntpTime()` の小数部の扱いに依存します。履歴方式なら #701 の修正前後どちらでも動きます。この worktree では SR が送信時刻基準の NTP を作るため、実際に載せた `LSR` を記録すれば両立します。
-- **Map ではなく配列**: 現行の `ntpTime()` では `LSR` が約 1 秒粒度になり、連続 SR で同じ値が起こり得ます。上書きすると古い SR を失うため、重複を許容する配列にしました。
+- **Map ではなく配列**: 現行の `ntpTime()` は小数部を `fraction / 2^32` で表すため、`LSR` の分解能は 1/65536 秒です。通常、連続する SR が同じ値になることはありません。ただし、壁時計の逆行やテストで時刻を固定した場合など、同じ `LSR` は起こり得ます。上書きすると古い SR を失うため、重複を許容する配列にしました。
 - **「DLSR 前までに送った最新」を選ぶ**: 同じ `LSR` の新しい SR を選ぶと負の RTT になるため、受信側がその SR を受け取れた時刻以前の最新エントリに限定しています。負値は最後にも棄却します。
 - **単調時刻**: `Date.now()` は NTP 補正やシステム時刻変更で逆行し得るため、送信・受信とも `performance.now()` に統一しました。
 - **有界化**: sender ごとに最大 32 件・30 秒。RR 1 件あたり最大 32 件の線形探索で、メモリ・計算量とも固定です。

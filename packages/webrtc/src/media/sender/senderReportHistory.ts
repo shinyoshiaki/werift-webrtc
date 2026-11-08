@@ -1,6 +1,15 @@
-/** Max Sender Reports kept: about 16 s at the shortest RTCP interval (0.5 s). */
+/**
+ * Max Sender Reports kept, a memory bound. SRs are sent every 0.5-1.5 s
+ * (`runRtcp`), so 32 entries span about 32 s on average (about the same as
+ * {@link SENDER_REPORT_HISTORY_MAX_AGE_SEC}) and at least 16 s.
+ */
 export const SENDER_REPORT_HISTORY_MAX_ENTRIES = 32;
-/** Sender Reports older than this (seconds) are no longer matched. */
+/**
+ * Sender Reports older than this (seconds) are no longer matched. A match needs
+ * `RTT + DLSR` to be within this age; DLSR is normally at most one SR interval
+ * (1.5 s), so 30 s leaves room for lost SRs and seconds of queueing delay,
+ * while an older reference would mean an RTT above about 20 s (a broken path).
+ */
 export const SENDER_REPORT_HISTORY_MAX_AGE_SEC = 30;
 
 /**
