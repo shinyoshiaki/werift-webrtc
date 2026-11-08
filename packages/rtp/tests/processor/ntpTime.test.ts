@@ -179,4 +179,32 @@ describe("ntpTime", () => {
     expect(audioOut.time).toBe(1_000_600);
     expect(videoOut.time).toBe(1_000_600);
   });
+
+  it("outputs RTP received before the first SR at once with times before the SR", () => {
+    // Arrange: 48kHz の音声。SR より前に 2 秒分 (20ms 間隔) の RTP が届く
+    const audio = new NtpTimeBase(48000);
+    const beforeSr = Array.from({ length: 100 }, (_, i) =>
+      createRtpAt(480_000 + i * 960, i),
+    );
+
+    // Act: SR より前の RTP を入力する
+    const outputsBeforeSr = beforeSr.flatMap((rtp) =>
+      audio.processInput({ rtp }),
+    );
+    // Act: 最初の RTP から 2 秒後を指す SR が届き、その後に次の RTP が届く
+    audio.processInput({
+      rtcp: createSenderReport(createNtpTimestamp(1002, 0), 480_000 + 96_000),
+    });
+    const outputs = audio.processInput({
+      rtp: createRtpAt(480_000 + 96_000, 100),
+    });
+
+    // Assert: SR が届くまでは何も出力されない
+    expect(outputsBeforeSr).toHaveLength(0);
+    // Assert: 溜めた RTP がまとめて出力され、SR より前の時刻 (1000s から) が付く
+    expect(outputs).toHaveLength(101);
+    expect(outputs[0].time).toBe(1_000_000);
+    expect(outputs[99].time).toBe(1_001_980);
+    expect(outputs[100].time).toBe(1_002_000);
+  });
 });
