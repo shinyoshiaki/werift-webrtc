@@ -15,10 +15,11 @@ export class DtlsRandom {
 
   constructor(
     gmt_unix_time = Math.floor(Date.now() / 1000),
-    random_bytes = randomBytes(28),
+    random_bytes: Buffer<ArrayBufferLike> = randomBytes(28),
   ) {
     this.gmt_unix_time = gmt_unix_time;
-    this.random_bytes = random_bytes;
+    // Copy into an ArrayBuffer-backed Buffer so the public property stays non-shared.
+    this.random_bytes = Buffer.from(random_bytes);
   }
 
   static deSerialize(buf: Buffer) {
