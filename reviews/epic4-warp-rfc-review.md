@@ -40,7 +40,7 @@ flowchart BT
 
 **最重要の不変条件**: SDP fingerprint の照合が済むまで、DataChannel のデータ・RTP・RTCP を上位へ一件も配送しない。DTLS の暗号的な認証（Finished の検証）と、WebRTC としての相手の認証（SDP に書かれた証明書であること）は別物で、後者が済んで初めて配送します。
 
-典型的な接続（SPED 有効、DTLS server が early server data を opt-in）の流れは次のとおりです。early server data（3 本目の矢印）は既定では無効です。
+次は SPED を有効にし、server が early server data、client が nomination 前の送信をそれぞれ opt-in した場合の一例です。どちらも既定では無効です。client は最終 flight の ACK を待たずに送信を始めます。
 
 ```mermaid
 sequenceDiagram
@@ -49,20 +49,24 @@ sequenceDiagram
   C->>S: STUN Binding Request + DATA[ClientHello]
   S->>C: Binding Response + DATA[ServerHello … server Finished] + ACK
   Note over S: writeReady（0.5-RTT 送信可）
-  S-->>C: epoch 3: SCTP INIT / RTP（opt-in 時のみ）
-  Note over C: 受信 gate に保持（上位に出さない）
+  S-->>C: epoch 3: SCTP INIT / SRTP: RTP（opt-in 時のみ）
+  Note over C: 認証まで上位に出さない（media は既定で破棄）
   Note over C: peerHandshakeAuthenticated（server Finished を検証）<br/>SDP fingerprint 照合 → 一致したら gate を開く
   C->>S: Binding（USE-CANDIDATE）+ DATA[client Finished]
   Note over C: writeReady → connected
+  C-->>S: SRTP: RTP（送信可能な media がある場合、ACK を待たない）
+  C->>S: SCTP INIT_ACK（INIT 受信済み、ACK を待たずに送信）
   Note over S: peerHandshakeAuthenticated → 照合 → connected
   S->>C: ACK（client の最終 flight を確認）
   Note over S: handshakeComplete（ACK 送信成功）
   Note over C: handshakeComplete（最終 flight が ACK された）
-  C->>S: SCTP INIT_ACK → COOKIE_ECHO（ACK を待たず、認証後すぐ送れる）
+  Note over C,S: SCTP の応答を経て COOKIE_ECHO
   C-)S: DataChannel / RTP / RTCP（認証済み、双方向）
 ```
 
-client が送信を始める条件は「自分の最終 flight（Finished）を送り、server Finished の検証と SDP fingerprint 照合が済んでいること」です。server の ACK（`handshakeComplete`）は待ちません。SPED draft-00 §3.1.2.2 も「server は Finished の受信で DTLS ACK を返すが、client はそれを待たずに暗号化データを送り始めてよい」としています（§5.5 のシーケンスでも `Finished` の直後に application data が続きます）。図で ACK の後に見える順序は時系列の一例で、仕様上の待ち条件ではありません。
+client が送信を始めるには、自分の最終 flight（Finished）の送信、server Finished の検証、SDP fingerprint の照合が必要です。DTLS の server ACK（`handshakeComplete`）は待ちません。SPED draft-00 §3.1.2.2 も ACK を待たずに暗号化データを送れるとしています。図ではさらに `warp.sendBeforeNomination` を有効にし、利用可能な valid pair があれば ICE nomination の完了前にも送ります。この設定は nomination 前の経路に関する opt-in で、ACK を待たないこと自体は opt-in ではありません。INIT_ACK は server の INIT を受信済みの場合に送れます。
+
+RTP は DTLS から得た鍵で SRTP として保護して送ります。送信可能な media と SRTP の鍵があれば、SCTP の確立や DataChannel の open を待つ必要はありません。SRTP が client Finished より先に server に届いた場合は、server 側の認証や受信準備が整う前に破棄されることがあり、到達は保証されません。
 
 client の側に「先に送る」ものが少ないのは、仕様の制約ではなく役割の結果です。SCTP の INIT は DTLS server が送り（RFC 8261）、client が返す INIT_ACK は INIT を受け取るまで送れません。client の 0-RTT（TLS early_data）は PSK 再開が前提で、接続ごとに新しい証明書を使う WebRTC の初回接続では使えません（werift も未実装）。server の 0.5-RTT は、client の Finished が未検証で相手が確定していないため（RFC 8446 §4.4.4）、既定では無効の opt-in です。
 
