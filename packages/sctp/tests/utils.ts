@@ -146,12 +146,15 @@ export const runBurstTransfer = async (
   const { done } = collectMessages(receiver, messages.length);
   const monitor = startEventLoopLagMonitor();
   const started = performance.now();
+  const cpuStarted = process.cpuUsage();
   const sends = messages.map((m) => sender.send(0, ppId, m));
   const received = await done;
   await Promise.all(sends);
   const elapsedMs = performance.now() - started;
+  const cpu = process.cpuUsage(cpuStarted);
+  const cpuElapsedMs = (cpu.user + cpu.system) / 1000;
   const maxLagMs = monitor.stop();
-  return { received, elapsedMs, maxLagMs };
+  return { received, elapsedMs, cpuElapsedMs, maxLagMs };
 };
 
 /**
