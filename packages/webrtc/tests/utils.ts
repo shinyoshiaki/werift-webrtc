@@ -4,6 +4,7 @@ import {
   type Connection,
   type IceOptions,
 } from "../../ice/src";
+import type { IceConnection } from "../../ice/src";
 import { getHostAddresses } from "../../ice/src/utils";
 import {
   createLocalStunServer,
@@ -420,6 +421,17 @@ export async function createGatheredPeers(
 }
 
 /**
+ * The TURN servers an ICE agent gathers from (username and transport of
+ * each, in order), the ones `setConfiguration` / ICE restart applied.
+ */
+export function iceAgentTurnServers(connection: IceConnection) {
+  return (connection.turnServers ?? []).map(({ username, transport }) => ({
+    username,
+    transport,
+  }));
+}
+
+/**
  * Shared Arrange + Act for the setConfiguration → ICE restart matrix: connect
  * an offerer built with `initial` to a STUN-only answerer, wait until the
  * offerer finished gathering, apply `change` with setConfiguration and
@@ -483,6 +495,7 @@ export async function observeConfigurationRestart(
           .map((candidate) => relatedAddressOf(candidate.toSdp())),
       ),
       options: connection.options,
+      turnServers: iceAgentTurnServers(connection),
       authenticated: [
         ...new Set(servers.authenticatedSince(authenticatedBefore)),
       ],

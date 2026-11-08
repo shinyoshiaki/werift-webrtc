@@ -2893,12 +2893,8 @@ export function recordConnectionStates(pc: RTCPeerConnection) {
  */
 export function removeIceAgentServers(pc: RTCPeerConnection) {
   for (const transport of pc.iceTransports) {
-    const connection = transport.connection as unknown as {
-      stunServer?: Address;
-      turnServer?: Address;
-    };
-    connection.stunServer = undefined;
-    connection.turnServer = undefined;
+    transport.connection.stunServers = [];
+    transport.connection.turnServers = [];
   }
 }
 

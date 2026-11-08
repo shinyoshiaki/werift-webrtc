@@ -9,9 +9,9 @@
 > **mergeIceServerOptions**\<`T`\>(`current`, `update`): `T`
 
 `current` with an ICE server update applied (Connection.setIceServers): the
-STUN/TURN fields are replaced, an undefined one included, so a STUN-only
-update cannot leave a previous TURN host/credential behind; forceTurn and
-useTcp change only when given.
+STUN/TURN fields, singular and plural, are replaced, an undefined one
+included, so a STUN-only update cannot leave a previous TURN
+host/credential behind; forceTurn and useTcp change only when given.
 
 ## Type Parameters
 
