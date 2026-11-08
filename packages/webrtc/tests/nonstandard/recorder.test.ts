@@ -1,7 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { WeriftError } from "../../src/imports/common";
-import { MediaRecorder } from "../../src/nonstandard";
+import { deserializeSimpleBlocks, MediaRecorder } from "../../src/nonstandard";
 import { OggFactory } from "../../src/nonstandard/recorder/writer/ogg";
 import { WebmFactory } from "../../src/nonstandard/recorder/writer/webm";
 import {
@@ -12,10 +12,14 @@ import {
   createPcmuTrack,
   createRecordingDir,
   createVp8Track,
+  createWebmStream,
   feedOpusRtp,
+  feedVp8Rtp,
   measureStop,
   oggHeaderTypes,
+  sendSenderReport,
   waitForOggRecorderStarted,
+  waitForWebmRecorderStarted,
 } from "./recorderTestUtils";
 
 describe("packages/webrtc/tests/nonstandard/recorder.test.ts", () => {
@@ -227,6 +231,83 @@ describe("packages/webrtc/tests/nonstandard/recorder.test.ts", () => {
     expect(types[0]).toBe(0x02);
     expect(types.at(-1)).toBe(0x04);
     expect(outputs.at(-1)!.eol).toEqual({ duration: 200 });
+  });
+
+  it("starts a video-only WebM recording without waiting for audio", async () => {
+    // Arrange: NTP + lipsync (既定) で映像だけを stream に録画する。
+    const dir = await createRecordingDir();
+    const track = createVp8Track();
+    const { stream, blockCount } = createWebmStream();
+    try {
+      const recorder = new MediaRecorder({
+        path: dir.path("out.webm"),
+        stream,
+        tracks: [track],
+      });
+      await waitForWebmRecorderStarted(recorder);
+
+      // Act: SR を受け取った後、映像を 2 秒分流す。
+      sendSenderReport(track, 1000, 0);
+      feedVp8Rtp(track, 0, 60);
+      // Act: 停止前に映像が書き出されるのを待つ (ファイル書き込みの後に stream へ届く)。
+      const writtenBeforeStop = await vi
+        .waitFor(() => {
+          if (blockCount() === 0) throw new Error("no block");
+        })
+        .then(() => true)
+        .catch(() => false);
+      await recorder.stop();
+
+      // Assert: 音声を待たずに、停止前から映像が書き出されている。
+      expect(writtenBeforeStop).toBe(true);
+    } finally {
+      await dir.cleanup();
+    }
+  });
+
+  it("keeps the head of a track whose first SR arrives late", async () => {
+    // Arrange: NTP + lipsync (既定) で音声と映像を stream に録画する。
+    const video = createVp8Track();
+    const audio = createOpusTrack();
+    const { stream, outputs } = createWebmStream();
+    const dir = await createRecordingDir();
+    try {
+      const recorder = new MediaRecorder({
+        path: dir.path("out.webm"),
+        stream,
+        tracks: [video, audio],
+      });
+      await waitForWebmRecorderStarted(recorder);
+
+      // Act: 映像は SR の後に 2 秒分届く。音声は同じ 2 秒分が SR より前に届く。
+      sendSenderReport(video, 1000, 0);
+      feedVp8Rtp(video, 0, 60);
+      feedOpusRtp(audio, 100);
+      // Act: 音声の SR が遅れて届き、その後に両トラックが 1 秒分ずつ届く。
+      sendSenderReport(audio, 1000, 0);
+      feedOpusRtp(
+        audio,
+        Array.from({ length: 50 }, (_, i) => 100 + i),
+      );
+      feedVp8Rtp(video, 60, 90);
+      await recorder.stop();
+
+      // Assert: SR より前に届いた音声 (track 2) も捨てられず、先頭から書き出されている。
+      const blocks = outputs
+        .filter((o) => o.kind === "block")
+        .flatMap((o) => deserializeSimpleBlocks(o.saveToFile!));
+      const audioPayloads = blocks
+        .filter((b) => b.trackNumber === 2)
+        .map((b) => b.data[1]);
+      expect(audioPayloads.slice(0, 100)).toEqual(
+        Array.from({ length: 100 }, (_, i) => i),
+      );
+      expect(blocks.filter((b) => b.trackNumber === 1).length).toBeGreaterThan(
+        30,
+      );
+    } finally {
+      await dir.cleanup();
+    }
   });
 
   it("keeps WebM as the default for stream only", () => {
