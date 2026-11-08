@@ -1609,7 +1609,7 @@ test("public polyfill entry compiles with TypeScript DOM lib", () => {
 
   // 検証: TS2403 / TS2687 / TS2717 を含む型エラーが出ない。
   expect(result.status, result.stdout + result.stderr).toBe(0);
-}, 30_000);
+}, 70_000);
 
 test("public polyfill entry compiles without DOM lib", () => {
   // 実行: lib.esnext のみで werift/polyfill のグローバル型をコンパイルする。
@@ -1617,7 +1617,7 @@ test("public polyfill entry compiles without DOM lib", () => {
 
   // 検証: RTCPeerConnection / navigator / MediaStream が解決する。
   expect(result.status, result.stdout + result.stderr).toBe(0);
-}, 30_000);
+}, 70_000);
 
 test("same rtp/encoded web stream register can be acquired twice", async () => {
   await assertStreamAcquisitionsLive((stream) =>

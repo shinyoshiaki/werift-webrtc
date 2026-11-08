@@ -1343,26 +1343,29 @@ async function runClosedTurnGather(
 /**
  * Arrange + Act + measure: the L1 / L2 problems of closing a peer during
  * (or after) its TURN allocation. The TURN server is a fixture in this
- * process: the relay socket it keeps for the client's allocation until the
- * allocation's lifetime ends is the server's, not the peer's, and is not
- * counted (the client does not delete its allocation on close; see
+ * process: after closing the peer, close the server fixture before measuring
+ * resources so its allocation timer and relay socket are not attributed to
+ * the peer (the client does not delete its allocation on close; see
  * `TurnProtocol.close` in packages/ice).
  */
 export async function closedTurnGatherLeaks(wait: number | "macrotask") {
   const turn = await createLocalTurnIceServer();
+  let serverClosed = false;
+  const closeServer = async () => {
+    if (serverClosed) return;
+    await turn.server.close();
+    serverClosed = true;
+  };
   try {
     await collectGarbage();
     const before = activeResources();
     const tracker = await runClosedTurnGather(turn.iceServers, wait);
-    const relaySockets = (
-      turn.server as unknown as { relaySockets: Map<string, unknown> }
-    ).relaySockets;
-    // サーバーの relay socket の分 (close の後に届いた Allocate の分も) を除いて比べる。
-    return await closedLeaks(tracker, before, () => ({
-      UDPWrap: relaySockets.size,
-    }));
+    // Act: fixture の TURN server を閉じてから、peer の close が残した resource を測る。
+    await closeServer();
+    // Assert: server 自身の allocation timer / relay socket を peer のリークに数えない。
+    return await closedLeaks(tracker, before);
   } finally {
-    await turn.server.close();
+    await closeServer();
   }
 }
 
