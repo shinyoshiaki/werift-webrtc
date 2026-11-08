@@ -1,6 +1,12 @@
 import { RTCDataChannel, RTCSctpTransport } from "../../src";
+import { WEBRTC_BINARY } from "../../src/const";
 import { RTCDataChannelParameters } from "../../src/dataChannel";
 import { dtlsTransportPair } from "../fixture";
+import {
+  captureSctpDataChunks,
+  DCEP_CHANNEL_TYPE_CASES,
+  SCTP_DATA_UNORDERED,
+} from "../utils";
 
 describe("RTCSctpTransportTest", () => {
   test("reuses outbound MTU when replacing the DTLS transport", async () => {
@@ -102,6 +108,29 @@ describe("RTCSctpTransportTest", () => {
     ]);
   }
 
+  /** DTLS ペア上で SCTP association を確立した client / server を返す。 */
+  async function connectedPair() {
+    const [clientTransport, serverTransport] = await dtlsTransportPair();
+    const client = new RTCSctpTransport();
+    client.setDtlsTransport(clientTransport);
+    const server = new RTCSctpTransport();
+    server.setDtlsTransport(serverTransport);
+    await Promise.all([server.start(client.port), client.start(server.port)]);
+    await waitForOutcome(client, server);
+    return { client, server };
+  }
+
+  /** client が SCTP に渡す DCEP (ppid 50) メッセージを記録する。 */
+  function captureDcep(transport: RTCSctpTransport) {
+    const dcep: Buffer[] = [];
+    const send = transport.sctp.send.bind(transport.sctp);
+    transport.sctp.send = ((...args: Parameters<typeof send>) => {
+      if (args[1] === 50) dcep.push(Buffer.from(args[2]));
+      return send(...args);
+    }) as typeof send;
+    return dcep;
+  }
+
   test("test_connect_then_client_creates_data_channel", async () =>
     new Promise<void>(async (done) => {
       const [clientTransport, serverTransport] = await dtlsTransportPair();
@@ -134,4 +163,167 @@ describe("RTCSctpTransportTest", () => {
         channel.send(Buffer.from("pong"));
       });
     }));
+
+  test.each(DCEP_CHANNEL_TYPE_CASES)(
+    "DATA_CHANNEL_OPEN encodes $name",
+    async ({ options, channelType, reliability }) => {
+      // Arrange: SCTP association を確立し、client が送る DCEP を記録する。
+      const { client, server } = await connectedPair();
+      const dcep = captureDcep(client);
+      const remote = server.onDataChannel.asPromise();
+
+      // Act: 指定の ordered / 部分信頼性でチャネルを作成し OPEN を送らせる。
+      new RTCDataChannel(
+        client,
+        new RTCDataChannelParameters({ label: "dcep", id: 1, ...options }),
+      );
+      const [received] = await remote;
+
+      // Assert: OPEN の Channel Type と reliability が RFC 8832 の値になる。
+      expect(dcep).toHaveLength(1);
+      expect(dcep[0].readUInt8(0)).toBe(3);
+      expect(dcep[0].readUInt8(1)).toBe(channelType);
+      expect(dcep[0].readUInt32BE(4)).toBe(reliability);
+      // Assert: 受信側チャネルは送信側と同じ ordered / 部分信頼性を持つ。
+      expect(received.ordered).toBe(options.ordered);
+      expect(received.maxRetransmits).toBe(options.maxRetransmits ?? null);
+      expect(received.maxPacketLifeTime).toBe(
+        options.maxPacketLifeTime ?? null,
+      );
+
+      await Promise.all([client.stop(), server.stop()]);
+    },
+  );
+
+  test.each(DCEP_CHANNEL_TYPE_CASES)(
+    "remote peer sends DATA chunks with the $name delivery mode",
+    async ({ options }) => {
+      // Arrange: SCTP association を確立し、OPEN を受けた server が送る DATA chunk を記録する。
+      const { client, server } = await connectedPair();
+      const serverChunks = captureSctpDataChunks(server);
+      const remote = server.onDataChannel.asPromise();
+      const local = new RTCDataChannel(
+        client,
+        new RTCDataChannelParameters({ label: "dcep", id: 1, ...options }),
+      );
+      const [received] = await remote;
+      const replies = local.onMessage.asPromise();
+
+      // Act: OPEN から構築された server 側チャネルで 2 件送り、client で受信する。
+      received.send(Buffer.from("pong-1"));
+      received.send(Buffer.from("pong-2"));
+      const [first] = await replies;
+
+      // Assert: server が実際に送った user DATA chunk の U ビットと SSN が
+      // client 側で指定した ordered / unordered に一致する。
+      expect(first.toString()).toBe("pong-1");
+      // 再送で同じ TSN が複数回記録されても 1 件として扱う。
+      const userChunks = [
+        ...new Map(
+          serverChunks
+            .filter(
+              (chunk) =>
+                chunk.streamId === 1 && chunk.protocol === WEBRTC_BINARY,
+            )
+            .map((chunk) => [chunk.tsn, chunk]),
+        ).values(),
+      ];
+      expect(userChunks).toHaveLength(2);
+      const unordered = userChunks.map(
+        (chunk) => (chunk.flags & SCTP_DATA_UNORDERED) !== 0,
+      );
+      expect(unordered).toEqual([!options.ordered, !options.ordered]);
+      // Assert: ordered なら SSN が 1 ずつ進み (0 は DCEP ACK が使用済み)、
+      // unordered なら SSN を進めない。
+      const [ssn1, ssn2] = userChunks.map((chunk) => chunk.streamSeqNum);
+      expect(ssn2 - ssn1).toBe(options.ordered ? 1 : 0);
+
+      await Promise.all([client.stop(), server.stop()]);
+    },
+  );
+
+  test.each([
+    { name: "ASCII", label: "chat", protocol: "json" },
+    {
+      name: "multi-byte and surrogate pairs",
+      label: "日本語ラベル😀",
+      protocol: "プロトコル/ü",
+    },
+    { name: "empty label", label: "", protocol: "日本語😀" },
+    { name: "empty protocol", label: "ラベル😀", protocol: "" },
+  ])(
+    "DATA_CHANNEL_OPEN carries $name label / protocol as UTF-8 byte lengths",
+    async ({ label, protocol }) => {
+      // Arrange: SCTP association を確立し、client が送る DCEP を記録する。
+      const { client, server } = await connectedPair();
+      const dcep = captureDcep(client);
+      const remote = server.onDataChannel.asPromise();
+      const labelBytes = Buffer.byteLength(label, "utf8");
+      const protocolBytes = Buffer.byteLength(protocol, "utf8");
+
+      // Act: in-band negotiation でチャネルを作成し OPEN を送らせる。
+      new RTCDataChannel(
+        client,
+        new RTCDataChannelParameters({ label, protocol, id: 1 }),
+      );
+      const [received] = await remote;
+
+      // Assert: OPEN の Label / Protocol Length は UTF-8 のバイト数で、
+      // ヘッダの長さとペイロードの長さが一致する (RFC 8832 5.1)。
+      expect(dcep).toHaveLength(1);
+      expect(dcep[0].readUInt8(0)).toBe(3);
+      expect(dcep[0].readUInt16BE(8)).toBe(labelBytes);
+      expect(dcep[0].readUInt16BE(10)).toBe(protocolBytes);
+      expect(dcep[0].length).toBe(12 + labelBytes + protocolBytes);
+      // Assert: server 側チャネルの label / protocol が送信値と完全に一致する。
+      expect(received.label).toBe(label);
+      expect(received.protocol).toBe(protocol);
+
+      await Promise.all([client.stop(), server.stop()]);
+    },
+  );
+
+  test.each([
+    {
+      name: "label",
+      // "あ" は 3 バイトなので 21846 文字 = 65538 バイトで 16 ビットを超える。
+      parameters: { label: "あ".repeat(21846), protocol: "" },
+    },
+    {
+      name: "protocol",
+      parameters: { label: "ok", protocol: "あ".repeat(21846) },
+    },
+  ])(
+    "DATA_CHANNEL_OPEN rejects an over-long $name without registering the ID",
+    async ({ parameters }) => {
+      // Arrange: SCTP association を確立し、client が送る DCEP を記録する。
+      const { client, server } = await connectedPair();
+      const dcep = captureDcep(client);
+
+      // Act: UTF-8 で 65535 バイトを超える値を ID 指定で作成する。
+      const create = () =>
+        new RTCDataChannel(
+          client,
+          new RTCDataChannelParameters({ ...parameters, id: 42 }),
+        );
+
+      // Assert: TypeError で失敗し、OPEN は送られない。
+      expect(create).toThrow(TypeError);
+      expect(dcep).toHaveLength(0);
+
+      // Act: 同じ ID で有効な label を使って作り直す。
+      const remote = server.onDataChannel.asPromise();
+      const retry = new RTCDataChannel(
+        client,
+        new RTCDataChannelParameters({ label: "retry", id: 42 }),
+      );
+      const [received] = await remote;
+
+      // Assert: ID が解放されており、作り直したチャネルが相手側に届く。
+      expect(retry.id).toBe(42);
+      expect(received.label).toBe("retry");
+
+      await Promise.all([client.stop(), server.stop()]);
+    },
+  );
 });

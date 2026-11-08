@@ -1,12 +1,9 @@
-import { Certificate, PrivateKey } from "@fidm/x509";
-
-import { randomUUID } from "crypto";
-import { setTimeout } from "timers/promises";
-import { Event, type Transport } from "../imports/common";
-
+import { createPrivateKey, randomUUID, X509Certificate } from "node:crypto";
 import type { AddressInfo } from "net";
+import { setTimeout } from "timers/promises";
 import type { DebugConfig } from "../api/peerConfig";
 import { EventTarget as DomEventTarget } from "../helper";
+import { Event, type Transport } from "../imports/common";
 import {
   CipherContext,
   DtlsClient,
@@ -14,11 +11,16 @@ import {
   type DtlsSocket,
   HashAlgorithm,
   NamedCurveAlgorithm,
+  normalizePem,
   SignatureAlgorithm,
   type SignatureHash,
 } from "../imports/dtls";
 import type { IceConnection } from "../imports/ice";
 import {
+  debug,
+  isMedia,
+  isRtcp,
+  keyLength,
   type RtcpPacket,
   RtcpPacketConverter,
   type RtpHeader,
@@ -27,24 +29,21 @@ import {
   SrtpAuthenticationError,
   type SrtpProfile,
   SrtpSession,
-  debug,
-  isMedia,
-  isRtcp,
-  keyLength,
   saltLength,
 } from "../imports/rtp";
 import {
+  generateStatsId,
+  getStatsTimestamp,
   type RTCCertificateStats,
   type RTCIceCandidatePairStats,
   type RTCIceCandidateStats,
   type RTCStats,
   type RTCTransportStats,
-  generateStatsId,
-  getStatsTimestamp,
 } from "../media/stats";
 import {
   fingerprint,
   isDtls,
+  milliTime,
   normalizeFingerprintAlgorithm,
   normalizeFingerprintValue,
 } from "../utils";
@@ -52,10 +51,15 @@ import type { RTCIceTransport } from "./ice";
 
 const log = debug("werift:packages/webrtc/src/transport/dtls.ts");
 
-function formatDtlsVersion(version?: {
-  major: number;
-  minor: number;
-}) {
+/** Result of encrypting and enqueueing one RTP packet on ICE. */
+export type DtlsSendRtpResult = {
+  /** On-wire SRTP size in bytes. */
+  size: number;
+  /** Local clock immediately before ICE/UDP enqueue (RFC 8888 send time). */
+  sendingAtMs: number;
+};
+
+function formatDtlsVersion(version?: { major: number; minor: number }) {
   if (!version) {
     return;
   }
@@ -87,6 +91,11 @@ export interface DtlsTransportStats {
 }
 
 export class RTCDtlsTransport implements DtlsTransportStats {
+  readonly config: { debug?: DebugConfig };
+  readonly iceTransport: RTCIceTransport;
+  public localCertificate?: RTCCertificate | undefined;
+  private readonly srtpProfiles: SrtpProfile[];
+
   id = randomUUID().toString();
   state: DtlsState = "new";
   role: DtlsRole = "auto";
@@ -98,6 +107,13 @@ export class RTCDtlsTransport implements DtlsTransportStats {
    */
   iceRoleAtStart?: RTCIceTransport["role"];
   srtpStarted = false;
+  /**
+   * Monotonic transport-wide sequence allocated at ICE enqueue time.
+   * Never wraps in JS Number. {@link transportSequenceNumber} is the wire
+   * 16-bit view (`extended & 0xffff`).
+   */
+  transportSequenceNumberExtended = 0;
+  /** Wire 16-bit TWCC sequence (low bits of {@link transportSequenceNumberExtended}). */
   transportSequenceNumber = 0;
 
   // Statistics tracking
@@ -114,19 +130,30 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   readonly onStateChange = new Event<[DtlsState]>();
   readonly onRtcp = new Event<[RtcpPacket]>();
   readonly onRtp = new Event<[RtpPacket]>();
+  /**
+   * Fires once when {@link RTCDtlsTransport.stop} has finished, i.e. ICE has
+   * stopped too. The DTLS "closed" state alone (e.g. a received alert) does
+   * not mean ICE has released its resources.
+   */
+  readonly onStopped = new Event<[]>();
   private readonly events = new DomEventTarget();
   onstatechange?: () => void;
 
+  /** Process-wide default certificate cache, see {@link RTCDtlsTransport.SetupCertificate}. */
   static localCertificate?: RTCCertificate;
   static localCertificatePromise?: Promise<RTCCertificate>;
   private remoteParameters?: RTCDtlsParameters;
 
   constructor(
-    readonly config: { debug?: DebugConfig },
-    readonly iceTransport: RTCIceTransport,
-    public localCertificate?: RTCCertificate,
-    private readonly srtpProfiles: SrtpProfile[] = [],
+    config: { debug?: DebugConfig },
+    iceTransport: RTCIceTransport,
+    localCertificate?: RTCCertificate,
+    srtpProfiles: SrtpProfile[] = [],
   ) {
+    this.config = config;
+    this.iceTransport = iceTransport;
+    this.localCertificate = localCertificate;
+    this.srtpProfiles = srtpProfiles;
     this.localCertificate ??= RTCDtlsTransport.localCertificate;
   }
 
@@ -151,31 +178,38 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     );
   }
 
+  /**
+   * Generates a new self-signed certificate (ECDSA P-256 / SHA-256) on every call.
+   * Used by an RTCPeerConnection created with `certificateScope: "peerConnection"`
+   * when `RTCConfiguration.certificates` is not given.
+   */
+  static async generateCertificate() {
+    const { certPem, keyPem, signatureHash } =
+      await CipherContext.createSelfSignedCertificateWithKey(
+        {
+          signature: SignatureAlgorithm.ecdsa_3,
+          hash: HashAlgorithm.sha256_4,
+        },
+        NamedCurveAlgorithm.secp256r1_23,
+      );
+    return new RTCCertificate(keyPem, certPem, signatureHash);
+  }
+
+  /**
+   * Returns the default certificate cached for the whole process
+   * (the default `certificateScope: "process"`).
+   */
   static async SetupCertificate() {
     if (this.localCertificate) {
       return this.localCertificate;
     }
 
-    if (this.localCertificatePromise) {
-      return this.localCertificatePromise;
-    }
-
-    this.localCertificatePromise = (async () => {
-      const { certPem, keyPem, signatureHash } =
-        await CipherContext.createSelfSignedCertificateWithKey(
-          {
-            signature: SignatureAlgorithm.ecdsa_3,
-            hash: HashAlgorithm.sha256_4,
-          },
-          NamedCurveAlgorithm.secp256r1_23,
-        );
-      this.localCertificate = new RTCCertificate(
-        keyPem,
-        certPem,
-        signatureHash,
-      );
-      return this.localCertificate;
-    })();
+    this.localCertificatePromise ??= this.generateCertificate().then(
+      (certificate) => {
+        this.localCertificate = certificate;
+        return certificate;
+      },
+    );
 
     return this.localCertificatePromise;
   }
@@ -459,7 +493,43 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     await this.dtls.send(data);
   };
 
+  /**
+   * Allocate the next transport-wide sequence at send time.
+   * Call immediately before DTLS/ICE enqueue so BUNDLE senders cannot
+   * reserve a TSN then wait in a per-sender pacer.
+   */
+  allocateTransportWideSequence(): { wire: number; extended: number } {
+    const wireNow = this.transportSequenceNumber & 0xffff;
+    if ((this.transportSequenceNumberExtended & 0xffff) !== wireNow) {
+      const gen = Math.floor(this.transportSequenceNumberExtended / 0x10000);
+      this.transportSequenceNumberExtended = gen * 0x10000 + wireNow;
+    }
+    this.transportSequenceNumberExtended += 1;
+    this.transportSequenceNumber =
+      this.transportSequenceNumberExtended & 0xffff;
+    return {
+      wire: this.transportSequenceNumber,
+      extended: this.transportSequenceNumberExtended,
+    };
+  }
+
+  /**
+   * Encrypt RTP and enqueue on ICE. Returns on-wire size.
+   * Send-time metadata: {@link sendRtpWithMeta}.
+   */
   async sendRtp(payload: Buffer, header: RtpHeader): Promise<number> {
+    const { size } = await this.sendRtpWithMeta(payload, header);
+    return size;
+  }
+
+  /**
+   * Encrypt RTP and enqueue on ICE, capturing the clock immediately before
+   * the ICE write (RFC 8888). Prefer {@link sendRtp} unless send time is needed.
+   */
+  async sendRtpWithMeta(
+    payload: Buffer,
+    header: RtpHeader,
+  ): Promise<DtlsSendRtpResult> {
     try {
       const enc = this.srtp.encrypt(payload, header);
 
@@ -467,18 +537,19 @@ export class RTCDtlsTransport implements DtlsTransportStats {
         this.config.debug?.outboundPacketLoss &&
         this.config.debug?.outboundPacketLoss / 100 < Math.random()
       ) {
-        return enc.length;
+        return { size: enc.length, sendingAtMs: milliTime() };
       }
 
       // Track statistics
       this.bytesSent += enc.length;
       this.packetsSent++;
 
+      const sendingAtMs = milliTime();
       await this.iceTransport.connection.send(enc).catch(() => {});
-      return enc.length;
+      return { size: enc.length, sendingAtMs };
     } catch (error) {
       log("failed to send", error);
-      return 0;
+      return { size: 0, sendingAtMs: milliTime() };
     }
   }
 
@@ -511,12 +582,32 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     }
   }
 
-  async stop() {
-    this.setState("closed", false);
-    // todo impl send alert
-    await this.iceTransport.stop();
-    // A handshake still in flight stops retransmitting its flight.
-    this.dtls?.close();
+  private stopPromise?: Promise<void>;
+
+  /** Resolves once ICE has stopped; concurrent callers share one stop. */
+  stop(): Promise<void> {
+    if (this.stopPromise) return this.stopPromise;
+    // Publish the shared promise before runStop() notifies "closed": a
+    // subscriber that re-enters stop() must get this same promise.
+    let settle!: (stopping: Promise<void>) => void;
+    this.stopPromise = new Promise<void>((resolve) => {
+      settle = resolve;
+    });
+    settle(this.runStop());
+    return this.stopPromise;
+  }
+
+  private async runStop() {
+    try {
+      this.setState("closed", false);
+      // todo impl send alert
+      await this.iceTransport.stop();
+      // A handshake still in flight stops retransmitting its flight.
+      this.dtls?.close();
+    } finally {
+      this.onStopped.execute();
+      this.onStopped.complete();
+    }
   }
 
   async getStats(timestamp = getStatsTimestamp()): Promise<RTCStats[]> {
@@ -617,27 +708,34 @@ export type DtlsState = (typeof DtlsStates)[number];
 export type DtlsRole = "auto" | "server" | "client";
 
 export class RTCCertificate {
+  public certPem: string;
+  public signatureHash: SignatureHash;
+
   publicKey: string;
   privateKey: string;
 
   constructor(
     privateKeyPem: string,
-    public certPem: string,
-    public signatureHash: SignatureHash,
+    certPem: string,
+    signatureHash: SignatureHash,
   ) {
-    const cert = Certificate.fromPEM(Buffer.from(certPem));
-    this.publicKey = cert.publicKey.toPEM();
-    this.privateKey = PrivateKey.fromPEM(Buffer.from(privateKeyPem)).toPEM();
+    this.certPem = certPem;
+    this.signatureHash = signatureHash;
+    this.certPem = normalizePem(certPem);
+    const cert = new X509Certificate(this.certPem);
+    this.publicKey = cert.publicKey
+      .export({ type: "spki", format: "pem" })
+      .toString();
+    this.privateKey = createPrivateKey(normalizePem(privateKeyPem))
+      .export({ type: "pkcs8", format: "pem" })
+      .toString();
   }
 
   getFingerprints(): RTCDtlsFingerprint[] {
     return [
       new RTCDtlsFingerprint(
         "sha-256",
-        fingerprint(
-          Certificate.fromPEM(Buffer.from(this.certPem)).raw,
-          "sha256",
-        ),
+        fingerprint(new X509Certificate(this.certPem).raw, "sha256"),
       ),
     ];
   }
@@ -650,17 +748,26 @@ export type DtlsKeys = {
 };
 
 export class RTCDtlsFingerprint {
-  constructor(
-    public algorithm: string,
-    public value: string,
-  ) {}
+  public algorithm: string;
+  public value: string;
+
+  constructor(algorithm: string, value: string) {
+    this.algorithm = algorithm;
+    this.value = value;
+  }
 }
 
 export class RTCDtlsParameters {
+  public fingerprints: RTCDtlsFingerprint[];
+  public role: "auto" | "client" | "server";
+
   constructor(
-    public fingerprints: RTCDtlsFingerprint[] = [],
-    public role: "auto" | "client" | "server",
-  ) {}
+    fingerprints: RTCDtlsFingerprint[] = [],
+    role: "auto" | "client" | "server",
+  ) {
+    this.fingerprints = fingerprints;
+    this.role = role;
+  }
 }
 
 const deduplicateFingerprints = (fingerprints: RTCDtlsFingerprint[]) => {
@@ -698,8 +805,11 @@ const selectPreferredFingerprintAlgorithm = (
 };
 
 class IceTransport implements Transport {
+  private ice: IceConnection;
+
   closed: boolean = false;
-  constructor(private ice: IceConnection) {
+  constructor(ice: IceConnection) {
+    this.ice = ice;
     ice.onData.subscribe((buf) => {
       if (isDtls(buf)) {
         if (this.onData) {

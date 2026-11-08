@@ -1,10 +1,11 @@
+import { isDeepStrictEqual } from "node:util";
 import { randomUUID } from "crypto";
 import {
-  type PeerConfig,
-  type RTCPeerConnectionConfig,
   clonePeerConfiguration,
   generateDefaultPeerConfig,
   mergePeerConfiguration,
+  type PeerConfig,
+  type RTCPeerConnectionConfig,
 } from "./api/peerConfig";
 import {
   type PeerConnectionEventHandlers,
@@ -12,10 +13,13 @@ import {
   type RTCPeerConnectionIceEvent,
   RTCTrackEvent,
 } from "./api/peerConnectionEvents";
-import type { RTCDataChannel } from "./dataChannel";
+import {
+  assertDataChannelFieldLengths,
+  type RTCDataChannel,
+} from "./dataChannel";
 import { createWebRtcDomException } from "./errors";
 import { EventTarget, enumerate } from "./helper";
-import { Event, debug } from "./imports/common";
+import { debug, Event } from "./imports/common";
 import {
   type MediaStream,
   type MediaStreamTrack,
@@ -27,20 +31,20 @@ import {
   type TransceiverOptions,
 } from "./media";
 import {
-  type RTCPeerConnectionStats,
-  type RTCStats,
-  type RTCStatsReport,
   buildStatsReport,
   generateStatsId,
   getStatsTimestamp,
+  type RTCPeerConnectionStats,
+  type RTCStats,
+  type RTCStatsReport,
 } from "./media/stats";
 import { BundleTopology } from "./negotiation/bundleTopology";
 import { DescriptionValidation } from "./negotiation/descriptionValidation";
 import { IceRestartRequest } from "./negotiation/iceRestartRequest";
 import { NegotiationNeeded } from "./negotiation/negotiationNeeded";
 import {
-  RemoteCandidates,
   normalizeCandidateUfrag,
+  RemoteCandidates,
 } from "./negotiation/remoteCandidates";
 import { RemoteMediaApplication } from "./negotiation/remoteMediaApplication";
 import { TransportActivation } from "./negotiation/transportActivation";
@@ -63,6 +67,8 @@ import { andDirection } from "./utils";
 
 export {
   type DebugConfig,
+  defaultPeerConfig,
+  findCodecByMimeType,
   type PeerConfig,
   type RTCBundlePolicy,
   type RTCConfiguration,
@@ -70,8 +76,6 @@ export {
   type RTCPeerConnectionConfig,
   type RTCRtcpMuxPolicy,
   type RTCSctpConfiguration,
-  defaultPeerConfig,
-  findCodecByMimeType,
 } from "./api/peerConfig";
 export {
   type RTCDataChannelEvent,
@@ -493,30 +497,81 @@ export class RTCPeerConnection extends EventTarget {
     return this.transceiverManager.getReceivers();
   }
 
+  /**
+   * Update the configuration (W3C `setConfiguration`).
+   *
+   * STUN/TURN settings (`iceServers`, `iceTransportPolicy`, `turnUdpFamily`)
+   * apply to the next ICE gathering phase (JSEP, RFC 9429 §4.1.18):
+   *
+   * - A transport that has not gathered yet takes them at once, so servers
+   *   learned after `createOffer()` (e.g. a WHIP Link header) are used by the
+   *   following `setLocalDescription()`. No ICE restart is needed.
+   * - Once gathering has started, the live ICE session is left untouched (its
+   *   selected pair and TURN allocation keep working) and, if the settings
+   *   actually changed, the next `createOffer()` performs an ICE restart. That
+   *   restart gathers with the new settings and releases the TURN allocation
+   *   made with the old ones; its relay candidates are not carried over.
+   *   Setting the same servers again (e.g. `setConfiguration(getConfiguration())`)
+   *   requests no restart. `negotiationneeded` does not fire for this, so call
+   *   `restartIce()` (or renegotiate) to apply the change now.
+   * - On the answering side the new settings are used when the remote peer
+   *   restarts ICE.
+   *
+   * Rotating expiring TURN credentials on a live connection:
+   *
+   * ```ts
+   * pc.setConfiguration({ iceServers: freshIceServers });
+   * pc.restartIce();
+   * // in onnegotiationneeded:
+   * await pc.setLocalDescription(await pc.createOffer());
+   * ```
+   */
   setConfiguration(config: RTCPeerConnectionConfig) {
     const isReconfiguration = !!this.sdpManager;
-    const normalizedConfig = mergePeerConfiguration(this.config, config, {
+    const previousIceServerSettings = this.secureManager?.iceServerSettings();
+    // Transports only use the first STUN/TURN, but any change in the
+    // normalized list (e.g. a second TURN) counts as a configuration change.
+    const previousIceServers = structuredClone(this.config.iceServers);
+    mergePeerConfiguration(this.config, config, {
       isReconfiguration,
       hasLocalDescription: isReconfiguration && !!this.localDescription,
       hasSctpTransport: !!this.sctpManager?.sctpTransport,
     });
+
+    this.router.keyFrameRequestRouting = this.config.keyFrameRequestRouting;
 
     if (this.sctpManager?.sctpTransport) {
       this.sctpManager.sctpTransport.maxMessageSize =
         this.config.maxMessageSize;
     }
 
-    // JSEP (RFC 8829 §4.1.18): STUN/TURN changes affect the next gathering
+    // JSEP (RFC 9429 §4.1.18): STUN/TURN changes affect the next gathering
     // phase. Transports still in gathering state "new" take them now (WHIP:
     // createOffer → setConfiguration → setLocalDescription); the others keep
     // the live Connection untouched and take them at their next ICE restart.
-    if (
-      isReconfiguration &&
-      this.secureManager &&
-      (normalizedConfig.iceServers !== undefined ||
-        normalizedConfig.turnUdpFamily !== undefined)
-    ) {
+    // Every STUN/TURN-related field (iceServers, policy, turnTransport,
+    // turnTlsOptions, turnUdpFamily, iceUseTcp) goes through the same resolved
+    // settings, so any of them changing is picked up here.
+    if (isReconfiguration && this.secureManager) {
+      const gatheringStarted = this.secureManager.gatheringStarted;
       this.secureManager.updateIceServers();
+      // Changed servers after gathering started set the "needs-ice-restart"
+      // bit, so the next createOffer() restarts ICE with them. JSEP only sets
+      // the bit and W3C says "no action will be taken until the next
+      // gathering phase", so this does not fire negotiationneeded by itself.
+      if (
+        gatheringStarted &&
+        (!isDeepStrictEqual(
+          previousIceServerSettings,
+          this.secureManager.iceServerSettings(),
+        ) ||
+          !isDeepStrictEqual(previousIceServers, this.config.iceServers))
+      ) {
+        this.iceRestartRequest.request(
+          this.sdpManager.currentLocalDescription,
+          this.sdpManager.pendingLocalDescription,
+        );
+      }
     }
   }
 
@@ -639,6 +694,10 @@ export class RTCPeerConnection extends EventTarget {
       id?: number;
     }> = {},
   ): RTCDataChannel {
+    // Reject invalid input before creating the transport or scheduling
+    // negotiation, so a failed call leaves the connection unchanged.
+    assertDataChannelFieldLengths({ label, protocol: options.protocol });
+
     if (!this.sctpTransport) {
       this.createSctpTransport();
       this.needNegotiation();
@@ -808,7 +867,7 @@ export class RTCPeerConnection extends EventTarget {
       this.router.routeRtp(rtp);
     });
     dtlsTransport.onRtcp.subscribe((rtcp) => {
-      this.router.routeRtcp(rtcp);
+      this.router.routeRtcp(rtcp, dtlsTransport);
     });
     this.negotiation.noteCreatedTransport(dtlsTransport);
     const iceTransport = dtlsTransport.iceTransport;
@@ -1496,6 +1555,16 @@ export class RTCPeerConnection extends EventTarget {
     );
   }
 
+  /**
+   * Request an ICE restart (W3C `restartIce`): the next `createOffer()`
+   * carries new ICE credentials and fires `negotiationneeded`.
+   *
+   * The restarted generation gathers with the current configuration, so
+   * `setConfiguration({ iceServers })` followed by `restartIce()` rotates
+   * STUN/TURN servers or credentials: the new TURN allocation authenticates
+   * with the new credentials and the old allocation is released. Media keeps
+   * flowing on the current pair until the restart is committed by the answer.
+   */
   restartIce() {
     this.iceRestartRequest.request(
       this.sdpManager.currentLocalDescription,

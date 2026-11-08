@@ -12,13 +12,13 @@ export const jitterBufferTransformer = (
 ) => new JitterBufferTransformer(...args).transform;
 
 export class JitterBufferTransformer extends JitterBufferBase {
+  public clockRate: number;
+
   transform: TransformStream<JitterBufferInput, JitterBufferOutput>;
 
-  constructor(
-    public clockRate: number,
-    options: Partial<JitterBufferOptions> = {},
-  ) {
+  constructor(clockRate: number, options: Partial<JitterBufferOptions> = {}) {
     super(clockRate, options);
+    this.clockRate = clockRate;
 
     this.transform = new TransformStream({
       transform: (input, output) => {

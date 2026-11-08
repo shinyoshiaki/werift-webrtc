@@ -8,17 +8,17 @@ import {
   type AttributeKey,
   type AttributePair,
   AttributeRepository,
-  type RawAttribute,
   packXorAddress,
+  type RawAttribute,
   unpackXorAddress,
 } from "./attributes";
 import {
   COOKIE,
+  type classes,
   FINGERPRINT_LENGTH,
   FINGERPRINT_XOR,
   HEADER_LENGTH,
   INTEGRITY_LENGTH,
-  type classes,
   isStunMessage,
   type methods,
 } from "./const";
@@ -134,8 +134,8 @@ export function parseMessage(
   }
 
   return new Message(
-    messageType & 0x3eef,
-    messageType & 0x0110,
+    (messageType & 0x3eef) as methods,
+    (messageType & 0x0110) as classes,
     transactionId,
     attributeRepository.getAttributes(),
     rawAttributes,
@@ -144,16 +144,27 @@ export function parseMessage(
 }
 
 export class Message extends AttributeRepository {
+  public messageMethod: methods;
+  public messageClass: classes;
+  public transactionId: Buffer;
+  public rawAttributes: RawAttribute[];
+  /** Every ALTERNATE-SERVER attribute, in wire order. */
+  public alternateServers: [string, number][];
+
   constructor(
-    public messageMethod: methods,
-    public messageClass: classes,
-    public transactionId: Buffer = randomBytes(12),
+    messageMethod: methods,
+    messageClass: classes,
+    transactionId: Buffer = randomBytes(12),
     attributes: AttributePair[] = [],
-    public rawAttributes: RawAttribute[] = [],
-    /** Every ALTERNATE-SERVER attribute, in wire order. */
-    public alternateServers: [string, number][] = [],
+    rawAttributes: RawAttribute[] = [],
+    alternateServers: [string, number][] = [],
   ) {
     super(attributes);
+    this.messageMethod = messageMethod;
+    this.messageClass = messageClass;
+    this.transactionId = transactionId;
+    this.rawAttributes = rawAttributes;
+    this.alternateServers = alternateServers;
   }
 
   toJSON() {

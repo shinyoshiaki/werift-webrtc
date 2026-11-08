@@ -83,9 +83,72 @@ See [the design note](_media/705-media-rejection-and-removetrack.md) for BUNDLE,
 
 - [Website](https://shinyoshiaki.github.io/werift-webrtc/website/build/)
 - [API Reference](https://shinyoshiaki.github.io/werift-webrtc/website/build/docs/api)
-- [Examples](../../examples)
+- [Examples](_media/examples)
 - [Polyfill guide](_media/README-1.md)
 - [Browser API compatibility differences](_media/browser-api-compatibility.md)
+
+## TWCC send-side bandwidth estimation
+
+[TWCC](https://datatracker.ietf.org/doc/html/draft-holmer-rmcat-transport-wide-cc-extensions-01) provides transport-wide feedback; the **estimation algorithm is pluggable**.
+
+| API | Role |
+| --- | --- |
+| `new RTCPeerConnection({ bandwidthEstimator })` | Per-sender default: `"lightweight"` (default), `"gcc"`, `false` / `"none"` (disabled), or `() => BandwidthEstimator` |
+| `RTCRtpSender.senderBWE` | **Getter** for active `BandwidthEstimator`. Replace only via setter. |
+| `RTCRtpSender.setBandwidthEstimator(impl)` | Swap algorithm instance on one sender (e.g. `new GccBandwidthEstimator()`) |
+| **`sender.onAvailableBitrate`** | **bps**; fires only when the recommended bitrate **changes**. Survives estimator swap — prefer this for apps. |
+| `sender.pacingBitrateBps` | Effective send rate including active GCC probe target. Lightweight / disabled do not pace. |
+| `sender.onProbeClusterConfig` | Probe cluster targets (GCC fires; lightweight / disabled never do) |
+
+GCC send-path hooks (`process`, `setRoundTripTime`, probe padding, pacing) live on `BandwidthEstimator`. `LightweightBandwidthEstimator` and `DisabledBandwidthEstimator` implement them as no-ops so `RTCRtpSender` does not import GCC. Transport-wide sequence is a monotonic counter on `RTCDtlsTransport` (`transportSequenceNumber` is the 16-bit wire view). `RTCDtlsTransport.sendRtp` still returns `Promise<number>`; use `sendRtpWithMeta` for ICE-enqueue time.
+
+- Lightweight / disabled (the default) write RTP straight through, as before the abstraction: no send FIFO, no pacing, no padding.
+- GCC uses a bounded per-sender send FIFO (stale video drop / audio latency cap). Probe padding yields to queued media.
+- Padding is padding-only RTP on the **RTX** SSRC, so media sequence numbers are never shifted. Without negotiated RTX, no padding is sent and probes use media only (`GCC_KNOWN_DIFFERENCES`).
+- Every estimator reads TWCC through `TwccFeedbackAdapter`. Each sent packet is counted as received at most once, including duplicate and reordered feedback.
+
+```ts
+import {
+  GccBandwidthEstimator,
+  type LightweightBandwidthEstimator,
+} from "werift";
+
+// Connection-wide default (each RTCRtpSender gets its own instance):
+const pc = new RTCPeerConnection({
+  bandwidthEstimator: "gcc",
+  // bandwidthEstimator: false, // disable send-side BWE
+  // bandwidthEstimator: () => new GccBandwidthEstimator(800_000),
+});
+
+// Recommended: sender-level event (survives setBandwidthEstimator).
+sender.onAvailableBitrate.subscribe((bps) => {
+  // drive encoder / simulcast layer selection (bps, change-only)
+});
+
+// Optional: switch one sender to Google Congestion Control.
+sender.setBandwidthEstimator(new GccBandwidthEstimator());
+// During probes (GCC only — lightweight / disabled are unpaced):
+// - sender.pacingBitrateBps is raised to the probe target
+// - RTCRtpSender paces with a token-bucket and injects RTX padding when media
+//   alone cannot fill the probe cluster (see maybeInjectProbePadding)
+sender.onProbeClusterConfig.subscribe((cfg) => {
+  // optional: raise encoder toward cfg.targetBps for the cluster duration
+});
+
+// Lightweight-only (default estimator) congestion score:
+const lightweight = sender.senderBWE as LightweightBandwidthEstimator;
+lightweight.onCongestionScore.subscribe((score) => { /* … */ });
+```
+
+Until TWCC is negotiated and enough samples arrive, `availableBitrate` may stay `0`.
+`MediaStreamTrack.onReceiveRtp` delivers wire packets by default, including padding-only RTP as `{ type: "padding" }`. Set `filterProbePaddingOnReceiveRtp: true` only when a consumer needs GCC/SFU-style media-only sequence compaction.
+
+**Scope notes (ticket constraints / known differences):**
+
+- Transport-wide sequence numbers, `ReceiverTWCC`, and TWCC RTCP delivery are **per DTLS transport**. Each `RTCRtpSender` still has its own `BandwidthEstimator`; feedback is fanned out and each estimator matches only its own `SentInfo`. Transport-level GCC/pacer allocation is a non-goal.
+- `sender.senderBWE.onCongestion` / `onCongestionScore` remain a **one-release TypeScript compatibility surface**. They fire only on `LightweightBandwidthEstimator`; GCC/disabled expose no-op Events. Prefer `sender.senderBWE as LightweightBandwidthEstimator` or `isLightweightBandwidthEstimator`.
+- GCC follows libwebrtc goog_cc as a reference, but does not aim for a 1:1 match. Tests check GCC behavior in a simulated bottleneck: it backs off under congestion and loss, ramps up with probes, and backs off when feedback stops. They do not pin libwebrtc's exact order of operations or boundary values. `GCC_KNOWN_DIFFERENCES` (`GccBandwidthEstimator.knownDifferences`) lists known gaps (no REMB, lightweight pacer, float/clock drift, etc.) for reference.
+- Bottleneck simulations are **CI-excluded**: `cd packages/webrtc && npm run test:sim`, and `cd e2e && npm run test:sim` (Chrome). Run them before merging GCC/TWCC changes.
 
 ## Demos
 

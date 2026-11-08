@@ -1,5 +1,5 @@
 import { SCTP_STATE } from "../../../sctp/src";
-import { type Event, debug } from "../imports/common";
+import { debug, type Event } from "../imports/common";
 import type { TransceiverManager } from "../media";
 import type { NegotiationTransaction } from "../negotiationTransaction";
 import type { SctpTransportManager } from "../sctpManager";
@@ -22,6 +22,18 @@ const log = debug(
  * commits, and retiring a first negotiation's provisional connection.
  */
 export class TransportActivation {
+  private readonly sdp: SDPManager;
+  private readonly secure: SecureTransportManager;
+  private readonly transceivers: TransceiverManager;
+  private readonly sctp: SctpTransportManager;
+  private readonly negotiation: NegotiationTransaction;
+  private readonly topology: BundleTopology;
+  private readonly host: {
+    signalingState: () => RTCSignalingState;
+    /** The transport a transceiver starts on (BUNDLE policy aware). */
+    createTransport: () => RTCDtlsTransport;
+  };
+
   /**
    * Bumped when a first negotiation's provisional connection is retired: a
    * connect() still running for it no longer reports a connection state.
@@ -29,18 +41,26 @@ export class TransportActivation {
   private connectEpoch = 0;
 
   constructor(
-    private readonly sdp: SDPManager,
-    private readonly secure: SecureTransportManager,
-    private readonly transceivers: TransceiverManager,
-    private readonly sctp: SctpTransportManager,
-    private readonly negotiation: NegotiationTransaction,
-    private readonly topology: BundleTopology,
-    private readonly host: {
+    sdp: SDPManager,
+    secure: SecureTransportManager,
+    transceivers: TransceiverManager,
+    sctp: SctpTransportManager,
+    negotiation: NegotiationTransaction,
+    topology: BundleTopology,
+    host: {
       signalingState: () => RTCSignalingState;
       /** The transport a transceiver starts on (BUNDLE policy aware). */
       createTransport: () => RTCDtlsTransport;
     },
-  ) {}
+  ) {
+    this.sdp = sdp;
+    this.secure = secure;
+    this.transceivers = transceivers;
+    this.sctp = sctp;
+    this.negotiation = negotiation;
+    this.topology = topology;
+    this.host = host;
+  }
 
   /** Retire a first negotiation's provisional connection without losing app objects. */
   async cleanupInitialProvisional() {

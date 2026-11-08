@@ -46,23 +46,31 @@ export const AttributeKeys = [
   "OTHER-ADDRESS",
 ] as const;
 
-export enum classes {
-  REQUEST = 0x000,
-  INDICATION = 0x010,
-  RESPONSE = 0x100,
-  ERROR = 0x110,
-}
+/**
+ * @enum
+ */
+export const classes = {
+  REQUEST: 0x000,
+  INDICATION: 0x010,
+  RESPONSE: 0x100,
+  ERROR: 0x110,
+} as const;
+export type classes = (typeof classes)[keyof typeof classes];
 
-export enum methods {
-  BINDING = 0x1,
-  SHARED_SECRET = 0x2,
-  ALLOCATE = 0x3,
-  REFRESH = 0x4,
-  SEND = 0x6,
-  DATA = 0x7,
-  CREATE_PERMISSION = 0x8,
-  CHANNEL_BIND = 0x9,
-}
+/**
+ * @enum
+ */
+export const methods = {
+  BINDING: 0x1,
+  SHARED_SECRET: 0x2,
+  ALLOCATE: 0x3,
+  REFRESH: 0x4,
+  SEND: 0x6,
+  DATA: 0x7,
+  CREATE_PERMISSION: 0x8,
+  CHANNEL_BIND: 0x9,
+} as const;
+export type methods = (typeof methods)[keyof typeof methods];
 
 export function isComprehensionRequiredAttribute(type: number) {
   return type >= 0x0000 && type <= 0x7fff;

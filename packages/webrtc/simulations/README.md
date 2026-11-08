@@ -1,0 +1,50 @@
+# WebRTC simulations (CI 対象外)
+
+werift peer 同士を **仮想ボトルネック** 経由で接続し、TWCC + GCC の送信帯域推定が
+輻輳（遅延・ロス）にどう応答するかを検証するシミュレーションです。
+
+## CI 対象外
+
+- 通常のユニット / integrate テストは `packages/webrtc/tests/` にあります。
+- 本ディレクトリは **`npm test` / ルート `npm run ci` に含まれません**。
+- 実行は明示的に `npm run test:sim`（本パッケージ）で行います。
+
+## 実行
+
+```bash
+cd packages/webrtc
+npm run test:sim
+```
+
+## 構成
+
+| パス | 内容 |
+| --- | --- |
+| `helpers/bottleneckLink.ts` | 帯域上限・遅延・キュー溢れロスの仮想リンク（`e2e/server/simulations` と共有） |
+| `helpers/peerHarness.ts` | TWCC 交渉 + GCC 差し替え済み peer 対の構築 |
+| `gcc-twcc-congestion/*.sim.test.ts` | 輻輳誘発 → 帯域低下 → 追従でロス緩和、容量内の低レートでほぼロスしない、の 2 シナリオ |
+
+## 検証シナリオ（概要）
+
+1. 仮想上限帯域（例: 200 kbps）を超える固定レートで RTP を送る。
+   輻輳期は `mediaPacingEnabled = false` で生成レートをワイヤーへ出す（本番 pacer
+   の待ち行列が「アプリ追従」と衝突しないようにする）。probe 間隔は切らない。
+2. 遅延増加・ドロップが発生し、GCC の `onAvailableBitrate` が下がる。
+3. 追従期は pacer を戻し、アプリが推定帯域に送信レートを合わせると追加ドロップが減少する。
+4. 別シナリオで、容量内の低レート送信ではほぼドロップせず、probe padding が RTX SSRC にだけ出ることを確かめる。
+
+feedback 途絶・容量回復への応答は、決定的な制御応答テスト（`tests/media/bandwidthEstimator.test.ts` の「GCC 制御応答（仕様ベース）」）で確かめる。
+
+## 関連: Chrome 間シミュレーション
+
+werift ↔ Chrome は `e2e/simulations/`（ネットワーク制限は werift 側 ICE）。
+
+```bash
+cd e2e && npm run test:sim
+```
+
+## 回帰メモ（BWE）
+
+- `hasTwccReceiveTiming`: `ReceivedWithoutDelta` と `receivedAtMs === 0` を分離（delay サンプル判定）
+- GCC は libwebrtc goog_cc を参考にしているが、テストは処理順・境界値の一致ではなく「GCC として正しく機能すること」を見る（`TICKET-twcc.md` §2.12）。
+- Playwright ブラウザは `e2e/.playwright-browsers/`（git 管理外）。履歴にもバイナリを含めない

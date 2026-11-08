@@ -1,7 +1,7 @@
 import {
+  createVp8PayloadDescriptor,
   RtpHeader,
   RtpPacket,
-  createVp8PayloadDescriptor,
 } from "../imports/rtp";
 import { MediaStreamTrack } from "../media/track";
 
@@ -111,6 +111,19 @@ export function createDummyVideoTrack(
 }
 
 class ScheduledRtpSource implements DummySource {
+  private readonly props: {
+    track: MediaStreamTrack;
+    intervalMs: number;
+    buildPacket(args: {
+      sequenceNumber: number;
+      timestamp: number;
+      ssrc: number;
+      iteration: number;
+      sourceId: number;
+    }): RtpPacket;
+    nextTimestamp(timestamp: number): number;
+  };
+
   private readonly sourceId = nextDummySourceId++;
   private readonly ssrc = (DUMMY_SSRC_BASE + this.sourceId) >>> 0;
   private sequenceNumber =
@@ -121,20 +134,20 @@ class ScheduledRtpSource implements DummySource {
   private timer?: NodeJS.Timeout;
   private stopped = false;
 
-  constructor(
-    private readonly props: {
-      track: MediaStreamTrack;
-      intervalMs: number;
-      buildPacket(args: {
-        sequenceNumber: number;
-        timestamp: number;
-        ssrc: number;
-        iteration: number;
-        sourceId: number;
-      }): RtpPacket;
-      nextTimestamp(timestamp: number): number;
-    },
-  ) {}
+  constructor(props: {
+    track: MediaStreamTrack;
+    intervalMs: number;
+    buildPacket(args: {
+      sequenceNumber: number;
+      timestamp: number;
+      ssrc: number;
+      iteration: number;
+      sourceId: number;
+    }): RtpPacket;
+    nextTimestamp(timestamp: number): number;
+  }) {
+    this.props = props;
+  }
 
   start() {
     this.nextTickAt = performance.now();

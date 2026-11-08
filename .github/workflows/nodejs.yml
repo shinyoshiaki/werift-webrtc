@@ -17,8 +17,9 @@ jobs:
     runs-on: ubuntu-latest
 
     strategy:
+      fail-fast: false
       matrix:
-        node-version: [24.x]
+        node-version: [24.x, 26.x]
 
     steps:
       - uses: actions/checkout@v4
@@ -46,6 +47,10 @@ jobs:
           CI: true
         run: |
           npm run ci
+      - name: Node.js TypeScript resolve hook test
+        run: npm run test:node-ts
+      - name: RTP browser smoke test
+        run: npm run test:browser --workspace packages/rtp
       - name: examples e2e
         env:
           CI: true

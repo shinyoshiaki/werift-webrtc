@@ -1,6 +1,5 @@
-import { binaryData } from "../../../imports/common";
-
 import type { CipherSuites } from "../../../cipher/const";
+import { binaryData } from "../../../imports/common";
 import { FragmentedHandshake } from "../../../record/message/fragment";
 import type {
   Extension,
@@ -17,7 +16,14 @@ const { decode, encode, types } = binaryData;
 // 7.4.1.3.  Server Hello
 
 export class ServerHello implements Handshake {
-  msgType = HandshakeType.server_hello_2;
+  public serverVersion: Version;
+  public random: Random;
+  public sessionId: Buffer;
+  public cipherSuite: CipherSuites;
+  public compressionMethod: number;
+  public extensions: Extension[];
+
+  msgType: HandshakeType = HandshakeType.server_hello_2;
   messageSeq?: number;
   static readonly spec = {
     serverVersion: ProtocolVersion,
@@ -28,13 +34,20 @@ export class ServerHello implements Handshake {
   };
 
   constructor(
-    public serverVersion: Version,
-    public random: Random,
-    public sessionId: Buffer,
-    public cipherSuite: CipherSuites,
-    public compressionMethod: number,
-    public extensions: Extension[],
-  ) {}
+    serverVersion: Version,
+    random: Random,
+    sessionId: Buffer,
+    cipherSuite: CipherSuites,
+    compressionMethod: number,
+    extensions: Extension[],
+  ) {
+    this.serverVersion = serverVersion;
+    this.random = random;
+    this.sessionId = sessionId;
+    this.cipherSuite = cipherSuite;
+    this.compressionMethod = compressionMethod;
+    this.extensions = extensions;
+  }
 
   static createEmpty() {
     return new ServerHello(
@@ -50,13 +63,13 @@ export class ServerHello implements Handshake {
   static deSerialize(buf: Buffer) {
     const res = decode(buf, ServerHello.spec);
     const cls = new ServerHello(
-      //@ts-ignore
+      //@ts-expect-error
       ...Object.values(res),
     );
     const expect = cls.serialize();
     if (expect.length < buf.length) {
       return new ServerHello(
-        //@ts-ignore
+        //@ts-expect-error
         ...Object.values(
           decode(buf, { ...ServerHello.spec, extensions: ExtensionList }),
         ),

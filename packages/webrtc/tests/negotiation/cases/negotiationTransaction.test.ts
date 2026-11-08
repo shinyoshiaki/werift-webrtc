@@ -1,7 +1,6 @@
-import { RTCIceTransport, RTCRtpCodecParameters } from "../../../src";
 import type { RTCDtlsTransport, RTCPeerConnection } from "../../../src";
+import { RTCIceTransport, RTCRtpCodecParameters } from "../../../src";
 import { describeCases, negotiationCase } from "../harness/negotiationCase";
-import { ufragOf } from "../harness/negotiationTransactionUtils";
 import {
   addNegotiatedAudio,
   createConnectedVideoPeers,
@@ -13,6 +12,7 @@ import {
   failOnce,
   negotiationInternals,
   recordNegotiationEvents,
+  ufragOf,
   waitForCommittedNomination,
   waitForConnection,
   waitForDtlsConnected,

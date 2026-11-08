@@ -1,13 +1,5 @@
 import { randomUUID } from "crypto";
-import { homedir } from "os";
-import { isAbsolute, resolve } from "path";
-import { Readable } from "stream";
 import { readFile } from "fs/promises";
-import {
-  setImmediate as onNextTurn,
-  setTimeout as wait,
-} from "timers/promises";
-
 import {
   BufferSource,
   EncodedPacketSink,
@@ -18,6 +10,13 @@ import {
   MP4,
   WEBM,
 } from "mediabunny";
+import { homedir } from "os";
+import { isAbsolute, resolve } from "path";
+import { Readable } from "stream";
+import {
+  setImmediate as onNextTurn,
+  setTimeout as wait,
+} from "timers/promises";
 
 import { Event } from "../imports/common";
 import { useAV1X, useH264, useOPUS, useVP8, useVP9 } from "../media/codec";
@@ -26,9 +25,9 @@ import type { RTCRtpCodecParameters } from "../media/parameters";
 import { MediaStreamTrack } from "../media/track";
 import { codecParametersFromString } from "../sdp";
 import {
+  createPacketizer,
   type Packetizer,
   type SupportedSourceCodec,
-  createPacketizer,
   supportedSourceCodecs,
   toSupportedMimeType,
 } from "./userMedia/packetizer";
@@ -257,15 +256,21 @@ class MediaPlayer {
 }
 
 class TrackPlaybackRunner {
+  private readonly props: PlaybackTrack & {
+    mediaStartTimestamp: number;
+  };
+
   // Reused across loops so per-stream packetizer state (e.g. VP8 PictureID)
   // stays continuous; recreated only when the negotiated codec changes.
   private packetizer?: { codecKey: string; packetizer: Packetizer };
 
   constructor(
-    private readonly props: PlaybackTrack & {
+    props: PlaybackTrack & {
       mediaStartTimestamp: number;
     },
-  ) {}
+  ) {
+    this.props = props;
+  }
 
   async play({
     startedAt,
@@ -381,7 +386,10 @@ interface PlaybackTrack {
   inputTrack: InputTrack;
   track: MediaStreamTrack;
   sourceCodec: SupportedSourceCodec;
-  decoderDescription?: ArrayBuffer | ArrayBufferView | null;
+  decoderDescription?:
+    | ArrayBufferLike
+    | ArrayBufferView<ArrayBufferLike>
+    | null;
   sourceChannels?: number;
 }
 
@@ -476,7 +484,10 @@ async function createPlaybackTrack(
 
 function codecParametersForSource(
   sourceCodec: SupportedSourceCodec,
-  decoderDescription?: ArrayBuffer | ArrayBufferView | null,
+  decoderDescription?:
+    | ArrayBufferLike
+    | ArrayBufferView<ArrayBufferLike>
+    | null,
 ) {
   switch (sourceCodec) {
     case "avc": {
@@ -677,7 +688,10 @@ function assertCodecParameters({
   trackKind: "audio" | "video";
   codec: RTCRtpCodecParameters;
   sourceCodec: SupportedSourceCodec;
-  decoderDescription?: ArrayBuffer | ArrayBufferView | null;
+  decoderDescription?:
+    | ArrayBufferLike
+    | ArrayBufferView<ArrayBufferLike>
+    | null;
   sourceChannels?: number;
 }) {
   if (sourceCodec === "opus" && sourceChannels && codec.channels != undefined) {
@@ -729,7 +743,10 @@ function assertCodecParameters({
 }
 
 function getH264ProfileLevelId(
-  decoderDescription?: ArrayBuffer | ArrayBufferView | null,
+  decoderDescription?:
+    | ArrayBufferLike
+    | ArrayBufferView<ArrayBufferLike>
+    | null,
 ) {
   if (!decoderDescription) {
     return undefined;
@@ -769,7 +786,7 @@ function toError(error: unknown) {
 }
 
 function toDescriptionBuffer(
-  decoderDescription: ArrayBuffer | ArrayBufferView,
+  decoderDescription: ArrayBufferLike | ArrayBufferView<ArrayBufferLike>,
 ) {
   if (ArrayBuffer.isView(decoderDescription)) {
     return Buffer.from(

@@ -38,9 +38,13 @@ export class NotEnoughDataError extends Error {
 
 /** Sequential reader over a single Buffer. Returned buffers share memory with the input. */
 export class BinaryReader {
+  private readonly buf: Buffer;
+
   private offset = 0;
 
-  constructor(private readonly buf: Buffer) {}
+  constructor(buf: Buffer) {
+    this.buf = buf;
+  }
 
   /** The number of unread bytes. */
   get length() {
@@ -134,11 +138,12 @@ export interface Schema {
 export type TypeOrSchema = DataType<any> | Schema;
 
 /** Infer the decoded value from a type or schema. */
-export type Decoded<S> = S extends DataType<infer T>
-  ? T
-  : S extends Schema
-    ? { -readonly [K in keyof S]: Decoded<S[K]> }
-    : never;
+export type Decoded<S> =
+  S extends DataType<infer T>
+    ? T
+    : S extends Schema
+      ? { -readonly [K in keyof S]: Decoded<S[K]> }
+      : never;
 
 export type LengthCallback = (context: BinaryContext) => number;
 

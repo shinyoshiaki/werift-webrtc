@@ -12,6 +12,7 @@
 
 import { BitWriter, BitWriter2, debug, getBit } from "../imports/common";
 import type { RtpHeader, RtpPacket } from "../rtp/rtp";
+import { assertRtpCodecPayloadLength } from "./assertPayload";
 import { PacketizerBase, type PacketizerBaseOptions } from "./base";
 import { leb128encode } from "./leb128";
 
@@ -98,6 +99,7 @@ export class AV1RtpPayload {
 
   static deSerialize = (buf: Buffer) => {
     const p = new AV1RtpPayload();
+    assertRtpCodecPayloadLength(buf, 1, "AV1");
 
     let offset = 0;
 

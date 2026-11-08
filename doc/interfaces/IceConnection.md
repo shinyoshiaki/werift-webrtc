@@ -22,7 +22,7 @@
 
 ### gathersFromServers?
 
-> `readonly` `optional` **gathersFromServers**: `boolean`
+> `readonly` `optional` **gathersFromServers?**: `boolean`
 
 Whether gathering contacts a STUN or TURN server.
 
@@ -72,13 +72,13 @@ Whether gathering contacts a STUN or TURN server.
 
 ### lookup?
 
-> `optional` **lookup**: `MdnsLookup`
+> `optional` **lookup?**: `MdnsLookup`
 
 ***
 
 ### nominated?
 
-> `optional` **nominated**: [`CandidatePair`](../classes/CandidatePair.md)
+> `optional` **nominated?**: [`CandidatePair`](../classes/CandidatePair.md)
 
 ***
 
@@ -102,7 +102,7 @@ Whether gathering contacts a STUN or TURN server.
 
 ### provisionalNominated?
 
-> `readonly` `optional` **provisionalNominated**: [`CandidatePair`](../classes/CandidatePair.md)
+> `readonly` `optional` **provisionalNominated?**: [`CandidatePair`](../classes/CandidatePair.md)
 
 ***
 
@@ -148,15 +148,41 @@ Whether gathering contacts a STUN or TURN server.
 
 ***
 
-### stunServer?
+### ~~stunServer?~~
 
-> `optional` **stunServer**: readonly \[`string`, `number`\]
+> `optional` **stunServer?**: readonly \[`string`, `number`\]
+
+#### Deprecated
+
+The first of [IceConnection.stunServers](#stunservers).
 
 ***
 
-### turnServer?
+### stunServers?
 
-> `optional` **turnServer**: readonly \[`string`, `number`\]
+> `optional` **stunServers?**: (readonly \[`string`, `number`\])[]
+
+STUN servers gathering queries, normalized from the options (see
+[normalizeIceServerOptions](../functions/normalizeIceServerOptions.md)). Optional so that other
+implementations of this interface keep compiling.
+
+***
+
+### ~~turnServer?~~
+
+> `optional` **turnServer?**: readonly \[`string`, `number`\]
+
+#### Deprecated
+
+The address of the first of [IceConnection.turnServers](#turnservers).
+
+***
+
+### turnServers?
+
+> `optional` **turnServers?**: [`TurnServerOptions`](../type-aliases/TurnServerOptions.md)[]
+
+TURN servers gathering allocates on, each with its own credential.
 
 ## Methods
 
@@ -168,7 +194,7 @@ Whether gathering contacts a STUN or TURN server.
 
 ##### candidate
 
-`undefined` | [`Candidate`](../classes/Candidate.md)
+[`Candidate`](../classes/Candidate.md) \| `undefined`
 
 #### Returns
 
@@ -184,7 +210,7 @@ Whether gathering contacts a STUN or TURN server.
 
 ##### remoteCandidate
 
-`undefined` | [`Candidate`](../classes/Candidate.md)
+[`Candidate`](../classes/Candidate.md) \| `undefined`
 
 #### Returns
 
@@ -282,11 +308,11 @@ only server work (STUN, TURN) is awaited.
 
 ### getDefaultCandidate()
 
-> **getDefaultCandidate**(): `undefined` \| [`Candidate`](../classes/Candidate.md)
+> **getDefaultCandidate**(): [`Candidate`](../classes/Candidate.md) \| `undefined`
 
 #### Returns
 
-`undefined` \| [`Candidate`](../classes/Candidate.md)
+[`Candidate`](../classes/Candidate.md) \| `undefined`
 
 ***
 
@@ -406,11 +432,11 @@ and gathered candidates.
 
 ### stageLocalCredentials()?
 
-> `optional` **stageLocalCredentials**(`usernameFragment`, `password`): `void`
+> `optional` **stageLocalCredentials**(`usernameFragment`, `password`, `gatherOptions?`): `void`
 
-Optional staged-restart and provisional-generation support. An
-implementation without them still restarts ICE at the final answer, but
-cannot answer or run checks for the new generation during pranswer.
+`gatherOptions`: the options the staged generation gathers with (an ICE
+server update applied at the commit); its provisional checks use only
+the sockets those options allow. Defaults to the current options.
 
 #### Parameters
 
@@ -421,6 +447,10 @@ cannot answer or run checks for the new generation during pranswer.
 ##### password
 
 `string`
+
+##### gatherOptions?
+
+`Partial`\<[`IceOptions`](IceOptions.md)\>
 
 #### Returns
 

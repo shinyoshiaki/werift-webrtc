@@ -15,23 +15,23 @@ Picture ID / layer / SS extensions are not sent (legal optional subset).
 
 ## Constructors
 
-### new Vp9Packetizer()
+### Constructor
 
-> **new Vp9Packetizer**(`options`): [`Vp9Packetizer`](Vp9Packetizer.md)
+> **new Vp9Packetizer**(`options?`): `Vp9Packetizer`
 
 #### Parameters
 
-##### options
+##### options?
 
 [`Vp9PacketizerOptions`](../type-aliases/Vp9PacketizerOptions.md) = `{}`
 
 #### Returns
 
-[`Vp9Packetizer`](Vp9Packetizer.md)
+`Vp9Packetizer`
 
 #### Overrides
 
-[`PacketizerBase`](PacketizerBase.md).[`constructor`](PacketizerBase.md#constructors)
+[`PacketizerBase`](PacketizerBase.md).[`constructor`](PacketizerBase.md#constructor)
 
 ## Properties
 
@@ -105,7 +105,7 @@ Picture ID / layer / SS extensions are not sent (legal optional subset).
 
 ### packetize()
 
-> **packetize**(`data`, `rtpTimestamp`, `options`): [`RtpPacket`](RtpPacket.md)[]
+> **packetize**(`data`, `rtpTimestamp`, `options?`): [`RtpPacket`](RtpPacket.md)[]
 
 #### Parameters
 
@@ -117,7 +117,7 @@ Picture ID / layer / SS extensions are not sent (legal optional subset).
 
 `number`
 
-##### options
+##### options?
 
 [`Vp9PacketizeOptions`](../type-aliases/Vp9PacketizeOptions.md) = `{}`
 

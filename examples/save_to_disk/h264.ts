@@ -1,5 +1,5 @@
 import { unlink } from "fs/promises";
-import { Server } from "ws";
+import { WebSocketServer } from "ws";
 import {
   RTCPeerConnection,
   RTCRtpCodecParameters,
@@ -9,13 +9,13 @@ import {
   JitterBufferCallback,
   RtpSourceCallback,
   RtpTimeCallback,
-  WebmCallback,
   saveToFileSystem,
+  WebmCallback,
 } from "../../packages/webrtc/src/nonstandard";
 
 // open ./answer.html
 
-const server = new Server({ port: 8878 });
+const server = new WebSocketServer({ port: 8878 });
 console.log("start");
 
 server.on("connection", async (socket) => {

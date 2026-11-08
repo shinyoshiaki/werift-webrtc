@@ -14,8 +14,13 @@ export class FullIntraRequest {
     Object.assign(this, props);
   }
 
+  /**
+   * RTCP header `length` field: total packet size in 32-bit words minus 1.
+   * Body is `serialize()`; plus 1 header word → bodyWords = bodyBytes/4.
+   */
   get length() {
-    return Math.floor(this.serialize().length / 4 - 1);
+    // RFC 5104 4.3.1.1: header length = 2 + 2 * N (32-bit words minus one)
+    return this.serialize().length / 4;
   }
 
   static deSerialize(data: Buffer) {

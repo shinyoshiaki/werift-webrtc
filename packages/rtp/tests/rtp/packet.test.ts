@@ -1,5 +1,14 @@
-import { ExtensionProfiles, RtpHeader, RtpPacket } from "../../src/rtp/rtp";
+import {
+  ExtensionProfiles,
+  isPaddingOnlyRtpPacket,
+  RtpHeader,
+  RtpPacket,
+} from "../../src/rtp/rtp";
 import { load } from "../utils";
+import {
+  createPaddingOnlyRtpPacket,
+  createRtpWithInvalidPadding,
+} from "./rtpTestUtils";
 
 describe("packet", () => {
   test("basic", () => {
@@ -107,6 +116,7 @@ describe("packet", () => {
     expect(h.padding).toBe(true);
     expect(h.paddingSize).toBe(224);
     expect(p.payload.length).toBe(0);
+    expect(p.serializeSize).toBe(data.length);
     expect(p.serialize()).toEqual(data);
   });
 
@@ -153,5 +163,129 @@ describe("packet", () => {
     const parsed = RtpPacket.deSerialize(buf);
     const buf2 = parsed.serialize();
     expect(buf2).toEqual(buf);
+  });
+});
+
+describe("RTP padding-only / malformed padding", () => {
+  test("padding-only without extensions roundtrips as empty payload", () => {
+    // Arrange: 正規形の padding-only（メディア octet なし）
+    const original = createPaddingOnlyRtpPacket({ paddingSize: 16 });
+
+    // Act: serialize してから deSerialize する
+    const parsed = RtpPacket.deSerialize(original.serialize());
+
+    // Assert: 受信後は payload が空で paddingSize が残る
+    expect(parsed.payload.length).toBe(0);
+    expect(parsed.header.padding).toBe(true);
+    expect(parsed.header.paddingSize).toBe(16);
+    expect(parsed.serializeSize).toBe(original.serialize().length);
+    expect(isPaddingOnlyRtpPacket(parsed)).toBe(true);
+    expect(parsed.serialize()).toEqual(original.serialize());
+  });
+
+  test("padding-only with one-byte header extension roundtrips", () => {
+    // Arrange: TWCC 相当の 2 バイト拡張付き probe
+    const original = createPaddingOnlyRtpPacket({
+      paddingSize: 224,
+      extensions: [{ id: 3, payload: Buffer.from([0x00, 0x2a]) }],
+    });
+
+    // Act
+    const parsed = RtpPacket.deSerialize(original.serialize());
+
+    // Assert
+    expect(parsed.payload.length).toBe(0);
+    expect(parsed.header.paddingSize).toBe(224);
+    expect(parsed.header.extensions[0]?.payload).toEqual(
+      Buffer.from([0x00, 0x2a]),
+    );
+    expect(isPaddingOnlyRtpPacket(parsed)).toBe(true);
+  });
+
+  test("RtpHeader.deSerialize can skip padding validation for SRTP ciphertext", () => {
+    // Arrange: P=1・paddingSize=0。SRTP 事前解析では末尾がまだ暗号文
+    const buf = createRtpWithInvalidPadding(0);
+
+    // Act: 検証を外してヘッダだけ読む
+    const header = RtpHeader.deSerialize(buf, { validatePadding: false });
+
+    // Assert: 通常解析は拒否するが、事前解析はヘッダを返せる
+    expect(header.padding).toBe(true);
+    expect(header.paddingSize).toBe(0);
+    expect(() => RtpHeader.deSerialize(buf)).toThrow(
+      /invalid RTP padding size/,
+    );
+  });
+
+  test("one-byte header extension of length 0 cannot be serialized", () => {
+    // Arrange: RFC 8285 one-byte は 1 オクテット未満不可
+    const packet = new RtpPacket(
+      new RtpHeader({
+        extension: true,
+        extensionProfile: ExtensionProfiles.OneByte,
+        extensions: [{ id: 1, payload: Buffer.alloc(0) }],
+        payloadType: 96,
+      }),
+      Buffer.from([1]),
+    );
+
+    // Act / Assert
+    expect(() => packet.serialize()).toThrow(/one-byte header extension/);
+  });
+
+  /** Arrange: RTP 固定ヘッダ（V=2, X=1）+ 1 word の拡張ヘッダ領域。 */
+  const withExtension = (profile: number, ext: number[], total = 20) => {
+    const buf = Buffer.alloc(total);
+    buf[0] = 0x90;
+    buf.writeUInt16BE(profile, 12);
+    buf.writeUInt16BE(1, 14);
+    Buffer.from(ext).copy(buf, 16);
+    return buf;
+  };
+
+  test.each([
+    {
+      name: "P=1 で末尾 length octet が 0",
+      bytes: () => createRtpWithInvalidPadding(0),
+      error: /invalid RTP padding size/,
+    },
+    {
+      name: "paddingSize 5 が残り 1 バイトを超える",
+      bytes: () => createRtpWithInvalidPadding(5, 1),
+      error: /invalid RTP padding size/,
+    },
+    {
+      name: "12 バイトの固定ヘッダ未満",
+      bytes: () => Buffer.from([0x80, ...Array(10).fill(0)]),
+      error: /too short/,
+    },
+    { name: "空バッファ", bytes: () => Buffer.alloc(0), error: /too short/ },
+    {
+      name: "X=1 だが拡張ヘッダが無い",
+      bytes: () => Buffer.from([0x90, ...Array(11).fill(0)]),
+      error: /too short/,
+    },
+    {
+      name: "宣言した拡張領域（1 word）が残り 2 バイトより長い",
+      bytes: () => withExtension(ExtensionProfiles.OneByte, [], 18),
+      error: /too short/,
+    },
+    {
+      name: "one-byte 拡張の payload（4 バイト）が拡張領域を超える",
+      bytes: () => withExtension(ExtensionProfiles.OneByte, [0x13]),
+      error: /header extension truncated/,
+    },
+    {
+      name: "two-byte 拡張の payload（3 バイト）が拡張領域を超える",
+      bytes: () => withExtension(ExtensionProfiles.TwoByte, [0x01, 0x03]),
+      error: /header extension truncated/,
+    },
+  ])("不正な RTP を拒否する: $name", ({ bytes, error }) => {
+    // Arrange
+    const buf = bytes();
+
+    // Act / Assert: TypeError / RangeError ではなく、理由を示すエラーで失敗する
+    expect(() => RtpHeader.deSerialize(buf)).toThrow(error);
+    expect(() => RtpPacket.deSerialize(buf)).toThrow(error);
   });
 });

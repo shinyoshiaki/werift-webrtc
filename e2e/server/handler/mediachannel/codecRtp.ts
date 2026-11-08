@@ -17,13 +17,13 @@ import {
   RTCRtpCodecParameters,
 } from "../../";
 import {
-  type CodecRtpName,
-  type DepacketizeStats,
-  type PacketizeStreamStats,
   attachDepacketizer,
+  type CodecRtpName,
   codecKind,
   codecMimeHint,
   createRtpPacketizer,
+  type DepacketizeStats,
+  type PacketizeStreamStats,
   streamPacketizedFixture,
   useCodecParameters,
   useH264CodecList,
@@ -149,8 +149,7 @@ function livePacketizeStatus(
   const packetsSent = final?.packetsSent ?? live?.packetsSent ?? 0;
   const multiPacketFrames =
     final?.multiPacketFrames ?? live?.multiPacketFrames ?? 0;
-  const firstRtpTimestamp =
-    final?.firstRtpTimestamp ?? live?.firstRtpTimestamp;
+  const firstRtpTimestamp = final?.firstRtpTimestamp ?? live?.firstRtpTimestamp;
   const lastRtpTimestamp = final?.lastRtpTimestamp ?? live?.lastRtpTimestamp;
   const timestampAdvanced =
     final?.timestampAdvanced ??
@@ -176,7 +175,8 @@ function livePacketizeStatus(
     timestampAdvanced,
     timestampsMonotonic: final?.timestampsMonotonic ?? true,
     rtpTimestampDeltas: final?.rtpTimestampDeltas ?? [],
-    clockRate: final?.clockRate ?? live?.clockRate ?? (codec === "opus" ? 48000 : 90000),
+    clockRate:
+      final?.clockRate ?? live?.clockRate ?? (codec === "opus" ? 48000 : 90000),
     fixtureDurationSec: final?.fixtureDurationSec,
     averageIntervalSec: final?.averageIntervalSec,
   };
@@ -188,8 +188,12 @@ function livePacketizeStatus(
  * Success requires RTP that arrived on the receive track (source: "chrome"); no fixture fallback.
  */
 class DepacketizeHandler {
+  private readonly codec: CodecRtpName;
+
   private state: HandlerState = { stoppers: [] };
-  constructor(private readonly codec: CodecRtpName) {}
+  constructor(codec: CodecRtpName) {
+    this.codec = codec;
+  }
 
   async exec(type: string, payload: any, accept: AcceptFn) {
     switch (type) {
@@ -305,8 +309,12 @@ class DepacketizeHandler {
 
 /** Scenario B: fixture → packages/rtp Packetizer → Chrome */
 class PacketizeHandler {
+  private readonly codec: CodecRtpName;
+
   private state: HandlerState = { stoppers: [] };
-  constructor(private readonly codec: CodecRtpName) {}
+  constructor(codec: CodecRtpName) {
+    this.codec = codec;
+  }
 
   async exec(type: string, payload: any, accept: AcceptFn) {
     switch (type) {
@@ -441,8 +449,12 @@ class PacketizeHandler {
  * as answerer can software-encode; lowercase `h264` yields 0 outbound RTP.
  */
 class RepacketizeHandler {
+  private readonly codec: CodecRtpName;
+
   private state: HandlerState = { stoppers: [] };
-  constructor(private readonly codec: CodecRtpName) {}
+  constructor(codec: CodecRtpName) {
+    this.codec = codec;
+  }
 
   async exec(type: string, payload: any, accept: AcceptFn) {
     switch (type) {
@@ -551,8 +563,7 @@ class RepacketizeHandler {
         const rep = this.state.repacketizeMetrics;
         const chromeRtpOk = (stats?.rtpPackets ?? 0) >= 1;
         const repacketizeOk =
-          (rep?.framesRepacketized ?? 0) >= 1 &&
-          (rep?.packetsSent ?? 0) >= 1;
+          (rep?.framesRepacketized ?? 0) >= 1 && (rep?.packetsSent ?? 0) >= 1;
         if (
           stats &&
           isDepacketizeSuccess(stats, this.codec) &&
@@ -566,8 +577,7 @@ class RepacketizeHandler {
             source: "chrome" as const,
             expectedMime: useCodecParameters(this.codec).mimeType,
             negotiatedMime:
-              stats.negotiatedMime ??
-              useCodecParameters(this.codec).mimeType,
+              stats.negotiatedMime ?? useCodecParameters(this.codec).mimeType,
             payloadType: stats.payloadType,
             frameCount: stats.frameCount,
             keyframeCount: stats.keyframeCount,

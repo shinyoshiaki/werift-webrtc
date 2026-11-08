@@ -8,9 +8,9 @@
 
 ## Constructors
 
-### new BitWriter2()
+### Constructor
 
-> **new BitWriter2**(`bitLength`): [`BitWriter2`](BitWriter2.md)
+> **new BitWriter2**(`bitLength`): `BitWriter2`
 
 各valueがオクテットを跨いではならない
 
@@ -20,11 +20,9 @@
 
 `number`
 
-Max 32bit
-
 #### Returns
 
-[`BitWriter2`](BitWriter2.md)
+`BitWriter2`
 
 ## Properties
 
@@ -60,7 +58,7 @@ Max 32bit
 
 ### set()
 
-> **set**(`value`, `size`): [`BitWriter2`](BitWriter2.md)
+> **set**(`value`, `size?`): `BitWriter2`
 
 #### Parameters
 
@@ -68,10 +66,10 @@ Max 32bit
 
 `number`
 
-##### size
+##### size?
 
 `number` = `1`
 
 #### Returns
 
-[`BitWriter2`](BitWriter2.md)
+`BitWriter2`

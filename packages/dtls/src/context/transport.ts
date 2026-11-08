@@ -1,16 +1,20 @@
 import type { Address, Transport } from "../imports/common";
 
 export class TransportContext {
+  public socket: Transport;
+
   /** Aborted by `close()`: a flight waiting to retransmit stops. */
   private readonly closing = new AbortController();
 
-  constructor(public socket: Transport) {}
+  constructor(socket: Transport) {
+    this.socket = socket;
+  }
 
   readonly send = (buf: Buffer, addr?: Address) => {
     return this.socket.send(buf, addr);
   };
 
-  get closedSignal() {
+  get closedSignal(): AbortSignal {
     return this.closing.signal;
   }
 

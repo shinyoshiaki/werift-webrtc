@@ -9,11 +9,11 @@
 Packetize named telephone events (RFC 4733).
 
 Preferred APIs for RFC-correct marker/E-bit control:
-- [packetizeStart](TelephoneEventPacketizer.md#packetizestart) / [packetizeContinue](TelephoneEventPacketizer.md#packetizecontinue) / [packetizeEnd](TelephoneEventPacketizer.md#packetizeend)
-- [packetizeEvent](TelephoneEventPacketizer.md#packetizeevent) with start/end flags
-- [packetize](TelephoneEventPacketizer.md#packetize)(fields, timestamp) with structured fields
+- [packetizeStart](#packetizestart) / [packetizeContinue](#packetizecontinue) / [packetizeEnd](#packetizeend)
+- [packetizeEvent](#packetizeevent) with start/end flags
+- [packetize](#packetize)(fields, timestamp) with structured fields
 
-[packetizeBuffer](TelephoneEventPacketizer.md#packetizebuffer) exists only to re-wrap a pre-serialized 4-byte
+[packetizeBuffer](#packetizebuffer) exists only to re-wrap a pre-serialized 4-byte
 payload (marker defaults to false — not for new event starts).
 
 ## Extends
@@ -22,23 +22,23 @@ payload (marker defaults to false — not for new event starts).
 
 ## Constructors
 
-### new TelephoneEventPacketizer()
+### Constructor
 
-> **new TelephoneEventPacketizer**(`options`): [`TelephoneEventPacketizer`](TelephoneEventPacketizer.md)
+> **new TelephoneEventPacketizer**(`options?`): `TelephoneEventPacketizer`
 
 #### Parameters
 
-##### options
+##### options?
 
 [`PacketizerBaseOptions`](../type-aliases/PacketizerBaseOptions.md) = `{}`
 
 #### Returns
 
-[`TelephoneEventPacketizer`](TelephoneEventPacketizer.md)
+`TelephoneEventPacketizer`
 
 #### Overrides
 
-[`PacketizerBase`](PacketizerBase.md).[`constructor`](PacketizerBase.md#constructors)
+[`PacketizerBase`](PacketizerBase.md).[`constructor`](PacketizerBase.md#constructor)
 
 ## Properties
 
@@ -122,7 +122,7 @@ For Buffer input, marker is false unless you use packetizeEvent/Start.
 
 ##### data
 
-`Buffer`\<`ArrayBufferLike`\> | [`TelephoneEventPacketizeInput`](../type-aliases/TelephoneEventPacketizeInput.md)
+`Buffer`\<`ArrayBufferLike`\> \| [`TelephoneEventPacketizeInput`](../type-aliases/TelephoneEventPacketizeInput.md)
 
 ##### rtpTimestamp
 
@@ -140,7 +140,7 @@ For Buffer input, marker is false unless you use packetizeEvent/Start.
 
 ### packetizeBuffer()
 
-> **packetizeBuffer**(`data`, `rtpTimestamp`, `marker`): [`RtpPacket`](RtpPacket.md)
+> **packetizeBuffer**(`data`, `rtpTimestamp`, `marker?`): [`RtpPacket`](RtpPacket.md)
 
 Re-wrap a pre-serialized 4-byte payload. Marker is controlled explicitly;
 default false (not suitable for event start without marker=true).
@@ -155,7 +155,7 @@ default false (not suitable for event start without marker=true).
 
 `number`
 
-##### marker
+##### marker?
 
 `boolean` = `false`
 

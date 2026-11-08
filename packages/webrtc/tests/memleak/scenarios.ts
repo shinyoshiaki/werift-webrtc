@@ -17,7 +17,7 @@ import {
 } from "../../src";
 import { NegotiationCase } from "../negotiation/harness/negotiationCase";
 import { drawCycle, openCycleSession } from "../pbt/leak/leakProbe";
-import { type MemleakEnv, injectSyntheticLeak } from "./heapUtils";
+import { injectSyntheticLeak, type MemleakEnv } from "./heapUtils";
 
 /** 想定実時間レート（時間加速の換算に使用） */
 export const RATES = {

@@ -2,17 +2,17 @@ import { EncodedPacket } from "mediabunny";
 
 import {
   AV1RtpPayload,
-  Vp8RtpPayload,
   dePacketizeRtpPackets,
   useAV1X,
   useH264,
   useOPUS,
   useVP8,
   useVP9,
+  Vp8RtpPayload,
 } from "../../src";
 import {
-  Vp8Packetizer,
   createPacketizer,
+  Vp8Packetizer,
 } from "../../src/nonstandard/userMedia/packetizer";
 import {
   createAv1TemporalUnitWithSequenceHeader,

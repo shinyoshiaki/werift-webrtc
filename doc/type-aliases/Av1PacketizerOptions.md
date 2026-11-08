@@ -6,13 +6,13 @@
 
 # Type Alias: Av1PacketizerOptions
 
-> **Av1PacketizerOptions**: [`PacketizerBaseOptions`](PacketizerBaseOptions.md) & `object`
+> **Av1PacketizerOptions** = [`PacketizerBaseOptions`](PacketizerBaseOptions.md) & `object`
 
-## Type declaration
+## Type Declaration
 
 ### isKeyframe?
 
-> `optional` **isKeyframe**: `boolean`
+> `optional` **isKeyframe?**: `boolean`
 
 Default keyframe flag. Keyframe-ness alone does not set the N bit; see
 [Av1PacketizeOptions.startsNewCodedVideoSequence](Av1PacketizeOptions.md#startsnewcodedvideosequence).

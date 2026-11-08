@@ -29,4 +29,58 @@ describe("Red", () => {
     const enc = dec.serialize();
     expect(enc).toEqual(bin);
   });
+
+  it("empty payload is rejected", () => {
+    // Arrange: padding-only を誤って RED に渡した入力
+    const empty = Buffer.alloc(0);
+
+    // Act / Assert: 偽の PT=0 ブロックを作らず失敗する
+    expect(() => Red.deSerialize(empty)).toThrow(/truncated/i);
+  });
+
+  // timestampOffset=0 も正当な RED。truthiness で検証を飛ばしてはいけない
+  it.each([960, 0])(
+    "rejects declared blockLength longer than remaining payload (timestampOffset %i)",
+    (timestampOffset) => {
+      // Arrange: 先頭ブロック長が実データより長い RED
+      const red = new Red();
+      red.blocks.push({
+        block: Buffer.alloc(10, 0x11),
+        blockPT: 97,
+        timestampOffset,
+      });
+      red.blocks.push({ block: Buffer.from([0x22, 0x33]), blockPT: 97 });
+      const serialized = red.serialize();
+      const truncated = serialized.subarray(0, serialized.length - 8);
+
+      // Act / Assert: 切り詰めで黙って受理せず、F=1 の blockLength 不足として失敗する
+      expect(() => Red.deSerialize(truncated)).toThrow(/truncated/i);
+    },
+  );
+
+  it("roundtrips a redundant block with timestampOffset 0", () => {
+    // Arrange: 同一 timestamp の冗長ブロック
+    const red = new Red();
+    red.blocks.push({
+      block: Buffer.from([1, 2, 3, 4]),
+      blockPT: 97,
+      timestampOffset: 0,
+    });
+    red.blocks.push({
+      block: Buffer.from([5, 6]),
+      blockPT: 97,
+    });
+
+    // Act
+    const parsed = Red.deSerialize(red.serialize());
+
+    // Assert: offset=0 でも F=1 ブロックとして復元される
+    expect(parsed.header.fields[0]).toMatchObject({
+      fBit: 1,
+      timestampOffset: 0,
+      blockLength: 4,
+    });
+    expect(parsed.blocks[0]?.block).toEqual(Buffer.from([1, 2, 3, 4]));
+    expect(parsed.blocks[1]?.block).toEqual(Buffer.from([5, 6]));
+  });
 });

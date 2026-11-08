@@ -8,9 +8,9 @@
 
 ## Constructors
 
-### new RtpBuilder()
+### Constructor
 
-> **new RtpBuilder**(`props`): [`RtpBuilder`](RtpBuilder.md)
+> **new RtpBuilder**(`props`): `RtpBuilder`
 
 #### Parameters
 
@@ -20,7 +20,7 @@
 
 #### Returns
 
-[`RtpBuilder`](RtpBuilder.md)
+`RtpBuilder`
 
 ## Properties
 
@@ -80,7 +80,7 @@ Advances the timestamp only; the sequence number is unchanged.
 
 ### create()
 
-> **create**(`payload`, `options`): [`RtpPacket`](RtpPacket.md)
+> **create**(`payload`, `options?`): [`RtpPacket`](RtpPacket.md)
 
 #### Parameters
 
@@ -88,7 +88,7 @@ Advances the timestamp only; the sequence number is unchanged.
 
 `Buffer`
 
-##### options
+##### options?
 
 [`RtpBuilderCreateOptions`](../interfaces/RtpBuilderCreateOptions.md) = `{}`
 

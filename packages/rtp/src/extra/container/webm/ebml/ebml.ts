@@ -10,7 +10,11 @@ export interface EBMLData {
 }
 
 export class Value implements EBMLData {
-  constructor(public bytes: Uint8Array) {}
+  public bytes: Uint8Array;
+
+  constructor(bytes: Uint8Array) {
+    this.bytes = bytes;
+  }
 
   public write(buf: Uint8Array, pos: number): number {
     buf.set(this.bytes, pos);
@@ -23,14 +27,15 @@ export class Value implements EBMLData {
 }
 
 export class Element implements EBMLData {
+  private id: Uint8Array;
+  private children: EBMLData[];
+
   private readonly size: number;
   private readonly sizeMetaData: Uint8Array;
 
-  constructor(
-    private id: Uint8Array,
-    private children: EBMLData[],
-    isSizeUnknown: boolean,
-  ) {
+  constructor(id: Uint8Array, children: EBMLData[], isSizeUnknown: boolean) {
+    this.id = id;
+    this.children = children;
     const bodySize = this.children.reduce((p, c) => p + c.countSize(), 0);
     this.sizeMetaData = isSizeUnknown
       ? UNKNOWN_SIZE
@@ -138,6 +143,30 @@ export const getEBMLByteLength = (num: number | bigint): number => {
 export const UNKNOWN_SIZE = new Uint8Array([
   0x01, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
 ]);
+
+/**
+ * Encode `num` as a VINT that always occupies `byteLength` bytes.
+ * EBML accepts non-shortest VINTs, so this lets a reserved size field
+ * (e.g. {@link UNKNOWN_SIZE}) be overwritten in place with a known size.
+ */
+export const vintEncodeFixed = (
+  num: number,
+  byteLength: number,
+): Uint8Array => {
+  const max = 2 ** (7 * byteLength) - 1;
+  if (!Number.isSafeInteger(num) || num < 0 || num >= max) {
+    throw new Error(
+      `vintEncodeFixed: ${num} does not fit in a ${byteLength} byte VINT`,
+    );
+  }
+  const bytes = new Uint8Array(byteLength);
+  let rest = num;
+  for (let i = byteLength - 1; i >= 0; i--) {
+    bytes[i] = rest % 0x100;
+    rest = Math.floor(rest / 0x100);
+  }
+  return vintEncode(bytes);
+};
 
 export const vintEncode = (byteArray: Uint8Array): Uint8Array => {
   byteArray[0] = getSizeMask(byteArray.length) | byteArray[0];

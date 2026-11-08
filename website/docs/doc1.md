@@ -71,7 +71,7 @@ export type PeerConfig = {
     audio: RTCRtpHeaderExtensionParameters[];
     video: RTCRtpHeaderExtensionParameters[];
   }>;
-  iceConfig: Partial<IceOptions>;
+  iceServers: RTCIceServer[];
 };
 ```
 
@@ -138,23 +138,27 @@ const pc = new RTCPeerConnection({
 
 If you want to use the simulcast feature, you must specify `useSdesRTPStreamID()`.
 
-#### iceConfig
+#### iceServers
 
-Specify the ICE configuration.
-Werift supports STUN and TURN-UDP.
+Specify the STUN / TURN servers (W3C `RTCIceServer[]`).
+Every STUN and TURN URL takes part in gathering: each TURN URL gets its own
+allocation with the `username` / `credential` of the `RTCIceServer` that
+lists it, and the transport of its URL (`turn:` UDP, `?transport=tcp`, or
+`turns:` TLS).
 
 ```typescript
 const pc = new RTCPeerConnection({
-  iceConfig: { stunServer: ["stun.l.google.com", 19302] },
+  iceServers: [
+    { urls: ["stun:stun.l.google.com:19302", "stun:stun.example.com"] },
+    {
+      urls: ["turn:turn-a.example.com", "turn:turn-a.example.com?transport=tcp"],
+      username: "user-a",
+      credential: "pass-a",
+    },
+    { urls: "turns:turn-b.example.com", username: "user-b", credential: "pass-b" },
+  ],
+  iceTransportPolicy: "all", // "relay" gathers relay candidates only
 });
-
-type IceConfig = {
-  stunServer?: [string, number];
-  turnServer?: [string, number];
-  turnUsername?: string;
-  turnPassword?: string;
-  forceTurn?: boolean;
-};
 ```
 
 ### Signaling

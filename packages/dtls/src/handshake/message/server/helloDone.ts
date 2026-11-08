@@ -9,7 +9,7 @@ const { decode, encode } = binaryData;
 // 7.4.5.  Server Hello Done
 
 export class ServerHelloDone implements Handshake {
-  msgType = HandshakeType.server_hello_done_14;
+  msgType: HandshakeType = HandshakeType.server_hello_done_14;
   messageSeq?: number;
   static readonly spec = {};
 
@@ -19,7 +19,7 @@ export class ServerHelloDone implements Handshake {
 
   static deSerialize(buf: Buffer) {
     return new ServerHelloDone(
-      //@ts-ignore
+      //@ts-expect-error
       ...Object.values(decode(buf, ServerHelloDone.spec)),
     );
   }

@@ -1,11 +1,10 @@
-import { Event, debug } from "../../imports/common";
-
 import { OpusRtpPayload } from "../..";
+import { debug, Event } from "../../imports/common";
 import {
+  annexb2avcSample,
   type DataType,
   Mp4Container,
   type Mp4SupportedCodec,
-  annexb2avcSample,
   parseAvcDecoderConfig,
 } from "../container/mp4";
 import type { AVProcessor } from "./interface";
@@ -43,6 +42,10 @@ export interface MP4Option {
 }
 
 export class MP4Base implements AVProcessor<Mp4Input> {
+  public tracks: Track[];
+  private output: (output: Mp4Output) => void | Promise<void>;
+  private options: MP4Option;
+
   audioStopped = false;
   private internalStats = {};
   private container: Mp4Container;
@@ -51,10 +54,13 @@ export class MP4Base implements AVProcessor<Mp4Input> {
   videoStopped = false;
 
   constructor(
-    public tracks: Track[],
-    private output: (output: Mp4Output) => void | Promise<void>,
-    private options: MP4Option = {},
+    tracks: Track[],
+    output: (output: Mp4Output) => void | Promise<void>,
+    options: MP4Option = {},
   ) {
+    this.tracks = tracks;
+    this.output = output;
+    this.options = options;
     this.container = new Mp4Container({
       track: {
         audio: !!this.tracks.find((t) => t.kind === "audio"),

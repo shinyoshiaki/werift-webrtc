@@ -7,10 +7,10 @@ import { OverconstrainedError } from "../../src/errors";
 import { RtpPacket, Vp8RtpPayload } from "../../src/imports/rtp";
 import { MediaStreamTrack } from "../../src/media/track";
 import {
-  type InstallPolyfillOptions,
-  type MediaRegister,
   createCallbackRegister,
+  type InstallPolyfillOptions,
   installPolyfill,
+  type MediaRegister,
 } from "../../src/polyfill";
 import { setUdpSocketFactory } from "../../src/polyfill/sourceIo";
 

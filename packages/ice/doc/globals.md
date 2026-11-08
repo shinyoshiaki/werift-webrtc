@@ -36,9 +36,11 @@
 
 ## Type Aliases
 
+- [IceServerFields](type-aliases/IceServerFields.md)
 - [IceState](type-aliases/IceState.md)
 - [TcpCandidateType](type-aliases/TcpCandidateType.md)
 - [TurnRedirectFailureReason](type-aliases/TurnRedirectFailureReason.md)
+- [TurnServerOptions](type-aliases/TurnServerOptions.md)
 - [TurnStreamReconnect](type-aliases/TurnStreamReconnect.md)
 
 ## Variables
@@ -75,11 +77,16 @@
 - [encodeTcpFrame](functions/encodeTcpFrame.md)
 - [getGlobalIp](functions/getGlobalIp.md)
 - [getHostAddresses](functions/getHostAddresses.md)
+- [hasTurnServer](functions/hasTurnServer.md)
+- [isCandidateAllowedByGatherOptions](functions/isCandidateAllowedByGatherOptions.md)
 - [isComprehensionRequiredAttribute](functions/isComprehensionRequiredAttribute.md)
 - [isLinkLocalAddress](functions/isLinkLocalAddress.md)
+- [isRelayOnlyGathering](functions/isRelayOnlyGathering.md)
 - [isStunMessage](functions/isStunMessage.md)
 - [makeIntegrityKey](functions/makeIntegrityKey.md)
+- [mergeIceServerOptions](functions/mergeIceServerOptions.md)
 - [nodeIpAddress](functions/nodeIpAddress.md)
+- [normalizeIceServerOptions](functions/normalizeIceServerOptions.md)
 - [paddingLength](functions/paddingLength.md)
 - [parseMessage](functions/parseMessage.md)
 - [randomPort](functions/randomPort.md)

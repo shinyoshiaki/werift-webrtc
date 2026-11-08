@@ -8,19 +8,19 @@
 
 ## Constructors
 
-### new TransportWideCC()
+### Constructor
 
-> **new TransportWideCC**(`props`): [`TransportWideCC`](TransportWideCC.md)
+> **new TransportWideCC**(`props?`): `TransportWideCC`
 
 #### Parameters
 
-##### props
+##### props?
 
-`Partial`\<[`TransportWideCC`](TransportWideCC.md)\> = `{}`
+`Partial`\<`TransportWideCC`\> = `{}`
 
 #### Returns
 
-[`TransportWideCC`](TransportWideCC.md)
+`TransportWideCC`
 
 ## Properties
 
@@ -104,6 +104,12 @@
 
 > **get** **packetResults**(): [`PacketResult`](PacketResult.md)[]
 
+Expand packet status chunks into per-packet results with a single
+sequence cursor and recv-delta cursor (draft-holmer TWCC).
+
+Handles both [RunLengthChunk](RunLengthChunk.md) and [StatusVectorChunk](StatusVectorChunk.md),
+and advances the sequence across chunk boundaries.
+
 ##### Returns
 
 [`PacketResult`](PacketResult.md)[]
@@ -122,7 +128,7 @@
 
 ### deSerialize()
 
-> `static` **deSerialize**(`data`, `header`): [`TransportWideCC`](TransportWideCC.md)
+> `static` **deSerialize**(`data`, `header`): `TransportWideCC`
 
 #### Parameters
 
@@ -136,4 +142,4 @@
 
 #### Returns
 
-[`TransportWideCC`](TransportWideCC.md)
+`TransportWideCC`

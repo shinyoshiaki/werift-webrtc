@@ -2,12 +2,14 @@
   "compilerOptions": {
     "target": "ES2020",
     "module": "commonjs",
+    "moduleResolution": "bundler",
     "lib": [
       "esnext"
     ],
     "declaration": true,
     "outDir": "lib",
     "strict": true,
+    "erasableSyntaxOnly": true,
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
     "importHelpers": true,
@@ -21,7 +23,8 @@
     "types": [
       "node",
       "vitest/globals"
-    ]
+    ],
+    "rootDir": ".."
   },
   "include": [
     "server"

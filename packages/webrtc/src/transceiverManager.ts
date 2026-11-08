@@ -1,10 +1,11 @@
-import { type PeerConfig, findCodecByMimeType } from "./api/peerConfig";
+import { findCodecByMimeType, type PeerConfig } from "./api/peerConfig";
 import { ReceiverDirection, SenderDirections } from "./const";
 import { createWebRtcDomException } from "./errors";
-import { Event, debug } from "./imports/common";
+import { debug, Event } from "./imports/common";
 import {
   MediaStream,
   type MediaStreamTrack,
+  Recvonly,
   type RTCRtpCodecParameters,
   RTCRtpCodingParameters,
   type RTCRtpEncodingParameters,
@@ -14,7 +15,6 @@ import {
   RTCRtpRtxParameters,
   RTCRtpSender,
   RTCRtpTransceiver,
-  Recvonly,
   type RtpRouter,
   Sendonly,
   Sendrecv,
@@ -27,6 +27,7 @@ import {
   normalizeCodecMimeType,
   resolveCodecs,
 } from "./media/codecCompatibility";
+import { createBandwidthEstimator } from "./media/sender/createBandwidthEstimator";
 import type { RTCStats } from "./media/stats";
 import { captureTrackSourceCodecs, getTrackSourceCodecs } from "./media/track";
 import type {
@@ -34,9 +35,9 @@ import type {
   TransceiversNegotiationState,
 } from "./negotiation/internalState";
 import {
+  codecParametersFromString,
   type MediaDescription,
   type SessionDescription,
-  codecParametersFromString,
 } from "./sdp";
 import type { RTCDtlsTransport } from "./transport/dtls";
 import type { Kind } from "./types/domain";
@@ -117,6 +118,10 @@ function simulcastFromSendEncodings(
  *   commit, and a change made during the transaction survives its rollback.
  */
 export class TransceiverManager {
+  private readonly cname: string;
+  private readonly config: Required<PeerConfig>;
+  private readonly router: RtpRouter;
+
   private readonly transceivers: RTCRtpTransceiver[] = [];
   private readonly notifiedRemoteTrack = new WeakMap<
     RTCRtpTransceiver,
@@ -276,11 +281,11 @@ export class TransceiverManager {
   >();
   readonly onNegotiationNeeded = new Event<[]>();
 
-  constructor(
-    private readonly cname: string,
-    private readonly config: Required<PeerConfig>,
-    private readonly router: RtpRouter,
-  ) {}
+  constructor(cname: string, config: Required<PeerConfig>, router: RtpRouter) {
+    this.cname = cname;
+    this.config = config;
+    this.router = router;
+  }
 
   getTransceivers(): RTCRtpTransceiver[] {
     return this.transceivers;
@@ -454,6 +459,9 @@ export class TransceiverManager {
     }
 
     const sender = new RTCRtpSender(trackOrKind, {
+      bandwidthEstimator: createBandwidthEstimator(
+        this.config.bandwidthEstimator,
+      ),
       pendingRtp: this.config.pendingRtp,
     });
     const receiver = new RTCRtpReceiver(this.config, kind, sender.ssrc);

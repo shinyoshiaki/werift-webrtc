@@ -1,7 +1,5 @@
 import { CandidatePairState } from "../../src/iceBase";
 import {
-  TURN_TEST_PASSWORD,
-  TURN_TEST_USERNAME,
   answerOnlyRelayOf,
   createHangingTlsServer,
   createLateRelaySetup,
@@ -10,6 +8,8 @@ import {
   localRelayCandidates,
   queuedCheckListResults,
   relayPairs,
+  TURN_TEST_PASSWORD,
+  TURN_TEST_USERNAME,
   waitUntil,
 } from "../utils";
 

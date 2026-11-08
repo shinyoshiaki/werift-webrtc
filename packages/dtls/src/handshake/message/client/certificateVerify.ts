@@ -1,6 +1,5 @@
-import { binaryData } from "../../../imports/common";
-
 import type { SignatureSchemes } from "../../../cipher/const";
+import { binaryData } from "../../../imports/common";
 import { FragmentedHandshake } from "../../../record/message/fragment";
 import type { Handshake } from "../../../typings/domain";
 import { HandshakeType } from "../../const";
@@ -8,7 +7,10 @@ import { HandshakeType } from "../../const";
 const { decode, encode, types } = binaryData;
 
 export class CertificateVerify implements Handshake {
-  msgType = HandshakeType.certificate_verify_15;
+  public algorithm: SignatureSchemes;
+  public signature: Buffer;
+
+  msgType: HandshakeType = HandshakeType.certificate_verify_15;
   messageSeq?: number;
 
   static readonly spec = {
@@ -16,10 +18,10 @@ export class CertificateVerify implements Handshake {
     signature: types.buffer(types.uint16be),
   };
 
-  constructor(
-    public algorithm: SignatureSchemes,
-    public signature: Buffer,
-  ) {}
+  constructor(algorithm: SignatureSchemes, signature: Buffer) {
+    this.algorithm = algorithm;
+    this.signature = signature;
+  }
 
   static createEmpty() {
     return new CertificateVerify(undefined as any, undefined as any);
@@ -28,7 +30,7 @@ export class CertificateVerify implements Handshake {
   static deSerialize(buf: Buffer) {
     const res = decode(buf, CertificateVerify.spec);
     return new CertificateVerify(
-      //@ts-ignore
+      //@ts-expect-error
       ...Object.values(res),
     );
   }

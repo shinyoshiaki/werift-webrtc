@@ -19,9 +19,8 @@ gst-launch-1.0 -e \
   ! webmmux \
   ! filesink location="${OUT}/vp8.webm"
 
-# VP9 — pin I420 so vp9enc emits Profile 0. Without it videotestsrc negotiates
-# Y444_12LE (Profile 3), but the SDP has no profile-id, which means Profile 0
-# (RFC 9628 §6), and Chrome does not play the stream.
+# VP9 — pin I420 so vp9enc emits Profile 0 (Chrome WebRTC default). Without it
+# videotestsrc may negotiate a higher profile than the SDP profile-id 0.
 gst-launch-1.0 -e \
   videotestsrc num-buffers=60 pattern=ball \
   ! video/x-raw,format=I420,width=320,height=240,framerate=30/1 \

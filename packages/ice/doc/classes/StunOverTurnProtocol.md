@@ -12,9 +12,9 @@
 
 ## Constructors
 
-### new StunOverTurnProtocol()
+### Constructor
 
-> **new StunOverTurnProtocol**(`turn`): [`StunOverTurnProtocol`](StunOverTurnProtocol.md)
+> **new StunOverTurnProtocol**(`turn`): `StunOverTurnProtocol`
 
 #### Parameters
 
@@ -24,9 +24,19 @@
 
 #### Returns
 
-[`StunOverTurnProtocol`](StunOverTurnProtocol.md)
+`StunOverTurnProtocol`
 
 ## Properties
+
+### configuredTransport?
+
+> `optional` **configuredTransport?**: `"udp"` \| `"tcp"` \| `"tls"`
+
+The transport the TURN server was configured with. A UDP entry whose
+allocation fell back to TCP keeps "udp" here, so a restart that removes
+that entry also releases the fallback allocation.
+
+***
 
 ### localCandidate
 
@@ -110,7 +120,7 @@
 
 ### request()
 
-> **request**(`request`, `addr`, `integrityKey`?, `retransmissionsOrOptions`?, `onRequestSent`?): `Promise`\<\[[`Message`](Message.md), readonly \[`string`, `number`\]\]\>
+> **request**(`request`, `addr`, `integrityKey?`, `retransmissionsOrOptions?`, `onRequestSent?`): `Promise`\<\[[`Message`](Message.md), readonly \[`string`, `number`\]\]\>
 
 #### Parameters
 
@@ -128,7 +138,7 @@ readonly \[`string`, `number`\]
 
 ##### retransmissionsOrOptions?
 
-`number` | [`TransactionRequestOptions`](../interfaces/TransactionRequestOptions.md)
+`number` \| [`TransactionRequestOptions`](../interfaces/TransactionRequestOptions.md)
 
 ##### onRequestSent?
 

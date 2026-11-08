@@ -53,6 +53,8 @@ export interface RtpBuilderCreateOptions {
 }
 
 export class RtpBuilder {
+  private props: RtpBuilderProps;
+
   /** Sequence number of the last created packet. */
   sequenceNumber: number;
 
@@ -64,7 +66,8 @@ export class RtpBuilder {
   private advancedSamples = 0;
   private readonly betweenSamples?: number;
 
-  constructor(private props: RtpBuilderProps) {
+  constructor(props: RtpBuilderProps) {
+    this.props = props;
     this.sequenceNumber =
       props.initialSequenceNumber !== undefined
         ? uint16Add(props.initialSequenceNumber, -1)

@@ -1,11 +1,11 @@
 import { setTimeout as delay } from "node:timers/promises";
 
 import {
-  TURN_TEST_PASSWORD,
-  TURN_TEST_USERNAME,
   activeResourceCount,
   createSilentUdpServer,
   createTestConnection,
+  TURN_TEST_PASSWORD,
+  TURN_TEST_USERNAME,
 } from "../utils";
 
 describe("close() during a TURN allocation", () => {

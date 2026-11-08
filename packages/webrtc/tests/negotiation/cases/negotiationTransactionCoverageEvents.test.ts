@@ -1,11 +1,11 @@
 import type { RTCDataChannel } from "../../../src";
 import { describeCases, negotiationCase } from "../harness/negotiationCase";
 import {
-  type NegotiationEvents,
   createDuplexSession,
   createInitialPranswerDataChannel,
   createKeptRemoteTransceiver,
   holdIncomingDcep,
+  type NegotiationEvents,
   recordNegotiationEvents,
   registeredDataChannels,
 } from "../harness/negotiationTransactionUtils";

@@ -2,7 +2,7 @@ import type { CipherContext } from "../context/cipher";
 import type { DtlsContext } from "../context/dtls";
 import { Alert } from "../handshake/message/alert";
 import { debug } from "../imports/common";
-import { AlertDesc, ContentType } from "./const";
+import { alertDescName, ContentType } from "./const";
 import { FragmentedHandshake } from "./message/fragment";
 import { DtlsPlaintext } from "./message/plaintext";
 
@@ -86,7 +86,7 @@ export const parsePlainText =
         let alert = Alert.deSerialize(plain.fragment);
 
         // TODO impl more better about handle encrypted alert
-        if (AlertDesc[alert.description] == undefined) {
+        if (alertDescName(alert.description) === undefined) {
           const dec = cipher.decryptPacket(plain);
           alert = Alert.deSerialize(dec);
         }
@@ -94,7 +94,7 @@ export const parsePlainText =
           dtls.sessionId,
           "ContentType.alert",
           alert,
-          AlertDesc[alert.description],
+          alertDescName(alert.description),
           "flight",
           dtls.flight,
           "lastFlight",

@@ -1,4 +1,4 @@
-import { OverconstrainedError, createWebRtcDomException } from "../errors";
+import { createWebRtcDomException, OverconstrainedError } from "../errors";
 import { EventTarget } from "../helper";
 import { MediaStream, type MediaStreamTrack } from "../media/track";
 import type {
@@ -8,22 +8,25 @@ import type {
 } from "./mediaRegister";
 import { mimeTypeForKind, normalizeTrackConstraints } from "./mediaRegister";
 import {
+  assertRequestedMediaTypes,
   type MediaKind,
   type PolyfillTrackConstraints,
-  assertRequestedMediaTypes,
   polyfillSupportedConstraints,
   selectRegisterForKind,
 } from "./selectSettings";
 
 export class MediaDevices extends EventTarget {
+  private readonly registers: BoundMediaRegister[];
+
   ondevicechange: ((this: MediaDevices, ev: Event) => unknown) | null = null;
   private readonly activeStops = new Map<MediaStreamTrack, () => void>();
   private readonly failedRegisters = new Set<BoundMediaRegister>();
   private readonly disposeAbort = new AbortController();
   private disposed = false;
 
-  constructor(private readonly registers: BoundMediaRegister[]) {
+  constructor(registers: BoundMediaRegister[]) {
     super();
+    this.registers = registers;
   }
 
   getSupportedConstraints() {

@@ -5,7 +5,7 @@ Short pre-encoded samples used by `mediachannel/codecRtp` E2E tests (scenario B:
 | File | Codec | Container |
 |------|--------|-----------|
 | `vp8.webm` | VP8 | WebM |
-| `vp9.webm` | VP9 Profile 0 (I420) | WebM |
+| `vp9.webm` | VP9 Profile 0 (8-bit 4:2:0) | WebM |
 | `av1.webm` | AV1 | WebM |
 | `h264.mp4` | H.264 | MP4 |
 | `opus.webm` | Opus | WebM |

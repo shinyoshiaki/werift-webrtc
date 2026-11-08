@@ -1,7 +1,4 @@
 import { setTimeout } from "timers/promises";
-import { Event, binaryData, debug } from "./imports/common";
-import type { Address, Transport } from "./imports/common";
-
 import {
   NamedCurveAlgorithmList,
   type SignatureHash,
@@ -18,6 +15,8 @@ import { ExtendedMasterSecret } from "./handshake/extensions/extendedMasterSecre
 import { RenegotiationIndication } from "./handshake/extensions/renegotiationIndication";
 import { Signature } from "./handshake/extensions/signature";
 import { UseSRTP } from "./handshake/extensions/useSrtp";
+import type { Address, Transport } from "./imports/common";
+import { binaryData, debug, Event } from "./imports/common";
 import type { SrtpProfile } from "./imports/rtp";
 import { createPlaintext } from "./record/builder";
 import { ContentType } from "./record/const";
@@ -31,6 +30,9 @@ const log = debug("werift-dtls : packages/dtls/src/socket.ts : log");
 const err = debug("werift-dtls : packages/dtls/src/socket.ts : err");
 
 export class DtlsSocket {
+  public options: Options;
+  public sessionType: SessionTypes;
+
   readonly onConnect = new Event();
   readonly onData = new Event<[Buffer]>();
   readonly onError = new Event<[Error]>();
@@ -46,10 +48,9 @@ export class DtlsSocket {
 
   private bufferFragmentedHandshakes: FragmentedHandshake[] = [];
 
-  constructor(
-    public options: Options,
-    public sessionType: SessionTypes,
-  ) {
+  constructor(options: Options, sessionType: SessionTypes) {
+    this.options = options;
+    this.sessionType = sessionType;
     this.dtls = new DtlsContext(this.options, this.sessionType);
     this.cipher = new CipherContext(
       this.sessionType,

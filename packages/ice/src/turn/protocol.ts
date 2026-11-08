@@ -12,25 +12,25 @@ import {
 import { type Cancelable, cancelable, randomTransactionId } from "../helper";
 import {
   type Address,
+  bufferReader,
+  debug,
   Event,
   EventDisposer,
   type InterfaceAddresses,
+  int,
   TcpTransport,
   type TlsConnectionOptions,
   TlsTransport,
   type Transport,
   UdpTransport,
-  bufferReader,
-  debug,
-  int,
 } from "../imports/common";
 import { classes, methods } from "../stun/const";
 import { Message, paddingLength, parseMessage } from "../stun/message";
 import {
-  Transaction,
   addressEquals,
   buildTransactionOptions,
   resolveRequestAddress,
+  Transaction,
 } from "../stun/transaction";
 import type { Protocol, TransactionRequestOptions } from "../types/model";
 import {
@@ -94,6 +94,14 @@ function channelKey(addr: Address): string {
 }
 
 export class StunOverTurnProtocol implements Protocol {
+  public turn: TurnProtocol;
+  /**
+   * The transport the TURN server was configured with. A UDP entry whose
+   * allocation fell back to TCP keeps "udp" here, so a restart that removes
+   * that entry also releases the fallback allocation.
+   */
+  configuredTransport?: "udp" | "tcp" | "tls";
+
   static type = "turn";
   readonly type = StunOverTurnProtocol.type;
   localCandidate!: Candidate;
@@ -101,7 +109,8 @@ export class StunOverTurnProtocol implements Protocol {
   onRequestReceived: Event<[Message, Address, Buffer]> = new Event();
   onDataReceived: Event<[Buffer]> = new Event();
 
-  constructor(public turn: TurnProtocol) {
+  constructor(turn: TurnProtocol) {
+    this.turn = turn;
     turn.onData
       .subscribe((data, addr) => {
         this.handleStunMessage(data, addr);
@@ -191,6 +200,32 @@ export class StunOverTurnProtocol implements Protocol {
 }
 
 export class TurnProtocol implements Protocol {
+  /**
+   * TURN server the allocation is made on; the host may be a hostname.
+   * Starts as the configured server and becomes the ALTERNATE-SERVER when
+   * an Allocate is redirected with 300 (Try Alternate).
+   */
+  public server: Address;
+  public username: string;
+  public password: string;
+  public lifetime: number;
+  public transport: Transport;
+  public options: {
+    /**sec */
+    channelRefreshTime?: number;
+    /**
+     * 300 (Try Alternate) redirects followed for one Allocate.
+     * Defaults to 3.
+     */
+    maxAllocateRedirects?: number;
+    /**
+     * Reconnects a TCP/TLS transport to an ALTERNATE-SERVER. Without it, a
+     * redirect over a stream transport fails with TurnRedirectError
+     * ("unsupported-transport"). UDP needs no reconnect.
+     */
+    reconnect?: TurnStreamReconnect;
+  };
+
   static type = "turn";
   readonly type = TurnProtocol.type;
   readonly onData = new Event<[Buffer, Address]>();
@@ -237,17 +272,12 @@ export class TurnProtocol implements Protocol {
   readonly configuredServer: Address;
 
   constructor(
-    /**
-     * TURN server the allocation is made on; the host may be a hostname.
-     * Starts as the configured server and becomes the ALTERNATE-SERVER when
-     * an Allocate is redirected with 300 (Try Alternate).
-     */
-    public server: Address,
-    public username: string,
-    public password: string,
-    public lifetime: number,
-    public transport: Transport,
-    public options: {
+    server: Address,
+    username: string,
+    password: string,
+    lifetime: number,
+    transport: Transport,
+    options: {
       /**sec */
       channelRefreshTime?: number;
       /**
@@ -263,6 +293,12 @@ export class TurnProtocol implements Protocol {
       reconnect?: TurnStreamReconnect;
     } = {},
   ) {
+    this.server = server;
+    this.username = username;
+    this.password = password;
+    this.lifetime = lifetime;
+    this.transport = transport;
+    this.options = options;
     this.configuredServer = server;
     this.channelRefreshTime =
       this.options.channelRefreshTime ?? DEFAULT_CHANNEL_REFRESH_TIME;
@@ -289,6 +325,9 @@ export class TurnProtocol implements Protocol {
     this.transport.onData = (data, addr) => {
       this.dataReceived(data, addr);
     };
+    this.transport.onError?.subscribe((error) => {
+      log("transport error", error);
+    });
   }
 
   /**

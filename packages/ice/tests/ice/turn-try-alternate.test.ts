@@ -4,13 +4,11 @@ import { AddressFamilyMismatch, TurnRedirectError } from "../../src/exceptions";
 import { classes, methods } from "../../src/stun/const";
 import { Message, parseMessage } from "../../src/stun/message";
 import {
-  TurnProtocol,
   createTurnClient,
   makeIntegrityKey,
+  TurnProtocol,
 } from "../../src/turn/protocol";
 import {
-  TURN_TEST_PASSWORD,
-  TURN_TEST_USERNAME,
   alternateServerValue,
   appendStunAttributeBytes,
   createLocalTurnServer,
@@ -25,6 +23,8 @@ import {
   localRelayCandidates,
   signStunMessageBytes,
   stunAttributeBytes,
+  TURN_TEST_PASSWORD,
+  TURN_TEST_USERNAME,
 } from "../utils";
 
 const HOST = "127.0.0.1";

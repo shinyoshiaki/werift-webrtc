@@ -4,8 +4,6 @@ import {
   createHmac,
   timingSafeEqual,
 } from "crypto";
-
-import { CipherAesBase } from ".";
 import type { RtcpHeader } from "../../rtcp/header";
 import type { RtpHeader } from "../../rtp/rtp";
 import { SrtpAuthenticationError } from "../error";
@@ -14,8 +12,12 @@ import {
   parseSrtcpHeader,
   parseSrtpRtpHeader,
 } from "../packet";
+import { CipherAesBase } from ".";
 
 export class CipherAesCtr extends CipherAesBase {
+  private srtpSessionAuthTag: Buffer;
+  private srtcpSessionAuthTag: Buffer;
+
   readonly authTagLength = 10;
 
   constructor(
@@ -23,10 +25,12 @@ export class CipherAesCtr extends CipherAesBase {
     srtpSessionSalt: Buffer,
     srtcpSessionKey: Buffer,
     srtcpSessionSalt: Buffer,
-    private srtpSessionAuthTag: Buffer,
-    private srtcpSessionAuthTag: Buffer,
+    srtpSessionAuthTag: Buffer,
+    srtcpSessionAuthTag: Buffer,
   ) {
     super(srtpSessionKey, srtpSessionSalt, srtcpSessionKey, srtcpSessionSalt);
+    this.srtpSessionAuthTag = srtpSessionAuthTag;
+    this.srtcpSessionAuthTag = srtcpSessionAuthTag;
   }
 
   encryptRtp(header: RtpHeader, payload: Buffer, rolloverCounter: number) {

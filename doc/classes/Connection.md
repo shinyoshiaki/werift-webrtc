@@ -12,9 +12,9 @@
 
 ## Constructors
 
-### new Connection()
+### Constructor
 
-> **new Connection**(`_iceControlling`, `options`?): [`Connection`](Connection.md)
+> **new Connection**(`_iceControlling`, `options?`): `Connection`
 
 #### Parameters
 
@@ -28,7 +28,7 @@
 
 #### Returns
 
-[`Connection`](Connection.md)
+`Connection`
 
 ## Properties
 
@@ -94,7 +94,9 @@
 
 ### lookup?
 
-> `optional` **lookup**: `MdnsLookup`
+> `optional` **lookup?**: `MdnsLookup`
+
+Resolves remote mDNS candidates; closed (pending lookups cancelled) by restart() and close().
 
 #### Implementation of
 
@@ -104,7 +106,7 @@
 
 ### nominated?
 
-> `optional` **nominated**: [`CandidatePair`](CandidatePair.md)
+> `optional` **nominated?**: [`CandidatePair`](CandidatePair.md)
 
 #### Implementation of
 
@@ -202,23 +204,29 @@
 
 ***
 
-### stunServer?
+### stunServers
 
-> `optional` **stunServer**: readonly \[`string`, `number`\]
+> **stunServers**: (readonly \[`string`, `number`\])[] = `[]`
+
+STUN servers gathering queries: the configured ones (see
+normalizeIceServerOptions), or the built-in default when none is
+configured and useDefaultStunServer is not false.
 
 #### Implementation of
 
-[`IceConnection`](../interfaces/IceConnection.md).[`stunServer`](../interfaces/IceConnection.md#stunserver)
+[`IceConnection`](../interfaces/IceConnection.md).[`stunServers`](../interfaces/IceConnection.md#stunservers)
 
 ***
 
-### turnServer?
+### turnServers
 
-> `optional` **turnServer**: readonly \[`string`, `number`\]
+> **turnServers**: `Required`\<[`TurnServerOptions`](../type-aliases/TurnServerOptions.md)\>[] = `[]`
+
+TURN servers gathering allocates on, one allocation each.
 
 #### Implementation of
 
-[`IceConnection`](../interfaces/IceConnection.md).[`turnServer`](../interfaces/IceConnection.md#turnserver)
+[`IceConnection`](../interfaces/IceConnection.md).[`turnServers`](../interfaces/IceConnection.md#turnservers)
 
 ***
 
@@ -321,11 +329,11 @@ Whether gathering contacts a STUN or TURN server.
 
 #### Get Signature
 
-> **get** **provisionalNominated**(): `undefined` \| [`CandidatePair`](CandidatePair.md)
+> **get** **provisionalNominated**(): [`CandidatePair`](CandidatePair.md) \| `undefined`
 
 ##### Returns
 
-`undefined` \| [`CandidatePair`](CandidatePair.md)
+[`CandidatePair`](CandidatePair.md) \| `undefined`
 
 #### Implementation of
 
@@ -361,6 +369,92 @@ Whether gathering contacts a STUN or TURN server.
 
 [`IceConnection`](../interfaces/IceConnection.md).[`remoteCandidates`](../interfaces/IceConnection.md#remotecandidates)
 
+***
+
+### ~~stunServer~~
+
+#### Get Signature
+
+> **get** **stunServer**(): readonly \[`string`, `number`\] \| `undefined`
+
+##### Deprecated
+
+The first of [Connection.stunServers](#stunservers).
+
+##### Returns
+
+readonly \[`string`, `number`\] \| `undefined`
+
+#### Set Signature
+
+> **set** **stunServer**(`server`): `void`
+
+##### Deprecated
+
+Replaces [Connection.stunServers](#stunservers) with this one server (none for undefined).
+
+##### Parameters
+
+###### server
+
+readonly \[`string`, `number`\] \| `undefined`
+
+##### Returns
+
+`void`
+
+#### Deprecated
+
+The first of [IceConnection.stunServers](../interfaces/IceConnection.md#stunservers).
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`stunServer`](../interfaces/IceConnection.md#stunserver)
+
+***
+
+### ~~turnServer~~
+
+#### Get Signature
+
+> **get** **turnServer**(): readonly \[`string`, `number`\] \| `undefined`
+
+##### Deprecated
+
+The address of the first of [Connection.turnServers](#turnservers).
+
+##### Returns
+
+readonly \[`string`, `number`\] \| `undefined`
+
+#### Set Signature
+
+> **set** **turnServer**(`server`): `void`
+
+##### Deprecated
+
+Replaces [Connection.turnServers](#turnservers) with this one server
+and the deprecated turnUsername / turnPassword / turnTransport options
+(none for undefined).
+
+##### Parameters
+
+###### server
+
+readonly \[`string`, `number`\] \| `undefined`
+
+##### Returns
+
+`void`
+
+#### Deprecated
+
+The address of the first of [IceConnection.turnServers](../interfaces/IceConnection.md#turnservers).
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`turnServer`](../interfaces/IceConnection.md#turnserver)
+
 ## Methods
 
 ### addProvisionalRemoteCandidate()
@@ -371,7 +465,7 @@ Whether gathering contacts a STUN or TURN server.
 
 ##### remoteCandidate
 
-`undefined` | [`Candidate`](Candidate.md)
+[`Candidate`](Candidate.md) \| `undefined`
 
 #### Returns
 
@@ -398,7 +492,7 @@ the pairing and provisional lifecycle together.
 
 ##### remoteCandidate
 
-`undefined` | [`Candidate`](Candidate.md)
+[`Candidate`](Candidate.md) \| `undefined`
 
 #### Returns
 
@@ -452,9 +546,9 @@ readonly \[`string`, `number`\]
 
 > **awaitable**: `Promise`\<`void`\> = `p`
 
-##### reject()
+##### reject
 
-> **reject**: (`reason`?) => `void`
+> **reject**: (`reason?`) => `void`
 
 ###### Parameters
 
@@ -466,7 +560,7 @@ readonly \[`string`, `number`\]
 
 `void`
 
-##### resolve()
+##### resolve
 
 > **resolve**: (`value`) => `void`
 
@@ -474,7 +568,7 @@ readonly \[`string`, `number`\]
 
 ###### value
 
-`void` | `PromiseLike`\<`void`\>
+`void` \| `PromiseLike`\<`void`\>
 
 ###### Returns
 
@@ -770,7 +864,7 @@ Remote credentials of the provisional generation (pranswer).
 
 ### stageLocalCredentials()
 
-> **stageLocalCredentials**(`usernameFragment`, `password`): `void`
+> **stageLocalCredentials**(`usernameFragment`, `password`, `gatherOptions?`): `void`
 
 Accept provisional checks without changing the selected current pair.
 
@@ -783,6 +877,10 @@ Accept provisional checks without changing the selected current pair.
 ##### password
 
 `string`
+
+##### gatherOptions?
+
+`Partial`\<[`IceOptions`](../interfaces/IceOptions.md)\>
 
 #### Returns
 

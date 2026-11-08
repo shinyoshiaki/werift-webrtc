@@ -12,16 +12,15 @@
 import { join } from "node:path";
 
 import type { AcceptFn } from "protoo-server";
-
+import { Navigator } from "../../../../packages/webrtc/src/nonstandard";
+import { createFileMediaPlayer } from "../../../../packages/webrtc/src/nonstandard/userMedia";
 import {
   type MediaStreamTrack,
   RTCPeerConnection,
   type RtpPacket,
-  Vp8RtpPayload,
   useVP8,
+  Vp8RtpPayload,
 } from "../..";
-import { Navigator } from "../../../../packages/webrtc/src/nonstandard";
-import { createFileMediaPlayer } from "../../../../packages/webrtc/src/nonstandard/userMedia";
 import { waitForTrackCodec } from "../../codecRtpUtils";
 import { DtlsKeysContext } from "../../fixture";
 
@@ -103,12 +102,16 @@ function createDescriptorObserver() {
 }
 
 class Vp8PlaybackHandler {
+  private readonly source: Vp8PlaybackSource;
+
   private pc?: RTCPeerConnection;
   private stoppers: (() => void)[] = [];
   private descriptor = createDescriptorObserver();
   private sourceError?: string;
 
-  constructor(private readonly source: Vp8PlaybackSource) {}
+  constructor(source: Vp8PlaybackSource) {
+    this.source = source;
+  }
 
   async exec(type: string, payload: any, accept: AcceptFn) {
     switch (type) {

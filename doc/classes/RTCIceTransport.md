@@ -55,14 +55,20 @@ end-of-candidates: after the commit the generation gathers again (a new TURN
 allocation replaces and closes the previous one) and trickles them. A
 restart's background gathering that a later restart or `close()` replaced
 signals nothing more. ICE server settings changed after gathering take
-effect at the next restart (JSEP 4.1.18). The old selected pair is dropped
-at the commit, so RTP pauses until the new generation nominates.
+effect at the next restart (JSEP 4.1.18): the restart generation carries
+only the kept candidates a fresh gathering with them would produce (none
+but relay for a relay-only policy, no TCP host candidates without useTcp),
+in its description and at the commit alike. Settings changed after the
+description was created still apply to that restart's gathering at the
+commit: a kept socket they exclude is closed then, so a candidate the
+description announced for it fails its checks. The old selected pair is
+dropped at the commit, so RTP pauses until the new generation nominates.
 
 ## Constructors
 
-### new RTCIceTransport()
+### Constructor
 
-> **new RTCIceTransport**(`iceGather`): [`RTCIceTransport`](RTCIceTransport.md)
+> **new RTCIceTransport**(`iceGather`): `RTCIceTransport`
 
 #### Parameters
 
@@ -72,7 +78,7 @@ at the commit, so RTP pauses until the new generation nominates.
 
 #### Returns
 
-[`RTCIceTransport`](RTCIceTransport.md)
+`RTCIceTransport`
 
 ## Properties
 
@@ -100,9 +106,9 @@ at the commit, so RTP pauses until the new generation nominates.
 
 ***
 
-### ongatheringstatechange()?
+### ongatheringstatechange?
 
-> `optional` **ongatheringstatechange**: () => `void`
+> `optional` **ongatheringstatechange?**: () => `void`
 
 #### Returns
 
@@ -112,7 +118,7 @@ at the commit, so RTP pauses until the new generation nominates.
 
 ### onIceCandidate
 
-> `readonly` **onIceCandidate**: [`Event`](Event.md)\<\[`undefined` \| [`IceCandidate`](IceCandidate.md)\]\>
+> `readonly` **onIceCandidate**: [`Event`](Event.md)\<\[[`IceCandidate`](IceCandidate.md) \| `undefined`\]\>
 
 ***
 
@@ -122,9 +128,9 @@ at the commit, so RTP pauses until the new generation nominates.
 
 ***
 
-### onstatechange()?
+### onstatechange?
 
-> `optional` **onstatechange**: () => `void`
+> `optional` **onstatechange?**: () => `void`
 
 #### Returns
 
@@ -220,7 +226,7 @@ Whether the local description may carry `a=end-of-candidates`.
 
 ### addEventListener()
 
-> **addEventListener**(`type`, `listener`, `options`?): `void`
+> **addEventListener**(`type`, `listener`, `options?`): `void`
 
 #### Parameters
 
@@ -234,7 +240,7 @@ Whether the local description may carry `a=end-of-candidates`.
 
 ##### options?
 
-`boolean` | \{ `once`: `boolean`; \}
+`boolean` \| \{ `once?`: `boolean`; \}
 
 #### Returns
 
@@ -244,7 +250,7 @@ Whether the local description may carry `a=end-of-candidates`.
 
 ### addProvisionalRemoteCandidate()
 
-> **addProvisionalRemoteCandidate**(`candidate`?): `undefined` \| `Promise`\<`void`\>
+> **addProvisionalRemoteCandidate**(`candidate?`): `Promise`\<`void`\> \| `undefined`
 
 #### Parameters
 
@@ -254,13 +260,13 @@ Whether the local description may carry `a=end-of-candidates`.
 
 #### Returns
 
-`undefined` \| `Promise`\<`void`\>
+`Promise`\<`void`\> \| `undefined`
 
 ***
 
 ### addRemoteCandidate()
 
-> **addRemoteCandidate**(`candidate`?): `undefined` \| `Promise`\<`void`\>
+> **addRemoteCandidate**(`candidate?`): `Promise`\<`void`\> \| `undefined`
 
 #### Parameters
 
@@ -270,7 +276,7 @@ Whether the local description may carry `a=end-of-candidates`.
 
 #### Returns
 
-`undefined` \| `Promise`\<`void`\>
+`Promise`\<`void`\> \| `undefined`
 
 ***
 
@@ -307,7 +313,7 @@ Keep ICE servers for the next gathering (an ICE restart).
 
 ### deliverProvisionalRemoteCandidate()
 
-> **deliverProvisionalRemoteCandidate**(`candidate`?): `void`
+> **deliverProvisionalRemoteCandidate**(`candidate?`): `void`
 
 `deliverRemoteCandidate` for the provisional (pranswer) generation.
 
@@ -325,7 +331,7 @@ Keep ICE servers for the next gathering (an ICE restart).
 
 ### deliverRemoteCandidate()
 
-> **deliverRemoteCandidate**(`candidate`?): `void`
+> **deliverRemoteCandidate**(`candidate?`): `void`
 
 Hand a remote candidate (`undefined`: end-of-candidates) to the ICE agent
 without waiting for it. A host candidate is added synchronously; an mDNS
@@ -437,35 +443,35 @@ Signal the candidates an ICE restart committed by a local answer gathered.
 
 ### getRemoteParameters()
 
-> **getRemoteParameters**(): `null` \| [`RTCIceParameters`](RTCIceParameters.md)
+> **getRemoteParameters**(): [`RTCIceParameters`](RTCIceParameters.md) \| `null`
 
 #### Returns
 
-`null` \| [`RTCIceParameters`](RTCIceParameters.md)
+[`RTCIceParameters`](RTCIceParameters.md) \| `null`
 
 ***
 
 ### getSelectedCandidatePair()
 
-> **getSelectedCandidatePair**(): `null` \| \{ `local`: [`RTCIceCandidate`](RTCIceCandidate.md); `remote`: [`RTCIceCandidate`](RTCIceCandidate.md); \}
+> **getSelectedCandidatePair**(): \{ `local`: [`RTCIceCandidate`](RTCIceCandidate.md); `remote`: [`RTCIceCandidate`](RTCIceCandidate.md); \} \| `null`
 
 #### Returns
 
-`null` \| \{ `local`: [`RTCIceCandidate`](RTCIceCandidate.md); `remote`: [`RTCIceCandidate`](RTCIceCandidate.md); \}
+\{ `local`: [`RTCIceCandidate`](RTCIceCandidate.md); `remote`: [`RTCIceCandidate`](RTCIceCandidate.md); \} \| `null`
 
 ***
 
 ### getStats()
 
-> **getStats**(`timestamp`, `transportId`): `Promise`\<[`RTCStats`](../interfaces/RTCStats.md)[]\>
+> **getStats**(`timestamp?`, `transportId?`): `Promise`\<[`RTCStats`](../interfaces/RTCStats.md)[]\>
 
 #### Parameters
 
-##### timestamp
+##### timestamp?
 
 `number` = `...`
 
-##### transportId
+##### transportId?
 
 `string` = `...`
 
@@ -523,15 +529,15 @@ restart, or a proposal transport a replacement pranswer left unused).
 
 ### restart()
 
-> **restart**(`notifyNegotiation`, `applyNextGatherIceServers`): `void`
+> **restart**(`notifyNegotiation?`, `applyNextGatherIceServers?`): `void`
 
 #### Parameters
 
-##### notifyNegotiation
+##### notifyNegotiation?
 
 `boolean` = `true`
 
-##### applyNextGatherIceServers
+##### applyNextGatherIceServers?
 
 `boolean` = `true`
 
@@ -587,7 +593,7 @@ Feed a pranswer's ICE generation to the provisional checklist.
 
 ### setRemoteParams()
 
-> **setRemoteParams**(`remoteParameters`, `renomination`, `__namedParameters`): `void`
+> **setRemoteParams**(`remoteParameters`, `renomination?`, `__namedParameters?`): `void`
 
 `keepLocalCredentials`: the remote credentials come from an answer or
 pranswer, so the local ones are fixed by the applied local offer. Changed
@@ -600,11 +606,11 @@ without new local credentials (nothing would describe them to the peer).
 
 [`RTCIceParameters`](RTCIceParameters.md)
 
-##### renomination
+##### renomination?
 
 `boolean` = `false`
 
-##### \_\_namedParameters
+##### \_\_namedParameters?
 
 ###### keepLocalCredentials?
 
@@ -618,14 +624,14 @@ without new local credentials (nothing would describe them to the peer).
 
 ### stageLocalRestart()
 
-> **stageLocalRestart**(`__namedParameters`): `void`
+> **stageLocalRestart**(`__namedParameters?`): `void`
 
 Prepare an ICE generation for SDP without touching the selected pair.
 `answering` is the remote offer an answer is created for.
 
 #### Parameters
 
-##### \_\_namedParameters
+##### \_\_namedParameters?
 
 ###### answering?
 

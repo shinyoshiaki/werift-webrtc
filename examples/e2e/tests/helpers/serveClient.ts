@@ -3,11 +3,15 @@ import http from "node:http";
 import path from "node:path";
 
 import { e2eRoot, examplesRoot, repoRoot } from "./paths.js";
+import { rewritePublicStun } from "./stunFixture.js";
 
 export function rewriteClientHtml(html: string, signalingPort: number) {
-  return html
+  return rewritePublicStun(html)
     .replace(/wss:\/\/[^\s"'`<>]+/g, `ws://127.0.0.1:${signalingPort}`)
-    .replace(/ws:\/\/\d+\.\d+\.\d+\.\d+:\d+/g, `ws://127.0.0.1:${signalingPort}`)
+    .replace(
+      /ws:\/\/\d+\.\d+\.\d+\.\d+:\d+/g,
+      `ws://127.0.0.1:${signalingPort}`,
+    )
     .replace(/ws:\/\/localhost:\d+/g, `ws://127.0.0.1:${signalingPort}`)
     .replace(/ws:\/\/127\.0\.0\.1:\d+/g, `ws://127.0.0.1:${signalingPort}`);
 }
@@ -61,10 +65,7 @@ export async function startStaticServer(options: {
   };
 }
 
-export async function startViteServer(options: {
-  root: string;
-  port: number;
-}) {
+export async function startViteServer(options: { root: string; port: number }) {
   const { createServer } = await import("vite");
   const react = (await import("@vitejs/plugin-react")).default;
   const { nodePolyfills } = await import("vite-plugin-node-polyfills");
@@ -97,7 +98,13 @@ export async function startViteServer(options: {
       },
     },
     optimizeDeps: {
-      include: ["react", "react-dom", "react/jsx-runtime", "sdp-transform", "buffer"],
+      include: [
+        "react",
+        "react-dom",
+        "react/jsx-runtime",
+        "sdp-transform",
+        "buffer",
+      ],
     },
   });
   await server.listen();
