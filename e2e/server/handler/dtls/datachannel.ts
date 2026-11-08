@@ -4,6 +4,7 @@ import { peerConfigWithDtls } from "../../fixture";
 import {
   attachMediaCounters,
   collectWeriftDtlsDiagnostics,
+  holdIceNomination,
 } from "./diagnostics";
 
 export class dtls_datachannel_answer {
@@ -58,6 +59,7 @@ export class dtls_datachannel_answer {
 export class dtls_datachannel_offer {
   pc!: RTCPeerConnection;
   private counters = attachMediaCountersPlaceholder();
+  private nominationHold?: { release(): void };
 
   async exec(type: string, payload: any, accept: AcceptFn) {
     switch (type) {
@@ -66,6 +68,7 @@ export class dtls_datachannel_offer {
           this.pc = new RTCPeerConnection(
             await peerConfigWithDtls({
               protocolVersions: payload?.protocolVersions,
+              sendBeforeNomination: payload?.sendBeforeNomination,
             }),
           );
           this.counters = attachMediaCounters(this.pc);
@@ -75,6 +78,12 @@ export class dtls_datachannel_offer {
             });
           });
           await this.pc.setRemoteDescription(payload.description);
+          // sendBeforeNomination: hold werift's nomination so its data can
+          // only reach Chromium through the opt-in (valid pair, no selection).
+          this.nominationHold?.release();
+          this.nominationHold = payload?.holdNomination
+            ? holdIceNomination(this.pc)
+            : undefined;
           await this.pc.setLocalDescription(await this.pc.createAnswer());
           this.counters.attachTransport();
           accept({

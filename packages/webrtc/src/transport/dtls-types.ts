@@ -8,6 +8,7 @@ export interface DtlsTransportConfig {
   warp?: {
     allowEarlyServerData?: boolean;
     earlyMediaPolicy?: "drop" | "buffer";
+    sendBeforeNomination?: boolean;
   };
 }
 

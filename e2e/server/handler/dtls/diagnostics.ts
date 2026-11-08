@@ -11,7 +11,41 @@ export type WeriftDtlsDiagnostics = {
   rtpPacketsReceived: number;
   rtcpPacketsReceived: number;
   iceRestarts?: number;
+  /** WARP sendBeforeNomination: werift sent on a valid pair before nomination. */
+  warpPreNominationSendUsed?: boolean;
+  /** werift's ICE agent has a nominated (selected) pair. */
+  iceNominated?: boolean;
 };
+
+/**
+ * Keep werift's (ICE-controlled) agent from nominating while held: incoming
+ * checks lose their USE-CANDIDATE, so its own checks still make pairs valid
+ * but none is selected. Call once the ICE transport exists (after the remote
+ * offer is applied), before any check.
+ */
+export function holdIceNomination(pc: RTCPeerConnection) {
+  const ice = pc.iceTransports[0].connection as unknown as {
+    checkIncoming: (
+      message: { attributes: [string, unknown][] },
+      ...rest: unknown[]
+    ) => void;
+  };
+  const original = ice.checkIncoming.bind(ice);
+  let held = true;
+  ice.checkIncoming = (message, ...rest) => {
+    if (held) {
+      message.attributes = message.attributes.filter(
+        ([key]) => key !== "USE-CANDIDATE",
+      );
+    }
+    return original(message, ...rest);
+  };
+  return {
+    release: () => {
+      held = false;
+    },
+  };
+}
 
 export function attachMediaCounters(pc: RTCPeerConnection) {
   const counters = {
@@ -65,6 +99,7 @@ export async function collectWeriftDtlsDiagnostics(
         dtlsState?: string;
         dtlsRole?: string;
         iceRestarts?: number;
+        warpPreNominationSendUsed?: boolean;
       }
     | undefined;
   const dtls = pc.dtlsTransports[0];
@@ -88,5 +123,9 @@ export async function collectWeriftDtlsDiagnostics(
       counters?.rtpPacketsReceived ?? dtls?.packetsReceived ?? 0,
     rtcpPacketsReceived: counters?.rtcpPacketsReceived ?? 0,
     iceRestarts: transport?.iceRestarts,
+    warpPreNominationSendUsed: transport?.warpPreNominationSendUsed,
+    iceNominated: !!(
+      pc.iceTransports[0]?.connection as unknown as { nominated?: unknown }
+    )?.nominated,
   };
 }

@@ -1579,17 +1579,21 @@ type AnyPeerConnection = {
  * Arrange: connect an offerer and an answerer that may come from different
  * werift builds, exchanging only plain SDP / candidate JSON. The answerer
  * takes `answererRole` as DTLS role; the offerer opens the DataChannel.
+ * `beforeAnswer` runs once the answerer applied the offer (its ICE
+ * transport exists) and before it answers.
  * Resolves with both ends once they are open (rejects after `timeoutMs`).
  */
 export async function connectAcrossBuilds({
   offerer,
   answerer,
   answererRole,
+  beforeAnswer,
   timeoutMs = 15_000,
 }: {
   offerer: AnyPeerConnection;
   answerer: AnyPeerConnection;
   answererRole: "client" | "server";
+  beforeAnswer?: () => void;
   timeoutMs?: number;
 }) {
   for (const [local, remote] of [
@@ -1618,6 +1622,7 @@ export async function connectAcrossBuilds({
   await offerer.setLocalDescription(await offerer.createOffer());
   await answerer.setRemoteDescription(plain(offerer));
   answerer.dtlsTransports[0].role = answererRole;
+  beforeAnswer?.();
   await answerer.setLocalDescription(await answerer.createAnswer());
   await offerer.setRemoteDescription(plain(answerer));
   const startedAt = Date.now();
@@ -1847,5 +1852,77 @@ export async function prepareMigratingSpedPeers() {
       ipv4Lost = false;
       StunProtocol.prototype.request = originalRequest;
     },
+  };
+}
+
+// --- WARP sendBeforeNomination: data on a valid pair before nomination ---
+
+/**
+ * Arrange: keep `pc`'s (ICE-controlled) agent from nominating while held:
+ * incoming checks lose their USE-CANDIDATE, so the agent's own checks still
+ * make pairs valid (SUCCEEDED) but no pair is selected.
+ */
+export function holdIceNomination(pc: RTCPeerConnection) {
+  const ice = pc.iceTransports[0].connection as Connection;
+  const original = ice.checkIncoming.bind(ice);
+  let held = true;
+  ice.checkIncoming = (message, addr, protocol) => {
+    if (held) {
+      const stun = message as unknown as { attributes: [string, unknown][] };
+      stun.attributes = stun.attributes.filter(
+        ([key]) => key !== "USE-CANDIDATE",
+      );
+    }
+    return original(message, addr, protocol);
+  };
+  return {
+    release: () => {
+      held = false;
+    },
+  };
+}
+
+/**
+ * Arrange: SPED / DTLS 1.3 peers in the usual roles (offerer = ICE
+ * controlling = DTLS server with a DataChannel and an audio transceiver,
+ * answerer = DTLS client), the client's nomination held, both with
+ * `warp.sendBeforeNomination` as given. The negotiation is started; the
+ * hold is installed when the client's ICE transport exists, before any
+ * connectivity check.
+ */
+export async function connectWithHeldClientNomination(
+  sendBeforeNomination: boolean,
+) {
+  const config = {
+    iceServers: [],
+    sped: true,
+    dtls: { protocolVersions: [DtlsVersion.V1_3] },
+    warp: { sendBeforeNomination },
+  };
+  const server = new RTCPeerConnection(config);
+  const client = new RTCPeerConnection(config);
+  const serverChannel = server.createDataChannel("before-nomination");
+  server.addTransceiver("audio", { direction: "sendrecv" });
+  let clientChannel: RTCDataChannel | undefined;
+  client.ondatachannel = ({ channel }) => {
+    clientChannel = channel;
+  };
+  exchangeIceCandidates(server, client);
+  await server.setLocalDescription(await server.createOffer());
+  await client.setRemoteDescription(server.localDescription!);
+  const hold = holdIceNomination(client);
+  await client.setLocalDescription(await client.createAnswer());
+  await server.setRemoteDescription(client.localDescription!);
+  const clientIce = client.iceTransports[0].connection as Connection;
+  return {
+    server,
+    client,
+    serverChannel,
+    clientChannel: () => clientChannel,
+    clientIce,
+    hold,
+    /** Assert helper: the client still has no selected pair. */
+    clientUnselected: () =>
+      clientIce.nominated === undefined && clientIce.state !== "connected",
   };
 }

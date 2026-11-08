@@ -59,6 +59,16 @@ fingerprint matches. Pre-authentication encrypted media is dropped by default;
 set `warp.earlyMediaPolicy` to `"buffer"` to retain up to 256 packets / 256 KiB
 for at most two seconds.
 
+`warp: { sendBeforeNomination: true }` (requires `sped: true`) lets this side
+send application data and media as soon as its DTLS handshake is done (the
+DTLS client right after its Finished) and the peer is authenticated, on a
+valid candidate pair (its own connectivity check succeeded) instead of waiting
+for ICE nomination and consent (RFC 8445 §12.1, SPED draft-00 §3.1.2.2). It
+applies only until ICE has a selected pair, never during an ICE restart, and
+never on relay pairs. A peer that drops data arriving before its own
+nomination only loses it like any other packet (SCTP retransmits). Transport
+stats report `warpPreNominationSendUsed` when it was used.
+
 `close()` can interrupt the DTLS handshake with or without DataChannels.
 Revoking early sending with `setConfiguration({ warp: {
 allowEarlyServerData: false } })` cancels unfinished SCTP starts of the DTLS

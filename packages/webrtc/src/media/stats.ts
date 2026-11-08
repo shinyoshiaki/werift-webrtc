@@ -246,6 +246,8 @@ export interface RTCTransportStats extends RTCStats {
   warpEarlyDroppedPackets?: number;
   warpEarlyDroppedBytes?: number;
   warpEarlyServerSendUsed?: boolean;
+  /** WARP `sendBeforeNomination`: data or media left on a valid pair before ICE nomination. */
+  warpPreNominationSendUsed?: boolean;
   iceGeneration?: number;
 }
 

@@ -72,6 +72,7 @@ export interface DtlsTransportStatsSource extends DtlsTransportStats {
   handshakeStartedAt?: number;
   peerAuthenticatedAt?: number;
   earlyServerSendUsed: boolean;
+  preNominationSendUsed: boolean;
 }
 
 /** @internal Transport and certificate stats (ICE stats are appended by the caller). */
@@ -143,6 +144,7 @@ export function buildDtlsTransportStats(
       mediaQueue.droppedBytes +
       (dtlsQueue?.droppedBytes ?? 0),
     warpEarlyServerSendUsed: source.earlyServerSendUsed,
+    warpPreNominationSendUsed: source.preNominationSendUsed,
     iceGeneration: (iceTransport.connection as Connection).generation,
   };
   stats.push(transportStats);

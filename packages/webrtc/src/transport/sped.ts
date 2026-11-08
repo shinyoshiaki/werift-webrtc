@@ -1,4 +1,8 @@
-import type { CandidatePair, Connection } from "../../../ice/src";
+import {
+  type CandidatePair,
+  CandidatePairState,
+  type Connection,
+} from "../../../ice/src";
 import {
   allowsAuthenticatedDtlsDelivery,
   connectionDatagramEvent,
@@ -38,7 +42,9 @@ type PendingEarlySend = {
 /**
  * ICE Transport for SPED: handshake send is suppressed while embedding,
  * then uses the authenticated CandidatePair (pre-nomination handshake only).
- * After DTLS is up, application records always use Connection.send().
+ * After DTLS is up, application records use Connection.send() on the
+ * selected pair; with WARP `sendBeforeNomination` they use a valid pair
+ * until ICE has selected one.
  */
 export class IceSpedTransport implements Transport {
   closed = false;
@@ -69,8 +75,19 @@ export class IceSpedTransport implements Transport {
    */
   private handshakeDirectPair?: CandidatePair;
   private handshakeDirectGeneration?: number;
+  /**
+   * WARP opt-in (`warp.sendBeforeNomination`): after the handshake, send
+   * application records and media on a valid pair until ICE produces a
+   * selected pair (RFC 8445 §12.1), instead of queuing them for it.
+   */
+  private sendBeforeNomination = false;
+  /** ICE produced a selected pair at least once (nomination / connected). */
+  private selectedPairProduced = false;
+  private sentBeforeNomination = false;
+  private readonly ice: Connection;
 
-  constructor(private readonly ice: Connection) {
+  constructor(ice: Connection) {
+    this.ice = ice;
     this.datagramSubscription = connectionDatagramEvent(ice).subscribe(
       (ctx) => {
         if (
@@ -117,6 +134,17 @@ export class IceSpedTransport implements Transport {
   setRuntime(runtime: SpedRuntime) {
     this.runtime = runtime;
     this.flushPendingEarlySends();
+  }
+
+  /** WARP `sendBeforeNomination` (see {@link resolvePreNominationPair}). */
+  setSendBeforeNomination(enabled: boolean): void {
+    this.sendBeforeNomination = enabled;
+    if (enabled) this.flushPendingEarlySends();
+  }
+
+  /** Application data or media left on a valid pair before nomination (stats). */
+  get preNominationSendUsed(): boolean {
+    return this.sentBeforeNomination;
   }
 
   /**
@@ -246,6 +274,18 @@ export class IceSpedTransport implements Transport {
           early: false,
           application: false,
         });
+        return;
+      }
+      const preNominationPair =
+        application && !this.ice.canSendApplicationData()
+          ? this.resolvePreNominationPair(addr)
+          : undefined;
+      if (preNominationPair) {
+        await preNominationPair.protocol.sendData(
+          data,
+          preNominationPair.remoteAddr,
+        );
+        this.sentBeforeNomination = true;
         return;
       }
       if (!this.ice.canSendApplicationData()) {
@@ -537,10 +577,20 @@ export class IceSpedTransport implements Transport {
         const onAuthenticatedPair =
           !this.applicationReady ||
           (!item.application && !this.ice.canSendApplicationData());
+        // WARP opt-in: application records may use a valid pair before
+        // nomination instead of waiting for the application path.
+        const preNomination =
+          !onAuthenticatedPair && !this.ice.canSendApplicationData()
+            ? this.resolvePreNominationPair(item.addr)
+            : undefined;
         const pair = onAuthenticatedPair
           ? this.resolveAuthenticatedSendPair(item.addr)
-          : undefined;
-        if (!onAuthenticatedPair && !this.ice.canSendApplicationData()) {
+          : preNomination;
+        if (
+          !onAuthenticatedPair &&
+          !preNomination &&
+          !this.ice.canSendApplicationData()
+        ) {
           this.scheduleEarlySendRetry();
           return;
         }
@@ -571,8 +621,9 @@ export class IceSpedTransport implements Transport {
 
         try {
           if (pair) {
-            this.runtime?.pinHandshakePath(pair);
+            if (onAuthenticatedPair) this.runtime?.pinHandshakePath(pair);
             await pair.protocol.sendData(item.data, pair.remoteAddr);
+            if (preNomination) this.sentBeforeNomination = true;
           } else {
             await this.ice.send(item.data);
           }
@@ -676,6 +727,44 @@ export class IceSpedTransport implements Transport {
     return [named, this.ice.nominated, this.runtime?.lastPath, ...list].find(
       (pair): pair is CandidatePair =>
         pair !== undefined && this.isCurrentAuthenticatedPair(pair),
+    );
+  }
+
+  /**
+   * WARP `sendBeforeNomination`: the pair application records / media use
+   * after the handshake while ICE has no selected pair yet. RFC 8445 §12.1:
+   * "An ICE agent MAY send data on any valid pair before selected pairs have
+   * been produced" — a valid pair is one whose own connectivity check
+   * succeeded, which is also its initial consent (RFC 7675). Prefer the pair
+   * the destination names, then the SPED handshake path, then the highest
+   * priority valid pair. Once a selected pair existed (also across an ICE
+   * restart, whose selected pair is the previous one) only it is used, so
+   * this returns undefined. Relay pairs are not used (WARP over TURN is out
+   * of scope).
+   */
+  private resolvePreNominationPair(addr?: Address): CandidatePair | undefined {
+    if (!this.sendBeforeNomination || !this.applicationReady) return undefined;
+    // Connection.state "completed" only means gathering finished; a selected
+    // pair exists once a pair is nominated (state "connected").
+    if (this.ice.nominated || this.ice.state === "connected") {
+      this.selectedPairProduced = true;
+    }
+    if (this.selectedPairProduced) return undefined;
+    const list = this.ice.checkList ?? [];
+    const isValid = (pair: CandidatePair) =>
+      list.includes(pair) &&
+      pair.state === CandidatePairState.SUCCEEDED &&
+      pair.localCandidate.type !== "relay" &&
+      pair.remoteCandidate.type !== "relay";
+    const named =
+      addr && !isPlaceholderAddress(addr)
+        ? list.find(
+            (pair) =>
+              pair.remoteAddr[0] === addr[0] && pair.remoteAddr[1] === addr[1],
+          )
+        : undefined;
+    return [named, this.runtime?.lastPath, ...list].find(
+      (pair): pair is CandidatePair => pair !== undefined && isValid(pair),
     );
   }
 

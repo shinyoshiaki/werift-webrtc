@@ -58,9 +58,15 @@ sequenceDiagram
   S->>C: ACK（client の最終 flight を確認）
   Note over S: handshakeComplete（ACK 送信成功）
   Note over C: handshakeComplete（最終 flight が ACK された）
-  C->>S: SCTP INIT_ACK → COOKIE_ECHO → COOKIE_ACK、DataChannel open
+  C->>S: SCTP INIT_ACK → COOKIE_ECHO（ACK を待たず、認証後すぐ送れる）
   C-)S: DataChannel / RTP / RTCP（認証済み、双方向）
 ```
+
+client が送信を始める条件は「自分の最終 flight（Finished）を送り、server Finished の検証と SDP fingerprint 照合が済んでいること」です。server の ACK（`handshakeComplete`）は待ちません。SPED draft-00 §3.1.2.2 も「server は Finished の受信で DTLS ACK を返すが、client はそれを待たずに暗号化データを送り始めてよい」としています（§5.5 のシーケンスでも `Finished` の直後に application data が続きます）。図で ACK の後に見える順序は時系列の一例で、仕様上の待ち条件ではありません。
+
+client の側に「先に送る」ものが少ないのは、仕様の制約ではなく役割の結果です。SCTP の INIT は DTLS server が送り（RFC 8261）、client が返す INIT_ACK は INIT を受け取るまで送れません。client の 0-RTT（TLS early_data）は PSK 再開が前提で、接続ごとに新しい証明書を使う WebRTC の初回接続では使えません（werift も未実装）。server の 0.5-RTT は、client の Finished が未検証で相手が確定していないため（RFC 8446 §4.4.4）、既定では無効の opt-in です。
+
+**pion との差異（既知）**: pion の SPED 実装（pion/webrtc #3362、draft 段階）は、DTLS の handshake 完了イベント（`DetachedHandshakeDone`）までアプリケーションデータを上位へ渡しません。draft が許す範囲より保守的ですが、werift の client が早く送る分には相手の挙動と矛盾せず、相互接続に影響しません。
 
 ## 主要変更
 

@@ -77,7 +77,7 @@ class PionIceAgent {
   private rejectGathered!: (error: Error) => void;
   private rejectConnected!: (error: Error) => void;
 
-  constructor(binary: string) {
+  constructor(binary: string, args: string[] = []) {
     this.gathered = new Promise<void>((resolve, reject) => {
       this.resolveGathered = resolve;
       this.rejectGathered = reject;
@@ -86,7 +86,7 @@ class PionIceAgent {
       this.resolveConnected = resolve;
       this.rejectConnected = reject;
     });
-    this.child = spawn(binary, [], { stdio: ["pipe", "pipe", "pipe"] });
+    this.child = spawn(binary, args, { stdio: ["pipe", "pipe", "pipe"] });
     this.child.on("error", (error) => this.fail(error));
     createInterface({ input: this.child.stderr! }).on("line", () => {});
     createInterface({ input: this.child.stdout! }).on("line", (text) => {
@@ -160,8 +160,10 @@ class PionIceTransport implements Transport {
   type = "pion-ice";
   readonly peerAuthenticated = true;
   onData: (data: Buffer, addr: Address) => void = () => {};
+  private readonly agent: PionIceAgent;
 
-  constructor(private readonly agent: PionIceAgent) {
+  constructor(agent: PionIceAgent) {
+    this.agent = agent;
     agent.onDatagram = (bytes) => {
       this.onData(bytes, ["127.0.0.1", 1]);
     };
@@ -336,6 +338,148 @@ describePion("released Pion ICE agent SPED fallback", () => {
       expect(embedded).toBeDefined();
       expect(handshakeDtls.length).toBeGreaterThan(0);
       expect(handshakeDtls.some((bytes) => bytes.equals(embedded!))).toBe(true);
+      expect(handle.session.peerSupport).toBe("unsupported");
+    } finally {
+      client?.close();
+      server?.close();
+      await ice.close();
+      await agent.close();
+    }
+  }, 40_000);
+
+  test("WARP sendBeforeNomination: Pion が nomination する側でも、werift は nomination 前に valid pair で application data を Pion ICE 経由で届ける", async () => {
+    // Arrange: Pion を controlling、werift を controlled にし、werift の nomination を保留する
+    const agent = new PionIceAgent(bin!, ["-controlling"]);
+    const ice = new Connection(false, { useIpv6: false });
+    ice.stunServer = undefined;
+    let client: DtlsClient | undefined;
+    let server: DtlsServer | undefined;
+    const checkIncoming = ice.checkIncoming.bind(ice);
+    ice.checkIncoming = (message, addr, protocol) => {
+      const stun = message as unknown as { attributes: [string, unknown][] };
+      stun.attributes = stun.attributes.filter(
+        ([key]) => key !== "USE-CANDIDATE",
+      );
+      return checkIncoming(message, addr, protocol);
+    };
+    try {
+      await agent.waitGathered();
+      await ice.gatherCandidates();
+      agent.send({
+        type: "remote-auth",
+        ufrag: ice.localUsername,
+        pwd: ice.localPassword,
+      });
+      for (const candidate of ice.localCandidates) {
+        agent.send({
+          type: "candidate",
+          candidate: candidateToPion(candidate),
+        });
+      }
+      ice.remoteUsername = agent.ufrag;
+      ice.remotePassword = agent.pwd;
+      for (const candidate of agent.candidates) {
+        await ice.addRemoteCandidate(Candidate.fromSdp(candidate));
+      }
+      await ice.addRemoteCandidate(undefined);
+
+      const { certPem, keyPem, signatureHash } =
+        await CipherContext.createSelfSignedCertificateWithKey(
+          {
+            signature: SignatureAlgorithm.ecdsa_3,
+            hash: HashAlgorithm.sha256_4,
+          },
+          NamedCurveAlgorithm.secp256r1_23,
+        );
+      const iceTransport = new IceSpedTransport(ice);
+      iceTransport.setSendBeforeNomination(true);
+      const carrier = new DirectHandshakeCarrier(iceTransport);
+      carrier.setWireSendEnabled(false);
+      carrier.setRetransmissionMode("external");
+      const handle = attachSpedToConnection(ice, {
+        inject: async (bytes, peer, generation) => {
+          if (ice.generation !== generation) return;
+          await carrier.inject(bytes, peer ? [peer[0], peer[1]] : undefined);
+        },
+        onFallbackFlight: async () => {
+          carrier.setWireSendEnabled(true);
+        },
+        onHandshakeComplete: () => {
+          carrier.setWireSendEnabled(true);
+          iceTransport.markApplicationReady();
+        },
+        setRetransmissionMode: (mode) => carrier.setRetransmissionMode(mode),
+        updateRtt: (rttMs) => carrier.updateRtt(rttMs),
+        resetRtt: () => carrier.resetRtt(),
+        setMtu: (mtu) => carrier.setMtu(mtu),
+        refragmentPendingFlight: () => {
+          if (client) refragmentPendingFlightIfNeeded(client);
+        },
+      });
+      iceTransport.setRuntime(handle.runtime);
+      carrier.events.onFlightCreated = (_flightId, packets) => {
+        if (handle.runtime.isStaleCarrierFlight()) return;
+        handle.onFlightCreated(
+          packets.map((packet) => Buffer.from(packet.bytes)),
+          { fromCarrier: true },
+        );
+      };
+      server = createDtlsServerInternal({
+        cert: certPem,
+        key: keyPem,
+        signatureHash,
+        transport: new PionIceTransport(agent),
+        protocolVersions: [DtlsVersion.V1_3],
+        extendedMasterSecret: true,
+        certificateRequest: true,
+        peerIdentityMode: "authenticated-single-peer",
+        addressValidation: "none",
+      });
+      client = createDtlsClientInternal({
+        cert: certPem,
+        key: keyPem,
+        signatureHash,
+        transport: iceTransport,
+        protocolVersions: [DtlsVersion.V1_3],
+        extendedMasterSecret: true,
+        peerIdentityMode: "authenticated-single-peer",
+        addressValidation: "ice-authenticated",
+        handshakeCarrier: carrier,
+      });
+      const handshake = Promise.all([
+        new Promise<void>((resolve, reject) => {
+          client!.onConnect.once(() => resolve());
+          client!.onError.once(reject);
+        }),
+        new Promise<void>((resolve, reject) => {
+          server!.onConnect.once(() => resolve());
+          server!.onError.once(reject);
+        }),
+      ]);
+      const received = new Promise<string>((resolve) => {
+        server!.onData.subscribe((data) => resolve(data.toString()));
+      });
+
+      // Act: werift は check だけを行い (nomination は保留)、DTLS を完了してから application data を送る
+      void ice.connect().catch(() => {});
+      const connecting = client.connect();
+      agent.send({ type: "end-of-candidates" });
+      await Promise.all([agent.waitConnected(), handshake]);
+      await connecting;
+      handle.onHandshakeComplete();
+      await client.send(Buffer.from("werift-before-nomination"));
+
+      // Assert: Pion ICE の向こうに届き、その間 werift は pair を選んでいない
+      expect(
+        await Promise.race([
+          received,
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("no application data")), 5_000),
+          ),
+        ]),
+      ).toBe("werift-before-nomination");
+      expect(ice.nominated).toBeUndefined();
+      expect(iceTransport.preNominationSendUsed).toBe(true);
       expect(handle.session.peerSupport).toBe("unsupported");
     } finally {
       client?.close();

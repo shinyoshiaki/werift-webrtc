@@ -67,6 +67,10 @@ export type WeriftDtlsDiagnostics = {
   lastError?: { name: string; message: string; code?: string };
   rtpPacketsReceived: number;
   rtcpPacketsReceived: number;
+  /** WARP sendBeforeNomination: werift sent on a valid pair before nomination. */
+  warpPreNominationSendUsed?: boolean;
+  /** werift's ICE agent has a nominated (selected) pair. */
+  iceNominated?: boolean;
 };
 
 export type ChromiumDtlsStats = {

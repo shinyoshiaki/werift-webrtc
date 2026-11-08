@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url";
 import { DtlsVersion, RTCPeerConnection } from "../../src";
 import {
   connectAcrossBuilds,
+  holdIceNomination,
   iceTcpOnlyConfig,
   legacyRoleCombos,
   openChannelsFromBothSides,
@@ -219,4 +220,41 @@ describeLegacy("公開済み旧 werift との相互接続", () => {
     },
     30_000,
   );
+
+  test("現行が sendBeforeNomination (SPED, DTLS [1.3, 1.2]) で nomination を保留されても、旧 werift とは nomination 前の valid pair で DataChannel が開き、双方向に届く", async () => {
+    // Arrange: 旧 werift offerer (ICE controlling、DTLS server) と、現行 answerer (DTLS client)
+    const legacyPc = new Legacy.RTCPeerConnection({ iceServers: [] });
+    const currentPc = new RTCPeerConnection({
+      iceServers: [],
+      sped: true,
+      dtls: { protocolVersions: [DtlsVersion.V1_3, DtlsVersion.V1_2] },
+      warp: { sendBeforeNomination: true },
+    });
+    let hold: { release(): void } | undefined;
+    try {
+      // Act: 現行側の nomination を保留して接続し、双方向に送る
+      const { offererChannel, answererChannel } = await connectAcrossBuilds({
+        offerer: legacyPc,
+        answerer: currentPc,
+        answererRole: "client",
+        beforeAnswer: () => {
+          hold = holdIceNomination(currentPc);
+        },
+      });
+      const arrived = await sendBothWays(offererChannel, answererChannel);
+
+      // Assert: 両方向に届き、現行側は pair を選ばないまま nomination 前の送信を使った
+      expect(arrived).toEqual(["from-offerer", "from-answerer"]);
+      const stats = await transportStatsOf(currentPc);
+      expect(stats.tlsVersion).toBe("DTLS 1.2");
+      expect(stats.warpPreNominationSendUsed).toBe(true);
+      expect(
+        (currentPc.iceTransports[0].connection as { nominated?: unknown })
+          .nominated,
+      ).toBeUndefined();
+    } finally {
+      hold?.release();
+      await Promise.allSettled([legacyPc.close(), currentPc.close()]);
+    }
+  }, 30_000);
 });

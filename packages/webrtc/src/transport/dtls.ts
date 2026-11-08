@@ -226,12 +226,14 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     const nextWarp = {
       allowEarlyServerData: warp?.allowEarlyServerData === true,
       earlyMediaPolicy: warp?.earlyMediaPolicy ?? "drop",
+      sendBeforeNomination: warp?.sendBeforeNomination === true,
     } as const;
 
     this.config.warp = nextWarp;
     this.spedTransport?.setEarlyApplicationSendEnabled(
       nextWarp.allowEarlyServerData,
     );
+    this.spedTransport?.setSendBeforeNomination(nextWarp.sendBeforeNomination);
     // Early server send exists only on SPED transports; never revoke (and so
     // never cancel an SCTP start) on the default non-SPED path.
     if (
@@ -716,6 +718,8 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     return runSpedHandshake({
       connection: this.iceTransport.connection as Connection,
       allowsEarlyServerData: () => this.allowsEarlyServerData,
+      sendsBeforeNomination: () =>
+        this.config.warp?.sendBeforeNomination === true,
       state: () => this.state,
       adoptSpedTransport: (transport) => {
         this.spedTransport = transport;
@@ -1218,6 +1222,8 @@ export class RTCDtlsTransport implements DtlsTransportStats {
         handshakeStartedAt: this.readiness.handshakeStartedAt,
         peerAuthenticatedAt: this.readiness.peerAuthenticatedAt,
         earlyServerSendUsed: this.earlyServerSendUsed,
+        preNominationSendUsed:
+          this.spedTransport?.preNominationSendUsed ?? false,
       },
       timestamp,
     );

@@ -1840,6 +1840,7 @@ describe("RTCPeerConnection SPED opt-in", () => {
       expect(transport.config.warp).toEqual({
         allowEarlyServerData: true,
         earlyMediaPolicy: "buffer",
+        sendBeforeNomination: false,
       });
 
       // Act: policy だけを変更し、allowEarlyServerData は保持する。
@@ -1851,10 +1852,12 @@ describe("RTCPeerConnection SPED opt-in", () => {
       expect(pc.getConfiguration().warp).toEqual({
         allowEarlyServerData: true,
         earlyMediaPolicy: "drop",
+        sendBeforeNomination: false,
       });
       expect(transport.config.warp).toEqual({
         allowEarlyServerData: true,
         earlyMediaPolicy: "drop",
+        sendBeforeNomination: false,
       });
 
       // Act: allowEarlyServerData だけを変更し、media policy は保持する。
@@ -1864,10 +1867,12 @@ describe("RTCPeerConnection SPED opt-in", () => {
       expect(pc.getConfiguration().warp).toEqual({
         allowEarlyServerData: false,
         earlyMediaPolicy: "drop",
+        sendBeforeNomination: false,
       });
       expect(transport.config.warp).toEqual({
         allowEarlyServerData: false,
         earlyMediaPolicy: "drop",
+        sendBeforeNomination: false,
       });
     } finally {
       await pc.close();

@@ -772,3 +772,23 @@ Arrange は `packages/dtls/tests/fixture.ts` の `arrangePartialDtls13Handshake`
 ## 24. 旧バージョンの werift との互換性の再確認
 
 公開済みの旧リリース（主に 0.26.0、ほかに 0.25.2〜0.19.9）と実際に接続して再確認し、本ブランチが原因の非互換を 3 件修正しました。DTLS `[1.3, 1.2]`（SPED を含む）の client が旧 werift の DTLS 1.2 server とつながらない件、旧 werift の INIT の verification tag で SCTP が確立しない件、role がずれる構成で両側から同時に開いた DataChannel の stream ID が衝突する件です。調査方法・結果・修正しなかったもの・別に見つかった問題は `reviews/legacy-werift-compatibility.md` にまとめました。
+
+## 25. 追加要件: Finished の直後に同じ経路でアプリケーションデータを送る（`warp.sendBeforeNomination`）
+
+**背景:** DTLS client は自分の Finished を送った直後から DTLS 上は送信できますが、認証後のアプリケーションデータと media は ICE の nomination と consent（`canSendApplicationData()`）がそろうまで SPED transport のキューで待っていました。DTLS client が ICE controlled の通常の役割では、自分の check（Finished を載せた Binding）への応答が返るまで約 1 RTT 余分に待ちます。
+
+**仕様上の根拠:** RFC 8445 §12.1「An ICE agent MAY send data on any valid pair before selected pairs have been produced for the data stream.」、SPED draft-00 §3.1.2.2（client は DTLS server の ACK を待たずに暗号化データを送り始めてよい）、RFC 7675 §5.1（接続確認の成功が最初の consent）。selected pair ができた後（ICE restart 中は以前の selected pair）はそれだけを使う（RFC 8445 §12.1）。
+
+**実装（opt-in）:** `PeerConfig.warp.sendBeforeNomination`（既定 `false`、`sped: true` が必要。不正な組み合わせは constructor / `setConfiguration()` で同期的に throw）。`packages/webrtc/src/transport/sped.ts` の `resolvePreNominationPair` が、handshake 完了後かつ ICE が一度も selected pair を作っていない間だけ、現世代・非 relay で自分の check が成功した pair（valid pair）を選びます（宛先が指す pair → SPED の handshake 経路 → 優先度の最も高い valid pair）。直接の送信とキューの flush の両方に適用し、使ったかどうかを `RTCTransportStats.warpPreNominationSendUsed` に出します。受信側の werift は以前から、認証済み pair から届く DTLS / media を nomination 前でも受け付けます。
+
+| 検証 | 相手 | 結果 |
+| --- | --- | --- |
+| `packages/webrtc/tests/transport/sped.test.ts` › `warp.sendBeforeNomination`（5 件） | — | valid pair へ送る / 相手の request を受けただけの pair では待ち、自分の check の成功後に送る / opt-in なしでは待つ / selected pair ができた後（restart 相当を含む）は他の pair へ送らない / relay は使わない |
+| `packages/webrtc/tests/integrate/warpSendBeforeNomination.test.ts` | werift | client（DTLS client・ICE controlled）の nomination を保留したまま SCTP / DataChannel が開き、双方向の message と client からの RTP が届く。opt-in なしでは開かない。`setConfiguration()` での反映と、`sped` なしの throw |
+| `e2e/tests/dtls/datachannel.test.ts` › `WARP sendBeforeNomination: …` | Chromium（Playwright、SPED は field trial で無効、DTLS 1.3） | werift は SPED を広告せず direct DTLS へ fallback し、nomination を保留したまま DataChannel の ping / pong が通る（`iceNominated: false`、`warpPreNominationSendUsed: true`） |
+| `packages/webrtc/tests/integrate/legacyWeriftRelease.test.ts`（opt-in） | `werift@0.26.0`（SPED 非対応、DTLS 1.2） | 現行（SPED、`[1.3, 1.2]`）の nomination を保留したまま DataChannel が開き双方向に届く（DTLS 1.2、`warpPreNominationSendUsed: true`） |
+| `packages/webrtc/tests/integrate/sped-pion-ice.test.ts`（opt-in、`npm run test:pion-ice-agent`） | released `pion/ice` v4.4.1 agent（controlling、Docker の golang:1.24 でビルド） | werift（controlled）の nomination を保留したまま、DTLS 完了後の application data が Pion ICE 経由で届く |
+
+全体の確認: `packages/webrtc` の `npx vitest run --dir tests --retry=0` は 1920 passed / 29 skipped / 5 failed（失敗 5 件はマージ後の HEAD でも同じく失敗する memleak・polyfill・public types）。Chromium E2E は 66 + 19 passed（`npm run e2e` は事前の `tsc` が既存の型エラーで止まるため、その終了コードを無視して同じ手順を実行）。型エラーは 49 → 47 件（新規 0 件。触れた `sped.ts` と `sped-pion-ice.test.ts` のパラメータプロパティを解消）。
+
+**未実施:** 生成 docs（`npm run doc`）は、typedoc が既存の `erasableSyntaxOnly` の型エラーで止まるため再生成していません。libwebrtc（Chromium）の SPED（`goog-sped-v1`）や pion/webrtc の SPED 実装（draft 段階）とは、相手側の SPED を有効にした組み合わせでは確認していません。

@@ -1226,3 +1226,142 @@ describe("IceSpedTransport pre-nomination send", () => {
     }
   });
 });
+
+describe("IceSpedTransport warp.sendBeforeNomination", () => {
+  /** Arrange: handshake 完了後 (applicationReady) で ICE はまだ pair を選んでいない transport。 */
+  function arrangeBeforeNomination(
+    checkList: CandidatePair[],
+    { sendBeforeNomination }: { sendBeforeNomination: boolean },
+  ) {
+    const ice = createIceStub(1, checkList);
+    // Connection.state stays "new" (or "completed" after gathering) until a pair is selected.
+    ice.state = "completed";
+    const transport = new IceSpedTransport(ice);
+    transport.setSendBeforeNomination(sendBeforeNomination);
+    transport.markApplicationReady();
+    return { ice, transport };
+  }
+  const appRecord = () => Buffer.from([23, 0xfe, 0xfd, 1, 2, 3]);
+
+  it("opt-in では、nomination 前でも自分の check が成功した valid pair へ application data を送る", async () => {
+    // Arrange: 自分の check が成功した pair (valid) だけがある
+    const { protocol, sent } = mockProtocol("1.2.3.4", 1);
+    const valid = authenticatedPair(protocol, "10.0.0.1", 1111);
+    const { transport } = arrangeBeforeNomination([valid], {
+      sendBeforeNomination: true,
+    });
+
+    // Act: application record を送る
+    await transport.send(appRecord());
+
+    // Assert: queue を待たずに valid pair の 5-tuple へ送られ、利用が記録される
+    expect(sent.map(({ addr }) => addr)).toEqual([["10.0.0.1", 1111]]);
+    expect(transport.preNominationSendUsed).toBe(true);
+    await transport.close();
+  });
+
+  it("相手の request を受けただけの pair は valid ではないので待ち、自分の check が成功した時点で送る", async () => {
+    // Arrange: 相手からの request で認証されただけ (自分の check は未成功) の pair
+    const { protocol, sent } = mockProtocol("1.2.3.4", 1);
+    const pair = new CandidatePair(
+      protocol,
+      new Candidate("r", 1, "udp", 1, "10.0.0.1", 1111, "host"),
+      true,
+    );
+    pair.requestsReceived = 1;
+    pair.updateState(CandidatePairState.IN_PROGRESS);
+    const { ice, transport } = arrangeBeforeNomination([pair], {
+      sendBeforeNomination: true,
+    });
+
+    // Act: application record を送る
+    const sending = transport.send(appRecord());
+    await new Promise((resolve) => setImmediate(resolve));
+
+    // Assert: consent のない pair には送らない
+    expect(sent).toHaveLength(0);
+
+    // Act: 自分の check が成功し (valid pair)、flush が走る
+    pair.updateState(CandidatePairState.SUCCEEDED);
+    ice.stateChanged.execute("new");
+    await sending;
+
+    // Assert: その pair へ送られる
+    expect(sent.map(({ addr }) => addr)).toEqual([["10.0.0.1", 1111]]);
+    await transport.close();
+  });
+
+  it("opt-in でなければ、valid pair があっても nomination まで待つ (既定の挙動)", async () => {
+    // Arrange: valid pair はあるが opt-in していない
+    const { protocol, sent } = mockProtocol("1.2.3.4", 1);
+    const valid = authenticatedPair(protocol, "10.0.0.1", 1111);
+    const { transport } = arrangeBeforeNomination([valid], {
+      sendBeforeNomination: false,
+    });
+
+    // Act: application record を送る
+    void transport.send(appRecord());
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
+    // Assert: wire には出ない
+    expect(sent).toHaveLength(0);
+    expect(transport.preNominationSendUsed).toBe(false);
+    await transport.close();
+  });
+
+  it("selected pair が一度でもできた後は、他の valid pair へは送らない (RFC 8445 §12.1)", async () => {
+    // Arrange: 2 つの valid pair があり、一方が nominated だが application path はまだ使えない
+    const a = mockProtocol("1.2.3.4", 1);
+    const nominated = authenticatedPair(a.protocol, "10.0.0.1", 1111);
+    const b = mockProtocol("1.2.3.4", 2);
+    const other = authenticatedPair(b.protocol, "10.0.0.2", 2222);
+    const { ice, transport } = arrangeBeforeNomination([nominated, other], {
+      sendBeforeNomination: true,
+    });
+    ice.nominated = nominated;
+
+    // Act: application record を送る
+    void transport.send(appRecord());
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
+    // Assert: selected pair の外 (valid pair) へは送らない
+    expect(a.sent).toHaveLength(0);
+    expect(b.sent).toHaveLength(0);
+
+    // Act: selected pair が外れても (ICE restart 相当) 以後は pre-nomination 送信をしない
+    ice.nominated = undefined;
+    void transport.send(appRecord());
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
+    // Assert: wire には出ない
+    expect(a.sent).toHaveLength(0);
+    expect(b.sent).toHaveLength(0);
+    await transport.close();
+  });
+
+  it("relay pair は使わない", async () => {
+    // Arrange: 自分の check が成功した relay pair だけがある
+    const { protocol, sent } = mockProtocol("1.2.3.4", 1);
+    protocol.localCandidate = new Candidate(
+      "f",
+      1,
+      "udp",
+      1,
+      "1.2.3.4",
+      1,
+      "relay",
+    );
+    const relay = authenticatedPair(protocol, "10.0.0.1", 1111);
+    const { transport } = arrangeBeforeNomination([relay], {
+      sendBeforeNomination: true,
+    });
+
+    // Act: application record を送る
+    void transport.send(appRecord());
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
+    // Assert: relay では送らない (TURN 上の WARP は対象外)
+    expect(sent).toHaveLength(0);
+    await transport.close();
+  });
+});

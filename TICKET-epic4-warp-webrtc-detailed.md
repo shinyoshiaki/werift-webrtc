@@ -512,3 +512,32 @@ npm run e2e
 - [x] model property に `warpPolicy` の操作、invariant、固定 scene を追加した。固定 scene は修正を外すと invariant で失敗する。
 - [x] D の確認結果を `reviews/epic4-warp-verification.md` §12.4 に記録した。
 
+
+## 10. 追加要件: Finished の直後に同じ経路でアプリケーションデータを送る（opt-in）
+
+### 背景
+
+DTLS client は自分の Finished を送った直後から DTLS 上は送信できますが、認証後のアプリケーションデータ（SCTP の INIT_ACK・COOKIE_ACK・DataChannel のデータ）と media は、ICE の nomination と consent がそろうまで SPED transport のキューで待っていました。DTLS client が ICE controlled になる通常の役割では、Finished を載せた Binding への応答が返るまで約 1 RTT 余分に待ちます。
+
+仕様上は待つ必要がありません。RFC 8445 §12.1 は「An ICE agent MAY send data on any valid pair before selected pairs have been produced for the data stream.」とし、SPED draft-00 §3.1.2.2 は client が server の ACK を待たずに暗号化データを送り始めてよいとします。valid pair（自分の接続確認が成功した pair）は RFC 7675 §5.1 の最初の consent も満たします。
+
+### 要件
+
+1. **opt-in の設定:** `PeerConfig.warp.sendBeforeNomination`（既定 `false`）。`sped: true` が必要で、満たさない組み合わせは constructor と `setConfiguration()` で同期的に throw し、設定は変えない。`setConfiguration()` での変更は開いている全 DTLS transport に反映する。
+2. **送信経路:** 自分の DTLS handshake が完了し（DTLS client は自分の Finished の直後）、相手を認証した後は、ICE がまだ selected pair を作っていない間、アプリケーションデータと media を valid pair（現世代・非 relay で、自分の接続確認が成功した pair）で送る。優先順は、宛先が指す pair → SPED の handshake 経路 → 優先度の最も高い valid pair。
+3. **送らない場合:** selected pair が一度でもできた後（ICE restart 中は以前の selected pair が selected pair）は、selected pair だけを使う（RFC 8445 §12.1）。relay pair は使わない（TURN 上の WARP はスコープ外）。相手の request を受けただけの pair（自分の接続確認は未成功）は使わない。
+4. **相互接続:** 受信側が nomination 前のデータを捨てても、通常の損失として扱われる（SCTP は再送）だけで接続は壊れない。werift の受信側は、認証済み pair から届く DTLS / media を nomination 前でも受け付ける。
+5. **診断:** 使ったかどうかを `RTCTransportStats.warpPreNominationSendUsed` に出す。
+6. **確認範囲:** werift 同士で使えることを最低限とし、その他の実装とも可能な範囲で動作を確認する。
+
+### 完了条件
+
+- [x] `PeerConfig.warp.sendBeforeNomination` を追加し、`sped` なしでは同期的に throw する。`setConfiguration()` で既存の transport に反映される（`packages/webrtc/tests/integrate/warpSendBeforeNomination.test.ts`）。
+- [x] SPED transport の単体テストで、valid pair への送信、consent のない pair では待つこと、opt-in なしでは待つこと、selected pair ができた後（restart 相当を含む）は他の pair を使わないこと、relay を使わないことを確認した（`packages/webrtc/tests/transport/sped.test.ts`）。
+- [x] werift 同士: DTLS client の nomination を保留したまま、SCTP / DataChannel が開き、双方向の message と client からの RTP が届く。opt-in なしでは開かない（`warpSendBeforeNomination.test.ts`）。
+- [x] Chromium（SPED 無効、DTLS 1.3）: werift の nomination を保留したまま DataChannel の ping / pong が通り、`warpPreNominationSendUsed: true`（`e2e/tests/dtls/datachannel.test.ts`）。
+- [x] 公開済みの `werift@0.26.0`（SPED 非対応、DTLS 1.2）: 現行の nomination を保留したまま DataChannel が開き双方向に届く（`legacyWeriftRelease.test.ts`、`npm run test:legacy-werift`）。
+- [x] released `pion/ice` v4.4.1 agent（controlling）: werift（controlled）の nomination を保留したまま、DTLS 完了後の application data が Pion ICE 経由で届く（`sped-pion-ice.test.ts`、`npm run test:pion-ice-agent`）。
+- [x] `packages/webrtc/README.md`、`changelog.md`、`PeerConfig` の JSDoc、`reviews/epic4-warp-verification.md` §25 に記載した。
+- [ ] 生成 docs（`npm run doc` / `doc:check`）の更新。typedoc が既存の `erasableSyntaxOnly` の型エラーで止まるため未実施。
+- [ ] 相手側の SPED を有効にした組み合わせ（Chromium の `goog-sped-v1`、pion/webrtc の SPED 実装）での確認。いずれも相手側の実装が実験段階のため未実施。

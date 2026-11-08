@@ -15,6 +15,8 @@ export interface SpedHandshakeHost {
   readonly connection: Connection;
   /** WARP: the DTLS server may send application data before authentication. */
   allowsEarlyServerData(): boolean;
+  /** WARP: application data may use a valid pair before ICE nomination. */
+  sendsBeforeNomination(): boolean;
   /** Transport state when a SPED callback runs. */
   state(): DtlsState;
   /** The SPED transport carries this association's records from now on. */
@@ -58,6 +60,7 @@ export async function runSpedHandshake(host: SpedHandshakeHost): Promise<void> {
   const transport = new IceSpedTransport(ice);
   host.adoptSpedTransport(transport);
   transport.setEarlyApplicationSendEnabled(host.allowsEarlyServerData());
+  transport.setSendBeforeNomination(host.sendsBeforeNomination());
   const carrier = new DirectHandshakeCarrier(transport);
   carrier.setWireSendEnabled(false);
   carrier.setRetransmissionMode("external");

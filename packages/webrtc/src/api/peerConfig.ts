@@ -137,12 +137,23 @@ export interface PeerConfig {
    * - `earlyMediaPolicy` (default `"drop"`): `"buffer"` retains inbound
    *   encrypted media received before authentication (bounded) instead of
    *   dropping it. Inbound data is never delivered before authentication.
+   * - `sendBeforeNomination` (default false): once the DTLS handshake is
+   *   done on this side (the DTLS client right after its Finished) and the
+   *   peer is authenticated, send application data and media on a valid
+   *   candidate pair (its own connectivity check succeeded) instead of
+   *   waiting for ICE nomination and consent (RFC 8445 §12.1, SPED
+   *   draft-00 §3.1.2.2). Applies only until a selected pair exists; never
+   *   during an ICE restart or on relay pairs. A peer that drops data
+   *   arriving before its own nomination only loses it like any packet loss
+   *   (SCTP retransmits). Requires {@link PeerConfig.sped} `true`; the
+   *   constructor and `setConfiguration()` throw synchronously otherwise.
    * `setConfiguration()` merges these fields and applies them to every open
    * DTLS transport, including ones a pending description prepared.
    */
   warp?: {
     allowEarlyServerData?: boolean;
     earlyMediaPolicy?: "drop" | "buffer";
+    sendBeforeNomination?: boolean;
   };
   dtls: Partial<{
     keys: DtlsKeys;
@@ -337,7 +348,11 @@ export function generateDefaultPeerConfig(): Required<PeerConfig> {
     iceUseLinkLocalAddress: undefined,
     dtls: {},
     sped: false,
-    warp: { allowEarlyServerData: false, earlyMediaPolicy: "drop" },
+    warp: {
+      allowEarlyServerData: false,
+      earlyMediaPolicy: "drop",
+      sendBeforeNomination: false,
+    },
     bundlePolicy: "max-compat",
     rtcpMuxPolicy: "require",
     iceCandidatePoolSize: 0,
@@ -647,6 +662,9 @@ export function mergePeerConfiguration(
     throw new Error(
       "warp.allowEarlyServerData requires PeerConfig.sped and DTLS 1.3",
     );
+  }
+  if (nextWarp.sendBeforeNomination === true && nextSped !== true) {
+    throw new Error("warp.sendBeforeNomination requires PeerConfig.sped");
   }
 
   if (dtlsTransportCreated) {

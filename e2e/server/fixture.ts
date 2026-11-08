@@ -78,6 +78,8 @@ export const peerConfig: Promise<Partial<PeerConfig>> = (async () => ({
 export async function peerConfigWithDtls(options?: {
   protocolVersions?: readonly string[];
   helloRetryRequest?: boolean;
+  /** SPED + WARP `sendBeforeNomination` (application data before ICE nomination). */
+  sendBeforeNomination?: boolean;
 }): Promise<Partial<PeerConfig>> {
   const base = await peerConfig;
   const protocolVersions = options?.protocolVersions?.map((version) =>
@@ -92,6 +94,9 @@ export async function peerConfigWithDtls(options?: {
       protocolVersions,
       helloRetryRequest: options?.helloRetryRequest,
     },
+    ...(options?.sendBeforeNomination
+      ? { sped: true, warp: { sendBeforeNomination: true } }
+      : {}),
   };
 }
 

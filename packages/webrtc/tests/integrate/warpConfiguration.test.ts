@@ -24,6 +24,7 @@ describe("WARP configuration", () => {
       expect(expected).toEqual({
         allowEarlyServerData: false,
         earlyMediaPolicy: "drop",
+        sendBeforeNomination: false,
       });
       expect(before.length).toBeGreaterThan(1);
       for (const { id } of before) {
