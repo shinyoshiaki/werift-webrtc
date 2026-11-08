@@ -6,6 +6,9 @@ import { tmpdir } from "os";
 import { join } from "path";
 
 import {
+  type CodecFrame,
+  type LipSyncOptions,
+  LipsyncCallback,
   MP4Callback,
   OggCallback,
   type OggOption,
@@ -1421,4 +1424,57 @@ export function findMissingRanges(indices: number[]) {
     }
   }
   return ranges;
+}
+
+// ---------------------------------------------------------------------------
+// Lipsync
+
+/** Frames of one kind every `intervalMs` from `startMs`, covering `durationMs`. */
+export function createLipsyncFrames(
+  startMs: number,
+  durationMs: number,
+  intervalMs: number,
+): CodecFrame[] {
+  return Array.from({ length: Math.ceil(durationMs / intervalMs) }, (_, i) =>
+    createFrame(Buffer.from([i & 0xff]), true, startMs + i * intervalMs),
+  );
+}
+
+/**
+ * `LipsyncCallback` whose audio / video output (frames and EOL) is collected,
+ * with a controllable wall clock (`Date.now`) for the start timeout.
+ */
+export function createLipsyncHarness(options: Partial<LipSyncOptions> = {}) {
+  let wallClock = 1_000_000;
+  const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => wallClock);
+  const lipsync = new LipsyncCallback(options);
+  const output = {
+    audio: [] as CodecFrame[],
+    video: [] as CodecFrame[],
+    audioEol: false,
+    videoEol: false,
+  };
+  lipsync.pipeAudio(({ frame, eol }) => {
+    if (frame) output.audio.push(frame);
+    if (eol) output.audioEol = true;
+  });
+  lipsync.pipeVideo(({ frame, eol }) => {
+    if (frame) output.video.push(frame);
+    if (eol) output.videoEol = true;
+  });
+  return {
+    lipsync,
+    output,
+    /** moves the wall clock forward */
+    advanceWallClock: (ms: number) => {
+      wallClock += ms;
+    },
+    inputAudio: (frames: CodecFrame[]) => {
+      for (const frame of frames) lipsync.inputAudio({ frame });
+    },
+    inputVideo: (frames: CodecFrame[]) => {
+      for (const frame of frames) lipsync.inputVideo({ frame });
+    },
+    restore: () => nowSpy.mockRestore(),
+  };
 }
