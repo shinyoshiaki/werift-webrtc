@@ -1,6 +1,7 @@
 // 生成された公開宣言を skipLibCheck: false で検査するための利用側コード
 import {
   DtxCallback,
+  type LipSyncOptions,
   SimpleProcessorCallbackBase,
 } from "../../.tmp-decl/rtp/src/extra";
 
@@ -30,3 +31,11 @@ export const reset: number = new Custom().pipe(() => {}).reset();
 export const piped: DtxCallback = new DtxCallback(1, Buffer.alloc(0)).pipe(
   () => {},
 );
+
+// 後から追加したオプション（kinds / startTimeout）を省略した従来の全指定が型エラーにならないこと
+export const legacyLipSyncOptions: LipSyncOptions = {
+  syncInterval: 500,
+  bufferLength: 10,
+  fillDummyAudioPacket: Buffer.alloc(0),
+  ptime: 20,
+};
