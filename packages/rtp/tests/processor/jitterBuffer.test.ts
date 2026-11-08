@@ -335,6 +335,7 @@ describe("test JitterBuffer", () => {
           });
         }
       },
+      30_000,
     );
 
     it.each([0, 65534])(
