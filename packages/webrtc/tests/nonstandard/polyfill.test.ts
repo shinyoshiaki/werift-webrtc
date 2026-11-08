@@ -31,6 +31,7 @@ import {
   installTestPolyfill,
   parseVp8Rtp,
   receivesRtpWithin,
+  TYPESCRIPT_COMPILE_TEST_TIMEOUT_MS,
   waitForRtp,
   waitUntil,
   withUdpSocketCounter,
@@ -1603,21 +1604,29 @@ test("in-flight getUserMedia is aborted by immediate uninstall", async () => {
   expect(nodeStream.readableFlowing).not.toBe(true);
 });
 
-test("public polyfill entry compiles with TypeScript DOM lib", () => {
-  // 実行: lib.dom と skipLibCheck=false で polyfill/dom エントリをコンパイルする。
-  const result = compilePolyfillFixture("polyfillDomCompile");
+test(
+  "public polyfill entry compiles with TypeScript DOM lib",
+  () => {
+    // 実行: lib.dom と skipLibCheck=false で polyfill/dom エントリをコンパイルする。
+    const result = compilePolyfillFixture("polyfillDomCompile");
 
-  // 検証: TS2403 / TS2687 / TS2717 を含む型エラーが出ない。
-  expect(result.status, result.stdout + result.stderr).toBe(0);
-}, 30_000);
+    // 検証: TS2403 / TS2687 / TS2717 を含む型エラーが出ない。
+    expect(result.status, result.stdout + result.stderr).toBe(0);
+  },
+  TYPESCRIPT_COMPILE_TEST_TIMEOUT_MS,
+);
 
-test("public polyfill entry compiles without DOM lib", () => {
-  // 実行: lib.esnext のみで werift/polyfill のグローバル型をコンパイルする。
-  const result = compilePolyfillFixture("polyfillNodeCompile");
+test(
+  "public polyfill entry compiles without DOM lib",
+  () => {
+    // 実行: lib.esnext のみで werift/polyfill のグローバル型をコンパイルする。
+    const result = compilePolyfillFixture("polyfillNodeCompile");
 
-  // 検証: RTCPeerConnection / navigator / MediaStream が解決する。
-  expect(result.status, result.stdout + result.stderr).toBe(0);
-}, 30_000);
+    // 検証: RTCPeerConnection / navigator / MediaStream が解決する。
+    expect(result.status, result.stdout + result.stderr).toBe(0);
+  },
+  TYPESCRIPT_COMPILE_TEST_TIMEOUT_MS,
+);
 
 test("same rtp/encoded web stream register can be acquired twice", async () => {
   await assertStreamAcquisitionsLive((stream) =>

@@ -1352,20 +1352,19 @@ async function runClosedTurnGather(
  */
 export async function closedTurnGatherLeaks(wait: number | "macrotask") {
   const turn = await createLocalTurnIceServer();
-  try {
-    await collectGarbage();
-    const before = activeResources();
-    const tracker = await runClosedTurnGather(turn.iceServers, wait);
-    const relaySockets = (
-      turn.server as unknown as { relaySockets: Map<string, unknown> }
-    ).relaySockets;
-    // サーバーの relay socket の分 (close の後に届いた Allocate の分も) を除いて比べる。
-    return await closedLeaks(tracker, before, () => ({
-      UDPWrap: relaySockets.size,
-    }));
-  } finally {
-    await turn.server.close();
-  }
+  const measurement = await (async () => {
+    try {
+      await collectGarbage();
+      const before = activeResources();
+      const tracker = await runClosedTurnGather(turn.iceServers, wait);
+      return { before, tracker };
+    } finally {
+      // Arrange fixture の server timer / relay socket を測定対象から外す。
+      await turn.server.close();
+    }
+  })();
+
+  return await closedLeaks(measurement.tracker, measurement.before);
 }
 
 /**

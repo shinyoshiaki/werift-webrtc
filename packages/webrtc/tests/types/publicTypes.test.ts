@@ -59,7 +59,7 @@ describe("public types (パラメータプロパティ変換後も互換)", () =
 
     // Assert: 型エラーが 0 件である
     expect(diagnostics).toEqual([]);
-  });
+  }, 30_000);
 
   test("DtlsRandom.random_bytes は Uint8Array<ArrayBuffer> に代入できる", () => {
     // Arrange
@@ -74,5 +74,5 @@ describe("public types (パラメータプロパティ変換後も互換)", () =
 
     // Assert: 型エラーが 0 件である
     expect(diagnostics).toEqual([]);
-  });
+  }, 30_000);
 });
