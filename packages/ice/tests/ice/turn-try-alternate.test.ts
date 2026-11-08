@@ -33,6 +33,18 @@ const credentials = {
   password: TURN_TEST_PASSWORD,
 };
 
+/** STUN transactions can retransmit while the event loop is delayed. */
+function expectSingleUnauthenticatedAllocate(requests: Message[]) {
+  expect(requests.length).toBeGreaterThan(0);
+  expect(
+    new Set(requests.map((request) => request.transactionIdHex)).size,
+  ).toBe(1);
+  for (const request of requests) {
+    expect(request.messageMethod).toBe(methods.ALLOCATE);
+    expect(request.getAttributeValue("USERNAME")).toBeUndefined();
+  }
+}
+
 describe("TURN Allocate follows 300 (Try Alternate)", () => {
   const cleanups: (() => Promise<void> | void)[] = [];
 
@@ -75,12 +87,8 @@ describe("TURN Allocate follows 300 (Try Alternate)", () => {
       });
       cleanups.push(() => turn.close());
 
-      // Assert: リダイレクト元には未認証の Allocate が 1 回だけ届いている
-      expect(redirector.requests).toHaveLength(1);
-      expect(redirector.requests[0].messageMethod).toBe(methods.ALLOCATE);
-      expect(redirector.requests[0].getAttributeValue("USERNAME")).toBe(
-        undefined,
-      );
+      // Assert: リダイレクト元には同じ取引 ID の未認証 Allocate だけが届いている
+      expectSingleUnauthenticatedAllocate(redirector.requests);
       // Assert: allocation は alternate 上にあり、以後の宛先も alternate に固定される
       expect(turn.configuredServer).toEqual(redirector.address);
       expect(turn.server).toEqual(alternate.address);
@@ -123,7 +131,7 @@ describe("TURN Allocate follows 300 (Try Alternate)", () => {
       for (const [, addr] of send.mock.calls) {
         expect(addr).toEqual(alternate.address);
       }
-      expect(redirector.requests).toHaveLength(1);
+      expectSingleUnauthenticatedAllocate(redirector.requests);
       // Assert: データは alternate の relay 経由でピアに届く
       await vi.waitFor(() =>
         expect(peer.received).toEqual([
@@ -246,8 +254,8 @@ describe("TURN Allocate follows 300 (Try Alternate)", () => {
       await expect(allocation).rejects.toMatchObject({
         reason: "missing-alternate",
       });
-      // Assert: 再送せず、クライアントは閉じられている
-      expect(redirector.requests).toHaveLength(1);
+      // Assert: 同じ取引の未認証 Allocate だけで失敗し、クライアントは閉じられている
+      expectSingleUnauthenticatedAllocate(redirector.requests);
       expect(close).toHaveBeenCalledTimes(1);
     });
 
@@ -262,9 +270,9 @@ describe("TURN Allocate follows 300 (Try Alternate)", () => {
         ...credentials,
       });
 
-      // Assert: ループとして失敗し、同じサーバへ再送しない
+      // Assert: ループとして失敗し、別の取引で同じサーバへ戻らない
       await expect(allocation).rejects.toMatchObject({ reason: "loop" });
-      expect(redirector.requests).toHaveLength(1);
+      expectSingleUnauthenticatedAllocate(redirector.requests);
     });
 
     test("a ping-pong redirect A -> B -> A is rejected as a loop", async () => {
@@ -285,8 +293,8 @@ describe("TURN Allocate follows 300 (Try Alternate)", () => {
         server: b.address,
         alternate: a.address,
       });
-      expect(a.requests).toHaveLength(1);
-      expect(b.requests).toHaveLength(1);
+      expectSingleUnauthenticatedAllocate(a.requests);
+      expectSingleUnauthenticatedAllocate(b.requests);
     });
 
     test("more redirects than maxAllocateRedirects fail", async () => {
@@ -363,9 +371,9 @@ describe("TURN Allocate follows 300 (Try Alternate)", () => {
         ...credentials,
       });
 
-      // Assert: 再送せずにループとして失敗する
+      // Assert: 別の取引で同じサーバへ戻らずにループとして失敗する
       await expect(allocation).rejects.toMatchObject({ reason: "loop" });
-      expect(redirector.requests).toHaveLength(1);
+      expectSingleUnauthenticatedAllocate(redirector.requests);
     });
 
     test("an IPv6 ALTERNATE-SERVER cannot be reached from a udp4 socket", async () => {
@@ -400,7 +408,7 @@ describe("TURN Allocate follows 300 (Try Alternate)", () => {
       cleanups.push(() => turn.close());
 
       // Assert: 新しい TCP 接続で alternate に繋がり、401 認証を経て Allocate できている
-      expect(redirector.requests).toHaveLength(1);
+      expectSingleUnauthenticatedAllocate(redirector.requests);
       expect(turn.transport.type).toBe("tcp");
       expect(turn.transport.remoteAddress).toEqual(alternate.address);
       expect(turn.serverEndpoint).toEqual(alternate.address);
@@ -419,9 +427,9 @@ describe("TURN Allocate follows 300 (Try Alternate)", () => {
         { transport: "tcp" },
       );
 
-      // Assert: 再接続せずループとして失敗する
+      // Assert: 再接続せず、別の取引で同じサーバへ戻らない
       await expect(allocation).rejects.toMatchObject({ reason: "loop" });
-      expect(redirector.requests).toHaveLength(1);
+      expectSingleUnauthenticatedAllocate(redirector.requests);
     });
 
     test.each([

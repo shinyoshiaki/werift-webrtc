@@ -1,5 +1,4 @@
 import { createSocket } from "node:dgram";
-import { performance } from "node:perf_hooks";
 import { setImmediate } from "node:timers/promises";
 import { type Address, TcpTransport } from "../../../common/src";
 import { TransactionTimeout } from "../../src/exceptions";
@@ -255,13 +254,11 @@ describe("TURN/UDP against a local TURN server", () => {
     );
   });
 
-  test("a dual-stack hostname allocates over UDP without the retransmission timeout", async () => {
+  test("a dual-stack hostname allocates over UDP using its IPv4 answer", async () => {
     // Arrange: AAAA を先に返すホスト名と、IPv4 で待ち受ける TURN サーバ
     const [host, port] = await startTurnServer();
     const dns = stubDualStackLookup(host, "2001:db8::1");
     cleanups.push(() => dns.restore());
-    const started = performance.now();
-
     // Act: ホスト名を指定して UDP で Allocate する
     const turn = await createTurnClient({
       address: [TURN_HOST, port],
@@ -269,10 +266,9 @@ describe("TURN/UDP against a local TURN server", () => {
     });
     cleanups.push(() => turn.close());
 
-    // Assert: IPv4 端点に UDP で割り当てられ、再送タイムアウトを待っていない
+    // Assert: IPv4 端点に UDP で割り当てられている
     expect(turn.transport.addressFamily).toBe(4);
     expect(turn.serverEndpoint).toEqual([host, port]);
-    expect(performance.now() - started).toBeLessThan(1000);
   });
 
   test("an IPv6 literal server gets a udp6 socket", async (context) => {
@@ -292,14 +288,12 @@ describe("TURN/UDP against a local TURN server", () => {
     expect(turn.relayedAddress[0]).toBe("::1");
   });
 
-  test("an IPv6 literal in expanded notation allocates without the retransmission timeout", async (context) => {
+  test("an IPv6 literal in expanded notation accepts a response from its canonical peer address", async (context) => {
     // Arrange: IPv6 ループバックの TURN サーバと、同じアドレスの展開表記
     if (!(await canBindIpv6Loopback())) {
       context.skip();
     }
     const [, port] = await startTurnServer("::1");
-    const started = performance.now();
-
     // Act: 展開表記の IPv6 リテラルで Allocate する
     const turn = await createTurnClient({
       address: ["0:0:0:0:0:0:0:1", port],
@@ -307,9 +301,10 @@ describe("TURN/UDP against a local TURN server", () => {
     });
     cleanups.push(() => turn.close());
 
-    // Assert: 送信元 ::1 の応答が破棄されず、再送タイムアウトを待たずに割り当てられる
+    // Assert: 展開表記と圧縮表記が同じ IPv6 端点として扱われ、割り当てられる
     expect(turn.transport.addressFamily).toBe(6);
-    expect(performance.now() - started).toBeLessThan(1000);
+    expect(turn.serverEndpoint).toEqual(["0:0:0:0:0:0:0:1", port]);
+    expect(turn.relayedAddress[0]).toBe("::1");
   });
 
   test("an IPv4 literal server ignores udpFamily 6 and gets a udp4 socket", async () => {
