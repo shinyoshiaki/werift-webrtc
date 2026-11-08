@@ -80,7 +80,12 @@ export class WebmFactory extends MediaWriter {
     const webm = new WebmCallback(inputTracks, {
       duration: this.props.defaultDuration ?? 1000 * 60 * 60 * 24,
     });
-    const lipsync = new LipsyncCallback(this.props.lipsync ?? {});
+    const lipsync = new LipsyncCallback({
+      ...this.props.lipsync,
+      // wait only for the kinds being recorded, so a video-only recording
+      // starts on its first frame
+      kinds: [...new Set(inputTracks.map(({ kind }) => kind))],
+    });
 
     this.rtpSources = inputTracks.map(({ track, clockRate, codec }) => {
       const rtpSource = new RtpSourceCallback();

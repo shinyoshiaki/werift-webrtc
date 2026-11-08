@@ -62,8 +62,9 @@ describe("mediachannel_record_playback", () => {
         ]);
 
         // Assert: Duration は終了処理で確定しており、録画時間に近い有限値
+        // （先頭が欠けていない。実測は 5 秒録画で約 4.5 秒）
         expect(Number.isFinite(playback.duration)).toBe(true);
-        expect(playback.duration).toBeGreaterThan(RECORD_MS / 1000 / 2);
+        expect(playback.duration).toBeGreaterThan(RECORD_MS / 1000 - 1);
         expect(playback.duration).toBeLessThan(RECORD_MS / 1000 + 3);
         // Assert: 映像の解像度がカメラと一致し、最後まで再生できる
         expect(playback.videoWidth).toBe(CAMERA.width);
@@ -83,6 +84,8 @@ describe("mediachannel_record_playback", () => {
         // （av では音声と映像の共通区間なので、音声の欠落も検出できる）
         expect(mse.readyState).toBe("open");
         expect(mse.ranges).toHaveLength(1);
+        // Assert: 共通区間がファイル先頭から始まる（av では音声の開始が映像とほぼ同じ）
+        expect(mse.ranges[0].start).toBeLessThan(0.2);
         const bufferedEnd = mse.ranges[0].end;
         expect(bufferedEnd).toBeGreaterThan(playback.duration * 0.8);
       } finally {

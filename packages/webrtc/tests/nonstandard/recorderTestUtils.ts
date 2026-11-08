@@ -6,10 +6,20 @@ import { vi } from "vitest";
 
 import { useOPUS, usePCMU, useVP8 } from "../../src";
 import { Event } from "../../src/imports/common";
-import { RtpHeader, RtpPacket } from "../../src/imports/rtp";
+import {
+  RtcpSenderInfo,
+  RtcpSrPacket,
+  RtpHeader,
+  RtpPacket,
+} from "../../src/imports/rtp";
 import { MediaStreamTrack } from "../../src/media/track";
-import type { MediaRecorder, OggOutput } from "../../src/nonstandard";
+import type {
+  MediaRecorder,
+  OggOutput,
+  WebmOutput,
+} from "../../src/nonstandard";
 import type { OggFactory } from "../../src/nonstandard/recorder/writer/ogg";
+import type { WebmFactory } from "../../src/nonstandard/recorder/writer/webm";
 
 export function createOpusTrack() {
   return new MediaStreamTrack({
@@ -130,6 +140,81 @@ export function oggHeaderTypes(buffer: Buffer) {
 export async function waitForOggRecorderStarted(recorder: MediaRecorder) {
   await vi.waitFor(() => {
     if ((recorder.writer as OggFactory).rtpSources.length === 0) {
+      throw new Error("not started");
+    }
+  });
+}
+
+/**
+ * Delivers an RTCP SR to the track: RTP `rtpTimestamp` is NTP `ntpSeconds`.
+ */
+export function sendSenderReport(
+  track: MediaStreamTrack,
+  ntpSeconds: number,
+  rtpTimestamp: number,
+) {
+  track.onReceiveRtcp.execute(
+    new RtcpSrPacket({
+      ssrc: 1234,
+      senderInfo: new RtcpSenderInfo({
+        ntpTimestamp: BigInt(ntpSeconds) << 32n,
+        rtpTimestamp,
+        packetCount: 0,
+        octetCount: 0,
+      }),
+    }),
+  );
+}
+
+/**
+ * Feeds VP8 key frames (one RTP packet each) every 33 ms (2970 ticks)
+ * for frames `from` to `to - 1`.
+ */
+export function feedVp8Rtp(track: MediaStreamTrack, from: number, to: number) {
+  for (let i = from; i < to; i++) {
+    const header = new RtpHeader({
+      payloadType: 96,
+      sequenceNumber: i & 0xffff,
+      timestamp: i * 2970,
+      ssrc: 1234,
+      marker: true,
+    });
+    // payload descriptor (S=1) + VP8 key frame header
+    const payload = Buffer.from([
+      0x10,
+      0x10,
+      0x02,
+      0x00,
+      0x9d,
+      0x01,
+      0x2a,
+      0x80,
+      0x02,
+      0xe0,
+      0x01,
+      i & 0xff,
+    ]);
+    track.onReceiveRtp.execute(new RtpPacket(header, payload));
+  }
+}
+
+export function createWebmStream() {
+  const stream = new Event<[WebmOutput]>();
+  const outputs: WebmOutput[] = [];
+  stream.subscribe((o) => {
+    outputs.push(o);
+  });
+  return {
+    stream,
+    outputs,
+    blockCount: () => outputs.filter((o) => o.kind === "block").length,
+  };
+}
+
+/** Waits until the asynchronous WebM writer start has subscribed. */
+export async function waitForWebmRecorderStarted(recorder: MediaRecorder) {
+  await vi.waitFor(() => {
+    if ((recorder.writer as WebmFactory).rtpSources.length === 0) {
       throw new Error("not started");
     }
   });
