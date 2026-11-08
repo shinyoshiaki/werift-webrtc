@@ -37,7 +37,7 @@ describe("sctp burst transfer", () => {
     await measureBurstTransfer(1_000, 1_000);
 
     // Act: N / 4N を 3 組計測し、各組の比率中央値を取る
-    const ratios = [];
+    const ratios: number[] = [];
     for (let i = 0; i < 3; i++) {
       const small = await measureBurstTransfer(2_000, 1_000);
       const large = await measureBurstTransfer(8_000, 1_000);
