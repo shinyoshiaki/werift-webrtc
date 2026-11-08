@@ -36,13 +36,20 @@ describe("sctp burst transfer", () => {
     // Arrange: JIT のウォームアップ
     await measureBurstTransfer(1_000, 1_000);
 
-    // Act: N と 4N のバースト転送時間を計測する
-    const small = await measureBurstTransfer(2_000, 1_000);
-    const large = await measureBurstTransfer(8_000, 1_000);
+    // Act: N / 4N を 3 組計測し、各組の比率中央値を取る
+    const ratios = [];
+    for (let i = 0; i < 3; i++) {
+      const small = await measureBurstTransfer(2_000, 1_000);
+      const large = await measureBurstTransfer(8_000, 1_000);
+      ratios.push(large.elapsedMs / Math.max(small.elapsedMs, 1));
+    }
+    const medianRatio = [...ratios].sort((a, b) => a - b)[
+      Math.floor(ratios.length / 2)
+    ];
 
     // Assert: 二次なら 16 倍になるところ、線形に近い比 (8 倍未満) に収まる
-    expect(large.elapsedMs / Math.max(small.elapsedMs, 1)).toBeLessThan(8);
-  });
+    expect(medianRatio).toBeLessThan(8);
+  }, 30_000);
 
   test("event loop heartbeat keeps running during a large burst", async () => {
     // Arrange

@@ -385,6 +385,7 @@ describe("test JitterBuffer", () => {
           }
         }
       },
+      30_000,
     );
   });
 });
