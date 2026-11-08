@@ -114,9 +114,28 @@ networks can lower it.
 
 ***
 
-### stunServer?
+### ~~stunServer?~~
 
 > `optional` **stunServer?**: readonly \[`string`, `number`\]
+
+#### Deprecated
+
+Use [IceOptions.stunServers](#stunservers). Kept as their first entry.
+
+***
+
+### stunServers?
+
+> `optional` **stunServers?**: (readonly \[`string`, `number`\])[]
+
+STUN servers queried while gathering, in priority order. Every IPv4 UDP
+host socket queries each of them in parallel; equal mappings are
+advertised once, different ones (a NAT that maps per destination) each.
+Gathering ends when the slowest server answers or `stunGatherTimeout`
+runs out.
+
+Merged with the deprecated `stunServer`: the singular one comes first,
+duplicates are dropped (see [normalizeIceServerOptions](../functions/normalizeIceServerOptions.md)).
 
 ***
 
@@ -140,15 +159,42 @@ Defaults to 8.
 
 ***
 
-### turnPassword?
+### ~~turnPassword?~~
 
 > `optional` **turnPassword?**: `string`
 
+#### Deprecated
+
+Use [TurnServerOptions.password](../type-aliases/TurnServerOptions.md#password) of [IceOptions.turnServers](#turnservers).
+
 ***
 
-### turnServer?
+### ~~turnServer?~~
 
 > `optional` **turnServer?**: readonly \[`string`, `number`\]
+
+#### Deprecated
+
+Use [IceOptions.turnServers](#turnservers). Kept as their first entry.
+
+***
+
+### turnServers?
+
+> `optional` **turnServers?**: [`TurnServerOptions`](../type-aliases/TurnServerOptions.md)[]
+
+TURN servers allocated on while gathering, in priority order. Each one
+gets its own allocation with its own credential and transport; one that
+fails or times out does not stop the others. Gathering ends when the
+slowest allocation completes or fails (`turnConnectTimeout` bounds a
+TCP/TLS connection, the STUN transaction timeout an unanswered request).
+`turnTlsOptions`, `turnUdpFamily`, `turnConnectTimeout`, `portRange` and
+`interfaceAddresses` apply to every TURN server.
+
+Merged with the deprecated `turnServer` / `turnUsername` /
+`turnPassword` / `turnTransport`: the singular one comes first,
+duplicates are dropped and an entry without username / password is
+ignored (see [normalizeIceServerOptions](../functions/normalizeIceServerOptions.md)).
 
 ***
 
@@ -156,11 +202,17 @@ Defaults to 8.
 
 > `optional` **turnTlsOptions?**: [`TlsConnectionOptions`](../type-aliases/TlsConnectionOptions.md)
 
+Applied to every TLS TURN server.
+
 ***
 
-### turnTransport?
+### ~~turnTransport?~~
 
 > `optional` **turnTransport?**: `"tcp"` \| `"tls"` \| `"udp"`
+
+#### Deprecated
+
+Use [TurnServerOptions.transport](../type-aliases/TurnServerOptions.md#transport) of [IceOptions.turnServers](#turnservers).
 
 ***
 
@@ -168,15 +220,19 @@ Defaults to 8.
 
 > `optional` **turnUdpFamily?**: `4` \| `6`
 
-Preferred IP family of the TURN/UDP socket, applied only when turnServer
-is a hostname. Ignored for an IP literal turnServer, whose own family
-always selects the socket. Defaults to 4.
+Preferred IP family of a TURN/UDP socket, applied (to every TURN server)
+only when the server is a hostname. Ignored for an IP literal server,
+whose own family always selects the socket. Defaults to 4.
 
 ***
 
-### turnUsername?
+### ~~turnUsername?~~
 
 > `optional` **turnUsername?**: `string`
+
+#### Deprecated
+
+Use [TurnServerOptions.username](../type-aliases/TurnServerOptions.md#username) of [IceOptions.turnServers](#turnservers).
 
 ***
 
@@ -185,8 +241,8 @@ always selects the socket. Defaults to 4.
 > `optional` **useDefaultStunServer?**: `boolean`
 
 Whether the built-in public STUN server (stun.l.google.com:19302) is used
-when `stunServer` is not given. Defaults to true; false gathers no
-server-reflexive candidate unless `stunServer` is set.
+when no STUN server is given. Defaults to true; false gathers no
+server-reflexive candidate unless a STUN server is set.
 
 ***
 

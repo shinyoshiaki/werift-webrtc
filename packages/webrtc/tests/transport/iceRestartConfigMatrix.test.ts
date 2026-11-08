@@ -7,6 +7,7 @@ import {
   createTurnRotationServers,
   firstIceTransport,
   generationCandidateLabels,
+  iceAgentTurnServers,
   observeConfigurationRestart,
   relatedAddressOf,
   sdpCandidateLabels,
@@ -45,6 +46,8 @@ describe("setConfiguration → ICE restart: 設定 × 出力マトリクス", ()
       /** Candidate kinds that must never appear in the new generation. */
       absent?: string[];
       options?: Record<string, unknown>;
+      /** TURN servers the agent gathers from after the change (exactly). */
+      turnServers?: { username: string; transport: string }[];
       /** TURN usernames authenticated after the change (exactly). */
       authenticated: string[];
       staleAllocationsClosed?: boolean;
@@ -66,7 +69,7 @@ describe("setConfiguration → ICE restart: 設定 × 出力マトリクス", ()
         needRestart: true,
         offer: ["udp/host", "udp/srflx"],
         trickledIncludes: ["udp/relay"],
-        options: { turnUsername: "user-b" },
+        turnServers: [{ username: "user-b", transport: "udp" }],
         relayRelated: "mapped",
         authenticated: ["user-b"],
         staleAllocationsClosed: true,
@@ -79,7 +82,7 @@ describe("setConfiguration → ICE restart: 設定 × 出力マトリクス", ()
       expected: {
         needRestart: true,
         absent: ["udp/relay"],
-        options: { turnServer: undefined, turnUsername: undefined },
+        turnServers: [],
         authenticated: [],
         staleAllocationsClosed: true,
       },
@@ -92,7 +95,7 @@ describe("setConfiguration → ICE restart: 設定 × 出力マトリクス", ()
         needRestart: true,
         offer: ["udp/host", "udp/srflx"],
         trickledIncludes: ["udp/relay"],
-        options: { turnUsername: "user-a" },
+        turnServers: [{ username: "user-a", transport: "udp" }],
         authenticated: ["user-a"],
       },
     },
@@ -135,7 +138,8 @@ describe("setConfiguration → ICE restart: 設定 × 出力マトリクス", ()
         needRestart: true,
         offer: [],
         absent: ["udp/host", "udp/srflx", "tcp/host"],
-        options: { forceTurn: true, turnServer: undefined },
+        options: { forceTurn: true },
+        turnServers: [],
         authenticated: [],
       },
     },
@@ -150,7 +154,8 @@ describe("setConfiguration → ICE restart: 設定 × 出力マトリクス", ()
         needRestart: true,
         offer: [],
         absent: ["udp/host", "udp/srflx", "udp/relay", "tcp/host"],
-        options: { forceTurn: true, turnServer: undefined },
+        options: { forceTurn: true },
+        turnServers: [],
         authenticated: [],
         staleAllocationsClosed: true,
       },
@@ -186,7 +191,7 @@ describe("setConfiguration → ICE restart: 設定 × 出力マトリクス", ()
         needRestart: true,
         offer: ["udp/host", "udp/srflx"],
         trickledIncludes: ["udp/relay"],
-        options: { turnTransport: "tcp" },
+        turnServers: [{ username: "user-a", transport: "tcp" }],
         authenticated: ["user-a"],
         staleAllocationsClosed: true,
       },
@@ -252,7 +257,7 @@ describe("setConfiguration → ICE restart: 設定 × 出力マトリクス", ()
       expected: {
         needRestart: false,
         offer: ["udp/host", "udp/relay", "udp/srflx"],
-        options: { turnUsername: "user-a" },
+        turnServers: [{ username: "user-a", transport: "udp" }],
         authenticated: [],
         staleAllocationsClosed: false,
       },
@@ -290,6 +295,10 @@ describe("setConfiguration → ICE restart: 設定 × 出力マトリクス", ()
         expect(observed.options[key as keyof typeof observed.options]).toEqual(
           value,
         );
+      }
+      // Assert: ICE agent は新しい TURN server 一覧だけを使う
+      if (expected.turnServers) {
+        expect(observed.turnServers).toEqual(expected.turnServers);
       }
       // Assert: relay ポリシーでは relay 候補の raddr / rport を trickle・generation・localDescription の SDP のすべてで秘匿する
       if (expected.relayRelated) {
@@ -364,7 +373,9 @@ describe("setConfiguration between a restart offer and its answer", () => {
       await waitForLocalCandidatesEnd(offerer);
 
       // Assert: commit 時点の最新設定 (credential B + relay) で gather し、host socket は閉じる
-      expect(connection.options.turnUsername).toBe("user-b");
+      expect(iceAgentTurnServers(connection)).toEqual([
+        { username: "user-b", transport: "udp" },
+      ]);
       expect(connection.options.forceTurn).toBe(true);
       expect(generationCandidateLabels(offerer)).toEqual(["udp/relay"]);
       expect(hostSockets.length).toBeGreaterThan(0);
