@@ -6,6 +6,7 @@ import { makeTurnIntegrityKey } from "../../../ice-server/src/turn/auth";
 import type { Candidate } from "../candidate";
 import {
   TransactionCancelled,
+  TransactionChallenge,
   TransactionFailed,
   TurnRedirectError,
 } from "../exceptions";
@@ -29,10 +30,13 @@ import { Message, paddingLength, parseMessage } from "../stun/message";
 import {
   addressEquals,
   buildTransactionOptions,
+  hasMessageIntegrity,
+  isUnauthenticatedChallenge,
   resolveRequestAddress,
   Transaction,
 } from "../stun/transaction";
 import type { Protocol, TransactionRequestOptions } from "../types/model";
+import { credentialRetryOf } from "./credential";
 import {
   decodeChannelData,
   encodeChannelData,
@@ -456,14 +460,7 @@ export class TurnProtocol implements Protocol {
       ) {
         const transaction = this.transactions[message.transactionIdHex];
         if (transaction) {
-          const verified = transaction.integrityKey
-            ? parseMessage(data, transaction.integrityKey)
-            : message;
-          if (!verified) {
-            log("TURN STUN response failed MESSAGE-INTEGRITY check");
-            return;
-          }
-          transaction.responseReceived(verified, addr);
+          this.handleResponse(transaction, message, data, addr);
         }
       } else if (message.messageClass === classes.REQUEST) {
         this.onData.execute(data, addr);
@@ -477,6 +474,44 @@ export class TurnProtocol implements Protocol {
       }
     } catch (error) {
       log("parse error", data.toString());
+    }
+  }
+
+  /**
+   * Long-term credentials (RFC 8489 §9.2.5): a response to an authenticated
+   * request must carry a valid MESSAGE-INTEGRITY, except a 401/438 challenge
+   * without one, which goes to the retry logic of requestWithRetry. Over
+   * UDP an unverified response is dropped and retransmissions continue; over
+   * TCP/TLS it ends the transaction, except an unsigned 400, which is
+   * discarded as if never received.
+   */
+  private handleResponse(
+    transaction: Transaction,
+    message: Message,
+    data: Buffer,
+    addr: Address,
+  ) {
+    if (!transaction.integrityKey) {
+      transaction.responseReceived(message, addr);
+      return;
+    }
+    if (isUnauthenticatedChallenge(message)) {
+      transaction.challengeReceived(message, addr);
+      return;
+    }
+    const verified = parseMessage(data, transaction.integrityKey);
+    if (verified) {
+      transaction.responseReceived(verified, addr);
+      return;
+    }
+    log("TURN STUN response failed MESSAGE-INTEGRITY check");
+    const [errorCode] = message.getAttributeValue("ERROR-CODE") ?? [];
+    const unsignedBadRequest =
+      message.messageClass === classes.ERROR &&
+      errorCode === 400 &&
+      !hasMessageIntegrity(message);
+    if (isStreamTransport(this.transport) && !unsignedBadRequest) {
+      transaction.integrityViolated(addr);
     }
   }
 
@@ -574,6 +609,7 @@ export class TurnProtocol implements Protocol {
     _integrityKey?: Buffer,
     retransmissionsOrOptions?: number | TransactionRequestOptions,
     onRequestSent?: (attempt: number) => void,
+    credentials?: { realm: string; nonce: Buffer; integrityKey: Buffer },
   ): Promise<[Message, Address]> {
     if (this.transactions[request.transactionIdHex]) {
       throw new Error("exist");
@@ -581,12 +617,22 @@ export class TurnProtocol implements Protocol {
     // Long-term credentials stay MESSAGE-INTEGRITY (SHA-1): SHA-256 needs the
     // PASSWORD-ALGORITHM(S) negotiation of RFC 8489 §9.2, which is out of
     // scope here (options.integrityAlgorithm is not applied).
-    if (this.integrityKey) {
+    const signing = credentials ?? {
+      realm: this.realm,
+      nonce: this.nonce,
+      integrityKey: this.integrityKey,
+    };
+    if (signing.integrityKey) {
+      // A retried request still carries the previous signature, which would
+      // otherwise be covered by the new MESSAGE-INTEGRITY.
       request
+        .removeAttribute("MESSAGE-INTEGRITY")
+        .removeAttribute("MESSAGE-INTEGRITY-SHA256")
+        .removeAttribute("FINGERPRINT")
         .setAttribute("USERNAME", this.username)
-        .setAttribute("REALM", this.realm)
-        .setAttribute("NONCE", this.nonce)
-        .addMessageIntegrity(this.integrityKey)
+        .setAttribute("REALM", signing.realm)
+        .setAttribute("NONCE", signing.nonce)
+        .addMessageIntegrity(signing.integrityKey)
         .addFingerprint();
     }
 
@@ -597,7 +643,7 @@ export class TurnProtocol implements Protocol {
     // close() ran during the lookup: no transaction starts on a closed client.
     if (this.closed) throw new TransactionCancelled();
     const options = buildTransactionOptions(
-      this.integrityKey,
+      signing.integrityKey,
       retransmissionsOrOptions,
       onRequestSent,
     );
@@ -679,54 +725,81 @@ export class TurnProtocol implements Protocol {
     return resolveRequestAddress(this.server);
   }
 
+  /**
+   * Send a request and follow the long-term credential mechanism of
+   * RFC 8489 §9.2.5: a 401 (Unauthenticated) or 438 (Stale Nonce) that
+   * allows it (see credentialRetryOf) is retried once with the new realm and
+   * nonce; any other error, or a second challenge, is thrown. The allocation's
+   * realm, nonce and integrity key change only when a retry is made; a retry
+   * under a new realm adopts them only once the server accepted it.
+   */
   async requestWithRetry(
     request: Message,
     addr: Address,
     signal?: AbortSignal,
   ): Promise<[Message, Address]> {
-    let message: Message, address: Address;
     try {
-      [message, address] = await this.request(request, addr, undefined, {
-        signal,
-      });
+      return await this.request(request, addr, undefined, { signal });
     } catch (error) {
       if (error instanceof TransactionFailed == false) {
         log("requestWithRetry error", error);
         throw error;
       }
 
-      const [errorCode] = error.response.getAttributeValue("ERROR-CODE");
-      const nonce = error.response.getAttributeValue("NONCE");
-      const realm = error.response.getAttributeValue("REALM");
+      // request() signed the request with the credentials of that moment.
+      const authenticated =
+        request.attributesKeys.includes("MESSAGE-INTEGRITY");
+      const sentRealm: string | undefined = authenticated
+        ? request.getAttributeValue("REALM")
+        : undefined;
+      const retry = credentialRetryOf(
+        error.response,
+        { authenticated, realm: sentRealm },
+        this.realm,
+      );
+      if (!retry) {
+        throw error;
+      }
+      log("retry with nonce", error.str, {
+        signedError: !(error instanceof TransactionChallenge),
+      });
 
-      if (
-        ((errorCode === 401 && realm) || (errorCode === 438 && this.realm)) &&
-        nonce
-      ) {
-        log("retry with nonce", errorCode);
+      const integrityKey = makeIntegrityKey(
+        this.username,
+        retry.realm,
+        this.password,
+      );
+      request.transactionId = randomTransactionId();
 
-        this.nonce = nonce;
-        if (errorCode === 401) {
-          this.realm = realm;
-        }
-        this.integrityKey = makeIntegrityKey(
-          this.username,
-          this.realm!,
-          this.password,
-        );
-
-        request.transactionId = randomTransactionId();
-        [message, address] = await this.request(
+      // A new realm on an authenticated request rekeys the whole allocation.
+      // Sign the retry with its own credentials and adopt them only once the
+      // server accepted it, so concurrent failures never overwrite the shared
+      // state with credentials that were rejected.
+      if (authenticated && retry.realm !== sentRealm) {
+        const credentials = {
+          realm: retry.realm,
+          nonce: retry.nonce,
+          integrityKey,
+        };
+        const result = await this.request(
           request,
           this.server,
           undefined,
           { signal },
+          undefined,
+          credentials,
         );
-      } else {
-        throw error;
+        this.nonce = credentials.nonce;
+        this.realm = credentials.realm;
+        this.integrityKey = credentials.integrityKey;
+        return result;
       }
+
+      this.nonce = retry.nonce;
+      this.realm = retry.realm;
+      this.integrityKey = integrityKey;
+      return await this.request(request, this.server, undefined, { signal });
     }
-    return [message!, address!];
   }
 
   async sendData(data: Buffer, addr: Address) {
