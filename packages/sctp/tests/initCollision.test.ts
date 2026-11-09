@@ -118,6 +118,8 @@ describe("SCTP INIT collision", () => {
       CookieAckChunk.type,
     ]);
     expect(sctp.associationState).toBe(SCTP_STATE.ESTABLISHED);
+    // 接続状態も connected のまま (connecting へ戻らない)
+    expect(sctp.state).toBe("connected");
     await sctp.stop();
   });
 

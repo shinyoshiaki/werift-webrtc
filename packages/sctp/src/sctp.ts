@@ -1423,7 +1423,10 @@ export class SCTP {
   async start(remotePort?: number) {
     if (!this.started) {
       this.started = true;
-      this.setConnectionState("connecting");
+      // Keep "connected" when the peer's INIT already established it.
+      if (this.associationState !== SCTP_STATE.ESTABLISHED) {
+        this.setConnectionState("connecting");
+      }
 
       if (remotePort) {
         this.setRemotePort(remotePort);

@@ -231,7 +231,10 @@ export class SctpTransportManager {
     }
 
     await this.sctpTransport.start(this.sctpRemotePort);
-    await this.sctpTransport.sctp.stateChanged.connected.asPromise();
+    // Already established (peer INIT before start): "connected" will not fire again.
+    if (this.sctpTransport.sctp.state !== "connected") {
+      await this.sctpTransport.sctp.stateChanged.connected.asPromise();
+    }
     log("sctp connected");
   }
 
