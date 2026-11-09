@@ -2,6 +2,7 @@ import { resolve } from "path";
 import ts from "typescript";
 
 const webrtcRoot = resolve(__dirname, "../..");
+const TYPE_COMPILER_TIMEOUT_MS = 120_000;
 
 // 利用者側 (exactOptionalPropertyTypes 有効) のコードをソースに対してコンパイルし、診断を返す
 const compileConsumer = (code: string) => {
@@ -59,7 +60,7 @@ describe("public types (パラメータプロパティ変換後も互換)", () =
 
     // Assert: 型エラーが 0 件である
     expect(diagnostics).toEqual([]);
-  });
+  }, TYPE_COMPILER_TIMEOUT_MS);
 
   test("DtlsRandom.random_bytes は Uint8Array<ArrayBuffer> に代入できる", () => {
     // Arrange
@@ -74,5 +75,5 @@ describe("public types (パラメータプロパティ変換後も互換)", () =
 
     // Assert: 型エラーが 0 件である
     expect(diagnostics).toEqual([]);
-  });
+  }, TYPE_COMPILER_TIMEOUT_MS);
 });

@@ -14,7 +14,7 @@ import {
 } from "../../src/polyfill";
 import { setUdpSocketFactory } from "../../src/polyfill/sourceIo";
 
-const TYPESCRIPT_COMPILE_TIMEOUT_MS = 20_000;
+const TYPESCRIPT_COMPILE_TIMEOUT_MS = 120_000;
 
 export function compilePolyfillFixture(fixtureName: string) {
   const project = path.join(__dirname, fixtureName);

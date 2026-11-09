@@ -320,7 +320,7 @@ readonly \[`string`, `number`\]
 
 ### request()
 
-> **request**(`request`, `addr`, `_integrityKey?`, `retransmissionsOrOptions?`, `onRequestSent?`): `Promise`\<\[[`Message`](Message.md), readonly \[`string`, `number`\]\]\>
+> **request**(`request`, `addr`, `_integrityKey?`, `retransmissionsOrOptions?`, `onRequestSent?`, `credentials?`): `Promise`\<\[[`Message`](Message.md), readonly \[`string`, `number`\]\]\>
 
 #### Parameters
 
@@ -344,6 +344,20 @@ readonly \[`string`, `number`\]
 
 (`attempt`) => `void`
 
+##### credentials?
+
+###### integrityKey
+
+`Buffer`
+
+###### nonce
+
+`Buffer`
+
+###### realm
+
+`string`
+
 #### Returns
 
 `Promise`\<\[[`Message`](Message.md), readonly \[`string`, `number`\]\]\>
@@ -357,6 +371,13 @@ readonly \[`string`, `number`\]
 ### requestWithRetry()
 
 > **requestWithRetry**(`request`, `addr`, `signal?`): `Promise`\<\[[`Message`](Message.md), readonly \[`string`, `number`\]\]\>
+
+Send a request and follow the long-term credential mechanism of
+RFC 8489 §9.2.5: a 401 (Unauthenticated) or 438 (Stale Nonce) that
+allows it (see credentialRetryOf) is retried once with the new realm and
+nonce; any other error, or a second challenge, is thrown. The allocation's
+realm, nonce and integrity key change only when a retry is made; a retry
+under a new realm adopts them only once the server accepted it.
 
 #### Parameters
 

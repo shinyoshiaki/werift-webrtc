@@ -27,6 +27,35 @@ export class TransactionFailed extends TransactionError {
   }
 }
 
+/**
+ * A 401 (Unauthenticated) or 438 (Stale Nonce) error response without
+ * MESSAGE-INTEGRITY, answering a request sent with long-term credentials
+ * (RFC 8489 §9.2.4). It is a challenge, not an authenticated error: anyone
+ * who sees the request could have sent it, so it may only make the client
+ * retry with new credentials or fail.
+ */
+export class TransactionChallenge extends TransactionFailed {
+  readonly authenticated = false;
+}
+
+/**
+ * Over a reliable transport (TCP/TLS), a response to a request sent with an
+ * integrity key failed MESSAGE-INTEGRITY validation, so the transaction ends
+ * at once (RFC 8489 §9.2.5).
+ */
+export class TransactionIntegrityViolation extends TransactionError {
+  public addr: Address;
+
+  constructor(addr: Address) {
+    super();
+    this.addr = addr;
+  }
+
+  get str() {
+    return "STUN response failed MESSAGE-INTEGRITY check";
+  }
+}
+
 export class TransactionTimeout extends TransactionError {
   get str() {
     return "STUN transaction timed out";

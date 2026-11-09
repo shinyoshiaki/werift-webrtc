@@ -71,3 +71,50 @@ describe("parseMessage MESSAGE-INTEGRITY requirements", () => {
     expect(parsed!.messageClass).toBe(classes.RESPONSE);
   });
 });
+
+describe("Message.removeAttribute", () => {
+  const key = Buffer.from("long-term-key", "utf8");
+
+  it("署名を除いてから再署名すると、新しい内容で MESSAGE-INTEGRITY が検証できる", () => {
+    // Arrange: 古い NONCE で署名済みの request
+    const request = new Message(methods.REFRESH, classes.REQUEST)
+      .setAttribute("LIFETIME", 600)
+      .setAttribute("NONCE", Buffer.from("old-nonce"))
+      .addMessageIntegrity(key)
+      .addFingerprint();
+
+    // Act: 署名を取り除き、NONCE を変えて再署名する
+    request
+      .removeAttribute("MESSAGE-INTEGRITY")
+      .removeAttribute("FINGERPRINT")
+      .setAttribute("NONCE", Buffer.from("new-nonce"))
+      .addMessageIntegrity(key)
+      .addFingerprint();
+
+    // Assert: 署名は 1 つずつ末尾にあり、正しい鍵で検証できる
+    expect(request.attributesKeys).toEqual([
+      "LIFETIME",
+      "NONCE",
+      "MESSAGE-INTEGRITY",
+      "FINGERPRINT",
+    ]);
+    expect(
+      parseMessage(request.bytes, key)?.getAttributeValue("NONCE"),
+    ).toEqual(Buffer.from("new-nonce"));
+  });
+
+  it("存在しない属性の削除は何も変えない", () => {
+    // Arrange
+    const request = new Message(methods.REFRESH, classes.REQUEST).setAttribute(
+      "LIFETIME",
+      600,
+    );
+    const before = request.bytes;
+
+    // Act: 無い属性を削除する
+    request.removeAttribute("MESSAGE-INTEGRITY");
+
+    // Assert: wire bytes は変わらない
+    expect(request.bytes).toEqual(before);
+  });
+});
