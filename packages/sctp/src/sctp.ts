@@ -380,10 +380,14 @@ export class SCTP {
           this.receivedInit = true;
 
           log("receive init", init);
-          // In COOKIE-ECHOED our INIT_ACK handling already took the peer's
-          // initial TSN; a delayed duplicate INIT must not rewind the
-          // cumulative TSN of DATA received since.
-          if (this.associationState !== SCTP_STATE.COOKIE_ECHOED) {
+          // Take the peer's initial TSN only before the handshake got past
+          // it (CLOSED / COOKIE-WAIT). In COOKIE-ECHOED our INIT_ACK handling
+          // already took it, and once ESTABLISHED a delayed duplicate INIT
+          // must not rewind the cumulative TSN of DATA received since.
+          if (
+            this.associationState === SCTP_STATE.CLOSED ||
+            this.associationState === SCTP_STATE.COOKIE_WAIT
+          ) {
             this.lastReceivedTsn = tsnMinusOne(init.initialTsn);
             this.reconfigResponseSeq = tsnMinusOne(init.initialTsn);
           }
