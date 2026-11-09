@@ -173,7 +173,9 @@ export class SCTP {
   private readonly maxPayloadSize: number;
   private fastRecoveryExit?: number;
   private fastRecoveryTransmit = false;
+  /** FORWARD-TSN kept until the peer's SACK covers it, so a lost one can be resent. */
   private forwardTsnChunk?: ForwardTsnChunk;
+  private forwardTsnPending = false;
   private flightSize = 0;
   /** DATA chunks waiting to be transmitted for the first time. */
   readonly outboundQueue = new FifoQueue<DataChunk>();
@@ -193,8 +195,6 @@ export class SCTP {
   private advancedPeerAckTsn = tsnMinusOne(this.localTsn); // acknowledgement
   private partialBytesAcked = 0;
   private sentQueue = new FifoQueue<DataChunk>();
-  /** Gap-acked DATA still awaiting cumulative ACK (kept for reneging checks). */
-  private gapAckedChunks = new Set<DataChunk>();
   private transmitting = false;
   private transmitRequested = false;
 
@@ -737,7 +737,6 @@ export class SCTP {
       uint32Gte(this.lastSackedTsn, this.sentQueue.peek()!.tsn)
     ) {
       const sChunk = this.sentQueue.shift()!;
-      this.gapAckedChunks.delete(sChunk);
       done++;
       if (!sChunk.acked) {
         doneBytes += sChunk.bookSize;
@@ -748,34 +747,19 @@ export class SCTP {
         this.updateRto(receivedTime - sChunk.sentTime!);
       }
     }
-    // # handle reneging
-    // RFC 9260 §6.2.1: a previously gap-acked TSN missing from this SACK is
-    // outstanding again; T3-rtx must cover it even if no new ACK follows.
-    const seen = new Set<number>();
-    let highestSeenTsn: number | undefined;
-    for (const gap of chunk.gaps) {
-      for (let pos = gap[0]; pos < gap[1] + 1; pos++) {
-        highestSeenTsn = (chunk.cumulativeTsn + pos) % SCTP_TSN_MODULO;
-        seen.add(highestSeenTsn);
-      }
-    }
-    let reneged = false;
-    for (const sChunk of this.gapAckedChunks) {
-      // Abandoned chunks are never retransmitted nor counted in flight again.
-      if (sChunk.abandoned || !sChunk.acked) {
-        this.gapAckedChunks.delete(sChunk);
-      } else if (!seen.has(sChunk.tsn)) {
-        sChunk.acked = false;
-        this.gapAckedChunks.delete(sChunk);
-        this.flightSizeIncrease(sChunk);
-        reneged = true;
-      }
-    }
-
     // # handle gap blocks
     let loss = false;
+    const seen = new Set<number>();
+    let highestNewlyAcked = chunk.cumulativeTsn;
     if (chunk.gaps.length > 0) {
-      let highestNewlyAcked = chunk.cumulativeTsn;
+      let highestSeenTsn: number;
+      chunk.gaps.forEach((gap) => {
+        for (let pos = gap[0]; pos < gap[1] + 1; pos++) {
+          highestSeenTsn = (chunk.cumulativeTsn + pos) % SCTP_TSN_MODULO;
+          seen.add(highestSeenTsn);
+        }
+      });
+
       for (const sChunk of this.sentQueue) {
         if (uint32Gt(sChunk.tsn, highestSeenTsn!)) {
           break;
@@ -783,31 +767,48 @@ export class SCTP {
         if (seen.has(sChunk.tsn) && !sChunk.acked) {
           doneBytes += sChunk.bookSize;
           sChunk.acked = true;
-          this.gapAckedChunks.add(sChunk);
-          // A pending retransmission is no longer needed once gap-acked.
+          sChunk.reneged = false;
+          // A pending retransmission is moot once the peer holds the chunk.
           sChunk.retransmit = false;
           this.flightSizeDecrease(sChunk);
           highestNewlyAcked = sChunk.tsn;
         }
       }
+    }
 
-      // # strike missing chunks prior to HTNA
+    // # detect reneging (RFC 9260 6.2.1 D-iii)
+    // A chunk gap-acked before but missing from this SACK was dropped by the
+    // peer: it is outstanding again, and every SACK still missing it counts one
+    // miss indication towards Fast Retransmit. Chunks up to HTNA are struck by
+    // the loop below, so only the ones beyond it are struck here.
+    let reneged = false;
+    for (const sChunk of this.sentQueue) {
+      // Abandoned chunks are never retransmitted nor counted in flight again.
+      if (seen.has(sChunk.tsn) || sChunk.abandoned) continue;
+      if (sChunk.acked) {
+        sChunk.acked = false;
+        sChunk.reneged = true;
+        // Outstanding again, so it is counted in flight until resent or acked.
+        this.flightSizeIncrease(sChunk);
+      }
+      if (!sChunk.reneged) continue;
+      reneged = true;
+      if (
+        !sChunk.retransmit &&
+        (chunk.gaps.length === 0 || uint32Gt(sChunk.tsn, highestNewlyAcked))
+      ) {
+        loss = this.strikeChunk(sChunk) || loss;
+      }
+    }
+
+    // # strike missing chunks prior to HTNA
+    if (chunk.gaps.length > 0) {
       for (const sChunk of this.sentQueue) {
         if (uint32Gt(sChunk.tsn, highestNewlyAcked)) {
           break;
         }
         if (!seen.has(sChunk.tsn)) {
-          sChunk.misses++;
-          if (sChunk.misses === 3) {
-            sChunk.misses = 0;
-            if (!this.maybeAbandon(sChunk)) {
-              sChunk.retransmit = true;
-            }
-            sChunk.acked = false;
-            this.gapAckedChunks.delete(sChunk);
-            this.flightSizeDecrease(sChunk);
-            loss = true;
-          }
+          loss = this.strikeChunk(sChunk) || loss;
         }
       }
     }
@@ -841,14 +842,17 @@ export class SCTP {
 
     if (this.sentQueue.length === 0) {
       this.timer3Cancel();
-    } else if (done > 0 || (reneged && !this.timer3Handle)) {
+    } else if (done > 0) {
       this.timer3Restart();
+    } else if (reneged && !this.timer3Handle) {
+      this.timer3Start();
     }
 
     // RFC 9260 §6.2.1(D-ii): keep latest peer a_rwnd; available window is derived via flightSize.
     this.peerAdvertisedRwnd = chunk.advertisedRwnd;
 
     this.updateAdvancedPeerAckPoint();
+    this.settleForwardTsn(chunk.cumulativeTsn);
     await this.onSackReceived();
     await this.transmit();
   }
@@ -878,22 +882,26 @@ export class SCTP {
     this.sackDuplicates = this.sackDuplicates.filter(isObsolete);
     this.sackMisOrdered = new Set([...this.sackMisOrdered].filter(isObsolete));
 
-    // # update reassembly
+    // # update reassembly (RFC 3758 3.6)
     for (const [streamId, streamSeqNum] of chunk.streams) {
       const inboundStream = this.getInboundStream(streamId);
 
-      // # advance sequence number and perform delivery
-      inboundStream.streamSequenceNumber = uint16Add(streamSeqNum, 1);
-      for (const message of inboundStream.popMessages()) {
+      // # deliver stranded complete messages, drop broken ones, then advance
+      const { messages, prunedSize } =
+        inboundStream.forwardSequenceNumber(streamSeqNum);
+      this.advertisedRwnd += prunedSize;
+      for (const message of [...messages, ...inboundStream.popMessages()]) {
         this.advertisedRwnd += message[2].length;
         this.receive(...message);
       }
     }
 
-    // # prune obsolete chunks
-    Object.values(this.inboundStreams).forEach((inboundStream) => {
-      this.advertisedRwnd += inboundStream.pruneChunks(this.lastReceivedTsn!);
-    });
+    // # unordered chunks covered by the cumulative TSN will never complete
+    for (const inboundStream of Object.values(this.inboundStreams)) {
+      this.advertisedRwnd += inboundStream.pruneUnorderedChunks(
+        chunk.cumulativeTsn,
+      );
+    }
   }
 
   private updateRto(R: number) {
@@ -955,6 +963,10 @@ export class SCTP {
       maxRetransmits,
       ordered,
     }: {
+      /**
+       * Absolute time in `Date.now()` epoch milliseconds after which the
+       * message is abandoned (PR-SCTP, RFC 3758) if it is still unacknowledged.
+       */
       expiry?: number | undefined;
       maxRetransmits?: number | undefined;
       ordered?: boolean;
@@ -1054,11 +1066,11 @@ export class SCTP {
     // """
 
     // # send FORWARD TSN
-    if (this.forwardTsnChunk) {
+    if (this.forwardTsnChunk && this.forwardTsnPending) {
+      this.forwardTsnPending = false;
       await this.sendChunk(this.forwardTsnChunk).catch((err: Error) => {
         log("send forwardTsn failed", err.message);
       });
-      this.forwardTsnChunk = undefined;
 
       if (!this.timer3Handle) {
         this.timer3Start();
@@ -1071,6 +1083,8 @@ export class SCTP {
         : 4 * this.maxPayloadSize;
     const cwnd = Math.min(this.flightSize + burstSize, this.cwnd);
 
+    // Set when expired data is abandoned here, so the FORWARD-TSN goes out.
+    let abandoned = false;
     let retransmitEarliest = true;
     for (const dataChunk of this.sentQueue) {
       if (dataChunk.retransmit && (dataChunk.acked || dataChunk.abandoned)) {
@@ -1078,6 +1092,11 @@ export class SCTP {
         dataChunk.retransmit = false;
       }
       if (dataChunk.retransmit) {
+        // The lifetime may have run out while the chunk waited for cwnd.
+        if (this.isExpired(dataChunk) && this.maybeAbandon(dataChunk)) {
+          abandoned = true;
+          continue;
+        }
         if (this.fastRecoveryTransmit) {
           this.fastRecoveryTransmit = false;
         } else if (this.flightSize >= cwnd) {
@@ -1087,6 +1106,7 @@ export class SCTP {
 
         dataChunk.misses = 0;
         dataChunk.retransmit = false;
+        dataChunk.reneged = false;
         dataChunk.sentCount++;
         await this.sendChunk(dataChunk).catch((err: Error) => {
           log("send data failed", err.message);
@@ -1100,12 +1120,21 @@ export class SCTP {
     }
 
     // Drain queued outbound DATA; retransmission pacing is controlled by RTO/T3.
-    while (
-      this.outboundQueue.length > 0 &&
-      this.flightSize < cwnd &&
-      this.peerRwnd > 0
-    ) {
+    while (this.outboundQueue.length > 0) {
       const chunk = this.outboundQueue.peek()!;
+      // A message that expired while waiting for cwnd/rwnd is never sent; its
+      // TSNs are already assigned, so it is abandoned and skipped by FORWARD-TSN.
+      if (this.isExpired(chunk)) {
+        this.outboundQueue.shift();
+        this.sentQueue.push(chunk);
+        this.resolveSendWaiters(chunk);
+        this.abandonMessage(this.sentQueue.length - 1);
+        abandoned = true;
+        continue;
+      }
+      if (this.flightSize >= cwnd || this.peerRwnd <= 0) {
+        break;
+      }
       if (chunk.bookSize > this.peerRwnd && this.flightSize > 0) {
         break;
       }
@@ -1125,6 +1154,11 @@ export class SCTP {
       if (!this.timer3Handle) {
         this.timer3Start();
       }
+    }
+    if (abandoned) {
+      this.updateAdvancedPeerAckPoint();
+      // Send the FORWARD-TSN in the next round of transmit().
+      if (this.forwardTsnPending) this.transmitRequested = true;
     }
     this.flush.execute();
   }
@@ -1182,6 +1216,7 @@ export class SCTP {
     this.flightSize += chunk.bookSize;
   }
 
+  /** No-op for chunks not counted in flightSize, so every exit path can call it. */
   private flightSizeDecrease(chunk: DataChunk) {
     if (!chunk.inFlight) return;
     chunk.inFlight = false;
@@ -1288,6 +1323,10 @@ export class SCTP {
       this.flightSizeDecrease(chunk);
     });
     this.updateAdvancedPeerAckPoint();
+    // An unacknowledged FORWARD-TSN may have been lost; resend it.
+    if (this.forwardTsnChunk) {
+      this.forwardTsnPending = true;
+    }
 
     // # adjust congestion window
     this.fastRecoveryExit = undefined;
@@ -1404,16 +1443,30 @@ export class SCTP {
     this.heartbeatRestart();
   }
 
+  /** Drops the FORWARD-TSN once acknowledged; otherwise keeps T3 running to resend it. */
+  private settleForwardTsn(sackedTsn: number) {
+    if (!this.forwardTsnChunk) return;
+    if (uint32Gte(sackedTsn, this.forwardTsnChunk.cumulativeTsn)) {
+      this.forwardTsnChunk = undefined;
+      this.forwardTsnPending = false;
+      if (this.sentQueue.length === 0) this.timer3Cancel();
+    } else if (!this.timer3Handle) {
+      this.timer3Start();
+    }
+  }
+
   private updateAdvancedPeerAckPoint() {
     if (uint32Gt(this.lastSackedTsn, this.advancedPeerAckTsn)) {
       this.advancedPeerAckTsn = this.lastSackedTsn;
     }
 
     let done = 0;
-    const streams: { [key: number]: number } = {};
+    // Carry over streams of an unacknowledged FORWARD-TSN that this one replaces.
+    const streams: { [key: number]: number } = Object.fromEntries(
+      this.forwardTsnChunk?.streams ?? [],
+    );
     while (this.sentQueue.length > 0 && this.sentQueue.peek()!.abandoned) {
       const chunk = this.sentQueue.shift()!;
-      this.gapAckedChunks.delete(chunk);
       this.flightSizeDecrease(chunk);
       this.advancedPeerAckTsn = chunk.tsn;
       done++;
@@ -1422,6 +1475,7 @@ export class SCTP {
       }
     }
     if (done) {
+      this.forwardTsnPending = true;
       this.forwardTsnChunk = new ForwardTsnChunk(0, undefined);
       this.forwardTsnChunk.cumulativeTsn = this.advancedPeerAckTsn;
       this.forwardTsnChunk.streams = Object.entries(streams).map(([k, v]) => [
@@ -1433,41 +1487,77 @@ export class SCTP {
 
   private maybeAbandon(chunk: DataChunk): boolean {
     if (chunk.abandoned) return true;
+    // The peer already holds an acked chunk (gap SACK); abandoning it would
+    // make the FORWARD-TSN discard data the receiver could deliver.
+    if (chunk.acked) return false;
     const abandon =
       (!!chunk.maxRetransmits && chunk.maxRetransmits < chunk.sentCount!) ||
-      (!!chunk.expiry && chunk.expiry < Date.now() / 1000);
+      this.isExpired(chunk);
     if (!abandon) return false;
 
     const chunkPos = this.sentQueue.findIndex((v) => v === chunk);
-    if (chunkPos < 0) {
-      chunk.abandoned = true;
-      chunk.retransmit = false;
-      this.gapAckedChunks.delete(chunk);
-      this.flightSizeDecrease(chunk);
-      return true;
+    if (chunkPos < 0) return false;
+    this.abandonMessage(chunkPos);
+    return true;
+  }
+
+  /** Counts a miss indication; on the third, marks the chunk for Fast Retransmit (or abandons it). */
+  private strikeChunk(chunk: DataChunk) {
+    chunk.misses++;
+    if (chunk.misses < 3) return false;
+    chunk.misses = 0;
+    if (!this.maybeAbandon(chunk)) {
+      chunk.retransmit = true;
     }
+    chunk.acked = false;
+    this.flightSizeDecrease(chunk);
+    return true;
+  }
+
+  private isExpired(chunk: DataChunk) {
+    return chunk.expiry !== undefined && chunk.expiry <= Date.now();
+  }
+
+  /** Marks every fragment of the message at sentQueue[chunkPos] abandoned. */
+  private abandonMessage(chunkPos: number) {
+    // Abandon the whole message: walk back to its first fragment and forward
+    // to its last fragment (RFC 3758 3.5 A3).
     for (let pos = chunkPos; pos >= 0; pos--) {
       const oChunk = this.sentQueue.at(pos)!;
       oChunk.abandoned = true;
       oChunk.retransmit = false;
-      this.gapAckedChunks.delete(oChunk);
       this.flightSizeDecrease(oChunk);
       if (oChunk.flags & SCTP_DATA_FIRST_FRAG) {
         break;
       }
     }
 
+    let lastFragReached = false;
     for (let pos = chunkPos; pos < this.sentQueue.length; pos++) {
       const oChunk = this.sentQueue.at(pos)!;
       oChunk.abandoned = true;
       oChunk.retransmit = false;
       this.flightSizeDecrease(oChunk);
       if (oChunk.flags & SCTP_DATA_LAST_FRAG) {
+        lastFragReached = true;
         break;
       }
     }
 
-    return true;
+    // The remaining fragments may still be waiting in outboundQueue (cwnd/rwnd
+    // limited). Sending them would leave the receiver with a headless message,
+    // so move them to sentQueue as abandoned without transmitting; they are then
+    // covered by the FORWARD-TSN like the rest of the message.
+    while (!lastFragReached && this.outboundQueue.length > 0) {
+      const oChunk = this.outboundQueue.shift()!;
+      oChunk.abandoned = true;
+      oChunk.retransmit = false;
+      this.sentQueue.push(oChunk);
+      this.resolveSendWaiters(oChunk);
+      if (oChunk.flags & SCTP_DATA_LAST_FRAG) {
+        lastFragReached = true;
+      }
+    }
   }
 
   static getCapabilities() {
@@ -1678,8 +1768,8 @@ export class InboundStream {
         if (ordered!) {
           break;
         } else {
+          // The partial message is broken; this chunk may start the next one.
           startPos = undefined;
-          pos++;
           continue;
         }
       }
@@ -1703,13 +1793,84 @@ export class InboundStream {
         if (ordered && chunk.streamSeqNum === this.streamSequenceNumber) {
           this.streamSequenceNumber = uint16Add(this.streamSequenceNumber, 1);
         }
+        // The next message starts at the removed one's position and need not
+        // be TSN-contiguous with it, so restart the search there.
         pos = startPos;
+        startPos = undefined;
         yield [chunk.streamId, chunk.protocol, userData];
+        continue;
       } else {
         pos++;
       }
       expectedTsn = tsnPlusOne(expectedTsn);
     }
+  }
+
+  /**
+   * Applies a FORWARD-TSN entry (RFC 3758 3.6): ordered messages with SSN up to
+   * `ssn` are no longer waited for. Complete ones are returned for delivery in
+   * order, incomplete ones are dropped, and the expected SSN moves past `ssn`
+   * (never backwards, so a stale/duplicated entry is harmless).
+   */
+  forwardSequenceNumber(ssn: number) {
+    const messages: [number, number, Buffer][] = [];
+    let prunedSize = 0;
+    let fragments: DataChunk[] = [];
+    const dropFragments = () => {
+      for (const c of fragments) prunedSize += c.userData.length;
+      fragments = [];
+    };
+
+    this.reassembly = this.reassembly.filter((chunk) => {
+      if (
+        chunk.flags & SCTP_DATA_UNORDERED ||
+        uint16Gt(chunk.streamSeqNum, ssn)
+      ) {
+        return true;
+      }
+      const prev = fragments[fragments.length - 1];
+      if (chunk.flags & SCTP_DATA_FIRST_FRAG) {
+        dropFragments();
+      } else if (
+        !prev ||
+        chunk.tsn !== tsnPlusOne(prev.tsn) ||
+        chunk.streamSeqNum !== prev.streamSeqNum
+      ) {
+        dropFragments();
+        prunedSize += chunk.userData.length;
+        return false;
+      }
+      fragments.push(chunk);
+      if (chunk.flags & SCTP_DATA_LAST_FRAG) {
+        messages.push([
+          chunk.streamId,
+          chunk.protocol,
+          Buffer.concat(fragments.map((c) => c.userData)),
+        ]);
+        fragments = [];
+      }
+      return false;
+    });
+    dropFragments();
+
+    const nextSsn = uint16Add(ssn, 1);
+    if (uint16Gt(nextSsn, this.streamSequenceNumber)) {
+      this.streamSequenceNumber = nextSsn;
+    }
+    return { messages, prunedSize };
+  }
+
+  /** Removes unordered chunks with TSN up to `tsn`. */
+  pruneUnorderedChunks(tsn: number) {
+    let size = 0;
+    this.reassembly = this.reassembly.filter((chunk) => {
+      if (chunk.flags & SCTP_DATA_UNORDERED && uint32Gte(tsn, chunk.tsn)) {
+        size += chunk.userData.length;
+        return false;
+      }
+      return true;
+    });
+    return size;
   }
 
   pruneChunks(tsn: number) {

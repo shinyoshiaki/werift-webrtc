@@ -363,7 +363,7 @@ export class RTCSctpTransport {
       } else {
         const expiry =
           channel.maxPacketLifeTime !== null
-            ? Date.now() + channel.maxPacketLifeTime / 1000
+            ? Date.now() + channel.maxPacketLifeTime
             : undefined;
 
         this.sctp

@@ -7,6 +7,7 @@ import {
   type Chunk,
   CookieEchoChunk,
   DataChunk,
+  ForwardTsnChunk,
   InitAckChunk,
   InitChunk,
   parsePacket,
@@ -463,4 +464,103 @@ export const disposeMockSctp = async (sctp: SCTP) => {
   (sctp as any).timer3Cancel();
   (sctp as any).heartbeatCancel();
   await sctp.stop();
+};
+
+/**
+ * Drop predicate for MemoryTransport that records every chunk sent and drops
+ * packets by chunk kind: DATA while `dropData`, SACK while `dropSack`, the next
+ * `dropForwardTsnCount` FORWARD-TSNs, and whatever `dropIf` (e.g. seeded random
+ * loss) selects. Other packets pass. Dropped SACK packets are kept in
+ * `heldSacks` so a test can deliver them late.
+ */
+export const createDataDropRecorder = () => {
+  const recorder = {
+    dropData: false,
+    dropSack: false,
+    /** Number of upcoming FORWARD-TSN packets to drop. */
+    dropForwardTsnCount: 0,
+    dropIf: undefined as ((chunks: Chunk[]) => boolean) | undefined,
+    sentChunks: [] as Chunk[],
+    heldSacks: [] as Buffer[],
+    drop: (buf: Buffer) => {
+      const [, , , chunks] = parsePacket(buf);
+      recorder.sentChunks.push(...chunks);
+      if (
+        recorder.dropForwardTsnCount > 0 &&
+        chunks.some((c) => c instanceof ForwardTsnChunk)
+      ) {
+        recorder.dropForwardTsnCount--;
+        return true;
+      }
+      if (recorder.dropSack && chunks.some((c) => c instanceof SackChunk)) {
+        recorder.heldSacks.push(buf);
+        return true;
+      }
+      if (recorder.dropIf?.(chunks)) return true;
+      return recorder.dropData && chunks.some((c) => c instanceof DataChunk);
+    },
+  };
+  return recorder;
+};
+
+/**
+ * Connected pair whose client packets (`recorder`) and server packets
+ * (`serverRecorder`) can be dropped, with fake setTimeout / Date installed
+ * after the handshake so T3-rtx and chunk lifetimes can be advanced.
+ * MemoryTransport's setImmediate stays real.
+ */
+export const createLossyPrSctpPair = async () => {
+  const recorder = createDataDropRecorder();
+  const serverRecorder = createDataDropRecorder();
+  const pair = await createConnectedSctpPair({
+    dropClient: recorder.drop,
+    dropServer: serverRecorder.drop,
+  });
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+
+  const stop = async () => {
+    vi.useRealTimers();
+    await pair.stop();
+  };
+
+  return { ...pair, recorder, serverRecorder, stop };
+};
+
+/** Lets MemoryTransport deliveries (setImmediate) and their handlers run. */
+export const flushImmediates = async (rounds = 10) => {
+  for (let i = 0; i < rounds; i++) {
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+};
+
+/** Deterministic PRNG (mulberry32) so a failing random-loss seed can be replayed. */
+export const createSeededRandom = (seed: number) => {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+};
+
+/**
+ * Sender bookkeeping that must hold at any time: flightSize equals the bytes of
+ * the chunks counted in flight, and a counted chunk is neither gap-acked nor
+ * waiting for retransmission. Returns a description of the first violation.
+ */
+export const findFlightSizeViolation = (sctp: SCTP) => {
+  const sender = sctp as any;
+  const sentQueue: DataChunk[] = [...sender.sentQueue];
+  const inFlight = sentQueue.filter((c) => c.inFlight);
+  const bytes = inFlight.reduce((acc, c) => acc + c.bookSize, 0);
+  if (bytes !== sender.flightSize) {
+    return `flightSize ${sender.flightSize} != in-flight bytes ${bytes}`;
+  }
+  const bad = inFlight.find((c) => c.acked || c.retransmit);
+  if (bad) {
+    return `tsn ${bad.tsn} counted in flight while acked=${bad.acked} retransmit=${bad.retransmit}`;
+  }
+  return undefined;
 };

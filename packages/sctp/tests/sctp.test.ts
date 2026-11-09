@@ -477,13 +477,13 @@ describe("sctp flight size accounting", () => {
       const maxPayloadSize: number = (sctp as any).maxPayloadSize;
       await sctp.send(0, 51, Buffer.alloc(100));
       await sctp.send(0, 51, Buffer.alloc(maxPayloadSize * 2 + 10), {
-        expiry: Date.now() / 1000 + 60,
+        expiry: Date.now() + 60_000,
       });
       await settle();
       const [head, ...fragments] = sentQueueOf(sctp);
       expect(fragments).toHaveLength(3);
       for (const fragment of fragments) {
-        fragment.expiry = Date.now() / 1000 - 1;
+        fragment.expiry = Date.now() - 1000;
       }
 
       // T3 で期限切れの複数フラグメントメッセージを破棄判定する
@@ -599,14 +599,14 @@ describe("sctp flight size accounting", () => {
       const maxPayloadSize: number = (sctp as any).maxPayloadSize;
       await sctp.send(0, 51, Buffer.alloc(100));
       await sctp.send(0, 51, Buffer.alloc(maxPayloadSize * 2 + 10), {
-        expiry: Date.now() / 1000 + 60,
+        expiry: Date.now() + 60_000,
       });
       await settle();
       const [head, f1, f2, f3] = sentQueueOf(sctp);
       // 2 番目の断片だけ Gap ACK され、その後メッセージが期限切れになる
       await receiveSack(sctp, buildSack(tsnBefore(head.tsn), [[3, 3]]));
       expect(f2.acked).toBe(true);
-      for (const f of [f1, f2, f3]) f.expiry = Date.now() / 1000 - 1;
+      for (const f of [f1, f2, f3]) f.expiry = Date.now() - 1000;
       await fireT3(sctp);
       expect(f2.abandoned).toBe(true);
 
