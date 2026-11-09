@@ -4,10 +4,10 @@ describe("SctpManager.connectSctp", () => {
   test("start() 前に確立済みの SCTP は connected イベントを待たずに完了する", async () => {
     // Arrange: 既に connected 状態で、connected が二度と発火しない SCTP
     const manager = new SctpTransportManager();
-    const start = vi.fn(async () => {});
+    const ensureStarted = vi.fn(async () => {});
     manager.sctpRemotePort = 5000;
     manager.sctpTransport = {
-      start,
+      ensureStarted,
       sctp: {
         state: "connected",
         stateChanged: { connected: { asPromise: () => new Promise(() => {}) } },
@@ -20,8 +20,8 @@ describe("SctpManager.connectSctp", () => {
       new Promise((r) => setTimeout(() => r("hang"), 200)),
     ]);
 
-    // Assert: 待ち続けずに完了し、start も呼ばれる
+    // Assert: 待ち続けずに完了し、開始処理 (ensureStarted) は呼ばれる
     expect(result).toBe("done");
-    expect(start).toHaveBeenCalledWith(5000);
+    expect(ensureStarted).toHaveBeenCalledWith(5000);
   });
 });

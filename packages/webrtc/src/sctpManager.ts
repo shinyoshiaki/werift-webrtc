@@ -1,4 +1,4 @@
-import { SCTP_STATE, type SCTPOptions } from "../../sctp/src";
+import type { SCTPOptions } from "../../sctp/src";
 import { RTCDataChannel, RTCDataChannelParameters } from "./dataChannel";
 import { createWebRtcTypeError } from "./errors";
 import { debug, Event } from "./imports/common";
@@ -22,25 +22,43 @@ export type SctpNegotiationState = ReturnType<
 /**
  * The SCTP transport of a PeerConnection and its application m-line.
  *
- * - Rejection of the application m-line (port 0 in the peer's offer, an
- *   answer or a pranswer) never closes the SCTP transport: it stays bound to
- *   its MID and the next offer offers the application again with that MID
- *   (W3C would set `sctpTransport` to null). The commit does not move it to a
- *   transport the answer did not negotiate for it. An answer to an offer whose
- *   application m-line has port 0 has port 0 (RFC 3264 section 6).
+ * - Rejection of the application m-line (port 0) keeps the SCTP transport:
+ *   it stays bound to its MID and the next offer offers the application again
+ *   with that MID (W3C would set `sctpTransport` to null). A rejecting remote
+ *   offer or pranswer is provisional and leaves the association alone, and
+ *   so does any rejection of an association the rollback baseline negotiated.
+ *   A final answer with port 0 (RFC 8841 section 10.4), local or remote,
+ *   aborts an association the proposal started (a pranswer or the remote
+ *   INIT) and releases the remote port on that peer (`rejectApplication`).
+ *   Channels on it close; the other peer closes its own when it applies the
+ *   same answer. The commit does not move the transport to
+ *   a transport the answer did not negotiate for it. An answer to an offer
+ *   whose application m-line has port 0 has port 0 (RFC 3264 section 6).
  * - The position (MID, index, rejected) is recorded by the current
  *   description, not by this object. An unbound transport takes a rejected
  *   position with a new MID; an offer that does so moves the transport to that
  *   MID (restored by rollback). A MID only an unapplied `createOffer`
  *   reserved follows the MID of the peer's offer.
  * - At the final answer SCTP moves straight to its owner's DTLS transport in
- *   the answer. A transport joining an already connected DTLS transport
- *   starts its association there; its client / server side follows the ICE
- *   role at the DTLS start.
- * - Rollback keeps an application-owned transport whose association never
- *   ran (`detachFromDescription` clears what the description set) and stops
- *   one a description created or whose association ran under the proposal;
- *   channels opened on a pending-only association close with it.
+ *   the answer. SCTP starts after every answer or pranswer that negotiates the
+ *   application m-line (JSEP 5.11), also on an already connected DTLS
+ *   transport: an `m=application` a renegotiation adds to a connected session
+ *   starts without touching ICE or DTLS and without moving `connectionState`.
+ *   Its client / server side follows the ICE role at the DTLS start. Starting
+ *   is idempotent (`RTCSctpTransport.ensureStarted`): an established
+ *   association, also one the remote INIT established first, a handshaking
+ *   one and a closed one never start again, so a final answer keeping the
+ *   pranswer's sctp-port continues it. A final answer changing the sctp-port
+ *   is rejected in validation.
+ * - Rollback keeps an application-owned transport (`detachFromDescription`
+ *   clears what the description set), whether it is in the baseline or was
+ *   added during the transaction, and stops one a description created. When
+ *   the baseline has no negotiated remote port, an association that left its
+ *   initial state under the proposal (started by a pranswer, or established
+ *   from the remote INIT) is pending-only: it is aborted and an
+ *   application-owned transport gets a new, unstarted association on the same
+ *   DTLS transport. Its channels with a stream ID close; channels still
+ *   waiting for one stay `connecting` for the next negotiation.
  * - `sctp.mtu` is configuration: every transport, also a pending one, is built
  *   with it, and moving to another DTLS transport keeps it.
  */
@@ -169,20 +187,28 @@ export class SctpTransportManager {
 
   /** Internal: return to a negotiation baseline taken by `snapshotNegotiationState`. */
   async restoreNegotiationState(state: SctpNegotiationState) {
-    const added =
-      this.sctpTransport !== state.transport ? this.sctpTransport : undefined;
+    const current = this.sctpTransport;
+    const added = current !== state.transport ? current : undefined;
     // createDataChannel is an application operation: its SCTP transport
     // survives rollback, unbound from the rolled-back m-line, so the next
-    // offer carries m=application again. An association that already ran
-    // under the pending description is description state and is torn down.
-    const keepAdded =
-      !!added &&
-      this.isApplicationOwned(added) &&
-      added.sctp.associationState === SCTP_STATE.CLOSED;
+    // offer carries m=application again. A transport a description created
+    // is description state and is torn down.
+    const keepAdded = !!added && this.isApplicationOwned(added);
     if (added && !keepAdded) {
       await added.stop();
     }
-    this.sctpTransport = keepAdded ? added : state.transport;
+    // Without a negotiated binding in the baseline, an association that ran
+    // under the pending description (started by a pranswer, or established
+    // passively from the remote INIT) is pending-only: it is discarded and a
+    // new, unstarted one waits for the next negotiation. Attached channels
+    // close; unattached ones stay queued.
+    const kept = keepAdded ? added : state.transport;
+    if (kept && state.remotePort === undefined && kept.associationActive) {
+      await kept.resetAssociation(
+        kept === state.transport ? state.dtlsTransport : undefined,
+      );
+    }
+    this.sctpTransport = kept;
     if (
       state.transport &&
       state.dtlsTransport &&
@@ -199,6 +225,19 @@ export class SctpTransportManager {
         state.transport.remoteMaxMessageSize = state.remoteMaxMessageSize;
       }
     }
+  }
+
+  /**
+   * Internal: a final answer rejected the application m-line (port 0, RFC
+   * 8841 section 10.4). The association a pranswer started closes; the
+   * transport waits unbound for a later negotiation.
+   */
+  async rejectApplication() {
+    const transport = this.sctpTransport;
+    if (!transport) return;
+    if (transport.associationActive) await transport.resetAssociation();
+    this.sctpRemotePort = undefined;
+    this.detachFromDescription(transport);
   }
 
   /**
@@ -225,17 +264,39 @@ export class SctpTransportManager {
     transport.remoteMaxMessageSize = DEFAULT_MAX_MESSAGE_SIZE;
   }
 
+  /**
+   * Start the association of the negotiated application m-line and wait
+   * until it is established. Safe to call any number of times: an
+   * established (also passively established) or handshaking association is
+   * not started again, and a closed one is not waited for. The wait is
+   * bounded even if the remote never answers: the INIT retries (T1) give up
+   * and the association emits `closed`.
+   */
   async connectSctp() {
-    if (!this.sctpTransport || !this.sctpRemotePort) {
+    const transport = this.sctpTransport;
+    if (!transport || !this.sctpRemotePort) {
       return;
     }
-
-    await this.sctpTransport.start(this.sctpRemotePort);
-    // Already established (peer INIT before start): "connected" will not fire again.
-    if (this.sctpTransport.sctp.state !== "connected") {
-      await this.sctpTransport.sctp.stateChanged.connected.asPromise();
+    const { sctp } = transport;
+    if (sctp.state === "closed") {
+      log("sctp closed");
+      return;
     }
-    log("sctp connected");
+    // Subscribe before starting so a transition during start is not missed.
+    const settled =
+      sctp.state === "connected"
+        ? undefined
+        : Promise.race([
+            sctp.stateChanged.connected.asPromise(),
+            sctp.stateChanged.closed.asPromise(),
+          ]);
+
+    await transport.ensureStarted(this.sctpRemotePort);
+    // The state may have settled while starting.
+    if (settled && !["connected", "closed"].includes(sctp.state)) {
+      await settled;
+    }
+    log("sctp", sctp.state);
   }
 
   /**

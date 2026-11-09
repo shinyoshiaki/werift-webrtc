@@ -34,7 +34,7 @@ develop の問題: 受信側に RFC 3711 §3.3.2 の replay list がなく、認
 
 ## 統合したチケット
 
-同じ `packages/sctp/src/sctp.ts` の association / 送受信状態を扱う、develop ベースの SCTP 修正チケット 3 件のブランチをこのブランチへマージし、チケット内容をここへ取り込んだ。統合元チケットはアーカイブし、統合元のチケットファイルはこのブランチから削除した。
+同じ `packages/sctp/src/sctp.ts` の association / 送受信状態を扱う、develop ベースの SCTP 修正チケット 3 件（3〜5）と、SCTP の開始処理を直す `27e384b5`（6）のブランチをこのブランチへマージし、チケット内容をここへ取り込んだ。統合元チケットはアーカイブし、統合元のチケットファイルはこのブランチから削除した。
 
 統合時に決めたこと:
 - reneging（Gap ACK 済みチャンクが後の SACK から消える）の処理は 2 チケットで別々に実装されていたため 1 つにまとめた。`e639c2a5` の `gapAckedChunks` は廃止し、`c49c9ef1` の `reneged` フラグと miss indication の計上（RFC 9260 §6.2.1 D-iii）を使う。取り消されたチャンクは未確認に戻して `flightSize` に再計上し（`e639c2a5` の不変条件「`flightSize` = `inFlight` チャンクの bookSize 合計」を維持）、破棄済みチャンクは再計上しない。
@@ -477,10 +477,374 @@ private lastReconfigResult?: ReconfigResult; // 重複 request に再送する�
 - [ ] SCTP の挙動変更が webrtc の DataChannel close に波及するため、`npm run type` と `npm run test:small` が通る（`packages/webrtc/tests/datachannel/close.test.ts` を含む）。可能なら `npm run e2e` で Chrome との DataChannel close の相互接続も確認する。
 - [ ] `npm run format` を実行済みで、`changelog.md` に追記してある。
 
+### 6. PeerConnection: SCTP added by renegotiation is not started after DTLS is already connected
+
+統合元チケット: `27e384b5-59e8-4548-af5d-889c06350565`（ブランチ `ticket/27e384b5-59e8-4548-af5d-889c06350565`。develop ベースに修正された版）。以下は統合元チケットファイルの内容。行番号は統合元チケット起票時点のもの。
+
+統合時に決めたこと:
+- `SctpTransportManager.connectSctp()` は、このチケットの「確立済みなら `connected` を待たない」修正と競合したため、それを包含する `27e384b5` の実装（`ensureStarted()` による冪等な開始と、`connected` / `closed` の待ち合わせ）を採用した。`tests/data/sctpManagerConnect.test.ts` は `ensureStarted()` が呼ばれることを確認する形に直した。
+- 完了条件の `NEGOTIATION_TRANSACTION.md` の更新は、develop にこの文書がないため対象外。
+
+> 調査基準: `support-fallback-state`(`469c5ed1`)へリベースした後の `ticket/27e384b5-...` ブランチ。
+> negotiation transaction へのリファクタで、`connect()` は `peerConnection.ts` から `negotiation/transportActivation.ts` に移動しています。本チケットの行番号は、すべてこのリベース後のものです。
+
+#### 1. 目的と背景
+
+##### 現象
+
+SCTP の `m=application` を含まずに確立した `RTCPeerConnection` に、後の再交渉で DataChannel/SCTP を追加しても、SCTP association が開始されません。DataChannel は `connecting` のまま止まります。
+
+- downstream での再現: RelayMessenger/Relay-SDK PR #440(`werift 0.24.4`)<https://github.com/RelayMessenger/Relay-SDK/pull/440>
+  - 最初に audio だけで接続を確立する。
+  - その後、SFU の re-offer で `m=application ... UDP/DTLS/SCTP webrtc-datachannel` が追加される。
+  - SDP の再交渉は成功し、ICE/DTLS も connected のまま維持される。それでも SCTP は開始されない。
+- Relay-SDK は、private の `sctpManager.connectSctp()` を外から呼び出し、passive 側で接続済みのケースを独自にガードすることで回避しています。標準どおりの再交渉なので、この回避策が要らない状態にすることが目的です。
+
+##### リベース後も再現することを確認済み
+
+`tests/integrate/negotiationTransactionUtils.ts` の `createConnectedVideoPeers()` で video だけの接続を作り、その後、片側で `createDataChannel()` してから offer/answer を 1 往復させました。2 秒後の状態は次のとおりです(一時テストで計測し、計測後に削除済み)。
+
+| re-offer する側 | DataChannel | 両側の `sctp.state` / `started` / `associationState` | DTLS transport | `connectionState` |
+| --- | --- | --- | --- | --- |
+| 元の offerer(ICE controlling) | `connecting` | `new` / `false` / `CLOSED(1)` | BUNDLE で既存の 1 本を共有 | 両側 `connected` |
+| 元の answerer(ICE controlled) | `connecting` | `new` / `false` / `CLOSED(1)` | 同上 | 両側 `connected` |
+
+- 設計ドキュメントにも既知の制約として記載されています。`packages/webrtc/NEGOTIATION_TRANSACTION.md:515-516`(生成物は `doc/_media/NEGOTIATION_TRANSACTION.md`)の該当箇所は次のとおりです。
+
+  > A DataChannel created on an already connected session without an SCTP association does not open after renegotiation (existing since `develop`).
+
+  本チケットで修正し、この制約の記述を削除します。
+
+##### werift の不具合と言える理由
+
+- 後続の offer/answer で `m=application` を追加することは、JSEP 上正当なユースケースです(RFC 8841 の SDP 定義、RFC 8831 / RFC 8864 の DataChannel)。
+- `NEGOTIATION_TRANSACTION.md` の commit 規約(`:41`)にも「Start remaining asynchronous connect work」とあります。answer の commit 後に SCTP 層を起動するのは、設計上の責務です。
+- 現在の実装では、SCTP の起動が「ICE/DTLS を初めて起動するフロー」にしか結び付いていません。
+
+##### 根本原因(リベース後のコード)
+
+###### 原因 A: `TransportActivation.connect()` が early return するため SCTP 起動に到達しない
+
+`packages/webrtc/src/negotiation/transportActivation.ts:139-183`
+
+```ts
+if (iceTransport.state === "connected" && dtlsTransport.state === "connected") {
+  return;                                   // ← 再交渉 (後付け SCTP) ではここで抜ける
+}
+this.secure.setConnectionState("connecting");
+await iceTransport.start();                 // ← ICE が connected でも無条件に呼ぶ
+if (checkDtlsConnected()) return;           // ← ICE restart 時はここで抜ける
+await dtlsTransport.start();
+if (this.sctp.sctpTransport && this.sctp.sctpTransport.dtlsTransport.id === dtlsTransport.id) {
+  await this.sctp.connectSctp();            // ← 初回 DTLS 起動時にしか到達しない
+}
+```
+
+- `connect()` は answer と pranswer のたびに fire-and-forget で呼ばれます。
+  - local の answer/pranswer: `peerConnection.ts:1183-1196`
+  - remote の answer/pranswer: `peerConnection.ts:1465-1477`
+- `connect()` が走る時点で、SCTP の remote port は既に設定されています。
+  - remote re-offer の場合:
+    - `currentRemoteDescription` があるので `preserveCurrentTransport` は true。
+    - ただし `sctpRemotePort` が未設定なので、`RemoteMediaApplication.accept()` が `setRemoteSCTP()` を呼ぶ(`negotiation/remoteMediaApplication.ts:93-95`, `357-361`)。
+    - local answer の commit 時に `activatePendingRemote()` でも再設定される(`transportActivation.ts:102-104`、呼び出し元は `peerConnection.ts:993`)。
+  - local re-offer の場合: remote answer の `accept()` で設定される。
+- BUNDLE(既定)では、後付けの SCTP transport も既存の DTLS transport を共有します。
+  - local 側で追加する場合: `createDataChannel()` → `createSctpTransport()` → `findOrCreateTransport()`(`peerConnection.ts:569-601`, `647-`)。
+  - remote offer で追加する場合: `RemoteMediaApplication.associate()`(`remoteMediaApplication.ts:122-129`)。
+
+  そのため ICE と DTLS の両方が connected の時点で return し、`connectSctp()` には到達しません。`bundlePolicy: "disable"` のように新しい DTLS transport ができる場合は、初回の起動経路を通るので開始されます。
+
+###### 原因 B: `connectSctp()` が冪等でなく、passive に確立済みの association を壊す
+
+`packages/webrtc/src/sctpManager.ts:195-203`
+
+```ts
+await this.sctpTransport.start(this.sctpRemotePort);
+await this.sctpTransport.sctp.stateChanged.connected.asPromise();
+```
+
+- 関係するコードの動作:
+  - `RTCSctpTransport.start()`(`transport/sctp.ts:381-390`):
+    - ICE role から `sctp.isServer` を決める。controlled なら server。
+    - `dataChannelId` を 0 または 1 に決める。
+    - `SCTP.start()` を呼ぶ。
+  - `SCTP.start()`(`packages/sctp/src/sctp.ts:1366-1379`): `started === false` の場合だけ `setConnectionState("connecting")` を実行する。client なら INIT を送って COOKIE_WAIT に入る。
+- 未 start の SCTP も、remote からの INIT / COOKIE_ECHO を受けると ESTABLISHED になります。
+  - `SCTP.isServer` の初期値は `true`(`sctp.ts:131`)。
+  - `transport.onData` は constructor で接続済み(`sctp.ts:228`)。
+  - INIT と COOKIE_ECHO の受信処理は `sctp.ts:354-355`, `478`。
+
+  その結果、`state === "connected"` かつ `started === false` という状態が生じます。
+- この状態で `connectSctp()` を呼ぶと、次の問題が起きます。
+  1. `sctp.state` が `"connected"` から `"connecting"` に戻る。
+  2. local が ICE controlling の場合、`isServer = false` に切り替わり、2 回目の INIT を送り、`associationState` が COOKIE_WAIT に戻る。
+  3. local が passive の場合、もう発火しない `stateChanged.connected` を待ち続ける。
+- 潜在バグ: start を経由せずに確立すると、`RTCSctpTransport.dataChannelId` が `undefined` のままになります。その後、in-band channel の stream id を採番するとき(`transport/sctp.ts:303-310`)に `streamId.toString()` で TypeError が出ます。
+
+###### リファクタ時に壊しやすい制約(現行コードで確認済み)
+
+- **DTLS の二重 start**: `RTCDtlsTransport.start()` は `state !== "new"` のとき throw します(`transport/dtls.ts:185-188`)。DTLS が connecting の最中に `connect()` が重複して走った場合、reject されて `connectionState` が `failed` になります。
+- **ICE の再 connect**: `RTCIceTransport.start()`(`transport/ice.ts:451-476`)は、状態に関係なく `setState("checking")` と `connection.connect()` を実行します。
+  - 現行の `connect()` は、ICE が connected で DTLS だけ未接続の場合にも `iceTransport.start()` を呼んでいる。
+  - リファクタではこの挙動を明示的に扱い、悪化させないこと。少なくとも「ICE も DTLS も connected」の場合は ICE を触らないこと。
+- **接続状態の揺れ**: `setConnectionState("connecting")`(`secureTransportManager.ts:664-671`)を「SCTP だけを起動したい」ケースで呼ぶと、`connectionstatechange` が `connected → connecting → connected` と余分に発火します。
+- **pranswer**: pranswer でも `connect()` が走ります(provisional の ICE/DTLS 生成は別に `connectPending()` が担う)。設計(`NEGOTIATION_TRANSACTION.md` の pranswer 節)では「pranswer 中に新しい SCTP association / DCEP が active になってよい」とされています。後付けの SCTP も pranswer の時点で起動しうるので、rollback との整合が必要です。扱いは 2.5 で決定済みです。
+- **rollback の穴**: `SctpTransportManager.restoreNegotiationState()`(`sctpManager.ts:138-169`)が association を stop するのは、baseline に存在しない(transaction 中に追加された)transport だけです。
+  - 後付け SCTP の典型パターンでは、transport が baseline に含まれる。`createDataChannel()` を `createOffer()` より前に呼ぶため、transaction 開始時の snapshot に入るからである。ただし baseline 上では未交渉で、`remotePort` は無い。
+  - この場合 rollback は MID や remote port を戻すだけで、pending 中に走った association は残る。
+  - transaction 中に追加された application-owned の transport で association が走っていた場合は、transport ごと stop して破棄する。このとき stream id 未割当て(未 attach)の channel は `connecting` のまま孤立する。
+
+#### 2. 実装すべき変更
+
+##### 2.1 `TransportActivation.connect()` を「層ごとに独立して保証する」形にする
+
+対象: `packages/webrtc/src/negotiation/transportActivation.ts:139-183`
+
+- ICE、DTLS、SCTP を層ごとに判定し、下位層の early return で上位層がスキップされないようにする。
+- 方針の例:
+
+```ts
+const iceUsable = ["connected", "completed"].includes(iceTransport.state);
+const dtlsConnected = dtlsTransport.state === "connected";
+if (!iceUsable || !dtlsConnected) {
+  this.secure.setConnectionState("connecting"); // ICE/DTLS を実際に起動・待機するときだけ
+}
+if (!iceUsable) await iceTransport.start();      // 初回交渉 / ICE restart (state "new")
+if (dtlsTransport.state === "new") {
+  await dtlsTransport.start();
+} else if (dtlsTransport.state === "connecting") {
+  await /* DTLS connected を待つ (二重 start で throw させない) */;
+}
+if (this.sctp.sctpTransport && this.sctp.sctpTransport.dtlsTransport.id === dtlsTransport.id) {
+  await this.sctp.connectSctp();               // 層ごとに独立して保証
+}
+```
+
+- 次の挙動は変えない:
+  - 初回交渉での ICE/DTLS 起動。
+  - ICE restart の commit 後に ICE を再起動すること(state が `"new"` に戻る)。
+  - 最終的な `setConnectionState("connected" | "failed")` の判定。
+- ICE が `"checking"` / `"disconnected"` などのときの扱い(start を呼ぶかどうか)は、現行の挙動から退行しないように決め、テストで固定する。
+- SCTP の待機で `Promise.allSettled` が終わらず、初回交渉で `connectionState` が `connected` になるタイミングが現状より遅れることがないようにする。
+
+##### 2.2 SCTP の起動を冪等かつ passive でも安全にする
+
+対象: `packages/webrtc/src/sctpManager.ts`(`connectSctp`)、`packages/webrtc/src/transport/sctp.ts`(`RTCSctpTransport`)
+
+- `start()` の意味は変えない。代わりに `RTCSctpTransport.ensureStarted(remotePort)` に相当するメソッドを追加することを推奨する。
+- 状態ごとに保証すべき挙動:
+
+| SCTP の状態 | 期待する動作 |
+| --- | --- |
+| `state === "connected"`(passive に確立して `started === false` の場合も含む) | 再 start しない。INIT を送らず、state も変えない。role と `dataChannelId` の parity だけ確定する |
+| `started === true` でハンドシェイク中 | INIT を重複送信せず、`connected` を待つ |
+| 未 start(`"new"`) | `connected` の待ち受けを start より前に登録し、1 回だけ start する |
+| `"closed"` | 待ち続けない(即 return するか、reject してログに残す) |
+| 同じ application section で再交渉を繰り返す | 確立済みの association を再起動しない |
+
+- `connectSctp()` の例:
+
+```ts
+async connectSctp() {
+  if (!this.sctpTransport || !this.sctpRemotePort) return;
+  const sctp = this.sctpTransport.sctp;
+  if (sctp.state === "connected") { /* role 確定のみ */ return; }
+  const connected = sctp.stateChanged.connected.asPromise(); // 遷移の取りこぼしを防ぐ
+  await this.sctpTransport.ensureStarted(this.sctpRemotePort);
+  if (sctp.state !== "connected") await connected;           // closed との race も考慮
+}
+```
+
+- `dataChannelId` と `sctp.isServer` の確定を `start()` から分離する。passive に確立した場合でも `dataChannelFlush` の採番が壊れないようにするため。
+  - 方法は「`ensureStarted` 内で常に確定する」か「flush 時に `dataChannelId ??= isServer ? 0 : 1` で遅延確定する」のどちらか。
+  - parity は RFC 8832(DTLS client が偶数)に合わせ、既存の「ICE controlling = DTLS server = 奇数」という対応を維持する。
+- `packages/sctp` の `SCTP.start()` は変更せず、webrtc 層で閉じる修正を優先する。sctp 側を変える場合は cross-package の変更になるので、sctp 単体テストも追加する。
+- 外部から `connectSctp()` を呼んでいる downstream(Relay-SDK)のためにも、何度呼んでも安全であることを保証する。
+
+##### 2.3 `createDataChannel()` を SCTP 起動のトリガーにしない
+
+- SCTP association は、交渉済みの `m=application` に属します。DataChannel オブジェクトを作るタイミングとは無関係です。
+- `negotiated: true` の channel では、remote が先に SCTP を開始していることがあります。`createDataChannel()` を起点にすると、順序の競合が生じ、確立済みの association を再起動する原因になります。
+- 起動のトリガーは、`connect()` 経路の「application m-line の交渉成功(answer/pranswer)と、bound DTLS が利用可能であること」に限定します。
+
+##### 2.4 ドキュメント更新
+
+- `packages/webrtc/NEGOTIATION_TRANSACTION.md:515-516` の既知の制約(後付け DataChannel が開かない)を削除する。
+- 同じファイルの pranswer / rollback 節(200-221)を、2.5 の決定に合わせて書き換える。
+  - 「後付けの SCTP は、bound DTLS が接続済みでも、application m-line を含む pranswer / answer の適用後に起動する」。
+  - 「baseline に交渉済みの SCTP binding が無いのに pending 中に走った association は、transport が baseline に含まれていても rollback で破棄する」。
+  - 「application-owned の transport は新しい未起動の association で残り、未 attach の channel を次の交渉に持ち越す」。
+- `npm run doc` を実行し、`doc/_media/NEGOTIATION_TRANSACTION.md` に反映する。
+- public API は変更しない。`changelog.md` には、修正内容を記述する欄があれば追記する。
+
+##### 2.5 決定事項: 後付け SCTP の pranswer での起動と rollback 時の破棄
+
+**決定**: 後付け SCTP の起動を最終 answer まで遅らせることは**しない**。
+
+- pranswer で application m-line が交渉された時点で起動する(2.1 / 2.2 の経路そのまま)。
+- rollback した場合、pending 中に走った association は**破棄する**。
+- 初回交渉の pranswer と同じ規則にする。既存の挙動とテスト `negotiationTransaction.test.ts:1881`「initial pranswer starts provisional DataChannel traffic and rollback closes it」に揃える。
+
+###### 根拠(仕様と主要実装の調査結果)
+
+| 参照先 | 起動のタイミング | rollback 時の扱い |
+| --- | --- | --- |
+| RFC 9429(JSEP)§5.11 Applying an Answer | 「pranswer または answer」を適用するとき、有効な association が無ければ "prepare to initiate an SCTP association" とする。remote SCTP port が変われば、have-remote-pranswer の状態でも既存の association を破棄する | §5.7: pranswer も rollback できる。"Any resources or candidates that were allocated by the abandoned local description are discarded" |
+| RFC 9429 §4.1.10 | pranswer は "MUST NOT result in the freeing of allocated resources"、"may result in the start of media transmission" | 確保した資源の解放は final answer か rollback で行う |
+| W3C webrtc-pc(set the session description) | "answer" / "pranswer" で SCTP association を確立する(DataChannel ID の割当てと max message size の更新も pranswer で行う) | rollback で `[[SctpTransport]]` を `[[LastStableStateSctpTransport]]` に戻す。後付けの場合は null に戻る |
+| Chrome(libwebrtc `pc/sdp_offer_answer.cc` `PushdownMediaDescription`) | local と remote の description(pending を含む)の両方に SCTP section があれば `StartSctpTransport`。つまり pranswer で起動する | `Rollback()` は have-local-offer / have-remote-offer でしか許可しない。pranswer 状態の rollback は INVALID_STATE になるので、破棄の処理が不要になっている |
+| Pion(`peerconnection.go` `startRTP` → `startSCTP`、`sctptransport.go` `StartContext`) | final answer(local answer / remote answer)の適用時だけ起動する。再交渉の answer のたびに呼ぶが、`isStarted` ガードで冪等にしている | pranswer で起動しないので、破棄の問題が起きない |
+
+###### 判断の理由
+
+1. **仕様**
+   - JSEP と W3C は、どちらも pranswer を SCTP の確立手順の対象にしている。
+   - rollback は「破棄された description が確保した資源を捨てる」と定めている。
+   - したがって「pranswer で起動し、rollback で破棄する」が仕様にそのまま沿う。
+2. **遅らせても破棄処理は必要**
+   - remote(Chrome)は pranswer の時点で INIT を送ってくる。
+   - werift の未起動の SCTP は `isServer` の初期値が `true` なので、その INIT に応答して passive に確立してしまう(原因 B)。
+   - local の起動を最終 answer まで遅らせても「pending 中に確立した association」は生じうる。rollback での破棄はどちらにしても実装が必要になる。
+3. **werift 内での一貫性**
+   - 初回交渉の pranswer では既に DataChannel を開き、rollback で閉じている。
+   - 後付けのケースだけ遅らせると、「接続済みかどうか」で規則が分かれる。
+   - Pion のやり方(final answer まで遅らせる)は単純だが、Pion は再交渉で pranswer の transport を扱っていない。werift の設計(pranswer で provisional な DataChannel を許可)とは合わない。
+   - Chrome は pranswer 状態の rollback を禁止して破棄の問題を避けている。werift は JSEP どおりその rollback を許可しているので、破棄を実装する必要がある。
+4. **Pion から取り入れる点**: 「answer / pranswer のたびに start を呼び、`isStarted` 相当のガードで冪等にする」という方式は 2.2 として採用する。
+
+###### rollback 時の扱い(確定した規則)
+
+- **破棄の対象を判定する**
+  - baseline に交渉済みの SCTP binding が無い(`baseline.remotePort === undefined`)のに、現在の association が初期状態でない場合、その association を「pending-only association」とみなす。
+  - 初期状態でないとは、`sctp.started`、`state !== "new"`、`associationState !== CLOSED` のいずれかが成り立つこと。
+  - transport が baseline に含まれるかどうかは問わない。remote からの INIT で passive に確立したものも対象に含める。
+- **association の破棄**: 既存の `RTCSctpTransport.stop()` で ABORT を送り、association を閉じる。
+- **channel の扱い**
+  - stream id 割当て済み(attach 済み)の channel:
+    - `stateChanged.closed` の handler(`transport/sctp.ts:94-99`)で `closed` にする。
+    - pending 中に open になったものもこれに含まれる。設計の "channels opened on a pending-only association close when it is discarded" に従う。
+  - stream id 未割当てで queue に残っている(未 attach の)channel: `connecting` のまま application のオブジェクトとして残し、次の交渉で open にする。
+- **`RTCSctpTransport` オブジェクトの扱い**
+  - application-owned の場合: `createDataChannel` 由来なら、baseline にあったか transaction 中に追加されたかに関係なく残す。
+    - 同じ DTLS transport 上に、新しい未起動の `SCTP` インスタンスを作り直す。
+    - 現在の `setDtlsTransport()` は同じ DTLS id だと早期 return するので、`resetAssociation()` 相当のメソッドを新設する。
+    - `stop()` が `dtlsTransport.dataReceiver` を空にする点にも対処する。BUNDLE で共有している DTLS 上で、SCTP の受信経路を張り直す必要がある。
+    - `detachFromDescription()` と `sctpRemotePort = undefined` で未交渉に戻す。これで次の `createOffer()` に再び `m=application` が載る。
+  - description 由来の場合(remote offer が作ったもの): 従来どおり stop して破棄する。
+  - これに合わせて、`restoreNegotiationState()` の `keepAdded` 判定(`associationState === CLOSED` を条件にしている)を上記の規則に置き換える。
+- **影響を受けないもの**: baseline で既に交渉済みの association(`baseline.remotePort` あり)。既存の DataChannel は committed な association に残る。
+- **final answer での確定**
+  - pranswer と同じ sctp-port を受け入れた場合: association を継続する。再起動も INIT の再送もしない。
+  - final answer が `m=application` を拒否した場合(port 0、RFC 8841 §10.3-10.4): association を閉じる。
+  - sctp-port が変わった場合(JSEP §5.11): 既存の validate に従う。変更前に拒否するなら拒否する。受け入れる場合は association を破棄して作り直す。
+  - どちらの挙動になるかはテストで固定する。
+- **適用範囲**: Relay-SDK の再現経路は pranswer を使わないので、この規則の影響を受けない。
+
+#### 3. テスト計画(PeerConnection レベル)
+
+##### 配置と規約
+
+- 新規ファイル `packages/webrtc/tests/integrate/lateSctpNegotiation.test.ts` を作る。あるいは `negotiationTransactionRegression.test.ts` に追記してもよい。
+- Arrange 用の helper は、既存の共有ファイル `tests/integrate/negotiationTransactionUtils.ts` を再利用する。新しい helper もこのファイルに追加する。
+  - 再利用する helper: `createConnectedVideoPeers`, `sendAndExpectData`, `waitForDtlsConnected`, `assertNegotiationInvariants`, `createDuplexSession` / `negotiate` / `step`。
+  - 追加する helper の例: 「後付けで DataChannel を交渉して open を待つ」。
+- 各操作の後に `assertNegotiationInvariants()` を通す(package `AGENTS.md` Do #6)。
+  - 現在の `assertSctpBinding` は、application 未交渉の SCTP について「MID も remote port も無いこと」を検査している(`negotiationTransactionUtils.ts:799-808`)。
+  - 次の 2 つの状態も検出できるように拡張する:
+    - 「交渉済み、かつ bound DTLS が connected なのに association が未起動」
+    - 「未交渉(stable で application m-line が無い)なのに association が初期状態でない」。2.5 の rollback 破棄漏れを検出するため。
+- Act / Assert には日本語コメントを付ける。
+
+##### シナリオ
+
+| # | シナリオ | 確認すること |
+| --- | --- | --- |
+| A | video だけで接続済み。元の answerer(ICE controlled = SCTP passive)が `createDataChannel` して re-offer する(downstream と同じ形) | 再交渉の前: ICE/DTLS は connected、SCTP は無い。再交渉の後: 両側で `sctp.state === "connected"`、channel が `open`、双方向に送受信できる |
+| B | 同じ状況で、元の offerer(controlling = SCTP client)が re-offer する | A と同じ |
+| C | 両側で `createDataChannel("late", { negotiated: true, id: 2 /*または 3*/, ordered: false, maxRetransmits: 0 })` を作ってから再交渉する | 両側が open になり、送受信できる |
+| D | remote が先に INIT を送り、local が `started === false` のまま `connected` になった後、通常の post-negotiation 経路が走る | `connected` のまま変わらない。2 回目の INIT を送らない(`sendChunk` を spy して数える)。COOKIE_WAIT に戻らない。in-band / negotiated のどちらの channel でも送受信できる。local が controlling の場合も確認する |
+| E | 同じ application section で、もう一度 offer/answer する | association を再起動しない(INIT の数が増えない、`stateChanged.connecting` が発火しない)。既存の channel は open のまま |
+| F | 初回交渉から DataChannel を含む既存の経路 | 既存テスト(`integrate/datachannel.test.ts`, `negotiationTransaction*.test.ts`, `createDuplexSession` を使う matrix / property)がそのまま green |
+| G | 後付け SCTP の再交渉中の `connectionState` | `connectionstatechange` が余分に発火しない(`connecting` に戻らない) |
+| H | ICE restart(`negotiate(..., { iceRestart: true })`) | 既存の DataChannel が開いたまま残り、SCTP を再起動しない |
+| I-1 | 接続済みのセッションで、後付けの `m=application` を pranswer → final answer の順で確定する | pranswer の時点で channel が open になり、双方向に送受信できる。final answer の後も association を継続する(INIT の数が増えない、`connecting` に戻らない) |
+| I-2 | 後付けの `m=application` を pranswer で起動した後、両側で rollback する。DataChannel は `createOffer()` より前に作る(transport が baseline に含まれる典型パターン) | attach 済みの channel が `closed` になる。remote 側の association も ABORT で閉じる。`pc.sctpTransport` は application-owned として残り、MID も remote port も無く、association は初期状態。`assertNegotiationInvariants` が通る |
+| I-3 | I-2 の後に、rollback 後に作った channel と未 attach で残った channel を持ったまま、通常の offer/answer をやり直す | 次の offer に `m=application` が載る。新しい association で channel が open になり、双方向に送受信できる |
+| I-4 | pranswer の間に remote が先に INIT を送り、local は未起動のまま passive に確立する。その後 rollback する | `started === false` の passive association も破棄される(破棄の判定が `started` に依存しないこと) |
+| I-5 | DataChannel を transaction 中(have-local-offer / have-remote-offer)に作り、pranswer で起動した後に rollback する | transport は application-owned として残り、association は作り直される。未 attach の channel が孤立せず、I-3 と同様に次の交渉で open になる |
+| I-6 | pranswer で起動した後、final answer が `m=application` を拒否する(port 0) | association が閉じ、attach 済みの channel が `closed` になる。invariants が通る |
+| J | `bundlePolicy: "disable"` で SCTP を後付けする | 別の DTLS transport で起動する経路が退行していない |
+
+- D の作り方は、次のいずれか:
+  - re-offer 側の `setRemoteDescription(answer)` を遅らせ、answerer 側(controlling)の INIT が先に届く順序にする。
+  - `tests/fixture.ts` の `dtlsTransportPair()` の上に `RTCSctpTransport` を 2 つ作り、片側だけ start して passive に確立させてから `SctpTransportManager.connectSctp()` を呼ぶ。
+
+#### 4. 制約・注意点
+
+- **ICE restart / pranswer の互換性**
+  - restart の commit 後に ICE だけを再起動する挙動(DTLS は connected のまま)を変えない。
+  - provisional generation は `connectPending()` が担うので、`connect()` の変更で干渉しないこと。
+- **pranswer と rollback の整合(2.5 で決定済み)**
+  - pranswer で起動し、rollback で破棄する。破棄するかどうかは association の状態と baseline の binding で判定し、transport が baseline に含まれるかどうかや `started` には依存させない。
+  - rollback の後も application-owned の transport は再利用できる状態(未起動の新しい association)で残すこと。
+  - 共有している DTLS の `dataReceiver` を空のまま放置しないこと。放置すると、以降の SCTP 受信が失われる。
+  - remote の ABORT 受信とローカルの rollback が競合しても、channel の `closed` 通知が二重に発火しないこと。
+- **重複起動の禁止**: DTLS は `"connecting"` のときに start しないこと。SCTP は `connected` 済みのものを start しないこと。
+- **待機で詰まらない**
+  - SCTP が `closed` になった場合や、remote が応答しない場合に、`connect()` が永久に待たないこと。
+  - 待ち受けを登録する前に遷移が完了して、取りこぼすことがないようにする。
+- **低レイヤの変更は最小限に**: `packages/sctp` の `started` / `state` の意味は、他の利用者にも影響する。webrtc 層で閉じる修正を優先する。
+- **negotiation 変更の規約**(package `AGENTS.md` Do #6-7)
+  - pending の description が current session の live state を書き換えないこと。
+  - `assertNegotiationInvariants` で新しい状態クラスを検出できるようにしておくこと。
+  - review を依頼する前に、より深い property search と、pending 中に live state を書き込む全経路の self-review を行うこと。
+- **WPT の境界**: WPT 専用の厳格な挙動を `src` に持ち込まない(root `AGENTS.md` Do #14)。
+- **revision の比較**: active worktree を checkout / reset / stash しない。`git worktree add --detach <tmp> <rev>` を使う(root `AGENTS.md` Do #15)。
+- **根本原因を直す**: retry やタイムアウトの延長で症状を隠さない(root `AGENTS.md` Do #11)。
+
+#### 5. 完了条件
+
+- [ ] SCTP なしで確立した PeerConnection に、作り直さずに後の再交渉で `m=application` を追加できる。
+- [ ] bound DTLS が既に connected でも(BUNDLE 共有)、answer の commit 後に SCTP association が起動する。
+- [ ] remote 起点で確立した association や接続済みの association を再起動しない。2 回目の INIT を送らず、state も後退しない。
+- [ ] `connectSctp()`(または新設の `ensureStarted`)は何度呼んでも安全で、passive に確立した後も stream id の採番が壊れない。
+- [ ] 後付けの SCTP を交渉した後、in-band と `negotiated: true` の両方の DataChannel が open になり、双方向に送受信できる。
+- [ ] offerer / answerer(ICE controlling / controlled)の両方向をテストしている(シナリオ A〜E)。
+- [ ] 後付けの SCTP は pranswer で起動し、final answer で再起動されない(シナリオ I-1)。
+- [ ] pranswer の後に rollback すると、pending-only association が破棄される(passive に確立したものや、baseline にある transport の上で走ったものも含む)。attach 済みの channel は `closed` になり、未 attach の channel と application-owned の transport は次の交渉で使える(シナリオ I-2〜I-5)。
+- [ ] final answer で `m=application` を拒否すると、association が閉じる(シナリオ I-6)。
+- [ ] `assertNegotiationInvariants` で、未交渉なのに association が残っている状態を検出できる。
+- [ ] 初回交渉での DataChannel、ICE restart、`bundlePolicy: "disable"` の挙動が変わらない。再交渉時に `connectionState` が揺れない。
+- [ ] `NEGOTIATION_TRANSACTION.md` の既知の制約(515-516 行)を削除し、pranswer / rollback 節(200-221 行)を 2.5 の規則に更新し、`npm run doc` で生成物に反映している。
+- [ ] 検証コマンドがすべて通る:
+  - `cd packages/webrtc && npm run type && npm test`
+  - `WERIFT_NEGOTIATION_FUZZ_SEEDS=300 WERIFT_NEGOTIATION_FUZZ_STEPS=20 npx vitest run tests/integrate/negotiationTransactionProperty.test.ts`(package `AGENTS.md` Do #7)
+  - `packages/sctp` を変更した場合は `cd packages/sctp && npm run type && npm test`、さらに root で `npm run type` と `npm run test:small`
+  - DataChannel の挙動に関わる WPT allowlist が退行していないことを、必要に応じて `npm run wpt --workspace packages/webrtc` で確認する
+
+#### 参考: 主な関連箇所(リベース後)
+
+| ファイル | 箇所 |
+| --- | --- |
+| `packages/webrtc/src/negotiation/transportActivation.ts` | `cleanupInitialProvisional` 39-65(初回交渉専用で、本件とは無関係)、`activatePendingRemote` 68-122(`setRemoteSCTP` 102-104)、**`connect` 139-183**、`connectPending` 186-205 |
+| `packages/webrtc/src/peerConnection.ts` | `activatePendingRemote` の呼び出し 993 / 1017、local の answer/pranswer からの connect 1183-1196、remote の answer/pranswer からの connect 1465-1477、`createSctpTransport` 569-577、`createDataChannel` 579-601、`findOrCreateTransport` 647- |
+| `packages/webrtc/src/negotiation/remoteMediaApplication.ts` | `preserveCurrentTransport` 93-95、`associate`(application)122-129、`accept` 内の `setRemoteSCTP` 357-361 |
+| `packages/webrtc/src/sctpManager.ts` | `snapshotNegotiationState` 125-135、`restoreNegotiationState` 138-169、**`connectSctp` 195-203**、`setRemoteSCTP` 205-224 |
+| `packages/webrtc/src/transport/sctp.ts` | `setDtlsTransport` 59-112(`stateChanged.connected` で negotiated channel を open にする)、`isServer` 114-116、`dataChannelFlush` 295-、`start` 381-390、`stop` 392-395(`dtlsTransport.dataReceiver` を空にする) |
+| `packages/sctp/src/sctp.ts` | `started` / `isServer` の初期値 129-131、INIT の受信 353-394、`start` 1366-1379、`setState` / `setConnectionState` 1428-1457 |
+| `packages/webrtc/src/transport/ice.ts` | `start` 451-476 |
+| `packages/webrtc/src/transport/dtls.ts` | `start` 185-(`state !== "new"` のとき throw) |
+| `packages/webrtc/src/secureTransportManager.ts` | `setConnectionState` 664-671 |
+| 設計ドキュメント | `packages/webrtc/NEGOTIATION_TRANSACTION.md`(commit 規約 41、pranswer / rollback 200-221、既知の制約 515-516) |
+| 既存の前例テスト | `tests/integrate/negotiationTransaction.test.ts:1881`(初回交渉の pranswer で DataChannel を開き、rollback で閉じる) |
+| 外部仕様・実装(2.5 の根拠) | RFC 9429 §4.1.10 / §4.1.10.2 / §5.7 / §5.11、RFC 8841 §10.3-10.4、W3C webrtc-pc "set the session description"(`[[LastStableStateSctpTransport]]`)、libwebrtc `pc/sdp_offer_answer.cc`(`PushdownMediaDescription` 末尾の `StartSctpTransport`、`Rollback()` の状態制限、2026-10-07 時点の main)、Pion `peerconnection.go`(`startRTP` / `SetLocalDescription` / `SetRemoteDescription`)と `sctptransport.go`(`StartContext` の `isStarted` ガード、2026-10-07 時点の master) |
+| テストの Arrange 資産 | `tests/integrate/negotiationTransactionUtils.ts`(`createConnectedVideoPeers` 31、`sendAndExpectData` 150、`assertNegotiationInvariants` 471、`createDuplexSession` 855、`negotiate` 971、`waitForDtlsConnected` 1037)、`tests/fixture.ts`(`dtlsTransportPair`)、`tests/utils.ts` |
+
 ## 完了条件
 
 - [ ] 各問題を develop 上のテストで再現し（修正前に失敗）、修正後に成功することを確認する。
 - [ ] テストは Arrange / Act / Assert で書き、Arrange は各 package の `tests/utils.ts` に置く。Act / Assert に日本語コメントを付ける。
 - [ ] `packages/sctp`、`packages/rtp`、`packages/webrtc` のテストと型検査、`npm run doc:check` を実行する。
 - [ ] 公開 API 追加（`SrtpReplayError`、`SrtpReplayWindow`、`SRTP_REPLAY_WINDOW_SIZE`）に合わせて生成 docs と `changelog.md` を更新する。
-- [ ] 統合元 3 チケット（3〜5）の完了条件を満たし、マージ後の `packages/sctp` で各チケットの回帰テストがすべて成功する。
+- [ ] 統合元 4 チケット（3〜6）の完了条件を満たし、マージ後の `packages/sctp` / `packages/webrtc` で各チケットの回帰テストがすべて成功する。

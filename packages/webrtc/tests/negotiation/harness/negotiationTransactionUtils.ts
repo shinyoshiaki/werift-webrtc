@@ -8,6 +8,7 @@ import {
   TURN_TEST_PASSWORD,
   TURN_TEST_USERNAME,
 } from "../../../../ice/tests/utils";
+import { InitChunk } from "../../../../sctp/src/chunk";
 import type { RTCIceCandidate } from "../../../src";
 import {
   MediaStreamTrack,
@@ -30,6 +31,8 @@ import {
 import { ridRouteKey } from "../../../src/negotiation/internalState";
 import { type MediaDescription, SessionDescription } from "../../../src/sdp";
 import { RTCIceTransport } from "../../../src/transport/ice";
+import { RTCSctpTransport } from "../../../src/transport/sctp";
+import { dtlsTransportPair } from "../../fixture";
 
 export * from "../../../tools/negotiation-diff/mutations";
 
@@ -471,7 +474,15 @@ function assertDescriptionBindings(pc: RTCPeerConnection) {
     const application = snapshot.currentRemote.media.find(
       (media) => media.kind === "application" && media.port !== 0,
     );
-    if (application && pc.sctpTransport) {
+    const localApplicationRejected = snapshot.currentLocal?.media.some(
+      (media) => media.kind === "application" && media.port === 0,
+    );
+    if (
+      application &&
+      !localApplicationRejected &&
+      pc.sctpTransport &&
+      pc.sctpRemotePort !== undefined
+    ) {
       expect(pc.sctpRemotePort).toBe(application.sctpPort);
     }
   }
@@ -1137,14 +1148,53 @@ function assertSctpBinding(pc: RTCPeerConnection, snapshot: Snapshot) {
     // createDataChannel だけの SCTP は未交渉: remote port に束縛されない。createOffer が
     // 予約した MID (適用前の offer が使う) は持ってよいが、current の m-line の MID とは重ならない。
     expect(pc.sctpRemotePort).toBeUndefined();
-    if (sctp.mid != undefined) {
-      expect(media.map(([, m]) => m.rtp.muxId)).not.toContain(sctp.mid);
-    }
+    // 未交渉なのに走った association (rollback の破棄漏れ) は残らない。
+    expect(sctp.associationActive).toBe(false);
+    return;
+  }
+  const applicationRejected = [
+    snapshot.currentLocal,
+    snapshot.currentRemote,
+  ].some(
+    (description) =>
+      description?.type === "answer" &&
+      description.media.some((m) => m.kind === "application" && m.port === 0),
+  );
+  if (applicationRejected && pc.sctpRemotePort !== undefined) {
+    // baseline で交渉済みの association は拒否でも閉じず、MID に束縛されたまま残る。
+    expect(sctp.mid).toBeDefined();
+    return;
+  }
+  if (applicationRejected) {
+    // proposal が起動した association は final answer の拒否で閉じ、束縛も解除される。
+    expect(sctp.mid).toBeUndefined();
+    expect(sctp.mLineIndex).toBeUndefined();
+    expect(pc.sctpRemotePort).toBeUndefined();
+    expect(sctp.associationActive).toBe(false);
+    return;
+  }
+  // A locally rejected final answer clears the negotiated binding as the
+  // description transaction commits, even if the inspection snapshot still
+  // exposes the peer's accepted offer as currentRemote.
+  if (
+    !sctp.associationActive &&
+    pc.sctpRemotePort === undefined &&
+    sctp.mid === undefined
+  ) {
+    expect(sctp.mLineIndex).toBeUndefined();
     return;
   }
   const [index, application] =
     media.find(([, m]) => m.kind === "application" && m.port !== 0) ?? [];
   if (!application) return;
+  // 交渉済みで bound ICE/DTLS が接続済みなら association は起動している。
+  if (
+    pc.sctpRemotePort !== undefined &&
+    sctp.dtlsTransport.state === "connected" &&
+    ["connected", "completed"].includes(sctp.dtlsTransport.iceTransport.state)
+  ) {
+    expect(sctp.associationActive).toBe(true);
+  }
   // SCTP は current の application m-line (MID/mLineIndex) に束縛される。
   expect(sctp.mid).toBe(application.rtp.muxId);
   expect(sctp.mLineIndex).toBe(index);
@@ -2192,6 +2242,162 @@ export function holdNextGather(pc: RTCPeerConnection) {
   return { reached, release };
 }
 
+// # late SCTP (m=application added by a renegotiation)
+
+/** Internal SCTP association (packages/sctp instance) bound to `pc`. */
+export function sctpAssociationOf(pc: RTCPeerConnection) {
+  if (!pc.sctpTransport) throw new Error("no SCTP transport");
+  return pc.sctpTransport.sctp;
+}
+
+/**
+ * Arrange: count the INIT chunks `pc`'s current association sends and its
+ * transitions back to "connecting" from now on (a restarted association).
+ */
+export function watchSctpRestart(pc: RTCPeerConnection) {
+  const association = sctpAssociationOf(pc);
+  const sendChunk = vi.spyOn(association, "sendChunk");
+  let connecting = 0;
+  const { unSubscribe } = association.stateChanged.connecting.subscribe(() => {
+    connecting++;
+  });
+  return {
+    association,
+    get inits() {
+      return sendChunk.mock.calls.filter(
+        ([chunk]) => chunk.type === InitChunk.type,
+      ).length;
+    },
+    get connecting() {
+      return connecting;
+    },
+    dispose() {
+      sendChunk.mockRestore();
+      unSubscribe();
+    },
+  };
+}
+
+/** Arrange: every `connectionstatechange` of `pc` from now on. */
+export function recordConnectionStates(pc: RTCPeerConnection) {
+  const states: string[] = [];
+  pc.connectionStateChange.subscribe((state) => states.push(state));
+  return states;
+}
+
+export async function waitForChannelState(
+  channel: RTCDataChannel,
+  state: RTCDataChannel["readyState"],
+) {
+  if (channel.readyState === state) return;
+  await withTimeout(
+    channel.stateChanged.watch((s) => s === state),
+    `DataChannel ${channel.label} did not become ${state}`,
+  );
+}
+
+export async function waitForSctpState(
+  pc: RTCPeerConnection,
+  ready: (association: ReturnType<typeof sctpAssociationOf>) => boolean,
+  message: string,
+) {
+  await withTimeout(
+    (async () => {
+      while (!pc.sctpTransport || !ready(sctpAssociationOf(pc))) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+    })(),
+    message,
+  );
+}
+
+/**
+ * Arrange: `offerer` applies a fresh offer and both peers apply the answer
+ * as a pranswer. Returns the answer SDP for a later final answer.
+ */
+export async function exchangePranswer(
+  offerer: RTCPeerConnection,
+  answerer: RTCPeerConnection,
+) {
+  await offerer.setLocalDescription(await offerer.createOffer());
+  await answerer.setRemoteDescription(offerer.localDescription!);
+  const answer = await answerer.createAnswer();
+  await answerer.setLocalDescription({ type: "pranswer", sdp: answer.sdp });
+  await offerer.setRemoteDescription({
+    type: "pranswer",
+    sdp: answerer.localDescription!.sdp,
+  });
+  return answer.sdp;
+}
+
+/** One full offer / answer round trip from `offerer`. */
+export async function exchangeOfferAnswer(
+  offerer: RTCPeerConnection,
+  answerer: RTCPeerConnection,
+) {
+  await offerer.setLocalDescription(await offerer.createOffer());
+  await answerer.setRemoteDescription(offerer.localDescription!);
+  await answerer.setLocalDescription(await answerer.createAnswer());
+  await offerer.setRemoteDescription(answerer.localDescription!);
+}
+
+/**
+ * Arrange: `offerer` creates an in-band DataChannel on a session without
+ * SCTP and negotiates it; resolves once both ends are open.
+ */
+export async function negotiateLateDataChannel(
+  offerer: RTCPeerConnection,
+  answerer: RTCPeerConnection,
+  label = "late",
+) {
+  const remote = answerer.onDataChannel.watch((c) => c.label === label);
+  const local = offerer.createDataChannel(label);
+  await exchangeOfferAnswer(offerer, answerer);
+  await waitForChannelState(local, "open");
+  const [received] = await withTimeout(remote, "No remote DataChannel");
+  return { local, remote: received };
+}
+
+/** Arrange: an unresponsive remote, `pc`'s SCTP drops every received packet. */
+export function muteSctpReceive(pc: RTCPeerConnection) {
+  if (!pc.sctpTransport) throw new Error("no SCTP transport");
+  pc.sctpTransport.dtlsTransport.dataReceiver = () => {};
+}
+
+/** Answer SDP whose m=application is rejected (port 0, RFC 8841 10.4). */
+export function rejectApplicationSection(sdp: string) {
+  return sdp.replace(/^m=application \d+ /m, "m=application 0 ");
+}
+
+/**
+ * Arrange: SCTP transports on a connected DTLS pair, both unstarted. The
+ * first one is ICE controlling.
+ */
+export async function createUnstartedSctpPair() {
+  const [client, server] = await dtlsTransportPair();
+  const [controlling, controlled] =
+    client.iceTransport.role === "controlling"
+      ? [client, server]
+      : [server, client];
+  const local = new RTCSctpTransport();
+  local.setDtlsTransport(controlling);
+  const remote = new RTCSctpTransport();
+  remote.setDtlsTransport(controlled);
+  local.setRemotePort(remote.port);
+  remote.setRemotePort(local.port);
+  return {
+    local,
+    remote,
+    close: () =>
+      Promise.allSettled([
+        local.stop(),
+        remote.stop(),
+        controlling.stop(),
+        controlled.stop(),
+      ]),
+  };
+}
+
 /**
  * Arrange: hold the DTLS handshake start of every transport `pc` has until
  * `release()` is called, so its peer's handshake stays "connecting".
@@ -2890,14 +3096,6 @@ export async function createBundledIceRestartPranswer() {
     /^a=ice-ufrag:(\S+)/m,
   )![1];
   return { ...peers, ufrag, video, audio };
-}
-
-export function recordConnectionStates(pc: RTCPeerConnection) {
-  const states: string[] = [];
-  pc.connectionStateChange.subscribe((state) => {
-    states.push(state);
-  });
-  return states;
 }
 
 /**
