@@ -32,9 +32,455 @@ develop の問題: 受信側に RFC 3711 §3.3.2 の replay list がなく、認
 - DTLS `[1.3, 1.2]` client の extended_master_secret 提示、ICE restart 中の旧 selected pair 保持、`IceTransport.close()` の二重 close guard: develop に DTLS 1.3 / WARP の datagram gate がない、または develop に既に同じ guard がある。
 - DataChannel stream ID の割り当て変更と SCTP の passive fallback INIT: Epic 4 で SCTP の開始側を DTLS role に変えたことに伴う変更。develop は ICE role のまま。
 
+## 統合したチケット
+
+同じ `packages/sctp/src/sctp.ts` の association / 送受信状態を扱う、develop ベースの SCTP 修正チケット 3 件のブランチをこのブランチへマージし、チケット内容をここへ取り込んだ。統合元チケットはアーカイブし、統合元のチケットファイルはこのブランチから削除した。
+
+統合時に決めたこと:
+- reneging（Gap ACK 済みチャンクが後の SACK から消える）の処理は 2 チケットで別々に実装されていたため 1 つにまとめた。`e639c2a5` の `gapAckedChunks` は廃止し、`c49c9ef1` の `reneged` フラグと miss indication の計上（RFC 9260 §6.2.1 D-iii）を使う。取り消されたチャンクは未確認に戻して `flightSize` に再計上し（`e639c2a5` の不変条件「`flightSize` = `inFlight` チャンクの bookSize 合計」を維持）、破棄済みチャンクは再計上しない。
+- `flightSizeDecrease()` は `inFlight` で冪等にしたので `Math.max(0, …)` の clamp を外した（`e639c2a5` の方針）。T3-rtx は Gap ACK 済み・破棄済みチャンクを再送も減算もしない。
+- `e639c2a5` のテストが使っていた秒単位の `expiry` は、`c49c9ef1` で `expiry` を epoch ms に統一したのに合わせて ms に直した。
+- FORWARD-TSN 受信時は `c49c9ef1` の再組み立て処理（`forwardSequenceNumber()` / `pruneUnorderedChunks()`）を使い、`c7fccdd1` の保留中 reset の held DATA 破棄をその後に行う。
+- 別の initiate tag の INIT（相手の再開始）で受信 TSN を初期化するときは、旧 TSN 空間の保留中 reset（`deferredReset`）と前回の reconfig 応答結果（`lastReconfigResult`）も破棄する。
+- `changelog.md` の flightSize に関する 2 項目は 1 項目にまとめた。
+
+### 3. [SCTP] Gap ACK後のT3再送でflightSizeが残存しDataChannel送信が停止する問題を修正する（#806）
+
+統合元チケット: `e639c2a5-de81-40f0-94b7-9f3980f5db3a`（ブランチ `ticket/e639c2a5-de81-40f0-94b7-9f3980f5db3a`）。以下は統合元チケットファイルの内容。
+
+- 元報告: #806（再現スクリプト・実測値・暫定パッチを含む。werift 0.24.4 / 0.26.0 / HEAD で再現）
+- 調査基準: `develop` [`565dd85fb`](https://github.com/shinyoshiaki/werift-webrtc/commit/565dd85fb530d1ddfd144a0bb74171e3a5545c90)（本 worktree の HEAD `7de370c99` も `packages/sctp/src` は同一）
+- 対象パッケージ: `werift-sctp`（`packages/sctp`）。`packages/webrtc` は `RTCSctpTransport` 経由で影響を受けるだけで、コード変更は不要
+- **優先度: 高**（長寿命の DataChannel が、接続を保ったまま送信だけ永続的に止まる）
+
+---
+
+#### 1. 目的と背景
+
+##### 現象
+
+T3-rtx が一度でもタイムアウトすると、送信側 SCTP の `flightSize` が実際の未 ACK バイト数より大きいまま残ることがある。以後は `flightSize >= cwnd` が成り立ち続けるので、`transmitOnce()` は `outboundQueue` の DATA を一つも送らない。
+
+- ICE consent は STUN で行うため、SCTP が止まっても接続は健全に見え、検知できない。
+- `timerHeartbeatExpired()` は `flightSize === 0 && outboundQueue.length === 0` のときだけ HEARTBEAT を送る。そのため HEARTBEAT も止まり、パス障害検知でも回復しない。
+- `send()` は最後のチャンクが `sentQueue` に移った時点で resolve する。そのため呼び出し側の `await send()` も永久に解決しない。
+
+##### 発生メカニズム（静的確認済み）
+
+| # | 箇所 | 内容 |
+|---|---|---|
+| 1 | `receiveSackChunk()` gap 処理 `sctp.ts:713-723` | Gap ACK されたチャンクに `acked = true` を立て、`flightSizeDecrease()` する |
+| 2 | `receiveSackChunk()` 累積 ACK `sctp.ts:684-698` | `!sChunk.acked` のときだけ `flightSizeDecrease()` する（gap ACK 済みは「減算済み」とみなす） |
+| 3 | `timer3Expired()` `sctp.ts:1196-1220` | `acked` を見ずに `sentQueue` の全チャンクを `retransmit = true` にし、集計値だけ `flightSize = 0` にする |
+| 4 | `transmitOnce()` 再送ループ `sctp.ts:1004-1026` | `retransmit` が立っていれば `acked` でも再送し、`flightSizeIncrease()` で加算し直す |
+| 5 | 2 に戻る | 累積 ACK が来ても、`acked` が立っているチャンクは減算されない。その `bookSize` が `flightSize` に永久に残る |
+| 6 | `flightSizeIncrease/Decrease` `sctp.ts:1103-1109` | チャンク単位で計上済みかを追跡しないため冪等でない。`Math.max(0, …)` の clamp が負値（過少計上）を隠している |
+
+##### 最小再現（#806）
+
+1. 36 B / 652 B / 652 B の DATA を送る（各 1 パケット）。`flightSize = 1340`
+2. 先頭 TSN を失い、後ろの 2 件を Gap ACK（`gaps: [[2, 3]]`）する。`flightSize = 36`
+3. T3 が発火する。3 件とも再送され（正しくは先頭 1 件だけ）、`flightSize = 1304`
+4. 全件を累積 ACK する。`sentQueue = 0` なのに `flightSize = 1304` が残り、`cwnd = 1236`
+5. 新しいメッセージが `outboundQueue` から出ない
+
+##### 調査で見つかった周辺の不整合（同じ根本原因の別経路）
+
+`flightSize` を集計値だけで管理し、clamp で辻褄を合わせている設計が根本原因である。#806 の経路以外にも、次の経路で過大計上・過少計上が起きる。
+
+| 経路 | 箇所 | 問題 |
+|---|---|---|
+| T3 後に再送待ちのまま累積 ACK される | `sctp.ts:691-693` | T3 で集計を 0 にしたのに、再送前に累積 ACK されたチャンクをもう一度減算する（clamp で隠れた過少計上。輻輳制御を超えた過剰送出につながる） |
+| Fast Retransmit の strike | `sctp.ts:731-739` | 3 miss で `flightSizeDecrease()` するが、再送前に再び 3 miss に達すると二重減算になる。Gap ACK 済み（`acked`）が後続 SACK から消えた reneging のケースでも二重減算になる |
+| 部分信頼性の破棄 | `maybeAbandon()` `sctp.ts:1349-1376`、`updateAdvancedPeerAckPoint()` `sctp.ts:1324-1347` | 同じメッセージの他フラグメントを `abandoned` にしても減算しない。`updateAdvancedPeerAckPoint()` は `abandoned` チャンクを `sentQueue` から外すときに減算しないため、計上が残る |
+| `maybeAbandon()` の位置探索バグ | `sctp.ts:1356` | `findIndex((v) => v.type === chunk.type)` は DATA チャンクなら常に 0（先頭）を返す。対象チャンクではなく先頭メッセージを破棄してしまい、対象チャンクは `abandoned` にならないまま「破棄扱い（`true` を返す）」で再送もされない |
+
+---
+
+#### 2. 実装する変更
+
+##### 2.1 `DataChunk` に送信中の計上状態を追加する（本命）
+
+`packages/sctp/src/chunk.ts` `DataChunk`（L182〜）に `inFlight: boolean = false` を追加する。
+
+- `acked` = 受信確認状態（Gap ACK 済みかどうか）
+- `inFlight` = 輻輳制御上、`flightSize` に計上中かどうか
+- 2 つの意味を明確に分けて扱う。既存の `abandoned` / `acked` / `retransmit` / `misses` / `sentCount` と同じく public field にする（`DataChunk` は `werift-sctp` から export されている）。
+
+##### 2.2 `flightSizeIncrease/Decrease` を冪等にする
+
+```ts
+private flightSizeIncrease(chunk: DataChunk) {
+  if (chunk.inFlight) return;
+  chunk.inFlight = true;
+  this.flightSize += chunk.bookSize;
+}
+
+private flightSizeDecrease(chunk: DataChunk) {
+  if (!chunk.inFlight) return;
+  chunk.inFlight = false;
+  this.flightSize -= chunk.bookSize;
+}
+```
+
+- `Math.max(0, …)` の clamp は外す。残す場合も、テストで不変条件を検証し、clamp が一度も効かないことを保証する。
+- `flightSize` を直接書き換える箇所（`timer3Expired` の `this.flightSize = 0`）はなくし、増減はすべてこのヘルパー経由にする。
+
+##### 2.3 経路ごとの変更
+
+| 関数 | 変更内容 |
+|---|---|
+| `receiveSackChunk()` 累積 ACK | `doneBytes` は従来どおり `!acked` のときだけ加算する（cwnd 成長の二重計上を防ぐ）。`flightSizeDecrease()` は無条件に呼ぶ（冪等なので安全） |
+| `receiveSackChunk()` Gap ACK | 新たに ACK されたチャンクは `acked = true`、`retransmit = false`（再送予約の取り消し）にし、`flightSizeDecrease()` する |
+| `receiveSackChunk()` strike | 判定条件（`!seen.has(tsn)` で `misses++`、3 で再送予約）は変えない。3 miss での `flightSizeDecrease()` は冪等になるので二重減算は起きない。reneging 時の `acked = false` も維持する（後述 4.2） |
+| `timer3Expired()` | `acked \|\| abandoned` のチャンクはスキップする。残りは `maybeAbandon()` で破棄判定し、破棄でなければ `retransmit = true` にする。どちらの場合も `flightSizeDecrease()` する。`this.flightSize = 0` は削除する（ループ後は不変条件から自然に 0 になる） |
+| `transmitOnce()` 再送ループ | `retransmit` が立っていても `acked \|\| abandoned` のチャンクは `retransmit = false` にして送らない（予約後に Gap ACK が届いた場合の二重防御）。スキップしたチャンクで `fastRecoveryTransmit`（cwnd を無視して 1 件送れる権利）を消費しない |
+| `maybeAbandon()` | `findIndex((v) => v === chunk)` に直して対象チャンクの位置を正しく求める。`abandoned = true` にした各フラグメントを `flightSizeDecrease()` する |
+| `updateAdvancedPeerAckPoint()` | `sentQueue` から `abandoned` チャンクを外すときに `flightSizeDecrease()` する（念のため。冪等） |
+
+##### 2.4 採用しない案
+
+- #806 の暫定パッチにある「`transmitOnce()` の冒頭で `sentQueue.length === 0` なら `flightSize = 0` にする」案は、根本修正として採用しない。不整合を隠すだけで、`sentQueue` が空でない場合の過大計上（例: 長い `sentQueue` の途中に `acked` かつ計上中のチャンクが残る）は直らない。チャンク状態と集計値も乖離したままになる。
+- `timer3Expired()` で `acked` をスキップするだけの修正（暫定パッチの残り 2 点）は、2.3 の一部として取り込む。ただし単独では、T3 後に累積 ACK される再送待ちチャンクの二重減算や、破棄経路の計上漏れが残る。そのため 2.1 / 2.2 と組み合わせる。
+
+---
+
+#### 3. 技術的アプローチ（調査結果の要約）
+
+- **不変条件で設計する**: `flightSize === Σ(sentQueue 内で inFlight のチャンクの bookSize)` を常に成り立たせる。チャンクが `sentQueue` を出るとき（累積 ACK、破棄後の advance）には必ず `inFlight = false` になっている。したがって `sentQueue.length === 0 ⇒ flightSize === 0` も自動的に成り立つ。
+- **状態遷移**:
+  - 未送信 → 初回送信: `inFlight = true`
+  - Gap ACK / 累積 ACK / T3 での再送予約 / 3 miss での再送予約 / 破棄: `inFlight = false`
+  - 再送: `inFlight = true`
+- **影響する計算**: 次の計算はすべて `flightSize` を参照するため、計上が正しくなれば副作用なく直る。
+  - `peerRwnd`（`peerAdvertisedRwnd - flightSize`）
+  - `cwndFullyUtilized`
+  - `transmitOnce()` のバースト上限 `min(flightSize + burst, cwnd)`
+  - heartbeat の発行条件
+- `cwnd` / `ssthresh` / `partialBytesAcked` の更新式は変えない。
+- **RFC / 他実装との整合**:
+  - RFC 9260 §6.3.3 (E1–E3): T3 で未 ACK の最古 TSN から再送する。
+  - RFC 9260 §6.2.1 (D-iii): Gap ACK 済みでも累積 ACK まではバッファを保持し、reneging を考慮する。
+  - Linux `sctp_retransmit_mark()` は T3 時に gap ACK 済みチャンクを再送対象にしない（#806 の指摘）。
+- **テスト手法**: `packages/sctp/tests/sctp.test.ts` の `createMockSctp()`（`vi.fn` の transport + `SCTP.client(transport, 5000)` + `setRemotePort(5001)`）と、`(sctp as any)` で内部状態を操作する既存パターンに合わせる。#806 の再現スクリプトと同様に、`associationState = ESTABLISHED` に設定する。T3 は `timer3Cancel()` → `timer3Expired()` を直接呼ぶか、`vi.useFakeTimers()` で決定的に発火させる。`setImmediate` を数回回して非同期の送信を落ち着かせる。
+
+---
+
+#### 4. 制約・注意点
+
+##### 4.1 スコープ
+
+- 送信バイト数の計上修正に絞る。次の改善は別チケットに切り出す。
+  - RTO バックオフ（T3 での `rto *= 2`。現状 T3 では倍にしていない）
+  - T3 時の 1 パケット束ね（E3）
+  - strike の対象を HTNA 以前に限定する精緻化
+  - 3 miss ごとに cwnd を何度も半減する挙動
+- `maybeAbandon()` の `findIndex` バグは本件の部分信頼性テストに直接関わるため、このチケットで直す。修正が大きくなる場合は別チケットに分け、本件のテストは単一フラグメントのメッセージで書く（判断ポイント）。
+
+##### 4.2 Gap ACK の reneging
+
+- 一度 Gap ACK された TSN が後続 SACK から消えた場合（reneging）、既存の strike 経路（3 miss で `acked = false`、`retransmit = true`）で再送できるよう維持する。`acked` を永久に「再送しない」印にしない。
+- reneging で `acked` が外れたチャンクは、Gap ACK の時点で `inFlight = false` なので、再送されるまで計上しない。再送時に `flightSizeIncrease()` で一度だけ加算される。
+- `acked` が立ったまま（miss が 3 未満）のチャンクは T3 でスキップされる。reneging の検出は、従来どおり SACK 経路の strike に任せる。
+
+##### 4.3 その他の注意
+
+- **TSN の比較**: `uint32Gt` / `uint32Gte` を使い、ラップアラウンドを考慮する。`localTsn` は乱数で初期化されるので、テストでは TSN を `sentQueue` から読み取って使う。
+- **RTT 計測（Karn のアルゴリズム）**: `sentCount === 1` のときだけ RTT を計測する既存条件を壊さない。再送スキップで `sentCount` を増やさない。
+- **`sendResetRequest()` の DATA**: `bookSize = 0` の DATA を `outboundQueue` に積む。`inFlight` は立つが加算は 0 なので問題ない。
+- **パフォーマンス**: 追加は O(1) のフラグ判定だけにする。`burst.test.ts` の線形性テスト（4 倍の件数で 8 倍未満）とイベントループ遅延テストを劣化させない。`sentQueue` の全件走査を新たに増やさない。
+- **公開 API**: `DataChunk.inFlight` の追加は後方互換。`changelog.md` の `## Unreleased` → `### 🐛 Bug Fixes` に `werift-sctp` の修正として記載する。`packages/sctp` には生成ドキュメントがないので、`npm run doc` は不要（root `doc/` との差分が出たら再生成する）。
+- **リポジトリ規約（AGENTS.md）**:
+  - テストは Arrange / Act / Assert で書き、Act / Assert のコメントは日本語にする。
+  - `createMockSctp()` や送信ヘルパー、不変条件の検証ヘルパーなど共通の Arrange は `packages/sctp/tests/utils.ts` に集約する。既存の `sctp.test.ts` 内の `createMockSctp` を移すのが望ましい。
+  - `npm run format` を実行する。
+- **後始末**: テストの最後に `timer3Cancel()` / `heartbeatCancel()` / `sctp.stop()` を必ず呼ぶ。`vi.useFakeTimers()` を使ったら `finally` で `vi.useRealTimers()` に戻し、open handle を残さない。
+
+---
+
+#### 5. 回帰テスト（`packages/sctp/tests/sctp.test.ts` を中心に）
+
+共通ヘルパー（`tests/utils.ts`）の案:
+
+- `createMockSctp()`（ESTABLISHED 状態の client と送信パケットの記録）
+- `settle()`（`setImmediate` を数回回す）
+- `sentDataTsns(transport, from)`（パケット先頭チャンクが DATA なら TSN を読む）
+- `buildSack(cumulativeTsn, gaps, rwnd)`
+- `expectFlightSizeInvariant(sctp)`（`flightSize === Σ inFlight bookSize`、`>= 0`、`sentQueue` が空なら 0）
+
+テストケース:
+
+- [ ] **Gap ACK → T3 → 累積 ACK（#806 の移植）**: T3 後に再送される TSN は欠落した先頭だけ。累積 ACK 後に `sentQueue.length === 0` かつ `flightSize === 0`
+- [ ] **送信の復旧**: 上の続きで新しい DATA を送ると、`outboundQueue.length === 0` になり、transport に DATA パケットが実際に出る。`send()` の Promise も resolve する
+- [ ] **ACK との競合**: Fast Retransmit（3 miss）または T3 で `retransmit` が立った後、実際に送る前に Gap ACK を処理する。そのチャンクは再送されず、二重加算もない
+- [ ] **ACK の重複と T3 の連続発火**: 同じチャンクへの Gap ACK の重複、Gap ACK の後の累積 ACK、T3 の 2 回連続発火、T3 後に再送前の累積 ACK のいずれでも、各ステップで不変条件が成り立つ（負値にも正の残存値にもならない）
+- [ ] **部分信頼性**: `maxRetransmits` / `expiry` で破棄 → FORWARD TSN 送出 → `updateAdvancedPeerAckPoint` の後に計上が残らない。複数フラグメントのメッセージでは、対象チャンクのメッセージが破棄される（`findIndex` の修正の確認）
+- [ ] **Gap ACK の reneging**: Gap ACK した TSN を含まない SACK を 3 回受けると、そのチャンクが `acked = false` で再送される。再送後の累積 ACK で `flightSize === 0`
+- [ ] **HEARTBEAT**: キューが空になった後に heartbeat タイマーを発火させると HEARTBEAT チャンクが送られる
+- [ ] **既存テスト**: `burst.test.ts`（ロスあり・大量転送・線形性・イベントループ遅延）、`sctp.test.ts`（rwnd・タイマー・SACK ポリシー）、`stream.test.ts` / `api.test.ts` / `mtu.test.ts` / `packet.test.ts` がすべて通る
+
+タイマーは固定値またはモックで決定的に動かし、実際の RTO 時間（秒単位）を待たない。
+
+---
+
+#### 6. 完了条件
+
+- [ ] T3 で Gap ACK 済み・破棄済みの DATA を再送しない
+- [ ] #806 の最小再現で `sentQueue` が空になったとき `flightSize === 0` になり、以後も DataChannel / SCTP の送信が進む（`outboundQueue` が空になり、`send()` が resolve する）
+- [ ] 初回送信・Gap ACK・累積 ACK・Fast Retransmit・T3・再送・破棄・FORWARD TSN のすべての経路で、`flightSize === Σ(sentQueue 内で inFlight のチャンクの bookSize)` と `flightSize >= 0` が成り立つ
+- [ ] `flightSize` を直接 0 に書き換える箇所と、不整合を隠す clamp に依存する箇所がない
+- [ ] reneging の再送経路が維持されている
+- [ ] 上記の回帰テストを追加し、`cd packages/sctp && npm test`（type と vitest）が通る
+- [ ] `npm run type` と `npm run test:small` が通る（`werift-sctp` は `packages/webrtc` から使われるため）
+- [ ] `npm run format` 済み
+- [ ] `changelog.md` の Unreleased に Bug Fix を記載済み
+- [ ] `burst.test.ts` の性能系テストが従来どおり通る（正常系の転送性能を劣化させない）
+
+参考: [RFC 9260 §6.2.1 / §6.3.2 / §6.3.3 / §7.2.4](https://www.rfc-editor.org/rfc/rfc9260.html)、#806
+
+
+#### 元 GitHub issue
+
+https://github.com/shinyoshiaki/werift-webrtc/issues/807
+
+### 4. Bug: DataChannel maxPacketLifeTime expiry mixes ms and seconds, so lifetime-based abandon does not work
+
+統合元チケット: `c49c9ef1-1bf3-4dbf-97ea-8eba3401de13`（ブランチ `ticket/c49c9ef1-1bf3-4dbf-97ea-8eba3401de13`）。以下は統合元チケットファイルの内容。
+
+Found while fixing ticket 340fdd75 (DCEP unordered channel types).
+
+#### 1. Purpose and background
+
+`RTCDataChannel.maxPacketLifeTime` is in **milliseconds** (W3C WebRTC `RTCDataChannelInit.maxPacketLifeTime`; RFC 8832 §5.1, the DCEP `Reliability Parameter` for `DATA_CHANNEL_PARTIAL_RELIABLE_TIMED`). A message that is still unacknowledged after that many ms should be abandoned with PR-SCTP (RFC 3758), and FORWARD-TSN should move the peer's cumulative TSN past it.
+
+werift mixes units along this path, so a lifetime-limited chunk is **never** abandoned:
+
+| Location | Current code | Unit |
+| --- | --- | --- |
+| `packages/webrtc/src/transport/sctp.ts` `dataChannelFlush()` (~L343-346) | `Date.now() + channel.maxPacketLifeTime / 1000` | epoch **ms** + lifetime in **s** (lifetime shrinks 1000x, but the value is still about 1.7e12) |
+| `packages/sctp/src/sctp.ts` `maybeAbandon()` (~L1349-1353) | `chunk.expiry < Date.now() / 1000` | compares in epoch **seconds** (about 1.7e9) |
+| `packages/webrtc/src/dataChannel.ts` `RTCDataChannelParameters` (L161) | `maxPacketLifeTime?: number; // sec` | comment is wrong (the value is ms) |
+
+So `expiry` (about 1.7e12) is always greater than `Date.now()/1000` (about 1.7e9), and `maybeAbandon()` never abandons on lifetime. The only effect of `maxPacketLifeTime` today is the DCEP OPEN channel type and reliability value.
+
+Notes:
+- `packages/sctp/tests/mtu.test.ts:98` already passes `expiry: Date.now() + 10_000` (epoch ms). The tests already assume the `expiry` contract is epoch ms.
+- On the receive side, DCEP OPEN `reliability` goes into `maxPacketLifeTime` unchanged (`transport/sctp.ts` ~L166-176). That is ms and correct as is.
+- The DCEP OPEN send side (`reliability = channel.maxPacketLifeTime`, L273-276) is also ms and correct as is.
+
+#### 2. Changes to implement
+
+1. **Use one unit (epoch ms) for `expiry`** (recommended)
+   - `packages/sctp/src/sctp.ts` `maybeAbandon()`: change `chunk.expiry < Date.now() / 1000` to `chunk.expiry <= Date.now()` (or `<`).
+   - `packages/webrtc/src/transport/sctp.ts` `dataChannelFlush()`: change `Date.now() + channel.maxPacketLifeTime / 1000` to `Date.now() + channel.maxPacketLifeTime`.
+   - Add TSDoc to the `expiry` option of `SCTP.send()` and to `DataChunk.expiry` (`packages/sctp/src/chunk.ts:198`) saying it is "absolute time in `Date.now()` epoch milliseconds".
+2. **Fix the comment**: change `// sec` in `RTCDataChannelParameters.maxPacketLifeTime` to milliseconds. Writing it as TSDoc (`/** Lifetime in milliseconds (RFC 8832 / WebRTC). */`) also carries it into the generated docs.
+3. **Add tests** (see section 3).
+4. **Update docs and changelog**
+   - Add a Fix entry to `changelog.md` `## Unreleased`: DataChannel `maxPacketLifeTime` now abandons messages after the given ms.
+   - `werift-sctp`: `SCTP.send({ expiry })` is now interpreted as epoch ms. A caller that passed epoch seconds would now see every chunk abandoned at its first retransmission decision, so record this under ⚠️ Breaking changes (or as a clear behavior change).
+   - If TSDoc changes, regenerate with `npm run doc` (`doc/classes/RTCDataChannelParameters.md` and others). Don't edit generated docs by hand.
+
+##### Alternative (not recommended)
+
+Keep sctp in seconds and change webrtc to `(Date.now() + maxPacketLifeTime) / 1000`. This conflicts with the existing tests (mtu.test.ts) that use ms, uses floating-point seconds, and doesn't match `Date.now()`. Prefer unifying on ms.
+
+#### 3. Technical approach (findings)
+
+##### When abandonment is evaluated
+`maybeAbandon()` is only called when a retransmission decision is made:
+- `timer3Expired()` (~L1197-1206): runs over every chunk in `sentQueue`, then `updateAdvancedPeerAckPoint()`
+- When SACK gap reports reach `misses === 3` (fast retransmit, ~L725-741), then `updateAdvancedPeerAckPoint()` (~L781)
+
+`updateAdvancedPeerAckPoint()` (~L1324-1347) takes the abandoned chunks off the front of `sentQueue` and builds `forwardTsnChunk`. `transmitOnce()` (~L987-996) sends it before any other data. So chunks that are delivered without loss need no abandonment, and fixing the comparison is enough to meet the ticket's requirement.
+
+##### Test design (packages/sctp)
+- Use `createConnectedSctpPair({ dropClient })` (`packages/sctp/tests/utils.ts`) and drop the client's DATA packets (`burst.test.ts` has a `dropDataPacketsAt`-style helper you can reuse; if you need a general one, move it into `tests/utils.ts`).
+- Arrange: connected pair, a transport that drops the first transmission (and its retransmissions) of the target DATA chunk.
+- Act: `client.send(streamId, ppid, data, { expiry: Date.now() + 100, ordered: true })`, then advance time past the lifetime and past T3 (initial RTO `SCTP_RTO_INITIAL = 3` s).
+  - Real timers take 3 s or more. Consider `vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] })` + `vi.advanceTimersByTimeAsync()`. `MemoryTransport` uses `setImmediate`, so keep it out of `toFake` (see the existing fake-timer usage in `sctp.test.ts:133`).
+- Assert:
+  - The client sent a FORWARD-TSN (`ForwardTsnChunk.type`) and its `cumulativeTsn` is the abandoned chunk's TSN (parse sent packets with `parsePacket`, or check the DATA chunk did not stay in `client.sentQueue`).
+  - The server's `lastReceivedTsn` moved to that TSN, and a following message on the same stream reaches the server's `onReceive` (it doesn't stall in ordered delivery).
+  - Contrast case: a chunk with a long `expiry` (for example +10 s) is retransmitted, not abandoned, when T3 expires.
+- Write Act / Assert comments in Japanese, and put shared Arrange code in `tests/utils.ts` (root AGENTS.md Do 6).
+
+##### Test design (packages/webrtc, optional)
+- Spy on `RTCSctpTransport` and check that `sctp.send` receives `expiry ≈ Date.now() + maxPacketLifeTime` (in ms). One unit test that pins down the webrtc-side conversion is enough. An E2E-level test that loses packets is hard in werift-to-werift and is out of scope.
+
+#### 4. Constraints and cautions
+
+- **Related bugs found nearby** (decide whether to fix them here or split them into tickets):
+  1. `maybeAbandon()` searches with `this.sentQueue.findIndex((v) => v.type === chunk.type)`. Every DATA chunk has the same `type`, so this always returns the **first DATA chunk in sentQueue**. For a fragmented message, or when the target is not at the head, the wrong message's fragments get marked abandoned (aiortc uses `self._sent_queue.index(chunk)`). This is likely to show up once lifetime abandonment starts working, so **fixing it in the same change is recommended** (`findIndex((v) => v === chunk)`). Add a test that abandons a fragmented message and checks that all of its fragments, and only those, are marked.
+  2. With `!!chunk.maxRetransmits`, `maxRetransmits: 0` (no retransmission) is falsy and is never abandoned. Out of scope for this ticket, but worth recording as a separate ticket.
+  3. Chunks that are still in `outboundQueue` (never sent) are not checked for expiry. RFC 3758 allows abandoning before the first transmission, but that is optional and out of scope here.
+- In the FORWARD-TSN `streams` list, unordered chunks are excluded (handled in `updateAdvancedPeerAckPoint`). Make sure ticket 340fdd75 (unordered channel types) still behaves correctly.
+- FORWARD-TSN is sent only when `remotePartialReliability` is true (default true; L142/L559). The tests use werift-to-werift, so this holds.
+- Changing the meaning of `expiry` in werift-sctp affects its public API. Record it in the changelog.
+- Per root AGENTS.md: don't check out or stash the active worktree; compare against another revision only in a temporary worktree.
+
+#### 5. Done when
+
+- [ ] `maxPacketLifeTime` (ms) is handled in ms from webrtc to sctp (no `/ 1000` mixing left in `dataChannelFlush()` or `maybeAbandon()`).
+- [ ] The `RTCDataChannelParameters.maxPacketLifeTime` comment/TSDoc says milliseconds, and the `SCTP.send` `expiry` option has TSDoc saying epoch ms.
+- [ ] New test in `packages/sctp/tests`: a lifetime-limited chunk that is not delivered is abandoned after the lifetime, a FORWARD-TSN is sent, and the receiver's cumulative TSN advances (Arrange / Act / Assert, Japanese comments).
+- [ ] Contrast test: a chunk whose lifetime has not expired is retransmitted and not abandoned.
+- [ ] (Recommended) The `maybeAbandon()` `findIndex` bug is fixed, with a fragment abandonment test.
+- [ ] `changelog.md` `Unreleased` records the fix and the werift-sctp `expiry` unit change.
+- [ ] If TSDoc changed, `npm run doc` has regenerated the docs.
+- [ ] `cd packages/sctp && npm test`, `cd packages/webrtc && npm test` (at least the DataChannel / sctp tests), `npm run type`, and `npm run test:small` pass, and `npm run format` has been run.
+
+### 5. SCTP: defer incoming stream reset until DATA through Sender's Last Assigned TSN is received
+
+統合元チケット: `c7fccdd1-e5ad-444a-91c8-4992de7ab3a5`（ブランチ `ticket/c7fccdd1-e5ad-444a-91c8-4992de7ab3a5`）。以下は統合元チケットファイルの内容。
+
+#### 1. 目的と背景
+
+##### 目的
+
+相手から届く SCTP Outgoing SSN Reset Request（RFC 6525 §4.1, §5.2.2）を、その **Sender's Last Assigned TSN**（以下 `lastTsn`）までの DATA を全部受け取ってから実行するようにする。こうすれば、stream reset が再送 DATA を追い越しても、最後のユーザーメッセージを取りこぼさない（RFC 6525 の deferred reset processing）。
+
+##### 背景・起票時の情報
+
+* downstream の相互接続テスト `sidorares/react-x11-components#1154`（<https://github.com/sidorares/react-x11-components/pull/1154>）で、最後の DataChannel メッセージのチャンクを 1 つわざと落とすと、64 KiB のメッセージが 1 件まるごと届かない現象が決定的に再現した。
+* 送信側は欠けたチャンクを再送するが、その前に Stream Reset が届く。werift はすぐに inbound stream を削除して DataChannel を閉じるため、後から来た再送チャンクは捨てられる。
+* downstream の回避策は「自分が close する前に、その stream の DATA が全部 ACK されるのを待つ」もの。これは自分が送信側のときしか効かず、**相手が送った reset が相手自身の再送を追い越すケース**では werift を守れない。
+* 起票時点で `werift 0.25.2` と `develop`（v0.26.0 の作業を含む）の両方に残っている。v0.26.0 の SCTP キュー改善（`ee6ae1055`）は送信/ACK のスケーリングを改善しただけで、deferred reset は実装していない。
+
+##### 現状コードの調査結果
+
+| 箇所 | 現状 |
+| --- | --- |
+| `packages/sctp/src/param.ts:21-69` `OutgoingSSNResetRequestParam` | `lastTsn` の parse/serialize はできているが、受信側では一度も参照されていない。 |
+| `packages/sctp/src/param.ts:116-119` `reconfigResult` | 定義は `ReconfigResultSuccessPerformed: 1` と `BadSequenceNumber: 5` だけ。`In progress (6)`、`Success - Nothing to do (0)`、`Denied (2)`、`Error - Request already in progress (4)` などがない。 |
+| `packages/sctp/src/sctp.ts:566-598` `receiveReconfigParam()` の `OutgoingSSNResetRequestParam` 分岐 | `lastTsn` を見ないまま、すぐに (1) `SuccessPerformed` を返し、(2) `delete this.inboundStreams[streamId]`、(3) 逆方向の reset を `reconfigQueue` に積んで `transmitReconfigRequest()`、(4) `onReconfigStreams.execute(p.streams)`（webrtc 側で DataChannel が `closed` になる）。**`requestSequence` の検証（期待値・重複・不正値）もない**ため、再送された request も毎回処理される。 |
+| `packages/sctp/src/sctp.ts:642-668` `receiveDataChunk()` | `markReceived()` で `lastReceivedTsn`（cumulative TSN）を進め、`getInboundStream()` に `addChunk` → `popMessages()` で配信する。stream が削除済みなら `getInboundStream()` が**新しい `InboundStream`（SSN=0）を作る**ので、reset 後に届いた古い再送チャンクは中途半端なフラグメントとして残り、配信されない。 |
+| `packages/sctp/src/sctp.ts:786-827` `receiveForwardTsnChunk()` | PR-SCTP で `lastReceivedTsn` を進める。ここも deferred reset を再評価すべき地点。 |
+| `packages/sctp/src/sctp.ts:855-876` `markReceived()` | cumulative TSN が進む唯一の地点（DATA 経由）。 |
+| `packages/sctp/src/sctp.ts:194-201` | `reconfigResponseSeq` は「最後に処理した incoming request の seq（初期値は peer initialTsn - 1）」。`init` / `initAck` 受信時に `tsnMinusOne(initialTsn)` で初期化される（`sctp.ts:370, 416`）。 |
+| `packages/sctp/src/sctp.ts:599-628` `ReconfigResponseParam` 分岐（自分が送った request への応答） | 結果が `SuccessPerformed` 以外ならログを出すだけ。`reconfigRequest` は残り、`timerReconfigHandleExpired` が再送する。`In progress` も「失敗」としてログに出て、再送のたびに `timerReconfigFailures` が増える。上限 `SCTP_MAX_ASSOCIATION_RETRANS` を超えると association が `CLOSED` になる（`sctp.ts:1241-1262`）。 |
+| `packages/sctp/src/sctp.ts:905-920` `send()` | TSN は `send()` でキューに積んだ時点で採番される。そのため werift が送る request の `lastTsn = tsnMinusOne(localTsn)`（`sctp.ts:1069-1074`）には、まだ送っていないキュー内の DATA も含まれる。相手が deferred reset を正しく実装していれば、送信側の werift は問題ない。 |
+| `packages/webrtc/src/transport/sctp.ts:83-92` | `onReconfigStreams` を受けると、該当 DataChannel を `closing` → `closed` にして `dataChannels` から削除する。SCTP 層で `onReconfigStreams` の発火を遅らせれば、DataChannel の close も自然に遅れる。webrtc 層の変更は原則不要。 |
+
+#### 2. 実装すべき機能・変更内容
+
+##### 2.1 incoming Outgoing SSN Reset Request の deferred reset processing（必須）
+
+RFC 6525 §5.2.2 に従い、`OutgoingSSNResetRequestParam` を受けたときに次を行う。
+
+1. **Request Sequence Number を検証する**（RFC 6525 §5.2.1、冪等性のため）
+   * `requestSequence === tsnPlusOne(reconfigResponseSeq)`（次に期待する値）なら新規 request として処理する。
+   * `requestSequence === reconfigResponseSeq`（処理済み request の再送）なら、状態は変えず、**前回と同じ result をもう一度返す**。
+   * 現在保留中の deferred request と同じ seq なら、もう一度評価する（届いていれば実行して `SuccessPerformed`、まだなら再び `In progress`）。
+   * それ以外は `BadSequenceNumber` を返し、何もしない。
+2. **TSN 境界を判定する**
+   * `uint32Gte(lastReceivedTsn, p.lastTsn)` が成り立てば、従来どおりすぐに reset を実行し `SuccessPerformed` を返す。
+   * 成り立たなければ **deferred reset** に入る。`ReconfigResponseParam(requestSequence, InProgress = 6)` を返し、request を保留状態として覚えておく。この時点では `reconfigResponseSeq` を進めない（再送 request をもう一度評価するため）。
+3. **保留中の扱い**
+   * 対象 stream の inbound 状態（`InboundStream` と再組立てバッファ、SSN）は残し、`lastTsn` 以下の DATA（再送を含む）は従来どおり受信・再組立て・配信する。
+   * 対象 stream 宛てで TSN が `lastTsn` より大きい DATA は、RFC の要求どおり reset 後の stream に属するものとして**別バッファに退避し、配信しない**（TSN は `markReceived()` で受信済みとして SACK に反映する。rwnd の扱いにも注意）。
+   * `onReconfigStreams` の発火、`inboundStreams` の削除、逆方向の reset（`reconfigQueue` への追加と `transmitReconfigRequest()`）は**すべて実行時まで遅らせる**。
+4. **保留を解消するタイミング**
+   * `markReceived()`（DATA）と `receiveForwardTsnChunk()`（FORWARD-TSN）で cumulative TSN が進んだあと、保留中 request を評価し、`uint32Gte(lastReceivedTsn, pending.lastTsn)` になったら実行する。
+   * 評価は、そのパケットで配信できるメッセージを `onReceive` に渡し**終えてから**行う。境界までの最後のメッセージが `onReconfigStreams` より先に届くことを保証するため。
+   * 実行内容は、inbound stream の削除（SSN を 0 にリセット）、退避した `lastTsn` 超の DATA を新しい `InboundStream` に入れ直して配信判定、逆方向の reset の送出、`onReconfigStreams.execute(streams)`、`reconfigResponseSeq = requestSequence`、最後の result を `SuccessPerformed` として記録。
+   * 実行後に相手が request を再送してきたら、1 の重複判定で `SuccessPerformed` を返す（dcsctp と同じ方式）。保留が解けた時点で `SuccessPerformed` をこちらから能動的に送るかは実装時に決める（RFC 上は必須ではない）。
+5. **後始末**
+   * `stop()` / association close / abort のときに保留状態と退避バッファを捨てる。
+
+##### 2.2 `reconfigResult` の拡充（必須）
+
+`packages/sctp/src/param.ts` の `reconfigResult` に RFC 6525 §4.4 の値を追加する。少なくとも `SuccessNothingToDo: 0`、`Denied: 2`、`ErrorWrongSSN: 3`、`ErrorRequestAlreadyInProgress: 4`、`InProgress: 6` を足す。既存のキー名 `ReconfigResultSuccessPerformed` と `BadSequenceNumber` は public export なので変えない。
+
+##### 2.3 自分が送った request への `In progress` 応答（推奨）
+
+相手（Chrome の dcsctp / usrsctp、または修正後の werift）が `In progress` を返したとき、werift が送信側として壊れないようにする。
+
+* `In progress` を失敗としてログに出さない。`reconfigRequest` は残し、Re-configuration timer で同じ request を再送する。
+* `In progress` が続いただけで `SCTP_MAX_ASSOCIATION_RETRANS` を超えて association が閉じないよう、失敗カウントの扱いを見直す。応答は届いているので、到達性の失敗には数えない。
+
+##### 2.4 テスト（必須）
+
+`packages/sctp/tests/` に deferred reset の回帰テストを追加する（例: `reconfig.test.ts`）。
+
+* **決定的なユニットテスト**（パケットを直接注入する）。`sctp.test.ts` の `createMockSctp` / `handleData` 注入と同じ方式で、モック transport 上の SCTP を `ESTABLISHED` にし、`lastReceivedTsn` を設定してから行う。
+  1. 複数フラグメントの ordered メッセージのうち、最後の 1 フラグメントだけ欠けた状態で DATA を注入する。
+  2. その欠けた TSN を `lastTsn` に持つ Outgoing SSN Reset Request を注入する。
+  3. Assert: 応答が `In progress (6)`、`onReconfigStreams` は未発火、メッセージは未配信。
+  4. 欠けていたフラグメントを注入する。
+  5. Assert: 完全なメッセージが `onReceive` に届き、**そのあとで** `onReconfigStreams` が発火する。
+* 追加で検証するケース
+  * 1 つの request に複数 stream が含まれる場合
+  * TSN wrap（`lastTsn` が `0xffffffff` 付近をまたぐ）
+  * FORWARD-TSN で境界を越えたときに reset が実行されること（PR-SCTP / partial reliability）
+  * 重複 request（同じ seq の再送）で状態が二重に変わらず、同じ result が返ること。保留中の再送は `In progress` のまま、実行後の再送は `SuccessPerformed`
+  * `lastTsn` 以下の DATA がすでに全部届いている場合は、従来どおりすぐに実行されること（非回帰）
+  * 保留中に届いた、対象 stream 宛てで `lastTsn` より大きい DATA が reset 後の stream（SSN=0）として扱われること
+  * 不正な seq に `BadSequenceNumber` が返ること
+* **統合寄りのテスト**（任意、推奨）。`createConnectedSctpPair({ dropClient: dropDataPacketsAt([...]) })` で 64 KiB 程度のメッセージの最後のフラグメントを落とし、送信直後に `reconfigQueue.push(streamId)` と `transmitReconfigRequest()` を呼ぶ。T3 再送のあとにメッセージが完全に届き、そのあとで両方向の reset が完了すること、association が閉じないことを確認する。
+* 共有の Arrange（reset request パケットを組み立てて注入する、ESTABLISHED のモック SCTP を作る、など）は `packages/sctp/tests/utils.ts` にまとめる。Act / Assert には日本語でコメントを付ける（ルート `AGENTS.md` の Do 6）。
+
+#### 3. 技術的な実装アプローチ（調査結果のまとめ）
+
+##### RFC 6525 の要点
+
+* §5.2.2: Sender's Last Assigned TSN が cumulative acknowledgment point より大きければ、"deferred reset processing" に入らなければならない（MUST）。その間、対象 stream 宛てで `lastTsn` より大きい TSN の DATA は、cumulative point が `lastTsn` に届くまでキューに保持しなければならない（MUST）。届いた時点で reset を実行する（MUST）。deferred に入ったら `In progress` を返す（MUST）。
+* §5.2.1: Request Sequence Number は「期待値なら処理」「直前に処理したもの（重複）なら前回の応答を再送」「それ以外は `Error - Bad Sequence Number`」。
+* §4.4: result の値は 0 = Success-Nothing to do、1 = Success-Performed、2 = Denied、3 = Error-Wrong SSN、4 = Error-Request already in progress、5 = Error-Bad Sequence Number、6 = In progress。
+
+##### 参考実装（dcsctp, Chrome の SCTP）
+
+`StreamResetHandler::HandleResetOutgoing` は、`sender_last_assigned_tsn` が cumulative ack TSN より新しければ `ReassemblyQueue` に deferred reset を登録して `kInProgress` を返す。このとき `last_processed_req_seq_nbr_` は更新しない（再送された request をもう一度評価するため）。DATA を受け取るたびに `MaybeResetStreamsDeferred(cum_ack_tsn)` で reset を実行し、その後の request 再送には `kSuccessPerformed` を返す。werift でもこの構成が素直に実装できる。
+
+##### werift での実装方針案
+
+```ts
+// sctp.ts（イメージ）
+private deferredReset?: {
+  request: OutgoingSSNResetRequestParam;
+  heldChunks: DataChunk[]; // 対象 stream 宛てで tsn > lastTsn の DATA
+};
+private lastReconfigResult?: ReconfigResult; // 重複 request に再送する値
+```
+
+* `receiveReconfigParam` の `OutgoingSSNResetRequestParam` 分岐を「seq 検証 → 境界判定 → 即時実行 / 保留」に書き換える。実行処理は `performIncomingStreamReset(request)` のような private メソッドに切り出し、即時実行と保留解除の両方から呼ぶ。
+* `receiveDataChunk` では、`markReceived` で新規と判定した直後、`getInboundStream` に入れる前に、保留中かつ対象 stream かつ `uint32Gt(chunk.tsn, lastTsn)` なら `heldChunks` に退避する。
+* `handleData` のチャンクループ（`sctp.ts:285-287`）を抜けたあと、または `receiveDataChunk` / `receiveForwardTsnChunk` の末尾で、`maybePerformDeferredReset()` を呼ぶ。`receiveDataChunk` は同期メソッド、reset 実行は `sendReconfigParam` などを await する非同期処理なので、**呼び出し位置と await の順序に注意する**。`handleData` の SACK 送信より前に置くか後に置くかも決める。
+* TSN の比較はすべて `uint32Gt` / `uint32Gte`（`packages/sctp/src/imports/common` 経由の `packages/common/src/number.ts`）を使い、生の `<` / `>` は使わない。
+* inbound stream を削除するときは、残っている `reassembly` の `userData.length` を `advertisedRwnd` に戻す（現状は戻していない）。
+
+#### 4. 制約・注意点
+
+* **配信順序の保証**: 境界までのメッセージを全部 `onReceive` に渡してから `onReconfigStreams` を発火する。webrtc 層は `onReconfigStreams` で DataChannel を `closed` にして `dataChannels` から削除するので、順序が逆だと `datachannelReceive` 側でメッセージが捨てられる。
+* **ordered / unordered の違い**: ordered で SSN の歯抜けが残っても、cumulative TSN が `lastTsn` に届けば reset を実行する（未完成のメッセージは破棄する）。unordered のチャンクも同じ境界判定で扱う。
+* **FORWARD-TSN**: PR-SCTP で境界を飛び越えたときも保留を解消する。そうしないと、reset が来ない、または DataChannel が閉じないまま残る。
+* **重複・再送 request の冪等性**: 現状 seq を見ていないため、同じ request の再送で `onReconfigStreams` が 2 回発火したり、逆方向の reset が二重に積まれたりしうる。seq 検証を入れて解消する。`reconfigResponseSeq` は自分が送る request の `responseSequence` フィールドにも使われているので（`sctp.ts:1069-1074`）、更新するタイミングを変えるときは影響を確認する。
+* **保留は 1 つだけを想定**: 相手は応答が `Performed` になるまで次の request を出さない前提（seq が単調に増えるため）。保留中に別の seq が届いたら、seq 検証の規則（`BadSequenceNumber`）か `Error - Request already in progress` で応答する。どちらにするかは実装時に決め、テストで固定する。
+* **public API の互換性**: `reconfigResult` の既存キー、`onReconfigStreams` のシグネチャ、`reconfigQueue` / `transmitReconfigRequest()`（webrtc 層が直接使っている）は変えない。値を追加するだけなら破壊的変更にはならない。
+* **送信側の挙動との相互作用**: werift 同士では、修正後に相手が `In progress` を返すようになる。2.3 を入れないと、受信側の保留が長い（T3 再送待ちで RTO 初期値 3 秒、バックオフあり）ときに、`timerReconfigFailures` の上限で association が `CLOSED` になるおそれがある。2.3 は同じ変更に含めるのが望ましい。
+* **Reconfig timer が共有の `this.rto` を変更している**（`sctp.ts:1245`）のは既存の問題。このチケットの範囲外だが、`In progress` 再送の扱いを変えるときに影響が出ないか確認する。
+* 修正は `packages/sctp` の中で完結させる（root cause は SCTP 層にある）。webrtc 層に回避策を入れない（ルート `AGENTS.md` の Do 2、`packages/webrtc/AGENTS.md`）。
+* `packages/sctp` 用の `AGENTS.md` はないので、ルート `AGENTS.md` の規約（AAA、共有ユーティリティ、日本語コメント）に従う。
+* public な挙動が変わるので（RFC 準拠の deferred reset、`reconfigResult` の追加）、`changelog.md` の 🐛 Bug Fixes に追記する。必要なら `npm run doc` で生成ドキュメントを更新する。
+
+#### 5. 完了条件
+
+- [ ] `OutgoingSSNResetRequestParam.lastTsn` までの DATA が届いていないと、reset が保留され、`In progress (6)` が返る。
+- [ ] 保留中も、対象 stream で `lastTsn` 以下の DATA（再送を含む）が再組立て・配信される。
+- [ ] cumulative TSN が DATA または FORWARD-TSN で `lastTsn` に届いた時点で、inbound stream の reset、逆方向の reset の送出、`onReconfigStreams` が実行され、境界までのメッセージは必ずその前に配信される。
+- [ ] 保留中に届いた、対象 stream 宛てで `lastTsn` より大きい DATA は、reset 後の stream として扱われる。
+- [ ] request seq の検証が入っている。重複 request は状態を変えずに同じ result を返し、不正な seq には `BadSequenceNumber` を返す。
+- [ ] TSN wrap を `uint32Gt` / `uint32Gte` で正しく扱う。
+- [ ] 自分が送った request に `In progress` が返っても、失敗扱いで association が閉じない（2.3）。
+- [ ] 2.4 の回帰テスト（欠けたフラグメントより reset が先に届くケース、複数 stream、TSN wrap、FORWARD-TSN、重複 request、即時実行の非回帰）を AAA 形式・日本語コメントで追加し、通る。
+- [ ] `cd packages/sctp && npm test` が通る。
+- [ ] SCTP の挙動変更が webrtc の DataChannel close に波及するため、`npm run type` と `npm run test:small` が通る（`packages/webrtc/tests/datachannel/close.test.ts` を含む）。可能なら `npm run e2e` で Chrome との DataChannel close の相互接続も確認する。
+- [ ] `npm run format` を実行済みで、`changelog.md` に追記してある。
+
 ## 完了条件
 
 - [ ] 各問題を develop 上のテストで再現し（修正前に失敗）、修正後に成功することを確認する。
 - [ ] テストは Arrange / Act / Assert で書き、Arrange は各 package の `tests/utils.ts` に置く。Act / Assert に日本語コメントを付ける。
 - [ ] `packages/sctp`、`packages/rtp`、`packages/webrtc` のテストと型検査、`npm run doc:check` を実行する。
 - [ ] 公開 API 追加（`SrtpReplayError`、`SrtpReplayWindow`、`SRTP_REPLAY_WINDOW_SIZE`）に合わせて生成 docs と `changelog.md` を更新する。
+- [ ] 統合元 3 チケット（3〜5）の完了条件を満たし、マージ後の `packages/sctp` で各チケットの回帰テストがすべて成功する。

@@ -41,6 +41,7 @@ import {
   OutgoingSSNResetRequestParam,
   RECONFIG_PARAM_BY_TYPES,
   ReconfigResponseParam,
+  type ReconfigResult,
   reconfigResult,
   StreamAddOutgoingParam,
   type StreamParam,
@@ -206,6 +207,19 @@ export class SCTP {
   reconfigResponseSeq = 0;
   reconfigRequest?: OutgoingSSNResetRequestParam;
   reconfigQueue: number[] = [];
+  /** Result returned for the incoming request reconfigResponseSeq; resent to a retransmitted request. */
+  private lastReconfigResult?: ReconfigResult;
+  /** The peer answered our outstanding reset request with In progress (RFC 6525 §5.2.7). */
+  private reconfigRequestInProgress = false;
+  /**
+   * RFC 6525 §5.2.2 deferred reset: an incoming Outgoing SSN Reset Request whose
+   * Sender's Last Assigned TSN has not been received yet. DATA for the reset
+   * streams beyond lastTsn belongs to the new streams and is held until the reset.
+   */
+  private deferredReset?: {
+    request: OutgoingSSNResetRequestParam;
+    heldChunks: DataChunk[];
+  };
 
   // rtt calculation
   private srtt?: number;
@@ -299,6 +313,9 @@ export class SCTP {
     for (const chunk of chunks) {
       await this.receiveChunk(chunk);
     }
+    // Messages of this packet are delivered by now, so the last message before
+    // the reset boundary reaches onReceive before onReconfigStreams.
+    await this.maybePerformDeferredReset();
 
     if (this.sackNeeded) {
       // RFC 9260 delayed ACK guidance is per packet ("every second packet").
@@ -340,8 +357,8 @@ export class SCTP {
 
     const gaps: [number, number][] = [];
     let gapNext: number;
-    [...this.sackMisOrdered].sort().forEach((tsn) => {
-      const pos = (tsn - this.lastReceivedTsn!) % SCTP_TSN_MODULO;
+    sortTsns(this.sackMisOrdered, this.lastReceivedTsn!).forEach((tsn) => {
+      const pos = tsnDistance(this.lastReceivedTsn!, tsn);
       if (tsn === gapNext) {
         gaps[gaps.length - 1][1] = pos;
       } else {
@@ -394,6 +411,9 @@ export class SCTP {
           ) {
             this.lastReceivedTsn = tsnMinusOne(init.initialTsn);
             this.reconfigResponseSeq = tsnMinusOne(init.initialTsn);
+            // Reset requests of the previous TSN space no longer apply.
+            this.lastReconfigResult = undefined;
+            this.deferredReset = undefined;
           }
           this.remoteVerificationTag = init.initiateTag;
           this.ssthresh = init.advertisedRwnd;
@@ -618,62 +638,38 @@ export class SCTP {
     switch (param.type) {
       case OutgoingSSNResetRequestParam.type:
         {
-          const p = param as OutgoingSSNResetRequestParam;
-
-          // # send response
-          const response = new ReconfigResponseParam(
-            p.requestSequence,
-            reconfigResult.ReconfigResultSuccessPerformed,
+          await this.receiveOutgoingSSNResetRequest(
+            param as OutgoingSSNResetRequestParam,
           );
-          this.reconfigResponseSeq = p.requestSequence;
-          await this.sendReconfigParam(response);
-
-          // # mark closed inbound streams
-          await Promise.all(
-            p.streams.map(async (streamId) => {
-              delete this.inboundStreams[streamId];
-              if (this.outboundStreamSeq[streamId]) {
-                // Only add to reconfigQueue if not already present
-                if (!this.reconfigQueue.includes(streamId)) {
-                  this.reconfigQueue.push(streamId);
-                }
-                // await this.sendResetRequest(streamId);
-              }
-            }),
-          );
-          await this.transmitReconfigRequest();
-          // # close data channel
-          this.onReconfigStreams.execute(p.streams);
         }
         break;
       case ReconfigResponseParam.type:
         {
           const reset = param as ReconfigResponseParam;
-          if (reset.result !== reconfigResult.ReconfigResultSuccessPerformed) {
+          const isCurrentRequest =
+            reset.responseSequence === this.reconfigRequest?.requestSequence;
+          if (reset.result === reconfigResult.InProgress) {
+            if (isCurrentRequest) {
+              // The peer deferred the reset (RFC 6525 §5.2.2). Keep the request so the
+              // Re-configuration timer retransmits it; the peer answered, so this is
+              // not a reachability failure.
+              log("OutgoingSSNResetRequestParam in progress");
+              this.reconfigRequestInProgress = true;
+              // RFC 6525 §5.2.7 H2: restart the timer for this request.
+              this.timerReconfigCancel();
+              this.timerReconfigHandleStart();
+            }
+          } else if (
+            reset.result !== reconfigResult.ReconfigResultSuccessPerformed
+          ) {
             log(
               "OutgoingSSNResetRequestParam failed",
               Object.keys(reconfigResult).find(
                 (key) => reconfigResult[key as never] === reset.result,
               ),
             );
-          } else if (
-            reset.responseSequence === this.reconfigRequest?.requestSequence
-          ) {
-            const streamIds = this.reconfigRequest.streams.map((streamId) => {
-              delete this.outboundStreamSeq[streamId];
-              return streamId;
-            });
-
-            this.onReconfigStreams.execute(streamIds);
-
-            this.reconfigRequest = undefined;
-            this.timerReconfigCancel();
-            // Reset RTO backoff on successful reconfiguration
-            this.rto = SCTP_RTO_INITIAL;
-            this.timerReconfigFailures = 0;
-            if (this.reconfigQueue.length > 0) {
-              await this.transmitReconfigRequest();
-            }
+          } else if (isCurrentRequest) {
+            await this.completeOutgoingReset();
           }
         }
         break;
@@ -681,11 +677,174 @@ export class SCTP {
         {
           const add = param as StreamAddOutgoingParam;
           this._inboundStreamsCount += add.newStreams;
-          const res = new ReconfigResponseParam(add.requestSequence, 1);
+          const res = new ReconfigResponseParam(
+            add.requestSequence,
+            reconfigResult.ReconfigResultSuccessPerformed,
+          );
           this.reconfigResponseSeq = add.requestSequence;
+          this.lastReconfigResult = res.result;
           await this.sendReconfigParam(res);
         }
         break;
+    }
+  }
+
+  /** The peer answered our outstanding reset request with Success - Performed. */
+  private async completeOutgoingReset() {
+    const streamIds = this.reconfigRequest!.streams.map((streamId) => {
+      delete this.outboundStreamSeq[streamId];
+      return streamId;
+    });
+
+    this.onReconfigStreams.execute(streamIds);
+
+    this.reconfigRequest = undefined;
+    this.reconfigRequestInProgress = false;
+    this.timerReconfigCancel();
+    // Reset RTO backoff on successful reconfiguration
+    this.rto = SCTP_RTO_INITIAL;
+    this.timerReconfigFailures = 0;
+    if (this.reconfigQueue.length > 0) {
+      await this.transmitReconfigRequest();
+    }
+  }
+
+  /** RFC 6525 §4.1: an empty stream list means every stream. */
+  private resetTargetStreams(request: OutgoingSSNResetRequestParam) {
+    if (request.streams.length > 0) return request.streams;
+    return [
+      ...new Set([
+        ...Object.keys(this.inboundStreams).map(Number),
+        ...Object.keys(this.outboundStreamSeq).map(Number),
+      ]),
+    ];
+  }
+
+  /** RFC 6525 §5.2.1 sequence check, then §5.2.2 immediate or deferred reset. */
+  private async receiveOutgoingSSNResetRequest(
+    request: OutgoingSSNResetRequestParam,
+  ) {
+    const respond = (result: ReconfigResult) =>
+      this.sendReconfigParam(
+        new ReconfigResponseParam(request.requestSequence, result),
+      );
+
+    if (request.requestSequence === this.reconfigResponseSeq) {
+      // Retransmission of an already processed request: resend the same result.
+      await respond(
+        this.lastReconfigResult ?? reconfigResult.BadSequenceNumber,
+      );
+      return;
+    }
+
+    // Only one request is deferred at a time, so it is the expected one.
+    const pending = this.deferredReset;
+    const expected = pending
+      ? pending.request.requestSequence
+      : tsnPlusOne(this.reconfigResponseSeq);
+    if (request.requestSequence !== expected) {
+      await respond(reconfigResult.BadSequenceNumber);
+      return;
+    }
+
+    // RFC 6525 §5.2.2 E1: the peer has received our outstanding request, so stop
+    // retransmitting it. The reset itself completes with the peer's response.
+    if (
+      this.reconfigRequest &&
+      request.responseSequence === this.reconfigRequest.requestSequence
+    ) {
+      this.timerReconfigCancel();
+    }
+
+    const target = pending?.request ?? request;
+    if (!this.reachedResetBoundary(target)) {
+      // Some DATA up to Sender's Last Assigned TSN is still missing. A
+      // retransmitted request is evaluated again, so reconfigResponseSeq stays.
+      this.deferredReset ??= { request: target, heldChunks: [] };
+      await respond(reconfigResult.InProgress);
+      return;
+    }
+
+    const { transmitReverseReset } = this.performIncomingStreamReset(target);
+    await respond(reconfigResult.ReconfigResultSuccessPerformed);
+    await transmitReverseReset();
+  }
+
+  private reachedResetBoundary(request: OutgoingSSNResetRequestParam) {
+    return (
+      this.lastReceivedTsn !== undefined &&
+      uint32Gte(this.lastReceivedTsn, request.lastTsn)
+    );
+  }
+
+  private async maybePerformDeferredReset() {
+    const pending = this.deferredReset;
+    if (!pending || !this.reachedResetBoundary(pending.request)) return;
+    // RFC 6525 §5.2.2: answer Success - Performed once the deferred reset is done.
+    const { transmitReverseReset } = this.performIncomingStreamReset(
+      pending.request,
+    );
+    await this.sendReconfigParam(
+      new ReconfigResponseParam(
+        pending.request.requestSequence,
+        reconfigResult.ReconfigResultSuccessPerformed,
+      ),
+    );
+    await transmitReverseReset();
+  }
+
+  /**
+   * Resets the inbound streams of `request` synchronously, so no DATA received
+   * while awaiting can reach the old streams. Returns the asynchronous part,
+   * the reset of our own outgoing streams.
+   */
+  private performIncomingStreamReset(request: OutgoingSSNResetRequestParam) {
+    const heldChunks =
+      this.deferredReset?.request === request
+        ? this.deferredReset.heldChunks
+        : [];
+    this.deferredReset = undefined;
+    this.reconfigResponseSeq = request.requestSequence;
+    this.lastReconfigResult = reconfigResult.ReconfigResultSuccessPerformed;
+
+    const resetStreams = this.resetTargetStreams(request);
+    for (const streamId of resetStreams) {
+      const inboundStream = this.inboundStreams[streamId];
+      if (inboundStream) {
+        // Incomplete messages of the old stream are discarded.
+        for (const chunk of inboundStream.reassembly) {
+          this.advertisedRwnd += chunk.userData.length;
+        }
+        delete this.inboundStreams[streamId];
+      }
+      if (this.outboundStreamSeq[streamId]) {
+        // Only add to reconfigQueue if not already present
+        if (!this.reconfigQueue.includes(streamId)) {
+          this.reconfigQueue.push(streamId);
+        }
+      }
+    }
+
+    // # close data channel
+    this.onReconfigStreams.execute(resetStreams);
+
+    // DATA beyond the boundary belongs to the reset streams (SSN starts at 0).
+    const streamIds = new Set<number>();
+    for (const chunk of heldChunks) {
+      this.getInboundStream(chunk.streamId).addChunk(chunk);
+      streamIds.add(chunk.streamId);
+    }
+    for (const streamId of streamIds) {
+      this.deliverMessages(this.getInboundStream(streamId));
+    }
+
+    return { transmitReverseReset: () => this.transmitReconfigRequest() };
+  }
+
+  private deliverMessages(inboundStream: InboundStream) {
+    for (const message of inboundStream.popMessages()) {
+      this.advertisedRwnd += message[2].length;
+      this.receive(...message);
     }
   }
 
@@ -708,14 +867,23 @@ export class SCTP {
       this.sackImmediate = true;
     }
 
-    const inboundStream = this.getInboundStream(chunk.streamId);
-
-    inboundStream.addChunk(chunk);
     this.advertisedRwnd -= chunk.userData.length;
-    for (const message of inboundStream.popMessages()) {
-      this.advertisedRwnd += message[2].length;
-      this.receive(...message);
+
+    const pending = this.deferredReset;
+    if (
+      pending &&
+      (pending.request.streams.length === 0 ||
+        pending.request.streams.includes(chunk.streamId)) &&
+      uint32Gt(chunk.tsn, pending.request.lastTsn)
+    ) {
+      // RFC 6525 §5.2.2: hold DATA for the new stream until the reset is performed.
+      pending.heldChunks.push(chunk);
+      return;
     }
+
+    const inboundStream = this.getInboundStream(chunk.streamId);
+    inboundStream.addChunk(chunk);
+    this.deliverMessages(inboundStream);
   }
 
   private async receiveSackChunk(chunk: SackChunk) {
@@ -870,7 +1038,7 @@ export class SCTP {
     // # advance cumulative TSN
     this.lastReceivedTsn = chunk.cumulativeTsn;
     this.sackMisOrdered = new Set([...this.sackMisOrdered].filter(isObsolete));
-    for (const tsn of [...this.sackMisOrdered].sort()) {
+    for (const tsn of sortTsns(this.sackMisOrdered, this.lastReceivedTsn)) {
       if (tsn === tsnPlusOne(this.lastReceivedTsn)) {
         this.lastReceivedTsn = tsn;
       } else {
@@ -901,6 +1069,15 @@ export class SCTP {
       this.advertisedRwnd += inboundStream.pruneUnorderedChunks(
         chunk.cumulativeTsn,
       );
+    }
+    const pending = this.deferredReset;
+    if (pending) {
+      pending.heldChunks = pending.heldChunks.filter((held) => {
+        // Only DATA the FORWARD-TSN skipped is dropped; later received DATA stays.
+        if (uint32Gt(held.tsn, chunk.cumulativeTsn)) return true;
+        this.advertisedRwnd += held.userData.length;
+        return false;
+      });
     }
   }
 
@@ -938,7 +1115,7 @@ export class SCTP {
     }
 
     this.sackMisOrdered.add(tsn);
-    for (const tsn of [...this.sackMisOrdered].sort()) {
+    for (const tsn of sortTsns(this.sackMisOrdered, this.lastReceivedTsn!)) {
       if (tsn === tsnPlusOne(this.lastReceivedTsn!)) {
         this.lastReceivedTsn = tsn;
       } else {
@@ -1183,6 +1360,7 @@ export class SCTP {
       this.reconfigRequestSeq = tsnPlusOne(this.reconfigRequestSeq);
 
       this.reconfigRequest = param;
+      this.reconfigRequestInProgress = false;
       await this.sendReconfigParam(param);
       this.timerReconfigHandleStart();
     }
@@ -1362,9 +1540,11 @@ export class SCTP {
 
   private timerReconfigHandleExpired = async () => {
     if (this.isStopped) return;
-    this.timerReconfigFailures++;
+    // RFC 6525 §5.2.7: no error count while the peer reports In progress.
+    if (this.reconfigRequestInProgress) this.timerReconfigFailures = 0;
+    else this.timerReconfigFailures++;
     // back off
-    this.rto = Math.ceil(this.rto * 1.5);
+    this.rto = Math.min(Math.ceil(this.rto * 1.5), SCTP_RTO_MAX);
 
     if (this.timerReconfigFailures > SCTP_MAX_ASSOCIATION_RETRANS) {
       log("timerReconfigFailures", this.timerReconfigFailures);
@@ -1667,6 +1847,8 @@ export class SCTP {
         clearTimeout(this.sackTimeout);
         this.sackTimeout = undefined;
       }
+      // Drop a deferred incoming stream reset and the DATA held for it.
+      this.deferredReset = undefined;
       this.setConnectionState("closed");
       this.removeAllListeners();
       this.releaseSendWaiters();
@@ -1904,7 +2086,17 @@ export class RTCSctpCapabilities {
 }
 
 function tsnMinusOne(a: number) {
-  return (a - 1) % SCTP_TSN_MODULO;
+  return (a - 1 + SCTP_TSN_MODULO) % SCTP_TSN_MODULO;
+}
+
+/** Serial-number distance from `base` to `tsn` (RFC 1982), 0..2^32-1. */
+function tsnDistance(base: number, tsn: number) {
+  return (tsn - base + SCTP_TSN_MODULO) % SCTP_TSN_MODULO;
+}
+
+/** Sorts TSNs in serial-number order after `base`, so the order holds across a wrap. */
+function sortTsns(tsns: Iterable<number>, base: number) {
+  return [...tsns].sort((a, b) => tsnDistance(base, a) - tsnDistance(base, b));
 }
 
 function tsnPlusOne(a: number) {

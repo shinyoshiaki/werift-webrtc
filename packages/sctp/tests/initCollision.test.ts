@@ -15,6 +15,7 @@ import {
 import {
   collectMessages,
   createControlledTransport,
+  createResetRequestChunk,
   createSctpEndpointPair,
   LEGACY_INITIATOR_IGNORED,
   localVerificationTagOf,
@@ -218,6 +219,29 @@ describe("SCTP 確立済み responder への再開始 INIT", () => {
 
     // Assert: 累積確認は 100 へ進む (旧 TSN 1 を待ち続けない)
     expect(lastSackCumulativeTsn(sent)).toBe(100);
+    await sctp.stop();
+  });
+
+  test("再開始 INIT は、旧 TSN 空間で保留中の stream reset を破棄する", async () => {
+    // Arrange: 初期 TSN 1 で確立し、未受信の TSN 5 を境界とする reset request を保留中の responder
+    const { transport, sent } = createControlledTransport();
+    const sctp = SCTP.server(transport);
+    sctp.setRemotePort(5000);
+    const cookie = await receiveInitAndTakeCookie(sctp, sent);
+    await receiveCookieEcho(sctp, cookie);
+    await receiveData(sctp, 1);
+    const internal = sctp as any;
+    await internal.receiveChunk(
+      createResetRequestChunk({ requestSequence: 1, lastTsn: 5, streams: [0] }),
+    );
+    expect(internal.deferredReset).toBeDefined();
+
+    // Act: 別の initiate tag・初期 TSN 100 の INIT で相手が再開始する
+    await receiveInitTagged(sctp, 0, { initiateTag: 0x9999, initialTsn: 100 });
+
+    // Assert: 旧 association の reset request と応答結果は持ち越さない
+    expect(internal.deferredReset).toBeUndefined();
+    expect(internal.lastReconfigResult).toBeUndefined();
     await sctp.stop();
   });
 });

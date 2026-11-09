@@ -11,10 +11,15 @@ import {
   InitAckChunk,
   InitChunk,
   parsePacket,
+  ReconfigChunk,
   SackChunk,
   serializePacket,
 } from "../src/chunk";
 import { FifoQueue } from "../src/imports/common";
+import {
+  OutgoingSSNResetRequestParam,
+  ReconfigResponseParam,
+} from "../src/param";
 import type { Transport } from "../src/transport";
 
 export function load(name: string) {
@@ -563,4 +568,163 @@ export const findFlightSizeViolation = (sctp: SCTP) => {
     return `tsn ${bad.tsn} counted in flight while acked=${bad.acked} retransmit=${bad.retransmit}`;
   }
   return undefined;
+};
+
+// # stream reset (RFC 6525) helpers
+
+const DATA_FLAG_LAST_FRAG = 0x01;
+const DATA_FLAG_FIRST_FRAG = 0x02;
+const DATA_FLAG_UNORDERED = 0x04;
+
+/** Builds one DATA chunk. `fragment` selects the B/E flags (default: whole message). */
+export const createDataChunk = ({
+  tsn,
+  streamId = 1,
+  ssn = 0,
+  data = "x",
+  fragment = "whole",
+  unordered = false,
+}: {
+  tsn: number;
+  streamId?: number;
+  ssn?: number;
+  data?: string;
+  fragment?: "whole" | "first" | "middle" | "last";
+  unordered?: boolean;
+}) => {
+  const chunk = new DataChunk(0, undefined);
+  chunk.flags =
+    (fragment === "whole" || fragment === "first" ? DATA_FLAG_FIRST_FRAG : 0) |
+    (fragment === "whole" || fragment === "last" ? DATA_FLAG_LAST_FRAG : 0) |
+    (unordered ? DATA_FLAG_UNORDERED : 0);
+  chunk.tsn = tsn;
+  chunk.streamId = streamId;
+  chunk.streamSeqNum = ssn;
+  chunk.protocol = 51;
+  chunk.userData = Buffer.from(data);
+  return chunk;
+};
+
+/** Builds a RE-CONFIG chunk carrying one Outgoing SSN Reset Request. */
+export const createResetRequestChunk = ({
+  requestSequence,
+  lastTsn,
+  streams,
+  responseSequence = 0,
+}: {
+  requestSequence: number;
+  lastTsn: number;
+  streams: number[];
+  responseSequence?: number;
+}) => {
+  const param = new OutgoingSSNResetRequestParam(
+    requestSequence,
+    responseSequence,
+    lastTsn,
+    streams,
+  );
+  const chunk = new ReconfigChunk();
+  chunk.params.push([param.type, param.bytes]);
+  return chunk;
+};
+
+/** Builds a RE-CONFIG chunk carrying one Re-configuration Response. */
+export const createReconfigResponseChunk = (
+  responseSequence: number,
+  result: number,
+) => {
+  const param = new ReconfigResponseParam(responseSequence, result as never);
+  const chunk = new ReconfigChunk();
+  chunk.params.push([param.type, param.bytes]);
+  return chunk;
+};
+
+export const createForwardTsnChunk = (
+  cumulativeTsn: number,
+  streams: [number, number][] = [],
+) => {
+  const chunk = new ForwardTsnChunk(0, undefined);
+  chunk.cumulativeTsn = cumulativeTsn;
+  chunk.streams = streams;
+  return chunk;
+};
+
+/** Reconfig params of a type in the packets an endpoint sent, in send order. */
+const sentReconfigParams = (packets: Buffer[], type: number) =>
+  packets.flatMap((packet) =>
+    parsePacket(packet)[3]
+      .filter((chunk) => chunk.type === ReconfigChunk.type)
+      .flatMap((chunk) => (chunk as ReconfigChunk).params)
+      .filter(([paramType]) => paramType === type)
+      .map(([, body]) => body),
+  );
+
+export type SctpEvent =
+  | { type: "message"; streamId: number; data: string }
+  | { type: "reset"; streamIds: number[] };
+
+/** Records onReceive / onReconfigStreams in the order they fire. */
+export const recordSctpEvents = (sctp: SCTP) => {
+  const events: SctpEvent[] = [];
+  sctp.onReceive.subscribe((streamId, _ppId, data) => {
+    events.push({ type: "message", streamId, data: data.toString() });
+  });
+  sctp.onReconfigStreams.subscribe((streamIds) => {
+    events.push({ type: "reset", streamIds });
+  });
+  return events;
+};
+
+/**
+ * An ESTABLISHED SCTP endpoint on a recording mock transport. Packets are
+ * injected through the regular receive path (handleData), and the peer's
+ * cumulative TSN / last processed reconfig request seq are preset.
+ */
+export const createEstablishedMockSctp = ({
+  lastReceivedTsn = 100,
+  reconfigResponseSeq = 1000,
+}: {
+  lastReceivedTsn?: number;
+  reconfigResponseSeq?: number;
+} = {}) => {
+  const sent: Buffer[] = [];
+  const transport: Transport = {
+    send: async (buf: Buffer) => {
+      sent.push(buf);
+    },
+    close: () => {},
+  };
+  const sctp = SCTP.client(transport, 5000);
+  sctp.setRemotePort(5001);
+  const internal = sctp as any;
+  internal.associationState = SCTP_STATE.ESTABLISHED;
+  internal.lastReceivedTsn = lastReceivedTsn;
+  sctp.reconfigResponseSeq = reconfigResponseSeq;
+
+  const events = recordSctpEvents(sctp);
+
+  const inject = async (...chunks: Chunk[]) => {
+    for (const chunk of chunks) {
+      await internal.handleData(
+        serializePacket(5001, 5000, internal.localVerificationTag, chunk),
+      );
+    }
+  };
+
+  return {
+    sctp,
+    internal,
+    events,
+    inject,
+    /** Re-configuration Responses sent to the peer. */
+    responses: () =>
+      sentReconfigParams(sent, ReconfigResponseParam.type).map((body) =>
+        ReconfigResponseParam.parse(body),
+      ),
+    /** Outgoing SSN Reset Requests sent to the peer (reverse resets). */
+    resetRequests: () =>
+      sentReconfigParams(sent, OutgoingSSNResetRequestParam.type).map((body) =>
+        OutgoingSSNResetRequestParam.parse(body),
+      ),
+  };
 };
