@@ -135,6 +135,8 @@ export class SCTP {
   isServer = true;
   private isStopping = false;
   private isClosed = false;
+  /** An INIT from the peer was accepted (answered with INIT_ACK). */
+  private receivedInit = false;
 
   private hmacKey = randomBytes(16);
   private localPartialReliability = true;
@@ -275,7 +277,14 @@ export class SCTP {
       if (chunks.length != 1) {
         throw new Error();
       }
-      expectedTag = 0;
+      // RFC 9260 §8.5.1 (A): an INIT carries verification tag 0. An older
+      // werift (<= 0.26) that answered our INIT before its own start() then
+      // sends its INIT with the tag it learned from ours; only a peer that
+      // received our INIT knows that tag, so accept it as well.
+      expectedTag =
+        verificationTag === this.localVerificationTag
+          ? this.localVerificationTag
+          : 0;
     } else {
       expectedTag = this.localVerificationTag;
     }
@@ -363,8 +372,12 @@ export class SCTP {
         break;
       case InitChunk.type:
         {
-          if (!this.isServer) return;
+          // RFC 9260 §5.2.1: an initiator that receives the peer's INIT in
+          // COOKIE-WAIT / COOKIE-ECHOED (both sides sent INIT) answers it
+          // with an INIT_ACK.
+          if (!this.isServer && !this.isInitiating) return;
           const init = chunk as InitChunk;
+          this.receivedInit = true;
 
           log("receive init", init);
           this.lastReceivedTsn = tsnMinusOne(init.initialTsn);
@@ -436,12 +449,14 @@ export class SCTP {
               break;
             }
           }
-          await this.sendChunk(echo).catch((err: Error) => {
-            log("send echo failed", err.message);
-          });
-
+          // Enter COOKIE_ECHOED and arm T1 before handing the chunk off: a
+          // duplicate INIT_ACK or an early COOKIE_ACK during the send must see
+          // the new state, and a failed send is packet loss that T1 recovers.
           this.timer1Start(echo);
           this.setState(SCTP_STATE.COOKIE_ECHOED);
+          await this.sendChunk(echo).catch((err: Error) => {
+            log("send echo failed; T1 retransmits", err.message);
+          });
         }
         break;
       case SackChunk.type:
@@ -486,7 +501,18 @@ export class SCTP {
         break;
       case CookieEchoChunk.type:
         {
-          if (!this.isServer) return;
+          // An initiator accepts the COOKIE_ECHO that follows its INIT_ACK
+          // to a colliding INIT (RFC 9260 §5.2.1).
+          if (
+            !this.isServer &&
+            !(
+              this.receivedInit &&
+              (this.isInitiating ||
+                this.associationState === SCTP_STATE.ESTABLISHED)
+            )
+          ) {
+            return;
+          }
           const data = chunk as CookieEchoChunk;
           const cookie = data.body!;
           const digest = createHmac("sha1", this.hmacKey)
@@ -513,10 +539,20 @@ export class SCTP {
             return;
           }
           const ack = new CookieAckChunk();
-          await this.sendChunk(ack).catch((err: Error) => {
-            log("send cookieAck failed", err.message);
+          // Our own INIT / COOKIE_ECHO (collision) is superseded by the
+          // association the peer's cookie established.
+          this.timer1Cancel();
+          // RFC 9260 §5.1 (D): move to ESTABLISHED when replying. Hand off the
+          // COOKIE_ACK first so it precedes DATA flushed by the connected
+          // event. A failed send is packet loss: the initiator retransmits
+          // COOKIE_ECHO and this association (same cookie key) answers again.
+          const sending = this.sendChunk(ack).catch((err: Error) => {
+            log("send cookieAck failed; peer retransmits", err.message);
           });
-          this.setState(SCTP_STATE.ESTABLISHED);
+          if (this.associationState !== SCTP_STATE.ESTABLISHED) {
+            this.setState(SCTP_STATE.ESTABLISHED);
+          }
+          await sending;
         }
         break;
       case CookieAckChunk.type:
@@ -1393,10 +1429,20 @@ export class SCTP {
         this.setRemotePort(remotePort);
       }
 
-      if (!this.isServer) {
+      // The peer's INIT may already have established the association
+      // before start(); a new INIT would reset it.
+      if (!this.isServer && this.associationState === SCTP_STATE.CLOSED) {
         await this.init();
       }
     }
+  }
+
+  /** Waiting for INIT_ACK / COOKIE_ACK of our own INIT. */
+  private get isInitiating() {
+    return (
+      this.associationState === SCTP_STATE.COOKIE_WAIT ||
+      this.associationState === SCTP_STATE.COOKIE_ECHOED
+    );
   }
 
   private async init() {
@@ -1409,14 +1455,16 @@ export class SCTP {
     this.setExtensions(init.params);
     log("send init", init);
 
+    // # start T1 timer and enter COOKIE-WAIT state
+    // Before handing INIT off, so an INIT_ACK that arrives while the send is
+    // still pending is not dropped by the COOKIE_WAIT guard, and a failed
+    // send is packet loss that T1 retransmits (or closes after max retries).
+    this.timer1Start(init);
+    this.setState(SCTP_STATE.COOKIE_WAIT);
     try {
       await this.sendChunk(init);
-
-      // # start T1 timer and enter COOKIE-WAIT state
-      this.timer1Start(init);
-      this.setState(SCTP_STATE.COOKIE_WAIT);
     } catch (error: any) {
-      log("send init failed", error.message);
+      log("send init failed; T1 retransmits", error?.message);
     }
   }
 
@@ -1440,7 +1488,9 @@ export class SCTP {
     const packet = serializePacket(
       this.localPort,
       this.remotePort,
-      this.remoteVerificationTag,
+      // RFC 9260 §8.5.1: INIT is always sent with verification tag 0, also
+      // when an INIT answered before start() taught us the peer's tag.
+      chunk.type === InitChunk.type ? 0 : this.remoteVerificationTag,
       chunk,
     );
     await this.transport.send(packet);

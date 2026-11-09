@@ -22,6 +22,7 @@ import {
 } from "../src/extra";
 import { vintDecode } from "../src/extra/container/webm/ebml/ebml";
 import type { Mp4Output } from "../src/extra/processor/mp4";
+import { RtcpRrPacket } from "../src/rtcp/rr";
 import { RtcpSenderInfo, RtcpSrPacket } from "../src/rtcp/sr";
 import {
   RtpMediaClock,
@@ -38,6 +39,7 @@ import {
   type SrtpProfile,
 } from "../src/srtp/const";
 import { Context, type SrtpSsrcState } from "../src/srtp/context/context";
+import { SrtcpContext } from "../src/srtp/context/srtcp";
 import { SrtpContext } from "../src/srtp/context/srtp";
 import type { Transport } from "../src/transport";
 
@@ -1157,9 +1159,26 @@ export function createSrtpTestContext(
 export function createSrtpContextPair(
   profile: SrtpProfile = ProtectionProfileAes128CmHmacSha1_80,
 ) {
+  const { masterKey, masterSalt } = srtpTestKeys[profile];
+  const sender = createSrtpTestContext(profile);
+  const receiver = createSrtpTestContext(profile);
+  const rtcpSender = new SrtcpContext(masterKey, masterSalt, profile);
+  const rtcpReceiver = new SrtcpContext(masterKey, masterSalt, profile);
+  const ssrc = 0x1234;
   return {
-    sender: createSrtpTestContext(profile),
-    receiver: createSrtpTestContext(profile),
+    sender,
+    receiver,
+    rtcpSender,
+    rtcpReceiver,
+    protectRtp: (sequenceNumber: number) =>
+      sender.encryptRtp(
+        Buffer.from([sequenceNumber & 0xff]),
+        new RtpHeader({ ssrc, sequenceNumber, payloadType: 96 }),
+      ),
+    protectRtcp: () =>
+      rtcpSender.encryptRTCP(
+        new RtcpRrPacket({ ssrc, reports: [] }).serialize(),
+      ),
   };
 }
 
@@ -1243,6 +1262,21 @@ export function encryptSrtpSequence(
     const encrypted = sender.encryptRtp(payload, header);
     return { sequenceNumber, plain, encrypted };
   });
+}
+
+/**
+ * Drops the first transmission of `sequenceNumber` as if it was lost on the
+ * wire. A NACK retransmission is only sent for a lost packet: delivering both
+ * copies is an RFC 3711 §3.3.2 replay and the receiver rejects it.
+ */
+export function loseOriginalTransmission(
+  packets: SrtpTestPacket[],
+  sequenceNumber: number,
+): SrtpTestPacket[] {
+  const index = packets.findIndex((p) => p.sequenceNumber === sequenceNumber);
+  return index < 0
+    ? packets
+    : [...packets.slice(0, index), ...packets.slice(index + 1)];
 }
 
 /**

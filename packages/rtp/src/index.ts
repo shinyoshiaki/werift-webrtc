@@ -30,6 +30,7 @@ export * from "./rtp/rtx";
 export * from "./rtp/sendHeaderExtensions";
 export * from "./srtp/const";
 export * from "./srtp/error";
+export * from "./srtp/replay";
 export * from "./srtp/srtcp";
 export * from "./srtp/srtp";
 export * from "./util";

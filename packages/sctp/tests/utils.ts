@@ -2,6 +2,13 @@ import { readFileSync } from "fs";
 
 import { SCTP } from "../src";
 import type { DataChunk } from "../src/chunk";
+import {
+  CookieEchoChunk,
+  InitAckChunk,
+  InitChunk,
+  parsePacket,
+  serializePacket,
+} from "../src/chunk";
 import { FifoQueue } from "../src/imports/common";
 import type { Transport } from "../src/transport";
 
@@ -27,9 +34,7 @@ export class MemoryTransport implements Transport {
   droppedPackets = 0;
 
   /** Return true to drop the packet (index = number of packets sent before). */
-  constructor(
-    drop?: (buf: Buffer, index: number) => boolean,
-  ) {
+  constructor(drop?: (buf: Buffer, index: number) => boolean) {
     this.drop = drop;
   }
 
@@ -179,4 +184,161 @@ export const measureBurstTransfer = async (count: number, size: number) => {
   } finally {
     await pair.stop();
   }
+};
+
+type SctpInternals = {
+  localVerificationTag: number;
+  handleData: (data: Buffer) => Promise<void>;
+};
+
+/**
+ * Arrange: transport whose sends can be held open or made to fail, so tests
+ * can interleave incoming chunks or state changes with an in-flight chunk.
+ */
+export function createControlledTransport() {
+  const sent: Buffer[] = [];
+  let hold: Promise<void> | undefined;
+  let release = () => {};
+  let failSends = false;
+  const transport: Transport = {
+    send: async (data: Buffer) => {
+      if (failSends) throw new Error("transport rejected");
+      sent.push(data);
+      if (hold) await hold;
+    },
+    close: () => {},
+  };
+  return {
+    transport,
+    sent,
+    /** Keep subsequent sends pending until `release()`. */
+    holdSends: () => {
+      hold = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+    },
+    release: () => {
+      hold = undefined;
+      release();
+    },
+    /** Make subsequent sends reject (an ordinary send failure). */
+    failSends: () => {
+      failSends = true;
+    },
+    restoreSends: () => {
+      failSends = false;
+    },
+  };
+}
+
+/** Arrange: deliver an INIT_ACK (with state cookie) to an initiator in COOKIE_WAIT. */
+export async function receiveInitAck(sctp: SCTP) {
+  const ack = new InitAckChunk();
+  ack.initiateTag = 0x1234;
+  ack.advertisedRwnd = 131072;
+  ack.outboundStreams = 65535;
+  ack.inboundStreams = 65535;
+  ack.initialTsn = 1;
+  ack.params.push([0x0007, Buffer.from("cookie")]);
+  const internals = sctp as unknown as SctpInternals;
+  await internals.handleData(
+    serializePacket(5001, 5000, internals.localVerificationTag, ack),
+  );
+}
+
+/**
+ * Arrange: deliver an INIT whose common-header verification tag is `tag`.
+ * RFC 9260 requires 0; an older werift (<= 0.26) that answered our INIT
+ * before its own start() sends its INIT with the tag it learned from ours.
+ */
+export async function receiveInitTagged(sctp: SCTP, tag: number) {
+  const init = new InitChunk();
+  init.initiateTag = 0x5678;
+  init.advertisedRwnd = 131072;
+  init.outboundStreams = 65535;
+  init.inboundStreams = 65535;
+  init.initialTsn = 1;
+  await (sctp as unknown as SctpInternals).handleData(
+    serializePacket(5001, 5000, tag, init),
+  );
+}
+
+/**
+ * Arrange: drive a responder through INIT so it issues a state cookie.
+ * Returns the cookie from the INIT_ACK it sent.
+ */
+export async function receiveInitAndTakeCookie(
+  sctp: SCTP,
+  sent: Buffer[],
+): Promise<Buffer> {
+  await receiveInitTagged(sctp, 0);
+  const initAck = parsePacket(sent[sent.length - 1])[3][0] as InitAckChunk;
+  return initAck.params.find(([type]) => type === 0x0007)![1];
+}
+
+/** Arrange: deliver a COOKIE_ECHO carrying `cookie` to a responder. */
+export async function receiveCookieEcho(sctp: SCTP, cookie: Buffer) {
+  const echo = new CookieEchoChunk();
+  echo.body = cookie;
+  const internals = sctp as unknown as SctpInternals;
+  await internals.handleData(
+    serializePacket(5001, 5000, internals.localVerificationTag, echo),
+  );
+}
+
+/** Arrange: the verification tag `sctp` puts in its INIT / INIT_ACK. */
+export function localVerificationTagOf(sctp: SCTP) {
+  return (sctp as unknown as SctpInternals).localVerificationTag;
+}
+
+/** Assert helper: chunk types carried by the packets a transport has sent. */
+export function sentChunkTypes(sent: Buffer[]) {
+  return sent.map((packet) => parsePacket(packet)[3][0].type);
+}
+
+/** Assert helper: [verification tag, first chunk type] of each sent packet. */
+export function sentTagsAndTypes(sent: Buffer[]) {
+  return sent.map((packet) => {
+    const [, , tag, chunks] = parsePacket(packet);
+    return [tag, chunks[0].type] as const;
+  });
+}
+
+/** Chunk types an initiator of werift <= 0.26 ignores. */
+export const LEGACY_INITIATOR_IGNORED = [InitChunk.type, CookieEchoChunk.type];
+
+/** Chunk types carried by one serialized SCTP packet. */
+const packetChunkTypes = (buf: Buffer) =>
+  parsePacket(buf)[3].map((chunk) => chunk.type);
+
+/**
+ * Arrange: two SCTP endpoints with the given roles over memory transports.
+ * `ignoredBySecond` drops the chunk types the first endpoint sends that the
+ * second endpoint would ignore, emulating an older werift initiator.
+ */
+export const createSctpEndpointPair = ({
+  roles,
+  ignoredBySecond = [],
+}: {
+  roles: ["client" | "server", "client" | "server"];
+  ignoredBySecond?: number[];
+}) => {
+  const transports = createMemoryTransportPair({
+    dropClient: (buf) =>
+      packetChunkTypes(buf).some((type) => ignoredBySecond.includes(type)),
+  });
+  const create = (role: "client" | "server", transport: MemoryTransport) =>
+    role === "client" ? SCTP.client(transport) : SCTP.server(transport);
+  const first = create(roles[0], transports.client);
+  const second = create(roles[1], transports.server);
+  const connected = Promise.all(
+    [first, second].map((sctp) => sctp.stateChanged.connected.asPromise()),
+  );
+  const stop = async () => {
+    await first.stop();
+    await second.stop();
+    transports.client.close();
+    transports.server.close();
+  };
+  return { first, second, connected, stop };
 };

@@ -25,11 +25,16 @@ develop の問題:
 
 develop の問題: 受信側に RFC 3711 §3.3.2 の replay list がなく、認証に通る同じ SRTP / SRTCP パケットを再送されると何度でも上位へ渡す。
 
-修正: SSRC ごとに 64 パケットの replay window（`SrtpReplayWindow`）を持ち、既に受け取った index と window より古い index を `SrtpReplayError`（`SrtpAuthenticationError` の subclass）で拒否する。window は認証成功後にだけ作成・更新し、偽造パケットで状態が増えないようにする。
+修正: SSRC ごとに 1024 パケット（`SRTP_REPLAY_WINDOW_SIZE`。libwebrtc と同じで、RFC 3711 の最小値 64 より広く、遅れた NACK 再送も受理できる）の replay window（`SrtpReplayWindow`）を持ち、既に受け取った index と window より古い index を `SrtpReplayError`（`SrtpAuthenticationError` の subclass）で拒否する。window は認証成功後にだけ作成・更新し、偽造パケットで状態が増えないようにする。
+
+## 調査したがバックポートしないもの
+
+- DTLS `[1.3, 1.2]` client の extended_master_secret 提示、ICE restart 中の旧 selected pair 保持、`IceTransport.close()` の二重 close guard: develop に DTLS 1.3 / WARP の datagram gate がない、または develop に既に同じ guard がある。
+- DataChannel stream ID の割り当て変更と SCTP の passive fallback INIT: Epic 4 で SCTP の開始側を DTLS role に変えたことに伴う変更。develop は ICE role のまま。
 
 ## 完了条件
 
 - [ ] 各問題を develop 上のテストで再現し（修正前に失敗）、修正後に成功することを確認する。
 - [ ] テストは Arrange / Act / Assert で書き、Arrange は各 package の `tests/utils.ts` に置く。Act / Assert に日本語コメントを付ける。
 - [ ] `packages/sctp`、`packages/rtp`、`packages/webrtc` のテストと型検査、`npm run doc:check` を実行する。
-- [ ] 公開 API 追加（`SrtpReplayError`、`SrtpReplayWindow`）に合わせて生成 docs と `changelog.md` を更新する。
+- [ ] 公開 API 追加（`SrtpReplayError`、`SrtpReplayWindow`、`SRTP_REPLAY_WINDOW_SIZE`）に合わせて生成 docs と `changelog.md` を更新する。
