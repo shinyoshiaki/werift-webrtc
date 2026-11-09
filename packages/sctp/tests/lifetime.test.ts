@@ -4,9 +4,13 @@ import { DataChunk, ForwardTsnChunk, SackChunk } from "../src/chunk";
 import {
   createLossyPrSctpPair,
   createSeededRandom,
+  buildSack,
   createZeroWindowMockSctp,
   disposeMockSctp,
+  receiveSack,
   sentChunks,
+  sentDataTsns,
+  tsnBefore,
   findFlightSizeViolation,
   flushImmediates,
 } from "./utils";
@@ -765,6 +769,56 @@ describe("PR-SCTP lifetime of DATA queued behind a zero receive window", () => {
       expect(sentChunks(transport).some((c) => c instanceof DataChunk)).toBe(
         false,
       );
+    } finally {
+      await disposeMockSctp(sctp);
+    }
+  });
+
+  test("expires a queued message behind a message without lifetime and keeps TSN order", async () => {
+    // Arrange: 相手の受信ウィンドウが 0 の association に、寿命なしの A を先に積む
+    const { sctp, transport } = createZeroWindowMockSctp();
+    try {
+      let aSettled = false;
+      let bSettled = false;
+      const sendingA = sctp.send(0, 51, Buffer.from("A")).then(() => {
+        aSettled = true;
+      });
+      await flushImmediates();
+      const [a] = [...sctp.outboundQueue];
+
+      // Act: A の後ろに寿命 50ms の B を積み、他のイベントを起こさずに寿命を過ぎるまで待つ
+      const sendingB = sctp
+        .send(0, 51, Buffer.from("B"), { expiry: Date.now() + 50 })
+        .then(() => {
+          bSettled = true;
+        });
+      await new Promise((r) => setTimeout(r, 120));
+      await flushImmediates();
+
+      // Assert: B は TSN 順を保ったままキュー内で破棄済みになり、B の send() だけが先に解決する
+      await sendingB;
+      expect(bSettled).toBe(true);
+      expect(aSettled).toBe(false);
+      const [, b] = [...sctp.outboundQueue];
+      expect(sctp.outboundQueue.length).toBe(2);
+      expect(b.abandoned).toBe(true);
+      expect(sentDataTsns(transport)).toEqual([]);
+
+      // Act: 相手のウィンドウが開く
+      await receiveSack(sctp, buildSack(tsnBefore(a.tsn)));
+      await flushImmediates();
+
+      // Assert: A だけが送られ、B は送られずに FORWARD-TSN で飛ばされる
+      await sendingA;
+      expect(aSettled).toBe(true);
+      expect(sentDataTsns(transport)).toEqual([a.tsn]);
+      expect(sctp.outboundQueue.length).toBe(0);
+      await receiveSack(sctp, buildSack(a.tsn));
+      await flushImmediates();
+      const forwardTsn = sentChunks(transport)
+        .filter((c): c is ForwardTsnChunk => c instanceof ForwardTsnChunk)
+        .at(-1);
+      expect(forwardTsn?.cumulativeTsn).toBe(b.tsn);
     } finally {
       await disposeMockSctp(sctp);
     }

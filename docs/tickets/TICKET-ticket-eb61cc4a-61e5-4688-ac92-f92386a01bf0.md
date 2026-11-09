@@ -44,7 +44,7 @@ develop の問題: 受信側に RFC 3711 §3.3.2 の replay list がなく、認
 - 別の initiate tag の INIT（相手の再開始）で受信 TSN を初期化するときは、旧 TSN 空間の保留中 reset（`deferredReset`）と前回の reconfig 応答結果（`lastReconfigResult`）も破棄する。
 - `changelog.md` の flightSize に関する 2 項目は 1 項目にまとめた。
 - 相手の逆方向 reset request の `responseSequence` が自分の未完了 request と一致したとき（RFC 6525 §5.2.2 E1）、`c7fccdd1` は再構成タイマーを止めていたが、成功応答が失われると request が残り続け後続の reset も送れなくなる。そのため request は成功応答まで残したまま、In progress と同様に失敗回数を数えずに再送を続ける（相手は処理済み request の再送に同じ結果を返す）。
-- 送信待ち（`outboundQueue`）メッセージの寿命切れは `transmit()` の中でしか判定されず、相手の受信ウィンドウが 0 で未確認 DATA もないと、期限後も `send()` が解決しなかった。そのため `transmit()` がキュー先頭を送れずに終えたとき、先頭メッセージの `expiry` にタイマーを張り、満了時に `transmit()` で破棄する。TSN の順序を保つため破棄できるのは先頭だけなので、タイマーも先頭だけを対象にし、破棄後は次の先頭に張り直す。`stop()` で解除する。
+- 送信待ち（`outboundQueue`）メッセージの寿命切れは `transmit()` のキュー先頭でしか判定されず、相手の受信ウィンドウが 0 で未確認 DATA もないときや、寿命なしメッセージの後ろにあるときは、期限後も `send()`（と DataChannel の `bufferedAmount`）が残った。そのため `send()` で期限付きメッセージを積むとキュー内の最も早い `expiry` にタイマーを張り、満了時にキュー全体を走査して期限切れのメッセージをその場で破棄済みにし、`send()` を先行メッセージより先に解決する（`sendWaiters` に `done` を持たせ、先頭から取り除く）。TSN 順を保つためチャンクはキューに残し、先頭に来たら送らずに `sentQueue` へ移して FORWARD-TSN で飛ばす。次に早い期限へ張り直し、キューが空になるか `stop()` で解除する。
 
 ### 3. [SCTP] Gap ACK後のT3再送でflightSizeが残存しDataChannel送信が停止する問題を修正する（#806）
 

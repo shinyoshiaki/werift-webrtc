@@ -187,6 +187,8 @@ export class SCTP {
   private sendWaiters = new FifoQueue<{
     chunk: DataChunk;
     resolve: () => void;
+    /** Resolved out of order because its message expired in outboundQueue. */
+    done?: boolean;
   }>();
   private outboundStreamSeq: { [streamId: number]: number } = {};
   _outboundStreamsCount = MAX_STREAMS;
@@ -238,8 +240,9 @@ export class SCTP {
   /**t3 is wait for data sack */
   private timer3Handle?: any;
   /**
-   * Fires when the queued message at the head of outboundQueue expires, so it
-   * is abandoned even if nothing else (SACK, window update, send) runs transmit.
+   * Fires at the earliest expiry of a message in outboundQueue, so expired
+   * messages are abandoned even if nothing else (SACK, window update, send)
+   * runs transmit.
    */
   private outboundExpiryHandle?: ReturnType<typeof setTimeout>;
   private outboundExpiryAt?: number;
@@ -1194,6 +1197,7 @@ export class SCTP {
     for (const chunk of chunks) {
       this.outboundQueue.push(chunk);
     }
+    if (expiry !== undefined) this.armOutboundExpiry(expiry);
 
     if (ordered) {
       this.outboundStreamSeq[streamId] = uint16Add(streamSeqNum, 1);
@@ -1215,8 +1219,25 @@ export class SCTP {
   };
 
   private resolveSendWaiters(sentChunk: DataChunk) {
+    this.dropDoneSendWaiters();
     if (this.sendWaiters.peek()?.chunk === sentChunk) {
       this.sendWaiters.shift()!.resolve();
+      this.dropDoneSendWaiters();
+    }
+  }
+
+  private dropDoneSendWaiters() {
+    while (this.sendWaiters.peek()?.done) this.sendWaiters.shift();
+  }
+
+  /** Resolves the send() of an expired queued message ahead of earlier ones (rare, O(n)). */
+  private resolveSendWaiterOutOfOrder(chunk: DataChunk) {
+    for (const waiter of this.sendWaiters) {
+      if (waiter.chunk === chunk && !waiter.done) {
+        waiter.done = true;
+        waiter.resolve();
+        return;
+      }
     }
   }
 
@@ -1312,7 +1333,8 @@ export class SCTP {
       const chunk = this.outboundQueue.peek()!;
       // A message that expired while waiting for cwnd/rwnd is never sent; its
       // TSNs are already assigned, so it is abandoned and skipped by FORWARD-TSN.
-      if (this.isExpired(chunk)) {
+      // A message the expiry timer already abandoned in place goes the same way.
+      if (chunk.abandoned || this.isExpired(chunk)) {
         this.outboundQueue.shift();
         this.sentQueue.push(chunk);
         this.resolveSendWaiters(chunk);
@@ -1348,7 +1370,7 @@ export class SCTP {
       // Send the FORWARD-TSN in the next round of transmit().
       if (this.forwardTsnPending) this.transmitRequested = true;
     }
-    this.scheduleOutboundExpiry();
+    if (this.outboundQueue.length === 0) this.outboundExpiryCancel();
     this.flush.execute();
   }
 
@@ -1531,33 +1553,44 @@ export class SCTP {
     this.transmit();
   };
 
-  /**
-   * Arms the expiry timer for the head of outboundQueue, the only queued
-   * message that can be abandoned without reordering TSNs. When it fires,
-   * transmit() abandons the head and arms the timer for the next head.
-   */
-  private scheduleOutboundExpiry() {
-    const expiry = this.outboundQueue.peek()?.expiry;
-    if (expiry === undefined || this.isStopped) {
-      this.outboundExpiryCancel();
-      return;
-    }
-    if (this.outboundExpiryHandle && this.outboundExpiryAt === expiry) return;
+  /** Arms the outbound expiry timer for `expiry` unless an earlier one is armed. */
+  private armOutboundExpiry(expiry: number) {
+    if (this.isStopped) return;
+    if (this.outboundExpiryHandle && this.outboundExpiryAt! <= expiry) return;
     this.outboundExpiryCancel();
     this.outboundExpiryAt = expiry;
     this.outboundExpiryHandle = setTimeout(
-      () => {
-        this.outboundExpiryHandle = undefined;
-        this.outboundExpiryAt = undefined;
-        if (this.isStopped) return;
-        this.transmit().catch((err: Error) => {
-          log("transmit on outbound expiry failed", err.message);
-        });
-      },
+      this.outboundExpiryExpired,
       // setTimeout overflows above 2^31 - 1 ms; a later expiry re-arms on fire.
       Math.min(Math.max(0, expiry - Date.now()), 0x7fffffff),
     );
   }
+
+  /**
+   * Abandons every expired message still in outboundQueue, wherever it is.
+   * Chunks stay in place so TSN order is kept: transmit() moves them to
+   * sentQueue unsent when they reach the head, and FORWARD-TSN skips them.
+   * Their send() resolves now, without waiting for earlier messages.
+   */
+  private outboundExpiryExpired = () => {
+    this.outboundExpiryHandle = undefined;
+    this.outboundExpiryAt = undefined;
+    if (this.isStopped) return;
+    let nextExpiry: number | undefined;
+    for (const chunk of this.outboundQueue) {
+      if (chunk.abandoned || chunk.expiry === undefined) continue;
+      if (this.isExpired(chunk)) {
+        chunk.abandoned = true;
+        this.resolveSendWaiterOutOfOrder(chunk);
+      } else if (nextExpiry === undefined || chunk.expiry < nextExpiry) {
+        nextExpiry = chunk.expiry;
+      }
+    }
+    if (nextExpiry !== undefined) this.armOutboundExpiry(nextExpiry);
+    this.transmit().catch((err: Error) => {
+      log("transmit on outbound expiry failed", err.message);
+    });
+  };
 
   private outboundExpiryCancel() {
     if (this.outboundExpiryHandle) {
