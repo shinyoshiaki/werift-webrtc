@@ -196,6 +196,8 @@ export class DataChunk extends Chunk {
   userData: Buffer = Buffer.from("");
   abandoned: boolean = false;
   acked: boolean = false;
+  /** Whether bookSize is currently counted in the sender's flightSize. */
+  inFlight: boolean = false;
   misses: number = 0;
   retransmit: boolean = false;
   sentCount: number = 0;

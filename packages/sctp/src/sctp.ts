@@ -193,6 +193,8 @@ export class SCTP {
   private advancedPeerAckTsn = tsnMinusOne(this.localTsn); // acknowledgement
   private partialBytesAcked = 0;
   private sentQueue = new FifoQueue<DataChunk>();
+  /** Gap-acked DATA still awaiting cumulative ACK (kept for reneging checks). */
+  private gapAckedChunks = new Set<DataChunk>();
   private transmitting = false;
   private transmitRequested = false;
 
@@ -735,28 +737,44 @@ export class SCTP {
       uint32Gte(this.lastSackedTsn, this.sentQueue.peek()!.tsn)
     ) {
       const sChunk = this.sentQueue.shift()!;
+      this.gapAckedChunks.delete(sChunk);
       done++;
-      if (!sChunk?.acked) {
+      if (!sChunk.acked) {
         doneBytes += sChunk.bookSize;
-        this.flightSizeDecrease(sChunk);
       }
+      this.flightSizeDecrease(sChunk);
 
       if (done === 1 && sChunk.sentCount === 1) {
         this.updateRto(receivedTime - sChunk.sentTime!);
       }
     }
+    // # handle reneging
+    // RFC 9260 §6.2.1: a previously gap-acked TSN missing from this SACK is
+    // outstanding again; T3-rtx must cover it even if no new ACK follows.
+    const seen = new Set<number>();
+    let highestSeenTsn: number | undefined;
+    for (const gap of chunk.gaps) {
+      for (let pos = gap[0]; pos < gap[1] + 1; pos++) {
+        highestSeenTsn = (chunk.cumulativeTsn + pos) % SCTP_TSN_MODULO;
+        seen.add(highestSeenTsn);
+      }
+    }
+    let reneged = false;
+    for (const sChunk of this.gapAckedChunks) {
+      // Abandoned chunks are never retransmitted nor counted in flight again.
+      if (sChunk.abandoned || !sChunk.acked) {
+        this.gapAckedChunks.delete(sChunk);
+      } else if (!seen.has(sChunk.tsn)) {
+        sChunk.acked = false;
+        this.gapAckedChunks.delete(sChunk);
+        this.flightSizeIncrease(sChunk);
+        reneged = true;
+      }
+    }
+
     // # handle gap blocks
     let loss = false;
     if (chunk.gaps.length > 0) {
-      const seen = new Set();
-      let highestSeenTsn: number;
-      chunk.gaps.forEach((gap) => {
-        for (let pos = gap[0]; pos < gap[1] + 1; pos++) {
-          highestSeenTsn = (chunk.cumulativeTsn + pos) % SCTP_TSN_MODULO;
-          seen.add(highestSeenTsn);
-        }
-      });
-
       let highestNewlyAcked = chunk.cumulativeTsn;
       for (const sChunk of this.sentQueue) {
         if (uint32Gt(sChunk.tsn, highestSeenTsn!)) {
@@ -765,6 +783,9 @@ export class SCTP {
         if (seen.has(sChunk.tsn) && !sChunk.acked) {
           doneBytes += sChunk.bookSize;
           sChunk.acked = true;
+          this.gapAckedChunks.add(sChunk);
+          // A pending retransmission is no longer needed once gap-acked.
+          sChunk.retransmit = false;
           this.flightSizeDecrease(sChunk);
           highestNewlyAcked = sChunk.tsn;
         }
@@ -783,6 +804,7 @@ export class SCTP {
               sChunk.retransmit = true;
             }
             sChunk.acked = false;
+            this.gapAckedChunks.delete(sChunk);
             this.flightSizeDecrease(sChunk);
             loss = true;
           }
@@ -819,7 +841,7 @@ export class SCTP {
 
     if (this.sentQueue.length === 0) {
       this.timer3Cancel();
-    } else if (done > 0) {
+    } else if (done > 0 || (reneged && !this.timer3Handle)) {
       this.timer3Restart();
     }
 
@@ -1051,6 +1073,10 @@ export class SCTP {
 
     let retransmitEarliest = true;
     for (const dataChunk of this.sentQueue) {
+      if (dataChunk.retransmit && (dataChunk.acked || dataChunk.abandoned)) {
+        // Acked or abandoned after being marked; nothing to resend.
+        dataChunk.retransmit = false;
+      }
       if (dataChunk.retransmit) {
         if (this.fastRecoveryTransmit) {
           this.fastRecoveryTransmit = false;
@@ -1148,12 +1174,18 @@ export class SCTP {
     }
   }
 
+  // flightSize always equals the bookSize sum of inFlight chunks in sentQueue,
+  // so both helpers are idempotent per chunk.
   private flightSizeIncrease(chunk: DataChunk) {
+    if (chunk.inFlight) return;
+    chunk.inFlight = true;
     this.flightSize += chunk.bookSize;
   }
 
   private flightSizeDecrease(chunk: DataChunk) {
-    this.flightSize = Math.max(0, this.flightSize - chunk.bookSize);
+    if (!chunk.inFlight) return;
+    chunk.inFlight = false;
+    this.flightSize -= chunk.bookSize;
   }
 
   // # timers
@@ -1246,16 +1278,19 @@ export class SCTP {
     this.timer3Handle = undefined;
 
     // # mark retransmit or abandoned chunks
+    // RFC 9260 §6.3.3 (E3): only outstanding chunks; gap-acked ones are kept
+    // for reneging but not retransmitted.
     this.sentQueue.forEach((chunk) => {
+      if (chunk.acked || chunk.abandoned) return;
       if (!this.maybeAbandon(chunk)) {
         chunk.retransmit = true;
       }
+      this.flightSizeDecrease(chunk);
     });
     this.updateAdvancedPeerAckPoint();
 
     // # adjust congestion window
     this.fastRecoveryExit = undefined;
-    this.flightSize = 0;
     this.partialBytesAcked = 0;
 
     this.ssthresh = Math.max(
@@ -1378,6 +1413,8 @@ export class SCTP {
     const streams: { [key: number]: number } = {};
     while (this.sentQueue.length > 0 && this.sentQueue.peek()!.abandoned) {
       const chunk = this.sentQueue.shift()!;
+      this.gapAckedChunks.delete(chunk);
+      this.flightSizeDecrease(chunk);
       this.advancedPeerAckTsn = chunk.tsn;
       done++;
       if (!(chunk.flags & SCTP_DATA_UNORDERED)) {
@@ -1401,12 +1438,21 @@ export class SCTP {
       (!!chunk.expiry && chunk.expiry < Date.now() / 1000);
     if (!abandon) return false;
 
-    const chunkPos = this.sentQueue.findIndex((v) => v.type === chunk.type);
+    const chunkPos = this.sentQueue.findIndex((v) => v === chunk);
+    if (chunkPos < 0) {
+      chunk.abandoned = true;
+      chunk.retransmit = false;
+      this.gapAckedChunks.delete(chunk);
+      this.flightSizeDecrease(chunk);
+      return true;
+    }
     for (let pos = chunkPos; pos >= 0; pos--) {
       const oChunk = this.sentQueue.at(pos)!;
       oChunk.abandoned = true;
       oChunk.retransmit = false;
-      if (oChunk.flags & SCTP_DATA_LAST_FRAG) {
+      this.gapAckedChunks.delete(oChunk);
+      this.flightSizeDecrease(oChunk);
+      if (oChunk.flags & SCTP_DATA_FIRST_FRAG) {
         break;
       }
     }
@@ -1415,6 +1461,7 @@ export class SCTP {
       const oChunk = this.sentQueue.at(pos)!;
       oChunk.abandoned = true;
       oChunk.retransmit = false;
+      this.flightSizeDecrease(oChunk);
       if (oChunk.flags & SCTP_DATA_LAST_FRAG) {
         break;
       }

@@ -1,5 +1,9 @@
 import { Vp8RtpPayload } from "../../src/codec/vp8";
-import { createRtpUdpCollector, runExample } from "../utils";
+import {
+  createRtpUdpCollector,
+  isFfmpegVp8Available,
+  runExample,
+} from "../utils";
 
 const EXAMPLE = "examples/node/pacer/ffmpeg-vfr-stream.ts";
 const DURATION_SEC = 4;
@@ -13,7 +17,6 @@ const expectedSourceFrames = Array.from(
 
 /** ソースが実時間に追いついていたとみなす最大 lateness (timer ジッタの範囲) */
 const SOURCE_KEPT_UP_LATENESS_MS = 50;
-
 const median = (values: number[]) => {
   const sorted = [...values].sort((a, b) => a - b);
   return sorted[Math.floor(sorted.length / 2)];
@@ -33,7 +36,12 @@ const parseSummary = (stdout: string) => {
 };
 
 describe("examples/node/pacer/ffmpeg-vfr-stream.ts", () => {
-  test("ffmpeg のライブ VFR VP8 を pts 通りの RTP として欠落なく送出する", async () => {
+  test("ffmpeg のライブ VFR VP8 を pts 通りの RTP として欠落なく送出する", async ({
+    skip,
+  }) => {
+    if (!isFfmpegVp8Available()) {
+      skip("ffmpeg with libvpx is unavailable");
+    }
     // Arrange: example の送信先になる UDP 受信ソケット
     const collector = await createRtpUdpCollector();
 
@@ -67,8 +75,11 @@ describe("examples/node/pacer/ffmpeg-vfr-stream.ts", () => {
       expect(new Set(packets.map((p) => p.rtp.header.ssrc)).size).toBe(1);
 
       // 1 フレーム = marker 付きパケットで終わる同一 timestamp のパケット列
-      const frames: { timestamp: number; at: number; firstPayload: Buffer }[] =
-        [];
+      const frames: {
+        timestamp: number;
+        at: number;
+        firstPayload: Buffer;
+      }[] = [];
       let firstPayload: Buffer | undefined;
       for (const { rtp, at } of packets) {
         firstPayload ??= rtp.payload;
@@ -132,7 +143,12 @@ describe("examples/node/pacer/ffmpeg-vfr-stream.ts", () => {
     }
   }, 60_000);
 
-  test("DEST_PORT 未指定ではローカル受信側が timestamp 差と到着間隔を表示する", async () => {
+  test("DEST_PORT 未指定ではローカル受信側が timestamp 差と到着間隔を表示する", async ({
+    skip,
+  }) => {
+    if (!isFfmpegVp8Available()) {
+      skip("ffmpeg with libvpx is unavailable");
+    }
     // Act: 受信側を内蔵したモードで 2 秒分だけ実行する
     const result = await runExample(EXAMPLE, {
       env: { DURATION_SEC: "2" },

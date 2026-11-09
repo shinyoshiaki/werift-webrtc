@@ -530,6 +530,14 @@ export function isFfmpegOpusAvailable() {
   );
 }
 
+/** Returns whether the installed FFmpeg can run and encode VP8. */
+export function isFfmpegVp8Available() {
+  const result = spawnSync("ffmpeg", ["-hide_banner", "-encoders"], {
+    encoding: "utf8",
+  });
+  return result.status === 0 && /libvpx/.test(result.stdout);
+}
+
 /** Encodes a sine tone with ffmpeg/libopus and returns the Ogg file. */
 export function encodeOggOpusWithFfmpeg(seconds: number, channels = 2) {
   const result = spawnSync(

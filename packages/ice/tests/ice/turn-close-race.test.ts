@@ -7,6 +7,7 @@ import { vi } from "vitest";
 import { TcpTransport } from "../../../common/src";
 import { classes, methods } from "../../src/stun/const";
 import { Message, parseMessage } from "../../src/stun/message";
+import { splitTurnTcpFrames } from "../../src/turn/frame";
 import { createTurnClient, TurnProtocol } from "../../src/turn/protocol";
 import {
   activeResourceCount,
@@ -25,7 +26,17 @@ async function listenTcp(reply: (request: Message) => Message) {
     sockets.add(socket);
     socket.on("close", () => sockets.delete(socket));
     socket.on("error", () => {});
-    socket.on("data", (data) => socket.write(reply(parseMessage(data)!).bytes));
+    let buffer: Buffer = Buffer.alloc(0);
+    socket.on("data", (data) => {
+      const { frames, rest } = splitTurnTcpFrames(
+        Buffer.concat([buffer, data]),
+      );
+      buffer = rest;
+      for (const frame of frames) {
+        const request = parseMessage(frame);
+        if (request) socket.write(reply(request).bytes);
+      }
+    });
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const port = (server.address() as { port: number }).port;
