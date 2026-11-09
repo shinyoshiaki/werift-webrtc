@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { classes } from "../src/stun/const";
-import { parseMessage } from "../src/stun/message";
+import { classes, methods } from "../src/stun/const";
+import { Message, parseMessage } from "../src/stun/message";
 import {
   appendAttribute,
   appendFingerprint,
