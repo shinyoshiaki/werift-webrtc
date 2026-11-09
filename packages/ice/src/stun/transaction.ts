@@ -3,7 +3,9 @@ import { isIP, SocketAddress } from "node:net";
 import {
   AddressFamilyMismatch,
   TransactionCancelled,
+  TransactionChallenge,
   TransactionFailed,
+  TransactionIntegrityViolation,
   TransactionTimeout,
 } from "../exceptions";
 import { type Address, debug, Event } from "../imports/common";
@@ -79,6 +81,26 @@ function canonicalHost(host: string): string {
     : host;
 }
 
+/** Whether `message` carries MESSAGE-INTEGRITY or MESSAGE-INTEGRITY-SHA256. */
+export function hasMessageIntegrity(message: Message): boolean {
+  return (
+    message.attributesKeys.includes("MESSAGE-INTEGRITY") ||
+    message.attributesKeys.includes("MESSAGE-INTEGRITY-SHA256")
+  );
+}
+
+/**
+ * A long-term credential challenge (RFC 8489 §9.2.4): a 401 (Unauthenticated)
+ * or 438 (Stale Nonce) error response without MESSAGE-INTEGRITY.
+ */
+export function isUnauthenticatedChallenge(message: Message): boolean {
+  if (message.messageClass !== classes.ERROR || hasMessageIntegrity(message)) {
+    return false;
+  }
+  const [errorCode] = message.getAttributeValue("ERROR-CODE") ?? [];
+  return errorCode === 401 || errorCode === 438;
+}
+
 export class Transaction {
   private request: Message;
   private addr: Address;
@@ -96,7 +118,9 @@ export class Transaction {
   readonly expectedAddr: Address;
   /**
    * When set, protocol layers re-parse the wire response with this key so
-   * MESSAGE-INTEGRITY failures are rejected before responseReceived.
+   * MESSAGE-INTEGRITY failures are rejected before responseReceived. The one
+   * exception is a TURN long-term credential challenge (unsigned 401/438),
+   * which TurnProtocol passes to challengeReceived instead.
    */
   readonly integrityKey?: Buffer;
   private waitTimer?: ReturnType<typeof setTimeout>;
@@ -142,20 +166,11 @@ export class Transaction {
    * remote address. Wrong address, missing MESSAGE-INTEGRITY (when required),
    * or non-success class is rejected without completing the transaction
    * (wrong address / unauthenticated responses are ignored so we keep waiting).
+   * An unsigned 401/438 challenge is not accepted here even for long-term
+   * credentials; only challengeReceived takes it.
    */
   responseReceived = (message: Message, addr: Address) => {
-    if (this.ended || this.onResponse.length === 0) {
-      return;
-    }
-
-    // RFC 7675 / ICE: only responses from the request's transport address.
-    if (!addressEquals(this.expectedAddr, addr)) {
-      log(
-        "ignore STUN response from unexpected address",
-        addr,
-        "expected",
-        this.expectedAddr,
-      );
+    if (!this.accepts(addr)) {
       return;
     }
 
@@ -163,16 +178,9 @@ export class Transaction {
     // Wire HMAC is verified by protocol layers via parseMessage(data, key);
     // this presence check is defense-in-depth if responseReceived is called
     // with a constructed Message that skipped the wire re-parse path.
-    if (this.integrityKey) {
-      const hasIntegrity =
-        message.attributesKeys.includes("MESSAGE-INTEGRITY") ||
-        message.attributesKeys.includes("MESSAGE-INTEGRITY-SHA256");
-      if (!hasIntegrity) {
-        log(
-          "ignore unauthenticated STUN response (MESSAGE-INTEGRITY required)",
-        );
-        return;
-      }
+    if (this.integrityKey && !hasMessageIntegrity(message)) {
+      log("ignore unauthenticated STUN response (MESSAGE-INTEGRITY required)");
+      return;
     }
 
     if (message.messageClass === classes.RESPONSE) {
@@ -183,6 +191,60 @@ export class Transaction {
       this.onResponse.error(new TransactionFailed(message, addr));
     }
   };
+
+  /**
+   * Fail the transaction with TransactionChallenge on a long-term credential
+   * challenge: an unsigned 401/438 error response (RFC 8489 §9.2.4) to this
+   * request's method, from the expected remote address. Any other message is
+   * ignored. Only TurnProtocol calls this: short-term credential checks (ICE
+   * connectivity checks, consent) have no challenge and keep requiring
+   * MESSAGE-INTEGRITY through responseReceived.
+   */
+  challengeReceived = (message: Message, addr: Address) => {
+    if (!this.accepts(addr)) {
+      return;
+    }
+    if (
+      !isUnauthenticatedChallenge(message) ||
+      message.messageMethod !== this.request.messageMethod
+    ) {
+      log("ignore STUN response that is not a long-term credential challenge");
+      return;
+    }
+    this.onResponse.error(new TransactionChallenge(message, addr));
+  };
+
+  /**
+   * Fail the transaction with TransactionIntegrityViolation: a response from
+   * the expected remote address failed MESSAGE-INTEGRITY validation on a
+   * reliable transport, where it cannot be a retransmission race
+   * (RFC 8489 §9.2.5).
+   */
+  integrityViolated = (addr: Address) => {
+    if (!this.accepts(addr)) {
+      return;
+    }
+    this.fail(new TransactionIntegrityViolation(addr));
+  };
+
+  /** Whether a response from `addr` may settle this transaction. */
+  private accepts(addr: Address) {
+    if (this.ended || this.onResponse.length === 0) {
+      return false;
+    }
+
+    // RFC 7675 / ICE: only responses from the request's transport address.
+    if (!addressEquals(this.expectedAddr, addr)) {
+      log(
+        "ignore STUN response from unexpected address",
+        addr,
+        "expected",
+        this.expectedAddr,
+      );
+      return false;
+    }
+    return true;
+  }
 
   run = async () => {
     try {
