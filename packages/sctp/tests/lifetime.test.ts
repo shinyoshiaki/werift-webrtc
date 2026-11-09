@@ -824,6 +824,39 @@ describe("PR-SCTP lifetime of DATA queued behind a zero receive window", () => {
     }
   });
 
+  test("releases the payload of queued messages that expire behind a pending message", async () => {
+    // Arrange: 相手の受信ウィンドウが 0 の association に、寿命なしの A を先に積む
+    const { sctp } = createZeroWindowMockSctp();
+    try {
+      void sctp.send(0, 51, Buffer.alloc(1024, 1));
+      await flushImmediates();
+
+      // Act: A の後ろに寿命 50ms の 1 KiB メッセージを 3 つ積み、寿命を過ぎるまで待つ
+      const sends = [2, 3, 4].map((fill) =>
+        sctp.send(0, 51, Buffer.alloc(1024, fill), {
+          expiry: Date.now() + 50,
+        }),
+      );
+      await new Promise((r) => setTimeout(r, 120));
+      await flushImmediates();
+      await Promise.all(sends);
+
+      // Assert: 期限切れの 3 つは send() が解決し、TSN 順の計上に必要な bookSize だけ残してペイロードを手放す
+      const [a, ...expired] = [...sctp.outboundQueue];
+      expect(expired).toHaveLength(3);
+      for (const chunk of expired) {
+        expect(chunk.abandoned).toBe(true);
+        expect(chunk.userData.length).toBe(0);
+        expect(chunk.bookSize).toBe(1024);
+      }
+      // Assert: 送信待ちの A のペイロードは保持される
+      expect(a.abandoned).toBe(false);
+      expect(a.userData.length).toBe(1024);
+    } finally {
+      await disposeMockSctp(sctp);
+    }
+  });
+
   test("does not keep an expiry timer once the queue is empty or stopped", async () => {
     // Arrange: 相手の受信ウィンドウが 0 の association に寿命付きメッセージを積む
     const { sctp } = createZeroWindowMockSctp();

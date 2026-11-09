@@ -117,6 +117,9 @@ const SCTPConnectionStates = [
 ] as const;
 type SCTPConnectionState = Unpacked<typeof SCTPConnectionStates>;
 
+/** Shared empty payload of abandoned DATA chunks. */
+const EMPTY_PAYLOAD = Buffer.alloc(0);
+
 export class SCTP {
   public transport: Transport;
   public port: number;
@@ -1580,7 +1583,7 @@ export class SCTP {
     for (const chunk of this.outboundQueue) {
       if (chunk.abandoned || chunk.expiry === undefined) continue;
       if (this.isExpired(chunk)) {
-        chunk.abandoned = true;
+        this.markAbandoned(chunk);
         this.resolveSendWaiterOutOfOrder(chunk);
       } else if (nextExpiry === undefined || chunk.expiry < nextExpiry) {
         nextExpiry = chunk.expiry;
@@ -1779,14 +1782,23 @@ export class SCTP {
     return chunk.expiry !== undefined && chunk.expiry <= Date.now();
   }
 
+  /**
+   * An abandoned chunk is never sent or retransmitted again, so its payload is
+   * released; bookSize and the TSN / stream metadata FORWARD-TSN needs stay.
+   */
+  private markAbandoned(chunk: DataChunk) {
+    chunk.abandoned = true;
+    chunk.retransmit = false;
+    chunk.userData = EMPTY_PAYLOAD;
+  }
+
   /** Marks every fragment of the message at sentQueue[chunkPos] abandoned. */
   private abandonMessage(chunkPos: number) {
     // Abandon the whole message: walk back to its first fragment and forward
     // to its last fragment (RFC 3758 3.5 A3).
     for (let pos = chunkPos; pos >= 0; pos--) {
       const oChunk = this.sentQueue.at(pos)!;
-      oChunk.abandoned = true;
-      oChunk.retransmit = false;
+      this.markAbandoned(oChunk);
       this.flightSizeDecrease(oChunk);
       if (oChunk.flags & SCTP_DATA_FIRST_FRAG) {
         break;
@@ -1796,8 +1808,7 @@ export class SCTP {
     let lastFragReached = false;
     for (let pos = chunkPos; pos < this.sentQueue.length; pos++) {
       const oChunk = this.sentQueue.at(pos)!;
-      oChunk.abandoned = true;
-      oChunk.retransmit = false;
+      this.markAbandoned(oChunk);
       this.flightSizeDecrease(oChunk);
       if (oChunk.flags & SCTP_DATA_LAST_FRAG) {
         lastFragReached = true;
@@ -1811,8 +1822,7 @@ export class SCTP {
     // covered by the FORWARD-TSN like the rest of the message.
     while (!lastFragReached && this.outboundQueue.length > 0) {
       const oChunk = this.outboundQueue.shift()!;
-      oChunk.abandoned = true;
-      oChunk.retransmit = false;
+      this.markAbandoned(oChunk);
       this.sentQueue.push(oChunk);
       this.resolveSendWaiters(oChunk);
       if (oChunk.flags & SCTP_DATA_LAST_FRAG) {
