@@ -19,6 +19,7 @@ import { FifoQueue } from "../src/imports/common";
 import {
   OutgoingSSNResetRequestParam,
   ReconfigResponseParam,
+  reconfigResult,
 } from "../src/param";
 import type { Transport } from "../src/transport";
 
@@ -182,6 +183,29 @@ export const dropDataPacketsAt = (indexes: number[]) => {
   return (buf: Buffer) => {
     if (buf.length <= 12 || buf[12] !== 0) return false;
     return targets.has(dataIndex++);
+  };
+};
+
+/**
+ * Drop predicate for MemoryTransport: drops the first `count` packets that
+ * carry a Re-configuration Response with Success - Performed (lost response).
+ */
+export const dropReconfigSuccessResponses = (count = 1) => {
+  let dropped = 0;
+  return (buf: Buffer) => {
+    if (dropped >= count) return false;
+    const hasSuccess = parsePacket(buf)[3].some(
+      (chunk) =>
+        chunk.type === ReconfigChunk.type &&
+        (chunk as ReconfigChunk).params.some(
+          ([type, body]) =>
+            type === ReconfigResponseParam.type &&
+            ReconfigResponseParam.parse(body).result ===
+              reconfigResult.ReconfigResultSuccessPerformed,
+        ),
+    );
+    if (hasSuccess) dropped++;
+    return hasSuccess;
   };
 };
 

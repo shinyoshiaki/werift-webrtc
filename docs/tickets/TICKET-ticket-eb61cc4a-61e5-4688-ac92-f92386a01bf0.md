@@ -43,6 +43,7 @@ develop の問題: 受信側に RFC 3711 §3.3.2 の replay list がなく、認
 - FORWARD-TSN 受信時は `c49c9ef1` の再組み立て処理（`forwardSequenceNumber()` / `pruneUnorderedChunks()`）を使い、`c7fccdd1` の保留中 reset の held DATA 破棄をその後に行う。
 - 別の initiate tag の INIT（相手の再開始）で受信 TSN を初期化するときは、旧 TSN 空間の保留中 reset（`deferredReset`）と前回の reconfig 応答結果（`lastReconfigResult`）も破棄する。
 - `changelog.md` の flightSize に関する 2 項目は 1 項目にまとめた。
+- 相手の逆方向 reset request の `responseSequence` が自分の未完了 request と一致したとき（RFC 6525 §5.2.2 E1）、`c7fccdd1` は再構成タイマーを止めていたが、成功応答が失われると request が残り続け後続の reset も送れなくなる。そのため request は成功応答まで残したまま、In progress と同様に失敗回数を数えずに再送を続ける（相手は処理済み request の再送に同じ結果を返す）。
 
 ### 3. [SCTP] Gap ACK後のT3再送でflightSizeが残存しDataChannel送信が停止する問題を修正する（#806）
 

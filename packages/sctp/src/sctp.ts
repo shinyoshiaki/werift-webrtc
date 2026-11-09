@@ -747,13 +747,18 @@ export class SCTP {
       return;
     }
 
-    // RFC 6525 §5.2.2 E1: the peer has received our outstanding request, so stop
-    // retransmitting it. The reset itself completes with the peer's response.
+    // RFC 6525 §5.2.2 E1: the peer has received our outstanding request. The
+    // reset itself completes only with the peer's response, and that response
+    // may be lost, so keep retransmitting the request (the peer answers a
+    // retransmission with the same result) instead of stopping the timer. The
+    // peer is reachable, so like In progress the expiries are not failures.
     if (
       this.reconfigRequest &&
       request.responseSequence === this.reconfigRequest.requestSequence
     ) {
+      this.reconfigRequestInProgress = true;
       this.timerReconfigCancel();
+      this.timerReconfigHandleStart();
     }
 
     const target = pending?.request ?? request;

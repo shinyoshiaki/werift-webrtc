@@ -8,6 +8,7 @@ import {
   createReconfigResponseChunk,
   createResetRequestChunk,
   dropDataPacketsAt,
+  dropReconfigSuccessResponses,
   recordSctpEvents,
 } from "./utils";
 
@@ -94,7 +95,12 @@ describe("incoming stream reset (RFC 6525 deferred reset)", () => {
     const { inject, events, responses } = setup();
     await inject(
       createDataChunk({ tsn: 101, streamId: 1, data: "s1" }),
-      createDataChunk({ tsn: 103, streamId: 2, data: "s2-b", fragment: "last" }),
+      createDataChunk({
+        tsn: 103,
+        streamId: 2,
+        data: "s2-b",
+        fragment: "last",
+      }),
     );
 
     // Act: stream 2 の TSN 102 が欠けたまま 2 stream の reset request を受け取る
@@ -347,12 +353,18 @@ describe("incoming stream reset (RFC 6525 deferred reset)", () => {
       createDataChunk({ tsn: 102, streamId: 2, data: "s2" }),
     );
     await inject(
-      createResetRequestChunk({ requestSequence: 1001, lastTsn: 103, streams: [] }),
+      createResetRequestChunk({
+        requestSequence: 1001,
+        lastTsn: 103,
+        streams: [],
+      }),
     );
 
     // Act: reset 後の stream 3 の DATA と、境界の DATA が届く
     await inject(createDataChunk({ tsn: 104, streamId: 3, data: "new-3" }));
-    await inject(createDataChunk({ tsn: 103, streamId: 1, ssn: 1, data: "s1b" }));
+    await inject(
+      createDataChunk({ tsn: 103, streamId: 1, ssn: 1, data: "s1b" }),
+    );
 
     // Assert: 既存の全 stream が reset され、stream 3 の新 DATA は reset 後に配信される
     expect(responses().map((r) => r.result)).toEqual([
@@ -461,7 +473,7 @@ describe("outgoing stream reset answered with In progress", () => {
 });
 
 describe("incoming reset request acknowledging our outstanding request", () => {
-  test("responseSequence が自分の request と一致すればタイマーを止めるが、成功応答までは完了にしない", async () => {
+  test("responseSequence が自分の request と一致しても成功応答までは完了にせず、失敗扱いせずに再送を続ける", async () => {
     // Arrange: 自分の reset request が未応答のまま残っている
     const { sctp, inject, internal } = createEstablishedMockSctp();
     internal.outboundStreamSeq[1] = 1;
@@ -480,8 +492,9 @@ describe("incoming reset request acknowledging our outstanding request", () => {
       }),
     );
 
-    // Assert: 再構成タイマーは止まるが、request と stream の状態は維持される
-    expect(internal.timerReconfigHandle).toBeUndefined();
+    // Assert: request と stream の状態は維持され、応答の損失に備えて再送タイマーは動き続ける
+    expect(internal.timerReconfigHandle).toBeDefined();
+    expect(internal.reconfigRequestInProgress).toBe(true);
     expect(sctp.reconfigRequest).toBe(request);
     expect(internal.outboundStreamSeq[1]).toBe(1);
 
@@ -501,60 +514,107 @@ describe("incoming reset request acknowledging our outstanding request", () => {
   });
 });
 
-describe("stream reset overtaking a retransmitted DATA chunk", () => {
-  test(
-    "最後のフラグメントが落ちても 64 KiB のメッセージが届いてから両方向の reset が完了する",
-    async () => {
-      // Arrange
-      const size = 64 * 1024;
-      const fragments = Math.ceil(
-        size / maxPayloadSizeForMtu(DEFAULT_SCTP_MTU),
-      );
-      // client の DATA パケット 0 は "hello"、1..fragments が 64 KiB のメッセージ
-      const pair = await createConnectedSctpPair({
-        dropClient: dropDataPacketsAt([fragments]),
-      });
-      const serverEvents = recordSctpEvents(pair.server);
-      const clientEvents = recordSctpEvents(pair.client);
-      try {
-        await pair.client.send(1, 51, Buffer.from("hello"));
-        await pair.server.send(1, 51, Buffer.from("hi"));
-        const message = Buffer.alloc(size, 7);
-
-        // Act: 最後のフラグメントが落ちた直後に client が stream 1 を reset する
-        await pair.client.send(1, 53, message);
-        pair.client.reconfigQueue.push(1);
-        await pair.client.transmitReconfigRequest();
-
-        // Assert: T3 再送後にメッセージが届き、その後で両方向の reset が完了する
-        await vi.waitFor(
-          () => {
-            expect(pair.client.reconfigRequest).toBeUndefined();
-            expect(pair.server.reconfigRequest).toBeUndefined();
-            expect(
-              serverEvents.filter((e) => e.type === "reset"),
-            ).not.toHaveLength(0);
-          },
-          { timeout: 20_000, interval: 50 },
-        );
-        expect(pair.transports.client.droppedPackets).toBe(1);
-        // 両端とも stream 1 で送信済みなので reset は複数回届きうるが、すべてメッセージの後
-        const serverLog = serverEvents.map((e) =>
-          e.type === "message" ? `message:${e.data.length}` : "reset",
-        );
-        expect(serverLog.slice(0, 3)).toEqual([
-          "message:5",
-          `message:${size}`,
-          "reset",
-        ]);
-        expect(serverLog.slice(3).every((e) => e === "reset")).toBe(true);
-        expect(clientEvents.some((e) => e.type === "reset")).toBe(true);
-        expect(pair.client.associationState).toBe(SCTP_STATE.ESTABLISHED);
-        expect(pair.server.associationState).toBe(SCTP_STATE.ESTABLISHED);
-      } finally {
-        await pair.stop();
+describe("lost Success response to our outstanding reset request", () => {
+  test("成功応答が失われ逆方向の request だけが届いても、再送で reset を完了し後続の reset も完了する", async () => {
+    // Arrange: server が client の request に返す最初の成功応答を落とすペア。両端とも stream 1 / 2 で送信済み
+    const pair = await createConnectedSctpPair({
+      dropServer: dropReconfigSuccessResponses(1),
+    });
+    const serverEvents = recordSctpEvents(pair.server);
+    try {
+      for (const streamId of [1, 2]) {
+        await pair.client.send(streamId, 51, Buffer.from("c"));
+        await pair.server.send(streamId, 51, Buffer.from("s"));
       }
-    },
-    30_000,
-  );
+      const resetOnServer = (streamId: number) =>
+        serverEvents.some(
+          (e) => e.type === "reset" && e.streamIds.includes(streamId),
+        );
+
+      // Act: client が stream 1 を reset する (server の成功応答は失われ、逆方向の request だけが届く)
+      pair.client.reconfigQueue.push(1);
+      await pair.client.transmitReconfigRequest();
+
+      // Assert: client は request の再送で成功応答を受け直し、stream 1 の reset を完了する
+      await vi.waitFor(
+        () => {
+          expect(pair.transports.server.droppedPackets).toBe(1);
+          expect(pair.client.reconfigRequest).toBeUndefined();
+          expect(pair.server.reconfigRequest).toBeUndefined();
+        },
+        { timeout: 20_000, interval: 50 },
+      );
+      expect(resetOnServer(1)).toBe(true);
+
+      // Act: 続けて client が stream 2 を reset する
+      pair.client.reconfigQueue.push(2);
+      await pair.client.transmitReconfigRequest();
+
+      // Assert: 残った request に塞がれず、後続の reset も両方向で完了する
+      await vi.waitFor(
+        () => {
+          expect(resetOnServer(2)).toBe(true);
+          expect(pair.client.reconfigRequest).toBeUndefined();
+          expect(pair.server.reconfigRequest).toBeUndefined();
+        },
+        { timeout: 20_000, interval: 50 },
+      );
+      expect(pair.client.associationState).toBe(SCTP_STATE.ESTABLISHED);
+      expect(pair.server.associationState).toBe(SCTP_STATE.ESTABLISHED);
+    } finally {
+      await pair.stop();
+    }
+  }, 45_000);
+});
+
+describe("stream reset overtaking a retransmitted DATA chunk", () => {
+  test("最後のフラグメントが落ちても 64 KiB のメッセージが届いてから両方向の reset が完了する", async () => {
+    // Arrange
+    const size = 64 * 1024;
+    const fragments = Math.ceil(size / maxPayloadSizeForMtu(DEFAULT_SCTP_MTU));
+    // client の DATA パケット 0 は "hello"、1..fragments が 64 KiB のメッセージ
+    const pair = await createConnectedSctpPair({
+      dropClient: dropDataPacketsAt([fragments]),
+    });
+    const serverEvents = recordSctpEvents(pair.server);
+    const clientEvents = recordSctpEvents(pair.client);
+    try {
+      await pair.client.send(1, 51, Buffer.from("hello"));
+      await pair.server.send(1, 51, Buffer.from("hi"));
+      const message = Buffer.alloc(size, 7);
+
+      // Act: 最後のフラグメントが落ちた直後に client が stream 1 を reset する
+      await pair.client.send(1, 53, message);
+      pair.client.reconfigQueue.push(1);
+      await pair.client.transmitReconfigRequest();
+
+      // Assert: T3 再送後にメッセージが届き、その後で両方向の reset が完了する
+      await vi.waitFor(
+        () => {
+          expect(pair.client.reconfigRequest).toBeUndefined();
+          expect(pair.server.reconfigRequest).toBeUndefined();
+          expect(
+            serverEvents.filter((e) => e.type === "reset"),
+          ).not.toHaveLength(0);
+        },
+        { timeout: 20_000, interval: 50 },
+      );
+      expect(pair.transports.client.droppedPackets).toBe(1);
+      // 両端とも stream 1 で送信済みなので reset は複数回届きうるが、すべてメッセージの後
+      const serverLog = serverEvents.map((e) =>
+        e.type === "message" ? `message:${e.data.length}` : "reset",
+      );
+      expect(serverLog.slice(0, 3)).toEqual([
+        "message:5",
+        `message:${size}`,
+        "reset",
+      ]);
+      expect(serverLog.slice(3).every((e) => e === "reset")).toBe(true);
+      expect(clientEvents.some((e) => e.type === "reset")).toBe(true);
+      expect(pair.client.associationState).toBe(SCTP_STATE.ESTABLISHED);
+      expect(pair.server.associationState).toBe(SCTP_STATE.ESTABLISHED);
+    } finally {
+      await pair.stop();
+    }
+  }, 30_000);
 });
