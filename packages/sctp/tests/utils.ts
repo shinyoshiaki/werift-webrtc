@@ -234,7 +234,7 @@ export function createControlledTransport() {
 /** Arrange: deliver an INIT_ACK (with state cookie) to an initiator in COOKIE_WAIT. */
 export async function receiveInitAck(sctp: SCTP) {
   const ack = new InitAckChunk();
-  ack.initiateTag = 0x1234;
+  ack.initiateTag = 0x5678;
   ack.advertisedRwnd = 131072;
   ack.outboundStreams = 65535;
   ack.inboundStreams = 65535;
@@ -251,13 +251,17 @@ export async function receiveInitAck(sctp: SCTP) {
  * RFC 9260 requires 0; an older werift (<= 0.26) that answered our INIT
  * before its own start() sends its INIT with the tag it learned from ours.
  */
-export async function receiveInitTagged(sctp: SCTP, tag: number) {
+export async function receiveInitTagged(
+  sctp: SCTP,
+  tag: number,
+  { initiateTag = 0x5678, initialTsn = 1 } = {},
+) {
   const init = new InitChunk();
-  init.initiateTag = 0x5678;
+  init.initiateTag = initiateTag;
   init.advertisedRwnd = 131072;
   init.outboundStreams = 65535;
   init.inboundStreams = 65535;
-  init.initialTsn = 1;
+  init.initialTsn = initialTsn;
   await (sctp as unknown as SctpInternals).handleData(
     serializePacket(5001, 5000, tag, init),
   );

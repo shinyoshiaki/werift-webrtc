@@ -384,9 +384,11 @@ export class SCTP {
           // it (CLOSED / COOKIE-WAIT). In COOKIE-ECHOED our INIT_ACK handling
           // already took it, and once ESTABLISHED a delayed duplicate INIT
           // must not rewind the cumulative TSN of DATA received since.
+          // A different initiate tag is a restarted peer: start its TSNs over.
           if (
             this.associationState === SCTP_STATE.CLOSED ||
-            this.associationState === SCTP_STATE.COOKIE_WAIT
+            this.associationState === SCTP_STATE.COOKIE_WAIT ||
+            init.initiateTag !== this.remoteVerificationTag
           ) {
             this.lastReceivedTsn = tsnMinusOne(init.initialTsn);
             this.reconfigResponseSeq = tsnMinusOne(init.initialTsn);

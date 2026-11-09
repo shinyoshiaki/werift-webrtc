@@ -201,6 +201,27 @@ describe("SCTP 確立済み responder への重複 INIT", () => {
   });
 });
 
+describe("SCTP 確立済み responder への再開始 INIT", () => {
+  test("別の initiate tag / 初期 TSN で相手が再開始したら、受信 TSN も新しい初期 TSN から始める", async () => {
+    // Arrange: 初期 TSN 1 で確立し、DATA 1 を確認済みの responder
+    const { transport, sent } = createControlledTransport();
+    const sctp = SCTP.server(transport);
+    sctp.setRemotePort(5000);
+    const cookie = await receiveInitAndTakeCookie(sctp, sent);
+    await receiveCookieEcho(sctp, cookie);
+    await receiveData(sctp, 1);
+    expect(lastSackCumulativeTsn(sent)).toBe(1);
+
+    // Act: 別の initiate tag・初期 TSN 100 の INIT を受け、DATA 100 を受信する
+    await receiveInitTagged(sctp, 0, { initiateTag: 0x9999, initialTsn: 100 });
+    await receiveData(sctp, 100);
+
+    // Assert: 累積確認は 100 へ進む (旧 TSN 1 を待ち続けない)
+    expect(lastSackCumulativeTsn(sent)).toBe(100);
+    await sctp.stop();
+  });
+});
+
 describe("SCTP start chunk send ordering", () => {
   test("開始側は INIT の送信完了前に届いた INIT_ACK も処理する", async () => {
     // Arrange: INIT の送信完了を保留する開始側
