@@ -380,8 +380,13 @@ export class SCTP {
           this.receivedInit = true;
 
           log("receive init", init);
-          this.lastReceivedTsn = tsnMinusOne(init.initialTsn);
-          this.reconfigResponseSeq = tsnMinusOne(init.initialTsn);
+          // In COOKIE-ECHOED our INIT_ACK handling already took the peer's
+          // initial TSN; a delayed duplicate INIT must not rewind the
+          // cumulative TSN of DATA received since.
+          if (this.associationState !== SCTP_STATE.COOKIE_ECHOED) {
+            this.lastReceivedTsn = tsnMinusOne(init.initialTsn);
+            this.reconfigResponseSeq = tsnMinusOne(init.initialTsn);
+          }
           this.remoteVerificationTag = init.initiateTag;
           this.ssthresh = init.advertisedRwnd;
           this.peerAdvertisedRwnd = init.advertisedRwnd;

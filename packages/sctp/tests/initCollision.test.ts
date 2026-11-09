@@ -4,6 +4,10 @@ import { vi } from "vitest";
 import { SCTP, SCTP_STATE } from "../src";
 import {
   CookieAckChunk,
+  DataChunk,
+  parsePacket,
+  SackChunk,
+  serializePacket,
   CookieEchoChunk,
   InitAckChunk,
   InitChunk,
@@ -154,6 +158,27 @@ describe("SCTP INIT collision", () => {
   });
 });
 
+describe("SCTP 遅延した重複 INIT", () => {
+  test("COOKIE_ECHOED 中に DATA を受信した後の重複 INIT は、累積 TSN を巻き戻さない", async () => {
+    // Arrange: INIT_ACK (initialTsn=1) を受けて COOKIE_ECHOED、COOKIE_ACK 前に DATA 1 が先着
+    const { transport, sent } = createControlledTransport();
+    const sctp = SCTP.client(transport, 5000);
+    await sctp.start(5001);
+    await receiveInitAck(sctp);
+    expect(sctp.associationState).toBe(SCTP_STATE.COOKIE_ECHOED);
+    await receiveData(sctp, 1);
+    expect(lastSackCumulativeTsn(sent)).toBe(1);
+
+    // Act: 遅延した重複 INIT (initialTsn=1) を受信し、その後 DATA 2 を受信する
+    await receiveInitTagged(sctp, 0);
+    await receiveData(sctp, 2);
+
+    // Assert: DATA 2 に対する SACK の累積確認は 2 へ進む (1 → 0 に戻らない)
+    expect(lastSackCumulativeTsn(sent)).toBe(2);
+    await sctp.stop();
+  });
+});
+
 describe("SCTP start chunk send ordering", () => {
   test("開始側は INIT の送信完了前に届いた INIT_ACK も処理する", async () => {
     // Arrange: INIT の送信完了を保留する開始側
@@ -290,3 +315,24 @@ describe("SCTP start chunk send ordering", () => {
     }
   });
 });
+
+async function receiveData(sctp: SCTP, tsn: number) {
+  const chunk = new DataChunk(0, undefined);
+  chunk.flags = 0x03;
+  chunk.tsn = tsn;
+  chunk.streamId = 1;
+  chunk.streamSeqNum = tsn - 1;
+  chunk.protocol = 51;
+  chunk.userData = Buffer.from("x");
+  const internals = sctp as any;
+  await internals.handleData(
+    serializePacket(5001, 5000, internals.localVerificationTag, chunk),
+  );
+}
+
+function lastSackCumulativeTsn(sent: Buffer[]) {
+  const sacks = sent
+    .flatMap((b) => parsePacket(b)[3])
+    .filter((c) => c.type === SackChunk.type) as SackChunk[];
+  return sacks.at(-1)?.cumulativeTsn;
+}
