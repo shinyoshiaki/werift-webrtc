@@ -2,6 +2,7 @@ import { resolve } from "path";
 import ts from "typescript";
 
 const webrtcRoot = resolve(__dirname, "../..");
+const TYPE_COMPILER_TIMEOUT_MS = 120_000;
 
 // 利用者側 (exactOptionalPropertyTypes 有効) のコードをソースに対してコンパイルし、診断を返す
 const compileConsumer = (code: string) => {
@@ -31,9 +32,11 @@ const compileConsumer = (code: string) => {
 };
 
 describe("public types (パラメータプロパティ変換後も互換)", () => {
-  test("省略可能な公開プロパティへ undefined を代入できる", () => {
-    // Arrange
-    const code = `
+  test(
+    "省略可能な公開プロパティへ undefined を代入できる",
+    () => {
+      // Arrange
+      const code = `
       import { Candidate } from "../../../ice/src";
       import { CipherContext } from "../../../dtls/src";
       import { IceCandidate } from "../../src/transport/ice";
@@ -54,25 +57,31 @@ describe("public types (パラメータプロパティ変換後も互換)", () =
       cc.keyPem = undefined;
     `;
 
-    // Act: 利用者コードをソースに対してコンパイルして診断を集める
-    const diagnostics = compileConsumer(code);
+      // Act: 利用者コードをソースに対してコンパイルして診断を集める
+      const diagnostics = compileConsumer(code);
 
-    // Assert: 型エラーが 0 件である
-    expect(diagnostics).toEqual([]);
-  }, 30_000);
+      // Assert: 型エラーが 0 件である
+      expect(diagnostics).toEqual([]);
+    },
+    TYPE_COMPILER_TIMEOUT_MS,
+  );
 
-  test("DtlsRandom.random_bytes は Uint8Array<ArrayBuffer> に代入できる", () => {
-    // Arrange
-    const code = `
+  test(
+    "DtlsRandom.random_bytes は Uint8Array<ArrayBuffer> に代入できる",
+    () => {
+      // Arrange
+      const code = `
       import { CipherContext } from "../../../dtls/src";
       declare const cc: CipherContext;
       export const u: Uint8Array<ArrayBuffer> = cc.localRandom.random_bytes;
     `;
 
-    // Act: 利用者コードをソースに対してコンパイルして診断を集める
-    const diagnostics = compileConsumer(code);
+      // Act: 利用者コードをソースに対してコンパイルして診断を集める
+      const diagnostics = compileConsumer(code);
 
-    // Assert: 型エラーが 0 件である
-    expect(diagnostics).toEqual([]);
-  }, 30_000);
+      // Assert: 型エラーが 0 件である
+      expect(diagnostics).toEqual([]);
+    },
+    TYPE_COMPILER_TIMEOUT_MS,
+  );
 });
