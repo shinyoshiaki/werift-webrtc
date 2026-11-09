@@ -406,6 +406,16 @@ export const createMockSctp = ({ established = false } = {}) => {
   return { sctp, transport };
 };
 
+/**
+ * ESTABLISHED mock SCTP whose peer advertised a zero receive window and that
+ * has no DATA in flight, so transmit() cannot send queued DATA.
+ */
+export const createZeroWindowMockSctp = () => {
+  const mock = createMockSctp({ established: true });
+  (mock.sctp as any).peerAdvertisedRwnd = 0;
+  return mock;
+};
+
 /** Lets pending async sends / transmits settle. */
 export const settle = async (times = 5) => {
   for (let i = 0; i < times; i++) {

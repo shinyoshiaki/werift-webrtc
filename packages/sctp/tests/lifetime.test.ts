@@ -4,6 +4,9 @@ import { DataChunk, ForwardTsnChunk, SackChunk } from "../src/chunk";
 import {
   createLossyPrSctpPair,
   createSeededRandom,
+  createZeroWindowMockSctp,
+  disposeMockSctp,
+  sentChunks,
   findFlightSizeViolation,
   flushImmediates,
 } from "./utils";
@@ -722,6 +725,64 @@ describe("PR-SCTP lifetime (expiry) abandonment", () => {
     expect(received).toEqual(["A", "B"]);
     expect(client.sentQueue.length).toBe(0);
     expect(client.flightSize).toBe(0);
+  });
+});
+
+describe("PR-SCTP lifetime of DATA queued behind a zero receive window", () => {
+  test("expires a queued message without any SACK, window update or other send", async () => {
+    // Arrange: 相手の受信ウィンドウが 0 で、未確認 DATA がない association
+    const { sctp, transport } = createZeroWindowMockSctp();
+    const internal = sctp as any;
+    try {
+      let settled = false;
+
+      // Act: 寿命 50ms のメッセージを投入する
+      const sending = sctp
+        .send(0, 51, Buffer.from("A"), { expiry: Date.now() + 50 })
+        .then(() => {
+          settled = true;
+        });
+      await flushImmediates();
+
+      // Assert: ウィンドウ不足で送信されずキューに残り、T3 は動いていない
+      expect(sctp.outboundQueue.length).toBe(1);
+      expect(internal.timer3Handle).toBeUndefined();
+      expect(settled).toBe(false);
+
+      // Act: 他のイベントを起こさずに寿命を過ぎるまで待つ
+      await new Promise((r) => setTimeout(r, 120));
+      await flushImmediates();
+
+      // Assert: 期限切れで破棄され、send() は解決し、FORWARD-TSN で相手に飛ばすことを伝える
+      await sending;
+      expect(settled).toBe(true);
+      expect(sctp.outboundQueue.length).toBe(0);
+      expect(internal.sentQueue.length).toBe(0);
+      const forwardTsn = sentChunks(transport).find(
+        (c): c is ForwardTsnChunk => c instanceof ForwardTsnChunk,
+      );
+      expect(forwardTsn).toBeDefined();
+      expect(sentChunks(transport).some((c) => c instanceof DataChunk)).toBe(
+        false,
+      );
+    } finally {
+      await disposeMockSctp(sctp);
+    }
+  });
+
+  test("does not keep an expiry timer once the queue is empty or stopped", async () => {
+    // Arrange: 相手の受信ウィンドウが 0 の association に寿命付きメッセージを積む
+    const { sctp } = createZeroWindowMockSctp();
+    const internal = sctp as any;
+    void sctp.send(0, 51, Buffer.from("A"), { expiry: Date.now() + 60_000 });
+    await flushImmediates();
+    expect(internal.outboundExpiryHandle).toBeDefined();
+
+    // Act: association を止める
+    await disposeMockSctp(sctp);
+
+    // Assert: 期限タイマーは残らない
+    expect(internal.outboundExpiryHandle).toBeUndefined();
   });
 });
 

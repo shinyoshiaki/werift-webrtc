@@ -237,6 +237,12 @@ export class SCTP {
   private timer2Failures = 0;
   /**t3 is wait for data sack */
   private timer3Handle?: any;
+  /**
+   * Fires when the queued message at the head of outboundQueue expires, so it
+   * is abandoned even if nothing else (SACK, window update, send) runs transmit.
+   */
+  private outboundExpiryHandle?: ReturnType<typeof setTimeout>;
+  private outboundExpiryAt?: number;
   /**Re-configuration Timer */
   private timerReconfigHandle?: any;
   private timerReconfigFailures = 0;
@@ -1342,6 +1348,7 @@ export class SCTP {
       // Send the FORWARD-TSN in the next round of transmit().
       if (this.forwardTsnPending) this.transmitRequested = true;
     }
+    this.scheduleOutboundExpiry();
     this.flush.execute();
   }
 
@@ -1523,6 +1530,42 @@ export class SCTP {
 
     this.transmit();
   };
+
+  /**
+   * Arms the expiry timer for the head of outboundQueue, the only queued
+   * message that can be abandoned without reordering TSNs. When it fires,
+   * transmit() abandons the head and arms the timer for the next head.
+   */
+  private scheduleOutboundExpiry() {
+    const expiry = this.outboundQueue.peek()?.expiry;
+    if (expiry === undefined || this.isStopped) {
+      this.outboundExpiryCancel();
+      return;
+    }
+    if (this.outboundExpiryHandle && this.outboundExpiryAt === expiry) return;
+    this.outboundExpiryCancel();
+    this.outboundExpiryAt = expiry;
+    this.outboundExpiryHandle = setTimeout(
+      () => {
+        this.outboundExpiryHandle = undefined;
+        this.outboundExpiryAt = undefined;
+        if (this.isStopped) return;
+        this.transmit().catch((err: Error) => {
+          log("transmit on outbound expiry failed", err.message);
+        });
+      },
+      // setTimeout overflows above 2^31 - 1 ms; a later expiry re-arms on fire.
+      Math.min(Math.max(0, expiry - Date.now()), 0x7fffffff),
+    );
+  }
+
+  private outboundExpiryCancel() {
+    if (this.outboundExpiryHandle) {
+      clearTimeout(this.outboundExpiryHandle);
+      this.outboundExpiryHandle = undefined;
+    }
+    this.outboundExpiryAt = undefined;
+  }
 
   private timer3Cancel() {
     if (this.timer3Handle) {
@@ -1884,6 +1927,7 @@ export class SCTP {
     clearTimeout(this.timer1Handle);
     clearTimeout(this.timer2Handle);
     clearTimeout(this.timer3Handle);
+    this.outboundExpiryCancel();
     clearTimeout(this.timerReconfigHandle);
     clearTimeout(this.timerHeartbeatHandle);
     clearTimeout(this.sackTimeout);
