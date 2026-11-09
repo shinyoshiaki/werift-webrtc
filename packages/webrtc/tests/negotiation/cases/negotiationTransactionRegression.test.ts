@@ -493,34 +493,30 @@ describeCases("negotiation transaction live-state regressions", () => {
         createUnnegotiatedVideoPeers(),
       );
       await c.offer(a);
+      await c.answer(b, { hold: true });
       const held = holdDtlsStart(b);
-      try {
-        await c.answer(b, { hold: true });
-        await c.setRemote(a, b.localDescription);
-        await waitForIce(a);
-        await waitForDtlsHandshake(a.dtlsTransports[0]);
+      await c.setRemote(a, b.localDescription);
+      await waitForIce(a);
+      await waitForDtlsHandshake(a.dtlsTransports[0]);
 
-        // Act: handshake 中に次の offer/answer を交換し、answer を適用する。
-        await c.negotiate(a);
+      // Act: handshake 中に次の offer/answer を交換し、answer を適用する。
+      await c.negotiate(a);
 
-        // Assert: 接続済みの ICE は checking に戻らず、DTLS 完了前に connected を報告しない。
-        await c.sleep(100);
-        expect(a.iceConnectionState).toEqual("connected");
-        expect(a.dtlsTransports[0].state).toEqual("connecting");
-        expect(a.connectionState).toEqual("connecting");
+      // Assert: 接続済みの ICE は checking に戻らず、DTLS 完了前に connected を報告しない。
+      await c.sleep(100);
+      expect(a.iceConnectionState).toEqual("connected");
+      expect(a.dtlsTransports[0].state).toEqual("connecting");
+      expect(a.connectionState).toEqual("connecting");
 
-        // Act: 止めていた handshake を進める。
-        held.release();
-        await waitForDtlsConnected(a.dtlsTransports[0]);
-        await waitForConnection(a);
+      // Act: 止めていた handshake を進める。
+      held.release();
+      await waitForDtlsConnected(a.dtlsTransports[0]);
+      await waitForConnection(a);
 
-        // Assert: ICE は connected のまま、DTLS 完了後に connected になり、RTP も届く。
-        expect(a.iceConnectionState).toEqual("connected");
-        expect(a.connectionState).toEqual("connected");
-        await c.rtp(outgoing, incoming());
-      } finally {
-        held.release();
-      }
+      // Assert: ICE は connected のまま、DTLS 完了後に connected になり、RTP も届く。
+      expect(a.iceConnectionState).toEqual("connected");
+      expect(a.connectionState).toEqual("connected");
+      await c.rtp(outgoing, incoming());
     },
   );
 

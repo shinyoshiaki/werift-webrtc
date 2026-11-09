@@ -2407,25 +2407,15 @@ export function holdDtlsStart(pc: RTCPeerConnection) {
   const released = new Promise<void>((resolve) => {
     release = resolve;
   });
-  const restoreStarts: (() => void)[] = [];
   for (const transport of pc.dtlsTransports) {
     const original = transport.start.bind(transport);
-    let startPromise: Promise<void> | undefined;
-    const heldStart = async () => {
+    transport.start = async () => {
+      transport.start = original;
       await released;
-      return (startPromise ??= original());
+      return original();
     };
-    transport.start = heldStart;
-    restoreStarts.push(() => {
-      if (transport.start === heldStart) transport.start = original;
-    });
   }
-  return {
-    release() {
-      restoreStarts.forEach((restore) => restore());
-      release();
-    },
-  };
+  return { release };
 }
 
 /** Wait until `transport`'s DTLS handshake is running (or done). */

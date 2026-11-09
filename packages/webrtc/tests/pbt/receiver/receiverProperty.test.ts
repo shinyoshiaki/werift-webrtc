@@ -188,6 +188,5 @@ describe("rtp receiver property", () => {
       }
       expect([...reportedLost].every((e) => e > first && e < last)).toBe(true);
     },
-    30_000,
   );
 });

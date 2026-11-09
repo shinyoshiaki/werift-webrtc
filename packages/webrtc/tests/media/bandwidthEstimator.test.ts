@@ -635,19 +635,10 @@ describe("media/sender bandwidth estimator", () => {
       const { sender, sentPackets } = await prepareConnectedSender(gcc);
       // Arrange: cluster 開始時の自動注入を止め、本呼び出しの padding だけを観察する
       startGccProbingWithoutSenderPadding(sender, gcc);
-      // Arrange: テスト実行中の時刻飛びで cluster が破棄されないよう、送出時刻を予定時刻に揃える
-      vi.spyOn(sender as any, "awaitProbeSendTime").mockResolvedValue(true);
-      const reserveProbe = gcc.reserveOutgoingProbe.bind(gcc);
-      vi.spyOn(gcc, "reserveOutgoingProbe").mockImplementation(() => {
-        const nextProbeTime = (gcc as any).probe.nextProbeSendTimeMs();
-        return reserveProbe(
-          Number.isFinite(nextProbeTime) ? nextProbeTime : Date.now(),
-        );
-      });
       const spy = vi.spyOn(gcc, "rtpPacketSent");
       const octetsBefore = (sender as any).stats.octetCount as number;
 
-      // Act: 予定時刻に沿って padding cluster を送る
+      // Act
       const n = await sender.maybeInjectProbePadding();
 
       // Assert: 単一 maxBurst では足りず、外側ループで cluster を完遂する
