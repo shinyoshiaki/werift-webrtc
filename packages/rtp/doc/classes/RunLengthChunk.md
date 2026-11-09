@@ -8,19 +8,19 @@
 
 ## Constructors
 
-### new RunLengthChunk()
+### Constructor
 
-> **new RunLengthChunk**(`props`): [`RunLengthChunk`](RunLengthChunk.md)
+> **new RunLengthChunk**(`props?`): `RunLengthChunk`
 
 #### Parameters
 
-##### props
+##### props?
 
-`Partial`\<[`RunLengthChunk`](RunLengthChunk.md)\> = `{}`
+`Partial`\<`RunLengthChunk`\> = `{}`
 
 #### Returns
 
-[`RunLengthChunk`](RunLengthChunk.md)
+`RunLengthChunk`
 
 ## Properties
 
@@ -40,13 +40,17 @@
 
 ### type
 
-> **type**: [`TypeTCCRunLengthChunk`](../enumerations/PacketChunk.md#typetccrunlengthchunk)
+> **type**: `0`
 
 ## Methods
 
 ### results()
 
 > **results**(`currentSequenceNumber`): [`PacketResult`](PacketResult.md)[]
+
+Expand this run into `runLength` packet results starting after
+`currentSequenceNumber` (caller passes last assigned seq, or
+`baseSequenceNumber - 1` for the first chunk).
 
 #### Parameters
 
@@ -72,7 +76,7 @@
 
 ### deSerialize()
 
-> `static` **deSerialize**(`data`): [`RunLengthChunk`](RunLengthChunk.md)
+> `static` **deSerialize**(`data`): `RunLengthChunk`
 
 #### Parameters
 
@@ -82,4 +86,4 @@
 
 #### Returns
 
-[`RunLengthChunk`](RunLengthChunk.md)
+`RunLengthChunk`

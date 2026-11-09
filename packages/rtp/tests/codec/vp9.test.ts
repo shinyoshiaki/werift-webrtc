@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 
-import { Vp9Packetizer, Vp9RtpPayload, dePacketizeRtpPackets } from "../../src";
+import { dePacketizeRtpPackets, Vp9Packetizer, Vp9RtpPayload } from "../../src";
 import { loadPayloadVector } from "../utils";
 
 const kMaxOneBytePictureId = 0x7f; // 7 bits

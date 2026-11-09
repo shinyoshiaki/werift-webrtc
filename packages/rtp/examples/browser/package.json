@@ -17,8 +17,6 @@
     "@types/sdp-transform": "^2.4.9",
     "parcel": "^2.13.3",
     "rx.mini": "^1.4.0",
-    "ts-node": "^10.9.2",
-    "ts-node-dev": "^2.0.0",
-    "typescript": "^5.7.3"
+    "typescript": "6.0.3"
   }
 }

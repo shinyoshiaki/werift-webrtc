@@ -10,7 +10,9 @@
 
 ## Type Parameters
 
-• **T**
+### T
+
+`T`
 
 ## Parameters
 

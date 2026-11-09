@@ -6,30 +6,36 @@
 
 # Type Alias: PacketizerBaseOptions
 
-> **PacketizerBaseOptions**: `object`
+> **PacketizerBaseOptions** = `object`
 
-## Type declaration
+## Properties
 
 ### maxPayloadSize?
 
-> `optional` **maxPayloadSize**: `number`
+> `optional` **maxPayloadSize?**: `number`
 
 Max RTP payload octets (default MTU = 1200).
 
+***
+
 ### payloadType?
 
-> `optional` **payloadType**: `number`
+> `optional` **payloadType?**: `number`
 
 Static or dynamic payload type (default 96).
 
+***
+
 ### sequenceNumber?
 
-> `optional` **sequenceNumber**: `number`
+> `optional` **sequenceNumber?**: `number`
 
 Initial sequence number (default random16).
 
+***
+
 ### ssrc?
 
-> `optional` **ssrc**: `number`
+> `optional` **ssrc?**: `number`
 
 SSRC (default 0).

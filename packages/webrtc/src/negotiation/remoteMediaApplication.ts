@@ -49,13 +49,27 @@ export type RemoteMediaPlan = {
  * updates the caller runs after every fallible step.
  */
 export class RemoteMediaApplication {
+  private readonly sdp: SDPManager;
+  private readonly transceivers: TransceiverManager;
+  private readonly sctp: SctpTransportManager;
+  private readonly router: RtpRouter;
+  private readonly negotiation: NegotiationTransaction;
+  private readonly host: {
+    createSctpTransport: () => RTCSctpTransport;
+    /** The transport a new transceiver starts on. */
+    createTransport: () => RTCDtlsTransport;
+    /** An independent transport (own ICE credentials) for ownership. */
+    createOwnerTransport: () => RTCDtlsTransport;
+    onRemoteTransceiverAdded: (transceiver: RTCRtpTransceiver) => void;
+  };
+
   constructor(
-    private readonly sdp: SDPManager,
-    private readonly transceivers: TransceiverManager,
-    private readonly sctp: SctpTransportManager,
-    private readonly router: RtpRouter,
-    private readonly negotiation: NegotiationTransaction,
-    private readonly host: {
+    sdp: SDPManager,
+    transceivers: TransceiverManager,
+    sctp: SctpTransportManager,
+    router: RtpRouter,
+    negotiation: NegotiationTransaction,
+    host: {
       createSctpTransport: () => RTCSctpTransport;
       /** The transport a new transceiver starts on. */
       createTransport: () => RTCDtlsTransport;
@@ -63,7 +77,14 @@ export class RemoteMediaApplication {
       createOwnerTransport: () => RTCDtlsTransport;
       onRemoteTransceiverAdded: (transceiver: RTCRtpTransceiver) => void;
     },
-  ) {}
+  ) {
+    this.sdp = sdp;
+    this.transceivers = transceivers;
+    this.sctp = sctp;
+    this.router = router;
+    this.negotiation = negotiation;
+    this.host = host;
+  }
 
   /** Resolve all m-line codecs without mutating the current transaction. */
   planCodecs(remoteSdp: SessionDescription) {
@@ -113,7 +134,6 @@ export class RemoteMediaApplication {
     return plan;
   }
 
-  /** Associate m-lines with transceivers / the SCTP transport. */
   private associate(
     remoteSdp: SessionDescription,
     associated: Set<RTCRtpTransceiver>,
@@ -167,7 +187,6 @@ export class RemoteMediaApplication {
           this.router.unregisterTransceiver(displaced);
           this.negotiation.rememberDisplacedTransceiver(displaced);
         }
-        // create remote transceiver
         // Not an application operation: no negotiationneeded and no
         // takeover of an inactive current transceiver. A stopped
         // transceiver at the same index is replaced, never revived.
@@ -196,7 +215,6 @@ export class RemoteMediaApplication {
     return entries;
   }
 
-  /** Whether the current session rejected (port 0) the m-line `mid`. */
   /** Whether a current description has an m-line with `mid`. */
   private inCurrent(mid: string) {
     return [
@@ -207,6 +225,7 @@ export class RemoteMediaApplication {
     );
   }
 
+  /** Whether the current session rejected (port 0) the m-line `mid`. */
   private rejectedInCurrent(mid: string) {
     return [
       this.sdp.currentLocalDescription,

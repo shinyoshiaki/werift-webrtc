@@ -1,13 +1,14 @@
 import { Event } from "rx.mini";
-import { Server } from "ws";
+import { WebSocketServer } from "ws";
 import {
+  type LightweightBandwidthEstimator,
   RTCPeerConnection,
   RTCRtpCodecParameters,
   useAbsSendTime,
   useTransportWideCC,
 } from "../../../packages/webrtc/src";
 
-const server = new Server({ port: 8888 });
+const server = new WebSocketServer({ port: 8888 });
 console.log("start");
 
 server.on("connection", async (socket) => {
@@ -35,6 +36,8 @@ server.on("connection", async (socket) => {
     headerExtensions: { video: [useAbsSendTime(), useTransportWideCC()] },
   });
   const sender = new RTCPeerConnection({
+    // Default BWE is "lightweight". Use "gcc", false/"none" to disable, or a factory.
+    // bandwidthEstimator: "gcc",
     codecs: {
       video: [
         new RTCRtpCodecParameters({
@@ -58,9 +61,16 @@ server.on("connection", async (socket) => {
   const senderTransceiver = sender.addTransceiver("video", {
     direction: "sendonly",
   });
-  senderTransceiver.sender.senderBWE.onCongestion.subscribe((b) =>
-    console.log("congestion", b),
+  // Prefer rtpSender.onAvailableBitrate (bps, change-only; survives estimator swap).
+  // onCongestion is LightweightBandwidthEstimator-only (the default BWE).
+  // Connection-wide GCC: new RTCPeerConnection({ bandwidthEstimator: "gcc" }).
+  // Per-sender: rtpSender.setBandwidthEstimator(new GccBandwidthEstimator()).
+  const rtpSender = senderTransceiver.sender;
+  rtpSender.onAvailableBitrate.subscribe((bps) =>
+    console.log("availableBitrate", bps),
   );
+  const lightweightBwe = rtpSender.senderBWE as LightweightBandwidthEstimator;
+  lightweightBwe.onCongestion.subscribe((b) => console.log("congestion", b));
 
   receiverTransceiver.onTrack.subscribe(async (track) => {
     track.onReceiveRtp.once((rtp) => {

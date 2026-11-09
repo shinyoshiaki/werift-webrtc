@@ -25,13 +25,37 @@ const coverageDir = resolve(repoRoot, "coverage", "webrtc-wpt");
 const coverageSummaryPath = resolve(coverageDir, "coverage-summary.json");
 const coverageBaselinePath = resolve(packageDir, "wpt", "coverage-baseline.json");
 const sourceDir = resolve(packageDir, "src");
-const tsconfigPath = resolve(packageDir, "tsconfig.json");
+
+/**
+ * GCC / selectable BWE algorithm sources are public API (barrel-exported) so
+ * they load during WPT, but allowlisted upstream WPT does not exercise them.
+ * Including ~350 mostly-uncovered functions dilutes the WPT coverage ratchet
+ * without reflecting WebRTC WPT surface regressions. Unit tests + package/e2e
+ * sims cover GCC; keep WPT coverage focused on the default media stack.
+ */
+function isWptCoverageTargetPath(filePath: string) {
+  if (!filePath.startsWith(sourceDir) || !filePath.endsWith(".ts")) {
+    return false;
+  }
+  const relative = filePath.slice(sourceDir.length).replaceAll("\\", "/");
+  // Exclude GCC files because allowlisted WPT does not exercise these APIs.
+  if (relative.includes("/media/sender/estimators/gcc/")) {
+    return false;
+  }
+  return true;
+}
 
 async function main() {
   const rawCoverageDir = await mkdtemp(resolve(tmpdir(), "werift-wpt-v8-"));
 
   try {
-    const result = spawnSync("npx", ["tsx", "--tsconfig", tsconfigPath, "tools/wpt-runner/run.ts"], {
+    const result = spawnSync(process.execPath, [
+      "--disable-warning=ExperimentalWarning",
+      "--disable-warning=MODULE_TYPELESS_PACKAGE_JSON",
+      "--import",
+      resolve(repoRoot, "tools/node-ts/register.mjs"),
+      "tools/wpt-runner/run.ts",
+    ], {
       cwd: packageDir,
       env: {
         ...process.env,
@@ -48,9 +72,7 @@ async function main() {
     const markdown = await readMarkdownReport();
     const mergedCoverage = await mergeRawCoverage(rawCoverageDir);
     const coverageMap = await convertCoverage(mergedCoverage);
-    coverageMap.filter((filePath) => {
-      return filePath.startsWith(sourceDir) && filePath.endsWith(".ts");
-    });
+    coverageMap.filter((filePath) => isWptCoverageTargetPath(filePath));
     await generateCoverageReports(coverageMap, coverageDir);
     await mkdir(dirname(defaultMarkdownReportPath), { recursive: true });
     await writeFile(defaultMarkdownReportPath, markdown, "utf8");
@@ -91,9 +113,21 @@ async function mergeRawCoverage(directoryPath: string) {
     .sort();
 
   for (const fileName of coverageFiles) {
-    const payload = JSON.parse(
-      await readFile(resolve(directoryPath, fileName), "utf8"),
-    ) as { result?: Array<Record<string, unknown>> };
+    const filePath = resolve(directoryPath, fileName);
+    let payload: { result?: Array<Record<string, unknown>> };
+    try {
+      payload = JSON.parse(await readFile(filePath, "utf8")) as {
+        result?: Array<Record<string, unknown>>;
+      };
+    } catch (error) {
+      // Worker coverage dumps can be truncated when WPT workers are killed.
+      // Skip the broken file so a single dump cannot fail the whole CI run.
+      console.warn(
+        `[wpt:coverage] skip unreadable coverage dump ${fileName}:`,
+        error instanceof Error ? error.message : error,
+      );
+      continue;
+    }
     if (!payload.result) {
       continue;
     }
@@ -136,7 +170,13 @@ function isTargetSourceUrl(value: unknown) {
     return false;
   }
 
-  return value.startsWith(`file://${sourceDir}/`) && value.endsWith(".ts");
+  if (!value.startsWith(`file://${sourceDir}/`) || !value.endsWith(".ts")) {
+    return false;
+  }
+
+  // file:///abs/path → /abs/path (strip scheme only).
+  const filePath = value.slice("file://".length);
+  return isWptCoverageTargetPath(filePath);
 }
 
 async function readMarkdownReport() {

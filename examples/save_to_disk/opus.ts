@@ -1,10 +1,10 @@
-import { Server } from "ws";
+import { WebSocketServer } from "ws";
 import { RTCPeerConnection } from "../../packages/webrtc/src";
 import { MediaRecorder } from "../../packages/webrtc/src/nonstandard";
 
 // open ./answer.html
 
-const server = new Server({ port: 8878 });
+const server = new WebSocketServer({ port: 8878 });
 console.log("start");
 
 server.on("connection", async (socket) => {

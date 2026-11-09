@@ -15,13 +15,13 @@ deSerialize validates AU-headers-length and AU sizes before concatenation.
 
 ## Constructors
 
-### new AacHbrRtpPayload()
+### Constructor
 
-> **new AacHbrRtpPayload**(): [`AacHbrRtpPayload`](AacHbrRtpPayload.md)
+> **new AacHbrRtpPayload**(): `AacHbrRtpPayload`
 
 #### Returns
 
-[`AacHbrRtpPayload`](AacHbrRtpPayload.md)
+`AacHbrRtpPayload`
 
 ## Properties
 
@@ -33,7 +33,7 @@ deSerialize validates AU-headers-length and AU sizes before concatenation.
 
 ### fragment?
 
-> `optional` **fragment**: `Buffer`\<`ArrayBufferLike`\>
+> `optional` **fragment?**: `Buffer`\<`ArrayBufferLike`\>
 
 #### Implementation of
 
@@ -84,7 +84,7 @@ alone (optional CTS/DTS or other fields may be present). See RFC 3640 §3.2.1.
 
 ### deSerialize()
 
-> `static` **deSerialize**(`buf`, `fragment`?, `options`?): [`AacHbrRtpPayload`](AacHbrRtpPayload.md)
+> `static` **deSerialize**(`buf`, `fragment?`, `options?`): `AacHbrRtpPayload`
 
 #### Parameters
 
@@ -108,7 +108,7 @@ extended AU-header layout (CTS/DTS); default = aac-hbr only
 
 #### Returns
 
-[`AacHbrRtpPayload`](AacHbrRtpPayload.md)
+`AacHbrRtpPayload`
 
 ***
 

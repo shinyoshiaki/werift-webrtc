@@ -2,7 +2,6 @@ import { vi } from "vitest";
 
 import { MediaStreamTrack, RTCPeerConnection, useOPUS } from "../../src";
 import {
-  REMOTE_UFRAG,
   answerRemoteOffer,
   audioOnlyConfig,
   buildRemoteSdp,
@@ -22,6 +21,7 @@ import {
   negotiate,
   offerUnsupportedVideoCodec,
   parseSdp,
+  REMOTE_UFRAG,
   routedSsrcs,
   waitForConnected,
 } from "./705.helpers";
@@ -628,7 +628,6 @@ describe("issue 705: BUNDLE membership, transports and ICE ownership", () => {
           REMOTE_UFRAG,
         );
 
-        // Act: rollback する
         await pc.setRemoteDescription({ type: "rollback" });
 
         // Assert: signaling state と descriptions、共有 transport が元に戻る

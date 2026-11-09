@@ -11,13 +11,17 @@ const { decode, encode, types } = binaryData;
 // 7.4.6.  Client Certificate
 
 export class Certificate implements Handshake {
-  msgType = HandshakeType.certificate_11;
+  public certificateList: Buffer[];
+
+  msgType: HandshakeType = HandshakeType.certificate_11;
   messageSeq?: number;
   static readonly spec = {
     certificateList: types.array(ASN11Cert, types.uint24be, "bytes"),
   };
 
-  constructor(public certificateList: Buffer[]) {}
+  constructor(certificateList: Buffer[]) {
+    this.certificateList = certificateList;
+  }
 
   static createEmpty() {
     return new Certificate(undefined as any);
@@ -25,7 +29,7 @@ export class Certificate implements Handshake {
 
   static deSerialize(buf: Buffer) {
     return new Certificate(
-      //@ts-ignore
+      //@ts-expect-error
       ...Object.values(decode(buf, Certificate.spec)),
     );
   }

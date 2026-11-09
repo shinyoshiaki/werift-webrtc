@@ -7,7 +7,8 @@
 # Class: Vp8Packetizer
 
 Packetize one VP8 frame (single partition PID=0) into RTP packets.
-Descriptor is the minimal 1-byte form from RFC 7741 §4.2 (X=0).
+Each packet carries the 4-octet descriptor from
+[createVp8PayloadDescriptor](../functions/createVp8PayloadDescriptor.md); PictureID advances once per frame.
 
 ## Extends
 
@@ -15,23 +16,23 @@ Descriptor is the minimal 1-byte form from RFC 7741 §4.2 (X=0).
 
 ## Constructors
 
-### new Vp8Packetizer()
+### Constructor
 
-> **new Vp8Packetizer**(`options`): [`Vp8Packetizer`](Vp8Packetizer.md)
+> **new Vp8Packetizer**(`options?`): `Vp8Packetizer`
 
 #### Parameters
 
-##### options
+##### options?
 
-[`PacketizerBaseOptions`](../type-aliases/PacketizerBaseOptions.md) = `{}`
+[`Vp8PacketizerOptions`](../type-aliases/Vp8PacketizerOptions.md) = `{}`
 
 #### Returns
 
-[`Vp8Packetizer`](Vp8Packetizer.md)
+`Vp8Packetizer`
 
 #### Overrides
 
-[`PacketizerBase`](PacketizerBase.md).[`constructor`](PacketizerBase.md#constructors)
+[`PacketizerBase`](PacketizerBase.md).[`constructor`](PacketizerBase.md#constructor)
 
 ## Properties
 

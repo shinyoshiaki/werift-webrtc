@@ -4,10 +4,10 @@ import type { MdnsLookup } from "./dns/lookup";
 import type { Cancelable } from "./helper";
 import {
   type Address,
+  debug,
   type Event,
   type InterfaceAddresses,
   type TlsConnectionOptions,
-  debug,
 } from "./imports/common";
 import { classes, methods } from "./stun/const";
 import { Message } from "./stun/message";
@@ -27,7 +27,17 @@ export interface IceConnection {
   localCandidates: Candidate[];
   remoteCandidates: Candidate[];
   candidatePairs: CandidatePair[];
+  /**
+   * STUN servers gathering queries, normalized from the options (see
+   * {@link normalizeIceServerOptions}). Optional so that other
+   * implementations of this interface keep compiling.
+   */
+  stunServers?: Address[];
+  /** TURN servers gathering allocates on, each with its own credential. */
+  turnServers?: TurnServerOptions[];
+  /** @deprecated The first of {@link IceConnection.stunServers}. */
   stunServer?: Address;
+  /** @deprecated The address of the first of {@link IceConnection.turnServers}. */
   turnServer?: Address;
   generation: number;
   options: IceOptions;
@@ -47,7 +57,16 @@ export interface IceConnection {
    * implementation without them still restarts ICE at the final answer, but
    * cannot answer or run checks for the new generation during pranswer.
    */
-  stageLocalCredentials?(usernameFragment: string, password: string): void;
+  /**
+   * `gatherOptions`: the options the staged generation gathers with (an ICE
+   * server update applied at the commit); its provisional checks use only
+   * the sockets those options allow. Defaults to the current options.
+   */
+  stageLocalCredentials?(
+    usernameFragment: string,
+    password: string,
+    gatherOptions?: Partial<IceOptions>,
+  ): void;
   discardStagedLocalCredentials?(usernameFragment: string): void;
   commitLocalCredentials?(usernameFragment: string, password: string): void;
   /**
@@ -116,12 +135,16 @@ export interface CandidatePairStats {
 }
 
 export class CandidatePair implements CandidatePairStats {
+  public protocol: Protocol;
+  public remoteCandidate: Candidate;
+  public iceControlling: boolean;
+
   readonly id = randomUUID().toString();
   handle?: Cancelable<void>;
   nominated = false;
   remoteNominated = false;
   // 5.7.4.  Computing States
-  private _state = CandidatePairState.FROZEN;
+  private _state: CandidatePairState = CandidatePairState.FROZEN;
   get state() {
     return this._state;
   }
@@ -156,10 +179,14 @@ export class CandidatePair implements CandidatePairStats {
   }
 
   constructor(
-    public protocol: Protocol,
-    public remoteCandidate: Candidate,
-    public iceControlling: boolean,
-  ) {}
+    protocol: Protocol,
+    remoteCandidate: Candidate,
+    iceControlling: boolean,
+  ) {
+    this.protocol = protocol;
+    this.remoteCandidate = remoteCandidate;
+    this.iceControlling = iceControlling;
+  }
 
   updateState(state: CandidatePairState) {
     this._state = state;
@@ -247,13 +274,18 @@ export function consentResponseTimeoutMs(rttSeconds?: number): number {
   );
 }
 
-export enum CandidatePairState {
-  FROZEN = 0,
-  WAITING = 1,
-  IN_PROGRESS = 2,
-  SUCCEEDED = 3,
-  FAILED = 4,
-}
+/**
+ * @enum
+ */
+export const CandidatePairState = {
+  FROZEN: 0,
+  WAITING: 1,
+  IN_PROGRESS: 2,
+  SUCCEEDED: 3,
+  FAILED: 4,
+} as const;
+export type CandidatePairState =
+  (typeof CandidatePairState)[keyof typeof CandidatePairState];
 
 export type IceState =
   | "disconnected"
@@ -262,6 +294,15 @@ export type IceState =
   | "new"
   | "connected"
   | "failed";
+
+/** A TURN server and the credential and transport used for it. */
+export type TurnServerOptions = {
+  address: Address;
+  username: string;
+  password: string;
+  /** Defaults to "udp" (with a TCP fallback when the UDP allocation fails). */
+  transport?: "udp" | "tcp" | "tls";
+};
 
 export interface IceOptions {
   /** Advertise and operate as an ICE lite agent. */
@@ -286,16 +327,54 @@ export interface IceOptions {
    * Defaults to 8.
    */
   turnConnectTimeout?: number;
+  /**
+   * STUN servers queried while gathering, in priority order. Every IPv4 UDP
+   * host socket queries each of them in parallel; equal mappings are
+   * advertised once, different ones (a NAT that maps per destination) each.
+   * Gathering ends when the slowest server answers or `stunGatherTimeout`
+   * runs out.
+   *
+   * Merged with the deprecated `stunServer`: the singular one comes first,
+   * duplicates are dropped (see {@link normalizeIceServerOptions}).
+   */
+  stunServers?: Address[];
+  /**
+   * TURN servers allocated on while gathering, in priority order. Each one
+   * gets its own allocation with its own credential and transport; one that
+   * fails or times out does not stop the others. Gathering ends when the
+   * slowest allocation completes or fails (`turnConnectTimeout` bounds a
+   * TCP/TLS connection, the STUN transaction timeout an unanswered request).
+   * `turnTlsOptions`, `turnUdpFamily`, `turnConnectTimeout`, `portRange` and
+   * `interfaceAddresses` apply to every TURN server.
+   *
+   * Merged with the deprecated `turnServer` / `turnUsername` /
+   * `turnPassword` / `turnTransport`: the singular one comes first,
+   * duplicates are dropped and an entry without username / password is
+   * ignored (see {@link normalizeIceServerOptions}).
+   */
+  turnServers?: TurnServerOptions[];
+  /** @deprecated Use {@link IceOptions.stunServers}. Kept as their first entry. */
   stunServer?: Address;
+  /**
+   * Whether the built-in public STUN server (stun.l.google.com:19302) is used
+   * when no STUN server is given. Defaults to true; false gathers no
+   * server-reflexive candidate unless a STUN server is set.
+   */
+  useDefaultStunServer?: boolean;
+  /** @deprecated Use {@link IceOptions.turnServers}. Kept as their first entry. */
   turnServer?: Address;
+  /** @deprecated Use {@link TurnServerOptions.username} of {@link IceOptions.turnServers}. */
   turnUsername?: string;
+  /** @deprecated Use {@link TurnServerOptions.password} of {@link IceOptions.turnServers}. */
   turnPassword?: string;
+  /** @deprecated Use {@link TurnServerOptions.transport} of {@link IceOptions.turnServers}. */
   turnTransport?: "udp" | "tcp" | "tls";
+  /** Applied to every TLS TURN server. */
   turnTlsOptions?: TlsConnectionOptions;
   /**
-   * Preferred IP family of the TURN/UDP socket, applied only when turnServer
-   * is a hostname. Ignored for an IP literal turnServer, whose own family
-   * always selects the socket. Defaults to 4.
+   * Preferred IP family of a TURN/UDP socket, applied (to every TURN server)
+   * only when the server is a hostname. Ignored for an IP literal server,
+   * whose own family always selects the socket. Defaults to 4.
    */
   turnUdpFamily?: 4 | 6;
   forceTurn?: boolean;
@@ -304,7 +383,26 @@ export interface IceOptions {
   useIpv6: boolean;
   useLinkLocalAddress?: boolean;
   portRange?: [number, number];
+  /**
+   * Local addresses to bind the UDP host sockets to, per family.
+   *
+   * The address given for a family (`udp4` / `udp6`) is the only host
+   * address of that family: its UDP host candidate advertises the address and
+   * port the socket is actually bound to, even when the address is not among
+   * the enumerated network interfaces (loopback, tun, ...), and its TCP host
+   * candidates use it too. Other enumerated addresses of that family are not
+   * gathered. If the bind fails, the family has no UDP host candidate.
+   *
+   * A family left unspecified while the other one is set gathers no
+   * enumerated addresses (only its `additionalHostAddresses`). Without any
+   * family set, every enumerated address is gathered over wildcard sockets.
+   */
   interfaceAddresses?: InterfaceAddresses;
+  /**
+   * Host addresses gathered in addition to the enumerated ones. For a family
+   * bound by `interfaceAddresses`, addresses other than the bound one are
+   * ignored.
+   */
   additionalHostAddresses?: string[];
   filterStunResponse?: (
     message: Message,
@@ -416,4 +514,178 @@ export function validateAddress(addr?: Address): Address | undefined {
     return [addr[0], 443];
   }
   return addr;
+}
+
+/** The STUN/TURN server fields of {@link IceOptions}, singular and plural. */
+export type IceServerFields = Partial<
+  Pick<
+    IceOptions,
+    | "stunServer"
+    | "stunServers"
+    | "turnServer"
+    | "turnServers"
+    | "turnUsername"
+    | "turnPassword"
+    | "turnTransport"
+  >
+>;
+
+/** A STUN/TURN server address: validated (see {@link validateAddress}) or undefined. */
+function validServerAddress(addr: unknown): Address | undefined {
+  if (!Array.isArray(addr)) return undefined;
+  const validated = validateAddress(addr as unknown as Address);
+  if (!validated) return undefined;
+  const [host, port] = validated;
+  if (typeof host !== "string" || host === "") return undefined;
+  if (typeof port !== "number" || !Number.isFinite(port)) return undefined;
+  return validated;
+}
+
+const sameAddress = (a: Address, b: Address) => a[0] === b[0] && a[1] === b[1];
+
+/**
+ * The STUN and TURN servers `options` configure, the one place the singular
+ * (deprecated) and plural fields are merged:
+ *
+ * - order: the singular server first, then the plural list in its order;
+ * - duplicates (the same STUN address; the same TURN address, transport and
+ *   credential) are kept once, at their first position;
+ * - an invalid address (see {@link validateAddress}) is dropped, and so is a
+ *   TURN server without username or password (it cannot allocate);
+ * - a TURN transport left unset is "udp".
+ *
+ * The built-in default STUN server is not added here; Connection falls back
+ * to it when the result has no STUN server.
+ */
+export function normalizeIceServerOptions(options: IceServerFields): {
+  stunServers: Address[];
+  turnServers: Required<TurnServerOptions>[];
+} {
+  const stunServers: Address[] = [];
+  for (const server of [options.stunServer, ...(options.stunServers ?? [])]) {
+    if (server === undefined) continue;
+    const address = validServerAddress(server);
+    if (!address) {
+      log("invalid STUN server ignored", server);
+      continue;
+    }
+    if (stunServers.some((existing) => sameAddress(existing, address))) {
+      continue;
+    }
+    stunServers.push(address);
+  }
+
+  const turnServers: Required<TurnServerOptions>[] = [];
+  const configured: Partial<TurnServerOptions>[] = [
+    ...(options.turnServer !== undefined
+      ? [
+          {
+            address: options.turnServer,
+            username: options.turnUsername,
+            password: options.turnPassword,
+            transport: options.turnTransport,
+          },
+        ]
+      : []),
+    ...(options.turnServers ?? []),
+  ];
+  for (const server of configured) {
+    const address = validServerAddress(server?.address);
+    if (!address) {
+      log("invalid TURN server ignored", server?.address);
+      continue;
+    }
+    const { username, password } = server;
+    if (!username || !password) {
+      log("TURN server without username / credential ignored", address);
+      continue;
+    }
+    const entry: Required<TurnServerOptions> = {
+      address,
+      username,
+      password,
+      transport: server.transport ?? "udp",
+    };
+    if (
+      turnServers.some(
+        (existing) =>
+          sameAddress(existing.address, entry.address) &&
+          existing.transport === entry.transport &&
+          existing.username === entry.username &&
+          existing.password === entry.password,
+      )
+    ) {
+      continue;
+    }
+    turnServers.push(entry);
+  }
+  return { stunServers, turnServers };
+}
+
+/**
+ * `current` with an ICE server update applied (Connection.setIceServers): the
+ * STUN/TURN fields, singular and plural, are replaced, an undefined one
+ * included, so a STUN-only update cannot leave a previous TURN
+ * host/credential behind; forceTurn and useTcp change only when given.
+ */
+export function mergeIceServerOptions<T extends Partial<IceOptions>>(
+  current: T,
+  update: Partial<IceOptions>,
+): T {
+  return {
+    ...current,
+    stunServer: update.stunServer,
+    stunServers: update.stunServers,
+    turnServer: update.turnServer,
+    turnServers: update.turnServers,
+    turnUsername: update.turnUsername,
+    turnPassword: update.turnPassword,
+    turnTransport: update.turnTransport,
+    turnTlsOptions: update.turnTlsOptions,
+    turnUdpFamily: update.turnUdpFamily,
+    forceTurn: update.forceTurn ?? current.forceTurn,
+    useTcp: update.useTcp ?? current.useTcp,
+  };
+}
+
+/**
+ * Whether a generation gathered with `options` is relay-only: forceTurn (the
+ * "relay" ICE transport policy). The policy holds whatever the TURN settings
+ * are: without a usable TURN server / credential (or for an ICE-lite agent,
+ * which gathers no relay candidate) the generation has no candidate at all
+ * rather than falling back to host / server-reflexive ones, so the local and
+ * public addresses are neither advertised nor used for checks.
+ */
+export function isRelayOnlyGathering(options: Pick<IceOptions, "forceTurn">) {
+  return !!options.forceTurn;
+}
+
+/**
+ * Whether `options` carry at least one usable TURN server with its
+ * credential, the ones a gathering with them allocates relay candidates from.
+ */
+export function hasTurnServer(options: IceServerFields) {
+  return normalizeIceServerOptions(options).turnServers.length > 0;
+}
+
+/**
+ * Whether `candidate`, kept from an earlier generation (an ICE restart keeps
+ * the sockets), may be advertised and paired in a generation gathered with
+ * `options`. A fresh gathering with the same options would not have produced
+ * a host / server-reflexive candidate for a relay-only policy, a TCP host
+ * candidate without useTcp, nor a relay candidate without a TURN server;
+ * the kept ones are held back the same way.
+ */
+export function isCandidateAllowedByGatherOptions(
+  candidate: Pick<Candidate, "type" | "transport">,
+  options: Pick<IceOptions, "forceTurn"> &
+    Partial<Pick<IceOptions, "useTcp">> &
+    IceServerFields,
+) {
+  if (candidate.type === "relay") return hasTurnServer(options);
+  if (isRelayOnlyGathering(options)) return false;
+  if (candidate.transport.toLowerCase() === "tcp" && !options.useTcp) {
+    return false;
+  }
+  return true;
 }

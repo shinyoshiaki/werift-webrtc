@@ -1,4 +1,4 @@
-import { type RtpPacket, int } from "../..";
+import { int, type RtpPacket } from "../..";
 import type { Processor } from "./interface";
 import { Max32Uint } from "./webm";
 
@@ -15,11 +15,15 @@ export interface RtpTimeOutput {
 }
 
 export class RtpTimeBase implements Processor<RtpTimeInput, RtpTimeOutput> {
+  public clockRate: number;
+
   baseTimestamp?: number;
   /**ms */
   elapsed = 0;
 
-  constructor(public clockRate: number) {}
+  constructor(clockRate: number) {
+    this.clockRate = clockRate;
+  }
 
   toJSON(): Record<string, any> {
     return {

@@ -1,22 +1,32 @@
 import { randomBytes, randomUUID } from "crypto";
-import { Event, debug } from "../imports/common";
-
 import {
   Candidate,
   Connection,
   type IceConnection,
   type IceOptions,
+  isCandidateAllowedByGatherOptions,
+  mergeIceServerOptions,
 } from "../../../ice/src";
 import { EventTarget as DomEventTarget } from "../helper";
+import { debug, Event } from "../imports/common";
 import {
-  type RTCIceCandidatePairStats,
-  type RTCIceCandidateStats,
-  type RTCStats,
-  type RTCStatsIceCandidatePairState,
   generateStatsId,
   getStatsTimestamp,
+  type RTCIceCandidatePairStats,
+  type RTCIceCandidateStats,
+  type RTCIceCandidateType,
+  type RTCIceTcpCandidateType,
+  type RTCStats,
+  type RTCStatsIceCandidatePairState,
 } from "../media/stats";
-import { candidateFromSdp, candidateToSdp } from "../sdp";
+import { candidateToSdp } from "../sdp";
+import {
+  candidateFieldsFromValues,
+  parseCandidateAttribute,
+  type RTCIceCandidateFields,
+  type RTCIceComponent,
+  type RTCIceProtocol,
+} from "./iceCandidateAttribute";
 
 const log = debug("werift:packages/webrtc/src/transport/ice.ts");
 
@@ -74,13 +84,80 @@ type StagedLocalRestart = {
   /** The remote offer an answer staged this generation for, if any. */
   answering?: object;
   /**
+   * The agent's options with the ICE servers kept for the next gathering
+   * applied, when the description was created: its candidates and its
+   * provisional checks use only the sockets these options allow.
+   */
+  gatherOptions: Partial<IceOptions>;
+  /**
    * The kind of description that created it. The latest created offer and
    * the latest created answer each keep their generation registered.
    */
   createdBy: "offer" | "answer";
 };
 
+/**
+ * ICE generations of one transport. An ICE restart (new ufrag/pwd without a
+ * BUNDLE topology change) keeps the transport, its sockets and its DTLS
+ * association: no role renegotiation, no second handshake (RFC 8842, JSEP).
+ * Only a BUNDLE owner change creates a separate pending transport.
+ *
+ * Restart generations are registered by ufrag (`localGenerationFor`): the
+ * latest created offer and the latest created answer each keep theirs until a
+ * newer description of the same kind replaces it, whatever is applied, rolled
+ * back or committed meanwhile. Applying a description selects the generation
+ * its SDP carries, and the final answer switches exactly that one. A new offer
+ * reuses the applied pending offer's generation (JSEP 5.2.1) unless
+ * `restartIce()` asked to replace it; an answer created again reuses the
+ * earlier answer's (JSEP 5.3.1).
+ *
+ * Provisional generation: while a restart of an established transport is
+ * negotiated, a second checklist runs beside the live one on the same sockets.
+ * It only exchanges STUN checks; RTP and DataChannel stay on the live selected
+ * pair, and it follows the live checklist's rules (pair filter, ICE-lite,
+ * nomination, staged-password error responses).
+ *
+ * - Created when the restart credentials are staged (`stageLocalRestart`): by
+ *   `createOffer()` while a `restartIce()` request stands, or by
+ *   `createAnswer()` for a remote offer that changes a live transport's ufrag.
+ *   It then answers checks for that ufrag.
+ * - Fed by the pranswer with the peer's credentials, candidates and
+ *   end-of-candidates (`setProvisionalRemoteParams`,
+ *   `addProvisionalRemoteCandidate`); a replacement pranswer restarts it.
+ * - Checks start when the pranswer is applied (`startProvisionalChecks`); the
+ *   controlling side nominates a provisional pair, but the live selected pair
+ *   and send target never change. A response for an earlier checklist is
+ *   ignored.
+ * - Ends at the final answer, which recreates the live agent with the staged
+ *   credentials and checks the answered generation from scratch, or at
+ *   rollback / a replacement offer / selecting another generation, which
+ *   stops its checks and keeps the live generation.
+ *
+ * A first negotiation and transports created for a proposal have no
+ * provisional generation; they connect normally from the pranswer. The
+ * staged-credential methods of `IceConnection` are optional: without them a
+ * restart still happens at the final answer, without provisional checks.
+ *
+ * A restart generation's candidates are fixed when its description is
+ * created (host candidates of the kept sockets and their server-reflexive
+ * addresses) and are re-advertised at the commit without waiting. With STUN
+ * or TURN servers the description carries neither the relay candidate nor
+ * end-of-candidates: after the commit the generation gathers again (a new TURN
+ * allocation replaces and closes the previous one) and trickles them. A
+ * restart's background gathering that a later restart or `close()` replaced
+ * signals nothing more. ICE server settings changed after gathering take
+ * effect at the next restart (JSEP 4.1.18): the restart generation carries
+ * only the kept candidates a fresh gathering with them would produce (none
+ * but relay for a relay-only policy, no TCP host candidates without useTcp),
+ * in its description and at the commit alike. Settings changed after the
+ * description was created still apply to that restart's gathering at the
+ * commit: a kept socket they exclude is closed then, so a candidate the
+ * description announced for it fails its checks. The old selected pair is
+ * dropped at the commit, so RTP pauses until the new generation nominates.
+ */
 export class RTCIceTransport {
+  private iceGather: RTCIceGatherer;
+
   readonly id = randomUUID().toString();
   connection: IceConnection;
   state: RTCIceConnectionState = "new";
@@ -138,7 +215,8 @@ export class RTCIceTransport {
   readonly onIceCandidate = new Event<[IceCandidate | undefined]>();
   readonly onNegotiationNeeded = new Event<[]>();
 
-  constructor(private iceGather: RTCIceGatherer) {
+  constructor(iceGather: RTCIceGatherer) {
+    this.iceGather = iceGather;
     this.connection = this.iceGather.connection;
     this.connection.stateChanged.subscribe((state) => {
       this.setState(state);
@@ -275,27 +353,42 @@ export class RTCIceTransport {
     // password, as the agent's own restart does.
     const prefix = this.connection.options.localPasswordPrefix ?? "";
     const password = prefix + random.slice(prefix.length);
-    const candidates = this.iceGather.localCandidates.map((candidate) => {
-      const copy = Object.assign(
-        new IceCandidate(
-          candidate.component,
-          candidate.foundation,
-          candidate.ip,
-          candidate.port,
-          candidate.priority,
-          candidate.protocol,
-          candidate.type,
-          this.connection.generation + 1,
-          usernameFragment,
+    // The generation gathers with the options set for it (a relay-only
+    // policy, useTcp turned off), so it carries only the kept candidates a
+    // fresh gathering with them would produce; the agent re-advertises the
+    // same ones at the commit.
+    const iceServers = this.nextGatherIceServers;
+    const gatherOptions = iceServers
+      ? mergeIceServerOptions(this.connection.options, iceServers)
+      : this.connection.options;
+    const candidates = this.iceGather.localCandidates
+      .filter((candidate) =>
+        isCandidateAllowedByGatherOptions(
+          { type: candidate.type, transport: candidate.protocol },
+          gatherOptions,
         ),
-        {
-          relatedAddress: candidate.relatedAddress,
-          relatedPort: candidate.relatedPort,
-          tcpType: candidate.tcpType,
-        },
-      );
-      return copy;
-    });
+      )
+      .map((candidate) => {
+        const copy = Object.assign(
+          new IceCandidate(
+            candidate.component,
+            candidate.foundation,
+            candidate.ip,
+            candidate.port,
+            candidate.priority,
+            candidate.protocol,
+            candidate.type,
+            this.connection.generation + 1,
+            usernameFragment,
+          ),
+          {
+            relatedAddress: candidate.relatedAddress,
+            relatedPort: candidate.relatedPort,
+            tcpType: candidate.tcpType,
+          },
+        );
+        return copy;
+      });
     const generation: StagedLocalRestart = {
       usernameFragment,
       password,
@@ -303,6 +396,7 @@ export class RTCIceTransport {
       emitted: false,
       answering,
       createdBy: answering ? "answer" : "offer",
+      gatherOptions,
     };
     // The previous description of this kind is no longer the latest one.
     for (const [ufrag, previous] of this.localGenerations) {
@@ -317,7 +411,11 @@ export class RTCIceTransport {
     this.stagedLocalRestart = generation;
     // Existing sockets can respond to provisional STUN checks for the new
     // ufrag while the old generation continues to carry media.
-    this.connection.stageLocalCredentials?.(usernameFragment, password);
+    this.connection.stageLocalCredentials?.(
+      usernameFragment,
+      password,
+      gatherOptions,
+    );
   }
 
   /**
@@ -363,6 +461,7 @@ export class RTCIceTransport {
     this.connection.stageLocalCredentials?.(
       generation.usernameFragment,
       generation.password,
+      generation.gatherOptions,
     );
   }
 
@@ -459,6 +558,7 @@ export class RTCIceTransport {
       this.connection.stageLocalCredentials?.(
         applied.usernameFragment,
         applied.password,
+        applied.gatherOptions,
       );
     }
   }
@@ -833,13 +933,16 @@ export const IceGathererStates = ["new", "gathering", "complete"] as const;
 export type IceGathererState = (typeof IceGathererStates)[number];
 
 export class RTCIceGatherer {
+  private options: Partial<IceOptions>;
+
   onIceCandidate: (candidate: IceCandidate | undefined) => void = () => {};
   gatheringState: IceGathererState = "new";
   readonly connection: IceConnection;
 
   readonly onGatheringStateChange = new Event<[IceGathererState]>();
 
-  constructor(private options: Partial<IceOptions> = {}) {
+  constructor(options: Partial<IceOptions> = {}) {
+    this.options = options;
     this.connection = new Connection(false, this.options);
     this.connection.onIceCandidate.subscribe((candidate) => {
       this.onIceCandidate(candidateFromIce(candidate));
@@ -941,20 +1044,82 @@ export interface RTCIceCandidateInit {
   usernameFragment?: string | null;
 }
 
-export class RTCIceCandidate {
-  candidate!: string;
+export type {
+  RTCIceCandidateFields,
+  RTCIceComponent,
+  RTCIceProtocol,
+} from "./iceCandidateAttribute";
+
+/** Module-private key for handing already parsed fields to the constructor. */
+const parsedFields = Symbol("RTCIceCandidate.parsedFields");
+
+/** Create an `RTCIceCandidate` whose fields come from typed values, without reparsing. */
+function createRTCIceCandidate(
+  init: RTCIceCandidateInit,
+  fields: RTCIceCandidateFields,
+) {
+  return new RTCIceCandidate({
+    ...init,
+    [parsedFields]: fields,
+  } as RTCIceCandidateInit);
+}
+
+/**
+ * Browser-shaped ICE candidate. Besides the signaling fields it exposes the
+ * readonly fields of the W3C interface parsed from the candidate a-line
+ * (`foundation`, `component`, `priority`, `address`, `protocol`, `port`,
+ * `type`, `tcpType`, `relatedAddress`, `relatedPort`). Which candidates give
+ * `null` fields is specified on {@link RTCIceCandidateFields}. Candidates
+ * werift creates carry them without reparsing; `toJSON()` keeps only the
+ * signaling fields (RTCIceCandidateInit). `relayProtocol` and `url` are not
+ * implemented.
+ */
+export class RTCIceCandidate implements RTCIceCandidateFields {
+  candidate: string = "";
   sdpMid?: string;
   sdpMLineIndex?: number;
   usernameFragment?: string;
 
-  constructor(props: Partial<RTCIceCandidate>) {
-    Object.assign(this, props);
+  readonly foundation!: string | null;
+  readonly component!: RTCIceComponent | null;
+  readonly priority!: number | null;
+  readonly address!: string | null;
+  readonly protocol!: RTCIceProtocol | null;
+  readonly port!: number | null;
+  readonly type!: RTCIceCandidateType | null;
+  readonly tcpType!: RTCIceTcpCandidateType | null;
+  readonly relatedAddress!: string | null;
+  readonly relatedPort!: number | null;
+
+  /**
+   * Like the browser constructor, only the `RTCIceCandidateInit` members are
+   * read; the parsed fields always come from `init.candidate` (`""` when
+   * omitted).
+   */
+  constructor(init: RTCIceCandidateInit = {}) {
+    const { sdpMid, sdpMLineIndex, usernameFragment } = init;
+    const candidate = init.candidate ?? "";
+    const fields =
+      (init as { [parsedFields]?: RTCIceCandidateFields })[parsedFields] ??
+      candidateFieldsFromValues(parseCandidateAttribute(candidate));
+    Object.assign(this, fields, {
+      candidate,
+      sdpMid,
+      sdpMLineIndex,
+      usernameFragment,
+    });
   }
 
+  /**
+   * Same as `new RTCIceCandidate({ candidate: sdp })`, plus `usernameFragment`
+   * taken from the `ufrag` extension attribute of a valid candidate.
+   */
   static fromSdp(sdp: string): RTCIceCandidate {
-    const ice = Candidate.fromSdp(sdp);
-    const candidate = candidateFromIce(ice);
-    return candidate.toJSON();
+    const values = parseCandidateAttribute(sdp);
+    return createRTCIceCandidate(
+      { candidate: sdp, usernameFragment: values?.ufrag },
+      candidateFieldsFromValues(values),
+    );
   }
 
   static isThis(o: any) {
@@ -972,6 +1137,16 @@ export class RTCIceCandidate {
 }
 
 export class IceCandidate {
+  public component: number;
+  public foundation: string;
+  public ip: string;
+  public port: number;
+  public priority: number;
+  public protocol: string;
+  public type: string;
+  public generation?: number | undefined;
+  public ufrag?: string | undefined;
+
   // """
   // The :class:`RTCIceCandidate` interface represents a candidate Interactive
   // Connectivity Establishment (ICE) configuration which may be used to
@@ -984,39 +1159,64 @@ export class IceCandidate {
   public tcpType?: string;
 
   constructor(
-    public component: number,
-    public foundation: string,
-    public ip: string,
-    public port: number,
-    public priority: number,
-    public protocol: string,
-    public type: string,
-    public generation?: number,
-    public ufrag?: string,
-  ) {}
-
-  toJSON(): RTCIceCandidate {
-    return new RTCIceCandidate({
-      candidate: candidateToSdp(this),
-      sdpMLineIndex: this.sdpMLineIndex,
-      sdpMid: this.sdpMid,
-      usernameFragment: this.ufrag,
-    });
+    component: number,
+    foundation: string,
+    ip: string,
+    port: number,
+    priority: number,
+    protocol: string,
+    type: string,
+    generation?: number,
+    ufrag?: string,
+  ) {
+    this.component = component;
+    this.foundation = foundation;
+    this.ip = ip;
+    this.port = port;
+    this.priority = priority;
+    this.protocol = protocol;
+    this.type = type;
+    this.generation = generation;
+    this.ufrag = ufrag;
   }
 
+  /** The parsed fields are validated from these typed values, not by reparsing. */
+  toJSON(): RTCIceCandidate {
+    return createRTCIceCandidate(
+      {
+        candidate: candidateToSdp(this),
+        sdpMLineIndex: this.sdpMLineIndex,
+        sdpMid: this.sdpMid,
+        usernameFragment: this.ufrag,
+      },
+      candidateFieldsFromValues(this),
+    );
+  }
+
+  /**
+   * Returns `undefined` when `data.candidate` is empty or violates the grammar
+   * documented on {@link RTCIceCandidateFields}.
+   */
   static fromJSON(data: RTCIceCandidate | RTCIceCandidateInit) {
-    try {
-      if (!data.candidate) {
-        throw new Error("candidate is required");
-      }
-      const normalizedCandidate = data.candidate.startsWith("candidate:")
-        ? data.candidate.slice("candidate:".length)
-        : data.candidate;
-      const candidate = candidateFromSdp(normalizedCandidate);
-      candidate.sdpMLineIndex = data.sdpMLineIndex ?? undefined;
-      candidate.sdpMid = data.sdpMid ?? undefined;
-      return candidate;
-    } catch (error) {}
+    const values = parseCandidateAttribute(data.candidate ?? "");
+    if (!values) return;
+    const candidate = new IceCandidate(
+      values.component,
+      values.foundation,
+      values.ip,
+      values.port,
+      values.priority,
+      values.protocol,
+      values.type,
+      values.generation,
+      values.ufrag,
+    );
+    candidate.relatedAddress = values.relatedAddress;
+    candidate.relatedPort = values.relatedPort;
+    candidate.tcpType = values.tcpType;
+    candidate.sdpMLineIndex = data.sdpMLineIndex ?? undefined;
+    candidate.sdpMid = data.sdpMid ?? undefined;
+    return candidate;
   }
 }
 

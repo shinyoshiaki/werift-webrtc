@@ -12,13 +12,13 @@
 
 ## Constructors
 
-### new H265RtpPayload()
+### Constructor
 
-> **new H265RtpPayload**(): [`H265RtpPayload`](H265RtpPayload.md)
+> **new H265RtpPayload**(): `H265RtpPayload`
 
 #### Returns
 
-[`H265RtpPayload`](H265RtpPayload.md)
+`H265RtpPayload`
 
 ## Properties
 
@@ -38,7 +38,7 @@ FU end bit (E).
 
 ### fragment?
 
-> `optional` **fragment**: `Buffer`\<`ArrayBufferLike`\>
+> `optional` **fragment?**: `Buffer`\<`ArrayBufferLike`\>
 
 #### Implementation of
 
@@ -120,7 +120,7 @@ FU start bit (S).
 
 ### deSerialize()
 
-> `static` **deSerialize**(`buf`, `fragment`?, `options`?): [`H265RtpPayload`](H265RtpPayload.md)
+> `static` **deSerialize**(`buf`, `fragment?`, `options?`): `H265RtpPayload`
 
 #### Parameters
 
@@ -138,7 +138,7 @@ FU start bit (S).
 
 #### Returns
 
-[`H265RtpPayload`](H265RtpPayload.md)
+`H265RtpPayload`
 
 ***
 

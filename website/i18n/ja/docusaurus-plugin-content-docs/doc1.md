@@ -71,7 +71,7 @@ export type PeerConfig = {
     audio: RTCRtpHeaderExtensionParameters[];
     video: RTCRtpHeaderExtensionParameters[];
   }>;
-  iceConfig: Partial<IceOptions>;
+  iceServers: RTCIceServer[];
 };
 ```
 
@@ -138,23 +138,27 @@ const pc = new RTCPeerConnection({
 
 サイマルキャスト機能を利用する場合は必ず`useSdesRTPStreamID()`を指定する必要があります。
 
-#### iceConfig
+#### iceServers
 
-ice の設定を指定します。
-werift は STUN と TURN-UDP に対応しています。
+STUN / TURN サーバーを指定します (W3C の `RTCIceServer[]`)。
+指定したすべての STUN / TURN の URL が候補収集に使われます。TURN は URL ごとに
+独立した allocation を作り、その URL を含む `RTCIceServer` の
+`username` / `credential` と、URL の transport (`turn:` は UDP、
+`?transport=tcp` は TCP、`turns:` は TLS) を使います。
 
 ```typescript
 const pc = new RTCPeerConnection({
-  iceConfig: { stunServer: ["stun.l.google.com", 19302] },
+  iceServers: [
+    { urls: ["stun:stun.l.google.com:19302", "stun:stun.example.com"] },
+    {
+      urls: ["turn:turn-a.example.com", "turn:turn-a.example.com?transport=tcp"],
+      username: "user-a",
+      credential: "pass-a",
+    },
+    { urls: "turns:turn-b.example.com", username: "user-b", credential: "pass-b" },
+  ],
+  iceTransportPolicy: "all", // "relay" にすると relay 候補だけを収集する
 });
-
-type IceConfig = {
-  stunServer?: [string, number];
-  turnServer?: [string, number];
-  turnUsername?: string;
-  turnPassword?: string;
-  forceTurn?: boolean;
-};
 ```
 
 ### シグナリング

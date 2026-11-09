@@ -10,7 +10,7 @@
 
 ### continuous?
 
-> `optional` **continuous**: `boolean`
+> `optional` **continuous?**: `boolean`
 
 `false`: the paused wall-clock time is reflected as a timestamp gap, the
 same as a scheduler stall.

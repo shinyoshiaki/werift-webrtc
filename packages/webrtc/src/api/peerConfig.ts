@@ -10,13 +10,18 @@ import type {
   TlsConnectionOptions,
 } from "../imports/common";
 import type { CandidatePair, Message, Protocol } from "../imports/ice";
-import {
-  type RTCRtpCodecParameters,
-  type RTCRtpHeaderExtensionParameters,
-  type RTCRtpSenderOptions,
-  defaultCodecs,
-} from "../media";
+import { defaultCodecs } from "../media/codec";
 import { normalizeCodecMimeType } from "../media/codecCompatibility";
+import type {
+  RTCRtpCodecParameters,
+  RTCRtpHeaderExtensionParameters,
+} from "../media/parameters";
+import {
+  type KeyFrameRequestRouting,
+  KeyFrameRequestRoutingModes,
+} from "../media/router";
+import type { RTCRtpSenderOptions } from "../media/rtpSender";
+import type { BandwidthEstimatorOption } from "../media/sender/createBandwidthEstimator";
 import type { BundlePolicy } from "../sdp";
 import type { MLineReuse } from "../sdpManager";
 import type { DtlsKeys, RTCCertificate } from "../transport/dtls";
@@ -51,11 +56,30 @@ export interface PeerConfig {
   /** Advertise local ICE lite and operate in the controlled role. */
   iceLite: boolean;
   iceServers: RTCIceServer[];
+  /**
+   * Fall back to the built-in public STUN server (`stun.l.google.com:19302`)
+   * when `iceServers` contains no STUN URL (empty or TURN-only).
+   * Set to false to gather server-reflexive candidates only from the STUN
+   * servers given in `iceServers`. Defaults to true.
+   */
+  iceUseDefaultStunServer: boolean;
   /**Minimum port and Maximum port must not be the same value */
   icePortRange: [number, number] | undefined;
+  /**
+   * Local addresses to bind the ICE UDP host sockets to, per family
+   * (`udp4` / `udp6`).
+   *
+   * The address given for a family is the only host address of that family:
+   * its host candidate advertises the address the socket is actually bound
+   * to, even when it is not an enumerated interface address (loopback, tun,
+   * VPN, ...). If the bind fails, the family has no UDP host candidate.
+   * A family left unspecified while the other one is set gathers no
+   * enumerated addresses (only its `iceAdditionalHostAddresses`).
+   */
   iceInterfaceAddresses: InterfaceAddresses | undefined;
   /** Add additional host (local) addresses to use for candidate gathering.
    * Notably, you can include hosts that are normally excluded, such as loopback, tun interfaces, etc.
+   * For a family bound by `iceInterfaceAddresses`, addresses other than the bound one are ignored.
    */
   iceAdditionalHostAddresses: string[] | undefined;
   iceUseIpv4: boolean;
@@ -99,10 +123,26 @@ export interface PeerConfig {
   rtcpMuxPolicy: "require";
   iceCandidatePoolSize: number;
   certificates: RTCCertificate[];
+  /**
+   * Which default DTLS certificate is used when neither `certificates` nor `dtls.keys` is given.
+   * Cannot be changed after construction.
+   * - `"process"` (default): one certificate shared by every RTCPeerConnection in the process
+   *   (legacy behavior), so their `a=fingerprint` values are identical.
+   * - `"peerConnection"`: each RTCPeerConnection generates its own certificate (browser behavior).
+   *   All DTLS transports of that connection share it.
+   */
+  certificateScope: CertificateScope;
   debug: DebugConfig;
   midSuffix: boolean;
   /** Advertised local SCTP max-message-size in SDP. Use 0 for unlimited. */
   maxMessageSize: number;
+  /**
+   * When true, padding-only RTP is omitted from onReceiveRtp and later media
+   * sequence numbers are compacted. Default false preserves wire RTP events.
+   */
+  filterProbePaddingOnReceiveRtp: boolean;
+  /** Send-side estimator used by each new sender; defaults to `"lightweight"`. */
+  bandwidthEstimator: BandwidthEstimatorOption;
   /** SCTP outbound packet MTU used for DATA chunk fragmentation. */
   sctp: { mtu: number };
   /**
@@ -118,7 +158,19 @@ export interface PeerConfig {
    * - `"aggressive"`: legacy behavior. `inactive` m-lines are also written with port 0.
    */
   mLineReuse: MLineReuse;
+  /**
+   * Where a PLI / FIR goes when no route has its target SSRC. See {@link KeyFrameRequestRouting}.
+   * - `"compatible"` (default): the sender whose RTX SSRC it is, else the only video sender.
+   * - `"strict"`: not delivered, as RFC 4585 / RFC 5104 define the target.
+   */
+  keyFrameRequestRouting: KeyFrameRequestRouting;
 }
+
+export type CertificateScope = "process" | "peerConnection";
+const CertificateScopes: readonly CertificateScope[] = [
+  "process",
+  "peerConnection",
+];
 
 const MLineReuseModes: readonly MLineReuse[] = ["compatible", "aggressive"];
 
@@ -215,6 +267,7 @@ export function generateDefaultPeerConfig(): PeerConfig {
     iceTransportPolicy: "all",
     iceLite: false,
     iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+    iceUseDefaultStunServer: true,
     icePortRange: undefined,
     iceInterfaceAddresses: undefined,
     iceAdditionalHostAddresses: undefined,
@@ -236,13 +289,17 @@ export function generateDefaultPeerConfig(): PeerConfig {
     rtcpMuxPolicy: "require",
     iceCandidatePoolSize: 0,
     certificates: [],
+    certificateScope: "process",
     debug: {},
     midSuffix: false,
     forceTurnTCP: false,
     maxMessageSize: DEFAULT_MAX_MESSAGE_SIZE,
+    filterProbePaddingOnReceiveRtp: false,
+    bandwidthEstimator: "lightweight",
     sctp: { mtu: DEFAULT_SCTP_MTU },
     pendingRtp: false,
     mLineReuse: "compatible",
+    keyFrameRequestRouting: "compatible",
   };
 }
 export const defaultPeerConfig: PeerConfig = generateDefaultPeerConfig();
@@ -349,6 +406,12 @@ export function clonePeerConfiguration(config: PeerConfig) {
  * merge it in place. Returns the normalized input; side effects on live
  * transports (SCTP limits, ICE servers) stay with the caller.
  */
+const CLEARABLE_TURN_KEYS = [
+  "turnTransport",
+  "turnTlsOptions",
+  "turnUdpFamily",
+] as const;
+
 export function mergePeerConfiguration(
   config: PeerConfig,
   input: RTCPeerConnectionConfig,
@@ -388,11 +451,42 @@ export function mergePeerConfiguration(
   }
 
   if (
+    normalizedConfig.certificateScope !== undefined &&
+    !CertificateScopes.includes(normalizedConfig.certificateScope)
+  ) {
+    throw createWebRtcTypeError(
+      `certificateScope must be one of ${CertificateScopes.join(", ")}`,
+    );
+  }
+
+  if (
+    isReconfiguration &&
+    normalizedConfig.certificateScope !== undefined &&
+    normalizedConfig.certificateScope !== config.certificateScope
+  ) {
+    throw createWebRtcDomException(
+      "InvalidModificationError",
+      "certificateScope cannot be changed",
+    );
+  }
+
+  if (
     normalizedConfig.mLineReuse !== undefined &&
     !MLineReuseModes.includes(normalizedConfig.mLineReuse)
   ) {
     throw createWebRtcTypeError(
       `mLineReuse must be one of ${MLineReuseModes.join(", ")}`,
+    );
+  }
+
+  if (
+    normalizedConfig.keyFrameRequestRouting !== undefined &&
+    !KeyFrameRequestRoutingModes.includes(
+      normalizedConfig.keyFrameRequestRouting,
+    )
+  ) {
+    throw createWebRtcTypeError(
+      `keyFrameRequestRouting must be one of ${KeyFrameRequestRoutingModes.join(", ")}`,
     );
   }
 
@@ -449,6 +543,25 @@ export function mergePeerConfiguration(
   }
 
   deepMerge(config, normalizedConfig as Partial<PeerConfig>);
+  // Omitted keys keep their value, but an explicit `undefined` unsets these
+  // optional TURN settings (deepMerge skips undefined).
+  for (const key of CLEARABLE_TURN_KEYS) {
+    if (Object.hasOwn(normalizedConfig, key) && normalizedConfig[key] == null) {
+      // Union-key writes require the intersection of all indexed property
+      // types. Narrow the key so each optional setting can be cleared safely.
+      switch (key) {
+        case "turnTransport":
+          config.turnTransport = undefined;
+          break;
+        case "turnTlsOptions":
+          config.turnTlsOptions = undefined;
+          break;
+        case "turnUdpFamily":
+          config.turnUdpFamily = undefined;
+          break;
+      }
+    }
+  }
   config.sctp = {
     mtu: config.sctp?.mtu ?? DEFAULT_SCTP_MTU,
   };

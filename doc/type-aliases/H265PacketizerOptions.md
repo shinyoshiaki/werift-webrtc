@@ -6,25 +6,25 @@
 
 # Type Alias: H265PacketizerOptions
 
-> **H265PacketizerOptions**: [`PacketizerBaseOptions`](PacketizerBaseOptions.md) & `object`
+> **H265PacketizerOptions** = [`PacketizerBaseOptions`](PacketizerBaseOptions.md) & `object`
 
-## Type declaration
+## Type Declaration
 
 ### inputFormat?
 
-> `optional` **inputFormat**: [`NalInputFormat`](NalInputFormat.md)
+> `optional` **inputFormat?**: [`NalInputFormat`](NalInputFormat.md)
 
 Sample layout (default "auto"); see [NalInputFormat](NalInputFormat.md).
 
 ### naluLengthSize?
 
-> `optional` **naluLengthSize**: `number`
+> `optional` **naluLengthSize?**: `number`
 
 Length field size for HVCC input (default 4). Ignored for Annex-B.
 
 ### parameterSets?
 
-> `optional` **parameterSets**: `Buffer`[]
+> `optional` **parameterSets?**: `Buffer`[]
 
 Parameter sets (VPS/SPS/PPS as raw NAL units without start codes).
 Prepended via AP on keyframe when not already present in the sample.

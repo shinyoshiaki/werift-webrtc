@@ -6,12 +6,12 @@
 
 # Type Alias: G711PacketizerOptions
 
-> **G711PacketizerOptions**: [`PacketizerBaseOptions`](PacketizerBaseOptions.md) & `object`
+> **G711PacketizerOptions** = [`PacketizerBaseOptions`](PacketizerBaseOptions.md) & `object`
 
-## Type declaration
+## Type Declaration
 
 ### frameDurationInMs?
 
-> `optional` **frameDurationInMs**: `number`
+> `optional` **frameDurationInMs?**: `number`
 
 Frame duration in ms used when splitting large buffers (default 20).

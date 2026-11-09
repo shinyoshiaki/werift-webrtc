@@ -6,9 +6,9 @@
 
 # Type Alias: TelephoneEventFields
 
-> **TelephoneEventFields**: `object`
+> **TelephoneEventFields** = `object`
 
-## Type declaration
+## Properties
 
 ### duration
 
@@ -16,17 +16,23 @@
 
 Duration in timestamp units (clock-rate dependent).
 
+***
+
 ### end
 
 > **end**: `boolean`
 
 End of event flag (RFC 4733 E bit).
 
+***
+
 ### event
 
 > **event**: `number`
 
 Event code (0–255). DTMF 0–9, *, #, A–D use 0–15 (RFC 4733 Table 7).
+
+***
 
 ### volume
 

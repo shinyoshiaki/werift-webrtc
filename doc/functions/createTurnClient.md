@@ -6,7 +6,7 @@
 
 # Function: createTurnClient()
 
-> **createTurnClient**(`__namedParameters`, `__namedParameters`): `Promise`\<[`TurnProtocol`](../classes/TurnProtocol.md)\>
+> **createTurnClient**(`__namedParameters`, `__namedParameters?`): `Promise`\<[`TurnProtocol`](../classes/TurnProtocol.md)\>
 
 ## Parameters
 
@@ -14,7 +14,7 @@
 
 [`TurnClientConfig`](../interfaces/TurnClientConfig.md)
 
-### \_\_namedParameters
+### \_\_namedParameters?
 
 [`TurnClientOptions`](../interfaces/TurnClientOptions.md) = `{}`
 

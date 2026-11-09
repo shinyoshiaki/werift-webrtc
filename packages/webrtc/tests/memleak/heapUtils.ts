@@ -6,7 +6,12 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { memoryUsage } from "node:process";
 import { setTimeout as delay } from "node:timers/promises";
-import { getHeapStatistics, writeHeapSnapshot } from "node:v8";
+import {
+  getHeapStatistics,
+  setFlagsFromString,
+  writeHeapSnapshot,
+} from "node:v8";
+import { runInNewContext } from "node:vm";
 
 /** 1 サイクル終了時のメモリサンプル */
 export type MemorySample = {
@@ -48,6 +53,8 @@ export type MemleakEnv = {
   mediaFrames?: number;
   dcMessages?: number;
   connCycles?: number;
+  /** renegotiation シナリオの周期数 */
+  renegotiationCycles?: number;
   /** 合成リーク検証用: サイクルごとに保持する Buffer サイズ (bytes) */
   injectLeakBytes: number;
 };
@@ -99,6 +106,12 @@ export function readMemleakEnv(
   if (process.env.MEMLEAK_DC_MESSAGES) {
     base.dcMessages = Math.max(0, Math.floor(num("MEMLEAK_DC_MESSAGES", 0)));
   }
+  if (process.env.MEMLEAK_RENEGOTIATION_CYCLES) {
+    base.renegotiationCycles = Math.max(
+      1,
+      Math.floor(num("MEMLEAK_RENEGOTIATION_CYCLES", 1)),
+    );
+  }
   if (process.env.MEMLEAK_CONN_CYCLES) {
     base.connCycles = Math.max(1, Math.floor(num("MEMLEAK_CONN_CYCLES", 1)));
   }
@@ -106,14 +119,30 @@ export function readMemleakEnv(
   return { ...base, ...overrides };
 }
 
+let cachedGc: (() => void) | undefined;
+
+/**
+ * V8 の `gc()`。`--expose-gc` なら `globalThis.gc`、なければ実行時にフラグを立てて
+ * 取り出す (既定の vitest 設定は `execArgv` を渡さない。leak property と共有)。
+ */
+export function gcFunction() {
+  if (cachedGc) return cachedGc;
+  const exposed = (globalThis as typeof globalThis & { gc?: () => void }).gc;
+  if (typeof exposed === "function") {
+    cachedGc = exposed;
+  } else {
+    setFlagsFromString("--expose-gc");
+    cachedGc = runInNewContext("gc") as () => void;
+  }
+  return cachedGc;
+}
+
 /** 強制 GC + 非同期クリーンアップの 1 巡待ち */
 export async function forceGcAndSettle(settleMs = 20): Promise<void> {
-  const gc = (globalThis as typeof globalThis & { gc?: () => void }).gc;
-  if (typeof gc === "function") {
-    gc();
-    // 2 回目で最終化待ちオブジェクトも回収しやすくする
-    gc();
-  }
+  const gc = gcFunction();
+  gc();
+  // 2 回目で最終化待ちオブジェクトも回収しやすくする
+  gc();
   await delay(settleMs);
   // イベントループ上の microtask / nextTick を消化
   await new Promise<void>((r) => setImmediate(r));

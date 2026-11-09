@@ -65,7 +65,7 @@ describe("codec/av1 leb128", () => {
   });
 });
 
-// AV1 RTP §4.4 Aggregation Header + packetizer (W=1, Z/Y/N)
+// AV1 RTP §4.4 Aggregation Header + packetizer (W=0, Z/Y/N)
 
 describe("codec/av1 packetizer", () => {
   it("createAv1AggregationHeader rejects N=1 and Z=1 together", () => {
@@ -197,6 +197,18 @@ describe("codec/av1 packetizer", () => {
     return Buffer.concat([header, body]);
   }
 
+  /** RTP 往復後に非末尾 OBU は size field 付き、末尾 OBU は無しに正規化する */
+  function canonicalizeObuSizes(frame: Buffer): Buffer {
+    const obus = splitAv1Obus(frame);
+    return Buffer.concat(
+      obus.map((wire, index) => {
+        const obu = AV1Obu.deSerialize(wire);
+        obu.obu_has_size_field = index < obus.length - 1 ? 1 : 0;
+        return obu.serialize();
+      }),
+    );
+  }
+
   it("splitAv1Obus parses size-fielded single and multi OBU", () => {
     // Arrange: SEQUENCE_HEADER + FRAME both with size
     const obu1 = makeObuWithSize(1, Buffer.from([0xaa, 0xbb]));
@@ -220,6 +232,44 @@ describe("codec/av1 packetizer", () => {
     expect(obu.obu_has_size_field).toBe(1);
     expect(obu.payload.equals(body)).toBe(true);
     expect(obu.serialize().equals(wire)).toBe(true);
+  });
+
+  it("omits internal OBU size fields from RTP elements", () => {
+    // Arrange: サイズ付きの Sequence Header と分割される Frame OBU を用意する
+    const sequenceHeader = makeObuWithSize(1, Buffer.from([0xaa, 0xbb]));
+    const frameObu = makeObuWithSize(6, Buffer.alloc(500, 0x55));
+    const frame = Buffer.concat([sequenceHeader, frameObu]);
+    const packetizer = new Av1Packetizer({
+      sequenceNumber: 1,
+      maxPayloadSize: 80,
+    });
+
+    // Act: RTP packet 化し、先頭 packet と各 OBU の先頭 fragment を読む
+    const packets = packetizer.packetize(frame, 90_000, {
+      frameType: "key",
+      startsNewCodedVideoSequence: true,
+    });
+    const firstPacket = AV1RtpPayload.deSerialize(packets[0].payload);
+    const obuStarts = packets
+      .flatMap(
+        (packet) => AV1RtpPayload.deSerialize(packet.payload).obu_or_fragment,
+      )
+      .filter((obu) => !obu.isContinuation);
+
+    // Assert: Sequence Header と Frame fragment を同じ packet にまとめ、内部 size field を省略する
+    expect(firstPacket.w_RtpNumObus).toBe(2);
+    expect(firstPacket.obu_or_fragment).toHaveLength(2);
+    expect(firstPacket.yBit_RtpEndsWithFragment).toBe(1);
+    expect(firstPacket.nBit_RtpStartsNewCodedVideoSequence).toBe(1);
+    expect(obuStarts).toHaveLength(2);
+    expect(
+      obuStarts.every(
+        (obu) => AV1Obu.deSerialize(obu.data).obu_has_size_field === 0,
+      ),
+    ).toBe(true);
+    expect(dePacketizeRtpPackets("AV1", packets).data).toEqual(
+      canonicalizeObuSizes(frame),
+    );
   });
 
   it("packetize/depacketize round-trips size-fielded single OBU", () => {
@@ -410,5 +460,73 @@ describe("codec/av1 packetizer", () => {
     expect(
       nBit(Buffer.concat([seqHdr, frameObu]), { frameType: "delta" }),
     ).toBe(0);
+  });
+});
+
+describe("codec/av1 Av1Packetizer layer boundaries", () => {
+  // type=6 (FRAME) + extension flag + has_size, 拡張ヘッダの SID だけ変える
+  const layerObu = (extension: number) =>
+    Buffer.from([0x36, extension, 0x01, 0xaa]);
+  const payloadsOf = (data: Buffer) =>
+    new Av1Packetizer({ sequenceNumber: 1 }).packetize(data, 0);
+
+  test("異なる spatial_id の OBU は別 packet に分離する", () => {
+    // Arrange: SID=0 と SID=1 の OBU 列
+    const data = Buffer.concat([layerObu(0x00), layerObu(0x08)]);
+
+    // Act
+    const packets = payloadsOf(data);
+
+    // Assert: レイヤーごとに 1 packet、元の OBU が復元できる
+    expect(packets).toHaveLength(2);
+    expect(packets.at(-1)!.header.marker).toBe(true);
+    for (const p of packets) {
+      expect(AV1RtpPayload.deSerialize(p.payload).obu_or_fragment).toHaveLength(
+        1,
+      );
+    }
+  });
+
+  test("同一レイヤーの OBU は 1 packet に集約する", () => {
+    // Arrange
+    const data = Buffer.concat([layerObu(0x08), layerObu(0x08)]);
+
+    // Act
+    const packets = payloadsOf(data);
+
+    // Assert
+    expect(packets).toHaveLength(1);
+  });
+
+  test("拡張ヘッダなしの OBU はレイヤー付き OBU と集約できる", () => {
+    // Arrange: temporal delimiter (拡張なし) + SID=1 の OBU
+    const data = Buffer.concat([Buffer.from([0x12, 0x00]), layerObu(0x08)]);
+
+    // Act
+    const packets = payloadsOf(data);
+
+    // Assert
+    expect(packets).toHaveLength(1);
+  });
+
+  test("断片化された OBU の後に別レイヤーの OBU が来ても分離する", () => {
+    // Arrange: MTU を超える SID=0 の OBU と SID=1 の OBU
+    const big = Buffer.concat([
+      Buffer.from([0x36, 0x00, 0xc8, 0x01]),
+      Buffer.alloc(200, 1),
+    ]);
+    const data = Buffer.concat([big, layerObu(0x08)]);
+
+    // Act
+    const packets = new Av1Packetizer({
+      sequenceNumber: 1,
+      maxPayloadSize: 100,
+    }).packetize(data, 0);
+
+    // Assert: 最後の packet は SID=1 の OBU のみ
+    const last = AV1RtpPayload.deSerialize(packets.at(-1)!.payload);
+    expect(last.obu_or_fragment).toHaveLength(1);
+    expect(last.obu_or_fragment[0].data.length).toBe(3);
+    expect(packets.length).toBeGreaterThan(2);
   });
 });

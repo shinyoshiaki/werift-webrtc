@@ -245,7 +245,7 @@ Depacketizers implement `DePacketizerBase` and are registered in
 | H.265 / HEVC | `H265RtpPayload` | `H265Packetizer` | RFC 7798 — AP / FU / single NAL |
 | VP8 | `Vp8RtpPayload` | `Vp8Packetizer` | RFC 7741 — minimal descriptor (S/PID) |
 | VP9 | `Vp9RtpPayload` | `Vp9Packetizer` | RFC 9628 — B/E/P minimal descriptor |
-| AV1 | `AV1RtpPayload` | `Av1Packetizer` | AV1 RTP — W=1, Z/Y/N aggregation |
+| AV1 | `AV1RtpPayload` | `Av1Packetizer` | AV1 RTP — W=1..3 OBU aggregation (W=0 accepted on receive), Z/Y/N |
 | Opus | `OpusRtpPayload` | `OpusPacketizer` | RFC 7587 — raw payload; no TOC-blind MTU split |
 | PCMU / PCMA | `PcmuRtpPayload` / `PcmaRtpPayload` | `PcmuPacketizer` / `PcmaPacketizer` | RFC 3551 PT 0 / 8, 8000 Hz |
 | G.722 | `G722RtpPayload` | `G722Packetizer` | RFC 3551 PT 9, **RTP clock 8000 Hz** |
@@ -330,9 +330,9 @@ const fields = TelephoneEventRtpPayload.deSerialize(start.payload);
 See `examples/node/rtp_over_udp/` (Node `dgram` peer, no GStreamer required):
 
 ```bash
-RUN_SELF_TEST=1 npx tsx examples/node/rtp_over_udp/recv.ts _ pcmu
-RUN_SELF_TEST=1 npx tsx examples/node/rtp_over_udp/recv.ts _ vp8
-RUN_SELF_TEST=1 npx tsx examples/node/rtp_over_udp/recv.ts _ h264
+RUN_SELF_TEST=1 node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs examples/node/rtp_over_udp/recv.ts _ pcmu
+RUN_SELF_TEST=1 node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs examples/node/rtp_over_udp/recv.ts _ vp8
+RUN_SELF_TEST=1 node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs examples/node/rtp_over_udp/recv.ts _ h264
 ```
 
 # test vectors
@@ -341,7 +341,7 @@ Committed payloads under `tests/data/vector_*.bin` (and synthetic cases in tests
 including GStreamer-derived **VP8 / VP9 / H.264 / Opus** (and synthetic **AV1**
 when `rtpav1pay` is unavailable).
 Regenerate with GStreamer via `tools/generateVectors/` when available:
-`npx tsx tools/generateVectors/generate.ts` (synthetic baseline first, GST
+`node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs tools/generateVectors/generate.ts` (synthetic baseline first, GST
 overwrites per codec).
 
 # RFC authority notes

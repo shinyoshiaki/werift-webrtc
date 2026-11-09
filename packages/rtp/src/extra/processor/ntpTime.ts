@@ -1,13 +1,12 @@
 import { randomUUID } from "crypto";
 
 import {
+  ntpTime2Sec,
   type RtcpPacket,
   RtcpSrPacket,
   type RtpPacket,
-  ntpTime2Sec,
 } from "../..";
 import type { Processor } from "./interface";
-import { Max32Uint } from "./webm";
 
 export type NtpTimeInput = {
   rtp?: RtpPacket;
@@ -23,6 +22,8 @@ export interface NtpTimeOutput {
 }
 
 export class NtpTimeBase implements Processor<NtpTimeInput, NtpTimeOutput> {
+  public clockRate: number;
+
   readonly id = randomUUID().toString();
   private baseNtpTimestamp?: bigint;
   private baseRtpTimestamp?: number;
@@ -33,7 +34,9 @@ export class NtpTimeBase implements Processor<NtpTimeInput, NtpTimeOutput> {
   private internalStats = {};
   started = false;
 
-  constructor(public clockRate: number) {}
+  constructor(clockRate: number) {
+    this.clockRate = clockRate;
+  }
 
   toJSON(): Record<string, any> {
     return {
@@ -123,12 +126,8 @@ export class NtpTimeBase implements Processor<NtpTimeInput, NtpTimeOutput> {
     baseNtpTimestamp: bigint;
     elapsedOffset: number;
   }) {
-    const rotate =
-      Math.abs(rtpTimestamp - baseRtpTimestamp) > (Max32Uint / 4) * 3;
-
-    const elapsed = rotate
-      ? rtpTimestamp + Max32Uint - baseRtpTimestamp
-      : rtpTimestamp - baseRtpTimestamp;
+    // 32bit の符号付き差分: 折り返しをまたぐ前後どちらの向きでも正しく扱う
+    const elapsed = (rtpTimestamp - baseRtpTimestamp) | 0;
     const elapsedSec = elapsed / this.clockRate;
 
     // sec

@@ -1,7 +1,47 @@
 import { deepMerge, parseIceServers, resolveTurnTransport } from "../src";
 import type { RTCIceServer } from "../src/peerConnection";
+import { ntpTime, ntpTimeToEpochMs } from "../src/utils";
+import { ntpDiffMs, rfc3550Ntp } from "./fixture";
 
 describe("utils", () => {
+  describe("ntpTime (RFC 3550)", () => {
+    test("小数部は秒の 2^32 分率で符号化される", () => {
+      // Arrange: Unix epoch + 1.5 秒 (小数部はちょうど 0.5)
+      const epochMs = 1500;
+
+      // Act
+      const ntp = ntpTime(epochMs);
+
+      // Assert: 上位は 1900 年起点の秒、下位は 0x80000000
+      expect(ntp >> 32n).toBe(2208988801n);
+      expect(ntp & 0xffffffffn).toBe(0x80000000n);
+    });
+
+    test("同じ秒内の 100ms と 900ms は 800ms の差になる", () => {
+      // Arrange
+      const base = 1_700_000_000_000;
+
+      // Act
+      const a = ntpTime(base + 100);
+      const b = ntpTime(base + 900);
+
+      // Assert: 標準形式で読んだ差が 800ms
+      expect(ntpDiffMs(b, a)).toBeCloseTo(800, 2);
+      expect(Math.abs(ntpDiffMs(a, rfc3550Ntp(base + 100)))).toBeLessThan(0.01);
+    });
+
+    test("ntpTimeToEpochMs は ntpTime の逆変換になる", () => {
+      // Arrange
+      const epochMs = 1_700_000_000_123.456;
+
+      // Act
+      const restored = ntpTimeToEpochMs(ntpTime(epochMs));
+
+      // Assert
+      expect(restored).toBeCloseTo(epochMs, 1);
+    });
+  });
+
   describe("parseIceServers", () => {
     test("stun", () => {
       const iceServers = [{ urls: "stun:stun.l.google.com:19302" }];
@@ -150,6 +190,111 @@ describe("utils", () => {
       expect(turnTransport).toBe("tcp");
       expect(turnUsername).toBe("username");
       expect(turnPassword).toBe("credential");
+    });
+
+    test("複数の RTCIceServer と urls 配列のすべての STUN / TURN URL を設定順に返す", () => {
+      // Arrange: STUN と TURN が混在する 2 つの RTCIceServer
+      const iceServers: RTCIceServer[] = [
+        {
+          urls: [
+            "stun:stun-a.example.com:3478",
+            "turn:turn-a.example.com:3478",
+            "turn:turn-a.example.com:3478?transport=tcp",
+          ],
+          username: "user-a",
+          credential: "pass-a",
+        },
+        { urls: "stun:stun-b.example.com" },
+        {
+          urls: ["turns:turn-b.example.com", "turn:turn-c.example.com:3479"],
+          username: "user-b",
+          credential: "pass-b",
+        },
+      ];
+
+      // Act
+      const { stunServers, turnServers } = parseIceServers(iceServers);
+
+      // Assert: STUN はすべての URL を設定順に返す
+      expect(stunServers).toEqual([
+        ["stun-a.example.com", 3478],
+        ["stun-b.example.com", 3478],
+      ]);
+      // Assert: TURN は URL ごとに、その URL を含む RTCIceServer の credential と URL の transport を持つ
+      expect(turnServers).toEqual([
+        {
+          address: ["turn-a.example.com", 3478],
+          username: "user-a",
+          password: "pass-a",
+          transport: undefined,
+        },
+        {
+          address: ["turn-a.example.com", 3478],
+          username: "user-a",
+          password: "pass-a",
+          transport: "tcp",
+        },
+        {
+          address: ["turn-b.example.com", 5349],
+          username: "user-b",
+          password: "pass-b",
+          transport: "tls",
+        },
+        {
+          address: ["turn-c.example.com", 3479],
+          username: "user-b",
+          password: "pass-b",
+          transport: undefined,
+        },
+      ]);
+    });
+
+    test("重複した URL は 1 件にまとめ、credential の違う同じ TURN は別に扱う", () => {
+      // Arrange
+      const iceServers: RTCIceServer[] = [
+        {
+          urls: ["stun:stun.example.com:3478", "stun:stun.example.com:3478"],
+        },
+        {
+          urls: ["turn:turn.example.com:3478", "turn:turn.example.com:3478"],
+          username: "user-a",
+          credential: "pass-a",
+        },
+        {
+          urls: "turn:turn.example.com:3478",
+          username: "user-b",
+          credential: "pass-b",
+        },
+        { urls: "stun:stun.example.com:3478" },
+      ];
+
+      // Act
+      const { stunServers, turnServers } = parseIceServers(iceServers);
+
+      // Assert: 同じ STUN は 1 件、同じ TURN + credential は 1 件、credential 違いは別の要素
+      expect(stunServers).toEqual([["stun.example.com", 3478]]);
+      expect(turnServers.map(({ username }) => username)).toEqual([
+        "user-a",
+        "user-b",
+      ]);
+    });
+
+    test("単数フィールドは最初の STUN / TURN URL を返す (互換)", () => {
+      // Arrange
+      const iceServers: RTCIceServer[] = [
+        { urls: "turn:turn-a.example.com", username: "a", credential: "pa" },
+        { urls: "turn:turn-b.example.com", username: "b", credential: "pb" },
+        { urls: ["stun:stun-a.example.com", "stun:stun-b.example.com"] },
+      ];
+
+      // Act
+      const parsed = parseIceServers(iceServers);
+
+      // Assert: 単数フィールドは配列の先頭要素と一致する
+      expect(parsed.stunServer).toEqual(["stun-a.example.com", 3478]);
+      expect(parsed.turnServer).toEqual(["turn-a.example.com", 3478]);
+      expect(parsed.turnUsername).toBe("a");
+      expect(parsed.turnPassword).toBe("pa");
     });
   });
 

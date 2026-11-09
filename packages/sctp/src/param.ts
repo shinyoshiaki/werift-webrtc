@@ -19,14 +19,24 @@
 // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 
 export class OutgoingSSNResetRequestParam {
+  public requestSequence: number;
+  public responseSequence: number;
+  public lastTsn: number;
+  public streams: number[];
+
   static type = 13; // Outgoing SSN Reset Request Parameter
 
   constructor(
-    public requestSequence: number,
-    public responseSequence: number,
-    public lastTsn: number,
-    public streams: number[],
-  ) {}
+    requestSequence: number,
+    responseSequence: number,
+    lastTsn: number,
+    streams: number[],
+  ) {
+    this.requestSequence = requestSequence;
+    this.responseSequence = responseSequence;
+    this.lastTsn = lastTsn;
+    this.streams = streams;
+  }
 
   get type() {
     return OutgoingSSNResetRequestParam.type;
@@ -69,12 +79,15 @@ export class OutgoingSSNResetRequestParam {
 }
 
 export class StreamAddOutgoingParam {
+  public requestSequence: number;
+  public newStreams: number;
+
   static type = 17; // Add Outgoing Streams Request Parameter
 
-  constructor(
-    public requestSequence: number,
-    public newStreams: number,
-  ) {}
+  constructor(requestSequence: number, newStreams: number) {
+    this.requestSequence = requestSequence;
+    this.newStreams = newStreams;
+  }
 
   get type() {
     return StreamAddOutgoingParam.type;
@@ -120,11 +133,14 @@ export const reconfigResult = {
 type ReconfigResult = (typeof reconfigResult)[keyof typeof reconfigResult];
 
 export class ReconfigResponseParam {
+  public responseSequence: number;
+  public result: ReconfigResult;
+
   static type = 16; // Re-configuration Response Parameter
-  constructor(
-    public responseSequence: number,
-    public result: ReconfigResult,
-  ) {}
+  constructor(responseSequence: number, result: ReconfigResult) {
+    this.responseSequence = responseSequence;
+    this.result = result;
+  }
 
   get type() {
     return ReconfigResponseParam.type;

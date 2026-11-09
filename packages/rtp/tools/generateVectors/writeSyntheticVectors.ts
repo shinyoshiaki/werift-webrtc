@@ -22,7 +22,7 @@ import {
 } from "../../src";
 import { leb128encode } from "../../src/codec/leb128";
 
-const OUT_DIR = join(__dirname, "../../tests/data");
+const OUT_DIR = join(import.meta.dirname, "../../tests/data");
 
 function encode(payloads: Buffer[]): Buffer {
   const parts: Buffer[] = [];
@@ -137,6 +137,7 @@ export function writeSyntheticVectors(): void {
   const vp8Pkts = new Vp8Packetizer({
     sequenceNumber: 1,
     maxPayloadSize: 120,
+    pictureId: 0,
   }).packetize(vp8Frame, 0);
   writeFileSync(
     join(OUT_DIR, "vector_vp8.bin"),
@@ -236,7 +237,7 @@ export function writeSyntheticVectors(): void {
 When GStreamer (\`gst-launch-1.0\`) is available, prefer:
 
 \`\`\`bash
-npx tsx tools/generateVectors/generate.ts
+node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs tools/generateVectors/generate.ts
 \`\`\`
 
 Otherwise this file is written by \`writeSyntheticVectors.ts\`: RFC-accurate
@@ -261,6 +262,6 @@ wire payloads from package packetizers with non-repeating PRNG media bodies
   console.log("[synthetic] wrote vector_*.bin under tests/data/");
 }
 
-if (require.main === module) {
+if (process.argv[1]?.includes("writeSyntheticVectors")) {
   writeSyntheticVectors();
 }

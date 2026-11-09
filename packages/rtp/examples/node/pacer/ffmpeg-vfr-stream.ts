@@ -6,8 +6,8 @@
  * reach Node.js through a pipe in bursts and with jitter; RtpMediaPacer sends
  * each frame at its own pts on a monotonic clock with the pts as RTP timestamp.
  *
- * run:  npx tsx packages/rtp/examples/node/pacer/ffmpeg-vfr-stream.ts
- * view: DEST_PORT=5004 npx tsx packages/rtp/examples/node/pacer/ffmpeg-vfr-stream.ts
+ * run:  node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./tools/node-ts/register.mjs packages/rtp/examples/node/pacer/ffmpeg-vfr-stream.ts
+ * view: DEST_PORT=5004 node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./tools/node-ts/register.mjs packages/rtp/examples/node/pacer/ffmpeg-vfr-stream.ts
  *       gst-launch-1.0 udpsrc port=5004 \
  *         caps="application/x-rtp,media=video,encoding-name=VP8,clock-rate=90000,payload=96" \
  *         ! rtpjitterbuffer ! rtpvp8depay ! vp8dec ! autovideosink
@@ -132,16 +132,24 @@ function splitVp8(frame: Buffer) {
 
 /** Incremental IVF parser: 32-byte file header, then 12-byte frame headers. */
 class IvfStreamParser {
+  private onFrame: (
+      frame: Buffer,
+      pts: number,
+      timebase: { num: number; den: number },
+    ) => void;
+
   private buffer = Buffer.alloc(0);
   private timebase?: { num: number; den: number };
 
   constructor(
-    private onFrame: (
+    onFrame: (
       frame: Buffer,
       pts: number,
       timebase: { num: number; den: number },
     ) => void,
-  ) {}
+  ) {
+    this.onFrame = onFrame;
+  }
 
   write(data: Buffer) {
     this.buffer = Buffer.concat([this.buffer, data]);

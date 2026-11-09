@@ -4,23 +4,49 @@ import { isIPv4 } from "net";
 export type TcpCandidateType = "active" | "passive" | "so";
 
 export class Candidate {
+  public foundation: string;
+  public component: number;
+  public transport: string;
+  public priority: number;
+  public host: string;
+  public port: number;
+  public type: string;
+  public relatedAddress?: string | undefined;
+  public relatedPort?: number | undefined;
+  public tcptype?: string | undefined;
+  public generation?: number | undefined;
+  public ufrag?: string | undefined;
+
   // An ICE candidate.
   id = randomUUID().toString();
 
   constructor(
-    public foundation: string,
-    public component: number,
-    public transport: string,
-    public priority: number,
-    public host: string,
-    public port: number,
-    public type: string,
-    public relatedAddress?: string,
-    public relatedPort?: number,
-    public tcptype?: string,
-    public generation?: number,
-    public ufrag?: string,
-  ) {}
+    foundation: string,
+    component: number,
+    transport: string,
+    priority: number,
+    host: string,
+    port: number,
+    type: string,
+    relatedAddress?: string,
+    relatedPort?: number,
+    tcptype?: string,
+    generation?: number,
+    ufrag?: string,
+  ) {
+    this.foundation = foundation;
+    this.component = component;
+    this.transport = transport;
+    this.priority = priority;
+    this.host = host;
+    this.port = port;
+    this.type = type;
+    this.relatedAddress = relatedAddress;
+    this.relatedPort = relatedPort;
+    this.tcptype = tcptype;
+    this.generation = generation;
+    this.ufrag = ufrag;
+  }
 
   refreshId() {
     this.id = randomUUID().toString();

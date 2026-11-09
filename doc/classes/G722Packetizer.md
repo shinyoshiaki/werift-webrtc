@@ -17,23 +17,23 @@ telephone-event is the RFC 4733 exception: marker on the first event packet).
 
 ## Constructors
 
-### new G722Packetizer()
+### Constructor
 
-> **new G722Packetizer**(`options`): [`G722Packetizer`](G722Packetizer.md)
+> **new G722Packetizer**(`options?`): `G722Packetizer`
 
 #### Parameters
 
-##### options
+##### options?
 
 [`G722PacketizerOptions`](../type-aliases/G722PacketizerOptions.md) = `{}`
 
 #### Returns
 
-[`G722Packetizer`](G722Packetizer.md)
+`G722Packetizer`
 
 #### Overrides
 
-[`PacketizerBase`](PacketizerBase.md).[`constructor`](PacketizerBase.md#constructors)
+[`PacketizerBase`](PacketizerBase.md).[`constructor`](PacketizerBase.md#constructor)
 
 ## Properties
 

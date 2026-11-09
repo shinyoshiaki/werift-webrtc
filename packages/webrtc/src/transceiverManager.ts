@@ -1,10 +1,11 @@
-import { type PeerConfig, findCodecByMimeType } from "./api/peerConfig";
+import { findCodecByMimeType, type PeerConfig } from "./api/peerConfig";
 import { ReceiverDirection, SenderDirections } from "./const";
 import { createWebRtcDomException } from "./errors";
-import { Event, debug } from "./imports/common";
+import { debug, Event } from "./imports/common";
 import {
   MediaStream,
   type MediaStreamTrack,
+  Recvonly,
   type RTCRtpCodecParameters,
   RTCRtpCodingParameters,
   type RTCRtpEncodingParameters,
@@ -14,7 +15,6 @@ import {
   RTCRtpRtxParameters,
   RTCRtpSender,
   RTCRtpTransceiver,
-  Recvonly,
   type RtpRouter,
   Sendonly,
   Sendrecv,
@@ -27,6 +27,7 @@ import {
   normalizeCodecMimeType,
   resolveCodecs,
 } from "./media/codecCompatibility";
+import { createBandwidthEstimator } from "./media/sender/createBandwidthEstimator";
 import type { RTCStats } from "./media/stats";
 import { captureTrackSourceCodecs, getTrackSourceCodecs } from "./media/track";
 import type {
@@ -34,9 +35,9 @@ import type {
   TransceiversNegotiationState,
 } from "./negotiation/internalState";
 import {
+  codecParametersFromString,
   type MediaDescription,
   type SessionDescription,
-  codecParametersFromString,
 } from "./sdp";
 import type { RTCDtlsTransport } from "./transport/dtls";
 import type { Kind } from "./types/domain";
@@ -88,7 +89,39 @@ function simulcastFromSendEncodings(
   return rids.map((rid) => ({ rid, direction: "send" as const }));
 }
 
+/**
+ * The transceivers of a PeerConnection and their m-lines.
+ *
+ * m-line stop, rejection and reuse inside a negotiation:
+ * - A stopping transceiver is offered and answered as a rejected (port 0)
+ *   m-line (JSEP 5.2.2, 5.3.1); the final answer marks it stopped and
+ *   unregisters its routes. werift also writes `inactive` m-lines with port
+ *   0: a port-0 answer stops only a transceiver the application is stopping.
+ * - A remote offer or pranswer m-line without a common codec, or with port 0
+ *   for a known MID, only marks `pendingRejection`; the current pipeline keeps
+ *   running and rollback restores the flag. The commit releases it.
+ * - An application `addTransceiver` reuses only a same-kind position whose
+ *   rejection or stop is committed, with a new MID; a transceiver for a remote
+ *   offer replaces only a stopped one at its index. Neither takes an inactive
+ *   one. A transceiver displaced by a recycling remote offer is marked
+ *   stopped as a reversible change; its sender and receiver stop at the final
+ *   answer.
+ * - A transceiver created for a remote offer is not an application operation
+ *   (no `negotiationneeded`). Rollback removes it unless the application
+ *   attached a track (`heldByApplication`); a kept one returns to its created
+ *   state. An application `stop()` during the transaction survives rollback.
+ * - A transceiver the application added while a description was pending is
+ *   never committed by it: rollback takes back its MID, m-line and the
+ *   direction a pranswer gave it.
+ * - `setCodecPreferences()` / an attached track only mark codecs for
+ *   re-resolution; the live sender and receiver follow at the local answer
+ *   commit, and a change made during the transaction survives its rollback.
+ */
 export class TransceiverManager {
+  private readonly cname: string;
+  private readonly config: Required<PeerConfig>;
+  private readonly router: RtpRouter;
+
   private readonly transceivers: RTCRtpTransceiver[] = [];
   private readonly notifiedRemoteTrack = new WeakMap<
     RTCRtpTransceiver,
@@ -248,11 +281,11 @@ export class TransceiverManager {
   >();
   readonly onNegotiationNeeded = new Event<[]>();
 
-  constructor(
-    private readonly cname: string,
-    private readonly config: Required<PeerConfig>,
-    private readonly router: RtpRouter,
-  ) {}
+  constructor(cname: string, config: Required<PeerConfig>, router: RtpRouter) {
+    this.cname = cname;
+    this.config = config;
+    this.router = router;
+  }
 
   getTransceivers(): RTCRtpTransceiver[] {
     return this.transceivers;
@@ -426,6 +459,9 @@ export class TransceiverManager {
     }
 
     const sender = new RTCRtpSender(trackOrKind, {
+      bandwidthEstimator: createBandwidthEstimator(
+        this.config.bandwidthEstimator,
+      ),
       pendingRtp: this.config.pendingRtp,
     });
     const receiver = new RTCRtpReceiver(this.config, kind, sender.ssrc);

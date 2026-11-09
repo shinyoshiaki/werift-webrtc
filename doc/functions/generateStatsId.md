@@ -18,7 +18,7 @@ Generate a unique ID for a statistics object
 
 ### parts
 
-...(`undefined` \| `string` \| `number`)[]
+...(`string` \| `number` \| `undefined`)[]
 
 ## Returns
 

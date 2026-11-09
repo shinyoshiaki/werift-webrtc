@@ -8,6 +8,15 @@
 
 > **parseIceServers**(`iceServers`): `object`
 
+The STUN and TURN servers of `iceServers`: every valid `stun:` / `stuns:`
+URL and every valid `turn:` / `turns:` URL of every `RTCIceServer`, in
+configuration order. A TURN URL carries the `username` / `credential` of
+the `RTCIceServer` that lists it. Duplicates (the same STUN address; the
+same TURN address, transport and credential) are kept once.
+
+The singular fields are the first STUN URL and the first TURN URL, kept
+for compatibility.
+
 ## Parameters
 
 ### iceServers
@@ -16,24 +25,50 @@
 
 ## Returns
 
-`object`
+### ~~stunServer?~~
 
-### stunServer?
+> `optional` **stunServer?**: readonly \[`string`, `number`\]
 
-> `optional` **stunServer**: readonly \[`string`, `number`\]
+#### Deprecated
 
-### turnPassword?
+The first of `stunServers`.
 
-> `optional` **turnPassword**: `string`
+### stunServers
 
-### turnServer?
+> **stunServers**: (readonly \[`string`, `number`\])[]
 
-> `optional` **turnServer**: readonly \[`string`, `number`\]
+### ~~turnPassword?~~
 
-### turnTransport?
+> `optional` **turnPassword?**: `string`
 
-> `optional` **turnTransport**: `"tcp"` \| `"tls"` \| `"udp"`
+#### Deprecated
 
-### turnUsername?
+The password of the first of `turnServers`.
 
-> `optional` **turnUsername**: `string`
+### ~~turnServer?~~
+
+> `optional` **turnServer?**: readonly \[`string`, `number`\]
+
+#### Deprecated
+
+The address of the first of `turnServers`.
+
+### turnServers
+
+> **turnServers**: [`ParsedTurnServer`](../type-aliases/ParsedTurnServer.md)[]
+
+### ~~turnTransport?~~
+
+> `optional` **turnTransport?**: `"tcp"` \| `"tls"` \| `"udp"`
+
+#### Deprecated
+
+The transport of the first of `turnServers`.
+
+### ~~turnUsername?~~
+
+> `optional` **turnUsername?**: `string`
+
+#### Deprecated
+
+The username of the first of `turnServers`.

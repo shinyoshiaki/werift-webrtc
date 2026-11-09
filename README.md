@@ -129,7 +129,7 @@ DTLS and SRTP share the ICE transport, but media is **not tunneled through DTLS*
 | **Simulcast** | Receive-side simulcast |
 | **Bandwidth estimation** | Sender-side estimator driven by Transport-Wide CC feedback |
 | **Statistics** | Browser-compatible `getStats()` report model for RTP, transport, ICE, codec, certificate, DataChannel, and related stats |
-| **Recording** | Nonstandard `MediaRecorder` / WebM writer paths for Opus, VP8, VP9, H.264, and AV1 tracks |
+| **Recording** | Nonstandard `MediaRecorder` / WebM writer paths for Opus, VP8, VP9, H.264, and AV1 tracks; Ogg Opus (`.ogg` / `.opus`, or `format: "ogg"` for `stream`) for a single Opus audio track |
 | **Nonstandard media** | MP4/WebM file playback via mediabunny plus configurable/dummy media-device sources |
 | **RTP processing** | Jitter buffer, RED encoder/decoder, DTX, NACK, lip sync, and other packet processors |
 
@@ -239,11 +239,22 @@ Again, the browser console and `chrome://webrtc-internals/` are useful for inspe
 
 ## Debugging
 
-werift uses the [`debug`](https://www.npmjs.com/package/debug) package throughout the stack.
+werift provides a debug-compatible logger throughout the stack.
 
 ```bash
 DEBUG=werift* node your-app.js
 ```
+
+Applications can also switch logging at runtime through werift's exported API:
+
+```ts
+import { debug } from "werift";
+
+debug.enable("werift*");
+debug.disable();
+```
+
+The application's own `debug` package instance does not control werift logging. The logger supports the `DEBUG` patterns and common API shown above, but does not implement `DEBUG_HIDE_DATE`, `DEBUG_DEPTH`, `DEBUG_SHOW_HIDDEN`, `logger.extend()`, `logger.log`, `debug.log`, `debug.formatters`, `logger.destroy()`, `logger.color`, `useColors`, or `inspectOpts`. In browsers (for example `werift-rtp` bundled with Vite), set `localStorage.debug` before loading werift.
 
 For browser interoperability debugging, combine server logs with:
 
@@ -272,7 +283,11 @@ If you are contributing to werift itself, initialize the pinned upstream Web Pla
 git submodule update --init --recursive
 ```
 
-The repository-level and core protocol package metadata declare Node.js 22 or newer. GitHub Actions validates Node.js 24, which is also required by the opt-in memory-leak harness.
+Node.js version requirements:
+
+- **Using the published packages:** the published `werift` package and the core protocol packages declare Node.js 22 or newer.
+- **Developing in this repository:** running the repository's TypeScript sources directly (`node --import ./tools/node-ts/register.mjs ...`) relies on Node.js type stripping, so it needs Node.js 22.18 or newer (`devEngines`). Sources are kept erasable (no `enum`, no parameter properties), so no extra Node.js flags are needed and Node.js 26 works.
+- **CI:** GitHub Actions builds and tests on Node.js 24 and 26; the `mediasoup-interop` job runs on Node.js 24 only. The `integration/werift-mediasoup-interop` submodule still passes the removed flag in its own scripts (to be handled in its own repository); if `WERIFT_REPO_ROOT` points at an older werift checkout (which still contains `enum`), run it on Node.js 24, where that flag still works. Node.js 24 or newer is also required by the opt-in memory-leak harness.
 
 ## Roadmap
 

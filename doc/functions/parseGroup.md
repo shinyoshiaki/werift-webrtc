@@ -6,7 +6,7 @@
 
 # Function: parseGroup()
 
-> **parseGroup**(`dest`, `value`, `type`): `void`
+> **parseGroup**(`dest`, `value`, `type?`): `void`
 
 ## Parameters
 
@@ -18,7 +18,7 @@
 
 `string`
 
-### type
+### type?
 
 (`v`) => `any`
 

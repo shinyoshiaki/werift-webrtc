@@ -206,7 +206,11 @@ const ATTRIBUTES: ATTRIBUTE[] = [
 ];
 
 export class AttributeRepository {
-  constructor(protected attributes: AttributePair[] = []) {}
+  protected attributes: AttributePair[];
+
+  constructor(attributes: AttributePair[] = []) {
+    this.attributes = attributes;
+  }
 
   getAttributes() {
     return this.attributes;

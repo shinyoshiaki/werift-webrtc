@@ -12,13 +12,13 @@
 
 ## Constructors
 
-### new G722RtpPayload()
+### Constructor
 
-> **new G722RtpPayload**(): [`G722RtpPayload`](G722RtpPayload.md)
+> **new G722RtpPayload**(): `G722RtpPayload`
 
 #### Returns
 
-[`G722RtpPayload`](G722RtpPayload.md)
+`G722RtpPayload`
 
 ## Properties
 
@@ -50,7 +50,7 @@
 
 ### deSerialize()
 
-> `static` **deSerialize**(`buf`): [`G722RtpPayload`](G722RtpPayload.md)
+> `static` **deSerialize**(`buf`): `G722RtpPayload`
 
 #### Parameters
 
@@ -60,7 +60,7 @@
 
 #### Returns
 
-[`G722RtpPayload`](G722RtpPayload.md)
+`G722RtpPayload`
 
 ***
 

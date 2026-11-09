@@ -1,13 +1,12 @@
-import type { SCTPOptions } from "../../sctp/src";
-import { createWebRtcTypeError } from "./errors";
-import { Event, debug } from "./imports/common";
-
+import { SCTP_STATE, type SCTPOptions } from "../../sctp/src";
 import { RTCDataChannel, RTCDataChannelParameters } from "./dataChannel";
+import { createWebRtcTypeError } from "./errors";
+import { debug, Event } from "./imports/common";
 import {
-  type RTCDataChannelStats,
-  type RTCStats,
   generateStatsId,
   getStatsTimestamp,
+  type RTCDataChannelStats,
+  type RTCStats,
 } from "./media/stats";
 import type { MediaDescription } from "./sdp";
 import type { RTCDtlsTransport } from "./transport/dtls";
@@ -20,6 +19,47 @@ export type SctpNegotiationState = ReturnType<
   SctpTransportManager["snapshotNegotiationState"]
 >;
 
+/**
+ * The SCTP transport of a PeerConnection and its application m-line.
+ *
+ * - Rejection of the application m-line (port 0) keeps the SCTP transport:
+ *   it stays bound to its MID and the next offer offers the application again
+ *   with that MID (W3C would set `sctpTransport` to null). A rejecting remote
+ *   offer or pranswer is provisional and leaves the association alone; a
+ *   final answer with port 0 (RFC 8841 section 10.4), local or remote, aborts
+ *   the association and releases the remote port on that peer
+ *   (`rejectApplication`). Channels on it close; the other peer closes its own
+ *   when it applies the same answer. The commit does not move the transport to
+ *   a transport the answer did not negotiate for it. An answer to an offer
+ *   whose application m-line has port 0 has port 0 (RFC 3264 section 6).
+ * - The position (MID, index, rejected) is recorded by the current
+ *   description, not by this object. An unbound transport takes a rejected
+ *   position with a new MID; an offer that does so moves the transport to that
+ *   MID (restored by rollback). A MID only an unapplied `createOffer`
+ *   reserved follows the MID of the peer's offer.
+ * - At the final answer SCTP moves straight to its owner's DTLS transport in
+ *   the answer. SCTP starts after every answer or pranswer that negotiates the
+ *   application m-line (JSEP 5.11), also on an already connected DTLS
+ *   transport: an `m=application` a renegotiation adds to a connected session
+ *   starts without touching ICE or DTLS and without moving `connectionState`.
+ *   Its client / server side follows the ICE role at the DTLS start. Starting
+ *   is idempotent (`RTCSctpTransport.ensureStarted`): an established
+ *   association, also one the remote INIT established first, a handshaking
+ *   one and a closed one never start again, so a final answer keeping the
+ *   pranswer's sctp-port continues it. A final answer changing the sctp-port
+ *   is rejected in validation.
+ * - Rollback keeps an application-owned transport (`detachFromDescription`
+ *   clears what the description set), whether it is in the baseline or was
+ *   added during the transaction, and stops one a description created. When
+ *   the baseline has no negotiated remote port, an association that left its
+ *   initial state under the proposal (started by a pranswer, or established
+ *   from the remote INIT) is pending-only: it is aborted and an
+ *   application-owned transport gets a new, unstarted association on the same
+ *   DTLS transport. Its channels with a stream ID close; channels still
+ *   waiting for one stay `connecting` for the next negotiation.
+ * - `sctp.mtu` is configuration: every transport, also a pending one, is built
+ *   with it, and moving to another DTLS transport keeps it.
+ */
 export class SctpTransportManager {
   sctpTransport?: RTCSctpTransport;
   sctpRemotePort?: number;
@@ -40,8 +80,7 @@ export class SctpTransportManager {
     const sctp = new RTCSctpTransport(5000, maxMessageSize, sctpOptions);
     sctp.mid = undefined;
     sctp.onDataChannel.subscribe((channel) => {
-      this.dataChannelsOpened++;
-      this.dataChannels.push(channel);
+      this.track(channel);
       this.onDataChannel.execute(channel);
     });
 
@@ -103,10 +142,21 @@ export class SctpTransportManager {
     });
 
     const channel = new RTCDataChannel(this.sctpTransport, parameters);
+    this.track(channel);
+    return channel;
+  }
+
+  /**
+   * Count a channel (created here or announced by the remote peer) and keep
+   * it for getStats until it closes. The listener goes with it: a closed
+   * channel the application still holds must not keep the manager reachable.
+   */
+  private track(channel: RTCDataChannel) {
     this.dataChannelsOpened++;
     this.dataChannels.push(channel);
-    channel.stateChange.subscribe((state) => {
+    const { unSubscribe } = channel.stateChange.subscribe((state) => {
       if (state === "closed") {
+        unSubscribe();
         this.dataChannelsClosed++;
         const index = this.dataChannels.indexOf(channel);
         if (index !== -1) {
@@ -114,7 +164,6 @@ export class SctpTransportManager {
         }
       }
     });
-    return channel;
   }
 
   isApplicationOwned(transport: RTCSctpTransport) {

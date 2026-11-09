@@ -1,20 +1,30 @@
-import { deepStrictEqual } from "assert";
-import { readFileSync } from "fs";
 import * as dgram from "node:dgram";
 import * as dns from "node:dns";
 import * as net from "node:net";
 import * as tls from "node:tls";
+import { deepStrictEqual } from "assert";
+import { EventEmitter } from "events";
+import { readFileSync } from "fs";
+import type mdns from "multicast-dns";
 import { type Address, Event, type Transport } from "../../common/src";
 import { NodeStunServer, NodeTurnServer } from "../../ice-server/src";
 import { Candidate } from "../src/candidate";
+import { MdnsLookup } from "../src/dns/lookup";
+import {
+  TransactionCancelled,
+  TransactionFailed,
+  TransactionTimeout,
+} from "../src/exceptions";
 import { Connection } from "../src/ice";
 import {
   CandidatePair,
   CandidatePairState,
   type IceOptions,
+  normalizeIceServerOptions,
 } from "../src/iceBase";
 import { classes, methods } from "../src/stun/const";
 import { Message, parseMessage } from "../src/stun/message";
+import { StunProtocol } from "../src/stun/protocol";
 import { splitTurnTcpFrames } from "../src/turn/frame";
 import type { StunOverTurnProtocol } from "../src/turn/protocol";
 import type { Protocol, TransactionRequestOptions } from "../src/types/model";
@@ -316,8 +326,41 @@ export function createTestConnection(
   options: Partial<IceOptions> = {},
 ) {
   const connection = new Connection(iceControlling, options);
-  connection.stunServer = options.stunServer;
+  // Tests query only the STUN servers they configure, never the built-in
+  // public default.
+  connection.stunServers = normalizeIceServerOptions(options).stunServers;
   return connection;
+}
+
+/**
+ * Shared Arrange: an agent with UDP host sockets bound to `interfaceAddresses`
+ * and no STUN server (only host candidates are gathered).
+ */
+export function createInterfaceBoundConnection(
+  iceControlling: boolean,
+  interfaceAddresses: IceOptions["interfaceAddresses"],
+  options: Partial<IceOptions> = {},
+) {
+  return createTestConnection(iceControlling, {
+    interfaceAddresses,
+    ...options,
+  });
+}
+
+/** UDP host candidates of `connection` with the address their socket is bound to. */
+export function udpHostCandidatesWithBinding(connection: Connection) {
+  return (connection as unknown as { protocols: Protocol[] }).protocols
+    .filter(
+      (protocol): protocol is StunProtocol =>
+        protocol instanceof StunProtocol &&
+        protocol.localCandidate?.type === "host" &&
+        protocol.localCandidate.transport === "udp",
+    )
+    .map((protocol) => ({
+      candidate: [protocol.localCandidate!.host, protocol.localCandidate!.port],
+      bound: protocol.getExtraInfo(),
+      localIp: protocol.localIp,
+    }));
 }
 
 export async function createLocalStunServer(host: string) {
@@ -330,26 +373,38 @@ export async function createLocalStunServer(host: string) {
   return server;
 }
 
+/**
+ * Shared Arrange: a local TURN server. `credentials` replaces the default
+ * test user; `authenticatedUsernames` records the username of every request
+ * the server authenticated, in order.
+ */
 export async function createLocalTurnServer(
   host: string,
   options: {
     tls?: boolean;
+    credentials?: Record<string, string>;
   } = {},
 ) {
+  const credentials = options.credentials ?? {
+    [TURN_TEST_USERNAME]: TURN_TEST_PASSWORD,
+  };
+  const authenticatedUsernames: string[] = [];
   const server = new NodeTurnServer({
     host,
     port: 0,
     relayAddress: host,
     relayBindAddress: host,
-    credentials: {
-      [TURN_TEST_USERNAME]: TURN_TEST_PASSWORD,
+    getPassword: (username) => {
+      const password = credentials[username];
+      if (password !== undefined) authenticatedUsernames.push(username);
+      return password;
     },
     realm: "werift.local",
     software: "werift-ice-server/test",
     tls: options.tls ? getLocalTurnServerTlsOptions() : undefined,
   });
   await server.listen();
-  return server;
+  return Object.assign(server, { authenticatedUsernames });
 }
 
 /** Shared Arrange helper: two host-only connections with a nominated pair. */
@@ -380,7 +435,16 @@ export async function createConnectedLitePair() {
  * each side the other's staged credentials and candidates, as a pranswer
  * carrying an ICE restart would.
  */
-export async function stageProvisionalGeneration(a: Connection, b: Connection) {
+export async function stageProvisionalGeneration(
+  a: Connection,
+  b: Connection,
+  {
+    gatherOptionsA,
+  }: {
+    /** The options `a`'s staged generation gathers with. */
+    gatherOptionsA?: Partial<IceOptions>;
+  } = {},
+) {
   const credentials = {
     a: { usernameFragment: "provA", password: "provisional-password-a-000" },
     b: { usernameFragment: "provB", password: "provisional-password-b-000" },
@@ -388,6 +452,7 @@ export async function stageProvisionalGeneration(a: Connection, b: Connection) {
   a.stageLocalCredentials(
     credentials.a.usernameFragment,
     credentials.a.password,
+    gatherOptionsA,
   );
   b.stageLocalCredentials(
     credentials.b.usernameFragment,
@@ -886,12 +951,16 @@ export async function canBindIpv6Loopback() {
 /** Relay-only TURN options of a local test server for `createTestConnection`. */
 export function localTurnOptions(
   server: Awaited<ReturnType<typeof createLocalTurnServer>>,
+  {
+    username = TURN_TEST_USERNAME,
+    password = TURN_TEST_PASSWORD,
+  }: { username?: string; password?: string } = {},
 ) {
   return {
     stunServer: undefined,
     turnServer: server.address!,
-    turnUsername: TURN_TEST_USERNAME,
-    turnPassword: TURN_TEST_PASSWORD,
+    turnUsername: username,
+    turnPassword: password,
     forceTurn: true,
   };
 }
@@ -1104,6 +1173,69 @@ export function atFirstSelection<T>(
   return result;
 }
 
+/**
+ * Stub dns.promises.lookup so every lookup waits until `release()`, then
+ * answers `address` (a request whose lookup outlives its protocol).
+ */
+export function holdLookup(address: string) {
+  let release!: () => void;
+  const released = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const spy = vi.spyOn(dns.promises, "lookup").mockImplementation((async () => {
+    await released;
+    return { address, family: net.isIP(address) };
+  }) as unknown as typeof dns.promises.lookup);
+  return { release, restore: () => spy.mockRestore() };
+}
+
+/** `process.getActiveResourcesInfo()` entries of `type` (e.g. `Timeout`). */
+export function activeResourceCount(type: string) {
+  return process.getActiveResourcesInfo().filter((t) => t === type).length;
+}
+
+/** Shared Arrange: a bound IPv4 STUN protocol on the loopback interface. */
+export async function createLoopbackStunProtocol() {
+  const protocol = new StunProtocol();
+  await protocol.connectionMade(true);
+  return protocol;
+}
+
+/**
+ * Shared Arrange: a controlling agent with gathered host candidates whose
+ * checks go to a remote candidate that never answers (the discard port), so
+ * a check stays in flight; `transactions()` counts the STUN transactions
+ * its sockets wait on.
+ */
+export async function createUnansweredCheckAgent() {
+  const agent = createTestConnection(true);
+  await agent.gatherCandidates();
+  agent.remoteUsername = "remote";
+  agent.remotePassword = "remote-password-0000000000";
+  await agent.addRemoteCandidate(remoteHostCandidate(9));
+  await agent.addRemoteCandidate(undefined);
+  const transactions = () =>
+    (
+      agent as unknown as {
+        protocols: { transactions?: Record<string, unknown> }[];
+      }
+    ).protocols.reduce(
+      (sum, p) => sum + Object.keys(p.transactions ?? {}).length,
+      0,
+    );
+  return { agent, transactions };
+}
+
+/** Shared Arrange: a UDP socket that receives and never answers (an unreachable TURN or STUN server). */
+export async function createSilentUdpServer(host = "127.0.0.1") {
+  const socket = dgram.createSocket("udp4");
+  await new Promise<void>((resolve) => socket.bind(0, host, () => resolve()));
+  return {
+    address: [host, socket.address().port] as Address,
+    close: () => new Promise<void>((resolve) => socket.close(() => resolve())),
+  };
+}
+
 // --- late TURN relay candidates ---
 
 /** Poll until `predicate` holds (rejects after `timeoutMs`). */
@@ -1236,4 +1368,475 @@ export function alternateServerValue(address: Address) {
   return new Message(methods.ALLOCATE, classes.ERROR)
     .setAttribute("ALTERNATE-SERVER", address)
     .bytes.subarray(24);
+}
+
+// --- check / nomination cancellation ---
+
+/** How ScriptedCheckProtocol answers one request: a response, an error code, or no answer until released. */
+export type ScriptedReply = "success" | "hold" | 401 | 487;
+
+/** One request ScriptedCheckProtocol received. */
+export type ScriptedRequest = {
+  message: Message;
+  nominate: boolean;
+  /** Settled (answered, failed, or cancelled by its signal). */
+  done: boolean;
+  /** Answer a held request now (success, or a failure without response). */
+  release: (outcome: "success" | "failure") => void;
+};
+
+/**
+ * Mock Protocol whose request() answers as `reply` scripts it. A held request
+ * stays in flight until its signal aborts (as a real transaction cancels) or
+ * until `release`; `honorSignal: false` models a result that arrives after
+ * the generation ended (the signal is ignored).
+ */
+export class ScriptedCheckProtocol implements Protocol {
+  type: string;
+  localCandidate: Candidate;
+  onRequestReceived = new Event<[Message, any, Buffer]>();
+  onDataReceived = new Event<[Buffer]>();
+  readonly requests: ScriptedRequest[] = [];
+  readonly request: Protocol["request"];
+
+  constructor(
+    transport: "udp" | "tcp",
+    reply: (request: { nominate: boolean; index: number }) => ScriptedReply,
+    honorSignal = true,
+  ) {
+    this.type = transport;
+    this.localCandidate = createConsentCandidate(
+      "192.0.2.1",
+      4000,
+      "local",
+      transport,
+    );
+    this.request = ((
+      message: Message,
+      addr: Address,
+      _integrityKey?: Buffer,
+      options?: number | TransactionRequestOptions,
+    ) => {
+      const signal = typeof options === "object" ? options.signal : undefined;
+      const nominate = message.attributesKeys.includes("USE-CANDIDATE");
+      const answer = reply({ nominate, index: this.requests.length });
+      return new Promise((resolve, reject) => {
+        const entry: ScriptedRequest = {
+          message,
+          nominate,
+          done: false,
+          release: (outcome) => {
+            if (entry.done) return;
+            entry.done = true;
+            if (outcome === "success") {
+              resolve([new Message(methods.BINDING, classes.RESPONSE), addr]);
+            } else {
+              reject(new TransactionTimeout());
+            }
+          },
+        };
+        this.requests.push(entry);
+        if (answer === "success") {
+          entry.release("success");
+          return;
+        }
+        if (answer === 401 || answer === 487) {
+          entry.done = true;
+          const response = new Message(methods.BINDING, classes.ERROR);
+          response.setAttribute("ERROR-CODE", [answer, "scripted"]);
+          reject(new TransactionFailed(response, addr));
+          return;
+        }
+        if (!honorSignal || !signal) return;
+        const cancel = () => {
+          if (entry.done) return;
+          entry.done = true;
+          reject(new TransactionCancelled());
+        };
+        if (signal.aborted) cancel();
+        else signal.addEventListener("abort", cancel, { once: true });
+      });
+    }) as Protocol["request"];
+  }
+
+  /** Requests still waiting for an answer (each one is a live STUN transaction). */
+  pending() {
+    return this.requests.filter((request) => !request.done).length;
+  }
+
+  async sendStun() {}
+  async sendData() {}
+  async connectionMade() {}
+  async close() {}
+}
+
+/**
+ * Shared Arrange: a controlling Connection whose remote credentials are set
+ * and whose single protocol is a ScriptedCheckProtocol; `addPair()` puts a
+ * WAITING pair on the checklist and `check(pair)` starts its check the way
+ * the scheduler does (the handle is kept on the pair).
+ */
+export function createScriptedCheckHarness({
+  transport = "udp",
+  remoteIsLite = false,
+  honorSignal = true,
+  reply,
+}: {
+  transport?: "udp" | "tcp";
+  remoteIsLite?: boolean;
+  honorSignal?: boolean;
+  reply: (request: { nominate: boolean; index: number }) => ScriptedReply;
+}) {
+  const protocol = new ScriptedCheckProtocol(transport, reply, honorSignal);
+  const connection = new Connection(true);
+  connection.remoteIsLite = remoteIsLite;
+  const setRemoteCredentials = () => {
+    connection.remoteUsername = "remote";
+    connection.remotePassword = "remote-password-0000000000";
+  };
+  setRemoteCredentials();
+  let port = 5000;
+  const addPair = () => {
+    const remoteCandidate = createConsentCandidate(
+      "192.0.2.2",
+      port++,
+      "remote",
+      transport,
+    );
+    if (transport === "tcp") remoteCandidate.tcptype = "passive";
+    const pair = new CandidatePair(protocol, remoteCandidate, true);
+    pair.updateState(CandidatePairState.WAITING);
+    connection.checkList.push(pair);
+    return pair;
+  };
+  const check = (pair: CandidatePair) => {
+    pair.handle = connection.checkStart(pair);
+    return pair.handle;
+  };
+  const nominating = () =>
+    (connection as unknown as { nominating: boolean }).nominating;
+  return {
+    connection,
+    protocol,
+    addPair,
+    check,
+    nominating,
+    setRemoteCredentials,
+  };
+}
+
+/** `udp/host`, `tcp/host`, `udp/srflx`, `udp/relay`, ... of the local candidates. */
+export function localCandidateKinds(connection: Connection) {
+  return [
+    ...new Set(
+      connection.localCandidates.map(
+        (candidate) => `${candidate.transport.toLowerCase()}/${candidate.type}`,
+      ),
+    ),
+  ].sort();
+}
+
+/**
+ * Shared Arrange: a local STUN server and a local TURN server, and a
+ * connection built with `options(servers)` that gathered once. `stunOptions`
+ * / `turnOptions` are the server fields of an update for setIceServers.
+ */
+export async function createGatheredConnectionWithLocalServers(
+  options: (servers: {
+    stunOptions: { stunServer: Address };
+    turnOptions: ReturnType<typeof localTurnOptions>;
+  }) => Partial<IceOptions>,
+) {
+  const host = getHostAddresses(true, false)[0]!;
+  const stun = await createLocalStunServer(host);
+  const turn = await createLocalTurnServer(host);
+  const servers = {
+    stunOptions: { stunServer: stun.address! },
+    turnOptions: localTurnOptions(turn),
+  };
+  const connection = createTestConnection(true, options(servers));
+  await connection.gatherCandidates();
+  return {
+    ...servers,
+    connection,
+    close: async () => {
+      await connection.close();
+      await turn.close();
+      await stun.close();
+    },
+  };
+}
+
+/** Act: apply an ICE server update, restart ICE and gather the new generation. */
+export async function restartWithIceServers(
+  connection: Connection,
+  update: Partial<IceOptions>,
+) {
+  connection.setIceServers(update);
+  await connection.restart();
+  await connection.gatherCandidates();
+}
+
+/**
+ * Arrange: stage a provisional generation on `connection` that gathers with
+ * `gatherOptions`, with remote credentials and one remote host candidate, as
+ * an ICE restart offer applied before its answer would. `relay` is the TURN
+ * allocation `connection` kept from its current generation.
+ */
+export async function stageProvisionalWithKeptRelay(
+  connection: Connection,
+  gatherOptions: Partial<IceOptions>,
+) {
+  const relay = connectionProtocols(connection).find(
+    (protocol) => protocol.localCandidate?.type === "relay",
+  );
+  if (!relay) throw new Error("expected a kept TURN allocation");
+  const local = {
+    usernameFragment: "provL",
+    password: "provisional-local-000",
+  };
+  const remote = {
+    usernameFragment: "provR",
+    password: "provisional-remote-000",
+  };
+  connection.stageLocalCredentials(
+    local.usernameFragment,
+    local.password,
+    gatherOptions,
+  );
+  connection.setProvisionalRemoteParams(remote);
+  await connection.addProvisionalRemoteCandidate(
+    new Candidate("1", 1, "udp", 100, "127.0.0.1", 50000, "host"),
+  );
+  return { relay, local, remote };
+}
+
+/** The pairs of the provisional checklist `connection` staged. */
+export function provisionalPairs(connection: Connection) {
+  return (
+    (
+      connection as unknown as {
+        provisional?: { pairs: CandidatePair[] };
+      }
+    ).provisional?.pairs ?? []
+  );
+}
+
+/**
+ * Act: deliver a connectivity check for the staged generation on `protocol`
+ * from `addr`; resolves with whether `protocol` sent a response.
+ */
+export async function deliverProvisionalCheck(
+  protocol: Protocol,
+  { local, remote }: Awaited<ReturnType<typeof stageProvisionalWithKeptRelay>>,
+  addr: Address = ["127.0.0.1", 50001],
+) {
+  const sendStun = vi
+    .spyOn(protocol, "sendStun")
+    .mockResolvedValue(undefined as never);
+  const request = new Message(methods.BINDING, classes.REQUEST)
+    .setAttribute(
+      "USERNAME",
+      `${local.usernameFragment}:${remote.usernameFragment}`,
+    )
+    .setAttribute("PRIORITY", 1_000)
+    .setAttribute("ICE-CONTROLLED", 1n);
+  protocol.onRequestReceived.execute(request, addr, Buffer.alloc(0));
+  await new Promise((resolve) => setImmediate(resolve));
+  const responded = sendStun.mock.calls.length > 0;
+  sendStun.mockRestore();
+  return responded;
+}
+
+/** The transport protocols (sockets / allocations) `connection` keeps. */
+export function connectionProtocols(connection: Connection) {
+  return (connection as unknown as { protocols: Protocol[] }).protocols;
+}
+
+// --- mDNS lookup lifecycle ---
+
+/** Shared Arrange: an in-memory `multicast-dns` stand-in (no socket). */
+export function createFakeMdns() {
+  const emitter = new EventEmitter();
+  const queries: string[] = [];
+  let destroyCount = 0;
+  type MdnsInstance = mdns.MulticastDNS;
+  const instance = {
+    on: ((event: string, listener: (...args: any[]) => void) => {
+      emitter.on(event, listener);
+      return instance;
+    }) as MdnsInstance["on"],
+    removeListener: ((event: string, listener: (...args: any[]) => void) => {
+      emitter.removeListener(event, listener);
+      return instance;
+    }) as MdnsInstance["removeListener"],
+    setMaxListeners: ((n: number) => {
+      emitter.setMaxListeners(n);
+      return instance;
+    }) as MdnsInstance["setMaxListeners"],
+    query: ((name: string) => {
+      queries.push(name);
+    }) as MdnsInstance["query"],
+    destroy: (() => {
+      destroyCount++;
+    }) as MdnsInstance["destroy"],
+  } as unknown as MdnsInstance;
+  return {
+    factory: () => instance,
+    queries,
+    get destroyCount() {
+      return destroyCount;
+    },
+    get listenerCount() {
+      return emitter.listenerCount("response");
+    },
+    /** Answer `name` with an A record `address`. */
+    respond: (name: string, address = "127.0.0.1") => {
+      emitter.emit("response", {
+        answers: [{ type: "A", name, data: address }],
+      });
+    },
+  };
+}
+
+/** Shared Arrange: give `connection` an {@link MdnsLookup} backed by a fake mDNS. */
+export function installFakeMdnsLookup(connection: Connection) {
+  const mdns = createFakeMdns();
+  const lookup = new MdnsLookup(mdns.factory);
+  connection.lookup = lookup;
+  return { mdns, lookup };
+}
+
+/** Shared Arrange: a protocol whose close() runs `onClose` before it resolves. */
+export function addClosingProtocol(
+  connection: Connection,
+  onClose: () => void | Promise<void>,
+) {
+  (connection as unknown as { protocols: Partial<Protocol>[] }).protocols.push({
+    close: async () => onClose(),
+  });
+}
+
+// --- multiple STUN / TURN servers ---
+
+/**
+ * Shared Arrange: a local STUN server that records the source address of
+ * every Binding request it receives.
+ */
+export async function createCountingStunServer(host: string) {
+  const server = await createLocalStunServer(host);
+  const bindingRequests: Address[] = [];
+  const { protocol } = server;
+  const handleDatagram = protocol.handleDatagram.bind(protocol);
+  protocol.handleDatagram = (input) => {
+    const message = parseMessage(input.data);
+    if (
+      message?.messageMethod === methods.BINDING &&
+      message.messageClass === classes.REQUEST
+    ) {
+      bindingRequests.push(input.remoteAddress);
+    }
+    return handleDatagram(input);
+  };
+  return Object.assign(server, { bindingRequests });
+}
+
+/**
+ * Shared Arrange: a UDP STUN server that answers every Binding request with
+ * `mapped` as the XOR-MAPPED-ADDRESS (a NAT that maps per destination), and
+ * records the source address of each request.
+ */
+export async function createFixedMappingStunServer(
+  host: string,
+  mapped: Address,
+) {
+  const socket = dgram.createSocket("udp4");
+  await new Promise<void>((resolve) => socket.bind(0, host, () => resolve()));
+  const bindingRequests: Address[] = [];
+  socket.on("message", (data, remote) => {
+    const request = parseMessage(data);
+    if (
+      request?.messageMethod !== methods.BINDING ||
+      request.messageClass !== classes.REQUEST
+    ) {
+      return;
+    }
+    bindingRequests.push([remote.address, remote.port]);
+    const response = new Message(
+      methods.BINDING,
+      classes.RESPONSE,
+      request.transactionId,
+    ).setAttribute("XOR-MAPPED-ADDRESS", mapped);
+    socket.send(response.bytes, remote.port, remote.address);
+  });
+  return {
+    address: [host, socket.address().port] as Address,
+    bindingRequests,
+    close: () => new Promise<void>((resolve) => socket.close(() => resolve())),
+  };
+}
+
+/** An Allocate request a counting TURN server received. */
+export type AllocateRequestRecord = {
+  transport: "udp" | "tcp" | "tls";
+  /** USERNAME of the request; undefined for the first, unauthenticated one. */
+  username?: string;
+};
+
+/**
+ * Shared Arrange: a local TURN server (see {@link createLocalTurnServer})
+ * that records every Allocate request it receives, with the transport it
+ * arrived over and its USERNAME. With `credentials` it authenticates only
+ * those users, so an Allocate with another server's credential gets 401.
+ */
+export async function createCountingTurnServer(
+  host: string,
+  options: Parameters<typeof createLocalTurnServer>[1] = {},
+) {
+  const server = await createLocalTurnServer(host, options);
+  const allocateRequests: AllocateRequestRecord[] = [];
+  const protocol = server.protocol as unknown as {
+    handleAllocateRequest: (
+      input: { transport: AllocateRequestRecord["transport"] },
+      message: Message,
+      now: number,
+    ) => unknown;
+  };
+  const handleAllocateRequest = protocol.handleAllocateRequest.bind(protocol);
+  protocol.handleAllocateRequest = (input, message, now) => {
+    allocateRequests.push({
+      transport: input.transport,
+      username: message.getAttributeValue("USERNAME"),
+    });
+    return handleAllocateRequest(input, message, now);
+  };
+  return Object.assign(server, { allocateRequests });
+}
+
+/** TURN options entry of a local test server for `IceOptions.turnServers`. */
+export function localTurnServerEntry(
+  server: Awaited<ReturnType<typeof createLocalTurnServer>>,
+  {
+    username = TURN_TEST_USERNAME,
+    password = TURN_TEST_PASSWORD,
+    transport = "udp",
+  }: {
+    username?: string;
+    password?: string;
+    transport?: "udp" | "tcp" | "tls";
+  } = {},
+) {
+  return {
+    address: transport === "tls" ? server.tlsAddress! : server.address!,
+    username,
+    password,
+    transport,
+  };
+}
+
+/** Server-reflexive candidates of `connection`. */
+export function localReflexiveCandidates(connection: Connection) {
+  return connection.localCandidates.filter(
+    (candidate) => candidate.type === "srflx",
+  );
 }

@@ -10,17 +10,20 @@ const { decode, encode, types } = binaryData;
 // 4.2.1.  Denial-of-Service Countermeasures
 
 export class ServerHelloVerifyRequest implements Handshake {
-  msgType = HandshakeType.hello_verify_request_3;
+  public serverVersion: { major: number; minor: number };
+  public cookie: Buffer;
+
+  msgType: HandshakeType = HandshakeType.hello_verify_request_3;
   messageSeq?: number;
   static readonly spec = {
     serverVersion: ProtocolVersion,
     cookie: types.buffer(types.uint8),
   };
 
-  constructor(
-    public serverVersion: { major: number; minor: number },
-    public cookie: Buffer,
-  ) {}
+  constructor(serverVersion: { major: number; minor: number }, cookie: Buffer) {
+    this.serverVersion = serverVersion;
+    this.cookie = cookie;
+  }
 
   static createEmpty() {
     return new ServerHelloVerifyRequest(undefined as any, undefined as any);
@@ -28,7 +31,7 @@ export class ServerHelloVerifyRequest implements Handshake {
 
   static deSerialize(buf: Buffer) {
     return new ServerHelloVerifyRequest(
-      //@ts-ignore
+      //@ts-expect-error
       ...Object.values(decode(buf, ServerHelloVerifyRequest.spec)),
     );
   }

@@ -6,13 +6,13 @@
 
 # Type Alias: H265DepacketizerOptions
 
-> **H265DepacketizerOptions**: `object`
+> **H265DepacketizerOptions** = `object`
 
-## Type declaration
+## Properties
 
 ### hasDonl?
 
-> `optional` **hasDonl**: `boolean`
+> `optional` **hasDonl?**: `boolean`
 
 When true, skip conditional DONL (2 bytes) after PayloadHdr for single NAL
 and after FU header when S=1 (RFC 7798 DONL presence via sprop-max-don-diff > 0).

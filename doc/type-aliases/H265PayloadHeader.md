@@ -6,21 +6,27 @@
 
 # Type Alias: H265PayloadHeader
 
-> **H265PayloadHeader**: `object`
+> **H265PayloadHeader** = `object`
 
-## Type declaration
+## Properties
 
 ### f
 
 > **f**: `number`
 
+***
+
 ### layerId
 
 > **layerId**: `number`
 
+***
+
 ### tid
 
 > **tid**: `number`
+
+***
 
 ### type
 

@@ -1,0 +1,22 @@
+gst-launch-1.0 -v udpsrc port=4002 \
+caps="application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)VP8, payload=(int)97" \
+! rtpvp8depay ! webmmux name=mux ! filesink location=~/Downloads/some.webm
+
+gst-launch-1.0 -v udpsrc port=4003 \
+caps = "application/x-rtp, media=(string)audio, clock-rate=(int)48000, encoding-name=(string)OPUS, payload=(int)96" \
+! rtpopusdepay ! opusparse ! oggmux ! filesink location=~/Downloads/some.ogg
+
+ffmpeg -i ~/Downloads/some.webm -i ~/Downloads/some.ogg -c copy ~/Downloads/output.webm
+
+gst-launch-1.0 -e \
+udpsrc name=videoRTP port=4002 \
+caps = "application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)VP8, payload=(int)97" \
+! queue \
+! rtpvp8depay ! vp8dec ! videoconvert ! x264enc \
+! queue ! muxer.video_0 \
+udpsrc port=4003 \
+caps = "application/x-rtp, media=(string)audio, clock-rate=(int)48000, encoding-name=(string)OPUS, payload=(int)96" \
+! queue \
+! rtpopusdepay ! opusparse \
+! queue ! muxer.audio_0 \
+qtmux name="muxer" ! filesink location=~/Downloads/capture.webm

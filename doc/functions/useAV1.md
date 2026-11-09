@@ -6,14 +6,14 @@
 
 # Function: useAV1()
 
-> **useAV1**(`props`): [`RTCRtpCodecParameters`](../classes/RTCRtpCodecParameters.md)
+> **useAV1**(`props?`): [`RTCRtpCodecParameters`](../classes/RTCRtpCodecParameters.md)
 
 Standard AV1 SDP name (`video/AV1`). Prefer this for Chrome and other
 modern browsers. See AV1 RTP payload format SDP mapping.
 
 ## Parameters
 
-### props
+### props?
 
 `Partial`\<[`RTCRtpCodecParameters`](../classes/RTCRtpCodecParameters.md)\> = `{}`
 

@@ -1,13 +1,20 @@
 import {
+  deserializeAudioLevelIndication,
+  isMedia,
   MediaStreamTrack,
   RTCPeerConnection,
   RtpHeader,
   RtpPacket,
-  deserializeAudioLevelIndication,
-  isMedia,
   serializeAudioLevelIndication,
   useSdesMid,
 } from "../../src";
+import {
+  createConnectedSendrecvVideoPeers,
+  createFirPacket,
+  createPliPacket,
+  outboundRtpStats,
+  sendRawRtcp,
+} from "../fixture";
 
 describe("media", () => {
   test("test_sendonly_recvonly", async () =>
@@ -162,4 +169,84 @@ describe("media", () => {
       await recvonly.setLocalDescription(await recvonly.createAnswer());
       await sendonly.setRemoteDescription(recvonly.localDescription!);
     }));
+
+  test("PLI reaches the remote sender in a sendrecv video session", async () => {
+    // Arrange
+    const { pc1, pc2, transceiver1, transceiver2 } =
+      await createConnectedSendrecvVideoPeers();
+    const pliReceived = transceiver1.sender.onPictureLossIndication.asPromise();
+    const receiverRtcp: number[] = [];
+    transceiver1.receiver.onRtcp.subscribe((rtcp) =>
+      receiverRtcp.push(rtcp.type),
+    );
+
+    // Act: pc2 が pc1 の送信 SSRC に PLI を送る (sender SSRC は pc2 自身の送信 SSRC)
+    await transceiver2.receiver.sendRtcpPLI(transceiver1.sender.ssrc);
+    await pliReceived;
+
+    // Assert: PLI は pc1 の sender に届き、同じ transceiver の receiver には誤配送されない
+    expect(receiverRtcp).not.toContain(206);
+
+    await Promise.all([pc1.close(), pc2.close()]);
+  });
+
+  test("PLI with media SSRC 0 reaches the only video sender by default", async () => {
+    // Arrange
+    const { pc1, pc2, transceiver1, transceiver2 } =
+      await createConnectedSendrecvVideoPeers();
+    const pliReceived = transceiver1.sender.onPictureLossIndication.asPromise();
+
+    // Act: pc2 が media SSRC = 0 の PLI を送る (対象 SSRC を特定できない要求)
+    await sendRawRtcp(
+      transceiver2,
+      createPliPacket({ senderSsrc: transceiver2.sender.ssrc, mediaSsrc: 0 }),
+    );
+
+    // Assert: 既定の "compatible" では pc1 の唯一の video sender に届く
+    await pliReceived;
+
+    await Promise.all([pc1.close(), pc2.close()]);
+  });
+
+  test("strict keyFrameRequestRouting drops PLI with an unregistered media SSRC", async () => {
+    // Arrange
+    const { pc1, pc2, transceiver1, transceiver2 } =
+      await createConnectedSendrecvVideoPeers({
+        keyFrameRequestRouting: "strict",
+      });
+    const firReceived = transceiver1.sender.onFullIntraRequest.asPromise();
+    const senderSsrc = transceiver2.sender.ssrc;
+
+    // Act: media SSRC = 0 の PLI のあと、到着確認用に pc1 の送信 SSRC 宛の FIR を同じ transport で送る
+    await sendRawRtcp(
+      transceiver2,
+      createPliPacket({ senderSsrc, mediaSsrc: 0 }),
+    );
+    await sendRawRtcp(
+      transceiver2,
+      createFirPacket({
+        senderSsrc,
+        fir: [{ ssrc: transceiver1.sender.ssrc, sequenceNumber: 1 }],
+      }),
+    );
+    await firReceived;
+
+    // Assert: 後から送った FIR は届いたが、先に送った media SSRC = 0 の PLI は配送されていない
+    expect(
+      (await outboundRtpStats(transceiver1.sender)).pliCount,
+    ).toBeUndefined();
+
+    await Promise.all([pc1.close(), pc2.close()]);
+  });
+
+  test("keyFrameRequestRouting rejects an unknown mode", () => {
+    // Act / Assert: 既定値は "compatible" で、未知の値は TypeError になる
+    const pc = new RTCPeerConnection();
+    expect(pc.getConfiguration().keyFrameRequestRouting).toBe("compatible");
+    expect(() =>
+      pc.setConfiguration({ keyFrameRequestRouting: "loose" as "strict" }),
+    ).toThrow(TypeError);
+    expect(pc.getConfiguration().keyFrameRequestRouting).toBe("compatible");
+    pc.close();
+  });
 });

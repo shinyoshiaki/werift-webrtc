@@ -33,6 +33,47 @@ describe("cipher/prf", () => {
     expect(expected).toEqual(sec);
   });
 
+  test.each([
+    { name: "public key +1 byte", publicLength: 33, privateLength: 32 },
+    { name: "public key -1 byte", publicLength: 31, privateLength: 32 },
+    { name: "private key +1 byte", publicLength: 32, privateLength: 33 },
+    { name: "private key -1 byte", publicLength: 32, privateLength: 31 },
+  ])(
+    "prfPreMasterSecret x25519 rejects $name",
+    ({ publicLength, privateLength }) => {
+      // Arrange: X25519 の基点 (u=9) と任意の秘密鍵を、指定の長さで用意する
+      const publicKey = Buffer.alloc(publicLength);
+      publicKey[0] = 9;
+      const privateKey = Buffer.alloc(privateLength, 0x42);
+
+      // Act / Assert: 32 バイト以外の鍵は末尾を無視せず例外で拒否される
+      expect(() =>
+        prfPreMasterSecret(
+          publicKey,
+          privateKey,
+          NamedCurveAlgorithm.x25519_29,
+        ),
+      ).toThrow(/invalid X25519 (public|private) key length/);
+    },
+  );
+
+  test("prfPreMasterSecret x25519 accepts 32-byte keys", () => {
+    // Arrange: 32 バイトの基点と秘密鍵
+    const publicKey = Buffer.alloc(32);
+    publicKey[0] = 9;
+    const privateKey = Buffer.alloc(32, 0x42);
+
+    // Act: 共有秘密を計算する
+    const secret = prfPreMasterSecret(
+      publicKey,
+      privateKey,
+      NamedCurveAlgorithm.x25519_29,
+    );
+
+    // Assert: 32 バイトの共有秘密が得られる
+    expect(secret.length).toBe(32);
+  });
+
   test("prfPreMasterSecret-p256", () => {
     const pub = Buffer.from([
       4, 28, 229, 193, 94, 12, 144, 126, 3, 148, 196, 26, 29, 138, 70, 66, 8,

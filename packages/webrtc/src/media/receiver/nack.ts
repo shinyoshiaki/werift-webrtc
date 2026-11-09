@@ -1,11 +1,9 @@
-import { Event } from "../../imports/common";
-
-import { uint16Add } from "../../imports/common";
+import { Event, uint16Add } from "../../imports/common";
 import {
+  debug,
   GenericNack,
   RtcpTransportLayerFeedback,
   type RtpPacket,
-  debug,
 } from "../../imports/rtp";
 import type { RTCRtpReceiver } from "../rtpReceiver";
 
@@ -14,6 +12,8 @@ const log = debug("werift:packages/webrtc/src/media/receiver/nack.ts");
 const LOST_SIZE = 30 * 5;
 
 export class NackHandler {
+  private receiver: RTCRtpReceiver;
+
   private newEstSeqNum = 0;
   private _lost: { [seqNum: number]: number } = {};
   private nackLoop: any;
@@ -23,7 +23,9 @@ export class NackHandler {
   retryCount = 10;
   closed = false;
 
-  constructor(private receiver: RTCRtpReceiver) {}
+  constructor(receiver: RTCRtpReceiver) {
+    this.receiver = receiver;
+  }
 
   get lostSeqNumbers() {
     return Object.keys(this._lost).map(Number).sort();

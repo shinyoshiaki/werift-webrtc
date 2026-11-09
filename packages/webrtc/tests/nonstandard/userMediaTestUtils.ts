@@ -1,5 +1,3 @@
-import { tmpdir } from "os";
-import { join } from "path";
 import {
   appendFile,
   mkdtemp,
@@ -8,7 +6,6 @@ import {
   unlink,
   writeFile,
 } from "fs/promises";
-
 import {
   BufferSource,
   BufferTarget,
@@ -22,6 +19,8 @@ import {
   WEBM,
   WebMOutputFormat,
 } from "mediabunny";
+import { tmpdir } from "os";
+import { join } from "path";
 
 import {
   RTCPeerConnection,
@@ -373,6 +372,25 @@ export function createVp8Frames() {
     createFrame(Buffer.from([0x10, 0x11, 0x00, 0x00]), false, 33),
     createFrame(Buffer.from([0x10, 0x12, 0x00, 0x00]), false, 66),
   ];
+}
+
+/**
+ * VP8 frame body (no RTP descriptor) wrapped as an EncodedPacket for
+ * packetizer tests. First byte carries the payload header P bit
+ * (P=0 keyframe, P=1 delta).
+ */
+export function createVp8EncodedPacket({
+  length = 1_500,
+  type = "key",
+  timestamp = 0,
+}: {
+  length?: number;
+  type?: "key" | "delta";
+  timestamp?: number;
+} = {}) {
+  const frame = Buffer.alloc(length, 0x7b);
+  frame[0] = type === "key" ? 0x10 : 0x11;
+  return { frame, packet: new EncodedPacket(frame, type, timestamp, 1 / 30) };
 }
 
 export function createVp9Frames() {

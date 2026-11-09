@@ -12,19 +12,15 @@
 
 ## Constructors
 
-### new TurnProtocol()
+### Constructor
 
-> **new TurnProtocol**(`server`, `username`, `password`, `lifetime`, `transport`, `options`): [`TurnProtocol`](TurnProtocol.md)
+> **new TurnProtocol**(`server`, `username`, `password`, `lifetime`, `transport`, `options?`): `TurnProtocol`
 
 #### Parameters
 
 ##### server
 
 readonly \[`string`, `number`\]
-
-TURN server the allocation is made on; the host may be a hostname.
-Starts as the configured server and becomes the ALTERNATE-SERVER when
-an Allocate is redirected with 300 (Try Alternate).
 
 ##### username
 
@@ -42,7 +38,7 @@ an Allocate is redirected with 300 (Try Alternate).
 
 `Transport`
 
-##### options
+##### options?
 
 ###### channelRefreshTime?
 
@@ -67,7 +63,7 @@ redirect over a stream transport fails with TurnRedirectError
 
 #### Returns
 
-[`TurnProtocol`](TurnProtocol.md)
+`TurnProtocol`
 
 ## Properties
 
@@ -81,7 +77,7 @@ TURN server as configured, before any 300 (Try Alternate) redirect.
 
 ### integrityKey?
 
-> `optional` **integrityKey**: `Buffer`\<`ArrayBufferLike`\>
+> `optional` **integrityKey?**: `Buffer`\<`ArrayBufferLike`\>
 
 ***
 
@@ -109,7 +105,7 @@ TURN server as configured, before any 300 (Try Alternate) redirect.
 
 ### nonce?
 
-> `optional` **nonce**: `Buffer`\<`ArrayBufferLike`\>
+> `optional` **nonce?**: `Buffer`\<`ArrayBufferLike`\>
 
 ***
 
@@ -141,24 +137,24 @@ TURN server as configured, before any 300 (Try Alternate) redirect.
 
 ### options
 
-> **options**: `object` = `{}`
+> **options**: `object`
 
 #### channelRefreshTime?
 
-> `optional` **channelRefreshTime**: `number`
+> `optional` **channelRefreshTime?**: `number`
 
 sec
 
 #### maxAllocateRedirects?
 
-> `optional` **maxAllocateRedirects**: `number`
+> `optional` **maxAllocateRedirects?**: `number`
 
 300 (Try Alternate) redirects followed for one Allocate.
 Defaults to 3.
 
 #### reconnect?
 
-> `optional` **reconnect**: [`TurnStreamReconnect`](../type-aliases/TurnStreamReconnect.md)
+> `optional` **reconnect?**: [`TurnStreamReconnect`](../type-aliases/TurnStreamReconnect.md)
 
 Reconnects a TCP/TLS transport to an ALTERNATE-SERVER. Without it, a
 redirect over a stream transport fails with TurnRedirectError
@@ -174,7 +170,7 @@ redirect over a stream transport fails with TurnRedirectError
 
 ### realm?
 
-> `optional` **realm**: `string`
+> `optional` **realm?**: `string`
 
 ***
 
@@ -236,7 +232,7 @@ an Allocate is redirected with 300 (Try Alternate).
 
 #### Get Signature
 
-> **get** **serverEndpoint**(): `undefined` \| readonly \[`string`, `number`\]
+> **get** **serverEndpoint**(): readonly \[`string`, `number`\] \| `undefined`
 
 The concrete TURN server address, selected on the first request and
 pinned for the rest of the allocation, so a later DNS answer can never
@@ -244,13 +240,18 @@ move REFRESH, CREATE_PERMISSION, CHANNEL_BIND or data to another server.
 
 ##### Returns
 
-`undefined` \| readonly \[`string`, `number`\]
+readonly \[`string`, `number`\] \| `undefined`
 
 ## Methods
 
 ### close()
 
 > **close**(): `Promise`\<`void`\>
+
+Release the client: its transactions, refresh timer and socket. Known
+constraint (as in develop): the allocation is not deleted on the server
+(no Refresh with lifetime 0), so the server keeps it until its lifetime
+ends.
 
 #### Returns
 
@@ -316,7 +317,7 @@ readonly \[`string`, `number`\]
 
 ### request()
 
-> **request**(`request`, `addr`, `_integrityKey`?, `retransmissionsOrOptions`?, `onRequestSent`?): `Promise`\<\[[`Message`](Message.md), readonly \[`string`, `number`\]\]\>
+> **request**(`request`, `addr`, `_integrityKey?`, `retransmissionsOrOptions?`, `onRequestSent?`): `Promise`\<\[[`Message`](Message.md), readonly \[`string`, `number`\]\]\>
 
 #### Parameters
 
@@ -334,7 +335,7 @@ readonly \[`string`, `number`\]
 
 ##### retransmissionsOrOptions?
 
-`number` | [`TransactionRequestOptions`](../interfaces/TransactionRequestOptions.md)
+`number` \| [`TransactionRequestOptions`](../interfaces/TransactionRequestOptions.md)
 
 ##### onRequestSent?
 
@@ -352,7 +353,7 @@ readonly \[`string`, `number`\]
 
 ### requestWithRetry()
 
-> **requestWithRetry**(`request`, `addr`, `signal`?): `Promise`\<\[[`Message`](Message.md), readonly \[`string`, `number`\]\]\>
+> **requestWithRetry**(`request`, `addr`, `signal?`): `Promise`\<\[[`Message`](Message.md), readonly \[`string`, `number`\]\]\>
 
 #### Parameters
 

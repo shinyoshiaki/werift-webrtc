@@ -10,6 +10,14 @@ import type { RTCSignalingState } from "../types/domain";
  * committed offer carried.
  */
 export class NegotiationNeeded {
+  private readonly host: {
+    signalingState: () => RTCSignalingState;
+    isClosed: () => boolean;
+    /** Created offers/answers no longer reflect the state. */
+    invalidate: () => void;
+    fire: () => void;
+  };
+
   /** W3C [[NegotiationNeeded]]. */
   flag = false;
   /** A change arrived outside `stable`: re-evaluate when it returns there. */
@@ -23,15 +31,15 @@ export class NegotiationNeeded {
   /** Changes carried by the applied local offer (discarded on rollback). */
   private pendingOfferSeq?: number;
 
-  constructor(
-    private readonly host: {
-      signalingState: () => RTCSignalingState;
-      isClosed: () => boolean;
-      /** Created offers/answers no longer reflect the state. */
-      invalidate: () => void;
-      fire: () => void;
-    },
-  ) {}
+  constructor(host: {
+    signalingState: () => RTCSignalingState;
+    isClosed: () => boolean;
+    /** Created offers/answers no longer reflect the state. */
+    invalidate: () => void;
+    fire: () => void;
+  }) {
+    this.host = host;
+  }
 
   /** Record a change that needs negotiation and schedule the event. */
   change() {
@@ -69,7 +77,6 @@ export class NegotiationNeeded {
     });
   }
 
-  /** `createOffer`: the offer carries every change made so far. */
   /** The change sequence a created offer includes (kept in its record). */
   noteCreatedOffer() {
     return this.changeSeq;
