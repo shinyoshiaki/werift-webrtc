@@ -137,6 +137,7 @@ sequenceDiagram
 - 破棄済みチャンクはペイロード（`userData`）を手放し、`bookSize` と TSN / stream の情報だけを残します。[packages/sctp/src/sctp.ts:1789](review-file:packages/sctp/src/sctp.ts:1789)
 - 寿命タイマーは、キューが空になったとき、`stop()`、相手の ABORT やタイムアウトによる CLOSED 遷移で解除します。[packages/sctp/src/sctp.ts:1921](review-file:packages/sctp/src/sctp.ts:1921)
 
+<!-- review-bookmark id="bm_1a1bfbae85e-77d54cf1" title="5. D: PR-SCTP の寿命（maxPacketLifeTime）" -->
 **テスト.** [packages/sctp/tests/lifetime.test.ts:27](review-file:packages/sctp/tests/lifetime.test.ts:27) の決め打ちテスト、[packages/sctp/tests/lifetime.test.ts:741](review-file:packages/sctp/tests/lifetime.test.ts:741) の受信ウィンドウ 0 のテスト（タイマー、順序、ペイロード解放、CLOSED 後の解除）、[packages/sctp/tests/lifetime.test.ts:911](review-file:packages/sctp/tests/lifetime.test.ts:911) のシード付きランダム損失テスト（DATA・SACK・FORWARD-TSN を 20% 落として 100 シード）。
 
 ## 6. E: stream reset の保留（RFC 6525）
