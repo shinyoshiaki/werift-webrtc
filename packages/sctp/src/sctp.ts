@@ -1934,6 +1934,7 @@ export class SCTP {
       this.timer3Cancel();
       this.timerReconfigCancel();
       this.heartbeatCancel();
+      this.outboundExpiryCancel();
       if (this.sackTimeout) {
         clearTimeout(this.sackTimeout);
         this.sackTimeout = undefined;
