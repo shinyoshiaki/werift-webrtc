@@ -673,6 +673,38 @@ describe("late SCTP under pranswer", () => {
     }
   }, 15000);
 
+  test("a final answer rejecting m=application keeps an association the baseline negotiated", async () => {
+    // Arrange: 後付け channel を交渉済み (committed) にする。
+    const { offerer, answerer } = await createConnectedVideoPeers();
+    try {
+      const { local, remote } = await negotiateLateDataChannel(
+        offerer,
+        answerer,
+      );
+      await offerer.setLocalDescription(await offerer.createOffer());
+      await answerer.setRemoteDescription(offerer.localDescription!);
+      const answer = rejectApplicationSection(
+        (await answerer.createAnswer()).sdp,
+      );
+
+      // Act: 再交渉の final answer で m=application を両端に適用して拒否する。
+      await answerer.setLocalDescription({ type: "answer", sdp: answer });
+      await offerer.setRemoteDescription({ type: "answer", sdp: answer });
+
+      // Assert: baseline で交渉済みの association は閉じず、channel も双方向に通る。
+      for (const pc of [offerer, answerer]) {
+        expect(pc.sctpRemotePort).toBeDefined();
+        expect(sctpAssociationOf(pc).state).toBe("connected");
+        assertNegotiationInvariants(pc);
+      }
+      expect([local.readyState, remote.readyState]).toEqual(["open", "open"]);
+      await sendAndExpectData(local, remote, "kept-forward");
+      await sendAndExpectData(remote, local, "kept-backward");
+    } finally {
+      await Promise.allSettled([offerer.close(), answerer.close()]);
+    }
+  }, 15000);
+
   test("a final answer changing the sctp-port is rejected and the association continues", async () => {
     // Arrange: pranswer で後付け channel を開く。
     const { offerer, answerer } = await createConnectedVideoPeers();

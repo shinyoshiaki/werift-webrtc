@@ -1,4 +1,4 @@
-import { SCTP_STATE, type SCTPOptions } from "../../sctp/src";
+import type { SCTPOptions } from "../../sctp/src";
 import { RTCDataChannel, RTCDataChannelParameters } from "./dataChannel";
 import { createWebRtcTypeError } from "./errors";
 import { debug, Event } from "./imports/common";
@@ -25,11 +25,13 @@ export type SctpNegotiationState = ReturnType<
  * - Rejection of the application m-line (port 0) keeps the SCTP transport:
  *   it stays bound to its MID and the next offer offers the application again
  *   with that MID (W3C would set `sctpTransport` to null). A rejecting remote
- *   offer or pranswer is provisional and leaves the association alone; a
- *   final answer with port 0 (RFC 8841 section 10.4), local or remote, aborts
- *   the association and releases the remote port on that peer
- *   (`rejectApplication`). Channels on it close; the other peer closes its own
- *   when it applies the same answer. The commit does not move the transport to
+ *   offer or pranswer is provisional and leaves the association alone, and
+ *   so does any rejection of an association the rollback baseline negotiated.
+ *   A final answer with port 0 (RFC 8841 section 10.4), local or remote,
+ *   aborts an association the proposal started (a pranswer or the remote
+ *   INIT) and releases the remote port on that peer (`rejectApplication`).
+ *   Channels on it close; the other peer closes its own when it applies the
+ *   same answer. The commit does not move the transport to
  *   a transport the answer did not negotiate for it. An answer to an offer
  *   whose application m-line has port 0 has port 0 (RFC 3264 section 6).
  * - The position (MID, index, rejected) is recorded by the current

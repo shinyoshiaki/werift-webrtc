@@ -1148,7 +1148,13 @@ function assertSctpBinding(pc: RTCPeerConnection, snapshot: Snapshot) {
       description?.type === "answer" &&
       description.media.some((m) => m.kind === "application" && m.port === 0),
   );
+  if (applicationRejected && pc.sctpRemotePort !== undefined) {
+    // baseline で交渉済みの association は拒否でも閉じず、MID に束縛されたまま残る。
+    expect(sctp.mid).toBeDefined();
+    return;
+  }
   if (applicationRejected) {
+    // proposal が起動した association は final answer の拒否で閉じ、束縛も解除される。
     expect(sctp.mid).toBeUndefined();
     expect(sctp.mLineIndex).toBeUndefined();
     expect(pc.sctpRemotePort).toBeUndefined();

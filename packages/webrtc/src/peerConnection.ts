@@ -1370,8 +1370,10 @@ export class RTCPeerConnection extends EventTarget {
         }
         // A local answer rejecting m=application (RFC 8841 section 10.4)
         // closes the association an earlier pranswer started, without
-        // waiting for the remote ABORT.
+        // waiting for the remote ABORT. One the baseline negotiated keeps
+        // running.
         if (
+          !this.negotiation.baselineNegotiatedSctp &&
           description.media.some(
             (media) => media.kind === "application" && media.port === 0,
           )
