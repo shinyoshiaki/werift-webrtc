@@ -19,7 +19,8 @@ gst-launch-1.0 -e \
   ! webmmux \
   ! filesink location="${OUT}/vp8.webm"
 
-# VP9 WebRTC default profile (0): Chrome's negotiated profile-id is 0.
+# VP9 — pin I420 so vp9enc emits Profile 0 (Chrome WebRTC default). Without it
+# videotestsrc may negotiate a higher profile than the SDP profile-id 0.
 gst-launch-1.0 -e \
   videotestsrc num-buffers=60 pattern=ball \
   ! video/x-raw,format=I420,width=320,height=240,framerate=30/1 \
