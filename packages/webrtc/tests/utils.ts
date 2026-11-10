@@ -12,6 +12,7 @@ import {
   turnAllocations,
 } from "../../ice/tests/utils";
 import { DataChunk, parsePacket } from "../../sctp/src/chunk";
+import type { SCTP } from "../../sctp/src/sctp";
 import {
   type PeerConfig,
   type RTCDataChannel,
@@ -563,6 +564,21 @@ export const DCEP_CHANNEL_TYPE_CASES: {
 
 /** RFC 9260 3.3.1: U bit of the DATA chunk flags (unordered delivery). */
 export const SCTP_DATA_UNORDERED = 0x04;
+
+/**
+ * Record the PPID and options of every `SCTP.send()` call the transport makes.
+ * Call it after `setDtlsTransport`, which recreates the SCTP association.
+ */
+export function captureSctpSendOptions(transport: RTCSctpTransport) {
+  const calls: { ppId: number; options: Parameters<SCTP["send"]>[3] }[] = [];
+  const sctp = transport.sctp;
+  const send = sctp.send.bind(sctp);
+  sctp.send = (streamId, ppId, userData, options) => {
+    calls.push({ ppId, options });
+    return send(streamId, ppId, userData, options);
+  };
+  return calls;
+}
 
 /**
  * Record every DATA chunk the transport puts on the wire, parsed back from

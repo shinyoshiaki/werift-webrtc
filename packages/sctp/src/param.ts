@@ -126,11 +126,18 @@ export class StreamAddOutgoingParam {
 // |                  Receiver's Next TSN (optional)               |
 // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 
+// RFC 6525 §4.4 Result values.
 export const reconfigResult = {
+  SuccessNothingToDo: 0,
   ReconfigResultSuccessPerformed: 1,
+  Denied: 2,
+  ErrorWrongSSN: 3,
+  ErrorRequestAlreadyInProgress: 4,
   BadSequenceNumber: 5,
+  InProgress: 6,
 } as const;
-type ReconfigResult = (typeof reconfigResult)[keyof typeof reconfigResult];
+export type ReconfigResult =
+  (typeof reconfigResult)[keyof typeof reconfigResult];
 
 export class ReconfigResponseParam {
   public responseSequence: number;

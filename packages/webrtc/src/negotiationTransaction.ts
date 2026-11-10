@@ -169,7 +169,7 @@ const RETIRED_UFRAG_HISTORY = 64;
  * | `RTCRtpReceiver` | `snapshotNegotiationState` / `restoreNegotiationState` | SSRCs learned from RID packets whose track survives |
  * | `TransceiverManager` | `snapshotNegotiationState` / `restoreNegotiationState` | transceivers the application uses (`heldByApplication`) |
  * | `RtpRouter` | `snapshotRoutes` / `restoreRoutes` | packet-learned SSRC routes, every live sender's route |
- * | `SctpTransportManager` | `snapshotNegotiationState` / `restoreNegotiationState` | an application-created SCTP transport whose association never ran |
+ * | `SctpTransportManager` | `snapshotNegotiationState` / `restoreNegotiationState` | an application-created SCTP transport (a pending-only association is replaced by an unstarted one) and its channels without a stream ID |
  */
 export class NegotiationTransaction {
   private readonly sdp: SDPManager;
@@ -461,6 +461,16 @@ export class NegotiationTransaction {
 
   get transportByMid() {
     return this.resources.prepared;
+  }
+
+  /**
+   * Internal: whether the rollback baseline negotiated SCTP (it has a remote
+   * port). A final answer rejecting m=application closes only an association
+   * the proposal started (by a pranswer or the remote INIT); one the baseline
+   * negotiated keeps running, as for every other rejection.
+   */
+  get baselineNegotiatedSctp() {
+    return this.baseline?.sctp.remotePort !== undefined;
   }
 
   isPendingOnlyTransport(iceTransportId: string) {
