@@ -290,6 +290,7 @@ export class TransportActivation {
         }
 
         if (dtlsTransport.state === "connecting") {
+          progressed = true;
           const state = await settledState(
             dtlsTransport.onStateChange,
             () => dtlsTransport.state,
@@ -312,6 +313,7 @@ export class TransportActivation {
           return progressed;
         }
 
+        progressed = true;
         this.secure.setConnectionState("connecting");
         const earlySctpPromise = this.startEarlySctp(dtlsTransport, config);
         // Attach handlers to both starts immediately. A fingerprint failure
@@ -325,13 +327,15 @@ export class TransportActivation {
           earlySctpPromise,
         ]);
 
+        // SCTP on a newly started DTLS transport is ensured before this
+        // transport activation completes.
         if (
           this.sctp.sctpTransport &&
           this.sctp.sctpTransport.dtlsTransport.id === dtlsTransport.id
         ) {
           await this.sctp.connectSctp();
         }
-        return true;
+        return progressed;
       }),
     );
 

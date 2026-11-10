@@ -84,9 +84,39 @@ export class RTCSctpTransport {
     if (this.dtlsTransport && this.dtlsTransport.id === dtlsTransport.id) {
       return;
     }
+    this.bindAssociation(dtlsTransport);
+  }
 
+  /**
+   * @internal
+   * Discard the current association (ABORT, attached channels close) and
+   * bind a new, unstarted one (on the same DTLS transport by default).
+   * Channels still waiting for a stream ID stay queued for the next
+   * association.
+   */
+  async resetAssociation(dtlsTransport = this.dtlsTransport) {
+    await this.stop();
+    this.dataChannelQueue = this.dataChannelQueue.filter(
+      ([channel]) => channel.id === undefined,
+    );
+    this.dataChannelId = undefined;
+    this.bindAssociation(dtlsTransport);
+  }
+
+  /**
+   * @internal
+   * The association left its initial state (started, or established passively).
+   */
+  get associationActive() {
+    return (
+      this.sctp.started ||
+      this.sctp.state !== "new" ||
+      this.sctp.associationState !== SCTP_STATE.CLOSED
+    );
+  }
+
+  private bindAssociation(dtlsTransport: RTCDtlsTransport) {
     this.disposeSctpListeners();
-
     this.dtlsTransport = dtlsTransport;
     this.stopping = false;
     this.stopped = false;
@@ -509,7 +539,7 @@ export class RTCSctpTransport {
       } else {
         const expiry =
           channel.maxPacketLifeTime !== null
-            ? Date.now() + channel.maxPacketLifeTime / 1000
+            ? Date.now() + channel.maxPacketLifeTime
             : undefined;
 
         this.sctp
@@ -651,6 +681,18 @@ export class RTCSctpTransport {
     }
     // The association is replaced or the transport stops: drop the timer.
     this.eventDisposer.push(() => clearTimeout(timer));
+  }
+
+  /** @internal Start once; an established or already started association stays intact. */
+  async ensureStarted(remotePort: number) {
+    if (
+      this.sctp.started ||
+      this.sctp.state === "connected" ||
+      this.sctp.state === "closed"
+    ) {
+      return;
+    }
+    await this.start(remotePort);
   }
 
   async stop() {

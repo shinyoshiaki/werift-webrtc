@@ -32,16 +32,18 @@ describe("sctp burst transfer", () => {
     await pair.stop();
   });
 
-  test("transfer time grows close to linearly with the queued message count", async () => {
+  test("transfer processing cost grows close to linearly with the queued message count", async () => {
     // Arrange: JIT のウォームアップ
     await measureBurstTransfer(1_000, 1_000);
 
-    // Act: N と 4N のバースト転送時間を計測する
+    // Act: N と 4N のバースト転送に使う CPU 時間を計測する
     const small = await measureBurstTransfer(2_000, 1_000);
     const large = await measureBurstTransfer(8_000, 1_000);
 
     // Assert: 二次なら 16 倍になるところ、線形に近い比 (8 倍未満) に収まる
-    expect(large.elapsedMs / Math.max(small.elapsedMs, 1)).toBeLessThan(8);
+    expect(large.cpuElapsedMs / Math.max(small.cpuElapsedMs, 1)).toBeLessThan(
+      8,
+    );
   });
 
   test("event loop heartbeat keeps running during a large burst", async () => {

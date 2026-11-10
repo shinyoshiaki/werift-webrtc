@@ -32,7 +32,7 @@ authenticated, so a forged packet cannot advance or poison the window.
 
 ### size
 
-> `readonly` **size**: `number` = `SRTP_REPLAY_WINDOW_SIZE`
+> `readonly` **size**: `number`
 
 ## Methods
 

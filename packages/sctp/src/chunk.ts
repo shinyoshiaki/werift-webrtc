@@ -196,10 +196,15 @@ export class DataChunk extends Chunk {
   userData: Buffer = Buffer.from("");
   abandoned: boolean = false;
   acked: boolean = false;
+  /** Whether bookSize is currently counted in the sender's flightSize. */
+  inFlight: boolean = false;
+  /** Gap-acked before, then dropped by the peer (reneged) and not resent yet. */
+  reneged: boolean = false;
   misses: number = 0;
   retransmit: boolean = false;
   sentCount: number = 0;
   bookSize: number = 0;
+  /** Absolute time in `Date.now()` epoch milliseconds after which the chunk may be abandoned. */
   expiry?: number;
   maxRetransmits?: number;
   sentTime?: number;

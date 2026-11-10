@@ -12,12 +12,14 @@ export const SRTP_REPLAY_WINDOW_SIZE = 1024;
  * authenticated, so a forged packet cannot advance or poison the window.
  */
 export class SrtpReplayWindow {
+  readonly size: number;
   private highest = -1;
   /** Bit i set = index (highest - i) was received. */
   private received = 0n;
   private readonly sizeMask: bigint;
 
-  constructor(readonly size = SRTP_REPLAY_WINDOW_SIZE) {
+  constructor(size = SRTP_REPLAY_WINDOW_SIZE) {
+    this.size = size;
     this.sizeMask = (1n << BigInt(size)) - 1n;
   }
 
