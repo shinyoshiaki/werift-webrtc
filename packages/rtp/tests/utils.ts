@@ -5,8 +5,10 @@ import { BufferSource, Input, MP4, OGG } from "mediabunny";
 import { tmpdir } from "os";
 import { join } from "path";
 
+import { Vp8RtpPayload } from "../src/codec/vp8";
 import {
   type CodecFrame,
+  DepacketizeCallback,
   type LipSyncOptions,
   LipsyncCallback,
   MP4Callback,
@@ -22,6 +24,7 @@ import {
 } from "../src/extra";
 import { vintDecode } from "../src/extra/container/webm/ebml/ebml";
 import type { Mp4Output } from "../src/extra/processor/mp4";
+import { RtcpRrPacket } from "../src/rtcp/rr";
 import { RtcpSenderInfo, RtcpSrPacket } from "../src/rtcp/sr";
 import {
   RtpMediaClock,
@@ -38,6 +41,7 @@ import {
   type SrtpProfile,
 } from "../src/srtp/const";
 import { Context, type SrtpSsrcState } from "../src/srtp/context/context";
+import { SrtcpContext } from "../src/srtp/context/srtcp";
 import { SrtpContext } from "../src/srtp/context/srtp";
 import type { Transport } from "../src/transport";
 
@@ -960,6 +964,226 @@ export function createH264RtpPackets(payloads: Buffer[], timestamp = 0) {
 }
 
 // ---------------------------------------------------------------------------
+// VP8 RTP payload builders (RFC 7741)
+
+/**
+ * Minimal VP8 frame starting with a 3-byte payload header (RFC 7741 §4.3).
+ * keyframe → P=0, otherwise P=1 (LSB of the first byte).
+ */
+export function createVp8Frame({
+  keyframe,
+  bodyLen = 20,
+}: {
+  keyframe: boolean;
+  bodyLen?: number;
+}): Buffer {
+  const header = Buffer.from([keyframe ? 0x00 : 0x01, 0x00, 0x00]);
+  return Buffer.concat([header, Buffer.alloc(bodyLen, keyframe ? 0x7b : 0x55)]);
+}
+
+/** VP8 RTP payload: raw payload descriptor bytes (RFC 7741 §4.2) + frame. */
+export function createVp8Payload({
+  descriptor,
+  frame,
+}: {
+  descriptor: number[];
+  frame: Buffer;
+}): Buffer {
+  return Buffer.concat([Buffer.from(descriptor), frame]);
+}
+
+/** gst-launch-1.0 (vp8enc / rtpvp8pay) と ffmpeg が使えるか */
+export function isGstreamerVp8Available() {
+  const inspect = (element: string) =>
+    spawnSync("gst-inspect-1.0", [element]).status === 0;
+  return (
+    inspect("vp8enc") &&
+    inspect("rtpvp8pay") &&
+    spawnSync("ffmpeg", ["-version"]).status === 0
+  );
+}
+
+/**
+ * Encodes `frames` videotestsrc frames with GStreamer vp8enc, payloads them
+ * with rtpvp8pay (15-bit PictureID, X/I/M only) and returns the RTP packets
+ * received over loopback UDP as raw bytes, in sequence-number order.
+ */
+export async function captureGstreamerVp8Rtp({
+  frames = 60,
+  keyframeInterval = 30,
+  mtu = 600,
+}: {
+  frames?: number;
+  keyframeInterval?: number;
+  mtu?: number;
+} = {}) {
+  const collector = await createRtpUdpCollector();
+  try {
+    const args = [
+      "-q",
+      "videotestsrc",
+      `num-buffers=${frames}`,
+      "pattern=ball",
+      "!",
+      "video/x-raw,width=320,height=240,framerate=30/1",
+      "!",
+      "vp8enc",
+      `keyframe-max-dist=${keyframeInterval}`,
+      "deadline=1",
+      "!",
+      "rtpvp8pay",
+      "picture-id-mode=15-bit",
+      `mtu=${mtu}`,
+      "!",
+      "udpsink",
+      "host=127.0.0.1",
+      `port=${collector.port}`,
+    ];
+    const child = spawn("gst-launch-1.0", args, { stdio: "ignore" });
+    const code = await withTimeout(
+      new Promise<number | null>((resolve, reject) => {
+        child.on("error", reject);
+        child.on("close", resolve);
+      }),
+      30_000,
+    ).finally(() => {
+      if (child.exitCode === null && child.signalCode === null) {
+        child.kill("SIGKILL");
+      }
+    });
+    if (code !== 0) {
+      throw new Error(`gst-launch-1.0 exited with ${code}`);
+    }
+    // loopback に残っているパケットの受信を待つ
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    return collector.packets
+      .map(({ rtp }) => rtp)
+      .sort((a, b) => a.header.sequenceNumber - b.header.sequenceNumber)
+      .map((rtp) => rtp.serialize());
+  } finally {
+    await collector.close();
+  }
+}
+
+/**
+ * Rebuilds the VP8 payload descriptor (RFC 7741 §4.2) of `payload` with the
+ * given L/T/K bits, keeping S/PID/PictureID and the VP8 payload as is.
+ * TL0PICIDX is 0, and TID/Y/KEYIDX is TID=0 Y=1 KEYIDX=0 (0x20, LSB=0), so a
+ * parser that mistakes it for the VP8 payload header reads P=0 (keyframe).
+ */
+export function rewriteVp8RtpDescriptor(
+  packet: Buffer,
+  {
+    l = false,
+    t = false,
+    k = false,
+  }: { l?: boolean; t?: boolean; k?: boolean },
+) {
+  const rtp = RtpPacket.deSerialize(packet);
+  const parsed = Vp8RtpPayload.deSerialize(rtp.payload);
+  const pictureId =
+    parsed.pictureId === undefined
+      ? []
+      : parsed.mBit
+        ? [0x80 | (parsed.pictureId >> 8), parsed.pictureId & 0xff]
+        : [parsed.pictureId & 0x7f];
+  const descriptor = [
+    (rtp.payload[0] & 0x7f) | 0x80,
+    (pictureId.length ? 0x80 : 0) |
+      (l ? 0x40 : 0) |
+      (t ? 0x20 : 0) |
+      (k ? 0x10 : 0),
+    ...pictureId,
+    ...(l ? [0x00] : []),
+    ...(t || k ? [0x20] : []),
+  ];
+  return new RtpPacket(
+    rtp.header,
+    Buffer.concat([Buffer.from(descriptor), parsed.payload]),
+  ).serialize();
+}
+
+/**
+ * Feeds VP8 RTP packets through the recorder chain
+ * (DepacketizeCallback → WebmCallback) and returns the depacketized frames
+ * and the recorded WebM bytes.
+ */
+export async function recordVp8RtpToWebm(packets: Buffer[]) {
+  const dir = mkdtempSync(join(tmpdir(), "werift-rtp-vp8-"));
+  const path = join(dir, "output.webm");
+  const frames: CodecFrame[] = [];
+  try {
+    const save = saveToFileSystem(path);
+    const done = new Promise<void>((resolve) => {
+      const webm = new WebmCallback(
+        [
+          {
+            kind: "video",
+            codec: "VP8",
+            clockRate: 90_000,
+            trackNumber: 1,
+            width: 320,
+            height: 240,
+          },
+        ],
+        { duration: 60_000 },
+      );
+      webm.pipe(async (output: WebmOutput) => {
+        await save(output);
+        if (output.eol) {
+          resolve();
+        }
+      });
+      const depacketizer = new DepacketizeCallback("vp8", {
+        isFinalPacketInSequence: (h: RtpHeader) => h.marker,
+      });
+      depacketizer.pipe((output) => {
+        if (output.frame) {
+          frames.push({
+            ...output.frame,
+            data: Buffer.from(output.frame.data),
+          });
+        }
+        webm.inputVideo(output);
+      });
+      const rtps = packets.map((p) => RtpPacket.deSerialize(p));
+      const base = rtps[0]?.header.timestamp ?? 0;
+      for (const rtp of rtps) {
+        depacketizer.input({ rtp, time: (rtp.header.timestamp - base) / 90 });
+      }
+      depacketizer.input({ eol: true });
+    });
+    await withTimeout(done, 10_000);
+    return { frames, webm: readFileSync(path) };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Decodes WebM bytes with ffmpeg (`-xerror`, framemd5) and returns the decode
+ * errors on stderr and the MD5 of every decoded frame.
+ */
+export function decodeWebmWithFfmpeg(buffer: Buffer) {
+  const dir = mkdtempSync(join(tmpdir(), "werift-rtp-webm-"));
+  try {
+    const path = join(dir, "input.webm");
+    writeFileSync(path, buffer);
+    const result = spawnSync(
+      "ffmpeg",
+      ["-v", "error", "-xerror", "-i", path, "-f", "framemd5", "-"],
+      { encoding: "utf8" },
+    );
+    const frameMd5s = result.stdout
+      .split("\n")
+      .filter((line) => line && !line.startsWith("#"))
+      .map((line) => line.split(",").at(-1)!.trim());
+    return { status: result.status, errors: result.stderr, frameMd5s };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 // WebM
 
 export function createWebmTracks(): WebmTrack[] {
@@ -1157,9 +1381,26 @@ export function createSrtpTestContext(
 export function createSrtpContextPair(
   profile: SrtpProfile = ProtectionProfileAes128CmHmacSha1_80,
 ) {
+  const { masterKey, masterSalt } = srtpTestKeys[profile];
+  const sender = createSrtpTestContext(profile);
+  const receiver = createSrtpTestContext(profile);
+  const rtcpSender = new SrtcpContext(masterKey, masterSalt, profile);
+  const rtcpReceiver = new SrtcpContext(masterKey, masterSalt, profile);
+  const ssrc = 0x1234;
   return {
-    sender: createSrtpTestContext(profile),
-    receiver: createSrtpTestContext(profile),
+    sender,
+    receiver,
+    rtcpSender,
+    rtcpReceiver,
+    protectRtp: (sequenceNumber: number) =>
+      sender.encryptRtp(
+        Buffer.from([sequenceNumber & 0xff]),
+        new RtpHeader({ ssrc, sequenceNumber, payloadType: 96 }),
+      ),
+    protectRtcp: () =>
+      rtcpSender.encryptRTCP(
+        new RtcpRrPacket({ ssrc, reports: [] }).serialize(),
+      ),
   };
 }
 
@@ -1243,6 +1484,21 @@ export function encryptSrtpSequence(
     const encrypted = sender.encryptRtp(payload, header);
     return { sequenceNumber, plain, encrypted };
   });
+}
+
+/**
+ * Drops the first transmission of `sequenceNumber` as if it was lost on the
+ * wire. A NACK retransmission is only sent for a lost packet: delivering both
+ * copies is an RFC 3711 §3.3.2 replay and the receiver rejects it.
+ */
+export function loseOriginalTransmission(
+  packets: SrtpTestPacket[],
+  sequenceNumber: number,
+): SrtpTestPacket[] {
+  const index = packets.findIndex((p) => p.sequenceNumber === sequenceNumber);
+  return index < 0
+    ? packets
+    : [...packets.slice(0, index), ...packets.slice(index + 1)];
 }
 
 /**
