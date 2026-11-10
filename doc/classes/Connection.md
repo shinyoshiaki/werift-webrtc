@@ -174,6 +174,18 @@ Resolves remote mDNS candidates; closed (pending lookups cancelled) by restart()
 
 ***
 
+### remoteRenomination
+
+> **remoteRenomination**: `boolean` = `false`
+
+The peer advertised `a=ice-options:renomination` (see `IceOptions.renomination`).
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`remoteRenomination`](../interfaces/IceConnection.md#remoterenomination)
+
+***
+
 ### remoteUsername
 
 > **remoteUsername**: `string` = `""`

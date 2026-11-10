@@ -82,6 +82,8 @@ export class Connection implements IceConnection {
   localUsername = randomString(4);
   localPassword = randomString(22);
   remoteIsLite = false;
+  /** The peer advertised `a=ice-options:renomination` (see `IceOptions.renomination`). */
+  remoteRenomination = false;
   remotePassword: string = "";
   remoteUsername: string = "";
   checkList: CandidatePair[] = [];
@@ -143,6 +145,19 @@ export class Connection implements IceConnection {
   private readonly nomination = new RegularNomination(
     this.liveNominationHost(),
   );
+  /**
+   * Semi-aggressive nomination or renomination: the separate check that
+   * nominates a valid pair which outranks the selection (see
+   * `evaluateSelection`). One at a time.
+   */
+  private selectionNomination?: {
+    pair: CandidatePair;
+    abort: AbortController;
+  };
+  /** The last NOMINATION value sent (renomination); it only increases. */
+  private nominationValue = 0;
+  /** `checkOutrankingPairs` is running. */
+  private outrankingChecks = false;
   /** See `NominationHint`; set by the restart that ends a provisional checklist. */
   private nominationHint?: NominationHint;
   /** USE-CANDIDATE re-sent for a pair selected before the agent became controlling (`confirmSelections`). */
@@ -358,6 +373,7 @@ export class Connection implements IceConnection {
     // Taken before endProvisional() drops the provisional checklist.
     const hint = this.provisionalNominationHint();
     this.nomination.reset();
+    this.abortSelectionNomination();
     this.nominationHint = hint;
     this.cancelChecks();
     this.checkList = [];
@@ -399,6 +415,7 @@ export class Connection implements IceConnection {
     this.nominated = undefined;
     this.liteNominating = false;
     this.nomination.reset();
+    this.abortSelectionNomination();
     this.nominationHint = undefined;
     this.cancelChecks();
     this.checkList = [];
@@ -664,9 +681,17 @@ export class Connection implements IceConnection {
     }
     pair.updateState(CandidatePairState.IN_PROGRESS);
     // Regular nomination: a check never carries USE-CANDIDATE; the
-    // nomination is a separate check (`generation.nomination`).
+    // nomination is a separate check (`generation.nomination`). Otherwise
+    // (semi-aggressive nomination, renomination) checks carry USE-CANDIDATE
+    // until a pair is selected: the provisional checklist only selects once,
+    // and the final answer checks the live one from scratch.
+    const nominate =
+      this.nominatesFullPeer() &&
+      !this.usesRegularNomination() &&
+      !generation.nominated &&
+      this.replacesWith(pair);
     const request = this.buildRequest({
-      nominate: false,
+      nominate,
       localUsername: generation.localUsername,
       remoteUsername: generation.remoteUsername,
       iceControlling: this.iceControlling,
@@ -707,6 +732,7 @@ export class Connection implements IceConnection {
     }
     // Only a controlled agent takes the peer's nomination (see checkStart).
     if (pair.remoteNominated && !this.iceControlling) pair.nominated = true;
+    else if (nominate && this.iceControlling) pair.nominated = true;
     pair.updateState(CandidatePairState.SUCCEEDED);
     if (
       !pair.nominated &&
@@ -759,12 +785,12 @@ export class Connection implements IceConnection {
     return {
       active: () =>
         current() &&
-        this.usesRegularNomination() &&
+        this.nominatesFullPeer() &&
         generationOf().started &&
         !generationOf().nominated,
       checking: () => generationOf().started,
       pairs: () => {
-        const pairs = [...generationOf().pairs];
+        const pairs = [...this.regularNominationPairs(generationOf().pairs)];
         sortCandidatePairs(pairs, this.iceControlling);
         return pairs;
       },
@@ -892,10 +918,7 @@ export class Connection implements IceConnection {
     pair.requestsReceived++;
     pair.responsesSent++;
 
-    if (
-      message.attributesKeys.includes("USE-CANDIDATE") &&
-      !this.iceControlling
-    ) {
+    if (this.receivedNomination(message) > 0 && !this.iceControlling) {
       pair.remoteNominated = true;
       if (this.iceLite || pair.state === CandidatePairState.SUCCEEDED) {
         pair.nominated = true;
@@ -957,6 +980,7 @@ export class Connection implements IceConnection {
     this.nominated = undefined;
     this.liteNominating = false;
     this.nomination.reset();
+    this.abortSelectionNomination();
     this.nominationHint = undefined;
     // Drop old pair's consent timers/transactions; restarted when a new pair is nominated.
     this.stopConsentLifecycle();
@@ -1750,6 +1774,11 @@ export class Connection implements IceConnection {
     // 5.8.  Scheduling Checks
     for (;;) {
       if (this.state === "closed") break;
+      // A selection that may still be replaced: the checks of the pairs that
+      // outrank it go on in `checkOutrankingPairs`.
+      if (this.nominated && this.iceControlling && this.replacesSelection()) {
+        break;
+      }
       if (!this.schedulingChecks()) break;
       await timers.setTimeout(20);
     }
@@ -1767,7 +1796,18 @@ export class Connection implements IceConnection {
     }
 
     // # cancel remaining checks
+    // (but those of pairs that may still replace the selection)
+    const selected = this.nominated;
+    const keepsChecking =
+      !!selected && this.iceControlling && this.replacesSelection();
     for (const check of this.checkList) {
+      if (
+        keepsChecking &&
+        this.replacesWith(check) &&
+        this.outranks(check, selected)
+      ) {
+        continue;
+      }
       check.handle?.resolve?.();
     }
 
@@ -1865,14 +1905,32 @@ export class Connection implements IceConnection {
   }
 
   /**
-   * ICE-lite interop only (not required by RFC 7675): mirror libwebrtc
-   * semi-aggressive nomination — attach USE-CANDIDATE when we are controlling,
-   * the remote is ICE-lite, and the target is the current selected pair.
+   * Mirror libwebrtc semi-aggressive nomination (not required by RFC 7675):
+   * attach USE-CANDIDATE to consent checks of the selected pair when we are
+   * controlling and the remote is ICE-lite, or we nominate semi-aggressively
+   * (a peer that became controlled after a role conflict, or lost the
+   * nominating response, learns the selection from them).
    */
   private shouldNominateConsentRequest(pair: CandidatePair): boolean {
     return (
-      this.iceControlling && this.remoteIsLite && this.nominated?.id === pair.id
+      this.iceControlling &&
+      this.nominated?.id === pair.id &&
+      (this.remoteIsLite || this.usesSemiAggressiveNomination())
     );
+  }
+
+  /**
+   * Renomination: the NOMINATION value consent checks of the selected pair
+   * carry, so the peer keeps (or learns) the selection. A pair selected
+   * without a renomination of this agent (the peer nominated it while this
+   * agent was controlled) takes the next value.
+   */
+  private consentNomination(pair: CandidatePair) {
+    if (!this.usesRenomination() || this.nominated?.id !== pair.id) {
+      return undefined;
+    }
+    if (pair.nomination === 0) pair.nomination = ++this.nominationValue;
+    return pair.nomination;
   }
 
   private canSendApplicationData(): boolean {
@@ -2019,6 +2077,7 @@ export class Connection implements IceConnection {
 
           const request = this.buildRequest({
             nominate: this.shouldNominateConsentRequest(nominated),
+            nomination: this.consentNomination(nominated),
             localUsername,
             remoteUsername,
             iceControlling,
@@ -2138,6 +2197,7 @@ export class Connection implements IceConnection {
     this.nominated = undefined;
     this.liteNominating = false;
     this.nomination.reset();
+    this.abortSelectionNomination();
     this.nominationHint = undefined;
     for (const protocol of this.protocols) {
       if (protocol.close) {
@@ -2302,6 +2362,7 @@ export class Connection implements IceConnection {
           ...(this.provisional?.pairs ?? []),
         ]) {
           pair.remoteNominated = false;
+          pair.remoteNomination = 0;
         }
       }
     }
@@ -2321,11 +2382,12 @@ export class Connection implements IceConnection {
    * A peer that selected the pair already keeps it.
    */
   private confirmSelections() {
-    if (!this.usesRegularNomination()) return;
+    if (!this.nominatesFullPeer()) return;
     const live = this.nominated;
     if (live && this.state !== "closed" && this.checkList.includes(live)) {
       void this.confirmSelection(
-        (signal) => this.sendNomination(live, signal),
+        (signal) =>
+          this.sendNomination(live, signal, this.consentNomination(live)),
         () => this.nominated === live && this.state !== "closed",
       );
     }
@@ -2379,6 +2441,7 @@ export class Connection implements IceConnection {
   private invalidateNominations() {
     this.liteNominating = false;
     this.nomination.invalidate();
+    this.abortSelectionNomination();
     for (const abort of this.selectionConfirmations) abort.abort();
     this.selectionConfirmations.clear();
     if (this.provisional) {
@@ -2399,6 +2462,7 @@ export class Connection implements IceConnection {
     // Only a controlling agent nominates: start (or stop) waiting for it.
     this.nomination.evaluate();
     this.provisional?.nomination.evaluate();
+    this.evaluateSelection();
   }
 
   private checkComplete(pair: CandidatePair) {
@@ -2422,9 +2486,15 @@ export class Connection implements IceConnection {
         this.checkList.includes(pair) &&
         (pair.remoteCandidate.ufrag == undefined ||
           pair.remoteCandidate.ufrag === this.remoteUsername) &&
-        this.nominated == undefined
+        // One selection, except that semi-aggressive nomination and
+        // renomination replace it with a better nominated pair
+        // (replacesSelectedPair).
+        (this.nominated == undefined || this.replacesSelectedPair(pair))
       ) {
-        log("nominated", pair.toJSON());
+        const previous = this.nominated;
+        log(previous ? "selected pair replaced" : "nominated", pair.toJSON(), {
+          previous: previous?.toJSON(),
+        });
         this.nominated = pair;
         this.liteNominating = false;
         this.nomination.stop();
@@ -2447,7 +2517,9 @@ export class Connection implements IceConnection {
 
         // The agent MUST remove all Waiting and Frozen pairs in the check
         // list and triggered check queue for the same component as the
-        // nominated pairs for that media stream.
+        // nominated pairs for that media stream. A controlling agent that
+        // may replace the selection keeps the pairs that outrank it.
+        const keepsChecking = this.iceControlling && this.replacesSelection();
         for (const p of this.checkList) {
           if (
             p.component === pair.component &&
@@ -2456,7 +2528,8 @@ export class Connection implements IceConnection {
                 CandidatePairState.WAITING,
                 CandidatePairState.FROZEN,
               ] as CandidatePairState[]
-            ).includes(p.state)
+            ).includes(p.state) &&
+            !(keepsChecking && this.replacesWith(p) && this.outranks(p, pair))
           ) {
             p.updateState(CandidatePairState.FAILED);
           }
@@ -2471,6 +2544,10 @@ export class Connection implements IceConnection {
           log("ICE completed");
           this.checkListState.put(new Promise((r) => r(ICE_COMPLETED)));
           this.checkListDone = true;
+        }
+        if (this.iceControlling && this.replacesSelection()) {
+          this.evaluateSelection();
+          void this.checkOutrankingPairs();
         }
         return;
       }
@@ -2489,6 +2566,7 @@ export class Connection implements IceConnection {
     }
 
     this.nomination.evaluate();
+    this.evaluateSelection();
 
     this.failCheckListIfExhausted();
   }
@@ -2503,6 +2581,7 @@ export class Connection implements IceConnection {
     if (
       this.nominated ||
       this.liteNominating ||
+      this.selectionNomination ||
       this.nomination.inFlight ||
       this.nomination.waiting
     ) {
@@ -2564,10 +2643,16 @@ export class Connection implements IceConnection {
       const { remotePassword, remoteUsername, generation } = this;
       const localUsername = pair.localCandidate.ufrag ?? this.localUsername;
 
-      // Regular nomination (RFC 8445 §8.1.1): an ordinary check never
-      // carries USE-CANDIDATE; see RegularNomination.
+      // Semi-aggressive nomination: USE-CANDIDATE while nothing is selected
+      // and for a pair that outranks the selected one. Regular nomination
+      // (RegularNomination) and renomination (evaluateSelection) nominate
+      // with a separate check; an ordinary check carries nothing.
+      const nominate =
+        this.usesSemiAggressiveNomination() &&
+        this.replacesWith(pair) &&
+        (!this.nominated || this.outranks(pair, this.nominated));
       const request = this.buildRequest({
-        nominate: false,
+        nominate,
         localUsername,
         remoteUsername,
         iceControlling: this.iceControlling,
@@ -2715,6 +2800,13 @@ export class Connection implements IceConnection {
           return;
         }
         pair.nominated = true;
+      } else if (
+        nominate &&
+        this.iceControlling &&
+        this.remoteGeneration === remoteGeneration
+      ) {
+        // # semi-aggressive: the check that succeeded carried USE-CANDIDATE
+        pair.nominated = true;
       }
 
       pair.updateState(CandidatePairState.SUCCEEDED);
@@ -2753,18 +2845,227 @@ export class Connection implements IceConnection {
     return { retransmissions: 4, onRequestSent };
   }
 
+  /** The agent is controlling and both agents are full ICE. */
+  private nominatesFullPeer() {
+    return this.iceControlling && !this.remoteIsLite && !this.iceLite;
+  }
+
   /**
-   * Full ICE on both sides: the controlling agent uses regular nomination
-   * (RFC 8445 §8.1.1) for every transport. A check that succeeds only makes
-   * its pair valid; `RegularNomination` later picks one valid pair and
-   * nominates it with a separate USE-CANDIDATE check. Nominating the first
-   * pair that succeeds (aggressive nomination) would let a lower-priority
-   * candidate that happened to finish first (TURN/TCP) win over a
-   * higher-priority one trickled moments later (TURN/UDP), and with TCP the
-   * two sides could settle on different connections.
+   * Both agents advertised renomination (`IceOptions.renomination`): the
+   * controlling agent nominates with NOMINATION values instead of
+   * USE-CANDIDATE, whatever `IceOptions.nomination` says.
+   */
+  private usesRenomination() {
+    return (
+      this.nominatesFullPeer() &&
+      !!this.options.renomination &&
+      this.remoteRenomination
+    );
+  }
+
+  /**
+   * `nomination: "regular"`: RFC 8445 §8.1.1 regular nomination for every
+   * transport. A check that succeeds only makes its pair valid;
+   * `RegularNomination` later picks one valid pair and nominates it once
+   * with a separate USE-CANDIDATE check.
    */
   private usesRegularNomination() {
-    return this.iceControlling && !this.remoteIsLite && !this.iceLite;
+    return (
+      this.nominatesFullPeer() &&
+      this.options.nomination === "regular" &&
+      !this.usesRenomination()
+    );
+  }
+
+  /**
+   * The default, as libwebrtc: checks carry USE-CANDIDATE until a pair is
+   * selected and afterwards for pairs that outrank the selected one, so the
+   * first pair that succeeds is selected at once and a higher-priority pair
+   * that succeeds later (a TURN/UDP candidate trickled after a TURN/TCP one
+   * connected) replaces it. A first-success-wins nomination would keep the
+   * lower-priority pair for the whole session.
+   */
+  private usesSemiAggressiveNomination() {
+    return (
+      this.nominatesFullPeer() &&
+      this.options.nomination !== "regular" &&
+      !this.usesRenomination()
+    );
+  }
+
+  /**
+   * The controlling agent may move the selection to a higher-priority pair
+   * (semi-aggressive nomination, renomination): checks of pairs that outrank
+   * the selected one go on after the first selection.
+   */
+  private replacesSelection() {
+    return this.usesSemiAggressiveNomination() || this.usesRenomination();
+  }
+
+  /**
+   * A pair semi-aggressive nomination and renomination may select: not an
+   * ICE-TCP pair (each TCP pair is its own connection, and nominating more
+   * than one could leave the agents on different connections after pruning;
+   * TCP pairs keep regular nomination, see `regularNominationPairs`), nor
+   * one the agent never checks (forceTurn).
+   */
+  private replacesWith(pair: CandidatePair) {
+    return !this.isTcpPair(pair) && !this.isUncheckedPair(pair);
+  }
+
+  /**
+   * The pairs `RegularNomination` nominates from: every pair with
+   * `nomination: "regular"`, otherwise the ICE-TCP pairs (as before
+   * semi-aggressive nomination, #721).
+   */
+  private regularNominationPairs(pairs: readonly CandidatePair[]) {
+    return this.usesRegularNomination()
+      ? pairs
+      : pairs.filter((pair) => this.isTcpPair(pair));
+  }
+
+  /**
+   * Whether the nominated `pair` replaces the selected pair:
+   * - controlled: the peer's larger nomination (the NOMINATION value;
+   *   USE-CANDIDATE counts as 1, as in libwebrtc), the higher-priority pair
+   *   between equal ones (RFC 5245 §8.1.1.2: the highest-priority nominated
+   *   pair is used). A controlling peer nominating once (regular nomination)
+   *   never causes a switch.
+   * - controlling with renomination: the pair renominated last.
+   * - controlling, semi-aggressive: a higher-priority pair.
+   * - controlling, regular nomination or toward ICE-lite: never.
+   */
+  private replacesSelectedPair(pair: CandidatePair) {
+    const selected = this.nominated;
+    if (!selected || selected === pair) return false;
+    if (!this.iceControlling) {
+      if (pair.remoteNomination !== selected.remoteNomination) {
+        return pair.remoteNomination > selected.remoteNomination;
+      }
+      return this.outranks(pair, selected);
+    }
+    if (!this.replacesWith(pair)) return false;
+    if (this.usesRenomination()) return pair.nomination > selected.nomination;
+    if (this.usesSemiAggressiveNomination()) {
+      return this.outranks(pair, selected);
+    }
+    return false;
+  }
+
+  /**
+   * The nomination a peer's check carries: the NOMINATION value
+   * (renomination), else 1 for USE-CANDIDATE, else 0. A NOMINATION of 0 is
+   * invalid and nominates nothing (as in libwebrtc).
+   */
+  private receivedNomination(message: Message) {
+    if (message.attributesKeys.includes("NOMINATION")) {
+      const value = message.getAttributeValue("NOMINATION");
+      return typeof value === "number" && value > 0 ? value : 0;
+    }
+    return message.attributesKeys.includes("USE-CANDIDATE") ? 1 : 0;
+  }
+
+  /**
+   * Semi-aggressive nomination and renomination: nominate the best valid
+   * pair with a separate check when it outranks the selection (or nothing is
+   * selected yet) and no check of it nominated it already. With renomination
+   * ordinary checks never nominate; with semi-aggressive nomination a pair
+   * whose check went without USE-CANDIDATE (sent while controlled) still
+   * needs one. One such check at a time; its outcome re-evaluates.
+   */
+  private evaluateSelection() {
+    if (
+      !this.replacesSelection() ||
+      this.selectionNomination ||
+      this.state === "closed"
+    ) {
+      return;
+    }
+    const renomination = this.usesRenomination();
+    const best = this.bestValidPair(
+      this.checkList.filter((pair) => this.replacesWith(pair)),
+    );
+    if (!best || best === this.nominated) return;
+    if (this.nominated && !this.outranks(best, this.nominated)) return;
+    // Semi-aggressive: the USE-CANDIDATE check that succeeded selected it.
+    if (!renomination && best.nominated) return;
+    void this.nominateSelection(best, renomination);
+  }
+
+  private async nominateSelection(pair: CandidatePair, renomination: boolean) {
+    const current = { pair, abort: new AbortController() };
+    this.selectionNomination = current;
+    const value = renomination ? ++this.nominationValue : undefined;
+    const remoteGeneration = this.remoteGeneration;
+    log("nominate selection", pair.toJSON(), { nomination: value });
+    const outcome = await this.sendNomination(
+      pair,
+      current.abort.signal,
+      value,
+    );
+    // A role change, restart or close replaced it.
+    if (this.selectionNomination !== current) return;
+    this.selectionNomination = undefined;
+    if (this.isStaleNomination(pair, remoteGeneration)) return;
+    if (outcome === "nominated") {
+      if (value !== undefined) pair.nomination = value;
+      pair.nominated = true;
+      this.checkComplete(pair);
+      return;
+    }
+    if (outcome === "role-conflict") {
+      // 487: the peer is controlling and wins; it nominates.
+      this.switchRole(false);
+      return;
+    }
+    // Not taken (an error, or no answer): the pair is not used and the next
+    // best valid pair is considered (checkComplete re-evaluates).
+    log("selection nomination failed", pair.toJSON(), outcome);
+    pair.updateState(CandidatePairState.FAILED);
+    this.checkComplete(pair);
+  }
+
+  private abortSelectionNomination() {
+    this.selectionNomination?.abort.abort();
+    this.selectionNomination = undefined;
+  }
+
+  /**
+   * After the first selection (semi-aggressive nomination, renomination):
+   * check the pairs that outrank the selected one, paced like the ordinary
+   * schedule. A pair added later that outranks it (a trickled candidate, a
+   * late relay allocation) restarts it (`addPair`).
+   */
+  private async checkOutrankingPairs() {
+    if (this.outrankingChecks) return;
+    this.outrankingChecks = true;
+    const remoteGeneration = this.remoteGeneration;
+    try {
+      for (;;) {
+        const selected = this.nominated;
+        if (
+          !selected ||
+          this.state === "closed" ||
+          this.remoteGeneration !== remoteGeneration ||
+          !this.iceControlling ||
+          !this.replacesSelection()
+        ) {
+          return;
+        }
+        const pair = this.checkList.find(
+          (pair) =>
+            (pair.state === CandidatePairState.WAITING ||
+              pair.state === CandidatePairState.FROZEN) &&
+            this.replacesWith(pair) &&
+            this.outranks(pair, selected),
+        );
+        if (!pair) return;
+        pair.handle = this.checkStart(pair);
+        await timers.setTimeout(20);
+      }
+    } finally {
+      this.outrankingChecks = false;
+    }
   }
 
   /** `IceOptions.nominationDelayMs`, or its default when unset or invalid. */
@@ -2814,11 +3115,9 @@ export class Connection implements IceConnection {
   private liveNominationHost(): NominationHost {
     return {
       active: () =>
-        this.usesRegularNomination() &&
-        !this.nominated &&
-        this.state !== "closed",
+        this.nominatesFullPeer() && !this.nominated && this.state !== "closed",
       checking: () => this.checksBegun,
-      pairs: () => this.checkList,
+      pairs: () => this.regularNominationPairs(this.checkList),
       remoteCandidatesEnd: () => this.remoteCandidatesEnd,
       localCandidatesEnd: () => this.localCandidatesEnd,
       delayMs: () => this.nominationDelayMs,
@@ -2828,6 +3127,9 @@ export class Connection implements IceConnection {
         const hint = this.nominationHint;
         if (
           !hint ||
+          // Semi-aggressive nomination and renomination may replace the
+          // selection; the hint belongs to regular nomination.
+          !this.usesRegularNomination() ||
           hint.localUsername !== this.localUsername ||
           hint.remoteUsername !== this.remoteUsername ||
           hint.remotePassword !== this.remotePassword ||
@@ -2863,13 +3165,19 @@ export class Connection implements IceConnection {
     };
   }
 
-  /** Send the USE-CANDIDATE check for a live `pair` (see `NominationOutcome`). */
+  /**
+   * Send the USE-CANDIDATE check for a live `pair` (see `NominationOutcome`),
+   * or with `nomination` the renomination check that carries that
+   * NOMINATION value instead.
+   */
   private async sendNomination(
     pair: CandidatePair,
     signal: AbortSignal,
+    nomination?: number,
   ): Promise<NominationOutcome> {
     const request = this.buildRequest({
-      nominate: true,
+      nominate: nomination === undefined,
+      nomination,
       localUsername: pair.localCandidate.ufrag ?? this.localUsername,
       remoteUsername: this.remoteUsername,
       iceControlling: this.iceControlling,
@@ -2948,6 +3256,17 @@ export class Connection implements IceConnection {
     this.checkList.push(pair);
     this.sortCheckList();
     this.nomination.pairAdded(pair, best);
+    // A pair that may replace the selection is checked after it too.
+    const selected = this.nominated;
+    if (
+      selected &&
+      this.iceControlling &&
+      this.replacesSelection() &&
+      this.replacesWith(pair) &&
+      this.outranks(pair, selected)
+    ) {
+      void this.checkOutrankingPairs();
+    }
   }
 
   // 7.2.  STUN Server Procedures
@@ -3013,11 +3332,14 @@ export class Connection implements IceConnection {
       generation: this.generation,
     });
 
+    const nomination = this.receivedNomination(message);
+    if (nomination > 0 && !this.iceControlling) {
+      // We don't un-nominate a pair: keep the larger nomination.
+      pair.remoteNomination = Math.max(pair.remoteNomination, nomination);
+    }
+
     if (this.iceLite) {
-      if (
-        message.attributesKeys.includes("USE-CANDIDATE") &&
-        !this.iceControlling
-      ) {
+      if (nomination > 0 && !this.iceControlling) {
         pair.remoteNominated = true;
         pair.nominated = true;
         pair.updateState(CandidatePairState.SUCCEEDED);
@@ -3039,10 +3361,9 @@ export class Connection implements IceConnection {
     }
 
     // 7.2.1.5. Updating the Nominated Flag
-    if (
-      message.attributesKeys.includes("USE-CANDIDATE") &&
-      !this.iceControlling
-    ) {
+    // (USE-CANDIDATE, or a NOMINATION value with renomination; a pair
+    // already selected may be replaced, see replacesSelectedPair)
+    if (nomination > 0 && !this.iceControlling) {
       pair.remoteNominated = true;
       if (pair.state === CandidatePairState.SUCCEEDED) {
         pair.nominated = true;
@@ -3051,7 +3372,15 @@ export class Connection implements IceConnection {
     }
   }
 
-  private tryPair(protocol: Protocol, remoteCandidate: Candidate) {
+  /**
+   * @param admit after a selection that may still be replaced, only pairs
+   *   that could replace it join the checklist.
+   */
+  private tryPair(
+    protocol: Protocol,
+    remoteCandidate: Candidate,
+    admit = this.admitsPair(),
+  ) {
     if (
       protocol.localCandidate?.canPairWith(remoteCandidate) &&
       !(
@@ -3072,9 +3401,19 @@ export class Connection implements IceConnection {
       ) {
         return;
       }
+      if (admit && !admit(pair)) return;
       pair.updateState(CandidatePairState.WAITING);
       this.addPair(pair);
     }
+  }
+
+  /** See `tryPair`: undefined admits every pair. */
+  private admitsPair(): ((pair: CandidatePair) => boolean) | undefined {
+    const selected = this.nominated;
+    if (!selected || !this.iceControlling || !this.replacesSelection()) {
+      return undefined;
+    }
+    return (pair) => this.replacesWith(pair) && this.outranks(pair, selected);
   }
 
   /**
@@ -3083,8 +3422,14 @@ export class Connection implements IceConnection {
    */
   private pairLocalProtocol(protocol: Protocol) {
     // RFC 8445 §8.1.2: once a pair is selected, the check list takes no more
-    // Waiting pairs, so a candidate gathered later starts no check.
-    if (this.nominated || this.checkListDone || this.state === "closed") {
+    // Waiting pairs, so a candidate gathered later starts no check. A
+    // selection that may still be replaced (semi-aggressive nomination,
+    // renomination) takes them: a late TURN/UDP allocation may outrank a
+    // TURN/TCP pair selected before it.
+    if (this.state === "closed") return;
+    const replaceable =
+      !!this.nominated && this.iceControlling && this.replacesSelection();
+    if ((this.nominated || this.checkListDone) && !replaceable) {
       return;
     }
     for (const remoteCandidate of this.remoteCandidates) {
@@ -3100,12 +3445,15 @@ export class Connection implements IceConnection {
 
   private buildRequest({
     nominate,
+    nomination,
     remoteUsername,
     localUsername,
     iceControlling,
     localCandidate,
   }: {
     nominate: boolean;
+    /** Renomination: the NOMINATION value to send (controlling only). */
+    nomination?: number;
     remoteUsername: string;
     localUsername: string;
     iceControlling: boolean;
@@ -3124,6 +3472,9 @@ export class Connection implements IceConnection {
       request.setAttribute("ICE-CONTROLLING", this.tieBreaker);
       if (nominate) {
         request.setAttribute("USE-CANDIDATE", null);
+      }
+      if (nomination !== undefined) {
+        request.setAttribute("NOMINATION", nomination);
       }
     } else {
       request.setAttribute("ICE-CONTROLLED", this.tieBreaker);

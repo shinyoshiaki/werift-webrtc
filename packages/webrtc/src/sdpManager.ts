@@ -29,6 +29,8 @@ export class SDPManager {
   readonly midSuffix: boolean;
   readonly bundlePolicy?: BundlePolicy;
   readonly mLineReuse: MLineReuse;
+  /** `PeerConfig.iceRenomination`: descriptions advertise `a=ice-options:renomination`. */
+  readonly iceRenomination: boolean;
 
   private seenMid = new Set<string>();
 
@@ -37,16 +39,19 @@ export class SDPManager {
     midSuffix,
     bundlePolicy,
     mLineReuse,
+    iceRenomination,
   }: {
     cname: string;
     midSuffix?: boolean;
     bundlePolicy?: BundlePolicy;
     mLineReuse?: MLineReuse;
+    iceRenomination?: boolean;
   }) {
     this.cname = cname;
     this.midSuffix = midSuffix ?? false;
     this.bundlePolicy = bundlePolicy;
     this.mLineReuse = mLineReuse ?? "compatible";
+    this.iceRenomination = iceRenomination ?? false;
   }
 
   get localDescription() {
@@ -212,7 +217,9 @@ export class SDPManager {
     media.iceCandidates = generation.candidates;
     media.iceCandidatesComplete = generation.complete;
     media.iceParams = generation.parameters;
-    media.iceOptions = "trickle";
+    media.iceOptions = this.iceRenomination
+      ? "trickle renomination"
+      : "trickle";
 
     media.host = DISCARD_HOST;
     media.port = DISCARD_PORT;

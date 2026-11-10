@@ -642,3 +642,32 @@ export function succeededPairs(transport: RTCIceTransport) {
     (pair) => pair.state === CandidatePairState.SUCCEEDED,
   );
 }
+
+/** The `a=ice-options` lines of `sdp`. */
+export function iceOptionLines(sdp: string) {
+  return sdp.split("\r\n").filter((line) => line.startsWith("a=ice-options:"));
+}
+
+/**
+ * Shared Arrange: two PeerConnections over loopback with their own
+ * `PeerConfig` (e.g. `iceRenomination`), connected by one offer/answer
+ * exchange. Returns the offer and answer SDP as sent and each side's ICE
+ * agent (the offerer's is controlling).
+ */
+export async function connectWithIceConfigs(
+  offererConfig: Partial<PeerConfig>,
+  answererConfig: Partial<PeerConfig>,
+) {
+  const shared: Partial<PeerConfig> = { iceServers: [], iceUseIpv6: false };
+  const offerer = new RTCPeerConnection({ ...shared, ...offererConfig });
+  const answerer = new RTCPeerConnection({ ...shared, ...answererConfig });
+  await connectPeerConnections(offerer, answerer);
+  return {
+    offerer,
+    answerer,
+    offerSdp: offerer.localDescription!.sdp,
+    answerSdp: answerer.localDescription!.sdp,
+    controlling: firstIceTransport(offerer).connection,
+    controlled: firstIceTransport(answerer).connection,
+  };
+}

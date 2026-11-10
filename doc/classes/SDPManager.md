@@ -24,6 +24,10 @@
 
 `string`
 
+###### iceRenomination?
+
+`boolean`
+
 ###### midSuffix?
 
 `boolean`
@@ -59,6 +63,14 @@
 ### currentRemoteDescription?
 
 > `optional` **currentRemoteDescription?**: [`SessionDescription`](SessionDescription.md)
+
+***
+
+### iceRenomination
+
+> `readonly` **iceRenomination**: `boolean`
+
+`PeerConfig.iceRenomination`: descriptions advertise `a=ice-options:renomination`.
 
 ***
 

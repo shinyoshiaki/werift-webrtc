@@ -23,6 +23,12 @@ export interface IceConnection {
   remotePassword: string;
   remoteUsername: string;
   remoteIsLite: boolean;
+  /**
+   * The peer advertised `a=ice-options:renomination`. With
+   * {@link IceOptions.renomination} the controlling agent then nominates with
+   * the NOMINATION attribute (see `renomination`).
+   */
+  remoteRenomination?: boolean;
   checkList: CandidatePair[];
   localCandidates: Candidate[];
   remoteCandidates: Candidate[];
@@ -143,6 +149,18 @@ export class CandidatePair implements CandidatePairStats {
   handle?: Cancelable<void>;
   nominated = false;
   remoteNominated = false;
+  /**
+   * The largest nomination the peer sent for this pair while this agent was
+   * controlled: the NOMINATION attribute's value (renomination), or 1 for
+   * USE-CANDIDATE. The controlled agent selects the nominated pair with the
+   * largest value, the higher-priority one between equal values.
+   */
+  remoteNomination = 0;
+  /**
+   * The NOMINATION value this agent (controlling, renomination) sent for the
+   * pair and the peer answered; 0 when it did not renominate the pair.
+   */
+  nomination = 0;
   // 5.7.4.  Computing States
   private _state: CandidatePairState = CandidatePairState.FROZEN;
   get state() {
@@ -328,8 +346,9 @@ export interface IceOptions {
    */
   turnConnectTimeout?: number;
   /**
-   * Milliseconds the controlling agent keeps checking before it nominates
-   * (RFC 8445 §8.1.1 regular nomination). Counted from the later of the first
+   * With `nomination: "regular"`: milliseconds the controlling agent keeps
+   * checking before it nominates (RFC 8445 §8.1.1 regular nomination). The
+   * default semi-aggressive nomination does not wait. Counted from the later of the first
    * valid pair and the last pair added that outranks the best valid pair, so
    * a higher-priority candidate trickled shortly after a lower-priority one
    * succeeded can still be selected. Once both sides signalled
@@ -339,6 +358,37 @@ export interface IceOptions {
    * falls back to the default.
    */
   nominationDelayMs?: number;
+  /**
+   * How the controlling agent nominates toward a full ICE peer when
+   * renomination is not in use (see `renomination`).
+   *
+   * - `"semi-aggressive"` (default, as libwebrtc / Chrome): a check carries
+   *   USE-CANDIDATE while no pair is selected and for every pair that
+   *   outranks the selected one. The first pair whose check succeeds is
+   *   selected at once; checks of higher-priority pairs go on, and one that
+   *   succeeds later replaces the selection. Consent checks of the selected
+   *   pair carry USE-CANDIDATE as well.
+   * - `"regular"`: RFC 8445 §8.1.1 regular nomination. Checks carry no
+   *   USE-CANDIDATE; after `nominationDelayMs` (or end-of-candidates) the
+   *   best valid pair is nominated once with a separate check and never
+   *   replaced.
+   *
+   * Toward an ICE-lite peer the first valid pair is nominated in either mode.
+   */
+  nomination?: "semi-aggressive" | "regular";
+  /**
+   * Renomination (draft-thatcher-ice-renomination, as libwebrtc implements
+   * it). When enabled the agent advertises `a=ice-options:renomination`
+   * (packages/webrtc). When the peer advertised it too, the controlling agent
+   * nominates with the NOMINATION attribute (0xC001) and an increasing value
+   * instead of USE-CANDIDATE: it nominates the first valid pair, keeps
+   * checking higher-priority pairs and renominates a better one when its
+   * check succeeds. This replaces `nomination` for that session.
+   *
+   * The controlled agent always honours the NOMINATION attribute: it selects
+   * the pair with the largest value. Defaults to false.
+   */
+  renomination?: boolean;
   /**
    * STUN servers queried while gathering, in priority order. Every IPv4 UDP
    * host socket queries each of them in parallel; equal mappings are

@@ -130,6 +130,16 @@ Whether gathering contacts a STUN or TURN server.
 
 ***
 
+### remoteRenomination?
+
+> `optional` **remoteRenomination?**: `boolean`
+
+The peer advertised `a=ice-options:renomination`. With
+[IceOptions.renomination](IceOptions.md#renomination) the controlling agent then nominates with
+the NOMINATION attribute (see `renomination`).
+
+***
+
 ### remoteUsername
 
 > **remoteUsername**: `string`

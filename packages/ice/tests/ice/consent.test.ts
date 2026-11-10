@@ -390,8 +390,8 @@ describe("ICE consent freshness (RFC 7675)", () => {
     },
   );
 
-  it("USE-CANDIDATE は controlling + remote ICE-lite + selected pair のときだけ付く", async () => {
-    // Arrange / Act / Assert: 条件を満たす場合
+  it("USE-CANDIDATE は controlling の selected pair で、相手が ICE-lite か semi-aggressive nomination のときだけ付く", async () => {
+    // Arrange / Act / Assert: remote が ICE-lite なら付く
     {
       const harness = createConsentHarness(["success"], {
         iceControlling: true,
@@ -404,11 +404,25 @@ describe("ICE consent freshness (RFC 7675)", () => {
       );
     }
 
-    // Arrange / Act / Assert: remote が full ICE なら付かない
+    // Arrange / Act / Assert: remote が full ICE でも既定の semi-aggressive nomination なら付く (libwebrtc と同じ)
     {
       const harness = createConsentHarness(["success"], {
         iceControlling: true,
         remoteIsLite: false,
+      });
+      connections.push(harness.connection);
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(harness.sentMessages[0]?.attributesKeys).toContain(
+        "USE-CANDIDATE",
+      );
+    }
+
+    // Arrange / Act / Assert: remote が full ICE で regular nomination なら付かない
+    {
+      const harness = createConsentHarness(["success"], {
+        iceControlling: true,
+        remoteIsLite: false,
+        iceOptions: { nomination: "regular" },
       });
       connections.push(harness.connection);
       await vi.advanceTimersByTimeAsync(5_000);
@@ -429,6 +443,29 @@ describe("ICE consent freshness (RFC 7675)", () => {
         "USE-CANDIDATE",
       );
     }
+  });
+
+  it("renomination では consent check が USE-CANDIDATE の代わりに selected pair の NOMINATION を運ぶ", async () => {
+    // Arrange: renomination を双方が広告し、selected pair は相手の指名で選ばれた (自分の NOMINATION なし)
+    const harness = createConsentHarness(["success", "success"], {
+      iceControlling: true,
+      remoteIsLite: false,
+      iceOptions: { renomination: true },
+      remoteRenomination: true,
+    });
+    connections.push(harness.connection);
+
+    // Act: consent check を 2 回送る
+    await vi.advanceTimersByTimeAsync(5_000);
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    // Assert: 各 consent check は USE-CANDIDATE を持たず、同じ NOMINATION の値を繰り返す
+    const [first, second] = harness.sentMessages;
+    expect(first?.attributesKeys).not.toContain("USE-CANDIDATE");
+    expect(first?.getAttributeValue("NOMINATION")).toBeGreaterThan(0);
+    expect(second?.getAttributeValue("NOMINATION")).toBe(
+      first?.getAttributeValue("NOMINATION"),
+    );
   });
 
   it("consent 関連 stats が実際の packet 数と一致する", async () => {

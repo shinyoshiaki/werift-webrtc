@@ -228,6 +228,10 @@ export function createConsentHarness(
     responseDelayMilliseconds?: number;
     protocolType?: string;
     transport?: string;
+    /** Options of the agent (e.g. `nomination`, `renomination`). */
+    iceOptions?: Partial<IceOptions>;
+    /** The peer advertised renomination. */
+    remoteRenomination?: boolean;
   } = {},
 ): ConsentHarness {
   const iceControlling = options.iceControlling ?? true;
@@ -255,10 +259,11 @@ export function createConsentHarness(
   );
   nominated.nominated = true;
 
-  const connection = new Connection(iceControlling);
+  const connection = new Connection(iceControlling, options.iceOptions);
   connection.remoteUsername = "remote";
   connection.remotePassword = "remote-password";
   connection.remoteIsLite = options.remoteIsLite ?? true;
+  connection.remoteRenomination = options.remoteRenomination ?? false;
   connection.nominated = nominated;
   connection.state = "connected";
   // Private method is reachable at runtime for consent lifecycle tests.
@@ -545,7 +550,7 @@ export function addTcpPair(harness: ReturnType<typeof createTcpCheckHarness>) {
 /** Arrange: incoming ICE connectivity check sent by the controlled peer. */
 export function createIncomingCheck(
   connection: Connection,
-  options: { useCandidate?: boolean } = {},
+  options: { useCandidate?: boolean; nomination?: number } = {},
 ) {
   const request = new Message(methods.BINDING, classes.REQUEST);
   request
@@ -556,6 +561,9 @@ export function createIncomingCheck(
     .setAttribute("PRIORITY", 1_000)
     .setAttribute("ICE-CONTROLLED", 1n);
   if (options.useCandidate) request.setAttribute("USE-CANDIDATE", null);
+  if (options.nomination !== undefined) {
+    request.setAttribute("NOMINATION", options.nomination);
+  }
   return request;
 }
 
@@ -1558,6 +1566,8 @@ export function createScriptedCheckHarness({
  * way signaling delivers them, so the agent sees each pair being added.
  */
 export function createNominationHarness({
+  nomination = "regular",
+  renomination = false,
   nominationDelayMs,
   remoteIsLite = false,
   nominationReply = () => "success",
@@ -1566,8 +1576,17 @@ export function createNominationHarness({
   forceTurn,
   honorSignal = true,
 }: {
+  /** `IceOptions.nomination`; the regular nomination cases are the default. */
+  nomination?: "regular" | "semi-aggressive";
+  /** Both agents advertise renomination (`IceOptions.renomination`). */
+  renomination?: boolean;
   nominationDelayMs?: number;
   remoteIsLite?: boolean;
+  /**
+   * The answer to a USE-CANDIDATE check. With semi-aggressive nomination
+   * ordinary checks carry USE-CANDIDATE too: pass `() => "hold"` and answer
+   * them with `release`.
+   */
   nominationReply?: (nominationIndex: number) => ScriptedReply;
   /** One local candidate (socket) per entry; undefined keeps the host default. */
   localPriorities?: (number | undefined)[];
@@ -1601,6 +1620,8 @@ export function createNominationHarness({
     (pair.protocol as ScriptedCheckProtocol).requests;
   const allRequests = () => protocols.flatMap((local) => local.requests);
   const connection = new Connection(true, {
+    nomination,
+    renomination,
     nominationDelayMs,
     forceTurn,
     ...(forceTurn
@@ -1612,6 +1633,7 @@ export function createNominationHarness({
       : {}),
   });
   connection.remoteIsLite = remoteIsLite;
+  connection.remoteRenomination = renomination;
   connection.remoteUsername = "remote";
   connection.remotePassword = "remote-password-0000000000";
   connection.localCandidatesEnd = true;
@@ -1676,6 +1698,32 @@ export function createNominationHarness({
     pendingCheck(pair)!.release("failure");
     await vi.advanceTimersByTimeAsync(0);
   };
+  /**
+   * Answer the oldest request to `pair` still in flight, whatever it
+   * carries (semi-aggressive checks carry USE-CANDIDATE, renomination
+   * checks NOMINATION).
+   */
+  const release = async (
+    pair: CandidatePair,
+    outcome: "success" | "failure" = "success",
+  ) => {
+    requestsOf(pair)
+      .find(
+        (request) =>
+          !request.done &&
+          request.addr[0] === pair.remoteAddr[0] &&
+          request.addr[1] === pair.remoteAddr[1],
+      )!
+      .release(outcome);
+    await vi.advanceTimersByTimeAsync(0);
+  };
+  /** The requests sent to `pair`, in order. */
+  const requestsTo = (pair: CandidatePair) =>
+    requestsOf(pair).filter(
+      (request) =>
+        request.addr[0] === pair.remoteAddr[0] &&
+        request.addr[1] === pair.remoteAddr[1],
+    );
   /** USE-CANDIDATE checks sent so far, with the port they were sent to. */
   const nominations = () => allRequests().filter((request) => request.nominate);
   /** Let every request still in flight time out (checks and nominations). */
@@ -1828,10 +1876,16 @@ export function createNominationHarness({
       pair.protocol,
     );
   };
-  /** The peer (now controlling) nominates `pair` with USE-CANDIDATE. */
-  const receiveNomination = (pair: CandidatePair) =>
+  /**
+   * The peer (now controlling) nominates `pair` with USE-CANDIDATE, or with
+   * a NOMINATION value (renomination).
+   */
+  const receiveNomination = (pair: CandidatePair, nomination?: number) =>
     connection.checkIncoming(
-      createIncomingCheck(connection, { useCandidate: true }),
+      createIncomingCheck(
+        connection,
+        nomination === undefined ? { useCandidate: true } : { nomination },
+      ),
       pair.remoteAddr,
       pair.protocol,
     );
@@ -1849,6 +1903,8 @@ export function createNominationHarness({
     check,
     succeed,
     fail,
+    release,
+    requestsTo,
     nominations,
     ordinaryChecks,
     stageProvisional,
@@ -1931,6 +1987,7 @@ export function ignoreRequestsOn(
  */
 export async function createMultiPathPair() {
   const options: Partial<IceOptions> = {
+    nomination: "regular",
     useIpv6: false,
     additionalHostAddresses: ["127.0.0.1"],
   };
@@ -2172,7 +2229,10 @@ export function connectionProtocols(connection: Connection) {
  */
 export async function createRelayProvisionalRestartPair() {
   const server = await createLocalTurnServer(getHostAddresses(true, false)[0]!);
-  const a = createTestConnection(true, localTurnOptions(server));
+  const a = createTestConnection(true, {
+    ...localTurnOptions(server),
+    nomination: "regular",
+  });
   const b = createTestConnection(false, { useIpv6: false });
   await Promise.all([a.gatherCandidates(), b.gatherCandidates()]);
   exchangeIceCredentials(a, b);
@@ -2694,5 +2754,86 @@ export function localTurnServerEntry(
 export function localReflexiveCandidates(connection: Connection) {
   return connection.localCandidates.filter(
     (candidate) => candidate.type === "srflx",
+  );
+}
+
+// --- semi-aggressive nomination / renomination ---
+
+/**
+ * Shared Arrange: two agents over real loopback sockets with two host paths
+ * each (a = controlling), credentials and candidates exchanged with
+ * end-of-candidates. `options` applies to both (e.g. `renomination: true`);
+ * `remoteRenomination` marks that each one saw the other advertise
+ * renomination, as the webrtc layer does from `a=ice-options`.
+ */
+export async function createSelectionPair({
+  options = {},
+  remoteRenomination = false,
+}: {
+  options?: Partial<IceOptions>;
+  remoteRenomination?: boolean;
+} = {}) {
+  const shared: Partial<IceOptions> = {
+    useIpv6: false,
+    additionalHostAddresses: ["127.0.0.1"],
+    ...options,
+  };
+  const a = createTestConnection(true, shared);
+  const b = createTestConnection(false, shared);
+  a.remoteRenomination = remoteRenomination;
+  b.remoteRenomination = remoteRenomination;
+  await inviteAccept(a, b);
+  return { a, b };
+}
+
+/** A STUN request an agent sent, as `recordSentRequests` keeps it. */
+export type SentRequest = {
+  address: Address;
+  useCandidate: boolean;
+  /** The NOMINATION value, when the request carried one. */
+  nomination?: number;
+  controlling: boolean;
+};
+
+/** Arrange: record every STUN request `connection`'s sockets send from now on. */
+export function recordSentRequests(connection: Connection) {
+  const sent: SentRequest[] = [];
+  for (const protocol of (connection as unknown as { protocols: Protocol[] })
+    .protocols) {
+    const original = protocol.request.bind(protocol);
+    protocol.request = ((
+      message: Message,
+      address: Address,
+      ...rest: unknown[]
+    ) => {
+      const keys = message.attributesKeys;
+      sent.push({
+        address,
+        useCandidate: keys.includes("USE-CANDIDATE"),
+        nomination: keys.includes("NOMINATION")
+          ? message.getAttributeValue("NOMINATION")
+          : undefined,
+        controlling: keys.includes("ICE-CONTROLLING"),
+      });
+      return (original as (...args: unknown[]) => unknown)(
+        message,
+        address,
+        ...rest,
+      );
+    }) as typeof protocol.request;
+  }
+  return sent;
+}
+
+/** The selected pairs of `a` and `b` are the same path (one 5-tuple seen from both ends). */
+export function selectSamePath(a: Connection, b: Connection) {
+  const pa = a.nominated;
+  const pb = b.nominated;
+  if (!pa || !pb) return false;
+  return (
+    pa.localCandidate.host === pb.remoteAddr[0] &&
+    pa.localCandidate.port === pb.remoteAddr[1] &&
+    pb.localCandidate.host === pa.remoteAddr[0] &&
+    pb.localCandidate.port === pa.remoteAddr[1]
   );
 }

@@ -500,6 +500,13 @@ export class RemoteMediaApplication {
           iceTransport.setRemoteParams(remoteMedia.iceParams, renomination, {
             keepLocalCredentials: remoteSdp.type !== "offer",
           });
+          // `a=ice-options:renomination` (session or media level): with
+          // `PeerConfig.iceRenomination` the controlling agent renominates.
+          iceTransport.connection.remoteRenomination = (
+            remoteMedia.iceOptions ?? ""
+          )
+            .split(/\s+/)
+            .includes("renomination");
 
           // One agent full, one lite:  The full agent MUST take the controlling role, and the lite agent MUST take the controlled role
           // RFC 8445 S6.1.1

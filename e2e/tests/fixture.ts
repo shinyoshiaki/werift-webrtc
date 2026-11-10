@@ -1116,3 +1116,67 @@ export async function decodeAudioFile(
     peak,
   };
 }
+
+/** The addresses and types of the candidate pair Chrome selected. */
+export type SelectedCandidatePairAddresses = {
+  localAddress?: string;
+  localPort?: number;
+  localCandidateType?: string;
+  remoteCandidateType?: string;
+};
+
+export async function getSelectedCandidatePairAddresses(
+  connection: RTCPeerConnection,
+): Promise<SelectedCandidatePairAddresses> {
+  const stats = await connection.getStats();
+  const statsMap = stats as unknown as Map<string, RTCStats>;
+  const pair = findSelectedCandidatePair(stats) as
+    | (RTCStats & { localCandidateId?: string; remoteCandidateId?: string })
+    | undefined;
+  if (!pair) return {};
+  const local = pair.localCandidateId
+    ? (statsMap.get(pair.localCandidateId) as
+        | (RTCStats & { address?: string; port?: number })
+        | undefined)
+    : undefined;
+  const remote = pair.remoteCandidateId
+    ? statsMap.get(pair.remoteCandidateId)
+    : undefined;
+  return {
+    localAddress: local?.address,
+    localPort: local?.port,
+    localCandidateType: readStatString(local, "candidateType"),
+    remoteCandidateType: readStatString(remote, "candidateType"),
+  };
+}
+
+/**
+ * Add `renomination` to every `a=ice-options` line of a local description
+ * before `setLocalDescription`: Chrome has no API for it
+ * (`RTCConfiguration.enable_ice_renomination` is not exposed), but it takes
+ * the option from the description it applies.
+ */
+export function advertiseRenomination(sdp: string) {
+  return sdp.replace(/^a=ice-options:(.*)$/gm, (line, options: string) =>
+    options.split(/\s+/).includes("renomination")
+      ? line
+      : `a=ice-options:${options} renomination`,
+  );
+}
+
+/**
+ * Remove the non-relay candidates (and end-of-candidates) from a remote
+ * description; returns the description and the removed candidate strings,
+ * to signal later with `addIceCandidate`.
+ */
+export function holdBackNonRelayCandidates(sdp: string) {
+  const held: string[] = [];
+  const lines = sdp.split("\r\n").filter((line) => {
+    if (line === "a=end-of-candidates") return false;
+    if (!line.startsWith("a=candidate:")) return true;
+    if (line.includes(" typ relay")) return true;
+    held.push(line.slice("a=".length));
+    return false;
+  });
+  return { sdp: lines.join("\r\n"), held };
+}

@@ -203,6 +203,10 @@ const ATTRIBUTES: ATTRIBUTE[] = [
   [0x802a, "ICE-CONTROLLING", packUnsigned64, unpackUnsigned64],
   [0x802b, "RESPONSE-ORIGIN", packAddress, unpackAddress],
   [0x802c, "OTHER-ADDRESS", packAddress, unpackAddress],
+  // draft-thatcher-ice-renomination (libwebrtc's GOOG_NOMINATION): the
+  // controlling agent nominates with an increasing value; the controlled
+  // agent selects the pair with the largest one.
+  [0xc001, "NOMINATION", packUnsigned, unpackUnsigned],
 ];
 
 export class AttributeRepository {

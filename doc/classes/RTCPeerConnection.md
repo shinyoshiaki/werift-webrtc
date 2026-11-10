@@ -1252,13 +1252,24 @@ enumerated addresses (only its `iceAdditionalHostAddresses`).
 
 Advertise local ICE lite and operate in the controlled role.
 
+##### iceNomination
+
+> **iceNomination**: `"semi-aggressive"` \| `"regular"` \| `undefined`
+
+werift extension. How the controlling ICE agent nominates toward a full
+ICE peer (`IceOptions.nomination`). `"semi-aggressive"` (default when
+undefined, as Chrome): the first pair whose check succeeds is selected at
+once and a higher-priority pair that succeeds later replaces it.
+`"regular"`: RFC 8445 regular nomination, one nomination after
+`iceNominationDelayMs`.
+
 ##### iceNominationDelayMs
 
 > **iceNominationDelayMs**: `number` \| `undefined`
 
-werift extension. Milliseconds the controlling ICE agent keeps checking
-before it nominates a candidate pair (regular nomination), so a
-higher-priority candidate trickled shortly after a lower-priority one
+werift extension. With `iceNomination: "regular"`: milliseconds the
+controlling ICE agent keeps checking before it nominates a candidate pair,
+so a higher-priority candidate trickled shortly after a lower-priority one
 succeeded can still be selected. Maps to `IceOptions.nominationDelayMs`:
 300 when undefined, 0 nominates the first valid pair at once.
 
@@ -1269,6 +1280,20 @@ succeeded can still be selected. Maps to `IceOptions.nominationDelayMs`:
 ##### icePortRange
 
 > **icePortRange**: \[`number`, `number`\] \| `undefined`
+
+##### iceRenomination
+
+> **iceRenomination**: `boolean`
+
+werift extension. Enable ICE renomination
+(draft-thatcher-ice-renomination, as libwebrtc implements it): every
+description advertises `a=ice-options:trickle renomination`. When the
+remote description advertises `renomination` too, the controlling agent
+nominates with the NOMINATION STUN attribute and an increasing value, so
+a later, better pair reliably replaces the selection on both sides
+(`IceOptions.renomination`). Chrome advertises it only when its SDP is
+modified before `setLocalDescription`; as the controlled side it honours
+the attribute regardless. Defaults to false.
 
 ##### iceServers
 

@@ -223,6 +223,8 @@ export class SecureTransportManager {
       stunGatherTimeout: this.config.iceStunGatherTimeout,
       turnConnectTimeout: this.config.iceTurnConnectTimeout,
       nominationDelayMs: this.config.iceNominationDelayMs,
+      nomination: this.config.iceNomination,
+      renomination: this.config.iceRenomination,
       turnTlsOptions: this.config.turnTlsOptions,
       turnUdpFamily: this.config.turnUdpFamily,
       useLinkLocalAddress: this.config.iceUseLinkLocalAddress,
