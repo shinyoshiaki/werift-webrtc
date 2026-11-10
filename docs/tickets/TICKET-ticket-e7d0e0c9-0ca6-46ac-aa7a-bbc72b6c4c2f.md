@@ -6,7 +6,7 @@
 - 元Issue: [#356](https://github.com/shinyoshiaki/werift-webrtc/issues/356)（tylerlong）。RingCentral（SIP over WebSocket）から届く音声Offerには `a=ssrc` がない。werift を `RTCPeerConnection` の代わりに使うと、受信RTPが `ssrcReceiver not found` で全部捨てられる。同じアプリをブラウザの `RTCPeerConnection` で動かすと正常に動く。
 - **コード上で有効な未処理ケースだと確認した**（下の「現状コードの調査結果」を参照）。元Issueの接続条件での実通信再現は未実施。
 - 報告者は werift-rtp 単体で自前実装して回避し、Issue をクローズしてよいと言っている。ただし、ブラウザ互換の挙動としては今も未対応のまま。
-- 関連: [#355](https://github.com/shinyoshiaki/werift-webrtc/issues/355)（OPEN。同じSDPにある `a=rtcp:48037`、つまり RFC 3605 のアドレスを省いた形のパース）。**現在の develop（`63b3182ab`）では `SessionDescription.parse()` が `a=rtcp:48037` で `Error("exception")` を投げることを確認した**（`src/sdp.ts` L203–209 → `ipAddressFromSdp("")`、L591–595）。#356 のSDPをそのまま `setRemoteDescription` に渡すと、ルーティングより前の段階で失敗する。
+- 関連: [#355](https://github.com/shinyoshiaki/werift-webrtc/issues/355)（OPEN。同じSDPにある `a=rtcp:48037`、つまり RFC 3605 のアドレスを省いた形のパース）。**現在の develop（`63b3182ab`）では `SessionDescription.parse()` が `a=rtcp:48037` で `Error("exception")` を投げることを確認した**（`src/sdp.ts` L203–209 → `ipAddressFromSdp("")`、L591–595）。#356 のSDPをそのまま `setRemoteDescription` に渡すと、ルーティングより前の段階で失敗する。#355 は別チケット `a2bc2644-ae08-4dfa-89eb-56e39822f72d`（ブランチ `ticket/a2bc2644-…`）で扱う。本チケットでは `sdp.ts` を変更しない（3.6 参照）。
 
 ### 問題の本質
 RFC 8843 / RFC 9143（BUNDLE）§9.2「Associating RTP/RTCP Streams with the Correct SDP Media Description」は、受信RTPと m-section の対応付けに MID ヘッダ拡張、SDPのSSRC、payload type を順に使えると定めている（実装時に RFC 9143 §9.2 の原文で順序と条件を確認すること）。ブラウザ（libwebrtc）は、SDPにSSRCがない単一ストリームでも、MID または一意な PT から受信先を決めて SSRC を学習する。werift の判定材料は **SDPのSSRC** と **RID** だけで、どちらもない従来型エンドポイント（SIPゲートウェイ、SBC、メディアサーバなど）からのRTPを配送できない。
@@ -73,11 +73,35 @@ RFC 8843 / RFC 9143（BUNDLE）§9.2「Associating RTP/RTCP Streams with the Cor
 - `RtpRouter` の TSDoc 表（router.ts L67–74）に「パケットから学習した SSRC → receiver（MID / SSRC-less fallback）」の行を追加する。pending 中の学習、rollback での保持、SDP 登録時の上書きについても記載する（`packages/webrtc/AGENTS.md` Do 6: 規則は実装の TSDoc とテストに書く）。
 - `changelog.md` に挙動変更（SSRCがない SDP で受信できるようになったこと）を追記する。
 
-### 3.6 #355 への依存
-- #356 の SDP fixture をそのまま `setRemoteDescription` に使うには #355（`a=rtcp:<port>` のパース）の修正が先に必要。方針は次のどちらか。
-  - (a) #355 を先に、または同じ PR で修正する（`ipAddressFromSdp` がアドレス省略形を許容し、`rtcpHost` を undefined にする。RFC 3605）。
-  - (b) 本チケットでは `a=rtcp:48037` を除いた fixture で検証し、#355 の修正後に元の SDP のテストを有効化する。
-- どちらを選んでも、「#355 のパース後の入力でも学習・配送される」ことを確認するテストを、最終的にどちらかのチケットに残す。
+### 3.6 #355 との分担（決定: 案 (b)。本チケットでは #355 を修正しない）
+
+**決定:** 本チケットの PR では `packages/webrtc/src/sdp.ts` を変更しない。#356 の RingCentral SDP は、**`a=rtcp:48037` の 1 行だけを除いた形** で回帰テストに使う。元の SDP（`a=rtcp:48037` を含む）を使う統合テストは、**2 つのチケットのうち後から develop に入る PR** が有効にする（下の「合流ルール」）。
+
+**理由:**
+1. **#355 は独立したチケットで、すでに詳細化が進んでいる。** 別チケット `a2bc2644`（`origin/ticket/a2bc2644-…`。2026-11-11 時点で docs コミットのみ、PR は未作成）の範囲は次のとおりで、本チケットの範囲（RTP ルーティング）とは性質が違う。
+   - ポートの検証（不正な値をエラーにする）
+   - `a=rtcp` / `a=rtcp-mux` のシリアライズの変更
+   - 拒否 m-line の出力互換（案 A / B の選択）
+   - `npm run doc` と changelog の更新
+   同じ PR に混ぜると、SDP 出力の互換性確認（negotiation-diff、E2E）が本チケットのレビューにも必要になる。さらに、並行して進むブランチと `sdp.ts` で競合する。
+2. **#355 のテストは #355 側が持っている。** #355 チケットにはすでに「`tests/issue/355.test.ts` で #356 の RingCentral offer を `SessionDescription.parse` しても例外にならない」と「#356 の RingCentral SDP を `setRemoteDescription()` できる」が回帰テストと完了条件として入っている。案 (a) にすると同じ検証を二重に持つことになる。
+3. **`a=rtcp:48037` を除いても本チケットの検証対象は変わらない。** werift は `rtcpPort` / `rtcpHost` を受信処理で参照していない（参照は `sdpManager.ts` L102–103 の書き込みだけ）。また RingCentral SDP には `a=rtcp-mux` があり、RTCP は RTP と同じ transport に多重化される。そのため、この 1 行の有無は SSRC 学習・配送の挙動に影響しない。
+4. **除いた形で本チケットの経路が通ることは確認済み**（develop `63b3182ab`、一時スクリプトで確認）。
+   - 元の SDP: `setRemoteDescription` が `exception` で失敗する。
+   - `a=rtcp:48037` だけを除いた SDP:
+     - `setRemoteDescription` → `createAnswer` → `setLocalDescription` が成功する。
+     - `ontrack` が 1 回、`track.ssrc === undefined`（既定 track）で発火する。
+     - transceiver は `currentDirection: "recvonly"` になる。
+     - 受信 codec は PT 109（OPUS）と PT 0（PCMU）になる。
+
+**本チケットでの実装（テスト用）:**
+- RingCentral SDP は **元の文字列のまま** fixture に置く（例: `packages/webrtc/tests/issue/356.fixture.ts`、または 356 テストの共有 Arrange ユーティリティ内）。`a=rtcp:48037` の除去は、fixture とは別のヘルパー（例: `withoutAddresslessRtcp(sdp)`。`^a=rtcp:\d+\r\n` に一致する行だけを消す）で行い、#355 へのリンクを日本語コメントで書く。fixture 自体を書き換えないので、後で元の SDP に戻すときはヘルパーの呼び出しを外すだけで済む。
+- 本チケットでは `changelog.md` に #356（SSRC-less 受信）の項目だけを書く。#355 の項目は書かない。
+
+**合流ルール（元の SDP での統合テストをどちらが有効にするか）:**
+- **本チケットの PR をマージする時点で、develop に #355 の修正が入っている場合:** 本 PR で develop を取り込み、ヘルパーの呼び出しを外して、元の SDP のまま 356 の統合テストを通す。この場合、「#355 修正後の入力での学習・配送」は本チケットの完了条件として満たす。
+- **本チケットが先に develop に入る場合:** 本 PR はヘルパー付きでマージする。#355 の PR が develop を取り込むときに `tests/issue/356.test.ts` のヘルパー呼び出しを外し、元の SDP で学習・配送まで通ることを #355 側で確認する。そのための作業項目を #355 チケット（`a2bc2644`）にも 1 行追加するよう依頼する（本チケットの作業として、#355 チケットの担当へ伝える）。
+- どちらの場合も、ヘルパーを残したまま両方が develop に入る状態にはしない。後から入る PR のレビューで、ヘルパーが残っていないことを確認する。
 
 ---
 
@@ -111,7 +135,11 @@ RFC 8843 / RFC 9143（BUNDLE）§9.2「Associating RTP/RTCP Streams with the Cor
 - [ ] 既存テスト（`routeRtp`、simulcast 学習、`SDP registration clears the learned mark of an SSRC` など）がそのまま通る。
 
 ### PeerConnection レベル（`tests/issue/356.test.ts`）
-- [ ] #356 の RingCentral Offer を remote offer にして answer を作り、受信 `dtlsTransport.onRtp` に RTP を流す（ICE 接続なしで router の結線まで検証する）。`ontrack` の track に配送されることを確認する。#355 の扱いは 3.6 に従う。
+- [ ] #356 の RingCentral Offer（`withoutAddresslessRtcp` で `a=rtcp:48037` だけを除いたもの。3.6）を remote offer にして answer を作り、受信 `dtlsTransport.onRtp` に RTP を流す（ICE 接続なしで router の結線まで検証する）。
+  - 流す RTP: 受信 codec 表にある PT 109（OPUS）または PT 0（PCMU）。MID / RID 拡張なし、任意の SSRC。
+  - 確認すること: `ontrack` で受け取った track（`ssrc === undefined` だった既定 track）に、初回パケットから届く。
+  - 確認すること: 受信 codec 表にない PT（例: 111、63）のパケットからは学習しない。
+- [ ] 同じテストで、fixture は元の文字列のまま持ち、除去はヘルパーだけで行っている（後から元の SDP に切り替えられることの担保）。
 - [ ] werift 同士で、送信側 SDP から `a=ssrc*` と MID の extmap を除去した状態で実際にメディアを流し、受信側の `ontrack` track にRTPが届く。可能なら BUNDLE の audio+video で、PT が重なる / 重ならない両方のケースを試す。
 - [ ] 学習後の remote SR が receiver に届く。受信統計（`getStats` の inbound-rtp）にその SSRC が出る。
 
@@ -142,5 +170,9 @@ develop との比較が必要なら、一時 worktree（`git worktree add --deta
 - [ ] 候補が曖昧な場合、別 transport・RTX・未知 PT の場合は学習せずに drop し、drop 理由をログで区別できる。
 - [ ] fallback で学習する SSRC は receiver ごとに上限があり、置き換え・SDP 上書き・rollback・transceiver 停止のときの規則が `RtpRouter` の TSDoc とテストに書かれている。
 - [ ] 既存の SSRC / RID / simulcast / RTX / PT 不一致 / SSRC 切替の経路に回帰がない（`npm test` と `npm run pbt:deep` が通る）。
-- [ ] #356 の SDP fixture による回帰テストがある（#355 の修正後の入力を含む。3.6 のとおり、どちらのチケットで有効化するかを明記する）。
-- [ ] `changelog.md` を更新している。
+- [ ] #356 の RingCentral SDP fixture（元の文字列のまま保持し、`a=rtcp:48037` の除去はヘルパーで行う）を使い、学習・配送まで確認する回帰テスト `tests/issue/356.test.ts` がある。
+- [ ] 本 PR で `packages/webrtc/src/sdp.ts` を変更していない（#355 はチケット `a2bc2644` の範囲）。
+- [ ] 3.6 の合流ルールに従っている。
+  - マージ時点で develop に #355 の修正が入っていれば、ヘルパーを外し、元の SDP のまま統合テストが通っている。
+  - 入っていなければ、#355 チケットに「`tests/issue/356.test.ts` のヘルパー呼び出しを外し、元の SDP で学習・配送を確認する」作業項目が追加されている。
+- [ ] `changelog.md` に #356 の項目を追記している（#355 の項目は書かない）。
