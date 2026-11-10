@@ -51,7 +51,12 @@ rtcp-attribute = "a=rtcp:" port [nettype space addrtype space connection-address
 - 省略時の `rtcpHost` は `undefined` のまま保持する。継承した値で埋めるとシリアライズ時に省略形式を保持できなくなるため、継承値は書き込まない。
 - 有効アドレスは「`rtcpHost ?? media.host ?? session.host`」で解決できる。werift の内部では `rtcpHost` を参照していない（grep の結果、参照は `sdpManager.ts` L102 の書き込みだけ）。そのため**新しい公開 getter は必須ではない**。追加する場合は `SessionDescription` 側に置くヘルパー（session.host が必要なため）とし、TSDoc で RFC 3605 の継承規則を説明する。追加するかどうかは実装時に判断し、追加した場合は `npm run doc` と changelog の更新を伴う。
 
-### 2.4 `MediaDescription` の TSDoc
+### 2.4 拒否・停止 m-line の `rtcpMux` を削除（4.1 で決定）
+
+- `createRejectedMediaDescription()`（`sdpManager.ts` L162）の `media.rtcpMux = true;` を削除する。2.2 を適用した後も、拒否・停止 m-line（port 0）の出力に `a=rtcp-mux` が現れないようにするため。
+- 同じ関数の TSDoc に 1 行足す。内容は「拒否 m-line は RTP/RTCP を流さないので `a=rtcp` / `a=rtcp-mux` を載せない。#705 以降の出力形式を保つ」。
+
+### 2.5 `MediaDescription` の TSDoc
 
 - `rtcpPort` / `rtcpHost` / `rtcpMux` に、`rtcpHost` が `undefined` のときは `c=` を継承する（RFC 3605）ことと、`rtcpMux` が `a=rtcp` と独立していることを TSDoc で書く。生成ドキュメント `doc/classes/MediaDescription.md` は `npm run doc` で再生成する。
 
@@ -64,7 +69,7 @@ rtcp-attribute = "a=rtcp:" port [nettype space addrtype space connection-address
 | `packages/webrtc/src/sdp.ts` L591–595 `ipAddressFromSdp` | `throw new Error("exception")` | `c=` 用なので挙動は維持する（メッセージ改善は任意） |
 | `packages/webrtc/src/sdp.ts` L597–600 `ipAddressToSdp` | `isIPv4` 以外はすべて `IP6` | `a=rtcp` でも再利用する（FQDN の扱いは 4.3） |
 | `packages/webrtc/src/sdpManager.ts` L102–104 | RTP m-section は常に `rtcpHost="0.0.0.0"`、`rtcpPort=9`、`rtcpMux=true` | 変更不要（出力は同じ） |
-| `packages/webrtc/src/sdpManager.ts` L139–169 `createRejectedMediaDescription` | `rtcpMux = true` だが `rtcpPort` が未設定なので、**今は `a=rtcp-mux` が出ていない** | 2.2 を適用すると拒否 m-line に `a=rtcp-mux` が出るようになる（4.1 参照） |
+| `packages/webrtc/src/sdpManager.ts` L139–169 `createRejectedMediaDescription` | `rtcpMux = true` だが `rtcpPort` が未設定なので、**今は `a=rtcp-mux` が出ていない** | L162 の `media.rtcpMux = true;` を削除し、出力を今と同じに保つ（4.1、決定済み） |
 | `createMediaDescriptionForSctp` | `rtcpMux` 未設定（false） | 影響なし |
 
 - `divide()`（`helper.ts`）は `split` 後に残りを join するだけなので、トークンを厳密に検証するには `value.split(" ")` で直接扱う方が素直。連続した空白や末尾の空白は、RFC 4566 の文法では単一の SP なのでエラー扱いでよい。ただし実機の SDP で問題が出るなら、`trim` してから分割することも検討する。
@@ -72,14 +77,25 @@ rtcp-attribute = "a=rtcp:" port [nettype space addrtype space connection-address
 
 ## 4. 制約・注意点
 
-### 4.1 werift が生成する SDP の変化（要判断）
+### 4.1 werift が生成する SDP の変化 → **決定: 案 A（拒否 m-line の `rtcpMux = true` を削除し、生成 SDP をバイト単位で今と同じに保つ）**
 
-`a=rtcp-mux` を独立して出力すると、`createRejectedMediaDescription()` が作る拒否・停止 m-line（port 0）に新しく `a=rtcp-mux` が付く。これは negotiation のテスト、`tools/negotiation-diff`（develop との比較で差分 0 が契約）、スナップショット系テストに影響しうる。次のどちらかを選び、理由を TSDoc かコミットメッセージに残す。
+`a=rtcp-mux` を独立して出力すると、`createRejectedMediaDescription()` が作る拒否・停止 m-line（port 0）に新しく `a=rtcp-mux` が付いてしまう。検討した 2 案は次のとおり。
 
-- **案 A（推奨）**: `createRejectedMediaDescription()` の `media.rtcpMux = true` を削除し、werift が生成する SDP をバイト単位で今と同じに保つ。拒否 m-line には rtcp-mux は意味がない。JSEP（RFC 8829 §5.3.1）は拒否 m-section に必要最小限の属性しか要求していない。
-- 案 B: 拒否 m-line にも `a=rtcp-mux` を出す。この場合は影響するテストと negotiation-diff を更新し、ブラウザとの相互接続を E2E で確認する。
+- **案 A（採用）**: `media.rtcpMux = true` を削除し、生成 SDP を今と同じに保つ。
+- 案 B（不採用）: 拒否 m-line にも `a=rtcp-mux` を出す。negotiation テスト・negotiation-diff の更新と、E2E での相互接続確認が必要になる。
 
-どちらの案でも、BUNDLE / ICE / rtcp-mux を前提とした既存の接続（`rtcpMuxPolicy: "require"`）の挙動は変えない。
+案 A を選んだ根拠（コードで確認済み）:
+
+1. **`rtcpMux` を読むコードがない。** `packages/` 全体を grep すると、`.rtcpMux` が出てくるのは書き込み 2 か所（`sdpManager.ts` L104 と L162）、パース（`sdp.ts` L211）、シリアライズ（`sdp.ts` L504）だけだった。拒否 m-line の `rtcpMux = true` は出力にしか効かず、削除しても挙動は変わらない。
+2. **今の出力形式は実機で確認済み。** `rtcpMux = true` は #705 対応（`816195b7c` 非対応 RTP m-line を Answer 側で reject し、停止済み位置を再利用する）で入った。このとき `rtcpPort` を設定していないので、拒否 m-line に `a=rtcp-mux` は**一度も出力されたことがない**。Chrome との reuse / removeTrack E2E（`e2e/tests/mediachannel/reuse.test.ts` など）も、`a=rtcp-mux` なしの形で通っている。案 B はこの出力を変えるので、相互接続をもう一度確かめる必要が出るが、得るものがない。
+3. **拒否 m-line は RTP/RTCP を流さない**（port 0、RFC 3264 §6）。RTCP を多重化するかどうかを宣言する意味がない。BUNDLE / rtcp-mux の扱いは、生きている m-line の `a=rtcp:9 IN IP4 0.0.0.0` + `a=rtcp-mux`（L102–104、変更なし）で決まる。
+4. **このチケットの目的は SDP の「パース・再シリアライズの忠実性」だけ。** 生成 SDP の形式を変える案 B はスコープ外の挙動変更になる。
+
+案 A を選んだ場合の影響範囲:
+
+- **werift が生成する SDP**（offer / answer / 拒否 m-line / SCTP m-line）は develop とバイト単位で同じ。`rtcpMuxPolicy: "require"` を前提とした BUNDLE / ICE の接続挙動も変わらない。
+- **変わるのは、パースしてから再シリアライズする SDP だけ。** 具体的には `remoteDescription.sdp` と、ユーザーが文字列で渡した `setLocalDescription()` の SDP。ここでは入力にあった `a=rtcp-mux` と `a=rtcp:<port>` が残るようになる。たとえば Chrome の拒否 m-line に `a=rtcp-mux` があれば、remote 側の表示に残る。これは入力に忠実になるという改善で、回帰ではない。
+- negotiation の不変条件、`tools/negotiation-diff` の再利用契約、PBT の generator / wireMutations には手を入れない。
 
 ### 4.2 パースを厳しくすることによる後方互換
 
@@ -116,7 +132,13 @@ rtcp-attribute = "a=rtcp:" port [nettype space addrtype space connection-address
 既存テスト:
 
 - [ ] `tests/issue/141.test.ts`、`142.test.ts`、`tests/integrate/peerConnection.test.ts`（`a=rtcp:10101 IN IP4 203.0.113.100` など）が変更なしで通る。
-- [ ] 案 A を選んだ場合、werift が生成する offer/answer の SDP 文字列が develop と一致する（negotiation-diff の差分 0）。
+- [ ] `tests/issue/705.test.ts` / `705-reuse.test.ts`（拒否・停止 m-line）が変更なしで通る。
+
+案 A の出力互換を固定するテスト（`tests/issue/705.test.ts` の既存ケースに Assert を追加する）:
+
+- [ ] Answer 側で非対応 RTP m-line を reject したとき、拒否 m-section（port 0）に `a=rtcp-mux` と `a=rtcp:` が含まれない。
+- [ ] `stop()` した transceiver が次の offer で port 0 になったとき、その m-section に `a=rtcp-mux` と `a=rtcp:` が含まれない。
+- [ ] 同じ SDP 内の生きている RTP m-section には、`a=rtcp:9 IN IP4 0.0.0.0` と `a=rtcp-mux` が今までどおり含まれる。
 
 ## 6. 検証コマンド
 
@@ -128,7 +150,8 @@ npm test
 ```
 
 - 公開 API や TSDoc を変えた場合は、ルートで `npm run type`、`npm run test:small`、`npm run doc` も実行する。
-- 生成 SDP を変える案 B を選んだ場合は、`npm run pbt:deep` と `tools/negotiation-diff`（一時 worktree で develop と比較）、関連する `npm run e2e` も実行する。
+- 4.1 で案 A に決めたので、生成 SDP は変わらない。`npm run pbt:deep`、`npm run e2e`、negotiation-diff の再利用契約の更新は**必須ではない**。`npm test` にはパッケージの negotiation テストと PBT の固定シーンが含まれるので、これで生成形式の回帰を検出できる。
+- 任意: 生成 SDP が変わっていないことを裏付けたい場合は、`tools/negotiation-diff`（`run.ts` 冒頭の手順、一時 worktree で develop と比較）を `--check` 付きで実行し、差分 0 を確認する。
 - 最後に `npm run format` を実行する。
 
 ## 7. 完了条件
@@ -138,5 +161,6 @@ npm test
 - [ ] `a=rtcp-mux` の出力が `a=rtcp` の有無に依存しない。
 - [ ] malformed な port、アドレス、余分なトークンが、行の内容を含むパースエラーになる。
 - [ ] #356 の RingCentral SDP を `setRemoteDescription()` できる。
-- [ ] werift が生成する SDP の変化について、4.1 の方針を決めて記録し、既存の negotiation・統合テストがすべて通る。
+- [ ] 拒否・停止 m-line の `rtcpMux = true` を削除し（4.1 案 A）、werift が生成する SDP が develop と同じであることをテストで固定する。拒否 m-section に `a=rtcp-mux` / `a=rtcp:` が出ず、生きている RTP m-section には今までどおり出ることを確認する。
+- [ ] 既存の negotiation・統合・#705 テストが、期待値を変えずにすべて通る。
 - [ ] TSDoc、`doc/`、`changelog.md` を更新する（公開 API に変更がある場合）。
