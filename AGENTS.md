@@ -26,6 +26,8 @@ Rules that apply to one package or directory belong in the nearest `AGENTS.md`.
 10. Generated docs (`doc/`, `packages/*/doc`): resolve conflicts by regenerating with `npm run doc` from the final source, not by merging text. After a merge, check that public APIs match the generated docs, READMEs, and `changelog.md`.
 11. When code and docs disagree, decide the correct behavior from history, requirements, specs, and compatibility, then fix the side that is wrong.
 
+12. GitHub Pages is deployed by `.github/workflows/pages.yml` (Settings > Pages > Source = "GitHub Actions"). It never checks out submodules and publishes only `website/build`, `doc`, and `examples/**/*.html`. Keep `third_party/wpt` out of the artifact, and keep `/website/build/` and `/examples/...` URLs working because README links use them.
+
 ## Don't
 
 * Don't reintroduce third-party TypeScript runners such as `tsx`. Run TypeScript with `node --import <rel>/tools/node-ts/register.mjs` (Node.js type stripping, Node.js 22.18+, see `devEngines`). Node.js 26 removed the TypeScript transform mode, so don't add transform flags or loaders back and keep sources erasable: no `enum` (use an `as const` object plus a same-name union type tagged `@enum`) and no parameter properties. `erasableSyntaxOnly` in each tsconfig enforces this.
