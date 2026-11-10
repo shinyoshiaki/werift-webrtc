@@ -1377,6 +1377,18 @@ export class RTCPeerConnection extends EventTarget {
             .find((t) => t.mid === media.rtp.muxId && !t.stopped);
           transceiver?.commitStopped({ rejected: true });
         }
+        // A local answer rejecting m=application (RFC 8841 section 10.4)
+        // closes the association an earlier pranswer started, without
+        // waiting for the remote ABORT. One the baseline negotiated keeps
+        // running.
+        if (
+          !this.negotiation.baselineNegotiatedSctp &&
+          description.media.some(
+            (media) => media.kind === "application" && media.port === 0,
+          )
+        ) {
+          await this.sctpManager.rejectApplication();
+        }
       }
 
       // for trickle ice
@@ -1727,7 +1739,7 @@ export class RTCPeerConnection extends EventTarget {
           await this.commitIceRestartIfAnyStaged();
           this.assertOpenAfterYield();
         }
-        for (const update of transportUpdates) update();
+        for (const update of transportUpdates) await update();
         for (const iceTransport of new Set(endOfCandidates)) {
           iceTransport.deliverRemoteCandidate(undefined);
         }

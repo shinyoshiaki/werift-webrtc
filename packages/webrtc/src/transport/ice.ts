@@ -164,6 +164,7 @@ export class RTCIceTransport {
   readonly component = "rtp";
   iceRestarts = 0;
   private waitStart?: Event<[]>;
+  private startPromise?: Promise<void>;
   /**
    * Connectivity checks were started for the current generation. A restart
    * resets it; the state alone cannot tell (an agent that finished gathering
@@ -744,6 +745,7 @@ export class RTCIceTransport {
     this.connection.restartRemote();
     this.setState("new");
     this.waitStart = undefined;
+    this.startPromise = undefined;
     this.checksStarted = false;
   }
 
@@ -757,6 +759,7 @@ export class RTCIceTransport {
     // SecureTransportManager aggregate iceGatheringState stays in sync.
     this.iceGather.setGatheringState("new");
     this.waitStart = undefined;
+    this.startPromise = undefined;
     this.checksStarted = false;
     if (notifyNegotiation) this.onNegotiationNeeded.execute();
   }
@@ -769,35 +772,35 @@ export class RTCIceTransport {
       throw new Error("remoteParams missing");
     }
 
-    // Serialize concurrent start() calls (e.g. one connect() per
-    // re-negotiation).  Several callers can wake up from the same wait, so
-    // re-check until no other start owns the slot, and release only the
-    // event this call installed.
-    while (this.waitStart) {
-      await this.waitStart.asPromise();
-    }
+    // Concurrent callers for the same generation share the active checks and
+    // their result. Waiting for the event and then continuing would start a
+    // second connection attempt after the first one settles.
+    if (this.startPromise) return this.startPromise;
     const waitStart = new Event<[]>();
     this.waitStart = waitStart;
     this.checksStarted = true;
 
     const iceRestartsAtStart = this.iceRestarts;
     this.setState("checking");
-
-    try {
-      await this.connection.connect();
-    } catch (error) {
-      if (this.iceRestarts === iceRestartsAtStart) {
-        this.setState("failed");
-      }
-      throw error;
-    } finally {
-      // A failed start releases its waiters too.
-      if (!waitStart.ended) {
-        waitStart.execute();
-        waitStart.complete();
-      }
-      if (this.waitStart === waitStart) this.waitStart = undefined;
-    }
+    const startPromise = Promise.resolve()
+      .then(() => this.connection.connect())
+      .catch((error) => {
+        if (this.iceRestarts === iceRestartsAtStart) {
+          this.setState("failed");
+        }
+        throw error;
+      })
+      .finally(() => {
+        // A failed start releases its waiters too.
+        if (!waitStart.ended) {
+          waitStart.execute();
+          waitStart.complete();
+        }
+        if (this.waitStart === waitStart) this.waitStart = undefined;
+        if (this.startPromise === startPromise) this.startPromise = undefined;
+      });
+    this.startPromise = startPromise;
+    return startPromise;
   }
 
   /**
