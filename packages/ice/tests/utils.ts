@@ -22,11 +22,16 @@ import {
   type IceOptions,
   normalizeIceServerOptions,
 } from "../src/iceBase";
+import type { AttributeKey } from "../src/stun/attributes";
 import { classes, methods } from "../src/stun/const";
 import { Message, parseMessage } from "../src/stun/message";
 import { StunProtocol } from "../src/stun/protocol";
 import { splitTurnTcpFrames } from "../src/turn/frame";
-import type { StunOverTurnProtocol } from "../src/turn/protocol";
+import {
+  makeIntegrityKey,
+  type StunOverTurnProtocol,
+  TurnProtocol,
+} from "../src/turn/protocol";
 import type { Protocol, TransactionRequestOptions } from "../src/types/model";
 import { getHostAddresses } from "../src/utils";
 
@@ -383,6 +388,10 @@ export async function createLocalTurnServer(
   options: {
     tls?: boolean;
     credentials?: Record<string, string>;
+    /** Seconds a NONCE stays valid; the server default otherwise. */
+    nonceLifetime?: number;
+    /** Clock of the server in milliseconds, to expire nonces without waiting. */
+    now?: () => number;
   } = {},
 ) {
   const credentials = options.credentials ?? {
@@ -402,6 +411,8 @@ export async function createLocalTurnServer(
     realm: "werift.local",
     software: "werift-ice-server/test",
     tls: options.tls ? getLocalTurnServerTlsOptions() : undefined,
+    nonceLifetime: options.nonceLifetime,
+    now: options.now,
   });
   await server.listen();
   return Object.assign(server, { authenticatedUsernames });
@@ -2288,6 +2299,280 @@ export function addClosingProtocol(
   });
 }
 
+// --- TURN long-term credentials (RFC 8489 §9.2) ---
+
+export const TURN_TEST_REALM = "test.local";
+
+/** Integrity key of the TURN test user in `realm`. */
+export function turnTestIntegrityKey(realm = TURN_TEST_REALM) {
+  return makeIntegrityKey(TURN_TEST_USERNAME, realm, TURN_TEST_PASSWORD);
+}
+
+/** How a long-term credential error response is built. */
+export interface TurnErrorResponseOptions {
+  realm?: string;
+  nonce?: Buffer;
+  /** Signs the response (MESSAGE-INTEGRITY + FINGERPRINT) with this key. */
+  signWith?: Buffer;
+  /** Answer a different transaction than the request's. */
+  transactionId?: Buffer;
+  /** Extra attributes, e.g. PASSWORD-ALGORITHMS. */
+  attributes?: [AttributeKey, unknown][];
+}
+
+/**
+ * Wire bytes of an error response a TURN server would send for `request`.
+ * Without `signWith` it is unsigned, like the 401/438 of werift's own TURN
+ * server and Cloudflare.
+ */
+export function createTurnErrorResponse(
+  request: Message,
+  errorCode: number,
+  {
+    realm,
+    nonce,
+    signWith,
+    transactionId,
+    attributes = [],
+  }: TurnErrorResponseOptions = {},
+) {
+  const response = new Message(
+    request.messageMethod,
+    classes.ERROR,
+    transactionId ?? request.transactionId,
+  ).setAttribute("ERROR-CODE", [errorCode, `error ${errorCode}`]);
+  if (realm !== undefined) response.setAttribute("REALM", realm);
+  if (nonce !== undefined) response.setAttribute("NONCE", nonce);
+  for (const [key, value] of attributes) response.setAttribute(key, value);
+  if (signWith) response.addMessageIntegrity(signWith).addFingerprint();
+  return response.bytes;
+}
+
+/** Wire bytes of a success response to `request` signed with `key`. */
+export function createSignedTurnSuccessResponse(request: Message, key: Buffer) {
+  return createTurnSuccessResponse(request)
+    .addMessageIntegrity(key)
+    .addFingerprint().bytes;
+}
+
+/** What the scripted TURN server sends back for one request. */
+export type TurnScriptedReply =
+  | Buffer
+  | { bytes: Buffer; from: Address }
+  | undefined;
+
+/** One request the scripted TURN server received. */
+export interface TurnScriptedRequest {
+  message: Message;
+  /** Wire bytes, to verify MESSAGE-INTEGRITY as the server would. */
+  bytes: Buffer;
+}
+
+/**
+ * Shared Arrange: a TurnProtocol over a scripted UDP or TCP transport that
+ * never touches the network. Every request is recorded and passed to
+ * `answer` (settable), whose reply is delivered from the server address as
+ * the next macrotask. With `authenticated`, the protocol already holds the
+ * realm, nonce and integrity key of a successful Allocate.
+ */
+export function createTurnCredentialHarness({
+  transport: type = "udp",
+  authenticated = true,
+}: {
+  transport?: "udp" | "tcp";
+  authenticated?: boolean;
+} = {}) {
+  const server: Address = ["127.0.0.1", 3478];
+  const requests: TurnScriptedRequest[] = [];
+  const harness = {
+    server,
+    requests,
+    nonce: Buffer.from("nonce-1"),
+    /** Reply to the `index`-th request (retransmissions included). */
+    answer: (_request: Message, _index: number): TurnScriptedReply => undefined,
+    turn: undefined as unknown as TurnProtocol,
+    /** Requests of `method`, retransmissions included. */
+    requestsOf: (method: methods) =>
+      requests.filter((request) => request.message.messageMethod === method),
+  };
+  const transport: Transport = {
+    type,
+    closed: false,
+    onData: () => {},
+    address: { address: "127.0.0.1", port: 50000, family: "IPv4" },
+    remoteAddress: type === "tcp" ? server : undefined,
+    send: async (data: Buffer) => {
+      const message = parseMessage(data);
+      if (!message) return;
+      requests.push({ message, bytes: data });
+      if (message.messageClass !== classes.REQUEST) return;
+      const reply = harness.answer(message, requests.length - 1);
+      if (!reply) return;
+      const { bytes, from } = Buffer.isBuffer(reply)
+        ? { bytes: reply, from: server }
+        : reply;
+      setImmediate(() => transport.onData(bytes, from));
+    },
+    close: async () => {},
+  };
+  const turn = new TurnProtocol(
+    server,
+    TURN_TEST_USERNAME,
+    TURN_TEST_PASSWORD,
+    600,
+    transport,
+  );
+  (turn as unknown as { attachTransport: () => void }).attachTransport();
+  turn.relayedAddress = ["198.51.100.1", 50000];
+  turn.mappedAddress = ["198.51.100.2", 40000];
+  if (authenticated) {
+    turn.realm = TURN_TEST_REALM;
+    turn.nonce = harness.nonce;
+    turn.integrityKey = turnTestIntegrityKey();
+  }
+  harness.turn = turn;
+  return harness;
+}
+
+/** Allocation-wide long-term credential state of a TurnProtocol. */
+export function turnCredentialState(turn: TurnProtocol) {
+  return {
+    realm: turn.realm,
+    nonce: turn.nonce,
+    integrityKey: turn.integrityKey,
+  };
+}
+
+/** Milliseconds `promise` took to settle, with its outcome. */
+export async function timeSettle<T>(promise: Promise<T>) {
+  const started = performance.now();
+  const result = await promise.then(
+    (value) => ({ value, error: undefined }),
+    (error: unknown) => ({ value: undefined, error }),
+  );
+  return { ...result, elapsedMs: performance.now() - started };
+}
+
+/**
+ * Shared Arrange: two relay-only connections on one werift TURN server over
+ * `transport`, with a nominated relay pair. `advanceServerClock` moves only
+ * the server's clock (to expire its nonces), and `credentials` is the live
+ * table the server looks passwords up in (delete a user to revoke it).
+ */
+export async function createRelayPairOnLocalTurnServer(
+  transport: "udp" | "tcp" | "tls",
+  { nonceLifetime }: { nonceLifetime?: number } = {},
+) {
+  let clockOffsetMs = 0;
+  const credentials: Record<string, string> = {
+    [TURN_TEST_USERNAME]: TURN_TEST_PASSWORD,
+  };
+  const server = await createLocalTurnServer(
+    getHostAddresses(true, false)[0]!,
+    {
+      tls: transport === "tls",
+      credentials,
+      nonceLifetime,
+      now: () => Date.now() + clockOffsetMs,
+    },
+  );
+  const options = {
+    ...localTurnOptions(server),
+    turnServer: transport === "tls" ? server.tlsAddress! : server.address!,
+    turnTransport: transport,
+    turnTlsOptions:
+      transport === "tls" ? getLocalTurnClientTlsOptions() : undefined,
+  };
+  const a = createTestConnection(true, options);
+  const b = createTestConnection(false, options);
+  const close = async () => {
+    await Promise.allSettled([a.close(), b.close()]);
+    await server.close();
+  };
+  try {
+    await Promise.all([a.gatherCandidates(), b.gatherCandidates()]);
+    exchangeIceCredentials(a, b);
+    await deliverLocalCandidates(a, b, { endOfCandidates: true });
+    await deliverLocalCandidates(b, a, { endOfCandidates: true });
+    await Promise.all([a.connect(), b.connect()]);
+  } catch (error) {
+    await close();
+    throw error;
+  }
+  return {
+    a,
+    b,
+    credentials,
+    advanceServerClock: (ms: number) => {
+      clockOffsetMs += ms;
+    },
+    close,
+  };
+}
+
+/** Internal ChannelBind state of a TURN client. */
+function turnChannels(turn: TurnProtocol) {
+  return Object.values(
+    (
+      turn as unknown as {
+        channelByAddr: Record<string, { number: number; refreshAt: number }>;
+      }
+    ).channelByAddr,
+  );
+}
+
+/**
+ * Arrange: make every channel of `turn` due for refresh, so the next data
+ * sent on it issues an authenticated ChannelBind first.
+ */
+export function makeTurnChannelsDue(turn: TurnProtocol) {
+  const channels = turnChannels(turn);
+  for (const channel of channels) channel.refreshAt = 0;
+  return channels;
+}
+
+/**
+ * Arrange: record the TURN requests `turn` makes from now on. `calls` are
+ * the operations (requestWithRetry), `attempts` each transaction they sent
+ * with its outcome: "success", the ERROR-CODE, or "error" for anything else.
+ */
+export function recordTurnRequests(turn: TurnProtocol) {
+  const calls: methods[] = [];
+  const attempts: { method: methods; result: "success" | "error" | number }[] =
+    [];
+  const request = turn.request.bind(turn);
+  turn.request = async (...args: Parameters<TurnProtocol["request"]>) => {
+    const method = args[0].messageMethod;
+    try {
+      const result = await request(...args);
+      attempts.push({ method, result: "success" });
+      return result;
+    } catch (error) {
+      attempts.push({
+        method,
+        result:
+          error instanceof TransactionFailed
+            ? error.response.getAttributeValue("ERROR-CODE")[0]
+            : "error",
+      });
+      throw error;
+    }
+  };
+  const requestWithRetry = turn.requestWithRetry.bind(turn);
+  turn.requestWithRetry = (
+    ...args: Parameters<TurnProtocol["requestWithRetry"]>
+  ) => {
+    calls.push(args[0].messageMethod);
+    return requestWithRetry(...args);
+  };
+  return {
+    calls: (method: methods) => calls.filter((value) => value === method),
+    attempts: (method: methods) =>
+      attempts
+        .filter((attempt) => attempt.method === method)
+        .map((attempt) => attempt.result),
+  };
+}
 // --- multiple STUN / TURN servers ---
 
 /**
