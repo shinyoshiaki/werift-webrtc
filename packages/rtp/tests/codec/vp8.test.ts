@@ -2,27 +2,24 @@ import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 
 import {
+  RtpHeader,
+  RtpPacket,
   createVp8PayloadDescriptor,
   dePacketizeRtpPackets,
   Vp8Packetizer,
   Vp8RtpPayload,
 } from "../../src";
-import { loadPayloadVector } from "../utils";
+import { createVp8Frame, createVp8Payload, loadPayloadVector } from "../utils";
 
 // RFC 7741 §4.2 descriptor (X/I/M + 15-bit PictureID), §4.3 payload header P bit (keyframe)
 
 /** Minimal VP8 frame: P=0 (key) in first byte of payload header. */
-function makeVp8Keyframe(bodyLen = 20): Buffer {
-  // Size0|H|VER|P with P=0 (LSB), then size1/size2 zeros, then body
-  const header = Buffer.from([0x00, 0x00, 0x00]);
-  return Buffer.concat([header, Buffer.alloc(bodyLen, 0x7b)]);
-}
+const makeVp8Keyframe = (bodyLen = 20) =>
+  createVp8Frame({ keyframe: true, bodyLen });
 
 /** Inter frame: P=1 (LSB set). */
-function makeVp8Delta(bodyLen = 20): Buffer {
-  const header = Buffer.from([0x01, 0x00, 0x00]); // P=1
-  return Buffer.concat([header, Buffer.alloc(bodyLen, 0x55)]);
-}
+const makeVp8Delta = (bodyLen = 20) =>
+  createVp8Frame({ keyframe: false, bodyLen });
 
 describe("packages/rtp/tests/codec/vp8.test.ts", () => {
   it("descriptor: X=1 I=1 M=1 with PictureID; first packet S=1 (0x90), continuation S=0 (0x80)", () => {
@@ -180,5 +177,111 @@ describe("packages/rtp/tests/codec/vp8.test.ts", () => {
     // 先頭パケットは S=1 のパーティション開始
     const first = Vp8RtpPayload.deSerialize(payloads[0]);
     expect(first.sBit).toBe(1);
+  });
+
+  describe("Vp8RtpPayload.deSerialize descriptor extensions (RFC 7741 §4.2)", () => {
+    // TID/Y/KEYIDX オクテットは LSB=1 にしておく。誤って payload header として
+    // 読まれると P=1 (delta) と判定され、offset ずれを検出できる。
+    it("T=1, L=0, K=0: skips TID/Y/KEYIDX octet", () => {
+      // Arrange: X=1 / T=1 のみ、TID=1 Y=0 KEYIDX=1
+      const frame = createVp8Frame({ keyframe: true });
+      const buf = createVp8Payload({
+        descriptor: [0x90, 0x20, 0x41],
+        frame,
+      });
+      // Act: T=1 のみの descriptor を解析
+      const p = Vp8RtpPayload.deSerialize(buf);
+      // Assert: TID/Y/KEYIDX の 1 オクテットを飛ばして payload header から読むこと
+      expect(p.lBit).toBe(0);
+      expect(p.tBit).toBe(1);
+      expect(p.kBit).toBe(0);
+      expect(p.payload.equals(frame)).toBe(true);
+      // Assert: payload header の P=0 を読み keyframe と判定すること
+      expect(p.isKeyframe).toBe(true);
+      expect([p.size0, p.size1, p.size2]).toEqual([0, 0, 0]);
+    });
+
+    it("K=1, L=0, T=0: skips TID/Y/KEYIDX octet", () => {
+      // Arrange: X=1 / K=1 のみ、KEYIDX=1
+      const frame = createVp8Frame({ keyframe: true });
+      const buf = createVp8Payload({
+        descriptor: [0x90, 0x10, 0x01],
+        frame,
+      });
+      // Act: K=1 のみの descriptor を解析
+      const p = Vp8RtpPayload.deSerialize(buf);
+      // Assert: TID/Y/KEYIDX を飛ばし、payload 先頭が元フレームと一致すること
+      expect(p.kBit).toBe(1);
+      expect(p.tBit).toBe(0);
+      expect(p.payload.equals(frame)).toBe(true);
+      // Assert: keyframe と判定すること
+      expect(p.isKeyframe).toBe(true);
+    });
+
+    it("I=1 M=1 L=1 T=1 (browser temporal layers): skips PictureID, TL0PICIDX and TID/Y/KEYIDX", () => {
+      // Arrange: PictureID=0x1234、TL0PICIDX=0x05、TID=1 KEYIDX=1
+      const frame = createVp8Frame({ keyframe: true });
+      const buf = createVp8Payload({
+        descriptor: [0x90, 0xe0, 0x92, 0x34, 0x05, 0x41],
+        frame,
+      });
+      // Act: L/T 付き descriptor を解析
+      const p = Vp8RtpPayload.deSerialize(buf);
+      // Assert: 15bit PictureID を読み、計 6 バイトの descriptor を飛ばすこと
+      expect(p.pictureId).toBe(0x1234);
+      expect(p.lBit).toBe(1);
+      expect(p.tBit).toBe(1);
+      expect(p.payload.length).toBe(buf.length - 6);
+      expect(p.payload.equals(frame)).toBe(true);
+      // Assert: keyframe と判定すること
+      expect(p.isKeyframe).toBe(true);
+    });
+
+    it("I=1 M=1 only (werift packetizer format): skips 4-byte descriptor", () => {
+      // Arrange: werift の送信形式 (X/I/M、L/T/K=0)
+      const frame = createVp8Frame({ keyframe: false });
+      const buf = createVp8Payload({
+        descriptor: [0x90, 0x80, 0x92, 0x34],
+        frame,
+      });
+      // Act: X/I/M のみの descriptor を解析
+      const p = Vp8RtpPayload.deSerialize(buf);
+      // Assert: L/T/K は 0 で、PictureID の後ろから payload が始まること
+      expect([p.lBit, p.tBit, p.kBit]).toEqual([0, 0, 0]);
+      expect(p.payload.equals(frame)).toBe(true);
+      // Assert: P=1 の delta frame と判定すること
+      expect(p.isKeyframe).toBe(false);
+    });
+
+    it("L=1, T=0, K=0 (violates RFC): consumes only TL0PICIDX", () => {
+      // Arrange: RFC 違反の L=1 / T=0。後続は delta frame
+      const frame = createVp8Frame({ keyframe: false });
+      const buf = createVp8Payload({
+        descriptor: [0x90, 0x40, 0x05],
+        frame,
+      });
+      // Act: 例外にせず bit どおりに解析
+      const p = Vp8RtpPayload.deSerialize(buf);
+      // Assert: TL0PICIDX のみ飛ばし、payload header の 1 バイト目を残すこと
+      expect(p.lBit).toBe(1);
+      expect(p.tBit).toBe(0);
+      expect(p.payload.equals(frame)).toBe(true);
+      // Assert: Size1 ではなく payload header の P=1 を読み delta と判定すること
+      expect(p.isKeyframe).toBe(false);
+    });
+
+    it("dePacketizeRtpPackets restores frame and keyframe flag with T=1 descriptor", () => {
+      // Arrange: T=1 のみの descriptor を付けた単一 RTP パケット
+      const frame = createVp8Frame({ keyframe: true, bodyLen: 50 });
+      const packet = new RtpPacket(
+        new RtpHeader({ payloadType: 96, sequenceNumber: 1, marker: true }),
+        createVp8Payload({ descriptor: [0x90, 0x20, 0x41], frame }),
+      );
+      // Act: depacketize
+      const depacketized = dePacketizeRtpPackets("VP8", [packet]);
+      // Assert: descriptor を除いたデータが元フレームと一致し、keyframe と判定すること
+      expect(depacketized.data.equals(frame)).toBe(true);
+      expect(depacketized.isKeyframe).toBe(true);
+    });
   });
 });

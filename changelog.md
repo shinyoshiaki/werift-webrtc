@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### 🐛 Bug Fixes
+
+- **`Vp8RtpPayload.deSerialize` now detects the TID/Y/KEYIDX octet by `T || K` instead of `L || K`** (`werift-rtp`, RFC 7741 §4.2): with `T=1, L=0, K=0` the octet was treated as the start of the VP8 payload (frame one byte too long, P bit / `isKeyframe` read from the wrong byte), and with the RFC-violating `L=1, T=0` the first payload header byte was skipped. `L=1, T=1` (browser temporal layers), `K=1` and werift's own X/I/M descriptor were already parsed correctly.
+
 ### ⚠️ Breaking changes
 
 - **Public TypeScript `enum`s are now `as const` objects with a same-name union type** (`werift`, `werift-ice`, `werift-ice-server`, `werift-rtp`, `werift-sctp`): `CandidatePairState`, `classes`, `methods`, `PacketChunk`, `PacketStatus`, `H264NaluType` (`werift-rtp/extra`), `SCTP_STATE`, and `WEBRTC_PPID`. Node.js 26 removed its TypeScript transform mode, and Node.js type stripping cannot run `enum`. Every runtime value is unchanged, and so are value access (`SCTP_STATE.ESTABLISHED`), `===` / `switch` comparisons, type annotations (`state: CandidatePairState`) with `switch` exhaustiveness, `keyof typeof X`, the CJS / ESM export names, assignment from values of older `werift-*` versions, public field / argument / return types (`CandidatePair.state` is still `CandidatePairState`, `SCTP.associationState` is still `SCTP_STATE`), and the TypeDoc `enumerations/` pages. These uses change:
@@ -18,6 +22,7 @@
 
 ### 🧪 Testing & tooling
 
+- `packages/rtp/tests/codec/vp8.gstreamer.test.ts`: GStreamer `vp8enc` / `rtpvp8pay` → loopback UDP → `DepacketizeCallback` / `WebmCallback` → ffmpeg decode E2E. Rewrites the real stream's VP8 payload descriptor to each L/T/K combination and checks that the recording matches the unmodified stream. Skipped when GStreamer or ffmpeg is unavailable.
 - Repository scripts, examples, the e2e server, the WPT runner, and `.vscode/launch.json` no longer pass the TypeScript transform flag, which Node.js 26 removed. TypeScript now runs with Node.js type stripping plus the `tools/node-ts/register.mjs` resolve hook (`node --import <rel>/tools/node-ts/register.mjs`), so the same commands work on Node.js 22.18+, 24, and 26.
   - Parameter properties are rewritten as explicit fields assigned at the start of the constructor (field definition order is unchanged in the CJS build; the esbuild ESM build now matches the CJS order), and the internal DTLS `enum`s (`ContentType`, `AlertDesc`, `HandshakeType`) use the same `as const` form. The DTLS alert reverse lookup is replaced by an internal `alertDescName()`.
   - Every package tsconfig, plus `e2e`, `examples/e2e`, and `packages/ice-server/chrome-e2e`, enables `erasableSyntaxOnly`, so `npm run type` rejects `enum`, parameter properties, and other non-erasable syntax.
