@@ -1,10 +1,10 @@
 import { readFileSync } from "fs";
+import type { IceConnection } from "../../ice/src";
 import {
   CandidatePairState,
   type Connection,
   type IceOptions,
 } from "../../ice/src";
-import type { IceConnection } from "../../ice/src";
 import { getHostAddresses } from "../../ice/src/utils";
 import {
   createLocalStunServer,
@@ -16,8 +16,8 @@ import {
   type PeerConfig,
   type RTCDataChannel,
   RTCIceGatherer,
-  RTCIceTransport,
   type RTCIceServer,
+  RTCIceTransport,
   RTCPeerConnection,
   type RTCSctpTransport,
 } from "../src";

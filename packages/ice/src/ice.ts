@@ -3367,7 +3367,11 @@ class RegularNomination {
    */
   maybeSelected?: CandidatePair;
 
-  constructor(private readonly host: NominationHost) {}
+  private readonly host: NominationHost;
+
+  constructor(host: NominationHost) {
+    this.host = host;
+  }
 
   /** A USE-CANDIDATE transaction is in flight. */
   get inFlight() {
