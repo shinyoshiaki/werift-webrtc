@@ -258,6 +258,7 @@ export class TransportActivation {
         }
 
         if (dtlsTransport.state === "connecting") {
+          progressed = true;
           const state = await settledState(
             dtlsTransport.onStateChange,
             () => dtlsTransport.state,
@@ -280,19 +281,22 @@ export class TransportActivation {
           return progressed;
         }
 
+        progressed = true;
         this.secure.setConnectionState("connecting");
         await dtlsTransport.start().catch((err) => {
           log("dtlsTransport.start failed", err);
           throw err;
         });
 
+        // SCTP on a newly started DTLS transport is ensured before this
+        // transport activation completes.
         if (
           this.sctp.sctpTransport &&
           this.sctp.sctpTransport.dtlsTransport.id === dtlsTransport.id
         ) {
           await this.sctp.connectSctp();
         }
-        return true;
+        return progressed;
       }),
     );
 
