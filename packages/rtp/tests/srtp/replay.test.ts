@@ -1,0 +1,161 @@
+import {
+  ProtectionProfileAeadAes128Gcm,
+  ProtectionProfileAes128CmHmacSha1_80,
+} from "../../src/srtp/const";
+import { SrtpAuthenticationError, SrtpReplayError } from "../../src/srtp/error";
+import {
+  SRTP_REPLAY_WINDOW_SIZE,
+  SrtpReplayWindow,
+} from "../../src/srtp/replay";
+import { createSrtpContextPair } from "../utils";
+
+describe("srtp/replay (RFC 3711 §3.3.2)", () => {
+  test("SrtpReplayWindow は重複と window 外の古い index を拒否する", () => {
+    // Arrange: RFC 3711 の最小値 64 の window
+    const window = new SrtpReplayWindow(64);
+
+    // Act: 100 を受理した後、順不同の 99 と大きく進んだ 200 を受理する
+    window.accept(100);
+    const outOfOrder = window.check(99);
+    window.accept(99);
+    window.accept(200);
+
+    // Assert: 順不同の未受信 index は通し、重複と window 外は拒否する
+    expect(outOfOrder).toBe(true);
+    expect(window.check(200)).toBe(false);
+    expect(window.check(137)).toBe(true);
+    expect(window.check(136)).toBe(false);
+    expect(window.check(100)).toBe(false);
+    expect(window.check(201)).toBe(true);
+  });
+
+  test("既定 window は NACK 再送が遅れて届いても受理できる 1024 で、重複は拒否する", () => {
+    // Arrange: 既定 window で 1 を取りこぼしたまま 1000 まで受信する
+    const window = new SrtpReplayWindow();
+    window.accept(0);
+    for (let index = 2; index <= 1000; index++) window.accept(index);
+
+    // Act: 取りこぼした 1 の遅延再送を受理する
+    const late = window.check(1);
+    window.accept(1);
+
+    // Assert: libwebrtc と同じ 1024 幅で、遅延再送は通し重複は拒否する
+    expect(window.size).toBe(SRTP_REPLAY_WINDOW_SIZE);
+    expect(SRTP_REPLAY_WINDOW_SIZE).toBe(1024);
+    expect(late).toBe(true);
+    expect(window.check(1)).toBe(false);
+    expect(window.check(500)).toBe(false);
+  });
+
+  describe.each([
+    ["AES_CM_128_HMAC_SHA1_80", ProtectionProfileAes128CmHmacSha1_80],
+    ["AEAD_AES_128_GCM", ProtectionProfileAeadAes128Gcm],
+  ] as const)("%s", (_name, profile) => {
+    test("SRTP の再送 (replay) を拒否し、順不同の新しい packet は受理する", () => {
+      // Arrange
+      const pair = createSrtpContextPair(profile);
+      const p10 = pair.protectRtp(10);
+      const p11 = pair.protectRtp(11);
+      const p9 = pair.protectRtp(9);
+
+      // Act: 10 を受信してから同じ packet をもう一度受信する
+      pair.receiver.decryptRtp(p10);
+      const replay = () => pair.receiver.decryptRtp(p10);
+
+      // Assert: replay は認証失敗系の SrtpReplayError で破棄される
+      expect(replay).toThrow(SrtpReplayError);
+      expect(replay).toThrow(SrtpAuthenticationError);
+      // Assert: 後続と、window 内の未受信 packet は通常どおり復号できる
+      expect(pair.receiver.decryptRtp(p11)[1].sequenceNumber).toBe(11);
+      expect(pair.receiver.decryptRtp(p9)[1].sequenceNumber).toBe(9);
+    });
+
+    test("sequence rollover 後も ROC を含む index で replay を判定する", () => {
+      // Arrange: 65534 → 65535 → 0 (ROC=1) → 1 の順に保護する
+      const pair = createSrtpContextPair(profile);
+      const packets = [65534, 65535, 0, 1].map((seq) => pair.protectRtp(seq));
+
+      // Act: rollover をまたいで全件受信する
+      const received = packets.map(
+        (packet) => pair.receiver.decryptRtp(packet)[1].sequenceNumber,
+      );
+
+      // Assert: rollover 後の seq 0/1 は新しい index として受理される
+      expect(received).toEqual([65534, 65535, 0, 1]);
+      expect(pair.receiver.srtpSSRCStates[0x1234].rolloverCounter).toBe(1);
+      // Assert: rollover 前 packet の再送は replay として拒否される
+      expect(() => pair.receiver.decryptRtp(packets[1])).toThrow(
+        SrtpReplayError,
+      );
+    });
+
+    test("改ざん packet は replay window を進めない", () => {
+      // Arrange
+      const pair = createSrtpContextPair(profile);
+      const genuine = pair.protectRtp(20);
+      const tampered = Buffer.from(genuine);
+      tampered[tampered.length - 1] ^= 0x01;
+
+      // Act / Assert: 改ざん版は認証失敗 (replay ではない) で破棄される
+      expect(() => pair.receiver.decryptRtp(tampered)).toThrow(
+        SrtpAuthenticationError,
+      );
+      expect(() => pair.receiver.decryptRtp(tampered)).not.toThrow(
+        SrtpReplayError,
+      );
+      // Assert: 同じ index の正規 packet は受理される
+      expect(pair.receiver.decryptRtp(genuine)[1].sequenceNumber).toBe(20);
+    });
+
+    test("未知 SSRC の認証失敗 packet を大量に受けても受信側の状態は増えない", () => {
+      // Arrange: 正規 packet の SSRC だけを書き換えた偽造 SRTP/SRTCP を作る
+      const pair = createSrtpContextPair(profile);
+      const rtp = pair.protectRtp(30);
+      const rtcp = pair.protectRtcp();
+      const forge = (packet: Buffer, ssrcOffset: number, ssrc: number) => {
+        const forged = Buffer.from(packet);
+        forged.writeUInt32BE(ssrc, ssrcOffset);
+        return forged;
+      };
+
+      // Act: 異なる SSRC の偽造 packet を 1,000 件ずつ投入する
+      for (let i = 0; i < 1_000; i++) {
+        const ssrc = 0x10000 + i;
+        expect(() => pair.receiver.decryptRtp(forge(rtp, 8, ssrc))).toThrow(
+          SrtpAuthenticationError,
+        );
+        expect(() =>
+          pair.rtcpReceiver.decryptRTCP(forge(rtcp, 4, ssrc)),
+        ).toThrow(SrtpAuthenticationError);
+      }
+
+      // Assert: 認証に失敗した SSRC の replay window / ROC 状態は残らない
+      expect(Object.keys(pair.receiver.rtpReplayWindows)).toHaveLength(0);
+      expect(Object.keys(pair.receiver.srtpSSRCStates)).toHaveLength(0);
+      expect(Object.keys(pair.rtcpReceiver.rtcpReplayWindows)).toHaveLength(0);
+      // Assert: 正規 packet は受理され、その SSRC の window だけが作られる
+      expect(pair.receiver.decryptRtp(rtp)[1].sequenceNumber).toBe(30);
+      expect(() => pair.rtcpReceiver.decryptRTCP(rtcp)).not.toThrow();
+      expect(Object.keys(pair.receiver.rtpReplayWindows)).toEqual(["4660"]);
+      expect(Object.keys(pair.rtcpReceiver.rtcpReplayWindows)).toEqual([
+        "4660",
+      ]);
+    });
+
+    test("SRTCP の再送 (replay) を SRTCP index で拒否する", () => {
+      // Arrange: index 1 と 2 の SRTCP packet
+      const pair = createSrtpContextPair(profile);
+      const first = pair.protectRtcp();
+      const second = pair.protectRtcp();
+
+      // Act: 1 件目を受信してから再送する
+      pair.rtcpReceiver.decryptRTCP(first);
+
+      // Assert: 再送は拒否し、次の index は受理する
+      expect(() => pair.rtcpReceiver.decryptRTCP(first)).toThrow(
+        SrtpReplayError,
+      );
+      expect(() => pair.rtcpReceiver.decryptRTCP(second)).not.toThrow();
+    });
+  });
+});

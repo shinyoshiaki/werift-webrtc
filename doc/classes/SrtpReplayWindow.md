@@ -1,0 +1,71 @@
+[**werift**](../README.md)
+
+***
+
+[werift](../globals.md) / SrtpReplayWindow
+
+# Class: SrtpReplayWindow
+
+RFC 3711 §3.3.2 receiver replay list: a sliding window over the packet
+index (SRTP: ROC * 2^16 + SEQ, SRTCP: the 31-bit SRTCP index).
+
+`check()` runs before the packet is accepted and `accept()` only after it
+authenticated, so a forged packet cannot advance or poison the window.
+
+## Constructors
+
+### Constructor
+
+> **new SrtpReplayWindow**(`size?`): `SrtpReplayWindow`
+
+#### Parameters
+
+##### size?
+
+`number` = `SRTP_REPLAY_WINDOW_SIZE`
+
+#### Returns
+
+`SrtpReplayWindow`
+
+## Properties
+
+### size
+
+> `readonly` **size**: `number`
+
+## Methods
+
+### accept()
+
+> **accept**(`index`): `void`
+
+Record an authenticated `index`.
+
+#### Parameters
+
+##### index
+
+`number`
+
+#### Returns
+
+`void`
+
+***
+
+### check()
+
+> **check**(`index`): `boolean`
+
+True when `index` is neither a replay nor older than the window.
+
+#### Parameters
+
+##### index
+
+`number`
+
+#### Returns
+
+`boolean`
