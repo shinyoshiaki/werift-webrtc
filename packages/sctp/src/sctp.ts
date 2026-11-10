@@ -41,6 +41,7 @@ import {
   OutgoingSSNResetRequestParam,
   RECONFIG_PARAM_BY_TYPES,
   ReconfigResponseParam,
+  type ReconfigResult,
   reconfigResult,
   StreamAddOutgoingParam,
   type StreamParam,
@@ -116,6 +117,9 @@ const SCTPConnectionStates = [
 ] as const;
 type SCTPConnectionState = Unpacked<typeof SCTPConnectionStates>;
 
+/** Shared empty payload of abandoned DATA chunks. */
+const EMPTY_PAYLOAD = Buffer.alloc(0);
+
 export class SCTP {
   public transport: Transport;
   public port: number;
@@ -135,6 +139,8 @@ export class SCTP {
   isServer = true;
   private isStopping = false;
   private isClosed = false;
+  /** An INIT from the peer was accepted (answered with INIT_ACK). */
+  private receivedInit = false;
 
   private hmacKey = randomBytes(16);
   private localPartialReliability = true;
@@ -171,7 +177,9 @@ export class SCTP {
   private readonly maxPayloadSize: number;
   private fastRecoveryExit?: number;
   private fastRecoveryTransmit = false;
+  /** FORWARD-TSN kept until the peer's SACK covers it, so a lost one can be resent. */
   private forwardTsnChunk?: ForwardTsnChunk;
+  private forwardTsnPending = false;
   private flightSize = 0;
   /** DATA chunks waiting to be transmitted for the first time. */
   readonly outboundQueue = new FifoQueue<DataChunk>();
@@ -182,6 +190,8 @@ export class SCTP {
   private sendWaiters = new FifoQueue<{
     chunk: DataChunk;
     resolve: () => void;
+    /** Resolved out of order because its message expired in outboundQueue. */
+    done?: boolean;
   }>();
   private outboundStreamSeq: { [streamId: number]: number } = {};
   _outboundStreamsCount = MAX_STREAMS;
@@ -202,6 +212,19 @@ export class SCTP {
   reconfigResponseSeq = 0;
   reconfigRequest?: OutgoingSSNResetRequestParam;
   reconfigQueue: number[] = [];
+  /** Result returned for the incoming request reconfigResponseSeq; resent to a retransmitted request. */
+  private lastReconfigResult?: ReconfigResult;
+  /** The peer answered our outstanding reset request with In progress (RFC 6525 §5.2.7). */
+  private reconfigRequestInProgress = false;
+  /**
+   * RFC 6525 §5.2.2 deferred reset: an incoming Outgoing SSN Reset Request whose
+   * Sender's Last Assigned TSN has not been received yet. DATA for the reset
+   * streams beyond lastTsn belongs to the new streams and is held until the reset.
+   */
+  private deferredReset?: {
+    request: OutgoingSSNResetRequestParam;
+    heldChunks: DataChunk[];
+  };
 
   // rtt calculation
   private srtt?: number;
@@ -219,6 +242,13 @@ export class SCTP {
   private timer2Failures = 0;
   /**t3 is wait for data sack */
   private timer3Handle?: any;
+  /**
+   * Fires at the earliest expiry of a message in outboundQueue, so expired
+   * messages are abandoned even if nothing else (SACK, window update, send)
+   * runs transmit.
+   */
+  private outboundExpiryHandle?: ReturnType<typeof setTimeout>;
+  private outboundExpiryAt?: number;
   /**Re-configuration Timer */
   private timerReconfigHandle?: any;
   private timerReconfigFailures = 0;
@@ -275,7 +305,14 @@ export class SCTP {
       if (chunks.length != 1) {
         throw new Error();
       }
-      expectedTag = 0;
+      // RFC 9260 §8.5.1 (A): an INIT carries verification tag 0. An older
+      // werift (<= 0.26) that answered our INIT before its own start() then
+      // sends its INIT with the tag it learned from ours; only a peer that
+      // received our INIT knows that tag, so accept it as well.
+      expectedTag =
+        verificationTag === this.localVerificationTag
+          ? this.localVerificationTag
+          : 0;
     } else {
       expectedTag = this.localVerificationTag;
     }
@@ -288,6 +325,9 @@ export class SCTP {
     for (const chunk of chunks) {
       await this.receiveChunk(chunk);
     }
+    // Messages of this packet are delivered by now, so the last message before
+    // the reset boundary reaches onReceive before onReconfigStreams.
+    await this.maybePerformDeferredReset();
 
     if (this.sackNeeded) {
       // RFC 9260 delayed ACK guidance is per packet ("every second packet").
@@ -329,8 +369,8 @@ export class SCTP {
 
     const gaps: [number, number][] = [];
     let gapNext: number;
-    [...this.sackMisOrdered].sort().forEach((tsn) => {
-      const pos = (tsn - this.lastReceivedTsn!) % SCTP_TSN_MODULO;
+    sortTsns(this.sackMisOrdered, this.lastReceivedTsn!).forEach((tsn) => {
+      const pos = tsnDistance(this.lastReceivedTsn!, tsn);
       if (tsn === gapNext) {
         gaps[gaps.length - 1][1] = pos;
       } else {
@@ -363,12 +403,30 @@ export class SCTP {
         break;
       case InitChunk.type:
         {
-          if (!this.isServer) return;
+          // RFC 9260 §5.2.1: an initiator that receives the peer's INIT in
+          // COOKIE-WAIT / COOKIE-ECHOED (both sides sent INIT) answers it
+          // with an INIT_ACK.
+          if (!this.isServer && !this.isInitiating) return;
           const init = chunk as InitChunk;
+          this.receivedInit = true;
 
           log("receive init", init);
-          this.lastReceivedTsn = tsnMinusOne(init.initialTsn);
-          this.reconfigResponseSeq = tsnMinusOne(init.initialTsn);
+          // Take the peer's initial TSN only before the handshake got past
+          // it (CLOSED / COOKIE-WAIT). In COOKIE-ECHOED our INIT_ACK handling
+          // already took it, and once ESTABLISHED a delayed duplicate INIT
+          // must not rewind the cumulative TSN of DATA received since.
+          // A different initiate tag is a restarted peer: start its TSNs over.
+          if (
+            this.associationState === SCTP_STATE.CLOSED ||
+            this.associationState === SCTP_STATE.COOKIE_WAIT ||
+            init.initiateTag !== this.remoteVerificationTag
+          ) {
+            this.lastReceivedTsn = tsnMinusOne(init.initialTsn);
+            this.reconfigResponseSeq = tsnMinusOne(init.initialTsn);
+            // Reset requests of the previous TSN space no longer apply.
+            this.lastReconfigResult = undefined;
+            this.deferredReset = undefined;
+          }
           this.remoteVerificationTag = init.initiateTag;
           this.ssthresh = init.advertisedRwnd;
           this.peerAdvertisedRwnd = init.advertisedRwnd;
@@ -436,12 +494,14 @@ export class SCTP {
               break;
             }
           }
-          await this.sendChunk(echo).catch((err: Error) => {
-            log("send echo failed", err.message);
-          });
-
+          // Enter COOKIE_ECHOED and arm T1 before handing the chunk off: a
+          // duplicate INIT_ACK or an early COOKIE_ACK during the send must see
+          // the new state, and a failed send is packet loss that T1 recovers.
           this.timer1Start(echo);
           this.setState(SCTP_STATE.COOKIE_ECHOED);
+          await this.sendChunk(echo).catch((err: Error) => {
+            log("send echo failed; T1 retransmits", err.message);
+          });
         }
         break;
       case SackChunk.type:
@@ -486,7 +546,18 @@ export class SCTP {
         break;
       case CookieEchoChunk.type:
         {
-          if (!this.isServer) return;
+          // An initiator accepts the COOKIE_ECHO that follows its INIT_ACK
+          // to a colliding INIT (RFC 9260 §5.2.1).
+          if (
+            !this.isServer &&
+            !(
+              this.receivedInit &&
+              (this.isInitiating ||
+                this.associationState === SCTP_STATE.ESTABLISHED)
+            )
+          ) {
+            return;
+          }
           const data = chunk as CookieEchoChunk;
           const cookie = data.body!;
           const digest = createHmac("sha1", this.hmacKey)
@@ -513,10 +584,20 @@ export class SCTP {
             return;
           }
           const ack = new CookieAckChunk();
-          await this.sendChunk(ack).catch((err: Error) => {
-            log("send cookieAck failed", err.message);
+          // Our own INIT / COOKIE_ECHO (collision) is superseded by the
+          // association the peer's cookie established.
+          this.timer1Cancel();
+          // RFC 9260 §5.1 (D): move to ESTABLISHED when replying. Hand off the
+          // COOKIE_ACK first so it precedes DATA flushed by the connected
+          // event. A failed send is packet loss: the initiator retransmits
+          // COOKIE_ECHO and this association (same cookie key) answers again.
+          const sending = this.sendChunk(ack).catch((err: Error) => {
+            log("send cookieAck failed; peer retransmits", err.message);
           });
-          this.setState(SCTP_STATE.ESTABLISHED);
+          if (this.associationState !== SCTP_STATE.ESTABLISHED) {
+            this.setState(SCTP_STATE.ESTABLISHED);
+          }
+          await sending;
         }
         break;
       case CookieAckChunk.type:
@@ -569,62 +650,38 @@ export class SCTP {
     switch (param.type) {
       case OutgoingSSNResetRequestParam.type:
         {
-          const p = param as OutgoingSSNResetRequestParam;
-
-          // # send response
-          const response = new ReconfigResponseParam(
-            p.requestSequence,
-            reconfigResult.ReconfigResultSuccessPerformed,
+          await this.receiveOutgoingSSNResetRequest(
+            param as OutgoingSSNResetRequestParam,
           );
-          this.reconfigResponseSeq = p.requestSequence;
-          await this.sendReconfigParam(response);
-
-          // # mark closed inbound streams
-          await Promise.all(
-            p.streams.map(async (streamId) => {
-              delete this.inboundStreams[streamId];
-              if (this.outboundStreamSeq[streamId]) {
-                // Only add to reconfigQueue if not already present
-                if (!this.reconfigQueue.includes(streamId)) {
-                  this.reconfigQueue.push(streamId);
-                }
-                // await this.sendResetRequest(streamId);
-              }
-            }),
-          );
-          await this.transmitReconfigRequest();
-          // # close data channel
-          this.onReconfigStreams.execute(p.streams);
         }
         break;
       case ReconfigResponseParam.type:
         {
           const reset = param as ReconfigResponseParam;
-          if (reset.result !== reconfigResult.ReconfigResultSuccessPerformed) {
+          const isCurrentRequest =
+            reset.responseSequence === this.reconfigRequest?.requestSequence;
+          if (reset.result === reconfigResult.InProgress) {
+            if (isCurrentRequest) {
+              // The peer deferred the reset (RFC 6525 §5.2.2). Keep the request so the
+              // Re-configuration timer retransmits it; the peer answered, so this is
+              // not a reachability failure.
+              log("OutgoingSSNResetRequestParam in progress");
+              this.reconfigRequestInProgress = true;
+              // RFC 6525 §5.2.7 H2: restart the timer for this request.
+              this.timerReconfigCancel();
+              this.timerReconfigHandleStart();
+            }
+          } else if (
+            reset.result !== reconfigResult.ReconfigResultSuccessPerformed
+          ) {
             log(
               "OutgoingSSNResetRequestParam failed",
               Object.keys(reconfigResult).find(
                 (key) => reconfigResult[key as never] === reset.result,
               ),
             );
-          } else if (
-            reset.responseSequence === this.reconfigRequest?.requestSequence
-          ) {
-            const streamIds = this.reconfigRequest.streams.map((streamId) => {
-              delete this.outboundStreamSeq[streamId];
-              return streamId;
-            });
-
-            this.onReconfigStreams.execute(streamIds);
-
-            this.reconfigRequest = undefined;
-            this.timerReconfigCancel();
-            // Reset RTO backoff on successful reconfiguration
-            this.rto = SCTP_RTO_INITIAL;
-            this.timerReconfigFailures = 0;
-            if (this.reconfigQueue.length > 0) {
-              await this.transmitReconfigRequest();
-            }
+          } else if (isCurrentRequest) {
+            await this.completeOutgoingReset();
           }
         }
         break;
@@ -632,11 +689,179 @@ export class SCTP {
         {
           const add = param as StreamAddOutgoingParam;
           this._inboundStreamsCount += add.newStreams;
-          const res = new ReconfigResponseParam(add.requestSequence, 1);
+          const res = new ReconfigResponseParam(
+            add.requestSequence,
+            reconfigResult.ReconfigResultSuccessPerformed,
+          );
           this.reconfigResponseSeq = add.requestSequence;
+          this.lastReconfigResult = res.result;
           await this.sendReconfigParam(res);
         }
         break;
+    }
+  }
+
+  /** The peer answered our outstanding reset request with Success - Performed. */
+  private async completeOutgoingReset() {
+    const streamIds = this.reconfigRequest!.streams.map((streamId) => {
+      delete this.outboundStreamSeq[streamId];
+      return streamId;
+    });
+
+    this.onReconfigStreams.execute(streamIds);
+
+    this.reconfigRequest = undefined;
+    this.reconfigRequestInProgress = false;
+    this.timerReconfigCancel();
+    // Reset RTO backoff on successful reconfiguration
+    this.rto = SCTP_RTO_INITIAL;
+    this.timerReconfigFailures = 0;
+    if (this.reconfigQueue.length > 0) {
+      await this.transmitReconfigRequest();
+    }
+  }
+
+  /** RFC 6525 §4.1: an empty stream list means every stream. */
+  private resetTargetStreams(request: OutgoingSSNResetRequestParam) {
+    if (request.streams.length > 0) return request.streams;
+    return [
+      ...new Set([
+        ...Object.keys(this.inboundStreams).map(Number),
+        ...Object.keys(this.outboundStreamSeq).map(Number),
+      ]),
+    ];
+  }
+
+  /** RFC 6525 §5.2.1 sequence check, then §5.2.2 immediate or deferred reset. */
+  private async receiveOutgoingSSNResetRequest(
+    request: OutgoingSSNResetRequestParam,
+  ) {
+    const respond = (result: ReconfigResult) =>
+      this.sendReconfigParam(
+        new ReconfigResponseParam(request.requestSequence, result),
+      );
+
+    if (request.requestSequence === this.reconfigResponseSeq) {
+      // Retransmission of an already processed request: resend the same result.
+      await respond(
+        this.lastReconfigResult ?? reconfigResult.BadSequenceNumber,
+      );
+      return;
+    }
+
+    // Only one request is deferred at a time, so it is the expected one.
+    const pending = this.deferredReset;
+    const expected = pending
+      ? pending.request.requestSequence
+      : tsnPlusOne(this.reconfigResponseSeq);
+    if (request.requestSequence !== expected) {
+      await respond(reconfigResult.BadSequenceNumber);
+      return;
+    }
+
+    // RFC 6525 §5.2.2 E1: the peer has received our outstanding request. The
+    // reset itself completes only with the peer's response, and that response
+    // may be lost, so keep retransmitting the request (the peer answers a
+    // retransmission with the same result) instead of stopping the timer. The
+    // peer is reachable, so like In progress the expiries are not failures.
+    if (
+      this.reconfigRequest &&
+      request.responseSequence === this.reconfigRequest.requestSequence
+    ) {
+      this.reconfigRequestInProgress = true;
+      this.timerReconfigCancel();
+      this.timerReconfigHandleStart();
+    }
+
+    const target = pending?.request ?? request;
+    if (!this.reachedResetBoundary(target)) {
+      // Some DATA up to Sender's Last Assigned TSN is still missing. A
+      // retransmitted request is evaluated again, so reconfigResponseSeq stays.
+      this.deferredReset ??= { request: target, heldChunks: [] };
+      await respond(reconfigResult.InProgress);
+      return;
+    }
+
+    const { transmitReverseReset } = this.performIncomingStreamReset(target);
+    await respond(reconfigResult.ReconfigResultSuccessPerformed);
+    await transmitReverseReset();
+  }
+
+  private reachedResetBoundary(request: OutgoingSSNResetRequestParam) {
+    return (
+      this.lastReceivedTsn !== undefined &&
+      uint32Gte(this.lastReceivedTsn, request.lastTsn)
+    );
+  }
+
+  private async maybePerformDeferredReset() {
+    const pending = this.deferredReset;
+    if (!pending || !this.reachedResetBoundary(pending.request)) return;
+    // RFC 6525 §5.2.2: answer Success - Performed once the deferred reset is done.
+    const { transmitReverseReset } = this.performIncomingStreamReset(
+      pending.request,
+    );
+    await this.sendReconfigParam(
+      new ReconfigResponseParam(
+        pending.request.requestSequence,
+        reconfigResult.ReconfigResultSuccessPerformed,
+      ),
+    );
+    await transmitReverseReset();
+  }
+
+  /**
+   * Resets the inbound streams of `request` synchronously, so no DATA received
+   * while awaiting can reach the old streams. Returns the asynchronous part,
+   * the reset of our own outgoing streams.
+   */
+  private performIncomingStreamReset(request: OutgoingSSNResetRequestParam) {
+    const heldChunks =
+      this.deferredReset?.request === request
+        ? this.deferredReset.heldChunks
+        : [];
+    this.deferredReset = undefined;
+    this.reconfigResponseSeq = request.requestSequence;
+    this.lastReconfigResult = reconfigResult.ReconfigResultSuccessPerformed;
+
+    const resetStreams = this.resetTargetStreams(request);
+    for (const streamId of resetStreams) {
+      const inboundStream = this.inboundStreams[streamId];
+      if (inboundStream) {
+        // Incomplete messages of the old stream are discarded.
+        for (const chunk of inboundStream.reassembly) {
+          this.advertisedRwnd += chunk.userData.length;
+        }
+        delete this.inboundStreams[streamId];
+      }
+      if (this.outboundStreamSeq[streamId]) {
+        // Only add to reconfigQueue if not already present
+        if (!this.reconfigQueue.includes(streamId)) {
+          this.reconfigQueue.push(streamId);
+        }
+      }
+    }
+
+    // # close data channel
+    this.onReconfigStreams.execute(resetStreams);
+
+    // DATA beyond the boundary belongs to the reset streams (SSN starts at 0).
+    const streamIds = new Set<number>();
+    for (const chunk of heldChunks) {
+      this.getInboundStream(chunk.streamId).addChunk(chunk);
+      streamIds.add(chunk.streamId);
+    }
+    for (const streamId of streamIds) {
+      this.deliverMessages(this.getInboundStream(streamId));
+    }
+
+    return { transmitReverseReset: () => this.transmitReconfigRequest() };
+  }
+
+  private deliverMessages(inboundStream: InboundStream) {
+    for (const message of inboundStream.popMessages()) {
+      this.advertisedRwnd += message[2].length;
+      this.receive(...message);
     }
   }
 
@@ -659,14 +884,23 @@ export class SCTP {
       this.sackImmediate = true;
     }
 
-    const inboundStream = this.getInboundStream(chunk.streamId);
-
-    inboundStream.addChunk(chunk);
     this.advertisedRwnd -= chunk.userData.length;
-    for (const message of inboundStream.popMessages()) {
-      this.advertisedRwnd += message[2].length;
-      this.receive(...message);
+
+    const pending = this.deferredReset;
+    if (
+      pending &&
+      (pending.request.streams.length === 0 ||
+        pending.request.streams.includes(chunk.streamId)) &&
+      uint32Gt(chunk.tsn, pending.request.lastTsn)
+    ) {
+      // RFC 6525 §5.2.2: hold DATA for the new stream until the reset is performed.
+      pending.heldChunks.push(chunk);
+      return;
     }
+
+    const inboundStream = this.getInboundStream(chunk.streamId);
+    inboundStream.addChunk(chunk);
+    this.deliverMessages(inboundStream);
   }
 
   private async receiveSackChunk(chunk: SackChunk) {
@@ -689,10 +923,10 @@ export class SCTP {
     ) {
       const sChunk = this.sentQueue.shift()!;
       done++;
-      if (!sChunk?.acked) {
+      if (!sChunk.acked) {
         doneBytes += sChunk.bookSize;
-        this.flightSizeDecrease(sChunk);
       }
+      this.flightSizeDecrease(sChunk);
 
       if (done === 1 && sChunk.sentCount === 1) {
         this.updateRto(receivedTime - sChunk.sentTime!);
@@ -700,8 +934,9 @@ export class SCTP {
     }
     // # handle gap blocks
     let loss = false;
+    const seen = new Set<number>();
+    let highestNewlyAcked = chunk.cumulativeTsn;
     if (chunk.gaps.length > 0) {
-      const seen = new Set();
       let highestSeenTsn: number;
       chunk.gaps.forEach((gap) => {
         for (let pos = gap[0]; pos < gap[1] + 1; pos++) {
@@ -710,7 +945,6 @@ export class SCTP {
         }
       });
 
-      let highestNewlyAcked = chunk.cumulativeTsn;
       for (const sChunk of this.sentQueue) {
         if (uint32Gt(sChunk.tsn, highestSeenTsn!)) {
           break;
@@ -718,27 +952,48 @@ export class SCTP {
         if (seen.has(sChunk.tsn) && !sChunk.acked) {
           doneBytes += sChunk.bookSize;
           sChunk.acked = true;
+          sChunk.reneged = false;
+          // A pending retransmission is moot once the peer holds the chunk.
+          sChunk.retransmit = false;
           this.flightSizeDecrease(sChunk);
           highestNewlyAcked = sChunk.tsn;
         }
       }
+    }
 
-      // # strike missing chunks prior to HTNA
+    // # detect reneging (RFC 9260 6.2.1 D-iii)
+    // A chunk gap-acked before but missing from this SACK was dropped by the
+    // peer: it is outstanding again, and every SACK still missing it counts one
+    // miss indication towards Fast Retransmit. Chunks up to HTNA are struck by
+    // the loop below, so only the ones beyond it are struck here.
+    let reneged = false;
+    for (const sChunk of this.sentQueue) {
+      // Abandoned chunks are never retransmitted nor counted in flight again.
+      if (seen.has(sChunk.tsn) || sChunk.abandoned) continue;
+      if (sChunk.acked) {
+        sChunk.acked = false;
+        sChunk.reneged = true;
+        // Outstanding again, so it is counted in flight until resent or acked.
+        this.flightSizeIncrease(sChunk);
+      }
+      if (!sChunk.reneged) continue;
+      reneged = true;
+      if (
+        !sChunk.retransmit &&
+        (chunk.gaps.length === 0 || uint32Gt(sChunk.tsn, highestNewlyAcked))
+      ) {
+        loss = this.strikeChunk(sChunk) || loss;
+      }
+    }
+
+    // # strike missing chunks prior to HTNA
+    if (chunk.gaps.length > 0) {
       for (const sChunk of this.sentQueue) {
         if (uint32Gt(sChunk.tsn, highestNewlyAcked)) {
           break;
         }
         if (!seen.has(sChunk.tsn)) {
-          sChunk.misses++;
-          if (sChunk.misses === 3) {
-            sChunk.misses = 0;
-            if (!this.maybeAbandon(sChunk)) {
-              sChunk.retransmit = true;
-            }
-            sChunk.acked = false;
-            this.flightSizeDecrease(sChunk);
-            loss = true;
-          }
+          loss = this.strikeChunk(sChunk) || loss;
         }
       }
     }
@@ -774,12 +1029,15 @@ export class SCTP {
       this.timer3Cancel();
     } else if (done > 0) {
       this.timer3Restart();
+    } else if (reneged && !this.timer3Handle) {
+      this.timer3Start();
     }
 
     // RFC 9260 §6.2.1(D-ii): keep latest peer a_rwnd; available window is derived via flightSize.
     this.peerAdvertisedRwnd = chunk.advertisedRwnd;
 
     this.updateAdvancedPeerAckPoint();
+    this.settleForwardTsn(chunk.cumulativeTsn);
     await this.onSackReceived();
     await this.transmit();
   }
@@ -797,7 +1055,7 @@ export class SCTP {
     // # advance cumulative TSN
     this.lastReceivedTsn = chunk.cumulativeTsn;
     this.sackMisOrdered = new Set([...this.sackMisOrdered].filter(isObsolete));
-    for (const tsn of [...this.sackMisOrdered].sort()) {
+    for (const tsn of sortTsns(this.sackMisOrdered, this.lastReceivedTsn)) {
       if (tsn === tsnPlusOne(this.lastReceivedTsn)) {
         this.lastReceivedTsn = tsn;
       } else {
@@ -809,22 +1067,35 @@ export class SCTP {
     this.sackDuplicates = this.sackDuplicates.filter(isObsolete);
     this.sackMisOrdered = new Set([...this.sackMisOrdered].filter(isObsolete));
 
-    // # update reassembly
+    // # update reassembly (RFC 3758 3.6)
     for (const [streamId, streamSeqNum] of chunk.streams) {
       const inboundStream = this.getInboundStream(streamId);
 
-      // # advance sequence number and perform delivery
-      inboundStream.streamSequenceNumber = uint16Add(streamSeqNum, 1);
-      for (const message of inboundStream.popMessages()) {
+      // # deliver stranded complete messages, drop broken ones, then advance
+      const { messages, prunedSize } =
+        inboundStream.forwardSequenceNumber(streamSeqNum);
+      this.advertisedRwnd += prunedSize;
+      for (const message of [...messages, ...inboundStream.popMessages()]) {
         this.advertisedRwnd += message[2].length;
         this.receive(...message);
       }
     }
 
-    // # prune obsolete chunks
-    Object.values(this.inboundStreams).forEach((inboundStream) => {
-      this.advertisedRwnd += inboundStream.pruneChunks(this.lastReceivedTsn!);
-    });
+    // # unordered chunks covered by the cumulative TSN will never complete
+    for (const inboundStream of Object.values(this.inboundStreams)) {
+      this.advertisedRwnd += inboundStream.pruneUnorderedChunks(
+        chunk.cumulativeTsn,
+      );
+    }
+    const pending = this.deferredReset;
+    if (pending) {
+      pending.heldChunks = pending.heldChunks.filter((held) => {
+        // Only DATA the FORWARD-TSN skipped is dropped; later received DATA stays.
+        if (uint32Gt(held.tsn, chunk.cumulativeTsn)) return true;
+        this.advertisedRwnd += held.userData.length;
+        return false;
+      });
+    }
   }
 
   private updateRto(R: number) {
@@ -861,7 +1132,7 @@ export class SCTP {
     }
 
     this.sackMisOrdered.add(tsn);
-    for (const tsn of [...this.sackMisOrdered].sort()) {
+    for (const tsn of sortTsns(this.sackMisOrdered, this.lastReceivedTsn!)) {
       if (tsn === tsnPlusOne(this.lastReceivedTsn!)) {
         this.lastReceivedTsn = tsn;
       } else {
@@ -886,6 +1157,10 @@ export class SCTP {
       maxRetransmits,
       ordered,
     }: {
+      /**
+       * Absolute time in `Date.now()` epoch milliseconds after which the
+       * message is abandoned (PR-SCTP, RFC 3758) if it is still unacknowledged.
+       */
       expiry?: number | undefined;
       maxRetransmits?: number | undefined;
       ordered?: boolean;
@@ -925,6 +1200,7 @@ export class SCTP {
     for (const chunk of chunks) {
       this.outboundQueue.push(chunk);
     }
+    if (expiry !== undefined) this.armOutboundExpiry(expiry);
 
     if (ordered) {
       this.outboundStreamSeq[streamId] = uint16Add(streamSeqNum, 1);
@@ -946,8 +1222,25 @@ export class SCTP {
   };
 
   private resolveSendWaiters(sentChunk: DataChunk) {
+    this.dropDoneSendWaiters();
     if (this.sendWaiters.peek()?.chunk === sentChunk) {
       this.sendWaiters.shift()!.resolve();
+      this.dropDoneSendWaiters();
+    }
+  }
+
+  private dropDoneSendWaiters() {
+    while (this.sendWaiters.peek()?.done) this.sendWaiters.shift();
+  }
+
+  /** Resolves the send() of an expired queued message ahead of earlier ones (rare, O(n)). */
+  private resolveSendWaiterOutOfOrder(chunk: DataChunk) {
+    for (const waiter of this.sendWaiters) {
+      if (waiter.chunk === chunk && !waiter.done) {
+        waiter.done = true;
+        waiter.resolve();
+        return;
+      }
     }
   }
 
@@ -985,11 +1278,11 @@ export class SCTP {
     // """
 
     // # send FORWARD TSN
-    if (this.forwardTsnChunk) {
+    if (this.forwardTsnChunk && this.forwardTsnPending) {
+      this.forwardTsnPending = false;
       await this.sendChunk(this.forwardTsnChunk).catch((err: Error) => {
         log("send forwardTsn failed", err.message);
       });
-      this.forwardTsnChunk = undefined;
 
       if (!this.timer3Handle) {
         this.timer3Start();
@@ -1002,9 +1295,20 @@ export class SCTP {
         : 4 * this.maxPayloadSize;
     const cwnd = Math.min(this.flightSize + burstSize, this.cwnd);
 
+    // Set when expired data is abandoned here, so the FORWARD-TSN goes out.
+    let abandoned = false;
     let retransmitEarliest = true;
     for (const dataChunk of this.sentQueue) {
+      if (dataChunk.retransmit && (dataChunk.acked || dataChunk.abandoned)) {
+        // Acked or abandoned after being marked; nothing to resend.
+        dataChunk.retransmit = false;
+      }
       if (dataChunk.retransmit) {
+        // The lifetime may have run out while the chunk waited for cwnd.
+        if (this.isExpired(dataChunk) && this.maybeAbandon(dataChunk)) {
+          abandoned = true;
+          continue;
+        }
         if (this.fastRecoveryTransmit) {
           this.fastRecoveryTransmit = false;
         } else if (this.flightSize >= cwnd) {
@@ -1014,6 +1318,7 @@ export class SCTP {
 
         dataChunk.misses = 0;
         dataChunk.retransmit = false;
+        dataChunk.reneged = false;
         dataChunk.sentCount++;
         await this.sendChunk(dataChunk).catch((err: Error) => {
           log("send data failed", err.message);
@@ -1027,12 +1332,22 @@ export class SCTP {
     }
 
     // Drain queued outbound DATA; retransmission pacing is controlled by RTO/T3.
-    while (
-      this.outboundQueue.length > 0 &&
-      this.flightSize < cwnd &&
-      this.peerRwnd > 0
-    ) {
+    while (this.outboundQueue.length > 0) {
       const chunk = this.outboundQueue.peek()!;
+      // A message that expired while waiting for cwnd/rwnd is never sent; its
+      // TSNs are already assigned, so it is abandoned and skipped by FORWARD-TSN.
+      // A message the expiry timer already abandoned in place goes the same way.
+      if (chunk.abandoned || this.isExpired(chunk)) {
+        this.outboundQueue.shift();
+        this.sentQueue.push(chunk);
+        this.resolveSendWaiters(chunk);
+        this.abandonMessage(this.sentQueue.length - 1);
+        abandoned = true;
+        continue;
+      }
+      if (this.flightSize >= cwnd || this.peerRwnd <= 0) {
+        break;
+      }
       if (chunk.bookSize > this.peerRwnd && this.flightSize > 0) {
         break;
       }
@@ -1053,6 +1368,12 @@ export class SCTP {
         this.timer3Start();
       }
     }
+    if (abandoned) {
+      this.updateAdvancedPeerAckPoint();
+      // Send the FORWARD-TSN in the next round of transmit().
+      if (this.forwardTsnPending) this.transmitRequested = true;
+    }
+    if (this.outboundQueue.length === 0) this.outboundExpiryCancel();
     this.flush.execute();
   }
 
@@ -1076,6 +1397,7 @@ export class SCTP {
       this.reconfigRequestSeq = tsnPlusOne(this.reconfigRequestSeq);
 
       this.reconfigRequest = param;
+      this.reconfigRequestInProgress = false;
       await this.sendReconfigParam(param);
       this.timerReconfigHandleStart();
     }
@@ -1101,12 +1423,19 @@ export class SCTP {
     }
   }
 
+  // flightSize always equals the bookSize sum of inFlight chunks in sentQueue,
+  // so both helpers are idempotent per chunk.
   private flightSizeIncrease(chunk: DataChunk) {
+    if (chunk.inFlight) return;
+    chunk.inFlight = true;
     this.flightSize += chunk.bookSize;
   }
 
+  /** No-op for chunks not counted in flightSize, so every exit path can call it. */
   private flightSizeDecrease(chunk: DataChunk) {
-    this.flightSize = Math.max(0, this.flightSize - chunk.bookSize);
+    if (!chunk.inFlight) return;
+    chunk.inFlight = false;
+    this.flightSize -= chunk.bookSize;
   }
 
   // # timers
@@ -1199,16 +1528,23 @@ export class SCTP {
     this.timer3Handle = undefined;
 
     // # mark retransmit or abandoned chunks
+    // RFC 9260 §6.3.3 (E3): only outstanding chunks; gap-acked ones are kept
+    // for reneging but not retransmitted.
     this.sentQueue.forEach((chunk) => {
+      if (chunk.acked || chunk.abandoned) return;
       if (!this.maybeAbandon(chunk)) {
         chunk.retransmit = true;
       }
+      this.flightSizeDecrease(chunk);
     });
     this.updateAdvancedPeerAckPoint();
+    // An unacknowledged FORWARD-TSN may have been lost; resend it.
+    if (this.forwardTsnChunk) {
+      this.forwardTsnPending = true;
+    }
 
     // # adjust congestion window
     this.fastRecoveryExit = undefined;
-    this.flightSize = 0;
     this.partialBytesAcked = 0;
 
     this.ssthresh = Math.max(
@@ -1219,6 +1555,53 @@ export class SCTP {
 
     this.transmit();
   };
+
+  /** Arms the outbound expiry timer for `expiry` unless an earlier one is armed. */
+  private armOutboundExpiry(expiry: number) {
+    if (this.isStopped) return;
+    if (this.outboundExpiryHandle && this.outboundExpiryAt! <= expiry) return;
+    this.outboundExpiryCancel();
+    this.outboundExpiryAt = expiry;
+    this.outboundExpiryHandle = setTimeout(
+      this.outboundExpiryExpired,
+      // setTimeout overflows above 2^31 - 1 ms; a later expiry re-arms on fire.
+      Math.min(Math.max(0, expiry - Date.now()), 0x7fffffff),
+    );
+  }
+
+  /**
+   * Abandons every expired message still in outboundQueue, wherever it is.
+   * Chunks stay in place so TSN order is kept: transmit() moves them to
+   * sentQueue unsent when they reach the head, and FORWARD-TSN skips them.
+   * Their send() resolves now, without waiting for earlier messages.
+   */
+  private outboundExpiryExpired = () => {
+    this.outboundExpiryHandle = undefined;
+    this.outboundExpiryAt = undefined;
+    if (this.isStopped) return;
+    let nextExpiry: number | undefined;
+    for (const chunk of this.outboundQueue) {
+      if (chunk.abandoned || chunk.expiry === undefined) continue;
+      if (this.isExpired(chunk)) {
+        this.markAbandoned(chunk);
+        this.resolveSendWaiterOutOfOrder(chunk);
+      } else if (nextExpiry === undefined || chunk.expiry < nextExpiry) {
+        nextExpiry = chunk.expiry;
+      }
+    }
+    if (nextExpiry !== undefined) this.armOutboundExpiry(nextExpiry);
+    this.transmit().catch((err: Error) => {
+      log("transmit on outbound expiry failed", err.message);
+    });
+  };
+
+  private outboundExpiryCancel() {
+    if (this.outboundExpiryHandle) {
+      clearTimeout(this.outboundExpiryHandle);
+      this.outboundExpiryHandle = undefined;
+    }
+    this.outboundExpiryAt = undefined;
+  }
 
   private timer3Cancel() {
     if (this.timer3Handle) {
@@ -1241,9 +1624,11 @@ export class SCTP {
 
   private timerReconfigHandleExpired = async () => {
     if (this.isStopped) return;
-    this.timerReconfigFailures++;
+    // RFC 6525 §5.2.7: no error count while the peer reports In progress.
+    if (this.reconfigRequestInProgress) this.timerReconfigFailures = 0;
+    else this.timerReconfigFailures++;
     // back off
-    this.rto = Math.ceil(this.rto * 1.5);
+    this.rto = Math.min(Math.ceil(this.rto * 1.5), SCTP_RTO_MAX);
 
     if (this.timerReconfigFailures > SCTP_MAX_ASSOCIATION_RETRANS) {
       log("timerReconfigFailures", this.timerReconfigFailures);
@@ -1322,15 +1707,31 @@ export class SCTP {
     this.heartbeatRestart();
   }
 
+  /** Drops the FORWARD-TSN once acknowledged; otherwise keeps T3 running to resend it. */
+  private settleForwardTsn(sackedTsn: number) {
+    if (!this.forwardTsnChunk) return;
+    if (uint32Gte(sackedTsn, this.forwardTsnChunk.cumulativeTsn)) {
+      this.forwardTsnChunk = undefined;
+      this.forwardTsnPending = false;
+      if (this.sentQueue.length === 0) this.timer3Cancel();
+    } else if (!this.timer3Handle) {
+      this.timer3Start();
+    }
+  }
+
   private updateAdvancedPeerAckPoint() {
     if (uint32Gt(this.lastSackedTsn, this.advancedPeerAckTsn)) {
       this.advancedPeerAckTsn = this.lastSackedTsn;
     }
 
     let done = 0;
-    const streams: { [key: number]: number } = {};
+    // Carry over streams of an unacknowledged FORWARD-TSN that this one replaces.
+    const streams: { [key: number]: number } = Object.fromEntries(
+      this.forwardTsnChunk?.streams ?? [],
+    );
     while (this.sentQueue.length > 0 && this.sentQueue.peek()!.abandoned) {
       const chunk = this.sentQueue.shift()!;
+      this.flightSizeDecrease(chunk);
       this.advancedPeerAckTsn = chunk.tsn;
       done++;
       if (!(chunk.flags & SCTP_DATA_UNORDERED)) {
@@ -1338,6 +1739,7 @@ export class SCTP {
       }
     }
     if (done) {
+      this.forwardTsnPending = true;
       this.forwardTsnChunk = new ForwardTsnChunk(0, undefined);
       this.forwardTsnChunk.cumulativeTsn = this.advancedPeerAckTsn;
       this.forwardTsnChunk.streams = Object.entries(streams).map(([k, v]) => [
@@ -1349,31 +1751,84 @@ export class SCTP {
 
   private maybeAbandon(chunk: DataChunk): boolean {
     if (chunk.abandoned) return true;
+    // The peer already holds an acked chunk (gap SACK); abandoning it would
+    // make the FORWARD-TSN discard data the receiver could deliver.
+    if (chunk.acked) return false;
     const abandon =
       (!!chunk.maxRetransmits && chunk.maxRetransmits < chunk.sentCount!) ||
-      (!!chunk.expiry && chunk.expiry < Date.now() / 1000);
+      this.isExpired(chunk);
     if (!abandon) return false;
 
-    const chunkPos = this.sentQueue.findIndex((v) => v.type === chunk.type);
+    const chunkPos = this.sentQueue.findIndex((v) => v === chunk);
+    if (chunkPos < 0) return false;
+    this.abandonMessage(chunkPos);
+    return true;
+  }
+
+  /** Counts a miss indication; on the third, marks the chunk for Fast Retransmit (or abandons it). */
+  private strikeChunk(chunk: DataChunk) {
+    chunk.misses++;
+    if (chunk.misses < 3) return false;
+    chunk.misses = 0;
+    if (!this.maybeAbandon(chunk)) {
+      chunk.retransmit = true;
+    }
+    chunk.acked = false;
+    this.flightSizeDecrease(chunk);
+    return true;
+  }
+
+  private isExpired(chunk: DataChunk) {
+    return chunk.expiry !== undefined && chunk.expiry <= Date.now();
+  }
+
+  /**
+   * An abandoned chunk is never sent or retransmitted again, so its payload is
+   * released; bookSize and the TSN / stream metadata FORWARD-TSN needs stay.
+   */
+  private markAbandoned(chunk: DataChunk) {
+    chunk.abandoned = true;
+    chunk.retransmit = false;
+    chunk.userData = EMPTY_PAYLOAD;
+  }
+
+  /** Marks every fragment of the message at sentQueue[chunkPos] abandoned. */
+  private abandonMessage(chunkPos: number) {
+    // Abandon the whole message: walk back to its first fragment and forward
+    // to its last fragment (RFC 3758 3.5 A3).
     for (let pos = chunkPos; pos >= 0; pos--) {
       const oChunk = this.sentQueue.at(pos)!;
-      oChunk.abandoned = true;
-      oChunk.retransmit = false;
-      if (oChunk.flags & SCTP_DATA_LAST_FRAG) {
+      this.markAbandoned(oChunk);
+      this.flightSizeDecrease(oChunk);
+      if (oChunk.flags & SCTP_DATA_FIRST_FRAG) {
         break;
       }
     }
 
+    let lastFragReached = false;
     for (let pos = chunkPos; pos < this.sentQueue.length; pos++) {
       const oChunk = this.sentQueue.at(pos)!;
-      oChunk.abandoned = true;
-      oChunk.retransmit = false;
+      this.markAbandoned(oChunk);
+      this.flightSizeDecrease(oChunk);
       if (oChunk.flags & SCTP_DATA_LAST_FRAG) {
+        lastFragReached = true;
         break;
       }
     }
 
-    return true;
+    // The remaining fragments may still be waiting in outboundQueue (cwnd/rwnd
+    // limited). Sending them would leave the receiver with a headless message,
+    // so move them to sentQueue as abandoned without transmitting; they are then
+    // covered by the FORWARD-TSN like the rest of the message.
+    while (!lastFragReached && this.outboundQueue.length > 0) {
+      const oChunk = this.outboundQueue.shift()!;
+      this.markAbandoned(oChunk);
+      this.sentQueue.push(oChunk);
+      this.resolveSendWaiters(oChunk);
+      if (oChunk.flags & SCTP_DATA_LAST_FRAG) {
+        lastFragReached = true;
+      }
+    }
   }
 
   static getCapabilities() {
@@ -1387,16 +1842,29 @@ export class SCTP {
   async start(remotePort?: number) {
     if (!this.started) {
       this.started = true;
-      this.setConnectionState("connecting");
+      // Keep "connected" when the peer's INIT already established it.
+      if (this.associationState !== SCTP_STATE.ESTABLISHED) {
+        this.setConnectionState("connecting");
+      }
 
       if (remotePort) {
         this.setRemotePort(remotePort);
       }
 
-      if (!this.isServer) {
+      // The peer's INIT may already have established the association
+      // before start(); a new INIT would reset it.
+      if (!this.isServer && this.associationState === SCTP_STATE.CLOSED) {
         await this.init();
       }
     }
+  }
+
+  /** Waiting for INIT_ACK / COOKIE_ACK of our own INIT. */
+  private get isInitiating() {
+    return (
+      this.associationState === SCTP_STATE.COOKIE_WAIT ||
+      this.associationState === SCTP_STATE.COOKIE_ECHOED
+    );
   }
 
   private async init() {
@@ -1409,14 +1877,16 @@ export class SCTP {
     this.setExtensions(init.params);
     log("send init", init);
 
+    // # start T1 timer and enter COOKIE-WAIT state
+    // Before handing INIT off, so an INIT_ACK that arrives while the send is
+    // still pending is not dropped by the COOKIE_WAIT guard, and a failed
+    // send is packet loss that T1 retransmits (or closes after max retries).
+    this.timer1Start(init);
+    this.setState(SCTP_STATE.COOKIE_WAIT);
     try {
       await this.sendChunk(init);
-
-      // # start T1 timer and enter COOKIE-WAIT state
-      this.timer1Start(init);
-      this.setState(SCTP_STATE.COOKIE_WAIT);
     } catch (error: any) {
-      log("send init failed", error.message);
+      log("send init failed; T1 retransmits", error?.message);
     }
   }
 
@@ -1440,7 +1910,9 @@ export class SCTP {
     const packet = serializePacket(
       this.localPort,
       this.remotePort,
-      this.remoteVerificationTag,
+      // RFC 9260 §8.5.1: INIT is always sent with verification tag 0, also
+      // when an INIT answered before start() taught us the peer's tag.
+      chunk.type === InitChunk.type ? 0 : this.remoteVerificationTag,
       chunk,
     );
     await this.transport.send(packet);
@@ -1462,10 +1934,13 @@ export class SCTP {
       this.timer3Cancel();
       this.timerReconfigCancel();
       this.heartbeatCancel();
+      this.outboundExpiryCancel();
       if (this.sackTimeout) {
         clearTimeout(this.sackTimeout);
         this.sackTimeout = undefined;
       }
+      // Drop a deferred incoming stream reset and the DATA held for it.
+      this.deferredReset = undefined;
       this.setConnectionState("closed");
       this.removeAllListeners();
       this.releaseSendWaiters();
@@ -1496,6 +1971,7 @@ export class SCTP {
     clearTimeout(this.timer1Handle);
     clearTimeout(this.timer2Handle);
     clearTimeout(this.timer3Handle);
+    this.outboundExpiryCancel();
     clearTimeout(this.timerReconfigHandle);
     clearTimeout(this.timerHeartbeatHandle);
     clearTimeout(this.sackTimeout);
@@ -1567,8 +2043,8 @@ export class InboundStream {
         if (ordered!) {
           break;
         } else {
+          // The partial message is broken; this chunk may start the next one.
           startPos = undefined;
-          pos++;
           continue;
         }
       }
@@ -1592,13 +2068,84 @@ export class InboundStream {
         if (ordered && chunk.streamSeqNum === this.streamSequenceNumber) {
           this.streamSequenceNumber = uint16Add(this.streamSequenceNumber, 1);
         }
+        // The next message starts at the removed one's position and need not
+        // be TSN-contiguous with it, so restart the search there.
         pos = startPos;
+        startPos = undefined;
         yield [chunk.streamId, chunk.protocol, userData];
+        continue;
       } else {
         pos++;
       }
       expectedTsn = tsnPlusOne(expectedTsn);
     }
+  }
+
+  /**
+   * Applies a FORWARD-TSN entry (RFC 3758 3.6): ordered messages with SSN up to
+   * `ssn` are no longer waited for. Complete ones are returned for delivery in
+   * order, incomplete ones are dropped, and the expected SSN moves past `ssn`
+   * (never backwards, so a stale/duplicated entry is harmless).
+   */
+  forwardSequenceNumber(ssn: number) {
+    const messages: [number, number, Buffer][] = [];
+    let prunedSize = 0;
+    let fragments: DataChunk[] = [];
+    const dropFragments = () => {
+      for (const c of fragments) prunedSize += c.userData.length;
+      fragments = [];
+    };
+
+    this.reassembly = this.reassembly.filter((chunk) => {
+      if (
+        chunk.flags & SCTP_DATA_UNORDERED ||
+        uint16Gt(chunk.streamSeqNum, ssn)
+      ) {
+        return true;
+      }
+      const prev = fragments[fragments.length - 1];
+      if (chunk.flags & SCTP_DATA_FIRST_FRAG) {
+        dropFragments();
+      } else if (
+        !prev ||
+        chunk.tsn !== tsnPlusOne(prev.tsn) ||
+        chunk.streamSeqNum !== prev.streamSeqNum
+      ) {
+        dropFragments();
+        prunedSize += chunk.userData.length;
+        return false;
+      }
+      fragments.push(chunk);
+      if (chunk.flags & SCTP_DATA_LAST_FRAG) {
+        messages.push([
+          chunk.streamId,
+          chunk.protocol,
+          Buffer.concat(fragments.map((c) => c.userData)),
+        ]);
+        fragments = [];
+      }
+      return false;
+    });
+    dropFragments();
+
+    const nextSsn = uint16Add(ssn, 1);
+    if (uint16Gt(nextSsn, this.streamSequenceNumber)) {
+      this.streamSequenceNumber = nextSsn;
+    }
+    return { messages, prunedSize };
+  }
+
+  /** Removes unordered chunks with TSN up to `tsn`. */
+  pruneUnorderedChunks(tsn: number) {
+    let size = 0;
+    this.reassembly = this.reassembly.filter((chunk) => {
+      if (chunk.flags & SCTP_DATA_UNORDERED && uint32Gte(tsn, chunk.tsn)) {
+        size += chunk.userData.length;
+        return false;
+      }
+      return true;
+    });
+    return size;
   }
 
   pruneChunks(tsn: number) {
@@ -1632,7 +2179,17 @@ export class RTCSctpCapabilities {
 }
 
 function tsnMinusOne(a: number) {
-  return (a - 1) % SCTP_TSN_MODULO;
+  return (a - 1 + SCTP_TSN_MODULO) % SCTP_TSN_MODULO;
+}
+
+/** Serial-number distance from `base` to `tsn` (RFC 1982), 0..2^32-1. */
+function tsnDistance(base: number, tsn: number) {
+  return (tsn - base + SCTP_TSN_MODULO) % SCTP_TSN_MODULO;
+}
+
+/** Sorts TSNs in serial-number order after `base`, so the order holds across a wrap. */
+function sortTsns(tsns: Iterable<number>, base: number) {
+  return [...tsns].sort((a, b) => tsnDistance(base, a) - tsnDistance(base, b));
 }
 
 function tsnPlusOne(a: number) {

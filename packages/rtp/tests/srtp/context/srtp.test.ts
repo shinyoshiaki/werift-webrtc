@@ -7,6 +7,7 @@ import {
   createSrtpTestContext,
   decryptSrtpSequence,
   encryptSrtpSequence,
+  loseOriginalTransmission,
   sequenceRange,
   tamperBuffer,
 } from "../../utils";
@@ -268,17 +269,19 @@ describe("srtp/context/srtp", () => {
         0,
         152,
       ]);
+      // 初回の seq 0 は経路上で失われ、NACK 再送だけが届く
+      const delivered = loseOriginalTransmission(packets, 0);
 
-      // Act: 再送を含む全パケットを順に復号する
+      // Act: 再送を含む届いたパケットを順に復号する
       const results = decryptSrtpSequence(
         receiver,
-        packets.map((p) => p.encrypted),
+        delivered.map((p) => p.encrypted),
       );
 
       // Assert: 全パケットが認証・復号に成功し、元の RTP と一致する
       expect(results.filter((r) => !r.ok)).toEqual([]);
       results.forEach((r, i) => {
-        expect(r.ok && r.decrypted).toEqual(packets[i].plain);
+        expect(r.ok && r.decrypted).toEqual(delivered[i].plain);
       });
       // Assert: 受信側の最高 index は (1, 152)
       expect(receiver.srtpSSRCStates[5000]).toMatchObject({
@@ -299,11 +302,13 @@ describe("srtp/context/srtp", () => {
         65535,
         ...sequenceRange(100, 120),
       ]);
+      // 初回の 65535 は経路上で失われ、遅れた NACK 再送だけが届く
+      const delivered = loseOriginalTransmission(packets, 65535);
 
       // Act
       const results = decryptSrtpSequence(
         receiver,
-        packets.map((p) => p.encrypted),
+        delivered.map((p) => p.encrypted),
       );
 
       // Assert: 再送 65535 も後続 100.. も全て復号できる
@@ -360,9 +365,12 @@ describe("srtp/context/srtp", () => {
         121,
       ]);
       const retransmission = packets.at(-2)!.encrypted;
+      // 初回の seq 0 は経路上で失われている
       decryptSrtpSequence(
         receiver,
-        packets.slice(0, -2).map((p) => p.encrypted),
+        loseOriginalTransmission(packets.slice(0, -2), 0).map(
+          (p) => p.encrypted,
+        ),
       );
       const stateBefore = { ...receiver.srtpSSRCStates[5000] };
 
