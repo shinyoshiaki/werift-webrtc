@@ -8,21 +8,22 @@ import {
   SackChunk,
 } from "../src/chunk";
 import {
+  advancePastT3,
+  buildSack,
   createLossyPrSctpPair,
   createSeededRandom,
-  buildSack,
   createZeroWindowMockSctp,
   disposeMockSctp,
+  findFlightSizeViolation,
+  flushImmediates,
+  propertySeeds,
   receiveSack,
+  recordedData,
+  recordedForwardTsns,
   sentChunks,
   sentDataTsns,
   tsnBefore,
-  findFlightSizeViolation,
-  flushImmediates,
 } from "./utils";
-
-// T3-rtx の初期値 (SCTP_RTO_INITIAL = 3s) を確実に超える時間
-const PAST_T3_MS = 3_100;
 
 describe("PR-SCTP lifetime (expiry) abandonment", () => {
   let stop: (() => Promise<void>) | undefined;
@@ -48,16 +49,11 @@ describe("PR-SCTP lifetime (expiry) abandonment", () => {
       ordered: true,
     });
     await flushImmediates();
-    const abandoned = pair.recorder.sentChunks.find(
-      (c): c is DataChunk => c instanceof DataChunk,
-    )!;
-    await vi.advanceTimersByTimeAsync(PAST_T3_MS);
-    await flushImmediates();
+    const abandoned = recordedData(pair.recorder)[0]!;
+    await advancePastT3();
 
     // Assert: FORWARD-TSN が破棄チャンクの TSN を累積 TSN として送られ、送信キューから外れる
-    const forwardTsn = pair.recorder.sentChunks.find(
-      (c): c is ForwardTsnChunk => c instanceof ForwardTsnChunk,
-    );
+    const forwardTsn = recordedForwardTsns(pair.recorder)[0];
     expect(forwardTsn?.cumulativeTsn).toBe(abandoned.tsn);
     expect(forwardTsn?.streams).toEqual([[0, abandoned.streamSeqNum]]);
     expect((pair.client as any).sentQueue.length).toBe(0);
@@ -85,18 +81,13 @@ describe("PR-SCTP lifetime (expiry) abandonment", () => {
       ordered: true,
     });
     await flushImmediates();
-    await vi.advanceTimersByTimeAsync(PAST_T3_MS);
-    await flushImmediates();
+    await advancePastT3();
 
     // Assert: 同じ TSN の DATA が再送され、FORWARD-TSN は送られず、チャンクは破棄されていない
-    const dataTsns = pair.recorder.sentChunks
-      .filter((c): c is DataChunk => c instanceof DataChunk)
-      .map((c) => c.tsn);
+    const dataTsns = recordedData(pair.recorder).map((c) => c.tsn);
     expect(dataTsns.length).toBe(2);
     expect(dataTsns[1]).toBe(dataTsns[0]);
-    expect(
-      pair.recorder.sentChunks.some((c) => c instanceof ForwardTsnChunk),
-    ).toBe(false);
+    expect(recordedForwardTsns(pair.recorder).length > 0).toBe(false);
     const sentQueue: DataChunk[] = [...(pair.client as any).sentQueue];
     expect(sentQueue.map((c) => c.abandoned)).toEqual([false]);
   });
@@ -117,8 +108,7 @@ describe("PR-SCTP lifetime (expiry) abandonment", () => {
       ordered: true,
     });
     await flushImmediates();
-    await vi.advanceTimersByTimeAsync(PAST_T3_MS);
-    await flushImmediates();
+    await advancePastT3();
 
     // Assert: 先頭の未失効チャンクは再送対象のまま、失効メッセージの全断片だけが破棄される
     const sentQueue: DataChunk[] = [...(pair.client as any).sentQueue];
@@ -130,9 +120,7 @@ describe("PR-SCTP lifetime (expiry) abandonment", () => {
       true,
     ]);
     // Assert: 先頭が未確認のため累積 TSN は進められず FORWARD-TSN は送られない
-    expect(
-      pair.recorder.sentChunks.some((c) => c instanceof ForwardTsnChunk),
-    ).toBe(false);
+    expect(recordedForwardTsns(pair.recorder).length > 0).toBe(false);
   });
 
   test("abandons fragments still waiting in outboundQueue so the next ordered message is delivered", async () => {
@@ -154,8 +142,7 @@ describe("PR-SCTP lifetime (expiry) abandonment", () => {
     const lastTsn = (client.localTsn + 0xffffffff) % 0x100000000;
 
     // Act: 寿命と T3-rtx を超えて時間を進める
-    await vi.advanceTimersByTimeAsync(PAST_T3_MS);
-    await flushImmediates();
+    await advancePastT3();
     await sending;
 
     // Assert: 一部の断片が未送信だったことを前提に、未送信断片も含めて全て破棄され送信キューが空になる
@@ -163,9 +150,7 @@ describe("PR-SCTP lifetime (expiry) abandonment", () => {
     expect(client.outboundQueue.length).toBe(0);
     expect(client.sentQueue.length).toBe(0);
     // Assert: FORWARD-TSN がメッセージ最終断片の TSN まで累積 TSN を進める
-    const forwardTsn = pair.recorder.sentChunks.find(
-      (c): c is ForwardTsnChunk => c instanceof ForwardTsnChunk,
-    );
+    const forwardTsn = recordedForwardTsns(pair.recorder)[0];
     expect(forwardTsn?.cumulativeTsn).toBe(lastTsn);
 
     // Act: 同じストリームで次のメッセージを送る
@@ -193,20 +178,14 @@ describe("PR-SCTP lifetime (expiry) abandonment", () => {
       ordered: true,
     });
     await flushImmediates();
-    const abandoned = pair.recorder.sentChunks.find(
-      (c): c is DataChunk => c instanceof DataChunk,
-    )!;
-    await vi.advanceTimersByTimeAsync(PAST_T3_MS);
-    await flushImmediates();
+    const abandoned = recordedData(pair.recorder)[0]!;
+    await advancePastT3();
     // Assert: 1 回目の FORWARD-TSN は失われ、受信側の累積 TSN はまだ進んでいない
     expect((pair.server as any).lastReceivedTsn).not.toBe(abandoned.tsn);
-    await vi.advanceTimersByTimeAsync(PAST_T3_MS);
-    await flushImmediates();
+    await advancePastT3();
 
     // Assert: FORWARD-TSN が再送され、受信側が進み、送信側の保持も解除される
-    const forwardCount = pair.recorder.sentChunks.filter(
-      (c) => c instanceof ForwardTsnChunk,
-    ).length;
+    const forwardCount = recordedForwardTsns(pair.recorder).length;
     expect(forwardCount).toBe(2);
     expect((pair.server as any).lastReceivedTsn).toBe(abandoned.tsn);
     expect((pair.client as any).forwardTsnChunk).toBeUndefined();
@@ -331,8 +310,7 @@ describe("PR-SCTP lifetime (expiry) abandonment", () => {
     // Assert: B は確認済みで、順序待ちのため未配送
     expect(b.acked).toBe(true);
     expect(received).toEqual([]);
-    await vi.advanceTimersByTimeAsync(PAST_T3_MS);
-    await flushImmediates();
+    await advancePastT3();
 
     // Assert: B は失効扱いにならず、FORWARD-TSN で A だけが飛ばされ B が配送される
     expect(b.abandoned).toBe(false);
@@ -401,13 +379,10 @@ describe("PR-SCTP lifetime (expiry) abandonment", () => {
     expect(received).toEqual([]);
 
     // Act: 寿命と T3-rtx を超えて時間を進め、A と B を飛ばす FORWARD-TSN を送らせる
-    await vi.advanceTimersByTimeAsync(PAST_T3_MS);
-    await flushImmediates();
+    await advancePastT3();
 
     // Assert: FORWARD-TSN は B まで含むが、受信済みで完全な B は破棄されず配送される
-    const forwardTsn = pair.recorder.sentChunks.find(
-      (c): c is ForwardTsnChunk => c instanceof ForwardTsnChunk,
-    );
+    const forwardTsn = recordedForwardTsns(pair.recorder)[0];
     expect(forwardTsn?.cumulativeTsn).toBe(b.tsn);
     expect(received.map((d) => d.toString())).toEqual(["B"]);
     // Assert: 受信ウィンドウが初期値 (1MiB) に戻り、受信バッファの勘定がずれない
@@ -434,12 +409,11 @@ describe("PR-SCTP lifetime (expiry) abandonment", () => {
     expect(b.acked).toBe(true);
 
     // Act: T3-rtx を満了させて A を再送させ、累積 SACK を受け取る
-    await vi.advanceTimersByTimeAsync(PAST_T3_MS);
-    await flushImmediates();
+    await advancePastT3();
 
     // Assert: 確認済みの B は再送されず、全確認後の flightSize が 0 に戻る
-    const bSends = pair.recorder.sentChunks.filter(
-      (c) => c instanceof DataChunk && c.tsn === b.tsn,
+    const bSends = recordedData(pair.recorder).filter(
+      (c) => c.tsn === b.tsn,
     ).length;
     expect(bSends).toBe(1);
     expect(received.length).toBe(2);
@@ -484,8 +458,7 @@ describe("PR-SCTP lifetime (expiry) abandonment", () => {
         client.forwardTsnChunk);
       i++
     ) {
-      await vi.advanceTimersByTimeAsync(PAST_T3_MS);
-      await flushImmediates();
+      await advancePastT3();
     }
   };
 
@@ -502,8 +475,8 @@ describe("PR-SCTP lifetime (expiry) abandonment", () => {
     await Promise.all(sends);
 
     // Assert: B は一度も送られず破棄され、FORWARD-TSN が B の TSN まで進める
-    const bSends = pair.recorder.sentChunks.filter(
-      (c) => c instanceof DataChunk && c.tsn === b.tsn,
+    const bSends = recordedData(pair.recorder).filter(
+      (c) => c.tsn === b.tsn,
     ).length;
     expect(bSends).toBe(0);
     expect(b.abandoned).toBe(true);
@@ -535,9 +508,7 @@ describe("PR-SCTP lifetime (expiry) abandonment", () => {
     expect(b.abandoned).toBe(false);
     expect(b.sentCount).toBe(1);
     expect(client.sentQueue.length).toBe(0);
-    expect(
-      pair.recorder.sentChunks.some((c) => c instanceof ForwardTsnChunk),
-    ).toBe(false);
+    expect(recordedForwardTsns(pair.recorder).length > 0).toBe(false);
     expect(received).toEqual(["A", "B"]);
   });
 
@@ -566,8 +537,7 @@ describe("PR-SCTP lifetime (expiry) abandonment", () => {
     const b: DataChunk = [...client.sentQueue][1];
     pair.recorder.dropData = false;
     pair.serverRecorder.dropSack = true;
-    await vi.advanceTimersByTimeAsync(PAST_T3_MS);
-    await flushImmediates();
+    await advancePastT3();
     pair.serverRecorder.dropSack = false;
     /** 保留していた SACK を送信側へ届ける。 */
     const deliverHeldSacks = async () => {
@@ -578,9 +548,6 @@ describe("PR-SCTP lifetime (expiry) abandonment", () => {
     };
     return { pair, client, received, b, deliverHeldSacks };
   };
-
-  const countDataSends = (chunks: unknown[], tsn: number) =>
-    chunks.filter((c) => c instanceof DataChunk && c.tsn === tsn).length;
 
   test("abandons a chunk whose lifetime expires while it waits for retransmission", async () => {
     // Arrange: 寿命 3.5s の B が T3-rtx 時点 (寿命内) で再送対象になり、cwnd 待ちで残る
@@ -595,11 +562,11 @@ describe("PR-SCTP lifetime (expiry) abandonment", () => {
     await deliverHeldSacks();
 
     // Assert: B は再送されずに破棄され、FORWARD-TSN が B の TSN まで進める
-    expect(countDataSends(pair.recorder.sentChunks, b.tsn)).toBe(1);
+    expect(
+      recordedData(pair.recorder).filter((c) => c.tsn === b.tsn).length,
+    ).toBe(1);
     expect(b.abandoned).toBe(true);
-    const forwardTsn = pair.recorder.sentChunks.find(
-      (c): c is ForwardTsnChunk => c instanceof ForwardTsnChunk,
-    );
+    const forwardTsn = recordedForwardTsns(pair.recorder)[0];
     expect(forwardTsn?.cumulativeTsn).toBe(b.tsn);
     expect((pair.server as any).lastReceivedTsn).toBe(b.tsn);
     expect(client.sentQueue.length).toBe(0);
@@ -624,11 +591,11 @@ describe("PR-SCTP lifetime (expiry) abandonment", () => {
     await deliverHeldSacks();
 
     // Assert: B は破棄されずに再送され、A に続いて配送される
-    expect(countDataSends(pair.recorder.sentChunks, b.tsn)).toBe(2);
-    expect(b.abandoned).toBe(false);
     expect(
-      pair.recorder.sentChunks.some((c) => c instanceof ForwardTsnChunk),
-    ).toBe(false);
+      recordedData(pair.recorder).filter((c) => c.tsn === b.tsn).length,
+    ).toBe(2);
+    expect(b.abandoned).toBe(false);
+    expect(recordedForwardTsns(pair.recorder).length > 0).toBe(false);
     expect(client.sentQueue.length).toBe(0);
     expect(received).toEqual(["A", "B"]);
   });
@@ -657,17 +624,15 @@ describe("PR-SCTP lifetime (expiry) abandonment", () => {
     server.sackMisOrdered.delete(b.tsn);
 
     // Act: T3-rtx で A を再送させ、B を含まない SACK を受け取った後も時間を進める
-    await vi.advanceTimersByTimeAsync(PAST_T3_MS);
-    await flushImmediates();
+    await advancePastT3();
     // Assert: B のギャップ ACK 撤回を検出し、未確認に戻す
     expect(received).toEqual(["A"]);
     expect(b.acked).toBe(false);
-    await vi.advanceTimersByTimeAsync(PAST_T3_MS);
-    await flushImmediates();
+    await advancePastT3();
 
     // Assert: B が再送されて配送が回復し、送信側の状態も片付く
-    const bSends = pair.recorder.sentChunks.filter(
-      (c) => c instanceof DataChunk && c.tsn === b.tsn,
+    const bSends = recordedData(pair.recorder).filter(
+      (c) => c.tsn === b.tsn,
     ).length;
     expect(bSends).toBe(2);
     expect(received).toEqual(["A", "B"]);
@@ -705,9 +670,7 @@ describe("PR-SCTP lifetime (expiry) abandonment", () => {
       await flushImmediates();
     };
     const bSends = () =>
-      pair.recorder.sentChunks.filter(
-        (c) => c instanceof DataChunk && c.tsn === b.tsn,
-      ).length;
+      recordedData(pair.recorder).filter((c) => c.tsn === b.tsn).length;
 
     // Act: B を含まない SACK を 2 回受け取る (時間は進めない)
     await receiveSackWithoutB();
@@ -728,8 +691,7 @@ describe("PR-SCTP lifetime (expiry) abandonment", () => {
     expect(server.sackMisOrdered.has(b.tsn)).toBe(true);
 
     // Act: T3-rtx で A を再送させる
-    await vi.advanceTimersByTimeAsync(PAST_T3_MS);
-    await flushImmediates();
+    await advancePastT3();
 
     // Assert: 順序付き配送が回復し、送信側の状態も片付く
     expect(received).toEqual(["A", "B"]);
@@ -911,14 +873,18 @@ describe("PR-SCTP lifetime of DATA queued behind a zero receive window", () => {
 describe("PR-SCTP under seeded random loss of DATA / SACK / FORWARD-TSN", () => {
   // Fixed seeds keep failures replayable; seeds 6, 37, 38 and 78 reproduced
   // reassembly / flightSize bugs before they were fixed.
-  const SEEDS = Array.from({ length: 100 }, (_, i) => i + 1);
+  const { seeds, seedSelected, replay } = propertySeeds("WERIFT_SCTP_LOSS", {
+    seeds: 100,
+  });
   const LOSS_RATE = 0.2;
   const STREAMS = 3;
   const SIZES = [16, 1_500, 4_000];
+  /** How often the seeds exercised abandonment; a property that never abandons proves nothing about lifetimes. */
+  const coverage = { abandonedMessages: 0, forwardTsns: 0 };
 
-  test.each(SEEDS)(
-    "keeps delivery and flightSize consistent (seed %i)",
-    async (seed) => {
+  test.each(seeds.map((seed) => [seed, replay(seed)] as const))(
+    `keeps delivery, lifetimes and flightSize consistent (seed %i, replay: %s)`,
+    async (seed, _replay) => {
       // Arrange: シード付き乱数で両方向のパケットを落とすペアと、複数ストリーム・断片化・寿命有無を混ぜたメッセージ
       const pair = await createLossyPrSctpPair();
       try {
@@ -938,6 +904,8 @@ describe("PR-SCTP under seeded random loss of DATA / SACK / FORWARD-TSN", () => 
             lifetime:
               random() < 0.5 ? 50 + Math.floor(random() * 2_000) : undefined,
             data,
+            expiry: undefined as number | undefined,
+            resolvedAt: undefined as number | undefined,
           };
         });
         const delivered: { streamId: number; data: Buffer }[] = [];
@@ -951,15 +919,17 @@ describe("PR-SCTP under seeded random loss of DATA / SACK / FORWARD-TSN", () => 
         };
 
         // Act: 損失ありで送信と時間経過を乱数で織り交ぜる
-        const sends: Promise<void>[] = [];
         for (const m of messages) {
-          sends.push(
-            pair.client.send(m.streamId, 53, m.data, {
+          m.expiry =
+            m.lifetime === undefined ? undefined : Date.now() + m.lifetime;
+          void pair.client
+            .send(m.streamId, 53, m.data, {
               ordered: m.ordered,
-              expiry:
-                m.lifetime === undefined ? undefined : Date.now() + m.lifetime,
-            }),
-          );
+              expiry: m.expiry,
+            })
+            .then(() => {
+              m.resolvedAt = Date.now();
+            });
           await flushImmediates(3);
           check();
           await vi.advanceTimersByTimeAsync(Math.floor(random() * 800));
@@ -982,14 +952,23 @@ describe("PR-SCTP under seeded random loss of DATA / SACK / FORWARD-TSN", () => 
           await flushImmediates();
           check();
         }
-        await Promise.all(sends);
 
         // Assert: 送信側が停止せず全て片付き、flightSize の勘定が常に一致している
         expect(violations).toEqual([]);
+        expect(messages.filter((m) => m.resolvedAt === undefined)).toEqual([]);
         expect(client.outboundQueue.length).toBe(0);
         expect(client.sentQueue.length).toBe(0);
         expect(client.forwardTsnChunk).toBeUndefined();
         expect(client.flightSize).toBe(0);
+        // Assert: 寿命付きメッセージの send() は、ほかのイベントを待たずに遅くとも寿命の時刻までに解決する
+        const lateSends = messages
+          .filter((m) => m.expiry !== undefined && m.resolvedAt! > m.expiry)
+          .map((m) => ({
+            id: m.id,
+            expiry: m.expiry,
+            resolvedAt: m.resolvedAt,
+          }));
+        expect(lateSends).toEqual([]);
         // Assert: 受信側に取り残された断片がなく、受信ウィンドウが初期値に戻る
         const server = pair.server as any;
         for (const stream of Object.values(server.inboundStreams) as any[]) {
@@ -1015,9 +994,22 @@ describe("PR-SCTP under seeded random loss of DATA / SACK / FORWARD-TSN", () => 
           });
           expect(orderedIds).toEqual([...orderedIds].sort((a, b) => a - b));
         }
+        coverage.abandonedMessages += messages.filter(
+          (m) => !ids.includes(m.id),
+        ).length;
+        coverage.forwardTsns += recordedForwardTsns(pair.recorder).length;
       } finally {
         await pair.stop();
       }
+    },
+  );
+
+  test.skipIf(seedSelected)(
+    "the seeds above exercise lifetime abandonment and FORWARD-TSN",
+    () => {
+      // Assert: 寿命破棄の経路が一度も通らない (寿命が効かない) と、上のプロパティは空振りでも成功してしまう
+      expect(coverage.abandonedMessages).toBeGreaterThan(0);
+      expect(coverage.forwardTsns).toBeGreaterThan(0);
     },
   );
 });

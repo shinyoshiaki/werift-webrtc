@@ -385,6 +385,52 @@ export const createSctpEndpointPair = ({
 };
 
 /**
+ * Arrange: two unstarted endpoints with the given roles whose packets in both
+ * directions are recorded (`wire`) and dropped while `dropIf` says so. Fake
+ * setTimeout / Date are installed first so T1 retransmissions can be advanced;
+ * MemoryTransport's setImmediate stays real. Each endpoint's connection state
+ * changes are recorded in `states`.
+ */
+export const createLossyEndpointPair = (
+  roles: ["client" | "server", "client" | "server"],
+) => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+  const control = {
+    dropIf: undefined as (() => boolean) | undefined,
+    wire: [] as { tag: number; chunks: Chunk[] }[],
+  };
+  const record = (buf: Buffer) => {
+    const [, , tag, chunks] = parsePacket(buf);
+    control.wire.push({ tag, chunks });
+    return control.dropIf?.() ?? false;
+  };
+  const transports = createMemoryTransportPair({
+    dropClient: record,
+    dropServer: record,
+  });
+  const create = (role: "client" | "server", transport: MemoryTransport) =>
+    role === "client" ? SCTP.client(transport) : SCTP.server(transport);
+  const endpoints = [
+    create(roles[0], transports.client),
+    create(roles[1], transports.server),
+  ] as const;
+  const states = endpoints.map((sctp) => {
+    const history: string[] = [];
+    for (const state of ["connecting", "connected", "closed"] as const) {
+      sctp.stateChanged[state].subscribe(() => history.push(state));
+    }
+    return history;
+  });
+  const stop = async () => {
+    vi.useRealTimers();
+    for (const sctp of endpoints) await sctp.stop();
+    transports.client.close();
+    transports.server.close();
+  };
+  return { endpoints, states, control, stop };
+};
+
+/**
  * Unstarted client SCTP over a vi.fn transport that records sent packets.
  * `established` puts it in ESTABLISHED state so DATA/HEARTBEAT can flow.
  */
@@ -565,11 +611,48 @@ export const createLossyPrSctpPair = async () => {
   return { ...pair, recorder, serverRecorder, stop };
 };
 
+/** Fake time well past the initial T3-rtx (SCTP_RTO_INITIAL = 3s). */
+export const PAST_T3_MS = 3_100;
+
+/** Act: advance fake time past T3-rtx and let the deliveries it triggers run. */
+export const advancePastT3 = async () => {
+  await vi.advanceTimersByTimeAsync(PAST_T3_MS);
+  await flushImmediates();
+};
+
+/** DATA chunks a drop recorder saw, in send order (including dropped ones). */
+export const recordedData = (recorder: { sentChunks: Chunk[] }) =>
+  recorder.sentChunks.filter((c): c is DataChunk => c instanceof DataChunk);
+
+/** FORWARD-TSN chunks a drop recorder saw, in send order (including dropped ones). */
+export const recordedForwardTsns = (recorder: { sentChunks: Chunk[] }) =>
+  recorder.sentChunks.filter(
+    (c): c is ForwardTsnChunk => c instanceof ForwardTsnChunk,
+  );
+
 /** Lets MemoryTransport deliveries (setImmediate) and their handlers run. */
 export const flushImmediates = async (rounds = 10) => {
   for (let i = 0; i < rounds; i++) {
     await new Promise<void>((resolve) => setImmediate(resolve));
   }
+};
+
+/**
+ * Seeds of a property test, as in packages/webrtc/tests/pbt/shared/seeds.ts:
+ * `<prefix>_SEEDS` seeds (default `defaults.seeds`) starting at `<prefix>_SEED`
+ * (default 1). A failing seed is replayed with `<prefix>_SEED=<n> <prefix>_SEEDS=1`.
+ */
+export const propertySeeds = (prefix: string, defaults: { seeds: number }) => {
+  const env = process.env;
+  const count = Number(env[`${prefix}_SEEDS`] ?? defaults.seeds);
+  const first = Number(env[`${prefix}_SEED`] ?? 1);
+  return {
+    seeds: [...Array(count)].map((_, index) => first + index),
+    /** True when `<prefix>_SEED` picks the seeds (a replay of one seed). */
+    seedSelected: env[`${prefix}_SEED`] !== undefined,
+    replay: (seed: number | string) =>
+      `${prefix}_SEED=${seed} ${prefix}_SEEDS=1`,
+  };
 };
 
 /** Deterministic PRNG (mulberry32) so a failing random-loss seed can be replayed. */

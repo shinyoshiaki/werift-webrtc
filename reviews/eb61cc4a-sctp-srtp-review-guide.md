@@ -57,7 +57,7 @@ sequenceDiagram
   Note over A,B: 両端が ESTABLISHED
 ```
 
-**テスト.** [packages/sctp/tests/initCollision.test.ts](review-file:packages/sctp/tests/initCollision.test.ts:34)（同時開始、tag 0、確立済みでの `start()`、重複 INIT、再開始 INIT、送信順序と T1 再送の 15 件）。
+**テスト.** [packages/sctp/tests/initCollision.test.ts](review-file:packages/sctp/tests/initCollision.test.ts:38)（同時開始、tag 0、確立済みでの `start()`、重複 INIT、再開始 INIT、送信順序と T1 再送の 15 件）。加えて、役割・`start()` の時期・ハンドシェイク中の損失をランダムにした確立のプロパティ（[packages/sctp/tests/initCollision.test.ts:411](review-file:packages/sctp/tests/initCollision.test.ts:411)、100 シード）が、INIT の tag が常に 0 であることと両端の確立を確かめます。
 
 ## 3. B: SRTP / SRTCP の replay 保護（RFC 3711 §3.3.2）
 
@@ -138,7 +138,7 @@ sequenceDiagram
 - 寿命タイマーは、キューが空になったとき、`stop()`、相手の ABORT やタイムアウトによる CLOSED 遷移で解除します。[packages/sctp/src/sctp.ts:1921](review-file:packages/sctp/src/sctp.ts:1921)
 
 <!-- review-bookmark id="bm_1a1bfbae85e-77d54cf1" title="5. D: PR-SCTP の寿命（maxPacketLifeTime）" -->
-**テスト.** [packages/sctp/tests/lifetime.test.ts:27](review-file:packages/sctp/tests/lifetime.test.ts:27) の決め打ちテスト、[packages/sctp/tests/lifetime.test.ts:741](review-file:packages/sctp/tests/lifetime.test.ts:741) の受信ウィンドウ 0 のテスト（タイマー、順序、ペイロード解放、CLOSED 後の解除）、[packages/sctp/tests/lifetime.test.ts:911](review-file:packages/sctp/tests/lifetime.test.ts:911) のシード付きランダム損失テスト（DATA・SACK・FORWARD-TSN を 20% 落として 100 シード）。
+**テスト.** [packages/sctp/tests/lifetime.test.ts:28](review-file:packages/sctp/tests/lifetime.test.ts:28) の決め打ちテスト、[packages/sctp/tests/lifetime.test.ts:703](review-file:packages/sctp/tests/lifetime.test.ts:703) の受信ウィンドウ 0 のテスト（タイマー、順序、ペイロード解放、CLOSED 後の解除）、[packages/sctp/tests/lifetime.test.ts:873](review-file:packages/sctp/tests/lifetime.test.ts:873) のシード付きランダム損失のプロパティ（DATA・SACK・FORWARD-TSN を 20% 落として 100 シード）。寿命付きメッセージの `send()` が寿命の時刻までに解決することと、寿命破棄が実際に起きていること（空振りの検出）も確かめます。
 
 ## 6. E: stream reset の保留（RFC 6525）
 
@@ -151,7 +151,7 @@ sequenceDiagram
 - 自分の request に `In progress` が返ったら、失敗扱いにせず再送を続けます。
 - **成功応答の損失（レビュー反復で追加）:** 相手の逆方向 request が自分の request を確認済みとして返してきても（RFC 6525 §5.2.2 E1）、タイマーを止めずに再送を続けます。成功応答が失われると、request が残り続けて後続の reset を塞ぐためです。相手は処理済み request の再送に同じ結果を返すので、そこで完了します。[packages/sctp/src/sctp.ts:762](review-file:packages/sctp/src/sctp.ts:762)
 
-**テスト.** [packages/sctp/tests/reconfig.test.ts](review-file:packages/sctp/tests/reconfig.test.ts:15)（保留、TSN の 2^32 またぎ、FORWARD-TSN 経由、sequence number の検証、In progress、成功応答の損失、64 KiB メッセージの最後の断片を落とすケース）。
+**テスト.** [packages/sctp/tests/reconfig.test.ts](review-file:packages/sctp/tests/reconfig.test.ts:21)（保留、TSN の 2^32 またぎ、FORWARD-TSN 経由、sequence number の検証、In progress、成功応答の損失、64 KiB メッセージの最後の断片を落とすケース）。RE-CONFIG を含む全パケットを乱数で落とす stream reset のプロパティ（[packages/sctp/tests/reconfig.test.ts:628](review-file:packages/sctp/tests/reconfig.test.ts:628)、60 シード）が、すべての reset の完了と全メッセージの配送を確かめます。
 
 ## 7. F: 再交渉で追加した SCTP の開始
 

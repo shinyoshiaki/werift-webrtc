@@ -574,8 +574,18 @@ describe("sctp flight size accounting", () => {
       await receiveSack(sctp, buildSack(tsnBefore(t0), [[2, 2]]));
       expect(sentQueueOf(sctp)[1].acked).toBe(true);
 
-      // Act: B を含まず、A(t0)までの累積 ACK のみの SACK を受け、T3 が発火する
+      // Act: B を含まず、A(t0)までの累積 ACK のみの SACK を受ける
       await receiveSack(sctp, buildSack(t0));
+
+      // Assert: 取り消された B は未確認に戻り、未確認の C とともに送信中として flightSize に再計上される
+      const [renegedB, pendingC] = sentQueueOf(sctp);
+      expect(renegedB.acked).toBe(false);
+      expect(renegedB.inFlight).toBe(true);
+      expect(pendingC.inFlight).toBe(true);
+      expect(flightSizeOf(sctp)).toBe(renegedB.bookSize + pendingC.bookSize);
+      expectFlightSizeInvariant(sctp);
+
+      // Act: T3 が発火する
       const before = transport.send.mock.calls.length;
       (sctp as any).timer3Expired();
       await settle();

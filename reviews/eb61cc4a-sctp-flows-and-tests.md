@@ -4,7 +4,7 @@ ide:
   version: 1
   title: "SCTP 修正のレビュー解説：修正前後のフローとテストの読み方"
   dock: right
-  baseCommit: 70dc204c261f23d8716d0b3b45901cff2b0d093a
+  baseCommit: 45966c9ba9c207ee229fb758a977276497f0d6cb
 ---
 # SCTP 修正のレビュー解説：修正前後のフローとテストの読み方
 
@@ -278,17 +278,19 @@ sequenceDiagram
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px;font-family:var(--review-font);font-size:13px">
   <div style="padding:8px 12px;border:1px solid var(--review-border);border-left:4px solid var(--review-accent);border-radius:6px"><strong>モック（1 端点）</strong><br>送信をスパイし、受信は handleData / receiveChunk で直接注入する。<br><span style="color:var(--review-muted)">状態遷移・計上・送ったチャンクを細かく確認できる。相手の挙動は手で作るので、相手の実装との組み合わせは保証しない。</span></div>
   <div style="padding:8px 12px;border:1px solid var(--review-border);border-left:4px solid var(--review-success);border-radius:6px"><strong>実ペア（2 端点）</strong><br>MemoryTransport で 2 つの SCTP をつなぎ、特定のパケットだけ落とす。<br><span style="color:var(--review-muted)">相手側の応答（再送への同じ結果、FORWARD-TSN の処理など）まで含めて回復することを確認できる。</span></div>
-  <div style="padding:8px 12px;border:1px solid var(--review-border);border-left:4px solid var(--review-warning);border-radius:6px"><strong>シード付き乱数損失</strong><br>DATA・SACK・FORWARD-TSN を 20% 落とし、100 シードで実行する。<br><span style="color:var(--review-muted)">想定外の順序で起きる不整合を探す。失敗したシードはそのまま再現できる。</span></div>
+  <div style="padding:8px 12px;border:1px solid var(--review-border);border-left:4px solid var(--review-warning);border-radius:6px"><strong>プロパティ（シード付き乱数）</strong><br>操作の順序・時間・パケット損失を乱数で作り、どの順序でも成り立つべき条件（オラクル）を確かめる。寿命・stream reset・確立の 3 つ。<br><span style="color:var(--review-muted)">想定外の順序で起きる不整合を探す。失敗したシードはテスト名に出る環境変数でそのまま再実行できる。</span></div>
 </div>
 
 | テストファイル | 主な対象 | 層 |
 | --- | --- | --- |
-| [packages/sctp/tests/initCollision.test.ts](review-file:packages/sctp/tests/initCollision.test.ts:34) | ① 同時開始、tag 0、確立済みでの start()、重複・再開始 INIT、送信順序と T1 | モック＋実ペア |
+| [packages/sctp/tests/initCollision.test.ts](review-file:packages/sctp/tests/initCollision.test.ts:38) | ① 同時開始、tag 0、確立済みでの start()、重複・再開始 INIT、送信順序と T1 | モック＋実ペア |
+| [packages/sctp/tests/initCollision.test.ts](review-file:packages/sctp/tests/initCollision.test.ts:411) | ① 役割・start() の時期・ハンドシェイク中の損失をランダムにした確立 | プロパティ（100 シード） |
 | [packages/sctp/tests/sctp.test.ts](review-file:packages/sctp/tests/sctp.test.ts:272) | ② flightSize の計上（#806 の再現、T3、reneging） | モック |
-| [packages/sctp/tests/lifetime.test.ts](review-file:packages/sctp/tests/lifetime.test.ts:27) | ③ 寿命破棄、FORWARD-TSN、受信側の再組み立て | 実ペア |
-| [packages/sctp/tests/lifetime.test.ts](review-file:packages/sctp/tests/lifetime.test.ts:741) | ③ 受信ウィンドウ 0 の寿命タイマー | モック |
-| [packages/sctp/tests/lifetime.test.ts](review-file:packages/sctp/tests/lifetime.test.ts:911) | ③ 乱数損失 | 乱数 |
-| [packages/sctp/tests/reconfig.test.ts](review-file:packages/sctp/tests/reconfig.test.ts:15) | ④ 保留、sequence number、In progress、成功応答の損失 | モック＋実ペア |
+| [packages/sctp/tests/lifetime.test.ts](review-file:packages/sctp/tests/lifetime.test.ts:28) | ③ 寿命破棄、FORWARD-TSN、受信側の再組み立て | 実ペア |
+| [packages/sctp/tests/lifetime.test.ts](review-file:packages/sctp/tests/lifetime.test.ts:703) | ③ 受信ウィンドウ 0 の寿命タイマー | モック |
+| [packages/sctp/tests/lifetime.test.ts](review-file:packages/sctp/tests/lifetime.test.ts:873) | ③ DATA・SACK・FORWARD-TSN の乱数損失での配送・寿命・flightSize | プロパティ（100 シード） |
+| [packages/sctp/tests/reconfig.test.ts](review-file:packages/sctp/tests/reconfig.test.ts:21) | ④ 保留、sequence number、In progress、成功応答の損失 | モック＋実ペア |
+| [packages/sctp/tests/reconfig.test.ts](review-file:packages/sctp/tests/reconfig.test.ts:628) | ④ 全パケットの乱数損失のもとでの送信と reset | プロパティ（60 シード） |
 | [packages/sctp/tests/stream.test.ts](review-file:packages/sctp/tests/stream.test.ts:59) | ③ 受信側の再組み立て（popMessages）の単体 | 単体 |
 | [packages/sctp/tests/burst.test.ts](review-file:packages/sctp/tests/burst.test.ts:68) | ② 損失ありの大量送信で完了・順序が保たれる | 実ペア |
 
@@ -297,13 +299,28 @@ sequenceDiagram
 | ヘルパー | 役割 |
 | --- | --- |
 | [createControlledTransport](review-file:packages/sctp/tests/utils.ts:235) / [createSctpEndpointPair](review-file:packages/sctp/tests/utils.ts:360) | 送信を記録・保留できる transport。INIT 衝突の順序を作る |
-| [createMockSctp](review-file:packages/sctp/tests/utils.ts:396) / [createZeroWindowMockSctp](review-file:packages/sctp/tests/utils.ts:413) | ESTABLISHED のモック端点。後者は相手の rwnd を 0 にする |
-| [buildSack](review-file:packages/sctp/tests/utils.ts:458) / [receiveSack](review-file:packages/sctp/tests/utils.ts:470) | 任意の累積 TSN・Gap・rwnd の SACK を注入する |
-| [expectFlightSizeInvariant](review-file:packages/sctp/tests/utils.ts:486) / [findFlightSizeViolation](review-file:packages/sctp/tests/utils.ts:592) | flightSize の不変条件を検査する |
-| [createConnectedSctpPair](review-file:packages/sctp/tests/utils.ts:84) / [createLossyPrSctpPair](review-file:packages/sctp/tests/utils.ts:551) | 実ペア。後者は種類ごとにパケットを落とせる |
+| [createLossyEndpointPair](review-file:packages/sctp/tests/utils.ts:394) | 未開始の 2 端点。両方向のパケットと接続状態の変化を記録し、乱数で落とす（確立プロパティ用） |
+| [createMockSctp](review-file:packages/sctp/tests/utils.ts:442) / [createZeroWindowMockSctp](review-file:packages/sctp/tests/utils.ts:459) | ESTABLISHED のモック端点。後者は相手の rwnd を 0 にする |
+| [buildSack](review-file:packages/sctp/tests/utils.ts:504) / [receiveSack](review-file:packages/sctp/tests/utils.ts:516) | 任意の累積 TSN・Gap・rwnd の SACK を注入する |
+| [expectFlightSizeInvariant](review-file:packages/sctp/tests/utils.ts:532) / [findFlightSizeViolation](review-file:packages/sctp/tests/utils.ts:675) | flightSize の不変条件を検査する |
+| [createConnectedSctpPair](review-file:packages/sctp/tests/utils.ts:84) / [createLossyPrSctpPair](review-file:packages/sctp/tests/utils.ts:597) | 実ペア。後者は種類ごとにパケットを落とせ、偽のタイマーで時間を進められる |
+| [advancePastT3](review-file:packages/sctp/tests/utils.ts:618) / [recordedData](review-file:packages/sctp/tests/utils.ts:624) | T3 を超えて時間を進める／記録した DATA・FORWARD-TSN を取り出す（寿命テストの繰り返しを共通化） |
 | [dropDataPacketsAt](review-file:packages/sctp/tests/utils.ts:180) / [dropReconfigSuccessResponses](review-file:packages/sctp/tests/utils.ts:193) | 特定の DATA や成功応答だけを落とす |
-| [createSeededRandom](review-file:packages/sctp/tests/utils.ts:576) | 再現可能な乱数 |
-| [createEstablishedMockSctp](review-file:packages/sctp/tests/utils.ts:717) / [createResetRequestChunk](review-file:packages/sctp/tests/utils.ts:643) | reconfig のモックと request の組み立て |
+| [propertySeeds](review-file:packages/sctp/tests/utils.ts:645) / [createSeededRandom](review-file:packages/sctp/tests/utils.ts:659) | プロパティのシード（環境変数でシード数の変更・1 シードの再実行）と、再現可能な乱数 |
+| [createEstablishedMockSctp](review-file:packages/sctp/tests/utils.ts:800) / [createResetRequestChunk](review-file:packages/sctp/tests/utils.ts:726) | reconfig のモックと request の組み立て |
+
+### プロパティテストの中身
+
+3 つのプロパティは、どれも「乱数で操作列を作る → 損失を止めて落ち着くまで時間を進める → オラクルを確かめる」の形です。
+
+| プロパティ | 乱数で作るもの | オラクル（どのシードでも成り立つべき条件） |
+| --- | --- | --- |
+| 寿命・損失（[lifetime.test.ts:873](review-file:packages/sctp/tests/lifetime.test.ts:873)） | 12 メッセージのストリーム・順序・サイズ・寿命、送信間隔、両方向 20% の損失 | 全 send() が解決、送信キューが空で flightSize の不変条件を常に満たす、**寿命付きメッセージの send() は寿命の時刻までに解決**、二重配送・破損なし、寿命なしは必ず届く、順序付きは送信順 |
+| 空振りの検出（[lifetime.test.ts:1008](review-file:packages/sctp/tests/lifetime.test.ts:1008)） | 上のシード全体 | 寿命破棄と FORWARD-TSN が全シードで 1 回以上起きている（寿命が効かないと、上のプロパティは何も確かめずに成功してしまうため） |
+| stream reset（[reconfig.test.ts:628](review-file:packages/sctp/tests/reconfig.test.ts:628)） | 6 stream への送信と reset の順序、両方向 20% の損失（RE-CONFIG を含む） | association が保たれ、両端の reset request がすべて完了、要求した stream はすべて reset 通知、全メッセージが 1 回ずつ stream ごとに送信順で届く |
+| 確立（[initCollision.test.ts:411](review-file:packages/sctp/tests/initCollision.test.ts:411)） | 役割の組（client/server、client/client）、各端の start() の時期（server は start() しないことも）、ハンドシェイク中 25% の損失 | **送った INIT の tag は常に 0**、両端が ESTABLISHED / connected、connected から後退しない、確立後に両方向で届く |
+
+生成する操作は werift が想定する使い方に限っています。server 同士、start() しない client、reset 後の stream への送信は作りません（それぞれ未対応の使い方で、テストが失敗しても実装のバグではないため）。
 
 ## 7. テストのレビュー手順
 
@@ -311,7 +328,7 @@ sequenceDiagram
 
 各テストは、修正前に起きていた**利用者から見える症状**を Assert で確かめているかを見ます。内部の値（`flightSize` など）だけでなく、`send()` が解決する、メッセージが届く、reset が完了する、といった外から見える結果も確認しているのが良いテストです。
 
-たとえば成功応答損失のテスト [packages/sctp/tests/reconfig.test.ts:518](review-file:packages/sctp/tests/reconfig.test.ts:518) は、次の流れになっています。
+たとえば成功応答損失のテスト [packages/sctp/tests/reconfig.test.ts:524](review-file:packages/sctp/tests/reconfig.test.ts:524) は、次の流れになっています。
 
 ```mermaid
 flowchart LR
@@ -328,36 +345,53 @@ flowchart LR
 | 問題 | Arrange で揃っているべき条件 | 確認先 |
 | --- | --- | --- |
 | ② #806 | 先頭の損失 ＋ 後続の Gap ACK ＋ T3 満了 ＋ 累積 ACK | [packages/sctp/tests/sctp.test.ts:290](review-file:packages/sctp/tests/sctp.test.ts:290) |
-| ③ 寿命タイマー | rwnd = 0 ＋ 未確認 DATA なし ＋ ほかのイベントなし | [packages/sctp/tests/lifetime.test.ts:742](review-file:packages/sctp/tests/lifetime.test.ts:742) |
-| ③ 後続メッセージ | 寿命なしの先行メッセージ ＋ その後ろの寿命付き | [packages/sctp/tests/lifetime.test.ts:783](review-file:packages/sctp/tests/lifetime.test.ts:783) |
-| ③ CLOSED 後 | stop() 以外での CLOSED ＋ その後の stop() | [packages/sctp/tests/lifetime.test.ts:866](review-file:packages/sctp/tests/lifetime.test.ts:866) |
-| ④ 応答損失 | 成功応答だけを落とす ＋ 相手にも送信済み stream がある（逆方向 request が出る） | [packages/sctp/tests/reconfig.test.ts:518](review-file:packages/sctp/tests/reconfig.test.ts:518) |
-| ① 重複 INIT | DATA 受信・確認済み ＋ 同じ tag の INIT ＋ 次の DATA | [packages/sctp/tests/initCollision.test.ts:184](review-file:packages/sctp/tests/initCollision.test.ts:184) |
+| ③ 寿命タイマー | rwnd = 0 ＋ 未確認 DATA なし ＋ ほかのイベントなし | [packages/sctp/tests/lifetime.test.ts:704](review-file:packages/sctp/tests/lifetime.test.ts:704) |
+| ③ 後続メッセージ | 寿命なしの先行メッセージ ＋ その後ろの寿命付き | [packages/sctp/tests/lifetime.test.ts:745](review-file:packages/sctp/tests/lifetime.test.ts:745) |
+| ③ CLOSED 後 | stop() 以外での CLOSED ＋ その後の stop() | [packages/sctp/tests/lifetime.test.ts:828](review-file:packages/sctp/tests/lifetime.test.ts:828) |
+| ④ 応答損失 | 成功応答だけを落とす ＋ 相手にも送信済み stream がある（逆方向 request が出る） | [packages/sctp/tests/reconfig.test.ts:524](review-file:packages/sctp/tests/reconfig.test.ts:524) |
+| ① 重複 INIT | DATA 受信・確認済み ＋ 同じ tag の INIT ＋ 次の DATA | [packages/sctp/tests/initCollision.test.ts:188](review-file:packages/sctp/tests/initCollision.test.ts:188) |
 
 途中の Assert（「この時点ではまだキューに残っている」「T3 は動いていない」など）は、Arrange が成立条件に入ったことの確認です。消さずに残してあるかも見てください。
 
 ### 手順 3：修正を外すと落ちるか（ミューテーション確認）
 
-レビュー反復で追加した修正は、**該当する修正を一時的に外すと追加テストが失敗し、戻すと通る**ことを確認済みです。レビュアーが自分で確かめるときは、次のように 1 か所ずつ外して対象テストだけ実行します。
+修正を 1 か所ずつ元に戻し、sctp の全テストを実行して、何件失敗するかを数えました（最終版のテストコードで計測）。プロパティの列は失敗したシード数、個別テストの列は失敗した件数です。
 
-| 外す修正 | 失敗すべきテスト |
-| --- | --- |
-| [packages/sctp/src/sctp.ts:762](review-file:packages/sctp/src/sctp.ts:762) の再送継続（タイマー停止に戻す） | reconfig の「成功応答が失われ…」など 2 件 |
-| 寿命タイマー満了時の、キュー内での破棄済みの印付けと `send()` の先行解決（満了時に `transmit()` だけ呼ぶ形に戻す） | lifetime の「behind a message without lifetime」 |
-| [packages/sctp/src/sctp.ts:1789](review-file:packages/sctp/src/sctp.ts:1789) のペイロード解放 | lifetime の「releases the payload」 |
-| CLOSED 遷移でのタイマー解除 | lifetime の「after the peer's ABORT」など 2 件 |
-| 再開始 INIT での保留中 reset の破棄 | initCollision の「再開始 INIT は…stream reset を破棄する」 |
+| 外した修正 | プロパティ | 個別テスト |
+| --- | --- | --- |
+| M1 T3 が Gap ACK 済みも再送予約する（#806） | 0 | 0 |
+| M2 reneging 時に flightSize へ再計上しない | 0 | 1 |
+| M3 破棄済みチャンクも reneging の対象にする | 0 | 1 |
+| M4 失われた FORWARD-TSN を T3 で再送しない | 20 | 1 |
+| M5 寿命を秒で比較する（寿命が効かない） | 22 | 13 |
+| M6 送信待ちの寿命タイマーなし | 32 | 6 |
+| M7 破棄チャンクのペイロードを保持する | 0 | 1 |
+| M8 CLOSED 遷移で寿命タイマーを解除しない | 0 | 2 |
+| M9 reconfig の確認済み request でタイマーを止める | 42 | 2 |
+| M10 INIT に相手の tag を付ける | 13 | 1 |
+| M11 initiator が相手の INIT を無視する（develop の挙動） | 28 | 3 |
+
+- M1 を検出するテストはありません。再送ループが送る直前に Gap ACK 済みの再送予約を外すため、外から見える挙動が変わらない（実質的に等価な変更）からです。
+- M7・M8 のように、外から見える症状がメモリやタイマーの残りだけのものは、プロパティではなく個別テストが担当します。
+- レビュアーが自分で確かめるときは、1 か所ずつ外して対象ファイルだけ実行します。
 
 ```bash
 cd packages/sctp
-npx vitest run tests/reconfig.test.ts tests/lifetime.test.ts tests/initCollision.test.ts
+npx vitest run tests/reconfig.test.ts tests/lifetime.test.ts tests/initCollision.test.ts tests/sctp.test.ts
+```
+
+プロパティのシード数を増やす・失敗したシードだけを再実行するには、テスト名に出る環境変数を使います。
+
+```bash
+WERIFT_SCTP_LOSS_SEEDS=1000 npx vitest run tests/lifetime.test.ts -t "seeded random"
+WERIFT_SCTP_SETUP_SEED=13 WERIFT_SCTP_SETUP_SEEDS=1 npx vitest run tests/initCollision.test.ts -t property
 ```
 
 ### 手順 4：テスト同士が干渉しない・時間に依存しすぎないか
 
-- **後始末**: モックは [disposeMockSctp](review-file:packages/sctp/tests/utils.ts:500) を `finally` で呼び、実ペアは `pair.stop()` を `finally` / `afterEach` で呼んでいるか。タイマーが残るとほかのテストに影響し、プロセスも終わりません。
+- **後始末**: モックは [disposeMockSctp](review-file:packages/sctp/tests/utils.ts:546) を `finally` で呼び、実ペアは `pair.stop()` を `finally` / `afterEach` で呼んでいるか。タイマーが残るとほかのテストに影響し、プロセスも終わりません。
 - **時間**: 寿命タイマーのテストは実時間（50ms の寿命を 120ms 待つ）です。待ち時間に余裕があるか、遅い CI で揺れないかを見てください。T3 を待つ実ペアのテストは `vi.waitFor` に最大 20 秒の上限を設けています。
-- **乱数**: 乱数損失テストはシード固定です。失敗時はテスト名にシードが出るので、そのシードだけで再現できます。
+- **乱数**: プロパティはシード固定です。失敗時はテスト名に再実行用の環境変数が出るので、そのシードだけで再現できます。プロパティには縮小（失敗した操作列を最小化する機能）がないため、原因は操作列を読んで探します。見つかった失敗は、短い個別テストとして残してください。
 
 ### 手順 5：private な状態に触る箇所を把握する
 
@@ -372,10 +406,8 @@ npx vitest run tests/reconfig.test.ts tests/lifetime.test.ts tests/initCollision
 
 | 検証 | 結果 |
 | --- | --- |
-| `cd packages/sctp && npm test`（型検査を含む） | 11 ファイル・228 件成功 |
-| `cd packages/webrtc && npm test` | 77 ファイル・1627 件成功、5 件スキップ |
-| `npm run type` | 成功 |
-| 追加修正ごとのミューテーション確認 | 修正を外すと該当テストが失敗、戻すと成功 |
+| `cd packages/sctp && npm test`（型検査を含む） | 11 ファイル・389 件成功（約 2.4 秒） |
+| プロパティのシードを増やした実行 | 寿命・損失 1000 シード、stream reset 500 シード、確立 1000 シード、いずれも全件成功 |
+| `cd packages/webrtc && npm test`、`npm run type` | 成功（テスト追加前の直前の作業で実行） |
+| 修正ごとのミューテーション確認 | 手順 3 の表のとおり |
 | `npm run ci`、E2E（実ブラウザ・usrsctp との相互接続）、WPT | 未実施 |
-
-この文書の作成にあたってコードとテストは変更しておらず、テストも再実行していません。上の結果は、直前の作業で実行したものです。
