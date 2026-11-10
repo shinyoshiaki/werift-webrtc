@@ -147,7 +147,7 @@ on it when they started DTLS.
 
 ### onStateChange
 
-> `readonly` **onStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"connected"` \| `"new"` \| `"failed"` \| `"connecting"`\]\>
+> `readonly` **onStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"connecting"` \| `"new"` \| `"connected"` \| `"failed"`\]\>
 
 ***
 
@@ -207,7 +207,7 @@ not mean ICE has released its resources.
 
 ### state
 
-> **state**: `"closed"` \| `"connected"` \| `"new"` \| `"failed"` \| `"connecting"` = `"new"`
+> **state**: `"closed"` \| `"connecting"` \| `"new"` \| `"connected"` \| `"failed"` = `"new"`
 
 ***
 

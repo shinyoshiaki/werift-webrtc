@@ -6,7 +6,7 @@
 
 # Function: resolveTurnTransport()
 
-> **resolveTurnTransport**(`__namedParameters`): `"tcp"` \| `"tls"` \| `"udp"` \| `undefined`
+> **resolveTurnTransport**(`__namedParameters`): `"udp"` \| `"tcp"` \| `"tls"` \| `undefined`
 
 The transport one TURN URL allocates over: the URL's own (scheme /
 `?transport=`), else the configured `turnTransport`, else TCP for the
@@ -18,7 +18,7 @@ legacy `forceTurnTCP`, else undefined (UDP).
 
 #### configuredTurnTransport?
 
-`"tcp"` \| `"tls"` \| `"udp"`
+`"udp"` \| `"tcp"` \| `"tls"`
 
 #### forceTurnTCP
 
@@ -26,8 +26,8 @@ legacy `forceTurnTCP`, else undefined (UDP).
 
 #### parsedTurnTransport?
 
-`"tcp"` \| `"tls"` \| `"udp"`
+`"udp"` \| `"tcp"` \| `"tls"`
 
 ## Returns
 
-`"tcp"` \| `"tls"` \| `"udp"` \| `undefined`
+`"udp"` \| `"tcp"` \| `"tls"` \| `undefined`

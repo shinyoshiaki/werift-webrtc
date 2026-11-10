@@ -68,13 +68,13 @@ reviewable diff does not depend on external PR text.
 
 ### connectionStateChange
 
-> `readonly` **connectionStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"connected"` \| `"disconnected"` \| `"new"` \| `"failed"` \| `"connecting"`\]\>
+> `readonly` **connectionStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"connecting"` \| `"disconnected"` \| `"new"` \| `"connected"` \| `"failed"`\]\>
 
 ***
 
 ### iceConnectionStateChange
 
-> `readonly` **iceConnectionStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"connected"` \| `"disconnected"` \| `"completed"` \| `"new"` \| `"failed"` \| `"checking"`\]\>
+> `readonly` **iceConnectionStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"disconnected"` \| `"completed"` \| `"new"` \| `"connected"` \| `"failed"` \| `"checking"`\]\>
 
 ***
 
@@ -259,11 +259,11 @@ v13.6.0, v12.17.0
 
 #### Get Signature
 
-> **get** **connectionState**(): `"closed"` \| `"connected"` \| `"disconnected"` \| `"new"` \| `"failed"` \| `"connecting"`
+> **get** **connectionState**(): `"closed"` \| `"connecting"` \| `"disconnected"` \| `"new"` \| `"connected"` \| `"failed"`
 
 ##### Returns
 
-`"closed"` \| `"connected"` \| `"disconnected"` \| `"new"` \| `"failed"` \| `"connecting"`
+`"closed"` \| `"connecting"` \| `"disconnected"` \| `"new"` \| `"connected"` \| `"failed"`
 
 ***
 
@@ -319,11 +319,11 @@ v13.6.0, v12.17.0
 
 #### Get Signature
 
-> **get** **iceConnectionState**(): `"closed"` \| `"connected"` \| `"disconnected"` \| `"completed"` \| `"new"` \| `"failed"` \| `"checking"`
+> **get** **iceConnectionState**(): `"closed"` \| `"disconnected"` \| `"completed"` \| `"new"` \| `"connected"` \| `"failed"` \| `"checking"`
 
 ##### Returns
 
-`"closed"` \| `"connected"` \| `"disconnected"` \| `"completed"` \| `"new"` \| `"failed"` \| `"checking"`
+`"closed"` \| `"disconnected"` \| `"completed"` \| `"new"` \| `"connected"` \| `"failed"` \| `"checking"`
 
 ***
 
@@ -903,7 +903,7 @@ v0.1.26
 
 ##### trackOrKind
 
-[`Kind`](../type-aliases/Kind.md) \| [`MediaStreamTrack`](MediaStreamTrack.md)
+[`MediaStreamTrack`](MediaStreamTrack.md) \| [`Kind`](../type-aliases/Kind.md)
 
 ##### options?
 
@@ -1287,7 +1287,7 @@ Gather passive (listening) TCP host candidates. Defaults to true.
 
 ##### iceTransportPolicy
 
-> **iceTransportPolicy**: `"relay"` \| `"all"`
+> **iceTransportPolicy**: `"all"` \| `"relay"`
 
 ##### iceTurnConnectTimeout
 
@@ -1409,7 +1409,7 @@ throw synchronously and leave the configuration unchanged.
 
 ##### turnTransport
 
-> **turnTransport**: `"tcp"` \| `"tls"` \| `"udp"` \| `undefined`
+> **turnTransport**: `"udp"` \| `"tcp"` \| `"tls"` \| `undefined`
 
 ##### turnUdpFamily
 
@@ -1421,7 +1421,7 @@ always selects the socket. Defaults to 4 when undefined.
 
 ##### warp
 
-> **warp**: \{ `allowEarlyServerData?`: `boolean`; `earlyMediaPolicy?`: `"buffer"` \| `"drop"`; \} \| `undefined`
+> **warp**: \{ `allowEarlyServerData?`: `boolean`; `earlyMediaPolicy?`: `"drop"` \| `"buffer"`; `sendBeforeNomination?`: `boolean`; \} \| `undefined`
 
 ***
 

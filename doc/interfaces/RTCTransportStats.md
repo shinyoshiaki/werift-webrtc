@@ -158,7 +158,7 @@
 
 ### warpCarrier?
 
-> `optional` **warpCarrier?**: `"direct"` \| `"sped"`
+> `optional` **warpCarrier?**: `"sped"` \| `"direct"`
 
 ***
 
@@ -204,6 +204,14 @@
 
 ***
 
+### warpPreNominationSendUsed?
+
+> `optional` **warpPreNominationSendUsed?**: `boolean`
+
+WARP `sendBeforeNomination`: data or media left on a valid pair before ICE nomination.
+
+***
+
 ### warpSpedRetransmissions?
 
 > `optional` **warpSpedRetransmissions?**: `number`
@@ -212,4 +220,4 @@
 
 ### warpSpedState?
 
-> `optional` **warpSpedState?**: `"disabled"` \| `"probing"` \| `"active"` \| `"fallback"`
+> `optional` **warpSpedState?**: `"active"` \| `"disabled"` \| `"probing"` \| `"fallback"`

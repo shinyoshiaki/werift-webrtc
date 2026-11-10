@@ -111,7 +111,7 @@ m-line stop, rejection and reuse inside a negotiation:
 
 ##### trackOrKind
 
-[`Kind`](../type-aliases/Kind.md) \| [`MediaStreamTrack`](MediaStreamTrack.md)
+[`MediaStreamTrack`](MediaStreamTrack.md) \| [`Kind`](../type-aliases/Kind.md)
 
 ##### dtlsTransport?
 

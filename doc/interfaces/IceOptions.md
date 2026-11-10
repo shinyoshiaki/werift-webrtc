@@ -208,7 +208,7 @@ Applied to every TLS TURN server.
 
 ### ~~turnTransport?~~
 
-> `optional` **turnTransport?**: `"tcp"` \| `"tls"` \| `"udp"`
+> `optional` **turnTransport?**: `"udp"` \| `"tcp"` \| `"tls"`
 
 #### Deprecated
 

@@ -140,13 +140,13 @@ dropped at the commit, so RTP pauses until the new generation nominates.
 
 ### onStateChange
 
-> `readonly` **onStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"connected"` \| `"disconnected"` \| `"completed"` \| `"new"` \| `"failed"` \| `"checking"`\]\>
+> `readonly` **onStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"disconnected"` \| `"completed"` \| `"new"` \| `"connected"` \| `"failed"` \| `"checking"`\]\>
 
 ***
 
 ### state
 
-> **state**: `"closed"` \| `"connected"` \| `"disconnected"` \| `"completed"` \| `"new"` \| `"failed"` \| `"checking"` = `"new"`
+> **state**: `"closed"` \| `"disconnected"` \| `"completed"` \| `"new"` \| `"connected"` \| `"failed"` \| `"checking"` = `"new"`
 
 ## Accessors
 

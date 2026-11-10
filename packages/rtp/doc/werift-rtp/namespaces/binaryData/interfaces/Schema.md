@@ -8,4 +8,4 @@
 
 ## Indexable
 
-> \[`key`: `string`\]: `Schema` \| [`DataType`](DataType.md)\<`any`\>
+> \[`key`: `string`\]: [`DataType`](DataType.md)\<`any`\> \| `Schema`

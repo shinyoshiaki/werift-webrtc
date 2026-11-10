@@ -62,7 +62,7 @@ instead of being emitted here.
 
 ### rinfo?
 
-> `optional` **rinfo?**: `Partial`\<`Pick`\<`RemoteInfo`, `"port"` \| `"address"`\>\>
+> `optional` **rinfo?**: `Partial`\<`Pick`\<`RemoteInfo`, `"address"` \| `"port"`\>\>
 
 ***
 

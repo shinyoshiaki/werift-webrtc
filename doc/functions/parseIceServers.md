@@ -59,7 +59,7 @@ The address of the first of `turnServers`.
 
 ### ~~turnTransport?~~
 
-> `optional` **turnTransport?**: `"tcp"` \| `"tls"` \| `"udp"`
+> `optional` **turnTransport?**: `"udp"` \| `"tcp"` \| `"tls"`
 
 #### Deprecated
 

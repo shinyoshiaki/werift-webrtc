@@ -36,4 +36,8 @@
 
 #### earlyMediaPolicy?
 
-> `optional` **earlyMediaPolicy?**: `"buffer"` \| `"drop"`
+> `optional` **earlyMediaPolicy?**: `"drop"` \| `"buffer"`
+
+#### sendBeforeNomination?
+
+> `optional` **sendBeforeNomination?**: `boolean`

@@ -16,7 +16,7 @@
 
 ##### props
 
-`Pick`\<`RTCRtpCodecParameters`, `"clockRate"` \| `"mimeType"`\> & `Partial`\<`RTCRtpCodecParameters`\>
+`Pick`\<`RTCRtpCodecParameters`, `"mimeType"` \| `"clockRate"`\> & `Partial`\<`RTCRtpCodecParameters`\>
 
 #### Returns
 

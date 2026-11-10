@@ -178,7 +178,7 @@ Gather passive (listening) TCP host candidates. Defaults to true.
 
 ### iceTransportPolicy
 
-> **iceTransportPolicy**: `"relay"` \| `"all"`
+> **iceTransportPolicy**: `"all"` \| `"relay"`
 
 ***
 
@@ -315,7 +315,7 @@ throw synchronously and leave the configuration unchanged.
 
 ### turnTransport
 
-> **turnTransport**: `"tcp"` \| `"tls"` \| `"udp"` \| `undefined`
+> **turnTransport**: `"udp"` \| `"tcp"` \| `"tls"` \| `undefined`
 
 ***
 
@@ -341,6 +341,16 @@ WARP early outbound and encrypted-media buffering policy.
 - `earlyMediaPolicy` (default `"drop"`): `"buffer"` retains inbound
   encrypted media received before authentication (bounded) instead of
   dropping it. Inbound data is never delivered before authentication.
+- `sendBeforeNomination` (default false): once the DTLS handshake is
+  done on this side (the DTLS client right after its Finished) and the
+  peer is authenticated, send application data and media on a valid
+  candidate pair (its own connectivity check succeeded) instead of
+  waiting for ICE nomination and consent (RFC 8445 §12.1, SPED
+  draft-00 §3.1.2.2). Applies only until a selected pair exists; never
+  during an ICE restart or on relay pairs. A peer that drops data
+  arriving before its own nomination only loses it like any packet loss
+  (SCTP retransmits). Requires [PeerConfig.sped](#sped) `true`; the
+  constructor and `setConfiguration()` throw synchronously otherwise.
 `setConfiguration()` merges these fields and applies them to every open
 DTLS transport, including ones a pending description prepared.
 
@@ -350,4 +360,8 @@ DTLS transport, including ones a pending description prepared.
 
 #### earlyMediaPolicy?
 
-> `optional` **earlyMediaPolicy?**: `"buffer"` \| `"drop"`
+> `optional` **earlyMediaPolicy?**: `"drop"` \| `"buffer"`
+
+#### sendBeforeNomination?
+
+> `optional` **sendBeforeNomination?**: `boolean`
