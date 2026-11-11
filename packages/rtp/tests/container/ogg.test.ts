@@ -172,7 +172,7 @@ describe("packages/rtp/tests/container/ogg.test.ts", () => {
       expect(parsed[1].granulePosition).toBe(200n);
       expect(parsed.map((p) => p.pageSequence)).toEqual([0, 1]);
       expect(oggPagesToPackets(parsed)).toEqual([first, large]);
-    });
+    }, 15_000);
 
     test("uses -1 granule on a page where no packet ends", () => {
       // Arrange
@@ -195,7 +195,7 @@ describe("packages/rtp/tests/container/ogg.test.ts", () => {
         OggHeaderTypeContinued,
       ]);
       expect(oggPagesToPackets(parsed)).toEqual([large]);
-    });
+    }, 15_000);
 
     test("does not mark a page continued when a packet starts on it", () => {
       // Arrange

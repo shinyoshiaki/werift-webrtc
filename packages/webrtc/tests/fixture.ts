@@ -21,6 +21,8 @@ import {
   type RTCSessionDescription,
   RTP_EXTENSION_URI,
   RtcpPayloadSpecificFeedback,
+  RtcpReceiverInfo,
+  RtcpRrPacket,
   type RtcpSrPacket,
   RtpHeader,
   RtpPacket,
@@ -35,6 +37,8 @@ import { RTCRtpReceiver } from "../src/media/rtpReceiver";
 import { RTCRtpSender } from "../src/media/rtpSender";
 import { GccBandwidthEstimator } from "../src/media/sender/estimators/gcc/gccBwe";
 import type { LightweightBandwidthEstimator } from "../src/media/sender/senderBWE";
+import type { RTCRemoteInboundRtpStreamStats } from "../src/media/stats";
+import { compactNtp } from "../src/utils";
 
 export const createRtpPacket = (
   sequenceNumber = 0,
@@ -272,6 +276,48 @@ export function mockMonotonicClock(startMs = 1000) {
 /** Build the RTCP Sender Report the sender would send at `nowMs` (`performance.now()`). */
 export function buildSenderReportAt(sender: RTCRtpSender, nowMs: number) {
   return (sender as any).buildSenderReport(nowMs) as RtcpSrPacket;
+}
+
+/** SR の NTP timestamp から、RR が LSR として返す compact NTP を作る。 */
+export function lsrOf(sr: RtcpSrPacket) {
+  return compactNtp(sr.senderInfo.ntpTimestamp);
+}
+
+/** 秒を RR の DLSR 単位 (1/65536 秒) に変換する。 */
+export function dlsrUnits(seconds: number) {
+  return Math.round(seconds * 65536);
+}
+
+/** `ssrc` 宛の report block を 1 つ持つ Receiver Report を作る。 */
+export function createReceiverReport(props: {
+  ssrc: number;
+  lsr: number;
+  /** 1/65536 秒単位 */
+  dlsr: number;
+  packetsLost?: number;
+  fractionLost?: number;
+}) {
+  return new RtcpRrPacket({
+    ssrc: 0x1234,
+    reports: [
+      new RtcpReceiverInfo({
+        ssrc: props.ssrc,
+        fractionLost: props.fractionLost ?? 0,
+        packetsLost: props.packetsLost ?? 0,
+        highestSequence: 0,
+        jitter: 0,
+        lsr: props.lsr,
+        dlsr: props.dlsr,
+      }),
+    ],
+  });
+}
+
+export async function remoteInboundRtpStats(sender: RTCRtpSender) {
+  const report = await sender.getStats();
+  return Array.from(report.values()).find(
+    (stat) => stat.type === "remote-inbound-rtp",
+  ) as RTCRemoteInboundRtpStreamStats | undefined;
 }
 
 /** Seconds between the NTP epoch (1900) and the Unix epoch (1970). */
