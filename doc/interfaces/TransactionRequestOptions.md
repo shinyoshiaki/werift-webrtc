@@ -22,14 +22,27 @@ where a send error means the connection itself is unusable.
 
 ***
 
+### integrityAlgorithm?
+
+> `optional` **integrityAlgorithm?**: [`MessageIntegrityMode`](../type-aliases/MessageIntegrityMode.md)
+
+Integrity attributes a request signed with `integrityKey` carries.
+Defaults to `"sha1"` (MESSAGE-INTEGRITY only). Responses are accepted
+with either algorithm regardless of this choice. Ignored by the TURN
+client's own long-term credential requests (TurnProtocol), which stay
+MESSAGE-INTEGRITY only.
+
+***
+
 ### integrityKey?
 
 > `optional` **integrityKey?**: `Buffer`\<`ArrayBufferLike`\>
 
-When set, responses must include MESSAGE-INTEGRITY and pass HMAC
-verification (protocol re-parses the wire bytes with this key; the
-transaction also rejects unsigned Messages as defense-in-depth).
-Unsigned or forged responses must not complete the transaction.
+When set, responses must include MESSAGE-INTEGRITY or
+MESSAGE-INTEGRITY-SHA256 and pass HMAC verification (protocol re-parses
+the wire bytes with this key; the transaction also rejects unsigned
+Messages as defense-in-depth). Unsigned or forged responses must not
+complete the transaction.
 
 ***
 
