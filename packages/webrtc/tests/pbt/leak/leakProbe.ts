@@ -394,6 +394,18 @@ export function leakFootprint(pc: RTCPeerConnection): Footprint {
     "router.provisionalSsrc": router.provisionalSsrc.size,
     "router.learnedSsrcs": router.learnedSsrcs.size,
     "router.extIdUriMap": Object.keys(router.extIdUriMap).length,
+    // RID 由来の RTX 対応と SSRC ごとの NACK 状態 (パケット駆動、receiver.stop で解放)。
+    "receiver.ridRtx": sum(
+      transceivers,
+      ({ receiver }) =>
+        Object.keys(receiver.ridByRtxSsrc).length +
+        Object.keys(receiver.rtxSsrcsByRid).length +
+        Object.keys(receiver.mediaSsrcByRid).length +
+        Object.keys(receiver.repairedMediaByRtx).length +
+        Object.keys(receiver.retiredSsrcsByRid).length +
+        (receiver as unknown as { nack: { ssrcs: number[] } }).nack.ssrcs
+          .length,
+    ),
     "ice.localGenerations": sum(ice, (t) => t.localGenerations.size),
     "ice.heldCandidateEvents": sum(
       ice,

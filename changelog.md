@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### 🐛 Bug Fixes
+
+- **RTX with RID-based simulcast is received.** An RTX packet carrying `repaired-rtp-stream-id` (Chrome sends simulcast without `a=ssrc` / `a=ssrc-group:FID`) is now delivered restored (media SSRC, sequence number and payload type, `{ type: "retransmission" }`) on the RID's track; it used to be dropped. The first packet with `rtp-stream-id` / `repaired-rtp-stream-id` registers its SSRC, so later packets without these extensions keep their route. Without SDP pairing, an RTX packet is restored to its RID's current media SSRC only when it fills a hole NACK detected there: NACK and RTX verification share one ledger of holes per media SSRC, so a packet is verifiable for as long as NACK asks for it (and after NACK's retries, until the ledger's bound of 1024 holes per SSRC; a hole leaves the ledger only together with its NACK request), and its timestamp must lie within those of the packets received around the gap, in either order and widened by 1 s of media clock (B-frames). A RID has one media SSRC at a time: a change without renegotiation resets the stream, ending the old SSRC's NACK requests and holes and dropping late packets of the old media SSRC and of the RTX SSRCs that repaired it. RTX that fits no hole (a duplicate of a received packet, a number NACK never asked for, another stream), has an unknown RID, or has no `apt` codec is dropped instead of being delivered broken. Streams whose sequence numbers and timestamps start at the same values (against RFC 3550 section 5.1) cannot be told apart. The packet-driven state is bounded while the receiver runs: per RID 1 media SSRC, 8 RTX SSRCs and 8 retired SSRCs, and NACK state for at most 16 media SSRCs per receiver.
+- **NACK is tracked per media SSRC.** Simulcast layers no longer compare each other's sequence numbers (false losses) or send a NACK to the wrong SSRC. `receiver.onPacketLost` still fires once per sent NACK, and an idle NACK timer now stops when no loss remains. Sequence numbers are compared across the 16-bit wrap, so a late packet from before a wrap no longer opens a false gap of tens of thousands of numbers.
+- **The track codec of a RID receiver and of `resyncCodecs` skips RTX / RED**, so a description that lists `video/rtx` first no longer gives the remote track the RTX codec.
+
 ## v0.27.0
 
 This release collects everything merged since v0.26.0.
