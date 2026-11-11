@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { CandidatePairState } from "../../src";
 import {
+  createDelayedPreferredPathPair,
   createNominationHarness,
   createSelectionPair,
   expectDataFlows,
@@ -380,6 +381,60 @@ describe("controlled agent: a later nomination replaces the selection", () => {
       await h.connection.close();
     }
   });
+  test("a check cancelled while a higher-priority nomination of its pair was received is checked again and replaces the selection", async () => {
+    const h = createNominationHarness();
+    h.switchRole(false);
+    const low = await h.addRemote(LOW);
+    const high = await h.addRemote(HIGH);
+    h.check(low);
+    h.check(high);
+    await h.succeed(low);
+    h.receiveNomination(low);
+
+    try {
+      // Act: 高優先度 pair の check の応答待ち中に相手の USE-CANDIDATE が届き、その後 check が打ち切られる (接続完了時と同じ)。
+      h.receiveNomination(high);
+      high.handle!.resolve();
+      await vi.advanceTimersByTimeAsync(0);
+      const checksAfterCancel = h.requestsTo(high).length;
+      // Act: 再び始まった check が成功する。
+      await h.succeed(high);
+
+      // Assert: 打ち切り直後に高優先度 pair の check が再び送られ、成功で選択が切り替わる。
+      expect(checksAfterCancel).toBe(2);
+      expect(h.connection.nominated).toBe(high);
+    } finally {
+      await h.connection.close();
+    }
+  });
+
+  test("a pair whose check was cancelled goes back to Waiting, so the peer's later nomination triggers a check", async () => {
+    const h = createNominationHarness({ renomination: true });
+    h.switchRole(false);
+    const low = await h.addRemote(LOW);
+    const high = await h.addRemote(HIGH);
+    h.check(low);
+    h.check(high);
+    await h.succeed(low);
+    h.receiveNomination(low, 1);
+
+    try {
+      // Act: 高優先度 pair の check を打ち切る (接続完了時と同じ)。
+      high.handle!.resolve();
+      await vi.advanceTimersByTimeAsync(0);
+      const stateAfterCancel = high.state;
+      // Act: 相手が NOMINATION=2 で高優先度 pair を指名し、それが起こした check が成功する。
+      h.receiveNomination(high, 2);
+      await h.succeed(high);
+
+      // Assert: 打ち切った pair は Waiting に戻り、後続の指名で check され選択が切り替わる。
+      expect(stateAfterCancel).toBe(CandidatePairState.WAITING);
+      expect(h.connection.nominated).toBe(high);
+      expect(high.remoteNomination).toBe(2);
+    } finally {
+      await h.connection.close();
+    }
+  });
 });
 
 describe("semi-aggressive nomination and renomination over real sockets", () => {
@@ -429,4 +484,46 @@ describe("semi-aggressive nomination and renomination over real sockets", () => 
       await Promise.all([a.close(), b.close()]);
     }
   });
+
+  test.each([
+    { mode: "semi-aggressive", renomination: false },
+    { mode: "renomination", renomination: true },
+  ])(
+    "($mode) a preferred pair whose checks are delayed until after connecting moves both agents to it",
+    async ({ renomination }) => {
+      const { a, b, open, selectsPreferred, preferredPair, close } =
+        await createDelayedPreferredPathPair({ renomination });
+
+      try {
+        // Act: 優先 pair の request を止めたまま両 agent が下位の pair で接続する。
+        await Promise.all([a.connect(), b.connect()]);
+
+        // Assert: 両端とも下位の pair を選択している。
+        expect(selectsPreferred(a)).toBe(false);
+        expect(selectsPreferred(b)).toBe(false);
+        // Assert: controlled 側の優先 pair の check は接続時に打ち切られ、再び check できる Waiting に戻っている。
+        await vi.waitFor(() =>
+          expect(preferredPair(b).state).toBe(CandidatePairState.WAITING),
+        );
+
+        // Act: 優先 pair の request を通す。
+        open();
+
+        // Assert: 両端とも優先 pair に切り替わり、同じ 5-tuple を使う。
+        await vi.waitFor(
+          () => {
+            expect(selectsPreferred(a)).toBe(true);
+            expect(selectsPreferred(b)).toBe(true);
+            expect(selectSamePath(a, b)).toBe(true);
+          },
+          { timeout: 3000 },
+        );
+        // Assert: 切り替え後の経路でデータが双方向に届く。
+        await expectDataFlows(a, b, "a to b");
+        await expectDataFlows(b, a, "b to a");
+      } finally {
+        await close();
+      }
+    },
+  );
 });

@@ -2937,3 +2937,91 @@ export function selectSamePath(a: Connection, b: Connection) {
     pb.localCandidate.port === pa.remoteAddr[1]
   );
 }
+
+/**
+ * Shared Arrange: a controlling agent `a` with a host and a TURN relay
+ * candidate, and a controlled host-only agent `b`. The host ↔ host pair
+ * outranks the relay one, but the requests of both agents on it wait
+ * (unsent, cancellable) until `open()`: the agents select the relay pair
+ * first, while `b`'s check of the host pair is still in flight.
+ */
+export async function createDelayedPreferredPathPair({
+  renomination = false,
+}: {
+  renomination?: boolean;
+} = {}) {
+  const host = getHostAddresses(true, false)[0]!;
+  const server = await createLocalTurnServer(host);
+  const shared: Partial<IceOptions> = { useIpv6: false, renomination };
+  const a = createTestConnection(true, {
+    ...shared,
+    ...localTurnOptions(server),
+    forceTurn: false,
+  });
+  const b = createTestConnection(false, shared);
+  a.remoteRenomination = renomination;
+  b.remoteRenomination = renomination;
+  await Promise.all([a.gatherCandidates(), b.gatherCandidates()]);
+  exchangeIceCredentials(a, b);
+
+  let open!: () => void;
+  const opened = new Promise<void>((resolve) => {
+    open = resolve;
+  });
+  const hostOf = (connection: Connection) =>
+    connection.localCandidates.find((candidate) => candidate.type === "host")!;
+  const hold = (connection: Connection, peer: Candidate) => {
+    for (const protocol of (connection as unknown as { protocols: Protocol[] })
+      .protocols) {
+      if (protocol.localCandidate?.type !== "host") continue;
+      const original = protocol.request.bind(protocol);
+      protocol.request = (async (
+        message: Message,
+        address: Address,
+        integrityKey?: Buffer,
+        options?: TransactionRequestOptions,
+      ) => {
+        if (address[0] === peer.host && address[1] === peer.port) {
+          const signal = options?.signal;
+          await new Promise<void>((resolve, reject) => {
+            const abort = () => reject(new TransactionCancelled());
+            if (signal?.aborted) return abort();
+            signal?.addEventListener("abort", abort, { once: true });
+            void opened.then(() => {
+              signal?.removeEventListener("abort", abort);
+              resolve();
+            });
+          });
+        }
+        return original(message, address, integrityKey, options);
+      }) as typeof protocol.request;
+    }
+  };
+  hold(a, hostOf(b));
+  hold(b, hostOf(a));
+  await deliverLocalCandidates(a, b, { endOfCandidates: true });
+  await deliverLocalCandidates(b, a, { endOfCandidates: true });
+
+  /** `connection` selected the host ↔ host pair. */
+  const selectsPreferred = (connection: Connection) =>
+    connection.nominated?.localCandidate.type === "host" &&
+    connection.nominated.remoteCandidate.type === "host";
+  /** `connection`'s host ↔ host pair. */
+  const preferredPair = (connection: Connection) =>
+    connection.checkList.find(
+      (pair) =>
+        pair.localCandidate.type === "host" &&
+        pair.remoteCandidate.type === "host",
+    )!;
+  return {
+    a,
+    b,
+    open,
+    selectsPreferred,
+    preferredPair,
+    close: async () => {
+      await Promise.allSettled([a.close(), b.close()]);
+      await server.close();
+    },
+  };
+}

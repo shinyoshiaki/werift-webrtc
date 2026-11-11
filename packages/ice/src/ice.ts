@@ -2721,6 +2721,7 @@ export class Connection implements IceConnection {
         // A cancelled check (its handle resolved, or the agent closed and
         // cancelled its transactions) changes nothing.
         if (signal.aborted || error instanceof TransactionCancelled) {
+          this.checkCancelled(pair, remoteGeneration);
           r();
           return;
         }
@@ -2840,6 +2841,31 @@ export class Connection implements IceConnection {
       this.checkComplete(pair);
       r();
     });
+
+  /**
+   * A check of the live checklist cancelled before its outcome (the
+   * checklist completed, `connect` cancels the remaining checks) leaves the
+   * pair Waiting instead of In-Progress, so the peer's checks on it still
+   * trigger one (7.2.1.4): a controlled agent that selected a lower pair can
+   * then follow a later nomination of this one. A nomination already received
+   * for it is checked at once (its triggering check came while the cancelled
+   * one was still in flight). A generation that ended or a closed agent
+   * changes nothing.
+   */
+  private checkCancelled(pair: CandidatePair, remoteGeneration: number) {
+    if (
+      pair.state !== CandidatePairState.IN_PROGRESS ||
+      this.state === "closed" ||
+      this.remoteGeneration !== remoteGeneration ||
+      !this.checkList.includes(pair)
+    ) {
+      return;
+    }
+    pair.updateState(CandidatePairState.WAITING);
+    if (pair.remoteNominated && !this.iceControlling) {
+      pair.handle = this.checkStart(pair);
+    }
+  }
 
   /**
    * 487 / 401 retry of a check: the retry is cancelled with the check it
