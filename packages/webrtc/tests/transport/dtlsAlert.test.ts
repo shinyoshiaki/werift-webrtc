@@ -339,6 +339,9 @@ describe("接続開始中に DTLS が閉じた場合の connectionState", () => 
       expect(transport.state).toBe("closed");
       expect(states).not.toContain("connected");
       expect(pc2.connectionState).not.toBe("connected");
+      // connecting のまま残らず、終端状態（failed）に決着する
+      expect(pc2.connectionState).not.toBe("connecting");
+      expect(pc2.connectionState).toBe("failed");
     } finally {
       await Promise.allSettled([pc1.close(), pc2.close()]);
     }

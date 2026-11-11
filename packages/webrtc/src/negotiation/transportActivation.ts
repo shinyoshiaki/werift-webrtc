@@ -291,12 +291,18 @@ export class TransportActivation {
           throw err;
         });
 
-        // start() also returns when the transport was closed meanwhile (the
-        // peer's close_notify, stop()): it is not connected, so neither SCTP
-        // nor the connected connectionState follows.
+        // start() also returns when the transport was closed meanwhile
+        // (stop()): it never connected, so neither SCTP nor the connected
+        // connectionState follows. A transport a live m-line still uses ends
+        // the connection attempt as failed, so connecting never lingers; one
+        // that was retired (renegotiation, close()) leaves the state to its
+        // owner.
         if (
           (dtlsTransport.state as RTCDtlsTransport["state"]) !== "connected"
         ) {
+          if (this.secure.dtlsTransports.includes(dtlsTransport)) {
+            throw new Error(`DTLS transport ${dtlsTransport.state}`);
+          }
           return false;
         }
 
