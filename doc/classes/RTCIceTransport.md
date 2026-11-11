@@ -212,6 +212,36 @@ Whether the local description may carry `a=end-of-candidates`.
 
 ***
 
+### remoteIce2
+
+#### Get Signature
+
+> **get** **remoteIce2**(): `boolean`
+
+The remote declared the `ice2` ice-option (an RFC 8445 agent). Only
+informational: werift follows RFC 8445 regardless.
+
+##### Returns
+
+`boolean`
+
+***
+
+### remoteIceOptions
+
+#### Get Signature
+
+> **get** **remoteIceOptions**(): readonly `string`[]
+
+The `a=ice-options` tokens of the applied remote description for this
+transport (session level and its m-line), e.g. `trickle`, `ice2`.
+
+##### Returns
+
+readonly `string`[]
+
+***
+
 ### role
 
 #### Get Signature
@@ -584,6 +614,24 @@ Feed a pranswer's ICE generation to the provisional checklist.
 ##### remoteParameters
 
 [`RTCIceParameters`](RTCIceParameters.md)
+
+#### Returns
+
+`void`
+
+***
+
+### setRemoteIceOptions()
+
+> **setRemoteIceOptions**(`options`): `void`
+
+Internal: record the remote ice-options a remote description applied.
+
+#### Parameters
+
+##### options
+
+`string`[]
 
 #### Returns
 
