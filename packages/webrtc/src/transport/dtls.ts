@@ -309,6 +309,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     };
 
     await new Promise<void>(async (r, f) => {
+      this.settleStart = r;
       if (this.role === "server") {
         this.dtls = new DtlsServer({
           cert: this.localCertificate?.certPem,
@@ -346,6 +347,8 @@ export class RTCDtlsTransport implements DtlsTransportStats {
         if (this.isFinalState) return;
         log("dtls closed by the peer");
         this.setState("closed");
+        // Settle start(): it returns after the handshake wait (closed stays).
+        r();
       });
       this.dtls.onConnect.once(r);
       // A handshake error, or a fatal alert received or sent while
@@ -366,7 +369,11 @@ export class RTCDtlsTransport implements DtlsTransportStats {
 
       if (this.dtls instanceof DtlsClient) {
         await setTimeout(100);
-        if (this.isFinalState) return;
+        if (this.isFinalState) {
+          // stop() / a failure during the wait: settle start().
+          r();
+          return;
+        }
         this.dtls.connect().catch((error) => {
           this.fail(error);
           log("dtls connect failed", error);
@@ -409,6 +416,9 @@ export class RTCDtlsTransport implements DtlsTransportStats {
 
     log("dtls connected");
   }
+
+  /** Settles a pending start() (set while the handshake is awaited). */
+  private settleStart?: () => void;
 
   /** closed / failed: no later DTLS event changes the state any more. */
   private get isFinalState() {
@@ -748,6 +758,8 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     try {
       const dtls = this.dtls;
       this.setState("closed", false);
+      // A start() still waiting for the handshake ends here (closed stays).
+      this.settleStart?.();
       if (
         dtls &&
         !dtls.terminated &&

@@ -134,6 +134,49 @@ describe("DTLS alert", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  test("確立後に届いた epoch 0 の平文 close_notify / fatal alert は破棄し、接続を終了しない", async () => {
+    // Arrange: 確立済みの pair と、鍵なしで作れる epoch 0 の平文 alert
+    const pair = createDtlsPair();
+    await connectDtlsPair(pair);
+    const onError = vi.fn();
+    const onClose = vi.fn();
+    const received: string[] = [];
+    pair.client.onError.subscribe(onError);
+    pair.client.onClose.subscribe(onClose);
+    pair.client.onData.subscribe((data) => received.push(data.toString()));
+    const plainAlert = (description: number, level: number) =>
+      createPlaintext({
+        ...pair.server.dtls,
+        epoch: 0,
+      } as typeof pair.server.dtls)(
+        [
+          {
+            type: ContentType.alert,
+            fragment: new Alert(level, description).serialize(),
+          },
+        ],
+        5000,
+      )[0].serialize();
+
+    // Act: 平文の close_notify と fatal alert を注入し、その後に正規データを送る
+    pair.client.transport.socket.onData(
+      plainAlert(AlertDesc.CloseNotify, AlertLevel.warning),
+      {} as any,
+    );
+    pair.client.transport.socket.onData(
+      plainAlert(AlertDesc.InternalError, AlertLevel.fatal),
+      {} as any,
+    );
+    await pair.server.send(Buffer.from("still open"));
+    await setTimeout(20);
+
+    // Assert: 注入された alert は無視され、接続は続いている
+    expect(onClose).not.toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
+    expect(pair.clientTransport.closed).toBe(false);
+    expect(received).toEqual(["still open"]);
+  });
+
   test("handshake 中の fatal alert は平文で送られ、相手の onError に受信 alert が渡る（client 側の証明書検証失敗）", async () => {
     // Arrange: client が server 証明書を拒否する
     const pair = createDtlsPair({

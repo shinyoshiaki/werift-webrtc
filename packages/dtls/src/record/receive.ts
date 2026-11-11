@@ -53,6 +53,10 @@ export const parsePlainText =
           if (plain.recordLayerHeader.epoch > 0) {
             log(dtls.sessionId, "decrypt handshake");
             raw = cipher.decryptPacket(plain);
+            dtls.remoteEpoch = Math.max(
+              dtls.remoteEpoch,
+              plain.recordLayerHeader.epoch,
+            );
           }
         } catch (error) {
           err(dtls.sessionId, "decrypt failed", error);
@@ -76,22 +80,29 @@ export const parsePlainText =
         }
       }
       case ContentType.applicationData: {
-        return [
-          {
-            type: ContentType.applicationData,
-            data: cipher.decryptPacket(plain),
-          },
-        ];
+        const data = cipher.decryptPacket(plain);
+        dtls.remoteEpoch = Math.max(
+          dtls.remoteEpoch,
+          plain.recordLayerHeader.epoch,
+        );
+        return [{ type: ContentType.applicationData, data }];
       }
       case ContentType.alert: {
         // The record epoch tells whether the alert is protected: epoch 0 is
         // plaintext (before ChangeCipherSpec), epoch > 0 is encrypted. A
         // record that fails to decrypt throws and is dropped by the caller
         // (RFC 6347 §4.1.2.1: invalid records are silently discarded).
-        const raw =
-          plain.recordLayerHeader.epoch > 0
-            ? cipher.decryptPacket(plain)
-            : plain.fragment;
+        const epoch = plain.recordLayerHeader.epoch;
+        // Once the peer's protected records were accepted, a plaintext (or
+        // older-epoch) alert is unauthenticated and must not end the
+        // connection: drop it.
+        if (epoch < dtls.remoteEpoch) {
+          throw new Error("alert from a stale epoch");
+        }
+        const raw = epoch > 0 ? cipher.decryptPacket(plain) : plain.fragment;
+        if (epoch > 0) {
+          dtls.remoteEpoch = Math.max(dtls.remoteEpoch, epoch);
+        }
         if (raw.length < 2) {
           throw new Error("malformed alert record");
         }

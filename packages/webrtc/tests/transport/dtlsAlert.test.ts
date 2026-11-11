@@ -100,6 +100,68 @@ describe("RTCDtlsTransport alerts", () => {
     }
   });
 
+  test("handshake 中の stop() で start() が決着する（server / client 待機中）", async () => {
+    for (const role of ["server", "client"] as const) {
+      // Arrange: 相手は handshake を始めない
+      const [session1, session2] = await createDtlsSessions();
+      session1.setRemoteParams(session2.localParameters);
+      session1.role = role;
+      let settled = false;
+      const starting = session1
+        .start()
+        .catch(() => undefined)
+        .then(() => {
+          settled = true;
+        });
+      // client は 100ms の待機中に止める場合も含める
+      await setTimeout(role === "client" ? 20 : 300);
+
+      try {
+        // Act: handshake 中に止める
+        await session1.stop();
+
+        // Assert: start() は有限時間で決着し、closed のまま
+        await Promise.race([starting, setTimeout(1000)]);
+        expect(settled).toBe(true);
+        expect(session1.state).toBe("closed");
+      } finally {
+        await Promise.allSettled([session1.stop(), session2.stop()]);
+      }
+    }
+  });
+
+  test("handshake 中に相手の close_notify を受けると start() が決着し closed になる", async () => {
+    // Arrange: session2 は handshake を始めず、session1 は server として待つ
+    const [session1, session2] = await createDtlsSessions();
+    session1.setRemoteParams(session2.localParameters);
+    session1.role = "server";
+    let settled = false;
+    const starting = session1
+      .start()
+      .catch(() => undefined)
+      .then(() => {
+        settled = true;
+      });
+    await setTimeout(300);
+
+    try {
+      // Act: 相手が close_notify を送る
+      session2.setRemoteParams(session1.localParameters);
+      session2.role = "client";
+      const peer = session2.start().catch(() => undefined);
+      await setTimeout(50);
+      await session2.stop();
+      await Promise.race([starting, setTimeout(2000)]);
+      void peer;
+
+      // Assert: session1 の start() が決着している（closed または failed で終わる）
+      expect(settled).toBe(true);
+      expect(["closed", "failed"]).toContain(session1.state);
+    } finally {
+      await Promise.allSettled([session1.stop(), session2.stop()]);
+    }
+  });
+
   test("fingerprint 不一致は handshake 中に bad_certificate を送り、両側が failed と error イベントになる", async () => {
     // Arrange
     const [session1, session2] = await createDtlsSessions();
