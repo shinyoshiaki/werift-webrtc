@@ -104,6 +104,15 @@ export class DtlsSocket {
     this.bufferFragmentedHandshakes = [];
   }
 
+  /**
+   * Resolves once the alert being sent (e.g. the close_notify answering the
+   * peer's) has been handed to the transport or timed out. Resolves
+   * immediately when none is in flight. Never rejects.
+   */
+  alertFlushed(): Promise<void> {
+    return this.alertSending ?? Promise.resolve();
+  }
+
   /** Whether the connection ended (alert, or close()). */
   get terminated() {
     return this.ended;

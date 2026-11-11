@@ -130,7 +130,7 @@ describe("RTCDtlsTransport alerts", () => {
     }
   });
 
-  test("handshake 中に相手の close_notify を受けると start() が決着し closed になる", async () => {
+  test("handshake 中に相手の close_notify を受けると start() が決着し failed になる", async () => {
     // Arrange: session2 は handshake を始めず、session1 は server として待つ
     const [session1, session2] = await createDtlsSessions();
     session1.setRemoteParams(session2.localParameters);
@@ -156,7 +156,7 @@ describe("RTCDtlsTransport alerts", () => {
 
       // Assert: session1 の start() が決着している（closed または failed で終わる）
       expect(settled).toBe(true);
-      expect(["closed", "failed"]).toContain(session1.state);
+      expect(session1.state).toBe("failed");
     } finally {
       await Promise.allSettled([session1.stop(), session2.stop()]);
     }
@@ -339,6 +339,49 @@ describe("接続開始中に DTLS が閉じた場合の connectionState", () => 
       expect(transport.state).toBe("closed");
       expect(states).not.toContain("connected");
       expect(pc2.connectionState).not.toBe("connected");
+    } finally {
+      await Promise.allSettled([pc1.close(), pc2.close()]);
+    }
+  });
+});
+
+describe("接続開始中に相手が close_notify で終了した場合", () => {
+  test("PeerConnection の connectionState は connecting に残らず failed になる", async () => {
+    // Arrange: pc1 の DTLS を handshake 中に stop する（close_notify が pc2 に届く）
+    const pc1 = new RTCPeerConnection();
+    const pc2 = new RTCPeerConnection();
+    pc1.createDataChannel("x");
+    pc1.onicecandidate = ({ candidate }) => {
+      if (candidate) void pc2.addIceCandidate(candidate);
+    };
+    pc2.onicecandidate = ({ candidate }) => {
+      if (candidate) void pc1.addIceCandidate(candidate);
+    };
+    try {
+      const offer = await pc1.createOffer();
+      await pc1.setLocalDescription(offer);
+      await pc2.setRemoteDescription(offer);
+      const transport1 = pc1.dtlsTransports[0];
+      const realStart = transport1.start.bind(transport1);
+      transport1.start = async () => {
+        const starting = realStart();
+        await setTimeout(10);
+        await transport1.stop();
+        await starting;
+      };
+
+      // Act: 接続を始める
+      const answer = await pc2.createAnswer();
+      await pc2.setLocalDescription(answer);
+      await pc1.setRemoteDescription(answer);
+      await waitUntil(
+        () => pc2.connectionState === "failed",
+        `connectionState stays ${pc2.connectionState}`,
+        4000,
+      ).catch(() => undefined);
+
+      // Assert: 終端状態（failed）になり connecting のまま残らない
+      expect(pc2.connectionState).toBe("failed");
     } finally {
       await Promise.allSettled([pc1.close(), pc2.close()]);
     }

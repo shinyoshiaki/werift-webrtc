@@ -346,6 +346,22 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       this.dtls.onClose.subscribe(() => {
         if (this.isFinalState) return;
         log("dtls closed by the peer");
+        if (this.state === "connecting") {
+          // The peer ended the handshake before the connection was
+          // established: it never connected, so this is a failure (start()
+          // rejects and the connectionState settles to failed).
+          this.fail(
+            new RTCError(
+              {
+                errorDetail: "dtls-failure",
+                receivedAlert: AlertDesc.CloseNotify,
+              },
+              "dtls closed by the peer during the handshake",
+            ),
+          );
+          f(new Error("dtls closed by the peer during the handshake"));
+          return;
+        }
         this.setState("closed");
         // Settle start(): it returns after the handshake wait (closed stays).
         r();
@@ -769,6 +785,10 @@ export class RTCDtlsTransport implements DtlsTransportStats {
         await dtls.sendAlert(AlertLevel.warning, AlertDesc.CloseNotify, {
           timeoutMs: DTLS_ALERT_SEND_TIMEOUT_MS,
         });
+      } else if (dtls?.terminated) {
+        // The peer's close_notify is being answered: let that reply reach ICE
+        // before ICE stops.
+        await dtls.alertFlushed();
       } else {
         log("skip close_notify", {
           dtls: !!dtls,

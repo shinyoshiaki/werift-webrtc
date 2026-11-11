@@ -339,3 +339,41 @@ describe("DTLS 同時 close", () => {
     expect(alertRecords(pair.clientTransport.sent)).toHaveLength(1);
   });
 });
+
+describe("DTLS close_notify への返信", () => {
+  test("受信した close_notify への返信が送信中の間、alertFlushed() は決着しない", async () => {
+    // Arrange: server の送信完了を制御する
+    const pair = createDtlsPair();
+    await connectDtlsPair(pair);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const realSend = pair.serverTransport.send.bind(pair.serverTransport);
+    pair.serverTransport.send = async (data: Buffer) => {
+      await gate;
+      return realSend(data);
+    };
+    let closedAt: boolean | undefined;
+    pair.server.onClose.subscribe(() => {
+      closedAt = true;
+    });
+
+    // Act: client が close_notify を送り、server が返信を送信中の状態を観測する
+    void pair.client.close({ notify: true });
+    await setTimeout(30);
+    let flushed = false;
+    const flushing = pair.server.alertFlushed().then(() => {
+      flushed = true;
+    });
+    await setTimeout(30);
+    const flushedBeforeSent = flushed;
+    release();
+    await flushing;
+
+    // Assert: onClose は発火済みでも返信送信完了までは flush されず、完了後に決着する
+    expect(closedAt).toBe(true);
+    expect(flushedBeforeSent).toBe(false);
+    expect(flushed).toBe(true);
+  });
+});
