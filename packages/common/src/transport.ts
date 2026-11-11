@@ -35,13 +35,21 @@ export interface StreamTransportOptions {
 
 const DEFAULT_CONNECT_TIMEOUT_MS = 8000;
 
+export interface UdpTransportOptions {
+  portRange?: [number, number];
+  port?: number;
+  interfaceAddresses?: InterfaceAddresses;
+  /**
+   * Address the socket is bound to. Takes precedence over
+   * `interfaceAddresses`; without either the socket binds the wildcard
+   * address. An IPv6 link-local address needs its zone (`fe80::1%eth0`).
+   */
+  bindAddress?: string;
+}
+
 export class UdpTransport implements Transport {
   private socketType: SocketType;
-  private options: {
-    portRange?: [number, number];
-    interfaceAddresses?: InterfaceAddresses;
-    port?: number;
-  };
+  private options: UdpTransportOptions;
 
   readonly type = "udp";
   readonly socket: Socket;
@@ -58,11 +66,7 @@ export class UdpTransport implements Transport {
 
   private constructor(
     socketType: SocketType,
-    options: {
-      portRange?: [number, number];
-      interfaceAddresses?: InterfaceAddresses;
-      port?: number;
-    } = {},
+    options: UdpTransportOptions = {},
   ) {
     this.socketType = socketType;
     this.options = options;
@@ -94,14 +98,7 @@ export class UdpTransport implements Transport {
     });
   }
 
-  static async init(
-    type: SocketType,
-    options: {
-      portRange?: [number, number];
-      port?: number;
-      interfaceAddresses?: InterfaceAddresses;
-    } = {},
-  ) {
+  static async init(type: SocketType, options: UdpTransportOptions = {}) {
     const transport = new UdpTransport(type, options);
     try {
       await transport.init();
@@ -113,10 +110,9 @@ export class UdpTransport implements Transport {
   }
 
   private async init() {
-    const address = interfaceAddress(
-      this.socketType,
-      this.options.interfaceAddresses,
-    );
+    const address =
+      this.options.bindAddress ??
+      interfaceAddress(this.socketType, this.options.interfaceAddresses);
     const port = this.options.port
       ? this.options.port
       : this.options.portRange
@@ -125,6 +121,7 @@ export class UdpTransport implements Transport {
             this.options.portRange[1],
             this.socketType,
             this.options.interfaceAddresses,
+            address,
           )
         : undefined;
     if (this.closed) {

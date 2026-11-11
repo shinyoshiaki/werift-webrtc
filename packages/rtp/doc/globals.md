@@ -110,6 +110,7 @@
 - [RtpMediaTimelineOptions](interfaces/RtpMediaTimelineOptions.md)
 - [StreamTransportOptions](interfaces/StreamTransportOptions.md)
 - [Transport](interfaces/Transport.md)
+- [UdpTransportOptions](interfaces/UdpTransportOptions.md)
 - [videoOrientationPayload](interfaces/videoOrientationPayload.md)
 
 ## Type Aliases

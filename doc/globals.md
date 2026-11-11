@@ -232,6 +232,7 @@
 - [TurnClientConfig](interfaces/TurnClientConfig.md)
 - [TurnClientOptions](interfaces/TurnClientOptions.md)
 - [TwccPacketFeedback](interfaces/TwccPacketFeedback.md)
+- [UdpTransportOptions](interfaces/UdpTransportOptions.md)
 - [videoOrientationPayload](interfaces/videoOrientationPayload.md)
 
 ## Type Aliases

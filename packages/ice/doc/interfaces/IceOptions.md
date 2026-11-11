@@ -86,8 +86,20 @@ candidates use it too. Other enumerated addresses of that family are not
 gathered. If the bind fails, the family has no UDP host candidate.
 
 A family left unspecified while the other one is set gathers no
-enumerated addresses (only its `additionalHostAddresses`). Without any
-family set, every enumerated address is gathered over wildcard sockets.
+enumerated addresses (only its `additionalHostAddresses`).
+
+Without any family set, every enumerated address gets its own UDP host
+socket bound to that address (an IPv6 link-local one with its zone), so
+the socket's packets leave from the advertised candidate address even on
+a host with several network interfaces. An address whose bind fails is
+not advertised; the other addresses are unaffected. An
+`additionalHostAddresses` entry that is not assigned to a local
+interface (a 1:1 NAT public address, for example) is gathered over a
+wildcard socket.
+
+A family set to the wildcard address (`0.0.0.0` / `::`) gathers its
+enumerated and additional addresses over wildcard sockets instead;
+the wildcard address itself is never advertised.
 
 ***
 

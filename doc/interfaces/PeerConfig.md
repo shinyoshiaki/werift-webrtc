@@ -91,6 +91,8 @@ Prefer turn URL transport parameters or turnTransport.
 Add additional host (local) addresses to use for candidate gathering.
 Notably, you can include hosts that are normally excluded, such as loopback, tun interfaces, etc.
 For a family bound by `iceInterfaceAddresses`, addresses other than the bound one are ignored.
+An address assigned to a local interface is bound like an enumerated one; any other address
+(a 1:1 NAT public address, for example) is gathered over a wildcard socket.
 
 ***
 
@@ -128,6 +130,12 @@ to, even when it is not an enumerated interface address (loopback, tun,
 VPN, ...). If the bind fails, the family has no UDP host candidate.
 A family left unspecified while the other one is set gathers no
 enumerated addresses (only its `iceAdditionalHostAddresses`).
+
+When unset, each enumerated interface address gets a UDP host socket
+bound to that address, so connectivity checks leave from the advertised
+candidate on multi-NIC hosts. An address whose bind fails is not
+advertised. Set a family to `0.0.0.0` / `::` to gather its enumerated
+addresses over wildcard sockets instead.
 
 ***
 

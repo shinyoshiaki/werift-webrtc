@@ -1,6 +1,6 @@
 import * as timers from "node:timers/promises";
 import { randomBytes } from "crypto";
-import { isIPv4 } from "net";
+import { isIPv4, isIPv6 } from "net";
 import {
   Candidate,
   candidateFoundation,
@@ -32,7 +32,12 @@ import {
   validateRemoteCandidate,
 } from "./iceBase";
 import { type Address, debug, Event, interfaceAddress } from "./imports/common";
-import { resolveHostAddresses } from "./internal/resolveHostAddresses";
+import { getHostInterfaceAddresses } from "./internal/hostInterfaces";
+import {
+  type HostAddress,
+  HostAddressBind,
+  resolveHostAddresses,
+} from "./internal/resolveHostAddresses";
 import {
   classes,
   type MessageIntegrityMode,
@@ -47,7 +52,6 @@ import {
   StunOverTurnProtocol,
 } from "./turn/protocol";
 import type { Protocol, TransactionRequestOptions } from "./types/model";
-import { getHostAddresses } from "./utils";
 
 const log = debug("werift-ice : packages/ice/src/ice.ts : log");
 
@@ -905,7 +909,7 @@ export class Connection implements IceConnection {
       // A family bound to an explicit interface address gathers only that
       // address, so the advertised host candidate is the socket's address.
       const address = resolveHostAddresses({
-        enumerated: getHostAddresses(
+        enumerated: getHostInterfaceAddresses(
           this.options.useIpv4,
           this.options.useIpv6,
           {
@@ -1164,7 +1168,7 @@ export class Connection implements IceConnection {
   }
 
   private getCandidatePromises(
-    addresses: string[],
+    hostAddresses: HostAddress[],
     timeout = 5,
     generation = this.generation,
   ) {
@@ -1181,17 +1185,26 @@ export class Connection implements IceConnection {
     // TCP host candidates are kept per address like the UDP ones, but on
     // their own: a restart that turned useTcp on gathers them for addresses
     // whose UDP sockets were kept.
-    const tcpAddresses = addresses.filter(
-      (address) =>
-        !this.protocols.some(
-          (protocol) =>
-            protocol.localCandidate?.transport.toLowerCase() === "tcp" &&
-            protocol.localIp === address,
-        ),
-    );
-    addresses = addresses.filter((address) => {
+    const tcpAddresses = hostAddresses
+      .map(({ address }) => address)
+      .filter(
+        (address) =>
+          !this.protocols.some(
+            (protocol) =>
+              protocol.localCandidate?.transport.toLowerCase() === "tcp" &&
+              protocol.localIp === address,
+          ),
+      );
+    const addresses = hostAddresses.filter(({ address }) => {
       // ice restartで同じアドレスが追加されるのを防ぐ
-      if (this.protocols.find((protocol) => protocol.localIp === address)) {
+      // (localIp is the bound address, whose IPv6 notation may differ)
+      if (
+        this.protocols.find(
+          (protocol) =>
+            protocol.localIp !== undefined &&
+            normalizeIp(protocol.localIp) === normalizeIp(address),
+        )
+      ) {
         return false;
       }
       // A family bound to an interface address has one UDP host socket; its
@@ -1222,19 +1235,25 @@ export class Connection implements IceConnection {
 
     const localStunPromises = gatherRelayOnly
       ? []
-      : addresses.map(async (address) => {
+      : addresses.map(async ({ address, bind, bindAddress }) => {
           // # create transport
           const protocol = new StunProtocol();
           this.ensureProtocol(protocol);
-          const boundInterface = interfaceAddress(
-            socketTypeOf(address),
-            interfaceAddresses,
-          );
+          // An explicit interface address or an enumerated local address is
+          // bound to, so packets of the socket leave from the advertised
+          // address (a wildcard socket's source follows the routing table).
+          const boundInterface =
+            bind === HostAddressBind.explicit
+              ? interfaceAddress(socketTypeOf(address), interfaceAddresses)
+              : bind === HostAddressBind.enumerated
+                ? bindAddress
+                : undefined;
           try {
             await protocol.connectionMade(
               isIPv4(address),
               this.options.portRange,
               interfaceAddresses,
+              bind === HostAddressBind.enumerated ? { bindAddress } : {},
             );
             if (stale()) {
               await protocol.close();
@@ -1242,14 +1261,15 @@ export class Connection implements IceConnection {
             }
 
             // # add host candidate
-            // A socket bound to an interface address advertises that address:
-            // the peer sends its checks there. A wildcard socket advertises
-            // the gathered address (never 0.0.0.0 / ::).
+            // A socket bound to an address advertises the bound address: the
+            // peer sends its checks there and the socket's packets leave from
+            // it. A wildcard socket advertises the gathered address (never
+            // 0.0.0.0 / ::).
             const [boundHost, boundPort] = protocol.getExtraInfo();
             let candidateHost = address;
             if (boundInterface) {
               candidateHost = stripZoneId(boundHost);
-              if (candidateHost !== address) {
+              if (normalizeIp(candidateHost) !== normalizeIp(address)) {
                 log(
                   "host address differs from the bound interface address; advertise the bound one",
                   address,
@@ -1285,10 +1305,11 @@ export class Connection implements IceConnection {
             return protocol;
           } catch (error) {
             if (boundInterface) {
-              // No host candidate for this family: advertising another
-              // address than the socket's would mislead the peer.
+              // No host candidate for this address: advertising it from
+              // another (wildcard) socket would mislead the peer. Candidates
+              // of the other addresses are gathered independently.
               log(
-                "failed to bind UDP socket to interface address",
+                "failed to bind UDP socket to host address",
                 boundInterface,
                 error,
               );
@@ -2882,3 +2903,14 @@ const socketTypeOf = (address: string) => (isIPv4(address) ? "udp4" : "udp6");
 
 /** Candidates carry no IPv6 zone id (e.g. `fe80::1%eth0`). */
 const stripZoneId = (address: string) => address.split("%")[0];
+
+/** Canonical notation of an IP address (IPv6 compression / case, no zone). */
+const normalizeIp = (address: string) => {
+  const host = stripZoneId(address);
+  if (!isIPv6(host)) return host;
+  try {
+    return new URL(`http://[${host}]`).hostname.slice(1, -1);
+  } catch {
+    return host;
+  }
+};

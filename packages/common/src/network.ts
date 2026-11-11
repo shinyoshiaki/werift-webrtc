@@ -42,13 +42,20 @@ export async function randomPorts(
   );
 }
 
+/**
+ * Finds a free port in `[min, max]`. The probe binds `bindAddress` when it is
+ * given (the address the socket will be bound to), otherwise the address of
+ * `interfaceAddresses` for `protocol` (wildcard when unset).
+ */
 export async function findPort(
   min: number,
   max: number,
   protocol: SocketType = "udp4",
   interfaceAddresses?: InterfaceAddresses,
+  bindAddress?: string,
 ) {
   let port: number | undefined;
+  const address = bindAddress ?? interfaceAddress(protocol, interfaceAddresses);
 
   for (let i = min; i <= max; i++) {
     const socket = createSocket(protocol);
@@ -56,7 +63,7 @@ export async function findPort(
     setImmediate(() =>
       socket.bind({
         port: i,
-        address: interfaceAddress(protocol, interfaceAddresses),
+        address,
       }),
     );
 

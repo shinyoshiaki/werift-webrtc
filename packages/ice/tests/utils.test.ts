@@ -2,9 +2,12 @@ import { createSocket } from "dgram";
 
 import { findPort } from "../../common/src";
 import { randomString } from "../src/helper";
-import { selectAddressesFromInterfaces } from "../src/internal/selectAddresses";
+import {
+  selectAddressesFromInterfaces,
+  selectHostInterfaces,
+} from "../src/internal/selectAddresses";
 import { getGlobalIp, isLinkLocalAddress } from "../src/utils";
-import { createLocalStunServer } from "./utils";
+import { createLocalStunServer, fakeNetworkInterfaces } from "./utils";
 
 describe("utils", () => {
   test("randomString", () => {
@@ -79,6 +82,28 @@ describe("utils", () => {
 
     // Assert: internal と link-local が除外されること
     expect(addresses).toEqual(["192.0.2.10"]);
+  });
+
+  test("selectHostInterfaces binds a link-local IPv6 address with its zone", () => {
+    // Arrange: link-local と global の IPv6 を持つ NIC
+    const interfaces = fakeNetworkInterfaces({
+      eth1: ["2001:db8::1"],
+      eth0: ["fe80::1"],
+    });
+
+    // Act: link-local を含めて選別する
+    const hosts = selectHostInterfaces(
+      interfaces,
+      6,
+      { useLinkLocalAddress: true },
+      isLinkLocalAddress,
+    );
+
+    // Assert: NIC 名順で、link-local だけ zone 付きの bind アドレスになる
+    expect(hosts).toEqual([
+      { address: "fe80::1", nic: "eth0", bindAddress: "fe80::1%eth0" },
+      { address: "2001:db8::1", nic: "eth1", bindAddress: "2001:db8::1" },
+    ]);
   });
 
   test("selectAddressesFromInterfaces keeps link-local when enabled", () => {
