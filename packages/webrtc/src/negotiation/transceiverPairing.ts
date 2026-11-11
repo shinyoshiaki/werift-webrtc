@@ -46,7 +46,9 @@ export const livePairingView: PairingView = livePairingState;
  * - Otherwise an unassociated (`mid == null`), non-stopping, non-stopped
  *   transceiver of the same kind is taken, the one at the same m-line index
  *   first. Under `"jsep"` it must have been created by `addTrack()` (or a
- *   rollback promoted it to that); under `"legacy"` any origin pairs.
+ *   rollback promoted it to that), and the m-line must be sendrecv or
+ *   recvonly (a `sendonly` / `inactive` m-line gets a new transceiver, RFC 9429
+ *   5.10); under `"legacy"` any origin and direction pairs.
  * - A transceiver in `associated` (already paired with an earlier m-line of
  *   the same description) is never paired twice.
  */
@@ -74,6 +76,13 @@ export function matchRemoteTransceiver(
     return byMid.transceiver;
   }
   if (remoteMedia.port === 0) {
+    return;
+  }
+  if (
+    pairing === "jsep" &&
+    (remoteMedia.direction === "sendonly" ||
+      remoteMedia.direction === "inactive")
+  ) {
     return;
   }
   const unassociated = candidates.filter(

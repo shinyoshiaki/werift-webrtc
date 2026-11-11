@@ -147,6 +147,39 @@ for (const { mode, paired } of [
       },
     );
 
+    for (const offered of ["sendonly", "inactive"] as const) {
+      negotiationCase(
+        `a ${offered} m-section is not paired with an addTrack() transceiver under jsep`,
+        { ref: "#816 5-4" },
+        async (c) => {
+          // Arrange: a は ${offered} の video、b は addTrack() で video を持つ。
+          const { a, b } = await c.given(createPairingPeers(mode));
+          a.addTransceiver(new MediaStreamTrack({ kind: "video" }), {
+            direction: offered,
+          });
+          const { transceiver: bVideo } = addTrackTransceiver(b, "video");
+
+          // Act: remote offer を適用する。
+          await c.offer(a);
+
+          // Assert: jsep (RFC 9429 5.10) では ${offered} の m-line に既存の送信用 transceiver を使わず、新しいものを作る。legacy では対応付ける。
+          expect(bVideo.mid).toBe(paired ? "0" : null);
+          expect(b.getTransceivers().length).toBe(paired ? 1 : 2);
+
+          // Act: answer で確定する。
+          await c.answer(b);
+          await flushEvents();
+
+          // Assert: bVideo は関連付かないまま、後続の交渉で送信用に新しい m-line になる。
+          if (paired) return;
+          expect(bVideo.mid).toBe(null);
+          await c.negotiate(b);
+          expect(bVideo.mid).toBe("1");
+          expect(bVideo.currentDirection).toBe("sendonly");
+        },
+      );
+    }
+
     negotiationCase(
       "several m-sections pair each transceiver at most once and only by its origin",
       { ref: "#816 5-6" },

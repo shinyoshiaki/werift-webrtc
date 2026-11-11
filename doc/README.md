@@ -88,7 +88,7 @@ new RTCPeerConnection({ transceiverPairing: "legacy" }); // werift up to v0.27.0
 
 | `transceiverPairing` | an unassociated transceiver of the same kind paired with the offer | glare (perfect negotiation) |
 | --- | --- | --- |
-| `"jsep"` (default) | only one `addTrack()` created (or a remote one `addTrack()` reused that a rollback kept). One `addTransceiver()` created is never paired, with or without a track, also after `replaceTrack()` or a later `addTrack()` reused it: the offer gets a new transceiver and the local one keeps its `direction` and `mid === null` until your next offer negotiates it (`negotiationneeded` fires after the answer). | the direction you gave `addTransceiver()` (e.g. `"sendonly"`) is kept |
+| `"jsep"` (default) | only one `addTrack()` created (or a remote one `addTrack()` reused that a rollback kept), and only for a `sendrecv` / `recvonly` m-section (a `sendonly` / `inactive` one gets a new transceiver, RFC 9429 5.10). One `addTransceiver()` created is never paired, with or without a track, also after `replaceTrack()` or a later `addTrack()` reused it: the offer gets a new transceiver and the local one keeps its `direction` and `mid === null` until your next offer negotiates it (`negotiationneeded` fires after the answer). | the direction you gave `addTransceiver()` (e.g. `"sendonly"`) is kept |
 | `"legacy"` | any one, whatever created it (the one at the same m-line index first) | the remote offer can take over your `addTransceiver()` transceiver, and its direction becomes the negotiated one (e.g. `"sendonly"` becomes `"sendrecv"`) |
 
 Migrating an answerer that called `addTransceiver()` before `setRemoteDescription(offer)` and relied on the pairing:
