@@ -2,7 +2,14 @@ export const COOKIE = 0x2112a442;
 export const FINGERPRINT_LENGTH = 8;
 export const FINGERPRINT_XOR = 0x5354554e;
 export const HEADER_LENGTH = 20;
+/** MESSAGE-INTEGRITY (HMAC-SHA1, 20 bytes) including its 4 byte TLV header. */
 export const INTEGRITY_LENGTH = 24;
+/** Untruncated MESSAGE-INTEGRITY-SHA256 value length (RFC 8489 §14.6). */
+export const INTEGRITY_SHA256_VALUE_LENGTH = 32;
+/** Shortest allowed truncation of MESSAGE-INTEGRITY-SHA256 (RFC 8489 §14.6). */
+export const INTEGRITY_SHA256_MIN_VALUE_LENGTH = 16;
+/** Default MESSAGE-INTEGRITY-SHA256 (32 bytes) including its 4 byte TLV header. */
+export const INTEGRITY_SHA256_LENGTH = 4 + INTEGRITY_SHA256_VALUE_LENGTH;
 export const IPV4_PROTOCOL = 1;
 export const IPV6_PROTOCOL = 2;
 
@@ -45,6 +52,20 @@ export const AttributeKeys = [
   "RESPONSE-ORIGIN",
   "OTHER-ADDRESS",
 ] as const;
+
+/**
+ * Short-term credential integrity attribute a message is signed with:
+ * `"sha1"` = MESSAGE-INTEGRITY (0x0008),
+ * `"sha256"` = MESSAGE-INTEGRITY-SHA256 (0x001C, RFC 8489).
+ */
+export type MessageIntegrityAlgorithm = "sha1" | "sha256";
+
+/**
+ * Which integrity attributes an outgoing message carries. `"both"` adds
+ * MESSAGE-INTEGRITY followed by MESSAGE-INTEGRITY-SHA256 (RFC 8489 §14.6
+ * order), so an agent that only knows SHA-1 can still verify it.
+ */
+export type MessageIntegrityMode = MessageIntegrityAlgorithm | "both";
 
 /**
  * @enum

@@ -73,7 +73,8 @@ export class StunProtocol implements Protocol {
         this.transactionsKeys.includes(message.transactionIdHex)
       ) {
         const transaction = this.transactions[message.transactionIdHex];
-        // Re-parse with integrity key so unauthenticated responses are dropped.
+        // Re-parse with integrity key so unauthenticated responses are dropped
+        // (MESSAGE-INTEGRITY or MESSAGE-INTEGRITY-SHA256, RFC 8489 §9.1.4).
         const verified = transaction.integrityKey
           ? parseMessage(data, transaction.integrityKey)
           : message;
@@ -127,8 +128,13 @@ export class StunProtocol implements Protocol {
     if (this.transactionsKeys.includes(request.transactionIdHex))
       throw new Error("already request ed");
 
+    const options = buildTransactionOptions(
+      integrityKey,
+      retransmissionsOrOptions,
+      onRequestSent,
+    );
     if (integrityKey) {
-      request.addMessageIntegrity(integrityKey);
+      request.addIntegrity(integrityKey, options.integrityAlgorithm);
       request.addFingerprint();
     }
 
@@ -141,11 +147,6 @@ export class StunProtocol implements Protocol {
     // retransmit on the closed socket and keep its timers.
     if (this.closed) throw new TransactionCancelled();
 
-    const options = buildTransactionOptions(
-      integrityKey,
-      retransmissionsOrOptions,
-      onRequestSent,
-    );
     const transaction: Transaction = new Transaction(
       request,
       resolvedAddr,
