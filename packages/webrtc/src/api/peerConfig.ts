@@ -9,7 +9,12 @@ import type {
   InterfaceAddresses,
   TlsConnectionOptions,
 } from "../imports/common";
-import type { CandidatePair, Message, Protocol } from "../imports/ice";
+import type {
+  CandidatePair,
+  Message,
+  MessageIntegrityMode,
+  Protocol,
+} from "../imports/ice";
 import { defaultCodecs } from "../media/codec";
 import { normalizeCodecMimeType } from "../media/codecCompatibility";
 import type {
@@ -144,6 +149,27 @@ export interface PeerConfig {
     | ((message: Message, addr: Address, protocol: Protocol) => boolean)
     | undefined;
   iceFilterCandidatePair: ((pair: CandidatePair) => boolean) | undefined;
+  /**
+   * Integrity attributes of the ICE connectivity checks and consent requests
+   * werift sends (RFC 8489 short-term credentials). Applies to ICE transports
+   * created after it is set.
+   * - `undefined` / `"sha1"` (default): MESSAGE-INTEGRITY only. Browsers
+   *   (libwebrtc, Firefox) accept this.
+   * - `"sha256"`: MESSAGE-INTEGRITY-SHA256 only. Only for peers known to
+   *   support it: a peer that does not know the attribute rejects the checks.
+   * - `"both"`: MESSAGE-INTEGRITY followed by MESSAGE-INTEGRITY-SHA256.
+   *
+   * Checks and responses from the peer are accepted with either algorithm,
+   * and responses are always signed with the algorithm of the request.
+   */
+  iceMessageIntegrity: MessageIntegrityMode | undefined;
+  /**
+   * Advertise the `ice2` ice-option (`a=ice-options:trickle ice2`, RFC 8445
+   * §10 / RFC 8839) to declare an RFC 8445 agent. Defaults to false
+   * (`a=ice-options:trickle`). It is only a declaration: werift runs the
+   * RFC 8445 procedures either way. Cannot be changed after construction.
+   */
+  iceOptionIce2: boolean;
   dtls: Partial<{
     keys: DtlsKeys;
   }>;
@@ -202,6 +228,12 @@ const CertificateScopes: readonly CertificateScope[] = [
 ];
 
 const MLineReuseModes: readonly MLineReuse[] = ["compatible", "aggressive"];
+
+const MessageIntegrityModes: readonly MessageIntegrityMode[] = [
+  "sha1",
+  "sha256",
+  "both",
+];
 
 export const findCodecByMimeType = (
   codecs: RTCRtpCodecParameters[],
@@ -314,6 +346,8 @@ export function generateDefaultPeerConfig(): PeerConfig {
     turnUdpFamily: undefined,
     iceFilterStunResponse: undefined,
     iceFilterCandidatePair: undefined,
+    iceMessageIntegrity: undefined,
+    iceOptionIce2: false,
     icePasswordPrefix: undefined,
     iceUseLinkLocalAddress: undefined,
     dtls: {},
@@ -530,6 +564,26 @@ export function mergePeerConfiguration(
     throw createWebRtcDomException(
       "InvalidModificationError",
       "mLineReuse cannot be changed",
+    );
+  }
+
+  if (
+    normalizedConfig.iceMessageIntegrity !== undefined &&
+    !MessageIntegrityModes.includes(normalizedConfig.iceMessageIntegrity)
+  ) {
+    throw createWebRtcTypeError(
+      `iceMessageIntegrity must be one of ${MessageIntegrityModes.join(", ")}`,
+    );
+  }
+
+  if (
+    isReconfiguration &&
+    normalizedConfig.iceOptionIce2 !== undefined &&
+    normalizedConfig.iceOptionIce2 !== config.iceOptionIce2
+  ) {
+    throw createWebRtcDomException(
+      "InvalidModificationError",
+      "iceOptionIce2 cannot be changed",
     );
   }
 

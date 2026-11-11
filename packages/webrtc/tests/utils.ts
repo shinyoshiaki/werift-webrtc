@@ -671,3 +671,31 @@ export async function connectWithIceConfigs(
     controlled: firstIceTransport(answerer).connection,
   };
 }
+/**
+ * Shared Arrange: a local-only peer configuration (no STUN / TURN) whose ICE
+ * agent sends checks with `iceMessageIntegrity` and records the integrity
+ * algorithm of every connectivity check it receives.
+ */
+export function iceIntegrityConfig(config: Partial<PeerConfig> = {}): {
+  config: Partial<PeerConfig>;
+  received: (string | undefined)[];
+} {
+  const received: (string | undefined)[] = [];
+  return {
+    received,
+    config: {
+      iceServers: [],
+      iceUseDefaultStunServer: false,
+      ...config,
+      iceFilterStunResponse: (message) => {
+        received.push(message.integrityAlgorithm);
+        return true;
+      },
+    },
+  };
+}
+
+/** Every `a=ice-options` line of `sdp`. */
+export function sdpIceOptionLines(sdp: string) {
+  return sdp.split(/\r?\n/).filter((line) => line.startsWith("a=ice-options:"));
+}

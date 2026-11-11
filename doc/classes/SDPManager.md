@@ -24,6 +24,12 @@
 
 `string`
 
+###### iceOptionIce2?
+
+`boolean`
+
+Add `ice2` (RFC 8445 §10) to the local ice-options.
+
 ###### iceRenomination?
 
 `boolean`
@@ -63,6 +69,14 @@
 ### currentRemoteDescription?
 
 > `optional` **currentRemoteDescription?**: [`SessionDescription`](SessionDescription.md)
+
+***
+
+### iceOptions
+
+> `readonly` **iceOptions**: `string`
+
+Local `a=ice-options` tokens written on every m-line.
 
 ***
 

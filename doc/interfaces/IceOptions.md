@@ -97,6 +97,24 @@ family set, every enumerated address is gathered over wildcard sockets.
 
 ***
 
+### messageIntegrity?
+
+> `optional` **messageIntegrity?**: [`MessageIntegrityMode`](../type-aliases/MessageIntegrityMode.md)
+
+Integrity attributes of the connectivity checks and consent requests this
+agent sends (short-term credentials, RFC 8489):
+- `"sha1"` (default): MESSAGE-INTEGRITY only, what every browser accepts.
+- `"sha256"`: MESSAGE-INTEGRITY-SHA256 only. A peer that does not know
+  the comprehension-required 0x001C attribute rejects such checks (420
+  or no answer), so use it only with a peer known to support it.
+- `"both"`: MESSAGE-INTEGRITY followed by MESSAGE-INTEGRITY-SHA256.
+
+Received requests and responses are accepted with either algorithm, and
+a response is always signed with the algorithm of its request
+(MESSAGE-INTEGRITY-SHA256 when the request carried it, RFC 8489 §9.1.3).
+
+***
+
 ### nomination?
 
 > `optional` **nomination?**: `"semi-aggressive"` \| `"regular"`

@@ -50,7 +50,11 @@ import { RemoteMediaApplication } from "./negotiation/remoteMediaApplication";
 import { TransportActivation } from "./negotiation/transportActivation";
 import { NegotiationTransaction } from "./negotiationTransaction";
 import { SctpTransportManager } from "./sctpManager";
-import { type RTCSessionDescription, SessionDescription } from "./sdp";
+import {
+  descriptionIceOptions,
+  type RTCSessionDescription,
+  SessionDescription,
+} from "./sdp";
 import { type RTCSessionDescriptionInit, SDPManager } from "./sdpManager";
 import { SecureTransportManager } from "./secureTransportManager";
 import type { DtlsRole, RTCDtlsTransport } from "./transport/dtls";
@@ -279,6 +283,7 @@ export class RTCPeerConnection extends EventTarget {
       bundlePolicy: this.config.bundlePolicy,
       mLineReuse: this.config.mLineReuse,
       iceRenomination: this.config.iceRenomination,
+      iceOptionIce2: this.config.iceOptionIce2,
     });
     this.transceiverManager = new TransceiverManager(
       this.cname,
@@ -466,13 +471,19 @@ export class RTCPeerConnection extends EventTarget {
     if (!remoteDescription) {
       return null;
     }
-    const iceOptions = [
-      remoteDescription.iceOptions,
-      ...remoteDescription.media.map((media) => media.iceOptions),
-    ]
-      .filter((value): value is string => !!value)
-      .join(" ");
-    return iceOptions.split(/\s+/).includes("trickle");
+    return descriptionIceOptions(remoteDescription).includes("trickle");
+  }
+  /**
+   * Whether the remote description declares the `ice2` ice-option (an
+   * RFC 8445 agent, RFC 8839 §5.6), or null without a remote description.
+   * Informational: werift runs the RFC 8445 procedures either way.
+   */
+  get remoteIceOptionIce2() {
+    const remoteDescription = this.sdpManager._remoteDescription;
+    if (!remoteDescription) {
+      return null;
+    }
+    return descriptionIceOptions(remoteDescription).includes("ice2");
   }
   get remoteIsBundled() {
     return this.sdpManager.remoteIsBundled;
