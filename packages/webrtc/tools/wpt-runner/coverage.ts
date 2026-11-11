@@ -34,6 +34,7 @@ const coverageBaselinePath = resolve(
   "coverage-baseline.json",
 );
 const sourceDir = resolve(packageDir, "src");
+const DEFAULT_COVERAGE_WPT_CONCURRENCY = "2";
 
 /**
  * GCC / selectable BWE algorithm sources are public API (barrel-exported) so
@@ -81,6 +82,10 @@ async function main() {
         env: {
           ...process.env,
           NODE_V8_COVERAGE: rawCoverageDir,
+          // V8 coverage makes each worker substantially heavier; keep the
+          // default low enough that worker timeout profiles remain reliable.
+          WPT_CONCURRENCY:
+            process.env.WPT_CONCURRENCY ?? DEFAULT_COVERAGE_WPT_CONCURRENCY,
           WPT_USE_WORKERS: "1",
         },
         stdio: "inherit",

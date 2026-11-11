@@ -1094,6 +1094,8 @@ function prflxSourceBound(pc: RTCPeerConnection) {
  *   the SSRCs and m-lines negotiated (as in develop; the cycles keep SSRCs).
  * - sent packets awaiting transport-cc feedback: 5 s and 32768 per sender
  *   (`senderBWE.ts`); the cycles carry no RTP, `senderBWE.test.ts` checks it.
+ * - sent RTCP Sender Reports matched for RTT: 30 s and 32 per sender
+ *   (`senderReportHistory.ts`); `senderReportHistory.test.ts` checks it.
  */
 export const BOUNDED_METRICS: Record<
   string,
