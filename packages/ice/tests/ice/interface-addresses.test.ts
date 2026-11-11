@@ -254,6 +254,28 @@ describe("resolveHostAddresses", () => {
     ]);
   });
 
+  test("another notation of a locally assigned IPv6 address is bound to itself and not duplicated", () => {
+    // Arrange: 列挙は短縮表記、追加アドレスは同じ IP の展開・大文字表記
+    // Act: 解決する
+    const addresses = resolveHostAddresses({
+      enumerated: [{ address: "2001:db8::1" }],
+      assigned: [{ address: "::1" }],
+      additionalHostAddresses: ["2001:0DB8:0:0:0:0:0:1", "0:0:0:0:0:0:0:1"],
+      useIpv4: true,
+      useIpv6: true,
+    });
+
+    // Assert: どちらも個別 bind（wildcard にならず）、同一 IP は 1 件に重複排除される
+    expect(addresses).toEqual([
+      {
+        address: "2001:db8::1",
+        bind: "enumerated",
+        bindAddress: "2001:db8::1",
+      },
+      { address: "::1", bind: "enumerated", bindAddress: "::1" },
+    ]);
+  });
+
   test("without interfaceAddresses, enumerated addresses are bound and other additional addresses use wildcard", () => {
     // Act: 明示指定なしで解決する
     const addresses = resolveHostAddresses({

@@ -39,6 +39,7 @@ import {
 import {
   type HostAddress,
   HostAddressBind,
+  normalizeIp,
   resolveHostAddresses,
 } from "./internal/resolveHostAddresses";
 import {
@@ -2907,14 +2908,3 @@ const socketTypeOf = (address: string) => (isIPv4(address) ? "udp4" : "udp6");
 
 /** Candidates carry no IPv6 zone id (e.g. `fe80::1%eth0`). */
 const stripZoneId = (address: string) => address.split("%")[0];
-
-/** Canonical notation of an IP address (IPv6 compression / case, no zone). */
-const normalizeIp = (address: string) => {
-  const host = stripZoneId(address);
-  if (!isIPv6(host)) return host;
-  try {
-    return new URL(`http://[${host}]`).hostname.slice(1, -1);
-  } catch {
-    return host;
-  }
-};

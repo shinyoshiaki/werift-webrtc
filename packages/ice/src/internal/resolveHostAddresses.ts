@@ -1,4 +1,4 @@
-import { isIPv4 } from "node:net";
+import { isIPv4, isIPv6 } from "node:net";
 
 import type { InterfaceAddresses } from "../imports/common";
 
@@ -40,6 +40,17 @@ export interface EnumeratedHostAddress {
   address: string;
   bindAddress?: string;
 }
+
+/** Canonical notation of an IP address (IPv6 compression / case, no zone). */
+export const normalizeIp = (address: string) => {
+  const host = address.split("%")[0];
+  if (!isIPv6(host)) return host;
+  try {
+    return new URL(`http://[${host}]`).hostname.slice(1, -1);
+  } catch {
+    return host;
+  }
+};
 
 const isUnspecified = (address: string) =>
   address === "0.0.0.0" || address === "::";
@@ -86,34 +97,43 @@ export function resolveHostAddresses({
   useIpv6: boolean;
   log?: ResolveHostAddressesLog;
 }): HostAddress[] {
-  const locals = new Map<string, string>();
-  for (const entry of enumerated) {
-    const { address, bindAddress = address } =
-      typeof entry === "string" ? { address: entry } : entry;
-    if (!locals.has(address)) locals.set(address, bindAddress);
-  }
-  const assignedLocals = new Map<string, string>();
-  for (const entry of assigned) {
-    const { address, bindAddress = address } =
-      typeof entry === "string" ? { address: entry } : entry;
-    if (!assignedLocals.has(address)) assignedLocals.set(address, bindAddress);
-  }
+  // Keyed by canonical address so that another notation of the same IPv6
+  // address is still recognized as local.
+  const toMap = (entries: (string | EnumeratedHostAddress)[]) => {
+    const map = new Map<string, { address: string; bindAddress: string }>();
+    for (const entry of entries) {
+      const { address, bindAddress = address } =
+        typeof entry === "string" ? { address: entry } : entry;
+      const key = normalizeIp(address);
+      if (!map.has(key)) map.set(key, { address, bindAddress });
+    }
+    return map;
+  };
+  const locals = toMap(enumerated);
+  const assignedLocals = toMap(assigned);
   const udp4 = interfaceAddresses?.udp4;
   const udp6 = interfaceAddresses?.udp6;
   const explicitOf = (address: string) => (isIPv4(address) ? udp4 : udp6);
 
   const resolved = new Map<string, HostAddress>();
   const add = (host: HostAddress) => {
-    if (!resolved.has(host.address)) resolved.set(host.address, host);
+    const key = normalizeIp(host.address);
+    if (!resolved.has(key)) resolved.set(key, host);
   };
   // Without an explicit (non-wildcard) address for its family, an address
   // assigned to a local interface is bound to itself, any other one to the
   // wildcard address.
   const localOrWildcard = (address: string): HostAddress => {
     const explicit = explicitOf(address);
-    const bindAddress = locals.get(address) ?? assignedLocals.get(address);
-    if (!explicit && bindAddress !== undefined) {
-      return { address, bind: HostAddressBind.enumerated, bindAddress };
+    const local =
+      locals.get(normalizeIp(address)) ??
+      assignedLocals.get(normalizeIp(address));
+    if (!explicit && local !== undefined) {
+      return {
+        address: local.address,
+        bind: HostAddressBind.enumerated,
+        bindAddress: local.bindAddress,
+      };
     }
     return { address, bind: HostAddressBind.wildcard };
   };
@@ -122,7 +142,7 @@ export function resolveHostAddresses({
     for (const address of additionalHostAddresses) {
       add(localOrWildcard(address));
     }
-    for (const address of locals.keys()) {
+    for (const { address } of locals.values()) {
       add(localOrWildcard(address));
     }
     return [...resolved.values()];
@@ -136,7 +156,7 @@ export function resolveHostAddresses({
     if (isUnspecified(explicit)) {
       // The family is explicitly bound to the wildcard address: gather its
       // enumerated addresses over wildcard sockets.
-      for (const address of locals.keys()) {
+      for (const { address } of locals.values()) {
         if (explicitOf(address) === explicit) {
           add({ address, bind: HostAddressBind.wildcard });
         }
@@ -152,7 +172,7 @@ export function resolveHostAddresses({
       add(localOrWildcard(address));
       continue;
     }
-    if (address === explicit) {
+    if (normalizeIp(address) === normalizeIp(explicit)) {
       continue; // already gathered as the explicit address
     }
     log(
