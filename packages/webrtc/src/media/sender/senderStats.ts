@@ -1,7 +1,7 @@
 import { uint32Add } from "../../imports/common";
 import { RtcpSenderInfo, RtcpSrPacket } from "../../imports/rtp";
 import type { Kind } from "../../types/domain";
-import { compactNtp, ntpTime, timestampSeconds } from "../../utils";
+import { compactNtp, ntpTime } from "../../utils";
 import type { RTCRtpCodecParameters } from "../parameters";
 import {
   generateCodecStatsId,
@@ -12,6 +12,7 @@ import {
   type RTCRemoteInboundRtpStreamStats,
   type RTCStats,
 } from "../stats";
+import { SenderReportHistory } from "./senderReportHistory";
 
 /** EWMA weight of the previous RTT for `roundTripTime` in stats. */
 const RTT_ALPHA = 0.85;
@@ -67,9 +68,8 @@ export class SenderStatistics {
   private remotePacketsLost?: number;
   private remoteFractionLost?: number;
 
-  /** Compact NTP of the last SR sent (matched against a report's LSR). */
-  lastSRtimestamp?: number;
-  private lastSentSRTimestamp?: number;
+  /** Sent SRs by LSR, so a report that references an older SR still gives an RTT. */
+  private readonly senderReports = new SenderReportHistory();
   /**
    * NTP<->RTP clock anchor for RTCP Sender Reports (RFC 3550 §6.4.1).
    * The send time of the first packet of the newest RTP timestamp (output
@@ -105,15 +105,20 @@ export class SenderStatistics {
 
   /**
    * Record a reception report about this sender's SSRC.
-   * @returns the raw RTT (seconds) when the report answers the last SR sent.
+   * @returns the raw RTT (seconds) when the report's LSR matches a recent SR.
    */
-  recordReceptionReport(report: ReceptionReport): number | undefined {
+  recordReceptionReport(
+    report: ReceptionReport,
+    nowMonotonicMs = performance.now(),
+  ): number | undefined {
     this.remotePacketsLost = report.packetsLost;
     this.remoteFractionLost = report.fractionLost / 256;
-    if (this.lastSRtimestamp !== report.lsr || !report.dlsr) return;
-    if (!this.lastSentSRTimestamp) return;
-    const rawRttSeconds =
-      timestampSeconds() - this.lastSentSRTimestamp - report.dlsr / 65536;
+    const rawRttSeconds = this.senderReports.roundTripTime(
+      report.lsr,
+      report.dlsr,
+      nowMonotonicMs / 1000,
+    );
+    if (rawRttSeconds === undefined) return;
     this.totalRoundTripTime += rawRttSeconds;
     this.roundTripTimeMeasurements++;
     // Stats / getStats keep an EWMA; the raw sample is returned for AIMD.
@@ -123,6 +128,11 @@ export class SenderStatistics {
       this.rtt = RTT_ALPHA * this.rtt + (1 - RTT_ALPHA) * rawRttSeconds;
     }
     return rawRttSeconds;
+  }
+
+  /** Forget the sent SRs (the sender stopped). */
+  clearSenderReports() {
+    this.senderReports.clear();
   }
 
   /** The output RTP timeline restarted (continuity rewrite). */
@@ -174,8 +184,7 @@ export class SenderStatistics {
       );
     }
 
-    this.lastSRtimestamp = compactNtp(ntpTimestamp);
-    this.lastSentSRTimestamp = timestampSeconds();
+    this.senderReports.record(compactNtp(ntpTimestamp), nowMonotonicMs / 1000);
 
     return new RtcpSrPacket({
       ssrc,
@@ -203,7 +212,6 @@ export class SenderStatistics {
         ? generateCodecStatsId(transportId, codec.payloadType, context.trackId)
         : undefined;
     const hasRemote =
-      this.rtt !== undefined ||
       this.remotePacketsLost !== undefined ||
       this.remoteFractionLost !== undefined;
     const mediaSourceId = senderStatsIds(context.trackId).mediaSource;
