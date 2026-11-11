@@ -28,7 +28,7 @@ jobs:
           git config --global url."https://github.com/".insteadOf git@github.com:
           git submodule update --init --recursive
       - name: Use Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@v4.4.0
+        uses: actions/setup-node@v7.1.0
         with:
           node-version: ${{ matrix.node-version }}
       - name: prepare
@@ -70,7 +70,7 @@ jobs:
           git config --global url."https://github.com/".insteadOf git@github.com:
           git submodule update --init --recursive
       - name: Use Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@v4.4.0
+        uses: actions/setup-node@v7.1.0
         with:
           node-version: ${{ matrix.node-version }}
       - name: Install mediasoup build deps
