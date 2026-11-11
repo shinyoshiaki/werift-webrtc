@@ -306,6 +306,42 @@
       "variant": "",
       "subtest": "addTrack with existing sender with null track, different kind, and recvonly direction should create new sender",
       "status": "PASS"
+    },
+    {
+      "file": "webrtc/protocol/dtls-close.html",
+      "variant": "",
+      "subtest": "close() causes the other end's DTLS and SCTP transport and datachannels to close",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/protocol/dtls-fingerprint-validation.html",
+      "variant": "",
+      "subtest": "Connection fails if one side provides a wrong DTLS fingerprint",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/protocol/dtls-fingerprint-validation.html",
+      "variant": "",
+      "subtest": "SDP negotiation with a sha-1 fingerprint succeds",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/protocol/dtls-fingerprint-validation.html",
+      "variant": "",
+      "subtest": "SDP negotiation with a sha-256 fingerprint succeds",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/protocol/dtls-fingerprint-validation.html",
+      "variant": "",
+      "subtest": "SDP negotiation with a sha-384 fingerprint succeds",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/protocol/dtls-fingerprint-validation.html",
+      "variant": "",
+      "subtest": "SDP negotiation with a sha-512 fingerprint succeds",
+      "status": "PASS"
     }
   ]
 }

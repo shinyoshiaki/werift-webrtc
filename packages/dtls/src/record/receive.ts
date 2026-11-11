@@ -1,3 +1,4 @@
+import type { DtlsAlert } from "../alert";
 import type { CipherContext } from "../context/cipher";
 import type { DtlsContext } from "../context/dtls";
 import { Alert } from "../handshake/message/alert";
@@ -83,14 +84,19 @@ export const parsePlainText =
         ];
       }
       case ContentType.alert: {
-        let alert = Alert.deSerialize(plain.fragment);
-
-        // TODO impl more better about handle encrypted alert
-        if (alertDescName(alert.description) === undefined) {
-          const dec = cipher.decryptPacket(plain);
-          alert = Alert.deSerialize(dec);
+        // The record epoch tells whether the alert is protected: epoch 0 is
+        // plaintext (before ChangeCipherSpec), epoch > 0 is encrypted. A
+        // record that fails to decrypt throws and is dropped by the caller
+        // (RFC 6347 §4.1.2.1: invalid records are silently discarded).
+        const raw =
+          plain.recordLayerHeader.epoch > 0
+            ? cipher.decryptPacket(plain)
+            : plain.fragment;
+        if (raw.length < 2) {
+          throw new Error("malformed alert record");
         }
-        err(
+        const alert = Alert.deSerialize(raw);
+        log(
           dtls.sessionId,
           "ContentType.alert",
           alert,
@@ -100,13 +106,15 @@ export const parsePlainText =
           "lastFlight",
           dtls.lastFlight,
         );
-        if (alert.level > 1) {
-          throw new Error("alert fatal error");
-        }
-        return [{ type: ContentType.alert, data: undefined }];
+        const data: DtlsAlert = {
+          level: alert.level,
+          description: alert.description,
+        };
+        return [{ type: ContentType.alert, data }];
       }
       default: {
-        return [{ type: ContentType.alert, data: undefined }];
+        // Unknown content type: nothing to deliver (RFC 6347 §4.1.2.1).
+        return [];
       }
     }
   };

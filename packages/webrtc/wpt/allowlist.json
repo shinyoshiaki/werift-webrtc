@@ -155,6 +155,26 @@
       "file": "webrtc/RTCPeerConnection-getStats.https.html",
       "enabled": false,
       "reason": "Deferred until the stats surface is baselined against upstream expectations."
+    },
+    {
+      "file": "webrtc/protocol/dtls-close.html",
+      "enabled": true,
+      "reason": "close() sends an encrypted DTLS close_notify, so the peer's DTLS / SCTP transports and data channels close (#811).",
+      "subtests": [
+        "close() causes the other end's DTLS and SCTP transport and datachannels to close"
+      ]
+    },
+    {
+      "file": "webrtc/protocol/dtls-fingerprint-validation.html",
+      "enabled": true,
+      "reason": "A fingerprint mismatch is reported to the peer with a fatal bad_certificate alert, so both connections fail (#811).",
+      "subtests": [
+        "Connection fails if one side provides a wrong DTLS fingerprint",
+        "SDP negotiation with a sha-1 fingerprint succeds",
+        "SDP negotiation with a sha-256 fingerprint succeds",
+        "SDP negotiation with a sha-384 fingerprint succeds",
+        "SDP negotiation with a sha-512 fingerprint succeds"
+      ]
     }
   ]
 }

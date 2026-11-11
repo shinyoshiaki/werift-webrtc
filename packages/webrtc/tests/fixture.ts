@@ -10,6 +10,7 @@ import {
   MediaStreamTrack,
   PictureLossIndication,
   RTCDtlsTransport,
+  type RTCDtlsTransportErrorEvent,
   RTCIceGatherer,
   RTCIceTransport,
   RTCPeerConnection,
@@ -618,3 +619,65 @@ export function pendingFeedback(estimator: LightweightBandwidthEstimator) {
     [...adapter.history].map(([seq, info]) => [seq & 0xffff, info]),
   );
 }
+
+/**fingerprint 値の先頭 1 文字を変えた (一致しなくなる) 値 */
+export function mutateFingerprint(value: string) {
+  const normalized = value.replace(/[^0-9a-f]/gi, "").toUpperCase();
+  const flipped = `${normalized[0] === "A" ? "B" : "A"}${normalized.slice(1)}`;
+  return flipped.match(/.{2}/g)!.join(":");
+}
+
+/**DTLS transport が指定の状態になるまで待つ */
+export async function waitForDtlsState(
+  session: RTCDtlsTransport,
+  state: RTCDtlsTransport["state"],
+  timeoutMs = 5_000,
+) {
+  const started = Date.now();
+  while (session.state !== state) {
+    if (Date.now() - started > timeoutMs) {
+      throw new Error(`timed out waiting for dtls state ${state}`);
+    }
+    await setTimeout(50);
+  }
+}
+
+/**DTLS transport が ICE へ渡した DTLS alert record (content type 21) を記録する */
+export function recordSentDtlsAlerts(session: RTCDtlsTransport) {
+  const connection = session.iceTransport.connection;
+  const alerts: { epoch: number; fragment: Buffer }[] = [];
+  const order: ("alert" | "ice-close")[] = [];
+  const send = connection.send.bind(connection);
+  connection.send = (data: Buffer) => {
+    if (data[0] === 21) {
+      alerts.push({ epoch: data.readUInt16BE(3), fragment: data.subarray(13) });
+      order.push("alert");
+    }
+    return send(data);
+  };
+  const close = connection.close.bind(connection);
+  connection.close = () => {
+    order.push("ice-close");
+    return close();
+  };
+  return { alerts, order };
+}
+
+/**RTCDtlsTransport の statechange と error イベントを記録する */
+export function recordDtlsEvents(session: RTCDtlsTransport) {
+  const states: string[] = [];
+  const errors: RTCDtlsTransportErrorEvent[] = [];
+  session.addEventListener("statechange", () => states.push(session.state));
+  session.addEventListener("error", (e: RTCDtlsTransportErrorEvent) =>
+    errors.push(e),
+  );
+  return { states, errors };
+}
+
+/**SDP の全 a=fingerprint をゼロ値に書き換える (WPT dtls-fingerprint-validation) */
+export const zeroSdpFingerprints = (sdp: string) =>
+  sdp.replace(
+    /a=fingerprint:(\S+) (\S+)/g,
+    (_, algorithm: string, value: string) =>
+      `a=fingerprint:${algorithm} ${value.replace(/[0-9a-f]/gi, "0")}`,
+  );

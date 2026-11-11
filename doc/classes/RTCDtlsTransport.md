@@ -123,6 +123,27 @@ on it when they started DTLS.
 
 ***
 
+### onerror?
+
+> `optional` **onerror?**: (`event`) => `void`
+
+Fires when the transport fails because of a DTLS alert: a fatal alert
+received from the peer, or one this side sent after rejecting the peer
+certificate (`errorDetail: "dtls-failure"`, `receivedAlert` / `sentAlert`).
+Also delivered as `addEventListener("error", ...)`.
+
+#### Parameters
+
+##### event
+
+[`RTCDtlsTransportErrorEvent`](../interfaces/RTCDtlsTransportErrorEvent.md)
+
+#### Returns
+
+`void`
+
+***
+
 ### onRtcp
 
 > `readonly` **onRtcp**: [`Event`](Event.md)\<\[[`RtcpPacket`](../type-aliases/RtcpPacket.md)\]\>

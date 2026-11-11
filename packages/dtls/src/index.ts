@@ -1,9 +1,21 @@
+export {
+  classifyAlert,
+  createAlertRecord,
+  type DtlsAlert,
+  DtlsAlertError,
+} from "./alert";
 export * from "./cipher/const";
 export { DtlsClient } from "./client";
 export * from "./context/cipher";
 export * from "./context/srtp";
+export {
+  AlertDesc,
+  AlertLevel,
+  alertDescName,
+  ContentType,
+} from "./record/const";
 export { DtlsServer } from "./server";
-export { DtlsSocket } from "./socket";
+export { DtlsSocket, type Options as DtlsSocketOptions } from "./socket";
 
 /* Client                                          Server
    ------                                          ------

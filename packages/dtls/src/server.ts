@@ -26,6 +26,7 @@ export class DtlsServer extends DtlsSocket {
     );
 
     for (const handshake of assembled) {
+      if (this.terminated) return;
       switch (handshake.msg_type) {
         // flight1,3
         case HandshakeType.client_hello_1:
@@ -70,6 +71,13 @@ export class DtlsServer extends DtlsSocket {
             if (this.connected) return;
             this.flight6 = new Flight6(this.transport, this.dtls, this.cipher);
             this.flight6.handleHandshake(handshake);
+            // Reject the client certificate before our Finished is sent.
+            if (
+              handshake.msg_type === HandshakeType.certificate_11 &&
+              !this.verifyRemoteCertificate()
+            ) {
+              return;
+            }
           }
           break;
         case HandshakeType.finished_20:
@@ -85,7 +93,18 @@ export class DtlsServer extends DtlsSocket {
             await this.waitForReady(() =>
               this.dtls.checkHandshakesExist(requiredHandshakes),
             );
+            // The certificate may have been rejected while waiting.
+            if (this.terminated) return;
+            if (
+              this.options.verifyRemoteCertificate &&
+              !this.cipher.remoteCertificate
+            ) {
+              // A verifier needs the client certificate (certificateRequest).
+              this.verifyRemoteCertificate();
+              return;
+            }
             await this.flight6?.exec();
+            if (this.terminated) return;
 
             this.connected = true;
             this.onConnect.execute();

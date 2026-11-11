@@ -8,6 +8,7 @@ import type { SctpTransportManager } from "./sctpManager";
 import type { BundlePolicy, MediaDescription, SessionDescription } from "./sdp";
 import {
   type DtlsKeys,
+  type DtlsState,
   RTCCertificate,
   RTCDtlsTransport,
 } from "./transport/dtls";
@@ -266,6 +267,9 @@ export class SecureTransportManager {
       this.certificate,
       srtpProfiles,
     );
+    dtlsTransport.onStateChange.subscribe((state) => {
+      this.onDtlsStateChange(dtlsTransport, state);
+    });
     this.ownedTransports.add(dtlsTransport);
     dtlsTransport.onStopped.once(() => {
       this.ownedTransports.delete(dtlsTransport);
@@ -659,6 +663,26 @@ export class SecureTransportManager {
 
     this.iceGatheringState = newState;
     this.iceGatheringStateChange.execute(newState);
+  }
+
+  /**
+   * A DTLS transport a live m-line uses reaching `failed` (a fatal alert
+   * received from the peer or sent by this side, also after the connection
+   * was established) makes `connectionState` `failed` (W3C webrtc-pc
+   * RTCPeerConnectionState: "any RTCDtlsTransport is in the failed state"),
+   * like a runtime ICE failure and without treating it as `close()`.
+   *
+   * `closed` caused by the peer's close_notify does not change
+   * `connectionState`: the spec counts a closed DTLS transport like a
+   * connected one, and browsers report the peer going away through ICE
+   * (consent expiry → disconnected / failed). A transport no live m-line
+   * uses any more (replaced by renegotiation, rolled back, stopped) is
+   * ignored.
+   */
+  private onDtlsStateChange(transport: RTCDtlsTransport, state: DtlsState) {
+    if (state !== "failed" || this.connectionState === "closed") return;
+    if (!this.dtlsTransports.includes(transport)) return;
+    this.setConnectionState("failed");
   }
 
   // https://w3c.github.io/webrtc-pc/#dom-rtciceconnectionstate

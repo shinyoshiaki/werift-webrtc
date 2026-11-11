@@ -44,3 +44,13 @@ export type AlertDesc = (typeof AlertDesc)[keyof typeof AlertDesc];
 /** Returns the AlertDesc member name for a wire value, or undefined if unknown. */
 export const alertDescName = (value: number): string | undefined =>
   Object.entries(AlertDesc).find(([, v]) => v === value)?.[0];
+
+/**
+ * Alert level (RFC 5246 §7.2).
+ * @enum
+ */
+export const AlertLevel = {
+  warning: 1,
+  fatal: 2,
+} as const;
+export type AlertLevel = (typeof AlertLevel)[keyof typeof AlertLevel];

@@ -20,7 +20,7 @@
 
 ##### options
 
-`Options`
+[`DtlsSocketOptions`](../interfaces/DtlsSocketOptions.md)
 
 #### Returns
 
@@ -72,9 +72,23 @@
 
 ***
 
+### onAlert
+
+> `readonly` **onAlert**: [`Event`](Event.md)\<\[[`DtlsAlert`](../interfaces/DtlsAlert.md)\]\>
+
+Fires for every alert received from the peer (before onClose / onError).
+
+#### Inherited from
+
+[`DtlsSocket`](DtlsSocket.md).[`onAlert`](DtlsSocket.md#onalert)
+
+***
+
 ### onClose
 
 > `readonly` **onClose**: [`Event`](Event.md)\<`any`[]\>
+
+Fires once when the peer closed the connection with close_notify.
 
 #### Inherited from
 
@@ -106,6 +120,10 @@
 
 > `readonly` **onError**: [`Event`](Event.md)\<\[`Error`\]\>
 
+Fires with a [DtlsAlertError](DtlsAlertError.md) when the connection ends with a fatal
+alert (received from the peer, or sent by this side when it rejected the
+peer certificate), and with other errors raised by the handshake.
+
 #### Inherited from
 
 [`DtlsSocket`](DtlsSocket.md).[`onError`](DtlsSocket.md#onerror)
@@ -134,7 +152,7 @@
 
 ### options
 
-> **options**: `Options`
+> **options**: [`DtlsSocketOptions`](../interfaces/DtlsSocketOptions.md)
 
 #### Inherited from
 
@@ -170,6 +188,18 @@
 
 [`DtlsSocket`](DtlsSocket.md).[`transport`](DtlsSocket.md#transport)
 
+***
+
+### AlertSendTimeoutMs
+
+> `static` **AlertSendTimeoutMs**: `number` = `200`
+
+Default upper bound (ms) for waiting until an alert has been sent.
+
+#### Inherited from
+
+[`DtlsSocket`](DtlsSocket.md).[`AlertSendTimeoutMs`](DtlsSocket.md#alertsendtimeoutms)
+
 ## Accessors
 
 ### remoteCertificate
@@ -186,15 +216,86 @@
 
 [`DtlsSocket`](DtlsSocket.md).[`remoteCertificate`](DtlsSocket.md#remotecertificate)
 
+***
+
+### terminated
+
+#### Get Signature
+
+> **get** **terminated**(): `boolean`
+
+Whether the connection ended (alert, or close()).
+
+##### Returns
+
+`boolean`
+
+#### Inherited from
+
+[`DtlsSocket`](DtlsSocket.md).[`terminated`](DtlsSocket.md#terminated)
+
 ## Methods
 
-### close()
+### abortWithFatalAlert()
 
-> **close**(): `void`
+> `protected` **abortWithFatalAlert**(`description`, `reason?`): `void`
+
+Abort the handshake (or the connection) because this side detected a
+fatal error: send the fatal alert, stop the flights, report a local
+[DtlsAlertError](DtlsAlertError.md) on onError, and close the transport once the alert
+has been sent.
+
+#### Parameters
+
+##### description
+
+[`AlertDesc`](../enumerations/AlertDesc.md)
+
+##### reason?
+
+`unknown`
 
 #### Returns
 
 `void`
+
+#### Inherited from
+
+[`DtlsSocket`](DtlsSocket.md).[`abortWithFatalAlert`](DtlsSocket.md#abortwithfatalalert)
+
+***
+
+### close()
+
+> **close**(`options?`): `Promise`\<`void`\>
+
+Close the socket: received records are no longer processed and a
+handshake flight stops retransmitting.
+
+- `close()`: closes the transport immediately, without alert (unchanged
+  behavior).
+- `close({ notify: true })`: sends close_notify first and closes the
+  transport once it has been sent, or after `timeoutMs`
+  (default [DtlsSocket.AlertSendTimeoutMs](DtlsSocket.md#alertsendtimeoutms)).
+
+The returned promise resolves once the transport is closed and never
+rejects.
+
+#### Parameters
+
+##### options?
+
+###### notify?
+
+`boolean`
+
+###### timeoutMs?
+
+`number`
+
+#### Returns
+
+`Promise`\<`void`\>
 
 #### Inherited from
 
@@ -314,7 +415,8 @@
 
 > **send**(`buf`, `addr?`): `Promise`\<`void`\>
 
-send application data
+send application data. Nothing is sent once close_notify or a fatal
+alert has been sent or received.
 
 #### Parameters
 
@@ -333,6 +435,64 @@ readonly \[`string`, `number`\]
 #### Inherited from
 
 [`DtlsSocket`](DtlsSocket.md).[`send`](DtlsSocket.md#send)
+
+***
+
+### sendAlert()
+
+> **sendAlert**(`level`, `description`, `options?`): `Promise`\<`void`\>
+
+Send an alert to the peer, protected with the current epoch (plaintext
+before ChangeCipherSpec, encrypted after it).
+
+Resolves once the transport has sent the record, or after `timeoutMs`
+(default [DtlsSocket.AlertSendTimeoutMs](DtlsSocket.md#alertsendtimeoutms)). It never rejects: a
+failed send is only logged. Nothing is sent once close_notify or a fatal
+alert has been sent or the transport is closed. The record is handed to
+the transport synchronously, so closing the socket right after calling
+this does not drop it.
+
+#### Parameters
+
+##### level
+
+[`AlertLevel`](../enumerations/AlertLevel.md)
+
+##### description
+
+[`AlertDesc`](../enumerations/AlertDesc.md)
+
+##### options?
+
+###### timeoutMs?
+
+`number`
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Inherited from
+
+[`DtlsSocket`](DtlsSocket.md).[`sendAlert`](DtlsSocket.md#sendalert)
+
+***
+
+### verifyRemoteCertificate()
+
+> `protected` **verifyRemoteCertificate**(): `boolean`
+
+Call `options.verifyRemoteCertificate` with the received peer
+certificate. When it returns false or throws, the handshake is aborted
+with a fatal bad_certificate alert and false is returned.
+
+#### Returns
+
+`boolean`
+
+#### Inherited from
+
+[`DtlsSocket`](DtlsSocket.md).[`verifyRemoteCertificate`](DtlsSocket.md#verifyremotecertificate)
 
 ***
 
