@@ -1,0 +1,60 @@
+name: Pages
+
+# Settings > Pages > Source を "GitHub Actions" に設定しておくこと。
+# サブモジュール (third_party/wpt) は checkout せず、公開物だけを成果物にする。
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - develop
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          submodules: false
+      - name: assemble site
+        run: |
+          mkdir -p _site/website _site/examples
+          cp -r website/build _site/website/build
+          cp -r doc _site/doc
+          # examples は公開済みリンク (examples/**/*.html) 維持のため HTML のみコピー
+          git ls-files 'examples/*.html' | grep -v '^examples/e2e/' | while read -r f; do
+            mkdir -p "_site/$(dirname "$f")"
+            cp "$f" "_site/$f"
+          done
+          touch _site/.nojekyll
+          cat > _site/index.html <<'HTML'
+          <!doctype html>
+          <meta charset="utf-8">
+          <meta http-equiv="refresh" content="0; url=website/build/">
+          <title>werift-webrtc</title>
+          <a href="website/build/">werift-webrtc documentation</a>
+          HTML
+          echo "files: $(find _site -type f | wc -l)"
+          test ! -e _site/third_party
+      - uses: actions/upload-pages-artifact@v5.0.0
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4.0.5

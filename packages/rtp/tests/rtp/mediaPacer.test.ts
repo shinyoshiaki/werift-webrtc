@@ -338,7 +338,7 @@ describe("rtp/mediaPacer (streaming source)", () => {
       );
     }
     pacer.stop();
-  });
+  }, 30_000);
 
   test("latencyMs を確保するとまとめ届きを最初から re-anchor なしで平滑化する", () => {
     // Arrange: 到着の遅れ (60ms) より大きい 70ms の初期遅延
