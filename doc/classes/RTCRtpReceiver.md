@@ -83,6 +83,26 @@ SSRCs of `trackBySSRC` learned from RID packets rather than SDP.
 
 ***
 
+### mediaSsrcByRid
+
+> `readonly` **mediaSsrcByRid**: `object` = `{}`
+
+Simulcast RTX without `a=ssrc-group:FID` (RFC 8852). A RID has one media
+SSRC at a time ([mediaSsrcByRid](#mediassrcbyrid), learned from `rtp-stream-id`); a
+media SSRC change without renegotiation is a reset of the RID's stream
+(see `switchRidMedia`). An RTX SSRC is bound to the RID it repairs
+([ridByRtxSsrc](#ridbyrtxssrc), learned from `repaired-rtp-stream-id`) and its
+packet is restored to the RID's current media SSRC only when it fills a
+hole NACK detected there (`NackHandler.canRepair`).
+Packet-driven live state like [learnedTrackSsrcs](#learnedtrackssrcs): a negotiation
+(commit, rollback, `resyncCodecs`) keeps it, a later packet updates it.
+
+#### Index Signature
+
+\[`rid`: `string`\]: `number`
+
+***
+
 ### onPacketLost
 
 > `readonly` **onPacketLost**: [`Event`](Event.md)\<\[[`GenericNack`](GenericNack.md)\]\>
@@ -131,6 +151,40 @@ seconds
 
 ***
 
+### repairedMediaByRtx
+
+> `readonly` **repairedMediaByRtx**: `object` = `{}`
+
+Media SSRC each RTX SSRC last repaired (decides retirement and eviction).
+
+#### Index Signature
+
+\[`rtxSsrc`: `number`\]: `number`
+
+***
+
+### retiredSsrcsByRid
+
+> `readonly` **retiredSsrcsByRid**: `object` = `{}`
+
+SSRCs retired by a media SSRC change, per RID, oldest first.
+
+#### Index Signature
+
+\[`rid`: `string`\]: `number`[]
+
+***
+
+### ridByRtxSsrc
+
+> `readonly` **ridByRtxSsrc**: `object` = `{}`
+
+#### Index Signature
+
+\[`rtxSsrc`: `number`\]: `string`
+
+***
+
 ### rtcpRunning
 
 > **rtcpRunning**: `boolean` = `false`
@@ -140,6 +194,18 @@ seconds
 ### rtcpSsrc
 
 > **rtcpSsrc**: `number`
+
+***
+
+### rtxSsrcsByRid
+
+> `readonly` **rtxSsrcsByRid**: `object` = `{}`
+
+RTX SSRCs of [ridByRtxSsrc](#ridbyrtxssrc) per RID, oldest bound first.
+
+#### Index Signature
+
+\[`rid`: `string`\]: `number`[]
 
 ***
 
@@ -410,6 +476,34 @@ transceiver の停止確定時に remote track を ended にする
 
 ***
 
+### handleRtxByRid()
+
+> **handleRtxByRid**(`packet`, `repairedRid`, `extensions`): `void`
+
+An RTX packet that names the RID it repairs (`repaired-rtp-stream-id`).
+The RTX SSRC is bound to that RID; the packet is restored only when it
+fills a hole of the RID's current media SSRC (see mediaSsrcOfRtx).
+
+#### Parameters
+
+##### packet
+
+[`RtpPacket`](RtpPacket.md)
+
+##### repairedRid
+
+`string`
+
+##### extensions
+
+[`Extensions`](../interfaces/Extensions.md)
+
+#### Returns
+
+`void`
+
+***
+
 ### keepUnboundTracks()
 
 > **keepUnboundTracks**(`tracks`): `void`
@@ -513,6 +607,12 @@ Internal: return to a negotiation baseline taken by `snapshotNegotiationState`.
 #### Parameters
 
 ##### state
+
+###### learnedTrackSsrcs
+
+`number`[] = `...`
+
+SSRCs of `trackBySSRC` that packets taught (not description state).
 
 ###### receiverTWCC
 
@@ -704,7 +804,11 @@ part of it.
 
 #### Returns
 
-`object`
+##### learnedTrackSsrcs
+
+> **learnedTrackSsrcs**: `number`[]
+
+SSRCs of `trackBySSRC` that packets taught (not description state).
 
 ##### receiverTWCC
 
@@ -835,3 +939,33 @@ Internal: capture the decode tables for a negotiation rollback baseline.
 #### Returns
 
 `void`
+
+***
+
+### takeForgottenSsrcs()
+
+> **takeForgottenSsrcs**(): `number`[]
+
+Internal (router): SSRCs whose packet-driven route is no longer wanted:
+retired by a media SSRC change of their RID or evicted by a bound. The
+router drops their learned routes after each packet.
+
+#### Returns
+
+`number`[]
+
+***
+
+### takeRejectedSsrcs()
+
+> **takeRejectedSsrcs**(): `number`[]
+
+Internal (router): SSRCs of packets this receiver rejected as invalid
+(an unnegotiated payload type, a non-RTX packet naming a repaired RID, a
+RID without a track). Such a packet must not teach a route, but it says
+nothing against a route learned before it: the router undoes only a
+route the rejected packet itself just added.
+
+#### Returns
+
+`number`[]
