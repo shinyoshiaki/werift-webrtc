@@ -1705,6 +1705,48 @@ export function sdpCandidates(sdp: string, mid: string) {
   );
 }
 
+/**
+ * The candidate lines of every m-section of `sdp` by MID (`bundleCandidates`,
+ * issue #269): its `a=candidate` values, whether it ends with
+ * `a=end-of-candidates`, and the transport lines every bundled m-line keeps.
+ * `bundle` lists the BUNDLE groups (tag first).
+ */
+export function candidateLayout(sdp: string) {
+  const sections = sdp.split(/(?=^m=)/m).slice(1);
+  const media = Object.fromEntries(
+    sections.map((section) => {
+      const mid = section.match(/^a=mid:(\S+)/m)?.[1] ?? "";
+      return [
+        mid,
+        {
+          port: Number(section.match(/^m=\S+ (\d+)/)![1]),
+          candidates: [...section.matchAll(/^a=(candidate:[^\r\n]+)/gm)].map(
+            ([, candidate]) => candidate,
+          ),
+          end: /^a=end-of-candidates\r?$/m.test(section),
+          ufrag: section.match(/^a=ice-ufrag:(\S+)/m)?.[1],
+          pwd: section.match(/^a=ice-pwd:(\S+)/m)?.[1],
+          fingerprint: /^a=fingerprint:/m.test(section),
+          setup: /^a=setup:/m.test(section),
+        },
+      ];
+    }),
+  );
+  const bundle = [...sdp.matchAll(/^a=group:BUNDLE ([^\r\n]+)/gm)].map(
+    ([, group]) => group.trim().split(" "),
+  );
+  return { media, bundle };
+}
+
+/** Wait until the ICE gathering of `pc` is complete (its end-of-candidates is in the SDP). */
+export async function waitForGatheringComplete(pc: RTCPeerConnection) {
+  await waitUntil(
+    () => pc.iceGatheringState === "complete",
+    "ICE gathering did not complete",
+    10000,
+  );
+}
+
 /** Wait until a (possibly newly split) DTLS transport is connected. */
 export async function waitForDtlsConnected(
   transport: RTCPeerConnection["dtlsTransports"][number],

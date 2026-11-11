@@ -29,22 +29,40 @@ export class SDPManager {
   readonly midSuffix: boolean;
   readonly bundlePolicy?: BundlePolicy;
   readonly mLineReuse: MLineReuse;
+  readonly bundleCandidates: BundleCandidates;
   /** Local `a=ice-options` tokens written on every m-line. */
   readonly iceOptions: string;
 
   private seenMid = new Set<string>();
+  /**
+   * Local descriptions built in a negotiated BUNDLE session with
+   * `bundleCandidates: "tagOnly"`. A refresh of an applied description
+   * (candidates gathered later) keeps the shape it was created with.
+   */
+  private tagOnlyCandidateDescriptions = new WeakSet<SessionDescription>();
+  /**
+   * The transport whose generation `addTransportDescription` last wrote into
+   * an m-line. ICE credentials do not identify a transport: a transport
+   * created next to a live one inherits its credentials.
+   */
+  private describedTransport = new WeakMap<
+    MediaDescription,
+    RTCDtlsTransport
+  >();
 
   constructor({
     cname,
     midSuffix,
     bundlePolicy,
     mLineReuse,
+    bundleCandidates,
     iceOptionIce2,
   }: {
     cname: string;
     midSuffix?: boolean;
     bundlePolicy?: BundlePolicy;
     mLineReuse?: MLineReuse;
+    bundleCandidates?: BundleCandidates;
     /** Add `ice2` (RFC 8445 §10) to the local ice-options. */
     iceOptionIce2?: boolean;
   }) {
@@ -52,6 +70,7 @@ export class SDPManager {
     this.midSuffix = midSuffix ?? false;
     this.bundlePolicy = bundlePolicy;
     this.mLineReuse = mLineReuse ?? "compatible";
+    this.bundleCandidates = bundleCandidates ?? "compatible";
     this.iceOptions = iceOptionIce2 ? "trickle ice2" : "trickle";
   }
 
@@ -212,8 +231,10 @@ export class SDPManager {
       media.iceParams.usernameFragment !==
         generation.parameters?.usernameFragment
     ) {
+      this.describedTransport.delete(media);
       return;
     }
+    this.describedTransport.set(media, dtlsTransport);
 
     media.iceCandidates = generation.candidates;
     media.iceCandidatesComplete = generation.complete;
@@ -236,6 +257,71 @@ export class SDPManager {
       if (!media.dtlsParams.fingerprints) {
         media.dtlsParams.fingerprints =
           dtlsTransport.localParameters.fingerprints;
+      }
+    }
+  }
+
+  /**
+   * `bundleCandidates: "tagOnly"` (RFC 8843 §7.1.3, RFC 8859 TRANSPORT
+   * category): a bundled m-line that is not the tag of its BUNDLE group and
+   * uses the tag's transport carries no `a=candidate` / `a=end-of-candidates`.
+   * The tag m-line keeps every candidate (RFC 8839 §4.4.1.1.2, W3C
+   * localDescription), and every m-line keeps `a=ice-ufrag` / `a=ice-pwd` /
+   * `a=ice-options` / `a=fingerprint` / `a=setup` / `a=mid`.
+   *
+   * The omission is decided when a description is created (`decide`) and only
+   * once an answer has negotiated BUNDLE ({@link negotiatedBundleTags}, never
+   * a pending description, so a rollback needs no undo). A first offer /
+   * answer, a local pranswer, `bundlePolicy: "disable"`, rejected (port 0)
+   * m-lines and m-lines on another transport (pending-only transports of a
+   * BUNDLE split, a new max-compat m-line or a changed BUNDLE owner) keep all
+   * candidates. Refreshing an applied description
+   * (gathered candidates) reuses the decision, so `createOffer()` and the
+   * later `localDescription` have the same shape.
+   */
+  private applyBundleCandidates(
+    description: SessionDescription,
+    { decide }: { decide: boolean },
+  ) {
+    if (decide) {
+      if (
+        this.bundleCandidates === "tagOnly" &&
+        this.bundlePolicy !== "disable" &&
+        description.type !== "pranswer" &&
+        this.negotiatedBundleTags.length > 0
+      ) {
+        this.tagOnlyCandidateDescriptions.add(description);
+      } else {
+        this.tagOnlyCandidateDescriptions.delete(description);
+      }
+    }
+    if (!this.tagOnlyCandidateDescriptions.has(description)) {
+      return;
+    }
+    for (const group of description.group) {
+      if (group.semantic !== "BUNDLE") continue;
+      const [tagMid, ...memberMids] = group.items;
+      const tag = description.media.find(
+        (m) => m.port !== 0 && m.rtp.muxId === tagMid,
+      );
+      const tagTransport = tag && this.describedTransport.get(tag);
+      const tagParams = tag?.iceParams;
+      if (!tagTransport || !tagParams) continue;
+      for (const mid of memberMids) {
+        const media = description.media.find(
+          (m) => m !== tag && m.port !== 0 && m.rtp.muxId === mid,
+        );
+        if (
+          !media?.iceParams ||
+          // tag と同じ transport の同じ generation を記述した m-line だけ
+          this.describedTransport.get(media) !== tagTransport ||
+          media.iceParams.usernameFragment !== tagParams.usernameFragment ||
+          media.iceParams.password !== tagParams.password
+        ) {
+          continue;
+        }
+        media.iceCandidates = [];
+        media.iceCandidatesComplete = false;
       }
     }
   }
@@ -772,6 +858,7 @@ export class SDPManager {
       }
     }
 
+    this.applyBundleCandidates(description, { decide: true });
     return description;
   }
 
@@ -967,6 +1054,7 @@ export class SDPManager {
       );
     }
 
+    this.applyBundleCandidates(description, { decide: true });
     return description;
   }
 
@@ -1238,6 +1326,8 @@ export class SDPManager {
       );
     }
 
+    this.applyBundleCandidates(description, { decide: !applied });
+
     // Refreshing the transport lines of the current description (candidates
     // an ICE restart gathers after its commit) keeps it current.
     if (description === this.currentLocalDescription) return;
@@ -1254,6 +1344,21 @@ function orderBundleMids(mids: string[], preferredTag?: string) {
 }
 
 export type MLineReuse = "compatible" | "aggressive";
+
+/**
+ * Which m-lines of a negotiated BUNDLE group carry the local ICE candidates.
+ * - `"compatible"` (default): every m-line repeats its transport's candidates
+ *   and `a=end-of-candidates` (legacy behavior).
+ * - `"tagOnly"`: once an answer has negotiated BUNDLE, only the tag m-line
+ *   carries them; the other m-lines on the same transport keep their ICE /
+ *   DTLS parameters without candidates (RFC 8843 §7.1.3, RFC 8859).
+ */
+export type BundleCandidates = "compatible" | "tagOnly";
+
+export const BundleCandidatesModes: readonly BundleCandidates[] = [
+  "compatible",
+  "tagOnly",
+];
 
 export interface RTCSessionDescriptionInit {
   sdp?: string;

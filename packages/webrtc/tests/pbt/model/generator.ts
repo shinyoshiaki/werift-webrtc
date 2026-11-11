@@ -1,4 +1,5 @@
 import {
+  type BundleCandidates,
   MediaStreamTrack,
   type RTCPeerConnection,
   type RTCRtpTransceiver,
@@ -69,7 +70,15 @@ export const modelConfig = () => ({
 export type Start = "connected" | "unnegotiated" | "media";
 /** One operation: the peer that takes it, its name and the choices it made. */
 export type Op = [Side, string, Record<string, unknown>?];
-export type Scene = { start: Start; ops: Op[] };
+/**
+ * `bundleCandidates` of both peers (default `"compatible"`); random scenes
+ * of an even seed use `"tagOnly"` so the candidates oracle runs.
+ */
+export type Scene = {
+  start: Start;
+  ops: Op[];
+  bundleCandidates?: BundleCandidates;
+};
 
 type World = {
   c: NegotiationCase;
@@ -480,12 +489,14 @@ async function deliver(
 async function arrange(
   c: NegotiationCase,
   start: Start,
+  bundleCandidates: BundleCandidates = "compatible",
 ): Promise<World & Peers2> {
   const oracles = new ModelOracles(c);
+  const config = { ...modelConfig(), bundleCandidates };
   let a: RTCPeerConnection;
   let b: RTCPeerConnection;
   if (start !== "connected") {
-    ({ a, b } = await c.given(createPeerPair(modelConfig())));
+    ({ a, b } = await c.given(createPeerPair(config)));
     oracles.application(
       a.addTransceiver(new MediaStreamTrack({ kind: "video" }), {
         direction: "sendrecv",
@@ -495,7 +506,7 @@ async function arrange(
       oracles.channel(a.createDataChannel("dc0"), a);
     }
   } else {
-    const scope = await c.given(createDuplexSession(modelConfig()));
+    const scope = await c.given(createDuplexSession(config));
     ({ a, b } = scope);
     oracles.application(scope.aVideo);
     oracles.application(scope.bVideo);
@@ -503,7 +514,7 @@ async function arrange(
     oracles.channel(scope.bChannel, b);
   }
   oracles.watch(a, b);
-  c.note(`start: ${start}`);
+  c.note(`start: ${start} (bundleCandidates: ${bundleCandidates})`);
   return { c, oracles, saved: new Map(), created: 0, a, b };
 }
 type Peers2 = { a: RTCPeerConnection; b: RTCPeerConnection };
@@ -520,7 +531,7 @@ export async function runScene(
   scene: Scene,
   { lenient = false } = {},
 ) {
-  const w = await arrange(c, scene.start);
+  const w = await arrange(c, scene.start, scene.bundleCandidates);
   for (const [index, [side, name, args = {}]] of scene.ops.entries()) {
     const peers = peersOf(w, side);
     const step = STEPS[name];
@@ -552,7 +563,9 @@ export async function generateScene(
     "unnegotiated",
     "media",
   ] as const);
-  const w = await arrange(c, scene.start);
+  // seed の乱数列を変えずに、偶数の seed で tagOnly を試す。
+  if (seed % 2 === 0) scene.bundleCandidates = "tagOnly";
+  const w = await arrange(c, scene.start, scene.bundleCandidates);
   for (let index = 1; index <= steps; index++) {
     const side: Side = rng.chance(0.5) ? "a" : "b";
     const peers = peersOf(w, side);

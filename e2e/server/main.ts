@@ -15,6 +15,7 @@ import {
   bundle_max_compat_answer,
   bundle_max_compat_offer,
 } from "./handler/bundle/max-compat";
+import { bundle_tag_only_candidates } from "./handler/bundle/tagOnlyCandidates";
 import {
   combination_all_media_answer,
   combination_all_media_offer,
@@ -196,6 +197,7 @@ function attachWebSocketServer() {
       bundle_disable_offer: new bundle_disable_offer(),
       bundle_max_bundle_answer: new bundle_max_bundle_answer(),
       bundle_max_bundle_offer: new bundle_max_bundle_offer(),
+      bundle_tag_only_candidates: new bundle_tag_only_candidates(),
       mediachannel_removetrack_addtrack:
         new mediachannel_removetrack_addtrack(),
       mediachannel_addtrack_removefirst_addtrack:

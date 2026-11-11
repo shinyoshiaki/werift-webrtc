@@ -16,6 +16,10 @@
 
 ##### \_\_namedParameters
 
+###### bundleCandidates?
+
+[`BundleCandidates`](../type-aliases/BundleCandidates.md)
+
 ###### bundlePolicy?
 
 [`BundlePolicy`](../type-aliases/BundlePolicy.md)
@@ -43,6 +47,12 @@ Add `ice2` (RFC 8445 §10) to the local ice-options.
 `SDPManager`
 
 ## Properties
+
+### bundleCandidates
+
+> `readonly` **bundleCandidates**: [`BundleCandidates`](../type-aliases/BundleCandidates.md)
+
+***
 
 ### bundlePolicy?
 

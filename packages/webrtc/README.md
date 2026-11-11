@@ -75,6 +75,20 @@ In `"compatible"`, `inactive` m-lines are kept and not reused. To reuse an m-lin
 
 See [the design note](../../docs/design/705-media-rejection-and-removetrack.md) for BUNDLE, ICE candidate and rollback details.
 
+`bundleCandidates` selects which m-lines of a negotiated BUNDLE group carry the local ICE candidates. It is fixed at construction time.
+
+```ts
+new RTCPeerConnection(); // bundleCandidates: "compatible" (default)
+new RTCPeerConnection({ bundleCandidates: "tagOnly" }); // RFC 8843: candidates on the BUNDLE tag only
+```
+
+| `bundleCandidates` | first offer / answer, pranswer, `bundlePolicy: "disable"` | later offer / answer in a negotiated BUNDLE |
+| --- | --- | --- |
+| `"compatible"` (default) | every m-line | every m-line |
+| `"tagOnly"` | every m-line | the tag m-line only |
+
+With `"compatible"`, every m-line repeats its transport's `a=candidate` lines and `a=end-of-candidates`, so the SDP of a long BUNDLE session grows with "m-lines × candidates" at each renegotiation (Issue #269). With `"tagOnly"`, once an answer has negotiated BUNDLE, a non-tag m-line that uses the tag's transport has no `a=candidate` / `a=end-of-candidates` (RFC 8843 §7.1.3, RFC 8859), and the number of candidates in the SDP stays the number of the transport's candidates. Every m-line keeps `a=ice-ufrag`, `a=ice-pwd`, `a=ice-options`, `a=fingerprint`, `a=setup` and `a=mid`. A new BUNDLE tag (the old tag stopped) gets the candidates, and an m-line on another transport (split out of BUNDLE) keeps its own. An ICE restart writes the new generation's candidates on the tag. Trickled candidates are unchanged. Keep `"compatible"` if your application or SFU reads the candidates of every m-line.
+
 ## Documentation
 
 - [Website](https://shinyoshiaki.github.io/werift-webrtc/website/build/)

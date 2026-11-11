@@ -28,7 +28,11 @@ import {
 import type { RTCRtpSenderOptions } from "../media/rtpSender";
 import type { BandwidthEstimatorOption } from "../media/sender/createBandwidthEstimator";
 import type { BundlePolicy } from "../sdp";
-import type { MLineReuse } from "../sdpManager";
+import {
+  type BundleCandidates,
+  BundleCandidatesModes,
+  type MLineReuse,
+} from "../sdpManager";
 import type { DtlsKeys, RTCCertificate } from "../transport/dtls";
 import { DEFAULT_MAX_MESSAGE_SIZE } from "../transport/sctp";
 import { deepMerge } from "../utils";
@@ -190,6 +194,15 @@ export interface PeerConfig {
    * - `"strict"`: not delivered, as RFC 4585 / RFC 5104 define the target.
    */
   keyFrameRequestRouting: KeyFrameRequestRouting;
+  /**
+   * Which m-lines of a negotiated BUNDLE group carry the local ICE candidates.
+   * Cannot be changed after construction. See {@link BundleCandidates}.
+   * - `"compatible"` (default): every m-line repeats its transport's candidates and
+   *   `a=end-of-candidates` (legacy behavior).
+   * - `"tagOnly"`: once an answer has negotiated BUNDLE, only the tag m-line carries
+   *   them, so renegotiation with more m-lines no longer repeats the candidate list.
+   */
+  bundleCandidates: BundleCandidates;
 }
 
 export type CertificateScope = "process" | "peerConnection";
@@ -334,6 +347,7 @@ export function generateDefaultPeerConfig(): PeerConfig {
     pendingRtp: false,
     mLineReuse: "compatible",
     keyFrameRequestRouting: "compatible",
+    bundleCandidates: "compatible",
   };
 }
 export const defaultPeerConfig: PeerConfig = generateDefaultPeerConfig();
@@ -532,6 +546,26 @@ export function mergePeerConfiguration(
     throw createWebRtcDomException(
       "InvalidModificationError",
       "mLineReuse cannot be changed",
+    );
+  }
+
+  if (
+    normalizedConfig.bundleCandidates !== undefined &&
+    !BundleCandidatesModes.includes(normalizedConfig.bundleCandidates)
+  ) {
+    throw createWebRtcTypeError(
+      `bundleCandidates must be one of ${BundleCandidatesModes.join(", ")}`,
+    );
+  }
+
+  if (
+    isReconfiguration &&
+    normalizedConfig.bundleCandidates !== undefined &&
+    normalizedConfig.bundleCandidates !== config.bundleCandidates
+  ) {
+    throw createWebRtcDomException(
+      "InvalidModificationError",
+      "bundleCandidates cannot be changed",
     );
   }
 
