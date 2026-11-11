@@ -52,8 +52,11 @@ export const normalizeIp = (address: string) => {
   }
 };
 
-const isUnspecified = (address: string) =>
-  address === "0.0.0.0" || address === "::";
+// Compared in canonical form so that `0:0:0:0:0:0:0:0` is the `::` wildcard.
+const isUnspecified = (address: string) => {
+  const normalized = normalizeIp(address);
+  return normalized === "0.0.0.0" || normalized === "::";
+};
 
 /**
  * gather 対象の host アドレスと、その UDP ソケットの bind 方針を決める

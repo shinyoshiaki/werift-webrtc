@@ -276,6 +276,29 @@ describe("resolveHostAddresses", () => {
     ]);
   });
 
+  test("an expanded IPv6 wildcard is treated like `::` and is never advertised", () => {
+    // Arrange: udp6 を `::` と展開表記で指定する 2 構成
+    const resolve = (udp6: string) =>
+      resolveHostAddresses({
+        enumerated: [{ address: "2001:db8::1" }],
+        interfaceAddresses: { udp6 },
+        additionalHostAddresses: ["::1"],
+        useIpv4: false,
+        useIpv6: true,
+      });
+
+    // Act: それぞれ解決する
+    const compressed = resolve("::");
+    const expanded = resolve("0:0:0:0:0:0:0:0");
+
+    // Assert: 同じ結果になり、wildcard 自体は広告されず列挙・追加アドレスが wildcard で収集される
+    expect(expanded).toEqual(compressed);
+    expect(expanded).toEqual([
+      { address: "2001:db8::1", bind: "wildcard" },
+      { address: "::1", bind: "wildcard" },
+    ]);
+  });
+
   test("without interfaceAddresses, enumerated addresses are bound and other additional addresses use wildcard", () => {
     // Act: 明示指定なしで解決する
     const addresses = resolveHostAddresses({
