@@ -291,6 +291,15 @@ export class TransportActivation {
           throw err;
         });
 
+        // start() also returns when the transport was closed meanwhile (the
+        // peer's close_notify, stop()): it is not connected, so neither SCTP
+        // nor the connected connectionState follows.
+        if (
+          (dtlsTransport.state as RTCDtlsTransport["state"]) !== "connected"
+        ) {
+          return false;
+        }
+
         // SCTP on a newly started DTLS transport is ensured before this
         // transport activation completes.
         if (

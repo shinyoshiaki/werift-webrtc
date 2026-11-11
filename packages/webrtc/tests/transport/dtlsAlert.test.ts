@@ -301,3 +301,46 @@ describe("RTCPeerConnection DTLS alerts", () => {
     }
   });
 });
+
+describe("接続開始中に DTLS が閉じた場合の connectionState", () => {
+  test("start() が closed で戻っても PeerConnection は connected にならない", async () => {
+    // Arrange: DTLS の start() が handshake 中に stop されて closed で戻る peer を作る
+    const pc1 = new RTCPeerConnection();
+    const pc2 = new RTCPeerConnection();
+    pc1.createDataChannel("x");
+    pc1.onicecandidate = ({ candidate }) => {
+      if (candidate) void pc2.addIceCandidate(candidate);
+    };
+    pc2.onicecandidate = ({ candidate }) => {
+      if (candidate) void pc1.addIceCandidate(candidate);
+    };
+    const states: string[] = [];
+    pc2.onconnectionstatechange = () => states.push(pc2.connectionState);
+    try {
+      const offer = await pc1.createOffer();
+      await pc1.setLocalDescription(offer);
+      await pc2.setRemoteDescription(offer);
+      const transport = pc2.dtlsTransports[0];
+      const realStart = transport.start.bind(transport);
+      transport.start = async () => {
+        const starting = realStart();
+        await setTimeout(10);
+        await transport.stop();
+        await starting;
+      };
+
+      // Act: answer を返して接続を始める
+      const answer = await pc2.createAnswer();
+      await pc2.setLocalDescription(answer);
+      await pc1.setRemoteDescription(answer);
+      await setTimeout(1500);
+
+      // Assert: closed な transport を connected と報告しない
+      expect(transport.state).toBe("closed");
+      expect(states).not.toContain("connected");
+      expect(pc2.connectionState).not.toBe("connected");
+    } finally {
+      await Promise.allSettled([pc1.close(), pc2.close()]);
+    }
+  });
+});

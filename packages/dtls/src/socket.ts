@@ -66,6 +66,8 @@ export class DtlsSocket {
   private bufferFragmentedHandshakes: FragmentedHandshake[] = [];
   /** close_notify or a fatal alert was sent: no record is sent any more. */
   private alertSent = false;
+  /** The alert that is being sent (shared with concurrent close calls). */
+  private alertSending?: Promise<void>;
   /**
    * The connection ended (close_notify / fatal alert sent or received, or
    * close()): received records are no longer processed.
@@ -204,7 +206,8 @@ export class DtlsSocket {
     options: { timeoutMs?: number } = {},
   ): Promise<void> {
     if (this.alertSent || this.transport.closed) {
-      return Promise.resolve();
+      // A concurrent caller waits for the alert that is still being sent.
+      return this.alertSending ?? Promise.resolve();
     }
     if (level === AlertLevel.fatal || description === AlertDesc.CloseNotify) {
       this.alertSent = true;
@@ -233,23 +236,23 @@ export class DtlsSocket {
 
     const timeoutMs = options.timeoutMs ?? DtlsSocket.AlertSendTimeoutMs;
     const timer = new AbortController();
-    return (
-      Promise.race([
-        sending,
-        setTimeout(timeoutMs, undefined, { signal: timer.signal }).then(() => {
-          log(this.dtls.sessionId, "alert send timeout", timeoutMs);
-        }),
-      ])
-        .catch((error) => {
-          if (timer.signal.aborted) return;
-          err(this.dtls.sessionId, "failed to send alert", error);
-        })
-        .finally(() => timer.abort())
-        // A UDP transport hands the datagram to the socket on a later tick
-        // (dgram resolves the address asynchronously): closing the socket
-        // right after send() resolved would drop the alert.
-        .then(() => setImmediate())
-    );
+    const done = Promise.race([
+      sending,
+      setTimeout(timeoutMs, undefined, { signal: timer.signal }).then(() => {
+        log(this.dtls.sessionId, "alert send timeout", timeoutMs);
+      }),
+    ])
+      .catch((error) => {
+        if (timer.signal.aborted) return;
+        err(this.dtls.sessionId, "failed to send alert", error);
+      })
+      .finally(() => timer.abort())
+      // A UDP transport hands the datagram to the socket on a later tick
+      // (dgram resolves the address asynchronously): closing the socket
+      // right after send() resolved would drop the alert.
+      .then(() => setImmediate());
+    this.alertSending = done;
+    return done;
   }
 
   /**

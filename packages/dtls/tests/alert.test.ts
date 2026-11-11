@@ -309,3 +309,33 @@ describe("DTLS alert", () => {
     expect(pair.serverTransport.sent.length).toBe(sentAfterClose);
   });
 });
+
+describe("DTLS 同時 close", () => {
+  test("close({ notify: true }) が重なっても、先の close_notify の送信完了まで transport を閉じない", async () => {
+    // Arrange: 送信完了を制御できる transport
+    const pair = createDtlsPair();
+    await connectDtlsPair(pair);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const realSend = pair.clientTransport.send.bind(pair.clientTransport);
+    pair.clientTransport.send = async (data: Buffer) => {
+      await gate;
+      return realSend(data);
+    };
+
+    // Act: close を 2 回重ねて呼び、送信完了前の状態を観測する
+    const first = pair.client.close({ notify: true });
+    const second = pair.client.close({ notify: true });
+    await setTimeout(30);
+    const closedBeforeSent = pair.clientTransport.closed;
+    release();
+    await Promise.all([first, second]);
+
+    // Assert: 送信完了前は閉じず、完了後に閉じて alert は 1 回だけ送られる
+    expect(closedBeforeSent).toBe(false);
+    expect(pair.clientTransport.closed).toBe(true);
+    expect(alertRecords(pair.clientTransport.sent)).toHaveLength(1);
+  });
+});
