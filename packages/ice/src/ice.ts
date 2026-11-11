@@ -46,6 +46,7 @@ import { SpedBindingResponseCache } from "./internal/sped-binding-cache";
 import { type SpedRuntime, sameCandidatePair } from "./sped/runtime";
 import {
   classes,
+  type MessageIntegrityMode,
   methods,
   RETRY_MAX,
   RETRY_RTO,
@@ -93,6 +94,7 @@ export class Connection implements IceConnection {
   localUsername = randomString(4);
   localPassword = randomString(22);
   remoteIsLite = false;
+  remoteIceOptions: string[] = [];
   remotePassword: string = "";
   remoteUsername: string = "";
   /**
@@ -810,6 +812,7 @@ export class Connection implements IceConnection {
           retransmissions:
             pair.localCandidate.transport.toLowerCase() === "tcp" ? 0 : 4,
           signal: generation.checks.signal,
+          integrityAlgorithm: this.options.messageIntegrity,
         },
       );
       pair.responsesReceived++;
@@ -874,6 +877,7 @@ export class Connection implements IceConnection {
             pair.localCandidate.transport.toLowerCase() === "tcp" ? 0 : 4,
           // endProvisional / a replacement pranswer stops it with the checks.
           signal: generation.checks.signal,
+          integrityAlgorithm: this.options.messageIntegrity,
         },
       );
       pair.responsesReceived++;
@@ -1004,6 +1008,15 @@ export class Connection implements IceConnection {
     this.nominating = false;
     // Drop old pair's consent timers/transactions; restarted when a new pair is nominated.
     this.stopConsentLifecycle();
+  }
+
+  get remoteIce2() {
+    return this.remoteIceOptions.includes("ice2");
+  }
+
+  setRemoteIceOptions(options: string[]) {
+    log("setRemoteIceOptions", options);
+    this.remoteIceOptions = [...options];
   }
 
   setRemoteParams({
@@ -1350,7 +1363,12 @@ export class Connection implements IceConnection {
       );
       response
         .setAttribute("XOR-MAPPED-ADDRESS", addr)
-        .addMessageIntegrity(Buffer.from(localPassword, "utf8"))
+        .addIntegrity(
+          Buffer.from(localPassword, "utf8"),
+          this.spedRuntime?.session.embedding
+            ? "sha1"
+            : responseIntegrityMode(verified),
+        )
         .addFingerprint();
       protocol.sendStun(response, addr).catch((e) => {
         log("sendStun error", e);
@@ -1566,7 +1584,12 @@ export class Connection implements IceConnection {
         }
       }
       response
-        .addMessageIntegrity(Buffer.from(localPassword, "utf8"))
+        .addIntegrity(
+          Buffer.from(localPassword, "utf8"),
+          this.spedRuntime?.session.embedding
+            ? "sha1"
+            : responseIntegrityMode(verified),
+        )
         .addFingerprint();
       const wire = Buffer.from(response.bytes);
       this.storeSpedBindingResponse(txHex, wire);
@@ -2429,6 +2452,7 @@ export class Connection implements IceConnection {
                 retransmissions: 0,
                 responseTimeout,
                 signal: requestAbort.signal,
+                integrityAlgorithm: this.options.messageIntegrity,
                 onRequestSent: (attempt) => {
                   if (attempt > 0) {
                     nominated.retransmissionsSent++;
@@ -3337,15 +3361,17 @@ export class Connection implements IceConnection {
         pair.retransmissionsSent++;
       }
     };
+    const integrityAlgorithm = this.options.messageIntegrity;
     if (this.isTcpPair(pair)) {
       // RFC 5389 §7.2.2: no retransmissions over a reliable transport.
       return {
         retransmissions: 0,
         responseTimeout: TCP_CHECK_RESPONSE_TIMEOUT_MS,
         onRequestSent,
+        integrityAlgorithm,
       };
     }
-    return { retransmissions: 4, onRequestSent };
+    return { retransmissions: 4, onRequestSent, integrityAlgorithm };
   }
 
   /**
@@ -3681,13 +3707,24 @@ export class Connection implements IceConnection {
     );
     response
       .setAttribute("ERROR-CODE", errorCode)
-      .addMessageIntegrity(Buffer.from(localPassword, "utf8"))
+      .addIntegrity(
+        Buffer.from(localPassword, "utf8"),
+        responseIntegrityMode(request),
+      )
       .addFingerprint();
     protocol.sendStun(response, addr).catch((e) => {
       log("sendStun error", e);
     });
   }
 }
+
+/**
+ * Integrity attribute of a response to `request` (RFC 8489 §9.1.3): a request
+ * carrying MESSAGE-INTEGRITY-SHA256 is answered with MESSAGE-INTEGRITY-SHA256,
+ * any other with MESSAGE-INTEGRITY.
+ */
+const responseIntegrityMode = (request: Message): MessageIntegrityMode =>
+  request.integrityAlgorithm === "sha256" ? "sha256" : "sha1";
 
 const encodeTxUsername = ({
   remoteUsername,
