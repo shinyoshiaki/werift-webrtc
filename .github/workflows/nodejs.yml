@@ -22,7 +22,7 @@ jobs:
         node-version: [24.x, 26.x]
 
     steps:
-      - uses: actions/checkout@v4.4.0
+      - uses: actions/checkout@v7.0.1
       - name: init submodules
         run: |
           git config --global url."https://github.com/".insteadOf git@github.com:
@@ -64,7 +64,7 @@ jobs:
       matrix:
         node-version: [24.x]
     steps:
-      - uses: actions/checkout@v4.4.0
+      - uses: actions/checkout@v7.0.1
       - name: init submodules
         run: |
           git config --global url."https://github.com/".insteadOf git@github.com:
