@@ -34,7 +34,12 @@ const LONG_TIMEOUT_PROFILE: WptTimeoutProfile = {
   cleanupTimeoutMs: 400,
   vmTimeoutMs: 2_500,
 };
-const LONG_TARGETS = ["webrtc/rtcrtptransceiver.https.html ?rest"];
+const LONG_TARGETS = [
+  "webrtc/rtcrtptransceiver.https.html ?rest",
+  "webrtc/rtcpeerconnection-perfect-negotiation.https.html",
+  "webrtc/rtcpeerconnection-perfect-negotiation-stress-glare.https.html",
+  "webrtc/rtcpeerconnection-perfect-negotiation-stress-glare-linear.https.html",
+];
 
 const HEAVY_TIMEOUT_PROFILE: WptTimeoutProfile = {
   completionTimeoutMs: 2_500,
@@ -42,14 +47,25 @@ const HEAVY_TIMEOUT_PROFILE: WptTimeoutProfile = {
   vmTimeoutMs: 2_500,
 };
 
-export function resolveTimeoutProfile(target: Pick<WptTarget, "file" | "variant">) {
-  const key = `${target.file}${target.variant ? ` ${target.variant}` : ""}`.toLowerCase();
+export function resolveTimeoutProfile(
+  target: Pick<WptTarget, "file" | "variant">,
+) {
+  const key =
+    `${target.file}${target.variant ? ` ${target.variant}` : ""}`.toLowerCase();
 
   if (LONG_TARGETS.includes(key)) {
     return LONG_TIMEOUT_PROFILE;
   }
 
-  if (matchesAny(key, ["gc", "capture-video", "getstats", "transport-stats", "track-stats"])) {
+  if (
+    matchesAny(key, [
+      "gc",
+      "capture-video",
+      "getstats",
+      "transport-stats",
+      "track-stats",
+    ])
+  ) {
     return HEAVY_TIMEOUT_PROFILE;
   }
 

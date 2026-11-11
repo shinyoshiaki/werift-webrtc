@@ -324,6 +324,36 @@
       "variant": "?rest",
       "subtest": "checkAddTransceiverThenReplaceTrackDoesntPair",
       "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-perfect-negotiation.https.html",
+      "variant": "",
+      "subtest": "Perfect negotiation setup connects",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-perfect-negotiation.https.html",
+      "variant": "",
+      "subtest": "Perfect negotiation setup connects with roles reversed",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-perfect-negotiation.https.html",
+      "variant": "",
+      "subtest": "Perfect negotiation glare",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-perfect-negotiation-stress-glare.https.html",
+      "variant": "",
+      "subtest": "Perfect negotiation stress glare",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-perfect-negotiation-stress-glare-linear.https.html",
+      "variant": "",
+      "subtest": "Perfect negotiation stress glare linear",
+      "status": "PASS"
     }
   ]
 }

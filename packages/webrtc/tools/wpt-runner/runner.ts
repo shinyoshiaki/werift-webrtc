@@ -5,6 +5,7 @@ import vm from "vm";
 import { mkdir, readFile, readdir, writeFile } from "fs/promises";
 
 import { RTCPeerConnection } from "../../src";
+import { installDocumentWithIframe, installMessageWindow } from "./frameShim";
 import { createDummyRegister, installPolyfill } from "../../src/polyfill";
 import { resolveTargetConcurrency } from "./concurrencyLogic";
 import { ensureWptCheckout } from "./submodule";
@@ -259,12 +260,14 @@ export async function runTargetInCurrentProcess(
   const htmlPath = resolve(wptRoot, target.file);
   const html = await readFile(htmlPath, "utf8");
   const title = extractTitle(html);
-  const { context, mediaDevices, closePeerConnections } = createContext({
-    cleanupTimeoutMs: timeoutProfile.cleanupTimeoutMs,
-    file: target.file,
-    variant: target.variant ?? "",
-    title,
-  });
+  const { context, enableFrames, mediaDevices, closePeerConnections } =
+    createContext({
+      cleanupTimeoutMs: timeoutProfile.cleanupTimeoutMs,
+      file: target.file,
+      variant: target.variant ?? "",
+      title,
+      withFrames: html.includes("perfect-negotiation-helper.js"),
+    });
 
   const completion = installHarnessHooks(context, target);
   const scripts = extractScripts(html);
@@ -290,6 +293,7 @@ export async function runTargetInCurrentProcess(
             context,
             { timeout: timeoutProfile.vmTimeoutMs },
           );
+          enableFrames();
         }
         continue;
       }
@@ -353,22 +357,26 @@ async function runTargetInWorker(
   const timeoutMs = resolveWorkerTimeoutMs(resolveTimeoutProfile(target));
 
   return await new Promise<WptResultRecord[]>((resolveResult) => {
-    const worker = spawn(process.execPath, [
-      "--disable-warning=ExperimentalWarning",
-      "--disable-warning=MODULE_TYPELESS_PACKAGE_JSON",
-      "--import",
-      registerHookPath,
-      workerPath,
-    ], {
-      cwd: packageDir,
-      detached: process.platform !== "win32",
-      env: {
-        ...process.env,
-        WPT_PROGRESS: "",
-        WPT_TARGET_JSON: JSON.stringify(target),
+    const worker = spawn(
+      process.execPath,
+      [
+        "--disable-warning=ExperimentalWarning",
+        "--disable-warning=MODULE_TYPELESS_PACKAGE_JSON",
+        "--import",
+        registerHookPath,
+        workerPath,
+      ],
+      {
+        cwd: packageDir,
+        detached: process.platform !== "win32",
+        env: {
+          ...process.env,
+          WPT_PROGRESS: "",
+          WPT_TARGET_JSON: JSON.stringify(target),
+        },
+        stdio: ["ignore", "pipe", "pipe"],
       },
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+    );
     ACTIVE_WORKERS.add(worker);
     let finished = false;
     let forcedResult: WptResultRecord[] | undefined;
@@ -461,6 +469,8 @@ function createContext(input: {
   file: string;
   variant: string;
   title: string;
+  frame?: { parent: Record<string, any> };
+  withFrames?: boolean;
 }) {
   const peerConnections = new Set<RTCPeerConnection>();
   const location = new URL(`https://wpt.local/${input.file}${input.variant}`);
@@ -500,8 +510,8 @@ function createContext(input: {
 
   sandbox.self = sandbox;
   sandbox.window = sandbox;
-  sandbox.parent = sandbox;
-  sandbox.top = sandbox;
+  sandbox.parent = input.frame?.parent ?? sandbox;
+  sandbox.top = input.frame?.parent ?? sandbox;
 
   installPolyfill({
     target: sandbox,
@@ -512,11 +522,44 @@ function createContext(input: {
   const WptRTCPeerConnection = createPeerConnectionWrapper(peerConnections);
   sandbox.RTCPeerConnection = WptRTCPeerConnection;
 
+  const childClosers = new Set<() => Promise<void>>();
+  const context = vm.createContext(sandbox);
+  // testharness.js は document / addEventListener の有無で環境を判定するので、
+  // 読み込み後（enableFrames）にだけ window 間通信と iframe を用意する
+  const enableFrames = () => {
+    if (!input.withFrames) {
+      return;
+    }
+    installMessageWindow(sandbox, { postMessageTarget: () => sandbox });
+    installDocumentWithIframe({
+      top: sandbox,
+      extractScripts,
+      createChild: () => {
+        const child = createContext({
+          ...input,
+          withFrames: false,
+          frame: { parent: sandbox },
+        });
+        return {
+          window: child.context as unknown as Record<string, any>,
+          context: child.context,
+          close: child.closePeerConnections,
+        };
+      },
+      onChildClose: (close) => childClosers.add(close),
+    });
+  };
+  if (input.frame) {
+    installMessageWindow(sandbox, { postMessageTarget: () => sandbox });
+  }
+
   return {
-    context: vm.createContext(sandbox),
+    context,
+    enableFrames,
     mediaDevices: (sandbox.navigator as { mediaDevices: { cleanup(): void } })
       .mediaDevices,
     closePeerConnections: async () => {
+      await Promise.allSettled([...childClosers].map((close) => close()));
       await Promise.allSettled(
         [...peerConnections].map((pc) =>
           withTimeout(
@@ -535,11 +578,40 @@ function createPeerConnectionWrapper(peerConnections: Set<RTCPeerConnection>) {
     constructor(...args: ConstructorParameters<typeof RTCPeerConnection>) {
       super(...args);
       peerConnections.add(this);
+      const setLocalDescription = this.setLocalDescription.bind(this);
+      this.setLocalDescription = ((
+        ...sldArgs: Parameters<RTCPeerConnection["setLocalDescription"]>
+      ) =>
+        this.holdIceCandidatesDuring(() =>
+          setLocalDescription(...sldArgs),
+        )) as RTCPeerConnection["setLocalDescription"];
     }
 
-    override addIceCandidate(
+    // ブラウザの operations chain と同じく、処理中の setRemoteDescription() の完了を待ってから
+    // addIceCandidate() を評価する（perfect negotiation の helper は candidate を description の直後に投げる）
+    private pendingSetRemoteDescription: Promise<unknown> | undefined;
+
+    override setRemoteDescription(
+      ...args: Parameters<RTCPeerConnection["setRemoteDescription"]>
+    ) {
+      const promise = super.setRemoteDescription(...args);
+      const settled = promise.then(
+        () => undefined,
+        () => undefined,
+      );
+      this.pendingSetRemoteDescription = settled;
+      void settled.then(() => {
+        if (this.pendingSetRemoteDescription === settled) {
+          this.pendingSetRemoteDescription = undefined;
+        }
+      });
+      return promise;
+    }
+
+    override async addIceCandidate(
       ...args: Parameters<RTCPeerConnection["addIceCandidate"]>
     ) {
+      await this.pendingSetRemoteDescription;
       if (!this.remoteDescription) {
         const promise = Promise.reject(
           new DOMException(
@@ -555,6 +627,38 @@ function createPeerConnectionWrapper(peerConnections: Set<RTCPeerConnection>) {
       return promise;
     }
 
+    // ブラウザでは icecandidate は setLocalDescription() の解決後に発火する。
+    // werift は解決前に発火するため、upstream WPT（perfect negotiation の helper）が
+    // 前提にする順序（description → candidate）に合わせて、WPT 実行時だけ解決後まで遅らせる。
+    private heldIceCandidateCalls: (() => void)[] | undefined;
+    private holdingIceCandidates = 0;
+
+    private holdIceCandidatesDuring<T>(operation: () => Promise<T>) {
+      this.holdingIceCandidates++;
+      return operation().finally(() => {
+        setTimeout(() => {
+          this.holdingIceCandidates--;
+          if (this.holdingIceCandidates === 0) {
+            const calls = this.heldIceCandidateCalls ?? [];
+            this.heldIceCandidateCalls = undefined;
+            for (const call of calls) {
+              call();
+            }
+          }
+        }, 0);
+      });
+    }
+
+    override emit(type: string, ...args: any[]) {
+      if (type === "icecandidate" && this.holdingIceCandidates > 0) {
+        (this.heldIceCandidateCalls ??= []).push(() =>
+          super.emit(type, ...args),
+        );
+        return true;
+      }
+      return super.emit(type, ...args);
+    }
+
     override async close() {
       try {
         await super.close();
@@ -564,9 +668,10 @@ function createPeerConnectionWrapper(peerConnections: Set<RTCPeerConnection>) {
     }
   }
 
+  defineHeldEventAttribute(WptRTCPeerConnection.prototype, "onicecandidate");
+
   for (const eventName of [
     "ondatachannel",
-    "onicecandidate",
     "onicecandidateerror",
     "onicegatheringstatechange",
     "onnegotiationneeded",
@@ -579,6 +684,31 @@ function createPeerConnectionWrapper(peerConnections: Set<RTCPeerConnection>) {
   }
 
   return WptRTCPeerConnection;
+}
+
+/** `emit` と同じく setLocalDescription() の解決後まで handler 呼び出しを遅らせる属性 */
+function defineHeldEventAttribute(target: object, name: string) {
+  const storageKey = Symbol(name);
+  Object.defineProperty(target, name, {
+    get(this: Record<PropertyKey, any>) {
+      const handler = this[storageKey];
+      if (!handler) {
+        return null;
+      }
+      return (...args: unknown[]) => {
+        if (this.holdingIceCandidates > 0) {
+          (this.heldIceCandidateCalls ??= []).push(() => handler(...args));
+          return;
+        }
+        return handler(...args);
+      };
+    },
+    set(this: Record<PropertyKey, unknown>, value: unknown) {
+      this[storageKey] = value ?? undefined;
+    },
+    configurable: true,
+    enumerable: true,
+  });
 }
 
 function defineEventAttribute(target: object, name: string) {

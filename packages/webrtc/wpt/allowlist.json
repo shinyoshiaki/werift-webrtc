@@ -166,6 +166,32 @@
         "checkAddTransceiverWithTrackDoesntPair",
         "checkAddTransceiverThenReplaceTrackDoesntPair"
       ]
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-perfect-negotiation.https.html",
+      "enabled": true,
+      "reason": "#816: glare keeps the addTransceiver direction (JSEP 5.10). Runs in the runner's iframe/postMessage shim. The \"with roles reversed\" subtest is not listed: it races on develop too (a remote offer's implicit rollback starts before the setLocalDescription() promise's continuation, so signalingState is have-local-offer while localDescription is null; ~20% of runs).",
+      "subtests": [
+        "Perfect negotiation setup connects",
+        "Perfect negotiation setup connects with roles reversed",
+        "Perfect negotiation glare"
+      ]
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-perfect-negotiation-stress-glare.https.html",
+      "enabled": true,
+      "reason": "#816: glare keeps the addTransceiver direction (JSEP 5.10). Runs in the runner's iframe/postMessage shim. The \"with roles reversed\" subtest is not listed: it races on develop too (a remote offer's implicit rollback starts before the setLocalDescription() promise's continuation, so signalingState is have-local-offer while localDescription is null; ~20% of runs).",
+      "subtests": [
+        "Perfect negotiation stress glare"
+      ]
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-perfect-negotiation-stress-glare-linear.https.html",
+      "enabled": true,
+      "reason": "#816: glare keeps the addTransceiver direction (JSEP 5.10). Runs in the runner's iframe/postMessage shim. The \"with roles reversed\" subtest is not listed: it races on develop too (a remote offer's implicit rollback starts before the setLocalDescription() promise's continuation, so signalingState is have-local-offer while localDescription is null; ~20% of runs).",
+      "subtests": [
+        "Perfect negotiation stress glare linear"
+      ]
     }
   ]
 }
