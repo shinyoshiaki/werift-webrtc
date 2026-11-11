@@ -9,7 +9,7 @@ workflows:
     '.github/workflows/pages.yml':
         - 'actions/checkout@v4.4.0'
         - 'actions/deploy-pages@v4.0.5'
-        - 'actions/upload-pages-artifact@v3.0.1'
+        - 'actions/upload-pages-artifact@v5.0.0'
 dependencies:
     'actions/checkout@v4.4.0':
         ref: 'v4.4.0'
@@ -26,15 +26,15 @@ dependencies:
         commit: 'sha1-49933ea5288caeca8642d1e84afbd3f7d6820020'
         owner_id: 44036562
         repo_id: 189476904
-    'actions/upload-artifact@v4':
-        ref: 'v4'
-        commit: 'sha1-ea165f8d65b6e75b540449e92b4886f43607fa02'
+    'actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f':
+        ref: 'v7.0.0'
+        commit: 'sha1-bbbca2ddaa5d8feaa63e36b76fdaad77386f024f'
         owner_id: 44036562
         repo_id: 192625955
-    'actions/upload-pages-artifact@v3.0.1':
-        ref: 'v3.0.1'
-        commit: 'sha1-56afc609e74202658d3ffba0e8f6dda462b719fa'
+    'actions/upload-pages-artifact@v5.0.0':
+        ref: 'v5.0.0'
+        commit: 'sha1-fc324d3547104276b827a68afc52ff2a11cc49c9'
         owner_id: 44036562
         repo_id: 496012378
         uses:
-            - 'actions/upload-artifact@v4'
+            - 'actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f'
