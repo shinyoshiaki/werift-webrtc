@@ -354,6 +354,24 @@
       "variant": "",
       "subtest": "Perfect negotiation stress glare linear",
       "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-perfect-negotiation.https.html",
+      "variant": "",
+      "subtest": "Perfect negotiation glare with roles reversed",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-perfect-negotiation-stress-glare.https.html",
+      "variant": "",
+      "subtest": "Perfect negotiation stress glare with roles reversed",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-perfect-negotiation-stress-glare-linear.https.html",
+      "variant": "",
+      "subtest": "Perfect negotiation stress glare linear with roles reversed",
+      "status": "PASS"
     }
   ]
 }

@@ -6,13 +6,15 @@ import type { RTCSignalingState } from "../types/domain";
  * Every change that needs negotiation gets a sequence number. A local offer
  * carries the changes made before it was created, and those count as
  * negotiated once its answer commits (a rollback discards them). The event
- * fires at most once per task, only in `stable`, and only for changes no
+ * fires at most once per task, only in `stable` with an empty operations chain, and only for changes no
  * committed offer carried.
  */
 export class NegotiationNeeded {
   private readonly host: {
     signalingState: () => RTCSignalingState;
     isClosed: () => boolean;
+    /** W3C: the operations chain is not empty (an SLD / SRD is queued or running). */
+    operationsPending: () => boolean;
     /** Created offers/answers no longer reflect the state. */
     invalidate: () => void;
     fire: () => void;
@@ -34,6 +36,7 @@ export class NegotiationNeeded {
   constructor(host: {
     signalingState: () => RTCSignalingState;
     isClosed: () => boolean;
+    operationsPending: () => boolean;
     /** Created offers/answers no longer reflect the state. */
     invalidate: () => void;
     fire: () => void;
@@ -54,6 +57,7 @@ export class NegotiationNeeded {
     if (
       this.flag ||
       this.scheduled ||
+      this.host.operationsPending() ||
       this.host.signalingState() !== "stable"
     ) {
       return;
@@ -67,7 +71,10 @@ export class NegotiationNeeded {
         // 発火前に適用された local offer が変更をすべて含んでいる
         return;
       }
-      if (this.host.signalingState() !== "stable") {
+      if (
+        this.host.operationsPending() ||
+        this.host.signalingState() !== "stable"
+      ) {
         // stable に戻った時点で改めて判定する
         this.recheck = true;
         return;
