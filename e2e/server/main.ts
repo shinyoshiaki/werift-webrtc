@@ -73,6 +73,7 @@ import {
 import {
   mediachannel_simulcast_answer,
   mediachannel_simulcast_offer,
+  mediachannel_simulcast_rtx_answer,
 } from "./handler/mediachannel/simulcast";
 import { vp8PlaybackHandlers } from "./handler/mediachannel/vp8Playback";
 import { sim_gcc_twcc_chrome } from "./simulations/gccTwccChrome";
@@ -167,6 +168,8 @@ function attachWebSocketServer() {
       mediachannel_sendrecv_offer: new mediachannel_sendrecv_offer(),
       mediachannel_simulcast_answer: new mediachannel_simulcast_answer(),
       mediachannel_simulcast_offer: new mediachannel_simulcast_offer(),
+      mediachannel_simulcast_rtx_answer:
+        new mediachannel_simulcast_rtx_answer(),
       mediachannel_oneway_answer: new mediachannel_oneway_answer(),
       mediachannel_oneway_offer: new mediachannel_oneway_offer(),
       mediachannel_addTrack_answer: new mediachannel_addTrack_answer(),
