@@ -235,6 +235,25 @@ describe("interfaceAddresses host candidates", () => {
 describe("resolveHostAddresses", () => {
   const enumerated = ["192.0.2.10", "198.51.100.20", "2001:db8::1"];
 
+  test("an additional address assigned locally but not enumerated is bound to itself; an unassigned one uses wildcard", () => {
+    // Arrange: 127.0.0.2 は列挙から除外された割り当て済みアドレス
+    // Act: 解決する
+    const addresses = resolveHostAddresses({
+      enumerated: ["192.0.2.1"],
+      assigned: ["192.0.2.1", { address: "127.0.0.2" }],
+      additionalHostAddresses: ["127.0.0.2", "203.0.113.10"],
+      useIpv4: true,
+      useIpv6: true,
+    });
+
+    // Assert: 割り当て済みは個別 bind、未割り当ての NAT 公開 IP は wildcard
+    expect(addresses).toEqual([
+      { address: "127.0.0.2", bind: "enumerated", bindAddress: "127.0.0.2" },
+      { address: "203.0.113.10", bind: "wildcard" },
+      { address: "192.0.2.1", bind: "enumerated", bindAddress: "192.0.2.1" },
+    ]);
+  });
+
   test("without interfaceAddresses, enumerated addresses are bound and other additional addresses use wildcard", () => {
     // Act: 明示指定なしで解決する
     const addresses = resolveHostAddresses({

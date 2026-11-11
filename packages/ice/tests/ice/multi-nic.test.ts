@@ -240,6 +240,27 @@ describe("multi-NIC host candidates without interfaceAddresses", () => {
     }
   });
 
+  test("an additional host address assigned to an excluded NIC is bound to itself", async () => {
+    // Arrange: tun0 は候補列挙から除外されるが、127.0.0.2 はローカルに割り当て済み
+    useNics({ eth0: ["127.0.0.1"], tun0: ["127.0.0.2"] });
+    const connection = createTestConnection(true, {
+      additionalHostAddresses: ["127.0.0.2"],
+    });
+
+    try {
+      // Act: candidate を収集する
+      await connection.gatherCandidates();
+
+      // Assert: 割り当て済みの追加アドレスは wildcard ではなくそのアドレスに bind される
+      const hosts = udpHostCandidatesWithBinding(connection);
+      const additional = hosts.find((h) => h.candidate[0] === "127.0.0.2");
+      expect(additional?.bound).toEqual(additional?.candidate);
+      expect(additional?.localIp).toBe("127.0.0.2");
+    } finally {
+      await connection.close();
+    }
+  });
+
   test("an explicit wildcard interface address keeps wildcard sockets without advertising the wildcard", async () => {
     // Arrange: 疑似マルチ NIC で udp4 を 0.0.0.0 に明示した agent
     useNics({ eth0: ["127.0.0.1"], eth1: ["127.0.0.2"] });

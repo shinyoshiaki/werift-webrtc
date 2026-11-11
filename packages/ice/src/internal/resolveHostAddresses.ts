@@ -66,6 +66,7 @@ const isUnspecified = (address: string) =>
  */
 export function resolveHostAddresses({
   enumerated,
+  assigned = [],
   interfaceAddresses,
   additionalHostAddresses = [],
   useIpv4,
@@ -73,6 +74,12 @@ export function resolveHostAddresses({
   log = () => {},
 }: {
   enumerated: (string | EnumeratedHostAddress)[];
+  /**
+   * All addresses assigned to local interfaces, including those excluded from
+   * `enumerated` (loopback, tun, ...). Only used to decide whether an
+   * `additionalHostAddresses` entry is local and can bind to itself.
+   */
+  assigned?: (string | EnumeratedHostAddress)[];
   interfaceAddresses?: InterfaceAddresses;
   additionalHostAddresses?: string[];
   useIpv4: boolean;
@@ -84,6 +91,12 @@ export function resolveHostAddresses({
     const { address, bindAddress = address } =
       typeof entry === "string" ? { address: entry } : entry;
     if (!locals.has(address)) locals.set(address, bindAddress);
+  }
+  const assignedLocals = new Map<string, string>();
+  for (const entry of assigned) {
+    const { address, bindAddress = address } =
+      typeof entry === "string" ? { address: entry } : entry;
+    if (!assignedLocals.has(address)) assignedLocals.set(address, bindAddress);
   }
   const udp4 = interfaceAddresses?.udp4;
   const udp6 = interfaceAddresses?.udp6;
@@ -98,7 +111,7 @@ export function resolveHostAddresses({
   // wildcard address.
   const localOrWildcard = (address: string): HostAddress => {
     const explicit = explicitOf(address);
-    const bindAddress = locals.get(address);
+    const bindAddress = locals.get(address) ?? assignedLocals.get(address);
     if (!explicit && bindAddress !== undefined) {
       return { address, bind: HostAddressBind.enumerated, bindAddress };
     }

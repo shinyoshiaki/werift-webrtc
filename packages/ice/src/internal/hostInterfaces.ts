@@ -1,5 +1,6 @@
 import * as os from "node:os";
 
+import { normalizeFamilyNodeV18 } from "../imports/common";
 import { isLinkLocalAddress } from "../utils";
 import {
   type HostInterfaceAddress,
@@ -30,4 +31,29 @@ export function getHostInterfaceAddresses(
     );
   }
   return addresses;
+}
+
+/**
+ * 候補列挙の除外条件（loopback / tun などの NIC、link-local の除外）を適用せず、
+ * ローカル NIC に割り当てられた全アドレスを返す（package-private）。
+ * `additionalHostAddresses` がローカル割り当てかどうかの判定に使う。
+ */
+export function getAssignedInterfaceAddresses(): {
+  address: string;
+  bindAddress: string;
+}[] {
+  const result: { address: string; bindAddress: string }[] = [];
+  for (const [nic, infos] of Object.entries(os.networkInterfaces())) {
+    for (const info of infos ?? []) {
+      const isV6 = normalizeFamilyNodeV18(info.family) === 6;
+      result.push({
+        address: info.address,
+        bindAddress:
+          isV6 && isLinkLocalAddress(info)
+            ? `${info.address}%${nic}`
+            : info.address,
+      });
+    }
+  }
+  return result;
 }

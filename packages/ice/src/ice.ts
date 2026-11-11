@@ -32,7 +32,10 @@ import {
   validateRemoteCandidate,
 } from "./iceBase";
 import { type Address, debug, Event, interfaceAddress } from "./imports/common";
-import { getHostInterfaceAddresses } from "./internal/hostInterfaces";
+import {
+  getAssignedInterfaceAddresses,
+  getHostInterfaceAddresses,
+} from "./internal/hostInterfaces";
 import {
   type HostAddress,
   HostAddressBind,
@@ -916,6 +919,7 @@ export class Connection implements IceConnection {
             useLinkLocalAddress: this.options.useLinkLocalAddress,
           },
         ),
+        assigned: getAssignedInterfaceAddresses(),
         interfaceAddresses: this.options.interfaceAddresses,
         additionalHostAddresses: this.options.additionalHostAddresses,
         useIpv4: this.options.useIpv4,
