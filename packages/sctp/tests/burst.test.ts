@@ -35,15 +35,24 @@ describe("sctp burst transfer", () => {
   test("transfer processing cost grows close to linearly with the queued message count", async () => {
     // Arrange: JIT のウォームアップ
     await measureBurstTransfer(1_000, 1_000);
+    // 2,000 件程度の小さいバーストは 1 件あたりの CPU 時間が大きいバーストの
+    // 半分ほどしかかからず (GC 等の領域が異なる)、線形でも比が 8 倍前後に
+    // なってしまう。1 件あたりの時間が安定する 4,000 件以上で比べ、
+    // 各規模の最小値を使ってスケジューリングの揺らぎを除く。
+    const minCpuMs = async (count: number) => {
+      const runs: number[] = [];
+      for (let i = 0; i < 2; i++) {
+        runs.push((await measureBurstTransfer(count, 1_000)).cpuElapsedMs);
+      }
+      return Math.min(...runs);
+    };
 
     // Act: N と 4N のバースト転送に使う CPU 時間を計測する
-    const small = await measureBurstTransfer(2_000, 1_000);
-    const large = await measureBurstTransfer(8_000, 1_000);
+    const small = await minCpuMs(4_000);
+    const large = await minCpuMs(16_000);
 
     // Assert: 二次なら 16 倍になるところ、線形に近い比 (8 倍未満) に収まる
-    expect(large.cpuElapsedMs / Math.max(small.cpuElapsedMs, 1)).toBeLessThan(
-      8,
-    );
+    expect(large / Math.max(small, 1)).toBeLessThan(8);
   });
 
   test("event loop heartbeat keeps running during a large burst", async () => {
