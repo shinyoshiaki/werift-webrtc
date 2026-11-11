@@ -1,5 +1,6 @@
 import type { Candidate } from "../candidate";
 import type { Address, Event } from "../imports/common";
+import type { MessageIntegrityMode } from "../stun/const";
 import type { Message } from "../stun/message";
 
 /**
@@ -27,12 +28,21 @@ export interface TransactionRequestOptions {
    */
   failOnSendError?: boolean;
   /**
-   * When set, responses must include MESSAGE-INTEGRITY and pass HMAC
-   * verification (protocol re-parses the wire bytes with this key; the
-   * transaction also rejects unsigned Messages as defense-in-depth).
-   * Unsigned or forged responses must not complete the transaction.
+   * When set, responses must include MESSAGE-INTEGRITY or
+   * MESSAGE-INTEGRITY-SHA256 and pass HMAC verification (protocol re-parses
+   * the wire bytes with this key; the transaction also rejects unsigned
+   * Messages as defense-in-depth). Unsigned or forged responses must not
+   * complete the transaction.
    */
   integrityKey?: Buffer;
+  /**
+   * Integrity attributes a request signed with `integrityKey` carries.
+   * Defaults to `"sha1"` (MESSAGE-INTEGRITY only). Responses are accepted
+   * with either algorithm regardless of this choice. Ignored by the TURN
+   * client's own long-term credential requests (TurnProtocol), which stay
+   * MESSAGE-INTEGRITY only.
+   */
+  integrityAlgorithm?: MessageIntegrityMode;
 }
 
 export interface Protocol {
