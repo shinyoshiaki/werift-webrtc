@@ -87,6 +87,25 @@ export function deliveredTrackCodec(
 }
 
 /**
+ * 交渉済み codec 列から remote track の codec を決める。
+ * 先頭の RTX (と video の RED / FEC) は飛ばし、audio の RED は
+ * {@link deliveredTrackCodec} と同じく primary へ解決する。
+ */
+export function primaryTrackCodec(
+  kind: string,
+  negotiated: readonly RTCRtpCodecParameters[],
+) {
+  const first =
+    negotiated.find((codec) =>
+      kind === "audio"
+        ? codecName(codec) !== "rtx"
+        : !isAuxiliary(codec) &&
+          !["ulpfec", "flexfec-03"].includes(codecName(codec)),
+    ) ?? negotiated[0];
+  return deliveredTrackCodec(kind, first, negotiated);
+}
+
+/**
  * RTX / RED を除く primary codec に MIME 一致が 1 つでもあるか。
  * remote m-line を local capability で扱えるかの判定 (Issue #705) に使う。
  */
