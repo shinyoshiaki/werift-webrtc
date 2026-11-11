@@ -1,3 +1,5 @@
+import { spawnSync } from "child_process";
+
 import { Vp8RtpPayload } from "../../src/codec/vp8";
 import { createRtpUdpCollector, runExample } from "../utils";
 
@@ -13,6 +15,35 @@ const expectedSourceFrames = Array.from(
 
 /** ソースが実時間に追いついていたとみなす最大 lateness (timer ジッタの範囲) */
 const SOURCE_KEPT_UP_LATENESS_MS = 50;
+const LIBGCRYPT_PROC_DIAGNOSTIC =
+  "FATAL: error reading `/proc/sys/crypto/fips_enabled' in libgcrypt: Transport endpoint is not connected";
+
+// Arrange: ffmpeg が対象の libgcrypt /proc 障害で起動できない環境かを先に判定する。
+const ffmpegHasLibgcryptProcFailure = (() => {
+  const result = spawnSync(
+    "ffmpeg",
+    [
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-f",
+      "lavfi",
+      "-i",
+      "testsrc=size=16x16:rate=1",
+      "-frames:v",
+      "1",
+      "-c:v",
+      "libvpx",
+      "-f",
+      "ivf",
+      "pipe:1",
+    ],
+    { encoding: "utf8", timeout: 10_000 },
+  );
+  return (
+    result.status !== 0 && result.stderr.includes(LIBGCRYPT_PROC_DIAGNOSTIC)
+  );
+})();
 
 const median = (values: number[]) => {
   const sorted = [...values].sort((a, b) => a - b);
@@ -33,121 +64,134 @@ const parseSummary = (stdout: string) => {
 };
 
 describe("examples/node/pacer/ffmpeg-vfr-stream.ts", () => {
-  test("ffmpeg のライブ VFR VP8 を pts 通りの RTP として欠落なく送出する", async () => {
-    // Arrange: example の送信先になる UDP 受信ソケット
-    const collector = await createRtpUdpCollector();
+  test.skipIf(ffmpegHasLibgcryptProcFailure)(
+    "ffmpeg のライブ VFR VP8 を pts 通りの RTP として欠落なく送出する",
+    async () => {
+      // Arrange: example の送信先になる UDP 受信ソケット
+      const collector = await createRtpUdpCollector();
 
-    try {
-      // Act: example を別プロセスで実行し、終了まで待つ
+      try {
+        // Act: example を別プロセスで実行し、終了まで待つ
+        const result = await runExample(EXAMPLE, {
+          env: {
+            DEST_PORT: String(collector.port),
+            DURATION_SEC: String(DURATION_SEC),
+          },
+        });
+
+        // Assert: 正常終了し、送信ログと全フレーム送出の要約が出ている
+        expect(result.stderr).toBe("");
+        expect(result.code).toBe(0);
+        expect(result.stdout).toContain("send frame=0 ");
+        const summary = parseSummary(result.stdout);
+        expect(summary.frames).toBe(expectedSourceFrames.length);
+
+        // Assert: seq は 1 ずつ連続し、パケット欠落がない
+        const packets = collector.packets;
+        packets.slice(1).forEach(({ rtp }, i) => {
+          expect(rtp.header.sequenceNumber).toBe(
+            (packets[i].rtp.header.sequenceNumber + 1) & 0xffff,
+          );
+        });
+        // Assert: 全パケットが PT 96 / 同一 SSRC
+        expect(new Set(packets.map((p) => p.rtp.header.payloadType))).toEqual(
+          new Set([96]),
+        );
+        expect(new Set(packets.map((p) => p.rtp.header.ssrc)).size).toBe(1);
+
+        // 1 フレーム = marker 付きパケットで終わる同一 timestamp のパケット列
+        const frames: {
+          timestamp: number;
+          at: number;
+          firstPayload: Buffer;
+        }[] = [];
+        let firstPayload: Buffer | undefined;
+        for (const { rtp, at } of packets) {
+          firstPayload ??= rtp.payload;
+          if (rtp.header.marker) {
+            frames.push({ timestamp: rtp.header.timestamp, at, firstPayload });
+            firstPayload = undefined;
+          }
+        }
+
+        // Assert: select で残る全フレームが届き、途中で切れたフレームもない
+        expect(frames).toHaveLength(expectedSourceFrames.length);
+        expect(firstPayload).toBeUndefined();
+        // Assert: 先頭フレームは VP8 キーフレームで、各フレーム先頭に S bit がある
+        expect(
+          Vp8RtpPayload.deSerialize(frames[0].firstPayload).isKeyframe,
+        ).toBe(true);
+        expect(frames.every((f) => (f.firstPayload[0] & 0x10) !== 0)).toBe(
+          true,
+        );
+
+        // Assert: timestamp 差は入力の pts 差 (30fps 区間 3000 / 10fps 区間 9000) と一致する
+        const tsDeltas = frames
+          .slice(1)
+          .map((f, i) => (f.timestamp - frames[i].timestamp) >>> 0);
+        const expectedDeltas = expectedSourceFrames
+          .slice(1)
+          .map((n, i) => (n - expectedSourceFrames[i]) * 3000);
+        expect(tsDeltas).toEqual(expectedDeltas);
+
+        if (summary.maxLateness >= SOURCE_KEPT_UP_LATENESS_MS) {
+          // CPU 不足で ffmpeg が実時間でエンコードできなかった場合、フレームは到着次第送られるので
+          // 送出間隔の精度は検証できない (pacer ではなくソース側の遅れ)
+          console.warn(
+            `ffmpeg fell behind real time (maxLateness=${summary.maxLateness}ms); skipped pacing accuracy checks`,
+          );
+          return;
+        }
+
+        // Assert: 受信側の最初の callback 遅延に左右されないよう、隣接間隔の中央値で PTS 追従を確認する
+        const arrivalErrors = frames
+          .slice(1)
+          .map((f, i) =>
+            Math.abs(f.at - frames[i].at - (tsDeltas[i] * 1000) / CLOCK_RATE),
+          );
+        expect(median(arrivalErrors)).toBeLessThan(5);
+        // Assert: 30fps 区間と 10fps 区間の送出間隔の違いが実時間に現れる
+        const intervals = (delta: number) =>
+          frames
+            .slice(1)
+            .map((f, i) => f.at - frames[i].at)
+            .filter((_, i) => tsDeltas[i] === delta);
+        expect(median(intervals(3000))).toBeLessThan(50);
+        expect(median(intervals(9000))).toBeGreaterThan(80);
+        // Assert: 全体の送出時間はメディア時間に一致する (ドリフトしない)
+        const mediaMs =
+          (((frames.at(-1)!.timestamp - frames[0].timestamp) >>> 0) * 1000) /
+          CLOCK_RATE;
+        expect(
+          Math.abs(frames.at(-1)!.at - frames[0].at - mediaMs),
+        ).toBeLessThan(200);
+      } finally {
+        await collector.close();
+      }
+    },
+    60_000,
+  );
+
+  test.skipIf(ffmpegHasLibgcryptProcFailure)(
+    "DEST_PORT 未指定ではローカル受信側が timestamp 差と到着間隔を表示する",
+    async () => {
+      // Act: 受信側を内蔵したモードで 2 秒分だけ実行する
       const result = await runExample(EXAMPLE, {
-        env: {
-          DEST_PORT: String(collector.port),
-          DURATION_SEC: String(DURATION_SEC),
-        },
+        env: { DURATION_SEC: "2" },
       });
 
-      // Assert: 正常終了し、送信ログと全フレーム送出の要約が出ている
+      // Assert: 正常終了し、全 40 フレームを送った要約が出る
       expect(result.stderr).toBe("");
       expect(result.code).toBe(0);
-      expect(result.stdout).toContain("send frame=0 ");
-      const summary = parseSummary(result.stdout);
-      expect(summary.frames).toBe(expectedSourceFrames.length);
-
-      // Assert: seq は 1 ずつ連続し、パケット欠落がない
-      const packets = collector.packets;
-      packets.slice(1).forEach(({ rtp }, i) => {
-        expect(rtp.header.sequenceNumber).toBe(
-          (packets[i].rtp.header.sequenceNumber + 1) & 0xffff,
-        );
-      });
-      // Assert: 全パケットが PT 96 / 同一 SSRC
-      expect(new Set(packets.map((p) => p.rtp.header.payloadType))).toEqual(
-        new Set([96]),
-      );
-      expect(new Set(packets.map((p) => p.rtp.header.ssrc)).size).toBe(1);
-
-      // 1 フレーム = marker 付きパケットで終わる同一 timestamp のパケット列
-      const frames: { timestamp: number; at: number; firstPayload: Buffer }[] =
-        [];
-      let firstPayload: Buffer | undefined;
-      for (const { rtp, at } of packets) {
-        firstPayload ??= rtp.payload;
-        if (rtp.header.marker) {
-          frames.push({ timestamp: rtp.header.timestamp, at, firstPayload });
-          firstPayload = undefined;
-        }
-      }
-
-      // Assert: select で残る全フレームが届き、途中で切れたフレームもない
-      expect(frames).toHaveLength(expectedSourceFrames.length);
-      expect(firstPayload).toBeUndefined();
-      // Assert: 先頭フレームは VP8 キーフレームで、各フレーム先頭に S bit がある
-      expect(Vp8RtpPayload.deSerialize(frames[0].firstPayload).isKeyframe).toBe(
-        true,
-      );
-      expect(frames.every((f) => (f.firstPayload[0] & 0x10) !== 0)).toBe(true);
-
-      // Assert: timestamp 差は入力の pts 差 (30fps 区間 3000 / 10fps 区間 9000) と一致する
-      const tsDeltas = frames
-        .slice(1)
-        .map((f, i) => (f.timestamp - frames[i].timestamp) >>> 0);
-      const expectedDeltas = expectedSourceFrames
-        .slice(1)
-        .map((n, i) => (n - expectedSourceFrames[i]) * 3000);
-      expect(tsDeltas).toEqual(expectedDeltas);
-
-      if (summary.maxLateness >= SOURCE_KEPT_UP_LATENESS_MS) {
-        // CPU 不足で ffmpeg が実時間でエンコードできなかった場合、フレームは到着次第送られるので
-        // 送出間隔の精度は検証できない (pacer ではなくソース側の遅れ)
-        console.warn(
-          `ffmpeg fell behind real time (maxLateness=${summary.maxLateness}ms); skipped pacing accuracy checks`,
-        );
-        return;
-      }
-
-      // Assert: 受信側の最初の callback 遅延に左右されないよう、隣接間隔の中央値で PTS 追従を確認する
-      const arrivalErrors = frames
-        .slice(1)
-        .map((f, i) =>
-          Math.abs(f.at - frames[i].at - (tsDeltas[i] * 1000) / CLOCK_RATE),
-        );
-      expect(median(arrivalErrors)).toBeLessThan(5);
-      // Assert: 30fps 区間と 10fps 区間の送出間隔の違いが実時間に現れる
-      const intervals = (delta: number) =>
-        frames
-          .slice(1)
-          .map((f, i) => f.at - frames[i].at)
-          .filter((_, i) => tsDeltas[i] === delta);
-      expect(median(intervals(3000))).toBeLessThan(50);
-      expect(median(intervals(9000))).toBeGreaterThan(80);
-      // Assert: 全体の送出時間はメディア時間に一致する (ドリフトしない)
-      const mediaMs =
-        (((frames.at(-1)!.timestamp - frames[0].timestamp) >>> 0) * 1000) /
-        CLOCK_RATE;
-      expect(Math.abs(frames.at(-1)!.at - frames[0].at - mediaMs)).toBeLessThan(
-        200,
-      );
-    } finally {
-      await collector.close();
-    }
-  }, 60_000);
-
-  test("DEST_PORT 未指定ではローカル受信側が timestamp 差と到着間隔を表示する", async () => {
-    // Act: 受信側を内蔵したモードで 2 秒分だけ実行する
-    const result = await runExample(EXAMPLE, {
-      env: { DURATION_SEC: "2" },
-    });
-
-    // Assert: 正常終了し、全 40 フレームを送った要約が出る
-    expect(result.stderr).toBe("");
-    expect(result.code).toBe(0);
-    expect(parseSummary(result.stdout).frames).toBe(30 + 10);
-    // Assert: 2 フレーム目以降の全フレームについて受信ログが出る
-    const recv = [
-      ...result.stdout.matchAll(/recv seq=\d+ tsDelta=([\d.]+)ms/g),
-    ].map((m) => m[1]);
-    expect(recv).toHaveLength(30 + 10 - 1);
-    // Assert: 30fps (33.3ms) と 10fps (100.0ms) の両方の間隔が現れる
-    expect(new Set(recv)).toEqual(new Set(["33.3", "100.0"]));
-  }, 60_000);
+      expect(parseSummary(result.stdout).frames).toBe(30 + 10);
+      // Assert: 2 フレーム目以降の全フレームについて受信ログが出る
+      const recv = [
+        ...result.stdout.matchAll(/recv seq=\d+ tsDelta=([\d.]+)ms/g),
+      ].map((m) => m[1]);
+      expect(recv).toHaveLength(30 + 10 - 1);
+      // Assert: 30fps (33.3ms) と 10fps (100.0ms) の両方の間隔が現れる
+      expect(new Set(recv)).toEqual(new Set(["33.3", "100.0"]));
+    },
+    60_000,
+  );
 });
