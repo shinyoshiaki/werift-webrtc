@@ -80,7 +80,7 @@ describe("bundle_tag_only_candidates", () => {
       await navigator.mediaDevices.getUserMedia({ video: true })
     ).getTracks();
 
-    // Arrange: werift (tagOnly) の初回 offer に答えて video と DataChannel を接続する。
+    // Arrange: werift (bundleCandidates: compatible) の初回 offer に答えて video と DataChannel を接続する。
     const offer = await peer.request(label, { type: "init" });
     await pc.setRemoteDescription(offer);
     await candidates.flush();

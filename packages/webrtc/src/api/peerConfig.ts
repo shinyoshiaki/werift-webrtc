@@ -195,11 +195,11 @@ export interface PeerConfig {
    */
   keyFrameRequestRouting: KeyFrameRequestRouting;
   /**
-   * Which m-lines of a negotiated BUNDLE group carry the local ICE candidates.
+   * Which m-lines of a BUNDLE group carry the local ICE candidates.
    * Cannot be changed after construction. See {@link BundleCandidates}.
-   * - `"compatible"` (default): every m-line repeats its transport's candidates and
-   *   `a=end-of-candidates` (legacy behavior).
-   * - `"tagOnly"`: once an answer has negotiated BUNDLE, only the tag m-line carries
+   * - `"legacy"` (default): every m-line repeats its transport's candidates and
+   *   `a=end-of-candidates` (werift's earlier output).
+   * - `"compatible"`: as Chrome writes them, only the BUNDLE tag m-line carries
    *   them, so renegotiation with more m-lines no longer repeats the candidate list.
    */
   bundleCandidates: BundleCandidates;
@@ -347,7 +347,7 @@ export function generateDefaultPeerConfig(): PeerConfig {
     pendingRtp: false,
     mLineReuse: "compatible",
     keyFrameRequestRouting: "compatible",
-    bundleCandidates: "compatible",
+    bundleCandidates: "legacy",
   };
 }
 export const defaultPeerConfig: PeerConfig = generateDefaultPeerConfig();

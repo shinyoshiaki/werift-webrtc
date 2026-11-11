@@ -542,10 +542,10 @@ export const MODEL_SCENES: (Scene & { name: string; ref: string })[] = [
     ],
   },
   {
-    name: "tagOnly: added m-lines, a pranswer, a rollback, an ICE restart and a stopped tag keep the non-tag m-lines without candidates",
+    name: "compatible: added m-lines, a pranswer, a rollback, an ICE restart and a stopped tag never repeat the tag's candidates",
     ref: "issue #269 Phase A; bundleCandidates oracle",
     start: "connected",
-    bundleCandidates: "tagOnly",
+    bundleCandidates: "compatible",
     ops: [
       ["a", "addTrack", { kind: "audio" }],
       ["a", "offer"],
@@ -564,10 +564,10 @@ export const MODEL_SCENES: (Scene & { name: string; ref: string })[] = [
     ],
   },
   {
-    name: "tagOnly: an m-line split out of BUNDLE keeps its own candidates",
+    name: "compatible: an m-line split out of BUNDLE keeps its own candidates",
     ref: "issue #269 5 (transport split); bundleCandidates oracle",
     start: "connected",
-    bundleCandidates: "tagOnly",
+    bundleCandidates: "compatible",
     ops: [
       ["a", "addTrack", { kind: "audio" }],
       ["a", "offer"],

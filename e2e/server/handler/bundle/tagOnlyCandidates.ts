@@ -4,7 +4,7 @@ import { peerConfig } from "../../fixture";
 import { acceptLocalDescription } from "../localDescription";
 
 /**
- * `bundleCandidates: "tagOnly"` (issue #269) against the browser: werift
+ * `bundleCandidates: "compatible"` (Chrome's shape, issue #269) against the browser: werift
  * re-offers with added m-lines and answers the browser's re-offer without
  * repeating the candidates on the non-tag m-lines of the negotiated BUNDLE.
  */
@@ -31,7 +31,7 @@ export class bundle_tag_only_candidates {
           }
           this.pc = new RTCPeerConnection({
             ...(await peerConfig),
-            bundleCandidates: "tagOnly",
+            bundleCandidates: "compatible",
           });
           const dc = this.pc.createDataChannel("dc");
           dc.onmessage = (e) => {

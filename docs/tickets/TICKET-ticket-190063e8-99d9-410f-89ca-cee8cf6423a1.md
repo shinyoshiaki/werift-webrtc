@@ -111,3 +111,51 @@ transport は 1 つで、candidate は 12 個しかない。それでも m-line 
 - [ ] `"compatible"` の出力が develop と一致する（既定値をどうするか決め、その理由を changelog に記録する）。
 - [ ] package テスト、`pbt:deep`、negotiation-diff、WPT、E2E（Chrome）がすべて通る。
 - [ ] README、`doc/`、`changelog.md` にオプションと挙動を記載する。
+
+## 9. 追加要件（2026-11-11 レビュー後）: モード名の変更と Chrome 形状への統一
+
+### 9.1 要件
+
+- 従来の `"tagOnly"` を **`"compatible"`** に改名し、出力を Chrome（libwebrtc）の形に揃える。
+- 従来の `"compatible"`（全 m-line に候補を繰り返す出力）は **`"legacy"`** に改名する。**既定値は `"legacy"` のまま**とし、既定の SDP 出力は develop と同じに保つ。
+- 型は `BundleCandidates = "legacy" | "compatible"` とする。旧名の `"tagOnly"` は不正値（`TypeError`）として扱う。構築後の変更は従来どおり `InvalidModificationError` で拒否する。
+- 根拠: レビューでの議論（「ブラウザ互換で仕様に沿うのはどちらか」）。ブラウザの出力に近く、RFC 8843 §7.1.3 / §7.3.1（RFC 8859 の TRANSPORT カテゴリ）にも沿うのは、候補を tag にだけ書く形である。
+
+### 9.2 Chrome の実測（Chrome 156 / headless、Chrome 同士の in-page 交渉）
+
+測定は `balanced` / `max-bundle` / `max-compat` の 3 通りで行い、それぞれ初回交渉、双方向の再交渉、ICE restart、pranswer、BUNDLE なしの offer への answer を記録した。
+
+| 場面 | 候補を書く m-line |
+| --- | --- |
+| 初回 offer（`balanced` / `max-compat`） | m-line ごとの transport の候補を、それぞれの m-line に書く |
+| 初回 offer（`max-bundle`） | tag（共有 transport）だけ |
+| 初回 answer / pranswer（BUNDLE 受け入れ） | tag だけ |
+| BUNDLE 確立後の再 offer / 再 answer | tag だけ |
+| ICE restart の offer / answer と、その後の offer | tag だけ（新しい generation） |
+| BUNDLE なしの offer への answer | 各 m-line |
+
+- `a=ice-ufrag` / `a=ice-pwd` / `a=ice-options` / `a=fingerprint` / `a=setup` は、全 m-line に残る。
+- Chrome は `a=end-of-candidates` を出力しない。
+- トリクルは tag の `sdpMid` 宛ての 1 回だけで、同じ generation の再交渉では再発火しない。
+- Chrome の癖: `balanced` / `max-compat` で初回交渉した後の再 offer に、BUNDLE 確立で破棄した transport の古い候補が残る（前回の localDescription から写すため）。
+
+### 9.3 `"compatible"` の規則（4 章 Phase A の条件を置き換える）
+
+- offer / answer / pranswer を問わず、また初回か BUNDLE 確定後かも問わず、description の BUNDLE group の非tag m-line で、tag と同じ transport・同じ ICE generation を記述したものは `a=candidate` / `a=end-of-candidates` を書かない。従来の条件だった「`negotiatedBundleTags` が空でない」「pranswer では省かない」は撤廃する。
+- 従来どおり候補を書くもの: 別 transport の m-line（max-compat / balanced の初回 offer、BUNDLE の分離、BUNDLE owner の変更）、port 0 の m-line、`bundlePolicy: "disable"`、新しい tag。
+- 規則は description と、そこに記述した transport だけで決まる。そのため、候補収集後の再描画でも形は変わらず、rollback で元に戻す処理も要らない。
+- **Chrome と意図して変える点**
+  - `a=end-of-candidates` は tag に残す。仕様に沿うためと、werift の受信側が収集完了の判定に使うため。
+  - 破棄した transport の古い候補（9.2 の癖）は真似しない。
+- トリクル（owner の m-line 宛てに 1 回だけ）は、すでに Chrome と同じなので変更しない。
+
+### 9.4 追加の完了条件
+
+- [ ] `"compatible"` で、初回 answer、pranswer、`max-bundle` の初回 offer も、非tag の候補と eoc を持たない。max-compat の初回 offer は m-line ごとの候補を持つ。
+- [ ] 既定（`"legacy"`）の出力が develop と一致する。旧名 `"tagOnly"` は `TypeError` になる。
+- [ ] README、`doc/`、`changelog.md`、Chrome E2E（handler / test）、PBT（generator / oracle / scenes）、negotiation case が新しい名前と規則に揃っている。
+- [ ] 7 章の検証コマンドが通る。
+
+### 9.5 作業メモ
+
+- 実装・ドキュメント・E2E・検証は、同じ worktree の別セッション（`workspace-35`）が担当する。このセッションは Chrome の実測とチケットへの追記を担当し、コードは編集していない。

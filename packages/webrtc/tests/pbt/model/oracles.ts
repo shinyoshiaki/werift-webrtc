@@ -61,12 +61,11 @@ import {
  * - continuity: at a commit, an m-line of the previous and the new current
  *   session that keeps its BUNDLE transport (same tag, or unbundled in
  *   both) keeps its DTLS transport object (no new handshake, RFC 8843).
- * - candidates: with `bundleCandidates: "tagOnly"`, a local offer or answer
- *   applied once an answer had negotiated BUNDLE (both current descriptions
- *   have a group) writes no `a=candidate` / `a=end-of-candidates` on a
- *   non-tag m-line of a BUNDLE group that uses the tag's transport, and that
- *   m-line keeps the tag's ICE credentials, `a=fingerprint` and `a=setup`;
- *   a later refresh (gathered candidates) keeps that shape (issue #269).
+ * - candidates: with `bundleCandidates: "compatible"` (Chrome's shape,
+ *   issue #269), no local description (pending or current, also after a
+ *   refresh with gathered candidates) repeats a candidate of a BUNDLE tag on
+ *   another m-line of its group, and every bundled m-line keeps
+ *   `a=ice-ufrag`, `a=fingerprint` and `a=setup`.
  * (A rejected operation changing nothing is checked by the harness.)
  */
 type World = ReturnType<typeof world>;
@@ -309,14 +308,6 @@ export class ModelOracles implements Observer {
   private readonly lastStreams = new Map<unknown, string>();
   /** Receivers that stopped receiving (or were rolled back) since their last track event. */
   private readonly receivingReset = new Set<unknown>();
-  /**
-   * candidates: per peer, whether a local description it applied (by its
-   * SDP without candidates) omits the non-tag candidates.
-   */
-  private readonly tagOnlyDescriptions = new Map<
-    RTCPeerConnection,
-    Map<string, boolean>
-  >();
 
   /** Arrange: a transceiver the application created (it must survive negotiation). */
   application(object: RTCRtpTransceiver) {
@@ -413,7 +404,6 @@ export class ModelOracles implements Observer {
         ).toBe(null);
       }
     }
-    this.recordCandidateShape(step, before.self);
     for (const peer of this.events.keys()) this.bundleCandidates(peer, label);
     await this.feedback(step, before, label);
     this.selectedPairs(step, before, label);
@@ -517,72 +507,41 @@ export class ModelOracles implements Observer {
     }
   }
 
-  /** candidates: record whether the local description `step` applied omits non-tag candidates. */
-  private recordCandidateShape(step: AppliedStep, before: World) {
-    const { pc } = step;
+  /** candidates: no local description of a `"compatible"` peer repeats its BUNDLE tags' candidates. */
+  private bundleCandidates(pc: RTCPeerConnection, label: string) {
     if (
-      step.kind !== "setLocal" ||
-      !["offer", "answer", "pranswer"].includes(step.type ?? "") ||
-      !pc.localDescription
+      pc.signalingState === "closed" ||
+      pc.getConfiguration().bundleCandidates !== "compatible"
     ) {
       return;
     }
-    const negotiated = [before.currentLocal, before.currentRemote].every(
-      (sdp) => !!sdp && /^a=group:BUNDLE /m.test(sdp),
-    );
-    const omits =
-      pc.getConfiguration().bundleCandidates === "tagOnly" &&
-      pc.getConfiguration().bundlePolicy !== "disable" &&
-      step.type !== "pranswer" &&
-      negotiated;
-    const shapes = this.tagOnlyDescriptions.get(pc) ?? new Map();
-    this.tagOnlyDescriptions.set(pc, shapes);
-    shapes.set(bare(pc.localDescription.sdp)!, omits);
-  }
-
-  /** candidates: the applied local descriptions of `pc` keep the shape they were applied with. */
-  private bundleCandidates(pc: RTCPeerConnection, label: string) {
-    const shapes = this.tagOnlyDescriptions.get(pc);
-    if (!shapes || pc.signalingState === "closed") return;
-    const pending = (
-      pc as unknown as {
-        negotiation: { transportByMid: Map<string, RTCDtlsTransport> };
-      }
-    ).negotiation.transportByMid;
-    const live = transportsByMid(pc);
-    for (const [description, transportOf] of [
-      [
-        pc.pendingLocalDescription,
-        (mid: string) => pending.get(mid) ?? live.get(mid),
-      ],
-      [pc.currentLocalDescription, (mid: string) => live.get(mid)],
-    ] as const) {
-      if (!description || !shapes.get(bare(description.sdp)!)) continue;
+    const side = [...this.events.keys()][0] === pc ? "a" : "b";
+    for (const description of [
+      pc.pendingLocalDescription,
+      pc.currentLocalDescription,
+    ]) {
+      if (!description) continue;
       const sections = sectionsByMid(description.sdp);
+      const candidatesOf = (section: string) =>
+        [...section.matchAll(/^a=(candidate:[^\r\n]+)/gm)].map(
+          ([, candidate]) => candidate,
+        );
       for (const [, group] of description.sdp.matchAll(
         /^a=group:BUNDLE ([^\r\n]+)/gm,
       )) {
         const [tagMid, ...members] = group.trim().split(" ");
-        const tag = sections.get(tagMid)!;
-        const ufrag = tag.match(/^a=ice-ufrag:(\S+)/m)?.[1];
+        const tagCandidates = new Set(candidatesOf(sections.get(tagMid)!));
         for (const mid of members) {
           const section = sections.get(mid)!;
-          if (
-            /^m=\S+ 0 /.test(section) ||
-            !transportOf(mid) ||
-            transportOf(mid) !== transportOf(tagMid)
-          ) {
-            continue;
-          }
-          const side = [...this.events.keys()][0] === pc ? "a" : "b";
+          if (/^m=\S+ 0 /.test(section)) continue;
           const where = `${label}: ${description.type} of ${side} mid ${mid}`;
-          // tag と同じ transport の非tag m-line は候補と eoc を持たない。
+          // tag の候補を他の m-line で繰り返さない (transport ごとに 1 回だけ書く)。
           expect(
-            /^a=(candidate:|end-of-candidates)/m.test(section),
+            candidatesOf(section).filter((c) => tagCandidates.has(c)),
             `${where} repeats the tag's candidates`,
-          ).toBe(false);
+          ).toEqual([]);
           // ICE / DTLS の識別子は残す。
-          expect(section.match(/^a=ice-ufrag:(\S+)/m)?.[1], where).toBe(ufrag);
+          expect(/^a=ice-ufrag:/m.test(section), where).toBe(true);
           expect(/^a=fingerprint:/m.test(section), where).toBe(true);
           expect(/^a=setup:/m.test(section), where).toBe(true);
         }

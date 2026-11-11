@@ -71,8 +71,8 @@ export type Start = "connected" | "unnegotiated" | "media";
 /** One operation: the peer that takes it, its name and the choices it made. */
 export type Op = [Side, string, Record<string, unknown>?];
 /**
- * `bundleCandidates` of both peers (default `"compatible"`); random scenes
- * of an even seed use `"tagOnly"` so the candidates oracle runs.
+ * `bundleCandidates` of both peers (default `"legacy"`); random scenes of an
+ * even seed use `"compatible"` so the candidates oracle runs.
  */
 export type Scene = {
   start: Start;
@@ -489,7 +489,7 @@ async function deliver(
 async function arrange(
   c: NegotiationCase,
   start: Start,
-  bundleCandidates: BundleCandidates = "compatible",
+  bundleCandidates: BundleCandidates = "legacy",
 ): Promise<World & Peers2> {
   const oracles = new ModelOracles(c);
   const config = { ...modelConfig(), bundleCandidates };
@@ -563,8 +563,8 @@ export async function generateScene(
     "unnegotiated",
     "media",
   ] as const);
-  // seed の乱数列を変えずに、偶数の seed で tagOnly を試す。
-  if (seed % 2 === 0) scene.bundleCandidates = "tagOnly";
+  // seed の乱数列を変えずに、偶数の seed で compatible を試す。
+  if (seed % 2 === 0) scene.bundleCandidates = "compatible";
   const w = await arrange(c, scene.start, scene.bundleCandidates);
   for (let index = 1; index <= steps; index++) {
     const side: Side = rng.chance(0.5) ? "a" : "b";

@@ -35,12 +35,6 @@ export class SDPManager {
 
   private seenMid = new Set<string>();
   /**
-   * Local descriptions built in a negotiated BUNDLE session with
-   * `bundleCandidates: "tagOnly"`. A refresh of an applied description
-   * (candidates gathered later) keeps the shape it was created with.
-   */
-  private tagOnlyCandidateDescriptions = new WeakSet<SessionDescription>();
-  /**
    * The transport whose generation `addTransportDescription` last wrote into
    * an m-line. ICE credentials do not identify a transport: a transport
    * created next to a live one inherits its credentials.
@@ -70,7 +64,7 @@ export class SDPManager {
     this.midSuffix = midSuffix ?? false;
     this.bundlePolicy = bundlePolicy;
     this.mLineReuse = mLineReuse ?? "compatible";
-    this.bundleCandidates = bundleCandidates ?? "compatible";
+    this.bundleCandidates = bundleCandidates ?? "legacy";
     this.iceOptions = iceOptionIce2 ? "trickle ice2" : "trickle";
   }
 
@@ -262,40 +256,29 @@ export class SDPManager {
   }
 
   /**
-   * `bundleCandidates: "tagOnly"` (RFC 8843 §7.1.3, RFC 8859 TRANSPORT
-   * category): a bundled m-line that is not the tag of its BUNDLE group and
-   * uses the tag's transport carries no `a=candidate` / `a=end-of-candidates`.
-   * The tag m-line keeps every candidate (RFC 8839 §4.4.1.1.2, W3C
-   * localDescription), and every m-line keeps `a=ice-ufrag` / `a=ice-pwd` /
-   * `a=ice-options` / `a=fingerprint` / `a=setup` / `a=mid`.
+   * `bundleCandidates: "compatible"` (Chrome's shape; RFC 8843 §7.1.3 /
+   * §7.3.1, RFC 8859 TRANSPORT category): ICE candidates belong to a
+   * transport and are written once, on the m-line that owns it. A non-tag
+   * m-line of a BUNDLE group that uses the tag's transport carries no
+   * `a=candidate` / `a=end-of-candidates`, in every offer, answer and
+   * pranswer (also a first answer and a first `max-bundle` offer). The tag
+   * keeps every candidate (RFC 8839 §4.4.1.1.2, W3C localDescription), and
+   * every m-line keeps `a=ice-ufrag` / `a=ice-pwd` / `a=ice-options` /
+   * `a=fingerprint` / `a=setup` / `a=mid`, as Chrome does (werift's receiver
+   * matches the ICE generation per m-line by its ufrag).
    *
-   * The omission is decided when a description is created (`decide`) and only
-   * once an answer has negotiated BUNDLE ({@link negotiatedBundleTags}, never
-   * a pending description, so a rollback needs no undo). A first offer /
-   * answer, a local pranswer, `bundlePolicy: "disable"`, rejected (port 0)
-   * m-lines and m-lines on another transport (pending-only transports of a
-   * BUNDLE split, a new max-compat m-line or a changed BUNDLE owner) keep all
-   * candidates. Refreshing an applied description
-   * (gathered candidates) reuses the decision, so `createOffer()` and the
-   * later `localDescription` have the same shape.
+   * The rule depends only on the description and the transports written
+   * into it, so a refresh with gathered candidates keeps the shape of the
+   * created description, and rollback needs no undo. An m-line on another
+   * transport (a first max-compat offer, a BUNDLE split or a changed BUNDLE
+   * owner), a rejected (port 0) m-line and `bundlePolicy: "disable"` keep
+   * their candidates. `"legacy"` repeats them on every m-line.
    */
-  private applyBundleCandidates(
-    description: SessionDescription,
-    { decide }: { decide: boolean },
-  ) {
-    if (decide) {
-      if (
-        this.bundleCandidates === "tagOnly" &&
-        this.bundlePolicy !== "disable" &&
-        description.type !== "pranswer" &&
-        this.negotiatedBundleTags.length > 0
-      ) {
-        this.tagOnlyCandidateDescriptions.add(description);
-      } else {
-        this.tagOnlyCandidateDescriptions.delete(description);
-      }
-    }
-    if (!this.tagOnlyCandidateDescriptions.has(description)) {
+  private applyBundleCandidates(description: SessionDescription) {
+    if (
+      this.bundleCandidates !== "compatible" ||
+      this.bundlePolicy === "disable"
+    ) {
       return;
     }
     for (const group of description.group) {
@@ -858,7 +841,7 @@ export class SDPManager {
       }
     }
 
-    this.applyBundleCandidates(description, { decide: true });
+    this.applyBundleCandidates(description);
     return description;
   }
 
@@ -1054,7 +1037,7 @@ export class SDPManager {
       );
     }
 
-    this.applyBundleCandidates(description, { decide: true });
+    this.applyBundleCandidates(description);
     return description;
   }
 
@@ -1326,7 +1309,7 @@ export class SDPManager {
       );
     }
 
-    this.applyBundleCandidates(description, { decide: !applied });
+    this.applyBundleCandidates(description);
 
     // Refreshing the transport lines of the current description (candidates
     // an ICE restart gathers after its commit) keeps it current.
@@ -1346,18 +1329,19 @@ function orderBundleMids(mids: string[], preferredTag?: string) {
 export type MLineReuse = "compatible" | "aggressive";
 
 /**
- * Which m-lines of a negotiated BUNDLE group carry the local ICE candidates.
- * - `"compatible"` (default): every m-line repeats its transport's candidates
- *   and `a=end-of-candidates` (legacy behavior).
- * - `"tagOnly"`: once an answer has negotiated BUNDLE, only the tag m-line
- *   carries them; the other m-lines on the same transport keep their ICE /
- *   DTLS parameters without candidates (RFC 8843 §7.1.3, RFC 8859).
+ * Which m-lines of a BUNDLE group carry the local ICE candidates.
+ * - `"legacy"` (default): every m-line repeats its transport's candidates
+ *   and `a=end-of-candidates` (werift's earlier output).
+ * - `"compatible"`: as Chrome writes them, only the m-line that owns the
+ *   transport (the BUNDLE tag) carries them; the other m-lines on the same
+ *   transport keep their ICE / DTLS parameters without candidates
+ *   (RFC 8843 §7.1.3, RFC 8859).
  */
-export type BundleCandidates = "compatible" | "tagOnly";
+export type BundleCandidates = "legacy" | "compatible";
 
 export const BundleCandidatesModes: readonly BundleCandidates[] = [
+  "legacy",
   "compatible",
-  "tagOnly",
 ];
 
 export interface RTCSessionDescriptionInit {

@@ -13,7 +13,7 @@ import {
   waitForGatheringComplete,
 } from "../harness/negotiationTransactionUtils";
 
-const tagOnly = { bundleCandidates: "tagOnly" } as const;
+const compatible = { bundleCandidates: "compatible" } as const;
 
 /** The local SDP of `pc` as a candidate layout. */
 const localLayout = (pc: RTCPeerConnection) =>
@@ -21,19 +21,19 @@ const localLayout = (pc: RTCPeerConnection) =>
 
 /**
  * `bundleCandidates` (issue #269, RFC 8843 §7.1.3 / RFC 8859 TRANSPORT
- * category): with `"tagOnly"`, a description created once an answer has
- * negotiated BUNDLE writes the candidates and end-of-candidates only on the
- * tag m-line of each group; every other m-line on the tag's transport keeps
- * its ICE / DTLS parameters. `"compatible"` (default) repeats them.
+ * category): with `"compatible"` (Chrome's shape), every description writes
+ * the candidates and end-of-candidates of a transport once, on the tag
+ * m-line of its BUNDLE group; every other m-line on the tag's transport
+ * keeps its ICE / DTLS parameters. `"legacy"` (default) repeats them.
  */
 describeCases("negotiation: bundleCandidates (issue #269)", () => {
   negotiationCase(
-    "[#269-1] tagOnly: renegotiation without ICE restart keeps the candidate count of the transport",
+    "[#269-1] compatible: renegotiation without ICE restart keeps the candidate count of the transport",
     { ref: "issue #269 Phase A 1-5" },
     async (c) => {
       // Arrange: video + audio の BUNDLE で接続し、収集を終えた tag (MID 0) の候補を控える。
       const { a, b } = await c.given(
-        createConnectedVideoPeers(tagOnly, { withAudio: true }),
+        createConnectedVideoPeers(compatible, { withAudio: true }),
       );
       await Promise.all([
         waitForGatheringComplete(a),
@@ -86,7 +86,7 @@ describeCases("negotiation: bundleCandidates (issue #269)", () => {
   );
 
   negotiationCase(
-    "[#269-2] compatible (default): every bundled m-line repeats the transport's candidates",
+    "[#269-2] legacy (default): every bundled m-line repeats the transport's candidates",
     { ref: "issue #269 Phase A 7" },
     async (c) => {
       // Arrange: 既定設定の video + audio の BUNDLE で接続し、tag の候補を控える。
@@ -108,44 +108,84 @@ describeCases("negotiation: bundleCandidates (issue #269)", () => {
       for (const mid of ["0", "1", "2"]) {
         expect(layout.media[mid]).toMatchObject({ candidates, end: true });
       }
-      expect(b.getConfiguration().bundleCandidates).toBe("compatible");
+      expect(b.getConfiguration().bundleCandidates).toBe("legacy");
     },
   );
 
   negotiationCase(
-    "[#269-3] tagOnly: the first offer and answer carry the candidates on every m-line",
-    { ref: "issue #269 Phase A 1 (no negotiated BUNDLE)" },
+    "[#269-3] compatible: the first max-compat offer keeps each transport's candidates and the first answer writes them on the tag only",
+    { ref: "issue #269 (Chrome shape, RFC 8843 §7.3.1)" },
     async (c) => {
-      // Arrange / Act: tagOnly の video + audio で初回交渉し、収集を終える。
+      // Arrange / Act: compatible の video + audio で初回交渉し、収集を終える。
       const { a, b } = await c.given(
-        createConnectedVideoPeers(tagOnly, { withAudio: true }),
+        createConnectedVideoPeers(compatible, { withAudio: true }),
       );
       await Promise.all([
         waitForGatheringComplete(a),
         waitForGatheringComplete(b),
       ]);
 
-      // Assert: BUNDLE が確定する前に作った offer / answer は収集後も全 m-line に候補と eoc を持つ
-      // (max-compat の初回 offer は m-line ごとの transport、answer は tag の transport の候補)。
-      for (const layout of [localLayout(a), localLayout(b)]) {
-        for (const mid of ["0", "1"]) {
-          expect(layout.media[mid].candidates.length).toBeGreaterThan(0);
-          expect(layout.media[mid].end).toBe(true);
-        }
+      // Assert: max-compat の初回 offer は m-line ごとの transport の候補と eoc をそれぞれ持つ。
+      const offer = localLayout(a);
+      for (const mid of ["0", "1"]) {
+        expect(offer.media[mid].candidates.length).toBeGreaterThan(0);
+        expect(offer.media[mid].end).toBe(true);
       }
-      expect(localLayout(b).media["1"].candidates).toEqual(
-        localLayout(b).media["0"].candidates,
+      expect(offer.media["1"].candidates).not.toEqual(
+        offer.media["0"].candidates,
       );
+      // Assert: BUNDLE を受け入れた初回 answer は tag にだけ候補と eoc を書き、非tag は識別子だけ残す。
+      const answer = localLayout(b);
+      expect(answer.bundle).toEqual([["0", "1"]]);
+      expect(answer.media["0"].candidates.length).toBeGreaterThan(0);
+      expect(answer.media["0"].end).toBe(true);
+      expect(answer.media["1"]).toEqual({
+        port: 9,
+        candidates: [],
+        end: false,
+        ufrag: answer.media["0"].ufrag,
+        pwd: answer.media["0"].pwd,
+        fingerprint: true,
+        setup: true,
+      });
     },
   );
 
   negotiationCase(
-    "[#269-4] tagOnly: an ICE restart puts the new generation's candidates on the tag and trickles them",
+    "[#269-3b] compatible with max-bundle: the first offer writes the shared transport's candidates on the tag only",
+    { ref: "issue #269 (Chrome shape, max-bundle)" },
+    async (c) => {
+      // Arrange / Act: max-bundle + compatible の video + audio で初回交渉し、収集を終える。
+      const { a, outgoing, incoming } = await c.given(
+        createConnectedVideoPeers(
+          { ...compatible, bundlePolicy: "max-bundle" },
+          { withAudio: true },
+        ),
+      );
+      await waitForGatheringComplete(a);
+
+      // Assert: 1 つの transport を共有する初回 offer は tag にだけ候補と eoc を持つ。
+      const offer = localLayout(a);
+      expect(offer.bundle).toEqual([["0", "1"]]);
+      expect(offer.media["0"].candidates.length).toBeGreaterThan(0);
+      expect(offer.media["0"].end).toBe(true);
+      expect(offer.media["1"]).toMatchObject({
+        candidates: [],
+        end: false,
+        ufrag: offer.media["0"].ufrag,
+      });
+      // Assert: その offer で接続し、RTP が届く。
+      await c.rtp(outgoing, incoming);
+    },
+  );
+
+  negotiationCase(
+    "[#269-4] compatible: an ICE restart puts the new generation's candidates on the tag and trickles them",
     { ref: "issue #269 Phase A 6" },
     async (c) => {
-      // Arrange: tagOnly の video + audio で接続し、一度再交渉して非tag の候補を省いた状態にする。
+      // Arrange: compatible の video + audio で接続し、一度再交渉して非tag の候補を省いた状態にする。
       const { a, b, outgoing, incoming } = await c.given(
-        createConnectedVideoPeers(tagOnly, { withAudio: true }),
+        createConnectedVideoPeers(compatible, { withAudio: true }),
       );
       await c.negotiate(a);
       const before = localLayout(a).media["0"];
@@ -183,12 +223,12 @@ describeCases("negotiation: bundleCandidates (issue #269)", () => {
   );
 
   negotiationCase(
-    "[#269-5] tagOnly: stopping the tag m-line moves the candidates to the new tag",
+    "[#269-5] compatible: stopping the tag m-line moves the candidates to the new tag",
     { ref: "issue #269 5 (BUNDLE tag change)" },
     async (c) => {
-      // Arrange: tagOnly で video 3 本 (MID 0 1 2) の BUNDLE を接続する。
+      // Arrange: compatible で video 3 本 (MID 0 1 2) の BUNDLE を接続する。
       const { a, outgoing, incoming } = await c.given(
-        createConnectedMultiVideoPeers(3, tagOnly),
+        createConnectedMultiVideoPeers(3, compatible),
       );
       await waitForGatheringComplete(a);
       const candidates = localLayout(a).media["0"].candidates;
@@ -212,13 +252,13 @@ describeCases("negotiation: bundleCandidates (issue #269)", () => {
   );
 
   negotiationCase(
-    "[#269-6] tagOnly with bundlePolicy disable keeps the candidates on every m-line",
+    "[#269-6] compatible with bundlePolicy disable keeps the candidates on every m-line",
     { ref: "issue #269 Phase A 1 (bundlePolicy disable)" },
     async (c) => {
-      // Arrange: bundlePolicy disable + tagOnly で video + audio を接続する。
+      // Arrange: bundlePolicy disable + compatible で video + audio を接続する。
       const { a } = await c.given(
         createConnectedVideoPeers(
-          { ...tagOnly, bundlePolicy: "disable" },
+          { ...compatible, bundlePolicy: "disable" },
           { withAudio: true },
         ),
       );
@@ -241,12 +281,12 @@ describeCases("negotiation: bundleCandidates (issue #269)", () => {
   );
 
   negotiationCase(
-    "[#269-7] tagOnly: a local pranswer keeps every candidate and the final answer drops the non-tag ones",
-    { ref: "issue #269 Phase A 1 (pranswer)" },
+    "[#269-7] compatible: a local pranswer and the final answer write the candidates on the tag only",
+    { ref: "issue #269 (pranswer, Chrome shape)" },
     async (c) => {
-      // Arrange: tagOnly の video + audio で接続し、収集を終えた tag の候補を控える。
+      // Arrange: compatible の video + audio で接続し、収集を終えた tag の候補を控える。
       const { a, b } = await c.given(
-        createConnectedVideoPeers(tagOnly, { withAudio: true }),
+        createConnectedVideoPeers(compatible, { withAudio: true }),
       );
       await waitForGatheringComplete(b);
       const candidates = localLayout(b).media["0"].candidates;
@@ -258,26 +298,24 @@ describeCases("negotiation: bundleCandidates (issue #269)", () => {
       // Act: 同じ交渉を final answer で終える。
       await c.answer(b);
 
-      // Assert: pranswer は全 m-line に候補を持ち、final answer は tag にだけ持つ。
-      expect(pranswer.media["1"]).toMatchObject({ candidates, end: true });
-      expect(localLayout(b).media["0"]).toMatchObject({
-        candidates,
-        end: true,
-      });
-      expect(localLayout(b).media["1"]).toMatchObject({
-        candidates: [],
-        end: false,
-      });
+      // Assert: pranswer も final answer も tag にだけ候補と eoc を持つ。
+      for (const layout of [pranswer, localLayout(b)]) {
+        expect(layout.media["0"]).toMatchObject({ candidates, end: true });
+        expect(layout.media["1"]).toMatchObject({
+          candidates: [],
+          end: false,
+        });
+      }
     },
   );
 
   negotiationCase(
-    "[#269-8] tagOnly: a rollback restores the current description and the next offer has the same shape",
+    "[#269-8] compatible: a rollback restores the current description and the next offer has the same shape",
     { ref: "issue #269 5 (rollback)" },
     async (c) => {
-      // Arrange: tagOnly の video + audio で接続し、収集後の current local を控える。
+      // Arrange: compatible の video + audio で接続し、収集後の current local を控える。
       const { a } = await c.given(
-        createConnectedVideoPeers(tagOnly, { withAudio: true }),
+        createConnectedVideoPeers(compatible, { withAudio: true }),
       );
       await waitForGatheringComplete(a);
       const current = a.localDescription!.sdp;
@@ -299,12 +337,12 @@ describeCases("negotiation: bundleCandidates (issue #269)", () => {
   );
 
   negotiationCase(
-    "[#269-9] tagOnly: an m-line split out of BUNDLE onto its own transport keeps its candidates",
+    "[#269-9] compatible: an m-line split out of BUNDLE onto its own transport keeps its candidates",
     { ref: "issue #269 5 (transport split)" },
     async (c) => {
-      // Arrange: tagOnly の video + audio で接続する。
+      // Arrange: compatible の video + audio で接続する。
       const { a, b } = await c.given(
-        createConnectedVideoPeers(tagOnly, { withAudio: true }),
+        createConnectedVideoPeers(compatible, { withAudio: true }),
       );
 
       // Act: audio (MID 1) を BUNDLE から外した offer を交渉し、別 transport の収集を終える。
