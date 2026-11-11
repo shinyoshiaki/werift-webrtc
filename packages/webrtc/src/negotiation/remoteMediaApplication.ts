@@ -1,3 +1,4 @@
+import type { TransceiverPairing } from "../api/peerConfig";
 import type {
   RTCRtpCodecParameters,
   RTCRtpTransceiver,
@@ -16,6 +17,11 @@ import type { SDPManager } from "../sdpManager";
 import type { RTCDtlsTransport } from "../transport/dtls";
 import type { RTCIceTransport } from "../transport/ice";
 import type { RTCSctpTransport } from "../transport/sctp";
+import {
+  livePairingView,
+  matchRemoteTransceiver,
+  type PairingView,
+} from "./transceiverPairing";
 
 type RemoteMediaEntry = {
   remoteMedia: MediaDescription;
@@ -48,6 +54,16 @@ export type RemoteMediaPlan = {
  * transport, decides the BUNDLE transport ownership, applies RTP / SCTP
  * parameters (accept or mark rejected), and plans the transport parameter
  * updates the caller runs after every fallible step.
+ *
+ * m-line association (`matchRemoteTransceiver`): the MID first, then, under
+ * `transceiverPairing: "jsep"`, only an unassociated transceiver
+ * `addTrack()` created (RFC 8829 5.10); a transceiver `addTransceiver()`
+ * created keeps its direction and `mid === null`, and the offer gets a new
+ * transceiver. `planCodecs` and `apply` pair through the same function and
+ * the same state: `planCodecs` runs before the implicit rollback, the
+ * replacement or the unapplied-createOffer revert of the remote offer, so it
+ * takes the view of the state after them (`NegotiationTransaction.
+ * pairingViewForRemoteOffer`).
  */
 export class RemoteMediaApplication {
   private readonly sdp: SDPManager;
@@ -55,6 +71,7 @@ export class RemoteMediaApplication {
   private readonly sctp: SctpTransportManager;
   private readonly router: RtpRouter;
   private readonly negotiation: NegotiationTransaction;
+  private readonly pairing: TransceiverPairing;
   private readonly host: {
     createSctpTransport: () => RTCSctpTransport;
     /** The transport a new transceiver starts on. */
@@ -78,7 +95,9 @@ export class RemoteMediaApplication {
       createOwnerTransport: () => RTCDtlsTransport;
       onRemoteTransceiverAdded: (transceiver: RTCRtpTransceiver) => void;
     },
+    pairing: TransceiverPairing = "jsep",
   ) {
+    this.pairing = pairing;
     this.sdp = sdp;
     this.transceivers = transceivers;
     this.sctp = sctp;
@@ -87,8 +106,15 @@ export class RemoteMediaApplication {
     this.host = host;
   }
 
-  /** Resolve all m-line codecs without mutating the current transaction. */
-  planCodecs(remoteSdp: SessionDescription) {
+  /**
+   * Resolve all m-line codecs without mutating the current transaction.
+   * `view` is the transceiver state `apply` will associate with (see
+   * {@link PairingView}), so both pair every m-line with the same transceiver.
+   */
+  planCodecs(
+    remoteSdp: SessionDescription,
+    view: PairingView = livePairingView,
+  ) {
     const associated = new Set<RTCRtpTransceiver>();
     return this.transceivers.planRemoteRtpCodecs(
       remoteSdp,
@@ -97,9 +123,14 @@ export class RemoteMediaApplication {
           remoteMedia,
           index,
           associated,
+          view,
         );
         if (transceiver) associated.add(transceiver);
         return transceiver;
+      },
+      (transceiver) => {
+        const state = view(transceiver);
+        return !!state && (state.stopped || state.stopping);
       },
     );
   }
@@ -238,30 +269,23 @@ export class RemoteMediaApplication {
   }
 
   /**
-   * remote m-line に対応する transceiver を探す。MID の一致を優先し、
-   * 未関連付け transceiver は同じ offer 内で異なる m-line に割り当てる。
+   * remote m-line に対応する transceiver を探す ({@link matchRemoteTransceiver})。
+   * MID の一致を優先し、未関連付け transceiver は同じ offer 内で異なる m-line に割り当てる。
    */
   private findTransceiver(
     remoteMedia: MediaDescription,
     index: number,
     associated: Set<RTCRtpTransceiver>,
+    view: PairingView = livePairingView,
   ) {
-    const candidates = this.transceivers
-      .getTransceivers()
-      .filter((t) => !associated.has(t) && t.kind === remoteMedia.kind);
-    const mid = remoteMedia.rtp.muxId;
-    const byMid =
-      mid != undefined ? candidates.find((t) => t.mid === mid) : undefined;
-    if (byMid) {
-      return byMid;
-    }
-    if (remoteMedia.port === 0) {
-      return;
-    }
-    const unassociated = candidates.filter(
-      (t) => t.mid == null && !t.stopping && !t.stopped,
+    return matchRemoteTransceiver(
+      remoteMedia,
+      index,
+      this.transceivers.getTransceivers(),
+      associated,
+      this.pairing,
+      view,
     );
-    return unassociated.find((t) => t.mLineIndex === index) ?? unassociated[0];
   }
 
   /**

@@ -9,7 +9,7 @@ import {
   TURN_TEST_USERNAME,
 } from "../../../../ice/tests/utils";
 import { InitChunk } from "../../../../sctp/src/chunk";
-import type { RTCIceCandidate } from "../../../src";
+import type { Kind, RTCIceCandidate, TransceiverPairing } from "../../../src";
 import {
   MediaStreamTrack,
   type RTCDataChannel,
@@ -683,7 +683,35 @@ export function assertNegotiationInvariants(pc: RTCPeerConnection) {
   assertSctpBinding(pc, snapshot);
   assertEffectiveValues(pc, snapshot);
   assertNoOrphanTransports(pc);
+  assertTransceiverPairing(pc, snapshot);
   return snapshot;
+}
+
+/**
+ * #816 (JSEP 5.10, `transceiverPairing: "jsep"`): a pending remote offer
+ * associates a transceiver `addTransceiver()` created only by its MID, never
+ * by pairing. Such a transceiver with a MID that only the pending remote
+ * offer has (no current description knows it) was paired with the offer.
+ */
+function assertTransceiverPairing(pc: RTCPeerConnection, snapshot: Snapshot) {
+  const config = Reflect.get(pc, "config") as { transceiverPairing: string };
+  if (config.transceiverPairing !== "jsep") return;
+  const pending = snapshot.pendingRemote;
+  if (pending?.type !== "offer") return;
+  const known = new Set(
+    [snapshot.currentLocal, snapshot.currentRemote].flatMap(
+      (description) => description?.media.map((m) => m.rtp.muxId) ?? [],
+    ),
+  );
+  const offered = new Set(pending.media.map((m) => m.rtp.muxId));
+  for (const transceiver of pc.getTransceivers()) {
+    if (transceiver.stopped || transceiver.mid == null) continue;
+    if (transceiver.createdBy !== "addTransceiver") continue;
+    expect(
+      offered.has(transceiver.mid) && !known.has(transceiver.mid),
+      `an addTransceiver() transceiver is paired with the remote offer MID ${transceiver.mid}`,
+    ).toBe(false);
+  }
 }
 
 type Snapshot = ReturnType<typeof assertDescriptionBindings>;
@@ -3481,6 +3509,30 @@ export async function createCommittedInactiveAudioPeers() {
 }
 
 // --- SDP edits of the declarative cases ---
+
+/**
+ * Arrange: two peers before any negotiation with `transceiverPairing` (#816)
+ * and `codecs` (default VP8 + H264 video, Opus audio).
+ */
+export function createPairingPeers(
+  transceiverPairing: TransceiverPairing,
+  config: ConstructorParameters<typeof RTCPeerConnection>[0] = {},
+) {
+  return createPeerPair({
+    iceServers: [],
+    codecs: { video: [useVP8(), useH264()], audio: [useOPUS()] },
+    ...config,
+    transceiverPairing,
+  });
+}
+
+/** Arrange: the transceiver `pc.addTrack()` uses for a new track of `kind`. */
+export function addTrackTransceiver(pc: RTCPeerConnection, kind: Kind) {
+  const track = new MediaStreamTrack({ kind });
+  const sender = pc.addTrack(track);
+  const transceiver = pc.getTransceivers().find((t) => t.sender === sender)!;
+  return { track, transceiver };
+}
 
 /** Arrange: two peers before any negotiation (`a` with `config`, `b` with `configB`). */
 export function createPeerPair(

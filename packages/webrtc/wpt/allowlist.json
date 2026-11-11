@@ -155,6 +155,17 @@
       "file": "webrtc/RTCPeerConnection-getStats.https.html",
       "enabled": false,
       "reason": "Deferred until the stats surface is baselined against upstream expectations."
+    },
+    {
+      "file": "webrtc/RTCRtpTransceiver.https.html",
+      "enabled": true,
+      "variant": "?rest",
+      "reason": "#816: a remote offer pairs only transceivers addTrack() created (JSEP 5.10, default transceiverPairing \"jsep\").",
+      "subtests": [
+        "checkAddTransceiverNoTrackDoesntPair",
+        "checkAddTransceiverWithTrackDoesntPair",
+        "checkAddTransceiverThenReplaceTrackDoesntPair"
+      ]
     }
   ]
 }

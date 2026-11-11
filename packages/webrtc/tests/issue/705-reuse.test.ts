@@ -251,44 +251,75 @@ describe("issue 705: m-line reuse after a confirmed stop", () => {
     }
   });
 
-  test("an unassociated answerer transceiver takes over the reused index and survives the answerer's re-offer", async () => {
-    // Arrange: callee は停止確定前に同じ kind の未関連付け transceiver を持つ
-    const { caller, callee, video } = await createNegotiatedPair();
-    const oldCalleeVideo = transceiverByMid(callee, video.mid!)!;
-    const pendingCalleeVideo = callee.addTransceiver(createTrack("video"));
+  // transceiverPairing ごとの期待値: "legacy" では addTransceiver() 起源の未関連付け
+  // transceiver が再利用位置を引き継ぎ、"jsep" (JSEP 5.10) では remote offer 用の
+  // transceiver が作られ、addTransceiver() 側は未関連付けのまま次の offer で末尾に追加される。
+  test.each([
+    { transceiverPairing: "legacy" as const, takesOver: true },
+    { transceiverPairing: "jsep" as const, takesOver: false },
+  ])(
+    "an unassociated answerer addTransceiver() transceiver and the reused index ($transceiverPairing)",
+    async ({ transceiverPairing, takesOver }) => {
+      // Arrange: callee は停止確定前に同じ kind の未関連付け transceiver を持つ
+      const { caller, callee, video } = await createNegotiatedPair({
+        transceiverPairing,
+      });
+      const oldCalleeVideo = transceiverByMid(callee, video.mid!)!;
+      const pendingCalleeVideo = callee.addTransceiver(createTrack("video"));
 
-    try {
-      // Act: caller が stop を交渉し、同じ位置を新 MID で再利用する
-      video.stop();
-      await negotiate(caller, callee);
-      const newVideo = caller.addTransceiver(createTrack("video"));
-      await negotiate(caller, callee);
+      try {
+        // Act: caller が stop を交渉し、同じ位置を新 MID で再利用する
+        video.stop();
+        await negotiate(caller, callee);
+        const newVideo = caller.addTransceiver(createTrack("video"));
+        await negotiate(caller, callee);
 
-      // Assert: callee の未関連付け transceiver が index 1 / 新 MID を引き継ぎ、MID は重複しない
-      expect(pendingCalleeVideo.mid).toBe(newVideo.mid);
-      expect(pendingCalleeVideo.mLineIndex).toBe(1);
-      expect(pendingCalleeVideo.currentDirection).toBe("sendrecv");
-      const calleeMids = callee.getTransceivers().map((t) => t.mid);
-      expect(new Set(calleeMids).size).toBe(calleeMids.length);
-      // Assert: 旧 stopped transceiver は m-line から外れ、一覧からも置き換えられる
-      expect(oldCalleeVideo.mid).toBeNull();
-      expect(oldCalleeVideo.mLineIndex).toBeUndefined();
-      expect(callee.getTransceivers()).not.toContain(oldCalleeVideo);
+        // Assert: 再利用位置 (index 1 / 新 MID) を引き継ぐのは、legacy では未関連付け
+        // transceiver、jsep では remote offer 用に作られた transceiver。MID は重複しない
+        const reusing = transceiverByMid(callee, newVideo.mid!)!;
+        expect(reusing === pendingCalleeVideo).toBe(takesOver);
+        expect(reusing.mLineIndex).toBe(1);
+        expect(reusing.currentDirection).toBe(
+          takesOver ? "sendrecv" : "recvonly",
+        );
+        if (!takesOver) {
+          expect(pendingCalleeVideo.mid).toBeNull();
+          expect(pendingCalleeVideo.direction).toBe("sendrecv");
+        }
+        const calleeMids = callee
+          .getTransceivers()
+          .map((t) => t.mid)
+          .filter((mid) => mid != null);
+        expect(new Set(calleeMids).size).toBe(calleeMids.length);
+        // Assert: 旧 stopped transceiver は m-line から外れ、一覧からも置き換えられる
+        expect(oldCalleeVideo.mid).toBeNull();
+        expect(oldCalleeVideo.mLineIndex).toBeUndefined();
+        expect(callee.getTransceivers()).not.toContain(oldCalleeVideo);
 
-      // Act: callee 側から re-offer する
-      const { offer } = await negotiate(callee, caller);
+        // Act: callee 側から re-offer する
+        const { offer } = await negotiate(callee, caller);
 
-      // Assert: 再利用した m-line は port 0 にならず、caller 側の新 transceiver も生きている
-      const lines = mLines(offer);
-      expect(lines).toHaveLength(2);
-      expect(lines[1].port).toBe(9);
-      expect(lines[1].mid).toBe(newVideo.mid);
-      expect(newVideo.stopped).toBe(false);
-      expect(newVideo.currentDirection).toBe("sendrecv");
-    } finally {
-      await closeAll(caller, callee);
-    }
-  });
+        // Assert: 再利用した m-line は port 0 にならず、caller 側の新 transceiver も生きている。
+        // jsep では未関連付けだった transceiver が新しい m-line として末尾に追加される
+        const lines = mLines(offer);
+        expect(lines).toHaveLength(takesOver ? 2 : 3);
+        expect(lines[1].port).toBe(9);
+        expect(lines[1].mid).toBe(newVideo.mid);
+        expect(newVideo.stopped).toBe(false);
+        expect(newVideo.currentDirection).toBe(
+          takesOver ? "sendrecv" : "sendonly",
+        );
+        if (!takesOver) {
+          expect(pendingCalleeVideo.mLineIndex).toBe(2);
+          expect(pendingCalleeVideo.mid).toBe(lines[2].mid);
+          // caller 側では remote offer 用の recvonly transceiver が答える
+          expect(pendingCalleeVideo.currentDirection).toBe("sendonly");
+        }
+      } finally {
+        await closeAll(caller, callee);
+      }
+    },
+  );
 
   test("rolling back the reuse offer restores the stopped transceiver and leaves the answerer transceiver unassociated", async () => {
     // Arrange: callee は停止確定前に同じ kind の未関連付け transceiver を持つ

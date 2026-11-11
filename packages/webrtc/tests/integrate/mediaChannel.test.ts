@@ -14,6 +14,7 @@ import {
   createPliPacket,
   outboundRtpStats,
   sendRawRtcp,
+  transceiverOfSender,
 } from "../fixture";
 
 describe("media", () => {
@@ -77,7 +78,8 @@ describe("media", () => {
           }),
           new Promise<void>((r) => {
             const track = new MediaStreamTrack({ kind: "video" });
-            const transceiver = pc2.addTransceiver(track);
+            // JSEP 5.10: only a transceiver addTrack() created pairs with pc1's offer
+            const transceiver = transceiverOfSender(pc2, pc2.addTrack(track));
             transceiver.sender.onReady.subscribe(() => {
               const rtpPacket = new RtpPacket(
                 new RtpHeader(),

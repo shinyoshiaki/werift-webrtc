@@ -306,6 +306,24 @@
       "variant": "",
       "subtest": "addTrack with existing sender with null track, different kind, and recvonly direction should create new sender",
       "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCRtpTransceiver.https.html",
+      "variant": "?rest",
+      "subtest": "checkAddTransceiverNoTrackDoesntPair",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCRtpTransceiver.https.html",
+      "variant": "?rest",
+      "subtest": "checkAddTransceiverWithTrackDoesntPair",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCRtpTransceiver.https.html",
+      "variant": "?rest",
+      "subtest": "checkAddTransceiverThenReplaceTrackDoesntPair",
+      "status": "PASS"
     }
   ]
 }

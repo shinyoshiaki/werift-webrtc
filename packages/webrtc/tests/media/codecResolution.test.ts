@@ -15,6 +15,7 @@ import {
   getTrackSourceCodecs,
   setTrackSourceCodecs,
 } from "../../src/media/track";
+import { transceiverOfSender } from "../fixture";
 
 function videoTrack(codec?: RTCRtpCodecParameters) {
   return new MediaStreamTrack({ kind: "video", codec });
@@ -728,8 +729,10 @@ describe("codec resolution", () => {
       const answerer = new RTCPeerConnection({
         codecs: { [kind]: [answerPrimary, answerRed] },
       });
-      const answererTransceiver = answerer.addTransceiver(
-        new MediaStreamTrack({ kind, codec: answerPrimary }),
+      // JSEP 5.10: only a transceiver addTrack() created pairs with the offer.
+      const answererTransceiver = transceiverOfSender(
+        answerer,
+        answerer.addTrack(new MediaStreamTrack({ kind, codec: answerPrimary })),
       );
       answererTransceiver.setCodecPreferences([answerRed, answerPrimary]);
 
@@ -1086,7 +1089,11 @@ describe("codec resolution", () => {
     const offer = await offerer.createOffer();
     await offerer.setLocalDescription(offer);
     const answerer = new RTCPeerConnection({ codecs: { video: [useVP8()] } });
-    const transceiver = answerer.addTransceiver("video");
+    // JSEP 5.10: only a transceiver addTrack() created pairs with the offer.
+    const transceiver = transceiverOfSender(
+      answerer,
+      answerer.addTrack(new MediaStreamTrack({ kind: "video" })),
+    );
     transceiver.setCodecPreferences([useVP8()]);
 
     // 実行: MIME が一致しない remote offer を適用して answer を作る。

@@ -185,6 +185,25 @@ export interface PeerConfig {
    */
   mLineReuse: MLineReuse;
   /**
+   * How a remote offer's m-sections are paired with local transceivers that
+   * have no MID yet. Cannot be changed after construction.
+   * - `"jsep"` (default): RFC 8829 (JSEP) section 5.10, as browsers do. An
+   *   m-section whose MID no transceiver has is associated only with an
+   *   unassociated, non-stopped transceiver of the same kind that
+   *   `addTrack()` created (or one a rollback promoted to that, JSEP 4.1.8.2).
+   *   A transceiver created by `addTransceiver()` (with or without a track,
+   *   also after `replaceTrack()` or a later `addTrack()` reusing it) is never
+   *   paired: the offer gets a new transceiver, and the local one keeps its
+   *   direction and `mid === null` until a local offer negotiates it.
+   * - `"legacy"`: behavior up to v0.27.0. Any unassociated, non-stopped
+   *   transceiver of the same kind is paired (the one at the same m-line
+   *   index first), whatever created it. In glare (perfect negotiation) the
+   *   remote offer can take over a transceiver created with
+   *   `addTransceiver(kind, { direction: "sendonly" })` and its direction
+   *   becomes `sendrecv`.
+   */
+  transceiverPairing: TransceiverPairing;
+  /**
    * Where a PLI / FIR goes when no route has its target SSRC. See {@link KeyFrameRequestRouting}.
    * - `"compatible"` (default): the sender whose RTX SSRC it is, else the only video sender.
    * - `"strict"`: not delivered, as RFC 4585 / RFC 5104 define the target.
@@ -199,6 +218,13 @@ const CertificateScopes: readonly CertificateScope[] = [
 ];
 
 const MLineReuseModes: readonly MLineReuse[] = ["compatible", "aggressive"];
+
+/** How a remote offer pairs m-sections with local transceivers. See {@link PeerConfig.transceiverPairing}. */
+export type TransceiverPairing = "jsep" | "legacy";
+export const TransceiverPairingModes: readonly TransceiverPairing[] = [
+  "jsep",
+  "legacy",
+];
 
 const MessageIntegrityModes: readonly MessageIntegrityMode[] = [
   "sha1",
@@ -333,6 +359,7 @@ export function generateDefaultPeerConfig(): PeerConfig {
     sctp: { mtu: DEFAULT_SCTP_MTU },
     pendingRtp: false,
     mLineReuse: "compatible",
+    transceiverPairing: "jsep",
     keyFrameRequestRouting: "compatible",
   };
 }
@@ -510,6 +537,26 @@ export function mergePeerConfiguration(
   ) {
     throw createWebRtcTypeError(
       `mLineReuse must be one of ${MLineReuseModes.join(", ")}`,
+    );
+  }
+
+  if (
+    normalizedConfig.transceiverPairing !== undefined &&
+    !TransceiverPairingModes.includes(normalizedConfig.transceiverPairing)
+  ) {
+    throw createWebRtcTypeError(
+      `transceiverPairing must be one of ${TransceiverPairingModes.join(", ")}`,
+    );
+  }
+
+  if (
+    isReconfiguration &&
+    normalizedConfig.transceiverPairing !== undefined &&
+    normalizedConfig.transceiverPairing !== config.transceiverPairing
+  ) {
+    throw createWebRtcDomException(
+      "InvalidModificationError",
+      "transceiverPairing cannot be changed",
     );
   }
 

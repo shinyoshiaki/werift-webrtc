@@ -12,6 +12,7 @@ import {
   RtpHeader,
   RtpPacket,
   SessionDescription,
+  type TransceiverPairing,
   useOPUS,
 } from "../../src";
 
@@ -300,14 +301,16 @@ export async function createNegotiatedPair({
   bundlePolicy,
   dataChannelFirst = false,
   connect = false,
+  transceiverPairing,
 }: {
   mLineReuse?: MLineReuse;
   bundlePolicy?: "disable";
   dataChannelFirst?: boolean;
   connect?: boolean;
+  transceiverPairing?: TransceiverPairing;
 } = {}) {
-  const caller = createPeer({ mLineReuse, bundlePolicy });
-  const callee = createPeer({ mLineReuse, bundlePolicy });
+  const caller = createPeer({ mLineReuse, bundlePolicy, transceiverPairing });
+  const callee = createPeer({ mLineReuse, bundlePolicy, transceiverPairing });
   if (connect) {
     exchangeIceCandidates(caller, callee);
   }
