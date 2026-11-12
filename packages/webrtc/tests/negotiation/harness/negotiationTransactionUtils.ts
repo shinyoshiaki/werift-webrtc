@@ -892,8 +892,15 @@ function assertRouterAndCodecs(pc: RTCPeerConnection, snapshot: Snapshot) {
     if (transceiver.stopping) continue;
     // current SDP の payload type は pending 中も current の codec・fmtp・RTCP feedback
     // で解釈される (final answer と実際の受信設定が一致する)。
+    // current SDP でこの peer が受信しない m-line (currentDirection が sendonly /
+    // inactive) は受信表を使わないので検査しない。受信表は direction が受信を含む
+    // ときだけ更新され (TransceiverManager の受信設定)、受信を再開する description が
+    // 更新し直す。再開後はこの検査が再び適用される。
+    const receivesInCurrent = ["recvonly", "sendrecv"].includes(
+      transceiver.currentDirection ?? "",
+    );
     const table = transceiver.receiver.snapshotReceiveTables().codecs;
-    for (const codec of transceiver.codecs) {
+    for (const codec of receivesInCurrent ? transceiver.codecs : []) {
       const live = table[codec.payloadType];
       if (
         !live ||

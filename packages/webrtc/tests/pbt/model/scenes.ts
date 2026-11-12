@@ -421,6 +421,20 @@ export const MODEL_SCENES: (Scene & { name: string; ref: string })[] = [
       ["b", "answer"],
     ],
   },
+  {
+    name: "a sendonly answerer's receive table is checked again with the committed RTCP feedback once it receives again",
+    ref: "2.4-T7a 5-7; origin: model property (seed 50): the stale receive table of an m-line the peer does not receive kept transport-cc the committed SDP no longer has",
+    start: "connected",
+    ops: [
+      ["a", "wireOffer", { iceRestart: false, mutation: "noNack" }],
+      ["b", "direction", { index: 0, direction: "sendonly" }],
+      ["b", "wireReply", { type: "answer", mutation: "noTwcc" }],
+      // 受信を再開する交渉で、受信表が確定した SDP の RTCP feedback に揃う。
+      ["a", "offer"],
+      ["b", "direction", { index: 0, direction: "sendrecv" }],
+      ["b", "answer"],
+    ],
+  },
   ...(["answer", "rollback"] as const).map((finish) => ({
     name: `an RTX SSRC a re-offer pairs with a new media SSRC keeps its current pairing until ${finish}`,
     ref: `2.4-3 2.4-T4 5-13; was CovC [5-13] RTX packets resolve to the current media SSRC while a re-pairing is pending and after ${finish}`,

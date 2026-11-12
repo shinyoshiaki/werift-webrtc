@@ -156,7 +156,7 @@ console.log(b.getTransceivers().length, own.mid); // 実際: 1 "0" / 期待: 2 n
 - remote offerの未知MIDと関連付くのは、`addTrack` が作った（またはrollbackでそれに昇格した）、未関連付けで停止していない同じkindのtransceiverだけ。
 - `planCodecs` と `apply` は同じ対応付けを使い、暗黙のrollbackがある場合も一致する。
 - 上記の回帰テスト、negotiationの不変条件とproperty、WPTのallowlistの追加分がすべて通る。WPT の gate は全体実行で安定するもの（`RTCRtpTransceiver` 3件と `perfect-negotiation.https.html` の setup 2件）に限る。glare 系 subtest（`perfect-negotiation.https.html` の glare 2件、stress-glare 2ファイル）の gate は本チケットの完了条件に含めない（別チケット cd89d492 の完了条件）。
-- `npm run pbt:deep` は、失敗した seed を develop と本ブランチで同じ回数ずつ単独で再実行し、本ブランチだけで新たに再現する失敗がないこと（表をレビュー依頼に添える）。develop でも失敗する seed 50（VP8 の `transport-cc`）は別チケット 046b4db0 で扱い、本チケットの判定から除く。
+- `npm run pbt:deep` は、失敗した seed を develop と本ブランチで同じ回数ずつ単独で再実行し、本ブランチだけで新たに再現する失敗がないこと（表をレビュー依頼に添える）。seed 50（VP8 の `transport-cc`）は本チケットで解消する（8章）。
 - 操作チェーン（`enqueueDescriptionOperation`）の解放順序と `negotiationneeded` の発火条件は変えない（7章）。
 - `PeerConfig.transceiverPairing`（既定 `"jsep"`、opt-in `"legacy"`）が実装されている。`"legacy"` では v0.27.0 と同じ関連付けになる（negotiation-diff の `legacyPairing` 設定で差分0件）。
 - リポジトリ内のexamples / e2e / テストが `"legacy"` に頼らずJSEPの挙動へ移行されている。README・changelog（Breaking changesと移行方法）・TSDoc・生成docsが実装と一致している。
@@ -179,7 +179,7 @@ console.log(b.getTransceivers().length, own.mid); // 実際: 1 "0" / 期待: 2 n
    - 元報告の「perfect-negotiation 系 3 ファイルの gate」という完了条件は、上の範囲に変更する（5章・完了条件を更新済み）。glare での方向の保持は、決定的なテスト（`negotiationTransactionPairing.test.ts` の glare ケース、model の固定シーン `#816 glare`）で検証する。
 3. 別チケットに分ける。
    - **cd89d492**「[W3C] operations chainの解放順序と暗黙rollbackの競合を直しperfect-negotiation stress-glareのWPT gateを戻す」: 操作チェーンの競合、原因1（`sdpManager.setLocal()` の位置での探し直し）と決定的な再現ケース、原因2（`prflx` 増加）の解消、glare 系 subtest（`perfect-negotiation.https.html` の glare 2件と stress-glare 2ファイル）の gate の復帰。
-   - **046b4db0**「[PBT] pbt:deep seed 50でVP8のRTCP feedbackにtransport-ccが残る不一致を解消する」: oracle か実装の修正、または既知の基準としての登録。
+   - **046b4db0**「[PBT] pbt:deep seed 50でVP8のRTCP feedbackにtransport-ccが残る不一致を解消する」: oracle か実装の修正、または既知の基準としての登録。→ レビュー指摘により本チケットで解消した（8章）。046b4db0 は不要になる。
 4. 再レビューを依頼する前に、`pbt:deep` で失敗した seed を develop と本ブランチで同じ回数ずつ単独で再実行した表を作り、レビュー依頼に添える。判定は「本ブランチだけで新たに再現する失敗がないこと」。
 
 ### 検証記録（2026-11-12、HEAD `cd3ac9b3b` に 7章 1・2 の未コミット変更を当てた状態）
@@ -197,3 +197,32 @@ console.log(b.getTransceivers().length, own.mid); // 実際: 1 "0" / 期待: 2 n
 | scenario 73 / 121 / 158 / 161 / 230 / 251 / 263 / 295 | はい | 0/10 | 0/10 | 単独ではすべて通過 |
 
 - 判定: 本ブランチだけで新たに再現する失敗はない（seed 50 は develop の最小シーンで再現する既存の不一致）。
+
+## 8. 追加要件：seed 50 の不一致を本チケットで解消する（レビュー指摘、2026-11-12）
+
+### 指摘
+- `assertNegotiationInvariants` の受信表の検査（`tests/negotiation/harness/negotiationTransactionUtils.ts` の `assertRouterAndCodecs`）で、確定 SDP と受信表の RTCP feedback が一致しない（受信表に SDP にない `transport-cc` が残る）。develop でも再現するが、本チケットで拡張した探索で検出され、必須の `pbt:deep` が通らない。seed 50 の最小再現を固定ケースとして残し、実装と検査条件のどちらが誤りかを切り分けて直す。
+
+### 原因（調査結果）
+- 最小再現: 接続済みのセッションで、a が NACK を除いた offer を送る → b が受信側の transceiver を `sendonly` にする → b が transport-cc を除いた answer を返す → 続く交渉（`expectSessionContinues`）。
+- `TransceiverManager` の受信設定（`src/transceiverManager.ts` の `["recvonly", "sendrecv"].includes(transceiver.direction)` の分岐）は、ローカルの direction が受信を含むときだけ受信表（`prepareReceive` / `resyncCodecs`）を更新する。b は `sendonly` なので、transport-cc のない後続の offer では受信表が更新されず、前の値が残る。
+- この m-line は current SDP で b が受信しない（`currentDirection` が `sendonly`）。そのため残った値で解釈される RTP はない。受信を再開する description（offer の `prepareReceive`、answer の `resyncCodecs`）が受信表を更新し直す。実装の状態遷移は正しく、検査条件が実際の状態遷移より厳しかった。
+
+### 対応
+- 受信表と確定 SDP の一致の検査は、current SDP でその peer が受信する m-line（`currentDirection` が `recvonly` / `sendrecv`）に限る。受信を再開した後は検査が再び適用される。
+- seed 50 の最小再現を model の固定シーン（`tests/pbt/model/scenes.ts`「a sendonly answerer's receive table is checked again with the committed RTCP feedback once it receives again」）として残す。受信を再開する交渉（a の offer → b が `sendrecv` に戻す → b の answer）を加え、再開後の受信表が確定 SDP の RTCP feedback（transport-cc なし）と一致することを検査する。
+- 実装（`src/`）は変更しない。
+
+
+### 検証記録（2026-11-12、HEAD `f15c4f9e8` に 8章の未コミット変更を当てた状態）
+- `npm run type`: 成功。`packages/webrtc` の `npm test`: 1754 件成功、5 件スキップ。model の固定シーン 59 件と `tests/negotiation` / `tests/issue/816.test.ts` の 244 件が成功。
+- `pbt:deep --jobs 8`: seed 50（model / leak）は出なくなった。残った FAILED は scenario 146、model の固定シーン「BUNDLE merged its m-lines」、model 275 / 287、leak heap seed 4。heap seed 1〜4 はすべて実行された（「no report」なし）。単独で再実行した結果（develop の一時 worktree と交互に実行）:
+
+| suite / seed | 同じ seed で同じ操作列か | develop | 本ブランチ | 内容 |
+| --- | --- | --- | --- | --- |
+| scenario 146 / 147 / 174 / 176 / 214 | はい | 0/10 | 0/10 | 単独ではすべて通過 |
+| model 287 | いいえ | 1/10 | 3/10 | 両側とも DataChannel が開かない・届かない。下の ICE restart の競合 |
+| model 275、固定シーン「BUNDLE merged its m-lines」、heap seed 4 | — | — | — | 7章の表と同じ（両側で揺れる既存の事象） |
+| heap seed 1 / 2 / 3 | はい | 0/3 | 0/3 | 実行されて通過 |
+
+- model seed 287（本ブランチ）の操作列を固定シーンにして 30 回ずつ実行すると、`jsep` 10/30・`legacy` 0/30 で失敗した（`channel dc0 did not open on both peers`）。ただし、未関連付けの transceiver を足した同じ形のシーンでは `legacy` 14/20、develop（develop にある操作だけで書いたもの）7/20 で同じ失敗になる。原因は pairing の規則ではなく、未関連付けの transceiver（自分の ICE transport を持つ）があるときに、接続直後の ICE restart で controlled 側に nomination が届かない ICE の既存の競合である。#816 で未関連付けの transceiver が残る場面が増えたため、見つかりやすくなった。別チケット **1002d5a9**「[ICE] 接続直後のICE restartでcontrolled側にnominationが届かずDataChannelが開かない競合を直す」で扱う。
