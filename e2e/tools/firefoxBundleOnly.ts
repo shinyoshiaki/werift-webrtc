@@ -132,7 +132,9 @@ async function main() {
     });
   });
   const channelMessages: string[] = [];
+  let weriftChannel: { send: (data: string) => void } | undefined;
   pc.onDataChannel.subscribe((channel) => {
+    weriftChannel = channel;
     channel.onMessage.subscribe((m) => channelMessages.push(String(m)));
   });
   let seq = 0;
@@ -169,7 +171,11 @@ async function main() {
   async function verify(name: string, offer: string, answer: string) {
     const failures: string[] = [];
     const bundleOnly = (offer.match(/^a=bundle-only/gm) ?? []).length;
-    if (name === "first" && policy === "max-bundle" && bundleOnly === 0) {
+    // Firefox writes bundle-only in a re-offer that adds an m-line, in an ICE
+    // restart offer and (max-bundle) in the first offer; without it the
+    // scenario does not exercise the ticket.
+    const expectBundleOnly = name === "first" ? policy === "max-bundle" : true;
+    if (expectBundleOnly && bundleOnly === 0) {
       failures.push("offer had no a=bundle-only (scenario not exercised)");
     }
     const sections = answer.split(/(?=^m=)/m).slice(1);
@@ -199,6 +205,13 @@ async function main() {
       "DataChannel Firefox -> werift",
       () => channelMessages.length > before,
     ).catch(() => failures.push("DataChannel did not reach werift"));
+    weriftChannel?.send(`from-werift-${name}`);
+    await until("DataChannel werift -> Firefox", async () =>
+      page.evaluate(
+        (label) => (window as any).messages.includes(label),
+        `from-werift-${name}`,
+      ),
+    ).catch(() => failures.push("DataChannel did not reach Firefox"));
 
     // RTP of every video, both ways.
     const snapshot = new Map(received);
@@ -238,6 +251,7 @@ async function main() {
           w.addVideo();
           w.addVideo();
           w.channel = w.pc.createDataChannel("probe");
+          w.channel.onmessage = (e: MessageEvent) => w.messages.push(e.data);
         });
       } else if (name === "reoffer") {
         await page.evaluate(() => (window as any).addVideo());
