@@ -2,7 +2,8 @@ import { normalizeIp } from "./resolveHostAddresses";
 
 /**
  * Local preference tiers of UDP host candidates (RFC 8445 §5.1.2.1). The
- * address of the default route comes first, so checks start with the path the
+ * default-route address (the route to the configured STUN / TURN server, else
+ * to the Internet) comes first, so checks start with the path the
  * OS would use; costly networks (VPN / tunnel) come last, as in libwebrtc.
  * Within a tier the preference decreases with the gathering order, so every
  * host candidate of a component has its own value.

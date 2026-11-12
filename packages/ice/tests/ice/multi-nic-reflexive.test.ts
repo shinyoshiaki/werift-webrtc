@@ -31,8 +31,9 @@ vi.mock("../../src/internal/defaultRoute", async (importOriginal) => {
     await importOriginal<typeof import("../../src/internal/defaultRoute")>();
   return {
     ...actual,
-    getDefaultRouteAddresses: async (useIpv4: boolean, useIpv6: boolean) =>
-      env.defaultRoutes ?? actual.getDefaultRouteAddresses(useIpv4, useIpv6),
+    getDefaultRouteAddresses: async (
+      ...args: Parameters<typeof actual.getDefaultRouteAddresses>
+    ) => env.defaultRoutes ?? actual.getDefaultRouteAddresses(...args),
   };
 });
 
@@ -251,6 +252,42 @@ describe("multi-NIC server-reflexive gathering", () => {
       );
     } finally {
       await connection.close();
+    }
+  });
+
+  test("the default route is the route to the configured STUN server", async () => {
+    // Arrange: STUN server (127.0.0.1) への経路の送信元は eth1 のアドレス。
+    // 既定経路の判定は差し替えず、実際の経路を調べる
+    useNics({ eth0: ["127.0.0.2"], eth1: ["127.0.0.1"] });
+    env.defaultRoutes = undefined;
+    const stun = await createSelectiveStunServer("127.0.0.1");
+    const connection = createTestConnection(true, {
+      stunServer: stun.address,
+      stunGatherTimeout: 1,
+      useIpv6: false,
+    });
+
+    try {
+      // Act: candidate を収集する
+      await connection.gatherCandidates();
+
+      // Assert: STUN server への経路の送信元 (eth1) の host candidate が最優先になる
+      const byHost = Object.fromEntries(
+        hostsOf(connection).map((c) => [c.host, c]),
+      );
+      expect(localPreferenceOf(byHost["127.0.0.1"])).toBe(
+        HostLocalPreference.defaultRoute,
+      );
+      expect(localPreferenceOf(byHost["127.0.0.2"])).toBe(
+        HostLocalPreference.normal,
+      );
+      // Assert: その socket は代表として待たれ、srflx が揃った状態で返る
+      expect(srflxOf(connection).map((c) => c.relatedAddress)).toContain(
+        "127.0.0.1",
+      );
+    } finally {
+      await connection.close();
+      await stun.close();
     }
   });
 

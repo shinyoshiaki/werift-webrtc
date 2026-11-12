@@ -968,12 +968,16 @@ export class Connection implements IceConnection {
         log,
       });
 
-      // The default-route address of each family: its host candidate gets
-      // the highest local preference, and its socket stands for the family
-      // when the family has no wildcard socket.
+      // The default-route address of each family: the source address of the
+      // route to the configured STUN / TURN servers (to the Internet without
+      // one). Its host candidate gets the highest local preference, and its
+      // socket is a representative of the family's server-reflexive queries.
       // Probed while the sockets bind: no server work waits for it.
       const defaultRoutes = Promise.race([
-        getDefaultRouteAddresses(this.options.useIpv4, this.options.useIpv6),
+        getDefaultRouteAddresses(this.options.useIpv4, this.options.useIpv6, [
+          ...this.stunServers.map(([host]) => host),
+          ...this.turnServers.map(({ address: [host] }) => host),
+        ]),
         this.closedSignal.then(() => [] as string[]),
       ]);
 

@@ -136,7 +136,8 @@ bound to that address, so connectivity checks leave from the advertised
 candidate on multi-NIC hosts. An address whose bind fails is not
 advertised. VPN / tunnel interfaces (`tun`, `utun`, `ipsec`, `tap`) are
 gathered with a low priority and the default-route address with the
-highest. With a STUN server, one more socket per family is bound to the
+highest: the source address of the route to the configured STUN / TURN
+server (to the Internet without one). With a STUN server, one more socket per family is bound to the
 wildcard address: it advertises no host candidate but maps the route the
 OS picks (server-reflexive candidate with `raddr 0.0.0.0`).
 `setLocalDescription()` waits only for that socket and the

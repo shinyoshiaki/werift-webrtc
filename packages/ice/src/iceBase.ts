@@ -443,10 +443,13 @@ export interface IceOptions {
    * local interface (a 1:1 NAT public address, for example) is gathered over
    * a wildcard socket. The enumerated addresses include costly networks (VPN
    * / tunnel interfaces: `ipsec`, `tun`, `utun`, `tap`) with a low local
-   * preference; `vmnet` / `veth` interfaces are excluded. The address of the
-   * default route gets the highest local preference, so checks start with
-   * the path the OS uses. With a STUN server, a wildcard socket per family
-   * maps the route the OS picks (see `stunServers`).
+   * preference; `vmnet` / `veth` interfaces are excluded. The default-route
+   * address gets the highest local preference, so checks start with the path
+   * the OS uses: the source address of the route to the first configured
+   * STUN / TURN server that resolves in the family and has a route (UDP
+   * `connect()`, no packet is sent), or of the route to the Internet without
+   * one. With a STUN server, a wildcard socket per family maps the route the
+   * OS picks (see `stunServers`).
    *
    * A family set to the wildcard address (`0.0.0.0` / `::`) gathers its
    * enumerated and additional addresses over wildcard sockets instead;
