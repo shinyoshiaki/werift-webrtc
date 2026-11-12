@@ -27,7 +27,7 @@ import type { MediaStream, MediaStreamTrack } from "./track";
 
 /**
  * @internal The operation that created a transceiver. Under
- * `transceiverPairing: "jsep"` only an `"addTrack"` one may be associated
+ * `transceiverPairing: "standard"` only an `"addTrack"` one may be associated
  * with a remote offer m-section whose MID it does not have (RFC 8829 5.10).
  */
 export type TransceiverOrigin = "addTrack" | "addTransceiver" | "remote";

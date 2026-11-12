@@ -576,7 +576,10 @@ function createContext(input: {
 function createPeerConnectionWrapper(peerConnections: Set<RTCPeerConnection>) {
   class WptRTCPeerConnection extends RTCPeerConnection {
     constructor(...args: ConstructorParameters<typeof RTCPeerConnection>) {
-      super(...args);
+      // upstream WPT はブラウザと同じ JSEP 5.10 の関連付けを前提にするので、werift の既定
+      // (transceiverPairing: "legacy") ではなく "standard" で試験する (#816)。
+      const [config, ...rest] = args;
+      super({ transceiverPairing: "standard", ...config }, ...rest);
       peerConnections.add(this);
       const setLocalDescription = this.setLocalDescription.bind(this);
       this.setLocalDescription = ((

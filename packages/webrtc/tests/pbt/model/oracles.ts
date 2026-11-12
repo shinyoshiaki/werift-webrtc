@@ -58,7 +58,7 @@ import {
  *   rollback returns it to the start of the transaction.
  * - ice: an operation that commits nothing keeps the selected pair of every
  *   connected ICE transport (a restart checks its new generation beside it).
- * - pairing (#816, `transceiverPairing: "jsep"`): a remote offer never gives
+ * - pairing (#816, `transceiverPairing: "standard"`): a remote offer never gives
  *   a MID to an unassociated transceiver that `addTransceiver()` created (JSEP
  *   5.10); it keeps its direction and gets a MID only from its own peer's
  *   local offer. What created a transceiver changes only when a rollback
@@ -481,9 +481,9 @@ export class ModelOracles implements Observer {
     before: World,
     label: string,
   ) {
-    const jsep =
+    const standard =
       (Reflect.get(pc, "config") as { transceiverPairing: string })
-        .transceiverPairing === "jsep";
+        .transceiverPairing === "standard";
     for (const { t, mid, createdBy, direction } of before.pairing) {
       if (t.createdBy !== createdBy) {
         // 生成元が変わるのは、addTrack() で再利用した remote transceiver を rollback が残すときだけ。
@@ -499,7 +499,7 @@ export class ModelOracles implements Observer {
       }
       // description の適用は app が選んだ方向を変えない。
       expect(t.direction, `${label}: direction of ${t.kind}`).toBe(direction);
-      if (!jsep || createdBy !== "addTransceiver" || mid != null) continue;
+      if (!standard || createdBy !== "addTransceiver" || mid != null) continue;
       const ownOffer = step.kind === "setLocal" && step.type === "offer";
       expect(
         t.mid == null || ownOffer,

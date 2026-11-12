@@ -688,14 +688,14 @@ export function assertNegotiationInvariants(pc: RTCPeerConnection) {
 }
 
 /**
- * #816 (JSEP 5.10, `transceiverPairing: "jsep"`): a pending remote offer
+ * #816 (JSEP 5.10, `transceiverPairing: "standard"`): a pending remote offer
  * associates a transceiver `addTransceiver()` created only by its MID, never
  * by pairing. Such a transceiver with a MID that only the pending remote
  * offer has (no current description knows it) was paired with the offer.
  */
 function assertTransceiverPairing(pc: RTCPeerConnection, snapshot: Snapshot) {
   const config = Reflect.get(pc, "config") as { transceiverPairing: string };
-  if (config.transceiverPairing !== "jsep") return;
+  if (config.transceiverPairing !== "standard") return;
   const pending = snapshot.pendingRemote;
   if (pending?.type !== "offer") return;
   const known = new Set(
@@ -1890,9 +1890,11 @@ export async function createSimulcastPeers() {
 }
 
 /** Two peers before their first negotiation, without any transceiver. */
-export function createUnnegotiatedPeers() {
-  const offerer = new RTCPeerConnection({ iceServers: [] });
-  const answerer = new RTCPeerConnection({ iceServers: [] });
+export function createUnnegotiatedPeers(
+  config: ConstructorParameters<typeof RTCPeerConnection>[0] = {},
+) {
+  const offerer = new RTCPeerConnection({ iceServers: [], ...config });
+  const answerer = new RTCPeerConnection({ iceServers: [], ...config });
   return {
     offerer,
     answerer,

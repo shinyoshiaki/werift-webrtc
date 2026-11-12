@@ -160,7 +160,7 @@
       "file": "webrtc/RTCRtpTransceiver.https.html",
       "enabled": true,
       "variant": "?rest",
-      "reason": "#816: a remote offer pairs only transceivers addTrack() created (JSEP 5.10, default transceiverPairing \"jsep\").",
+      "reason": "#816: a remote offer pairs only transceivers addTrack() created (JSEP 5.10, the WPT wrapper sets transceiverPairing \"standard\"; the werift default is \"legacy\").",
       "subtests": [
         "checkAddTransceiverNoTrackDoesntPair",
         "checkAddTransceiverWithTrackDoesntPair",

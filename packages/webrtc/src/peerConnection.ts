@@ -1504,12 +1504,12 @@ export class RTCPeerConnection extends EventTarget {
       // answerer の stop() は次の自分の offer で交渉する
       const hasUnnegotiatedStop =
         description.type === "answer" && this.settleStoppingTransceivers();
-      // W3C "check if negotiation is needed": under "jsep" pairing a remote
+      // W3C "check if negotiation is needed": under "standard" pairing a remote
       // offer leaves an addTransceiver() transceiver unassociated (JSEP
       // 5.10), so returning to stable fires negotiationneeded for it.
       const hasUnassociatedTransceiver =
         description.type === "answer" &&
-        this.config.transceiverPairing === "jsep" &&
+        this.config.transceiverPairing === "standard" &&
         this.transceiverManager
           .getTransceivers()
           .some((t) => t.mid == null && !t.stopping && !t.stopped);

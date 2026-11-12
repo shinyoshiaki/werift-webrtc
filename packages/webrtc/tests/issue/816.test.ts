@@ -7,37 +7,41 @@ import { closeAll } from "./705.helpers";
  * is in tests/negotiation/cases/negotiationTransactionPairing.test.ts.
  */
 describe("issue 816: transceiverPairing configuration", () => {
-  test("defaults to jsep, validates values and rejects changes", async () => {
+  test("defaults to legacy, validates values and rejects changes", async () => {
     // Arrange / Act: 既定値と明示値で作成する
     const defaultPc = new RTCPeerConnection();
-    const legacyPc = new RTCPeerConnection({ transceiverPairing: "legacy" });
+    const standardPc = new RTCPeerConnection({
+      transceiverPairing: "standard",
+    });
 
     try {
-      // Assert: 既定は jsep で getConfiguration に現れる。値の一覧は jsep と legacy
-      expect(defaultPc.getConfiguration().transceiverPairing).toBe("jsep");
-      expect(legacyPc.getConfiguration().transceiverPairing).toBe("legacy");
-      expect(TransceiverPairingModes).toEqual(["jsep", "legacy"]);
+      // Assert: 既定は legacy (v0.27.0 と同じ関連付け) で getConfiguration に現れる。値の一覧は standard と legacy
+      expect(defaultPc.getConfiguration().transceiverPairing).toBe("legacy");
+      expect(standardPc.getConfiguration().transceiverPairing).toBe("standard");
+      expect(TransceiverPairingModes).toEqual(["standard", "legacy"]);
 
-      // Assert: 無効値は生成時に TypeError
-      expect(
-        () => new RTCPeerConnection({ transceiverPairing: "any" as never }),
-      ).toThrow(TypeError);
+      // Assert: 無効値 (旧名 "jsep" を含む) は生成時に TypeError
+      for (const value of ["any", "jsep"]) {
+        expect(
+          () => new RTCPeerConnection({ transceiverPairing: value as never }),
+        ).toThrow(TypeError);
+      }
 
       // Assert: 途中変更は拒否し、同じ値の再設定は許可する
       expect(() =>
-        defaultPc.setConfiguration({ transceiverPairing: "legacy" }),
+        defaultPc.setConfiguration({ transceiverPairing: "standard" }),
       ).toThrow(expect.objectContaining({ name: "InvalidModificationError" }));
       expect(() =>
-        defaultPc.setConfiguration({ transceiverPairing: "jsep" }),
+        defaultPc.setConfiguration({ transceiverPairing: "legacy" }),
       ).not.toThrow();
-      expect(defaultPc.getConfiguration().transceiverPairing).toBe("jsep");
+      expect(defaultPc.getConfiguration().transceiverPairing).toBe("legacy");
     } finally {
-      await closeAll(defaultPc, legacyPc);
+      await closeAll(defaultPc, standardPc);
     }
   });
 
   test.each([
-    { transceiverPairing: "jsep" as const, transceivers: 2, mid: null },
+    { transceiverPairing: "standard" as const, transceivers: 2, mid: null },
     { transceiverPairing: "legacy" as const, transceivers: 1, mid: "0" },
   ])(
     "the #816 report: $transceiverPairing",
@@ -53,7 +57,7 @@ describe("issue 816: transceiverPairing configuration", () => {
         // Act: a の offer を b に適用する
         await b.setRemoteDescription(a.localDescription!);
 
-        // Assert: jsep は remote offer 用の transceiver を作り own は MID null のまま、legacy は v0.27.0 と同じく own に関連付ける
+        // Assert: standard は remote offer 用の transceiver を作り own は MID null のまま、legacy は v0.27.0 と同じく own に関連付ける
         expect(b.getTransceivers().length).toBe(transceivers);
         expect(own.mid).toBe(mid);
         expect(own.direction).toBe("sendrecv");

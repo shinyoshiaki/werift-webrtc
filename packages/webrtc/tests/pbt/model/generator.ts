@@ -48,7 +48,7 @@ export type Side = "a" | "b";
  * rewrites on the wire have something to change.
  */
 export const modelConfig = (
-  transceiverPairing: TransceiverPairing = "jsep",
+  transceiverPairing: TransceiverPairing = "standard",
 ) => ({
   transceiverPairing,
   codecs: {
@@ -74,8 +74,9 @@ export type Start = "connected" | "unnegotiated" | "media";
 /** One operation: the peer that takes it, its name and the choices it made. */
 export type Op = [Side, string, Record<string, unknown>?];
 /**
- * `pairing`: the `transceiverPairing` of both peers (default `"jsep"`; a
- * generated scene draws `"legacy"` sometimes, #816).
+ * `pairing`: the `transceiverPairing` of both peers (default `"standard"`, the
+ * JSEP 5.10 rules the oracles check; a generated scene draws `"legacy"`, the
+ * werift default, sometimes, #816).
  */
 export type Scene = { start: Start; ops: Op[]; pairing?: TransceiverPairing };
 
@@ -514,7 +515,7 @@ async function deliver(
 async function arrange(
   c: NegotiationCase,
   start: Start,
-  pairing: TransceiverPairing = "jsep",
+  pairing: TransceiverPairing = "standard",
 ): Promise<World & Peers2> {
   const oracles = new ModelOracles(c);
   let a: RTCPeerConnection;
@@ -538,7 +539,7 @@ async function arrange(
     oracles.channel(scope.bChannel, b);
   }
   oracles.watch(a, b);
-  c.note(`start: ${start}${pairing === "jsep" ? "" : ` (${pairing})`}`);
+  c.note(`start: ${start}${pairing === "standard" ? "" : ` (${pairing})`}`);
   return { c, oracles, saved: new Map(), created: 0, a, b };
 }
 type Peers2 = { a: RTCPeerConnection; b: RTCPeerConnection };

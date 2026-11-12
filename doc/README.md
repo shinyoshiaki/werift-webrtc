@@ -82,18 +82,18 @@ See [the design note](_media/705-media-rejection-and-removetrack.md) for BUNDLE,
 `transceiverPairing` selects which local transceiver a remote offer's m-section is paired with when no transceiver has its MID yet (Issue #816). It is fixed at construction time.
 
 ```ts
-new RTCPeerConnection(); // transceiverPairing: "jsep" (default, RFC 8829 section 5.10, as browsers)
-new RTCPeerConnection({ transceiverPairing: "legacy" }); // werift up to v0.27.0
+new RTCPeerConnection(); // transceiverPairing: "legacy" (default, werift up to v0.27.0)
+new RTCPeerConnection({ transceiverPairing: "standard" }); // RFC 8829 section 5.10, as browsers
 ```
 
 | `transceiverPairing` | an unassociated transceiver of the same kind paired with the offer | glare (perfect negotiation) |
 | --- | --- | --- |
-| `"jsep"` (default) | only one `addTrack()` created (or a remote one `addTrack()` reused that a rollback kept), and only for a `sendrecv` / `recvonly` m-section (a `sendonly` / `inactive` one gets a new transceiver, RFC 9429 5.10). One `addTransceiver()` created is never paired, with or without a track, also after `replaceTrack()` or a later `addTrack()` reused it: the offer gets a new transceiver and the local one keeps its `direction` and `mid === null` until your next offer negotiates it (`negotiationneeded` fires after the answer). | the direction you gave `addTransceiver()` (e.g. `"sendonly"`) is kept |
-| `"legacy"` | any one, whatever created it (the one at the same m-line index first) | the remote offer can take over your `addTransceiver()` transceiver, and its direction becomes the negotiated one (e.g. `"sendonly"` becomes `"sendrecv"`) |
+| `"legacy"` (default) | any one, whatever created it (the one at the same m-line index first) | the remote offer can take over your `addTransceiver()` transceiver, and its direction becomes the negotiated one (e.g. `"sendonly"` becomes `"sendrecv"`) |
+| `"standard"` | only one `addTrack()` created (or a remote one `addTrack()` reused that a rollback kept), and only for a `sendrecv` / `recvonly` m-section (a `sendonly` / `inactive` one gets a new transceiver, RFC 8829 5.10). One `addTransceiver()` created is never paired, with or without a track, also after `replaceTrack()` or a later `addTrack()` reused it: the offer gets a new transceiver and the local one keeps its `direction` and `mid === null` until your next offer negotiates it (`negotiationneeded` fires after the answer). | the direction you gave `addTransceiver()` (e.g. `"sendonly"`) is kept |
 
-Migrating an answerer that called `addTransceiver()` before `setRemoteDescription(offer)` and relied on the pairing:
+Use `"standard"` for the perfect negotiation pattern and for code written for browsers. An answerer that calls `addTransceiver()` before `setRemoteDescription(offer)` and relies on the pairing changes as follows under `"standard"`:
 
-- Send and receive on the offered m-line: use `pc.addTrack(track)` instead (it is paired under `"jsep"` too), or, after `setRemoteDescription()`, set `direction` on the transceiver the offer created (`pc.getTransceivers()`, `ontrack` or `onRemoteTransceiverAdded`) and call `sender.replaceTrack(track)` on it.
+- Send and receive on the offered m-line: use `pc.addTrack(track)` instead (it is paired under `"standard"` too), or, after `setRemoteDescription()`, set `direction` on the transceiver the offer created (`pc.getTransceivers()`, `ontrack` or `onRemoteTransceiverAdded`) and call `sender.replaceTrack(track)` on it.
 
 ```ts
 pc.onRemoteTransceiverAdded.subscribe((transceiver) => {
@@ -105,7 +105,8 @@ await pc.setLocalDescription(await pc.createAnswer());
 ```
 
 - A receive-only transceiver with a fixed direction created before the offer: set `direction` on the transceiver the offer created instead.
-- If you cannot migrate yet: `new RTCPeerConnection({ transceiverPairing: "legacy" })`.
+
+These patterns work under both values.
 
 ## Documentation
 

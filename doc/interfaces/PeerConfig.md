@@ -326,20 +326,22 @@ SCTP outbound packet MTU used for DATA chunk fragmentation.
 
 How a remote offer's m-sections are paired with local transceivers that
 have no MID yet. Cannot be changed after construction.
-- `"jsep"` (default): RFC 8829 (JSEP) section 5.10, as browsers do. An
-  m-section whose MID no transceiver has is associated only with an
-  unassociated, non-stopped transceiver of the same kind that
-  `addTrack()` created (or one a rollback promoted to that, JSEP 4.1.8.2).
-  A transceiver created by `addTransceiver()` (with or without a track,
-  also after `replaceTrack()` or a later `addTrack()` reusing it) is never
-  paired: the offer gets a new transceiver, and the local one keeps its
-  direction and `mid === null` until a local offer negotiates it.
-- `"legacy"`: behavior up to v0.27.0. Any unassociated, non-stopped
-  transceiver of the same kind is paired (the one at the same m-line
-  index first), whatever created it. In glare (perfect negotiation) the
-  remote offer can take over a transceiver created with
+- `"legacy"` (default): behavior up to v0.27.0. Any unassociated,
+  non-stopped transceiver of the same kind is paired (the one at the same
+  m-line index first), whatever created it. In glare (perfect negotiation)
+  the remote offer can take over a transceiver created with
   `addTransceiver(kind, { direction: "sendonly" })` and its direction
   becomes `sendrecv`.
+- `"standard"`: RFC 8829 (JSEP) section 5.10, as browsers do. An
+  m-section whose MID no transceiver has is associated only with an
+  unassociated, non-stopped transceiver of the same kind that
+  `addTrack()` created (or one a rollback promoted to that, JSEP 4.1.8.2),
+  and only when the m-section is `sendrecv` or `recvonly`. A transceiver
+  created by `addTransceiver()` (with or without a track, also after
+  `replaceTrack()` or a later `addTrack()` reusing it) is never paired:
+  the offer gets a new transceiver, and the local one keeps its direction
+  and `mid === null` until a local offer negotiates it. Use it for the
+  perfect negotiation pattern and for code written for browsers.
 
 ***
 

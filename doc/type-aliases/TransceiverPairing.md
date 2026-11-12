@@ -6,6 +6,6 @@
 
 # Type Alias: TransceiverPairing
 
-> **TransceiverPairing** = `"jsep"` \| `"legacy"`
+> **TransceiverPairing** = `"standard"` \| `"legacy"`
 
 How a remote offer pairs m-sections with local transceivers. See [PeerConfig.transceiverPairing](../interfaces/PeerConfig.md#transceiverpairing).

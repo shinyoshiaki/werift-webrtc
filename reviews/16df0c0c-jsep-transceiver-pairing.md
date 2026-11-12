@@ -30,7 +30,7 @@ remote offer の m-section に MID が一致する transceiver がないとき�
 </ol>
 </div>
 <div style="flex:1;min-width:300px;border:1px solid #27ae60;border-radius:8px;padding:10px">
-<b style="color:#27ae60">After（jsep、既定）</b>
+<b style="color:#27ae60">After（standard、opt-in）</b>
 <ol style="margin:6px 0 0 18px;padding:0">
 <li><code>matchRemoteTransceiver()</code>: MID 不一致</li>
 <li>候補を <code>createdBy === "addTrack"</code> に絞る。sendonly / inactive の m-line は新規作成</li>
@@ -62,17 +62,17 @@ remote offer の m-section に MID が一致する transceiver がないとき�
 ### 3.4 rollback での昇格と negotiationneeded
 
 - rollback で残る remote 起源 transceiver が `addTrack()` で再利用されていたら `createdBy` を `"addTrack"` に昇格します（JSEP 4.1.8.2）。[packages/webrtc/src/transceiverManager.ts:223](review-diff:packages/webrtc/src/transceiverManager.ts:223)
-- 関連付かなかった `addTransceiver` 分を次の offer に載せるため、answer 確定後に未関連付けの transceiver があれば `negotiationneeded` を再評価します（jsep のみ）。[packages/webrtc/src/peerConnection.ts:1510](review-diff:packages/webrtc/src/peerConnection.ts:1510)
+- 関連付かなかった `addTransceiver` 分を次の offer に載せるため、answer 確定後に未関連付けの transceiver があれば `negotiationneeded` を再評価します（standard のみ）。[packages/webrtc/src/peerConnection.ts:1510](review-diff:packages/webrtc/src/peerConnection.ts:1510)
 
 ### 3.5 公開オプション
 
-[packages/webrtc/src/api/peerConfig.ts:205](review-diff:packages/webrtc/src/api/peerConfig.ts:205) に `transceiverPairing`（既定 `"jsep"`）を追加しました。不正値は `TypeError`、`setConfiguration()` での変更は `InvalidModificationError` で、`mLineReuse` と同じ扱いです。
+[packages/webrtc/src/api/peerConfig.ts:205](review-diff:packages/webrtc/src/api/peerConfig.ts:205) に `transceiverPairing`（既定 `"legacy"`、JSEP 準拠は `"standard"` で opt-in）を追加しました。不正値は `TypeError`、`setConfiguration()` での変更は `InvalidModificationError` で、`mLineReuse` と同じ扱いです。
 
 ### 3.6 利用側の移行・docs・テスト・WPT
 
 - examples と e2e handler は、answer 側が SRD 前に `addTransceiver()` していた箇所を `addTrack()` などに書き換え、`legacy` に頼らない形にしました（例: [examples/mediachannel/sendrecv/answer.ts](review-diff:examples/mediachannel/sendrecv/answer.ts)）。
 - [changelog.md](review-diff:changelog.md) に Breaking changes と Features を追記し、[packages/webrtc/README.md](review-diff:packages/webrtc/README.md) と生成 docs を更新しました。
-- テスト: [packages/webrtc/tests/negotiation/cases/negotiationTransactionPairing.test.ts](review-file:packages/webrtc/tests/negotiation/cases/negotiationTransactionPairing.test.ts)（jsep / legacy の表比較）、[packages/webrtc/tests/issue/816.test.ts](review-file:packages/webrtc/tests/issue/816.test.ts)（設定の検証）、PBT の [oracle](review-diff:packages/webrtc/tests/pbt/model/oracles.ts) と [固定シーン](review-diff:packages/webrtc/tests/pbt/model/scenes.ts:559)。
+- テスト: [packages/webrtc/tests/negotiation/cases/negotiationTransactionPairing.test.ts](review-file:packages/webrtc/tests/negotiation/cases/negotiationTransactionPairing.test.ts)（standard / legacy の表比較）、[packages/webrtc/tests/issue/816.test.ts](review-file:packages/webrtc/tests/issue/816.test.ts)（設定の検証）、PBT の [oracle](review-diff:packages/webrtc/tests/pbt/model/oracles.ts) と [固定シーン](review-diff:packages/webrtc/tests/pbt/model/scenes.ts:559)。
 - [packages/webrtc/tools/negotiation-diff/run.ts:90](review-diff:packages/webrtc/tools/negotiation-diff/run.ts:90) に `legacyPairing` 設定を追加しました。
 - [packages/webrtc/wpt/allowlist.json](review-diff:packages/webrtc/wpt/allowlist.json) に `RTCRtpTransceiver` の DoesntPair 3 件と perfect-negotiation の setup 2 件を gate として追加し、glare 系は `enabled: false` または gate 外にしました。
 
@@ -80,7 +80,7 @@ remote offer の m-section に MID が一致する transceiver がないとき�
 
 | 選択 | 理由 | 採らなかった案 |
 | --- | --- | --- |
-| 既定を `"jsep"`（破壊的変更） | 実際の glare で指定方向が壊れるのは相互接続の誤りで、WPT 専用の厳密化ではない。`werift/polyfill` の利用者もブラウザ挙動を期待する。`mLineReuse`（v0.25.0）に前例がある | 既定を legacy のままにする案。既定経路に不具合が残る |
+| 既定を `"legacy"`、JSEP 準拠を `"standard"` で opt-in（2026-11-12 にユーザー指示で変更） | 既存アプリの関連付けを変えない（破壊的変更にしない）。upstream WPT は wrapper（`tools/wpt-runner/runner.ts`）で `"standard"` を使う（ルート AGENTS.md Do 5） | 当初は既定を `"jsep"`（破壊的変更）としていた。値の名前も `"jsep"` から `"standard"` に変更 |
 | 関連付けを純関数 + view で共有 | plan と apply の食い違いを構造的に防ぐ | rollback 後に planCodecs をやり直す案。codec 非互換を rollback 前に拒否する既存設計が崩れる |
 | 生成元を snapshot に含めない | アプリ操作で決まる属性で、含めると rollback で巻き戻る | なし |
 | 操作チェーンの遅延解放（旧 `a29d5c0`）を取り除く | PBT seed 263 の回帰の原因で、#816 の範囲外。別チケット cd89d492 に分離 | 本チケットで同時に直す案 |
@@ -88,7 +88,7 @@ remote offer の m-section に MID が一致する transceiver がないとき�
 ## 5. レビュアーが確認すべき点・リスク
 
 - **破壊的変更**: SRD の前に `addTransceiver()` して自動関連付けに頼っていた answer 側は、新しい transceiver が作られ、元の transceiver は未関連付けのまま残ります。移行は changelog と README にあります。
-- jsep では remote の m-line が `sendonly` / `inactive` のとき、`addTrack` 起源でも関連付けず新規作成します（[transceiverPairing.ts:78](review-file:packages/webrtc/src/negotiation/transceiverPairing.ts:78) 付近）。チケット本文にない条件なので、仕様（JSEP §5.10）との整合を確認してください。
+- standard では remote の m-line が `sendonly` / `inactive` のとき、`addTrack` 起源でも関連付けず新規作成します（[transceiverPairing.ts:78](review-file:packages/webrtc/src/negotiation/transceiverPairing.ts:78) 付近）。チケット本文にない条件なので、仕様（JSEP §5.10）との整合を確認してください。
 - `pairingViewForRemoteOffer()` は `restoreState` 等の処理を写した実装で、二重管理です。rollback の仕様を変えるときは両方の更新が要ります。
 - glare 系 WPT（`glare` 2 件、stress-glare 2 ファイル）は gate に入っていません。develop にも操作チェーンの競合があり、cd89d492 の範囲です。
 - 型 `TransceiverPairing` / `TransceiverPairingModes` が公開されます（`peerConnection.ts` から export）。

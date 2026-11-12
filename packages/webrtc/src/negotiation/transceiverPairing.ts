@@ -45,7 +45,7 @@ export const livePairingView: PairingView = livePairingState;
  * - A port-0 m-line with an unknown MID takes no transceiver.
  * - Otherwise an unassociated (`mid == null`), non-stopping, non-stopped
  *   transceiver of the same kind is taken, the one at the same m-line index
- *   first. Under `"jsep"` it must have been created by `addTrack()` (or a
+ *   first. Under `"standard"` it must have been created by `addTrack()` (or a
  *   rollback promoted it to that), and the m-line must be sendrecv or
  *   recvonly (a `sendonly` / `inactive` m-line gets a new transceiver, RFC 9429
  *   5.10); under `"legacy"` any origin and direction pairs.
@@ -79,7 +79,7 @@ export function matchRemoteTransceiver(
     return;
   }
   if (
-    pairing === "jsep" &&
+    pairing === "standard" &&
     (remoteMedia.direction === "sendonly" ||
       remoteMedia.direction === "inactive")
   ) {

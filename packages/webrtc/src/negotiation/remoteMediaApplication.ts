@@ -56,7 +56,7 @@ export type RemoteMediaPlan = {
  * updates the caller runs after every fallible step.
  *
  * m-line association (`matchRemoteTransceiver`): the MID first, then, under
- * `transceiverPairing: "jsep"`, only an unassociated transceiver
+ * `transceiverPairing: "standard"`, only an unassociated transceiver
  * `addTrack()` created (RFC 8829 5.10); a transceiver `addTransceiver()`
  * created keeps its direction and `mid === null`, and the offer gets a new
  * transceiver. `planCodecs` and `apply` pair through the same function and
@@ -95,7 +95,7 @@ export class RemoteMediaApplication {
       createOwnerTransport: () => RTCDtlsTransport;
       onRemoteTransceiverAdded: (transceiver: RTCRtpTransceiver) => void;
     },
-    pairing: TransceiverPairing = "jsep",
+    pairing: TransceiverPairing = "legacy",
   ) {
     this.pairing = pairing;
     this.sdp = sdp;

@@ -252,11 +252,11 @@ describe("issue 705: m-line reuse after a confirmed stop", () => {
   });
 
   // transceiverPairing ごとの期待値: "legacy" では addTransceiver() 起源の未関連付け
-  // transceiver が再利用位置を引き継ぎ、"jsep" (JSEP 5.10) では remote offer 用の
+  // transceiver が再利用位置を引き継ぎ、"standard" (JSEP 5.10) では remote offer 用の
   // transceiver が作られ、addTransceiver() 側は未関連付けのまま次の offer で末尾に追加される。
   test.each([
     { transceiverPairing: "legacy" as const, takesOver: true },
-    { transceiverPairing: "jsep" as const, takesOver: false },
+    { transceiverPairing: "standard" as const, takesOver: false },
   ])(
     "an unassociated answerer addTransceiver() transceiver and the reused index ($transceiverPairing)",
     async ({ transceiverPairing, takesOver }) => {
@@ -275,7 +275,7 @@ describe("issue 705: m-line reuse after a confirmed stop", () => {
         await negotiate(caller, callee);
 
         // Assert: 再利用位置 (index 1 / 新 MID) を引き継ぐのは、legacy では未関連付け
-        // transceiver、jsep では remote offer 用に作られた transceiver。MID は重複しない
+        // transceiver、standard では remote offer 用に作られた transceiver。MID は重複しない
         const reusing = transceiverByMid(callee, newVideo.mid!)!;
         expect(reusing === pendingCalleeVideo).toBe(takesOver);
         expect(reusing.mLineIndex).toBe(1);
@@ -300,7 +300,7 @@ describe("issue 705: m-line reuse after a confirmed stop", () => {
         const { offer } = await negotiate(callee, caller);
 
         // Assert: 再利用した m-line は port 0 にならず、caller 側の新 transceiver も生きている。
-        // jsep では未関連付けだった transceiver が新しい m-line として末尾に追加される
+        // standard では未関連付けだった transceiver が新しい m-line として末尾に追加される
         const lines = mLines(offer);
         expect(lines).toHaveLength(takesOver ? 2 : 3);
         expect(lines[1].port).toBe(9);

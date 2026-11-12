@@ -54,7 +54,7 @@ console.log(b.getTransceivers().length, own.mid); // 実際: 1 "0" / 期待: 2 n
 - 代替案: 暗黙のrollbackが起きるケースだけ、rollback後に `planCodecs` をやり直す。ただしrollback前にcodec非互換などを検証して拒否する既存の設計（コメント "Resolve codec compatibility before implicit rollback"）が崩れるので、採用するなら理由を記録する。
 - どちらの案でも、1つのoffer内で同じtransceiverを複数のm-lineに割り当てない（既存の `associated` Setを維持する）。
 
-### 2.5 既定動作と互換性（決定済み）
+### 2.5 既定動作と互換性（**9章で変更済み**: 既定は `"legacy"`、JSEP 準拠の値は `"standard"`。以下は当初の決定の記録）
 
 **決定: 案A（既定をJSEP準拠にする破壊的変更）を採用する。** 公開PeerConfigオプション `transceiverPairing: "jsep" | "legacy"` を追加し、既定を `"jsep"` にする。現行の挙動は `"legacy"` でopt-inする。changelogでは ⚠️ Breaking changes として扱う。
 
@@ -138,9 +138,9 @@ console.log(b.getTransceivers().length, own.mid); // 実際: 1 "0" / 期待: 2 n
 - [ ] rollback: remote起源のtransceiverに `addTrack` → rollback → 相手のre-offerで再び関連付く。
 - [ ] WPT: `RTCRtpTransceiver.https.html` の `checkAddTransceiver*DoesntPair` 3件と、`RTCPeerConnection-perfect-negotiation.https.html` の setup 2件（`setup connects` / `setup connects with roles reversed`）を `wpt/allowlist.json` と `wpt/baseline.json` に追加し、全体 `npm run wpt` を繰り返して回帰 0。glare 系 subtest（`perfect-negotiation.https.html` の `glare` / `glare with roles reversed`、stress-glare 2ファイル）は gate に入れない（7章、別チケット cd89d492）。glare での方向の保持は `tests/negotiation/cases/negotiationTransactionPairing.test.ts` と model の固定シーン（`tests/pbt/model/scenes.ts` の #816 glare）で検証する。
 - [ ] `transceiverPairing: "legacy"` の回帰テスト: #816 の再現コードで、transceiverが1個、ローカル側のMIDが `"0"` になる（v0.27.0 と同じ）。主要なケース（addTransceiverとの関連付け、複数m-section）は `"jsep"` / `"legacy"` の2モードを表で比べるテストにする（`negotiationTest` のfixtureを使う）。
-- [ ] `PeerConfig` の検証: 既定は `"jsep"`。不正な値は `TypeError`。`setConfiguration()` で値を変えると `InvalidModificationError`、同じ値なら成功（`tests/issue/705.test.ts` の "issue 705: mLineReuse configuration" と同じ形。構成の検証は `tests/issue/816.test.ts` に置き、negotiationの挙動のケースは `tests/negotiation/cases/` に置く）。
+- [ ] `PeerConfig` の検証: 既定は `"legacy"`（9章）。値は `"standard"` / `"legacy"` で、旧名 `"jsep"` を含む不正な値は `TypeError`。`setConfiguration()` で値を変えると `InvalidModificationError`、同じ値なら成功（`tests/issue/816.test.ts`）。
 - [ ] 移行したexamples / e2e / テストが `"legacy"` を付けずに通る。
-- [ ] negotiationのharness（`negotiationTransactionUtils.ts`）、PBTのscenario / fuzz / modelは、既定の `"jsep"` で動く。modelのgeneratorには、構成の軸として `"legacy"` も入れる。
+- [ ] negotiationのharness（`negotiationTransactionUtils.ts`）、PBTのscenario / fuzz は既定の `"legacy"` で動く。model（と leak）は `"standard"` で動き、構成の軸として `"legacy"` も入れる。JSEP 5.10 の挙動を確かめる個別テストは `"standard"` を明示する（9章）。
 
 ## 6. 検証コマンド
 
@@ -148,7 +148,7 @@ console.log(b.getTransceivers().length, own.mid); // 実際: 1 "0" / 期待: 2 n
 - `cd packages/webrtc && npm run pbt:deep`（レビュー前）と `tools/negotiation-diff` による develop との比較
 - `npm run wpt`（allowlistを変更したため）、必要に応じて `npm run wpt:coverage`
 - 既定の挙動を変え、公開APIも追加するので: `npm run type`、`npm run test:small`、`npm run e2e`、`npm run examples:e2e`、`npm run doc`
-- `tools/negotiation-diff`: `--configs` で `legacyPairing` だけを指定すると差分0件。既定の設定では差分を分類する（4章）
+- `tools/negotiation-diff`: 既定の設定（`"legacy"`）では develop との差分0件。`--configs standardPairing`（`{ transceiverPairing: "standard" }`）で出る差分は #816 の種類に限る（9章）。
 
 ## 完了条件
 
@@ -158,8 +158,8 @@ console.log(b.getTransceivers().length, own.mid); // 実際: 1 "0" / 期待: 2 n
 - 上記の回帰テスト、negotiationの不変条件とproperty、WPTのallowlistの追加分がすべて通る。WPT の gate は全体実行で安定するもの（`RTCRtpTransceiver` 3件と `perfect-negotiation.https.html` の setup 2件）に限る。glare 系 subtest（`perfect-negotiation.https.html` の glare 2件、stress-glare 2ファイル）の gate は本チケットの完了条件に含めない（別チケット cd89d492 の完了条件）。
 - `npm run pbt:deep` は、失敗した seed を develop と本ブランチで同じ回数ずつ単独で再実行し、本ブランチだけで新たに再現する失敗がないこと（表をレビュー依頼に添える）。seed 50（VP8 の `transport-cc`）は本チケットで解消する（8章）。
 - 操作チェーン（`enqueueDescriptionOperation`）の解放順序と `negotiationneeded` の発火条件は変えない（7章）。
-- `PeerConfig.transceiverPairing`（既定 `"jsep"`、opt-in `"legacy"`）が実装されている。`"legacy"` では v0.27.0 と同じ関連付けになる（negotiation-diff の `legacyPairing` 設定で差分0件）。
-- リポジトリ内のexamples / e2e / テストが `"legacy"` に頼らずJSEPの挙動へ移行されている。README・changelog（Breaking changesと移行方法）・TSDoc・生成docsが実装と一致している。
+- `PeerConfig.transceiverPairing`（既定 `"legacy"`、opt-in `"standard"`、9章）が実装されている。既定の `"legacy"` では v0.27.0 と同じ関連付けになる（negotiation-diff の既定設定で差分0件）。
+- リポジトリ内のexamples / e2e は、どちらの値でも動く書き方（`addTrack()` か remote 側の transceiver を使う）に移行されている。README・changelog（Breaking changes ではなく Features として記載）・TSDoc・生成docsが実装と一致している。upstream WPT は wrapper で `"standard"` を使う（ルート AGENTS.md Do 5）。
 
 ## 7. 追加要件：範囲を #816 に戻す（打開策 案A、2026-11-12 決定）
 
@@ -226,3 +226,18 @@ console.log(b.getTransceivers().length, own.mid); // 実際: 1 "0" / 期待: 2 n
 | heap seed 1 / 2 / 3 | はい | 0/3 | 0/3 | 実行されて通過 |
 
 - model seed 287（本ブランチ）の操作列を固定シーンにして 30 回ずつ実行すると、`jsep` 10/30・`legacy` 0/30 で失敗した（`channel dc0 did not open on both peers`）。ただし、未関連付けの transceiver を足した同じ形のシーンでは `legacy` 14/20、develop（develop にある操作だけで書いたもの）7/20 で同じ失敗になる。原因は pairing の規則ではなく、未関連付けの transceiver（自分の ICE transport を持つ）があるときに、接続直後の ICE restart で controlled 側に nomination が届かない ICE の既存の競合である。#816 で未関連付けの transceiver が残る場面が増えたため、見つかりやすくなった。別チケット **1002d5a9**「[ICE] 接続直後のICE restartでcontrolled側にnominationが届かずDataChannelが開かない競合を直す」で扱う。
+
+## 9. 追加要件：既定を `"legacy"` にし、JSEP 準拠の値を `"standard"` に改名する（ユーザー指示、2026-11-12）
+
+### 指示
+- `transceiverPairing: "legacy"` を既定にし、標準仕様（RFC 8829 §5.10）に従う方の値を `"compatible"` か `"standard"` に改名する。
+
+### 決定
+- 値の名前は **`"standard"`** にする。`"compatible"` は `"legacy"` と並ぶと「後方互換」の意味に読めて逆の意味になりうるため。型は `TransceiverPairing = "standard" | "legacy"`、`TransceiverPairingModes` は `["standard", "legacy"]`。旧名 `"jsep"` は未リリースなので受け付けない（`TypeError`）。
+- 既定は `"legacy"`（v0.27.0 と同じ関連付け）。破壊的変更ではなくなるので、changelog は ⚠️ Breaking changes から外し、🚀 Features に「perfect negotiation やブラウザ向けのコードでは `transceiverPairing: "standard"` を指定する」と書く。
+- 2.5 の決定理由 1〜3（相互接続の誤り、polyfill 利用者の期待）は `"standard"` を選んだ場合の利点として README / TSDoc に残す。既定の経路（`"legacy"`）では glare で `sendonly` が `sendrecv` に変わりうることを TSDoc と README に明記する。
+- upstream WPT はブラウザと同じ JSEP 5.10 を前提にするので、WPT の wrapper（`tools/wpt-runner/runner.ts` の `WptRTCPeerConnection`）で、テストが値を指定しないときは `"standard"` を使う。厳密な挙動を wrapper の中だけに置くルート `AGENTS.md` Do 5 に従う（2.5 の「wrapper では上書きしない」は取り消す）。
+- テスト: JSEP 5.10 の挙動を確かめる個別テストは `"standard"` を明示する（例: `negotiationTransactionCoverageCodecs.test.ts` の [2.4-7]、共有の Arrange `createUnnegotiatedPeers(config)`）。model / leak の PBT は `"standard"` を主に、`"legacy"` を軸として探索する。scenario / fuzz は既定（`"legacy"`）で動く。
+- negotiation-diff: `legacyPairing` 設定を `standardPairing`（`{ transceiverPairing: "standard" }`）に置き換える。既定設定は develop と差分0件になる。
+- 移行済みの examples / e2e（`addTrack()` や remote 側の transceiver を使う書き方）は、どちらの値でも動くので戻さない。
+

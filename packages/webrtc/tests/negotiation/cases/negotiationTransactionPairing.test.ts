@@ -18,14 +18,14 @@ const connected = (...pcs: RTCPeerConnection[]) =>
 /**
  * #816: which local transceiver a remote offer's m-section is paired with
  * (`transceiverPairing`, `matchRemoteTransceiver` in
- * src/negotiation/transceiverPairing.ts). Under `"jsep"` (default, RFC 8829
+ * src/negotiation/transceiverPairing.ts). Under `"standard"` (default, RFC 8829
  * 5.10) only a transceiver `addTrack()` created pairs with an m-section
  * whose MID it does not have; under `"legacy"` any unassociated one of the
  * same kind does. Every case runs in both modes (`paired`: whether the local
  * `addTransceiver()` transceiver is taken by the remote offer).
  */
 for (const { mode, paired } of [
-  { mode: "jsep", paired: false },
+  { mode: "standard", paired: false },
   { mode: "legacy", paired: true },
 ] as const) {
   describeCases(`transceiver pairing (transceiverPairing=${mode})`, () => {
@@ -44,7 +44,7 @@ for (const { mode, paired } of [
         // Act: a の audio offer を b に適用する。
         await c.offer(a);
 
-        // Assert: jsep では remote offer 用の transceiver を作り、own は MID null / sendrecv のまま。legacy では own に関連付ける。
+        // Assert: standard では remote offer 用の transceiver を作り、own は MID null / sendrecv のまま。legacy では own に関連付ける。
         expect(b.getTransceivers().length).toBe(paired ? 1 : 2);
         expect(own.mid).toBe(paired ? "0" : null);
         expect(own.direction).toBe("sendrecv");
@@ -53,7 +53,7 @@ for (const { mode, paired } of [
         await c.answer(b);
         await flushEvents();
 
-        // Assert: jsep では関連付かなかった own のために negotiationneeded が発火する。
+        // Assert: standard では関連付かなかった own のために negotiationneeded が発火する。
         expect(needed.count > neededBefore).toBe(!paired);
         if (paired) return;
 
@@ -88,7 +88,7 @@ for (const { mode, paired } of [
         // Act: audio + video の remote offer を適用する。
         await c.offer(a);
 
-        // Assert: track の有無によらず addTransceiver() 起源は jsep では関連付かず、方向も変わらない。
+        // Assert: track の有無によらず addTransceiver() 起源は standard では関連付かず、方向も変わらない。
         expect(withTrack.mid).toBe(paired ? "0" : null);
         expect(replaced.mid).toBe(paired ? "1" : null);
         expect(withTrack.direction).toBe("sendonly");
@@ -113,7 +113,7 @@ for (const { mode, paired } of [
         // Act: video の remote offer を適用する。
         await c.offer(a);
 
-        // Assert: 生成元は addTransceiver のままなので jsep では関連付かない。
+        // Assert: 生成元は addTransceiver のままなので standard では関連付かない。
         expect(own.mid).toBe(paired ? "0" : null);
         expect(b.getTransceivers().length).toBe(paired ? 1 : 2);
         await c.answer(b);
@@ -149,7 +149,7 @@ for (const { mode, paired } of [
 
     for (const offered of ["sendonly", "inactive"] as const) {
       negotiationCase(
-        `a ${offered} m-section is not paired with an addTrack() transceiver under jsep`,
+        `a ${offered} m-section is not paired with an addTrack() transceiver under standard`,
         { ref: "#816 5-4" },
         async (c) => {
           // Arrange: a は ${offered} の video、b は addTrack() で video を持つ。
@@ -162,7 +162,7 @@ for (const { mode, paired } of [
           // Act: remote offer を適用する。
           await c.offer(a);
 
-          // Assert: jsep (RFC 9429 5.10) では ${offered} の m-line に既存の送信用 transceiver を使わず、新しいものを作る。legacy では対応付ける。
+          // Assert: standard (RFC 9429 5.10) では ${offered} の m-line に既存の送信用 transceiver を使わず、新しいものを作る。legacy では対応付ける。
           expect(bVideo.mid).toBe(paired ? "0" : null);
           expect(b.getTransceivers().length).toBe(paired ? 1 : 2);
 
@@ -199,7 +199,7 @@ for (const { mode, paired } of [
         await c.offer(a);
         await c.answer(b);
 
-        // Assert: addTrack() の transceiver は両モードで関連付く。own は legacy だけ 2 本目の video に関連付き、jsep では remote offer 用に新しい transceiver を作る。
+        // Assert: addTrack() の transceiver は両モードで関連付く。own は legacy だけ 2 本目の video に関連付き、standard では remote offer 用に新しい transceiver を作る。
         expect(bAudio.mid).toBe("0");
         const mids = b
           .getTransceivers()
@@ -241,7 +241,7 @@ for (const { mode, paired } of [
         await c.setRemote(b, a.localDescription);
         const answer = await b.createAnswer();
 
-        // Assert: jsep では b の sendonly はそのままで MID を失い、offer には新しい transceiver が答える。
+        // Assert: standard では b の sendonly はそのままで MID を失い、offer には新しい transceiver が答える。
         // codec は answer する transceiver (preference なし) で解決され、VP8 が先頭に残る。
         expect(bVideo.direction).toBe("sendonly");
         expect(bVideo.mid).toBe(paired ? "0" : null);
@@ -255,7 +255,7 @@ for (const { mode, paired } of [
         await c.setRemote(a, b.localDescription);
         if (!paired) await c.negotiate(b);
 
-        // Assert: jsep では両方向とも sendonly の transceiver から RTP が流れる。
+        // Assert: standard では両方向とも sendonly の transceiver から RTP が流れる。
         expect(bVideo.direction).toBe("sendonly");
         expect(aVideo.direction).toBe("sendonly");
         if (paired) return;

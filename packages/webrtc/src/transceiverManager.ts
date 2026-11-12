@@ -113,7 +113,7 @@ function simulcastFromSendEncodings(
  *   state. An application `stop()` during the transaction survives rollback.
  * - Each transceiver records what created it (`createdBy`: `addTrack`,
  *   `addTransceiver` or `remote`); reusing one with `addTrack()` or
- *   `replaceTrack()` keeps it. Under `transceiverPairing: "jsep"` a remote
+ *   `replaceTrack()` keeps it. Under `transceiverPairing: "standard"` a remote
  *   offer pairs an m-section with an unassociated transceiver only if
  *   `addTrack()` created it (JSEP 5.10). A remote one that `addTrack()` reused
  *   and a rollback keeps becomes `addTrack` (JSEP 4.1.8.2). The origin is not
@@ -237,7 +237,7 @@ export class TransceiverManager {
       if (snapshot.states.has(transceiver)) continue;
       // A remote offer's transceiver was handled above: a carried one keeps
       // the MID the replacing offer describes again (it pairs by MID, also
-      // under "jsep" pairing, where its origin would not pair it otherwise).
+      // under "standard" pairing, where its origin would not pair it otherwise).
       if (remoteCreated.has(transceiver)) continue;
       // One the application added during the transaction was never
       // committed (a final answer ends the transaction): it loses the MID /

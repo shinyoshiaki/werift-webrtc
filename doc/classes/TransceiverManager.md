@@ -28,7 +28,7 @@ m-line stop, rejection and reuse inside a negotiation:
   state. An application `stop()` during the transaction survives rollback.
 - Each transceiver records what created it (`createdBy`: `addTrack`,
   `addTransceiver` or `remote`); reusing one with `addTrack()` or
-  `replaceTrack()` keeps it. Under `transceiverPairing: "jsep"` a remote
+  `replaceTrack()` keeps it. Under `transceiverPairing: "standard"` a remote
   offer pairs an m-section with an unassociated transceiver only if
   `addTrack()` created it (JSEP 5.10). A remote one that `addTrack()` reused
   and a rollback keeps becomes `addTrack` (JSEP 4.1.8.2). The origin is not

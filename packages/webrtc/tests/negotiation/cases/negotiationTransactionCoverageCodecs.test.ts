@@ -238,8 +238,10 @@ describeCases(
       "[2.4-7] an unassociated inactive addTransceiver() is not associated by a remote offer (JSEP 5.10) and keeps its direction",
       { ref: "2.4-7, #816" },
       async (c) => {
-        // Arrange: answerer の app が inactive な未関連付けの audio transceiver を持つ。
-        const { a, b } = await c.given(createUnnegotiatedPeers());
+        // Arrange: transceiverPairing "standard" で、answerer の app が inactive な未関連付けの audio transceiver を持つ。
+        const { a, b } = await c.given(
+          createUnnegotiatedPeers({ transceiverPairing: "standard" }),
+        );
         const appInactive = b.addTransceiver("audio", {
           direction: "inactive",
         });

@@ -634,7 +634,7 @@ export const MODEL_SCENES: (Scene & { name: string; ref: string })[] = [
     ],
   },
   {
-    name: "#816 the same promotion under jsep pairing",
+    name: "#816 the same promotion under standard pairing",
     ref: "#816 5-8 JSEP 4.1.8.2",
     start: "connected",
     ops: [

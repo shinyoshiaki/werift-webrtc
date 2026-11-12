@@ -26,11 +26,13 @@
  * The generator follows the public API along the axes a reviewer explores:
  * - configuration, per seed (`--configs all`, default): bundlePolicy
  *   (max-bundle / balanced / max-compat / disable), rtcpMuxPolicy, a
- *   relay-only session over a local TURN server, and `legacyPairing`
- *   (`transceiverPairing: "legacy"`, #816; develop ignores the unknown key
- *   and pairs the same way). `--configs <name>` runs every seed with one
- *   configuration: `--configs legacyPairing` keeps the difference count
- *   against develop at 0 (the v0.27.0 pairing is kept);
+ *   relay-only session over a local TURN server, and `standardPairing`
+ *   (`transceiverPairing: "standard"`, #816; develop ignores the unknown key
+ *   and keeps the v0.27.0 pairing, which is also the default `"legacy"`).
+ *   `--configs <name>` runs every seed with one configuration: `--configs
+ *   default` keeps the difference count against develop at 0, and
+ *   `--configs standardPairing` differs only where a remote offer no longer
+ *   pairs a transceiver `addTransceiver()` created (JSEP 5.10);
  * - application operations: stop, replaceTrack, direction,
  *   setCodecPreferences, createDataChannel, restartIce;
  * - timing: `closeDuring` starts an operation and calls close() after 0..8
@@ -87,7 +89,7 @@ const CONFIGS = [
   "disable",
   "rtcpMuxRequire",
   "relay",
-  "legacyPairing",
+  "standardPairing",
 ] as const;
 type ConfigName = (typeof CONFIGS)[number];
 
@@ -102,8 +104,8 @@ async function sessionConfig(name: ConfigName) {
       return { config: { bundlePolicy: name } };
     case "rtcpMuxRequire":
       return { config: { rtcpMuxPolicy: "require" } };
-    case "legacyPairing":
-      return { config: { transceiverPairing: "legacy" } };
+    case "standardPairing":
+      return { config: { transceiverPairing: "standard" } };
     case "relay": {
       const { NodeTurnServer } = await import(
         pathToFileURL(join(root, "packages/ice-server/src/index.ts")).href
