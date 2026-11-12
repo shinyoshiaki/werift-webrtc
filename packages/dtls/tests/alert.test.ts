@@ -346,6 +346,51 @@ describe("DTLS alert", () => {
 });
 
 describe("DTLS 同時 close", () => {
+  test("公開 sendAlert() で fatal alert を送ると、送信側も onError（local）で終了し、送信完了後に transport を閉じる", async () => {
+    // Arrange: 送信完了を制御できる transport
+    const pair = createDtlsPair();
+    await connectDtlsPair(pair);
+    const errors: Error[] = [];
+    pair.server.onError.subscribe((e) => errors.push(e));
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const realSend = pair.serverTransport.send.bind(pair.serverTransport);
+    pair.serverTransport.send = async (data: Buffer) => {
+      await gate;
+      return realSend(data);
+    };
+
+    // Act: fatal alert を送り、送信完了前の状態を観測してから送信を完了させる
+    const sending = pair.server.sendAlert(
+      AlertLevel.fatal,
+      AlertDesc.InternalError,
+    );
+    const errorsBeforeSent = errors.length;
+    await setTimeout(30);
+    const closedBeforeSent = pair.serverTransport.closed;
+    release();
+    await sending;
+    // 重複送信しても何も起きない
+    await pair.server.sendAlert(AlertLevel.fatal, AlertDesc.InternalError);
+
+    // Assert: onError は同期で 1 回だけ、送信した alert の local エラーとして発火する
+    expect(errorsBeforeSent).toBe(1);
+    expect(errors).toHaveLength(1);
+    const error = errors[0] as DtlsAlertError;
+    expect(error).toBeInstanceOf(DtlsAlertError);
+    expect(error.source).toBe("local");
+    expect(error.description).toBe(AlertDesc.InternalError);
+    // Assert: transport は送信完了前には閉じず、送信完了で sendAlert が resolve した時点で閉じている
+    expect(closedBeforeSent).toBe(false);
+    expect(pair.serverTransport.closed).toBe(true);
+    expect(pair.serverTransport.closeCount).toBe(1);
+    // Assert: alert は 1 回だけ送られ、終了後の application data は送られない
+    expect(alertRecords(pair.serverTransport.sent)).toHaveLength(1);
+    expect(pair.server.terminated).toBe(true);
+  });
+
   test("close({ notify: true }) が重なっても、先の close_notify の送信完了まで transport を閉じない", async () => {
     // Arrange: 送信完了を制御できる transport
     const pair = createDtlsPair();

@@ -440,12 +440,11 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     } catch (error) {
       const dtls = this.dtls;
       this.fail(certificateVerificationError(error));
-      // Tell the peer (whose handshake already completed) before closing.
-      void dtls
-        ?.sendAlert(AlertLevel.fatal, AlertDesc.BadCertificate, {
-          timeoutMs: DTLS_ALERT_SEND_TIMEOUT_MS,
-        })
-        .then(() => dtls.close());
+      // Tell the peer (whose handshake already completed); a fatal alert
+      // closes the DTLS transport once it has been sent.
+      void dtls?.sendAlert(AlertLevel.fatal, AlertDesc.BadCertificate, {
+        timeoutMs: DTLS_ALERT_SEND_TIMEOUT_MS,
+      });
       throw error;
     }
 

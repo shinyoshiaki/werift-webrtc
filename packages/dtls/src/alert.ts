@@ -27,8 +27,9 @@ export interface DtlsAlert {
  *
  * - `source: "remote"`: the peer sent the fatal alert.
  * - `source: "local"`: this side detected the error (for example
- *   `verifyRemoteCertificate` rejected the peer certificate) and sent the
- *   fatal alert to the peer.
+ *   `verifyRemoteCertificate` rejected the peer certificate, or the
+ *   application called `sendAlert` with a fatal level) and sent the fatal
+ *   alert to the peer.
  */
 export class DtlsAlertError extends Error {
   readonly level: number;

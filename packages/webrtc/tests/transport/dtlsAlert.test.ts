@@ -260,6 +260,29 @@ describe("RTCDtlsTransport alerts", () => {
     }
   });
 
+  test("接続確立後に自分から fatal alert を送ると、送信側も sentAlert 付きの failed になる", async () => {
+    // Arrange
+    const [session1, session2] = await dtlsTransportPair();
+    const local = recordDtlsEvents(session1);
+
+    try {
+      // Act: 接続済みの session1 から公開 API で fatal alert を送る
+      await session1.dtls!.sendAlert(AlertLevel.fatal, AlertDesc.InternalError);
+
+      // Assert: 送信側は statechange 付きで failed になり、送信 alert 付きの dtls-failure が 1 回発火する
+      expect(session1.state).toBe("failed");
+      expect(local.states).toEqual(["failed"]);
+      expect(local.errors).toHaveLength(1);
+      expect(local.errors[0].error.errorDetail).toBe("dtls-failure");
+      expect(local.errors[0].error.sentAlert).toBe(AlertDesc.InternalError);
+      expect(local.errors[0].error.receivedAlert).toBeNull();
+      // Assert: 相手も failed になる
+      await waitForDtlsState(session2, "failed");
+    } finally {
+      await Promise.allSettled([session1.stop(), session2.stop()]);
+    }
+  });
+
   test("接続確立後に fatal alert を受けると failed になり、後から closed で上書きされない", async () => {
     // Arrange
     const [session1, session2] = await dtlsTransportPair();

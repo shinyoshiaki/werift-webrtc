@@ -206,14 +206,31 @@ export class DtlsSocket {
    * (default {@link DtlsSocket.AlertSendTimeoutMs}). It never rejects: a
    * failed send is only logged. Nothing is sent once close_notify or a fatal
    * alert has been sent or the transport is closed. Sending close_notify or a
-   * fatal alert also stops the handshake flights (no retransmission). The record is handed to
-   * the transport synchronously, so closing the socket right after calling
-   * this does not drop it.
+   * fatal alert also stops the handshake flights (no retransmission). The
+   * record is handed to the transport synchronously, so closing the socket
+   * right after calling this does not drop it.
+   *
+   * A fatal alert ends the connection like a fatal error this side detected
+   * itself: `onError` fires synchronously with a local {@link DtlsAlertError},
+   * and the transport is closed once the alert has been sent (the returned
+   * promise resolves after that).
    */
   sendAlert(
     level: AlertLevel,
     description: AlertDesc,
     options: { timeoutMs?: number } = {},
+  ): Promise<void> {
+    if (level === AlertLevel.fatal) {
+      return this.endWithFatalAlert(description, undefined, options);
+    }
+    return this.transmitAlert(level, description, options);
+  }
+
+  /** Encode, protect and send one alert record (see {@link sendAlert}). */
+  private transmitAlert(
+    level: AlertLevel,
+    description: AlertDesc,
+    options: { timeoutMs?: number },
   ): Promise<void> {
     if (this.alertSent || this.transport.closed) {
       // A concurrent caller waits for the alert that is still being sent.
@@ -270,13 +287,28 @@ export class DtlsSocket {
 
   /**
    * Abort the handshake (or the connection) because this side detected a
-   * fatal error: send the fatal alert, stop the flights, report a local
-   * {@link DtlsAlertError} on onError, and close the transport once the alert
-   * has been sent.
+   * fatal error: see {@link endWithFatalAlert}.
    */
   protected abortWithFatalAlert(description: AlertDesc, reason?: unknown) {
-    if (this.ended) return;
-    const sending = this.sendAlert(AlertLevel.fatal, description);
+    void this.endWithFatalAlert(description, reason);
+  }
+
+  /**
+   * The single ending path for a fatal alert sent by this side (the public
+   * {@link sendAlert} and an internal abort): send the alert, stop the
+   * flights, report a local {@link DtlsAlertError} on onError (once), and
+   * close the transport once the alert has been sent or timed out. Does
+   * nothing more once the connection already ended.
+   */
+  private endWithFatalAlert(
+    description: AlertDesc,
+    reason?: unknown,
+    options: { timeoutMs?: number } = {},
+  ): Promise<void> {
+    if (this.ended || this.alertSent || this.transport.closed) {
+      return this.alertSending ?? Promise.resolve();
+    }
+    const sending = this.transmitAlert(AlertLevel.fatal, description, options);
     this.ended = true;
     this.transport.stopFlights();
     this.onError.execute(
@@ -286,7 +318,9 @@ export class DtlsSocket {
         reason,
       ),
     );
-    void sending.then(() => this.closeTransport());
+    const done = sending.then(() => this.closeTransport());
+    this.alertSending = done;
+    return done;
   }
 
   /**
@@ -312,7 +346,7 @@ export class DtlsSocket {
   }
 
   private closeTransport() {
-    Promise.resolve(this.transport.close()).catch((error: unknown) => {
+    return Promise.resolve(this.transport.close()).catch((error: unknown) => {
       err(this.dtls.sessionId, "failed to close transport", error);
     });
   }

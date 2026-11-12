@@ -241,9 +241,7 @@ Whether the connection ended (alert, or close()).
 > `protected` **abortWithFatalAlert**(`description`, `reason?`): `void`
 
 Abort the handshake (or the connection) because this side detected a
-fatal error: send the fatal alert, stop the flights, report a local
-[DtlsAlertError](DtlsAlertError.md) on onError, and close the transport once the alert
-has been sent.
+fatal error: see endWithFatalAlert.
 
 #### Parameters
 
@@ -457,9 +455,14 @@ Resolves once the transport has sent the record, or after `timeoutMs`
 (default [DtlsSocket.AlertSendTimeoutMs](DtlsSocket.md#alertsendtimeoutms)). It never rejects: a
 failed send is only logged. Nothing is sent once close_notify or a fatal
 alert has been sent or the transport is closed. Sending close_notify or a
-fatal alert also stops the handshake flights (no retransmission). The record is handed to
-the transport synchronously, so closing the socket right after calling
-this does not drop it.
+fatal alert also stops the handshake flights (no retransmission). The
+record is handed to the transport synchronously, so closing the socket
+right after calling this does not drop it.
+
+A fatal alert ends the connection like a fatal error this side detected
+itself: `onError` fires synchronously with a local [DtlsAlertError](DtlsAlertError.md),
+and the transport is closed once the alert has been sent (the returned
+promise resolves after that).
 
 #### Parameters
 

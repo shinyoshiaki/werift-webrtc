@@ -56,6 +56,8 @@ client.close();
 
 // Send any alert. It is encrypted after ChangeCipherSpec (epoch > 0) and plaintext
 // before it. It never rejects, and nothing is sent after close_notify / a fatal alert.
+// A fatal alert also ends this side: onError fires with a local DtlsAlertError and the
+// transport is closed once the alert has been sent (the promise resolves after that).
 await server.sendAlert(AlertLevel.fatal, AlertDesc.InternalError);
 
 server.onAlert.subscribe(({ level, description }) => {}); // every received alert
