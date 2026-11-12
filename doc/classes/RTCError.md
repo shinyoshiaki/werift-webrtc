@@ -9,6 +9,14 @@
 Minimal `RTCError` (W3C webrtc-pc §10.1) for the DTLS failures that
 [RTCDtlsTransport](RTCDtlsTransport.md) reports with its `error` event.
 
+- `"fingerprint-failure"`: the remote certificate matched none of the
+  fingerprints of the remote description. `receivedAlert` / `sentAlert` are
+  null, as the spec defines them only for `"dtls-failure"`, although werift
+  still sends a fatal `bad_certificate` (42) to the peer, which in turn
+  reports `"dtls-failure"` with `receivedAlert: 42`.
+- `"dtls-failure"`: any other DTLS failure, e.g. a fatal alert received
+  (`receivedAlert`) or sent (`sentAlert`).
+
 ## Extends
 
 - `Error`
@@ -89,7 +97,8 @@ Minimal `RTCError` (W3C webrtc-pc §10.1) for the DTLS failures that
 
 > `readonly` **receivedAlert**: `number` \| `null`
 
-Alert description received from the peer, or null.
+`"dtls-failure"` only: the fatal alert description received from the
+peer, otherwise null.
 
 ***
 
@@ -97,7 +106,8 @@ Alert description received from the peer, or null.
 
 > `readonly` **sentAlert**: `number` \| `null`
 
-Alert description sent to the peer, or null.
+`"dtls-failure"` only: the fatal alert description sent to the peer,
+otherwise null.
 
 ***
 

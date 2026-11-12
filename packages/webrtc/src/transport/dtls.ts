@@ -62,12 +62,26 @@ export const DTLS_ALERT_SEND_TIMEOUT_MS = 100;
 /**
  * Minimal `RTCError` (W3C webrtc-pc §10.1) for the DTLS failures that
  * {@link RTCDtlsTransport} reports with its `error` event.
+ *
+ * - `"fingerprint-failure"`: the remote certificate matched none of the
+ *   fingerprints of the remote description. `receivedAlert` / `sentAlert` are
+ *   null, as the spec defines them only for `"dtls-failure"`, although werift
+ *   still sends a fatal `bad_certificate` (42) to the peer, which in turn
+ *   reports `"dtls-failure"` with `receivedAlert: 42`.
+ * - `"dtls-failure"`: any other DTLS failure, e.g. a fatal alert received
+ *   (`receivedAlert`) or sent (`sentAlert`).
  */
 export class RTCError extends Error {
   readonly errorDetail: "dtls-failure" | "fingerprint-failure";
-  /** Alert description received from the peer, or null. */
+  /**
+   * `"dtls-failure"` only: the fatal alert description received from the
+   * peer, otherwise null.
+   */
   readonly receivedAlert: number | null;
-  /** Alert description sent to the peer, or null. */
+  /**
+   * `"dtls-failure"` only: the fatal alert description sent to the peer,
+   * otherwise null.
+   */
   readonly sentAlert: number | null;
 
   constructor(
@@ -93,6 +107,27 @@ export interface RTCDtlsTransportErrorEvent {
 }
 
 const log = debug("werift:packages/webrtc/src/transport/dtls.ts");
+
+/**
+ * Internal: the remote certificate matched none of the remote fingerprints
+ * (reported as `errorDetail: "fingerprint-failure"`). Other verification
+ * errors (no certificate, no usable fingerprint) stay `"dtls-failure"`.
+ */
+class FingerprintMismatchError extends Error {
+  constructor() {
+    super("remote certificate fingerprint mismatch");
+    this.name = "FingerprintMismatchError";
+  }
+}
+
+/** The RTCError for a failed check of the remote certificate. */
+const certificateVerificationError = (reason: unknown) =>
+  reason instanceof FingerprintMismatchError
+    ? new RTCError({ errorDetail: "fingerprint-failure" }, reason.message)
+    : new RTCError(
+        { errorDetail: "dtls-failure", sentAlert: AlertDesc.BadCertificate },
+        String(reason),
+      );
 
 /** Result of encrypting and enqueueing one RTP packet on ICE. */
 export type DtlsSendRtpResult = {
@@ -182,10 +217,17 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   private readonly events = new DomEventTarget();
   onstatechange?: () => void;
   /**
-   * Fires when the transport fails because of a DTLS alert: a fatal alert
-   * received from the peer, or one this side sent after rejecting the peer
-   * certificate (`errorDetail: "dtls-failure"`, `receivedAlert` / `sentAlert`).
-   * Also delivered as `addEventListener("error", ...)`.
+   * Fires once when the transport becomes `failed`:
+   * - the remote certificate matched none of the remote fingerprints:
+   *   `errorDetail: "fingerprint-failure"` (`receivedAlert` / `sentAlert`
+   *   null; a fatal `bad_certificate` is still sent to the peer);
+   * - a fatal alert received from the peer, or sent by this side (e.g.
+   *   `bad_certificate` for a certificate it could not verify for another
+   *   reason), and other DTLS errors: `errorDetail: "dtls-failure"` with
+   *   `receivedAlert` / `sentAlert`.
+   *
+   * A close_notify (`closed`) does not fire it. Also delivered as
+   * `addEventListener("error", ...)`.
    */
   onerror?: ((event: RTCDtlsTransportErrorEvent) => void) | undefined;
 
@@ -341,29 +383,16 @@ export class RTCDtlsTransport implements DtlsTransportStats {
         }
         this.dataReceiver(buf);
       });
-      // close_notify from the peer: closed (with statechange, the peer
-      // caused it). closed / failed are final.
+      // close_notify from the peer, also during the handshake: closed (with
+      // statechange, the peer caused it; W3C RTCDtlsTransportState "closed").
+      // close_notify is not a fatal alert, so neither failed nor an error
+      // event. closed / failed are final.
       this.dtls.onClose.subscribe(() => {
         if (this.isFinalState) return;
         log("dtls closed by the peer");
-        if (this.state === "connecting") {
-          // The peer ended the handshake before the connection was
-          // established: it never connected, so this is a failure (start()
-          // rejects and the connectionState settles to failed).
-          this.fail(
-            new RTCError(
-              {
-                errorDetail: "dtls-failure",
-                receivedAlert: AlertDesc.CloseNotify,
-              },
-              "dtls closed by the peer during the handshake",
-            ),
-          );
-          f(new Error("dtls closed by the peer during the handshake"));
-          return;
-        }
         this.setState("closed");
-        // Settle start(): it returns after the handshake wait (closed stays).
+        // Settle start(): it returns with closed (transport activation then
+        // ends a connection attempt that never connected as failed).
         r();
       });
       this.dtls.onConnect.once(r);
@@ -410,12 +439,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       this.verifyRemoteCertificateFingerprint(this.dtls?.remoteCertificate);
     } catch (error) {
       const dtls = this.dtls;
-      this.fail(
-        new RTCError(
-          { errorDetail: "dtls-failure", sentAlert: AlertDesc.BadCertificate },
-          String(error),
-        ),
-      );
+      this.fail(certificateVerificationError(error));
       // Tell the peer (whose handshake already completed) before closing.
       void dtls
         ?.sendAlert(AlertLevel.fatal, AlertDesc.BadCertificate, {
@@ -452,17 +476,23 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     const rtcError =
       error instanceof RTCError
         ? error
-        : error instanceof DtlsAlertError
-          ? new RTCError(
-              {
-                errorDetail: "dtls-failure",
-                ...(error.source === "remote"
-                  ? { receivedAlert: error.description }
-                  : { sentAlert: error.description }),
-              },
-              error.message,
-            )
-          : new RTCError({ errorDetail: "dtls-failure" }, String(error));
+        : error instanceof DtlsAlertError &&
+            error.source === "local" &&
+            error.reason instanceof FingerprintMismatchError
+          ? // This side rejected the peer certificate during the handshake
+            // (bad_certificate was sent).
+            certificateVerificationError(error.reason)
+          : error instanceof DtlsAlertError
+            ? new RTCError(
+                {
+                  errorDetail: "dtls-failure",
+                  ...(error.source === "remote"
+                    ? { receivedAlert: error.description }
+                    : { sentAlert: error.description }),
+                },
+                error.message,
+              )
+            : new RTCError({ errorDetail: "dtls-failure" }, String(error));
     const event: RTCDtlsTransportErrorEvent = {
       type: "error",
       error: rtcError,
@@ -537,7 +567,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     );
 
     if (!matched) {
-      throw new Error("remote certificate fingerprint mismatch");
+      throw new FingerprintMismatchError();
     }
   }
 

@@ -127,10 +127,17 @@ on it when they started DTLS.
 
 > `optional` **onerror?**: (`event`) => `void`
 
-Fires when the transport fails because of a DTLS alert: a fatal alert
-received from the peer, or one this side sent after rejecting the peer
-certificate (`errorDetail: "dtls-failure"`, `receivedAlert` / `sentAlert`).
-Also delivered as `addEventListener("error", ...)`.
+Fires once when the transport becomes `failed`:
+- the remote certificate matched none of the remote fingerprints:
+  `errorDetail: "fingerprint-failure"` (`receivedAlert` / `sentAlert`
+  null; a fatal `bad_certificate` is still sent to the peer);
+- a fatal alert received from the peer, or sent by this side (e.g.
+  `bad_certificate` for a certificate it could not verify for another
+  reason), and other DTLS errors: `errorDetail: "dtls-failure"` with
+  `receivedAlert` / `sentAlert`.
+
+A close_notify (`closed`) does not fire it. Also delivered as
+`addEventListener("error", ...)`.
 
 #### Parameters
 

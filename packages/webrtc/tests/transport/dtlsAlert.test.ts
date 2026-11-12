@@ -130,18 +130,21 @@ describe("RTCDtlsTransport alerts", () => {
     }
   });
 
-  test("handshake 中に相手の close_notify を受けると start() が決着し failed になる", async () => {
+  test("handshake 中に相手の close_notify を受けると start() が resolve し closed になる（failed / error にしない）", async () => {
     // Arrange: session2 は handshake を始めず、session1 は server として待つ
     const [session1, session2] = await createDtlsSessions();
     session1.setRemoteParams(session2.localParameters);
     session1.role = "server";
-    let settled = false;
-    const starting = session1
-      .start()
-      .catch(() => undefined)
-      .then(() => {
-        settled = true;
-      });
+    const local = recordDtlsEvents(session1);
+    let outcome: "pending" | "resolved" | "rejected" = "pending";
+    const starting = session1.start().then(
+      () => {
+        outcome = "resolved";
+      },
+      () => {
+        outcome = "rejected";
+      },
+    );
     await setTimeout(300);
 
     try {
@@ -154,15 +157,18 @@ describe("RTCDtlsTransport alerts", () => {
       await Promise.race([starting, setTimeout(2000)]);
       void peer;
 
-      // Assert: session1 の start() が決着している（closed または failed で終わる）
-      expect(settled).toBe(true);
-      expect(session1.state).toBe("failed");
+      // Assert: start() は reject せずに resolve し、closed で終わる
+      expect(outcome).toBe("resolved");
+      expect(session1.state).toBe("closed");
+      // Assert: close_notify は fatal alert ではないので、statechange は closed の 1 回だけで error は発火しない
+      expect(local.states).toEqual(["connecting", "closed"]);
+      expect(local.errors).toEqual([]);
     } finally {
       await Promise.allSettled([session1.stop(), session2.stop()]);
     }
   });
 
-  test("fingerprint 不一致は handshake 中に bad_certificate を送り、両側が failed と error イベントになる", async () => {
+  test("fingerprint 不一致は handshake 中に bad_certificate を送り、検証側は fingerprint-failure、相手は dtls-failure になる", async () => {
     // Arrange
     const [session1, session2] = await createDtlsSessions();
     const expected = session2.localParameters.fingerprints[0];
@@ -194,13 +200,58 @@ describe("RTCDtlsTransport alerts", () => {
         "fingerprint mismatch",
       );
       expect(results[1].status).toBe("rejected");
-      // Assert: 両側が failed になり、送信 / 受信した alert 付きの error が 1 回ずつ発火する
+      // Assert: 両側が failed になり、error が 1 回ずつ発火する
       expect(session1.state).toBe("failed");
       expect(session2.state).toBe("failed");
       expect(local.errors).toHaveLength(1);
+      expect(remote.errors).toHaveLength(1);
+      // Assert: 検証側は fingerprint-failure（alert 番号は dtls-failure 専用なので null）
+      expect(local.errors[0].error.errorDetail).toBe("fingerprint-failure");
+      expect(local.errors[0].error.sentAlert).toBeNull();
+      expect(local.errors[0].error.receivedAlert).toBeNull();
+      // Assert: 相手は bad_certificate を受信した dtls-failure
+      expect(remote.errors[0].error.errorDetail).toBe("dtls-failure");
+      expect(remote.errors[0].error.receivedAlert).toBe(
+        AlertDesc.BadCertificate,
+      );
+      expect(remote.errors[0].error.sentAlert).toBeNull();
+    } finally {
+      await Promise.allSettled([session1.stop(), session2.stop()]);
+    }
+  });
+
+  test("fingerprint 不一致以外の証明書検証失敗（対応アルゴリズムなし）は送信 alert 付きの dtls-failure になる", async () => {
+    // Arrange: session1 は未対応アルゴリズムの fingerprint しか持たない
+    const [session1, session2] = await createDtlsSessions();
+    session1.setRemoteParams(
+      new RTCDtlsParameters(
+        [new RTCDtlsFingerprint("md5", "00:11:22:33")],
+        session2.localParameters.role,
+      ),
+    );
+    session2.setRemoteParams(session1.localParameters);
+    const local = recordDtlsEvents(session1);
+    const remote = recordDtlsEvents(session2);
+
+    try {
+      // Act: 両側で handshake を始める
+      const results = await Promise.allSettled([
+        session1.start(),
+        session2.start(),
+      ]);
+
+      // Assert: 両側の start() が reject し、両側が failed になる
+      expect(results.map((r) => r.status)).toEqual(["rejected", "rejected"]);
+      expect(session1.state).toBe("failed");
+      expect(session2.state).toBe("failed");
+      // Assert: 検証側は bad_certificate を送った dtls-failure（fingerprint-failure ではない）
+      expect(local.errors).toHaveLength(1);
       expect(local.errors[0].error.errorDetail).toBe("dtls-failure");
       expect(local.errors[0].error.sentAlert).toBe(AlertDesc.BadCertificate);
+      expect(local.errors[0].error.receivedAlert).toBeNull();
+      // Assert: 相手は bad_certificate を受信した dtls-failure
       expect(remote.errors).toHaveLength(1);
+      expect(remote.errors[0].error.errorDetail).toBe("dtls-failure");
       expect(remote.errors[0].error.receivedAlert).toBe(
         AlertDesc.BadCertificate,
       );
@@ -267,6 +318,60 @@ describe("RTCPeerConnection DTLS alerts", () => {
       await dc2Closed;
       expect(pc2.sctp!.state).toBe("closed");
       expect(dc2.readyState).toBe("closed");
+      // Assert: 相手の close_notify では pc2 の connectionState は変わらない（connected のまま）
+      expect(pc2.connectionState).toBe("connected");
+      // Assert: pc1 は close() により closed
+      expect(pc1.connectionState).toBe("closed");
+    } finally {
+      await Promise.allSettled([pc1.close(), pc2.close()]);
+    }
+  });
+
+  test("接続確立後に fatal alert を受けると DTLS / connectionState が failed、SCTP / DataChannel が closed になる", async () => {
+    // Arrange
+    const pc1 = new RTCPeerConnection();
+    const pc2 = new RTCPeerConnection();
+    const dc1 = pc1.createDataChannel("fatal");
+    const remoteChannel = new Promise<any>((resolve) =>
+      pc2.onDataChannel.subscribe(resolve),
+    );
+    await pc1.setLocalDescription(await pc1.createOffer());
+    await pc2.setRemoteDescription(pc1.localDescription!);
+    await pc2.setLocalDescription(await pc2.createAnswer());
+    await pc1.setRemoteDescription(pc2.localDescription!);
+    const dc2 = await remoteChannel;
+    await waitUntil(() => dc1.readyState === "open", "dc1 did not open");
+    await waitUntil(
+      () => pc2.connectionState === "connected",
+      `pc2 ${pc2.connectionState}`,
+    );
+    const dtls2 = pc2.sctp!.transport;
+    const remote = recordDtlsEvents(dtls2);
+
+    try {
+      // Act: pc1 の DTLS から fatal alert を送る
+      await pc1.sctp!.transport.dtls!.sendAlert(
+        AlertLevel.fatal,
+        AlertDesc.InternalError,
+      );
+
+      // Assert: pc2 の DTLS が failed になり、受信 alert 付きの dtls-failure が 1 回発火する
+      await waitForDtlsState(dtls2, "failed");
+      expect(remote.errors).toHaveLength(1);
+      expect(remote.errors[0].error.errorDetail).toBe("dtls-failure");
+      expect(remote.errors[0].error.receivedAlert).toBe(
+        AlertDesc.InternalError,
+      );
+      // Assert: connectionState は failed、SCTP と DataChannel は closed になる
+      await waitUntil(
+        () => pc2.connectionState === "failed",
+        `connectionState ${pc2.connectionState}`,
+      );
+      await waitUntil(
+        () => dc2.readyState === "closed",
+        `dc2 ${dc2.readyState}`,
+      );
+      expect(pc2.sctp!.state).toBe("closed");
     } finally {
       await Promise.allSettled([pc1.close(), pc2.close()]);
     }
@@ -385,6 +490,8 @@ describe("接続開始中に相手が close_notify で終了した場合", () =>
 
       // Assert: 終端状態（failed）になり connecting のまま残らない
       expect(pc2.connectionState).toBe("failed");
+      // Assert: pc2 の DTLS は close_notify を受けた closed（fatal ではないので failed にしない）
+      expect(pc2.dtlsTransports[0].state).toBe("closed");
     } finally {
       await Promise.allSettled([pc1.close(), pc2.close()]);
     }

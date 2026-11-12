@@ -265,6 +265,24 @@ has been sent.
 
 ***
 
+### alertFlushed()
+
+> **alertFlushed**(): `Promise`\<`void`\>
+
+Resolves once the alert being sent (e.g. the close_notify answering the
+peer's) has been handed to the transport or timed out. Resolves
+immediately when none is in flight. Never rejects.
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Inherited from
+
+[`DtlsSocket`](DtlsSocket.md).[`alertFlushed`](DtlsSocket.md#alertflushed)
+
+***
+
 ### close()
 
 > **close**(`options?`): `Promise`\<`void`\>

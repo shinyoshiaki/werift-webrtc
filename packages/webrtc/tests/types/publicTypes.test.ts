@@ -75,6 +75,7 @@ describe("public types (パラメータプロパティ変換後も互換)", () =
       import {
         RTCDtlsTransport,
         type RTCDtlsTransportErrorEvent,
+        RTCError,
       } from "../../src/transport/dtls";
       import {
         RTCSctpTransport,
@@ -87,7 +88,12 @@ describe("public types (パラメータプロパティ変換後も互換)", () =
         const received: number | null = e.error.receivedAlert;
         const sent: number | null = e.error.sentAlert;
         void [detail, received, sent];
+        if (e.error.errorDetail === "fingerprint-failure") {
+          // fingerprint-failure: receivedAlert / sentAlert は null
+          void (e.error.sentAlert === null);
+        }
       };
+      export const fingerprintFailure = new RTCError({ errorDetail: "fingerprint-failure" });
       d.onerror = undefined;
       d.addEventListener("error", (e: RTCDtlsTransportErrorEvent) => e.error);
       const state: RTCSctpTransportState = s.state;
