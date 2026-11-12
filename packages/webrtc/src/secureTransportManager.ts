@@ -772,14 +772,16 @@ export class SecureTransportManager {
   /**
    * `closed` is final (set by `RTCPeerConnection.close()` only).
    *
-   * `connected` is reported only while no live ICE / DTLS transport is
-   * `failed` (W3C webrtc-pc RTCPeerConnectionState: `failed` when any
-   * transport failed, `connected` only when none did): a transport that
-   * connects while another one stays failed (several transports, a
-   * renegotiation adding one) leaves the state `failed`.
+   * While an ICE / DTLS transport of a live m-line is `failed`, every other
+   * state is reported as `failed` (W3C webrtc-pc RTCPeerConnectionState:
+   * `failed` takes precedence over all states but `closed`): another
+   * transport starting (`connecting`) or connecting (`connected`), with
+   * several transports or after a renegotiation added one, leaves the state
+   * `failed`. It leaves `failed` once no live transport is failed any more
+   * (an ICE restart, the failed transport retired).
    */
   setConnectionState(state: ConnectionState) {
-    if (state === "connected" && this.hasFailedTransport) {
+    if (state !== "closed" && this.hasFailedTransport) {
       state = "failed";
     }
     if (this.connectionState === state || this.connectionState === "closed") {

@@ -792,6 +792,36 @@ describe("SCTP より先に登録したアプリの DTLS 状態リスナーが�
 });
 
 describe("複数 transport の一方が failed のときの connectionState", () => {
+  test("ICE が failed になった後、ICE restart で回復すると connected に戻る（failed の優先が回復を妨げない）", async () => {
+    // Arrange: 接続済みの組で pc1 の ICE transport を failed にする
+    const { pc1, pc2 } = await connectedDataChannelPeers();
+    (pc1.iceTransports[0] as unknown as { setState(s: string): void }).setState(
+      "failed",
+    );
+    await waitUntil(
+      () => pc1.connectionState === "failed",
+      `pc1 ${pc1.connectionState}`,
+    );
+    const states: string[] = [];
+    pc1.onconnectionstatechange = () => states.push(pc1.connectionState);
+
+    try {
+      // Act: ICE restart の offer / answer を交換する
+      pc1.restartIce();
+      await exchangeOfferAnswer(pc1, pc2);
+      await waitUntil(
+        () => pc1.connectionState === "connected",
+        `pc1 ${pc1.connectionState} (${states.join(",")})`,
+      );
+
+      // Assert: ICE が回復した時点で connected に戻る
+      expect(pc1.iceTransports[0].state).not.toBe("failed");
+      expect(states.at(-1)).toBe("connected");
+    } finally {
+      await Promise.allSettled([pc1.close(), pc2.close()]);
+    }
+  });
+
   test("DTLS が failed の transport が残ったまま、再交渉で追加した別 transport が接続しても connected にならない", async () => {
     // Arrange: bundle なしで DataChannel 用 transport を接続し、fatal alert で pc2 側を failed にする
     const pc1 = new RTCPeerConnection({ bundlePolicy: "disable" });
@@ -828,6 +858,8 @@ describe("複数 transport の一方が failed のときの connectionState", ()
       expect(failedTransport.state).toBe("failed");
       expect(added.state).toBe("connected");
       expect(pc2.connectionState).toBe("failed");
+      // Assert: 別 transport の接続開始・完了でも connecting / connected は通知されない
+      expect(states).not.toContain("connecting");
       expect(states).not.toContain("connected");
     } finally {
       await Promise.allSettled([pc1.close(), pc2.close()]);
