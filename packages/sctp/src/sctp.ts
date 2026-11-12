@@ -201,6 +201,8 @@ export class SCTP {
   private advancedPeerAckTsn = tsnMinusOne(this.localTsn); // acknowledgement
   private partialBytesAcked = 0;
   private sentQueue = new FifoQueue<DataChunk>();
+  /** Gap-acked or reneged chunks that still need SACK reneging checks. */
+  private renegingCandidateCount = 0;
   private transmitting = false;
   private transmitRequested = false;
 
@@ -923,6 +925,9 @@ export class SCTP {
     ) {
       const sChunk = this.sentQueue.shift()!;
       done++;
+      if (!sChunk.abandoned && (sChunk.acked || sChunk.reneged)) {
+        this.renegingCandidateCount--;
+      }
       if (!sChunk.acked) {
         doneBytes += sChunk.bookSize;
       }
@@ -950,6 +955,9 @@ export class SCTP {
           break;
         }
         if (seen.has(sChunk.tsn) && !sChunk.acked) {
+          if (!sChunk.abandoned && !sChunk.reneged) {
+            this.renegingCandidateCount++;
+          }
           doneBytes += sChunk.bookSize;
           sChunk.acked = true;
           sChunk.reneged = false;
@@ -967,22 +975,24 @@ export class SCTP {
     // miss indication towards Fast Retransmit. Chunks up to HTNA are struck by
     // the loop below, so only the ones beyond it are struck here.
     let reneged = false;
-    for (const sChunk of this.sentQueue) {
-      // Abandoned chunks are never retransmitted nor counted in flight again.
-      if (seen.has(sChunk.tsn) || sChunk.abandoned) continue;
-      if (sChunk.acked) {
-        sChunk.acked = false;
-        sChunk.reneged = true;
-        // Outstanding again, so it is counted in flight until resent or acked.
-        this.flightSizeIncrease(sChunk);
-      }
-      if (!sChunk.reneged) continue;
-      reneged = true;
-      if (
-        !sChunk.retransmit &&
-        (chunk.gaps.length === 0 || uint32Gt(sChunk.tsn, highestNewlyAcked))
-      ) {
-        loss = this.strikeChunk(sChunk) || loss;
+    if (this.renegingCandidateCount > 0) {
+      for (const sChunk of this.sentQueue) {
+        // Abandoned chunks are never retransmitted nor counted in flight again.
+        if (seen.has(sChunk.tsn) || sChunk.abandoned) continue;
+        if (sChunk.acked) {
+          sChunk.acked = false;
+          sChunk.reneged = true;
+          // Outstanding again, so it is counted in flight until resent or acked.
+          this.flightSizeIncrease(sChunk);
+        }
+        if (!sChunk.reneged) continue;
+        reneged = true;
+        if (
+          !sChunk.retransmit &&
+          (chunk.gaps.length === 0 || uint32Gt(sChunk.tsn, highestNewlyAcked))
+        ) {
+          loss = this.strikeChunk(sChunk) || loss;
+        }
       }
     }
 
@@ -1787,6 +1797,9 @@ export class SCTP {
    * released; bookSize and the TSN / stream metadata FORWARD-TSN needs stay.
    */
   private markAbandoned(chunk: DataChunk) {
+    if (!chunk.abandoned && (chunk.acked || chunk.reneged)) {
+      this.renegingCandidateCount--;
+    }
     chunk.abandoned = true;
     chunk.retransmit = false;
     chunk.userData = EMPTY_PAYLOAD;
