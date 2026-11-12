@@ -414,7 +414,9 @@ export class RemoteMediaApplication {
         remoteMedia.port === 0 &&
         remoteSdp.type === "answer" &&
         !this.negotiation.baselineNegotiatedSctp &&
-        (this.sctp.sctpRemotePort || this.sctp.sctpTransport?.associationActive)
+        (this.sctp.sctpRemotePort ||
+          this.sctp.sctpTransport?.associationActive ||
+          this.sctp.sctpTransport?.mid)
       ) {
         // A final answer that rejects m=application (RFC 8841 section 10.4)
         // closes the association an earlier pranswer started. One the

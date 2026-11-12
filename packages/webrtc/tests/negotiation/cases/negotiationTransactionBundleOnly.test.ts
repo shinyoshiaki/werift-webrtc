@@ -1,6 +1,12 @@
 import { expect } from "vitest";
 
-import { MediaStreamTrack, type RTCPeerConnection } from "../../../src";
+import {
+  MediaStreamTrack,
+  type RTCPeerConnection,
+  useOPUS,
+  usePCMU,
+  useVP8,
+} from "../../../src";
 import { describeCases, negotiationCase } from "../harness/negotiationCase";
 import {
   candidateLayout,
@@ -197,6 +203,48 @@ describeCases("negotiation: bundle-only offers (ticket 21a27c92)", () => {
       await c.rtp(bOut, a.getTransceivers()[0].receiver.track);
       await c.rtp(second, bSecond.receiver.track);
       await c.data(aChannel, await bChannel);
+    },
+  );
+
+  negotiationCase(
+    "[bundle-only-5] bundle-only m-lines are rejected when the offerer-tagged m-line is rejected",
+    {
+      ref: "ticket 21a27c92 review; RFC 8843 §7.3.1",
+      exempt: "every m-line is rejected, so no session exists to continue",
+    },
+    async (c) => {
+      // Arrange: a は PCMU だけの audio (tag) + video + DataChannel、b は Opus だけの audio を持つ。
+      const { a, b } = await c.given(
+        createPeerPair(
+          { codecs: { audio: [usePCMU()], video: [useVP8()] } },
+          { codecs: { audio: [useOPUS()], video: [useVP8()] } },
+        ),
+      );
+      a.addTransceiver(new MediaStreamTrack({ kind: "audio" }), {
+        direction: "sendrecv",
+      });
+      const video = a.addTransceiver(new MediaStreamTrack({ kind: "video" }), {
+        direction: "sendrecv",
+      });
+      a.createDataChannel("bundle-only");
+
+      // Act: tag 以外を bundle-only にした初回 offer に b が answer する。
+      const offer = await offerBundleOnly(c, a, b);
+      await c.answer(b);
+
+      // Assert: 共通 codec のない tag は拒否され、offer 上で port 0 の bundle-only m-line は
+      // 新しい tag にならず、全 m-line が port 0 + c= で拒否され BUNDLE group も作られない。
+      const [tag, ...members] = candidateLayout(offer).bundle[0];
+      expect(members).toContain(video.mid);
+      const answer = b.localDescription!.sdp;
+      expect(candidateLayout(answer).bundle).toEqual([]);
+      for (const mid of [tag, ...members]) {
+        expect(answerShape(offer, mid).port).toBe(mid === tag ? 9 : 0);
+        expect(answerShape(answer, mid)).toMatchObject({
+          port: 0,
+          connection: "IN IP4 0.0.0.0",
+        });
+      }
     },
   );
 

@@ -1073,6 +1073,8 @@ export class SDPManager {
       description.media.push(media);
     }
 
+    this.rejectBundleOnlyWithoutTag(remoteDescription, description);
+
     if (this.bundlePolicy !== "disable") {
       description.group.push(
         ...this.buildAnswerBundleGroups(remoteDescription, description),
@@ -1081,6 +1083,42 @@ export class SDPManager {
 
     this.applyBundleCandidates(description);
     return description;
+  }
+
+  /**
+   * RFC 8843 §7.3.1: offerer-tagged m-line を拒否した answerer は、offer 上で
+   * port 0 でない m-line を新しい tag に選ぶ。受理した bundle-only m-line
+   * (offer 上は port 0, `acceptedBundleOnly`) はその条件を満たさず、tag なしでは
+   * 通信先の transport も決められないため、tag が answer で拒否されたら
+   * その group の bundle-only m-line も拒否する。
+   */
+  private rejectBundleOnlyWithoutTag(
+    remoteDescription: SessionDescription,
+    answer: SessionDescription,
+  ) {
+    const indexOfMid = (sdp: SessionDescription, mid: string) =>
+      sdp.media.findIndex((media) => media.rtp.muxId === mid);
+    for (const group of remoteDescription.group) {
+      if (group.semantic !== "BUNDLE") continue;
+      const [tagMid, ...members] = group.items;
+      const tagIndex = indexOfMid(answer, tagMid);
+      if (tagIndex < 0 || answer.media[tagIndex].port !== 0) continue;
+      for (const mid of members) {
+        const index = indexOfMid(remoteDescription, mid);
+        const offered = remoteDescription.media[index];
+        if (!offered?.acceptedBundleOnly || answer.media[index].port === 0) {
+          continue;
+        }
+        const rejected = this.createRejectedMediaDescription({
+          kind: offered.kind,
+          profile: offered.profile,
+          fmt: offered.fmt,
+          codecs: offered.rtp.codecs,
+          mid,
+        });
+        answer.media[index] = rejected;
+      }
+    }
   }
 
   /**
