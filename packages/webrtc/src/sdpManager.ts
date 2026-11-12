@@ -361,18 +361,22 @@ export class SDPManager {
    * itself is rejected.
    */
   private acceptBundleOnlyMedia(offer: SessionDescription) {
+    for (const group of offer.group) {
+      if (group.semantic !== "BUNDLE") continue;
+      // RFC 8843 §6: the offerer-tagged m-line must not be bundle-only, so an
+      // offer that marks it so is invalid whatever the bundlePolicy.
+      const tagMid = group.items[0];
+      if (offer.media.find((m) => m.rtp.muxId === tagMid)?.bundleOnly) {
+        throw new Error(
+          `BUNDLE tag m-line (mid=${tagMid}) must not have a=bundle-only (RFC 8843 section 6)`,
+        );
+      }
+    }
     if (this.bundlePolicy === "disable") return;
     for (const group of offer.group) {
       if (group.semantic !== "BUNDLE") continue;
       const [tagMid, ...members] = group.items;
       const tag = offer.media.find((media) => media.rtp.muxId === tagMid);
-      // RFC 8843 §6: the offerer-tagged m-line must not be bundle-only, so an
-      // offer that marks it so is invalid (no other member is accepted).
-      if (tag?.bundleOnly) {
-        throw new Error(
-          `BUNDLE tag m-line (mid=${tagMid}) must not have a=bundle-only (RFC 8843 section 6)`,
-        );
-      }
       if (!tag || tag.port === 0) continue;
       for (const media of offer.media) {
         if (

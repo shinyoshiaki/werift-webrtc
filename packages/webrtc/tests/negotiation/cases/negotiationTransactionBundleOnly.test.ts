@@ -248,15 +248,18 @@ describeCases("negotiation: bundle-only offers (ticket 21a27c92)", () => {
     },
   );
 
-  negotiationCase(
-    "[bundle-only-6] an offer whose BUNDLE tag is bundle-only is rejected",
+  negotiationCase.for([
+    { when: "the default bundlePolicy", answerer: {} },
+    { when: "bundlePolicy disable", answerer: { bundlePolicy: "disable" } },
+  ] as const)(
+    "[bundle-only-6] an offer whose BUNDLE tag is bundle-only is rejected with $when",
     {
       ref: "ticket 21a27c92 review; RFC 8843 §6",
       exempt: "the offer is invalid, so no session exists to continue",
     },
-    async (c) => {
+    async (c, { answerer }) => {
       // Arrange: video 2 本 + DataChannel の offer を作り、tag の m-line にも a=bundle-only を付ける。
-      const { a, b } = await c.given(createPeerPair({}, {}));
+      const { a, b } = await c.given(createPeerPair({}, answerer));
       a.addTransceiver(new MediaStreamTrack({ kind: "video" }), {
         direction: "sendrecv",
       });
