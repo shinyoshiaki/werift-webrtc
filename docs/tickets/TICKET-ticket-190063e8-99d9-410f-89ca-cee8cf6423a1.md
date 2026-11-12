@@ -201,3 +201,13 @@ transport は 1 つで、candidate は 12 個しかない。それでも m-line 
 
 - **`a=bundle-only` 未対応**: Firefox は再 offer や ICE restart の offer で、BUNDLE の非tag m-line を `port 0` + `a=bundle-only`（RFC 8843 §6）として送る。werift はこれを拒否された m-line と解釈し、`c=` 行のない `port 0` の m-line で answer するため、Firefox は answer を拒否する。werift のソースには `bundle-only` を扱う処理がない。
 - **werift 起点の ICE restart の後、Firefox への送信が止まる**: werift は Firefox の RTP を受信し続けるが、Firefox は werift からの RTP と DataChannel を受け取らなくなる。
+
+### 9.7 Firefox の問題のサブタスク化（2026-11-12）
+
+§9.6 で見つかった Firefox 関連の問題を、本チケットのサブタスクに切り出し、それぞれ詳細化エージェントで詳細化した（作成時は review レーンを継承したので todo に移した。本チケットの範囲には含めない）。
+
+| サブタスク | 内容 | 詳細化で挙がった原因・方針 |
+| --- | --- | --- |
+| `21a27c92-7ca2-4075-bd29-246f95715de2` | [SDP/BUNDLE] Firefox の `a=bundle-only` m-line を拒否扱いし、`c=` のない answer を返す | `sdp.ts` が `a=bundle-only` をパースしない。`buildAnswerSdp()` の port 0 分岐が `c=` のない m-line を返す。`port === 0` を拒否とみなす判定が 70 か所以上に散らばっている。answer の非tag の port は、Chrome / Firefox の実測（どちらも port 0 を返さない）を追記した。 |
+| `ef1c086e-1a6f-479e-8940-822231b4f359` | [ICE] werift 起点の ICE restart の後、Firefox が werift からの RTP / DataChannel を受け取れない | 最有力の仮説: werift が answer を適用する前に届いた Firefox の新しい ufrag の check を、`Connection.restart()` の `endProvisional()` と `earlyChecks = []` が捨ててしまう。初回接続にある、早く届いた check を後で再生する経路が restart にない（`packages/ice/src/ice.ts`）。 |
+| `a461df90-10bb-4aad-8f1b-3cce626d630b` | [E2E] 保守されていない Firefox E2E を正常に動作させる | 起動経路（`npm run firefox` はサーバーを起動しない、`ensure-browser.js` は Firefox を取得しない）、設定の差、CI の方針案。§9.6 ではサーバーを起動した状態で全件失敗していたので、「サーバー未起動」が主因だという仮説は誤りと追記した。主因は未特定で、まず DEBUG ログで止まる箇所を特定する。 |
