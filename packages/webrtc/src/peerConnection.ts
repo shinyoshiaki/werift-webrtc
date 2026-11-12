@@ -401,8 +401,9 @@ export class RTCPeerConnection extends EventTarget {
     // must not stop the others nor the transport state propagation that
     // triggered it (e.g. SCTP closing after a DTLS failure).
     this.secureManager.connectionStateChange.subscribe((state) => {
-      notifySafely(log, "connectionStateChange", () =>
-        this.connectionStateChange.execute(state),
+      this.connectionStateChange.executeIsolated(
+        (error) => log("connectionStateChange listener failed", error),
+        state,
       );
       notifySafely(log, "onconnectionstatechange", () =>
         this.onconnectionstatechange?.(),

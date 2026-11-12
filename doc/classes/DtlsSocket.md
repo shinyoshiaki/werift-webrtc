@@ -316,10 +316,11 @@ rejects.
 
 > `protected` **notify**\<`T`\>(`event`, ...`args`): `void`
 
-Run the listeners of an event this socket reports. `Event.execute`
-propagates a listener's exception: it is logged here, so an application
-listener can never interrupt the socket's own processing (ending the
-connection, closing the transport, the receive loop).
+Run the listeners of an event this socket reports, each isolated
+(`Event.executeIsolated`): a listener's exception is logged, so an
+application listener can never interrupt the socket's own processing
+(ending the connection, closing the transport, the receive loop) nor
+skip a listener registered after it.
 
 #### Type Parameters
 

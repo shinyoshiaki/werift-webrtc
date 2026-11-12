@@ -9,6 +9,8 @@ import {
   type Kind,
   MediaStreamTrack,
   PictureLossIndication,
+  RTCDataChannel,
+  RTCDataChannelParameters,
   RTCDtlsTransport,
   type RTCDtlsTransportErrorEvent,
   RTCIceGatherer,
@@ -18,6 +20,7 @@ import {
   RTCRtpCodecParameters,
   RTCRtpHeaderExtensionParameters,
   RTCRtpTransceiver,
+  RTCSctpTransport,
   type RTCSessionDescription,
   RTP_EXTENSION_URI,
   RtcpPayloadSpecificFeedback,
@@ -789,4 +792,33 @@ export function captureUnhandledErrors() {
       process.off("unhandledRejection", onError);
     },
   };
+}
+
+/**
+ * 接続済み DTLS の組の上に SCTP を確立し、negotiated DataChannel を 1 本開く。
+ * `beforeBind` は SCTP が DTLS の状態を購読する前に呼ばれる（購読順を再現する）。
+ */
+export async function sctpOverDtlsPair(
+  beforeBind: (dtls: [RTCDtlsTransport, RTCDtlsTransport]) => void = () => {},
+) {
+  const [clientDtls, serverDtls] = await dtlsTransportPair();
+  beforeBind([clientDtls, serverDtls]);
+  const client = new RTCSctpTransport();
+  const server = new RTCSctpTransport();
+  client.setDtlsTransport(clientDtls);
+  server.setDtlsTransport(serverDtls);
+  const serverChannel = new RTCDataChannel(
+    server,
+    new RTCDataChannelParameters({ label: "dc", id: 1, negotiated: true }),
+  );
+  new RTCDataChannel(
+    client,
+    new RTCDataChannelParameters({ label: "dc", id: 1, negotiated: true }),
+  );
+  await Promise.all([server.start(client.port), client.start(server.port)]);
+  await waitUntil(
+    () => server.state === "connected" && serverChannel.readyState === "open",
+    `sctp ${server.state} / dc ${serverChannel.readyState}`,
+  );
+  return { clientDtls, serverDtls, client, server, serverChannel };
 }

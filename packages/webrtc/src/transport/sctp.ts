@@ -104,7 +104,11 @@ export class RTCSctpTransport {
   private setState(state: RTCSctpTransportState, emitEvent = true) {
     if (state === this.state) return;
     this.state = state;
-    notifySafely(log, "onStateChange", () => this.onStateChange.execute(state));
+    // Per subscriber, so a throwing subscriber cannot skip a later one.
+    this.onStateChange.executeIsolated(
+      (error) => log("onStateChange listener failed", error),
+      state,
+    );
     if (emitEvent) {
       notifySafely(log, "onstatechange", () => this.onstatechange?.());
       notifySafely(log, "statechange", () => this.events.emit("statechange"));

@@ -171,17 +171,19 @@ export class DtlsSocket {
   };
 
   /**
-   * Run the listeners of an event this socket reports. `Event.execute`
-   * propagates a listener's exception: it is logged here, so an application
-   * listener can never interrupt the socket's own processing (ending the
-   * connection, closing the transport, the receive loop).
+   * Run the listeners of an event this socket reports, each isolated
+   * (`Event.executeIsolated`): a listener's exception is logged, so an
+   * application listener can never interrupt the socket's own processing
+   * (ending the connection, closing the transport, the receive loop) nor
+   * skip a listener registered after it.
    */
   protected notify<T extends any[]>(event: Event<T>, ...args: T) {
-    try {
-      event.execute(...args);
-    } catch (error) {
-      err(this.dtls.sessionId, "event listener failed", error);
-    }
+    // Per listener: one that throws neither skips the later listeners (e.g.
+    // werift's own, if the application subscribed first) nor this socket.
+    event.executeIsolated(
+      (error) => err(this.dtls.sessionId, "event listener failed", error),
+      ...args,
+    );
   }
 
   /**

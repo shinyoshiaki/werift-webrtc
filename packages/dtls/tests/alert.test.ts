@@ -525,3 +525,32 @@ describe("DTLS alert のリスナー例外", () => {
     expect(pair.serverTransport.closed).toBe(true);
   });
 });
+
+describe("DTLS イベントの購読者ごとの例外隔離", () => {
+  test("先に登録した onClose / onError のリスナーが例外を投げても、後のリスナーが呼ばれる", async () => {
+    // Arrange: server の onClose、client の onError で 1 番目のリスナーが例外を投げる
+    const closePair = createDtlsPair();
+    await connectDtlsPair(closePair);
+    const laterClose = vi.fn();
+    closePair.server.onClose.subscribe(() => {
+      throw new Error("listener failed");
+    });
+    closePair.server.onClose.subscribe(laterClose);
+    const errorPair = createDtlsPair();
+    await connectDtlsPair(errorPair);
+    const laterError = vi.fn();
+    errorPair.client.onError.subscribe(() => {
+      throw new Error("listener failed");
+    });
+    errorPair.client.onError.subscribe(laterError);
+
+    // Act: close_notify と fatal alert をそれぞれ送る
+    await closePair.client.sendAlert(AlertLevel.warning, AlertDesc.CloseNotify);
+    await errorPair.server.sendAlert(AlertLevel.fatal, AlertDesc.InternalError);
+    await setTimeout(20);
+
+    // Assert: 後から登録したリスナーも 1 回ずつ呼ばれる
+    expect(laterClose).toHaveBeenCalledTimes(1);
+    expect(laterError).toHaveBeenCalledTimes(1);
+  });
+});

@@ -773,8 +773,12 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   private setState(state: DtlsState, emitEvent = true) {
     if (state != this.state) {
       this.state = state;
-      this.notifySafely("onStateChange", () =>
-        this.onStateChange.execute(state),
+      // Per subscriber: an application subscriber registered before the
+      // internal ones (SCTP closing its association, connectionState) must
+      // not stop them by throwing.
+      this.onStateChange.executeIsolated(
+        (error) => log("onStateChange listener failed", error),
+        state,
       );
       if (emitEvent) {
         this.notifySafely("onstatechange", () => this.onstatechange?.());
@@ -867,7 +871,10 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     } catch (error) {
       log("stop: dtls close failed", error);
     }
-    this.notifySafely("onStopped", () => this.onStopped.execute());
+    // Per subscriber: the owner releasing this transport must run.
+    this.onStopped.executeIsolated((error) =>
+      log("onStopped listener failed", error),
+    );
     this.notifySafely("onStopped", () => this.onStopped.complete());
   }
 

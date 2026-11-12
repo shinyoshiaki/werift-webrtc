@@ -16,6 +16,7 @@ import {
   recordCloseOrder,
   recordDtlsEvents,
   recordSentDtlsAlerts,
+  sctpOverDtlsPair,
   waitForDtlsState,
   zeroSdpFingerprints,
 } from "../fixture";
@@ -749,4 +750,42 @@ describe("状態通知リスナーの例外で後処理が止まらない", () =
       await Promise.allSettled([pc1.close(), pc2.close()]);
     }
   });
+});
+
+describe("SCTP より先に登録したアプリの DTLS 状態リスナーが例外を投げる場合", () => {
+  test.each([
+    ["fatal alert", AlertLevel.fatal, AlertDesc.InternalError, "failed"],
+    ["close_notify", AlertLevel.warning, AlertDesc.CloseNotify, "closed"],
+  ] as const)(
+    "%s を受けても、後から登録された SCTP の購読者が association と DataChannel を閉じる",
+    async (_, level, description, dtlsState) => {
+      // Arrange: SCTP が購読する前に、受信側 DTLS へ例外を投げるリスナーを登録する
+      const { clientDtls, serverDtls, client, server, serverChannel } =
+        await sctpOverDtlsPair(([, serverDtls]) => {
+          serverDtls.onStateChange.subscribe(() => {
+            throw new Error("listener failed");
+          });
+        });
+
+      try {
+        // Act: client 側 DTLS から alert を送る
+        await clientDtls.dtls!.sendAlert(level, description);
+
+        // Assert: 受信側 DTLS が終端状態になり、SCTP と DataChannel も closed になる
+        await waitForDtlsState(serverDtls, dtlsState);
+        await waitUntil(
+          () =>
+            server.state === "closed" && serverChannel.readyState === "closed",
+          `sctp ${server.state} / dc ${serverChannel.readyState}`,
+        );
+      } finally {
+        await Promise.allSettled([
+          client.stop(),
+          server.stop(),
+          clientDtls.stop(),
+          serverDtls.stop(),
+        ]);
+      }
+    },
+  );
 });

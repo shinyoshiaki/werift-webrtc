@@ -764,7 +764,10 @@ export class SecureTransportManager {
     }
     log("connectionStateChange", state);
     this.connectionState = state;
-    this.connectionStateChange.execute(state);
+    this.connectionStateChange.executeIsolated(
+      (error) => log("connectionStateChange listener failed", error),
+      state,
+    );
   }
 
   async getStats(timestamp?: number): Promise<RTCStats[]> {
