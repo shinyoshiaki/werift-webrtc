@@ -154,3 +154,109 @@
 - [ ] 明示 `interfaceAddresses`、`additionalHostAddresses`、`portRange`、ICE restart、TCP 候補、srflx / relay の既存挙動とテストが回帰しない。
 - [ ] `iceBase.ts` / `peerConfig.ts` の JSDoc、`changelog.md`、生成ドキュメントが新しい挙動に更新されている。
 - [ ] 上の検証コマンドがすべて成功する。
+
+---
+
+# 追加要件（2026-11-12）: 複数 NIC 環境の既定 gathering 仕様
+
+デグレード調査（2026-11-11）で次の2点を確認したため、既定仕様を追加した。外へ出られない NIC があると gathering が `stunGatherTimeout`（既定 5 秒）まで遅れる。出口が列挙対象外の NIC（`tun` など）だけだと srflx が取れない。
+
+## 1. 仕様
+
+1. **host candidate は NIC の IP ごとに bind したソケットから広告する**（従来どおり）。送信元と広告が一致し、相手側に prflx を生成させない。
+2. **wildcard ソケットをファミリーごとに 1 つ追加する。host candidate は広告しない。**
+   - 作るのは `interfaceAddresses` 未指定（既定モード）かつ STUN server がある場合だけ。iceLite / relay-only では作らない。
+   - IPv4 の wildcard ソケットは全 STUN server に問い合わせる。IPv6 のものは IPv6 リテラルの server にだけ問い合わせる。
+   - 出口は OS が経路表で選ぶ。srflx の関連アドレスは `0.0.0.0` / `::`、関連ポートは wildcard ソケットの実ポート。
+   - 最初の srflx を、そのソケットの local candidate として pair に参加させる。srflx が 1 つも取れなければソケットを閉じる。
+   - TURN の allocation は従来どおり専用の UDP ソケット（既定で wildcard bind）を使う。ICE 用ソケットに多重化しなくても「OS が経路を選ぶ」点は同じなので、この形を維持する。
+   - **wildcard ソケットの check は、どの host ソケットも覆っていない経路にだけ送る**。相手アドレスへの経路の送信元 IP（UDP `connect` で調べる）が、いずれかの UDP host ソケットの bind アドレスと一致すれば、その host ソケットがその経路を覆っている。そうした相手 candidate とは pair を作らない。NAT 越しの経路も、host ソケットの srflx として覆われる。
+     - 理由: LAN では wildcard ソケットの送信元が「ローカル IP:wildcard ポート」になる。この組は広告していないので、相手が prflx を学習してしまう（Chrome で実際に再現した）。
+3. **gathering の完了は代表ソケットの srflx 取得で判定する。**
+   - 代表は wildcard ソケットと、既定経路の IP の host ソケット。既定経路は公開アドレス宛ての UDP `connect` で調べる（libwebrtc の `QueryDefaultLocalAddress` 相当）。
+   - どちらもないファミリーでは、全 host ソケットを待つ（従来どおり）。
+   - `gatherCandidates()` / `setLocalDescription()` は、代表ソケットの問い合わせが終わった時点で返る。
+   - それ以外の host ソケットの srflx はバックグラウンドで問い合わせを続け、取れたものを `onIceCandidate` / `onicecandidate` で trickle する。ICE restart 用の既存の trickle 経路を再利用する。
+   - end-of-candidates は、バックグラウンドの問い合わせがすべて終わってから出す。対象は `localCandidatesEnd`、`iceGatheringState === "complete"`、`null` candidate、`a=end-of-candidates`。
+     - 理由: RFC 8838 では end-of-candidates の後に同じ generation の candidate を出せない。
+     - `Connection.waitForLocalCandidatesEnd()` で待てる。end が遅れて来た場合は、check list が尽きていればそこで失敗判定する。
+   - 全 NIC が STUN に届くホストでは、待ち時間も SDP も従来と変わらない（単一 NIC は既定経路の socket が代表になる）。
+4. **costly な NIC（`ipsec` / `tun` / `utun` / `tap`）は除外せず、低い local preference で host candidate に含める。**
+   - `vmnet` / `veth` は従来どおり除外する。
+   - 公開 API `getHostAddresses()` / `nodeIpAddress()` の戻り値は変えない（costly は含めない）。
+5. **既定経路の IP の host candidate を最優先にする。** UDP host の local preference は次のとおり。
+   - 既定経路: 65535
+   - 通常 NIC: 32767
+   - costly: 16383
+   - 同じ区分の中では収集順に 1 ずつ下げ、値が重ならないようにする。ICE restart で再利用するソケットを含めた全リストで計算する。
+6. **bind の失敗や送信の失敗（`EINVAL` など）は、その候補だけを落とす**（従来どおり）。wildcard ソケットが残るので全滅しない。
+
+## 2. 実装（主な変更点）
+
+- `packages/ice/src/internal/selectAddresses.ts`: `selectHostInterfaces()` が costly な NIC を `costly: true` 付きで返し、通常 NIC の後に並べる。`selectAddressesFromInterfaces()` は costly を除いた従来の結果を返す。
+- `packages/ice/src/internal/defaultRoute.ts`（新規）: `getRouteSourceAddress()` / `getDefaultRouteAddress(es)()`。UDP `connect` で経路の送信元を調べる（パケットは送らない）。
+- `packages/ice/src/internal/hostPreference.ts`（新規）: `HostLocalPreference`（`as const` + `@enum`）、`hostLocalPreferences()`。
+- `packages/ice/src/internal/resolveHostAddresses.ts`: `costly` を `HostAddress` に引き継ぐ。
+- `packages/ice/src/ice.ts`:
+  - `getCandidatePromises()` が `{ primary, background }` を返す。
+  - wildcard ソケットの作成・問い合わせ（`gatherWildcardReflexive`）。
+  - ICE restart で再利用し、srflx を再広告する。
+  - `close()` で解放する（問い合わせ中のものも含む）。
+  - 経路ゲート（`wildcardPathUncovered`）を live / provisional の両方の pairing に入れる。
+  - `concludeCheckListIfExhausted()` を抽出し、end が遅れて来たときに失敗を判定する。
+  - 既定経路の調査はソケットの bind と並行して行い、TURN の開始を遅らせない。
+- `packages/ice/src/iceBase.ts`:
+  - `serverReflexiveCandidate()` に省略可能な `base` を追加する。
+  - `IceConnection.waitForLocalCandidatesEnd?()` を追加する。
+  - JSDoc を更新する（`interfaceAddresses` / `stunServers` / `stunGatherTimeout`）。
+- `packages/webrtc/src/transport/ice.ts`: `RTCIceGatherer.gather()` は `gatherCandidates()` が返った時点で返る。`null` candidate と `complete` は `waitForLocalCandidatesEnd()` の後に出す。
+- ドキュメント:
+  - `peerConfig.ts` の JSDoc を更新する（`iceInterfaceAddresses` / `iceAdditionalHostAddresses` / `iceStunGatherTimeout`）。
+  - `changelog.md` に追記し、`npm run doc` で生成ドキュメントを作り直す。
+
+## 3. 回帰テスト
+
+- [x] `tests/ice/multi-nic-reflexive.test.ts`（新規、9 件）
+  - wildcard ソケットの srflx（raddr `0.0.0.0`）。wildcard アドレスを host として広告しないこと。
+  - 届かない NIC があっても gathering が待たないこと（end-of-candidates は timeout の後、srflx は trickle されること）。
+  - 全 NIC が届くとき、gathering が即座に完了すること。
+  - wildcard の bind に失敗したとき、既定経路のソケットが代表になること。
+  - local preference の 3 区分。
+  - 覆われた経路では wildcard の pair を作らず、prflx も出ないこと。
+  - 覆われていない経路では wildcard の pair を check し、prflx が出ないこと。
+  - `interfaceAddresses` を明示したとき wildcard ソケットを作らないこと。
+  - ICE restart で再利用し、`close()` でポートを解放すること。
+- [x] `packages/webrtc/tests/transport/iceGatheringMultiNic.test.ts`（新規）: `setLocalDescription()` が届かない NIC を待たないこと。trickle → `null` → `complete` の順になり、`a=end-of-candidates` が付くこと。
+- [x] 既存テストを新仕様に合わせて更新した。
+  - `utils.test.ts`: costly NIC と公開 API の互換。
+  - `restart-gather.test.ts`: srflx の base の比較。
+  - `multi-nic.test.ts`: 除外 NIC の例を `veth0` に変更。
+- [x] 経路ゲートの両方向のテストは、ゲートを「常に pair する」「常に pair しない」に差し替えると、それぞれ失敗することを確認した。
+
+## 4. 相互接続の確認（DataChannel でテキスト 5 件 + 16 KiB バイナリを往復）
+
+- 相手: 新 werift / 旧 werift（develop `1f007fe89`、npm `0.27.0`、npm `0.22.9`）/ libwebrtc（Chromium 156.0.8078.4、Playwright）/ pion（`pion/webrtc` v4.2.26、`pion/ice` v4.4.8）。
+- NIC 構成（`os.networkInterfaces` の差し替えによる疑似構成）:
+  - 実 NIC
+  - 外へ出られない二次 NIC を追加した構成
+  - 実 NIC を `tun0` に見せ、通常 NIC は外へ出られないものだけにした構成
+- 結果（最終コード）: **全組み合わせで接続を確立し、データの往復が一致した**。ただし npm `0.22.9` との 2 件は例外で、内容は下記のとおり。
+  - werift⇔werift: 21 通り（7 組 × 3 構成）。
+    - npm `0.22.9` の 2 件が tunOnly でタイムアウトした。0.22⇔0.22、0.22⇔develop、0.22⇔0.27 でも同じくタイムアウトするので、0.22 側の既存の制約であり、今回の変更による回帰ではない。
+    - 新⇔新は全構成で prflx 0/0。旧版と組んだときの prflx は、すべて旧版から受信した側で生じている（旧版自身の送信元不一致）。
+  - Chromium 156: 12 通り（werift 新 / 0.27 × offer / answer × 3 構成）すべて OK。
+    - Chrome が werift から学習した prflx は、新 werift で全構成 0。0.27 では複数 NIC の構成で 1〜2。
+    - 経路ゲートを入れる前は、新 werift でも LAN 上で 1 だった（wildcard ソケットの check が原因）。この結果を受けて §1-2 のゲートを入れた。
+  - pion v4.2.26: 12 通りすべて OK。
+    - pion が選んだ pair の remote は、新 werift では常に werift の host candidate。0.27 の tunOnly では prflx。
+  - 既存 E2E（`npm run e2e`、Chrome 157）: 23 ファイル / 67 件成功。
+- 検証の限界:
+  - 疑似 NIC は 127.0.0.2 をループバック上に置いたもので、実機の複数 NIC、VPN、NAT を通した構成は未確認。
+  - 相手の .local（mDNS）candidate に対して werift 側で prflx が出るのは、相手側の挙動。
+
+## 5. 完了条件（追加分）
+
+- [x] 上記 1〜6 の仕様が実装され、回帰テストが通る（ice 445 件成功、5 件スキップ）。
+- [x] 新旧 werift / libwebrtc / pion と接続を確立し、アプリケーションデータを往復できる（§4。npm 0.22.9 の tunOnly は旧版どうしでも失敗する既存の制約）。
+- [x] `npm run type` 成功。`npm run test:small` は webrtc 1722 件、ice 445 件を含めて成功した。唯一の失敗は sctp `tests/burst.test.ts`（処理コストの線形性を測る計時テスト）で、変更のない develop worktree でも 3/3 失敗するため環境起因。`npm run e2e` は 67 件成功。
+- [x] JSDoc、`changelog.md`、生成ドキュメント（`npm run doc`）を更新した。

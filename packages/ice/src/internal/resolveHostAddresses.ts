@@ -33,12 +33,15 @@ export interface HostAddress {
   bind: HostAddressBind;
   /** Address the socket binds for `enumerated` (zone of a link-local IPv6). */
   bindAddress?: string;
+  /** Enumerated from a costly network (VPN / tunnel): low local preference. */
+  costly?: boolean;
 }
 
 /** A locally enumerated address and the address its socket binds. */
 export interface EnumeratedHostAddress {
   address: string;
   bindAddress?: string;
+  costly?: boolean;
 }
 
 /** Canonical notation of an IP address (IPv6 compression / case, no zone). */
@@ -103,12 +106,18 @@ export function resolveHostAddresses({
   // Keyed by canonical address so that another notation of the same IPv6
   // address is still recognized as local.
   const toMap = (entries: (string | EnumeratedHostAddress)[]) => {
-    const map = new Map<string, { address: string; bindAddress: string }>();
+    const map = new Map<
+      string,
+      { address: string; bindAddress: string; costly: boolean }
+    >();
     for (const entry of entries) {
-      const { address, bindAddress = address } =
-        typeof entry === "string" ? { address: entry } : entry;
+      const {
+        address,
+        bindAddress = address,
+        costly = false,
+      } = typeof entry === "string" ? { address: entry } : entry;
       const key = normalizeIp(address);
-      if (!map.has(key)) map.set(key, { address, bindAddress });
+      if (!map.has(key)) map.set(key, { address, bindAddress, costly });
     }
     return map;
   };
@@ -136,6 +145,7 @@ export function resolveHostAddresses({
         address: local.address,
         bind: HostAddressBind.enumerated,
         bindAddress: local.bindAddress,
+        ...(local.costly ? { costly: true } : {}),
       };
     }
     return { address, bind: HostAddressBind.wildcard };
@@ -159,9 +169,13 @@ export function resolveHostAddresses({
     if (isUnspecified(explicit)) {
       // The family is explicitly bound to the wildcard address: gather its
       // enumerated addresses over wildcard sockets.
-      for (const { address } of locals.values()) {
+      for (const { address, costly } of locals.values()) {
         if (explicitOf(address) === explicit) {
-          add({ address, bind: HostAddressBind.wildcard });
+          add({
+            address,
+            bind: HostAddressBind.wildcard,
+            ...(costly ? { costly: true } : {}),
+          });
         }
       }
     } else {

@@ -955,6 +955,51 @@ export async function createStreamTurnServer({
   };
 }
 
+/**
+ * Shared Arrange: a STUN server that answers Binding Requests with the
+ * source address (XOR-MAPPED-ADDRESS) but ignores those from
+ * `ignoredSources`, so a socket bound to such an address cannot reach it
+ * (a network interface without a route to the STUN server).
+ */
+export async function createSelectiveStunServer(
+  host: string,
+  ignoredSources: string[] = [],
+) {
+  const socket = dgram.createSocket(net.isIPv4(host) ? "udp4" : "udp6");
+  const ignored = new Set(ignoredSources);
+  const answeredSources: string[] = [];
+  socket.on("message", (data, rinfo) => {
+    const request = parseMessage(data);
+    if (
+      !request ||
+      request.messageMethod !== methods.BINDING ||
+      request.messageClass !== classes.REQUEST ||
+      ignored.has(rinfo.address)
+    ) {
+      return;
+    }
+    answeredSources.push(rinfo.address);
+    const response = new Message(
+      methods.BINDING,
+      classes.RESPONSE,
+      request.transactionId,
+    );
+    response.setAttribute("XOR-MAPPED-ADDRESS", [rinfo.address, rinfo.port]);
+    socket.send(response.bytes, rinfo.port, rinfo.address);
+  });
+  await new Promise<void>((resolve) => socket.bind(0, host, () => resolve()));
+  const address: Address = [host, socket.address().port];
+  return {
+    address,
+    /** Source addresses of the requests the server answered. */
+    answeredSources,
+    close: () =>
+      new Promise<void>((resolve) => {
+        socket.close(() => resolve());
+      }),
+  };
+}
+
 /** Whether a UDP socket can bind `address` on this host. */
 export async function canBindAddress(address: string) {
   const socket = dgram.createSocket(net.isIPv4(address) ? "udp4" : "udp6");

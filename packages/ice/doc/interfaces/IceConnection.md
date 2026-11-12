@@ -501,3 +501,19 @@ the sockets those options allow. Defaults to the current options.
 #### Returns
 
 `void`
+
+***
+
+### waitForLocalCandidatesEnd()?
+
+> `optional` **waitForLocalCandidatesEnd**(): `Promise`\<`void`\>
+
+Resolves when `localCandidatesEnd` becomes true after `gatherCandidates()`
+returned (server-reflexive queries that continue in the background), or
+when the generation ends. Optional so that other implementations of this
+interface keep compiling; without it gathering ends when
+`gatherCandidates()` returns.
+
+#### Returns
+
+`Promise`\<`void`\>

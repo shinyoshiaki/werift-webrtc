@@ -84,12 +84,20 @@ export interface PeerConfig {
    * When unset, each enumerated interface address gets a UDP host socket
    * bound to that address, so connectivity checks leave from the advertised
    * candidate on multi-NIC hosts. An address whose bind fails is not
-   * advertised. Set a family to `0.0.0.0` / `::` to gather its enumerated
-   * addresses over wildcard sockets instead.
+   * advertised. VPN / tunnel interfaces (`tun`, `utun`, `ipsec`, `tap`) are
+   * gathered with a low priority and the default-route address with the
+   * highest. With a STUN server, one more socket per family is bound to the
+   * wildcard address: it advertises no host candidate but maps the route the
+   * OS picks (server-reflexive candidate with `raddr 0.0.0.0`).
+   * `setLocalDescription()` waits only for that socket and the
+   * default-route one; the other interfaces' server-reflexive candidates
+   * trickle through `onicecandidate` before the end-of-candidates `null`.
+   * Set a family to `0.0.0.0` / `::` to gather its enumerated addresses over
+   * wildcard sockets instead.
    */
   iceInterfaceAddresses: InterfaceAddresses | undefined;
   /** Add additional host (local) addresses to use for candidate gathering.
-   * Notably, you can include hosts that are normally excluded, such as loopback, tun interfaces, etc.
+   * Notably, you can include hosts that are normally excluded, such as loopback, vmnet / veth interfaces, etc.
    * For a family bound by `iceInterfaceAddresses`, addresses other than the bound one are ignored.
    * An address assigned to a local interface is bound like an enumerated one; any other address
    * (a 1:1 NAT public address, for example) is gathered over a wildcard socket.
@@ -102,7 +110,8 @@ export interface PeerConfig {
   iceTcpPassive: boolean;
   /**
    * Seconds to wait for server-reflexive candidates while gathering.
-   * Defaults to 5 when undefined.
+   * Defaults to 5 when undefined. `setLocalDescription()` waits for it only
+   * on the wildcard and default-route sockets (see `iceInterfaceAddresses`).
    */
   iceStunGatherTimeout: number | undefined;
   /**

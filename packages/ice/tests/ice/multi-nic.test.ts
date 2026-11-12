@@ -241,8 +241,8 @@ describe("multi-NIC host candidates without interfaceAddresses", () => {
   });
 
   test("an additional host address assigned to an excluded NIC is bound to itself", async () => {
-    // Arrange: tun0 は候補列挙から除外されるが、127.0.0.2 はローカルに割り当て済み
-    useNics({ eth0: ["127.0.0.1"], tun0: ["127.0.0.2"] });
+    // Arrange: veth0 は候補列挙から除外されるが、127.0.0.2 はローカルに割り当て済み
+    useNics({ eth0: ["127.0.0.1"], veth0: ["127.0.0.2"] });
     const connection = createTestConnection(true, {
       additionalHostAddresses: ["127.0.0.2"],
     });

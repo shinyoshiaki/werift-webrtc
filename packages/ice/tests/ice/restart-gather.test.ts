@@ -16,19 +16,27 @@ describe("ICE restart gathering", () => {
       });
       try {
         await connection.gatherCandidates();
+        await connection.waitForLocalCandidatesEnd();
         const hostPorts = connection.localCandidates
           .filter((c) => c.type === "host" && c.transport === "udp")
           .map((c) => c.port)
           .sort();
-        expect(connection.localCandidates.some((c) => c.type === "srflx")).toBe(
-          true,
-        );
+        // srflx の base: host socket (関連アドレス = host) と wildcard socket (0.0.0.0)
+        const srflxBases = (candidates: typeof connection.localCandidates) =>
+          candidates
+            .filter((c) => c.type === "srflx")
+            .map((c) => `${c.relatedAddress}:${c.relatedPort}`)
+            .sort();
+        const initialBases = srflxBases(connection.localCandidates);
+        expect(initialBases.length).toBeGreaterThan(0);
 
         // Act: ICE restart して新 generation を gather する。
         await connection.restart();
         await connection.gatherCandidates();
+        await connection.waitForLocalCandidatesEnd();
 
-        // Assert: socket は再利用され (host port 不変)、srflx も新 generation に再び載る。
+        // Assert: socket は再利用され (host port 不変)、srflx も新 generation に
+        // 同じ base (host socket と wildcard socket) から再び載る。
         const restarted = connection.localCandidates;
         expect(
           restarted
@@ -36,10 +44,12 @@ describe("ICE restart gathering", () => {
             .map((c) => c.port)
             .sort(),
         ).toEqual(hostPorts);
-        const srflx = restarted.filter((c) => c.type === "srflx");
-        expect(srflx.length).toBeGreaterThan(0);
-        for (const candidate of srflx) {
-          expect(hostPorts).toContain(candidate.relatedPort);
+        expect(srflxBases(restarted)).toEqual(initialBases);
+        for (const candidate of restarted.filter((c) => c.type === "srflx")) {
+          expect(
+            candidate.relatedAddress === "0.0.0.0" ||
+              hostPorts.includes(candidate.relatedPort!),
+          ).toBe(true);
         }
       } finally {
         await connection.close();
