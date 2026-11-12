@@ -39,6 +39,7 @@ import { GccBandwidthEstimator } from "../src/media/sender/estimators/gcc/gccBwe
 import type { LightweightBandwidthEstimator } from "../src/media/sender/senderBWE";
 import type { RTCRemoteInboundRtpStreamStats } from "../src/media/stats";
 import { compactNtp } from "../src/utils";
+import { waitUntil } from "./utils";
 
 export const createRtpPacket = (
   sequenceNumber = 0,
@@ -727,3 +728,65 @@ export const zeroSdpFingerprints = (sdp: string) =>
     (_, algorithm: string, value: string) =>
       `a=fingerprint:${algorithm} ${value.replace(/[0-9a-f]/gi, "0")}`,
   );
+
+/**
+ * DataChannel を 1 本開いて接続済みの PeerConnection の組を作る
+ * (dc1: pc1 が作った channel、dc2: pc2 が受け取った channel)
+ */
+export async function connectedDataChannelPeers(label = "dc") {
+  const pc1 = new RTCPeerConnection();
+  const pc2 = new RTCPeerConnection();
+  const dc1 = pc1.createDataChannel(label);
+  const remoteChannel = new Promise<any>((resolve) =>
+    pc2.onDataChannel.subscribe(resolve),
+  );
+  await pc1.setLocalDescription(await pc1.createOffer());
+  await pc2.setRemoteDescription(pc1.localDescription!);
+  await pc2.setLocalDescription(await pc2.createAnswer());
+  await pc1.setRemoteDescription(pc2.localDescription!);
+  const dc2 = await remoteChannel;
+  await waitUntil(() => dc1.readyState === "open", "dc1 did not open");
+  await waitUntil(
+    () =>
+      pc1.connectionState === "connected" &&
+      pc2.connectionState === "connected",
+    "peers did not connect",
+  );
+  return { pc1, pc2, dc1, dc2 };
+}
+
+/**
+ * pc.close() の送信順を記録する: SCTP ABORT の送信、DTLS alert の送信、ICE の close
+ */
+export function recordCloseOrder(pc: RTCPeerConnection) {
+  const dtls = pc.sctp!.transport;
+  const { order: dtlsOrder } = recordSentDtlsAlerts(dtls);
+  const order: ("sctp-abort" | "alert" | "ice-close")[] = [];
+  const sctp = pc.sctp!.sctp;
+  const abort = sctp.abort.bind(sctp);
+  sctp.abort = async () => {
+    order.push("sctp-abort");
+    return abort();
+  };
+  const push = dtlsOrder.push.bind(dtlsOrder);
+  dtlsOrder.push = (...items) => {
+    order.push(...items);
+    return push(...items);
+  };
+  return order;
+}
+
+/** テスト中の未捕捉例外 / 未処理 rejection を集める (dispose で購読解除) */
+export function captureUnhandledErrors() {
+  const errors: unknown[] = [];
+  const onError = (error: unknown) => errors.push(error);
+  process.on("uncaughtException", onError);
+  process.on("unhandledRejection", onError);
+  return {
+    errors,
+    dispose: () => {
+      process.off("uncaughtException", onError);
+      process.off("unhandledRejection", onError);
+    },
+  };
+}

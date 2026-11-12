@@ -1,5 +1,22 @@
 import { EventEmitter } from "node:events";
 
+/**
+ * Run one notification to listeners (an `Event.execute`, an `on*` handler or
+ * an `emit`) so that an exception a listener throws is logged and never
+ * interrupts the caller's own processing (state propagation, cleanup).
+ */
+export function notifySafely(
+  log: (...args: unknown[]) => void,
+  name: string,
+  notify: () => void,
+) {
+  try {
+    notify();
+  } catch (error) {
+    log(`${name} listener failed`, error);
+  }
+}
+
 export function enumerate<T>(arr: T[]): [number, T][] {
   return arr.map((v, i) => [i, v]);
 }

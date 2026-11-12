@@ -342,6 +342,24 @@
       "variant": "",
       "subtest": "SDP negotiation with a sha-512 fingerprint succeds",
       "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDtlsTransport-state.html",
+      "variant": "",
+      "subtest": "close() causes the local transport to close immediately",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDtlsTransport-state.html",
+      "variant": "",
+      "subtest": "close() causes the other end's DTLS transport to close",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDtlsTransport-state.html",
+      "variant": "",
+      "subtest": "DTLS transport goes to connected state",
+      "status": "PASS"
     }
   ]
 }

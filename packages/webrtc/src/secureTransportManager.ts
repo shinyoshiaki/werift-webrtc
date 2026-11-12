@@ -1,6 +1,7 @@
 import type { PeerConfig } from "./api/peerConfig";
 import { SRTP_PROFILE } from "./const";
 import { createWebRtcDomException, createWebRtcTypeError } from "./errors";
+import { notifySafely } from "./helper";
 import { debug, Event } from "./imports/common";
 import type { RTCRtpTransceiver, TransceiverManager } from "./media";
 import type { RTCStats } from "./media/stats";
@@ -268,7 +269,11 @@ export class SecureTransportManager {
       srtpProfiles,
     );
     dtlsTransport.onStateChange.subscribe((state) => {
-      this.onDtlsStateChange(dtlsTransport, state);
+      // Isolated: the DTLS transport's later subscribers (SCTP closing its
+      // association) must run even if a connectionState listener throws.
+      notifySafely(log, "connectionState (dtls)", () =>
+        this.onDtlsStateChange(dtlsTransport, state),
+      );
     });
     this.ownedTransports.add(dtlsTransport);
     dtlsTransport.onStopped.once(() => {
@@ -752,8 +757,9 @@ export class SecureTransportManager {
     );
   }
 
+  /** `closed` is final (set by `RTCPeerConnection.close()` only). */
   setConnectionState(state: ConnectionState) {
-    if (this.connectionState === state) {
+    if (this.connectionState === state || this.connectionState === "closed") {
       return;
     }
     log("connectionStateChange", state);
@@ -801,8 +807,25 @@ export class SecureTransportManager {
     }
   }
 
-  async close() {
+  /**
+   * @internal
+   * The synchronous part of close() (W3C webrtc-pc `close()`):
+   * `connectionState` and every DTLS transport become `closed` before
+   * `RTCPeerConnection.close()` awaits anything; the alerts and the ICE /
+   * socket teardown follow in close().
+   */
+  markClosed() {
     this.setConnectionState("closed");
+    for (const transport of uniqueTransports([
+      ...this.allDtlsTransports,
+      ...this.ownedTransports,
+    ])) {
+      transport.markClosed();
+    }
+  }
+
+  async close() {
+    this.markClosed();
 
     // Owned transports cover the ones no binding references any more.
     await Promise.allSettled(

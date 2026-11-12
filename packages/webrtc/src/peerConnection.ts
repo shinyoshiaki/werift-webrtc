@@ -18,7 +18,7 @@ import {
   type RTCDataChannel,
 } from "./dataChannel";
 import { createWebRtcDomException } from "./errors";
-import { EventTarget, enumerate } from "./helper";
+import { EventTarget, enumerate, notifySafely } from "./helper";
 import { debug, Event } from "./imports/common";
 import {
   type MediaStream,
@@ -397,10 +397,19 @@ export class RTCPeerConnection extends EventTarget {
       this.oniceconnectionstatechange?.();
       this.emit("iceconnectionstatechange");
     });
+    // Each notification is isolated: an application listener that throws
+    // must not stop the others nor the transport state propagation that
+    // triggered it (e.g. SCTP closing after a DTLS failure).
     this.secureManager.connectionStateChange.subscribe((state) => {
-      this.connectionStateChange.execute(state);
-      this.onconnectionstatechange?.();
-      this.emit("connectionstatechange");
+      notifySafely(log, "connectionStateChange", () =>
+        this.connectionStateChange.execute(state),
+      );
+      notifySafely(log, "onconnectionstatechange", () =>
+        this.onconnectionstatechange?.(),
+      );
+      notifySafely(log, "connectionstatechange", () =>
+        this.emit("connectionstatechange"),
+      );
     });
     this.secureManager.onIceCandidate.subscribe((candidate) => {
       const iceCandidate = candidate ? candidate.toJSON() : undefined;
@@ -2103,6 +2112,11 @@ export class RTCPeerConnection extends EventTarget {
     this.setSignalingState("closed");
 
     this.transceiverManager.close();
+
+    // W3C close(): SCTP / DTLS / connectionState は同期に closed（statechange なし）。
+    // 送信（SCTP ABORT → close_notify → ICE 停止）はこの後の非同期部分で行う。
+    this.sctpManager.markClosed();
+    this.secureManager.markClosed();
 
     // SCTP ABORT は DTLS/ICE が生きている間に送る（close は abrupt であり SHUTDOWN ではない）
     await this.sctpManager.close();

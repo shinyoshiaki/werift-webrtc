@@ -8,9 +8,12 @@ import {
   RTCPeerConnection,
 } from "../../src";
 import {
+  captureUnhandledErrors,
+  connectedDataChannelPeers,
   createDtlsSessions,
   dtlsTransportPair,
   mutateFingerprint,
+  recordCloseOrder,
   recordDtlsEvents,
   recordSentDtlsAlerts,
   waitForDtlsState,
@@ -611,6 +614,137 @@ describe("接続開始中に相手が close_notify で終了した場合", () =>
       expect(pc2.connectionState).toBe("failed");
       // Assert: pc2 の DTLS は close_notify を受けた closed（fatal ではないので failed にしない）
       expect(pc2.dtlsTransports[0].state).toBe("closed");
+    } finally {
+      await Promise.allSettled([pc1.close(), pc2.close()]);
+    }
+  });
+});
+
+describe("pc.close() の同期部分と送信順", () => {
+  test("pc.close() の直後（await 前）に DTLS / SCTP / connectionState が closed になり、DTLS の statechange は発火しない", async () => {
+    // Arrange
+    const { pc1, pc2, dc2 } = await connectedDataChannelPeers();
+    const dtls1 = pc1.sctp!.transport;
+    const local = recordDtlsEvents(dtls1);
+    const order = recordCloseOrder(pc1);
+    const dtls2 = pc2.sctp!.transport;
+    const dc2Closed = new Promise<void>((resolve) =>
+      dc2.addEventListener("close", () => resolve()),
+    );
+
+    try {
+      // Act: pc1.close() を呼び、await する前に状態を読む
+      const closing = pc1.close();
+      const syncState = {
+        dtls: dtls1.state,
+        sctp: pc1.sctp!.state,
+        connection: pc1.connectionState,
+      };
+      await closing;
+
+      // Assert: await 前に closed になっており、DTLS の statechange は 0 回
+      expect(syncState).toEqual({
+        dtls: "closed",
+        sctp: "closed",
+        connection: "closed",
+      });
+      expect(local.states).toEqual([]);
+      // Assert: 送信順は SCTP ABORT → close_notify → ICE close のまま
+      expect(order).toEqual(["sctp-abort", "alert", "ice-close"]);
+      // Assert: 相手の DTLS / SCTP / DataChannel が closed になる
+      await waitForDtlsState(dtls2, "closed");
+      await dc2Closed;
+      expect(pc2.sctp!.state).toBe("closed");
+      expect(dc2.readyState).toBe("closed");
+    } finally {
+      await Promise.allSettled([pc1.close(), pc2.close()]);
+    }
+  });
+});
+
+describe("状態通知リスナーの例外で後処理が止まらない", () => {
+  test("pc1 の sctp.onStateChange が例外を投げても pc1.close() は resolve し、DTLS / ICE が止まり相手の DataChannel が閉じる", async () => {
+    // Arrange
+    const { pc1, pc2, dc2 } = await connectedDataChannelPeers();
+    pc1.sctp!.onStateChange.subscribe(() => {
+      throw new Error("listener failed");
+    });
+    const dtls1 = pc1.sctp!.transport;
+
+    try {
+      // Act: pc1 を閉じる
+      const result = await pc1.close().then(
+        () => "resolved",
+        (e) => `rejected: ${e}`,
+      );
+
+      // Assert: close() は resolve し、pc1 の DTLS は closed、ICE も closed
+      expect(result).toBe("resolved");
+      expect(dtls1.state).toBe("closed");
+      expect(dtls1.iceTransport.state).toBe("closed");
+      // Assert: 相手の DataChannel は closed になる
+      await waitUntil(
+        () => dc2.readyState === "closed",
+        `dc2 ${dc2.readyState}`,
+      );
+    } finally {
+      await Promise.allSettled([pc1.close(), pc2.close()]);
+    }
+  });
+
+  test("pc2 の sctp.onstatechange が例外を投げても、相手の close で未捕捉例外が出ず DataChannel が閉じる", async () => {
+    // Arrange
+    const { pc1, pc2, dc2 } = await connectedDataChannelPeers();
+    pc2.sctp!.onstatechange = () => {
+      throw new Error("listener failed");
+    };
+    const unhandled = captureUnhandledErrors();
+
+    try {
+      // Act: pc1 を閉じる（pc2 は ABORT と close_notify を受ける）
+      await pc1.close();
+      await waitUntil(
+        () => dc2.readyState === "closed",
+        `dc2 ${dc2.readyState}`,
+      );
+      await setTimeout(100);
+
+      // Assert: pc2 の SCTP / DataChannel は closed で、未捕捉例外は出ない
+      expect(pc2.sctp!.state).toBe("closed");
+      expect(dc2.readyState).toBe("closed");
+      expect(unhandled.errors).toEqual([]);
+    } finally {
+      unhandled.dispose();
+      await Promise.allSettled([pc1.close(), pc2.close()]);
+    }
+  });
+
+  test("pc2 の onconnectionstatechange が failed で例外を投げても、fatal alert で pc2 の SCTP / DataChannel が閉じる", async () => {
+    // Arrange
+    const { pc1, pc2, dc2 } = await connectedDataChannelPeers();
+    pc2.onconnectionstatechange = () => {
+      if (pc2.connectionState === "failed") throw new Error("listener failed");
+    };
+    const dtls2 = pc2.sctp!.transport;
+
+    try {
+      // Act: pc1 から fatal alert を送る
+      await pc1.sctp!.transport.dtls!.sendAlert(
+        AlertLevel.fatal,
+        AlertDesc.InternalError,
+      );
+
+      // Assert: pc2 の DTLS と connectionState が failed、SCTP と DataChannel が closed になる
+      await waitForDtlsState(dtls2, "failed");
+      await waitUntil(
+        () => pc2.connectionState === "failed",
+        `connectionState ${pc2.connectionState}`,
+      );
+      await waitUntil(
+        () => dc2.readyState === "closed",
+        `dc2 ${dc2.readyState}`,
+      );
+      expect(pc2.sctp!.state).toBe("closed");
     } finally {
       await Promise.allSettled([pc1.close(), pc2.close()]);
     }

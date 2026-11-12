@@ -2,7 +2,7 @@ import { createPrivateKey, randomUUID, X509Certificate } from "node:crypto";
 import type { AddressInfo } from "net";
 import { setTimeout } from "timers/promises";
 import type { DebugConfig } from "../api/peerConfig";
-import { EventTarget as DomEventTarget } from "../helper";
+import { EventTarget as DomEventTarget, notifySafely } from "../helper";
 import { Event, type Transport } from "../imports/common";
 import {
   AlertDesc,
@@ -784,11 +784,20 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   }
 
   private notifySafely(name: string, notify: () => void) {
-    try {
-      notify();
-    } catch (error) {
-      log(`${name} listener failed`, error);
-    }
+    notifySafely(log, name, notify);
+  }
+
+  /**
+   * @internal
+   * The synchronous part of {@link RTCDtlsTransport.stop}: `closed` without
+   * statechange (W3C webrtc-pc `close()`), and a start() still waiting for
+   * the handshake settles. `RTCPeerConnection.close()` calls it before its
+   * first await; the alert and the ICE / socket teardown follow in stop().
+   */
+  markClosed() {
+    this.setState("closed", false);
+    // A start() still waiting for the handshake ends here (closed stays).
+    this.settleStart?.();
   }
 
   private stopPromise?: Promise<void>;
@@ -824,9 +833,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   private async runStop() {
     const dtls = this.dtls;
     try {
-      this.setState("closed", false);
-      // A start() still waiting for the handshake ends here (closed stays).
-      this.settleStart?.();
+      this.markClosed();
       if (
         dtls &&
         !dtls.terminated &&
