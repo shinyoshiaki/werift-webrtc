@@ -131,6 +131,7 @@ async function main() {
       received.set(track.uuid, (received.get(track.uuid) ?? 0) + 1);
     });
   });
+  const knownMids = new Set<string>();
   const channelMessages: string[] = [];
   let weriftChannel: { send: (data: string) => void } | undefined;
   pc.onDataChannel.subscribe((channel) => {
@@ -170,14 +171,46 @@ async function main() {
 
   async function verify(name: string, offer: string, answer: string) {
     const failures: string[] = [];
-    const bundleOnly = (offer.match(/^a=bundle-only/gm) ?? []).length;
-    // Firefox writes bundle-only in a re-offer that adds an m-line, in an ICE
-    // restart offer and (max-bundle) in the first offer; without it the
-    // scenario does not exercise the ticket.
-    const expectBundleOnly = name === "first" ? policy === "max-bundle" : true;
-    if (expectBundleOnly && bundleOnly === 0) {
-      failures.push("offer had no a=bundle-only (scenario not exercised)");
+    // The m-lines Firefox writes as port 0 + bundle-only per scenario (every
+    // non-tagged member of the BUNDLE group): the one a re-offer adds, all of
+    // an ICE restart offer, and (max-bundle) all of the first offer. Each one
+    // must carry the attribute, so the scenario exercises that very m-line.
+    const offerSections = offer.split(/(?=^m=)/m).slice(1);
+    const group = (offer.match(/^a=group:BUNDLE ([^\r\n]+)/m)?.[1] ?? "")
+      .trim()
+      .split(" ");
+    // Firefox writes only audio / video m-lines as bundle-only (m=application stays port 9).
+    const isMedia = (mid: string) =>
+      offerSections.some(
+        (x) =>
+          /^m=(audio|video) /.test(x) &&
+          new RegExp(`^a=mid:${mid}\\r?$`, "m").test(x),
+      );
+    const members = group.slice(1).filter(isMedia);
+    const expectedMids =
+      name === "first"
+        ? policy === "max-bundle"
+          ? members
+          : []
+        : name === "reoffer"
+          ? members.filter((mid) => !knownMids.has(mid))
+          : members;
+    if (name !== "first" && expectedMids.length === 0) {
+      failures.push("no expected bundle-only MID for this scenario");
     }
+    for (const mid of expectedMids) {
+      const section = offerSections.find((x) =>
+        new RegExp(`^a=mid:${mid}\\r?$`, "m").test(x),
+      );
+      if (
+        !section ||
+        !/^m=\S+ 0 /.test(section) ||
+        !/^a=bundle-only/m.test(section)
+      ) {
+        failures.push(`mid ${mid} of the offer is not port 0 + a=bundle-only`);
+      }
+    }
+    for (const mid of group) knownMids.add(mid);
     const sections = answer.split(/(?=^m=)/m).slice(1);
     for (const s of sections) {
       if (!/^c=/m.test(s) && !/^c=/m.test(answer.split(/(?=^m=)/m)[0])) {

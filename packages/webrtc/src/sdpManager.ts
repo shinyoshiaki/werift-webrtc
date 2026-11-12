@@ -357,7 +357,7 @@ export class SDPManager {
    * It stays rejected (JSEP §5.10: it is "as if" rejected) when werift does
    * not accept BUNDLE (`bundlePolicy: "disable"`), when its MID is in no
    * BUNDLE group, or when it is the offerer-tagged m-line (first MID of the
-   * group, which RFC 8843 §6 forbids to be bundle-only) or the tagged m-line
+   * group, which RFC 8843 §6 forbids to be bundle-only: such an offer throws) or the tagged m-line
    * itself is rejected.
    */
   private acceptBundleOnlyMedia(offer: SessionDescription) {
@@ -366,6 +366,13 @@ export class SDPManager {
       if (group.semantic !== "BUNDLE") continue;
       const [tagMid, ...members] = group.items;
       const tag = offer.media.find((media) => media.rtp.muxId === tagMid);
+      // RFC 8843 §6: the offerer-tagged m-line must not be bundle-only, so an
+      // offer that marks it so is invalid (no other member is accepted).
+      if (tag?.bundleOnly) {
+        throw new Error(
+          `BUNDLE tag m-line (mid=${tagMid}) must not have a=bundle-only (RFC 8843 section 6)`,
+        );
+      }
       if (!tag || tag.port === 0) continue;
       for (const media of offer.media) {
         if (

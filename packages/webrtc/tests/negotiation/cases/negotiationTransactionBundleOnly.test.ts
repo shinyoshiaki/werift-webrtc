@@ -248,6 +248,42 @@ describeCases("negotiation: bundle-only offers (ticket 21a27c92)", () => {
     },
   );
 
+  negotiationCase(
+    "[bundle-only-6] an offer whose BUNDLE tag is bundle-only is rejected",
+    {
+      ref: "ticket 21a27c92 review; RFC 8843 §6",
+      exempt: "the offer is invalid, so no session exists to continue",
+    },
+    async (c) => {
+      // Arrange: video 2 本 + DataChannel の offer を作り、tag の m-line にも a=bundle-only を付ける。
+      const { a, b } = await c.given(createPeerPair({}, {}));
+      a.addTransceiver(new MediaStreamTrack({ kind: "video" }), {
+        direction: "sendrecv",
+      });
+      a.addTransceiver(new MediaStreamTrack({ kind: "video" }), {
+        direction: "sendonly",
+      });
+      a.createDataChannel("bundle-only");
+      await c.setLocal(a, await a.createOffer());
+      const sdp = toBundleOnlyOffer(a.localDescription!.sdp);
+      const [tag] = candidateLayout(sdp).bundle[0];
+      const tagBundleOnly = sdp.replace(
+        new RegExp(`^(a=mid:${tag}\\r?\\n)`, "m"),
+        "a=bundle-only\r\n$1",
+      );
+      expect(tagBundleOnly).not.toBe(sdp);
+
+      // Act: tag が bundle-only の offer を b に渡す。
+      // Assert: 不正な offer として拒否され、他の member も受け入れられない。
+      await c.setRemote(b, tagBundleOnly, {
+        type: "offer",
+        rejects: "must not have a=bundle-only",
+      });
+      expect(b.remoteDescription).toBeFalsy();
+      expect(b.signalingState).toBe("stable");
+    },
+  );
+
   negotiationCase.for([
     {
       when: "the answerer uses bundlePolicy disable",
