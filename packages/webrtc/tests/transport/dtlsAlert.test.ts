@@ -139,6 +139,41 @@ describe("RTCDtlsTransport alerts", () => {
     }
   });
 
+  test.each(["server", "client"] as const)(
+    "connecting の状態変更リスナーから同期的に stop() すると、%s 側の start() は socket を作らずに決着する",
+    async (role) => {
+      // Arrange: connecting の通知で stop() を呼ぶリスナーを登録する
+      const [session1, session2] = await createDtlsSessions();
+      session1.setRemoteParams(session2.localParameters);
+      session1.role = role;
+      let stopping: Promise<void> | undefined;
+      session1.onStateChange.subscribe((state) => {
+        if (state === "connecting") stopping = session1.stop();
+      });
+
+      try {
+        // Act: start() を呼ぶ（connecting の通知中に stop() が走る）
+        const outcome = await Promise.race([
+          session1.start().then(
+            () => "resolved",
+            (e) => `rejected: ${e}`,
+          ),
+          setTimeout(1000, "pending"),
+        ]);
+        await stopping;
+
+        // Assert: start() は resolve し、closed のまま、DTLS socket は作られない
+        expect(outcome).toBe("resolved");
+        expect(session1.state).toBe("closed");
+        expect(session1.dtls).toBeUndefined();
+        // Assert: stop() は ICE まで止めて完了している
+        expect(session1.iceTransport.state).toBe("closed");
+      } finally {
+        await Promise.allSettled([session1.stop(), session2.stop()]);
+      }
+    },
+  );
+
   test("handshake 中の stop() で start() が決着する（server / client 待機中）", async () => {
     for (const role of ["server", "client"] as const) {
       // Arrange: 相手は handshake を始めない

@@ -341,6 +341,14 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     }
 
     this.setState("connecting");
+    // A connecting listener may have stopped the transport synchronously
+    // (stop() ran before any socket existed): start() then ends here,
+    // without creating a socket nobody would close, and closed stays.
+    // (Narrowed by the check above, the state may have changed meanwhile.)
+    if (this.isFinalState) {
+      log("stopped while notifying connecting", this.state as DtlsState);
+      return;
+    }
 
     // The certificate is checked during the handshake, so that a mismatch is
     // reported to the peer with a fatal bad_certificate alert before either
