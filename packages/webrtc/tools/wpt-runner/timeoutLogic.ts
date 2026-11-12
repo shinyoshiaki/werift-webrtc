@@ -27,7 +27,8 @@ const SLOW_TIMEOUT_PROFILE: WptTimeoutProfile = {
 /**
  * Allowlisted files whose many sequential subtests (`<meta name="timeout"
  * content="long">`) take longer than the heavy profile; a whole-file timeout
- * would drop every subtest result.
+ * would drop every subtest result. The stress-glare files are not gated yet
+ * (ticket cd89d492) but keep this profile so their results stay observable.
  */
 const LONG_TIMEOUT_PROFILE: WptTimeoutProfile = {
   completionTimeoutMs: 45_000,

@@ -136,7 +136,7 @@ console.log(b.getTransceivers().length, own.mid); // 実際: 1 "0" / 期待: 2 n
 - [ ] 同じMIDのre-offer、port 0の拒否、複数のm-section（audio + video、同じkind 2本）、1 offer内で同じtransceiverを二重に割り当てないこと。
 - [ ] glare: 両側が `addTransceiver(sendonly)` → 衝突 → polite側の暗黙のrollback → SRD(offer)。方向が `sendonly` のまま残り、最終的に両方向でメディアが流れる。codecPlanとapplyの対応付けが一致する（ローカルのpending MIDと相手のMIDが同じケースを含む）。
 - [ ] rollback: remote起源のtransceiverに `addTrack` → rollback → 相手のre-offerで再び関連付く。
-- [ ] WPT: `RTCRtpTransceiver.https.html` の `checkAddTransceiver*DoesntPair` 3件と、perfect-negotiation系3ファイルを `wpt/allowlist.json` に追加し、`npm run wpt` が通る。
+- [ ] WPT: `RTCRtpTransceiver.https.html` の `checkAddTransceiver*DoesntPair` 3件と、`RTCPeerConnection-perfect-negotiation.https.html` の setup 2件（`setup connects` / `setup connects with roles reversed`）を `wpt/allowlist.json` と `wpt/baseline.json` に追加し、全体 `npm run wpt` を繰り返して回帰 0。glare 系 subtest（`perfect-negotiation.https.html` の `glare` / `glare with roles reversed`、stress-glare 2ファイル）は gate に入れない（7章、別チケット cd89d492）。glare での方向の保持は `tests/negotiation/cases/negotiationTransactionPairing.test.ts` と model の固定シーン（`tests/pbt/model/scenes.ts` の #816 glare）で検証する。
 - [ ] `transceiverPairing: "legacy"` の回帰テスト: #816 の再現コードで、transceiverが1個、ローカル側のMIDが `"0"` になる（v0.27.0 と同じ）。主要なケース（addTransceiverとの関連付け、複数m-section）は `"jsep"` / `"legacy"` の2モードを表で比べるテストにする（`negotiationTest` のfixtureを使う）。
 - [ ] `PeerConfig` の検証: 既定は `"jsep"`。不正な値は `TypeError`。`setConfiguration()` で値を変えると `InvalidModificationError`、同じ値なら成功（`tests/issue/705.test.ts` の "issue 705: mLineReuse configuration" と同じ形。構成の検証は `tests/issue/816.test.ts` に置き、negotiationの挙動のケースは `tests/negotiation/cases/` に置く）。
 - [ ] 移行したexamples / e2e / テストが `"legacy"` を付けずに通る。
@@ -155,6 +155,45 @@ console.log(b.getTransceivers().length, own.mid); // 実際: 1 "0" / 期待: 2 n
 - ローカルで `addTransceiver` したtransceiverの送受信方向とMIDが、相手のoffer（glareとrollbackを含む）で上書きされない。
 - remote offerの未知MIDと関連付くのは、`addTrack` が作った（またはrollbackでそれに昇格した）、未関連付けで停止していない同じkindのtransceiverだけ。
 - `planCodecs` と `apply` は同じ対応付けを使い、暗黙のrollbackがある場合も一致する。
-- 上記の回帰テスト、negotiationの不変条件とproperty、WPTのallowlistの追加分がすべて通る。
+- 上記の回帰テスト、negotiationの不変条件とproperty、WPTのallowlistの追加分がすべて通る。WPT の gate は全体実行で安定するもの（`RTCRtpTransceiver` 3件と `perfect-negotiation.https.html` の setup 2件）に限る。glare 系 subtest（`perfect-negotiation.https.html` の glare 2件、stress-glare 2ファイル）の gate は本チケットの完了条件に含めない（別チケット cd89d492 の完了条件）。
+- `npm run pbt:deep` は、失敗した seed を develop と本ブランチで同じ回数ずつ単独で再実行し、本ブランチだけで新たに再現する失敗がないこと（表をレビュー依頼に添える）。develop でも失敗する seed 50（VP8 の `transport-cc`）は別チケット 046b4db0 で扱い、本チケットの判定から除く。
+- 操作チェーン（`enqueueDescriptionOperation`）の解放順序と `negotiationneeded` の発火条件は変えない（7章）。
 - `PeerConfig.transceiverPairing`（既定 `"jsep"`、opt-in `"legacy"`）が実装されている。`"legacy"` では v0.27.0 と同じ関連付けになる（negotiation-diff の `legacyPairing` 設定で差分0件）。
 - リポジトリ内のexamples / e2e / テストが `"legacy"` に頼らずJSEPの挙動へ移行されている。README・changelog（Breaking changesと移行方法）・TSDoc・生成docsが実装と一致している。
+
+## 7. 追加要件：範囲を #816 に戻す（打開策 案A、2026-11-12 決定）
+
+### 背景（分析結果）
+- レビューが通らなかった直近の原因（PBT seed 263 の回帰）は、#816 の pairing 変更ではなくコミット `a29d5c0` だった。`a29d5c0` は stress-glare の WPT を安定させるために、操作チェーンの解放（`enqueueDescriptionOperation` の `releaseDone`）を `setImmediate` で遅らせ、`negotiationneeded` を「stable かつ chain が空」のときだけ発火させる変更で、本チケットの範囲外。
+- seed 263 の再現率（同じハーネス・同じ条件で 10 回ずつ）: develop 4/10（ICE 候補数の小さな揺れ）、`6c86d0f` 6/10（同じ揺れのみ）、`a29d5c0` 10/10（offer の保留中に `currentLocalDescription` が変わる不変条件違反）。
+  - 原因1（潜在バグ）: ICE restart の end-of-candidates で local description を描き直す `sdpManager.setLocal()` が、MID で見つからないとき m-line の位置で transceiver を探し直す。そのため、保留中の offer がその位置を再利用した生きている transceiver を拾ってしまい、port 0 の m-line に `a=ice-options:trickle` が書き込まれる。
+  - 原因2: `setImmediate` で ICE restart の候補シグナリングと接続確認の順序が変わり、`prflx` 候補が増える（12→33）。
+- stress-glare の不安定さ（全体実行で約 2 割失敗）は develop にもある操作チェーンの競合で、#816 を直しても解消しない。
+- `pbt:deep` は develop でも seed 50（VP8 の `transport-cc` 不一致）で exit 1 になり、レビューのたびに「既知かどうか」の判断が揺れていた。
+
+### 追加要件
+1. `a29d5c0` の本体変更（`peerConnection.ts` の操作チェーンの遅延解放、`negotiation/negotiationNeeded.ts` の `operationsPending` 条件）を取り除き、`6c86d0f` の状態に戻す。WPT ランナー（iframe 代替など）の変更は残す。
+2. WPT の gate は全体実行で安定するものに限る。対象は `RTCRtpTransceiver.https.html ?rest` の 3 件と、`RTCPeerConnection-perfect-negotiation.https.html` の `setup connects` / `setup connects with roles reversed`。
+   - 当初案では `perfect-negotiation.https.html` の `glare` も対象だったが、`a29d5c0` を取り除いた状態の全体 `npm run wpt` 10 回のうち 1 回、同じ操作チェーンの競合（`Cannot read properties of null (reading 'type')`）で失敗し回帰判定になった。そのため `glare` も gate から外し、allowlist の `reason` に cd89d492 への依存を書く（2026-11-12 実測）。
+   - `-stress-glare.https.html` と `-stress-glare-linear.https.html` は allowlist で `enabled: false`（gate なし）にし、baseline から外す。理由として別チケット cd89d492 への依存を allowlist の `reason` に書く。ファイル自体は自動検出で実行され続け、長いタイムアウトのまま結果を確認できる。
+   - 元報告の「perfect-negotiation 系 3 ファイルの gate」という完了条件は、上の範囲に変更する（5章・完了条件を更新済み）。glare での方向の保持は、決定的なテスト（`negotiationTransactionPairing.test.ts` の glare ケース、model の固定シーン `#816 glare`）で検証する。
+3. 別チケットに分ける。
+   - **cd89d492**「[W3C] operations chainの解放順序と暗黙rollbackの競合を直しperfect-negotiation stress-glareのWPT gateを戻す」: 操作チェーンの競合、原因1（`sdpManager.setLocal()` の位置での探し直し）と決定的な再現ケース、原因2（`prflx` 増加）の解消、glare 系 subtest（`perfect-negotiation.https.html` の glare 2件と stress-glare 2ファイル）の gate の復帰。
+   - **046b4db0**「[PBT] pbt:deep seed 50でVP8のRTCP feedbackにtransport-ccが残る不一致を解消する」: oracle か実装の修正、または既知の基準としての登録。
+4. 再レビューを依頼する前に、`pbt:deep` で失敗した seed を develop と本ブランチで同じ回数ずつ単独で再実行した表を作り、レビュー依頼に添える。判定は「本ブランチだけで新たに再現する失敗がないこと」。
+
+### 検証記録（2026-11-12、HEAD `cd3ac9b3b` に 7章 1・2 の未コミット変更を当てた状態）
+- 全体 `npm run wpt`（他の負荷なし）: gate を setup 2件に絞る前の 10 回では回帰 1 回（`Perfect negotiation glare`、`null.type`）。絞った後は 20 回連続で回帰 0。gate 対象 5 件（setup 2件、DoesntPair 3件）は 30 回すべて PASS。gate 外の glare 系は 20 回中 10 回で 1 件以上 FAIL（`perfect-negotiation.https.html` の `glare` は 3 回、`glare with roles reversed` は 6 回）。
+- `pbt:deep --jobs 8`: 本ブランチは model と leak の seed 50 で FAILED、develop は scenario の seed 52 で FAILED。両側の FAILED / flaky の seed を、それぞれ単独で 10 回ずつ交互に再実行した結果:
+
+| suite / seed | 同じ seed で同じ操作列か | develop | 本ブランチ | 失敗の内容 |
+| --- | --- | --- | --- | --- |
+| model 50 | いいえ（model generator を変更） | 0/10 | 10/10 | VP8 の RTCP feedback に `transport-cc` が残る。最小シーン（既存の操作 3 個）は develop で 10/10 失敗（046b4db0） |
+| leak 50 | いいえ（model generator を使う） | 0/10 | 10/10 | model 50 と同じ `transport-cc` の不一致 |
+| model 275 | いいえ | 6/10 | 4/10 | 両側とも `expectSessionContinues` 未実行（同じ種類） |
+| model fixed「BUNDLE merged its m-lines」 | はい | 2/10 | 0/10 | develop だけの揺れ |
+| leak heap seed 4 | はい | 5/10 | 5/10 | 両側とも heap の傾きが閾値 16.00 KiB/cycle をわずかに超える（16.01〜16.25） |
+| scenario 52 | はい | 1/10 | 0/10 | develop だけの揺れ（signalingState の列の不一致） |
+| scenario 73 / 121 / 158 / 161 / 230 / 251 / 263 / 295 | はい | 0/10 | 0/10 | 単独ではすべて通過 |
+
+- 判定: 本ブランチだけで新たに再現する失敗はない（seed 50 は develop の最小シーンで再現する既存の不一致）。

@@ -123,7 +123,6 @@ export class RTCPeerConnection extends EventTarget {
   private readonly negotiationNeed = new NegotiationNeeded({
     signalingState: () => this.signalingState,
     isClosed: () => this.isClosed,
-    operationsPending: () => this.pendingDescriptionOperations > 0,
     invalidate: () => this.invalidateLastCreatedDescriptions(),
     fire: () => {
       this.onNegotiationneeded.execute();
@@ -168,8 +167,6 @@ export class RTCPeerConnection extends EventTarget {
    * the description it applies is in place (setLocalDescription's gathering
    * wait comes after it). addIceCandidate only needs `applied`.
    */
-  /** Operations registered on the chain and not yet released (W3C operations chain length). */
-  private pendingDescriptionOperations = 0;
   private descriptionTail: { done: Promise<void>; applied: Promise<void> } = {
     done: Promise.resolve(),
     applied: Promise.resolve(),
@@ -822,7 +819,6 @@ export class RTCPeerConnection extends EventTarget {
     } = {},
   ): Promise<T> {
     this.assertNotClosed();
-    this.pendingDescriptionOperations++;
     const previous = this.descriptionTail;
     let releaseDone!: () => void;
     let releaseApplied!: () => void;
@@ -856,22 +852,7 @@ export class RTCPeerConnection extends EventTarget {
       return result;
     } finally {
       releaseApplied();
-      // W3C: the operation's promise is resolved before the next chained
-      // operation starts. Releasing at once would let the next operation (for
-      // example a remote offer's implicit rollback) run before the caller's
-      // continuation, which would then see a signaling state that does not
-      // match the description it was just given.
-      setImmediate(() => {
-        releaseDone();
-        this.pendingDescriptionOperations--;
-        if (
-          this.pendingDescriptionOperations === 0 &&
-          this.negotiationNeed.recheck &&
-          this.signalingState === "stable"
-        ) {
-          this.negotiationNeed.schedule();
-        }
-      });
+      releaseDone();
     }
   }
 

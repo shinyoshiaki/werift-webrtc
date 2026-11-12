@@ -170,31 +170,21 @@
     {
       "file": "webrtc/RTCPeerConnection-perfect-negotiation.https.html",
       "enabled": true,
-      "reason": "#816: glare keeps the addTransceiver direction (JSEP 5.10). Runs in the runner's iframe/postMessage shim.",
+      "reason": "#816: perfect negotiation with addTransceiver(sendonly) on both sides connects (JSEP 5.10). Runs in the runner's iframe/postMessage shim. The glare subtests pass the #816 direction check but are not gated (ticket cd89d492): on develop too a remote offer's implicit rollback can start before the setLocalDescription() promise's continuation (signalingState have-local-offer while localDescription is null; ~10% of full runs for \"glare\").",
       "subtests": [
         "Perfect negotiation setup connects",
-        "Perfect negotiation setup connects with roles reversed",
-        "Perfect negotiation glare",
-        "Perfect negotiation glare with roles reversed"
+        "Perfect negotiation setup connects with roles reversed"
       ]
     },
     {
       "file": "webrtc/RTCPeerConnection-perfect-negotiation-stress-glare.https.html",
-      "enabled": true,
-      "reason": "#816: glare keeps the addTransceiver direction (JSEP 5.10). Runs in the runner's iframe/postMessage shim.",
-      "subtests": [
-        "Perfect negotiation stress glare",
-        "Perfect negotiation stress glare with roles reversed"
-      ]
+      "enabled": false,
+      "reason": "Not gated: depends on ticket cd89d492 (operations chain release order). Passes the #816 direction check, but on develop too a remote offer's implicit rollback can start before the setLocalDescription() promise's continuation (signalingState have-local-offer while localDescription is null; ~20% of full runs). Still runs (auto-discovered) with the long timeout."
     },
     {
       "file": "webrtc/RTCPeerConnection-perfect-negotiation-stress-glare-linear.https.html",
-      "enabled": true,
-      "reason": "#816: glare keeps the addTransceiver direction (JSEP 5.10). Runs in the runner's iframe/postMessage shim.",
-      "subtests": [
-        "Perfect negotiation stress glare linear",
-        "Perfect negotiation stress glare linear with roles reversed"
-      ]
+      "enabled": false,
+      "reason": "Not gated: depends on ticket cd89d492 (operations chain release order). Passes the #816 direction check, but on develop too a remote offer's implicit rollback can start before the setLocalDescription() promise's continuation (signalingState have-local-offer while localDescription is null; ~20% of full runs). Still runs (auto-discovered) with the long timeout."
     }
   ]
 }
