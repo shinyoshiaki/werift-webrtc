@@ -336,11 +336,50 @@ export class SDPManager {
     type: "offer" | "answer" | "pranswer";
   }): SessionDescription {
     const description = SessionDescription.parse(sdp);
+    if (!isLocal && type === "offer") this.acceptBundleOnlyMedia(description);
     this.validateDescription({ description, isLocal, signalingState, type });
     if (!isLocal && type !== "offer") this.alignInitialAnswerMids(description);
     this.validateSections(description, type, isLocal);
     description.type = type;
     return description;
+  }
+
+  /**
+   * RFC 8843 §6 / §7.3.3: a port 0 m-line with `a=bundle-only` (Firefox
+   * writes every non-tagged m-line of a re-offer, an ICE restart offer and a
+   * `max-bundle` first offer this way) is not rejected: an answerer that
+   * accepts the BUNDLE group accepts it as a bundled non-tagged m-line. Such
+   * an m-line takes `DISCARD_PORT`, so every later "port 0 = rejected"
+   * check treats it like any other bundled non-tagged m-line, and the answer
+   * writes it like one (port 9 + `c=IN IP4 0.0.0.0` and no `a=bundle-only`,
+   * as Chrome and Firefox answer; RFC 8843 §7.3.1 would write port 0).
+   *
+   * It stays rejected (JSEP §5.10: it is "as if" rejected) when werift does
+   * not accept BUNDLE (`bundlePolicy: "disable"`), when its MID is in no
+   * BUNDLE group, or when it is the offerer-tagged m-line (first MID of the
+   * group, which RFC 8843 §6 forbids to be bundle-only) or the tagged m-line
+   * itself is rejected.
+   */
+  private acceptBundleOnlyMedia(offer: SessionDescription) {
+    if (this.bundlePolicy === "disable") return;
+    for (const group of offer.group) {
+      if (group.semantic !== "BUNDLE") continue;
+      const [tagMid, ...members] = group.items;
+      const tag = offer.media.find((media) => media.rtp.muxId === tagMid);
+      if (!tag || tag.port === 0) continue;
+      for (const media of offer.media) {
+        if (
+          !media.bundleOnly ||
+          media.port !== 0 ||
+          !media.rtp.muxId ||
+          !members.includes(media.rtp.muxId)
+        ) {
+          continue;
+        }
+        media.port = DISCARD_PORT;
+        media.acceptedBundleOnly = true;
+      }
+    }
   }
 
   /**
@@ -924,6 +963,9 @@ export class SDPManager {
           remoteMedia.profile,
           remoteMedia.fmt,
         );
+        // RFC 8866 §5.7: without a session-level `c=`, every m-line needs
+        // one, a rejected one too (Firefox refuses the answer otherwise).
+        media.host = DISCARD_HOST;
         media.rtp.muxId = remoteMedia.rtp.muxId;
         media.direction = "inactive";
         description.media.push(media);
