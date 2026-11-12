@@ -45,6 +45,41 @@ describe("DTLS alert", () => {
     expect(pair.serverTransport.sent.length).toBe(sentBefore);
   });
 
+  test.each([
+    ["fatal alert", AlertLevel.fatal, AlertDesc.InternalError],
+    ["close_notify", AlertLevel.warning, AlertDesc.CloseNotify],
+  ] as const)(
+    "handshake 中に %s を送ると、再送期限を過ぎても handshake record を送らない",
+    async (_, level, description) => {
+      // Arrange: server は応答しないので client の ClientHello は再送され続ける
+      const pair = createDtlsPair();
+      pair.clientTransport.peer = undefined;
+      void pair.client.connect().catch(() => undefined);
+      await setTimeout(50);
+      const handshakesBefore = sentRecords(pair.clientTransport.sent).filter(
+        (r) => r.contentType === ContentType.handshake,
+      ).length;
+
+      try {
+        // Act: handshake 中に終端 alert を送り、最初の再送期限（500ms）と次の期限（1500ms）を過ぎるまで待つ
+        await pair.client.sendAlert(level, description);
+        const sentAfterAlert = pair.clientTransport.sent.length;
+        await setTimeout(1700);
+
+        // Assert: alert の前に ClientHello は送られていた
+        expect(handshakesBefore).toBeGreaterThan(0);
+        // Assert: alert の後は record が 1 つも送られない（再送も止まっている）
+        expect(pair.clientTransport.sent.length).toBe(sentAfterAlert);
+        // Assert: 最後に送った record は alert
+        const records = sentRecords(pair.clientTransport.sent);
+        expect(records.at(-1)?.contentType).toBe(ContentType.alert);
+      } finally {
+        await pair.client.close();
+        await pair.server.close();
+      }
+    },
+  );
+
   test("close() は従来どおり alert を送らずにすぐ閉じる", async () => {
     // Arrange
     const pair = createDtlsPair();

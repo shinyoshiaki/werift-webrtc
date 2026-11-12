@@ -205,7 +205,8 @@ export class DtlsSocket {
    * Resolves once the transport has sent the record, or after `timeoutMs`
    * (default {@link DtlsSocket.AlertSendTimeoutMs}). It never rejects: a
    * failed send is only logged. Nothing is sent once close_notify or a fatal
-   * alert has been sent or the transport is closed. The record is handed to
+   * alert has been sent or the transport is closed. Sending close_notify or a
+   * fatal alert also stops the handshake flights (no retransmission). The record is handed to
    * the transport synchronously, so closing the socket right after calling
    * this does not drop it.
    */
@@ -220,6 +221,9 @@ export class DtlsSocket {
     }
     if (level === AlertLevel.fatal || description === AlertDesc.CloseNotify) {
       this.alertSent = true;
+      // A terminating alert ends the handshake too: no handshake flight is
+      // sent or retransmitted after it.
+      this.transport.stopFlights();
     }
     if (level === AlertLevel.fatal) {
       this.ended = true;
