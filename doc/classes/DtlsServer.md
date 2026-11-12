@@ -403,6 +403,41 @@ rejects.
 
 ***
 
+### notify()
+
+> `protected` **notify**\<`T`\>(`event`, ...`args`): `void`
+
+Run the listeners of an event this socket reports. `Event.execute`
+propagates a listener's exception: it is logged here, so an application
+listener can never interrupt the socket's own processing (ending the
+connection, closing the transport, the receive loop).
+
+#### Type Parameters
+
+##### T
+
+`T` *extends* `any`[]
+
+#### Parameters
+
+##### event
+
+[`Event`](Event.md)\<`T`\>
+
+##### args
+
+...`T`
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+[`DtlsSocket`](DtlsSocket.md).[`notify`](DtlsSocket.md#notify)
+
+***
+
 ### renegotiation()
 
 > **renegotiation**(): `void`

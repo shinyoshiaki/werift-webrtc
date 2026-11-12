@@ -457,3 +457,71 @@ describe("DTLS close_notify への返信", () => {
     expect(flushed).toBe(true);
   });
 });
+
+describe("DTLS alert のリスナー例外", () => {
+  test("onAlert が例外を投げても、受信した close_notify で返信・onClose が行われる", async () => {
+    // Arrange: server の onAlert は例外を投げる
+    const pair = createDtlsPair();
+    await connectDtlsPair(pair);
+    const onClose = vi.fn();
+    pair.server.onAlert.subscribe(() => {
+      throw new Error("listener failed");
+    });
+    pair.server.onClose.subscribe(onClose);
+
+    // Act: client が close_notify を送る
+    await pair.client.sendAlert(AlertLevel.warning, AlertDesc.CloseNotify);
+    await setTimeout(20);
+
+    // Assert: server は終了し、close_notify を返して onClose が 1 回発火する
+    expect(pair.server.terminated).toBe(true);
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(alertRecords(pair.serverTransport.sent)).toHaveLength(1);
+  });
+
+  test("onAlert / onError が例外を投げても、受信した fatal alert で onError が発火し transport が閉じる", async () => {
+    // Arrange: client の onAlert と最初の onError リスナーは例外を投げる
+    const pair = createDtlsPair();
+    await connectDtlsPair(pair);
+    const errors: Error[] = [];
+    pair.client.onAlert.subscribe(() => {
+      throw new Error("listener failed");
+    });
+    pair.client.onError.subscribe((e) => {
+      errors.push(e);
+      throw new Error("listener failed");
+    });
+
+    // Act: server が fatal alert を送る
+    await pair.server.sendAlert(AlertLevel.fatal, AlertDesc.InternalError);
+    await setTimeout(20);
+
+    // Assert: client は終了し、受信 alert の onError が 1 回発火して transport が閉じる
+    expect(pair.client.terminated).toBe(true);
+    expect(errors).toHaveLength(1);
+    expect((errors[0] as DtlsAlertError).source).toBe("remote");
+    expect(pair.clientTransport.closed).toBe(true);
+  });
+
+  test("onError が例外を投げても、公開 sendAlert() の fatal alert は reject せず送信後に transport を閉じる", async () => {
+    // Arrange: server の onError は例外を投げる
+    const pair = createDtlsPair();
+    await connectDtlsPair(pair);
+    pair.server.onError.subscribe(() => {
+      throw new Error("listener failed");
+    });
+
+    // Act: server が fatal alert を送る
+    const result = await pair.server
+      .sendAlert(AlertLevel.fatal, AlertDesc.InternalError)
+      .then(
+        () => "resolved",
+        () => "rejected",
+      );
+
+    // Assert: reject せず、alert を 1 回送って transport が閉じる
+    expect(result).toBe("resolved");
+    expect(alertRecords(pair.serverTransport.sent)).toHaveLength(1);
+    expect(pair.serverTransport.closed).toBe(true);
+  });
+});

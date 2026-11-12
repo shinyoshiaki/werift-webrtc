@@ -390,26 +390,34 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       this.dtls.onClose.subscribe(() => {
         if (this.isFinalState) return;
         log("dtls closed by the peer");
-        this.setState("closed");
-        // Settle start(): it returns with closed (transport activation then
-        // ends a connection attempt that never connected as failed).
-        r();
+        try {
+          this.setState("closed");
+        } finally {
+          // Settle start() even if a statechange listener threw: it returns
+          // with closed (transport activation then ends a connection attempt
+          // that never connected as failed).
+          r();
+        }
       });
       this.dtls.onConnect.once(r);
       // A handshake error, or a fatal alert received or sent while
       // connecting or after the connection was established.
       this.dtls.onError.subscribe((error) => {
         log("dtls failed", error);
-        this.fail(error);
-        // A local certificate rejection rejects with the verifier's error
-        // (e.g. "remote certificate fingerprint mismatch").
-        f(
-          error instanceof DtlsAlertError &&
-            error.source === "local" &&
-            error.reason instanceof Error
-            ? error.reason
-            : error,
-        );
+        try {
+          this.fail(error);
+        } finally {
+          // Settle start() even if a statechange listener threw. A local
+          // certificate rejection rejects with the verifier's error (e.g.
+          // "remote certificate fingerprint mismatch").
+          f(
+            error instanceof DtlsAlertError &&
+              error.source === "local" &&
+              error.reason instanceof Error
+              ? error.reason
+              : error,
+          );
+        }
       });
 
       if (this.dtls instanceof DtlsClient) {

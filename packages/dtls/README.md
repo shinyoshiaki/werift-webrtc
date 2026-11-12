@@ -72,6 +72,7 @@ server.onError.subscribe((error) => {
 
 - A received alert is decrypted according to its record epoch; a record that fails to decrypt is discarded.
 - Other warning alerts (`user_canceled`, `no_renegotiation`, ...) only fire `onAlert`.
+- The connection is ended (close_notify answered, transport closed) before the listeners run. An exception thrown by a listener (`onAlert`, `onClose`, `onError`, `onData`, `onConnect`) is logged and does not interrupt it.
 - After close_notify or a fatal alert (sent or received), received records are no longer processed, `send()` sends nothing and handshake flights stop retransmitting.
 
 ## Certificate verification during the handshake

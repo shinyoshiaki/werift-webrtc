@@ -283,6 +283,68 @@ describe("RTCDtlsTransport alerts", () => {
     }
   });
 
+  test.each([
+    ["close_notify", AlertLevel.warning, AlertDesc.CloseNotify, "closed"],
+    ["fatal alert", AlertLevel.fatal, AlertDesc.InternalError, "failed"],
+  ] as const)(
+    "DTLS の onAlert リスナーが例外を投げても、受信した %s で終端状態（closed / failed）へ遷移する",
+    async (_, level, description, expected) => {
+      // Arrange: 受信側 DTLS socket に例外を投げる onAlert リスナーを付ける
+      const [session1, session2] = await dtlsTransportPair();
+      session2.dtls!.onAlert.subscribe(() => {
+        throw new Error("listener failed");
+      });
+
+      try {
+        // Act: session1 から alert を送る
+        await session1.dtls!.sendAlert(level, description);
+
+        // Assert: 受信側は終端状態へ遷移する
+        await waitForDtlsState(session2, expected);
+        expect(session2.state).toBe(expected);
+      } finally {
+        await Promise.allSettled([session1.stop(), session2.stop()]);
+      }
+    },
+  );
+
+  test("statechange リスナーが例外を投げても、handshake 中の close_notify で start() が決着する", async () => {
+    // Arrange: session1 は server として待ち、statechange リスナーは closed で例外を投げる
+    const [session1, session2] = await createDtlsSessions();
+    session1.setRemoteParams(session2.localParameters);
+    session1.role = "server";
+    session1.onStateChange.subscribe((state) => {
+      if (state === "closed") throw new Error("listener failed");
+    });
+    let outcome = "pending";
+    const starting = session1.start().then(
+      () => {
+        outcome = "resolved";
+      },
+      () => {
+        outcome = "rejected";
+      },
+    );
+    await setTimeout(300);
+
+    try {
+      // Act: 相手が handshake を始めてすぐ止める（close_notify が届く）
+      session2.setRemoteParams(session1.localParameters);
+      session2.role = "client";
+      const peer = session2.start().catch(() => undefined);
+      await setTimeout(50);
+      await session2.stop();
+      await Promise.race([starting, setTimeout(2000)]);
+      void peer;
+
+      // Assert: start() は resolve し、closed で終わる
+      expect(outcome).toBe("resolved");
+      expect(session1.state).toBe("closed");
+    } finally {
+      await Promise.allSettled([session1.stop(), session2.stop()]);
+    }
+  });
+
   test("接続確立後に fatal alert を受けると failed になり、後から closed で上書きされない", async () => {
     // Arrange
     const [session1, session2] = await dtlsTransportPair();

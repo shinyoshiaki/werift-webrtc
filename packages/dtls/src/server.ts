@@ -107,7 +107,7 @@ export class DtlsServer extends DtlsSocket {
             if (this.terminated) return;
 
             this.connected = true;
-            this.onConnect.execute();
+            this.notify(this.onConnect);
             log(this.dtls.sessionId, "dtls connected");
           }
           break;

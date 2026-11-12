@@ -148,13 +148,13 @@ export class DtlsSocket {
 
                 this.onHandleHandshakes(assembled).catch((error) => {
                   err(this.dtls.sessionId, "onHandleHandshakes error", error);
-                  this.onError.execute(error);
+                  this.notify(this.onError, error);
                 });
               }
               break;
             case ContentType.applicationData:
               {
-                this.onData.execute(message.data as Buffer);
+                this.notify(this.onData, message.data as Buffer);
               }
               break;
             case ContentType.alert:
@@ -170,31 +170,51 @@ export class DtlsSocket {
     }
   };
 
-  /** RFC 5246 §7.2: react to an alert received from the peer. */
+  /**
+   * Run the listeners of an event this socket reports. `Event.execute`
+   * propagates a listener's exception: it is logged here, so an application
+   * listener can never interrupt the socket's own processing (ending the
+   * connection, closing the transport, the receive loop).
+   */
+  protected notify<T extends any[]>(event: Event<T>, ...args: T) {
+    try {
+      event.execute(...args);
+    } catch (error) {
+      err(this.dtls.sessionId, "event listener failed", error);
+    }
+  }
+
+  /**
+   * RFC 5246 §7.2: react to an alert received from the peer. The connection
+   * is ended (flights stopped, close_notify answered or the transport
+   * closed) before any listener runs, and each notification is isolated, so
+   * a throwing listener does not leave the socket ended but unreported.
+   */
   private handleAlert(alert: DtlsAlert) {
     const action = classifyAlert(alert);
     if (action === "ignore") {
       log(this.dtls.sessionId, "ignore warning alert", alert);
-      this.onAlert.execute(alert);
+      this.notify(this.onAlert, alert);
       return;
     }
 
     this.ended = true;
     // Retransmitting a handshake flight makes no sense any more.
     this.transport.stopFlights();
-    this.onAlert.execute(alert);
 
     if (action === "close") {
       log(this.dtls.sessionId, "received close_notify");
       // RFC 5246 §7.2.1: respond with close_notify; nothing is sent after it.
       void this.sendAlert(AlertLevel.warning, AlertDesc.CloseNotify);
-      this.onClose.execute();
+      this.notify(this.onAlert, alert);
+      this.notify(this.onClose);
     } else {
       err(this.dtls.sessionId, "received fatal alert", alert);
       // A fatal alert is not answered (RFC 5246 §7.2.2).
       this.alertSent = true;
-      this.onError.execute(new DtlsAlertError(alert, "remote"));
       this.closeTransport();
+      this.notify(this.onAlert, alert);
+      this.notify(this.onError, new DtlsAlertError(alert, "remote"));
     }
   }
 
@@ -311,15 +331,17 @@ export class DtlsSocket {
     const sending = this.transmitAlert(AlertLevel.fatal, description, options);
     this.ended = true;
     this.transport.stopFlights();
-    this.onError.execute(
+    // The transport closes once the alert was sent, whatever a listener does.
+    const done = sending.then(() => this.closeTransport());
+    this.alertSending = done;
+    this.notify(
+      this.onError,
       new DtlsAlertError(
         { level: AlertLevel.fatal, description },
         "local",
         reason,
       ),
     );
-    const done = sending.then(() => this.closeTransport());
-    this.alertSending = done;
     return done;
   }
 
