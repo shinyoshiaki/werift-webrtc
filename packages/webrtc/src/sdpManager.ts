@@ -1114,6 +1114,18 @@ export class SDPManager {
       const [tagMid, ...members] = group.items;
       const tagIndex = indexOfMid(answer, tagMid);
       if (tagIndex < 0 || answer.media[tagIndex].port !== 0) continue;
+      // RFC 8843 §7.3.1: the answerer picks a new tag among the accepted
+      // members whose offered m-line has a usable port; only without one are
+      // the bundle-only members rejected.
+      const hasAlternativeTag = members.some((mid) => {
+        const index = indexOfMid(remoteDescription, mid);
+        return (
+          index >= 0 &&
+          !remoteDescription.media[index].acceptedBundleOnly &&
+          answer.media[index].port !== 0
+        );
+      });
+      if (hasAlternativeTag) continue;
       for (const mid of members) {
         const index = indexOfMid(remoteDescription, mid);
         const offered = remoteDescription.media[index];
@@ -1163,7 +1175,14 @@ export class SDPManager {
             "BUNDLE",
             orderBundleMids(
               mids,
-              negotiatedTags.find((tag) => mids.includes(tag)),
+              negotiatedTags.find((tag) => mids.includes(tag)) ??
+                // A new answerer-tagged m-line needs a usable port in the
+                // offer: not an accepted bundle-only one (RFC 8843 §7.3.1).
+                mids.find(
+                  (mid) =>
+                    !remoteDescription.media.find((m) => m.rtp.muxId === mid)
+                      ?.acceptedBundleOnly,
+                ),
             ),
           ),
       );

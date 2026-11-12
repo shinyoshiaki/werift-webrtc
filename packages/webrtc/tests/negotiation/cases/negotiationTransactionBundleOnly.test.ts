@@ -248,6 +248,50 @@ describeCases("negotiation: bundle-only offers (ticket 21a27c92)", () => {
     },
   );
 
+  negotiationCase(
+    "[bundle-only-7] a bundle-only m-line is accepted when another accepted m-line becomes the tag",
+    { ref: "ticket 21a27c92 review; RFC 8843 §7.3.1" },
+    async (c) => {
+      // Arrange: a は PCMU だけの audio (tag) + video + DataChannel、b は Opus だけの audio を持つ。
+      const { a, b } = await c.given(
+        createPeerPair(
+          { codecs: { audio: [usePCMU()], video: [useVP8()] } },
+          { codecs: { audio: [useOPUS()], video: [useVP8()] } },
+        ),
+      );
+      a.addTransceiver(new MediaStreamTrack({ kind: "audio" }), {
+        direction: "sendrecv",
+      });
+      const video = a.addTransceiver(new MediaStreamTrack({ kind: "video" }), {
+        direction: "sendrecv",
+      });
+      const aChannel = a.createDataChannel("bundle-only");
+      const bChannel = b.onDataChannel.asPromise().then(([channel]) => channel);
+
+      // Act: DataChannel だけを bundle-only にした offer に b が answer する。
+      await c.setLocal(a, await a.createOffer());
+      const sdp = a.localDescription!.sdp;
+      const [tag, ...members] = candidateLayout(sdp).bundle[0];
+      const dataMid = members.find((mid) => mid !== video.mid)!;
+      const offer = toBundleOnlyOffer(sdp, [dataMid]);
+      await c.setRemote(b, offer, { type: "offer" });
+      await c.answer(b);
+      await Promise.all([waitForConnection(a), waitForConnection(b)]);
+
+      // Assert: audio tag は拒否、video が新しい tag で、DataChannel は group に入り受理される。
+      const answer = b.localDescription!.sdp;
+      expect(answerShape(offer, dataMid)).toMatchObject({ port: 0 });
+      expect(candidateLayout(answer).bundle).toEqual([[video.mid, dataMid]]);
+      expect(answerShape(answer, tag).port).toBe(0);
+      expect(answerShape(answer, dataMid)).toMatchObject({
+        port: 9,
+        connection: "IN IP4 0.0.0.0",
+        bundleOnly: false,
+      });
+      await c.data(aChannel, await bChannel);
+    },
+  );
+
   negotiationCase.for([
     { when: "the default bundlePolicy", answerer: {} },
     { when: "bundlePolicy disable", answerer: { bundlePolicy: "disable" } },
