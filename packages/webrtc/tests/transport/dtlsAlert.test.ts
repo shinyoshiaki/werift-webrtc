@@ -50,6 +50,40 @@ describe("RTCDtlsTransport alerts", () => {
     }
   });
 
+  test("closed を通知する状態変更リスナーが例外を投げても、stop() は close_notify・ICE 停止・DTLS close・onStopped まで完了する", async () => {
+    // Arrange: session1 の onStateChange リスナーは例外を投げる
+    const [session1, session2] = await dtlsTransportPair();
+    const sent = recordSentDtlsAlerts(session1);
+    session1.onStateChange.subscribe(() => {
+      throw new Error("listener failed");
+    });
+    const onStopped = vi.fn();
+    session1.onStopped.subscribe(onStopped);
+
+    try {
+      // Act: session1 を止める
+      const result = await session1.stop().then(
+        () => "resolved",
+        () => "rejected",
+      );
+
+      // Assert: stop() は resolve し、ローカルは closed
+      expect(result).toBe("resolved");
+      expect(session1.state).toBe("closed");
+      // Assert: close_notify を送ってから ICE を止め、DTLS socket も閉じている
+      expect(sent.alerts).toHaveLength(1);
+      expect(sent.order).toEqual(["alert", "ice-close"]);
+      expect(session1.iceTransport.state).toBe("closed");
+      expect(session1.dtls!.terminated).toBe(true);
+      // Assert: onStopped は 1 回だけ発火する
+      expect(onStopped).toHaveBeenCalledTimes(1);
+      // Assert: 相手は close_notify を受けて closed になる
+      await waitForDtlsState(session2, "closed");
+    } finally {
+      await Promise.allSettled([session1.stop(), session2.stop()]);
+    }
+  });
+
   test("stop() の多重呼び出し・ICE 先行停止でも alert は高々 1 回で、有限時間で終わる", async () => {
     // Arrange
     const [session1, session2] = await dtlsTransportPair();

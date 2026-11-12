@@ -504,14 +504,10 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       type: "error",
       error: rtcError,
     };
-    try {
-      this.onerror?.(event);
-    } catch (e) {
-      log("onerror handler failed", e);
-    }
+    this.notifySafely("onerror", () => this.onerror?.(event));
     // EventEmitter throws an "error" event nobody listens to.
     if (this.events.listenerCount("error") > 0) {
-      this.events.emit("error", event);
+      this.notifySafely("error", () => this.events.emit("error", event));
     }
   }
 
@@ -769,14 +765,29 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     await this.iceTransport.connection.send(enc).catch(() => {});
   }
 
+  /**
+   * Change the state and notify. Each notification is isolated: an
+   * exception thrown by a listener is logged and never interrupts the
+   * caller (stop() cleanup, settling start(), failing the transport).
+   */
   private setState(state: DtlsState, emitEvent = true) {
     if (state != this.state) {
       this.state = state;
-      this.onStateChange.execute(state);
+      this.notifySafely("onStateChange", () =>
+        this.onStateChange.execute(state),
+      );
       if (emitEvent) {
-        this.onstatechange?.();
-        this.events.emit("statechange");
+        this.notifySafely("onstatechange", () => this.onstatechange?.());
+        this.notifySafely("statechange", () => this.events.emit("statechange"));
       }
+    }
+  }
+
+  private notifySafely(name: string, notify: () => void) {
+    try {
+      notify();
+    } catch (error) {
+      log(`${name} listener failed`, error);
     }
   }
 
@@ -806,10 +817,13 @@ export class RTCDtlsTransport implements DtlsTransportStats {
    * 3. ICE stops (the alert must reach ICE before it closes).
    * 4. The DTLS socket closes, so a handshake still in flight stops
    *    retransmitting.
+   *
+   * Steps 3 and 4 and `onStopped` always run, even if an earlier step or a
+   * listener threw, so the underlying transports never outlive stop().
    */
   private async runStop() {
+    const dtls = this.dtls;
     try {
-      const dtls = this.dtls;
       this.setState("closed", false);
       // A start() still waiting for the handshake ends here (closed stays).
       this.settleStart?.();
@@ -833,12 +847,21 @@ export class RTCDtlsTransport implements DtlsTransportStats {
           ice: this.iceTransport.state,
         });
       }
-      await this.iceTransport.stop();
-      await dtls?.close();
-    } finally {
-      this.onStopped.execute();
-      this.onStopped.complete();
+    } catch (error) {
+      log("stop: close_notify step failed", error);
     }
+    try {
+      await this.iceTransport.stop();
+    } catch (error) {
+      log("stop: ice stop failed", error);
+    }
+    try {
+      await dtls?.close();
+    } catch (error) {
+      log("stop: dtls close failed", error);
+    }
+    this.notifySafely("onStopped", () => this.onStopped.execute());
+    this.notifySafely("onStopped", () => this.onStopped.complete());
   }
 
   async getStats(timestamp = getStatsTimestamp()): Promise<RTCStats[]> {
