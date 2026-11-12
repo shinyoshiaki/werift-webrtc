@@ -159,3 +159,45 @@ transport は 1 つで、candidate は 12 個しかない。それでも m-line 
 ### 9.5 作業メモ
 
 - 実装・ドキュメント・E2E・検証は、同じ worktree の別セッション（`workspace-35`）が担当する。このセッションは Chrome の実測とチケットへの追記を担当し、コードは編集していない。
+
+### 9.6 Firefox / mediasoup との相互接続確認（2026-11-12、HEAD `7ffcaaf9a`）
+
+**結論**: `bundleCandidates: "compatible"` は、Firefox とも mediasoup とも `"legacy"` と同じ結果になり、このモード固有の失敗はなかった。Firefox との接続で失敗した手順は、`"legacy"` と develop でも同じように失敗する既存の問題（下の「別課題」）である。
+
+#### Firefox 157（Playwright）
+
+- **Firefox 自身の出力**（Firefox 同士の in-page 交渉）: 候補は tag にだけ書き、**`a=end-of-candidates` も tag に書く**。初回 answer と再交渉も tag だけ。`max-bundle` の初回 offer と、再 offer で追加する m-line は `port 0` + `a=bundle-only` にする。pranswer は未実装（`pranswer not yet implemented`）。werift の `"compatible"` が eoc を tag に残すのは、Firefox の形と同じ。
+- **`e2e/` の Firefox 実行**（`vitest.firefox.config.mts`）は、この環境では既定設定の基本テスト（`datachannel.test.ts`、`sendrecv.test.ts`、`tests/bundle/*`）も全件失敗した。mDNS の秘匿を外しても同じだったため、`e2e/` 経由の結果は判定に使わなかった。CI の E2E は Chrome だけで、Firefox の E2E は保守されていない。
+- **代わりの直結スクリプト**（`/tmp/ffharness/interop.ts`、リポジトリ外）: Node 上の werift と Playwright の Firefox を直接つなぐ。各手順で、SDP の候補配置、DataChannel の ping/pong、全 video m-line での双方向 RTP を確認する。手順は次のとおり。
+  1. werift の初回 offer
+  2. werift の再 offer（video 追加、2 回）
+  3. werift 起点の ICE restart（表の手順 5）
+  4. Firefox 起点の ICE restart への werift の answer（表の手順 6）
+  5. Firefox の再 offer（video 追加）への werift の answer（表の手順 4。後続を巻き込まないよう最後に実行）
+  6. Firefox 起点の初回 offer への werift の answer（表の手順 7）
+
+  ブラウザ 2 種 × `legacy` / `compatible` × `max-compat` / `balanced` / `max-bundle` の各組み合わせを 2 回ずつ実行した。
+
+| 手順 | Firefox `compatible` | Firefox `legacy` |
+| --- | --- | --- |
+| 1 初回 offer（`max-bundle` では tag だけ）、2–3 再 offer（tag だけ）: SDP 受理、DataChannel、双方向映像 | 全組み合わせで成功 | 全組み合わせで成功 |
+| 7 Firefox の初回 offer に werift が tag だけの answer を返す: 受理、DataChannel | 成功 | 成功 |
+| 5 werift 起点の ICE restart の後、Firefox が受信を止める（DataChannel が届かない） | 6 回中 6 回失敗 | 6 回中 5 回失敗（develop でも失敗） |
+| 6 / 4 Firefox の `bundle-only` 付き offer への werift の answer を、Firefox が `c= connection line not specified` で拒否する | 全組み合わせで失敗 | 全組み合わせで失敗（develop でも同じ） |
+
+- Chromium（参考、同じスクリプト）: `compatible` の全組み合わせで 22/22 成功した。ただし `balanced` の 1 回は Chromium 起点の ICE restart の後に werift が `checking` のまま止まり、同じ失敗が `legacy` / `max-compat` でも 1 回出ている。モードによらず出る不安定な失敗である。
+
+#### mediasoup（`integration/werift-mediasoup-interop`）
+
+- 実行方法: fixture を `/tmp` に複製し、`WERIFT_REPO_ROOT=/workspace` で HEAD の werift を参照させた。複製側の `test/helpers/polyfill.ts` だけを差し替え、polyfill に `bundleCandidates` を渡せるようにし、werift が適用したローカル SDP の候補配置を記録した。リポジトリのファイルは変更していない。
+- 結果（`compatible` / `legacy` とも同じ）:
+  - `test:small`: 7/7
+  - `test:interop`: 20/27
+  - `test:browser`（Chromium mediasoup-client ↔ mediasoup 3.26.0 ↔ werift polyfill）: 9/10
+  - 失敗した 8 件はすべて `mediasoup-legacy`（3.19.2）のテストで、ワーカーを起動できなかった（`spawn … ENOENT`）。3.19.2 にはこの環境向けのビルド済みワーカーがなく、ソースからのビルドに `pip` が必要なため。**mediasoup 3.19.2 との組み合わせは未確認**である。
+- SDP の記録: BUNDLE で複数 m-line を持ち tag に候補がある description（interop で 37 件、browser で 6 件。offer と answer の両方を含む）を確認した。`compatible` では全件で非tag の候補と eoc が省かれ、ufrag / fingerprint / setup は残っていた。`legacy` では全件で候補が繰り返されていた。mediasoup は ICE-lite で、mediasoup-client はローカル SDP の DTLS パラメータしか使わない。このため、候補を省いても mediasoup 側への影響はない。
+
+#### 別課題（本チケットの範囲外。develop で再現する既存の不具合）
+
+- **`a=bundle-only` 未対応**: Firefox は再 offer や ICE restart の offer で、BUNDLE の非tag m-line を `port 0` + `a=bundle-only`（RFC 8843 §6）として送る。werift はこれを拒否された m-line と解釈し、`c=` 行のない `port 0` の m-line で answer するため、Firefox は answer を拒否する。werift のソースには `bundle-only` を扱う処理がない。
+- **werift 起点の ICE restart の後、Firefox への送信が止まる**: werift は Firefox の RTP を受信し続けるが、Firefox は werift からの RTP と DataChannel を受け取らなくなる。
