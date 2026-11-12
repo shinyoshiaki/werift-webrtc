@@ -9,15 +9,44 @@
   - `tests/bundle/*`: すべて失敗
   - `media.peerconnection.ice.obfuscate_host_addresses: false` を追加しても結果は変わらない。
 - 一方、同じ環境で Node の werift と Playwright の Firefox を直接つなぐと、DataChannel は成立する。mDNS 秘匿ありでも、STUN を設定しても同じだった。そのため、原因は werift と Firefox の非互換ではなく、**E2E の経路（起動手順、設定、シグナリング）にある**と考えられる。
-- werift ↔ Firefox の既知の不具合は、別のサブタスクで扱う。
-  1. `a=bundle-only` 未対応（Firefox の `port 0` + `bundle-only` の offer に、`c=` のない answer を返す）
-  2. werift 起点の ICE restart の後に Firefox の受信が止まる
+- werift ↔ Firefox の既知の不具合は、別のサブタスクで扱う。どちらも親チケット #269（`190063e8-99d9-410f-89ca-cee8cf6423a1`）の §9.6 で見つかったもので、チケットは**作成済み**である（2026-11-12 に `ide-cli ticket list` で確認）。本チケットでは新しく作らない。
 
-  この 2 件に依存するテストは、修正されるまで Firefox ではスキップする（理由とサブタスクを明記する）。
+| # | チケット ID | タイトル | スキップ文言の固定タグ |
+| --- | --- | --- | --- |
+| 1 | `21a27c92-7ca2-4075-bd29-246f95715de2` | [SDP/BUNDLE] Firefox の `a=bundle-only` m-line を拒否扱いし、`c=` のない answer を返して交渉が失敗する | `[firefox-known:bundle-only]` |
+| 2 | `ef1c086e-1a6f-479e-8940-822231b4f359` | [ICE] werift 起点の ICE restart の後、Firefox が werift からの RTP / DataChannel を受け取れなくなる | `[firefox-known:ice-restart]` |
+
+  この 2 件に依存するテストは、修正されるまで Firefox ではスキップする（理由とサブタスクを明記する。1.1 の決定事項 D1 / D2）。
+
+## 1.1 決定事項（未確定事項の解消）
+
+### D1. bundle-only に依存する `bundle/*` の扱い → **(b) スキップして完了とする**
+
+- 本チケットでは `packages/webrtc/src` の bundle-only 対応は**行わない**。Firefox 起点の `bundle-only` offer が原因で通らないケースは、`[firefox-known:bundle-only]` のタグを付けて Firefox だけスキップする。それをもって完了とする。
+- 理由:
+  - bundle-only 対応はサブタスク 1（`21a27c92-…`）の範囲である。そのチケットはすでに、RFC 8843 §6 / §7.3.3 に沿った answer の生成という negotiation 変更として切り出されている。negotiation 変更には `tools/negotiation-diff`、`npm run pbt:deep`、WPT の確認が必要（`packages/webrtc/AGENTS.md`）。これを E2E 基盤の修正と同じ変更に混ぜると、レビューと切り戻しの単位が大きくなる。
+  - 本チケットの目的は「Firefox E2E を回せる状態にし、werift 本体の不具合を E2E で検出できるようにする」ことである。サブタスク 1 の修正を検証する経路を先に用意するので、順序としては本チケットが先になる。
+  - 親チケット §9.6 によれば、Firefox が `bundle-only` を使うのは「`max-bundle` の初回 offer」「再 offer で追加する m-line」「ICE restart の offer」に限られる。werift 起点の offer と、`max-compat` / `disable` での Firefox 起点の初回 offer は、bundle-only に依存しない。そのため `bundle/*` の大半は本チケットだけで通るはずである。
+- 依存が想定されるケースは次のとおり（作業時に実測して 5.3 の表で確定する）。
+  - `tests/bundle/max-bundle.test.ts` の Firefox 起点の offer ケース（`bundlePolicy: "max-bundle"` で `pc.createOffer()`。L84– の 2 件目）
+  - `tests/bundle/tagOnlyCandidates.test.ts` のうち、Firefox 起点の再 offer を含むもの
+  - `tests/ice/restart.test.ts` の `ice_restart_web_trigger`（Firefox の restart offer は bundle-only を含む）
+  - `addTrack` / `removeTrack` / `reuse` / `simulcast` のうち、Firefox 起点の再 offer で m-line を足すもの
+- 次のテストは、bundle-only を理由にスキップしてはならない: `max-bundle.test.ts` の werift 起点の offer ケース、`max-compat.test.ts`、`disable.test.ts` の全件。これらが通らないときは、E2E 基盤の問題か新しい不具合として調べる。
+- スキップする根拠が bundle-only であることは、その場で確かめる。確認方法: Firefox の `setRemoteDescription(answer)` が `c= connection line not specified` で失敗すること、または送受信される SDP に `a=bundle-only` があること。確かめたらテスト結果の表に書く。推測だけでスキップしない。
+
+### D2. 参照するサブタスクと固定タグ → **作成済みの 2 件を参照する。新規作成はしない**
+
+- 参照先は 1 章の表の 2 件に決める。スキップ文言には、固定タグと**チケット ID の先頭 8 文字**を入れる。
+  - 例: `it.skip("[firefox-known:bundle-only] 21a27c92: Firefox の max-bundle offer は a=bundle-only を使う", ...)`
+  - 例: `it.skip("[firefox-known:ice-restart] ef1c086e: werift 起点の restart 後に Firefox の受信が止まる", ...)`
+- タグと理由の文言は `tests/fixture.ts` に定数として 1 か所でまとめる（例: `firefoxKnownIssue.bundleOnly` / `firefoxKnownIssue.iceRestart`）。各テストはその定数を使う。サブタスクが直ったら `grep -rn "firefox-known:bundle-only" e2e/tests` で解除の対象を探し、スキップを外す。この手順をサブタスク 1 / 2 の完了条件に足してもらうよう、それぞれのチケットに一行追記する（本チケットの作業に含める）。
+- 上の 2 件に当てはまらない werift 本体の不具合が新しく見つかった場合は、本チケットの作業で `ide-cli ticket create-subtask` を使い、親チケット #269 の下にサブタスクを作る。タグは `[firefox-known:<短い名前>]` の形で足す。
+- ブラウザの仕様で前提が成り立たないもの（pranswer 未実装など）は、`[firefox-unsupported:<機能>]` のタグを使い、チケットは参照しない。既存のスキップ（`red` / `codecRtp` / `reuse` / `removeTrack`）にも、同じ形のタグを付けて揃える。
 
 ## 2. 調査結果（コードから分かる差分と、有力な原因候補）
 
-### 2.1 `npm run firefox` だけでは e2e サーバーが起動しない（最有力）
+### 2.1 `npm run firefox` だけでは e2e サーバーが起動しない（保守性の問題。観測した失敗の主因ではない。下の追記を参照）
 
 | 項目 | Chrome（CI 経路） | Firefox（`npm run firefox`） |
 | --- | --- | --- |
@@ -27,7 +56,13 @@
 | 停止 | `stop.js` の `PUT /stop`（`requestServerStop(port)`） | なし |
 
 - `tests/fixture.ts` はモジュールの読み込み時に `new WebSocketTransport("ws://localhost:<port>")` を作り、各テストは `if (!peer.connected) await new Promise(r => peer.on("open", r))` で待つ。サーバーがなければ `open` は発火しないので、**全テストが `testTimeout`（20s）で落ちる**。これは「全件タイムアウト」「mDNS 設定を変えても変わらない」という観測と一致する。
-- 親チケットで別にサーバーを起動していたかどうかは記録がない。そのため、まず「サーバーあり」で再現するかを確かめ、再現しなければ 2.1 を主因と判断する。
+- **（2026-11-12 追記・事実訂正）親チケットの確認では、サーバーを起動したうえで Firefox を実行していた。その状態で全件失敗しているので、観測した失敗の主因は 2.1 ではない。** 実行条件は次のとおり。
+  - `cd e2e && npm run build` の後、`E2E_PORT=8931 node lib/e2e/server/main.js` をバックグラウンドで起動した（`start { port: 8931, ... }` を確認）。
+  - `E2E_PORT=8931 VITE_E2E_PORT=8931 PLAYWRIGHT_BROWSERS_PATH=<private> npx vitest run --config vitest.firefox.config.mts --browser.headless --retry=0 <file>` で実行した。Firefox 157（Playwright 1.64.1、build v1555）。
+  - このとき `tests/datachannel/datachannel.test.ts` は 3 件すべて `Test timed out in 20000ms`、`tests/mediachannel/sendrecv.test.ts` は `waitVideoPlay timed out` になった。`media.peerconnection.ice.obfuscate_host_addresses: false` を加えても同じだった。
+  - `bundle/max-bundle.test.ts` では、mDNS 秘匿を無効にすると Firefox が `SIPCC ... c= connection line not specified` を出した。これは bundle-only サブタスク（21a27c92）の不具合で、少なくとも bundle 系では SDP の交換まで進んでいる。
+  - サーバーのログは `start` 行のみで、`DEBUG` を付けていないため、リクエストが届いたかは記録していない。最初の調査では `DEBUG=werift*` と protoo のログを有効にし、`open`・各リクエスト・ICE 状態のどこで止まるかを確かめる。
+- 2.1（`npm run firefox` がサーバーを起動しない）は、上の失敗の原因ではない。ただし、単独実行の手順と保守性の問題としては残るので、3 章の整備対象とする。
 
 ### 2.2 `vitest.firefox.config.mts` が Chrome 設定の改修に追従していない
 
@@ -93,16 +128,17 @@
 | 分類 | 対応 |
 | --- | --- |
 | E2E 基盤（シグナリング、ハンドラ、設定、テストの書き方） | 本チケットで直す |
-| werift 本体: `bundle-only` 未対応 / werift 起点の ICE restart | 既存のサブタスクを参照して、Firefox だけスキップする |
-| werift 本体: 新しい不具合（例: 空文字 candidate で例外） | 新しいサブタスクを作って参照し、スキップする。小さく安全に直せるなら、本チケットで直してもよい（`packages/webrtc` のテストを足す） |
-| ブラウザ固有でテストの前提が成り立たない（pranswer 未実装、Chrome 専用の codec / RED / simulcast の rid 形式など） | `browserName === "Firefox"` で、理由を書いてスキップする |
+| werift 本体: `bundle-only` 未対応 | `21a27c92` を参照し、`[firefox-known:bundle-only]` で Firefox だけスキップする（D1。本チケットで本体は直さない） |
+| werift 本体: werift 起点の ICE restart | `ef1c086e` を参照し、`[firefox-known:ice-restart]` で Firefox だけスキップする |
+| werift 本体: 新しい不具合（例: 空文字 candidate で例外） | `ticket create-subtask` で #269 の下にサブタスクを作り、`[firefox-known:<名前>]` でスキップする（D2）。数行で直せて negotiation の形を変えないもの（例: 空文字 candidate を end-of-candidates として受け入れる）に限り、本チケットで直してもよい。その場合は `packages/webrtc` のテストを足す |
+| ブラウザ固有でテストの前提が成り立たない（pranswer 未実装、Chrome 専用の codec / RED / simulcast の rid 形式など） | `[firefox-unsupported:<機能>]` を付け、`browserName === "Firefox"` でスキップする |
 
 ### Step 3: テストの修正（必要なものだけ）
 
 - Firefox 固有の形を前提にしていないか確認する。
-  - `tests/bundle/tagOnlyCandidates.test.ts`: 親チケットで `bundleCandidates` の名前が `legacy` / `compatible` に変わっている。名前と期待値が揃っているか確認する。Firefox の再 offer は `bundle-only` になるので、Firefox 起点の再交渉を含むケースは、既知サブタスク 1 に依存する。
-  - `tests/ice/restart.test.ts`: `ice_restart_node_trigger` は既知サブタスク 2 に依存する。`ice_restart_web_trigger` は Firefox の offer が `bundle-only` を含めば、既知サブタスク 1 に依存する。
-  - `addTrack` / `removeTrack` / `reuse` / `simulcast`: Firefox 起点の再 offer で追加する m-line は `bundle-only` になるので、サブタスク 1 に依存する可能性が高い。
+  - `tests/bundle/tagOnlyCandidates.test.ts`: 親チケットで `bundleCandidates` の名前が `legacy` / `compatible` に変わっている。名前と期待値が揃っているか確認する。Firefox の再 offer は `bundle-only` になるので、Firefox 起点の再交渉を含むケースは、既知サブタスク 1（`21a27c92`、`[firefox-known:bundle-only]`）に依存する。
+  - `tests/ice/restart.test.ts`: `ice_restart_node_trigger` は既知サブタスク 2（`ef1c086e`、`[firefox-known:ice-restart]`）に依存する。`ice_restart_web_trigger` は Firefox の offer が `bundle-only` を含めば、既知サブタスク 1（`21a27c92`、`[firefox-known:bundle-only]`）に依存する。
+  - `addTrack` / `removeTrack` / `reuse` / `simulcast`: Firefox 起点の再 offer で追加する m-line は `bundle-only` になるので、サブタスク 1（`21a27c92`）に依存する可能性が高い。
 - 修正やスキップを足すときは、テストの Arrange / Act / Assert の区切りと日本語コメントを AGENTS.md の規約どおりに付ける。共通の準備は `tests/fixture.ts` にまとめる（Firefox かどうかの判定と、スキップ理由の定数など）。
 
 ### Step 4: ドキュメントと保守方針
@@ -125,15 +161,18 @@
 - サーバーやブラウザは PID か `/stop` で止める。`npm run clean`（`pkill -9 gst-launch`）は使わない。
 - Playwright の Firefox のバージョンは `e2e/package.json` の `playwright` で決まる（現在 `^1.64.1`）。Firefox のために `playwright` を上げる場合は、Chrome にも影響するので、Chrome の E2E も回す。
 - TypeScript は erasable syntax だけで書く（`enum` とパラメータプロパティは使わない）。`tsx` などのランナーは入れない。
-- `bundle-only` と ICE restart の 2 サブタスクが直ったら、スキップを外す必要がある。スキップ理由にサブタスクを書いておき、検索で見つけられるようにする（例: スキップ文言に `firefox-bundle-only` のような固定のタグを入れる）。
+- `bundle-only`（`21a27c92`）と ICE restart（`ef1c086e`）の 2 サブタスクが直ったら、スキップを外す必要がある。スキップ文言には D2 の固定タグ（`[firefox-known:bundle-only]` / `[firefox-known:ice-restart]`）とチケット ID を入れ、grep で見つけられるようにする。
+- bundle-only 対応（`packages/webrtc/src` の SDP 生成・解釈）は本チケットの範囲外（D1）。E2E を通すために、ハンドラ側で SDP を書き換えて回避することもしない（werift の不具合を隠すことになるため）。
 
 ## 5. 完了条件
 
 ### 5.1 動作
 
 - [ ] `npm run ci:firefox`（仮称）を 1 コマンドで実行すると、ビルド、サーバー起動、Firefox の取得、テスト、サーバー停止まで完了する。
-- [ ] Firefox で、`datachannel`（answer / offer / binary echo）、`mediachannel/sendrecv`、`bundle/*`（`max-bundle` / `max-compat` / `disable`）が通る。
-- [ ] 通らないテストは、`browserName === "Firefox"` でスキップし、理由（既知サブタスク、新しいサブタスク、ブラウザ未対応）を書いている。理由のない失敗は残っていない。
+- [ ] Firefox で、`datachannel`（answer / offer / binary echo）と `mediachannel/sendrecv` が全件通る。
+- [ ] `bundle/*` は、`max-compat.test.ts` と `disable.test.ts` の全件、および `max-bundle.test.ts` の werift 起点の offer ケースが通る。`max-bundle` の Firefox 起点の offer ケースなど bundle-only に依存するものは、D1 の確認方法で根拠を確かめたうえで `[firefox-known:bundle-only]`（`21a27c92`）を付けてスキップしていればよい。本チケットでは `packages/webrtc/src` の bundle-only 対応を求めない。
+- [ ] 通らないテストは、`browserName === "Firefox"` でスキップし、D2 の固定タグ（`[firefox-known:*]` / `[firefox-unsupported:*]`）と、参照するチケット ID（`firefox-known` のとき）を書いている。理由のない失敗は残っていない。
+- [ ] スキップ理由の定数が `tests/fixture.ts` に 1 か所でまとまっている。サブタスク `21a27c92` / `ef1c086e` に、スキップを解除する手順（grep するタグ）を追記している。
 - [ ] 2 回続けて実行しても、同じ結果になる（`retry: 1` の範囲で安定する）。
 
 ### 5.2 回帰
