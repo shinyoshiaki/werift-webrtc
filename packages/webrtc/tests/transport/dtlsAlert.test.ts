@@ -12,6 +12,7 @@ import {
   connectedDataChannelPeers,
   createDtlsSessions,
   dtlsTransportPair,
+  exchangeOfferAnswer,
   mutateFingerprint,
   recordCloseOrder,
   recordDtlsEvents,
@@ -788,4 +789,99 @@ describe("SCTP より先に登録したアプリの DTLS 状態リスナーが�
       }
     },
   );
+});
+
+describe("複数 transport の一方が failed のときの connectionState", () => {
+  test("DTLS が failed の transport が残ったまま、再交渉で追加した別 transport が接続しても connected にならない", async () => {
+    // Arrange: bundle なしで DataChannel 用 transport を接続し、fatal alert で pc2 側を failed にする
+    const pc1 = new RTCPeerConnection({ bundlePolicy: "disable" });
+    const pc2 = new RTCPeerConnection({ bundlePolicy: "disable" });
+    pc1.createDataChannel("dc");
+    try {
+      await exchangeOfferAnswer(pc1, pc2);
+      await waitUntil(
+        () => pc2.connectionState === "connected",
+        `pc2 ${pc2.connectionState}`,
+      );
+      const failedTransport = pc2.dtlsTransports[0];
+      await pc1.dtlsTransports[0].dtls!.sendAlert(
+        AlertLevel.fatal,
+        AlertDesc.InternalError,
+      );
+      await waitForDtlsState(failedTransport, "failed");
+      await waitUntil(
+        () => pc2.connectionState === "failed",
+        `pc2 ${pc2.connectionState}`,
+      );
+      const states: string[] = [];
+      pc2.onconnectionstatechange = () => states.push(pc2.connectionState);
+
+      // Act: 再交渉で別 transport を使う m-line を追加し、その transport を接続させる
+      pc1.addTransceiver("audio");
+      await exchangeOfferAnswer(pc1, pc2);
+      const added = pc2.dtlsTransports.find((t) => t !== failedTransport)!;
+      await waitForDtlsState(added, "connected");
+      await setTimeout(200);
+
+      // Assert: 追加した transport は connected だが、failed の transport が残るので failed のまま
+      expect(pc2.dtlsTransports).toContain(failedTransport);
+      expect(failedTransport.state).toBe("failed");
+      expect(added.state).toBe("connected");
+      expect(pc2.connectionState).toBe("failed");
+      expect(states).not.toContain("connected");
+    } finally {
+      await Promise.allSettled([pc1.close(), pc2.close()]);
+    }
+  });
+});
+
+describe("DOM 形式のイベントのリスナーごとの例外隔離", () => {
+  test("先に登録した error / statechange / connectionstatechange のリスナーが例外を投げても、後のリスナーに通知される", async () => {
+    // Arrange: 各イベントに、例外を投げるリスナーと記録するリスナーをこの順で登録する
+    const { pc1, pc2 } = await connectedDataChannelPeers();
+    const dtls2 = pc2.sctp!.transport;
+    const sctp2 = pc2.sctp!;
+    const throwing = () => {
+      throw new Error("listener failed");
+    };
+    const received: string[] = [];
+    dtls2.addEventListener("error", throwing);
+    dtls2.addEventListener("error", () => received.push("dtls error"));
+    dtls2.addEventListener("statechange", throwing);
+    dtls2.addEventListener("statechange", () =>
+      received.push("dtls statechange"),
+    );
+    sctp2.addEventListener("statechange", throwing);
+    sctp2.addEventListener("statechange", () =>
+      received.push("sctp statechange"),
+    );
+    pc2.addEventListener("connectionstatechange", throwing);
+    pc2.addEventListener("connectionstatechange", () =>
+      received.push("connectionstatechange"),
+    );
+
+    try {
+      // Act: pc1 から fatal alert を送り、pc2 の DTLS / SCTP / connectionState を変化させる
+      await pc1.sctp!.transport.dtls!.sendAlert(
+        AlertLevel.fatal,
+        AlertDesc.InternalError,
+      );
+      await waitUntil(
+        () => pc2.connectionState === "failed" && sctp2.state === "closed",
+        `${pc2.connectionState} / ${sctp2.state}`,
+      );
+
+      // Assert: 後から登録したリスナーにも、それぞれ通知が届く
+      expect(received).toEqual(
+        expect.arrayContaining([
+          "dtls error",
+          "dtls statechange",
+          "sctp statechange",
+          "connectionstatechange",
+        ]),
+      );
+    } finally {
+      await Promise.allSettled([pc1.close(), pc2.close()]);
+    }
+  });
 });

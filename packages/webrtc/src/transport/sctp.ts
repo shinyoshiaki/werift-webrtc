@@ -111,7 +111,10 @@ export class RTCSctpTransport {
     );
     if (emitEvent) {
       notifySafely(log, "onstatechange", () => this.onstatechange?.());
-      notifySafely(log, "statechange", () => this.events.emit("statechange"));
+      this.events.emitIsolated(
+        (error) => log("statechange listener failed", error),
+        "statechange",
+      );
     }
   }
 

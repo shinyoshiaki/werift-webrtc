@@ -408,8 +408,9 @@ export class RTCPeerConnection extends EventTarget {
       notifySafely(log, "onconnectionstatechange", () =>
         this.onconnectionstatechange?.(),
       );
-      notifySafely(log, "connectionstatechange", () =>
-        this.emit("connectionstatechange"),
+      this.emitIsolated(
+        (error) => log("connectionstatechange listener failed", error),
+        "connectionstatechange",
       );
     });
     this.secureManager.onIceCandidate.subscribe((candidate) => {

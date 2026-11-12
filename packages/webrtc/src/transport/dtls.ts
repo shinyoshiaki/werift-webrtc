@@ -505,10 +505,12 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       error: rtcError,
     };
     this.notifySafely("onerror", () => this.onerror?.(event));
-    // EventEmitter throws an "error" event nobody listens to.
-    if (this.events.listenerCount("error") > 0) {
-      this.notifySafely("error", () => this.events.emit("error", event));
-    }
+    // Per listener (and no throw when nobody listens to "error").
+    this.events.emitIsolated(
+      (error) => log("error listener failed", error),
+      "error",
+      event,
+    );
   }
 
   private verifyRemoteCertificateFingerprint(remoteCertificate?: Buffer) {
@@ -782,7 +784,10 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       );
       if (emitEvent) {
         this.notifySafely("onstatechange", () => this.onstatechange?.());
-        this.notifySafely("statechange", () => this.events.emit("statechange"));
+        this.events.emitIsolated(
+          (error) => log("statechange listener failed", error),
+          "statechange",
+        );
       }
     }
   }

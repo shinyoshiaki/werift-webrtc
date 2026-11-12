@@ -822,3 +822,14 @@ export async function sctpOverDtlsPair(
   );
   return { clientDtls, serverDtls, client, server, serverChannel };
 }
+
+/** offer / answer を 1 往復して両 peer の description を適用する（ICE candidate は SDP に含める） */
+export async function exchangeOfferAnswer(
+  offerer: RTCPeerConnection,
+  answerer: RTCPeerConnection,
+) {
+  await offerer.setLocalDescription(await offerer.createOffer());
+  await answerer.setRemoteDescription(offerer.localDescription!);
+  await answerer.setLocalDescription(await answerer.createAnswer());
+  await offerer.setRemoteDescription(answerer.localDescription!);
+}
