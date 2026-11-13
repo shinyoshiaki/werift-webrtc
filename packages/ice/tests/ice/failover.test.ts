@@ -224,9 +224,12 @@ describe("failover of the selected pair", () => {
           "disconnected",
           "connected",
         ]);
-        // Act: さらに 40 s 進める。
-        await vi.advanceTimersByTimeAsync(40_000);
-        // Assert: consent は失効せず、間隔は consent の 5 s に戻っている。
+        // Act: 相手が 1 s ごとにデータを送り続ける中で、さらに 40 s 進める。
+        for (let i = 0; i < 40; i++) {
+          h.receiveData(h.selection);
+          await vi.advanceTimersByTimeAsync(1000);
+        }
+        // Assert: consent は失効せず、受信が続く間の間隔は consent の 5 s に戻っている。
         expect(h.connection.state).toBe("connected");
         const recent = h
           .requestsTo(h.selection)
@@ -386,6 +389,164 @@ describe("failover of the selected pair", () => {
         await h.connection.close();
       }
     });
+  });
+});
+
+describe("failover: review regressions (delay, late candidate, state, silence)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  test("a selected pair whose responses take longer than 900 ms is not cancelled while weak and is not failed over", async () => {
+    // RTT 1.2 s (応答待ちは RTT から 2.6 s)。選択時の check で RTT を測る。
+    const h = await createFailoverHarness({ responseDelayMs: 1200 });
+    const host = h.selection;
+    const relay = h.pairOf(1);
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    try {
+      // Act: 1 回だけ consent check を落として weak (900 ms 間隔) にし、すぐ経路を戻して 20 s 進める。
+      const lostAfter = h.requestsTo(host).length;
+      h.cut(0);
+      await h.advanceUntil(() => h.requestsTo(host).length > lostAfter, 10_000);
+      h.restore(0);
+      await vi.advanceTimersByTimeAsync(20_000);
+
+      // Assert: 応答の遅い consent check は次の check で取り消されず、すべて応答される (前の応答を待ってから次を送る)。
+      const after = h.requestsTo(host).slice(lostAfter + 1);
+      expect(after.length).toBeGreaterThan(3);
+      for (const request of after.slice(0, -1)) {
+        expect(request.cancelled).toBe(false);
+      }
+      for (let i = 1; i < after.length; i++) {
+        expect(after[i].at - after[i - 1].at).toBeGreaterThanOrEqual(1200);
+      }
+      // Assert: 書き込み不可とは判断されず、退避も disconnected もしない。
+      expect(h.connection.nominated).toBe(host);
+      expect(relay.nominated).toBe(false);
+      expect(h.states).toEqual([]);
+    } finally {
+      await h.connection.close();
+    }
+  });
+
+  test("a remote candidate trickled later that outranks a socket's backup becomes its backup", async () => {
+    // relay ソケットの最上位ペア (remote 0) の経路は切れており、下位の remote 1 のペアが退避先になる。
+    const h = await createFailoverHarness({
+      remotes: [FAILOVER_HIGH, FAILOVER_LOW],
+    });
+    // 切る前に検証済みなので、30 s 何も受けずに Failed になるまで待つ。
+    h.cut(1, 0);
+    await h.advanceUntil(
+      () => h.pairOf(1, 1).state === CandidatePairState.SUCCEEDED,
+      45_000,
+    );
+    expect(h.pairOf(1, 0).state).toBe(CandidatePairState.FAILED);
+
+    try {
+      // Act: 選択中のペアより低く、今の退避先より高いリモート候補が後から届き、10 s 進める。
+      const mid = await h.addRemote(FAILOVER_MID);
+      const lowChecks = h.requestsTo(h.pairOf(1, 1)).length;
+      await vi.advanceTimersByTimeAsync(10_000);
+
+      // Assert: 後着の上位ペアが relay ソケットの退避先になり、下位ペアの監視は止まる。
+      expect(h.pairOf(1, mid).state).toBe(CandidatePairState.SUCCEEDED);
+      expect(h.requestsTo(h.pairOf(1, mid)).length).toBeGreaterThan(3);
+      expect(h.requestsTo(h.pairOf(1, 1)).length).toBeLessThanOrEqual(
+        lowChecks + 1,
+      );
+      // Assert: 選択中のソケットには後着候補のペアを作らず、選択も変わらない。
+      expect(h.pairOf(0, mid)).toBeUndefined();
+      expect(h.connection.nominated).toBe(h.selection);
+    } finally {
+      await h.connection.close();
+    }
+  });
+
+  test("controlled: a backup that answers again does not end disconnected; the switch to it does", async () => {
+    const h = await createFailoverHarness({ iceControlling: false });
+    const relay = h.pairOf(1);
+    await vi.advanceTimersByTimeAsync(10_000);
+    // host と relay の両方を切って disconnected にする。
+    h.cut(0);
+    h.cut(1);
+    await h.advanceUntil(() => h.connection.state === "disconnected", 20_000);
+    expect(h.connection.state).toBe("disconnected");
+
+    try {
+      // Act: relay の経路だけ戻し、relay の退避先が応答するまで進める。
+      h.restore(1);
+      await h.advanceUntil(
+        () =>
+          h.requestsTo(relay).some((request) => !request.cancelled) &&
+          relay.state === CandidatePairState.SUCCEEDED &&
+          h.connection.nominated === h.selection,
+        40_000,
+      );
+      await vi.advanceTimersByTimeAsync(3000);
+
+      // Assert: 退避先は応答しているが、選択はまだ切れた host のままなので disconnected のまま。
+      expect(relay.state).toBe(CandidatePairState.SUCCEEDED);
+      expect(h.connection.nominated).toBe(h.selection);
+      expect(h.connection.state).toBe("disconnected");
+
+      // Act: 相手が relay を指名し、relay でデータを送る。
+      h.receiveNomination(relay);
+      h.receiveData(relay);
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Assert: relay へ移った時点で connected に戻る。
+      expect(h.connection.nominated).toBe(relay);
+      expect(h.connection.state).toBe("connected");
+      expect(h.states.map(({ state }) => state)).toEqual([
+        "disconnected",
+        "connected",
+      ]);
+    } finally {
+      await h.connection.close();
+    }
+  });
+
+  test("weak by silence: the selected pair is checked once nothing was received for 2.5 s, not at the 5 s consent interval", async () => {
+    const h = await createFailoverHarness();
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    try {
+      // Act: 相手からのデータが途絶えた状態で 20 s 進める。
+      const from = Date.now();
+      await vi.advanceTimersByTimeAsync(20_000);
+
+      // Assert: 最後の受信から 2.5 s で次の check を送る (5 s の consent 間隔を待たない)。
+      const times = h
+        .requestsTo(h.selection)
+        .filter(({ at }) => at >= from)
+        .map(({ at }) => at);
+      const gaps = times.slice(1).map((at, i) => at - times[i]);
+      expect(gaps.length).toBeGreaterThan(5);
+      for (const gap of gaps) expect(gap).toBe(2500);
+
+      // Act: 相手が 0.5 s ごとにデータを送る中で 20 s 進める。
+      const busyFrom = Date.now();
+      for (let i = 0; i < 40; i++) {
+        h.receiveData(h.selection);
+        await vi.advanceTimersByTimeAsync(500);
+      }
+
+      // Assert: 受信が続く間は consent の 5 s 間隔に戻る。
+      const busy = h
+        .requestsTo(h.selection)
+        .filter(({ at }) => at >= busyFrom + 5000)
+        .map(({ at }) => at);
+      const busyGaps = busy.slice(1).map((at, i) => at - busy[i]);
+      for (const gap of busyGaps) expect(gap).toBe(5000);
+    } finally {
+      await h.connection.close();
+    }
   });
 });
 

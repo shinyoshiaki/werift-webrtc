@@ -75,6 +75,34 @@ export const backupPingInterval = (liveness: PairLiveness) =>
     ? WEAK_OR_STABILIZING_WRITABLE_CONNECTION_PING_INTERVAL
     : STABLE_WRITABLE_CONNECTION_PING_INTERVAL * (0.8 + 0.4 * Math.random());
 
+/**
+ * When the next check of a monitored pair is due (ms), given when the last
+ * one was sent and the interval it uses while the pair is not weak (D3):
+ * - its last check went unanswered (weak): WEAK_OR_STABILIZING_WRITABLE_CONNECTION_PING_INTERVAL
+ *   after it;
+ * - otherwise `stableInterval` after it, but no later than the moment the
+ *   pair has received nothing for WEAK_CONNECTION_RECEIVE_TIMEOUT (weak by
+ *   silence), and never sooner than the weak interval.
+ * Something received later only moves it later: a caller that wakes up at
+ * the time computed earlier computes it again.
+ */
+export const nextPingAt = (
+  liveness: PairLiveness,
+  lastSentAt: number,
+  stableInterval: number,
+) => {
+  const weakAt =
+    lastSentAt + WEAK_OR_STABILIZING_WRITABLE_CONNECTION_PING_INTERVAL;
+  if (liveness.unanswered > 0) return weakAt;
+  return Math.max(
+    weakAt,
+    Math.min(
+      lastSentAt + stableInterval,
+      liveness.lastReceived + WEAK_CONNECTION_RECEIVE_TIMEOUT,
+    ),
+  );
+};
+
 /** The agent's side of `FailoverMonitor`. */
 export interface FailoverHost {
   /**
@@ -106,8 +134,12 @@ export interface FailoverHost {
 /** The backup of one local socket (`Protocol`: a UDP socket or a TURN allocation). */
 type BackupRecord = {
   pair?: CandidatePair;
-  /** When the next check of `pair` is due. */
+  /** When the next check of `pair` is due (see `nextPingAt`; recomputed when it comes). */
   nextAt: number;
+  /** When the last check of `pair` was sent. */
+  sentAt?: number;
+  /** The interval `pair` uses while not weak, fixed when its last check was sent. */
+  stableInterval: number;
   /** A check of `pair` is in flight. */
   inFlight: boolean;
   /** Pairs of this socket that failed as its backup in this round. */
@@ -302,6 +334,7 @@ export class FailoverMonitor {
       if (!record) {
         record = {
           nextAt: now,
+          stableInterval: 0,
           inFlight: false,
           failed: new Set(),
           retries: 0,
@@ -318,6 +351,14 @@ export class FailoverMonitor {
           (current.state === CandidatePairState.FAILED && !record.inFlight))
       ) {
         this.fail(record, current, false);
+      }
+      // A higher-priority pair of the socket appeared (a candidate trickled
+      // or gathered later): it becomes the backup instead (D2).
+      if (record.pair && !record.retryTimer) {
+        const best = this.candidateFor(protocol, record);
+        if (best && best !== record.pair && this.outranks(best, record.pair)) {
+          this.replace(record, record.pair);
+        }
       }
       if (record.pair || record.retryTimer) continue;
       const next =
@@ -387,6 +428,7 @@ export class FailoverMonitor {
   private adopt(record: BackupRecord, pair: CandidatePair, now: number) {
     record.pair = pair;
     record.nextAt = now;
+    record.sentAt = undefined;
     record.inFlight = false;
     this.pruned.delete(pair);
     this.track(pair, now);
@@ -415,6 +457,21 @@ export class FailoverMonitor {
     record.inFlight = false;
     if (this.host.selected() !== pair) this.liveness.delete(pair);
     if (notify) this.host.dropped(pair);
+  }
+
+  /**
+   * A better pair takes over as the backup of `record`: `pair` is no longer
+   * monitored but did not fail. One the monitor was still validating goes
+   * back to Failed-without-check, so it may become the backup again.
+   */
+  private replace(record: BackupRecord, pair: CandidatePair) {
+    record.pair = undefined;
+    record.inFlight = false;
+    if (this.host.selected() !== pair) this.liveness.delete(pair);
+    if (pair.state === CandidatePairState.IN_PROGRESS) {
+      pair.updateState(CandidatePairState.FAILED);
+      this.pruned.add(pair);
+    }
   }
 
   private scheduleRetry(protocol: Protocol, record: BackupRecord) {
@@ -462,6 +519,18 @@ export class FailoverMonitor {
     for (const entry of this.backups) {
       const [, record] = entry;
       if (!record.pair || record.inFlight || record.nextAt > now) continue;
+      // Something received since moves it later (nextPingAt).
+      if (record.sentAt !== undefined) {
+        const liveness = this.liveness.get(record.pair);
+        if (liveness) {
+          record.nextAt = nextPingAt(
+            liveness,
+            record.sentAt,
+            record.stableInterval,
+          );
+          if (record.nextAt > now) continue;
+        }
+      }
       if (!due || record.nextAt < due[1].nextAt) due = entry;
     }
     if (due) {
@@ -480,8 +549,8 @@ export class FailoverMonitor {
     const liveness = this.liveness.get(pair)!;
     const sentAt = Date.now();
     record.inFlight = true;
-    // The interval while the outcome is pending; the outcome decides the next one.
-    record.nextAt = sentAt + backupPingInterval(liveness);
+    record.sentAt = sentAt;
+    record.stableInterval = backupPingInterval(liveness);
     let answered = false;
     try {
       answered = await this.host.ping(pair, signal);
@@ -502,7 +571,12 @@ export class FailoverMonitor {
     } else {
       this.unanswered(pair);
     }
-    record.nextAt = Math.max(now, sentAt + backupPingInterval(liveness));
+    // The outcome decides the interval (stabilizing, weak or stable).
+    record.stableInterval = backupPingInterval(liveness);
+    record.nextAt = Math.max(
+      now,
+      nextPingAt(liveness, sentAt, record.stableInterval),
+    );
 
     if (answered && pair.state !== CandidatePairState.SUCCEEDED) {
       this.host.validated(pair);

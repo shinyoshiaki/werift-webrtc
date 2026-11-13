@@ -111,11 +111,15 @@ a path broken in one direction).
   nothing for 30 s fails and the next pair of its socket follows, up to 3
   pairs; then the socket starts again from its best pair after 1, 2, 4, 8,
   16 s. Candidates gathered or trickled after the selection still form
-  backup pairs. Backups are checked without a nomination, every 900 ms
+  backup pairs, and one that outranks a socket's backup replaces it. Backups are checked without a nomination, every 900 ms
   until they answered 3 times (and while a check goes unanswered), then
   every 2.5 s (0.8–1.2 times).
-- The selected pair is checked by the consent checks (every 4–6 s). Once one
-  goes unanswered they are sent every 900 ms. The pair is unwritable once 5
+- The selected pair is checked by the consent checks (every 4–6 s). While it
+  is weak they are sent every 900 ms: after an unanswered check, and as soon
+  as nothing (response, request or data) was received for 2.5 s, so an idle
+  pair is checked about every 2.5 s. A check waits for the outcome of the
+  previous one, so a response slower than 900 ms (within the RTT-based
+  response timeout) is not counted as unanswered. The pair is unwritable once 5
   checks in a row went unanswered and 5 s passed since its last response
   (libwebrtc's `CONNECTION_WRITE_CONNECT_FAILURES` /
   `CONNECTION_WRITE_CONNECT_TIMEOUT`), about 5–10 s after the path broke.
@@ -129,7 +133,9 @@ a path broken in one direction).
 - Controlled agent: it monitors the same way but never nominates; it follows
   the peer's nomination and the pair the peer sends data on.
 - State: `disconnected` while the selected pair is unwritable and no backup
-  is writable, back to `connected` when either answers again. `failed` when
+  is writable, back to `connected` only once the selected pair works again:
+  it answers again, or the selection moved to a backup (a backup that merely
+  answers again does not end `disconnected`). `failed` when
   the selected pair's consent expires (30 s, RFC 7675) and no writable
   backup is left.
 - Not covered (unchanged: no backup checks, `failed` when consent expires):

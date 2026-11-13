@@ -13,7 +13,7 @@ import {
   type TransactionError,
   TransactionTimeout,
 } from "./exceptions";
-import { type FailoverHost, FailoverMonitor } from "./failover";
+import { type FailoverHost, FailoverMonitor, nextPingAt } from "./failover";
 import { type Cancelable, cancelable, PQueue, randomString } from "./helper";
 import {
   CandidatePair,
@@ -36,7 +36,6 @@ import {
   sortCandidatePairs,
   type TurnServerOptions,
   validateRemoteCandidate,
-  WEAK_OR_STABILIZING_WRITABLE_CONNECTION_PING_INTERVAL,
 } from "./iceBase";
 import { type Address, debug, Event, interfaceAddress } from "./imports/common";
 import { resolveHostAddresses } from "./internal/resolveHostAddresses";
@@ -2117,14 +2116,28 @@ export class Connection implements IceConnection {
       let nextConsentAt = Date.now() + randomizedConsentInterval();
       const isTerminalState = () =>
         this.state === "closed" || this.state === "failed";
-      // Failover: an outcome may move the next request (see below); waking
-      // the wait makes the loop take the new time.
+      // Failover (D3): the next request is due at `nextPingAt` of the
+      // selected pair's liveness: the consent interval while it answers and
+      // receives, WEAK_OR_STABILIZING_WRITABLE_CONNECTION_PING_INTERVAL after
+      // an unanswered request, and at once (no sooner than that interval)
+      // when nothing was received for WEAK_CONNECTION_RECEIVE_TIMEOUT. One
+      // request at a time: the next one waits for the outcome of the last,
+      // so a response slower than that interval (within the RTT-based
+      // response timeout) is not cancelled and counted as unanswered. An
+      // outcome wakes the wait up.
       let wakeup: AbortController | undefined;
-      let latestRequest: AbortController | undefined;
-      const reschedule = (at: number) => {
-        nextConsentAt = at;
-        wakeup?.abort();
+      let lastSentAt = Date.now();
+      let stableInterval = nextConsentAt - lastSentAt;
+      /** The request whose outcome the next one waits for. */
+      let outstanding: AbortController | undefined;
+      const failoverDueAt = (pair: CandidatePair) => {
+        if (outstanding) return Number.POSITIVE_INFINITY;
+        const liveness = this.failover.livenessOf(pair);
+        return liveness
+          ? nextPingAt(liveness, lastSentAt, stableInterval)
+          : lastSentAt + stableInterval;
       };
+      const wake = () => wakeup?.abort();
 
       try {
         while (
@@ -2135,7 +2148,8 @@ export class Connection implements IceConnection {
           wakeup = new AbortController();
           try {
             await this.abortableDelay(
-              Math.max(0, nextConsentAt - Date.now()),
+              // Bounded: waiting for an outcome is unbounded (Infinity).
+              Math.min(Math.max(0, nextConsentAt - Date.now()), 2 ** 31 - 1),
               AbortSignal.any([cancelEvent.signal, wakeup.signal]),
             );
           } catch (error) {
@@ -2150,30 +2164,26 @@ export class Connection implements IceConnection {
           ) {
             break;
           }
-          // Woken up for a later time.
-          if (Date.now() < nextConsentAt) continue;
-
           const nominated = this.nominated;
           if (!nominated) {
             break;
           }
-
-          // Failover: while the last request went unanswered (the pair is
-          // weak) the selected pair is checked every
-          // WEAK_OR_STABILIZING_WRITABLE_CONNECTION_PING_INTERVAL, so its
-          // failure is told within seconds (FailoverMonitor); the consent
-          // expiry itself stays CONSENT_TIMEOUT.
           const failover = this.failoverEnabled();
-          const weak =
-            failover &&
-            (this.failover.livenessOf(nominated)?.unanswered ?? 0) > 0;
+          // Failover: woken up by an outcome or something received; the due
+          // time is computed again (it may have moved either way).
+          if (failover) nextConsentAt = failoverDueAt(nominated);
+          // Woken up for a later time.
+          if (Date.now() < nextConsentAt) continue;
+
           const requestSentAt = Date.now();
-          // Fix next start time before awaiting any response (independent timers).
-          nextConsentAt =
-            requestSentAt +
-            (weak
-              ? WEAK_OR_STABILIZING_WRITABLE_CONNECTION_PING_INTERVAL
-              : randomizedConsentInterval());
+          if (failover) {
+            lastSentAt = requestSentAt;
+            stableInterval = randomizedConsentInterval();
+            nextConsentAt = Number.POSITIVE_INFINITY;
+          } else {
+            // Fix next start time before awaiting any response (independent timers).
+            nextConsentAt = requestSentAt + randomizedConsentInterval();
+          }
 
           const pairId = nominated.id;
           const generation = this.remoteGeneration;
@@ -2192,7 +2202,7 @@ export class Connection implements IceConnection {
           this.consentRequestAbort?.abort();
           const requestAbort = new AbortController();
           this.consentRequestAbort = requestAbort;
-          latestRequest = requestAbort;
+          if (failover) outstanding = requestAbort;
 
           nominated.consentRequestsSent++;
           nominated.requestsSent++;
@@ -2247,13 +2257,13 @@ export class Connection implements IceConnection {
               nominated.responsesReceived++;
               this.consentFresh = true;
               refreshConsentExpiry();
-              if (failover && this.failoverEnabled()) {
-                this.failover.responded(nominated);
-                // Answered again: back to the consent interval.
-                if (weak && latestRequest === requestAbort) {
-                  reschedule(requestSentAt + randomizedConsentInterval());
+              if (failover) {
+                if (outstanding === requestAbort) outstanding = undefined;
+                if (this.failoverEnabled()) {
+                  this.failover.responded(nominated);
+                  this.onLinkChanged();
                 }
-                this.onLinkChanged();
+                wake();
               } else if (state === "disconnected") {
                 this.setState("connected");
               }
@@ -2265,20 +2275,21 @@ export class Connection implements IceConnection {
                 this.nominated?.id === pairId
               ) {
                 log("no stun response", error);
-                if (canceled || !failover || !this.failoverEnabled()) return;
-                this.failover.unanswered(nominated);
-                // A request the next one replaced counts as unanswered; only
-                // the latest one moves the next request.
-                if (latestRequest === requestAbort) {
-                  reschedule(
-                    Math.min(
-                      nextConsentAt,
-                      requestSentAt +
-                        WEAK_OR_STABILIZING_WRITABLE_CONNECTION_PING_INTERVAL,
-                    ),
-                  );
+                if (canceled || !failover) return;
+                if (outstanding === requestAbort) outstanding = undefined;
+                if (this.failoverEnabled()) {
+                  this.failover.unanswered(nominated);
+                  this.onLinkChanged();
                 }
-                this.onLinkChanged();
+                wake();
+              }
+            })
+            .finally(() => {
+              // Whatever the outcome (also one a check above ignores), the
+              // next request may go.
+              if (outstanding === requestAbort) {
+                outstanding = undefined;
+                wake();
               }
             });
         }
@@ -3453,8 +3464,11 @@ export class Connection implements IceConnection {
   /**
    * Failover: the agent's state from the selected pair and the backups.
    * `disconnected` while the selected pair is unwritable and no backup is
-   * writable; back to the state it replaced once one of them answers; `failed`
-   * once the selected pair's consent expired with no writable backup left.
+   * writable; back to the state it replaced only once the selected pair is
+   * writable again (it recovered, or the selection moved to a backup); a
+   * backup that answers before the selection moved to it keeps the agent
+   * `disconnected`. `failed` once the selected pair's consent expired with no
+   * writable backup left.
    */
   private updateLinkState() {
     if (!this.failoverEnabled()) return;
@@ -3469,12 +3483,19 @@ export class Connection implements IceConnection {
     const selected = this.nominated!;
     const selectedUp =
       this.consentFresh && !this.failover.knownUnwritable(selected);
-    if (selectedUp || this.failover.hasWritableBackup()) {
+    if (selectedUp) {
+      // The selected pair answers again, or the selection moved to a
+      // backup that answers (a replacement is selected with a fresh
+      // response).
       if (state === "disconnected") {
         this.setState(this.stateBeforeDisconnect ?? "connected");
       }
       return;
     }
+    // A writable backup the selection may still move to (the controlling
+    // agent's nomination, the controlled agent's peer): not disconnected
+    // yet, but not recovered either until the selection moved.
+    if (this.failover.hasWritableBackup()) return;
     if (!this.consentFresh) {
       log("consent expired without a writable backup");
       this.stopConsentLifecycle();

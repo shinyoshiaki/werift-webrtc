@@ -3090,6 +3090,8 @@ export class FailoverPathProtocol implements Protocol {
   readonly requests: FailoverRequest[] = [];
   /** Unreachable remote ports; `"all"`: the whole socket is cut off. */
   readonly unreachable = new Set<number | "all">();
+  /** The peer answers this long (ms) after a request; one slower than the response timeout times out. */
+  responseDelayMs = 0;
   readonly request: Protocol["request"];
 
   constructor({
@@ -3155,6 +3157,19 @@ export class FailoverPathProtocol implements Protocol {
           }
           throw new TransactionTimeout();
         }
+        if (this.responseDelayMs > 0) {
+          const retransmissions = opts.retransmissions ?? 0;
+          const timeout = opts.responseTimeout ?? 50;
+          let limit = 0;
+          for (let i = 0; i <= retransmissions; i++) limit += timeout * 2 ** i;
+          try {
+            await delay(Math.min(this.responseDelayMs, limit), opts.signal);
+          } catch {
+            entry.cancelled = true;
+            throw new TransactionCancelled();
+          }
+          if (this.responseDelayMs > limit) throw new TransactionTimeout();
+        }
         if (opts.signal?.aborted) {
           entry.cancelled = true;
           throw new TransactionCancelled();
@@ -3213,6 +3228,7 @@ export async function createFailoverHarness({
   remotes = [FAILOVER_HIGH],
   remoteTransports = [],
   selectDirectly = false,
+  responseDelayMs = 0,
 }: {
   iceControlling?: boolean;
   nomination?: "regular" | "semi-aggressive";
@@ -3228,11 +3244,14 @@ export async function createFailoverHarness({
   /** Transport of each remote candidate; unset: the first local's. */
   remoteTransports?: ("udp" | "tcp")[];
   selectDirectly?: boolean;
+  /** Every socket's peer answers this long (ms) after a request, from the first check on. */
+  responseDelayMs?: number;
 } = {}) {
   const protocols = locals.map(
     (local, index) =>
       new FailoverPathProtocol({ ...local, port: 4000 + index }),
   );
+  for (const protocol of protocols) protocol.responseDelayMs = responseDelayMs;
   const connection = new Connection(iceControlling, {
     nomination,
     renomination,
@@ -3285,6 +3304,8 @@ export async function createFailoverHarness({
     )!;
 
   const selection = pairOf(0, 0);
+  // A delayed answer arrives while the selecting check is in flight.
+  const settle = () => vi.advanceTimersByTimeAsync(responseDelayMs * 2);
   if (selectDirectly) {
     selection.nominated = true;
     selection.updateState(CandidatePairState.SUCCEEDED);
@@ -3293,6 +3314,7 @@ export async function createFailoverHarness({
     selection.handle = connection.checkStart(selection);
     // Regular nomination waits for nominationDelayMs before its check.
     await vi.advanceTimersByTimeAsync(nomination === "regular" ? 1000 : 0);
+    await settle();
   } else {
     connection.checkIncoming(
       createIncomingCheck(connection, { useCandidate: true }),
@@ -3300,6 +3322,7 @@ export async function createFailoverHarness({
       selection.protocol,
     );
     await vi.advanceTimersByTimeAsync(0);
+    await settle();
   }
   if (connection.nominated !== selection) {
     throw new Error("failover harness: the first pair was not selected");
@@ -3330,6 +3353,27 @@ export async function createFailoverHarness({
     }
     return Date.now() - start;
   };
+  /** Trickle a remote candidate (UDP host); returns its index for `pairOf`. */
+  const addRemote = async (priority: number) => {
+    const index = remoteCandidates.length;
+    const candidate = new Candidate(
+      `remote${index}`,
+      1,
+      "udp",
+      priority,
+      "192.0.2.2",
+      5000 + index,
+      "host",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+    );
+    remoteCandidates.push(candidate);
+    await connection.addRemoteCandidate(candidate);
+    return index;
+  };
   /** The application data the peer sends on `pair`. */
   const receiveData = (pair: CandidatePair) =>
     (pair.protocol as FailoverPathProtocol).onDataReceived.execute(
@@ -3358,6 +3402,7 @@ export async function createFailoverHarness({
     advanceUntil,
     receiveData,
     receiveNomination,
+    addRemote,
     switchRole: (controlling: boolean) => internals.switchRole(controlling),
     /** Re-evaluate the selection, as the outcome of any other check does. */
     evaluateSelection: () => internals.evaluateSelection(),
