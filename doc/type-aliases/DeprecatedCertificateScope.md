@@ -10,4 +10,4 @@
 
 ## Deprecated
 
-Use `"legacy"` (`"process"`) or `"standard"` (`"peerConnection"`).
+Use `"standard"` (`"peerConnection"`).

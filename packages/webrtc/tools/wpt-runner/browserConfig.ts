@@ -6,7 +6,7 @@ import type { RTCPeerConnectionConfig } from "../../src";
  * `RTCPeerConnection` with it. werift's own defaults (`src`) keep their
  * convenience behavior (root `AGENTS.md` Do 5).
  *
- * - every compatibility option (`CompatibilityMode`) is `"standard"`:
+ * - every compatibility option (`CompatibilityOptionValues`) is `"standard"`:
  *   `certificateScope` (a certificate per connection), `mLineReuse`
  *   (accepted `inactive` m-lines keep their port), `transceiverPairing`
  *   (JSEP 5.10, #816), `keyFrameRequestRouting` (RFC 4585 / RFC 5104 targets).

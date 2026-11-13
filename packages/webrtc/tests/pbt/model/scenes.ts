@@ -569,10 +569,10 @@ export const MODEL_SCENES: (Scene & { name: string; ref: string })[] = [
     ],
   },
   {
-    name: "#816 glare under legacy pairing (v0.27.0 behavior)",
+    name: "#816 glare under byKind pairing (v0.27.0 behavior)",
     ref: "#816 5-10",
     start: "unnegotiated",
-    pairing: "legacy",
+    pairing: "byKind",
     ops: [
       ["a", "addSendonly", { kind: "video" }],
       ["b", "addSendonly", { kind: "video" }],
@@ -622,9 +622,9 @@ export const MODEL_SCENES: (Scene & { name: string; ref: string })[] = [
   },
   {
     name: "#816 a remote transceiver addTrack() reused is promoted by the implicit rollback of a pranswer and paired by the replacing offer",
-    ref: "#816 5-8; origin: model property (pbt:deep model seed 285, legacy): the pairing oracle rejected the promotion",
+    ref: "#816 5-8; origin: model property (pbt:deep model seed 285, byKind): the pairing oracle rejected the promotion",
     start: "connected",
-    pairing: "legacy",
+    pairing: "byKind",
     ops: [
       ["b", "addRecvonly", { kind: "audio" }],
       ["b", "offer", { iceRestart: false }],

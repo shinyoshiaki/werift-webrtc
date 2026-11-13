@@ -61,7 +61,7 @@ omits stays routed; only SSRCs a replaced pranswer alone added are dropped.
 
 ### keyFrameRequestRouting
 
-> **keyFrameRequestRouting**: [`CompatibilityMode`](../type-aliases/CompatibilityMode.md) = `"legacy"`
+> **keyFrameRequestRouting**: `"standard"` \| `"fallback"` = `"fallback"`
 
 ***
 

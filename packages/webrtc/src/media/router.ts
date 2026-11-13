@@ -1,7 +1,7 @@
 import {
-  type CompatibilityMode,
-  CompatibilityModes,
-} from "../api/compatibilityMode";
+  type CompatibilityOptionValue,
+  CompatibilityOptionValues,
+} from "../api/compatibilityOptions";
 import {
   debug,
   type Extensions,
@@ -34,9 +34,8 @@ import { MediaStreamTrack } from "./track";
 const log = debug("werift:packages/webrtc/src/media/router.ts");
 
 /**
- * Where a keyframe request (PLI / FIR) goes when no route has its target SSRC
- * (a {@link CompatibilityMode}).
- * - `"legacy"` (default): the sender whose RTX SSRC it is, else the only
+ * Where a keyframe request (PLI / FIR) goes when no route has its target SSRC.
+ * - `"fallback"` (default): the sender whose RTX SSRC it is, else the only
  *   video sender of the PeerConnection, so that a request naming the RTX
  *   stream, SSRC 0 or a stale SSRC still gets a keyframe.
  * - `"standard"`: not delivered (RFC 4585 section 6.1 / RFC 5104 section 4.3.1).
@@ -44,12 +43,13 @@ const log = debug("werift:packages/webrtc/src/media/router.ts");
  * A registered target SSRC is routed as is in both modes, and the sender SSRC
  * of the request is never used: it names the requesting peer's own stream.
  * `PeerConfig.keyFrameRequestRouting` also accepts the names up to v0.27.0
- * (`"compatible"` for `"legacy"`, `"strict"` for `"standard"`).
+ * (`"compatible"` for `"fallback"`, `"strict"` for `"standard"`).
  */
-export type KeyFrameRequestRouting = CompatibilityMode;
+export type KeyFrameRequestRouting =
+  CompatibilityOptionValue<"keyFrameRequestRouting">;
 
 export const KeyFrameRequestRoutingModes: readonly KeyFrameRequestRouting[] =
-  CompatibilityModes;
+  CompatibilityOptionValues.keyFrameRequestRouting;
 
 type FirEntry = FullIntraRequest["fir"][number];
 
@@ -115,7 +115,7 @@ export class RtpRouter {
    * sent), not from SDP. Negotiation rollback keeps these entries.
    */
   readonly learnedSsrcs = new Set<number>();
-  keyFrameRequestRouting: KeyFrameRequestRouting = "legacy";
+  keyFrameRequestRouting: KeyFrameRequestRouting = "fallback";
 
   constructor() {}
 

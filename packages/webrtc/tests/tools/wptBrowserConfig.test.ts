@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 
-import { CompatibilityModes, RTCPeerConnection } from "../../src";
+import { RTCPeerConnection } from "../../src";
 import {
   BROWSER_COMPATIBLE_PEER_CONFIG,
   withBrowserCompatibleConfig,
@@ -24,9 +24,7 @@ test("the WPT configuration sets every compatibility option to standard", async 
     const config = pc.getConfiguration();
     for (const option of compatibilityOptions) {
       expect(config[option]).toBe("standard");
-      expect(BROWSER_COMPATIBLE_PEER_CONFIG[option]).toBe(
-        CompatibilityModes[0],
-      );
+      expect(BROWSER_COMPATIBLE_PEER_CONFIG[option]).toBe("standard");
     }
     expect(config.iceServers).toEqual([]);
     expect(config.iceUseDefaultStunServer).toBe(false);

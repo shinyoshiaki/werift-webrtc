@@ -1143,17 +1143,16 @@ Send-side estimator used by each new sender; defaults to `"lightweight"`.
 
 ##### certificateScope
 
-> **certificateScope**: [`CompatibilityMode`](../type-aliases/CompatibilityMode.md)
+> **certificateScope**: `"process"` \| `"standard"`
 
 Which default DTLS certificate is used when neither `certificates` nor `dtls.keys` is given
-(a [CompatibilityMode](../type-aliases/CompatibilityMode.md)). Cannot be changed after construction.
-- `"legacy"` (default): one certificate shared by every RTCPeerConnection in the process,
+(see [CompatibilityOptionValues](../variables/CompatibilityOptionValues.md)). Cannot be changed after construction.
+- `"process"` (default): one certificate shared by every RTCPeerConnection in the process,
   so their `a=fingerprint` values are identical.
 - `"standard"`: each RTCPeerConnection generates its own certificate, as browsers do.
   All DTLS transports of that connection share it.
 
-Also accepts the names up to v0.27.0: `"process"` (= `"legacy"`) and
-`"peerConnection"` (= `"standard"`).
+Also accepts the v0.27.0 name `"peerConnection"` (= `"standard"`).
 
 ##### codecs
 
@@ -1361,14 +1360,15 @@ such as google cloud run
 
 ##### keyFrameRequestRouting
 
-> **keyFrameRequestRouting**: [`CompatibilityMode`](../type-aliases/CompatibilityMode.md)
+> **keyFrameRequestRouting**: `"standard"` \| `"fallback"`
 
-Where a PLI / FIR goes when no route has its target SSRC (a [CompatibilityMode](../type-aliases/CompatibilityMode.md)).
-See [KeyFrameRequestRouting](../type-aliases/KeyFrameRequestRouting.md). `setConfiguration()` may change it.
-- `"legacy"` (default): the sender whose RTX SSRC it is, else the only video sender.
+Where a PLI / FIR goes when no route has its target SSRC (see
+[CompatibilityOptionValues](../variables/CompatibilityOptionValues.md) and [KeyFrameRequestRouting](../type-aliases/KeyFrameRequestRouting.md)).
+`setConfiguration()` may change it.
+- `"fallback"` (default): the sender whose RTX SSRC it is, else the only video sender.
 - `"standard"`: not delivered, as RFC 4585 / RFC 5104 define the target.
 
-Also accepts the names up to v0.27.0: `"compatible"` (= `"legacy"`) and
+Also accepts the names up to v0.27.0: `"compatible"` (= `"fallback"`) and
 `"strict"` (= `"standard"`).
 
 ##### maxMessageSize
@@ -1383,17 +1383,17 @@ Advertised local SCTP max-message-size in SDP. Use 0 for unlimited.
 
 ##### mLineReuse
 
-> **mLineReuse**: [`CompatibilityMode`](../type-aliases/CompatibilityMode.md)
+> **mLineReuse**: `"standard"` \| `"aggressive"`
 
-How local SDP marks inactive / stopped m-lines (a [CompatibilityMode](../type-aliases/CompatibilityMode.md)).
+How local SDP marks inactive / stopped m-lines (see [CompatibilityOptionValues](../variables/CompatibilityOptionValues.md)).
 Cannot be changed after construction.
 - `"standard"` (default): an accepted `inactive` m-line keeps a non-zero port, as JSEP
   and browsers do. Only rejected (no common codec / remote port 0) or stopped m-lines
   use port 0, and only those negotiated port 0 positions are reused by new transceivers.
-- `"legacy"`: behavior before v0.25.0. `inactive` m-lines are also written with port 0.
+- `"aggressive"`: behavior before v0.25.0. `inactive` m-lines are also written with
+  port 0, so the remote side treats them as rejected and their positions are reused.
 
-Also accepts the names up to v0.27.0: `"compatible"` (= `"standard"`) and
-`"aggressive"` (= `"legacy"`).
+Also accepts the v0.27.0 name `"compatible"` (= `"standard"`).
 
 ##### pendingRtp
 
@@ -1435,12 +1435,12 @@ Max queued packets when enabled. Oldest packets are dropped. Default 256.
 
 ##### transceiverPairing
 
-> **transceiverPairing**: [`CompatibilityMode`](../type-aliases/CompatibilityMode.md)
+> **transceiverPairing**: `"standard"` \| `"byKind"`
 
 How a remote offer's m-sections are paired with local transceivers that
-have no MID yet (a [CompatibilityMode](../type-aliases/CompatibilityMode.md)). Cannot be changed after
-construction.
-- `"legacy"` (default): behavior up to v0.27.0. Any unassociated,
+have no MID yet (see [CompatibilityOptionValues](../variables/CompatibilityOptionValues.md)). Cannot be changed
+after construction.
+- `"byKind"` (default): behavior up to v0.27.0. Any unassociated,
   non-stopped transceiver of the same kind is paired (the one at the same
   m-line index first), whatever created it. In glare (perfect negotiation)
   the remote offer can take over a transceiver created with

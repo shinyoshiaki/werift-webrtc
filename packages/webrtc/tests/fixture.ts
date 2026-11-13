@@ -491,7 +491,7 @@ export function createRtcpFeedbackRouter() {
  * target SSRC が未登録の keyframe request の扱い (KeyFrameRequestRouting) を検証する Arrange。
  */
 export function createSingleVideoSenderRouter(
-  keyFrameRequestRouting: KeyFrameRequestRouting = "legacy",
+  keyFrameRequestRouting: KeyFrameRequestRouting = "fallback",
 ) {
   const router = new RtpRouter();
   router.keyFrameRequestRouting = keyFrameRequestRouting;

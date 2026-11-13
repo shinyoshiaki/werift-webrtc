@@ -33,11 +33,11 @@ describe("DTLS certificate scope", () => {
       b.createOffer(),
     ]);
 
-    // Assert: 従来どおり fingerprint が一致し、既定値は "legacy"
+    // Assert: 従来どおり fingerprint が一致し、既定値は "process"
     const fingerprintsA = getSdpFingerprints(offerA.sdp);
     expect(fingerprintsA.length).toBe(1);
     expect(getSdpFingerprints(offerB.sdp)).toEqual(fingerprintsA);
-    expect(a.getConfiguration().certificateScope).toBe("legacy");
+    expect(a.getConfiguration().certificateScope).toBe("process");
   });
 
   test("certificateScope が不正な値なら TypeError", () => {
@@ -52,7 +52,7 @@ describe("DTLS certificate scope", () => {
     const pc = createPc({ certificateScope: "standard" });
 
     // Act / Assert: setConfiguration での変更は拒否される
-    expect(() => pc.setConfiguration({ certificateScope: "legacy" })).toThrow(
+    expect(() => pc.setConfiguration({ certificateScope: "process" })).toThrow(
       /certificateScope cannot be changed/,
     );
   });

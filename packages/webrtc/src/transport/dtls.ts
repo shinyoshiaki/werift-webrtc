@@ -197,7 +197,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
 
   /**
    * Returns the default certificate cached for the whole process
-   * (the default `certificateScope: "legacy"`).
+   * (the default `certificateScope: "process"`).
    */
   static async SetupCertificate() {
     if (this.localCertificate) {

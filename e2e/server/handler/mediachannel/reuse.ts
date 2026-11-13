@@ -111,9 +111,9 @@ export class mediachannel_reuse_standard extends mediachannel_reuse_offer_base {
   }
 }
 
-export class mediachannel_reuse_legacy extends mediachannel_reuse_offer_base {
+export class mediachannel_reuse_aggressive extends mediachannel_reuse_offer_base {
   constructor() {
-    super("legacy");
+    super("aggressive");
   }
 }
 

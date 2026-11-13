@@ -75,7 +75,7 @@ export type Start = "connected" | "unnegotiated" | "media";
 export type Op = [Side, string, Record<string, unknown>?];
 /**
  * `pairing`: the `transceiverPairing` of both peers (default `"standard"`, the
- * JSEP 5.10 rules the oracles check; a generated scene draws `"legacy"`, the
+ * JSEP 5.10 rules the oracles check; a generated scene draws `"byKind"`, the
  * werift default, sometimes, #816).
  */
 export type Scene = { start: Start; ops: Op[]; pairing?: TransceiverPairing };
@@ -589,7 +589,7 @@ export async function generateScene(
     "media",
   ] as const);
   // The pairing axis has its own stream, so it does not shift the operations.
-  if (seededRandom(seed ^ 0x816).chance(0.25)) scene.pairing = "legacy";
+  if (seededRandom(seed ^ 0x816).chance(0.25)) scene.pairing = "byKind";
   const w = await arrange(c, scene.start, scene.pairing);
   for (let index = 1; index <= steps; index++) {
     const side: Side = rng.chance(0.5) ? "a" : "b";

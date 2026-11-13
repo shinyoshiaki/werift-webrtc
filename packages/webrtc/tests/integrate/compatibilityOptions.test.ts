@@ -1,47 +1,53 @@
 import {
-  CompatibilityModes,
+  CertificateScopeModes,
+  CompatibilityOptionValues,
   DeprecatedCompatibilityValues,
   KeyFrameRequestRoutingModes,
+  MLineReuseModes,
   RTCPeerConnection,
   type RTCPeerConnectionConfig,
   TransceiverPairingModes,
 } from "../../src";
 
 /**
- * The constructor-fixed compatibility options share the values
- * `"standard"` (specifications / browsers) and `"legacy"` (werift's own
- * behavior); the names up to v0.27.0 are read as the new ones.
+ * Every compatibility option takes `"standard"` (specifications / browsers)
+ * and one value naming werift's own behavior in that option; the names up to
+ * v0.27.0 that are not values any more are read as the current ones.
  */
 const options = [
   {
     option: "certificateScope",
-    defaultValue: "legacy",
+    own: "process",
+    defaultValue: "process",
     changeable: false,
-    aliases: { process: "legacy", peerConnection: "standard" },
+    aliases: { peerConnection: "standard" },
   },
   {
     option: "mLineReuse",
+    own: "aggressive",
     defaultValue: "standard",
     changeable: false,
-    aliases: { compatible: "standard", aggressive: "legacy" },
+    aliases: { compatible: "standard" },
   },
   {
     option: "transceiverPairing",
-    defaultValue: "legacy",
+    own: "byKind",
+    defaultValue: "byKind",
     changeable: false,
     aliases: {},
   },
   {
     option: "keyFrameRequestRouting",
-    defaultValue: "legacy",
+    own: "fallback",
+    defaultValue: "fallback",
     changeable: true,
-    aliases: { compatible: "legacy", strict: "standard" },
+    aliases: { compatible: "fallback", strict: "standard" },
   },
 ] as const;
 
 type CompatibilityOption = (typeof options)[number]["option"];
 
-describe("compatibility options share standard / legacy", () => {
+describe("compatibility options: standard and a named own behavior", () => {
   const pcs: RTCPeerConnection[] = [];
   const createPc = (config: RTCPeerConnectionConfig = {}) => {
     const pc = new RTCPeerConnection({ iceServers: [], ...config });
@@ -55,11 +61,17 @@ describe("compatibility options share standard / legacy", () => {
     await Promise.all(pcs.splice(0).map((pc) => pc.close()));
   });
 
-  test("the exported mode lists are the shared values", () => {
-    // Assert: 各モードの一覧は共通の ["standard", "legacy"]
-    expect(CompatibilityModes).toEqual(["standard", "legacy"]);
-    expect(TransceiverPairingModes).toEqual(CompatibilityModes);
-    expect(KeyFrameRequestRoutingModes).toEqual(CompatibilityModes);
+  test("the exported value lists are standard and the option's own value", () => {
+    // Assert: 各オプションの値は ["standard", 独自の挙動の名前]
+    expect(CompatibilityOptionValues).toEqual(
+      Object.fromEntries(
+        options.map(({ option, own }) => [option, ["standard", own]]),
+      ),
+    );
+    expect(CertificateScopeModes).toEqual(["standard", "process"]);
+    expect(MLineReuseModes).toEqual(["standard", "aggressive"]);
+    expect(TransceiverPairingModes).toEqual(["standard", "byKind"]);
+    expect(KeyFrameRequestRoutingModes).toEqual(["standard", "fallback"]);
     expect(Object.keys(DeprecatedCompatibilityValues).sort()).toEqual(
       options
         .filter(({ aliases }) => Object.keys(aliases).length > 0)
@@ -69,22 +81,28 @@ describe("compatibility options share standard / legacy", () => {
   });
 
   test.each(options)(
-    "$option: default $defaultValue, both values, other values are a TypeError",
-    ({ option, defaultValue }) => {
+    "$option: default $defaultValue, standard / $own, other values are a TypeError",
+    ({ option, own, defaultValue }) => {
       // Act: 既定・両方の値で作成する
       const defaultPc = createPc();
       const standardPc = createPc({ [option]: "standard" });
-      const legacyPc = createPc({ [option]: "legacy" });
+      const ownPc = createPc({ [option]: own });
 
       // Assert: 既定値と指定した値がそのまま読み返せる
       expect(read(defaultPc, option)).toBe(defaultValue);
       expect(read(standardPc, option)).toBe("standard");
-      expect(read(legacyPc, option)).toBe("legacy");
+      expect(read(ownPc, option)).toBe(own);
 
-      // Assert: 共通の値以外は生成時に TypeError (旧名 "jsep" や別オプションの旧名も含む)
-      for (const value of ["any", "jsep", "constructor", "toString"]) {
+      // Assert: それ以外の値は生成時に TypeError (未リリースの旧名 "legacy" / "jsep" も含む)
+      for (const value of [
+        "any",
+        "legacy",
+        "jsep",
+        "constructor",
+        "toString",
+      ]) {
         expect(() => createPc({ [option]: value as never })).toThrow(
-          new TypeError(`${option} must be one of standard, legacy`),
+          new TypeError(`${option} must be one of standard, ${own}`),
         );
       }
     },
@@ -92,50 +110,50 @@ describe("compatibility options share standard / legacy", () => {
 
   test.each(
     options.flatMap(({ option, aliases }) =>
-      Object.entries(aliases).map(([alias, mode]) => ({
+      Object.entries(aliases).map(([alias, value]) => ({
         option,
         alias,
-        mode,
+        value,
       })),
     ),
   )(
-    "$option: the v0.27.0 name $alias is read as $mode",
-    ({ option, alias, mode }) => {
+    "$option: the v0.27.0 name $alias is read as $value",
+    ({ option, alias, value }) => {
       // Act: 旧名で作成する
       const pc = createPc({ [option]: alias as never });
 
-      // Assert: getConfiguration() は新しい名前を返す
-      expect(read(pc, option)).toBe(mode);
+      // Assert: getConfiguration() は現在の名前を返す
+      expect(read(pc, option)).toBe(value);
     },
   );
 
-  test("a v0.27.0 name selects the same behavior as its new name", async () => {
-    // Arrange: mLineReuse の旧名 "aggressive" と新名 "legacy"
-    const aliasPc = createPc({ mLineReuse: "aggressive" });
-    const legacyPc = createPc({ mLineReuse: "legacy" });
+  test("a v0.27.0 name selects the same behavior as its current name", async () => {
+    // Arrange: mLineReuse の旧名 "compatible" と現在の名前 "standard"
+    const aliasPc = createPc({ mLineReuse: "compatible" });
+    const standardPc = createPc({ mLineReuse: "standard" });
     aliasPc.addTransceiver("audio", { direction: "inactive" });
-    legacyPc.addTransceiver("audio", { direction: "inactive" });
+    standardPc.addTransceiver("audio", { direction: "inactive" });
 
     // Act
-    const [aliasOffer, legacyOffer] = await Promise.all([
+    const [aliasOffer, standardOffer] = await Promise.all([
       aliasPc.createOffer(),
-      legacyPc.createOffer(),
+      standardPc.createOffer(),
     ]);
 
-    // Assert: どちらも inactive m-line を port 0 で書く (legacy の挙動)
+    // Assert: どちらも受け入れた inactive m-line の port を保つ (standard の挙動)
     const port = (sdp: string) => sdp.match(/^m=audio (\d+)/m)?.[1];
-    expect(port(aliasOffer.sdp)).toBe("0");
-    expect(port(legacyOffer.sdp)).toBe("0");
+    expect(port(aliasOffer.sdp)).toBe("9");
+    expect(port(standardOffer.sdp)).toBe("9");
   });
 
   test.each(options)(
     "$option: setConfiguration() changes it only when changeable ($changeable)",
-    ({ option, defaultValue, changeable, aliases }) => {
+    ({ option, own, defaultValue, changeable, aliases }) => {
       // Arrange
       const pc = createPc();
-      const other = defaultValue === "standard" ? "legacy" : "standard";
+      const other = defaultValue === "standard" ? own : "standard";
       const sameAlias = Object.entries(aliases).find(
-        ([, mode]) => mode === defaultValue,
+        ([, value]) => value === defaultValue,
       )?.[0];
 
       // Act / Assert: 同じ値 (旧名を含む) の再設定は常に成功する
@@ -151,7 +169,7 @@ describe("compatibility options share standard / legacy", () => {
 
       // Act / Assert: 別の値への変更は変更可能なオプションだけ成功する
       if (changeable) {
-        pc.setConfiguration({ [option]: other });
+        pc.setConfiguration({ [option]: other as never });
         expect(read(pc, option)).toBe(other);
       } else {
         expect(() => pc.setConfiguration({ [option]: other })).toThrow(

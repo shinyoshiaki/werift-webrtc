@@ -30,9 +30,10 @@ import type { DtlsKeys, RTCCertificate } from "../transport/dtls";
 import { DEFAULT_MAX_MESSAGE_SIZE } from "../transport/sctp";
 import { deepMerge } from "../utils";
 import {
-  type CompatibilityMode,
-  CompatibilityModes,
-} from "./compatibilityMode";
+  type CompatibilityOption,
+  type CompatibilityOptionValue,
+  CompatibilityOptionValues,
+} from "./compatibilityOptions";
 
 export type DebugConfig = Partial<{
   /**% */
@@ -152,14 +153,13 @@ export interface PeerConfig {
   certificates: RTCCertificate[];
   /**
    * Which default DTLS certificate is used when neither `certificates` nor `dtls.keys` is given
-   * (a {@link CompatibilityMode}). Cannot be changed after construction.
-   * - `"legacy"` (default): one certificate shared by every RTCPeerConnection in the process,
+   * (see {@link CompatibilityOptionValues}). Cannot be changed after construction.
+   * - `"process"` (default): one certificate shared by every RTCPeerConnection in the process,
    *   so their `a=fingerprint` values are identical.
    * - `"standard"`: each RTCPeerConnection generates its own certificate, as browsers do.
    *   All DTLS transports of that connection share it.
    *
-   * Also accepts the names up to v0.27.0: `"process"` (= `"legacy"`) and
-   * `"peerConnection"` (= `"standard"`).
+   * Also accepts the v0.27.0 name `"peerConnection"` (= `"standard"`).
    */
   certificateScope: CertificateScope;
   debug: DebugConfig;
@@ -181,22 +181,22 @@ export interface PeerConfig {
    */
   pendingRtp: NonNullable<RTCRtpSenderOptions["pendingRtp"]>;
   /**
-   * How local SDP marks inactive / stopped m-lines (a {@link CompatibilityMode}).
+   * How local SDP marks inactive / stopped m-lines (see {@link CompatibilityOptionValues}).
    * Cannot be changed after construction.
    * - `"standard"` (default): an accepted `inactive` m-line keeps a non-zero port, as JSEP
    *   and browsers do. Only rejected (no common codec / remote port 0) or stopped m-lines
    *   use port 0, and only those negotiated port 0 positions are reused by new transceivers.
-   * - `"legacy"`: behavior before v0.25.0. `inactive` m-lines are also written with port 0.
+   * - `"aggressive"`: behavior before v0.25.0. `inactive` m-lines are also written with
+   *   port 0, so the remote side treats them as rejected and their positions are reused.
    *
-   * Also accepts the names up to v0.27.0: `"compatible"` (= `"standard"`) and
-   * `"aggressive"` (= `"legacy"`).
+   * Also accepts the v0.27.0 name `"compatible"` (= `"standard"`).
    */
   mLineReuse: MLineReuse;
   /**
    * How a remote offer's m-sections are paired with local transceivers that
-   * have no MID yet (a {@link CompatibilityMode}). Cannot be changed after
-   * construction.
-   * - `"legacy"` (default): behavior up to v0.27.0. Any unassociated,
+   * have no MID yet (see {@link CompatibilityOptionValues}). Cannot be changed
+   * after construction.
+   * - `"byKind"` (default): behavior up to v0.27.0. Any unassociated,
    *   non-stopped transceiver of the same kind is paired (the one at the same
    *   m-line index first), whatever created it. In glare (perfect negotiation)
    *   the remote offer can take over a transceiver created with
@@ -215,54 +215,58 @@ export interface PeerConfig {
    */
   transceiverPairing: TransceiverPairing;
   /**
-   * Where a PLI / FIR goes when no route has its target SSRC (a {@link CompatibilityMode}).
-   * See {@link KeyFrameRequestRouting}. `setConfiguration()` may change it.
-   * - `"legacy"` (default): the sender whose RTX SSRC it is, else the only video sender.
+   * Where a PLI / FIR goes when no route has its target SSRC (see
+   * {@link CompatibilityOptionValues} and {@link KeyFrameRequestRouting}).
+   * `setConfiguration()` may change it.
+   * - `"fallback"` (default): the sender whose RTX SSRC it is, else the only video sender.
    * - `"standard"`: not delivered, as RFC 4585 / RFC 5104 define the target.
    *
-   * Also accepts the names up to v0.27.0: `"compatible"` (= `"legacy"`) and
+   * Also accepts the names up to v0.27.0: `"compatible"` (= `"fallback"`) and
    * `"strict"` (= `"standard"`).
    */
   keyFrameRequestRouting: KeyFrameRequestRouting;
 }
 
 /** Which default DTLS certificate is used. See {@link PeerConfig.certificateScope}. */
-export type CertificateScope = CompatibilityMode;
+export type CertificateScope = CompatibilityOptionValue<"certificateScope">;
+export const CertificateScopeModes: readonly CertificateScope[] =
+  CompatibilityOptionValues.certificateScope;
+
+/** How local SDP marks inactive / stopped m-lines. See {@link PeerConfig.mLineReuse}. */
+export const MLineReuseModes: readonly MLineReuse[] =
+  CompatibilityOptionValues.mLineReuse;
 
 /** How a remote offer pairs m-sections with local transceivers. See {@link PeerConfig.transceiverPairing}. */
-export type TransceiverPairing = CompatibilityMode;
+export type TransceiverPairing = CompatibilityOptionValue<"transceiverPairing">;
 export const TransceiverPairingModes: readonly TransceiverPairing[] =
-  CompatibilityModes;
+  CompatibilityOptionValues.transceiverPairing;
 
-/** The `PeerConfig` options whose values are a {@link CompatibilityMode}. */
-const COMPATIBILITY_OPTIONS = [
-  "certificateScope",
-  "mLineReuse",
-  "transceiverPairing",
-  "keyFrameRequestRouting",
-] as const satisfies readonly (keyof PeerConfig)[];
-type CompatibilityOption = (typeof COMPATIBILITY_OPTIONS)[number];
+const COMPATIBILITY_OPTIONS = Object.keys(
+  CompatibilityOptionValues,
+) as CompatibilityOption[];
 
 /**
- * The values the compatibility options used up to v0.27.0, and the
- * {@link CompatibilityMode} each one is read as. They are accepted on input
- * only: `getConfiguration()` returns the new name.
+ * The values the compatibility options used up to v0.27.0 that are not
+ * values any more, and the value each one is read as. They are accepted on
+ * input only: `getConfiguration()` returns the current name.
  */
 export const DeprecatedCompatibilityValues = {
-  certificateScope: { process: "legacy", peerConnection: "standard" },
-  mLineReuse: { compatible: "standard", aggressive: "legacy" },
-  keyFrameRequestRouting: { compatible: "legacy", strict: "standard" },
+  certificateScope: { peerConnection: "standard" },
+  mLineReuse: { compatible: "standard" },
+  keyFrameRequestRouting: { compatible: "fallback", strict: "standard" },
 } as const satisfies {
-  [K in CompatibilityOption]?: Readonly<Record<string, CompatibilityMode>>;
+  [K in CompatibilityOption]?: Readonly<
+    Record<string, CompatibilityOptionValue<K>>
+  >;
 };
 
-/** @deprecated Use `"legacy"` (`"process"`) or `"standard"` (`"peerConnection"`). */
+/** @deprecated Use `"standard"` (`"peerConnection"`). */
 export type DeprecatedCertificateScope =
   keyof (typeof DeprecatedCompatibilityValues)["certificateScope"];
-/** @deprecated Use `"standard"` (`"compatible"`) or `"legacy"` (`"aggressive"`). */
+/** @deprecated Use `"standard"` (`"compatible"`). */
 export type DeprecatedMLineReuse =
   keyof (typeof DeprecatedCompatibilityValues)["mLineReuse"];
-/** @deprecated Use `"legacy"` (`"compatible"`) or `"standard"` (`"strict"`). */
+/** @deprecated Use `"fallback"` (`"compatible"`) or `"standard"` (`"strict"`). */
 export type DeprecatedKeyFrameRequestRouting =
   keyof (typeof DeprecatedCompatibilityValues)["keyFrameRequestRouting"];
 
@@ -402,7 +406,7 @@ export function generateDefaultPeerConfig(): PeerConfig {
     rtcpMuxPolicy: "require",
     iceCandidatePoolSize: 0,
     certificates: [],
-    certificateScope: "legacy",
+    certificateScope: "process",
     debug: {},
     midSuffix: false,
     forceTurnTCP: false,
@@ -412,8 +416,8 @@ export function generateDefaultPeerConfig(): PeerConfig {
     sctp: { mtu: DEFAULT_SCTP_MTU },
     pendingRtp: false,
     mLineReuse: "standard",
-    transceiverPairing: "legacy",
-    keyFrameRequestRouting: "legacy",
+    transceiverPairing: "byKind",
+    keyFrameRequestRouting: "fallback",
   };
 }
 export const defaultPeerConfig: PeerConfig = generateDefaultPeerConfig();
@@ -437,12 +441,12 @@ function normalizePeerConfiguration(
   for (const option of COMPATIBILITY_OPTIONS) {
     const value: unknown = input[option];
     if (option in DeprecatedCompatibilityValues && typeof value === "string") {
-      const aliases: Readonly<Record<string, CompatibilityMode>> =
+      const aliases: Readonly<Record<string, string>> =
         DeprecatedCompatibilityValues[
           option as keyof typeof DeprecatedCompatibilityValues
         ];
       if (Object.hasOwn(aliases, value)) {
-        normalizedConfig[option] = aliases[value];
+        (normalizedConfig as Record<string, unknown>)[option] = aliases[value];
       }
     }
   }
@@ -580,9 +584,10 @@ export function mergePeerConfiguration(
   for (const option of COMPATIBILITY_OPTIONS) {
     const value = normalizedConfig[option];
     if (value === undefined) continue;
-    if (!CompatibilityModes.includes(value)) {
+    const values: readonly string[] = CompatibilityOptionValues[option];
+    if (!values.includes(value)) {
       throw createWebRtcTypeError(
-        `${option} must be one of ${CompatibilityModes.join(", ")}`,
+        `${option} must be one of ${values.join(", ")}`,
       );
     }
     // keyFrameRequestRouting は接続中に切り替えられる (router が次の要求から使う)

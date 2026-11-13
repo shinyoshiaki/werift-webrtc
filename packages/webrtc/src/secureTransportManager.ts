@@ -752,7 +752,7 @@ export class SecureTransportManager {
 
   /**
    * Without `certificates` / `dtls.keys`, `certificateScope` decides the default:
-   * - `"legacy"` (default): the certificate shared by the whole process.
+   * - `"process"` (default): the certificate shared by the whole process.
    * - `"standard"`: a certificate generated for this peer connection (like browsers),
    *   kept for its lifetime; every DTLS transport of this peer connection uses it.
    */

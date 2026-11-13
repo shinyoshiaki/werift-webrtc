@@ -48,7 +48,7 @@ export const livePairingView: PairingView = livePairingState;
  *   first. Under `"standard"` it must have been created by `addTrack()` (or a
  *   rollback promoted it to that), and the m-line must be sendrecv or
  *   recvonly (a `sendonly` / `inactive` m-line gets a new transceiver, RFC 9429
- *   5.10); under `"legacy"` any origin and direction pairs.
+ *   5.10); under `"byKind"` any origin and direction pairs.
  * - A transceiver in `associated` (already paired with an earlier m-line of
  *   the same description) is never paired twice.
  */
@@ -90,7 +90,7 @@ export function matchRemoteTransceiver(
       state.mid == null &&
       !state.stopping &&
       !state.stopped &&
-      (pairing === "legacy" || state.createdBy === "addTrack"),
+      (pairing === "byKind" || state.createdBy === "addTrack"),
   );
   return (
     unassociated.find(({ state }) => state.mLineIndex === index) ??

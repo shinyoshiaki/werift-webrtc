@@ -8,9 +8,9 @@
 
 > `const` **DeprecatedCompatibilityValues**: `object`
 
-The values the compatibility options used up to v0.27.0, and the
-[CompatibilityMode](../type-aliases/CompatibilityMode.md) each one is read as. They are accepted on input
-only: `getConfiguration()` returns the new name.
+The values the compatibility options used up to v0.27.0 that are not
+values any more, and the value each one is read as. They are accepted on
+input only: `getConfiguration()` returns the current name.
 
 ## Type Declaration
 
@@ -22,17 +22,13 @@ only: `getConfiguration()` returns the new name.
 
 > `readonly` **peerConnection**: `"standard"` = `"standard"`
 
-#### certificateScope.process
-
-> `readonly` **process**: `"legacy"` = `"legacy"`
-
 ### keyFrameRequestRouting
 
 > `readonly` **keyFrameRequestRouting**: `object`
 
 #### keyFrameRequestRouting.compatible
 
-> `readonly` **compatible**: `"legacy"` = `"legacy"`
+> `readonly` **compatible**: `"fallback"` = `"fallback"`
 
 #### keyFrameRequestRouting.strict
 
@@ -41,10 +37,6 @@ only: `getConfiguration()` returns the new name.
 ### mLineReuse
 
 > `readonly` **mLineReuse**: `object`
-
-#### mLineReuse.aggressive
-
-> `readonly` **aggressive**: `"legacy"` = `"legacy"`
 
 #### mLineReuse.compatible
 

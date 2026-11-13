@@ -7,7 +7,7 @@ import { closeAll } from "./705.helpers";
  * is in tests/negotiation/cases/negotiationTransactionPairing.test.ts.
  */
 describe("issue 816: transceiverPairing configuration", () => {
-  test("defaults to legacy, validates values and rejects changes", async () => {
+  test("defaults to byKind, validates values and rejects changes", async () => {
     // Arrange / Act: 既定値と明示値で作成する
     const defaultPc = new RTCPeerConnection();
     const standardPc = new RTCPeerConnection({
@@ -15,10 +15,10 @@ describe("issue 816: transceiverPairing configuration", () => {
     });
 
     try {
-      // Assert: 既定は legacy (v0.27.0 と同じ関連付け) で getConfiguration に現れる。値の一覧は standard と legacy
-      expect(defaultPc.getConfiguration().transceiverPairing).toBe("legacy");
+      // Assert: 既定は byKind (v0.27.0 と同じ関連付け) で getConfiguration に現れる。値の一覧は standard と byKind
+      expect(defaultPc.getConfiguration().transceiverPairing).toBe("byKind");
       expect(standardPc.getConfiguration().transceiverPairing).toBe("standard");
-      expect(TransceiverPairingModes).toEqual(["standard", "legacy"]);
+      expect(TransceiverPairingModes).toEqual(["standard", "byKind"]);
 
       // Assert: 無効値 (旧名 "jsep" を含む) は生成時に TypeError
       for (const value of ["any", "jsep"]) {
@@ -32,9 +32,9 @@ describe("issue 816: transceiverPairing configuration", () => {
         defaultPc.setConfiguration({ transceiverPairing: "standard" }),
       ).toThrow(expect.objectContaining({ name: "InvalidModificationError" }));
       expect(() =>
-        defaultPc.setConfiguration({ transceiverPairing: "legacy" }),
+        defaultPc.setConfiguration({ transceiverPairing: "byKind" }),
       ).not.toThrow();
-      expect(defaultPc.getConfiguration().transceiverPairing).toBe("legacy");
+      expect(defaultPc.getConfiguration().transceiverPairing).toBe("byKind");
     } finally {
       await closeAll(defaultPc, standardPc);
     }
@@ -42,7 +42,7 @@ describe("issue 816: transceiverPairing configuration", () => {
 
   test.each([
     { transceiverPairing: "standard" as const, transceivers: 2, mid: null },
-    { transceiverPairing: "legacy" as const, transceivers: 1, mid: "0" },
+    { transceiverPairing: "byKind" as const, transceivers: 1, mid: "0" },
   ])(
     "the #816 report: $transceiverPairing",
     async ({ transceiverPairing, transceivers, mid }) => {
@@ -57,7 +57,7 @@ describe("issue 816: transceiverPairing configuration", () => {
         // Act: a の offer を b に適用する
         await b.setRemoteDescription(a.localDescription!);
 
-        // Assert: standard は remote offer 用の transceiver を作り own は MID null のまま、legacy は v0.27.0 と同じく own に関連付ける
+        // Assert: standard は remote offer 用の transceiver を作り own は MID null のまま、byKind は v0.27.0 と同じく own に関連付ける
         expect(b.getTransceivers().length).toBe(transceivers);
         expect(own.mid).toBe(mid);
         expect(own.direction).toBe("sendrecv");

@@ -28,7 +28,7 @@
  *   (max-bundle / balanced / max-compat / disable), rtcpMuxPolicy, a
  *   relay-only session over a local TURN server, and `standardPairing`
  *   (`transceiverPairing: "standard"`, #816; develop ignores the unknown key
- *   and keeps the v0.27.0 pairing, which is also the default `"legacy"`).
+ *   and keeps the v0.27.0 pairing, which is also the default `"byKind"`).
  *   `--configs <name>` runs every seed with one configuration: `--configs
  *   default` keeps the difference count against develop at 0, and
  *   `--configs standardPairing` differs only where a remote offer no longer

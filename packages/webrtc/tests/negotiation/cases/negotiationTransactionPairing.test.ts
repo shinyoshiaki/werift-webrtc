@@ -20,13 +20,13 @@ const connected = (...pcs: RTCPeerConnection[]) =>
  * (`transceiverPairing`, `matchRemoteTransceiver` in
  * src/negotiation/transceiverPairing.ts). Under `"standard"` (default, RFC 8829
  * 5.10) only a transceiver `addTrack()` created pairs with an m-section
- * whose MID it does not have; under `"legacy"` any unassociated one of the
+ * whose MID it does not have; under `"byKind"` any unassociated one of the
  * same kind does. Every case runs in both modes (`paired`: whether the local
  * `addTransceiver()` transceiver is taken by the remote offer).
  */
 for (const { mode, paired } of [
   { mode: "standard", paired: false },
-  { mode: "legacy", paired: true },
+  { mode: "byKind", paired: true },
 ] as const) {
   describeCases(`transceiver pairing (transceiverPairing=${mode})`, () => {
     negotiationCase(
@@ -44,7 +44,7 @@ for (const { mode, paired } of [
         // Act: a の audio offer を b に適用する。
         await c.offer(a);
 
-        // Assert: standard では remote offer 用の transceiver を作り、own は MID null / sendrecv のまま。legacy では own に関連付ける。
+        // Assert: standard では remote offer 用の transceiver を作り、own は MID null / sendrecv のまま。byKind では own に関連付ける。
         expect(b.getTransceivers().length).toBe(paired ? 1 : 2);
         expect(own.mid).toBe(paired ? "0" : null);
         expect(own.direction).toBe("sendrecv");
@@ -69,7 +69,7 @@ for (const { mode, paired } of [
     );
 
     negotiationCase(
-      "addTransceiver(track) and addTransceiver(kind) + replaceTrack() are paired only under legacy",
+      "addTransceiver(track) and addTransceiver(kind) + replaceTrack() are paired only under byKind",
       { ref: "#816 5-2" },
       async (c) => {
         // Arrange: b は track 付きの addTransceiver() と、後から replaceTrack() した addTransceiver() を持つ。
@@ -162,7 +162,7 @@ for (const { mode, paired } of [
           // Act: remote offer を適用する。
           await c.offer(a);
 
-          // Assert: standard (RFC 9429 5.10) では ${offered} の m-line に既存の送信用 transceiver を使わず、新しいものを作る。legacy では対応付ける。
+          // Assert: standard (RFC 9429 5.10) では ${offered} の m-line に既存の送信用 transceiver を使わず、新しいものを作る。byKind では対応付ける。
           expect(bVideo.mid).toBe(paired ? "0" : null);
           expect(b.getTransceivers().length).toBe(paired ? 1 : 2);
 
@@ -199,7 +199,7 @@ for (const { mode, paired } of [
         await c.offer(a);
         await c.answer(b);
 
-        // Assert: addTrack() の transceiver は両モードで関連付く。own は legacy だけ 2 本目の video に関連付き、standard では remote offer 用に新しい transceiver を作る。
+        // Assert: addTrack() の transceiver は両モードで関連付く。own は byKind だけ 2 本目の video に関連付き、standard では remote offer 用に新しい transceiver を作る。
         expect(bAudio.mid).toBe("0");
         const mids = b
           .getTransceivers()

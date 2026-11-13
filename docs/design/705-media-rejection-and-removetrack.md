@@ -89,11 +89,11 @@ m=audio 9 UDP/TLS/RTP/SAVPF 111 (mid 1) m=audio 9 UDP/TLS/RTP/SAVPF 111  ← ans
 | 値 | inactive の port | port 0 になるもの |
 |----|------------------|-------------------|
 | `"standard"` (既定。v0.27.0 までの名前は `"compatible"`) | 9 | 拒否 / 停止した m-line |
-| `"legacy"` (v0.27.0 までの名前は `"aggressive"`) | 0 (従来動作) | 拒否 / 停止した m-line と inactive |
+| `"aggressive"` | 0 (従来動作) | 拒否 / 停止した m-line と inactive |
 
 生成時に値を検証し (`TypeError`)、`setConfiguration()` による変更は `InvalidModificationError`。
 どちらのモードでも codec reject、BUNDLE membership、ICE の所有関係は同じ規則に従う。
-`legacy` の inactive port 0 は相手 (ブラウザ) から見ると拒否なので、port 0 の answer を受けた m-line は
+`aggressive` の inactive port 0 は相手 (ブラウザ) から見ると拒否なので、port 0 の answer を受けた m-line は
 `stopped` として確定し、以後は再利用可能な位置になる。
 
 ### stop と m-line 再利用
@@ -124,7 +124,7 @@ addTransceiver("video") ◄── 確定済み port 0 の同じ kind の位置�
   werift は remote port 0 として port 0 で答えて停止を確定する。ブラウザの次の `addTransceiver()` は同じ位置を
   新 MID で再利用し、m-line 数は増えない (`e2e/tests/mediachannel/removeTrack.test.ts` の
   `mediachannel_offer_replace_second_browser_stop`)。`removeTrack()` だけでは `inactive` のまま残るため末尾に追加される。
-  remote 側を変更できない場合だけ `legacy` (inactive を port 0 にして拒否扱いにさせる) を選ぶ。
+  remote 側を変更できない場合だけ `aggressive` (inactive を port 0 にして拒否扱いにさせる) を選ぶ。
 
 ### pending と rollback
 
@@ -148,7 +148,7 @@ addTransceiver("video") ◄── 確定済み port 0 の同じ kind の位置�
 - `packages/webrtc/tests/issue/705-reuse.test.ts`: `stop()` の冪等性と解放、未関連付け stop、交渉前の非再利用、
   確定後の同 index / 新 MID 再利用、answerer の停止、BUNDLE 先頭停止、unbundled、SCTP 先行、繰り返し再利用後の RTP 受信。
 - `e2e/tests/mediachannel/removeTrack.test.ts`: 既存の removeTrack シナリオを両モードで実行する。Chromium offerer の
-  removeTrack 後の追加は `standard` で末尾 (index 3)、`legacy` で同じ位置 (index 1) になり、`standard` でも
+  removeTrack 後の追加は `standard` で末尾 (index 3)、`aggressive` で同じ位置 (index 1) になり、`standard` でも
   ブラウザが `transceiver.stop()` で開放すれば同じ位置 (index 1) を再利用して RTP を受信する。
 - `e2e/tests/mediachannel/reuse.test.ts`: Chromium ↔ werift で removeTrack + stop → port 0 → 再利用を 2 回繰り返し、
   両モードで再利用位置の RTP を受信する。音声専用 werift が Chromium の audio + video offer の video を拒否する。

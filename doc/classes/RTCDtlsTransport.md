@@ -522,7 +522,7 @@ when `RTCConfiguration.certificates` is not given.
 > `static` **SetupCertificate**(): `Promise`\<[`RTCCertificate`](RTCCertificate.md)\>
 
 Returns the default certificate cached for the whole process
-(the default `certificateScope: "legacy"`).
+(the default `certificateScope: "process"`).
 
 #### Returns
 

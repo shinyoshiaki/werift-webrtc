@@ -1,16 +1,16 @@
 import { browserName, peer, sleep, waitVideoPlay } from "../fixture";
 
-// Issue #705: werift の mLineReuse ("standard" 既定 / "legacy") のどちらでも
+// Issue #705: werift の mLineReuse ("standard" 既定 / "aggressive") のどちらでも
 // removeTrack の挙動が変わらないことを確認する
 // replacedMLineIndex: removeTrack で inactive にした m-line の後に追加した transceiver の m-line index
 //   standard: inactive は port 9 のまま残るので、Chromium は末尾 (3) に追加する
-//   legacy: inactive は従来どおり port 0 で拒否されるので、Chromium は同じ位置 (1) を再利用する
+//   aggressive: inactive は従来どおり port 0 で拒否されるので、Chromium は同じ位置 (1) を再利用する
 //   standard でもブラウザが transceiver.stop() で開放すれば同じ位置 (1) を再利用する (replaceVariants)
 const modes = [
   { mode: "standard", suffix: "", removedPort: 9, replacedMLineIndex: 3 },
   {
-    mode: "legacy",
-    suffix: "_legacy",
+    mode: "aggressive",
+    suffix: "_aggressive",
     removedPort: 0,
     replacedMLineIndex: 1,
   },
@@ -276,7 +276,7 @@ describe.each(modes)(
           });
 
           // remove second
-          // legacy では Chromium が停止を確定すると mid が null になるため先に保持する
+          // aggressive では Chromium が停止を確定すると mid が null になるため先に保持する
           const secondMid = second.mid;
           pc.removeTrack(second.sender);
           if (variant.browserStop) {

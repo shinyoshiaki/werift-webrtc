@@ -848,12 +848,12 @@ describe("issue 705: mLineReuse configuration", () => {
   test("defaults to standard, validates values and rejects changes", async () => {
     // Arrange / Act: 既定値と明示値で作成する
     const defaultPc = new RTCPeerConnection();
-    const legacyPc = new RTCPeerConnection({ mLineReuse: "legacy" });
+    const aggressivePc = new RTCPeerConnection({ mLineReuse: "aggressive" });
 
     try {
       // Assert: 既定は standard で getConfiguration に現れる
       expect(defaultPc.getConfiguration().mLineReuse).toBe("standard");
-      expect(legacyPc.getConfiguration().mLineReuse).toBe("legacy");
+      expect(aggressivePc.getConfiguration().mLineReuse).toBe("aggressive");
 
       // Assert: 無効値は生成時に TypeError
       expect(
@@ -862,20 +862,20 @@ describe("issue 705: mLineReuse configuration", () => {
 
       // Assert: 途中変更は拒否し、同じ値の再設定は許可する
       expect(() =>
-        defaultPc.setConfiguration({ mLineReuse: "legacy" }),
+        defaultPc.setConfiguration({ mLineReuse: "aggressive" }),
       ).toThrow(expect.objectContaining({ name: "InvalidModificationError" }));
       expect(() =>
         defaultPc.setConfiguration({ mLineReuse: "standard" }),
       ).not.toThrow();
       expect(defaultPc.getConfiguration().mLineReuse).toBe("standard");
     } finally {
-      await closeAll(defaultPc, legacyPc);
+      await closeAll(defaultPc, aggressivePc);
     }
   });
 
   test.each([
     ["standard", 9],
-    ["legacy", 0],
+    ["aggressive", 0],
   ] as const)(
     "%s: accepted inactive m-line uses port %i",
     async (mode, expectedPort) => {
@@ -887,7 +887,7 @@ describe("issue 705: mLineReuse configuration", () => {
         // Act
         const offer = await pc.createOffer();
 
-        // Assert: standard は非ゼロ、legacy は従来どおり port 0
+        // Assert: standard は非ゼロ、aggressive は従来どおり port 0
         expect(mLines(offer.sdp)[0].port).toBe(expectedPort);
       } finally {
         await closeAll(pc);
@@ -895,7 +895,7 @@ describe("issue 705: mLineReuse configuration", () => {
     },
   );
 
-  test.each(["standard", "legacy"] as const)(
+  test.each(["standard", "aggressive"] as const)(
     "%s: codec rejection and BUNDLE consistency hold",
     async (mode) => {
       // Arrange

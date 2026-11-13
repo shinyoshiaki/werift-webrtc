@@ -6,4 +6,4 @@
 
 # Variable: KeyFrameRequestRoutingModes
 
-> `const` **KeyFrameRequestRoutingModes**: readonly [`KeyFrameRequestRouting`](../type-aliases/KeyFrameRequestRouting.md)[] = `CompatibilityModes`
+> `const` **KeyFrameRequestRoutingModes**: readonly [`KeyFrameRequestRouting`](../type-aliases/KeyFrameRequestRouting.md)[] = `CompatibilityOptionValues.keyFrameRequestRouting`

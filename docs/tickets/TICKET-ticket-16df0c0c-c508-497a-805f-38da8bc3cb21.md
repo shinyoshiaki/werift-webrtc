@@ -137,12 +137,12 @@ console.log(b.getTransceivers().length, own.mid); // 実際: 1 "0" / 期待: 2 n
 - [ ] glare: 両側が `addTransceiver(sendonly)` → 衝突 → polite側の暗黙のrollback → SRD(offer)。方向が `sendonly` のまま残り、最終的に両方向でメディアが流れる。codecPlanとapplyの対応付けが一致する（ローカルのpending MIDと相手のMIDが同じケースを含む）。
 - [ ] rollback: remote起源のtransceiverに `addTrack` → rollback → 相手のre-offerで再び関連付く。
 - [ ] WPT: `RTCRtpTransceiver.https.html` の `checkAddTransceiver*DoesntPair` 3件と、`RTCPeerConnection-perfect-negotiation.https.html` の setup 2件（`setup connects` / `setup connects with roles reversed`）を `wpt/allowlist.json` と `wpt/baseline.json` に追加し、全体 `npm run wpt` を繰り返して回帰 0。glare 系 subtest（`perfect-negotiation.https.html` の `glare` / `glare with roles reversed`、stress-glare 2ファイル）は gate に入れない（7章、別チケット cd89d492）。glare での方向の保持は `tests/negotiation/cases/negotiationTransactionPairing.test.ts` と model の固定シーン（`tests/pbt/model/scenes.ts` の #816 glare）で検証する。
-- [ ] `transceiverPairing: "legacy"` の回帰テスト: #816 の再現コードで、transceiverが1個、ローカル側のMIDが `"0"` になる（v0.27.0 と同じ）。主要なケース（addTransceiverとの関連付け、複数m-section）は `"jsep"` / `"legacy"` の2モードを表で比べるテストにする（`negotiationTest` のfixtureを使う）。
-- [ ] `PeerConfig` の検証: 既定は `"legacy"`（9章）。値は `"standard"` / `"legacy"` で、旧名 `"jsep"` を含む不正な値は `TypeError`。`setConfiguration()` で値を変えると `InvalidModificationError`、同じ値なら成功（`tests/issue/816.test.ts`）。
-- [ ] 移行したexamples / e2e / テストが `"legacy"` を付けずに通る。
-- [ ] 互換性設定（10章）: 4 つのモード設定の既定値・`"standard"` / `"legacy"`・v0.27.0 までの名前の読み替え・不正値の `TypeError`・`setConfiguration()` の可否を表で検証する（`tests/integrate/compatibilityMode.test.ts`）。
+- [ ] `transceiverPairing: "byKind"` の回帰テスト: #816 の再現コードで、transceiverが1個、ローカル側のMIDが `"0"` になる（v0.27.0 と同じ）。主要なケース（addTransceiverとの関連付け、複数m-section）は `"standard"` / `"byKind"` の2モードを表で比べるテストにする（`negotiationTest` のfixtureを使う）。
+- [ ] `PeerConfig` の検証: 既定は `"byKind"`（9章、値の名前は11章）。値は `"standard"` / `"byKind"` で、旧名 `"jsep"` を含む不正な値は `TypeError`。`setConfiguration()` で値を変えると `InvalidModificationError`、同じ値なら成功（`tests/issue/816.test.ts`）。
+- [ ] 移行したexamples / e2e / テストが `"byKind"` を付けずに通る。
+- [ ] 互換性設定（10章）: 4 つのモード設定の既定値・`"standard"` と各設定の独自の値（11章）・v0.27.0 までの名前の読み替え・不正値の `TypeError`・`setConfiguration()` の可否を表で検証する（`tests/integrate/compatibilityMode.test.ts`）。
 - [ ] WPT の runner（10章）: baseline の判定（値の低下と未報告の回帰、毎回 PASS の選択、allowlist の除外）とブラウザ互換の設定を検証する（`tests/tools/wptBaseline.test.ts`、`tests/tools/wptBrowserConfig.test.ts`）。
-- [ ] negotiationのharness（`negotiationTransactionUtils.ts`）、PBTのscenario / fuzz は既定の `"legacy"` で動く。model（と leak）は `"standard"` で動き、構成の軸として `"legacy"` も入れる。JSEP 5.10 の挙動を確かめる個別テストは `"standard"` を明示する（9章）。
+- [ ] negotiationのharness（`negotiationTransactionUtils.ts`）、PBTのscenario / fuzz は既定の `"byKind"` で動く。model（と leak）は `"standard"` で動き、構成の軸として `"byKind"` も入れる。JSEP 5.10 の挙動を確かめる個別テストは `"standard"` を明示する（9章。値の名前は11章）。
 
 ## 6. 検証コマンド
 
@@ -150,7 +150,7 @@ console.log(b.getTransceivers().length, own.mid); // 実際: 1 "0" / 期待: 2 n
 - `cd packages/webrtc && npm run pbt:deep`（レビュー前）と `tools/negotiation-diff` による develop との比較
 - `npm run wpt`（allowlistを変更したため）、必要に応じて `npm run wpt:coverage`
 - 既定の挙動を変え、公開APIも追加するので: `npm run type`、`npm run test:small`、`npm run e2e`、`npm run examples:e2e`、`npm run doc`
-- `tools/negotiation-diff`: 既定の設定（`"legacy"`）では develop との差分0件。`--configs standardPairing`（`{ transceiverPairing: "standard" }`）で出る差分は #816 の種類に限る（9章）。
+- `tools/negotiation-diff`: 既定の設定（`"byKind"`）では develop との差分0件。`--configs standardPairing`（`{ transceiverPairing: "standard" }`）で出る差分は #816 の種類に限る（9章。値の名前は11章）。
 
 ## 完了条件
 
@@ -160,8 +160,8 @@ console.log(b.getTransceivers().length, own.mid); // 実際: 1 "0" / 期待: 2 n
 - 上記の回帰テスト、negotiationの不変条件とproperty、WPTのallowlistの追加分がすべて通る。WPT の gate は全体実行で安定するもの（`RTCRtpTransceiver` 3件と `perfect-negotiation.https.html` の setup 2件を含む、10回の全体実行で毎回 PASS の subtest。10章）に限る。glare 系 subtest（`perfect-negotiation.https.html` の glare 2件、stress-glare 2ファイル）の gate は本チケットの完了条件に含めない（別チケット cd89d492 の完了条件）。
 - `npm run pbt:deep` は、失敗した seed を develop と本ブランチで同じ回数ずつ単独で再実行し、本ブランチだけで新たに再現する失敗がないこと（表をレビュー依頼に添える）。seed 50（VP8 の `transport-cc`）は本チケットで解消する（8章）。
 - 操作チェーン（`enqueueDescriptionOperation`）の解放順序と `negotiationneeded` の発火条件は変えない（7章）。
-- `PeerConfig.transceiverPairing`（既定 `"legacy"`、opt-in `"standard"`、9章）が実装されている。既定の `"legacy"` では v0.27.0 と同じ関連付けになる（negotiation-diff の既定設定で差分0件）。
-- 互換性設定（`certificateScope` / `mLineReuse` / `transceiverPairing` / `keyFrameRequestRouting`）の値が `"standard"` / `"legacy"` に揃い、v0.27.0 までの名前は受け付けて新しい名前に読み替える。既定値と挙動は変えない（10章）。
+- `PeerConfig.transceiverPairing`（既定 `"byKind"`、opt-in `"standard"`、9章）が実装されている。既定の `"byKind"` では v0.27.0 と同じ関連付けになる（negotiation-diff の既定設定で差分0件）。
+- 互換性設定（`certificateScope` / `mLineReuse` / `transceiverPairing` / `keyFrameRequestRouting`）の値が、仕様・ブラウザ側は `"standard"`、werift 側は挙動を表す名前（`"process"` / `"aggressive"` / `"byKind"` / `"fallback"`）に揃い、使われなくなった v0.27.0 までの名前は受け付けて現在の名前に読み替える（11章）。既定値と挙動は変えない（10章）。
 - upstream WPT はすべての `RTCPeerConnection` をブラウザ互換の設定（`tools/wpt-runner/browserConfig.ts`）で作り、引き上げた baseline（558 件）に対して全体 `npm run wpt` を繰り返して回帰 0（10章）。
 - リポジトリ内のexamples / e2e は、どちらの値でも動く書き方（`addTrack()` か remote 側の transceiver を使う）に移行されている。README・changelog（Breaking changes ではなく Features として記載）・TSDoc・生成docsが実装と一致している。upstream WPT は wrapper で `"standard"` を使う（ルート AGENTS.md Do 5）。
 
@@ -270,7 +270,7 @@ console.log(b.getTransceivers().length, own.mid); // 実際: 1 "0" / 期待: 2 n
 - `iceOptionIce2`（既定 `false`）、`iceMessageIntegrity`（既定 `"sha1"`）はブラウザと同じ既定なので対象外。
 
 ### 決定
-- 4 つのモード設定の値を **`"standard"`（仕様・ブラウザの挙動）/ `"legacy"`（werift 独自の挙動、既存アプリのため維持）** に揃える。型は共通の `CompatibilityMode = "standard" | "legacy"`（`src/api/compatibilityMode.ts`）、値の一覧は `CompatibilityModes`。`MLineReuse` / `KeyFrameRequestRouting` / `CertificateScope` / `TransceiverPairing` はその別名。
+- **（11章で変更: werift 側の値は `"legacy"` ではなく設定ごとの名前にした）** 4 つのモード設定の値を **`"standard"`（仕様・ブラウザの挙動）/ `"legacy"`（werift 独自の挙動、既存アプリのため維持）** に揃える。型は共通の `CompatibilityMode = "standard" | "legacy"`（`src/api/compatibilityMode.ts`）、値の一覧は `CompatibilityModes`。`MLineReuse` / `KeyFrameRequestRouting` / `CertificateScope` / `TransceiverPairing` はその別名。
   - `"compatible"` を共通語彙にしない理由: v0.25.0 から `mLineReuse: "compatible"` は仕様側の既定を指しており、これを werift 側の名前に使うと既存の設定の意味が黙って逆になる。
 - 既定値と挙動は変えない（`certificateScope` / `transceiverPairing` / `keyFrameRequestRouting` は `"legacy"`、`mLineReuse` は `"standard"`）。`keyFrameRequestRouting` は従来どおり `setConfiguration()` で変更できる。
 - v0.27.0 までの名前は入力として受け付け、新しい名前に正規化する（`DeprecatedCompatibilityValues`、`normalizePeerConfiguration`）。`getConfiguration()` は新しい名前を返す。それ以外の値は `TypeError`（`<option> must be one of standard, legacy`）。読み返す値と型・`KeyFrameRequestRoutingModes` の中身が変わるので changelog は ⚠️ Breaking changes に書く。
@@ -303,3 +303,32 @@ console.log(b.getTransceivers().length, own.mid); // 実際: 1 "0" / 期待: 2 n
 - 負荷試験（全体 `npm run wpt` を 2 本同時に実行 × 2 回）: 再実行を入れる前は 4 本とも回帰（14〜46 件、すべて TIMEOUT。旧 baseline にある `RTCPeerConnection-removeTrack.https.html` の 14 件などを含む）。再実行を入れた後は 4 本とも回帰 0（毎回 19〜26 ターゲットを再実行）。
 - 再実行を入れた最終版で、負荷なしの全体 `npm run wpt` を 5 回: 5 回とも回帰 0、1 回あたり 30〜50 秒、再実行は 5 回中 1 回（2 ターゲット）。gate の確認（`transceiverPairing: "legacy"`）は再実行なしで 6 件の FAIL 回帰、exit 1。
 - その他: `npm run type` 成功。`packages/webrtc` の `npm test` 85 ファイル・1777 件成功（5 件スキップ）。`npm run wpt:coverage` 成功（runner の最終版でも再実行して成功）。全体 `npm run e2e` 23 ファイル・67 件成功。e2e の `tests/mediachannel/reuse.test.ts` / `removeTrack.test.ts`（handler 名を変更）を `--retry=0` で実行し 10 件成功。`npm run doc` で生成 docs を更新。
+
+## 11. 追加要件：`"standard"` の対になる値を設定ごとに意味の分かる名前にする（ユーザー指示、2026-11-13）
+
+### 指示
+- `"standard"` の対義語（werift 独自の挙動の値）は、一律の `"legacy"` ではなく、それぞれ意味的に分かりやすい適切なものを割り当てる。
+
+### 決定
+`"standard"`（仕様・ブラウザの挙動）はすべての設定で共通のまま。werift 側の値は、その設定で werift が何をするかを表す名前にする。
+
+| 設定 | `"standard"` | werift 側の値（10章の `"legacy"`） | 名前の意味 | 既定 |
+| --- | --- | --- | --- | --- |
+| `certificateScope` | 接続ごとに証明書を作る | `"process"` | 証明書のスコープがプロセス（全接続で共有） | `"process"` |
+| `mLineReuse` | 受け入れた `inactive` は port を保つ | `"aggressive"` | `inactive` も port 0 にして積極的に位置を再利用する | `"standard"` |
+| `transceiverPairing` | JSEP 5.10（`addTrack()` が作ったものだけ） | `"byKind"` | kind が同じ未関連付けの transceiver なら作成元を問わず関連付ける | `"byKind"` |
+| `keyFrameRequestRouting` | 宛先 SSRC が不明なら届けない（RFC 4585 / 5104） | `"fallback"` | 宛先が不明なら RTX の持ち主か唯一の video sender に代わりに届ける | `"fallback"` |
+
+- `"process"` と `"aggressive"` は v0.27.0 までの名前と同じなので、既存の設定はそのまま有効（読み替え不要）。
+- 使われなくなった v0.27.0 までの名前だけを受け付けて読み替える: `certificateScope: "peerConnection"` → `"standard"`、`mLineReuse: "compatible"` → `"standard"`、`keyFrameRequestRouting: "compatible"` → `"fallback"`、`"strict"` → `"standard"`（`DeprecatedCompatibilityValues`）。`getConfiguration()` は現在の名前を返す。
+- 未リリースの `"legacy"`（9・10章）と `"jsep"` は受け付けない（`TypeError`）。
+- 値の一覧は 1 つの表 `CompatibilityOptionValues`（`src/api/compatibilityOptions.ts`、`src/api/compatibilityMode.ts` から改名）にまとめ、型 `CertificateScope` / `MLineReuse` / `TransceiverPairing` / `KeyFrameRequestRouting` と `CertificateScopeModes` / `MLineReuseModes` / `TransceiverPairingModes` / `KeyFrameRequestRoutingModes` をそこから導く。10章で追加した共通型 `CompatibilityMode` / `CompatibilityModes` は未リリースなので削除する。`TypeError` の文言は設定ごとの値になる（例: `mLineReuse must be one of standard, aggressive`）。
+- 既定値・挙動・WPT の設定（すべて `"standard"`）は変えない。
+- e2e の handler 名は `_aggressive` に戻した（v0.27.0 と同じ）。`mediachannel_reuse_compatible` は `mediachannel_reuse_standard` のまま。
+
+### 検証記録（2026-11-13、HEAD `0f95417e8` に 11章の未コミット変更を当てた状態）
+- `npm run type` 成功。`packages/webrtc` の `npm test` 85 ファイル・1778 件成功（5 件スキップ）。設定の表のテストは `tests/integrate/compatibilityOptions.test.ts`（`compatibilityMode.test.ts` から改名）。
+- e2e の `tests/mediachannel/reuse.test.ts` / `removeTrack.test.ts`（handler 名を変更）を `--retry=0` で実行し 10 件成功。
+- 全体 `npm run wpt` 3 回: すべて回帰 0（PASS 564〜567、再実行は 3 回中 1 回）。
+- `npm run format`、`npm run doc` 実行済み。
+

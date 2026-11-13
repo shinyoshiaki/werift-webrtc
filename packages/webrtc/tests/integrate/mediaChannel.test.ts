@@ -204,7 +204,7 @@ describe("media", () => {
       createPliPacket({ senderSsrc: transceiver2.sender.ssrc, mediaSsrc: 0 }),
     );
 
-    // Assert: 既定の "legacy" では pc1 の唯一の video sender に届く
+    // Assert: 既定の "fallback" では pc1 の唯一の video sender に届く
     await pliReceived;
 
     await Promise.all([pc1.close(), pc2.close()]);
@@ -242,13 +242,13 @@ describe("media", () => {
   });
 
   test("keyFrameRequestRouting rejects an unknown mode", () => {
-    // Act / Assert: 既定値は "legacy" で、未知の値は TypeError になる
+    // Act / Assert: 既定値は "fallback" で、未知の値は TypeError になる
     const pc = new RTCPeerConnection();
-    expect(pc.getConfiguration().keyFrameRequestRouting).toBe("legacy");
+    expect(pc.getConfiguration().keyFrameRequestRouting).toBe("fallback");
     expect(() =>
       pc.setConfiguration({ keyFrameRequestRouting: "loose" as "standard" }),
     ).toThrow(TypeError);
-    expect(pc.getConfiguration().keyFrameRequestRouting).toBe("legacy");
+    expect(pc.getConfiguration().keyFrameRequestRouting).toBe("fallback");
     pc.close();
   });
 });

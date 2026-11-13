@@ -114,7 +114,7 @@ describe("issue 705: transceiver.stop()", () => {
   test("aggressive: the answerer's stop() is rejected by its inactive port 0 answer", async () => {
     // Arrange
     const { caller, callee, video } = await createNegotiatedPair({
-      mLineReuse: "legacy",
+      mLineReuse: "aggressive",
     });
     const calleeVideo = transceiverByMid(callee, video.mid!)!;
 
@@ -167,7 +167,7 @@ describe("issue 705: transceiver.stop()", () => {
 });
 
 describe("issue 705: m-line reuse after a confirmed stop", () => {
-  test.each(["standard", "legacy"] as const)(
+  test.each(["standard", "aggressive"] as const)(
     "%s: removeTrack + stop, negotiate, then addTransceiver reuses the index with a new MID",
     async (mode) => {
       // Arrange
@@ -251,11 +251,11 @@ describe("issue 705: m-line reuse after a confirmed stop", () => {
     }
   });
 
-  // transceiverPairing ごとの期待値: "legacy" では addTransceiver() 起源の未関連付け
+  // transceiverPairing ごとの期待値: "byKind" では addTransceiver() 起源の未関連付け
   // transceiver が再利用位置を引き継ぎ、"standard" (JSEP 5.10) では remote offer 用の
   // transceiver が作られ、addTransceiver() 側は未関連付けのまま次の offer で末尾に追加される。
   test.each([
-    { transceiverPairing: "legacy" as const, takesOver: true },
+    { transceiverPairing: "byKind" as const, takesOver: true },
     { transceiverPairing: "standard" as const, takesOver: false },
   ])(
     "an unassociated answerer addTransceiver() transceiver and the reused index ($transceiverPairing)",
@@ -274,7 +274,7 @@ describe("issue 705: m-line reuse after a confirmed stop", () => {
         const newVideo = caller.addTransceiver(createTrack("video"));
         await negotiate(caller, callee);
 
-        // Assert: 再利用位置 (index 1 / 新 MID) を引き継ぐのは、legacy では未関連付け
+        // Assert: 再利用位置 (index 1 / 新 MID) を引き継ぐのは、byKind では未関連付け
         // transceiver、standard では remote offer 用に作られた transceiver。MID は重複しない
         const reusing = transceiverByMid(callee, newVideo.mid!)!;
         expect(reusing === pendingCalleeVideo).toBe(takesOver);
@@ -401,7 +401,7 @@ describe("issue 705: m-line reuse after a confirmed stop", () => {
   test("aggressive answerer: an inactive m-line answered with port 0 is stopped on both sides and its index is reused", async () => {
     // Arrange: caller が sendonly video を 3 本送り、callee は aggressive の answerer
     const { caller, callee, videos } = await createSendonlyVideoPair({
-      calleeMLineReuse: "legacy",
+      calleeMLineReuse: "aggressive",
       count: 3,
     });
     const second = videos[1];
@@ -633,7 +633,7 @@ describe("issue 705: m-line reuse after a confirmed stop", () => {
     }
   });
 
-  test.each(["standard", "legacy"] as const)(
+  test.each(["standard", "aggressive"] as const)(
     "%s: RTP is received after repeated reuse of the same index",
     async (mode) => {
       // Arrange: 接続済みペア

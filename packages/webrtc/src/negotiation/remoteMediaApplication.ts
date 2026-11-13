@@ -95,7 +95,7 @@ export class RemoteMediaApplication {
       createOwnerTransport: () => RTCDtlsTransport;
       onRemoteTransceiverAdded: (transceiver: RTCRtpTransceiver) => void;
     },
-    pairing: TransceiverPairing = "legacy",
+    pairing: TransceiverPairing = "byKind",
   ) {
     this.pairing = pairing;
     this.sdp = sdp;

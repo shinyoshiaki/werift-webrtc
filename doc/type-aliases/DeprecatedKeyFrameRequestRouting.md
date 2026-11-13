@@ -10,4 +10,4 @@
 
 ## Deprecated
 
-Use `"legacy"` (`"compatible"`) or `"standard"` (`"strict"`).
+Use `"fallback"` (`"compatible"`) or `"standard"` (`"strict"`).
