@@ -1,21 +1,24 @@
 import { setTimeout } from "timers/promises";
-
 import {
   AlertDesc,
   AlertLevel,
   RTCDtlsFingerprint,
   RTCDtlsParameters,
   RTCPeerConnection,
+  RtcpRrPacket,
+  RtpHeader,
 } from "../../src";
 import {
   captureUnhandledErrors,
   connectedDataChannelPeers,
+  connectedMediaPeers,
   createDtlsSessions,
   dtlsTransportPair,
   exchangeOfferAnswer,
   mutateFingerprint,
   recordCloseOrder,
   recordDtlsEvents,
+  recordIceMediaSends,
   recordSentDtlsAlerts,
   sctpOverDtlsPair,
   waitForDtlsState,
@@ -947,6 +950,71 @@ describe("DOM 形式のイベントのリスナーごとの例外隔離", () => 
           "connectionstatechange",
         ]),
       );
+    } finally {
+      await Promise.allSettled([pc1.close(), pc2.close()]);
+    }
+  });
+});
+
+describe("DTLS が終了した transport の SRTP / SRTCP 送信", () => {
+  test("相手の close_notify で closed になった後は、ICE が生きていても定期 RTCP も直接の sendRtp / sendRtcp も ICE に渡らない", {
+    timeout: 15_000,
+  }, async () => {
+    // Arrange: 接続済みの audio を持つ組で、pc1 の定期 RTCP が ICE に流れていることを確かめる
+    const { pc1, pc2 } = await connectedMediaPeers();
+    const dtls1 = pc1.dtlsTransports[0];
+    const sent = recordIceMediaSends(dtls1);
+    await waitUntil(() => sent.rtcp > 0, "periodic RTCP was not sent", 5000);
+
+    try {
+      // Act: pc2 が ICE を止めずに close_notify だけを送り、pc1 の DTLS を closed にする
+      await pc2.dtlsTransports[0].dtls!.sendAlert(
+        AlertLevel.warning,
+        AlertDesc.CloseNotify,
+      );
+      await waitForDtlsState(dtls1, "closed");
+      expect(dtls1.iceTransport.state).not.toBe("closed");
+      const before = { ...sent };
+      // 直接の送信も試みる
+      const size = await dtls1.sendRtp(
+        Buffer.from([1, 2, 3]),
+        new RtpHeader({ payloadType: 111, ssrc: 1234, sequenceNumber: 1 }),
+      );
+      await dtls1.sendRtcp([new RtcpRrPacket({ ssrc: 1234 })]);
+      // 定期 RTCP の最大間隔（1.5 秒）を超えて待つ
+      await setTimeout(1800);
+
+      // Assert: closed 後は RTP / RTCP とも ICE に 1 つも渡らず、sendRtp は 0 を返す
+      expect(sent).toEqual(before);
+      expect(size).toBe(0);
+    } finally {
+      await Promise.allSettled([pc1.close(), pc2.close()]);
+    }
+  });
+
+  test("fatal alert で failed になった後も、直接の sendRtp / sendRtcp は ICE に渡らない", async () => {
+    // Arrange
+    const { pc1, pc2 } = await connectedMediaPeers();
+    const dtls1 = pc1.dtlsTransports[0];
+    const sent = recordIceMediaSends(dtls1);
+
+    try {
+      // Act: pc2 から fatal alert を送り、pc1 を failed にしてから直接送信する
+      await pc2.dtlsTransports[0].dtls!.sendAlert(
+        AlertLevel.fatal,
+        AlertDesc.InternalError,
+      );
+      await waitForDtlsState(dtls1, "failed");
+      const before = { ...sent };
+      await dtls1.sendRtp(
+        Buffer.from([1, 2, 3]),
+        new RtpHeader({ payloadType: 111, ssrc: 1234, sequenceNumber: 1 }),
+      );
+      await dtls1.sendRtcp([new RtcpRrPacket({ ssrc: 1234 })]);
+      await setTimeout(50);
+
+      // Assert: ICE には何も渡らない
+      expect(sent).toEqual(before);
     } finally {
       await Promise.allSettled([pc1.close(), pc2.close()]);
     }

@@ -833,3 +833,51 @@ export async function exchangeOfferAnswer(
   await answerer.setLocalDescription(await answerer.createAnswer());
   await offerer.setRemoteDescription(answerer.localDescription!);
 }
+
+/**
+ * audio の transceiver を sendrecv で交渉し、接続済みにした PeerConnection の組を作る
+ * （送信側の定期 RTCP が動く状態）
+ */
+export async function connectedMediaPeers() {
+  const pc1 = new RTCPeerConnection();
+  const pc2 = new RTCPeerConnection();
+  const track = new MediaStreamTrack({ kind: "audio" });
+  pc1.addTransceiver(track, { direction: "sendrecv" });
+  await exchangeOfferAnswer(pc1, pc2);
+  await waitUntil(
+    () =>
+      pc1.connectionState === "connected" &&
+      pc2.connectionState === "connected",
+    "media peers did not connect",
+  );
+  // 送信側の定期 RTCP は最初の RTP 送信で動き出すので、数パケット送る
+  for (let sequenceNumber = 0; sequenceNumber < 5; sequenceNumber++) {
+    track.writeRtp(
+      new RtpPacket(
+        new RtpHeader({ sequenceNumber, timestamp: sequenceNumber * 960 }),
+        Buffer.from([0]),
+      ),
+    );
+    await setTimeout(20);
+  }
+  return { pc1, pc2, track };
+}
+
+/**
+ * DTLS transport が ICE に渡した SRTP / SRTCP パケット（先頭 2 bit が RTP version 2）を
+ * RTP / RTCP に分けて記録する
+ */
+export function recordIceMediaSends(transport: RTCDtlsTransport) {
+  const sent = { rtp: 0, rtcp: 0 };
+  const connection = transport.iceTransport.connection;
+  const send = connection.send.bind(connection);
+  connection.send = (data: Buffer) => {
+    if (data.length >= 2 && data[0] >> 6 === 2) {
+      const payloadType = data[1] & 0x7f;
+      if (data[1] >= 192 && data[1] <= 223) sent.rtcp++;
+      else if (payloadType >= 0) sent.rtp++;
+    }
+    return send(data);
+  };
+  return sent;
+}

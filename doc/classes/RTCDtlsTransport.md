@@ -415,6 +415,10 @@ reserve a TSN then wait in a per-sender pacer.
 
 > **sendRtcp**(`packets`): `Promise`\<`number` \| `undefined`\>
 
+Encrypt RTCP and enqueue on ICE. Like RTP, nothing is sent once the
+transport is `closed` / `failed` (periodic sender / receiver reports,
+NACK, PLI, TWCC feedback included).
+
 #### Parameters
 
 ##### packets
@@ -456,6 +460,10 @@ Send-time metadata: [sendRtpWithMeta](#sendrtpwithmeta).
 
 Encrypt RTP and enqueue on ICE, capturing the clock immediately before
 the ICE write (RFC 8888). Prefer [sendRtp](#sendrtp) unless send time is needed.
+
+Nothing is sent once the transport is `closed` / `failed` (close_notify
+or a fatal alert, `stop()`): ICE may still be up, but the DTLS
+association that keyed SRTP has ended. The size is then 0.
 
 #### Parameters
 
