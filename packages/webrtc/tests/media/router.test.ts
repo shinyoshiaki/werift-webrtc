@@ -1862,6 +1862,51 @@ describe("media/router: a=ssrc のない m-line の SSRC 学習 (#356)", () => {
     expect(router.ssrcTable[9]).toBeUndefined();
   });
 
+  test("別 transport で学習した SSRC と同じ SSRC のパケットは、その receiver に誤配送しない", () => {
+    // Arrange: transport A の receiver が SSRC 55 を学習済み
+    const { router, dtls, addReceiver } = createSsrcLessRouter();
+    const otherTransport = createDtlsTransport();
+    const a = addReceiver({ mid: "a" });
+    const b = addReceiver({ mid: "b", transport: otherTransport });
+    const aPayloads = collectTrackPayloads(a);
+    const bPayloads = collectTrackPayloads(b);
+    router.routeRtp(
+      ssrcLessPacket({
+        ssrc: 55,
+        payloadType: 111,
+        sequenceNumber: 1,
+        mid: "a",
+      }),
+      dtls,
+    );
+
+    // Act: transport B から同じ SSRC のパケットが届く
+    router.routeRtp(
+      ssrcLessPacket({
+        ssrc: 55,
+        payloadType: 111,
+        sequenceNumber: 2,
+        mid: "b",
+      }),
+      otherTransport,
+    );
+    router.routeRtp(
+      ssrcLessPacket({
+        ssrc: 55,
+        payloadType: 111,
+        sequenceNumber: 3,
+        mid: "a",
+      }),
+      dtls,
+    );
+
+    // Assert: A の receiver には A の transport のパケットだけが届き、経路は A のまま
+    expect(aPayloads).toEqual(["payload-1", "payload-3"]);
+    expect(bPayloads).toEqual([]);
+    expect(router.ssrcTable[55]).toBe(a.receiver);
+    expect(b.receiver.fallbackSsrc).toBeUndefined();
+  });
+
   test("a=ssrc のある m-line は未知 SSRC の候補にならない", () => {
     // Arrange
     const { router, dtls, addReceiver } = createSsrcLessRouter();

@@ -65,6 +65,7 @@ const UnknownSsrcDrop = {
   noCandidate: "no candidate",
   ambiguous: "ambiguous",
   retired: "retired fallback ssrc",
+  ssrcInUse: "ssrc learned on another transport",
 } as const;
 type UnknownSsrcDrop = (typeof UnknownSsrcDrop)[keyof typeof UnknownSsrcDrop];
 
@@ -453,6 +454,13 @@ export class RtpRouter {
     let rtpReceiver: RTCRtpReceiver | undefined = this.ssrcTable[
       ssrc
     ] as RTCRtpReceiver;
+    // An SSRC is unique per RTP session only: a route a packet taught belongs
+    // to the transport it was learned on, so a packet of another transport
+    // never reaches its receiver.
+    const foreignLearnedRoute =
+      !!rtpReceiver &&
+      this.isForeignLearnedRoute(ssrc, rtpReceiver, dtlsTransport);
+    if (foreignLearnedRoute) rtpReceiver = undefined;
 
     const rid = extensions[RTP_EXTENSION_URI.sdesRTPStreamID];
     const repairedRid = extensions[RTP_EXTENSION_URI.repairedRtpStreamId];
@@ -552,6 +560,9 @@ export class RtpRouter {
    * nothing pairs it with the media SSRC. A replaced fallback SSRC loses its
    * route after the packet (`takeForgottenSsrcs`) and is not learned again
    * (`isRetiredFallbackSsrc`): a late packet of the old stream is dropped.
+   * An SSRC learned on another transport is not taken over (`ssrcTable` has
+   * one entry per SSRC): such packets are dropped, never delivered across
+   * transports.
    * Receiving is decided by the committed `currentDirection`; a pending
    * description decides only before the first commit.
    */
@@ -571,6 +582,11 @@ export class RtpRouter {
       return undefined;
     };
     if (!transport) return drop(UnknownSsrcDrop.noTransport);
+    const owner = this.ssrcTable[ssrc];
+    if (owner && this.isForeignLearnedRoute(ssrc, owner, transport)) {
+      // ssrcTable has one entry per SSRC: the other transport keeps it.
+      return drop(UnknownSsrcDrop.ssrcInUse);
+    }
     if (repaired) return drop(UnknownSsrcDrop.rtx);
     // A late packet of an SSRC a receiver replaced is not a new stream.
     if (
@@ -655,6 +671,20 @@ export class RtpRouter {
     this.learnedSsrcs.add(ssrc);
     this.lastUnknownSsrcDrop = undefined;
     return receiver;
+  }
+
+  /** A route packets taught for a receiver of a transport other than `transport`. */
+  private isForeignLearnedRoute(
+    ssrc: number,
+    route: RTCRtpReceiver | RTCRtpSender,
+    transport: RTCDtlsTransport | undefined,
+  ) {
+    return (
+      !!transport &&
+      this.learnedSsrcs.has(ssrc) &&
+      route instanceof RTCRtpReceiver &&
+      route.dtlsTransport !== transport
+    );
   }
 
   /** Drop the fallback SSRC of `receiver` and its learned route. */
