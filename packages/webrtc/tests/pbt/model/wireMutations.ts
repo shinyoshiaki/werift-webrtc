@@ -110,6 +110,13 @@ export const WIRE_MUTATIONS: Record<string, WireMutation> = {
   /** The video RTX codec is gone (its payload type, `apt` and FID stay unused). */
   noRtx: { apply: (sdp) => withoutCodecs(sdp, "video", ["rtx"]) },
   ssrcSwapped: { apply: swapSsrcs },
+  /**
+   * No `a=ssrc` / `a=ssrc-group` (a SIP gateway, an SBC, #356): the receiver
+   * learns the SSRC from the packets (`RtpRouter` fallback, by MID here).
+   */
+  ssrcRemoved: {
+    apply: (sdp) => sdp.replace(/^a=ssrc(-group)?:.*\r\n/gm, ""),
+  },
   mediaSsrcRenewed: { apply: renewMediaSsrc },
   /** H264 moves to a new payload type (an added key; its old one is gone). */
   codecRenumbered: {

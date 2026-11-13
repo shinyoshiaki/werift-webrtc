@@ -394,6 +394,12 @@ export function leakFootprint(pc: RTCPeerConnection): Footprint {
     "router.provisionalSsrc": router.provisionalSsrc.size,
     "router.learnedSsrcs": router.learnedSsrcs.size,
     "router.extIdUriMap": Object.keys(router.extIdUriMap).length,
+    // パケットから学習した track の SSRC (RID と、a=ssrc のない m-line の fallback)。
+    // fallback は receiver ごとに 1 つで、新しい SSRC は置き換える (RtpRouter)。
+    "receiver.learnedTrackSsrcs": sum(
+      transceivers,
+      ({ receiver }) => receiver.learnedTrackSsrcs.size,
+    ),
     // RID 由来の RTX 対応と SSRC ごとの NACK 状態 (パケット駆動、receiver.stop で解放)。
     "receiver.ridRtx": sum(
       transceivers,

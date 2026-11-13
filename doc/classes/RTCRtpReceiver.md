@@ -259,6 +259,41 @@ RTX SSRCs of [ridByRtxSsrc](#ridbyrtxssrc) per RID, oldest bound first.
 
 ## Accessors
 
+### acceptsUnknownSsrc
+
+#### Get Signature
+
+> **get** **acceptsUnknownSsrc**(): `boolean`
+
+Internal (router): whether an RTP stream whose SSRC no description names
+may be learned for this receiver: the remote description gave it neither
+an SSRC nor a RID (no track besides the default one), and it is running.
+
+##### Returns
+
+`boolean`
+
+***
+
+### fallbackSsrc
+
+#### Get Signature
+
+> **get** **fallbackSsrc**(): `number` \| `undefined`
+
+Internal (router): the SSRC learned from a packet for a remote m-line
+without `a=ssrc` and without RIDs (RFC 9143 section 9.2). It is bound to
+the default track, the one `ontrack` already announced, so the
+application keeps receiving on that object. At most one per receiver:
+see [bindFallbackSsrc](#bindfallbackssrc). Derived from `trackBySSRC`, so a
+negotiation snapshot and rollback keep it consistent with the tables.
+
+##### Returns
+
+`number` \| `undefined`
+
+***
+
 ### nackEnabled
 
 #### Get Signature
@@ -334,6 +369,58 @@ RTX SSRCs of [ridByRtxSsrc](#ridbyrtxssrc) per RID, oldest bound first.
 #### Returns
 
 `boolean`
+
+***
+
+### adoptDefaultTrack()
+
+> **adoptDefaultTrack**(`ssrc`, `codec?`): [`MediaStreamTrack`](MediaStreamTrack.md)
+
+Internal (router): the track a description's first SSRC binds when this
+m-line had neither an SSRC nor a RID and `ontrack` already announced the
+default track: the application keeps receiving on the object it got,
+and `ontrack` does not fire again for it.
+
+#### Parameters
+
+##### ssrc
+
+`number`
+
+##### codec?
+
+[`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
+
+#### Returns
+
+[`MediaStreamTrack`](MediaStreamTrack.md)
+
+***
+
+### bindFallbackSsrc()
+
+> **bindFallbackSsrc**(`ssrc`, `payloadType`): `number` \| `undefined`
+
+Internal (router): bind `ssrc` to the default track as the fallback SSRC
+(see [fallbackSsrc](#fallbackssrc)). A previous fallback SSRC is replaced (a SIP
+re-INVITE or a media server switch changes the SSRC of the single
+stream): its track entry, NACK holes and per-SSRC receive state are
+dropped, and [takeForgottenSsrcs](#takeforgottenssrcs) hands it to the router to drop
+its learned route. Returns the replaced SSRC.
+
+#### Parameters
+
+##### ssrc
+
+`number`
+
+##### payloadType
+
+`number`
+
+#### Returns
+
+`number` \| `undefined`
 
 ***
 
@@ -577,6 +664,58 @@ until the transaction commits, and rollback drops the staged value.
 #### Returns
 
 `void`
+
+***
+
+### receivesMediaPayloadType()
+
+> **receivesMediaPayloadType**(`payloadType`): `boolean`
+
+Internal (router): the payload type is a negotiated media codec of this
+receiver. RTX is not: without `ssrc-group:FID` nothing pairs an RTX SSRC
+with the media SSRC.
+
+#### Parameters
+
+##### payloadType
+
+`number`
+
+#### Returns
+
+`boolean`
+
+***
+
+### receivesRtxPayloadType()
+
+> **receivesRtxPayloadType**(`payloadType`): `boolean`
+
+Internal (router): the payload type is a negotiated RTX codec of this receiver.
+
+#### Parameters
+
+##### payloadType
+
+`number`
+
+#### Returns
+
+`boolean`
+
+***
+
+### releaseFallbackSsrc()
+
+> **releaseFallbackSsrc**(): `number` \| `undefined`
+
+Internal (router): drop the fallback SSRC, when the SSRC changes or a
+description gives this m-line an SSRC or a RID. The router drops its
+route through [takeForgottenSsrcs](#takeforgottenssrcs).
+
+#### Returns
+
+`number` \| `undefined`
 
 ***
 

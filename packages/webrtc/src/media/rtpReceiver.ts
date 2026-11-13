@@ -24,7 +24,7 @@ import { codecParametersFromString } from "../sdp";
 import type { RTCDtlsTransport } from "../transport/dtls";
 import type { Kind } from "../types/domain";
 import { compactNtp, ntpTimeToEpochMs, timestampSeconds } from "../utils";
-import { primaryTrackCodec } from "./codecCompatibility";
+import { deliveredTrackCodec, primaryTrackCodec } from "./codecCompatibility";
 import { usePLI, useTWCC } from "./extension/rtcpFeedback";
 import type {
   RTCRtpCodecParameters,
@@ -206,6 +206,103 @@ export class RTCRtpReceiver {
     return this.tracks[0] ?? this.defaultTrack;
   }
 
+  /**
+   * Internal (router): the SSRC learned from a packet for a remote m-line
+   * without `a=ssrc` and without RIDs (RFC 9143 section 9.2). It is bound to
+   * the default track, the one `ontrack` already announced, so the
+   * application keeps receiving on that object. At most one per receiver:
+   * see {@link bindFallbackSsrc}. Derived from `trackBySSRC`, so a
+   * negotiation snapshot and rollback keep it consistent with the tables.
+   */
+  get fallbackSsrc(): number | undefined {
+    const entry = Object.entries(this.trackBySSRC).find(
+      ([ssrc, track]) =>
+        track === this.defaultTrack && this.learnedTrackSsrcs.has(Number(ssrc)),
+    );
+    return entry ? Number(entry[0]) : undefined;
+  }
+
+  /**
+   * Internal (router): whether an RTP stream whose SSRC no description names
+   * may be learned for this receiver: the remote description gave it neither
+   * an SSRC nor a RID (no track besides the default one), and it is running.
+   */
+  get acceptsUnknownSsrc() {
+    return !this.stopped && this.tracks.length === 0;
+  }
+
+  /**
+   * Internal (router): the payload type is a negotiated media codec of this
+   * receiver. RTX is not: without `ssrc-group:FID` nothing pairs an RTX SSRC
+   * with the media SSRC.
+   */
+  receivesMediaPayloadType(payloadType: number) {
+    const codec = this.codecs[payloadType];
+    return !!codec && !isRtxCodec(codec);
+  }
+
+  /** Internal (router): the payload type is a negotiated RTX codec of this receiver. */
+  receivesRtxPayloadType(payloadType: number) {
+    return isRtxCodec(this.codecs[payloadType]);
+  }
+
+  /**
+   * Internal (router): bind `ssrc` to the default track as the fallback SSRC
+   * (see {@link fallbackSsrc}). A previous fallback SSRC is replaced (a SIP
+   * re-INVITE or a media server switch changes the SSRC of the single
+   * stream): its track entry, NACK holes and per-SSRC receive state are
+   * dropped, and {@link takeForgottenSsrcs} hands it to the router to drop
+   * its learned route. Returns the replaced SSRC.
+   */
+  bindFallbackSsrc(ssrc: number, payloadType: number) {
+    const replaced = this.releaseFallbackSsrc();
+    const track = this.defaultTrack;
+    track.ssrc = ssrc;
+    track.codec = deliveredTrackCodec(
+      this.kind,
+      this.codecs[payloadType],
+      this.codecArray,
+    );
+    this.trackBySSRC[ssrc] = track;
+    this.learnedTrackSsrcs.add(ssrc);
+    return replaced;
+  }
+
+  /**
+   * Internal (router): drop the fallback SSRC, when the SSRC changes or a
+   * description gives this m-line an SSRC or a RID. The router drops its
+   * route through {@link takeForgottenSsrcs}.
+   */
+  releaseFallbackSsrc() {
+    const ssrc = this.fallbackSsrc;
+    if (ssrc === undefined) return undefined;
+    // A description's SSRC the default track adopted stays.
+    if (this.defaultTrack.ssrc === ssrc) this.defaultTrack.ssrc = undefined;
+    this.nack.forget(ssrc);
+    this.forgetLearnedSsrc(ssrc);
+    return ssrc;
+  }
+
+  /**
+   * Internal (router): the track a description's first SSRC binds when this
+   * m-line had neither an SSRC nor a RID and `ontrack` already announced the
+   * default track: the application keeps receiving on the object it got,
+   * and `ontrack` does not fire again for it.
+   */
+  adoptDefaultTrack(ssrc: number, codec?: RTCRtpCodecParameters) {
+    this.defaultTrack.ssrc = ssrc;
+    this.defaultTrack.codec = codec ?? this.defaultTrack.codec;
+    return this.defaultTrack;
+  }
+
+  /** Tracks with an SSRC whose statistics are reported (the fallback one too). */
+  private get reportedTracks() {
+    return this.fallbackSsrc === undefined ||
+      this.tracks.includes(this.defaultTrack)
+      ? this.tracks
+      : [...this.tracks, this.defaultTrack];
+  }
+
   get nackEnabled() {
     return this.codecArray[0]?.rtcpFeedback.find((f) => f.type === "nack");
   }
@@ -335,11 +432,15 @@ export class RTCRtpReceiver {
     this.tracks.splice(0, this.tracks.length, ...state.tracks);
     // SSRCs learned from RID packets are live state, not SDP: keep those
     // whose track survives the rollback.
+    // The fallback SSRC of an m-line without `a=ssrc` lives on the default
+    // track, which is never in `tracks`; it survives when the baseline has no
+    // track either (the m-line is still without SSRC and RID).
     const learnedTracks = Object.entries(this.trackBySSRC).filter(
       ([ssrc, track]) =>
         this.learnedTrackSsrcs.has(Number(ssrc)) &&
         !(ssrc in state.trackBySSRC) &&
-        state.tracks.includes(track),
+        (state.tracks.includes(track) ||
+          (track === this.defaultTrack && state.tracks.length === 0)),
     );
     // Packets taught before the baseline and later dropped (an SSRC retired
     // by a media SSRC change of its RID, or evicted): the baseline does not
@@ -352,11 +453,32 @@ export class RTCRtpReceiver {
     for (const [ssrc, track] of learnedTracks) {
       this.trackBySSRC[ssrc] = track;
     }
+    // A baseline entry packets taught stays learned, even if the rolled-back
+    // description named the same SSRC (which cleared the mark).
+    for (const ssrc of state.learnedTrackSsrcs) {
+      if (ssrc in this.trackBySSRC) this.learnedTrackSsrcs.add(ssrc);
+    }
     replaceTable(this.trackByRID, state.trackByRID);
     this.unboundTracks = [...state.unboundTracks];
     // A track the rolled-back description rebound gets its SSRC back.
     for (const [ssrc, track] of Object.entries(state.trackBySSRC)) {
-      if (!track.rid) track.ssrc = Number(ssrc);
+      if (!track.rid && !forgotten.includes(Number(ssrc))) {
+        track.ssrc = Number(ssrc);
+      }
+    }
+    // A fallback SSRC the baseline had and that is no longer bound (the
+    // fallback was replaced or released, or the m-line got tracks back):
+    // learned state is not brought back, and a stale one is released.
+    const fallback = this.fallbackSsrc;
+    if (fallback !== undefined && this.tracks.length > 0) {
+      this.releaseFallbackSsrc();
+    } else if (fallback !== undefined) {
+      this.defaultTrack.ssrc = fallback;
+    } else if (
+      this.defaultTrack.ssrc &&
+      !this.tracks.includes(this.defaultTrack)
+    ) {
+      this.defaultTrack.ssrc = undefined;
     }
     // Codec/RTX tables added or changed by a pending description are
     // dropped; current RTP is decoded exactly as before the transaction.
@@ -377,7 +499,7 @@ export class RTCRtpReceiver {
     this.prepareReceive(params);
     const codec = primaryTrackCodec(this.kind, params.codecs);
     if (codec) {
-      for (const track of this.tracks) track.codec = codec;
+      for (const track of this.reportedTracks) track.codec = codec;
     }
     // Re-acquire before releasing the previous reference so a still-enabled
     // receiver keeps the same transport-wide history instead of recreating it.
@@ -556,7 +678,7 @@ export class RTCRtpReceiver {
   }
 
   getStatsRootIds(selector?: MediaStreamTrack) {
-    return this.tracks
+    return this.reportedTracks
       .filter((track) => (!selector ? true : track === selector))
       .filter((track) => track.ssrc)
       .map((track) => this.getInboundRtpStatsId(track));
@@ -571,7 +693,7 @@ export class RTCRtpReceiver {
     const emittedCodecIds = new Set<string>();
 
     // Collect stats for each track
-    for (const track of this.tracks) {
+    for (const track of this.reportedTracks) {
       if (!track.ssrc) continue;
 
       const streamStats = this.remoteStreams[track.ssrc];

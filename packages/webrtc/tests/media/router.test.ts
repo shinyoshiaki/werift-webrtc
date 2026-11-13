@@ -40,6 +40,15 @@ import {
   retransmissionsOf,
   simulcastTimestampBase,
 } from "./rtpReceiverTestUtils";
+import {
+  collectTrackPayloads,
+  createSsrcLessRouter,
+  opus,
+  pcmu,
+  rtxOf,
+  ssrcLessPacket,
+  vp8,
+} from "./ssrcLessTestUtils";
 
 describe("media/router", () => {
   test("routeRtp", () =>
@@ -1588,5 +1597,345 @@ describe("media/router", () => {
         vi.useRealTimers();
       }
     });
+  });
+});
+
+describe("media/router: a=ssrc のない m-line の SSRC 学習 (#356)", () => {
+  test("MID も RID もない単一ストリームは初回パケットから既定 track に届く", () => {
+    // Arrange
+    const { router, dtls, addReceiver } = createSsrcLessRouter();
+    const audio = addReceiver({ codecs: [opus(), pcmu()] });
+    const announced = audio.receiver.track;
+    const payloads = collectTrackPayloads(audio);
+
+    // Act: SDP にない SSRC で 2 パケット流す
+    router.routeRtp(
+      ssrcLessPacket({ ssrc: 4321, payloadType: 0, sequenceNumber: 1 }),
+      dtls,
+    );
+    router.routeRtp(
+      ssrcLessPacket({ ssrc: 4321, payloadType: 0, sequenceNumber: 2 }),
+      dtls,
+    );
+
+    // Assert: ontrack で通知済みの track に初回から届き、表が整合する
+    expect(payloads).toEqual(["payload-1", "payload-2"]);
+    expect(audio.receiver.track).toBe(announced);
+    expect(router.ssrcTable[4321]).toBe(audio.receiver);
+    expect(router.learnedSsrcs.has(4321)).toBe(true);
+    expect(audio.receiver.trackBySSRC[4321]).toBe(announced);
+    expect(audio.receiver.learnedTrackSsrcs.has(4321)).toBe(true);
+    expect(audio.receiver.fallbackSsrc).toBe(4321);
+    expect(announced.ssrc).toBe(4321);
+    expect(announced.codec?.payloadType).toBe(0);
+  });
+
+  test("PT が重なる SSRC-less receiver が 2 つあれば学習しない", () => {
+    // Arrange
+    const { router, dtls, addReceiver } = createSsrcLessRouter();
+    const first = addReceiver();
+    const second = addReceiver();
+    const payloads = [...[first, second].map((t) => collectTrackPayloads(t))];
+
+    // Act
+    router.routeRtp(ssrcLessPacket({ ssrc: 1, payloadType: 111 }), dtls);
+
+    // Assert: どちらにも届かず、経路も増えない
+    expect(payloads).toEqual([[], []]);
+    expect(router.ssrcTable[1]).toBeUndefined();
+    expect(router.learnedSsrcs.size).toBe(0);
+  });
+
+  test("BUNDLE の audio / video は PT が分かれていれば PT で一意に決まる", () => {
+    // Arrange
+    const { router, dtls, addReceiver } = createSsrcLessRouter();
+    const audio = addReceiver({ codecs: [opus()] });
+    const video = addReceiver({ kind: "video", codecs: [vp8()] });
+    const audioPayloads = collectTrackPayloads(audio);
+    const videoPayloads = collectTrackPayloads(video);
+
+    // Act
+    router.routeRtp(ssrcLessPacket({ ssrc: 10, payloadType: 111 }), dtls);
+    router.routeRtp(ssrcLessPacket({ ssrc: 20, payloadType: 96 }), dtls);
+
+    // Assert: それぞれ正しい receiver だけに届く
+    expect(audioPayloads).toEqual(["payload-1"]);
+    expect(videoPayloads).toEqual(["payload-1"]);
+    expect(router.ssrcTable[10]).toBe(audio.receiver);
+    expect(router.ssrcTable[20]).toBe(video.receiver);
+  });
+
+  test("MID 拡張があれば MID の receiver に限って学習する", () => {
+    // Arrange: PT が重なっても MID で決まる
+    const { router, dtls, addReceiver } = createSsrcLessRouter();
+    const first = addReceiver({ mid: "a" });
+    const second = addReceiver({ mid: "b" });
+    const firstPayloads = collectTrackPayloads(first);
+    const secondPayloads = collectTrackPayloads(second);
+
+    // Act
+    router.routeRtp(
+      ssrcLessPacket({ ssrc: 5, payloadType: 111, mid: "b" }),
+      dtls,
+    );
+
+    // Assert
+    expect(firstPayloads).toEqual([]);
+    expect(secondPayloads).toEqual(["payload-1"]);
+    expect(router.ssrcTable[5]).toBe(second.receiver);
+  });
+
+  test.each([
+    ["別 transport", "transport"],
+    ["停止済み", "stopped"],
+    ["PT 非対応", "payloadType"],
+    ["存在しない MID", "unknownMid"],
+  ] as const)("MID の receiver が %s なら学習しない", (_, kind) => {
+    // Arrange
+    const { router, dtls, addReceiver } = createSsrcLessRouter();
+    const other = addReceiver({ mid: "other" });
+    const target = addReceiver({
+      mid: "a",
+      transport: kind === "transport" ? createDtlsTransport() : undefined,
+    });
+    if (kind === "stopped") target.stopped = true;
+    const payloads = [other, target].map((t) => collectTrackPayloads(t));
+
+    // Act: 条件を満たさない MID は別 m-line へ推測しない
+    router.routeRtp(
+      ssrcLessPacket({
+        ssrc: 7,
+        payloadType: kind === "payloadType" ? 0 : 111,
+        mid: kind === "unknownMid" ? "zzz" : "a",
+      }),
+      dtls,
+    );
+
+    // Assert
+    expect(payloads).toEqual([[], []]);
+    expect(router.ssrcTable[7]).toBeUndefined();
+  });
+
+  test("別 transport から届いたパケットと transport なしの呼び出しは学習しない", () => {
+    // Arrange
+    const { router, addReceiver } = createSsrcLessRouter();
+    const audio = addReceiver();
+    const payloads = collectTrackPayloads(audio);
+
+    // Act
+    router.routeRtp(
+      ssrcLessPacket({ ssrc: 8, payloadType: 111 }),
+      createDtlsTransport(),
+    );
+    router.routeRtp(ssrcLessPacket({ ssrc: 8, payloadType: 111 }));
+
+    // Assert
+    expect(payloads).toEqual([]);
+    expect(router.ssrcTable[8]).toBeUndefined();
+  });
+
+  test("RTX PT と受信 codec 表にない PT からは学習しない", () => {
+    // Arrange
+    const { router, dtls, addReceiver } = createSsrcLessRouter();
+    const video = addReceiver({
+      kind: "video",
+      codecs: [vp8(), rtxOf(97, 96)],
+    });
+    const payloads = collectTrackPayloads(video);
+
+    // Act
+    router.routeRtp(ssrcLessPacket({ ssrc: 30, payloadType: 97 }), dtls);
+    router.routeRtp(ssrcLessPacket({ ssrc: 31, payloadType: 100 }), dtls);
+
+    // Assert
+    expect(payloads).toEqual([]);
+    expect(router.ssrcTable[30]).toBeUndefined();
+    expect(router.ssrcTable[31]).toBeUndefined();
+  });
+
+  test("学習済み receiver に別 SSRC が来たら置き換え、表は 1 件のまま", () => {
+    // Arrange
+    const { router, dtls, addReceiver } = createSsrcLessRouter();
+    const audio = addReceiver();
+    const announced = audio.receiver.track;
+    const payloads = collectTrackPayloads(audio);
+    router.routeRtp(
+      ssrcLessPacket({ ssrc: 100, payloadType: 111, sequenceNumber: 1 }),
+      dtls,
+    );
+
+    // Act: SSRC が変わる (再 INVITE やメディアサーバ切替)
+    router.routeRtp(
+      ssrcLessPacket({ ssrc: 200, payloadType: 111, sequenceNumber: 2 }),
+      dtls,
+    );
+
+    // Assert: 同じ track に届き、古い SSRC の経路と track は外れる
+    expect(payloads).toEqual(["payload-1", "payload-2"]);
+    expect(router.ssrcTable[100]).toBeUndefined();
+    expect(router.ssrcTable[200]).toBe(audio.receiver);
+    expect([...router.learnedSsrcs]).toEqual([200]);
+    expect(Object.keys(audio.receiver.trackBySSRC)).toEqual(["200"]);
+    expect([...audio.receiver.learnedTrackSsrcs]).toEqual([200]);
+    expect(announced.ssrc).toBe(200);
+  });
+
+  test("a=ssrc のある m-line は未知 SSRC の候補にならない", () => {
+    // Arrange
+    const { router, dtls, addReceiver } = createSsrcLessRouter();
+    const audio = addReceiver({ ssrc: 1111 });
+
+    // Act
+    router.routeRtp(ssrcLessPacket({ ssrc: 2222, payloadType: 111 }), dtls);
+
+    // Assert
+    expect(router.ssrcTable[2222]).toBeUndefined();
+    expect(router.ssrcTable[1111]).toBe(audio.receiver);
+  });
+
+  test("後から SDP が SSRC を与えると fallback で学習した経路は外れる", () => {
+    // Arrange
+    const { router, dtls, addReceiver } = createSsrcLessRouter();
+    const audio = addReceiver();
+    const announced = audio.receiver.track;
+    router.routeRtp(ssrcLessPacket({ ssrc: 300, payloadType: 111 }), dtls);
+
+    // Act: 再 offer で a=ssrc:400 が付く
+    router.registerRtpReceiverBySsrc(audio, {
+      codecs: [opus()],
+      headerExtensions: [],
+      encodings: [new RTCRtpCodingParameters({ ssrc: 400, payloadType: 111 })],
+    });
+
+    // Assert
+    expect(router.ssrcTable[300]).toBeUndefined();
+    expect(router.learnedSsrcs.has(300)).toBe(false);
+    expect(audio.receiver.trackBySSRC[300]).toBeUndefined();
+    expect(audio.receiver.fallbackSsrc).toBeUndefined();
+    expect(router.ssrcTable[400]).toBe(audio.receiver);
+    // 通知済みの track が SDP の SSRC に結び付き、ontrack をやり直さない
+    expect(audio.receiver.track).toBe(announced);
+    expect(audio.receiver.trackBySSRC[400]).toBe(announced);
+    expect(announced.ssrc).toBe(400);
+  });
+
+  test.each([
+    ["commit", 300],
+    ["commit", 400],
+    ["rollback", 300],
+    ["rollback", 400],
+  ] as const)(
+    "pending の SDP が SSRC を与えても %s まで fallback の経路で受信が続く (SDP の SSRC %d)",
+    (finish, sdpSsrc) => {
+      // Arrange: SSRC 300 を学習済みの baseline
+      const { router, dtls, addReceiver } = createSsrcLessRouter();
+      const audio = addReceiver();
+      const announced = audio.receiver.track;
+      const payloads = collectTrackPayloads(audio);
+      router.routeRtp(
+        ssrcLessPacket({ ssrc: 300, payloadType: 111, sequenceNumber: 1 }),
+        dtls,
+      );
+      const routes = router.snapshotRoutes();
+      const receiverState = audio.receiver.snapshotNegotiationState();
+
+      // Act: pending の re-offer が a=ssrc を付け、その間も 300 が届く
+      router.registerRtpReceiverBySsrc(
+        audio,
+        {
+          codecs: [opus()],
+          headerExtensions: [],
+          encodings: [
+            new RTCRtpCodingParameters({ ssrc: sdpSsrc, payloadType: 111 }),
+          ],
+        },
+        { deferConflicts: true },
+      );
+      router.routeRtp(
+        ssrcLessPacket({ ssrc: 300, payloadType: 111, sequenceNumber: 2 }),
+        dtls,
+      );
+
+      // Assert: 現在の session は同じ track で受信を続け、ontrack はやり直さない
+      expect(payloads).toEqual(["payload-1", "payload-2"]);
+      expect(audio.receiver.track).toBe(announced);
+
+      // Act
+      if (finish === "commit") {
+        router.commitStaged();
+      } else {
+        router.restoreRoutes(routes, {
+          endpoints: new Set([audio.receiver, audio.sender]),
+          liveSenders: [],
+        });
+        audio.receiver.restoreNegotiationState(receiverState);
+      }
+      // commit 後は SDP の SSRC、rollback 後は学習済みの 300 で流す
+      router.routeRtp(
+        ssrcLessPacket({
+          ssrc: finish === "commit" ? sdpSsrc : 300,
+          payloadType: 111,
+          sequenceNumber: 3,
+        }),
+        dtls,
+      );
+
+      // Assert: commit は SDP の SSRC へ、rollback は学習済みの 300 へ戻る
+      expect(audio.receiver.track).toBe(announced);
+      if (finish === "commit") {
+        expect(payloads).toEqual(["payload-1", "payload-2", "payload-3"]);
+        expect(announced.ssrc).toBe(sdpSsrc);
+        expect(audio.receiver.fallbackSsrc).toBeUndefined();
+        expect(router.learnedSsrcs.size).toBe(0);
+        expect(Object.keys(router.ssrcTable)).toEqual([String(sdpSsrc)]);
+      } else {
+        expect(payloads).toEqual(["payload-1", "payload-2", "payload-3"]);
+        expect(announced.ssrc).toBe(300);
+        expect(audio.receiver.fallbackSsrc).toBe(300);
+        expect(router.ssrcTable[sdpSsrc === 300 ? 300 : 400]).toBe(
+          sdpSsrc === 300 ? audio.receiver : undefined,
+        );
+        expect(router.ssrcTable[300]).toBe(audio.receiver);
+        expect(router.learnedSsrcs.has(300)).toBe(true);
+        expect(audio.receiver.learnedTrackSsrcs.has(300)).toBe(true);
+      }
+    },
+  );
+
+  test("transceiver の登録解除で学習済み SSRC が残らない", () => {
+    // Arrange
+    const { router, dtls, addReceiver } = createSsrcLessRouter();
+    const audio = addReceiver();
+    router.routeRtp(ssrcLessPacket({ ssrc: 500, payloadType: 111 }), dtls);
+
+    // Act
+    router.unregisterTransceiver(audio);
+
+    // Assert
+    expect(router.ssrcTable[500]).toBeUndefined();
+    expect(router.learnedSsrcs.size).toBe(0);
+    expect(audio.receiver.learnedTrackSsrcs.size).toBe(0);
+    expect(audio.receiver.fallbackSsrc).toBeUndefined();
+  });
+
+  test("rollback の baseline で SSRC-less のままなら学習済み経路と track が保たれる", () => {
+    // Arrange: 学習前の baseline
+    const { router, dtls, addReceiver } = createSsrcLessRouter();
+    const audio = addReceiver();
+    const routes = router.snapshotRoutes();
+    const receiverState = audio.receiver.snapshotNegotiationState();
+    router.routeRtp(ssrcLessPacket({ ssrc: 600, payloadType: 111 }), dtls);
+
+    // Act
+    router.restoreRoutes(routes, {
+      endpoints: new Set([audio.receiver, audio.sender]),
+      liveSenders: [],
+    });
+    audio.receiver.restoreNegotiationState(receiverState);
+
+    // Assert
+    expect(router.ssrcTable[600]).toBe(audio.receiver);
+    expect(audio.receiver.fallbackSsrc).toBe(600);
+    expect(audio.receiver.track.ssrc).toBe(600);
   });
 });

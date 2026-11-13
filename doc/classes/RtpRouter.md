@@ -30,6 +30,29 @@ They are bounded per RID: an SSRC the receiver retires (a media SSRC change
 of the RID) or evicts loses its learned route here (`takeForgottenSsrcs`),
 and unregistering a transceiver drops its learned SSRCs.
 
+| Packet-driven key | Learned when | Bound |
+| --- | --- | --- |
+| SSRC → receiver (RID) | `rtp-stream-id` / `repaired-rtp-stream-id` names a route | per RID (receiver) |
+| SSRC → receiver (simulcast) | the SSRC is a learned track SSRC of a RID receiver | as above |
+| SSRC → receiver (fallback, RFC 9143 section 9.2) | see learnUnknownSsrc | one per receiver |
+
+The fallback serves remote m-lines without `a=ssrc` and RIDs (SIP gateways,
+SBCs, media servers): an SSRC no route, RID or simulcast track knows is
+learned for the receiver the packet's MID names, or else for the only
+candidate receiver on the packet's transport whose receive codecs carry the
+payload type; when that is ambiguous, or the packet comes without a
+transport (`routeRtp(packet)`), it is dropped. The learned SSRC binds the
+default track `ontrack` announced (`RTCRtpReceiver.bindFallbackSsrc`); a new
+SSRC that passes the same checks replaces it, so tables stay bounded. Like
+the other packet-driven routes it is added at once while a description is
+pending, and commit and rollback keep it while the m-line stays without
+SSRC and RID. A description that gives the m-line an SSRC or a RID drops it
+when it applies as an answer or commits; while it is pending the current
+session keeps receiving on the fallback SSRC and rollback keeps it. The
+first SSRC such a description gives binds the announced track as well
+(`RTCRtpReceiver.adoptDefaultTrack`), so `ontrack` does not fire again.
+Unregistering the transceiver drops the fallback SSRC.
+
 A payload type or extension ID counts as in use only when both current
 descriptions carry it for the m-line. RID lookup uses MID+RID when the
 packet's MID names a route, else the RID alone. `extIdUriMap` is shared by
@@ -93,6 +116,20 @@ Keyed by ridRouteKey (MID + RID).
 #### Index Signature
 
 \[`ssrc`: `number`\]: [`RTCRtpReceiver`](RTCRtpReceiver.md) \| [`RTCRtpSender`](RTCRtpSender.md)
+
+***
+
+### transceivers
+
+> **transceivers**: () => readonly [`RTCRtpTransceiver`](RTCRtpTransceiver.md)[]
+
+Internal: the transceivers of the PeerConnection, for the fallback of
+learnUnknownSsrc. Set by the TransceiverManager; the router keeps
+no table of its own for it, so negotiation snapshots stay as they are.
+
+#### Returns
+
+readonly [`RTCRtpTransceiver`](RTCRtpTransceiver.md)[]
 
 ## Accessors
 
@@ -304,7 +341,7 @@ Internal: restore staged routes (an empty snapshot discards them).
 
 ### routeRtp()
 
-> **routeRtp**(`packet`): `void`
+> **routeRtp**(`packet`, `dtlsTransport?`): `void`
 
 Simulcast (RFC 8852): a packet with `rtp-stream-id` is a layer's media,
 one with `repaired-rtp-stream-id` is the RTX stream repairing that layer.
@@ -317,6 +354,10 @@ an RTCP RR); later packets of the SSRC are routed by SSRC alone.
 ##### packet
 
 [`RtpPacket`](RtpPacket.md)
+
+##### dtlsTransport?
+
+[`RTCDtlsTransport`](RTCDtlsTransport.md)
 
 #### Returns
 

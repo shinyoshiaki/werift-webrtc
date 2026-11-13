@@ -285,6 +285,8 @@ export class TransceiverManager {
     this.cname = cname;
     this.config = config;
     this.router = router;
+    // Candidates of the router's fallback for RTP without a known SSRC.
+    this.router.transceivers = () => this.transceivers;
   }
 
   getTransceivers(): RTCRtpTransceiver[] {

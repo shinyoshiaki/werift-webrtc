@@ -442,6 +442,32 @@ export const MODEL_SCENES: (Scene & { name: string; ref: string })[] = [
       ["b", finish],
     ] as Scene["ops"],
   })),
+  ...(["answer", "rollback"] as const).map((finish) => ({
+    name: `an SSRC learned for a first offer without a=ssrc survives a re-offer until ${finish} and a clean negotiation heals`,
+    ref: "#356; RFC 9143 section 9.2 (packet-driven SSRC route of an m-line without a=ssrc)",
+    start: "unnegotiated" as const,
+    ops: [
+      ["a", "wireOffer", { mutation: "ssrcRemoved" }],
+      ["b", "answer"],
+      ["b", "offer"],
+      ["a", finish],
+      ["a", "offer", { iceRestart: true }],
+      ["b", "answer"],
+    ] as Scene["ops"],
+  })),
+  {
+    name: "a re-offer that gives an m-line learned without a=ssrc its SSRC keeps the learned route until the rollback",
+    ref: "#356; a pending description must not change a key the current session uses",
+    start: "unnegotiated",
+    ops: [
+      ["a", "wireOffer", { mutation: "ssrcRemoved" }],
+      ["b", "answer"],
+      ["a", "offer"],
+      ["b", "rollback"],
+      ["a", "offer"],
+      ["b", "answer"],
+    ],
+  },
   {
     name: "a remote pranswer that changes send parameters (no RTX) is fully undone by rollback",
     ref: "2.2-9 2.4-4; origin: self-review (live state); was Reg a remote pranswer that changes send parameters is fully undone by rollback",
