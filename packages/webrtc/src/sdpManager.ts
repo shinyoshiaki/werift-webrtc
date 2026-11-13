@@ -29,6 +29,8 @@ export class SDPManager {
   readonly midSuffix: boolean;
   readonly bundlePolicy?: BundlePolicy;
   readonly mLineReuse: MLineReuse;
+  /** Local `a=ice-options` tokens written on every m-line. */
+  readonly iceOptions: string;
 
   private seenMid = new Set<string>();
 
@@ -37,16 +39,20 @@ export class SDPManager {
     midSuffix,
     bundlePolicy,
     mLineReuse,
+    iceOptionIce2,
   }: {
     cname: string;
     midSuffix?: boolean;
     bundlePolicy?: BundlePolicy;
     mLineReuse?: MLineReuse;
+    /** Add `ice2` (RFC 8445 §10) to the local ice-options. */
+    iceOptionIce2?: boolean;
   }) {
     this.cname = cname;
     this.midSuffix = midSuffix ?? false;
     this.bundlePolicy = bundlePolicy;
     this.mLineReuse = mLineReuse ?? "compatible";
+    this.iceOptions = iceOptionIce2 ? "trickle ice2" : "trickle";
   }
 
   get localDescription() {
@@ -212,7 +218,7 @@ export class SDPManager {
     media.iceCandidates = generation.candidates;
     media.iceCandidatesComplete = generation.complete;
     media.iceParams = generation.parameters;
-    media.iceOptions = "trickle";
+    media.iceOptions = this.iceOptions;
 
     media.host = DISCARD_HOST;
     media.port = DISCARD_PORT;

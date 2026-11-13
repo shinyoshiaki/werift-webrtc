@@ -713,6 +713,22 @@ W3C [[NegotiationNeeded]].
 
 ***
 
+### remoteIceOptionIce2
+
+#### Get Signature
+
+> **get** **remoteIceOptionIce2**(): `boolean` \| `null`
+
+Whether the remote description declares the `ice2` ice-option (an
+RFC 8445 agent, RFC 8839 §5.6), or null without a remote description.
+Informational: werift runs the RFC 8445 procedures either way.
+
+##### Returns
+
+`boolean` \| `null`
+
+***
+
 ### remoteIsBundled
 
 #### Get Signature
@@ -1251,6 +1267,31 @@ enumerated addresses (only its `iceAdditionalHostAddresses`).
 > **iceLite**: `boolean`
 
 Advertise local ICE lite and operate in the controlled role.
+
+##### iceMessageIntegrity
+
+> **iceMessageIntegrity**: [`MessageIntegrityMode`](../type-aliases/MessageIntegrityMode.md) \| `undefined`
+
+Integrity attributes of the ICE connectivity checks and consent requests
+werift sends (RFC 8489 short-term credentials). Applies to ICE transports
+created after it is set.
+- `undefined` / `"sha1"` (default): MESSAGE-INTEGRITY only. Browsers
+  (libwebrtc, Firefox) accept this.
+- `"sha256"`: MESSAGE-INTEGRITY-SHA256 only. Only for peers known to
+  support it: a peer that does not know the attribute rejects the checks.
+- `"both"`: MESSAGE-INTEGRITY followed by MESSAGE-INTEGRITY-SHA256.
+
+Checks and responses from the peer are accepted with either algorithm,
+and responses are always signed with the algorithm of the request.
+
+##### iceOptionIce2
+
+> **iceOptionIce2**: `boolean`
+
+Advertise the `ice2` ice-option (`a=ice-options:trickle ice2`, RFC 8445
+§10 / RFC 8839) to declare an RFC 8445 agent. Defaults to false
+(`a=ice-options:trickle`). It is only a declaration: werift runs the
+RFC 8445 procedures either way. Cannot be changed after construction.
 
 ##### icePasswordPrefix
 

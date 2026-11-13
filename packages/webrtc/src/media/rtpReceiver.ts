@@ -24,7 +24,7 @@ import { codecParametersFromString } from "../sdp";
 import type { RTCDtlsTransport } from "../transport/dtls";
 import type { Kind } from "../types/domain";
 import { compactNtp, ntpTimeToEpochMs, timestampSeconds } from "../utils";
-import { deliveredTrackCodec } from "./codecCompatibility";
+import { primaryTrackCodec } from "./codecCompatibility";
 import { usePLI, useTWCC } from "./extension/rtcpFeedback";
 import type {
   RTCRtpCodecParameters,
@@ -54,6 +54,23 @@ import {
   RtpReceivePacketType,
 } from "./track";
 
+/**
+ * RTX SSRCs bound to one RID. A RID has one RTX stream at a time (RFC 8852);
+ * the bound only takes RTX SSRCs of replaced media that arrive late.
+ * Eviction takes RTX SSRCs that never repaired the RID's current media SSRC
+ * first, so the RTX stream in use is kept.
+ */
+const MAX_RTX_SSRCS_PER_RID = 8;
+/**
+ * SSRCs a media SSRC change of a RID retired (the old media SSRC and the RTX
+ * SSRCs that repaired it). Their late packets are dropped instead of being
+ * taken for another change. A retired SSRC evicted from this bound that
+ * reappears counts as a new change of the RID, a reset again.
+ */
+const MAX_RETIRED_SSRCS_PER_RID = 8;
+/** Timestamp slack, in seconds of the media clock, of a hole (see `NackHandler.canRepair`). */
+const RTX_TIMESTAMP_SLACK_SECONDS = 1;
+
 const log = debug("werift:packages/webrtc/src/media/rtpReceiver.ts");
 
 export class RTCRtpReceiver {
@@ -73,6 +90,27 @@ export class RTCRtpReceiver {
   private readonly stagedSsrcByRtx: { [rtxSsrc: number]: number } = {};
   /** SSRCs of `trackBySSRC` learned from RID packets rather than SDP. */
   readonly learnedTrackSsrcs = new Set<number>();
+  /**
+   * Simulcast RTX without `a=ssrc-group:FID` (RFC 8852). A RID has one media
+   * SSRC at a time ({@link mediaSsrcByRid}, learned from `rtp-stream-id`); a
+   * media SSRC change without renegotiation is a reset of the RID's stream
+   * (see `switchRidMedia`). An RTX SSRC is bound to the RID it repairs
+   * ({@link ridByRtxSsrc}, learned from `repaired-rtp-stream-id`) and its
+   * packet is restored to the RID's current media SSRC only when it fills a
+   * hole NACK detected there (`NackHandler.canRepair`).
+   * Packet-driven live state like {@link learnedTrackSsrcs}: a negotiation
+   * (commit, rollback, `resyncCodecs`) keeps it, a later packet updates it.
+   */
+  readonly mediaSsrcByRid: { [rid: string]: number } = {};
+  readonly ridByRtxSsrc: { [rtxSsrc: number]: string } = {};
+  /** RTX SSRCs of {@link ridByRtxSsrc} per RID, oldest bound first. */
+  readonly rtxSsrcsByRid: { [rid: string]: number[] } = {};
+  /** Media SSRC each RTX SSRC last repaired (decides retirement and eviction). */
+  readonly repairedMediaByRtx: { [rtxSsrc: number]: number } = {};
+  /** SSRCs retired by a media SSRC change, per RID, oldest first. */
+  readonly retiredSsrcsByRid: { [rid: string]: number[] } = {};
+  private readonly forgottenSsrcs: number[] = [];
+  private readonly rejectedSsrcs: number[] = [];
   private readonly nack = new NackHandler(this);
   private readonly audioRedHandler = new RedHandler();
 
@@ -275,6 +313,8 @@ export class RTCRtpReceiver {
       remoteTrackId: this.remoteTrackId,
       tracks: [...this.tracks],
       trackBySSRC: { ...this.trackBySSRC },
+      /** SSRCs of `trackBySSRC` that packets taught (not description state). */
+      learnedTrackSsrcs: [...this.learnedTrackSsrcs],
       trackByRID: { ...this.trackByRID },
       unboundTracks: [...this.unboundTracks],
       receiveTables: this.snapshotReceiveTables(),
@@ -301,7 +341,14 @@ export class RTCRtpReceiver {
         !(ssrc in state.trackBySSRC) &&
         state.tracks.includes(track),
     );
+    // Packets taught before the baseline and later dropped (an SSRC retired
+    // by a media SSRC change of its RID, or evicted): the baseline does not
+    // bring them back.
+    const forgotten = state.learnedTrackSsrcs.filter(
+      (ssrc) => !(ssrc in this.trackBySSRC),
+    );
     replaceTable(this.trackBySSRC, state.trackBySSRC);
+    for (const ssrc of forgotten) delete this.trackBySSRC[ssrc];
     for (const [ssrc, track] of learnedTracks) {
       this.trackBySSRC[ssrc] = track;
     }
@@ -328,11 +375,7 @@ export class RTCRtpReceiver {
     clearTable(this.codecs);
     clearTable(this.ssrcByRtx);
     this.prepareReceive(params);
-    const codec = deliveredTrackCodec(
-      this.kind,
-      params.codecs[0],
-      params.codecs,
-    );
+    const codec = primaryTrackCodec(this.kind, params.codecs);
     if (codec) {
       for (const track of this.tracks) track.codec = codec;
     }
@@ -438,6 +481,13 @@ export class RTCRtpReceiver {
 
     this.releaseReceiverTWCC();
     this.nack.close();
+    clearTable(this.mediaSsrcByRid);
+    clearTable(this.ridByRtxSsrc);
+    clearTable(this.rtxSsrcsByRid);
+    clearTable(this.repairedMediaByRtx);
+    clearTable(this.retiredSsrcsByRid);
+    this.forgottenSsrcs.length = 0;
+    this.rejectedSsrcs.length = 0;
   }
 
   /**transceiver の停止確定時に remote track を ended にする */
@@ -703,13 +753,274 @@ export class RTCRtpReceiver {
 
   handleRtpByRid = (packet: RtpPacket, rid: string, extensions: Extensions) => {
     const track = this.trackByRID[rid];
-    if (!this.trackBySSRC[packet.header.ssrc]) {
-      this.trackBySSRC[packet.header.ssrc] = track;
-      this.learnedTrackSsrcs.add(packet.header.ssrc);
+    const { ssrc } = packet.header;
+    if (!track) {
+      // TWCC は transport 全体の番号なので記録し、経路は学習させない。
+      log("rid has no track", rid);
+      this.rejectedSsrcs.push(ssrc);
+      this.handleRTP(packet, extensions);
+      return;
+    }
+    const codec = this.codecs[packet.header.payloadType];
+    if (!codec) {
+      // 未交渉の payload type は媒体として扱わない (handleRTP も破棄する)。
+      // RID の媒体 SSRC の切り替えや経路・track の学習には使わない。
+      log("rid packet with unknown payload type", {
+        rid,
+        ssrc,
+        payloadType: packet.header.payloadType,
+      });
+      this.rejectedSsrcs.push(ssrc);
+      return;
+    }
+    if (isRtxCodec(codec)) {
+      // RTX that names its RID with rtp-stream-id instead of the repaired one.
+      this.handleRtxByRid(packet, rid, extensions);
+      return;
+    }
+    if (this.isRetired(rid, ssrc)) {
+      this.dropRetired(packet, extensions);
+      return;
+    }
+    if (this.mediaSsrcByRid[rid] !== ssrc) this.switchRidMedia(rid, ssrc);
+    if (!this.trackBySSRC[ssrc]) {
+      this.trackBySSRC[ssrc] = track;
+      this.learnedTrackSsrcs.add(ssrc);
     }
 
     this.handleRTP(packet, extensions, track);
   };
+
+  /**
+   * An RTX packet that names the RID it repairs (`repaired-rtp-stream-id`).
+   * The RTX SSRC is bound to that RID; the packet is restored only when it
+   * fills a hole of the RID's current media SSRC (see {@link mediaSsrcOfRtx}).
+   */
+  handleRtxByRid = (
+    packet: RtpPacket,
+    repairedRid: string,
+    extensions: Extensions,
+  ) => {
+    if (!this.trackByRID[repairedRid]) {
+      log("repaired rid has no track", repairedRid);
+      this.rejectedSsrcs.push(packet.header.ssrc);
+      this.handleRTP(packet, extensions);
+      return;
+    }
+    if (!isRtxCodec(this.codecs[packet.header.payloadType])) {
+      // 交渉済みの RTX でないパケットは RTX SSRC として結び付けない。
+      log("repaired rid packet is not rtx", packet.header.payloadType);
+      this.rejectedSsrcs.push(packet.header.ssrc);
+      this.handleRTP(packet, extensions);
+      return;
+    }
+    if (this.isRetired(repairedRid, packet.header.ssrc)) {
+      this.dropRetired(packet, extensions);
+      return;
+    }
+    this.bindRtxSsrc(packet.header.ssrc, repairedRid);
+    this.handleRTP(packet, extensions);
+  };
+
+  private isRetired(rid: string, ssrc: number) {
+    return this.retiredSsrcsByRid[rid]?.includes(ssrc) ?? false;
+  }
+
+  /**
+   * A late packet of a media or RTX SSRC a change of its RID replaced: only
+   * transport-wide CC (a transport-level sequence) observes it; it is not
+   * delivered, routed or counted.
+   */
+  private dropRetired(packet: RtpPacket, extensions: Extensions) {
+    log("packet of a replaced ssrc dropped", packet.header.ssrc);
+    this.forgottenSsrcs.push(packet.header.ssrc);
+    const codec = this.codecs[packet.header.payloadType];
+    if (codec) this.observeTransportCc(packet, extensions, this.aptOf(codec));
+  }
+
+  /**
+   * The RID's media SSRC changed without renegotiation: a reset of its
+   * stream. The old media SSRC's NACK requests and holes end together
+   * (`NackHandler.forget`), its learned route / track / per-SSRC state are
+   * released, and it is retired with the RTX SSRCs that repaired it, so
+   * their late packets are dropped: once replaced, nothing tells an RTX
+   * packet of the old stream from one of the new stream reliably enough.
+   */
+  private switchRidMedia(rid: string, ssrc: number) {
+    const old = this.mediaSsrcByRid[rid];
+    this.mediaSsrcByRid[rid] = ssrc;
+    if (old === undefined) return;
+    log("rid media ssrc changed", { rid, old, ssrc });
+    this.nack.forget(old);
+    this.retire(rid, old);
+    for (const rtxSsrc of [...(this.rtxSsrcsByRid[rid] ?? [])]) {
+      if (this.repairedMediaByRtx[rtxSsrc] === old) {
+        this.unbindRtxSsrc(rtxSsrc);
+        this.retire(rid, rtxSsrc);
+      }
+    }
+  }
+
+  private retire(rid: string, ssrc: number) {
+    const retired = (this.retiredSsrcsByRid[rid] ??= []);
+    retired.push(ssrc);
+    if (retired.length > MAX_RETIRED_SSRCS_PER_RID) retired.shift();
+    this.forgetLearnedSsrc(ssrc);
+  }
+
+  /** Bind `rtxSsrc` to `rid`, evicting beyond {@link MAX_RTX_SSRCS_PER_RID}. */
+  private bindRtxSsrc(rtxSsrc: number, rid: string) {
+    const previous = this.ridByRtxSsrc[rtxSsrc];
+    if (previous === rid) return;
+    if (previous !== undefined) this.unbindRtxSsrc(rtxSsrc);
+    this.ridByRtxSsrc[rtxSsrc] = rid;
+    const ssrcs = (this.rtxSsrcsByRid[rid] ??= []);
+    ssrcs.push(rtxSsrc);
+    if (ssrcs.length <= MAX_RTX_SSRCS_PER_RID) return;
+    // 現在の媒体 SSRC を修復したことのない RTX SSRC を古い順に先に追い出す。
+    const current = this.mediaSsrcByRid[rid];
+    const evicted =
+      ssrcs.find(
+        (candidate) =>
+          candidate !== rtxSsrc &&
+          this.repairedMediaByRtx[candidate] !== current,
+      ) ?? ssrcs[0];
+    this.unbindRtxSsrc(evicted);
+    this.forgetLearnedSsrc(evicted);
+  }
+
+  private unbindRtxSsrc(rtxSsrc: number) {
+    const rid = this.ridByRtxSsrc[rtxSsrc];
+    const list = rid === undefined ? undefined : this.rtxSsrcsByRid[rid];
+    const index = list?.indexOf(rtxSsrc) ?? -1;
+    if (index >= 0) list!.splice(index, 1);
+    delete this.ridByRtxSsrc[rtxSsrc];
+    delete this.repairedMediaByRtx[rtxSsrc];
+  }
+
+  /**
+   * Drop what packets taught about an SSRC the per-RID bound evicted: its
+   * learned track, its per-SSRC receive state (unless a description or a
+   * track still names it) and, through {@link takeForgottenSsrcs}, its
+   * learned route in the router.
+   */
+  private forgetLearnedSsrc(ssrc: number) {
+    if (this.learnedTrackSsrcs.has(ssrc)) {
+      delete this.trackBySSRC[ssrc];
+      this.learnedTrackSsrcs.delete(ssrc);
+    }
+    const described =
+      this.trackBySSRC[ssrc] !== undefined ||
+      this.tracks.some((track) => track.ssrc === ssrc) ||
+      Object.entries(this.ssrcByRtx).some(
+        ([rtx, media]) => Number(rtx) === ssrc || media === ssrc,
+      );
+    if (!described) {
+      for (const table of [
+        this.remoteStreams,
+        this.senderReportsReceivedBySsrc,
+        this.remoteTimestampsBySsrc,
+        this.remotePacketCountBySsrc,
+        this.remoteOctetCountBySsrc,
+        this.nackCountBySsrc,
+        this.pliCountBySsrc,
+        this.probePaddingCompactBySsrc,
+        this.payloadTypeBySsrc,
+        this.lastSRtimestamp,
+        this.receiveLastSRTimestamp,
+      ]) {
+        delete table[ssrc];
+      }
+    }
+    this.forgottenSsrcs.push(ssrc);
+  }
+
+  /**
+   * Internal (router): SSRCs whose packet-driven route is no longer wanted:
+   * retired by a media SSRC change of their RID or evicted by a bound. The
+   * router drops their learned routes after each packet.
+   */
+  takeForgottenSsrcs() {
+    return this.forgottenSsrcs.length === 0
+      ? []
+      : this.forgottenSsrcs.splice(0);
+  }
+
+  /**
+   * Internal (router): SSRCs of packets this receiver rejected as invalid
+   * (an unnegotiated payload type, a non-RTX packet naming a repaired RID, a
+   * RID without a track). Such a packet must not teach a route, but it says
+   * nothing against a route learned before it: the router undoes only a
+   * route the rejected packet itself just added.
+   */
+  takeRejectedSsrcs() {
+    return this.rejectedSsrcs.length === 0 ? [] : this.rejectedSsrcs.splice(0);
+  }
+
+  /**
+   * Media SSRC an RTX packet repairs. SDP pairing (`ssrc-group:FID`) names
+   * it. Otherwise only the current media SSRC of the RID the RTX SSRC is
+   * bound to is a candidate, and the packet must fill a hole NACK detected
+   * on it: its original number is in the hole ledger (requested by NACK, or
+   * requested earlier and still kept) and its timestamp fits the packets
+   * received around the gap (`NackHandler.canRepair`). Duplicates of
+   * received packets, numbers NACK never asked for and packets of another
+   * stream are dropped. Streams whose sequence numbers and timestamps start
+   * at the same values (against RFC 3550 section 5.1) cannot be told apart.
+   */
+  private mediaSsrcOfRtx(
+    rtx: RtpPacket,
+    mediaCodec: RTCRtpCodecParameters,
+  ): number | undefined {
+    const rtxSsrc = rtx.header.ssrc;
+    const bySdp = this.ssrcByRtx[rtxSsrc];
+    if (bySdp !== undefined) return bySdp;
+    const rid = this.ridByRtxSsrc[rtxSsrc];
+    const media = rid === undefined ? undefined : this.mediaSsrcByRid[rid];
+    if (media === undefined) return undefined;
+    const slack = Math.round(
+      mediaCodec.clockRate * RTX_TIMESTAMP_SLACK_SECONDS,
+    );
+    if (
+      !this.nack.canRepair(
+        media,
+        rtx.payload.readUInt16BE(0),
+        rtx.header.timestamp,
+        slack,
+      )
+    ) {
+      return undefined;
+    }
+    this.repairedMediaByRtx[rtxSsrc] = media;
+    return media;
+  }
+
+  /** The codec an RTX codec's `apt` names, or `codec` itself. */
+  private aptOf(codec: RTCRtpCodecParameters) {
+    if (!isRtxCodec(codec)) return codec;
+    const { apt } = codecParametersFromString(codec.parameters ?? "");
+    return this.codecs[apt];
+  }
+
+  private observeTransportCc(
+    packet: RtpPacket,
+    extensions: Extensions,
+    mediaCodec: RTCRtpCodecParameters | undefined,
+  ) {
+    if (mediaCodec && hasFeedback(mediaCodec, useTWCC().type)) {
+      this.setupTWCC(packet.header.ssrc, true);
+    }
+    if (this.receiverTWCC) {
+      const transportSequenceNumber = extensions[
+        RTP_EXTENSION_URI.transportWideCC
+      ] as TransportWideCCPayload;
+
+      if (transportSequenceNumber !== undefined) {
+        this.receiverTWCC.setMediaSourceSsrc?.(packet.header.ssrc);
+        this.receiverTWCC.handleTWCC(transportSequenceNumber);
+      }
+    }
+  }
 
   private handleRTP(
     packet: RtpPacket,
@@ -736,32 +1047,28 @@ export class RTCRtpReceiver {
       ? RtpReceivePacketType.padding
       : RtpReceivePacketType.media;
     let mediaCodec = codec;
-    if (codec.name.toLowerCase() === "rtx") {
-      const codecParams = codecParametersFromString(codec.parameters ?? "");
-      mediaCodec = this.codecs[codecParams.apt] ?? codec;
-    }
-
-    if (hasFeedback(mediaCodec, useTWCC().type)) {
-      this.setupTWCC(packet.header.ssrc, true);
-    }
-    if (this.receiverTWCC) {
-      const transportSequenceNumber = extensions[
-        RTP_EXTENSION_URI.transportWideCC
-      ] as TransportWideCCPayload;
-
-      if (transportSequenceNumber !== undefined) {
-        this.receiverTWCC.setMediaSourceSsrc?.(packet.header.ssrc);
-        this.receiverTWCC.handleTWCC(transportSequenceNumber);
+    if (isRtxCodec(codec)) {
+      const aptCodec = this.aptOf(codec);
+      if (!aptCodec) {
+        log("rtx apt codec not found", { parameters: codec.parameters });
+        return;
       }
+      mediaCodec = aptCodec;
     }
+
+    this.observeTransportCc(packet, extensions, mediaCodec);
 
     // RTCP feedback follows the codec this packet was negotiated with, not
     // whichever payload type happens to sort first in the receive table.
-    if (codec.name.toLowerCase() === "rtx") {
-      const originalSsrc = this.ssrcByRtx[packet.header.ssrc];
+    if (isRtxCodec(codec)) {
       // Padding-only RTX (probe / bandwidth padding) carries no original
       // packet: TWCC above already observed it, nothing is delivered.
       if (packet.payload.length < 2) return;
+      const originalSsrc = this.mediaSsrcOfRtx(packet, mediaCodec);
+      if (originalSsrc === undefined) {
+        log("rtx media ssrc not resolved", { rtxSsrc: packet.header.ssrc });
+        return;
+      }
 
       packet = unwrapRtx(packet, mediaCodec.payloadType, originalSsrc);
       track = this.trackBySSRC[originalSsrc];
@@ -921,6 +1228,10 @@ function extendRtpSequence(seq: number, lastExt: number | undefined): number {
     roc -= 1;
   }
   return roc * 0x10000 + seq16;
+}
+
+function isRtxCodec(codec: RTCRtpCodecParameters | undefined) {
+  return codec?.name.toLowerCase() === "rtx";
 }
 
 function clearTable(table: Record<number, unknown>) {

@@ -47,3 +47,5 @@ npm run wpt:coverage --workspace packages/webrtc
 ## Interoperability is separate from API shape
 
 Browser API compatibility describes the JavaScript/TypeScript interface. Wire-level interoperability is validated separately through repository browser E2E tests, community Safari reports, and the independent [`sipsorcery/webrtc-interop`](https://github.com/sipsorcery/webrtc-interop) matrices.
+
+ICE wire defaults stay browser-interoperable: local descriptions advertise `a=ice-options:trickle` (add `ice2` with `iceOptionIce2: true`), and connectivity checks carry STUN `MESSAGE-INTEGRITY` (SHA-1). `iceMessageIntegrity: "sha256" | "both"` adds `MESSAGE-INTEGRITY-SHA256` (RFC 8489), which browsers do not implement for ICE, so use it only with peers known to support it. Responses always match the integrity algorithm of the request. `remoteIceOptionIce2` is a werift extension next to `canTrickleIceCandidates`.

@@ -3,7 +3,7 @@ import { debug, type Event } from "../imports/common";
 import type { TransceiverManager } from "../media";
 import type { NegotiationTransaction } from "../negotiationTransaction";
 import type { SctpTransportManager } from "../sctpManager";
-import type { MediaDescription } from "../sdp";
+import { type MediaDescription, parseIceOptions } from "../sdp";
 import type { SDPManager } from "../sdpManager";
 import type { SecureTransportManager } from "../secureTransportManager";
 import type { RTCDtlsTransport } from "../transport/dtls";
@@ -151,6 +151,9 @@ export class TransportActivation {
         if (!provisional) {
           if (media.iceParams) {
             dtls.iceTransport.setRemoteParams(media.iceParams);
+            dtls.iceTransport.setRemoteIceOptions(
+              parseIceOptions(media.iceOptions),
+            );
           }
           if (media.dtlsParams) dtls.setRemoteParams(media.dtlsParams);
         }
