@@ -1803,6 +1803,28 @@ export function toBundleOnlyOffer(sdp: string, mids?: string[]) {
   );
 }
 
+/**
+ * `sdp` with the ICE candidates (`a=candidate`, `a=end-of-candidates`) of the
+ * m-lines of `mids` left out, as Firefox writes a bundle-only m-line (it
+ * writes candidates only in the offerer-tagged m-line).
+ */
+export function withoutCandidates(sdp: string, mids: string[]) {
+  const [session, ...sections] = sdp.split(/(?=^m=)/m);
+  return (
+    session +
+    sections
+      .map((section) => {
+        const mid = section.match(/^a=mid:(\S+)/m)?.[1];
+        if (!mid || !mids.includes(mid)) return section;
+        return section.replace(
+          /^a=(candidate|end-of-candidates)[^\r\n]*\r?\n/gm,
+          "",
+        );
+      })
+      .join("")
+  );
+}
+
 /** Local offer SDP whose BUNDLE group leaves `mid` out (a BUNDLE split). */
 export async function createSplitOffer(pc: RTCPeerConnection, mid: string) {
   const offer = await createRewrittenOffer(pc, (sdp) => {

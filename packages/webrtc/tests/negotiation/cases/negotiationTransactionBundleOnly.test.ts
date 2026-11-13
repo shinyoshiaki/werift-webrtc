@@ -15,6 +15,7 @@ import {
   toBundleOnlyOffer,
   waitForCommittedNomination,
   waitForConnection,
+  withoutCandidates,
 } from "../harness/negotiationTransactionUtils";
 
 /** The m-line section of `mid` in `sdp`. */
@@ -289,6 +290,46 @@ describeCases("negotiation: bundle-only offers (ticket 21a27c92)", () => {
         bundleOnly: false,
       });
       await c.data(aChannel, await bChannel);
+    },
+  );
+
+  negotiationCase(
+    "[bundle-only-8] the transport takes the new tag's ICE parameters and candidates, not an earlier bundle-only m-line's",
+    { ref: "ticket 21a27c92 review; RFC 8843 §7.3.1" },
+    async (c) => {
+      // Arrange: a は PCMU だけの audio (tag) + video 2 本、b は Opus だけの audio を持つ。
+      const { a, b } = await c.given(
+        createPeerPair(
+          { codecs: { audio: [usePCMU()], video: [useVP8()] } },
+          { codecs: { audio: [useOPUS()], video: [useVP8()] } },
+        ),
+      );
+      a.addTransceiver(new MediaStreamTrack({ kind: "audio" }), {
+        direction: "sendrecv",
+      });
+      const first = a.addTransceiver(new MediaStreamTrack({ kind: "video" }), {
+        direction: "sendrecv",
+      });
+      const second = a.addTransceiver(new MediaStreamTrack({ kind: "video" }), {
+        direction: "sendrecv",
+      });
+
+      // Act: tag の直後の video を候補なしの bundle-only にした offer に b が answer する。
+      await c.setLocal(a, await a.createOffer());
+      const sdp = a.localDescription!.sdp;
+      const [tag] = candidateLayout(sdp).bundle[0];
+      const offer = withoutCandidates(toBundleOnlyOffer(sdp, [first.mid!]), [
+        first.mid!,
+      ]);
+      expect(sectionOf(offer, first.mid!)).not.toMatch(/^a=candidate/m);
+      await c.setRemote(b, offer, { type: "offer" });
+      await c.answer(b);
+
+      // Assert: audio tag は拒否され、後ろの video が新しい tag になり、その候補で接続する。
+      const answer = b.localDescription!.sdp;
+      expect(answerShape(answer, tag).port).toBe(0);
+      expect(candidateLayout(answer).bundle).toEqual([[second.mid, first.mid]]);
+      await Promise.all([waitForConnection(a), waitForConnection(b)]);
     },
   );
 
