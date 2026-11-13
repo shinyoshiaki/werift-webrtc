@@ -109,13 +109,16 @@ a path broken in one direction).
   16 s. Candidates gathered or trickled after the selection still form
   backup pairs, and one that outranks a socket's backup replaces it. Backups are checked without a nomination, every 900 ms
   until they answered 3 times (and while a check goes unanswered), then
-  every 2.5 s (0.8–1.2 times).
+  every 2.5 s (0.8–1.2 times), without waiting for a check still in
+  flight. Until a backup answered, its response timeout is 3 s
+  (`BACKUP_UNKNOWN_RTT_RESPONSE_TIMEOUT`, libwebrtc's `DEFAULT_RTT`).
 - The selected pair is checked by the consent checks (every 4–6 s). While it
   is weak they are sent every 900 ms: after an unanswered check, and as soon
   as nothing (response, request or data) was received for 2.5 s, so an idle
-  pair is checked about every 2.5 s. A check waits for the outcome of the
-  previous one, so a response slower than 900 ms (within the RTT-based
-  response timeout) is not counted as unanswered. The pair is unwritable once 5
+  pair is checked about every 2.5 s. Checks keep this pacing while earlier
+  ones still wait for their (RTT-based) response timeout: a slow response is
+  never cancelled and still counts, and a dead high-RTT path is still told
+  within the bound (about 8.7 s with an RTT of 1.2 s). The pair is unwritable once 5
   checks in a row went unanswered and 5 s passed since its last response
   (libwebrtc's `CONNECTION_WRITE_CONNECT_FAILURES` /
   `CONNECTION_WRITE_CONNECT_TIMEOUT`), about 5–10 s after the path broke.
@@ -124,7 +127,10 @@ a path broken in one direction).
   `NOMINATION` value (renomination); the selection, consent and application
   data move to it when the peer answers. The old pair stays a backup of its
   socket, and the selection moves back to that socket only after it answered
-  3 checks in a row. Only writability switches pairs (no RTT or network-cost
+  3 checks in a row. This also holds when the old pair answers again while
+  the failover nomination is in flight: the nomination is not withdrawn (the
+  peer may already have taken it), and when it succeeds the selection moves
+  and the old socket waits for its 3 responses. Only writability switches pairs (no RTT or network-cost
   switching).
 - Controlled agent: it monitors the same way but never nominates; it follows
   the peer's nomination and the pair the peer sends data on.

@@ -140,8 +140,8 @@ type BackupRecord = {
   sentAt?: number;
   /** The interval `pair` uses while not weak, fixed when its last check was sent. */
   stableInterval: number;
-  /** A check of `pair` is in flight. */
-  inFlight: boolean;
+  /** Checks of `pair` still waiting for their outcome. */
+  inFlight: number;
   /** Pairs of this socket that failed as its backup in this round. */
   failed: Set<CandidatePair>;
   /** Rounds started again from the highest-priority pair. */
@@ -335,7 +335,7 @@ export class FailoverMonitor {
         record = {
           nextAt: now,
           stableInterval: 0,
-          inFlight: false,
+          inFlight: 0,
           failed: new Set(),
           retries: 0,
         };
@@ -348,7 +348,8 @@ export class FailoverMonitor {
           !this.host.eligible(current) ||
           current === selected ||
           // Failed by another check (a nomination that went unanswered).
-          (current.state === CandidatePairState.FAILED && !record.inFlight))
+          (current.state === CandidatePairState.FAILED &&
+            record.inFlight === 0))
       ) {
         this.fail(record, current, false);
       }
@@ -429,7 +430,7 @@ export class FailoverMonitor {
     record.pair = pair;
     record.nextAt = now;
     record.sentAt = undefined;
-    record.inFlight = false;
+    record.inFlight = 0;
     this.pruned.delete(pair);
     this.track(pair, now);
     // The monitor checks it now: the ordinary schedule and the checks of
@@ -454,7 +455,7 @@ export class FailoverMonitor {
   private fail(record: BackupRecord, pair: CandidatePair, notify: boolean) {
     record.failed.add(pair);
     record.pair = undefined;
-    record.inFlight = false;
+    record.inFlight = 0;
     if (this.host.selected() !== pair) this.liveness.delete(pair);
     if (notify) this.host.dropped(pair);
   }
@@ -466,7 +467,7 @@ export class FailoverMonitor {
    */
   private replace(record: BackupRecord, pair: CandidatePair) {
     record.pair = undefined;
-    record.inFlight = false;
+    record.inFlight = 0;
     if (this.host.selected() !== pair) this.liveness.delete(pair);
     if (pair.state === CandidatePairState.IN_PROGRESS) {
       pair.updateState(CandidatePairState.FAILED);
@@ -491,7 +492,7 @@ export class FailoverMonitor {
     if (record.retryTimer !== undefined) clearTimeout(record.retryTimer);
     record.retryTimer = undefined;
     record.pair = undefined;
-    record.inFlight = false;
+    record.inFlight = 0;
   }
 
   /** One timer for every backup: the earliest check due, Ta after the last one sent. */
@@ -500,7 +501,7 @@ export class FailoverMonitor {
     this.timer = undefined;
     let at = Number.POSITIVE_INFINITY;
     for (const record of this.backups.values()) {
-      if (record.pair && !record.inFlight) at = Math.min(at, record.nextAt);
+      if (record.pair) at = Math.min(at, record.nextAt);
     }
     if (at === Number.POSITIVE_INFINITY) return;
     at = Math.max(at, this.lastSentAt + PACING_MS);
@@ -518,7 +519,7 @@ export class FailoverMonitor {
     let due: [Protocol, BackupRecord] | undefined;
     for (const entry of this.backups) {
       const [, record] = entry;
-      if (!record.pair || record.inFlight || record.nextAt > now) continue;
+      if (!record.pair || record.nextAt > now) continue;
       // Something received since moves it later (nextPingAt).
       if (record.sentAt !== undefined) {
         const liveness = this.liveness.get(record.pair);
@@ -548,9 +549,12 @@ export class FailoverMonitor {
     const signal = this.abort.signal;
     const liveness = this.liveness.get(pair)!;
     const sentAt = Date.now();
-    record.inFlight = true;
+    // Checks keep their pacing: the next one does not wait for this one's
+    // outcome (its response timeout may exceed the interval).
+    record.inFlight++;
     record.sentAt = sentAt;
     record.stableInterval = backupPingInterval(liveness);
+    record.nextAt = nextPingAt(liveness, sentAt, record.stableInterval);
     let answered = false;
     try {
       answered = await this.host.ping(pair, signal);
@@ -564,7 +568,7 @@ export class FailoverMonitor {
     ) {
       return;
     }
-    record.inFlight = false;
+    record.inFlight = Math.max(0, record.inFlight - 1);
     const now = Date.now();
     if (answered) {
       this.responded(pair, now);

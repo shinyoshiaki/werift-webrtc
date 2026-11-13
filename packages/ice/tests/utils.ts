@@ -3074,6 +3074,8 @@ export type FailoverRequest = {
   /** Settled (answered, timed out, or cancelled by its signal). */
   done: boolean;
   cancelled: boolean;
+  /** A response came back. */
+  answered: boolean;
 };
 
 /**
@@ -3092,6 +3094,15 @@ export class FailoverPathProtocol implements Protocol {
   readonly unreachable = new Set<number | "all">();
   /** The peer answers this long (ms) after a request; one slower than the response timeout times out. */
   responseDelayMs = 0;
+  /** Nominations (USE-CANDIDATE / NOMINATION) wait unanswered until `releaseNominations()`. */
+  holdNominations = false;
+  private readonly heldNominations: (() => void)[] = [];
+
+  /** Let the held nominations through (answered now). */
+  releaseNominations() {
+    this.holdNominations = false;
+    for (const release of this.heldNominations.splice(0)) release();
+  }
   readonly request: Protocol["request"];
 
   constructor({
@@ -3141,9 +3152,26 @@ export class FailoverPathProtocol implements Protocol {
         controlling: keys.includes("ICE-CONTROLLING"),
         done: false,
         cancelled: false,
+        answered: false,
       };
       this.requests.push(entry);
       try {
+        if (
+          this.holdNominations &&
+          (entry.useCandidate || entry.nomination !== undefined)
+        ) {
+          await new Promise<void>((resolve, reject) => {
+            this.heldNominations.push(resolve);
+            opts.signal?.addEventListener(
+              "abort",
+              () => {
+                entry.cancelled = true;
+                reject(new TransactionCancelled());
+              },
+              { once: true },
+            );
+          });
+        }
         if (!this.reaches(addr)) {
           const retransmissions = opts.retransmissions ?? 0;
           const timeout = opts.responseTimeout ?? 50;
@@ -3174,6 +3202,7 @@ export class FailoverPathProtocol implements Protocol {
           entry.cancelled = true;
           throw new TransactionCancelled();
         }
+        entry.answered = true;
         return [new Message(methods.BINDING, classes.RESPONSE), addr];
       } finally {
         entry.done = true;

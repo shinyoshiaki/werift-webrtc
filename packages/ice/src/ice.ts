@@ -16,6 +16,7 @@ import {
 import { type FailoverHost, FailoverMonitor, nextPingAt } from "./failover";
 import { type Cancelable, cancelable, PQueue, randomString } from "./helper";
 import {
+  BACKUP_UNKNOWN_RTT_RESPONSE_TIMEOUT,
   CandidatePair,
   CandidatePairState,
   CONSENT_INTERVAL,
@@ -255,6 +256,13 @@ export class Connection implements IceConnection {
    * the selected one.
    */
   private readonly failover = new FailoverMonitor(this.failoverHost());
+  /**
+   * The pair a failover nomination (`evaluateFailover`) is sent for, until
+   * its outcome. When it succeeds the selection moves to it even if the old
+   * pair answered again meanwhile (the peer may already have taken the
+   * nomination), and the old pair's socket is demoted (D4).
+   */
+  private failoverNomination?: CandidatePair;
   /** The state `disconnected` replaced, restored when the selection works again. */
   private stateBeforeDisconnect?: IceState;
   /**
@@ -2120,18 +2128,16 @@ export class Connection implements IceConnection {
       // selected pair's liveness: the consent interval while it answers and
       // receives, WEAK_OR_STABILIZING_WRITABLE_CONNECTION_PING_INTERVAL after
       // an unanswered request, and at once (no sooner than that interval)
-      // when nothing was received for WEAK_CONNECTION_RECEIVE_TIMEOUT. One
-      // request at a time: the next one waits for the outcome of the last,
-      // so a response slower than that interval (within the RTT-based
-      // response timeout) is not cancelled and counted as unanswered. An
-      // outcome wakes the wait up.
+      // when nothing was received for WEAK_CONNECTION_RECEIVE_TIMEOUT.
+      // Requests keep this pacing whatever their response timeout (RTT
+      // based, it may exceed that interval): the next one does not cancel
+      // or wait for one still in flight, so a slow response still counts
+      // and a dead path is told within the D3 bound on a high-RTT path too.
+      // An outcome wakes the wait up.
       let wakeup: AbortController | undefined;
       let lastSentAt = Date.now();
       let stableInterval = nextConsentAt - lastSentAt;
-      /** The request whose outcome the next one waits for. */
-      let outstanding: AbortController | undefined;
       const failoverDueAt = (pair: CandidatePair) => {
-        if (outstanding) return Number.POSITIVE_INFINITY;
         const liveness = this.failover.livenessOf(pair);
         return liveness
           ? nextPingAt(liveness, lastSentAt, stableInterval)
@@ -2179,7 +2185,7 @@ export class Connection implements IceConnection {
           if (failover) {
             lastSentAt = requestSentAt;
             stableInterval = randomizedConsentInterval();
-            nextConsentAt = Number.POSITIVE_INFINITY;
+            nextConsentAt = failoverDueAt(nominated);
           } else {
             // Fix next start time before awaiting any response (independent timers).
             nextConsentAt = requestSentAt + randomizedConsentInterval();
@@ -2199,10 +2205,16 @@ export class Connection implements IceConnection {
             localCandidate: nominated.localCandidate,
           });
 
-          this.consentRequestAbort?.abort();
-          const requestAbort = new AbortController();
-          this.consentRequestAbort = requestAbort;
-          if (failover) outstanding = requestAbort;
+          // Failover: the requests of the session share one signal (stopped
+          // together); otherwise a request replaces the previous one.
+          let requestAbort: AbortController;
+          if (failover && this.consentRequestAbort) {
+            requestAbort = this.consentRequestAbort;
+          } else {
+            this.consentRequestAbort?.abort();
+            requestAbort = new AbortController();
+            this.consentRequestAbort = requestAbort;
+          }
 
           nominated.consentRequestsSent++;
           nominated.requestsSent++;
@@ -2258,7 +2270,6 @@ export class Connection implements IceConnection {
               this.consentFresh = true;
               refreshConsentExpiry();
               if (failover) {
-                if (outstanding === requestAbort) outstanding = undefined;
                 if (this.failoverEnabled()) {
                   this.failover.responded(nominated);
                   this.onLinkChanged();
@@ -2276,19 +2287,10 @@ export class Connection implements IceConnection {
               ) {
                 log("no stun response", error);
                 if (canceled || !failover) return;
-                if (outstanding === requestAbort) outstanding = undefined;
                 if (this.failoverEnabled()) {
                   this.failover.unanswered(nominated);
                   this.onLinkChanged();
                 }
-                wake();
-              }
-            })
-            .finally(() => {
-              // Whatever the outcome (also one a check above ignores), the
-              // next request may go.
-              if (outstanding === requestAbort) {
-                outstanding = undefined;
                 wake();
               }
             });
@@ -2638,8 +2640,13 @@ export class Connection implements IceConnection {
         (this.nominated == undefined || this.replacesSelectedPair(pair))
       ) {
         const previous = this.nominated;
-        // Failover: the selection moves off a pair that stopped answering.
-        const failingOver = !!previous && this.selectionDown();
+        // Failover: the selection moves off a pair that stopped answering,
+        // or a failover nomination sent while it did not answer succeeded.
+        const failingOver =
+          !!previous &&
+          (this.selectionDown() || this.failoverNomination === pair);
+        if (this.failoverNomination === pair)
+          this.failoverNomination = undefined;
         log(
           failingOver
             ? "selected pair failed over"
@@ -3247,7 +3254,10 @@ export class Connection implements IceConnection {
       return this.outranks(pair, selected);
     }
     if (!this.replacesWith(pair)) return false;
-    // Failover: a writable pair replaces a selection that stopped answering.
+    // Failover: a writable pair replaces a selection that stopped answering;
+    // a failover nomination that succeeded moves the selection even if the
+    // old pair answered again meanwhile (the peer may have switched already).
+    if (this.failoverNomination === pair) return true;
     if (this.selectionDown() && this.failover.writable(pair)) return true;
     if (this.usesRenomination()) return pair.nomination > selected.nomination;
     if (this.usesSemiAggressiveNomination()) {
@@ -3342,13 +3352,18 @@ export class Connection implements IceConnection {
     // A role change, restart or close replaced it.
     if (this.selectionNomination !== current) return;
     this.selectionNomination = undefined;
-    if (this.isStaleNomination(pair, remoteGeneration)) return;
+    if (this.isStaleNomination(pair, remoteGeneration)) {
+      if (this.failoverNomination === pair) this.failoverNomination = undefined;
+      return;
+    }
     if (outcome === "nominated") {
       if (value !== undefined) pair.nomination = value;
       pair.nominated = true;
       this.checkComplete(pair);
+      if (this.failoverNomination === pair) this.failoverNomination = undefined;
       return;
     }
+    if (this.failoverNomination === pair) this.failoverNomination = undefined;
     if (outcome === "role-conflict") {
       // 487: the peer is controlling and wins; it nominates.
       this.switchRole(false);
@@ -3364,6 +3379,7 @@ export class Connection implements IceConnection {
   private abortSelectionNomination() {
     this.selectionNomination?.abort.abort();
     this.selectionNomination = undefined;
+    this.failoverNomination = undefined;
   }
 
   /**
@@ -3458,6 +3474,7 @@ export class Connection implements IceConnection {
     const target = this.failover.target();
     if (!target) return;
     log("failover", target.toJSON(), { selected: this.nominated?.toJSON() });
+    this.failoverNomination = target;
     void this.nominateSelection(target, this.usesRenomination());
   }
 
@@ -3547,7 +3564,10 @@ export class Connection implements IceConnection {
         Buffer.from(this.remotePassword, "utf8"),
         {
           retransmissions: 0,
-          responseTimeout: consentResponseTimeoutMs(pair.rtt),
+          responseTimeout:
+            pair.rtt === undefined
+              ? BACKUP_UNKNOWN_RTT_RESPONSE_TIMEOUT
+              : consentResponseTimeoutMs(pair.rtt),
           signal: AbortSignal.any([this.remoteChecks.signal, signal]),
           integrityAlgorithm: this.options.messageIntegrity,
         },

@@ -333,6 +333,16 @@ export const WEAK_CONNECTION_RECEIVE_TIMEOUT = 2500;
 export const DEAD_CONNECTION_RECEIVE_TIMEOUT = CONSENT_TIMEOUT * 1000;
 
 /**
+ * Response timeout (ms) of a backup check while the pair's RTT is still
+ * unknown (it never answered a check of this agent). libwebrtc starts a
+ * connection's RTT estimate at `DEFAULT_RTT` (3000 ms); the consent default
+ * ({@link CONSENT_RESPONSE_TIMEOUT}, 1 s) would never let a backup path
+ * slower than that become valid. Once the pair answered, the timeout follows
+ * its RTT ({@link consentResponseTimeoutMs}).
+ */
+export const BACKUP_UNKNOWN_RTT_RESPONSE_TIMEOUT = 3000;
+
+/**
  * Pairs of one local socket (or TURN allocation) tried as its backup before
  * the socket waits for a retry (1, 2, 4, 8, 16 s) and starts again from its
  * highest-priority pair. werift's own limit.

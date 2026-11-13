@@ -417,14 +417,15 @@ describe("failover: review regressions (delay, late candidate, state, silence)",
       h.restore(0);
       await vi.advanceTimersByTimeAsync(20_000);
 
-      // Assert: 応答の遅い consent check は次の check で取り消されず、すべて応答される (前の応答を待ってから次を送る)。
-      const after = h.requestsTo(host).slice(lostAfter + 1);
+      // Assert: 応答の遅い consent check は次の check で取り消されず、経路を戻した後の check はすべて応答される。
+      const restoredAt = h.requestsTo(host)[lostAfter].at;
+      const after = h
+        .requestsTo(host)
+        .filter((request) => request.at > restoredAt && request.done);
       expect(after.length).toBeGreaterThan(3);
-      for (const request of after.slice(0, -1)) {
+      for (const request of after) {
         expect(request.cancelled).toBe(false);
-      }
-      for (let i = 1; i < after.length; i++) {
-        expect(after[i].at - after[i - 1].at).toBeGreaterThanOrEqual(1200);
+        expect(request.answered).toBe(true);
       }
       // Assert: 書き込み不可とは判断されず、退避も disconnected もしない。
       expect(h.connection.nominated).toBe(host);
@@ -434,6 +435,143 @@ describe("failover: review regressions (delay, late candidate, state, silence)",
       await h.connection.close();
     }
   });
+
+  test.each([
+    { mode: "semi-aggressive", renomination: false },
+    { mode: "renomination", renomination: true },
+  ])(
+    "($mode) a selected pair with RTT 1.2 s that goes dead fails over within the D3 bound: checks keep the 900 ms pacing while earlier ones still wait for their response",
+    async ({ renomination }) => {
+      // RTT 1.2 s (応答待ちは RTT から 2.6 s)。
+      const h = await createFailoverHarness({
+        renomination,
+        responseDelayMs: 1200,
+      });
+      const host = h.selection;
+      const relay = h.pairOf(1);
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(relay.state).toBe(CandidatePairState.SUCCEEDED);
+
+      try {
+        // Act: 直前の応答を受けた直後 (最悪の時点) に host の経路を切り、relay へ指名を送るまで進める。
+        await h.advanceUntil(() => {
+          const last = h.requestsTo(host).at(-1);
+          return !!last?.answered;
+        }, 10_000);
+        h.cut(0);
+        const cutAt = Date.now();
+        const took = await h.advanceUntil(
+          () =>
+            h
+              .requestsTo(relay)
+              .some(
+                (request) =>
+                  request.at >= cutAt &&
+                  (request.useCandidate || request.nomination !== undefined),
+              ),
+          30_000,
+        );
+        const decided = Date.now();
+        // 退避前に結果が出た check (退避後は新しい consent が古い要求を止める)。
+        const settled = h
+          .requestsTo(host)
+          .filter((request) => request.at >= cutAt && request.done);
+        await h.advanceUntil(() => h.connection.nominated === relay, 5000);
+
+        // Assert: 遮断から 10 s 以内に書き込み不可と判定して relay へ指名し、移る。
+        expect(took).toBeLessThanOrEqual(10_000);
+        expect(h.connection.nominated).toBe(relay);
+        // Assert: 遮断後の check は前の応答待ちを取り消さず、900 ms 間隔で重ねて送られた。
+        const sent = h
+          .requestsTo(host)
+          .filter((request) => request.at >= cutAt && request.at <= decided);
+        expect(sent.length).toBeGreaterThanOrEqual(5);
+        const gaps = sent.slice(1).map((r, i) => r.at - sent[i].at);
+        for (const gap of gaps.slice(1)) expect(gap).toBeLessThanOrEqual(1000);
+        expect(settled.length).toBeGreaterThanOrEqual(5);
+        for (const request of settled) {
+          expect(request.cancelled).toBe(false);
+          expect(request.answered).toBe(false);
+        }
+      } finally {
+        await h.connection.close();
+      }
+    },
+  );
+
+  test.each([
+    { mode: "semi-aggressive", renomination: false },
+    { mode: "renomination", renomination: true },
+  ])(
+    "($mode) the old pair answers again while the failover nomination is in flight: the switch still demotes it, and the selection moves back only after 3 responses in a row",
+    async ({ renomination }) => {
+      const h = await createFailoverHarness({ renomination });
+      const host = h.selection;
+      const relay = h.pairOf(1);
+      await vi.advanceTimersByTimeAsync(10_000);
+      const relayProtocol = h.protocols[1];
+
+      try {
+        // Act: relay への指名の応答を止めたまま host を切り、退避の指名が出るまで進める。
+        relayProtocol.holdNominations = true;
+        h.cut(0);
+        const cutAt = Date.now();
+        await h.advanceUntil(
+          () =>
+            h
+              .requestsTo(relay)
+              .some(
+                (request) =>
+                  request.at >= cutAt &&
+                  (request.useCandidate || request.nomination !== undefined),
+              ),
+          20_000,
+        );
+        // Act: 指名の応答前に host が回復し、consent check が応答される。
+        h.restore(0);
+        const restoredAt = Date.now();
+        await h.advanceUntil(
+          () =>
+            h
+              .requestsTo(host)
+              .some((request) => request.at >= restoredAt && request.answered),
+          10_000,
+        );
+        expect(h.connection.nominated).toBe(host);
+        // Act: 指名の応答が届く。
+        relayProtocol.releaseNominations();
+        await vi.advanceTimersByTimeAsync(0);
+
+        // Assert: 指名が成立したので relay に移り、host のソケットには 3 回応答の復帰ガードが掛かる。
+        expect(h.connection.nominated).toBe(relay);
+        expect(host.nominated).toBe(false);
+        // Act: すぐに選択の再評価が走る。
+        h.evaluateSelection();
+        await vi.advanceTimersByTimeAsync(0);
+        // Assert: host は応答していても 3 回連続の応答前には戻らない。
+        expect(h.connection.nominated).toBe(relay);
+
+        // Act: host へ戻るまで進める。
+        const switchedAt = Date.now();
+        await h.advanceUntil(() => h.connection.nominated === host, 20_000);
+
+        // Assert: 切り替え後に host への監視 check が 3 回応答されてから戻る。
+        const answered = h
+          .requestsTo(host)
+          .filter(
+            (request) =>
+              request.at >= switchedAt &&
+              request.answered &&
+              !request.useCandidate &&
+              request.nomination === undefined,
+          );
+        expect(answered.length).toBeGreaterThanOrEqual(3);
+        expect(h.connection.nominated).toBe(host);
+      } finally {
+        await h.connection.close();
+      }
+    },
+  );
 
   test("a remote candidate trickled later that outranks a socket's backup becomes its backup", async () => {
     // relay ソケットの最上位ペア (remote 0) の経路は切れており、下位の remote 1 のペアが退避先になる。
