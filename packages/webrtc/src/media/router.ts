@@ -17,7 +17,7 @@ import {
 } from "../imports/rtp";
 import { type RouterSnapshot, ridRouteKey } from "../negotiation/internalState";
 import type { RTCDtlsTransport } from "../transport/dtls";
-import { deliveredTrackCodec } from "./codecCompatibility";
+import { deliveredTrackCodec, primaryTrackCodec } from "./codecCompatibility";
 import type {
   RTCRtpReceiveParameters,
   RTCRtpSimulcastParameters,
@@ -72,6 +72,14 @@ type StagedRoutes = {
  * | RTX SSRC → media SSRC | receiver RTX table | changed pairing staged |
  * | MID+RID → receiver | `ridTable` | RIDs are scoped to their m-line (RFC 8851): no conflict |
  * | Sender SSRC → sender | `ssrcTable` | application state: rollback keeps every live sender's route |
+ *
+ * Packet-driven routes are not description state: an SSRC first seen with
+ * `rtp-stream-id` / `repaired-rtp-stream-id` is added to `ssrcTable` as
+ * learned (`learnedSsrcs`), and the receiver learns RID → media SSRC and RTX
+ * SSRC → RID (`mediaSsrcByRid` / `ridByRtxSsrc`). Commit and rollback keep them.
+ * They are bounded per RID: an SSRC the receiver retires (a media SSRC change
+ * of the RID) or evicts loses its learned route here (`takeForgottenSsrcs`),
+ * and unregistering a transceiver drops its learned SSRCs.
  *
  * A payload type or extension ID counts as in use only when both current
  * descriptions carry it for the m-line. RID lookup uses MID+RID when the
@@ -159,6 +167,8 @@ export class RtpRouter {
       ridTable: { ...this.ridTable },
       extIdUriMap: { ...this.extIdUriMap },
       staged: this.snapshotStaged(),
+      /** Routes of `ssrcTable` that packets taught (not description state). */
+      learnedSsrcs: [...this.learnedSsrcs],
     };
   }
 
@@ -166,7 +176,10 @@ export class RtpRouter {
    * Internal: return to a negotiation baseline. Two kinds of route are not
    * description state and survive: SSRCs learned from packets for an endpoint
    * still attached, and the own SSRC of every live sender (including one the
-   * application added while the description was pending).
+   * application added while the description was pending). Likewise a route
+   * packets taught before the baseline and later dropped (an SSRC retired by
+   * a media SSRC change of its RID, or evicted) stays dropped: the baseline
+   * does not bring packet-driven routes back.
    */
   restoreRoutes(
     snapshot: RouterSnapshot,
@@ -184,7 +197,11 @@ export class RtpRouter {
         !(ssrc in snapshot.ssrcTable) &&
         endpoints.has(endpoint),
     );
+    const forgotten = snapshot.learnedSsrcs.filter(
+      (ssrc) => !(ssrc in this.ssrcTable),
+    );
     this.ssrcTable = { ...snapshot.ssrcTable };
+    for (const ssrc of forgotten) delete this.ssrcTable[ssrc];
     for (const [ssrc, endpoint] of learnedRoutes) {
       this.ssrcTable[Number(ssrc)] = endpoint;
     }
@@ -214,6 +231,7 @@ export class RtpRouter {
         endpoint === transceiver.receiver
       ) {
         delete this.ssrcTable[Number(ssrc)];
+        this.learnedSsrcs.delete(Number(ssrc));
       }
     }
     for (const [rid, endpoint] of Object.entries(this.ridTable)) {
@@ -299,8 +317,9 @@ export class RtpRouter {
     params: RTCRtpReceiveParameters,
     { deferConflicts = false }: { deferConflicts?: boolean } = {},
   ) {
-    // サイマルキャスト利用時のRTXをサポートしていないのでcodecs/encodingsは常に一つ
-    const [codec] = params.codecs;
+    // RTX / RED は track の codec にしない。RID ごとの RTX SSRC は
+    // repaired-rtp-stream-id 付きパケットから学習する (routeRtp)。
+    const codec = primaryTrackCodec(transceiver.kind, params.codecs);
 
     log("registerRtpReceiverByRid", param);
     transceiver.addTrack(
@@ -338,43 +357,60 @@ export class RtpRouter {
     return key ? (this.ridTable[key] as RTCRtpReceiver) : undefined;
   }
 
+  /**
+   * Simulcast (RFC 8852): a packet with `rtp-stream-id` is a layer's media,
+   * one with `repaired-rtp-stream-id` is the RTX stream repairing that layer.
+   * The first such packet registers its SSRC as a learned route, because the
+   * sender may stop sending these extensions (libwebrtc does once it receives
+   * an RTCP RR); later packets of the SSRC are routed by SSRC alone.
+   */
   routeRtp = (packet: RtpPacket) => {
     const extensions: Extensions = rtpHeaderExtensionsParser(
       packet.header.extensions,
       this.extIdUriMap,
     );
+    const { ssrc } = packet.header;
+    const mid = extensions[RTP_EXTENSION_URI.sdesMid];
+    let learnedNow = false;
 
     let rtpReceiver: RTCRtpReceiver | undefined = this.ssrcTable[
-      packet.header.ssrc
+      ssrc
     ] as RTCRtpReceiver;
 
     const rid = extensions[RTP_EXTENSION_URI.sdesRTPStreamID];
+    const repairedRid = extensions[RTP_EXTENSION_URI.repairedRtpStreamId];
+    const repairedReceiver =
+      typeof rid !== "string" && typeof repairedRid === "string" && !rtpReceiver
+        ? this.receiverByRid(repairedRid, mid)
+        : undefined;
     if (typeof rid === "string") {
-      rtpReceiver = this.receiverByRid(
-        rid,
-        extensions[RTP_EXTENSION_URI.sdesMid],
-      );
+      rtpReceiver = this.receiverByRid(rid, mid);
       if (!rtpReceiver) {
         log("rid receiver not found", rid);
         return;
       }
+      learnedNow = this.learnSsrc(ssrc, rtpReceiver);
       rtpReceiver.latestRid = rid;
       rtpReceiver.handleRtpByRid(packet, rid, extensions);
+    } else if (repairedReceiver) {
+      rtpReceiver = repairedReceiver;
+      learnedNow = this.learnSsrc(ssrc, rtpReceiver);
+      rtpReceiver.handleRtxByRid(packet, repairedRid as string, extensions);
     } else if (rtpReceiver) {
       rtpReceiver.handleRtpBySsrc(packet, extensions);
     } else {
       // simulcast after send receiver report
       rtpReceiver = Object.values(this.ridTable)
         .filter((r): r is RTCRtpReceiver => r instanceof RTCRtpReceiver)
-        .find((r) => r.trackBySSRC[packet.header.ssrc]);
+        .find((r) => r.trackBySSRC[ssrc]);
       if (rtpReceiver) {
-        log("simulcast register receiver by ssrc", packet.header.ssrc);
-        // Packet-driven, not a description: staged routes stay as they are.
-        this.ssrcTable[packet.header.ssrc] = rtpReceiver;
-        this.learnedSsrcs.add(packet.header.ssrc);
+        log("simulcast register receiver by ssrc", ssrc);
+        learnedNow = this.learnSsrc(ssrc, rtpReceiver);
         rtpReceiver.handleRtpBySsrc(packet, extensions);
       } else {
-        // bug
+        // An RTX SSRC is only known from SDP (ssrc-group:FID) or from a
+        // repaired-rtp-stream-id: without either it is not guessed.
+        log("receiver not found", { ssrc, repairedRid });
       }
     }
 
@@ -382,19 +418,46 @@ export class RtpRouter {
       log("ssrcReceiver not found");
       return;
     }
-
-    const sdesMid = extensions[RTP_EXTENSION_URI.sdesMid];
-    if (typeof sdesMid === "string") {
-      rtpReceiver.sdesMid = sdesMid;
+    for (const forgotten of rtpReceiver.takeForgottenSsrcs()) {
+      this.unlearnSsrc(forgotten, rtpReceiver);
+    }
+    // 無効なパケットは経路を教えない。取り消すのはこのパケットが今追加した経路だけ。
+    for (const rejected of rtpReceiver.takeRejectedSsrcs()) {
+      if (learnedNow && rejected === ssrc)
+        this.unlearnSsrc(rejected, rtpReceiver);
     }
 
-    const repairedRid = extensions[
-      RTP_EXTENSION_URI.repairedRtpStreamId
-    ] as string;
+    if (typeof mid === "string") {
+      rtpReceiver.sdesMid = mid;
+    }
+
     if (typeof repairedRid === "string") {
       rtpReceiver.latestRepairedRid = repairedRid;
     }
   };
+
+  /**
+   * Route an SSRC learned from a packet. Packet-driven, not a description:
+   * staged routes stay as they are, and an SSRC a description routes keeps
+   * that route.
+   */
+  private learnSsrc(ssrc: number, receiver: RTCRtpReceiver) {
+    if (this.ssrcTable[ssrc]) return false;
+    log("simulcast register receiver by ssrc", ssrc);
+    this.ssrcTable[ssrc] = receiver;
+    this.learnedSsrcs.add(ssrc);
+    return true;
+  }
+
+  /** Drop a learned route of `receiver`; a description's route stays. */
+  private unlearnSsrc(ssrc: number, receiver: RTCRtpReceiver) {
+    if (!this.learnedSsrcs.has(ssrc) || this.ssrcTable[ssrc] !== receiver) {
+      return;
+    }
+    log("forget learned ssrc", ssrc);
+    delete this.ssrcTable[ssrc];
+    this.learnedSsrcs.delete(ssrc);
+  }
 
   routeRtcp = (packet: RtcpPacket, dtlsTransport?: RTCDtlsTransport) => {
     const recipients: (RTCRtpReceiver | RTCRtpSender)[] = [];
