@@ -202,6 +202,27 @@ Default upper bound (ms) for waiting until an alert has been sent.
 
 ## Accessors
 
+### handshakeStopped
+
+#### Get Signature
+
+> **get** `protected` **handshakeStopped**(): `boolean`
+
+Whether the handshake must not go on: the connection ended, or this side
+sent close_notify (RFC 5246 §7.2.1: nothing is sent after it, so a
+handshake that would answer or complete stops; records received after it
+are still processed, to receive the peer's close_notify).
+
+##### Returns
+
+`boolean`
+
+#### Inherited from
+
+[`DtlsSocket`](DtlsSocket.md).[`handshakeStopped`](DtlsSocket.md#handshakestopped)
+
+***
+
 ### remoteCertificate
 
 #### Get Signature
@@ -288,8 +309,10 @@ immediately when none is in flight. Never rejects.
 Close the socket: received records are no longer processed and a
 handshake flight stops retransmitting.
 
-- `close()`: closes the transport immediately, without alert (unchanged
-  behavior).
+- `close()`: sends no alert of its own and closes the transport right
+  away, except that an alert already being sent (`sendAlert()`, the
+  close_notify answering the peer's) is let through first: the transport
+  closes once it has been sent or timed out.
 - `close({ notify: true })`: sends close_notify first and closes the
   transport once it has been sent, or after `timeoutMs`
   (default [DtlsSocket.AlertSendTimeoutMs](DtlsSocket.md#alertsendtimeoutms)).

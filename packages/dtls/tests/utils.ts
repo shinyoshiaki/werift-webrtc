@@ -1,6 +1,6 @@
 import { createPublicKey, generateKeyPairSync, verify } from "crypto";
 import type { Address, Transport } from "../../common/src";
-import { DtlsClient, DtlsServer } from "../src";
+import { type DtlsAlert, DtlsClient, DtlsServer } from "../src";
 import {
   CipherSuite,
   CurveType,
@@ -13,9 +13,12 @@ import { CipherContext } from "../src/context/cipher";
 import { HandshakeType } from "../src/handshake/const";
 import { EllipticCurves } from "../src/handshake/extensions/ellipticCurves";
 import { Signature } from "../src/handshake/extensions/signature";
+import { Alert } from "../src/handshake/message/alert";
 import { ClientHello } from "../src/handshake/message/client/hello";
 import { ServerKeyExchange } from "../src/handshake/message/server/keyExchange";
 import type { DtlsRandom } from "../src/handshake/random";
+import { createPlaintext } from "../src/record/builder";
+import { ContentType } from "../src/record/const";
 import { FragmentedHandshake } from "../src/record/message/fragment";
 import { parsePacket } from "../src/record/receive";
 import type { Options } from "../src/socket";
@@ -227,3 +230,29 @@ export const sentRecords = (datagrams: Buffer[]) =>
       fragment: packet.fragment,
     })),
   );
+
+/**
+ * One alert record carrying several alerts (RFC 5246 §6.2.1 lets a record
+ * hold several messages of one content type), protected the way `sender`
+ * protects its own alerts: plaintext at epoch 0, encrypted with the current
+ * epoch after ChangeCipherSpec.
+ */
+export const createMultiAlertRecord = (
+  sender: DtlsClient | DtlsServer,
+  alerts: DtlsAlert[],
+) => {
+  const [packet] = createPlaintext(sender.dtls)(
+    [
+      {
+        type: ContentType.alert,
+        fragment: Buffer.concat(
+          alerts.map((a) => new Alert(a.level, a.description).serialize()),
+        ),
+      },
+    ],
+    ++sender.dtls.recordSequenceNumber,
+  );
+  return sender.dtls.epoch > 0
+    ? sender.cipher.encryptPacket(packet).serialize()
+    : packet.serialize();
+};

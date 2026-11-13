@@ -32,7 +32,7 @@ export class DtlsClient extends DtlsSocket {
     );
 
     for (const handshake of assembled) {
-      if (this.terminated) return;
+      if (this.handshakeStopped) return;
       switch (handshake.msg_type) {
         // flight2
         case HandshakeType.hello_verify_request_3:
@@ -84,14 +84,14 @@ export class DtlsClient extends DtlsSocket {
             await this.waitForReady(() =>
               this.dtls.checkHandshakesExist(targets),
             );
-            if (this.terminated) return;
+            if (this.handshakeStopped) return;
             await this.flight5?.exec();
           }
           break;
         // flight 6
         case HandshakeType.finished_20:
           {
-            if (this.terminated) return;
+            if (this.handshakeStopped) return;
             this.dtls.flight = 7;
             this.connected = true;
             this.notify(this.onConnect);

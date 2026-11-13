@@ -50,8 +50,9 @@ import { AlertDesc, AlertLevel, DtlsAlertError } from "werift-dtls";
 // has been sent (at most `timeoutMs`, default `DtlsSocket.AlertSendTimeoutMs` = 200 ms).
 await client.close({ notify: true });
 
-// `close()` without options closes the transport immediately without an alert
-// (the behavior of earlier versions).
+// `close()` without options sends no alert of its own and closes the transport
+// right away; only an alert already being sent (sendAlert(), the close_notify
+// answering the peer's) is let through first, so it is not dropped.
 client.close();
 
 // Send any alert. It is encrypted after ChangeCipherSpec (epoch > 0) and plaintext
@@ -71,9 +72,12 @@ server.onError.subscribe((error) => {
 ```
 
 - A received alert is decrypted according to its record epoch; a record that fails to decrypt is discarded.
-- Other warning alerts (`user_canceled`, `no_renegotiation`, ...) only fire `onAlert`.
+- Every alert in a received record is handled in order (a record may carry several); processing stops at the first close_notify or fatal alert, and the rest of the record and of the datagram is ignored.
+- A truncated record at the end of a datagram is discarded; the records before it are still processed.
+- Other warning alerts (`user_canceled`, `no_renegotiation`, ...) only fire `onAlert`. An alert whose level is neither warning nor fatal is malformed and handled like a fatal alert.
 - The connection is ended (close_notify answered, transport closed) before the listeners run. An exception thrown by a listener (`onAlert`, `onClose`, `onError`, `onData`, `onConnect`) is logged and does not interrupt it.
-- After close_notify or a fatal alert (sent or received), received records are no longer processed, `send()` sends nothing and handshake flights stop retransmitting.
+- After close_notify or a fatal alert (sent or received), `send()` sends nothing, no handshake record is sent (no retransmission, no flight resent because the peer repeated its own) and the handshake does not complete.
+- After a received close_notify, a fatal alert (sent or received) or `close()`, received records are no longer processed. After this side sent close_notify with `sendAlert()` alone, records are still received, so the peer's close_notify reply fires `onClose`.
 
 ## Certificate verification during the handshake
 

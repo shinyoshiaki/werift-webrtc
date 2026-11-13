@@ -2,7 +2,12 @@ import { setTimeout } from "timers/promises";
 import { AlertDesc, AlertLevel, ContentType, DtlsAlertError } from "../src";
 import { Alert } from "../src/handshake/message/alert";
 import { createPlaintext } from "../src/record/builder";
-import { connectDtlsPair, createDtlsPair, sentRecords } from "./utils";
+import {
+  connectDtlsPair,
+  createDtlsPair,
+  createMultiAlertRecord,
+  sentRecords,
+} from "./utils";
 
 const alertRecords = (datagrams: Buffer[]) =>
   sentRecords(datagrams).filter((r) => r.contentType === ContentType.alert);
@@ -553,4 +558,367 @@ describe("DTLS イベントの購読者ごとの例外隔離", () => {
     expect(laterClose).toHaveBeenCalledTimes(1);
     expect(laterError).toHaveBeenCalledTimes(1);
   });
+});
+
+describe("1 つの record に入った複数の alert", () => {
+  const userCanceled = {
+    level: AlertLevel.warning,
+    description: AlertDesc.UserCanceled,
+  };
+  const closeNotify = {
+    level: AlertLevel.warning,
+    description: AlertDesc.CloseNotify,
+  };
+  const fatal = {
+    level: AlertLevel.fatal,
+    description: AlertDesc.InternalError,
+  };
+  const protections = [
+    ["平文（handshake 前・epoch 0）", false],
+    ["暗号化（確立後・epoch 1）", true],
+  ] as const;
+  const cases = [
+    ["warning の後の close_notify", [userCanceled, closeNotify], "close"],
+    ["warning の後の fatal alert", [userCanceled, fatal], "fatal"],
+    ["close_notify の後の fatal alert", [closeNotify, fatal], "close"],
+    ["fatal alert の後の close_notify", [fatal, closeNotify], "fatal"],
+  ] as const;
+
+  describe.each(protections)("%s", (_, established) => {
+    test.each(cases)(
+      "%s は先頭から順に処理し、最初の終端 alert で処理を止める",
+      async (_, alerts, outcome) => {
+        // Arrange: 複数の alert を 1 つの record に詰めて client に届ける
+        const pair = createDtlsPair();
+        if (established) await connectDtlsPair(pair);
+        const received: number[] = [];
+        const onClose = vi.fn();
+        const errors: Error[] = [];
+        pair.client.onAlert.subscribe((a) => received.push(a.description));
+        pair.client.onClose.subscribe(onClose);
+        pair.client.onError.subscribe((e) => errors.push(e));
+        const record = createMultiAlertRecord(pair.server, [...alerts]);
+        const sentBefore = alertRecords(pair.clientTransport.sent).length;
+
+        try {
+          // Act: record を受信させる
+          pair.client.transport.socket.onData(record, {} as any);
+          await setTimeout(20);
+
+          // Assert: 最初の終端 alert までが順に onAlert へ渡り、それ以降は処理されない
+          const terminal = alerts.findIndex(
+            (a) => a.description === AlertDesc.CloseNotify || a.level === 2,
+          );
+          expect(received).toEqual(
+            alerts.slice(0, terminal + 1).map((a) => a.description),
+          );
+          expect(pair.client.terminated).toBe(true);
+          if (outcome === "close") {
+            // Assert: close_notify で閉じ、close_notify を 1 回だけ返し、onError は発火しない
+            expect(onClose).toHaveBeenCalledTimes(1);
+            expect(errors).toHaveLength(0);
+            expect(alertRecords(pair.clientTransport.sent)).toHaveLength(
+              sentBefore + 1,
+            );
+          } else {
+            // Assert: fatal alert で onError（remote）が 1 回だけ発火し、応答せず transport を閉じる
+            expect(onClose).not.toHaveBeenCalled();
+            expect(errors).toHaveLength(1);
+            expect((errors[0] as DtlsAlertError).source).toBe("remote");
+            expect((errors[0] as DtlsAlertError).description).toBe(
+              AlertDesc.InternalError,
+            );
+            expect(alertRecords(pair.clientTransport.sent)).toHaveLength(
+              sentBefore,
+            );
+            expect(pair.clientTransport.closed).toBe(true);
+          }
+        } finally {
+          await pair.client.close();
+          await pair.server.close();
+        }
+      },
+    );
+  });
+});
+
+describe("datagram の末尾が壊れている場合", () => {
+  test.each([
+    ["13 byte に満たない末尾", Buffer.alloc(5)],
+    [
+      "fragment 長より 1 byte 短い record",
+      Buffer.concat([
+        Buffer.from([ContentType.alert, 0xfe, 0xfd, 0, 1, 0, 0, 0, 0, 0, 9]),
+        Buffer.from([0x00, 0x04, 1, 2, 3]),
+      ]),
+    ],
+  ])(
+    "%s があっても受信処理は例外を投げず、前にある正規の close_notify を処理する",
+    async (_, broken) => {
+      // Arrange: 確立済みの pair と、正規の暗号化 close_notify の後に壊れた末尾を付けた datagram
+      const pair = createDtlsPair();
+      await connectDtlsPair(pair);
+      const onClose = vi.fn();
+      pair.client.onClose.subscribe(onClose);
+      const datagram = Buffer.concat([
+        createMultiAlertRecord(pair.server, [
+          { level: AlertLevel.warning, description: AlertDesc.CloseNotify },
+        ]),
+        broken,
+      ]);
+
+      try {
+        // Act: 壊れた末尾だけの datagram と、正規 record 付きの datagram を受信させる
+        const receiveBrokenOnly = () =>
+          pair.client.transport.socket.onData(broken, {} as any);
+        const receiveDatagram = () =>
+          pair.client.transport.socket.onData(datagram, {} as any);
+
+        // Assert: どちらも例外を投げない
+        expect(receiveBrokenOnly).not.toThrow();
+        expect(pair.client.terminated).toBe(false);
+        expect(receiveDatagram).not.toThrow();
+        await setTimeout(20);
+
+        // Assert: 壊れた末尾の前にある close_notify は処理され、onClose が 1 回発火する
+        expect(onClose).toHaveBeenCalledTimes(1);
+      } finally {
+        await pair.client.close();
+        await pair.server.close();
+      }
+    },
+  );
+});
+
+describe("送信中の alert と close()", () => {
+  test("公開 sendAlert() の fatal alert の直後に close() を呼んでも、送信完了まで transport を閉じず相手に届く", async () => {
+    // Arrange: client の送信完了を制御する
+    const pair = createDtlsPair();
+    await connectDtlsPair(pair);
+    const serverErrors: Error[] = [];
+    pair.server.onError.subscribe((e) => serverErrors.push(e));
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const realSend = pair.clientTransport.send.bind(pair.clientTransport);
+    pair.clientTransport.send = async (data: Buffer) => {
+      await gate;
+      return realSend(data);
+    };
+
+    // Act: fatal alert を送り、完了を待たずに close() する
+    void pair.client.sendAlert(AlertLevel.fatal, AlertDesc.InternalError);
+    const closing = pair.client.close();
+    await setTimeout(30);
+    const closedBeforeSent = pair.clientTransport.closed;
+    release();
+    await closing;
+    await setTimeout(20);
+
+    // Assert: 送信完了前は閉じず、alert は相手に届いて onError（remote）が発火する
+    expect(closedBeforeSent).toBe(false);
+    expect(pair.clientTransport.closed).toBe(true);
+    expect(serverErrors).toHaveLength(1);
+    expect((serverErrors[0] as DtlsAlertError).source).toBe("remote");
+  });
+
+  test("onClose の中で close() を呼んでも、受信した close_notify への返信は相手に届く", async () => {
+    // Arrange: server の送信は UDP のように後の tick で完了し、server は onClose で close() する
+    const pair = createDtlsPair();
+    await connectDtlsPair(pair);
+    const realSend = pair.serverTransport.send.bind(pair.serverTransport);
+    pair.serverTransport.send = async (data: Buffer) => {
+      await setTimeout(5);
+      return realSend(data);
+    };
+    pair.server.onClose.subscribe(() => {
+      void pair.server.close();
+    });
+    const clientAlerts: number[] = [];
+    pair.client.onAlert.subscribe((a) => clientAlerts.push(a.description));
+
+    // Act: client が close_notify だけを送る（返信を受け取れるよう transport は閉じない）
+    await pair.client.sendAlert(AlertLevel.warning, AlertDesc.CloseNotify);
+    await setTimeout(30);
+
+    // Assert: server は返信の close_notify を送ってから閉じ、client に届く
+    expect(alertRecords(pair.serverTransport.sent)).toHaveLength(1);
+    expect(pair.serverTransport.closed).toBe(true);
+    expect(clientAlerts).toEqual([AlertDesc.CloseNotify]);
+  });
+});
+
+describe("close_notify を送った後の handshake", () => {
+  test("handshake record が再び届いても、server は record を送らず onConnect も再び発火しない", async () => {
+    // Arrange: 確立後、client の flight 5 を記録しておき、server は close_notify を送る（相手には届けない）
+    const pair = createDtlsPair();
+    const flight5 = (() => {
+      const before = pair.clientTransport.sent.length;
+      return () => pair.clientTransport.sent.slice(before);
+    })();
+    await connectDtlsPair(pair);
+    const clientHandshakeDatagrams = flight5().filter((d) =>
+      sentRecords([d]).some((r) => r.contentType === ContentType.handshake),
+    );
+    const onConnect = vi.fn();
+    pair.server.onConnect.subscribe(onConnect);
+    pair.serverTransport.peer = undefined;
+    await pair.server.sendAlert(AlertLevel.warning, AlertDesc.CloseNotify);
+    const sentAfterAlert = pair.serverTransport.sent.length;
+
+    try {
+      // Act: client の handshake datagram を再び server に届ける
+      for (const datagram of clientHandshakeDatagrams) {
+        pair.server.transport.socket.onData(datagram, {} as any);
+      }
+      await setTimeout(1200);
+
+      // Assert: 再送の対象になる handshake は残っていた
+      expect(clientHandshakeDatagrams.length).toBeGreaterThan(0);
+      // Assert: close_notify の後は record を 1 つも送らず、onConnect も発火しない
+      expect(pair.serverTransport.sent.length).toBe(sentAfterAlert);
+      expect(onConnect).not.toHaveBeenCalled();
+    } finally {
+      await pair.client.close();
+      await pair.server.close();
+    }
+  });
+});
+
+describe("未知の level の alert", () => {
+  test.each([0, 3])(
+    "level %i の alert は warning として無視せず fatal として扱い、transport を閉じる",
+    async (level) => {
+      // Arrange: 確立済みの pair
+      const pair = createDtlsPair();
+      await connectDtlsPair(pair);
+      const errors: Error[] = [];
+      pair.client.onError.subscribe((e) => errors.push(e));
+      const record = createMultiAlertRecord(pair.server, [
+        { level, description: AlertDesc.HandshakeFailure },
+      ]);
+
+      try {
+        // Act: 未知の level の alert を受信させる
+        pair.client.transport.socket.onData(record, {} as any);
+        await setTimeout(20);
+
+        // Assert: onError（remote）が 1 回発火し、受信した level と description が渡り、応答せずに閉じる
+        expect(errors).toHaveLength(1);
+        const error = errors[0] as DtlsAlertError;
+        expect(error.source).toBe("remote");
+        expect(error.level).toBe(level);
+        expect(error.description).toBe(AlertDesc.HandshakeFailure);
+        expect(error.message).toContain(`level ${level}`);
+        expect(alertRecords(pair.clientTransport.sent)).toHaveLength(0);
+        expect(pair.clientTransport.closed).toBe(true);
+      } finally {
+        await pair.client.close();
+        await pair.server.close();
+      }
+    },
+  );
+});
+
+describe("Finished と alert が同じ datagram に入っている場合", () => {
+  test.each([
+    ["close_notify", AlertLevel.warning, AlertDesc.CloseNotify],
+    ["fatal alert", AlertLevel.fatal, AlertDesc.InternalError],
+  ] as const)(
+    "client は Finished に続く %s を処理し、状態とイベントは 1 回ずつになる",
+    async (_, level, description) => {
+      // Arrange: server の Finished（epoch 1 の handshake record）を保留し、
+      // server が接続した直後に送る alert と 1 つの datagram にまとめて client へ届ける
+      const pair = createDtlsPair();
+      const events: string[] = [];
+      pair.client.onConnect.subscribe(() => events.push("connect"));
+      pair.client.onClose.subscribe(() => events.push("close"));
+      pair.client.onError.subscribe(() => events.push("error"));
+      let held: Buffer | undefined;
+      const send = pair.serverTransport.send;
+      pair.serverTransport.send = async (data: Buffer) => {
+        const contentType = data[0];
+        const epoch = data.readUInt16BE(3);
+        if (contentType === ContentType.handshake && epoch === 1) {
+          held = data;
+          return;
+        }
+        if (contentType === ContentType.alert && held) {
+          const datagram = Buffer.concat([held, data]);
+          held = undefined;
+          pair.serverTransport.sent.push(datagram);
+          setImmediate(() =>
+            pair.clientTransport.onData(datagram, pair.serverTransport.address),
+          );
+          return;
+        }
+        return send(data);
+      };
+      const serverConnected = pair.server.onConnect.asPromise();
+      void pair.client.connect().catch(() => undefined);
+      await serverConnected;
+
+      // Act: server が接続直後に alert を送る（Finished と同じ datagram で届く）
+      await pair.server.sendAlert(level, description);
+      await setTimeout(50);
+
+      // Assert: datagram には Finished と alert の 2 record が入っていた
+      const datagram = pair.serverTransport.sent.at(-1)!;
+      expect(sentRecords([datagram]).map((r) => r.contentType)).toEqual([
+        ContentType.handshake,
+        ContentType.alert,
+      ]);
+      // Assert: client は終了し、終了イベントはちょうど 1 回、connect は高々 1 回
+      expect(pair.client.terminated).toBe(true);
+      const ending = level === AlertLevel.fatal ? "error" : "close";
+      expect(events.filter((e) => e === ending)).toHaveLength(1);
+      expect(events.filter((e) => e !== ending && e !== "connect")).toEqual([]);
+      expect(events.filter((e) => e === "connect").length).toBeLessThanOrEqual(
+        1,
+      );
+      // Assert: connect が発火した場合は終了イベントより前
+      if (events.includes("connect")) {
+        expect(events.indexOf("connect")).toBeLessThan(events.indexOf(ending));
+      }
+    },
+  );
+});
+
+describe("close_notify を受けた後に届く application data", () => {
+  test.each(["同じ datagram", "後の datagram"] as const)(
+    "%s で届いた application data は onData に渡らず、onClose は 1 回だけ",
+    async (placement) => {
+      // Arrange: 接続済みの組で、client の文脈で close_notify と application data の record を作る
+      const pair = createDtlsPair();
+      await connectDtlsPair(pair);
+      const onData = vi.fn();
+      const onClose = vi.fn();
+      pair.server.onData.subscribe(onData);
+      pair.server.onClose.subscribe(onClose);
+      const closeNotify = createMultiAlertRecord(pair.client, [
+        { level: AlertLevel.warning, description: AlertDesc.CloseNotify },
+      ]);
+      const [dataPacket] = createPlaintext(pair.client.dtls)(
+        [{ type: ContentType.applicationData, fragment: Buffer.from("late") }],
+        ++pair.client.dtls.recordSequenceNumber,
+      );
+      const data = pair.client.cipher.encryptPacket(dataPacket).serialize();
+      const from = pair.clientTransport.address;
+
+      // Act: close_notify と application data を指定の並びで server に届ける
+      if (placement === "同じ datagram") {
+        pair.serverTransport.onData(Buffer.concat([closeNotify, data]), from);
+      } else {
+        pair.serverTransport.onData(closeNotify, from);
+        pair.serverTransport.onData(data, from);
+      }
+      await setTimeout(20);
+
+      // Assert: close_notify で終了し、後の application data は処理されない
+      expect(onClose).toHaveBeenCalledTimes(1);
+      expect(onData).not.toHaveBeenCalled();
+      expect(pair.server.terminated).toBe(true);
+    },
+  );
 });

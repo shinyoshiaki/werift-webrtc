@@ -118,6 +118,16 @@ export class DtlsSocket {
     return this.ended;
   }
 
+  /**
+   * Whether the handshake must not go on: the connection ended, or this side
+   * sent close_notify (RFC 5246 §7.2.1: nothing is sent after it, so a
+   * handshake that would answer or complete stops; records received after it
+   * are still processed, to receive the peer's close_notify).
+   */
+  protected get handshakeStopped() {
+    return this.ended || this.alertSent;
+  }
+
   private udpOnMessage = (data: Buffer) => {
     if (this.ended) return;
     const packets = parsePacket(data);
@@ -128,6 +138,9 @@ export class DtlsSocket {
       try {
         const messages = parsePlainText(this.dtls, this.cipher)(packet);
         for (const message of messages) {
+          // An alert earlier in this record (e.g. close_notify followed by a
+          // fatal alert) may have ended the connection: the rest is ignored.
+          if (this.ended) return;
           switch (message.type) {
             case ContentType.handshake:
               {
@@ -463,8 +476,10 @@ export class DtlsSocket {
    * Close the socket: received records are no longer processed and a
    * handshake flight stops retransmitting.
    *
-   * - `close()`: closes the transport immediately, without alert (unchanged
-   *   behavior).
+   * - `close()`: sends no alert of its own and closes the transport right
+   *   away, except that an alert already being sent (`sendAlert()`, the
+   *   close_notify answering the peer's) is let through first: the transport
+   *   closes once it has been sent or timed out.
    * - `close({ notify: true })`: sends close_notify first and closes the
    *   transport once it has been sent, or after `timeoutMs`
    *   (default {@link DtlsSocket.AlertSendTimeoutMs}).
@@ -488,6 +503,10 @@ export class DtlsSocket {
       await sending;
     }
     this.ended = true;
+    this.transport.stopFlights();
+    // Closing the transport now would drop an alert handed to it but not
+    // yet written (a UDP datagram goes out on a later tick).
+    await this.alertFlushed();
     await Promise.resolve(this.transport.close()).catch((error) => {
       err(this.dtls.sessionId, "failed to close transport", error);
     });

@@ -26,7 +26,7 @@ export class DtlsServer extends DtlsSocket {
     );
 
     for (const handshake of assembled) {
-      if (this.terminated) return;
+      if (this.handshakeStopped) return;
       switch (handshake.msg_type) {
         // flight1,3
         case HandshakeType.client_hello_1:
@@ -94,7 +94,7 @@ export class DtlsServer extends DtlsSocket {
               this.dtls.checkHandshakesExist(requiredHandshakes),
             );
             // The certificate may have been rejected while waiting.
-            if (this.terminated) return;
+            if (this.handshakeStopped) return;
             if (
               this.options.verifyRemoteCertificate &&
               !this.cipher.remoteCertificate
@@ -104,7 +104,7 @@ export class DtlsServer extends DtlsSocket {
               return;
             }
             await this.flight6?.exec();
-            if (this.terminated) return;
+            if (this.handshakeStopped) return;
 
             this.connected = true;
             this.notify(this.onConnect);

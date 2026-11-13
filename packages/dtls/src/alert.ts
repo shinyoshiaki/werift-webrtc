@@ -21,6 +21,13 @@ export interface DtlsAlert {
   description: number;
 }
 
+const alertLevelName = (level: number) =>
+  level === AlertLevel.warning
+    ? "warning"
+    : level === AlertLevel.fatal
+      ? "fatal"
+      : `level ${level}`;
+
 /**
  * Error passed to `DtlsSocket.onError` when a connection ends with a fatal
  * alert.
@@ -43,9 +50,9 @@ export class DtlsAlertError extends Error {
   constructor(alert: DtlsAlert, source: "local" | "remote", reason?: unknown) {
     const name = alertDescName(alert.description);
     super(
-      `dtls ${source === "remote" ? "received" : "sent"} ${
-        alert.level === AlertLevel.fatal ? "fatal" : "warning"
-      } alert: ${name ?? alert.description}`,
+      `dtls ${source === "remote" ? "received" : "sent"} ${alertLevelName(
+        alert.level,
+      )} alert: ${name ?? alert.description}`,
     );
     this.name = "DtlsAlertError";
     this.level = alert.level;
@@ -85,11 +92,13 @@ export const createAlertRecord = (
  *
  * - `close`: close_notify (whatever its level). The connection is closed by
  *   the peer.
- * - `fatal`: any other alert with the fatal level. The connection is invalid.
  * - `ignore`: any other warning (user_canceled, no_renegotiation, ...).
+ * - `fatal`: any other alert with the fatal level, or with a level that is
+ *   neither warning nor fatal (malformed; OpenSSL / BoringSSL also end the
+ *   connection on it). The connection is invalid.
  */
 export const classifyAlert = (alert: DtlsAlert) => {
   if (alert.description === AlertDesc.CloseNotify) return "close" as const;
-  if (alert.level === AlertLevel.fatal) return "fatal" as const;
-  return "ignore" as const;
+  if (alert.level === AlertLevel.warning) return "ignore" as const;
+  return "fatal" as const;
 };
