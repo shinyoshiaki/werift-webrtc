@@ -42,58 +42,114 @@ ide:
 
 ## 2. 修正前の問題と修正後の仕組み
 
-### 2.1 同じ trickle の流れを Before / After で比べる
+### 2.1 同じ trickle の流れを 3 方式で比べる
 
-入力は同じです。先に TURN/TCP relay のペアが疎通し、少し遅れて TURN/UDP relay の候補が trickle で届きます。
+**指名（nomination）** は、controlling 側が `USE-CANDIDATE` 付きの Binding Request を送り、成功応答を受けることです。成功すると、そのペアが両端で「接続に使うペア」として選択されます。3 つの方式の違いは、`USE-CANDIDATE` を**どの check に付けるか**と、**選択を後から置き換えるか**です。
+
+入力は 3 つとも同じです。先に TURN/TCP relay のペアが疎通し、少し遅れて、優先度が上の TURN/UDP relay の候補が trickle で届きます。図はすべて同じ配置にしてあります。上から ① 最初の check、② 候補の到着、③ 到着後の check、④ 専用の指名 check（regular だけ）、⑤ 結果 の順です。
 
 <div style="font-family:var(--review-font);color:var(--review-fg)">
-<div style="font-weight:bold;margin:4px 0;color:var(--review-danger)">Before（develop）</div>
-<svg viewBox="0 0 760 250" width="100%" role="img" aria-label="Before: TURN/TCP に固定される流れ">
-  <g stroke="var(--review-border)" stroke-width="1.5"><line x1="250" y1="30" x2="250" y2="245"/><line x1="510" y1="30" x2="510" y2="245"/></g>
+<div style="font-weight:bold;margin:4px 0;color:var(--review-danger)">Before（develop: aggressive）</div>
+<svg viewBox="0 0 760 350" width="100%" role="img" aria-label="Before: 最初の check から USE-CANDIDATE を付け、TURN/TCP に固定される流れ">
+  <g stroke="var(--review-border)" stroke-width="1.5"><line x1="250" y1="30" x2="250" y2="345"/><line x1="510" y1="30" x2="510" y2="345"/></g>
   <g font-size="13" text-anchor="middle" fill="var(--review-fg)" font-weight="bold"><text x="250" y="20">werift（controlling）</text><text x="510" y="20">相手（controlled）</text></g>
-  <g stroke="var(--review-muted)" stroke-width="1.5" fill="none"><line x1="250" y1="55" x2="505" y2="55"/><polyline points="497,50 505,55 497,60"/><line x1="510" y1="72" x2="255" y2="72" stroke-dasharray="4 3"/><polyline points="263,67 255,72 263,77"/></g>
-  <text x="380" y="49" font-size="11" text-anchor="middle" fill="var(--review-fg)">checkStart(): TURN/TCP + USE-CANDIDATE</text>
-  <text x="380" y="88" font-size="11" text-anchor="middle" fill="var(--review-muted)">成功応答</text>
-  <g font-size="11" fill="var(--review-fg)"><text x="240" y="60" text-anchor="end">nominated = TCP（確定）</text><text x="240" y="76" text-anchor="end">8.1.2: 残りの Waiting/Frozen → FAILED</text></g>
-  <g font-size="11" fill="var(--review-fg)"><text x="520" y="60">最初の指名で選択</text><text x="520" y="76">（nominated == undefined のときだけ）</text></g>
-  <rect x="150" y="110" width="460" height="28" rx="5" fill="none" stroke="var(--review-border)" stroke-dasharray="4 3"/>
-  <text x="380" y="129" font-size="12" text-anchor="middle" fill="var(--review-fg)">TURN/UDP relay の候補が trickle で到着（優先度は TCP より上）</text>
-  <rect x="4" y="150" width="500" height="40" rx="5" fill="none" stroke="var(--review-danger)" stroke-width="2"/>
-  <text x="14" y="167" font-size="11" fill="var(--review-danger)" font-weight="bold">✗ pairLocalProtocol() / tryPair(): 選択済みなので新ペアを作らない</text>
-  <text x="14" y="183" font-size="11" fill="var(--review-danger)">（仮に check しても nominated は上書きされない）</text>
-  <rect x="150" y="205" width="460" height="32" rx="5" fill="none" stroke="var(--review-danger)" stroke-width="2"/>
-  <text x="380" y="226" font-size="12" text-anchor="middle" fill="var(--review-danger)" font-weight="bold">両端とも TURN/TCP に固定 → RTT 約 6.2 s（ICE restart まで戻らない）</text>
+  <g font-size="11" fill="var(--review-muted)"><text x="4" y="20">①</text><text x="4" y="124">②</text><text x="4" y="210">③</text><text x="4" y="262">④</text><text x="4" y="322">⑤</text></g>
+  <g stroke="var(--review-danger)" stroke-width="2" fill="none"><line x1="250" y1="55" x2="505" y2="55"/><polyline points="497,50 505,55 497,60"/></g>
+  <g stroke="var(--review-muted)" stroke-width="1.5" fill="none"><line x1="510" y1="72" x2="255" y2="72" stroke-dasharray="4 3"/><polyline points="263,67 255,72 263,77"/></g>
+  <text x="380" y="49" font-size="11" text-anchor="middle" fill="var(--review-danger)" font-weight="bold">TURN/TCP + USE-CANDIDATE（すべての check に付く）</text>
+  <text x="380" y="88" font-size="11" text-anchor="middle" fill="var(--review-muted)">成功応答 = 指名成立</text>
+  <g font-size="11" fill="var(--review-fg)"><text x="240" y="60" text-anchor="end">nominated = TCP（確定）→ connect() 完了</text><text x="240" y="76" text-anchor="end">8.1.2: 残りの Waiting/Frozen → FAILED</text></g>
+  <g font-size="11" fill="var(--review-fg)"><text x="520" y="60">最初の指名で TCP を選択</text><text x="520" y="76">（nominated == undefined のときだけ）</text></g>
+  <rect x="150" y="105" width="460" height="28" rx="5" fill="none" stroke="var(--review-border)" stroke-dasharray="4 3"/>
+  <text x="380" y="124" font-size="12" text-anchor="middle" fill="var(--review-fg)">TURN/UDP relay の候補が trickle で到着（優先度は TCP より上）</text>
+  <text x="618" y="124" font-size="11" fill="var(--review-muted)">（選択後）</text>
+  <rect x="24" y="148" width="480" height="40" rx="5" fill="none" stroke="var(--review-danger)" stroke-width="2"/>
+  <text x="34" y="165" font-size="11" fill="var(--review-danger)" font-weight="bold">✗ pairLocalProtocol() / tryPair(): 選択済みなので新ペアを作らない</text>
+  <text x="34" y="181" font-size="11" fill="var(--review-danger)">（仮に check しても nominated は上書きされない）</text>
+  <text x="380" y="210" font-size="11" text-anchor="middle" fill="var(--review-muted)">TURN/UDP の check は送られない</text>
+  <text x="380" y="262" font-size="11" text-anchor="middle" fill="var(--review-muted)">（専用の指名 check はない。① の check 自体が指名）</text>
+  <rect x="150" y="300" width="460" height="44" rx="5" fill="none" stroke="var(--review-danger)" stroke-width="2"/>
+  <text x="380" y="318" font-size="12" text-anchor="middle" fill="var(--review-danger)" font-weight="bold">両端とも TURN/TCP に固定 → RTT 約 6.2 s</text>
+  <text x="380" y="335" font-size="11" text-anchor="middle" fill="var(--review-danger)">接続は最速だが、ICE restart まで上位ペアへ戻れない</text>
 </svg>
-<div style="font-weight:bold;margin:10px 0 4px;color:var(--review-success)">After（既定: semi-aggressive）</div>
-<svg viewBox="0 0 760 300" width="100%" role="img" aria-label="After: TURN/UDP へ置き換わる流れ">
-  <g stroke="var(--review-border)" stroke-width="1.5"><line x1="250" y1="30" x2="250" y2="295"/><line x1="510" y1="30" x2="510" y2="295"/></g>
+
+<div style="font-weight:bold;margin:12px 0 4px;color:var(--review-success)">After（既定: semi-aggressive）</div>
+<svg viewBox="0 0 760 350" width="100%" role="img" aria-label="semi-aggressive: 未選択の間と上位ペアにだけ USE-CANDIDATE を付け、TURN/UDP へ置き換わる流れ">
+  <g stroke="var(--review-border)" stroke-width="1.5"><line x1="250" y1="30" x2="250" y2="345"/><line x1="510" y1="30" x2="510" y2="345"/></g>
   <g font-size="13" text-anchor="middle" fill="var(--review-fg)" font-weight="bold"><text x="250" y="20">werift（controlling）</text><text x="510" y="20">相手（controlled）</text></g>
+  <g font-size="11" fill="var(--review-muted)"><text x="4" y="20">①</text><text x="4" y="124">②</text><text x="4" y="210">③</text><text x="4" y="262">④</text><text x="4" y="322">⑤</text></g>
   <g stroke="var(--review-muted)" stroke-width="1.5" fill="none"><line x1="250" y1="55" x2="505" y2="55"/><polyline points="497,50 505,55 497,60"/><line x1="510" y1="72" x2="255" y2="72" stroke-dasharray="4 3"/><polyline points="263,67 255,72 263,77"/></g>
-  <text x="380" y="49" font-size="11" text-anchor="middle" fill="var(--review-fg)">checkStart(): TURN/TCP + USE-CANDIDATE</text>
-  <text x="380" y="88" font-size="11" text-anchor="middle" fill="var(--review-muted)">成功応答</text>
-  <g font-size="11" fill="var(--review-fg)"><text x="240" y="60" text-anchor="end">nominated = TCP → connect() 完了</text><text x="240" y="76" text-anchor="end" fill="var(--review-accent)">上位ペアは FAILED にせず残す</text></g>
+  <text x="380" y="49" font-size="11" text-anchor="middle" fill="var(--review-fg)">TURN/TCP + USE-CANDIDATE（未選択なので付く）</text>
+  <text x="380" y="88" font-size="11" text-anchor="middle" fill="var(--review-muted)">成功応答 = 指名成立</text>
+  <g font-size="11" fill="var(--review-fg)"><text x="240" y="60" text-anchor="end">nominated = TCP → connect() 完了</text><text x="240" y="76" text-anchor="end" fill="var(--review-accent)">8.1.2: 上位ペアは FAILED にせず残す</text></g>
   <g font-size="11" fill="var(--review-fg)"><text x="520" y="60">TCP を選択</text></g>
-  <rect x="150" y="110" width="460" height="28" rx="5" fill="none" stroke="var(--review-border)" stroke-dasharray="4 3"/>
-  <text x="380" y="129" font-size="12" text-anchor="middle" fill="var(--review-fg)">TURN/UDP relay の候補が trickle で到着（優先度は TCP より上）</text>
-  <rect x="4" y="148" width="240" height="40" rx="5" fill="none" stroke="var(--review-success)" stroke-width="2"/>
-  <text x="14" y="165" font-size="11" fill="var(--review-success)" font-weight="bold">admitsPair(): 上位ペアだけ追加</text>
-  <text x="14" y="181" font-size="11" fill="var(--review-success)">→ checkOutrankingPairs()</text>
+  <rect x="150" y="105" width="460" height="28" rx="5" fill="none" stroke="var(--review-border)" stroke-dasharray="4 3"/>
+  <text x="380" y="124" font-size="12" text-anchor="middle" fill="var(--review-fg)">TURN/UDP relay の候補が trickle で到着（優先度は TCP より上）</text>
+  <text x="618" y="124" font-size="11" fill="var(--review-muted)">（選択後）</text>
+  <rect x="24" y="148" width="220" height="40" rx="5" fill="none" stroke="var(--review-success)" stroke-width="2"/>
+  <text x="34" y="165" font-size="11" fill="var(--review-success)" font-weight="bold">admitsPair(): 上位ペアだけ追加</text>
+  <text x="34" y="181" font-size="11" fill="var(--review-success)">→ checkOutrankingPairs()</text>
   <g stroke="var(--review-success)" stroke-width="2" fill="none"><line x1="250" y1="210" x2="505" y2="210"/><polyline points="497,205 505,210 497,215"/><line x1="510" y1="226" x2="255" y2="226" stroke-dasharray="4 3"/><polyline points="263,221 255,226 263,231"/></g>
-  <text x="380" y="204" font-size="11" text-anchor="middle" fill="var(--review-success)">TURN/UDP + USE-CANDIDATE（上位なので付く）</text>
+  <text x="380" y="204" font-size="11" text-anchor="middle" fill="var(--review-success)" font-weight="bold">TURN/UDP + USE-CANDIDATE（上位なので付く）</text>
+  <text x="380" y="242" font-size="11" text-anchor="middle" fill="var(--review-muted)">成功応答 = 指名成立</text>
   <g font-size="11"><text x="240" y="232" text-anchor="end" fill="var(--review-success)" font-weight="bold">replacesSelectedPair() → nominated = UDP</text><text x="240" y="248" text-anchor="end" fill="var(--review-fg)">queryConsent() を新ペアで再開</text></g>
   <g font-size="11"><text x="520" y="215" fill="var(--review-success)" font-weight="bold">値 1 同士・優先度が上</text><text x="520" y="231" fill="var(--review-success)">→ UDP に置き換え</text></g>
-  <rect x="150" y="262" width="460" height="32" rx="5" fill="none" stroke="var(--review-success)" stroke-width="2"/>
-  <text x="380" y="283" font-size="12" text-anchor="middle" fill="var(--review-success)" font-weight="bold">両端とも TURN/UDP へ移る（RTT 約 88 ms 相当の経路）</text>
+  <text x="380" y="270" font-size="11" text-anchor="middle" fill="var(--review-muted)">（専用の指名 check はない。③ の check 自体が指名）</text>
+  <rect x="150" y="300" width="460" height="44" rx="5" fill="none" stroke="var(--review-success)" stroke-width="2"/>
+  <text x="380" y="318" font-size="12" text-anchor="middle" fill="var(--review-success)" font-weight="bold">TCP で即接続 → 両端とも TURN/UDP へ移る（RTT 約 88 ms 相当）</text>
+  <text x="380" y="335" font-size="11" text-anchor="middle" fill="var(--review-fg)">接続時間は Before と同じ。選択後に届いた上位候補にも移れる</text>
 </svg>
-<div style="font-size:12px;color:var(--review-muted);margin-top:4px">凡例: <span style="color:var(--review-danger)">赤 = 問題の箇所</span> / <span style="color:var(--review-success)">緑 = 変更で加わった流れ</span> / <span style="color:var(--review-accent)">アクセント = 変更で扱いが変わった状態</span>。上下の図は同じ入力・同じ配置です。</div>
+
+<div style="font-weight:bold;margin:12px 0 4px;color:var(--review-warning)">After（<code>iceNomination: "regular"</code>）</div>
+<svg viewBox="0 0 760 350" width="100%" role="img" aria-label="regular: 通常の check には USE-CANDIDATE を付けず、待ってから最良の TURN/UDP を 1 回だけ指名する流れ">
+  <g stroke="var(--review-border)" stroke-width="1.5"><line x1="250" y1="30" x2="250" y2="345"/><line x1="510" y1="30" x2="510" y2="345"/></g>
+  <g font-size="13" text-anchor="middle" fill="var(--review-fg)" font-weight="bold"><text x="250" y="20">werift（controlling）</text><text x="510" y="20">相手（controlled）</text></g>
+  <g font-size="11" fill="var(--review-muted)"><text x="4" y="20">①</text><text x="4" y="124">②</text><text x="4" y="210">③</text><text x="4" y="262">④</text><text x="4" y="322">⑤</text></g>
+  <g stroke="var(--review-muted)" stroke-width="1.5" fill="none"><line x1="250" y1="55" x2="505" y2="55"/><polyline points="497,50 505,55 497,60"/><line x1="510" y1="72" x2="255" y2="72" stroke-dasharray="4 3"/><polyline points="263,67 255,72 263,77"/></g>
+  <text x="380" y="49" font-size="11" text-anchor="middle" fill="var(--review-warning)" font-weight="bold">TURN/TCP（USE-CANDIDATE なし）</text>
+  <text x="380" y="88" font-size="11" text-anchor="middle" fill="var(--review-muted)">成功応答 = valid になるだけ</text>
+  <g font-size="11" fill="var(--review-fg)"><text x="240" y="60" text-anchor="end">TCP は valid（未指名・未接続）</text><text x="240" y="76" text-anchor="end" fill="var(--review-warning)">⏱ 静穏から nominationDelayMs 待つ</text></g>
+  <g font-size="11" fill="var(--review-muted)"><text x="520" y="60">まだ選択しない</text></g>
+  <rect x="150" y="105" width="460" height="28" rx="5" fill="none" stroke="var(--review-border)" stroke-dasharray="4 3"/>
+  <text x="380" y="124" font-size="12" text-anchor="middle" fill="var(--review-fg)">TURN/UDP relay の候補が trickle で到着（優先度は TCP より上）</text>
+  <text x="618" y="124" font-size="11" fill="var(--review-warning)">（待ち時間中）</text>
+  <rect x="24" y="148" width="220" height="40" rx="5" fill="none" stroke="var(--review-warning)" stroke-width="2"/>
+  <text x="34" y="165" font-size="11" fill="var(--review-warning)" font-weight="bold">pairAdded(): 上位ペアなので</text>
+  <text x="34" y="181" font-size="11" fill="var(--review-warning)">待ち時間をやり直す</text>
+  <g stroke="var(--review-muted)" stroke-width="1.5" fill="none"><line x1="250" y1="210" x2="505" y2="210"/><polyline points="497,205 505,210 497,215"/><line x1="510" y1="226" x2="255" y2="226" stroke-dasharray="4 3"/><polyline points="263,221 255,226 263,231"/></g>
+  <text x="380" y="204" font-size="11" text-anchor="middle" fill="var(--review-fg)">TURN/UDP（USE-CANDIDATE なし）</text>
+  <text x="380" y="242" font-size="11" text-anchor="middle" fill="var(--review-muted)">成功応答 = valid になるだけ</text>
+  <g font-size="11" fill="var(--review-fg)"><text x="240" y="232" text-anchor="end">UDP も valid（最良の valid ペア）</text></g>
+  <g font-size="11" fill="var(--review-muted)"><text x="520" y="215">まだ選択しない</text></g>
+  <g stroke="var(--review-success)" stroke-width="2" fill="none"><line x1="250" y1="262" x2="505" y2="262"/><polyline points="497,257 505,262 497,267"/><line x1="510" y1="278" x2="255" y2="278" stroke-dasharray="4 3"/><polyline points="263,273 255,278 263,283"/></g>
+  <text x="380" y="256" font-size="11" text-anchor="middle" fill="var(--review-success)" font-weight="bold">専用 check: TURN/UDP + USE-CANDIDATE（1 回だけ）</text>
+  <text x="380" y="294" font-size="11" text-anchor="middle" fill="var(--review-muted)">成功応答 = 指名成立（応答なしなら計 3 回まで）</text>
+  <g font-size="11"><text x="240" y="250" text-anchor="end" fill="var(--review-warning)">⏱ 待ち終了 or end-of-candidates</text><text x="240" y="268" text-anchor="end" fill="var(--review-success)" font-weight="bold">RegularNomination → nominated = UDP</text><text x="240" y="284" text-anchor="end" fill="var(--review-fg)">connect() 完了 / 残りは FAILED</text></g>
+  <g font-size="11"><text x="520" y="267" fill="var(--review-success)" font-weight="bold">最初の指名で UDP を選択</text></g>
+  <rect x="150" y="300" width="460" height="44" rx="5" fill="none" stroke="var(--review-warning)" stroke-width="2"/>
+  <text x="380" y="318" font-size="12" text-anchor="middle" fill="var(--review-success)" font-weight="bold">最初から TURN/UDP だけを指名（選択は 1 回で、移り変わらない）</text>
+  <text x="380" y="335" font-size="11" text-anchor="middle" fill="var(--review-warning)">接続は待ち時間の分だけ遅い。待ちが終わった後に届いた上位候補には移らない</text>
+</svg>
+<div style="font-size:12px;color:var(--review-muted);margin-top:4px">凡例: <span style="color:var(--review-danger)">赤 = 問題の箇所</span> / <span style="color:var(--review-success)">緑 = 指名・置き換えが起きる流れ</span> / <span style="color:var(--review-warning)">黄 = regular 固有の待ちとトレードオフ</span> / <span style="color:var(--review-accent)">アクセント = 変更で扱いが変わった状態</span>。灰色の矢印は <code>USE-CANDIDATE</code> の付かない check か、指名にならない check です。3 つの図は同じ入力・同じ配置です。</div>
 </div>
+
+3 方式の違いをまとめると次のとおりです。
+
+| | aggressive（Before） | semi-aggressive（既定） | regular |
+| --- | --- | --- | --- |
+| ① 最初の check の `USE-CANDIDATE` | 付く | 付く（未選択なので） | 付かない |
+| 選択するタイミング | 最初の成功で即 | 最初の成功で即 | 待ち時間の後に 1 回だけ |
+| 接続時間 | 最速 | 最速（Before と同じ） | 待ち時間の分だけ遅い |
+| 選択後に届いた上位ペア | ペアを作らない | check して置き換える | 置き換えない |
+| この入力での結果 | TURN/TCP に固定 | TCP → UDP に移る | 最初から UDP |
 
 要点:
 
-- 分かれ目は、選択後に上位ペアを残すかどうかです。After では、選択時の 8.1.2 の掃除で上位ペアを残します（[packages/ice/src/ice.ts:2543](review-file:packages/ice/src/ice.ts:2543)）。`connect()` の打ち切り処理でも、上位ペアの check は続けます（[packages/ice/src/ice.ts:1824](review-file:packages/ice/src/ice.ts:1824)）。
+- 最初のペアに `USE-CANDIDATE` が付くのは、aggressive も semi-aggressive も同じです。2 つの違いは選択した後です。semi-aggressive では、選択時の 8.1.2 の掃除で上位ペアを残します（[packages/ice/src/ice.ts:2543](review-file:packages/ice/src/ice.ts:2543)）。`connect()` の打ち切り処理でも、上位ペアの check は続けます（[packages/ice/src/ice.ts:1824](review-file:packages/ice/src/ice.ts:1824)）。
 - 後から届いた候補で上位のペアだけを作るのは `admitsPair()` です（[packages/ice/src/ice.ts:3466](review-file:packages/ice/src/ice.ts:3466)）。その check を 20 ms 間隔で進めるのが `checkOutrankingPairs()` です（[packages/ice/src/ice.ts:3094](review-file:packages/ice/src/ice.ts:3094)）。
-- `USE-CANDIDATE` を付けるのは「未選択の間」と「選択より上位のペア」だけです（[packages/ice/src/ice.ts:2677](review-file:packages/ice/src/ice.ts:2677)）。
+- semi-aggressive で `USE-CANDIDATE` を付けるのは、「未選択の間」の check と「選択より上位のペア」の check だけです（[packages/ice/src/ice.ts:2677](review-file:packages/ice/src/ice.ts:2677)）。regular と renomination の通常の check には何も付けません。
 - 置き換えの判定は `replacesSelectedPair()`（[packages/ice/src/ice.ts:2993](review-file:packages/ice/src/ice.ts:2993)）です。送信経路・consent・統計の移し替えは `checkComplete()` で行います（[packages/ice/src/ice.ts:2519](review-file:packages/ice/src/ice.ts:2519)）。
+- regular では、待つか指名するかを `decideNomination()` が決めます（[packages/ice/src/ice.ts:3645](review-file:packages/ice/src/ice.ts:3645)）。上位ペアが追加されると、`RegularNomination.pairAdded()` が待ち時間をやり直します（[packages/ice/src/ice.ts:3804](review-file:packages/ice/src/ice.ts:3804)）。regular は選択を置き換えないので、後から届いた候補をペアにするのは選択前だけです（[packages/ice/src/ice.ts:3478](review-file:packages/ice/src/ice.ts:3478)）。
 
 ### 2.2 どの方式になるか（条件を切り替えて確認できます）
 
@@ -216,48 +272,128 @@ ide:
 - 受けた指名は `receivedNomination()` で値にします（[packages/ice/src/ice.ts:3015](review-file:packages/ice/src/ice.ts:3015)）。値はペアごとに最大値を `remoteNomination` に残します（[packages/ice/src/ice.ts:3390](review-file:packages/ice/src/ice.ts:3390)）。
 - テストは [packages/ice/tests/ice/semi-aggressive.test.ts:344](review-file:packages/ice/tests/ice/semi-aggressive.test.ts:344)（値の大きい NOMINATION が優先）と [packages/ice/tests/ice/semi-aggressive.test.ts:365](review-file:packages/ice/tests/ice/semi-aggressive.test.ts:365)（USE-CANDIDATE は優先度の高いペアが優先）です。
 
-### 2.4 semi-aggressive と renomination の指名の違い
+### 2.4 semi-aggressive と renomination の違い
 
-どちらも「低優先度ペアで先に接続 → 高優先度ペアへ移る」流れです。違うのは、指名を通常の check に載せるか、別の check で送るかです。
+ひとことで言うと、違いは次の 2 点です。
 
-<div style="display:flex;gap:12px;flex-wrap:wrap;font-family:var(--review-font)">
+- **指名の運び方**: semi-aggressive は、指名（`USE-CANDIDATE`）を**通常の check に相乗り**させます。renomination は、ペアが valid になってから**別の check で番号付きの指名**（`NOMINATION=n`）を送ります。
+- **どのペアを使うかを誰が決めるか**: semi-aggressive の指名には値がない（すべて 1 扱い）ので、controlled 側は「指名されたペアのうち**優先度が最も高いもの**」を自分で選びます。renomination では、controlled 側は「**値が最も大きい（＝最新の）指名**」に従います。どのペアを使うかを controlling 側が明示的に決められます。
+
+#### (a) 同じ流れ: 低優先度で接続 → 高優先度へ移る
+
+左右の図は同じ配置です。① 低の check、② 低の指名、③ 高の check、④ 高の指名、の順に並べ、最後に controlled 側の判定を示しています。
+
+<div style="display:flex;gap:12px;flex-wrap:wrap;font-family:var(--review-font);color:var(--review-fg)">
 <div style="flex:1;min-width:330px">
-<div style="font-weight:bold;margin-bottom:4px">semi-aggressive（既定）</div>
-<svg viewBox="0 0 360 250" width="100%" role="img" aria-label="semi-aggressive の指名">
+<div style="font-weight:bold;margin-bottom:4px;color:var(--review-success)">semi-aggressive（既定）</div>
+<svg viewBox="0 0 360 300" width="100%" role="img" aria-label="semi-aggressive: 指名は通常の check に相乗りし、controlled 側は優先度で選ぶ">
   <g stroke="var(--review-border)" stroke-width="1.5"><line x1="60" y1="28" x2="60" y2="245"/><line x1="300" y1="28" x2="300" y2="245"/></g>
   <g font-size="12" text-anchor="middle" fill="var(--review-fg)" font-weight="bold"><text x="60" y="18">controlling</text><text x="300" y="18">controlled</text></g>
-  <g stroke="var(--review-muted)" stroke-width="1.5" fill="none"><line x1="60" y1="50" x2="296" y2="50"/><polyline points="288,45 296,50 288,55"/><line x1="300" y1="64" x2="64" y2="64" stroke-dasharray="4 3"/></g>
-  <text x="180" y="44" font-size="11" text-anchor="middle" fill="var(--review-fg)">低: check + USE-CANDIDATE</text>
-  <text x="180" y="80" font-size="11" text-anchor="middle" fill="var(--review-muted)">✓ 両端が「低」を選択</text>
-  <g stroke="var(--review-success)" stroke-width="2" fill="none"><line x1="60" y1="130" x2="296" y2="130"/><polyline points="288,125 296,130 288,135"/><line x1="300" y1="144" x2="64" y2="144" stroke-dasharray="4 3"/></g>
-  <text x="180" y="124" font-size="11" text-anchor="middle" fill="var(--review-success)">高: check + USE-CANDIDATE（上位なので）</text>
-  <text x="180" y="160" font-size="11" text-anchor="middle" fill="var(--review-success)">✓ 両端が「高」へ置き換え</text>
-  <text x="180" y="210" font-size="11" text-anchor="middle" fill="var(--review-muted)">指名は通常 check に載る（往復 1 回）</text>
-  <text x="180" y="226" font-size="11" text-anchor="middle" fill="var(--review-muted)">consent check も選択中ペアに USE-CANDIDATE</text>
+  <g font-size="11" fill="var(--review-muted)"><text x="4" y="54">①</text><text x="4" y="111">②</text><text x="4" y="160">③</text><text x="4" y="217">④</text></g>
+  <g stroke="var(--review-success)" stroke-width="2" fill="none"><line x1="60" y1="50" x2="296" y2="50"/><polyline points="288,45 296,50 288,55"/></g>
+  <g stroke="var(--review-muted)" stroke-width="1.5" fill="none"><line x1="300" y1="64" x2="64" y2="64" stroke-dasharray="4 3"/></g>
+  <text x="180" y="44" font-size="11" text-anchor="middle" fill="var(--review-success)" font-weight="bold">低: check + USE-CANDIDATE</text>
+  <text x="180" y="80" font-size="11" text-anchor="middle" fill="var(--review-success)">✓ 応答で指名成立 → 両端が「低」を選択</text>
+  <text x="180" y="111" font-size="11" text-anchor="middle" fill="var(--review-muted)">（別の指名 check はない。① が指名を兼ねる）</text>
+  <g stroke="var(--review-success)" stroke-width="2" fill="none"><line x1="60" y1="156" x2="296" y2="156"/><polyline points="288,151 296,156 288,161"/></g>
+  <g stroke="var(--review-muted)" stroke-width="1.5" fill="none"><line x1="300" y1="170" x2="64" y2="170" stroke-dasharray="4 3"/></g>
+  <text x="180" y="150" font-size="11" text-anchor="middle" fill="var(--review-success)" font-weight="bold">高: check + USE-CANDIDATE（上位なので）</text>
+  <text x="180" y="186" font-size="11" text-anchor="middle" fill="var(--review-success)">✓ 応答で指名成立 → 両端が「高」へ</text>
+  <text x="180" y="217" font-size="11" text-anchor="middle" fill="var(--review-muted)">（別の指名 check はない。③ が指名を兼ねる）</text>
+  <rect x="10" y="246" width="340" height="48" rx="5" fill="none" stroke="var(--review-border)"/>
+  <text x="180" y="264" font-size="11" text-anchor="middle" fill="var(--review-fg)" font-weight="bold">controlled の判定: 値は「低」も「高」も 1</text>
+  <text x="180" y="282" font-size="11" text-anchor="middle" fill="var(--review-fg)">→ 同じ値なので<tspan font-weight="bold">優先度</tspan>の高い「高」を使う</text>
 </svg>
+<div style="font-size:12px;color:var(--review-muted)">指名 1 回 = 往復 1 回。最初の接続が最も速い。</div>
 </div>
 <div style="flex:1;min-width:330px">
-<div style="font-weight:bold;margin-bottom:4px">renomination（両端が宣言）</div>
-<svg viewBox="0 0 360 250" width="100%" role="img" aria-label="renomination の指名">
+<div style="font-weight:bold;margin-bottom:4px;color:var(--review-accent)">renomination（両端が宣言）</div>
+<svg viewBox="0 0 360 300" width="100%" role="img" aria-label="renomination: 通常の check の後に番号付きの指名 check を送り、controlled 側は値の大きい指名に従う">
   <g stroke="var(--review-border)" stroke-width="1.5"><line x1="60" y1="28" x2="60" y2="245"/><line x1="300" y1="28" x2="300" y2="245"/></g>
   <g font-size="12" text-anchor="middle" fill="var(--review-fg)" font-weight="bold"><text x="60" y="18">controlling</text><text x="300" y="18">controlled</text></g>
+  <g font-size="11" fill="var(--review-muted)"><text x="4" y="54">①</text><text x="4" y="108">②</text><text x="4" y="160">③</text><text x="4" y="214">④</text></g>
   <g stroke="var(--review-muted)" stroke-width="1.5" fill="none"><line x1="60" y1="50" x2="296" y2="50"/><polyline points="288,45 296,50 288,55"/><line x1="300" y1="64" x2="64" y2="64" stroke-dasharray="4 3"/></g>
   <text x="180" y="44" font-size="11" text-anchor="middle" fill="var(--review-fg)">低: check（属性なし）</text>
-  <g stroke="var(--review-accent)" stroke-width="2" fill="none"><line x1="60" y1="88" x2="296" y2="88"/><polyline points="288,83 296,88 288,93"/><line x1="300" y1="102" x2="64" y2="102" stroke-dasharray="4 3"/></g>
-  <text x="180" y="82" font-size="11" text-anchor="middle" fill="var(--review-accent)">低: NOMINATION=1（別の check）</text>
-  <text x="180" y="116" font-size="11" text-anchor="middle" fill="var(--review-muted)">✓ 両端が「低」を選択</text>
-  <g stroke="var(--review-muted)" stroke-width="1.5" fill="none"><line x1="60" y1="140" x2="296" y2="140"/><polyline points="288,135 296,140 288,145"/><line x1="300" y1="154" x2="64" y2="154" stroke-dasharray="4 3"/></g>
-  <text x="180" y="134" font-size="11" text-anchor="middle" fill="var(--review-fg)">高: check（属性なし）</text>
-  <g stroke="var(--review-success)" stroke-width="2" fill="none"><line x1="60" y1="178" x2="296" y2="178"/><polyline points="288,173 296,178 288,183"/><line x1="300" y1="192" x2="64" y2="192" stroke-dasharray="4 3"/></g>
-  <text x="180" y="172" font-size="11" text-anchor="middle" fill="var(--review-success)">高: NOMINATION=2（値を増やす）</text>
-  <text x="180" y="208" font-size="11" text-anchor="middle" fill="var(--review-success)">✓ 応答で両端が「高」へ移る</text>
-  <text x="180" y="232" font-size="11" text-anchor="middle" fill="var(--review-muted)">応答なし・エラーのペアは使わない</text>
+  <text x="180" y="80" font-size="11" text-anchor="middle" fill="var(--review-muted)">valid になるだけ（まだ選択しない）</text>
+  <g stroke="var(--review-accent)" stroke-width="2" fill="none"><line x1="60" y1="104" x2="296" y2="104"/><polyline points="288,99 296,104 288,109"/></g>
+  <g stroke="var(--review-muted)" stroke-width="1.5" fill="none"><line x1="300" y1="118" x2="64" y2="118" stroke-dasharray="4 3"/></g>
+  <text x="180" y="98" font-size="11" text-anchor="middle" fill="var(--review-accent)" font-weight="bold">低: NOMINATION=1（別の check）</text>
+  <text x="180" y="134" font-size="11" text-anchor="middle" fill="var(--review-accent)">✓ 応答で両端が「低」を選択</text>
+  <g stroke="var(--review-muted)" stroke-width="1.5" fill="none"><line x1="60" y1="156" x2="296" y2="156"/><polyline points="288,151 296,156 288,161"/><line x1="300" y1="170" x2="64" y2="170" stroke-dasharray="4 3"/></g>
+  <text x="180" y="150" font-size="11" text-anchor="middle" fill="var(--review-fg)">高: check（属性なし）</text>
+  <text x="180" y="186" font-size="11" text-anchor="middle" fill="var(--review-muted)">valid になるだけ（選択は「低」のまま）</text>
+  <g stroke="var(--review-accent)" stroke-width="2" fill="none"><line x1="60" y1="210" x2="296" y2="210"/><polyline points="288,205 296,210 288,215"/></g>
+  <g stroke="var(--review-muted)" stroke-width="1.5" fill="none"><line x1="300" y1="224" x2="64" y2="224" stroke-dasharray="4 3"/></g>
+  <text x="180" y="204" font-size="11" text-anchor="middle" fill="var(--review-accent)" font-weight="bold">高: NOMINATION=2（値を 1 増やす）</text>
+  <text x="180" y="240" font-size="11" text-anchor="middle" fill="var(--review-accent)">✓ 応答で両端が「高」へ</text>
+  <rect x="10" y="246" width="340" height="48" rx="5" fill="none" stroke="var(--review-border)"/>
+  <text x="180" y="264" font-size="11" text-anchor="middle" fill="var(--review-fg)" font-weight="bold">controlled の判定: 「低」= 1、「高」= 2</text>
+  <text x="180" y="282" font-size="11" text-anchor="middle" fill="var(--review-fg)">→ <tspan font-weight="bold">値</tspan>の大きい（＝最新の）「高」を使う</text>
+</svg>
+<div style="font-size:12px;color:var(--review-muted)">指名 1 回 = 往復 2 回（check + 指名 check）。応答なし・エラーのペアは使わない。</div>
+</div>
+</div>
+
+この流れでは、どちらも最終的に「高」へ移ります。違いは、② と ④ に別の指名 check があるかどうかと、controlled 側が何を根拠に選ぶかです。
+
+#### (b) 違いが結果に出る場面: 優先度の**低い**ペアへ移したいとき
+
+controlling 側が、「高」の経路が劣化したので「低」へ戻したいと考えた場合です。controlled 側（werift）は、受けた指名を次のように扱います。
+
+<div style="display:flex;gap:12px;flex-wrap:wrap;font-family:var(--review-font);color:var(--review-fg)">
+<div style="flex:1;min-width:330px">
+<div style="font-weight:bold;margin-bottom:4px;color:var(--review-success)">semi-aggressive の指名</div>
+<svg viewBox="0 0 360 190" width="100%" role="img" aria-label="semi-aggressive: 低優先度ペアへの USE-CANDIDATE では選択は移らない">
+  <g stroke="var(--review-border)" stroke-width="1.5"><line x1="60" y1="28" x2="60" y2="135"/><line x1="300" y1="28" x2="300" y2="135"/></g>
+  <g font-size="12" text-anchor="middle" fill="var(--review-fg)" font-weight="bold"><text x="60" y="18">controlling</text><text x="300" y="18">controlled（werift）</text></g>
+  <text x="180" y="48" font-size="11" text-anchor="middle" fill="var(--review-muted)">選択中: 「高」（値 1）</text>
+  <g stroke="var(--review-muted)" stroke-width="1.5" fill="none"><line x1="60" y1="84" x2="296" y2="84"/><polyline points="288,79 296,84 288,89"/><line x1="300" y1="98" x2="64" y2="98" stroke-dasharray="4 3"/></g>
+  <text x="180" y="78" font-size="11" text-anchor="middle" fill="var(--review-fg)">低: USE-CANDIDATE（値 1）</text>
+  <text x="180" y="116" font-size="11" text-anchor="middle" fill="var(--review-muted)">成功応答は返る</text>
+  <rect x="10" y="138" width="340" height="46" rx="5" fill="none" stroke="var(--review-danger)" stroke-width="2"/>
+  <text x="180" y="156" font-size="11" text-anchor="middle" fill="var(--review-danger)" font-weight="bold">値 1 同士 → 優先度で比べて「高」のまま</text>
+  <text x="180" y="174" font-size="11" text-anchor="middle" fill="var(--review-danger)">USE-CANDIDATE では下位へ戻す指示を伝えられない</text>
+</svg>
+</div>
+<div style="flex:1;min-width:330px">
+<div style="font-weight:bold;margin-bottom:4px;color:var(--review-accent)">renomination の指名</div>
+<svg viewBox="0 0 360 190" width="100%" role="img" aria-label="renomination: 値の大きい NOMINATION で低優先度ペアへ移る">
+  <g stroke="var(--review-border)" stroke-width="1.5"><line x1="60" y1="28" x2="60" y2="135"/><line x1="300" y1="28" x2="300" y2="135"/></g>
+  <g font-size="12" text-anchor="middle" fill="var(--review-fg)" font-weight="bold"><text x="60" y="18">controlling</text><text x="300" y="18">controlled（werift）</text></g>
+  <text x="180" y="48" font-size="11" text-anchor="middle" fill="var(--review-muted)">選択中: 「高」（値 2）</text>
+  <g stroke="var(--review-accent)" stroke-width="2" fill="none"><line x1="60" y1="84" x2="296" y2="84"/><polyline points="288,79 296,84 288,89"/></g>
+  <g stroke="var(--review-muted)" stroke-width="1.5" fill="none"><line x1="300" y1="98" x2="64" y2="98" stroke-dasharray="4 3"/></g>
+  <text x="180" y="78" font-size="11" text-anchor="middle" fill="var(--review-accent)" font-weight="bold">低: NOMINATION=3</text>
+  <text x="180" y="116" font-size="11" text-anchor="middle" fill="var(--review-muted)">成功応答</text>
+  <rect x="10" y="138" width="340" height="46" rx="5" fill="none" stroke="var(--review-success)" stroke-width="2"/>
+  <text x="180" y="156" font-size="11" text-anchor="middle" fill="var(--review-success)" font-weight="bold">値 3 &gt; 2 → 優先度に関係なく「低」へ移る</text>
+  <text x="180" y="174" font-size="11" text-anchor="middle" fill="var(--review-success)">controlling の判断がそのまま両端の選択になる</text>
 </svg>
 </div>
 </div>
 
-- renomination の指名は `evaluateSelection()`（[packages/ice/src/ice.ts:3031](review-file:packages/ice/src/ice.ts:3031)）が「今の最良の valid ペア」を選び、`nominateSelection()`（[packages/ice/src/ice.ts:3050](review-file:packages/ice/src/ice.ts:3050)）が値を 1 増やして送ります。
-- consent check は、選択中のペアの値をそのまま運びます（`consentNomination()`、[packages/ice/src/ice.ts:1954](review-file:packages/ice/src/ice.ts:1954)）。semi-aggressive では consent に USE-CANDIDATE を付けます（`shouldNominateConsentRequest()`、[packages/ice/src/ice.ts:1940](review-file:packages/ice/src/ice.ts:1940)）。
+libwebrtc（Chrome）は、優先度だけでなく疎通状態や RTT も見て選択を変えるので、優先度の低いペアへ移すことがあります。werift が controlled のとき、そうした相手に正しく従えるのは renomination の場合だけです。一方、werift が controlling のときは、どちらの方式でも**上位のペアにしか**選択を移しません（`evaluateSelection()` と `replacesSelectedPair()` の `outranks()` 判定）。そのため werift 同士では、(a) の違い（往復の回数と判定の根拠）だけが現れます。
+
+#### (c) 比較表
+
+| | semi-aggressive（既定） | renomination |
+| --- | --- | --- |
+| 使う条件 | 設定なし（標準の `USE-CANDIDATE`） | 自分が `iceRenomination: true`、かつ相手の SDP に `a=ice-options:renomination` |
+| 指名を運ぶもの | `USE-CANDIDATE`（値なし、1 扱い） | `NOMINATION`（0xC001、1, 2, 3… と単調増加） |
+| 指名を載せる check | 通常の check（未選択の間と上位ペアのとき） | valid になった後の別の check（通常の check には何も付けない） |
+| 最初の接続までの往復 | 1 回 | 2 回（check + 指名 check） |
+| controlled 側が使うペア | 指名済みのうち優先度が最も高いペア | 値が最も大きい（最新の）指名のペア |
+| 優先度の低いペアへ戻す | 伝えられない | 値を増やせば伝えられる |
+| 指名に失敗したとき | check 自体の失敗として扱う | 応答なし・エラーのペアは使わず、次に良い valid ペアを指名する |
+| consent check | 選択中のペアに `USE-CANDIDATE` を付ける | 選択中のペアの値をそのまま付ける |
+| 片側だけが宣言したとき | — | semi-aggressive になる |
+
+実装の参照先:
+
+- renomination の指名は、`evaluateSelection()`（[packages/ice/src/ice.ts:3031](review-file:packages/ice/src/ice.ts:3031)）が「今の最良の valid ペア」を選び、`nominateSelection()`（[packages/ice/src/ice.ts:3050](review-file:packages/ice/src/ice.ts:3050)）が値を 1 増やして送ります。失敗したペアは FAILED にして、次のペアを評価し直します。
+- semi-aggressive の指名は、通常の check の `nominate` 判定で決まります（[packages/ice/src/ice.ts:2677](review-file:packages/ice/src/ice.ts:2677)）。
+- controlled 側の「値 → 優先度」の判定は `replacesSelectedPair()`（[packages/ice/src/ice.ts:2993](review-file:packages/ice/src/ice.ts:2993)）です。受けた指名を値にするのは `receivedNomination()`（[packages/ice/src/ice.ts:3015](review-file:packages/ice/src/ice.ts:3015)）です。
+- consent check は、renomination では選択中のペアの値を運びます（`consentNomination()`、[packages/ice/src/ice.ts:1954](review-file:packages/ice/src/ice.ts:1954)）。semi-aggressive では `USE-CANDIDATE` を付けます（`shouldNominateConsentRequest()`、[packages/ice/src/ice.ts:1940](review-file:packages/ice/src/ice.ts:1940)）。
 - STUN 属性は [packages/ice-server/src/stun/attributes.ts:209](review-file:packages/ice-server/src/stun/attributes.ts:209) に追加しました。
 
 ### 2.5 打ち切った check のペアを Waiting に戻す（S10、レビュー指摘への対応）
