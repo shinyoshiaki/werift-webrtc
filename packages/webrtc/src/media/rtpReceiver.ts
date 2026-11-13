@@ -73,6 +73,9 @@ const RTX_TIMESTAMP_SLACK_SECONDS = 1;
 
 const log = debug("werift:packages/webrtc/src/media/rtpReceiver.ts");
 
+/** Replaced fallback SSRCs a receiver remembers to ignore late packets. */
+const MAX_RETIRED_FALLBACK_SSRCS = 4;
+
 export class RTCRtpReceiver {
   readonly config: PeerConfig;
   public kind: Kind;
@@ -90,6 +93,8 @@ export class RTCRtpReceiver {
   private readonly stagedSsrcByRtx: { [rtxSsrc: number]: number } = {};
   /** SSRCs of `trackBySSRC` learned from RID packets rather than SDP. */
   readonly learnedTrackSsrcs = new Set<number>();
+  /** Fallback SSRCs replaced by a newer one (oldest first, bounded). */
+  private readonly retiredFallbackSsrcs: number[] = [];
   /**
    * Simulcast RTX without `a=ssrc-group:FID` (RFC 8852). A RID has one media
    * SSRC at a time ({@link mediaSsrcByRid}, learned from `rtp-stream-id`); a
@@ -256,6 +261,12 @@ export class RTCRtpReceiver {
    */
   bindFallbackSsrc(ssrc: number, payloadType: number) {
     const replaced = this.releaseFallbackSsrc();
+    if (replaced !== undefined && replaced !== ssrc) {
+      this.retiredFallbackSsrcs.push(replaced);
+      if (this.retiredFallbackSsrcs.length > MAX_RETIRED_FALLBACK_SSRCS) {
+        this.retiredFallbackSsrcs.shift();
+      }
+    }
     const track = this.defaultTrack;
     track.ssrc = ssrc;
     track.codec = deliveredTrackCodec(
@@ -266,6 +277,16 @@ export class RTCRtpReceiver {
     this.trackBySSRC[ssrc] = track;
     this.learnedTrackSsrcs.add(ssrc);
     return replaced;
+  }
+
+  /**
+   * Internal (router): whether `ssrc` was the fallback SSRC this receiver
+   * replaced. A late (reordered) packet of the old stream must not switch the
+   * receiver back and reset the state of the current one, so the router does
+   * not learn it again. Bounded by {@link MAX_RETIRED_FALLBACK_SSRCS}.
+   */
+  isRetiredFallbackSsrc(ssrc: number) {
+    return this.retiredFallbackSsrcs.includes(ssrc);
   }
 
   /**

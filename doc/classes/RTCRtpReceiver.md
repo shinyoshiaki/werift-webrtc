@@ -591,6 +591,27 @@ fills a hole of the RID's current media SSRC (see mediaSsrcOfRtx).
 
 ***
 
+### isRetiredFallbackSsrc()
+
+> **isRetiredFallbackSsrc**(`ssrc`): `boolean`
+
+Internal (router): whether `ssrc` was the fallback SSRC this receiver
+replaced. A late (reordered) packet of the old stream must not switch the
+receiver back and reset the state of the current one, so the router does
+not learn it again. Bounded by MAX\_RETIRED\_FALLBACK\_SSRCS.
+
+#### Parameters
+
+##### ssrc
+
+`number`
+
+#### Returns
+
+`boolean`
+
+***
+
 ### keepUnboundTracks()
 
 > **keepUnboundTracks**(`tracks`): `void`

@@ -64,6 +64,7 @@ const UnknownSsrcDrop = {
   unknownPayloadType: "unknown payload type",
   noCandidate: "no candidate",
   ambiguous: "ambiguous",
+  retired: "retired fallback ssrc",
 } as const;
 type UnknownSsrcDrop = (typeof UnknownSsrcDrop)[keyof typeof UnknownSsrcDrop];
 
@@ -549,7 +550,10 @@ export class RtpRouter {
    * type as a media codec. RTX (an RTX payload type, or a
    * `repaired-rtp-stream-id`) teaches nothing: without `ssrc-group:FID`
    * nothing pairs it with the media SSRC. A replaced fallback SSRC loses its
-   * route after the packet (`takeForgottenSsrcs`).
+   * route after the packet (`takeForgottenSsrcs`) and is not learned again
+   * (`isRetiredFallbackSsrc`): a late packet of the old stream is dropped.
+   * Receiving is decided by the committed `currentDirection`; a pending
+   * description decides only before the first commit.
    */
   private learnUnknownSsrc(
     packet: RtpPacket,
@@ -568,13 +572,28 @@ export class RtpRouter {
     };
     if (!transport) return drop(UnknownSsrcDrop.noTransport);
     if (repaired) return drop(UnknownSsrcDrop.rtx);
+    // A late packet of an SSRC a receiver replaced is not a new stream.
+    if (
+      this.transceivers().some((t) => t.receiver.isRetiredFallbackSsrc(ssrc))
+    ) {
+      return drop(UnknownSsrcDrop.retired);
+    }
 
-    const receiving = (t: RTCRtpTransceiver) =>
-      ["recvonly", "sendrecv"].includes(t.direction) &&
-      t.firedReceiving &&
-      !t.stopped &&
-      !t.stopping &&
-      !t.pendingRejection;
+    // The committed session decides: `currentDirection` is the negotiated
+    // direction, so a pending offer that changes `direction`, the remote
+    // direction (`firedReceiving`) or marks a rejection leaves a running
+    // stream receiving until the transaction commits. Only before the first
+    // commit (no `currentDirection`) the provisional description decides.
+    const receiving = (t: RTCRtpTransceiver) => {
+      if (t.stopped || t.stopping) return false;
+      const current = t.currentDirection;
+      if (current) return current === "recvonly" || current === "sendrecv";
+      return (
+        ["recvonly", "sendrecv"].includes(t.direction) &&
+        t.firedReceiving &&
+        !t.pendingRejection
+      );
+    };
 
     let receiver: RTCRtpReceiver;
     if (typeof mid === "string") {

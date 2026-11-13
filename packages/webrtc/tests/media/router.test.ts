@@ -1780,6 +1780,88 @@ describe("media/router: a=ssrc のない m-line の SSRC 学習 (#356)", () => {
     expect(announced.ssrc).toBe(200);
   });
 
+  test("SSRC 切替後に届いた旧 SSRC の遅延パケットでは受信先も状態も巻き戻らない", () => {
+    // Arrange
+    const { router, dtls, addReceiver } = createSsrcLessRouter();
+    const audio = addReceiver();
+    const payloads = collectTrackPayloads(audio);
+    router.routeRtp(
+      ssrcLessPacket({ ssrc: 100, payloadType: 111, sequenceNumber: 1 }),
+      dtls,
+    );
+    router.routeRtp(
+      ssrcLessPacket({ ssrc: 200, payloadType: 111, sequenceNumber: 2 }),
+      dtls,
+    );
+
+    // Act: 旧 SSRC の遅延パケットと新 SSRC のパケットが交互に届く
+    router.routeRtp(
+      ssrcLessPacket({ ssrc: 100, payloadType: 111, sequenceNumber: 3 }),
+      dtls,
+    );
+    router.routeRtp(
+      ssrcLessPacket({ ssrc: 200, payloadType: 111, sequenceNumber: 4 }),
+      dtls,
+    );
+    router.routeRtp(
+      ssrcLessPacket({ ssrc: 100, payloadType: 111, sequenceNumber: 5 }),
+      dtls,
+    );
+
+    // Assert: 旧 SSRC は破棄され、新 SSRC の経路と track が保たれる
+    expect(payloads).toEqual(["payload-1", "payload-2", "payload-4"]);
+    expect(router.ssrcTable[100]).toBeUndefined();
+    expect(router.ssrcTable[200]).toBe(audio.receiver);
+    expect(audio.receiver.fallbackSsrc).toBe(200);
+    expect(audio.receiver.track.ssrc).toBe(200);
+  });
+
+  test.each([
+    ["direction が inactive に変更予定", "direction"],
+    ["remote offer が m-line の拒否予定", "pendingRejection"],
+    ["remote が sendonly から inactive に変更予定", "firedReceiving"],
+  ] as const)(
+    "確定済みの受信中 session は保留中の交渉で %s でも未知 SSRC を学習する",
+    (_, pending) => {
+      // Arrange: 現在の交渉結果は recvonly
+      const { router, dtls, addReceiver } = createSsrcLessRouter();
+      const audio = addReceiver();
+      audio.setCurrentDirection("recvonly");
+      const payloads = collectTrackPayloads(audio);
+
+      // Act: 保留中の description が状態を変えた状態で未知 SSRC が届く
+      if (pending === "direction") audio.direction = "inactive";
+      if (pending === "pendingRejection") audio.pendingRejection = true;
+      if (pending === "firedReceiving") audio.firedReceiving = false;
+      router.routeRtp(
+        ssrcLessPacket({ ssrc: 9, payloadType: 111, sequenceNumber: 1 }),
+        dtls,
+      );
+
+      // Assert: commit まで現在の session が受信するので届く
+      expect(payloads).toEqual(["payload-1"]);
+      expect(router.ssrcTable[9]).toBe(audio.receiver);
+    },
+  );
+
+  test("確定済みで受信していない (sendonly) transceiver は学習しない", () => {
+    // Arrange
+    const { router, dtls, addReceiver } = createSsrcLessRouter();
+    const audio = addReceiver();
+    audio.setCurrentDirection("sendonly");
+    const payloads = collectTrackPayloads(audio);
+
+    // Act
+    router.routeRtp(
+      ssrcLessPacket({ ssrc: 9, payloadType: 111, sequenceNumber: 1 }),
+      dtls,
+    );
+
+    // Assert: 現在の session が受信しないので破棄する
+    expect(payloads).toEqual([]);
+    expect(router.ssrcTable[9]).toBeUndefined();
+  });
+
   test("a=ssrc のある m-line は未知 SSRC の候補にならない", () => {
     // Arrange
     const { router, dtls, addReceiver } = createSsrcLessRouter();
