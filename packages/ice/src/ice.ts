@@ -248,6 +248,12 @@ export class Connection implements IceConnection {
   private consentSessionId = 0;
   private consentExpiryTimer?: ReturnType<typeof setTimeout>;
   private consentRequestAbort?: AbortController;
+  /**
+   * Counts role changes. A consent request sent under an earlier role was
+   * cancelled by the change (`applyIceControlling`); its failure is not an
+   * unanswered check of the selected pair.
+   */
+  private consentRoleEpoch = 0;
   /** ICE restart generation checked beside the selected current pair. */
   private provisional?: ProvisionalGeneration;
   /**
@@ -2182,6 +2188,7 @@ export class Connection implements IceConnection {
           if (Date.now() < nextConsentAt) continue;
 
           const requestSentAt = Date.now();
+          const roleEpoch = this.consentRoleEpoch;
           if (failover) {
             lastSentAt = requestSentAt;
             stableInterval = randomizedConsentInterval();
@@ -2287,6 +2294,8 @@ export class Connection implements IceConnection {
               ) {
                 log("no stun response", error);
                 if (canceled || !failover) return;
+                // Cancelled by a role change: says nothing about the path.
+                if (roleEpoch !== this.consentRoleEpoch) return;
                 if (this.failoverEnabled()) {
                   this.failover.unanswered(nominated);
                   this.onLinkChanged();
@@ -2500,6 +2509,12 @@ export class Connection implements IceConnection {
       // Its checks carry the old role: they stop, and the monitoring starts
       // again under the new role below.
       this.failover.halt();
+      // The consent requests in flight carry the old role too: they stop
+      // (their failure is not counted, see consentRoleEpoch), and the
+      // consent checks go on under the new role from the next request on.
+      this.consentRoleEpoch++;
+      this.consentRequestAbort?.abort();
+      this.consentRequestAbort = undefined;
       // USE-CANDIDATE received while controlled came from a peer that was
       // controlling then; as the controlling agent this one nominates itself.
       if (iceControlling) {

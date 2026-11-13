@@ -573,6 +573,54 @@ describe("failover: review regressions (delay, late candidate, state, silence)",
     },
   );
 
+  test("a role change cancels the selected pair's consent request in flight without counting it as unanswered; consent goes on under the new role", async () => {
+    // 応答に 1.2 s かかるので、consent request が応答待ちの間にロールを変えられる。
+    const h = await createFailoverHarness({ responseDelayMs: 1200 });
+    const host = h.selection;
+    const liveness = () =>
+      (
+        h.connection as unknown as {
+          failover: { livenessOf(pair: unknown): { unanswered: number } };
+        }
+      ).failover.livenessOf(host)!;
+    await vi.advanceTimersByTimeAsync(10_000);
+    await h.advanceUntil(
+      () => h.requestsTo(host).some((request) => !request.done),
+      10_000,
+    );
+    const inFlight = h.requestsTo(host).find((request) => !request.done)!;
+    expect(inFlight.controlling).toBe(true);
+
+    try {
+      // Act: consent request の応答待ちの間に、ロール競合の修復で controlled に切り替わる。
+      h.switchRole(false);
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Assert: 旧ロールの consent request は取り消され、未応答として数えられない。
+      expect(inFlight.cancelled).toBe(true);
+      expect(liveness().unanswered).toBe(0);
+
+      // Act: 15 s 進める。
+      const switchedAt = Date.now();
+      await vi.advanceTimersByTimeAsync(15_000);
+
+      // Assert: 以後の consent check は ICE-CONTROLLED で送られて応答され、書き込み不可にも disconnected にもならない。
+      const after = h
+        .requestsTo(host)
+        .filter((request) => request.at >= switchedAt && request.done);
+      expect(after.length).toBeGreaterThan(0);
+      for (const request of after) {
+        expect(request.controlling).toBe(false);
+        expect(request.answered).toBe(true);
+      }
+      expect(liveness().unanswered).toBe(0);
+      expect(h.connection.nominated).toBe(host);
+      expect(h.states).toEqual([]);
+    } finally {
+      await h.connection.close();
+    }
+  });
+
   test("a remote candidate trickled later that outranks a socket's backup becomes its backup", async () => {
     // relay ソケットの最上位ペア (remote 0) の経路は切れており、下位の remote 1 のペアが退避先になる。
     const h = await createFailoverHarness({

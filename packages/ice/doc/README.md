@@ -136,6 +136,10 @@ a path broken in one direction).
   peer may already have taken it), and when it succeeds the selection moves
   and the old socket waits for its 3 responses. Only writability switches pairs (no RTT or network-cost
   switching).
+- A role change (role-conflict repair) cancels the checks in flight that
+  carry the old role, backups' and the selected pair's consent requests
+  alike; they are not counted as unanswered, and monitoring goes on under
+  the new role.
 - Controlled agent: it monitors the same way but never nominates; it follows
   the peer's nomination and the pair the peer sends data on.
 - State: `disconnected` while the selected pair is unwritable and no backup
