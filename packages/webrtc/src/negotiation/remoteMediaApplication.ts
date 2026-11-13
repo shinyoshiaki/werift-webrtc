@@ -446,7 +446,11 @@ export class RemoteMediaApplication {
   ) {
     const { preserveCurrentTransport } = plan;
     // ICE / DTLS パラメータは group で最初に受け入れた member (通常は tag) から適用する
-    // (codec 不一致で拒否した member のパラメータは使わない)
+    // (codec 不一致で拒否した member のパラメータは使わない)。受け入れた
+    // bundle-only の m-line は tag になれない (RFC 8843 §7.3.1) ため、answer が
+    // 選ぶ新しい tag (SDPManager.buildAnswerBundleGroups) と同じく飛ばす。
+    // bundle-only の m-line は ICE 候補を省略してよく、参照元にすると tag の
+    // 候補が適用されない。
     const groupParamSources = new Map<GroupDescription, RemoteMediaEntry>();
     for (const group of bundleGroups) {
       for (const mid of group.items) {
@@ -454,6 +458,7 @@ export class RemoteMediaApplication {
           (e) =>
             e.remoteMedia.rtp.muxId === mid &&
             e.remoteMedia.port !== 0 &&
+            !e.remoteMedia.acceptedBundleOnly &&
             accepted.has(e),
         );
         if (entry) {
