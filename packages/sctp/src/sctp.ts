@@ -203,6 +203,8 @@ export class SCTP {
   private sentQueue = new FifoQueue<DataChunk>();
   /** Gap-acked or reneged chunks that still need SACK reneging checks. */
   private renegingCandidateCount = 0;
+  /** Chunks marked for retransmission; zero avoids scanning sentQueue on each SACK. */
+  private retransmitCount = 0;
   private transmitting = false;
   private transmitRequested = false;
 
@@ -925,6 +927,7 @@ export class SCTP {
     ) {
       const sChunk = this.sentQueue.shift()!;
       done++;
+      this.setRetransmitPending(sChunk, false);
       if (!sChunk.abandoned && (sChunk.acked || sChunk.reneged)) {
         this.renegingCandidateCount--;
       }
@@ -962,7 +965,7 @@ export class SCTP {
           sChunk.acked = true;
           sChunk.reneged = false;
           // A pending retransmission is moot once the peer holds the chunk.
-          sChunk.retransmit = false;
+          this.setRetransmitPending(sChunk, false);
           this.flightSizeDecrease(sChunk);
           highestNewlyAcked = sChunk.tsn;
         }
@@ -1308,37 +1311,39 @@ export class SCTP {
     // Set when expired data is abandoned here, so the FORWARD-TSN goes out.
     let abandoned = false;
     let retransmitEarliest = true;
-    for (const dataChunk of this.sentQueue) {
-      if (dataChunk.retransmit && (dataChunk.acked || dataChunk.abandoned)) {
-        // Acked or abandoned after being marked; nothing to resend.
-        dataChunk.retransmit = false;
-      }
-      if (dataChunk.retransmit) {
-        // The lifetime may have run out while the chunk waited for cwnd.
-        if (this.isExpired(dataChunk) && this.maybeAbandon(dataChunk)) {
-          abandoned = true;
-          continue;
+    if (this.retransmitCount > 0) {
+      for (const dataChunk of this.sentQueue) {
+        if (dataChunk.retransmit && (dataChunk.acked || dataChunk.abandoned)) {
+          // Acked or abandoned after being marked; nothing to resend.
+          this.setRetransmitPending(dataChunk, false);
         }
-        if (this.fastRecoveryTransmit) {
-          this.fastRecoveryTransmit = false;
-        } else if (this.flightSize >= cwnd) {
-          break;
-        }
-        this.flightSizeIncrease(dataChunk);
+        if (dataChunk.retransmit) {
+          // The lifetime may have run out while the chunk waited for cwnd.
+          if (this.isExpired(dataChunk) && this.maybeAbandon(dataChunk)) {
+            abandoned = true;
+            continue;
+          }
+          if (this.fastRecoveryTransmit) {
+            this.fastRecoveryTransmit = false;
+          } else if (this.flightSize >= cwnd) {
+            break;
+          }
+          this.flightSizeIncrease(dataChunk);
 
-        dataChunk.misses = 0;
-        dataChunk.retransmit = false;
-        dataChunk.reneged = false;
-        dataChunk.sentCount++;
-        await this.sendChunk(dataChunk).catch((err: Error) => {
-          log("send data failed", err.message);
-        });
+          dataChunk.misses = 0;
+          this.setRetransmitPending(dataChunk, false);
+          dataChunk.reneged = false;
+          dataChunk.sentCount++;
+          await this.sendChunk(dataChunk).catch((err: Error) => {
+            log("send data failed", err.message);
+          });
 
-        if (retransmitEarliest) {
-          this.timer3Restart();
+          if (retransmitEarliest) {
+            this.timer3Restart();
+          }
         }
+        retransmitEarliest = false;
       }
-      retransmitEarliest = false;
     }
 
     // Drain queued outbound DATA; retransmission pacing is controlled by RTO/T3.
@@ -1448,6 +1453,12 @@ export class SCTP {
     this.flightSize -= chunk.bookSize;
   }
 
+  private setRetransmitPending(chunk: DataChunk, pending: boolean) {
+    if (chunk.retransmit === pending) return;
+    chunk.retransmit = pending;
+    this.retransmitCount += pending ? 1 : -1;
+  }
+
   // # timers
 
   /**t1 is wait for initAck or cookieAck */
@@ -1543,7 +1554,7 @@ export class SCTP {
     this.sentQueue.forEach((chunk) => {
       if (chunk.acked || chunk.abandoned) return;
       if (!this.maybeAbandon(chunk)) {
-        chunk.retransmit = true;
+        this.setRetransmitPending(chunk, true);
       }
       this.flightSizeDecrease(chunk);
     });
@@ -1781,7 +1792,7 @@ export class SCTP {
     if (chunk.misses < 3) return false;
     chunk.misses = 0;
     if (!this.maybeAbandon(chunk)) {
-      chunk.retransmit = true;
+      this.setRetransmitPending(chunk, true);
     }
     chunk.acked = false;
     this.flightSizeDecrease(chunk);
@@ -1801,7 +1812,7 @@ export class SCTP {
       this.renegingCandidateCount--;
     }
     chunk.abandoned = true;
-    chunk.retransmit = false;
+    this.setRetransmitPending(chunk, false);
     chunk.userData = EMPTY_PAYLOAD;
   }
 
