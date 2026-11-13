@@ -4,7 +4,7 @@ ide:
   version: 1
   title: "#814 複数NICでhost candidateと送信元IPを一致させる（最新版）"
   dock: right
-  baseCommit: 77fc625d11972a466876316fd9e525012d8fcb1a
+  baseCommit: ac9e6a5cb3158d17bd9fe6f305c56fb03fde4d5c
 ---
 # #814 複数 NIC で host candidate と送信元 IP を一致させる（最新版）
 
@@ -26,7 +26,7 @@ ide:
 | STUN に届かない NIC があるとき | （wildcard なので届く）。ただし送信元は食い違う | `setLocalDescription()` はその NIC を待たない。srflx は後から trickle する |
 | 全通信を VPN に流す構成 | `tun` などを候補から除外していた | VPN の NIC も低い優先度で収集し、wildcard ソケットでも srflx を取る |
 | host の優先順 | 全 host が同じ優先度。順序は NIC 名のソート次第 | 既定経路の IP、通常 NIC、VPN NIC の順 |
-| 既定経路を調べるプローブ | なし | 設定した STUN / TURN server への経路だけを調べる。server がなければ調べない。パケットは送らない |
+| 既定経路を調べるプローブ | なし | 設定した STUN / TURN server への経路だけを調べる。server がなければ調べない。パケットは送らない。必要な理由は §3.4 |
 
 <div style="display:flex;gap:10px;flex-wrap:wrap;font-family:var(--review-font)">
   <div style="flex:1;min-width:150px;padding:8px 12px;border:1px solid var(--review-border);border-left:4px solid var(--review-success);border-radius:6px"><div style="color:var(--review-muted);font-size:12px">送信元不一致による prflx</div><div style="font-size:20px;font-weight:bold">0 件</div><div style="font-size:12px;color:var(--review-muted)">Chrome / pion / 新 werift</div></div>
@@ -256,7 +256,187 @@ end-of-candidates を代表ソケットの時点で出さないのは、RFC 8838
 - 区分の定義は [packages/ice/src/internal/hostPreference.ts:12](review-file:packages/ice/src/internal/hostPreference.ts:12) で、host candidate への適用は [packages/ice/src/ice.ts:1407](review-file:packages/ice/src/ice.ts:1407) です。
 - VPN NIC の収集は [packages/ice/src/internal/selectAddresses.ts:53](review-file:packages/ice/src/internal/selectAddresses.ts:53) の `selectHostInterfaces()` です。公開 API の `getHostAddresses()` の戻り値は変えていません。
 
-### 3.4 既定経路の決め方：3 段階の変遷と最終仕様
+### 3.4 なぜ経路プローブが必要か
+
+#### 3.4.1 「どの NIC から出ていくか」は NIC の一覧からは分からない
+
+werift が NIC について得られる情報は `os.networkInterfaces()` だけで、これは各 NIC のアドレスの一覧です。ある宛先へのパケットがどの NIC のどのアドレスから出ていくかは、OS の経路表（と policy routing や VPN の設定）で決まります。この情報は一覧に含まれていません。Node.js には経路表を読む API もありません。
+
+そこで「宛先 X に送るなら、送信元はどのアドレスになるか」を OS に直接尋ねます。これが経路プローブです。
+
+<svg viewBox="0 0 760 250" width="100%" role="img" aria-label="経路プローブの仕組み" style="font-family:var(--review-font)">
+  <g font-size="12" fill="var(--review-fg)">
+    <rect x="8" y="10" width="230" height="122" rx="8" fill="none" stroke="var(--review-border)"/>
+    <text x="123" y="30" text-anchor="middle" font-weight="bold">os.networkInterfaces()</text>
+    <text x="22" y="52">docker0  172.17.0.1</text>
+    <text x="22" y="70">eth0     192.168.10.5</text>
+    <text x="22" y="88">wlan0    10.0.0.7</text>
+    <text x="22" y="112" fill="var(--review-danger)">✗ どれが STUN server へ出るかは</text>
+    <text x="22" y="126" fill="var(--review-danger)">   書かれていない</text>
+
+    <rect x="280" y="10" width="200" height="122" rx="8" fill="none" stroke="var(--review-accent)" stroke-width="2"/>
+    <text x="380" y="30" text-anchor="middle" font-weight="bold" fill="var(--review-accent)">経路プローブ</text>
+    <text x="292" y="54">① UDP socket を作る</text>
+    <text x="292" y="74">② connect(STUN server)</text>
+    <text x="292" y="94">③ socket.address() を読む</text>
+    <text x="292" y="114">④ socket を閉じる</text>
+
+    <rect x="522" y="10" width="230" height="122" rx="8" fill="none" stroke="var(--review-border)"/>
+    <text x="637" y="30" text-anchor="middle" font-weight="bold">OS（カーネル）</text>
+    <text x="534" y="54">経路表・policy routing・VPN を</text>
+    <text x="534" y="72">引いて送信元アドレスを決める</text>
+    <text x="534" y="100" fill="var(--review-success)">→ 「10.0.0.7 から出る」</text>
+    <text x="534" y="118" fill="var(--review-muted)">（実際に送るときと同じ判定）</text>
+
+    <line x1="480" y1="74" x2="522" y2="74" stroke="var(--review-accent)" stroke-width="2"/>
+    <line x1="522" y1="100" x2="480" y2="100" stroke="var(--review-success)" stroke-width="2"/>
+    <line x1="238" y1="70" x2="280" y2="70" stroke="var(--review-muted)" stroke-dasharray="4 3"/>
+
+    <rect x="8" y="160" width="744" height="80" rx="8" fill="none" stroke="var(--review-border)" stroke-dasharray="5 4"/>
+    <text x="22" y="182" font-weight="bold">ネットワーク上</text>
+    <text x="22" y="204" fill="var(--review-success)">UDP の connect() は「宛先を覚えるだけ」の操作で、パケットは 1 つも送らない。</text>
+    <text x="22" y="224" fill="var(--review-muted)">STUN server には何も届かない（テストで受信数 0 を確認）。libwebrtc も同じ方法で既定のローカルアドレスを求めている。</text>
+  </g>
+</svg>
+
+`connect()` は宛先を覚えるだけの操作で、送信はしません。経路表を引く判定は実際に送るときと同じなので、結果は「その宛先に送ったら、この送信元から出る」と一致します。
+
+- 実装は [packages/ice/src/internal/defaultRoute.ts:16](review-file:packages/ice/src/internal/defaultRoute.ts:16) の `getRouteSourceAddress()` です。
+- パケットを送らないことは [packages/ice/tests/ice/default-route.test.ts:45](review-file:packages/ice/tests/ice/default-route.test.ts:45) で確認しています。プローブ先の server の受信数が 0 であること、プローブ先が server だけであることを調べています。
+
+#### 3.4.2 用途 1：STUN / TURN server へのプローブ（代表ソケットと優先順を決める）
+
+このプローブの答えを 2 か所で使います。
+
+- **代表ソケットを決める（§3.1）。** STUN server に実際に届くのは、STUN server への経路の送信元アドレスに bind したソケットです。そのソケットの srflx だけを待てば、届かない NIC を待たずに済みます。
+- **host の優先順を決める（§3.3）。** そのアドレスの host candidate を最優先にし、check を実際に使われる経路から始めます。
+
+下の例では、STUN server の置き場所を切り替えると、プローブがある場合とない場合で選ばれる NIC がどう変わるかを比べられます（NIC 構成は説明用の例です）。
+
+<style>
+  .r814-pr { font-family: var(--review-font); font-size: 13px; color: var(--review-fg); }
+  .r814-pr .btns button { border: 1px solid var(--review-border); background: var(--review-surface); color: var(--review-fg); padding: 3px 10px; margin: 0 6px 6px 0; border-radius: 4px; cursor: pointer; }
+  .r814-pr .btns button[aria-pressed="true"] { border-color: var(--review-accent); color: var(--review-accent); font-weight: bold; }
+  .r814-pr .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .r814-pr .col { border: 1px solid var(--review-border); border-radius: 8px; padding: 8px 10px; }
+  .r814-pr .col.no { border-top: 4px solid var(--review-danger); } .r814-pr .col.yes { border-top: 4px solid var(--review-success); }
+  .r814-pr .nic { display: grid; grid-template-columns: 70px 110px 1fr; gap: 6px; padding: 3px 6px; margin: 3px 0; border-radius: 4px; border: 1px solid var(--review-border); }
+  .r814-pr .nic.pick-bad { border-color: var(--review-danger); background: color-mix(in srgb, var(--review-danger) 10%, transparent); }
+  .r814-pr .nic.pick-good { border-color: var(--review-success); background: color-mix(in srgb, var(--review-success) 12%, transparent); }
+  .r814-pr .res { margin-top: 6px; font-size: 12px; color: var(--review-muted); }
+</style>
+
+<div class="r814-pr">
+  <div class="btns">STUN server の場所:
+    <button data-k="inet" aria-pressed="true">Internet 上（wlan0 から出る）</button>
+    <button data-k="lan">社内 LAN 上（eth0 から出る）</button>
+    <button data-k="vpn">VPN の先（tun0 から出る）</button>
+  </div>
+  <div class="grid">
+    <div class="col no"><b>プローブなし</b>：NIC 名の順に並べるしかない
+      <div id="r814-pr-no"></div>
+      <div class="res" id="r814-pr-no-res"></div>
+    </div>
+    <div class="col yes"><b>プローブあり</b>：STUN server への経路の送信元を OS に尋ねる
+      <div id="r814-pr-yes"></div>
+      <div class="res" id="r814-pr-yes-res"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  (() => {
+    const nics = [
+      ["docker0", "172.17.0.1"],
+      ["eth0", "192.168.10.5"],
+      ["tun0", "10.8.0.2"],
+      ["wlan0", "10.0.0.7"],
+    ];
+    const route = { inet: "wlan0", lan: "eth0", vpn: "tun0" };
+    const draw = (k) => {
+      const out = route[k];
+      // プローブなし: 名前順 (VPN は最後)。先頭が最優先として扱われる
+      const byName = [...nics].sort((a, b) => (a[0] === "tun0") - (b[0] === "tun0") || a[0].localeCompare(b[0]));
+      const no = document.getElementById("r814-pr-no");
+      no.innerHTML = byName.map(([n, a], i) => `<div class="nic ${i === 0 ? (n === out ? "pick-good" : "pick-bad") : ""}"><span>${n}</span><span>${a}</span><span>${i === 0 ? "先頭（最初に check）" : ""}${n === out ? " ← 実際の出口" : ""}</span></div>`).join("");
+      document.getElementById("r814-pr-no-res").innerHTML = byName[0][0] === out
+        ? "偶然、先頭が実際の出口と一致した。"
+        : `<span style="color:var(--review-danger)">先頭の ${byName[0][0]} は STUN server へ出ない。</span>代表ソケットを決められないので、全ソケットの srflx を待つ（届かない NIC があれば 5 秒）か、wildcard だけを待つ（単一 NIC でも SDP の内容が変わる）しかない。`;
+      // プローブあり: 実際の出口が最優先 (65535)
+      const yes = document.getElementById("r814-pr-yes");
+      const ordered = [nics.find(([n]) => n === out), ...byName.filter(([n]) => n !== out)];
+      yes.innerHTML = ordered.map(([n, a], i) => `<div class="nic ${i === 0 ? "pick-good" : ""}"><span>${n}</span><span>${a}</span><span>${i === 0 ? "既定経路 65535・代表ソケット" : n === "tun0" ? "VPN 16383" : "通常 32767"}</span></div>`).join("");
+      document.getElementById("r814-pr-yes-res").innerHTML = `<span style="color:var(--review-success)">connect(STUN server) の答えは ${route[k] === "wlan0" ? "10.0.0.7" : route[k] === "eth0" ? "192.168.10.5" : "10.8.0.2"}（${out}）。</span>このソケットの srflx だけを待ち、他の NIC は裏で問い合わせる。check もここから始める。`;
+    };
+    document.querySelectorAll(".r814-pr .btns button").forEach((b) => b.addEventListener("click", () => {
+      document.querySelectorAll(".r814-pr .btns button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+      draw(b.dataset.k);
+    }));
+    draw("inet");
+  })();
+</script>
+
+プローブがないと、代表ソケットは次のどちらかの決め方しかありません。このコンテナでの実測と既存テストの結果で比べると、次のようになります。
+
+<div style="display:flex;gap:10px;flex-wrap:wrap;font-family:var(--review-font);font-size:12px">
+  <div style="flex:1;min-width:210px;padding:8px 12px;border:1px solid var(--review-border);border-left:4px solid var(--review-danger);border-radius:6px">
+    <b>A. 全ソケットの srflx を待つ</b>（当初の修正の挙動）<br>
+    STUN に届かない NIC があると <b style="color:var(--review-danger)">5010 ms</b> 待つ（二次 NIC あり構成の実測）。
+  </div>
+  <div style="flex:1;min-width:210px;padding:8px 12px;border:1px solid var(--review-border);border-left:4px solid var(--review-danger);border-radius:6px">
+    <b>B. wildcard ソケットだけを待つ</b>（途中で試した案）<br>
+    単一 NIC のホストでも bind ソケットの srflx が後回しになる。そのため <code>setLocalDescription()</code> 直後の SDP から <b style="color:var(--review-danger)">a=end-of-candidates が消え</b>、後から届く candidate で SDP が変わる。既存テストが 2 件失敗した。
+  </div>
+  <div style="flex:1;min-width:210px;padding:8px 12px;border:1px solid var(--review-border);border-left:4px solid var(--review-success);border-radius:6px">
+    <b>C. プローブで既定経路のソケットも代表にする</b>（採用）<br>
+    届かない NIC があっても <b style="color:var(--review-success)">16 ms</b> で返る。全 NIC が届くホストでは、待ち時間も SDP も従来どおり。
+  </div>
+</div>
+
+プローブ先が公開アドレスではなく、設定した STUN / TURN server である理由は次のとおりです。
+
+- 代表ソケットに求められるのは「その STUN server に届くこと」なので、その server への経路を直接尋ねるのが最も正確です。
+- 社内 STUN や、VPN の split tunnel、policy routing の構成では、Internet への経路と server への経路が別の NIC になることがあります。上の例の「社内 LAN」「VPN の先」がこのケースです。
+- server がない構成では srflx の問い合わせ自体がありません。代表ソケットを決める必要がないので、プローブもしません。
+- 公開アドレスへのフォールバックを廃止したので、ユーザーが設定していない宛先へはプローブしません。
+
+実装は [packages/ice/src/internal/defaultRoute.ts:104](review-file:packages/ice/src/internal/defaultRoute.ts:104) で、gathering から呼ぶ箇所は [packages/ice/src/ice.ts:976](review-file:packages/ice/src/ice.ts:976) です。代表の選び方は [packages/ice/src/ice.ts:1682](review-file:packages/ice/src/ice.ts:1682) です。テストは [packages/ice/tests/ice/multi-nic-reflexive.test.ts:258](review-file:packages/ice/tests/ice/multi-nic-reflexive.test.ts:258) で、STUN server への経路の NIC が最優先になることを確認しています。
+
+#### 3.4.3 用途 2：相手 candidate へのプローブ（wildcard ソケットの check を絞る）
+
+wildcard ソケットは送信元を OS に任せるソケットです。そのため、相手 C へ送ったときに「どのアドレスから出るか」は送ってみるまで分かりません。もし出口が host ソケットの bind アドレスと同じなら、その経路は host ソケットが担当しています。この場合、wildcard ソケットから送っても、相手には未広告の「ローカル IP:wildcard ポート」が届くだけです。
+
+<div style="display:flex;gap:10px;flex-wrap:wrap;font-family:var(--review-font);font-size:12px">
+  <div style="flex:1;min-width:210px;padding:8px 12px;border:1px solid var(--review-border);border-left:4px solid var(--review-danger);border-radius:6px">
+    <b>常に pair する</b>（プローブなし案 1）<br>
+    LAN の相手に未広告の送信元から check が届く。<b style="color:var(--review-danger)">Chrome が prflx を 1 件学習した</b>（実測）。#814 の目的と矛盾する。
+  </div>
+  <div style="flex:1;min-width:210px;padding:8px 12px;border:1px solid var(--review-border);border-left:4px solid var(--review-danger);border-radius:6px">
+    <b>常に pair しない</b>（プローブなし案 2）<br>
+    出口が列挙外のアドレス（列挙しない NIC、gathering 後に変わったアドレス、policy routing で選ばれる別アドレスなど）だけの場合、<b style="color:var(--review-danger)">その経路の check が誰からも出ない</b>。wildcard ソケットを置いた意味がなくなる。
+  </div>
+  <div style="flex:1;min-width:210px;padding:8px 12px;border:1px solid var(--review-border);border-left:4px solid var(--review-success);border-radius:6px">
+    <b>C への経路をプローブして決める</b>（採用）<br>
+    出口が host ソケットのアドレスなら pair しない。そうでなければ pair する。<b style="color:var(--review-success)">Chrome の prflx は 0</b> で、host が覆わない経路も残る。
+  </div>
+</div>
+
+このプローブの宛先は、ICE の check でもともとパケットを送る相手の candidate です。新しい宛先は増えません。
+
+- 実装は [packages/ice/src/ice.ts:1791](review-file:packages/ice/src/ice.ts:1791) の `wildcardPathUncovered()` です。
+- テストは [packages/ice/tests/ice/multi-nic-reflexive.test.ts:294](review-file:packages/ice/tests/ice/multi-nic-reflexive.test.ts:294)（覆われた経路では pair しない）と [packages/ice/tests/ice/multi-nic-reflexive.test.ts:330](review-file:packages/ice/tests/ice/multi-nic-reflexive.test.ts:330)（覆われていない経路では pair する）です。判定を「常に pair する」「常に pair しない」に差し替えると、それぞれ失敗します。
+
+#### 3.4.4 コストと安全性
+
+| 観点 | 内容 |
+| --- | --- |
+| ネットワークへの影響 | パケットを送らない（UDP `connect()` だけ） |
+| 宛先 | 設定した STUN / TURN server と、相手の candidate だけ。どちらもプローブがなくても通信する相手 |
+| server がない構成 | 何もプローブしない（テストで `connect()` 先が 0 件であることを確認） |
+| gathering の待ち時間 | ソケットの bind と並行して行う。ホスト名の server は DNS の解決を待つ（上限 1 秒）が、STUN の問い合わせも同じ解決を待つので、gathering の完了時刻はほぼ変わらない |
+| 失敗したとき | 経路がない、解決できないときは「既定経路なし」として扱い、host の順序は収集順になる。接続は止めない |
+
+### 3.5 既定経路の決め方：3 段階の変遷と最終仕様
 
 <div style="display:flex;gap:10px;flex-wrap:wrap;font-family:var(--review-font);font-size:12px">
   <div style="flex:1;min-width:200px;padding:8px 12px;border:1px solid var(--review-border);border-left:4px solid var(--review-danger);border-radius:6px">
