@@ -144,6 +144,25 @@ export class DtlsSocket {
           switch (message.type) {
             case ContentType.handshake:
               {
+                // Once the handshake completed, a handshake record of an
+                // epoch older than the peer's authenticated one (a plaintext
+                // epoch-0 Certificate, ClientHello, ...) is unauthenticated:
+                // anyone on the path can inject it, so it must not change
+                // the session (overwrite the peer certificate and fail its
+                // check, or reset the session through renegotiation()). It
+                // is dropped. A legitimate retransmission of the peer's last
+                // flight still carries its Finished at the current epoch.
+                if (
+                  this.connected &&
+                  packet.recordLayerHeader.epoch < this.dtls.remoteEpoch
+                ) {
+                  log(
+                    this.dtls.sessionId,
+                    "drop a stale-epoch handshake record after the handshake",
+                    packet.recordLayerHeader.epoch,
+                  );
+                  continue;
+                }
                 const handshake = message.data as FragmentedHandshake;
                 const handshakes = this.handleFragmentHandshake([handshake]);
                 const assembled = Object.values(

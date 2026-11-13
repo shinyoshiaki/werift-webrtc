@@ -20,6 +20,7 @@ import type { DtlsRandom } from "../src/handshake/random";
 import { createPlaintext } from "../src/record/builder";
 import { ContentType } from "../src/record/const";
 import { FragmentedHandshake } from "../src/record/message/fragment";
+import { DtlsPlaintext } from "../src/record/message/plaintext";
 import { parsePacket } from "../src/record/receive";
 import type { Options } from "../src/socket";
 import { certPem, keyPem } from "./fixture";
@@ -256,3 +257,22 @@ export const createMultiAlertRecord = (
     ? sender.cipher.encryptPacket(packet).serialize()
     : packet.serialize();
 };
+
+/**
+ * A plaintext epoch-0 handshake record (as it would be injected on the path
+ * after the handshake): `fragment` is a serialized FragmentedHandshake.
+ */
+export const createEpoch0HandshakeRecord = (
+  sender: DtlsClient | DtlsServer,
+  fragment: Buffer,
+) =>
+  new DtlsPlaintext(
+    {
+      contentType: ContentType.handshake,
+      protocolVersion: sender.dtls.version,
+      epoch: 0,
+      sequenceNumber: 1000,
+      contentLen: fragment.length,
+    },
+    fragment,
+  ).serialize();

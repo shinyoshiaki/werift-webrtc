@@ -1,10 +1,22 @@
+import { X509Certificate } from "node:crypto";
 import { setTimeout } from "timers/promises";
 import { AlertDesc, AlertLevel, ContentType, DtlsAlertError } from "../src";
+import {
+  HashAlgorithm,
+  NamedCurveAlgorithm,
+  SignatureAlgorithm,
+} from "../src/cipher/const";
+import { CipherContext } from "../src/context/cipher";
 import { Alert } from "../src/handshake/message/alert";
+import { Certificate } from "../src/handshake/message/certificate";
+import { DtlsRandom } from "../src/handshake/random";
 import { createPlaintext } from "../src/record/builder";
+import { certPem } from "./fixture";
 import {
   connectDtlsPair,
+  createClientHelloHandshake,
   createDtlsPair,
+  createEpoch0HandshakeRecord,
   createMultiAlertRecord,
   sentRecords,
 } from "./utils";
@@ -921,4 +933,81 @@ describe("close_notify を受けた後に届く application data", () => {
       expect(pair.server.terminated).toBe(true);
     },
   );
+});
+
+describe("確立後に注入された平文（epoch 0）の handshake record", () => {
+  test("client に別の証明書の Certificate を注入しても、証明書は変わらず接続とデータ通信が続く", async () => {
+    // Arrange: client は server の本来の証明書だけを受け入れる。接続後に別の証明書を用意する
+    const expected = new X509Certificate(certPem).raw;
+    const pair = createDtlsPair({
+      client: {
+        verifyRemoteCertificate: (certificate) => certificate.equals(expected),
+      },
+    });
+    await connectDtlsPair(pair);
+    const onError = vi.fn();
+    const onClose = vi.fn();
+    pair.client.onError.subscribe(onError);
+    pair.client.onClose.subscribe(onClose);
+    const other = await CipherContext.createSelfSignedCertificateWithKey(
+      { signature: SignatureAlgorithm.ecdsa_3, hash: HashAlgorithm.sha256_4 },
+      NamedCurveAlgorithm.secp256r1_23,
+    );
+    const certificate = new Certificate([
+      new X509Certificate(other.certPem).raw,
+    ]).toFragment();
+    certificate.message_seq = 2;
+    const injected = createEpoch0HandshakeRecord(
+      pair.server,
+      certificate.serialize(),
+    );
+
+    // Act: 平文の Certificate を client に届け、その後に双方向でデータを送る
+    pair.clientTransport.onData(injected, pair.serverTransport.address);
+    await setTimeout(50);
+    const toServer = pair.server.onData.asPromise();
+    const toClient = pair.client.onData.asPromise();
+    await pair.client.send(Buffer.from("ping"));
+    await pair.server.send(Buffer.from("pong"));
+
+    // Assert: 接続は終了せず、alert も送らず、保持する証明書も変わらない
+    expect(pair.client.terminated).toBe(false);
+    expect(onError).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(alertRecords(pair.clientTransport.sent)).toHaveLength(0);
+    expect(Buffer.from(pair.client.remoteCertificate!).equals(expected)).toBe(
+      true,
+    );
+    // Assert: データ通信は双方向に続く
+    expect(String((await toServer)[0])).toBe("ping");
+    expect(String((await toClient)[0])).toBe("pong");
+  });
+
+  test("server に ClientHello を注入しても、セッションはリセットされずデータ通信が続く", async () => {
+    // Arrange
+    const pair = createDtlsPair();
+    await connectDtlsPair(pair);
+    const cipherBefore = pair.server.cipher;
+    const hello = createClientHelloHandshake({ random: new DtlsRandom() });
+    const injected = createEpoch0HandshakeRecord(
+      pair.client,
+      hello.serialize(),
+    );
+
+    // Act: 平文の ClientHello を server に届け、その後に双方向でデータを送る
+    pair.serverTransport.onData(injected, pair.clientTransport.address);
+    await setTimeout(50);
+    const toServer = pair.server.onData.asPromise();
+    const toClient = pair.client.onData.asPromise();
+    await pair.client.send(Buffer.from("ping"));
+    await pair.server.send(Buffer.from("pong"));
+
+    // Assert: server は接続済みのまま、セッション（鍵）も作り直されない
+    expect(pair.server.connected).toBe(true);
+    expect(pair.server.cipher).toBe(cipherBefore);
+    expect(pair.server.terminated).toBe(false);
+    // Assert: データ通信は双方向に続く
+    expect(String((await toServer)[0])).toBe("ping");
+    expect(String((await toClient)[0])).toBe("pong");
+  });
 });

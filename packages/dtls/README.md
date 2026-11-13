@@ -72,6 +72,7 @@ server.onError.subscribe((error) => {
 ```
 
 - A received alert is decrypted according to its record epoch; a record that fails to decrypt is discarded.
+- Once the handshake completed, a handshake record of an epoch older than the peer's authenticated one (e.g. a plaintext epoch-0 Certificate or ClientHello injected on the path) is discarded: it changes neither the peer certificate nor the session (no `renegotiation()`).
 - Every alert in a received record is handled in order (a record may carry several); processing stops at the first close_notify or fatal alert, and the rest of the record and of the datagram is ignored.
 - A truncated record at the end of a datagram is discarded; the records before it are still processed.
 - Other warning alerts (`user_canceled`, `no_renegotiation`, ...) only fire `onAlert`. An alert whose level is neither warning nor fatal is malformed and handled like a fatal alert.
