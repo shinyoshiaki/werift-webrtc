@@ -3059,3 +3059,416 @@ export async function createDelayedPreferredPathPair({
     },
   };
 }
+
+// --- failover of the selected pair (FailoverMonitor) ---
+
+/** One request a FailoverPathProtocol sent. */
+export type FailoverRequest = {
+  message: Message;
+  addr: Address;
+  /** `Date.now()` when it was sent. */
+  at: number;
+  useCandidate: boolean;
+  nomination?: number;
+  controlling: boolean;
+  /** Settled (answered, timed out, or cancelled by its signal). */
+  done: boolean;
+  cancelled: boolean;
+};
+
+/**
+ * Mock Protocol for failover tests: a request to a reachable remote address
+ * is answered at once; one to an unreachable address (`down`) times out as
+ * a transaction does (the response timeout per transmission, doubling), or
+ * is cancelled by its signal.
+ */
+export class FailoverPathProtocol implements Protocol {
+  type: string;
+  localCandidate: Candidate;
+  onRequestReceived = new Event<[Message, any, Buffer]>();
+  onDataReceived = new Event<[Buffer, Address]>();
+  readonly requests: FailoverRequest[] = [];
+  /** Unreachable remote ports; `"all"`: the whole socket is cut off. */
+  readonly unreachable = new Set<number | "all">();
+  readonly request: Protocol["request"];
+
+  constructor({
+    type,
+    candidateType,
+    priority,
+    port,
+    transport = "udp",
+  }: {
+    type: string;
+    candidateType: string;
+    priority: number;
+    port: number;
+    transport?: "udp" | "tcp";
+  }) {
+    this.type = type;
+    this.localCandidate = new Candidate(
+      `local${port}`,
+      1,
+      transport,
+      priority,
+      "192.0.2.1",
+      port,
+      candidateType,
+      undefined,
+      undefined,
+      transport === "tcp" ? "active" : undefined,
+      0,
+      undefined,
+    );
+    this.request = (async (
+      message: Message,
+      addr: Address,
+      _integrityKey?: Buffer,
+      options?: number | TransactionRequestOptions,
+    ) => {
+      const opts = typeof options === "object" ? options : {};
+      const keys = message.attributesKeys;
+      const entry: FailoverRequest = {
+        message,
+        addr,
+        at: Date.now(),
+        useCandidate: keys.includes("USE-CANDIDATE"),
+        nomination: keys.includes("NOMINATION")
+          ? message.getAttributeValue("NOMINATION")
+          : undefined,
+        controlling: keys.includes("ICE-CONTROLLING"),
+        done: false,
+        cancelled: false,
+      };
+      this.requests.push(entry);
+      try {
+        if (!this.reaches(addr)) {
+          const retransmissions = opts.retransmissions ?? 0;
+          const timeout = opts.responseTimeout ?? 50;
+          let wait = 0;
+          for (let i = 0; i <= retransmissions; i++) wait += timeout * 2 ** i;
+          try {
+            await delay(wait, opts.signal);
+          } catch {
+            entry.cancelled = true;
+            throw new TransactionCancelled();
+          }
+          throw new TransactionTimeout();
+        }
+        if (opts.signal?.aborted) {
+          entry.cancelled = true;
+          throw new TransactionCancelled();
+        }
+        return [new Message(methods.BINDING, classes.RESPONSE), addr];
+      } finally {
+        entry.done = true;
+      }
+    }) as Protocol["request"];
+  }
+
+  /** Requests to `addr` reach the peer. */
+  reaches(addr: Address) {
+    return !this.unreachable.has("all") && !this.unreachable.has(addr[1]);
+  }
+
+  /** Requests still in flight (live STUN transactions). */
+  pending() {
+    return this.requests.filter((request) => !request.done).length;
+  }
+
+  async sendStun() {}
+  async sendData() {}
+  async connectionMade() {}
+  async close() {}
+}
+
+export const FAILOVER_HIGH = 2_000_000_000;
+export const FAILOVER_MID = 1_000_000_000;
+export const FAILOVER_LOW = 100;
+
+/**
+ * Shared Arrange for failover: an agent whose local sockets are
+ * FailoverPathProtocols (`locals`, highest priority first by default: a
+ * host socket and a TURN allocation) and whose remote candidates
+ * (`remotes`, by priority) all arrive before the checks. The pair of the
+ * first local and the first remote candidate is selected as the
+ * scheduler / the peer would select it, and the consent checks start as
+ * `connect()` starts them. Use with fake timers (and a fixed Math.random).
+ *
+ * - controlling: its check succeeds (semi-aggressive: with USE-CANDIDATE;
+ *   renomination and regular nomination: then the nomination check).
+ * - controlled: the peer nominates it with USE-CANDIDATE.
+ * - `selectDirectly`: the pair is set as the selection without checks (an
+ *   ICE-TCP selection).
+ */
+export async function createFailoverHarness({
+  iceControlling = true,
+  nomination = "semi-aggressive",
+  renomination = false,
+  remoteIsLite = false,
+  locals = [
+    { type: "stun", candidateType: "host", priority: FAILOVER_HIGH },
+    { type: "turn", candidateType: "relay", priority: FAILOVER_LOW },
+  ],
+  remotes = [FAILOVER_HIGH],
+  remoteTransports = [],
+  selectDirectly = false,
+}: {
+  iceControlling?: boolean;
+  nomination?: "regular" | "semi-aggressive";
+  renomination?: boolean;
+  remoteIsLite?: boolean;
+  locals?: {
+    type: string;
+    candidateType: string;
+    priority: number;
+    transport?: "udp" | "tcp";
+  }[];
+  remotes?: number[];
+  /** Transport of each remote candidate; unset: the first local's. */
+  remoteTransports?: ("udp" | "tcp")[];
+  selectDirectly?: boolean;
+} = {}) {
+  const protocols = locals.map(
+    (local, index) =>
+      new FailoverPathProtocol({ ...local, port: 4000 + index }),
+  );
+  const connection = new Connection(iceControlling, {
+    nomination,
+    renomination,
+  });
+  connection.remoteIsLite = remoteIsLite;
+  connection.remoteRenomination = renomination;
+  connection.remoteUsername = "remote";
+  connection.remotePassword = "remote-password-0000000000";
+  connection.localCandidatesEnd = true;
+  const internals = connection as unknown as {
+    protocols: Protocol[];
+    ensureProtocol(protocol: Protocol): void;
+    queryConsent(): void;
+    switchRole(controlling: boolean): void;
+    evaluateSelection(): void;
+  };
+  internals.protocols.push(...protocols);
+  for (const protocol of protocols) internals.ensureProtocol(protocol);
+  const states: { state: string; at: number }[] = [];
+  connection.stateChanged.subscribe((state) => {
+    states.push({ state, at: Date.now() });
+  });
+
+  const remoteCandidates = remotes.map((priority, index) => {
+    const transport = remoteTransports[index] ?? locals[0].transport ?? "udp";
+    return new Candidate(
+      `remote${index}`,
+      1,
+      transport,
+      priority,
+      "192.0.2.2",
+      5000 + index,
+      "host",
+      undefined,
+      undefined,
+      transport === "tcp" ? "passive" : undefined,
+      undefined,
+      undefined,
+    );
+  });
+  for (const candidate of remoteCandidates) {
+    await connection.addRemoteCandidate(candidate);
+  }
+  /** The pair of local socket `local` and remote candidate `remote` (indexes). */
+  const pairOf = (local: number, remote = 0) =>
+    connection.checkList.find(
+      (pair) =>
+        pair.protocol === protocols[local] &&
+        pair.remoteCandidate === remoteCandidates[remote],
+    )!;
+
+  const selection = pairOf(0, 0);
+  if (selectDirectly) {
+    selection.nominated = true;
+    selection.updateState(CandidatePairState.SUCCEEDED);
+    connection.nominated = selection;
+  } else if (iceControlling) {
+    selection.handle = connection.checkStart(selection);
+    // Regular nomination waits for nominationDelayMs before its check.
+    await vi.advanceTimersByTimeAsync(nomination === "regular" ? 1000 : 0);
+  } else {
+    connection.checkIncoming(
+      createIncomingCheck(connection, { useCandidate: true }),
+      selection.remoteAddr,
+      selection.protocol,
+    );
+    await vi.advanceTimersByTimeAsync(0);
+  }
+  if (connection.nominated !== selection) {
+    throw new Error("failover harness: the first pair was not selected");
+  }
+  // As connect() ends: consent freshness starts and the agent is connected.
+  connection.state = "connected";
+  internals.queryConsent();
+
+  /** Requests sent to the remote address of `pair` on its socket, in order. */
+  const requestsTo = (pair: CandidatePair) =>
+    (pair.protocol as FailoverPathProtocol).requests.filter(
+      (request) =>
+        request.addr[0] === pair.remoteAddr[0] &&
+        request.addr[1] === pair.remoteAddr[1],
+    );
+  /** Cut socket `local` off (every remote address), or only its path to `remote`. */
+  const cut = (local: number, remote?: number) =>
+    protocols[local].unreachable.add(
+      remote === undefined ? "all" : remoteCandidates[remote].port,
+    );
+  /** Restore socket `local` (every path). */
+  const restore = (local: number) => protocols[local].unreachable.clear();
+  /** Advance until `predicate` holds (or `limitMs` passed); returns the time it took. */
+  const advanceUntil = async (predicate: () => boolean, limitMs: number) => {
+    const start = Date.now();
+    while (!predicate() && Date.now() - start < limitMs) {
+      await vi.advanceTimersByTimeAsync(100);
+    }
+    return Date.now() - start;
+  };
+  /** The application data the peer sends on `pair`. */
+  const receiveData = (pair: CandidatePair) =>
+    (pair.protocol as FailoverPathProtocol).onDataReceived.execute(
+      Buffer.from("data"),
+      pair.remoteAddr,
+    );
+  /** The peer (controlling) nominates `pair`: USE-CANDIDATE, or a NOMINATION value. */
+  const receiveNomination = (pair: CandidatePair, value?: number) =>
+    connection.checkIncoming(
+      createIncomingCheck(
+        connection,
+        value === undefined ? { useCandidate: true } : { nomination: value },
+      ),
+      pair.remoteAddr,
+      pair.protocol,
+    );
+  return {
+    connection,
+    protocols,
+    selection,
+    states,
+    pairOf,
+    requestsTo,
+    cut,
+    restore,
+    advanceUntil,
+    receiveData,
+    receiveNomination,
+    switchRole: (controlling: boolean) => internals.switchRole(controlling),
+    /** Re-evaluate the selection, as the outcome of any other check does. */
+    evaluateSelection: () => internals.evaluateSelection(),
+    /** Every request still in flight on every socket. */
+    pending: () =>
+      protocols.reduce((sum, protocol) => sum + protocol.pending(), 0),
+    /** Every request sent on every socket. */
+    requests: () => protocols.flatMap((protocol) => protocol.requests),
+  };
+}
+
+/**
+ * Shared Arrange: a controlling agent `a` with host and TURN relay
+ * candidates and a controlled host-only agent `b` (both full ICE, default
+ * semi-aggressive nomination or renomination), candidates exchanged and
+ * connected over real sockets. `cutHostPath()` cuts every host ↔ host path
+ * in both directions (requests time out, responses and data are dropped),
+ * while `a`'s relay still reaches `b`'s host sockets.
+ */
+export async function createFailoverRealPair({
+  renomination = false,
+}: {
+  renomination?: boolean;
+} = {}) {
+  const host = getHostAddresses(true, false)[0]!;
+  const server = await createLocalTurnServer(host);
+  const shared: Partial<IceOptions> = { useIpv6: false, renomination };
+  const a = createTestConnection(true, {
+    ...shared,
+    ...localTurnOptions(server),
+    forceTurn: false,
+  });
+  const b = createTestConnection(false, shared);
+  a.remoteRenomination = renomination;
+  b.remoteRenomination = renomination;
+  await Promise.all([a.gatherCandidates(), b.gatherCandidates()]);
+  exchangeIceCredentials(a, b);
+  await deliverLocalCandidates(a, b, { endOfCandidates: true });
+  await deliverLocalCandidates(b, a, { endOfCandidates: true });
+
+  let cut = false;
+  const hostsOf = (connection: Connection) =>
+    connection.localCandidates.filter((candidate) => candidate.type === "host");
+  const block = (connection: Connection, peer: Connection) => {
+    const peerHosts = hostsOf(peer);
+    const blocked = (address: Address) =>
+      cut &&
+      peerHosts.some(
+        (candidate) =>
+          candidate.host === address[0] && candidate.port === address[1],
+      );
+    for (const protocol of (connection as unknown as { protocols: Protocol[] })
+      .protocols) {
+      if (protocol.localCandidate?.type !== "host") continue;
+      const request = protocol.request.bind(protocol);
+      protocol.request = (async (
+        message: Message,
+        address: Address,
+        integrityKey?: Buffer,
+        options?: TransactionRequestOptions,
+      ) => {
+        if (!blocked(address)) {
+          return request(message, address, integrityKey, options);
+        }
+        // Lost on the way: the transaction times out (or is cancelled).
+        const retransmissions = options?.retransmissions ?? 0;
+        const timeout = options?.responseTimeout ?? 50;
+        let wait = 0;
+        for (let i = 0; i <= retransmissions; i++) wait += timeout * 2 ** i;
+        try {
+          await delay(wait, options?.signal);
+        } catch {
+          throw new TransactionCancelled();
+        }
+        throw new TransactionTimeout();
+      }) as typeof protocol.request;
+      const sendStun = protocol.sendStun.bind(protocol);
+      protocol.sendStun = async (message, address) => {
+        if (blocked(address)) return;
+        return sendStun(message, address);
+      };
+      const sendData = protocol.sendData.bind(protocol);
+      protocol.sendData = async (data, address) => {
+        if (blocked(address)) return;
+        return sendData(data, address);
+      };
+    }
+  };
+  block(a, b);
+  block(b, a);
+
+  /** `connection` selected a host ↔ host pair. */
+  const selectsHostPath = (connection: Connection) =>
+    connection.nominated?.localCandidate.type === "host" &&
+    connection.nominated.remoteCandidate.type === "host";
+  /** `connection` selected a pair through `a`'s relay. */
+  const selectsRelayPath = (connection: Connection) =>
+    connection.nominated?.localCandidate.type === "relay" ||
+    connection.nominated?.remoteCandidate.port ===
+      a.localCandidates.find((candidate) => candidate.type === "relay")?.port;
+  return {
+    a,
+    b,
+    selectsHostPath,
+    selectsRelayPath,
+    cutHostPath: () => {
+      cut = true;
+    },
+    close: async () => {
+      await Promise.allSettled([a.close(), b.close()]);
+      await server.close();
+    },
+  };
+}

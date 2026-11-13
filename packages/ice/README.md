@@ -91,6 +91,52 @@ Not covered here:
   the `PASSWORD-ALGORITHM(S)` / `USERHASH` negotiation of RFC 8489 §9.2 in
   both the client and `werift-ice-server`, which is out of scope.
 
+## Failover of the selected pair (no ICE restart)
+
+With semi-aggressive nomination (the default) or negotiated renomination,
+a full ICE agent keeps checking one backup pair per local socket after the
+selection, as libwebrtc (Chrome) keeps pinging its connections, and moves
+the selection to a working backup when the selected pair stops answering,
+without an ICE restart (TURN server down, NAT rebinding, Wi-Fi ↔ cellular,
+a path broken in one direction).
+
+- Backups: one pair per local socket other than the selected pair's (a UDP
+  socket, whose host and server-reflexive candidates share one path, or a
+  TURN allocation over UDP / TCP / TLS): its highest-priority pair that did
+  not fail. A backup that never answers (5 checks and 5 s) or receives
+  nothing for 30 s fails and the next pair of its socket follows, up to 3
+  pairs; then the socket starts again from its best pair after 1, 2, 4, 8,
+  16 s. Candidates gathered or trickled after the selection still form
+  backup pairs. Backups are checked without a nomination, every 900 ms
+  until they answered 3 times (and while a check goes unanswered), then
+  every 2.5 s (0.8–1.2 times).
+- The selected pair is checked by the consent checks (every 4–6 s). Once one
+  goes unanswered they are sent every 900 ms. The pair is unwritable once 5
+  checks in a row went unanswered and 5 s passed since its last response
+  (libwebrtc's `CONNECTION_WRITE_CONNECT_FAILURES` /
+  `CONNECTION_WRITE_CONNECT_TIMEOUT`), about 5–10 s after the path broke.
+- Controlling agent: it then nominates the best writable backup (one that is
+  not weak first) with `USE-CANDIDATE` (semi-aggressive) or the next
+  `NOMINATION` value (renomination); the selection, consent and application
+  data move to it when the peer answers. The old pair stays a backup of its
+  socket, and the selection moves back to that socket only after it answered
+  3 checks in a row. Only writability switches pairs (no RTT or network-cost
+  switching).
+- Controlled agent: it monitors the same way but never nominates; it follows
+  the peer's nomination and the pair the peer sends data on.
+- State: `disconnected` while the selected pair is unwritable and no backup
+  is writable, back to `connected` when either answers again. `failed` when
+  the selected pair's consent expires (30 s, RFC 7675) and no writable
+  backup is left.
+- Not covered (unchanged: no backup checks, `failed` when consent expires):
+  regular nomination (`nomination: "regular"`; RFC 8445 §8.1.1 allows no
+  other pair without an ICE restart), ICE-TCP selections (a closed selected
+  TCP connection fails the agent at once) and ICE-lite on either side.
+- The constants are exported from `iceBase.ts`
+  (`WEAK_OR_STABILIZING_WRITABLE_CONNECTION_PING_INTERVAL`,
+  `STABLE_WRITABLE_CONNECTION_PING_INTERVAL`,
+  `CONNECTION_WRITE_CONNECT_FAILURES`, ...), with their libwebrtc names.
+
 ## pion TURN interop (opt-in)
 
 Default `npm test` skips third-party TURN tests. To exercise werift ICE against

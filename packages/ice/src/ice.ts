@@ -13,6 +13,7 @@ import {
   type TransactionError,
   TransactionTimeout,
 } from "./exceptions";
+import { type FailoverHost, FailoverMonitor } from "./failover";
 import { type Cancelable, cancelable, PQueue, randomString } from "./helper";
 import {
   CandidatePair,
@@ -35,6 +36,7 @@ import {
   sortCandidatePairs,
   type TurnServerOptions,
   validateRemoteCandidate,
+  WEAK_OR_STABILIZING_WRITABLE_CONNECTION_PING_INTERVAL,
 } from "./iceBase";
 import { type Address, debug, Event, interfaceAddress } from "./imports/common";
 import { resolveHostAddresses } from "./internal/resolveHostAddresses";
@@ -248,6 +250,14 @@ export class Connection implements IceConnection {
   private consentRequestAbort?: AbortController;
   /** ICE restart generation checked beside the selected current pair. */
   private provisional?: ProvisionalGeneration;
+  /**
+   * Failover of the selected pair without an ICE restart (see
+   * `failoverEnabled`): the backup pairs it monitors and the liveness of
+   * the selected one.
+   */
+  private readonly failover = new FailoverMonitor(this.failoverHost());
+  /** The state `disconnected` replaced, restored when the selection works again. */
+  private stateBeforeDisconnect?: IceState;
   /**
    * Server-reflexive candidates each UDP socket advertised in its last
    * gathering (one per distinct mapping its STUN servers returned).
@@ -464,6 +474,7 @@ export class Connection implements IceConnection {
     this.remoteChecks = new AbortController();
     for (const pair of this.checkList) pair.handle?.resolve?.();
     this.clearOutrankingRetries();
+    this.failover.reset();
   }
 
   /**
@@ -1014,6 +1025,7 @@ export class Connection implements IceConnection {
     this.nomination.reset();
     this.abortSelectionNomination();
     this.nominationHint = undefined;
+    this.failover.reset();
     // Drop old pair's consent timers/transactions; restarted when a new pair is nominated.
     this.stopConsentLifecycle();
   }
@@ -1325,6 +1337,9 @@ export class Connection implements IceConnection {
         if (activePair && activePair.protocol === protocol) {
           activePair.packetsReceived++;
           activePair.bytesReceived += data.length;
+        }
+        if (addr && this.failoverEnabled()) {
+          this.failoverDataReceived(protocol, addr);
         }
         if (!this.iceControlling && addr) {
           this.controlledDataReceived(protocol, addr);
@@ -2065,6 +2080,14 @@ export class Connection implements IceConnection {
           }
           canceled = true;
           cancelEvent.abort();
+          // Failover: a writable backup may still take over (the controlling
+          // agent nominates it, a controlled one waits for the peer to); the
+          // agent fails once none is left (updateLinkState).
+          if (this.failoverEnabled() && this.failover.hasWritableBackup()) {
+            this.onLinkChanged();
+            return;
+          }
+          this.failover.reset();
           // Transport stays available for ICE restart; explicit close() uses "closed".
           this.setState("failed");
         }, CONSENT_TIMEOUT * 1000);
@@ -2094,6 +2117,14 @@ export class Connection implements IceConnection {
       let nextConsentAt = Date.now() + randomizedConsentInterval();
       const isTerminalState = () =>
         this.state === "closed" || this.state === "failed";
+      // Failover: an outcome may move the next request (see below); waking
+      // the wait makes the loop take the new time.
+      let wakeup: AbortController | undefined;
+      let latestRequest: AbortController | undefined;
+      const reschedule = (at: number) => {
+        nextConsentAt = at;
+        wakeup?.abort();
+      };
 
       try {
         while (
@@ -2101,10 +2132,16 @@ export class Connection implements IceConnection {
           !canceled &&
           sessionId === this.consentSessionId
         ) {
-          await this.abortableDelay(
-            Math.max(0, nextConsentAt - Date.now()),
-            cancelEvent.signal,
-          );
+          wakeup = new AbortController();
+          try {
+            await this.abortableDelay(
+              Math.max(0, nextConsentAt - Date.now()),
+              AbortSignal.any([cancelEvent.signal, wakeup.signal]),
+            );
+          } catch (error) {
+            if (cancelEvent.signal.aborted) throw error;
+          }
+          wakeup = undefined;
 
           if (
             canceled ||
@@ -2113,14 +2150,30 @@ export class Connection implements IceConnection {
           ) {
             break;
           }
-
-          // Fix next start time before awaiting any response (independent timers).
-          nextConsentAt = Date.now() + randomizedConsentInterval();
+          // Woken up for a later time.
+          if (Date.now() < nextConsentAt) continue;
 
           const nominated = this.nominated;
           if (!nominated) {
             break;
           }
+
+          // Failover: while the last request went unanswered (the pair is
+          // weak) the selected pair is checked every
+          // WEAK_OR_STABILIZING_WRITABLE_CONNECTION_PING_INTERVAL, so its
+          // failure is told within seconds (FailoverMonitor); the consent
+          // expiry itself stays CONSENT_TIMEOUT.
+          const failover = this.failoverEnabled();
+          const weak =
+            failover &&
+            (this.failover.livenessOf(nominated)?.unanswered ?? 0) > 0;
+          const requestSentAt = Date.now();
+          // Fix next start time before awaiting any response (independent timers).
+          nextConsentAt =
+            requestSentAt +
+            (weak
+              ? WEAK_OR_STABILIZING_WRITABLE_CONNECTION_PING_INTERVAL
+              : randomizedConsentInterval());
 
           const pairId = nominated.id;
           const generation = this.remoteGeneration;
@@ -2139,6 +2192,7 @@ export class Connection implements IceConnection {
           this.consentRequestAbort?.abort();
           const requestAbort = new AbortController();
           this.consentRequestAbort = requestAbort;
+          latestRequest = requestAbort;
 
           nominated.consentRequestsSent++;
           nominated.requestsSent++;
@@ -2193,7 +2247,14 @@ export class Connection implements IceConnection {
               nominated.responsesReceived++;
               this.consentFresh = true;
               refreshConsentExpiry();
-              if (state === "disconnected") {
+              if (failover && this.failoverEnabled()) {
+                this.failover.responded(nominated);
+                // Answered again: back to the consent interval.
+                if (weak && latestRequest === requestAbort) {
+                  reschedule(requestSentAt + randomizedConsentInterval());
+                }
+                this.onLinkChanged();
+              } else if (state === "disconnected") {
                 this.setState("connected");
               }
             })
@@ -2204,6 +2265,20 @@ export class Connection implements IceConnection {
                 this.nominated?.id === pairId
               ) {
                 log("no stun response", error);
+                if (canceled || !failover || !this.failoverEnabled()) return;
+                this.failover.unanswered(nominated);
+                // A request the next one replaced counts as unanswered; only
+                // the latest one moves the next request.
+                if (latestRequest === requestAbort) {
+                  reschedule(
+                    Math.min(
+                      nextConsentAt,
+                      requestSentAt +
+                        WEAK_OR_STABILIZING_WRITABLE_CONNECTION_PING_INTERVAL,
+                    ),
+                  );
+                }
+                this.onLinkChanged();
               }
             });
         }
@@ -2405,9 +2480,13 @@ export class Connection implements IceConnection {
 
   private applyIceControlling(iceControlling: boolean) {
     const becameControlling = !this._iceControlling && iceControlling;
-    if (this._iceControlling !== iceControlling) {
+    const roleChanged = this._iceControlling !== iceControlling;
+    if (roleChanged) {
       this.invalidateNominations();
       this.clearOutrankingRetries();
+      // Its checks carry the old role: they stop, and the monitoring starts
+      // again under the new role below.
+      this.failover.halt();
       // USE-CANDIDATE received while controlled came from a peer that was
       // controlling then; as the controlling agent this one nominates itself.
       if (iceControlling) {
@@ -2424,6 +2503,7 @@ export class Connection implements IceConnection {
     for (const pair of this.checkList) {
       pair.iceControlling = iceControlling;
     }
+    if (roleChanged) this.failover.refresh();
     if (becameControlling) this.confirmSelections();
   }
 
@@ -2547,23 +2627,41 @@ export class Connection implements IceConnection {
         (this.nominated == undefined || this.replacesSelectedPair(pair))
       ) {
         const previous = this.nominated;
-        log(previous ? "selected pair replaced" : "nominated", pair.toJSON(), {
-          previous: previous?.toJSON(),
-        });
+        // Failover: the selection moves off a pair that stopped answering.
+        const failingOver = !!previous && this.selectionDown();
+        log(
+          failingOver
+            ? "selected pair failed over"
+            : previous
+              ? "selected pair replaced"
+              : "nominated",
+          pair.toJSON(),
+          { previous: previous?.toJSON() },
+        );
         this.nominated = pair;
         this.liteNominating = false;
         this.nomination.stop();
+        if (failingOver) {
+          // The old pair is a backup of its socket now: the selection moves
+          // back only once that socket answers again (FailoverMonitor.allows),
+          // with a new nomination.
+          previous.nominated = false;
+          this.failover.demote(previous);
+        }
         // RFC 7675 section 5.1: the successful connectivity check that
         // selected the pair is its initial consent, so data may flow at once
         // instead of waiting for the consent lifecycle to start.
         this.consentFresh = true;
         this.pruneTcpConnections(pair);
+        this.failover.selected(pair);
 
         // After resetNominatedPair / renomination while already connected,
         // restart consent freshness on the new selected pair.
         if (
           !this.iceLite &&
-          (this.state === "connected" || this.state === "completed")
+          (this.state === "connected" ||
+            this.state === "completed" ||
+            this.state === "disconnected")
         ) {
           this.queryConsent();
         }
@@ -2573,8 +2671,10 @@ export class Connection implements IceConnection {
         // The agent MUST remove all Waiting and Frozen pairs in the check
         // list and triggered check queue for the same component as the
         // nominated pairs for that media stream. A controlling agent that
-        // may replace the selection keeps the pairs that outrank it.
+        // may replace the selection keeps the pairs that outrank it, and
+        // failover keeps the backup of each other socket.
         const keepsChecking = this.iceControlling && this.replacesSelection();
+        const backups = this.failover.keeps();
         for (const p of this.checkList) {
           if (
             p.component === pair.component &&
@@ -2584,17 +2684,25 @@ export class Connection implements IceConnection {
                 CandidatePairState.FROZEN,
               ] as CandidatePairState[]
             ).includes(p.state) &&
-            !(keepsChecking && this.replacesWith(p) && this.outranks(p, pair))
+            !(
+              keepsChecking &&
+              this.replacesWith(p) &&
+              this.outranks(p, pair)
+            ) &&
+            !backups.has(p)
           ) {
             p.updateState(CandidatePairState.FAILED);
+            if (this.failoverEnabled()) this.failover.prunedWithoutCheck(p);
           }
         }
+        this.updateLinkState();
       }
 
       // Once there is at least one nominated pair in the valid list for
       // every component of at least one media stream and the state of the
       // check list is Running:
       if (this.nominated) {
+        this.failover.refresh();
         if (!this.checkListDone) {
           log("ICE completed");
           this.checkListState.put(new Promise((r) => r(ICE_COMPLETED)));
@@ -2624,6 +2732,8 @@ export class Connection implements IceConnection {
     this.nomination.evaluate();
     this.evaluateSelection();
     this.scheduleOutrankingRetries();
+    // A backup (or a failover target) that failed is replaced.
+    if (this.nominated) this.failover.refresh();
 
     this.failCheckListIfExhausted();
   }
@@ -2675,7 +2785,8 @@ export class Connection implements IceConnection {
     return (
       pair.state === CandidatePairState.FAILED &&
       this.replacesWith(pair) &&
-      this.outranks(pair, selected)
+      this.outranks(pair, selected) &&
+      this.failoverAllows(pair)
     );
   }
 
@@ -2794,7 +2905,8 @@ export class Connection implements IceConnection {
       const nominate =
         this.usesSemiAggressiveNomination() &&
         this.replacesWith(pair) &&
-        (!this.nominated || this.outranks(pair, this.nominated));
+        (!this.nominated ||
+          (this.outranks(pair, this.nominated) && this.failoverAllows(pair)));
       const request = this.buildRequest({
         nominate,
         localUsername,
@@ -2815,6 +2927,7 @@ export class Connection implements IceConnection {
           { ...this.checkRequestOptions(pair), signal },
         );
         pair.responsesReceived++;
+        this.failover.responded(pair);
 
         // Calculate RTT
         const endTime = performance.now();
@@ -3123,6 +3236,8 @@ export class Connection implements IceConnection {
       return this.outranks(pair, selected);
     }
     if (!this.replacesWith(pair)) return false;
+    // Failover: a writable pair replaces a selection that stopped answering.
+    if (this.selectionDown() && this.failover.writable(pair)) return true;
     if (this.usesRenomination()) return pair.nomination > selected.nomination;
     if (this.usesSemiAggressiveNomination()) {
       return this.outranks(pair, selected);
@@ -3191,7 +3306,9 @@ export class Connection implements IceConnection {
     }
     const renomination = this.usesRenomination();
     const best = this.bestValidPair(
-      this.checkList.filter((pair) => this.replacesWith(pair)),
+      this.checkList.filter(
+        (pair) => this.replacesWith(pair) && this.failoverAllows(pair),
+      ),
     );
     if (!best || best === this.nominated) return;
     if (this.nominated && !this.outranks(best, this.nominated)) return;
@@ -3239,6 +3356,208 @@ export class Connection implements IceConnection {
   }
 
   /**
+   * Failover of the selected pair without an ICE restart (libwebrtc
+   * compatible) applies to the agent's mode: both agents are full ICE and the
+   * agent uses semi-aggressive nomination or renomination (the modes in which
+   * a controlling agent may replace the selection, `replacesSelection`; a
+   * controlled agent follows the peer's nominations). Regular nomination
+   * (RFC 8445 §8.1.1 allows no other pair without an ICE restart) and ICE-lite
+   * keep the selection until consent expires.
+   */
+  private failoverScope() {
+    if (this.iceLite || this.remoteIsLite || this.state === "closed") {
+      return false;
+    }
+    if (this.options.renomination && this.remoteRenomination) return true;
+    return this.options.nomination !== "regular";
+  }
+
+  /** {@link failoverScope}, and the selected pair is not ICE-TCP (its closed connection fails the agent). */
+  private failoverEnabled() {
+    const transport = this.nominated?.protocol?.localCandidate?.transport;
+    return (
+      transport !== undefined &&
+      transport.toLowerCase() !== "tcp" &&
+      this.failoverScope()
+    );
+  }
+
+  /** Failover: the selected pair stopped answering (unwritable) or its consent expired. */
+  private selectionDown() {
+    const selected = this.nominated;
+    return (
+      !!selected &&
+      this.failoverEnabled() &&
+      (!this.consentFresh || this.failover.knownUnwritable(selected))
+    );
+  }
+
+  /** Whether `pair` may be nominated to move the selection up (see `FailoverMonitor.allows`). */
+  private failoverAllows(pair: CandidatePair) {
+    return !this.failoverEnabled() || this.failover.allows(pair);
+  }
+
+  private failoverHost(): FailoverHost {
+    return {
+      enabled: () => this.failoverEnabled(),
+      selected: () => this.nominated,
+      pairs: () => this.checkList,
+      eligible: (pair) => this.replacesWith(pair),
+      iceControlling: () => this.iceControlling,
+      ping: (pair, signal) => this.pingBackup(pair, signal),
+      validated: (pair) => {
+        pair.updateState(CandidatePairState.SUCCEEDED);
+        if (pair.remoteNominated && !this.iceControlling) pair.nominated = true;
+        this.checkComplete(pair);
+      },
+      dropped: (pair) => {
+        if (pair !== this.nominated) {
+          pair.updateState(CandidatePairState.FAILED);
+        }
+      },
+      changed: () => this.onLinkChanged(),
+      recovered: () => this.evaluateSelection(),
+    };
+  }
+
+  /** The writability of a monitored pair may have changed. */
+  private onLinkChanged() {
+    this.evaluateFailover();
+    this.updateLinkState();
+  }
+
+  /**
+   * Failover (controlling): the selected pair stopped answering, so nominate
+   * the best writable backup (`FailoverMonitor.target`), with USE-CANDIDATE
+   * (semi-aggressive) or the next NOMINATION value (renomination). Its
+   * success moves the selection (`replacesSelectedPair`). A controlled agent
+   * only follows the peer's nominations.
+   */
+  private evaluateFailover() {
+    if (
+      !this.iceControlling ||
+      !this.replacesSelection() ||
+      this.selectionNomination ||
+      this.state === "closed" ||
+      this.state === "failed" ||
+      !this.selectionDown()
+    ) {
+      return;
+    }
+    const target = this.failover.target();
+    if (!target) return;
+    log("failover", target.toJSON(), { selected: this.nominated?.toJSON() });
+    void this.nominateSelection(target, this.usesRenomination());
+  }
+
+  /**
+   * Failover: the agent's state from the selected pair and the backups.
+   * `disconnected` while the selected pair is unwritable and no backup is
+   * writable; back to the state it replaced once one of them answers; `failed`
+   * once the selected pair's consent expired with no writable backup left.
+   */
+  private updateLinkState() {
+    if (!this.failoverEnabled()) return;
+    const state = this.state;
+    if (
+      state !== "connected" &&
+      state !== "completed" &&
+      state !== "disconnected"
+    ) {
+      return;
+    }
+    const selected = this.nominated!;
+    const selectedUp =
+      this.consentFresh && !this.failover.knownUnwritable(selected);
+    if (selectedUp || this.failover.hasWritableBackup()) {
+      if (state === "disconnected") {
+        this.setState(this.stateBeforeDisconnect ?? "connected");
+      }
+      return;
+    }
+    if (!this.consentFresh) {
+      log("consent expired without a writable backup");
+      this.stopConsentLifecycle();
+      this.failover.reset();
+      this.setState("failed");
+      return;
+    }
+    if (state !== "disconnected") {
+      this.stateBeforeDisconnect = state;
+      this.setState("disconnected");
+    }
+  }
+
+  /** Failover: application data arrived on `protocol` from `addr`. */
+  private failoverDataReceived(protocol: Protocol, addr: Address) {
+    const sameAddress = (pair: CandidatePair) =>
+      pair.protocol === protocol &&
+      pair.remoteAddr[0] === addr[0] &&
+      pair.remoteAddr[1] === addr[1];
+    const selected = this.nominated;
+    const pair =
+      selected && sameAddress(selected)
+        ? selected
+        : this.failover.backupPairs.find(sameAddress);
+    if (pair) this.failover.received(pair);
+  }
+
+  /**
+   * Failover: one check of a backup pair, as libwebrtc pings its
+   * connections: no nomination (USE-CANDIDATE / NOMINATION only when the
+   * selection moves to it), a single transmission with the consent response
+   * timeout. Resolves true when it was answered from the pair's address.
+   */
+  private async pingBackup(pair: CandidatePair, signal: AbortSignal) {
+    const { iceControlling } = this;
+    const request = this.buildRequest({
+      nominate: false,
+      localUsername: pair.localCandidate.ufrag ?? this.localUsername,
+      remoteUsername: this.remoteUsername,
+      iceControlling,
+      localCandidate: pair.localCandidate,
+    });
+    pair.requestsSent++;
+    const startedAt = performance.now();
+    try {
+      const [, addr] = await pair.protocol.request(
+        request,
+        pair.remoteAddr,
+        Buffer.from(this.remotePassword, "utf8"),
+        {
+          retransmissions: 0,
+          responseTimeout: consentResponseTimeoutMs(pair.rtt),
+          signal: AbortSignal.any([this.remoteChecks.signal, signal]),
+          integrityAlgorithm: this.options.messageIntegrity,
+        },
+      );
+      if (
+        signal.aborted ||
+        addr[0] !== pair.remoteAddr[0] ||
+        addr[1] !== pair.remoteAddr[1]
+      ) {
+        return false;
+      }
+      pair.responsesReceived++;
+      const rtt = (performance.now() - startedAt) / 1000;
+      pair.rtt = rtt;
+      pair.totalRoundTripTime += rtt;
+      pair.roundTripTimeMeasurements++;
+      return true;
+    } catch (error) {
+      // 487: repair the role conflict as a check does (RFC 8445 §7.2.5.1).
+      if (
+        !signal.aborted &&
+        isRoleConflict(error) &&
+        this.iceControlling === iceControlling
+      ) {
+        this.switchRole(!iceControlling);
+      }
+      return false;
+    }
+  }
+
+  /**
    * After the first selection (semi-aggressive nomination, renomination):
    * check the pairs that outrank the selected one, paced like the ordinary
    * schedule. A pair added later that outranks it (a trickled candidate, a
@@ -3265,7 +3584,8 @@ export class Connection implements IceConnection {
             (pair.state === CandidatePairState.WAITING ||
               pair.state === CandidatePairState.FROZEN) &&
             this.replacesWith(pair) &&
-            this.outranks(pair, selected),
+            this.outranks(pair, selected) &&
+            this.failoverAllows(pair),
         );
         if (!pair) return;
         pair.handle = this.checkStart(pair);
@@ -3471,10 +3791,13 @@ export class Connection implements IceConnection {
       this.iceControlling &&
       this.replacesSelection() &&
       this.replacesWith(pair) &&
-      this.outranks(pair, selected)
+      this.outranks(pair, selected) &&
+      this.failoverAllows(pair)
     ) {
       void this.checkOutrankingPairs();
     }
+    // A pair of another socket may become its backup.
+    if (selected) this.failover.refresh();
   }
 
   // 7.2.  STUN Server Procedures
@@ -3527,6 +3850,7 @@ export class Connection implements IceConnection {
     pair.noteIncomingRequest(message.transactionIdHex);
     pair.requestsReceived++;
     pair.responsesSent++;
+    this.failover.received(pair);
     // The pair's local candidate is the protocol's shared candidate of the
     // current generation. A late check addressed to an earlier ufrag (consent
     // on the old pair during an ICE restart) must not relabel it, or the next
@@ -3621,7 +3945,12 @@ export class Connection implements IceConnection {
     if (!selected || !this.iceControlling || !this.replacesSelection()) {
       return undefined;
     }
-    return (pair) => this.replacesWith(pair) && this.outranks(pair, selected);
+    // Failover: a pair of another socket may become its backup.
+    const failover = this.failoverEnabled();
+    return (pair) =>
+      this.replacesWith(pair) &&
+      (this.outranks(pair, selected) ||
+        (failover && pair.protocol !== selected.protocol));
   }
 
   /**
@@ -3638,6 +3967,17 @@ export class Connection implements IceConnection {
     const replaceable =
       !!this.nominated && this.iceControlling && this.replacesSelection();
     if ((this.nominated || this.checkListDone) && !replaceable) {
+      // Failover (a controlled agent): the new socket may keep a backup.
+      const selected = this.nominated;
+      if (!selected || !this.failoverEnabled()) return;
+      for (const remoteCandidate of this.remoteCandidates) {
+        this.tryPair(
+          protocol,
+          remoteCandidate,
+          (pair) =>
+            this.replacesWith(pair) && pair.protocol !== selected.protocol,
+        );
+      }
       return;
     }
     for (const remoteCandidate of this.remoteCandidates) {

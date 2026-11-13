@@ -51,6 +51,37 @@ describe("iceTransport", () => {
     }
   });
 
+  test("ICE disconnected (selected pair unwritable) and its recovery map to iceConnectionState / connectionState", async () => {
+    // Arrange: 接続済みの PeerConnection 2 つ
+    const caller = new RTCPeerConnection({ iceServers: [] });
+    const callee = new RTCPeerConnection({ iceServers: [] });
+    const iceStates: string[] = [];
+    const connectionStates: string[] = [];
+    try {
+      await connectPeerConnections(caller, callee);
+      caller.iceConnectionStateChange.subscribe((s) => iceStates.push(s));
+      caller.connectionStateChange.subscribe((s) => connectionStates.push(s));
+      const { connection } = firstIceTransport(caller);
+
+      // Act: ICE agent が選択中のペアの書き込み不可 (退避先なし) で disconnected になる
+      (connection as any).setState("disconnected");
+
+      // Assert: iceConnectionState / connectionState とも disconnected
+      expect(caller.iceConnectionState).toBe("disconnected");
+      expect(caller.connectionState).toBe("disconnected");
+
+      // Act: 選択中のペアが回復する (または退避できる) と ICE agent は connected に戻る
+      (connection as any).setState("connected");
+
+      // Assert: どちらも connected に戻る (DTLS は接続済みのまま)
+      expect(iceStates).toEqual(["disconnected", "connected"]);
+      expect(connectionStates).toEqual(["disconnected", "connected"]);
+      expect(caller.connectionState).toBe("connected");
+    } finally {
+      await Promise.all([caller.close(), callee.close()]);
+    }
+  });
+
   describe("multiple STUN / TURN servers", () => {
     test("設定したすべての STUN / TURN server に問い合わせが届き、TURN には各自の credential が使われる", async () => {
       // Arrange: 独立した STUN 2 つと、それぞれ別ユーザーしか知らない TURN 2 つ

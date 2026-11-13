@@ -1,0 +1,442 @@
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+
+import { CandidatePairState } from "../../src";
+import {
+  createFailoverHarness,
+  createFailoverRealPair,
+  expectDataFlows,
+  FAILOVER_HIGH,
+  FAILOVER_LOW,
+  FAILOVER_MID,
+  selectSamePath,
+} from "../utils";
+
+/**
+ * Failover of the selected pair without an ICE restart (libwebrtc
+ * compatible): one backup per local socket, the writability rules of
+ * libwebrtc (5 unanswered checks and 5 s) and the move to a writable backup.
+ */
+describe("failover of the selected pair", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    // Consent and backup intervals without jitter (5 s and 2.5 s).
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  describe.each([
+    { mode: "semi-aggressive", renomination: false },
+    { mode: "renomination", renomination: true },
+  ])("controlling ($mode)", ({ renomination }) => {
+    test("the selected pair stops answering: checked every 900 ms, unwritable after 5 checks and 5 s, the agent moves to the writable backup", async () => {
+      const h = await createFailoverHarness({ renomination });
+      const host = h.selection;
+      const relay = h.pairOf(1);
+      // 退避先 (relay) が安定するまで進める。
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(relay.state).toBe(CandidatePairState.SUCCEEDED);
+
+      try {
+        // Act: 選択中の host の経路を切り、退避するまで進める。
+        h.cut(0);
+        const cutAt = Date.now();
+        const sentBefore = h.requestsTo(host).length;
+        const took = await h.advanceUntil(
+          () => h.connection.nominated === relay,
+          20_000,
+        );
+
+        // Assert: 経路が切れてから 5〜10 s (+応答待ち) で relay へ移る。
+        expect(h.connection.nominated).toBe(relay);
+        expect(took).toBeGreaterThanOrEqual(5000);
+        expect(took).toBeLessThanOrEqual(11_000);
+        // Assert: 応答がなくなった後の consent check は 1 s 以下の間隔で、少なくとも 5 回送られた。
+        const missed = h
+          .requestsTo(host)
+          .slice(sentBefore)
+          .filter((request) => request.at >= cutAt);
+        expect(missed.length).toBeGreaterThanOrEqual(5);
+        const gaps = missed.slice(1).map((r, i) => r.at - missed[i].at);
+        for (const gap of gaps) expect(gap).toBeLessThanOrEqual(1000);
+        // Assert: 移る時の指名は USE-CANDIDATE (semi-aggressive) / 大きい NOMINATION (renomination)。
+        const nomination = h
+          .requestsTo(relay)
+          .find((request) => request.useCandidate || request.nomination);
+        if (renomination) {
+          expect(nomination?.nomination).toBeGreaterThan(host.nomination);
+          expect(relay.nomination).toBe(nomination?.nomination);
+        } else {
+          expect(nomination?.useCandidate).toBe(true);
+        }
+        // Assert: 書き込み可能な退避先があったので disconnected にならず、統計の nominated も新しいペアを指す。
+        expect(h.states.map(({ state }) => state)).not.toContain(
+          "disconnected",
+        );
+        expect(h.connection.state).toBe("connected");
+        expect(relay.nominated).toBe(true);
+        expect(host.nominated).toBe(false);
+      } finally {
+        await h.connection.close();
+      }
+    });
+
+    test("after the failover the old pair moves the selection back only once it answered 3 times in a row", async () => {
+      const h = await createFailoverHarness({ renomination });
+      const host = h.selection;
+      const relay = h.pairOf(1);
+      await vi.advanceTimersByTimeAsync(10_000);
+      h.cut(0);
+      await h.advanceUntil(() => h.connection.nominated === relay, 20_000);
+      expect(h.connection.nominated).toBe(relay);
+
+      try {
+        // Act: host の経路を戻し、host への check が 2 回応答されるまで進める。
+        h.restore(0);
+        const restoredAt = Date.now();
+        const answered = () =>
+          h
+            .requestsTo(host)
+            .filter(
+              (request) =>
+                request.at >= restoredAt &&
+                !request.useCandidate &&
+                request.nomination === undefined,
+            ).length;
+        await h.advanceUntil(() => answered() >= 2, 20_000);
+        // Act: 他の check の結果などで選択の再評価が走る。
+        h.evaluateSelection();
+        await vi.advanceTimersByTimeAsync(0);
+
+        // Assert: 2 回の応答では (再評価があっても) 戻らない。
+        expect(answered()).toBe(2);
+        expect(h.connection.nominated).toBe(relay);
+
+        // Act: 3 回目の応答まで進める。
+        await h.advanceUntil(() => h.connection.nominated === host, 20_000);
+
+        // Assert: 3 回連続で応答したので上位の host へ指名し直して戻る。
+        expect(answered()).toBe(3);
+        expect(h.connection.nominated).toBe(host);
+        expect(host.nominated).toBe(true);
+      } finally {
+        await h.connection.close();
+      }
+    });
+  });
+
+  test("one backup per local socket: its checks are 900 ms apart until it answered 3 times, then 2.5 s; a backup that never answers is replaced by the next pair of its socket", async () => {
+    const h = await createFailoverHarness({
+      locals: [
+        { type: "stun", candidateType: "host", priority: FAILOVER_HIGH },
+        { type: "stun", candidateType: "host", priority: FAILOVER_MID },
+        { type: "turn", candidateType: "relay", priority: FAILOVER_LOW },
+      ],
+      remotes: [FAILOVER_HIGH, FAILOVER_LOW],
+    });
+    // relay ソケットの上位ペア (remote 0) への経路だけを切っておく。
+    h.cut(2, 0);
+
+    try {
+      // Act: 12 s 進める。
+      await vi.advanceTimersByTimeAsync(12_000);
+
+      // Assert: 退避先は他のソケットごとに最上位の 1 ペアだけで、選択中のソケットの他のペアは check しない。
+      expect(h.requestsTo(h.pairOf(1, 0)).length).toBeGreaterThan(0);
+      expect(h.requestsTo(h.pairOf(1, 1))).toHaveLength(0);
+      expect(h.requestsTo(h.pairOf(0, 1))).toHaveLength(0);
+      expect(h.pairOf(0, 1).state).toBe(CandidatePairState.FAILED);
+      // Assert: 退避先の check は 900 ms 間隔で 3 回応答された後、2.5 s 間隔になる。
+      const times = h.requestsTo(h.pairOf(1, 0)).map(({ at }) => at);
+      const gaps = times.slice(1).map((at, i) => at - times[i]);
+      expect(gaps.slice(0, 3)).toEqual([900, 900, 2500]);
+      // Assert: 応答しない relay の上位ペアは 5 回・5 s で Failed になり、同じソケットの次のペアが退避先になる。
+      expect(h.pairOf(2, 0).state).toBe(CandidatePairState.FAILED);
+      expect(h.requestsTo(h.pairOf(2, 0)).length).toBeGreaterThanOrEqual(5);
+      expect(h.pairOf(2, 1).state).toBe(CandidatePairState.SUCCEEDED);
+      // Assert: 退避先の check は指名を付けない。
+      for (const request of h.requestsTo(h.pairOf(2, 1))) {
+        expect(request.useCandidate).toBe(false);
+        expect(request.nomination).toBeUndefined();
+      }
+      expect(h.connection.nominated).toBe(h.selection);
+    } finally {
+      await h.connection.close();
+    }
+  });
+
+  describe("without a writable backup", () => {
+    /** Arrange: one local socket only, so no backup exists. */
+    const createSingleSocket = () =>
+      createFailoverHarness({
+        locals: [
+          { type: "stun", candidateType: "host", priority: FAILOVER_HIGH },
+        ],
+      });
+
+    test("the agent becomes disconnected once the selected pair is unwritable and failed when consent expires", async () => {
+      const h = await createSingleSocket();
+      await vi.advanceTimersByTimeAsync(1000);
+
+      try {
+        // Act: 経路を切り、disconnected になるまで進める。
+        h.cut(0);
+        const cutAt = Date.now();
+        await h.advanceUntil(
+          () => h.connection.state === "disconnected",
+          20_000,
+        );
+        const disconnectedAt = Date.now();
+        // Act: failed になるまで進める。
+        await h.advanceUntil(() => h.connection.state === "failed", 40_000);
+
+        // Assert: 5〜10 s (+応答待ち) で disconnected、最後の応答から 30 s で failed になる。
+        expect(disconnectedAt - cutAt).toBeGreaterThanOrEqual(5000);
+        expect(disconnectedAt - cutAt).toBeLessThanOrEqual(11_000);
+        expect(h.connection.state).toBe("failed");
+        expect(Date.now() - cutAt).toBeLessThanOrEqual(31_000);
+        expect(h.states.map(({ state }) => state)).toEqual([
+          "disconnected",
+          "failed",
+        ]);
+      } finally {
+        await h.connection.close();
+      }
+    });
+
+    test("the agent becomes connected again when the selected pair answers again", async () => {
+      const h = await createSingleSocket();
+      await vi.advanceTimersByTimeAsync(1000);
+      h.cut(0);
+      await h.advanceUntil(() => h.connection.state === "disconnected", 20_000);
+      expect(h.connection.state).toBe("disconnected");
+
+      try {
+        // Act: 経路を戻して 2 s 進める。
+        h.restore(0);
+        await vi.advanceTimersByTimeAsync(2000);
+
+        // Assert: 900 ms 間隔の consent check が応答され、connected に戻る。
+        expect(h.connection.state).toBe("connected");
+        expect(h.states.map(({ state }) => state)).toEqual([
+          "disconnected",
+          "connected",
+        ]);
+        // Act: さらに 40 s 進める。
+        await vi.advanceTimersByTimeAsync(40_000);
+        // Assert: consent は失効せず、間隔は consent の 5 s に戻っている。
+        expect(h.connection.state).toBe("connected");
+        const recent = h
+          .requestsTo(h.selection)
+          .filter(({ at }) => at > Date.now() - 20_000);
+        expect(recent.length).toBeLessThanOrEqual(5);
+      } finally {
+        await h.connection.close();
+      }
+    });
+  });
+
+  test("controlled: backups are monitored and the state follows them, but the agent nominates nothing and follows the peer's nomination", async () => {
+    const h = await createFailoverHarness({ iceControlling: false });
+    const host = h.selection;
+    const relay = h.pairOf(1);
+
+    try {
+      // Act: 10 s 進めてから host の経路を切り、15 s 進める。
+      await vi.advanceTimersByTimeAsync(10_000);
+      h.cut(0);
+      await vi.advanceTimersByTimeAsync(15_000);
+
+      // Assert: relay は監視され (ICE-CONTROLLED の check)、自分からは指名せず、選択も変えない。
+      expect(relay.state).toBe(CandidatePairState.SUCCEEDED);
+      const checks = h.requestsTo(relay);
+      expect(checks.length).toBeGreaterThan(3);
+      for (const request of checks) {
+        expect(request.controlling).toBe(false);
+        expect(request.useCandidate).toBe(false);
+      }
+      expect(h.connection.nominated).toBe(host);
+      // Assert: 書き込み可能な退避先があるので disconnected にはならない。
+      expect(h.connection.state).toBe("connected");
+
+      // Act: 相手が relay を指名し、relay でデータを送る。
+      h.receiveNomination(relay);
+      h.receiveData(relay);
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Assert: 相手に従って relay へ移る。
+      expect(h.connection.nominated).toBe(relay);
+    } finally {
+      await h.connection.close();
+    }
+  });
+
+  test.each([
+    {
+      scope: "regular nomination",
+      options: { nomination: "regular" as const },
+    },
+    { scope: "an ICE-lite peer", options: { remoteIsLite: true } },
+    {
+      scope: "an ICE-TCP selection",
+      options: {
+        selectDirectly: true,
+        locals: [
+          {
+            type: "tcp",
+            candidateType: "host",
+            priority: FAILOVER_HIGH,
+            transport: "tcp" as const,
+          },
+          { type: "turn", candidateType: "relay", priority: FAILOVER_LOW },
+        ],
+        remotes: [FAILOVER_HIGH, FAILOVER_HIGH],
+        remoteTransports: ["tcp" as const, "udp" as const],
+      },
+    },
+  ])(
+    "out of scope ($scope): no backup is checked and the agent fails when consent expires, as before",
+    async ({ options }) => {
+      const h = await createFailoverHarness(options);
+      // ICE-TCP の場合、relay は 2 番目の (UDP の) リモート候補と組む。
+      const backup = h.pairOf(1, h.connection.remoteCandidates.length - 1);
+      const sentToBackup = h.requestsTo(backup).length;
+
+      try {
+        // Act: 選択中の経路を切り、40 s 進める。
+        h.cut(0);
+        const cutAt = Date.now();
+        await h.advanceUntil(() => h.connection.state === "failed", 40_000);
+
+        // Assert: 退避先の check は送らず、disconnected を経ずに 30 s で failed になる。
+        expect(h.requestsTo(backup)).toHaveLength(sentToBackup);
+        expect(h.connection.nominated).toBe(h.selection);
+        expect(h.states.map(({ state }) => state)).toEqual(["failed"]);
+        expect(Date.now() - cutAt).toBeGreaterThanOrEqual(25_000);
+        expect(Date.now() - cutAt).toBeLessThanOrEqual(31_000);
+      } finally {
+        await h.connection.close();
+      }
+    },
+  );
+
+  describe("restart, close and a role change stop the monitoring", () => {
+    /**
+     * Arrange: the backup's path is cut, so a backup check is in flight
+     * (waiting for its timeout) most of the time.
+     */
+    const createMonitoring = async () => {
+      const h = await createFailoverHarness();
+      h.cut(1);
+      await vi.advanceTimersByTimeAsync(2000);
+      await h.advanceUntil(() => h.protocols[1].pending() > 0, 2000);
+      expect(h.protocols[1].pending()).toBe(1);
+      return h;
+    };
+
+    test.each([
+      { operation: "restart" as const },
+      { operation: "close" as const },
+    ])(
+      "$operation: no check is left in flight and none is sent afterwards",
+      async ({ operation }) => {
+        const h = await createMonitoring();
+
+        try {
+          // Act: restart / close する。
+          if (operation === "restart") await h.connection.restart();
+          else await h.connection.close();
+          await vi.advanceTimersByTimeAsync(0);
+          const sent = h.requests().length;
+          // Act: 60 s 進める。
+          await vi.advanceTimersByTimeAsync(60_000);
+
+          // Assert: 監視中の transaction は取り消され、その後は何も送らず、timer も残らない。
+          expect(h.pending()).toBe(0);
+          expect(h.requests().at(-1)?.cancelled).toBe(true);
+          expect(h.requests()).toHaveLength(sent);
+          expect(vi.getTimerCount()).toBe(0);
+        } finally {
+          await h.connection.close();
+        }
+      },
+    );
+
+    test("a role change cancels the checks sent under the old role; monitoring goes on under the new one", async () => {
+      const h = await createMonitoring();
+      const inFlight = h.protocols[1].requests.at(-1)!;
+
+      try {
+        // Act: ロール競合の修復で controlled に切り替わり、5 s 進める。
+        h.switchRole(false);
+        await vi.advanceTimersByTimeAsync(0);
+        const switchedAt = Date.now();
+        await vi.advanceTimersByTimeAsync(5000);
+
+        // Assert: 旧ロールの check は取り消され、以後の退避先の check は ICE-CONTROLLED で送られる。
+        expect(inFlight.cancelled).toBe(true);
+        const after = h.protocols[1].requests.filter(
+          ({ at }) => at >= switchedAt,
+        );
+        expect(after.length).toBeGreaterThan(0);
+        for (const request of after) expect(request.controlling).toBe(false);
+      } finally {
+        await h.connection.close();
+      }
+    });
+  });
+});
+
+describe("failover over real sockets (werift ↔ werift)", () => {
+  test.each([
+    { mode: "semi-aggressive", renomination: false },
+    { mode: "renomination", renomination: true },
+  ])(
+    "($mode) the host path is cut after connecting: both agents move to the relay pair without an ICE restart and data flows",
+    async ({ renomination }) => {
+      const { a, b, selectsHostPath, selectsRelayPath, cutHostPath, close } =
+        await createFailoverRealPair({ renomination });
+      await Promise.all([a.connect(), b.connect()]);
+      await vi.waitFor(
+        () => {
+          expect(selectsHostPath(a)).toBe(true);
+          expect(selectsHostPath(b)).toBe(true);
+        },
+        { timeout: 5000 },
+      );
+      await expectDataFlows(a, b, "on the host path");
+      const restarts = a.generation;
+
+      try {
+        // Act: host ↔ host の経路を両方向とも遮断する。
+        cutHostPath();
+
+        // Assert: controlling 側 (a) が relay の pair へ退避する。
+        await vi.waitFor(() => expect(selectsRelayPath(a)).toBe(true), {
+          timeout: 15_000,
+          interval: 100,
+        });
+        // Act: a が relay の経路でデータを送る (controlled 側は指名とデータに従う)。
+        await expectDataFlows(a, b, "a to b on the relay path");
+
+        // Assert: b も同じ relay の経路に移り、両端の経路がそろい、データが双方向に届く。
+        await vi.waitFor(() => expect(selectsRelayPath(b)).toBe(true), {
+          timeout: 5000,
+        });
+        expect(selectSamePath(a, b)).toBe(true);
+        await expectDataFlows(b, a, "b to a on the relay path");
+        // Assert: ICE restart はしておらず、両端とも connected に戻る。
+        expect(a.generation).toBe(restarts);
+        await vi.waitFor(() => {
+          expect(a.state).toBe("connected");
+          expect(b.state).toBe("connected");
+        });
+      } finally {
+        await close();
+      }
+    },
+    30_000,
+  );
+});
