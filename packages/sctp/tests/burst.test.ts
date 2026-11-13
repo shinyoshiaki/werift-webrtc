@@ -39,8 +39,8 @@ describe("sctp burst transfer", () => {
     // Act: N / 4N の CPU 時間比を 5 組計測し、中央値を取る。
     const ratios: number[] = [];
     for (let i = 0; i < 5; i++) {
-      const small = await measureBurstTransfer(2_000, 1_000);
-      const large = await measureBurstTransfer(8_000, 1_000);
+      const small = await measureBurstTransfer(4_000, 1_000);
+      const large = await measureBurstTransfer(16_000, 1_000);
       ratios.push(large.cpuElapsedMs / Math.max(small.cpuElapsedMs, 1));
     }
     const medianRatio = [...ratios].sort((a, b) => a - b)[
