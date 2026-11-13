@@ -75,12 +75,12 @@ describe("TURN Allocate follows 300 (Try Alternate)", () => {
       });
       cleanups.push(() => turn.close());
 
-      // Assert: リダイレクト元には未認証の Allocate が 1 回だけ届いている
-      expect(redirector.requests).toHaveLength(1);
-      expect(redirector.requests[0].messageMethod).toBe(methods.ALLOCATE);
-      expect(redirector.requests[0].getAttributeValue("USERNAME")).toBe(
-        undefined,
-      );
+      // Assert: 再送を含め、リダイレクト元には未認証の Allocate だけが届いている
+      expect(redirector.requests.length).toBeGreaterThan(0);
+      for (const request of redirector.requests) {
+        expect(request.messageMethod).toBe(methods.ALLOCATE);
+        expect(request.getAttributeValue("USERNAME")).toBeUndefined();
+      }
       // Assert: allocation は alternate 上にあり、以後の宛先も alternate に固定される
       expect(turn.configuredServer).toEqual(redirector.address);
       expect(turn.server).toEqual(alternate.address);

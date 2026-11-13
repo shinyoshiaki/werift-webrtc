@@ -660,6 +660,7 @@ export class RTCRtpSender {
     this.bwe.bumpGeneration();
     this.rtcpRunning = false;
     this.rtcpCancel.abort();
+    this.stats.clearSenderReports();
     this.bwe.close();
     if (this.disposeTrack) {
       this.disposeTrack();
@@ -1239,9 +1240,7 @@ export class RTCRtpSender {
             .filter((report) => report.ssrc === this.ssrc)
             .forEach((report) => {
               const rawRttSeconds = this.stats.recordReceptionReport(report);
-              // pin OnRoundTripTimeUpdate: only **unsmoothed** RTT goes to
-              // AIMD (smoothed updates are discarded in GoogCc).
-              // Lightweight / disabled no-op setRoundTripTime.
+              // Only unsmoothed RTT goes to AIMD.
               if (rawRttSeconds !== undefined && rawRttSeconds > 0) {
                 this.bwe.estimator.setRoundTripTime(rawRttSeconds * 1000);
               }

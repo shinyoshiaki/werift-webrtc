@@ -122,6 +122,23 @@ Every ALTERNATE-SERVER attribute, in wire order.
 
 ***
 
+### integrityAlgorithm
+
+#### Get Signature
+
+> **get** **integrityAlgorithm**(): [`MessageIntegrityAlgorithm`](../type-aliases/MessageIntegrityAlgorithm.md) \| `undefined`
+
+Integrity attribute this message is signed with: MESSAGE-INTEGRITY-SHA256
+when present (it takes precedence, RFC 8489 §9.1.4), otherwise
+MESSAGE-INTEGRITY, otherwise undefined. A parsed message only keeps the
+integrity attributes parseMessage accepted in their RFC 8489 positions.
+
+##### Returns
+
+[`MessageIntegrityAlgorithm`](../type-aliases/MessageIntegrityAlgorithm.md) \| `undefined`
+
+***
+
 ### json
 
 #### Get Signature
@@ -184,15 +201,66 @@ Every ALTERNATE-SERVER attribute, in wire order.
 
 ***
 
-### addMessageIntegrity()
+### addIntegrity()
 
-> **addMessageIntegrity**(`key`): `Message`
+> **addIntegrity**(`key`, `mode?`): `Message`
+
+Sign with the short-term credential `key` using the integrity attributes
+`mode` selects (`"sha1"` = MESSAGE-INTEGRITY, `"sha256"` =
+MESSAGE-INTEGRITY-SHA256, `"both"` = both in RFC 8489 order). Chain
+`addFingerprint()` afterwards.
 
 #### Parameters
 
 ##### key
 
 `Buffer`
+
+##### mode?
+
+[`MessageIntegrityMode`](../type-aliases/MessageIntegrityMode.md) = `"sha1"`
+
+#### Returns
+
+`Message`
+
+***
+
+### addMessageIntegrity()
+
+> **addMessageIntegrity**(`key`): `Message`
+
+Add MESSAGE-INTEGRITY (HMAC-SHA1) over the current attributes.
+
+#### Parameters
+
+##### key
+
+`Buffer`
+
+#### Returns
+
+`Message`
+
+***
+
+### addMessageIntegritySha256()
+
+> **addMessageIntegritySha256**(`key`, `length?`): `Message`
+
+Add MESSAGE-INTEGRITY-SHA256 (HMAC-SHA256, RFC 8489 §14.6) over the
+current attributes, including a preceding MESSAGE-INTEGRITY.
+`length` truncates the HMAC: 16 to 32 bytes in steps of 4.
+
+#### Parameters
+
+##### key
+
+`Buffer`
+
+##### length?
+
+`number` = `INTEGRITY_SHA256_VALUE_LENGTH`
 
 #### Returns
 
@@ -271,6 +339,8 @@ Every ALTERNATE-SERVER attribute, in wire order.
 ### messageIntegrity()
 
 > **messageIntegrity**(`key`): `Buffer`\<`ArrayBuffer`\>
+
+HMAC-SHA1 MESSAGE-INTEGRITY value for the current attributes.
 
 #### Parameters
 

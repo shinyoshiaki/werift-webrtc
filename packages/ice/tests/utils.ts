@@ -23,7 +23,12 @@ import {
   normalizeIceServerOptions,
 } from "../src/iceBase";
 import type { AttributeKey } from "../src/stun/attributes";
-import { classes, methods } from "../src/stun/const";
+import {
+  classes,
+  type MessageIntegrityAlgorithm,
+  type MessageIntegrityMode,
+  methods,
+} from "../src/stun/const";
 import { Message, parseMessage } from "../src/stun/message";
 import { StunProtocol } from "../src/stun/protocol";
 import { splitTurnTcpFrames } from "../src/turn/frame";
@@ -418,10 +423,17 @@ export async function createLocalTurnServer(
   return Object.assign(server, { authenticatedUsernames });
 }
 
-/** Shared Arrange helper: two host-only connections with a nominated pair. */
-export async function createConnectedPair() {
-  const a = createTestConnection(true);
-  const b = createTestConnection(false);
+/**
+ * Shared Arrange helper: two host-only connections with a nominated pair.
+ * `options` / `optionsB` apply to `a` and `b` (`optionsB` defaults to
+ * `options`).
+ */
+export async function createConnectedPair(
+  options: Partial<IceOptions> = {},
+  optionsB: Partial<IceOptions> = options,
+) {
+  const a = createTestConnection(true, options);
+  const b = createTestConnection(false, optionsB);
   await inviteAccept(a, b);
   await Promise.all([a.connect(), b.connect()]);
   return { a, b };
@@ -560,11 +572,12 @@ export function createIncomingCheck(
 }
 
 /** Arrange: two agents (a = controlling) gathering TCP host candidates only. */
-export function createTcpOnlyConnections() {
+export function createTcpOnlyConnections(extra: Partial<IceOptions> = {}) {
   const options: Partial<IceOptions> = {
     useTcp: true,
     useIpv6: false,
     stunServer: undefined,
+    ...extra,
   };
   return {
     a: createTestConnection(true, options),
@@ -589,8 +602,8 @@ export async function exchangeTcpOnlyCandidates(a: Connection, b: Connection) {
 }
 
 /** Arrange: TCP-only agents that completed ICE with each other. */
-export async function connectTcpOnly() {
-  const { a, b } = createTcpOnlyConnections();
+export async function connectTcpOnly(extra: Partial<IceOptions> = {}) {
+  const { a, b } = createTcpOnlyConnections(extra);
   await exchangeTcpOnlyCandidates(a, b);
   await Promise.all([a.connect(), b.connect()]);
   return { a, b };
@@ -1060,14 +1073,24 @@ export async function deliverLocalCandidates(
 
 /**
  * Shared Arrange: two relay-only connections (b reaches the TURN server
- * through `proxy`, released) with a nominated relay pair.
+ * through `proxy`, released) with a nominated relay pair. `options` / `optionsB`
+ * are added to the options of `a` / `b`.
  */
-export async function createConnectedRelayOnlyPair() {
+export async function createConnectedRelayOnlyPair(
+  options: Partial<IceOptions> = {},
+  optionsB: Partial<IceOptions> = options,
+) {
   const server = await createLocalTurnServer(getHostAddresses(true, false)[0]!);
   const proxy = await createHeldUdpProxy(server.address!);
   proxy.release();
-  const a = createTestConnection(true, localTurnOptions(server));
-  const b = createTestConnection(false, proxiedTurnOptions(proxy));
+  const a = createTestConnection(true, {
+    ...localTurnOptions(server),
+    ...options,
+  });
+  const b = createTestConnection(false, {
+    ...proxiedTurnOptions(proxy),
+    ...optionsB,
+  });
   await Promise.all([a.gatherCandidates(), b.gatherCandidates()]);
   exchangeIceCredentials(a, b);
   await deliverLocalCandidates(a, b, { endOfCandidates: true });
@@ -1727,6 +1750,83 @@ export function addClosingProtocol(
     close: async () => onClose(),
   });
 }
+
+// --- MESSAGE-INTEGRITY-SHA256 (RFC 8489) ---
+
+/**
+ * Shared Arrange: ICE options that send connectivity checks with `mode` and
+ * record the integrity algorithm of every check the agent receives (through
+ * filterStunResponse, which sees each incoming Binding request).
+ */
+export function integrityOptions(mode?: MessageIntegrityMode) {
+  const received: (MessageIntegrityAlgorithm | undefined)[] = [];
+  const options: Partial<IceOptions> = {
+    messageIntegrity: mode,
+    filterStunResponse: (message) => {
+      received.push(message.integrityAlgorithm);
+      return true;
+    },
+  };
+  return { options, received };
+}
+
+/**
+ * Act helper: send one connectivity check from `from`'s selected pair to its
+ * peer `to`, signed with `integrityAlgorithm`, and resolve with the verified
+ * response (success, or the error response a role conflict draws).
+ * `roleConflict` claims the controlled role with the highest tie-breaker, so
+ * a controlled `to` answers 487.
+ */
+export async function sendSignedCheck(
+  from: Connection,
+  to: Connection,
+  {
+    integrityAlgorithm,
+    roleConflict = false,
+  }: { integrityAlgorithm: MessageIntegrityMode; roleConflict?: boolean },
+): Promise<Message> {
+  const pair = from.nominated!;
+  const request = new Message(methods.BINDING, classes.REQUEST)
+    .setAttribute("USERNAME", `${to.localUsername}:${from.localUsername}`)
+    .setAttribute("PRIORITY", 1);
+  if (roleConflict) request.setAttribute("ICE-CONTROLLED", 2n ** 64n - 1n);
+  else request.setAttribute("ICE-CONTROLLING", 0n);
+  try {
+    const [response] = await pair.protocol.request(
+      request,
+      pair.remoteAddr,
+      Buffer.from(to.localPassword, "utf8"),
+      { retransmissions: 0, responseTimeout: 2000, integrityAlgorithm },
+    );
+    return response;
+  } catch (error) {
+    if (error instanceof TransactionFailed) return error.response;
+    throw error;
+  }
+}
+
+/**
+ * Fixed MESSAGE-INTEGRITY-SHA256 vectors in tests/data (short-term
+ * credentials). They carry the RFC 5769 §2.1 sample request contents, signed
+ * with `password` by an independent implementation (Python hmac / zlib.crc32,
+ * RFC 8489 §14.5 / §14.6 / §14.7):
+ * - binding_request_mi_sha256.bin: MESSAGE-INTEGRITY-SHA256 (32 bytes)
+ * - binding_request_mi_sha256_16.bin: MESSAGE-INTEGRITY-SHA256 truncated to 16
+ * - binding_request_mi_both.bin: MESSAGE-INTEGRITY + MESSAGE-INTEGRITY-SHA256
+ * each followed by FINGERPRINT.
+ */
+export const integritySha256Vector = {
+  password: Buffer.from("VOkJxbRl1RmTxUk/WvJxBt", "utf8"),
+  transactionId: Buffer.from("b7e7a701bc34d686fa87dfae", "hex"),
+  /** The request the vectors sign, unsigned. */
+  request() {
+    return new Message(methods.BINDING, classes.REQUEST, this.transactionId)
+      .setAttribute("SOFTWARE", "STUN test client")
+      .setAttribute("PRIORITY", 0x6e0001ff)
+      .setAttribute("ICE-CONTROLLED", BigInt("0x932ff9b151263b36"))
+      .setAttribute("USERNAME", "evtj:h6vY");
+  },
+};
 
 // --- TURN long-term credentials (RFC 8489 §9.2) ---
 
