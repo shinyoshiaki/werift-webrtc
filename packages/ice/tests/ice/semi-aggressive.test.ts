@@ -381,6 +381,77 @@ describe("controlled agent: a later nomination replaces the selection", () => {
       await h.connection.close();
     }
   });
+  test("between equal nominations the pair the peer sends data on wins, even a lower-priority one", async () => {
+    const { h, low, high } = await createValidPairs();
+    h.receiveNomination(high);
+    h.receiveNomination(low);
+    const beforeData = h.connection.nominated;
+
+    try {
+      // Act: 相手が低優先度 pair でデータを送る (相手の選択が低優先度 pair に移った)。
+      h.receiveData(low);
+      const afterLow = h.connection.nominated;
+      // Act: 相手が再び高優先度 pair でデータを送る。
+      h.receiveData(high);
+
+      // Assert: データがないうちは優先度で選び、同じ値の指名どうしでは直近にデータを受けた pair に移る (libwebrtc と同じ)。
+      expect(beforeData).toBe(high);
+      expect(afterLow).toBe(low);
+      expect(h.connection.nominated).toBe(high);
+    } finally {
+      await h.connection.close();
+    }
+  });
+
+  test("a nomination of a pair the peer sends no data on does not replace a selection it sends data on, until data arrives on it", async () => {
+    const { h, low, high } = await createValidPairs();
+    h.receiveNomination(low);
+    h.receiveData(low);
+
+    try {
+      // Act: 相手が高優先度 pair を USE-CANDIDATE で指名する (データはまだ低優先度 pair に届いている)。
+      h.receiveNomination(high);
+      const afterNomination = h.connection.nominated;
+      // Act: 高優先度 pair にデータが届く。
+      h.receiveData(high);
+
+      // Assert: 指名だけでは移らず、相手がその pair でデータを送り始めてから移る。
+      expect(afterNomination).toBe(low);
+      expect(h.connection.nominated).toBe(high);
+    } finally {
+      await h.connection.close();
+    }
+  });
+
+  test("data does not move the selection to a pair of a smaller nomination, nor to a pair the peer did not nominate", async () => {
+    const { h, low, high } = await createValidPairs();
+    h.receiveNomination(high, 1);
+    h.receiveNomination(low, 2);
+
+    try {
+      // Act: 値の小さい指名 (1) の高優先度 pair にデータが届く。
+      h.receiveData(high);
+      const smallerNomination = h.connection.nominated;
+
+      // Assert: 値の大きい指名 (2) の pair のまま。
+      expect(smallerNomination).toBe(low);
+    } finally {
+      await h.connection.close();
+    }
+
+    const other = await createValidPairs();
+    other.h.receiveNomination(other.low);
+    try {
+      // Act: 指名されていない (valid なだけの) 高優先度 pair にデータが届く。
+      other.h.receiveData(other.high);
+
+      // Assert: 指名された pair のまま。
+      expect(other.h.connection.nominated).toBe(other.low);
+    } finally {
+      await other.h.connection.close();
+    }
+  });
+
   test("a check cancelled while a higher-priority nomination of its pair was received is checked again and replaces the selection", async () => {
     const h = createNominationHarness();
     h.switchRole(false);
@@ -433,6 +504,152 @@ describe("controlled agent: a later nomination replaces the selection", () => {
       expect(high.remoteNomination).toBe(2);
     } finally {
       await h.connection.close();
+    }
+  });
+});
+
+describe("a failed pair that outranks the selection is checked again (controlling)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /**
+   * Arrange: the high-priority pair's check fails and the low one is
+   * selected. Every request waits for `release` (with renomination, the
+   * low pair's NOMINATION is answered too).
+   */
+  const selectLowAfterHighFailed = async ({
+    renomination = false,
+  }: {
+    renomination?: boolean;
+  } = {}) => {
+    const h = createNominationHarness({
+      nomination: "semi-aggressive",
+      renomination,
+      nominationReply: () => "hold",
+    });
+    const low = await h.addRemote(LOW);
+    const high = await h.addRemote(HIGH);
+    h.check(high);
+    h.check(low);
+    await h.release(high, "failure");
+    await h.release(low);
+    if (renomination) await h.release(low);
+    expect(h.connection.nominated).toBe(low);
+    expect(high.state).toBe(CandidatePairState.FAILED);
+    return { h, low, high };
+  };
+
+  test("semi-aggressive: the failed higher-priority pair is checked again after 1 s and replaces the selection", async () => {
+    const { h, high } = await selectLowAfterHighFailed();
+
+    try {
+      // Act: 1 s 弱進める。
+      await vi.advanceTimersByTimeAsync(999);
+      const beforeRetry = h.requestsTo(high).length;
+      // Act: 1 s に達する。
+      await vi.advanceTimersByTimeAsync(1);
+      const retry = h.requestsTo(high).at(-1)!;
+      // Act: 再 check が成功する。
+      await h.release(high);
+
+      // Assert: 1 s 後に USE-CANDIDATE 付きで check し直し、成功で選択が置き換わる。
+      expect(beforeRetry).toBe(1);
+      expect(h.requestsTo(high)).toHaveLength(2);
+      expect(retry.message.attributesKeys).toContain("USE-CANDIDATE");
+      expect(h.connection.nominated).toBe(high);
+    } finally {
+      await h.connection.close();
+    }
+  });
+
+  test("renomination: the failed higher-priority pair is checked again and renominated with a larger value", async () => {
+    const { h, high } = await selectLowAfterHighFailed({ renomination: true });
+
+    try {
+      // Act: 1 s 進めて再 check を成功させ、続く再指名も成功させる。
+      await vi.advanceTimersByTimeAsync(1000);
+      const [, retry] = h.requestsTo(high);
+      await h.release(high);
+      const [, , renomination] = h.requestsTo(high);
+      await h.release(high);
+
+      // Assert: 再 check は属性なし、その後 NOMINATION=2 で再指名して置き換わる。
+      expect(retry.message.attributesKeys).not.toContain("NOMINATION");
+      expect(renomination.message.getAttributeValue("NOMINATION")).toBe(2);
+      expect(h.connection.nominated).toBe(high);
+    } finally {
+      await h.connection.close();
+    }
+  });
+
+  test("retries back off (1, 2, 4, 8, 16 s) and stop after five", async () => {
+    const { h, high } = await selectLowAfterHighFailed();
+    const counts: number[] = [];
+
+    try {
+      // Act: 再 check をすべて失敗させながら、各間隔の直前と到達時の送信数を記録する。
+      for (const delay of [1000, 2000, 4000, 8000, 16000]) {
+        await vi.advanceTimersByTimeAsync(delay - 1);
+        counts.push(h.requestsTo(high).length);
+        await vi.advanceTimersByTimeAsync(1);
+        counts.push(h.requestsTo(high).length);
+        await h.release(high, "failure");
+      }
+      // Act: さらに 60 s 進める。
+      await vi.advanceTimersByTimeAsync(60_000);
+
+      // Assert: 間隔が倍になり、5 回で止まる。選択は低優先度 pair のまま。
+      expect(counts).toEqual([1, 2, 2, 3, 3, 4, 4, 5, 5, 6]);
+      expect(h.requestsTo(high)).toHaveLength(6);
+      expect(h.connection.nominated).not.toBe(high);
+    } finally {
+      await h.connection.close();
+    }
+  });
+
+  test("a failed pair that does not outrank the selection is not checked again", async () => {
+    const h = createNominationHarness({
+      nomination: "semi-aggressive",
+      nominationReply: () => "hold",
+    });
+    const low = await h.addRemote(LOW);
+    const high = await h.addRemote(HIGH);
+    h.check(high);
+    h.check(low);
+    await h.release(low, "failure");
+    await h.release(high);
+
+    try {
+      // Act: 60 s 進める。
+      await vi.advanceTimersByTimeAsync(60_000);
+
+      // Assert: 選択より下位の失敗した pair は check し直さない。
+      expect(h.connection.nominated).toBe(high);
+      expect(h.requestsTo(low)).toHaveLength(1);
+    } finally {
+      await h.connection.close();
+    }
+  });
+
+  test("close and a role change stop the pending retries", async () => {
+    const closing = await selectLowAfterHighFailed();
+    const switching = await selectLowAfterHighFailed();
+
+    try {
+      // Act: 片方は close し、もう片方は controlled に切り替えてから 60 s 進める。
+      await closing.h.connection.close();
+      switching.h.switchRole(false);
+      await vi.advanceTimersByTimeAsync(60_000);
+
+      // Assert: どちらも再 check を送らない。
+      expect(closing.h.requestsTo(closing.high)).toHaveLength(1);
+      expect(switching.h.requestsTo(switching.high)).toHaveLength(1);
+    } finally {
+      await switching.h.connection.close();
     }
   });
 });
@@ -526,4 +743,77 @@ describe("semi-aggressive nomination and renomination over real sockets", () => 
       }
     },
   );
+
+  test.each([
+    { mode: "semi-aggressive", renomination: false },
+    { mode: "renomination", renomination: true },
+  ])(
+    "($mode) a preferred pair whose checks failed on both agents is checked again and both agents move to it",
+    async ({ renomination }) => {
+      const { a, b, open, selectsPreferred, preferredPair, close } =
+        await createDelayedPreferredPathPair({ renomination, drop: true });
+
+      try {
+        // Act: 優先 pair の request が失われる間に、両 agent が relay の pair で接続する。
+        await Promise.all([a.connect(), b.connect()]);
+
+        // Assert: 両端とも下位の pair を選択し、優先 pair の check は両端で失敗している。
+        expect(selectsPreferred(a)).toBe(false);
+        expect(selectsPreferred(b)).toBe(false);
+        await vi.waitFor(() => {
+          expect(preferredPair(a).state).toBe(CandidatePairState.FAILED);
+          expect(preferredPair(b).state).toBe(CandidatePairState.FAILED);
+        });
+
+        // Act: 優先 pair の経路が回復する。
+        open();
+
+        // Assert: controlling 側の再 check で両端とも優先 pair に移り、同じ 5-tuple を使う。
+        await vi.waitFor(
+          () => {
+            expect(selectsPreferred(a)).toBe(true);
+            expect(selectsPreferred(b)).toBe(true);
+            expect(selectSamePath(a, b)).toBe(true);
+          },
+          { timeout: 6000 },
+        );
+        // Assert: 移った経路でデータが双方向に届く。
+        await expectDataFlows(a, b, "a to b");
+        await expectDataFlows(b, a, "b to a");
+      } finally {
+        await close();
+      }
+    },
+    15_000,
+  );
+
+  test("the controlled agent follows the peer back to a lower-priority pair it nominated, once the peer sends data on it", async () => {
+    const { a, b, open, selectsPreferred, relayPair, close } =
+      await createDelayedPreferredPathPair();
+    await Promise.all([a.connect(), b.connect()]);
+    open();
+    await vi.waitFor(
+      () => {
+        expect(selectsPreferred(a)).toBe(true);
+        expect(selectsPreferred(b)).toBe(true);
+      },
+      { timeout: 3000 },
+    );
+    await expectDataFlows(a, b, "on the preferred path");
+
+    try {
+      // Act: controlling 側が自分の判断で relay の pair に選択を戻し (libwebrtc の ICE controller が
+      // 選択中の経路の不調で移るのと同じ)、その経路でデータを送る。
+      a.nominated = relayPair(a);
+      await expectDataFlows(a, b, "back on the relay path");
+
+      // Assert: 指名の値は同じ (USE-CANDIDATE)。controlled 側はデータが届いた relay の pair に移り、両端の経路がそろう。
+      expect(relayPair(b).remoteNomination).toBe(b.nominated!.remoteNomination);
+      expect(b.nominated).toBe(relayPair(b));
+      expect(selectSamePath(a, b)).toBe(true);
+      await expectDataFlows(b, a, "b answers on the relay path");
+    } finally {
+      await close();
+    }
+  });
 });
