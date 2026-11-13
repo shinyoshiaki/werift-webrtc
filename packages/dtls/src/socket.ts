@@ -240,6 +240,10 @@ export class DtlsSocket {
       log(this.dtls.sessionId, "received close_notify");
       // RFC 5246 §7.2.1: respond with close_notify; nothing is sent after it.
       void this.sendAlert(AlertLevel.warning, AlertDesc.CloseNotify);
+      // The connection is over: the socket closes its transport once the
+      // reply has been sent or timed out, like after a fatal alert (the
+      // application does not need to call close()).
+      void this.alertFlushed().then(() => this.closeTransport());
       this.notify(this.onAlert, alert);
       this.notify(this.onClose);
     } else {

@@ -2,6 +2,7 @@ import { setTimeout } from "timers/promises";
 import {
   AlertDesc,
   AlertLevel,
+  DTLS_ALERT_SEND_TIMEOUT_MS,
   RTCDtlsFingerprint,
   RTCDtlsParameters,
   RTCPeerConnection,
@@ -1019,4 +1020,37 @@ describe("DTLS が終了した transport の SRTP / SRTCP 送信", () => {
       await Promise.allSettled([pc1.close(), pc2.close()]);
     }
   });
+});
+
+describe("alert を受けた後の ICE の寿命（WebRTC 利用）", () => {
+  test.each([
+    ["close_notify", AlertLevel.warning, AlertDesc.CloseNotify, "closed"],
+    ["fatal alert", AlertLevel.fatal, AlertDesc.InternalError, "failed"],
+  ] as const)(
+    "%s を受けて DTLS が終了しても共有の ICE は stop() まで止まらず、stop() で止まる",
+    async (_, level, description, dtlsState) => {
+      // Arrange
+      const [session1, session2] = await dtlsTransportPair();
+
+      try {
+        // Act: session1 から alert を送り、session2 の DTLS を終了させる
+        await session1.dtls!.sendAlert(level, description);
+        await waitForDtlsState(session2, dtlsState);
+        await setTimeout(DTLS_ALERT_SEND_TIMEOUT_MS + 100);
+
+        // Assert: DTLS socket は transport を手放したが、ICE は生きたまま
+        expect(session2.dtls!.terminated).toBe(true);
+        expect(session2.iceTransport.state).not.toBe("closed");
+        expect(session2.iceTransport.connection.state).not.toBe("closed");
+
+        // Act: session2 を stop() する
+        await session2.stop();
+
+        // Assert: stop() で ICE が止まる
+        expect(session2.iceTransport.state).toBe("closed");
+      } finally {
+        await Promise.allSettled([session1.stop(), session2.stop()]);
+      }
+    },
+  );
 });

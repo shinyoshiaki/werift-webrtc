@@ -1102,19 +1102,27 @@ const selectPreferredFingerprintAlgorithm = (
   );
 };
 
+/**
+ * The DTLS socket's view of the ICE connection. The ICE connection belongs to
+ * {@link RTCIceTransport} (shared with SRTP, stopped by
+ * {@link RTCDtlsTransport.stop}): when the DTLS socket closes its transport
+ * (after a received close_notify or fatal alert, or close()), this only
+ * detaches DTLS from ICE; it never closes the ICE agent.
+ */
 class IceTransport implements Transport {
   private ice: IceConnection;
+  private readonly unSubscribe: () => void;
 
   closed: boolean = false;
   constructor(ice: IceConnection) {
     this.ice = ice;
-    ice.onData.subscribe((buf) => {
+    this.unSubscribe = ice.onData.subscribe((buf) => {
       if (isDtls(buf)) {
         if (this.onData) {
           this.onData(buf);
         }
       }
-    });
+    }).unSubscribe;
   }
   onData: (buf: Buffer) => void = () => {};
 
@@ -1125,14 +1133,15 @@ class IceTransport implements Transport {
   type: string = "ice";
 
   readonly send = (data: Buffer) => {
+    if (this.closed) return Promise.resolve();
     return this.ice.send(data);
   };
 
+  /** Detach DTLS from ICE: no more DTLS records in either direction. */
   async close() {
     if (this.closed) return;
     this.closed = true;
-    // RTCIceTransport.stop() may have closed the agent already.
-    if (this.ice.state !== "closed") this.ice.close();
+    this.unSubscribe();
   }
 }
 

@@ -1,6 +1,12 @@
 import { X509Certificate } from "node:crypto";
 import { setTimeout } from "timers/promises";
-import { AlertDesc, AlertLevel, ContentType, DtlsAlertError } from "../src";
+import {
+  AlertDesc,
+  AlertLevel,
+  ContentType,
+  DtlsAlertError,
+  DtlsSocket,
+} from "../src";
 import {
   HashAlgorithm,
   NamedCurveAlgorithm,
@@ -1009,5 +1015,53 @@ describe("確立後に注入された平文（epoch 0）の handshake record", (
     // Assert: データ通信は双方向に続く
     expect(String((await toServer)[0])).toBe("ping");
     expect(String((await toClient)[0])).toBe("pong");
+  });
+});
+
+describe("close_notify を受けた後の transport の解放（独立利用）", () => {
+  test("返信の送信が終わると、close() を呼ばなくても transport は 1 回だけ閉じる", async () => {
+    // Arrange: 接続済みの組で、server の close() は呼ばない
+    const pair = createDtlsPair();
+    await connectDtlsPair(pair);
+    const order: string[] = [];
+    const send = pair.serverTransport.send;
+    pair.serverTransport.send = async (data: Buffer) => {
+      if (data[0] === ContentType.alert) order.push("reply");
+      return send(data);
+    };
+    const close = pair.serverTransport.close;
+    pair.serverTransport.close = async () => {
+      order.push("close");
+      return close();
+    };
+
+    // Act: client が close_notify を送る
+    await pair.client.sendAlert(AlertLevel.warning, AlertDesc.CloseNotify);
+    await setTimeout(50);
+
+    // Assert: server は返信を送ってから transport を閉じる（1 回だけ）
+    expect(order).toEqual(["reply", "close"]);
+    expect(pair.serverTransport.closed).toBe(true);
+    expect(pair.serverTransport.closeCount).toBe(1);
+    // Assert: 利用者が後から close() を呼んでも二重には閉じない
+    await pair.server.close();
+    expect(pair.serverTransport.closeCount).toBe(1);
+  });
+
+  test("返信の送信が終わらなくても、alert 送信タイムアウト後に transport は閉じる", async () => {
+    // Arrange: server の送信は完了しない
+    const pair = createDtlsPair();
+    await connectDtlsPair(pair);
+    pair.serverTransport.sendBehavior = "hang";
+
+    // Act: client が close_notify を送る
+    await pair.client.sendAlert(AlertLevel.warning, AlertDesc.CloseNotify);
+    await setTimeout(20);
+    const closedBeforeTimeout = pair.serverTransport.closed;
+    await setTimeout(DtlsSocket.AlertSendTimeoutMs + 100);
+
+    // Assert: タイムアウトまでは閉じず、その後に閉じる
+    expect(closedBeforeTimeout).toBe(false);
+    expect(pair.serverTransport.closed).toBe(true);
   });
 });
