@@ -1143,14 +1143,17 @@ Send-side estimator used by each new sender; defaults to `"lightweight"`.
 
 ##### certificateScope
 
-> **certificateScope**: `CertificateScope`
+> **certificateScope**: [`CompatibilityMode`](../type-aliases/CompatibilityMode.md)
 
-Which default DTLS certificate is used when neither `certificates` nor `dtls.keys` is given.
-Cannot be changed after construction.
-- `"process"` (default): one certificate shared by every RTCPeerConnection in the process
-  (legacy behavior), so their `a=fingerprint` values are identical.
-- `"peerConnection"`: each RTCPeerConnection generates its own certificate (browser behavior).
+Which default DTLS certificate is used when neither `certificates` nor `dtls.keys` is given
+(a [CompatibilityMode](../type-aliases/CompatibilityMode.md)). Cannot be changed after construction.
+- `"legacy"` (default): one certificate shared by every RTCPeerConnection in the process,
+  so their `a=fingerprint` values are identical.
+- `"standard"`: each RTCPeerConnection generates its own certificate, as browsers do.
   All DTLS transports of that connection share it.
+
+Also accepts the names up to v0.27.0: `"process"` (= `"legacy"`) and
+`"peerConnection"` (= `"standard"`).
 
 ##### codecs
 
@@ -1358,11 +1361,15 @@ such as google cloud run
 
 ##### keyFrameRequestRouting
 
-> **keyFrameRequestRouting**: [`KeyFrameRequestRouting`](../type-aliases/KeyFrameRequestRouting.md)
+> **keyFrameRequestRouting**: [`CompatibilityMode`](../type-aliases/CompatibilityMode.md)
 
-Where a PLI / FIR goes when no route has its target SSRC. See [KeyFrameRequestRouting](../type-aliases/KeyFrameRequestRouting.md).
-- `"compatible"` (default): the sender whose RTX SSRC it is, else the only video sender.
-- `"strict"`: not delivered, as RFC 4585 / RFC 5104 define the target.
+Where a PLI / FIR goes when no route has its target SSRC (a [CompatibilityMode](../type-aliases/CompatibilityMode.md)).
+See [KeyFrameRequestRouting](../type-aliases/KeyFrameRequestRouting.md). `setConfiguration()` may change it.
+- `"legacy"` (default): the sender whose RTX SSRC it is, else the only video sender.
+- `"standard"`: not delivered, as RFC 4585 / RFC 5104 define the target.
+
+Also accepts the names up to v0.27.0: `"compatible"` (= `"legacy"`) and
+`"strict"` (= `"standard"`).
 
 ##### maxMessageSize
 
@@ -1376,13 +1383,17 @@ Advertised local SCTP max-message-size in SDP. Use 0 for unlimited.
 
 ##### mLineReuse
 
-> **mLineReuse**: [`MLineReuse`](../type-aliases/MLineReuse.md)
+> **mLineReuse**: [`CompatibilityMode`](../type-aliases/CompatibilityMode.md)
 
-How local SDP marks inactive / stopped m-lines. Cannot be changed after construction.
-- `"compatible"` (default): an accepted `inactive` m-line keeps a non-zero port.
-  Only rejected (no common codec / remote port 0) or stopped m-lines use port 0,
-  and only those negotiated port 0 positions are reused by new transceivers.
-- `"aggressive"`: legacy behavior. `inactive` m-lines are also written with port 0.
+How local SDP marks inactive / stopped m-lines (a [CompatibilityMode](../type-aliases/CompatibilityMode.md)).
+Cannot be changed after construction.
+- `"standard"` (default): an accepted `inactive` m-line keeps a non-zero port, as JSEP
+  and browsers do. Only rejected (no common codec / remote port 0) or stopped m-lines
+  use port 0, and only those negotiated port 0 positions are reused by new transceivers.
+- `"legacy"`: behavior before v0.25.0. `inactive` m-lines are also written with port 0.
+
+Also accepts the names up to v0.27.0: `"compatible"` (= `"standard"`) and
+`"aggressive"` (= `"legacy"`).
 
 ##### pendingRtp
 
@@ -1424,10 +1435,11 @@ Max queued packets when enabled. Oldest packets are dropped. Default 256.
 
 ##### transceiverPairing
 
-> **transceiverPairing**: [`TransceiverPairing`](../type-aliases/TransceiverPairing.md)
+> **transceiverPairing**: [`CompatibilityMode`](../type-aliases/CompatibilityMode.md)
 
 How a remote offer's m-sections are paired with local transceivers that
-have no MID yet. Cannot be changed after construction.
+have no MID yet (a [CompatibilityMode](../type-aliases/CompatibilityMode.md)). Cannot be changed after
+construction.
 - `"legacy"` (default): behavior up to v0.27.0. Any unassociated,
   non-stopped transceiver of the same kind is paired (the one at the same
   m-line index first), whatever created it. In glare (perfect negotiation)

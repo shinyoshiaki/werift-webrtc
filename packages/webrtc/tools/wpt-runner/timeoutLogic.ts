@@ -48,7 +48,25 @@ const HEAVY_TIMEOUT_PROFILE: WptTimeoutProfile = {
   vmTimeoutMs: 2_500,
 };
 
+/**
+ * The profile of `target`, every limit multiplied by `scale` (the rerun of a
+ * target that only regressed by timeouts uses a larger scale, see
+ * `selectTimeoutRetryTargets`).
+ */
 export function resolveTimeoutProfile(
+  target: Pick<WptTarget, "file" | "variant">,
+  scale = 1,
+): WptTimeoutProfile {
+  const profile = resolveBaseTimeoutProfile(target);
+  if (scale === 1) return profile;
+  return {
+    completionTimeoutMs: Math.round(profile.completionTimeoutMs * scale),
+    cleanupTimeoutMs: Math.round(profile.cleanupTimeoutMs * scale),
+    vmTimeoutMs: Math.round(profile.vmTimeoutMs * scale),
+  };
+}
+
+function resolveBaseTimeoutProfile(
   target: Pick<WptTarget, "file" | "variant">,
 ) {
   const key =

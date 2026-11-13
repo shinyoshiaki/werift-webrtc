@@ -132,9 +132,9 @@
     },
     {
       "file": "webrtc/RTCPeerConnection-createDataChannel.html",
-      "enabled": false,
+      "enabled": true,
       "variant": "?rest",
-      "reason": "Deferred until createDataChannel fully matches Web IDL coercion and DOMException semantics."
+      "reason": "Gates the subtests that pass in every full run (wpt/baseline.json); the rest stays open until createDataChannel fully matches Web IDL coercion and DOMException semantics."
     },
     {
       "file": "webrtc/RTCConfiguration-bundlePolicy.html",
@@ -148,13 +148,13 @@
     },
     {
       "file": "webrtc/RTCDataChannel-close.html",
-      "enabled": false,
-      "reason": "Deferred until the close path matches the upstream RTCDataChannel timing and event semantics."
+      "enabled": true,
+      "reason": "Gates the subtests that pass in every full run (wpt/baseline.json); the rest stays open: deferred until the close path matches the upstream RTCDataChannel timing and event semantics."
     },
     {
       "file": "webrtc/RTCPeerConnection-getStats.https.html",
-      "enabled": false,
-      "reason": "Deferred until the stats surface is baselined against upstream expectations."
+      "enabled": true,
+      "reason": "Gates the subtests that pass in every full run (wpt/baseline.json); the rest stays open: deferred until the stats surface is baselined against upstream expectations."
     },
     {
       "file": "webrtc/RTCRtpTransceiver.https.html",
@@ -174,6 +174,10 @@
       "subtests": [
         "Perfect negotiation setup connects",
         "Perfect negotiation setup connects with roles reversed"
+      ],
+      "baselineExclusions": [
+        "Perfect negotiation glare",
+        "Perfect negotiation glare with roles reversed"
       ]
     },
     {

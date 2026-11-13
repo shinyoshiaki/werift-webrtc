@@ -845,15 +845,15 @@ describe("issue 705: BUNDLE group と transport の対応 (初回 offer/answer)"
 });
 
 describe("issue 705: mLineReuse configuration", () => {
-  test("defaults to compatible, validates values and rejects changes", async () => {
+  test("defaults to standard, validates values and rejects changes", async () => {
     // Arrange / Act: 既定値と明示値で作成する
     const defaultPc = new RTCPeerConnection();
-    const aggressivePc = new RTCPeerConnection({ mLineReuse: "aggressive" });
+    const legacyPc = new RTCPeerConnection({ mLineReuse: "legacy" });
 
     try {
-      // Assert: 既定は compatible で getConfiguration に現れる
-      expect(defaultPc.getConfiguration().mLineReuse).toBe("compatible");
-      expect(aggressivePc.getConfiguration().mLineReuse).toBe("aggressive");
+      // Assert: 既定は standard で getConfiguration に現れる
+      expect(defaultPc.getConfiguration().mLineReuse).toBe("standard");
+      expect(legacyPc.getConfiguration().mLineReuse).toBe("legacy");
 
       // Assert: 無効値は生成時に TypeError
       expect(
@@ -862,20 +862,20 @@ describe("issue 705: mLineReuse configuration", () => {
 
       // Assert: 途中変更は拒否し、同じ値の再設定は許可する
       expect(() =>
-        defaultPc.setConfiguration({ mLineReuse: "aggressive" }),
+        defaultPc.setConfiguration({ mLineReuse: "legacy" }),
       ).toThrow(expect.objectContaining({ name: "InvalidModificationError" }));
       expect(() =>
-        defaultPc.setConfiguration({ mLineReuse: "compatible" }),
+        defaultPc.setConfiguration({ mLineReuse: "standard" }),
       ).not.toThrow();
-      expect(defaultPc.getConfiguration().mLineReuse).toBe("compatible");
+      expect(defaultPc.getConfiguration().mLineReuse).toBe("standard");
     } finally {
-      await closeAll(defaultPc, aggressivePc);
+      await closeAll(defaultPc, legacyPc);
     }
   });
 
   test.each([
-    ["compatible", 9],
-    ["aggressive", 0],
+    ["standard", 9],
+    ["legacy", 0],
   ] as const)(
     "%s: accepted inactive m-line uses port %i",
     async (mode, expectedPort) => {
@@ -887,7 +887,7 @@ describe("issue 705: mLineReuse configuration", () => {
         // Act
         const offer = await pc.createOffer();
 
-        // Assert: compatible は非ゼロ、aggressive は従来どおり port 0
+        // Assert: standard は非ゼロ、legacy は従来どおり port 0
         expect(mLines(offer.sdp)[0].port).toBe(expectedPort);
       } finally {
         await closeAll(pc);
@@ -895,7 +895,7 @@ describe("issue 705: mLineReuse configuration", () => {
     },
   );
 
-  test.each(["compatible", "aggressive"] as const)(
+  test.each(["standard", "legacy"] as const)(
     "%s: codec rejection and BUNDLE consistency hold",
     async (mode) => {
       // Arrange

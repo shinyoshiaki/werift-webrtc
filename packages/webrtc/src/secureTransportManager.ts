@@ -752,13 +752,13 @@ export class SecureTransportManager {
 
   /**
    * Without `certificates` / `dtls.keys`, `certificateScope` decides the default:
-   * - `"process"` (default): the certificate shared by the whole process.
-   * - `"peerConnection"`: a certificate generated for this peer connection (like browsers),
+   * - `"legacy"` (default): the certificate shared by the whole process.
+   * - `"standard"`: a certificate generated for this peer connection (like browsers),
    *   kept for its lifetime; every DTLS transport of this peer connection uses it.
    */
   async ensureCerts() {
     if (!this.certificate) {
-      if (this.config.certificateScope === "peerConnection") {
+      if (this.config.certificateScope === "standard") {
         this.certificatePromise ??= RTCDtlsTransport.generateCertificate();
         try {
           this.certificate ??= await this.certificatePromise;

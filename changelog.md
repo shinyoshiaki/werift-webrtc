@@ -2,8 +2,19 @@
 
 ## Unreleased
 
+### ⚠️ Breaking changes
+
+- **The compatibility options share the values `"standard"` / `"legacy"`** (`certificateScope`, `mLineReuse`, `transceiverPairing`, `keyFrameRequestRouting`): `"standard"` is the behavior the specifications and browsers have, `"legacy"` is werift's own. The names up to v0.27.0 are still accepted on input, so existing configurations keep their behavior, but `getConfiguration()` now returns the new name, the TypeScript types `MLineReuse` / `KeyFrameRequestRouting` / `CertificateScope` are `CompatibilityMode` (`"standard" | "legacy"`), `KeyFrameRequestRoutingModes` is `["standard", "legacy"]`, and the `TypeError` message lists the new names. `SDPManager` (`mLineReuse`) and `RtpRouter.keyFrameRequestRouting`, set directly, accept only the new names. Defaults and behavior are unchanged.
+
+  | Option | Up to v0.27.0 | Now |
+  | --- | --- | --- |
+  | `certificateScope` | `"process"` (default) / `"peerConnection"` | `"legacy"` (default) / `"standard"` |
+  | `mLineReuse` | `"compatible"` (default) / `"aggressive"` | `"standard"` (default) / `"legacy"` |
+  | `keyFrameRequestRouting` | `"compatible"` (default) / `"strict"` | `"legacy"` (default) / `"standard"` |
+
 ### 🚀 Features
 
+- **`CompatibilityMode` / `CompatibilityModes`** and **`DeprecatedCompatibilityValues`** (the v0.27.0 names and the value each one is read as) are exported. `packages/webrtc/README.md` ("Compatibility options") lists the options and the configuration closest to a browser `RTCPeerConnection`, which the upstream WPT runner now uses for every connection (`tools/wpt-runner/browserConfig.ts`).
 - **`PeerConfig.transceiverPairing`** (#816): selects how a remote offer pairs its m-sections with local transceivers that have no MID yet. `"legacy"` (default) keeps the v0.27.0 pairing of any unassociated transceiver of the same kind. `"standard"` pairs as RFC 8829 (JSEP) section 5.10 and browsers do: an offered `sendrecv` / `recvonly` m-section whose MID no transceiver has is associated only with an unassociated, non-stopped transceiver of the same kind that `addTrack()` created (or a remote one `addTrack()` reused that a rollback kept). A transceiver `addTransceiver()` created (with or without a track, also after `replaceTrack()` or a later `addTrack()` reusing it) keeps its `direction` and `mid === null`, the offer gets a new transceiver, and `negotiationneeded` fires after the answer so your next offer adds it. In glare (perfect negotiation) a `sendonly` transceiver therefore stays `sendonly` under `"standard"`, while `"legacy"` lets the peer's offer take it over (it becomes `sendrecv`). **For the perfect negotiation pattern or code written for browsers, set `transceiverPairing: "standard"`.** The value is validated on construction (`TypeError`) and cannot be changed by `setConfiguration()` (`InvalidModificationError`). `TransceiverPairingModes` lists the values. See `packages/webrtc/README.md`.
 
 ### 🐛 Bug Fixes

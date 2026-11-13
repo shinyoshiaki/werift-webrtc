@@ -6,4 +6,7 @@
 
 # Type Alias: MLineReuse
 
-> **MLineReuse** = `"compatible"` \| `"aggressive"`
+> **MLineReuse** = [`CompatibilityMode`](CompatibilityMode.md)
+
+How local SDP marks inactive / stopped m-lines (a [CompatibilityMode](CompatibilityMode.md)).
+See `PeerConfig.mLineReuse`.

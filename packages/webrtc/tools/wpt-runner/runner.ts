@@ -5,8 +5,16 @@ import vm from "vm";
 import { mkdir, readFile, readdir, writeFile } from "fs/promises";
 
 import { RTCPeerConnection } from "../../src";
+import { withBrowserCompatibleConfig } from "./browserConfig";
 import { installDocumentWithIframe, installMessageWindow } from "./frameShim";
 import { createDummyRegister, installPolyfill } from "../../src/polyfill";
+import {
+  findBaselineRegressions,
+  replaceTargetResults,
+  selectStableBaseline,
+  selectTimeoutRetryTargets,
+  targetKeyOf,
+} from "./baselineLogic";
 import { resolveTargetConcurrency } from "./concurrencyLogic";
 import { ensureWptCheckout } from "./submodule";
 import { resolveTimeoutProfile } from "./timeoutLogic";
@@ -20,7 +28,13 @@ export interface WptTarget {
   enabled: boolean;
   reason: string;
   variant?: string;
+  /** The subtests this target gates (documentation; the gate is `wpt/baseline.json`). */
   subtests?: string[];
+  /**
+   * Subtests kept out of the baseline even when they pass in every run
+   * (e.g. a known race tracked by another ticket); see `selectStableBaseline`.
+   */
+  baselineExclusions?: string[];
 }
 
 export interface WptResultRecord {
@@ -42,6 +56,12 @@ export interface WptRunReport {
   };
   results: WptResultRecord[];
   regressions: WptResultRecord[];
+  /**
+   * Targets rerun once because every regression of their first run was a
+   * timeout (see `selectTimeoutRetryTargets`); `results` / `regressions`
+   * hold the rerun.
+   */
+  retried?: { file: string; variant: string; firstRegressions: number }[];
 }
 
 export interface WptProgressEvent {
@@ -77,6 +97,9 @@ const USE_WORKERS = process.env.WPT_USE_WORKERS !== "0";
 const PROGRESS_MODE = process.env.WPT_PROGRESS;
 const VERBOSE_PROGRESS = PROGRESS_MODE === "verbose";
 const TARGET_FILTER = process.env.WPT_TARGET_FILTER;
+/** Timeout multiplier of a rerun after a timeout-only regression. */
+const RETRY_TIMEOUT_SCALE = 4;
+const TIMEOUT_SCALE = Number(process.env.WPT_TIMEOUT_SCALE) || 1;
 
 const IGNORE_SCRIPT_PATHS = new Set([
   "/resources/testharnessreport.js",
@@ -157,16 +180,40 @@ export async function runSelectedWpt(
   } = {},
 ): Promise<WptRunReport> {
   const targets = await discoverWptTargets();
-  const results = await runTargets(targets, options.onProgress);
+  let results = await runTargets(targets, options.onProgress);
 
-  const regressions =
+  let regressions =
     options.compareWithBaseline === false ? [] : await findRegressions(results);
+
+  // 時間切れだけで回帰したターゲットは、負荷による揺れか確かめるため 1 回だけ
+  // 逐次・長いタイムアウトで再実行する。FAIL を含む回帰は再実行しない。
+  const retryKeys = selectTimeoutRetryTargets(regressions);
+  let retried: WptRunReport["retried"];
+  if (retryKeys.size > 0) {
+    const retryTargets = targets.filter((target) =>
+      retryKeys.has(targetKeyOf(target)),
+    );
+    retried = retryTargets.map((target) => ({
+      file: target.file,
+      variant: target.variant ?? "",
+      firstRegressions: regressions.filter(
+        (result) => targetKeyOf(result) === targetKeyOf(target),
+      ).length,
+    }));
+    const rerun = await runTargets(retryTargets, options.onProgress, {
+      concurrency: 1,
+      timeoutScale: RETRY_TIMEOUT_SCALE,
+    });
+    results = replaceTargetResults(results, rerun, retryKeys);
+    regressions = await findRegressions(results);
+  }
 
   const report: WptRunReport = {
     generatedAt: new Date().toISOString(),
     summary: summarize(results),
     results,
     regressions,
+    ...(retried ? { retried } : {}),
   };
 
   await mkdir(dirname(options.reportPath ?? defaultReportPath), {
@@ -187,16 +234,19 @@ export async function runSelectedWpt(
 async function runTargets(
   targets: WptTarget[],
   onProgress?: (event: WptProgressEvent) => void,
+  options: { concurrency?: number; timeoutScale?: number } = {},
 ) {
   const results: WptResultRecord[] = [];
   const executing = new Set<Promise<void>>();
   const availableParallelism =
     "availableParallelism" in os ? os.availableParallelism() : undefined;
-  const targetConcurrency = resolveTargetConcurrency({
-    availableParallelism,
-    cpuCount: os.cpus().length,
-    input: process.env.WPT_CONCURRENCY,
-  });
+  const targetConcurrency =
+    options.concurrency ??
+    resolveTargetConcurrency({
+      availableParallelism,
+      cpuCount: os.cpus().length,
+      input: process.env.WPT_CONCURRENCY,
+    });
   let completed = 0;
 
   for (const target of targets) {
@@ -209,8 +259,8 @@ async function runTargets(
     });
 
     const executeTarget = USE_WORKERS
-      ? runTargetInWorker(target)
-      : runTargetInCurrentProcess(target);
+      ? runTargetInWorker(target, options.timeoutScale)
+      : runTargetInCurrentProcess(target, options.timeoutScale);
     const task = executeTarget.then((targetResults) => {
       results.push(...targetResults);
       completed += 1;
@@ -250,13 +300,14 @@ async function runTargets(
 
 export async function runTargetInCurrentProcess(
   target: WptTarget,
+  timeoutScale = TIMEOUT_SCALE,
 ): Promise<WptResultRecord[]> {
   if (VERBOSE_PROGRESS) {
     console.error(
       `[wpt] start ${target.file}${target.variant ? ` ${target.variant}` : ""}`,
     );
   }
-  const timeoutProfile = resolveTimeoutProfile(target);
+  const timeoutProfile = resolveTimeoutProfile(target, timeoutScale);
   const htmlPath = resolve(wptRoot, target.file);
   const html = await readFile(htmlPath, "utf8");
   const title = extractTitle(html);
@@ -309,19 +360,24 @@ export async function runTargetInCurrentProcess(
       );
     }
 
-    return await withTimeout<WptResultRecord[]>(
+    const outcome = await withTimeout<WptResultRecord[] | undefined>(
       completion.done,
       timeoutProfile.completionTimeoutMs,
-      [
-        {
-          file: target.file,
-          variant: target.variant ?? "",
-          subtest: "[timeout]",
-          status: "TIMEOUT",
-          message: `WPT file did not finish before the runner timeout (${timeoutProfile.completionTimeoutMs}ms).`,
-        },
-      ],
+      undefined,
     );
+    if (outcome) return outcome;
+    // ファイル全体が時間切れでも、それまでに終わった subtest の結果は残す
+    // (残さないと baseline の subtest が報告されず、回帰を検出できない)
+    return [
+      ...completion.finished(),
+      {
+        file: target.file,
+        variant: target.variant ?? "",
+        subtest: "[timeout]",
+        status: "TIMEOUT",
+        message: `WPT file did not finish before the runner timeout (${timeoutProfile.completionTimeoutMs}ms).`,
+      },
+    ];
   } catch (error) {
     return [
       {
@@ -353,8 +409,11 @@ export async function runTargetInCurrentProcess(
 
 async function runTargetInWorker(
   target: WptTarget,
+  timeoutScale = TIMEOUT_SCALE,
 ): Promise<WptResultRecord[]> {
-  const timeoutMs = resolveWorkerTimeoutMs(resolveTimeoutProfile(target));
+  const timeoutMs = resolveWorkerTimeoutMs(
+    resolveTimeoutProfile(target, timeoutScale),
+  );
 
   return await new Promise<WptResultRecord[]>((resolveResult) => {
     const worker = spawn(
@@ -373,6 +432,7 @@ async function runTargetInWorker(
           ...process.env,
           WPT_PROGRESS: "",
           WPT_TARGET_JSON: JSON.stringify(target),
+          WPT_TIMEOUT_SCALE: String(timeoutScale),
         },
         stdio: ["ignore", "pipe", "pipe"],
       },
@@ -576,10 +636,15 @@ function createContext(input: {
 function createPeerConnectionWrapper(peerConnections: Set<RTCPeerConnection>) {
   class WptRTCPeerConnection extends RTCPeerConnection {
     constructor(...args: ConstructorParameters<typeof RTCPeerConnection>) {
-      // upstream WPT はブラウザと同じ JSEP 5.10 の関連付けを前提にするので、werift の既定
-      // (transceiverPairing: "legacy") ではなく "standard" で試験する (#816)。
+      // upstream WPT はブラウザの挙動を前提にするので、werift の既定ではなく
+      // ブラウザ互換の構築時設定 (BROWSER_COMPATIBLE_PEER_CONFIG) で試験する。
       const [config, ...rest] = args;
-      super({ transceiverPairing: "standard", ...config }, ...rest);
+      super(
+        withBrowserCompatibleConfig(config) as ConstructorParameters<
+          typeof RTCPeerConnection
+        >[0],
+        ...rest,
+      );
       peerConnections.add(this);
       const setLocalDescription = this.setLocalDescription.bind(this);
       this.setLocalDescription = ((
@@ -730,6 +795,20 @@ function defineEventAttribute(target: object, name: string) {
 
 function installHarnessHooks(context: vm.Context, target: WptTarget) {
   const runtime = context as vm.Context & Record<string, any>;
+  const finished: WptResultRecord[] = [];
+  runtime.__wptResult = (test: {
+    name: string;
+    message: string;
+    status: number;
+  }) => {
+    finished.push({
+      file: target.file,
+      variant: target.variant ?? "",
+      subtest: test.name,
+      status: mapStatus(test.status),
+      message: test.message || undefined,
+    });
+  };
   const done = new Promise<WptResultRecord[]>((resolve, reject) => {
     runtime.__wptComplete = (
       tests: Array<{ name: string; message: string; status: number }>,
@@ -762,10 +841,13 @@ function installHarnessHooks(context: vm.Context, target: WptTarget) {
 
   return {
     done,
+    /** The subtests that finished so far (for a whole-file timeout). */
+    finished: () => [...finished],
   };
 }
 
 const harnessPatch = `
+  add_result_callback((test) => globalThis.__wptResult(test));
   add_completion_callback((tests, status) => globalThis.__wptComplete(tests, status));
   for (const name of ["promise_test", "async_test", "test"]) {
     const original = globalThis[name];
@@ -813,60 +895,26 @@ async function findRegressions(results: WptResultRecord[]) {
   const baseline = JSON.parse(await readFile(baselinePath, "utf8")) as {
     results: WptResultRecord[];
   };
-  const byKey = new Map(
-    baseline.results.map((result) => [resultKey(result), result.status]),
-  );
-
-  return results.filter((result) => {
-    if (result.status === "SKIP") {
-      return false;
-    }
-    const expected = byKey.get(resultKey(result));
-    if (!expected) {
-      return false;
-    }
-    return isRegression(expected, result.status);
-  });
+  return findBaselineRegressions(baseline.results, results);
 }
 
+/** `--update-baseline`: the PASS subtests of this run (see `selectStableBaseline`). */
 async function updateBaseline(results: WptResultRecord[]) {
+  await writeBaseline(selectStableBaseline([results], await loadAllowlist()));
+}
+
+export async function writeBaseline(results: WptResultRecord[]) {
   await writeFile(
     baselinePath,
     `${JSON.stringify(
       {
         generatedAt: new Date().toISOString(),
-        results: results.filter((result) => result.status !== "SKIP"),
+        results,
       },
       null,
       2,
     )}\n`,
   );
-}
-
-function resultKey(
-  result: Pick<WptResultRecord, "file" | "variant" | "subtest">,
-) {
-  return `${result.file}::${result.variant}::${result.subtest}`;
-}
-
-function isRegression(
-  expected: WptResultRecord["status"],
-  actual: WptResultRecord["status"],
-) {
-  return statusRank(actual) < statusRank(expected);
-}
-
-function statusRank(status: WptResultRecord["status"]) {
-  switch (status) {
-    case "PASS":
-      return 3;
-    case "SKIP":
-      return 2;
-    case "FAIL":
-      return 1;
-    case "TIMEOUT":
-      return 0;
-  }
 }
 
 function mapStatus(status: number): WptResultRecord["status"] {
@@ -950,6 +998,36 @@ export function formatMarkdownReport(report: WptRunReport) {
       ? "**Result:** failed due to regressions against the recorded WPT baseline."
       : "**Result:** success (there may still be upstream WPT failures, but no regressions were detected).",
   ];
+
+  if (report.retried && report.retried.length > 0) {
+    lines.push(
+      "",
+      "## Rerun after timeout-only regressions",
+      "",
+      `Rerun once, one at a time with ${RETRY_TIMEOUT_SCALE}x timeouts; the results above are the rerun.`,
+      "",
+      "| File | First-run regressions |",
+      "| --- | ---: |",
+      ...report.retried.map(
+        (target) =>
+          `| ${target.file}${target.variant ? ` ${target.variant}` : ""} | ${target.firstRegressions} |`,
+      ),
+    );
+  }
+
+  if (report.regressions.length > 0) {
+    lines.push(
+      "",
+      "## Regressions",
+      "",
+      "| File | Subtest | Status | Message |",
+      "| --- | --- | --- | --- |",
+      ...report.regressions.map(
+        (result) =>
+          `| ${result.file}${result.variant ? ` ${result.variant}` : ""} | ${escapeTableCell(result.subtest)} | ${result.status} | ${escapeTableCell(result.message ?? "")} |`,
+      ),
+    );
+  }
 
   if (fileSummary.length > 0) {
     lines.push(
@@ -1163,3 +1241,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
 }
 
 process.on("exit", () => cleanupActiveWorkers("SIGKILL"));
+
+function escapeTableCell(value: string) {
+  return value.replace(/\|/g, "\\|").replace(/\s+/g, " ").slice(0, 200);
+}

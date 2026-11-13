@@ -1,3 +1,4 @@
+import type { CompatibilityMode } from "./api/compatibilityMode";
 import { DISCARD_HOST, DISCARD_PORT } from "./const";
 import { createWebRtcDomException } from "./errors";
 import type { RTCRtpTransceiver } from "./media";
@@ -51,7 +52,7 @@ export class SDPManager {
     this.cname = cname;
     this.midSuffix = midSuffix ?? false;
     this.bundlePolicy = bundlePolicy;
-    this.mLineReuse = mLineReuse ?? "compatible";
+    this.mLineReuse = mLineReuse ?? "standard";
     this.iceOptions = iceOptionIce2 ? "trickle ice2" : "trickle";
   }
 
@@ -224,8 +225,8 @@ export class SDPManager {
     media.port = DISCARD_PORT;
 
     if (media.direction === "inactive") {
-      // compatible は受け入れた inactive を拒否と区別するため非ゼロ port を保つ
-      if (this.mLineReuse === "aggressive") {
+      // standard は受け入れた inactive を拒否と区別するため非ゼロ port を保つ
+      if (this.mLineReuse === "legacy") {
         media.port = 0;
       }
       media.msids = [];
@@ -1253,7 +1254,11 @@ function orderBundleMids(mids: string[], preferredTag?: string) {
   return [preferredTag, ...mids.filter((mid) => mid !== preferredTag)];
 }
 
-export type MLineReuse = "compatible" | "aggressive";
+/**
+ * How local SDP marks inactive / stopped m-lines (a {@link CompatibilityMode}).
+ * See `PeerConfig.mLineReuse`.
+ */
+export type MLineReuse = CompatibilityMode;
 
 export interface RTCSessionDescriptionInit {
   sdp?: string;

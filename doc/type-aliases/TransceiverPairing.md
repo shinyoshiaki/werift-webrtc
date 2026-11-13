@@ -6,6 +6,6 @@
 
 # Type Alias: TransceiverPairing
 
-> **TransceiverPairing** = `"standard"` \| `"legacy"`
+> **TransceiverPairing** = [`CompatibilityMode`](CompatibilityMode.md)
 
 How a remote offer pairs m-sections with local transceivers. See [PeerConfig.transceiverPairing](../interfaces/PeerConfig.md#transceiverpairing).

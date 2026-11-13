@@ -61,6 +61,7 @@
     "upgrade-interactive": "npx npm-check-updates -i",
     "wpt:list": "node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs tools/wpt-runner/list.ts",
     "wpt": "node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs tools/wpt-runner/run.ts",
+    "wpt:stable-baseline": "node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs tools/wpt-runner/stableBaseline.ts",
     "wpt:coverage": "node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs tools/wpt-runner/coverage.ts",
     "test:sim": "vitest run --config ./simulations/vitest.config.mts"
   },

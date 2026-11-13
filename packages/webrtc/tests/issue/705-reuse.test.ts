@@ -114,7 +114,7 @@ describe("issue 705: transceiver.stop()", () => {
   test("aggressive: the answerer's stop() is rejected by its inactive port 0 answer", async () => {
     // Arrange
     const { caller, callee, video } = await createNegotiatedPair({
-      mLineReuse: "aggressive",
+      mLineReuse: "legacy",
     });
     const calleeVideo = transceiverByMid(callee, video.mid!)!;
 
@@ -167,7 +167,7 @@ describe("issue 705: transceiver.stop()", () => {
 });
 
 describe("issue 705: m-line reuse after a confirmed stop", () => {
-  test.each(["compatible", "aggressive"] as const)(
+  test.each(["standard", "legacy"] as const)(
     "%s: removeTrack + stop, negotiate, then addTransceiver reuses the index with a new MID",
     async (mode) => {
       // Arrange
@@ -401,7 +401,7 @@ describe("issue 705: m-line reuse after a confirmed stop", () => {
   test("aggressive answerer: an inactive m-line answered with port 0 is stopped on both sides and its index is reused", async () => {
     // Arrange: caller が sendonly video を 3 本送り、callee は aggressive の answerer
     const { caller, callee, videos } = await createSendonlyVideoPair({
-      calleeMLineReuse: "aggressive",
+      calleeMLineReuse: "legacy",
       count: 3,
     });
     const second = videos[1];
@@ -633,7 +633,7 @@ describe("issue 705: m-line reuse after a confirmed stop", () => {
     }
   });
 
-  test.each(["compatible", "aggressive"] as const)(
+  test.each(["standard", "legacy"] as const)(
     "%s: RTP is received after repeated reuse of the same index",
     async (mode) => {
       // Arrange: 接続済みペア

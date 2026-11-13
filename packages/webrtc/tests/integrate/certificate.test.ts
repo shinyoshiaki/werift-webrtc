@@ -33,11 +33,11 @@ describe("DTLS certificate scope", () => {
       b.createOffer(),
     ]);
 
-    // Assert: 従来どおり fingerprint が一致し、既定値は "process"
+    // Assert: 従来どおり fingerprint が一致し、既定値は "legacy"
     const fingerprintsA = getSdpFingerprints(offerA.sdp);
     expect(fingerprintsA.length).toBe(1);
     expect(getSdpFingerprints(offerB.sdp)).toEqual(fingerprintsA);
-    expect(a.getConfiguration().certificateScope).toBe("process");
+    expect(a.getConfiguration().certificateScope).toBe("legacy");
   });
 
   test("certificateScope が不正な値なら TypeError", () => {
@@ -49,18 +49,18 @@ describe("DTLS certificate scope", () => {
 
   test("certificateScope は構築後に変更できない", () => {
     // Arrange
-    const pc = createPc({ certificateScope: "peerConnection" });
+    const pc = createPc({ certificateScope: "standard" });
 
     // Act / Assert: setConfiguration での変更は拒否される
-    expect(() => pc.setConfiguration({ certificateScope: "process" })).toThrow(
+    expect(() => pc.setConfiguration({ certificateScope: "legacy" })).toThrow(
       /certificateScope cannot be changed/,
     );
   });
 
-  test("certificateScope: peerConnection では PC ごとに別の証明書を生成する", async () => {
+  test("certificateScope: standard では PC ごとに別の証明書を生成する", async () => {
     // Arrange
-    const a = createPc({ certificateScope: "peerConnection" });
-    const b = createPc({ certificateScope: "peerConnection" });
+    const a = createPc({ certificateScope: "standard" });
+    const b = createPc({ certificateScope: "standard" });
     a.createDataChannel("a");
     b.createDataChannel("b");
 
@@ -79,11 +79,11 @@ describe("DTLS certificate scope", () => {
     expect(a.getConfiguration().certificates).toEqual([]);
   });
 
-  test("certificateScope: peerConnection でも同一 PC 内の全 DTLS transport は同じ証明書を使う", async () => {
+  test("certificateScope: standard でも同一 PC 内の全 DTLS transport は同じ証明書を使う", async () => {
     // Arrange: max-compat で m-line ごとに transport を作る
     const pc = createPc({
       bundlePolicy: "max-compat",
-      certificateScope: "peerConnection",
+      certificateScope: "standard",
     });
     pc.addTransceiver("audio");
     pc.addTransceiver("video");
@@ -106,11 +106,11 @@ describe("DTLS certificate scope", () => {
     expect(new Set(fingerprints).size).toBe(1);
   });
 
-  test("certificateScope: peerConnection で並行した createOffer / createAnswer でも証明書は 1 PC に 1 つ", async () => {
+  test("certificateScope: standard で並行した createOffer / createAnswer でも証明書は 1 PC に 1 つ", async () => {
     // Arrange
-    const caller = createPc({ certificateScope: "peerConnection" });
+    const caller = createPc({ certificateScope: "standard" });
     caller.createDataChannel("dc");
-    const callee = createPc({ certificateScope: "peerConnection" });
+    const callee = createPc({ certificateScope: "standard" });
     await callee.setRemoteDescription(await caller.createOffer());
 
     // Act: 証明書生成前の PC で createOffer / createAnswer を同時に呼ぶ
@@ -178,10 +178,10 @@ describe("DTLS certificate scope", () => {
     expect(getSdpFingerprints(offerB.sdp)).toEqual(fingerprintsA);
   });
 
-  test("certificateScope: peerConnection で別々の自動生成証明書を持つ PC 同士で DataChannel が通信できる", async () => {
+  test("certificateScope: standard で別々の自動生成証明書を持つ PC 同士で DataChannel が通信できる", async () => {
     // Arrange
-    const caller = createPc({ certificateScope: "peerConnection" });
-    const callee = createPc({ certificateScope: "peerConnection" });
+    const caller = createPc({ certificateScope: "standard" });
+    const callee = createPc({ certificateScope: "standard" });
     const received = new Promise<string>((resolve) => {
       callee.onDataChannel.subscribe((channel) => {
         channel.onMessage.once((data) => resolve(data.toString()));

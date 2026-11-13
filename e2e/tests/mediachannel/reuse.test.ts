@@ -2,8 +2,8 @@ import { browserName, peer, sleep } from "../fixture";
 
 // Issue #705: 停止した m-line の port 0 交渉と、同じ index の再利用
 const reuseModes = [
-  "mediachannel_reuse_compatible",
-  "mediachannel_reuse_aggressive",
+  "mediachannel_reuse_standard",
+  "mediachannel_reuse_legacy",
 ] as const;
 const mediachannel_reject_unsupported_video =
   "mediachannel_reject_unsupported_video";

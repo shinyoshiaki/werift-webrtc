@@ -297,7 +297,7 @@ export async function closeAll(...pcs: RTCPeerConnection[]) {
 
 /** audio + video を交渉済みの werift ペアを作る */
 export async function createNegotiatedPair({
-  mLineReuse = "compatible",
+  mLineReuse = "standard",
   bundlePolicy,
   dataChannelFirst = false,
   connect = false,

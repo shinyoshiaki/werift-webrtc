@@ -508,7 +508,7 @@ Resolves once ICE has stopped; concurrent callers share one stop.
 > `static` **generateCertificate**(): `Promise`\<[`RTCCertificate`](RTCCertificate.md)\>
 
 Generates a new self-signed certificate (ECDSA P-256 / SHA-256) on every call.
-Used by an RTCPeerConnection created with `certificateScope: "peerConnection"`
+Used by an RTCPeerConnection created with `certificateScope: "standard"`
 when `RTCConfiguration.certificates` is not given.
 
 #### Returns
@@ -522,7 +522,7 @@ when `RTCConfiguration.certificates` is not given.
 > `static` **SetupCertificate**(): `Promise`\<[`RTCCertificate`](RTCCertificate.md)\>
 
 Returns the default certificate cached for the whole process
-(the default `certificateScope: "process"`).
+(the default `certificateScope: "legacy"`).
 
 #### Returns
 

@@ -6,4 +6,4 @@
 
 # Variable: TransceiverPairingModes
 
-> `const` **TransceiverPairingModes**: readonly [`TransceiverPairing`](../type-aliases/TransceiverPairing.md)[]
+> `const` **TransceiverPairingModes**: readonly [`TransceiverPairing`](../type-aliases/TransceiverPairing.md)[] = `CompatibilityModes`

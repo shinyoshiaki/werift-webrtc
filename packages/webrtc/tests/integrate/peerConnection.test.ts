@@ -358,7 +358,7 @@ a=ssrc:1001 cname:some
       await answerer.setLocalDescription(answer);
       await offerer.setRemoteDescription(answerer.localDescription!);
 
-      // Assert: 既定の mLineReuse "compatible" では inactive section を拒否せず非ゼロ port で answer し、
+      // Assert: 既定の mLineReuse "standard" では inactive section を拒否せず非ゼロ port で answer し、
       // answer 後も inactive のまま removeTrack が方向を変えない。
       expect(answer.sdp).toContain("m=audio 9");
       expect(answer.sdp).toContain("a=inactive");

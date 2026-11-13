@@ -180,7 +180,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
 
   /**
    * Generates a new self-signed certificate (ECDSA P-256 / SHA-256) on every call.
-   * Used by an RTCPeerConnection created with `certificateScope: "peerConnection"`
+   * Used by an RTCPeerConnection created with `certificateScope: "standard"`
    * when `RTCConfiguration.certificates` is not given.
    */
   static async generateCertificate() {
@@ -197,7 +197,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
 
   /**
    * Returns the default certificate cached for the whole process
-   * (the default `certificateScope: "process"`).
+   * (the default `certificateScope: "legacy"`).
    */
   static async SetupCertificate() {
     if (this.localCertificate) {

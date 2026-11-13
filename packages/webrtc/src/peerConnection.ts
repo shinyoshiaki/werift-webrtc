@@ -70,7 +70,16 @@ import type { Callback, CallbackWithValue } from "./types/util";
 import { andDirection } from "./utils";
 
 export {
+  type CompatibilityMode,
+  CompatibilityModes,
+} from "./api/compatibilityMode";
+export {
+  type CertificateScope,
   type DebugConfig,
+  type DeprecatedCertificateScope,
+  DeprecatedCompatibilityValues,
+  type DeprecatedKeyFrameRequestRouting,
+  type DeprecatedMLineReuse,
   defaultPeerConfig,
   findCodecByMimeType,
   type PeerConfig,
@@ -1371,7 +1380,7 @@ export class RTCPeerConnection extends EventTarget {
       if (description.type === "answer") {
         // answer の確定で拒否予定の m-line を停止し、RTP pipeline を解放する
         this.transceiverManager.commitRemoteOffer();
-        // port 0 で答えた m-line (aggressive の inactive など) は offerer 側で拒否として
+        // port 0 で答えた m-line (mLineReuse: "legacy" の inactive など) は offerer 側で拒否として
         // 停止が確定する。answerer 側も同じ位置を停止確定にし、offerer が新 MID で再利用できるようにする
         for (const media of description.media) {
           if (!["audio", "video"].includes(media.kind) || media.port !== 0) {
