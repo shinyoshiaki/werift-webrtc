@@ -1,10 +1,13 @@
 import { X509Certificate } from "node:crypto";
 import { setTimeout } from "timers/promises";
+import { UdpTransport } from "../../common/src";
 import {
   AlertDesc,
   AlertLevel,
   ContentType,
   DtlsAlertError,
+  DtlsClient,
+  DtlsServer,
   DtlsSocket,
 } from "../src";
 import {
@@ -17,7 +20,7 @@ import { Alert } from "../src/handshake/message/alert";
 import { Certificate } from "../src/handshake/message/certificate";
 import { DtlsRandom } from "../src/handshake/random";
 import { createPlaintext } from "../src/record/builder";
-import { certPem } from "./fixture";
+import { certPem, keyPem } from "./fixture";
 import {
   connectDtlsPair,
   createClientHelloHandshake,
@@ -1064,4 +1067,139 @@ describe("close_notify を受けた後の transport の解放（独立利用）"
     expect(closedBeforeTimeout).toBe(false);
     expect(pair.serverTransport.closed).toBe(true);
   });
+});
+
+describe("transport の close の完了待ちと失敗", () => {
+  test("fatal alert 受信で始まった transport の close が終わるまで、利用者の close() は完了しない", async () => {
+    // Arrange: client の transport の close は外から完了させるまで終わらない
+    const pair = createDtlsPair();
+    await connectDtlsPair(pair);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    let closeCalls = 0;
+    pair.clientTransport.close = async () => {
+      closeCalls++;
+      await gate;
+      pair.clientTransport.closed = true;
+    };
+    const errors: Error[] = [];
+    pair.client.onError.subscribe((e) => errors.push(e));
+
+    // Act: fatal alert を受けて client が transport の close を始めた後に、利用者が close() する
+    await pair.server.sendAlert(AlertLevel.fatal, AlertDesc.InternalError);
+    await setTimeout(20);
+    let settled = false;
+    const closing = pair.client.close().then(() => {
+      settled = true;
+    });
+    await setTimeout(30);
+    const settledBeforeRelease = settled;
+    release();
+    await closing;
+
+    // Assert: 下位の close が終わるまで close() は完了せず、下位の close は 1 回だけ
+    expect(errors).toHaveLength(1);
+    expect(settledBeforeRelease).toBe(false);
+    expect(settled).toBe(true);
+    expect(pair.clientTransport.closed).toBe(true);
+    expect(closeCalls).toBe(1);
+  });
+
+  test.each(["同期的に例外を投げる", "reject する"] as const)(
+    "transport の close が%s場合も、fatal alert の onError は通知され close() は reject しない",
+    async (failure) => {
+      // Arrange: client の transport の close は失敗する
+      const pair = createDtlsPair();
+      await connectDtlsPair(pair);
+      pair.clientTransport.close = (() => {
+        if (failure === "同期的に例外を投げる") {
+          throw new Error("close failed synchronously");
+        }
+        return Promise.reject(new Error("close rejected"));
+      }) as unknown as typeof pair.clientTransport.close;
+      const errors: Error[] = [];
+      pair.client.onError.subscribe((e) => errors.push(e));
+      const unhandled = vi.fn();
+      process.on("unhandledRejection", unhandled);
+
+      try {
+        // Act: fatal alert を受け、その後に利用者が close() する
+        await pair.server.sendAlert(AlertLevel.fatal, AlertDesc.InternalError);
+        await setTimeout(20);
+        const result = await pair.client.close().then(
+          () => "resolved",
+          () => "rejected",
+        );
+        await setTimeout(20);
+
+        // Assert: 受信した fatal alert の onError は 1 回通知され、接続は終了している
+        expect(errors).toHaveLength(1);
+        expect((errors[0] as DtlsAlertError).source).toBe("remote");
+        expect(pair.client.terminated).toBe(true);
+        // Assert: close() は reject せず、未処理の rejection も出ない
+        expect(result).toBe("resolved");
+        expect(unhandled).not.toHaveBeenCalled();
+      } finally {
+        process.off("unhandledRejection", unhandled);
+      }
+    },
+  );
+});
+
+describe("実 UDP socket での close の完了待ち", () => {
+  test("fatal alert の onError の中で呼んだ close() は、UDP socket が実際に閉じてから完了する", async () => {
+    // Arrange: 実 UDP socket で接続した組を作る
+    const signatureHash = {
+      hash: HashAlgorithm.sha256_4,
+      signature: SignatureAlgorithm.rsa_1,
+    };
+    const serverTransport = await UdpTransport.init("udp4");
+    const server = new DtlsServer({
+      transport: serverTransport,
+      cert: certPem,
+      key: keyPem,
+      signatureHash,
+    });
+    const clientTransport = await UdpTransport.init("udp4");
+    clientTransport.rinfo = serverTransport.socket.address();
+    const client = new DtlsClient({
+      transport: clientTransport,
+      cert: certPem,
+      key: keyPem,
+      signatureHash,
+    });
+    const connected = Promise.all([
+      client.onConnect.asPromise(),
+      server.onConnect.asPromise(),
+    ]);
+    await client.connect();
+    await connected;
+    let socketClosed = false;
+    clientTransport.socket.once("close", () => {
+      socketClosed = true;
+    });
+    let closedWhenResolved: boolean | undefined;
+    const closing = new Promise<void>((resolve) => {
+      client.onError.subscribe(() => {
+        // fatal alert で内部の close が始まった直後に、利用者が close() を呼ぶ
+        void client.close().then(() => {
+          closedWhenResolved = socketClosed;
+          resolve();
+        });
+      });
+    });
+
+    try {
+      // Act: server から fatal alert を送る
+      await server.sendAlert(AlertLevel.fatal, AlertDesc.InternalError);
+      await closing;
+
+      // Assert: close() が完了した時点で UDP socket は閉じている
+      expect(closedWhenResolved).toBe(true);
+    } finally {
+      await Promise.allSettled([client.close(), server.close()]);
+    }
+  }, 10_000);
 });

@@ -405,8 +405,14 @@ export class DtlsSocket {
     return false;
   }
 
+  /**
+   * Close the transport (once; concurrent callers share the same close) and
+   * resolve when it has closed. A failure (a rejection or a synchronous
+   * throw of the transport's close()) is only logged: it never interrupts
+   * the caller, e.g. the onError notification of a received fatal alert.
+   */
   private closeTransport() {
-    return Promise.resolve(this.transport.close()).catch((error: unknown) => {
+    return this.transport.close().catch((error: unknown) => {
       err(this.dtls.sessionId, "failed to close transport", error);
     });
   }
@@ -507,8 +513,10 @@ export class DtlsSocket {
    *   transport once it has been sent, or after `timeoutMs`
    *   (default {@link DtlsSocket.AlertSendTimeoutMs}).
    *
-   * The returned promise resolves once the transport is closed and never
-   * rejects.
+   * The returned promise resolves once the transport is closed (also when
+   * the close was already started, e.g. after a fatal alert: it waits for
+   * that close) and never rejects; a failing transport close() (a rejection
+   * or a synchronous throw) is only logged.
    */
   async close(options: { notify?: boolean; timeoutMs?: number } = {}) {
     if (options.notify) {
@@ -530,9 +538,8 @@ export class DtlsSocket {
     // Closing the transport now would drop an alert handed to it but not
     // yet written (a UDP datagram goes out on a later tick).
     await this.alertFlushed();
-    await Promise.resolve(this.transport.close()).catch((error) => {
-      err(this.dtls.sessionId, "failed to close transport", error);
-    });
+    // Waits for a close already in progress (e.g. after a fatal alert).
+    await this.closeTransport();
   }
 
   extractSessionKeys(keyLength: number, saltLength: number) {

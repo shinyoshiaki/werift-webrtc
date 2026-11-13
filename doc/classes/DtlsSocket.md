@@ -238,8 +238,10 @@ handshake flight stops retransmitting.
   transport once it has been sent, or after `timeoutMs`
   (default [DtlsSocket.AlertSendTimeoutMs](#alertsendtimeoutms)).
 
-The returned promise resolves once the transport is closed and never
-rejects.
+The returned promise resolves once the transport is closed (also when
+the close was already started, e.g. after a fatal alert: it waits for
+that close) and never rejects; a failing transport close() (a rejection
+or a synchronous throw) is only logged.
 
 #### Parameters
 
