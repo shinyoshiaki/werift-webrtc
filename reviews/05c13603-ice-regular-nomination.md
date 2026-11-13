@@ -4,7 +4,7 @@ ide:
   version: 1
   title: "ICE: semi-aggressive 既定と regular / renomination"
   dock: right
-  baseCommit: 1cce757fc5452c56e7ef819d5b0ea0a94b924417
+  baseCommit: 71c08f7689889d5ff1ed83e1e7fae04d40858980
 ---
 # ICE: 既定を semi-aggressive nomination にし、regular nomination と renomination を選べるようにする
 
@@ -17,6 +17,8 @@ ide:
 - **既定（設定なし）**: Chrome（libwebrtc）と同じ **semi-aggressive nomination** になります。最初に疎通したペアですぐ接続し（接続時間は従来と同じ）、後から成功した高優先度ペアに選択を移します。
 - **controlled 側**: 相手が後から別のペアを指名すると、それに従います（従来は最初の指名を使い続けていました）。
 - **オプション**: `PeerConfig.iceRenomination: true` で renomination（STUN 属性 `NOMINATION`、0xC001）を使えます。SDP に `a=ice-options:trickle renomination` を宣言します。`PeerConfig.iceNomination: "regular"` を指定すると、RFC 8445 の regular nomination（待ってから 1 ペアだけ指名）になります。
+- **選択後に失敗した上位ペア**: 選択ペアより優先度が高いのに check が失敗したペアは、失敗から 1・2・4・8・16 秒後に再 check します（合計約 31 秒。2.7）。
+- **controlled 側の同値の指名**: 指名の値が同じペアが複数あるときは、相手がデータを送ってきたペアを使います（libwebrtc と同じ。2.3）。
 - **ICE-TCP ペアと ICE-lite**: どのモードでも従来どおりです。
 
 <div style="display:flex;gap:12px;flex-wrap:wrap;font-family:var(--review-font)">
@@ -272,6 +274,18 @@ ide:
 - 受けた指名は `receivedNomination()` で値にします（[packages/ice/src/ice.ts:3015](review-file:packages/ice/src/ice.ts:3015)）。値はペアごとに最大値を `remoteNomination` に残します（[packages/ice/src/ice.ts:3390](review-file:packages/ice/src/ice.ts:3390)）。
 - テストは [packages/ice/tests/ice/semi-aggressive.test.ts:344](review-file:packages/ice/tests/ice/semi-aggressive.test.ts:344)（値の大きい NOMINATION が優先）と [packages/ice/tests/ice/semi-aggressive.test.ts:365](review-file:packages/ice/tests/ice/semi-aggressive.test.ts:365)（USE-CANDIDATE は優先度の高いペアが優先）です。
 
+#### 同じ指名の値のとき: 相手がデータを送るペアに従う
+
+指名の値が同じペアが複数あるとき、これまでは優先度の高いほうを選んでいました。ところが libwebrtc の controlling 側は、選択中のペアが働かなくなると、優先度の低いペアへ自分で移ることがあります。優先度で選ぶと、werift は相手が離れた経路へ送り続けてしまいます。
+
+そこで、値が同じ指名済みペアのあいだでは **相手が最後にアプリケーションデータを送ってきたペア** を選びます。データがまだ届いていない間は、従来どおり優先度の高いペアです。
+
+- 受信ごとに、そのペアへ増加する通し番号を記録します（`dataReceived`）。[packages/ice/src/ice.ts:3117](review-file:packages/ice/src/ice.ts:3117) で通し番号を比べ、[packages/ice/src/ice.ts:3140](review-file:packages/ice/src/ice.ts:3140) の `controlledDataReceived()` が受信時に置き換えを判定します。
+- 指名の値が小さいペアや、相手が指名していないペアにデータが届いても、選択は動きません。指名したのにデータを送らないペアは、データが届くまで選択を置き換えません。
+- ICE-TCP ペアは記録だけで、選択しません（選ぶと他の TCP 接続を整理するため）。
+- この判定のため、`Protocol.onDataReceived` が受信元のアドレスも渡すようになりました（[packages/ice/src/types/model.ts:51](review-file:packages/ice/src/types/model.ts:51)）。独自の `Protocol` 実装は `Event<[Buffer, Address]>` に合わせて、`execute(data, addr)` で呼ぶ必要があります（公開型の変更。5 章）。
+- テストは [packages/ice/tests/ice/semi-aggressive.test.ts:384](review-file:packages/ice/tests/ice/semi-aggressive.test.ts:384)（データを送るペアが優先）、[packages/ice/tests/ice/semi-aggressive.test.ts:406](review-file:packages/ice/tests/ice/semi-aggressive.test.ts:406)（データが来るまで置き換えない）、[packages/ice/tests/ice/semi-aggressive.test.ts:426](review-file:packages/ice/tests/ice/semi-aggressive.test.ts:426)（値が小さい・指名のないペアでは動かない）です。
+
 ### 2.4 semi-aggressive と renomination の違い
 
 ひとことで言うと、違いは次の 2 点です。
@@ -512,6 +526,39 @@ controlled 側が低優先度ペアで接続した時点で、高優先度ペア
 
 既定の semi-aggressive は「最初の成功で即選択」なので、接続完了までの流れは develop と同じです（この表の再計測はしていません）。
 
+### 2.7 選択後に失敗した上位ペアを再 check する
+
+semi-aggressive と renomination では、選択後も「選択ペアより優先度が高いペア」の check を続けます。そのペアが一度失敗すると、これまでは二度と check されませんでした。接続した瞬間だけ経路が途切れていた場合（例: 相手の check も失敗していて、相手から triggered check が来ない場合）に、回復した高優先度の経路へ移れなくなります。libwebrtc は接続に 30 秒間何も届かなくなるまで ping を続けるので、同じ性質に合わせました。
+
+<div style="display:flex;gap:12px;flex-wrap:wrap;font-family:var(--review-font)">
+  <div style="flex:1;min-width:250px;padding:10px 12px;border:1px solid var(--review-border);border-left:5px solid var(--review-danger);border-radius:6px">
+    <strong>Before</strong>
+    <ol style="margin:6px 0 0;padding-left:18px">
+      <li>低優先度ペアで接続（選択）</li>
+      <li>高優先度ペアの <code>checkStart()</code> が無応答で FAILED</li>
+      <li style="color:var(--review-danger)">経路が回復しても、再 check されない</li>
+      <li style="color:var(--review-danger)">相手から check が来なければ、低い経路に残る</li>
+    </ol>
+  </div>
+  <div style="flex:1;min-width:250px;padding:10px 12px;border:1px solid var(--review-border);border-left:5px solid var(--review-success);border-radius:6px">
+    <strong>After</strong>
+    <ol style="margin:6px 0 0;padding-left:18px">
+      <li>低優先度ペアで接続（選択）</li>
+      <li>高優先度ペアの <code>checkStart()</code> が無応答で FAILED</li>
+      <li style="color:var(--review-success)"><code>scheduleOutrankingRetries()</code> が 1 s 後に再 check</li>
+      <li style="color:var(--review-success)">失敗するたびに 2・4・8・16 s 後に再試行（合計約 31 s）</li>
+      <li style="color:var(--review-success)">成功したら <code>replacesSelection()</code> の経路で選択を置き換える</li>
+    </ol>
+  </div>
+</div>
+<div style="font-size:12px;color:var(--review-muted);margin-top:4px">Before / After とも、同じ「高優先度ペアの最初の check が失敗した」状態から始めています。</div>
+
+- 遅延は [packages/ice/src/ice.ts:89](review-file:packages/ice/src/ice.ts:89) の `OUTRANKING_RETRY_DELAYS_MS`（1・2・4・8・16 s）です。5 回の再試行で終わります。
+- 再試行を予約するのは [packages/ice/src/ice.ts:2640](review-file:packages/ice/src/ice.ts:2640) の `scheduleOutrankingRetries()` です。controlling で semi-aggressive または renomination のときだけ働きます。ペアごとに同時に待つ再試行は 1 つで、[packages/ice/src/ice.ts:2683](review-file:packages/ice/src/ice.ts:2683) の `retryOutrankingPair()` が実行時にもう一度条件（restart していない、ペアが checklist にある、まだ選択を上回る、など）を確かめます。
+- ペアが成功したら `forgetOutrankingRetry()` で打ち切り、restart・close・ロール変更では `clearOutrankingRetries()` が保留中のタイマーをすべて解除します。
+- 選択を上回らない失敗ペアは再 check しません。regular nomination にも影響しません。
+- テストは [packages/ice/tests/ice/semi-aggressive.test.ts:546](review-file:packages/ice/tests/ice/semi-aggressive.test.ts:546)（semi-aggressive）、[packages/ice/tests/ice/semi-aggressive.test.ts:569](review-file:packages/ice/tests/ice/semi-aggressive.test.ts:569)（renomination）、[packages/ice/tests/ice/semi-aggressive.test.ts:589](review-file:packages/ice/tests/ice/semi-aggressive.test.ts:589)（1・2・4・8・16 s の間隔と 5 回で停止）、[packages/ice/tests/ice/semi-aggressive.test.ts:614](review-file:packages/ice/tests/ice/semi-aggressive.test.ts:614)（上回らないペアは対象外）、[packages/ice/tests/ice/semi-aggressive.test.ts:638](review-file:packages/ice/tests/ice/semi-aggressive.test.ts:638)（close とロール変更で停止）です。
+
 ## 3. 主要変更（ファイル別）
 
 ### 3.1 公開 API とオプション
@@ -524,6 +571,7 @@ controlled 側が低優先度ペアで接続した時点で、高優先度ペア
 | `RTCIceGatherer` への受け渡し | [packages/webrtc/src/secureTransportManager.ts:226](review-file:packages/webrtc/src/secureTransportManager.ts:226) |
 | SDP の `a=ice-options:trickle renomination` 宣言 | [packages/webrtc/src/sdpManager.ts:63](review-file:packages/webrtc/src/sdpManager.ts:63) |
 | 相手の `renomination` 宣言の読み取り（session / media） | [packages/webrtc/src/negotiation/remoteMediaApplication.ts:498](review-file:packages/webrtc/src/negotiation/remoteMediaApplication.ts:498) |
+| `Protocol.onDataReceived` が受信元の `Address` も渡す（`Event<[Buffer, Address]>`） | [packages/ice/src/types/model.ts:51](review-file:packages/ice/src/types/model.ts:51) |
 | `getSelectedCandidatePair()` は選択済みのペアだけを返す（R11） | [packages/webrtc/src/transport/ice.ts:641](review-file:packages/webrtc/src/transport/ice.ts:641) |
 
 `iceRenomination` が既定の `false` なら、SDP は従来どおり `a=ice-options:trickle` だけです。
@@ -549,7 +597,8 @@ develop の `candidatePairPriority()` は `(1 << 32) * MIN + 2 * MAX + tie` で�
 4. 選択後の上位ペアの check: [packages/ice/src/ice.ts:3094](review-file:packages/ice/src/ice.ts:3094)
 5. 受信した指名（controlled）: [packages/ice/src/ice.ts:3329](review-file:packages/ice/src/ice.ts:3329)
 6. ロール変更時の指名の無効化（R5）と、選択済みペアの再指名（R16）: [packages/ice/src/ice.ts:2383](review-file:packages/ice/src/ice.ts:2383)、[packages/ice/src/ice.ts:2411](review-file:packages/ice/src/ice.ts:2411)
-7. regular nomination: [packages/ice/src/ice.ts:3645](review-file:packages/ice/src/ice.ts:3645)、[packages/ice/src/ice.ts:3772](review-file:packages/ice/src/ice.ts:3772)
+7. 同値の指名の選び方（データを送るペア）と上位ペアの再 check: [packages/ice/src/ice.ts:3117](review-file:packages/ice/src/ice.ts:3117)、[packages/ice/src/ice.ts:3140](review-file:packages/ice/src/ice.ts:3140)、[packages/ice/src/ice.ts:2640](review-file:packages/ice/src/ice.ts:2640)
+8. regular nomination: [packages/ice/src/ice.ts:3645](review-file:packages/ice/src/ice.ts:3645)、[packages/ice/src/ice.ts:3772](review-file:packages/ice/src/ice.ts:3772)
 
 全体の差分は [packages/ice/src/ice.ts](review-diff:packages/ice/src/ice.ts:2855) から辿れます。
 
@@ -572,6 +621,7 @@ S10 を入れたところ、webrtc の leak property の 1 ケース（「a BUND
 
 - 原因はログで確かめました。loopback では、controlling 側が host ↔ host、controlled 側が `127.0.0.1` の peer-reflexive ペアで先に接続することがあります。ワイルドカードの socket から `127.0.0.1` 宛てに送ると、送信元も `127.0.0.1` になるためです。
 - HEAD では、この食い違いが気づかれないまま固定されていました。S10 で controlled 側が十数 ms 後に controlling 側と同じペアへ移るようになり、その移動を旧 oracle が検出していました。oracle を調整した後は 15 回中 0 回の失敗です。
+- 最新のコミットで、controlled 側が同じ指名の値のペア間をデータに従って移る場合も「ICE 自身による置き換え」に含めました（[packages/webrtc/tests/pbt/model/oracles.ts:867](review-diff:packages/webrtc/tests/pbt/model/oracles.ts:867)）。
 - 変更箇所は [packages/webrtc/tests/pbt/model/oracles.ts:713](review-file:packages/webrtc/tests/pbt/model/oracles.ts:713) と [packages/webrtc/tests/pbt/model/oracles.ts:848](review-file:packages/webrtc/tests/pbt/model/oracles.ts:848) です。
 
 ### 3.5 CI 修正（SCTP のバースト計測テスト）
@@ -603,26 +653,36 @@ S10 を入れたところ、webrtc の leak property の 1 ケース（「a BUND
 - **controlled 側の挙動の変更**: 相手が後から別のペアを指名すると、そのペアに移ります。1 回しか指名しない相手では変化はありません。
 - **指名の応答が失われたときの一時的な食い違い**: semi-aggressive では、相手が受理したのに応答だけが失われると、両端の経路が一時的に食い違うことがあります。werift はどのペアで届いたデータも受け取るので、通信は続きます（libwebrtc と同じ性質）。
 - **Chrome の renomination は SDP の書き換えに依存**: Chrome はこの書き換えを SDP munging（種類 28）として計測しており、将来拒否される可能性があります。E2E もこの書き換えに依存しています。
+- **公開型の変更**: `Protocol.onDataReceived` が `Event<[Buffer, Address]>` になりました。独自の `Protocol` 実装を持つ利用側は、`execute(data, addr)` で受信元を渡す必要があります。内蔵の 5 つの実装（`StunProtocol` / `TcpActiveProtocol` / `TcpPassiveProtocol` / `TurnProtocol` / `StunOverTurnProtocol`）は対応済みで、`doc/` も再生成されています。
+- **再 check のコスト**: 選択を上回る失敗ペアごとに、最大 5 回（約 31 秒）の check が増えます。ペア数が多い環境で、無駄な STUN トラフィックにならないか確認してください。
+- **データによる選択の移動**: controlled 側は、指名済みで値が同じペアにデータが届くと選択を移します。相手が複数の経路へ同時にデータを送る場合に、選択が頻繁に動かないか確認してください。
 - **`candidatePairPriority()` の値**: `MAX_SAFE_INTEGER` を超えることがあります。順序の比較には `compareCandidatePairPriority()` を使ってください。
 - **oracle の緩和範囲**: 3.4 で許したのは「ICE 自身による置き換え」に当たる変化だけです。この範囲が妥当か確認してください。
 - **チケット範囲を超える変更**: ペア優先度の修正、regular の再送・断念、487 の扱い、provisional の対応、`getSelectedCandidatePair()` の変更を含みます。いずれも changelog に書いています（[changelog.md](review-diff:changelog.md)）。
 
 ## 6. 検証結果
 
-### 6.1 この文書の更新時に実行したもの（HEAD `1cce757fc`）
+### 6.1 この文書の更新時に実行したもの（HEAD `71c08f768`）
 
-作業ツリーに未コミットの変更はありません。
+作業ツリーに未コミットの変更はありません（この文書の作成前）。
+
+| 内容 | 結果 |
+| --- | --- |
+| `npm run type` | 成功（終了コード 0） |
+| `cd packages/ice && npm test` | 48 ファイル成功・1 スキップ。521 件成功・5 件スキップ |
+
+### 6.1.1 直前の更新（HEAD `1cce757fc`）で実行したもの
 
 | 内容 | 結果 |
 | --- | --- |
 | `npm run type` | 成功 |
 | `cd packages/ice && npm test` | 48 ファイル成功・1 スキップ。510 件成功・5 件スキップ |
-| webrtc `tests/transport/ice.test.ts` と `tests/pbt/model`（oracle を使う model property） | 2 ファイル成功。88 件成功・2 件スキップ |
+| webrtc `tests/transport/ice.test.ts` と `tests/pbt/model` | 2 ファイル成功。88 件成功・2 件スキップ |
 | sctp `tests/burst.test.ts`（3.5） | 6 件成功 |
 
 ### 6.2 前回のレビュー修正（S10）のときに実行したもの
 
-コード内容は今の HEAD と同じです（その後の差分は 3.5 の SCTP テストだけ）。
+コードは今の HEAD より前のものです。その後に 3.5 の SCTP テストと、2.3 の同値の指名、2.7 の再 check が加わりました。
 
 | 内容 | 結果 |
 | --- | --- |
@@ -636,4 +696,5 @@ S10 を入れたところ、webrtc の leak property の 1 ケース（「a BUND
 ### 6.3 実行していないもの
 
 - `npm run wpt`、`npm run ci`（全体）、`npm run examples:e2e`
+- 2.3 の同値の指名と 2.7 の再 check を入れた後の webrtc パッケージのテストと E2E（Chrome）。oracle の変更（3.4）は、この更新では再実行していません
 - 2.6 の接続時間の表の再計測
