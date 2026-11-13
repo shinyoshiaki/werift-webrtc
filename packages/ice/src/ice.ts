@@ -80,6 +80,13 @@ const ICE_NOMINATION_ABANDONED = 3;
  * pacing and a TCP check's response timeout (`TCP_CHECK_RESPONSE_TIMEOUT_MS`).
  */
 const PREFERRED_PAIR_WAIT_MS = 3000;
+/**
+ * Semi-aggressive nomination and renomination: delays before a failed pair
+ * that outranks the selection is checked again (`retryOutrankingPair`), one
+ * per retry. As libwebrtc keeps pinging a connection until it has heard
+ * nothing for 30 s, the retries end about 31 s after the failure.
+ */
+const OUTRANKING_RETRY_DELAYS_MS = [1000, 2000, 4000, 8000, 16000] as const;
 
 export class Connection implements IceConnection {
   private _iceControlling: boolean;
@@ -168,6 +175,21 @@ export class Connection implements IceConnection {
   private nominationHint?: NominationHint;
   /** USE-CANDIDATE re-sent for a pair selected before the agent became controlling (`confirmSelections`). */
   private readonly selectionConfirmations = new Set<AbortController>();
+  /**
+   * Controlled agent: when each live pair last received application data
+   * (an increasing sequence, larger is more recent). Between nominated pairs
+   * of equal nomination, the one the peer sends on wins (`replacesSelectedPair`).
+   */
+  private readonly dataReceived = new WeakMap<CandidatePair, number>();
+  private dataReceivedSequence = 0;
+  /**
+   * Retries of failed pairs that outrank the selection
+   * (`scheduleOutrankingRetries`): how many ran, and the pending timer.
+   */
+  private readonly outrankingRetries = new Map<
+    CandidatePair,
+    { retries: number; timer?: ReturnType<typeof setTimeout> }
+  >();
   /**
    * Aborted when the remote generation ends (restart, restartRemote, close):
    * every check and nomination transaction of that generation stops with it.
@@ -441,6 +463,7 @@ export class Connection implements IceConnection {
     this.remoteChecks.abort();
     this.remoteChecks = new AbortController();
     for (const pair of this.checkList) pair.handle?.resolve?.();
+    this.clearOutrankingRetries();
   }
 
   /**
@@ -1295,13 +1318,16 @@ export class Connection implements IceConnection {
         this.checkIncoming(msg, addr, protocol);
       }
     });
-    protocol.onDataReceived.subscribe((data) => {
+    protocol.onDataReceived.subscribe((data, addr) => {
       try {
         // Update statistics for the nominated pair
         const activePair = this.nominated;
         if (activePair && activePair.protocol === protocol) {
           activePair.packetsReceived++;
           activePair.bytesReceived += data.length;
+        }
+        if (!this.iceControlling && addr) {
+          this.controlledDataReceived(protocol, addr);
         }
 
         this.onData.execute(data);
@@ -2381,6 +2407,7 @@ export class Connection implements IceConnection {
     const becameControlling = !this._iceControlling && iceControlling;
     if (this._iceControlling !== iceControlling) {
       this.invalidateNominations();
+      this.clearOutrankingRetries();
       // USE-CANDIDATE received while controlled came from a peer that was
       // controlling then; as the controlling agent this one nominates itself.
       if (iceControlling) {
@@ -2495,6 +2522,7 @@ export class Connection implements IceConnection {
   private checkComplete(pair: CandidatePair) {
     pair.handle = undefined;
     if (pair.state === CandidatePairState.SUCCEEDED) {
+      this.forgetOutrankingRetry(pair);
       // Updating the Nominated Flag
 
       // https://www.rfc-editor.org/rfc/rfc8445#section-7.3.1.5,
@@ -2575,6 +2603,7 @@ export class Connection implements IceConnection {
         if (this.iceControlling && this.replacesSelection()) {
           this.evaluateSelection();
           void this.checkOutrankingPairs();
+          this.scheduleOutrankingRetries();
         }
         return;
       }
@@ -2594,8 +2623,96 @@ export class Connection implements IceConnection {
 
     this.nomination.evaluate();
     this.evaluateSelection();
+    this.scheduleOutrankingRetries();
 
     this.failCheckListIfExhausted();
+  }
+
+  /**
+   * Semi-aggressive nomination and renomination (controlling): a pair that
+   * outranks the selection but failed (a check or nomination that went
+   * unanswered, e.g. while the path was briefly down) is checked again after
+   * `OUTRANKING_RETRY_DELAYS_MS`, as libwebrtc keeps pinging its
+   * connections. Without it the agents stay on the lower path when the
+   * peer does not trigger a check on that pair either (e.g. its own check
+   * failed too). Each pair waits for one retry at a time.
+   */
+  private scheduleOutrankingRetries() {
+    const selected = this.nominated;
+    if (
+      !selected ||
+      this.state === "closed" ||
+      !this.iceControlling ||
+      !this.replacesSelection()
+    ) {
+      return;
+    }
+    for (const pair of this.checkList) {
+      if (!this.retriesOutranking(pair, selected)) continue;
+      let entry = this.outrankingRetries.get(pair);
+      if (!entry) {
+        entry = { retries: 0 };
+        this.outrankingRetries.set(pair, entry);
+      }
+      if (
+        entry.timer !== undefined ||
+        entry.retries >= OUTRANKING_RETRY_DELAYS_MS.length
+      ) {
+        continue;
+      }
+      const current = entry;
+      const remoteGeneration = this.remoteGeneration;
+      current.timer = setTimeout(() => {
+        current.timer = undefined;
+        current.retries++;
+        this.retryOutrankingPair(pair, remoteGeneration);
+      }, OUTRANKING_RETRY_DELAYS_MS[current.retries]);
+    }
+  }
+
+  /** `pair` failed, outranks `selected` and may replace it. */
+  private retriesOutranking(pair: CandidatePair, selected: CandidatePair) {
+    return (
+      pair.state === CandidatePairState.FAILED &&
+      this.replacesWith(pair) &&
+      this.outranks(pair, selected)
+    );
+  }
+
+  /** A retry of `scheduleOutrankingRetries` is due: check `pair` again. */
+  private retryOutrankingPair(pair: CandidatePair, remoteGeneration: number) {
+    const selected = this.nominated;
+    if (
+      !selected ||
+      this.state === "closed" ||
+      this.remoteGeneration !== remoteGeneration ||
+      !this.iceControlling ||
+      !this.replacesSelection() ||
+      !this.checkList.includes(pair) ||
+      !this.retriesOutranking(pair, selected)
+    ) {
+      return;
+    }
+    log("retry outranking pair", pair.toJSON());
+    // One check per due retry (each pair has its own timer), so it starts
+    // at once instead of waiting for the paced `checkOutrankingPairs`.
+    pair.handle = this.checkStart(pair);
+  }
+
+  /** `pair` succeeded: its retries of `scheduleOutrankingRetries` are over. */
+  private forgetOutrankingRetry(pair: CandidatePair) {
+    const entry = this.outrankingRetries.get(pair);
+    if (!entry) return;
+    if (entry.timer !== undefined) clearTimeout(entry.timer);
+    this.outrankingRetries.delete(pair);
+  }
+
+  /** Stop the retries of `scheduleOutrankingRetries` (restart, close, role change). */
+  private clearOutrankingRetries() {
+    for (const entry of this.outrankingRetries.values()) {
+      if (entry.timer !== undefined) clearTimeout(entry.timer);
+    }
+    this.outrankingRetries.clear();
   }
 
   /**
@@ -2997,6 +3114,12 @@ export class Connection implements IceConnection {
       if (pair.remoteNomination !== selected.remoteNomination) {
         return pair.remoteNomination > selected.remoteNomination;
       }
+      // Equal nominations: the pair the peer last sent data on, as libwebrtc
+      // (the peer's own selection may move to a lower-priority pair, e.g.
+      // when the selected one stopped working).
+      const received = this.dataReceived.get(pair) ?? 0;
+      const selectedReceived = this.dataReceived.get(selected) ?? 0;
+      if (received !== selectedReceived) return received > selectedReceived;
       return this.outranks(pair, selected);
     }
     if (!this.replacesWith(pair)) return false;
@@ -3005,6 +3128,36 @@ export class Connection implements IceConnection {
       return this.outranks(pair, selected);
     }
     return false;
+  }
+
+  /**
+   * Controlled agent: application data arrived on the live pair of
+   * `protocol` and `addr`. Record it (`dataReceived`) and, when the pair is
+   * nominated but not selected, let it replace the selection if the peer
+   * now sends on it (`replacesSelectedPair`). ICE-TCP pairs only record:
+   * selecting one prunes the other TCP connections.
+   */
+  private controlledDataReceived(protocol: Protocol, addr: Address) {
+    const selected = this.nominated;
+    const sameAddress = (pair: CandidatePair) =>
+      pair.protocol === protocol &&
+      pair.remoteAddr[0] === addr[0] &&
+      pair.remoteAddr[1] === addr[1];
+    const pair =
+      selected && sameAddress(selected)
+        ? selected
+        : this.checkList.find(sameAddress);
+    if (!pair) return;
+    this.dataReceived.set(pair, ++this.dataReceivedSequence);
+    if (
+      pair !== selected &&
+      pair.nominated &&
+      pair.state === CandidatePairState.SUCCEEDED &&
+      !this.isTcpPair(pair) &&
+      this.replacesSelectedPair(pair)
+    ) {
+      this.checkComplete(pair);
+    }
   }
 
   /**

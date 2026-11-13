@@ -843,7 +843,9 @@ const remoteOf = (pc: RTCPeerConnection, t: RTCRtpTransceiver) =>
  * `now` replaced `selected` as ICE does by itself: both are pairs of the
  * current checklist (no restart or reset dropped `selected`), and `now`
  * carries a larger nomination (sent while controlling, received while
- * controlled), or the same one and a higher priority.
+ * controlled), or the same one and a higher priority. A controlled agent
+ * also moves between nominated pairs of the same nomination to the one the
+ * peer sends data on (as libwebrtc), whatever their priority.
  */
 function iceReplaced(
   connection: IceConnection,
@@ -862,6 +864,7 @@ function iceReplaced(
   if (nomination(now) !== nomination(selected)) {
     return nomination(now) > nomination(selected);
   }
+  if (!connection.iceControlling && now.nominated) return true;
   return (
     compareCandidatePairPriority(
       now.localCandidate,

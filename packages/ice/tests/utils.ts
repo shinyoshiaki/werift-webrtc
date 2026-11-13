@@ -107,7 +107,7 @@ export class ConsentMockProtocol implements Protocol {
   type: string;
   localCandidate: Candidate;
   onRequestReceived = new Event<[Message, any, Buffer]>();
-  onDataReceived = new Event<[Buffer]>();
+  onDataReceived = new Event<[Buffer, Address]>();
   sentMessages: Message[] = [];
   sendStunCount = 0;
   requestTimes: number[] = [];
@@ -1439,7 +1439,7 @@ export class ScriptedCheckProtocol implements Protocol {
   type: string;
   localCandidate: Candidate;
   onRequestReceived = new Event<[Message, any, Buffer]>();
-  onDataReceived = new Event<[Buffer]>();
+  onDataReceived = new Event<[Buffer, Address]>();
   readonly requests: ScriptedRequest[] = [];
   readonly request: Protocol["request"];
 
@@ -1663,6 +1663,12 @@ export function createNominationHarness({
   (connection as unknown as { protocols: Protocol[] }).protocols.push(
     ...protocols,
   );
+  // As gathering does: the agent listens to each socket's events.
+  for (const local of protocols) {
+    (
+      connection as unknown as { ensureProtocol(protocol: Protocol): void }
+    ).ensureProtocol(local);
+  }
 
   let port = 5000;
   const remoteCandidate = (priority: number) =>
@@ -1913,11 +1919,19 @@ export function createNominationHarness({
       pair.protocol,
     );
 
+  /** The peer sends application data on `pair` (it arrives from its remote address). */
+  const receiveData = (pair: CandidatePair) =>
+    (pair.protocol as ScriptedCheckProtocol).onDataReceived.execute(
+      Buffer.from("data"),
+      pair.remoteAddr,
+    );
+
   return {
     connection,
     protocol,
     switchRole,
     receiveNomination,
+    receiveData,
     receiveProvisionalNomination,
     timeOutPending,
     requests,
@@ -2943,12 +2957,16 @@ export function selectSamePath(a: Connection, b: Connection) {
  * candidate, and a controlled host-only agent `b`. The host ↔ host pair
  * outranks the relay one, but the requests of both agents on it wait
  * (unsent, cancellable) until `open()`: the agents select the relay pair
- * first, while `b`'s check of the host pair is still in flight.
+ * first, while `b`'s check of the host pair is still in flight. With
+ * `drop`, those requests are lost instead (they time out at once), so both
+ * agents' checks of the host pair fail before `open()`.
  */
 export async function createDelayedPreferredPathPair({
   renomination = false,
+  drop = false,
 }: {
   renomination?: boolean;
+  drop?: boolean;
 } = {}) {
   const host = getHostAddresses(true, false)[0]!;
   const server = await createLocalTurnServer(host);
@@ -2964,9 +2982,13 @@ export async function createDelayedPreferredPathPair({
   await Promise.all([a.gatherCandidates(), b.gatherCandidates()]);
   exchangeIceCredentials(a, b);
 
+  let isOpen = false;
   let open!: () => void;
   const opened = new Promise<void>((resolve) => {
-    open = resolve;
+    open = () => {
+      isOpen = true;
+      resolve();
+    };
   });
   const hostOf = (connection: Connection) =>
     connection.localCandidates.find((candidate) => candidate.type === "host")!;
@@ -2982,6 +3004,10 @@ export async function createDelayedPreferredPathPair({
         options?: TransactionRequestOptions,
       ) => {
         if (address[0] === peer.host && address[1] === peer.port) {
+          if (drop && !isOpen) {
+            await new Promise((resolve) => setTimeout(resolve, 10));
+            throw new TransactionTimeout();
+          }
           const signal = options?.signal;
           await new Promise<void>((resolve, reject) => {
             const abort = () => reject(new TransactionCancelled());
@@ -3013,12 +3039,20 @@ export async function createDelayedPreferredPathPair({
         pair.localCandidate.type === "host" &&
         pair.remoteCandidate.type === "host",
     )!;
+  /** `connection`'s relay pair (a's relay candidate ↔ b's host). */
+  const relayPair = (connection: Connection) =>
+    connection.checkList.find(
+      (pair) =>
+        pair.localCandidate.type === "relay" ||
+        pair.remoteCandidate.type === "relay",
+    )!;
   return {
     a,
     b,
     open,
     selectsPreferred,
     preferredPair,
+    relayPair,
     close: async () => {
       await Promise.allSettled([a.close(), b.close()]);
       await server.close();
