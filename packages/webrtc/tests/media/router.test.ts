@@ -1862,7 +1862,7 @@ describe("media/router: a=ssrc のない m-line の SSRC 学習 (#356)", () => {
     expect(router.ssrcTable[9]).toBeUndefined();
   });
 
-  test("別 transport で学習した SSRC と同じ SSRC のパケットは、その receiver に誤配送しない", () => {
+  test("別 transport で同じ数値の SSRC を学習しても、それぞれの receiver に配送する", () => {
     // Arrange: transport A の receiver が SSRC 55 を学習済み
     const { router, dtls, addReceiver } = createSsrcLessRouter();
     const otherTransport = createDtlsTransport();
@@ -1880,7 +1880,7 @@ describe("media/router: a=ssrc のない m-line の SSRC 学習 (#356)", () => {
       dtls,
     );
 
-    // Act: transport B から同じ SSRC のパケットが届く
+    // Act: transport B から同じ SSRC のパケットが届き、その後は MID なしで両方に流れる
     router.routeRtp(
       ssrcLessPacket({
         ssrc: 55,
@@ -1891,20 +1891,49 @@ describe("media/router: a=ssrc のない m-line の SSRC 学習 (#356)", () => {
       otherTransport,
     );
     router.routeRtp(
-      ssrcLessPacket({
-        ssrc: 55,
-        payloadType: 111,
-        sequenceNumber: 3,
-        mid: "a",
-      }),
+      ssrcLessPacket({ ssrc: 55, payloadType: 111, sequenceNumber: 3 }),
       dtls,
     );
+    router.routeRtp(
+      ssrcLessPacket({ ssrc: 55, payloadType: 111, sequenceNumber: 4 }),
+      otherTransport,
+    );
 
-    // Assert: A の receiver には A の transport のパケットだけが届き、経路は A のまま
+    // Assert: A の経路は維持され、B にも自分の transport のパケットだけが届く
     expect(aPayloads).toEqual(["payload-1", "payload-3"]);
-    expect(bPayloads).toEqual([]);
+    expect(bPayloads).toEqual(["payload-2", "payload-4"]);
     expect(router.ssrcTable[55]).toBe(a.receiver);
-    expect(b.receiver.fallbackSsrc).toBeUndefined();
+    expect(a.receiver.fallbackSsrc).toBe(55);
+    expect(b.receiver.fallbackSsrc).toBe(55);
+  });
+
+  test("別 transport の同一 SSRC の経路は transceiver の登録解除で残らない", () => {
+    // Arrange
+    const { router, dtls, transceivers, addReceiver } = createSsrcLessRouter();
+    const otherTransport = createDtlsTransport();
+    const a = addReceiver({ mid: "a" });
+    const b = addReceiver({ mid: "b", transport: otherTransport });
+    const bPayloads = collectTrackPayloads(b);
+    router.routeRtp(
+      ssrcLessPacket({ ssrc: 55, payloadType: 111, mid: "a" }),
+      dtls,
+    );
+    router.routeRtp(
+      ssrcLessPacket({ ssrc: 55, payloadType: 111, mid: "b" }),
+      otherTransport,
+    );
+
+    // Act: B の transceiver を解除してから同じ SSRC を B の transport へ流す
+    router.unregisterTransceiver(b);
+    transceivers.splice(transceivers.indexOf(b), 1);
+    router.routeRtp(
+      ssrcLessPacket({ ssrc: 55, payloadType: 111, sequenceNumber: 9 }),
+      otherTransport,
+    );
+
+    // Assert: 解除済みの receiver には届かず、A の経路は残る
+    expect(bPayloads).toEqual(["payload-1"]);
+    expect(router.ssrcTable[55]).toBe(a.receiver);
   });
 
   test("a=ssrc のある m-line は未知 SSRC の候補にならない", () => {

@@ -65,7 +65,6 @@ const UnknownSsrcDrop = {
   noCandidate: "no candidate",
   ambiguous: "ambiguous",
   retired: "retired fallback ssrc",
-  ssrcInUse: "ssrc learned on another transport",
 } as const;
 type UnknownSsrcDrop = (typeof UnknownSsrcDrop)[keyof typeof UnknownSsrcDrop];
 
@@ -159,6 +158,17 @@ export class RtpRouter {
    * no table of its own for it, so negotiation snapshots stay as they are.
    */
   transceivers: () => readonly RTCRtpTransceiver[] = () => [];
+  /**
+   * Fallback routes whose SSRC `ssrcTable` already holds for a receiver of
+   * another transport (an SSRC is unique per RTP session only). Packet-driven
+   * like `learnedSsrcs`, not part of a negotiation baseline: an entry is
+   * valid only while its receiver still has the SSRC as a fallback track.
+   * RTCP does not use it (`ssrcTable` has one entry per SSRC).
+   */
+  private collidingRoutes = new Map<
+    RTCDtlsTransport,
+    Map<number, RTCRtpReceiver>
+  >();
   /** Last logged drop of an unknown SSRC, so a stream logs a reason once. */
   private lastUnknownSsrcDrop?: string;
 
@@ -281,6 +291,12 @@ export class RtpRouter {
   unregisterTransceiver(transceiver: RTCRtpTransceiver) {
     transceiver.receiver.releaseFallbackSsrc();
     transceiver.receiver.takeForgottenSsrcs();
+    for (const [transport, routes] of this.collidingRoutes) {
+      for (const [ssrc, receiver] of routes) {
+        if (receiver === transceiver.receiver) routes.delete(ssrc);
+      }
+      if (routes.size === 0) this.collidingRoutes.delete(transport);
+    }
     for (const [ssrc, receiver] of this.stagedSsrc) {
       if (receiver === transceiver.receiver) this.stagedSsrc.delete(ssrc);
     }
@@ -461,6 +477,8 @@ export class RtpRouter {
       !!rtpReceiver &&
       this.isForeignLearnedRoute(ssrc, rtpReceiver, dtlsTransport);
     if (foreignLearnedRoute) rtpReceiver = undefined;
+    const colliding = this.collidingRoute(dtlsTransport, ssrc);
+    if (colliding) rtpReceiver = colliding;
 
     const rid = extensions[RTP_EXTENSION_URI.sdesRTPStreamID];
     const repairedRid = extensions[RTP_EXTENSION_URI.repairedRtpStreamId];
@@ -560,9 +578,8 @@ export class RtpRouter {
    * nothing pairs it with the media SSRC. A replaced fallback SSRC loses its
    * route after the packet (`takeForgottenSsrcs`) and is not learned again
    * (`isRetiredFallbackSsrc`): a late packet of the old stream is dropped.
-   * An SSRC learned on another transport is not taken over (`ssrcTable` has
-   * one entry per SSRC): such packets are dropped, never delivered across
-   * transports.
+   * An SSRC `ssrcTable` holds for another transport's receiver is routed
+   * through `collidingRoutes`, so each transport keeps its own receiver.
    * Receiving is decided by the committed `currentDirection`; a pending
    * description decides only before the first commit.
    */
@@ -582,11 +599,6 @@ export class RtpRouter {
       return undefined;
     };
     if (!transport) return drop(UnknownSsrcDrop.noTransport);
-    const owner = this.ssrcTable[ssrc];
-    if (owner && this.isForeignLearnedRoute(ssrc, owner, transport)) {
-      // ssrcTable has one entry per SSRC: the other transport keeps it.
-      return drop(UnknownSsrcDrop.ssrcInUse);
-    }
     if (repaired) return drop(UnknownSsrcDrop.rtx);
     // A late packet of an SSRC a receiver replaced is not a new stream.
     if (
@@ -667,10 +679,37 @@ export class RtpRouter {
       log("fallback ssrc replaced", { replaced, ssrc });
     }
     log("fallback register receiver by ssrc", ssrc);
-    this.ssrcTable[ssrc] = receiver;
-    this.learnedSsrcs.add(ssrc);
+    const owner = this.ssrcTable[ssrc];
+    if (owner && this.isForeignLearnedRoute(ssrc, owner, transport)) {
+      // The SSRC is learned on another transport: this one keeps its own route.
+      let routes = this.collidingRoutes.get(transport);
+      if (!routes) this.collidingRoutes.set(transport, (routes = new Map()));
+      routes.set(ssrc, receiver);
+    } else {
+      this.ssrcTable[ssrc] = receiver;
+      this.learnedSsrcs.add(ssrc);
+    }
     this.lastUnknownSsrcDrop = undefined;
     return receiver;
+  }
+
+  private collidingRoute(
+    transport: RTCDtlsTransport | undefined,
+    ssrc: number,
+  ) {
+    const routes = transport && this.collidingRoutes.get(transport);
+    const receiver = routes && routes.get(ssrc);
+    if (!routes || !receiver) return undefined;
+    if (receiver.trackBySSRC[ssrc] && !receiver.stopped) return receiver;
+    this.dropCollidingRoute(ssrc, receiver);
+    return undefined;
+  }
+
+  private dropCollidingRoute(ssrc: number, receiver: RTCRtpReceiver) {
+    const routes = this.collidingRoutes.get(receiver.dtlsTransport);
+    if (routes?.get(ssrc) !== receiver) return;
+    routes.delete(ssrc);
+    if (routes.size === 0) this.collidingRoutes.delete(receiver.dtlsTransport);
   }
 
   /** A route packets taught for a receiver of a transport other than `transport`. */
@@ -697,6 +736,7 @@ export class RtpRouter {
 
   /** Drop a learned route of `receiver`; a description's route stays. */
   private unlearnSsrc(ssrc: number, receiver: RTCRtpReceiver) {
+    this.dropCollidingRoute(ssrc, receiver);
     if (!this.learnedSsrcs.has(ssrc) || this.ssrcTable[ssrc] !== receiver) {
       return;
     }
