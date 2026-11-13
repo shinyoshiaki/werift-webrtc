@@ -101,8 +101,10 @@ preference; `vmnet` / `veth` interfaces are excluded. The default-route
 address gets the highest local preference, so checks start with the path
 the OS uses: the source address of the route to the first configured
 STUN / TURN server that resolves in the family and has a route (UDP
-`connect()`, no packet is sent), or of the route to the Internet without
-one. With a STUN server, a wildcard socket per family maps the route the
+`connect()`, no packet is sent). A family without such a server has no
+default-route address: no other address (no public one) is probed in
+its place, and its host candidates keep the gathering order. With a STUN
+server, a wildcard socket per family maps the route the
 OS picks (see `stunServers`).
 
 A family set to the wildcard address (`0.0.0.0` / `::`) gathers its

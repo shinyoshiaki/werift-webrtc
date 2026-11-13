@@ -87,7 +87,8 @@ export interface PeerConfig {
    * advertised. VPN / tunnel interfaces (`tun`, `utun`, `ipsec`, `tap`) are
    * gathered with a low priority and the default-route address with the
    * highest: the source address of the route to the configured STUN / TURN
-   * server (to the Internet without one). With a STUN server, one more socket per family is bound to the
+   * server (without one, no address is preferred and nothing else is probed).
+   * With a STUN server, one more socket per family is bound to the
    * wildcard address: it advertises no host candidate but maps the route the
    * OS picks (server-reflexive candidate with `raddr 0.0.0.0`).
    * `setLocalDescription()` waits only for that socket and the

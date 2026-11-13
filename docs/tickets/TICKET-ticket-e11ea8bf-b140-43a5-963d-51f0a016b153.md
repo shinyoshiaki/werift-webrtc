@@ -188,8 +188,8 @@
    - 既定経路の IP は、**設定された STUN / TURN server への経路の送信元 IP** とする（2026-11-12 の追加依頼で変更）。
      - 優先順に、そのファミリーで解決でき、経路があるものを選ぶ。順序は STUN server、TURN server。
      - ホスト名は 1 秒以内に解決できたものだけを使う。別ファミリーのリテラルは対象外。
-     - 該当する server がなければ、公開アドレス（`8.8.8.8` / `2001:4860:4860::8888`）への経路にフォールバックする（libwebrtc の `QueryDefaultLocalAddress` 相当）。
-     - どちらも UDP `connect` で経路だけを調べ、パケットは送らない。server 向けと公開アドレス向けは並行して調べるので、フォールバックで待ち時間は増えない。
+     - 該当する server がなければ、そのファミリーには既定経路がないものとして扱う。**公開アドレスなど、ほかのアドレスへのフォールバックのプローブは行わない**（2026-11-13 の追加要件で廃止。§1-7 を参照）。
+     - プローブは UDP `connect` で経路だけを調べ、パケットは送らない。
      - 理由: srflx の問い合わせが実際に通る経路を優先できる。Internet への経路がない閉域網でも、社内の STUN / TURN への経路で判定できる。プローブ先を Google のアドレスに固定しない。
    - UDP host の local preference は次のとおり。
    - 既定経路: 65535
@@ -197,11 +197,25 @@
    - costly: 16383
    - 同じ区分の中では収集順に 1 ずつ下げ、値が重ならないようにする。ICE restart で再利用するソケットを含めた全リストで計算する。
 6. **bind の失敗や送信の失敗（`EINVAL` など）は、その候補だけを落とす**（従来どおり）。wildcard ソケットが残るので全滅しない。
+7. **ユーザーが意図しない公開サーバーへアクセスするプローブのフォールバックは、すべて廃止する**（2026-11-13 の追加要件）。
+   - 廃止したもの: 既定経路の判定で、STUN / TURN server が使えないときに `8.8.8.8` / `2001:4860:4860::8888` へ経路プローブ（UDP `connect`）していたフォールバック。
+   - 残すプローブは、agent がもともと通信する相手だけを宛先にする。
+     - 設定された STUN / TURN server（gathering でもともと問い合わせる相手）。
+     - wildcard ソケットの経路ゲートで調べる相手の candidate（ICE の check でもともと送る相手）。
+   - server がないファミリーの扱い:
+     - 既定経路の区分は使わず、host candidate は通常 / costly の区分と収集順で並ぶ。
+     - wildcard ソケットは STUN server があるときだけ作るので、server がない構成では srflx の代表判定にも影響しない。
+   - 判断の記録（範囲外としたもの）。どちらもプローブのフォールバックではなく、本チケットより前からある機能なので変更していない。
+     - 組み込みの既定 STUN server（`stun.l.google.com:19302`、`iceUseDefaultStunServer` / `Connection` の既定値）。`iceServers` に STUN がないときの既存の server 設定で、実際に STUN の問い合わせを送る。これを既定経路のプローブ先として使っても、新しい宛先は増えない。不要なら `iceUseDefaultStunServer: false` などで無効にできる。
+     - 公開 API `getGlobalIp()` の既定 server。
 
 ## 2. 実装（主な変更点）
 
 - `packages/ice/src/internal/selectAddresses.ts`: `selectHostInterfaces()` が costly な NIC を `costly: true` 付きで返し、通常 NIC の後に並べる。`selectAddressesFromInterfaces()` は costly を除いた従来の結果を返す。
-- `packages/ice/src/internal/defaultRoute.ts`（新規）: `getRouteSourceAddress()` / `getServerRouteAddress()` / `getDefaultRouteAddress(es)()`。UDP `connect` で経路の送信元を調べる（パケットは送らない）。`getDefaultRouteAddresses(useIpv4, useIpv6, servers)` は server への経路を優先し、なければ公開アドレスへの経路を使う。
+- `packages/ice/src/internal/defaultRoute.ts`（新規）: `getRouteSourceAddress()` / `getServerRouteAddress()` / `getDefaultRouteAddresses()`。UDP `connect` で経路の送信元を調べる（パケットは送らない）。
+  - `getDefaultRouteAddresses(useIpv4, useIpv6, servers)` は server への経路だけを返す。
+  - server がなければ何もプローブせず、`[]` を返す。
+  - 公開アドレスの定数（`PROBE_TARGETS`）と `getDefaultRouteAddress()` は削除した。
 - `packages/ice/src/internal/hostPreference.ts`（新規）: `HostLocalPreference`（`as const` + `@enum`）、`hostLocalPreferences()`。
 - `packages/ice/src/internal/resolveHostAddresses.ts`: `costly` を `HostAddress` に引き継ぐ。
 - `packages/ice/src/ice.ts`:
@@ -234,12 +248,15 @@
   - `interfaceAddresses` を明示したとき wildcard ソケットを作らないこと。
   - ICE restart で再利用し、`close()` でポートを解放すること。
 - [x] `tests/ice/multi-nic-reflexive.test.ts` に 1 件追加（計 10 件）: 既定経路の判定を差し替えずに、STUN server への経路の送信元 IP の host candidate が最優先になること。公開アドレスへの経路だけを使う旧実装相当では失敗することを確認した。
-- [x] `tests/ice/default-route.test.ts`（新規、5 件）
-  - server への経路を調べ、server にパケットを送らないこと。
+- [x] `tests/ice/default-route.test.ts`（新規、7 件）。`node:dgram` を差し替えて、すべての `connect()` 先を記録する。
+  - server への経路を調べ、プローブ先は server だけで、server にパケットを送らないこと。
   - ホスト名を調べるファミリーで解決すること。
   - 優先順で、解決できて経路がある最初の server を使うこと。
-  - 別ファミリーの server は対象にならないこと。
-  - 使える server がなければ公開アドレスへの経路にフォールバックすること。
+  - 別ファミリーの server は対象にならず、どこにもプローブしないこと。
+  - server なし、または解決できない server だけのとき、既定経路はなく、ほかのアドレスへのプローブもしないこと。
+  - STUN / TURN server のない gathering では経路プローブを一度も行わず、既定経路の区分の host candidate もないこと。
+  - STUN server を設定した gathering のプローブ先は、その server だけであること。
+  - 公開アドレスへのプローブを一時的に戻すと、4 件が失敗することを確認した。
 - [x] `packages/webrtc/tests/transport/iceGatheringMultiNic.test.ts`（新規）: `setLocalDescription()` が届かない NIC を待たないこと。trickle → `null` → `complete` の順になり、`a=end-of-candidates` が付くこと。
 - [x] 既存テストを新仕様に合わせて更新した。
   - `utils.test.ts`: costly NIC と公開 API の互換。
@@ -268,13 +285,18 @@
     - 内訳: werift 新⇔0.27（両方向）と新⇔新、Chrome / pion × offer / answer。構成は実 NIC と二次 NIC あり。
     - 新⇔新と Chrome の prflx は 0。
     - `npm run e2e`（Chrome 157）も変更後に再実行し、67 件成功した。
+  - 公開アドレスへのフォールバックを廃止した後に再確認した 20 通りも、すべて OK。
+    - 内訳: werift 新⇔0.27（両方向）と新⇔新を、STUN あり / ICE server なし（`iceServers: []`、`iceUseDefaultStunServer: false`）の両方で実施。Chrome / pion × offer / answer は STUN ありで実施。構成は実 NIC と二次 NIC あり。
+    - 新⇔新と Chrome の prflx は 0。
+    - `npm run e2e` も 67 件成功した。
 - 検証の限界:
   - 疑似 NIC は 127.0.0.2 をループバック上に置いたもので、実機の複数 NIC、VPN、NAT を通した構成は未確認。
   - 相手の .local（mDNS）candidate に対して werift 側で prflx が出るのは、相手側の挙動。
 
 ## 5. 完了条件（追加分）
 
-- [x] 上記 1〜6 の仕様が実装され、回帰テストが通る（ice 451 件成功、5 件スキップ。既定経路の変更後）。
+- [x] 上記 1〜7 の仕様が実装され、回帰テストが通る（ice 453 件成功、5 件スキップ。フォールバック廃止後）。
 - [x] 新旧 werift / libwebrtc / pion と接続を確立し、アプリケーションデータを往復できる（§4。npm 0.22.9 の tunOnly は旧版どうしでも失敗する既存の制約）。
-- [x] `npm run type` 成功。`npm run test:small` は webrtc 1722 件、ice 451 件を含めて成功した（既定経路の変更後に再実行）。唯一の失敗は sctp `tests/burst.test.ts`（処理コストの線形性を測る計時テスト）で、変更のない develop worktree でも 3/3 失敗するため環境起因。`npm run e2e` は 67 件成功。
+- [x] `npm run type` 成功。`npm run test:small` は webrtc 1722 件、ice 453 件を含めて成功した（フォールバック廃止後に再実行）。唯一の失敗は sctp `tests/burst.test.ts`（処理コストの線形性を測る計時テスト）で、変更のない develop worktree でも 3/3 失敗するため環境起因。`npm run e2e` は 67 件成功。
 - [x] JSDoc、`changelog.md`、生成ドキュメント（`npm run doc`）を更新した。
+- [x] 意図しない公開サーバーへのプローブのフォールバックがない（§1-7。`connect()` 先を記録するテストで確認）。

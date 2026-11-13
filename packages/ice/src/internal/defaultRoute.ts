@@ -2,15 +2,9 @@ import { createSocket } from "node:dgram";
 import * as dns from "node:dns/promises";
 import { isIP, isIPv6 } from "node:net";
 
-/**
- * Public addresses the default-route probe connects to when no STUN / TURN
- * server gives a target. `connect()` on a UDP socket only selects the route;
- * no packet is sent.
- */
-const PROBE_TARGETS = {
-  4: "8.8.8.8",
-  6: "2001:4860:4860::8888",
-} as const;
+// The route probes `connect()` a UDP socket only to the addresses the agent
+// talks to anyway (its STUN / TURN servers, a remote candidate): no packet is
+// sent, and no other address (no public fallback) is probed.
 
 const PROBE_TIMEOUT_MS = 1000;
 
@@ -54,18 +48,6 @@ export function getRouteSourceAddress(
       finish();
     }
   });
-}
-
-/**
- * The local address the OS uses to reach the Internet for `family` (the source
- * address of its default route), as libwebrtc's
- * `BasicNetworkManager::QueryDefaultLocalAddress`. `undefined` without a
- * default route (package-private).
- */
-export function getDefaultRouteAddress(
-  family: 4 | 6,
-): Promise<string | undefined> {
-  return getRouteSourceAddress(PROBE_TARGETS[family]);
 }
 
 /**
@@ -115,26 +97,19 @@ export async function getServerRouteAddress(
 /**
  * The local address of each enabled family that gathering treats as its
  * default route: the source address of the route to the configured STUN /
- * TURN servers (`servers`, hostnames or IP literals in priority order), or,
- * without one that resolves and has a route, of the route to the Internet
- * (package-private).
+ * TURN servers (`servers`, hostnames or IP literals in priority order). A
+ * family without such a server has none; no public address is probed in its
+ * place (package-private).
  */
 export async function getDefaultRouteAddresses(
   useIpv4: boolean,
   useIpv6: boolean,
   servers: string[] = [],
 ): Promise<string[]> {
-  const probe = async (family: 4 | 6) => {
-    // Both probes run at once: the fallback costs no extra wait.
-    const [server, internet] = await Promise.all([
-      getServerRouteAddress(family, servers),
-      getDefaultRouteAddress(family),
-    ]);
-    return server ?? internet;
-  };
+  if (servers.length === 0) return [];
   const [v4, v6] = await Promise.all([
-    useIpv4 ? probe(4) : undefined,
-    useIpv6 ? probe(6) : undefined,
+    useIpv4 ? getServerRouteAddress(4, servers) : undefined,
+    useIpv6 ? getServerRouteAddress(6, servers) : undefined,
   ]);
   return [v4, v6].filter((address): address is string => !!address);
 }

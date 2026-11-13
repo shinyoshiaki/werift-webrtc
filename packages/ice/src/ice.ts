@@ -969,8 +969,8 @@ export class Connection implements IceConnection {
       });
 
       // The default-route address of each family: the source address of the
-      // route to the configured STUN / TURN servers (to the Internet without
-      // one). Its host candidate gets the highest local preference, and its
+      // route to the configured STUN / TURN servers (none without one: no
+      // other address is probed). Its host candidate gets the highest local preference, and its
       // socket is a representative of the family's server-reflexive queries.
       // Probed while the sockets bind: no server work waits for it.
       const defaultRoutes = Promise.race([
