@@ -18,6 +18,16 @@ The STUN/TURN stage of the gathering the error came from.
 
 ***
 
+### secrets?
+
+> `optional` **secrets?**: readonly `string`[]
+
+Credential material the agent sent the server (a TURN username and
+password), masked out of the server's reason phrase (see
+gatherErrorReasonText).
+
+***
+
 ### transport?
 
 > `optional` **transport?**: `"udp"` \| `"tcp"` \| `"tls"`

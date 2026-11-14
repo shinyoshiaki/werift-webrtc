@@ -38,9 +38,9 @@ came.
 
 > **errorText**: `string`
 
-Fixed text: the registered reason phrase of the error code
-(stunErrorReasonPhrase) or a description of the 701 cause; never the
-server's reason phrase, so never a credential or other server text.
+The server's reason phrase with the credential material werift knows
+masked (gatherErrorReasonText; the registered phrase when it is
+empty), or a description of the 701 cause.
 
 ***
 

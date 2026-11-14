@@ -172,6 +172,11 @@ export class RTCPeerConnection extends EventTarget {
    * leaves "gathering" (fireUnreachableServerErrors) and cleared when it
    * enters "gathering".
    */
+  /**
+   * True while the 701s of the gathering that just ended are dispatched:
+   * `iceGatheringState` still reads "gathering" for their handlers.
+   */
+  private firingGatheringErrors = false;
   private gatheringServerOutcomes = new Map<
     string,
     {
@@ -476,6 +481,9 @@ export class RTCPeerConnection extends EventTarget {
     return this.secureManager.iceGatheringState;
   }
   get iceGatheringState() {
+    // The 701s of a gathering fire while it is still "gathering" (W3C): the
+    // ended state shows only from its icegatheringstatechange on.
+    if (this.firingGatheringErrors) return "gathering";
     return this.secureManager.iceGatheringState;
   }
   get dtlsTransports() {
@@ -516,6 +524,15 @@ export class RTCPeerConnection extends EventTarget {
    * it).
    */
   private fireUnreachableServerErrors() {
+    this.firingGatheringErrors = true;
+    try {
+      this.judgeUnreachableServers();
+    } finally {
+      this.firingGatheringErrors = false;
+    }
+  }
+
+  private judgeUnreachableServers() {
     const outcomes = this.gatheringServerOutcomes;
     this.gatheringServerOutcomes = new Map();
     if (this.isClosed) return;
@@ -544,7 +561,9 @@ export class RTCPeerConnection extends EventTarget {
 
   /**
    * Dispatch an `icecandidateerror` to `onIceCandidateError`,
-   * `onicecandidateerror` and the listeners, with one event object.
+   * `onicecandidateerror` and the listeners, in that order, with one event
+   * object. A handler calling `stopImmediatePropagation()` stops the ones
+   * after it.
    */
   private dispatchIceCandidateError(details: IceCandidateErrorDetails) {
     const event = new RTCPeerConnectionIceErrorEvent(
@@ -567,6 +586,19 @@ export class RTCPeerConnection extends EventTarget {
       }
     };
     setDispatchState(this, 2);
+    // stopImmediatePropagation() stops the listeners after the caller (W3C
+    // DOM), in the order below.
+    let stopped = false;
+    const stopImmediatePropagation = event.stopImmediatePropagation.bind(event);
+    Object.defineProperty(event, "stopImmediatePropagation", {
+      value: () => {
+        stopped = true;
+        stopImmediatePropagation();
+      },
+      configurable: true,
+      enumerable: false,
+      writable: true,
+    });
     // One throwing handler must not hide the event from the others.
     for (const notify of [
       () => this.onIceCandidateError.execute(event),
@@ -576,6 +608,7 @@ export class RTCPeerConnection extends EventTarget {
         (listener) => () => listener.call(this, event),
       ),
     ]) {
+      if (stopped) break;
       try {
         notify();
       } catch (error) {

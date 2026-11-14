@@ -56,9 +56,9 @@ pc.addEventListener("icecandidateerror", (event) => {
 ```
 
 Gathering itself is not affected: the other servers still give their
-candidates and end-of-candidates still comes. `errorText` is fixed text
-(the registered reason phrase of the code, or the 701 cause), never the
-server's reason phrase, so it never contains a credential. The built-in default STUN server (`iceUseDefaultStunServer`, used
+candidates and end-of-candidates still comes. `errorText` is the
+server's reason phrase with the credentials werift knows (TURN username and
+password, realm, nonce) replaced by `***`. The built-in default STUN server (`iceUseDefaultStunServer`, used
 when no STUN server is configured) is not part of the configuration; its
 failure is reported with the synthesized URL `stun:stun.l.google.com:19302`.
 `address` / `port` are the local host address that asked a STUN server, or

@@ -66,12 +66,9 @@ describe("icecandidateerror", () => {
     }
   });
 
-  test("サーバーの理由句に資格情報らしき文字列があっても errorText は固定文言になる", async () => {
-    // Arrange: 理由句に username / realm / nonce を含めた 400 を返す STUN
-    const stun = await createErrorStunServer(
-      400,
-      "Bad Request user=alice realm=example.org nonce=abc123",
-    );
+  test("サーバーの理由句は errorText として届く (診断情報)", async () => {
+    // Arrange: 独自の理由句で 400 を返す STUN
+    const stun = await createErrorStunServer(400, "Missing fingerprint");
     const { pc, listened } = createErrorRecordingPeer({
       iceServers: [{ urls: `stun:${errorTestHost}:${stun.address[1]}` }],
     });
@@ -79,10 +76,68 @@ describe("icecandidateerror", () => {
       // Act: offer を適用して gathering を完了させる
       await gatherWithOffer(pc);
 
-      // Assert: errorText は登録済みの固定文言で、サーバーの文字列を含まない
+      // Assert: サーバーの理由句がそのまま届く
       expect(listened.map(({ errorText }) => errorText)).toEqual([
-        "Bad Request",
+        "Missing fingerprint",
       ]);
+    } finally {
+      await pc.close();
+      await stun.close();
+    }
+  });
+
+  test("701 のハンドラー内では iceGatheringState が gathering で、complete は後の icegatheringstatechange から見える", async () => {
+    // Arrange: 応答しない STUN。ハンドラー内とその後の状態を記録する
+    const silent = await createSilentUdpServer(errorTestHost);
+    const { pc } = createErrorRecordingPeer({
+      iceServers: [{ urls: `stun:${errorTestHost}:${silent.address[1]}` }],
+      iceStunGatherTimeout: 0.3,
+    });
+    const seen: string[] = [];
+    pc.onicecandidateerror = (event) => {
+      seen.push(`${event.errorCode}:${pc.iceGatheringState}`);
+    };
+    pc.addEventListener("icegatheringstatechange", () => {
+      seen.push(`state:${pc.iceGatheringState}`);
+    });
+    try {
+      // Act: offer を適用して gathering を完了させる
+      await gatherWithOffer(pc);
+
+      // Assert: 701 は gathering 中に届き、その後で complete への変化が通知される
+      expect(seen).toEqual([
+        "state:gathering",
+        "701:gathering",
+        "state:complete",
+      ]);
+      expect(pc.iceGatheringState).toBe("complete");
+    } finally {
+      await pc.close();
+      await silent.close();
+    }
+  });
+
+  test("stopImmediatePropagation() を呼んだハンドラーの後のリスナーには配送されない", async () => {
+    // Arrange: 400 を返す STUN と、1 番目で伝播を止める 2 つのリスナー
+    const stun = await createErrorStunServer(400, "Bad Request");
+    const { pc, handled } = createErrorRecordingPeer({
+      iceServers: [{ urls: `stun:${errorTestHost}:${stun.address[1]}` }],
+    });
+    const calls: string[] = [];
+    pc.addEventListener("icecandidateerror", (event) => {
+      calls.push("first");
+      (event as Event).stopImmediatePropagation();
+    });
+    pc.addEventListener("icecandidateerror", () => {
+      calls.push("second");
+    });
+    try {
+      // Act: offer を適用して gathering を完了させる
+      await gatherWithOffer(pc);
+
+      // Assert: 先に登録されたハンドラーまでは届き、止めた後のリスナーは呼ばれない
+      expect(handled).toHaveLength(1);
+      expect(calls).toEqual(["first"]);
     } finally {
       await pc.close();
       await stun.close();

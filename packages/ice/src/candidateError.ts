@@ -7,6 +7,7 @@ import {
   TurnRedirectError,
 } from "./exceptions";
 import type { Address } from "./imports/common";
+import type { Message } from "./stun/message";
 
 /**
  * One STUN/TURN server of a gathering, as configured. `urls` are the
@@ -49,9 +50,9 @@ export type IceCandidateErrorInfo = {
    */
   errorCode: number;
   /**
-   * Fixed text: the registered reason phrase of the error code
-   * (stunErrorReasonPhrase) or a description of the 701 cause; never the
-   * server's reason phrase, so never a credential or other server text.
+   * The server's reason phrase with the credential material werift knows
+   * masked (gatherErrorReasonText; the registered phrase when it is
+   * empty), or a description of the 701 cause.
    */
   errorText: string;
   /** Gathering generation the failure belongs to. */
@@ -101,6 +102,12 @@ export type GatherErrorContext = {
   kind: "stun" | "turn";
   /** Transport toward the server (TURN); STUN queries are UDP. */
   transport?: "udp" | "tcp" | "tls";
+  /**
+   * Credential material the agent sent the server (a TURN username and
+   * password), masked out of the server's reason phrase (see
+   * gatherErrorReasonText).
+   */
+  secrets?: readonly string[];
 };
 
 const DNS_ERROR_CODES = new Set([
@@ -140,10 +147,8 @@ const errnoOf = (error: unknown): string | undefined => {
 
 /**
  * The reason phrases of the STUN / TURN error codes (IANA "STUN Error
- * Codes" registry: RFC 8489, 8656, 6062, 8445, 5780). `errorText` of an
- * error response is taken from here, never from the server's reason
- * phrase, which a server may fill with a username, realm, nonce or other
- * credential material.
+ * Codes" registry: RFC 8489, 8656, 6062, 8445, 5780): the `errorText` of
+ * an error response whose own reason phrase is empty.
  */
 const STUN_ERROR_REASON_PHRASES: Readonly<Record<number, string>> = {
   300: "Try Alternate",
@@ -167,12 +172,58 @@ const STUN_ERROR_REASON_PHRASES: Readonly<Record<number, string>> = {
 };
 
 /**
- * The `errorText` of a STUN / TURN error response with `code`: the
- * registered reason phrase, or a generic one naming the code. Fixed text
- * only, so no server-supplied string reaches the application.
+ * The registered reason phrase of a STUN / TURN error `code`, or a generic
+ * one naming the code.
  */
 export function stunErrorReasonPhrase(code: number) {
   return STUN_ERROR_REASON_PHRASES[code] ?? `STUN error ${code}`;
+}
+
+/** Text that replaces credential material in a server's reason phrase. */
+export const MASKED_REASON_TEXT = "***";
+
+/** RFC 8489 §14.8: a reason phrase has fewer than 128 characters. */
+const MAX_REASON_PHRASE_LENGTH = 127;
+
+/**
+ * The `errorText` of a STUN / TURN error response (W3C: the reason text the
+ * server returned), safe to hand to the application:
+ *
+ * - every credential material werift knows is replaced by
+ *   {@link MASKED_REASON_TEXT}: what it sent (`secrets`: the TURN username
+ *   and password) and what the response carries (USERNAME, REALM, NONCE);
+ * - control characters are dropped and the text is cut to 127 characters
+ *   (RFC 8489 §14.8);
+ * - an empty result gives the registered phrase of the code
+ *   (stunErrorReasonPhrase).
+ */
+export function gatherErrorReasonText(
+  code: number,
+  reason: unknown,
+  response?: Message,
+  secrets: readonly string[] = [],
+) {
+  let text = typeof reason === "string" ? reason : "";
+  const material = [
+    ...secrets,
+    ...(["USERNAME", "REALM", "NONCE"] as const).map((name) => {
+      const value = response?.getAttributeValue(name);
+      return Buffer.isBuffer(value) ? value.toString("utf8") : value;
+    }),
+  ]
+    .filter((value): value is string => typeof value === "string")
+    .filter((value) => value.length > 0)
+    // Longest first, so a secret containing another is masked whole.
+    .sort((a, b) => b.length - a.length);
+  for (const value of material) {
+    text = text.split(value).join(MASKED_REASON_TEXT);
+  }
+  text = text
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: dropping them is the point
+    .replace(/[\u0000-\u001f\u007f]/g, "")
+    .trim()
+    .slice(0, MAX_REASON_PHRASE_LENGTH);
+  return text || stunErrorReasonPhrase(code);
 }
 
 const notReached = (errorText: string) => ({
@@ -206,15 +257,15 @@ export function isServerAnswer(error: unknown) {
  * does not apply (W3C: 701 only when no host candidate reaches the server),
  * and there is no STUN error code to report.
  *
- * - an error response: its ERROR-CODE and the registered reason phrase of
- *   that code (stunErrorReasonPhrase), not the server's reason phrase (a
- *   300 whose redirect was not followed: 300 and why it was not followed);
+ * - an error response: its ERROR-CODE and the server's reason phrase with
+ *   credential material masked (gatherErrorReasonText; a 300 whose redirect
+ *   was not followed: 300 and why it was not followed);
  * - no answer (timeout, DNS, address family, TCP / TLS connect, socket
  *   error): 701 and a fixed phrase naming the cause;
  * - an answer without a STUN error code: not reported (undefined).
  *
- * The text is always fixed by werift, never copied from the server, so it
- * never includes a username, password, realm, nonce or other server text.
+ * The text never includes the username, password, realm or nonce werift
+ * knows of (they are masked).
  */
 export function classifyGatherError(
   error: unknown,
@@ -226,9 +277,17 @@ export function classifyGatherError(
     return { errorCode: 300, errorText: `Try Alternate (${error.reason})` };
   }
   if (error instanceof TransactionFailed) {
-    const [code] = error.response.getAttributeValue("ERROR-CODE") ?? [];
+    const [code, reason] = error.response.getAttributeValue("ERROR-CODE") ?? [];
     if (typeof code === "number" && code >= 300 && code <= 699) {
-      return { errorCode: code, errorText: stunErrorReasonPhrase(code) };
+      return {
+        errorCode: code,
+        errorText: gatherErrorReasonText(
+          code,
+          reason,
+          error.response,
+          context.secrets,
+        ),
+      };
     }
     // Answered without a valid ERROR-CODE: reached, nothing to report.
     return undefined;

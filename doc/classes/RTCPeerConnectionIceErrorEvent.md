@@ -25,7 +25,11 @@ could not give a candidate while gathering. Never fired after `close()`.
 
 While listeners run, `target` and `currentTarget` are the
 `RTCPeerConnection` and `eventPhase` is 2 (`AT_TARGET`); afterwards
-`currentTarget` is `null` and `eventPhase` 0.
+`currentTarget` is `null` and `eventPhase` 0. The event reaches
+`pc.onIceCandidateError`, `onicecandidateerror` and the
+`icecandidateerror` listeners in that order; `stopImmediatePropagation()`
+stops the ones after the caller. While a 701 is dispatched,
+`iceGatheringState` still reads `"gathering"`.
 
 - `url`: the configured URL of the server, canonical: trimmed, lower-case
   scheme, and `?transport=tcp` added to a `turns:` URL that names no
@@ -40,11 +44,12 @@ While listeners run, `target` and `currentTarget` are the
   without ERROR-CODE, a response failing MESSAGE-INTEGRITY, a success
   without XOR-MAPPED-ADDRESS) was reached: it gives no event, and never
   a 701.
-- `errorText`: fixed text werift chooses, never the server's reason
-  phrase: the registered reason phrase of the error code (`"Unauthorized"`
-  for 401, `"STUN error 499"` for an unregistered one) or a description of
-  the 701 cause. So it never contains a username, password, realm, nonce
-  or other text a server sent.
+- `errorText`: the reason phrase the server returned (W3C), with the
+  credential material werift knows replaced by `***` (the configured TURN
+  username and password, and the USERNAME / REALM / NONCE of the
+  response), control characters dropped and cut to 127 characters; the
+  registered phrase of the code (`"Unauthorized"`, `"STUN error 499"`)
+  when that is empty; a description of the cause for a 701.
 - `address` / `port`: the local host address used to contact a STUN
   server; `null` / `0` when unknown (TURN) or hidden (the `"relay"` ICE
   transport policy), as Chrome and the WPT tests (`port == 0` when

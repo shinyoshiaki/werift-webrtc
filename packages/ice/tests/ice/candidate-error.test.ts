@@ -2,8 +2,10 @@ import { setTimeout as delay } from "node:timers/promises";
 import type { Address } from "../../../common/src";
 import {
   classifyGatherError,
+  gatherErrorReasonText,
   IceCandidateErrorCode,
   isServerAnswer,
+  MASKED_REASON_TEXT,
   MissingMappedAddressError,
   pickReportedGatherError,
 } from "../../src/candidateError";
@@ -125,32 +127,38 @@ describe("onIceCandidateError: STUN", () => {
     }
   });
 
-  test("STUN の理由句に資格情報らしき文字列があっても errorText は登録済みの固定文言になる", async () => {
-    // Arrange: 理由句に username / password / realm / nonce を含める STUN と、未登録のコードを返す STUN
-    const leaky = "user=alice password=s3cret realm=example.org nonce=abc123";
-    const known = await createErrorStunServer(400, `Bad Request ${leaky}`);
-    const unknown = await createErrorStunServer(499, `Odd ${leaky}`);
+  test("STUN の理由句はそのまま errorText になり、応答の REALM / NONCE は伏せられ、空なら登録済みの文言になる", async () => {
+    // Arrange: 独自の理由句、REALM / NONCE を含む理由句、空の理由句 (未登録コード) を返す STUN
+    const custom = await createErrorStunServer(400, "Missing fingerprint");
+    const withRealm = await createScriptedUdpServer((request) =>
+      errorResponse(request, 420, "Bad realm=werift.test nonce=nonce-1", [
+        ["REALM", "werift.test"],
+        ["NONCE", Buffer.from("nonce-1")],
+      ]),
+    );
+    const empty = await createErrorStunServer(499, "");
     const { connection, errors } = createRecordingAgent({
-      stunServers: [known.address, unknown.address],
+      stunServers: [custom.address, withRealm.address, empty.address],
     });
     try {
       // Act: 候補収集を完了まで待つ
       await connection.gatherCandidates();
 
-      // Assert: 登録済みのコードはその固定文言、未登録はコード付きの汎用文言。サーバーの文字列は含まない
+      // Assert: サーバーの理由句を診断情報として残し、realm / nonce は伏せ、空ならコードの文言
       expect(
         errors.map(({ errorCode, errorText }) => [errorCode, errorText]).sort(),
       ).toEqual([
-        [400, "Bad Request"],
+        [400, "Missing fingerprint"],
+        [420, `Bad realm=${MASKED_REASON_TEXT} nonce=${MASKED_REASON_TEXT}`],
         [499, "STUN error 499"],
       ]);
-      for (const secret of ["alice", "s3cret", "example.org", "abc123"]) {
-        expect(JSON.stringify(errors)).not.toContain(secret);
-      }
+      expect(JSON.stringify(errors)).not.toContain("werift.test");
+      expect(JSON.stringify(errors)).not.toContain("nonce-1");
     } finally {
       await connection.close();
-      await known.close();
-      await unknown.close();
+      await custom.close();
+      await withRealm.close();
+      await empty.close();
     }
   });
 
@@ -411,7 +419,7 @@ describe("応答はあったが STUN エラーコードのないサーバー (�
 });
 
 describe("onIceCandidateError: TURN", () => {
-  test("TURN の理由句に設定済みの username / password と realm / nonce があっても errorText に含まれない", async () => {
+  test("TURN の理由句に設定済みの username / password と realm / nonce があっても errorText では伏せられる", async () => {
     // Arrange: 理由句に設定済みの資格情報とチャレンジの realm / nonce を入れて 401 を返し続ける TURN
     const password = "turn-secret-password";
     const rejecting = await createRejectingUdpTurnServer(
@@ -433,10 +441,11 @@ describe("onIceCandidateError: TURN", () => {
       // Act: UDP の失敗 → TCP フォールバックの失敗まで待つ
       await connection.gatherCandidates();
 
-      // Assert: 401 は登録済みの固定文言で、資格情報・realm・nonce を含まない
+      // Assert: 401 の理由句は残り、設定した資格情報と応答の realm / nonce だけが伏せられる
+      const m = MASKED_REASON_TEXT;
       expect(
         errors.map(({ errorCode, errorText }) => [errorCode, errorText]),
-      ).toEqual([[401, "Unauthorized"]]);
+      ).toEqual([[401, `Unauthorized ${m}:${m} realm=${m} nonce=${m}`]]);
       const serialized = JSON.stringify(errors);
       for (const secret of [
         TURN_TEST_USERNAME,
@@ -913,6 +922,33 @@ describe("classifyGatherError", () => {
     // Act / Assert: 応答のない失敗は到達ではない
     expect(isServerAnswer(new TransactionTimeout())).toBe(false);
     expect(isServerAnswer(errnoError("ENOTFOUND"))).toBe(false);
+  });
+
+  test("gatherErrorReasonText: 既知の資格情報を伏せ、制御文字を除き、127 文字に切り、空なら登録済みの文言", () => {
+    // Arrange: secret を部分文字列に含む長い secret と、USERNAME 属性を持つ応答
+    const response = new Message(methods.ALLOCATE, classes.ERROR)
+      .setAttribute("USERNAME", "alice")
+      .setAttribute("REALM", "example.org");
+    const m = MASKED_REASON_TEXT;
+
+    // Act / Assert: 送った資格情報と応答の USERNAME / REALM が伏せられ、長い secret は丸ごと伏せられる
+    expect(
+      gatherErrorReasonText(
+        401,
+        "no alice@example.org pw=secret-long nonce?",
+        response,
+        ["secret", "secret-long"],
+      ),
+    ).toBe(`no ${m}@${m} pw=${m} nonce?`);
+    // Act / Assert: 制御文字は除かれ、前後の空白は詰められる
+    expect(gatherErrorReasonText(400, " bad\u0000\u001f\u007f text ")).toBe(
+      "bad text",
+    );
+    // Act / Assert: 127 文字に切られる
+    expect(gatherErrorReasonText(400, "x".repeat(300))).toHaveLength(127);
+    // Act / Assert: 空・文字列でない・伏せた後の空白だけでも、登録済みの文言になる
+    expect(gatherErrorReasonText(438, "")).toBe("Stale Nonce");
+    expect(gatherErrorReasonText(499, undefined)).toBe("STUN error 499");
   });
 
   test("TransactionCancelled は通知しない", () => {

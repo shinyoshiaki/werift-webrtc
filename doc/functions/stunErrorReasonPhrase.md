@@ -8,9 +8,8 @@
 
 > **stunErrorReasonPhrase**(`code`): `string`
 
-The `errorText` of a STUN / TURN error response with `code`: the
-registered reason phrase, or a generic one naming the code. Fixed text
-only, so no server-supplied string reaches the application.
+The registered reason phrase of a STUN / TURN error `code`, or a generic
+one naming the code.
 
 ## Parameters
 

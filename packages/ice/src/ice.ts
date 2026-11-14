@@ -1754,6 +1754,8 @@ export class Connection implements IceConnection {
         classifyGatherError(error, {
           kind: "turn",
           transport: attemptTransport,
+          // Masked out of the server's reason phrase.
+          secrets: [username, password],
         }),
       );
     };
