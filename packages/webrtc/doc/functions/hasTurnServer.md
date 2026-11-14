@@ -8,14 +8,14 @@
 
 > **hasTurnServer**(`options`): `boolean`
 
-Whether `options` carry a usable TURN server and credential, the ones a
-gathering with them allocates relay candidates from.
+Whether `options` carry at least one usable TURN server with its
+credential, the ones a gathering with them allocates relay candidates from.
 
 ## Parameters
 
 ### options
 
-`Partial`\<`Pick`\<[`IceOptions`](../interfaces/IceOptions.md), `"turnServer"` \| `"turnUsername"` \| `"turnPassword"`\>\>
+[`IceServerFields`](../type-aliases/IceServerFields.md)
 
 ## Returns
 

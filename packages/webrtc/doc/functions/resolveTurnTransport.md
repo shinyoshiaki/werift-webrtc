@@ -8,6 +8,10 @@
 
 > **resolveTurnTransport**(`__namedParameters`): `"udp"` \| `"tcp"` \| `"tls"` \| `undefined`
 
+The transport one TURN URL allocates over: the URL's own (scheme /
+`?transport=`), else the configured `turnTransport`, else TCP for the
+legacy `forceTurnTCP`, else undefined (UDP).
+
 ## Parameters
 
 ### \_\_namedParameters

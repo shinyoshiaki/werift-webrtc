@@ -40,6 +40,8 @@
 
 > `optional` **maxPacketLifeTime?**: `number`
 
+Lifetime in milliseconds (RFC 8832 / WebRTC).
+
 ***
 
 ### maxRetransmits?

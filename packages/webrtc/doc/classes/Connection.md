@@ -154,6 +154,20 @@ Resolves remote mDNS candidates; closed (pending lookups cancelled) by restart()
 
 ***
 
+### remoteIceOptions
+
+> **remoteIceOptions**: `string`[] = `[]`
+
+The remote `a=ice-options` tokens (RFC 8839 §5.6), e.g. `trickle`,
+`ice2`. Informational: werift already follows RFC 8445, so no token
+changes how checks or nomination run.
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`remoteIceOptions`](../interfaces/IceConnection.md#remoteiceoptions)
+
+***
+
 ### remoteIsLite
 
 > **remoteIsLite**: `boolean` = `false`
@@ -204,23 +218,29 @@ Resolves remote mDNS candidates; closed (pending lookups cancelled) by restart()
 
 ***
 
-### stunServer?
+### stunServers
 
-> `optional` **stunServer?**: readonly \[`string`, `number`\]
+> **stunServers**: (readonly \[`string`, `number`\])[] = `[]`
+
+STUN servers gathering queries: the configured ones (see
+normalizeIceServerOptions), or the built-in default when none is
+configured and useDefaultStunServer is not false.
 
 #### Implementation of
 
-[`IceConnection`](../interfaces/IceConnection.md).[`stunServer`](../interfaces/IceConnection.md#stunserver)
+[`IceConnection`](../interfaces/IceConnection.md).[`stunServers`](../interfaces/IceConnection.md#stunservers)
 
 ***
 
-### turnServer?
+### turnServers
 
-> `optional` **turnServer?**: readonly \[`string`, `number`\]
+> **turnServers**: `Required`\<[`TurnServerOptions`](../type-aliases/TurnServerOptions.md)\>[] = `[]`
+
+TURN servers gathering allocates on, one allocation each.
 
 #### Implementation of
 
-[`IceConnection`](../interfaces/IceConnection.md).[`turnServer`](../interfaces/IceConnection.md#turnserver)
+[`IceConnection`](../interfaces/IceConnection.md).[`turnServers`](../interfaces/IceConnection.md#turnservers)
 
 ***
 
@@ -362,6 +382,112 @@ Whether gathering contacts a STUN or TURN server.
 #### Implementation of
 
 [`IceConnection`](../interfaces/IceConnection.md).[`remoteCandidates`](../interfaces/IceConnection.md#remotecandidates)
+
+***
+
+### remoteIce2
+
+#### Get Signature
+
+> **get** **remoteIce2**(): `boolean`
+
+The remote declared `ice2`: an RFC 8445 agent (RFC 8445 §10).
+
+##### Returns
+
+`boolean`
+
+The remote declared `ice2`: an RFC 8445 agent (RFC 8445 §10).
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`remoteIce2`](../interfaces/IceConnection.md#remoteice2)
+
+***
+
+### ~~stunServer~~
+
+#### Get Signature
+
+> **get** **stunServer**(): readonly \[`string`, `number`\] \| `undefined`
+
+##### Deprecated
+
+The first of [Connection.stunServers](#stunservers).
+
+##### Returns
+
+readonly \[`string`, `number`\] \| `undefined`
+
+#### Set Signature
+
+> **set** **stunServer**(`server`): `void`
+
+##### Deprecated
+
+Replaces [Connection.stunServers](#stunservers) with this one server (none for undefined).
+
+##### Parameters
+
+###### server
+
+readonly \[`string`, `number`\] \| `undefined`
+
+##### Returns
+
+`void`
+
+#### Deprecated
+
+The first of [IceConnection.stunServers](../interfaces/IceConnection.md#stunservers).
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`stunServer`](../interfaces/IceConnection.md#stunserver)
+
+***
+
+### ~~turnServer~~
+
+#### Get Signature
+
+> **get** **turnServer**(): readonly \[`string`, `number`\] \| `undefined`
+
+##### Deprecated
+
+The address of the first of [Connection.turnServers](#turnservers).
+
+##### Returns
+
+readonly \[`string`, `number`\] \| `undefined`
+
+#### Set Signature
+
+> **set** **turnServer**(`server`): `void`
+
+##### Deprecated
+
+Replaces [Connection.turnServers](#turnservers) with this one server
+and the deprecated turnUsername / turnPassword / turnTransport options
+(none for undefined).
+
+##### Parameters
+
+###### server
+
+readonly \[`string`, `number`\] \| `undefined`
+
+##### Returns
+
+`void`
+
+#### Deprecated
+
+The address of the first of [IceConnection.turnServers](../interfaces/IceConnection.md#turnservers).
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`turnServer`](../interfaces/IceConnection.md#turnserver)
 
 ## Methods
 
@@ -737,6 +863,28 @@ Remote credentials of the provisional generation (pranswer).
 #### Implementation of
 
 [`IceConnection`](../interfaces/IceConnection.md).[`setProvisionalRemoteParams`](../interfaces/IceConnection.md#setprovisionalremoteparams)
+
+***
+
+### setRemoteIceOptions()
+
+> **setRemoteIceOptions**(`options`): `void`
+
+Record the remote `a=ice-options` tokens (see remoteIceOptions).
+
+#### Parameters
+
+##### options
+
+`string`[]
+
+#### Returns
+
+`void`
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`setRemoteIceOptions`](../interfaces/IceConnection.md#setremoteiceoptions)
 
 ***
 

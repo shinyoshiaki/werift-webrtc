@@ -118,6 +118,24 @@ Whether gathering contacts a STUN or TURN server.
 
 ***
 
+### remoteIce2?
+
+> `readonly` `optional` **remoteIce2?**: `boolean`
+
+The remote declared `ice2`: an RFC 8445 agent (RFC 8445 §10).
+
+***
+
+### remoteIceOptions?
+
+> `optional` **remoteIceOptions?**: `string`[]
+
+The remote `a=ice-options` tokens (RFC 8839 §5.6), e.g. `trickle`,
+`ice2`. Informational: werift already follows RFC 8445, so no token
+changes how checks or nomination run.
+
+***
+
 ### remoteIsLite
 
 > **remoteIsLite**: `boolean`
@@ -148,15 +166,41 @@ Whether gathering contacts a STUN or TURN server.
 
 ***
 
-### stunServer?
+### ~~stunServer?~~
 
 > `optional` **stunServer?**: readonly \[`string`, `number`\]
 
+#### Deprecated
+
+The first of [IceConnection.stunServers](#stunservers).
+
 ***
 
-### turnServer?
+### stunServers?
+
+> `optional` **stunServers?**: (readonly \[`string`, `number`\])[]
+
+STUN servers gathering queries, normalized from the options (see
+[normalizeIceServerOptions](../functions/normalizeIceServerOptions.md)). Optional so that other
+implementations of this interface keep compiling.
+
+***
+
+### ~~turnServer?~~
 
 > `optional` **turnServer?**: readonly \[`string`, `number`\]
+
+#### Deprecated
+
+The address of the first of [IceConnection.turnServers](#turnservers).
+
+***
+
+### turnServers?
+
+> `optional` **turnServers?**: [`TurnServerOptions`](../type-aliases/TurnServerOptions.md)[]
+
+TURN servers gathering allocates on, each with its own credential.
 
 ## Methods
 
@@ -371,6 +415,24 @@ and gathered candidates.
 ###### usernameFragment
 
 `string`
+
+#### Returns
+
+`void`
+
+***
+
+### setRemoteIceOptions()?
+
+> `optional` **setRemoteIceOptions**(`options`): `void`
+
+Record the remote `a=ice-options` tokens (see remoteIceOptions).
+
+#### Parameters
+
+##### options
+
+`string`[]
 
 #### Returns
 
