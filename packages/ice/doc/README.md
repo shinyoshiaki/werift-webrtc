@@ -104,10 +104,13 @@ the selection to a working backup when the selected pair stops answering,
 without an ICE restart (TURN server down, NAT rebinding, Wi-Fi ↔ cellular,
 a path broken in one direction).
 
-- Backups: one pair per local socket other than the selected pair's (a UDP
-  socket, whose host and server-reflexive candidates share one path, or a
-  TURN allocation over UDP / TCP / TLS): its highest-priority pair that did
-  not fail. A backup that never answers (5 checks and 5 s) or receives
+- Backups: one pair per local socket (a UDP socket, whose host and
+  server-reflexive candidates share one path, or a TURN allocation over UDP /
+  TCP / TLS): its highest-priority pair that did not fail. On the selected
+  pair's own socket it is a lower pair to another remote address, so the
+  agent also fails over when only the remote side of the path breaks (the
+  peer's host goes away while its relay still answers); after such a move
+  only the old remote address waits for its 3 responses. A backup that never answers (5 checks and 5 s) or receives
   nothing for 30 s fails and the next pair of its socket follows, up to 3
   pairs; then the socket starts again from its best pair after 1, 2, 4, 8,
   16 s, and then every 16 s for as long as the selection lasts, so a path

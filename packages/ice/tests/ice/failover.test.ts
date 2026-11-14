@@ -144,11 +144,12 @@ describe("failover of the selected pair", () => {
       // Act: 12 s 進める。
       await vi.advanceTimersByTimeAsync(12_000);
 
-      // Assert: 退避先は他のソケットごとに最上位の 1 ペアだけで、選択中のソケットの他のペアは check しない。
+      // Assert: 退避先はソケットごとに 1 ペアだけ。他のソケットは最上位のペア、
+      // 選択中のソケットは別のリモートアドレスへの (選択より下位の) ペア。
       expect(h.requestsTo(h.pairOf(1, 0)).length).toBeGreaterThan(0);
       expect(h.requestsTo(h.pairOf(1, 1))).toHaveLength(0);
-      expect(h.requestsTo(h.pairOf(0, 1))).toHaveLength(0);
-      expect(h.pairOf(0, 1).state).toBe(CandidatePairState.FAILED);
+      expect(h.requestsTo(h.pairOf(0, 1)).length).toBeGreaterThan(0);
+      expect(h.pairOf(0, 1).state).toBe(CandidatePairState.SUCCEEDED);
       // Assert: 退避先の check は 900 ms 間隔で 3 回応答された後、2.5 s 間隔になる。
       const times = h.requestsTo(h.pairOf(1, 0)).map(({ at }) => at);
       const gaps = times.slice(1).map((at, i) => at - times[i]);
@@ -736,6 +737,59 @@ describe("failover: review regressions (delay, late candidate, state, silence)",
     });
   });
 
+  test.each([
+    { mode: "semi-aggressive", renomination: false },
+    { mode: "renomination", renomination: true },
+  ])(
+    "($mode) one local socket, the peer's host and relay: only the path to the peer's host breaks; the agent fails over to the peer's relay on the same socket",
+    async ({ renomination }) => {
+      // ローカルのソケットは 1 つ。相手の host (remote 0) と relay (remote 1、低優先度) の両方に届く。
+      const h = await createFailoverHarness({
+        renomination,
+        locals: [
+          { type: "stun", candidateType: "host", priority: FAILOVER_HIGH },
+        ],
+        remotes: [FAILOVER_HIGH, FAILOVER_LOW],
+      });
+      const host = h.selection;
+      const relay = h.pairOf(0, 1);
+      await vi.advanceTimersByTimeAsync(10_000);
+      // Assert: 同じソケットの別のリモートアドレスへのペアが退避先として監視されている。
+      expect(relay.state).toBe(CandidatePairState.SUCCEEDED);
+      expect(h.requestsTo(relay).length).toBeGreaterThan(3);
+
+      try {
+        // Act: 選択中の経路 (相手の host) だけを切り、退避するまで進める。
+        h.cut(0, 0);
+        const took = await h.advanceUntil(
+          () => h.connection.nominated === relay,
+          20_000,
+        );
+
+        // Assert: ICE restart なしで同じソケットの relay への経路へ移り、failed にも disconnected にもならない。
+        expect(h.connection.nominated).toBe(relay);
+        expect(took).toBeLessThanOrEqual(11_000);
+        expect(host.nominated).toBe(false);
+        expect(h.connection.state).toBe("connected");
+        expect(h.states).toEqual([]);
+
+        // Act: 40 s 進める (consent の失効を越える)。
+        await vi.advanceTimersByTimeAsync(40_000);
+        // Assert: 新しい経路の consent は続き、failed にならない。
+        expect(h.connection.state).toBe("connected");
+        expect(h.connection.nominated).toBe(relay);
+
+        // Act: 相手の host への経路が戻り、戻るまで進める。
+        h.restore(0);
+        await h.advanceUntil(() => h.connection.nominated === host, 30_000);
+        // Assert: 3 回連続の応答の後、上位の host の経路へ戻る。
+        expect(h.connection.nominated).toBe(host);
+      } finally {
+        await h.connection.close();
+      }
+    },
+  );
+
   test("a backup socket that stays down past every retry is still checked again (every 16 s) and taken once it comes back", async () => {
     const h = await createFailoverHarness();
     const host = h.selection;
@@ -829,8 +883,9 @@ describe("failover: review regressions (delay, late candidate, state, silence)",
       expect(h.requestsTo(h.pairOf(1, 1)).length).toBeLessThanOrEqual(
         lowChecks + 1,
       );
-      // Assert: 選択中のソケットには後着候補のペアを作らず、選択も変わらない。
-      expect(h.pairOf(0, mid)).toBeUndefined();
+      // Assert: 選択中のソケットでも、後着の候補への (選択より下位の) ペアが今の退避先 (remote 1) より上位なので
+      // 新しい退避先になる。選択は変わらない。
+      expect(h.pairOf(0, mid).state).toBe(CandidatePairState.SUCCEEDED);
       expect(h.connection.nominated).toBe(h.selection);
     } finally {
       await h.connection.close();

@@ -14,6 +14,16 @@ import {
 } from "./iceBase";
 import type { Protocol } from "./types/model";
 
+/**
+ * A demoted path (`FailoverMonitor.demote`): undefined for a whole socket,
+ * else the remote address of the path on the socket.
+ */
+type DemotedPath = string | undefined;
+
+/** The remote address of `pair`, as a key. */
+const remoteKey = (pair: CandidatePair) =>
+  `${pair.remoteAddr[0]}:${pair.remoteAddr[1]}`;
+
 /** Ta: the minimum spacing (ms) between two backup checks, as the ordinary schedule. */
 const PACING_MS = 20;
 
@@ -174,7 +184,7 @@ export class FailoverMonitor {
   /** Pairs RFC 8445 §8.1.2 failed without a check: they may still become a backup. */
   private pruned = new WeakSet<CandidatePair>();
   /** Sockets the agent failed over from, until one of their pairs answered FAILOVER_RECOVERY_RESPONSES times in a row. */
-  private readonly demoted = new Set<Protocol>();
+  private readonly demoted = new Map<Protocol, DemotedPath>();
   private abort = new AbortController();
   private timer?: ReturnType<typeof setTimeout>;
   private lastSentAt = Number.NEGATIVE_INFINITY;
@@ -244,7 +254,14 @@ export class FailoverMonitor {
    * to be unwritable.
    */
   allows(pair: CandidatePair) {
-    return !this.demoted.has(pair.protocol) && !this.knownUnwritable(pair);
+    return !this.isDemoted(pair) && !this.knownUnwritable(pair);
+  }
+
+  /** `pair` is on a path the agent failed over from (see `demote`). */
+  private isDemoted(pair: CandidatePair) {
+    if (!this.demoted.has(pair.protocol)) return false;
+    const path = this.demoted.get(pair.protocol);
+    return path === undefined || path === remoteKey(pair);
   }
 
   /**
@@ -258,9 +275,23 @@ export class FailoverMonitor {
     this.refresh();
   }
 
-  /** The agent failed over from `pair`: its socket waits to recover before the selection may move back. */
+  /**
+   * The agent failed over from `pair` (the new selection is already set):
+   * its path waits to recover before the selection may move back. A move to
+   * another socket demotes `pair`'s whole socket (its paths break together);
+   * a move to another remote address on the same socket demotes only the
+   * path to `pair`'s remote address.
+   */
   demote(pair: CandidatePair) {
-    this.demoted.add(pair.protocol);
+    const selected = this.host.selected();
+    const path =
+      selected && selected.protocol === pair.protocol
+        ? remoteKey(pair)
+        : undefined;
+    // A whole socket demoted already stays so.
+    if (!this.demoted.has(pair.protocol) || this.demoted.get(pair.protocol)) {
+      this.demoted.set(pair.protocol, path);
+    }
     const liveness = this.liveness.get(pair);
     if (liveness) liveness.consecutive = 0;
   }
@@ -342,12 +373,18 @@ export class FailoverMonitor {
         };
         this.backups.set(protocol, record);
       }
+      // The backup became the selection (or the selection moved to its
+      // remote address on this socket): it is released, not failed.
+      if (record.pair && !this.backupEligible(record.pair, selected)) {
+        if (this.host.eligible(record.pair)) {
+          this.replace(record, record.pair);
+        }
+      }
       const current = record.pair;
       if (
         current &&
         (!pairs.includes(current) ||
           !this.host.eligible(current) ||
-          current === selected ||
           // Failed by another check (a nomination that went unanswered).
           (current.state === CandidatePairState.FAILED &&
             record.inFlight === 0))
@@ -395,15 +432,33 @@ export class FailoverMonitor {
     this.lastSentAt = Number.NEGATIVE_INFINITY;
   }
 
-  /** The sockets that keep a backup: every socket of an eligible pair but the selected pair's. */
+  /**
+   * The sockets that keep a backup: every socket of an eligible pair; the
+   * selected pair's own socket only through a lower pair to another remote
+   * address (the remote side of the selected path may break alone: the
+   * peer's host candidate goes away while its relay still answers).
+   */
   private backupProtocols(selected: CandidatePair) {
     const protocols = new Set<Protocol>();
     for (const pair of this.host.pairs()) {
-      if (pair.protocol === selected.protocol) continue;
-      if (!this.host.eligible(pair)) continue;
+      if (!this.backupEligible(pair, selected)) continue;
       protocols.add(pair.protocol);
     }
     return protocols;
+  }
+
+  /** `pair` may be a backup beside `selected`. */
+  private backupEligible(pair: CandidatePair, selected: CandidatePair) {
+    if (!this.host.eligible(pair)) return false;
+    if (pair.protocol !== selected.protocol) return true;
+    // On the selected pair's socket: another remote address, below the
+    // selection (pairs that outrank it are checked and retried to move the
+    // selection up, `SelectionReplacement`), or the path the agent failed
+    // over from (monitored until it recovers, see `demote`).
+    return (
+      remoteKey(pair) !== remoteKey(selected) &&
+      (!this.outranks(pair, selected) || this.isDemoted(pair))
+    );
   }
 
   /**
@@ -414,12 +469,13 @@ export class FailoverMonitor {
    */
   private candidateFor(protocol: Protocol, record?: BackupRecord) {
     const retrying = (record?.retries ?? 0) > 0;
+    const selected = this.host.selected();
     return this.host
       .pairs()
       .find(
         (pair) =>
           pair.protocol === protocol &&
-          this.host.eligible(pair) &&
+          (selected ? this.backupEligible(pair, selected) : true) &&
           !record?.failed.has(pair) &&
           (pair.state !== CandidatePairState.FAILED ||
             this.pruned.has(pair) ||
@@ -604,7 +660,7 @@ export class FailoverMonitor {
     }
     if (
       answered &&
-      this.demoted.has(protocol) &&
+      this.isDemoted(pair) &&
       liveness.consecutive >= FAILOVER_RECOVERY_RESPONSES
     ) {
       this.demoted.delete(protocol);

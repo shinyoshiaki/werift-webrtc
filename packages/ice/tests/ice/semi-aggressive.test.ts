@@ -96,7 +96,7 @@ describe("semi-aggressive nomination (default, full ICE, controlling)", () => {
     }
   });
 
-  test("a higher-priority candidate trickled after the selection is checked and replaces it; a lower one forms no pair", async () => {
+  test("a higher-priority candidate trickled after the selection is checked and replaces it; a lower one becomes a backup checked without USE-CANDIDATE", async () => {
     const h = createHarness();
     const mid = await h.addRemote(MID);
     h.check(mid);
@@ -108,8 +108,15 @@ describe("semi-aggressive nomination (default, full ICE, controlling)", () => {
       const low = await h.addRemote(LOW);
       const high = await h.addRemote(HIGH);
 
-      // Assert: 低優先度の候補は pair を作らず、高優先度の pair は自動で check される (USE-CANDIDATE 付き)。
-      expect(low).toBeUndefined();
+      // Assert: 低優先度の候補は同じソケットの退避先の pair になり、USE-CANDIDATE なしで監視される (failover)。
+      expect(low).toBeDefined();
+      await vi.advanceTimersByTimeAsync(100);
+      expect(h.requestsTo(low).length).toBeGreaterThan(0);
+      for (const request of h.requestsTo(low)) {
+        expect(request.message.attributesKeys).not.toContain("USE-CANDIDATE");
+      }
+      expect(h.connection.nominated).toBe(mid);
+      // Assert: 高優先度の pair は自動で check される (USE-CANDIDATE 付き)。
       const [highCheck] = h.requestsTo(high);
       expect(highCheck.message.attributesKeys).toContain("USE-CANDIDATE");
 
@@ -611,7 +618,7 @@ describe("a failed pair that outranks the selection is checked again (controllin
     }
   });
 
-  test("a failed pair that does not outrank the selection is not checked again", async () => {
+  test("a failed pair that does not outrank the selection is not retried as an outranking pair (only monitored as a backup, without USE-CANDIDATE)", async () => {
     const h = createNominationHarness({
       nomination: "semi-aggressive",
       nominationReply: () => "hold",
@@ -627,9 +634,12 @@ describe("a failed pair that outranks the selection is checked again (controllin
       // Act: 60 s 進める。
       await vi.advanceTimersByTimeAsync(60_000);
 
-      // Assert: 選択より下位の失敗した pair は check し直さない。
+      // Assert: 選択より下位の失敗した pair は上位ペアとしては再 check しない (USE-CANDIDATE を付けない)。
+      // 同じソケットの退避先としての監視 check だけが送られ、選択は変わらない。
       expect(h.connection.nominated).toBe(high);
-      expect(h.requestsTo(low)).toHaveLength(1);
+      for (const request of h.requestsTo(low).slice(1)) {
+        expect(request.message.attributesKeys).not.toContain("USE-CANDIDATE");
+      }
     } finally {
       await h.connection.close();
     }

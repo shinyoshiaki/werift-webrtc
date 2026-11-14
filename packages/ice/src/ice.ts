@@ -2378,12 +2378,16 @@ export class Connection implements IceConnection {
     if (!selected || !this.iceControlling || !this.replacesSelection()) {
       return undefined;
     }
-    // Failover: a pair of another socket may become its backup.
+    // Failover: a pair of another socket, or of the selected pair's socket
+    // to another remote address, may become a backup.
     const failover = this.failoverEnabled();
     return (pair) =>
       this.replacesWith(pair) &&
       (this.outranks(pair, selected) ||
-        (failover && pair.protocol !== selected.protocol));
+        (failover &&
+          (pair.protocol !== selected.protocol ||
+            pair.remoteAddr[0] !== selected.remoteAddr[0] ||
+            pair.remoteAddr[1] !== selected.remoteAddr[1])));
   }
 
   /**
