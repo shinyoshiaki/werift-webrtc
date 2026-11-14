@@ -894,6 +894,21 @@ prepareReceive() so the current decode path remains available.
 
 ***
 
+### retireFallbackSsrc()
+
+> **retireFallbackSsrc**(): `number` \| `undefined`
+
+Internal (router): hand the fallback SSRC over to the m-line a packet's
+MID names (RFC 9143 section 9.2: the MID updates the SSRC mapping). It is
+released like a replaced one, and remembered as retired so a late packet
+naming this m-line does not take it back. Returns the SSRC.
+
+#### Returns
+
+`number` \| `undefined`
+
+***
+
 ### runRtcp()
 
 > **runRtcp**(): `Promise`\<`void`\>

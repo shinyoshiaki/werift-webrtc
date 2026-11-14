@@ -132,6 +132,10 @@ RFC 8843 / RFC 9143（BUNDLE）§9.2「Associating RTP/RTCP Streams with the Cor
 - [x] `collidingRoutes` は transceiver の登録解除、SSRC の置き換え・破棄で消える。receiver が停止済み、またはその SSRC の track を持たなくなった場合は、引き当て時に外れる。rollback（`restoreRoutes`）の後も、両 transport のパケット由来の経路は整合したまま残る。
 - [x] `collidingRoutes` は transport ではなく SSRC をキーにした receiver の集合で持ち、引き当て時に receiver の**現在の** `dtlsTransport` と受信 transport を照合する（`ssrcTable` の学習経路と同じく、経路は receiver に付いて移る）。transceiver の transport が付け替わった後、旧 transport の RTP / RTCP はその receiver に届かず、新 transport では届く。削除も receiver 単位で行うので、旧 transport のエントリは残らない（レビュー指摘）。
 - [x] leak probe に指標 `router.collidingRoutes` を加える。
+- [x] **RFC 9143 §9.2 の判定順との突き合わせ（レビュー 9 回目の指摘を受けた監査）。** 指摘はすべて、実装の判定条件が §9.2 のアルゴリズムからずれた箇所から出ている（SSRC 表が RTP session 単位でない、MID の前に置き換え履歴を見ていた、PT 表を一部の m-line だけで作っていた）。§9.2 の各ステップと実装を 1 対 1 で照合し、次を直した。
+  - **PT 表:** §9.2 は「BUNDLE 内で受信設定のある m-line すべて」から PT 表を作り、2 つ以上の m-line が受信する PT は表に入れない。MID のない未知 SSRC は、受信 transport 上で受信中の m-line のうち、その PT（メディア / RTX のどちらでも）を受信するものが **ちょうど 1 つ** で、それが `a=ssrc` も RID もない m-line のときだけ学習する。`a=ssrc` のある m-line・RID の m-line が同じ PT を受信していれば学習しない（レビュー指摘）。
+  - **MID による対応付けの更新:** §9.2 は「パケットに MID があれば、その SSRC を MID の m-line に対応付け直す」と定める。fallback で学習済みの SSRC に別 MID が明示されたら、その MID の m-line が学習できる場合に引き渡し、できなければ破棄する（旧 m-line へ誤配送しない）。旧 m-line はその SSRC を置き換え済みとして覚え、MID 付きの遅延パケットで取り戻さない（§9.2 の「最後の MID 更新より古いパケットは無視」の近似）。SDP・RID・simulcast 由来の経路は MID で動かさない（既存挙動、3.1）。
+  - **rollback:** baseline 後に学習済み SSRC の持ち主が変わった場合（A → B）、`restoreRoutes` は baseline のパケット由来経路（A）ではなく今の経路（B）を残す。receiver 側の track と表が食い違わない。
 - [x] TSDoc（`RtpRouter`）に次の規則を書き、`npm run doc` で再生成する。
   - パケットから学習した経路は、学習した transport に属する。RTCP にも同じ規則を適用する。
   - SDP 由来の経路と sender の経路は transport で区別しない（既存挙動。3.1）。
@@ -193,6 +197,9 @@ RFC 8843 / RFC 9143（BUNDLE）§9.2「Associating RTP/RTCP Streams with the Cor
 - [x] B を新しい transport に付け替えた後、旧 transport の RTP と SR は B に届かず、新 transport の RTP と SR は B に届き、A の経路は保たれる。付け替え後の登録解除と SSRC の置き換えで、補助経路が残らない。
 - [x] 同じ transport（BUNDLE）で MID a が SSRC 55 から 66 に切り替えた後、MID b を明示した SSRC 55 を B が学習し、続く MID なしの RTP と SR も B に届く。MID a 付き / MID なしの 55 の遅延パケットは学習しない。
 - [x] ローカル sender と同じ SSRC の未知 RTP で例外が出ず、sender の経路が残る。
+- [x] `a=ssrc` のある m-line（メディア / RTX）・RID の m-line と PT を共有する SSRC-less m-line は、MID のない未知 SSRC を学習せず、RTP も SR も届かない。同じ SSRC でも MID を明示すれば学習する。PT が分かれていれば学習する。
+- [x] fallback で学習済みの SSRC に別 MID が明示されたら、その MID の receiver へ引き渡し、続く MID なしの RTP と SR もそちらに届く。旧 MID の遅延パケットでは戻らない。学習できない m-line の MID なら、どちらにも届けず旧経路は残る。
+- [x] baseline 後に学習済み SSRC の持ち主が変わってから rollback しても、RTP と SR は今の持ち主に届き、表と receiver の track が一致する。
 
 ### negotiation / property
 - [ ] 学習後の rollback / 再 offer / ICE restart で route と track が保たれ、`assertNegotiationInvariants` が通る（`expectSessionContinues` まで）。

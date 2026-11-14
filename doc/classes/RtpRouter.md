@@ -38,9 +38,10 @@ and unregistering a transceiver drops its learned SSRCs.
 
 The fallback serves remote m-lines without `a=ssrc` and RIDs (SIP gateways,
 SBCs, media servers): an SSRC no route, RID or simulcast track knows is
-learned for the receiver the packet's MID names, or else for the only
-candidate receiver on the packet's transport whose receive codecs carry the
-payload type; when that is ambiguous, or the packet comes without a
+learned for the receiver the packet's MID names, or else for the receiver
+of the only m-line on the packet's transport that receives the payload type
+(one with `a=ssrc` or RIDs counts too, and then nothing is learned); when
+that is ambiguous, or the packet comes without a
 transport (`routeRtp(packet)`), it is dropped. The learned SSRC binds the
 default track `ontrack` announced (`RTCRtpReceiver.bindFallbackSsrc`); a new
 SSRC that passes the same checks replaces it, so tables stay bounded. Like
@@ -51,7 +52,14 @@ when it applies as an answer or commits; while it is pending the current
 session keeps receiving on the fallback SSRC and rollback keeps it. The
 first SSRC such a description gives binds the announced track as well
 (`RTCRtpReceiver.adoptDefaultTrack`), so `ontrack` does not fire again.
-Unregistering the transceiver drops the fallback SSRC.
+Unregistering the transceiver drops the fallback SSRC. A packet whose MID
+names another m-line than the one holding its fallback SSRC updates the
+mapping (RFC 9143 section 9.2): the SSRC moves there when that m-line may
+learn it, else the packet is dropped; the old m-line retires the SSRC, so
+its late packets do not take it back. Routes from SDP, RIDs and simulcast
+keep their receiver whatever the MID (existing behaviour). A rollback keeps
+the receiver packets taught last, even over a baseline route packets
+taught another receiver.
 
 An SSRC is unique per RTP session only: a route learned from packets
 belongs to its receiver's current transport (a transceiver moved to another

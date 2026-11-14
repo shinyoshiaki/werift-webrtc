@@ -21,6 +21,7 @@ import { RTCRtpSender } from "../../src/media/rtpSender";
 import type { RTCDtlsTransport } from "../../src/transport/dtls";
 import type { Kind } from "../../src/types/domain";
 import { createDtlsTransport, createPliPacket } from "../fixture";
+import { createSimulcastRtxReceiver } from "./rtpReceiverTestUtils";
 
 /**
  * Shared Arrange of the RTP routing fallback for remote m-lines without
@@ -135,6 +136,57 @@ export function ssrcLessPacket(options: {
     }),
     options.payload ?? Buffer.from(`payload-${options.sequenceNumber ?? 1}`),
   );
+}
+
+/**
+ * An SSRC-less receiver (MID "l") and, on the same transport, a receiving
+ * m-line (MID "n") that also receives the payload type `payloadType`
+ * (RFC 9143 section 9.2: such a payload type names no m-line):
+ * - `ssrc`: an m-line with `a=ssrc`, PT 111 (opus) as media.
+ * - `rid`: an m-line receiving RID simulcast, PT 96 (VP8) as media.
+ * - `rtx`: an m-line with `a=ssrc`, PT 97 as its RTX, the SSRC-less one
+ *   receives PT 97 as VP8.
+ */
+export function createPayloadTypeSharingRouter(
+  neighbor: "ssrc" | "rid" | "rtx",
+) {
+  const arranged = createSsrcLessRouter();
+  const { router, transceivers, addReceiver } = arranged;
+  if (neighbor === "rid") {
+    const simulcast = createSimulcastRtxReceiver({ router, mid: "n" });
+    simulcast.transceiver.firedReceiving = true;
+    transceivers.push(simulcast.transceiver);
+    const ssrcLess = addReceiver({
+      kind: "video",
+      mid: "l",
+      codecs: [vp8()],
+      transport: simulcast.dtls,
+    });
+    return {
+      ...arranged,
+      dtls: simulcast.dtls,
+      ssrcLess,
+      neighbor: simulcast.transceiver,
+      payloadType: 96,
+    };
+  }
+  if (neighbor === "rtx") {
+    const other = addReceiver({
+      kind: "video",
+      mid: "n",
+      codecs: [vp8(), rtxOf(97, 96)],
+      ssrc: 9000,
+    });
+    const ssrcLess = addReceiver({
+      kind: "video",
+      mid: "l",
+      codecs: [vp8(97)],
+    });
+    return { ...arranged, ssrcLess, neighbor: other, payloadType: 97 };
+  }
+  const other = addReceiver({ mid: "n", codecs: [opus()], ssrc: 9000 });
+  const ssrcLess = addReceiver({ mid: "l", codecs: [opus(), pcmu()] });
+  return { ...arranged, ssrcLess, neighbor: other, payloadType: 111 };
 }
 
 /** The payloads `transceiver`'s announced track (`receiver.track`) received. */

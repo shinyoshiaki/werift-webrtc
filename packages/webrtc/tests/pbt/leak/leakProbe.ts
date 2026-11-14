@@ -688,7 +688,8 @@ const leakMeta: CaseMeta = { ref: "property: leak", traffic: true };
 export async function runClosedScene(
   name: string,
   input:
-    { scene: LeakScene; lenient?: boolean } | { seed: number; steps: number },
+    | { scene: LeakScene; lenient?: boolean }
+    | { seed: number; steps: number },
 ): Promise<ClosedScene> {
   const tracker = new LeakTracker();
   const scene: LeakScene =

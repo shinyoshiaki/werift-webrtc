@@ -267,12 +267,8 @@ export class RTCRtpReceiver {
    */
   bindFallbackSsrc(ssrc: number, payloadType: number) {
     const replaced = this.releaseFallbackSsrc();
-    if (replaced !== undefined && replaced !== ssrc) {
-      this.retiredFallbackSsrcs.push(replaced);
-      if (this.retiredFallbackSsrcs.length > MAX_RETIRED_FALLBACK_SSRCS) {
-        this.retiredFallbackSsrcs.shift();
-      }
-    }
+    if (replaced !== undefined && replaced !== ssrc)
+      this.retireFallback(replaced);
     const track = this.defaultTrack;
     track.ssrc = ssrc;
     track.codec = deliveredTrackCodec(
@@ -294,6 +290,25 @@ export class RTCRtpReceiver {
    */
   isRetiredFallbackSsrc(ssrc: number) {
     return this.retiredFallbackSsrcs.includes(ssrc);
+  }
+
+  /**
+   * Internal (router): hand the fallback SSRC over to the m-line a packet's
+   * MID names (RFC 9143 section 9.2: the MID updates the SSRC mapping). It is
+   * released like a replaced one, and remembered as retired so a late packet
+   * naming this m-line does not take it back. Returns the SSRC.
+   */
+  retireFallbackSsrc() {
+    const ssrc = this.releaseFallbackSsrc();
+    if (ssrc !== undefined) this.retireFallback(ssrc);
+    return ssrc;
+  }
+
+  private retireFallback(ssrc: number) {
+    this.retiredFallbackSsrcs.push(ssrc);
+    if (this.retiredFallbackSsrcs.length > MAX_RETIRED_FALLBACK_SSRCS) {
+      this.retiredFallbackSsrcs.shift();
+    }
   }
 
   /**

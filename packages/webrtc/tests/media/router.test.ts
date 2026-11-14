@@ -42,9 +42,10 @@ import {
 } from "./rtpReceiverTestUtils";
 import {
   collectRtcpRecipients,
-  collidingRouteCount,
   collectTrackPayloads,
+  collidingRouteCount,
   createCollidingSsrcLessRouter,
+  createPayloadTypeSharingRouter,
   createSsrcLessRouter,
   opus,
   pcmu,
@@ -1650,6 +1651,56 @@ describe("media/router: a=ssrc のない m-line の SSRC 学習 (#356)", () => {
     expect(router.learnedSsrcs.size).toBe(0);
   });
 
+  test.each([
+    ["a=ssrc のある m-line が同じ PT をメディアとして受信する", "ssrc"],
+    ["RID の m-line が同じ PT をメディアとして受信する", "rid"],
+    ["a=ssrc のある m-line が同じ PT を RTX として受信する", "rtx"],
+  ] as const)("%s なら、MID のない未知 SSRC は学習しない", (_, neighbor) => {
+    // Arrange: SSRC-less の m-line "l" と同じ transport の m-line "n" が同じ PT を受信する
+    const {
+      router,
+      dtls,
+      ssrcLess,
+      neighbor: other,
+      payloadType,
+    } = createPayloadTypeSharingRouter(neighbor);
+    const ssrcLessPayloads = collectTrackPayloads(ssrcLess);
+    const recipients = collectRtcpRecipients({ l: ssrcLess, n: other });
+
+    // Act: MID も RID もない未知 SSRC の RTP と、その SSRC を名指す SR が届く
+    router.routeRtp(ssrcLessPacket({ ssrc: 77, payloadType }), dtls);
+    router.routeRtcp(rtcpNamingSsrc.SR(77), dtls);
+
+    // Assert: PT では m-line を決められないので、どの receiver にも届かず経路も学習しない
+    expect(ssrcLessPayloads).toEqual([]);
+    expect(recipients).toEqual([]);
+    expect(router.ssrcTable[77]).toBeUndefined();
+    expect(ssrcLess.receiver.fallbackSsrc).toBeUndefined();
+
+    // Act: 同じ SSRC が MID "l" を明示して届く
+    router.routeRtp(
+      ssrcLessPacket({ ssrc: 77, payloadType, sequenceNumber: 2, mid: "l" }),
+      dtls,
+    );
+
+    // Assert: MID で決まる m-line は PT が重なっていても学習する
+    expect(ssrcLessPayloads).toEqual(["payload-2"]);
+    expect(router.ssrcTable[77]).toBe(ssrcLess.receiver);
+  });
+
+  test("a=ssrc のある m-line と PT が分かれていれば、MID のない未知 SSRC は SSRC-less の m-line が学習する", () => {
+    // Arrange: m-line "n" は PT 111 だけ、SSRC-less の "l" は PT 111 と PT 0 を受信する
+    const { router, dtls, ssrcLess } = createPayloadTypeSharingRouter("ssrc");
+    const payloads = collectTrackPayloads(ssrcLess);
+
+    // Act: "l" だけが受信する PT 0 の未知 SSRC が届く
+    router.routeRtp(ssrcLessPacket({ ssrc: 78, payloadType: 0 }), dtls);
+
+    // Assert: PT 0 は "l" だけを示すので学習して届く
+    expect(payloads).toEqual(["payload-1"]);
+    expect(router.ssrcTable[78]).toBe(ssrcLess.receiver);
+  });
+
   test("BUNDLE の audio / video は PT が分かれていれば PT で一意に決まる", () => {
     // Arrange
     const { router, dtls, addReceiver } = createSsrcLessRouter();
@@ -2558,5 +2609,154 @@ describe("media/router: a=ssrc のない m-line の SSRC 学習 (#356)", () => {
     expect(router.ssrcTable[600]).toBe(audio.receiver);
     expect(audio.receiver.fallbackSsrc).toBe(600);
     expect(audio.receiver.track.ssrc).toBe(600);
+  });
+
+  test("fallback で学習済みの SSRC に別 MID が明示されたら、その MID の receiver へ引き渡す", () => {
+    // Arrange: BUNDLE の MID a が SSRC 55 を学習済み
+    const { router, dtls, addReceiver } = createSsrcLessRouter();
+    const a = addReceiver({ mid: "a" });
+    const b = addReceiver({ mid: "b" });
+    const aPayloads = collectTrackPayloads(a);
+    const bPayloads = collectTrackPayloads(b);
+    const recipients = collectRtcpRecipients({ a, b });
+    router.routeRtp(
+      ssrcLessPacket({ ssrc: 55, payloadType: 111, mid: "a" }),
+      dtls,
+    );
+
+    // Act: MID b を明示した SSRC 55、続く MID なしの RTP、SR が届く
+    router.routeRtp(
+      ssrcLessPacket({
+        ssrc: 55,
+        payloadType: 111,
+        sequenceNumber: 2,
+        mid: "b",
+      }),
+      dtls,
+    );
+    router.routeRtp(
+      ssrcLessPacket({ ssrc: 55, payloadType: 111, sequenceNumber: 3 }),
+      dtls,
+    );
+    router.routeRtcp(rtcpNamingSsrc.SR(55), dtls);
+
+    // Assert: MID が対応付けを更新し (RFC 9143 9.2)、B が受信して A は手放す
+    expect(aPayloads).toEqual(["payload-1"]);
+    expect(bPayloads).toEqual(["payload-2", "payload-3"]);
+    expect(recipients).toEqual(["b"]);
+    expect(router.ssrcTable[55]).toBe(b.receiver);
+    expect(a.receiver.fallbackSsrc).toBeUndefined();
+    expect(a.receiver.track.ssrc).toBeUndefined();
+    expect(b.receiver.fallbackSsrc).toBe(55);
+
+    // Act: MID a を示す 55 の遅延パケットが届く
+    router.routeRtp(
+      ssrcLessPacket({
+        ssrc: 55,
+        payloadType: 111,
+        sequenceNumber: 1,
+        mid: "a",
+      }),
+      dtls,
+    );
+
+    // Assert: 遅延パケットは A に戻さず破棄し、B の経路は保たれる
+    expect(aPayloads).toEqual(["payload-1"]);
+    expect(bPayloads).toEqual(["payload-2", "payload-3"]);
+    expect(router.ssrcTable[55]).toBe(b.receiver);
+  });
+
+  test("fallback で学習済みの SSRC に学習できない m-line の MID が明示されたら、どちらにも届けない", () => {
+    // Arrange: MID a が SSRC 55 を学習済みで、MID n は a=ssrc のある m-line
+    const { router, dtls, addReceiver } = createSsrcLessRouter();
+    const a = addReceiver({ mid: "a" });
+    const n = addReceiver({ mid: "n", ssrc: 9000 });
+    const aPayloads = collectTrackPayloads(a);
+    router.routeRtp(
+      ssrcLessPacket({ ssrc: 55, payloadType: 111, mid: "a" }),
+      dtls,
+    );
+
+    // Act: MID n を明示した SSRC 55 と、続く MID なしの RTP が届く
+    router.routeRtp(
+      ssrcLessPacket({
+        ssrc: 55,
+        payloadType: 111,
+        sequenceNumber: 2,
+        mid: "n",
+      }),
+      dtls,
+    );
+    router.routeRtp(
+      ssrcLessPacket({ ssrc: 55, payloadType: 111, sequenceNumber: 3 }),
+      dtls,
+    );
+
+    // Assert: MID n のパケットは A に誤配送せず破棄し、A の経路と MID なしの受信は続く
+    expect(aPayloads).toEqual(["payload-1", "payload-3"]);
+    expect(router.ssrcTable[55]).toBe(a.receiver);
+    expect(n.receiver.trackBySSRC[55]).toBeUndefined();
+  });
+
+  test("学習済み SSRC の持ち主が baseline 後に変わっても、rollback 後は今の持ち主に RTP と RTCP が届く", () => {
+    // Arrange: MID a が SSRC 55 を学習した状態を baseline にし、その後 a は 66 に切り替え、
+    // MID b が 55 を学習する
+    const { router, dtls, addReceiver } = createSsrcLessRouter();
+    const a = addReceiver({ mid: "a" });
+    const b = addReceiver({ mid: "b" });
+    router.routeRtp(
+      ssrcLessPacket({ ssrc: 55, payloadType: 111, mid: "a" }),
+      dtls,
+    );
+    const baseline = router.snapshotRoutes();
+    const aBaseline = a.receiver.snapshotNegotiationState();
+    const bBaseline = b.receiver.snapshotNegotiationState();
+    router.routeRtp(
+      ssrcLessPacket({
+        ssrc: 66,
+        payloadType: 111,
+        sequenceNumber: 2,
+        mid: "a",
+      }),
+      dtls,
+    );
+    router.routeRtp(
+      ssrcLessPacket({
+        ssrc: 55,
+        payloadType: 111,
+        sequenceNumber: 3,
+        mid: "b",
+      }),
+      dtls,
+    );
+    const aPayloads = collectTrackPayloads(a);
+    const bPayloads = collectTrackPayloads(b);
+    const recipients = collectRtcpRecipients({ a, b });
+
+    // Act: baseline へ rollback してから、MID なしの 55 と 66 の RTP と 55 の SR が届く
+    router.restoreRoutes(baseline, {
+      endpoints: new Set([a.receiver, b.receiver]),
+      liveSenders: [],
+    });
+    a.receiver.restoreNegotiationState(aBaseline);
+    b.receiver.restoreNegotiationState(bBaseline);
+    router.routeRtp(
+      ssrcLessPacket({ ssrc: 55, payloadType: 111, sequenceNumber: 4 }),
+      dtls,
+    );
+    router.routeRtp(
+      ssrcLessPacket({ ssrc: 66, payloadType: 111, sequenceNumber: 5 }),
+      dtls,
+    );
+    router.routeRtcp(rtcpNamingSsrc.SR(55), dtls);
+
+    // Assert: パケット由来の経路は baseline の持ち主に戻らず、receiver の track と一致する
+    expect(bPayloads).toEqual(["payload-4"]);
+    expect(aPayloads).toEqual(["payload-5"]);
+    expect(recipients).toEqual(["b"]);
+    expect(router.ssrcTable[55]).toBe(b.receiver);
+    expect(router.ssrcTable[66]).toBe(a.receiver);
+    expect(b.receiver.fallbackSsrc).toBe(55);
+    expect(a.receiver.fallbackSsrc).toBe(66);
   });
 });
