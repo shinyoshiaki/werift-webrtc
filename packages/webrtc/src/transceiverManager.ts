@@ -27,6 +27,7 @@ import {
   normalizeCodecMimeType,
   resolveCodecs,
 } from "./media/codecCompatibility";
+import type { MediaDirection } from "./media/rtpTransceiver";
 import { createBandwidthEstimator } from "./media/sender/createBandwidthEstimator";
 import type { RTCStats } from "./media/stats";
 import { captureTrackSourceCodecs, getTrackSourceCodecs } from "./media/track";
@@ -434,6 +435,20 @@ export class TransceiverManager {
     }
   }
 
+  /** transport など副作用のある資源を作る前に、track の codec が構成と互換か検証する */
+  private assertTrackCodecsSupported(
+    track: MediaStreamTrack,
+    direction: MediaDirection,
+  ) {
+    captureTrackSourceCodecs(track);
+    assertCodecsSupported({
+      kind: track.kind,
+      configured: this.filterCodecsByDirection(track.kind, direction),
+      source: getTrackSourceCodecs(track),
+      preferences: undefined,
+    });
+  }
+
   addTransceiver(
     trackOrKind: Kind | MediaStreamTrack,
     dtlsTransport?: RTCDtlsTransport,
@@ -451,13 +466,7 @@ export class TransceiverManager {
     const direction = options.direction || "sendrecv";
 
     if (typeof trackOrKind !== "string") {
-      captureTrackSourceCodecs(trackOrKind);
-      assertCodecsSupported({
-        kind,
-        configured: this.filterCodecsByDirection(kind, direction),
-        source: getTrackSourceCodecs(trackOrKind),
-        preferences: undefined,
-      });
+      this.assertTrackCodecsSupported(trackOrKind, direction);
     }
 
     const sender = new RTCRtpSender(trackOrKind, {
@@ -587,6 +596,8 @@ export class TransceiverManager {
       noteApplicationAddTrack(notSendTransceiver);
       return notSendTransceiver;
     } else {
+      // 失敗し得る検証を先に済ませ、失敗時に transport を作りっぱなしにしない
+      this.assertTrackCodecsSupported(track, "sendrecv");
       const transceiver = this.addTransceiver(track, createTransport?.(), {
         direction: "sendrecv",
         streams,

@@ -93,6 +93,23 @@ describe("codec resolution", () => {
     pc.close();
   });
 
+  test("repeated rejected addTrack does not leak DTLS transports", () => {
+    const pc = new RTCPeerConnection({ codecs: { video: [useVP8()] } });
+    const owned = () =>
+      (pc as any).secureManager.ownedTransports.size as number;
+    const before = owned();
+
+    // Act: 非対応 codec の track を繰り返し追加して失敗させる。
+    for (let i = 0; i < 3; i++) {
+      expect(() => pc.addTrack(videoTrack(useH264()))).toThrow();
+    }
+
+    // Assert: 失敗した addTrack が transport を残さない。
+    expect(owned()).toBe(before);
+    expect(pc.getTransceivers()).toHaveLength(0);
+    pc.close();
+  });
+
   test("source constraint and preferences are independent", async () => {
     const pc = new RTCPeerConnection({
       codecs: { video: [useVP8(), useH264()] },
