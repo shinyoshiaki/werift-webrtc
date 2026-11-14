@@ -1,17 +1,29 @@
+export {
+  classifyAlert,
+  createAlertRecord,
+  type DtlsAlert,
+  DtlsAlertError,
+} from "./alert";
 export * from "./cipher/const";
 export { DtlsClient } from "./client";
 export * from "./context/cipher";
 export * from "./context/srtp";
 export { EARLY_APP_DATA_UNLIMITED } from "./engine/v1_3/types";
 export type { PeerIdentityMode } from "./peer";
+// selectVersion / DtlsVersionSelected are association-internal (not Public API).
+// Carrier / SPED types are package-internal for Epic 1.
+export {
+  AlertDesc,
+  AlertLevel,
+  alertDescName,
+  ContentType,
+} from "./record/const";
 export { DtlsServer } from "./server";
-export type { Options } from "./socket";
+export type { Options, Options as DtlsSocketOptions } from "./socket";
 export { DtlsSocket, DtlsVersion } from "./socket";
 // DtlsInternalOptions / createDtls*Internal are intentionally NOT exported
 // (not stable Public API). Import from "./internal" only in tests / Epic 2.
 export { ProtocolVersionError } from "./version";
-// selectVersion / DtlsVersionSelected are association-internal (not Public API).
-// Carrier / SPED types are package-internal for Epic 1.
 
 /*
  * DTLS 1.2 full handshake (RFC 6347) — default when protocolVersions is unset

@@ -28,8 +28,8 @@ import {
   createTestCertificate,
   dtlsTransportPair,
   iceTransportPair,
+  waitForDtlsState,
 } from "../fixture";
-import { waitForDtlsState } from "../utils";
 
 describe("RTCDtlsTransportTest", () => {
   test("RTCCertificate preserves PKCS#8 PEM and signs with Node KeyObject", async () => {

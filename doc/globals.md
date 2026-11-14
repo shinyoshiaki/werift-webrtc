@@ -10,8 +10,10 @@
 
 ## Enumerations
 
+- [AlertLevel](enumerations/AlertLevel.md)
 - [CandidatePairState](enumerations/CandidatePairState.md)
 - [classes](enumerations/classes.md)
+- [ContentType](enumerations/ContentType.md)
 - [DtlsVersion](enumerations/DtlsVersion.md)
 - [methods](enumerations/methods.md)
 - [PacketChunk](enumerations/PacketChunk.md)
@@ -39,6 +41,7 @@
 - [Connection](classes/Connection.md)
 - [DePacketizerBase](classes/DePacketizerBase.md)
 - [DisabledBandwidthEstimator](classes/DisabledBandwidthEstimator.md)
+- [DtlsAlertError](classes/DtlsAlertError.md)
 - [DtlsClient](classes/DtlsClient.md)
 - [DtlsServer](classes/DtlsServer.md)
 - [DtlsSocket](classes/DtlsSocket.md)
@@ -91,6 +94,7 @@
 - [RTCDtlsFingerprint](classes/RTCDtlsFingerprint.md)
 - [RTCDtlsParameters](classes/RTCDtlsParameters.md)
 - [RTCDtlsTransport](classes/RTCDtlsTransport.md)
+- [RTCError](classes/RTCError.md)
 - [RTCIceCandidate](classes/RTCIceCandidate.md)
 - [RTCIceGatherer](classes/RTCIceGatherer.md)
 - [RTCIceParameters](classes/RTCIceParameters.md)
@@ -174,6 +178,7 @@
 - [DatagramRxMeta](interfaces/DatagramRxMeta.md)
 - [DebugFactory](interfaces/DebugFactory.md)
 - [Debugger](interfaces/Debugger.md)
+- [DtlsAlert](interfaces/DtlsAlert.md)
 - [DtlsTransportConfig](interfaces/DtlsTransportConfig.md)
 - [DtlsTransportStats](interfaces/DtlsTransportStats.md)
 - [Extensions](interfaces/Extensions.md)
@@ -194,6 +199,7 @@
 - [RTCConfiguration](interfaces/RTCConfiguration.md)
 - [RTCDataChannelEvent](interfaces/RTCDataChannelEvent.md)
 - [RTCDataChannelStats](interfaces/RTCDataChannelStats.md)
+- [RTCDtlsTransportErrorEvent](interfaces/RTCDtlsTransportErrorEvent.md)
 - [RTCErrorEvent](interfaces/RTCErrorEvent.md)
 - [RTCIceCandidateFields](interfaces/RTCIceCandidateFields.md)
 - [RTCIceCandidateInit](interfaces/RTCIceCandidateInit.md)
@@ -244,6 +250,7 @@
 - [AacHbrDepacketizerOptions](type-aliases/AacHbrDepacketizerOptions.md)
 - [AacHbrPacketizerOptions](type-aliases/AacHbrPacketizerOptions.md)
 - [Address](type-aliases/Address.md)
+- [AlertDesc](type-aliases/AlertDesc.md)
 - [AudioLevelIndicationPayload](type-aliases/AudioLevelIndicationPayload.md)
 - [AuHeader](type-aliases/AuHeader.md)
 - [Av1PacketizeOptions](type-aliases/Av1PacketizeOptions.md)
@@ -321,6 +328,7 @@
 - [RTCRtcpMuxPolicy](type-aliases/RTCRtcpMuxPolicy.md)
 - [RTCRtpSenderOptions](type-aliases/RTCRtpSenderOptions.md)
 - [RTCRtpSendParameters](type-aliases/RTCRtpSendParameters.md)
+- [RTCSctpTransportState](type-aliases/RTCSctpTransportState.md)
 - [RTCSdpType](type-aliases/RTCSdpType.md)
 - [RTCSignalingState](type-aliases/RTCSignalingState.md)
 - [RTCStatsIceCandidatePairState](type-aliases/RTCStatsIceCandidatePairState.md)
@@ -356,6 +364,7 @@
 - [AAC\_HBR\_INDEX\_DELTA\_LENGTH](variables/AAC_HBR_INDEX_DELTA_LENGTH.md)
 - [AAC\_HBR\_INDEX\_LENGTH](variables/AAC_HBR_INDEX_LENGTH.md)
 - [AAC\_HBR\_SIZE\_LENGTH](variables/AAC_HBR_SIZE_LENGTH.md)
+- [AlertDesc](variables/AlertDesc.md)
 - [AttributeKeys](variables/AttributeKeys.md)
 - [certificateTypes](variables/certificateTypes.md)
 - [CipherSuite](variables/CipherSuite.md)
@@ -375,6 +384,7 @@
 - [defaultPeerConfig](variables/defaultPeerConfig.md)
 - [depacketizerCodecs](variables/depacketizerCodecs.md)
 - [Directions](variables/Directions.md)
+- [DTLS\_ALERT\_SEND\_TIMEOUT\_MS](variables/DTLS_ALERT_SEND_TIMEOUT_MS.md)
 - [DtlsStates](variables/DtlsStates.md)
 - [EARLY\_APP\_DATA\_UNLIMITED](variables/EARLY_APP_DATA_UNLIMITED.md)
 - [ExtensionProfiles](variables/ExtensionProfiles.md)
@@ -479,6 +489,7 @@
 ## Functions
 
 - [addSDPHeader](functions/addSDPHeader.md)
+- [alertDescName](functions/alertDescName.md)
 - [andDirection](functions/andDirection.md)
 - [appendRfc3550Padding](functions/appendRfc3550Padding.md)
 - [applyCodecPreferences](functions/applyCodecPreferences.md)
@@ -502,6 +513,7 @@
 - [candidateToIce](functions/candidateToIce.md)
 - [candidateToSdp](functions/candidateToSdp.md)
 - [captureTrackSourceCodecs](functions/captureTrackSourceCodecs.md)
+- [classifyAlert](functions/classifyAlert.md)
 - [cloneCodecParameters](functions/cloneCodecParameters.md)
 - [codecParametersFromString](functions/codecParametersFromString.md)
 - [codecParametersToString](functions/codecParametersToString.md)
@@ -511,6 +523,7 @@
 - [consentResponseTimeoutMs](functions/consentResponseTimeoutMs.md)
 - [crc32](functions/crc32.md)
 - [crc32c](functions/crc32c.md)
+- [createAlertRecord](functions/createAlertRecord.md)
 - [createAv1AggregationHeader](functions/createAv1AggregationHeader.md)
 - [createBandwidthEstimator](functions/createBandwidthEstimator.md)
 - [createBufferWriter](functions/createBufferWriter.md)
@@ -664,3 +677,9 @@
 - [validateRemoteCandidate](functions/validateRemoteCandidate.md)
 - [wrapRtx](functions/wrapRtx.md)
 - [writeH265PayloadHeader](functions/writeH265PayloadHeader.md)
+
+## References
+
+### DtlsSocketOptions
+
+Renames and re-exports [Options](interfaces/Options.md)

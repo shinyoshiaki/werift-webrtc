@@ -1,4 +1,10 @@
-import { setTimeout } from "timers/promises";
+import { setImmediate, setTimeout } from "timers/promises";
+import {
+  classifyAlert,
+  createAlertRecord,
+  type DtlsAlert,
+  DtlsAlertError,
+} from "./alert";
 import type { DtlsHandshakeCarrier } from "./carrier/types";
 import {
   NamedCurveAlgorithmList,
@@ -33,7 +39,12 @@ import {
   resolvePeerIdentityMode,
 } from "./peer";
 import { createPlaintext } from "./record/builder";
-import { AlertDesc, ContentType } from "./record/const";
+import {
+  AlertDesc,
+  AlertLevel,
+  alertDescName,
+  ContentType,
+} from "./record/const";
 import { FragmentedHandshake } from "./record/message/fragment";
 import { parsePacket, parsePlainText } from "./record/receive";
 import type { Extension } from "./typings/domain";
@@ -52,13 +63,24 @@ const log = debug("werift-dtls : packages/dtls/src/socket.ts : log");
 const err = debug("werift-dtls : packages/dtls/src/socket.ts : err");
 
 export class DtlsSocket {
+  /** Default upper bound (ms) for waiting until an alert has been sent. */
+  static AlertSendTimeoutMs = 200;
+
   public options: Options;
   public sessionType: SessionTypes;
 
   readonly onConnect = new Event();
   readonly onData = new Event<[Buffer]>();
+  /**
+   * Fires with a {@link DtlsAlertError} when the connection ends with a fatal
+   * alert (received from the peer, or sent by this side when it rejected the
+   * peer certificate), and with other errors raised by the handshake.
+   */
   readonly onError = new Event<[Error]>();
+  /** Fires once when the peer closed the connection with close_notify. */
   readonly onClose = new Event();
+  /** Fires for every alert received from the peer (before onClose / onError). */
+  readonly onAlert = new Event<[DtlsAlert]>();
   readonly transport: TransportContext;
   cipher: CipherContext;
   dtls: DtlsContext;
@@ -100,6 +122,16 @@ export class DtlsSocket {
   ) => Promise<void>;
 
   private bufferFragmentedHandshakes: FragmentedHandshake[] = [];
+  /** close_notify or a fatal alert was sent: no record is sent any more. */
+  private alertSent = false;
+  /** The alert that is being sent (shared with concurrent close calls). */
+  private alertSending?: Promise<void>;
+  /**
+   * The connection ended (close_notify / fatal alert sent or received, or
+   * close()): received records are no longer processed.
+   */
+  private ended = false;
+  /** A received close_notify is a half-close: later application sends are ignored. */
 
   /** When set, DTLS 1.3 engine owns the transport and crypto state. */
   protected engine13?: Dtls13Connection;
@@ -469,6 +501,14 @@ export class DtlsSocket {
     if (addr != null && addr[0] != null && addr[1] != null) {
       return [addr[0], addr[1]];
     }
+    // Some Transport implementations expose Node's AddressInfo object instead
+    // of the tuple shape; normalize it before cookie pinning and RX checks.
+    const addressInfo = addr as unknown as
+      | { address?: string; port?: number }
+      | undefined;
+    if (addressInfo?.address != null && addressInfo.port != null) {
+      return [addressInfo.address, addressInfo.port];
+    }
     const r = (
       this.options.transport as {
         rinfo?: { address?: string; port?: number };
@@ -534,10 +574,10 @@ export class DtlsSocket {
    * close_notify must not tear down a post-handshake association (unauth DoS).
    */
   protected isAuthenticatedLegacy12Record(epoch: number): boolean {
-    if (this.connected || this.dtls.epoch > 0) {
-      return epoch > 0;
-    }
-    return true;
+    // During the handshake, a peer may still send a plaintext fatal alert
+    // after this side has advanced its write epoch. Require AEAD only once the
+    // association is connected; the source/cookie identity gate still applies.
+    return !this.connected || epoch > 0;
   }
 
   /**
@@ -552,6 +592,10 @@ export class DtlsSocket {
    * but either is sufficient for association-lifecycle alert decisions.
    */
   protected hasAssociationPeerAuth(): boolean {
+    // A DTLS client has an outbound association owner; source pinning (when
+    // available) is still enforced by matchesPinnedPeer(). Servers remain
+    // silent until ICE identity or a return-routability pin is established.
+    if (this.sessionType === SessionType.CLIENT) return true;
     return associationHasPeerAuth({
       hasPinnedPeer: !!this.transport.pinnedPeer,
       identityMode: this.peerIdentityMode,
@@ -615,7 +659,7 @@ export class DtlsSocket {
     meta?: DatagramRxMeta,
   ): void {
     // Terminal association: drop all RX (no onData / handshake resume after fatal).
-    if (this.associationTornDown) return;
+    if (this.associationTornDown || this.ended) return;
     // ICE restart can occur after the datagram has been accepted by the
     // transport but before this handler starts.  Reject that stale generation
     // before parse/decrypt so it cannot advance a DTLS 1.2 association.
@@ -648,6 +692,8 @@ export class DtlsSocket {
     const packets = parsePacket(data);
 
     for (const packet of packets) {
+      // An alert earlier in this datagram may have ended the connection.
+      if (this.ended) return;
       try {
         // Re-check: async fatal during multi-record datagram must stop mid-loop.
         if (this.associationTornDown) return;
@@ -658,14 +704,18 @@ export class DtlsSocket {
         const messages = parsePlainText(this.dtls, this.cipher)(packet);
         for (const message of messages) {
           if (this.associationTornDown) return;
-          if (!this.isCurrentRxGeneration(meta?.rxGeneration)) return;
+          if (this.ended || !this.isCurrentRxGeneration(meta?.rxGeneration))
+            return;
           switch (message.type) {
             case ContentType.handshake:
               {
                 // Post-handshake epoch-0 HS is unauthenticated plaintext — same
                 // invariant as DTLS 1.3 (drop without lifecycle change). Must not
                 // call renegotiation() / reset cipher on garbage or spoofed CH.
-                if (!this.isAuthenticatedLegacy12Record(recordEpoch)) {
+                if (
+                  !this.isAuthenticatedLegacy12Record(recordEpoch) ||
+                  (this.connected && recordEpoch < this.dtls.remoteEpoch)
+                ) {
                   log(
                     this.dtls.sessionId,
                     "DTLS 1.2: drop unauthenticated handshake record",
@@ -734,7 +784,7 @@ export class DtlsSocket {
             case ContentType.applicationData:
               {
                 // Never deliver app data after association terminal teardown.
-                if (this.associationTornDown) return;
+                if (this.associationTornDown || this.ended) return;
                 // App data is always epoch>0 AEAD; unauthenticated epoch-0 must not deliver.
                 if (!this.isAuthenticatedLegacy12Record(recordEpoch)) {
                   log(
@@ -744,7 +794,7 @@ export class DtlsSocket {
                   );
                   break;
                 }
-                this.onData.execute(message.data as Buffer);
+                this.notify(this.onData, message.data as Buffer);
                 // onData is synchronous and may trigger ICE restart.  Do not
                 // continue processing another record from the old datagram.
                 if (!this.isCurrentRxGeneration(meta?.rxGeneration)) return;
@@ -752,14 +802,17 @@ export class DtlsSocket {
               break;
             case ContentType.alert:
               {
-                const alert = message.data as Alert | undefined;
+                const alert = message.data as DtlsAlert | undefined;
                 if (!alert) break;
                 // Pre-cookie (no pin): any alert is unauthenticated — drop only.
-                if (!this.hasAssociationPeerAuth()) {
+                if (
+                  !this.hasAssociationPeerAuth() &&
+                  !(this.connected && recordEpoch > 0)
+                ) {
                   log(
                     this.dtls.sessionId,
                     "DTLS 1.2: ignore pre-auth alert (no association fatal)",
-                    AlertDesc[alert.description] ?? alert.description,
+                    alertDescName(alert.description) ?? alert.description,
                   );
                   break;
                 }
@@ -769,51 +822,261 @@ export class DtlsSocket {
                   log(
                     this.dtls.sessionId,
                     "DTLS 1.2: ignore unauthenticated alert (no terminal)",
-                    AlertDesc[alert.description] ?? alert.description,
+                    alertDescName(alert.description) ?? alert.description,
                     "epoch",
                     recordEpoch,
                   );
                   break;
                 }
-                // Association lifecycle (aligned with 1.3 / TLS 1.2):
-                //   fatal / protocol_version → fail association (onError + tear down)
-                //   close_notify             → graceful association close
-                //   other warning            → log / continue (not connection close)
-                if (
-                  alert.level >= 2 ||
-                  alert.description === AlertDesc.ProtocolVersion
-                ) {
-                  const fe =
-                    alert.description === AlertDesc.ProtocolVersion
-                      ? new ProtocolVersionError(
-                          "peer rejected protocol version (alert protocol_version)",
-                        )
-                      : new Error(
-                          `alert fatal error: ${
-                            AlertDesc[alert.description] ?? alert.description
-                          }`,
-                        );
-                  // Tear down association *before* onError so handlers observe
-                  // connected=false / dualPhase=closed / Public API disabled.
-                  this.reportLegacy12Fatal(fe);
-                } else if (alert.description === AlertDesc.CloseNotify) {
-                  this.onLegacy12PeerCloseNotify();
-                } else {
-                  log(
-                    this.dtls.sessionId,
-                    "DTLS 1.2 warning alert (continue)",
-                    AlertDesc[alert.description] ?? alert.description,
-                  );
-                }
+                // Alert records can contain multiple alerts; each remains in
+                // the authenticated peer / epoch boundary above.
+                this.handleAlert(alert);
               }
               break;
           }
         }
       } catch (error) {
-        // Decrypt / parse failures: drop record, do not tear down (unauth garbage).
+        // An invalid record (e.g. failed to decrypt) is discarded
+        // (RFC 6347 §4.1.2.1).
         err(this.dtls.sessionId, "catch udpOnMessage error", error);
       }
     }
+  }
+
+  /** Resolves once an in-flight alert has been handed to the transport. */
+  alertFlushed(): Promise<void> {
+    return this.alertSending ?? Promise.resolve();
+  }
+
+  /** Whether the connection ended (alert, or close()). */
+  get terminated() {
+    return this.ended;
+  }
+
+  /** Whether this handshake must stop after a terminal alert or close. */
+  protected get handshakeStopped() {
+    return this.ended || this.alertSent;
+  }
+
+  /**
+   * Run the listeners of an event this socket reports, each isolated
+   * (`Event.executeIsolated`): a listener's exception is logged, so an
+   * application listener can never interrupt the socket's own processing
+   * (ending the connection, closing the transport, the receive loop) nor
+   * skip a listener registered after it.
+   */
+  protected notify<T extends any[]>(event: Event<T>, ...args: T) {
+    // Per listener: one that throws neither skips the later listeners (e.g.
+    // werift's own, if the application subscribed first) nor this socket.
+    event.executeIsolated(
+      (error) => err(this.dtls.sessionId, "event listener failed", error),
+      ...args,
+    );
+  }
+
+  /**
+   * RFC 5246 §7.2: react to an alert received from the peer. The connection
+   * is ended (flights stopped, close_notify answered or the transport
+   * closed) before any listener runs, and each notification is isolated, so
+   * a throwing listener does not leave the socket ended but unreported.
+   */
+  private handleAlert(alert: DtlsAlert) {
+    if (this.ended || this.associationTornDown) return;
+    const action = classifyAlert(alert);
+    if (action === "ignore") {
+      log(this.dtls.sessionId, "ignore warning alert", alert);
+      this.notify(this.onAlert, alert);
+      return;
+    }
+
+    this.ended = true;
+    // Retransmitting a handshake flight makes no sense any more.
+    this.transport.stopFlights();
+
+    if (action === "close") {
+      log(this.dtls.sessionId, "received close_notify");
+      this.notify(this.onAlert, alert);
+      // Client override also closes a dual association and its candidate state.
+      this.onLegacy12PeerCloseNotify();
+    } else {
+      err(this.dtls.sessionId, "received fatal alert", alert);
+      // A fatal alert is not answered (RFC 5246 §7.2.2).
+      this.alertSent = true;
+      const error =
+        alert.description === AlertDesc.ProtocolVersion &&
+        !this.protocolVersions.includes(DtlsVersion.V1_3) &&
+        !this.connected
+          ? new ProtocolVersionError(
+              "remote peer rejected DTLS protocol version",
+            )
+          : new DtlsAlertError(alert, "remote");
+      if (!this.failLegacy12Association(error)) {
+        return;
+      }
+      this.notify(this.onAlert, alert);
+      this.notify(this.onError, error);
+    }
+  }
+
+  /**
+   * Send an alert to the peer, protected with the current epoch (plaintext
+   * before ChangeCipherSpec, encrypted after it).
+   *
+   * Resolves once the transport has sent the record, or after `timeoutMs`
+   * (default {@link DtlsSocket.AlertSendTimeoutMs}). It never rejects: a
+   * failed send is only logged. Nothing is sent once close_notify or a fatal
+   * alert has been sent or the transport is closed. Sending close_notify or a
+   * fatal alert also stops the handshake flights (no retransmission). The
+   * record is handed to the transport synchronously, so closing the socket
+   * right after calling this does not drop it.
+   *
+   * A fatal alert ends the connection like a fatal error this side detected
+   * itself: `onError` fires synchronously with a local {@link DtlsAlertError},
+   * and the transport is closed once the alert has been sent (the returned
+   * promise resolves after that).
+   */
+  sendAlert(
+    level: AlertLevel,
+    description: AlertDesc,
+    options: { timeoutMs?: number } = {},
+  ): Promise<void> {
+    if (level === AlertLevel.fatal) {
+      return this.endWithFatalAlert(description, undefined, options);
+    }
+    return this.transmitAlert(level, description, options);
+  }
+
+  /** Encode, protect and send one alert record (see {@link sendAlert}). */
+  private transmitAlert(
+    level: AlertLevel,
+    description: AlertDesc,
+    options: { timeoutMs?: number },
+  ): Promise<void> {
+    if (this.alertSent || this.transport.closed) {
+      // A concurrent caller waits for the alert that is still being sent.
+      return this.alertSending ?? Promise.resolve();
+    }
+    if (level === AlertLevel.fatal || description === AlertDesc.CloseNotify) {
+      this.alertSent = true;
+      // A terminating alert ends the handshake too: no handshake flight is
+      // sent or retransmitted after it.
+      this.transport.stopFlights();
+    }
+    if (level === AlertLevel.fatal) {
+      this.ended = true;
+    }
+
+    let sending: Promise<void>;
+    try {
+      const record = createAlertRecord(this.dtls, this.cipher, {
+        level,
+        description,
+      });
+      log(this.dtls.sessionId, "send alert", {
+        level,
+        description,
+        epoch: this.dtls.epoch,
+        sequenceNumber: this.dtls.recordSequenceNumber,
+      });
+      sending = this.transport.send(record);
+    } catch (error) {
+      err(this.dtls.sessionId, "failed to send alert", error);
+      return Promise.resolve();
+    }
+
+    const timeoutMs = options.timeoutMs ?? DtlsSocket.AlertSendTimeoutMs;
+    const timer = new AbortController();
+    const done = Promise.race([
+      sending,
+      setTimeout(timeoutMs, undefined, { signal: timer.signal }).then(() => {
+        log(this.dtls.sessionId, "alert send timeout", timeoutMs);
+      }),
+    ])
+      .catch((error) => {
+        if (timer.signal.aborted) return;
+        err(this.dtls.sessionId, "failed to send alert", error);
+      })
+      .finally(() => timer.abort())
+      // A UDP transport hands the datagram to the socket on a later tick
+      // (dgram resolves the address asynchronously): closing the socket
+      // right after send() resolved would drop the alert.
+      .then(() => setImmediate());
+    this.alertSending = done;
+    return done;
+  }
+
+  /**
+   * Abort the handshake (or the connection) because this side detected a
+   * fatal error: see {@link endWithFatalAlert}.
+   */
+  protected abortWithFatalAlert(description: AlertDesc, reason?: unknown) {
+    void this.endWithFatalAlert(description, reason);
+  }
+
+  /**
+   * The single ending path for a fatal alert sent by this side (the public
+   * {@link sendAlert} and an internal abort): send the alert, stop the
+   * flights, report a local {@link DtlsAlertError} on onError (once), and
+   * close the transport once the alert has been sent or timed out. Does
+   * nothing more once the connection already ended.
+   */
+  private endWithFatalAlert(
+    description: AlertDesc,
+    reason?: unknown,
+    options: { timeoutMs?: number } = {},
+  ): Promise<void> {
+    if (this.ended || this.alertSent || this.transport.closed) {
+      return this.alertSending ?? Promise.resolve();
+    }
+    const sending = this.transmitAlert(AlertLevel.fatal, description, options);
+    this.ended = true;
+    this.transport.stopFlights();
+    // The transport closes once the alert was sent, whatever a listener does.
+    const done = sending.then(() => this.closeTransport());
+    this.alertSending = done;
+    this.notify(
+      this.onError,
+      new DtlsAlertError(
+        { level: AlertLevel.fatal, description },
+        "local",
+        reason,
+      ),
+    );
+    return done;
+  }
+
+  /**
+   * Call `options.verifyRemoteCertificate` with the received peer
+   * certificate. When it returns false or throws, the handshake is aborted
+   * with a fatal bad_certificate alert and false is returned.
+   */
+  protected verifyRemoteCertificate() {
+    const verify = this.options.verifyRemoteCertificate;
+    if (!verify) return true;
+    const certificate = this.cipher.remoteCertificate;
+    let reason: unknown;
+    try {
+      if (certificate && verify(Buffer.from(certificate))) {
+        return true;
+      }
+    } catch (error) {
+      reason = error;
+    }
+    err(this.dtls.sessionId, "remote certificate rejected", reason);
+    this.abortWithFatalAlert(AlertDesc.BadCertificate, reason);
+    return false;
+  }
+
+  /**
+   * Close the transport (once; concurrent callers share the same close) and
+   * resolve when it has closed. A failure (a rejection or a synchronous
+   * throw of the transport's close()) is only logged: it never interrupts
+   * the caller, e.g. the onError notification of a received fatal alert.
+   */
+  private closeTransport() {
+    return this.transport.close().catch((error: unknown) => {
+      err(this.dtls.sessionId, "failed to close transport", error);
+    });
   }
 
   protected setupExtensions() {
@@ -981,6 +1244,10 @@ export class DtlsSocket {
   /**send application data */
   send = async (buf: Buffer, addr?: Address) => {
     this.assertReadyForApplicationApi("send");
+    if (this.alertSent || this.ended) {
+      log(this.dtls.sessionId, "drop application data after alert");
+      return;
+    }
     if (this.engine13) {
       await this.engine13.send(buf);
       return;
@@ -1035,6 +1302,7 @@ export class DtlsSocket {
     this.abortLegacy12Flight(error);
     this.connected = false;
     this.associationTornDown = true;
+    this.ended = true;
     this.abortAssociationWaits();
     this.clearSendPeerPin();
     void this.transport.close().catch(() => {});
@@ -1050,8 +1318,8 @@ export class DtlsSocket {
   protected reportLegacy12Fatal(error: Error): void {
     // failLegacy12Association returns false when already terminal.
     if (!this.failLegacy12Association(error)) return;
-    this.onError.execute(error);
-    this.onClose.execute();
+    this.notify(this.onError, error);
+    this.notify(this.onClose);
   }
 
   /**
@@ -1059,17 +1327,21 @@ export class DtlsSocket {
    * Terminal transition + optional single public onClose (client dual uses
    * closeAssociationHard instead).
    */
-  protected closeLegacy12Association(firePublicOnClose = true): void {
+  protected closeLegacy12Association(
+    firePublicOnClose = true,
+    closeTransport = true,
+  ): void {
     if (this.associationTornDown) return;
     this.abortLegacy12Flight();
     this.connected = false;
     this.associationTornDown = true;
+    this.ended = true;
     this.abortAssociationWaits();
     this.clearSendPeerPin();
     if (firePublicOnClose) {
       this.onClose.execute();
     }
-    void this.transport.close().catch(() => {});
+    if (closeTransport) void this.transport.close().catch(() => {});
   }
 
   /**
@@ -1086,6 +1358,7 @@ export class DtlsSocket {
     this.abortAssociationWaits();
     // Keep TX pin for best-effort reply, then free with budget.
     this.finishLegacy12PeerCloseWithOptionalNotify();
+    this.notify(this.onClose);
   }
 
   /**
@@ -1096,13 +1369,13 @@ export class DtlsSocket {
     after?: () => void,
   ): void {
     const notify = this.sendLegacy12CloseNotify().catch(() => {});
+    this.alertSending = notify;
     let done = false;
     const finish = () => {
       if (done) return;
       done = true;
       this.clearSendPeerPin();
       after?.();
-      this.onClose.execute();
       void this.transport.close().catch(() => {});
     };
     // Use global timer APIs — module imports setTimeout from timers/promises.
@@ -1132,17 +1405,36 @@ export class DtlsSocket {
     }
   }
 
-  close() {
+  /**
+   * Close this association. DTLS 1.2 optionally sends close_notify first;
+   * all paths wait for an alert already handed to the transport before close.
+   */
+  async close(options: { notify?: boolean; timeoutMs?: number } = {}) {
+    if (options.notify && !this.engine13) {
+      await this.sendAlert(AlertLevel.warning, AlertDesc.CloseNotify, {
+        ...(options.timeoutMs !== undefined && {
+          timeoutMs: options.timeoutMs,
+        }),
+      });
+    }
+    this.ended = true;
+    this.transport.stopFlights();
     if (this.engine13) {
       // Sync Public-API terminal *before* async close_notify so send() cannot
       // race pure 1.3 / dual-server graceful close (client dual overrides this).
       // onClosing from the engine is idempotent with prepareAssociationClosed.
       this.prepareAssociationClosedFromEngine();
       this.engine13.close();
+      // The engine owns close_notify flushing and calls closeTransport after
+      // its bounded graceful teardown. Closing here races its alert write.
       return;
     }
-    // DTLS 1.2 server (and any non-overridden close): terminal + onClose once.
-    this.closeLegacy12Association(true);
+    // Mark terminal synchronously so callers and onClose listeners never see
+    // a live association after close() returns its promise. Defer transport
+    // teardown until any already-started alert has reached the carrier.
+    this.closeLegacy12Association(true, false);
+    await this.alertFlushed();
+    await this.closeTransport();
   }
 
   extractSessionKeys(keyLength: number, saltLength: number) {
@@ -1260,6 +1552,7 @@ export class DtlsSocket {
     }
     this.connected = false;
     this.associationTornDown = true;
+    this.ended = true;
     this.abortAssociationWaits();
     this.clearSendPeerPin();
     // Unbridge first so subsequent engine onClose/onError cannot re-enter or
@@ -1473,6 +1766,16 @@ export interface Options {
    * byte cap (the 2 s retention still applies).
    */
   maxEarlyAppDataBytes?: number;
+  /**
+   * Verify the peer certificate (DER) during the handshake. Returning false
+   * or throwing aborts the handshake with a fatal bad_certificate alert, so
+   * the peer learns the failure before it considers the connection
+   * established: the client checks the server certificate before sending
+   * flight 5, the server checks the client certificate before sending its
+   * Finished. onError receives a {@link DtlsAlertError} with
+   * `source: "local"`.
+   */
+  verifyRemoteCertificate?: (certificate: Buffer) => boolean;
 }
 
 /**

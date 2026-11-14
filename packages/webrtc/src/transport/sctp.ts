@@ -27,6 +27,7 @@ import {
   RTCDataChannel,
   RTCDataChannelParameters,
 } from "../dataChannel";
+import { EventTarget as DomEventTarget, notifySafely } from "../helper";
 import { debug, Event, FifoQueue } from "../imports/common";
 import type { RTCDtlsTransport } from "./dtls";
 
@@ -40,6 +41,9 @@ export const DEFAULT_MAX_MESSAGE_SIZE = 65536;
  */
 export const PASSIVE_INIT_FALLBACK_MS = 1000;
 
+/** W3C webrtc-pc `RTCSctpTransportState`. */
+export type RTCSctpTransportState = "connecting" | "connected" | "closed";
+
 export class RTCSctpTransport {
   public port: number;
   public maxMessageSize: number;
@@ -50,6 +54,17 @@ export class RTCSctpTransport {
 
   readonly onDataChannel = new Event<[RTCDataChannel]>();
   readonly id = randomUUID().toString();
+  /**
+   * `connecting` until the association is established, then `connected`;
+   * `closed` once the association closed (the peer ended it, or the DTLS
+   * transport closed / failed). {@link RTCSctpTransport.stop} (e.g.
+   * `RTCPeerConnection.close()`) moves to `closed` without statechange.
+   * A new association (renegotiation) starts again from `connecting`.
+   */
+  state: RTCSctpTransportState = "connecting";
+  readonly onStateChange = new Event<[RTCSctpTransportState]>();
+  onstatechange?: (() => void) | undefined;
+  private readonly events = new DomEventTarget();
 
   mid?: string;
   mLineIndex?: number;
@@ -78,6 +93,40 @@ export class RTCSctpTransport {
 
   get transport() {
     return this.dtlsTransport;
+  }
+
+  addEventListener = (
+    type: string,
+    listener: (...args: any[]) => void,
+    options?: boolean | { once?: boolean },
+  ) => {
+    this.events.addEventListener(type, listener, options);
+  };
+
+  removeEventListener = (type: string, listener: (...args: any[]) => void) => {
+    this.events.removeEventListener(type, listener);
+  };
+
+  /**
+   * Change the state and notify. Each notification is isolated: an
+   * exception a listener throws is logged and never interrupts the caller
+   * (stop() and its ABORT, closing the data channels).
+   */
+  private setState(state: RTCSctpTransportState, emitEvent = true) {
+    if (state === this.state) return;
+    this.state = state;
+    // Per subscriber, so a throwing subscriber cannot skip a later one.
+    this.onStateChange.executeIsolated(
+      (error) => log("onStateChange listener failed", error),
+      state,
+    );
+    if (emitEvent) {
+      notifySafely(log, "onstatechange", () => this.onstatechange?.());
+      this.events.emitIsolated(
+        (error) => log("statechange listener failed", error),
+        "statechange",
+      );
+    }
   }
 
   setDtlsTransport(dtlsTransport: RTCDtlsTransport) {
@@ -131,6 +180,7 @@ export class RTCSctpTransport {
   private createSctpAssociation() {
     this.disposeSctpListeners();
     this.stopped = false;
+    this.setState("connecting", false);
     this.sctp = new SCTP(
       new BridgeDtls(this.dtlsTransport),
       this.port,
@@ -152,6 +202,7 @@ export class RTCSctpTransport {
           });
         }),
         association.stateChanged.connected.subscribe(() => {
+          this.setState("connected");
           Object.values(this.dataChannels).forEach((channel) => {
             if (channel.negotiated && channel.readyState !== "open") {
               channel.setReadyState("open");
@@ -160,6 +211,7 @@ export class RTCSctpTransport {
           this.dataChannelFlush();
         }),
         association.stateChanged.closed.subscribe(() => {
+          this.setState("closed");
           // An explicit stop() closes the channels registered on this
           // association only; channels whose OPEN is still queued outlive it
           // (rollback re-announces them on the next association).
@@ -695,9 +747,14 @@ export class RTCSctpTransport {
     await this.start(remotePort);
   }
 
-  async stop() {
+  markStopped() {
     this.stopping = true;
     this.stopped = true;
+    this.setState("closed", false);
+  }
+
+  async stop() {
+    this.markStopped();
     this.dtlsTransport.dataReceiver = () => {};
     // User data is owned by the stopped association; preserve only DCEP OPEN
     // entries so a later association can discard them if the channel closed.

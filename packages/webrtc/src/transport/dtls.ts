@@ -11,9 +11,16 @@ import {
 } from "../../../ice/src/internal/datagram";
 import { getConnectionSpedRuntime } from "../../../ice/src/internal/sped-bind";
 import { SCTPSendPermissionRevokedError } from "../../../sctp/src";
-import { EventTarget as DomEventTarget } from "../helper";
+import { EventTarget as DomEventTarget, notifySafely } from "../helper";
 import { Event } from "../imports/common";
-import { DtlsClient, DtlsServer, type DtlsSocket } from "../imports/dtls";
+import {
+  AlertDesc,
+  AlertLevel,
+  DtlsAlertError,
+  DtlsClient,
+  DtlsServer,
+  type DtlsSocket,
+} from "../imports/dtls";
 import {
   debug,
   isMedia,
@@ -69,9 +76,77 @@ export {
   type DtlsTransportStats,
 } from "./dtls-types";
 
+/**
+ * Upper bound (ms) for waiting until close_notify / a fatal alert has been
+ * handed to ICE in {@link RTCDtlsTransport.stop}; it adds directly to the
+ * time `RTCPeerConnection.close()` takes.
+ */
+export const DTLS_ALERT_SEND_TIMEOUT_MS = 100;
+
+/**
+ * Minimal `RTCError` (W3C webrtc-pc §10.1) for the DTLS failures that
+ * {@link RTCDtlsTransport} reports with its `error` event.
+ *
+ * - `"fingerprint-failure"`: the remote certificate matched none of the
+ *   fingerprints of the remote description. `receivedAlert` / `sentAlert` are
+ *   null, as the spec defines them only for `"dtls-failure"`, although werift
+ *   still sends a fatal `bad_certificate` (42) to the peer, which in turn
+ *   reports `"dtls-failure"` with `receivedAlert: 42`.
+ * - `"dtls-failure"`: any other DTLS failure, e.g. a fatal alert received
+ *   (`receivedAlert`) or sent (`sentAlert`).
+ */
+export class RTCError extends Error {
+  readonly errorDetail: "dtls-failure" | "fingerprint-failure";
+  /**
+   * `"dtls-failure"` only: the fatal alert description received from the
+   * peer, otherwise null.
+   */
+  readonly receivedAlert: number | null;
+  /**
+   * `"dtls-failure"` only: the fatal alert description sent to the peer,
+   * otherwise null.
+   */
+  readonly sentAlert: number | null;
+
+  constructor(
+    init: {
+      errorDetail: "dtls-failure" | "fingerprint-failure";
+      receivedAlert?: number | null;
+      sentAlert?: number | null;
+    },
+    message?: string,
+  ) {
+    super(message);
+    this.name = "OperationError";
+    this.errorDetail = init.errorDetail;
+    this.receivedAlert = init.receivedAlert ?? null;
+    this.sentAlert = init.sentAlert ?? null;
+  }
+}
+
+/** The `error` event of {@link RTCDtlsTransport} (`RTCErrorEvent`). */
+export interface RTCDtlsTransportErrorEvent {
+  type: "error";
+  error: RTCError;
+}
+
 const log = debug("werift:packages/webrtc/src/transport/dtls.ts");
 
 type AddressValidation = "dtls-cookie" | "ice-authenticated";
+
+class FingerprintMismatchError extends Error {
+  constructor() {
+    super("remote certificate fingerprint mismatch");
+    this.name = "FingerprintMismatchError";
+  }
+}
+const certificateVerificationError = (reason: unknown) =>
+  reason instanceof FingerprintMismatchError
+    ? new RTCError({ errorDetail: "fingerprint-failure" }, reason.message)
+    : new RTCError(
+        { errorDetail: "dtls-failure", sentAlert: AlertDesc.BadCertificate },
+        String(reason),
+      );
 
 /** Result of encrypting and enqueueing one RTP packet on ICE. */
 export type DtlsSendRtpResult = {
@@ -134,6 +209,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   srtcp!: SrtcpSession;
   lastError?: Error;
   private startPromise?: Promise<void>;
+  private settleStart?: (error: Error) => void;
   /** @internal Notifies SCTP that its pre-authenticated early start was revoked. */
   readonly onEarlyApplicationSendRevoked = new Event<[]>();
   /** @internal Cancels pre-established associations owned by an old attempt. */
@@ -165,6 +241,20 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   readonly onStopped = new Event<[]>();
   private readonly events = new DomEventTarget();
   onstatechange?: () => void;
+  /**
+   * Fires once when the transport becomes `failed`:
+   * - the remote certificate matched none of the remote fingerprints:
+   *   `errorDetail: "fingerprint-failure"` (`receivedAlert` / `sentAlert`
+   *   null; a fatal `bad_certificate` is still sent to the peer);
+   * - a fatal alert received from the peer, or sent by this side (e.g.
+   *   `bad_certificate` for a certificate it could not verify for another
+   *   reason), and other DTLS errors: `errorDetail: "dtls-failure"` with
+   *   `receivedAlert` / `sentAlert`.
+   *
+   * A close_notify (`closed`) does not fire it. Also delivered as
+   * `addEventListener("error", ...)`.
+   */
+  onerror?: ((event: RTCDtlsTransportErrorEvent) => void) | undefined;
 
   /** Process-wide default certificate cache, see {@link RTCDtlsTransport.SetupCertificate}. */
   static localCertificate?: RTCCertificate;
@@ -217,6 +307,10 @@ export class RTCDtlsTransport implements DtlsTransportStats {
 
   private get liveIceGeneration(): number {
     return (this.iceTransport.connection as Connection).generation;
+  }
+
+  private get isFinalState(): boolean {
+    return this.state === "closed" || this.state === "failed";
   }
 
   /** @internal Update the live WARP policy without leaving a stale snapshot. */
@@ -331,7 +425,9 @@ export class RTCDtlsTransport implements DtlsTransportStats {
    */
   private failAuthenticatedTransport(error: Error): void {
     this.readiness.revokePeerAuthentication();
-    this.enterFailed(error);
+    this.lastError = error;
+    this.fail(error);
+    this.srtpAccess.revoke();
     this.releasePreAuthData();
     this.abortSpedSession();
     this.dtls?.close();
@@ -377,7 +473,21 @@ export class RTCDtlsTransport implements DtlsTransportStats {
 
     this.setState("connecting");
     this.srtpStarted = true;
-    this.startPromise = this.completeHandshake();
+    this.startPromise = new Promise<void>((resolve, reject) => {
+      let settled = false;
+      const settle = (error?: unknown) => {
+        if (settled) return;
+        settled = true;
+        this.settleStart = undefined;
+        if (error === undefined) resolve();
+        else reject(error);
+      };
+      this.settleStart = (error) => settle(error);
+      void this.completeHandshake().then(
+        () => settle(),
+        (error) => settle(error),
+      );
+    });
     await this.startPromise;
   }
 
@@ -541,12 +651,15 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       : this.config.helloRetryRequest
         ? "dtls-cookie"
         : "ice-authenticated";
+    if (sped) await this.startWithSped(addressValidation);
+    else await this.startSerial(addressValidation);
 
-    if (sped) {
-      await this.startWithSped(addressValidation);
-    } else {
-      await this.startSerial(addressValidation);
-    }
+    // A fatal alert raced with the end of the handshake.
+    // (Narrowed by the checks above, the state may have changed meanwhile.)
+    const state = this.state as DtlsState;
+    if (state === "failed") throw new Error("dtls transport failed");
+    // stop() raced with the end of the handshake: closed stays.
+    if (state === "closed") return;
 
     // An ICE restart can retain the cryptographic association while changing
     // its carrier generation.  Every authentication/drain phase is therefore
@@ -692,6 +805,23 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       protocolVersions: this.config.protocolVersions,
       peerIdentityMode: "authenticated-single-peer" as const,
       addressValidation,
+      verifyRemoteCertificate: (certificate: Buffer) => {
+        try {
+          verifyRemoteCertificateFingerprint(
+            this.remoteParameters?.fingerprints,
+            certificate,
+          );
+          return true;
+        } catch (error) {
+          const reason =
+            error instanceof Error &&
+            error.message === "remote certificate fingerprint mismatch"
+              ? new FingerprintMismatchError()
+              : error;
+          this.lastError = toError(reason);
+          throw reason;
+        }
+      },
     };
   }
 
@@ -755,7 +885,8 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     // ICE restart で attempt を付け替えても DTLS socket は同じで、
     // connect() をやり直す経路はない。失敗を捨てると start() が
     // 終わらないため、attempt に関係なく現在の失敗として扱う。
-    this.enterFailed(error);
+    this.lastError = error;
+    this.fail(error);
     this.abortSpedSession();
     log("dtls connect failed", error);
     reject(error);
@@ -783,6 +914,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     this.dtls.onClose.subscribe(() => {
       // 全 close 経路で送信許可を解除し、close 後の SRTP/SRTCP 送信を防ぐ。
       this.srtpAccess.revoke();
+      if (this.isTerminated()) return;
       if (this.state === "connecting") {
         this.abortSpedSession();
         this.discardUnauthenticatedData();
@@ -808,7 +940,15 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       log("core write readiness not reached", error);
     });
     this.dtls.onError.once((error) => {
-      this.enterFailed(error);
+      if (!(this.lastError instanceof FingerprintMismatchError)) {
+        this.lastError =
+          error instanceof DtlsAlertError &&
+          error.source === "local" &&
+          error.reason instanceof Error
+            ? error.reason
+            : error;
+      }
+      this.fail(error);
       this.abortSpedSession();
       this.discardUnauthenticatedData();
       log("dtls failed", error);
@@ -816,11 +956,39 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     });
   }
 
-  /** Enter "failed" with `error`; media permissions end with it. */
-  private enterFailed(error: Error): void {
-    this.lastError = error;
+  /** closed / failed are terminal and produce one isolated DTLS error event. */
+  private fail(error: unknown): void {
+    if (this.isTerminated()) return;
     this.srtpAccess.revoke();
     this.setState("failed");
+    const rtcError =
+      error instanceof RTCError
+        ? error
+        : error instanceof DtlsAlertError &&
+            error.source === "local" &&
+            error.reason instanceof FingerprintMismatchError
+          ? certificateVerificationError(error.reason)
+          : error instanceof DtlsAlertError
+            ? new RTCError(
+                {
+                  errorDetail: "dtls-failure",
+                  ...(error.source === "remote"
+                    ? { receivedAlert: error.description }
+                    : { sentAlert: error.description }),
+                },
+                error.message,
+              )
+            : new RTCError({ errorDetail: "dtls-failure" }, String(error));
+    const event: RTCDtlsTransportErrorEvent = {
+      type: "error",
+      error: rtcError,
+    };
+    this.notifySafely("onerror", () => this.onerror?.(event));
+    this.events.emitIsolated(
+      (listenerError) => log("error listener failed", listenerError),
+      "error",
+      event,
+    );
   }
 
   private abortSpedSession() {
@@ -1070,11 +1238,19 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   /**
    * Encrypt RTP and enqueue on ICE, capturing the clock immediately before
    * the ICE write (RFC 8888). Prefer {@link sendRtp} unless send time is needed.
+   *
+   * Nothing is sent once the transport is `closed` / `failed` (close_notify
+   * or a fatal alert, `stop()`): ICE may still be up, but the DTLS
+   * association that keyed SRTP has ended. The size is then 0.
    */
   async sendRtpWithMeta(
     payload: Buffer,
     header: RtpHeader,
   ): Promise<DtlsSendRtpResult> {
+    if (this.isFinalState) {
+      log("drop RTP on a", this.state, "transport");
+      return { size: 0, sendingAtMs: milliTime() };
+    }
     try {
       if (this.isTerminated() || !this.srtpAccess.canWrite) {
         return { size: 0, sendingAtMs: milliTime() };
@@ -1146,16 +1322,49 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     }
     return this.dtls.remoteCertificate;
   }
-
+  /**
+   * Change the state and notify. Each notification is isolated: an
+   * exception thrown by a listener is logged and never interrupts the
+   * caller (stop() cleanup, settling start(), failing the transport).
+   */
   private setState(state: DtlsState, emitEvent = true) {
+    if (this.isFinalState) return;
     if (state != this.state) {
       this.state = state;
-      this.onStateChange.execute(state);
+      // Per subscriber: an application subscriber registered before the
+      // internal ones (SCTP closing its association, connectionState) must
+      // not stop them by throwing.
+      this.onStateChange.executeIsolated(
+        (error) => log("onStateChange listener failed", error),
+        state,
+      );
       if (emitEvent) {
-        this.onstatechange?.();
-        this.events.emit("statechange");
+        this.notifySafely("onstatechange", () => this.onstatechange?.());
+        this.events.emitIsolated(
+          (error) => log("statechange listener failed", error),
+          "statechange",
+        );
       }
     }
+  }
+
+  private notifySafely(name: string, notify: () => void) {
+    notifySafely(log, name, notify);
+  }
+
+  /**
+   * @internal
+   * The synchronous part of {@link RTCDtlsTransport.stop}: `closed` without
+   * statechange (W3C webrtc-pc `close()`), and a start() still waiting for
+   * the handshake settles. `RTCPeerConnection.close()` calls it before its
+   * first await; the alert and the ICE / socket teardown follow in stop().
+   */
+  markClosed() {
+    this.setState("closed", false);
+    // A start() still waiting for the handshake ends here (closed stays).
+    this.settleStart?.(
+      new Error("DTLS transport closed before start completed"),
+    );
   }
 
   private stopPromise?: Promise<void>;
@@ -1173,33 +1382,68 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     return this.stopPromise;
   }
 
+  /**
+   * 1. closed, synchronously and without statechange (W3C webrtc-pc
+   *    `close()`).
+   * 2. close_notify to the peer (RFC 5246 §7.2.1), encrypted once the
+   *    handshake reached epoch 1, plaintext while it is still at epoch 0. It
+   *    is awaited for at most {@link DTLS_ALERT_SEND_TIMEOUT_MS}, so a dead
+   *    ICE path cannot hold the close. Nothing is sent after a fatal alert,
+   *    a received close_notify, or when ICE is already closed / failed.
+   * 3. ICE stops (the alert must reach ICE before it closes).
+   * 4. The DTLS socket closes, so a handshake still in flight stops
+   *    retransmitting.
+   *
+   * Steps 3 and 4 and `onStopped` always run, even if an earlier step or a
+   * listener threw, so the underlying transports never outlive stop().
+   */
   private async runStop() {
+    const dtls = this.dtls;
     try {
-      // 旧 attempt の callback・drain が再開しないよう先に無効化する。
+      this.markClosed();
+      if (
+        dtls &&
+        !dtls.terminated &&
+        !["closed", "failed"].includes(this.iceTransport.state)
+      ) {
+        await dtls.sendAlert(AlertLevel.warning, AlertDesc.CloseNotify, {
+          timeoutMs: DTLS_ALERT_SEND_TIMEOUT_MS,
+        });
+      } else if (dtls?.terminated) {
+        await dtls.alertFlushed();
+      }
+    } catch (error) {
+      log("stop: close_notify step failed", error);
+    }
+    try {
+      // 旧 attempt の callback・drain が再開しないよう ICE 停止前に無効化。
       this.attempts.invalidate();
       this.iceDatagramSubscription?.unSubscribe();
       this.iceDatagramSubscription = undefined;
       this.srtpAccess.revoke();
-      this.setState("closed", false);
       this.releasePreAuthData();
-      // DTLS engine の early queue・pending flight・再送 timer を破棄する。
-      try {
-        this.dtls?.close();
-      } catch (error) {
-        log("dtls close failed", error);
-      }
       await this.iceTransport.stop();
-    } finally {
-      // SPED transport の ICE datagram / state 購読を解放し、保留中の early
-      // 送信を reject する。close_notify を拒否しないよう ICE 停止の後に閉じる。
+    } catch (error) {
+      log("stop: ice stop failed", error);
+    }
+    try {
+      // SPED 購読は ICE 停止後に解除し、close_notify の送信を妨げない。
       const spedTransport = this.spedTransport;
       this.spedTransport = undefined;
-      await spedTransport
-        ?.close()
-        .catch((error) => log("sped transport close failed", error));
-      this.onStopped.execute();
-      this.onStopped.complete();
+      await spedTransport?.close();
+    } catch (error) {
+      log("stop: SPED close failed", error);
     }
+    try {
+      await dtls?.close();
+    } catch (error) {
+      log("stop: dtls close failed", error);
+    }
+    // Per subscriber: the owner releasing this transport must run.
+    this.onStopped.executeIsolated((error) =>
+      log("onStopped listener failed", error),
+    );
+    this.notifySafely("onStopped", () => this.onStopped.complete());
   }
 
   async getStats(timestamp = getStatsTimestamp()): Promise<RTCStats[]> {

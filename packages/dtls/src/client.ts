@@ -32,7 +32,7 @@ import { ServerHelloVerifyRequest } from "./handshake/message/server/helloVerify
 import { DtlsRandom } from "./handshake/random";
 import type { Address, DatagramRxMeta } from "./imports/common";
 import { debug } from "./imports/common";
-import { AlertDesc, ContentType } from "./record/const";
+import { AlertDesc, AlertLevel, ContentType } from "./record/const";
 import type { FragmentedHandshake } from "./record/message/fragment";
 import { serializePlaintextRecord } from "./record/v1_3/record";
 import { type DtlsInternalOptions, DtlsSocket, type Options } from "./socket";
@@ -346,6 +346,8 @@ export class DtlsClient extends DtlsSocket {
    */
   private closeAssociationHard(opts?: {
     hardDisposeCandidates?: boolean;
+    /** Let close() wait for an in-flight alert before releasing transport. */
+    deferTransportClose?: boolean;
     /** Local close only — fire public onClose once while engine13 still visible. */
     firePublicOnClose?: boolean;
   }): void {
@@ -360,10 +362,14 @@ export class DtlsClient extends DtlsSocket {
         this.closeAllDtls13Candidates({ hardDispose: true });
         this.closeAssociationCarrier();
         this.transport.socket.onData = this.udpOnMessage;
-        void this.transport.close().catch(() => {});
+        if (!opts?.deferTransportClose) {
+          void this.transport.close().catch(() => {});
+        }
       } else if (!this.engine13 && !this.parkedEngine13) {
         this.closeAssociationCarrier();
-        void this.transport.close().catch(() => {});
+        if (!opts?.deferTransportClose) {
+          void this.transport.close().catch(() => {});
+        }
       }
       return;
     }
@@ -392,7 +398,10 @@ export class DtlsClient extends DtlsSocket {
     this.closeAssociationCarrier();
     // Association demux stays closed-gated so late inject is a no-op.
     this.transport.socket.onData = this.udpOnMessage;
-    if (opts?.hardDisposeCandidates || !deferredTransport) {
+    if (
+      (opts?.hardDisposeCandidates || !deferredTransport) &&
+      !opts?.deferTransportClose
+    ) {
       // Fatal path, or no engine left to finish close_notify + teardown.
       void this.transport.close().catch(() => {});
     }
@@ -543,8 +552,25 @@ export class DtlsClient extends DtlsSocket {
    * 1.2 flight timers. Phase becomes permanently `closed`.
    * Fires public onClose once (bridge is disposed before eng.close).
    */
-  close() {
-    this.closeAssociationHard({ firePublicOnClose: true });
+  async close(options: { notify?: boolean; timeoutMs?: number } = {}) {
+    if (options.notify && !this.engine13) {
+      await this.sendAlert(AlertLevel.warning, AlertDesc.CloseNotify, {
+        ...(options.timeoutMs !== undefined && {
+          timeoutMs: options.timeoutMs,
+        }),
+      });
+    }
+    // Terminal state and onClose are synchronous; only the carrier teardown
+    // waits for any close/fatal alert already in flight.
+    const hasLive13Candidate = !!this.engine13 || !!this.parkedEngine13;
+    this.closeAssociationHard({
+      firePublicOnClose: true,
+      deferTransportClose: true,
+    });
+    await this.alertFlushed();
+    // Candidate close owns the bounded close_notify + transport teardown.
+    // Otherwise wait for any alert already in flight, then close it here.
+    if (!hasLive13Candidate) await this.transport.close().catch(() => {});
   }
 
   /**
@@ -1236,7 +1262,7 @@ export class DtlsClient extends DtlsSocket {
     );
 
     for (const handshake of assembled) {
-      if (!isActive()) return;
+      if (!isActive() || this.handshakeStopped) return;
       switch (handshake.msg_type) {
         case HandshakeType.hello_verify_request_3:
           {
@@ -1369,6 +1395,13 @@ export class DtlsClient extends DtlsSocket {
           }
           break;
         case HandshakeType.certificate_11:
+          {
+            await this.waitForReady(() => !!this.flight5);
+            this.flight5?.handleHandshake(handshake);
+            // Reject the server certificate before flight 5 (Finished) is sent.
+            if (!this.verifyRemoteCertificate()) return;
+          }
+          break;
         case HandshakeType.server_key_exchange_12:
         case HandshakeType.certificate_request_13:
           {
@@ -1393,7 +1426,7 @@ export class DtlsClient extends DtlsSocket {
               this.dtls.checkHandshakesExist(targets),
             );
             // close / commit13 後は Flight5.exec も onConnect も行わない
-            if (!isActive()) return;
+            if (!isActive() || this.handshakeStopped) return;
             await this.flight5?.exec();
             if (!isActive()) return;
           }
@@ -1410,7 +1443,7 @@ export class DtlsClient extends DtlsSocket {
             // Flight5 was sleeping until nextFlight=7; cancel RTO sleep before
             // onConnect so pending timers/tasks are gone on handshake complete.
             this.cancelLegacy12FlightTimers();
-            this.onConnect.execute();
+            this.notify(this.onConnect);
             log(this.dtls.sessionId, "dtls connected");
           }
           break;
