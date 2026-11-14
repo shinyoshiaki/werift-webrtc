@@ -1,0 +1,139 @@
+[**werift**](../README.md)
+
+***
+
+[werift](../globals.md) / AV1RtpPayload
+
+# Class: AV1RtpPayload
+
+## Constructors
+
+### Constructor
+
+> **new AV1RtpPayload**(): `AV1RtpPayload`
+
+#### Returns
+
+`AV1RtpPayload`
+
+## Properties
+
+### nBit\_RtpStartsNewCodedVideoSequence
+
+> **nBit\_RtpStartsNewCodedVideoSequence**: `number`
+
+RtpStartsNewCodedVideoSequence
+MUST be set to 1 if the packet is the first packet of a coded video sequence, and MUST be set to 0 otherwise.
+
+***
+
+### obu\_or\_fragment
+
+> **obu\_or\_fragment**: `object`[] = `[]`
+
+#### continues?
+
+> `optional` **continues?**: `boolean`
+
+Fragment continues in the next packet (last element with Y=1).
+
+#### data
+
+> **data**: `Buffer`
+
+#### isContinuation?
+
+> `optional` **isContinuation?**: `boolean`
+
+Fragment continues an OBU from the previous packet (first element with Z=1).
+
+#### isFragment
+
+> **isFragment**: `boolean`
+
+***
+
+### w\_RtpNumObus
+
+> **w\_RtpNumObus**: `number`
+
+RtpNumObus
+two bit field that describes the number of OBU elements in the packet. This field MUST be set equal to 0 or equal to the number of OBU elements contained in the packet. If set to 0, each OBU element MUST be preceded by a length field.
+
+***
+
+### yBit\_RtpEndsWithFragment
+
+> **yBit\_RtpEndsWithFragment**: `number`
+
+RtpEndsWithFragment
+MUST be set to 1 if the last OBU element is an OBU fragment that will continue in the next packet, and MUST be set to 0 otherwise.
+
+***
+
+### zBit\_RtpStartsWithFragment
+
+> **zBit\_RtpStartsWithFragment**: `number`
+
+RtpStartsWithFragment
+MUST be set to 1 if the first OBU element is an OBU fragment that is a continuation of an OBU fragment from the previous packet, and MUST be set to 0 otherwise.
+
+## Accessors
+
+### isKeyframe
+
+#### Get Signature
+
+> **get** **isKeyframe**(): `boolean`
+
+##### Returns
+
+`boolean`
+
+## Methods
+
+### deSerialize()
+
+> `static` **deSerialize**(`buf`): `AV1RtpPayload`
+
+#### Parameters
+
+##### buf
+
+`Buffer`
+
+#### Returns
+
+`AV1RtpPayload`
+
+***
+
+### getFrame()
+
+> `static` **getFrame**(`payloads`): `Buffer`\<`ArrayBuffer`\>
+
+#### Parameters
+
+##### payloads
+
+`AV1RtpPayload`[]
+
+#### Returns
+
+`Buffer`\<`ArrayBuffer`\>
+
+***
+
+### isDetectedFinalPacketInSequence()
+
+> `static` **isDetectedFinalPacketInSequence**(`header`): `boolean`
+
+#### Parameters
+
+##### header
+
+[`RtpHeader`](RtpHeader.md)
+
+#### Returns
+
+`boolean`
