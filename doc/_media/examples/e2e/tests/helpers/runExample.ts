@@ -35,14 +35,14 @@ import {
   waitForPortOpen,
   watchUnexpectedExit,
 } from "./spawnExample.js";
-import { listenUdp } from "./waitPeer.js";
+import { listenUdp, type UdpListener } from "./waitPeer.js";
 
 export type ExampleSession = {
   entry: CatalogEntry;
   page?: Page;
   processes: SpawnedProcess[];
   workDir: string;
-  udpListener?: { packets: number };
+  udpListener?: UdpListener;
   mediaPids: Set<number>;
   stop: () => Promise<void>;
 };
@@ -99,7 +99,7 @@ export async function withExample(
       await waitForPortFree(extra);
     }
 
-    let udpListener: { packets: number } | undefined;
+    let udpListener: UdpListener | undefined;
     if (entry.rtpForwardPort) {
       await waitForPortFree(entry.rtpForwardPort);
       const listener = listenUdp(entry.rtpForwardPort);

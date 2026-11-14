@@ -18,6 +18,7 @@
 - [methods](enumerations/methods.md)
 - [PacketChunk](enumerations/PacketChunk.md)
 - [PacketStatus](enumerations/PacketStatus.md)
+- [RtpTimelineDropReason](enumerations/RtpTimelineDropReason.md)
 
 ## Classes
 
@@ -131,6 +132,7 @@
 - [RtpMediaTimeline](classes/RtpMediaTimeline.md)
 - [RtpPacket](classes/RtpPacket.md)
 - [RtpRouter](classes/RtpRouter.md)
+- [RtpTimelineRewriter](classes/RtpTimelineRewriter.md)
 - [RttBasedBackoff](classes/RttBasedBackoff.md)
 - [RunLengthChunk](classes/RunLengthChunk.md)
 - [SDPManager](classes/SDPManager.md)
@@ -231,6 +233,8 @@
 - [RtpMediaPacerTick](interfaces/RtpMediaPacerTick.md)
 - [RtpMediaTimelineAnchor](interfaces/RtpMediaTimelineAnchor.md)
 - [RtpMediaTimelineOptions](interfaces/RtpMediaTimelineOptions.md)
+- [RtpTimelineRewriterOptions](interfaces/RtpTimelineRewriterOptions.md)
+- [RtpTimelineSwitch](interfaces/RtpTimelineSwitch.md)
 - [SentInfo](interfaces/SentInfo.md)
 - [StreamTransportOptions](interfaces/StreamTransportOptions.md)
 - [TransactionRequestOptions](interfaces/TransactionRequestOptions.md)
@@ -342,6 +346,7 @@
 - [RtpMediaClockState](type-aliases/RtpMediaClockState.md)
 - [RtpReceiveInfo](type-aliases/RtpReceiveInfo.md)
 - [RtpReceivePacketType](type-aliases/RtpReceivePacketType.md)
+- [RtpTimestampStepMode](type-aliases/RtpTimestampStepMode.md)
 - [~~SenderBandwidthEstimator~~](type-aliases/SenderBandwidthEstimator.md)
 - [SendStreamIds](type-aliases/SendStreamIds.md)
 - [SignatureAlgorithms](type-aliases/SignatureAlgorithms.md)

@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Answer (upstream recreated periodically)</title>
+  </head>
+  <body>
+    <div id="log">answer</div>
+    <script>
+      // Every offer from switch_source.ts starts a new upstream connection.
+      var rtc;
+
+      (async () => {
+        const log = (text) => {
+          console.log(text);
+          document.getElementById("log").textContent = text;
+        };
+        const localStream = await navigator.mediaDevices.getUserMedia({
+          video: { width: 640, height: 480 },
+          audio: false,
+        });
+        const socket = new WebSocket("ws://localhost:8888");
+
+        socket.onmessage = async (ev) => {
+          const { generation, sdp: offer } = JSON.parse(ev.data);
+          rtc?.close();
+          const peer = (rtc = new RTCPeerConnection({ iceServers: [] }));
+          peer.onicecandidate = ({ candidate }) => {
+            if (!candidate) {
+              socket.send(
+                JSON.stringify({ generation, sdp: peer.localDescription }),
+              );
+            }
+          };
+          localStream
+            .getVideoTracks()
+            .forEach((track) => peer.addTrack(track, localStream));
+          await peer.setRemoteDescription(offer);
+          await peer.setLocalDescription(await peer.createAnswer());
+          log(`generation ${generation}`);
+        };
+      })();
+    </script>
+  </body>
+</html>

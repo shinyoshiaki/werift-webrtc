@@ -721,6 +721,13 @@ export class RTCRtpSender {
    * offsets. `discontinuity` does not change sequence or timestamp mapping.
    * `timestampStep` (default 1) is the only way to choose the timestamp increment
    * at the source-switch boundary.
+   *
+   * Use this (or `MediaStreamTrack.notifySourceChanged`) when the RTP written
+   * into this sender's track switches to another upstream source: the next
+   * packet continues from the last sent one (`seq + 1`, `timestamp + step`)
+   * and queued packets of the old source are dropped. Apps that send RTP
+   * without `RTCRtpSender` (for example through `SrtpSession`) can use
+   * `RtpTimelineRewriter` from werift-rtp instead.
    */
   replaceRTP(
     header: Pick<RtpHeader, "sequenceNumber" | "timestamp">,

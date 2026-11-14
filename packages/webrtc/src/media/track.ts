@@ -208,6 +208,15 @@ export class MediaStreamTrack extends EventTarget {
     this.broadcastSource.deliverRtcp(rtcp);
   };
 
+  /**
+   * Tell the senders of this track that the RTP written with {@link writeRtp}
+   * now comes from another source (for example a recreated upstream
+   * connection). Each `RTCRtpSender` continues its output sequence number /
+   * timestamp from the last sent packet (timestamp step 1; use
+   * `RTCRtpSender.replaceRTP` to choose the step) and drops queued packets of
+   * the old source. `header` is kept for compatibility and is not used for the
+   * offsets. Without an `RTCRtpSender`, use `RtpTimelineRewriter`.
+   */
   notifySourceChanged(header: Pick<RtpHeader, "sequenceNumber" | "timestamp">) {
     this.broadcastSource.deliverSourceChanged(header);
   }

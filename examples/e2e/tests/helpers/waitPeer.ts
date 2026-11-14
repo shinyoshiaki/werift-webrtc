@@ -76,16 +76,42 @@ export async function waitWeriftRtp(
   );
 }
 
+/** Forwarded RTP observed by {@link listenUdp}. */
+export type UdpListener = {
+  readonly packets: number;
+  /** Distinct RTP SSRCs seen. */
+  readonly ssrcs: ReadonlySet<number>;
+  /** Largest |signed 16-bit sequence distance| between consecutive packets. */
+  readonly maxSequenceJump: number;
+};
+
 export function listenUdp(port: number) {
   const sock = createSocket("udp4");
   let packets = 0;
+  const ssrcs = new Set<number>();
+  let lastSeq: number | undefined;
+  let maxSequenceJump = 0;
   sock.bind(port, "127.0.0.1");
-  sock.on("message", () => {
+  sock.on("message", (msg) => {
     packets += 1;
+    if (msg.length < 12) return;
+    ssrcs.add(msg.readUInt32BE(8));
+    const seq = msg.readUInt16BE(2);
+    if (lastSeq !== undefined) {
+      const jump = Math.abs(((seq - lastSeq) << 16) >> 16);
+      maxSequenceJump = Math.max(maxSequenceJump, jump);
+    }
+    lastSeq = seq;
   });
   return {
     get packets() {
       return packets;
+    },
+    get ssrcs() {
+      return ssrcs as ReadonlySet<number>;
+    },
+    get maxSequenceJump() {
+      return maxSequenceJump;
     },
     close: () =>
       new Promise<void>((resolve) => {
@@ -102,6 +128,20 @@ export async function waitUdpPackets(
     () => listener.packets > 0,
     timeoutMs,
     "no RTP forwarded to the harness UDP socket",
+  );
+}
+
+/** Wait until more than `minNewPackets` RTP packets arrived after `before`. */
+export async function waitMoreUdpPackets(
+  listener: { packets: number },
+  before: number,
+  minNewPackets = 10,
+  timeoutMs = 25_000,
+) {
+  await waitUntil(
+    () => listener.packets > before + minNewPackets,
+    timeoutMs,
+    "RTP forwarding to the harness UDP socket stopped",
   );
 }
 
