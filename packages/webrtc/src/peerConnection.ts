@@ -181,6 +181,18 @@ export class RTCPeerConnection extends EventTarget {
     { generation: number; urls: Set<string> }
   >();
   /**
+   * The current gathering: counted up each time `iceGatheringState` enters
+   * "gathering". A transport takes part in the gathering it started
+   * gathering in (gatheringOfTransport); one that only gathered in an
+   * earlier one (an existing transport when a new m-line adds one) does not
+   * hold back the 701 of this gathering.
+   */
+  private gatheringNumber = 0;
+  private readonly gatheringOfTransport = new WeakMap<
+    RTCIceTransport,
+    number
+  >();
+  /**
    * The last operation of the chain: `done` when it finished, `applied` when
    * the description it applies is in place (setLocalDescription's gathering
    * wait comes after it). addIceCandidate only needs `applied`.
@@ -412,7 +424,16 @@ export class RTCPeerConnection extends EventTarget {
       },
     );
     this.secureManager.iceGatheringStateChange.subscribe((state) => {
-      if (state === "gathering") this.unreachableErrorUrls.clear();
+      if (state === "gathering") {
+        // A new gathering: the transports gathering now take part in it.
+        this.gatheringNumber++;
+        this.unreachableErrorUrls.clear();
+        for (const transport of this.secureManager.iceTransports) {
+          if (transport.gatheringState === "gathering") {
+            this.gatheringOfTransport.set(transport, this.gatheringNumber);
+          }
+        }
+      }
       this.iceGatheringStateChange.execute(state);
       this.onicegatheringstatechange?.(
         new globalThis.Event("icegatheringstatechange"),
@@ -485,8 +506,9 @@ export class RTCPeerConnection extends EventTarget {
 
   /**
    * Record that `failed`'s current ICE generation could not reach `url`;
-   * true when every ICE transport gathering in this gathering (not pending
-   * only, not "new") could not reach it either.
+   * true when every ICE transport taking part in the current gathering (it
+   * started gathering in it; not pending only, not closed) could not reach
+   * it either.
    */
   private allTransportsUnreachable(failed: RTCIceTransport, url: string) {
     const generationOf = (transport: RTCIceTransport) =>
@@ -500,7 +522,9 @@ export class RTCPeerConnection extends EventTarget {
     return this.secureManager.iceTransports
       .filter(
         (transport) =>
-          transport.gatheringState !== "new" &&
+          (transport === failed ||
+            this.gatheringOfTransport.get(transport) ===
+              this.gatheringNumber) &&
           transport.state !== "closed" &&
           !this.negotiation.isPendingOnlyTransport(transport.id),
       )
@@ -955,6 +979,16 @@ export class RTCPeerConnection extends EventTarget {
 
     iceTransport.onNegotiationNeeded.subscribe(() => {
       this.needNegotiation();
+    });
+    iceTransport.addEventListener("gatheringstatechange", () => {
+      // Starting to gather while a gathering is under way joins it; one that
+      // starts a new gathering joins it when iceGatheringState changes.
+      if (
+        iceTransport.gatheringState === "gathering" &&
+        this.secureManager.iceGatheringState === "gathering"
+      ) {
+        this.gatheringOfTransport.set(iceTransport, this.gatheringNumber);
+      }
     });
     iceTransport.onIceCandidateError.subscribe((details) => {
       // A closed connection fires nothing; a transport a rollback discards

@@ -12,6 +12,7 @@ import {
   type RTCPeerConnectionConfig,
   type RTCPeerConnectionIceErrorEvent,
 } from "../../src";
+import type { RTCIceTransport } from "../../src/transport/ice";
 
 /**
  * Shared Arrange for the `icecandidateerror` tests
@@ -22,6 +23,7 @@ export const errorTestHost = getHostAddresses(true, false)[0]!;
 
 export {
   createErrorStunServer,
+  createFirstPortOnlyStunServer,
   createRejectingUdpTurnServer,
   createScriptedUdpServer,
   createSilentUdpServer,
@@ -92,10 +94,11 @@ export async function createUnbundledUnreachablePeer() {
 
 /**
  * Like {@link createUnbundledUnreachablePeer}, but the STUN server answers
- * the first transport's socket only: one transport reaches it, one does not.
+ * only the `answered`-th (0-based) socket that asks it: one transport
+ * reaches it, one does not.
  */
-export async function createUnbundledPartlyReachablePeer() {
-  return createUnbundledPeer(await createFirstPortOnlyStunServer());
+export async function createUnbundledPartlyReachablePeer(answered = 0) {
+  return createUnbundledPeer(await createFirstPortOnlyStunServer(answered));
 }
 
 async function createUnbundledPeer(silent: {
@@ -121,4 +124,11 @@ export async function gatheringComplete(pc: RTCPeerConnection) {
   while (pc.iceGatheringState !== "complete") {
     await pc.iceGatheringStateChange.asPromise();
   }
+}
+
+/** The port of the (single) UDP host candidate of `transport`. */
+export function hostPortOf(transport: RTCIceTransport) {
+  return transport.connection.localCandidates.find(
+    (candidate) => candidate.type === "host",
+  )?.port;
 }

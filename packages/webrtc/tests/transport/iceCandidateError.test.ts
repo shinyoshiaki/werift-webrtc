@@ -13,6 +13,7 @@ import { negotiate } from "../utils";
 import {
   createErrorRecordingPeer,
   createErrorStunServer,
+  createFirstPortOnlyStunServer,
   createHostOnlyPeer,
   createRejectingUdpTurnServer,
   createScriptedUdpServer,
@@ -24,6 +25,7 @@ import {
   errorTestHost,
   gatheringComplete,
   gatherWithOffer,
+  hostPortOf,
 } from "./iceCandidateErrorUtils";
 
 describe("icecandidateerror", () => {
@@ -423,6 +425,99 @@ describe("icecandidateerror", () => {
       await pc.setLocalDescription(await pc.createOffer());
 
       // Assert: transport は 2 個、srflx は得られ、701 は出ない
+      expect(pc.iceTransports).toHaveLength(2);
+      expect(pc.localDescription!.sdp).toContain("typ srflx");
+      expect(listened).toEqual([]);
+    } finally {
+      await pc.close();
+      await server.close();
+    }
+  });
+
+  test("以前の gathering でサーバーに届いた transport は、再交渉で追加した transport の 701 を妨げない", async () => {
+    // Arrange: 最初に問い合わせたポート (既存の音声 transport) にだけ応答する STUN で接続する
+    const server = await createFirstPortOnlyStunServer();
+    const url = `stun:${errorTestHost}:${server.address[1]}`;
+    const { pc, listened } = createErrorRecordingPeer({
+      bundlePolicy: "disable",
+      iceServers: [{ urls: url }],
+      iceStunGatherTimeout: 0.3,
+    });
+    const peer = createHostOnlyPeer();
+    try {
+      pc.addTransceiver("audio");
+      await negotiate(pc, peer);
+      const afterFirstGathering = listened.length;
+
+      // Act: 映像 transceiver を追加して再交渉し、新しい transport だけが gathering する
+      pc.addTransceiver("video");
+      await negotiate(pc, peer);
+      await gatheringComplete(pc);
+
+      // Assert: 最初の gathering では届いたので 0 件、新しい transport の 701 が 1 件届く
+      expect(afterFirstGathering).toBe(0);
+      expect(pc.iceTransports).toHaveLength(2);
+      expect(
+        listened.map(({ url, errorCode, port }) => [url, errorCode, port]),
+      ).toEqual([[url, 701, hostPortOf(pc.iceTransports[1])]]);
+    } finally {
+      await pc.close();
+      await peer.close();
+      await server.close();
+    }
+  });
+
+  test("接続後に setConfiguration で加えた到達不能なサーバーは、追加した transport からも通知される", async () => {
+    // Arrange: bundle なしで音声 transport だけで接続し、到達不能な STUN を設定に加える
+    const silent = await createSilentUdpServer(errorTestHost);
+    const url = `stun:${errorTestHost}:${silent.address[1]}`;
+    const { pc, listened } = createErrorRecordingPeer({
+      bundlePolicy: "disable",
+      iceServers: [],
+      iceStunGatherTimeout: 0.3,
+    });
+    const peer = createHostOnlyPeer();
+    try {
+      pc.addTransceiver("audio");
+      await negotiate(pc, peer);
+      pc.setConfiguration({
+        ...pc.getConfiguration(),
+        iceServers: [{ urls: url }],
+      });
+
+      // Act: 映像 transceiver を追加して再交渉し (既存 transport は ICE restart する)、gathering を完了させる
+      pc.addTransceiver("video");
+      await negotiate(pc, peer);
+      await gatheringComplete(pc);
+
+      // Assert: 新しいサーバーの 701 だけが届き、新しい transport の失敗も欠落しない
+      expect(pc.iceTransports).toHaveLength(2);
+      expect(listened.length).toBeGreaterThan(0);
+      for (const event of listened) {
+        expect([event.url, event.errorCode]).toEqual([url, 701]);
+      }
+      expect(listened.map(({ port }) => port)).toContain(
+        hostPortOf(pc.iceTransports[1]),
+      );
+    } finally {
+      await pc.close();
+      await peer.close();
+      await silent.close();
+    }
+  });
+
+  test("進行中の gathering に後から加わった transport がサーバーに届いたときも 701 を通知しない", async () => {
+    // Arrange: 2 番目に問い合わせたポート (後から gathering を始めた transport) にだけ応答する STUN
+    const {
+      pc,
+      listened,
+      silent: server,
+    } = await createUnbundledPartlyReachablePeer(1);
+    try {
+      // Act: 両 transport の gathering を完了させる
+      await pc.setLocalDescription(await pc.createOffer());
+
+      // Assert: 先に始めた transport は届かないが、後の transport が届いたので 701 は出ない
       expect(pc.iceTransports).toHaveLength(2);
       expect(pc.localDescription!.sdp).toContain("typ srflx");
       expect(listened).toEqual([]);

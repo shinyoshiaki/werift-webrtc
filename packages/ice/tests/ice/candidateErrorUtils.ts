@@ -160,15 +160,15 @@ export const twoIpv4Sockets: Partial<IceOptions> = {
 };
 
 /**
- * A STUN server that answers only the first local port that asks it (a
- * success mapping it to itself) and never the others: one socket reaches
- * it, the rest do not.
+ * A STUN server that answers only the `answered`-th (0-based) local port
+ * that asks it (a success mapping it to itself) and never the others: one
+ * socket reaches it, the rest do not.
  */
-export function createFirstPortOnlyStunServer() {
-  let answeredPort: number | undefined;
+export function createFirstPortOnlyStunServer(answered = 0) {
+  const ports: number[] = [];
   return createScriptedUdpServer((request, remote) => {
-    answeredPort ??= remote[1];
-    if (remote[1] !== answeredPort) return undefined;
+    if (!ports.includes(remote[1])) ports.push(remote[1]);
+    if (ports.indexOf(remote[1]) !== answered) return undefined;
     return new Message(
       methods.BINDING,
       classes.RESPONSE,

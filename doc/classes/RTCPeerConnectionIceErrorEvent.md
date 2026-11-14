@@ -13,7 +13,10 @@ A server that answered with an error (300-699) is reported once per local
 socket that asked it. A 701 (not reached) means no host candidate reached
 the server: it is fired once per URL per gathering (until
 `iceGatheringState` enters "gathering" again, as after an ICE restart),
-and only when no local socket of any ICE transport reached it. While
+and only when no local socket of any ICE transport taking part in that
+gathering reached it (a transport that only gathered in an earlier one,
+such as an existing transport when a new m-line adds one with
+`bundlePolicy: "disable"`, does not count). While
 listeners run, `target` and `currentTarget` are the
 `RTCPeerConnection` and `eventPhase` is 2 (`AT_TARGET`); afterwards
 `currentTarget` is `null` and `eventPhase` 0.
