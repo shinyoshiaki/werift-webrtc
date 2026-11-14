@@ -1262,6 +1262,22 @@ VPN, ...). If the bind fails, the family has no UDP host candidate.
 A family left unspecified while the other one is set gathers no
 enumerated addresses (only its `iceAdditionalHostAddresses`).
 
+When unset, each enumerated interface address gets a UDP host socket
+bound to that address, so connectivity checks leave from the advertised
+candidate on multi-NIC hosts. An address whose bind fails is not
+advertised. VPN / tunnel interfaces (`tun`, `utun`, `ipsec`, `tap`) are
+gathered with a low priority and the default-route address with the
+highest: the source address of the route to the configured STUN / TURN
+server (without one, no address is preferred and nothing else is probed).
+With a STUN server, one more socket per family is bound to the
+wildcard address: it advertises no host candidate but maps the route the
+OS picks (server-reflexive candidate with `raddr 0.0.0.0`).
+`setLocalDescription()` waits only for that socket and the
+default-route one; the other interfaces' server-reflexive candidates
+trickle through `onicecandidate` before the end-of-candidates `null`.
+Set a family to `0.0.0.0` / `::` to gather its enumerated addresses over
+wildcard sockets instead.
+
 ##### iceLite
 
 > **iceLite**: `boolean`
@@ -1310,7 +1326,8 @@ RFC 8445 procedures either way. Cannot be changed after construction.
 > **iceStunGatherTimeout**: `number` \| `undefined`
 
 Seconds to wait for server-reflexive candidates while gathering.
-Defaults to 5 when undefined.
+Defaults to 5 when undefined. `setLocalDescription()` waits for it only
+on the wildcard and default-route sockets (see `iceInterfaceAddresses`).
 
 ##### iceTcpPassive
 

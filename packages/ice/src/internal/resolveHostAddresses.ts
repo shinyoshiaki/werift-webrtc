@@ -1,66 +1,203 @@
-import { isIPv4 } from "node:net";
+import { isIPv4, isIPv6 } from "node:net";
 
 import type { InterfaceAddresses } from "../imports/common";
 
 export type ResolveHostAddressesLog = (...args: unknown[]) => void;
 
 /**
- * gather 対象の host アドレスを決める（package-private）。
- * 公開 barrel (`src/index.ts`) からは export しない。
+ * How the UDP host socket of a gathered address is bound.
+ *
+ * - `explicit`: the family's `interfaceAddresses` address; the socket binds it
+ *   and advertises the bound address.
+ * - `enumerated`: a locally enumerated address; the socket binds that address
+ *   (`bindAddress`) so its packets leave from the advertised address.
+ * - `wildcard`: an address not assigned to a local interface (an
+ *   `additionalHostAddresses` entry such as a 1:1 NAT public address), or a
+ *   family explicitly bound to `0.0.0.0` / `::`; the socket binds the
+ *   wildcard address and advertises `address`.
+ * @enum
+ */
+export const HostAddressBind = {
+  explicit: "explicit",
+  enumerated: "enumerated",
+  wildcard: "wildcard",
+} as const;
+/** @enum */
+export type HostAddressBind =
+  (typeof HostAddressBind)[keyof typeof HostAddressBind];
+
+/** A host address to gather and how its UDP socket is bound. */
+export interface HostAddress {
+  /** Address the host candidate is gathered for (never carries a zone). */
+  address: string;
+  bind: HostAddressBind;
+  /** Address the socket binds for `enumerated` (zone of a link-local IPv6). */
+  bindAddress?: string;
+  /** Enumerated from a costly network (VPN / tunnel): low local preference. */
+  costly?: boolean;
+}
+
+/** A locally enumerated address and the address its socket binds. */
+export interface EnumeratedHostAddress {
+  address: string;
+  bindAddress?: string;
+  costly?: boolean;
+}
+
+/** Canonical notation of an IP address (IPv6 compression / case, no zone). */
+export const normalizeIp = (address: string) => {
+  const host = address.split("%")[0];
+  if (!isIPv6(host)) return host;
+  try {
+    return new URL(`http://[${host}]`).hostname.slice(1, -1);
+  } catch {
+    return host;
+  }
+};
+
+// Compared in canonical form so that `0:0:0:0:0:0:0:0` is the `::` wildcard.
+const isUnspecified = (address: string) => {
+  const normalized = normalizeIp(address);
+  return normalized === "0.0.0.0" || normalized === "::";
+};
+
+/**
+ * gather 対象の host アドレスと、その UDP ソケットの bind 方針を決める
+ * （package-private）。公開 barrel (`src/index.ts`) からは export しない。
  *
  * - `interfaceAddresses.udp4` / `udp6` が指定されたファミリーは、指定アドレス
- *   1 個だけを使う。列挙結果に含まれなくても採用し、別アドレスへ
+ *   1 個だけを使う（`explicit`）。列挙結果に含まれなくても採用し、別アドレスへ
  *   フォールバックしない（UDP ソケットはそのアドレスに bind されるため）。
+ * - ただし指定アドレスが `0.0.0.0` / `::` のファミリーは、そのファミリーの
+ *   列挙アドレスと追加アドレスを wildcard ソケットで収集する（`wildcard`）。
+ *   wildcard アドレス自体は advertise しない。
  * - 指定アドレスと異なる同ファミリーの `additionalHostAddresses` は無視する
  *   （指定アドレスと同じものは従来どおり採用し、重複は排除する）。
  * - いずれかのファミリーが指定されているとき、指定のないファミリーの
  *   列挙アドレスは使わない（従来の挙動を維持）。`additionalHostAddresses`
  *   のそのファミリーのアドレスは従来どおり追加する。
- * - どのファミリーも指定がなければ、従来どおり列挙アドレスに
- *   `additionalHostAddresses` をマージする。
+ * - どのファミリーも指定がなければ、列挙アドレスに `additionalHostAddresses`
+ *   をマージする。列挙アドレスはそのアドレスに bind し（`enumerated`）、
+ *   列挙に含まれない追加アドレスは wildcard ソケットで収集する（`wildcard`）。
  * - `useIpv4` / `useIpv6` が false のファミリーの指定アドレスは使わない。
  */
 export function resolveHostAddresses({
   enumerated,
+  assigned = [],
   interfaceAddresses,
   additionalHostAddresses = [],
   useIpv4,
   useIpv6,
   log = () => {},
 }: {
-  enumerated: string[];
+  enumerated: (string | EnumeratedHostAddress)[];
+  /**
+   * All addresses assigned to local interfaces, including those excluded from
+   * `enumerated` (loopback, tun, ...). Only used to decide whether an
+   * `additionalHostAddresses` entry is local and can bind to itself.
+   */
+  assigned?: (string | EnumeratedHostAddress)[];
   interfaceAddresses?: InterfaceAddresses;
   additionalHostAddresses?: string[];
   useIpv4: boolean;
   useIpv6: boolean;
   log?: ResolveHostAddressesLog;
-}): string[] {
+}): HostAddress[] {
+  // Keyed by canonical address so that another notation of the same IPv6
+  // address is still recognized as local.
+  const toMap = (entries: (string | EnumeratedHostAddress)[]) => {
+    const map = new Map<
+      string,
+      { address: string; bindAddress: string; costly: boolean }
+    >();
+    for (const entry of entries) {
+      const {
+        address,
+        bindAddress = address,
+        costly = false,
+      } = typeof entry === "string" ? { address: entry } : entry;
+      const key = normalizeIp(address);
+      if (!map.has(key)) map.set(key, { address, bindAddress, costly });
+    }
+    return map;
+  };
+  const locals = toMap(enumerated);
+  const assignedLocals = toMap(assigned);
   const udp4 = interfaceAddresses?.udp4;
   const udp6 = interfaceAddresses?.udp6;
+  const explicitOf = (address: string) => (isIPv4(address) ? udp4 : udp6);
+
+  const resolved = new Map<string, HostAddress>();
+  const add = (host: HostAddress) => {
+    const key = normalizeIp(host.address);
+    if (!resolved.has(key)) resolved.set(key, host);
+  };
+  // Without an explicit (non-wildcard) address for its family, an address
+  // assigned to a local interface is bound to itself, any other one to the
+  // wildcard address.
+  const localOrWildcard = (address: string): HostAddress => {
+    const explicit = explicitOf(address);
+    const local =
+      locals.get(normalizeIp(address)) ??
+      assignedLocals.get(normalizeIp(address));
+    if (!explicit && local !== undefined) {
+      return {
+        address: local.address,
+        bind: HostAddressBind.enumerated,
+        bindAddress: local.bindAddress,
+        ...(local.costly ? { costly: true } : {}),
+      };
+    }
+    return { address, bind: HostAddressBind.wildcard };
+  };
 
   if (!udp4 && !udp6) {
-    return Array.from(new Set([...additionalHostAddresses, ...enumerated]));
+    for (const address of additionalHostAddresses) {
+      add(localOrWildcard(address));
+    }
+    for (const { address } of locals.values()) {
+      add(localOrWildcard(address));
+    }
+    return [...resolved.values()];
   }
 
-  const explicit: string[] = [];
-  if (udp4 && useIpv4) explicit.push(udp4);
-  if (udp6 && useIpv6) explicit.push(udp6);
-
-  const additional = additionalHostAddresses.filter((address) => {
-    const explicitAddress = isIPv4(address) ? udp4 : udp6;
-    if (!explicitAddress) {
-      return true;
+  for (const [explicit, enabled] of [
+    [udp4, useIpv4],
+    [udp6, useIpv6],
+  ] as const) {
+    if (!explicit || !enabled) continue;
+    if (isUnspecified(explicit)) {
+      // The family is explicitly bound to the wildcard address: gather its
+      // enumerated addresses over wildcard sockets.
+      for (const { address, costly } of locals.values()) {
+        if (explicitOf(address) === explicit) {
+          add({
+            address,
+            bind: HostAddressBind.wildcard,
+            ...(costly ? { costly: true } : {}),
+          });
+        }
+      }
+    } else {
+      add({ address: explicit, bind: HostAddressBind.explicit });
     }
-    if (address === explicitAddress) {
-      return true;
+  }
+
+  for (const address of additionalHostAddresses) {
+    const explicit = explicitOf(address);
+    if (!explicit || isUnspecified(explicit)) {
+      add(localOrWildcard(address));
+      continue;
+    }
+    if (normalizeIp(address) === normalizeIp(explicit)) {
+      continue; // already gathered as the explicit address
     }
     log(
       "ignore additionalHostAddress; its family is bound to interfaceAddress",
       address,
-      explicitAddress,
+      explicit,
     );
-    return false;
-  });
+  }
 
-  return Array.from(new Set([...explicit, ...additional]));
+  return [...resolved.values()];
 }

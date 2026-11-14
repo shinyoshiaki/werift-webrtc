@@ -977,14 +977,32 @@ export class RTCIceGatherer {
       await this.connection.gatherCandidates();
       // Gathering an ICE restart (or close) replaced in the meantime does not
       // complete the new generation: that one signals its own end.
-      if (
+      const replaced = () =>
         this.connection.generation !== generation ||
-        this.connection.state === "closed"
-      ) {
+        this.connection.state === "closed";
+      if (replaced()) {
         return;
       }
-      this.onIceCandidate(undefined);
-      this.setState("complete");
+      const complete = () => {
+        this.onIceCandidate(undefined);
+        this.setState("complete");
+      };
+      if (
+        this.connection.localCandidatesEnd ||
+        !this.connection.waitForLocalCandidatesEnd
+      ) {
+        complete();
+        return;
+      }
+      // The representative sockets are done, so the description need not
+      // wait; the other sockets' server-reflexive candidates trickle and
+      // end-of-candidates follows them.
+      void this.connection
+        .waitForLocalCandidatesEnd()
+        .then(() => {
+          if (!replaced() && this.connection.localCandidatesEnd) complete();
+        })
+        .catch((error) => log("gathering failed", error));
     }
   }
 

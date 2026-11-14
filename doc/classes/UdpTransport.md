@@ -194,17 +194,7 @@ readonly \[`string`, `number`\]
 
 ##### options?
 
-###### interfaceAddresses?
-
-[`InterfaceAddresses`](../type-aliases/InterfaceAddresses.md)
-
-###### port?
-
-`number`
-
-###### portRange?
-
-\[`number`, `number`\]
+[`UdpTransportOptions`](../interfaces/UdpTransportOptions.md) = `{}`
 
 #### Returns
 

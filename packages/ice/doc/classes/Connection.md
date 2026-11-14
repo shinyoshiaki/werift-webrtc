@@ -961,3 +961,24 @@ Start checks for the provisional generation; the selected pair is kept.
 #### Implementation of
 
 [`IceConnection`](../interfaces/IceConnection.md).[`startProvisionalChecks`](../interfaces/IceConnection.md#startprovisionalchecks)
+
+***
+
+### waitForLocalCandidatesEnd()
+
+> **waitForLocalCandidatesEnd**(): `Promise`\<`void`\>
+
+Resolves when the current generation's gathering has ended
+(`localCandidatesEnd`): [Connection.gatherCandidates](#gathercandidates) returns once
+the host sockets, the TURN allocations and the representative socket's
+server-reflexive query are done, while the other host sockets' queries
+continue and trickle through `onIceCandidate`. Also resolves when the
+agent closes or restarts (the generation ends without its end).
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`waitForLocalCandidatesEnd`](../interfaces/IceConnection.md#waitforlocalcandidatesend)
