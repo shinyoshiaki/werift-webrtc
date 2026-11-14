@@ -260,6 +260,32 @@
 
 ***
 
+### executeIsolated()
+
+> **executeIsolated**(`onError`, ...`args`): `void`
+
+Like [execute](#execute), but every synchronous subscriber runs even if an
+earlier one throws: each exception is passed to `onError` instead of
+ending the iteration. For events whose later subscribers carry internal
+work (state propagation, cleanup) that an application subscriber
+registered before them must not be able to skip.
+
+#### Parameters
+
+##### onError
+
+(`error`) => `void`
+
+##### args
+
+...`T`
+
+#### Returns
+
+`void`
+
+***
+
 ### once()
 
 > **once**(`execute`, `complete?`, `error?`): `void`

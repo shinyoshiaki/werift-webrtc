@@ -84,6 +84,22 @@
 
 ***
 
+### onstatechange?
+
+> `optional` **onstatechange?**: () => `void`
+
+#### Returns
+
+`void`
+
+***
+
+### onStateChange
+
+> `readonly` **onStateChange**: [`Event`](Event.md)\<\[[`RTCSctpTransportState`](../type-aliases/RTCSctpTransportState.md)\]\>
+
+***
+
 ### port
 
 > **port**: `number`
@@ -100,6 +116,18 @@
 
 > **sctp**: `SCTP`
 
+***
+
+### state
+
+> **state**: [`RTCSctpTransportState`](../type-aliases/RTCSctpTransportState.md) = `"connecting"`
+
+`connecting` until the association is established, then `connected`;
+`closed` once the association closed (the peer ended it, or the DTLS
+transport closed / failed). [RTCSctpTransport.stop](#stop) (e.g.
+`RTCPeerConnection.close()`) moves to `closed` without statechange.
+A new association (renegotiation) starts again from `connecting`.
+
 ## Accessors
 
 ### transport
@@ -113,6 +141,30 @@
 [`RTCDtlsTransport`](RTCDtlsTransport.md)
 
 ## Methods
+
+### addEventListener()
+
+> **addEventListener**(`type`, `listener`, `options?`): `void`
+
+#### Parameters
+
+##### type
+
+`string`
+
+##### listener
+
+(...`args`) => `void`
+
+##### options?
+
+`boolean` \| \{ `once?`: `boolean`; \}
+
+#### Returns
+
+`void`
+
+***
 
 ### channelByLabel()
 
@@ -205,6 +257,26 @@
 #### Returns
 
 [`RTCSctpCapabilities`](RTCSctpCapabilities.md)
+
+***
+
+### removeEventListener()
+
+> **removeEventListener**(`type`, `listener`): `void`
+
+#### Parameters
+
+##### type
+
+`string`
+
+##### listener
+
+(...`args`) => `void`
+
+#### Returns
+
+`void`
 
 ***
 
