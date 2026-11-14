@@ -76,6 +76,8 @@ type World = {
   oracles: ModelOracles;
   /** Offers created and not applied, per peer (for `applyStale`). */
   saved: Map<RTCPeerConnection, { type: "offer"; sdp: string }>;
+  /** Transceivers `pc.addTrack()` attached a track to (`detachTrack` takes it off again). */
+  addTracked: WeakSet<RTCRtpTransceiver>;
   created: number;
 };
 type Peers = { pc: RTCPeerConnection; other: RTCPeerConnection };
@@ -83,7 +85,7 @@ type Step = {
   weight: number;
   applies: (p: Peers, w: World) => boolean;
   /** Draw the choices of the operation (stored in the Op, used on replay). */
-  draw?: (rng: SeededRandom, p: Peers) => Record<string, unknown>;
+  draw?: (rng: SeededRandom, p: Peers, w: World) => Record<string, unknown>;
   run: (p: Peers, w: World, args: Record<string, unknown>) => Promise<void>;
 };
 
@@ -123,6 +125,9 @@ const splittable = (pc: RTCPeerConnection) =>
 /** A transceiver by its index (a replayed scene may no longer have it). */
 const byIndex = (pc: RTCPeerConnection, index: unknown) =>
   pc.getTransceivers()[index as number] as RTCRtpTransceiver | undefined;
+/** A transceiver whose track `pc.addTrack()` attached and the application can take off. */
+const detachable = (t: RTCRtpTransceiver, w: World) =>
+  w.addTracked.has(t) && !t.stopping && !!t.sender.track;
 const pickIndex = (
   rng: SeededRandom,
   pc: RTCPeerConnection,
@@ -139,6 +144,47 @@ export const STEPS: Record<string, Step> = {
       w.oracles.application(
         pc.addTransceiver(track, { direction: "sendrecv" }),
       );
+    },
+  },
+  takeTrack: {
+    weight: 1,
+    // pc.addTrack() は同じ kind の空いた transceiver (remote offer が作ったものを含む)
+    // を再利用する。pending 中に再利用したものは rollback で残る (W3C)。
+    applies: ({ pc, other }) =>
+      applicationTurn(pc, other) && pc.getTransceivers().length < 6,
+    draw: (rng, { pc }) => {
+      const free = targets(pc).filter((t) => !t.sender.track);
+      return { kind: free.length ? rng.pick(free).kind : rng.pick(kinds) };
+    },
+    run: async ({ pc }, w, { kind }) => {
+      const sender = pc.addTrack(
+        new MediaStreamTrack({ kind: kind as "audio" }),
+      );
+      const t = pc.getTransceivers().find((each) => each.sender === sender)!;
+      w.addTracked.add(t);
+      w.oracles.application(t);
+    },
+  },
+  detachTrack: {
+    weight: 1,
+    // addTrack で付けた track を replaceTrack(null) か removeTrack で外す。外しても
+    // addTrack で使った transceiver は rollback で残る (#817)。
+    applies: ({ pc, other }, w) =>
+      applicationTurn(pc, other) &&
+      pc.getTransceivers().some((t) => detachable(t, w)),
+    draw: (rng, { pc }, w) => ({
+      index: pickIndex(
+        rng,
+        pc,
+        pc.getTransceivers().filter((t) => detachable(t, w)),
+      ),
+      how: rng.pick(["replaceTrack", "removeTrack"]),
+    }),
+    run: async ({ pc }, w, { index, how }) => {
+      const t = byIndex(pc, index);
+      if (!t || !detachable(t, w)) return;
+      if (how === "removeTrack") pc.removeTrack(t.sender);
+      else await t.sender.replaceTrack(null);
     },
   },
   addRecvonly: {
@@ -504,7 +550,15 @@ async function arrange(
   }
   oracles.watch(a, b);
   c.note(`start: ${start}`);
-  return { c, oracles, saved: new Map(), created: 0, a, b };
+  return {
+    c,
+    oracles,
+    saved: new Map(),
+    addTracked: new WeakSet(),
+    created: 0,
+    a,
+    b,
+  };
 }
 type Peers2 = { a: RTCPeerConnection; b: RTCPeerConnection };
 
@@ -563,7 +617,7 @@ export async function generateScene(
     let point = rng.next() * total;
     const [name, step] =
       choices.find(([, s]) => (point -= s.weight) < 0) ?? choices.at(-1)!;
-    const args = step.draw?.(rng, peers) ?? {};
+    const args = step.draw?.(rng, peers, w) ?? {};
     scene.ops.push([
       side,
       name,

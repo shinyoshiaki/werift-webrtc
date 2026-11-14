@@ -52,3 +52,19 @@ export function noteApplicationStop(transceiver: RTCRtpTransceiver) {
     getApplicationStopRevision(transceiver) + 1,
   );
 }
+
+const attachedByAddTrack = new WeakSet<RTCRtpTransceiver>();
+
+/**
+ * Record that the application attached a track to `transceiver` with
+ * `addTrack()`. Sticky: `replaceTrack(null)`, `removeTrack()` and `stop()` do
+ * not clear it, and a rollback keeps it (it is an application operation).
+ */
+export function noteApplicationAddTrack(transceiver: RTCRtpTransceiver) {
+  attachedByAddTrack.add(transceiver);
+}
+
+/** Whether the application ever attached a track to `transceiver` with `addTrack()`. */
+export function isAttachedByAddTrack(transceiver: RTCRtpTransceiver) {
+  return attachedByAddTrack.has(transceiver);
+}

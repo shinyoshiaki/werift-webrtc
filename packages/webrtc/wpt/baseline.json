@@ -266,6 +266,12 @@
       "status": "PASS"
     },
     {
+      "file": "webrtc/RTCPeerConnection-setRemoteDescription-rollback.html",
+      "variant": "?rest",
+      "subtest": "rollback of a remote offer should keep a transceiver without tracks",
+      "status": "PASS"
+    },
+    {
       "file": "webrtc/RTCPeerConnection-addTrack.https.html",
       "variant": "",
       "subtest": "addTrack when pc is closed should throw InvalidStateError",

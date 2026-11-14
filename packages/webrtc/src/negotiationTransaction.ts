@@ -167,7 +167,7 @@ const RETIRED_UFRAG_HISTORY = 64;
  * | --- | --- | --- |
  * | `RTCRtpTransceiver` (with sender, receiver) | `snapshotNegotiationState` / `restoreNegotiationState` | an application `stop()` made during the transaction |
  * | `RTCRtpReceiver` | `snapshotNegotiationState` / `restoreNegotiationState` | SSRCs learned from RID packets whose track survives; one packets dropped after the baseline (retired by a media SSRC change of its RID, or evicted) is not restored |
- * | `TransceiverManager` | `snapshotNegotiationState` / `restoreNegotiationState` | transceivers the application uses (`heldByApplication`) |
+ * | `TransceiverManager` | `snapshotNegotiationState` / `restoreNegotiationState` | transceivers the application uses (`heldByApplication`: one `addTrack()` attached a track to, also after the track was detached, or whose sender has a track) |
  * | `RtpRouter` | `snapshotRoutes` / `restoreRoutes` | packet-learned SSRC routes (one packets dropped after the baseline is not restored), every live sender's route |
  * | `SctpTransportManager` | `snapshotNegotiationState` / `restoreNegotiationState` | an application-created SCTP transport (a pending-only association is replaced by an unstarted one) and its channels without a stream ID |
  */

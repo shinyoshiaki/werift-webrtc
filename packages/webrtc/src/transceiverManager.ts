@@ -30,9 +30,10 @@ import {
 import { createBandwidthEstimator } from "./media/sender/createBandwidthEstimator";
 import type { RTCStats } from "./media/stats";
 import { captureTrackSourceCodecs, getTrackSourceCodecs } from "./media/track";
-import type {
-  TransceiverNegotiationState,
-  TransceiversNegotiationState,
+import {
+  noteApplicationAddTrack,
+  type TransceiverNegotiationState,
+  type TransceiversNegotiationState,
 } from "./negotiation/internalState";
 import {
   codecParametersFromString,
@@ -108,8 +109,9 @@ function simulcastFromSendEncodings(
  *   answer.
  * - A transceiver created for a remote offer is not an application operation
  *   (no `negotiationneeded`). Rollback removes it unless the application
- *   attached a track (`heldByApplication`); a kept one returns to its created
- *   state. An application `stop()` during the transaction survives rollback.
+ *   uses it (`heldByApplication`: `addTrack()` attached a track to it, even
+ *   one `replaceTrack(null)` / `removeTrack()` detached since, or its sender
+ *   has a track); a kept one returns to its created state. An application `stop()` during the transaction survives rollback.
  * - A transceiver the application added while a description was pending is
  *   never committed by it: rollback takes back its MID, m-line and the
  *   direction a pranswer gave it.
@@ -508,9 +510,15 @@ export class TransceiverManager {
     return newTransceiver;
   }
 
+  /**
+   * Attach `track` to a reusable transceiver, or add one for it. A new one
+   * gets its DTLS transport from `createTransport` when it is created, so its
+   * created state (what a rollback returns it to) has the transport.
+   */
   addTrack(
     track: MediaStreamTrack,
     streams: MediaStream[] = [],
+    createTransport?: () => RTCDtlsTransport,
   ): RTCRtpTransceiver {
     if (this.getSenders().find((sender) => sender.track?.uuid === track.uuid)) {
       throw createWebRtcDomException(
@@ -541,6 +549,7 @@ export class TransceiverManager {
         streams,
       };
       emptyTrackSenderTransceiver.markCodecsForResolution();
+      noteApplicationAddTrack(emptyTrackSenderTransceiver);
       return emptyTrackSenderTransceiver;
     }
 
@@ -575,12 +584,14 @@ export class TransceiverManager {
           break;
       }
       notSendTransceiver.markCodecsForResolution();
+      noteApplicationAddTrack(notSendTransceiver);
       return notSendTransceiver;
     } else {
-      const transceiver = this.addTransceiver(track, undefined, {
+      const transceiver = this.addTransceiver(track, createTransport?.(), {
         direction: "sendrecv",
         streams,
       });
+      noteApplicationAddTrack(transceiver);
       return transceiver;
     }
   }

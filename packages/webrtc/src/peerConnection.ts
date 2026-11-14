@@ -1928,7 +1928,9 @@ export class RTCPeerConnection extends EventTarget {
     if (this.isClosed) {
       throw createWebRtcDomException("InvalidStateError", "is closed");
     }
-    const transceiver = this.transceiverManager.addTrack(track, streams);
+    const transceiver = this.transceiverManager.addTrack(track, streams, () =>
+      this.findOrCreateTransport(),
+    );
     if (!transceiver.dtlsTransport) {
       const dtlsTransport = this.findOrCreateTransport();
       transceiver.setDtlsTransport(dtlsTransport);
