@@ -18,6 +18,8 @@ import {
   createDtlsSessions,
   createTestCertificate,
   dtlsTransportPair,
+  mutateFingerprint,
+  waitForDtlsState,
 } from "../fixture";
 
 describe("RTCDtlsTransportTest", () => {
@@ -202,24 +204,4 @@ class DummyDataReceiver {
   handleData = (data: Buffer) => {
     this.data.push(data);
   };
-}
-
-function mutateFingerprint(value: string) {
-  const normalized = value.replace(/[^0-9a-f]/gi, "").toUpperCase();
-  const flipped = `${normalized[0] === "A" ? "B" : "A"}${normalized.slice(1)}`;
-  return flipped.match(/.{2}/g)!.join(":");
-}
-
-async function waitForDtlsState(
-  session: RTCDtlsTransport,
-  state: RTCDtlsTransport["state"],
-  timeoutMs = 5_000,
-) {
-  const started = Date.now();
-  while (session.state !== state) {
-    if (Date.now() - started > timeoutMs) {
-      throw new Error(`timed out waiting for dtls state ${state}`);
-    }
-    await setTimeout(50);
-  }
 }

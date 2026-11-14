@@ -1,3 +1,6 @@
+import { execFile } from "node:child_process";
+import { resolve } from "node:path";
+import { promisify } from "node:util";
 import { describe, expect, test } from "vitest";
 
 import { WEBRTC_PPID } from "../src";
@@ -6,7 +9,6 @@ import {
   createConnectedSctpPair,
   createMessages,
   dropDataPacketsAt,
-  measureBurstTransfer,
   runBurstTransfer,
 } from "./utils";
 
@@ -33,19 +35,24 @@ describe("sctp burst transfer", () => {
   });
 
   test("transfer processing cost grows close to linearly with the queued message count", async () => {
-    // Arrange: JIT のウォームアップ
-    await measureBurstTransfer(1_000, 1_000);
+    // Arrange: Vitest の変換・計測 overhead を含めず、Node.js 本来の実行経路で測る。
+    const benchmarkPath = resolve(process.cwd(), "tests/burst-benchmark.mjs");
+    const nodeTsRegister = resolve(
+      process.cwd(),
+      "../../tools/node-ts/register.mjs",
+    );
+    const execFileAsync = promisify(execFile);
 
-    // Act: N / 4N の CPU 時間を 5 組計測し、合計時間の比を取る。
-    let smallCpuElapsedMs = 0;
-    let largeCpuElapsedMs = 0;
-    for (let i = 0; i < 5; i++) {
-      const small = await measureBurstTransfer(2_000, 1_000);
-      const large = await measureBurstTransfer(8_000, 1_000);
-      smallCpuElapsedMs += small.cpuElapsedMs;
-      largeCpuElapsedMs += large.cpuElapsedMs;
-    }
-    const ratio = largeCpuElapsedMs / Math.max(smallCpuElapsedMs, 1);
+    // Act: 独立した Node.js process で N / 4N の CPU 時間比を計測する。
+    const { stdout } = await execFileAsync(
+      process.execPath,
+      ["--import", nodeTsRegister, benchmarkPath],
+      { cwd: process.cwd(), timeout: 25_000 },
+    );
+    const { medianRatio } = JSON.parse(stdout.trim()) as {
+      medianRatio: number;
+    };
+    const ratio = medianRatio;
 
     // Assert: 二次なら 16 倍になるところ、線形に近い比 (8 倍未満) に収まる。
     expect(ratio).toBeLessThan(8);

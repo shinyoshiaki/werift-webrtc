@@ -67,6 +67,52 @@ describe("public types (パラメータプロパティ変換後も互換)", () =
   );
 
   test(
+    "RTCDtlsTransport の error イベントと RTCSctpTransport の state を利用者コードから扱える",
+    () => {
+      // Arrange
+      const code = `
+      import { AlertDesc, DtlsAlertError } from "../../../dtls/src";
+      import {
+        RTCDtlsTransport,
+        type RTCDtlsTransportErrorEvent,
+        RTCError,
+      } from "../../src/transport/dtls";
+      import {
+        RTCSctpTransport,
+        type RTCSctpTransportState,
+      } from "../../src/transport/sctp";
+      declare const d: RTCDtlsTransport;
+      declare const s: RTCSctpTransport;
+      d.onerror = (e: RTCDtlsTransportErrorEvent) => {
+        const detail: "dtls-failure" | "fingerprint-failure" = e.error.errorDetail;
+        const received: number | null = e.error.receivedAlert;
+        const sent: number | null = e.error.sentAlert;
+        void [detail, received, sent];
+        if (e.error.errorDetail === "fingerprint-failure") {
+          // fingerprint-failure: receivedAlert / sentAlert は null
+          void (e.error.sentAlert === null);
+        }
+      };
+      export const fingerprintFailure = new RTCError({ errorDetail: "fingerprint-failure" });
+      d.onerror = undefined;
+      d.addEventListener("error", (e: RTCDtlsTransportErrorEvent) => e.error);
+      const state: RTCSctpTransportState = s.state;
+      s.onstatechange = () => state;
+      s.onstatechange = undefined;
+      const bad: number = AlertDesc.BadCertificate;
+      export const isAlertError = (e: unknown) => e instanceof DtlsAlertError && bad > 0;
+    `;
+
+      // Act: 利用者コードをソースに対してコンパイルして診断を集める
+      const diagnostics = compileConsumer(code);
+
+      // Assert: 型エラーが 0 件である
+      expect(diagnostics).toEqual([]);
+    },
+    TYPE_COMPILER_TIMEOUT_MS,
+  );
+
+  test(
     "DtlsRandom.random_bytes は Uint8Array<ArrayBuffer> に代入できる",
     () => {
       // Arrange

@@ -123,6 +123,34 @@ on it when they started DTLS.
 
 ***
 
+### onerror?
+
+> `optional` **onerror?**: (`event`) => `void`
+
+Fires once when the transport becomes `failed`:
+- the remote certificate matched none of the remote fingerprints:
+  `errorDetail: "fingerprint-failure"` (`receivedAlert` / `sentAlert`
+  null; a fatal `bad_certificate` is still sent to the peer);
+- a fatal alert received from the peer, or sent by this side (e.g.
+  `bad_certificate` for a certificate it could not verify for another
+  reason), and other DTLS errors: `errorDetail: "dtls-failure"` with
+  `receivedAlert` / `sentAlert`.
+
+A close_notify (`closed`) does not fire it. Also delivered as
+`addEventListener("error", ...)`.
+
+#### Parameters
+
+##### event
+
+[`RTCDtlsTransportErrorEvent`](../interfaces/RTCDtlsTransportErrorEvent.md)
+
+#### Returns
+
+`void`
+
+***
+
 ### onRtcp
 
 > `readonly` **onRtcp**: [`Event`](Event.md)\<\[[`RtcpPacket`](../type-aliases/RtcpPacket.md)\]\>
@@ -387,6 +415,10 @@ reserve a TSN then wait in a per-sender pacer.
 
 > **sendRtcp**(`packets`): `Promise`\<`number` \| `undefined`\>
 
+Encrypt RTCP and enqueue on ICE. Like RTP, nothing is sent once the
+transport is `closed` / `failed` (periodic sender / receiver reports,
+NACK, PLI, TWCC feedback included).
+
 #### Parameters
 
 ##### packets
@@ -428,6 +460,10 @@ Send-time metadata: [sendRtpWithMeta](#sendrtpwithmeta).
 
 Encrypt RTP and enqueue on ICE, capturing the clock immediately before
 the ICE write (RFC 8888). Prefer [sendRtp](#sendrtp) unless send time is needed.
+
+Nothing is sent once the transport is `closed` / `failed` (close_notify
+or a fatal alert, `stop()`): ICE may still be up, but the DTLS
+association that keyed SRTP has ended. The size is then 0.
 
 #### Parameters
 

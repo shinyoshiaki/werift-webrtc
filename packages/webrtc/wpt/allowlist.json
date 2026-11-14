@@ -189,6 +189,42 @@
       "file": "webrtc/RTCPeerConnection-perfect-negotiation-stress-glare-linear.https.html",
       "enabled": false,
       "reason": "Not gated: depends on ticket cd89d492 (operations chain release order). Passes the #816 direction check, but on develop too a remote offer's implicit rollback can start before the setLocalDescription() promise's continuation (signalingState have-local-offer while localDescription is null; ~20% of full runs). Still runs (auto-discovered) with the long timeout."
+    },
+    {
+      "file": "webrtc/RTCDtlsTransport-state.html",
+      "enabled": true,
+      "reason": "RTCDtlsTransport state: connected, a synchronous closed without statechange on close(), and the peer's closed via close_notify (#811).",
+      "subtests": [
+        "DTLS transport goes to connected state",
+        "close() causes the local transport to close immediately",
+        "close() causes the other end's DTLS transport to close"
+      ],
+      "skippedSubtests": [
+        {
+          "name": "stop bundled transceiver retains dtls transport state",
+          "reason": "Waits for the remote track's onended, which werift's MediaStreamTrack does not support (no onended event attribute); out of scope of #811."
+        }
+      ]
+    },
+    {
+      "file": "webrtc/protocol/dtls-close.html",
+      "enabled": true,
+      "reason": "close() sends an encrypted DTLS close_notify, so the peer's DTLS / SCTP transports and data channels close (#811).",
+      "subtests": [
+        "close() causes the other end's DTLS and SCTP transport and datachannels to close"
+      ]
+    },
+    {
+      "file": "webrtc/protocol/dtls-fingerprint-validation.html",
+      "enabled": true,
+      "reason": "A fingerprint mismatch is reported to the peer with a fatal bad_certificate alert, so both connections fail (#811).",
+      "subtests": [
+        "Connection fails if one side provides a wrong DTLS fingerprint",
+        "SDP negotiation with a sha-1 fingerprint succeds",
+        "SDP negotiation with a sha-256 fingerprint succeds",
+        "SDP negotiation with a sha-384 fingerprint succeds",
+        "SDP negotiation with a sha-512 fingerprint succeds"
+      ]
     }
   ]
 }

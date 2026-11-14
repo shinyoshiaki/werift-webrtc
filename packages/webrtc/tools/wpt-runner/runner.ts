@@ -4,7 +4,7 @@ import { dirname, resolve } from "path";
 import vm from "vm";
 import { mkdir, readFile, readdir, writeFile } from "fs/promises";
 
-import { RTCPeerConnection } from "../../src";
+import { MediaStream, RTCPeerConnection } from "../../src";
 import { withBrowserCompatibleConfig } from "./browserConfig";
 import { installDocumentWithIframe, installMessageWindow } from "./frameShim";
 import { createDummyRegister, installPolyfill } from "../../src/polyfill";
@@ -16,7 +16,13 @@ import {
   targetKeyOf,
 } from "./baselineLogic";
 import { resolveTargetConcurrency } from "./concurrencyLogic";
+import { createDummyAudioTrack } from "../../src/nonstandard/dummyMedia";
 import { ensureWptCheckout } from "./submodule";
+import {
+  createSubtestSelector,
+  skippedSubtestRecords,
+  type WptSkippedSubtest,
+} from "./subtestSelection";
 import { resolveTimeoutProfile } from "./timeoutLogic";
 
 export interface WptAllowlistFile {
@@ -35,6 +41,8 @@ export interface WptTarget {
    * (e.g. a known race tracked by another ticket); see `selectStableBaseline`.
    */
   baselineExclusions?: string[];
+  /** Subtests not run in this runner, each with the reason (see subtestSelection.ts). */
+  skippedSubtests?: WptSkippedSubtest[];
 }
 
 export interface WptResultRecord {
@@ -140,6 +148,9 @@ export async function discoverWptTargets() {
         configured?.reason ??
         "Auto-discovered upstream WebRTC WPT file executed by the Node.js runner.",
       variant: "",
+      ...(configured?.skippedSubtests && {
+        skippedSubtests: configured.skippedSubtests,
+      }),
     };
     targets.set(targetKey(target), target);
   }
@@ -533,6 +544,7 @@ function createContext(input: {
   withFrames?: boolean;
 }) {
   const peerConnections = new Set<RTCPeerConnection>();
+  const audioSources: Array<{ stop(): void }> = [];
   const location = new URL(`https://wpt.local/${input.file}${input.variant}`);
   const sandbox: Record<string, unknown> = {
     AbortController,
@@ -543,6 +555,11 @@ function createContext(input: {
     EventTarget,
     HTMLCanvasElement: class HTMLCanvasElement {},
     META_TITLE: input.title,
+    // Only AudioContext is shimmed (trackFactories.audio() of
+    // RTCPeerConnection-helper.js); MediaStreamAudioDestinationNode stays
+    // undefined so trackFactories.canCreate() keeps getNoiseStream() on the
+    // dummy getUserMedia path for every other file.
+    AudioContext: createAudioContextShim(audioSources),
     MediaStreamAudioDestinationNode: undefined,
     RangeError,
     ReferenceError,
@@ -616,8 +633,14 @@ function createContext(input: {
   return {
     context,
     enableFrames,
-    mediaDevices: (sandbox.navigator as { mediaDevices: { cleanup(): void } })
-      .mediaDevices,
+    mediaDevices: {
+      cleanup: () => {
+        (
+          sandbox.navigator as { mediaDevices: { cleanup(): void } }
+        ).mediaDevices.cleanup();
+        for (const source of audioSources.splice(0)) source.stop();
+      },
+    },
     closePeerConnections: async () => {
       await Promise.allSettled([...childClosers].map((close) => close()));
       await Promise.allSettled(
@@ -630,6 +653,33 @@ function createContext(input: {
         ),
       );
     },
+  };
+}
+
+/**
+ * Minimal `AudioContext` for `trackFactories.audio()`:
+ * `createOscillator().connect(createMediaStreamDestination()).stream` gives
+ * a stream with one werift dummy audio track (stopped at cleanup).
+ */
+function createAudioContextShim(sources: Array<{ stop(): void }>) {
+  return class AudioContext {
+    createOscillator() {
+      return {
+        connect: <T>(destination: T) => destination,
+        start: () => undefined,
+        stop: () => undefined,
+      };
+    }
+
+    createMediaStreamDestination() {
+      const dummy = createDummyAudioTrack();
+      sources.push(dummy.source);
+      return { stream: new MediaStream([dummy.track]) };
+    }
+
+    close() {
+      return Promise.resolve();
+    }
   };
 }
 
@@ -814,13 +864,16 @@ function installHarnessHooks(context: vm.Context, target: WptTarget) {
       tests: Array<{ name: string; message: string; status: number }>,
       status: { message?: string; status: number },
     ) => {
-      const resultRecords = tests.map((test) => ({
-        file: target.file,
-        variant: target.variant ?? "",
-        subtest: test.name,
-        status: mapStatus(test.status),
-        message: test.message || undefined,
-      })) as WptResultRecord[];
+      const resultRecords = [
+        ...(tests.map((test) => ({
+          file: target.file,
+          variant: target.variant ?? "",
+          subtest: test.name,
+          status: mapStatus(test.status),
+          message: test.message || undefined,
+        })) as WptResultRecord[]),
+        ...skippedSubtestRecords(target),
+      ];
 
       if (status.status !== 0) {
         resultRecords.push({
@@ -837,7 +890,7 @@ function installHarnessHooks(context: vm.Context, target: WptTarget) {
     runtime.__wptFailure = (error: Error) => reject(error);
   });
 
-  runtime.__wptSelectTest = (_name: string) => true;
+  runtime.__wptSelectTest = createSubtestSelector(target);
 
   return {
     done,

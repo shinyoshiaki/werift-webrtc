@@ -330,6 +330,11 @@ export class SctpTransportManager {
     }
   }
 
+  /** @internal The synchronous part of close(): see {@link RTCSctpTransport.markStopped}. */
+  markClosed() {
+    this.sctpTransport?.markStopped();
+  }
+
   async close() {
     if (this.sctpTransport) {
       await this.sctpTransport.stop();

@@ -86,8 +86,11 @@ export class Flight6 extends Flight {
     const finish = new Finished(localVerifyData);
 
     this.dtls.epoch = 1;
+    // RFC 6347 §4.1: the record sequence number restarts at 0 with each
+    // epoch; Finished is the first record of epoch 1 (later records continue
+    // from 1, so no epoch-1 sequence number is used twice).
+    this.dtls.recordSequenceNumber = -1;
     const [packet] = this.createPacket([finish]);
-    this.dtls.recordSequenceNumber = 0;
 
     const buf = this.cipher.encryptPacket(packet).serialize();
     return buf;
