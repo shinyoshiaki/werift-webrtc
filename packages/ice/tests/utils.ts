@@ -3284,7 +3284,7 @@ export async function createFailoverHarness({
     ensureProtocol(protocol: Protocol): void;
     queryConsent(): void;
     switchRole(controlling: boolean): void;
-    evaluateSelection(): void;
+    selection: { evaluate(): void };
   };
   internals.protocols.push(...protocols);
   for (const protocol of protocols) internals.ensureProtocol(protocol);
@@ -3423,7 +3423,7 @@ export async function createFailoverHarness({
     addRemote,
     switchRole: (controlling: boolean) => internals.switchRole(controlling),
     /** Re-evaluate the selection, as the outcome of any other check does. */
-    evaluateSelection: () => internals.evaluateSelection(),
+    evaluateSelection: () => internals.selection.evaluate(),
     /** Every request still in flight on every socket. */
     pending: () =>
       protocols.reduce((sum, protocol) => sum + protocol.pending(), 0),

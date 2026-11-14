@@ -19,8 +19,8 @@ const PACING_MS = 20;
 
 /**
  * Delays before a socket whose backup pairs all failed starts again from its
- * highest-priority pair, one per retry (as the retries of failed pairs that
- * outrank the selection).
+ * highest-priority pair, one per retry; after the last one it goes on every
+ * last delay (16 s) while the selection lasts.
  */
 const BACKUP_RETRY_DELAYS_MS = [1000, 2000, 4000, 8000, 16000] as const;
 
@@ -160,7 +160,8 @@ type BackupRecord = {
  * answers (unwritable) or receives nothing for DEAD_CONNECTION_RECEIVE_TIMEOUT
  * fails and the next pair of its socket follows, up to
  * FAILOVER_BACKUP_ATTEMPTS pairs; then the socket starts again from its best
- * pair after BACKUP_RETRY_DELAYS_MS. All checks run from one timer, paced by
+ * pair after BACKUP_RETRY_DELAYS_MS, then every 16 s while the selection
+ * lasts. All checks run from one timer, paced by
  * Ta, and stop with `halt()` / `reset()`.
  *
  * The selected pair is checked by the consent freshness checks (the agent
@@ -475,17 +476,25 @@ export class FailoverMonitor {
     }
   }
 
+  /**
+   * The socket's backups all failed: start again from its best pair after
+   * BACKUP_RETRY_DELAYS_MS, then every last delay (16 s) for as long as the
+   * selection lasts, so a path that comes back after a long outage is found
+   * again (and is there when the selected pair breaks).
+   */
   private scheduleRetry(protocol: Protocol, record: BackupRecord) {
-    if (record.retryTimer || record.retries >= BACKUP_RETRY_DELAYS_MS.length) {
-      return;
-    }
+    if (record.retryTimer) return;
+    const delay =
+      BACKUP_RETRY_DELAYS_MS[
+        Math.min(record.retries, BACKUP_RETRY_DELAYS_MS.length - 1)
+      ];
     record.retryTimer = setTimeout(() => {
       record.retryTimer = undefined;
       if (this.backups.get(protocol) !== record) return;
       record.retries++;
       record.failed.clear();
       this.refresh();
-    }, BACKUP_RETRY_DELAYS_MS[record.retries]);
+    }, delay);
   }
 
   private dropRecord(record: BackupRecord) {

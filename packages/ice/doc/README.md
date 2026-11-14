@@ -110,7 +110,8 @@ a path broken in one direction).
   not fail. A backup that never answers (5 checks and 5 s) or receives
   nothing for 30 s fails and the next pair of its socket follows, up to 3
   pairs; then the socket starts again from its best pair after 1, 2, 4, 8,
-  16 s. Candidates gathered or trickled after the selection still form
+  16 s, and then every 16 s for as long as the selection lasts, so a path
+  that comes back after a long outage is found again. Candidates gathered or trickled after the selection still form
   backup pairs, and one that outranks a socket's backup replaces it. Backups are checked without a nomination, every 900 ms
   until they answered 3 times (and while a check goes unanswered), then
   every 2.5 s (0.8–1.2 times), without waiting for a check still in

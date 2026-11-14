@@ -1,3 +1,4 @@
+import { getEventListeners } from "node:events";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { CandidatePairState } from "../../src";
@@ -733,6 +734,74 @@ describe("failover: review regressions (delay, late candidate, state, silence)",
         await h.connection.close();
       }
     });
+  });
+
+  test("a backup socket that stays down past every retry is still checked again (every 16 s) and taken once it comes back", async () => {
+    const h = await createFailoverHarness();
+    const host = h.selection;
+    const relay = h.pairOf(1);
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    try {
+      // Act: relay の経路を 3 分切る (1, 2, 4, 8, 16 s の再試行はすべて失敗する)。
+      h.cut(1);
+      await vi.advanceTimersByTimeAsync(180_000);
+      expect(relay.state).toBe(CandidatePairState.FAILED);
+      // Act: relay の経路を戻し、20 s 進める。
+      h.restore(1);
+      const restoredAt = Date.now();
+      await vi.advanceTimersByTimeAsync(20_000);
+
+      // Assert: 再試行が続いていたので relay は再び check され、応答して有効になる。
+      expect(
+        h
+          .requestsTo(relay)
+          .some((request) => request.at >= restoredAt && request.answered),
+      ).toBe(true);
+      expect(relay.state).toBe(CandidatePairState.SUCCEEDED);
+
+      // Act: 選択中の host の経路が切れる。
+      h.cut(0);
+      await h.advanceUntil(() => h.connection.nominated === relay, 20_000);
+
+      // Assert: 復旧していた relay へ退避し、failed にならない。
+      expect(h.connection.nominated).toBe(relay);
+      expect(h.connection.state).toBe("connected");
+      expect(host.nominated).toBe(false);
+    } finally {
+      await h.connection.close();
+    }
+  });
+
+  test("consent checks leave no abort listener behind on the session's shared signal over a long connection", async () => {
+    // 応答に 1.2 s かかる (応答待ちの間は listener が 1 つある)。
+    const h = await createFailoverHarness({ responseDelayMs: 1200 });
+    const consent = (
+      h.connection as unknown as {
+        consent: { requestAbort?: AbortController };
+      }
+    ).consent;
+    const listeners = () => {
+      const signal = consent.requestAbort?.signal;
+      return signal ? getEventListeners(signal, "abort").length : 0;
+    };
+    const counts: number[] = [];
+
+    try {
+      // Act: 正常な接続のまま 10 分進め、1 分ごとに共有 signal の listener 数を記録する。
+      for (let i = 0; i < 10; i++) {
+        await vi.advanceTimersByTimeAsync(60_000);
+        counts.push(listeners());
+      }
+
+      // Assert: listener は応答待ちの request の分だけで、check の回数 (100 回超) に応じて増えない。
+      expect(h.requestsTo(h.selection).length).toBeGreaterThan(100);
+      // (in-flight 1 件につき agent と transaction (mock) の 2 つ、重なっても 2 件まで)
+      for (const count of counts) expect(count).toBeLessThanOrEqual(4);
+      expect(h.states).toEqual([]);
+    } finally {
+      await h.connection.close();
+    }
   });
 
   test("a remote candidate trickled later that outranks a socket's backup becomes its backup", async () => {
