@@ -30,6 +30,7 @@ import {
   datachannel_binary_echo,
   datachannel_offer,
 } from "./handler/datachannel/datachannel";
+import { dtls_alert } from "./handler/datachannel/dtlsAlert";
 import { datachannel_ice_lite_answer } from "./handler/datachannel/iceLite";
 import { datachannel_ice_tcp } from "./handler/datachannel/iceTcp";
 import { datachannel_turn_relay } from "./handler/datachannel/turnRelay";
@@ -186,6 +187,9 @@ function attachWebSocketServer() {
         new datachannel_close_server_create_client_close(),
       ice_failover: new ice_failover(),
       ice_nomination: new ice_nomination(),
+      dtls_alert_close_notify_from_werift: new dtls_alert(),
+      dtls_alert_close_notify_from_chrome: new dtls_alert(),
+      dtls_alert_bad_certificate: new dtls_alert(),
       ice_trickle_answer: new ice_trickle_answer(),
       ice_trickle_offer: new ice_trickle_offer(),
       mediachannel_rtx_client_answer: new mediachannel_rtx_client_answer(),
