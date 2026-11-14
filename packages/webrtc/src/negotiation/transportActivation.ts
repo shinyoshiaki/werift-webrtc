@@ -3,7 +3,7 @@ import { debug, type Event } from "../imports/common";
 import type { TransceiverManager } from "../media";
 import type { NegotiationTransaction } from "../negotiationTransaction";
 import type { SctpTransportManager } from "../sctpManager";
-import type { MediaDescription } from "../sdp";
+import { type MediaDescription, parseIceOptions } from "../sdp";
 import type { SDPManager } from "../sdpManager";
 import type { SecureTransportManager } from "../secureTransportManager";
 import type { RTCDtlsTransport } from "../transport/dtls";
@@ -151,6 +151,9 @@ export class TransportActivation {
         if (!provisional) {
           if (media.iceParams) {
             dtls.iceTransport.setRemoteParams(media.iceParams);
+            dtls.iceTransport.setRemoteIceOptions(
+              parseIceOptions(media.iceOptions),
+            );
           }
           if (media.dtlsParams) dtls.setRemoteParams(media.dtlsParams);
         }
@@ -218,6 +221,13 @@ export class TransportActivation {
    * its own state machine (consent freshness, a later ICE restart). A DTLS
    * handshake already running is awaited rather than started again. The
    * connection state changes only when this call started or awaited work.
+   *
+   * A DTLS transport that a live m-line still uses and that ends before it
+   * was established makes `connectionState` `failed`, whether it became
+   * `failed` (a fatal alert, a rejected certificate) or `closed` (the peer's
+   * close_notify, a local `stop()`), so the attempt never stays
+   * `connecting`. A retired transport (renegotiation, `close()`) leaves the
+   * state to its owner.
    */
   async connect() {
     log("start connect");
@@ -287,6 +297,21 @@ export class TransportActivation {
           log("dtlsTransport.start failed", err);
           throw err;
         });
+
+        // start() also returns when the transport was closed meanwhile
+        // (stop()): it never connected, so neither SCTP nor the connected
+        // connectionState follows. A transport a live m-line still uses ends
+        // the connection attempt as failed, so connecting never lingers; one
+        // that was retired (renegotiation, close()) leaves the state to its
+        // owner.
+        if (
+          (dtlsTransport.state as RTCDtlsTransport["state"]) !== "connected"
+        ) {
+          if (this.secure.dtlsTransports.includes(dtlsTransport)) {
+            throw new Error(`DTLS transport ${dtlsTransport.state}`);
+          }
+          return false;
+        }
 
         // SCTP on a newly started DTLS transport is ensured before this
         // transport activation completes.

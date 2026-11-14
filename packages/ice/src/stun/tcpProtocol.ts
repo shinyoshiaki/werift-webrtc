@@ -241,14 +241,6 @@ abstract class BaseTcpProtocol implements Protocol {
       throw new Error("already requested");
     }
 
-    if (integrityKey) {
-      request.addMessageIntegrity(integrityKey);
-      request.addFingerprint();
-    }
-
-    const resolvedAddr = await resolveRequestAddress(addr);
-    // close() ran during the lookup: no transaction starts on a closed protocol.
-    if (this.closed) throw new TransactionCancelled();
     const options: TransactionRequestOptions = {
       // A failed connect/write will not be fixed by waiting for a response.
       failOnSendError: true,
@@ -258,6 +250,14 @@ abstract class BaseTcpProtocol implements Protocol {
         onRequestSent,
       ),
     };
+    if (integrityKey) {
+      request.addIntegrity(integrityKey, options.integrityAlgorithm);
+      request.addFingerprint();
+    }
+
+    const resolvedAddr = await resolveRequestAddress(addr);
+    // close() ran during the lookup: no transaction starts on a closed protocol.
+    if (this.closed) throw new TransactionCancelled();
     const transaction = new Transaction(request, resolvedAddr, this, options);
     this.transactions[request.transactionIdHex] = transaction;
 

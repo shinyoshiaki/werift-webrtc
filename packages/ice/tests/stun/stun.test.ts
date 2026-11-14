@@ -1,7 +1,7 @@
 import { classes, methods } from "../../src/stun/const";
 import { Message, parseMessage } from "../../src/stun/message";
 import { Transaction } from "../../src/stun/transaction";
-import { readMessage } from "../utils";
+import { integritySha256Vector, readMessage } from "../utils";
 
 describe("stun", () => {
   test("test_binding_request", () => {
@@ -147,5 +147,70 @@ describe("stun", () => {
     const bytes = request.bytes;
     const message = parseMessage(bytes)!;
     expect(request).toEqual(message);
+  });
+
+  describe("MESSAGE-INTEGRITY-SHA256 fixed vectors (RFC 8489, short-term)", () => {
+    const { password } = integritySha256Vector;
+
+    test.each([
+      ["binding_request_mi_sha256.bin", 32],
+      ["binding_request_mi_sha256_16.bin", 16],
+    ])("%s を正しい鍵で検証できる", (name, length) => {
+      // Arrange
+      const data = readMessage(name);
+
+      // Act: 正しい鍵と誤った鍵でパースする
+      const verified = parseMessage(data, password);
+      const forged = parseMessage(data, Buffer.from("bogus-key"));
+
+      // Assert: 正しい鍵だけ受理し、SHA-256 の署名として保持する
+      expect(verified).toBeDefined();
+      expect(verified!.integrityAlgorithm).toBe("sha256");
+      expect(verified!.getAttributeValue("USERNAME")).toBe("evtj:h6vY");
+      expect(
+        (verified!.getAttributeValue("MESSAGE-INTEGRITY-SHA256") as Buffer)
+          .length,
+      ).toBe(length);
+      expect(forged).toBeUndefined();
+    });
+
+    test.each([
+      ["binding_request_mi_sha256.bin", "sha256", 32],
+      ["binding_request_mi_sha256_16.bin", "sha256", 16],
+      ["binding_request_mi_both.bin", "both", 32],
+    ] as const)(
+      "%s と同じバイト列を Message で生成する",
+      (name, mode, length) => {
+        // Arrange
+        const request = integritySha256Vector.request();
+
+        // Act: 同じ内容を Message で署名する
+        if (mode === "both") request.addMessageIntegrity(password);
+        request.addMessageIntegritySha256(password, length).addFingerprint();
+
+        // Assert: 独立実装で作ったベクタとバイト単位で一致する
+        expect(request.bytes).toEqual(readMessage(name));
+      },
+    );
+
+    test("binding_request_mi_both.bin は MI-SHA256 で検証される", () => {
+      // Arrange
+      const data = readMessage("binding_request_mi_both.bin");
+
+      // Act: 正しい鍵でパースする
+      const message = parseMessage(data, password);
+
+      // Assert: MI と MI-SHA256 を両方保持し、MI-SHA256 を検証に使う
+      expect(message?.attributesKeys).toEqual([
+        "SOFTWARE",
+        "PRIORITY",
+        "ICE-CONTROLLED",
+        "USERNAME",
+        "MESSAGE-INTEGRITY",
+        "MESSAGE-INTEGRITY-SHA256",
+        "FINGERPRINT",
+      ]);
+      expect(message?.integrityAlgorithm).toBe("sha256");
+    });
   });
 });

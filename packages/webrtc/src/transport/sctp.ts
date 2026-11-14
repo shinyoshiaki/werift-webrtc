@@ -26,11 +26,15 @@ import {
   RTCDataChannel,
   RTCDataChannelParameters,
 } from "../dataChannel";
+import { EventTarget as DomEventTarget, notifySafely } from "../helper";
 import { debug, Event, FifoQueue } from "../imports/common";
 import type { RTCDtlsTransport } from "./dtls";
 
 const log = debug("werift:packages/webrtc/src/transport/sctp.ts");
 export const DEFAULT_MAX_MESSAGE_SIZE = 65536;
+
+/** W3C webrtc-pc `RTCSctpTransportState`. */
+export type RTCSctpTransportState = "connecting" | "connected" | "closed";
 
 export class RTCSctpTransport {
   public port: number;
@@ -42,6 +46,17 @@ export class RTCSctpTransport {
 
   readonly onDataChannel = new Event<[RTCDataChannel]>();
   readonly id = randomUUID().toString();
+  /**
+   * `connecting` until the association is established, then `connected`;
+   * `closed` once the association closed (the peer ended it, or the DTLS
+   * transport closed / failed). {@link RTCSctpTransport.stop} (e.g.
+   * `RTCPeerConnection.close()`) moves to `closed` without statechange.
+   * A new association (renegotiation) starts again from `connecting`.
+   */
+  state: RTCSctpTransportState = "connecting";
+  readonly onStateChange = new Event<[RTCSctpTransportState]>();
+  onstatechange?: (() => void) | undefined;
+  private readonly events = new DomEventTarget();
 
   mid?: string;
   mLineIndex?: number;
@@ -67,6 +82,40 @@ export class RTCSctpTransport {
 
   get transport() {
     return this.dtlsTransport;
+  }
+
+  addEventListener = (
+    type: string,
+    listener: (...args: any[]) => void,
+    options?: boolean | { once?: boolean },
+  ) => {
+    this.events.addEventListener(type, listener, options);
+  };
+
+  removeEventListener = (type: string, listener: (...args: any[]) => void) => {
+    this.events.removeEventListener(type, listener);
+  };
+
+  /**
+   * Change the state and notify. Each notification is isolated: an
+   * exception a listener throws is logged and never interrupts the caller
+   * (stop() and its ABORT, closing the data channels).
+   */
+  private setState(state: RTCSctpTransportState, emitEvent = true) {
+    if (state === this.state) return;
+    this.state = state;
+    // Per subscriber, so a throwing subscriber cannot skip a later one.
+    this.onStateChange.executeIsolated(
+      (error) => log("onStateChange listener failed", error),
+      state,
+    );
+    if (emitEvent) {
+      notifySafely(log, "onstatechange", () => this.onstatechange?.());
+      this.events.emitIsolated(
+        (error) => log("statechange listener failed", error),
+        "statechange",
+      );
+    }
   }
 
   setDtlsTransport(dtlsTransport: RTCDtlsTransport) {
@@ -110,6 +159,7 @@ export class RTCSctpTransport {
     this.dtlsTransport = dtlsTransport;
     // A new association: the transport delivers again.
     this.stopped = false;
+    this.setState("connecting", false);
     this.sctp = new SCTP(
       new BridgeDtls(this.dtlsTransport),
       this.port,
@@ -130,6 +180,7 @@ export class RTCSctpTransport {
           });
         }),
         this.sctp.stateChanged.connected.subscribe(() => {
+          this.setState("connected");
           Object.values(this.dataChannels).forEach((channel) => {
             if (channel.negotiated && channel.readyState !== "open") {
               channel.setReadyState("open");
@@ -138,13 +189,20 @@ export class RTCSctpTransport {
           this.dataChannelFlush();
         }),
         this.sctp.stateChanged.closed.subscribe(() => {
+          if (!this.stopped) this.setState("closed");
           Object.values(this.dataChannels).forEach((dc) => {
             dc.setReadyState("closed");
           });
           this.dataChannels = {};
         }),
+        // DTLS closed (close_notify from the peer) or failed (a fatal
+        // alert): the association and its data channels close. A stopped
+        // transport is left to stop(): RTCPeerConnection.close() marks DTLS
+        // closed synchronously, before stop() sends the SCTP ABORT, and
+        // closing the association here would skip that ABORT.
         this.dtlsTransport.onStateChange.subscribe((state) => {
-          if (state === "closed") {
+          if (this.stopped) return;
+          if (state === "closed" || state === "failed") {
             this.sctp.setState(SCTP_STATE.CLOSED);
           }
         }),
@@ -486,8 +544,19 @@ export class RTCSctpTransport {
     this.sctp.isServer = this.isServer;
   }
 
-  async stop() {
+  /**
+   * @internal
+   * The synchronous part of {@link RTCSctpTransport.stop}: `closed` without
+   * statechange, and nothing received afterwards reaches the application.
+   * `RTCPeerConnection.close()` calls it before its first await.
+   */
+  markStopped() {
     this.stopped = true;
+    this.setState("closed", false);
+  }
+
+  async stop() {
+    this.markStopped();
     this.dtlsTransport.dataReceiver = () => {};
     this.discardUnsentMessages();
     await this.sctp.stop();

@@ -18,7 +18,7 @@ import {
   type RTCDataChannel,
 } from "./dataChannel";
 import { createWebRtcDomException } from "./errors";
-import { EventTarget, enumerate } from "./helper";
+import { EventTarget, enumerate, notifySafely } from "./helper";
 import { debug, Event } from "./imports/common";
 import {
   type MediaStream,
@@ -50,7 +50,11 @@ import { RemoteMediaApplication } from "./negotiation/remoteMediaApplication";
 import { TransportActivation } from "./negotiation/transportActivation";
 import { NegotiationTransaction } from "./negotiationTransaction";
 import { SctpTransportManager } from "./sctpManager";
-import { type RTCSessionDescription, SessionDescription } from "./sdp";
+import {
+  descriptionIceOptions,
+  type RTCSessionDescription,
+  SessionDescription,
+} from "./sdp";
 import { type RTCSessionDescriptionInit, SDPManager } from "./sdpManager";
 import { SecureTransportManager } from "./secureTransportManager";
 import type { DtlsRole, RTCDtlsTransport } from "./transport/dtls";
@@ -278,6 +282,7 @@ export class RTCPeerConnection extends EventTarget {
       cname: this.cname,
       bundlePolicy: this.config.bundlePolicy,
       mLineReuse: this.config.mLineReuse,
+      iceOptionIce2: this.config.iceOptionIce2,
     });
     this.transceiverManager = new TransceiverManager(
       this.cname,
@@ -392,10 +397,21 @@ export class RTCPeerConnection extends EventTarget {
       this.oniceconnectionstatechange?.();
       this.emit("iceconnectionstatechange");
     });
+    // Each notification is isolated: an application listener that throws
+    // must not stop the others nor the transport state propagation that
+    // triggered it (e.g. SCTP closing after a DTLS failure).
     this.secureManager.connectionStateChange.subscribe((state) => {
-      this.connectionStateChange.execute(state);
-      this.onconnectionstatechange?.();
-      this.emit("connectionstatechange");
+      this.connectionStateChange.executeIsolated(
+        (error) => log("connectionStateChange listener failed", error),
+        state,
+      );
+      notifySafely(log, "onconnectionstatechange", () =>
+        this.onconnectionstatechange?.(),
+      );
+      this.emitIsolated(
+        (error) => log("connectionstatechange listener failed", error),
+        "connectionstatechange",
+      );
     });
     this.secureManager.onIceCandidate.subscribe((candidate) => {
       const iceCandidate = candidate ? candidate.toJSON() : undefined;
@@ -465,13 +481,19 @@ export class RTCPeerConnection extends EventTarget {
     if (!remoteDescription) {
       return null;
     }
-    const iceOptions = [
-      remoteDescription.iceOptions,
-      ...remoteDescription.media.map((media) => media.iceOptions),
-    ]
-      .filter((value): value is string => !!value)
-      .join(" ");
-    return iceOptions.split(/\s+/).includes("trickle");
+    return descriptionIceOptions(remoteDescription).includes("trickle");
+  }
+  /**
+   * Whether the remote description declares the `ice2` ice-option (an
+   * RFC 8445 agent, RFC 8839 §5.6), or null without a remote description.
+   * Informational: werift runs the RFC 8445 procedures either way.
+   */
+  get remoteIceOptionIce2() {
+    const remoteDescription = this.sdpManager._remoteDescription;
+    if (!remoteDescription) {
+      return null;
+    }
+    return descriptionIceOptions(remoteDescription).includes("ice2");
   }
   get remoteIsBundled() {
     return this.sdpManager.remoteIsBundled;
@@ -2092,6 +2114,11 @@ export class RTCPeerConnection extends EventTarget {
     this.setSignalingState("closed");
 
     this.transceiverManager.close();
+
+    // W3C close(): SCTP / DTLS / connectionState は同期に closed（statechange なし）。
+    // 送信（SCTP ABORT → close_notify → ICE 停止）はこの後の非同期部分で行う。
+    this.sctpManager.markClosed();
+    this.secureManager.markClosed();
 
     // SCTP ABORT は DTLS/ICE が生きている間に送る（close は abrupt であり SHUTDOWN ではない）
     await this.sctpManager.close();
