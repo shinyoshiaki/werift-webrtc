@@ -61,6 +61,7 @@
 - [CONSENT\_RESPONSE\_TIMEOUT\_MIN](variables/CONSENT_RESPONSE_TIMEOUT_MIN.md)
 - [CONSENT\_TIMEOUT](variables/CONSENT_TIMEOUT.md)
 - [COOKIE](variables/COOKIE.md)
+- [DEFAULT\_STUN\_SERVER\_URL](variables/DEFAULT_STUN_SERVER_URL.md)
 - [defaultOptions](variables/defaultOptions.md)
 - [FINGERPRINT\_LENGTH](variables/FINGERPRINT_LENGTH.md)
 - [FINGERPRINT\_XOR](variables/FINGERPRINT_XOR.md)

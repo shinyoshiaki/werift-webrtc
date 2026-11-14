@@ -36,6 +36,7 @@ import {
   type NormalizedTurnServer,
   normalizeIceServerOptions,
   queryServerReflexiveCandidate,
+  type StunServerUrl,
   sortCandidatePairs,
   validateRemoteCandidate,
 } from "./iceBase";
@@ -61,6 +62,11 @@ const log = debug("werift-ice : packages/ice/src/ice.ts : log");
 
 /** Fallback STUN server when none is configured (constructor / setIceServers). */
 const DEFAULT_STUN_SERVER: Address = ["stun.l.google.com", 19302];
+/**
+ * The URL `onIceCandidateError` names the built-in default STUN server by:
+ * it is in no configuration, so werift synthesizes one.
+ */
+export const DEFAULT_STUN_SERVER_URL = "stun:stun.l.google.com:19302";
 
 export class Connection implements IceConnection {
   private _iceControlling: boolean;
@@ -79,6 +85,8 @@ export class Connection implements IceConnection {
    * configured and useDefaultStunServer is not false.
    */
   stunServers: Address[] = [];
+  /** Whether stunServers is the built-in default (none configured). */
+  private usesDefaultStunServer = false;
   /** TURN servers gathering allocates on, one allocation each. */
   turnServers: NormalizedTurnServer[] = [];
   options: IceOptions;
@@ -199,7 +207,9 @@ export class Connection implements IceConnection {
    * 701). A credential retry (401 / 438) that succeeds is not a failure.
    * Nothing is fired for a replaced generation or after close (the event
    * completes then). A STUN failure carries the socket's host address; a
-   * TURN one carries none.
+   * TURN one carries none. The built-in default STUN server (none
+   * configured, `useDefaultStunServer` not false) is named by the
+   * synthesized URL {@link DEFAULT_STUN_SERVER_URL} in `server.urls`.
    */
   readonly onIceCandidateError = new Event<[IceCandidateErrorInfo]>();
 
@@ -246,10 +256,12 @@ export class Connection implements IceConnection {
     const { stunServers, turnServers } = normalizeIceServerOptions(
       this.options,
     );
-    this.stunServers =
+    this.usesDefaultStunServer = !(
       stunServers.length > 0 || this.options.useDefaultStunServer === false
-        ? stunServers
-        : [DEFAULT_STUN_SERVER];
+    );
+    this.stunServers = this.usesDefaultStunServer
+      ? [DEFAULT_STUN_SERVER]
+      : stunServers;
     this.turnServers = turnServers;
   }
 
@@ -1432,8 +1444,14 @@ export class Connection implements IceConnection {
       candidatePromises.push(...tcpCandidatePromises);
     }
 
-    // The application's names of the STUN servers this gathering queries.
-    const stunServerUrls = this.options.stunServerUrls ?? [];
+    // The application's names of the STUN servers this gathering queries;
+    // the built-in default one, in no configuration, gets a synthesized URL.
+    const stunServerUrls: StunServerUrl[] = [
+      ...(this.options.stunServerUrls ?? []),
+      ...(this.usesDefaultStunServer
+        ? [{ address: DEFAULT_STUN_SERVER, url: DEFAULT_STUN_SERVER_URL }]
+        : []),
+    ];
     const stunServerRef = (server: Address): IceServerRef => {
       const urls = [
         ...new Set(

@@ -9,10 +9,10 @@
 > **iceCandidateErrorDetails**(`info`, `relayOnly`): [`IceCandidateErrorDetails`](../type-aliases/IceCandidateErrorDetails.md)[]
 
 The `icecandidateerror` members of an ICE agent's server failure: one per
-configured URL of the server (none for a server without one, such as the
+URL of the server (the configured ones, or the synthesized URL of the
 built-in default STUN server). The local address is given only when the
-agent knows it and the ICE transport policy is not "relay"; otherwise it
-and port are `null` (W3C: a null address has a null port).
+agent knows it and the ICE transport policy is not "relay"; otherwise
+`address` is `null` and `port` 0 (as Chrome and the WPT tests).
 
 ## Parameters
 

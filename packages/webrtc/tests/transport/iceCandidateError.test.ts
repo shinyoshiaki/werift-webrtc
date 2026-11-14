@@ -297,7 +297,7 @@ describe("icecandidateerror", () => {
             ...expected,
             errorText: expect.any(String),
             address: null,
-            port: null,
+            port: 0,
           }))
           .sort((a, b) => a.url.localeCompare(b.url)),
       );
@@ -312,7 +312,7 @@ describe("icecandidateerror", () => {
     }
   });
 
-  test('iceTransportPolicy "relay" では address と port が null になる', async () => {
+  test('iceTransportPolicy "relay" では address が null、port が 0 になる', async () => {
     // Arrange
     const rejecting = await createRejectingUdpTurnServer();
     const { pc, listened } = createErrorRecordingPeer({
@@ -332,7 +332,7 @@ describe("icecandidateerror", () => {
       // Assert
       expect(listened).toHaveLength(1);
       expect(listened[0].address).toBeNull();
-      expect(listened[0].port).toBeNull();
+      expect(listened[0].port).toBe(0);
     } finally {
       await pc.close();
       await rejecting.close();
@@ -359,19 +359,30 @@ describe("icecandidateerror", () => {
     }
   });
 
-  test("既定の STUN サーバー (設定にない URL) の失敗は通知されない", async () => {
-    // Arrange: 既定の STUN を使い、満了を短くする
-    const { pc, listened } = createErrorRecordingPeer({
+  test("既定の STUN サーバー (設定にない) の失敗は合成した URL で通知される", async () => {
+    // Arrange: STUN を設定せず既定の STUN を使い、応答より先に満了するほど短くする
+    // (ネットワークの有無によらず、満了または DNS 失敗の 701 になる)
+    const { pc, listened, handled } = createErrorRecordingPeer({
       iceServers: [],
       iceUseDefaultStunServer: true,
-      iceStunGatherTimeout: 0.2,
+      iceStunGatherTimeout: 0.001,
     });
     try {
-      // Act
+      // Act: gathering を完了させる
       await gatherWithOffer(pc);
 
-      // Assert
-      expect(listened).toEqual([]);
+      // Assert: 合成した URL・701・ホストアドレス付きで 1 件、両経路に同じイベントが届く
+      expect(errorSummaries(listened)).toEqual([
+        {
+          url: "stun:stun.l.google.com:19302",
+          errorCode: 701,
+          errorText: expect.any(String),
+          address: errorTestHost,
+          port: expect.any(Number),
+        },
+      ]);
+      expect(listened[0].port).toBeGreaterThan(0);
+      expect(handled).toEqual(listened);
     } finally {
       await pc.close();
     }

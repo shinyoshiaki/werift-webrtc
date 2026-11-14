@@ -149,7 +149,9 @@ one failure, reported when both failed (a server's error code wins over
 701). A credential retry (401 / 438) that succeeds is not a failure.
 Nothing is fired for a replaced generation or after close (the event
 completes then). A STUN failure carries the socket's host address; a
-TURN one carries none.
+TURN one carries none. The built-in default STUN server (none
+configured, `useDefaultStunServer` not false) is named by the
+synthesized URL [DEFAULT\_STUN\_SERVER\_URL](../variables/DEFAULT_STUN_SERVER_URL.md) in `server.urls`.
 
 #### Implementation of
 

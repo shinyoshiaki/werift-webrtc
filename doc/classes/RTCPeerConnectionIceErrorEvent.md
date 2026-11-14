@@ -19,15 +19,17 @@ sockets tried. While listeners run, `target` and `currentTarget` are the
   scheme, and `?transport=tcp` added to a `turns:` URL that names no
   transport (`turns:h:5349` → `turns:h:5349?transport=tcp`, the Chrome /
   WPT form). Several URLs naming one server each get their own event. The
-  built-in default STUN server (`iceUseDefaultStunServer`) has no URL in
-  the configuration and is not reported.
+  built-in default STUN server (`iceUseDefaultStunServer`, used when no
+  STUN server is configured) is in no configuration; werift reports it
+  with the synthesized URL `stun:stun.l.google.com:19302`.
 - `errorCode`: the STUN error code the server answered with (300-699),
   or 701 when it was not reached (DNS, timeout, connect or socket error).
 - `errorText`: the server's reason phrase or a fixed description; it never
   contains a credential.
 - `address` / `port`: the local host address used to contact a STUN
-  server; both `null` when unknown (TURN) or hidden (the `"relay"` ICE
-  transport policy), as in the W3C spec.
+  server; `null` / `0` when unknown (TURN) or hidden (the `"relay"` ICE
+  transport policy), as Chrome and the WPT tests (`port == 0` when
+  `address` is `null`).
 
 ## Extends
 

@@ -11,6 +11,7 @@ import {
   TransactionCancelled,
   TransactionTimeout,
 } from "../../src/exceptions";
+import { Connection, DEFAULT_STUN_SERVER_URL } from "../../src/ice";
 import {
   normalizeIceServerOptions,
   queryServerReflexiveCandidate,
@@ -41,6 +42,8 @@ import {
   errnoError,
   errorResponse,
   hostCandidate,
+  recordCandidateErrors,
+  singleIpv4Socket,
 } from "./candidateErrorUtils";
 
 const NOT_REACHED = IceCandidateErrorCode.SERVER_NOT_REACHED;
@@ -177,6 +180,52 @@ describe("onIceCandidateError: STUN", () => {
     } finally {
       await connection.close();
       await server.close();
+    }
+  });
+
+  test("STUN を設定しないときの既定 STUN の失敗は合成した URL で通知される", async () => {
+    // Arrange: 既定の STUN を使い、応答より先に満了するほど短くする
+    // (ネットワークの有無によらず、満了または DNS 失敗の 701 になる)
+    const connection = new Connection(true, {
+      ...singleIpv4Socket,
+      stunGatherTimeout: 0.001,
+    });
+    const errors = recordCandidateErrors(connection);
+    try {
+      // Act: 候補収集を完了まで待つ
+      await connection.gatherCandidates();
+
+      // Assert: 既定サーバーを合成 URL で指す 701 が 1 件
+      expect(errors).toHaveLength(1);
+      expect(errors[0].server).toEqual({
+        kind: "stun",
+        address: ["stun.l.google.com", 19302],
+        urls: [DEFAULT_STUN_SERVER_URL],
+      });
+      expect(DEFAULT_STUN_SERVER_URL).toBe("stun:stun.l.google.com:19302");
+      expect(errors[0].errorCode).toBe(NOT_REACHED);
+    } finally {
+      await connection.close();
+    }
+  });
+
+  test("useDefaultStunServer: false では既定 STUN を使わず通知もない", async () => {
+    // Arrange
+    const connection = new Connection(true, {
+      ...singleIpv4Socket,
+      useDefaultStunServer: false,
+      stunGatherTimeout: 0.001,
+    });
+    const errors = recordCandidateErrors(connection);
+    try {
+      // Act
+      await connection.gatherCandidates();
+
+      // Assert
+      expect(connection.stunServers).toEqual([]);
+      expect(errors).toEqual([]);
+    } finally {
+      await connection.close();
     }
   });
 });

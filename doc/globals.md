@@ -385,6 +385,7 @@
 - [CurveType](variables/CurveType.md)
 - [debug](variables/debug.md)
 - [DEFAULT\_MAX\_MESSAGE\_SIZE](variables/DEFAULT_MAX_MESSAGE_SIZE.md)
+- [DEFAULT\_STUN\_SERVER\_URL](variables/DEFAULT_STUN_SERVER_URL.md)
 - [defaultOptions](variables/defaultOptions.md)
 - [defaultPeerConfig](variables/defaultPeerConfig.md)
 - [depacketizerCodecs](variables/depacketizerCodecs.md)

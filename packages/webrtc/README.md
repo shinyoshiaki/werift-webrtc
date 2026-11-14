@@ -57,8 +57,11 @@ pc.addEventListener("icecandidateerror", (event) => {
 
 Gathering itself is not affected: the other servers still give their
 candidates and end-of-candidates still comes. `errorText` never contains the
-credential. The built-in default STUN server (`iceUseDefaultStunServer`) is not
-part of the configuration and is not reported.
+credential. The built-in default STUN server (`iceUseDefaultStunServer`, used
+when no STUN server is configured) is not part of the configuration; its
+failure is reported with the synthesized URL `stun:stun.l.google.com:19302`.
+`address` / `port` are the local host address that asked a STUN server, or
+`null` / `0` for a TURN server and with `iceTransportPolicy: "relay"`.
 
 ## Rejected, stopped and reused m-lines
 
