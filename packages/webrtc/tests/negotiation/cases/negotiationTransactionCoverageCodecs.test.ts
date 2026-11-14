@@ -235,11 +235,13 @@ describeCases(
     );
 
     negotiationCase(
-      "[2.4-7] an unassociated inactive addTransceiver() is associated by a remote offer only within the documented constraint and keeps its direction",
-      { ref: "2.4-7" },
+      "[2.4-7] an unassociated inactive addTransceiver() is not associated by a remote offer (JSEP 5.10) and keeps its direction",
+      { ref: "2.4-7, #816" },
       async (c) => {
-        // Arrange: answerer の app が inactive な未関連付けの audio transceiver を持つ。
-        const { a, b } = await c.given(createUnnegotiatedPeers());
+        // Arrange: transceiverPairing "standard" で、answerer の app が inactive な未関連付けの audio transceiver を持つ。
+        const { a, b } = await c.given(
+          createUnnegotiatedPeers({ transceiverPairing: "standard" }),
+        );
         const appInactive = b.addTransceiver("audio", {
           direction: "inactive",
         });
@@ -251,14 +253,16 @@ describeCases(
         // Act: audio の remote offer を適用する。
         await c.setRemote(b, a.localDescription);
 
-        // Assert: 既知の制約 (6 章) どおり app の transceiver に関連付けるが、app が選んだ inactive は remote offer で変えず、別の transceiver も作らない。
-        expect(b.getTransceivers()).toEqual([appInactive]);
-        expect(appInactive.mid).toBe(a.getTransceivers()[0].mid);
+        // Assert: addTransceiver() 起源の transceiver には関連付けず、remote offer 用の transceiver を作る。app の inactive は変わらない。
+        const [, created] = b.getTransceivers();
+        expect(b.getTransceivers()).toEqual([appInactive, created]);
+        expect(created.mid).toBe(a.getTransceivers()[0].mid);
+        expect(appInactive.mid).toBe(null);
         expect(appInactive.direction).toEqual("inactive");
 
         await c.setRemote(b, "rollback");
 
-        // Assert: app の transceiver は未関連付けに戻り、inactive のまま残る。
+        // Assert: remote offer 用の transceiver は消え、app の transceiver は未関連付けの inactive のまま残る。
         expect(b.getTransceivers()).toEqual([appInactive]);
         expect(appInactive.mid).toBe(null);
         expect(appInactive.direction).toEqual("inactive");
@@ -267,11 +271,12 @@ describeCases(
         await c.setRemote(b, a.localDescription);
         const answer = await b.createAnswer();
 
-        // Assert: answer の m-line は app の inactive を反映する (受信方向を奪わない)。
-        expect(answer.sdp).toMatch(/^a=inactive\r?$/m);
+        // Assert: answer は remote offer 用の transceiver (recvonly) で答え、app の transceiver は m-line を持たない。
+        expect(answer.sdp).toMatch(/^a=recvonly\r?$/m);
         await c.setLocal(b, answer);
         await c.setRemote(a, b.localDescription);
-        expect(appInactive.currentDirection).toEqual("inactive");
+        expect(appInactive.mid).toBe(null);
+        expect(appInactive.currentDirection).toBeNull();
       },
     );
 

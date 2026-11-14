@@ -6,6 +6,7 @@ import {
   type RTCIceCandidate,
   RTCPeerConnection,
   RTCRtpCodecParameters,
+  type RTCRtpTransceiver,
   type RtcpPacket,
   type RtpPacket,
 } from "../../../packages/webrtc/src";
@@ -42,9 +43,11 @@ export class CustomPeerConnection implements BasicPeerConnection {
         iceTransportPolicy: "all",
         bundlePolicy: "disable",
       })),
-      audioTransceiver = pc.addTransceiver(this.returnAudioTrack, {
-        direction: "sendrecv",
-      }),
+      // addTrack(): as the answerer, the camera's offer pairs with it (JSEP 5.10).
+      audioSender = pc.addTrack(this.returnAudioTrack),
+      audioTransceiver = pc
+        .getTransceivers()
+        .find((t) => t.sender === audioSender)!,
       videoTransceiver = pc.addTransceiver("video", {
         direction: "recvonly",
       });
@@ -59,21 +62,27 @@ export class CustomPeerConnection implements BasicPeerConnection {
       });
     });
 
-    videoTransceiver.onTrack.subscribe((track) => {
-      track.onReceiveRtp.subscribe((rtp) => {
-        this.onVideoRtp.next(rtp);
-      });
+    const watchVideo = (videoTransceiver: RTCRtpTransceiver) =>
+      videoTransceiver.onTrack.subscribe((track) => {
+        track.onReceiveRtp.subscribe((rtp) => {
+          this.onVideoRtp.next(rtp);
+        });
 
-      track.onReceiveRtcp.subscribe((rtcp) => {
-        this.onVideoRtcp.next(rtcp);
-      });
+        track.onReceiveRtcp.subscribe((rtcp) => {
+          this.onVideoRtcp.next(rtcp);
+        });
 
-      track.onReceiveRtp.once(() => {
-        setInterval(
-          () => videoTransceiver.receiver.sendRtcpPLI(track.ssrc!),
-          2000,
-        );
+        track.onReceiveRtp.once(() => {
+          setInterval(
+            () => videoTransceiver.receiver.sendRtcpPLI(track.ssrc!),
+            2000,
+          );
+        });
       });
+    watchVideo(videoTransceiver);
+    // As the answerer, the camera's video m-line gets its own transceiver.
+    pc.onRemoteTransceiverAdded.subscribe((transceiver) => {
+      if (transceiver.kind === "video") watchVideo(transceiver);
     });
     this.pc.onIceCandidate.subscribe((iceCandidate) => {
       this.onIceCandidate.pipe(iceCandidate);

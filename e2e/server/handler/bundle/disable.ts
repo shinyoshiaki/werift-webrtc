@@ -80,18 +80,14 @@ export class bundle_disable_offer {
             };
           };
 
-          {
-            const transceiver = this.pc.addTransceiver("video");
+          // JSEP 5.10: each m-line of the browser's offer gets its own
+          // transceiver; echo on it.
+          this.pc.onRemoteTransceiverAdded.subscribe((transceiver) => {
+            transceiver.setDirection("sendrecv");
             transceiver.onTrack.subscribe((track) => {
               transceiver.sender.replaceTrack(track);
             });
-          }
-          {
-            const transceiver = this.pc.addTransceiver("video");
-            transceiver.onTrack.subscribe((track) => {
-              transceiver.sender.replaceTrack(track);
-            });
-          }
+          });
 
           this.pc.onicecandidate = (e) => {
             peer.notify("candidate", { candidate: e.candidate ?? null });

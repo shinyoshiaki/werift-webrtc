@@ -25,8 +25,14 @@
  *
  * The generator follows the public API along the axes a reviewer explores:
  * - configuration, per seed (`--configs all`, default): bundlePolicy
- *   (max-bundle / balanced / max-compat / disable), rtcpMuxPolicy, and a
- *   relay-only session over a local TURN server;
+ *   (max-bundle / balanced / max-compat / disable), rtcpMuxPolicy, a
+ *   relay-only session over a local TURN server, and `standardPairing`
+ *   (`transceiverPairing: "standard"`, #816; develop ignores the unknown key
+ *   and keeps the v0.27.0 pairing, which is also the default `"byKind"`).
+ *   `--configs <name>` runs every seed with one configuration: `--configs
+ *   default` keeps the difference count against develop at 0, and
+ *   `--configs standardPairing` differs only where a remote offer no longer
+ *   pairs a transceiver `addTransceiver()` created (JSEP 5.10);
  * - application operations: stop, replaceTrack, direction,
  *   setCodecPreferences, createDataChannel, restartIce;
  * - timing: `closeDuring` starts an operation and calls close() after 0..8
@@ -83,6 +89,7 @@ const CONFIGS = [
   "disable",
   "rtcpMuxRequire",
   "relay",
+  "standardPairing",
 ] as const;
 type ConfigName = (typeof CONFIGS)[number];
 
@@ -97,6 +104,8 @@ async function sessionConfig(name: ConfigName) {
       return { config: { bundlePolicy: name } };
     case "rtcpMuxRequire":
       return { config: { rtcpMuxPolicy: "require" } };
+    case "standardPairing":
+      return { config: { transceiverPairing: "standard" } };
     case "relay": {
       const { NodeTurnServer } = await import(
         pathToFileURL(join(root, "packages/ice-server/src/index.ts")).href
@@ -503,7 +512,9 @@ async function main() {
       ? ((args.get("config") as ConfigName | undefined) ?? "default")
       : configAxis === "all"
         ? rng(seed * 92821 + 5).pick(CONFIGS)
-        : "default";
+        : CONFIGS.includes(configAxis as ConfigName)
+          ? (configAxis as ConfigName)
+          : "default";
     const configured = await sessionConfig(configName);
     let ctx: Ctx;
     try {

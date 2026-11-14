@@ -1,13 +1,13 @@
 import { browserName, peer, sleep, waitVideoPlay } from "../fixture";
 
-// Issue #705: werift の mLineReuse ("compatible" 既定 / "aggressive") のどちらでも
+// Issue #705: werift の mLineReuse ("standard" 既定 / "aggressive") のどちらでも
 // removeTrack の挙動が変わらないことを確認する
 // replacedMLineIndex: removeTrack で inactive にした m-line の後に追加した transceiver の m-line index
-//   compatible: inactive は port 9 のまま残るので、Chromium は末尾 (3) に追加する
+//   standard: inactive は port 9 のまま残るので、Chromium は末尾 (3) に追加する
 //   aggressive: inactive は従来どおり port 0 で拒否されるので、Chromium は同じ位置 (1) を再利用する
-//   compatible でもブラウザが transceiver.stop() で開放すれば同じ位置 (1) を再利用する (replaceVariants)
+//   standard でもブラウザが transceiver.stop() で開放すれば同じ位置 (1) を再利用する (replaceVariants)
 const modes = [
-  { mode: "compatible", suffix: "", removedPort: 9, replacedMLineIndex: 3 },
+  { mode: "standard", suffix: "", removedPort: 9, replacedMLineIndex: 3 },
   {
     mode: "aggressive",
     suffix: "_aggressive",
@@ -186,10 +186,10 @@ describe.each(modes)(
       );
     }
     // browserStop: ブラウザが removeTrack に加えて transceiver.stop() で m-line を開放する。
-    //   compatible でも port 0 の停止交渉が完了するので、Chromium は同じ位置 (1) を再利用する
+    //   standard でも port 0 の停止交渉が完了するので、Chromium は同じ位置 (1) を再利用する
     const replaceVariants = [
       { browserStop: false, removedPort, replacedMLineIndex },
-      ...(mode === "compatible"
+      ...(mode === "standard"
         ? [{ browserStop: true, removedPort: 0, replacedMLineIndex: 1 }]
         : []),
     ];

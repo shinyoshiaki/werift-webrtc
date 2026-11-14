@@ -1,0 +1,314 @@
+import {
+  CertificateScopeModes,
+  CompatibilityOptionValues,
+  CompatibilityPresets,
+  DeprecatedCompatibilityValues,
+  KeyFrameRequestRoutingModes,
+  MLineReuseModes,
+  RTCPeerConnection,
+  type RTCPeerConnectionConfig,
+  TransceiverPairingModes,
+} from "../../src";
+
+/**
+ * Every compatibility option takes `"standard"` (specifications / browsers)
+ * and one value naming werift's own behavior in that option; the names up to
+ * v0.27.0 that are not values any more are read as the current ones.
+ */
+const options = [
+  {
+    option: "certificateScope",
+    own: "process",
+    defaultValue: "process",
+    changeable: false,
+    aliases: { peerConnection: "standard" },
+  },
+  {
+    option: "mLineReuse",
+    own: "aggressive",
+    defaultValue: "standard",
+    changeable: false,
+    aliases: { compatible: "standard" },
+  },
+  {
+    option: "transceiverPairing",
+    own: "byKind",
+    defaultValue: "byKind",
+    changeable: false,
+    aliases: {},
+  },
+  {
+    option: "keyFrameRequestRouting",
+    own: "fallback",
+    defaultValue: "fallback",
+    changeable: true,
+    aliases: { compatible: "fallback", strict: "standard" },
+  },
+] as const;
+
+type CompatibilityOption = (typeof options)[number]["option"];
+
+describe("compatibility options: standard and a named own behavior", () => {
+  const pcs: RTCPeerConnection[] = [];
+  const createPc = (config: RTCPeerConnectionConfig = {}) => {
+    const pc = new RTCPeerConnection({ iceServers: [], ...config });
+    pcs.push(pc);
+    return pc;
+  };
+  const read = (pc: RTCPeerConnection, option: CompatibilityOption) =>
+    pc.getConfiguration()[option];
+
+  afterEach(async () => {
+    await Promise.all(pcs.splice(0).map((pc) => pc.close()));
+  });
+
+  test("the exported value lists are standard and the option's own value", () => {
+    // Assert: 各オプションの値は ["standard", 独自の挙動の名前]
+    expect(CompatibilityOptionValues).toEqual(
+      Object.fromEntries(
+        options.map(({ option, own }) => [option, ["standard", own]]),
+      ),
+    );
+    expect(CertificateScopeModes).toEqual(["standard", "process"]);
+    expect(MLineReuseModes).toEqual(["standard", "aggressive"]);
+    expect(TransceiverPairingModes).toEqual(["standard", "byKind"]);
+    expect(KeyFrameRequestRoutingModes).toEqual(["standard", "fallback"]);
+    expect(Object.keys(DeprecatedCompatibilityValues).sort()).toEqual(
+      options
+        .filter(({ aliases }) => Object.keys(aliases).length > 0)
+        .map(({ option }) => option)
+        .sort(),
+    );
+  });
+
+  test.each(options)(
+    "$option: default $defaultValue, standard / $own, other values are a TypeError",
+    ({ option, own, defaultValue }) => {
+      // Act: 既定・両方の値で作成する
+      const defaultPc = createPc();
+      const standardPc = createPc({ [option]: "standard" });
+      const ownPc = createPc({ [option]: own });
+
+      // Assert: 既定値と指定した値がそのまま読み返せる
+      expect(read(defaultPc, option)).toBe(defaultValue);
+      expect(read(standardPc, option)).toBe("standard");
+      expect(read(ownPc, option)).toBe(own);
+
+      // Assert: それ以外の値は生成時に TypeError (未リリースの旧名 "legacy" / "jsep" も含む)
+      for (const value of [
+        "any",
+        "legacy",
+        "jsep",
+        "constructor",
+        "toString",
+      ]) {
+        expect(() => createPc({ [option]: value as never })).toThrow(
+          new TypeError(`${option} must be one of standard, ${own}`),
+        );
+      }
+    },
+  );
+
+  test.each(
+    options.flatMap(({ option, aliases }) =>
+      Object.entries(aliases).map(([alias, value]) => ({
+        option,
+        alias,
+        value,
+      })),
+    ),
+  )(
+    "$option: the v0.27.0 name $alias is read as $value",
+    ({ option, alias, value }) => {
+      // Act: 旧名で作成する
+      const pc = createPc({ [option]: alias as never });
+
+      // Assert: getConfiguration() は現在の名前を返す
+      expect(read(pc, option)).toBe(value);
+    },
+  );
+
+  test("a v0.27.0 name selects the same behavior as its current name", async () => {
+    // Arrange: mLineReuse の旧名 "compatible" と現在の名前 "standard"
+    const aliasPc = createPc({ mLineReuse: "compatible" });
+    const standardPc = createPc({ mLineReuse: "standard" });
+    aliasPc.addTransceiver("audio", { direction: "inactive" });
+    standardPc.addTransceiver("audio", { direction: "inactive" });
+
+    // Act
+    const [aliasOffer, standardOffer] = await Promise.all([
+      aliasPc.createOffer(),
+      standardPc.createOffer(),
+    ]);
+
+    // Assert: どちらも受け入れた inactive m-line の port を保つ (standard の挙動)
+    const port = (sdp: string) => sdp.match(/^m=audio (\d+)/m)?.[1];
+    expect(port(aliasOffer.sdp)).toBe("9");
+    expect(port(standardOffer.sdp)).toBe("9");
+  });
+
+  test.each(options)(
+    "$option: setConfiguration() changes it only when changeable ($changeable)",
+    ({ option, own, defaultValue, changeable, aliases }) => {
+      // Arrange
+      const pc = createPc();
+      const other = defaultValue === "standard" ? own : "standard";
+      const sameAlias = Object.entries(aliases).find(
+        ([, value]) => value === defaultValue,
+      )?.[0];
+
+      // Act / Assert: 同じ値 (旧名を含む) の再設定は常に成功する
+      expect(() =>
+        pc.setConfiguration({ [option]: defaultValue }),
+      ).not.toThrow();
+      if (sameAlias) {
+        expect(() =>
+          pc.setConfiguration({ [option]: sameAlias as never }),
+        ).not.toThrow();
+      }
+      expect(read(pc, option)).toBe(defaultValue);
+
+      // Act / Assert: 別の値への変更は変更可能なオプションだけ成功する
+      if (changeable) {
+        pc.setConfiguration({ [option]: other as never });
+        expect(read(pc, option)).toBe(other);
+      } else {
+        expect(() => pc.setConfiguration({ [option]: other })).toThrow(
+          expect.objectContaining({
+            name: "InvalidModificationError",
+            message: `${option} cannot be changed`,
+          }),
+        );
+        expect(read(pc, option)).toBe(defaultValue);
+      }
+    },
+  );
+
+  test('compatibility: "standard" sets every compatibility option to standard', async () => {
+    // Act: compatibility だけを指定して作成する
+    const pc = createPc({ compatibility: "standard" });
+
+    // Assert: 4 つの互換性オプションがすべて standard になり、compatibility も読み返せる
+    for (const { option } of options) {
+      expect(read(pc, option)).toBe("standard");
+    }
+    expect(pc.getConfiguration().compatibility).toBe("standard");
+    expect(CompatibilityPresets).toEqual(["standard"]);
+
+    // Act: standard の挙動になっていることを mLineReuse 以外の既定と違う値で確かめる
+    pc.addTransceiver("audio", { direction: "sendonly" });
+    const answerer = createPc({ compatibility: "standard" });
+    const own = answerer.addTransceiver("audio", { direction: "sendrecv" });
+    await answerer.setRemoteDescription(await pc.createOffer());
+
+    // Assert: transceiverPairing が standard なので own は関連付かない (#816)
+    expect(own.mid).toBeNull();
+    expect(answerer.getTransceivers()).toHaveLength(2);
+  });
+
+  test.each(options)(
+    'compatibility: "standard" keeps an explicitly given $option ($own)',
+    ({ option, own, aliases }) => {
+      // Act: compatibility と個別の werift 側の値 (v0.27.0 までの旧名も含む) を同時に指定する
+      const given = [
+        { value: own, expected: own },
+        ...Object.entries(aliases).map(([alias, value]) => ({
+          value: alias,
+          expected: value,
+        })),
+      ];
+      for (const { value, expected } of given) {
+        const pc = createPc({ compatibility: "standard", [option]: value });
+
+        // Assert: 個別に指定した値が優先され、ほかは standard
+        for (const other of options) {
+          expect(read(pc, other.option)).toBe(
+            other.option === option ? expected : "standard",
+          );
+        }
+      }
+    },
+  );
+
+  test.each(options)(
+    'compatibility: "standard" fills $option given as undefined',
+    ({ option }) => {
+      // Act: 個別のオプションを undefined で渡す
+      const pc = createPc({ compatibility: "standard", [option]: undefined });
+
+      // Assert: undefined は指定なしと同じく standard で埋まる
+      expect(read(pc, option)).toBe("standard");
+    },
+  );
+
+  test.each(options)(
+    'compatibility: "standard" does not change how setConfiguration() handles $option',
+    ({ option, own, changeable }) => {
+      // Arrange
+      const pc = createPc({ compatibility: "standard" });
+
+      // Act / Assert: compatibility なしと同じく、変更可能なオプションだけ個別の値に変わる
+      if (changeable) {
+        pc.setConfiguration({ [option]: own });
+        expect(read(pc, option)).toBe(own);
+        expect(pc.getConfiguration().compatibility).toBe("standard");
+      } else {
+        expect(() => pc.setConfiguration({ [option]: own })).toThrow(
+          expect.objectContaining({
+            name: "InvalidModificationError",
+            message: `${option} cannot be changed`,
+          }),
+        );
+        expect(read(pc, option)).toBe("standard");
+      }
+    },
+  );
+
+  test('compatibility: "standard" with an explicit transceiverPairing behaves as the explicit value', async () => {
+    // Arrange: transceiverPairing だけ byKind を個別に指定する
+    const offerer = createPc();
+    offerer.addTransceiver("audio", { direction: "sendrecv" });
+    const answerer = createPc({
+      compatibility: "standard",
+      transceiverPairing: "byKind",
+    });
+    const own = answerer.addTransceiver("audio", { direction: "sendrecv" });
+
+    // Act: #816 の再現手順
+    await answerer.setRemoteDescription(await offerer.createOffer());
+
+    // Assert: 個別指定の byKind の挙動になり、own が offer の m-section と関連付く
+    expect(own.mid).toBe("0");
+    expect(answerer.getTransceivers()).toHaveLength(1);
+  });
+
+  test("compatibility: other values are a TypeError and it cannot be changed", () => {
+    // Act / Assert: 未知の値は生成時に TypeError
+    for (const value of ["legacy", "browser", "Standard"]) {
+      expect(() => createPc({ compatibility: value as never })).toThrow(
+        new TypeError("compatibility must be one of standard"),
+      );
+    }
+
+    // Arrange
+    const defaultPc = createPc();
+    const standardPc = createPc({ compatibility: "standard" });
+
+    // Act / Assert: 構築後の変更は InvalidModificationError、同じ値の再設定は成功する
+    expect(defaultPc.getConfiguration().compatibility).toBeUndefined();
+    expect(() =>
+      defaultPc.setConfiguration({ compatibility: "standard" }),
+    ).toThrow(
+      expect.objectContaining({
+        name: "InvalidModificationError",
+        message: "compatibility cannot be changed",
+      }),
+    );
+    expect(read(defaultPc, "mLineReuse")).toBe("standard");
+    expect(read(defaultPc, "transceiverPairing")).toBe("byKind");
+    expect(() =>
+      standardPc.setConfiguration({ compatibility: "standard" }),
+    ).not.toThrow();
+    expect(standardPc.getConfiguration().compatibility).toBe("standard");
+  });
+});

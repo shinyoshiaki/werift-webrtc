@@ -10,7 +10,7 @@ Instructions for coding agents working in `packages/webrtc`.
 * This package is the main public WebRTC API (`RTCPeerConnection`, media, data channel).
 * Optional `werift/polyfill` (`src/polyfill`) installs browser globals and `getUserMedia` via required `mediaRegister`; `peerConnectionConfig` supplies per-install PC defaults, and fixed-codec register tracks constrain rather than expand PC capabilities. An empty array supplies plain empty audio/video tracks. It is not re-exported from `src/index.ts`. Node TypeScript without DOM uses `werift/polyfill` for constructor globals; DOM-lib projects should import `werift/polyfill/dom`. On Node it also complements a missing or `Node.js/<major>` `navigator.userAgent` with a Chromium-compatible value. Existing non-Node User-Agents are kept unless `userAgent` is passed.
 * Lower-level protocol packages (`ice`, `dtls`, `rtp`, `sctp`, `common`) are dependencies; prefer fixing protocol bugs in those packages when the root cause lives there.
-* Upstream WPT harness code lives under `tools/wpt-runner/` and must not leak stricter shims into default `src` behavior.
+* Upstream WPT harness code lives under `tools/wpt-runner/` and must not leak stricter shims into default `src` behavior. WPT creates every `RTCPeerConnection` with the browser-compatible configuration in `tools/wpt-runner/browserConfig.ts` (`compatibility: "standard"`, so every compatibility option is `"standard"`); the regression gate is `wpt/baseline.json` (rules in `tools/wpt-runner/baselineLogic.ts`: a lower status or an unreported baseline subtest regresses; a target that only regressed by timeouts is rerun once with longer timeouts).
 
 ## Do
 
@@ -42,7 +42,8 @@ Instructions for coding agents working in `packages/webrtc`.
 | deep negotiation property search incl. leak property (parallel, before review) | `npm run pbt:deep` |
 | deep media property search (TWCC / BWE / sender / receiver / simulcast RTX, parallel) | `npm run pbt:deep -- --suite twcc,bwe,sender,receiver,simulcastRtx` |
 | leak property evidence: `repeat [N]` runs the leak tests N times, `inject` injects 6 artificial leaks in a temporary worktree | `npm run leak:verify -- repeat 10` / `npm run leak:verify -- inject` |
-| allowlisted upstream WPT | `npm run wpt` |
+| upstream WPT, gated by `wpt/baseline.json` | `npm run wpt` |
+| rebuild the WPT baseline from saved full runs | `npm run wpt:stable-baseline -- <results.json>...` |
 | WPT coverage | `npm run wpt:coverage` |
 
 Memleak details, env vars, and report interpretation: `tests/memleak/README.md`.
@@ -55,7 +56,7 @@ Bottleneck simulations live in `simulations/` (`npm run test:sim`); the Chrome p
 * TWCC feedback / BWE / sender send-path / receiver padding, `ReceiverTWCC` or RID-based RTX repair (the hole ledger of `receiver/nack.ts`, `mediaSsrcOfRtx` / `switchRidMedia` in `rtpReceiver.ts`) changes: the relevant `npm test` paths, plus `npm run pbt:deep -- --suite twcc,bwe,sender,receiver,simulcastRtx` before review; replay a failed seed with the environment variables printed in its test title.
 * Negotiation changes: the full `npm test` (includes the negotiation property tests with their fixed scenes and regression seeds), plus the deeper property searches above before review.
 * Memleak harness changes: short smoke with reduced env (see `tests/memleak/README.md`), then optional full `npm run memleak`.
-* WPT runner / allowlist: `npm run wpt`.
+* WPT runner / allowlist / baseline: `npm run wpt`, repeated (10 full runs before changing `wpt/baseline.json`).
 
 ## Maintenance
 

@@ -88,7 +88,7 @@ m=audio 9 UDP/TLS/RTP/SAVPF 111 (mid 1) m=audio 9 UDP/TLS/RTP/SAVPF 111  ← ans
 
 | 値 | inactive の port | port 0 になるもの |
 |----|------------------|-------------------|
-| `"compatible"` (既定) | 9 | 拒否 / 停止した m-line |
+| `"standard"` (既定。v0.27.0 までの名前は `"compatible"`) | 9 | 拒否 / 停止した m-line |
 | `"aggressive"` | 0 (従来動作) | 拒否 / 停止した m-line と inactive |
 
 生成時に値を検証し (`TypeError`)、`setConfiguration()` による変更は `InvalidModificationError`。
@@ -110,7 +110,7 @@ addTransceiver("video") ◄── 確定済み port 0 の同じ kind の位置�
   `createOffer()` で MID だけ割り当てられ未適用のまま stop した場合も、確定済み local description に
   非ゼロ m-line がなければ次の answer 確定時に `stopped` とし、negotiationneeded を繰り返さない。
 - 関連付け済みなら negotiationneeded を要求し、次の自分の offer で port 0 にする。answer 適用後に `stopped`。
-- answerer が `stop()` しただけでは、`compatible` の answer を port 0 にしない (inactive で答える)。
+- answerer が `stop()` しただけでは、`standard` の answer を port 0 にしない (inactive で答える)。
   answer 確定後に negotiationneeded を出し、自分の offer で停止を交渉する。
 - `addTransceiver()` は **拒否 / 停止が確定した** port 0 位置だけを再利用する。stopping (交渉前) の位置は先取りせず、
   末尾に追加する。旧 transceiver は MID / index を外されて `getTransceivers()` から置き換わり、復活しない。
@@ -119,7 +119,7 @@ addTransceiver("video") ◄── 確定済み port 0 の同じ kind の位置�
 - `removeTrack()` は sender から track を外すだけで sender は止めない。`sender.replaceTrack(track)` と
   `direction = "sendrecv"` で同じ sender から送信を再開できる。
 - remote SDP 起因の停止 (拒否 / answer からの欠落) は negotiationneeded を出さない。app の `stop()` は出す。
-- `compatible` でも、track を持つ側が `inactive` に頼らず `transceiver.stop()` で m-line を明示的に開放すれば再利用できる。
+- `standard` でも、track を持つ側が `inactive` に頼らず `transceiver.stop()` で m-line を明示的に開放すれば再利用できる。
   ブラウザ offerer が `removeTrack()` + `transceiver.stop()` で再交渉すると、その m-line は port 0 で offer され、
   werift は remote port 0 として port 0 で答えて停止を確定する。ブラウザの次の `addTransceiver()` は同じ位置を
   新 MID で再利用し、m-line 数は増えない (`e2e/tests/mediachannel/removeTrack.test.ts` の
@@ -148,7 +148,7 @@ addTransceiver("video") ◄── 確定済み port 0 の同じ kind の位置�
 - `packages/webrtc/tests/issue/705-reuse.test.ts`: `stop()` の冪等性と解放、未関連付け stop、交渉前の非再利用、
   確定後の同 index / 新 MID 再利用、answerer の停止、BUNDLE 先頭停止、unbundled、SCTP 先行、繰り返し再利用後の RTP 受信。
 - `e2e/tests/mediachannel/removeTrack.test.ts`: 既存の removeTrack シナリオを両モードで実行する。Chromium offerer の
-  removeTrack 後の追加は `compatible` で末尾 (index 3)、`aggressive` で同じ位置 (index 1) になり、`compatible` でも
+  removeTrack 後の追加は `standard` で末尾 (index 3)、`aggressive` で同じ位置 (index 1) になり、`standard` でも
   ブラウザが `transceiver.stop()` で開放すれば同じ位置 (index 1) を再利用して RTP を受信する。
 - `e2e/tests/mediachannel/reuse.test.ts`: Chromium ↔ werift で removeTrack + stop → port 0 → 再利用を 2 回繰り返し、
   両モードで再利用位置の RTP を受信する。音声専用 werift が Chromium の audio + video offer の video を拒否する。

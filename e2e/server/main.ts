@@ -61,7 +61,7 @@ import {
 import {
   mediachannel_reject_unsupported_video,
   mediachannel_reuse_aggressive,
-  mediachannel_reuse_compatible,
+  mediachannel_reuse_standard,
 } from "./handler/mediachannel/reuse";
 import {
   mediachannel_rtx_client_answer,
@@ -213,7 +213,7 @@ function attachWebSocketServer() {
         new mediachannel_addtrack_removefirst_addtrack("aggressive"),
       mediachannel_offer_replace_second_aggressive:
         new mediachannel_offer_replace_second("aggressive"),
-      mediachannel_reuse_compatible: new mediachannel_reuse_compatible(),
+      mediachannel_reuse_standard: new mediachannel_reuse_standard(),
       mediachannel_reuse_aggressive: new mediachannel_reuse_aggressive(),
       mediachannel_reject_unsupported_video:
         new mediachannel_reject_unsupported_video(),

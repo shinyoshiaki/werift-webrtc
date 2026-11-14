@@ -31,3 +31,29 @@ test("heavy WebRTC WPT cases use a longer but bounded timeout profile", () => {
     vmTimeoutMs: 2_500,
   });
 });
+
+test("a long allowlisted WebRTC WPT file gets the long timeout profile", () => {
+  // 実行: 多数の subtest を順に実行する RTCRtpTransceiver (?rest) のタイムアウトを解決する。
+  const profile = resolveTimeoutProfile({
+    file: "webrtc/RTCRtpTransceiver.https.html",
+    variant: "?rest",
+  });
+
+  // 検証: ファイル全体のタイムアウトで subtest の結果を失わない長さにする。
+  expect(profile.completionTimeoutMs).toBe(45_000);
+});
+
+test("a timeout scale multiplies every limit of the profile", () => {
+  // 実行: 再実行用に 4 倍のタイムアウトを解決する。
+  const profile = resolveTimeoutProfile(
+    { file: "webrtc/RTCPeerConnection-constructor.html", variant: "" },
+    4,
+  );
+
+  // 検証: 軽量ケースの各上限が 4 倍になる。
+  expect(profile).toEqual({
+    completionTimeoutMs: 1_600,
+    cleanupTimeoutMs: 600,
+    vmTimeoutMs: 1_600,
+  });
+});

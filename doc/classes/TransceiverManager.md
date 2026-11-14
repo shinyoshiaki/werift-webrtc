@@ -26,6 +26,13 @@ m-line stop, rejection and reuse inside a negotiation:
   (no `negotiationneeded`). Rollback removes it unless the application
   attached a track (`heldByApplication`); a kept one returns to its created
   state. An application `stop()` during the transaction survives rollback.
+- Each transceiver records what created it (`createdBy`: `addTrack`,
+  `addTransceiver` or `remote`); reusing one with `addTrack()` or
+  `replaceTrack()` keeps it. Under `transceiverPairing: "standard"` a remote
+  offer pairs an m-section with an unassociated transceiver only if
+  `addTrack()` created it (JSEP 5.10). A remote one that `addTrack()` reused
+  and a rollback keeps becomes `addTrack` (JSEP 4.1.8.2). The origin is not
+  part of the negotiation snapshot.
 - A transceiver the application added while a description was pending is
   never committed by it: rollback takes back its MID, m-line and the
   direction a pranswer gave it.
@@ -85,7 +92,7 @@ m-line stop, rejection and reuse inside a negotiation:
 
 ### addTrack()
 
-> **addTrack**(`track`, `streams?`): [`RTCRtpTransceiver`](RTCRtpTransceiver.md)
+> **addTrack**(`track`, `streams?`, `createTransport?`): [`RTCRtpTransceiver`](RTCRtpTransceiver.md)
 
 #### Parameters
 
@@ -96,6 +103,14 @@ m-line stop, rejection and reuse inside a negotiation:
 ##### streams?
 
 [`MediaStream`](MediaStream.md)[] = `[]`
+
+##### createTransport?
+
+() => [`RTCDtlsTransport`](RTCDtlsTransport.md)
+
+the transport a new transceiver starts on: it is
+  part of the state the transceiver was created with, which a rollback
+  of a description pending meanwhile returns it to.
 
 #### Returns
 
@@ -122,6 +137,13 @@ m-line stop, rejection and reuse inside a negotiation:
 `Partial`\<[`TransceiverOptions`](../interfaces/TransceiverOptions.md)\> = `{}`
 
 ##### \_\_namedParameters?
+
+###### createdBy?
+
+`TransceiverOrigin` = `...`
+
+The operation creating it (JSEP 5.10 pairing). Defaults to
+`"remote"` with `remoteMLineIndex`, else `"addTransceiver"`.
 
 ###### remoteMLineIndex?
 
@@ -338,7 +360,7 @@ remote SDP 起因の停止なので negotiationneeded は要求しない。
 
 ### planRemoteRtpCodecs()
 
-> **planRemoteRtpCodecs**(`remoteSdp`, `findTransceiver`): `Map`\<`number`, [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]\>
+> **planRemoteRtpCodecs**(`remoteSdp`, `findTransceiver`, `isStopping?`): `Map`\<`number`, [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]\>
 
 remote SDP の全 audio/video m-line の codec を副作用なしで解決する。
 transceiver の対応付けは本適用と同じ resolver を使い、検証と適用の判定をずらさない。
@@ -357,6 +379,12 @@ transceiver の対応付けは本適用と同じ resolver を使い、検証と�
 ##### findTransceiver
 
 (`remoteMedia`, `index`) => [`RTCRtpTransceiver`](RTCRtpTransceiver.md) \| `undefined`
+
+##### isStopping?
+
+(`transceiver`) => `boolean`
+
+Whether the paired transceiver is stopping or stopped at association.
 
 #### Returns
 

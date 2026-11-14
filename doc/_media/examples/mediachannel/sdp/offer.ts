@@ -20,7 +20,12 @@ server.on("connection", async (socket) => {
   };
 
   onTransceiver(pc.addTransceiver("video"));
-  pc.onRemoteTransceiverAdded.subscribe(onTransceiver);
+  // A transceiver the browser's re-offer adds is created for it (JSEP 5.10):
+  // send the received track back on it.
+  pc.onRemoteTransceiverAdded.subscribe((transceiver) => {
+    transceiver.setDirection("sendrecv");
+    onTransceiver(transceiver);
+  });
 
   await pc.setLocalDescription(await pc.createOffer());
   const sdp = JSON.stringify(pc.localDescription);
@@ -33,7 +38,6 @@ server.on("connection", async (socket) => {
 
   socket.onmessage = async ({ data }) => {
     const offer = JSON.parse(data.toString());
-    onTransceiver(pc.addTransceiver("video"));
     await pc.setRemoteDescription(offer);
 
     await pc.setLocalDescription(await pc.createAnswer());

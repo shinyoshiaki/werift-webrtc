@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+### ⚠️ Breaking changes
+
+- **The spec / browser value of the compatibility options is `"standard"`** (`certificateScope`, `mLineReuse`, `keyFrameRequestRouting`; also `transceiverPairing`): each option takes `"standard"` for the behavior the specifications and browsers have, and a value naming werift's own behavior. The old names of the spec / browser side and of `keyFrameRequestRouting`'s default are still accepted on input, so existing configurations keep their behavior, but `getConfiguration()` now returns the current name, the TypeScript types `MLineReuse` / `KeyFrameRequestRouting` / `CertificateScope` and `KeyFrameRequestRoutingModes` list the current names, and the `TypeError` message lists them. `SDPManager` (`mLineReuse`) and `RtpRouter.keyFrameRequestRouting`, set directly, accept only the current names. Defaults and behavior are unchanged.
+
+  | Option | Up to v0.27.0 | Now (default first) | Old names still accepted |
+  | --- | --- | --- | --- |
+  | `certificateScope` | `"process"` (default) / `"peerConnection"` | `"process"` / `"standard"` | `"peerConnection"` |
+  | `mLineReuse` | `"compatible"` (default) / `"aggressive"` | `"standard"` / `"aggressive"` | `"compatible"` |
+  | `keyFrameRequestRouting` | `"compatible"` (default) / `"strict"` | `"fallback"` / `"standard"` | `"compatible"`, `"strict"` |
+
+### 🚀 Features
+
+- **`PeerConfig.compatibility: "standard"`** sets every compatibility option (`certificateScope`, `mLineReuse`, `transceiverPairing`, `keyFrameRequestRouting`) to `"standard"`, the specification / browser behavior, at once: `new RTCPeerConnection({ compatibility: "standard" })`. An option given explicitly always takes precedence: a value given in the same configuration (an old name included) is kept, and `setConfiguration()` handles the options as without `compatibility`. It is validated on construction (`TypeError`) and cannot be changed by `setConfiguration()` (`InvalidModificationError`); `CompatibilityPresets` lists the values. The upstream WPT runner creates its connections with it.
+- **`CompatibilityOptionValues`** (the values of every compatibility option), **`CertificateScopeModes`** / **`MLineReuseModes`** and **`DeprecatedCompatibilityValues`** (the old names and the value each one is read as) are exported. `packages/webrtc/README.md` ("Compatibility options") lists the options and the configuration closest to a browser `RTCPeerConnection`, which the upstream WPT runner now uses for every connection (`tools/wpt-runner/browserConfig.ts`).
+- **`PeerConfig.transceiverPairing`** (#816): selects how a remote offer pairs its m-sections with local transceivers that have no MID yet. `"byKind"` (default) keeps the v0.27.0 pairing of any unassociated transceiver of the same kind. `"standard"` pairs as RFC 8829 (JSEP) section 5.10 and browsers do: an offered `sendrecv` / `recvonly` m-section whose MID no transceiver has is associated only with an unassociated, non-stopped transceiver of the same kind that `addTrack()` created (or a remote one `addTrack()` reused that a rollback kept). A transceiver `addTransceiver()` created (with or without a track, also after `replaceTrack()` or a later `addTrack()` reusing it) keeps its `direction` and `mid === null`, the offer gets a new transceiver, and `negotiationneeded` fires after the answer so your next offer adds it. In glare (perfect negotiation) a `sendonly` transceiver therefore stays `sendonly` under `"standard"`, while `"byKind"` lets the peer's offer take it over (it becomes `sendrecv`). **For the perfect negotiation pattern or code written for browsers, set `transceiverPairing: "standard"`.** The value is validated on construction (`TypeError`) and cannot be changed by `setConfiguration()` (`InvalidModificationError`). `TransceiverPairingModes` lists the values. See `packages/webrtc/README.md`.
+
+### 🐛 Bug Fixes
+
+- **The codecs of a remote offer are resolved with the transceiver it is applied to** (#816): `setRemoteDescription(offer)` resolves codecs before its implicit rollback, replacement or unapplied-`createOffer` revert, and used to pair m-lines with the transceivers as they were before (a local transceiver whose MID only the rolled-back local offer gave could lend its codec preferences or track to an m-line another transceiver then took). Both now pair with the state after them.
+- **A replacement remote offer keeps the transceiver the replaced one created for a MID it describes again**, instead of dropping its MID and pairing it again by kind.
+
 ### 🚀 Features
 
 - **DTLS alerts are sent and received** (`werift-dtls`, `werift`, #811, RFC 5246 §7.2).

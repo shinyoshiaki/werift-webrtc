@@ -14,6 +14,7 @@ import {
   createPliPacket,
   outboundRtpStats,
   sendRawRtcp,
+  transceiverOfSender,
 } from "../fixture";
 
 describe("media", () => {
@@ -77,7 +78,8 @@ describe("media", () => {
           }),
           new Promise<void>((r) => {
             const track = new MediaStreamTrack({ kind: "video" });
-            const transceiver = pc2.addTransceiver(track);
+            // JSEP 5.10: only a transceiver addTrack() created pairs with pc1's offer
+            const transceiver = transceiverOfSender(pc2, pc2.addTrack(track));
             transceiver.sender.onReady.subscribe(() => {
               const rtpPacket = new RtpPacket(
                 new RtpHeader(),
@@ -202,17 +204,17 @@ describe("media", () => {
       createPliPacket({ senderSsrc: transceiver2.sender.ssrc, mediaSsrc: 0 }),
     );
 
-    // Assert: 既定の "compatible" では pc1 の唯一の video sender に届く
+    // Assert: 既定の "fallback" では pc1 の唯一の video sender に届く
     await pliReceived;
 
     await Promise.all([pc1.close(), pc2.close()]);
   });
 
-  test("strict keyFrameRequestRouting drops PLI with an unregistered media SSRC", async () => {
+  test("standard keyFrameRequestRouting drops PLI with an unregistered media SSRC", async () => {
     // Arrange
     const { pc1, pc2, transceiver1, transceiver2 } =
       await createConnectedSendrecvVideoPeers({
-        keyFrameRequestRouting: "strict",
+        keyFrameRequestRouting: "standard",
       });
     const firReceived = transceiver1.sender.onFullIntraRequest.asPromise();
     const senderSsrc = transceiver2.sender.ssrc;
@@ -240,13 +242,13 @@ describe("media", () => {
   });
 
   test("keyFrameRequestRouting rejects an unknown mode", () => {
-    // Act / Assert: 既定値は "compatible" で、未知の値は TypeError になる
+    // Act / Assert: 既定値は "fallback" で、未知の値は TypeError になる
     const pc = new RTCPeerConnection();
-    expect(pc.getConfiguration().keyFrameRequestRouting).toBe("compatible");
+    expect(pc.getConfiguration().keyFrameRequestRouting).toBe("fallback");
     expect(() =>
-      pc.setConfiguration({ keyFrameRequestRouting: "loose" as "strict" }),
+      pc.setConfiguration({ keyFrameRequestRouting: "loose" as "standard" }),
     ).toThrow(TypeError);
-    expect(pc.getConfiguration().keyFrameRequestRouting).toBe("compatible");
+    expect(pc.getConfiguration().keyFrameRequestRouting).toBe("fallback");
     pc.close();
   });
 });

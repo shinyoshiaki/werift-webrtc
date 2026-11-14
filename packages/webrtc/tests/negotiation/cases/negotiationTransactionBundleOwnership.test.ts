@@ -1,6 +1,11 @@
 import { expect } from "vitest";
 
-import { type RTCDtlsTransport, RTCPeerConnection } from "../../../src";
+import {
+  MediaStreamTrack,
+  type RTCDtlsTransport,
+  RTCPeerConnection,
+} from "../../../src";
+import { transceiverOfSender } from "../../fixture";
 import { bundleGroups } from "../../issue/705.helpers";
 import {
   describeCases,
@@ -107,9 +112,16 @@ describeCases("negotiation transaction: BUNDLE transport ownership", () => {
     { ref: "origin: ticket-3812d7fd (remote offer)" },
     async (c) => {
       // Arrange: b は remote offer の前に audio・video・DataChannel を作る (m-line ごとの transport)。
+      // remote offer と関連付くよう addTrack() で作る (JSEP 5.10)。
       const { a, b } = maxCompatPeers(c);
-      const bAudio = b.addTransceiver("audio", { direction: "sendrecv" });
-      const bVideo = b.addTransceiver("video", { direction: "sendrecv" });
+      const bAudio = transceiverOfSender(
+        b,
+        b.addTrack(new MediaStreamTrack({ kind: "audio" })),
+      );
+      const bVideo = transceiverOfSender(
+        b,
+        b.addTrack(new MediaStreamTrack({ kind: "video" })),
+      );
       b.createDataChannel("early");
       const ownBefore = new Set([
         bAudio.dtlsTransport,
