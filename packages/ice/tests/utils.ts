@@ -22,6 +22,7 @@ import {
   type IceOptions,
   normalizeIceServerOptions,
 } from "../src/iceBase";
+import type { ProvisionalChecklist } from "../src/provisional";
 import type { AttributeKey } from "../src/stun/attributes";
 import {
   classes,
@@ -223,7 +224,7 @@ function delay(ms: number, signal?: AbortSignal): Promise<void> {
 
 /**
  * Arrange: Connection with a nominated pair and scripted consent outcomes.
- * Starts queryConsent() so tests only advance timers.
+ * Starts the consent checks (`consent.start()`) so tests only advance timers.
  */
 export function createConsentHarness(
   outcomes: ConsentOutcome[],
@@ -272,7 +273,7 @@ export function createConsentHarness(
   connection.nominated = nominated;
   connection.state = "connected";
   // Private method is reachable at runtime for consent lifecycle tests.
-  (connection as any).queryConsent();
+  (connection as any).consent.start();
 
   return {
     connection,
@@ -688,15 +689,7 @@ export function remoteHostCandidate(port: number, host = "127.0.0.1") {
 
 /** Test-only observation of the provisional generation of `connection`. */
 export function provisionalGeneration(connection: Connection) {
-  return (
-    connection as unknown as {
-      provisional?: {
-        remoteCandidates: Candidate[];
-        remoteCandidatesEnd: boolean;
-        pairs: CandidatePair[];
-      };
-    }
-  ).provisional;
+  return provisionalChecklistOf(connection).generation;
 }
 
 /**
@@ -718,21 +711,26 @@ export function holdNextCheckResponse(pair: CandidatePair) {
   return { release };
 }
 
+/** Test-only access to the agent's provisional (pranswer ICE restart) checklist. */
+export function provisionalChecklistOf(connection: Connection) {
+  return (
+    connection as unknown as { provisionalChecklist: ProvisionalChecklist }
+  ).provisionalChecklist;
+}
+
 /** Test-only access to start one provisional check of `pair` directly. */
 export function checkProvisionalPair(
   connection: Connection,
   pair: CandidatePair,
 ) {
-  const internal = connection as unknown as {
-    provisional?: { started: boolean };
-    checkProvisional: (
-      generation: unknown,
-      pair: CandidatePair,
-    ) => Promise<void>;
-  };
-  const generation = internal.provisional!;
+  const checklist = provisionalChecklistOf(connection);
+  const generation = checklist.generation!;
   generation.started = true;
-  return internal.checkProvisional(generation, pair);
+  return (
+    checklist as unknown as {
+      check: (generation: unknown, pair: CandidatePair) => Promise<void>;
+    }
+  ).check(generation, pair);
 }
 
 /**
@@ -1889,17 +1887,8 @@ export function createNominationHarness({
       .setAttribute("PRIORITY", 1_000)
       .setAttribute("ICE-CONTROLLING", 1n)
       .setAttribute("USE-CANDIDATE", null);
-    (
-      connection as unknown as {
-        checkIncomingProvisional: (
-          generation: unknown,
-          message: Message,
-          addr: Address,
-          protocol: Protocol,
-        ) => void;
-      }
-    ).checkIncomingProvisional(
-      provisionalGeneration(connection),
+    provisionalChecklistOf(connection).checkIncoming(
+      provisionalGeneration(connection)!,
       request,
       pair.remoteAddr,
       pair.protocol,

@@ -1053,10 +1053,10 @@ describe("iceTransport", () => {
       expect(transport1.state).toBe("connected");
       expect(transport2.state).toBe("connected");
       const oldUfrag = transport1.connection.localUsername;
-      const oldSession = (transport1.connection as any).consentSessionId;
+      const oldSession = (transport1.connection as any).consent.sessionId;
 
       // Act: consent 失効相当
-      (transport1.connection as any).stopConsentLifecycle?.();
+      (transport1.connection as any).consent.stop();
       (transport1.connection as any).setState("failed");
       expect(transport1.state).toBe("failed");
 
@@ -1075,8 +1075,8 @@ describe("iceTransport", () => {
       // Assert: 新 credentials で connected に復帰
       expect(transport1.state).toBe("connected");
       expect(transport2.state).toBe("connected");
-      expect((transport1.connection as any).consentFresh).toBe(true);
-      expect((transport1.connection as any).consentSessionId).toBeGreaterThan(
+      expect((transport1.connection as any).consent.fresh).toBe(true);
+      expect((transport1.connection as any).consent.sessionId).toBeGreaterThan(
         oldSession ?? 0,
       );
 
