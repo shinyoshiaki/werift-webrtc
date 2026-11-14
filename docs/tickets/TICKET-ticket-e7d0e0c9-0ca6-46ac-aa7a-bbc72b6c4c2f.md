@@ -34,7 +34,7 @@ RFC 8843 / RFC 9143（BUNDLE）§9.2「Associating RTP/RTCP Streams with the Cor
 
 ### 3.1 transport 文脈を router に渡す
 - `peerConnection.ts` の `dtlsTransport.onRtp.subscribe` で `this.router.routeRtp(rtp, dtlsTransport)` を呼ぶ。`routeRtcp` と同じ形にする。
-- 既知の SSRC と RID の経路では transport を使わない（既存挙動を維持）。transport は **未知SSRCの学習判定** にだけ使う。
+- SDP 由来の SSRC 経路、sender の経路、RID の経路では transport を使わない（既存挙動を維持）。transport は **未知SSRCの学習判定** と、**パケットから学習した SSRC 経路の引き当て**（3.7 の追加要件）に使う。
 - 単体テストやツールで `routeRtp(packet)` を transport なしで呼ぶ互換経路では、学習 fallback を行わない（従来どおり drop）。
 
 ### 3.2 未知SSRCの学習（`RtpRouter` に private メソッド `learnUnknownSsrc` のようなものを追加）
@@ -103,6 +103,42 @@ RFC 8843 / RFC 9143（BUNDLE）§9.2「Associating RTP/RTCP Streams with the Cor
 - **本チケットが先に develop に入る場合:** 本 PR はヘルパー付きでマージする。#355 の PR が develop を取り込むときに `tests/issue/356.test.ts` のヘルパー呼び出しを外し、元の SDP で学習・配送まで通ることを #355 側で確認する。そのための作業項目を #355 チケット（`a2bc2644`）にも 1 行追加するよう依頼する（本チケットの作業として、#355 チケットの担当へ伝える）。
 - どちらの場合も、ヘルパーを残したまま両方が develop に入る状態にはしない。後から入る PR のレビューで、ヘルパーが残っていないことを確認する。
 
+### 3.7 追加要件: SSRC の一意性は RTP session（transport）単位（レビュー反復で追加）
+
+**背景（レビューを通過できなかった理由）:** 6 回の指摘は、すべて同じ設計問題から出ていた。SSRC が一意なのは RTP session（transport）の中だけなのに、経路表 `ssrcTable` は PeerConnection 全体で SSRC をキーにした 1 つの表になっている。
+
+| 回 | 指摘 | 対応 | 結果 |
+| --- | --- | --- | --- |
+| 2・3 | 別 transport の同一 SSRC を A へ誤配送 | — | — |
+| 4 | — | B 側を破棄 | 正当な B の受信まで消えた |
+| 5 | — | （未コミットのまま古いリビジョンがレビューされた） | 同じ指摘の繰り返し |
+| 6 | RTCP（SR/RR）が A へ誤配送 | RTP 専用の補助表 `collidingRoutes` を追加 | RTCP は未対応のまま |
+
+通過できなかった原因は次の 3 つ。
+1. 指摘された症状だけを直していた（RTP だけ transport を区別し、RTCP は「対象外」と TSDoc に書いて残していた）。
+2. SSRC の引き当て箇所が分散していた（`routeRtp` と `routeRtcp` の約 8 か所が直接 `ssrcTable[...]` を引いていた）。
+3. 修正を未コミットのまま再レビューに出したため、修正前のコードが再レビューされた。
+
+**要件:**
+- [x] SSRC の引き当てを、transport を考慮する 1 つの関数 `endpointBySsrc(ssrc, transport)` にまとめ、RTP と RTCP のすべての経路（`routeRtp`、`routeRtcp` の SR / RR / 汎用 RTPFB（NACK など）/ REMB / PLI / FIR / その他 PSFB、`keyFrameRequestTarget`）をこの関数経由にする。判定順は次のとおり。
+  1. 受信した transport に自分の補助経路（`collidingRoutes`）があれば、それを使う。
+  2. なければ、別 transport でパケットから学習した経路（`learnedSsrcs` の receiver 経路）は使わない。
+  3. それ以外は従来どおり `ssrcTable` で決める。
+- [x] パケットから学習した経路の追加は 1 つの関数（`addLearnedRoute`）にまとめ、fallback 学習（`learnUnknownSsrc`）と RID / simulcast 学習（`learnSsrc`）の両方で使う。別 transport が学習済みの SSRC は、その transport の `collidingRoutes` に登録する（A の経路を奪わず、B も受信できる）。
+- [x] 置き換え済み fallback SSRC（`isRetiredFallbackSsrc`）の判定は、受信した transport の receiver に限る。別 transport で同じ数値の新しいストリームが来たら学習する。
+- [x] 相手の未知 SSRC がローカル sender の SSRC と一致しても `routeRtp` は例外を投げない。sender の経路を保ち、その SSRC は学習しない（RFC 3550 §8.2 の衝突）。
+- [x] `collidingRoutes` は transceiver の登録解除、SSRC の置き換え・破棄で消える。receiver が停止済み、またはその SSRC の track を持たなくなった場合は、引き当て時に外れる。rollback（`restoreRoutes`）の後も、両 transport のパケット由来の経路は整合したまま残る。
+- [x] leak probe に指標 `router.collidingRoutes` を加える。
+- [x] TSDoc（`RtpRouter`）に次の規則を書き、`npm run doc` で再生成する。
+  - パケットから学習した経路は、学習した transport に属する。RTCP にも同じ規則を適用する。
+  - SDP 由来の経路と sender の経路は transport で区別しない（既存挙動。3.1）。
+- **意図的に範囲外とする点:** transport A の SDP で宣言された SSRC 55 と、SSRC のない transport B の SSRC 55 が衝突すると、B のパケットは A に届く（既存挙動、3.1「SDP 由来の経路は transport を使わない」）。SDP 由来の経路に transport の一致を求めると、BUNDLE 移行中に古い transport で届くパケットを失う恐れがあるため、本チケットでは変えず TSDoc に明記する。
+
+**進め方の要件:**
+- 再レビューの前に必ずコミットし、作業ツリーがクリーンで HEAD に修正が入っていることを確認する。
+- レビュー報告には、`pbt:deep` の leak の失敗が `develop` でも再現する ICE 側の既存 flaky（`ice.checkList` / `ice.remoteCandidates` の増加。ICE restart や pranswer の後）であることと、再現手順を書く。再現手順: `packages/webrtc` で `WERIFT_NEGOTIATION_LEAK_SEED=232 SEEDS=7 STEPS=10 CYCLES=6 npx vitest run tests/pbt/leak/negotiationLeakProperty.test.ts --retry=0`（seed は実行ごとに変わる。develop の一時 worktree でも seed 236 が 3 回中 1 回、同じ ICE の増加で失敗した）。
+- RingCentral の元 SDP（`a=rtcp:48037` を含む）が未検証なのは、3.6 の合流ルールによる意図的なもの。報告にもそう書く。
+
 ---
 
 ## 4. 制約・注意点
@@ -143,6 +179,15 @@ RFC 8843 / RFC 9143（BUNDLE）§9.2「Associating RTP/RTCP Streams with the Cor
 - [ ] werift 同士で、送信側 SDP から `a=ssrc*` と MID の extmap を除去した状態で実際にメディアを流し、受信側の `ontrack` track にRTPが届く。可能なら BUNDLE の audio+video で、PT が重なる / 重ならない両方のケースを試す。
 - [ ] 学習後の remote SR が receiver に届く。受信統計（`getStats` の inbound-rtp）にその SSRC が出る。
 
+### transport ごとの SSRC 経路（3.7）
+- [x] SR / RR / NACK / PLI のそれぞれで、同じ SSRC 55 を名指す RTCP が、受信した transport の receiver にだけ届く。
+- [x] 同じ SSRC 55 が transport A と B に流れ、それぞれの receiver にだけ RTP が届き、A の `ssrcTable` 経路が維持される。
+- [x] 先に学習した A を登録解除した後も、B の RTP と SR が B に届く。
+- [x] rollback（`restoreRoutes`）の後も、両 transport の RTP と SR がそれぞれの receiver に届く。
+- [x] A が置き換えた SSRC 55 を、B の transport の新しいストリームとして学習し、RTP と SR が B に届く。
+- [x] 別 transport が fallback で学習済みの SSRC を RID で学習しても、RID 付き・RID なしの RTP と SR が RID の receiver に届き、A の経路は残る。
+- [x] ローカル sender と同じ SSRC の未知 RTP で例外が出ず、sender の経路が残る。
+
 ### negotiation / property
 - [ ] 学習後の rollback / 再 offer / ICE restart で route と track が保たれ、`assertNegotiationInvariants` が通る（`expectSessionContinues` まで）。
 - [ ] 学習後に SDP が SSRC を与えた場合の上書き規則（3.4）。
@@ -176,3 +221,5 @@ develop との比較が必要なら、一時 worktree（`git worktree add --deta
   - マージ時点で develop に #355 の修正が入っていれば、ヘルパーを外し、元の SDP のまま統合テストが通っている。
   - 入っていなければ、#355 チケットに「`tests/issue/356.test.ts` のヘルパー呼び出しを外し、元の SDP で学習・配送を確認する」作業項目が追加されている。
 - [ ] `changelog.md` に #356 の項目を追記している（#355 の項目は書かない）。
+- [ ] 3.7 の追加要件を満たしている。パケットから学習した SSRC 経路は RTP と RTCP の両方で transport ごとに解決され、同じ数値の SSRC が複数 transport にあっても、それぞれの receiver に誤配送も欠落もなく届く。
+- [ ] 再レビューはコミット済みのクリーンな作業ツリーで依頼している。

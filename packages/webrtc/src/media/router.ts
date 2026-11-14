@@ -125,9 +125,12 @@ type StagedRoutes = {
  * An SSRC is unique per RTP session only: a route learned from packets
  * belongs to the transport it was learned on. RTP and RTCP (SR, RR and every
  * feedback naming an SSRC) arriving on another transport never resolve to it;
- * when that transport's receiver learns the same numeric SSRC it keeps its own
- * route. Routes from SDP and sender routes are not scoped by transport. A
- * remote stream using a local sender's SSRC is not learned.
+ * when that transport's receiver learns the same numeric SSRC (fallback or
+ * RID) it keeps its own route, and an SSRC another transport's receiver
+ * replaced is a new stream here. Routes from SDP and sender routes are not
+ * scoped by transport (a packet of another transport naming them reaches
+ * them, as before). A remote stream using a local sender's SSRC is not
+ * learned.
  *
  * A payload type or extension ID counts as in use only when both current
  * descriptions carry it for the m-line. RID lookup uses MID+RID when the
@@ -558,8 +561,33 @@ export class RtpRouter {
    * that route.
    */
   private learnSsrc(ssrc: number, receiver: RTCRtpReceiver) {
-    if (this.ssrcTable[ssrc]) return false;
+    const owner = this.ssrcTable[ssrc];
+    if (
+      owner &&
+      !this.isForeignLearnedRoute(ssrc, owner, receiver.dtlsTransport)
+    ) {
+      return false;
+    }
     log("simulcast register receiver by ssrc", ssrc);
+    return this.addLearnedRoute(ssrc, receiver);
+  }
+
+  /**
+   * Add a route a packet taught `receiver`, in the RTP session of its
+   * transport: an SSRC `ssrcTable` holds as learned for another transport's
+   * receiver goes to `collidingRoutes` (an SSRC is unique per RTP session
+   * only), otherwise to `ssrcTable`. False when the route already exists.
+   */
+  private addLearnedRoute(ssrc: number, receiver: RTCRtpReceiver) {
+    const transport = receiver.dtlsTransport;
+    const owner = this.ssrcTable[ssrc];
+    if (owner && this.isForeignLearnedRoute(ssrc, owner, transport)) {
+      let routes = this.collidingRoutes.get(transport);
+      if (!routes) this.collidingRoutes.set(transport, (routes = new Map()));
+      if (routes.get(ssrc) === receiver) return false;
+      routes.set(ssrc, receiver);
+      return true;
+    }
     this.ssrcTable[ssrc] = receiver;
     this.learnedSsrcs.add(ssrc);
     return true;
@@ -581,7 +609,8 @@ export class RtpRouter {
    * `repaired-rtp-stream-id`) teaches nothing: without `ssrc-group:FID`
    * nothing pairs it with the media SSRC. A replaced fallback SSRC loses its
    * route after the packet (`takeForgottenSsrcs`) and is not learned again
-   * (`isRetiredFallbackSsrc`): a late packet of the old stream is dropped.
+   * (`isRetiredFallbackSsrc`) on that transport: a late packet of the old
+   * stream is dropped, while another transport may use the number anew.
    * An SSRC `ssrcTable` holds for another transport's receiver is routed
    * through `collidingRoutes`, so each transport keeps its own receiver.
    * Receiving is decided by the committed `currentDirection`; a pending
@@ -604,9 +633,14 @@ export class RtpRouter {
     };
     if (!transport) return drop(UnknownSsrcDrop.noTransport);
     if (repaired) return drop(UnknownSsrcDrop.rtx);
-    // A late packet of an SSRC a receiver replaced is not a new stream.
+    // A late packet of an SSRC a receiver of this RTP session replaced is not
+    // a new stream; on another transport the same number is another stream.
     if (
-      this.transceivers().some((t) => t.receiver.isRetiredFallbackSsrc(ssrc))
+      this.transceivers().some(
+        (t) =>
+          t.receiver.dtlsTransport === transport &&
+          t.receiver.isRetiredFallbackSsrc(ssrc),
+      )
     ) {
       return drop(UnknownSsrcDrop.retired);
     }
@@ -683,16 +717,8 @@ export class RtpRouter {
       log("fallback ssrc replaced", { replaced, ssrc });
     }
     log("fallback register receiver by ssrc", ssrc);
-    const owner = this.ssrcTable[ssrc];
-    if (owner && this.isForeignLearnedRoute(ssrc, owner, transport)) {
-      // The SSRC is learned on another transport: this one keeps its own route.
-      let routes = this.collidingRoutes.get(transport);
-      if (!routes) this.collidingRoutes.set(transport, (routes = new Map()));
-      routes.set(ssrc, receiver);
-    } else {
-      this.ssrcTable[ssrc] = receiver;
-      this.learnedSsrcs.add(ssrc);
-    }
+    // An SSRC learned on another transport: this one keeps its own route.
+    this.addLearnedRoute(ssrc, receiver);
     this.lastUnknownSsrcDrop = undefined;
     return receiver;
   }
