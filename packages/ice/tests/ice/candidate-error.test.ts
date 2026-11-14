@@ -3,12 +3,15 @@ import type { Address } from "../../../common/src";
 import {
   classifyGatherError,
   IceCandidateErrorCode,
+  isServerAnswer,
   MissingMappedAddressError,
   pickReportedGatherError,
 } from "../../src/candidateError";
 import {
   AddressFamilyMismatch,
   TransactionCancelled,
+  TransactionFailed,
+  TransactionIntegrityViolation,
   TransactionTimeout,
 } from "../../src/exceptions";
 import { Connection, DEFAULT_STUN_SERVER_URL } from "../../src/ice";
@@ -33,6 +36,7 @@ import {
 } from "../utils";
 import {
   candidateErrorHost,
+  createCodelessErrorServer,
   createErrorStunServer,
   createFakeStunProtocol,
   createFirstPortOnlyStunServer,
@@ -337,6 +341,71 @@ describe("onIceCandidateError: STUN", () => {
       expect(errors).toEqual([]);
     } finally {
       await connection.close();
+    }
+  });
+});
+
+describe("応答はあったが STUN エラーコードのないサーバー (到達済み)", () => {
+  test.each([
+    ["XOR-MAPPED-ADDRESS のない成功応答", createNoMappingStunServer],
+    ["ERROR-CODE のないエラー応答", createCodelessErrorServer],
+  ] as const)(
+    "STUN: %s は 701 にせず通知もしないで、到達として扱う",
+    async (_name, createServer) => {
+      // Arrange: 2 ソケットとも応答を受けるが候補にならない STUN
+      const server = await createServer();
+      const { connection, errors } = createRecordingAgent({
+        ...twoIpv4Sockets,
+        stunServers: [server.address],
+        stunGatherTimeout: 0.5,
+      });
+      const reached = recordServerReached(connection);
+      try {
+        // Act: 候補収集を完了まで待つ
+        await connection.gatherCandidates();
+
+        // Assert: 応答は届いたので 701 も他のエラーも出ず、到達として通知される
+        expect(server.requests.length).toBeGreaterThan(0);
+        expect(errors).toEqual([]);
+        expect(reached.length).toBeGreaterThan(0);
+        expect(reached[0].server.address).toEqual(server.address);
+      } finally {
+        await connection.close();
+        await server.close();
+      }
+    },
+  );
+
+  test("TURN: UDP がエラーコードのない応答を受け、TCP フォールバックが接続できなくても 701 にしない", async () => {
+    // Arrange: Allocate に ERROR-CODE のないエラー応答を返す UDP の TURN (TCP は待ち受けない)
+    const server = await createCodelessErrorServer();
+    const { connection, errors } = createRecordingAgent({
+      turnServers: [
+        {
+          address: server.address,
+          username: TURN_TEST_USERNAME,
+          password: TURN_TEST_PASSWORD,
+          transport: "udp",
+          urls: ["turn:example.test:3478"],
+        },
+      ],
+      forceTurn: true,
+      turnConnectTimeout: 0.5,
+    });
+    const reached = recordServerReached(connection);
+    try {
+      // Act: UDP の失敗 → TCP フォールバックの失敗まで待つ
+      await connection.gatherCandidates();
+
+      // Assert: UDP で応答があったので到達。TCP の未到達は 701 にならない
+      expect(server.requests.length).toBeGreaterThan(0);
+      expect(errors).toEqual([]);
+      expect(reached.map(({ server }) => server.urls)).toEqual([
+        ["turn:example.test:3478"],
+      ]);
+    } finally {
+      await connection.close();
+      await server.close();
     }
   });
 });
@@ -816,6 +885,35 @@ describe("classifyGatherError", () => {
       expect(result).toEqual({ errorCode, errorText });
     },
   );
+
+  test("STUN エラーコードのない応答は通知しない (到達済み)。応答のない失敗は到達ではない", () => {
+    // Arrange: ERROR-CODE のないエラー応答、MESSAGE-INTEGRITY 失敗、XOR-MAPPED-ADDRESS 欠落
+    const address: Address = ["192.0.2.1", 3478];
+    const codeless = new TransactionFailed(
+      new Message(methods.BINDING, classes.ERROR),
+      address,
+    );
+    const integrity = new TransactionIntegrityViolation(address);
+    const noMapping = new MissingMappedAddressError(address);
+
+    // Act / Assert: 応答があったものは通知対象外で、到達として扱う
+    for (const error of [codeless, integrity, noMapping]) {
+      expect(classifyGatherError(error, { kind: "stun" })).toBeUndefined();
+      expect(isServerAnswer(error)).toBe(true);
+    }
+    // Act / Assert: エラーコード付きの応答は到達かつ通知対象
+    const withCode = new TransactionFailed(
+      new Message(methods.BINDING, classes.ERROR).setAttribute("ERROR-CODE", [
+        400,
+        "x",
+      ]),
+      address,
+    );
+    expect(isServerAnswer(withCode)).toBe(true);
+    // Act / Assert: 応答のない失敗は到達ではない
+    expect(isServerAnswer(new TransactionTimeout())).toBe(false);
+    expect(isServerAnswer(errnoError("ENOTFOUND"))).toBe(false);
+  });
 
   test("TransactionCancelled は通知しない", () => {
     // Act / Assert

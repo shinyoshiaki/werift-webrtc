@@ -14,6 +14,7 @@ import {
   type IceCandidateErrorInfo,
   type IceServerReachedInfo,
   type IceServerRef,
+  isServerAnswer,
   pickReportedGatherError,
 } from "./candidateError";
 import { MdnsLookup } from "./dns/lookup";
@@ -1598,6 +1599,10 @@ export class Connection implements IceConnection {
               settledQuery = true;
               const failure = classifyGatherError(error, stunContext);
               if (failure) fail(failure);
+              // An answer without a STUN error code (no ERROR-CODE, failed
+              // MESSAGE-INTEGRITY, no XOR-MAPPED-ADDRESS): reached, and
+              // nothing to report.
+              else if (isServerAnswer(error)) outcome = "reached";
             }
             return undefined;
           },
@@ -1734,9 +1739,24 @@ export class Connection implements IceConnection {
     generation = this.generation,
   ) {
     const { address, username, password, transport } = server;
-    // Failures of the attempts at this server (UDP, then TCP fallback).
+    // Failures of the attempts at this server (UDP, then TCP fallback), and
+    // whether any attempt got an answer from it (reached, even without a
+    // STUN error code to report).
     const failures: ({ errorCode: number; errorText: string } | undefined)[] =
       [];
+    let answered = false;
+    const recordFailure = (
+      error: unknown,
+      attemptTransport: "udp" | "tcp" | "tls",
+    ) => {
+      if (isServerAnswer(error)) answered = true;
+      failures.push(
+        classifyGatherError(error, {
+          kind: "turn",
+          transport: attemptTransport,
+        }),
+      );
+    };
     const ref: IceServerRef = {
       kind: "turn",
       address,
@@ -1756,7 +1776,7 @@ export class Connection implements IceConnection {
       },
     )
       .catch(async (e) => {
-        failures.push(classifyGatherError(e, { kind: "turn", transport }));
+        recordFailure(e, transport);
         // close() cancelled the allocation: no TCP fallback.
         if (transport === "udp" && !this.closing.signal.aborted) {
           return await createStunOverTurnClient(
@@ -1769,12 +1789,7 @@ export class Connection implements IceConnection {
               signal: this.closing.signal,
             },
           ).catch((fallbackError) => {
-            failures.push(
-              classifyGatherError(fallbackError, {
-                kind: "turn",
-                transport: "tcp",
-              }),
-            );
+            recordFailure(fallbackError, "tcp");
             throw fallbackError;
           });
         }
@@ -1782,17 +1797,27 @@ export class Connection implements IceConnection {
       })
       .catch((error) => {
         // A cancelled attempt (close) is not a failure of the server.
-        if (failures[failures.length - 1] !== undefined) {
-          const reported = pickReportedGatherError(failures);
-          this.emitCandidateError(stale, generation, ref, reported);
-          // An error response: the server answered (reached).
-          if (
-            reported &&
-            reported.errorCode !== IceCandidateErrorCode.SERVER_NOT_REACHED
-          ) {
-            this.emitServerReached(stale, generation, ref);
-          }
+        if (
+          error instanceof TransactionCancelled ||
+          this.closing.signal.aborted
+        ) {
+          throw error;
         }
+        const reported = pickReportedGatherError(failures);
+        const reachedServer =
+          answered ||
+          (reported !== undefined &&
+            reported.errorCode !== IceCandidateErrorCode.SERVER_NOT_REACHED);
+        // A server that answered is never reported as 701 (an attempt that
+        // was not answered does not make it unreached).
+        if (
+          reported &&
+          (reported.errorCode !== IceCandidateErrorCode.SERVER_NOT_REACHED ||
+            !reachedServer)
+        ) {
+          this.emitCandidateError(stale, generation, ref, reported);
+        }
+        if (reachedServer) this.emitServerReached(stale, generation, ref);
         throw error;
       });
     if (stale()) {

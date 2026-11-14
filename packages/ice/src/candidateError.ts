@@ -181,15 +181,37 @@ const notReached = (errorText: string) => ({
 });
 
 /**
+ * Whether `error` means a response from the server arrived, whatever its
+ * content: an error response (with or without a valid ERROR-CODE, a
+ * challenge, a redirect that was not followed), a response that failed
+ * MESSAGE-INTEGRITY, or a success response without XOR-MAPPED-ADDRESS. A
+ * server that answered was reached, so it is never reported as 701.
+ */
+export function isServerAnswer(error: unknown) {
+  return (
+    error instanceof TransactionFailed ||
+    error instanceof TransactionIntegrityViolation ||
+    error instanceof MissingMappedAddressError ||
+    error instanceof TurnRedirectError
+  );
+}
+
+/**
  * The `errorCode` / `errorText` an application is told for a failed STUN
- * query or TURN allocation, or undefined when the failure is not reported
- * (a transaction cancelled by close).
+ * query or TURN allocation, or undefined when the failure is not reported:
+ * a transaction cancelled by close, or an answer that carries no STUN error
+ * code (an error response without a valid ERROR-CODE, a response that
+ * failed MESSAGE-INTEGRITY, a success response without
+ * XOR-MAPPED-ADDRESS). Such a server was reached (isServerAnswer), so 701
+ * does not apply (W3C: 701 only when no host candidate reaches the server),
+ * and there is no STUN error code to report.
  *
  * - an error response: its ERROR-CODE and the registered reason phrase of
  *   that code (stunErrorReasonPhrase), not the server's reason phrase (a
  *   300 whose redirect was not followed: 300 and why it was not followed);
  * - no answer (timeout, DNS, address family, TCP / TLS connect, socket
- *   error): 701 and a fixed phrase naming the cause.
+ *   error): 701 and a fixed phrase naming the cause;
+ * - an answer without a STUN error code: not reported (undefined).
  *
  * The text is always fixed by werift, never copied from the server, so it
  * never includes a username, password, realm, nonce or other server text.
@@ -208,10 +230,12 @@ export function classifyGatherError(
     if (typeof code === "number" && code >= 300 && code <= 699) {
       return { errorCode: code, errorText: stunErrorReasonPhrase(code) };
     }
-    return notReached("STUN error response without a valid ERROR-CODE");
+    // Answered without a valid ERROR-CODE: reached, nothing to report.
+    return undefined;
   }
   if (error instanceof TransactionIntegrityViolation) {
-    return notReached("STUN response failed MESSAGE-INTEGRITY check");
+    // A response arrived (it failed MESSAGE-INTEGRITY): reached.
+    return undefined;
   }
   if (error instanceof TransactionTimeout) {
     return notReached(
@@ -224,7 +248,8 @@ export function classifyGatherError(
     return notReached("No address of the socket family");
   }
   if (error instanceof MissingMappedAddressError) {
-    return notReached("STUN response without XOR-MAPPED-ADDRESS");
+    // A success response without XOR-MAPPED-ADDRESS: reached.
+    return undefined;
   }
 
   const errno = errnoOf(error);

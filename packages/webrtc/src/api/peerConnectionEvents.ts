@@ -74,6 +74,10 @@ export interface RTCPeerConnectionIceErrorEventInit {
  *   with the synthesized URL `stun:stun.l.google.com:19302`.
  * - `errorCode`: the STUN error code the server answered with (300-699),
  *   or 701 when it was not reached (DNS, timeout, connect or socket error).
+ *   A server that answered without a STUN error code (an error response
+ *   without ERROR-CODE, a response failing MESSAGE-INTEGRITY, a success
+ *   without XOR-MAPPED-ADDRESS) was reached: it gives no event, and never
+ *   a 701.
  * - `errorText`: fixed text werift chooses, never the server's reason
  *   phrase: the registered reason phrase of the error code (`"Unauthorized"`
  *   for 401, `"STUN error 499"` for an unregistered one) or a description of

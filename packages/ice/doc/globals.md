@@ -97,6 +97,7 @@
 - [isComprehensionRequiredAttribute](functions/isComprehensionRequiredAttribute.md)
 - [isLinkLocalAddress](functions/isLinkLocalAddress.md)
 - [isRelayOnlyGathering](functions/isRelayOnlyGathering.md)
+- [isServerAnswer](functions/isServerAnswer.md)
 - [isStunMessage](functions/isStunMessage.md)
 - [isValidIntegritySha256Length](functions/isValidIntegritySha256Length.md)
 - [makeIntegrityKey](functions/makeIntegrityKey.md)

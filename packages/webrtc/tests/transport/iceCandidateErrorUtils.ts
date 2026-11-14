@@ -1,6 +1,7 @@
 import type { Connection } from "../../../ice/src/ice";
 import { getHostAddresses } from "../../../ice/src/utils";
 import {
+  createCodelessErrorServer,
   createErrorStunServer,
   createFirstPortOnlyStunServer,
   createRejectingUdpTurnServer,
@@ -23,6 +24,7 @@ import type { RTCIceTransport } from "../../src/transport/ice";
 export const errorTestHost = getHostAddresses(true, false)[0]!;
 
 export {
+  createCodelessErrorServer,
   createErrorStunServer,
   createFirstPortOnlyStunServer,
   createRejectingUdpTurnServer,

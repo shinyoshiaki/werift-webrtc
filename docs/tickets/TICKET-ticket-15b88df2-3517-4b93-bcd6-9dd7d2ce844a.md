@@ -98,12 +98,13 @@ function classifyGatherError(error: unknown): { errorCode: number; errorText: st
 | `TransactionTimeout`、`stunGatherTimeout` の満了 | 701 | `"STUN binding request timed out"` / `"TURN allocate request timed out"` |
 | DNS（`ENOTFOUND`、`EAI_AGAIN` など）、`AddressFamilyMismatch` | 701 | `"Address resolution failed"` / `"No address of the socket family"` |
 | TCP / TLS 接続失敗（`ECONNREFUSED`、connect timeout、証明書検証） | 701 | `"TCP connect failed"` / `"TLS handshake failed"` |
+| 応答はあったが STUN エラーコードがない: `TransactionFailed`（有効な ERROR-CODE なし）、`TransactionIntegrityViolation`、`MissingMappedAddressError` | 通知しない（到達として扱う。8.決定 10） | – |
 | socket error（`EHOSTUNREACH`、`ENETUNREACH`） | 701 | `"Host unreachable"` などの errno 名 |
 
 ### 3.2 STUN（srflx）の失敗を捕捉する
 
 - **決定: `serverReflexiveCandidate` の挙動は変えない（非破壊）。失敗時に throw する関数を別に追加する。**
-  - 新しい関数 `queryServerReflexiveCandidate(protocol, stunServer): Promise<Candidate>` を `iceBase.ts` に追加して export する。この関数は失敗を握りつぶさずに reject する。reject するのは、`protocol.request()` の `TransactionTimeout` / `TransactionFailed` / DNS エラー / `AddressFamilyMismatch` / `TransactionCancelled` と、成功応答に `XOR-MAPPED-ADDRESS` がない場合（新しい `Error` サブクラスを用意し、701 に分類する）。`protocol.localCandidate` がない場合は、request を送る前に throw する。
+  - 新しい関数 `queryServerReflexiveCandidate(protocol, stunServer): Promise<Candidate>` を `iceBase.ts` に追加して export する。この関数は失敗を握りつぶさずに reject する。reject するのは、`protocol.request()` の `TransactionTimeout` / `TransactionFailed` / DNS エラー / `AddressFamilyMismatch` / `TransactionCancelled` と、成功応答に `XOR-MAPPED-ADDRESS` がない場合（新しい `Error` サブクラス `MissingMappedAddressError` を用意する。**訂正（8.決定 10）**: 当初は 701 に分類するとしていたが、応答が届いたサーバーは到達済みなので 701 にせず、通知もしない）。`protocol.localCandidate` がない場合は、request を送る前に throw する。
   - 既存の `serverReflexiveCandidate` は、`queryServerReflexiveCandidate(...).catch((error) => { log(...); return undefined; })` の薄いラッパーにする。シグネチャ（`Promise<Candidate | undefined>`）と「失敗しても reject しない」という契約は従来どおり。TSDoc に「失敗の理由が必要なら `queryServerReflexiveCandidate` を使う」と書く（`@deprecated` は付けない）。
   - 理由: (1) `werift-ice` と `werift`（`doc/functions/serverReflexiveCandidate.md`）の公開 API で、戻り値の型にもともと `undefined` が含まれている。呼び出し側は undefined を処理する前提なので、throw に変えると、未処理の rejection やクラッシュとして黙って壊れる。(2) v0.27.0 で破壊的変更をまとめて出した直後であり、Issue の修正で互換性を壊す理由がない。(3) `{ candidate } | { error }` という独自の Result 型は、リポジトリの既存のスタイル（例外クラスで分類する。`exceptions.ts`）と合わない。throw する版を 1 つ追加するのが最小の変更になる。
   - changelog は **🚀 Features** に「`queryServerReflexiveCandidate` の追加」を載せる。Breaking changes には載せない。
@@ -188,6 +189,7 @@ AGENTS.md に従い Arrange / Act / Assert 形式で書き、Act と Assert に�
   - [ ] 応答しない STUN 宛先（ローカルの閉じた UDP ポートか、無応答のソケット）。`stunGatherTimeout` を短くし、満了で 701 が 1 回だけ出る。
   - [ ] STUN Binding のエラー応答（例: 400）で、そのコードが出る。
   - [ ] TURN で 2 回目の 401（誤った credential）: 401、`errorText` に username / password を含まない。
+  - [ ] 【追加要件】応答はあったが STUN エラーコードのないサーバー（`XOR-MAPPED-ADDRESS` のない成功応答、ERROR-CODE のないエラー応答、MESSAGE-INTEGRITY の検証失敗）は 701 にならず、通知もされず、`onIceServerReached` で到達として扱われる。TURN で UDP がそうした応答を受け、TCP フォールバックが接続できない場合も 701 にしない（`classifyGatherError` / `isServerAnswer` の単体テストを含む）。
   - [ ] 【追加要件】STUN / TURN の reason phrase に username・password・realm・nonce を含めても、`errorText` は登録済みの固定文言（未登録のコードは `"STUN error <code>"`）で、それらを含まない。
   - [ ] TURN の UDP 失敗と TCP 失敗: イベントは 1 回で、STUN のエラーコードが 701 より優先される。
   - [ ] 正常な 401 → 再送 → 成功、または 438 → 再送 → 成功のとき、イベントは 0 件で relay candidate が出る（既存の `turn-long-term-credential.test.ts` などのスタブを流用する）。
@@ -248,6 +250,8 @@ AGENTS.md に従い Arrange / Act / Assert 形式で書き、Act と Assert に�
 7. **既定の STUN サーバー**: 合成した URL `stun:stun.l.google.com:19302` で通知する（3.5-2）。WPT runner は、ブラウザーに既定の STUN がないことに合わせて `iceUseDefaultStunServer: false` で接続を作る（オフライン環境で既定 STUN の失敗が先に届き、subtest 1 が落ちるのを防ぐ）。
 8. **WPT の completion timeout**: 20s（2.4）。
 9. **【追加要件】`errorText` は固定文言だけにする**: サーバーのエラー応答（300〜699）の `errorText` は、サーバーの reason phrase ではなく、そのコードに対応する登録済みの reason phrase（IANA「STUN Error Codes」。例: 401 は `"Unauthorized"`、438 は `"Stale Nonce"`）にする。未登録のコードは `"STUN error <code>"`。サーバーは reason phrase に設定済みの username・credential・realm・nonce を入れうるので、マスクではなく使わないことで漏れを防ぐ。701 は従来どおり原因を表す固定文言。サーバーの文字列は `debug` ログにだけ残りうる（4 章）。
+
+10. **【追加要件】応答はあったが STUN エラーコードのない場合**: 有効な ERROR-CODE のないエラー応答、MESSAGE-INTEGRITY の検証に失敗した応答、`XOR-MAPPED-ADDRESS` のない成功応答は、サーバーから応答が届いているので「到達」とする（`isServerAnswer`、`onIceServerReached`）。W3C の 701 は「どのホスト候補からもサーバーに到達できない」ときのコードで、errorCode はサーバーが返した STUN エラーコードなので、どちらにも当てはまらないこれらは `icecandidateerror` を出さない（`classifyGatherError` は `undefined` を返す。`debug` ログにだけ残る）。3.2 の「`XOR-MAPPED-ADDRESS` 欠落は 701」は、決定 3 と矛盾していたため訂正した。TURN で試行ごとに結果が違う場合（UDP は応答あり、TCP は接続失敗など）も、どれかの試行で応答があれば 701 にしない。
 
 ### 範囲外（別チケット）
 

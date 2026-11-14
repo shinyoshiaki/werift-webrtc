@@ -11,6 +11,7 @@ import {
 } from "../../src/transport/ice";
 import { negotiate } from "../utils";
 import {
+  createCodelessErrorServer,
   createErrorRecordingPeer,
   createErrorStunServer,
   createFirstPortOnlyStunServer,
@@ -85,6 +86,27 @@ describe("icecandidateerror", () => {
     } finally {
       await pc.close();
       await stun.close();
+    }
+  });
+
+  test("応答はあったが STUN エラーコードのない STUN サーバーは 701 として通知されない", async () => {
+    // Arrange: ERROR-CODE のないエラー応答を返す STUN
+    const server = await createCodelessErrorServer();
+    const { pc, listened, handled } = createErrorRecordingPeer({
+      iceServers: [{ urls: `stun:${errorTestHost}:${server.address[1]}` }],
+      iceStunGatherTimeout: 0.5,
+    });
+    try {
+      // Act: offer を適用して gathering を完了させる
+      await gatherWithOffer(pc);
+
+      // Assert: サーバーは応答したので未到達ではなく、イベントは出ない
+      expect(server.requests.length).toBeGreaterThan(0);
+      expect(listened).toEqual([]);
+      expect(handled).toEqual([]);
+    } finally {
+      await pc.close();
+      await server.close();
     }
   });
 

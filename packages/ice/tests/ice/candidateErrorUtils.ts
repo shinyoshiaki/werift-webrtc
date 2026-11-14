@@ -186,3 +186,16 @@ export function createFirstPortOnlyStunServer(answered = 0) {
     ).setAttribute("XOR-MAPPED-ADDRESS", remote).bytes;
   });
 }
+
+/**
+ * A UDP server answering every request with an error response that has no
+ * ERROR-CODE attribute (a STUN server, or a TURN server for Allocate): the
+ * server answers, but with no STUN error code.
+ */
+export function createCodelessErrorServer() {
+  return createScriptedUdpServer(
+    (request) =>
+      new Message(request.messageMethod, classes.ERROR, request.transactionId)
+        .bytes,
+  );
+}

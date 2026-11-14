@@ -589,6 +589,7 @@
 - [isRoundTripTimeConsumer](functions/isRoundTripTimeConsumer.md)
 - [isRtcp](functions/isRtcp.md)
 - [isRttAboveLimit](functions/isRttAboveLimit.md)
+- [isServerAnswer](functions/isServerAnswer.md)
 - [isStunMessage](functions/isStunMessage.md)
 - [isValidIntegritySha256Length](functions/isValidIntegritySha256Length.md)
 - [keyLength](functions/keyLength.md)
