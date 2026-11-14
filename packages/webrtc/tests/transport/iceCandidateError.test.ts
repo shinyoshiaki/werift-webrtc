@@ -65,6 +65,29 @@ describe("icecandidateerror", () => {
     }
   });
 
+  test("サーバーの理由句に資格情報らしき文字列があっても errorText は固定文言になる", async () => {
+    // Arrange: 理由句に username / realm / nonce を含めた 400 を返す STUN
+    const stun = await createErrorStunServer(
+      400,
+      "Bad Request user=alice realm=example.org nonce=abc123",
+    );
+    const { pc, listened } = createErrorRecordingPeer({
+      iceServers: [{ urls: `stun:${errorTestHost}:${stun.address[1]}` }],
+    });
+    try {
+      // Act: offer を適用して gathering を完了させる
+      await gatherWithOffer(pc);
+
+      // Assert: errorText は登録済みの固定文言で、サーバーの文字列を含まない
+      expect(listened.map(({ errorText }) => errorText)).toEqual([
+        "Bad Request",
+      ]);
+    } finally {
+      await pc.close();
+      await stun.close();
+    }
+  });
+
   test("標準 Event として振る舞う (継承・bubbles/cancelable・target 以外の既定値)", () => {
     // Arrange: init を渡して直接生成する
     // Act: イベントを生成する

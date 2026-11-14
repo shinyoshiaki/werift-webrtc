@@ -648,6 +648,7 @@
 - [splitH265NalUnits](functions/splitH265NalUnits.md)
 - [splitTcpFrames](functions/splitTcpFrames.md)
 - [stampHopByHopExtensions](functions/stampHopByHopExtensions.md)
+- [stunErrorReasonPhrase](functions/stunErrorReasonPhrase.md)
 - [timestampSeconds](functions/timestampSeconds.md)
 - [uint16Add](functions/uint16Add.md)
 - [uint16Gt](functions/uint16Gt.md)

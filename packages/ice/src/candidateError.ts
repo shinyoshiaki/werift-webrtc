@@ -48,7 +48,11 @@ export type IceCandidateErrorInfo = {
    * came.
    */
   errorCode: number;
-  /** Reason phrase; never contains credentials. */
+  /**
+   * Fixed text: the registered reason phrase of the error code
+   * (stunErrorReasonPhrase) or a description of the 701 cause; never the
+   * server's reason phrase, so never a credential or other server text.
+   */
   errorText: string;
   /** Gathering generation the failure belongs to. */
   generation: number;
@@ -134,6 +138,43 @@ const errnoOf = (error: unknown): string | undefined => {
   return typeof code === "string" ? code : undefined;
 };
 
+/**
+ * The reason phrases of the STUN / TURN error codes (IANA "STUN Error
+ * Codes" registry: RFC 8489, 8656, 6062, 8445, 5780). `errorText` of an
+ * error response is taken from here, never from the server's reason
+ * phrase, which a server may fill with a username, realm, nonce or other
+ * credential material.
+ */
+const STUN_ERROR_REASON_PHRASES: Readonly<Record<number, string>> = {
+  300: "Try Alternate",
+  400: "Bad Request",
+  401: "Unauthorized",
+  403: "Forbidden",
+  405: "Mobility Forbidden",
+  420: "Unknown Attribute",
+  437: "Allocation Mismatch",
+  438: "Stale Nonce",
+  440: "Address Family not Supported",
+  441: "Wrong Credentials",
+  442: "Unsupported Transport Protocol",
+  443: "Peer Address Family Mismatch",
+  446: "Connection Already Exists",
+  447: "Connection Timeout or Failure",
+  486: "Allocation Quota Reached",
+  487: "Role Conflict",
+  500: "Server Error",
+  508: "Insufficient Capacity",
+};
+
+/**
+ * The `errorText` of a STUN / TURN error response with `code`: the
+ * registered reason phrase, or a generic one naming the code. Fixed text
+ * only, so no server-supplied string reaches the application.
+ */
+export function stunErrorReasonPhrase(code: number) {
+  return STUN_ERROR_REASON_PHRASES[code] ?? `STUN error ${code}`;
+}
+
 const notReached = (errorText: string) => ({
   errorCode: IceCandidateErrorCode.SERVER_NOT_REACHED,
   errorText,
@@ -144,12 +185,14 @@ const notReached = (errorText: string) => ({
  * query or TURN allocation, or undefined when the failure is not reported
  * (a transaction cancelled by close).
  *
- * - an error response: its ERROR-CODE and reason phrase (a 300 whose
- *   redirect was not followed: 300 and the reason);
+ * - an error response: its ERROR-CODE and the registered reason phrase of
+ *   that code (stunErrorReasonPhrase), not the server's reason phrase (a
+ *   300 whose redirect was not followed: 300 and why it was not followed);
  * - no answer (timeout, DNS, address family, TCP / TLS connect, socket
  *   error): 701 and a fixed phrase naming the cause.
  *
- * The text never includes a username, password, realm or nonce.
+ * The text is always fixed by werift, never copied from the server, so it
+ * never includes a username, password, realm, nonce or other server text.
  */
 export function classifyGatherError(
   error: unknown,
@@ -161,12 +204,9 @@ export function classifyGatherError(
     return { errorCode: 300, errorText: `Try Alternate (${error.reason})` };
   }
   if (error instanceof TransactionFailed) {
-    const [code, reason] = error.response.getAttributeValue("ERROR-CODE") ?? [];
+    const [code] = error.response.getAttributeValue("ERROR-CODE") ?? [];
     if (typeof code === "number" && code >= 300 && code <= 699) {
-      return {
-        errorCode: code,
-        errorText: typeof reason === "string" && reason ? reason : String(code),
-      };
+      return { errorCode: code, errorText: stunErrorReasonPhrase(code) };
     }
     return notReached("STUN error response without a valid ERROR-CODE");
   }

@@ -120,9 +120,9 @@ export function createNoMappingStunServer() {
  * realm / nonce (a credential it never accepts). Nothing listens on TCP at
  * its port, so the TCP fallback is refused.
  */
-export function createRejectingUdpTurnServer() {
+export function createRejectingUdpTurnServer(reason = "Unauthorized") {
   return createScriptedUdpServer((request) =>
-    errorResponse(request, 401, "Unauthorized", [
+    errorResponse(request, 401, reason, [
       ["REALM", "werift.test"],
       ["NONCE", Buffer.from("nonce-1")],
     ]),

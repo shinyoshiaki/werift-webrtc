@@ -74,8 +74,11 @@ export interface RTCPeerConnectionIceErrorEventInit {
  *   with the synthesized URL `stun:stun.l.google.com:19302`.
  * - `errorCode`: the STUN error code the server answered with (300-699),
  *   or 701 when it was not reached (DNS, timeout, connect or socket error).
- * - `errorText`: the server's reason phrase or a fixed description; it never
- *   contains a credential.
+ * - `errorText`: fixed text werift chooses, never the server's reason
+ *   phrase: the registered reason phrase of the error code (`"Unauthorized"`
+ *   for 401, `"STUN error 499"` for an unregistered one) or a description of
+ *   the 701 cause. So it never contains a username, password, realm, nonce
+ *   or other text a server sent.
  * - `address` / `port`: the local host address used to contact a STUN
  *   server; `null` / `0` when unknown (TURN) or hidden (the `"relay"` ICE
  *   transport policy), as Chrome and the WPT tests (`port == 0` when

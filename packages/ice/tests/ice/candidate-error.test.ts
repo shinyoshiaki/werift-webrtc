@@ -121,6 +121,35 @@ describe("onIceCandidateError: STUN", () => {
     }
   });
 
+  test("STUN の理由句に資格情報らしき文字列があっても errorText は登録済みの固定文言になる", async () => {
+    // Arrange: 理由句に username / password / realm / nonce を含める STUN と、未登録のコードを返す STUN
+    const leaky = "user=alice password=s3cret realm=example.org nonce=abc123";
+    const known = await createErrorStunServer(400, `Bad Request ${leaky}`);
+    const unknown = await createErrorStunServer(499, `Odd ${leaky}`);
+    const { connection, errors } = createRecordingAgent({
+      stunServers: [known.address, unknown.address],
+    });
+    try {
+      // Act: 候補収集を完了まで待つ
+      await connection.gatherCandidates();
+
+      // Assert: 登録済みのコードはその固定文言、未登録はコード付きの汎用文言。サーバーの文字列は含まない
+      expect(
+        errors.map(({ errorCode, errorText }) => [errorCode, errorText]).sort(),
+      ).toEqual([
+        [400, "Bad Request"],
+        [499, "STUN error 499"],
+      ]);
+      for (const secret of ["alice", "s3cret", "example.org", "abc123"]) {
+        expect(JSON.stringify(errors)).not.toContain(secret);
+      }
+    } finally {
+      await connection.close();
+      await known.close();
+      await unknown.close();
+    }
+  });
+
   test("STUN Binding のエラー応答はそのエラーコードと reason phrase で通知される", async () => {
     // Arrange
     const server = await createErrorStunServer(400, "Bad Request");
@@ -313,6 +342,47 @@ describe("onIceCandidateError: STUN", () => {
 });
 
 describe("onIceCandidateError: TURN", () => {
+  test("TURN の理由句に設定済みの username / password と realm / nonce があっても errorText に含まれない", async () => {
+    // Arrange: 理由句に設定済みの資格情報とチャレンジの realm / nonce を入れて 401 を返し続ける TURN
+    const password = "turn-secret-password";
+    const rejecting = await createRejectingUdpTurnServer(
+      `Unauthorized ${TURN_TEST_USERNAME}:${password} realm=werift.test nonce=nonce-1`,
+    );
+    const { connection, errors } = createRecordingAgent({
+      turnServers: [
+        {
+          address: rejecting.address,
+          username: TURN_TEST_USERNAME,
+          password,
+          transport: "udp",
+        },
+      ],
+      forceTurn: true,
+      turnConnectTimeout: 0.5,
+    });
+    try {
+      // Act: UDP の失敗 → TCP フォールバックの失敗まで待つ
+      await connection.gatherCandidates();
+
+      // Assert: 401 は登録済みの固定文言で、資格情報・realm・nonce を含まない
+      expect(
+        errors.map(({ errorCode, errorText }) => [errorCode, errorText]),
+      ).toEqual([[401, "Unauthorized"]]);
+      const serialized = JSON.stringify(errors);
+      for (const secret of [
+        TURN_TEST_USERNAME,
+        password,
+        "werift.test",
+        "nonce-1",
+      ]) {
+        expect(serialized).not.toContain(secret);
+      }
+    } finally {
+      await connection.close();
+      await rejecting.close();
+    }
+  });
+
   test("誤った credential (2 回目の 401) は 401 で 1 回通知され、errorText に credential を含まない", async () => {
     // Arrange: 正しい credential とは別の password を使う
     const server = await createLocalTurnServer(candidateErrorHost);

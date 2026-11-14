@@ -38,7 +38,9 @@ came.
 
 > **errorText**: `string`
 
-Reason phrase; never contains credentials.
+Fixed text: the registered reason phrase of the error code
+(stunErrorReasonPhrase) or a description of the 701 cause; never the
+server's reason phrase, so never a credential or other server text.
 
 ***
 

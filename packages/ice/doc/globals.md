@@ -112,6 +112,7 @@
 - [serverReflexiveCandidate](functions/serverReflexiveCandidate.md)
 - [sortCandidatePairs](functions/sortCandidatePairs.md)
 - [splitTcpFrames](functions/splitTcpFrames.md)
+- [stunErrorReasonPhrase](functions/stunErrorReasonPhrase.md)
 - [url2Address](functions/url2Address.md)
 - [validateAddress](functions/validateAddress.md)
 - [validateRemoteCandidate](functions/validateRemoteCandidate.md)

@@ -92,8 +92,8 @@ function classifyGatherError(error: unknown): { errorCode: number; errorText: st
 | 例外 | errorCode | errorText（例） |
 | --- | --- | --- |
 | `TransactionCancelled`、`closing.signal.aborted` | 通知しない | – |
-| `TransactionChallenge`（2 回目の 401/438） | 401 / 438 | `"Unauthorized"` などのサーバーの reason phrase |
-| `TransactionFailed`（ERROR-CODE あり。403、437、441、486、508、および STUN Binding の 4xx/5xx） | ERROR-CODE の値 | reason phrase |
+| `TransactionChallenge`（2 回目の 401/438） | 401 / 438 | `"Unauthorized"` / `"Stale Nonce"`（コードに対応する登録済みの固定文言。8.決定 9） |
+| `TransactionFailed`（ERROR-CODE あり。403、437、441、486、508、および STUN Binding の 4xx/5xx） | ERROR-CODE の値 | コードに対応する登録済みの固定文言（未登録のコードは `"STUN error <code>"`。サーバーの reason phrase は使わない。8.決定 9） |
 | `TurnRedirectError` | 300（cause の ERROR-CODE） | `reason`（`loop` など） |
 | `TransactionTimeout`、`stunGatherTimeout` の満了 | 701 | `"STUN binding request timed out"` / `"TURN allocate request timed out"` |
 | DNS（`ENOTFOUND`、`EAI_AGAIN` など）、`AddressFamilyMismatch` | 701 | `"Address resolution failed"` / `"No address of the socket family"` |
@@ -144,7 +144,7 @@ function classifyGatherError(error: unknown): { errorCode: number; errorText: st
    - ICE restart で前の世代になった gathering の失敗は捨てる（ICE 層の `stale()`。webrtc 層では `generation` を照合する）。
    - pending-only transport（rollback で破棄される transport）の失敗の扱いは、`onIceCandidate` の抑制（`peerConnection.ts:879-883`）と揃える。
 6. **アドレスの露出**: `address` と `port` は、host candidate のアドレスが分かっていて `iceTransportPolicy !== "relay"` のときだけ設定する。それ以外は `address: null, port: 0`。
-7. **errorText**: 生成する文字列にユーザー名、パスワード、realm、nonce、MESSAGE-INTEGRITY を含めない。`TurnRedirectError.message` のようにサーバーのアドレスを含むものは許容するが、URL の credential 部（`turn:user@host` 形式）は出さない。
+7. **errorText**: 生成する文字列にユーザー名、パスワード、realm、nonce、MESSAGE-INTEGRITY を含めない。サーバーの reason phrase は資格情報などを含みうるので使わず、werift が決めた固定文言だけにする（8.決定 9）。`TurnRedirectError.message` のようにサーバーのアドレスを含むものは許容するが、URL の credential 部（`turn:user@host` 形式）は出さない。
 
 ### 3.6 ドキュメント
 
@@ -188,6 +188,7 @@ AGENTS.md に従い Arrange / Act / Assert 形式で書き、Act と Assert に�
   - [ ] 応答しない STUN 宛先（ローカルの閉じた UDP ポートか、無応答のソケット）。`stunGatherTimeout` を短くし、満了で 701 が 1 回だけ出る。
   - [ ] STUN Binding のエラー応答（例: 400）で、そのコードが出る。
   - [ ] TURN で 2 回目の 401（誤った credential）: 401、`errorText` に username / password を含まない。
+  - [ ] 【追加要件】STUN / TURN の reason phrase に username・password・realm・nonce を含めても、`errorText` は登録済みの固定文言（未登録のコードは `"STUN error <code>"`）で、それらを含まない。
   - [ ] TURN の UDP 失敗と TCP 失敗: イベントは 1 回で、STUN のエラーコードが 701 より優先される。
   - [ ] 正常な 401 → 再送 → 成功、または 438 → 再送 → 成功のとき、イベントは 0 件で relay candidate が出る（既存の `turn-long-term-credential.test.ts` などのスタブを流用する）。
   - [ ] 正常な STUN/TURN と失敗するサーバーが混在しても、正常な srflx / relay candidate が出て、`gatherCandidates()` が完了する。
@@ -246,6 +247,7 @@ AGENTS.md に従い Arrange / Act / Assert 形式で書き、Act と Assert に�
 6. **`address` が不明なときの `port`**: `0`（2.4、3.5-6。Chrome と WPT に合わせる）。W3C 仕様の「`address` が `null` なら `port` も `null`」とは異なるが、チケットの決定を優先する。WPT runner による値の書き換えはしない。`RTCPeerConnectionIceErrorEvent` を直接生成して `port` を省いた場合は IDL の既定値 `null`。
 7. **既定の STUN サーバー**: 合成した URL `stun:stun.l.google.com:19302` で通知する（3.5-2）。WPT runner は、ブラウザーに既定の STUN がないことに合わせて `iceUseDefaultStunServer: false` で接続を作る（オフライン環境で既定 STUN の失敗が先に届き、subtest 1 が落ちるのを防ぐ）。
 8. **WPT の completion timeout**: 20s（2.4）。
+9. **【追加要件】`errorText` は固定文言だけにする**: サーバーのエラー応答（300〜699）の `errorText` は、サーバーの reason phrase ではなく、そのコードに対応する登録済みの reason phrase（IANA「STUN Error Codes」。例: 401 は `"Unauthorized"`、438 は `"Stale Nonce"`）にする。未登録のコードは `"STUN error <code>"`。サーバーは reason phrase に設定済みの username・credential・realm・nonce を入れうるので、マスクではなく使わないことで漏れを防ぐ。701 は従来どおり原因を表す固定文言。サーバーの文字列は `debug` ログにだけ残りうる（4 章）。
 
 ### 範囲外（別チケット）
 
