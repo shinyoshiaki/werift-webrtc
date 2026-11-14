@@ -493,10 +493,13 @@ RFC 8829 4.2.4. setDirectionに渡された最後の値を示します
 
 > **get** **heldByApplication**(): `boolean`
 
-Internal: the application sends on this transceiver (its sender has a
-track), so a rollback keeps it even if a remote offer created it. As in
-develop, only a track counts: stop(), a direction or codec preferences
-set on a remote-created transceiver do not keep it.
+Internal: the application uses this transceiver, so a rollback keeps it
+even if a remote offer created it. It is held once `addTrack()` attached a
+track to it (W3C rollback: only a transceiver addTrack never touched is
+removed), also after `replaceTrack(null)` / `removeTrack()` detached that
+track, or while its sender has a track (werift keeps one given a track by
+`replaceTrack()` alone). stop(), a direction or codec preferences set on a
+remote-created transceiver do not keep it.
 
 ##### Returns
 

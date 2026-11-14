@@ -24,8 +24,9 @@ m-line stop, rejection and reuse inside a negotiation:
   answer.
 - A transceiver created for a remote offer is not an application operation
   (no `negotiationneeded`). Rollback removes it unless the application
-  attached a track (`heldByApplication`); a kept one returns to its created
-  state. An application `stop()` during the transaction survives rollback.
+  uses it (`heldByApplication`: `addTrack()` attached a track to it, even
+  one `replaceTrack(null)` / `removeTrack()` detached since, or its sender
+  has a track); a kept one returns to its created state. An application `stop()` during the transaction survives rollback.
 - A transceiver the application added while a description was pending is
   never committed by it: rollback takes back its MID, m-line and the
   direction a pranswer gave it.
@@ -85,7 +86,11 @@ m-line stop, rejection and reuse inside a negotiation:
 
 ### addTrack()
 
-> **addTrack**(`track`, `streams?`): [`RTCRtpTransceiver`](RTCRtpTransceiver.md)
+> **addTrack**(`track`, `streams?`, `createTransport?`): [`RTCRtpTransceiver`](RTCRtpTransceiver.md)
+
+Attach `track` to a reusable transceiver, or add one for it. A new one
+gets its DTLS transport from `createTransport` when it is created, so its
+created state (what a rollback returns it to) has the transport.
 
 #### Parameters
 
@@ -96,6 +101,10 @@ m-line stop, rejection and reuse inside a negotiation:
 ##### streams?
 
 [`MediaStream`](MediaStream.md)[] = `[]`
+
+##### createTransport?
+
+() => [`RTCDtlsTransport`](RTCDtlsTransport.md)
 
 #### Returns
 
