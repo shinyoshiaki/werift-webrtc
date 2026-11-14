@@ -47,6 +47,7 @@ import {
   createCollidingSsrcLessRouter,
   createPayloadTypeSharingRouter,
   createSsrcLessRouter,
+  inboundRtpSsrcs,
   opus,
   pcmu,
   rtcpNamingSsrc,
@@ -2617,8 +2618,9 @@ describe("media/router: a=ssrc のない m-line の SSRC 学習 (#356)", () => {
         { deferConflicts: true },
       );
 
-      // Assert: pending 中は通知済み track が PCMU になる
-      expect(announced.codec?.mimeType).toBe("audio/PCMU");
+      // Assert: pending 中の通知済み track は baseline の SSRC と codec のまま (commit で採用する)
+      expect(announced.ssrc).toBe(learnedSsrc);
+      expect(announced.codec?.mimeType).toBe(baselineMimeType);
 
       // Act: rollback する
       router.restoreRoutes(routes, {
@@ -2663,6 +2665,105 @@ describe("media/router: a=ssrc のない m-line の SSRC 学習 (#356)", () => {
     expect(announced.ssrc).toBe(300);
     expect(announced.codec?.mimeType).toBe("audio/opus");
   });
+
+  test.each(["commit", "rollback"] as const)(
+    "pending の SDP が SSRC と codec を与えても、%s まで track・統計・SSRC 切替は現在の session のまま",
+    async (finish) => {
+      // Arrange: opus の SSRC 300 を学習済みで、確定済みの受信中 session
+      const { router, dtls, addReceiver } = createSsrcLessRouter();
+      const audio = addReceiver({ codecs: [opus(), pcmu()] });
+      audio.setCurrentDirection("recvonly");
+      const announced = audio.receiver.track;
+      const payloads = collectTrackPayloads(audio);
+      router.routeRtp(
+        ssrcLessPacket({ ssrc: 300, payloadType: 111, sequenceNumber: 1 }),
+        dtls,
+      );
+      const routes = router.snapshotRoutes();
+      const receiverState = audio.receiver.snapshotNegotiationState();
+
+      // Act: pending の re-offer が PCMU の SSRC 400 を与える
+      router.registerRtpReceiverBySsrc(
+        audio,
+        {
+          codecs: [pcmu()],
+          headerExtensions: [],
+          encodings: [
+            new RTCRtpCodingParameters({ ssrc: 400, payloadType: 0 }),
+          ],
+        },
+        { deferConflicts: true },
+      );
+
+      // Assert: 公開 track の SSRC と codec、統計は現在受信中の 300 / opus のまま
+      expect(announced.ssrc).toBe(300);
+      expect(announced.codec?.mimeType).toBe("audio/opus");
+      expect(await inboundRtpSsrcs(audio)).toEqual([300]);
+
+      // Act: pending 中に現在の送信元が SSRC 301 へ切り替え、offer の SSRC 400 も届く
+      router.routeRtp(
+        ssrcLessPacket({ ssrc: 301, payloadType: 111, sequenceNumber: 2 }),
+        dtls,
+      );
+      router.routeRtp(
+        ssrcLessPacket({ ssrc: 400, payloadType: 0, sequenceNumber: 3 }),
+        dtls,
+      );
+
+      // Assert: 301 は現在の session の新しい SSRC として学習され、400 も同じ track に届く
+      expect(payloads).toEqual(["payload-1", "payload-2", "payload-3"]);
+      expect(audio.receiver.fallbackSsrc).toBe(301);
+      expect(announced.ssrc).toBe(301);
+      expect(audio.receiver.track).toBe(announced);
+
+      // Act: commit または rollback する
+      if (finish === "commit") {
+        router.commitStaged();
+      } else {
+        router.restoreRoutes(routes, {
+          endpoints: new Set([audio.receiver, audio.sender]),
+          liveSenders: [],
+        });
+        audio.receiver.restoreNegotiationState(receiverState);
+      }
+      if (finish === "rollback") {
+        expect(router.ssrcTable[400]).toBeUndefined();
+      }
+      // commit 後は SDP の 400、rollback 後は学習済みの 301 で流す
+      router.routeRtp(
+        finish === "commit"
+          ? ssrcLessPacket({ ssrc: 400, payloadType: 0, sequenceNumber: 4 })
+          : ssrcLessPacket({ ssrc: 301, payloadType: 111, sequenceNumber: 4 }),
+        dtls,
+      );
+
+      // Assert: commit は SDP の 400 / PCMU に切り替わり、rollback は学習済みの 301 / opus を保つ
+      expect(audio.receiver.track).toBe(announced);
+      if (finish === "commit") {
+        expect(announced.ssrc).toBe(400);
+        expect(announced.codec?.mimeType).toBe("audio/PCMU");
+        expect(audio.receiver.fallbackSsrc).toBeUndefined();
+        expect(payloads).toEqual([
+          "payload-1",
+          "payload-2",
+          "payload-3",
+          "payload-4",
+        ]);
+        expect(await inboundRtpSsrcs(audio)).toEqual([400]);
+      } else {
+        expect(announced.ssrc).toBe(301);
+        expect(announced.codec?.mimeType).toBe("audio/opus");
+        expect(audio.receiver.fallbackSsrc).toBe(301);
+        expect(payloads).toEqual([
+          "payload-1",
+          "payload-2",
+          "payload-3",
+          "payload-4",
+        ]);
+        expect(await inboundRtpSsrcs(audio)).toEqual([301]);
+      }
+    },
+  );
 
   test("transceiver の登録解除で学習済み SSRC が残らない", () => {
     // Arrange

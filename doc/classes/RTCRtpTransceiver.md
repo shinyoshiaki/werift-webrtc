@@ -179,6 +179,10 @@ SSRCs of `trackBySSRC` that packets taught (not description state).
 
 > **remoteTrackId**: `string` \| `undefined`
 
+##### receiver.stagedDefaultTrack
+
+> **stagedDefaultTrack**: \{ `codec?`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); `ssrc`: `number`; `tracks`: [`MediaStreamTrack`](MediaStreamTrack.md)[]; \} \| `undefined`
+
 ##### receiver.trackByRID
 
 > **trackByRID**: `object`
@@ -680,7 +684,7 @@ Internal: return to a negotiation baseline taken by `snapshotNegotiationState`.
 
 ###### receiver
 
-\{ `defaultTrackCodec`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined`; `learnedTrackSsrcs`: `number`[]; `receiverTWCC`: `ReceiverTWCC` \| `undefined`; `receiveTables`: \{ `codecs`: \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \}; `ssrcByRtx`: \{\[`rtxSsrc`: `number`\]: `number`; \}; `stagedCodecs`: \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \}; `stagedSsrcByRtx`: \{\[`rtxSsrc`: `number`\]: `number`; \}; \}; `remoteStreamId`: `string` \| `undefined`; `remoteStreamIds`: `string`[]; `remoteTrackId`: `string` \| `undefined`; `trackByRID`: \{\[`rid`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md); \}; `trackBySSRC`: \{\[`ssrc`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md); \}; `tracks`: [`MediaStreamTrack`](MediaStreamTrack.md)[]; `unboundTracks`: [`MediaStreamTrack`](MediaStreamTrack.md)[]; \} = `...`
+\{ `defaultTrackCodec`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined`; `learnedTrackSsrcs`: `number`[]; `receiverTWCC`: `ReceiverTWCC` \| `undefined`; `receiveTables`: \{ `codecs`: \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \}; `ssrcByRtx`: \{\[`rtxSsrc`: `number`\]: `number`; \}; `stagedCodecs`: \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \}; `stagedSsrcByRtx`: \{\[`rtxSsrc`: `number`\]: `number`; \}; \}; `remoteStreamId`: `string` \| `undefined`; `remoteStreamIds`: `string`[]; `remoteTrackId`: `string` \| `undefined`; `stagedDefaultTrack`: \{ `codec?`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); `ssrc`: `number`; `tracks`: [`MediaStreamTrack`](MediaStreamTrack.md)[]; \} \| `undefined`; `trackByRID`: \{\[`rid`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md); \}; `trackBySSRC`: \{\[`ssrc`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md); \}; `tracks`: [`MediaStreamTrack`](MediaStreamTrack.md)[]; `unboundTracks`: [`MediaStreamTrack`](MediaStreamTrack.md)[]; \} = `...`
 
 ###### receiver.defaultTrackCodec
 
@@ -729,6 +733,10 @@ SSRCs of `trackBySSRC` that packets taught (not description state).
 ###### receiver.remoteTrackId
 
 `string` \| `undefined` = `...`
+
+###### receiver.stagedDefaultTrack
+
+\{ `codec?`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); `ssrc`: `number`; `tracks`: [`MediaStreamTrack`](MediaStreamTrack.md)[]; \} \| `undefined` = `...`
 
 ###### receiver.trackByRID
 
@@ -1015,6 +1023,10 @@ SSRCs of `trackBySSRC` that packets taught (not description state).
 ###### receiver.remoteTrackId
 
 > **remoteTrackId**: `string` \| `undefined`
+
+###### receiver.stagedDefaultTrack
+
+> **stagedDefaultTrack**: \{ `codec?`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); `ssrc`: `number`; `tracks`: [`MediaStreamTrack`](MediaStreamTrack.md)[]; \} \| `undefined`
 
 ###### receiver.trackByRID
 

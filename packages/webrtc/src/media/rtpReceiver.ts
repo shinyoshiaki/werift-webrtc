@@ -89,6 +89,19 @@ export class RTCRtpReceiver {
    * codec back instead of the baseline's.
    */
   private fallbackCodec?: RTCRtpCodecParameters;
+  /**
+   * The SSRC and codec a pending description gives an m-line whose current
+   * session is without SSRC and RID: the announced track adopts them when the
+   * transaction commits (`RtpRouter.commitStaged`). Until then the track, its
+   * statistics and the fallback SSRC stay the current session's; RTP of the
+   * pending SSRC reaches the announced track through `trackBySSRC` alone.
+   */
+  private stagedDefaultTrack?: {
+    ssrc: number;
+    codec?: RTCRtpCodecParameters;
+    /** Tracks of the description's other SSRCs, added at the commit too. */
+    tracks: MediaStreamTrack[];
+  };
   private get codecArray() {
     return Object.values(this.codecs).sort(
       (a, b) => a.payloadType - b.payloadType,
@@ -332,6 +345,52 @@ export class RTCRtpReceiver {
    * default track: the application keeps receiving on the object it got,
    * and `ontrack` does not fire again for it.
    */
+  /**
+   * Internal (router): a pending description gives this m-line, whose current
+   * session is without SSRC and RID, its first SSRC; see
+   * {@link stagedDefaultTrack}. A later pending description replaces it.
+   */
+  stageDefaultTrack(ssrc: number, codec?: RTCRtpCodecParameters) {
+    this.dropStagedDefaultTrack();
+    this.stagedDefaultTrack = { ssrc, codec, tracks: [] };
+    if (!this.trackBySSRC[ssrc]) this.trackBySSRC[ssrc] = this.defaultTrack;
+  }
+
+  /** Internal (router): the SSRC a staged adoption gives the announced track. */
+  get stagedDefaultSsrc() {
+    return this.stagedDefaultTrack?.ssrc;
+  }
+
+  /**
+   * Internal (router): a track of another SSRC of the same pending
+   * description; it is added with the staged adoption at the commit.
+   */
+  stageTrack(track: MediaStreamTrack) {
+    const staged = this.stagedDefaultTrack;
+    if (!staged || staged.tracks.some((t) => t.ssrc === track.ssrc)) return;
+    staged.tracks.push(track);
+  }
+
+  /** Internal (router): the staged adoption, cleared; applied by the caller at commit. */
+  takeStagedDefaultTrack() {
+    const staged = this.stagedDefaultTrack;
+    this.stagedDefaultTrack = undefined;
+    return staged;
+  }
+
+  /** Internal (router): forget a staged adoption a later description replaces. */
+  dropStagedDefaultTrack() {
+    const staged = this.takeStagedDefaultTrack();
+    if (
+      staged &&
+      this.trackBySSRC[staged.ssrc] === this.defaultTrack &&
+      !this.learnedTrackSsrcs.has(staged.ssrc) &&
+      this.defaultTrack.ssrc !== staged.ssrc
+    ) {
+      delete this.trackBySSRC[staged.ssrc];
+    }
+  }
+
   adoptDefaultTrack(ssrc: number, codec?: RTCRtpCodecParameters) {
     this.defaultTrack.ssrc = ssrc;
     this.defaultTrack.codec = codec ?? this.defaultTrack.codec;
@@ -454,6 +513,10 @@ export class RTCRtpReceiver {
       tracks: [...this.tracks],
       /** `adoptDefaultTrack` gives the announced track a description's codec. */
       defaultTrackCodec: this.defaultTrack.codec,
+      stagedDefaultTrack: this.stagedDefaultTrack && {
+        ...this.stagedDefaultTrack,
+        tracks: [...this.stagedDefaultTrack.tracks],
+      },
       trackBySSRC: { ...this.trackBySSRC },
       /** SSRCs of `trackBySSRC` that packets taught (not description state). */
       learnedTrackSsrcs: [...this.learnedTrackSsrcs],
@@ -471,6 +534,10 @@ export class RTCRtpReceiver {
       if (this.receiverTWCC) this.receiverTWCC.twccRunning = false;
       this.receiverTWCC = state.receiverTWCC;
     }
+    this.stagedDefaultTrack = state.stagedDefaultTrack && {
+      ...state.stagedDefaultTrack,
+      tracks: [...state.stagedDefaultTrack.tracks],
+    };
     this.remoteStreamIds = state.remoteStreamIds;
     this.remoteStreamId = state.remoteStreamId;
     this.remoteTrackId = state.remoteTrackId;

@@ -320,6 +320,20 @@ negotiation snapshot and rollback keep it consistent with the tables.
 
 ***
 
+### stagedDefaultSsrc
+
+#### Get Signature
+
+> **get** **stagedDefaultSsrc**(): `number` \| `undefined`
+
+Internal (router): the SSRC a staged adoption gives the announced track.
+
+##### Returns
+
+`number` \| `undefined`
+
+***
+
 ### track
 
 #### Get Signature
@@ -375,11 +389,6 @@ negotiation snapshot and rollback keep it consistent with the tables.
 ### adoptDefaultTrack()
 
 > **adoptDefaultTrack**(`ssrc`, `codec?`): [`MediaStreamTrack`](MediaStreamTrack.md)
-
-Internal (router): the track a description's first SSRC binds when this
-m-line had neither an SSRC nor a RID and `ontrack` already announced the
-default track: the application keeps receiving on the object it got,
-and `ontrack` does not fire again for it.
 
 #### Parameters
 
@@ -458,6 +467,18 @@ Internal: the transaction committed, staged payload types and RTX pairs apply.
 
 Internal: drop values staged by an earlier remote pranswer. A later
 pranswer or the final answer replaces that proposal as a whole.
+
+#### Returns
+
+`void`
+
+***
+
+### dropStagedDefaultTrack()
+
+> **dropStagedDefaultTrack**(): `void`
+
+Internal (router): forget a staged adoption a later description replaces.
 
 #### Returns
 
@@ -816,6 +837,10 @@ SSRCs of `trackBySSRC` that packets taught (not description state).
 
 `string` \| `undefined` = `...`
 
+###### stagedDefaultTrack
+
+\{ `codec?`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); `ssrc`: `number`; `tracks`: [`MediaStreamTrack`](MediaStreamTrack.md)[]; \} \| `undefined` = `...`
+
 ###### trackByRID
 
 \{\[`rid`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md); \} = `...`
@@ -1049,6 +1074,10 @@ SSRCs of `trackBySSRC` that packets taught (not description state).
 
 > **remoteTrackId**: `string` \| `undefined`
 
+##### stagedDefaultTrack
+
+> **stagedDefaultTrack**: \{ `codec?`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); `ssrc`: `number`; `tracks`: [`MediaStreamTrack`](MediaStreamTrack.md)[]; \} \| `undefined`
+
 ##### trackByRID
 
 > **trackByRID**: `object`
@@ -1119,6 +1148,49 @@ Internal: capture the decode tables for a negotiation rollback baseline.
 
 ***
 
+### stageDefaultTrack()
+
+> **stageDefaultTrack**(`ssrc`, `codec?`): `void`
+
+Internal (router): a pending description gives this m-line, whose current
+session is without SSRC and RID, its first SSRC; see
+stagedDefaultTrack. A later pending description replaces it.
+
+#### Parameters
+
+##### ssrc
+
+`number`
+
+##### codec?
+
+[`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
+
+#### Returns
+
+`void`
+
+***
+
+### stageTrack()
+
+> **stageTrack**(`track`): `void`
+
+Internal (router): a track of another SSRC of the same pending
+description; it is added with the staged adoption at the commit.
+
+#### Parameters
+
+##### track
+
+[`MediaStreamTrack`](MediaStreamTrack.md)
+
+#### Returns
+
+`void`
+
+***
+
 ### stop()
 
 > **stop**(): `void`
@@ -1156,3 +1228,35 @@ route the rejected packet itself just added.
 #### Returns
 
 `number`[]
+
+***
+
+### takeStagedDefaultTrack()
+
+> **takeStagedDefaultTrack**(): \{ `codec?`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); `ssrc`: `number`; `tracks`: [`MediaStreamTrack`](MediaStreamTrack.md)[]; \} \| `undefined`
+
+Internal (router): the staged adoption, cleared; applied by the caller at commit.
+
+#### Returns
+
+##### Type Literal
+
+\{ `codec?`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); `ssrc`: `number`; `tracks`: [`MediaStreamTrack`](MediaStreamTrack.md)[]; \}
+
+###### codec?
+
+> `optional` **codec?**: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
+
+###### ssrc
+
+> **ssrc**: `number`
+
+###### tracks
+
+> **tracks**: [`MediaStreamTrack`](MediaStreamTrack.md)[]
+
+Tracks of the description's other SSRCs, added at the commit too.
+
+***
+
+`undefined`

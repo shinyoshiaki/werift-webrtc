@@ -210,6 +210,17 @@ export class RtpRouter {
     this.stagedSsrc.clear();
     this.stagedRid.clear();
     this.provisionalSsrc.clear();
+    // The announced track of an m-line that was without SSRC and RID adopts
+    // the SSRC and codec the committed description gave it.
+    for (const transceiver of this.transceivers()) {
+      const staged = transceiver.receiver.takeStagedDefaultTrack();
+      if (staged && transceiver.receiver.tracks.length === 0) {
+        transceiver.addTrack(
+          transceiver.receiver.adoptDefaultTrack(staged.ssrc, staged.codec),
+        );
+        for (const track of staged.tracks) transceiver.addTrack(track);
+      }
+    }
     // A fallback SSRC of an m-line the committed description gave an SSRC or
     // a RID goes now (a pending description kept it for the current session).
     for (const { receiver } of this.transceivers()) {
@@ -374,6 +385,9 @@ export class RtpRouter {
   ) {
     log("registerRtpReceiverBySsrc", params);
 
+    // The latest description decides: an adoption an earlier pending one
+    // staged goes.
+    transceiver.receiver.dropStagedDefaultTrack();
     if (!deferConflicts && params.encodings.some((e) => e.ssrc != undefined)) {
       // The m-line has SSRCs now: the fallback SSRC learned without them goes
       // (a pending description keeps it until the commit).
@@ -395,21 +409,41 @@ export class RtpRouter {
         );
         // An m-line that was without SSRC and RID keeps the track `ontrack`
         // announced: the first SSRC a description gives it binds that track.
+        // A pending description only stages it: until the commit the track,
+        // its statistics and unknown-SSRC learning stay the current session's.
         const announced =
           i === 0 &&
           transceiver.firedReceiving &&
           transceiver.receiver.tracks.length === 0;
-        transceiver.addTrack(
-          announced
-            ? transceiver.receiver.adoptDefaultTrack(encode.ssrc, codec)
-            : new MediaStreamTrack({
+        const stagedSsrc = transceiver.receiver.stagedDefaultSsrc;
+        if (announced && deferConflicts) {
+          transceiver.receiver.stageDefaultTrack(encode.ssrc, codec);
+        } else if (deferConflicts && stagedSsrc !== undefined) {
+          // The rest of a staged description waits for the commit as well.
+          if (encode.ssrc !== stagedSsrc) {
+            transceiver.receiver.stageTrack(
+              new MediaStreamTrack({
                 ssrc: encode.ssrc,
                 kind: transceiver.kind,
                 id: transceiver.sender.trackId,
                 remote: true,
                 codec,
               }),
-        );
+            );
+          }
+        } else {
+          transceiver.addTrack(
+            announced
+              ? transceiver.receiver.adoptDefaultTrack(encode.ssrc, codec)
+              : new MediaStreamTrack({
+                  ssrc: encode.ssrc,
+                  kind: transceiver.kind,
+                  id: transceiver.sender.trackId,
+                  remote: true,
+                  codec,
+                }),
+          );
+        }
         if (encode.rtx) {
           this.registerRtpReceiver(
             transceiver.receiver,

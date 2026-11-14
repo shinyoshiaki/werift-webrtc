@@ -269,3 +269,11 @@ export function collidingRouteCount(router: RtpRouter) {
   ).collidingRoutes;
   return [...routes.values()].reduce((sum, set) => sum + set.size, 0);
 }
+
+/** SSRCs of the `inbound-rtp` statistics `transceiver`'s receiver reports. */
+export async function inboundRtpSsrcs(transceiver: RTCRtpTransceiver) {
+  const stats = [...(await transceiver.receiver.getStats()).values()];
+  return stats
+    .filter((s) => s.type === "inbound-rtp")
+    .map((s) => (s as { ssrc?: number }).ssrc);
+}
