@@ -710,6 +710,40 @@ export class TransceiverManager {
       transceiver.codecPreferencesNeedResolution = false;
       transceiver.negotiatedCodecsStale = false;
     }
+
+    // A transceiver without a negotiated session (added to an existing
+    // session) offers its configured codecs, but not with a payload type that
+    // already means another codec in this session (BUNDLE shares the payload
+    // type space across m-lines): it takes a free one instead.
+    if (fromCapability.length > 0) {
+      for (const transceiver of this.transceivers) {
+        if (
+          fromCapability.includes(transceiver) ||
+          transceiver.stopped ||
+          transceiver.codecs.length === 0
+        ) {
+          continue;
+        }
+        const others = new Map<number, RTCRtpCodecParameters>();
+        for (const other of this.transceivers) {
+          if (other === transceiver || other.stopped) continue;
+          for (const codec of offerCodecs.get(other) ?? other.codecs) {
+            if (!others.has(codec.payloadType)) {
+              others.set(codec.payloadType, codec);
+            }
+          }
+        }
+        const codecs = keepNegotiatedPayloadTypes(
+          transceiver.codecs,
+          [],
+          others,
+        );
+        const changed =
+          codecs.length !== transceiver.codecs.length ||
+          codecs.some((codec, i) => codec !== transceiver.codecs[i]);
+        if (changed) offerCodecs.set(transceiver, codecs);
+      }
+    }
     return offerCodecs;
   }
 

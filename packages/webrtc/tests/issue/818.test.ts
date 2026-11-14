@@ -307,4 +307,53 @@ describeCases("issue 818: subsequent offers list every supported codec", () => {
       expect(codecNames(transceiver.codecs)).toEqual(["H264", "VP8"]);
     },
   );
+
+  negotiationCase(
+    "a transceiver added to a negotiated session does not reuse a payload type another m-line uses",
+    { ref: "origin: issue 818 (review: payload type collision)" },
+    async (c) => {
+      // Arrange: A は VP8 (PT 98) だけを offer し、B (VP8 96 + VP9 98) が VP8 = PT 98 で確定する。
+      const { b } = await c.given(
+        createConnectedVideoPeersWith({
+          offerer: { codecs: { video: [useVP8({ payloadType: 98 })] } },
+          answerer: {
+            codecs: {
+              video: [useVP8({ payloadType: 96 }), useVP9({ payloadType: 98 })],
+            },
+          },
+        }),
+      );
+      expect(payloadTypeOf(b.currentLocalDescription!.sdp, "VP8")).toEqual(98);
+      const before = b.getTransceivers()[0].codecs.map((codec) => ({
+        ...codec,
+      }));
+
+      // Act: B が映像 transceiver を追加して offer を作る。
+      b.addTransceiver("video", { direction: "sendrecv" });
+      const offer = await b.createOffer();
+
+      // Assert: 各 m-line の PT は 1 つの codec だけを指し、既存 m-line の VP8 は 98 のまま。
+      const sections = offer.sdp.split(/^m=/m).slice(1);
+      const videoSections = sections.filter((section) =>
+        section.startsWith("video"),
+      );
+      expect(videoSections).toHaveLength(2);
+      const mapping = new Map<string, string>();
+      for (const section of videoSections) {
+        for (const [, pt, name] of section.matchAll(
+          /^a=rtpmap:(\d+) ([^/]+)\/90000/gm,
+        )) {
+          const known = mapping.get(pt);
+          expect(known ?? name).toEqual(name);
+          mapping.set(pt, name);
+        }
+      }
+      expect(payloadTypes(videoSections[0]).VP8).toEqual(98);
+      expect(payloadTypes(videoSections[1]).VP9).not.toEqual(98);
+      // Assert: 交渉済み transceiver の live codec は変わらない。
+      expect(
+        b.getTransceivers()[0].codecs.map((codec) => ({ ...codec })),
+      ).toEqual(before);
+    },
+  );
 });
