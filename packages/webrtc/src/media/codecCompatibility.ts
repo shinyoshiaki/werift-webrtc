@@ -131,8 +131,10 @@ function referencedPayloadTypes(codec: RTCRtpCodecParameters) {
     return Number.isNaN(apt) ? [] : [apt];
   }
   if (codecName(codec) === "red") {
+    // `Number("")` is 0: a RED without fmtp references nothing.
     return parameters
       .split("/")
+      .filter((value) => value.trim() !== "")
       .map(Number)
       .filter((value) => !Number.isNaN(value));
   }
@@ -356,14 +358,19 @@ export function keepNegotiatedPayloadTypes(
     const references = referencedPayloadTypes(codec).map((payloadType) =>
       primaryPayloadType.get(payloadType),
     );
+    // A video RED has no fmtp (nothing references a primary): it is offered
+    // as configured. An RTX, or a RED that names primaries, needs them offered.
+    const standalone = codecName(codec) === "red" && references.length === 0;
     if (
-      references.length === 0 ||
-      references.some((payloadType) => payloadType == undefined)
+      !standalone &&
+      (references.length === 0 ||
+        references.some((payloadType) => payloadType == undefined))
     ) {
       return;
     }
-    const parameters =
-      codecName(codec) === "rtx"
+    const parameters = standalone
+      ? codec.parameters
+      : codecName(codec) === "rtx"
         ? (codec.parameters ?? "").replace(
             /(^|;)\s*apt=\d+/,
             `$1apt=${references[0]}`,

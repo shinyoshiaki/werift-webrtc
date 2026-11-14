@@ -405,4 +405,34 @@ describeCases("issue 818: subsequent offers list every supported codec", () => {
       expect(codecNames(b.getTransceivers()[0].codecs)).toEqual(["VP9"]);
     },
   );
+
+  negotiationCase(
+    "a video RED without fmtp stays in later offers after an answer that accepted only VP8",
+    { ref: "origin: issue 818 (review: parameterless RED)" },
+    async (c) => {
+      // Arrange: A は VP8 + RED (fmtp なし)、B は VP8 だけで初回交渉を確定する。
+      const red = () =>
+        new RTCRtpCodecParameters({
+          mimeType: "video/red",
+          clockRate: 90000,
+          payloadType: 116,
+        });
+      const { a, b } = await c.given(
+        createConnectedVideoPeersWith({
+          offerer: { codecs: { video: [useVP8(), red()] } },
+          answerer: { codecs: { video: [useVP8()] } },
+        }),
+      );
+      const first = offeredVideoCodecs(a.currentLocalDescription!.sdp);
+      expect(first).toEqual(["VP8", "RED"]);
+
+      // Act: A が次の offer を作る。
+      const offer = await a.createOffer();
+
+      // Assert: 初回と同じく RED を fmtp なしのまま提示する。
+      expect(offeredVideoCodecs(offer.sdp)).toEqual(first);
+      expect(offer.sdp).not.toMatch(/a=fmtp:116 /);
+      await expectSessionContinues(a, b);
+    },
+  );
 });
