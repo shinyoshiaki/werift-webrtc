@@ -967,7 +967,7 @@ export type IceGathererState = (typeof IceGathererStates)[number];
  */
 export type IceCandidateErrorDetails = {
   address: string | null;
-  port: number;
+  port: number | null;
   url: string;
   errorCode: number;
   errorText: string;
@@ -984,6 +984,7 @@ export class RTCIceGatherer {
   onIceCandidateError: (error: IceCandidateErrorDetails) => void = () => {};
   gatheringState: IceGathererState = "new";
   readonly connection: IceConnection;
+  private unreachableUrls = { generation: -1, urls: new Set<string>() };
 
   readonly onGatheringStateChange = new Event<[IceGathererState]>();
 
@@ -1000,6 +1001,21 @@ export class RTCIceGatherer {
         this.connection.state === "closed"
       ) {
         return;
+      }
+      // W3C: a 701 (server not reached) fires once per server URL while
+      // gathering, however many local sockets queried the server.
+      if (info.errorCode === 701) {
+        if (this.unreachableUrls.generation !== info.generation) {
+          this.unreachableUrls = {
+            generation: info.generation,
+            urls: new Set(),
+          };
+        }
+        const { urls } = this.unreachableUrls;
+        const fresh = (info.server.urls ?? []).filter((url) => !urls.has(url));
+        for (const url of fresh) urls.add(url);
+        if (fresh.length === 0) return;
+        info = { ...info, server: { ...info.server, urls: fresh } };
       }
       for (const details of iceCandidateErrorDetails(
         info,
@@ -1073,7 +1089,7 @@ export class RTCIceGatherer {
  * configured URL of the server (none for a server without one, such as the
  * built-in default STUN server). The local address is given only when the
  * agent knows it and the ICE transport policy is not "relay"; otherwise it
- * is `null` with port 0.
+ * and port are `null` (W3C: a null address has a null port).
  */
 export function iceCandidateErrorDetails(
   info: IceCandidateErrorInfo,
@@ -1083,7 +1099,7 @@ export function iceCandidateErrorDetails(
   const local =
     !relayOnly && info.address !== undefined && info.port !== undefined
       ? { address: info.address, port: info.port }
-      : { address: null, port: 0 };
+      : { address: null, port: null };
   return urls.map((url) => ({
     ...local,
     url,

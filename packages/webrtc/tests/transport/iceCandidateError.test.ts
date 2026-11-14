@@ -5,6 +5,10 @@ import {
   TURN_TEST_USERNAME,
 } from "../../../ice/tests/utils";
 import { RTCPeerConnectionIceErrorEvent } from "../../src";
+import {
+  type IceCandidateErrorDetails,
+  RTCIceGatherer,
+} from "../../src/transport/ice";
 import { negotiate } from "../utils";
 import {
   createErrorRecordingPeer,
@@ -126,6 +130,60 @@ describe("icecandidateerror", () => {
     }
   });
 
+  test("複数のローカルソケットから同じ URL の 701 が届いても URL ごとに 1 回だけ通知される", () => {
+    // Arrange: 同じ STUN への 701 を 2 つのローカルソケット分、別 URL の 701 と 400 を含めて流す
+    const gatherer = new RTCIceGatherer({ useDefaultStunServer: false });
+    const details: IceCandidateErrorDetails[] = [];
+    gatherer.onIceCandidateError = (d: IceCandidateErrorDetails) =>
+      details.push(d);
+    const generation = gatherer.connection.generation;
+    const server = (urls: string[]) => ({
+      kind: "stun" as const,
+      address: ["192.0.2.1", 3478] as [string, number],
+      urls,
+    });
+    const info = (urls: string[], errorCode: number, address: string) => ({
+      server: server(urls),
+      address,
+      port: 50000,
+      errorCode,
+      errorText: "x",
+      generation,
+    });
+
+    // Act: ソケット 1 / ソケット 2 の失敗を順に通知する
+    gatherer.connection.onIceCandidateError!.execute(
+      info(["stun:a", "stuns:a"], 701, "10.0.0.1"),
+    );
+    gatherer.connection.onIceCandidateError!.execute(
+      info(["stun:a", "stuns:a"], 701, "10.0.0.2"),
+    );
+    gatherer.connection.onIceCandidateError!.execute(
+      info(["stun:b"], 701, "10.0.0.2"),
+    );
+    gatherer.connection.onIceCandidateError!.execute(
+      info(["stun:a"], 400, "10.0.0.1"),
+    );
+    gatherer.connection.onIceCandidateError!.execute(
+      info(["stun:a"], 400, "10.0.0.2"),
+    );
+
+    // Assert: 701 は URL ごとに 1 件、サーバーが返したエラー (400) はソケットごとに通知される
+    expect(
+      details.map(({ url, errorCode, address }) => ({
+        url,
+        errorCode,
+        address,
+      })),
+    ).toEqual([
+      { url: "stun:a", errorCode: 701, address: "10.0.0.1" },
+      { url: "stuns:a", errorCode: 701, address: "10.0.0.1" },
+      { url: "stun:b", errorCode: 701, address: "10.0.0.2" },
+      { url: "stun:a", errorCode: 400, address: "10.0.0.1" },
+      { url: "stun:a", errorCode: 400, address: "10.0.0.2" },
+    ]);
+  });
+
   test("1 つの STUN を指す複数の URL (stun: と stuns:) は URL ごとに 1 件ずつ通知される", async () => {
     // Arrange
     const stun = await createErrorStunServer(500, "Server Error");
@@ -196,7 +254,7 @@ describe("icecandidateerror", () => {
             ...expected,
             errorText: expect.any(String),
             address: null,
-            port: 0,
+            port: null,
           }))
           .sort((a, b) => a.url.localeCompare(b.url)),
       );
@@ -211,7 +269,7 @@ describe("icecandidateerror", () => {
     }
   });
 
-  test('iceTransportPolicy "relay" では address が null、port が 0 になる', async () => {
+  test('iceTransportPolicy "relay" では address と port が null になる', async () => {
     // Arrange
     const rejecting = await createRejectingUdpTurnServer();
     const { pc, listened } = createErrorRecordingPeer({
@@ -231,7 +289,7 @@ describe("icecandidateerror", () => {
       // Assert
       expect(listened).toHaveLength(1);
       expect(listened[0].address).toBeNull();
-      expect(listened[0].port).toBe(0);
+      expect(listened[0].port).toBeNull();
     } finally {
       await pc.close();
       await rejecting.close();

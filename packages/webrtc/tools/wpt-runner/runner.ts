@@ -535,6 +535,14 @@ function createPeerConnectionWrapper(peerConnections: Set<RTCPeerConnection>) {
     constructor(...args: ConstructorParameters<typeof RTCPeerConnection>) {
       super(...args);
       peerConnections.add(this);
+      // The upstream WPT tests expect port 0 where the W3C spec (and werift's
+      // default API) gives null for an unknown local address. Subscribed
+      // first, so it runs before onicecandidateerror / the listeners.
+      this.onIceCandidateError.subscribe((event) => {
+        if (event.port === null) {
+          Object.defineProperty(event, "port", { value: 0 });
+        }
+      });
     }
 
     override addIceCandidate(
