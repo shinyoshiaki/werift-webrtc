@@ -225,6 +225,26 @@ export interface PeerConfig {
    * `"strict"` (= `"standard"`).
    */
   keyFrameRequestRouting: KeyFrameRequestRouting;
+  /**
+   * Sets every compatibility option (`certificateScope`, `mLineReuse`,
+   * `transceiverPairing`, `keyFrameRequestRouting`, see
+   * {@link CompatibilityOptionValues}) to the specification / browser behavior
+   * at once. Cannot be changed after construction.
+   * - `undefined` (default): each option keeps its own default.
+   * - `"standard"`: every compatibility option not given in the same
+   *   configuration is `"standard"`; an option given explicitly keeps the
+   *   given value.
+   *
+   * ```ts
+   * new RTCPeerConnection({ compatibility: "standard" });
+   * // certificateScope, mLineReuse, transceiverPairing and
+   * // keyFrameRequestRouting are all "standard"
+   * ```
+   *
+   * It does not change `iceServers` / `iceUseDefaultStunServer`, which are not
+   * compatibility options.
+   */
+  compatibility: CompatibilityPreset | undefined;
 }
 
 /** Which default DTLS certificate is used. See {@link PeerConfig.certificateScope}. */
@@ -240,6 +260,12 @@ export const MLineReuseModes: readonly MLineReuse[] =
 export type TransceiverPairing = CompatibilityOptionValue<"transceiverPairing">;
 export const TransceiverPairingModes: readonly TransceiverPairing[] =
   CompatibilityOptionValues.transceiverPairing;
+
+/** The values of {@link PeerConfig.compatibility}. */
+export type CompatibilityPreset = "standard";
+export const CompatibilityPresets: readonly CompatibilityPreset[] = [
+  "standard",
+];
 
 const COMPATIBILITY_OPTIONS = Object.keys(
   CompatibilityOptionValues,
@@ -418,6 +444,7 @@ export function generateDefaultPeerConfig(): PeerConfig {
     mLineReuse: "standard",
     transceiverPairing: "byKind",
     keyFrameRequestRouting: "fallback",
+    compatibility: undefined,
   };
 }
 export const defaultPeerConfig: PeerConfig = generateDefaultPeerConfig();
@@ -579,6 +606,33 @@ export function mergePeerConfiguration(
     normalizedConfig.bundlePolicy !== config.bundlePolicy
   ) {
     throw new Error("bundlePolicy cannot be changed");
+  }
+
+  if (
+    normalizedConfig.compatibility !== undefined &&
+    !CompatibilityPresets.includes(normalizedConfig.compatibility)
+  ) {
+    throw createWebRtcTypeError(
+      `compatibility must be one of ${CompatibilityPresets.join(", ")}`,
+    );
+  }
+  if (isReconfiguration) {
+    if (
+      normalizedConfig.compatibility !== undefined &&
+      normalizedConfig.compatibility !== config.compatibility
+    ) {
+      throw createWebRtcDomException(
+        "InvalidModificationError",
+        "compatibility cannot be changed",
+      );
+    }
+  } else if (normalizedConfig.compatibility === "standard") {
+    // 構築時だけ、明示されていない互換性オプションを standard にする
+    for (const option of COMPATIBILITY_OPTIONS) {
+      if (normalizedConfig[option] === undefined) {
+        (normalizedConfig as Record<string, unknown>)[option] = "standard";
+      }
+    }
   }
 
   for (const option of COMPATIBILITY_OPTIONS) {

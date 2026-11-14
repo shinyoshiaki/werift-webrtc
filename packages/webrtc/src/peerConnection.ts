@@ -77,6 +77,8 @@ export {
 export {
   type CertificateScope,
   CertificateScopeModes,
+  type CompatibilityPreset,
+  CompatibilityPresets,
   type DebugConfig,
   type DeprecatedCertificateScope,
   DeprecatedCompatibilityValues,

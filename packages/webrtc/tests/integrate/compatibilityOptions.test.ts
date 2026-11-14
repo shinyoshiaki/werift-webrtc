@@ -1,6 +1,7 @@
 import {
   CertificateScopeModes,
   CompatibilityOptionValues,
+  CompatibilityPresets,
   DeprecatedCompatibilityValues,
   KeyFrameRequestRoutingModes,
   MLineReuseModes,
@@ -182,4 +183,71 @@ describe("compatibility options: standard and a named own behavior", () => {
       }
     },
   );
+
+  test('compatibility: "standard" sets every compatibility option to standard', async () => {
+    // Act: compatibility だけを指定して作成する
+    const pc = createPc({ compatibility: "standard" });
+
+    // Assert: 4 つの互換性オプションがすべて standard になり、compatibility も読み返せる
+    for (const { option } of options) {
+      expect(read(pc, option)).toBe("standard");
+    }
+    expect(pc.getConfiguration().compatibility).toBe("standard");
+    expect(CompatibilityPresets).toEqual(["standard"]);
+
+    // Act: standard の挙動になっていることを mLineReuse 以外の既定と違う値で確かめる
+    pc.addTransceiver("audio", { direction: "sendonly" });
+    const answerer = createPc({ compatibility: "standard" });
+    const own = answerer.addTransceiver("audio", { direction: "sendrecv" });
+    await answerer.setRemoteDescription(await pc.createOffer());
+
+    // Assert: transceiverPairing が standard なので own は関連付かない (#816)
+    expect(own.mid).toBeNull();
+    expect(answerer.getTransceivers()).toHaveLength(2);
+  });
+
+  test.each(options)(
+    'compatibility: "standard" keeps an explicitly given $option ($own)',
+    ({ option, own }) => {
+      // Act: compatibility と個別の値を同時に指定する (旧名も含む)
+      const pc = createPc({ compatibility: "standard", [option]: own });
+
+      // Assert: 個別に指定した値が優先され、ほかは standard
+      for (const other of options) {
+        expect(read(pc, other.option)).toBe(
+          other.option === option ? own : "standard",
+        );
+      }
+    },
+  );
+
+  test("compatibility: other values are a TypeError and it cannot be changed", () => {
+    // Act / Assert: 未知の値は生成時に TypeError
+    for (const value of ["legacy", "browser", "Standard"]) {
+      expect(() => createPc({ compatibility: value as never })).toThrow(
+        new TypeError("compatibility must be one of standard"),
+      );
+    }
+
+    // Arrange
+    const defaultPc = createPc();
+    const standardPc = createPc({ compatibility: "standard" });
+
+    // Act / Assert: 構築後の変更は InvalidModificationError、同じ値の再設定は成功する
+    expect(defaultPc.getConfiguration().compatibility).toBeUndefined();
+    expect(() =>
+      defaultPc.setConfiguration({ compatibility: "standard" }),
+    ).toThrow(
+      expect.objectContaining({
+        name: "InvalidModificationError",
+        message: "compatibility cannot be changed",
+      }),
+    );
+    expect(read(defaultPc, "mLineReuse")).toBe("standard");
+    expect(read(defaultPc, "transceiverPairing")).toBe("byKind");
+    expect(() =>
+      standardPc.setConfiguration({ compatibility: "standard" }),
+    ).not.toThrow();
+    expect(standardPc.getConfiguration().compatibility).toBe("standard");
+  });
 });

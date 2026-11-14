@@ -24,8 +24,8 @@ test("the WPT configuration sets every compatibility option to standard", async 
     const config = pc.getConfiguration();
     for (const option of compatibilityOptions) {
       expect(config[option]).toBe("standard");
-      expect(BROWSER_COMPATIBLE_PEER_CONFIG[option]).toBe("standard");
     }
+    expect(BROWSER_COMPATIBLE_PEER_CONFIG.compatibility).toBe("standard");
     expect(config.iceServers).toEqual([]);
     expect(config.iceUseDefaultStunServer).toBe(false);
   } finally {
@@ -41,11 +41,13 @@ test("a value the WPT test gives is kept, an undefined one is filled", () => {
     bundlePolicy: "max-bundle",
   }) as Record<string, unknown>;
 
-  // Assert: 指定値はそのまま、undefined は互換設定で埋める
+  // Assert: 指定値はそのまま、互換設定のキーは埋め、個別の互換性オプションは
+  // compatibility: "standard" が構築時に standard にする (undefined のまま渡す)
   expect(merged.iceServers).toEqual([{ urls: "stun:example.test" }]);
   expect(merged.bundlePolicy).toBe("max-bundle");
-  expect(merged.mLineReuse).toBe("standard");
-  expect(merged.certificateScope).toBe("standard");
+  expect(merged.mLineReuse).toBeUndefined();
+  expect(merged.compatibility).toBe("standard");
+  expect(merged.iceUseDefaultStunServer).toBe(false);
 });
 
 test("a non-object configuration is passed through for the constructor to reject", () => {
@@ -54,6 +56,6 @@ test("a non-object configuration is passed through for the constructor to reject
     "not a dictionary",
   );
   expect(withBrowserCompatibleConfig(null)).toMatchObject({
-    certificateScope: "standard",
+    compatibility: "standard",
   });
 });

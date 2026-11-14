@@ -6,10 +6,11 @@ import type { RTCPeerConnectionConfig } from "../../src";
  * `RTCPeerConnection` with it. werift's own defaults (`src`) keep their
  * convenience behavior (root `AGENTS.md` Do 5).
  *
- * - every compatibility option (`CompatibilityOptionValues`) is `"standard"`:
- *   `certificateScope` (a certificate per connection), `mLineReuse`
- *   (accepted `inactive` m-lines keep their port), `transceiverPairing`
- *   (JSEP 5.10, #816), `keyFrameRequestRouting` (RFC 4585 / RFC 5104 targets).
+ * - `compatibility: "standard"`: every compatibility option
+ *   (`CompatibilityOptionValues`) is `"standard"`: `certificateScope` (a
+ *   certificate per connection), `mLineReuse` (accepted `inactive` m-lines
+ *   keep their port), `transceiverPairing` (JSEP 5.10, #816),
+ *   `keyFrameRequestRouting` (RFC 4585 / RFC 5104 targets).
  * - `iceServers: []` and `iceUseDefaultStunServer: false`: a browser has no
  *   STUN server unless one is configured (W3C: `iceServers` defaults to `[]`).
  *
@@ -17,10 +18,7 @@ import type { RTCPeerConnectionConfig } from "../../src";
  * `bundlePolicy` (`"balanced"` is read as `"max-compat"`).
  */
 export const BROWSER_COMPATIBLE_PEER_CONFIG = {
-  certificateScope: "standard",
-  mLineReuse: "standard",
-  transceiverPairing: "standard",
-  keyFrameRequestRouting: "standard",
+  compatibility: "standard",
   iceServers: [],
   iceUseDefaultStunServer: false,
 } as const satisfies RTCPeerConnectionConfig;

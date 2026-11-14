@@ -49,6 +49,30 @@ Also accepts the v0.27.0 name `"peerConnection"` (= `"standard"`).
 
 ***
 
+### compatibility
+
+> **compatibility**: `"standard"` \| `undefined`
+
+Sets every compatibility option (`certificateScope`, `mLineReuse`,
+`transceiverPairing`, `keyFrameRequestRouting`, see
+[CompatibilityOptionValues](../variables/CompatibilityOptionValues.md)) to the specification / browser behavior
+at once. Cannot be changed after construction.
+- `undefined` (default): each option keeps its own default.
+- `"standard"`: every compatibility option not given in the same
+  configuration is `"standard"`; an option given explicitly keeps the
+  given value.
+
+```ts
+new RTCPeerConnection({ compatibility: "standard" });
+// certificateScope, mLineReuse, transceiverPairing and
+// keyFrameRequestRouting are all "standard"
+```
+
+It does not change `iceServers` / `iceUseDefaultStunServer`, which are not
+compatibility options.
+
+***
+
 ### debug
 
 > **debug**: [`DebugConfig`](../type-aliases/DebugConfig.md)

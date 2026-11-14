@@ -332,3 +332,23 @@ console.log(b.getTransceivers().length, own.mid); // 実際: 1 "0" / 期待: 2 n
 - 全体 `npm run wpt` 3 回: すべて回帰 0（PASS 564〜567、再実行は 3 回中 1 回）。
 - `npm run format`、`npm run doc` 実行済み。
 
+
+## 12. 追加要件：互換性オプションをまとめて `"standard"` にする構築時オプション（ユーザー指示、2026-11-14）
+
+### 指示
+- 互換性に関するオプションをすべて `"standard"` に設定するコンストラクタのオプションを追加する。
+
+### 決定
+- `PeerConfig.compatibility: CompatibilityPreset | undefined`（`CompatibilityPreset = "standard"`、値の一覧は `CompatibilityPresets`）。
+  - `undefined`（既定）: 各互換性オプションはそれぞれの既定値のまま（既定の挙動は変えない）。
+  - `"standard"`: 同じ設定で明示されていない互換性オプション（`certificateScope` / `mLineReuse` / `transceiverPairing` / `keyFrameRequestRouting`、`CompatibilityOptionValues` の 4 つ）を構築時に `"standard"` にする。明示した値（旧名を含む）はそのまま優先する。
+- 不正な値は `TypeError`（`compatibility must be one of standard`）。`setConfiguration()` で値を変えると `InvalidModificationError`、同じ値の再設定は成功する（`mLineReuse` などと同じく構築時に固定）。構築後の `setConfiguration()` では個別オプションを書き換えない（`keyFrameRequestRouting` は従来どおり個別に変更できる）。
+- 互換性オプションではない `iceServers` / `iceUseDefaultStunServer` は変えない。ブラウザに最も近い設定は `compatibility: "standard"` に `iceServers: []` と `iceUseDefaultStunServer: false` を加えたもの（README「Compatibility options」）。
+- WPT の wrapper（`tools/wpt-runner/browserConfig.ts`）は 4 つの個別指定をやめ、`compatibility: "standard"` を使う。
+- 実装は `mergePeerConfiguration`（`src/api/peerConfig.ts`）。値の検証の後、構築時だけ未指定の互換性オプションを埋めてから、既存の互換性オプションの検証ループを通す。
+
+### 検証記録（2026-11-14、HEAD `f8a03dce7` に 12章の未コミット変更を当てた状態）
+- `tests/integrate/compatibilityOptions.test.ts` に追加: `compatibility: "standard"` だけで 4 つが `"standard"` になり、`transceiverPairing` の挙動（#816 の再現コードで own の MID が `null`）も変わる／個別に指定した値（各オプションの werift 側の値）が優先される／不正値の `TypeError`・構築後の変更の `InvalidModificationError`・同じ値の再設定の成功。`tests/tools/wptBrowserConfig.test.ts` を wrapper の変更に合わせて更新。
+- `npm run type` 成功。`packages/webrtc` の `npm test` 85 ファイル・1784 件成功（5 件スキップ）。
+- 全体 `npm run wpt` 3 回: すべて回帰 0（PASS 566〜567、再実行なし）。baseline の `checkAddTransceiver*DoesntPair`（`transceiverPairing: "byKind"` では FAIL する）が通るので、wrapper の `compatibility: "standard"` が効いている。
+- `npm run format`、`npm run doc` 実行済み。
