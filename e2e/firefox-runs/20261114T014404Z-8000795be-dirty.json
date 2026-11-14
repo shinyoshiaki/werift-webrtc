@@ -1,0 +1,82 @@
+{
+  "version": 1,
+  "suite": "e2e firefox (vitest.firefox.config.mts)",
+  "commit": "8000795be78475b3b38cabe4de0dfb212c5505ba",
+  "shortCommit": "8000795be",
+  "branch": "ticket/21a27c92-7ca2-4075-bd29-246f95715de2",
+  "dirty": true,
+  "uncommittedFiles": [
+    "e2e/firefox-run-record.js",
+    "e2e/firefox-run-reporter.mjs",
+    "e2e/package.json",
+    "e2e/run-firefox.js",
+    "e2e/tools/tests/firefoxRunRecord.test.js",
+    "e2e/tools/tests/firefoxRunRecordFixtures.js",
+    "e2e/vitest.firefox.record.config.mts"
+  ],
+  "uncommittedDiffSha256": "eac15ce65c2082266c64b5caa641fedb463938a418e010460a3c85dfb9adeadd",
+  "startedAt": "2026-11-14T01:44:04.901Z",
+  "finishedAt": "2026-11-14T01:46:07.785Z",
+  "durationSec": 123,
+  "exitCode": 1,
+  "outcome": "completed",
+  "result": "failed",
+  "vitestArgs": [
+    "tests/datachannel/datachannel.test.ts"
+  ],
+  "environment": {
+    "firefox": "157.0",
+    "playwright": "1.64.1",
+    "vitest": "5.0.5",
+    "node": "v24.22.2",
+    "platform": "linux 7.0.0-43-generic x64"
+  },
+  "runEnded": true,
+  "endReason": "failed",
+  "unhandledErrors": [],
+  "totals": {
+    "files": 1,
+    "tests": 3,
+    "passed": 0,
+    "failed": 3,
+    "skipped": 0,
+    "unfinished": 0
+  },
+  "tests": [
+    {
+      "file": "e2e/tests/datachannel/datachannel.test.ts",
+      "name": "datachannel > answer",
+      "status": "failed",
+      "durationMs": 40115,
+      "retryCount": 1,
+      "failureMessages": [
+        "Error: Test timed out in 20000ms.\nIf this is a long-running test, pass a timeout value as the last argument or configure it globally with \"testTimeout\".",
+        "Error: Test timed out in 20000ms.\nIf this is a long-running test, pass a timeout value as the last argument or configure it globally with \"testTimeout\"."
+      ]
+    },
+    {
+      "file": "e2e/tests/datachannel/datachannel.test.ts",
+      "name": "datachannel > offer",
+      "status": "failed",
+      "durationMs": 40034,
+      "retryCount": 1,
+      "failureMessages": [
+        "Error: Test timed out in 20000ms.\nIf this is a long-running test, pass a timeout value as the last argument or configure it globally with \"testTimeout\".",
+        "Error: Test timed out in 20000ms.\nIf this is a long-running test, pass a timeout value as the last argument or configure it globally with \"testTimeout\"."
+      ]
+    },
+    {
+      "file": "e2e/tests/datachannel/datachannel.test.ts",
+      "name": "datachannel > echoes fragmented binary messages",
+      "status": "failed",
+      "durationMs": 40053,
+      "retryCount": 1,
+      "failureMessages": [
+        "Error: Test timed out in 20000ms.\nIf this is a long-running test, pass a timeout value as the last argument or configure it globally with \"testTimeout\".",
+        "Error: Test timed out in 20000ms.\nIf this is a long-running test, pass a timeout value as the last argument or configure it globally with \"testTimeout\"."
+      ]
+    }
+  ],
+  "unfinished": [],
+  "moduleErrors": []
+}

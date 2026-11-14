@@ -1,0 +1,181 @@
+/**
+ * Builds the run record that `run-firefox.js` (`npm run firefox:record`)
+ * saves under `firefox-runs/` for every Firefox E2E run. The Firefox suite is
+ * kept out of CI, so these committed records are its run history: which
+ * commit (and which uncommitted changes) ran, in which Firefox, with which
+ * per-test result. Pure functions only; the runner does the I/O.
+ */
+const { createHash } = require("node:crypto");
+const { relative } = require("node:path");
+
+/** Record format version, bumped when a field changes meaning. */
+const RECORD_VERSION = 1;
+
+/** Directory of the records, relative to the repository root. */
+const RECORDS_DIR = "e2e/firefox-runs";
+
+/** Longest failure message kept per test (the record stays reviewable). */
+const MAX_FAILURE_LENGTH = 2000;
+
+/**
+ * Git state of the run. `run` executes a git command and returns its stdout.
+ * Changes under `firefox-runs/` (earlier records not yet committed) do not
+ * count as uncommitted source changes.
+ */
+function collectGitInfo(run) {
+  const commit = run(["rev-parse", "HEAD"]).trim();
+  const branch = run(["rev-parse", "--abbrev-ref", "HEAD"]).trim();
+  const uncommittedFiles = run([
+    "status",
+    "--porcelain",
+    "--untracked-files=all",
+  ])
+    .split("\n")
+    .filter((line) => line.trim())
+    // A rename (`R  old -> new`) counts as its new path.
+    .map((line) => line.slice(3).split(" -> ").pop().trim())
+    .filter((file) => !file.startsWith(`${RECORDS_DIR}/`))
+    .sort();
+  const diff = uncommittedFiles.length
+    ? run(["diff", "HEAD", "--", ".", `:(exclude)${RECORDS_DIR}`])
+    : "";
+  return {
+    commit,
+    shortCommit: commit.slice(0, 9),
+    branch,
+    dirty: uncommittedFiles.length > 0,
+    uncommittedFiles,
+    // Identifies the tracked uncommitted changes the run included.
+    uncommittedDiffSha256: diff
+      ? createHash("sha256").update(diff).digest("hex")
+      : null,
+  };
+}
+
+function truncate(text) {
+  return text.length > MAX_FAILURE_LENGTH
+    ? `${text.slice(0, MAX_FAILURE_LENGTH)}… (${text.length - MAX_FAILURE_LENGTH} more chars)`
+    : text;
+}
+
+/**
+ * Totals and per-test results from the event lines of
+ * `firefox-run-reporter.mjs` (NDJSON). `rootDir` makes the file paths
+ * repository-relative. A test that started but has no result (the run hung or
+ * was stopped there) is listed in `unfinished`. Error messages of a test that
+ * passed on its retry are kept, so a flaky pass stays visible.
+ */
+function summarizeEvents(ndjson, rootDir) {
+  const events = ndjson
+    .split("\n")
+    .filter((line) => line.trim())
+    .flatMap((line) => {
+      try {
+        return [JSON.parse(line)];
+      } catch {
+        // A line cut off by a killed process.
+        return [];
+      }
+    });
+  const fileOf = (event) => relative(rootDir, event.file);
+  const keyOf = (event) => `${event.file}\u0000${event.name}`;
+  const finished = new Set();
+  const tests = [];
+  for (const event of events.filter((e) => e.type === "test")) {
+    finished.add(keyOf(event));
+    tests.push({
+      file: fileOf(event),
+      name: event.name,
+      status: event.state,
+      durationMs: event.durationMs,
+      ...(event.retryCount ? { retryCount: event.retryCount } : {}),
+      ...(event.errors?.length
+        ? { failureMessages: event.errors.map((message) => truncate(message)) }
+        : {}),
+    });
+  }
+  const unfinished = events
+    .filter((e) => e.type === "start" && !finished.has(keyOf(e)))
+    .map((e) => ({ file: fileOf(e), name: e.name }));
+  const moduleErrors = events
+    .filter((e) => e.type === "module")
+    .map((e) => ({ file: fileOf(e), errors: e.errors.map(truncate) }));
+  const end = events.find((e) => e.type === "end");
+  const count = (status) => tests.filter((t) => t.status === status).length;
+  return {
+    // false: vitest never reported the end of the run (hung, killed, crashed).
+    runEnded: !!end,
+    endReason: end?.reason ?? null,
+    unhandledErrors: (end?.errors ?? []).map(truncate),
+    totals: {
+      files: new Set([...tests, ...unfinished].map((t) => t.file)).size,
+      tests: tests.length,
+      passed: count("passed"),
+      failed: count("failed"),
+      skipped: tests.length - count("passed") - count("failed"),
+      unfinished: unfinished.length,
+    },
+    tests,
+    unfinished,
+    moduleErrors,
+  };
+}
+
+/** The record saved for one run. */
+function buildRecord({
+  git,
+  startedAt,
+  finishedAt,
+  exitCode,
+  outcome = "completed",
+  stopReason = null,
+  vitestArgs,
+  environment,
+  summary,
+}) {
+  return {
+    version: RECORD_VERSION,
+    suite: "e2e firefox (vitest.firefox.config.mts)",
+    commit: git.commit,
+    shortCommit: git.shortCommit,
+    branch: git.branch,
+    dirty: git.dirty,
+    uncommittedFiles: git.uncommittedFiles,
+    uncommittedDiffSha256: git.uncommittedDiffSha256,
+    startedAt: startedAt.toISOString(),
+    finishedAt: finishedAt.toISOString(),
+    durationSec: Math.round((finishedAt - startedAt) / 1000),
+    exitCode,
+    // completed: vitest exited by itself; timeout: the runner's time limit
+    // stopped it; interrupted: SIGINT / SIGTERM stopped the runner; error: the
+    // runner failed (server start, vitest spawn) before vitest finished.
+    outcome,
+    // Which limit stopped a `timeout` run (null otherwise).
+    stopReason,
+    result: outcome === "completed" && exitCode === 0 ? "passed" : "failed",
+    vitestArgs,
+    environment,
+    runEnded: summary.runEnded,
+    endReason: summary.endReason,
+    unhandledErrors: summary.unhandledErrors,
+    totals: summary.totals,
+    tests: summary.tests,
+    unfinished: summary.unfinished,
+    moduleErrors: summary.moduleErrors,
+  };
+}
+
+/** File name of a record: sortable by start time, then the commit. */
+function recordFileName(record) {
+  const stamp = record.startedAt.replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z");
+  return `${stamp}-${record.shortCommit}${record.dirty ? "-dirty" : ""}.json`;
+}
+
+module.exports = {
+  RECORDS_DIR,
+  RECORD_VERSION,
+  buildRecord,
+  collectGitInfo,
+  recordFileName,
+  summarizeEvents,
+};
