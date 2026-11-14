@@ -705,10 +705,10 @@ export class TransceiverManager {
       );
       reserve(codecs);
       offerCodecs.set(transceiver, codecs);
-      // As when an offer assigned the codecs: the request is consumed (a
-      // rollback restores it) and a later remote offer sets the codecs anyway.
-      transceiver.codecPreferencesNeedResolution = false;
-      transceiver.negotiatedCodecsStale = false;
+      // The resolution requests (`setCodecPreferences()`, `addTrack()`) stay:
+      // this offer may never be applied, and an answer created meanwhile
+      // (remote offer pending) must still resolve its codecs again. An
+      // answer that commits codecs clears them.
     }
 
     // A transceiver without a negotiated session (added to an existing

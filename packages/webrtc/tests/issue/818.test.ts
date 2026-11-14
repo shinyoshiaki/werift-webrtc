@@ -380,4 +380,29 @@ describeCases("issue 818: subsequent offers list every supported codec", () => {
       await expectSessionContinues(a, b);
     },
   );
+
+  negotiationCase(
+    "an unapplied offer created while a remote offer is pending keeps the codec preferences for the answer",
+    { ref: "origin: issue 818 (review: preference lost)" },
+    async (c) => {
+      // Arrange: 両側 VP8 + VP9 で確定し、a が再 offer して b が remote offer を保留する。
+      const config = { codecs: { video: [useVP8(), useVP9()] } };
+      const { a, b } = await c.given(
+        createConnectedVideoPeersWith({ offerer: config, answerer: config }),
+      );
+      await c.offer(a, { hold: true });
+      await c.setRemote(b, a.localDescription);
+      expect(b.signalingState).toEqual("have-remote-offer");
+
+      // Act: b が VP9 だけを選好し、適用しない offer を作ってから answer を作る。
+      b.getTransceivers()[0].setCodecPreferences([useVP9()]);
+      await b.createOffer();
+      const answer = await b.createAnswer();
+
+      // Assert: answer は選好した VP9 だけを返す。
+      expect(offeredVideoCodecs(answer.sdp)).toEqual(["VP9"]);
+      await c.answer(b);
+      expect(codecNames(b.getTransceivers()[0].codecs)).toEqual(["VP9"]);
+    },
+  );
 });

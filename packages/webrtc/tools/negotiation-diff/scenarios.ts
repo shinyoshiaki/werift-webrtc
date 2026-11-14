@@ -309,12 +309,14 @@ const scenarios: {
     // the first ICE / DTLS connection is still being made leaves that
     // connection unfinished about every other run, on develop as well, so it
     // is not what this row measures.
-    for (let i = 0; i < 100; i++) {
+    for (let i = 0; ; i++) {
       if (
         a.pc.connectionState === "connected" &&
         b.pc.connectionState === "connected"
-      )
+      ) {
         break;
+      }
+      if (i >= 100) throw new Error("the session did not connect");
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
     await a.pc.setLocalDescription(await a.pc.createOffer());
