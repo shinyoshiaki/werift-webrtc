@@ -47,6 +47,35 @@ export class Event<T extends any[]> {
     });
   };
 
+  /**
+   * Like {@link execute}, but every synchronous subscriber runs even if an
+   * earlier one throws: each exception is passed to `onError` instead of
+   * ending the iteration. For events whose later subscribers carry internal
+   * work (state propagation, cleanup) that an application subscriber
+   * registered before them must not be able to skip.
+   */
+  executeIsolated(onError: (error: unknown) => void, ...args: T) {
+    if (this.ended) {
+      return;
+    }
+
+    for (const item of this.event.stack) {
+      try {
+        item.execute(...args);
+      } catch (error) {
+        onError(error);
+      }
+    }
+
+    (async () => {
+      for (const item of this.event.promiseStack) {
+        await item.execute(...args);
+      }
+    })().catch((e) => {
+      this.onerror(e);
+    });
+  }
+
   complete = () => {
     if (this.ended) {
       return;
