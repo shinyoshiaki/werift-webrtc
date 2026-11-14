@@ -184,6 +184,49 @@ describe("icecandidateerror", () => {
     ]);
   });
 
+  test("配送中のイベントは target / currentTarget が RTCPeerConnection、eventPhase が AT_TARGET になる", async () => {
+    // Arrange: 3 経路で配送中の値を記録する
+    const stun = await createErrorStunServer(400, "Bad Request");
+    const { pc, listened } = createErrorRecordingPeer({
+      iceServers: [{ urls: `stun:${errorTestHost}:${stun.address[1]}` }],
+    });
+    type Seen = { target: unknown; currentTarget: unknown; eventPhase: number };
+    const seen: Record<string, Seen> = {};
+    const snapshot = (e: Event): Seen => ({
+      target: e.target,
+      currentTarget: e.currentTarget,
+      eventPhase: e.eventPhase,
+    });
+    pc.onIceCandidateError.subscribe((e) => {
+      seen.subscribe = snapshot(e);
+    });
+    pc.onicecandidateerror = (e) => {
+      seen.handler = snapshot(e);
+    };
+    pc.addEventListener("icecandidateerror", (e) => {
+      seen.listener = snapshot(e);
+    });
+    try {
+      // Act: gathering を完了させる
+      await gatherWithOffer(pc);
+
+      // Assert: どの経路でも配送元が接続で AT_TARGET、配送後は currentTarget が null
+      for (const key of ["subscribe", "handler", "listener"]) {
+        expect(seen[key]).toEqual({
+          target: pc,
+          currentTarget: pc,
+          eventPhase: 2,
+        });
+      }
+      expect(listened[0].target).toBe(pc);
+      expect(listened[0].currentTarget).toBeNull();
+      expect(listened[0].eventPhase).toBe(0);
+    } finally {
+      await pc.close();
+      await stun.close();
+    }
+  });
+
   test("1 つの STUN を指す複数の URL (stun: と stuns:) は URL ごとに 1 件ずつ通知される", async () => {
     // Arrange
     const stun = await createErrorStunServer(500, "Server Error");

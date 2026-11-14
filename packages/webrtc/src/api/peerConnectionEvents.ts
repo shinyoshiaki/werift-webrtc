@@ -46,8 +46,12 @@ export interface RTCPeerConnectionIceErrorEventInit {
 /**
  * `icecandidateerror` (W3C WebRTC §4.8.2): a configured STUN or TURN server
  * could not give a candidate while gathering. `RTCPeerConnection` fires one
- * per failing server URL, local socket and gathering generation, never after
- * `close()`.
+ * per failing server URL and gathering generation, never after `close()`.
+ * A server that answered with an error (300-699) is reported once per local
+ * socket that asked it; a 701 (not reached) once per URL however many
+ * sockets tried. While listeners run, `target` and `currentTarget` are the
+ * `RTCPeerConnection` and `eventPhase` is 2 (`AT_TARGET`); afterwards
+ * `currentTarget` is `null` and `eventPhase` 0.
  *
  * - `url`: the configured URL of the server, canonical: trimmed, lower-case
  *   scheme, and `?transport=tcp` added to a `turns:` URL that names no
@@ -60,8 +64,8 @@ export interface RTCPeerConnectionIceErrorEventInit {
  * - `errorText`: the server's reason phrase or a fixed description; it never
  *   contains a credential.
  * - `address` / `port`: the local host address used to contact a STUN
- *   server; `null` / `0` when unknown (TURN) or hidden (the `"relay"` ICE
- *   transport policy).
+ *   server; both `null` when unknown (TURN) or hidden (the `"relay"` ICE
+ *   transport policy), as in the W3C spec.
  */
 export class RTCPeerConnectionIceErrorEvent extends Event {
   readonly address: string | null;

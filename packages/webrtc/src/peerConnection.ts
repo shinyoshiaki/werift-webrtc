@@ -922,6 +922,22 @@ export class RTCPeerConnection extends EventTarget {
         "icecandidateerror",
         details,
       );
+      // Not dispatched through a native EventTarget, so set what a listener
+      // sees of the dispatch itself (W3C DOM: target, currentTarget, phase).
+      const setDispatchState = (currentTarget: unknown, eventPhase: number) => {
+        for (const [key, value] of Object.entries({
+          target: this,
+          currentTarget,
+          eventPhase,
+        })) {
+          Object.defineProperty(event, key, {
+            value,
+            configurable: true,
+            enumerable: false,
+          });
+        }
+      };
+      setDispatchState(this, 2);
       // One throwing handler must not hide the event from the others.
       for (const notify of [
         () => this.onIceCandidateError.execute(event),
@@ -937,6 +953,7 @@ export class RTCPeerConnection extends EventTarget {
           log("icecandidateerror handler threw", error);
         }
       }
+      setDispatchState(null, 0);
     });
     iceTransport.onIceCandidate.subscribe((candidate) => {
       if (
