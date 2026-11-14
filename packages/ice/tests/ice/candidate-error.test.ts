@@ -44,6 +44,7 @@ import {
   errorResponse,
   hostCandidate,
   recordCandidateErrors,
+  recordServerReached,
   singleIpv4Socket,
   twoIpv4Sockets,
 } from "./candidateErrorUtils";
@@ -509,6 +510,72 @@ describe("onIceCandidateError: mixed and lifecycle", () => {
     } finally {
       await connection.close();
       await silent.close();
+    }
+  });
+});
+
+describe("onIceServerReached", () => {
+  test("STUN の成功応答とエラー応答は到達として通知され、無応答は通知されない", async () => {
+    // Arrange: 成功を返す STUN、400 を返す STUN、応答しない STUN
+    const good = await createFixedMappingStunServer(candidateErrorHost, [
+      "203.0.113.1",
+      40000,
+    ]);
+    const failing = await createErrorStunServer(400, "Bad Request");
+    const silent = await createSilentUdpServer(candidateErrorHost);
+    const { connection } = createRecordingAgent({
+      stunServers: [good.address, failing.address, silent.address],
+      stunGatherTimeout: 0.3,
+    });
+    const reached = recordServerReached(connection);
+    try {
+      // Act: 候補収集を完了まで待つ
+      await connection.gatherCandidates();
+
+      // Assert: 応答した 2 サーバーだけが現在の世代で到達として通知される
+      expect(
+        reached.map(({ server, generation }) => [server.address, generation]),
+      ).toEqual(
+        expect.arrayContaining([
+          [good.address, connection.generation],
+          [failing.address, connection.generation],
+        ]),
+      );
+      expect(reached).toHaveLength(2);
+    } finally {
+      await connection.close();
+      await good.close();
+      await failing.close();
+      await silent.close();
+    }
+  });
+
+  test("TURN の割り当て成功は到達として通知される", async () => {
+    // Arrange
+    const server = await createLocalTurnServer(candidateErrorHost);
+    const { connection } = createRecordingAgent({
+      turnServers: [
+        { ...localTurnServerEntry(server), urls: ["turn:example.test:3478"] },
+      ],
+      forceTurn: true,
+    });
+    const reached = recordServerReached(connection);
+    try {
+      // Act: 候補収集を完了まで待つ
+      await connection.gatherCandidates();
+
+      // Assert: TURN サーバーが URL 付きで 1 回通知される
+      expect(reached.map(({ server }) => server)).toEqual([
+        {
+          kind: "turn",
+          address: server.address,
+          transport: "udp",
+          urls: ["turn:example.test:3478"],
+        },
+      ]);
+    } finally {
+      await connection.close();
+      await server.close();
     }
   });
 });

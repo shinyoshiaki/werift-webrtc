@@ -130,6 +130,14 @@ A configured STUN / TURN URL failed while gathering (see RTCIceGatherer.onIceCan
 
 ***
 
+### onIceServerReached
+
+> `readonly` **onIceServerReached**: [`Event`](Event.md)\<\[`string`[]\]\>
+
+URLs of a STUN / TURN server that answered while gathering (see RTCIceGatherer.onIceServerReached).
+
+***
+
 ### onNegotiationNeeded
 
 > `readonly` **onNegotiationNeeded**: [`Event`](Event.md)\<\[\]\>

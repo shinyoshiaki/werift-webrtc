@@ -12,6 +12,7 @@ import {
   type GatherErrorContext,
   IceCandidateErrorCode,
   type IceCandidateErrorInfo,
+  type IceServerReachedInfo,
   type IceServerRef,
   pickReportedGatherError,
 } from "./candidateError";
@@ -213,6 +214,13 @@ export class Connection implements IceConnection {
    * synthesized URL {@link DEFAULT_STUN_SERVER_URL} in `server.urls`.
    */
   readonly onIceCandidateError = new Event<[IceCandidateErrorInfo]>();
+  /**
+   * A STUN or TURN server of the current generation's gathering answered:
+   * a STUN query or TURN allocation gave a candidate, or the server sent an
+   * error response (see {@link IceServerReachedInfo}). Synchronous; nothing
+   * is fired for a replaced generation or after close.
+   */
+  readonly onIceServerReached = new Event<[IceServerReachedInfo]>();
 
   constructor(_iceControlling: boolean, options?: Partial<IceOptions>) {
     this._iceControlling = _iceControlling;
@@ -1080,6 +1088,20 @@ export class Connection implements IceConnection {
     }
   }
 
+  /** Report that `server` answered the gathering whose `stale` is given. */
+  private emitServerReached(
+    stale: () => boolean,
+    generation: number,
+    server: IceServerRef,
+  ) {
+    if (stale() || this.closing.signal.aborted) return;
+    try {
+      this.onIceServerReached.execute({ server, generation });
+    } catch (error) {
+      log("onIceServerReached listener threw", error);
+    }
+  }
+
   private ensureProtocol(protocol: Protocol) {
     protocol.onRequestReceived.subscribe((msg, addr, data) => {
       if (msg.messageMethod !== methods.BINDING) {
@@ -1542,8 +1564,11 @@ export class Connection implements IceConnection {
         : undefined;
       // The first of the query's outcome and the timeout settles it.
       let settledQuery = false;
-      let outcome: StunServerOutcome["unreached"] | "reached" | "skipped" =
-        "skipped";
+      // Assigned in the callbacks below (not narrowed by the initializer).
+      let outcome = "skipped" as
+        | StunServerOutcome["unreached"]
+        | "reached"
+        | "skipped";
       const fail = (failure: { errorCode: number; errorText: string }) => {
         if (failure.errorCode === IceCandidateErrorCode.SERVER_NOT_REACHED) {
           outcome = { failure, local };
@@ -1591,6 +1616,9 @@ export class Connection implements IceConnection {
         }),
       ]);
       clearTimeout(timer);
+      if (outcome === "reached") {
+        this.emitServerReached(stale, generation, stunServerRef(server));
+      }
       settled.add(server);
       settleStunServer(server, outcome);
       return candidate;
@@ -1755,12 +1783,15 @@ export class Connection implements IceConnection {
       .catch((error) => {
         // A cancelled attempt (close) is not a failure of the server.
         if (failures[failures.length - 1] !== undefined) {
-          this.emitCandidateError(
-            stale,
-            generation,
-            ref,
-            pickReportedGatherError(failures),
-          );
+          const reported = pickReportedGatherError(failures);
+          this.emitCandidateError(stale, generation, ref, reported);
+          // An error response: the server answered (reached).
+          if (
+            reported &&
+            reported.errorCode !== IceCandidateErrorCode.SERVER_NOT_REACHED
+          ) {
+            this.emitServerReached(stale, generation, ref);
+          }
         }
         throw error;
       });
@@ -1770,6 +1801,7 @@ export class Connection implements IceConnection {
       await protocol.close();
       return;
     }
+    this.emitServerReached(stale, generation, ref);
     protocol.configuredTransport = transport;
     this.ensureProtocol(protocol);
     this.protocols.push(protocol);
@@ -2228,6 +2260,7 @@ export class Connection implements IceConnection {
     this.closed = true;
     this.setState("closed");
     this.onIceCandidateError.complete();
+    this.onIceServerReached.complete();
     this.signalClosed();
     this.closing.abort();
     this.cancelChecks();

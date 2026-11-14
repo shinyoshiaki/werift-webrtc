@@ -45,17 +45,22 @@ export interface RTCPeerConnectionIceErrorEventInit {
 
 /**
  * `icecandidateerror` (W3C WebRTC §4.8.2): a configured STUN or TURN server
- * could not give a candidate while gathering. `RTCPeerConnection` fires one
- * per failing server URL and gathering generation, never after `close()`.
- * A server that answered with an error (300-699) is reported once per local
- * socket that asked it. A 701 (not reached) means no host candidate reached
- * the server: it is fired once per URL per gathering (until
- * `iceGatheringState` enters "gathering" again, as after an ICE restart),
- * and only when no local socket of any ICE transport taking part in that
- * gathering reached it (a transport that only gathered in an earlier one,
- * such as an existing transport when a new m-line adds one with
- * `bundlePolicy: "disable"`, does not count). While
- * listeners run, `target` and `currentTarget` are the
+ * could not give a candidate while gathering. Never fired after `close()`.
+ *
+ * - A server that answered with an error response (300-699): fired at once,
+ *   once per local socket that asked it.
+ * - 701 (server not reached, W3C: no host candidate could reach it): judged
+ *   once per gathering, when `iceGatheringState` leaves "gathering" (just
+ *   before that `icegatheringstatechange`), and fired once per URL that some
+ *   ICE transport of the gathering tried without reaching the server while
+ *   none reached it. Only transports still in use at that point count, with
+ *   the ICE generation they gathered in: one closed or discarded (rollback)
+ *   meanwhile, one that did not try the URL, and a generation an ICE restart
+ *   replaced do not count. The event carries the local address of the first
+ *   socket that failed (STUN). A new gathering (ICE restart, a new transport)
+ *   reports the URL again.
+ *
+ * While listeners run, `target` and `currentTarget` are the
  * `RTCPeerConnection` and `eventPhase` is 2 (`AT_TARGET`); afterwards
  * `currentTarget` is `null` and `eventPhase` 0.
  *

@@ -25,7 +25,9 @@ import {
   errorTestHost,
   gatheringComplete,
   gatherWithOffer,
+  holdGathering,
   hostPortOf,
+  useNoIceServers,
 } from "./iceCandidateErrorUtils";
 
 describe("icecandidateerror", () => {
@@ -524,6 +526,55 @@ describe("icecandidateerror", () => {
     } finally {
       await pc.close();
       await server.close();
+    }
+  });
+
+  test("gathering 中に結果を出さずに抜けた transport は、他の transport の 701 を妨げない", async () => {
+    // Arrange: bundle なし 2 transport と応答しない STUN。映像 transport は収集を始めたまま止めておく
+    const { pc, listened, url, silent } =
+      await createUnbundledUnreachablePeer();
+    const offer = await pc.createOffer();
+    const [audio, video] = pc.iceTransports;
+    const release = holdGathering(video);
+    try {
+      const applying = pc.setLocalDescription(offer);
+      await delay(800);
+
+      // Act: 音声 transport が 701 で失敗した後に、映像 transport を結果なしで止める
+      await video.stop();
+      release();
+      await applying;
+      await gatheringComplete(pc);
+
+      // Assert: 抜けた transport は判定から外れ、音声 transport の 701 が 1 件届く
+      expect(
+        listened.map(({ url, errorCode, port }) => [url, errorCode, port]),
+      ).toEqual([[url, 701, hostPortOf(audio)]]);
+    } finally {
+      release();
+      await pc.close();
+      await silent.close();
+    }
+  });
+
+  test("その URL を試さなかった transport は、試して届かなかった transport の 701 を妨げない", async () => {
+    // Arrange: bundle なし 2 transport と応答しない STUN。映像 transport だけ STUN を使わない構成にする
+    const { pc, listened, url, silent } =
+      await createUnbundledUnreachablePeer();
+    const offer = await pc.createOffer();
+    const [audio, video] = pc.iceTransports;
+    useNoIceServers(video);
+    try {
+      // Act: 両 transport の gathering を完了させる
+      await pc.setLocalDescription(offer);
+
+      // Assert: URL を試したのは音声 transport だけで、その 701 が 1 件届く
+      expect(
+        listened.map(({ url, errorCode, port }) => [url, errorCode, port]),
+      ).toEqual([[url, 701, hostPortOf(audio)]]);
+    } finally {
+      await pc.close();
+      await silent.close();
     }
   });
 

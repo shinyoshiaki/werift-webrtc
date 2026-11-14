@@ -1,3 +1,4 @@
+import type { Connection } from "../../../ice/src/ice";
 import { getHostAddresses } from "../../../ice/src/utils";
 import {
   createErrorStunServer,
@@ -131,4 +132,38 @@ export function hostPortOf(transport: RTCIceTransport) {
   return transport.connection.localCandidates.find(
     (candidate) => candidate.type === "host",
   )?.port;
+}
+
+/**
+ * Hold the gathering of `transport`: it enters "gathering" but queries no
+ * server until the returned `release()`. A transport closed meanwhile
+ * gathers nothing after the release.
+ */
+export function holdGathering(transport: RTCIceTransport) {
+  const connection = transport.connection as Connection;
+  const gatherCandidates = connection.gatherCandidates.bind(connection);
+  let release!: () => void;
+  const released = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  vi.spyOn(connection, "gatherCandidates").mockImplementation(async () => {
+    await released;
+    if (connection.state === "closed") return;
+    return gatherCandidates();
+  });
+  return release;
+}
+
+/**
+ * Make `transport` query no STUN / TURN server in its next gathering, as a
+ * transport that gathers with another server configuration than the
+ * others.
+ */
+export function useNoIceServers(transport: RTCIceTransport) {
+  (transport.connection as Connection).setIceServers({
+    stunServers: [],
+    stunServerUrls: [],
+    turnServers: [],
+    useDefaultStunServer: false,
+  });
 }

@@ -1,7 +1,10 @@
 import * as dgram from "node:dgram";
 import type { Address } from "../../../common/src";
 import { Candidate } from "../../src/candidate";
-import type { IceCandidateErrorInfo } from "../../src/candidateError";
+import type {
+  IceCandidateErrorInfo,
+  IceServerReachedInfo,
+} from "../../src/candidateError";
 import type { Connection } from "../../src/ice";
 import type { IceOptions } from "../../src/iceBase";
 import { classes, methods } from "../../src/stun/const";
@@ -28,6 +31,13 @@ export function recordCandidateErrors(connection: Connection) {
   const errors: IceCandidateErrorInfo[] = [];
   connection.onIceCandidateError.subscribe((info) => errors.push(info));
   return errors;
+}
+
+/** Every `onIceServerReached` of `connection`, in order. */
+export function recordServerReached(connection: Connection) {
+  const reached: IceServerReachedInfo[] = [];
+  connection.onIceServerReached.subscribe((info) => reached.push(info));
+  return reached;
 }
 
 /** An agent with one IPv4 UDP host socket and `options`, recording its errors. */

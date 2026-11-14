@@ -104,6 +104,15 @@ implementations of this interface keep compiling.
 
 ***
 
+### onIceServerReached?
+
+> `readonly` `optional` **onIceServerReached?**: [`Event`](../classes/Event.md)\<\[[`IceServerReachedInfo`](../type-aliases/IceServerReachedInfo.md)\]\>
+
+A STUN or TURN server of the current generation's gathering answered
+(see [IceServerReachedInfo](../type-aliases/IceServerReachedInfo.md)). Optional like onIceCandidateError.
+
+***
+
 ### options
 
 > **options**: [`IceOptions`](IceOptions.md)

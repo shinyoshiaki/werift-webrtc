@@ -55,6 +55,20 @@ export type IceCandidateErrorInfo = {
 };
 
 /**
+ * A STUN or TURN server a gathering used answered (`Connection
+ * .onIceServerReached`): a STUN query or TURN allocation gave a candidate,
+ * or the server answered with an error response (300-699). A server that
+ * answered is reachable, so `icecandidateerror` reports no 701 for it.
+ * Only for the generation gathering and never after close; a STUN server
+ * may be reported once per local socket that reached it.
+ */
+export type IceServerReachedInfo = {
+  server: IceServerRef;
+  /** Gathering generation the answer belongs to. */
+  generation: number;
+};
+
+/**
  * Error codes of {@link IceCandidateErrorInfo} besides the STUN ones
  * (W3C WebRTC §4.8.2: 701 when the server could not be reached).
  * @enum

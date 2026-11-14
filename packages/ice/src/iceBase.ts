@@ -2,6 +2,7 @@ import { randomUUID } from "crypto";
 import { Candidate, candidateFoundation, candidatePriority } from "./candidate";
 import {
   type IceCandidateErrorInfo,
+  type IceServerReachedInfo,
   MissingMappedAddressError,
 } from "./candidateError";
 import type { MdnsLookup } from "./dns/lookup";
@@ -68,6 +69,11 @@ export interface IceConnection {
    * implementations of this interface keep compiling.
    */
   readonly onIceCandidateError?: Event<[IceCandidateErrorInfo]>;
+  /**
+   * A STUN or TURN server of the current generation's gathering answered
+   * (see {@link IceServerReachedInfo}). Optional like onIceCandidateError.
+   */
+  readonly onIceServerReached?: Event<[IceServerReachedInfo]>;
 
   restart(): void;
   /** Record the remote `a=ice-options` tokens (see remoteIceOptions). */

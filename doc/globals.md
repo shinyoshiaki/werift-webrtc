@@ -290,6 +290,7 @@
 - [IceCandidateErrorInfo](type-aliases/IceCandidateErrorInfo.md)
 - [IceGathererState](type-aliases/IceGathererState.md)
 - [IceServerFields](type-aliases/IceServerFields.md)
+- [IceServerReachedInfo](type-aliases/IceServerReachedInfo.md)
 - [IceServerRef](type-aliases/IceServerRef.md)
 - [IceState](type-aliases/IceState.md)
 - [InterfaceAddresses](type-aliases/InterfaceAddresses.md)

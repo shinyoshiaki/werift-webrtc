@@ -216,6 +216,8 @@ export class RTCIceTransport {
   readonly onIceCandidate = new Event<[IceCandidate | undefined]>();
   /** A configured STUN / TURN URL failed while gathering (see RTCIceGatherer.onIceCandidateError). */
   readonly onIceCandidateError = new Event<[IceCandidateErrorDetails]>();
+  /** URLs of a STUN / TURN server that answered while gathering (see RTCIceGatherer.onIceServerReached). */
+  readonly onIceServerReached = new Event<[string[]]>();
   readonly onNegotiationNeeded = new Event<[]>();
 
   constructor(iceGather: RTCIceGatherer) {
@@ -231,6 +233,10 @@ export class RTCIceTransport {
     this.iceGather.onIceCandidateError = (error) => {
       if (this.state === "closed") return;
       this.onIceCandidateError.execute(error);
+    };
+    this.iceGather.onIceServerReached = (urls) => {
+      if (this.state === "closed") return;
+      this.onIceServerReached.execute(urls);
     };
     this.iceGather.onGatheringStateChange.subscribe(() => {
       this.ongatheringstatechange?.();
@@ -851,6 +857,7 @@ export class RTCIceTransport {
     this.onStateChange.complete();
     this.onIceCandidate.complete();
     this.onIceCandidateError.complete();
+    this.onIceServerReached.complete();
     this.onNegotiationNeeded.complete();
   }
 
@@ -982,6 +989,11 @@ export class RTCIceGatherer {
    * configured URL naming it (see iceCandidateErrorDetails).
    */
   onIceCandidateError: (error: IceCandidateErrorDetails) => void = () => {};
+  /**
+   * A server of the current generation's gathering answered (a candidate or
+   * an error response): called with the URLs naming it.
+   */
+  onIceServerReached: (urls: string[]) => void = () => {};
   gatheringState: IceGathererState = "new";
   readonly connection: IceConnection;
   private unreachableUrls = { generation: -1, urls: new Set<string>() };
@@ -993,6 +1005,21 @@ export class RTCIceGatherer {
     this.connection = new Connection(false, this.options);
     this.connection.onIceCandidate.subscribe((candidate) => {
       this.onIceCandidate(candidateFromIce(candidate));
+    });
+    this.connection.onIceServerReached?.subscribe((info) => {
+      if (
+        info.generation !== this.connection.generation ||
+        this.connection.state === "closed"
+      ) {
+        return;
+      }
+      const urls = [...new Set(info.server.urls ?? [])];
+      if (urls.length === 0) return;
+      try {
+        this.onIceServerReached(urls);
+      } catch (error) {
+        log("onIceServerReached listener threw", error);
+      }
     });
     this.connection.onIceCandidateError?.subscribe((info) => {
       // Only the generation gathering now (the ICE agent drops stale ones).
@@ -1036,12 +1063,15 @@ export class RTCIceGatherer {
       this.setState("gathering");
       const generation = this.connection.generation;
       await this.connection.gatherCandidates();
-      // Gathering an ICE restart (or close) replaced in the meantime does not
-      // complete the new generation: that one signals its own end.
-      if (
-        this.connection.generation !== generation ||
-        this.connection.state === "closed"
-      ) {
+      // Gathering an ICE restart replaced in the meantime does not complete
+      // the new generation: that one signals its own end.
+      if (this.connection.generation !== generation) return;
+      // A transport closed mid-gathering gathers nothing more: it ends as
+      // "complete" (no end-of-candidates), so the aggregate
+      // iceGatheringState and its icecandidateerror judgement do not wait
+      // for it forever.
+      if (this.connection.state === "closed") {
+        this.setState("complete");
         return;
       }
       this.onIceCandidate(undefined);

@@ -160,6 +160,21 @@ synthesized URL [DEFAULT\_STUN\_SERVER\_URL](../variables/DEFAULT_STUN_SERVER_UR
 
 ***
 
+### onIceServerReached
+
+> `readonly` **onIceServerReached**: `Event`\<\[[`IceServerReachedInfo`](../type-aliases/IceServerReachedInfo.md)\]\>
+
+A STUN or TURN server of the current generation's gathering answered:
+a STUN query or TURN allocation gave a candidate, or the server sent an
+error response (see [IceServerReachedInfo](../type-aliases/IceServerReachedInfo.md)). Synchronous; nothing
+is fired for a replaced generation or after close.
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`onIceServerReached`](../interfaces/IceConnection.md#oniceserverreached)
+
+***
+
 ### options
 
 > **options**: [`IceOptions`](../interfaces/IceOptions.md)

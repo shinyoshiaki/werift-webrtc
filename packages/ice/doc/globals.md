@@ -41,6 +41,7 @@
 - [GatherErrorContext](type-aliases/GatherErrorContext.md)
 - [IceCandidateErrorInfo](type-aliases/IceCandidateErrorInfo.md)
 - [IceServerFields](type-aliases/IceServerFields.md)
+- [IceServerReachedInfo](type-aliases/IceServerReachedInfo.md)
 - [IceServerRef](type-aliases/IceServerRef.md)
 - [IceState](type-aliases/IceState.md)
 - [MessageIntegrityAlgorithm](type-aliases/MessageIntegrityAlgorithm.md)

@@ -75,6 +75,25 @@ configured URL naming it (see iceCandidateErrorDetails).
 
 `void`
 
+***
+
+### onIceServerReached
+
+> **onIceServerReached**: (`urls`) => `void`
+
+A server of the current generation's gathering answered (a candidate or
+an error response): called with the URLs naming it.
+
+#### Parameters
+
+##### urls
+
+`string`[]
+
+#### Returns
+
+`void`
+
 ## Accessors
 
 ### localCandidates

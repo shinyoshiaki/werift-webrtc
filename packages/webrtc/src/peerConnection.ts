@@ -60,6 +60,7 @@ import { type RTCSessionDescriptionInit, SDPManager } from "./sdpManager";
 import { SecureTransportManager } from "./secureTransportManager";
 import type { DtlsRole, RTCDtlsTransport } from "./transport/dtls";
 import type {
+  IceCandidateErrorDetails,
   IceGathererState,
   RTCIceCandidate,
   RTCIceCandidateInit,
@@ -164,33 +165,23 @@ export class RTCPeerConnection extends EventTarget {
   private isClosed = false;
   private applyingIceRestart = false;
   /**
-   * URLs an `icecandidateerror` 701 was fired for in the current gathering
-   * (W3C: once per server URL while gathering), across all ICE transports.
-   * Cleared when `iceGatheringState` enters "gathering" again (ICE restart,
-   * a new transport).
+   * The current gathering's STUN / TURN outcomes by URL, for the 701 of
+   * `icecandidateerror` (see RTCPeerConnectionIceErrorEvent): the
+   * transports that reached the server, and the 701s of the transports
+   * that tried and did not, in order. Judged once when `iceGatheringState`
+   * leaves "gathering" (fireUnreachableServerErrors) and cleared when it
+   * enters "gathering".
    */
-  private readonly unreachableErrorUrls = new Set<string>();
-  /**
-   * URLs each ICE transport's current ICE generation could not reach (a
-   * 701 from it). W3C: a 701 means no host candidate reached the server, so
-   * it is fired only when every transport taking part in the gathering
-   * failed to reach the URL; one that reached it never reports it.
-   */
-  private readonly unreachableUrlsByTransport = new WeakMap<
-    RTCIceTransport,
-    { generation: number; urls: Set<string> }
-  >();
-  /**
-   * The current gathering: counted up each time `iceGatheringState` enters
-   * "gathering". A transport takes part in the gathering it started
-   * gathering in (gatheringOfTransport); one that only gathered in an
-   * earlier one (an existing transport when a new m-line adds one) does not
-   * hold back the 701 of this gathering.
-   */
-  private gatheringNumber = 0;
-  private readonly gatheringOfTransport = new WeakMap<
-    RTCIceTransport,
-    number
+  private gatheringServerOutcomes = new Map<
+    string,
+    {
+      reached: { transport: RTCIceTransport; generation: number }[];
+      unreached: {
+        transport: RTCIceTransport;
+        generation: number;
+        details: IceCandidateErrorDetails;
+      }[];
+    }
   >();
   /**
    * The last operation of the chain: `done` when it finished, `applied` when
@@ -425,14 +416,10 @@ export class RTCPeerConnection extends EventTarget {
     );
     this.secureManager.iceGatheringStateChange.subscribe((state) => {
       if (state === "gathering") {
-        // A new gathering: the transports gathering now take part in it.
-        this.gatheringNumber++;
-        this.unreachableErrorUrls.clear();
-        for (const transport of this.secureManager.iceTransports) {
-          if (transport.gatheringState === "gathering") {
-            this.gatheringOfTransport.set(transport, this.gatheringNumber);
-          }
-        }
+        this.gatheringServerOutcomes = new Map();
+      } else {
+        // The gathering ended: its 701s fire before the state change.
+        this.fireUnreachableServerErrors();
       }
       this.iceGatheringStateChange.execute(state);
       this.onicegatheringstatechange?.(
@@ -504,37 +491,93 @@ export class RTCPeerConnection extends EventTarget {
     return this.secureManager.iceTransports;
   }
 
-  /**
-   * Record that `failed`'s current ICE generation could not reach `url`;
-   * true when every ICE transport taking part in the current gathering (it
-   * started gathering in it; not pending only, not closed) could not reach
-   * it either.
-   */
-  private allTransportsUnreachable(failed: RTCIceTransport, url: string) {
-    const generationOf = (transport: RTCIceTransport) =>
-      transport.connection.generation;
-    let record = this.unreachableUrlsByTransport.get(failed);
-    if (!record || record.generation !== generationOf(failed)) {
-      record = { generation: generationOf(failed), urls: new Set() };
-      this.unreachableUrlsByTransport.set(failed, record);
+  /** The outcome record of `url` in the current gathering. */
+  private gatheringServerOutcome(url: string) {
+    let outcome = this.gatheringServerOutcomes.get(url);
+    if (!outcome) {
+      outcome = { reached: [], unreached: [] };
+      this.gatheringServerOutcomes.set(url, outcome);
     }
-    record.urls.add(url);
-    return this.secureManager.iceTransports
-      .filter(
+    return outcome;
+  }
+
+  /**
+   * Judge the gathering that just ended (W3C: a 701 means no host candidate
+   * reached the server, once per URL per gathering): fire one 701 for each
+   * URL some transport tried without reaching it and none reached. Only
+   * transports still live count (not closed, not pending only), with the
+   * ICE generation they had: one that left during the gathering, or whose
+   * generation an ICE restart replaced, neither reached nor failed for it.
+   * The event carries the first counted failure (its local address and
+   * text).
+   */
+  private fireUnreachableServerErrors() {
+    const outcomes = this.gatheringServerOutcomes;
+    this.gatheringServerOutcomes = new Map();
+    if (this.isClosed) return;
+    const live = new Set(
+      this.secureManager.iceTransports.filter(
         (transport) =>
-          (transport === failed ||
-            this.gatheringOfTransport.get(transport) ===
-              this.gatheringNumber) &&
           transport.state !== "closed" &&
           !this.negotiation.isPendingOnlyTransport(transport.id),
-      )
-      .every((transport) => {
-        const known = this.unreachableUrlsByTransport.get(transport);
-        return (
-          known?.generation === generationOf(transport) && known.urls.has(url)
-        );
-      });
+      ),
+    );
+    const counts = (entry: {
+      transport: RTCIceTransport;
+      generation: number;
+    }) =>
+      live.has(entry.transport) &&
+      entry.transport.connection.generation === entry.generation;
+    for (const { reached, unreached } of outcomes.values()) {
+      if (reached.some(counts)) continue;
+      const first = unreached.find(counts);
+      if (first) this.dispatchIceCandidateError(first.details);
+    }
   }
+
+  /**
+   * Dispatch an `icecandidateerror` to `onIceCandidateError`,
+   * `onicecandidateerror` and the listeners, with one event object.
+   */
+  private dispatchIceCandidateError(details: IceCandidateErrorDetails) {
+    const event = new RTCPeerConnectionIceErrorEvent(
+      "icecandidateerror",
+      details,
+    );
+    // Not dispatched through a native EventTarget, so set what a listener
+    // sees of the dispatch itself (W3C DOM: target, currentTarget, phase).
+    const setDispatchState = (currentTarget: unknown, eventPhase: number) => {
+      for (const [key, value] of Object.entries({
+        target: this,
+        currentTarget,
+        eventPhase,
+      })) {
+        Object.defineProperty(event, key, {
+          value,
+          configurable: true,
+          enumerable: false,
+        });
+      }
+    };
+    setDispatchState(this, 2);
+    // One throwing handler must not hide the event from the others.
+    for (const notify of [
+      () => this.onIceCandidateError.execute(event),
+      () => this.onicecandidateerror?.(event),
+      // EventEmitter stops at the first throwing listener: call each one.
+      ...this.rawListeners("icecandidateerror").map(
+        (listener) => () => listener.call(this, event),
+      ),
+    ]) {
+      try {
+        notify();
+      } catch (error) {
+        log("icecandidateerror handler threw", error);
+      }
+    }
+    setDispatchState(null, 0);
+  }
+
   get extIdUriMap() {
     return this.router.extIdUriMap;
   }
@@ -980,14 +1023,18 @@ export class RTCPeerConnection extends EventTarget {
     iceTransport.onNegotiationNeeded.subscribe(() => {
       this.needNegotiation();
     });
-    iceTransport.addEventListener("gatheringstatechange", () => {
-      // Starting to gather while a gathering is under way joins it; one that
-      // starts a new gathering joins it when iceGatheringState changes.
+    iceTransport.onIceServerReached.subscribe((urls) => {
       if (
-        iceTransport.gatheringState === "gathering" &&
-        this.secureManager.iceGatheringState === "gathering"
+        this.isClosed ||
+        this.negotiation.isPendingOnlyTransport(iceTransport.id)
       ) {
-        this.gatheringOfTransport.set(iceTransport, this.gatheringNumber);
+        return;
+      }
+      for (const url of urls) {
+        this.gatheringServerOutcome(url).reached.push({
+          transport: iceTransport,
+          generation: iceTransport.connection.generation,
+        });
       }
     });
     iceTransport.onIceCandidateError.subscribe((details) => {
@@ -999,49 +1046,17 @@ export class RTCPeerConnection extends EventTarget {
       ) {
         return;
       }
-      // A 701 (server not reached) once per URL per gathering, and only when
-      // no transport (bundlePolicy "disable") reached the URL.
+      // A 701 waits for the end of the gathering (fireUnreachableServerErrors);
+      // a server's error response (300-699) fires now.
       if (details.errorCode === 701) {
-        if (!this.allTransportsUnreachable(iceTransport, details.url)) return;
-        if (this.unreachableErrorUrls.has(details.url)) return;
-        this.unreachableErrorUrls.add(details.url);
+        this.gatheringServerOutcome(details.url).unreached.push({
+          transport: iceTransport,
+          generation: iceTransport.connection.generation,
+          details,
+        });
+        return;
       }
-      const event = new RTCPeerConnectionIceErrorEvent(
-        "icecandidateerror",
-        details,
-      );
-      // Not dispatched through a native EventTarget, so set what a listener
-      // sees of the dispatch itself (W3C DOM: target, currentTarget, phase).
-      const setDispatchState = (currentTarget: unknown, eventPhase: number) => {
-        for (const [key, value] of Object.entries({
-          target: this,
-          currentTarget,
-          eventPhase,
-        })) {
-          Object.defineProperty(event, key, {
-            value,
-            configurable: true,
-            enumerable: false,
-          });
-        }
-      };
-      setDispatchState(this, 2);
-      // One throwing handler must not hide the event from the others.
-      for (const notify of [
-        () => this.onIceCandidateError.execute(event),
-        () => this.onicecandidateerror?.(event),
-        // EventEmitter stops at the first throwing listener: call each one.
-        ...this.rawListeners("icecandidateerror").map(
-          (listener) => () => listener.call(this, event),
-        ),
-      ]) {
-        try {
-          notify();
-        } catch (error) {
-          log("icecandidateerror handler threw", error);
-        }
-      }
-      setDispatchState(null, 0);
+      this.dispatchIceCandidateError(details);
     });
     iceTransport.onIceCandidate.subscribe((candidate) => {
       if (
