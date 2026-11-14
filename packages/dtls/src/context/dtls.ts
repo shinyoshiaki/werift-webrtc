@@ -18,6 +18,8 @@ export class DtlsContext {
   recordSequenceNumber = 0;
   sequenceNumber = 0;
   epoch = 0;
+  /** Highest epoch of a received record that was successfully decrypted. */
+  remoteEpoch = 0;
   flight = 0;
   handshakeCache: {
     [flight: number]: {
