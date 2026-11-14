@@ -58,7 +58,8 @@ export interface RTCPeerConnectionIceErrorEventInit {
  *   meanwhile, one that did not try the URL, and a generation an ICE restart
  *   replaced do not count. The event carries the local address of the first
  *   socket that failed (STUN). A new gathering (ICE restart, a new transport)
- *   reports the URL again.
+ *   reports the URL again. A handler that closes the connection stops the
+ *   rest: no further 701 nor `icegatheringstatechange` is fired.
  *
  * While listeners run, `target` and `currentTarget` are the
  * `RTCPeerConnection` and `eventPhase` is 2 (`AT_TARGET`); afterwards

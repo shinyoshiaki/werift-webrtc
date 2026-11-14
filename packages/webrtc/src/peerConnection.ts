@@ -421,6 +421,9 @@ export class RTCPeerConnection extends EventTarget {
         // The gathering ended: its 701s fire before the state change.
         this.fireUnreachableServerErrors();
       }
+      // A closed connection fires no event (also when a handler of those
+      // 701s closed it, or a transport closing mid-gathering ends it).
+      if (this.isClosed) return;
       this.iceGatheringStateChange.execute(state);
       this.onicegatheringstatechange?.(
         new globalThis.Event("icegatheringstatechange"),
@@ -509,7 +512,8 @@ export class RTCPeerConnection extends EventTarget {
    * ICE generation they had: one that left during the gathering, or whose
    * generation an ICE restart replaced, neither reached nor failed for it.
    * The event carries the first counted failure (its local address and
-   * text).
+   * text). Stops as soon as the connection is closed (a handler may close
+   * it).
    */
   private fireUnreachableServerErrors() {
     const outcomes = this.gatheringServerOutcomes;
@@ -529,6 +533,9 @@ export class RTCPeerConnection extends EventTarget {
       live.has(entry.transport) &&
       entry.transport.connection.generation === entry.generation;
     for (const { reached, unreached } of outcomes.values()) {
+      // A handler of an earlier 701 may have closed the connection: a
+      // closed connection fires nothing more.
+      if (this.isClosed) return;
       if (reached.some(counts)) continue;
       const first = unreached.find(counts);
       if (first) this.dispatchIceCandidateError(first.details);

@@ -605,6 +605,45 @@ describe("icecandidateerror", () => {
     }
   });
 
+  test("最初の 701 のハンドラーで close() すると、残りの URL の 701 と gathering 状態の変化は配送されない", async () => {
+    // Arrange: 応答しない STUN を 2 つ (701 が 2 URL)。最初の通知で close() する
+    const first = await createSilentUdpServer(errorTestHost);
+    const second = await createSilentUdpServer(errorTestHost);
+    const { pc, listened } = createErrorRecordingPeer({
+      iceServers: [
+        { urls: `stun:${errorTestHost}:${first.address[1]}` },
+        { urls: `stun:${errorTestHost}:${second.address[1]}` },
+      ],
+      iceStunGatherTimeout: 0.3,
+    });
+    const seenStates: string[] = [];
+    pc.onicecandidateerror = () => {
+      seenStates.push(pc.signalingState);
+      void pc.close();
+    };
+    const gatheringStatesAfterClose: string[] = [];
+    pc.addEventListener("icegatheringstatechange", () => {
+      if (pc.signalingState === "closed") {
+        gatheringStatesAfterClose.push(pc.iceGatheringState);
+      }
+    });
+    try {
+      // Act: gathering を終わらせ、最初の 701 のハンドラーで閉じる
+      await gatherWithOffer(pc).catch(() => undefined);
+      await delay(100);
+
+      // Assert: ハンドラーは閉じる前の 1 回だけ、同じイベントの listener も 1 件、閉じた後の状態変化はない
+      expect(seenStates).toEqual(["have-local-offer"]);
+      expect(listened).toHaveLength(1);
+      expect(listened[0].errorCode).toBe(701);
+      expect(gatheringStatesAfterClose).toEqual([]);
+    } finally {
+      await pc.close();
+      await first.close();
+      await second.close();
+    }
+  });
+
   test("close() の後は通知されない", async () => {
     // Arrange: 応答しない STUN を短い満了時間で使う
     const silent = await createSilentUdpServer(errorTestHost);

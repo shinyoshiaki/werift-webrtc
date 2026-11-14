@@ -164,6 +164,7 @@ function classifyGatherError(error: unknown): { errorCode: number; errorText: st
   - `iceGatheringState` が `"gathering"` に入ると記録を空にし、`"gathering"` から出るとき（`icegatheringstatechange` を出す直前）に一度だけ判定する。判定に使うのは、その時点で使われている transport（closed でも pending-only でもない）と、記録時と同じ ICE 世代の記録だけ。到達の記録がなく、失敗の記録がある URL に、最初の失敗の内容で 701 を 1 件出す。
   - これにより、途中で抜けた transport（close・rollback）は判定から外れ、その URL を試さなかった transport は記録がないので判定に影響しない。ICE restart で置き換えられた世代の記録も数えない。gathering 番号、transport ごとの失敗集合、評価順序への依存は不要になる。
   - `RTCIceGatherer.gather()` は、gathering 中に ICE 接続が閉じたとき `"complete"` で終える（end-of-candidates は出さない）。これまでは `"gathering"` のまま残り、`iceGatheringState` が終わらず 701 の判定もされなかった。
+- **クローズとの関係**: 701 は 1 件ずつ配送し、各配送の前に接続が閉じていないかを確認する。ハンドラーが `close()` したら、残りの 701 も、その gathering の終了を知らせる `icegatheringstatechange` も出さない（閉じた接続はイベントを出さない）。
 - **注意点**: 701 の通知は gathering の終了まで遅れる。`stunGatherTimeout` と TURN の接続タイムアウトで gathering は必ず終わり、WPT もタイムアウトまで待つ前提なので影響は小さい（WPT で確認する）。仕様の「gathering 中に発火」を守るため、`complete` への `icegatheringstatechange` より前に出す。end-of-candidates（`icecandidate` の null）は transport の gathering 完了時に出るので、701 より先になる。
 
 ## 4. 制約・注意点
@@ -206,10 +207,11 @@ AGENTS.md に従い Arrange / Act / Assert 形式で書き、Act と Assert に�
   - [ ] 【追加要件】以前の gathering だけに参加した transport は、新しく加わった transport の 701 を止めない。
   - [ ] 【追加要件】gathering 中に結果を出さずに抜けた transport（close）は判定から外れ、他の transport の 701 が出る。
   - [ ] 【追加要件】その URL を試さなかった transport（サーバー構成が違う）は判定に影響しない。
+  - [ ] 【追加要件】複数 URL の 701 を配送する途中で、ハンドラーが `close()` したら、残りの URL の 701 と `icegatheringstatechange` は配送しない（各配送の前にクローズを確認する）。
   - [ ] 【追加要件】ICE 層: STUN の成功応答・エラー応答と TURN の割り当て成功で `onIceServerReached` が出て、無応答では出ない。2 ソケットの片方だけ届いたときは 701 が出ず、両方届かないときは 1 件。
 - **WPT**
   - [ ] `webrtc/RTCPeerConnection-onicecandidateerror.https.html` を、**subtest 1（`Surfacing onicecandidateerror`）と subtest 2（`icecandidateerror fires for each failing server`）の両方**を対象に `wpt/allowlist.json` に追加する。
-  - [ ] `tools/wpt-runner/timeoutLogic.ts` に、この file 用の completion timeout（10s 程度）を追加する。subtest 1 の `turn:123` は UDP のタイムアウト（約 6.35s）を待ってから失敗するため（2.4）。
+  - [ ] `tools/wpt-runner/timeoutLogic.ts` に、この file 用の completion timeout（20s。8.決定 8）を追加する。subtest 1 の `turn:123` は UDP のタイムアウト（約 6.35s）と TCP フォールバックの接続タイムアウト（8s）を待ってから失敗するため（2.4）。
   - [ ] `npm run wpt` と `npm run wpt:coverage`（baseline の更新）を実行する。
 
 ## 6. 検証コマンド
