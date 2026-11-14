@@ -34,13 +34,15 @@ describe("sctp burst transfer", () => {
 
   test("transfer processing cost grows close to linearly with the queued message count", async () => {
     // Arrange: JIT のウォームアップ
-    await measureBurstTransfer(1_000, 1_000);
+    await measureBurstTransfer(4_000, 1_000);
 
     // Act: N / 4N の CPU 時間比を 5 組計測し、中央値を取る。
+    // N が小さいと接続確立や JIT・GC の固定費が比を歪めるため N = 4,000 とし、
+    // 各計測の直前に GC して条件を揃える (measureBurstTransfer)。
     const ratios: number[] = [];
     for (let i = 0; i < 5; i++) {
-      const small = await measureBurstTransfer(2_000, 1_000);
-      const large = await measureBurstTransfer(8_000, 1_000);
+      const small = await measureBurstTransfer(4_000, 1_000);
+      const large = await measureBurstTransfer(16_000, 1_000);
       ratios.push(large.cpuElapsedMs / Math.max(small.cpuElapsedMs, 1));
     }
     const medianRatio = [...ratios].sort((a, b) => a - b)[
