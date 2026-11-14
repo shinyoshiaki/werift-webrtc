@@ -209,3 +209,11 @@ export function collectRtcpRecipients(
   }
   return recipients;
 }
+
+/** Number of same-SSRC routes of other RTP sessions the router holds. */
+export function collidingRouteCount(router: RtpRouter) {
+  const routes = (
+    router as unknown as { collidingRoutes: Map<unknown, { size: number }> }
+  ).collidingRoutes;
+  return [...routes.values()].reduce((sum, set) => sum + set.size, 0);
+}

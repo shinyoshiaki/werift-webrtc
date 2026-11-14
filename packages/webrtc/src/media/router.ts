@@ -123,7 +123,8 @@ type StagedRoutes = {
  * Unregistering the transceiver drops the fallback SSRC.
  *
  * An SSRC is unique per RTP session only: a route learned from packets
- * belongs to the transport it was learned on. RTP and RTCP (SR, RR and every
+ * belongs to its receiver's current transport (a transceiver moved to another
+ * transport takes it along, and the old transport no longer reaches it). RTP and RTCP (SR, RR and every
  * feedback naming an SSRC) arriving on another transport never resolve to it;
  * when that transport's receiver learns the same numeric SSRC (fallback or
  * RID) it keeps its own route, and an SSRC another transport's receiver
@@ -172,13 +173,13 @@ export class RtpRouter {
    * Fallback routes whose SSRC `ssrcTable` already holds for a receiver of
    * another transport (an SSRC is unique per RTP session only). Packet-driven
    * like `learnedSsrcs`, not part of a negotiation baseline: an entry is
-   * valid only while its receiver still has the SSRC as a fallback track.
+   * valid only while its receiver still has the SSRC as a track. Keyed by
+   * SSRC, not by transport: like a learned route of `ssrcTable`, an entry
+   * belongs to the receiver's current `dtlsTransport`, so a transceiver
+   * moved to another transport stops answering on the old one.
    * RTP and RTCP resolve it alike ({@link endpointBySsrc}).
    */
-  private collidingRoutes = new Map<
-    RTCDtlsTransport,
-    Map<number, RTCRtpReceiver>
-  >();
+  private collidingRoutes = new Map<number, Set<RTCRtpReceiver>>();
   /** Last logged drop of an unknown SSRC, so a stream logs a reason once. */
   private lastUnknownSsrcDrop?: string;
 
@@ -301,11 +302,8 @@ export class RtpRouter {
   unregisterTransceiver(transceiver: RTCRtpTransceiver) {
     transceiver.receiver.releaseFallbackSsrc();
     transceiver.receiver.takeForgottenSsrcs();
-    for (const [transport, routes] of this.collidingRoutes) {
-      for (const [ssrc, receiver] of routes) {
-        if (receiver === transceiver.receiver) routes.delete(ssrc);
-      }
-      if (routes.size === 0) this.collidingRoutes.delete(transport);
+    for (const ssrc of [...this.collidingRoutes.keys()]) {
+      this.dropCollidingRoute(ssrc, transceiver.receiver);
     }
     for (const [ssrc, receiver] of this.stagedSsrc) {
       if (receiver === transceiver.receiver) this.stagedSsrc.delete(ssrc);
@@ -588,10 +586,10 @@ export class RtpRouter {
     const transport = receiver.dtlsTransport;
     const owner = this.ssrcTable[ssrc];
     if (owner && this.isForeignLearnedRoute(ssrc, owner, transport)) {
-      let routes = this.collidingRoutes.get(transport);
-      if (!routes) this.collidingRoutes.set(transport, (routes = new Map()));
-      if (routes.get(ssrc) === receiver) return false;
-      routes.set(ssrc, receiver);
+      let routes = this.collidingRoutes.get(ssrc);
+      if (!routes) this.collidingRoutes.set(ssrc, (routes = new Set()));
+      if (routes.has(receiver)) return false;
+      routes.add(receiver);
       return true;
     }
     this.ssrcTable[ssrc] = receiver;
@@ -732,7 +730,7 @@ export class RtpRouter {
   /**
    * The endpoint `ssrc` names for a packet of `transport`, for RTP and RTCP
    * alike. An SSRC is unique per RTP session only: a route a packet taught
-   * belongs to the transport it was learned on, so a packet of another
+   * belongs to its receiver's current transport, so a packet of another
    * transport resolves to that transport's own route (`collidingRoutes`) or
    * to none. Without a transport `ssrcTable` decides.
    */
@@ -750,19 +748,23 @@ export class RtpRouter {
     transport: RTCDtlsTransport | undefined,
     ssrc: number,
   ) {
-    const routes = transport && this.collidingRoutes.get(transport);
-    const receiver = routes && routes.get(ssrc);
-    if (!routes || !receiver) return undefined;
-    if (receiver.trackBySSRC[ssrc] && !receiver.stopped) return receiver;
-    this.dropCollidingRoute(ssrc, receiver);
-    return undefined;
+    const routes = transport && this.collidingRoutes.get(ssrc);
+    if (!routes) return undefined;
+    let found: RTCRtpReceiver | undefined;
+    for (const receiver of [...routes]) {
+      if (!receiver.trackBySSRC[ssrc] || receiver.stopped) {
+        this.dropCollidingRoute(ssrc, receiver);
+      } else if (!found && receiver.dtlsTransport === transport) {
+        found = receiver;
+      }
+    }
+    return found;
   }
 
   private dropCollidingRoute(ssrc: number, receiver: RTCRtpReceiver) {
-    const routes = this.collidingRoutes.get(receiver.dtlsTransport);
-    if (routes?.get(ssrc) !== receiver) return;
-    routes.delete(ssrc);
-    if (routes.size === 0) this.collidingRoutes.delete(receiver.dtlsTransport);
+    const routes = this.collidingRoutes.get(ssrc);
+    if (!routes?.delete(receiver)) return;
+    if (routes.size === 0) this.collidingRoutes.delete(ssrc);
   }
 
   /** A route packets taught for a receiver of a transport other than `transport`. */

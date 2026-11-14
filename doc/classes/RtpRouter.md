@@ -54,7 +54,8 @@ first SSRC such a description gives binds the announced track as well
 Unregistering the transceiver drops the fallback SSRC.
 
 An SSRC is unique per RTP session only: a route learned from packets
-belongs to the transport it was learned on. RTP and RTCP (SR, RR and every
+belongs to its receiver's current transport (a transceiver moved to another
+transport takes it along, and the old transport no longer reaches it). RTP and RTCP (SR, RR and every
 feedback naming an SSRC) arriving on another transport never resolve to it;
 when that transport's receiver learns the same numeric SSRC (fallback or
 RID) it keeps its own route, and an SSRC another transport's receiver

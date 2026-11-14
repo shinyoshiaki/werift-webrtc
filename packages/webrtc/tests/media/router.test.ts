@@ -42,6 +42,7 @@ import {
 } from "./rtpReceiverTestUtils";
 import {
   collectRtcpRecipients,
+  collidingRouteCount,
   collectTrackPayloads,
   createCollidingSsrcLessRouter,
   createSsrcLessRouter,
@@ -2131,6 +2132,76 @@ describe("media/router: a=ssrc のない m-line の SSRC 学習 (#356)", () => {
       expect(router.ssrcTable[55]).toBe(simulcast.receiver);
     },
   );
+
+  test("transport を付け替えた receiver の同一 SSRC の経路は、旧 transport では使われず新 transport で使われる", () => {
+    // Arrange: A と B が SSRC 55 を学習済みで、B の transceiver を新しい transport に付け替える
+    const { router, dtls, other, a, b } = createCollidingSsrcLessRouter(55);
+    const moved = createDtlsTransport();
+    b.setDtlsTransport(moved);
+    const aPayloads = collectTrackPayloads(a);
+    const bPayloads = collectTrackPayloads(b);
+    const recipients = collectRtcpRecipients({ a, b });
+
+    // Act: 旧 transport に RTP と SR、新 transport に RTP と SR、A の transport に RTP が届く
+    router.routeRtp(
+      ssrcLessPacket({ ssrc: 55, payloadType: 111, sequenceNumber: 2 }),
+      other,
+    );
+    router.routeRtcp(rtcpNamingSsrc.SR(55), other);
+    router.routeRtp(
+      ssrcLessPacket({ ssrc: 55, payloadType: 111, sequenceNumber: 3 }),
+      moved,
+    );
+    router.routeRtcp(rtcpNamingSsrc.SR(55), moved);
+    router.routeRtp(
+      ssrcLessPacket({ ssrc: 55, payloadType: 111, sequenceNumber: 4 }),
+      dtls,
+    );
+
+    // Assert: 旧 transport の RTP と SR はどこにも届かず、新 transport は B、A の transport は A に届く
+    expect(bPayloads).toEqual(["payload-3"]);
+    expect(aPayloads).toEqual(["payload-4"]);
+    expect(recipients).toEqual(["b"]);
+    expect(b.receiver.fallbackSsrc).toBe(55);
+    expect(router.ssrcTable[55]).toBe(a.receiver);
+  });
+
+  test("transport を付け替えた receiver の同一 SSRC の経路は、登録解除で残らない", () => {
+    // Arrange: B が SSRC 55 を学習してから新しい transport に付け替える
+    const { router, transceivers, b } = createCollidingSsrcLessRouter(55);
+    b.setDtlsTransport(createDtlsTransport());
+
+    // Act: B を登録解除する
+    router.unregisterTransceiver(b);
+    transceivers.splice(transceivers.indexOf(b), 1);
+
+    // Assert: 同一 SSRC の補助経路は残らない
+    expect(collidingRouteCount(router)).toBe(0);
+  });
+
+  test("transport を付け替えた receiver が SSRC を置き換えると、旧 SSRC の補助経路は残らない", () => {
+    // Arrange: B が SSRC 55 を学習してから新しい transport に付け替える
+    const { router, b } = createCollidingSsrcLessRouter(55);
+    const moved = createDtlsTransport();
+    b.setDtlsTransport(moved);
+    const bPayloads = collectTrackPayloads(b);
+
+    // Act: 新 transport で B に SSRC 66 が届く
+    router.routeRtp(
+      ssrcLessPacket({
+        ssrc: 66,
+        payloadType: 111,
+        sequenceNumber: 2,
+        mid: "b",
+      }),
+      moved,
+    );
+
+    // Assert: B は 66 で受信し、55 の補助経路は消える
+    expect(bPayloads).toEqual(["payload-2"]);
+    expect(b.receiver.fallbackSsrc).toBe(66);
+    expect(collidingRouteCount(router)).toBe(0);
+  });
 
   test("ローカル sender と同じ SSRC の未知 RTP は例外を投げず、sender の経路を保つ", () => {
     // Arrange: SSRC-less の receiver とローカル sender がある

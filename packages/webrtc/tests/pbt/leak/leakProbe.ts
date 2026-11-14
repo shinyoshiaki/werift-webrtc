@@ -292,7 +292,7 @@ type PeerInternals = {
     stagedSsrc: Map<number, unknown>;
     stagedRid: Map<string, unknown>;
     provisionalSsrc: Map<number, unknown>;
-    collidingRoutes: Map<unknown, Map<number, unknown>>;
+    collidingRoutes: Map<number, Set<unknown>>;
     learnedSsrcs: Set<number>;
     extIdUriMap: Record<number, string>;
   };
@@ -688,8 +688,7 @@ const leakMeta: CaseMeta = { ref: "property: leak", traffic: true };
 export async function runClosedScene(
   name: string,
   input:
-    | { scene: LeakScene; lenient?: boolean }
-    | { seed: number; steps: number },
+    { scene: LeakScene; lenient?: boolean } | { seed: number; steps: number },
 ): Promise<ClosedScene> {
   const tracker = new LeakTracker();
   const scene: LeakScene =
