@@ -94,8 +94,15 @@ export abstract class Flight {
     }
   }
 
-  protected send = (buf: Buffer[]) =>
-    Promise.all(buf.map((v) => this.transport.send(v)));
+  /**
+   * Send records of this flight. Nothing is sent once the flights were
+   * stopped (close_notify / fatal alert, or close()), including a flight
+   * resent because the peer repeated its own ("flight twice").
+   */
+  protected send = async (buf: Buffer[]) => {
+    if (this.transport.closedSignal.aborted) return [];
+    return Promise.all(buf.map((v) => this.transport.send(v)));
+  };
 
   private setState(state: FlightType) {
     this.state = state;
