@@ -12,6 +12,9 @@ import {
 } from "../negotiation/harness/negotiationCase";
 import {
   createConnectedVideoPeersWith,
+  createDuplexSession,
+  expectSessionAlive,
+  expectSessionContinues,
   offeredVideoCodecs,
   payloadTypeOf,
 } from "../negotiation/harness/negotiationTransactionUtils";
@@ -354,6 +357,27 @@ describeCases("issue 818: subsequent offers list every supported codec", () => {
       expect(
         b.getTransceivers()[0].codecs.map((codec) => ({ ...codec })),
       ).toEqual(before);
+    },
+  );
+
+  negotiationCase(
+    "glare on a connected session: the polite peer's implicit rollback keeps RTP and DataChannel flowing both ways",
+    { ref: "origin: issue 818 (review: glare)" },
+    async (c) => {
+      // Arrange: 接続済みの sendrecv 映像 + DataChannel のセッションで、両 peer が同時に offer を保留する。
+      const { a, b, session } = await c.given(createDuplexSession());
+      await c.offer(a, { hold: true });
+      await c.offer(b, { hold: true });
+
+      // Act: polite な b が a の offer を適用し (have-local-offer を暗黙に rollback)、answer を返す。
+      await c.setRemote(b, a.localDescription);
+      await c.answer(b);
+
+      // Assert: 確定後も RTP と DataChannel が両方向で届く。
+      expect(a.signalingState).toEqual("stable");
+      expect(b.signalingState).toEqual("stable");
+      await expectSessionAlive(session, "glare");
+      await expectSessionContinues(a, b);
     },
   );
 });
