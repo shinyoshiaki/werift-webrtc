@@ -122,6 +122,13 @@ type StagedRoutes = {
  * (`RTCRtpReceiver.adoptDefaultTrack`), so `ontrack` does not fire again.
  * Unregistering the transceiver drops the fallback SSRC.
  *
+ * An SSRC is unique per RTP session only: a route learned from packets
+ * belongs to the transport it was learned on. RTP and RTCP (SR, RR and every
+ * feedback naming an SSRC) arriving on another transport never resolve to it;
+ * when that transport's receiver learns the same numeric SSRC it keeps its own
+ * route. Routes from SDP and sender routes are not scoped by transport. A
+ * remote stream using a local sender's SSRC is not learned.
+ *
  * A payload type or extension ID counts as in use only when both current
  * descriptions carry it for the m-line. RID lookup uses MID+RID when the
  * packet's MID names a route, else the RID alone. `extIdUriMap` is shared by
@@ -163,7 +170,7 @@ export class RtpRouter {
    * another transport (an SSRC is unique per RTP session only). Packet-driven
    * like `learnedSsrcs`, not part of a negotiation baseline: an entry is
    * valid only while its receiver still has the SSRC as a fallback track.
-   * RTCP does not use it (`ssrcTable` has one entry per SSRC).
+   * RTP and RTCP resolve it alike ({@link endpointBySsrc}).
    */
   private collidingRoutes = new Map<
     RTCDtlsTransport,
@@ -467,18 +474,13 @@ export class RtpRouter {
     const mid = extensions[RTP_EXTENSION_URI.sdesMid];
     let learnedNow = false;
 
-    let rtpReceiver: RTCRtpReceiver | undefined = this.ssrcTable[
-      ssrc
-    ] as RTCRtpReceiver;
-    // An SSRC is unique per RTP session only: a route a packet taught belongs
-    // to the transport it was learned on, so a packet of another transport
-    // never reaches its receiver.
-    const foreignLearnedRoute =
-      !!rtpReceiver &&
-      this.isForeignLearnedRoute(ssrc, rtpReceiver, dtlsTransport);
-    if (foreignLearnedRoute) rtpReceiver = undefined;
-    const colliding = this.collidingRoute(dtlsTransport, ssrc);
-    if (colliding) rtpReceiver = colliding;
+    const route = this.endpointBySsrc(ssrc, dtlsTransport);
+    // A remote stream may use the SSRC of a local sender (RFC 3550 section
+    // 8.2 collision): the sender keeps its route and receives no RTP.
+    const senderSsrc = !!route && !(route instanceof RTCRtpReceiver);
+    let rtpReceiver: RTCRtpReceiver | undefined = senderSsrc
+      ? undefined
+      : (route as RTCRtpReceiver | undefined);
 
     const rid = extensions[RTP_EXTENSION_URI.sdesRTPStreamID];
     const repairedRid = extensions[RTP_EXTENSION_URI.repairedRtpStreamId];
@@ -510,6 +512,8 @@ export class RtpRouter {
         log("simulcast register receiver by ssrc", ssrc);
         learnedNow = this.learnSsrc(ssrc, rtpReceiver);
         rtpReceiver.handleRtpBySsrc(packet, extensions);
+      } else if (senderSsrc) {
+        log("ssrc of a local sender", ssrc);
       } else {
         // An RTX SSRC is only known from SDP (ssrc-group:FID) or from a
         // repaired-rtp-stream-id: without either it is not guessed.
@@ -693,6 +697,23 @@ export class RtpRouter {
     return receiver;
   }
 
+  /**
+   * The endpoint `ssrc` names for a packet of `transport`, for RTP and RTCP
+   * alike. An SSRC is unique per RTP session only: a route a packet taught
+   * belongs to the transport it was learned on, so a packet of another
+   * transport resolves to that transport's own route (`collidingRoutes`) or
+   * to none. Without a transport `ssrcTable` decides.
+   */
+  private endpointBySsrc(ssrc: number, transport?: RTCDtlsTransport) {
+    const colliding = this.collidingRoute(transport, ssrc);
+    if (colliding) return colliding;
+    const route = this.ssrcTable[ssrc];
+    if (route && this.isForeignLearnedRoute(ssrc, route, transport)) {
+      return undefined;
+    }
+    return route;
+  }
+
   private collidingRoute(
     transport: RTCDtlsTransport | undefined,
     ssrc: number,
@@ -746,20 +767,20 @@ export class RtpRouter {
   }
 
   routeRtcp = (packet: RtcpPacket, dtlsTransport?: RTCDtlsTransport) => {
-    const recipients: (RTCRtpReceiver | RTCRtpSender)[] = [];
+    const recipients: (RTCRtpReceiver | RTCRtpSender | undefined)[] = [];
 
     switch (packet.type) {
       case RtcpSrPacket.type:
         {
           packet = packet as RtcpSrPacket;
-          recipients.push(this.ssrcTable[packet.ssrc]);
+          recipients.push(this.endpointBySsrc(packet.ssrc, dtlsTransport));
         }
         break;
       case RtcpRrPacket.type:
         {
           packet = packet as RtcpRrPacket;
           packet.reports.forEach((report) => {
-            recipients.push(this.ssrcTable[report.ssrc]);
+            recipients.push(this.endpointBySsrc(report.ssrc, dtlsTransport));
           });
         }
         break;
@@ -777,7 +798,12 @@ export class RtpRouter {
               ...this.twccFeedbackRecipients(rtpfb, dtlsTransport),
             );
           } else if (rtpfb.feedback) {
-            recipients.push(this.ssrcTable[rtpfb.feedback.mediaSourceSsrc]);
+            recipients.push(
+              this.endpointBySsrc(
+                rtpfb.feedback.mediaSourceSsrc,
+                dtlsTransport,
+              ),
+            );
           }
         }
         break;
@@ -790,7 +816,9 @@ export class RtpRouter {
             case ReceiverEstimatedMaxBitrate.count:
               {
                 const remb = psfb.feedback as ReceiverEstimatedMaxBitrate;
-                recipients.push(this.ssrcTable[remb.ssrcFeedbacks[0]]);
+                recipients.push(
+                  this.endpointBySsrc(remb.ssrcFeedbacks[0], dtlsTransport),
+                );
               }
               break;
             case PictureLossIndication.count:
@@ -798,6 +826,7 @@ export class RtpRouter {
               {
                 const target = this.keyFrameRequestTarget(
                   psfb.feedback.mediaSsrc,
+                  dtlsTransport,
                 );
                 if (target) recipients.push(target);
               }
@@ -808,7 +837,9 @@ export class RtpRouter {
                 const fir = psfb.feedback as FullIntraRequest;
                 if (fir.fir.length === 0) {
                   if (fir.mediaSsrc) {
-                    recipients.push(this.ssrcTable[fir.mediaSsrc]);
+                    recipients.push(
+                      this.endpointBySsrc(fir.mediaSsrc, dtlsTransport),
+                    );
                   }
                   break;
                 }
@@ -817,7 +848,10 @@ export class RtpRouter {
                   FirEntry[]
                 >();
                 for (const entry of fir.fir) {
-                  const target = this.keyFrameRequestTarget(entry.ssrc);
+                  const target = this.keyFrameRequestTarget(
+                    entry.ssrc,
+                    dtlsTransport,
+                  );
                   if (target) {
                     targets.set(target, [
                       ...(targets.get(target) ?? []),
@@ -836,13 +870,15 @@ export class RtpRouter {
               }
               break;
             default:
-              recipients.push(this.ssrcTable[psfb.feedback.mediaSsrc]);
+              recipients.push(
+                this.endpointBySsrc(psfb.feedback.mediaSsrc, dtlsTransport),
+              );
           }
         }
         break;
     }
     recipients
-      .filter((v) => v) // todo simulcast
+      .filter((v): v is RTCRtpReceiver | RTCRtpSender => !!v) // todo simulcast
       .forEach((recipient) => recipient.handleRtcpPacket(packet));
   };
 
@@ -896,8 +932,9 @@ export class RtpRouter {
   /** Endpoint a keyframe request for `ssrc` reaches; see {@link KeyFrameRequestRouting}. */
   private keyFrameRequestTarget(
     ssrc: number,
+    transport?: RTCDtlsTransport,
   ): RTCRtpReceiver | RTCRtpSender | undefined {
-    const route = this.ssrcTable[ssrc];
+    const route = this.endpointBySsrc(ssrc, transport);
     if (route || this.keyFrameRequestRouting === "strict") return route;
 
     const senders = new Set(

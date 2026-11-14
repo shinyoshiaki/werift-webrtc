@@ -292,6 +292,7 @@ type PeerInternals = {
     stagedSsrc: Map<number, unknown>;
     stagedRid: Map<string, unknown>;
     provisionalSsrc: Map<number, unknown>;
+    collidingRoutes: Map<unknown, Map<number, unknown>>;
     learnedSsrcs: Set<number>;
     extIdUriMap: Record<number, string>;
   };
@@ -393,6 +394,11 @@ export function leakFootprint(pc: RTCPeerConnection): Footprint {
     "router.stagedRid": router.stagedRid.size,
     "router.provisionalSsrc": router.provisionalSsrc.size,
     "router.learnedSsrcs": router.learnedSsrcs.size,
+    // 別 transport で同じ数値の SSRC を学習した fallback 経路 (receiver ごとに 1 つ)。
+    "router.collidingRoutes": sum(
+      router.collidingRoutes.values(),
+      (routes) => routes.size,
+    ),
     "router.extIdUriMap": Object.keys(router.extIdUriMap).length,
     // パケットから学習した track の SSRC (RID と、a=ssrc のない m-line の fallback)。
     // fallback は receiver ごとに 1 つで、新しい SSRC は置き換える (RtpRouter)。

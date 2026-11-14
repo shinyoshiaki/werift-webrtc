@@ -41,10 +41,13 @@ import {
   simulcastTimestampBase,
 } from "./rtpReceiverTestUtils";
 import {
+  collectRtcpRecipients,
   collectTrackPayloads,
+  createCollidingSsrcLessRouter,
   createSsrcLessRouter,
   opus,
   pcmu,
+  rtcpNamingSsrc,
   rtxOf,
   ssrcLessPacket,
   vp8,
@@ -1934,6 +1937,65 @@ describe("media/router: a=ssrc のない m-line の SSRC 学習 (#356)", () => {
     // Assert: 解除済みの receiver には届かず、A の経路は残る
     expect(bPayloads).toEqual(["payload-1"]);
     expect(router.ssrcTable[55]).toBe(a.receiver);
+  });
+
+  test.each(Object.keys(rtcpNamingSsrc))(
+    "別 transport の同一 SSRC を名指す %s は受信した transport の receiver に届く",
+    (type) => {
+      // Arrange: A と B がそれぞれ SSRC 55 を学習済み
+      const { router, dtls, other, a, b } = createCollidingSsrcLessRouter(55);
+      const recipients = collectRtcpRecipients({ a, b });
+
+      // Act: SSRC 55 を名指す RTCP を B、A の順に受信する
+      router.routeRtcp(rtcpNamingSsrc[type](55), other);
+      router.routeRtcp(rtcpNamingSsrc[type](55), dtls);
+
+      // Assert: 各 RTCP は受信した transport の receiver だけに届く
+      expect(recipients).toEqual(["b", "a"]);
+    },
+  );
+
+  test("先に学習した transport の経路が消えても、別 transport の同一 SSRC の RTP と RTCP は届く", () => {
+    // Arrange: A と B が SSRC 55 を学習済み
+    const { router, transceivers, other, a, b } =
+      createCollidingSsrcLessRouter(55);
+    const bPayloads = collectTrackPayloads(b);
+    const recipients = collectRtcpRecipients({ a, b });
+
+    // Act: ssrcTable に経路を持つ A を解除してから、B の transport へ RTP と SR を流す
+    router.unregisterTransceiver(a);
+    transceivers.splice(transceivers.indexOf(a), 1);
+    router.routeRtp(
+      ssrcLessPacket({ ssrc: 55, payloadType: 111, sequenceNumber: 7 }),
+      other,
+    );
+    router.routeRtcp(rtcpNamingSsrc.SR(55), other);
+
+    // Assert: B の経路は残り、RTP も SR も B に届く
+    expect(bPayloads).toEqual(["payload-7"]);
+    expect(recipients).toEqual(["b"]);
+  });
+
+  test("ローカル sender と同じ SSRC の未知 RTP は例外を投げず、sender の経路を保つ", () => {
+    // Arrange: SSRC-less の receiver とローカル sender がある
+    const { router, dtls, addReceiver } = createSsrcLessRouter();
+    const audio = addReceiver();
+    const payloads = collectTrackPayloads(audio);
+    const sender = new RTCRtpSender("audio");
+    router.registerRtpSender(sender);
+
+    // Act: sender と同じ SSRC の RTP を受信する
+    const route = () =>
+      router.routeRtp(
+        ssrcLessPacket({ ssrc: sender.ssrc, payloadType: 111 }),
+        dtls,
+      );
+
+    // Assert: 例外にならず、学習もせず、sender の経路は残る
+    expect(route).not.toThrow();
+    expect(payloads).toEqual([]);
+    expect(audio.receiver.fallbackSsrc).toBeUndefined();
+    expect(router.ssrcTable[sender.ssrc]).toBe(sender);
   });
 
   test("a=ssrc のある m-line は未知 SSRC の候補にならない", () => {

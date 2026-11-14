@@ -1,10 +1,17 @@
 import {
   codecParametersToString,
   defaultPeerConfig,
+  GenericNack,
   RTCRtpCodecParameters,
   RTCRtpCodingParameters,
   RTCRtpTransceiver,
   RTP_EXTENSION_URI,
+  type RtcpPacket,
+  RtcpReceiverInfo,
+  RtcpRrPacket,
+  RtcpSenderInfo,
+  RtcpSrPacket,
+  RtcpTransportLayerFeedback,
   RtpHeader,
   RtpPacket,
 } from "../../src";
@@ -13,7 +20,7 @@ import { RTCRtpReceiver } from "../../src/media/rtpReceiver";
 import { RTCRtpSender } from "../../src/media/rtpSender";
 import type { RTCDtlsTransport } from "../../src/transport/dtls";
 import type { Kind } from "../../src/types/domain";
-import { createDtlsTransport } from "../fixture";
+import { createDtlsTransport, createPliPacket } from "../fixture";
 
 /**
  * Shared Arrange of the RTP routing fallback for remote m-lines without
@@ -137,4 +144,68 @@ export function collectTrackPayloads(transceiver: RTCRtpTransceiver) {
     payloads.push(rtp.payload.toString());
   });
   return payloads;
+}
+
+/**
+ * Two transports (separate RTP sessions) whose SSRC-less receivers both
+ * learned the same numeric SSRC: `a` on `dtls` first, then `b` on `other`.
+ */
+export function createCollidingSsrcLessRouter(ssrc = 55) {
+  const arranged = createSsrcLessRouter();
+  const { router, dtls, addReceiver } = arranged;
+  const other = createDtlsTransport();
+  const a = addReceiver({ mid: "a" });
+  const b = addReceiver({ mid: "b", transport: other });
+  router.routeRtp(ssrcLessPacket({ ssrc, payloadType: 111, mid: "a" }), dtls);
+  router.routeRtp(ssrcLessPacket({ ssrc, payloadType: 111, mid: "b" }), other);
+  return { ...arranged, other, a, b };
+}
+
+/** RTCP packets that name `ssrc` as the stream they report on or ask for. */
+export const rtcpNamingSsrc: Record<string, (ssrc: number) => RtcpPacket> = {
+  SR: (ssrc) =>
+    new RtcpSrPacket({
+      ssrc,
+      senderInfo: new RtcpSenderInfo({
+        ntpTimestamp: 1n << 32n,
+        rtpTimestamp: 0,
+        packetCount: 1,
+        octetCount: 1,
+      }),
+    }),
+  RR: (ssrc) =>
+    new RtcpRrPacket({
+      ssrc: 1,
+      reports: [
+        new RtcpReceiverInfo({
+          ssrc,
+          fractionLost: 0,
+          packetsLost: 0,
+          highestSequence: 0,
+          jitter: 0,
+          lsr: 0,
+          dlsr: 0,
+        }),
+      ],
+    }),
+  NACK: (ssrc) =>
+    new RtcpTransportLayerFeedback({
+      feedback: new GenericNack({
+        senderSsrc: 1,
+        mediaSourceSsrc: ssrc,
+        lost: [1],
+      }),
+    }),
+  PLI: (ssrc) => createPliPacket({ senderSsrc: 1, mediaSsrc: ssrc }),
+};
+
+/** Labels of the transceivers whose receiver got an RTCP packet, in order. */
+export function collectRtcpRecipients(
+  transceivers: Record<string, RTCRtpTransceiver>,
+) {
+  const recipients: string[] = [];
+  for (const [label, transceiver] of Object.entries(transceivers)) {
+    transceiver.receiver.onRtcp.subscribe(() => recipients.push(label));
+  }
+  return recipients;
 }

@@ -53,6 +53,13 @@ first SSRC such a description gives binds the announced track as well
 (`RTCRtpReceiver.adoptDefaultTrack`), so `ontrack` does not fire again.
 Unregistering the transceiver drops the fallback SSRC.
 
+An SSRC is unique per RTP session only: a route learned from packets
+belongs to the transport it was learned on. RTP and RTCP (SR, RR and every
+feedback naming an SSRC) arriving on another transport never resolve to it;
+when that transport's receiver learns the same numeric SSRC it keeps its own
+route. Routes from SDP and sender routes are not scoped by transport. A
+remote stream using a local sender's SSRC is not learned.
+
 A payload type or extension ID counts as in use only when both current
 descriptions carry it for the m-line. RID lookup uses MID+RID when the
 packet's MID names a route, else the RID alone. `extIdUriMap` is shared by
