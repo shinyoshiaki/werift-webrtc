@@ -1,28 +1,30 @@
-import type { Connection } from "../../../ice/src";
 import { getHostAddresses } from "../../../ice/src/utils";
 import {
   createCountingStunServer,
   createCountingTurnServer,
   createLocalTurnServer,
-  dropNominationResponses,
   TURN_TEST_PASSWORD,
   TURN_TEST_USERNAME,
   waitUntil,
 } from "../../../ice/tests/utils";
-import { RTCIceGatherer, RTCIceTransport, RTCPeerConnection } from "../../src";
+import {
+  type PeerConfig,
+  RTCIceGatherer,
+  RTCIceTransport,
+  RTCPeerConnection,
+} from "../../src";
 import { iceTransportPair } from "../fixture";
 import {
   connectPeerConnections,
   connectWithIceConfigs,
+  createIceTransportWithValidPair,
   createPeerConnectionWithIceTransport,
-  createStartableIceTransportPair,
   createTurnRotationServers,
   firstIceTransport,
   iceAgentTurnServers,
   iceOptionLines,
   negotiate,
   peerTurnAllocations,
-  succeededPairs,
   waitForLocalCandidatesEnd,
 } from "../utils";
 
@@ -559,202 +561,99 @@ describe("iceTransport", () => {
     });
   });
 
-  test("start() rejects and the transport fails when the nomination is never answered", async () => {
-    // Arrange: 有効な経路が複数あり、controlled 側は USE-CANDIDATE を処理するが応答をすべて失う。
-    const { transport1, transport2 } = await createStartableIceTransportPair({
-      options: {
-        additionalHostAddresses: ["127.0.0.1"],
-        nomination: "regular",
-      },
-      controlled: (connection) =>
-        dropNominationResponses(connection, Number.POSITIVE_INFINITY),
-    });
-
-    try {
-      // Act: 両端で start する。
-      const starting = transport1.start();
-      void transport2.start().catch(() => {});
-
-      // Assert: 上位 transport の start() は待ち続けずに拒否され、state は failed。
-      await expect(starting).rejects.toThrow("ICE negotiation failed");
-      expect(transport1.state).toBe("failed");
-      // Assert: 通常 check が成功した pair は残るが、nomination を断念したので選択済みの pair は報告しない。
-      expect(succeededPairs(transport1).length).toBeGreaterThan(0);
-      expect(transport1.getSelectedCandidatePair()).toBeNull();
-    } finally {
-      await transport1.stop();
-      await transport2.stop();
-    }
-  }, 30_000);
-
-  test("getSelectedCandidatePair is null while the nomination waits and reports the nominated pair after it", async () => {
-    // Arrange: controlling 側の nomination 待ちを長くし、end-of-candidates を送らない。
-    const { transport1, transport2 } = await createStartableIceTransportPair({
-      controllingOptions: { nomination: "regular", nominationDelayMs: 2000 },
-    });
-
-    try {
-      // Act: 両端で start し、通常 check が成功するまで待つ。
-      const starting = transport1.start();
-      void transport2.start().catch(() => {});
-      await waitUntil(() => succeededPairs(transport1).length > 0);
-
-      // Assert: nomination の待機中は、成功しただけの pair を選択済みとして返さない。
-      expect(transport1.connection.nominated).toBeUndefined();
-      expect(transport1.getSelectedCandidatePair()).toBeNull();
-
-      // Act: deadline で nominate され、start() が完了する。
-      await starting;
-
-      // Assert: nominate された pair が選択済みとして返る。
-      const nominated = transport1.connection.nominated!;
-      expect(transport1.getSelectedCandidatePair()).toEqual({
-        local: expect.objectContaining({
-          address: nominated.localCandidate.host,
-          port: nominated.localCandidate.port,
-        }),
-        remote: expect.objectContaining({
-          address: nominated.remoteCandidate.host,
-          port: nominated.remoteCandidate.port,
-        }),
+  describe("nomination options (PeerConfig → ICE agent → SDP → selection)", () => {
+    const RENOMINATION = { iceRenomination: true } as const;
+    test.each<[string, Partial<PeerConfig>, Partial<PeerConfig>]>([
+      ["defaults", {}, {}],
+      ["renomination on both", RENOMINATION, RENOMINATION],
+      ["renomination on the offerer only", RENOMINATION, {}],
+      ["renomination on the answerer only", {}, RENOMINATION],
+      [
+        "renomination on both wins over iceNomination: regular",
+        { ...RENOMINATION, iceNomination: "regular", iceNominationDelayMs: 0 },
+        { ...RENOMINATION, iceNominationDelayMs: 0 },
+      ],
+    ])("%s", async (_, offererConfig, answererConfig) => {
+      // Arrange / Act: 各自の設定で 2 つの PeerConnection を接続する。offerer は収集前に ICE server を更新する。
+      const peers = await connectWithIceConfigs(offererConfig, answererConfig, {
+        beforeGather: (pc) => pc.setConfiguration({ iceServers: [] }),
       });
-    } finally {
-      await transport1.stop();
-      await transport2.stop();
-    }
-  }, 30_000);
-
-  describe("iceNomination / iceRenomination", () => {
-    test("PeerConfig.iceNomination / iceRenomination が Connection の nomination / renomination に伝搬する", async () => {
-      // Arrange
-      const { pc, ice } = createPeerConnectionWithIceTransport({
-        iceNomination: "regular",
-        iceRenomination: true,
-      });
-      try {
-        // Act: RTCIceGatherer が生成した Connection のオプションを読む
-        const { nomination, renomination } = ice.connection.options;
-
-        // Assert: 指定値が IceOptions に渡る
-        expect(nomination).toBe("regular");
-        expect(renomination).toBe(true);
-      } finally {
-        await pc.close();
-      }
-    });
-
-    test("既定では a=ice-options:trickle だけを宣言し、semi-aggressive の USE-CANDIDATE で選択する", async () => {
-      // Arrange / Act: 既定の設定同士で接続する
-      const {
-        offerer,
-        answerer,
-        offerSdp,
-        answerSdp,
-        controlling,
-        controlled,
-      } = await connectWithIceConfigs({}, {});
+      const { offerer, answerer } = peers;
+      const negotiated =
+        !!offererConfig.iceRenomination && !!answererConfig.iceRenomination;
 
       try {
-        // Assert: renomination を宣言せず、相手の宣言も読み取らない
-        for (const sdp of [offerSdp, answerSdp]) {
+        for (const [config, connection, sdp] of [
+          [offererConfig, peers.controlling, peers.offerSdp],
+          [answererConfig, peers.controlled, peers.answerSdp],
+        ] as const) {
+          const { nomination, renomination, nominationDelayMs } =
+            connection.options;
+          // Assert: PeerConfig の値が ICE agent に渡り (offerer は ICE server の更新後も残り)、各 m-line の ice-options で renomination を宣言する (しない)。
+          expect({ nomination, renomination, nominationDelayMs }).toEqual({
+            nomination: config.iceNomination,
+            renomination: !!config.iceRenomination,
+            nominationDelayMs: config.iceNominationDelayMs,
+          });
+          expect(iceOptionLines(sdp).length).toBeGreaterThan(0);
           for (const line of iceOptionLines(sdp)) {
-            expect(line).toBe("a=ice-options:trickle");
+            expect(line).toBe(
+              config.iceRenomination
+                ? "a=ice-options:trickle renomination"
+                : "a=ice-options:trickle",
+            );
           }
         }
-        expect(controlling.remoteRenomination).toBe(false);
-        // Assert: controlled 側の選択は USE-CANDIDATE (値 1) によるもので、NOMINATION は使わない
-        expect(controlling.nominated!.nomination).toBe(0);
-        expect(controlled.nominated!.remoteNomination).toBe(1);
+        // Assert: 各端が相手の宣言を読み取る。
+        expect(peers.controlling.remoteRenomination).toBe(
+          !!answererConfig.iceRenomination,
+        );
+        expect(peers.controlled.remoteRenomination).toBe(
+          !!offererConfig.iceRenomination,
+        );
+        // Assert: 両端が宣言したときだけ NOMINATION (iceNomination より優先)、それ以外は USE-CANDIDATE (値 1) で選択する。
+        await waitUntil(
+          () =>
+            peers.controlled.nominated?.remoteNomination ===
+            (negotiated ? peers.controlling.nominated?.nomination : 1),
+        );
+        expect(peers.controlling.nominated!.nomination > 0).toBe(negotiated);
+        // Assert: 両端が同じ pair を選択する。
+        expect(peers.controlled.nominated!.localCandidate.port).toBe(
+          peers.controlling.nominated!.remoteCandidate.port,
+        );
       } finally {
         await Promise.all([offerer.close(), answerer.close()]);
       }
     });
 
-    test("両端が iceRenomination: true なら renomination を宣言し合い、NOMINATION の値で同じ pair を選択する", async () => {
-      // Arrange / Act: 両端で renomination を有効にして接続する
-      const {
-        offerer,
-        answerer,
-        offerSdp,
-        answerSdp,
-        controlling,
-        controlled,
-      } = await connectWithIceConfigs(
-        { iceRenomination: true },
-        { iceRenomination: true },
+    test("getSelectedCandidatePair reports only the nominated pair, and start() fails the transport when the agent fails", async () => {
+      const { transport, connection, pair } = createIceTransportWithValidPair();
+      vi.spyOn(connection, "connect").mockRejectedValue(
+        new Error("ICE negotiation failed"),
       );
 
       try {
-        // Assert: offer / answer の各 m-line が trickle と renomination を宣言する
-        for (const sdp of [offerSdp, answerSdp]) {
-          const lines = iceOptionLines(sdp);
-          expect(lines.length).toBeGreaterThan(0);
-          for (const line of lines) {
-            expect(line).toBe("a=ice-options:trickle renomination");
-          }
-        }
-        // Assert: 両端が相手の宣言を読み取る
-        expect(controlling.remoteRenomination).toBe(true);
-        expect(controlled.remoteRenomination).toBe(true);
-        // Assert: controlling 側は NOMINATION で指名し、controlled 側はその値で同じ pair を選択している
-        await waitUntil(
-          () =>
-            controlled.nominated?.remoteNomination ===
-            controlling.nominated?.nomination,
-        );
-        expect(controlling.nominated!.nomination).toBeGreaterThan(0);
-        expect(controlled.nominated!.localCandidate.port).toBe(
-          controlling.nominated!.remoteCandidate.port,
-        );
+        // Assert: check が成功しただけの pair は選択済みとして返さない。
+        expect(transport.getSelectedCandidatePair()).toBeNull();
+
+        // Act: ICE agent の connect() が失敗する (nomination の断念など)。
+        const started = transport.start();
+
+        // Assert: start() は失敗を伝え、transport は failed になる。
+        await expect(started).rejects.toThrow("ICE negotiation failed");
+        expect(transport.state).toBe("failed");
+
+        // Act: その pair が nominate される。
+        connection.nominated = pair;
+
+        // Assert: nominate された pair が選択済みとして返る。
+        expect(transport.getSelectedCandidatePair()).toMatchObject({
+          local: { port: pair.localCandidate.port },
+          remote: { port: pair.remoteCandidate.port },
+        });
       } finally {
-        await Promise.all([offerer.close(), answerer.close()]);
-      }
-    });
-
-    test("相手が renomination を宣言しなければ iceRenomination: true でも USE-CANDIDATE で選択する", async () => {
-      // Arrange / Act: offerer (controlling) だけが renomination を有効にして接続する
-      const {
-        offerer,
-        answerer,
-        offerSdp,
-        answerSdp,
-        controlling,
-        controlled,
-      } = await connectWithIceConfigs({ iceRenomination: true }, {});
-
-      try {
-        // Assert: offer だけが renomination を宣言する
-        expect(iceOptionLines(offerSdp)[0]).toBe(
-          "a=ice-options:trickle renomination",
-        );
-        expect(iceOptionLines(answerSdp)[0]).toBe("a=ice-options:trickle");
-        // Assert: controlling 側は NOMINATION を使わず、controlled 側は USE-CANDIDATE で選択している
-        expect(controlling.remoteRenomination).toBe(false);
-        expect(controlled.remoteRenomination).toBe(true);
-        expect(controlling.nominated!.nomination).toBe(0);
-        expect(controlled.nominated!.remoteNomination).toBe(1);
-      } finally {
-        await Promise.all([offerer.close(), answerer.close()]);
-      }
-    });
-  });
-
-  describe("iceNominationDelayMs", () => {
-    test("PeerConfig.iceNominationDelayMs が Connection の nominationDelayMs に伝搬し、ICE server 更新後も残る", async () => {
-      // Arrange
-      const { pc, ice } = createPeerConnectionWithIceTransport({
-        iceNominationDelayMs: 0,
-      });
-      try {
-        // Act: RTCIceGatherer が生成した Connection のオプションを読み、ICE server を更新する
-        const initial = ice.connection.options.nominationDelayMs;
-        pc.setConfiguration({ iceServers: [] });
-
-        // Assert: 指定値が IceOptions に渡り、server 更新で消えない
-        expect(initial).toBe(0);
-        expect(ice.connection.options.nominationDelayMs).toBe(0);
-      } finally {
-        await pc.close();
+        await transport.stop();
       }
     });
   });
