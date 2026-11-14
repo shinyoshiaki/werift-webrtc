@@ -4,7 +4,7 @@ ide:
   version: 1
   title: "ICE: semi-aggressive 既定と regular / renomination、ice.ts のモジュール分割"
   dock: right
-  baseCommit: b1b176c03d3dfffa13d5000c9e8c8a6256b7dc4a
+  baseCommit: 65e7efaa2e7729fae6aec14a8e70955fda47a5f1
 ---
 # ICE: 既定を semi-aggressive nomination にし、regular nomination と renomination を選べるようにする（`ice.ts` のモジュール分割を含む）
 
@@ -866,6 +866,18 @@ S10 を入れたところ、webrtc の leak property の 1 ケース（「a BUND
 - その後、保留していた host 候補を Chrome に渡します。両端の選択が同じ host ↔ host の経路に移り、データが届くことを確認します。
 - 組み合わせ: Chrome / werift のどちらが offer（= controlling）か × renomination の有無の 4 通りです。renomination ありでは、Chrome のローカル SDP の `a=ice-options` に `renomination` を書き足します（Chrome には有効にする API がないため）。
 
+### 4.7 webrtc 側テストの整理（最新コミット `65e7efaa2`）
+
+本番コードの変更はなく、`packages/webrtc` のテストと Arrange ヘルパーだけを整理したコミットです。
+
+| 変更 | 内容 | 場所 |
+| --- | --- | --- |
+| オプション伝搬テストの統合 | `iceNomination` / `iceRenomination` / `iceNominationDelayMs` の個別テスト 5 件を、`test.each` の 1 表（既定、両端 renomination、offerer のみ、answerer のみ、renomination が `iceNomination: "regular"` に優先）にまとめました。各行で「PeerConfig → ICE agent のオプション → SDP の `a=ice-options` → 選択される pair」を検証します。offerer は収集前に `setConfiguration({ iceServers: [] })` を呼び、server 更新後もオプションが残ることも確認します。 | [packages/webrtc/tests/transport/ice.test.ts:564](review-file:packages/webrtc/tests/transport/ice.test.ts:564)、[差分](review-diff:packages/webrtc/tests/transport/ice.test.ts:564) |
+| 実ソケットの nomination 断念テストを置き換え | 「nomination の応答をすべて失う実ソケットのテスト」と「待機中は `getSelectedCandidatePair()` が null」のテストを、ネットワークを使わない 1 件に置き換えました。成功しただけの pair は選択済みとして返さず、`connect()` が reject されると `start()` が reject して `failed` になり、`connection.nominated` を設定すると pair が返ることを検証します。断念そのもの（R4）は ICE 側の `nomination.test.ts` が引き続き検証します。 | [packages/webrtc/tests/transport/ice.test.ts:630](review-file:packages/webrtc/tests/transport/ice.test.ts:630) |
+| Arrange ヘルパー | 旧 `createStartableIceTransportPair` / `succeededPairs` を廃止し、SDP 由来の候補から「成功済みで未 nominate の pair」を 1 つ持つ `createIceTransportWithValidPair()` を追加しました。`connectWithIceConfigs()` には `beforeGather` を追加しました。 | [packages/webrtc/tests/utils.ts:611](review-file:packages/webrtc/tests/utils.ts:611)、[差分](review-diff:packages/webrtc/tests/utils.ts:611) |
+
+レビューで確認してほしい点は、実ソケットで断念を再現していたテストが webrtc 層から消えたことです。`start()` の reject 伝搬はモックした `connect()` で確認し、断念の発生は ICE 層のテストに任せる分担にしています。
+
 ## 5. 判断理由
 
 - **既定を semi-aggressive にした**: regular nomination では、controlling 側の接続完了が少なくとも 1 RTT 遅れます（2.6 の表）。Chrome の既定が semi-aggressive なので、相互接続時の挙動もそろいます。
@@ -888,6 +900,13 @@ S10 を入れたところ、webrtc の leak property の 1 ケース（「a BUND
 - **チケット範囲を超える変更**: ペア優先度の修正、regular の再送・断念、487 の扱い、provisional の対応、`getSelectedCandidatePair()` の変更を含みます。いずれも changelog に書いています（[changelog.md](review-diff:changelog.md)）。
 
 ## 7. 検証結果
+
+### 7.0 最新コミット `65e7efaa2` の確認（この文書の再作成時）
+
+| 内容 | 結果 |
+| --- | --- |
+| `cd packages/webrtc && npx vitest run tests/transport/ice.test.ts` | 1 ファイル成功。32 件成功・2 件スキップ |
+| `npm run type` | 成功 |
 
 ### 7.1 この文書の更新時に実行したもの（HEAD `b1b176c03`、develop を取り込んだ後）
 
@@ -930,5 +949,5 @@ S10 を入れたところ、webrtc の leak property の 1 ケース（「a BUND
 ### 7.5 実行していないもの
 
 - `npm run wpt`、`npm run ci`（全体）、`npm run examples:e2e`
-- develop を取り込んだ後（`b1b176c03`）の `npm run test:small` と E2E
+- develop を取り込んだ後（`b1b176c03`）と最新コミット（`65e7efaa2`）の `npm run test:small` と E2E（7.0 は webrtc の 1 ファイルと型検査のみ）
 - 2.6 の接続時間の表の再計測
