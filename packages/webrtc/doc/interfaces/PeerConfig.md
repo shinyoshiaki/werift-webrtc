@@ -1,0 +1,396 @@
+[**werift**](../README.md)
+
+***
+
+[werift](../globals.md) / PeerConfig
+
+# Interface: PeerConfig
+
+## Properties
+
+### bandwidthEstimator
+
+> **bandwidthEstimator**: [`BandwidthEstimatorOption`](../type-aliases/BandwidthEstimatorOption.md)
+
+Send-side estimator used by each new sender; defaults to `"lightweight"`.
+
+***
+
+### bundlePolicy
+
+> **bundlePolicy**: [`BundlePolicy`](../type-aliases/BundlePolicy.md)
+
+***
+
+### certificates
+
+> **certificates**: [`RTCCertificate`](../classes/RTCCertificate.md)[]
+
+***
+
+### certificateScope
+
+> **certificateScope**: `CertificateScope`
+
+Which default DTLS certificate is used when neither `certificates` nor `dtls.keys` is given.
+Cannot be changed after construction.
+- `"process"` (default): one certificate shared by every RTCPeerConnection in the process
+  (legacy behavior), so their `a=fingerprint` values are identical.
+- `"peerConnection"`: each RTCPeerConnection generates its own certificate (browser behavior).
+  All DTLS transports of that connection share it.
+
+***
+
+### codecs
+
+> **codecs**: `Partial`\<\{ `audio`: [`RTCRtpCodecParameters`](../classes/RTCRtpCodecParameters.md)[]; `video`: [`RTCRtpCodecParameters`](../classes/RTCRtpCodecParameters.md)[]; \}\>
+
+***
+
+### debug
+
+> **debug**: [`DebugConfig`](../type-aliases/DebugConfig.md)
+
+***
+
+### dtls
+
+> **dtls**: `Partial`\<\{ `helloRetryRequest?`: `boolean`; `keys`: [`DtlsKeys`](../type-aliases/DtlsKeys.md); `protocolVersions`: readonly [`DtlsVersion`](../enumerations/DtlsVersion.md)[]; \}\>
+
+***
+
+### filterProbePaddingOnReceiveRtp
+
+> **filterProbePaddingOnReceiveRtp**: `boolean`
+
+When true, padding-only RTP is omitted from onReceiveRtp and later media
+sequence numbers are compacted. Default false preserves wire RTP events.
+
+***
+
+### ~~forceTurnTCP~~
+
+> **forceTurnTCP**: `boolean`
+
+#### Deprecated
+
+Prefer turn URL transport parameters or turnTransport.
+
+***
+
+### headerExtensions
+
+> **headerExtensions**: `Partial`\<\{ `audio`: [`RTCRtpHeaderExtensionParameters`](../classes/RTCRtpHeaderExtensionParameters.md)[]; `video`: [`RTCRtpHeaderExtensionParameters`](../classes/RTCRtpHeaderExtensionParameters.md)[]; \}\>
+
+***
+
+### iceAdditionalHostAddresses
+
+> **iceAdditionalHostAddresses**: `string`[] \| `undefined`
+
+Add additional host (local) addresses to use for candidate gathering.
+Notably, you can include hosts that are normally excluded, such as loopback, tun interfaces, etc.
+For a family bound by `iceInterfaceAddresses`, addresses other than the bound one are ignored.
+
+***
+
+### iceCandidatePoolSize
+
+> **iceCandidatePoolSize**: `number`
+
+***
+
+### iceFilterCandidatePair
+
+> **iceFilterCandidatePair**: ((`pair`) => `boolean`) \| `undefined`
+
+***
+
+### iceFilterStunResponse
+
+> **iceFilterStunResponse**: ((`message`, `addr`, `protocol`) => `boolean`) \| `undefined`
+
+If provided, is called on each STUN request.
+Return `true` if a STUN response should be sent, false if it should be skipped.
+
+***
+
+### iceInterfaceAddresses
+
+> **iceInterfaceAddresses**: [`InterfaceAddresses`](../type-aliases/InterfaceAddresses.md) \| `undefined`
+
+Local addresses to bind the ICE UDP host sockets to, per family
+(`udp4` / `udp6`).
+
+The address given for a family is the only host address of that family:
+its host candidate advertises the address the socket is actually bound
+to, even when it is not an enumerated interface address (loopback, tun,
+VPN, ...). If the bind fails, the family has no UDP host candidate.
+A family left unspecified while the other one is set gathers no
+enumerated addresses (only its `iceAdditionalHostAddresses`).
+
+***
+
+### iceLite
+
+> **iceLite**: `boolean`
+
+Advertise local ICE lite and operate in the controlled role.
+
+***
+
+### iceMessageIntegrity
+
+> **iceMessageIntegrity**: [`MessageIntegrityMode`](../type-aliases/MessageIntegrityMode.md) \| `undefined`
+
+Integrity attributes of the ICE connectivity checks and consent requests
+werift sends (RFC 8489 short-term credentials). Applies to ICE transports
+created after it is set.
+- `undefined` / `"sha1"` (default): MESSAGE-INTEGRITY only. Browsers
+  (libwebrtc, Firefox) accept this.
+- `"sha256"`: MESSAGE-INTEGRITY-SHA256 only. Only for peers known to
+  support it: a peer that does not know the attribute rejects the checks.
+- `"both"`: MESSAGE-INTEGRITY followed by MESSAGE-INTEGRITY-SHA256.
+
+Checks and responses from the peer are accepted with either algorithm,
+and responses are always signed with the algorithm of the request.
+
+***
+
+### iceOptionIce2
+
+> **iceOptionIce2**: `boolean`
+
+Advertise the `ice2` ice-option (`a=ice-options:trickle ice2`, RFC 8445
+§10 / RFC 8839) to declare an RFC 8445 agent. Defaults to false
+(`a=ice-options:trickle`). It is only a declaration: werift runs the
+RFC 8445 procedures either way. Cannot be changed after construction.
+
+***
+
+### icePasswordPrefix
+
+> **icePasswordPrefix**: `string` \| `undefined`
+
+***
+
+### icePortRange
+
+> **icePortRange**: \[`number`, `number`\] \| `undefined`
+
+Minimum port and Maximum port must not be the same value
+
+***
+
+### iceServers
+
+> **iceServers**: [`RTCIceServer`](../type-aliases/RTCIceServer.md)[]
+
+***
+
+### iceStunGatherTimeout
+
+> **iceStunGatherTimeout**: `number` \| `undefined`
+
+Seconds to wait for server-reflexive candidates while gathering.
+Defaults to 5 when undefined.
+
+***
+
+### iceTcpPassive
+
+> **iceTcpPassive**: `boolean`
+
+Gather passive (listening) TCP host candidates. Defaults to true.
+
+***
+
+### iceTransportPolicy
+
+> **iceTransportPolicy**: `"all"` \| `"relay"`
+
+***
+
+### iceTurnConnectTimeout
+
+> **iceTurnConnectTimeout**: `number` \| `undefined`
+
+Seconds to wait for a TURN TCP/TLS connection to be established.
+Defaults to 8 when undefined.
+
+***
+
+### iceUseDefaultStunServer
+
+> **iceUseDefaultStunServer**: `boolean`
+
+Fall back to the built-in public STUN server (`stun.l.google.com:19302`)
+when `iceServers` contains no STUN URL (empty or TURN-only).
+Set to false to gather server-reflexive candidates only from the STUN
+servers given in `iceServers`. Defaults to true.
+
+***
+
+### iceUseIpv4
+
+> **iceUseIpv4**: `boolean`
+
+***
+
+### iceUseIpv6
+
+> **iceUseIpv6**: `boolean`
+
+***
+
+### iceUseLinkLocalAddress
+
+> **iceUseLinkLocalAddress**: `boolean` \| `undefined`
+
+such as google cloud run
+
+***
+
+### iceUseTcp
+
+> **iceUseTcp**: `boolean`
+
+***
+
+### keyFrameRequestRouting
+
+> **keyFrameRequestRouting**: [`KeyFrameRequestRouting`](../type-aliases/KeyFrameRequestRouting.md)
+
+Where a PLI / FIR goes when no route has its target SSRC. See [KeyFrameRequestRouting](../type-aliases/KeyFrameRequestRouting.md).
+- `"compatible"` (default): the sender whose RTX SSRC it is, else the only video sender.
+- `"strict"`: not delivered, as RFC 4585 / RFC 5104 define the target.
+
+***
+
+### maxMessageSize
+
+> **maxMessageSize**: `number`
+
+Advertised local SCTP max-message-size in SDP. Use 0 for unlimited.
+
+***
+
+### midSuffix
+
+> **midSuffix**: `boolean`
+
+***
+
+### mLineReuse
+
+> **mLineReuse**: [`MLineReuse`](../type-aliases/MLineReuse.md)
+
+How local SDP marks inactive / stopped m-lines. Cannot be changed after construction.
+- `"compatible"` (default): an accepted `inactive` m-line keeps a non-zero port.
+  Only rejected (no common codec / remote port 0) or stopped m-lines use port 0,
+  and only those negotiated port 0 positions are reused by new transceivers.
+- `"aggressive"`: legacy behavior. `inactive` m-lines are also written with port 0.
+
+***
+
+### pendingRtp
+
+> **pendingRtp**: `NonNullable`\<`boolean` \| [`PendingRtpOptions`](../type-aliases/PendingRtpOptions.md) \| `undefined`\>
+
+Queue outbound RTP on each sender until DTLS is connected.
+Disabled by default. Pass `true` or `{ enabled: true, maxLength }` to buffer.
+
+***
+
+### rtcpMuxPolicy
+
+> **rtcpMuxPolicy**: `"require"`
+
+***
+
+### sctp
+
+> **sctp**: `object`
+
+SCTP outbound packet MTU used for DATA chunk fragmentation.
+
+#### mtu
+
+> **mtu**: `number`
+
+***
+
+### sped?
+
+> `optional` **sped?**: `boolean`
+
+Opt-in SPED (DTLS handshake embedded in ICE Binding).
+Omit or false: ICE completes, then DTLS starts (current serial path).
+true: this PeerConnection only overlaps ICE checks with DTLS 1.3 handshake.
+Requires explicit DTLS 1.3 in `dtls.protocolVersions`
+(`dtls.protocolVersions` defaults to empty / DTLS 1.2 only).
+Cannot be combined with `dtls.helloRetryRequest: true`
+(SPED uses ICE-authenticated address validation, not a DTLS cookie).
+Both are validated by the constructor and `setConfiguration()`, which
+throw synchronously and leave the configuration unchanged.
+
+***
+
+### turnTlsOptions
+
+> **turnTlsOptions**: [`TlsConnectionOptions`](../type-aliases/TlsConnectionOptions.md) \| `undefined`
+
+***
+
+### turnTransport
+
+> **turnTransport**: `"udp"` \| `"tcp"` \| `"tls"` \| `undefined`
+
+***
+
+### turnUdpFamily
+
+> **turnUdpFamily**: `4` \| `6` \| `undefined`
+
+Preferred IP family of the TURN/UDP socket, applied only when the TURN
+server is a hostname. Ignored for an IP literal server, whose own family
+always selects the socket. Defaults to 4 when undefined.
+
+***
+
+### warp?
+
+> `optional` **warp?**: `object`
+
+WARP early outbound and encrypted-media buffering policy.
+- `allowEarlyServerData` (default false): the DTLS server may send
+  application data / media before the SDP fingerprint is verified.
+  Requires [PeerConfig.sped](#sped) `true` and DTLS 1.3; the constructor
+  and `setConfiguration()` throw synchronously otherwise.
+- `earlyMediaPolicy` (default `"drop"`): `"buffer"` retains inbound
+  encrypted media received before authentication (bounded) instead of
+  dropping it. Inbound data is never delivered before authentication.
+- `sendBeforeNomination` (default false): once the DTLS handshake is
+  done on this side (the DTLS client right after its Finished) and the
+  peer is authenticated, send application data and media on a valid
+  candidate pair (its own connectivity check succeeded) instead of
+  waiting for ICE nomination and consent (RFC 8445 §12.1, SPED
+  draft-00 §3.1.2.2). Applies only until a selected pair exists; never
+  during an ICE restart or on relay pairs. A peer that drops data
+  arriving before its own nomination only loses it like any packet loss
+  (SCTP retransmits). Requires [PeerConfig.sped](#sped) `true`; the
+  constructor and `setConfiguration()` throw synchronously otherwise.
+`setConfiguration()` merges these fields and applies them to every open
+DTLS transport, including ones a pending description prepared.
+
+#### allowEarlyServerData?
+
+> `optional` **allowEarlyServerData?**: `boolean`
+
+#### earlyMediaPolicy?
+
+> `optional` **earlyMediaPolicy?**: `"drop"` \| `"buffer"`
+
+#### sendBeforeNomination?
+
+> `optional` **sendBeforeNomination?**: `boolean`
