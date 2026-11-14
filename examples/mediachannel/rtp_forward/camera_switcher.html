@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Camera switcher (two cameras, one forwarded RTP stream)</title>
+  </head>
+  <body>
+    <div>
+      <button id="a">Camera A</button>
+      <button id="b">Camera B</button>
+      <span id="log">connecting</span>
+    </div>
+    <canvas id="ca" width="320" height="240"></canvas>
+    <canvas id="cb" width="320" height="240"></canvas>
+    <script>
+      var rtc;
+
+      // Two synthetic cameras that look different, so the switch is visible
+      // in the forwarded stream.
+      const camera = (id, name, color) => {
+        const canvas = document.getElementById(id);
+        const ctx = canvas.getContext("2d");
+        let frame = 0;
+        setInterval(() => {
+          ctx.fillStyle = color;
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.fillStyle = "white";
+          ctx.font = "40px sans-serif";
+          ctx.fillText(`Camera ${name}`, 40, 110);
+          ctx.fillText(`${frame++}`, 40, 170);
+        }, 1000 / 30);
+        return canvas.captureStream(30).getVideoTracks()[0];
+      };
+
+      (async () => {
+        const log = (text) => {
+          console.log(text);
+          document.getElementById("log").textContent = text;
+        };
+        const tracks = [camera("ca", "A", "#c0392b"), camera("cb", "B", "#2471a3")];
+        const socket = new WebSocket("ws://localhost:8888");
+        const peer = (rtc = new RTCPeerConnection({ iceServers: [] }));
+        peer.onicecandidate = ({ candidate }) => {
+          if (!candidate) {
+            socket.send(
+              JSON.stringify({ type: "answer", sdp: peer.localDescription }),
+            );
+          }
+        };
+        document.getElementById("a").onclick = () =>
+          socket.send(JSON.stringify({ type: "switch", camera: "A" }));
+        document.getElementById("b").onclick = () =>
+          socket.send(JSON.stringify({ type: "switch", camera: "B" }));
+
+        socket.onmessage = async (ev) => {
+          const msg = JSON.parse(ev.data);
+          if (msg.type === "offer") {
+            await peer.setRemoteDescription(msg.sdp);
+            // The offer has two recvonly video m-lines: camera A, camera B.
+            peer.getTransceivers().forEach((transceiver, i) => {
+              transceiver.sender.replaceTrack(tracks[i]);
+              transceiver.direction = "sendonly";
+            });
+            await peer.setLocalDescription(await peer.createAnswer());
+            log("connected");
+          } else if (msg.type === "active") {
+            log(`forwarding camera ${msg.camera}`);
+          }
+        };
+      })();
+    </script>
+  </body>
+</html>

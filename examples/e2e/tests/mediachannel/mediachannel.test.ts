@@ -1,4 +1,4 @@
-import { afterAll } from "vitest";
+import { afterAll, expect } from "vitest";
 
 import { catalogByGroup } from "../helpers/catalog.js";
 import { closeSharedBrowser } from "../helpers/openPage.js";
@@ -6,6 +6,7 @@ import { withExample } from "../helpers/runExample.js";
 import { waitForLog } from "../helpers/spawnExample.js";
 import {
   waitInboundRtp,
+  waitMoreUdpPackets,
   waitPeerConnected,
   waitSpawnedExit,
   waitUdpPackets,
@@ -82,6 +83,25 @@ for (const entry of entries.filter(
           if (session.udpListener) {
             // Assert: 転送先 UDP に RTP が届いている
             await waitUdpPackets(session.udpListener);
+            if (entry.sourceSwitchLog) {
+              // Act: 上流接続の作り直しを待つ
+              await waitForLog(
+                session.processes[0],
+                entry.sourceSwitchLog,
+                25_000,
+              );
+              // Act: 切替ログの確認後に受信数を記録する（旧接続のパケットを数えない）
+              const before = session.udpListener.packets;
+              // Assert: 作り直した後も同じ転送先へ RTP が届き続ける
+              await waitMoreUdpPackets(session.udpListener, before);
+              if (entry.continuousRtpMaxJump !== undefined) {
+                // Assert: 切替をまたいでも単一 SSRC で、seq が新しい原点へ飛ばず連続している
+                expect([...session.udpListener.ssrcs]).toHaveLength(1);
+                expect(session.udpListener.maxSequenceJump).toBeLessThanOrEqual(
+                  entry.continuousRtpMaxJump,
+                );
+              }
+            }
           } else {
             // Assert: werift 側が RTP を受けた（codec の keyframe ログなど）
             await waitWeriftRtp(logs);

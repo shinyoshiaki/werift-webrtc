@@ -28,6 +28,7 @@ export * from "./rtp/red/packet";
 export * from "./rtp/rtp";
 export * from "./rtp/rtx";
 export * from "./rtp/sendHeaderExtensions";
+export * from "./rtp/timelineRewriter";
 export * from "./srtp/const";
 export * from "./srtp/error";
 export * from "./srtp/replay";

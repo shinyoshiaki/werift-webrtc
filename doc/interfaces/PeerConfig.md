@@ -207,7 +207,7 @@ Gather passive (listening) TCP host candidates. Defaults to true.
 
 ### iceTransportPolicy
 
-> **iceTransportPolicy**: `"relay"` \| `"all"`
+> **iceTransportPolicy**: `"all"` \| `"relay"`
 
 ***
 
