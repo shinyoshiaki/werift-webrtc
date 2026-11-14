@@ -9,7 +9,10 @@ import {
   type Kind,
   MediaStreamTrack,
   PictureLossIndication,
+  RTCDataChannel,
+  RTCDataChannelParameters,
   RTCDtlsTransport,
+  type RTCDtlsTransportErrorEvent,
   RTCIceGatherer,
   RTCIceTransport,
   RTCPeerConnection,
@@ -17,6 +20,7 @@ import {
   RTCRtpCodecParameters,
   RTCRtpHeaderExtensionParameters,
   RTCRtpTransceiver,
+  RTCSctpTransport,
   type RTCSessionDescription,
   RTP_EXTENSION_URI,
   RtcpPayloadSpecificFeedback,
@@ -38,6 +42,7 @@ import { GccBandwidthEstimator } from "../src/media/sender/estimators/gcc/gccBwe
 import type { LightweightBandwidthEstimator } from "../src/media/sender/senderBWE";
 import type { RTCRemoteInboundRtpStreamStats } from "../src/media/stats";
 import { compactNtp } from "../src/utils";
+import { waitUntil } from "./utils";
 
 export const createRtpPacket = (
   sequenceNumber = 0,
@@ -663,4 +668,216 @@ export function pendingFeedback(estimator: LightweightBandwidthEstimator) {
   return new Map(
     [...adapter.history].map(([seq, info]) => [seq & 0xffff, info]),
   );
+}
+
+/**fingerprint 値の先頭 1 文字を変えた (一致しなくなる) 値 */
+export function mutateFingerprint(value: string) {
+  const normalized = value.replace(/[^0-9a-f]/gi, "").toUpperCase();
+  const flipped = `${normalized[0] === "A" ? "B" : "A"}${normalized.slice(1)}`;
+  return flipped.match(/.{2}/g)!.join(":");
+}
+
+/**DTLS transport が指定の状態になるまで待つ */
+export async function waitForDtlsState(
+  session: RTCDtlsTransport,
+  state: RTCDtlsTransport["state"],
+  timeoutMs = 5_000,
+) {
+  const started = Date.now();
+  while (session.state !== state) {
+    if (Date.now() - started > timeoutMs) {
+      throw new Error(`timed out waiting for dtls state ${state}`);
+    }
+    await setTimeout(50);
+  }
+}
+
+/**DTLS transport が ICE へ渡した DTLS alert record (content type 21) を記録する */
+export function recordSentDtlsAlerts(session: RTCDtlsTransport) {
+  const connection = session.iceTransport.connection;
+  const alerts: { epoch: number; fragment: Buffer }[] = [];
+  const order: ("alert" | "ice-close")[] = [];
+  const send = connection.send.bind(connection);
+  connection.send = (data: Buffer) => {
+    if (data[0] === 21) {
+      alerts.push({ epoch: data.readUInt16BE(3), fragment: data.subarray(13) });
+      order.push("alert");
+    }
+    return send(data);
+  };
+  const close = connection.close.bind(connection);
+  connection.close = () => {
+    order.push("ice-close");
+    return close();
+  };
+  return { alerts, order };
+}
+
+/**RTCDtlsTransport の statechange と error イベントを記録する */
+export function recordDtlsEvents(session: RTCDtlsTransport) {
+  const states: string[] = [];
+  const errors: RTCDtlsTransportErrorEvent[] = [];
+  session.addEventListener("statechange", () => states.push(session.state));
+  session.addEventListener("error", (e: RTCDtlsTransportErrorEvent) =>
+    errors.push(e),
+  );
+  return { states, errors };
+}
+
+/**SDP の全 a=fingerprint をゼロ値に書き換える (WPT dtls-fingerprint-validation) */
+export const zeroSdpFingerprints = (sdp: string) =>
+  sdp.replace(
+    /a=fingerprint:(\S+) (\S+)/g,
+    (_, algorithm: string, value: string) =>
+      `a=fingerprint:${algorithm} ${value.replace(/[0-9a-f]/gi, "0")}`,
+  );
+
+/**
+ * DataChannel を 1 本開いて接続済みの PeerConnection の組を作る
+ * (dc1: pc1 が作った channel、dc2: pc2 が受け取った channel)
+ */
+export async function connectedDataChannelPeers(label = "dc") {
+  const pc1 = new RTCPeerConnection();
+  const pc2 = new RTCPeerConnection();
+  const dc1 = pc1.createDataChannel(label);
+  const remoteChannel = new Promise<any>((resolve) =>
+    pc2.onDataChannel.subscribe(resolve),
+  );
+  await pc1.setLocalDescription(await pc1.createOffer());
+  await pc2.setRemoteDescription(pc1.localDescription!);
+  await pc2.setLocalDescription(await pc2.createAnswer());
+  await pc1.setRemoteDescription(pc2.localDescription!);
+  const dc2 = await remoteChannel;
+  await waitUntil(() => dc1.readyState === "open", "dc1 did not open");
+  await waitUntil(
+    () =>
+      pc1.connectionState === "connected" &&
+      pc2.connectionState === "connected",
+    "peers did not connect",
+  );
+  return { pc1, pc2, dc1, dc2 };
+}
+
+/**
+ * pc.close() の送信順を記録する: SCTP ABORT の送信、DTLS alert の送信、ICE の close
+ */
+export function recordCloseOrder(pc: RTCPeerConnection) {
+  const dtls = pc.sctp!.transport;
+  const { order: dtlsOrder } = recordSentDtlsAlerts(dtls);
+  const order: ("sctp-abort" | "alert" | "ice-close")[] = [];
+  const sctp = pc.sctp!.sctp;
+  const abort = sctp.abort.bind(sctp);
+  sctp.abort = async () => {
+    order.push("sctp-abort");
+    return abort();
+  };
+  const push = dtlsOrder.push.bind(dtlsOrder);
+  dtlsOrder.push = (...items) => {
+    order.push(...items);
+    return push(...items);
+  };
+  return order;
+}
+
+/** テスト中の未捕捉例外 / 未処理 rejection を集める (dispose で購読解除) */
+export function captureUnhandledErrors() {
+  const errors: unknown[] = [];
+  const onError = (error: unknown) => errors.push(error);
+  process.on("uncaughtException", onError);
+  process.on("unhandledRejection", onError);
+  return {
+    errors,
+    dispose: () => {
+      process.off("uncaughtException", onError);
+      process.off("unhandledRejection", onError);
+    },
+  };
+}
+
+/**
+ * 接続済み DTLS の組の上に SCTP を確立し、negotiated DataChannel を 1 本開く。
+ * `beforeBind` は SCTP が DTLS の状態を購読する前に呼ばれる（購読順を再現する）。
+ */
+export async function sctpOverDtlsPair(
+  beforeBind: (dtls: [RTCDtlsTransport, RTCDtlsTransport]) => void = () => {},
+) {
+  const [clientDtls, serverDtls] = await dtlsTransportPair();
+  beforeBind([clientDtls, serverDtls]);
+  const client = new RTCSctpTransport();
+  const server = new RTCSctpTransport();
+  client.setDtlsTransport(clientDtls);
+  server.setDtlsTransport(serverDtls);
+  const serverChannel = new RTCDataChannel(
+    server,
+    new RTCDataChannelParameters({ label: "dc", id: 1, negotiated: true }),
+  );
+  new RTCDataChannel(
+    client,
+    new RTCDataChannelParameters({ label: "dc", id: 1, negotiated: true }),
+  );
+  await Promise.all([server.start(client.port), client.start(server.port)]);
+  await waitUntil(
+    () => server.state === "connected" && serverChannel.readyState === "open",
+    `sctp ${server.state} / dc ${serverChannel.readyState}`,
+  );
+  return { clientDtls, serverDtls, client, server, serverChannel };
+}
+
+/** offer / answer を 1 往復して両 peer の description を適用する（ICE candidate は SDP に含める） */
+export async function exchangeOfferAnswer(
+  offerer: RTCPeerConnection,
+  answerer: RTCPeerConnection,
+) {
+  await offerer.setLocalDescription(await offerer.createOffer());
+  await answerer.setRemoteDescription(offerer.localDescription!);
+  await answerer.setLocalDescription(await answerer.createAnswer());
+  await offerer.setRemoteDescription(answerer.localDescription!);
+}
+
+/**
+ * audio の transceiver を sendrecv で交渉し、接続済みにした PeerConnection の組を作る
+ * （送信側の定期 RTCP が動く状態）
+ */
+export async function connectedMediaPeers() {
+  const pc1 = new RTCPeerConnection();
+  const pc2 = new RTCPeerConnection();
+  const track = new MediaStreamTrack({ kind: "audio" });
+  pc1.addTransceiver(track, { direction: "sendrecv" });
+  await exchangeOfferAnswer(pc1, pc2);
+  await waitUntil(
+    () =>
+      pc1.connectionState === "connected" &&
+      pc2.connectionState === "connected",
+    "media peers did not connect",
+  );
+  // 送信側の定期 RTCP は最初の RTP 送信で動き出すので、数パケット送る
+  for (let sequenceNumber = 0; sequenceNumber < 5; sequenceNumber++) {
+    track.writeRtp(
+      new RtpPacket(
+        new RtpHeader({ sequenceNumber, timestamp: sequenceNumber * 960 }),
+        Buffer.from([0]),
+      ),
+    );
+    await setTimeout(20);
+  }
+  return { pc1, pc2, track };
+}
+
+/**
+ * DTLS transport が ICE に渡した SRTP / SRTCP パケット（先頭 2 bit が RTP version 2）を
+ * RTP / RTCP に分けて記録する
+ */
+export function recordIceMediaSends(transport: RTCDtlsTransport) {
+  const sent = { rtp: 0, rtcp: 0 };
+  const connection = transport.iceTransport.connection;
+  const send = connection.send.bind(connection);
+  connection.send = (data: Buffer) => {
+    if (data.length >= 2 && data[0] >> 6 === 2) {
+      const payloadType = data[1] & 0x7f;
+      if (data[1] >= 192 && data[1] <= 223) sent.rtcp++;
+      else if (payloadType >= 0) sent.rtp++;
+    }
+    return send(data);
+  };
+  return sent;
 }
