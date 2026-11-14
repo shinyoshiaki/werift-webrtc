@@ -4,7 +4,8 @@ import { dirname, resolve } from "path";
 import vm from "vm";
 import { mkdir, readFile, readdir, writeFile } from "fs/promises";
 
-import { RTCPeerConnection } from "../../src";
+import { RTCPeerConnection, useH264, useVP8 } from "../../src";
+import { defaultCodecs } from "../../src/media/codec";
 import { createDummyRegister, installPolyfill } from "../../src/polyfill";
 import { resolveTargetConcurrency } from "./concurrencyLogic";
 import { ensureWptCheckout } from "./submodule";
@@ -353,22 +354,26 @@ async function runTargetInWorker(
   const timeoutMs = resolveWorkerTimeoutMs(resolveTimeoutProfile(target));
 
   return await new Promise<WptResultRecord[]>((resolveResult) => {
-    const worker = spawn(process.execPath, [
-      "--disable-warning=ExperimentalWarning",
-      "--disable-warning=MODULE_TYPELESS_PACKAGE_JSON",
-      "--import",
-      registerHookPath,
-      workerPath,
-    ], {
-      cwd: packageDir,
-      detached: process.platform !== "win32",
-      env: {
-        ...process.env,
-        WPT_PROGRESS: "",
-        WPT_TARGET_JSON: JSON.stringify(target),
+    const worker = spawn(
+      process.execPath,
+      [
+        "--disable-warning=ExperimentalWarning",
+        "--disable-warning=MODULE_TYPELESS_PACKAGE_JSON",
+        "--import",
+        registerHookPath,
+        workerPath,
+      ],
+      {
+        cwd: packageDir,
+        detached: process.platform !== "win32",
+        env: {
+          ...process.env,
+          WPT_PROGRESS: "",
+          WPT_TARGET_JSON: JSON.stringify(target),
+        },
+        stdio: ["ignore", "pipe", "pipe"],
       },
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+    );
     ACTIVE_WORKERS.add(worker);
     let finished = false;
     let forcedResult: WptResultRecord[] | undefined;
@@ -530,10 +535,31 @@ function createContext(input: {
   };
 }
 
+/**
+ * Browsers offer H264 next to VP8 (both mandatory to implement, RFC 7742),
+ * and upstream tests such as `protocol/codecs-subsequent-offer` expect it.
+ * werift's default video codecs stay VP8 only in `src`; only the WPT wrapper
+ * adds H264 when the test configures no video codecs.
+ */
+function withBrowserVideoCodecs(
+  config: ConstructorParameters<typeof RTCPeerConnection>[0],
+): ConstructorParameters<typeof RTCPeerConnection>[0] {
+  if (config?.codecs?.video) return config;
+  return {
+    ...config,
+    codecs: {
+      audio: defaultCodecs().audio,
+      ...config?.codecs,
+      video: [useVP8(), useH264()],
+    },
+  };
+}
+
 function createPeerConnectionWrapper(peerConnections: Set<RTCPeerConnection>) {
   class WptRTCPeerConnection extends RTCPeerConnection {
     constructor(...args: ConstructorParameters<typeof RTCPeerConnection>) {
-      super(...args);
+      const [config, ...rest] = args;
+      super(withBrowserVideoCodecs(config), ...rest);
       peerConnections.add(this);
     }
 

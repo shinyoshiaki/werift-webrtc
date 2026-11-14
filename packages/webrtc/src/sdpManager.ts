@@ -91,17 +91,19 @@ export class SDPManager {
   createMediaDescriptionForTransceiver(
     transceiver: RTCRtpTransceiver,
     direction: MediaDirection,
+    /** codecs to describe; the transceiver's negotiated codecs by default */
+    codecs: RTCRtpCodecParameters[] = transceiver.codecs,
   ): MediaDescription {
     const media = new MediaDescription(
       transceiver.kind,
       9,
       "UDP/TLS/RTP/SAVPF",
-      transceiver.codecs.map((c) => c.payloadType),
+      codecs.map((c) => c.payloadType),
     );
     media.direction = direction;
     media.msids = transceiver.msids;
     media.rtp = {
-      codecs: transceiver.codecs,
+      codecs,
       headerExtensions: transceiver.headerExtensions,
       muxId: transceiver.mid ?? undefined,
     };
@@ -569,6 +571,8 @@ export class SDPManager {
   buildOfferSdp(
     transceivers: RTCRtpTransceiver[],
     sctpTransport: RTCSctpTransport | undefined,
+    /** offer codecs that differ from `transceiver.codecs` (resolveOfferCodecs) */
+    offerCodecs?: ReadonlyMap<RTCRtpTransceiver, RTCRtpCodecParameters[]>,
   ): SessionDescription {
     const description = new SessionDescription();
     addSDPHeader("offer", description);
@@ -613,6 +617,7 @@ export class SDPManager {
           this.createMediaDescriptionForTransceiver(
             recycled,
             recycled.direction,
+            offerCodecs?.get(recycled),
           ),
         );
         return;
@@ -703,6 +708,7 @@ export class SDPManager {
             transceiver.stopping || transceiver.stopped
               ? "inactive"
               : transceiver.direction,
+            offerCodecs?.get(transceiver),
           ),
         );
       }
@@ -722,6 +728,7 @@ export class SDPManager {
       const mediaDescription = this.createMediaDescriptionForTransceiver(
         transceiver,
         transceiver.direction,
+        offerCodecs?.get(transceiver),
       );
       const reservedIndex = transceiver.mLineIndex;
       if (

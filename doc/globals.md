@@ -562,6 +562,7 @@
 - [isRttAboveLimit](functions/isRttAboveLimit.md)
 - [isStunMessage](functions/isStunMessage.md)
 - [isValidIntegritySha256Length](functions/isValidIntegritySha256Length.md)
+- [keepNegotiatedPayloadTypes](functions/keepNegotiatedPayloadTypes.md)
 - [keyLength](functions/keyLength.md)
 - [leb128decode](functions/leb128decode.md)
 - [makeIntegrityKey](functions/makeIntegrityKey.md)

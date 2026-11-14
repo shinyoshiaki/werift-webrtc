@@ -43,6 +43,7 @@ export class RTCRtpTransceiver {
   _codecs: RTCRtpCodecParameters[] = [];
   set codecs(codecs: RTCRtpCodecParameters[]) {
     this._codecs = codecs;
+    this.negotiatedCodecsStale = false;
   }
   get codecs() {
     return this._codecs;
@@ -52,6 +53,12 @@ export class RTCRtpTransceiver {
   readonly onCodecPreferencesChanged = new Event<[]>();
   pendingLocalOfferCodecs?: RTCRtpCodecParameters[];
   codecPreferencesNeedResolution = false;
+  /**
+   * Internal: an application change (`markCodecsForResolution`) made the
+   * negotiated `codecs`, kept live, stale for the next answer: it resolves
+   * them again, as for empty codecs. The next write of `codecs` clears it.
+   */
+  negotiatedCodecsStale = false;
   /**
    * Counts application changes to the codecs this transceiver may use
    * (`setCodecPreferences()`, a track attached by `addTrack()`). A rollback
@@ -83,10 +90,33 @@ export class RTCRtpTransceiver {
    * Internal: an application change makes the next offer / answer resolve
    * this transceiver's codecs again. The live sender and receiver keep the
    * committed codecs until a description is committed.
+   *
+   * A negotiated transceiver keeps `codecs` (the negotiated codecs that
+   * `getPayloadType()`, stats and the live tables use): its offers are
+   * resolved again every time anyway, keeping these payload types
+   * (`TransceiverManager.resolveOfferCodecs`).
    */
   markCodecsForResolution() {
     this.codecChangeRevision++;
-    this._codecs = [];
+    if (this.hasNegotiatedCodecs) this.negotiatedCodecsStale = true;
+    else this._codecs = [];
+  }
+
+  /** Internal: the next answer resolves this transceiver's codecs again. */
+  get needsCodecResolution() {
+    return (
+      this._codecs.length === 0 ||
+      this.negotiatedCodecsStale ||
+      this.codecPreferencesNeedResolution
+    );
+  }
+
+  /** a committed answer gave this transceiver its current codecs */
+  private get hasNegotiatedCodecs() {
+    return (
+      this._currentDirection != undefined &&
+      this._currentDirection !== "stopped"
+    );
   }
   options: Partial<TransceiverOptions> = {};
   /**stop() 済み、または停止が確定した transceiver */
@@ -200,6 +230,7 @@ export class RTCRtpTransceiver {
         ...this.pendingLocalOfferCodecs,
       ],
       codecPreferencesNeedResolution: this.codecPreferencesNeedResolution,
+      negotiatedCodecsStale: this.negotiatedCodecsStale,
       codecChangeRevision: this.codecChangeRevision,
       headerExtensions: this.headerExtensions,
       offerDirection: this.offerDirection,
@@ -227,10 +258,16 @@ export class RTCRtpTransceiver {
     // stays: the next offer / answer resolves the codecs again.
     if (this.codecChangeRevision === state.codecChangeRevision) {
       this.codecs = state.codecs;
+      this.negotiatedCodecsStale = state.negotiatedCodecsStale;
       this.codecPreferencesNeedResolution =
         state.codecPreferencesNeedResolution;
     } else {
-      this.codecs = [];
+      // A negotiated baseline keeps its codecs live (markCodecsForResolution).
+      this.codecs =
+        state.currentDirection != undefined &&
+        state.currentDirection !== "stopped"
+          ? state.codecs
+          : [];
       this.codecPreferencesNeedResolution = true;
     }
     this.headerExtensions = state.headerExtensions;

@@ -368,6 +368,7 @@ export const STEPS: Record<string, Step> = {
         await w.oracles.unchanged(pc, async () => {
           offer = (await pc.createOffer()) as never;
         });
+        w.oracles.offerCapability(pc, offer!);
         w.saved.set(pc, offer!);
       }
     },

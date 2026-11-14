@@ -1,7 +1,7 @@
 import { createWebRtcDomException } from "../errors";
 import { codecParametersFromString } from "../sdp";
 import type { Kind } from "../types/domain";
-import type { RTCRtpCodecParameters } from "./parameters";
+import { RTCRtpCodecParameters } from "./parameters";
 
 /**
  * Lower-cased MIME type with the legacy `video/AV1X` name folded into
@@ -246,4 +246,143 @@ export function assertCodecsSupported(options: {
     );
   }
   return effective;
+}
+
+/** The same codec for a payload type (RFC 3264 §8.3.2), RTX by its `apt`. */
+function samePayloadMapping(
+  left: RTCRtpCodecParameters,
+  right: RTCRtpCodecParameters,
+) {
+  return (
+    normalizeCodecMimeType(left.mimeType) ===
+      normalizeCodecMimeType(right.mimeType) &&
+    left.clockRate === right.clockRate &&
+    (left.channels ?? 1) === (right.channels ?? 1) &&
+    (codecName(left) !== "rtx" ||
+      referencedPayloadTypes(left)[0] === referencedPayloadTypes(right)[0])
+  );
+}
+
+function withPayloadType(
+  codec: RTCRtpCodecParameters,
+  payloadType: number,
+  parameters = codec.parameters,
+) {
+  if (codec.payloadType === payloadType && codec.parameters === parameters) {
+    return codec;
+  }
+  const next = new RTCRtpCodecParameters({
+    mimeType: codec.mimeType,
+    clockRate: codec.clockRate,
+    ...(codec.channels != undefined ? { channels: codec.channels } : {}),
+    payloadType,
+    rtcpFeedback: codec.rtcpFeedback.map((feedback) => ({ ...feedback })),
+    ...(parameters != undefined ? { parameters } : {}),
+    direction: codec.direction,
+  });
+  return next;
+}
+
+/**
+ * Offer codecs for a negotiated m-line (RFC 8829 §5.2.2, RFC 3264 §8.3.2):
+ * `capability` (configured payload types, in offer order) with each codec
+ * that is already negotiated moved to its negotiated payload type.
+ *
+ * A codec offered again keeps its configured payload type unless that type is
+ * already used on this m-line or maps to another codec in `taken` (every
+ * payload type the session uses); then it takes a free dynamic type (96-127,
+ * then 35-63). RTX `apt` and RED references follow their primaries, and an
+ * RTX / RED whose primary is not offered is dropped. The order of
+ * `capability` is kept.
+ */
+export function keepNegotiatedPayloadTypes(
+  capability: readonly RTCRtpCodecParameters[],
+  negotiated: readonly RTCRtpCodecParameters[],
+  taken: ReadonlyMap<number, RTCRtpCodecParameters>,
+): RTCRtpCodecParameters[] {
+  const offered: (RTCRtpCodecParameters | undefined)[] = capability.map(
+    () => undefined,
+  );
+  const used = new Set<number>();
+  const primaryPayloadType = new Map<number, number>();
+  const matched = new Set<RTCRtpCodecParameters>();
+  const isFree = (payloadType: number, codec: RTCRtpCodecParameters) => {
+    if (used.has(payloadType)) return false;
+    const owner = taken.get(payloadType);
+    return owner == undefined || samePayloadMapping(owner, codec);
+  };
+  const pick = (preferred: number, codec: RTCRtpCodecParameters) => {
+    if (isFree(preferred, codec)) return preferred;
+    for (const [from, to] of [
+      [96, 127],
+      [35, 63],
+    ]) {
+      for (let payloadType = from; payloadType <= to; payloadType++) {
+        if (isFree(payloadType, codec)) return payloadType;
+      }
+    }
+    return undefined;
+  };
+  const place = (index: number, codec: RTCRtpCodecParameters) => {
+    offered[index] = codec;
+    used.add(codec.payloadType);
+  };
+
+  // 1. Negotiated primaries keep their payload types.
+  capability.forEach((codec, index) => {
+    if (isAuxiliary(codec)) return;
+    const match = negotiated.find(
+      (candidate) =>
+        !isAuxiliary(candidate) &&
+        !matched.has(candidate) &&
+        isCodecCompatible(candidate, codec),
+    );
+    if (!match || used.has(match.payloadType)) return;
+    matched.add(match);
+    primaryPayloadType.set(codec.payloadType, match.payloadType);
+    place(index, withPayloadType(codec, match.payloadType));
+  });
+  // 2. Primaries offered again.
+  capability.forEach((codec, index) => {
+    if (isAuxiliary(codec) || offered[index]) return;
+    const payloadType = pick(codec.payloadType, codec);
+    if (payloadType == undefined) return;
+    primaryPayloadType.set(codec.payloadType, payloadType);
+    place(index, withPayloadType(codec, payloadType));
+  });
+  // 3. RTX / RED follow their primaries.
+  capability.forEach((codec, index) => {
+    if (!isAuxiliary(codec)) return;
+    const references = referencedPayloadTypes(codec).map((payloadType) =>
+      primaryPayloadType.get(payloadType),
+    );
+    if (
+      references.length === 0 ||
+      references.some((payloadType) => payloadType == undefined)
+    ) {
+      return;
+    }
+    const parameters =
+      codecName(codec) === "rtx"
+        ? (codec.parameters ?? "").replace(
+            /(^|;)\s*apt=\d+/,
+            `$1apt=${references[0]}`,
+          )
+        : references.join("/");
+    const candidate = withPayloadType(codec, codec.payloadType, parameters);
+    const negotiatedPayloadType = negotiated.find(
+      (other) =>
+        codecName(other) === codecName(codec) &&
+        (codecName(codec) === "rtx"
+          ? referencedPayloadTypes(other)[0] === references[0]
+          : (other.parameters ?? "") === parameters),
+    )?.payloadType;
+    const payloadType =
+      negotiatedPayloadType != undefined && !used.has(negotiatedPayloadType)
+        ? negotiatedPayloadType
+        : pick(codec.payloadType, candidate);
+    if (payloadType == undefined) return;
+    place(index, withPayloadType(candidate, payloadType));
+  });
+  return offered.filter((codec) => codec != undefined);
 }

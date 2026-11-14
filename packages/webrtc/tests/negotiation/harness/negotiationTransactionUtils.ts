@@ -923,6 +923,30 @@ function assertRouterAndCodecs(pc: RTCPeerConnection, snapshot: Snapshot) {
         sender.codec.mimeType.toLowerCase(),
       );
     }
+    // stable の transceiver.codecs は確定した codec (current の local と remote の両方) だけを持つ。
+    // offer は毎回能力から解決するが、その集合は transceiver.codecs に書き戻さない (issue 818)。
+    if (
+      pc.signalingState === "stable" &&
+      transceiver.currentDirection &&
+      transceiver.currentDirection !== "stopped"
+    ) {
+      const localMedia = snapshot.currentLocal?.media.find(
+        (m) => m.rtp.muxId === media.rtp.muxId,
+      );
+      const negotiated = media.rtp.codecs.filter((codec) =>
+        localMedia?.rtp.codecs.some((c) => sameNegotiatedCodec(c, codec)),
+      );
+      for (const codec of transceiver.codecs) {
+        expect(
+          negotiated.some(
+            (c) =>
+              c.payloadType === codec.payloadType &&
+              c.mimeType.toLowerCase() === codec.mimeType.toLowerCase(),
+          ),
+          `transceiver ${transceiver.mid} codec ${codec.payloadType} ${codec.mimeType} is not negotiated`,
+        ).toBe(true);
+      }
+    }
     // 実際の PLI 送信判定も、その SSRC の current SDP の codec の RTCP feedback に従う。
     for (const { ssrc } of media.ssrc) {
       if (!transceiver.receiver.trackBySSRC[ssrc]) continue;

@@ -306,6 +306,12 @@
       "variant": "",
       "subtest": "addTrack with existing sender with null track, different kind, and recvonly direction should create new sender",
       "status": "PASS"
+    },
+    {
+      "file": "webrtc/protocol/codecs-subsequent-offer.https.html",
+      "variant": "",
+      "subtest": "A subsequent offer after a VP8-only negotiation includes at least all mandatory to implement codecs",
+      "status": "PASS"
     }
   ]
 }

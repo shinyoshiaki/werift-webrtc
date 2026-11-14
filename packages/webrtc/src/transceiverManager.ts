@@ -24,6 +24,7 @@ import {
   assertCodecsSupported,
   hasCommonPrimaryMimeType,
   isCodecCompatible,
+  keepNegotiatedPayloadTypes,
   normalizeCodecMimeType,
   resolveCodecs,
 } from "./media/codecCompatibility";
@@ -633,6 +634,83 @@ export class TransceiverManager {
       preferences: transceiver.codecPreferences,
     });
     transceiver.codecPreferencesNeedResolution = false;
+  }
+
+  /**
+   * Codecs each transceiver puts in the next offer (`createOffer()`).
+   *
+   * Rules (RFC 8829 §5.2.2, RFC 3264 §8.3.2):
+   * - An offer lists everything the transceiver can currently use: the
+   *   configured codecs for its direction, narrowed by a fixed track source
+   *   and by `setCodecPreferences()`. An earlier answer that narrowed the
+   *   negotiated codecs does not narrow later offers (issue #818).
+   * - A transceiver with a negotiated session (`currentDirection` set) has its
+   *   offer codecs resolved again for every offer and they are returned
+   *   here, not written to `transceiver.codecs`: those stay the negotiated
+   *   codecs that the sender, receiver, router, `getPayloadType()` and stats
+   *   use until an answer commits new ones. A `createOffer()` that is never
+   *   applied therefore changes nothing that is sending or receiving.
+   * - A negotiated codec keeps its negotiated payload type; a codec offered
+   *   again takes its configured payload type, or a free dynamic one when that
+   *   type is used by another codec in this session (any m-line). RTX `apt`
+   *   and RED references follow the primary's payload type, and an RTX / RED
+   *   whose primary is not offered is dropped.
+   * - A transceiver without a negotiated session resolves as before: its
+   *   codecs are assigned when empty or when a codec change asks for it.
+   */
+  resolveOfferCodecs(): Map<RTCRtpTransceiver, RTCRtpCodecParameters[]> {
+    const fromCapability = this.transceivers.filter(
+      (t) =>
+        t.currentDirection != undefined &&
+        t.currentDirection !== "stopped" &&
+        !t.stopping &&
+        !t.stopped &&
+        t.codecs.length > 0,
+    );
+    for (const transceiver of this.transceivers) {
+      if (fromCapability.includes(transceiver)) continue;
+      if (
+        transceiver.codecs.length === 0 ||
+        transceiver.codecPreferencesNeedResolution
+      ) {
+        this.assignTransceiverCodecs(transceiver);
+      }
+    }
+
+    const taken = new Map<number, RTCRtpCodecParameters>();
+    const reserve = (codecs: readonly RTCRtpCodecParameters[]) => {
+      for (const codec of codecs) {
+        if (!taken.has(codec.payloadType)) taken.set(codec.payloadType, codec);
+      }
+    };
+    for (const transceiver of this.transceivers) {
+      if (!transceiver.stopped) reserve(transceiver.codecs);
+    }
+
+    const offerCodecs = new Map<RTCRtpTransceiver, RTCRtpCodecParameters[]>();
+    for (const transceiver of fromCapability) {
+      const capability = assertCodecsSupported({
+        kind: transceiver.kind,
+        configured: this.filterCodecsByDirection(
+          transceiver.kind,
+          transceiver.direction,
+        ),
+        source: getTrackSourceCodecs(transceiver.sender.track),
+        preferences: transceiver.codecPreferences,
+      });
+      const codecs = keepNegotiatedPayloadTypes(
+        capability,
+        transceiver.codecs,
+        taken,
+      );
+      reserve(codecs);
+      offerCodecs.set(transceiver, codecs);
+      // As when an offer assigned the codecs: the request is consumed (a
+      // rollback restores it) and a later remote offer sets the codecs anyway.
+      transceiver.codecPreferencesNeedResolution = false;
+      transceiver.negotiatedCodecsStale = false;
+    }
+    return offerCodecs;
   }
 
   private filterCodecsByDirection(
