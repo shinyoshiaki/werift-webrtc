@@ -224,8 +224,12 @@ export class RtpRouter {
     }
     // A fallback SSRC of an m-line the committed description gave an SSRC or
     // a RID goes now (a pending description kept it for the current session).
+    // A fallback SSRC that already arrived with one of its new RIDs moves to
+    // that RID's track and keeps its route.
     for (const { receiver } of this.transceivers()) {
-      if (!receiver.acceptsUnknownSsrc) this.releaseFallbackSsrc(receiver);
+      if (receiver.acceptsUnknownSsrc) continue;
+      receiver.handOverFallbackToRid();
+      this.releaseFallbackSsrc(receiver);
     }
   }
 
@@ -316,6 +320,15 @@ export class RtpRouter {
     this.ridTable = { ...snapshot.ridTable };
     this.extIdUriMap = { ...snapshot.extIdUriMap };
     this.restoreStaged(snapshot.staged);
+    // Receivers restore first (`NegotiationTransaction`): an SSRC a receiver
+    // forgot there (learned for a track the rollback removed) loses its
+    // learned route too, so receiver and router agree.
+    for (const endpoint of endpoints) {
+      if (!(endpoint instanceof RTCRtpReceiver)) continue;
+      for (const ssrc of endpoint.takeForgottenSsrcs()) {
+        this.unlearnSsrc(ssrc, endpoint);
+      }
+    }
   }
 
   /** Test-only observation of staged routes. */

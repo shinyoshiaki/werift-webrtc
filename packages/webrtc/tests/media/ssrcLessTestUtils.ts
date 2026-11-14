@@ -4,6 +4,7 @@ import {
   GenericNack,
   RTCRtpCodecParameters,
   RTCRtpCodingParameters,
+  RTCRtpSimulcastParameters,
   RTCRtpTransceiver,
   RTP_EXTENSION_URI,
   type RtcpPacket,
@@ -31,6 +32,8 @@ import { createSimulcastRtxReceiver } from "./rtpReceiverTestUtils";
 
 /** Header extension ID of `sdes:mid` in these fixtures. */
 export const ssrcLessMidExtensionId = 1;
+/** Header extension ID of `sdes:rtp-stream-id` in these fixtures. */
+export const ssrcLessRidExtensionId = 2;
 
 export const opus = (payloadType = 111) =>
   new RTCRtpCodecParameters({
@@ -97,6 +100,7 @@ export function createSsrcLessRouter() {
       codecs,
       headerExtensions: [
         { id: ssrcLessMidExtensionId, uri: RTP_EXTENSION_URI.sdesMid },
+        { id: ssrcLessRidExtensionId, uri: RTP_EXTENSION_URI.sdesRTPStreamID },
       ],
       encodings: codecs.map(
         (c) =>
@@ -121,6 +125,7 @@ export function ssrcLessPacket(options: {
   payloadType: number;
   sequenceNumber?: number;
   mid?: string;
+  rid?: string;
   payload?: Buffer;
 }) {
   return new RtpPacket(
@@ -129,10 +134,18 @@ export function ssrcLessPacket(options: {
       payloadType: options.payloadType,
       sequenceNumber: options.sequenceNumber ?? 1,
       timestamp: (options.sequenceNumber ?? 1) * 960,
-      extensions:
-        options.mid === undefined
+      extensions: [
+        ...(options.mid === undefined
           ? []
-          : [{ id: ssrcLessMidExtensionId, payload: Buffer.from(options.mid) }],
+          : [
+              { id: ssrcLessMidExtensionId, payload: Buffer.from(options.mid) },
+            ]),
+        ...(options.rid === undefined
+          ? []
+          : [
+              { id: ssrcLessRidExtensionId, payload: Buffer.from(options.rid) },
+            ]),
+      ],
     }),
     options.payload ?? Buffer.from(`payload-${options.sequenceNumber ?? 1}`),
   );
@@ -276,4 +289,37 @@ export async function inboundRtpSsrcs(transceiver: RTCRtpTransceiver) {
   return stats
     .filter((s) => s.type === "inbound-rtp")
     .map((s) => (s as { ssrc?: number }).ssrc);
+}
+
+/**
+ * A receiving SSRC-less m-line whose current session learned `ssrc` and to
+ * which a pending re-offer gives the RID "high" (staged until the commit).
+ */
+export function createPendingRidOverFallback(ssrc: number) {
+  const arranged = createSsrcLessRouter();
+  const { router, dtls, addReceiver } = arranged;
+  const audio = addReceiver();
+  audio.setCurrentDirection("recvonly");
+  const announced = audio.receiver.track;
+  router.routeRtp(
+    ssrcLessPacket({ ssrc, payloadType: 111, sequenceNumber: 1 }),
+    dtls,
+  );
+  const routes = router.snapshotRoutes();
+  const receiverState = audio.receiver.snapshotNegotiationState();
+  router.registerRtpReceiverByRid(
+    audio,
+    new RTCRtpSimulcastParameters({ rid: "high", direction: "send" }),
+    { codecs: [opus()], headerExtensions: [], encodings: [] },
+    { deferConflicts: true },
+  );
+  /** Rollback in the order `NegotiationTransaction` restores: receivers, then routes. */
+  const rollback = () => {
+    audio.receiver.restoreNegotiationState(receiverState);
+    router.restoreRoutes(routes, {
+      endpoints: new Set([audio.receiver, audio.sender]),
+      liveSenders: [],
+    });
+  };
+  return { ...arranged, audio, announced, rollback };
 }

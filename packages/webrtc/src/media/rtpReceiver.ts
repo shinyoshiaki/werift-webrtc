@@ -415,6 +415,25 @@ export class RTCRtpReceiver {
     }
   }
 
+  /**
+   * Internal (router, at the commit): the fallback SSRC already arrived with
+   * a RID the committed description gave (`mediaSsrcByRid`), so it is that
+   * RID's media SSRC now: its track entry moves to the RID's track and stays
+   * learned, so the route survives the release of the fallback and later
+   * packets without `rtp-stream-id` keep reaching the RID's track.
+   */
+  handOverFallbackToRid() {
+    const ssrc = this.fallbackSsrc;
+    if (ssrc === undefined) return;
+    const rid = Object.keys(this.mediaSsrcByRid).find(
+      (candidate) =>
+        this.mediaSsrcByRid[candidate] === ssrc && this.trackByRID[candidate],
+    );
+    if (rid === undefined) return;
+    this.trackBySSRC[ssrc] = this.trackByRID[rid];
+    if (this.defaultTrack.ssrc === ssrc) this.defaultTrack.ssrc = undefined;
+  }
+
   adoptDefaultTrack(ssrc: number, codec?: RTCRtpCodecParameters) {
     this.defaultTrack.ssrc = ssrc;
     this.defaultTrack.codec = codec ?? this.defaultTrack.codec;
@@ -584,6 +603,11 @@ export class RTCRtpReceiver {
     const forgotten = state.learnedTrackSsrcs.filter(
       (ssrc) => !(ssrc in this.trackBySSRC),
     );
+    // RIDs only the rolled-back description gave (staged tracks, or tracks
+    // it added): what their packets taught goes with them.
+    const droppedRids = Object.keys(this.trackByRID).filter(
+      (rid) => !(rid in state.trackByRID),
+    );
     replaceTable(this.trackBySSRC, state.trackBySSRC);
     for (const ssrc of forgotten) delete this.trackBySSRC[ssrc];
     for (const [ssrc, track] of learnedTracks) {
@@ -596,6 +620,23 @@ export class RTCRtpReceiver {
     }
     replaceTable(this.trackByRID, state.trackByRID);
     this.unboundTracks = [...state.unboundTracks];
+    for (const rid of droppedRids) {
+      for (const rtxSsrc of [...(this.rtxSsrcsByRid[rid] ?? [])]) {
+        this.unbindRtxSsrc(rtxSsrc);
+        this.forgetLearnedSsrc(rtxSsrc);
+      }
+      delete this.rtxSsrcsByRid[rid];
+      delete this.retiredSsrcsByRid[rid];
+      delete this.mediaSsrcByRid[rid];
+    }
+    // A learned SSRC whose track did not survive is forgotten here and, via
+    // `takeForgottenSsrcs`, in the router (`RtpRouter.restoreRoutes`), so the
+    // same SSRC can be learned anew (for example as the fallback SSRC).
+    for (const ssrc of [...this.learnedTrackSsrcs]) {
+      if (ssrc in this.trackBySSRC) continue;
+      this.learnedTrackSsrcs.delete(ssrc);
+      this.forgetLearnedSsrc(ssrc);
+    }
     // A track the rolled-back description rebound gets its SSRC back.
     for (const [ssrc, track] of Object.entries(state.trackBySSRC)) {
       if (!track.rid && !forgotten.includes(Number(ssrc))) {

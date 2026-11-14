@@ -628,6 +628,22 @@ fills a hole of the RID's current media SSRC (see mediaSsrcOfRtx).
 
 ***
 
+### handOverFallbackToRid()
+
+> **handOverFallbackToRid**(): `void`
+
+Internal (router, at the commit): the fallback SSRC already arrived with
+a RID the committed description gave (`mediaSsrcByRid`), so it is that
+RID's media SSRC now: its track entry moves to the RID's track and stays
+learned, so the route survives the release of the fallback and later
+packets without `rtp-stream-id` keep reaching the RID's track.
+
+#### Returns
+
+`void`
+
+***
+
 ### isRetiredFallbackSsrc()
 
 > **isRetiredFallbackSsrc**(`ssrc`): `boolean`

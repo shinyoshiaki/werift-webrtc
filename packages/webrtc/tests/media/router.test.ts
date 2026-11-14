@@ -47,6 +47,7 @@ import {
   collidingRouteCount,
   createCollidingSsrcLessRouter,
   createPayloadTypeSharingRouter,
+  createPendingRidOverFallback,
   createSsrcLessRouter,
   inboundRtpSsrcs,
   opus,
@@ -2831,6 +2832,78 @@ describe("media/router: a=ssrc のない m-line の SSRC 学習 (#356)", () => {
       }
     },
   );
+
+  test("pending の RID track が学習した SSRC は rollback で receiver と経路の両方から消え、現在の送信元が使えば fallback で学習する", () => {
+    // Arrange: SSRC 300 を学習済みの session に、保留中の re-offer が RID "high" を与えた
+    const { router, dtls, audio, announced, rollback } =
+      createPendingRidOverFallback(300);
+    const payloads = collectTrackPayloads(audio);
+
+    // Act: 保留中に RID "high" 付きの SSRC 400 を受信してから rollback する
+    router.routeRtp(
+      ssrcLessPacket({
+        ssrc: 400,
+        payloadType: 111,
+        sequenceNumber: 2,
+        rid: "high",
+      }),
+      dtls,
+    );
+    rollback();
+
+    // Assert: RID の track も、400 の track の対応付けも経路も残らない
+    expect(audio.receiver.trackByRID.high).toBeUndefined();
+    expect(audio.receiver.trackBySSRC[400]).toBeUndefined();
+    expect(router.ssrcTable[400]).toBeUndefined();
+    expect(router.learnedSsrcs.has(400)).toBe(false);
+
+    // Act: 現在の送信元が RID なしで SSRC 400 に切り替える
+    router.routeRtp(
+      ssrcLessPacket({ ssrc: 400, payloadType: 111, sequenceNumber: 3 }),
+      dtls,
+    );
+
+    // Assert: fallback として学習して通知済み track に届く
+    expect(payloads).toEqual(["payload-3"]);
+    expect(audio.receiver.track).toBe(announced);
+    expect(audio.receiver.fallbackSsrc).toBe(400);
+    expect(router.ssrcTable[400]).toBe(audio.receiver);
+  });
+
+  test("fallback の SSRC が pending 中に RID 付きでも届けば、commit で RID track に引き継ぎ、RID 拡張を省いた後続も届く", () => {
+    // Arrange: SSRC 300 を学習済みの session に、保留中の re-offer が RID "high" を与えた
+    const { router, dtls, audio } = createPendingRidOverFallback(300);
+
+    // Act: 保留中に同じ SSRC 300 が RID "high" 付きで届いてから commit する
+    router.routeRtp(
+      ssrcLessPacket({
+        ssrc: 300,
+        payloadType: 111,
+        sequenceNumber: 2,
+        rid: "high",
+      }),
+      dtls,
+    );
+    router.commitStaged();
+    const high = audio.receiver.trackByRID.high;
+    const delivered: number[] = [];
+    high.onReceiveRtp.subscribe((rtp) =>
+      delivered.push(rtp.header.sequenceNumber),
+    );
+
+    // Act: 送信側が RID 拡張を省いて SSRC 300 を送り続ける
+    router.routeRtp(
+      ssrcLessPacket({ ssrc: 300, payloadType: 111, sequenceNumber: 3 }),
+      dtls,
+    );
+
+    // Assert: 300 は RID track の SSRC として残り、後続も RID track に届く
+    expect(audio.receiver.track).toBe(high);
+    expect(audio.receiver.trackBySSRC[300]).toBe(high);
+    expect(audio.receiver.fallbackSsrc).toBeUndefined();
+    expect(router.ssrcTable[300]).toBe(audio.receiver);
+    expect(delivered).toEqual([3]);
+  });
 
   test("transceiver の登録解除で学習済み SSRC が残らない", () => {
     // Arrange
