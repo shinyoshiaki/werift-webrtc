@@ -125,6 +125,7 @@ RFC 8843 / RFC 9143（BUNDLE）§9.2「Associating RTP/RTCP Streams with the Cor
   2. なければ、別 transport でパケットから学習した経路（`learnedSsrcs` の receiver 経路）は使わない。
   3. それ以外は従来どおり `ssrcTable` で決める。
 - [x] パケットから学習した経路の追加は 1 つの関数（`addLearnedRoute`）にまとめ、fallback 学習（`learnUnknownSsrc`）と RID / simulcast 学習（`learnSsrc`）の両方で使う。別 transport が学習済みの SSRC は、その transport の `collidingRoutes` に登録する（A の経路を奪わず、B も受信できる）。
+- [x] simulcast の SSRC 探索（RID 拡張をやめた後のパケットを、RID receiver が学習済みの track SSRC で引く経路）は、受信した transport の receiver に限る。RID 側が先に SSRC を学習していても、別 transport の SSRC-less receiver は同じ数値の SSRC を fallback で学習できる（レビュー指摘）。
 - [x] 置き換え済み fallback SSRC（`isRetiredFallbackSsrc`）の判定は、受信した transport の receiver に限る。別 transport で同じ数値の新しいストリームが来たら学習する。
 - [x] 相手の未知 SSRC がローカル sender の SSRC と一致しても `routeRtp` は例外を投げない。sender の経路を保ち、その SSRC は学習しない（RFC 3550 §8.2 の衝突）。
 - [x] `collidingRoutes` は transceiver の登録解除、SSRC の置き換え・破棄で消える。receiver が停止済み、またはその SSRC の track を持たなくなった場合は、引き当て時に外れる。rollback（`restoreRoutes`）の後も、両 transport のパケット由来の経路は整合したまま残る。
@@ -186,6 +187,7 @@ RFC 8843 / RFC 9143（BUNDLE）§9.2「Associating RTP/RTCP Streams with the Cor
 - [x] rollback（`restoreRoutes`）の後も、両 transport の RTP と SR がそれぞれの receiver に届く。
 - [x] A が置き換えた SSRC 55 を、B の transport の新しいストリームとして学習し、RTP と SR が B に届く。
 - [x] 別 transport が fallback で学習済みの SSRC を RID で学習しても、RID 付き・RID なしの RTP と SR が RID の receiver に届き、A の経路は残る。
+- [x] 別 transport の RID receiver が先に SSRC 55 を学習した後でも、B の SSRC-less receiver が SSRC 55 を学習して RTP と SR を受け、simulcast の RTP と SR も simulcast の receiver に届く（MID なし / MID が B の両方）。
 - [x] ローカル sender と同じ SSRC の未知 RTP で例外が出ず、sender の経路が残る。
 
 ### negotiation / property

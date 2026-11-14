@@ -33,7 +33,7 @@ and unregistering a transceiver drops its learned SSRCs.
 | Packet-driven key | Learned when | Bound |
 | --- | --- | --- |
 | SSRC → receiver (RID) | `rtp-stream-id` / `repaired-rtp-stream-id` names a route | per RID (receiver) |
-| SSRC → receiver (simulcast) | the SSRC is a learned track SSRC of a RID receiver | as above |
+| SSRC → receiver (simulcast) | the SSRC is a learned track SSRC of a RID receiver on the packet's transport | as above |
 | SSRC → receiver (fallback, RFC 9143 section 9.2) | see learnUnknownSsrc | one per receiver |
 
 The fallback serves remote m-lines without `a=ssrc` and RIDs (SIP gateways,

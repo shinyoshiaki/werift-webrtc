@@ -102,7 +102,7 @@ type StagedRoutes = {
  * | Packet-driven key | Learned when | Bound |
  * | --- | --- | --- |
  * | SSRC → receiver (RID) | `rtp-stream-id` / `repaired-rtp-stream-id` names a route | per RID (receiver) |
- * | SSRC → receiver (simulcast) | the SSRC is a learned track SSRC of a RID receiver | as above |
+ * | SSRC → receiver (simulcast) | the SSRC is a learned track SSRC of a RID receiver on the packet's transport | as above |
  * | SSRC → receiver (fallback, RFC 9143 section 9.2) | see {@link learnUnknownSsrc} | one per receiver |
  *
  * The fallback serves remote m-lines without `a=ssrc` and RIDs (SIP gateways,
@@ -507,10 +507,16 @@ export class RtpRouter {
     } else if (rtpReceiver) {
       rtpReceiver.handleRtpBySsrc(packet, extensions);
     } else {
-      // simulcast after send receiver report
+      // simulcast after send receiver report. The SSRC a RID receiver learned
+      // belongs to its RTP session: on another transport the same number is
+      // another stream (for example of an SSRC-less m-line there).
       rtpReceiver = Object.values(this.ridTable)
         .filter((r): r is RTCRtpReceiver => r instanceof RTCRtpReceiver)
-        .find((r) => r.trackBySSRC[ssrc]);
+        .find(
+          (r) =>
+            r.trackBySSRC[ssrc] &&
+            (!dtlsTransport || r.dtlsTransport === dtlsTransport),
+        );
       if (rtpReceiver) {
         log("simulcast register receiver by ssrc", ssrc);
         learnedNow = this.learnSsrc(ssrc, rtpReceiver);

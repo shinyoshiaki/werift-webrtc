@@ -2082,6 +2082,56 @@ describe("media/router: a=ssrc のない m-line の SSRC 学習 (#356)", () => {
     expect(router.ssrcTable[55]).toBe(a.receiver);
   });
 
+  test.each([
+    ["MID なし", undefined],
+    ["MID が B", "b"],
+  ] as const)(
+    "別 transport が RID で先に学習した SSRC でも、SSRC-less の receiver が学習して RTP と RTCP を受ける (%s)",
+    (_, mid) => {
+      // Arrange: 別 transport の simulcast receiver が RID "high" で SSRC 55 を学習し、
+      // RID 拡張なしの後続パケットも届いた後で、transport B に SSRC-less の receiver がある
+      const { router, addReceiver } = createSsrcLessRouter();
+      const simulcast = createSimulcastRtxReceiver({ router, mid: "v" });
+      const other = createDtlsTransport();
+      const b = addReceiver({ mid: "b", transport: other });
+      const delivered = collectDeliveredRtp(simulcast.receiver.trackByRID.high);
+      const bPayloads = collectTrackPayloads(b);
+      const recipients = collectRtcpRecipients({ v: simulcast.transceiver, b });
+      router.routeRtp(
+        createSimulcastMediaPacket({
+          ssrc: 55,
+          sequenceNumber: 1,
+          rid: "high",
+          mid: "v",
+        }),
+        simulcast.dtls,
+      );
+      router.routeRtp(
+        createSimulcastMediaPacket({ ssrc: 55, sequenceNumber: 2, mid: null }),
+        simulcast.dtls,
+      );
+
+      // Act: B の transport に SSRC 55 の RTP と SR、続いて simulcast の transport に RTP と SR が届く
+      router.routeRtp(
+        ssrcLessPacket({ ssrc: 55, payloadType: 111, sequenceNumber: 3, mid }),
+        other,
+      );
+      router.routeRtcp(rtcpNamingSsrc.SR(55), other);
+      router.routeRtp(
+        createSimulcastMediaPacket({ ssrc: 55, sequenceNumber: 4, mid: null }),
+        simulcast.dtls,
+      );
+      router.routeRtcp(rtcpNamingSsrc.SR(55), simulcast.dtls);
+
+      // Assert: B は SSRC 55 を学習して受信し、simulcast の経路も保たれる
+      expect(bPayloads).toEqual(["payload-3"]);
+      expect(b.receiver.fallbackSsrc).toBe(55);
+      expect(delivered.map((d) => d.seq)).toEqual([1, 2, 4]);
+      expect(recipients).toEqual(["b", "v"]);
+      expect(router.ssrcTable[55]).toBe(simulcast.receiver);
+    },
+  );
+
   test("ローカル sender と同じ SSRC の未知 RTP は例外を投げず、sender の経路を保つ", () => {
     // Arrange: SSRC-less の receiver とローカル sender がある
     const { router, dtls, addReceiver } = createSsrcLessRouter();
