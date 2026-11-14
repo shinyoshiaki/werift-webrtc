@@ -118,7 +118,9 @@ a path broken in one direction).
   pair is checked about every 2.5 s. Checks keep this pacing while earlier
   ones still wait for their (RTT-based) response timeout: a slow response is
   never cancelled and still counts, and a dead high-RTT path is still told
-  within the bound (about 8.7 s with an RTT of 1.2 s). The pair is unwritable once 5
+  within the bound (about 8.7 s with an RTT of 1.2 s). A check counts as
+  unanswered at its RTT-based deadline, but its transaction stays open for
+  5 s, so a late response (a busy event loop, a delayed path) still counts. The pair is unwritable once 5
   checks in a row went unanswered and 5 s passed since its last response
   (libwebrtc's `CONNECTION_WRITE_CONNECT_FAILURES` /
   `CONNECTION_WRITE_CONNECT_TIMEOUT`), about 5–10 s after the path broke.
@@ -141,9 +143,13 @@ a path broken in one direction).
 - State: `disconnected` while the selected pair is unwritable and no backup
   is writable, back to `connected` only once the selected pair works again:
   it answers again, or the selection moved to a backup (a backup that merely
-  answers again does not end `disconnected`). `failed` when
-  the selected pair's consent expires (30 s, RFC 7675) and no writable
-  backup is left.
+  answers again does not end `disconnected`). When the selected pair's
+  consent expires (30 s, RFC 7675) nothing more is sent on it and it is not
+  checked again: with no writable backup the agent is `failed`; with one it
+  is `disconnected` and waits up to 10 s
+  (`FAILOVER_CONSENT_EXPIRED_GRACE`) for the selection to move to a backup
+  (its own failover nomination, or the peer's when controlled), then fails.
+  An ICE restart recovers a `failed` agent.
 - Not covered (unchanged: no backup checks, `failed` when consent expires):
   regular nomination (`nomination: "regular"`; RFC 8445 §8.1.1 allows no
   other pair without an ICE restart), ICE-TCP selections (a closed selected

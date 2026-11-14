@@ -376,6 +376,7 @@
 - [DtlsStates](variables/DtlsStates.md)
 - [ExtensionProfiles](variables/ExtensionProfiles.md)
 - [FAILOVER\_BACKUP\_ATTEMPTS](variables/FAILOVER_BACKUP_ATTEMPTS.md)
+- [FAILOVER\_CONSENT\_EXPIRED\_GRACE](variables/FAILOVER_CONSENT_EXPIRED_GRACE.md)
 - [FAILOVER\_RECOVERY\_RESPONSES](variables/FAILOVER_RECOVERY_RESPONSES.md)
 - [FINGERPRINT\_LENGTH](variables/FINGERPRINT_LENGTH.md)
 - [FINGERPRINT\_XOR](variables/FINGERPRINT_XOR.md)

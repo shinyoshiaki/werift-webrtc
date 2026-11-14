@@ -19,11 +19,13 @@ import {
   BACKUP_UNKNOWN_RTT_RESPONSE_TIMEOUT,
   CandidatePair,
   CandidatePairState,
+  CONNECTION_WRITE_CONNECT_TIMEOUT,
   CONSENT_INTERVAL,
   CONSENT_TIMEOUT,
   compareCandidatePairPriority,
   consentResponseTimeoutMs,
   defaultOptions,
+  FAILOVER_CONSENT_EXPIRED_GRACE,
   ICE_COMPLETED,
   ICE_FAILED,
   type IceConnection,
@@ -269,6 +271,12 @@ export class Connection implements IceConnection {
    * nomination), and the old pair's socket is demoted (D4).
    */
   private failoverNomination?: CandidatePair;
+  /**
+   * The selected pair's consent expired while a backup was writable: the
+   * agent fails when this fires unless the selection moved first
+   * (FAILOVER_CONSENT_EXPIRED_GRACE).
+   */
+  private consentExpiredGrace?: ReturnType<typeof setTimeout>;
   /** The state `disconnected` replaced, restored when the selection works again. */
   private stateBeforeDisconnect?: IceState;
   /**
@@ -488,6 +496,7 @@ export class Connection implements IceConnection {
     for (const pair of this.checkList) pair.handle?.resolve?.();
     this.clearOutrankingRetries();
     this.failover.reset();
+    this.clearConsentExpiredGrace();
   }
 
   /**
@@ -1039,6 +1048,7 @@ export class Connection implements IceConnection {
     this.abortSelectionNomination();
     this.nominationHint = undefined;
     this.failover.reset();
+    this.clearConsentExpiredGrace();
     // Drop old pair's consent timers/transactions; restarted when a new pair is nominated.
     this.stopConsentLifecycle();
   }
@@ -2093,10 +2103,15 @@ export class Connection implements IceConnection {
           }
           canceled = true;
           cancelEvent.abort();
-          // Failover: a writable backup may still take over (the controlling
-          // agent nominates it, a controlled one waits for the peer to); the
-          // agent fails once none is left (updateLinkState).
+          // Failover: no data may be sent any more, but a writable backup
+          // may still take over (the controlling agent nominates it, a
+          // controlled one waits for the peer to). The agent is
+          // `disconnected` meanwhile and fails unless the selection moves
+          // within FAILOVER_CONSENT_EXPIRED_GRACE (or once no writable
+          // backup is left, updateLinkState). The expired pair is not
+          // checked any more: it is used again only if selected anew.
           if (this.failoverEnabled() && this.failover.hasWritableBackup()) {
+            this.startConsentExpiredGrace();
             this.onLinkChanged();
             return;
           }
@@ -2227,8 +2242,49 @@ export class Connection implements IceConnection {
           nominated.requestsSent++;
 
           // RTT-aware wait (floor 500ms); independent of retransmissions: 0.
-          const responseTimeout = consentResponseTimeoutMs(nominated.rtt);
+          const rttTimeout = consentResponseTimeoutMs(nominated.rtt);
+          // Failover: the request counts as unanswered once `rttTimeout`
+          // passed without a response, but its transaction stays open up to
+          // CONNECTION_WRITE_CONNECT_TIMEOUT, so a late response (a busy
+          // event loop handles it after that timer, a delayed path) still
+          // counts as a response, as libwebrtc accepts a ping's response
+          // after it was counted as missing.
+          const responseTimeout = failover
+            ? Math.max(rttTimeout, CONNECTION_WRITE_CONNECT_TIMEOUT)
+            : rttTimeout;
           const requestStartedAt = performance.now();
+          let countedUnanswered = false;
+          const countUnanswered = () => {
+            if (
+              countedUnanswered ||
+              canceled ||
+              sessionId !== this.consentSessionId ||
+              this.nominated?.id !== pairId ||
+              // Cancelled by a role change: says nothing about the path.
+              roleEpoch !== this.consentRoleEpoch ||
+              !this.failoverEnabled()
+            ) {
+              return;
+            }
+            countedUnanswered = true;
+            this.failover.unanswered(nominated);
+            this.onLinkChanged();
+            wake();
+          };
+          let deadline: ReturnType<typeof setTimeout> | undefined;
+          const clearDeadline = () => {
+            if (deadline !== undefined) clearTimeout(deadline);
+            deadline = undefined;
+          };
+          if (failover) {
+            deadline = setTimeout(() => {
+              deadline = undefined;
+              countUnanswered();
+            }, rttTimeout);
+            requestAbort.signal.addEventListener("abort", clearDeadline, {
+              once: true,
+            });
+          }
 
           // Do not await here: response wait must not stretch the 4–6s cadence.
           nominated.protocol
@@ -2249,6 +2305,7 @@ export class Connection implements IceConnection {
               },
             )
             .then(() => {
+              clearDeadline();
               // Accept only responses for the current pair / generation / session.
               // Address / MESSAGE-INTEGRITY / response class are enforced in Transaction + protocol.
               if (sessionId !== this.consentSessionId || canceled) {
@@ -2287,20 +2344,16 @@ export class Connection implements IceConnection {
               }
             })
             .catch((error) => {
+              clearDeadline();
               // Individual request loss is expected; keep monitoring (RFC 7675).
               if (
                 sessionId === this.consentSessionId &&
                 this.nominated?.id === pairId
               ) {
                 log("no stun response", error);
-                if (canceled || !failover) return;
-                // Cancelled by a role change: says nothing about the path.
-                if (roleEpoch !== this.consentRoleEpoch) return;
-                if (this.failoverEnabled()) {
-                  this.failover.unanswered(nominated);
-                  this.onLinkChanged();
-                }
-                wake();
+                // Failover: counted at its deadline already, unless it
+                // failed before (e.g. it could not be sent).
+                if (failover && !requestAbort.signal.aborted) countUnanswered();
               }
             });
         }
@@ -2685,6 +2738,7 @@ export class Connection implements IceConnection {
         // selected the pair is its initial consent, so data may flow at once
         // instead of waiting for the consent lifecycle to start.
         this.consentFresh = true;
+        this.clearConsentExpiredGrace();
         this.pruneTcpConnections(pair);
         this.failover.selected(pair);
 
@@ -3524,21 +3578,58 @@ export class Connection implements IceConnection {
       }
       return;
     }
+    if (!this.consentFresh) {
+      // Consent expired: nothing can be sent. Disconnected while a writable
+      // backup may still take over within the grace period, else failed.
+      if (
+        this.consentExpiredGrace !== undefined &&
+        this.failover.hasWritableBackup()
+      ) {
+        if (state !== "disconnected") {
+          this.stateBeforeDisconnect = state;
+          this.setState("disconnected");
+        }
+        return;
+      }
+      log("consent expired without a writable backup");
+      this.failConsentExpired();
+      return;
+    }
     // A writable backup the selection may still move to (the controlling
     // agent's nomination, the controlled agent's peer): not disconnected
     // yet, but not recovered either until the selection moved.
     if (this.failover.hasWritableBackup()) return;
-    if (!this.consentFresh) {
-      log("consent expired without a writable backup");
-      this.stopConsentLifecycle();
-      this.failover.reset();
-      this.setState("failed");
-      return;
-    }
     if (state !== "disconnected") {
       this.stateBeforeDisconnect = state;
       this.setState("disconnected");
     }
+  }
+
+  /** See `consentExpiredGrace`. */
+  private startConsentExpiredGrace() {
+    if (this.consentExpiredGrace !== undefined) return;
+    this.consentExpiredGrace = setTimeout(() => {
+      this.consentExpiredGrace = undefined;
+      if (this.consentFresh) return;
+      const state = this.state;
+      if (state === "closed" || state === "failed") return;
+      log("consent expired and the selection did not move to a backup");
+      this.failConsentExpired();
+    }, FAILOVER_CONSENT_EXPIRED_GRACE);
+  }
+
+  private clearConsentExpiredGrace() {
+    if (this.consentExpiredGrace === undefined) return;
+    clearTimeout(this.consentExpiredGrace);
+    this.consentExpiredGrace = undefined;
+  }
+
+  /** The selected pair's consent expired and no backup took over: the agent fails (an ICE restart recovers). */
+  private failConsentExpired() {
+    this.clearConsentExpiredGrace();
+    this.stopConsentLifecycle();
+    this.failover.reset();
+    this.setState("failed");
   }
 
   /** Failover: application data arrived on `protocol` from `addr`. */

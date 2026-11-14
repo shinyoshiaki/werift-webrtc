@@ -343,6 +343,16 @@ export const DEAD_CONNECTION_RECEIVE_TIMEOUT = CONSENT_TIMEOUT * 1000;
 export const BACKUP_UNKNOWN_RTT_RESPONSE_TIMEOUT = 3000;
 
 /**
+ * After the selected pair's consent expired (RFC 7675: no more application
+ * data on it), how long (ms) the agent stays `disconnected` waiting for the
+ * selection to move to a writable backup (its own failover nomination, or
+ * the peer's when controlled) before it fails. A peer that fails over does
+ * so 5–10 s after the path broke, long before the 30 s expiry; the grace
+ * covers a nomination still in flight. werift's own value.
+ */
+export const FAILOVER_CONSENT_EXPIRED_GRACE = 10_000;
+
+/**
  * Pairs of one local socket (or TURN allocation) tried as its backup before
  * the socket waits for a retry (1, 2, 4, 8, 16 s) and starts again from its
  * highest-priority pair. werift's own limit.

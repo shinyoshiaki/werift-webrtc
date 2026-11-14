@@ -472,10 +472,11 @@ describe("failover: review regressions (delay, late candidate, state, silence)",
           30_000,
         );
         const decided = Date.now();
-        // 退避前に結果が出た check (退避後は新しい consent が古い要求を止める)。
-        const settled = h
+        // 退避を決めた時点の遮断後の check の様子 (退避後は新しい consent が古い要求を止める)。
+        const atDecision = h
           .requestsTo(host)
-          .filter((request) => request.at >= cutAt && request.done);
+          .filter((request) => request.at >= cutAt)
+          .map(({ cancelled, answered }) => ({ cancelled, answered }));
         await h.advanceUntil(() => h.connection.nominated === relay, 5000);
 
         // Assert: 遮断から 10 s 以内に書き込み不可と判定して relay へ指名し、移る。
@@ -488,10 +489,9 @@ describe("failover: review regressions (delay, late candidate, state, silence)",
         expect(sent.length).toBeGreaterThanOrEqual(5);
         const gaps = sent.slice(1).map((r, i) => r.at - sent[i].at);
         for (const gap of gaps.slice(1)) expect(gap).toBeLessThanOrEqual(1000);
-        expect(settled.length).toBeGreaterThanOrEqual(5);
-        for (const request of settled) {
-          expect(request.cancelled).toBe(false);
-          expect(request.answered).toBe(false);
+        expect(atDecision.length).toBeGreaterThanOrEqual(5);
+        for (const request of atDecision) {
+          expect(request).toEqual({ cancelled: false, answered: false });
         }
       } finally {
         await h.connection.close();
@@ -573,6 +573,42 @@ describe("failover: review regressions (delay, late candidate, state, silence)",
     },
   );
 
+  test("a consent response that arrives after its RTT-based deadline (a busy event loop) still counts: no false unwritable", async () => {
+    // RTT は選択時の check で約 0 (応答待ちの期限は 500 ms)。
+    const h = await createFailoverHarness();
+    const host = h.selection;
+    const liveness = () =>
+      (
+        h.connection as unknown as {
+          failover: {
+            livenessOf(pair: unknown): {
+              unanswered: number;
+              responses: number;
+            };
+          };
+        }
+      ).failover.livenessOf(host)!;
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    try {
+      // Act: 以後の応答が 3 s 遅れる (期限 500 ms は過ぎるが、transaction の 5 s 以内) 状態で 30 s 進める。
+      h.protocols[0].responseDelayMs = 3000;
+      const responsesBefore = liveness().responses;
+      await vi.advanceTimersByTimeAsync(30_000);
+
+      // Assert: 遅れた応答も応答として数え、書き込み不可にも disconnected にもならず、退避もしない。
+      expect(liveness().responses).toBeGreaterThan(responsesBefore + 3);
+      expect(h.states).toEqual([]);
+      expect(h.connection.nominated).toBe(host);
+      for (const request of h.requestsTo(host)) {
+        if (request.done)
+          expect(request.cancelled || request.answered).toBe(true);
+      }
+    } finally {
+      await h.connection.close();
+    }
+  });
+
   test("a role change cancels the selected pair's consent request in flight without counting it as unanswered; consent goes on under the new role", async () => {
     // 応答に 1.2 s かかるので、consent request が応答待ちの間にロールを変えられる。
     const h = await createFailoverHarness({ responseDelayMs: 1200 });
@@ -619,6 +655,84 @@ describe("failover: review regressions (delay, late candidate, state, silence)",
     } finally {
       await h.connection.close();
     }
+  });
+
+  describe("controlled: the selected pair's consent expires while a backup is writable", () => {
+    /** Arrange: controlled; the host path is cut and the relay backup keeps answering until consent expires. */
+    const expireWithBackup = async () => {
+      const h = await createFailoverHarness({ iceControlling: false });
+      const relay = h.pairOf(1);
+      await vi.advanceTimersByTimeAsync(10_000);
+      h.cut(0);
+      const cutAt = Date.now();
+      await h.advanceUntil(() => h.connection.state !== "connected", 40_000);
+      return { h, relay, cutAt };
+    };
+
+    test("the peer never nominates the backup: disconnected (nothing is sent) at the expiry, failed after the grace period, even if the old path comes back", async () => {
+      const { h, relay, cutAt } = await expireWithBackup();
+      const sendData = vi.spyOn(h.protocols[0], "sendData");
+      const sendRelay = vi.spyOn(h.protocols[1], "sendData");
+
+      try {
+        // Assert: consent の失効 (最後の応答から 30 s) で disconnected になる (退避先は応答中)。
+        expect(h.connection.state).toBe("disconnected");
+        expect(Date.now() - cutAt).toBeGreaterThanOrEqual(25_000);
+        expect(relay.state).toBe(CandidatePairState.SUCCEEDED);
+        // Act: アプリケーションがデータを送る。
+        await h.connection.send(Buffer.from("data"));
+        // Assert: 失効した経路にも退避先にも送らない。
+        expect(sendData).not.toHaveBeenCalled();
+        expect(sendRelay).not.toHaveBeenCalled();
+
+        // Act: 失効後に元の経路が戻り、相手の指名がないまま猶予期間 (10 s) を進める。
+        h.restore(0);
+        const expiredAt = Date.now();
+        await h.advanceUntil(() => h.connection.state === "failed", 20_000);
+
+        // Assert: 猶予期間の後に failed になり (ICE restart で復旧できる)、監視も止まる。
+        expect(h.connection.state).toBe("failed");
+        expect(Date.now() - expiredAt).toBeGreaterThanOrEqual(9_000);
+        expect(Date.now() - expiredAt).toBeLessThanOrEqual(11_000);
+        expect(h.states.map(({ state }) => state)).toEqual([
+          "disconnected",
+          "failed",
+        ]);
+        const sent = h.requests().length;
+        await vi.advanceTimersByTimeAsync(30_000);
+        expect(h.requests()).toHaveLength(sent);
+      } finally {
+        await h.connection.close();
+      }
+    });
+
+    test("the peer nominates the backup within the grace period: connected again and data flows on it", async () => {
+      const { h, relay } = await expireWithBackup();
+      expect(h.connection.state).toBe("disconnected");
+      const sendRelay = vi.spyOn(h.protocols[1], "sendData");
+
+      try {
+        // Act: 猶予期間内に相手が relay を指名し、relay でデータを送る。
+        await vi.advanceTimersByTimeAsync(3000);
+        h.receiveNomination(relay);
+        h.receiveData(relay);
+        await vi.advanceTimersByTimeAsync(0);
+        // Act: アプリケーションがデータを送り、猶予期間を過ぎるまで進める。
+        await h.connection.send(Buffer.from("data"));
+        await vi.advanceTimersByTimeAsync(20_000);
+
+        // Assert: relay へ移って connected に戻り、データは relay で送られ、failed にはならない。
+        expect(h.connection.nominated).toBe(relay);
+        expect(h.connection.state).toBe("connected");
+        expect(sendRelay).toHaveBeenCalled();
+        expect(h.states.map(({ state }) => state)).toEqual([
+          "disconnected",
+          "connected",
+        ]);
+      } finally {
+        await h.connection.close();
+      }
+    });
   });
 
   test("a remote candidate trickled later that outranks a socket's backup becomes its backup", async () => {
