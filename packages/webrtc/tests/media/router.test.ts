@@ -2203,6 +2203,103 @@ describe("media/router: a=ssrc のない m-line の SSRC 学習 (#356)", () => {
     expect(collidingRouteCount(router)).toBe(0);
   });
 
+  test("同じ transport で別 MID が置き換え済みの SSRC を使い始めると、MID の receiver が学習する", () => {
+    // Arrange: BUNDLE の MID a が SSRC 55 から 66 に切り替えた (55 は a の置き換え済み SSRC)
+    const { router, dtls, addReceiver } = createSsrcLessRouter();
+    const a = addReceiver({ mid: "a" });
+    const b = addReceiver({ mid: "b" });
+    const aPayloads = collectTrackPayloads(a);
+    const bPayloads = collectTrackPayloads(b);
+    const recipients = collectRtcpRecipients({ a, b });
+    router.routeRtp(
+      ssrcLessPacket({
+        ssrc: 55,
+        payloadType: 111,
+        sequenceNumber: 1,
+        mid: "a",
+      }),
+      dtls,
+    );
+    router.routeRtp(
+      ssrcLessPacket({
+        ssrc: 66,
+        payloadType: 111,
+        sequenceNumber: 2,
+        mid: "a",
+      }),
+      dtls,
+    );
+
+    // Act: MID b を明示した SSRC 55 の RTP と、続く MID なしの RTP と SR が届く
+    router.routeRtp(
+      ssrcLessPacket({
+        ssrc: 55,
+        payloadType: 111,
+        sequenceNumber: 3,
+        mid: "b",
+      }),
+      dtls,
+    );
+    router.routeRtp(
+      ssrcLessPacket({ ssrc: 55, payloadType: 111, sequenceNumber: 4 }),
+      dtls,
+    );
+    router.routeRtcp(rtcpNamingSsrc.SR(55), dtls);
+
+    // Assert: B が SSRC 55 を学習して受信し、A は 66 のまま
+    expect(bPayloads).toEqual(["payload-3", "payload-4"]);
+    expect(aPayloads).toEqual(["payload-1", "payload-2"]);
+    expect(recipients).toEqual(["b"]);
+    expect(b.receiver.fallbackSsrc).toBe(55);
+    expect(a.receiver.fallbackSsrc).toBe(66);
+  });
+
+  test("置き換え済みの SSRC は、自分の MID を示す遅延パケットでも MID なしの遅延パケットでも学習しない", () => {
+    // Arrange: BUNDLE の MID a が SSRC 55 から 66 に切り替えた
+    const { router, dtls, addReceiver } = createSsrcLessRouter();
+    const a = addReceiver({ mid: "a" });
+    addReceiver({ mid: "b", codecs: [vp8()], kind: "video" });
+    const aPayloads = collectTrackPayloads(a);
+    router.routeRtp(
+      ssrcLessPacket({
+        ssrc: 55,
+        payloadType: 111,
+        sequenceNumber: 1,
+        mid: "a",
+      }),
+      dtls,
+    );
+    router.routeRtp(
+      ssrcLessPacket({
+        ssrc: 66,
+        payloadType: 111,
+        sequenceNumber: 2,
+        mid: "a",
+      }),
+      dtls,
+    );
+
+    // Act: SSRC 55 の遅延パケットが MID a 付きと MID なしで届く
+    router.routeRtp(
+      ssrcLessPacket({
+        ssrc: 55,
+        payloadType: 111,
+        sequenceNumber: 3,
+        mid: "a",
+      }),
+      dtls,
+    );
+    router.routeRtp(
+      ssrcLessPacket({ ssrc: 55, payloadType: 111, sequenceNumber: 4 }),
+      dtls,
+    );
+
+    // Assert: どちらも破棄され、A は 66 のまま
+    expect(aPayloads).toEqual(["payload-1", "payload-2"]);
+    expect(a.receiver.fallbackSsrc).toBe(66);
+    expect(router.ssrcTable[55]).toBeUndefined();
+  });
+
   test("ローカル sender と同じ SSRC の未知 RTP は例外を投げず、sender の経路を保つ", () => {
     // Arrange: SSRC-less の receiver とローカル sender がある
     const { router, dtls, addReceiver } = createSsrcLessRouter();

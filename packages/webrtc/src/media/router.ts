@@ -613,8 +613,10 @@ export class RtpRouter {
    * `repaired-rtp-stream-id`) teaches nothing: without `ssrc-group:FID`
    * nothing pairs it with the media SSRC. A replaced fallback SSRC loses its
    * route after the packet (`takeForgottenSsrcs`) and is not learned again
-   * (`isRetiredFallbackSsrc`) on that transport: a late packet of the old
-   * stream is dropped, while another transport may use the number anew.
+   * (`isRetiredFallbackSsrc`): a late packet of the old stream is dropped,
+   * judged by the named receiver when a MID names one (another MID may take
+   * the number anew) and by every receiver of the transport without a MID;
+   * another transport may use the number anew.
    * An SSRC `ssrcTable` holds for another transport's receiver is routed
    * through `collidingRoutes`, so each transport keeps its own receiver.
    * Receiving is decided by the committed `currentDirection`; a pending
@@ -637,18 +639,6 @@ export class RtpRouter {
     };
     if (!transport) return drop(UnknownSsrcDrop.noTransport);
     if (repaired) return drop(UnknownSsrcDrop.rtx);
-    // A late packet of an SSRC a receiver of this RTP session replaced is not
-    // a new stream; on another transport the same number is another stream.
-    if (
-      this.transceivers().some(
-        (t) =>
-          t.receiver.dtlsTransport === transport &&
-          t.receiver.isRetiredFallbackSsrc(ssrc),
-      )
-    ) {
-      return drop(UnknownSsrcDrop.retired);
-    }
-
     // The committed session decides: `currentDirection` is the negotiated
     // direction, so a pending offer that changes `direction`, the remote
     // direction (`firedReceiving`) or marks a rejection leaves a running
@@ -687,7 +677,25 @@ export class RtpRouter {
           { mid },
         );
       }
+      // A late packet of the stream this receiver replaced is not a new
+      // stream. Another MID naming the SSRC is: within the RTP session the
+      // old stream ended, and the MID says whose the number is now.
+      if (receiver.isRetiredFallbackSsrc(ssrc)) {
+        return drop(UnknownSsrcDrop.retired, { mid });
+      }
     } else {
+      // Without a MID a late packet of an SSRC any receiver of this RTP
+      // session replaced cannot be told from a new stream: it is dropped. On
+      // another transport the same number is another stream.
+      if (
+        this.transceivers().some(
+          (t) =>
+            t.receiver.dtlsTransport === transport &&
+            t.receiver.isRetiredFallbackSsrc(ssrc),
+        )
+      ) {
+        return drop(UnknownSsrcDrop.retired);
+      }
       const onTransport = this.transceivers().filter(
         (t) =>
           t.receiver.dtlsTransport === transport &&
