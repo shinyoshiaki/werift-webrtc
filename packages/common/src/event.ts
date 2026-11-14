@@ -28,6 +28,16 @@ export class Event<T extends any[]> {
   ended = false;
   onended?: () => void;
   onerror = (e: any) => {};
+  private readonly onListenerError?: (e: unknown) => void;
+
+  /**
+   * @param options.onListenerError When given, a throwing subscriber is
+   * reported to it and the remaining subscribers still run. Without it the
+   * first exception propagates out of `execute` (default).
+   */
+  constructor(options: { onListenerError?: (e: unknown) => void } = {}) {
+    this.onListenerError = options.onListenerError;
+  }
 
   execute = (...args: T) => {
     if (this.ended) {
@@ -35,7 +45,15 @@ export class Event<T extends any[]> {
     }
 
     for (const item of this.event.stack) {
-      item.execute(...args);
+      if (this.onListenerError) {
+        try {
+          item.execute(...args);
+        } catch (error) {
+          this.onListenerError(error);
+        }
+      } else {
+        item.execute(...args);
+      }
     }
 
     (async () => {

@@ -205,7 +205,10 @@ export class RTCPeerConnection extends EventTarget {
    * same event object is passed here, to `onicecandidateerror` and to the
    * `icecandidateerror` listeners.
    */
-  readonly onIceCandidateError = new Event<[RTCPeerConnectionIceErrorEvent]>();
+  readonly onIceCandidateError = new Event<[RTCPeerConnectionIceErrorEvent]>({
+    onListenerError: (error) =>
+      log("onIceCandidateError subscriber threw", error),
+  });
   readonly onNegotiationneeded = new Event<[]>();
   readonly onTrack = new Event<[MediaStreamTrack]>();
   private readonly eventHandlers: PeerConnectionEventHandlers = {};
@@ -912,7 +915,10 @@ export class RTCPeerConnection extends EventTarget {
       for (const notify of [
         () => this.onIceCandidateError.execute(event),
         () => this.onicecandidateerror?.(event),
-        () => this.emit("icecandidateerror", event),
+        // EventEmitter stops at the first throwing listener: call each one.
+        ...this.rawListeners("icecandidateerror").map(
+          (listener) => () => listener.call(this, event),
+        ),
       ]) {
         try {
           notify();

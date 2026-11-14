@@ -100,6 +100,15 @@ describe("icecandidateerror", () => {
     pc.addEventListener("icecandidateerror", () => {
       throw new Error("listener failed");
     });
+    // 先行リスナーが throw しても後続リスナーが同じイベントを受け取ること
+    const later: RTCPeerConnectionIceErrorEvent[] = [];
+    pc.addEventListener("icecandidateerror", (event) => {
+      later.push(event as RTCPeerConnectionIceErrorEvent);
+    });
+    const laterSubscribed: RTCPeerConnectionIceErrorEvent[] = [];
+    pc.onIceCandidateError.subscribe((event) => {
+      laterSubscribed.push(event);
+    });
     try {
       // Act: gathering を完了させる
       await gatherWithOffer(pc);
@@ -108,6 +117,8 @@ describe("icecandidateerror", () => {
       expect(subscribed).toHaveLength(2);
       expect(handled).toHaveLength(2);
       expect(listened).toHaveLength(2);
+      expect(later).toEqual(listened);
+      expect(laterSubscribed).toEqual(subscribed);
       expect(pc.iceGatheringState).toBe("complete");
     } finally {
       await pc.close();
