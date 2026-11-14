@@ -908,9 +908,18 @@ export class RTCPeerConnection extends EventTarget {
         "icecandidateerror",
         details,
       );
-      this.onIceCandidateError.execute(event);
-      this.onicecandidateerror?.(event);
-      this.emit("icecandidateerror", event);
+      // One throwing handler must not hide the event from the others.
+      for (const notify of [
+        () => this.onIceCandidateError.execute(event),
+        () => this.onicecandidateerror?.(event),
+        () => this.emit("icecandidateerror", event),
+      ]) {
+        try {
+          notify();
+        } catch (error) {
+          log("icecandidateerror handler threw", error);
+        }
+      }
     });
     iceTransport.onIceCandidate.subscribe((candidate) => {
       if (

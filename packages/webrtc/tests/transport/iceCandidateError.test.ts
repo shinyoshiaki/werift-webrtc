@@ -37,6 +37,8 @@ describe("icecandidateerror", () => {
       expect(handled[0]).toBe(listened[0]);
       const [event] = listened;
       expect(event).toBeInstanceOf(RTCPeerConnectionIceErrorEvent);
+      expect(event).toBeInstanceOf(Event);
+      expect(typeof event.preventDefault).toBe("function");
       expect(event.type).toBe("icecandidateerror");
       expect(event).toMatchObject({
         url,
@@ -45,6 +47,67 @@ describe("icecandidateerror", () => {
         address: errorTestHost,
       });
       expect(event.port).toBeGreaterThan(0);
+      expect(pc.iceGatheringState).toBe("complete");
+    } finally {
+      await pc.close();
+      await stun.close();
+    }
+  });
+
+  test("標準 Event として振る舞う (継承・bubbles/cancelable・target 以外の既定値)", () => {
+    // Arrange: init を渡して直接生成する
+    // Act: イベントを生成する
+    const event = new RTCPeerConnectionIceErrorEvent("icecandidateerror", {
+      url: "stun:h",
+      errorCode: 701,
+      errorText: "x",
+      cancelable: true,
+    });
+    event.preventDefault();
+
+    // Assert: Event を継承し、type と cancelable が標準どおりに働く
+    expect(event).toBeInstanceOf(Event);
+    expect(event.type).toBe("icecandidateerror");
+    expect(event.bubbles).toBe(false);
+    expect(event.defaultPrevented).toBe(true);
+    expect(event.address).toBeNull();
+    expect(event.port).toBeNull();
+  });
+
+  test("先行するハンドラーが throw しても他の経路と残りの URL に通知される", async () => {
+    // Arrange: 同じ STUN を指す 2 つの URL と、throw する 3 経路のハンドラー
+    const stun = await createErrorStunServer(400, "Bad Request");
+    const port = stun.address[1];
+    const { pc, listened, handled } = createErrorRecordingPeer({
+      iceServers: [
+        {
+          urls: [
+            `stun:${errorTestHost}:${port}`,
+            `stuns:${errorTestHost}:${port}`,
+          ],
+        },
+      ],
+    });
+    const subscribed: RTCPeerConnectionIceErrorEvent[] = [];
+    pc.onIceCandidateError.subscribe((event) => {
+      subscribed.push(event);
+      throw new Error("subscriber failed");
+    });
+    pc.onicecandidateerror = (event) => {
+      handled.push(event);
+      throw new Error("onicecandidateerror failed");
+    };
+    pc.addEventListener("icecandidateerror", () => {
+      throw new Error("listener failed");
+    });
+    try {
+      // Act: gathering を完了させる
+      await gatherWithOffer(pc);
+
+      // Assert: URL ごとに全経路へ届き、gathering は完了する
+      expect(subscribed).toHaveLength(2);
+      expect(handled).toHaveLength(2);
+      expect(listened).toHaveLength(2);
       expect(pc.iceGatheringState).toBe("complete");
     } finally {
       await pc.close();

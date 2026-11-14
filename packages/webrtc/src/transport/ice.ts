@@ -1005,7 +1005,12 @@ export class RTCIceGatherer {
         info,
         !!this.connection.options.forceTurn,
       )) {
-        this.onIceCandidateError(details);
+        try {
+          this.onIceCandidateError(details);
+        } catch (error) {
+          // A throwing listener must not hide the other URLs' errors.
+          log("onIceCandidateError listener threw", error);
+        }
       }
     });
   }

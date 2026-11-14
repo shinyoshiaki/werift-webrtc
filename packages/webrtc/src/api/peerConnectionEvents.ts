@@ -37,6 +37,10 @@ export interface RTCPeerConnectionIceErrorEventInit {
   url?: string;
   errorCode: number;
   errorText?: string;
+  /** Standard `EventInit` members. */
+  bubbles?: boolean;
+  cancelable?: boolean;
+  composed?: boolean;
 }
 
 /**
@@ -59,8 +63,7 @@ export interface RTCPeerConnectionIceErrorEventInit {
  *   server; `null` / `0` when unknown (TURN) or hidden (the `"relay"` ICE
  *   transport policy).
  */
-export class RTCPeerConnectionIceErrorEvent {
-  readonly type: string;
+export class RTCPeerConnectionIceErrorEvent extends Event {
   readonly address: string | null;
   readonly port: number | null;
   readonly url: string;
@@ -68,12 +71,16 @@ export class RTCPeerConnectionIceErrorEvent {
   readonly errorText: string;
 
   constructor(type: string, init: RTCPeerConnectionIceErrorEventInit) {
+    super(type, {
+      bubbles: init?.bubbles,
+      cancelable: init?.cancelable,
+      composed: init?.composed,
+    });
     if (init == null || typeof init.errorCode !== "number") {
       throw new TypeError(
         "RTCPeerConnectionIceErrorEvent: errorCode is required",
       );
     }
-    this.type = String(type);
     this.address = init.address ?? null;
     this.port = init.port ?? null;
     this.url = init.url ?? "";
