@@ -10,9 +10,11 @@
 could not give a candidate while gathering. `RTCPeerConnection` fires one
 per failing server URL and gathering generation, never after `close()`.
 A server that answered with an error (300-699) is reported once per local
-socket that asked it; a 701 (not reached) once per URL per gathering
-(until `iceGatheringState` enters "gathering" again, as after an ICE
-restart), however many sockets or ICE transports tried. While listeners run, `target` and `currentTarget` are the
+socket that asked it. A 701 (not reached) means no host candidate reached
+the server: it is fired once per URL per gathering (until
+`iceGatheringState` enters "gathering" again, as after an ICE restart),
+and only when no local socket of any ICE transport reached it. While
+listeners run, `target` and `currentTarget` are the
 `RTCPeerConnection` and `eventPhase` is 2 (`AT_TARGET`); afterwards
 `currentTarget` is `null` and `eventPhase` 0.
 

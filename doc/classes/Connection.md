@@ -139,17 +139,18 @@ Resolves remote mDNS candidates; closed (pending lookups cancelled) by restart()
 > `readonly` **onIceCandidateError**: [`Event`](Event.md)\<\[[`IceCandidateErrorInfo`](../type-aliases/IceCandidateErrorInfo.md)\]\>
 
 A STUN server query or TURN allocation of the current generation's
-gathering failed (W3C `icecandidateerror`). Fired at most once per
-server, local socket and generation, synchronously and without changing
-the gathering: other servers and sockets go on, and gathering still
-completes. A server answering with an error gives its ERROR-CODE; one
-that is not reached (timeout, `stunGatherTimeout`, DNS, connect or socket
-error) gives 701. A TURN server's UDP attempt and its TCP fallback are
+gathering failed (W3C `icecandidateerror`), synchronously and without
+changing the gathering: other servers and sockets go on, and gathering
+still completes. A server answering with an error gives its ERROR-CODE,
+once per local socket and generation. One that is not reached (timeout,
+`stunGatherTimeout`, DNS, connect or socket error) gives 701, once per
+server and generation and only when no local socket reached it (a STUN
+server is reported when the last socket's query ended). A TURN server's UDP attempt and its TCP fallback are
 one failure, reported when both failed (a server's error code wins over
 701). A credential retry (401 / 438) that succeeds is not a failure.
 Nothing is fired for a replaced generation or after close (the event
-completes then). A STUN failure carries the socket's host address; a
-TURN one carries none. The built-in default STUN server (none
+completes then). A STUN failure carries the host address of a socket
+that asked; a TURN one carries none. The built-in default STUN server (none
 configured, `useDefaultStunServer` not false) is named by the
 synthesized URL [DEFAULT\_STUN\_SERVER\_URL](../variables/DEFAULT_STUN_SERVER_URL.md) in `server.urls`.
 

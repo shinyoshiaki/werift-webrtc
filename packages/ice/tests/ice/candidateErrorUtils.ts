@@ -44,7 +44,7 @@ export function createRecordingAgent(options: Partial<IceOptions> = {}) {
  * `delayMs` (nothing for undefined). Requests are recorded.
  */
 export async function createScriptedUdpServer(
-  reply: (request: Message) => Buffer | undefined,
+  reply: (request: Message, remote: Address) => Buffer | undefined,
   { host = candidateErrorHost, delayMs = 0 } = {},
 ) {
   const socket = dgram.createSocket("udp4");
@@ -54,7 +54,7 @@ export async function createScriptedUdpServer(
     const request = parseMessage(data);
     if (!request || request.messageClass !== classes.REQUEST) return;
     requests.push(request);
-    const bytes = reply(request);
+    const bytes = reply(request, [remote.address, remote.port]);
     if (!bytes) return;
     setTimeout(() => {
       try {
@@ -147,4 +147,32 @@ export function createFakeStunProtocol(
 /** An errno error as Node's socket / DNS functions raise it. */
 export function errnoError(code: string) {
   return Object.assign(new Error(`${code} test`), { code });
+}
+
+/**
+ * Two IPv4 UDP host sockets (the host address and loopback, both bound to
+ * the wildcard address), so every STUN server is queried from two ports.
+ */
+export const twoIpv4Sockets: Partial<IceOptions> = {
+  useIpv6: false,
+  interfaceAddresses: undefined,
+  additionalHostAddresses: ["127.0.0.1"],
+};
+
+/**
+ * A STUN server that answers only the first local port that asks it (a
+ * success mapping it to itself) and never the others: one socket reaches
+ * it, the rest do not.
+ */
+export function createFirstPortOnlyStunServer() {
+  let answeredPort: number | undefined;
+  return createScriptedUdpServer((request, remote) => {
+    answeredPort ??= remote[1];
+    if (remote[1] !== answeredPort) return undefined;
+    return new Message(
+      methods.BINDING,
+      classes.RESPONSE,
+      request.transactionId,
+    ).setAttribute("XOR-MAPPED-ADDRESS", remote).bytes;
+  });
 }

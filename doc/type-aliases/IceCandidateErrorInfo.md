@@ -10,7 +10,8 @@
 
 A STUN or TURN server a gathering used could not give a candidate
 (`Connection.onIceCandidateError`). Reported at most once per server, local
-socket and generation, only for the generation gathering and never after
+socket and generation (a 701 once per server and generation, when no
+socket reached it), only for the generation gathering and never after
 close.
 
 ## Properties

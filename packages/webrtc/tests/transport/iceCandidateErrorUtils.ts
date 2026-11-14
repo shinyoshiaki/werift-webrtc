@@ -1,6 +1,7 @@
 import { getHostAddresses } from "../../../ice/src/utils";
 import {
   createErrorStunServer,
+  createFirstPortOnlyStunServer,
   createRejectingUdpTurnServer,
   createScriptedUdpServer,
   errorResponse,
@@ -86,7 +87,21 @@ export function errorSummaries(events: RTCPeerConnectionIceErrorEvent[]) {
  * (a 701 after `iceStunGatherTimeout`, 0.3 s).
  */
 export async function createUnbundledUnreachablePeer() {
-  const silent = await createSilentUdpServer(errorTestHost);
+  return createUnbundledPeer(await createSilentUdpServer(errorTestHost));
+}
+
+/**
+ * Like {@link createUnbundledUnreachablePeer}, but the STUN server answers
+ * the first transport's socket only: one transport reaches it, one does not.
+ */
+export async function createUnbundledPartlyReachablePeer() {
+  return createUnbundledPeer(await createFirstPortOnlyStunServer());
+}
+
+async function createUnbundledPeer(silent: {
+  address: readonly [string, number];
+  close: () => Promise<void>;
+}) {
   const url = `stun:${errorTestHost}:${silent.address[1]}`;
   const recording = createErrorRecordingPeer({
     bundlePolicy: "disable",

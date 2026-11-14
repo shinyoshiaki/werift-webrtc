@@ -171,6 +171,16 @@ export class RTCPeerConnection extends EventTarget {
    */
   private readonly unreachableErrorUrls = new Set<string>();
   /**
+   * URLs each ICE transport's current ICE generation could not reach (a
+   * 701 from it). W3C: a 701 means no host candidate reached the server, so
+   * it is fired only when every transport taking part in the gathering
+   * failed to reach the URL; one that reached it never reports it.
+   */
+  private readonly unreachableUrlsByTransport = new WeakMap<
+    RTCIceTransport,
+    { generation: number; urls: Set<string> }
+  >();
+  /**
    * The last operation of the chain: `done` when it finished, `applied` when
    * the description it applies is in place (setLocalDescription's gathering
    * wait comes after it). addIceCandidate only needs `applied`.
@@ -471,6 +481,35 @@ export class RTCPeerConnection extends EventTarget {
   }
   get iceTransports() {
     return this.secureManager.iceTransports;
+  }
+
+  /**
+   * Record that `failed`'s current ICE generation could not reach `url`;
+   * true when every ICE transport gathering in this gathering (not pending
+   * only, not "new") could not reach it either.
+   */
+  private allTransportsUnreachable(failed: RTCIceTransport, url: string) {
+    const generationOf = (transport: RTCIceTransport) =>
+      transport.connection.generation;
+    let record = this.unreachableUrlsByTransport.get(failed);
+    if (!record || record.generation !== generationOf(failed)) {
+      record = { generation: generationOf(failed), urls: new Set() };
+      this.unreachableUrlsByTransport.set(failed, record);
+    }
+    record.urls.add(url);
+    return this.secureManager.iceTransports
+      .filter(
+        (transport) =>
+          transport.gatheringState !== "new" &&
+          transport.state !== "closed" &&
+          !this.negotiation.isPendingOnlyTransport(transport.id),
+      )
+      .every((transport) => {
+        const known = this.unreachableUrlsByTransport.get(transport);
+        return (
+          known?.generation === generationOf(transport) && known.urls.has(url)
+        );
+      });
   }
   get extIdUriMap() {
     return this.router.extIdUriMap;
@@ -926,9 +965,10 @@ export class RTCPeerConnection extends EventTarget {
       ) {
         return;
       }
-      // A 701 (server not reached) once per URL per gathering, however many
-      // transports (bundlePolicy "disable") or sockets failed to reach it.
+      // A 701 (server not reached) once per URL per gathering, and only when
+      // no transport (bundlePolicy "disable") reached the URL.
       if (details.errorCode === 701) {
+        if (!this.allTransportsUnreachable(iceTransport, details.url)) return;
         if (this.unreachableErrorUrls.has(details.url)) return;
         this.unreachableErrorUrls.add(details.url);
       }

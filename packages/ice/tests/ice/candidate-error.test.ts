@@ -35,6 +35,7 @@ import {
   candidateErrorHost,
   createErrorStunServer,
   createFakeStunProtocol,
+  createFirstPortOnlyStunServer,
   createNoMappingStunServer,
   createRecordingAgent,
   createRejectingUdpTurnServer,
@@ -44,6 +45,7 @@ import {
   hostCandidate,
   recordCandidateErrors,
   singleIpv4Socket,
+  twoIpv4Sockets,
 } from "./candidateErrorUtils";
 
 const NOT_REACHED = IceCandidateErrorCode.SERVER_NOT_REACHED;
@@ -177,6 +179,85 @@ describe("onIceCandidateError: STUN", () => {
       // Assert: gathering は完了し end-of-candidates に到達する
       expect(connection.localCandidatesEnd).toBe(true);
       expect(connection.state).toBe("completed");
+    } finally {
+      await connection.close();
+      await server.close();
+    }
+  });
+
+  test("一方のソケットだけがサーバーに届いたときは 701 を通知しない", async () => {
+    // Arrange: 2 つの IPv4 ソケットのうち最初に問い合わせたポートにだけ応答する STUN
+    const server = await createFirstPortOnlyStunServer();
+    const { connection, errors } = createRecordingAgent({
+      ...twoIpv4Sockets,
+      stunServers: [server.address],
+      stunGatherTimeout: 0.3,
+    });
+    try {
+      // Act: 候補収集を完了まで待つ
+      await connection.gatherCandidates();
+
+      // Assert: ソケットは 2 つ、srflx は 1 つ得られ、701 は出ない
+      expect(
+        connection.localCandidates.filter(
+          (candidate) => candidate.type === "host",
+        ),
+      ).toHaveLength(2);
+      expect(
+        connection.localCandidates.filter(
+          (candidate) => candidate.type === "srflx",
+        ),
+      ).toHaveLength(1);
+      expect(errors).toEqual([]);
+    } finally {
+      await connection.close();
+      await server.close();
+    }
+  });
+
+  test("どのソケットもサーバーに届かないときは 701 をサーバーごとに 1 件だけ通知する", async () => {
+    // Arrange: 2 つの IPv4 ソケットと応答しない STUN
+    const silent = await createSilentUdpServer(candidateErrorHost);
+    const { connection, errors } = createRecordingAgent({
+      ...twoIpv4Sockets,
+      stunServers: [silent.address],
+      stunGatherTimeout: 0.3,
+    });
+    try {
+      // Act: 候補収集を完了まで待つ
+      await connection.gatherCandidates();
+
+      // Assert: ソケットは 2 つ、701 は 1 件で、そのソケットの一方のアドレスを持つ
+      const hosts = connection.localCandidates.filter(
+        (candidate) => candidate.type === "host",
+      );
+      expect(hosts).toHaveLength(2);
+      expect(errors).toHaveLength(1);
+      expect(errors[0]).toMatchObject({
+        server: { kind: "stun", address: silent.address },
+        errorCode: NOT_REACHED,
+      });
+      expect(hosts.map((host) => host.port)).toContain(errors[0].port);
+    } finally {
+      await connection.close();
+      await silent.close();
+    }
+  });
+
+  test("サーバーのエラー応答 (701 以外) はソケットごとに通知する", async () => {
+    // Arrange: 2 つの IPv4 ソケットと 400 を返す STUN
+    const server = await createErrorStunServer(400, "Bad Request");
+    const { connection, errors } = createRecordingAgent({
+      ...twoIpv4Sockets,
+      stunServers: [server.address],
+    });
+    try {
+      // Act: 候補収集を完了まで待つ
+      await connection.gatherCandidates();
+
+      // Assert: 2 ソケットそれぞれから 400 が 1 件ずつ
+      expect(errors.map((error) => error.errorCode)).toEqual([400, 400]);
+      expect(new Set(errors.map((error) => error.port)).size).toBe(2);
     } finally {
       await connection.close();
       await server.close();

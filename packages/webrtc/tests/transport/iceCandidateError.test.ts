@@ -17,6 +17,7 @@ import {
   createRejectingUdpTurnServer,
   createScriptedUdpServer,
   createSilentUdpServer,
+  createUnbundledPartlyReachablePeer,
   createUnbundledUnreachablePeer,
   errorResponse,
   errorSummaries,
@@ -407,6 +408,27 @@ describe("icecandidateerror", () => {
     } finally {
       await pc.close();
       await silent.close();
+    }
+  });
+
+  test("bundle なしで一方の transport だけがサーバーに届いたときは 701 を通知しない", async () => {
+    // Arrange: 最初に問い合わせた transport のソケットにだけ応答する STUN
+    const {
+      pc,
+      listened,
+      silent: server,
+    } = await createUnbundledPartlyReachablePeer();
+    try {
+      // Act: 両 transport の gathering を完了させる
+      await pc.setLocalDescription(await pc.createOffer());
+
+      // Assert: transport は 2 個、srflx は得られ、701 は出ない
+      expect(pc.iceTransports).toHaveLength(2);
+      expect(pc.localDescription!.sdp).toContain("typ srflx");
+      expect(listened).toEqual([]);
+    } finally {
+      await pc.close();
+      await server.close();
     }
   });
 
