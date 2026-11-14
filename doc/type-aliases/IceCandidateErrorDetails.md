@@ -33,7 +33,7 @@ One failing server URL of an `icecandidateerror`: the members of
 
 ### port
 
-> **port**: `number`
+> **port**: `number` \| `null`
 
 ***
 

@@ -12,7 +12,7 @@ The `icecandidateerror` members of an ICE agent's server failure: one per
 configured URL of the server (none for a server without one, such as the
 built-in default STUN server). The local address is given only when the
 agent knows it and the ICE transport policy is not "relay"; otherwise it
-is `null` with port 0.
+and port are `null` (W3C: a null address has a null port).
 
 ## Parameters
 

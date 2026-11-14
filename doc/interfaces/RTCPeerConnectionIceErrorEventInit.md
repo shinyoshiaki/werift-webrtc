@@ -16,6 +16,26 @@ Members of [RTCPeerConnectionIceErrorEvent](../classes/RTCPeerConnectionIceError
 
 ***
 
+### bubbles?
+
+> `optional` **bubbles?**: `boolean`
+
+Standard `EventInit` members.
+
+***
+
+### cancelable?
+
+> `optional` **cancelable?**: `boolean`
+
+***
+
+### composed?
+
+> `optional` **composed?**: `boolean`
+
+***
+
 ### errorCode
 
 > **errorCode**: `number`

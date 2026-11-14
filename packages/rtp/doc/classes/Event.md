@@ -16,7 +16,19 @@
 
 ### Constructor
 
-> **new Event**\<`T`\>(): `Event`\<`T`\>
+> **new Event**\<`T`\>(`options?`): `Event`\<`T`\>
+
+#### Parameters
+
+##### options?
+
+###### onListenerError?
+
+(`e`) => `void`
+
+When given, a throwing subscriber is
+reported to it and the remaining subscribers still run. Without it the
+first exception propagates out of `execute` (default).
 
 #### Returns
 

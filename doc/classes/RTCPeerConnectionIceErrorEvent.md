@@ -25,6 +25,10 @@ per failing server URL, local socket and gathering generation, never after
   server; `null` / `0` when unknown (TURN) or hidden (the `"relay"` ICE
   transport policy).
 
+## Extends
+
+- `Event`
+
 ## Constructors
 
 ### Constructor
@@ -45,11 +49,75 @@ per failing server URL, local socket and gathering generation, never after
 
 `RTCPeerConnectionIceErrorEvent`
 
+#### Overrides
+
+`Event.constructor`
+
 ## Properties
 
 ### address
 
 > `readonly` **address**: `string` \| `null`
+
+***
+
+### bubbles
+
+> `readonly` **bubbles**: `boolean`
+
+#### Inherited from
+
+`Event.bubbles`
+
+***
+
+### cancelable
+
+> `readonly` **cancelable**: `boolean`
+
+#### Inherited from
+
+`Event.cancelable`
+
+***
+
+### cancelBubble
+
+> **cancelBubble**: `boolean`
+
+#### Inherited from
+
+`Event.cancelBubble`
+
+***
+
+### composed
+
+> `readonly` **composed**: `boolean`
+
+#### Inherited from
+
+`Event.composed`
+
+***
+
+### currentTarget
+
+> `readonly` **currentTarget**: `EventTarget` \| `null`
+
+#### Inherited from
+
+`Event.currentTarget`
+
+***
+
+### defaultPrevented
+
+> `readonly` **defaultPrevented**: `boolean`
+
+#### Inherited from
+
+`Event.defaultPrevented`
 
 ***
 
@@ -65,9 +133,69 @@ per failing server URL, local socket and gathering generation, never after
 
 ***
 
+### eventPhase
+
+> `readonly` **eventPhase**: `0` \| `2`
+
+#### Inherited from
+
+`Event.eventPhase`
+
+***
+
+### isTrusted
+
+> `readonly` **isTrusted**: `boolean`
+
+#### Inherited from
+
+`Event.isTrusted`
+
+***
+
 ### port
 
 > `readonly` **port**: `number` \| `null`
+
+***
+
+### returnValue
+
+> **returnValue**: `boolean`
+
+#### Inherited from
+
+`Event.returnValue`
+
+***
+
+### srcElement
+
+> `readonly` **srcElement**: `EventTarget` \| `null`
+
+#### Inherited from
+
+`Event.srcElement`
+
+***
+
+### target
+
+> `readonly` **target**: `EventTarget` \| `null`
+
+#### Inherited from
+
+`Event.target`
+
+***
+
+### timeStamp
+
+> `readonly` **timeStamp**: `number`
+
+#### Inherited from
+
+`Event.timeStamp`
 
 ***
 
@@ -75,8 +203,96 @@ per failing server URL, local socket and gathering generation, never after
 
 > `readonly` **type**: `string`
 
+#### Inherited from
+
+`Event.type`
+
 ***
 
 ### url
 
 > `readonly` **url**: `string`
+
+## Methods
+
+### composedPath()
+
+> **composedPath**(): \[`EventTarget`?\]
+
+#### Returns
+
+\[`EventTarget`?\]
+
+#### Inherited from
+
+`Event.composedPath`
+
+***
+
+### initEvent()
+
+> **initEvent**(`type`, `bubbles?`, `cancelable?`): `void`
+
+#### Parameters
+
+##### type
+
+`string`
+
+##### bubbles?
+
+`boolean`
+
+##### cancelable?
+
+`boolean`
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+`Event.initEvent`
+
+***
+
+### preventDefault()
+
+> **preventDefault**(): `void`
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+`Event.preventDefault`
+
+***
+
+### stopImmediatePropagation()
+
+> **stopImmediatePropagation**(): `void`
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+`Event.stopImmediatePropagation`
+
+***
+
+### stopPropagation()
+
+> **stopPropagation**(): `void`
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+`Event.stopPropagation`
