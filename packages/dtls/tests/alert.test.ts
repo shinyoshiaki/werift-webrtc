@@ -9,6 +9,7 @@ import {
   DtlsClient,
   DtlsServer,
   DtlsSocket,
+  DtlsVersion,
 } from "../src";
 import {
   HashAlgorithm,
@@ -67,7 +68,9 @@ describe("DTLS alert", () => {
     // Assert: server は close_notify を 1 回だけ返し、その後は application data を送らない
     expect(alertRecords(pair.serverTransport.sent)).toHaveLength(1);
     const sentBefore = pair.serverTransport.sent.length;
-    await pair.server.send(Buffer.from("after close"));
+    await expect(pair.server.send(Buffer.from("after close"))).rejects.toThrow(
+      /closed/i,
+    );
     expect(pair.serverTransport.sent.length).toBe(sentBefore);
   });
 
@@ -851,7 +854,10 @@ describe("Finished と alert が同じ datagram に入っている場合", () =>
     async (_, level, description) => {
       // Arrange: server の Finished（epoch 1 の handshake record）を保留し、
       // server が接続した直後に送る alert と 1 つの datagram にまとめて client へ届ける
-      const pair = createDtlsPair();
+      const pair = createDtlsPair({
+        client: { protocolVersions: [DtlsVersion.V1_2] },
+        server: { protocolVersions: [DtlsVersion.V1_2] },
+      });
       const events: string[] = [];
       pair.client.onConnect.subscribe(() => events.push("connect"));
       pair.client.onClose.subscribe(() => events.push("close"));

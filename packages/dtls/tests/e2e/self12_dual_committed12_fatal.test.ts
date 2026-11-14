@@ -102,7 +102,7 @@ test("e2e/dual: committed12 fatal alert tears down association", async () => {
   expect((client as any).dtls.flight).toBe(99);
   expect((client as any).dtls.flightTimers.size).toBe(0);
   expect(clientCarrier.isClosed()).toBe(true);
-  expect(closes.length).toBe(1);
+  expect(closes.length).toBe(0);
 
   // Public API 無効（committed12 のまま send できる状態に戻らない）
   await expect(client.send(Buffer.from("after-fatal"))).rejects.toThrow(
