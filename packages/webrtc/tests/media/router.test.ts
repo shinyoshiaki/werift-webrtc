@@ -16,6 +16,7 @@ import {
 import {
   RTCRtpCodecParameters,
   RTCRtpCodingParameters,
+  RTCRtpSimulcastParameters,
 } from "../../src/media/parameters";
 import { RtpRouter } from "../../src/media/router";
 import { RTCRtpReceiver } from "../../src/media/rtpReceiver";
@@ -2761,6 +2762,72 @@ describe("media/router: a=ssrc のない m-line の SSRC 学習 (#356)", () => {
           "payload-4",
         ]);
         expect(await inboundRtpSsrcs(audio)).toEqual([301]);
+      }
+    },
+  );
+
+  test.each(["commit", "rollback"] as const)(
+    "pending の SDP が RID を与えても、%s まで公開 track と fallback の SSRC 切替は現在の session のまま",
+    (finish) => {
+      // Arrange: opus の SSRC 300 を学習済みで、確定済みの受信中 session
+      const { router, dtls, addReceiver } = createSsrcLessRouter();
+      const audio = addReceiver();
+      audio.setCurrentDirection("recvonly");
+      const announced = audio.receiver.track;
+      const payloads = collectTrackPayloads(audio);
+      router.routeRtp(
+        ssrcLessPacket({ ssrc: 300, payloadType: 111, sequenceNumber: 1 }),
+        dtls,
+      );
+      const routes = router.snapshotRoutes();
+      const receiverState = audio.receiver.snapshotNegotiationState();
+
+      // Act: pending の re-offer が RID "high" を与え、その間に現在の送信元が SSRC 301 へ切り替える
+      router.registerRtpReceiverByRid(
+        audio,
+        new RTCRtpSimulcastParameters({ rid: "high", direction: "send" }),
+        { codecs: [opus()], headerExtensions: [], encodings: [] },
+        { deferConflicts: true },
+      );
+      router.routeRtp(
+        ssrcLessPacket({ ssrc: 301, payloadType: 111, sequenceNumber: 2 }),
+        dtls,
+      );
+
+      // Assert: 公開 track も tracks も変わらず、301 を学習して同じ track に届く
+      expect(audio.receiver.track).toBe(announced);
+      expect(audio.receiver.tracks).toEqual([]);
+      expect(audio.receiver.fallbackSsrc).toBe(301);
+      expect(announced.ssrc).toBe(301);
+      expect(payloads).toEqual(["payload-1", "payload-2"]);
+
+      // Act: commit または rollback する
+      if (finish === "commit") {
+        router.commitStaged();
+      } else {
+        router.restoreRoutes(routes, {
+          endpoints: new Set([audio.receiver, audio.sender]),
+          liveSenders: [],
+        });
+        audio.receiver.restoreNegotiationState(receiverState);
+      }
+
+      // Assert: commit は RID の track に切り替えて fallback を外し、rollback は 301 の fallback を保つ
+      if (finish === "commit") {
+        expect(audio.receiver.track.rid).toBe("high");
+        expect(audio.receiver.trackByRID.high).toBe(audio.receiver.track);
+        expect(audio.receiver.fallbackSsrc).toBeUndefined();
+        expect(router.ssrcTable[301]).toBeUndefined();
+      } else {
+        expect(audio.receiver.track).toBe(announced);
+        expect(audio.receiver.trackByRID.high).toBeUndefined();
+        expect(audio.receiver.fallbackSsrc).toBe(301);
+        expect(Object.keys(router.ridTable)).toEqual([]);
+        router.routeRtp(
+          ssrcLessPacket({ ssrc: 301, payloadType: 111, sequenceNumber: 3 }),
+          dtls,
+        );
+        expect(payloads).toEqual(["payload-1", "payload-2", "payload-3"]);
       }
     },
   );

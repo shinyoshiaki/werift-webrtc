@@ -90,16 +90,17 @@ export class RTCRtpReceiver {
    */
   private fallbackCodec?: RTCRtpCodecParameters;
   /**
-   * The SSRC and codec a pending description gives an m-line whose current
-   * session is without SSRC and RID: the announced track adopts them when the
-   * transaction commits (`RtpRouter.commitStaged`). Until then the track, its
-   * statistics and the fallback SSRC stay the current session's; RTP of the
-   * pending SSRC reaches the announced track through `trackBySSRC` alone.
+   * What a pending description gives an m-line whose current session is
+   * without SSRC and RID: the SSRC and codec the announced track adopts, and
+   * the tracks of its other SSRCs and of its RIDs. They apply when the
+   * transaction commits (`RtpRouter.commitStaged`). Until then `tracks`,
+   * `track`, the statistics and the fallback SSRC (`acceptsUnknownSsrc`) stay
+   * the current session's; RTP of the pending SSRCs and RIDs reaches the
+   * staged tracks through `trackBySSRC` / `trackByRID` alone.
    */
-  private stagedDefaultTrack?: {
-    ssrc: number;
+  private stagedTracks?: {
+    ssrc?: number;
     codec?: RTCRtpCodecParameters;
-    /** Tracks of the description's other SSRCs, added at the commit too. */
     tracks: MediaStreamTrack[];
   };
   private get codecArray() {
@@ -346,48 +347,71 @@ export class RTCRtpReceiver {
    * and `ontrack` does not fire again for it.
    */
   /**
-   * Internal (router): a pending description gives this m-line, whose current
-   * session is without SSRC and RID, its first SSRC; see
-   * {@link stagedDefaultTrack}. A later pending description replaces it.
+   * Internal (router): whether a pending description gives this m-line, whose
+   * current session is without SSRC and RID, tracks; see {@link stagedTracks}.
    */
-  stageDefaultTrack(ssrc: number, codec?: RTCRtpCodecParameters) {
-    this.dropStagedDefaultTrack();
-    this.stagedDefaultTrack = { ssrc, codec, tracks: [] };
-    if (!this.trackBySSRC[ssrc]) this.trackBySSRC[ssrc] = this.defaultTrack;
+  get hasStagedTracks() {
+    return this.stagedTracks !== undefined;
   }
 
   /** Internal (router): the SSRC a staged adoption gives the announced track. */
   get stagedDefaultSsrc() {
-    return this.stagedDefaultTrack?.ssrc;
+    return this.stagedTracks?.ssrc;
   }
 
-  /**
-   * Internal (router): a track of another SSRC of the same pending
-   * description; it is added with the staged adoption at the commit.
-   */
+  /** Internal (router): the announced track adopts `ssrc` and `codec` at the commit. */
+  stageDefaultTrack(ssrc: number, codec?: RTCRtpCodecParameters) {
+    const staged = (this.stagedTracks ??= { tracks: [] });
+    staged.ssrc = ssrc;
+    staged.codec = codec;
+    if (!this.trackBySSRC[ssrc]) this.trackBySSRC[ssrc] = this.defaultTrack;
+  }
+
+  /** Internal (router): a track of another SSRC or of a RID, added at the commit. */
   stageTrack(track: MediaStreamTrack) {
-    const staged = this.stagedDefaultTrack;
-    if (!staged || staged.tracks.some((t) => t.ssrc === track.ssrc)) return;
+    const staged = (this.stagedTracks ??= { tracks: [] });
+    const duplicate = staged.tracks.some((t) =>
+      track.rid ? t.rid === track.rid : !t.rid && t.ssrc === track.ssrc,
+    );
+    if (duplicate || (!track.rid && track.ssrc === staged.ssrc)) return;
     staged.tracks.push(track);
+    if (track.rid) {
+      if (!this.trackByRID[track.rid]) this.trackByRID[track.rid] = track;
+    } else if (track.ssrc && !this.trackBySSRC[track.ssrc]) {
+      this.trackBySSRC[track.ssrc] = track;
+    }
   }
 
-  /** Internal (router): the staged adoption, cleared; applied by the caller at commit. */
-  takeStagedDefaultTrack() {
-    const staged = this.stagedDefaultTrack;
-    this.stagedDefaultTrack = undefined;
+  /** Internal (router): the staged tracks, cleared; the router applies them at commit. */
+  takeStagedTracks() {
+    const staged = this.stagedTracks;
+    this.stagedTracks = undefined;
     return staged;
   }
 
-  /** Internal (router): forget a staged adoption a later description replaces. */
-  dropStagedDefaultTrack() {
-    const staged = this.takeStagedDefaultTrack();
+  /**
+   * Internal: forget what an earlier pending description staged; the
+   * description being applied decides anew.
+   */
+  dropStagedTracks() {
+    const staged = this.takeStagedTracks();
+    if (!staged) return;
+    const ssrc = staged.ssrc;
     if (
-      staged &&
-      this.trackBySSRC[staged.ssrc] === this.defaultTrack &&
-      !this.learnedTrackSsrcs.has(staged.ssrc) &&
-      this.defaultTrack.ssrc !== staged.ssrc
+      ssrc !== undefined &&
+      this.trackBySSRC[ssrc] === this.defaultTrack &&
+      !this.learnedTrackSsrcs.has(ssrc) &&
+      this.defaultTrack.ssrc !== ssrc
     ) {
-      delete this.trackBySSRC[staged.ssrc];
+      delete this.trackBySSRC[ssrc];
+    }
+    for (const track of staged.tracks) {
+      if (track.rid && this.trackByRID[track.rid] === track) {
+        delete this.trackByRID[track.rid];
+      }
+      for (const [key, bound] of Object.entries(this.trackBySSRC)) {
+        if (bound === track) delete this.trackBySSRC[key];
+      }
     }
   }
 
@@ -513,9 +537,9 @@ export class RTCRtpReceiver {
       tracks: [...this.tracks],
       /** `adoptDefaultTrack` gives the announced track a description's codec. */
       defaultTrackCodec: this.defaultTrack.codec,
-      stagedDefaultTrack: this.stagedDefaultTrack && {
-        ...this.stagedDefaultTrack,
-        tracks: [...this.stagedDefaultTrack.tracks],
+      stagedTracks: this.stagedTracks && {
+        ...this.stagedTracks,
+        tracks: [...this.stagedTracks.tracks],
       },
       trackBySSRC: { ...this.trackBySSRC },
       /** SSRCs of `trackBySSRC` that packets taught (not description state). */
@@ -534,9 +558,9 @@ export class RTCRtpReceiver {
       if (this.receiverTWCC) this.receiverTWCC.twccRunning = false;
       this.receiverTWCC = state.receiverTWCC;
     }
-    this.stagedDefaultTrack = state.stagedDefaultTrack && {
-      ...state.stagedDefaultTrack,
-      tracks: [...state.stagedDefaultTrack.tracks],
+    this.stagedTracks = state.stagedTracks && {
+      ...state.stagedTracks,
+      tracks: [...state.stagedTracks.tracks],
     };
     this.remoteStreamIds = state.remoteStreamIds;
     this.remoteStreamId = state.remoteStreamId;

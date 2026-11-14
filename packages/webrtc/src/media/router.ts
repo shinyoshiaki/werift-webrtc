@@ -210,16 +210,17 @@ export class RtpRouter {
     this.stagedSsrc.clear();
     this.stagedRid.clear();
     this.provisionalSsrc.clear();
-    // The announced track of an m-line that was without SSRC and RID adopts
-    // the SSRC and codec the committed description gave it.
+    // An m-line that was without SSRC and RID gets the tracks the committed
+    // description gave it: the announced track adopts its first SSRC.
     for (const transceiver of this.transceivers()) {
-      const staged = transceiver.receiver.takeStagedDefaultTrack();
-      if (staged && transceiver.receiver.tracks.length === 0) {
+      const staged = transceiver.receiver.takeStagedTracks();
+      if (!staged || transceiver.receiver.tracks.length > 0) continue;
+      if (staged.ssrc !== undefined) {
         transceiver.addTrack(
           transceiver.receiver.adoptDefaultTrack(staged.ssrc, staged.codec),
         );
-        for (const track of staged.tracks) transceiver.addTrack(track);
       }
+      for (const track of staged.tracks) transceiver.addTrack(track);
     }
     // A fallback SSRC of an m-line the committed description gave an SSRC or
     // a RID goes now (a pending description kept it for the current session).
@@ -385,9 +386,6 @@ export class RtpRouter {
   ) {
     log("registerRtpReceiverBySsrc", params);
 
-    // The latest description decides: an adoption an earlier pending one
-    // staged goes.
-    transceiver.receiver.dropStagedDefaultTrack();
     if (!deferConflicts && params.encodings.some((e) => e.ssrc != undefined)) {
       // The m-line has SSRCs now: the fallback SSRC learned without them goes
       // (a pending description keeps it until the commit).
@@ -415,22 +413,19 @@ export class RtpRouter {
           i === 0 &&
           transceiver.firedReceiving &&
           transceiver.receiver.tracks.length === 0;
-        const stagedSsrc = transceiver.receiver.stagedDefaultSsrc;
         if (announced && deferConflicts) {
           transceiver.receiver.stageDefaultTrack(encode.ssrc, codec);
-        } else if (deferConflicts && stagedSsrc !== undefined) {
+        } else if (this.stagesTracks(transceiver, deferConflicts)) {
           // The rest of a staged description waits for the commit as well.
-          if (encode.ssrc !== stagedSsrc) {
-            transceiver.receiver.stageTrack(
-              new MediaStreamTrack({
-                ssrc: encode.ssrc,
-                kind: transceiver.kind,
-                id: transceiver.sender.trackId,
-                remote: true,
-                codec,
-              }),
-            );
-          }
+          transceiver.receiver.stageTrack(
+            new MediaStreamTrack({
+              ssrc: encode.ssrc,
+              kind: transceiver.kind,
+              id: transceiver.sender.trackId,
+              remote: true,
+              codec,
+            }),
+          );
         } else {
           transceiver.addTrack(
             announced
@@ -458,6 +453,23 @@ export class RtpRouter {
     });
   }
 
+  /**
+   * Whether a pending description stages the tracks it gives `transceiver`:
+   * its current session announced the default track and is without SSRC and
+   * RID (see `RTCRtpReceiver.stagedTracks`).
+   */
+  private stagesTracks(
+    transceiver: RTCRtpTransceiver,
+    deferConflicts: boolean,
+  ) {
+    const { receiver } = transceiver;
+    return (
+      deferConflicts &&
+      (receiver.hasStagedTracks ||
+        (transceiver.firedReceiving && receiver.tracks.length === 0))
+    );
+  }
+
   registerRtpReceiverByRid(
     transceiver: RTCRtpTransceiver,
     param: RTCRtpSimulcastParameters,
@@ -470,15 +482,21 @@ export class RtpRouter {
 
     log("registerRtpReceiverByRid", param);
     if (!deferConflicts) this.releaseFallbackSsrc(transceiver.receiver);
-    transceiver.addTrack(
-      new MediaStreamTrack({
-        rid: param.rid,
-        kind: transceiver.kind,
-        id: transceiver.sender.trackId,
-        remote: true,
-        codec,
-      }),
-    );
+    const track = new MediaStreamTrack({
+      rid: param.rid,
+      kind: transceiver.kind,
+      id: transceiver.sender.trackId,
+      remote: true,
+      codec,
+    });
+    // A pending description that gives an m-line without SSRC and RID its
+    // RIDs stages the tracks: the current session keeps its track and its
+    // fallback SSRC (and may switch it) until the commit.
+    if (this.stagesTracks(transceiver, deferConflicts)) {
+      transceiver.receiver.stageTrack(track);
+    } else {
+      transceiver.addTrack(track);
+    }
     const key = ridRouteKey(transceiver.mid ?? "", param.rid);
     const existing = this.ridTable[key];
     if (deferConflicts && existing && existing !== transceiver.receiver) {

@@ -129,6 +129,48 @@ export class TransceiverManager {
   >();
   private readonly watched = new WeakSet<RTCRtpTransceiver>();
 
+  /**
+   * Fire `ontrack` for the receiving track of `transceiver` unless the same
+   * track was already announced with the same streams.
+   */
+  private notifyRemoteTrack(
+    transceiver: RTCRtpTransceiver,
+    remoteStreamIds: string[],
+  ) {
+    const track = transceiver.receiver.track;
+    const previous = this.notifiedRemoteTrack.get(transceiver);
+    if (
+      previous?.track === track &&
+      previous.streams.join("\0") === remoteStreamIds.join("\0")
+    ) {
+      return;
+    }
+    this.notifiedRemoteTrack.set(transceiver, {
+      track,
+      streams: remoteStreamIds,
+    });
+    this.onTrack.execute({
+      track,
+      transceiver,
+      streams: remoteStreamIds.map(
+        (id) => new MediaStream({ id, tracks: [track] }),
+      ),
+    });
+  }
+
+  /**
+   * Internal: after a commit, announce the track an m-line that was without
+   * SSRC and RID got from the committed description (its RID tracks were
+   * staged while it was pending, see `RTCRtpReceiver.stagedTracks`).
+   */
+  notifyCommittedRemoteTracks() {
+    for (const transceiver of this.transceivers) {
+      const previous = this.notifiedRemoteTrack.get(transceiver);
+      if (!previous || previous.track === transceiver.receiver.track) continue;
+      this.notifyRemoteTrack(transceiver, previous.streams);
+    }
+  }
+
   private getNotifiedRemoteTrack(transceiver: RTCRtpTransceiver) {
     const state = this.notifiedRemoteTrack.get(transceiver);
     return state && { track: state.track, streams: [...state.streams] };
@@ -1034,6 +1076,8 @@ export class TransceiverManager {
       transceiver.sender.proposeSend(localParams.codecs);
     }
 
+    // The description applied now decides what is staged for the commit.
+    transceiver.receiver.dropStagedTracks();
     if (["recvonly", "sendrecv"].includes(transceiver.direction)) {
       const remotePrams = this.getRemoteRtpParams(remoteMedia, transceiver);
 
@@ -1070,24 +1114,7 @@ export class TransceiverManager {
       transceiver.receiver.remoteStreamIds = remoteStreamIds;
       transceiver.receiver.remoteTrackId = remoteTrackId;
 
-      const track = transceiver.receiver.track;
-      const previous = this.notifiedRemoteTrack.get(transceiver);
-      if (
-        previous?.track !== track ||
-        previous.streams.join("\0") !== remoteStreamIds.join("\0")
-      ) {
-        this.notifiedRemoteTrack.set(transceiver, {
-          track,
-          streams: remoteStreamIds,
-        });
-        this.onTrack.execute({
-          track,
-          transceiver,
-          streams: remoteStreamIds.map(
-            (id) => new MediaStream({ id, tracks: [track] }),
-          ),
-        });
-      }
+      this.notifyRemoteTrack(transceiver, remoteStreamIds);
       transceiver.firedReceiving = true;
     } else {
       this.notifiedRemoteTrack.delete(transceiver);

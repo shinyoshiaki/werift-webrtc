@@ -172,6 +172,8 @@ RFC 8843 / RFC 9143（BUNDLE）§9.2「Associating RTP/RTCP Streams with the Cor
 **保留中の description と現在の session の分離（3.8 承認後のレビュー指摘）:**
 - [x] 現在の session が SSRC も RID もない m-line に、保留中の description（remote offer / pranswer）が最初の SSRC を与えても、通知済み track の採用（`adoptDefaultTrack`）はその場で行わず、receiver に staging する（`RTCRtpReceiver.stageDefaultTrack`）。commit（`RtpRouter.commitStaged`）で track が SSRC と codec を採用し、fallback SSRC を外す。rollback では baseline の staging 状態に戻し、後続の description は staging を置き換える。
 - [x] 保留中は、公開 track の `ssrc` / `codec`、`getStats()` の inbound-rtp、未知 SSRC の学習可否（`acceptsUnknownSsrc`）が現在の session のまま。現在の送信元が保留中に SSRC を切り替えても（300 → 301）学習して届く。保留中の SSRC（400）の RTP は `trackBySSRC` 経由で同じ通知済み track に届く。最終 answer（`deferConflicts` なし）は従来どおりその場で採用する。 SDP の encodings は codec ごとに同じ SSRC が並ぶので、staging 中は残りの encodings も staging する（同じ SSRC は無視し、別の SSRC の track は commit で追加する）。
+- [x] 保留中の description が同じ m-line に **RID** を与える場合も同じ規則にする（レビュー指摘）。RID の track は `tracks` に入れず receiver に staging し（`RTCRtpReceiver.stagedTracks`。保留中の RID パケットは `trackByRID` 経由で届く）、commit で追加して fallback SSRC を外す。保留中は公開 track（`receiver.track`）と `acceptsUnknownSsrc` が現在の session のままなので、現在の送信元が SSRC を切り替えても（300 → 301）学習して届く。rollback では staging と `trackByRID`、`ridTable` が baseline に戻る。staging は remote description を適用するたびに捨てて作り直す（`TransceiverManager.setRemoteRTP`）。
+- [x] commit で公開 track が RID の track に変わった m-line には、`NegotiationTransaction.commit` から `TransceiverManager.notifyCommittedRemoteTracks` で `ontrack` を通知する（保留中に通知を先送りした分。同じ track・同じ stream なら通知しない）。
 
 **意図的に範囲外とする点（§9.2 監査の結果）:**
 - SDP・RID・simulcast 由来の経路は、MID が別の m-line を示していても動かさない（3.1 の既存挙動。TSDoc に記載）。指摘された場合は、RID で学習した SSRC に限って MID での引き渡しを広げるかを判断する。その場合は receiver の `learnedTrackSsrcs` を外す API が必要。
@@ -183,6 +185,8 @@ RFC 8843 / RFC 9143（BUNDLE）§9.2「Associating RTP/RTCP Streams with the Cor
   - 方針: 案 (a) を採る。再び失敗したら、develop で再現することを確かめたうえで ICE / DTLS 側の別チケットを立て、レビュー報告に上の再現手順と「develop でも再現する」ことを書く。今回は再現しないので別チケットは立てていない。
   - 同じ実行の model seed 275（「after operation #42: traffic … the transport did not settle」）は、`tests/pbt/leak/negotiationLeakProperty.test.ts` の既知 flaky の記述どおりで、単独 replay で本ブランチ・develop とも 5 回中 4 回、同じメッセージで失敗する。scenario の seed 257 / 262 は flaky（単独で成功）。
   - 保留中の staging の修正後（`6d6bc4313` + 未コミット差分）の `pbt:deep`: fuzz 306/306、scenario 2159 成功・4 flaky（単独で成功）、model は seed 275 が失敗（単独 replay では成功。上記の既知 flaky）・2 flaky、leak は heap seed 4 が実行中に失敗。heap seed 4 は単独 replay で本ブランチ・develop とも 3 回中 3 回成功しており、過去の実行でも flaky として出ている負荷依存の揺らぎと判断する。修正途中の実行で落ちた固定ケース「a re-offer that gives an m-line learned without a=ssrc its SSRC keeps the learned route until the rollback」と seed 264 は、codec ごとに同じ SSRC が並ぶ encodings の扱いを直して解消した。
+  - **並列探索の揺らぎの比較（RID staging の修正後、`ac51a5d3b` + 未コミット差分 vs develop `6474a6953`、同じコンテナで `npm run pbt:deep` を 3 回ずつ）:** 本ブランチは run1 が exit 0（model seed 275 flaky）、run2・run3 が model seed 275 で exit 1（run3 は leak heap seed 4 も失敗）。develop は run1 exit 0（seed 275・heap seed 4 が flaky）、run2 が leak heap seed 4 で exit 1、run3 exit 0。fuzz・scenario は両方とも失敗 0（scenario は毎回 1〜4 件 flaky、単独で成功）。
+  - **seed 275 の単独 replay（交互に 6 回ずつ）:** 本ブランチ 5/6、develop 3/6 が同じ「the transport did not settle」で失敗。縮小後の最小失敗シーンは両方とも同じ形（`extmapMoved` の wireOffer → answer → rollback → `addTrack(video)` → glare → answer → settle）で、`ssrcRemoved` を含まない（SSRC-less の学習経路を通らない）。過去 3 回の比較（本ブランチ 1/5・4/5・5/6、develop 2/5・4/5・3/6）を合わせ、本チケットの変更による悪化ではなく既存の ICE / transport の揺らぎと判断する。heap seed 4 も develop で同じく失敗する。
 
 **確認レビューの依頼手順:**
 - 修正は未コミットのまま依頼する（CLI は未コミットの差分がないとレビューを開始しない）。外部ツールが自動コミットした場合は、その旨と対象リビジョンを報告に書く。
@@ -248,6 +252,7 @@ RFC 8843 / RFC 9143（BUNDLE）§9.2「Associating RTP/RTCP Streams with the Cor
 - [x] `a=ssrc` のある m-line（メディア / RTX）・RID の m-line と PT を共有する SSRC-less m-line は、MID のない未知 SSRC を学習しない。MID を明示すれば学習する。PT が分かれていれば学習する。（3.7 のテスト計画にも記載）
 - [x] 保留中の offer が同じ PT の m-line を追加すると、MID のない未知 SSRC は commit 後も学習せず、MID を明示すれば学習し、rollback で追加が消えれば学習する。
 - [x] 保留中の offer が同じ PT の m-line を停止（拒否予定・inactive）しても、commit までは MID のない未知 SSRC を学習せず、commit 後は残る m-line が学習する。
+- [x] 学習済み SSRC 300 の確定済み session に、保留中の re-offer が RID "high" を与えても、commit / rollback までは `receiver.track` と `tracks` が変わらず、保留中の SSRC 切替（301）を学習して届く。commit で RID の track に切り替わり fallback が外れ、rollback で 301 の fallback が残って `trackByRID` / `ridTable` は空に戻る（修正前のコードで失敗することを一時 worktree で確認）。
 - [x] 学習済み SSRC 300（opus）の確定済み session に、保留中の re-offer が PCMU の SSRC 400 を与えても、commit / rollback までは track の SSRC・codec・inbound-rtp 統計が 300 / opus のまま。保留中の SSRC 切替（301）を学習し、400 の RTP も届く。commit で 400 / PCMU に切り替わり統計も 400、rollback で 301 / opus に戻り 400 の経路は残らない。
 
 ### negotiation / property
