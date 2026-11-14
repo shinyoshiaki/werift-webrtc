@@ -83,6 +83,12 @@ export class RTCRtpReceiver {
 
   private readonly codecs: { [pt: number]: RTCRtpCodecParameters } = {};
   private readonly defaultTrack: MediaStreamTrack;
+  /**
+   * Codec of the payload type that taught the fallback SSRC: packet-driven,
+   * so a rollback that keeps the fallback SSRC gives the default track this
+   * codec back instead of the baseline's.
+   */
+  private fallbackCodec?: RTCRtpCodecParameters;
   private get codecArray() {
     return Object.values(this.codecs).sort(
       (a, b) => a.payloadType - b.payloadType,
@@ -274,6 +280,7 @@ export class RTCRtpReceiver {
       this.codecs[payloadType],
       this.codecArray,
     );
+    this.fallbackCodec = track.codec;
     this.trackBySSRC[ssrc] = track;
     this.learnedTrackSsrcs.add(ssrc);
     return replaced;
@@ -430,6 +437,8 @@ export class RTCRtpReceiver {
       remoteStreamId: this.remoteStreamId,
       remoteTrackId: this.remoteTrackId,
       tracks: [...this.tracks],
+      /** `adoptDefaultTrack` gives the announced track a description's codec. */
+      defaultTrackCodec: this.defaultTrack.codec,
       trackBySSRC: { ...this.trackBySSRC },
       /** SSRCs of `trackBySSRC` that packets taught (not description state). */
       learnedTrackSsrcs: [...this.learnedTrackSsrcs],
@@ -490,11 +499,16 @@ export class RTCRtpReceiver {
     // A fallback SSRC the baseline had and that is no longer bound (the
     // fallback was replaced or released, or the m-line got tracks back):
     // learned state is not brought back, and a stale one is released.
+    // The default track's codec follows: a description's codec
+    // (`adoptDefaultTrack`) returns to the baseline's, while a kept fallback
+    // SSRC keeps the codec its packets taught.
     const fallback = this.fallbackSsrc;
+    this.defaultTrack.codec = state.defaultTrackCodec;
     if (fallback !== undefined && this.tracks.length > 0) {
       this.releaseFallbackSsrc();
     } else if (fallback !== undefined) {
       this.defaultTrack.ssrc = fallback;
+      this.defaultTrack.codec = this.fallbackCodec ?? state.defaultTrackCodec;
     } else if (
       this.defaultTrack.ssrc &&
       !this.tracks.includes(this.defaultTrack)

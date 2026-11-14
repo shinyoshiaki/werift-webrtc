@@ -191,6 +191,7 @@ RFC 8843 / RFC 9143（BUNDLE）§9.2「Associating RTP/RTCP Streams with the Cor
 ### negotiation / property
 - [ ] 学習後の rollback / 再 offer / ICE restart で route と track が保たれ、`assertNegotiationInvariants` が通る（`expectSessionContinues` まで）。
 - [ ] 学習後に SDP が SSRC を与えた場合の上書き規則（3.4）。
+- [x] pending の description が通知済み track（既定 track）に別 codec の SSRC を与えてから rollback すると、track の SSRC と codec が baseline に戻る。baseline 後にパケットから学習した fallback SSRC が rollback で残る場合は、学習時の codec に戻る（レビュー指摘: `track.codec` が pending の値のまま残っていた）。
 
 ---
 
@@ -222,4 +223,5 @@ develop との比較が必要なら、一時 worktree（`git worktree add --deta
   - 入っていなければ、#355 チケットに「`tests/issue/356.test.ts` のヘルパー呼び出しを外し、元の SDP で学習・配送を確認する」作業項目が追加されている。
 - [ ] `changelog.md` に #356 の項目を追記している（#355 の項目は書かない）。
 - [ ] 3.7 の追加要件を満たしている。パケットから学習した SSRC 経路は RTP と RTCP の両方で transport ごとに解決され、同じ数値の SSRC が複数 transport にあっても、それぞれの receiver に誤配送も欠落もなく届く。
-- [ ] 再レビューはコミット済みのクリーンな作業ツリーで依頼している。
+- [ ] rollback 後、通知済み track の `codec` が現在の negotiated state と一致する（receiver の negotiation snapshot に既定 track の codec を含める）。
+- [ ] 確認レビューを依頼する時点で、修正が `ticket review` の対象として見える状態にしている（CLI は未コミットの差分がないとレビューを開始しない）。

@@ -768,6 +768,12 @@ Internal: return to a negotiation baseline taken by `snapshotNegotiationState`.
 
 ##### state
 
+###### defaultTrackCodec
+
+[`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined` = `...`
+
+`adoptDefaultTrack` gives the announced track a description's codec.
+
 ###### learnedTrackSsrcs
 
 `number`[] = `...`
@@ -963,6 +969,12 @@ rollback baseline. Packet-driven runtime (statistics, NACK, RTCP) is not
 part of it.
 
 #### Returns
+
+##### defaultTrackCodec
+
+> **defaultTrackCodec**: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined`
+
+`adoptDefaultTrack` gives the announced track a description's codec.
 
 ##### learnedTrackSsrcs
 

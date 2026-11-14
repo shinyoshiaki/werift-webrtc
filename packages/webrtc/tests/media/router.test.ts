@@ -2226,6 +2226,85 @@ describe("media/router: a=ssrc のない m-line の SSRC 学習 (#356)", () => {
     },
   );
 
+  test.each([
+    ["学習前", undefined, undefined],
+    ["opus の SSRC 300 を学習済み", 300, "audio/opus"],
+  ] as const)(
+    "pending の SDP が別 codec の SSRC を与えても rollback で通知済み track の codec が戻る (%s)",
+    (_, learnedSsrc, baselineMimeType) => {
+      // Arrange: opus と PCMU を受ける SSRC-less の m-line と、rollback の baseline
+      const { router, dtls, addReceiver } = createSsrcLessRouter();
+      const audio = addReceiver({ codecs: [opus(), pcmu()] });
+      const announced = audio.receiver.track;
+      if (learnedSsrc !== undefined) {
+        router.routeRtp(
+          ssrcLessPacket({ ssrc: learnedSsrc, payloadType: 111 }),
+          dtls,
+        );
+      }
+      const routes = router.snapshotRoutes();
+      const receiverState = audio.receiver.snapshotNegotiationState();
+
+      // Act: pending の re-offer が PCMU の SSRC 400 を与える
+      router.registerRtpReceiverBySsrc(
+        audio,
+        {
+          codecs: [pcmu()],
+          headerExtensions: [],
+          encodings: [
+            new RTCRtpCodingParameters({ ssrc: 400, payloadType: 0 }),
+          ],
+        },
+        { deferConflicts: true },
+      );
+
+      // Assert: pending 中は通知済み track が PCMU になる
+      expect(announced.codec?.mimeType).toBe("audio/PCMU");
+
+      // Act: rollback する
+      router.restoreRoutes(routes, {
+        endpoints: new Set([audio.receiver, audio.sender]),
+        liveSenders: [],
+      });
+      audio.receiver.restoreNegotiationState(receiverState);
+
+      // Assert: track の SSRC と codec は baseline の値に戻る
+      expect(audio.receiver.track).toBe(announced);
+      expect(announced.ssrc).toBe(learnedSsrc);
+      expect(announced.codec?.mimeType).toBe(baselineMimeType);
+    },
+  );
+
+  test("baseline 後に学習した fallback の codec は、pending の SDP の codec を rollback しても残る", () => {
+    // Arrange: 学習前の baseline を取ってから opus の SSRC 300 を学習する
+    const { router, dtls, addReceiver } = createSsrcLessRouter();
+    const audio = addReceiver({ codecs: [opus(), pcmu()] });
+    const announced = audio.receiver.track;
+    const routes = router.snapshotRoutes();
+    const receiverState = audio.receiver.snapshotNegotiationState();
+    router.routeRtp(ssrcLessPacket({ ssrc: 300, payloadType: 111 }), dtls);
+
+    // Act: pending の re-offer が PCMU の SSRC 400 を与えてから rollback する
+    router.registerRtpReceiverBySsrc(
+      audio,
+      {
+        codecs: [pcmu()],
+        headerExtensions: [],
+        encodings: [new RTCRtpCodingParameters({ ssrc: 400, payloadType: 0 })],
+      },
+      { deferConflicts: true },
+    );
+    router.restoreRoutes(routes, {
+      endpoints: new Set([audio.receiver, audio.sender]),
+      liveSenders: [],
+    });
+    audio.receiver.restoreNegotiationState(receiverState);
+
+    // Assert: パケットから学習した SSRC 300 と、その opus が track に残る
+    expect(announced.ssrc).toBe(300);
+    expect(announced.codec?.mimeType).toBe("audio/opus");
+  });
+
   test("transceiver の登録解除で学習済み SSRC が残らない", () => {
     // Arrange
     const { router, dtls, addReceiver } = createSsrcLessRouter();
