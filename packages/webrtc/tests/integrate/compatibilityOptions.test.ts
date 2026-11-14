@@ -207,19 +207,66 @@ describe("compatibility options: standard and a named own behavior", () => {
   });
 
   test.each(options)(
-    'compatibility: "standard" keeps an explicitly given $option ($own)',
-    ({ option, own }) => {
-      // Act: compatibility と個別の値を同時に指定する (旧名も含む)
-      const pc = createPc({ compatibility: "standard", [option]: own });
+    'compatibility: "standard" overwrites an explicitly given $option ($own)',
+    ({ option, own, aliases }) => {
+      // Act: compatibility と個別の werift 側の値 (旧名も含む) を同時に指定する
+      const pcs = [
+        createPc({ compatibility: "standard", [option]: own }),
+        ...Object.keys(aliases).map((alias) =>
+          createPc({ compatibility: "standard", [option]: alias as never }),
+        ),
+      ];
 
-      // Assert: 個別に指定した値が優先され、ほかは standard
-      for (const other of options) {
-        expect(read(pc, other.option)).toBe(
-          other.option === option ? own : "standard",
-        );
+      // Assert: 個別に指定した値は standard で上書きされ、4 つとも standard
+      for (const pc of pcs) {
+        for (const other of options) {
+          expect(read(pc, other.option)).toBe("standard");
+        }
       }
     },
   );
+
+  test.each(options)(
+    'compatibility: "standard" still rejects an invalid $option',
+    ({ option, own }) => {
+      // Act / Assert: 上書きされる場合も不正な値は TypeError
+      expect(() =>
+        createPc({ compatibility: "standard", [option]: "any" as never }),
+      ).toThrow(new TypeError(`${option} must be one of standard, ${own}`));
+    },
+  );
+
+  test.each(options)(
+    'compatibility: "standard" overwrites $option given to setConfiguration()',
+    ({ option, own }) => {
+      // Arrange
+      const pc = createPc({ compatibility: "standard" });
+
+      // Act: 構築後に werift 側の値を指定する (変更可能な keyFrameRequestRouting も含む)
+      pc.setConfiguration({ [option]: own });
+
+      // Assert: エラーにならず standard のまま
+      expect(read(pc, option)).toBe("standard");
+    },
+  );
+
+  test('compatibility: "standard" overwrites a given transceiverPairing in behavior too', async () => {
+    // Arrange: transceiverPairing: "byKind" を指定しても compatibility が上書きする
+    const offerer = createPc();
+    offerer.addTransceiver("audio", { direction: "sendrecv" });
+    const answerer = createPc({
+      compatibility: "standard",
+      transceiverPairing: "byKind",
+    });
+    const own = answerer.addTransceiver("audio", { direction: "sendrecv" });
+
+    // Act
+    await answerer.setRemoteDescription(await offerer.createOffer());
+
+    // Assert: standard (JSEP 5.10) の挙動なので own は関連付かない (#816)
+    expect(own.mid).toBeNull();
+    expect(answerer.getTransceivers()).toHaveLength(2);
+  });
 
   test("compatibility: other values are a TypeError and it cannot be changed", () => {
     // Act / Assert: 未知の値は生成時に TypeError
