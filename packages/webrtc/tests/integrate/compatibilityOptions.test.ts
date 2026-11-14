@@ -207,51 +207,65 @@ describe("compatibility options: standard and a named own behavior", () => {
   });
 
   test.each(options)(
-    'compatibility: "standard" overwrites an explicitly given $option ($own)',
+    'compatibility: "standard" keeps an explicitly given $option ($own)',
     ({ option, own, aliases }) => {
-      // Act: compatibility と個別の werift 側の値 (旧名も含む) を同時に指定する
-      const pcs = [
-        createPc({ compatibility: "standard", [option]: own }),
-        ...Object.keys(aliases).map((alias) =>
-          createPc({ compatibility: "standard", [option]: alias as never }),
-        ),
+      // Act: compatibility と個別の werift 側の値 (v0.27.0 までの旧名も含む) を同時に指定する
+      const given = [
+        { value: own, expected: own },
+        ...Object.entries(aliases).map(([alias, value]) => ({
+          value: alias,
+          expected: value,
+        })),
       ];
+      for (const { value, expected } of given) {
+        const pc = createPc({ compatibility: "standard", [option]: value });
 
-      // Assert: 個別に指定した値は standard で上書きされ、4 つとも standard
-      for (const pc of pcs) {
+        // Assert: 個別に指定した値が優先され、ほかは standard
         for (const other of options) {
-          expect(read(pc, other.option)).toBe("standard");
+          expect(read(pc, other.option)).toBe(
+            other.option === option ? expected : "standard",
+          );
         }
       }
     },
   );
 
   test.each(options)(
-    'compatibility: "standard" still rejects an invalid $option',
-    ({ option, own }) => {
-      // Act / Assert: 上書きされる場合も不正な値は TypeError
-      expect(() =>
-        createPc({ compatibility: "standard", [option]: "any" as never }),
-      ).toThrow(new TypeError(`${option} must be one of standard, ${own}`));
-    },
-  );
+    'compatibility: "standard" fills $option given as undefined',
+    ({ option }) => {
+      // Act: 個別のオプションを undefined で渡す
+      const pc = createPc({ compatibility: "standard", [option]: undefined });
 
-  test.each(options)(
-    'compatibility: "standard" overwrites $option given to setConfiguration()',
-    ({ option, own }) => {
-      // Arrange
-      const pc = createPc({ compatibility: "standard" });
-
-      // Act: 構築後に werift 側の値を指定する (変更可能な keyFrameRequestRouting も含む)
-      pc.setConfiguration({ [option]: own });
-
-      // Assert: エラーにならず standard のまま
+      // Assert: undefined は指定なしと同じく standard で埋まる
       expect(read(pc, option)).toBe("standard");
     },
   );
 
-  test('compatibility: "standard" overwrites a given transceiverPairing in behavior too', async () => {
-    // Arrange: transceiverPairing: "byKind" を指定しても compatibility が上書きする
+  test.each(options)(
+    'compatibility: "standard" does not change how setConfiguration() handles $option',
+    ({ option, own, changeable }) => {
+      // Arrange
+      const pc = createPc({ compatibility: "standard" });
+
+      // Act / Assert: compatibility なしと同じく、変更可能なオプションだけ個別の値に変わる
+      if (changeable) {
+        pc.setConfiguration({ [option]: own });
+        expect(read(pc, option)).toBe(own);
+        expect(pc.getConfiguration().compatibility).toBe("standard");
+      } else {
+        expect(() => pc.setConfiguration({ [option]: own })).toThrow(
+          expect.objectContaining({
+            name: "InvalidModificationError",
+            message: `${option} cannot be changed`,
+          }),
+        );
+        expect(read(pc, option)).toBe("standard");
+      }
+    },
+  );
+
+  test('compatibility: "standard" with an explicit transceiverPairing behaves as the explicit value', async () => {
+    // Arrange: transceiverPairing だけ byKind を個別に指定する
     const offerer = createPc();
     offerer.addTransceiver("audio", { direction: "sendrecv" });
     const answerer = createPc({
@@ -260,12 +274,12 @@ describe("compatibility options: standard and a named own behavior", () => {
     });
     const own = answerer.addTransceiver("audio", { direction: "sendrecv" });
 
-    // Act
+    // Act: #816 の再現手順
     await answerer.setRemoteDescription(await offerer.createOffer());
 
-    // Assert: standard (JSEP 5.10) の挙動なので own は関連付かない (#816)
-    expect(own.mid).toBeNull();
-    expect(answerer.getTransceivers()).toHaveLength(2);
+    // Assert: 個別指定の byKind の挙動になり、own が offer の m-section と関連付く
+    expect(own.mid).toBe("0");
+    expect(answerer.getTransceivers()).toHaveLength(1);
   });
 
   test("compatibility: other values are a TypeError and it cannot be changed", () => {

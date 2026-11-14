@@ -341,8 +341,8 @@ console.log(b.getTransceivers().length, own.mid); // 実際: 1 "0" / 期待: 2 n
 ### 決定
 - `PeerConfig.compatibility: CompatibilityPreset | undefined`（`CompatibilityPreset = "standard"`、値の一覧は `CompatibilityPresets`）。
   - `undefined`（既定）: 各互換性オプションはそれぞれの既定値のまま（既定の挙動は変えない）。
-  - **（13章で変更: 明示した値も `"standard"` で上書きする）** `"standard"`: 同じ設定で明示されていない互換性オプション（`certificateScope` / `mLineReuse` / `transceiverPairing` / `keyFrameRequestRouting`、`CompatibilityOptionValues` の 4 つ）を構築時に `"standard"` にする。明示した値（旧名を含む）はそのまま優先する。
-- 不正な値は `TypeError`（`compatibility must be one of standard`）。`setConfiguration()` で値を変えると `InvalidModificationError`、同じ値の再設定は成功する（`mLineReuse` などと同じく構築時に固定）。構築後の `setConfiguration()` では個別オプションを書き換えない（`keyFrameRequestRouting` は従来どおり個別に変更できる）。**（13章で変更）**
+  - `"standard"`: 同じ設定で明示されていない互換性オプション（`certificateScope` / `mLineReuse` / `transceiverPairing` / `keyFrameRequestRouting`、`CompatibilityOptionValues` の 4 つ）を構築時に `"standard"` にする。明示した値（旧名を含む）はそのまま優先する。
+- 不正な値は `TypeError`（`compatibility must be one of standard`）。`setConfiguration()` で値を変えると `InvalidModificationError`、同じ値の再設定は成功する（`mLineReuse` などと同じく構築時に固定）。構築後の `setConfiguration()` では個別オプションを書き換えない（`keyFrameRequestRouting` は従来どおり個別に変更できる）。優先順位は 13章で仕様として明文化。
 - 互換性オプションではない `iceServers` / `iceUseDefaultStunServer` は変えない。ブラウザに最も近い設定は `compatibility: "standard"` に `iceServers: []` と `iceUseDefaultStunServer: false` を加えたもの（README「Compatibility options」）。
 - WPT の wrapper（`tools/wpt-runner/browserConfig.ts`）は 4 つの個別指定をやめ、`compatibility: "standard"` を使う。
 - 実装は `mergePeerConfiguration`（`src/api/peerConfig.ts`）。値の検証の後、構築時だけ未指定の互換性オプションを埋めてから、既存の互換性オプションの検証ループを通す。
@@ -353,20 +353,22 @@ console.log(b.getTransceivers().length, own.mid); // 実際: 1 "0" / 期待: 2 n
 - 全体 `npm run wpt` 3 回: すべて回帰 0（PASS 566〜567、再実行なし）。baseline の `checkAddTransceiver*DoesntPair`（`transceiverPairing: "byKind"` では FAIL する）が通るので、wrapper の `compatibility: "standard"` が効いている。
 - `npm run format`、`npm run doc` 実行済み。
 
-## 13. 追加要件：`compatibility: "standard"` が個別の互換性オプションを上書きする（ユーザー指示、2026-11-14）
+## 13. 追加要件：`compatibility: "standard"` より個別に指定した互換性オプションを優先することの仕様化（ユーザー指示、2026-11-14）
 
 ### 指示
-- `compatibility: "standard"` に設定しているときに個別の互換性オプションを設定すると、個別の互換性オプションが上書きされる挙動にする。
+- `compatibility: "standard"` を指定していても、個別に指定した値のほうが優先されることを仕様化する。
+- 経緯: 最初の指示（「個別の互換性オプションが上書きされる挙動にしてください」）を `compatibility` が個別の値を上書きする意味と取り違え、逆の実装を `e8f74c814` に入れた。ユーザーの意図は「個別の値が優先される（12章の挙動）を仕様として明文化する」だったため、`e8f74c814` の実装・docs を 12章の状態（`6bec01eb8`）に戻したうえで仕様化した。
 
-### 決定
-- 12章では個別に指定した値が優先されていた。指示の文（「個別の互換性オプションが上書きされる」）に従い、`compatibility: "standard"` を優先する形に変える。
-- `compatibility: "standard"` の間は、4 つの互換性オプションに指定された値（構築時の同じ設定でも、構築後の `setConfiguration()` でも）を `"standard"` で上書きする。エラーにはしない（`setConfiguration()` で固定のオプションに werift 側の値を渡しても、上書き後は現在値と同じなので `InvalidModificationError` にならない）。`keyFrameRequestRouting` も `"standard"` のまま変わらない。
-- 不正な値（例: `"any"`）は上書きの前に検証し、従来どおり `TypeError` にする。
-- `compatibility` を指定しない場合の挙動は変えない。
-- 実装は `mergePeerConfiguration`（`src/api/peerConfig.ts`）: `compatibility` の変更検査 → 互換性オプションの値の検証 → `compatibility`（構築時は入力、構築後は現在の設定）が `"standard"` なら 4 つを上書き → 固定オプションの変更検査。
+### 決定（仕様）
+- 個別に指定した互換性オプション（`certificateScope` / `mLineReuse` / `transceiverPairing` / `keyFrameRequestRouting`）は常に `compatibility` より優先する。
+  - 構築時: 同じ設定で指定した値（v0.27.0 までの旧名を含み、現在の名前に読み替えた値）をそのまま使う。指定のないオプションだけ `"standard"` にする。`undefined` を渡したオプションは指定なしと同じ扱い（`"standard"` で埋まる）。
+  - 構築後の `setConfiguration()`: `compatibility` がない場合と同じ扱い。`keyFrameRequestRouting` は個別の値に変えられ、ほかの 3 つは別の値にすると `InvalidModificationError`。
+- 不正な値は `TypeError`、`compatibility` 自体は構築後に変更不可（12章のまま）。
+- 実装は 12章の `mergePeerConfiguration` のまま（コメントのみ追記）。仕様は `PeerConfig.compatibility` の TSDoc、`packages/webrtc/README.md`「Compatibility options」、`changelog.md` に明記。
 
-### 検証記録（2026-11-14、HEAD `6bec01eb8` に 13章の未コミット変更を当てた状態）
-- `tests/integrate/compatibilityOptions.test.ts`: 12章の「個別の値が優先される」テストを、上書きされる（旧名を含む）テストに置き換え、不正値の `TypeError`、`setConfiguration()` での上書き、`transceiverPairing: "byKind"` を同時に指定しても #816 の再現コードで own の MID が `null` になる（挙動も standard）テストを追加。
+### 検証記録（2026-11-14、HEAD `e8f74c814` に 13章の未コミット変更を当てた状態）
+- `tests/integrate/compatibilityOptions.test.ts` に仕様テスト: 個別の値（旧名を含む）が優先される／`undefined` は `"standard"` で埋まる／`setConfiguration()` は `compatibility` なしと同じ扱い／`transceiverPairing: "byKind"` を同時に指定すると #816 の再現コードで own が MID `"0"` に関連付く（挙動も個別指定どおり）。
+- 検出力: `e8f74c814` の上書き実装の `peerConfig.ts` を一時的に当てると、このうち 9 件が失敗することを確認（その後元に戻した）。
 - `npm run type` 成功。`packages/webrtc` の `npm test` 85 ファイル・1793 件成功（5 件スキップ）。
 - `npm run format`（無関係の `packages/rtp/tests/codec/vp8.test.ts` の書き換えは戻した）、`npm run doc` 実行済み。
-- WPT は再実行していない: wrapper は互換性オプションを個別に指定せず、upstream WPT も werift 独自の互換性オプションを指定しないため、この変更で WPT の設定は変わらない。
+- WPT は再実行していない: 実装は 12章（全体 `npm run wpt` 3 回で回帰 0）と同じで、wrapper は互換性オプションを個別に指定しない。

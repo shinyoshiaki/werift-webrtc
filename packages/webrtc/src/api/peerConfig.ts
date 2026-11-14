@@ -231,17 +231,21 @@ export interface PeerConfig {
    * {@link CompatibilityOptionValues}) to the specification / browser behavior
    * at once. Cannot be changed after construction.
    * - `undefined` (default): each option keeps its own default.
-   * - `"standard"`: every compatibility option is `"standard"`. A value
-   *   given for one of them (in the same configuration or later with
-   *   `setConfiguration()`) is overwritten with `"standard"`; an invalid
-   *   value is still a `TypeError`.
+   * - `"standard"`: every compatibility option not given in the same
+   *   configuration is `"standard"`.
+   *
+   * An option given explicitly always takes precedence over `compatibility`:
+   * a value given in the same configuration (an old name included) is kept,
+   * and `setConfiguration()` treats the options as if `compatibility` were
+   * not set (`keyFrameRequestRouting` may change, the others cannot). An
+   * option given as `undefined` counts as not given.
    *
    * ```ts
    * new RTCPeerConnection({ compatibility: "standard" });
    * // certificateScope, mLineReuse, transceiverPairing and
    * // keyFrameRequestRouting are all "standard"
    * new RTCPeerConnection({ compatibility: "standard", certificateScope: "process" });
-   * // certificateScope is overwritten: still "standard"
+   * // certificateScope is "process", the other three are "standard"
    * ```
    *
    * It does not change `iceServers` / `iceUseDefaultStunServer`, which are not
@@ -619,15 +623,24 @@ export function mergePeerConfiguration(
       `compatibility must be one of ${CompatibilityPresets.join(", ")}`,
     );
   }
-  if (
-    isReconfiguration &&
-    normalizedConfig.compatibility !== undefined &&
-    normalizedConfig.compatibility !== config.compatibility
-  ) {
-    throw createWebRtcDomException(
-      "InvalidModificationError",
-      "compatibility cannot be changed",
-    );
+  if (isReconfiguration) {
+    if (
+      normalizedConfig.compatibility !== undefined &&
+      normalizedConfig.compatibility !== config.compatibility
+    ) {
+      throw createWebRtcDomException(
+        "InvalidModificationError",
+        "compatibility cannot be changed",
+      );
+    }
+  } else if (normalizedConfig.compatibility === "standard") {
+    // 構築時だけ、明示されていない互換性オプションを standard にする。
+    // 明示された値は常に compatibility より優先する (PeerConfig.compatibility)
+    for (const option of COMPATIBILITY_OPTIONS) {
+      if (normalizedConfig[option] === undefined) {
+        (normalizedConfig as Record<string, unknown>)[option] = "standard";
+      }
+    }
   }
 
   for (const option of COMPATIBILITY_OPTIONS) {
@@ -639,25 +652,9 @@ export function mergePeerConfiguration(
         `${option} must be one of ${values.join(", ")}`,
       );
     }
-  }
-
-  // compatibility: "standard" の間は、個別に指定された互換性オプションも
-  // standard で上書きする (構築時も setConfiguration() でも)
-  const compatibility = isReconfiguration
-    ? config.compatibility
-    : normalizedConfig.compatibility;
-  if (compatibility === "standard") {
-    for (const option of COMPATIBILITY_OPTIONS) {
-      (normalizedConfig as Record<string, unknown>)[option] = "standard";
-    }
-  }
-
-  for (const option of COMPATIBILITY_OPTIONS) {
-    const value = normalizedConfig[option];
     // keyFrameRequestRouting は接続中に切り替えられる (router が次の要求から使う)
     if (
       isReconfiguration &&
-      value !== undefined &&
       option !== "keyFrameRequestRouting" &&
       value !== config[option]
     ) {

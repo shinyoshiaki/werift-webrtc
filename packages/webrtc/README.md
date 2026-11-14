@@ -125,11 +125,11 @@ Where werift's own behavior differs from the specifications and browsers, a cons
 
 Any other value is a `TypeError`, and changing a fixed option is an `InvalidModificationError`. An old name is read as its current name (`getConfiguration()` returns the current name). `CompatibilityOptionValues` lists the values of every option.
 
-`compatibility: "standard"` sets all of them to `"standard"` at once and keeps them there: a value given for one of them, in the same configuration or later with `setConfiguration()`, is overwritten with `"standard"` (an invalid value is still a `TypeError`). `compatibility` cannot be changed after construction:
+`compatibility: "standard"` sets all of them to `"standard"` at once, and `compatibility` cannot be changed after construction. An option given explicitly always takes precedence over it: a value given in the same configuration (an old name included) is kept, and `setConfiguration()` handles the options as without `compatibility` (only `keyFrameRequestRouting` may change). An option given as `undefined` is filled with `"standard"`:
 
 ```ts
 new RTCPeerConnection({ compatibility: "standard" }); // every option above is "standard"
-new RTCPeerConnection({ compatibility: "standard", certificateScope: "process" }); // still every option is "standard"
+new RTCPeerConnection({ compatibility: "standard", certificateScope: "process" }); // all but certificateScope
 ```
 
 Two more defaults differ from a browser: the default `iceServers` is a public STUN server (`stun:stun.l.google.com:19302`, a browser's default is `[]`), and `iceUseDefaultStunServer: true` (default) also uses that server when `iceServers` has no STUN URL. `bundlePolicy: "balanced"` is read as `"max-compat"` (no browser-equivalent value). For code written for browsers (for example with `werift/polyfill` and its `peerConnectionConfig`), create connections with:
