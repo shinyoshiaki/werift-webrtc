@@ -31,7 +31,7 @@ import { ServerHelloVerifyRequest } from "./handshake/message/server/helloVerify
 import { DtlsRandom } from "./handshake/random";
 import type { Address } from "./imports/common";
 import { debug } from "./imports/common";
-import { AlertDesc, ContentType } from "./record/const";
+import { AlertDesc, AlertLevel, ContentType } from "./record/const";
 import type { FragmentedHandshake } from "./record/message/fragment";
 import { serializePlaintextRecord } from "./record/v1_3/record";
 import { type DtlsInternalOptions, DtlsSocket, type Options } from "./socket";
@@ -528,8 +528,19 @@ export class DtlsClient extends DtlsSocket {
    * 1.2 flight timers. Phase becomes permanently `closed`.
    * Fires public onClose once (bridge is disposed before eng.close).
    */
-  close() {
+  async close(options: { notify?: boolean; timeoutMs?: number } = {}) {
+    if (options.notify && !this.engine13) {
+      await this.sendAlert(AlertLevel.warning, AlertDesc.CloseNotify, {
+        ...(options.timeoutMs !== undefined && {
+          timeoutMs: options.timeoutMs,
+        }),
+      });
+    }
+    // A concurrent fatal alert may already be in flight; do not close its
+    // transport before the alert has been handed to the peer.
+    await this.alertFlushed();
     this.closeAssociationHard({ firePublicOnClose: true });
+    await this.transport.close().catch(() => {});
   }
 
   /**
@@ -1191,7 +1202,7 @@ export class DtlsClient extends DtlsSocket {
     );
 
     for (const handshake of assembled) {
-      if (!this.isLegacy12PathActive(gen)) return;
+      if (!this.isLegacy12PathActive(gen) || this.handshakeStopped) return;
       switch (handshake.msg_type) {
         case HandshakeType.hello_verify_request_3:
           {
@@ -1324,6 +1335,13 @@ export class DtlsClient extends DtlsSocket {
           }
           break;
         case HandshakeType.certificate_11:
+          {
+            await this.waitForReady(() => !!this.flight5);
+            this.flight5?.handleHandshake(handshake);
+            // Reject the server certificate before flight 5 (Finished) is sent.
+            if (!this.verifyRemoteCertificate()) return;
+          }
+          break;
         case HandshakeType.server_key_exchange_12:
         case HandshakeType.certificate_request_13:
           {
@@ -1348,7 +1366,8 @@ export class DtlsClient extends DtlsSocket {
               this.dtls.checkHandshakesExist(targets),
             );
             // close / commit13 後は Flight5.exec も onConnect も行わない
-            if (!this.isLegacy12PathActive(gen)) return;
+            if (!this.isLegacy12PathActive(gen) || this.handshakeStopped)
+              return;
             await this.flight5?.exec();
             if (!this.isLegacy12PathActive(gen)) return;
           }
@@ -1365,7 +1384,7 @@ export class DtlsClient extends DtlsSocket {
             // Flight5 was sleeping until nextFlight=7; cancel RTO sleep before
             // onConnect so pending timers/tasks are gone on handshake complete.
             this.cancelLegacy12FlightTimers();
-            this.onConnect.execute();
+            this.notify(this.onConnect);
             log(this.dtls.sessionId, "dtls connected");
           }
           break;

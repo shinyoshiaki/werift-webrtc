@@ -18,8 +18,9 @@ import {
   createDtlsSessions,
   createTestCertificate,
   dtlsTransportPair,
+  mutateFingerprint,
+  waitForDtlsState,
 } from "../fixture";
-import { waitForDtlsState } from "../utils";
 
 describe("RTCDtlsTransportTest", () => {
   test("RTCCertificate preserves PKCS#8 PEM and signs with Node KeyObject", async () => {
@@ -292,10 +293,4 @@ class DummyDataReceiver {
   handleData = (data: Buffer) => {
     this.data.push(data);
   };
-}
-
-function mutateFingerprint(value: string) {
-  const normalized = value.replace(/[^0-9a-f]/gi, "").toUpperCase();
-  const flipped = `${normalized[0] === "A" ? "B" : "A"}${normalized.slice(1)}`;
-  return flipped.match(/.{2}/g)!.join(":");
 }

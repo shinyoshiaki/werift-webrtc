@@ -220,6 +220,7 @@ export class DtlsServer extends DtlsSocket {
     );
 
     for (const handshake of assembled) {
+      if (this.handshakeStopped) return;
       switch (handshake.msg_type) {
         // flight1,3
         case HandshakeType.client_hello_1:
@@ -385,9 +386,8 @@ export class DtlsServer extends DtlsSocket {
               }
               this.dtls.clientHelloCommitted = true;
               this.dtls.cookie = Buffer.from(clientHello.cookie);
-              // Cookie return-routability succeeded: pin TX peer from the CH
-              // source (not last rinfo) so spoofed datagrams cannot redirect
-              // Flight4 retransmit or later application data.
+              // Pin even when cookie validation is explicitly disabled: the
+              // selected ClientHello source owns this trusted no-cookie path.
               this.pinSendPeer(replyTo, "set-if-empty");
               log(this.dtls.sessionId, "send flight4");
               await new Flight4(
@@ -418,6 +418,13 @@ export class DtlsServer extends DtlsSocket {
               );
             }
             this.flight6.handleHandshake(handshake);
+            // Reject the client certificate before our Finished is sent.
+            if (
+              handshake.msg_type === HandshakeType.certificate_11 &&
+              !this.verifyRemoteCertificate()
+            ) {
+              return;
+            }
           }
           break;
         case HandshakeType.finished_20:
@@ -437,9 +444,27 @@ export class DtlsServer extends DtlsSocket {
               this.dtls.checkHandshakesExist(requiredHandshakes),
             );
             // close/fatal during waitForReady must not Flight6.exec or onConnect
-            if (this.associationTornDown || this.connected) return;
+            if (
+              this.handshakeStopped ||
+              this.associationTornDown ||
+              this.connected
+            )
+              return;
+            if (
+              this.options.verifyRemoteCertificate &&
+              !this.cipher.remoteCertificate
+            ) {
+              // A verifier needs the client certificate (certificateRequest).
+              this.verifyRemoteCertificate();
+              return;
+            }
             await this.flight6?.exec();
-            if (this.associationTornDown || this.connected) return;
+            if (
+              this.handshakeStopped ||
+              this.associationTornDown ||
+              this.connected
+            )
+              return;
 
             this.connected = true;
             // Safety net: pin from last authenticated HS peer if Flight4 pin
@@ -448,7 +473,7 @@ export class DtlsServer extends DtlsSocket {
             // Flight4 retransmit sleep (nextFlight=6) may still be pending even
             // after flight=6; cancel before onConnect for lifecycle completeness.
             this.cancelLegacy12FlightTimers();
-            this.onConnect.execute();
+            this.notify(this.onConnect);
             log(this.dtls.sessionId, "dtls connected");
           }
           break;

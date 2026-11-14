@@ -43,7 +43,7 @@ Replaced only if a future multi-HS redesign needs a fresh controller mid-life.
 
 #### Inherited from
 
-[`DtlsSocket`](DtlsSocket.md).[`associationAbort`](DtlsSocket.md#associationabort)
+[`DtlsServer`](DtlsServer.md).[`associationAbort`](DtlsServer.md#associationabort)
 
 ***
 
@@ -58,7 +58,7 @@ Dual client also flips dualPhase=closed; this flag is the base guard.
 
 #### Inherited from
 
-[`DtlsSocket`](DtlsSocket.md).[`associationTornDown`](DtlsSocket.md#associationtorndown)
+[`DtlsServer`](DtlsServer.md).[`associationTornDown`](DtlsServer.md#associationtorndown)
 
 ***
 
@@ -78,7 +78,7 @@ Dual client also flips dualPhase=closed; this flag is the base guard.
 
 #### Inherited from
 
-[`DtlsSocket`](DtlsSocket.md).[`connected`](DtlsSocket.md#connected)
+[`DtlsServer`](DtlsServer.md).[`connected`](DtlsServer.md#connected)
 
 ***
 
@@ -114,9 +114,23 @@ When set, DTLS 1.3 engine owns the transport and crypto state.
 
 ***
 
+### onAlert
+
+> `readonly` **onAlert**: [`Event`](Event.md)\<\[[`DtlsAlert`](../interfaces/DtlsAlert.md)\]\>
+
+Fires for every alert received from the peer (before onClose / onError).
+
+#### Inherited from
+
+[`DtlsServer`](DtlsServer.md).[`onAlert`](DtlsServer.md#onalert)
+
+***
+
 ### onClose
 
 > `readonly` **onClose**: [`Event`](Event.md)\<`any`[]\>
+
+Fires once when the peer closed the connection with close_notify.
 
 #### Inherited from
 
@@ -147,6 +161,10 @@ When set, DTLS 1.3 engine owns the transport and crypto state.
 ### onError
 
 > `readonly` **onError**: [`Event`](Event.md)\<\[`Error`\]\>
+
+Fires with a [DtlsAlertError](DtlsAlertError.md) when the connection ends with a fatal
+alert (received from the peer, or sent by this side when it rejected the
+peer certificate), and with other errors raised by the handshake.
 
 #### Inherited from
 
@@ -232,7 +250,37 @@ Negotiated / configured protocol versions (priority order).
 
 [`DtlsSocket`](DtlsSocket.md).[`transport`](DtlsSocket.md#transport)
 
+***
+
+### AlertSendTimeoutMs
+
+> `static` **AlertSendTimeoutMs**: `number` = `200`
+
+Default upper bound (ms) for waiting until an alert has been sent.
+
+#### Inherited from
+
+[`DtlsSocket`](DtlsSocket.md).[`AlertSendTimeoutMs`](DtlsSocket.md#alertsendtimeoutms)
+
 ## Accessors
+
+### handshakeStopped
+
+#### Get Signature
+
+> **get** `protected` **handshakeStopped**(): `boolean`
+
+Whether this handshake must stop after a terminal alert or close.
+
+##### Returns
+
+`boolean`
+
+#### Inherited from
+
+[`DtlsSocket`](DtlsSocket.md).[`handshakeStopped`](DtlsSocket.md#handshakestopped)
+
+***
 
 ### isDtls13
 
@@ -286,6 +334,24 @@ transport.peerAuthenticated / addressValidation for backward compatibility.
 
 [`DtlsSocket`](DtlsSocket.md).[`remoteCertificate`](DtlsSocket.md#remotecertificate)
 
+***
+
+### terminated
+
+#### Get Signature
+
+> **get** **terminated**(): `boolean`
+
+Whether the connection ended (alert, or close()).
+
+##### Returns
+
+`boolean`
+
+#### Inherited from
+
+[`DtlsSocket`](DtlsSocket.md).[`terminated`](DtlsSocket.md#terminated)
+
 ## Methods
 
 ### abortAssociationWaits()
@@ -327,6 +393,49 @@ successful handshake complete (that only needs cancelLegacy12FlightTimers).
 #### Inherited from
 
 [`DtlsSocket`](DtlsSocket.md).[`abortLegacy12Flight`](DtlsSocket.md#abortlegacy12flight)
+
+***
+
+### abortWithFatalAlert()
+
+> `protected` **abortWithFatalAlert**(`description`, `reason?`): `void`
+
+Abort the handshake (or the connection) because this side detected a
+fatal error: see endWithFatalAlert.
+
+#### Parameters
+
+##### description
+
+[`AlertDesc`](../type-aliases/AlertDesc.md)
+
+##### reason?
+
+`unknown`
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+[`DtlsSocket`](DtlsSocket.md).[`abortWithFatalAlert`](DtlsSocket.md#abortwithfatalalert)
+
+***
+
+### alertFlushed()
+
+> **alertFlushed**(): `Promise`\<`void`\>
+
+Resolves once an in-flight alert has been handed to the transport.
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Inherited from
+
+[`DtlsSocket`](DtlsSocket.md).[`alertFlushed`](DtlsSocket.md#alertflushed)
 
 ***
 
@@ -423,15 +532,27 @@ Clear TX pin on association terminal teardown.
 
 ### close()
 
-> **close**(): `void`
+> **close**(`options?`): `Promise`\<`void`\>
 
 Public close: tear down all dual candidates, association carrier, and
 1.2 flight timers. Phase becomes permanently `closed`.
 Fires public onClose once (bridge is disposed before eng.close).
 
+#### Parameters
+
+##### options?
+
+###### notify?
+
+`boolean`
+
+###### timeoutMs?
+
+`number`
+
 #### Returns
 
-`void`
+`Promise`\<`void`\>
 
 #### Overrides
 
@@ -779,6 +900,42 @@ readonly \[`string`, `number`\]
 
 ***
 
+### notify()
+
+> `protected` **notify**\<`T`\>(`event`, ...`args`): `void`
+
+Run the listeners of an event this socket reports, each isolated
+(`Event.executeIsolated`): a listener's exception is logged, so an
+application listener can never interrupt the socket's own processing
+(ending the connection, closing the transport, the receive loop) nor
+skip a listener registered after it.
+
+#### Type Parameters
+
+##### T
+
+`T` *extends* `any`[]
+
+#### Parameters
+
+##### event
+
+[`Event`](Event.md)\<`T`\>
+
+##### args
+
+...`T`
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+[`DtlsSocket`](DtlsSocket.md).[`notify`](DtlsSocket.md#notify)
+
+***
+
 ### onEngine13PeerOrLocalClose()
 
 > `protected` **onEngine13PeerOrLocalClose**(): `void`
@@ -835,7 +992,7 @@ readonly \[`string`, `number`\]
 
 ##### mode?
 
-`"replace"` \| `"set-if-empty"` = `"set-if-empty"`
+`"set-if-empty"` \| `"replace"` = `"set-if-empty"`
 
 `set-if-empty` keeps the first authenticated pin (server Flight4 /
   connect). `replace` is for dual association re-pin / client connect.
@@ -862,7 +1019,7 @@ Pass `replace` when the association deliberately re-pins (e.g. client connect).
 
 ##### mode?
 
-`"replace"` \| `"set-if-empty"` = `"set-if-empty"`
+`"set-if-empty"` \| `"replace"` = `"set-if-empty"`
 
 #### Returns
 
@@ -995,6 +1152,52 @@ readonly \[`string`, `number`\]
 
 ***
 
+### sendAlert()
+
+> **sendAlert**(`level`, `description`, `options?`): `Promise`\<`void`\>
+
+Send an alert to the peer, protected with the current epoch (plaintext
+before ChangeCipherSpec, encrypted after it).
+
+Resolves once the transport has sent the record, or after `timeoutMs`
+(default [DtlsSocket.AlertSendTimeoutMs](DtlsSocket.md#alertsendtimeoutms)). It never rejects: a
+failed send is only logged. Nothing is sent once close_notify or a fatal
+alert has been sent or the transport is closed. Sending close_notify or a
+fatal alert also stops the handshake flights (no retransmission). The
+record is handed to the transport synchronously, so closing the socket
+right after calling this does not drop it.
+
+A fatal alert ends the connection like a fatal error this side detected
+itself: `onError` fires synchronously with a local [DtlsAlertError](DtlsAlertError.md),
+and the transport is closed once the alert has been sent (the returned
+promise resolves after that).
+
+#### Parameters
+
+##### level
+
+[`AlertLevel`](../enumerations/AlertLevel.md)
+
+##### description
+
+[`AlertDesc`](../type-aliases/AlertDesc.md)
+
+##### options?
+
+###### timeoutMs?
+
+`number`
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Inherited from
+
+[`DtlsSocket`](DtlsSocket.md).[`sendAlert`](DtlsSocket.md#sendalert)
+
+***
+
 ### sendLegacy12CloseNotify()
 
 > `protected` **sendLegacy12CloseNotify**(): `Promise`\<`void`\>
@@ -1103,6 +1306,24 @@ Drop bridge subscriptions for a disposed or replaced 1.3 candidate.
 #### Inherited from
 
 [`DtlsSocket`](DtlsSocket.md).[`unbridgeEngine13`](DtlsSocket.md#unbridgeengine13)
+
+***
+
+### verifyRemoteCertificate()
+
+> `protected` **verifyRemoteCertificate**(): `boolean`
+
+Call `options.verifyRemoteCertificate` with the received peer
+certificate. When it returns false or throws, the handshake is aborted
+with a fatal bad_certificate alert and false is returned.
+
+#### Returns
+
+`boolean`
+
+#### Inherited from
+
+[`DtlsSocket`](DtlsSocket.md).[`verifyRemoteCertificate`](DtlsSocket.md#verifyremotecertificate)
 
 ***
 

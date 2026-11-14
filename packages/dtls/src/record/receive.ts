@@ -1,3 +1,4 @@
+import type { DtlsAlert } from "../alert";
 import type { CipherContext } from "../context/cipher";
 import type { DtlsContext } from "../context/dtls";
 import { Alert } from "../handshake/message/alert";
@@ -9,18 +10,27 @@ import { DtlsPlaintext } from "./message/plaintext";
 const log = debug("werift-dtls : packages/dtls/record/receive.ts : log");
 const err = debug("werift-dtls : packages/dtls/record/receive.ts : err");
 
+/** DTLS record header: type(1) version(2) epoch(2) sequence(6) length(2). */
+const recordHeaderLength = 13;
+
+/**
+ * Split a datagram into its records. A truncated record (shorter than its
+ * header or its length field) ends the datagram: the records before it are
+ * kept, the rest is discarded (RFC 6347 §4.1.2.1: invalid records are
+ * silently discarded).
+ */
 export const parsePacket = (data: Buffer) => {
   let start = 0;
   const packets: DtlsPlaintext[] = [];
-  while (data.length > start) {
+  while (data.length - start >= recordHeaderLength) {
     const fragmentLength = data.readUInt16BE(start + 11);
-    if (data.length < start + (12 + fragmentLength)) {
+    if (data.length < start + recordHeaderLength + fragmentLength) {
       break;
     }
     const packet = DtlsPlaintext.deSerialize(data.subarray(start));
     packets.push(packet);
 
-    start += 13 + fragmentLength;
+    start += recordHeaderLength + fragmentLength;
   }
 
   return packets;
@@ -52,6 +62,10 @@ export const parsePlainText =
           if (plain.recordLayerHeader.epoch > 0) {
             log(dtls.sessionId, "decrypt handshake");
             raw = cipher.decryptPacket(plain);
+            dtls.remoteEpoch = Math.max(
+              dtls.remoteEpoch,
+              plain.recordLayerHeader.epoch,
+            );
           }
         } catch (error) {
           err(dtls.sessionId, "decrypt failed", error);
@@ -75,56 +89,55 @@ export const parsePlainText =
         }
       }
       case ContentType.applicationData: {
-        return [
-          {
-            type: ContentType.applicationData,
-            data: cipher.decryptPacket(plain),
-          },
-        ];
+        const data = cipher.decryptPacket(plain);
+        dtls.remoteEpoch = Math.max(
+          dtls.remoteEpoch,
+          plain.recordLayerHeader.epoch,
+        );
+        return [{ type: ContentType.applicationData, data }];
       }
       case ContentType.alert: {
-        // After local epoch advances, epoch>0 alerts must AEAD-verify.
-        // Before keys (local epoch 0): epoch>0 may still be structural
-        // (dual probing distinguishes epoch-0 vs epoch≥1 suppress filters);
-        // post-handshake lifecycle ignores unauthenticated epoch-0 at socket.
-        let alert: Alert;
-        let triedDecrypt = false;
-        if (plain.recordLayerHeader.epoch > 0 && dtls.epoch > 0) {
-          triedDecrypt = true;
-          const dec = cipher.decryptPacket(plain);
-          alert = Alert.deSerialize(dec);
-        } else if (plain.recordLayerHeader.epoch > 0 && dtls.epoch === 0) {
-          triedDecrypt = true;
+        // Older record epochs cannot carry lifecycle alerts after authenticated
+        // protected traffic has advanced the peer epoch.
+        const epoch = plain.recordLayerHeader.epoch;
+        if (epoch < dtls.remoteEpoch) {
+          throw new Error("alert from a stale epoch");
+        }
+        let raw = plain.fragment;
+        if (epoch > 0) {
           try {
-            const dec = cipher.decryptPacket(plain);
-            alert = Alert.deSerialize(dec);
-          } catch {
-            // No read keys yet — structural parse for HS-time dual demux only.
-            alert = Alert.deSerialize(plain.fragment);
+            raw = cipher.decryptPacket(plain);
+            dtls.remoteEpoch = Math.max(dtls.remoteEpoch, epoch);
+          } catch (error) {
+            // During dual-version probing, epoch>0 may be a structurally valid
+            // pre-key alert; retain that compatibility only before local keys.
+            if (dtls.epoch > 0) throw error;
+            raw = plain.fragment;
           }
-        } else {
-          alert = Alert.deSerialize(plain.fragment);
         }
-        if (!triedDecrypt && alertDescName(alert.description) === undefined) {
-          const dec = cipher.decryptPacket(plain);
-          alert = Alert.deSerialize(dec);
+        if (raw.length < 2) throw new Error("malformed alert record");
+        const alerts: { type: ContentType; data: DtlsAlert }[] = [];
+        for (let start = 0; start + 2 <= raw.length; start += 2) {
+          const alert = Alert.deSerialize(raw.subarray(start, start + 2));
+          err(
+            dtls.sessionId,
+            "ContentType.alert",
+            alert,
+            alertDescName(alert.description),
+          );
+          alerts.push({
+            type: ContentType.alert,
+            data: { level: alert.level, description: alert.description },
+          });
         }
-        err(
-          dtls.sessionId,
-          "ContentType.alert",
-          alert,
-          alertDescName(alert.description),
-          "flight",
-          dtls.flight,
-          "lastFlight",
-          dtls.lastFlight,
-        );
-        // Surface alert to socket (protocol_version / fatal) instead of
-        // throwing here — throw was only logged and left Flight retransmitting.
-        return [{ type: ContentType.alert, data: alert }];
+        if (raw.length % 2 !== 0) {
+          err(dtls.sessionId, "drop a partial alert at the end of the record");
+        }
+        return alerts;
       }
       default: {
-        return [{ type: ContentType.alert, data: undefined }];
+        // Unknown content type: nothing to deliver (RFC 6347 §4.1.2.1).
+        return [];
       }
     }
   };
