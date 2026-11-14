@@ -10,6 +10,7 @@ import {
 import {
   type PeerConnectionEventHandlers,
   type RTCDataChannelEvent,
+  RTCPeerConnectionIceErrorEvent,
   type RTCPeerConnectionIceEvent,
   RTCTrackEvent,
 } from "./api/peerConnectionEvents";
@@ -83,6 +84,8 @@ export {
 } from "./api/peerConfig";
 export {
   type RTCDataChannelEvent,
+  RTCPeerConnectionIceErrorEvent,
+  type RTCPeerConnectionIceErrorEventInit,
   type RTCPeerConnectionIceEvent,
   RTCTrackEvent,
 } from "./api/peerConnectionEvents";
@@ -197,6 +200,12 @@ export class RTCPeerConnection extends EventTarget {
   readonly onRemoteTransceiverAdded = new Event<[RTCRtpTransceiver]>();
   readonly onTransceiverAdded = new Event<[RTCRtpTransceiver]>();
   readonly onIceCandidate = new Event<[RTCIceCandidate | undefined]>();
+  /**
+   * `icecandidateerror` (see {@link RTCPeerConnectionIceErrorEvent}): the
+   * same event object is passed here, to `onicecandidateerror` and to the
+   * `icecandidateerror` listeners.
+   */
+  readonly onIceCandidateError = new Event<[RTCPeerConnectionIceErrorEvent]>();
   readonly onNegotiationneeded = new Event<[]>();
   readonly onTrack = new Event<[MediaStreamTrack]>();
   private readonly eventHandlers: PeerConnectionEventHandlers = {};
@@ -221,7 +230,7 @@ export class RTCPeerConnection extends EventTarget {
     return this.eventHandlers.onicecandidateerror ?? null;
   }
 
-  set onicecandidateerror(value: CallbackWithValue<any> | null) {
+  set onicecandidateerror(value: CallbackWithValue<RTCPeerConnectionIceErrorEvent> | null,) {
     this.eventHandlers.onicecandidateerror = value ?? undefined;
   }
 
@@ -885,6 +894,23 @@ export class RTCPeerConnection extends EventTarget {
 
     iceTransport.onNegotiationNeeded.subscribe(() => {
       this.needNegotiation();
+    });
+    iceTransport.onIceCandidateError.subscribe((details) => {
+      // A closed connection fires nothing; a transport a rollback discards
+      // (pending only) is not announced, as for its candidates.
+      if (
+        this.isClosed ||
+        this.negotiation.isPendingOnlyTransport(iceTransport.id)
+      ) {
+        return;
+      }
+      const event = new RTCPeerConnectionIceErrorEvent(
+        "icecandidateerror",
+        details,
+      );
+      this.onIceCandidateError.execute(event);
+      this.onicecandidateerror?.(event);
+      this.emit("icecandidateerror", event);
     });
     iceTransport.onIceCandidate.subscribe((candidate) => {
       if (
@@ -2125,6 +2151,7 @@ export class RTCPeerConnection extends EventTarget {
       this.onTransceiverAdded,
       this.onRemoteTransceiverAdded,
       this.onIceCandidate,
+      this.onIceCandidateError,
       this.onNegotiationneeded,
     ] as const;
     for (const event of events) {

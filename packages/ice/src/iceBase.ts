@@ -1,5 +1,9 @@
 import { randomUUID } from "crypto";
 import { Candidate, candidateFoundation, candidatePriority } from "./candidate";
+import {
+  type IceCandidateErrorInfo,
+  MissingMappedAddressError,
+} from "./candidateError";
 import type { MdnsLookup } from "./dns/lookup";
 import type { Cancelable } from "./helper";
 import {
@@ -58,6 +62,12 @@ export interface IceConnection {
   readonly onData: Event<[Buffer]>;
   readonly stateChanged: Event<[IceState]>;
   readonly onIceCandidate: Event<[Candidate]>;
+  /**
+   * A STUN or TURN server of the current generation's gathering gave no
+   * candidate (see {@link IceCandidateErrorInfo}). Optional so that other
+   * implementations of this interface keep compiling.
+   */
+  readonly onIceCandidateError?: Event<[IceCandidateErrorInfo]>;
 
   restart(): void;
   /** Record the remote `a=ice-options` tokens (see remoteIceOptions). */
@@ -312,7 +322,27 @@ export type TurnServerOptions = {
   password: string;
   /** Defaults to "udp" (with a TCP fallback when the UDP allocation fails). */
   transport?: "udp" | "tcp" | "tls";
+  /**
+   * The application's names (URLs) for this server. Metadata only: the
+   * allocation does not use them. They are passed through unchanged to
+   * {@link IceServerRef.urls} of `Connection.onIceCandidateError`, so a
+   * failure can be matched to the configured server without exposing the
+   * credential. Duplicates merged by {@link normalizeIceServerOptions} have
+   * their urls merged.
+   */
+  urls?: string[];
 };
+
+/** A TURN server as gathering uses it (see {@link normalizeIceServerOptions}). */
+export type NormalizedTurnServer = Required<Omit<TurnServerOptions, "urls">> &
+  Pick<TurnServerOptions, "urls">;
+
+/**
+ * The application's name (URL) of a STUN server, reported in
+ * {@link IceServerRef.urls} of `Connection.onIceCandidateError`. Metadata
+ * only; several entries may name the same address.
+ */
+export type StunServerUrl = { address: Address; url: string };
 
 export interface IceOptions {
   /** Advertise and operate as an ICE lite agent. */
@@ -348,6 +378,13 @@ export interface IceOptions {
    * duplicates are dropped (see {@link normalizeIceServerOptions}).
    */
   stunServers?: Address[];
+  /**
+   * The application's names (URLs) of {@link IceOptions.stunServers}, by
+   * address. Metadata only, reported in {@link IceServerRef.urls} of
+   * `Connection.onIceCandidateError`; replaced together with the STUN
+   * servers (see {@link mergeIceServerOptions}).
+   */
+  stunServerUrls?: StunServerUrl[];
   /**
    * TURN servers allocated on while gathering, in priority order. Each one
    * gets its own allocation with its own credential and transport; one that
@@ -489,48 +526,64 @@ export function candidatePairPriority(
   return (1 << 32) * Math.min(G, D) + 2 * Math.max(G, D) + (G > D ? 1 : 0);
 }
 
+/**
+ * Query `stunServer` from `protocol` for a server-reflexive candidate.
+ * Unlike {@link serverReflexiveCandidate} it rejects with the reason of a
+ * failure: the STUN transaction's error (`TransactionTimeout`,
+ * `TransactionFailed` for an error response, `TransactionCancelled`, a DNS
+ * error, `AddressFamilyMismatch`), a {@link MissingMappedAddressError} for a
+ * success response without XOR-MAPPED-ADDRESS, or an `Error` when the
+ * protocol has no local candidate (thrown before any request is sent).
+ */
+export async function queryServerReflexiveCandidate(
+  protocol: Protocol,
+  stunServer: Address,
+): Promise<Candidate> {
+  const localCandidate = protocol.localCandidate;
+  if (!localCandidate) {
+    throw new Error("protocol has no local candidate");
+  }
+
+  const request = new Message(methods.BINDING, classes.REQUEST);
+  const [response] = await protocol.request(request, stunServer);
+  const mapped = response.getAttributeValue("XOR-MAPPED-ADDRESS") as
+    | Address
+    | undefined;
+  if (!mapped) {
+    throw new MissingMappedAddressError(stunServer);
+  }
+
+  return new Candidate(
+    candidateFoundation("srflx", localCandidate.transport, localCandidate.host),
+    localCandidate.component,
+    localCandidate.transport,
+    candidatePriority("srflx", {
+      transport: localCandidate.transport,
+      tcptype: localCandidate.tcptype,
+    }),
+    mapped[0],
+    mapped[1],
+    "srflx",
+    localCandidate.host,
+    localCandidate.port,
+    localCandidate.tcptype,
+  );
+}
+
+/**
+ * Query `stunServer` from `protocol` for a server-reflexive candidate;
+ * undefined when the query fails (it never rejects). Use
+ * {@link queryServerReflexiveCandidate} when the reason of a failure is
+ * needed.
+ */
 export async function serverReflexiveCandidate(
   protocol: Protocol,
   stunServer: Address,
-) {
-  // """
-  // Query STUN server to obtain a server-reflexive candidate.
-  // """
-
-  // # perform STUN query
-  const request = new Message(methods.BINDING, classes.REQUEST);
-  try {
-    const [response] = await protocol.request(request, stunServer);
-
-    const localCandidate = protocol.localCandidate;
-    if (!localCandidate) {
-      throw new Error("not exist");
-    }
-
-    const candidate = new Candidate(
-      candidateFoundation(
-        "srflx",
-        localCandidate.transport,
-        localCandidate.host,
-      ),
-      localCandidate.component,
-      localCandidate.transport,
-      candidatePriority("srflx", {
-        transport: localCandidate.transport,
-        tcptype: localCandidate.tcptype,
-      }),
-      response.getAttributeValue("XOR-MAPPED-ADDRESS")[0],
-      response.getAttributeValue("XOR-MAPPED-ADDRESS")[1],
-      "srflx",
-      localCandidate.host,
-      localCandidate.port,
-      localCandidate.tcptype,
-    );
-    return candidate;
-  } catch (error) {
-    // todo fix
+): Promise<Candidate | undefined> {
+  return queryServerReflexiveCandidate(protocol, stunServer).catch((error) => {
     log("error serverReflexiveCandidate", error);
-  }
+    return undefined;
+  });
 }
 
 export function validateAddress(addr?: Address): Address | undefined {
@@ -546,6 +599,7 @@ export type IceServerFields = Partial<
     IceOptions,
     | "stunServer"
     | "stunServers"
+    | "stunServerUrls"
     | "turnServer"
     | "turnServers"
     | "turnUsername"
@@ -576,14 +630,15 @@ const sameAddress = (a: Address, b: Address) => a[0] === b[0] && a[1] === b[1];
  *   credential) are kept once, at their first position;
  * - an invalid address (see {@link validateAddress}) is dropped, and so is a
  *   TURN server without username or password (it cannot allocate);
- * - a TURN transport left unset is "udp".
+ * - a TURN transport left unset is "udp";
+ * - the `urls` of merged TURN duplicates are merged (in order, once each).
  *
  * The built-in default STUN server is not added here; Connection falls back
  * to it when the result has no STUN server.
  */
 export function normalizeIceServerOptions(options: IceServerFields): {
   stunServers: Address[];
-  turnServers: Required<TurnServerOptions>[];
+  turnServers: NormalizedTurnServer[];
 } {
   const stunServers: Address[] = [];
   for (const server of [options.stunServer, ...(options.stunServers ?? [])]) {
@@ -599,7 +654,7 @@ export function normalizeIceServerOptions(options: IceServerFields): {
     stunServers.push(address);
   }
 
-  const turnServers: Required<TurnServerOptions>[] = [];
+  const turnServers: NormalizedTurnServer[] = [];
   const configured: Partial<TurnServerOptions>[] = [
     ...(options.turnServer !== undefined
       ? [
@@ -624,21 +679,28 @@ export function normalizeIceServerOptions(options: IceServerFields): {
       log("TURN server without username / credential ignored", address);
       continue;
     }
-    const entry: Required<TurnServerOptions> = {
+    const urls = Array.isArray(server.urls)
+      ? server.urls.filter((url) => typeof url === "string")
+      : undefined;
+    const entry: NormalizedTurnServer = {
       address,
       username,
       password,
       transport: server.transport ?? "udp",
+      ...(urls ? { urls: [...new Set(urls)] } : {}),
     };
-    if (
-      turnServers.some(
-        (existing) =>
-          sameAddress(existing.address, entry.address) &&
-          existing.transport === entry.transport &&
-          existing.username === entry.username &&
-          existing.password === entry.password,
-      )
-    ) {
+    const existing = turnServers.find(
+      (known) =>
+        sameAddress(known.address, entry.address) &&
+        known.transport === entry.transport &&
+        known.username === entry.username &&
+        known.password === entry.password,
+    );
+    if (existing) {
+      // One allocation serves both: it answers to every name of them.
+      if (entry.urls) {
+        existing.urls = [...new Set([...(existing.urls ?? []), ...entry.urls])];
+      }
       continue;
     }
     turnServers.push(entry);
@@ -660,6 +722,7 @@ export function mergeIceServerOptions<T extends Partial<IceOptions>>(
     ...current,
     stunServer: update.stunServer,
     stunServers: update.stunServers,
+    stunServerUrls: update.stunServerUrls,
     turnServer: update.turnServer,
     turnServers: update.turnServers,
     turnUsername: update.turnUsername,

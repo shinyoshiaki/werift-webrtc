@@ -134,6 +134,29 @@ Resolves remote mDNS candidates; closed (pending lookups cancelled) by restart()
 
 ***
 
+### onIceCandidateError
+
+> `readonly` **onIceCandidateError**: `Event`\<\[[`IceCandidateErrorInfo`](../type-aliases/IceCandidateErrorInfo.md)\]\>
+
+A STUN server query or TURN allocation of the current generation's
+gathering failed (W3C `icecandidateerror`). Fired at most once per
+server, local socket and generation, synchronously and without changing
+the gathering: other servers and sockets go on, and gathering still
+completes. A server answering with an error gives its ERROR-CODE; one
+that is not reached (timeout, `stunGatherTimeout`, DNS, connect or socket
+error) gives 701. A TURN server's UDP attempt and its TCP fallback are
+one failure, reported when both failed (a server's error code wins over
+701). A credential retry (401 / 438) that succeeds is not a failure.
+Nothing is fired for a replaced generation or after close (the event
+completes then). A STUN failure carries the socket's host address; a
+TURN one carries none.
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`onIceCandidateError`](../interfaces/IceConnection.md#onicecandidateerror)
+
+***
+
 ### options
 
 > **options**: [`IceOptions`](../interfaces/IceOptions.md)
@@ -234,7 +257,7 @@ configured and useDefaultStunServer is not false.
 
 ### turnServers
 
-> **turnServers**: `Required`\<[`TurnServerOptions`](../type-aliases/TurnServerOptions.md)\>[] = `[]`
+> **turnServers**: [`NormalizedTurnServer`](../type-aliases/NormalizedTurnServer.md)[] = `[]`
 
 TURN servers gathering allocates on, one allocation each.
 

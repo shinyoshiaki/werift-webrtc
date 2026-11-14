@@ -74,6 +74,24 @@
       "status": "PASS"
     },
     {
+      "file": "webrtc/RTCPeerConnection-onicecandidateerror.https.html",
+      "variant": "",
+      "subtest": "Surfacing onicecandidateerror",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-onicecandidateerror.https.html",
+      "variant": "",
+      "subtest": "icecandidateerror fires for each failing server",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnectionIceErrorEvent.html",
+      "variant": "",
+      "subtest": "RTCPeerConnectionIceErrorEvent constructed from init parameters",
+      "status": "PASS"
+    },
+    {
       "file": "webrtc/RTCPeerConnection-ontrack.https.html",
       "variant": "",
       "subtest": "addTrack() should cause remote connection to fire ontrack when setRemoteDescription()",

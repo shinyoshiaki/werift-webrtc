@@ -2,6 +2,7 @@ import { randomBytes, randomUUID } from "crypto";
 import {
   Candidate,
   Connection,
+  type IceCandidateErrorInfo,
   type IceConnection,
   type IceOptions,
   isCandidateAllowedByGatherOptions,
@@ -213,6 +214,8 @@ export class RTCIceTransport {
 
   readonly onStateChange = new Event<[RTCIceConnectionState]>();
   readonly onIceCandidate = new Event<[IceCandidate | undefined]>();
+  /** A configured STUN / TURN URL failed while gathering (see RTCIceGatherer.onIceCandidateError). */
+  readonly onIceCandidateError = new Event<[IceCandidateErrorDetails]>();
   readonly onNegotiationNeeded = new Event<[]>();
 
   constructor(iceGather: RTCIceGatherer) {
@@ -224,6 +227,10 @@ export class RTCIceTransport {
     this.iceGather.onIceCandidate = (candidate) => {
       if (this.heldCandidateEvents) this.heldCandidateEvents.push(candidate);
       else this.onIceCandidate.execute(candidate);
+    };
+    this.iceGather.onIceCandidateError = (error) => {
+      if (this.state === "closed") return;
+      this.onIceCandidateError.execute(error);
     };
     this.iceGather.onGatheringStateChange.subscribe(() => {
       this.ongatheringstatechange?.();
@@ -843,6 +850,7 @@ export class RTCIceTransport {
     }
     this.onStateChange.complete();
     this.onIceCandidate.complete();
+    this.onIceCandidateError.complete();
     this.onNegotiationNeeded.complete();
   }
 
@@ -953,10 +961,27 @@ export type RTCIceConnectionState = (typeof IceTransportStates)[number];
 export const IceGathererStates = ["new", "gathering", "complete"] as const;
 export type IceGathererState = (typeof IceGathererStates)[number];
 
+/**
+ * One failing server URL of an `icecandidateerror`: the members of
+ * `RTCPeerConnectionIceErrorEvent` (see there for their meaning).
+ */
+export type IceCandidateErrorDetails = {
+  address: string | null;
+  port: number;
+  url: string;
+  errorCode: number;
+  errorText: string;
+};
+
 export class RTCIceGatherer {
   private options: Partial<IceOptions>;
 
   onIceCandidate: (candidate: IceCandidate | undefined) => void = () => {};
+  /**
+   * A server of the current generation's gathering failed: called once per
+   * configured URL naming it (see iceCandidateErrorDetails).
+   */
+  onIceCandidateError: (error: IceCandidateErrorDetails) => void = () => {};
   gatheringState: IceGathererState = "new";
   readonly connection: IceConnection;
 
@@ -967,6 +992,21 @@ export class RTCIceGatherer {
     this.connection = new Connection(false, this.options);
     this.connection.onIceCandidate.subscribe((candidate) => {
       this.onIceCandidate(candidateFromIce(candidate));
+    });
+    this.connection.onIceCandidateError?.subscribe((info) => {
+      // Only the generation gathering now (the ICE agent drops stale ones).
+      if (
+        info.generation !== this.connection.generation ||
+        this.connection.state === "closed"
+      ) {
+        return;
+      }
+      for (const details of iceCandidateErrorDetails(
+        info,
+        !!this.connection.options.forceTurn,
+      )) {
+        this.onIceCandidateError(details);
+      }
     });
   }
 
@@ -1021,6 +1061,30 @@ export class RTCIceGatherer {
       this.onGatheringStateChange.execute(state);
     }
   }
+}
+
+/**
+ * The `icecandidateerror` members of an ICE agent's server failure: one per
+ * configured URL of the server (none for a server without one, such as the
+ * built-in default STUN server). The local address is given only when the
+ * agent knows it and the ICE transport policy is not "relay"; otherwise it
+ * is `null` with port 0.
+ */
+export function iceCandidateErrorDetails(
+  info: IceCandidateErrorInfo,
+  relayOnly: boolean,
+): IceCandidateErrorDetails[] {
+  const urls = [...new Set(info.server.urls ?? [])];
+  const local =
+    !relayOnly && info.address !== undefined && info.port !== undefined
+      ? { address: info.address, port: info.port }
+      : { address: null, port: 0 };
+  return urls.map((url) => ({
+    ...local,
+    url,
+    errorCode: info.errorCode,
+    errorText: info.errorText,
+  }));
 }
 
 export function candidateFromIce(c: Candidate) {

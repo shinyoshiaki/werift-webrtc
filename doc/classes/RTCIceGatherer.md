@@ -56,6 +56,25 @@
 
 `void`
 
+***
+
+### onIceCandidateError
+
+> **onIceCandidateError**: (`error`) => `void`
+
+A server of the current generation's gathering failed: called once per
+configured URL naming it (see iceCandidateErrorDetails).
+
+#### Parameters
+
+##### error
+
+[`IceCandidateErrorDetails`](../type-aliases/IceCandidateErrorDetails.md)
+
+#### Returns
+
+`void`
+
 ## Accessors
 
 ### localCandidates

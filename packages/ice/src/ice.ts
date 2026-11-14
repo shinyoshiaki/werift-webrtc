@@ -7,6 +7,14 @@ import {
   candidatePriority,
   remoteTcpTypeForIncoming,
 } from "./candidate";
+import {
+  classifyGatherError,
+  type GatherErrorContext,
+  IceCandidateErrorCode,
+  type IceCandidateErrorInfo,
+  type IceServerRef,
+  pickReportedGatherError,
+} from "./candidateError";
 import { MdnsLookup } from "./dns/lookup";
 import { TransactionCancelled, type TransactionError } from "./exceptions";
 import { type Cancelable, cancelable, PQueue, randomString } from "./helper";
@@ -25,10 +33,10 @@ import {
   isCandidateAllowedByGatherOptions,
   isRelayOnlyGathering,
   mergeIceServerOptions,
+  type NormalizedTurnServer,
   normalizeIceServerOptions,
-  serverReflexiveCandidate,
+  queryServerReflexiveCandidate,
   sortCandidatePairs,
-  type TurnServerOptions,
   validateRemoteCandidate,
 } from "./iceBase";
 import { type Address, debug, Event, interfaceAddress } from "./imports/common";
@@ -72,7 +80,7 @@ export class Connection implements IceConnection {
    */
   stunServers: Address[] = [];
   /** TURN servers gathering allocates on, one allocation each. */
-  turnServers: Required<TurnServerOptions>[] = [];
+  turnServers: NormalizedTurnServer[] = [];
   options: IceOptions;
   remoteCandidatesEnd = false;
   /**
@@ -136,9 +144,9 @@ export class Connection implements IceConnection {
    *   (`endProvisional()`, a replacement pranswer, close); `belongs()`.
    * - `queryConsent`: a per-request `AbortController` and
    *   `stopConsentLifecycle()`; `consentSessionId`.
-   * - `serverReflexiveCandidate` (gathering): `protocol.close()`; otherwise
-   *   it ends by its retransmission timeout, and `stale()` drops the
-   *   candidate of an ended gather.
+   * - `queryServerReflexiveCandidate` (gathering): `protocol.close()`;
+   *   otherwise it ends by its retransmission timeout, and `stale()` drops
+   *   the candidate (or the failure) of an ended gather.
    * - TURN client requests: the `closing` signal and `TurnProtocol.close()`.
    * Regression tests: `tests/ice/check-cancel.test.ts`.
    */
@@ -179,6 +187,21 @@ export class Connection implements IceConnection {
   readonly onData = new Event<[Buffer]>();
   readonly stateChanged = new Event<[IceState]>();
   readonly onIceCandidate: Event<[Candidate]> = new Event();
+  /**
+   * A STUN server query or TURN allocation of the current generation's
+   * gathering failed (W3C `icecandidateerror`). Fired at most once per
+   * server, local socket and generation, synchronously and without changing
+   * the gathering: other servers and sockets go on, and gathering still
+   * completes. A server answering with an error gives its ERROR-CODE; one
+   * that is not reached (timeout, `stunGatherTimeout`, DNS, connect or socket
+   * error) gives 701. A TURN server's UDP attempt and its TCP fallback are
+   * one failure, reported when both failed (a server's error code wins over
+   * 701). A credential retry (401 / 438) that succeeds is not a failure.
+   * Nothing is fired for a replaced generation or after close (the event
+   * completes then). A STUN failure carries the socket's host address; a
+   * TURN one carries none.
+   */
+  readonly onIceCandidateError = new Event<[IceCandidateErrorInfo]>();
 
   constructor(_iceControlling: boolean, options?: Partial<IceOptions>) {
     this._iceControlling = _iceControlling;
@@ -1011,6 +1034,39 @@ export class Connection implements IceConnection {
     this.onIceCandidate.execute(candidate);
   }
 
+  /**
+   * Report a failed STUN query / TURN allocation of the gathering whose
+   * `stale` is given (see onIceCandidateError). A failure that is not
+   * reported (cancelled), belongs to a replaced generation or arrives after
+   * close is dropped. A listener that throws does not stop the gathering.
+   */
+  private emitCandidateError(
+    stale: () => boolean,
+    generation: number,
+    server: IceServerRef,
+    failure: { errorCode: number; errorText: string } | undefined,
+    local?: { address: string; port: number },
+  ) {
+    if (!failure || stale() || this.closing.signal.aborted) return;
+    const info: IceCandidateErrorInfo = {
+      server,
+      ...(local ? { address: local.address, port: local.port } : {}),
+      errorCode: failure.errorCode,
+      errorText: failure.errorText,
+      generation,
+    };
+    log("ice candidate error", {
+      server: { ...server, urls: undefined },
+      errorCode: info.errorCode,
+      errorText: info.errorText,
+    });
+    try {
+      this.onIceCandidateError.execute(info);
+    } catch (error) {
+      log("onIceCandidateError listener threw", error);
+    }
+  }
+
   private ensureProtocol(protocol: Protocol) {
     protocol.onRequestReceived.subscribe((msg, addr, data) => {
       if (msg.messageMethod !== methods.BINDING) {
@@ -1376,17 +1432,74 @@ export class Connection implements IceConnection {
       candidatePromises.push(...tcpCandidatePromises);
     }
 
+    // The application's names of the STUN servers this gathering queries.
+    const stunServerUrls = this.options.stunServerUrls ?? [];
+    const stunServerRef = (server: Address): IceServerRef => {
+      const urls = [
+        ...new Set(
+          stunServerUrls
+            .filter(
+              (entry) =>
+                entry?.address?.[0] === server[0] &&
+                entry.address[1] === server[1],
+            )
+            .map((entry) => entry.url),
+        ),
+      ];
+      return urls.length > 0
+        ? { kind: "stun", address: server, urls }
+        : { kind: "stun", address: server };
+    };
+    const stunContext: GatherErrorContext = { kind: "stun" };
+
     // A server-reflexive query of one socket to one STUN server, bounded by
-    // the STUN gather timeout; an unanswered one yields nothing.
+    // the STUN gather timeout; an unanswered or failed one yields nothing
+    // and is reported once (onIceCandidateError): the first of its failure
+    // and the timeout decides, a late result is ignored.
     const queryReflexive = async (protocol: StunProtocol, server: Address) => {
+      const local = protocol.localCandidate
+        ? {
+            address: protocol.localCandidate.host,
+            port: protocol.localCandidate.port,
+          }
+        : undefined;
+      // The first of the query's outcome and the timeout settles it.
+      let settled = false;
+      const report = (failure?: { errorCode: number; errorText: string }) =>
+        this.emitCandidateError(
+          stale,
+          generation,
+          stunServerRef(server),
+          failure,
+          local,
+        );
       let timer: ReturnType<typeof setTimeout> | undefined;
       const candidate = await Promise.race([
-        serverReflexiveCandidate(protocol, server).catch((error) => {
-          log("query STUN server", server, error);
-          return undefined;
-        }),
+        queryServerReflexiveCandidate(protocol, server).then(
+          (candidate): Candidate | undefined => {
+            settled = true;
+            return candidate;
+          },
+          (error) => {
+            log("query STUN server", server, error);
+            if (!settled) {
+              settled = true;
+              report(classifyGatherError(error, stunContext));
+            }
+            return undefined;
+          },
+        ),
         new Promise<undefined>((resolve) => {
-          timer = setTimeout(() => resolve(undefined), timeout * 1000);
+          timer = setTimeout(() => {
+            if (settled) return;
+            settled = true;
+            log("query STUN server timed out", server);
+            report({
+              errorCode: IceCandidateErrorCode.SERVER_NOT_REACHED,
+              errorText: "STUN binding request timed out",
+            });
+            resolve(undefined);
+          }, timeout * 1000);
         }),
       ]);
       clearTimeout(timer);
@@ -1468,11 +1581,14 @@ export class Connection implements IceConnection {
       // Every TURN server gets its own allocation, made with its own
       // credential and transport; one that fails does not stop the others.
       const turnCandidatePromises = turnServers.map((server) =>
-        this.gatherRelayCandidate(server, gatherRelayOnly, stale).catch(
-          (error) => {
-            log("query TURN server", server.address, error);
-          },
-        ),
+        this.gatherRelayCandidate(
+          server,
+          gatherRelayOnly,
+          stale,
+          generation,
+        ).catch((error) => {
+          log("query TURN server", server.address, error);
+        }),
       );
       candidatePromises.push(...turnCandidatePromises);
     }
@@ -1484,14 +1600,25 @@ export class Connection implements IceConnection {
    * Allocate on one TURN server and add its relay candidate. A UDP
    * allocation that fails falls back to TCP on the same server. An
    * allocation that completes for a replaced generation (or a closed agent)
-   * is released.
+   * is released. A failed allocation (both attempts, for the fallback) is
+   * reported once (onIceCandidateError) before it rejects.
    */
   private async gatherRelayCandidate(
-    server: Required<TurnServerOptions>,
+    server: NormalizedTurnServer,
     relayOnly: boolean,
     stale: () => boolean,
+    generation = this.generation,
   ) {
     const { address, username, password, transport } = server;
+    // Failures of the attempts at this server (UDP, then TCP fallback).
+    const failures: ({ errorCode: number; errorText: string } | undefined)[] =
+      [];
+    const ref: IceServerRef = {
+      kind: "turn",
+      address,
+      transport,
+      ...(server.urls ? { urls: [...server.urls] } : {}),
+    };
     const protocol = await createStunOverTurnClient(
       { address, username, password },
       {
@@ -1503,23 +1630,44 @@ export class Connection implements IceConnection {
         udpFamily: this.options.turnUdpFamily,
         signal: this.closing.signal,
       },
-    ).catch(async (e) => {
-      // close() cancelled the allocation: no TCP fallback.
-      if (transport === "udp" && !this.closing.signal.aborted) {
-        return await createStunOverTurnClient(
-          { address, username, password },
-          {
-            portRange: this.options.portRange,
-            interfaceAddresses: this.options.interfaceAddresses,
-            transport: "tcp",
-            connectTimeoutMs: (this.options.turnConnectTimeout ?? 8) * 1000,
-            signal: this.closing.signal,
-          },
-        );
-      } else {
+    )
+      .catch(async (e) => {
+        failures.push(classifyGatherError(e, { kind: "turn", transport }));
+        // close() cancelled the allocation: no TCP fallback.
+        if (transport === "udp" && !this.closing.signal.aborted) {
+          return await createStunOverTurnClient(
+            { address, username, password },
+            {
+              portRange: this.options.portRange,
+              interfaceAddresses: this.options.interfaceAddresses,
+              transport: "tcp",
+              connectTimeoutMs: (this.options.turnConnectTimeout ?? 8) * 1000,
+              signal: this.closing.signal,
+            },
+          ).catch((fallbackError) => {
+            failures.push(
+              classifyGatherError(fallbackError, {
+                kind: "turn",
+                transport: "tcp",
+              }),
+            );
+            throw fallbackError;
+          });
+        }
         throw e;
-      }
-    });
+      })
+      .catch((error) => {
+        // A cancelled attempt (close) is not a failure of the server.
+        if (failures[failures.length - 1] !== undefined) {
+          this.emitCandidateError(
+            stale,
+            generation,
+            ref,
+            pickReportedGatherError(failures),
+          );
+        }
+        throw error;
+      });
     if (stale()) {
       // The allocation never joins a generation: release it (and its
       // refresh timer) instead of keeping a second one alive.
@@ -1983,6 +2131,7 @@ export class Connection implements IceConnection {
 
     this.closed = true;
     this.setState("closed");
+    this.onIceCandidateError.complete();
     this.signalClosed();
     this.closing.abort();
     this.cancelChecks();

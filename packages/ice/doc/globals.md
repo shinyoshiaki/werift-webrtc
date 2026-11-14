@@ -8,6 +8,7 @@
 
 - [CandidatePairState](enumerations/CandidatePairState.md)
 - [classes](enumerations/classes.md)
+- [IceCandidateErrorCode](enumerations/IceCandidateErrorCode.md)
 - [methods](enumerations/methods.md)
 
 ## Classes
@@ -16,6 +17,7 @@
 - [CandidatePair](classes/CandidatePair.md)
 - [Connection](classes/Connection.md)
 - [Message](classes/Message.md)
+- [MissingMappedAddressError](classes/MissingMappedAddressError.md)
 - [StunOverTurnProtocol](classes/StunOverTurnProtocol.md)
 - [StunProtocol](classes/StunProtocol.md)
 - [TcpActiveProtocol](classes/TcpActiveProtocol.md)
@@ -36,10 +38,15 @@
 
 ## Type Aliases
 
+- [GatherErrorContext](type-aliases/GatherErrorContext.md)
+- [IceCandidateErrorInfo](type-aliases/IceCandidateErrorInfo.md)
 - [IceServerFields](type-aliases/IceServerFields.md)
+- [IceServerRef](type-aliases/IceServerRef.md)
 - [IceState](type-aliases/IceState.md)
 - [MessageIntegrityAlgorithm](type-aliases/MessageIntegrityAlgorithm.md)
 - [MessageIntegrityMode](type-aliases/MessageIntegrityMode.md)
+- [NormalizedTurnServer](type-aliases/NormalizedTurnServer.md)
+- [StunServerUrl](type-aliases/StunServerUrl.md)
 - [TcpCandidateType](type-aliases/TcpCandidateType.md)
 - [TurnRedirectFailureReason](type-aliases/TurnRedirectFailureReason.md)
 - [TurnServerOptions](type-aliases/TurnServerOptions.md)
@@ -76,6 +83,7 @@
 - [candidateLocalPreference](functions/candidateLocalPreference.md)
 - [candidatePairPriority](functions/candidatePairPriority.md)
 - [candidatePriority](functions/candidatePriority.md)
+- [classifyGatherError](functions/classifyGatherError.md)
 - [consentResponseTimeoutMs](functions/consentResponseTimeoutMs.md)
 - [createStunOverTurnClient](functions/createStunOverTurnClient.md)
 - [createTurnClient](functions/createTurnClient.md)
@@ -95,6 +103,8 @@
 - [normalizeIceServerOptions](functions/normalizeIceServerOptions.md)
 - [paddingLength](functions/paddingLength.md)
 - [parseMessage](functions/parseMessage.md)
+- [pickReportedGatherError](functions/pickReportedGatherError.md)
+- [queryServerReflexiveCandidate](functions/queryServerReflexiveCandidate.md)
 - [randomPort](functions/randomPort.md)
 - [remoteTcpTypeForIncoming](functions/remoteTcpTypeForIncoming.md)
 - [serverReflexiveCandidate](functions/serverReflexiveCandidate.md)

@@ -31,3 +31,14 @@ test("heavy WebRTC WPT cases use a longer but bounded timeout profile", () => {
     vmTimeoutMs: 2_500,
   });
 });
+
+test("onicecandidateerror waits for the ICE server failures", () => {
+  // 実行: TURN の UDP タイムアウトと TCP 接続タイムアウトを待つファイルのタイムアウトを解決する。
+  const profile = resolveTimeoutProfile({
+    file: "webrtc/RTCPeerConnection-onicecandidateerror.https.html",
+    variant: "",
+  });
+
+  // 検証: UDP (約 6.4s) と TCP (8s) の失敗を待てる完了待ち時間になる。
+  expect(profile.completionTimeoutMs).toBeGreaterThanOrEqual(15_000);
+});

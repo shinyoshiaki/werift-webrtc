@@ -44,6 +44,26 @@ npm run wpt --workspace packages/webrtc -- --update-baseline
 WPT_UPDATE_COVERAGE_BASELINE=1 npm run wpt:coverage --workspace packages/webrtc
 ```
 
+## Diagnosing STUN / TURN failures
+
+When a configured STUN or TURN server cannot be used while gathering (a wrong
+TURN credential, a host name that does not resolve, UDP blocked, ...),
+`RTCPeerConnection` fires `icecandidateerror` with an
+`RTCPeerConnectionIceErrorEvent`, as browsers do:
+
+```ts
+pc.addEventListener("icecandidateerror", (event) => {
+  // url: the configured URL (`turns:` gets `?transport=tcp` when it names no transport)
+  // errorCode: the server's STUN error code (e.g. 401), or 701 when it was not reached
+  console.warn(event.url, event.errorCode, event.errorText);
+});
+```
+
+Gathering itself is not affected: the other servers still give their
+candidates and end-of-candidates still comes. `errorText` never contains the
+credential. The built-in default STUN server (`iceUseDefaultStunServer`) is not
+part of the configuration and is not reported.
+
 ## Rejected, stopped and reused m-lines
 
 A remote offer can contain audio/video sections that the local `codecs` cannot handle. `setRemoteDescription()` still succeeds and the answer rejects only those sections with port 0 at the same position (Issue #705). For example, an audio-only peer can answer a browser offer that bundles video without adding VP8:
