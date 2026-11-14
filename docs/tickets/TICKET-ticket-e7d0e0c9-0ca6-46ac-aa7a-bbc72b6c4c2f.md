@@ -142,9 +142,47 @@ RFC 8843 / RFC 9143（BUNDLE）§9.2「Associating RTP/RTCP Streams with the Cor
 - **意図的に範囲外とする点:** transport A の SDP で宣言された SSRC 55 と、SSRC のない transport B の SSRC 55 が衝突すると、B のパケットは A に届く（既存挙動、3.1「SDP 由来の経路は transport を使わない」）。SDP 由来の経路に transport の一致を求めると、BUNDLE 移行中に古い transport で届くパケットを失う恐れがあるため、本チケットでは変えず TSDoc に明記する。
 
 **進め方の要件:**
-- 再レビューの前に必ずコミットし、作業ツリーがクリーンで HEAD に修正が入っていることを確認する。
+- ~~再レビューの前に必ずコミットする~~ → 撤回。`ticket review` は未コミットの差分がないとレビューを開始しない（`skipped` / `no-uncommitted-changes`）。確認レビューは修正を未コミットのまま依頼し、差分が今回の変更ファイルだけであることを確かめる（3.8）。
 - レビュー報告には、`pbt:deep` の leak の失敗が `develop` でも再現する ICE 側の既存 flaky（`ice.checkList` / `ice.remoteCandidates` の増加。ICE restart や pranswer の後）であることと、再現手順を書く。再現手順: `packages/webrtc` で `WERIFT_NEGOTIATION_LEAK_SEED=232 SEEDS=7 STEPS=10 CYCLES=6 npx vitest run tests/pbt/leak/negotiationLeakProperty.test.ts --retry=0`（seed は実行ごとに変わる。develop の一時 worktree でも seed 236 が 3 回中 1 回、同じ ICE の増加で失敗した）。
 - RingCentral の元 SDP（`a=rtcp:48037` を含む）が未検証なのは、3.6 の合流ルールによる意図的なもの。報告にもそう書く。
+
+### 3.8 追加要件: RFC 9143 §9.2 の判定手順に沿った学習（レビュー 9 回目以降に追加）
+
+**背景（レビューを通過できない理由）:** 指摘 9 件のうち 6 件が非承認で、どれも同じ構造から出ている。SSRC-less 受信の学習を、werift の「SSRC 表をまず引く」流れの後ろに例外処理として付け足しており、RFC 9143 §9.2 の判定手順（MID → SSRC 表 → PT 表）と 1 つずつ照らし合わせていなかった。
+
+- 指摘 1・4・5: SSRC 表が transport ごとに分かれていない（3.7）
+- 指摘 7: MID を見る前に、置き換え済み SSRC の履歴で破棄している
+- 指摘 9: PT 表を `a=ssrc` のない m-line だけから作っている
+
+承認するレビュアーと深掘りするレビュアーが交互に入るため、条件のずれが残る限り、1 つ直すと次の 1 つが見つかる。そこで指摘を待たずに §9.2 の原文と実装を 1 ステップずつ突き合わせ、ずれをまとめて直す。
+
+| §9.2 の規定 | 修正前 | 修正後 |
+| --- | --- | --- |
+| PT 表は受信設定のある**すべての** m-line から作り、2 つ以上の m-line が受信する PT は表に入れない | `a=ssrc` / RID のある m-line を数えていなかった（指摘 9） | transport 上で受信中の m-line をすべて数える（メディア PT も RTX PT も対象）。その PT を受信する m-line がちょうど 1 つで、しかも SSRC-less のときだけ学習する |
+| パケットに MID があれば、SSRC の対応付けを MID の m-line に更新する | A が学習した SSRC に MID b が付いていても A に届いた（監査で発見） | B が学習できれば B に引き渡し、できなければ破棄する。A はその SSRC を置き換え済みとして覚え（`RTCRtpReceiver.retireFallbackSsrc`）、MID a 付きの遅延パケットで取り戻さない |
+| （rollback での表と receiver の整合） | 持ち主が A から B に移った後で rollback すると、表は A に戻るのに track は B が持つ（監査で発見。パケットが失われる） | `restoreRoutes` は、パケットから学習した経路どうしなら今の持ち主を残す |
+| PT 表の「受信中」は現在の session で決める | （未テスト） | `receiving` は確定済みの `currentDirection` を使う。保留中の offer が同じ PT の m-line を追加しても、MID のない未知 SSRC は曖昧として学習しない（MID を明示すれば学習する）。rollback で追加が消えれば学習する。保留中の offer が同じ PT の m-line を停止しても、commit までは曖昧のまま |
+
+**要件:**
+- [x] 上の表の修正（`router.ts`、`rtpReceiver.ts`）と TSDoc・`npm run doc` の再生成。
+- [x] 回帰テスト（`router.test.ts`。共通の Arrange は `ssrcLessTestUtils.ts` の `createPayloadTypeSharingRouter`）。PT 共有・MID による引き渡し・rollback の 7 件は、うち 6 件が修正前のコードで失敗することを一時 worktree で確認済み（PT が分かれていれば学習する 1 件は修正前後とも通る）。
+- [x] 保留中の offer が同じ PT の m-line を追加・停止するケースの回帰テスト 2 件（現行実装で通る。規則を固定するためのテスト）。
+- [x] `leakProbe.ts` を develop の整形済みの形に戻す（マージコミットで崩れていた）。
+
+**意図的に範囲外とする点（§9.2 監査の結果）:**
+- SDP・RID・simulcast 由来の経路は、MID が別の m-line を示していても動かさない（3.1 の既存挙動。TSDoc に記載）。指摘された場合は、RID で学習した SSRC に限って MID での引き渡しを広げるかを判断する。その場合は receiver の `learnedTrackSsrcs` を外す API が必要。
+- RTCP SDES の MID と BYE による対応付けの更新は未対応（develop にも実装がない）。指摘された場合は別チケットを提案する。
+- SDP で宣言された SSRC と別 transport の SSRC の衝突（3.7 に記載済み）。
+
+**`pbt:deep` の leak の ICE 失敗の扱い:** このチケットの中で ICE を直すことは範囲外とする。前回の実行（前任の報告）では leak の 27 件が単独でも失敗し、すべて `ice.checkList` / `ice.remoteCandidates` の増加（固定ケース「an ICE restart keeps the agent's credential history bounded」を含む）で、develop（`6474a6953`）の一時 worktree でも固定ケースと cycle seed 10 が同じ増加で失敗していた。再現手順: `packages/webrtc` で `WERIFT_NEGOTIATION_LEAK_SEED=10 WERIFT_NEGOTIATION_LEAK_SEEDS=1 WERIFT_NEGOTIATION_LEAK_STEPS=10 WERIFT_NEGOTIATION_LEAK_CYCLES=6 npx vitest run tests/pbt/leak/negotiationLeakProperty.test.ts --retry=0`。
+  - 2026-11-14 の再確認（`ded0c3dc5` に保留中 offer のテスト 2 件を加えた作業ツリー）では再現しなかった。`pbt:deep` の leak は 652 件成功・1 件 flaky（heap seed 4、単独で成功）、上の seed 10 の手順は単独で成功、固定ケースは本ブランチと develop の両方で 3 回中 3 回成功した。負荷に依存する既存の揺らぎと判断する。
+  - 方針: 案 (a) を採る。再び失敗したら、develop で再現することを確かめたうえで ICE / DTLS 側の別チケットを立て、レビュー報告に上の再現手順と「develop でも再現する」ことを書く。今回は再現しないので別チケットは立てていない。
+  - 同じ実行の model seed 275（「after operation #42: traffic … the transport did not settle」）は、`tests/pbt/leak/negotiationLeakProperty.test.ts` の既知 flaky の記述どおりで、単独 replay で本ブランチ・develop とも 5 回中 4 回、同じメッセージで失敗する。scenario の seed 257 / 262 は flaky（単独で成功）。
+
+**確認レビューの依頼手順:**
+- 修正は未コミットのまま依頼する（CLI は未コミットの差分がないとレビューを開始しない）。外部ツールが自動コミットした場合は、その旨と対象リビジョンを報告に書く。
+- 依頼前に、未コミットの差分が今回の変更ファイルだけであることを確かめる。`npm run format`（ルート）が `packages/rtp/tests/codec/vp8.test.ts` を書き換えたら元に戻す。
+- RingCentral の元 SDP（`a=rtcp:48037` を含む）は、従来どおり 3.6 の合流ルールで #355 側が確認する（#355 チケットへの後続作業の追記は、レビュー 8 回目で確認済み）。
 
 ---
 
@@ -201,6 +239,11 @@ RFC 8843 / RFC 9143（BUNDLE）§9.2「Associating RTP/RTCP Streams with the Cor
 - [x] fallback で学習済みの SSRC に別 MID が明示されたら、その MID の receiver へ引き渡し、続く MID なしの RTP と SR もそちらに届く。旧 MID の遅延パケットでは戻らない。学習できない m-line の MID なら、どちらにも届けず旧経路は残る。
 - [x] baseline 後に学習済み SSRC の持ち主が変わってから rollback しても、RTP と SR は今の持ち主に届き、表と receiver の track が一致する。
 
+### §9.2 の判定手順（3.8）
+- [x] `a=ssrc` のある m-line（メディア / RTX）・RID の m-line と PT を共有する SSRC-less m-line は、MID のない未知 SSRC を学習しない。MID を明示すれば学習する。PT が分かれていれば学習する。（3.7 のテスト計画にも記載）
+- [x] 保留中の offer が同じ PT の m-line を追加すると、MID のない未知 SSRC は commit 後も学習せず、MID を明示すれば学習し、rollback で追加が消えれば学習する。
+- [x] 保留中の offer が同じ PT の m-line を停止（拒否予定・inactive）しても、commit までは MID のない未知 SSRC を学習せず、commit 後は残る m-line が学習する。
+
 ### negotiation / property
 - [ ] 学習後の rollback / 再 offer / ICE restart で route と track が保たれ、`assertNegotiationInvariants` が通る（`expectSessionContinues` まで）。
 - [ ] 学習後に SDP が SSRC を与えた場合の上書き規則（3.4）。
@@ -238,3 +281,5 @@ develop との比較が必要なら、一時 worktree（`git worktree add --deta
 - [ ] 3.7 の追加要件を満たしている。パケットから学習した SSRC 経路は RTP と RTCP の両方で transport ごとに解決され、同じ数値の SSRC が複数 transport にあっても、それぞれの receiver に誤配送も欠落もなく届く。
 - [ ] rollback 後、通知済み track の `codec` が現在の negotiated state と一致する（receiver の negotiation snapshot に既定 track の codec を含める）。
 - [ ] 確認レビューを依頼する時点で、修正が `ticket review` の対象として見える状態にしている（CLI は未コミットの差分がないとレビューを開始しない）。
+- [ ] 3.8 の追加要件を満たしている。MID のない未知 SSRC は、受信中のすべての m-line で一意な PT のときだけ学習し、MID は fallback の対応付けを更新し、rollback 後も表と track が一致する。
+- [ ] `pbt:deep` の leak の ICE 失敗について、3.8 の扱いに沿って原因の切り分け（develop での再現）と報告をしている。

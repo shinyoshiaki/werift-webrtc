@@ -1899,6 +1899,96 @@ describe("media/router: a=ssrc のない m-line の SSRC 学習 (#356)", () => {
     },
   );
 
+  test("保留中の offer が同じ PT の m-line を追加すると、MID のない未知 SSRC は commit 後も学習せず、rollback 後は学習する", () => {
+    // Arrange: 確定済みで受信中の SSRC-less m-line a に、保留中の remote offer が
+    // 同じ PT (opus 111) を受ける SSRC-less m-line b を追加した (currentDirection 未確定)
+    const { router, dtls, transceivers, addReceiver } = createSsrcLessRouter();
+    const a = addReceiver({ mid: "a" });
+    a.setCurrentDirection("recvonly");
+    const b = addReceiver({ mid: "b" });
+    const aPayloads = collectTrackPayloads(a);
+    const bPayloads = collectTrackPayloads(b);
+
+    // Act: 保留中に MID なしの SSRC 7 と、MID a を明示した SSRC 8 が届く
+    router.routeRtp(
+      ssrcLessPacket({ ssrc: 7, payloadType: 111, sequenceNumber: 1 }),
+      dtls,
+    );
+    router.routeRtp(
+      ssrcLessPacket({
+        ssrc: 8,
+        payloadType: 111,
+        sequenceNumber: 2,
+        mid: "a",
+      }),
+      dtls,
+    );
+
+    // Assert: PT は 2 つの m-line が受けるので MID なしは破棄し、MID a は a が学習する
+    expect(aPayloads).toEqual(["payload-2"]);
+    expect(bPayloads).toEqual([]);
+    expect(router.ssrcTable[7]).toBeUndefined();
+
+    // Act: commit (b も受信中で確定) してから MID なしの SSRC 7 が届く
+    b.setCurrentDirection("recvonly");
+    router.routeRtp(
+      ssrcLessPacket({ ssrc: 7, payloadType: 111, sequenceNumber: 3 }),
+      dtls,
+    );
+
+    // Assert: 確定後も PT は曖昧なので破棄する
+    expect(aPayloads).toEqual(["payload-2"]);
+    expect(bPayloads).toEqual([]);
+
+    // Act: 代わりに rollback で b が消えてから、MID なしの SSRC 7 が届く
+    router.unregisterTransceiver(b);
+    transceivers.splice(transceivers.indexOf(b), 1);
+    router.routeRtp(
+      ssrcLessPacket({ ssrc: 7, payloadType: 111, sequenceNumber: 4 }),
+      dtls,
+    );
+
+    // Assert: PT を受ける m-line が a だけに戻ったので、a が SSRC 7 に切り替えて受信する
+    expect(aPayloads).toEqual(["payload-2", "payload-4"]);
+    expect(a.receiver.fallbackSsrc).toBe(7);
+  });
+
+  test("保留中の offer が同じ PT の m-line を停止しても、commit までは MID のない未知 SSRC を学習しない", () => {
+    // Arrange: 同じ PT (opus 111) を受ける SSRC-less m-line a と b が確定済みで受信中
+    const { router, dtls, addReceiver } = createSsrcLessRouter();
+    const a = addReceiver({ mid: "a" });
+    const b = addReceiver({ mid: "b" });
+    a.setCurrentDirection("recvonly");
+    b.setCurrentDirection("recvonly");
+    const aPayloads = collectTrackPayloads(a);
+    const bPayloads = collectTrackPayloads(b);
+
+    // Act: 保留中の remote offer が b を拒否予定にし、b の方向を inactive にした状態で SSRC 7 が届く
+    b.pendingRejection = true;
+    b.direction = "inactive";
+    router.routeRtp(
+      ssrcLessPacket({ ssrc: 7, payloadType: 111, sequenceNumber: 1 }),
+      dtls,
+    );
+
+    // Assert: 現在の session では b も受信中なので、PT は曖昧なまま破棄する
+    expect(aPayloads).toEqual([]);
+    expect(bPayloads).toEqual([]);
+    expect(router.ssrcTable[7]).toBeUndefined();
+
+    // Act: commit (b は inactive で確定) してから SSRC 7 が届く
+    b.setCurrentDirection("inactive");
+    router.routeRtp(
+      ssrcLessPacket({ ssrc: 7, payloadType: 111, sequenceNumber: 2 }),
+      dtls,
+    );
+
+    // Assert: PT を受ける m-line が a だけになったので a が学習する
+    expect(aPayloads).toEqual(["payload-2"]);
+    expect(bPayloads).toEqual([]);
+    expect(router.ssrcTable[7]).toBe(a.receiver);
+  });
+
   test("確定済みで受信していない (sendonly) transceiver は学習しない", () => {
     // Arrange
     const { router, dtls, addReceiver } = createSsrcLessRouter();
