@@ -164,6 +164,13 @@ export class RTCPeerConnection extends EventTarget {
   private isClosed = false;
   private applyingIceRestart = false;
   /**
+   * URLs an `icecandidateerror` 701 was fired for in the current gathering
+   * (W3C: once per server URL while gathering), across all ICE transports.
+   * Cleared when `iceGatheringState` enters "gathering" again (ICE restart,
+   * a new transport).
+   */
+  private readonly unreachableErrorUrls = new Set<string>();
+  /**
    * The last operation of the chain: `done` when it finished, `applied` when
    * the description it applies is in place (setLocalDescription's gathering
    * wait comes after it). addIceCandidate only needs `applied`.
@@ -395,6 +402,7 @@ export class RTCPeerConnection extends EventTarget {
       },
     );
     this.secureManager.iceGatheringStateChange.subscribe((state) => {
+      if (state === "gathering") this.unreachableErrorUrls.clear();
       this.iceGatheringStateChange.execute(state);
       this.onicegatheringstatechange?.(
         new globalThis.Event("icegatheringstatechange"),
@@ -917,6 +925,12 @@ export class RTCPeerConnection extends EventTarget {
         this.negotiation.isPendingOnlyTransport(iceTransport.id)
       ) {
         return;
+      }
+      // A 701 (server not reached) once per URL per gathering, however many
+      // transports (bundlePolicy "disable") or sockets failed to reach it.
+      if (details.errorCode === 701) {
+        if (this.unreachableErrorUrls.has(details.url)) return;
+        this.unreachableErrorUrls.add(details.url);
       }
       const event = new RTCPeerConnectionIceErrorEvent(
         "icecandidateerror",

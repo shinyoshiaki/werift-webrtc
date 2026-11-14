@@ -17,9 +17,11 @@ import {
   createRejectingUdpTurnServer,
   createScriptedUdpServer,
   createSilentUdpServer,
+  createUnbundledUnreachablePeer,
   errorResponse,
   errorSummaries,
   errorTestHost,
+  gatheringComplete,
   gatherWithOffer,
 } from "./iceCandidateErrorUtils";
 
@@ -385,6 +387,53 @@ describe("icecandidateerror", () => {
       expect(handled).toEqual(listened);
     } finally {
       await pc.close();
+    }
+  });
+
+  test("bundle なしの複数 transport が同じ URL に到達できなくても 701 は 1 件だけ通知される", async () => {
+    // Arrange: transport 2 個が同じ応答しない STUN を使う
+    const { pc, listened, handled, url, silent } =
+      await createUnbundledUnreachablePeer();
+    try {
+      // Act: 両 transport の gathering を完了させる
+      await pc.setLocalDescription(await pc.createOffer());
+
+      // Assert: transport は 2 個、URL ごとの 701 は 1 件で、両経路に同じイベント
+      expect(pc.iceTransports).toHaveLength(2);
+      expect(listened.map(({ url, errorCode }) => [url, errorCode])).toEqual([
+        [url, 701],
+      ]);
+      expect(handled).toEqual(listened);
+    } finally {
+      await pc.close();
+      await silent.close();
+    }
+  });
+
+  test("ICE restart の新しい gathering では同じ URL の 701 が再び 1 件通知される", async () => {
+    // Arrange: bundle なし 2 transport で最初の gathering を終え、相手と接続情報を交換する
+    const { pc, listened, url, silent } =
+      await createUnbundledUnreachablePeer();
+    const peer = createHostOnlyPeer();
+    try {
+      await negotiate(pc, peer);
+      const firstGathering = listened.length;
+
+      // Act: ICE restart して再び gathering を完了させる
+      pc.restartIce();
+      await negotiate(pc, peer);
+      await gatheringComplete(pc);
+
+      // Assert: gathering ごとに 1 件ずつ、計 2 件
+      expect(firstGathering).toBe(1);
+      expect(listened.map(({ url, errorCode }) => [url, errorCode])).toEqual([
+        [url, 701],
+        [url, 701],
+      ]);
+    } finally {
+      await pc.close();
+      await peer.close();
+      await silent.close();
     }
   });
 

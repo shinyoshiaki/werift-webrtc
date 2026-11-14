@@ -79,3 +79,31 @@ export function errorSummaries(events: RTCPeerConnectionIceErrorEvent[]) {
     }))
     .sort((a, b) => a.url.localeCompare(b.url));
 }
+
+/**
+ * A recording peer with `bundlePolicy: "disable"` and an audio and a video
+ * transceiver (two ICE transports), whose only STUN server never answers
+ * (a 701 after `iceStunGatherTimeout`, 0.3 s).
+ */
+export async function createUnbundledUnreachablePeer() {
+  const silent = await createSilentUdpServer(errorTestHost);
+  const url = `stun:${errorTestHost}:${silent.address[1]}`;
+  const recording = createErrorRecordingPeer({
+    bundlePolicy: "disable",
+    iceServers: [{ urls: url }],
+    iceStunGatherTimeout: 0.3,
+  });
+  recording.pc.addTransceiver("audio");
+  recording.pc.addTransceiver("video");
+  return { ...recording, url, silent };
+}
+
+/**
+ * Resolves when `pc.iceGatheringState` is "complete" (an ICE restart's
+ * gathering goes on after the negotiation that applied it).
+ */
+export async function gatheringComplete(pc: RTCPeerConnection) {
+  while (pc.iceGatheringState !== "complete") {
+    await pc.iceGatheringStateChange.asPromise();
+  }
+}
