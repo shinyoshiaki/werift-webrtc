@@ -194,30 +194,28 @@
 
 ### 5.1 動作
 
-- [ ] `vitest.firefox.config.mts` が Chrome 設定と同じ `include` / `exclude` / `fileParallelism: false` / `retry: 1` になっている。`npm run firefox` に `./tests` フィルタがない。
-- [ ] 修正をコミットした後のクリーンな HEAD で `cd e2e && npm run firefox:record` を全件実行し、次を満たす記録（`-dirty` なし、`vitestArgs: []`）がコミットされている。
+- [x] `vitest.firefox.config.mts` が Chrome 設定と同じ `include` / `exclude` / `fileParallelism: false` / `retry: 1` になっている。`npm run firefox` に `./tests` フィルタがない。
+- [x] 修正をコミットした後のクリーンな HEAD で `cd e2e && npm run firefox:record` を全件実行し、次を満たす記録（`-dirty` なし、`vitestArgs: []`）がコミットされている。
   - `outcome: completed`、`runEnded: true`、`unfinished: []`、`moduleErrors: []`
   - `result: passed`（failed 0）
-- [ ] Firefox で、`datachannel`（answer / offer / binary echo）、`mediachannel/sendrecv`、`bundle/*`（`max-bundle` / `max-compat` / `disable` の全件）、`ice/restart` の `ice_restart_web_trigger` が通る（スキップ不可）。
-- [ ] スキップは `browserName === "Firefox"` の `it.skip` で行い、D2 の固定タグ（`[firefox-known:*]` + チケット ID の先頭 8 文字、または `[firefox-unsupported:*]`）が付いている。理由のないスキップや、テストを定義しないだけの分岐は残っていない。
-- [ ] スキップ理由の定数が `tests/fixture.ts` に 1 か所でまとまっている。`ef1c086e` に解除の手順（grep するタグ）を追記している。
-- [ ] 全件の記録を 2 回取り、同じ結果になっている（`retry: 1` の範囲で安定している）。2 回目の記録もコミットする。
+- [x] Firefox で、`datachannel`（answer / offer / binary echo）、`mediachannel/sendrecv`、`bundle/*`（`max-bundle` / `max-compat` / `disable` の全件）、`ice/restart` の `ice_restart_web_trigger` が通る（スキップ不可）。
+- [x] スキップは `browserName === "Firefox"` の `it.skip` で行い、D2 の固定タグ（`[firefox-known:*]` + チケット ID の先頭 8 文字、または `[firefox-unsupported:*]`）が付いている。理由のないスキップや、テストを定義しないだけの分岐は残っていない。
+- [x] スキップ理由の定数が `tests/fixture.ts` に 1 か所でまとまっている。`ef1c086e` に解除の手順（grep するタグ）を追記している。
+- [x] 全件の記録を 2 回取り、同じ結果になっている（`retry: 1` の範囲で安定している）。2 回目の記録もコミットする。
 
 ### 5.2 回帰
 
-- [ ] Chrome の E2E（`npm run e2e`）に回帰がない。
-- [ ] `cd e2e && npm run type` と `npm run test:tools` が通る。
-- [ ] `npm run format` を実行した。`packages/webrtc/src` を変えた場合は、`npm run type` と `npm run test:small` が通る。
+- [x] Chrome の E2E（`npm run e2e`）に回帰がない。
+- [x] `cd e2e && npm run type` と `npm run test:tools` が通る。
+- [x] `npm run format` を実行した。`packages/webrtc/src` を変えた場合は、`npm run type` と `npm run test:small` が通る。
 
 ### 5.3 ドキュメント
 
-- [ ] `e2e/AGENTS.md` に、Firefox の実行手順（`firefox:record` と手動手順）とスキップの方針が書いてある。
-- [ ] ルート `README.md` の Firefox の記述が実態に合っている。
-- [ ] 本チケットに、テストごとの結果の表（テスト、Firefox の結果、分類、参照先）と、根拠にした記録のファイル名が書いてある。
+- [x] `e2e/AGENTS.md` に、Firefox の実行手順（`firefox:record` と手動手順）とスキップの方針が書いてある。
+- [x] ルート `README.md` の Firefox の記述が実態に合っている。
+- [x] 本チケットに、テストごとの結果の表（テスト、Firefox の結果、分類、参照先）と、根拠にした記録のファイル名が書いてある。
 
-| テスト | Firefox の結果 | 分類 | 参照 / 備考 |
-| --- | --- | --- | --- |
-| （作業時に記入） | | | |
+テストごとの結果の表と根拠の記録は 7.4 に記載した。
 
 ## 6. 検証コマンド
 
@@ -228,3 +226,81 @@
 - `npm run e2e`（Chrome。最後に全件）
 - `npm run format`
 - `packages/webrtc` を変えた場合: `npm run type`、`npm run test:small`
+
+## 7. 作業結果（2026-11-15）
+
+### 7.1 全件失敗の原因（E2E 基盤）
+
+- **Firefox が ICE 候補を 1 つも集めていなかった**。vitest のテストページは `localhost` で配信され、Vite は `::1` で待ち受ける。Firefox は mic / camera の権限がないページでは「default address only」で候補を集め、その既定アドレスを **ページを読み込んだ IP ファミリ**の経路で探す。この環境には IPv6 の既定経路がないので `failed to find default addresses` → `Couldn't gather ICE candidates` となり、`iceConnectionState` は即 `failed`、answer に candidate がなく、werift 側は `checking` のままだった（`MOZ_LOG=nicer:5` で確認）。これは werift と Firefox の非互換ではない。同じ環境で直接接続（`tools/firefoxBundleOnly.ts`）が成立していたのは、ページの読み込みが IPv4 だったから。
+- 対応: `vitest.firefox.config.mts` で `test.api.host: "127.0.0.1"` にした。これで datachannel / sendrecv / bundle/* はすぐに全件通った。
+- 2.4 で疑った空文字 / `null` の candidate、`fixture.ts` の `ws://localhost` は原因ではなかった（シグナリングは届いていた）。
+
+### 7.2 そのほかに直したもの（E2E 基盤・テストの前提）
+
+| 対象 | 原因 | 対応 |
+| --- | --- | --- |
+| 設定（Step 1） | Chrome 設定に追従していない | 共通部分を `vitest.shared.mts` にまとめた（`include` に `*.spec.ts`、`exclude`、`fileParallelism: false`、`retry: 1`、`testTimeout`）。`npm run firefox` の `./tests` フィルタを外した |
+| `turnRelay` udp / tcp | e2e の TURN は `127.0.0.1`。Firefox は loopback を ICE に使わず、TURN が error 701 になる | `media.peerconnection.ice.loopback: true`。mDNS は Chrome の `--disable-features=WebRtcHideLocalIpsWithMdns` に合わせて `obfuscate_host_addresses: false` |
+| `recordPlayback` av | 帯域推定のフィードバックがないので、エンコーダーは開始ビットレートのまま。Firefox は音声とそれを分け合い、640x480 のカメラを 320x240 で送る | 録画テストの送信側を `degradationPreference: "maintain-resolution"` にした（`fixture.ts` `keepSendResolution`） |
+| `recordPlayback` av / `recordPlaybackOgg` | `audioDecodedBytes` は Chrome 独自の `webkitAudioDecodedByteCount`（Firefox では常に 0） | 要素のデコード計測値（`audioDecoded`）は Chrome だけで確認し、Firefox では undefined にした（`mozHasAudio` は音声トラックの有無しか示さないので使わない）。音声のデコードは、両テストとも全ブラウザで Web Audio（`decodeAudioFile`）によるファイル全体のデコードで確認する。WebM av では 48 kHz / 2ch、長さが再生時間と 0.3 秒以内で一致すること、無音でないこと（peak > 0.01）を確認する（レビュー指摘で追加。実測は Firefox 4.73 s / 再生 4.77 s、Chrome 4.49 s / 4.49 s） |
+| `codecRtp` opus（packetize / repacketize） | この環境（音声出力デバイスなし）では Firefox の `AudioContext.resume()` が解決しない。`waitAudioPlay` が自分の timeout を超えて止まり、テストの timeout になる | `waitAudioPlay` を timeout 内で必ず終わるようにした（`resume()` を timeout で打ち切り、`audio.play()` を待たない）。テストは既存の inbound-rtp の代替確認で判定する |
+| `codecRtp` repacketize_vp9 | Firefox の fake camera の VP9 は最初の数フレームが 1 パケットに収まり、最初の `ok` の時点で multi-packet のフレームがない | scenario C の video は multi-packet のフレームが出るまで status を待つ（`pollDepacketizeSuccess` の `requireMultiPacket`） |
+| `simulcast_rtx_answer` の SDP 形式 | Firefox の simulcast answer は `a=ssrc-group:FID` を載せる | `not.toContain("a=ssrc-group:FID")` は Firefox 以外だけで確認する。RTX 復元の確認は全ブラウザで残す（Firefox は下の werift 不具合でスキップ中） |
+| `ice/restart` の unhandled rejection | restart 中、werift は新しい generation の候補を、ブラウザがその description を適用する前に trickle する。Firefox は仕様どおり `OperationError: Unknown ufrag` で拒否する。テストは通るが、vitest の結果は failed になる | `tests/nativeCandidateQueue.ts` は、remote description にその候補の `usernameFragment` が入るまで候補を保留する |
+| `reuse` / `removeTrack` | Firefox ではテストを定義していなかった（`reuse` は moduleErrors `No test found in suite`） | 分岐を外した。Firefox で全件通る（bundle-only によるスキップは不要だった） |
+
+### 7.3 werift 本体の不具合（サブタスクを作成してスキップ）
+
+親チケット #269（`190063e8-…`）はもう存在しない（`ticket get` が not found）。そのため、サブタスクは本チケットの下に作った。
+
+| サブタスク | 固定タグ | 内容 |
+| --- | --- | --- |
+| `8b7c8e4a-bfd5-4ba0-ac05-8bc928660174` | `[firefox-known:ice-tcp-active-only]` | 相手が active の TCP 候補しか出さないと、`packages/ice` の `connect()` は check list が空のまま `ICE negotiation failed` になる。相手から届く check を待たない |
+| `f90a2878-2bab-4524-bd0e-b735e2e48d00` | `[firefox-known:vp8-picture-id-loop]` | ファイル再生（`nonstandard/userMedia.ts`）は、answer の fmtp（`max-fs=12288;max-fr=60`）で codec の key が変わったとき、ループの境界で packetizer を作り直す。そのため VP8 の PictureID が初期値に戻る |
+| `be690c2e-0724-4b9c-8b6a-c7fed49c0366` | `[firefox-known:simulcast-ssrc-track]` | `a=ssrc` / `ssrc-group:FID` 付きの simulcast answer で、RID のトラックとは別に SSRC のトラックが作られ、そのレイヤーの RTX がそちらへ復元される |
+
+- `ef1c086e`（werift 起点の ICE restart）: E2E の `ice_restart_node_trigger`（video 1 本）は Firefox で通る。スキップはなく、`[firefox-known:ice-restart]` も使っていない。ef1c086e に、その旨と、直ったときの手順（grep）を追記した。
+- bundle-only（21a27c92）: 回帰はない。`bundle/*` と Firefox 起点の再 offer（`addTrack` / `removeTrack` / `reuse` / `ice_restart_web_trigger`）はすべて通った。
+
+### 7.4 テストごとの結果（Firefox 157.0 / Playwright 1.64.1、`retry: 1`）
+
+根拠の記録（レビュー指摘の修正後のコミット `966ad2386`、`vitestArgs: []`、`-dirty` なし）: `e2e/firefox-runs/20261115T124612Z-966ad2386.json` と `e2e/firefox-runs/20261115T124809Z-966ad2386.json`。修正前のコミット `40fdd5d61` の 2 回（`20261115T095816Z-40fdd5d61.json` / `20261115T095950Z-40fdd5d61.json`）も同じ結果だった（どちらも `outcome: completed`、`result: passed`、`runEnded: true`、`unfinished: []`、`moduleErrors: []`、`unhandledErrors: []`、62 passed / 0 failed / 9 skipped、テストごとの結果は 2 回で一致、retry 0 件）
+
+| テスト | Firefox の結果 | 分類 | 参照 / 備考 |
+| --- | --- | --- | --- |
+| `bundle/max-bundle`（answer / offer） | passed | E2E 基盤（7.1） | |
+| `bundle/max-compat`（answer / offer） | passed | E2E 基盤（7.1） | |
+| `bundle/disable`（answer / offer） | passed | E2E 基盤（7.1） | |
+| `bundle/tagOnlyCandidates` | passed | E2E 基盤（7.1） | |
+| `combination/allmedia`（answer / offer） | passed | E2E 基盤（7.1） | |
+| `datachannel/datachannel`（answer / offer / binary echo） | passed | E2E 基盤（7.1） | |
+| `datachannel/close`（4 件） | passed | E2E 基盤（7.1） | |
+| `datachannel/dtlsAlert`（3 件） | passed | E2E 基盤（7.1） | |
+| `datachannel/iceLite` | passed | E2E 基盤（7.1） | |
+| `datachannel/iceTcp` | skipped | werift 本体 | `[firefox-known:ice-tcp-active-only]` `8b7c8e4a` |
+| `datachannel/turnRelay` udp / tcp | passed | E2E 基盤（loopback） | |
+| `datachannel/turnRelay` tls | skipped | ブラウザ固有 | `[firefox-unsupported:turns-ip-literal]`。Firefox の TURNS は FQDN が必要（`TLS requires FQDN`）で、`localhost` にしても自己署名証明書を拒否する（NSS のセキュリティエラー）。WebRTC の TURN には `ignoreHTTPSErrors` が効かない |
+| `ice/restart` web_trigger / node_trigger | passed | E2E 基盤（trickle の順序） | |
+| `ice/trickle`（answer / offer） | passed | E2E 基盤（7.1） | |
+| `mediachannel/addTrack`（answer / offer） | passed | E2E 基盤（7.1） | |
+| `mediachannel/codecRtp` vp8 / vp9 / av1 / opus（A / B / C） | passed | E2E 基盤（opus / vp9 は 7.2） | 以前は「Chrome-only」でファイルごとスキップしていた |
+| `mediachannel/codecRtp` h264（A / B / C） | skipped | ブラウザ固有 | `[firefox-unsupported:h264]`。Playwright の Firefox は OpenH264 を持たない |
+| `mediachannel/oneway`（answer / offer） | passed | E2E 基盤（7.1） | |
+| `mediachannel/recordPlayback` video / av | passed | テストの前提（7.2） | |
+| `mediachannel/recordPlaybackOgg` audio | passed | テストの前提（7.2） | |
+| `mediachannel/red`（answer / offer） | skipped | ブラウザ固有 | `[firefox-unsupported:encoded-streams]`。Chrome 独自の `createEncodedStreams()` |
+| `mediachannel/removeTrack`（standard / aggressive、6 件） | passed | E2E 基盤（7.1） | Firefox で定義していなかった 4 件も通る |
+| `mediachannel/reuse`（standard / aggressive / reject_unsupported_video） | passed | E2E 基盤（7.1） | moduleErrors が消えた |
+| `mediachannel/rtx`（answer / offer） | passed | E2E 基盤（7.1） | |
+| `mediachannel/sendrecv`（answer / offer） | passed | E2E 基盤（7.1） | |
+| `mediachannel/simulcast` answer / offer | passed | E2E 基盤（7.1） | |
+| `mediachannel/simulcast` rtx_answer | skipped | werift 本体 | `[firefox-known:simulcast-ssrc-track]` `be690c2e`。SDP 形式の期待値は 7.2 で直した |
+| `mediachannel/vp8Playback` dummy | passed | E2E 基盤（7.1） | |
+| `mediachannel/vp8Playback` file | skipped | werift 本体 | `[firefox-known:vp8-picture-id-loop]` `f90a2878` |
+
+### 7.5 回帰の確認
+
+- Chrome: `npm run e2e`（修正後、コミット前、およびレビュー指摘の修正コミット `966ad2386`）→ どちらも 25 files / 71 tests すべて passed。
+- `cd e2e && npm run type`、`npm run test:tools`（12 件）→ 通った。`npm run format` を実行した（本チケットと関係のない `packages/rtp/tests/codec/vp8.test.ts` / `packages/webrtc/tests/pbt/model/generator.ts` の書き換えは戻した）。
+- `packages/webrtc/src` は変えていない（調べるための一時的なログは戻した）。
+- 実行記録: 修正前の HEAD `846ab47d1` の datachannel の記録（`20261115T085209Z-846ab47d1.json`、failed）も、比較用に残した。調査中の `-dirty` 記録は削除した。
