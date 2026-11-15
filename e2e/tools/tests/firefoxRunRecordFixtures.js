@@ -51,6 +51,25 @@ const finished = (id, state, { retryCount = 0, errors = [] } = {}) => ({
   errors,
 });
 
+/** Record file names of runs started on 2026-11-14 at the given hours, oldest first. */
+const recordNames = (hours) =>
+  hours.map(
+    (hour, i) =>
+      `20261114T${String(hour).padStart(2, "0")}0000Z-0123456${i}${i % 2 ? "-dirty" : ""}.json`,
+  );
+
+/** A temporary records directory holding `names` and a README.md. */
+function recordsDirWith(names) {
+  const { mkdtempSync, writeFileSync } = require("node:fs");
+  const { join } = require("node:path");
+  const { tmpdir } = require("node:os");
+  const dir = mkdtempSync(join(tmpdir(), "firefox-runs-"));
+  for (const name of [...names, "README.md"]) {
+    writeFileSync(join(dir, name), "{}\n");
+  }
+  return dir;
+}
+
 const gitInfo = {
   commit: COMMIT,
   shortCommit: COMMIT.slice(0, 9),
@@ -66,6 +85,8 @@ module.exports = {
   fakeGit,
   finished,
   gitInfo,
+  recordNames,
+  recordsDirWith,
   reporterEvents,
   started,
 };
