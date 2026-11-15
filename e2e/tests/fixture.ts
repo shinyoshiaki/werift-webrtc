@@ -5,6 +5,52 @@ import { Peer, WebSocketTransport } from "protoo-client";
 
 const browser = Bowser.getParser(window.navigator.userAgent);
 export const browserName = browser.getBrowserName();
+export const isFirefox = browserName === "Firefox";
+
+/**
+ * Why a test is skipped in Firefox: werift bugs that Firefox exposes. Each
+ * reason starts with a fixed tag and the first 8 characters of the ticket ID.
+ * When the ticket is fixed, find its skips with
+ * `grep -rn "firefox-known:<name>" e2e/tests` and remove them.
+ */
+export const firefoxKnownIssue = {
+  iceTcpActiveOnly:
+    "[firefox-known:ice-tcp-active-only] 8b7c8e4a: 相手が active の TCP 候補だけだと werift の ICE が check を待たずに failed になる",
+  vp8PictureIdLoop:
+    "[firefox-known:vp8-picture-id-loop] f90a2878: answer の fmtp で packetizer を作り直し、ファイル再生のループで VP8 PictureID が戻る",
+  simulcastSsrcTrack:
+    "[firefox-known:simulcast-ssrc-track] be690c2e: a=ssrc 付き simulcast answer で SSRC のトラックが別に作られ、そのレイヤーの RTX がそちらへ復元される",
+} as const;
+
+/**
+ * Why a test is skipped in Firefox: the test relies on something Firefox (or
+ * its Playwright build) does not provide. No ticket: these stay skipped.
+ */
+export const firefoxUnsupported = {
+  h264: "[firefox-unsupported:h264] Playwright の Firefox は H.264（OpenH264 プラグイン）を持たない",
+  encodedStreams:
+    "[firefox-unsupported:encoded-streams] Chrome 独自の RTCRtpReceiver.createEncodedStreams() で RED を読む",
+  turnsIpLiteral:
+    "[firefox-unsupported:turns-ip-literal] Firefox の TURNS は FQDN と信頼済み証明書が必要（e2e の TURN は 127.0.0.1 と自己署名証明書）",
+} as const;
+
+type FirefoxSkipReason =
+  | (typeof firefoxKnownIssue)[keyof typeof firefoxKnownIssue]
+  | (typeof firefoxUnsupported)[keyof typeof firefoxUnsupported];
+
+/**
+ * `it` for a test that is skipped in Firefox: there it becomes `it.skip`
+ * with `reason` (a {@link firefoxKnownIssue} / {@link firefoxUnsupported}
+ * entry) before the name, so the run record shows why. Other browsers get
+ * `it` and the unchanged name. Use it as `itSkipOnFirefox(reason)(name, fn,
+ * timeout)`.
+ */
+export function itSkipOnFirefox(reason: FirefoxSkipReason): typeof it {
+  if (!isFirefox) return it;
+  const skip = (name: string, ...rest: unknown[]) =>
+    it.skip(`${reason} | ${name}`, ...(rest as [() => void]));
+  return skip as unknown as typeof it;
+}
 const e2ePort = import.meta.env.VITE_E2E_PORT ?? "8886";
 const e2eBaseUrl = `http://127.0.0.1:${e2ePort}`;
 
@@ -74,23 +120,35 @@ export async function waitAudioPlay(
   audio.autoplay = true;
   audio.srcObject = new MediaStream([track]);
   document.body.appendChild(audio);
-  try {
-    await audio.play();
-  } catch {
-    // autoplay policies may reject; Analyser may still work via MediaStream
-  }
+  // Do not wait for play(): Firefox resolves it only once the stream delivers
+  // media, so a source that stops early would hang here past timeoutMs.
+  // Autoplay policies may reject it; the Analyser still reads the MediaStream.
+  audio.play().catch(() => {});
 
   const ctx = new AudioContext();
-  try {
-    await ctx.resume();
-  } catch {}
+  const started = performance.now();
+  // Firefox keeps resume() pending while it cannot start audio output (no
+  // audio device, as in a container): bound the wait by timeoutMs too.
+  const running = await Promise.race([
+    ctx.resume().then(
+      () => true,
+      () => false,
+    ),
+    sleep(timeoutMs).then(() => false),
+  ]);
+  if (!running) {
+    void ctx.close().catch(() => {});
+    audio.pause();
+    audio.srcObject = null;
+    audio.remove();
+    throw new Error(`waitAudioPlay: AudioContext did not start (${ctx.state})`);
+  }
   const source = ctx.createMediaStreamSource(new MediaStream([track]));
   const analyser = ctx.createAnalyser();
   analyser.fftSize = 512;
   source.connect(analyser);
   const data = new Uint8Array(analyser.frequencyBinCount);
   const timeData = new Uint8Array(analyser.fftSize);
-  const started = performance.now();
 
   try {
     for (;;) {
@@ -682,6 +740,7 @@ export async function connectRecordPlayback(
   }
 
   await pc.setLocalDescription(await pc.createOffer());
+  await keepSendResolution(pc);
   const answer = await peer.request(label, {
     type: "init",
     payload: pc.localDescription,
@@ -695,6 +754,23 @@ export async function connectRecordPlayback(
     pc.close();
   };
   return { pc, dc, close };
+}
+
+/**
+ * The recording tests compare the recorded size with the camera size, so keep
+ * the encoder at the capture resolution. Without bandwidth feedback the
+ * encoder starts from its start bitrate; Firefox shares it with the audio
+ * stream and encodes the 640x480 camera at 320x240 in the "av" case.
+ */
+async function keepSendResolution(pc: RTCPeerConnection) {
+  for (const sender of pc.getSenders()) {
+    if (sender.track?.kind !== "video") continue;
+    const parameters = sender.getParameters() as RTCRtpSendParameters & {
+      degradationPreference?: "maintain-resolution";
+    };
+    parameters.degradationPreference = "maintain-resolution";
+    await sender.setParameters(parameters);
+  }
 }
 
 /**
@@ -756,6 +832,32 @@ export async function receiveRecordedFile(
   });
 }
 
+type MediaElementAudioCounters = {
+  /** Chrome: bytes of audio the element decoded. */
+  webkitAudioDecodedByteCount?: number;
+  /** Firefox: the element found an audio track in the media it played. */
+  mozHasAudio?: boolean;
+};
+
+function audioDecodedByteCount(element: HTMLMediaElement) {
+  return (element as MediaElementAudioCounters).webkitAudioDecodedByteCount;
+}
+
+/**
+ * Whether a media element that played to `ended` decoded audio, or undefined
+ * when the browser has no counter for it. Neither counter is standard: Chrome
+ * counts decoded bytes, Firefox reports only `mozHasAudio` and only on
+ * <video>. Where a test needs decoded audio in Firefox, it decodes the file
+ * with {@link decodeAudioFile}.
+ */
+function hasPlayedAudio(element: HTMLMediaElement) {
+  const counters = element as MediaElementAudioCounters;
+  if (counters.webkitAudioDecodedByteCount !== undefined) {
+    return counters.webkitAudioDecodedByteCount > 0;
+  }
+  return counters.mozHasAudio;
+}
+
 export type WebmFilePlayback = {
   duration: number;
   videoWidth: number;
@@ -764,8 +866,10 @@ export type WebmFilePlayback = {
   endedAt: number;
   totalVideoFrames: number;
   droppedVideoFrames: number;
-  /** Chrome-only `webkitAudioDecodedByteCount`. */
-  audioDecodedBytes: number;
+  /** Chrome-only `webkitAudioDecodedByteCount` (undefined in other browsers). */
+  audioDecodedBytes?: number;
+  /** The element decoded audio (undefined: no counter): {@link hasPlayedAudio}. */
+  audioDecoded?: boolean;
   /** Seek to the middle of the file completed and a frame was drawn. */
   seekedTo: number;
   /** Sum of RGB values at the seek target (0 means a black/empty frame). */
@@ -847,9 +951,8 @@ export async function playWebmFile(
       endedAt,
       totalVideoFrames: quality.totalVideoFrames,
       droppedVideoFrames: quality.droppedVideoFrames,
-      audioDecodedBytes:
-        (video as unknown as { webkitAudioDecodedByteCount?: number })
-          .webkitAudioDecodedByteCount ?? 0,
+      audioDecodedBytes: audioDecodedByteCount(video),
+      audioDecoded: hasPlayedAudio(video),
       seekedTo: video.currentTime,
       seekedFrameLuma,
     } satisfies WebmFilePlayback;
@@ -1002,8 +1105,10 @@ export type AudioFilePlayback = {
   duration: number;
   /** currentTime when `ended` fired. */
   endedAt: number;
-  /** Chrome-only `webkitAudioDecodedByteCount`. */
-  audioDecodedBytes: number;
+  /** Chrome-only `webkitAudioDecodedByteCount` (undefined in other browsers). */
+  audioDecodedBytes?: number;
+  /** The element decoded audio (undefined: no counter): {@link hasPlayedAudio}. */
+  audioDecoded?: boolean;
   /** Seek to the middle of the file completed. */
   seekedTo: number;
 };
@@ -1067,9 +1172,8 @@ export async function playAudioFile(
     return {
       duration: audio.duration,
       endedAt,
-      audioDecodedBytes:
-        (audio as unknown as { webkitAudioDecodedByteCount?: number })
-          .webkitAudioDecodedByteCount ?? 0,
+      audioDecodedBytes: audioDecodedByteCount(audio),
+      audioDecoded: hasPlayedAudio(audio),
       seekedTo: audio.currentTime,
     } satisfies AudioFilePlayback;
   } finally {

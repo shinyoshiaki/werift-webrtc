@@ -72,9 +72,10 @@ describe("mediachannel_record_playback", () => {
         expect(playback.endedAt).toBeGreaterThan(playback.duration * 0.9);
         // Assert: 再生中に複数秒分のフレームがデコードされた
         expect(playback.totalVideoFrames).toBeGreaterThan(30);
-        // Assert: 音声付きの場合は音声もデコードされた
+        // Assert: 音声付きの場合は音声もデコードされた（Chrome はデコード済みバイト数、
+        // Firefox は <video> の mozHasAudio で確認する）
         if (kinds === "av") {
-          expect(playback.audioDecodedBytes).toBeGreaterThan(0);
+          expect(playback.audioDecoded).toBe(true);
         }
         // Assert: 中央へのシークが完了し、黒ではないフレームが描画された
         expect(playback.seekedTo).toBeGreaterThan(0);
