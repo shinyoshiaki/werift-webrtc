@@ -12,11 +12,60 @@ import type { SCTP } from "../../sctp/src/sctp";
 import {
   type PeerConfig,
   type RTCDataChannel,
+  RTCIceGatherer,
   type RTCIceServer,
-  type RTCIceTransport,
+  RTCIceTransport,
   RTCPeerConnection,
   type RTCSctpTransport,
 } from "../src";
+
+/**
+ * Arrange: host-only ICE transports (1 controlling) where 2 learns none of
+ * 1's candidates and 1 does not start, so 2's start() waits for an incoming
+ * check on an empty check list. `starting` settles with that start().
+ */
+export async function startIceTransportWaitingForIncomingCheck(
+  incomingCheckTimeout: number,
+) {
+  const options = { incomingCheckTimeout, useIpv6: false };
+  const transport1 = new RTCIceTransport(new RTCIceGatherer(options));
+  const transport2 = new RTCIceTransport(new RTCIceGatherer(options));
+  transport1.connection.iceControlling = true;
+  transport2.connection.iceControlling = false;
+  await Promise.all([transport1.gather(), transport2.gather()]);
+  transport2.setRemoteParams(transport1.localParameters);
+  const starting = transport2.start().then(
+    () => ({ error: undefined as unknown }),
+    (error: unknown) => ({ error }),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  return { transport1, transport2, starting };
+}
+
+/**
+ * Arrange: a new ICE generation of the transports of
+ * `startIceTransportWaitingForIncomingCheck` with every candidate exchanged.
+ * `restart` is "local" (both restart) or "remote" (only 1 restarts, 2 drops
+ * its remote generation and keeps its credentials and candidates).
+ */
+export async function restartIceTransportGeneration(
+  transport1: RTCIceTransport,
+  transport2: RTCIceTransport,
+  restart: "local" | "remote",
+) {
+  transport1.restart(false);
+  if (restart === "local") {
+    transport2.restart(false);
+    await Promise.all([transport1.gather(), transport2.gather()]);
+  } else {
+    transport2.resetRemoteGeneration();
+    await transport1.gather();
+  }
+  transport2.localCandidates.forEach(transport1.addRemoteCandidate);
+  transport1.localCandidates.forEach(transport2.addRemoteCandidate);
+  transport1.setRemoteParams(transport2.localParameters);
+  transport2.setRemoteParams(transport1.localParameters);
+}
 
 export function load(name: string) {
   return readFileSync("./tests/data/" + name);

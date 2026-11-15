@@ -1,5 +1,6 @@
 import { SCTP_STATE } from "../../../sctp/src";
 import { debug, type Event } from "../imports/common";
+import { IceRestartedError } from "../imports/ice";
 import type { TransceiverManager } from "../media";
 import type { NegotiationTransaction } from "../negotiationTransaction";
 import type { SctpTransportManager } from "../sctpManager";
@@ -251,10 +252,17 @@ export class TransportActivation {
         if (!iceTransport.checksStarted) {
           progressed = true;
           this.secure.setConnectionState("connecting");
-          await iceTransport.start().catch((err) => {
-            log("iceTransport.start failed", err);
-            throw err;
-          });
+          const started = await iceTransport.start().then(
+            () => true,
+            (err) => {
+              // An ICE restart replaced these checks: the connect() of the
+              // description that carries the new generation reports it.
+              if (err instanceof IceRestartedError) return false;
+              log("iceTransport.start failed", err);
+              throw err;
+            },
+          );
+          if (!started) return false;
           iceReady = true;
         } else if (iceTransport.state === "checking") {
           // Checks an earlier connect() (or a pranswer) started are awaited,
@@ -375,7 +383,14 @@ export class TransportActivation {
           if (!iceTransport.getRemoteParameters()) return;
           iceTransport.connection.iceControlling =
             this.host.signalingState() === "have-remote-pranswer";
-          await iceTransport.start();
+          const started = await iceTransport.start().then(
+            () => true,
+            (err) => {
+              if (err instanceof IceRestartedError) return false;
+              throw err;
+            },
+          );
+          if (!started) return;
         } else if (iceTransport.state === "checking") {
           await iceTransport.checksSettled();
         }

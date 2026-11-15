@@ -61,6 +61,7 @@
 - [H265Packetizer](classes/H265Packetizer.md)
 - [H265RtpPayload](classes/H265RtpPayload.md)
 - [IceCandidate](classes/IceCandidate.md)
+- [IceRestartedError](classes/IceRestartedError.md)
 - [InterArrivalDelta](classes/InterArrivalDelta.md)
 - [IntervalBudget](classes/IntervalBudget.md)
 - [LightweightBandwidthEstimator](classes/LightweightBandwidthEstimator.md)

@@ -613,21 +613,16 @@ export async function exchangeTcpOnlyCandidates(
 /**
  * Arrange: b runs connect() with an empty check list (a offered no
  * candidate and does not connect), so it waits for an incoming check.
- * `settled` turns true once that connect() settles.
+ * `connecting` settles with that connect()'s outcome and its duration.
  */
 export async function startWaitingForIncomingCheck(
   extra: Partial<IceOptions> = {},
 ) {
   const { a, b } = createTcpOnlyConnections(extra);
   await exchangeTcpOnlyCandidates(a, b, () => false);
-  const waiting = { settled: false };
-  const connecting = b.connect().finally(() => {
-    waiting.settled = true;
-  });
-  // The rejection of a failed connect() is asserted through `settled`.
-  connecting.catch(() => {});
+  const connecting = timeSettle(b.connect());
   await new Promise((resolve) => setTimeout(resolve, 100));
-  return { a, b, waiting };
+  return { a, b, connecting };
 }
 
 /**

@@ -4,6 +4,7 @@ import {
   Connection,
   type IceConnection,
   type IceOptions,
+  IceRestartedError,
   isCandidateAllowedByGatherOptions,
   mergeIceServerOptions,
 } from "../../../ice/src";
@@ -805,7 +806,9 @@ export class RTCIceTransport {
     const startPromise = Promise.resolve()
       .then(() => this.connection.connect())
       .catch((error) => {
-        this.setState("failed");
+        // A restart replaced this generation (restart() already set "new"):
+        // the cancelled checks say nothing about the new one.
+        if (!(error instanceof IceRestartedError)) this.setState("failed");
         throw error;
       })
       .finally(() => {

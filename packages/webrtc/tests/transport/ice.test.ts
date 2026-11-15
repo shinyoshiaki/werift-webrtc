@@ -6,7 +6,12 @@ import {
   TURN_TEST_PASSWORD,
   TURN_TEST_USERNAME,
 } from "../../../ice/tests/utils";
-import { RTCIceGatherer, RTCIceTransport, RTCPeerConnection } from "../../src";
+import {
+  IceRestartedError,
+  RTCIceGatherer,
+  RTCIceTransport,
+  RTCPeerConnection,
+} from "../../src";
 import { iceTransportPair } from "../fixture";
 import {
   connectPeerConnections,
@@ -16,6 +21,8 @@ import {
   iceAgentTurnServers,
   negotiate,
   peerTurnAllocations,
+  restartIceTransportGeneration,
+  startIceTransportWaitingForIncomingCheck,
   waitForLocalCandidatesEnd,
 } from "../utils";
 
@@ -881,6 +888,37 @@ describe("iceTransport", () => {
       await Promise.all([transport1.stop(), transport2.stop()]);
     }
   }, 20_000);
+
+  test.each(["local", "remote"] as const)(
+    "%s restart during the wait for an incoming check ends the old start() without failing the new generation",
+    async (restart) => {
+      // Arrange: transport2 は空の check list で相手の check を待っている (待ち時間 3 秒)。
+      const { transport1, transport2, starting } =
+        await startIceTransportWaitingForIncomingCheck(3);
+
+      try {
+        // Act: 待機中に restart する。
+        await restartIceTransportGeneration(transport1, transport2, restart);
+        const old = await starting;
+
+        // Assert: 旧世代の start() は IceRestartedError で終わり、transport を failed にしない。
+        expect(old.error).toBeInstanceOf(IceRestartedError);
+        expect(transport2.state).not.toBe("failed");
+
+        // Act: 新しい世代で両側を start する。
+        await Promise.all([transport1.start(), transport2.start()]);
+
+        // Assert: 新しい世代は接続し、旧世代の待ち時間を過ぎても connected のまま。
+        expect(transport1.state).toBe("connected");
+        expect(transport2.state).toBe("connected");
+        await new Promise((resolve) => setTimeout(resolve, 3200));
+        expect(transport2.state).toBe("connected");
+      } finally {
+        await Promise.all([transport1.stop(), transport2.stop()]);
+      }
+    },
+    15_000,
+  );
 
   test("test_connect", async () => {
     const gatherer1 = new RTCIceGatherer({

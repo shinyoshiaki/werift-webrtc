@@ -15,6 +15,7 @@
 - [Candidate](classes/Candidate.md)
 - [CandidatePair](classes/CandidatePair.md)
 - [Connection](classes/Connection.md)
+- [IceRestartedError](classes/IceRestartedError.md)
 - [Message](classes/Message.md)
 - [StunOverTurnProtocol](classes/StunOverTurnProtocol.md)
 - [StunProtocol](classes/StunProtocol.md)

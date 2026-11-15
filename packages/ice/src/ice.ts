@@ -8,7 +8,11 @@ import {
   remoteTcpTypeForIncoming,
 } from "./candidate";
 import { MdnsLookup } from "./dns/lookup";
-import { TransactionCancelled, type TransactionError } from "./exceptions";
+import {
+  IceRestartedError,
+  TransactionCancelled,
+  type TransactionError,
+} from "./exceptions";
 import { type Cancelable, cancelable, PQueue, randomString } from "./helper";
 import {
   CandidatePair,
@@ -1992,19 +1996,21 @@ export class Connection implements IceConnection {
         if (!this.schedulingChecks()) break;
         await timers.setTimeout(20);
       }
-      if (this.remoteGeneration !== remoteGeneration) return this.superseded();
+      if (this.remoteGeneration !== remoteGeneration) this.superseded();
       // No pair to check (the peer offered only active TCP candidates, or
       // none this agent can reach): a check from the peer can still add a
       // peer-reflexive pair, so the empty check list does not fail at once.
       const pairAdded = await this.waitForIncomingCheck();
-      if (this.remoteGeneration !== remoteGeneration) return this.superseded();
+      if (this.remoteGeneration !== remoteGeneration) this.superseded();
       if (!pairAdded) break;
     }
     this.schedulingStopped = true;
 
     // # wait for completion
     let res: number = ICE_FAILED;
-    while (this.checkList.length > 0 && res === ICE_FAILED) {
+    // close() posts ICE_FAILED; a pair still in the list must not keep this
+    // waiting for a result no check will post anymore.
+    while (this.checkList.length > 0 && res === ICE_FAILED && !this.closed) {
       res = await this.checkListState.get();
       log("checkListState", res);
     }
@@ -2027,14 +2033,13 @@ export class Connection implements IceConnection {
   /**
    * A restart replaced the generation connect() was checking: neither the
    * new generation's check list nor its results (`checkListState`) belong to
-   * it, and the caller (webrtc's `TransactionActivation` / `RTCIceTransport`)
-   * would treat a return as connected and a throw as failed, both about the
-   * new generation. So, as with a connect() waiting on a replaced
-   * `checkListState`, it never settles (the agent is still collected).
+   * it. It ends with `IceRestartedError`, which callers (webrtc's
+   * `RTCIceTransport` / `TransactionActivation`) tell apart from a failure,
+   * so the new generation's state stays as its own connect() sets it.
    */
-  private superseded(): Promise<never> {
+  private superseded(): never {
     log("connect superseded by an ICE restart");
-    return new Promise<never>(() => {});
+    throw new IceRestartedError();
   }
 
   /**

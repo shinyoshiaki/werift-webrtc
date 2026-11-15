@@ -3,7 +3,7 @@ import { setTimeout } from "timers/promises";
 import { describe, expect, test, vi } from "vitest";
 
 import type { Address } from "../../../common/src";
-import { CandidatePairState } from "../../src";
+import { CandidatePairState, IceRestartedError } from "../../src";
 import {
   classes,
   methods,
@@ -197,32 +197,54 @@ describe("ICE-TCP with an empty check list", () => {
   });
 
   test.each(["local", "remote"] as const)(
-    "a %s ICE restart during the wait leaves the new generation connected",
+    "a %s ICE restart during the wait cancels the old connect() and the new generation connects",
     async (restart) => {
-      // Arrange: b は空の check list で相手の check を待っている (待ち時間 0.5 秒)。
-      const { a, b, waiting } = await startWaitingForIncomingCheck({
-        incomingCheckTimeout: 0.5,
+      // Arrange: b は空の check list で相手の check を待っている (待ち時間 3 秒)。
+      const { a, b, connecting } = await startWaitingForIncomingCheck({
+        incomingCheckTimeout: 3,
       });
 
       try {
-        // Act: 待機中に ICE restart し、新しい世代で両側が connect する。
+        // Act: 待機中に ICE restart する。
         await restartTcpOnlyGeneration(a, b, restart);
+        const old = await connecting;
+
+        // Assert: 旧世代の connect() は待ち時間を待たず IceRestartedError で終わる。
+        expect(old.error).toBeInstanceOf(IceRestartedError);
+        expect(old.elapsedMs).toBeLessThan(2000);
+
+        // Act: 新しい世代で両側が connect する。
         await Promise.all([a.connect(), b.connect()]);
 
-        // Assert: 新しい世代は接続する。
+        // Assert: 新しい世代は接続し、旧世代の待ち時間を過ぎても状態と通信は変わらない。
         expect(b.state).toBe("connected");
         expect(a.state).toBe("connected");
-
-        // Act: 旧世代の待ち時間 (0.5 秒) を過ぎるまで待つ。
-        await setTimeout(800);
-
-        // Assert: 旧世代の connect() は失敗も完了もせず、新しい世代の状態と通信を変えない。
-        expect(waiting.settled).toBe(false);
+        await setTimeout(3200);
         expect(b.state).toBe("connected");
         await expectDataFlows(a, b, `${restart}-restart`);
       } finally {
         await Promise.all([a.close(), b.close()]);
       }
+    },
+  );
+
+  test.each(["local", "remote"] as const)(
+    "close() after a %s ICE restart during the wait leaves no connect() pending",
+    async (restart) => {
+      // Arrange: b は既定の待ち時間 (30 秒) で相手の check を待っている。
+      const { a, b, connecting } = await startWaitingForIncomingCheck();
+
+      // Act: 待機中に ICE restart し、新しい世代の connect() を始めてから両側を close する。
+      await restartTcpOnlyGeneration(a, b, restart);
+      const next = timeSettle(b.connect());
+      await setTimeout(100);
+      await Promise.all([a.close(), b.close()]);
+      const [old, current] = await Promise.all([connecting, next]);
+
+      // Assert: 旧世代の connect() は IceRestartedError で、新しい世代の connect() は close で終わる。
+      expect(old.error).toBeInstanceOf(IceRestartedError);
+      expect(current.error).toBeInstanceOf(Error);
+      expect(current.elapsedMs).toBeLessThan(5000);
     },
   );
 });
