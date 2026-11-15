@@ -710,7 +710,7 @@ export class TransceiverManager {
    * - A negotiated codec keeps its negotiated payload type; a codec offered
    *   again takes its configured payload type, or a free dynamic one when that
    *   type is used by another codec in this session (any m-line; the same
-   *   codec with other `a=fmtp` parameters counts as another). RTX `apt`
+   *   codec with other `a=fmtp` / `a=rtcp-fb` counts as another). RTX `apt`
    *   and RED references follow the primary's payload type, and an RTX / RED
    *   whose primary is not offered is dropped.
    * - A transceiver without a negotiated session resolves as before: its
@@ -738,7 +738,8 @@ export class TransceiverManager {
     const offerCodecs = new Map<RTCRtpTransceiver, RTCRtpCodecParameters[]>();
     // Every payload type the session uses, as `transceiver` must not reuse
     // it for another codec (BUNDLE shares the payload type space across
-    // m-lines, and RFC 8859 requires one `a=fmtp` per payload type): what the
+    // m-lines, and RFC 8859 requires one `a=fmtp` and `a=rtcp-fb` per payload
+    // type): what the
     // other m-lines put in this offer (resolved so far, otherwise their live
     // codecs), then, for a negotiated m-line, its own live codecs (a payload
     // type the remote still maps to a codec of this m-line).

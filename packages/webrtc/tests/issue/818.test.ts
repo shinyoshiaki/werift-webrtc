@@ -482,6 +482,65 @@ describeCases("issue 818: subsequent offers list every supported codec", () => {
   );
 
   negotiationCase(
+    "an added m-line does not reuse the payload type of the same codec with other RTCP feedback",
+    { ref: "origin: issue 818 (review: rtcp-fb collision)" },
+    async (c) => {
+      // Arrange: A は VP8 (PT 98, nack / pli / remb) を offer し、B (VP8 96 feedback あり + VP8 98 feedback なし) が PT 98 で確定する。
+      const { b } = await c.given(
+        createConnectedVideoPeersWith({
+          offerer: { codecs: { video: [useVP8({ payloadType: 98 })] } },
+          answerer: {
+            codecs: {
+              video: [
+                useVP8({ payloadType: 96 }),
+                useVP8({ payloadType: 98, rtcpFeedback: [] }),
+              ],
+            },
+          },
+        }),
+      );
+      expect(b.currentLocalDescription!.sdp).toMatch(
+        /^a=rtcp-fb:98 nack pli\r?$/m,
+      );
+
+      // Act: B が映像 transceiver を追加して offer を作る。
+      b.addTransceiver("video", { direction: "recvonly" });
+      const offer = await b.createOffer();
+
+      // Assert: BUNDLE 内の各 PT の rtcp-fb は全 m-line で同じ (RFC 8859 IDENTICAL-PER-PT)。
+      const videoSections = offer.sdp
+        .split(/^m=/m)
+        .slice(1)
+        .filter((section) => section.startsWith("video"));
+      expect(videoSections).toHaveLength(2);
+      const feedback = videoSections.map(
+        (section) =>
+          new Map(
+            [...section.matchAll(/^a=rtpmap:(\d+) /gm)].map(([, pt]) => [
+              Number(pt),
+              [
+                ...section.matchAll(
+                  new RegExp(`^a=rtcp-fb:${pt} (.*?)\\r?$`, "gm"),
+                ),
+              ]
+                .map(([, value]) => value)
+                .sort()
+                .join(","),
+            ]),
+          ),
+      );
+      for (const [pt, value] of feedback[1]) {
+        expect(feedback[0].get(pt) ?? value).toEqual(value);
+      }
+      // Assert: 既存 m-line の VP8 (feedback あり) は 98 のまま、両 m-line とも feedback なしの VP8 を提示する。
+      expect(feedback[0].get(98)).toEqual("goog-remb,nack,nack pli");
+      for (const section of feedback) {
+        expect([...section.values()]).toContain("");
+      }
+    },
+  );
+
+  negotiationCase(
     "glare on a connected session: the polite peer's implicit rollback keeps RTP and DataChannel flowing both ways",
     { ref: "origin: issue 818 (review: glare)" },
     async (c) => {

@@ -1448,6 +1448,43 @@ describe("codec resolution", () => {
       ]);
     });
 
+    test("the same codec with other RTCP feedback does not share a payload type", () => {
+      // Arrange: 別 m-line が PT 98 = VP8 (feedback なし)、PT 100 = VP8 (pli, nack) を使う。
+      const feedback = (...types: [string, string?][]) =>
+        types.map(([type, parameter]) => ({
+          type,
+          ...(parameter ? { parameter } : {}),
+        }));
+      const withFeedback = (
+        payloadType: number,
+        rtcpFeedback: { type: string; parameter?: string }[],
+      ) =>
+        new RTCRtpCodecParameters({
+          mimeType: "video/VP8",
+          clockRate: 90_000,
+          payloadType,
+          rtcpFeedback,
+        });
+      const capability = [
+        withFeedback(98, feedback(["nack"], ["nack", "pli"])),
+        withFeedback(100, feedback(["nack", "PLI"], ["nack"])),
+      ];
+      const otherMLine = [
+        withFeedback(98, []),
+        withFeedback(100, feedback(["nack", "pli"], ["nack"])),
+      ];
+
+      // Act: 交渉前の m-line として offer 用の codec を解決する。
+      const offered = keepNegotiatedPayloadTypes(
+        capability,
+        [],
+        taken(...otherMLine),
+      );
+
+      // Assert: feedback が違う 98 は空き PT 96 へ移り、順序と大文字小文字だけが違う 100 は共有する。
+      expect(offered.map((c) => c.payloadType)).toEqual([96, 100]);
+    });
+
     test("RED follows its primaries and is dropped without them", () => {
       // Arrange: opus 111 と RED 63 (111/111)。交渉済みは opus 109 だけ。
       const capability = [

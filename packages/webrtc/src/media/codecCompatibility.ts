@@ -360,11 +360,28 @@ function formatParameters(codec: RTCRtpCodecParameters) {
 }
 
 /**
+ * The RTCP feedback (`a=rtcp-fb`) a payload type stands for, unordered and
+ * without duplicates, with the type and parameter compared case-insensitively.
+ */
+function feedbackTypes(codec: RTCRtpCodecParameters) {
+  return [
+    ...new Set(
+      codec.rtcpFeedback.map((feedback) =>
+        `${feedback.type} ${feedback.parameter ?? ""}`.trim().toLowerCase(),
+      ),
+    ),
+  ]
+    .sort()
+    .join(";");
+}
+
+/**
  * Whether two codecs can share a payload type in one BUNDLE group (RFC 3264
- * §8.3.2, RFC 8843 §9.1): the same codec with the same format parameters,
- * which RFC 8859 puts in the IDENTICAL-PER-PT category (`a=fmtp`). So an H264 format
- * with another `packetization-mode` or `profile-level-id`, an RTX for another
- * `apt` or a RED with other primaries is another codec.
+ * §8.3.2, RFC 8843 §9.1): the same codec with the same format parameters and
+ * RTCP feedback, the attributes RFC 8859 puts in the IDENTICAL-PER-PT
+ * category (`a=fmtp`, `a=rtcp-fb`). So an H264 format with another
+ * `packetization-mode` or `profile-level-id`, an RTX for another `apt`, a RED
+ * with other primaries or a VP8 with other feedback is another codec.
  */
 function samePayloadMapping(
   left: RTCRtpCodecParameters,
@@ -375,7 +392,8 @@ function samePayloadMapping(
       normalizeCodecMimeType(right.mimeType) &&
     left.clockRate === right.clockRate &&
     (left.channels ?? 1) === (right.channels ?? 1) &&
-    formatParameters(left) === formatParameters(right)
+    formatParameters(left) === formatParameters(right) &&
+    feedbackTypes(left) === feedbackTypes(right)
   );
 }
 
@@ -406,8 +424,9 @@ function withPayloadType(
  *
  * A codec offered again keeps its configured payload type unless that type is
  * already used on this m-line or maps to another codec in `taken` (every
- * payload type the session uses; the same codec with other format parameters,
- * such as a RED with other primaries, is another codec); then it takes a free dynamic type (96-127,
+ * payload type the session uses; the same codec with other format parameters
+ * or RTCP feedback, such as a RED with other primaries, is another codec);
+ * then it takes a free dynamic type (96-127,
  * then 35-63). RTX `apt` and RED references follow their primaries, and an
  * RTX / RED whose primary is not offered is dropped. The order of
  * `capability` is kept.

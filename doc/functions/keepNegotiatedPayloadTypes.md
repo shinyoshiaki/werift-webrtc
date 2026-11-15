@@ -14,8 +14,9 @@ that is already negotiated moved to its negotiated payload type.
 
 A codec offered again keeps its configured payload type unless that type is
 already used on this m-line or maps to another codec in `taken` (every
-payload type the session uses; the same codec with other format parameters,
-such as a RED with other primaries, is another codec); then it takes a free dynamic type (96-127,
+payload type the session uses; the same codec with other format parameters
+or RTCP feedback, such as a RED with other primaries, is another codec);
+then it takes a free dynamic type (96-127,
 then 35-63). RTX `apt` and RED references follow their primaries, and an
 RTX / RED whose primary is not offered is dropped. The order of
 `capability` is kept.

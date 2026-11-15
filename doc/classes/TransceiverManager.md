@@ -520,7 +520,7 @@ Rules (RFC 8829 §5.2.2, RFC 3264 §8.3.2):
 - A negotiated codec keeps its negotiated payload type; a codec offered
   again takes its configured payload type, or a free dynamic one when that
   type is used by another codec in this session (any m-line; the same
-  codec with other `a=fmtp` parameters counts as another). RTX `apt`
+  codec with other `a=fmtp` / `a=rtcp-fb` counts as another). RTX `apt`
   and RED references follow the primary's payload type, and an RTX / RED
   whose primary is not offered is dropped.
 - A transceiver without a negotiated session resolves as before: its
