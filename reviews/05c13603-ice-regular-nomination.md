@@ -43,6 +43,19 @@ ide:
   </div>
 </div>
 
+### 1.1 受け入れテスト（ここだけ見れば目的の達成を確認できます）
+
+[packages/ice/tests/ice/acceptance.test.ts:17](review-file:packages/ice/tests/ice/acceptance.test.ts:17) の 3 件が、このチケットの目的を実ソケットとローカル TURN サーバーで確かめます。host ↔ host の経路だけを止めておき、TURN relay の経路で先に接続させます。
+
+| テスト | 確認すること |
+| --- | --- |
+| [「(semi-aggressive) 9章: …」「(renomination) 9章: …」](review-file:packages/ice/tests/ice/acceptance.test.ts:18) | relay で接続が完了した後に host の経路を通すと、両端が host ↔ host に移り、同じ 5-tuple でデータが双方向に届く |
+| [「(regular) 3章・7章: …」](review-file:packages/ice/tests/ice/acceptance.test.ts:64) | relay が先に valid になっても待ち時間内に host が通れば、relay を一度も指名せずに host ↔ host だけを指名する |
+
+確認手順: `cd packages/ice && npx vitest run tests/ice/acceptance.test.ts`（数百 ms）。わざと実装を壊すと、該当する件が失敗することも確認しています。壊したのは、semi-aggressive の置き換え・renomination の再指名・regular の待ち時間・打ち切った check を Waiting に戻す処理（S10）の 4 か所です。
+
+regular nomination は仕様どおり（RFC 8445 §8.1.1）、一度選んだペアを ICE restart なしでは置き換えません。そのため regular では、「接続後に移る」ではなく「待ち時間内に届いた上位ペアを最初から選ぶ」ことを確認しています。
+
 ## 2. 修正前の問題と修正後の仕組み
 
 ### 2.1 同じ trickle の流れを 3 方式で比べる
