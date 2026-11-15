@@ -369,6 +369,13 @@ RFC 8843 / RFC 9143（BUNDLE）§9.2「Associating RTP/RTCP Streams with the Cor
   - したがって P3 の傾き（レビュアーの測定で本ブランチ 18.64、develop 18.79 KiB/cycle、閾値 16）は develop の ICE 側の保持によるもので、本チケットの差分による保持はない。閾値の見直しは ICE チケット `74132240` の作業項目。
 - leak seed 102（前回のレビューで deep run 中に不安定、単独では成功）は、今回は再確認していない（前回の本ブランチの全スイート実行（3.11 の保留経路の修正後）では失敗しなかった）。
 
+**保留中の RID と確定済みの RID が重なるときは PT で受信先を決める（レビュー指摘）:**
+- [x] MID も既存の SSRC 経路もないパケットが、保留中の SSRC-less m-line が待つ RID を運ぶと、同じ RID の確定済み m-line の RID 解決まで止めていた。確定済みのストリームが SSRC を変え、その最初のパケットに MID がないと、PT で確定済み m-line と分かっても破棄され、受信 SSRC が 700 から 701 に更新されなかった。`RtpRouter.pendingRidOwner` に置き換え、パケットの transport 上で PT を受ける m-line で決める（RFC 9143 §9.2）: 待っている保留中の m-line だけ → その m-line の現在のストリーム（PT の規則で学習）、確定済みの RID の m-line だけ → 通常どおり RID で引く（確定済みストリームが続く）、両方 → 曖昧として破棄。MID か既存の SSRC 経路で m-line が決まる場合は従来どおり。
+- [x] 回帰テスト（`router.test.ts`、3 件）: PT が確定済みの m-line だけのもの（701 が v の RID の media SSRC になり届く。修正前のコードで失敗することを確認）、保留中の SSRC-less m-line だけのもの（l が受ける）、両方が受けるもの（どちらにも届かず v の media SSRC は 700 のまま）。対象テスト 176 件成功。
+- 検証（`49b0d7c8e` + 未コミット差分）: webrtc の `npm test` は 1960 passed、5 skipped（TURN 関連の失敗は今回出ていない）。ルートの `npm run type` 成功。`pbt:deep`: fuzz 306/306、model 363/363（flaky 0）、leak 651/653（失敗 0、flaky 2）、scenario 2144 成功・失敗 2（seed 12、98）・17 flaky。ルートの `npm run test:small` は webrtc の `issue/705-reuse` の 1 件（aggressive: the answerer's stop() is rejected）がホストの高負荷（ロードアベレージ 17）の中で失敗した。
+  - 単独で交互に 6 回ずつ（ロードアベレージ 14〜19）: `issue/705-reuse` 本ブランチ 1/6・develop `41773f4dc` 1/6、scenario seed 12 0/6・0/6、seed 98 0/6・0/6。
+  - seed 98 を含むシャード（`SEED=92 SEEDS=7`）を、もう一方の worktree で `pbt:deep -- --suite scenario` を流して負荷をかけながら 5 回ずつ: 本ブランチは seed 98 が 0/5（同じシャードの seed 92〜96 が失敗した回が 3/5。内容は集まった ICE 候補の集合の差）、develop は seed 98 が 2/5（内容は `a=end-of-candidates` の差）。どちらも ICE の候補収集のタイミングに依存する既存の揺らぎで、経路の処理とは関係ない。
+
 ---
 
 ## 4. 制約・注意点

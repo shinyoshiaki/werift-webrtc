@@ -755,34 +755,54 @@ export class RtpRouter {
   }
 
   /**
-   * A RID a packet carries belongs to an m-line without SSRC and RID (a
-   * pending description's RID, see `deferredRemote`), so it must not be
-   * looked up on another m-line that uses the same RID: the m-line the packet
-   * names (its MID, else its SSRC's route) is SSRC-less and has no route for
-   * the RID, or, for a packet naming none, an SSRC-less m-line of the
-   * transport waits for this RID.
+   * Whether a RID a packet carries belongs to an m-line without SSRC and RID
+   * that waits for it (a pending description's RID, see `deferredRemote`),
+   * so it must not be looked up on another m-line that uses the same RID:
+   * - the m-line the packet names (its MID, else its SSRC's route) is
+   *   SSRC-less and has no route for the RID: `"pending"`;
+   * - for a packet naming none, the payload type decides on its transport
+   *   (RFC 9143 section 9.2): only such a waiting m-line receives it —
+   *   `"pending"`; a committed m-line with the RID receives it too —
+   *   `"ambiguous"` (dropped); only committed ones — `"none"`, so a committed
+   *   stream switching its SSRC keeps its route.
    */
-  private isPendingRidOfSsrcLess(
+  private pendingRidOwner(
     rid: string,
     mid: unknown,
     route: RTCRtpReceiver | undefined,
     transport: RTCDtlsTransport | undefined,
-  ) {
+    payloadType: number,
+  ): "pending" | "ambiguous" | "none" {
     const owner =
       typeof mid === "string"
         ? this.transceivers().find((t) => t.mid === mid)
         : this.transceivers().find((t) => !!route && t.receiver === route);
     if (owner) {
-      return (
-        owner.receiver.acceptsUnknownSsrc &&
+      return owner.receiver.acceptsUnknownSsrc &&
         !this.ridTable[ridRouteKey(owner.mid ?? "", rid)]
-      );
+        ? "pending"
+        : "none";
     }
-    return this.transceivers().some(
+    const receives = (receiver: RTCRtpReceiver) =>
+      receiver.receivesMediaPayloadType(payloadType) ||
+      receiver.receivesRtxPayloadType(payloadType);
+    const onTransport = (receiver: RTCRtpReceiver) =>
+      !transport || receiver.dtlsTransport === transport;
+    const waiting = this.transceivers().some(
       (t) =>
-        (!transport || t.receiver.dtlsTransport === transport) &&
-        !!t.receiver.deferredRemote?.simulcast.some((p) => p.rid === rid),
+        onTransport(t.receiver) &&
+        !!t.receiver.deferredRemote?.simulcast.some((p) => p.rid === rid) &&
+        receives(t.receiver),
     );
+    if (!waiting) return "none";
+    const committed = Object.entries(this.ridTable).some(
+      ([key, endpoint]) =>
+        ridOfRouteKey(key) === rid &&
+        endpoint instanceof RTCRtpReceiver &&
+        onTransport(endpoint) &&
+        receives(endpoint),
+    );
+    return committed ? "ambiguous" : "pending";
   }
 
   /**
@@ -831,12 +851,30 @@ export class RtpRouter {
       typeof rid !== "string" &&
       typeof repairedRid === "string" &&
       !rtpReceiver &&
-      !this.isPendingRidOfSsrcLess(repairedRid, mid, rtpReceiver, dtlsTransport)
+      this.pendingRidOwner(
+        repairedRid,
+        mid,
+        rtpReceiver,
+        dtlsTransport,
+        packet.header.payloadType,
+      ) === "none"
         ? this.receiverByRid(repairedRid, mid)
         : undefined;
-    const ridOfAnotherMline =
-      typeof rid === "string" &&
-      this.isPendingRidOfSsrcLess(rid, mid, rtpReceiver, dtlsTransport);
+    const pendingRid =
+      typeof rid === "string"
+        ? this.pendingRidOwner(
+            rid,
+            mid,
+            rtpReceiver,
+            dtlsTransport,
+            packet.header.payloadType,
+          )
+        : "none";
+    if (pendingRid === "ambiguous") {
+      log("rid of a pending and a committed m-line: ambiguous", { rid, ssrc });
+      return;
+    }
+    const ridOfAnotherMline = pendingRid === "pending";
     const ridReceiver =
       typeof rid === "string" && !ridOfAnotherMline
         ? this.receiverByRid(rid, mid)

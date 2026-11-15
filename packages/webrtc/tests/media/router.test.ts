@@ -3904,6 +3904,74 @@ describe("media/router: a=ssrc のない m-line の SSRC 学習 (#356)", () => {
     expect(router.routeEntries.filter((r) => r.ssrc === 55)).toEqual([]);
   });
 
+  test.each([
+    ["PT が確定済みの m-line だけのもの", 120, "v"],
+    ["PT が保留中の SSRC-less m-line だけのもの", 111, "l"],
+    ["PT を両方が受ける (曖昧)", 112, "none"],
+  ] as const)(
+    "MID も経路もない新しい SSRC が、保留中と確定済みの両方の m-line にある RID を運ぶとき、%s なら受信先を PT で決める",
+    (_, payloadType, owner) => {
+      // Arrange: 同じ transport で、v は RID "high" (media SSRC 700) が確定済みで PT 120 と 112 を受け、
+      // l は SSRC-less で PT 111 と 112 を受け、保留中の re-offer が l に RID "high" を与えた
+      const { router, dtls, addReceiver } = createSsrcLessRouter();
+      const l = addReceiver({ mid: "l", codecs: [opus(111), opus(112)] });
+      l.setCurrentDirection("recvonly");
+      const v = addReceiver({ mid: "v", codecs: [opus(120), opus(112)] });
+      v.setCurrentDirection("recvonly");
+      router.registerRtpReceiverByRid(
+        v,
+        new RTCRtpSimulcastParameters({ rid: "high", direction: "send" }),
+        { codecs: [opus(120), opus(112)], headerExtensions: [], encodings: [] },
+      );
+      router.routeRtp(
+        ssrcLessPacket({
+          ssrc: 300,
+          payloadType: 111,
+          mid: "l",
+          sequenceNumber: 1,
+        }),
+        dtls,
+      );
+      router.routeRtp(
+        ssrcLessPacket({
+          ssrc: 700,
+          payloadType: 120,
+          mid: "v",
+          rid: "high",
+          sequenceNumber: 1,
+        }),
+        dtls,
+      );
+      router.registerRtpReceiverByRid(
+        l,
+        new RTCRtpSimulcastParameters({ rid: "high", direction: "send" }),
+        { codecs: [opus(111), opus(112)], headerExtensions: [], encodings: [] },
+        { deferConflicts: true },
+      );
+      const lPayloads = collectTrackPayloads(l);
+      const vHigh: string[] = [];
+      v.receiver.trackByRID.high.onReceiveRtp.subscribe((rtp) =>
+        vHigh.push(rtp.payload.toString()),
+      );
+
+      // Act: SSRC 701 の最初のパケットが MID なし・RID "high" 付きで届く
+      router.routeRtp(
+        ssrcLessPacket({
+          ssrc: 701,
+          payloadType,
+          rid: "high",
+          sequenceNumber: 2,
+        }),
+        dtls,
+      );
+
+      // Assert: PT が名指す m-line だけが受け、曖昧ならどちらにも届けない
+      expect(vHigh).toEqual(owner === "v" ? ["payload-2"] : []);
+      expect(lPayloads).toEqual(owner === "l" ? ["payload-2"] : []);
+      expect(v.receiver.mediaSsrcByRid.high).toBe(owner === "v" ? 701 : 700);
+    },
+  );
+
   test("transceiver の登録解除で学習済み SSRC が残らない", () => {
     // Arrange
     const { router, dtls, addReceiver } = createSsrcLessRouter();
