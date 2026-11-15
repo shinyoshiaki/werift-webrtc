@@ -1,179 +1,207 @@
 # [E2E] 保守されていない Firefox E2E（`e2e/vitest.firefox.config.mts`）を正常に動作させる
 
+> 2026-11-15 最新化（HEAD `0e88b2d43`）。前回からの主な変化:
+> - Firefox E2E の実行・記録ランナー `npm run firefox:record`（`e2e/run-firefox.js`）が入った。実行記録は `e2e/firefox-runs/` にコミットされる（`03a719478` / `abfb3dd3e`）。
+> - サブタスク 1（bundle-only、`21a27c92`）は完了し、修正 `5d901e2e0` は HEAD に入っている。
+> - 「Firefox E2E は CI に入れない」方針が決まった（ユーザー指示、`03a719478`）。
+>
+> これに合わせて D1 を改め、D3 を追加した。Step 1 / Step 4 / 5 章も書き直した。
+
 ## 1. 目的と背景
 
-- `e2e/` には Firefox 用の設定（`vitest.firefox.config.mts`）とスクリプト（`npm run firefox`）がある。しかし CI（`.github/workflows/nodejs.yml` の `npx playwright install chromium` → `npm run ci` → `e2e/run-ci.js` → `chrome:prod`）が実行するのは Chrome だけで、Firefox の E2E は保守されていない。ルートの `README.md`（L32 / L183）は「A Firefox test runner is also included」と書いているので、ドキュメントと実態がずれている。
-- 親チケット #269 の確認（2026-11-12、HEAD `7ffcaaf9a`、Firefox 157 / Playwright 1.64.1）では、既定設定の基本テストが全件失敗した。
-  - `tests/datachannel/datachannel.test.ts`: 3 件すべて `Test timed out in 20000ms`
-  - `tests/mediachannel/sendrecv.test.ts`: すべて `waitVideoPlay timed out`
-  - `tests/bundle/*`: すべて失敗
-  - `media.peerconnection.ice.obfuscate_host_addresses: false` を追加しても結果は変わらない。
-- 一方、同じ環境で Node の werift と Playwright の Firefox を直接つなぐと、DataChannel は成立する。mDNS 秘匿ありでも、STUN を設定しても同じだった。そのため、原因は werift と Firefox の非互換ではなく、**E2E の経路（起動手順、設定、シグナリング）にある**と考えられる。
-- werift ↔ Firefox の既知の不具合は、別のサブタスクで扱う。どちらも親チケット #269（`190063e8-99d9-410f-89ca-cee8cf6423a1`）の §9.6 で見つかったもので、チケットは**作成済み**である（2026-11-12 に `ide-cli ticket list` で確認）。本チケットでは新しく作らない。
+- `e2e/` には Firefox 用の設定（`vitest.firefox.config.mts`）とスクリプトがある。CI（`.github/workflows/nodejs.yml` → `npm run ci` → `e2e/run-ci.js` → `chrome:prod`）が実行するのは Chrome だけである。ルートの `README.md`（L32 / L183）は「a Firefox test runner」と書いているが、実際には全件失敗する。
+- Firefox E2E を CI に入れない方針は維持する。代わりに、ローカルで実行した記録をコミットして履歴を残す。そのための仕組みとして `npm run firefox:record` がすでに用意されている（D3）。本チケットの目的は、**この経路で Firefox E2E が通る状態にすること**である。
+- コミット済みの実行記録（`e2e/firefox-runs/`）によると、いまも全件失敗している。どちらの記録も Firefox 157.0 / Playwright 1.64.1 / vitest 5.0.5 / Node v24.22.2 で取得しており、bundle-only の修正を含むコミットで実行している。
 
-| # | チケット ID | タイトル | スキップ文言の固定タグ |
+| 記録 | コミット | 対象 | 結果 |
 | --- | --- | --- | --- |
-| 1 | `21a27c92-7ca2-4075-bd29-246f95715de2` | [SDP/BUNDLE] Firefox の `a=bundle-only` m-line を拒否扱いし、`c=` のない answer を返して交渉が失敗する | `[firefox-known:bundle-only]` |
-| 2 | `ef1c086e-1a6f-479e-8940-822231b4f359` | [ICE] werift 起点の ICE restart の後、Firefox が werift からの RTP / DataChannel を受け取れなくなる | `[firefox-known:ice-restart]` |
+| `20261114T025126Z-8000795be-dirty.json` | `8000795be` | 全件 | 23 ファイル・44 件のうち **passed 0**、failed 42、skipped 2。途中で止まった（unfinished 1: `bundle/max-compat > bundle_max_compat_answer`）。5 分間テストイベントが来ず、idle 上限で停止した |
+| `20261115T032934Z-f9b9a763b-dirty.json` | `f9b9a763b` | `tests/datachannel/datachannel.test.ts` | 3 件すべて `Test timed out in 20000ms`（retry 込み） |
 
-  この 2 件に依存するテストは、修正されるまで Firefox ではスキップする（理由とサブタスクを明記する。1.1 の決定事項 D1 / D2）。
+- 一方、同じ環境で Node の werift と Playwright の Firefox を直接つなぐと、交渉と DataChannel / RTP が成立する。親チケット #269 の確認と、`e2e/tools/firefoxBundleOnly.ts` の確認の両方で成立した。そのため、原因は werift と Firefox の非互換ではなく、**E2E の経路（vitest browser mode、設定、シグナリング、テストの書き方）にある**と考えられる。
+- werift ↔ Firefox の既知の不具合は、別のサブタスクで扱う。どちらも親チケット #269（`190063e8-99d9-410f-89ca-cee8cf6423a1`）の §9.6 で見つかったものである。本チケットでは新しく作らない。
 
-## 1.1 決定事項（未確定事項の解消）
+| # | チケット ID | タイトル | 状態（2026-11-15） | スキップ文言の固定タグ |
+| --- | --- | --- | --- | --- |
+| 1 | `21a27c92-7ca2-4075-bd29-246f95715de2` | [SDP/BUNDLE] Firefox の `a=bundle-only` m-line を拒否扱いし、`c=` のない answer を返して交渉が失敗する | **done**（review approved）。修正 `5d901e2e0` は本ワークツリーの HEAD に入っているが、`origin/develop`（`41773f4dc`）にはまだ入っていない | 不要（D1） |
+| 2 | `ef1c086e-1a6f-479e-8940-822231b4f359` | [ICE] werift 起点の ICE restart の後、Firefox が werift からの RTP / DataChannel を受け取れなくなる | review レーン（未完了） | `[firefox-known:ice-restart]` |
 
-### D1. bundle-only に依存する `bundle/*` の扱い → **(b) スキップして完了とする**
+## 1.1 決定事項
 
-- 本チケットでは `packages/webrtc/src` の bundle-only 対応は**行わない**。Firefox 起点の `bundle-only` offer が原因で通らないケースは、`[firefox-known:bundle-only]` のタグを付けて Firefox だけスキップする。それをもって完了とする。
-- 理由:
-  - bundle-only 対応はサブタスク 1（`21a27c92-…`）の範囲である。そのチケットはすでに、RFC 8843 §6 / §7.3.3 に沿った answer の生成という negotiation 変更として切り出されている。negotiation 変更には `tools/negotiation-diff`、`npm run pbt:deep`、WPT の確認が必要（`packages/webrtc/AGENTS.md`）。これを E2E 基盤の修正と同じ変更に混ぜると、レビューと切り戻しの単位が大きくなる。
-  - 本チケットの目的は「Firefox E2E を回せる状態にし、werift 本体の不具合を E2E で検出できるようにする」ことである。サブタスク 1 の修正を検証する経路を先に用意するので、順序としては本チケットが先になる。
-  - 親チケット §9.6 によれば、Firefox が `bundle-only` を使うのは「`max-bundle` の初回 offer」「再 offer で追加する m-line」「ICE restart の offer」に限られる。werift 起点の offer と、`max-compat` / `disable` での Firefox 起点の初回 offer は、bundle-only に依存しない。そのため `bundle/*` の大半は本チケットだけで通るはずである。
-- 依存が想定されるケースは次のとおり（作業時に実測して 5.3 の表で確定する）。
-  - `tests/bundle/max-bundle.test.ts` の Firefox 起点の offer ケース（`bundlePolicy: "max-bundle"` で `pc.createOffer()`。L84– の 2 件目）
-  - `tests/bundle/tagOnlyCandidates.test.ts` のうち、Firefox 起点の再 offer を含むもの
-  - `tests/ice/restart.test.ts` の `ice_restart_web_trigger`（Firefox の restart offer は bundle-only を含む）
-  - `addTrack` / `removeTrack` / `reuse` / `simulcast` のうち、Firefox 起点の再 offer で m-line を足すもの
-- 次のテストは、bundle-only を理由にスキップしてはならない: `max-bundle.test.ts` の werift 起点の offer ケース、`max-compat.test.ts`、`disable.test.ts` の全件。これらが通らないときは、E2E 基盤の問題か新しい不具合として調べる。
-- スキップする根拠が bundle-only であることは、その場で確かめる。確認方法: Firefox の `setRemoteDescription(answer)` が `c= connection line not specified` で失敗すること、または送受信される SDP に `a=bundle-only` があること。確かめたらテスト結果の表に書く。推測だけでスキップしない。
+### D1. bundle-only と `bundle/*` の扱い → **サブタスク 1 は修正済みなので、`bundle/*` は全件通すことを完了条件にする**（前回の「(b) スキップして完了」から改めた）
 
-### D2. 参照するサブタスクと固定タグ → **作成済みの 2 件を参照する。新規作成はしない**
+- サブタスク 1 は完了しており、修正（`packages/webrtc/src/sdpManager.ts` の `acceptBundleOnlyMedia()`、`sdp.ts` の `bundleOnly` / `acceptedBundleOnly`、`remoteMediaApplication.ts` の tag 再選択）は HEAD に入っている。そのため、`[firefox-known:bundle-only]` によるスキップは**想定しない**。
+- `max-bundle` / `max-compat` / `disable` の全件、`tagOnlyCandidates`、Firefox 起点の再 offer を含む `addTrack` などで bundle-only が原因に見える失敗が出た場合は、21a27c92 の回帰か取りこぼしとして扱う。調べ方は次のとおり。
+  1. `cd e2e && node --import ../tools/node-ts/register.mjs tools/firefoxBundleOnly.ts --scenario all` を実行し、直接接続で `first` / `reoffer` / `restart` が PASS するかを確かめる。
+  2. PASS する場合は、E2E 経路の問題として本チケットで直す。
+  3. FAIL する場合は、`ticket create-subtask` で #269 の下にサブタスクを作り（D2）、`[firefox-known:<名前>]` でスキップする。
+- 本チケットでも、`packages/webrtc/src` の bundle 処理は変えない（4 章）。
+- 本チケットのブランチを develop に出すのは、21a27c92 の修正が develop にマージされた後にする。HEAD は 21a27c92 の修正を含む #269 のブランチを取り込んでいるため、先に出すと差分に他チケットの変更が混ざる。
 
-- 参照先は 1 章の表の 2 件に決める。スキップ文言には、固定タグと**チケット ID の先頭 8 文字**を入れる。
-  - 例: `it.skip("[firefox-known:bundle-only] 21a27c92: Firefox の max-bundle offer は a=bundle-only を使う", ...)`
+### D2. 参照するサブタスクと固定タグ → **残るのは ice-restart の 1 件。新規作成は、見つかった場合だけ**
+
+- スキップ文言には、固定タグと**チケット ID の先頭 8 文字**を入れる。
   - 例: `it.skip("[firefox-known:ice-restart] ef1c086e: werift 起点の restart 後に Firefox の受信が止まる", ...)`
-- タグと理由の文言は `tests/fixture.ts` に定数として 1 か所でまとめる（例: `firefoxKnownIssue.bundleOnly` / `firefoxKnownIssue.iceRestart`）。各テストはその定数を使う。サブタスクが直ったら `grep -rn "firefox-known:bundle-only" e2e/tests` で解除の対象を探し、スキップを外す。この手順をサブタスク 1 / 2 の完了条件に足してもらうよう、それぞれのチケットに一行追記する（本チケットの作業に含める）。
-- 上の 2 件に当てはまらない werift 本体の不具合が新しく見つかった場合は、本チケットの作業で `ide-cli ticket create-subtask` を使い、親チケット #269 の下にサブタスクを作る。タグは `[firefox-known:<短い名前>]` の形で足す。
-- ブラウザの仕様で前提が成り立たないもの（pranswer 未実装など）は、`[firefox-unsupported:<機能>]` のタグを使い、チケットは参照しない。既存のスキップ（`red` / `codecRtp` / `reuse` / `removeTrack`）にも、同じ形のタグを付けて揃える。
+- タグと理由の文言は `tests/fixture.ts` に定数として 1 か所でまとめる（例: `firefoxKnownIssue.iceRestart`）。各テストはその定数を使う。
+  - サブタスク 2（`ef1c086e`）には、「直ったら `grep -rn "firefox-known:ice-restart" e2e/tests` で対象を探してスキップを外す」と一行追記する（本チケットの作業に含める）。
+  - サブタスク 1 は完了済みなので、追記は不要になった。
+- 上の件に当てはまらない werift 本体の不具合が新しく見つかった場合は、`ide-cli ticket create-subtask` で親チケット #269 の下にサブタスクを作り、`[firefox-known:<短い名前>]` のタグを足す。
+- ブラウザの仕様で前提が成り立たないもの（pranswer 未実装、Chrome 専用の codec / RED など）には `[firefox-unsupported:<機能>]` を付け、チケットは参照しない。既存のスキップ（`red` / `codecRtp` / `reuse` / `removeTrack`）にも同じ形のタグを付けて揃える（2.5）。
 
-## 2. 調査結果（コードから分かる差分と、有力な原因候補）
+### D3. 実行経路と CI → **`npm run firefox:record` を正式な経路とし、CI には入れない**
 
-### 2.1 `npm run firefox` だけでは e2e サーバーが起動しない（保守性の問題。観測した失敗の主因ではない。下の追記を参照）
+- ユーザーの指示（`03a719478`: 「firefox の E2E テストを CI の実行対象外にするのは維持したい」）により、`nodejs.yml` に Firefox ジョブは**追加しない**。前回 Step 4.3 で推奨していた別ジョブ / nightly / subset の案は取り下げる。
+- 実行と検証は `cd e2e && npm run firefox:record [-- <vitest args>]` で行う。この経路は次のことを 1 コマンドで行う。
+  - Firefox の取得
+  - TypeScript ソースのままのサーバー起動（空きポート、`E2E_PORT` / `VITE_E2E_PORT`）
+  - vitest の実行（`vitest.firefox.record.config.mts`）
+  - `/stop` → PID によるサーバー停止
+  - 記録の保存と古い記録の削除（既定で 20 件まで残す）
+- 前回 Step 1 にあった `run-ci.js` の一般化、`run-firefox-prod.js`、`ci:firefox`、ルートの `e2e:firefox` は**作らない**。ルートの AGENTS.md の Validation が、Firefox E2E は `npm run firefox:record` で実行し、その記録をコミットすることとしているので、それに従う。
+- 完了の根拠は、**修正後のコミットで取った全件の記録**（`vitestArgs: []`、`outcome: completed`）をコミットすることとする（5 章）。
 
-| 項目 | Chrome（CI 経路） | Firefox（`npm run firefox`） |
-| --- | --- | --- |
-| サーバーのビルド | `npm run ci` / `ci:silent` が `npm run build`（`tsc -p tsconfig.server.json` → `lib/`）を実行する | 実行しない |
-| サーバーの起動 | `run-ci.js` が空きポートを取り、`E2E_PORT` / `VITE_E2E_PORT` を設定して `run-p server:* chrome:prod` を実行する | 起動しない。`vitest run ./tests ...` だけを実行する |
-| 接続先 | `VITE_E2E_PORT`（空きポート） | 未設定なら `tests/fixture.ts` の既定値 `8886` |
-| 停止 | `stop.js` の `PUT /stop`（`requestServerStop(port)`） | なし |
+## 2. 調査結果（コードと実行記録から分かること）
 
-- `tests/fixture.ts` はモジュールの読み込み時に `new WebSocketTransport("ws://localhost:<port>")` を作り、各テストは `if (!peer.connected) await new Promise(r => peer.on("open", r))` で待つ。サーバーがなければ `open` は発火しないので、**全テストが `testTimeout`（20s）で落ちる**。これは「全件タイムアウト」「mDNS 設定を変えても変わらない」という観測と一致する。
-- **（2026-11-12 追記・事実訂正）親チケットの確認では、サーバーを起動したうえで Firefox を実行していた。その状態で全件失敗しているので、観測した失敗の主因は 2.1 ではない。** 実行条件は次のとおり。
-  - `cd e2e && npm run build` の後、`E2E_PORT=8931 node lib/e2e/server/main.js` をバックグラウンドで起動した（`start { port: 8931, ... }` を確認）。
-  - `E2E_PORT=8931 VITE_E2E_PORT=8931 PLAYWRIGHT_BROWSERS_PATH=<private> npx vitest run --config vitest.firefox.config.mts --browser.headless --retry=0 <file>` で実行した。Firefox 157（Playwright 1.64.1、build v1555）。
-  - このとき `tests/datachannel/datachannel.test.ts` は 3 件すべて `Test timed out in 20000ms`、`tests/mediachannel/sendrecv.test.ts` は `waitVideoPlay timed out` になった。`media.peerconnection.ice.obfuscate_host_addresses: false` を加えても同じだった。
-  - `bundle/max-bundle.test.ts` では、mDNS 秘匿を無効にすると Firefox が `SIPCC ... c= connection line not specified` を出した。これは bundle-only サブタスク（21a27c92）の不具合で、少なくとも bundle 系では SDP の交換まで進んでいる。
-  - サーバーのログは `start` 行のみで、`DEBUG` を付けていないため、リクエストが届いたかは記録していない。最初の調査では `DEBUG=werift*` と protoo のログを有効にし、`open`・各リクエスト・ICE 状態のどこで止まるかを確かめる。
-- 2.1（`npm run firefox` がサーバーを起動しない）は、上の失敗の原因ではない。ただし、単独実行の手順と保守性の問題としては残るので、3 章の整備対象とする。
+### 2.1 起動経路（`firefox:record` で解決済み。開発用の `npm run firefox` は残っている）
 
-### 2.2 `vitest.firefox.config.mts` が Chrome 設定の改修に追従していない
+| 項目 | Chrome（CI 経路） | Firefox `npm run firefox:record`（`run-firefox.js`） | Firefox `npm run firefox` |
+| --- | --- | --- | --- |
+| サーバー | `npm run build` → `run-ci.js` が `lib/` を起動 | `node --import ../tools/node-ts/register.mjs ./server/main.ts` を直接 spawn する（ビルド不要） | 起動しない |
+| ポート | 空きポート → `E2E_PORT` / `VITE_E2E_PORT` | 同じ | 未設定なら `8886` |
+| ブラウザ | `ensure-browser.js`（Chromium のみ） | `ensureFirefox()` が `playwright install firefox` を実行する | 取得しない |
+| 停止 | `stop.js` の `PUT /stop` | `/stop` → PID。vitest はプロセスグループの PID で止める | なし |
+| 設定 | `vitest.config.mts` | `vitest.firefox.record.config.mts`（Firefox 設定 + `firefox-run-reporter.mjs`） | `vitest.firefox.config.mts` に `./tests` のパスフィルタ |
+
+- サーバーの起動の欠如は、`firefox:record` で解消した。それでも全件失敗しているので、**失敗の主因はサーバーの起動ではない**。これは親チケットでの手動確認の結果とも一致する。
+- `npm run firefox` は、サーバーが起動済みのときに使う開発用として残す。ただし `./tests` のフィルタは部分一致で `simulations/tests` も拾うので外す（3 章 Step 1）。
+
+### 2.2 `vitest.firefox.config.mts` が Chrome 設定に追従していない（未解決）
 
 `vitest.config.mts`（Chrome）と比べて、次のものが足りない。
 
-- `fileParallelism: false` がない。Chrome 側のコメントにあるとおり、テストは 1 台のブラウザと e2e サーバー（gstreamer、TURN、UDP ソース）を共有するので、並列実行ではタイミング依存のテストが不安定になる。
-- `include` に `tests/**/*.spec.ts` がなく、`exclude`（`**/simulations/**`、`lib/**` など）もない。しかも `npm run firefox` は `./tests` をパスフィルタとして渡している。`run-chrome-prod.js` のコメントにあるとおり、このフィルタは部分一致なので `simulations/tests/gccTwccChrome.sim.test.ts`（Chrome 専用の帯域 sim）も拾ってしまう。
-- `firefoxUserPrefs` は `media.navigator.permission.disabled` と `media.navigator.streams.fake` だけ。Chrome の `--disable-features=WebRtcHideLocalIpsWithMdns` に当たる `media.peerconnection.ice.obfuscate_host_addresses: false` などは未設定である。必要かどうかは 2.1 を直した後に判断する。
+- `// fileParallelism: false,` がコメントアウトのままである。全件の記録を見ると、ファイルが入り混じった順で開始されている（`iceTcp` → `simulcast` → `close` → `restart` → …）。つまり**ファイル並列で動いている**。テストは 1 台のブラウザと 1 つの e2e サーバー（gstreamer、TURN、UDP ソース）を共有するので、並列実行そのものが全件タイムアウトの有力な原因候補である（2.6）。
+- `include` は `tests/**/*.test.ts` だけで、Chrome にある `tests/**/*.spec.ts` がない。`exclude`（`**/simulations/**`、`lib/**` など）もない。
+- `firefoxUserPrefs` は `media.navigator.permission.disabled` と `media.navigator.streams.fake` だけである。Chrome の `--disable-features=WebRtcHideLocalIpsWithMdns` に当たる `media.peerconnection.ice.obfuscate_host_addresses: false` は未設定である。親チケットでは、これを足しても datachannel の結果は変わらなかった。必要かどうかは、直列化した後に判断する。
+- `vitest.firefox.record.config.mts` は `mergeConfig(firefox, …)` で Firefox 設定を継承する。そのため、設定の修正は `vitest.firefox.config.mts` の側で行えば、record 経路にも反映される。
 
 ### 2.3 ブラウザの取得
 
-- `ensure-browser.js` は Chrome / Chromium（`chromium`、`chromium-headless-shell`）しか扱わない。Firefox は `npx playwright install firefox` を手で実行する必要がある。インストール先は `browsers-path.js` / `ensureBrowsersPathEnv()` が決める `PLAYWRIGHT_BROWSERS_PATH`（既定は `e2e/.playwright-browsers/`）である。
-- `npm run firefox` は `ensureBrowsersPathEnv()` を通らない。このため、`PLAYWRIGHT_BROWSERS_PATH` を自分で設定しないと `~/.cache/ms-playwright` を見にいき、Chrome 用のキャッシュと場所がずれる。
+- `PLAYWRIGHT_BROWSERS_PATH` の既定は、`browsers-path.js` が決める `e2e/node_modules/.cache/ms-playwright` である（前回の記載 `e2e/.playwright-browsers/` は誤りだったので訂正する）。
+- Firefox の取得は `run-firefox.js` の `ensureFirefox()` が受け持つ。`ensure-browser.js`（Chromium 専用）は**変更しない**。前回の Step 1-4 にあった `hasPlaywrightFirefox()` の追加は不要になった。
 
-### 2.4 シグナリング（トリクル）での確認点
+### 2.4 シグナリング（トリクル）での確認点（未確認）
 
-- 各テストの `pc.onicecandidate = ({ candidate }) => peer.request(..., { type: "candidate", payload: candidate })` は、end-of-candidates の `null` もそのまま送る。サーバー側は `addIceCandidate(payload)` で受ける（`packages/webrtc/src/peerConnection.ts` L1555、`negotiation/remoteCandidates.ts` L94 の `apply()`）。
+- 各テストの `pc.onicecandidate = ({ candidate }) => peer.request(..., { type: "candidate", payload: candidate })` は、end-of-candidates の `null` もそのまま送る。サーバー側は `addIceCandidate(payload)` で受ける。
   - Firefox は収集完了を、`candidate: ""`（空文字）の `RTCIceCandidate` と `null` の両方で通知する。
   - リクエストは `.catch(() => {})` で握りつぶしているので、失敗しても表に出ない。サーバー側の例外は `main.ts` の `console.log(error)` にしか出ない。
-  - **`server:prod`（`DEBUG=werift*`）のログで、空文字の candidate がエラーにならないか確認する。** エラーになるなら、W3C の仕様では空文字の candidate は end-of-candidates として受け入れるべきなので、werift 本体の不具合として扱う（判断は 4 章）。
-- トリクルの candidate が offer / answer より先に届くことがある（`datachannel_offer` では `init` の前に `candidate` が来る可能性）。そのときは `this.pc` が undefined で例外になる。Chrome では順序が偶然そろっているだけかもしれない。Firefox で再現した場合は、ハンドラ側で queue するか、テスト側で `init` の後に送るように直す（`tests/nativeCandidateQueue.ts` という既存の仕組みがあるので、まず流用を検討する）。
+  - `firefox:record` のサーバーは `DEBUG` を付けずに起動する。調べるときは `DEBUG=werift* npm run firefox:record -- <file>` で、空文字の candidate がエラーにならないかを確かめる。エラーになる場合は、W3C の仕様では空文字の candidate は end-of-candidates として受け入れるべきなので、werift 本体の不具合として扱う。
+- トリクルの candidate が offer / answer より先に届くと、`this.pc` が undefined のまま例外になる。Firefox で再現した場合は、まず既存の `tests/nativeCandidateQueue.ts` を流用できないか検討する。
 
-### 2.5 既存のブラウザ判定
+### 2.5 既存のブラウザ判定とスキップ（タグ未付与）
 
-- `tests/fixture.ts` の `browserName`（Bowser。Firefox では `"Firefox"`）で、すでに次のテストを分岐またはスキップしている。
-  - `red.test.ts`、`codecRtp.test.ts`（Chrome 専用の codec RTP）
-  - `reuse.test.ts`、`removeTrack.test.ts`（L36 / L102）
-- 新しくスキップを足すときも、同じ書き方（`if (browserName === "Firefox") { it.skip("理由 …", () => {}) }`）にそろえる。
+`tests/fixture.ts` の `browserName`（Bowser。Firefox では `"Firefox"`）で、次のものを分岐またはスキップしている。
+
+| ファイル | 現状 | 問題 |
+| --- | --- | --- |
+| `mediachannel/red.test.ts` L7 | `it.skip("skip", …)` | 理由もタグもない |
+| `mediachannel/codecRtp.test.ts` L201 | `it.skip("skip firefox — Chrome-only codec RTP interop", …)` | タグがない |
+| `mediachannel/reuse.test.ts` L28 | `describe` の中で `return` する | テストが 1 件もないので、記録で **moduleErrors `No test found in suite`** になり、Firefox の実行全体が失敗扱いになる。`it.skip` に置き換える |
+| `mediachannel/removeTrack.test.ts` L36 / L102 | `if (browserName !== "Firefox") it(...)`。テストを定義しない | スキップとして記録に残らない。理由もない |
+
+- `removeTrack` は親チケットで `compatible` / `aggressive` の 2 モードに分かれた（`2ab14b5e3` / `0f95417e8`）。スキップの文言も、モードごとに付ける。
+
+### 2.6 実行記録から分かる失敗の内訳（`20261114T025126Z-8000795be-dirty.json`、44 件）
+
+| 失敗メッセージ | 件数 | 主なテスト |
+| --- | --- | --- |
+| `Test timed out in 20000ms`（15s / 30s を含む） | 32 | datachannel / sendrecv / oneway / bundle/* / trickle / restart / turnRelay / iceTcp / iceLite / close / rtx / addTrack / allmedia / simulcast(offer) |
+| `peer connection did not connect: failed` | 3 | `recordPlayback`（video / av）、`recordPlaybackOgg` |
+| `request timeout`（protoo） | 3 | `removeTrack` の `offer_replace_second*` |
+| `waitVideoPlay` / `waitFramesDecoded` のタイムアウト | 3 | `vp8Playback`（file / dummy）、`tagOnlyCandidates` |
+| `expected 'v=0…mozilla…' not to contain 'a=ssrc-group:FID'` | 1 | `simulcast_rtx_answer`（Firefox の SDP 形式を前提にしていない。テストの前提の問題） |
+| スキップ | 2 | `codecRtp`、`red` |
+
+- 最も基本的な `datachannel > answer` まで一様にタイムアウトしている。`request timeout` や `peer connection … failed` も混ざっているので、まず並列実行（2.2）と、`peer.on("open")` / シグナリングの到達（2.4）を疑う。
+- 単独ファイルの記録（`20261115T032934Z`、datachannel のみ）でも 3 件ともタイムアウトしている。したがって、並列化だけが原因ではない。単独ファイルで失敗する原因の特定を最優先にする（Step 2）。
+- 全件の実行は idle 上限（5 分間テストイベントなし）で止まった。止まったのは `bundle_max_compat_answer` を開始した直後である。テストが `testTimeout` を超えて止まる事象が Firefox で起きている。`afterEach` での `pc.close()` 漏れや、`new Promise(async (done) => …)` の resolve 漏れがないかも確かめる。
 
 ## 3. 実装内容
 
-### Step 1: 起動経路を整備する（E2E 基盤。本チケットで直す）
+### Step 1: 設定と開発用スクリプトを Chrome にそろえる（E2E 基盤）
 
-1. `run-ci.js` を、ブラウザを指定できる形に一般化する。例: `node run-ci.js silent firefox`、または環境変数 `E2E_BROWSER=firefox`。
-   - 空きポートの取得、`E2E_PORT` / `VITE_E2E_PORT` の設定、`ensureBrowsersPathEnv()`、`requestServerStop(port)` による停止を、Chrome と同じ処理で共有する。
-   - Firefox 用のランナー（例: `run-firefox-prod.js`。`run-chrome-prod.js` と同じ構造で、`vitest run --browser.headless --config vitest.firefox.config.mts --reporter=dot` を実行する）を追加する。
-   - サーバーは PID または `/stop` で止める（パターン指定の kill は使わない。root AGENTS.md）。
-2. `package.json` の scripts を整理する。
-   - `firefox`: サーバーが起動済みのときに使う開発用。`./tests` フィルタを外す。
-   - `firefox:prod`: 上のランナー。
-   - `ci:firefox`: `install:browsers`（Firefox を含む）→ `build` → `run-ci.js silent firefox`。
-   - ルート `package.json` に `e2e:firefox`（`cd e2e && npm i && npm run ci:firefox`）を追加するかどうかも決める。
-3. `vitest.firefox.config.mts` を `vitest.config.mts` にそろえる。
-   - `include` / `exclude`（simulations と `lib/` の除外）
-   - `fileParallelism: false`、`retry: 1`、`testTimeout`
-   - 重複を避けるため、共通部分を関数かオブジェクトに切り出して、両方の config から使う形を推奨する。ただし `browser-paths.js` を `require` で読む方式は、Vite のバンドルを避けるために必要なので壊さない。
-4. `ensure-browser.js` を、Firefox も取得できるようにする。
-   - 引数か `E2E_BROWSER` で `firefox` を指定したときは、`npx playwright install firefox` を実行し、`firefox.executablePath()` が存在するかで検証する（`hasPlaywrightChromium()` と同じ形の `hasPlaywrightFirefox()` を作る）。
-   - Chrome だけのときの既存の処理（system Chrome を優先、H.264 用の Google Chrome、リトライ）は変えない。
+1. `vitest.firefox.config.mts` を `vitest.config.mts` にそろえる。
+   - `include`（`*.spec.ts` を含める）、`exclude`（`**/simulations/**`、`lib/**` など）
+   - `fileParallelism: false`（コメントアウトを外す）、`retry: 1`、`testTimeout`
+   - 共通部分は関数かオブジェクトに切り出し、両方の config から使う形を推奨する。ただし、`browser-paths.js` を `require` で読む方式は Vite のバンドルを避けるために必要なので壊さない。また `vitest.firefox.record.config.mts` の `mergeConfig` が引き続き動くようにする。
+2. `package.json` の `firefox` スクリプトから `./tests` フィルタを外す（サーバー起動済みのときの開発用）。`firefox:record` と `firefox:record:prune` はそのまま使う。
 
-### Step 2: 1 件ずつ再現し、原因を分類する
+### Step 2: 1 ファイルずつ再現し、原因を特定する
 
-1. Step 1 の経路で、`tests/datachannel/datachannel.test.ts` の `answer` だけを実行する（`-t answer`、またはファイルを指定）。
-2. 失敗したら、次の順に見て、どこで止まるかを特定する。
-   1. `peer.on("open")` が発火するか（ブラウザコンソールでの WebSocket 接続）。`localhost` が `::1` に解決される場合は、`127.0.0.1` に統一する（`e2eBaseUrl` はすでに `127.0.0.1` を使っている）。
-   2. サーバーのログ（`server:prod`）に、`init` / `answer` / `candidate` のリクエストと、`exec` の例外が出ているか。
+1. `cd e2e && DEBUG=werift* npm run firefox:record -- tests/datachannel/datachannel.test.ts -t answer` で、最小のケースだけを実行する。
+2. 次の順に見て、どこで止まるかを特定する。
+   1. `peer.on("open")` が発火するか。`fixture.ts` は `ws://localhost:<port>` に接続するが、サーバーの待ち受け確認は `127.0.0.1`（`waitForPort`）で行い、`e2eBaseUrl` も `127.0.0.1` を使っている。Firefox で `localhost` が `::1` に解決されて接続できない可能性があるので、`127.0.0.1` に統一するかを確かめる。
+   2. サーバーのログに、`init` / `answer` / `candidate` のリクエストと、`exec` の例外が出ているか。
    3. Firefox の `iceConnectionState` / `connectionState` と、werift の `iceConnectionState`。
    4. 空文字・`null` の candidate の扱い（2.4）。
    5. mDNS の `.local` 候補（werift が解決できずに捨てていないか）。必要なら `firefoxUserPrefs` に `media.peerconnection.ice.obfuscate_host_addresses: false` を足す。
-3. datachannel が通ったら、`mediachannel/sendrecv` → `bundle/*` → 残りの全件、の順に広げる。
-4. 失敗するテストは、それぞれ次のどれかに分類し、表にしてチケットに残す（5.3 の表の形）。
+3. datachannel が通ったら、`mediachannel/sendrecv` → `bundle/*` → 残りの全件、の順に広げる。原因の切り分けのために `tests/` 外のログ用コードを足した場合は、完了前に外す。
+4. 失敗するテストは、それぞれ次のどれかに分類し、5.3 の表に残す。
 
 | 分類 | 対応 |
 | --- | --- |
-| E2E 基盤（シグナリング、ハンドラ、設定、テストの書き方） | 本チケットで直す |
-| werift 本体: `bundle-only` 未対応 | `21a27c92` を参照し、`[firefox-known:bundle-only]` で Firefox だけスキップする（D1。本チケットで本体は直さない） |
+| E2E 基盤（設定、シグナリング、ハンドラ、テストの書き方） | 本チケットで直す |
 | werift 本体: werift 起点の ICE restart | `ef1c086e` を参照し、`[firefox-known:ice-restart]` で Firefox だけスキップする |
-| werift 本体: 新しい不具合（例: 空文字 candidate で例外） | `ticket create-subtask` で #269 の下にサブタスクを作り、`[firefox-known:<名前>]` でスキップする（D2）。数行で直せて negotiation の形を変えないもの（例: 空文字 candidate を end-of-candidates として受け入れる）に限り、本チケットで直してもよい。その場合は `packages/webrtc` のテストを足す |
-| ブラウザ固有でテストの前提が成り立たない（pranswer 未実装、Chrome 専用の codec / RED / simulcast の rid 形式など） | `[firefox-unsupported:<機能>]` を付け、`browserName === "Firefox"` でスキップする |
+| werift 本体: bundle-only に見える失敗 | D1 の手順で `tools/firefoxBundleOnly.ts` を使って切り分ける。直接接続で再現する場合だけ、新しいサブタスクを作ってスキップする |
+| werift 本体: 新しい不具合（例: 空文字 candidate で例外） | `ticket create-subtask` で #269 の下にサブタスクを作り、`[firefox-known:<名前>]` でスキップする。数行で直せて negotiation の形を変えないもの（例: 空文字 candidate を end-of-candidates として受け入れる）に限り、本チケットで直してもよい。その場合は `packages/webrtc` のテストを足す |
+| ブラウザ固有でテストの前提が成り立たない（pranswer 未実装、Chrome 専用の codec / RED、`a=ssrc-group:FID` などの SDP 形式） | `[firefox-unsupported:<機能>]` を付けて `browserName === "Firefox"` でスキップするか、Firefox の形式も受け入れるように期待値を直す |
 
 ### Step 3: テストの修正（必要なものだけ）
 
-- Firefox 固有の形を前提にしていないか確認する。
-  - `tests/bundle/tagOnlyCandidates.test.ts`: 親チケットで `bundleCandidates` の名前が `legacy` / `compatible` に変わっている。名前と期待値が揃っているか確認する。Firefox の再 offer は `bundle-only` になるので、Firefox 起点の再交渉を含むケースは、既知サブタスク 1（`21a27c92`、`[firefox-known:bundle-only]`）に依存する。
-  - `tests/ice/restart.test.ts`: `ice_restart_node_trigger` は既知サブタスク 2（`ef1c086e`、`[firefox-known:ice-restart]`）に依存する。`ice_restart_web_trigger` は Firefox の offer が `bundle-only` を含めば、既知サブタスク 1（`21a27c92`、`[firefox-known:bundle-only]`）に依存する。
-  - `addTrack` / `removeTrack` / `reuse` / `simulcast`: Firefox 起点の再 offer で追加する m-line は `bundle-only` になるので、サブタスク 1（`21a27c92`）に依存する可能性が高い。
-- 修正やスキップを足すときは、テストの Arrange / Act / Assert の区切りと日本語コメントを AGENTS.md の規約どおりに付ける。共通の準備は `tests/fixture.ts` にまとめる（Firefox かどうかの判定と、スキップ理由の定数など）。
+- `tests/fixture.ts` に、Firefox の判定とスキップ理由の定数（`firefoxKnownIssue.iceRestart`、`firefoxUnsupported.<機能>`）をまとめる。
+- 既存のスキップを 2.5 の表のとおりに直す。とくに `reuse.test.ts` の `return` は、`it.skip` に置き換える（moduleErrors を消す）。
+- 個別の確認点:
+  - `ice/restart.test.ts`: `ice_restart_node_trigger` は `ef1c086e` に依存する。`ice_restart_web_trigger`（Firefox の restart offer は bundle-only を含む）は、21a27c92 の修正で通るはずなので、スキップせずに通す。
+  - `bundle/tagOnlyCandidates.test.ts`: `bundleCandidates` の名前は `legacy` / `compatible` である（`65625a861`）。テスト名と期待値が揃っているか確かめる。
+  - `mediachannel/simulcast.test.ts` の `simulcast_rtx_answer`: Firefox の offer に `a=ssrc-group:FID` が入ることを前提にしていない。Firefox の simulcast RTX の形式に合わせて期待値を分けるか、`[firefox-unsupported:*]` にするかを決める。
+  - `removeTrack` / `addTrack` / `reuse`: Firefox 起点の再 offer で足す m-line は bundle-only になるが、21a27c92 で対応済みである。これを理由にスキップしない。
+- 修正やスキップを足すときは、Arrange / Act / Assert の区切りと日本語コメントを AGENTS.md の規約どおりに付ける。
 
-### Step 4: ドキュメントと保守方針
+### Step 4: ドキュメント
 
-1. `e2e/AGENTS.md` を新しく作る（root の section 順: Purpose, Scope, Do, Don't, Commands, Validation, Maintenance）。または、既存の README に Firefox の節を足す。書く内容は次のとおり。
-   - 単独実行の手順: `npm run ci:firefox`（自動）と、手動手順（`npm run build` → `E2E_PORT=<port> npm run server:prod` → `VITE_E2E_PORT=<port> npm run firefox` → `node stop.js`、または `PUT /stop`）
-   - `PLAYWRIGHT_BROWSERS_PATH` と `npm run install:browsers` で Firefox を取得する方法
-   - スキップの方針（分類表と、参照するサブタスク）
-2. ルート `README.md` の L32 / L183 の Firefox の記述を、実態（どこまで通るか、CI に入っているか）に合わせて直す。ルートの `AGENTS.md` の Commands 表に `e2e:firefox` を足す場合は、最後に更新する（root AGENTS.md の Maintenance）。
-3. CI への組み込み方を決めて、理由を本チケットに書く。推奨案は次のとおり。
-   - `nodejs.yml` に **別ジョブ `e2e-firefox`** を作る。Chrome の `npm run ci` とは独立させ、最初は `continue-on-error: true` か `workflow_dispatch` / nightly で回して、安定したら必須にする。
-   - 理由: Chrome の E2E の実行時間を増やさないこと、Firefox / Playwright の更新による壊れ方を Chrome の結果と分けること、既知サブタスクが直るまでスキップが多いこと。
-   - 別案: datachannel / sendrecv / bundle の subset だけを PR ごとに回す。採用しない場合は、その理由も書く。
+1. `e2e/AGENTS.md` を新しく作る（root の section 順: Purpose, Scope, Do, Don't, Commands, Validation, Maintenance）。`e2e/` にはまだ AGENTS.md がない。書く内容は次のとおり。
+   - Firefox の実行は `npm run firefox:record`、記録の扱いは `firefox-runs/README.md` を参照する
+   - 開発用の手動手順: `E2E_PORT=<port> npm run server` → `VITE_E2E_PORT=<port> npm run firefox` → `node stop.js` または `PUT /stop`
+   - スキップの方針（タグの形と分類表、`tests/fixture.ts` の定数）
+   - 記録に載せるコマンドの一覧は `package.json` にあるものだけにする
+2. ルート `README.md` の L32 / L183 の Firefox の記述を実態に合わせて直す。書く内容は、ローカルの記録付きランナーがあり CI 対象外であること、どこまで通るか。
+3. ルート `AGENTS.md` の Commands / Validation には、すでに `firefox:record` が載っている。コマンドが変わった場合だけ最後に更新する。
+4. サブタスク 2（`ef1c086e`）に、スキップを解除する手順（D2 の grep）を追記する。
 
 ## 4. 制約・注意点
 
-- **Chrome E2E を壊さない**: `vitest.config.mts`、`run-ci.js`、`run-chrome-prod.js`、`ensure-browser.js` を共通化するときは、Chrome の既定の挙動（`npm run e2e` / `npm run ci` / CI の `npx playwright install chromium`）を変えない。`E2E_BROWSER` が未指定なら Chrome とする。
-- **werift の挙動を E2E のために変えない**: ハンドラ（`server/handler/*`）とテストの修正は、シグナリングの不具合（順序、null の扱い、例外の握りつぶし）を直す範囲に限る。`packages/webrtc/src` を変えるのは「本体の不具合」と分類したものだけにし、そのときは package テストを足し、`npm run type` / `npm run test:small` を通す。
-- `.catch(() => {})` による例外の握りつぶしは、原因の調査を難しくする。少なくとも調査中はログに出し、直すならテストが失敗として扱えるようにする（root AGENTS.md「broad catch-and-ignore を避ける」）。
-- サーバーやブラウザは PID か `/stop` で止める。`npm run clean`（`pkill -9 gst-launch`）は使わない。
-- Playwright の Firefox のバージョンは `e2e/package.json` の `playwright` で決まる（現在 `^1.64.1`）。Firefox のために `playwright` を上げる場合は、Chrome にも影響するので、Chrome の E2E も回す。
+- **Chrome E2E を壊さない**: `vitest.config.mts` と共通化するときは、Chrome の既定の挙動（`npm run e2e` / `npm run ci` / CI の `npx playwright install chromium`）を変えない。`run-ci.js`、`run-chrome-prod.js`、`ensure-browser.js` は原則として触らない。
+- **CI に Firefox を入れない**（D3）。`nodejs.yml` は変更しない。
+- **記録の仕組みを壊さない**: `run-firefox.js`、`firefox-run-record.js`、`firefox-run-reporter.mjs`、`firefox-runs-prune.js` を変えた場合は、`npm run test:tools`（`tools/tests/firefoxRunRecord.test.js`）を通し、`firefox-runs/README.md` も更新する。記録の JSON は手で編集しない。
+- **werift の挙動を E2E のために変えない**: ハンドラ（`server/handler/*`）とテストの修正は、シグナリングの不具合（順序、null の扱い、例外の握りつぶし）を直す範囲に限る。`packages/webrtc/src` を変えるのは「本体の不具合」と分類したものだけにし、そのときは package テストを足し、`npm run type` / `npm run test:small` を通す。bundle 処理（21a27c92 の範囲）は変えない。ハンドラ側で SDP を書き換えて回避することもしない。
+- `.catch(() => {})` による例外の握りつぶしは、原因の調査を難しくする。少なくとも調査中はログに出す。直すなら、テストが失敗として扱えるようにする（root AGENTS.md「broad catch-and-ignore を避ける」）。
+- サーバーやブラウザは PID か `/stop` で止める。`npm run clean`（`pkill -9 gst-launch`）、`pkill -f`、`killall` は使わない。`firefox:record` を途中で止めるときは SIGINT を送る（記録は保存される）。
+- 全件の実行は最大 60 分かかることがある（`FIREFOX_E2E_TIMEOUT_MIN`）。始める前に、リビジョン、未コミットの変更、目的を書いておく（root AGENTS.md Do 8）。
+- 記録のファイル名に `-dirty` が付くと、そのコミットだけでは再現できない。完了の根拠にする記録は、**修正をコミットした後のクリーンな状態**で取る。
+- Playwright の Firefox のバージョンは `e2e/package.json` の `playwright`（`^1.64.1`）で決まる。Firefox のために `playwright` を上げる場合は、Chrome にも影響するので、Chrome の E2E も回す。
 - TypeScript は erasable syntax だけで書く（`enum` とパラメータプロパティは使わない）。`tsx` などのランナーは入れない。
-- `bundle-only`（`21a27c92`）と ICE restart（`ef1c086e`）の 2 サブタスクが直ったら、スキップを外す必要がある。スキップ文言には D2 の固定タグ（`[firefox-known:bundle-only]` / `[firefox-known:ice-restart]`）とチケット ID を入れ、grep で見つけられるようにする。
-- bundle-only 対応（`packages/webrtc/src` の SDP 生成・解釈）は本チケットの範囲外（D1）。E2E を通すために、ハンドラ側で SDP を書き換えて回避することもしない（werift の不具合を隠すことになるため）。
 
 ## 5. 完了条件
 
 ### 5.1 動作
 
-- [ ] `npm run ci:firefox`（仮称）を 1 コマンドで実行すると、ビルド、サーバー起動、Firefox の取得、テスト、サーバー停止まで完了する。
-- [ ] Firefox で、`datachannel`（answer / offer / binary echo）と `mediachannel/sendrecv` が全件通る。
-- [ ] `bundle/*` は、`max-compat.test.ts` と `disable.test.ts` の全件、および `max-bundle.test.ts` の werift 起点の offer ケースが通る。`max-bundle` の Firefox 起点の offer ケースなど bundle-only に依存するものは、D1 の確認方法で根拠を確かめたうえで `[firefox-known:bundle-only]`（`21a27c92`）を付けてスキップしていればよい。本チケットでは `packages/webrtc/src` の bundle-only 対応を求めない。
-- [ ] 通らないテストは、`browserName === "Firefox"` でスキップし、D2 の固定タグ（`[firefox-known:*]` / `[firefox-unsupported:*]`）と、参照するチケット ID（`firefox-known` のとき）を書いている。理由のない失敗は残っていない。
-- [ ] スキップ理由の定数が `tests/fixture.ts` に 1 か所でまとまっている。サブタスク `21a27c92` / `ef1c086e` に、スキップを解除する手順（grep するタグ）を追記している。
-- [ ] 2 回続けて実行しても、同じ結果になる（`retry: 1` の範囲で安定する）。
+- [ ] `vitest.firefox.config.mts` が Chrome 設定と同じ `include` / `exclude` / `fileParallelism: false` / `retry: 1` になっている。`npm run firefox` に `./tests` フィルタがない。
+- [ ] 修正をコミットした後のクリーンな HEAD で `cd e2e && npm run firefox:record` を全件実行し、次を満たす記録（`-dirty` なし、`vitestArgs: []`）がコミットされている。
+  - `outcome: completed`、`runEnded: true`、`unfinished: []`、`moduleErrors: []`
+  - `result: passed`（failed 0）
+- [ ] Firefox で、`datachannel`（answer / offer / binary echo）、`mediachannel/sendrecv`、`bundle/*`（`max-bundle` / `max-compat` / `disable` の全件）、`ice/restart` の `ice_restart_web_trigger` が通る（スキップ不可）。
+- [ ] スキップは `browserName === "Firefox"` の `it.skip` で行い、D2 の固定タグ（`[firefox-known:*]` + チケット ID の先頭 8 文字、または `[firefox-unsupported:*]`）が付いている。理由のないスキップや、テストを定義しないだけの分岐は残っていない。
+- [ ] スキップ理由の定数が `tests/fixture.ts` に 1 か所でまとまっている。`ef1c086e` に解除の手順（grep するタグ）を追記している。
+- [ ] 全件の記録を 2 回取り、同じ結果になっている（`retry: 1` の範囲で安定している）。2 回目の記録もコミットする。
 
 ### 5.2 回帰
 
@@ -183,10 +211,9 @@
 
 ### 5.3 ドキュメント
 
-- [ ] `e2e/` の AGENTS.md または README に、Firefox の単独実行手順（自動・手動）、`PLAYWRIGHT_BROWSERS_PATH`、ブラウザの取得方法、スキップの方針が書いてある。
+- [ ] `e2e/AGENTS.md` に、Firefox の実行手順（`firefox:record` と手動手順）とスキップの方針が書いてある。
 - [ ] ルート `README.md` の Firefox の記述が実態に合っている。
-- [ ] CI に組み込むかどうか（別ジョブ / nightly / subset）と、その理由が本チケットに書いてある。組み込むなら `nodejs.yml` に反映している。
-- [ ] 本チケットに、テストごとの結果の表（テスト、Firefox の結果、分類、参照先）を残している。
+- [ ] 本チケットに、テストごとの結果の表（テスト、Firefox の結果、分類、参照先）と、根拠にした記録のファイル名が書いてある。
 
 | テスト | Firefox の結果 | 分類 | 参照 / 備考 |
 | --- | --- | --- | --- |
@@ -195,7 +222,9 @@
 ## 6. 検証コマンド
 
 - `cd e2e && npm run type && npm run test:tools`
-- `cd e2e && npm run ci:firefox`（Firefox。仮称）
+- `cd e2e && npm run firefox:record -- tests/datachannel/datachannel.test.ts`（ファイル単位で再現）
+- `cd e2e && npm run firefox:record`（Firefox の全件。記録をコミットする）
+- `cd e2e && node --import ../tools/node-ts/register.mjs tools/firefoxBundleOnly.ts --scenario all`（bundle-only の切り分けが必要なときだけ）
 - `npm run e2e`（Chrome。最後に全件）
 - `npm run format`
 - `packages/webrtc` を変えた場合: `npm run type`、`npm run test:small`
