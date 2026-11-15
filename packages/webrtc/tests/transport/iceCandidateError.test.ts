@@ -12,6 +12,7 @@ import {
 import { negotiate } from "../utils";
 import {
   createCodelessErrorServer,
+  createErrorAnsweringPeer,
   createErrorRecordingPeer,
   createErrorStunServer,
   createFirstPortOnlyStunServer,
@@ -404,7 +405,7 @@ describe("icecandidateerror", () => {
             ...expected,
             errorText: expect.any(String),
             address: null,
-            port: 0,
+            port: null,
           }))
           .sort((a, b) => a.url.localeCompare(b.url)),
       );
@@ -419,7 +420,7 @@ describe("icecandidateerror", () => {
     }
   });
 
-  test('iceTransportPolicy "relay" では address が null、port が 0 になる', async () => {
+  test('iceTransportPolicy "relay" では address と port が null になる (W3C)', async () => {
     // Arrange
     const rejecting = await createRejectingUdpTurnServer();
     const { pc, listened } = createErrorRecordingPeer({
@@ -439,7 +440,7 @@ describe("icecandidateerror", () => {
       // Assert
       expect(listened).toHaveLength(1);
       expect(listened[0].address).toBeNull();
-      expect(listened[0].port).toBe(0);
+      expect(listened[0].port).toBeNull();
     } finally {
       await pc.close();
       await rejecting.close();
@@ -814,6 +815,164 @@ describe("icecandidateerror", () => {
       await peer.close();
       await slow.close();
       await failing.close();
+    }
+  });
+});
+
+describe("icecandidateerror の配送 (DOM のイベント配送)", () => {
+  test("pc.onIceCandidateError の 1 つ目の購読者が stopImmediatePropagation() すると、以降の購読者・onicecandidateerror・リスナーは呼ばれない", async () => {
+    // Arrange: 2 つの購読者のうち 1 つ目で伝播を止める
+    const { pc, listened, handled, close } = await createErrorAnsweringPeer();
+    const calls: string[] = [];
+    pc.onIceCandidateError.subscribe((event) => {
+      calls.push("first");
+      event.stopImmediatePropagation();
+    });
+    pc.onIceCandidateError.subscribe(() => calls.push("second"));
+    try {
+      // Act: gathering を完了させる
+      await gatherWithOffer(pc);
+
+      // Assert: 止めた購読者までしか呼ばれない
+      expect(calls).toEqual(["first"]);
+      expect(handled).toEqual([]);
+      expect(listened).toEqual([]);
+    } finally {
+      await close();
+    }
+  });
+
+  test("配送中に removeEventListener したリスナーは呼ばれず、追加したリスナーはその配送では呼ばれない", async () => {
+    // Arrange: 1 つ目のリスナーが 2 つ目を削除し、新しいリスナーを追加する
+    const { pc, close } = await createErrorAnsweringPeer();
+    const calls: string[] = [];
+    const second = () => calls.push("second");
+    pc.addEventListener("icecandidateerror", () => {
+      calls.push("first");
+      pc.removeEventListener("icecandidateerror", second);
+      pc.addEventListener("icecandidateerror", () => calls.push("added"));
+    });
+    pc.addEventListener("icecandidateerror", second);
+    pc.addEventListener("icecandidateerror", () => calls.push("third"));
+    try {
+      // Act: gathering を完了させる
+      await gatherWithOffer(pc);
+
+      // Assert: 削除されたリスナーと追加されたリスナーは呼ばれない
+      expect(calls).toEqual(["first", "third"]);
+    } finally {
+      await close();
+    }
+  });
+
+  test("stopPropagation() は後続を止めず、preventDefault() は defaultPrevented を変えない (cancelable でない)。isTrusted は true", async () => {
+    // Arrange: 1 つ目で stopPropagation と preventDefault を呼ぶ
+    const { pc, close } = await createErrorAnsweringPeer();
+    const seen: unknown[] = [];
+    pc.onicecandidateerror = (event) => {
+      event.stopPropagation();
+      event.preventDefault();
+      seen.push({
+        cancelable: event.cancelable,
+        defaultPrevented: event.defaultPrevented,
+        isTrusted: event.isTrusted,
+        timeStamp: typeof event.timeStamp,
+      });
+    };
+    pc.addEventListener("icecandidateerror", () => seen.push("after"));
+    try {
+      // Act: gathering を完了させる
+      await gatherWithOffer(pc);
+
+      // Assert: AT_TARGET の stopPropagation は後続を止めず、既定動作は取り消せない
+      expect(seen).toEqual([
+        {
+          cancelable: false,
+          defaultPrevented: false,
+          isTrusted: true,
+          timeStamp: "number",
+        },
+        "after",
+      ]);
+      // Assert: アプリが自分で生成したイベントは isTrusted が false のまま
+      expect(
+        new RTCPeerConnectionIceErrorEvent("icecandidateerror", {
+          errorCode: 701,
+        }).isTrusted,
+      ).toBe(false);
+    } finally {
+      await close();
+    }
+  });
+
+  test("続けて配送される 701 では、前のイベントの配送状態が後始末されている", async () => {
+    // Arrange: 応答しない STUN を 2 つ。各配送で前のイベントの状態を記録する
+    const first = await createSilentUdpServer(errorTestHost);
+    const second = await createSilentUdpServer(errorTestHost);
+    const { pc } = createErrorRecordingPeer({
+      iceServers: [
+        { urls: `stun:${errorTestHost}:${first.address[1]}` },
+        { urls: `stun:${errorTestHost}:${second.address[1]}` },
+      ],
+      iceStunGatherTimeout: 0.3,
+    });
+    const events: Event[] = [];
+    const previous: unknown[] = [];
+    pc.onicecandidateerror = (event) => {
+      const last = events.at(-1);
+      if (last) {
+        previous.push([last.currentTarget, last.eventPhase]);
+      }
+      events.push(event);
+    };
+    try {
+      // Act: gathering を完了させ、701 を 2 件配送する
+      await gatherWithOffer(pc);
+
+      // Assert: 2 件目の配送中、1 件目は currentTarget が null・eventPhase が 0 に戻っている
+      expect(events).toHaveLength(2);
+      expect(events[0]).not.toBe(events[1]);
+      expect(previous).toEqual([[null, 0]]);
+    } finally {
+      await pc.close();
+      await first.close();
+      await second.close();
+    }
+  });
+
+  test("701 のハンドラー内で restartIce() すると、次の gathering でその URL が再び 1 件通知される", async () => {
+    // Arrange: 応答しない STUN。最初の 701 のハンドラーで ICE restart を要求する
+    const silent = await createSilentUdpServer(errorTestHost);
+    const url = `stun:${errorTestHost}:${silent.address[1]}`;
+    const { pc, listened } = createErrorRecordingPeer({
+      iceServers: [{ urls: url }],
+      iceStunGatherTimeout: 0.3,
+    });
+    const peer = createHostOnlyPeer();
+    let restarted = false;
+    pc.onicecandidateerror = () => {
+      if (restarted) return;
+      restarted = true;
+      pc.restartIce();
+    };
+    try {
+      pc.addTransceiver("audio");
+      await negotiate(pc, peer);
+
+      // Act: 要求された ICE restart の交渉をして gathering を完了させる
+      await negotiate(pc, peer);
+      await gatheringComplete(pc);
+
+      // Assert: gathering ごとに 1 件ずつ、古い世代の 701 は出ない
+      expect(restarted).toBe(true);
+      expect(listened.map(({ url, errorCode }) => [url, errorCode])).toEqual([
+        [url, 701],
+        [url, 701],
+      ]);
+    } finally {
+      await pc.close();
+      await peer.close();
+      await silent.close();
     }
   });
 });

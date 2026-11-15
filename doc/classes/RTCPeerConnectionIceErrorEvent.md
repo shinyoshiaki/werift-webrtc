@@ -28,7 +28,11 @@ While listeners run, `target` and `currentTarget` are the
 `currentTarget` is `null` and `eventPhase` 0. The event reaches
 `pc.onIceCandidateError`, `onicecandidateerror` and the
 `icecandidateerror` listeners in that order; `stopImmediatePropagation()`
-stops the ones after the caller. While a 701 is dispatched,
+stops the ones after the caller (also later `pc.onIceCandidateError`
+subscribers), `stopPropagation()` does not (AT_TARGET). A listener
+removed during the dispatch is not called, one added during it is not
+called this time. The event is not cancelable (`preventDefault()` does
+nothing) and, as fired by the connection, `isTrusted` is true. While a 701 is dispatched,
 `iceGatheringState` still reads `"gathering"`.
 
 - `url`: the configured URL of the server, canonical: trimmed, lower-case
@@ -51,9 +55,11 @@ stops the ones after the caller. While a 701 is dispatched,
   registered phrase of the code (`"Unauthorized"`, `"STUN error 499"`)
   when that is empty; a description of the cause for a 701.
 - `address` / `port`: the local host address used to contact a STUN
-  server; `null` / `0` when unknown (TURN) or hidden (the `"relay"` ICE
-  transport policy), as Chrome and the WPT tests (`port == 0` when
-  `address` is `null`).
+  server; both `null` when unknown (TURN) or hidden (the `"relay"` ICE
+  transport policy), as the W3C spec says (a null address has a null
+  port). Chrome gives `port: 0` instead and the upstream WPT tests
+  expect that; werift's WPT runner maps the `null` to 0, the API keeps
+  the spec value.
 
 ## Extends
 

@@ -47,7 +47,7 @@
   2. 4 サーバー（`turn:…:3478`、`turn:…?transport=tcp`、`turns:…:5349`、`stun:…`）それぞれの URL でイベントが出ることを確認する。**`turns:turn3.invalid:5349` は `"turns:turn3.invalid:5349?transport=tcp"` として期待されている**（Chrome の正規化）。
 - `packages/webrtc/wpt/allowlist.json` に、このファイルはまだ登録されていない。
 - ラッパー `tools/wpt-runner/runner.ts:567-578` は `onicecandidateerror` を event attribute として定義済み。グローバルの `RTCPeerConnectionIceErrorEvent` は polyfill（`src/polyfill/install.ts:36, 105`、`globals.ts`）に存在せず、`RTCTrackEvent` と同じように追加する必要がある。
-- WPT の `port` が `null` だと `null == 0` は false になり、`address.includes` が TypeError で落ちる。そのため、ローカルアドレスが不明なときは **`address: null, port: 0`**（Chrome と同じ）にする。
+- WPT の `port` が `null` だと `null == 0` は false になり、`address.includes` が TypeError で落ちる。これは Chrome の挙動（`port: 0`）を前提にした upstream WPT の非規範的な書き方で、W3C 仕様は「`address` が `null` なら `port` も `null`」と定めている。**改訂（8.決定 6）**: `src` の API はローカルアドレスが不明なとき **`address: null, port: null`**（仕様どおり）にし、WPT との差は `tools/wpt-runner` のラッパーで `port: null` を `0` に置き換えて吸収する（AGENTS.md Do 5）。
 - **WPT の所要時間**: runner の completion timeout は file ごとに 800ms〜2.5s（`tools/wpt-runner/timeoutLogic.ts`）。subtest 1 の `turn:123` は `dns.lookup("123")` で `0.0.0.123` に解決され、UDP の送信はエラーにならない（Linux で確認済み。send callback の error は null）。そのため、UDP の Allocate はトランザクションのタイムアウト（`RETRY_RTO = 50ms` を倍々にして 7 回送るので約 6.35s）で初めて失敗し、そのあと TCP へフォールバックする。subtest 2 の `.invalid` は DNS 失敗ですぐ終わる。この file には、`timeoutLogic.ts` に `onicecandidateerror` 用のプロファイルを追加する必要がある（**決定: completion 20s**。UDP の失敗約 6.4s に TCP フォールバックの接続タイムアウト 8s が加わり、`turn:123` の失敗まで約 14.4s かかるため。当初の 10s 程度では足りない）。これは runner 側だけの変更で、`src` の挙動は変えない。
 
 ## 3. 実装内容
@@ -117,7 +117,7 @@ function classifyGatherError(error: unknown): { errorCode: number; errorText: st
 - `getCandidatePromises` の `.catch`（`ice.ts:1527-1533`）で、`stale()` でなく、かつ `classifyGatherError` が通知対象とした失敗について、`server: { kind: "turn", address, transport, urls }`（`urls` は `TurnServerOptions.urls` をそのまま入れる。credential は入れない）で通知する。
 - **UDP から TCP へのフォールバックは 1 つの設定サーバーに対する試行として扱う**。最初の試行（UDP）の失敗では通知せず、最終的に失敗したときに 1 回だけ通知する。errorCode は、どちらかの試行でサーバーが返した STUN エラーコードを 701 より優先する（例: UDP は 701 で TCP が 401 なら 401）。`gatherRelayCandidate` の中で両方の失敗を保持し、その組み合わせで判断する。
 - 正常な 401/438 の再送は `requestWithRetry` の中で完結するので、イベントにしない（最終的に reject されたときだけ通知する）。
-- ローカルアドレス: UDP の TURN ソケットは wildcard bind なので通常は不明になる。`address` は undefined（webrtc 層で `null` / `0` にする）。`relayOnly`（`iceTransportPolicy: "relay"`）のときは、ローカルアドレスを常に隠す（`ice.ts:1510-1514` の方針と揃える）。
+- ローカルアドレス: UDP の TURN ソケットは wildcard bind なので通常は不明になる。`address` は undefined（webrtc 層で `null` / `null` にする。8.決定 6）。`relayOnly`（`iceTransportPolicy: "relay"`）のときは、ローカルアドレスを常に隠す（`ice.ts:1510-1514` の方針と揃える）。
 
 ### 3.4 送信エラーの早期失敗（任意）
 
@@ -144,7 +144,7 @@ function classifyGatherError(error: unknown): { errorCode: number; errorText: st
    - `pc.close()` 後は発火しない（`connectionState === "closed"` を確認する。transport の `close` で Event を complete する）。
    - ICE restart で前の世代になった gathering の失敗は捨てる（ICE 層の `stale()`。webrtc 層では `generation` を照合する）。
    - pending-only transport（rollback で破棄される transport）の失敗の扱いは、`onIceCandidate` の抑制（`peerConnection.ts:879-883`）と揃える。
-6. **アドレスの露出**: `address` と `port` は、host candidate のアドレスが分かっていて `iceTransportPolicy !== "relay"` のときだけ設定する。それ以外は `address: null, port: 0`。
+6. **アドレスの露出**: `address` と `port` は、host candidate のアドレスが分かっていて `iceTransportPolicy !== "relay"` のときだけ設定する。それ以外は `address: null, port: null`（W3C 仕様どおり。WPT runner だけ `port` を `0` に置き換える。8.決定 6）。
 7. **errorText**: 生成する文字列にユーザー名、パスワード、realm、nonce、MESSAGE-INTEGRITY を含めない。サーバーの reason phrase は使うが、werift が知っている資格情報（送った username・password、応答の USERNAME・REALM・NONCE）を `***` に伏せる（8.決定 9）。`TurnRedirectError.message` のようにサーバーのアドレスを含むものは許容するが、URL の credential 部（`turn:user@host` 形式）は出さない。
 
 ### 3.6 ドキュメント
@@ -193,7 +193,9 @@ AGENTS.md に従い Arrange / Act / Assert 形式で書き、Act と Assert に�
   - [ ] 【追加要件】応答はあったが STUN エラーコードのないサーバー（`XOR-MAPPED-ADDRESS` のない成功応答、ERROR-CODE のないエラー応答、MESSAGE-INTEGRITY の検証失敗）は 701 にならず、通知もされず、`onIceServerReached` で到達として扱われる。TURN で UDP がそうした応答を受け、TCP フォールバックが接続できない場合も 701 にしない（`classifyGatherError` / `isServerAnswer` の単体テストを含む）。
   - [ ] 【追加要件】サーバーの reason phrase（例: 400 の `Missing fingerprint`）が `errorText` に届く。STUN / TURN の reason phrase に設定した username・password や応答の realm・nonce・username を含めても `***` に伏せられる。制御文字の除去、127 文字の上限、空のときの登録済みの文言（未登録は `"STUN error <code>"`）も確認する。
   - [ ] 【追加要件】701 のハンドラー内で `iceGatheringState` は `"gathering"` で、`"complete"` はその後の `icegatheringstatechange` から見える。
-  - [ ] 【追加要件】`stopImmediatePropagation()` を呼んだハンドラーより後のリスナーには配送しない。
+  - [ ] 【追加要件】`stopImmediatePropagation()` を呼んだハンドラーより後のリスナーには配送しない。`pc.onIceCandidateError` の 1 つ目の購読者が呼んだ場合も、2 つ目の購読者・`onicecandidateerror`・`addEventListener` のリスナーは呼ばれない。
+  - [ ] 【追加要件】配送中に `removeEventListener` で削除されたリスナーは呼ばれず、配送中に追加されたリスナーはその配送では呼ばれない。`stopPropagation()` は後続を止めず、`preventDefault()` 後も `defaultPrevented === false`。
+  - [ ] 【追加要件】`packages/common` の `Event.executeUntil`: 停止の述語が true になったら残りの購読者を呼ばない。購読者の例外は `onError` に渡して続ける。
   - [ ] TURN の UDP 失敗と TCP 失敗: イベントは 1 回で、STUN のエラーコードが 701 より優先される。
   - [ ] 正常な 401 → 再送 → 成功、または 438 → 再送 → 成功のとき、イベントは 0 件で relay candidate が出る（既存の `turn-long-term-credential.test.ts` などのスタブを流用する）。
   - [ ] 正常な STUN/TURN と失敗するサーバーが混在しても、正常な srflx / relay candidate が出て、`gatherCandidates()` が完了する。
@@ -206,7 +208,7 @@ AGENTS.md に従い Arrange / Act / Assert 形式で書き、Act と Assert に�
   - [ ] 同じ host で URL / transport が違う 2 つの TURN が、別々の URL で通知される。同じ address で credential だけが違う 2 つの TURN は、それぞれの URL でだけ通知される（取り違えない）。
   - [ ] URL の正規化（`canonicalIceServerUrl` の単体テスト）: `turns:h:5349` は `turns:h:5349?transport=tcp` になる。`turns:h:5349?transport=tcp`、`turn:h:3478`、`turn:h:3478?transport=tcp`、`stun:h:3478`、`stuns:h:3478` は変わらない。前後の空白は除き、scheme は小文字にする。
   - [ ] 1 つのサーバーに複数の URL（`stun:a:3478` と `stuns:a:3478`）が対応する場合、URL ごとに 1 件ずつ通知される。
-  - [ ] `iceTransportPolicy: "relay"` では `address === null && port === 0`。
+  - [ ] `iceTransportPolicy: "relay"` と TURN の失敗では `address === null && port === null`（8.決定 6）。WPT runner のラッパー経由では `port === 0` になり、WPT subtest 1 が通る。
   - [ ] `close()` 後はイベントが出ない。ICE restart 後は古い世代のイベントが出ない。
   - [ ] 【追加要件】701 は gathering の終了時に URL ごとに 1 件: 複数ソケット・複数 transport（`bundlePolicy: "disable"`）が同じサーバーに届かなくても 1 件。ICE restart の新しい gathering では再び 1 件。
   - [ ] 【追加要件】あるソケット・transport がサーバーに届いたら、同じ gathering の他の失敗があっても 701 は出ない（先に始めた transport・後から加わった transport の両方）。
@@ -237,6 +239,7 @@ AGENTS.md に従い Arrange / Act / Assert 形式で書き、Act と Assert に�
 - [ ] `serverReflexiveCandidate` のシグネチャと「失敗時は `undefined`」という挙動が変わらず、公開 API に破壊的変更がない。
 - [ ] 通知される `url` が 3.5-1 の規則（`turns:` だけ `?transport=tcp` を補う）に従い、TSDoc と changelog に書かれている。
 - [ ] changelog、README、生成ドキュメントを更新する。
+- [ ] 【追加要件】TURN の失敗と `iceTransportPolicy: "relay"` で `port === null`（仕様どおり）、WPT runner 経由では `0` で、WPT subtest 1・2 が通る（8.決定 6）。`pc.onIceCandidateError` の購読者間を含め、`stopImmediatePropagation()` と配送中の `removeEventListener` が DOM どおりに働く（8.決定 11）。
 - [ ] 【追加要件】701 が 3.7 と 8.決定 3〜5 のとおり、gathering の終了時に URL ごとに最大 1 回だけ、その gathering で試した transport がどれも届かなかったときに出る。5 の【追加要件】のテストがあり、旧実装で失敗することを確認している。
 
 ## 8. 決定事項と残りの検討事項
@@ -248,15 +251,15 @@ AGENTS.md に従い Arrange / Act / Assert 形式で書き、Act と Assert に�
 
 3. **【追加要件】701 の意味（W3C 仕様に準拠）**: 701 は「1 回の gathering で、その URL を試した参加者（ソケット・transport）が 1 つもサーバーに届かなかったとき、URL ごとに 1 回」とする。判定は gathering の終了時に 1 回だけ行う（3.7）。4 章の旧記述（同じ URL でも `address` 違いで複数のイベント）は誤りとして訂正した。
 4. **【追加要件】300〜699 のエラーコード**: サーバーが応答した（到達した）ことを意味するので、従来どおりソケットごとに即時に通知する。
-5. **【追加要件】701 の `address` / `port`**: 最初に失敗したソケットの値を入れる（STUN）。TURN と `iceTransportPolicy: "relay"` では `null` / `0`（決定 6）。WPT subtest 1 の「`port == 0` でなければ `address` に `.` か `:` を含む」も満たす。
-6. **`address` が不明なときの `port`**: `0`（2.4、3.5-6。Chrome と WPT に合わせる）。W3C 仕様の「`address` が `null` なら `port` も `null`」とは異なるが、チケットの決定を優先する。WPT runner による値の書き換えはしない。レビューで再び `port: null` を求められても、この決定と根拠（upstream WPT は `event.port == 0` のときだけ `address === null` を確認し、それ以外は `address.includes(...)` を呼ぶので、`port: null` だと TypeError で落ちる）を示して押し返す。`RTCPeerConnectionIceErrorEvent` を直接生成して `port` を省いた場合は IDL の既定値 `null`。
+5. **【追加要件】701 の `address` / `port`**: 最初に失敗したソケットの値を入れる（STUN）。TURN と `iceTransportPolicy: "relay"` では `null` / `null`（決定 6）。WPT subtest 1 の「`port == 0` でなければ `address` に `.` か `:` を含む」は、runner のラッパーが `null` の `port` を `0` に置き換えることで満たす。
+6. **【改訂】`address` が不明なときの `port`**: `null`（W3C 仕様どおり。`address` が `null` なら `port` も `null`）。TURN の失敗と `iceTransportPolicy: "relay"` が該当する。upstream WPT（subtest 1）は `event.port == 0` のときだけ `address === null` を確認し、それ以外は `address.includes(...)` を呼ぶので、`port: null` だと TypeError で落ちる。これは Chrome 固有の挙動を前提にした非規範的な書き方なので、`tools/wpt-runner` のラッパーで、配送する `icecandidateerror` の `port` が `null` なら `0` に置き換える（AGENTS.md Do 5: upstream-WPT 専用の挙動はラッパーに閉じ込める）。`src` の API は仕様どおり。`RTCPeerConnectionIceErrorEvent` を直接生成して `port` を省いた場合の IDL 既定値 `null` とも一致する。経緯: 旧決定（`port: 0` を優先し、レビューで `null` を求められても押し返す）の後も、2 回続けて同じ指摘が出て押し返しが通らなかったため、ユーザーの承認を得て仕様側に合わせた。
 7. **既定の STUN サーバー**: 合成した URL `stun:stun.l.google.com:19302` で通知する（3.5-2）。WPT runner は、ブラウザーに既定の STUN がないことに合わせて `iceUseDefaultStunServer: false` で接続を作る（オフライン環境で既定 STUN の失敗が先に届き、subtest 1 が落ちるのを防ぐ）。
 8. **WPT の completion timeout**: 20s（2.4）。
 9. **【追加要件・改訂】`errorText` はサーバーの理由句を、既知の資格情報を伏せて渡す**: W3C は errorText を「サーバーが返した理由テキスト」と定めており、固定文言にすると診断情報（例: 400 の `Missing fingerprint`）が失われる。そのため、サーバーのエラー応答（300〜699）の `errorText` はサーバーの reason phrase を使い、werift が知っている資格情報をすべて `***`（`MASKED_REASON_TEXT`）に置き換える。対象は、TURN に送った username と password（`GatherErrorContext.secrets`）と、応答の USERNAME / REALM / NONCE 属性。長い値から順に置き換えるので、他の値を含む値も丸ごと伏せられる。さらに制御文字を除き、RFC 8489 §14.8 に合わせて 127 文字で切る。結果が空なら、そのコードの登録済みの reason phrase（IANA「STUN Error Codes」。例: 401 は `"Unauthorized"`）、未登録のコードは `"STUN error <code>"`（`gatherErrorReasonText`、`stunErrorReasonPhrase`）。701 は従来どおり原因を表す固定文言。旧決定（固定文言だけにする）は、資格情報の保護はこの伏せ字で満たせ、仕様の診断情報を失うため改訂した。
 
 10. **【追加要件】応答はあったが STUN エラーコードのない場合**: 有効な ERROR-CODE のないエラー応答、MESSAGE-INTEGRITY の検証に失敗した応答、`XOR-MAPPED-ADDRESS` のない成功応答は、サーバーから応答が届いているので「到達」とする（`isServerAnswer`、`onIceServerReached`）。W3C の 701 は「どのホスト候補からもサーバーに到達できない」ときのコードで、errorCode はサーバーが返した STUN エラーコードなので、どちらにも当てはまらないこれらは `icecandidateerror` を出さない（`classifyGatherError` は `undefined` を返す。`debug` ログにだけ残る）。3.2 の「`XOR-MAPPED-ADDRESS` 欠落は 701」は、決定 3 と矛盾していたため訂正した。TURN で試行ごとに結果が違う場合（UDP は応答あり、TCP は接続失敗など）も、どれかの試行で応答があれば 701 にしない。
 
-11. **【追加要件】イベントの配送順と伝播停止**: `pc.onIceCandidateError`、`onicecandidateerror`、`addEventListener` のリスナーの順に同じイベントを配送する。ハンドラーが `stopImmediatePropagation()` を呼んだら、それより後のハンドラーには配送しない（DOM のイベント配送に合わせる。ハンドラーが throw しても他には配送する）。
+11. **【追加要件】イベントの配送順と伝播停止**: `pc.onIceCandidateError`、`onicecandidateerror`、`addEventListener` のリスナーの順に同じイベントを配送する。ハンドラーが `stopImmediatePropagation()` を呼んだら、それより後のハンドラーには配送しない（DOM のイベント配送に合わせる。ハンドラーが throw しても他には配送する）。**`pc.onIceCandidateError` の購読者間でも停止を伝播する**（`Event.executeUntil` で購読者ごとに停止を確認する）。配送中に `removeEventListener` で削除されたリスナーは呼ばない。配送中に追加されたリスナーは、その配送では呼ばない。`stopPropagation()`（immediate でない）は AT_TARGET では後続を止めない。`cancelable` は `false` で、`preventDefault()` は `defaultPrevented` を変えない。接続が配送するイベントは `isTrusted` を `true` にする（DOM: UA が配送したイベント。アプリが自分で生成したものは `false`）。ハンドラー内の `restartIce()` は、次の gathering で同じ URL を再び 1 件通知する。
 
 ### 範囲外（別チケット）
 
@@ -268,5 +271,7 @@ AGENTS.md に従い Arrange / Act / Assert 形式で書き、Act と Assert に�
 
 ### レビュー対応の基準【追加要件】
 
-- チケットと食い違う指摘は、そのまま受け入れず、チケットの決定と根拠を示して押し返す（`port` の件と同じ扱い）。チケットの決定を変える場合は、先にチケットへ決定として書く。
+- チケットと食い違う指摘は、そのまま受け入れず、チケットの決定と根拠を示して押し返す。チケットの決定を変える場合は、先にチケットへ決定として書く。
+- **【改訂】仕様と食い違う決定は、押し返しが 1 回通らなければ仕様側に合わせ、WPT との差は `tools/wpt-runner` のラッパーに閉じ込める**（`port` の件: 押し返しが 2 回通らず、決定 6 を改訂した）。レビューはチケットではなく W3C / DOM 仕様を基準に判定するので、根拠は TSDoc と changelog にも書く。
+- 自前のイベント配送（`dispatchIceCandidateError`）は、DOM の配送アルゴリズムの観測可能な性質（target / currentTarget / eventPhase、伝播停止、例外の隔離、配送中の追加・削除、cancelable）をテストで固めてからレビューに出す。
 - レビューを依頼する前に、境界条件の組み合わせ（参加者の途中参加・途中離脱（close / rollback）、成功・失敗、URL 構成の違い、ICE restart、close）を 5 の【追加要件】のテストで確認しておく。

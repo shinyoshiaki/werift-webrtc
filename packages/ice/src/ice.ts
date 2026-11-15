@@ -1651,12 +1651,12 @@ export class Connection implements IceConnection {
       reusedStunProtocols.filter((protocol) =>
         isIPv4(protocol.localCandidate!.host),
       ).length + localStunPromises.length;
-    const defaultMode =
-      !interfaceAddresses?.udp4 && !interfaceAddresses?.udp6;
-    const wildcardFamilies = ([4, 6] as const).filter((family) =>
-      defaultMode &&
-      (family === 4 ? this.options.useIpv4 : this.options.useIpv6) &&
-      this.reflexiveServersOf(family).length > 0,
+    const defaultMode = !interfaceAddresses?.udp4 && !interfaceAddresses?.udp6;
+    const wildcardFamilies = ([4, 6] as const).filter(
+      (family) =>
+        defaultMode &&
+        (family === 4 ? this.options.useIpv4 : this.options.useIpv6) &&
+        this.reflexiveServersOf(family).length > 0,
     );
     for (const server of stunServers) {
       const wildcardPaths = wildcardFamilies.filter((family) =>
@@ -1852,7 +1852,8 @@ export class Connection implements IceConnection {
               if (!fresh.some((known) => sameMapping(known, candidate))) {
                 fresh.push(candidate);
               }
-              if (advertised.some((known) => sameMapping(known, candidate))) return;
+              if (advertised.some((known) => sameMapping(known, candidate)))
+                return;
               advertised.push(candidate);
               this.appendLocalCandidate(candidate);
             }),
@@ -1871,7 +1872,8 @@ export class Connection implements IceConnection {
             stunServers.map(async (server) => {
               const candidate = await queryReflexive(protocol, server, settled);
               if (!candidate || stale()) return;
-              if (advertised.some((known) => sameMapping(known, candidate))) return;
+              if (advertised.some((known) => sameMapping(known, candidate)))
+                return;
               advertised.push(candidate);
               this.reflexiveBySocket.set(protocol, advertised);
               this.appendLocalCandidate(candidate);

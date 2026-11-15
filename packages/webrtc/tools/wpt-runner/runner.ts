@@ -698,6 +698,15 @@ function createPeerConnectionWrapper(peerConnections: Set<RTCPeerConnection>) {
         ...rest,
       );
       peerConnections.add(this);
+      // W3C: an unknown local address gives `port: null` (werift's API does
+      // so). The upstream WPT expects Chrome's `port: 0` (it checks
+      // `address === null` only when `port == 0`), so this wrapper shows 0.
+      // Subscribed first: it runs before onicecandidateerror / the listeners.
+      this.onIceCandidateError.subscribe((event) => {
+        if (event.port === null) {
+          Object.defineProperty(event, "port", { value: 0 });
+        }
+      });
       const setLocalDescription = this.setLocalDescription.bind(this);
       this.setLocalDescription = ((
         ...sldArgs: Parameters<RTCPeerConnection["setLocalDescription"]>

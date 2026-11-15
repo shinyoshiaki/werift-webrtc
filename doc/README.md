@@ -70,7 +70,8 @@ password, realm, nonce) replaced by `***`. The built-in default STUN server (`ic
 when no STUN server is configured) is not part of the configuration; its
 failure is reported with the synthesized URL `stun:stun.l.google.com:19302`.
 `address` / `port` are the local host address that asked a STUN server, or
-`null` / `0` for a TURN server and with `iceTransportPolicy: "relay"`. A
+both `null` for a TURN server and with `iceTransportPolicy: "relay"`
+(W3C: a null address has a null port). A
 server's error response is reported at once; a 701 (not reached) is reported
 once per URL when the gathering ends, only if no ICE transport of that
 gathering reached the server.

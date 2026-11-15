@@ -580,7 +580,9 @@ export class RTCPeerConnection extends EventTarget {
    * Dispatch an `icecandidateerror` to `onIceCandidateError`,
    * `onicecandidateerror` and the listeners, in that order, with one event
    * object. A handler calling `stopImmediatePropagation()` stops the ones
-   * after it.
+   * after it (also the later subscribers of onIceCandidateError); a
+   * listener removed during the dispatch is not called, one added during it
+   * is not called this time.
    */
   private dispatchIceCandidateError(details: IceCandidateErrorDetails) {
     const event = new RTCPeerConnectionIceErrorEvent(
@@ -603,6 +605,12 @@ export class RTCPeerConnection extends EventTarget {
       }
     };
     setDispatchState(this, 2);
+    // Fired by the connection (the user agent), not constructed by the
+    // application: a trusted event (W3C DOM `isTrusted`).
+    Object.defineProperty(event, "isTrusted", {
+      value: true,
+      enumerable: true,
+    });
     // stopImmediatePropagation() stops the listeners after the caller (W3C
     // DOM), in the order below.
     let stopped = false;
@@ -616,20 +624,33 @@ export class RTCPeerConnection extends EventTarget {
       enumerable: false,
       writable: true,
     });
-    // One throwing handler must not hide the event from the others.
-    for (const notify of [
-      () => this.onIceCandidateError.execute(event),
-      () => this.onicecandidateerror?.(event),
-      // EventEmitter stops at the first throwing listener: call each one.
-      ...this.rawListeners("icecandidateerror").map(
-        (listener) => () => listener.call(this, event),
-      ),
-    ]) {
-      if (stopped) break;
+    const onError = (error: unknown) =>
+      log("icecandidateerror handler threw", error);
+    // The listeners when the dispatch starts (W3C DOM): one added meanwhile
+    // is not called this time.
+    const listeners = this.rawListeners("icecandidateerror");
+    // One throwing handler must not hide the event from the others, and the
+    // stop is checked before each one (also between the subscribers of
+    // onIceCandidateError).
+    this.onIceCandidateError.executeUntil(() => stopped, onError, event);
+    if (!stopped) {
       try {
-        notify();
+        this.onicecandidateerror?.(event);
       } catch (error) {
-        log("icecandidateerror handler threw", error);
+        onError(error);
+      }
+    }
+    // EventEmitter stops at the first throwing listener: call each one.
+    for (const listener of listeners) {
+      if (stopped) break;
+      // Removed meanwhile (removeEventListener): not called (W3C DOM).
+      if (!this.rawListeners("icecandidateerror").includes(listener)) {
+        continue;
+      }
+      try {
+        listener.call(this, event);
+      } catch (error) {
+        onError(error);
       }
     }
     setDispatchState(null, 0);

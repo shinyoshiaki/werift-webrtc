@@ -169,3 +169,22 @@ export function useNoIceServers(transport: RTCIceTransport) {
     useDefaultStunServer: false,
   });
 }
+
+/**
+ * A recording peer whose only STUN server answers 400: every gathering
+ * dispatches one `icecandidateerror` at once. `close()` also closes the
+ * server.
+ */
+export async function createErrorAnsweringPeer() {
+  const stun = await createErrorStunServer(400, "Bad Request");
+  const recording = createErrorRecordingPeer({
+    iceServers: [{ urls: `stun:${errorTestHost}:${stun.address[1]}` }],
+  });
+  return {
+    ...recording,
+    close: async () => {
+      await recording.pc.close();
+      await stun.close();
+    },
+  };
+}
