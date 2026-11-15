@@ -1,4 +1,8 @@
 import {
+  type CompatibilityOptionValue,
+  CompatibilityOptionValues,
+} from "../api/compatibilityOptions";
+import {
   debug,
   type Extensions,
   FullIntraRequest,
@@ -31,20 +35,21 @@ const log = debug("werift:packages/webrtc/src/media/router.ts");
 
 /**
  * Where a keyframe request (PLI / FIR) goes when no route has its target SSRC.
- * - `"compatible"` (default): the sender whose RTX SSRC it is, else the only
+ * - `"fallback"` (default): the sender whose RTX SSRC it is, else the only
  *   video sender of the PeerConnection, so that a request naming the RTX
  *   stream, SSRC 0 or a stale SSRC still gets a keyframe.
- * - `"strict"`: not delivered (RFC 4585 section 6.1 / RFC 5104 section 4.3.1).
+ * - `"standard"`: not delivered (RFC 4585 section 6.1 / RFC 5104 section 4.3.1).
  *
  * A registered target SSRC is routed as is in both modes, and the sender SSRC
  * of the request is never used: it names the requesting peer's own stream.
+ * `PeerConfig.keyFrameRequestRouting` also accepts the names up to v0.27.0
+ * (`"compatible"` for `"fallback"`, `"strict"` for `"standard"`).
  */
-export type KeyFrameRequestRouting = "compatible" | "strict";
+export type KeyFrameRequestRouting =
+  CompatibilityOptionValue<"keyFrameRequestRouting">;
 
-export const KeyFrameRequestRoutingModes: readonly KeyFrameRequestRouting[] = [
-  "compatible",
-  "strict",
-];
+export const KeyFrameRequestRoutingModes: readonly KeyFrameRequestRouting[] =
+  CompatibilityOptionValues.keyFrameRequestRouting;
 
 type FirEntry = FullIntraRequest["fir"][number];
 
@@ -110,7 +115,7 @@ export class RtpRouter {
    * sent), not from SDP. Negotiation rollback keeps these entries.
    */
   readonly learnedSsrcs = new Set<number>();
-  keyFrameRequestRouting: KeyFrameRequestRouting = "compatible";
+  keyFrameRequestRouting: KeyFrameRequestRouting = "fallback";
 
   constructor() {}
 
@@ -612,7 +617,7 @@ export class RtpRouter {
     ssrc: number,
   ): RTCRtpReceiver | RTCRtpSender | undefined {
     const route = this.ssrcTable[ssrc];
-    if (route || this.keyFrameRequestRouting === "strict") return route;
+    if (route || this.keyFrameRequestRouting === "standard") return route;
 
     const senders = new Set(
       Object.values(this.ssrcTable).filter(

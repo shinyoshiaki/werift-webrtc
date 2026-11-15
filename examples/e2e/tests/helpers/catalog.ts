@@ -33,6 +33,14 @@ export type CatalogEntry = {
   weriftRtpLogs?: string[];
   /** UDP port the example forwards RTP to; harness binds and counts packets */
   rtpForwardPort?: number;
+  /** Server log marker proving forwarded RTP continued across an upstream reconnect. */
+  sourceSwitchLog?: string | RegExp;
+  /**
+   * After the source switches, the forwarded RTP must be one stream: a single
+   * SSRC and no sequence jump larger than this (a new upstream origin would
+   * jump by a random amount).
+   */
+  continuousRtpMaxJump?: number;
   env?: Record<string, string>;
   waitLog?: string | RegExp | false;
   expectExit?: number;
@@ -227,6 +235,35 @@ export const catalog: CatalogEntry[] = [
     kind: "media-inbound",
     inbound: "werift",
     rtpForwardPort: 1234,
+  },
+  {
+    id: "rtp-forward-switch-source",
+    group: "browser",
+    node: ["mediachannel/rtp_forward/switch_source.ts"],
+    html: "mediachannel/rtp_forward/switch_source.html",
+    port: 8888,
+    client: "babel",
+    kind: "media-inbound",
+    inbound: "werift",
+    rtpForwardPort: 1234,
+    env: { SWITCH_INTERVAL_MS: "4000" },
+    sourceSwitchLog: "source switch",
+    continuousRtpMaxJump: 100,
+  },
+  {
+    id: "rtp-forward-camera-switcher",
+    group: "browser",
+    node: ["mediachannel/rtp_forward/camera_switcher.ts"],
+    html: "mediachannel/rtp_forward/camera_switcher.html",
+    port: 8888,
+    client: "babel",
+    kind: "media-inbound",
+    inbound: "werift",
+    rtpForwardPort: 1234,
+    env: { SWITCH_INTERVAL_MS: "3000" },
+    // A -> B -> A: switching back to a camera continues the same timeline.
+    sourceSwitchLog: /source switch to=A#3 /,
+    continuousRtpMaxJump: 100,
   },
   {
     id: "pubsub",
