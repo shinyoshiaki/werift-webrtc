@@ -835,8 +835,6 @@ export async function receiveRecordedFile(
 type MediaElementAudioCounters = {
   /** Chrome: bytes of audio the element decoded. */
   webkitAudioDecodedByteCount?: number;
-  /** Firefox: the element found an audio track in the media it played. */
-  mozHasAudio?: boolean;
 };
 
 function audioDecodedByteCount(element: HTMLMediaElement) {
@@ -845,17 +843,13 @@ function audioDecodedByteCount(element: HTMLMediaElement) {
 
 /**
  * Whether a media element that played to `ended` decoded audio, or undefined
- * when the browser has no counter for it. Neither counter is standard: Chrome
- * counts decoded bytes, Firefox reports only `mozHasAudio` and only on
- * <video>. Where a test needs decoded audio in Firefox, it decodes the file
- * with {@link decodeAudioFile}.
+ * when the browser has no decode counter (Firefox: its `mozHasAudio` only
+ * says the media has an audio track). Tests that need decoded audio in every
+ * browser decode the file with {@link decodeAudioFile}.
  */
 function hasPlayedAudio(element: HTMLMediaElement) {
-  const counters = element as MediaElementAudioCounters;
-  if (counters.webkitAudioDecodedByteCount !== undefined) {
-    return counters.webkitAudioDecodedByteCount > 0;
-  }
-  return counters.mozHasAudio;
+  const bytes = audioDecodedByteCount(element);
+  return bytes === undefined ? undefined : bytes > 0;
 }
 
 export type WebmFilePlayback = {
