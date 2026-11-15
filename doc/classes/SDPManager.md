@@ -36,7 +36,7 @@ Add `ice2` (RFC 8445 §10) to the local ice-options.
 
 ###### mLineReuse?
 
-[`MLineReuse`](../type-aliases/MLineReuse.md)
+`"standard"` \| `"aggressive"`
 
 #### Returns
 
@@ -84,7 +84,7 @@ Local `a=ice-options` tokens written on every m-line.
 
 ### mLineReuse
 
-> `readonly` **mLineReuse**: [`MLineReuse`](../type-aliases/MLineReuse.md)
+> `readonly` **mLineReuse**: `"standard"` \| `"aggressive"`
 
 ***
 

@@ -1,6 +1,8 @@
 import { readFileSync } from "fs";
 import { setImmediate as waitImmediate } from "timers/promises";
+import { setFlagsFromString } from "v8";
 import { expect, type Mock, vi } from "vitest";
+import { runInNewContext } from "vm";
 
 import { SCTP, SCTP_STATE } from "../src";
 import {
@@ -209,15 +211,39 @@ export const dropReconfigSuccessResponses = (count = 1) => {
   };
 };
 
-/** Runs a burst of `count` messages on a fresh pair and returns the elapsed time. */
+let cachedGc: (() => void) | undefined;
+
+/**
+ * V8 の `gc()`。`--expose-gc` なら `globalThis.gc`、なければ実行時にフラグを立てて
+ * 取り出す (既定の vitest 設定は `execArgv` を渡さない)。
+ */
+const collectGarbage = () => {
+  if (!cachedGc) {
+    const exposed = (globalThis as typeof globalThis & { gc?: () => void }).gc;
+    if (typeof exposed === "function") {
+      cachedGc = exposed;
+    } else {
+      setFlagsFromString("--expose-gc");
+      cachedGc = runInNewContext("gc") as () => void;
+    }
+  }
+  cachedGc();
+};
+
+/**
+ * Runs a burst of `count` messages on a fresh pair and returns the elapsed time.
+ *
+ * The heap is collected right before the measurement so that every run starts
+ * from the same GC state. Otherwise a small run that follows a large one
+ * (heap already grown, no collection needed) looks much cheaper per message
+ * than a run that pays for its own collections, which skews size ratios.
+ */
 export const measureBurstTransfer = async (count: number, size: number) => {
   const pair = await createConnectedSctpPair();
   try {
-    return await runBurstTransfer(
-      pair.client,
-      pair.server,
-      createMessages(count, size),
-    );
+    const messages = createMessages(count, size);
+    collectGarbage();
+    return await runBurstTransfer(pair.client, pair.server, messages);
   } finally {
     await pair.stop();
   }

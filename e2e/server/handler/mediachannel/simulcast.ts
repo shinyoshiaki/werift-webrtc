@@ -4,6 +4,7 @@ import {
   RTCPeerConnection,
   RTCRtpCodecParameters,
   type RTCRtpReceiver,
+  type RTCRtpTransceiver,
   type RtpPacket,
   RtpReceivePacketType,
   useNACK,
@@ -81,18 +82,26 @@ export class mediachannel_simulcast_offer {
               audio: [],
             },
           });
-          const transceiver = this.pc.addTransceiver("video", {
-            direction: "recvonly",
-          });
+          // JSEP 5.10: the browser's offer (simulcast sendonly, recvonly,
+          // recvonly) gets its own transceivers: receive the layers on the
+          // first and send each back on one of the others.
+          const remote: RTCRtpTransceiver[] = [];
           const multiCast = {
-            high: this.pc.addTransceiver("video", { direction: "sendonly" }),
-            low: this.pc.addTransceiver("video", { direction: "sendonly" }),
+            high: () => remote[1],
+            low: () => remote[2],
           };
-          transceiver.onTrack.subscribe((track) => {
-            const sender = multiCast[track.rid as keyof typeof multiCast];
-            if (sender) {
-              sender.sender.replaceTrack(track);
+          this.pc.onRemoteTransceiverAdded.subscribe((transceiver) => {
+            remote.push(transceiver);
+            if (remote.length > 1) {
+              transceiver.setDirection("sendonly");
+              return;
             }
+            transceiver.onTrack.subscribe((track) => {
+              const sender = multiCast[track.rid as keyof typeof multiCast]?.();
+              if (sender) {
+                sender.sender.replaceTrack(track);
+              }
+            });
           });
           await this.pc.setRemoteDescription(payload);
           await this.pc.setLocalDescription(await this.pc.createAnswer());
