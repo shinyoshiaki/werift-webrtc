@@ -1,6 +1,7 @@
 import * as dgram from "node:dgram";
 import * as dns from "node:dns";
 import * as net from "node:net";
+import type * as os from "node:os";
 import * as tls from "node:tls";
 import { deepStrictEqual } from "assert";
 import { EventEmitter } from "events";
@@ -952,6 +953,114 @@ export async function createStreamTurnServer({
       await new Promise<void>((resolve) => server.close(() => resolve()));
     },
   };
+}
+
+/**
+ * Shared Arrange: a STUN server that answers Binding Requests with the
+ * source address (XOR-MAPPED-ADDRESS) but ignores those from
+ * `ignoredSources`, so a socket bound to such an address cannot reach it
+ * (a network interface without a route to the STUN server).
+ */
+export async function createSelectiveStunServer(
+  host: string,
+  ignoredSources: string[] = [],
+) {
+  const socket = dgram.createSocket(net.isIPv4(host) ? "udp4" : "udp6");
+  const ignored = new Set(ignoredSources);
+  const answeredSources: string[] = [];
+  socket.on("message", (data, rinfo) => {
+    const request = parseMessage(data);
+    if (
+      !request ||
+      request.messageMethod !== methods.BINDING ||
+      request.messageClass !== classes.REQUEST ||
+      ignored.has(rinfo.address)
+    ) {
+      return;
+    }
+    answeredSources.push(rinfo.address);
+    const response = new Message(
+      methods.BINDING,
+      classes.RESPONSE,
+      request.transactionId,
+    );
+    response.setAttribute("XOR-MAPPED-ADDRESS", [rinfo.address, rinfo.port]);
+    socket.send(response.bytes, rinfo.port, rinfo.address);
+  });
+  await new Promise<void>((resolve) => socket.bind(0, host, () => resolve()));
+  const address: Address = [host, socket.address().port];
+  return {
+    address,
+    /** Source addresses of the requests the server answered. */
+    answeredSources,
+    close: () =>
+      new Promise<void>((resolve) => {
+        socket.close(() => resolve());
+      }),
+  };
+}
+
+/** Whether a UDP socket can bind `address` on this host. */
+export async function canBindAddress(address: string) {
+  const socket = dgram.createSocket(net.isIPv4(address) ? "udp4" : "udp6");
+  try {
+    await new Promise<void>((resolve, reject) => {
+      socket.once("error", reject);
+      socket.bind(0, address, () => resolve());
+    });
+    return true;
+  } catch {
+    return false;
+  } finally {
+    try {
+      socket.close();
+    } catch {}
+  }
+}
+
+/**
+ * Shared Arrange: an `os.networkInterfaces()` result where each entry of
+ * `nics` is a non-internal interface holding the given addresses, so local
+ * addresses such as 127.0.0.2 look like separate NICs to the gathering.
+ */
+export function fakeNetworkInterfaces(nics: Record<string, string[]>) {
+  return Object.fromEntries(
+    Object.entries(nics).map(([nic, addresses]) => [
+      nic,
+      addresses.map((address) => {
+        const ipv4 = net.isIPv4(address);
+        return {
+          address,
+          netmask: ipv4 ? "255.0.0.0" : "ffff:ffff:ffff:ffff::",
+          family: ipv4 ? "IPv4" : "IPv6",
+          mac: "00:00:00:00:00:00",
+          internal: false,
+          cidr: `${address}/${ipv4 ? 8 : 64}`,
+          ...(ipv4 ? {} : { scopeid: 0 }),
+        };
+      }),
+    ]),
+  ) as unknown as NodeJS.Dict<os.NetworkInterfaceInfo[]>;
+}
+
+/**
+ * Shared Arrange: records the source address of every STUN request the UDP
+ * host sockets of `connection` receive (call after gathering).
+ */
+export function recordUdpRequestSources(connection: Connection) {
+  const sources: [string, number][] = [];
+  for (const protocol of (connection as unknown as { protocols: Protocol[] })
+    .protocols) {
+    if (
+      protocol instanceof StunProtocol &&
+      protocol.localCandidate?.type === "host"
+    ) {
+      protocol.onRequestReceived.subscribe((_message, addr) => {
+        sources.push([addr[0], addr[1]]);
+      });
+    }
+  }
+  return sources;
 }
 
 /** Whether a UDP socket can bind the IPv6 loopback address on this host. */

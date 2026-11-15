@@ -70,9 +70,23 @@ import type { Callback, CallbackWithValue } from "./types/util";
 import { andDirection } from "./utils";
 
 export {
+  type CompatibilityOption,
+  type CompatibilityOptionValue,
+  CompatibilityOptionValues,
+} from "./api/compatibilityOptions";
+export {
+  type CertificateScope,
+  CertificateScopeModes,
+  type CompatibilityPreset,
+  CompatibilityPresets,
   type DebugConfig,
+  type DeprecatedCertificateScope,
+  DeprecatedCompatibilityValues,
+  type DeprecatedKeyFrameRequestRouting,
+  type DeprecatedMLineReuse,
   defaultPeerConfig,
   findCodecByMimeType,
+  MLineReuseModes,
   type PeerConfig,
   type RTCBundlePolicy,
   type RTCConfiguration,
@@ -80,6 +94,8 @@ export {
   type RTCPeerConnectionConfig,
   type RTCRtcpMuxPolicy,
   type RTCSctpConfiguration,
+  type TransceiverPairing,
+  TransceiverPairingModes,
 } from "./api/peerConfig";
 export {
   type RTCDataChannelEvent,
@@ -340,6 +356,7 @@ export class RTCPeerConnection extends EventTarget {
         onRemoteTransceiverAdded: (transceiver) =>
           this.onRemoteTransceiverAdded.execute(transceiver),
       },
+      this.config.transceiverPairing,
     );
     this.validator = new DescriptionValidation(
       this.config,
@@ -1388,7 +1405,7 @@ export class RTCPeerConnection extends EventTarget {
       if (description.type === "answer") {
         // answer の確定で拒否予定の m-line を停止し、RTP pipeline を解放する
         this.transceiverManager.commitRemoteOffer();
-        // port 0 で答えた m-line (aggressive の inactive など) は offerer 側で拒否として
+        // port 0 で答えた m-line (mLineReuse: "aggressive" の inactive など) は offerer 側で拒否として
         // 停止が確定する。answerer 側も同じ位置を停止確定にし、offerer が新 MID で再利用できるようにする
         for (const media of description.media) {
           if (!["audio", "video"].includes(media.kind) || media.port !== 0) {
@@ -1521,7 +1538,20 @@ export class RTCPeerConnection extends EventTarget {
       // answerer の stop() は次の自分の offer で交渉する
       const hasUnnegotiatedStop =
         description.type === "answer" && this.settleStoppingTransceivers();
-      if (this.negotiationNeed.recheck || hasUnnegotiatedStop) {
+      // W3C "check if negotiation is needed": under "standard" pairing a remote
+      // offer leaves an addTransceiver() transceiver unassociated (JSEP
+      // 5.10), so returning to stable fires negotiationneeded for it.
+      const hasUnassociatedTransceiver =
+        description.type === "answer" &&
+        this.config.transceiverPairing === "standard" &&
+        this.transceiverManager
+          .getTransceivers()
+          .some((t) => t.mid == null && !t.stopping && !t.stopped);
+      if (
+        this.negotiationNeed.recheck ||
+        hasUnnegotiatedStop ||
+        hasUnassociatedTransceiver
+      ) {
         this.negotiationNeed.schedule();
       }
 
@@ -1670,9 +1700,29 @@ export class RTCPeerConnection extends EventTarget {
       });
       this.validator.validateRemote(remoteSdp, this.signalingState);
 
+      const needsImplicitLocalRollback =
+        sessionDescription.type === "offer" &&
+        ["have-local-offer", "have-local-pranswer"].includes(
+          this.signalingState,
+        );
       // Resolve codec compatibility before implicit rollback or any transaction
       // mutation, then pass the same plan into the staged m-line application.
-      const codecPlan = this.remoteMedia.planCodecs(remoteSdp);
+      // The plan pairs m-lines with the transceivers as the application will
+      // see them after the implicit rollback / replacement / revert, so both
+      // pair every m-line with the same transceiver.
+      const codecPlan = this.remoteMedia.planCodecs(
+        remoteSdp,
+        remoteSdp.type === "offer"
+          ? this.negotiation.pairingViewForRemoteOffer(
+              remoteSdp,
+              needsImplicitLocalRollback
+                ? "rollback"
+                : this.signalingState === "have-remote-offer"
+                  ? "replace"
+                  : undefined,
+            )
+          : undefined,
+      );
 
       // Queued candidates are placed against the parsed proposal before any
       // state changes or application events (track, transceiver) fire.
@@ -1682,11 +1732,6 @@ export class RTCPeerConnection extends EventTarget {
         this.assertOpenAfterYield();
       }
 
-      const needsImplicitLocalRollback =
-        sessionDescription.type === "offer" &&
-        ["have-local-offer", "have-local-pranswer"].includes(
-          this.signalingState,
-        );
       if (needsImplicitLocalRollback) {
         this.negotiation.retireRemoteGeneration(
           this.sdpManager.pendingRemoteDescription,
@@ -1937,7 +1982,9 @@ export class RTCPeerConnection extends EventTarget {
     if (this.isClosed) {
       throw createWebRtcDomException("InvalidStateError", "is closed");
     }
-    const transceiver = this.transceiverManager.addTrack(track, streams);
+    const transceiver = this.transceiverManager.addTrack(track, streams, () =>
+      this.findOrCreateTransport(),
+    );
     if (!transceiver.dtlsTransport) {
       const dtlsTransport = this.findOrCreateTransport();
       transceiver.setDtlsTransport(dtlsTransport);
