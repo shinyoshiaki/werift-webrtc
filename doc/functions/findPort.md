@@ -6,7 +6,11 @@
 
 # Function: findPort()
 
-> **findPort**(`min`, `max`, `protocol?`, `interfaceAddresses?`): `Promise`\<`number`\>
+> **findPort**(`min`, `max`, `protocol?`, `interfaceAddresses?`, `bindAddress?`): `Promise`\<`number`\>
+
+Finds a free port in `[min, max]`. The probe binds `bindAddress` when it is
+given (the address the socket will be bound to), otherwise the address of
+`interfaceAddresses` for `protocol` (wildcard when unset).
 
 ## Parameters
 
@@ -25,6 +29,10 @@
 ### interfaceAddresses?
 
 [`InterfaceAddresses`](../type-aliases/InterfaceAddresses.md)
+
+### bindAddress?
+
+`string`
 
 ## Returns
 

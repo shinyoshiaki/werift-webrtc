@@ -22,11 +22,16 @@ server.on("connection", (socket) => {
     console.log("ice connection state", pc.iceConnectionState);
   };
 
-  const transceiver = pc.addTransceiver("video", { direction: "sendrecv" });
-  transceiver.onTrack.subscribe((track, transceiver) => {
-    transceiver.sender.replaceTrack(track);
-    track.onReceiveRtp.once(() => {
-      transceiver.receiver.sendRtcpPLI(track.ssrc);
+  // The browser's offer gets its own transceiver (JSEP 5.10): a transceiver
+  // added with addTransceiver() before setRemoteDescription() is not paired
+  // with it. Make the offered one sendrecv and echo the track on it.
+  pc.onRemoteTransceiverAdded.subscribe((transceiver) => {
+    transceiver.setDirection("sendrecv");
+    transceiver.onTrack.subscribe((track, transceiver) => {
+      transceiver.sender.replaceTrack(track);
+      track.onReceiveRtp.once(() => {
+        transceiver.receiver.sendRtcpPLI(track.ssrc);
+      });
     });
   });
 

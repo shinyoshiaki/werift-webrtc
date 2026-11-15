@@ -3,6 +3,7 @@ import {
   MediaStreamTrack,
   type RTCPeerConnection,
   type RTCRtpTransceiver,
+  type TransceiverPairing,
   useH264,
   useNACK,
   useOPUS,
@@ -47,7 +48,10 @@ export type Side = "a" | "b";
  * transport-cc header extensions, so codec, feedback, RTX and extension
  * rewrites on the wire have something to change.
  */
-export const modelConfig = () => ({
+export const modelConfig = (
+  transceiverPairing: TransceiverPairing = "standard",
+) => ({
+  transceiverPairing,
   codecs: {
     video: [
       useVP8({ rtcpFeedback: [useNACK(), usePLI(), useREMB(), useTWCC()] }),
@@ -71,13 +75,14 @@ export type Start = "connected" | "unnegotiated" | "media";
 /** One operation: the peer that takes it, its name and the choices it made. */
 export type Op = [Side, string, Record<string, unknown>?];
 /**
- * `bundleCandidates` of both peers (default `"legacy"`); random scenes of an
- * even seed use `"compatible"` so the candidates oracle runs.
+ * `bundleCandidates` and `pairing` of both peers; each property varies
+ * independently so the model checks both configuration axes.
  */
 export type Scene = {
   start: Start;
   ops: Op[];
   bundleCandidates?: BundleCandidates;
+  pairing?: TransceiverPairing;
 };
 
 type World = {
@@ -147,6 +152,32 @@ export const STEPS: Record<string, Step> = {
       const track = new MediaStreamTrack({ kind: kind as "audio" });
       w.oracles.application(
         pc.addTransceiver(track, { direction: "sendrecv" }),
+      );
+    },
+  },
+  // #816: a transceiver addTrack() creates (or the one it reuses) may pair
+  // with a remote offer; one addTransceiver() creates never does (JSEP 5.10).
+  addTrackApi: {
+    weight: 1,
+    applies: ({ pc }) => pc.getTransceivers().length < 6,
+    draw: (rng) => ({ kind: rng.pick(kinds) }),
+    run: async ({ pc }, w, { kind }) => {
+      const sender = pc.addTrack(
+        new MediaStreamTrack({ kind: kind as "audio" }),
+      );
+      w.oracles.application(
+        pc.getTransceivers().find((t) => t.sender === sender)!,
+      );
+    },
+  },
+  addSendonly: {
+    weight: 1,
+    applies: ({ pc }) => pc.getTransceivers().length < 6,
+    draw: (rng) => ({ kind: rng.pick(kinds) }),
+    run: async ({ pc }, w, { kind }) => {
+      const track = new MediaStreamTrack({ kind: kind as "audio" });
+      w.oracles.application(
+        pc.addTransceiver(track, { direction: "sendonly" }),
       );
     },
   },
@@ -490,9 +521,10 @@ async function arrange(
   c: NegotiationCase,
   start: Start,
   bundleCandidates: BundleCandidates = "legacy",
+  pairing: TransceiverPairing = "standard",
 ): Promise<World & Peers2> {
   const oracles = new ModelOracles(c);
-  const config = { ...modelConfig(), bundleCandidates };
+  const config = { ...modelConfig(pairing), bundleCandidates };
   let a: RTCPeerConnection;
   let b: RTCPeerConnection;
   if (start !== "connected") {
@@ -514,7 +546,7 @@ async function arrange(
     oracles.channel(scope.bChannel, b);
   }
   oracles.watch(a, b);
-  c.note(`start: ${start} (bundleCandidates: ${bundleCandidates})`);
+  c.note(`start: ${start} (bundleCandidates: ${bundleCandidates}, pairing: ${pairing})`);
   return { c, oracles, saved: new Map(), created: 0, a, b };
 }
 type Peers2 = { a: RTCPeerConnection; b: RTCPeerConnection };
@@ -531,7 +563,7 @@ export async function runScene(
   scene: Scene,
   { lenient = false } = {},
 ) {
-  const w = await arrange(c, scene.start, scene.bundleCandidates);
+  const w = await arrange(c, scene.start, scene.bundleCandidates, scene.pairing);
   for (const [index, [side, name, args = {}]] of scene.ops.entries()) {
     const peers = peersOf(w, side);
     const step = STEPS[name];
@@ -563,9 +595,11 @@ export async function generateScene(
     "unnegotiated",
     "media",
   ] as const);
-  // seed の乱数列を変えずに、偶数の seed で compatible を試す。
+  // seed の乱数列を変えず、偶数 seed で compatible を選ぶ。
   if (seed % 2 === 0) scene.bundleCandidates = "compatible";
-  const w = await arrange(c, scene.start, scene.bundleCandidates);
+  // Pairing uses a separate stream so it does not shift the operations.
+  if (seededRandom(seed ^ 0x816).chance(0.25)) scene.pairing = "byKind";
+  const w = await arrange(c, scene.start, scene.bundleCandidates, scene.pairing);
   for (let index = 1; index <= steps; index++) {
     const side: Side = rng.chance(0.5) ? "a" : "b";
     const peers = peersOf(w, side);

@@ -1,6 +1,6 @@
 import * as timers from "node:timers/promises";
 import { randomBytes } from "crypto";
-import { isIPv4 } from "net";
+import { isIPv4, isIPv6 } from "net";
 import {
   Candidate,
   candidateFoundation,
@@ -32,7 +32,21 @@ import {
   validateRemoteCandidate,
 } from "./iceBase";
 import { type Address, debug, Event, interfaceAddress } from "./imports/common";
-import { resolveHostAddresses } from "./internal/resolveHostAddresses";
+import {
+  getDefaultRouteAddresses,
+  getRouteSourceAddress,
+} from "./internal/defaultRoute";
+import {
+  getAssignedInterfaceAddresses,
+  getHostInterfaceAddresses,
+} from "./internal/hostInterfaces";
+import { hostLocalPreferences } from "./internal/hostPreference";
+import {
+  type HostAddress,
+  HostAddressBind,
+  normalizeIp,
+  resolveHostAddresses,
+} from "./internal/resolveHostAddresses";
 import {
   classes,
   type MessageIntegrityMode,
@@ -47,7 +61,6 @@ import {
   StunOverTurnProtocol,
 } from "./turn/protocol";
 import type { Protocol, TransactionRequestOptions } from "./types/model";
-import { getHostAddresses } from "./utils";
 
 const log = debug("werift-ice : packages/ice/src/ice.ts : log");
 
@@ -90,6 +103,8 @@ export class Connection implements IceConnection {
   localCandidatesEnd = false;
   /** connect() began this generation's checks (their outcome sets the state). */
   private checksBegun = false;
+  /** connect() stopped scheduling checks (a later pair must start its own). */
+  private schedulingStopped = false;
   generation = -1;
   /**
    * Counts every reset of the remote generation: a local ICE restart and a
@@ -175,6 +190,17 @@ export class Connection implements IceConnection {
    * gathering (one per distinct mapping its STUN servers returned).
    */
   private readonly reflexiveBySocket = new WeakMap<Protocol, Candidate[]>();
+  /**
+   * The wildcard UDP socket of each family (default mode with a STUN server).
+   * It advertises no host candidate; its first server-reflexive candidate is
+   * its local candidate. Kept across ICE restarts like the host sockets.
+   */
+  private readonly wildcardProtocols = new Map<4 | 6, StunProtocol>();
+  /**
+   * Settles when the background server-reflexive queries of the current
+   * generation end (see {@link Connection.waitForLocalCandidatesEnd}).
+   */
+  private localCandidatesEndPromise?: Promise<void>;
 
   readonly onData = new Event<[Buffer]>();
   readonly stateChanged = new Event<[IceState]>();
@@ -314,7 +340,9 @@ export class Connection implements IceConnection {
     this.remoteCandidatesEndRequested = false;
     this.remoteResolutions.clear();
     this.localCandidatesEnd = false;
+    this.localCandidatesEndPromise = undefined;
     this.checksBegun = false;
+    this.schedulingStopped = false;
     this.state = "new";
     this.lookup?.close?.();
     this.lookup = undefined;
@@ -546,7 +574,16 @@ export class Connection implements IceConnection {
     generation: ProvisionalGeneration,
     protocol: Protocol,
     remoteCandidate: Candidate,
+    routeChecked = false,
   ) {
+    if (!routeChecked && this.isWildcardProtocol(protocol)) {
+      void this.wildcardPathUncovered(remoteCandidate).then((uncovered) => {
+        if (uncovered && this.provisional === generation) {
+          this.tryProvisionalPair(generation, protocol, remoteCandidate, true);
+        }
+      });
+      return;
+    }
     if (
       !protocol.localCandidate?.canPairWith(remoteCandidate) ||
       !this.allowsProvisional(generation, protocol) ||
@@ -891,11 +928,22 @@ export class Connection implements IceConnection {
 
       // ICE restart keeps transport protocols; re-advertise their host candidates
       // with the new generation / ufrag before gathering additional addresses.
+      for (const [family, wildcard] of this.wildcardProtocols) {
+        if (!this.protocols.includes(wildcard)) {
+          // Closed with the excluded sockets, or still opening for the
+          // replaced generation: a fresh one is opened if needed.
+          this.wildcardProtocols.delete(family);
+        }
+      }
       for (const protocol of this.protocols) {
         if (protocol.localCandidate) {
           protocol.localCandidate.generation = this.generation;
           protocol.localCandidate.ufrag = this.localUsername;
-          this.appendLocalCandidate(protocol.localCandidate);
+          // A wildcard socket's local candidate is one of its
+          // server-reflexive candidates, re-advertised below.
+          if (!this.isWildcardProtocol(protocol)) {
+            this.appendLocalCandidate(protocol.localCandidate);
+          }
           for (const reflexive of this.reflexiveBySocket.get(protocol) ?? []) {
             this.appendLocalCandidate(this.withGeneration(reflexive));
           }
@@ -905,13 +953,14 @@ export class Connection implements IceConnection {
       // A family bound to an explicit interface address gathers only that
       // address, so the advertised host candidate is the socket's address.
       const address = resolveHostAddresses({
-        enumerated: getHostAddresses(
+        enumerated: getHostInterfaceAddresses(
           this.options.useIpv4,
           this.options.useIpv6,
           {
             useLinkLocalAddress: this.options.useLinkLocalAddress,
           },
         ),
+        assigned: getAssignedInterfaceAddresses(),
         interfaceAddresses: this.options.interfaceAddresses,
         additionalHostAddresses: this.options.additionalHostAddresses,
         useIpv4: this.options.useIpv4,
@@ -919,27 +968,64 @@ export class Connection implements IceConnection {
         log,
       });
 
-      const candidatePromises = this.getCandidatePromises(
+      // The default-route address of each family: the source address of the
+      // route to the configured STUN / TURN servers (none without one: no
+      // other address is probed). Its host candidate gets the highest local preference, and its
+      // socket is a representative of the family's server-reflexive queries.
+      // Probed while the sockets bind: no server work waits for it.
+      const defaultRoutes = Promise.race([
+        getDefaultRouteAddresses(this.options.useIpv4, this.options.useIpv6, [
+          ...this.stunServers.map(([host]) => host),
+          ...this.turnServers.map(({ address: [host] }) => host),
+        ]),
+        this.closedSignal.then(() => [] as string[]),
+      ]);
+
+      const { primary, background } = this.getCandidatePromises(
         address,
         this.options.stunGatherTimeout,
         generation,
+        defaultRoutes,
       );
       // close() ends the gathering at once: the continuations above close
       // whatever a server query still opens for a closed agent.
-      await Promise.race([
-        Promise.allSettled(candidatePromises),
-        this.closedSignal,
-      ]);
+      await Promise.race([Promise.allSettled(primary), this.closedSignal]);
 
       // A later ICE restart (or close) owns the agent now: this gathering
       // neither completes that generation nor touches its state.
       if (!this.isGathering(generation)) return;
-      this.localCandidatesEnd = true;
+      const pending = background.filter(({ settled }) => !settled);
+      if (pending.length === 0) {
+        this.localCandidatesEnd = true;
+      } else {
+        // The other host sockets' server-reflexive candidates trickle in;
+        // end-of-candidates follows the last of them.
+        this.localCandidatesEndPromise = Promise.race([
+          Promise.allSettled(pending.map(({ query }) => query)),
+          this.closedSignal,
+        ]).then(() => {
+          if (!this.isGathering(generation)) return;
+          this.localCandidatesEnd = true;
+          if (this.checksBegun) this.concludeCheckListIfExhausted();
+        });
+      }
     }
     // Gathering that finishes after connectivity checks began (an ICE restart
     // keeps gathering from its servers) must not overwrite their state: the
     // agent stays "new" while checking, and only the checks' outcome moves it.
     if (this.state === "new" && !this.checksBegun) this.setState("completed");
+  }
+
+  /**
+   * Resolves when the current generation's gathering has ended
+   * (`localCandidatesEnd`): {@link Connection.gatherCandidates} returns once
+   * the host sockets, the TURN allocations and the representative socket's
+   * server-reflexive query are done, while the other host sockets' queries
+   * continue and trickle through `onIceCandidate`. Also resolves when the
+   * agent closes or restarts (the generation ends without its end).
+   */
+  async waitForLocalCandidatesEnd() {
+    await this.localCandidatesEndPromise;
   }
 
   /**
@@ -1163,12 +1249,32 @@ export class Connection implements IceConnection {
     this.setState("failed");
   }
 
+  /**
+   * The gathering work of one generation.
+   *
+   * - `primary`: what gathering waits for. The host sockets, the TURN
+   *   allocations and the server-reflexive queries of the representative
+   *   sockets: the wildcard socket of each family and the host socket of
+   *   the default-route address (every host socket when the family has
+   *   neither).
+   * - `background`: the server-reflexive queries of the other host sockets,
+   *   complete once `primary` has settled. Their candidates trickle after
+   *   gathering returns; end-of-candidates (`localCandidatesEnd`) waits for
+   *   them. A network interface whose address cannot reach the STUN server
+   *   so no longer delays gathering.
+   */
   private getCandidatePromises(
-    addresses: string[],
+    hostAddresses: HostAddress[],
     timeout = 5,
     generation = this.generation,
-  ) {
-    const candidatePromises: Promise<unknown>[] = [];
+    defaultRoutes: Promise<string[]> = Promise.resolve([]),
+  ): {
+    primary: Promise<unknown>[];
+    background: { query: Promise<unknown>; settled: boolean }[];
+  } {
+    const primary: Promise<unknown>[] = [];
+    // Filled while the primary work runs; complete once it has settled.
+    const background: { query: Promise<unknown>; settled: boolean }[] = [];
     // Each continuation below runs after an await: a socket or allocation it
     // opened for a replaced generation (or a closed agent) is closed, and
     // nothing is added to the current one.
@@ -1177,21 +1283,41 @@ export class Connection implements IceConnection {
     const { interfaceAddresses } = this.options;
     const gatherIceLite = this.iceLite;
     const gatherRelayOnly = isRelayOnlyGathering(this.options);
+    // Local preferences over the whole host list (the sockets an ICE restart
+    // keeps included), so they stay distinct across generations.
+    const localPreferenceOf = defaultRoutes.then((routes) => {
+      const preferences = hostLocalPreferences(hostAddresses, routes);
+      return new Map(
+        hostAddresses.map(({ address }, i) => [
+          normalizeIp(address),
+          preferences[i],
+        ]),
+      );
+    });
 
     // TCP host candidates are kept per address like the UDP ones, but on
     // their own: a restart that turned useTcp on gathers them for addresses
     // whose UDP sockets were kept.
-    const tcpAddresses = addresses.filter(
-      (address) =>
-        !this.protocols.some(
-          (protocol) =>
-            protocol.localCandidate?.transport.toLowerCase() === "tcp" &&
-            protocol.localIp === address,
-        ),
-    );
-    addresses = addresses.filter((address) => {
+    const tcpAddresses = hostAddresses
+      .map(({ address }) => address)
+      .filter(
+        (address) =>
+          !this.protocols.some(
+            (protocol) =>
+              protocol.localCandidate?.transport.toLowerCase() === "tcp" &&
+              protocol.localIp === address,
+          ),
+      );
+    const addresses = hostAddresses.filter(({ address }) => {
       // ice restartで同じアドレスが追加されるのを防ぐ
-      if (this.protocols.find((protocol) => protocol.localIp === address)) {
+      // (localIp is the bound address, whose IPv6 notation may differ)
+      if (
+        this.protocols.find(
+          (protocol) =>
+            protocol.localIp !== undefined &&
+            normalizeIp(protocol.localIp) === normalizeIp(address),
+        )
+      ) {
         return false;
       }
       // A family bound to an interface address has one UDP host socket; its
@@ -1222,19 +1348,28 @@ export class Connection implements IceConnection {
 
     const localStunPromises = gatherRelayOnly
       ? []
-      : addresses.map(async (address) => {
+      : addresses.map(async ({ address, bind, bindAddress }) => {
           // # create transport
           const protocol = new StunProtocol();
           this.ensureProtocol(protocol);
-          const boundInterface = interfaceAddress(
-            socketTypeOf(address),
-            interfaceAddresses,
-          );
+          // An explicit interface address or an enumerated local address is
+          // bound to, so packets of the socket leave from the advertised
+          // address (a wildcard socket's source follows the routing table).
+          const boundInterface =
+            bind === HostAddressBind.explicit
+              ? interfaceAddress(socketTypeOf(address), interfaceAddresses)
+              : bind === HostAddressBind.enumerated
+                ? bindAddress
+                : undefined;
           try {
             await protocol.connectionMade(
               isIPv4(address),
               this.options.portRange,
               interfaceAddresses,
+              bind === HostAddressBind.enumerated ? { bindAddress } : {},
+            );
+            const localPreference = (await localPreferenceOf).get(
+              normalizeIp(address),
             );
             if (stale()) {
               await protocol.close();
@@ -1242,14 +1377,15 @@ export class Connection implements IceConnection {
             }
 
             // # add host candidate
-            // A socket bound to an interface address advertises that address:
-            // the peer sends its checks there. A wildcard socket advertises
-            // the gathered address (never 0.0.0.0 / ::).
+            // A socket bound to an address advertises the bound address: the
+            // peer sends its checks there and the socket's packets leave from
+            // it. A wildcard socket advertises the gathered address (never
+            // 0.0.0.0 / ::).
             const [boundHost, boundPort] = protocol.getExtraInfo();
             let candidateHost = address;
             if (boundInterface) {
               candidateHost = stripZoneId(boundHost);
-              if (candidateHost !== address) {
+              if (normalizeIp(candidateHost) !== normalizeIp(address)) {
                 log(
                   "host address differs from the bound interface address; advertise the bound one",
                   address,
@@ -1268,7 +1404,10 @@ export class Connection implements IceConnection {
               candidateFoundation("host", "udp", candidateAddress[0]),
               1,
               "udp",
-              candidatePriority("host", { transport: "udp" }),
+              candidatePriority("host", {
+                transport: "udp",
+                localPreference,
+              }),
               candidateAddress[0],
               candidateAddress[1],
               "host",
@@ -1285,10 +1424,11 @@ export class Connection implements IceConnection {
             return protocol;
           } catch (error) {
             if (boundInterface) {
-              // No host candidate for this family: advertising another
-              // address than the socket's would mislead the peer.
+              // No host candidate for this address: advertising it from
+              // another (wildcard) socket would mislead the peer. Candidates
+              // of the other addresses are gathered independently.
               log(
-                "failed to bind UDP socket to interface address",
+                "failed to bind UDP socket to host address",
                 boundInterface,
                 error,
               );
@@ -1299,13 +1439,12 @@ export class Connection implements IceConnection {
         });
 
     if (!gatherRelayOnly) {
-      candidatePromises.push(
+      primary.push(
         ...localStunPromises.map((localPromise) =>
           localPromise.then((protocol) => protocol?.localCandidate),
         ),
       );
     }
-
     if (!gatherRelayOnly && this.options.useTcp) {
       const tcpCandidatePromises = tcpAddresses.map(async (address) => {
         // Passive candidates open a listening TCP server; skip them when the
@@ -1373,7 +1512,7 @@ export class Connection implements IceConnection {
         }
       });
 
-      candidatePromises.push(...tcpCandidatePromises);
+      primary.push(...tcpCandidatePromises);
     }
 
     // A server-reflexive query of one socket to one STUN server, bounded by
@@ -1381,7 +1520,11 @@ export class Connection implements IceConnection {
     const queryReflexive = async (protocol: StunProtocol, server: Address) => {
       let timer: ReturnType<typeof setTimeout> | undefined;
       const candidate = await Promise.race([
-        serverReflexiveCandidate(protocol, server).catch((error) => {
+        serverReflexiveCandidate(
+          protocol,
+          server,
+          this.wildcardBaseOf(protocol),
+        ).catch((error) => {
           log("query STUN server", server, error);
           return undefined;
         }),
@@ -1398,18 +1541,61 @@ export class Connection implements IceConnection {
       a.host === b.host && a.port === b.port;
 
     if (!gatherIceLite && !gatherRelayOnly && stunServers.length > 0) {
+      // # wildcard sockets
+      // In the default mode (no interfaceAddresses) every family with a STUN
+      // server gets one more UDP socket bound to the wildcard address. It
+      // advertises no host candidate; the OS picks its route, so it maps
+      // even when the only way out is an interface the host sockets do not
+      // cover, and it receives whatever reaches its port (a DNAT to another
+      // local address, an address added after gathering).
+      const defaultMode =
+        !interfaceAddresses?.udp4 && !interfaceAddresses?.udp6;
+      const wildcardReady = new Map<4 | 6, Promise<boolean>>();
+      for (const family of [4, 6] as const) {
+        const enabled =
+          family === 4 ? this.options.useIpv4 : this.options.useIpv6;
+        if (
+          !defaultMode ||
+          !enabled ||
+          this.reflexiveServersOf(family).length === 0
+        ) {
+          continue;
+        }
+        const kept = this.wildcardProtocols.get(family);
+        if (kept && this.protocols.includes(kept)) {
+          // Kept across an ICE restart: queried again with the reused sockets.
+          wildcardReady.set(family, Promise.resolve(true));
+          continue;
+        }
+        // One still opening for a replaced generation is not reused.
+        if (kept) {
+          this.wildcardProtocols.delete(family);
+          void kept.close().catch(() => {});
+        }
+        const query = this.gatherWildcardReflexive(
+          family,
+          queryReflexive,
+          sameMapping,
+          stale,
+        );
+        wildcardReady.set(
+          family,
+          query.then(({ bound }) => bound),
+        );
+        primary.push(query);
+      }
+
       // Sockets kept across an ICE restart query every STUN server again.
       // The mappings they already advertised are in the new generation from
       // the start; a different fresh mapping (the NAT rebound) is added to
       // it, and the fresh mappings replace the kept ones for the next restart.
-      const reusedReflexivePromises = reusedStunProtocols
-        .filter((protocol) => isIPv4(protocol.localCandidate!.host))
-        .map(async (protocol) => {
+      const reflexiveOfReused = (protocol: StunProtocol) =>
+        (async () => {
           const previous = this.reflexiveBySocket.get(protocol) ?? [];
           const advertised = [...previous];
           const fresh: Candidate[] = [];
           await Promise.all(
-            stunServers.map(async (server) => {
+            this.reflexiveServersOf(protocol).map(async (server) => {
               const candidate = await queryReflexive(protocol, server);
               if (!candidate || stale()) return;
               if (!fresh.some((known) => sameMapping(known, candidate))) {
@@ -1425,23 +1611,13 @@ export class Connection implements IceConnection {
           if (stale()) return;
           if (fresh.length > 0) this.reflexiveBySocket.set(protocol, fresh);
           return fresh.length > 0 ? fresh : previous;
-        })
-        .map((promise) =>
-          promise.catch((error) => {
-            log("query STUN server", error);
-          }),
-        );
-      candidatePromises.push(...reusedReflexivePromises);
+        })().catch((error) => {
+          log("query STUN server", error);
+        });
 
-      // Every new IPv4 socket queries every STUN server in parallel.
-      const stunCandidatePromises = localStunPromises.map(
-        async (protocolPromise) => {
-          const protocol = await protocolPromise;
-          if (
-            !protocol?.localCandidate ||
-            !isIPv4(protocol.localCandidate.host)
-          )
-            return;
+      // Every new IPv4 host socket queries every STUN server in parallel.
+      const reflexiveOfNew = (protocol: StunProtocol) =>
+        (async () => {
           const advertised: Candidate[] = [];
           await Promise.all(
             stunServers.map(async (server) => {
@@ -1458,15 +1634,71 @@ export class Connection implements IceConnection {
             log("query STUN server", error);
           });
           return advertised;
-        },
-      );
+        })();
 
-      candidatePromises.push(...stunCandidatePromises);
+      // A kept wildcard socket is a representative: gathering waits for it.
+      const reusedWildcards = [...this.wildcardProtocols.values()].filter(
+        (protocol) => this.protocols.includes(protocol),
+      );
+      primary.push(...reusedWildcards.map(reflexiveOfReused));
+
+      // The host sockets' queries start at once. The representative ones
+      // (the default-route address; every socket when the family has neither
+      // a wildcard socket nor a default-route socket) are waited for, the
+      // others run in the background.
+      type HostQuery = { protocol: StunProtocol; query: Promise<unknown> };
+      const track = (protocol: StunProtocol, query: Promise<unknown>) => {
+        const entry = { protocol, query, settled: false };
+        void query.finally(() => {
+          entry.settled = true;
+        });
+        return entry;
+      };
+      const reusedHosts: HostQuery[] = reusedStunProtocols
+        .filter((protocol) => isIPv4(protocol.localCandidate!.host))
+        .map((protocol) => track(protocol, reflexiveOfReused(protocol)));
+      const newHosts = Promise.all(
+        localStunPromises.map(async (protocolPromise) => {
+          const protocol = await protocolPromise;
+          if (
+            !protocol?.localCandidate ||
+            !isIPv4(protocol.localCandidate.host)
+          ) {
+            return;
+          }
+          return track(protocol, reflexiveOfNew(protocol));
+        }),
+      );
+      primary.push(
+        (async () => {
+          const queries = [
+            ...reusedHosts,
+            ...(await newHosts).filter((entry) => entry !== undefined),
+          ] as (HostQuery & { settled: boolean })[];
+          const routes = (await defaultRoutes).map(normalizeIp);
+          const defaultRouteQueries = queries.filter(({ protocol }) =>
+            routes.includes(normalizeIp(protocol.localCandidate!.host)),
+          );
+          const representative =
+            defaultRouteQueries.length > 0 || (await wildcardReady.get(4))
+              ? defaultRouteQueries
+              : queries;
+          // Filled before this primary work settles: gatherCandidates()
+          // reads it then.
+          background.push(
+            ...queries.filter((entry) => !representative.includes(entry)),
+          );
+          await Promise.allSettled(representative.map(({ query }) => query));
+        })(),
+      );
     }
 
     if (!gatherIceLite) {
       // Every TURN server gets its own allocation, made with its own
       // credential and transport; one that fails does not stop the others.
+      // A TURN allocation has its own UDP socket, bound to the wildcard
+      // address unless interfaceAddresses binds the family: the OS picks
+      // its route as for the wildcard STUN socket.
       const turnCandidatePromises = turnServers.map((server) =>
         this.gatherRelayCandidate(server, gatherRelayOnly, stale).catch(
           (error) => {
@@ -1474,10 +1706,128 @@ export class Connection implements IceConnection {
           },
         ),
       );
-      candidatePromises.push(...turnCandidatePromises);
+      primary.push(...turnCandidatePromises);
     }
 
-    return candidatePromises;
+    return { primary, background };
+  }
+
+  /**
+   * Open the wildcard socket of `family` and query the STUN servers from it.
+   * Its first server-reflexive candidate becomes the socket's local
+   * candidate: the socket joins the agent and pairs with the remote
+   * candidates (its checks leave through the NAT mapping it advertised).
+   * A socket that maps nothing is closed.
+   */
+  private async gatherWildcardReflexive(
+    family: 4 | 6,
+    queryReflexive: (
+      protocol: StunProtocol,
+      server: Address,
+    ) => Promise<Candidate | undefined>,
+    sameMapping: (a: Candidate, b: Candidate) => boolean,
+    stale: () => boolean,
+  ): Promise<{ bound: boolean }> {
+    const protocol = new StunProtocol();
+    try {
+      // No interfaceAddresses / bindAddress: the wildcard address.
+      await protocol.connectionMade(family === 4, this.options.portRange);
+    } catch (error) {
+      log("failed to bind the wildcard UDP socket", family, error);
+      return { bound: false };
+    }
+    if (stale()) {
+      await protocol.close();
+      return { bound: true };
+    }
+    this.wildcardProtocols.set(family, protocol);
+
+    const advertised: Candidate[] = [];
+    await Promise.all(
+      this.reflexiveServersOf(family).map(async (server) => {
+        const candidate = await queryReflexive(protocol, server);
+        if (!candidate || stale() || !this.isWildcardProtocol(protocol)) return;
+        if (advertised.some((known) => sameMapping(known, candidate))) {
+          return;
+        }
+        advertised.push(candidate);
+        this.reflexiveBySocket.set(protocol, advertised);
+        if (!protocol.localCandidate) {
+          protocol.localCandidate = candidate;
+          protocol.localIp = family === 4 ? "0.0.0.0" : "::";
+          this.ensureProtocol(protocol);
+          this.protocols.push(protocol);
+          this.pairLocalProtocol(protocol);
+        }
+        this.appendLocalCandidate(candidate);
+      }),
+    );
+    if (!protocol.localCandidate) {
+      if (this.wildcardProtocols.get(family) === protocol) {
+        this.wildcardProtocols.delete(family);
+      }
+      await protocol.close();
+    }
+    return { bound: true };
+  }
+
+  /** Whether `protocol` is a wildcard socket (advertises no host candidate). */
+  private isWildcardProtocol(protocol: Protocol) {
+    for (const wildcard of this.wildcardProtocols.values()) {
+      if (wildcard === protocol) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Whether the wildcard socket should check `remoteCandidate`: only a path
+   * no host socket covers. When the OS routes to the remote address from an
+   * address a UDP host socket is bound to, that socket checks the same path
+   * (through a NAT as its own server-reflexive address), while the wildcard
+   * socket's packets would leave from an address it does not advertise and
+   * make the peer learn a peer-reflexive candidate. Without a route the
+   * socket cannot reach the address either.
+   */
+  private async wildcardPathUncovered(remoteCandidate: Candidate) {
+    const source = await getRouteSourceAddress(remoteCandidate.host);
+    if (!source) return false;
+    return !this.protocols.some(
+      (protocol) =>
+        protocol instanceof StunProtocol &&
+        protocol.localCandidate?.type === "host" &&
+        protocol.localCandidate.transport === "udp" &&
+        normalizeIp(protocol.localCandidate.host) === normalizeIp(source),
+    );
+  }
+
+  /** The base of a wildcard socket's server-reflexive candidates. */
+  private wildcardBaseOf(protocol: StunProtocol) {
+    if (!this.isWildcardProtocol(protocol)) return undefined;
+    const [host, port] = protocol.getExtraInfo();
+    return {
+      host: isIPv6(stripZoneId(host)) ? "::" : "0.0.0.0",
+      port,
+      transport: "udp",
+      component: 1,
+    };
+  }
+
+  /**
+   * The STUN servers a socket (or the wildcard socket of a family) queries:
+   * every server for IPv4 (as the IPv4 host sockets always did), only the
+   * IPv6 literal servers for the IPv6 wildcard socket.
+   */
+  private reflexiveServersOf(target: StunProtocol | 4 | 6) {
+    const family =
+      typeof target === "number"
+        ? target
+        : this.isWildcardProtocol(target) &&
+            isIPv6(stripZoneId(target.getExtraInfo()[0]))
+          ? 6
+          : 4;
+    return family === 4
+      ? this.stunServers
+      : this.stunServers.filter(([host]) => isIPv6(host));
   }
 
   /**
@@ -1627,6 +1977,7 @@ export class Connection implements IceConnection {
       if (!this.schedulingChecks()) break;
       await timers.setTimeout(20);
     }
+    this.schedulingStopped = true;
 
     // # wait for completion
     let res: number = ICE_FAILED;
@@ -2006,7 +2357,12 @@ export class Connection implements IceConnection {
     }
 
     this.nominated = undefined;
-    for (const protocol of this.protocols) {
+    // A wildcard socket still querying its STUN servers is not in protocols.
+    const pendingWildcards = [...this.wildcardProtocols.values()].filter(
+      (protocol) => !this.protocols.includes(protocol),
+    );
+    this.wildcardProtocols.clear();
+    for (const protocol of [...this.protocols, ...pendingWildcards]) {
       if (protocol.close) {
         await protocol.close();
       }
@@ -2262,6 +2618,16 @@ export class Connection implements IceConnection {
 
     this.nominateTcpPairIfReady();
 
+    this.concludeCheckListIfExhausted();
+  }
+
+  /**
+   * Fail the check list once every pair is done and neither side can add
+   * candidates any more. Runs when a check completes and when the local
+   * gathering ends after the checks began (a server-reflexive query that
+   * finished in the background).
+   */
+  private concludeCheckListIfExhausted() {
     // A nomination request is still in flight; its result decides the outcome.
     if (this.nominating) {
       return;
@@ -2704,7 +3070,36 @@ export class Connection implements IceConnection {
     }
   }
 
-  private tryPair(protocol: Protocol, remoteCandidate: Candidate) {
+  private tryPair(
+    protocol: Protocol,
+    remoteCandidate: Candidate,
+    routeChecked = false,
+  ) {
+    if (!routeChecked && this.isWildcardProtocol(protocol)) {
+      void this.wildcardPathUncovered(remoteCandidate).then((uncovered) => {
+        if (
+          uncovered &&
+          !this.nominated &&
+          !this.checkListDone &&
+          this.state !== "closed" &&
+          this.protocols.includes(protocol) &&
+          this.remoteCandidates.includes(remoteCandidate)
+        ) {
+          this.tryPair(protocol, remoteCandidate, true);
+          this.sortCheckList();
+          // The scheduling loop takes it in priority order; once the loop
+          // has stopped, the check starts here.
+          const pair = this.findPair(protocol, remoteCandidate);
+          if (
+            this.schedulingStopped &&
+            pair?.state === CandidatePairState.WAITING
+          ) {
+            pair.handle = this.checkStart(pair);
+          }
+        }
+      });
+      return;
+    }
     if (
       protocol.localCandidate?.canPairWith(remoteCandidate) &&
       !(
