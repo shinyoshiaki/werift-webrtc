@@ -3783,6 +3783,59 @@ describe("media/router: a=ssrc のない m-line の SSRC 学習 (#356)", () => {
     },
   );
 
+  test("学習した SSRC を同じ receiver の SDP が指定しても、別 transport の SDP 経路は残り、両 transport の RTP と RTCP が届く", () => {
+    // Arrange: transport A の a が SSRC 55 を学習し、transport B の b は SDP で 55 を受ける
+    const { router, dtls, addReceiver } = createSsrcLessRouter();
+    const other = createDtlsTransport();
+    const a = addReceiver({ mid: "a" });
+    const b = addReceiver({ mid: "b", transport: other });
+    router.routeRtp(
+      ssrcLessPacket({
+        ssrc: 55,
+        payloadType: 111,
+        mid: "a",
+        sequenceNumber: 1,
+      }),
+      dtls,
+    );
+    const sdp55 = {
+      codecs: [opus()],
+      headerExtensions: [],
+      encodings: [new RTCRtpCodingParameters({ ssrc: 55, payloadType: 111 })],
+    };
+    router.registerRtpReceiverBySsrc(b, sdp55);
+    const aPayloads = collectTrackPayloads(a);
+    const bPayloads = collectTrackPayloads(b);
+    const recipients = collectRtcpRecipients({ a, b });
+    const send = (sequenceNumber: number) => {
+      router.routeRtcp(rtcpNamingSsrc.SR(55), dtls);
+      router.routeRtcp(rtcpNamingSsrc.SR(55), other);
+      router.routeRtp(
+        ssrcLessPacket({ ssrc: 55, payloadType: 111, sequenceNumber }),
+        dtls,
+      );
+      router.routeRtp(
+        ssrcLessPacket({
+          ssrc: 55,
+          payloadType: 111,
+          sequenceNumber: sequenceNumber + 1,
+        }),
+        other,
+      );
+    };
+
+    // Act: 切り替え前に両 transport に流し、a の SDP が 55 を指定してから、もう一度流す
+    send(10);
+    router.registerRtpReceiverBySsrc(a, sdp55);
+    send(20);
+
+    // Assert: 切り替えの前後とも、A の RTP と SR は a に、B の RTP と SR は b に届く
+    expect(aPayloads).toEqual(["payload-10", "payload-20"]);
+    expect(bPayloads).toEqual(["payload-11", "payload-21"]);
+    expect(recipients).toEqual(["a", "b", "a", "b"]);
+    expect(a.receiver.fallbackSsrcs).toEqual([]);
+  });
+
   test("transceiver の登録解除で学習済み SSRC が残らない", () => {
     // Arrange
     const { router, dtls, addReceiver } = createSsrcLessRouter();

@@ -180,7 +180,7 @@ type StagedRoutes = {
  * | Origin | Added by | Rank in one RTP session | Other transports |
  * | --- | --- | --- | --- |
  * | `sender` | `registerRtpSender` | 1: a remote stream using it is a collision (RFC 3550 section 8.2), not learned | other streams, routed there |
- * | `sdp` | `registerRtpReceiver` (an answer, a commit, or a pending description without conflict) | 2: a learned owner forgets the SSRC | stay; another description route of the SSRC goes on every transport (the later description wins, as before) |
+ * | `sdp` | `registerRtpReceiver` (an answer, a commit, or a pending description without conflict) | 2: a learned owner forgets the SSRC; another receiver's description route of the SSRC goes (the later description wins) | other streams, routed there |
  * | `learned` | packets (RID, simulcast, fallback) | 3: never beside a `sender` / `sdp` route of another endpoint | other streams, routed there |
  *
  * A receiver that loses its learned SSRC (a sender or description of its
@@ -558,13 +558,15 @@ export class RtpRouter {
     log("registerRtpReceiver", ssrc);
     const own = this.routesOf(ssrc).some((r) => r.endpoint === receiver);
     // A route of the current session the registration would take away keeps
-    // the SSRC until the commit: another receiver's description route (a
-    // later description takes it on every transport) or a learned owner in
-    // this RTP session. Senders and other sessions' learned routes stay
-    // beside it.
+    // the SSRC until the commit: another receiver's description route or a
+    // learned owner in this RTP session. Senders and other sessions' routes
+    // stay beside it.
     const conflicts =
       this.routesOf(ssrc).some(
-        (r) => r.origin === RouteOrigin.sdp && r.endpoint !== receiver,
+        (r) =>
+          r.origin === RouteOrigin.sdp &&
+          r.endpoint !== receiver &&
+          RtpRouter.sameSession(r.endpoint, receiver.dtlsTransport),
       ) || this.fallbackOwners(ssrc, receiver).length > 0;
     if (deferConflicts && conflicts) {
       this.stagedSsrc.set(ssrc, receiver);
@@ -1132,8 +1134,8 @@ export class RtpRouter {
    * A description routes `ssrc` to `receiver`. A learned owner in the same
    * RTP session forgets it (the description wins); learned routes of other
    * transports stay, they are other streams. Another receiver's description
-   * route goes on every transport (the later description wins, as before);
-   * a sender keeps its route.
+   * route in the same RTP session goes (the later description wins); one of
+   * another transport stays. A sender keeps its route.
    */
   private takeSsrcRoute(ssrc: number, receiver: RTCRtpReceiver) {
     for (const owner of this.fallbackOwners(ssrc, receiver)) {
@@ -1142,7 +1144,9 @@ export class RtpRouter {
     this.removeRoutes(
       ssrc,
       (r) =>
-        (r.origin === RouteOrigin.sdp && r.endpoint !== receiver) ||
+        (r.origin === RouteOrigin.sdp &&
+          r.endpoint !== receiver &&
+          RtpRouter.sameSession(r.endpoint, receiver.dtlsTransport)) ||
         (r.origin === RouteOrigin.learned && r.endpoint === receiver),
     );
     if (

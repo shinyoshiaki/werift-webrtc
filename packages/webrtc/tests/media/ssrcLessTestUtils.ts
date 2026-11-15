@@ -470,8 +470,7 @@ function twccFeedback(ssrc: number) {
  * The expected result of the route matrix: per transport the end that wins
  * the SSRC there — a local sender over an SDP receiver over a learning one
  * in one RTP session (the later of two of a kind), each transport its own
- * across transports, except two SDP receivers (the later description takes
- * the SSRC on every transport, out of scope). A sender gets the RTCP of its
+ * across transports. A sender gets the RTCP of its
  * transport (TWCC too) and no RTP; a receiver gets its transport's RTP and
  * RTCP; a learning end that loses forgets the SSRC.
  */
@@ -480,13 +479,8 @@ export function expectedRouteMatrix(
   transports: RTCDtlsTransport[],
 ) {
   const rank = { sender: 3, sdp: 2, learned: 1 } as const;
-  const removed = new Set(
-    ends.every((e) => e.kind === "sdp") ? [ends[0].label] : [],
-  );
   const winners = transports.map((transport) => {
-    const here = ends.filter(
-      (e) => e.transport === transport && !removed.has(e.label),
-    );
+    const here = ends.filter((e) => e.transport === transport);
     return here.reduce<(typeof here)[number] | undefined>(
       (best, e) => (!best || rank[e.kind] >= rank[best.kind] ? e : best),
       undefined,

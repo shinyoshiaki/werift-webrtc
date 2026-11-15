@@ -86,7 +86,7 @@ to the highest ranked route of its transport (endpointBySsrc):
 | Origin | Added by | Rank in one RTP session | Other transports |
 | --- | --- | --- | --- |
 | `sender` | `registerRtpSender` | 1: a remote stream using it is a collision (RFC 3550 section 8.2), not learned | other streams, routed there |
-| `sdp` | `registerRtpReceiver` (an answer, a commit, or a pending description without conflict) | 2: a learned owner forgets the SSRC | stay; another description route of the SSRC goes on every transport (the later description wins, as before) |
+| `sdp` | `registerRtpReceiver` (an answer, a commit, or a pending description without conflict) | 2: a learned owner forgets the SSRC; another receiver's description route of the SSRC goes (the later description wins) | other streams, routed there |
 | `learned` | packets (RID, simulcast, fallback) | 3: never beside a `sender` / `sdp` route of another endpoint | other streams, routed there |
 
 A receiver that loses its learned SSRC (a sender or description of its

@@ -315,7 +315,7 @@ RFC 8843 / RFC 9143（BUNDLE）§9.2「Associating RTP/RTCP Streams with the Cor
 - [x] `collidingRoutes`、`learnedSsrcs`（状態としての）、`movesAside`、`takeSsrcRoute` の退避処理、`registerRtpSender` の上書き、`isForeignRoute` を廃止した。テストと観測用に、読み取り専用の `ssrcTable`（transport なしで引き当てた結果）、`learnedSsrcs`（learned の経路がある SSRC）、`collidingRoutes`（transport なしの結果と並ぶ learned 経路）、`routeEntries`（全経路）を残した。
 - [x] 登録の規則:
   - `registerRtpSender`: 経路を追加する（上書きしない）。同じ RTP session でその SSRC を学習していた receiver は忘れる（未指摘 3）。別 transport の経路はそのまま（指摘 10・未指摘 1）。
-  - `registerRtpReceiver` / `takeSsrcRoute`（SDP）: 経路を追加する。同じ RTP session の学習側は忘れる。別の receiver の SDP 経路は、従来どおりすべての transport で後勝ち（範囲外、下記）。sender の経路は残る（未指摘 2）。保留中の description は、別の receiver の SDP 経路か同じ RTP session の学習側を奪う場合だけ staging する。
+  - `registerRtpReceiver` / `takeSsrcRoute`（SDP）: 経路を追加する。同じ RTP session の学習側は忘れる。同じ RTP session の別の receiver の SDP 経路は後勝ちで外す。**別 transport の SDP 経路は残す**（レビュー指摘: 当初は従来どおりすべての transport で後勝ちとし範囲外にしていたが、A が学習した 55 を A の SDP が指定すると、別 transport の B の SDP 経路まで消えて B の RTP / RTCP が止まった）。sender の経路は残る（未指摘 2）。保留中の description は、同じ RTP session の別の receiver の SDP 経路か学習側を奪う場合だけ staging する。
   - 学習（`learnSsrc` / `addLearnedRoute`）: その transport に経路がないときだけ追加する。
   - BUNDLE の統合などで学習側の receiver が sender / SDP の経路がある RTP session に入った場合も、引き当て時に忘れる（`endpointBySsrc`）。
 - [x] sender の列挙（`sendersOnTransport`、`keyFrameRequestTarget` の fallback）と TWCC の seed は同じ経路の集合を走査する（原因 2）。
@@ -330,7 +330,7 @@ RFC 8843 / RFC 9143（BUNDLE）§9.2「Associating RTP/RTCP Streams with the Cor
 
 **PBT に複数 transport を入れた:** model property のシーンに `bundle`（`bundlePolicy`）の軸を追加した（`tests/pbt/model/generator.ts` の `modelConfig(pairing, bundlePolicy)`。専用の乱数列 `seed ^ 0x356` で 30% の seed が `"disable"` か `"max-compat"` を引くので、既存 seed の操作列は変わらない）。300 seed 中 44 seed が `"disable"`（m-line ごとに transport が分かれることを確認）、57 seed が `"max-compat"`。`ssrcRemoved` / `ssrcAndMidRemoved` / `remoteSsrcSwitch` と組み合わさる。`pbt:deep -- --suite model`（300 seed）で失敗は既知の seed（287、275）だけだった。
 
-**範囲外（変更しない）:** 別 transport の 2 つの SDP 経路が同じ SSRC を宣言するケース（後勝ちのまま）。RTCP SDES / BYE による対応付けの更新。RingCentral 原文 SDP（3.6 の合流ルール）。
+**範囲外（変更しない）:** ~~別 transport の 2 つの SDP 経路が同じ SSRC を宣言するケース（後勝ちのまま）。~~（レビュー指摘で対応: 別 transport の SDP 経路は並立する）RTCP SDES / BYE による対応付けの更新。RingCentral 原文 SDP（3.6 の合流ルール）。
 
 **検証（`bbce96a1d` + 未コミット差分）:**
 - ルートの `npm run type` と `npm run test:small` 成功。webrtc の `npm test` は 1954 passed、5 skipped。対象テスト（`router.test.ts` と `356.test.ts`）170 件成功。
@@ -345,6 +345,11 @@ RFC 8843 / RFC 9143（BUNDLE）§9.2「Associating RTP/RTCP Streams with the Cor
 | scenario 52 | rollback 後の SDP に `a=end-of-candidates` が入るか（ICE 候補収集の完了タイミング） | 5/18 | 1/18 | develop でも同じ失敗。経路の処理とは無関係だが本ブランチで発生率が高い（パケットごとの処理量の増加でタイミングがずれた可能性。因果は未確認） |
 
 - 未実施: ブラウザとの E2E（`npm run e2e`）、`tools/negotiation-diff`、scenario / leak への `bundlePolicy` 軸の追加（model だけに入れた）。
+
+**別 transport の SDP 経路の並立（レビュー指摘）の検証（`c68853ea9` + 未コミット差分）:**
+- 回帰テスト: transport A の a が 55 を学習し、transport B の b が SDP で 55 を受ける状態から a の SDP が 55 を指定しても、切り替えの前後で A の RTP と SR は a に、B の RTP と SR は b に届く（修正前のコードで失敗することを確認）。組み合わせ表の「sdp → sdp（別 transport）」セルの期待値を「それぞれが自分の transport で受ける」に改めた。対象テスト 171 件成功。
+- `pbt:deep`（全スイート）: fuzz 306/306、model 363/363（flaky 0）、scenario 2152 成功・11 flaky（単独で成功、失敗 0）、leak 652/653（heap seed 4。ICE チケット `74132240`）。ルートの `npm run type` と `npm run test:small` 成功（webrtc 1955 passed）。
+- 最初の webrtc の `npm test` では、ホストの高負荷（ロードアベレージ 19〜39。同じホストの他の作業）の中で 2 件が 5 秒のタイムアウトで失敗した（`codecResolution` の RED のテスト、`dtlsAlert` の 1 件。どちらもアサーション失敗ではない）。単独で交互に繰り返すと、`dtlsAlert` は本ブランチ 8/25・develop `41773f4dc` 4/20（失敗するサブテストは毎回違い、所要時間に差はない）、`codecResolution` は本ブランチ 2/17・develop 0/12（毎回違うテストのタイムアウト。RED のテストは ICE も RTP も使わず SDP の適用だけでタイムアウトした）。負荷によるタイムアウトと判断する。
 
 ---
 
