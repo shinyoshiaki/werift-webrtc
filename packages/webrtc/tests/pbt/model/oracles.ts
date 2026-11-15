@@ -71,6 +71,10 @@ import {
  *   refresh with gathered candidates) repeats a candidate of a BUNDLE tag on
  *   another m-line of its group, and every bundled m-line keeps
  *   `a=ice-ufrag`, `a=fingerprint` and `a=setup`.
+ * - connection: every m-line of a local description (pending or current),
+ *   a rejected (port 0) one included, has a `c=` line unless the session
+ *   level has one (RFC 8866 §5.7; Firefox refuses a description without it,
+ *   ticket 21a27c92).
  * (A rejected operation changing nothing is checked by the harness.)
  */
 type World = ReturnType<typeof world>;
@@ -416,7 +420,10 @@ export class ModelOracles implements Observer {
         ).toBe(null);
       }
     }
-    for (const peer of this.events.keys()) this.bundleCandidates(peer, label);
+    for (const peer of this.events.keys()) {
+      this.bundleCandidates(peer, label);
+      this.connectionLines(peer, label);
+    }
     await this.feedback(step, before, label);
     this.selectedPairs(step, before, label);
     if (this.idempotent || step.type === "rollback") {
@@ -550,6 +557,27 @@ export class ModelOracles implements Observer {
         `channel ${channel.label} did not open on both peers`,
         10_000,
       );
+    }
+  }
+
+  /** connection: every m-line of a local description has `c=` (or the session level has it). */
+  private connectionLines(pc: RTCPeerConnection, label: string) {
+    if (pc.signalingState === "closed") return;
+    const side = [...this.events.keys()][0] === pc ? "a" : "b";
+    for (const description of [
+      pc.pendingLocalDescription,
+      pc.currentLocalDescription,
+    ]) {
+      if (!description) continue;
+      const [session, ...media] = description.sdp.split(/(?=^m=)/m);
+      if (/^c=/m.test(session)) continue;
+      for (const section of media) {
+        // 拒否 (port 0) の m-line も c= を持つ。
+        expect(
+          /^c=/m.test(section),
+          `${label}: ${description.type} of ${side} ${section.split(/\r?\n/)[0]} has no c=`,
+        ).toBe(true);
+      }
     }
   }
 
