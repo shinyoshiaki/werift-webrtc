@@ -2,9 +2,12 @@ import { createSocket } from "dgram";
 
 import { findPort } from "../../common/src";
 import { randomString } from "../src/helper";
-import { selectAddressesFromInterfaces } from "../src/internal/selectAddresses";
+import {
+  selectAddressesFromInterfaces,
+  selectHostInterfaces,
+} from "../src/internal/selectAddresses";
 import { getGlobalIp, isLinkLocalAddress } from "../src/utils";
-import { createLocalStunServer } from "./utils";
+import { createLocalStunServer, fakeNetworkInterfaces } from "./utils";
 
 describe("utils", () => {
   test("randomString", () => {
@@ -79,6 +82,71 @@ describe("utils", () => {
 
     // Assert: internal と link-local が除外されること
     expect(addresses).toEqual(["192.0.2.10"]);
+  });
+
+  test("selectHostInterfaces binds a link-local IPv6 address with its zone", () => {
+    // Arrange: link-local と global の IPv6 を持つ NIC
+    const interfaces = fakeNetworkInterfaces({
+      eth1: ["2001:db8::1"],
+      eth0: ["fe80::1"],
+    });
+
+    // Act: link-local を含めて選別する
+    const hosts = selectHostInterfaces(
+      interfaces,
+      6,
+      { useLinkLocalAddress: true },
+      isLinkLocalAddress,
+    );
+
+    // Assert: NIC 名順で、link-local だけ zone 付きの bind アドレスになる
+    expect(hosts).toEqual([
+      {
+        address: "fe80::1",
+        nic: "eth0",
+        bindAddress: "fe80::1%eth0",
+        costly: false,
+      },
+      {
+        address: "2001:db8::1",
+        nic: "eth1",
+        bindAddress: "2001:db8::1",
+        costly: false,
+      },
+    ]);
+  });
+
+  test("selectHostInterfaces keeps costly networks after the others and bans vmnet / veth", () => {
+    // Arrange: VPN (tun / utun / ipsec / tap)、仮想 NIC (vmnet / veth)、通常 NIC を混ぜる
+    const interfaces = fakeNetworkInterfaces({
+      tun0: ["10.8.0.2"],
+      eth0: ["192.0.2.10"],
+      utun3: ["10.9.0.2"],
+      vmnet1: ["172.16.1.1"],
+      veth12: ["172.17.0.5"],
+      ipsec0: ["10.10.0.2"],
+      tap0: ["10.11.0.2"],
+    });
+
+    // Act: gather 用と公開 API 用にそれぞれ選別する
+    const hosts = selectHostInterfaces(interfaces, 4, {}, isLinkLocalAddress);
+    const publicAddresses = selectAddressesFromInterfaces(
+      interfaces,
+      4,
+      {},
+      isLinkLocalAddress,
+    );
+
+    // Assert: gather 用は costly な NIC を通常 NIC の後に含め、vmnet / veth は除外する
+    expect(hosts.map(({ nic, costly }) => [nic, costly])).toEqual([
+      ["eth0", false],
+      ["ipsec0", true],
+      ["tap0", true],
+      ["tun0", true],
+      ["utun3", true],
+    ]);
+    // Assert: 公開 API (getHostAddresses など) の戻り値は従来どおり costly を含めない
+    expect(publicAddresses).toEqual(["192.0.2.10"]);
   });
 
   test("selectAddressesFromInterfaces keeps link-local when enabled", () => {

@@ -25,6 +25,13 @@ import {
 } from "./stats";
 import type { MediaStream, MediaStreamTrack } from "./track";
 
+/**
+ * @internal The operation that created a transceiver. Under
+ * `transceiverPairing: "standard"` only an `"addTrack"` one may be associated
+ * with a remote offer m-section whose MID it does not have (RFC 8829 5.10).
+ */
+export type TransceiverOrigin = "addTrack" | "addTransceiver" | "remote";
+
 export class RTCRtpTransceiver {
   public readonly kind: Kind;
   public receiver: RTCRtpReceiver;
@@ -36,6 +43,20 @@ export class RTCRtpTransceiver {
   readonly onTrack = new Event<[MediaStreamTrack, RTCRtpTransceiver]>();
   mid: string | null = null;
   mLineIndex?: number;
+  /**
+   * @internal Which operation created this transceiver (JSEP 5.10 pairing,
+   * see {@link TransceiverOrigin}). An application property: it is not part
+   * of the negotiation snapshot, so a rollback does not change it, except
+   * for the promotion of a remote one the application reused with
+   * `addTrack()` (`reusedForAddTrack`).
+   */
+  createdBy: TransceiverOrigin = "addTransceiver";
+  /**
+   * @internal A transceiver a remote offer created that `addTrack()` reused.
+   * A rollback that keeps it promotes it to `createdBy: "addTrack"`
+   * (JSEP 4.1.8.2), so a later remote offer can associate it again.
+   */
+  reusedForAddTrack = false;
   /**should not be reused because it has been used for sending before. */
   usedForSender = false;
   private _currentDirection?: CurrentDirection;

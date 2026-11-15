@@ -1116,3 +1116,61 @@ export async function decodeAudioFile(
     peak,
   };
 }
+
+/**
+ * Arrange: Node (werift) offers a data channel on `label`; Chrome answers
+ * (after `transformAnswer`, e.g. to corrupt its fingerprint) and resolves
+ * once the answer is applied on both sides.
+ */
+export async function answerServerDataChannelOffer(
+  label: string,
+  transformAnswer: (sdp: string) => string = (sdp) => sdp,
+) {
+  await ensurePeerConnected();
+  const pc = new RTCPeerConnection({
+    iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+  });
+  pc.onicecandidate = ({ candidate }) => {
+    peer
+      .request(label, { type: "candidate", payload: candidate })
+      .catch(() => {});
+  };
+  const channel = new Promise<RTCDataChannel>((resolve) => {
+    pc.ondatachannel = ({ channel }) => resolve(channel);
+  });
+
+  const offer = await peer.request(label, { type: "init" });
+  await pc.setRemoteDescription(offer);
+  await pc.setLocalDescription(await pc.createAnswer());
+  await peer.request(label, {
+    type: "answer",
+    payload: {
+      type: "answer",
+      sdp: transformAnswer(pc.localDescription!.sdp),
+    },
+  });
+  return { pc, channel };
+}
+
+/** Resolve once `condition` holds, checked on every `event` of `target`. */
+export function waitForEventCondition(
+  target: EventTarget,
+  event: string,
+  condition: () => boolean,
+  timeoutMs = 10_000,
+) {
+  if (condition()) return Promise.resolve();
+  return new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      target.removeEventListener(event, check);
+      reject(new Error(`condition not met after ${event} (${timeoutMs}ms)`));
+    }, timeoutMs);
+    const check = () => {
+      if (!condition()) return;
+      clearTimeout(timer);
+      target.removeEventListener(event, check);
+      resolve();
+    };
+    target.addEventListener(event, check);
+  });
+}

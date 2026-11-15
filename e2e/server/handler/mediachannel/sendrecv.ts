@@ -44,9 +44,12 @@ export class mediachannel_sendrecv_offer {
       case "init":
         {
           this.pc = new RTCPeerConnection(await peerConfig);
-          const transceiver = this.pc.addTransceiver("video");
-          transceiver.onTrack.subscribe((track) => {
-            transceiver.sender.replaceTrack(track);
+          // JSEP 5.10: the browser's offer gets its own transceiver; echo on it.
+          this.pc.onRemoteTransceiverAdded.subscribe((transceiver) => {
+            transceiver.setDirection("sendrecv");
+            transceiver.onTrack.subscribe((track) => {
+              transceiver.sender.replaceTrack(track);
+            });
           });
           await this.pc.setRemoteDescription(payload);
           await this.pc.setLocalDescription(await this.pc.createAnswer());
