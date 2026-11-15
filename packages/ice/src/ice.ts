@@ -346,6 +346,7 @@ export class Connection implements IceConnection {
     this.localCandidatesEndPromise = undefined;
     this.checksBegun = false;
     this.schedulingStopped = false;
+    this.stopIncomingCheckWait();
     this.state = "new";
     this.lookup?.close?.();
     this.lookup = undefined;
@@ -387,6 +388,7 @@ export class Connection implements IceConnection {
     this.remoteCandidatesEndRequested = false;
     this.remoteResolutions.clear();
     this.checksBegun = false;
+    this.stopIncomingCheckWait();
     this.state = "new";
     this.nominated = undefined;
     this.nominating = false;
@@ -398,6 +400,12 @@ export class Connection implements IceConnection {
     this.earlyChecksDone = false;
     this.stopConsentLifecycle();
     this.endProvisional();
+  }
+
+  /** End the wait of connect() for an incoming check (restart, close). */
+  private stopIncomingCheckWait() {
+    this.incomingCheckWait?.abort();
+    this.incomingCheckWait = undefined;
   }
 
   /**
@@ -1934,6 +1942,9 @@ export class Connection implements IceConnection {
       throw new Error("Remote username or password is missing");
     }
     this.checksBegun = true;
+    // A restart (local or remote-only) during the checks below starts a new
+    // generation with its own connect(); this one must not act on it.
+    const remoteGeneration = this.remoteGeneration;
 
     // # 5.7.1. Forming Candidate Pairs
     for (const c of this.remoteCandidates) {
@@ -1981,10 +1992,13 @@ export class Connection implements IceConnection {
         if (!this.schedulingChecks()) break;
         await timers.setTimeout(20);
       }
+      if (this.remoteGeneration !== remoteGeneration) return this.superseded();
       // No pair to check (the peer offered only active TCP candidates, or
       // none this agent can reach): a check from the peer can still add a
       // peer-reflexive pair, so the empty check list does not fail at once.
-      if (!(await this.waitForIncomingCheck())) break;
+      const pairAdded = await this.waitForIncomingCheck();
+      if (this.remoteGeneration !== remoteGeneration) return this.superseded();
+      if (!pairAdded) break;
     }
     this.schedulingStopped = true;
 
@@ -2008,6 +2022,19 @@ export class Connection implements IceConnection {
     this.queryConsent();
 
     this.setState("connected");
+  }
+
+  /**
+   * A restart replaced the generation connect() was checking: neither the
+   * new generation's check list nor its results (`checkListState`) belong to
+   * it, and the caller (webrtc's `TransactionActivation` / `RTCIceTransport`)
+   * would treat a return as connected and a throw as failed, both about the
+   * new generation. So, as with a connect() waiting on a replaced
+   * `checkListState`, it never settles (the agent is still collected).
+   */
+  private superseded(): Promise<never> {
+    log("connect superseded by an ICE restart");
+    return new Promise<never>(() => {});
   }
 
   /**
@@ -2037,7 +2064,7 @@ export class Connection implements IceConnection {
         signal: wait.signal,
       });
     } catch {
-      // Aborted: a pair was added or the agent closed.
+      // Aborted: a pair was added, the agent restarted or closed.
     } finally {
       if (this.incomingCheckWait === wait) this.incomingCheckWait = undefined;
     }
@@ -2391,7 +2418,7 @@ export class Connection implements IceConnection {
     this.stopConsentLifecycle();
 
     // # stop check list
-    this.incomingCheckWait?.abort();
+    this.stopIncomingCheckWait();
     if (this.checkList && !this.checkListDone) {
       this.checkListState.put(
         new Promise((r) => {

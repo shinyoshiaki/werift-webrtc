@@ -22,6 +22,8 @@ import {
   expectDataFlows,
   getClosedTcpPort,
   getSelectedTcpSocket,
+  restartTcpOnlyGeneration,
+  startWaitingForIncomingCheck,
   timeSettle,
 } from "../utils";
 
@@ -193,6 +195,36 @@ describe("ICE-TCP with an empty check list", () => {
     expect((error as Error).message).toBe("ICE negotiation failed");
     expect(elapsedMs).toBeLessThan(5000);
   });
+
+  test.each(["local", "remote"] as const)(
+    "a %s ICE restart during the wait leaves the new generation connected",
+    async (restart) => {
+      // Arrange: b は空の check list で相手の check を待っている (待ち時間 0.5 秒)。
+      const { a, b, waiting } = await startWaitingForIncomingCheck({
+        incomingCheckTimeout: 0.5,
+      });
+
+      try {
+        // Act: 待機中に ICE restart し、新しい世代で両側が connect する。
+        await restartTcpOnlyGeneration(a, b, restart);
+        await Promise.all([a.connect(), b.connect()]);
+
+        // Assert: 新しい世代は接続する。
+        expect(b.state).toBe("connected");
+        expect(a.state).toBe("connected");
+
+        // Act: 旧世代の待ち時間 (0.5 秒) を過ぎるまで待つ。
+        await setTimeout(800);
+
+        // Assert: 旧世代の connect() は失敗も完了もせず、新しい世代の状態と通信を変えない。
+        expect(waiting.settled).toBe(false);
+        expect(b.state).toBe("connected");
+        await expectDataFlows(a, b, `${restart}-restart`);
+      } finally {
+        await Promise.all([a.close(), b.close()]);
+      }
+    },
+  );
 });
 
 describe("ICE-TCP selected connection", () => {

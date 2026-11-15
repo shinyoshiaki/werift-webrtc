@@ -610,6 +610,57 @@ export async function exchangeTcpOnlyCandidates(
   a.remotePassword = b.localPassword;
 }
 
+/**
+ * Arrange: b runs connect() with an empty check list (a offered no
+ * candidate and does not connect), so it waits for an incoming check.
+ * `settled` turns true once that connect() settles.
+ */
+export async function startWaitingForIncomingCheck(
+  extra: Partial<IceOptions> = {},
+) {
+  const { a, b } = createTcpOnlyConnections(extra);
+  await exchangeTcpOnlyCandidates(a, b, () => false);
+  const waiting = { settled: false };
+  const connecting = b.connect().finally(() => {
+    waiting.settled = true;
+  });
+  // The rejection of a failed connect() is asserted through `settled`.
+  connecting.catch(() => {});
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  return { a, b, waiting };
+}
+
+/**
+ * Arrange: a new generation of the agents of
+ * `startWaitingForIncomingCheck`, with every TCP candidate exchanged.
+ * `restart` is "local" (b.restart(), b gathers again) or "remote"
+ * (b.restartRemote(), b keeps its credentials and candidates).
+ */
+export async function restartTcpOnlyGeneration(
+  a: Connection,
+  b: Connection,
+  restart: "local" | "remote",
+) {
+  await a.restart();
+  if (restart === "local") {
+    await b.restart();
+    await exchangeTcpOnlyCandidates(a, b);
+    return;
+  }
+  b.restartRemote();
+  await a.gatherCandidates();
+  b.remoteCandidates = a.localCandidates.filter(
+    (candidate) => candidate.transport === "tcp",
+  );
+  b.remoteUsername = a.localUsername;
+  b.remotePassword = a.localPassword;
+  a.remoteCandidates = b.localCandidates.filter(
+    (candidate) => candidate.transport === "tcp",
+  );
+  a.remoteUsername = b.localUsername;
+  a.remotePassword = b.localPassword;
+}
+
 /** Arrange: TCP-only agents that completed ICE with each other. */
 export async function connectTcpOnly(extra: Partial<IceOptions> = {}) {
   const { a, b } = createTcpOnlyConnections(extra);
