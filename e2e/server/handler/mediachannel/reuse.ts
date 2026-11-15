@@ -105,9 +105,9 @@ class mediachannel_reuse_offer_base {
   }
 }
 
-export class mediachannel_reuse_compatible extends mediachannel_reuse_offer_base {
+export class mediachannel_reuse_standard extends mediachannel_reuse_offer_base {
   constructor() {
-    super("compatible");
+    super("standard");
   }
 }
 

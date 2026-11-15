@@ -60,6 +60,8 @@ werift + browser (no extra cloud):
 | `mediachannel/sendrecv/{offer,answer,multi_offer}.ts`                               | 対応 HTML                          | 双方向 / 複数                                                                         |
 | `mediachannel/recvonly/{offer,multi_offer,dump}.ts`                                 | 対応 HTML                          | 片方向。dump は exit 0                                                                |
 | `mediachannel/rtp_forward/offer.ts`                                                 | `rtp_forward/answer.html`          | 受信 RTP                                                                              |
+| `mediachannel/rtp_forward/switch_source.ts`                                         | `rtp_forward/switch_source.html`   | 上流を作り直しても転送 RTP が続く（`RtpTimelineRewriter`）                            |
+| `mediachannel/rtp_forward/camera_switcher.ts`                                       | `rtp_forward/camera_switcher.html` | 2 カメラを切り替えても転送 RTP が 1 本の連続ストリーム（`RtpTimelineRewriter`）       |
 | `mediachannel/pubsub/offer.ts`                                                      | `pubsub/answer.html`               | publish / subscribe                                                                   |
 | `mediachannel/sdp/{offer,offer_offer}.ts`                                           | 対応 HTML                          | SDP 経路                                                                              |
 | `mediachannel/rtx/{offer,simulcast_offer}.ts`                                       | 対応 HTML                          | RTX / simulcast+RTX                                                                   |

@@ -32,22 +32,22 @@ export class StunProtocol implements Protocol {
 
   constructor() {}
 
+  /**
+   * Opens the UDP socket. `bindAddress` binds it to that address (an IPv6
+   * link-local one with its zone, `fe80::1%eth0`) instead of the address of
+   * `interfaceAddresses` or the wildcard address.
+   */
   connectionMade = async (
     useIpv4: boolean,
     portRange?: [number, number],
     interfaceAddresses?: InterfaceAddresses,
+    { bindAddress }: { bindAddress?: string } = {},
   ) => {
-    if (useIpv4) {
-      this.transport = await UdpTransport.init("udp4", {
-        portRange,
-        interfaceAddresses,
-      });
-    } else {
-      this.transport = await UdpTransport.init("udp6", {
-        portRange,
-        interfaceAddresses,
-      });
-    }
+    this.transport = await UdpTransport.init(useIpv4 ? "udp4" : "udp6", {
+      portRange,
+      interfaceAddresses,
+      bindAddress,
+    });
 
     this.transport.onData = (data, addr) => {
       this.datagramReceived(data, addr);
