@@ -139,8 +139,8 @@
 - [ ] 上記の回帰テストがすべて追加されて通る。`npm run type` / `npm test` / `npm run pbt:deep` / `npm run wpt` が通る。
 - [ ] `tools/negotiation-diff` のdevelop比較でregression / hang / state differenceが0。意図した差分は説明されている。
 - [ ] 新しいルールが実装のTSDocとテストに記録され、`changelog.md` が更新されている。
-- [ ] 交渉済みcodecは、codec設定が非対称な相手に対しても交渉済みの形式（PT・fmtp・rtcp-fb）のまま再提示される。設定codecとの対応付けは交渉と同じ規則（`pairCodecs`: 同じ形式 → 同じMIME type）を使い、非対称な構成でのdevelopとの差分は「以前のanswerで削られたcodecが増える」、BUNDLE内のPT衝突回避、同じMIME typeの複数形式を含むofferへの形式単位の応答だけ（§10、§11）。
-- [ ] 交渉で外れた同じMIME typeの別形式（H264 mode 0で確立した後のmode 1など）も再オファーに載り、後のanswerでその形式へ移れる（§11）。
+- [ ] 交渉済みcodecは、codec設定が非対称な相手に対しても交渉済みの形式（PT・fmtp・rtcp-fb）のまま再提示される。設定codecとの対応付けは交渉と同じ規則（`pairCodecs`: 完全に同じ形式 → 互換な形式 → 同じMIME type、§12）を使い、非対称な構成でのdevelopとの差分は「以前のanswerで削られたcodecが増える」、BUNDLE内のPT衝突回避、同じMIME typeの複数形式を含むofferへの形式単位の応答だけ（§10、§11）。
+- [ ] 交渉で外れた同じMIME typeの別形式（H264 mode 0で確立した後のmode 1、VP9 profile 2で確立した後のprofile 0など、codecを問わずfmtpで区別される形式）も再オファーに載り、後のanswerでその形式へ移れる（§11、§12）。
 
 ## 9. 追加要件: 方向変更で交渉済みcodecを失わない（レビュー7回目の打開策）
 
@@ -295,7 +295,7 @@
 
 ### 11.2 ルール
 
-- `pairCodecs(configured, others, accept?)`（`codecCompatibility.ts`、export）を、codecを対にする唯一の規則として置いた。各設定primary codecは、`others` のうち**まず同じ形式（`isCodecCompatible`: MIME type、clock rate、channels、H264 `packetization-mode` / `profile-level-id`）**と、まだ対になっていなければ**次に同じMIME type（`negotiatesAs`）**と、1対1で対になる。RTX / REDは対にしない。
+- `pairCodecs(configured, others, accept?)`（`codecCompatibility.ts`、export）を、codecを対にする唯一の規則として置いた。各設定primary codecは、`others` のうち**まず同じ形式（`isCodecCompatible`: MIME type、clock rate、channels、H264 `packetization-mode` / `profile-level-id`）**と、まだ対になっていなければ**次に同じMIME type（`negotiatesAs`）**と、1対1で対になる。RTX / REDは対にしない。（§12で、最初に「完全に同じ形式」のpassを足して3段にした。）
 - 交渉（`resolveRemoteCodecSet`、answer作成とremote answerの適用）、`withNegotiatedCodecs`、`keepNegotiatedPayloadTypes` の3か所すべてがこの関数を使う。固定sourceの制約は `accept` で渡す。
 - covered規則は廃止した。交渉で外れた同じMIME typeの別形式は、ほかの外れたcodecと同じく再提示する（PTは設定値、交渉済みPTやBUNDLE内の別codecと衝突すれば空きPT）。交渉済みcodecは引き続き交渉済みの形式（PT・fmtp・rtcp-fb）のまま提示する。
 - 交渉済みの形式をまだ持つ相手は、形式単位の対応付けによってその形式と対になる。そのため、別形式を再提示しても確定codecは切り替わらない（§10.1の表の最終行）。
@@ -327,3 +327,53 @@
 - model seed 287（非対称シーン、ICE restart付きの `codecSubset` wire offerの後に「channel dc0 did not open on both peers」で3秒timeout）は単独でも断続的に失敗する。修正前のHEAD（`b41fca9a6`）で8回中2回、修正後で8回中1回失敗し、developの一時worktree（同じテストファイルを使用）でも同じメッセージで失敗する。codecではなくDataChannelのタイミングの既存問題で、本チケットの範囲外とする。
 - leak heap seed 4 はdevelopでも失敗する既存の問題（§9.6、§10.5）。
 - レビューで「全体テスト中に表示された」とされたleak propertyの失敗は、上記のとおり `npm test` と単独実行のどちらでも再現しなかった。
+
+## 12. 追加要件: codecを問わずfmtpで形式を区別する（レビュー指摘: VP9 profileの欠落）
+
+### 12.1 背景と原因
+
+- §11の `pairCodecs` は、1段目の「同じ形式」を `isCodecCompatible` で判定していた。`isCodecCompatible` はH264の `packetization-mode` / `profile-level-id` だけを見て、ほかのcodecのfmtpを見ない。
+- そのため、VP9の `profile-id=0` と `profile-id=2` をこの順に設定し、profile 2で交渉済みのとき、先頭のprofile 0が交渉済みのprofile 2と対になっていた。再オファーはprofile 2を2本含み、profile 0を含まない。後で相手がprofile 0だけを受け付けても切り替えられない。
+- また、固定sourceの制約（`intersectCodecs`）と `replaceTrack()` の互換判定も `isCodecCompatible` を使う。VP9のprofileを区別しないため、profile 0だけを受け付けるpeerを表せなかった（profile 0のtrackがprofile 2とも互換と判定される）。
+- H264だけを特別扱いしていたことが原因で、VP9 / AV1など別のcodecの形式でも同じ欠落が起きる。
+
+### 12.2 ルール
+
+- `pairCodecs` を3段にした。各段はまだ対になっていない設定codecだけを対象にする。
+  1. **完全に同じ形式**（`sameFormat`）: MIME type、clock rate、channels、**すべてのfmtpパラメータ**（`formatParameters` で正規化。名前の大文字小文字と順序は無視、H264はRFC 6184の既定値を補う）。codecを問わない（VP9 `profile-id`、AV1 `profile`、H264、Opusのパラメータなど）。
+  2. **互換な形式**（`isCodecCompatible`）: 形式を識別するパラメータが一致する。片方が省略していれば任意の値と一致する。
+  3. **同じMIME type**（`negotiatesAs`）: 例えばlevel違いのH264、profile違いのVP9。
+- `sameFormat` は、BUNDLE内のPT共有判定 `samePayloadMapping`（`sameFormat` + rtcp-fb）の形式部分と同じ関数にした。
+- `isCodecCompatible` が見る「形式を識別するパラメータ」を表（`FORMAT_PARAMETERS`）にし、H264 `packetization-mode` / `profile-level-id`（RFC 6184）に加えて、VP9 `profile-id`（RFC 9628）とAV1 `profile` を区別する。値の大文字小文字は無視し、省略は任意の値と一致する（H264と同じ）。固定sourceの制約と `replaceTrack()` の互換判定も、これでVP9 / AV1のprofileを区別する。
+- developとの意図した差分（初回answer、§11.2と同じ種類）: offerが同じMIME typeの複数形式を含み、answererの設定がそのうち先頭以外の形式だけの場合（例: VP9 profile 0 / profile 2 の順のofferに、profile 2だけを設定したpeerが応答する）。answererは自分の形式（profile 2）で応答する。developはMIME typeで先頭のprofile 0と対にしていたので、answererが設定していない形式で確定していた。
+- ルールは `pairCodecs` / `isCodecCompatible` のTSDocと、`changelog.md` の#818項に記載した。
+
+### 12.3 回帰テスト
+
+- [x] `tests/issue/818.test.ts`（新規）: 両側の設定はVP9 profile 0（98）とprofile 2（100）の順。Aがprofile 2固定sourceのtrackでofferし、profile 2だけで確立する。その後、Aは固定sourceのないtrackに `replaceTrack()` し、Bはprofile 0固定sourceのtrackを `addTrack()` する（Bはprofile 0だけを受け付ける）。Aの再オファーが、交渉で外れたprofile 0（98）と交渉済みのprofile 2（100）を1本ずつ提示すること、確定後は両側ともprofile 0だけになりBがprofile 0で送ること、`expectSessionContinues`（ハーネス）を確認する。
+- [x] `tests/media/codecResolution.test.ts`: 設定 [VP9 profile 0 (98), profile 2 (100)]、交渉済み [相手のprofile 2 (102)] で、`pairCodecs` がprofile 2どうしだけを対にし、`keepNegotiatedPayloadTypes` が `98 VP9 profile-id=0` と交渉済みの `102 VP9 profile-id=2` を1本ずつ提示する（レビューの再現条件そのもの）。`isCodecCompatible` がVP9 / AV1のprofileを区別し、省略は任意の値と一致する。
+- 3件とも修正前のHEAD（`01f16f529`）で失敗し、修正後に成功する。
+
+### 12.4 developとの比較と検証結果
+
+対象は `01f16f529` に未コミットの変更（`codecCompatibility.ts`、テスト、ドキュメント）を加えた状態。
+
+| 確認 | 結果 |
+| --- | --- |
+| `npm run type`（rootとwebrtc） | エラー0 |
+| `cd packages/webrtc && npm test` | 89ファイル、1876件成功、5件スキップ |
+| model property（100 seed） | 160件成功 |
+| 公開APIの非対称マトリクス（VP9 profileの2構成を足して128行、develop `41773f4dc` と比較） | 同一81、codecの追加32、追加m-lineのPT衝突回避3、初回answerの形式単位の応答12（`h264Two` のofferer側4、`vp9Profiles` のofferer側4、`vp9ProfilesReverse` のanswerer側4。11.2 / 12.2の意図した差分）。交渉済みの形式が変わる行は0 |
+| `tools/negotiation-diff`（非対称4構成 × 15 seed、develop比較） | regression / divergence / hang / failure / state difference すべて0 |
+| `npm run pbt:deep` | fuzzは失敗0。scenario seed 52 はdevelopと修正後で単独各3回すべて成功（並列負荷下のflaky）。model seed 287 とleak heap seed 4 は下記 |
+| `npm run wpt` | regression 0。`codecs-subsequent-offer` はPASS、`video-codecs` は従来どおり（1 PASS / 2 FAIL） |
+
+- **leak heap seed 4**（上限16 KiB/cycle）: developの一時worktreeと修正後で交互に各6回、単独・負荷なしで実行した。全12回とも上限を超える。
+
+| | 1 | 2 | 3 | 4 | 5 | 6 | 平均 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| develop | 20.03 | 19.89 | 18.67 | 18.96 | 19.39 | 19.32 | 19.38 |
+| 修正後 | 18.44 | 18.70 | 18.75 | 18.44 | 18.80 | 19.59 | 18.79 |
+
+  修正後の値はdevelopの範囲内か下回り、本チケットの変更で増えていない。developにもある既存の問題で、範囲外とする。
+- **model seed 287**（非対称シーンで「channel dc0 did not open on both peers」の3秒timeout）: developの一時worktree（同じテストファイル）と修正後で交互に各15回実行した。developは15回中4回、修正後は15回中5回失敗し、失敗はすべて同じDataChannelのtimeoutだった。発生率は同等で、codecではなくDataChannelのタイミングの既存問題として範囲外とする。

@@ -12,6 +12,7 @@ import {
 } from "../../src";
 import {
   applyCodecPreferences,
+  isCodecCompatible,
   keepNegotiatedPayloadTypes,
   negotiatesAs,
   pairCodecs,
@@ -1580,6 +1581,48 @@ describe("codec resolution", () => {
       ]);
       // Assert: 同じ形式がなければ先頭の設定 codec が MIME type で対になり、1 対 1 なので 2 本目は対にならない。
       expect([...fallback]).toEqual([[mode1, otherLevel]]);
+    });
+
+    test("VP9 profiles pair by profile-id: a negotiated profile 2 keeps its place and profile 0 is offered again", () => {
+      // Arrange: 設定は VP9 profile 0 (98) と profile 2 (100) の順。交渉済みは相手の形式の VP9 profile 2 (102)。
+      const vp9 = (payloadType: number, profile: number) =>
+        codec("video/VP9", payloadType, `profile-id=${profile}`);
+      const capability = [vp9(98, 0), vp9(100, 2)];
+      const negotiated = [vp9(102, 2)];
+
+      // Act: 対応付けと offer 用の codec を解決する。
+      const pairs = pairCodecs(capability, negotiated);
+      const offered = keepNegotiatedPayloadTypes(
+        capability,
+        negotiated,
+        taken(...negotiated),
+      );
+
+      // Assert: profile 2 の設定だけが交渉済み profile 2 と対になる (profile 0 は対にならない)。
+      expect([...pairs]).toEqual([[capability[1], negotiated[0]]]);
+      // Assert: offer は profile 0 を設定の PT 98 で再提示し、profile 2 は交渉済み (102) のまま 1 本だけ載る。
+      expect(summary(offered)).toEqual([
+        "98 VP9 profile-id=0",
+        "102 VP9 profile-id=2",
+      ]);
+      expect(offered[1]).toBe(negotiated[0]);
+    });
+
+    test("isCodecCompatible tells VP9 / AV1 profiles apart and an omitted profile matches any", () => {
+      // Arrange: VP9 profile 0 / 2 / 指定なし、AV1 profile 0 / 1。
+      const vp9 = (parameters?: string) => codec("video/VP9", 98, parameters);
+      const av1 = (parameters?: string) => codec("video/AV1", 45, parameters);
+
+      // Act / Assert: profile が両方にあって違えば互換でなく、片方が省略なら互換。
+      expect(isCodecCompatible(vp9("profile-id=0"), vp9("profile-id=2"))).toBe(
+        false,
+      );
+      expect(isCodecCompatible(vp9("profile-id=2"), vp9("profile-id=2"))).toBe(
+        true,
+      );
+      expect(isCodecCompatible(vp9(), vp9("profile-id=2"))).toBe(true);
+      expect(isCodecCompatible(av1("profile=0"), av1("profile=1"))).toBe(false);
+      expect(isCodecCompatible(av1("profile=1"), av1())).toBe(true);
     });
 
     test("a negotiated RTX for an offered primary is offered as negotiated", () => {

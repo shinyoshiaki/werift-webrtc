@@ -20,14 +20,33 @@ function optionalEqual<T>(left: T | undefined, right: T | undefined) {
   return left == undefined || right == undefined || left === right;
 }
 
-function h264Parameters(codec: RTCRtpCodecParameters) {
+/**
+ * The `a=fmtp` parameters that tell the formats of one MIME type apart (a
+ * decoder for one cannot take the other): H264 `packetization-mode` and
+ * `profile-level-id` (RFC 6184), VP9 `profile-id` (RFC 9628) and AV1
+ * `profile` (AV1 RTP payload format). Values are compared case-insensitively.
+ */
+const FORMAT_PARAMETERS: { readonly [name: string]: readonly string[] } = {
+  h264: ["packetization-mode", "profile-level-id"],
+  vp9: ["profile-id"],
+  av1: ["profile"],
+  av1x: ["profile"],
+};
+
+function formatIdentity(codec: RTCRtpCodecParameters) {
   const parameters = codecParametersFromString(codec.parameters ?? "");
-  return {
-    packetizationMode: parameters["packetization-mode"],
-    profileLevelId: parameters["profile-level-id"]?.toString().toLowerCase(),
-  };
+  return (FORMAT_PARAMETERS[codecName(codec)] ?? []).map((name) =>
+    parameters[name]?.toString().toLowerCase(),
+  );
 }
 
+/**
+ * Whether `source` (a track's codec or a remote codec) can be carried as
+ * `configured`: the same MIME type, clock rate and channels, and the same
+ * format-identifying parameters (`FORMAT_PARAMETERS`: H264 mode / profile,
+ * VP9 profile, AV1 profile). A parameter omitted on either side matches any
+ * value.
+ */
 export function isCodecCompatible(
   source: RTCRtpCodecParameters,
   configured: RTCRtpCodecParameters,
@@ -40,21 +59,10 @@ export function isCodecCompatible(
   }
   if (source.clockRate !== configured.clockRate) return false;
   if (!optionalEqual(source.channels, configured.channels)) return false;
-  if (codecName(source) !== "h264") return true;
-
-  const sourceParameters = h264Parameters(source);
-  const configuredParameters = h264Parameters(configured);
-  if (
-    !optionalEqual(
-      sourceParameters.packetizationMode,
-      configuredParameters.packetizationMode,
-    )
-  ) {
-    return false;
-  }
-  return optionalEqual(
-    sourceParameters.profileLevelId,
-    configuredParameters.profileLevelId,
+  const sourceIdentity = formatIdentity(source);
+  const configuredIdentity = formatIdentity(configured);
+  return sourceIdentity.every((value, index) =>
+    optionalEqual(value, configuredIdentity[index]),
   );
 }
 
@@ -79,15 +87,25 @@ export function negotiatesAs(
 /**
  * Pair each configured primary codec with at most one of `others` (and each
  * of `others` with at most one configured codec), the rule negotiation
- * (`setRemoteDescription()` / `createAnswer()`) and a later offer share:
- * first the codec of the same format (`isCodecCompatible`: MIME type, clock
- * rate, channels, H264 `packetization-mode` / `profile-level-id`), then, for
- * a configured codec still unpaired, one of the same MIME type
- * (`negotiatesAs`, for instance an H264 of another level). So when the
- * configured codecs hold several formats of one MIME type (H264 mode 0 and
- * mode 1), each pairs with its own format and an answer does not switch the
- * format the offer meant. RTX / RED are not paired. `accept` limits the
- * candidates (a fixed track source).
+ * (`setRemoteDescription()` / `createAnswer()`) and a later offer share,
+ * in three passes over the configured codecs, each pass only for the codecs
+ * still unpaired:
+ *
+ * 1. the codec of exactly the same format (`sameFormat`: MIME type, clock
+ *    rate, channels and every `a=fmtp` parameter, for any codec: VP9
+ *    `profile-id`, AV1 `profile`, H264 `packetization-mode` /
+ *    `profile-level-id`, Opus parameters, ...);
+ * 2. a compatible one (`isCodecCompatible`: the same format-identifying
+ *    parameters, H264 mode / profile, VP9 / AV1 profile, where an omitted
+ *    one matches any value);
+ * 3. one of the same MIME type (`negotiatesAs`, for instance an H264 of
+ *    another level or a VP9 of another profile).
+ *
+ * So when the configured codecs hold several formats of one MIME type (H264
+ * mode 0 and mode 1, VP9 profile 0 and profile 2), each pairs with its own
+ * format whatever the order, and an answer does not switch the format the
+ * offer meant. RTX / RED are not paired. `accept` limits the candidates (a
+ * fixed track source).
  */
 export function pairCodecs(
   configured: readonly RTCRtpCodecParameters[],
@@ -100,6 +118,7 @@ export function pairCodecs(
   const pairs = new Map<RTCRtpCodecParameters, RTCRtpCodecParameters>();
   const used = new Set<RTCRtpCodecParameters>();
   const passes = [
+    sameFormat,
     (codec: RTCRtpCodecParameters, other: RTCRtpCodecParameters) =>
       isCodecCompatible(other, codec),
     negotiatesAs,
@@ -450,12 +469,22 @@ function samePayloadMapping(
   right: RTCRtpCodecParameters,
 ) {
   return (
+    sameFormat(left, right) && feedbackTypes(left) === feedbackTypes(right)
+  );
+}
+
+/**
+ * The same media format (`a=rtpmap` and `a=fmtp`, RFC 4566): MIME type,
+ * clock rate, channels and the format parameters (`formatParameters`), for
+ * every codec. RTCP feedback is not part of the format.
+ */
+function sameFormat(left: RTCRtpCodecParameters, right: RTCRtpCodecParameters) {
+  return (
     normalizeCodecMimeType(left.mimeType) ===
       normalizeCodecMimeType(right.mimeType) &&
     left.clockRate === right.clockRate &&
     (left.channels ?? 1) === (right.channels ?? 1) &&
-    formatParameters(left) === formatParameters(right) &&
-    feedbackTypes(left) === feedbackTypes(right)
+    formatParameters(left) === formatParameters(right)
   );
 }
 

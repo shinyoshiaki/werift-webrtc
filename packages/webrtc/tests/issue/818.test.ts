@@ -704,6 +704,62 @@ describeCases("issue 818: subsequent offers list every supported codec", () => {
   );
 
   negotiationCase(
+    "after a session on VP9 profile 2, a re-offer lists profile 0 again, so a peer that now accepts only profile 0 moves to it",
+    {
+      ref: "origin: issue 818 (review: another VP9 profile of a negotiated MIME type)",
+    },
+    async (c) => {
+      // Arrange: 両側の設定は VP9 profile 0 (98) と profile 2 (100) の順。A は profile 2 固定 source の
+      // track で offer し、profile 2 だけでセッションを確定する。
+      const vp9 = (profile: number, payloadType: number) =>
+        useVP9({ payloadType, parameters: `profile-id=${profile}` });
+      const config = () => ({ codecs: { video: [vp9(0, 98), vp9(2, 100)] } });
+      const { a, b } = await c.given(
+        createConnectedVideoPeersWith({
+          offerer: config(),
+          answerer: config(),
+          direction: "sendrecv",
+          outgoing: new MediaStreamTrack({ kind: "video", codec: vp9(2, 100) }),
+        }),
+      );
+      const profileOf = (
+        codecs: readonly (RTCRtpCodecParameters | undefined)[],
+      ) =>
+        codecs.map((codec) => codec?.parameters?.match(/profile-id=(\d)/)?.[1]);
+      const aTransceiver = a.getTransceivers()[0];
+      const bTransceiver = b.getTransceivers()[0];
+      expect(profileOf(aTransceiver.codecs)).toEqual(["2"]);
+      expect(profileOf(bTransceiver.codecs)).toEqual(["2"]);
+
+      // Act: A は固定 source のない track に替える。B は profile 0 固定 source の track を足し
+      // (B は profile 0 だけを受け付ける)、A が再オファーして B が answer する。
+      await aTransceiver.sender.replaceTrack(
+        new MediaStreamTrack({ kind: "video" }),
+      );
+      const bSender = b.addTrack(
+        new MediaStreamTrack({ kind: "video", codec: vp9(0, 98) }),
+      );
+      expect(bSender).toBe(bTransceiver.sender);
+      const offer = await c.offer(a);
+      await c.answer(b);
+
+      // Assert: A の再オファーは交渉で外れた profile 0 (98) と、交渉済みの profile 2 (100) を 1 本ずつ提示する。
+      expect(
+        [...offer.sdp.matchAll(/^a=fmtp:(\d+) profile-id=(\d)/gm)].map(
+          ([, pt, profile]) => [Number(pt), profile],
+        ),
+      ).toEqual([
+        [98, "0"],
+        [100, "2"],
+      ]);
+      // Assert: 確定後は両側とも profile 0 だけになり、B は profile 0 で送る。
+      expect(profileOf(aTransceiver.codecs)).toEqual(["0"]);
+      expect(profileOf(bTransceiver.codecs)).toEqual(["0"]);
+      expect(profileOf([bTransceiver.sender.codec])).toEqual(["0"]);
+    },
+  );
+
+  negotiationCase(
     "glare on a connected session: the polite peer's implicit rollback keeps RTP and DataChannel flowing both ways",
     { ref: "origin: issue 818 (review: glare)" },
     async (c) => {
