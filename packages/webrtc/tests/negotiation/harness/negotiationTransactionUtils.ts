@@ -83,8 +83,13 @@ export async function createConnectedVideoPeers(
     withAudio = false,
   }: { trickleOpen?: boolean; withAudio?: boolean } = {},
 ) {
-  const offerer = new RTCPeerConnection(config);
-  const answerer = new RTCPeerConnection(config);
+  const peerConfig = {
+    iceServers: [],
+    iceUseDefaultStunServer: false,
+    ...config,
+  };
+  const offerer = new RTCPeerConnection(peerConfig);
+  const answerer = new RTCPeerConnection(peerConfig);
   const outgoing = new MediaStreamTrack({ kind: "video" });
   let incoming: MediaStreamTrack | undefined;
   answerer.onRemoteTransceiverAdded.subscribe((transceiver) => {
@@ -1295,8 +1300,13 @@ function assertNoOrphanTransports(pc: RTCPeerConnection) {
 export async function createDuplexSession(
   config: ConstructorParameters<typeof RTCPeerConnection>[0] = {},
 ) {
-  const a = new RTCPeerConnection(config);
-  const b = new RTCPeerConnection(config);
+  const peerConfig = {
+    iceServers: [],
+    iceUseDefaultStunServer: false,
+    ...config,
+  };
+  const a = new RTCPeerConnection(peerConfig);
+  const b = new RTCPeerConnection(peerConfig);
   const aOut = new MediaStreamTrack({ kind: "video" });
   const bOut = new MediaStreamTrack({ kind: "video" });
   const aChannel = a.createDataChannel("matrix");
@@ -2498,8 +2508,14 @@ export async function createHeldTurnRestartPeers(restarts: number) {
   const proxies = await Promise.all(
     [...Array(restarts)].map(() => createHeldUdpProxy(turn.server.address!)),
   );
-  const offerer = new RTCPeerConnection({ iceServers: turn.iceServers });
-  const answerer = new RTCPeerConnection();
+  const offerer = new RTCPeerConnection({
+    iceServers: turn.iceServers,
+    iceUseDefaultStunServer: false,
+  });
+  const answerer = new RTCPeerConnection({
+    iceServers: [],
+    iceUseDefaultStunServer: false,
+  });
   const channel = offerer.createDataChannel("turn");
   const received = answerer.onDataChannel.asPromise().then(([c]) => c);
   await offerer.setLocalDescription(await offerer.createOffer());
@@ -2543,10 +2559,12 @@ export async function createRelayOnlyPeers() {
   proxy.release();
   const a = new RTCPeerConnection({
     iceServers: turn.iceServers,
+    iceUseDefaultStunServer: false,
     iceTransportPolicy: "relay",
   });
   const b = new RTCPeerConnection({
     iceServers: turnIceServers(proxy.address),
+    iceUseDefaultStunServer: false,
     iceTransportPolicy: "relay",
   });
   const candidateErrors: string[] = [];
