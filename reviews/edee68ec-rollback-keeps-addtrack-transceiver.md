@@ -4,7 +4,7 @@ ide:
   version: 1
   title: "#817 rollback で addTrack 済み transceiver を保持する"
   dock: right
-  baseCommit: d2d1e09e842f2f193be17b30a61f407ffd3a5843
+  baseCommit: f54cdd569fbf7da0c673384fffe9027e5a312658
 ---
 # #817 remote rollback で addTrack 済み transceiver が消える問題の修正
 
@@ -12,12 +12,13 @@ ide:
 
 remote offer を rollback すると、アプリが `addTrack()` で使った transceiver が消えることがありました。`sender.replaceTrack(null)` や `removeTrack()` で track を外したあとに起きます。修正後は、同じ object のまま `stopped === false`・`mid === null` で残ります。
 
-原因は、保持するかどうかを「いま `sender.track` があるか」で決めていたことです。track を外すと、`addTrack()` で使ったという事実が消えていました。修正後は、`addTrack()` で使ったことを rollback でも `replaceTrack(null)` でも消えない記録として残し、保持の判定に使います。
+原因は、保持するかどうかを「いま `sender.track` があるか」だけで決めていたことです。`addTrack()` が remote 生成の transceiver を再利用したことは、develop でもすでに `reusedForAddTrack` フィールドに記録されていました。ところが判定はそれを見ていませんでした。修正後の判定は `createdBy === "addTrack" || reusedForAddTrack || !!sender.track` です。どちらのフィールドも transceiver 自身が持ち、rollback では戻りません。
 
-あわせて、関連する 2 つの流れも直しました。
+あわせて、次の流れも直しました。
 
-- remote offer の保留中に `addTrack()` が transceiver を新しく作ると、rollback で `TypeError` になっていました（develop にもある不具合です）。
-- 上の修正の 1 回目で、codec 検証に失敗するたびに DTLS transport が残る回帰が入っていました。レビューの指摘を受けて直しています。
+- remote offer の保留中に `addTrack()` が transceiver を新しく作ると、rollback で `TypeError` になっていました（develop にもある不具合です。図 4）。
+- 上の修正の 1 回目で、codec 検証に失敗するたびに DTLS transport が残る回帰が入っていました。レビューの指摘を受けて直しています（図 5）。
+- **追加要件**：モジュールスコープに置いていた実行時の状態を、すべて持ち主のインスタンスへ移しました（図 6）。対象は、この修正の 1 回目で入れた WeakSet と、同じ形の既存 5 件です。再発防止として、root `AGENTS.md` に指示を足し、検査テストを追加しました。
 
 ## 図 1：#817 の処理の流れ（Before / After）
 
@@ -40,7 +41,7 @@ remote offer を rollback すると、アプリが `addTrack()` で使った tra
   <g fill="none" stroke-width="1.5">
     <rect x="10" y="8" width="340" height="56" rx="7" stroke="var(--review-border)"/>
     <rect x="10" y="86" width="340" height="56" rx="7" stroke="var(--review-border)"/>
-    <rect x="10" y="164" width="340" height="56" rx="7" stroke="var(--review-danger)" stroke-width="2.5"/>
+    <rect x="10" y="164" width="340" height="56" rx="7" stroke="var(--review-border)"/>
     <rect x="10" y="242" width="340" height="56" rx="7" stroke="var(--review-border)"/>
     <polygon points="180,320 350,360 180,400 10,360" stroke="var(--review-danger)" stroke-width="2.5"/>
     <rect x="10" y="430" width="340" height="80" rx="7" stroke="var(--review-danger)" stroke-width="2.5"/>
@@ -50,11 +51,11 @@ remote offer を rollback すると、アプリが `addTrack()` で使った tra
   </g>
   <g font-size="12.5" fill="var(--review-fg)">
     <text x="20" y="30" class="mono">① b.setRemoteDescription(offer)</text>
-    <text x="20" y="50" fill="var(--review-muted)">transceiver T を作成 → remoteCreated に登録</text>
+    <text x="20" y="50" fill="var(--review-muted)">transceiver T を作成（createdBy: "remote"）</text>
     <text x="20" y="108" class="mono">② b.addTrack(track)</text>
-    <text x="20" y="128" fill="var(--review-muted)">T を再利用 / sender.track = track</text>
+    <text x="20" y="128" fill="var(--review-muted)">T を再利用 / T.reusedForAddTrack = true</text>
     <text x="20" y="186" class="mono">③ replaceTrack(null) / removeTrack()</text>
-    <text x="20" y="206" fill="var(--review-danger)">sender.track = null → 使った痕跡が消える</text>
+    <text x="20" y="206" fill="var(--review-muted)">sender.track = null（reusedForAddTrack は残る）</text>
     <text x="20" y="264" class="mono">④ setRemoteDescription(rollback)</text>
     <text x="20" y="284" fill="var(--review-muted)">restoreNegotiationState(): remoteCreated を判定</text>
     <text x="180" y="356" text-anchor="middle" class="mono">heldByApplication</text>
@@ -71,27 +72,28 @@ remote offer を rollback すると、アプリが `addTrack()` で使った tra
   <defs><marker id="f817aa" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--review-muted)"/></marker></defs>
   <g fill="none" stroke-width="1.5">
     <rect x="10" y="8" width="340" height="56" rx="7" stroke="var(--review-border)"/>
-    <rect x="10" y="86" width="340" height="56" rx="7" stroke="var(--review-accent)" stroke-width="2.5"/>
+    <rect x="10" y="86" width="340" height="56" rx="7" stroke="var(--review-border)"/>
     <rect x="10" y="164" width="340" height="56" rx="7" stroke="var(--review-border)"/>
     <rect x="10" y="242" width="340" height="56" rx="7" stroke="var(--review-border)"/>
-    <polygon points="180,320 350,360 180,400 10,360" stroke="var(--review-success)" stroke-width="2.5"/>
+    <polygon points="180,316 350,360 180,404 10,360" stroke="var(--review-accent)" stroke-width="2.5"/>
     <rect x="10" y="430" width="340" height="80" rx="7" stroke="var(--review-success)" stroke-width="2.5"/>
   </g>
   <g stroke="var(--review-muted)" stroke-width="1.5" marker-end="url(#f817aa)">
-    <line x1="180" y1="64" x2="180" y2="84"/><line x1="180" y1="142" x2="180" y2="162"/><line x1="180" y1="220" x2="180" y2="240"/><line x1="180" y1="298" x2="180" y2="318"/><line x1="180" y1="400" x2="180" y2="428"/>
+    <line x1="180" y1="64" x2="180" y2="84"/><line x1="180" y1="142" x2="180" y2="162"/><line x1="180" y1="220" x2="180" y2="240"/><line x1="180" y1="298" x2="180" y2="314"/><line x1="180" y1="404" x2="180" y2="428"/>
   </g>
   <g font-size="12.5" fill="var(--review-fg)">
     <text x="20" y="30" class="mono">① b.setRemoteDescription(offer)</text>
-    <text x="20" y="50" fill="var(--review-muted)">transceiver T を作成 → remoteCreated に登録</text>
+    <text x="20" y="50" fill="var(--review-muted)">transceiver T を作成（createdBy: "remote"）</text>
     <text x="20" y="108" class="mono">② b.addTrack(track)</text>
-    <text x="20" y="128" fill="var(--review-accent)">＋ noteApplicationAddTrack(T)（WeakSet に記録）</text>
+    <text x="20" y="128" fill="var(--review-muted)">T を再利用 / T.reusedForAddTrack = true</text>
     <text x="20" y="186" class="mono">③ replaceTrack(null) / removeTrack()</text>
-    <text x="20" y="206" fill="var(--review-muted)">sender.track = null（記録は消えない）</text>
+    <text x="20" y="206" fill="var(--review-muted)">sender.track = null（reusedForAddTrack は残る）</text>
     <text x="20" y="264" class="mono">④ setRemoteDescription(rollback)</text>
     <text x="20" y="284" fill="var(--review-muted)">restoreNegotiationState(): remoteCreated を判定</text>
-    <text x="180" y="350" text-anchor="middle" class="mono">heldByApplication</text>
-    <text x="180" y="368" text-anchor="middle" class="mono" font-size="11" fill="var(--review-success)">isAttachedByAddTrack(T)</text>
-    <text x="180" y="384" text-anchor="middle" class="mono" font-size="11" fill="var(--review-success)">|| !!sender.track → true</text>
+    <text x="180" y="342" text-anchor="middle" class="mono">heldByApplication</text>
+    <text x="180" y="358" text-anchor="middle" class="mono" font-size="10.5" fill="var(--review-accent)">createdBy === "addTrack"</text>
+    <text x="180" y="372" text-anchor="middle" class="mono" font-size="10.5" fill="var(--review-accent)">|| reusedForAddTrack</text>
+    <text x="180" y="386" text-anchor="middle" class="mono" font-size="10.5" fill="var(--review-success)">|| !!sender.track → true</text>
     <text x="20" y="452" class="mono" fill="var(--review-success)">⑤ 同じ T を保持</text>
     <text x="20" y="472" fill="var(--review-success)">createdNegotiationState に戻し mid = null</text>
     <text x="20" y="492" fill="var(--review-success)">stopped = false、sender はそのまま使える ✓</text>
@@ -99,14 +101,15 @@ remote offer を rollback すると、アプリが `addTrack()` で使った tra
 </svg>
 </div>
 </div>
-<div class="f817-legend"><span style="--c:var(--review-danger)">問題が起きる箇所</span><span style="--c:var(--review-accent)">追加した処理</span><span style="--c:var(--review-success)">修正で変わった結果</span><span style="--c:var(--review-border)">変わらない処理</span></div>
+<div class="f817-legend"><span style="--c:var(--review-danger)">問題が起きる箇所</span><span style="--c:var(--review-accent)">変更した判定</span><span style="--c:var(--review-success)">修正で変わった結果</span><span style="--c:var(--review-border)">変わらない処理</span></div>
 
-①、③、④ は Before と After で同じです。違いは 2 つだけです。② で記録を残すようになったこと、そして ④ の判定がその記録を見るようになったことです。
+①〜④ は Before と After で同じです。② で `reusedForAddTrack` が立つことも develop と変わりません。違いは ④ の判定だけです。After は、この既存の記録と `createdBy` も見るようになりました。
 
-- 記録： [packages/webrtc/src/negotiation/internalState.ts:56](review-diff:packages/webrtc/src/negotiation/internalState.ts:56)（WeakSet と `noteApplicationAddTrack` / `isAttachedByAddTrack`）
-- 判定： [packages/webrtc/src/media/rtpTransceiver.ts:263](review-diff:packages/webrtc/src/media/rtpTransceiver.ts:263)（`heldByApplication`）
-- 判定を使う rollback 側（変更なし）： [packages/webrtc/src/transceiverManager.ts:206](review-file:packages/webrtc/src/transceiverManager.ts:206)
-- 記録する 3 箇所： [packages/webrtc/src/transceiverManager.ts:561](review-diff:packages/webrtc/src/transceiverManager.ts:561)（空 sender の再利用）、[packages/webrtc/src/transceiverManager.ts:596](review-diff:packages/webrtc/src/transceiverManager.ts:596)（非送信 transceiver の再利用）、[packages/webrtc/src/transceiverManager.ts:605](review-diff:packages/webrtc/src/transceiverManager.ts:605)（新規作成）
+- 判定： [packages/webrtc/src/media/rtpTransceiver.ts:293](review-diff:packages/webrtc/src/media/rtpTransceiver.ts:293)（`heldByApplication`）
+- 判定に使う既存の記録： [packages/webrtc/src/media/rtpTransceiver.ts:55](review-file:packages/webrtc/src/media/rtpTransceiver.ts:55)（`reusedForAddTrack`）、[packages/webrtc/src/transceiverManager.ts:640](review-file:packages/webrtc/src/transceiverManager.ts:640)（`noteReusedForAddTrack`。remote 生成のものだけに立てる）
+- 判定を使う rollback 側（変更なし）： [packages/webrtc/src/transceiverManager.ts:214](review-file:packages/webrtc/src/transceiverManager.ts:214)、[packages/webrtc/src/negotiationTransaction.ts:426](review-file:packages/webrtc/src/negotiationTransaction.ts:426)
+
+rollback で除去されうるのは、remote offer が作った transceiver だけです。そうした transceiver に `addTrack()` を使うと、空の sender を再利用する分岐か、送信しない transceiver を再利用する分岐を必ず通ります。どちらの分岐でも `reusedForAddTrack` が立つので、#817 を判定するにはこのフラグで足ります。`createdBy === "addTrack"` は、`addTrack()` が新しく作った transceiver にも、このプロパティの意味を合わせるために加えています。
 
 ## 図 2：ステップごとの状態（Before / After を同時に表示）
 
@@ -136,13 +139,13 @@ remote offer を rollback すると、アプリが `addTrack()` で使った tra
 <script>
 (() => {
   const root = document.querySelector(".s817");
-  const rows = ["sender.track", "addTrack の記録（WeakSet）", "heldByApplication", "T の状態"];
+  const rows = ["sender.track", "T.reusedForAddTrack", "heldByApplication", "T の状態"];
   const steps = [
-    { op: "① b.setRemoteDescription(offer)", b: ["null", "—", "false", "remoteCreated, mid=0"], a: ["null", "なし", "false", "remoteCreated, mid=0"], note: "remote offer で T が作られます。この時点では両者とも同じです。" },
-    { op: "② b.addTrack(track)", b: ["track", "—", "true", "remoteCreated, mid=0"], a: ["track", "あり", "true", "remoteCreated, mid=0"], note: "After だけ noteApplicationAddTrack(T) が記録を残します。判定結果はまだ同じです。" },
-    { op: "③ sender.replaceTrack(null) / removeTrack(sender)", b: ["null", "—", "false", "remoteCreated, mid=0"], a: ["null", "あり", "true", "remoteCreated, mid=0"], note: "ここで両者が分かれます。Before は track がなくなると、使ったことが分からなくなります。" },
-    { op: "④ b.setRemoteDescription({type:'rollback'})", b: ["null", "—", "false", "除去・stopped=true"], a: ["null", "あり", "true", "保持・mid=null・stopped=false"], note: "restoreNegotiationState() が heldByApplication を見て、除去するか保持するかを決めます。" },
-    { op: "⑤ a.createOffer → b.answer（再交渉）", b: ["—", "—", "—", "T は使えない"], a: ["null", "あり", "true", "T が新しい m-line で交渉される"], note: "#817 の scene は、rollback のあとに再交渉まで進めて結果を確認します。" },
+    { op: "① b.setRemoteDescription(offer)", b: ["null", "false", "false", "remoteCreated, mid=0"], a: ["null", "false", "false", "remoteCreated, mid=0"], note: "remote offer で T が作られます。この時点では両者とも同じです。" },
+    { op: "② b.addTrack(track)", b: ["track", "true", "true", "remoteCreated, mid=0"], a: ["track", "true", "true", "remoteCreated, mid=0"], note: "どちらも noteReusedForAddTrack(T) が reusedForAddTrack を立てます。ここも同じです。" },
+    { op: "③ sender.replaceTrack(null) / removeTrack(sender)", b: ["null", "true", "false", "remoteCreated, mid=0"], a: ["null", "true", "true", "remoteCreated, mid=0"], note: "ここで両者が分かれます。記録は両方に残っていますが、Before の判定は sender.track しか見ません。" },
+    { op: "④ b.setRemoteDescription({type:'rollback'})", b: ["null", "true", "false", "除去・stopped=true"], a: ["null", "true", "true", "保持・mid=null・stopped=false"], note: "restoreNegotiationState() が heldByApplication を見て、除去するか保持するかを決めます。" },
+    { op: "⑤ a.createOffer → b.answer（再交渉）", b: ["—", "—", "—", "T は使えない"], a: ["null", "true", "true", "T が新しい m-line で交渉される"], note: "#817 の scene は、rollback のあとに再交渉まで進めて結果を確認します。" },
   ];
   let i = 0;
   const tbody = root.querySelector("tbody");
@@ -171,7 +174,7 @@ remote offer を rollback すると、アプリが `addTrack()` で使った tra
 })();
 </script>
 
-③ で状態が分かれ、④ で結果が変わります。この再現手順は [packages/webrtc/tests/pbt/model/scenes.ts:344](review-diff:packages/webrtc/tests/pbt/model/scenes.ts:344) の 2 つの scene（`replaceTrack` と `removeTrack`）です。どちらも修正前のコードでは失敗します。そこで使う `takeTrack` / `detachTrack` のステップは [packages/webrtc/tests/pbt/model/generator.ts:149](review-diff:packages/webrtc/tests/pbt/model/generator.ts:149) で追加しました。
+③ で判定が分かれ、④ で結果が変わります。この再現手順は [packages/webrtc/tests/pbt/model/scenes.ts:346](review-diff:packages/webrtc/tests/pbt/model/scenes.ts:346) の 2 つの scene（`replaceTrack` と `removeTrack`）です。どちらも修正前のコードでは失敗します。そこで使う `takeTrack` / `detachTrack` のステップは [packages/webrtc/tests/pbt/model/generator.ts:158](review-diff:packages/webrtc/tests/pbt/model/generator.ts:158) で追加しました。
 
 ## 図 3：rollback で保持されるか（操作ごとの比較）
 
@@ -189,15 +192,15 @@ remote offer を rollback すると、アプリが `addTrack()` で使った tra
   <thead><tr><th>remote offer の後にアプリが T にした操作</th><th>Before</th><th>After</th><th>補足</th></tr></thead>
   <tbody>
     <tr><td><code>addTrack()</code>（track を持ったまま）</td><td class="k">保持</td><td class="k">保持</td><td>どちらも <code>!!sender.track</code> で保持されます</td></tr>
-    <tr><td><code>addTrack()</code> → <code>replaceTrack(null)</code></td><td class="was">除去 ✗</td><td class="k chg">保持 ✓</td><td>#817</td></tr>
-    <tr><td><code>addTrack()</code> → <code>removeTrack()</code></td><td class="was">除去 ✗</td><td class="k chg">保持 ✓</td><td>#817</td></tr>
+    <tr><td><code>addTrack()</code> → <code>replaceTrack(null)</code></td><td class="was">除去 ✗</td><td class="k chg">保持 ✓</td><td>#817。<code>reusedForAddTrack</code> で保持</td></tr>
+    <tr><td><code>addTrack()</code> → <code>removeTrack()</code></td><td class="was">除去 ✗</td><td class="k chg">保持 ✓</td><td>#817。<code>reusedForAddTrack</code> で保持</td></tr>
     <tr><td><code>replaceTrack(track)</code> だけ</td><td class="k">保持</td><td class="k">保持</td><td>werift 独自の挙動を残しています（WPT <code>?interop-2026</code> は除去を期待）</td></tr>
     <tr><td><code>stop()</code> / direction / <code>setCodecPreferences()</code> だけ</td><td class="r">除去</td><td class="r">除去</td><td>develop と同じ（scene で確認）</td></tr>
     <tr><td>何もしない</td><td class="r">除去</td><td class="r">除去</td><td>W3C の rollback 手順どおり</td></tr>
   </tbody>
 </table>
 
-変わるのは、`addTrack()` の後に track を外した 2 行だけです。`heldByApplication` を `isAttachedByAddTrack(T) || !!sender.track` の OR にしたので、`!!sender.track` だけで保持されていた行の結果は変わりません。
+変わるのは、`addTrack()` の後に track を外した 2 行だけです。判定は `!!sender.track` を含む OR のままなので、`!!sender.track` だけで保持されていた行の結果は変わりません。`replaceTrack(track)` は `reusedForAddTrack` を立てないので、外した後は従来どおり除去されます。
 
 ## 図 4：関連修正 — 保留中の addTrack で新規作成した transceiver の rollback（TypeError）
 
@@ -272,10 +275,10 @@ remote offer を rollback すると、アプリが `addTrack()` で使った tra
 
 変わったのは ② だけです。transport を作成後に付けるのをやめ、作成時に渡します。そのため、rollback が戻す先の「作成時状態」にも transport が入ります。破線の ③ は、再利用の分岐のために残っています。
 
-- `pc.addTrack` から transport を作る関数を渡す： [packages/webrtc/src/peerConnection.ts:1931](review-diff:packages/webrtc/src/peerConnection.ts:1931)
-- 新規作成の分岐で、作成時に渡す： [packages/webrtc/src/transceiverManager.ts:601](review-diff:packages/webrtc/src/transceiverManager.ts:601)
-- 例外が出ていた箇所（変更なし）： [packages/webrtc/src/media/rtpTransceiver.ts:249](review-file:packages/webrtc/src/media/rtpTransceiver.ts:249) → [packages/webrtc/src/media/rtpSender.ts:341](review-file:packages/webrtc/src/media/rtpSender.ts:341)
-- 再現する scene： [packages/webrtc/tests/pbt/model/scenes.ts:333](review-diff:packages/webrtc/tests/pbt/model/scenes.ts:333)（model property の seed 25 で見つけたもの）
+- `pc.addTrack` から transport を作る関数を渡す： [packages/webrtc/src/peerConnection.ts:1976](review-diff:packages/webrtc/src/peerConnection.ts:1976)
+- 新規作成の分岐で、作成時に渡す： [packages/webrtc/src/transceiverManager.ts:627](review-diff:packages/webrtc/src/transceiverManager.ts:627)
+- 例外が出ていた箇所（変更なし）： [packages/webrtc/src/media/rtpTransceiver.ts:276](review-file:packages/webrtc/src/media/rtpTransceiver.ts:276) → [packages/webrtc/src/media/rtpSender.ts:341](review-file:packages/webrtc/src/media/rtpSender.ts:341)
+- 再現する scene： [packages/webrtc/tests/pbt/model/scenes.ts:334](review-diff:packages/webrtc/tests/pbt/model/scenes.ts:334)（model property の seed 25 で見つけたもの）
 
 ## 図 5：レビュー指摘（P2）の修正 — codec 検証と transport 作成の順序
 
@@ -341,37 +344,153 @@ remote offer を rollback すると、アプリが `addTrack()` で使った tra
 
 失敗しうる codec 検証を、副作用のある `createTransport()` より前に移しました。検証の中身は `addTransceiver` 内の処理を `assertTrackCodecsSupported` に切り出したものです。両方が同じ関数を呼ぶので、検証内容は変わっていません。
 
-- 切り出した検証： [packages/webrtc/src/transceiverManager.ts:439](review-diff:packages/webrtc/src/transceiverManager.ts:439)
-- `addTransceiver` からの呼び出し： [packages/webrtc/src/transceiverManager.ts:469](review-diff:packages/webrtc/src/transceiverManager.ts:469)
-- `addTrack` の新規作成分岐で先に検証する箇所： [packages/webrtc/src/transceiverManager.ts:600](review-diff:packages/webrtc/src/transceiverManager.ts:600)
+- 切り出した検証： [packages/webrtc/src/transceiverManager.ts:454](review-diff:packages/webrtc/src/transceiverManager.ts:454)
+- `addTransceiver` からの呼び出し： [packages/webrtc/src/transceiverManager.ts:490](review-diff:packages/webrtc/src/transceiverManager.ts:490)
+- `addTrack` の新規作成分岐で先に検証する箇所： [packages/webrtc/src/transceiverManager.ts:622](review-diff:packages/webrtc/src/transceiverManager.ts:622)
 - transport が登録される箇所（変更なし）： [packages/webrtc/src/secureTransportManager.ts:278](review-file:packages/webrtc/src/secureTransportManager.ts:278)
-- 回帰テスト： [packages/webrtc/tests/media/codecResolution.test.ts:96](review-diff:packages/webrtc/tests/media/codecResolution.test.ts:96)（3 回失敗させ、`ownedTransports` の数と transceiver 0 件を確認）
+- 回帰テスト： [packages/webrtc/tests/media/codecResolution.test.ts:97](review-diff:packages/webrtc/tests/media/codecResolution.test.ts:97)（3 回失敗させ、`ownedTransports` の数と transceiver 0 件を確認）
+
+## 図 6：追加要件 — モジュールスコープの状態を持ち主のインスタンスへ移す
+
+コードメモ（`internalState.ts` 行 56「グローバルスコープの変数を状態管理に使うのは避けたい」）を受けた変更です。状態を、その寿命の持ち主の object のフィールドに移しました。外から触るものは `private` か `@internal` にしています（typedoc は `--excludePrivate --excludeInternal`、`.d.ts` は `stripInternal`）。
+
+<style>
+  .g817 { display:flex; gap:14px; flex-wrap:wrap; font-family:var(--review-font); }
+  .g817 .pane { flex:1; min-width:320px; border:1px solid var(--review-border); border-radius:8px; padding:8px 10px; background:var(--review-surface); }
+  .g817 h4 { margin:2px 0 6px; font-size:14px; }
+  .g817 svg text { font-family:var(--review-font); } .g817 svg .mono { font-family:var(--review-mono); }
+</style>
+
+<div class="g817">
+<div class="pane">
+<h4 style="color:var(--review-danger)">Before：モジュールが状態を持つ</h4>
+<svg viewBox="0 0 360 300" width="100%" role="img" aria-label="Before: モジュールスコープの WeakMap が全 PeerConnection の transceiver の状態を持つ">
+  <defs><marker id="g817ab" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--review-danger)"/></marker></defs>
+  <g fill="none" stroke-width="1.5">
+    <rect x="10" y="10" width="340" height="100" rx="7" stroke="var(--review-danger)" stroke-width="2.5"/>
+    <rect x="10" y="170" width="160" height="120" rx="7" stroke="var(--review-border)"/>
+    <rect x="190" y="170" width="160" height="120" rx="7" stroke="var(--review-border)"/>
+    <rect x="22" y="215" width="136" height="30" rx="5" stroke="var(--review-border)"/>
+    <rect x="202" y="215" width="136" height="30" rx="5" stroke="var(--review-border)"/>
+  </g>
+  <g stroke="var(--review-danger)" stroke-width="1.5" marker-end="url(#g817ab)" stroke-dasharray="4 3">
+    <line x1="90" y1="213" x2="120" y2="112"/><line x1="270" y1="213" x2="240" y2="112"/>
+  </g>
+  <g font-size="12" fill="var(--review-fg)">
+    <text x="20" y="30" class="mono" fill="var(--review-danger)">module internalState.ts（プロセスに 1 つ）</text>
+    <text x="20" y="52" class="mono">const applicationStops = new WeakMap()</text>
+    <text x="20" y="70" class="mono">const attachedByAddTrack = new WeakSet()</text>
+    <text x="20" y="96" fill="var(--review-danger)">全 PeerConnection の T がここに書き込む</text>
+    <text x="20" y="190" class="mono">RTCPeerConnection A</text>
+    <text x="200" y="190" class="mono">RTCPeerConnection B</text>
+    <text x="32" y="235" class="mono">T1（状態なし）</text>
+    <text x="212" y="235" class="mono">T2（状態なし）</text>
+    <text x="20" y="275" fill="var(--review-muted)">noteApplicationStop(T1)</text>
+    <text x="200" y="275" fill="var(--review-muted)">noteApplicationAddTrack(T2)</text>
+  </g>
+</svg>
+</div>
+<div class="pane">
+<h4 style="color:var(--review-success)">After：各インスタンスが自分の状態を持つ</h4>
+<svg viewBox="0 0 360 300" width="100%" role="img" aria-label="After: transceiver が自分のフィールドに状態を持つ">
+  <g fill="none" stroke-width="1.5">
+    <rect x="10" y="10" width="340" height="100" rx="7" stroke="var(--review-border)" stroke-dasharray="5 4"/>
+    <rect x="10" y="170" width="160" height="120" rx="7" stroke="var(--review-border)"/>
+    <rect x="190" y="170" width="160" height="120" rx="7" stroke="var(--review-border)"/>
+    <rect x="22" y="200" width="136" height="80" rx="5" stroke="var(--review-success)" stroke-width="2.5"/>
+    <rect x="202" y="200" width="136" height="80" rx="5" stroke="var(--review-success)" stroke-width="2.5"/>
+  </g>
+  <g font-size="12" fill="var(--review-fg)">
+    <text x="20" y="30" class="mono" fill="var(--review-muted)">module internalState.ts</text>
+    <text x="20" y="52" fill="var(--review-muted)">型と ridRouteKey だけ（状態なし）</text>
+    <text x="20" y="190" class="mono">RTCPeerConnection A</text>
+    <text x="200" y="190" class="mono">RTCPeerConnection B</text>
+    <text x="32" y="220" class="mono">T1</text>
+    <text x="32" y="240" class="mono" font-size="10.5" fill="var(--review-success)">_applicationStopRevision</text>
+    <text x="32" y="256" class="mono" font-size="10.5" fill="var(--review-success)">reusedForAddTrack</text>
+    <text x="32" y="272" class="mono" font-size="10.5" fill="var(--review-success)">createdBy</text>
+    <text x="212" y="220" class="mono">T2</text>
+    <text x="212" y="240" class="mono" font-size="10.5" fill="var(--review-success)">_applicationStopRevision</text>
+    <text x="212" y="256" class="mono" font-size="10.5" fill="var(--review-success)">reusedForAddTrack</text>
+    <text x="212" y="272" class="mono" font-size="10.5" fill="var(--review-success)">createdBy</text>
+  </g>
+</svg>
+</div>
+</div>
+<div class="f817-legend"><span style="--c:var(--review-danger)">モジュールスコープの状態</span><span style="--c:var(--review-success)">インスタンスのフィールド</span><span style="--c:var(--review-border)">変わらない部分</span></div>
+
+図は A1 / A2（transceiver）の例です。B3〜B6 も同じ形で、状態を track・transport・`MediaDevices`・register の各インスタンスへ移しています。どれも振る舞いは変えていません（生成 docs の差分は `heldByApplication` の TSDoc だけです）。
+
+<style>
+  .r817 { border-collapse:collapse; width:100%; font:13px var(--review-font); }
+  .r817 th, .r817 td { border:1px solid var(--review-border); padding:5px 8px; vertical-align:top; }
+  .r817 th { background:var(--review-surface); text-align:left; }
+  .r817 td.was { color:var(--review-danger); } .r817 td.now { color:var(--review-success); }
+  .r817 code { font-family:var(--review-mono); }
+</style>
+
+<table class="r817">
+  <thead><tr><th>#</th><th>修正前（モジュールスコープ）</th><th>修正後（持ち主）</th></tr></thead>
+  <tbody>
+    <tr><td>A1</td><td class="was"><code>internalState.ts</code> <code>attachedByAddTrack</code>（WeakSet）</td><td class="now">削除。既存の <code>reusedForAddTrack</code> / <code>createdBy</code> で判定（図 1）</td></tr>
+    <tr><td>A2</td><td class="was"><code>internalState.ts</code> <code>applicationStops</code>（WeakMap）</td><td class="now"><code>RTCRtpTransceiver</code> の <code>private _applicationStopRevision</code> と <code>@internal</code> getter</td></tr>
+    <tr><td>B3</td><td class="was"><code>track.ts</code> <code>sourceCodecsByTrack</code> / <code>sourceCodecsCapturedByTrack</code></td><td class="now"><code>MediaStreamTrack</code> の <code>@internal</code> <code>sourceCodecs</code> / <code>sourceCodecsCaptured</code>。公開関数の signature は不変</td></tr>
+    <tr><td>B4</td><td class="was"><code>receiverTwcc.ts</code> <code>receiverTwccByTransport</code>（WeakMap）</td><td class="now"><code>RTCDtlsTransport</code> の <code>@internal sharedReceiverTWCC</code></td></tr>
+    <tr><td>B5</td><td class="was"><code>sourceIo.ts</code> <code>let udpSocketFactory</code> / <code>setUdpSocketFactory()</code></td><td class="now"><code>udp</code> source の <code>@internal createSocket</code> option。テストは register に渡す</td></tr>
+    <tr><td>B6</td><td class="was"><code>dummyMedia.ts</code> <code>let nextDummySourceId</code></td><td class="now"><code>sourceId</code> 引数。<code>MediaDevices</code>、<code>createDummyRegister</code>、WPT の <code>AudioContext</code> shim がそれぞれ数える</td></tr>
+  </tbody>
+</table>
+
+- A1 / A2： [packages/webrtc/src/negotiation/internalState.ts:39](review-diff:packages/webrtc/src/negotiation/internalState.ts:39)（状態の削除）、[packages/webrtc/src/media/rtpTransceiver.ts:83](review-diff:packages/webrtc/src/media/rtpTransceiver.ts:83)（`_applicationStopRevision`）、[packages/webrtc/src/negotiationTransaction.ts:407](review-diff:packages/webrtc/src/negotiationTransaction.ts:407)（getter を使う側）
+- B3： [packages/webrtc/src/media/track.ts:34](review-diff:packages/webrtc/src/media/track.ts:34)（公開関数）、[packages/webrtc/src/media/track.ts:146](review-diff:packages/webrtc/src/media/track.ts:146)（フィールド）
+- B4： [packages/webrtc/src/media/receiver/receiverTwcc.ts:54](review-diff:packages/webrtc/src/media/receiver/receiverTwcc.ts:54)、[packages/webrtc/src/transport/dtls.ts:181](review-diff:packages/webrtc/src/transport/dtls.ts:181)
+- B5： [packages/webrtc/src/polyfill/sourceIo.ts:19](review-diff:packages/webrtc/src/polyfill/sourceIo.ts:19)（option）、[packages/webrtc/src/polyfill/sourceIo.ts:73](review-diff:packages/webrtc/src/polyfill/sourceIo.ts:73)（使う側）、[packages/webrtc/tests/nonstandard/polyfillTestUtils.ts:120](review-diff:packages/webrtc/tests/nonstandard/polyfillTestUtils.ts:120)、[packages/webrtc/tests/nonstandard/polyfill.test.ts:1562](review-diff:packages/webrtc/tests/nonstandard/polyfill.test.ts:1562)
+- B6： [packages/webrtc/src/nonstandard/dummyMedia.ts:55](review-diff:packages/webrtc/src/nonstandard/dummyMedia.ts:55)、[packages/webrtc/src/nonstandard/navigator.ts:26](review-diff:packages/webrtc/src/nonstandard/navigator.ts:26)、[packages/webrtc/src/polyfill/registers/callback.ts:58](review-diff:packages/webrtc/src/polyfill/registers/callback.ts:58)、[packages/webrtc/tools/wpt-runner/runner.ts:665](review-diff:packages/webrtc/tools/wpt-runner/runner.ts:665)
+
+**残したもの**（プロセス全体で共有するのが仕様のもの）：
+
+- `streamHubs`：アプリの stream は 1 か所からしか読めないので、同じ stream を開く全員で 1 つの hub を共有する必要があります。宣言に理由を書きました。 [packages/webrtc/src/polyfill/sourceIo.ts:157](review-diff:packages/webrtc/src/polyfill/sourceIo.ts:157)
+- `RTCDtlsTransport.localCertificate`（既定の `certificateScope: "process"`）、公開の `navigator`、dtls の公開 static 設定値：どれも公開 API なので、変えるなら別チケットで扱います。
+
+**再発防止**：
+
+- root `AGENTS.md` の Don't に指示を加えました。中身は次の 3 点です。モジュールスコープ（最上位の `let`、モジュールレベルの `Map` / `Set` / `WeakMap` / `WeakSet`・カウンタ・キャッシュ、書き換え可能な `static`）に実行時の状態を置かない。テスト用の差し替え口は option で渡す。仕様で共有するものは、宣言に理由を書く。 [AGENTS.md:32](review-diff:AGENTS.md:32)
+- 検査テスト [packages/webrtc/tests/moduleState.test.ts:13](review-diff:packages/webrtc/tests/moduleState.test.ts:13) は、`packages/webrtc/src` を走査して次の 3 つを検出します。許可リストにない宣言。もう存在しないのに許可リストに残った項目。検出パターン自体の誤り（パターン単体のテスト）。
 
 ## 判断理由
 
-- `addTrack()` の記録は、公開クラスのフィールドにせず、`internalState.ts` の WeakSet に置きました。既存の `noteApplicationStop` と同じ置き場所です。rollback の snapshot / restore の対象外なので、rollback をまたいでも残ります。公開 API と生成 docs は変わりません。
+- `addTrack()` の記録には、develop から使われている `reusedForAddTrack` を使いました。新しいフラグを足すと、同じ事実を 2 か所で持つことになります。最初はモジュールスコープの WeakSet を足していましたが、追加要件を受けて削除しました。
 - remote 起源かどうかの判定には、既存の `NegotiationTransaction.resources.remoteCreated` をそのまま使っています。
 - `replaceTrack(track)` だけで保持する werift 独自の挙動は、互換のため残しました。チケットの範囲外です（図 3 の 4 行目）。
+- B3 の `setTrackSourceCodecs` などは公開関数（`doc/functions/` にあります）なので、signature を変えずに中身だけ track のフィールドへ移しました。B5 の `setUdpSocketFactory` は公開されていなかったので削除しました。
 
 ## リスク・確認してほしい点
 
 - `heldByApplication` を OR にしたので、`replaceTrack(track)` だけのケースは仕様より保持寄りのままです。
+- `reusedForAddTrack` が立つのは remote 生成の transceiver だけです。`addTransceiver()` で作った transceiver を `addTrack()` が再利用し、track を外した場合、`heldByApplication` は false になります。ただ、rollback が除去を判定するのは remote 生成のものだけなので、結果は変わりません。
+- B4 では、共有 TWCC を transport が強参照で持つようになりました。参照数が 0 になると `undefined` に戻すので、解放のタイミングは修正前と同じです。
 - 図 4 の transport の修正は、チケット本文の「実装する変更」には含まれていません。ただし #817 のテスト追加で見つかった develop の不具合で、同じ rollback の経路にあります。
 - 保持された transceiver の `receiver.transport` が null にならない点は、チケットで範囲外としています。
 
 ## 検証結果
 
-この回の作業ではこの文書を書き直しただけで、テストやビルドは実行していません。以下は、これまでの作業で報告済みの結果です。
+追加要件（図 6）の修正後の結果です（revision `3e06baf61` に A1〜B6 の変更を加えた状態。現在は `f54cdd569` に自動コミット済み）。
 
-| 検証 | 結果 | 時点 |
-| --- | --- | --- |
-| `tsc --noEmit`（packages/webrtc） | エラーなし | P2 修正後 |
-| `packages/webrtc` の `npm test` | 82 ファイル、1762 件成功、5 件スキップ | P2 修正後 |
-| `npm run wpt` | 回帰なし | P2 修正前 |
-| `npm run pbt:deep` | fuzz・model・leak は成功。scenario の seed 161 が 1 回失敗（develop でも 6 回中 1 回失敗する既存の flaky） | P2 修正前 |
-| negotiation-diff と develop の比較（80 seeds × 12 steps） | 回帰 0、差分 0 | P2 修正前 |
+| 検証 | 結果 |
+| --- | --- |
+| `npm run type`（workspace） | エラーなし |
+| `packages/webrtc` の `npm test` | 89 ファイル、1838 件成功、5 件スキップ |
+| `npm run pbt:deep -- --suite model,leak` | model は失敗 0。leak は seed 10・295 が失敗。単独で再実行すると通る |
+| 上の leak 失敗と develop の比較 | seed 10 を含む shard（seed 8〜14）を develop で 3 回実行し、2 回が同じ ICE `checkList` / `remoteCandidates` の増加で失敗。既存の問題（ICE ticket `74132240`） |
+| `npm run wpt` | 回帰 0 |
+| negotiation-diff `scenarios.ts --check 1` | 一致 |
+| `npm run doc` | 差分は `doc/classes/RTCRtpTransceiver.md` の `heldByApplication` の TSDoc だけ |
+| `npm run format` | 実行済み（関係のない `packages/rtp/tests/codec/vp8.test.ts` の書き換えは戻した） |
+| `moduleState.test.ts` を A1〜B6 の修正前（`3e06baf61`）に当てる | 失敗し、7 件の宣言（A1〜B6）をすべて検出 |
 
 未確認のこと：
 
-- 回帰テスト（図 5）が、修正前のコードで実際に失敗するかは確かめていません。
-- P2 修正後に `npm run wpt`、`pbt:deep`、negotiation-diff は再実行していません。
+- `pbt:deep` の fuzz と scenario は、追加要件の修正後には実行していません。
+- negotiation-diff の develop 比較（80 seeds × 12 steps）は追加要件の前に行ったもので、修正後は `--check` だけです。
+- leak seed 295 を含む shard は、develop で比較していません。
+- P2 の回帰テスト（図 5）が修正前のコードで失敗するかは確かめていません。
