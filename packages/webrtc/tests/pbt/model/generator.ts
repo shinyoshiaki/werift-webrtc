@@ -212,6 +212,26 @@ export const STEPS: Record<string, Step> = {
       w.oracles.application(t);
     },
   },
+  // removeTrack(): sendrecv becomes recvonly and sendonly becomes inactive;
+  // the next offer keeps the negotiated codecs (issue 818).
+  removeTrack: {
+    weight: 1,
+    applies: ({ pc, other }) =>
+      applicationTurn(pc, other) &&
+      targets(pc).some((t) => !!t.sender.track && !t.stopping),
+    draw: (rng, { pc }) => ({
+      index: pickIndex(
+        rng,
+        pc,
+        targets(pc).filter((t) => !!t.sender.track && !t.stopping),
+      ),
+    }),
+    run: async ({ pc }, _w, { index }) => {
+      const t = byIndex(pc, index);
+      if (!t || t.stopping || !t.sender.track) return;
+      pc.removeTrack(t.sender);
+    },
+  },
   direction: {
     weight: 1,
     applies: ({ pc, other }) =>

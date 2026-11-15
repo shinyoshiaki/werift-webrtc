@@ -686,5 +686,6 @@
 - [useVP9](functions/useVP9.md)
 - [validateAddress](functions/validateAddress.md)
 - [validateRemoteCandidate](functions/validateRemoteCandidate.md)
+- [withNegotiatedCodecs](functions/withNegotiatedCodecs.md)
 - [wrapRtx](functions/wrapRtx.md)
 - [writeH265PayloadHeader](functions/writeH265PayloadHeader.md)

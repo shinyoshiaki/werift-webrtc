@@ -1,5 +1,6 @@
 import {
   MediaStreamTrack,
+  type RTCPeerConnection,
   RTCRtpCodecParameters,
   type RTCRtpTransceiver,
   useH264,
@@ -13,6 +14,7 @@ import {
 import {
   createConnectedVideoPeersWith,
   createDuplexSession,
+  createUnnegotiatedPeers,
   expectSessionAlive,
   expectSessionContinues,
   offeredVideoCodecs,
@@ -361,6 +363,61 @@ describeCases("issue 818: subsequent offers list every supported codec", () => {
   );
 
   negotiationCase(
+    "an added m-line does not reuse the payload type of an H264 format with another packetization-mode",
+    { ref: "origin: issue 818 (review: H264 format collision)" },
+    async (c) => {
+      // Arrange: A は H264 mode 1 (PT 98) だけを offer し、B (mode 0 = 98, mode 1 = 100) が mode 1 = PT 98 で確定する。
+      const mode0 = (payloadType: number) =>
+        useH264({
+          payloadType,
+          parameters:
+            "profile-level-id=42e01f;packetization-mode=0;level-asymmetry-allowed=1",
+        });
+      const { b } = await c.given(
+        createConnectedVideoPeersWith({
+          offerer: { codecs: { video: [useH264({ payloadType: 98 })] } },
+          answerer: {
+            codecs: { video: [mode0(98), useH264({ payloadType: 100 })] },
+          },
+        }),
+      );
+      expect(
+        b.currentLocalDescription!.sdp.match(/^a=fmtp:98 (.*)$/m)![1],
+      ).toContain("packetization-mode=1");
+
+      // Act: B が映像 transceiver を追加して offer を作る。
+      b.addTransceiver("video", { direction: "sendrecv" });
+      const offer = await b.createOffer();
+
+      // Assert: BUNDLE 内の各 PT は 1 つの H264 形式 (packetization-mode) だけを指す。
+      const videoSections = offer.sdp
+        .split(/^m=/m)
+        .slice(1)
+        .filter((section) => section.startsWith("video"));
+      expect(videoSections).toHaveLength(2);
+      const formats = videoSections.map((section) =>
+        Object.fromEntries(
+          [...section.matchAll(/^a=fmtp:(\d+) (.*)$/gm)]
+            .filter(([, pt]) =>
+              new RegExp(`^a=rtpmap:${pt} H264/`, "m").test(section),
+            )
+            .map(([, pt, fmtp]) => [
+              Number(pt),
+              fmtp.match(/packetization-mode=(\d)/)![1],
+            ]),
+        ),
+      );
+      for (const [pt, mode] of Object.entries(formats[1])) {
+        expect(formats[0][pt] ?? mode).toEqual(mode);
+      }
+      // Assert: 既存 m-line の mode 1 は 98 のまま、追加 m-line の mode 0 は 98 以外。
+      expect(formats[0][98]).toEqual("1");
+      expect(formats[1][98]).not.toEqual("0");
+      expect(Object.values(formats[1])).toContain("0");
+    },
+  );
+
+  negotiationCase(
     "glare on a connected session: the polite peer's implicit rollback keeps RTP and DataChannel flowing both ways",
     { ref: "origin: issue 818 (review: glare)" },
     async (c) => {
@@ -432,6 +489,179 @@ describeCases("issue 818: subsequent offers list every supported codec", () => {
       // Assert: 初回と同じく RED を fmtp なしのまま提示する。
       expect(offeredVideoCodecs(offer.sdp)).toEqual(first);
       expect(offer.sdp).not.toMatch(/a=fmtp:116 /);
+      await expectSessionContinues(a, b);
+    },
+  );
+
+  // A direction change once resolved the offer from the capability of the new
+  // direction alone: empty for `inactive` (also what `removeTrack()` makes of
+  // `sendonly`) and for the opposite direction of a direction-tagged codec,
+  // so createOffer threw NotSupportedError. Negotiated codecs now stay.
+  const directionChanges: {
+    name: string;
+    codecs: () => RTCRtpCodecParameters[];
+    negotiated: "sendrecv" | "sendonly";
+    change: (pc: RTCPeerConnection, transceiver: RTCRtpTransceiver) => void;
+    direction: string;
+    /** B has no track: it answers a recvonly offer with inactive */
+    current: string;
+  }[] = [
+    {
+      name: "a sendonly VP8 session set to inactive",
+      codecs: () => [useVP8({ direction: "sendonly" })],
+      negotiated: "sendonly",
+      change: (_, t) => (t.direction = "inactive"),
+      direction: "inactive",
+      current: "inactive",
+    },
+    {
+      name: "removeTrack() on a sendonly VP8 session (it becomes inactive)",
+      codecs: () => [useVP8({ direction: "sendonly" })],
+      negotiated: "sendonly",
+      change: (pc, t) => pc.removeTrack(t.sender),
+      direction: "inactive",
+      current: "inactive",
+    },
+    {
+      name: "a sendonly session of a VP8 configured for sendrecv set to inactive",
+      codecs: () => [useVP8({ direction: "sendrecv" })],
+      negotiated: "sendonly",
+      change: (_, t) => (t.direction = "inactive"),
+      direction: "inactive",
+      current: "inactive",
+    },
+    {
+      name: "removeTrack() on a sendonly session of a VP8 configured for sendrecv",
+      codecs: () => [useVP8({ direction: "sendrecv" })],
+      negotiated: "sendonly",
+      change: (pc, t) => pc.removeTrack(t.sender),
+      direction: "inactive",
+      current: "inactive",
+    },
+    {
+      name: "a sendrecv session of a sendonly VP8 set to recvonly",
+      codecs: () => [useVP8({ direction: "sendonly" })],
+      negotiated: "sendrecv",
+      change: (_, t) => (t.direction = "recvonly"),
+      direction: "recvonly",
+      current: "inactive",
+    },
+    {
+      name: "a sendrecv session of a recvonly VP8 set to sendonly",
+      codecs: () => [useVP8({ direction: "recvonly" })],
+      negotiated: "sendrecv",
+      change: (_, t) => (t.direction = "sendonly"),
+      direction: "sendonly",
+      current: "sendonly",
+    },
+  ];
+  for (const row of directionChanges) {
+    negotiationCase(
+      `direction change keeps the negotiated codec: ${row.name}`,
+      { ref: "origin: issue 818 (review: inactive)" },
+      async (c) => {
+        // Arrange: 方向付きの VP8 だけを持つ A と VP8 の B で交渉を確定する。
+        const { a, b } = await c.given(
+          createConnectedVideoPeersWith({
+            offerer: { codecs: { video: row.codecs() } },
+            answerer: { codecs: { video: [useVP8()] } },
+            direction: row.negotiated,
+          }),
+        );
+        const transceiver = a.getTransceivers()[0];
+        const negotiated = payloadTypes(a.currentLocalDescription!.sdp);
+        expect(Object.keys(negotiated)).toEqual(["VP8"]);
+
+        // Act: 方向を変えてから再オファーを適用して B に渡す。
+        row.change(a, transceiver);
+        const offer = await c.offer(a);
+
+        // Assert: offer は投げずに作られ、VP8 を交渉済みの PT のまま新しい方向で提示する。
+        expect(payloadTypes(offer.sdp)).toEqual(negotiated);
+        expect(offer.sdp).toMatch(new RegExp(`^a=${row.direction}\r?$`, "m"));
+
+        // Act: B が答え、A が確定する。
+        await c.answer(b);
+
+        // Assert: 確定後も VP8 が交渉済みのまま、セッションは続けられる。
+        expect(transceiver.currentDirection).toEqual(row.current);
+        expect(codecNames(transceiver.codecs)).toEqual(["VP8"]);
+        await expectSessionContinues(a, b);
+      },
+    );
+  }
+
+  negotiationCase(
+    "an inactive re-offer keeps a sendonly VP9 next to VP8 with their payload types",
+    { ref: "origin: issue 818 (review: inactive)" },
+    async (c) => {
+      // Arrange: 両側 VP8 (all) + VP9 (sendonly) で、sendonly の交渉を VP8 + VP9 で確定する。
+      const config = {
+        codecs: { video: [useVP8(), useVP9({ direction: "sendonly" })] },
+      };
+      const { a, b } = await c.given(
+        createConnectedVideoPeersWith({ offerer: config, answerer: config }),
+      );
+      const transceiver = a.getTransceivers()[0];
+      const negotiated = payloadTypes(a.currentLocalDescription!.sdp);
+      expect(Object.keys(negotiated)).toEqual(["VP8", "VP9"]);
+
+      // Act: inactive にして offer を作る。
+      transceiver.direction = "inactive";
+      const offer = await a.createOffer();
+
+      // Assert: sendonly 用の VP9 も m-line から外れず、PT と順序も変わらない。
+      expect(payloadTypes(offer.sdp)).toEqual(negotiated);
+      expect(offeredVideoCodecs(offer.sdp)).toEqual(["VP8", "VP9"]);
+
+      // Act: その offer で交渉を終える。
+      await c.setLocal(a, offer);
+      await c.setRemote(b, a.localDescription);
+      await c.answer(b);
+
+      // Assert: 確定後の交渉済み codec は VP8 + VP9 のまま、セッションは続けられる。
+      expect(codecNames(transceiver.codecs)).toEqual(["VP8", "VP9"]);
+      await expectSessionContinues(a, b);
+    },
+  );
+
+  negotiationCase(
+    "an inactive transceiver can use a sendonly codec in a first offer and with a track",
+    { ref: "origin: issue 818 (review: inactive)" },
+    async (c) => {
+      // Arrange: 設定は sendonly の VP8 だけ。
+      const { a, b } = await c.given(
+        createUnnegotiatedPeers({
+          codecs: { video: [useVP8({ direction: "sendonly" })] },
+        }),
+      );
+
+      // Act: inactive の transceiver を track なしと track 付きで追加し、初回 offer を作る。
+      a.addTransceiver("video", { direction: "inactive" });
+      a.addTransceiver(new MediaStreamTrack({ kind: "video" }), {
+        direction: "inactive",
+      });
+      const offer = await c.offer(a);
+
+      // Assert: どちらの m-line も VP8 を提示する。
+      const sections = offer.sdp.split(/^m=/m).slice(1);
+      expect(sections.map((section) => offeredVideoCodecs(section))).toEqual([
+        ["VP8"],
+        ["VP8"],
+      ]);
+
+      // Act: B が答え、A が確定する。
+      await c.answer(b);
+
+      // Assert: 両 m-line が VP8 で inactive に確定し、セッションは続けられる。
+      expect(
+        a
+          .getTransceivers()
+          .map((t) => [t.currentDirection, codecNames(t.codecs)]),
+      ).toEqual([
+        ["inactive", ["VP8"]],
+        ["inactive", ["VP8"]],
+      ]);
       await expectSessionContinues(a, b);
     },
   );

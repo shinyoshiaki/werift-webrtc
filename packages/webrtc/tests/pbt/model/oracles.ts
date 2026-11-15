@@ -70,8 +70,10 @@ import {
  * - offer capability: an offer created on a stable negotiated session lists,
  *   for each live negotiated m-line, every configured primary codec that the
  *   codec preferences and a fixed track source allow, whatever the last
- *   answer kept (RFC 8829 5.2.2, issue 818); `transceiver.codecs` of a
- *   negotiated transceiver is part of the state createOffer / rollback keep.
+ *   answer kept (RFC 8829 5.2.2, issue 818), and keeps the negotiated
+ *   codecs they allow whatever the direction (`direction`, `removeTrack()`);
+ *   `transceiver.codecs` of a negotiated transceiver is part of the state
+ *   createOffer / rollback keep.
  * (A rejected operation changing nothing is checked by the harness.)
  */
 type World = ReturnType<typeof world>;
@@ -434,7 +436,8 @@ export class ModelOracles implements Observer {
   /**
    * Assert (offer capability): `offer`, created by `pc` on a stable
    * negotiated session, lists for each live negotiated m-line every
-   * configured primary codec its preferences and fixed track source allow.
+   * configured primary codec its preferences and fixed track source allow,
+   * and every negotiated primary codec they allow, whatever the direction.
    */
   offerCapability(pc: RTCPeerConnection, offer: { sdp: string }) {
     if (pc.signalingState !== "stable" || !pc.currentLocalDescription) return;
@@ -445,8 +448,6 @@ export class ModelOracles implements Observer {
       if (!t.currentDirection || t.currentDirection === "stopped") continue;
       if (t.stopping || t.stopped || t.mid == undefined) continue;
       const configured = pc.config.codecs[t.kind] ?? [];
-      // direction 付きの codec 設定は対象外 (方向で絞る規則は個別テストで検証する)。
-      if (configured.some((c) => c.direction !== "all")) continue;
       const preferences = t.codecPreferences?.map((c) =>
         c.mimeType.toLowerCase(),
       );
@@ -454,15 +455,16 @@ export class ModelOracles implements Observer {
       const source = getTrackSourceCodecs(t.sender.track)?.map((c) =>
         c.mimeType.toLowerCase(),
       );
-      const expected = [
-        ...new Set(
-          configured
-            .map((c) => c.mimeType.toLowerCase())
-            .filter(primary)
-            .filter((m) => !preferences || preferences.includes(m))
-            .filter((m) => !source || source.includes(m)),
-        ),
-      ].sort();
+      const allowed = (codecs: readonly { mimeType: string }[]) =>
+        [
+          ...new Set(
+            codecs
+              .map((c) => c.mimeType.toLowerCase())
+              .filter(primary)
+              .filter((m) => !preferences || preferences.includes(m))
+              .filter((m) => !source || source.includes(m)),
+          ),
+        ].sort();
       const m = media.find((m) => m.rtp.muxId === t.mid);
       const offered = [
         ...new Set(
@@ -471,7 +473,16 @@ export class ModelOracles implements Observer {
             .filter(primary),
         ),
       ].sort();
-      expect(offered, `offer capability of ${t.mid}`).toEqual(expected);
+      // 交渉済み codec は、preferences / 固定 source で外れない限り direction に
+      // よらず offer に残る (answer だけが外す)。createOffer が throw すれば step が失敗する。
+      expect(offered, `offer keeps negotiated codecs of ${t.mid}`).toEqual(
+        expect.arrayContaining(allowed(t.codecs)),
+      );
+      // direction 付きの codec 設定は能力の一致を見ない (方向の規則は個別テストで検証する)。
+      if (configured.some((c) => c.direction !== "all")) continue;
+      expect(offered, `offer capability of ${t.mid}`).toEqual(
+        allowed(configured),
+      );
     }
   }
 

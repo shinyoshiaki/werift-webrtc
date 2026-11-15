@@ -3373,17 +3373,18 @@ export async function createConnectedVideoPeersWith({
   offerer: offererConfig,
   answerer: answererConfig = offererConfig,
   offererPreferences,
+  direction = "sendonly",
 }: {
   offerer: ConstructorParameters<typeof RTCPeerConnection>[0];
   answerer?: ConstructorParameters<typeof RTCPeerConnection>[0];
   offererPreferences?: RTCRtpCodecParameters[];
+  /** direction of the offerer's transceiver (it always has a track) */
+  direction?: "sendrecv" | "sendonly";
 }) {
   const offerer = new RTCPeerConnection(offererConfig);
   const answerer = new RTCPeerConnection(answererConfig);
   const outgoing = new MediaStreamTrack({ kind: "video" });
-  const transceiver = offerer.addTransceiver(outgoing, {
-    direction: "sendonly",
-  });
+  const transceiver = offerer.addTransceiver(outgoing, { direction });
   if (offererPreferences) transceiver.setCodecPreferences(offererPreferences);
   await offerer.setLocalDescription(await offerer.createOffer());
   await answerer.setRemoteDescription(offerer.localDescription!);

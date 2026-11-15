@@ -250,7 +250,94 @@ export function assertCodecsSupported(options: {
   return effective;
 }
 
-/** The same codec for a payload type (RFC 3264 §8.3.2), RTX by its `apt`. */
+/**
+ * Configured codecs a negotiated m-line offers, before payload types are
+ * mapped (`keepNegotiatedPayloadTypes`): `capability` plus the configured
+ * counterpart of every negotiated codec that `capability` lacks.
+ *
+ * `eligible` is every configured codec of the kind with the fixed source and
+ * the codec preferences applied but no direction filter, and `capability` is
+ * the same for the current direction. A direction change (`direction`,
+ * `removeTrack()`) therefore never takes a negotiated codec off the m-line;
+ * only an answer does. Preferences and a fixed source still exclude one. An
+ * RTX / RED is kept when its primaries are and it is in `capability` or
+ * negotiated for the same primaries. The order is that of `eligible`
+ * (preferences, then configuration), the order of a first offer.
+ */
+export function withNegotiatedCodecs(
+  eligible: readonly RTCRtpCodecParameters[],
+  capability: readonly RTCRtpCodecParameters[],
+  negotiated: readonly RTCRtpCodecParameters[],
+): RTCRtpCodecParameters[] {
+  const candidates = [
+    ...eligible,
+    ...capability.filter((codec) => !eligible.includes(codec)),
+  ];
+  const primaryOf = (
+    codecs: readonly RTCRtpCodecParameters[],
+    payloadType: number,
+  ) =>
+    codecs.find(
+      (codec) => !isAuxiliary(codec) && codec.payloadType === payloadType,
+    );
+  const kept = new Set(
+    candidates.filter(
+      (codec) =>
+        !isAuxiliary(codec) &&
+        (capability.includes(codec) ||
+          negotiated.some(
+            (other) => !isAuxiliary(other) && isCodecCompatible(other, codec),
+          )),
+    ),
+  );
+  const negotiatedForSamePrimaries = (codec: RTCRtpCodecParameters) => {
+    const primaries = referencedPayloadTypes(codec).map((payloadType) =>
+      primaryOf(candidates, payloadType),
+    );
+    return negotiated.some((other) => {
+      if (codecName(other) !== codecName(codec)) return false;
+      const otherPrimaries = referencedPayloadTypes(other).map((payloadType) =>
+        primaryOf(negotiated, payloadType),
+      );
+      return (
+        otherPrimaries.length === primaries.length &&
+        primaries.every((primary, index) => {
+          const otherPrimary = otherPrimaries[index];
+          return (
+            primary != undefined &&
+            otherPrimary != undefined &&
+            isCodecCompatible(otherPrimary, primary)
+          );
+        })
+      );
+    });
+  };
+  return candidates.filter((codec) => {
+    if (!isAuxiliary(codec)) return kept.has(codec);
+    const primaries = referencedPayloadTypes(codec).map((payloadType) =>
+      primaryOf(candidates, payloadType),
+    );
+    if (primaries.some((primary) => primary == undefined || !kept.has(primary)))
+      return false;
+    return capability.includes(codec) || negotiatedForSamePrimaries(codec);
+  });
+}
+
+/**
+ * The H264 format a payload type stands for, with the RFC 6184 §8.1 defaults
+ * filled in (`packetization-mode` 0, `profile-level-id` 42000A), so an
+ * omitted parameter and its default are the same format.
+ */
+function h264Format(codec: RTCRtpCodecParameters) {
+  const { packetizationMode, profileLevelId } = h264Parameters(codec);
+  return `${packetizationMode ?? 0}/${profileLevelId ?? "42000a"}`;
+}
+
+/**
+ * The same codec for a payload type (RFC 3264 §8.3.2, RFC 8843 §9.1), RTX by
+ * its `apt`. H264 formats that differ in `packetization-mode` or
+ * `profile-level-id` are different codecs and cannot share a payload type.
+ */
 function samePayloadMapping(
   left: RTCRtpCodecParameters,
   right: RTCRtpCodecParameters,
@@ -261,7 +348,8 @@ function samePayloadMapping(
     left.clockRate === right.clockRate &&
     (left.channels ?? 1) === (right.channels ?? 1) &&
     (codecName(left) !== "rtx" ||
-      referencedPayloadTypes(left)[0] === referencedPayloadTypes(right)[0])
+      referencedPayloadTypes(left)[0] === referencedPayloadTypes(right)[0]) &&
+    (codecName(left) !== "h264" || h264Format(left) === h264Format(right))
   );
 }
 
@@ -292,7 +380,8 @@ function withPayloadType(
  *
  * A codec offered again keeps its configured payload type unless that type is
  * already used on this m-line or maps to another codec in `taken` (every
- * payload type the session uses); then it takes a free dynamic type (96-127,
+ * payload type the session uses; an H264 format with another
+ * `packetization-mode` or `profile-level-id` is another codec); then it takes a free dynamic type (96-127,
  * then 35-63). RTX `apt` and RED references follow their primaries, and an
  * RTX / RED whose primary is not offered is dropped. The order of
  * `capability` is kept.

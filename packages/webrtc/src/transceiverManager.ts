@@ -28,6 +28,7 @@ import {
   keepNegotiatedPayloadTypes,
   normalizeCodecMimeType,
   resolveCodecs,
+  withNegotiatedCodecs,
 } from "./media/codecCompatibility";
 import { createBandwidthEstimator } from "./media/sender/createBandwidthEstimator";
 import type { RTCStats } from "./media/stats";
@@ -697,6 +698,15 @@ export class TransceiverManager {
    *   codecs that the sender, receiver, router, `getPayloadType()` and stats
    *   use until an answer commits new ones. A `createOffer()` that is never
    *   applied therefore changes nothing that is sending or receiving.
+   * - A negotiated transceiver offers its negotiated codecs plus that
+   *   capability (`withNegotiatedCodecs`). A direction change (`direction`,
+   *   `removeTrack()`) never takes a negotiated codec off the m-line, even one
+   *   configured for the other direction: only an answer removes codecs.
+   *   Preferences and a fixed source apply to the negotiated codecs too, so
+   *   they still narrow the offer. A codec change that leaves no codec fails
+   *   with `NotSupportedError`, as for a first offer.
+   * - An inactive transceiver can use every configured codec (whatever its
+   *   `direction` attribute), so an inactive first offer has codecs too.
    * - A negotiated codec keeps its negotiated payload type; a codec offered
    *   again takes its configured payload type, or a free dynamic one when that
    *   type is used by another codec in this session (any m-line). RTX `apt`
@@ -736,17 +746,41 @@ export class TransceiverManager {
 
     const offerCodecs = new Map<RTCRtpTransceiver, RTCRtpCodecParameters[]>();
     for (const transceiver of fromCapability) {
-      const capability = assertCodecsSupported({
-        kind: transceiver.kind,
-        configured: this.filterCodecsByDirection(
-          transceiver.kind,
-          transceiver.direction,
+      const source = getTrackSourceCodecs(transceiver.sender.track);
+      const preferences = transceiver.codecPreferences;
+      const configured = this.filterCodecsByDirection(
+        transceiver.kind,
+        transceiver.direction,
+      );
+      // Negotiated codecs stay on the m-line whatever the direction is now;
+      // the capability for that direction adds to them. Only preferences and
+      // a fixed source take codecs away before an answer does.
+      const merged = withNegotiatedCodecs(
+        resolveCodecs(
+          (this.config.codecs[transceiver.kind] ??
+            []) as RTCRtpCodecParameters[],
+          source,
+          preferences,
         ),
-        source: getTrackSourceCodecs(transceiver.sender.track),
-        preferences: transceiver.codecPreferences,
-      });
+        resolveCodecs(configured, source, preferences),
+        transceiver.codecs,
+      );
+      if (merged.length === 0) {
+        if (!transceiver.needsCodecResolution) {
+          // Nothing changed since the answer: offer what it committed.
+          offerCodecs.set(transceiver, transceiver.codecs);
+          continue;
+        }
+        // A codec change left nothing: fail as the first offer does.
+        assertCodecsSupported({
+          kind: transceiver.kind,
+          configured,
+          source,
+          preferences,
+        });
+      }
       const codecs = keepNegotiatedPayloadTypes(
-        capability,
+        merged,
         transceiver.codecs,
         taken,
       );
@@ -798,29 +832,32 @@ export class TransceiverManager {
     kind: Kind,
     direction: RTCRtpTransceiver["direction"],
   ) {
-    return (this.config.codecs[kind] as RTCRtpCodecParameters[]).filter(
-      (codecCandidate) => {
-        switch (codecCandidate.direction) {
-          case "recvonly": {
-            if (ReceiverDirection.includes(direction)) return true;
-            return false;
-          }
-          case "sendonly": {
-            if (SenderDirections.includes(direction)) return true;
-            return false;
-          }
-          case "sendrecv": {
-            if ([Sendrecv, Recvonly, Sendonly].includes(direction)) return true;
-            return false;
-          }
-          case "all": {
-            return true;
-          }
-          default:
-            return false;
+    const configured = this.config.codecs[kind] as RTCRtpCodecParameters[];
+    // An inactive m-line neither sends nor receives yet; it keeps every
+    // codec so that a later direction can use it (and `removeTrack()`, which
+    // makes `sendonly` inactive, leaves the m-line its codecs).
+    if (direction === "inactive") return configured;
+    return configured.filter((codecCandidate) => {
+      switch (codecCandidate.direction) {
+        case "recvonly": {
+          if (ReceiverDirection.includes(direction)) return true;
+          return false;
         }
-      },
-    );
+        case "sendonly": {
+          if (SenderDirections.includes(direction)) return true;
+          return false;
+        }
+        case "sendrecv": {
+          if ([Sendrecv, Recvonly, Sendonly].includes(direction)) return true;
+          return false;
+        }
+        case "all": {
+          return true;
+        }
+        default:
+          return false;
+      }
+    });
   }
 
   private validateTrackForTransceiver(

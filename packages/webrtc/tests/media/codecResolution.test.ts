@@ -13,6 +13,7 @@ import {
 import {
   applyCodecPreferences,
   keepNegotiatedPayloadTypes,
+  withNegotiatedCodecs,
 } from "../../src/media/codecCompatibility";
 import {
   getTrackSourceCodecs,
@@ -1392,6 +1393,32 @@ describe("codec resolution", () => {
       );
     });
 
+    test("an H264 format with another packetization-mode or profile does not share a payload type", () => {
+      // Arrange: 別 m-line が PT 98 = H264 mode 1、PT 100 = H264 (profile 42e01f, mode 省略 = 0) を使う。
+      const h264 = (payloadType: number, parameters: string) =>
+        codec("video/H264", payloadType, parameters);
+      const capability = [
+        h264(98, "profile-level-id=42e01f;packetization-mode=0"),
+        h264(100, "profile-level-id=640c1f;packetization-mode=0"),
+        h264(102, "profile-level-id=42E01F;packetization-mode=1"),
+      ];
+      const otherMLine = [
+        h264(98, "profile-level-id=42e01f;packetization-mode=1"),
+        h264(100, "profile-level-id=42e01f"),
+        h264(102, "profile-level-id=42e01f;packetization-mode=1"),
+      ];
+
+      // Act: 交渉前の m-line として offer 用の codec を解決する。
+      const offered = keepNegotiatedPayloadTypes(
+        capability,
+        [],
+        taken(...otherMLine),
+      );
+
+      // Assert: mode / profile が違う 98 と 100 は空き PT へ移り、同じ形式の 102 (大文字小文字違い) はそのまま。
+      expect(offered.map((c) => c.payloadType)).toEqual([96, 97, 102]);
+    });
+
     test("RED follows its primaries and is dropped without them", () => {
       // Arrange: opus 111 と RED 63 (111/111)。交渉済みは opus 109 だけ。
       const capability = [
@@ -1415,6 +1442,66 @@ describe("codec resolution", () => {
       // Assert: RED の参照は opus の交渉済み PT に書き換わり、primary がなければ落ちる。
       expect(summary(withPrimary)).toEqual(["63 red 109/109", "109 opus"]);
       expect(withoutPrimary).toEqual([]);
+    });
+  });
+
+  describe("withNegotiatedCodecs (issue 818)", () => {
+    const codec = (mimeType: string, payloadType: number, apt?: number) =>
+      new RTCRtpCodecParameters({
+        mimeType,
+        clockRate: 90_000,
+        payloadType,
+        ...(apt != undefined ? { parameters: `apt=${apt}` } : {}),
+      });
+    const names = (codecs: RTCRtpCodecParameters[]) =>
+      codecs.map((c) => `${c.payloadType} ${c.name}`);
+    // 設定は VP8 96 / RTX 97 / VP9 98 / RTX 99 / H264 100。
+    const configured = [
+      codec("video/VP8", 96),
+      codec("video/rtx", 97, 96),
+      codec("video/VP9", 98),
+      codec("video/rtx", 99, 98),
+      codec("video/H264", 100),
+    ];
+
+    test("negotiated codecs missing from the capability of the current direction are added in configured order", () => {
+      // Arrange: 現在の方向の能力は H264 だけ。交渉済みは remote PT の VP9 110 / RTX 111 と VP8 112 (RTX なし)。
+      const capability = [configured[4]];
+      const negotiated = [
+        codec("video/VP9", 110),
+        codec("video/rtx", 111, 110),
+        codec("video/VP8", 112),
+      ];
+
+      // Act: offer に載せる設定上の codec を求める。
+      const merged = withNegotiatedCodecs(configured, capability, negotiated);
+
+      // Assert: VP8 / VP9 と、交渉済みの VP9 用 RTX だけが設定順で加わる。
+      expect(names(merged)).toEqual(["96 VP8", "98 VP9", "99 rtx", "100 H264"]);
+    });
+
+    test("a negotiated codec the eligible codecs exclude (preferences, source) is not added", () => {
+      // Arrange: preferences 適用後の候補は VP9 / RTX だけ。交渉済みは VP8 / RTX。
+      const eligible = [configured[2], configured[3]];
+      const negotiated = [codec("video/VP8", 96), codec("video/rtx", 97, 96)];
+
+      // Act: 現在の方向の能力が空でも offer に載せる codec を求める。
+      const merged = withNegotiatedCodecs(eligible, [], negotiated);
+
+      // Assert: 候補にない VP8 は戻らず、交渉していない VP9 も加わらない。
+      expect(merged).toEqual([]);
+    });
+
+    test("the capability is kept as resolved when nothing is negotiated", () => {
+      // Arrange: 能力は VP8 / RTX と H264。交渉済みはなし。
+      const capability = [configured[0], configured[1], configured[4]];
+
+      // Act: offer に載せる codec を求める。
+      const merged = withNegotiatedCodecs(configured, capability, []);
+
+      // Assert: 能力そのまま (同じ object、同じ順序) を返す。
+      expect(merged).toEqual(capability);
+      merged.forEach((c, i) => expect(c).toBe(capability[i]));
     });
   });
 });

@@ -150,7 +150,10 @@ const RETIRED_UFRAG_HISTORY = 64;
  *   effective-value rules. R restores the baseline tables.
  * - Codecs: every offer lists what each transceiver can use now, whatever
  *   the last answer kept, with the negotiated payload types
- *   (`TransceiverManager.resolveOfferCodecs`, issue 818). `createOffer` and
+ *   (`TransceiverManager.resolveOfferCodecs`, issue 818). The negotiated
+ *   codecs stay in it whatever the direction is now (`direction`,
+ *   `removeTrack()` never take one off the m-line; only an answer does), and
+ *   preferences and a fixed source narrow them too. `createOffer` and
  *   applying the local offer leave `transceiver.codecs` (the negotiated
  *   codecs that the sender, receiver and router use) unchanged; the answer
  *   (or pranswer) to it replaces them, and R restores them.

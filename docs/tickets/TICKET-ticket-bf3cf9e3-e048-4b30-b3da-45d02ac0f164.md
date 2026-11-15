@@ -139,3 +139,69 @@
 - [ ] 上記の回帰テストがすべて追加されて通る。`npm run type` / `npm test` / `npm run pbt:deep` / `npm run wpt` が通る。
 - [ ] `tools/negotiation-diff` のdevelop比較でregression / hang / state differenceが0。意図した差分は説明されている。
 - [ ] 新しいルールが実装のTSDocとテストに記録され、`changelog.md` が更新されている。
+
+## 9. 追加要件: 方向変更で交渉済みcodecを失わない（レビュー7回目の打開策）
+
+### 9.1 背景と原因
+
+- レビュー7回目で、交渉済みtransceiverの `direction = "inactive"` 後の `createOffer()` が `NotSupportedError` になる回帰が指摘された。同じ原因で、`removeTrack()`（`sendonly` → `inactive`）や、方向付きcodec（`direction: "sendonly"` / `"recvonly"`）の反対方向への変更でも失敗する。developでは同じ操作が成功する。
+- developは交渉済みtransceiverのcodecを「空、または再解決フラグが立ったときだけ再解決」し、それ以外は交渉済み集合をそのまま再提示していた。そのため再オファーで `assertCodecsSupported` が走らず、失敗しなかった。
+- 前回までの実装（`resolveOfferCodecs`）は交渉済みtransceiverのcodecを**毎回能力集合からゼロで再計算**していた。そのため、能力計算の入力すべて（方向フィルタ、固定source、preferences、RTX/REDの参照、BUNDLEのPT空間、再解決フラグの寿命）が再オファーの新しい失敗面になった。レビューはこれを1入力ずつ指摘し（PT衝突、選好の消失、REDの欠落、`inactive`）、対応も1ケースずつだった。
+- `filterCodecsByDirection` は `inactive` にどの方向付きcodecも一致させず、`sendonly` / `recvonly` のcodecは反対方向で空になる。
+
+### 9.2 ルール（「ゼロから再計算」から「交渉済み集合に能力を足す」へ）
+
+交渉済みtransceiverの再オファーのcodecは、次の和とする（`TransceiverManager.resolveOfferCodecs` → `withNegotiatedCodecs` → `keepNegotiatedPayloadTypes`）。
+
+1. 交渉済みの `transceiver.codecs`。**方向では絞らない**（方向変更や `removeTrack()` では交渉済みcodecをm-lineから外さない。外すのはanswerだけ）。preferencesと固定sourceは交渉済みcodecにも適用する。
+2. 現在の方向での能力集合（方向フィルタ・source・preferences適用後）のうち、まだ含まれないもの。
+
+- 順序はpreferences、なければ設定の順（初回offerと同じ）。交渉済みcodecは交渉済みPTのまま。
+- RTX / REDは、primaryが残り、かつ能力集合にあるか同じprimaryで交渉済みのときに残す。
+- 和が空になるのはcodec変更（preferences / addTrack）で何も残らない場合だけで、初回offerと同じ `NotSupportedError` にする。変更がないのに空になる場合は、交渉済み集合をそのまま提示する（develop互換）。
+- `inactive` のtransceiverは全設定codecを使える（`filterCodecsByDirection`）。初回からinactiveで方向付きcodecだけの構成が `NotSupportedError` になる既存問題も解消する。
+- ルールは `resolveOfferCodecs` / `withNegotiatedCodecs` / `NegotiationTransaction` のTSDocと `changelog.md` に記載した。
+
+### 9.3 developとの差分（提出前に全列挙で確認）
+
+`/tmp/diff818/matrix.ts`（一時スクリプト）を、developの一時worktree（`41773f4dc`）とHEADで同じ入力に対して実行し、`compare.ts` で行ごとに分類した。
+
+- 入力: codec構成10種（方向付きVP8 / VP9の組み合わせ、RTX、fmtpなしRED、H264+VP8）× answerer 2種（VP8だけ / 同じ構成）× 初回の方向4種 × 操作15種（方向4種、`removeTrack`、`removeTrack`+`addTrack`、preferences、preferences解除、preferences+inactive、H264固定sourceへの `replaceTrack` / `addTrack`、m-line追加2種、`stop`）× 操作する側2種 = 2400行。
+- 各行: 初回offer、操作、再オファー（throwするか、各m-lineのPTとcodec）、再交渉の確定結果。
+
+結果は 9.5 に記載する。
+
+### 9.4 回帰テスト
+
+- [x] `tests/issue/818.test.ts`: レビュー7回目の表の各行（sendonly / sendrecv方向付きVP8での `inactive` と `removeTrack()`、sendonly codecでの `recvonly`、recvonly codecでの `sendonly`、VP8 + sendonly VP9での `inactive`、初回inactive + sendonly codec（track付き `addTransceiver` を含む））。再オファーが投げず、PTと順序を保ち、確定後もセッションが続くことを確認する。修正前のHEADでは8件とも失敗する。
+- [x] `tests/media/codecResolution.test.ts`: `withNegotiatedCodecs` の単体テスト（方向で外れた交渉済みcodecの追加、preferences / sourceで除外されたcodecは戻らない、交渉済みなしでは能力集合のまま）。
+- [x] model property: oracle `offerCapability` に「交渉済みtransceiverの `createOffer()` はthrowせず、preferences / 固定sourceで外れない交渉済みcodecをdirectionによらず含む」を追加した。`generator.ts` には方向変更があり、`removeTrack` の操作を追加した。
+
+### 9.5 developとの差分の結果
+
+2400行のうち、developとの差分は次のとおり。**HEADだけが失敗する行（再オファーのthrow、確定の失敗）は0件。**
+
+| 分類 | 行数 | 内容 |
+| --- | --- | --- |
+| 同一 | 1650 | |
+| codecが増える | 259 + 48 | 方向で外れていた交渉済みcodec、または以前のanswerで外れたcodecを再提示する（意図した追加）。48行は確定結果も増えたcodecを含む |
+| developはthrow、HEADは成功 | 57 | `inactive` や反対方向への変更、preferences変更後の再オファーで、developが `NotSupportedError` を出していた |
+| 初回offerが成功するようになった | 180 | 初回から `inactive` で方向付きcodecだけの構成（既存問題の解消） |
+| PTだけが変わる | 16 | answererが preferences / `addTrack` 後に再オファーすると、developは設定上のPTに戻す。HEADは交渉済みPTを保つ（RFC 3264 §8.3.2、本チケットの意図） |
+| 固定sourceでcodecが減る | 8 | H264+VP8で交渉後、H264固定sourceに `replaceTrack` した再オファー。developはVP8も提示するが、相手がVP8を選ぶとanswerer側だけ確定し、offerer側の `setRemoteDescription(answer)` が `NotSupportedError` になる（developで確認）。HEADはH264だけを提示する（固定source制約の適用、本チケットの意図） |
+| 初回offerの変化に連なる差分 | 180 | `inactive` が全codecを使えるようになり、初回offerの内容が変わった行。例えば `vp8(sendonly)+vp9` を `inactive` で始めると、developはVP9だけを提示し、HEADはVP8+VP9を提示してVP8で交渉する。以降の操作は別の交渉済み状態から始まる。codecが減って見える27行（H264固定sourceへの `replaceTrack` が交渉済みVP8に合わず `InvalidModificationError` になる2行を含む）は、すべてこの構成の行 |
+| 拒否されたm-lineの `transceiver.codecs` | 2 | VP8だけの相手に、H264固定sourceの `addTrack` 後のH264だけのofferを出すと、answerがm-lineを拒否する（port 0、`stopped`、両方とも同じ）。developは適用されなかったofferの解決結果（H264）を残し、HEADは直前の交渉済みcodec（VP8）を残す（`createOffer()` は `transceiver.codecs` を変えない、本チケットの意図） |
+
+### 9.6 検証結果（レビュー7回目の対応）
+
+| 確認 | 結果 |
+| --- | --- |
+| `tests/issue/818.test.ts` | 19件成功。追加8件は修正前のHEADで失敗 |
+| `cd packages/webrtc && npm test` | 89ファイル、1857件成功、5件スキップ |
+| `npm run type`（rootとwebrtc） | エラー0 |
+| `tools/negotiation-diff`（60 seed、`--mutate 0.3`、develop `41773f4dc` と比較） | regression 0、divergence 0、hang 0、state difference 0 |
+| `npm run pbt:deep`（2回） | fuzz / model は失敗0。scenario は1回目に seed 12 が失敗扱い（単独とshardで再実行すると成功）、他はflaky。leak の heap seed 4 は2回とも失敗（下記） |
+| `npm run wpt` | regression 0。`codecs-subsequent-offer` はPASS |
+
+- leak heap seed 4（`-t "heap seed"` で単独実行すると再現、slope 19〜21 KiB/cycle、上限16）は、developの一時worktreeでも同じく失敗する（18.4 / 19.5 KiB/cycle）。修正前のHEADも同じ（19.2 / 19.4）。本チケットの変更によるものではない既存の問題で、範囲外とする。
+- `packages/rtp/tests/codec/vp8.test.ts` に混入していたroot formatによるimport順の差分は、developの内容に戻した。

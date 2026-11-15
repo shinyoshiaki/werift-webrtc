@@ -508,6 +508,15 @@ Rules (RFC 8829 §5.2.2, RFC 3264 §8.3.2):
   codecs that the sender, receiver, router, `getPayloadType()` and stats
   use until an answer commits new ones. A `createOffer()` that is never
   applied therefore changes nothing that is sending or receiving.
+- A negotiated transceiver offers its negotiated codecs plus that
+  capability (`withNegotiatedCodecs`). A direction change (`direction`,
+  `removeTrack()`) never takes a negotiated codec off the m-line, even one
+  configured for the other direction: only an answer removes codecs.
+  Preferences and a fixed source apply to the negotiated codecs too, so
+  they still narrow the offer. A codec change that leaves no codec fails
+  with `NotSupportedError`, as for a first offer.
+- An inactive transceiver can use every configured codec (whatever its
+  `direction` attribute), so an inactive first offer has codecs too.
 - A negotiated codec keeps its negotiated payload type; a codec offered
   again takes its configured payload type, or a free dynamic one when that
   type is used by another codec in this session (any m-line). RTX `apt`
