@@ -22,6 +22,8 @@ export class MediaDevices extends EventTarget {
   video?: MediaStreamTrack;
   audio?: MediaStreamTrack;
   private readonly activeSourceStops = new Map<MediaStreamTrack, () => void>();
+  /** Source ids of the dummy tracks this instance created (`createDummyAudioTrack`). */
+  private nextDummySourceId = 0;
 
   constructor(props: MediaDeviceProps = {}) {
     super();
@@ -122,11 +124,17 @@ export class MediaDevices extends EventTarget {
   ) {
     const dummy =
       kind === "audio"
-        ? createDummyAudioTrack(this.props.dummyMedia?.audio)
-        : createDummyVideoTrack({
-            ...this.props.dummyMedia?.video,
-            ...resolveVideoOptions(constraints),
-          });
+        ? createDummyAudioTrack(
+            this.props.dummyMedia?.audio,
+            this.nextDummySourceId++,
+          )
+        : createDummyVideoTrack(
+            {
+              ...this.props.dummyMedia?.video,
+              ...resolveVideoOptions(constraints),
+            },
+            this.nextDummySourceId++,
+          );
 
     this.attachTrackStop(dummy.track, () => {
       dummy.source.stop();

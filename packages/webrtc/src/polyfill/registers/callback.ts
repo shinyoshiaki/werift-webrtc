@@ -55,6 +55,7 @@ export function createDummyRegister(
   options: MediaRegisterCommonOptions = {},
 ): MediaRegister {
   const stops: Array<() => void> = [];
+  let nextSourceId = 0;
   return createCallbackRegister({
     mimeType: "video/VP8",
     kinds: ["audio", "video"],
@@ -63,12 +64,12 @@ export function createDummyRegister(
     label: options.label ?? "werift dummy media",
     async createTracks(request) {
       if (request.kind === "audio") {
-        const dummy = createDummyAudioTrack();
+        const dummy = createDummyAudioTrack({}, nextSourceId++);
         stops.push(() => dummy.source.stop());
         bindTrackStop(dummy.track, () => dummy.source.stop());
         return [dummy.track];
       }
-      const dummy = createDummyVideoTrack();
+      const dummy = createDummyVideoTrack({}, nextSourceId++);
       stops.push(() => dummy.source.stop());
       bindTrackStop(dummy.track, () => dummy.source.stop());
       return [dummy.track];

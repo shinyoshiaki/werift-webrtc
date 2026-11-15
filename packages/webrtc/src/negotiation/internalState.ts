@@ -37,34 +37,3 @@ export type TransceiversNegotiationState = {
  * by MID and RID: two m-lines may reuse the same RID names.
  */
 export const ridRouteKey = (mid: string, rid: string) => `${mid}\u0000${rid}`;
-
-const applicationStops = new WeakMap<RTCRtpTransceiver, number>();
-
-/** How many times the application called `stop()` on `transceiver`. */
-export function getApplicationStopRevision(transceiver: RTCRtpTransceiver) {
-  return applicationStops.get(transceiver) ?? 0;
-}
-
-/** Record an application `stop()`; a rollback keeps it. */
-export function noteApplicationStop(transceiver: RTCRtpTransceiver) {
-  applicationStops.set(
-    transceiver,
-    getApplicationStopRevision(transceiver) + 1,
-  );
-}
-
-const attachedByAddTrack = new WeakSet<RTCRtpTransceiver>();
-
-/**
- * Record that the application attached a track to `transceiver` with
- * `addTrack()`. Sticky: `replaceTrack(null)`, `removeTrack()` and `stop()` do
- * not clear it, and a rollback keeps it (it is an application operation).
- */
-export function noteApplicationAddTrack(transceiver: RTCRtpTransceiver) {
-  attachedByAddTrack.add(transceiver);
-}
-
-/** Whether the application ever attached a track to `transceiver` with `addTrack()`. */
-export function isAttachedByAddTrack(transceiver: RTCRtpTransceiver) {
-  return attachedByAddTrack.has(transceiver);
-}

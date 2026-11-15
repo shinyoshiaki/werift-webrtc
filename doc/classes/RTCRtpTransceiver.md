@@ -499,7 +499,10 @@ track to it (W3C rollback: only a transceiver addTrack never touched is
 removed), also after `replaceTrack(null)` / `removeTrack()` detached that
 track, or while its sender has a track (werift keeps one given a track by
 `replaceTrack()` alone). stop(), a direction or codec preferences set on a
-remote-created transceiver do not keep it.
+remote-created transceiver do not keep it. Only a remote-created
+transceiver can be removed, and `addTrack()` reusing one sets
+`reusedForAddTrack`; one `addTrack()` created has `createdBy: "addTrack"`.
+Both are instance state a rollback does not restore.
 
 ##### Returns
 

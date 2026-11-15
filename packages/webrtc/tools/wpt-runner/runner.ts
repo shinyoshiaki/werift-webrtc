@@ -662,6 +662,7 @@ function createContext(input: {
  * a stream with one werift dummy audio track (stopped at cleanup).
  */
 function createAudioContextShim(sources: Array<{ stop(): void }>) {
+  let nextSourceId = 0;
   return class AudioContext {
     createOscillator() {
       return {
@@ -672,7 +673,7 @@ function createAudioContextShim(sources: Array<{ stop(): void }>) {
     }
 
     createMediaStreamDestination() {
-      const dummy = createDummyAudioTrack();
+      const dummy = createDummyAudioTrack({}, nextSourceId++);
       sources.push(dummy.source);
       return { stream: new MediaStream([dummy.track]) };
     }

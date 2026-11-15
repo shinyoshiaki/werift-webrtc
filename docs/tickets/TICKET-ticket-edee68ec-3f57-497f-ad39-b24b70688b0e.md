@@ -31,6 +31,7 @@
 1. **持続フラグを追加する**: アプリが `addTrack()` で transceiver に track を付けたことを、`sender.track` の現在値とは別に記録する。
    - `replaceTrack(null)` / `removeTrack()` / `stop()` ではクリアしない。
    - rollback の snapshot / restore の**対象外**にする。アプリ操作なので、rollback を越えて残す。
+   - 記録には既存の `reusedForAddTrack` / `createdBy: "addTrack"` を使う（§3「フラグの置き場所」、§6）。
 2. **`TransceiverManager.addTrack()`（L511–）で記録する**: 既存 transceiver を再利用する 2 つの分岐（`emptyTrackSenderTransceiver` / `notSendTransceiver`）で記録する。`addTransceiver(track)` にフォールバックする分岐もアプリ起源なので記録してよい。ただし、アプリ起源の transceiver は remote 生成集合に入らないため、rollback での除去判定には影響しない。
 3. **rollback の保持判定を変える**: `heldByApplication` を「`addTrack` で取得済み **または** sender が今 track を持つ」にする。
    - remote 生成かつ未取得のものだけを除去する。
@@ -44,16 +45,19 @@
 
 ## 3. 技術的アプローチ（調査結果）
 
-### フラグの置き場所（推奨）
-既存の `noteApplicationStop` / `getApplicationStopRevision` と同じく、[`src/negotiation/internalState.ts`](../../packages/webrtc/src/negotiation/internalState.ts) の WeakMap / WeakSet にする。例: `noteApplicationAddTrack(transceiver)` / `attachedByAddTrack(transceiver)`。
-- 理由1: `RTCRtpTransceiver` は公開クラスで、`doc/` の生成対象。フィールドを足すと公開 API と生成 docs が変わる。
-- 理由2: 「rollback を越えて残るアプリ操作の記録」という同じ性質の情報を同じ場所にまとめられる。
-- 代案: `RTCRtpTransceiver` に `private` フィールドと internal メソッドを置く方法もある。その場合も snapshot には含めない。
+### フラグの置き場所
+当初は `src/negotiation/internalState.ts` のモジュールスコープの WeakSet に置いたが、追加要件（§6）によりモジュールスコープの状態はやめた。
+- remote 生成の transceiver に `addTrack()` を使うと、既存の `reusedForAddTrack`（`TransceiverManager.noteReusedForAddTrack()`）が立つ。rollback が除去するのは remote 生成のものだけなので、このフラグで判定できる。新しいフラグは作らない。
+- `addTrack()` が新しく作った transceiver は `createdBy: "addTrack"` で判定する。どちらもインスタンスの状態で、snapshot / restore の対象外。
 
 ```ts
-// rtpTransceiver.ts（イメージ）
+// rtpTransceiver.ts
 get heldByApplication() {
-  return attachedByAddTrack(this) || !!this.sender.track;
+  return (
+    this.createdBy === "addTrack" ||
+    this.reusedForAddTrack ||
+    !!this.sender.track
+  );
 }
 ```
 
@@ -88,7 +92,7 @@ get heldByApplication() {
    - `tools/negotiation-diff` の既存 op（`remoteOfferAppOpRollback` は先に `replaceTrack(null)` を呼んでから `appOp` を実行する）では、`appOp: "addTrack"` も最終的に track を持つ。このため差分は 0 のままのはず。`--check` と比較の差分数が 0 であることを確認する（AGENTS Do 8、一時 worktree で実施）。
    - 新しい op をこの比較ツールに足すと develop との差分として検出される。足す場合は意図的な差分として扱う。基本は model property 側でカバーする。
 3. **フラグの寿命**: `remoteCreated` は transaction 単位なので、フラグは sticky（クリアしない）でよい。後続の transaction では、remote 生成集合に入らない transceiver のフラグは判定に使われない。replacement offer で carried された transceiver は同じ transaction 内なので、フラグが残っていることが正しい。
-4. **leak**: WeakMap / WeakSet なら transceiver の寿命に従う。`tests/pbt/leak` の `leakFootprint` に新しい metric は不要の見込み。強参照の集合にした場合は metric が必要。
+4. **leak**: 判定に使う状態は transceiver 自身のフィールドなので、transceiver の寿命に従う。`tests/pbt/leak` の `leakFootprint` に新しい metric は不要。
 5. **公開 API**: 新しいフラグは internal に留める。`doc/` の再生成は不要の見込み。公開クラスにフィールドを足した場合は `npm run doc` で再生成する。
 6. **Arrange / Act / Assert**: 日本語コメント、共有 Arrange ユーティリティの再利用（root / package AGENTS）。
 7. **作業手順**: 長時間の検証（`pbt:deep`、`wpt`）の前に、revision・未コミット差分・意図を記録する（root AGENTS Do 8）。develop との比較は `git worktree add --detach` で作った一時 worktree で行う。
@@ -104,3 +108,32 @@ get heldByApplication() {
 - [ ] `heldByApplication` / `TransceiverManager` / `NegotiationTransaction` の TSDoc を新しい規則に更新し、`changelog.md` に追記する。
 - [ ] 検証: `cd packages/webrtc && npm run type && npm test`、`npm run pbt:deep`、`npm run wpt`、`tools/negotiation-diff` で develop との差分数が 0 で `--check` が成功、`npm run format`。
 - **最終条件:** アプリが `addTrack` で使った transceiver を、track の瞬間値によって rollback で誤って削除しない。
+
+## 6. 追加要件: モジュールスコープの状態をなくす
+
+レビュー中のコードメモ（`internalState.ts` 行 56「グローバルスコープの変数を状態管理に使うのは避けたい」）を受けて追加した要件。`packages/webrtc/src` のモジュールスコープの可変状態を洗い出し、次のすべてを状態の寿命の持ち主に移す。再発防止の指示を `AGENTS.md` に入れる。
+
+### 対象と対応
+| # | 場所（修正前） | 対応 |
+| --- | --- | --- |
+| A1 | `negotiation/internalState.ts` `attachedByAddTrack`（WeakSet） | 削除。`heldByApplication` は `createdBy === "addTrack" \|\| reusedForAddTrack \|\| !!sender.track`（§3） |
+| A2 | `negotiation/internalState.ts` `applicationStops`（WeakMap） | `RTCRtpTransceiver` の `private _applicationStopRevision` と `@internal` getter `applicationStopRevision` に移す。`internalState.ts` には型と `ridRouteKey` だけが残る |
+| B3 | `media/track.ts` `sourceCodecsByTrack` / `sourceCodecsCapturedByTrack` | `MediaStreamTrack` の `@internal` フィールド `sourceCodecs` / `sourceCodecsCaptured` に移す。公開関数 `setTrackSourceCodecs` / `getTrackSourceCodecs` / `captureTrackSourceCodecs` の signature は変えない |
+| B4 | `media/receiver/receiverTwcc.ts` `receiverTwccByTransport` | DTLS transport ごとの共有 TWCC と参照数を `RTCDtlsTransport` の `@internal sharedReceiverTWCC` に移す |
+| B5 | `polyfill/sourceIo.ts` `let udpSocketFactory` / `setUdpSocketFactory()` | 削除。`udp` source の `@internal createSocket` option で渡す。テスト（`withUdpSocketCounter`）は register に factory を渡す |
+| B6 | `nonstandard/dummyMedia.ts` `let nextDummySourceId` | `createDummyAudioTrack` / `createDummyVideoTrack` に `sourceId` 引数を足し、作る側（`MediaDevices` のインスタンス、`createDummyRegister` のクロージャ、WPT の `AudioContext` shim）が自分で数える |
+
+### 残すもの（プロセス全体で共有するのが仕様）
+- `polyfill/sourceIo.ts` `streamHubs`: キーはアプリの stream で、1 つの reader でしか読めないため共有が必要。宣言に理由のコメントを付ける。
+- `RTCDtlsTransport.localCertificate` / `localCertificatePromise`: 既定の `certificateScope: "process"` の公開キャッシュ。
+- `navigator`（公開シングルトン）、dtls の `Flight.RetransmitCount` / `DtlsSocket.AlertSendTimeoutMs`（公開 static 設定値）。インスタンスごとの設定にするのは API 変更なので別途。
+
+### 再発防止
+- root `AGENTS.md` の Don't に「モジュールスコープ（最上位の `let`、モジュールレベルの `Map` / `Set` / `WeakMap` / `WeakSet`・カウンタ・キャッシュ、書き換え可能な `static`）に実行時の状態を置かない。持ち主のインスタンスのフィールド（`private` か `@internal`）に置き、テスト用の差し替え口は option で渡す。仕様で共有するものは宣言に理由を書く」を追加する。
+- `packages/webrtc/tests/moduleState.test.ts` で `packages/webrtc/src` を検査する。許可リスト外の宣言、許可リストに残った消えた宣言、検出パターン自体の誤りを検出する。
+
+### 完了条件（追加分）
+- [ ] 上表 A1〜B6 のモジュールスコープの状態が `packages/webrtc/src` からなくなり、`moduleState.test.ts` が通る。
+- [ ] 公開 API（公開関数の signature、生成 docs）が変わらない。生成 docs の差分は `heldByApplication` の TSDoc だけ。
+- [ ] root `AGENTS.md` に再発防止の指示がある。
+- [ ] 検証: `npm run type`、`cd packages/webrtc && npm test`、`npm run pbt:deep -- --suite model,leak`（失敗 seed は develop と比較）、`npm run wpt`、`tools/negotiation-diff/scenarios.ts --check 1`、`npm run doc`、`npm run format`。

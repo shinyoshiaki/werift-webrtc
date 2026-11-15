@@ -1,9 +1,8 @@
 import type { RTCRtpTransceiver, RtpRouter, TransceiverManager } from "./media";
-import {
-  getApplicationStopRevision,
-  type RouterSnapshot,
-  type TransceiverNegotiationState,
-  type TransceiversNegotiationState,
+import type {
+  RouterSnapshot,
+  TransceiverNegotiationState,
+  TransceiversNegotiationState,
 } from "./negotiation/internalState";
 import {
   livePairingState,
@@ -405,8 +404,7 @@ export class NegotiationTransaction {
         mLineIndex: state.mLineIndex,
         stopping:
           state.stopping ||
-          getApplicationStopRevision(transceiver) !==
-            state.applicationStopRevision,
+          transceiver.applicationStopRevision !== state.applicationStopRevision,
         stopped: state.stopped,
         createdBy,
       });

@@ -34,6 +34,7 @@ import {
   SrtpSession,
   saltLength,
 } from "../imports/rtp";
+import type { SharedReceiverTWCC } from "../media/receiver/receiverTwcc";
 import {
   generateStatsId,
   getStatsTimestamp,
@@ -173,6 +174,11 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   readonly iceTransport: RTCIceTransport;
   public localCertificate?: RTCCertificate | undefined;
   private readonly srtpProfiles: SrtpProfile[];
+  /**
+   * @internal The TWCC feedback generator the receivers on this transport
+   * share, see `acquireTransportReceiverTWCC`.
+   */
+  sharedReceiverTWCC?: SharedReceiverTWCC;
 
   id = randomUUID().toString();
   state: DtlsState = "new";

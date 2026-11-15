@@ -16,7 +16,6 @@ const DUMMY_SEQUENCE_BASE = 0x4000;
 const DUMMY_SEQUENCE_STEP = 0x0100;
 const DUMMY_PICTURE_ID_BASE = 0x0100;
 const DUMMY_PICTURE_ID_STEP = 0x0100;
-let nextDummySourceId = 0;
 
 // Decodable VP8 frame bodies without the RTP payload descriptor (prepended per
 // frame): a 16x16 black stream encoded by libvpx in error-resilient mode
@@ -46,12 +45,19 @@ export interface DummySource {
   stop(): void;
 }
 
+/**
+ * @param sourceId Distinguishes the sources one owner creates: each gets its
+ *   own SSRC, sequence numbers and PictureIDs. The owner (a `MediaDevices`, a
+ *   dummy register) counts its own sources.
+ */
 export function createDummyAudioTrack(
   options: Partial<DummyAudioOptions> = {},
+  sourceId = 0,
 ): { track: MediaStreamTrack; source: DummySource } {
   const track = new MediaStreamTrack({ kind: "audio" });
   const source = new ScheduledRtpSource({
     track,
+    sourceId,
     intervalMs: options.packetIntervalMs ?? AUDIO_PACKET_MS,
     buildPacket: ({ sequenceNumber, timestamp, ssrc }) =>
       new RtpPacket(
@@ -71,8 +77,10 @@ export function createDummyAudioTrack(
   return { track, source };
 }
 
+/** @param sourceId See {@link createDummyAudioTrack}. */
 export function createDummyVideoTrack(
   options: Partial<DummyVideoOptions> = {},
+  sourceId = 0,
 ): { track: MediaStreamTrack; source: DummySource } {
   const fps = options.fps ?? DEFAULT_VIDEO_FPS;
   const keyframeIntervalFrames = options.keyframeIntervalFrames ?? fps;
@@ -81,6 +89,7 @@ export function createDummyVideoTrack(
 
   const source = new ScheduledRtpSource({
     track,
+    sourceId,
     intervalMs,
     buildPacket: ({ sequenceNumber, timestamp, ssrc, iteration, sourceId }) => {
       const isKeyframe = iteration % keyframeIntervalFrames === 0;
@@ -113,6 +122,7 @@ export function createDummyVideoTrack(
 class ScheduledRtpSource implements DummySource {
   private readonly props: {
     track: MediaStreamTrack;
+    sourceId: number;
     intervalMs: number;
     buildPacket(args: {
       sequenceNumber: number;
@@ -124,10 +134,9 @@ class ScheduledRtpSource implements DummySource {
     nextTimestamp(timestamp: number): number;
   };
 
-  private readonly sourceId = nextDummySourceId++;
-  private readonly ssrc = (DUMMY_SSRC_BASE + this.sourceId) >>> 0;
-  private sequenceNumber =
-    (DUMMY_SEQUENCE_BASE + this.sourceId * DUMMY_SEQUENCE_STEP) & 0xffff;
+  private readonly sourceId: number;
+  private readonly ssrc: number;
+  private sequenceNumber: number;
   private timestamp = 0;
   private iteration = 0;
   private nextTickAt?: number;
@@ -136,6 +145,7 @@ class ScheduledRtpSource implements DummySource {
 
   constructor(props: {
     track: MediaStreamTrack;
+    sourceId: number;
     intervalMs: number;
     buildPacket(args: {
       sequenceNumber: number;
@@ -147,6 +157,10 @@ class ScheduledRtpSource implements DummySource {
     nextTimestamp(timestamp: number): number;
   }) {
     this.props = props;
+    this.sourceId = props.sourceId;
+    this.ssrc = (DUMMY_SSRC_BASE + this.sourceId) >>> 0;
+    this.sequenceNumber =
+      (DUMMY_SEQUENCE_BASE + this.sourceId * DUMMY_SEQUENCE_STEP) & 0xffff;
   }
 
   start() {

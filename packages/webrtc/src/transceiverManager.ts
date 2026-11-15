@@ -32,10 +32,9 @@ import type { MediaDirection } from "./media/rtpTransceiver";
 import { createBandwidthEstimator } from "./media/sender/createBandwidthEstimator";
 import type { RTCStats } from "./media/stats";
 import { captureTrackSourceCodecs, getTrackSourceCodecs } from "./media/track";
-import {
-  noteApplicationAddTrack,
-  type TransceiverNegotiationState,
-  type TransceiversNegotiationState,
+import type {
+  TransceiverNegotiationState,
+  TransceiversNegotiationState,
 } from "./negotiation/internalState";
 import {
   codecParametersFromString,
@@ -581,7 +580,6 @@ export class TransceiverManager {
         streams,
       };
       emptyTrackSenderTransceiver.markCodecsForResolution();
-      noteApplicationAddTrack(emptyTrackSenderTransceiver);
       this.noteReusedForAddTrack(emptyTrackSenderTransceiver);
       return emptyTrackSenderTransceiver;
     }
@@ -617,7 +615,6 @@ export class TransceiverManager {
           break;
       }
       notSendTransceiver.markCodecsForResolution();
-      noteApplicationAddTrack(notSendTransceiver);
       this.noteReusedForAddTrack(notSendTransceiver);
       return notSendTransceiver;
     } else {
@@ -625,14 +622,12 @@ export class TransceiverManager {
       this.assertTrackCodecsSupported(track, "sendrecv");
       // JSEP 5.10: only a transceiver addTrack() creates may pair with a
       // remote offer m-section it has no MID for.
-      const transceiver = this.addTransceiver(
+      return this.addTransceiver(
         track,
         createTransport?.(),
         { direction: "sendrecv", streams },
         { createdBy: "addTrack" },
       );
-      noteApplicationAddTrack(transceiver);
-      return transceiver;
     }
   }
 
