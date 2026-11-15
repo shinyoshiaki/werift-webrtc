@@ -15,6 +15,7 @@ import {
   RtcpTransportLayerFeedback,
   RtpHeader,
   RtpPacket,
+  TransportWideCC,
 } from "../../src";
 import { RtpRouter } from "../../src/media/router";
 import { RTCRtpReceiver } from "../../src/media/rtpReceiver";
@@ -331,4 +332,190 @@ export function createPendingRidOverFallback(ssrc: number) {
     });
   };
   return { ...arranged, audio, announced, rollback };
+}
+
+/** An endpoint kind of the route matrix (#356 3.11): a local sender, an SDP receiver, a learning receiver. */
+export type RouteKind = "sender" | "sdp" | "learned";
+
+/**
+ * Arrange of the route matrix (#356 3.11): two endpoints `first` and
+ * `second` that name one SSRC, on the same transport or on two, registered
+ * in that order by `register()`. A `learned` end is an SSRC-less receiver
+ * that learns the SSRC from a packet with its MID, an `sdp` end a receiver
+ * an answer gives the SSRC, a `sender` end a local sender whose SSRC it is.
+ * `probe()` sends, on each transport, SR, RR, NACK, PLI and TWCC feedback
+ * naming the SSRC, then one RTP packet without MID, and returns what each
+ * end got.
+ */
+export function createRouteMatrix({
+  first,
+  second,
+  sameTransport,
+}: {
+  first: RouteKind;
+  second: RouteKind;
+  sameTransport: boolean;
+}) {
+  const arranged = createSsrcLessRouter();
+  const { router, dtls, addReceiver } = arranged;
+  const transports = [dtls, sameTransport ? dtls : createDtlsTransport()];
+  const sender =
+    first === "sender" || second === "sender"
+      ? new RTCRtpSender("audio")
+      : undefined;
+  const ssrc = sender?.ssrc ?? 55;
+  type End = {
+    label: "first" | "second";
+    kind: RouteKind;
+    transport: RTCDtlsTransport;
+    transceiver?: RTCRtpTransceiver;
+    sender?: RTCRtpSender;
+  };
+  const ends: End[] = [first, second].map((kind, index) => {
+    const label = index === 0 ? "first" : "second";
+    const transport = transports[index];
+    if (kind === "sender") {
+      sender!.dtlsTransport = transport;
+      return { label, kind, transport, sender };
+    }
+    const transceiver = addReceiver({ mid: label, transport });
+    return { label, kind, transport, transceiver };
+  });
+  const got = new Map<string, string[]>(ends.map((e) => [e.label, []]));
+  for (const end of ends) {
+    const record = (what: string) => got.get(end.label)!.push(what);
+    if (end.sender) {
+      end.sender.handleRtcpPacket = ((packet: RtcpPacket) => {
+        record(`rtcp:${packet.type}`);
+      }) as RTCRtpSender["handleRtcpPacket"];
+    } else {
+      const receiver = end.transceiver!.receiver;
+      receiver.track.onReceiveRtp.subscribe((rtp) =>
+        record(`rtp:${rtp.payload.toString()}`),
+      );
+      receiver.onRtcp.subscribe((packet) => record(`rtcp:${packet.type}`));
+    }
+  }
+  let sequenceNumber = 0;
+  const register = () => {
+    for (const end of ends) {
+      if (end.kind === "sender") {
+        router.registerRtpSender(end.sender!);
+      } else if (end.kind === "sdp") {
+        router.registerRtpReceiverBySsrc(end.transceiver!, {
+          codecs: [opus()],
+          headerExtensions: [],
+          encodings: [new RTCRtpCodingParameters({ ssrc, payloadType: 111 })],
+        });
+      } else {
+        router.routeRtp(
+          ssrcLessPacket({
+            ssrc,
+            payloadType: 111,
+            mid: end.label,
+            sequenceNumber: ++sequenceNumber,
+            payload: Buffer.from(`learn-${end.label}`),
+          }),
+          end.transport,
+        );
+      }
+    }
+    for (const list of got.values()) list.length = 0;
+  };
+  const distinct = [...new Set(transports)];
+  const probe = () => {
+    // RTCP を先に流す (RTP が経路を学習し直す前の状態を確かめる)。
+    for (const transport of distinct) {
+      for (const packet of [
+        rtcpNamingSsrc.SR(ssrc),
+        rtcpNamingSsrc.RR(ssrc),
+        rtcpNamingSsrc.NACK(ssrc),
+        rtcpNamingSsrc.PLI(ssrc),
+        twccFeedback(ssrc),
+      ]) {
+        router.routeRtcp(packet, transport);
+      }
+    }
+    for (const [index, transport] of distinct.entries()) {
+      router.routeRtp(
+        ssrcLessPacket({
+          ssrc,
+          payloadType: 111,
+          sequenceNumber: 100 + ++sequenceNumber,
+          payload: Buffer.from(`t${index}`),
+        }),
+        transport,
+      );
+    }
+    return Object.fromEntries(got);
+  };
+  return { ...arranged, ends, ssrc, transports: distinct, register, probe };
+}
+
+/** A transport-wide CC feedback whose media source SSRC is `ssrc`. */
+function twccFeedback(ssrc: number) {
+  return new RtcpTransportLayerFeedback({
+    feedback: new TransportWideCC({
+      senderSsrc: 1,
+      mediaSourceSsrc: ssrc,
+      baseSequenceNumber: 0,
+      packetStatusCount: 0,
+      referenceTime: 0,
+      fbPktCount: 0,
+    }),
+  });
+}
+
+/**
+ * The expected result of the route matrix: per transport the end that wins
+ * the SSRC there — a local sender over an SDP receiver over a learning one
+ * in one RTP session (the later of two of a kind), each transport its own
+ * across transports, except two SDP receivers (the later description takes
+ * the SSRC on every transport, out of scope). A sender gets the RTCP of its
+ * transport (TWCC too) and no RTP; a receiver gets its transport's RTP and
+ * RTCP; a learning end that loses forgets the SSRC.
+ */
+export function expectedRouteMatrix(
+  ends: { label: string; kind: RouteKind; transport: RTCDtlsTransport }[],
+  transports: RTCDtlsTransport[],
+) {
+  const rank = { sender: 3, sdp: 2, learned: 1 } as const;
+  const removed = new Set(
+    ends.every((e) => e.kind === "sdp") ? [ends[0].label] : [],
+  );
+  const winners = transports.map((transport) => {
+    const here = ends.filter(
+      (e) => e.transport === transport && !removed.has(e.label),
+    );
+    return here.reduce<(typeof here)[number] | undefined>(
+      (best, e) => (!best || rank[e.kind] >= rank[best.kind] ? e : best),
+      undefined,
+    );
+  });
+  const got: Record<string, string[]> = Object.fromEntries(
+    ends.map((e) => [e.label, [] as string[]]),
+  );
+  for (const [index, transport] of transports.entries()) {
+    const winner = winners[index];
+    for (const type of [200, 201, 205, 206]) {
+      if (winner) got[winner.label].push(`rtcp:${type}`);
+    }
+    for (const e of ends) {
+      if (e.kind === "sender" && e.transport === transport) {
+        got[e.label].push("rtcp:205");
+      }
+    }
+  }
+  for (const [index] of transports.entries()) {
+    const winner = winners[index];
+    if (winner && winner.kind !== "sender") {
+      got[winner.label].push(`rtp:t${index}`);
+    }
+  }
+  const keeps = Object.fromEntries(
+    ends
+      .filter((e) => e.kind === "learned")
+      .map((e) => [e.label, winners.includes(e)]),
+  );
+  return { got, keeps };
 }

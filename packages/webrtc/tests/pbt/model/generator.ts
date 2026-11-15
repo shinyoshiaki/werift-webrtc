@@ -51,8 +51,10 @@ export type Side = "a" | "b";
  */
 export const modelConfig = (
   transceiverPairing: TransceiverPairing = "standard",
+  bundlePolicy: ModelBundlePolicy = "max-bundle",
 ) => ({
   transceiverPairing,
+  bundlePolicy,
   codecs: {
     video: [
       useVP8({ rtcpFeedback: [useNACK(), usePLI(), useREMB(), useTWCC()] }),
@@ -80,7 +82,18 @@ export type Op = [Side, string, Record<string, unknown>?];
  * JSEP 5.10 rules the oracles check; a generated scene draws `"byKind"`, the
  * werift default, sometimes, #816).
  */
-export type Scene = { start: Start; ops: Op[]; pairing?: TransceiverPairing };
+/**
+ * `bundlePolicy` of both peers (default `"max-bundle"`, one transport). A
+ * generated scene sometimes draws `"disable"` (a transport per m-line) or
+ * `"max-compat"`, so the same SSRC may live in several RTP sessions (#356).
+ */
+export type ModelBundlePolicy = "max-bundle" | "max-compat" | "disable";
+export type Scene = {
+  start: Start;
+  ops: Op[];
+  pairing?: TransceiverPairing;
+  bundle?: ModelBundlePolicy;
+};
 
 type World = {
   c: NegotiationCase;
@@ -535,12 +548,13 @@ async function arrange(
   c: NegotiationCase,
   start: Start,
   pairing: TransceiverPairing = "standard",
+  bundle: ModelBundlePolicy = "max-bundle",
 ): Promise<World & Peers2> {
   const oracles = new ModelOracles(c);
   let a: RTCPeerConnection;
   let b: RTCPeerConnection;
   if (start !== "connected") {
-    ({ a, b } = await c.given(createPeerPair(modelConfig(pairing))));
+    ({ a, b } = await c.given(createPeerPair(modelConfig(pairing, bundle))));
     oracles.application(
       a.addTransceiver(new MediaStreamTrack({ kind: "video" }), {
         direction: "sendrecv",
@@ -550,7 +564,9 @@ async function arrange(
       oracles.channel(a.createDataChannel("dc0"), a);
     }
   } else {
-    const scope = await c.given(createDuplexSession(modelConfig(pairing)));
+    const scope = await c.given(
+      createDuplexSession(modelConfig(pairing, bundle)),
+    );
     ({ a, b } = scope);
     oracles.application(scope.aVideo);
     oracles.application(scope.bVideo);
@@ -558,7 +574,9 @@ async function arrange(
     oracles.channel(scope.bChannel, b);
   }
   oracles.watch(a, b);
-  c.note(`start: ${start}${pairing === "standard" ? "" : ` (${pairing})`}`);
+  c.note(
+    `start: ${start}${pairing === "standard" ? "" : ` (${pairing})`}${bundle === "max-bundle" ? "" : ` (bundlePolicy ${bundle})`}`,
+  );
   return { c, oracles, saved: new Map(), created: 0, a, b };
 }
 type Peers2 = { a: RTCPeerConnection; b: RTCPeerConnection };
@@ -575,7 +593,7 @@ export async function runScene(
   scene: Scene,
   { lenient = false } = {},
 ) {
-  const w = await arrange(c, scene.start, scene.pairing);
+  const w = await arrange(c, scene.start, scene.pairing, scene.bundle);
   for (const [index, [side, name, args = {}]] of scene.ops.entries()) {
     const peers = peersOf(w, side);
     const step = STEPS[name];
@@ -609,7 +627,12 @@ export async function generateScene(
   ] as const);
   // The pairing axis has its own stream, so it does not shift the operations.
   if (seededRandom(seed ^ 0x816).chance(0.25)) scene.pairing = "byKind";
-  const w = await arrange(c, scene.start, scene.pairing);
+  // The bundle axis has its own stream too (several RTP sessions, #356).
+  const bundleRng = seededRandom(seed ^ 0x356);
+  if (bundleRng.chance(0.3)) {
+    scene.bundle = bundleRng.pick(["disable", "max-compat"] as const);
+  }
+  const w = await arrange(c, scene.start, scene.pairing, scene.bundle);
   for (let index = 1; index <= steps; index++) {
     const side: Side = rng.chance(0.5) ? "a" : "b";
     const peers = peersOf(w, side);

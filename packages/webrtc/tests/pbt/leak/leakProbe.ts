@@ -287,13 +287,11 @@ type PeerInternals = {
   };
   remoteCandidates: { queued: unknown[] } & Record<string, unknown>;
   router: {
-    ssrcTable: Record<number, unknown>;
+    routeEntries: { origin: string }[];
     ridTable: Record<string, unknown>;
     stagedSsrc: Map<number, unknown>;
     stagedRid: Map<string, unknown>;
     provisionalSsrc: Map<number, unknown>;
-    collidingRoutes: Map<number, Set<unknown>>;
-    learnedSsrcs: Set<number>;
     extIdUriMap: Record<number, string>;
   };
   topology: object;
@@ -388,17 +386,16 @@ export function leakFootprint(pc: RTCPeerConnection): Footprint {
     dtlsTransports: pc.dtlsTransports.length,
     heldTransports: held.size,
     iceTransports: pc.iceTransports.length,
-    "router.ssrcTable": Object.keys(router.ssrcTable).length,
+    // SSRC の経路 (sender / SDP / パケット由来。別 transport の同じ SSRC は別の経路)。
+    "router.routes": router.routeEntries.length,
     "router.ridTable": Object.keys(router.ridTable).length,
     "router.stagedSsrc": router.stagedSsrc.size,
     "router.stagedRid": router.stagedRid.size,
     "router.provisionalSsrc": router.provisionalSsrc.size,
-    "router.learnedSsrcs": router.learnedSsrcs.size,
-    // 別 transport で同じ数値の SSRC を学習した fallback 経路 (学習 SSRC ごとに 1 つ)。
-    "router.collidingRoutes": sum(
-      router.collidingRoutes.values(),
-      (routes) => routes.size,
-    ),
+    // パケットから学習した経路 (RID は RID ごと、fallback は receiver ごとに最大 8)。
+    "router.learnedRoutes": router.routeEntries.filter(
+      (r) => r.origin === "learned",
+    ).length,
     "router.extIdUriMap": Object.keys(router.extIdUriMap).length,
     // パケットから学習した track の SSRC (RID と、a=ssrc のない m-line の fallback)。
     "receiver.learnedTrackSsrcs": sum(

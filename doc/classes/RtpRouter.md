@@ -17,14 +17,14 @@ staged and restores the baseline (`snapshotRoutes` / `restoreRoutes`).
 | --- | --- | --- |
 | Payload type → codec | receiver codec table | remap rejected (RFC 3264 section 8.3.2); fmtp / rtcp-fb change staged |
 | Header extension ID → URI | `extIdUriMap` | remap of an ID in use rejected (RFC 8285 section 7); a URI on a new ID is an addition |
-| SSRC → receiver | `ssrcTable` | move to another m-line staged |
+| SSRC → receiver | `routes` (origin `sdp`) | move to another m-line staged |
 | RTX SSRC → media SSRC | receiver RTX table | changed pairing staged |
 | MID+RID → receiver | `ridTable` | RIDs are scoped to their m-line (RFC 8851): no conflict |
-| Sender SSRC → sender | `ssrcTable` | application state: rollback keeps every live sender's route |
+| Sender SSRC → sender | `routes` (origin `sender`) | application state: rollback keeps every live sender's route |
 
 Packet-driven routes are not description state: an SSRC first seen with
-`rtp-stream-id` / `repaired-rtp-stream-id` is added to `ssrcTable` as
-learned (`learnedSsrcs`), and the receiver learns RID → media SSRC and RTX
+`rtp-stream-id` / `repaired-rtp-stream-id` gets a route of origin
+`learned`, and the receiver learns RID → media SSRC and RTX
 SSRC → RID (`mediaSsrcByRid` / `ridByRtxSsrc`). Commit and rollback keep them.
 They are bounded per RID: an SSRC the receiver retires (a media SSRC change
 of the RID) or evicts loses its learned route here (`takeForgottenSsrcs`),
@@ -76,21 +76,24 @@ keep their receiver whatever the MID (existing behaviour). A rollback keeps
 the receiver packets taught last, even over a baseline route packets
 taught another receiver.
 
-An SSRC is unique per RTP session only: a receiver route, from a
-description or learned from packets, belongs to its receiver's current
-transport (a transceiver moved to another transport takes it along, and
-the old transport no longer reaches it). RTP and RTCP (SR, RR and every
-feedback naming an SSRC) arriving on another transport never resolve to
-it; that transport's receiver learning the same numeric SSRC (fallback or
-RID) keeps its own route (`collidingRoutes`), and a description giving
-the SSRC to a receiver of another transport than its learned owner's
-moves the learned route aside instead of taking it. Within one RTP
-session a description's SSRC wins over a learned one (the learning
-receiver forgets it). A local sender's route belongs to its transport
-as well: a remote stream of the same RTP session using a local sender's
-SSRC is a collision (RFC 3550 section 8.2) and is not learned, while one
-of another transport is another stream and is learned there
-(`collidingRoutes`), the sender keeping its route and RTCP.
+An SSRC is unique per RTP session only, so `routes` keeps, per SSRC, a
+set of routes `{ endpoint, origin }`, each belonging to its endpoint's
+current `dtlsTransport` (a transceiver moved to another transport takes
+it along; a sender without a transport yet belongs to every one). A
+packet, RTP or RTCP (SR, RR and every feedback naming an SSRC), resolves
+to the highest ranked route of its transport (endpointBySsrc):
+
+| Origin | Added by | Rank in one RTP session | Other transports |
+| --- | --- | --- | --- |
+| `sender` | `registerRtpSender` | 1: a remote stream using it is a collision (RFC 3550 section 8.2), not learned | other streams, routed there |
+| `sdp` | `registerRtpReceiver` (an answer, a commit, or a pending description without conflict) | 2: a learned owner forgets the SSRC | stay; another description route of the SSRC goes on every transport (the later description wins, as before) |
+| `learned` | packets (RID, simulcast, fallback) | 3: never beside a `sender` / `sdp` route of another endpoint | other streams, routed there |
+
+A receiver that loses its learned SSRC (a sender or description of its
+session registers it, or a BUNDLE merge brings it into such a session)
+forgets it (`releaseFallbackSsrc`), so its track and statistics agree
+with the table. Sender enumeration (TWCC fan-out, keyframe fallback)
+reads the same routes.
 
 A payload type or extension ID counts as in use only when both current
 descriptions carry it for the m-line. RID lookup uses MID+RID when the
@@ -147,15 +150,6 @@ before it applies, while the announcement of the default track stands.
 
 ***
 
-### learnedSsrcs
-
-> `readonly` **learnedSsrcs**: `Set`\<`number`\>
-
-SSRCs registered from received packets (simulcast after RID stops being
-sent), not from SDP. Negotiation rollback keeps these entries.
-
-***
-
 ### ridTable
 
 > **ridTable**: `object` = `{}`
@@ -165,16 +159,6 @@ Keyed by ridRouteKey (MID + RID).
 #### Index Signature
 
 \[`midAndRid`: `string`\]: [`RTCRtpReceiver`](RTCRtpReceiver.md) \| [`RTCRtpSender`](RTCRtpSender.md)
-
-***
-
-### ssrcTable
-
-> **ssrcTable**: `object` = `{}`
-
-#### Index Signature
-
-\[`ssrc`: `number`\]: [`RTCRtpReceiver`](RTCRtpReceiver.md) \| [`RTCRtpSender`](RTCRtpSender.md)
 
 ***
 
@@ -191,6 +175,49 @@ no table of its own for it, so negotiation snapshots stay as they are.
 readonly [`RTCRtpTransceiver`](RTCRtpTransceiver.md)[]
 
 ## Accessors
+
+### learnedSsrcs
+
+#### Get Signature
+
+> **get** **learnedSsrcs**(): `ReadonlySet`\<`number`\>
+
+Test / observation view: SSRCs that have a route packets taught.
+
+##### Returns
+
+`ReadonlySet`\<`number`\>
+
+***
+
+### routeEntries
+
+#### Get Signature
+
+> **get** **routeEntries**(): `object`[]
+
+Test / observation view: every route with its SSRC.
+
+##### Returns
+
+`object`[]
+
+***
+
+### ssrcTable
+
+#### Get Signature
+
+> **get** **ssrcTable**(): `object`
+
+Test / observation view: SSRC → the endpoint a packet without a
+transport reaches (the highest ranked route, the first of a rank).
+
+##### Returns
+
+`object`
+
+***
 
 ### staged
 
@@ -294,6 +321,11 @@ at once so provisional RTP flows.
 
 > **registerRtpSender**(`sender`): `void`
 
+A local sender's own SSRC. In its RTP session it outranks a receiver
+route: a learned SSRC there is a remote collision (RFC 3550 section 8.2)
+and is forgotten; an SDP route there stays but receives nothing. Routes
+of other transports are other streams and stay.
+
 #### Parameters
 
 ##### sender
@@ -326,19 +358,15 @@ does not bring packet-driven routes back.
 
 \{\[`id`: `number`\]: `string`; \} = `...`
 
-###### learnedSsrcs
-
-`number`[] = `...`
-
-Routes of `ssrcTable` that packets taught (not description state).
-
 ###### ridTable
 
 \{\[`midAndRid`: `string`\]: [`RTCRtpReceiver`](RTCRtpReceiver.md) \| [`RTCRtpSender`](RTCRtpSender.md); \} = `...`
 
-###### ssrcTable
+###### routes
 
-\{\[`ssrc`: `number`\]: [`RTCRtpReceiver`](RTCRtpReceiver.md) \| [`RTCRtpSender`](RTCRtpSender.md); \} = `...`
+(readonly \[`number`, `object`[]\])[] = `...`
+
+Every route (description, sender and packet-driven ones).
 
 ###### staged
 
@@ -440,12 +468,6 @@ Internal: every route a negotiation may change, for a rollback baseline.
 
 \[`id`: `number`\]: `string`
 
-##### learnedSsrcs
-
-> **learnedSsrcs**: `number`[]
-
-Routes of `ssrcTable` that packets taught (not description state).
-
 ##### ridTable
 
 > **ridTable**: `object`
@@ -454,13 +476,11 @@ Routes of `ssrcTable` that packets taught (not description state).
 
 \[`midAndRid`: `string`\]: [`RTCRtpReceiver`](RTCRtpReceiver.md) \| [`RTCRtpSender`](RTCRtpSender.md)
 
-##### ssrcTable
+##### routes
 
-> **ssrcTable**: `object`
+> **routes**: (readonly \[`number`, `object`[]\])[]
 
-###### Index Signature
-
-\[`ssrc`: `number`\]: [`RTCRtpReceiver`](RTCRtpReceiver.md) \| [`RTCRtpSender`](RTCRtpSender.md)
+Every route (description, sender and packet-driven ones).
 
 ##### staged
 

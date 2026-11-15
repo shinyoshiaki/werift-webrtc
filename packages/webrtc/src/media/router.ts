@@ -72,6 +72,27 @@ const UnknownSsrcDrop = {
 } as const;
 type UnknownSsrcDrop = (typeof UnknownSsrcDrop)[keyof typeof UnknownSsrcDrop];
 
+/**
+ * Where a route of an SSRC comes from, which also ranks it within one RTP
+ * session: a local sender's own SSRC over a description's over one packets
+ * taught.
+ * @enum
+ */
+const RouteOrigin = {
+  sender: "sender",
+  sdp: "sdp",
+  learned: "learned",
+} as const;
+type RouteOrigin = (typeof RouteOrigin)[keyof typeof RouteOrigin];
+const ORIGIN_RANK: Record<RouteOrigin, number> = {
+  sender: 3,
+  sdp: 2,
+  learned: 1,
+};
+
+type Endpoint = RTCRtpReceiver | RTCRtpSender;
+type Route = { endpoint: Endpoint; origin: RouteOrigin };
+
 type StagedRoutes = {
   ssrc: [number, RTCRtpReceiver][];
   rid: [string, RTCRtpReceiver][];
@@ -90,14 +111,14 @@ type StagedRoutes = {
  * | --- | --- | --- |
  * | Payload type → codec | receiver codec table | remap rejected (RFC 3264 section 8.3.2); fmtp / rtcp-fb change staged |
  * | Header extension ID → URI | `extIdUriMap` | remap of an ID in use rejected (RFC 8285 section 7); a URI on a new ID is an addition |
- * | SSRC → receiver | `ssrcTable` | move to another m-line staged |
+ * | SSRC → receiver | `routes` (origin `sdp`) | move to another m-line staged |
  * | RTX SSRC → media SSRC | receiver RTX table | changed pairing staged |
  * | MID+RID → receiver | `ridTable` | RIDs are scoped to their m-line (RFC 8851): no conflict |
- * | Sender SSRC → sender | `ssrcTable` | application state: rollback keeps every live sender's route |
+ * | Sender SSRC → sender | `routes` (origin `sender`) | application state: rollback keeps every live sender's route |
  *
  * Packet-driven routes are not description state: an SSRC first seen with
- * `rtp-stream-id` / `repaired-rtp-stream-id` is added to `ssrcTable` as
- * learned (`learnedSsrcs`), and the receiver learns RID → media SSRC and RTX
+ * `rtp-stream-id` / `repaired-rtp-stream-id` gets a route of origin
+ * `learned`, and the receiver learns RID → media SSRC and RTX
  * SSRC → RID (`mediaSsrcByRid` / `ridByRtxSsrc`). Commit and rollback keep them.
  * They are bounded per RID: an SSRC the receiver retires (a media SSRC change
  * of the RID) or evicts loses its learned route here (`takeForgottenSsrcs`),
@@ -149,21 +170,24 @@ type StagedRoutes = {
  * the receiver packets taught last, even over a baseline route packets
  * taught another receiver.
  *
- * An SSRC is unique per RTP session only: a receiver route, from a
- * description or learned from packets, belongs to its receiver's current
- * transport (a transceiver moved to another transport takes it along, and
- * the old transport no longer reaches it). RTP and RTCP (SR, RR and every
- * feedback naming an SSRC) arriving on another transport never resolve to
- * it; that transport's receiver learning the same numeric SSRC (fallback or
- * RID) keeps its own route (`collidingRoutes`), and a description giving
- * the SSRC to a receiver of another transport than its learned owner's
- * moves the learned route aside instead of taking it. Within one RTP
- * session a description's SSRC wins over a learned one (the learning
- * receiver forgets it). A local sender's route belongs to its transport
- * as well: a remote stream of the same RTP session using a local sender's
- * SSRC is a collision (RFC 3550 section 8.2) and is not learned, while one
- * of another transport is another stream and is learned there
- * (`collidingRoutes`), the sender keeping its route and RTCP.
+ * An SSRC is unique per RTP session only, so `routes` keeps, per SSRC, a
+ * set of routes `{ endpoint, origin }`, each belonging to its endpoint's
+ * current `dtlsTransport` (a transceiver moved to another transport takes
+ * it along; a sender without a transport yet belongs to every one). A
+ * packet, RTP or RTCP (SR, RR and every feedback naming an SSRC), resolves
+ * to the highest ranked route of its transport ({@link endpointBySsrc}):
+ *
+ * | Origin | Added by | Rank in one RTP session | Other transports |
+ * | --- | --- | --- | --- |
+ * | `sender` | `registerRtpSender` | 1: a remote stream using it is a collision (RFC 3550 section 8.2), not learned | other streams, routed there |
+ * | `sdp` | `registerRtpReceiver` (an answer, a commit, or a pending description without conflict) | 2: a learned owner forgets the SSRC | stay; another description route of the SSRC goes on every transport (the later description wins, as before) |
+ * | `learned` | packets (RID, simulcast, fallback) | 3: never beside a `sender` / `sdp` route of another endpoint | other streams, routed there |
+ *
+ * A receiver that loses its learned SSRC (a sender or description of its
+ * session registers it, or a BUNDLE merge brings it into such a session)
+ * forgets it (`releaseFallbackSsrc`), so its track and statistics agree
+ * with the table. Sender enumeration (TWCC fan-out, keyframe fallback)
+ * reads the same routes.
  *
  * A payload type or extension ID counts as in use only when both current
  * descriptions carry it for the m-line. RID lookup uses MID+RID when the
@@ -173,7 +197,14 @@ type StagedRoutes = {
  * omits stays routed; only SSRCs a replaced pranswer alone added are dropped.
  */
 export class RtpRouter {
-  ssrcTable: { [ssrc: number]: RTCRtpReceiver | RTCRtpSender } = {};
+  /**
+   * SSRC → its routes. An SSRC is unique per RTP session only, so one SSRC
+   * may have a route on each transport: a route belongs to its endpoint's
+   * current `dtlsTransport` (a sender without one yet to every transport),
+   * and a packet resolves to the highest ranked route of its transport
+   * ({@link endpointBySsrc}, `RouteOrigin`).
+   */
+  private routes = new Map<number, Route[]>();
   /** Keyed by {@link ridRouteKey} (MID + RID). */
   ridTable: { [midAndRid: string]: RTCRtpReceiver | RTCRtpSender } = {};
   /**
@@ -189,11 +220,7 @@ export class RtpRouter {
    */
   private provisionalSsrc = new Map<number, RTCRtpReceiver>();
   extIdUriMap: { [id: number]: string } = {};
-  /**
-   * SSRCs registered from received packets (simulcast after RID stops being
-   * sent), not from SDP. Negotiation rollback keeps these entries.
-   */
-  readonly learnedSsrcs = new Set<number>();
+
   keyFrameRequestRouting: KeyFrameRequestRouting = "fallback";
   /**
    * Internal: the transceivers of the PeerConnection, for the fallback of
@@ -209,32 +236,115 @@ export class RtpRouter {
   announcedTrack: (
     transceiver: RTCRtpTransceiver,
   ) => MediaStreamTrack | undefined = () => undefined;
-  /**
-   * Fallback routes whose SSRC `ssrcTable` already holds for a receiver of
-   * another transport (an SSRC is unique per RTP session only). Packet-driven
-   * like `learnedSsrcs`, not part of a negotiation baseline: an entry is
-   * valid only while its receiver still has the SSRC as a track. Keyed by
-   * SSRC, not by transport: like a learned route of `ssrcTable`, an entry
-   * belongs to the receiver's current `dtlsTransport`, so a transceiver
-   * moved to another transport stops answering on the old one.
-   * RTP and RTCP resolve it alike ({@link endpointBySsrc}).
-   */
-  private collidingRoutes = new Map<number, Set<RTCRtpReceiver>>();
   /** Last logged drop of an unknown SSRC, so a stream logs a reason once. */
   private lastUnknownSsrcDrop?: string;
 
   constructor() {}
 
+  /**
+   * Test / observation view: SSRC → the endpoint a packet without a
+   * transport reaches (the highest ranked route, the first of a rank).
+   */
+  get ssrcTable(): { [ssrc: number]: Endpoint } {
+    const table: { [ssrc: number]: Endpoint } = {};
+    for (const ssrc of this.routes.keys()) {
+      const endpoint = this.endpointBySsrc(ssrc);
+      if (endpoint) table[ssrc] = endpoint;
+    }
+    return table;
+  }
+
+  /** Test / observation view: SSRCs that have a route packets taught. */
+  get learnedSsrcs(): ReadonlySet<number> {
+    const ssrcs = new Set<number>();
+    for (const [ssrc, list] of this.routes) {
+      if (list.some((r) => r.origin === RouteOrigin.learned)) ssrcs.add(ssrc);
+    }
+    return ssrcs;
+  }
+
+  /**
+   * Test / observation view: learned receiver routes beside the route a
+   * packet without a transport reaches (the same SSRC on another transport).
+   */
+  private get collidingRoutes(): Map<number, Set<RTCRtpReceiver>> {
+    const out = new Map<number, Set<RTCRtpReceiver>>();
+    for (const [ssrc, list] of this.routes) {
+      const top = this.endpointBySsrc(ssrc);
+      for (const route of list) {
+        if (route.origin !== RouteOrigin.learned || route.endpoint === top) {
+          continue;
+        }
+        let set = out.get(ssrc);
+        if (!set) out.set(ssrc, (set = new Set()));
+        set.add(route.endpoint as RTCRtpReceiver);
+      }
+    }
+    return out;
+  }
+
+  /** Test / observation view: every route with its SSRC. */
+  get routeEntries(): {
+    ssrc: number;
+    endpoint: Endpoint;
+    origin: RouteOrigin;
+  }[] {
+    return [...this.routes].flatMap(([ssrc, list]) =>
+      list.map((route) => ({ ssrc, ...route })),
+    );
+  }
+
+  private routesOf(ssrc: number) {
+    return this.routes.get(ssrc) ?? [];
+  }
+
+  private addRoute(ssrc: number, route: Route) {
+    const list = this.routes.get(ssrc);
+    if (list) list.push(route);
+    else this.routes.set(ssrc, [route]);
+  }
+
+  private removeRoutes(ssrc: number, drop: (route: Route) => boolean) {
+    const list = this.routes.get(ssrc);
+    if (!list) return;
+    const kept = list.filter((route) => !drop(route));
+    if (kept.length) this.routes.set(ssrc, kept);
+    else this.routes.delete(ssrc);
+  }
+
+  /** The transport a route belongs to (a sender without one: every transport). */
+  private static transportOf(endpoint: Endpoint) {
+    return endpoint.dtlsTransport as RTCDtlsTransport | undefined;
+  }
+
+  /** `endpoint`'s route and one on `transport` are in one RTP session. */
+  private static sameSession(
+    endpoint: Endpoint,
+    transport: RTCDtlsTransport | undefined,
+  ) {
+    const own = RtpRouter.transportOf(endpoint);
+    return !own || !transport || own === transport;
+  }
+
+  /**
+   * A local sender's own SSRC. In its RTP session it outranks a receiver
+   * route: a learned SSRC there is a remote collision (RFC 3550 section 8.2)
+   * and is forgotten; an SDP route there stays but receives nothing. Routes
+   * of other transports are other streams and stay.
+   */
   registerRtpSender(sender: RTCRtpSender) {
-    this.ssrcTable[sender.ssrc] = sender;
-    this.learnedSsrcs.delete(sender.ssrc);
+    const ssrc = sender.ssrc;
+    if (this.routesOf(ssrc).some((r) => r.endpoint === sender)) return;
+    for (const owner of this.fallbackOwnersIn(ssrc, sender)) {
+      this.releaseFallbackSsrc(owner, ssrc);
+    }
+    this.addRoute(ssrc, { endpoint: sender, origin: RouteOrigin.sender });
   }
 
   /** Internal: the negotiation committed, staged routes replace current ones. */
   commitStaged() {
     for (const [ssrc, receiver] of this.stagedSsrc) {
       this.takeSsrcRoute(ssrc, receiver);
-      this.learnedSsrcs.delete(ssrc);
     }
     for (const [key, receiver] of this.stagedRid) {
       this.ridTable[key] = receiver;
@@ -314,8 +424,11 @@ export class RtpRouter {
   /** Internal: drop the routes an earlier pending description added at once. */
   discardProvisional() {
     for (const [ssrc, receiver] of this.provisionalSsrc) {
-      if (this.ssrcTable[ssrc] === receiver && !this.learnedSsrcs.has(ssrc)) {
-        delete this.ssrcTable[ssrc];
+      const route = this.routesOf(ssrc).find(
+        (r) => r.endpoint === receiver && r.origin === RouteOrigin.sdp,
+      );
+      if (route) {
+        this.removeRoutes(ssrc, (r) => r === route);
         receiver.releaseProvisionalSsrc(ssrc);
       }
     }
@@ -341,12 +454,13 @@ export class RtpRouter {
   /** Internal: every route a negotiation may change, for a rollback baseline. */
   snapshotRoutes() {
     return {
-      ssrcTable: { ...this.ssrcTable },
+      /** Every route (description, sender and packet-driven ones). */
+      routes: [...this.routes].map(
+        ([ssrc, list]) => [ssrc, list.map((r) => ({ ...r }))] as const,
+      ),
       ridTable: { ...this.ridTable },
       extIdUriMap: { ...this.extIdUriMap },
       staged: this.snapshotStaged(),
-      /** Routes of `ssrcTable` that packets taught (not description state). */
-      learnedSsrcs: [...this.learnedSsrcs],
     };
   }
 
@@ -369,32 +483,26 @@ export class RtpRouter {
       liveSenders: RTCRtpSender[];
     },
   ) {
-    // A route packets taught wins over a baseline route packets taught too
-    // (the SSRC moved to another receiver after the baseline); a baseline
-    // route of a description comes back.
-    const baselineLearned = new Set(snapshot.learnedSsrcs);
-    const learnedRoutes = Object.entries(this.ssrcTable).filter(
-      ([ssrc, endpoint]) =>
-        this.learnedSsrcs.has(Number(ssrc)) &&
-        (!(ssrc in snapshot.ssrcTable) || baselineLearned.has(Number(ssrc))) &&
-        endpoints.has(endpoint),
+    // Description routes return to the baseline. Routes packets taught are
+    // not description state: the current ones of attached endpoints stay
+    // (also over a baseline one packets taught another receiver), and one
+    // the baseline had that was dropped since stays dropped. Every live
+    // sender keeps its route (also one added while the description was
+    // pending).
+    const learned = this.routeEntries.filter(
+      (r) => r.origin === RouteOrigin.learned && endpoints.has(r.endpoint),
     );
-    const forgotten = snapshot.learnedSsrcs.filter(
-      (ssrc) => !(ssrc in this.ssrcTable),
-    );
-    this.ssrcTable = { ...snapshot.ssrcTable };
-    for (const ssrc of forgotten) delete this.ssrcTable[ssrc];
-    for (const [ssrc, endpoint] of learnedRoutes) {
-      this.ssrcTable[Number(ssrc)] = endpoint;
+    this.routes = new Map();
+    for (const [ssrc, list] of snapshot.routes) {
+      for (const route of list) {
+        if (route.origin !== RouteOrigin.learned)
+          this.addRoute(ssrc, { ...route });
+      }
     }
-    // A baseline route packets taught stays learned, even if the rolled-back
-    // description named the same SSRC (which cleared the mark).
-    for (const ssrc of snapshot.learnedSsrcs) {
-      if (ssrc in this.ssrcTable) this.learnedSsrcs.add(ssrc);
+    for (const { ssrc, endpoint, origin } of learned) {
+      this.addRoute(ssrc, { endpoint, origin });
     }
-    for (const sender of liveSenders) {
-      if (!(sender.ssrc in this.ssrcTable)) this.registerRtpSender(sender);
-    }
+    for (const sender of liveSenders) this.registerRtpSender(sender);
     this.ridTable = { ...snapshot.ridTable };
     this.extIdUriMap = { ...snapshot.extIdUriMap };
     this.restoreStaged(snapshot.staged);
@@ -418,23 +526,19 @@ export class RtpRouter {
     transceiver.receiver.deferredRemote = undefined;
     transceiver.receiver.releaseFallbackSsrcs();
     transceiver.receiver.takeForgottenSsrcs();
-    for (const ssrc of [...this.collidingRoutes.keys()]) {
-      this.dropCollidingRoute(ssrc, transceiver.receiver);
-    }
     for (const [ssrc, receiver] of this.stagedSsrc) {
       if (receiver === transceiver.receiver) this.stagedSsrc.delete(ssrc);
     }
     for (const [key, receiver] of this.stagedRid) {
       if (receiver === transceiver.receiver) this.stagedRid.delete(key);
     }
-    for (const [ssrc, endpoint] of Object.entries(this.ssrcTable)) {
-      if (
-        endpoint === transceiver.sender ||
-        endpoint === transceiver.receiver
-      ) {
-        delete this.ssrcTable[Number(ssrc)];
-        this.learnedSsrcs.delete(Number(ssrc));
-      }
+    for (const ssrc of [...this.routes.keys()]) {
+      this.removeRoutes(
+        ssrc,
+        (r) =>
+          r.endpoint === transceiver.sender ||
+          r.endpoint === transceiver.receiver,
+      );
     }
     for (const [rid, endpoint] of Object.entries(this.ridTable)) {
       if (
@@ -452,29 +556,24 @@ export class RtpRouter {
     deferConflicts = false,
   ) {
     log("registerRtpReceiver", ssrc);
-    const existing = this.ssrcTable[ssrc];
-    // A route of the current session in the same RTP session (a sender, a
-    // receiver on the same transport, or a learned owner there) keeps the
-    // SSRC until the commit. A learned route of another transport is another
-    // stream: it stays beside this one (`collidingRoutes`).
+    const own = this.routesOf(ssrc).some((r) => r.endpoint === receiver);
+    // A route of the current session the registration would take away keeps
+    // the SSRC until the commit: another receiver's description route (a
+    // later description takes it on every transport) or a learned owner in
+    // this RTP session. Senders and other sessions' learned routes stay
+    // beside it.
     const conflicts =
-      !!existing &&
-      existing !== receiver &&
-      !this.movesAside(ssrc, existing, receiver);
-    if (
-      deferConflicts &&
-      (conflicts || this.fallbackOwners(ssrc, receiver).length > 0)
-    ) {
+      this.routesOf(ssrc).some(
+        (r) => r.origin === RouteOrigin.sdp && r.endpoint !== receiver,
+      ) || this.fallbackOwners(ssrc, receiver).length > 0;
+    if (deferConflicts && conflicts) {
       this.stagedSsrc.set(ssrc, receiver);
       return;
     }
-    if (deferConflicts && !existing) this.provisionalSsrc.set(ssrc, receiver);
+    if (deferConflicts && !own) this.provisionalSsrc.set(ssrc, receiver);
     if (!deferConflicts) this.provisionalSsrc.delete(ssrc);
     this.stagedSsrc.delete(ssrc);
     this.takeSsrcRoute(ssrc, receiver);
-    // Registration from SDP makes the route description state again; the
-    // packet path re-marks it as learned right after this call.
-    this.learnedSsrcs.delete(ssrc);
   }
 
   /**
@@ -789,32 +888,18 @@ export class RtpRouter {
    * that route.
    */
   private learnSsrc(ssrc: number, receiver: RTCRtpReceiver) {
-    const owner = this.ssrcTable[ssrc];
-    if (owner && !this.isForeignRoute(owner, receiver.dtlsTransport)) {
-      return false;
-    }
+    if (this.endpointBySsrc(ssrc, receiver.dtlsTransport)) return false;
     log("simulcast register receiver by ssrc", ssrc);
     return this.addLearnedRoute(ssrc, receiver);
   }
 
   /**
    * Add a route a packet taught `receiver`, in the RTP session of its
-   * transport: an SSRC `ssrcTable` holds as learned for another transport's
-   * receiver goes to `collidingRoutes` (an SSRC is unique per RTP session
-   * only), otherwise to `ssrcTable`. False when the route already exists.
+   * transport. False when `receiver` already has a route for `ssrc`.
    */
   private addLearnedRoute(ssrc: number, receiver: RTCRtpReceiver) {
-    const transport = receiver.dtlsTransport;
-    const owner = this.ssrcTable[ssrc];
-    if (owner && this.isForeignRoute(owner, transport)) {
-      let routes = this.collidingRoutes.get(ssrc);
-      if (!routes) this.collidingRoutes.set(ssrc, (routes = new Set()));
-      if (routes.has(receiver)) return false;
-      routes.add(receiver);
-      return true;
-    }
-    this.ssrcTable[ssrc] = receiver;
-    this.learnedSsrcs.add(ssrc);
+    if (this.routesOf(ssrc).some((r) => r.endpoint === receiver)) return false;
+    this.addRoute(ssrc, { endpoint: receiver, origin: RouteOrigin.learned });
     return true;
   }
 
@@ -836,8 +921,8 @@ export class RtpRouter {
    * `repaired-rtp-stream-id`) teaches nothing: without `ssrc-group:FID`
    * nothing pairs it with the media SSRC. A learned SSRC stays learned (see
    * {@link routeFallbackPacket}), so a late packet never comes here.
-   * An SSRC `ssrcTable` holds for another transport's receiver is routed
-   * through `collidingRoutes`, so each transport keeps its own receiver.
+   * The same SSRC on another transport is another stream with its own
+   * route (`routes`), so each transport keeps its own receiver.
    * Receiving is decided by the committed `currentDirection`; a pending
    * description decides only before the first commit.
    */
@@ -952,58 +1037,40 @@ export class RtpRouter {
 
   /**
    * The endpoint `ssrc` names for a packet of `transport`, for RTP and RTCP
-   * alike. An SSRC is unique per RTP session only: a route a packet taught
-   * belongs to its receiver's current transport, so a packet of another
-   * transport resolves to that transport's own route (`collidingRoutes`) or
-   * to none. Without a transport `ssrcTable` decides.
+   * alike: the highest ranked route of that RTP session (a local sender, a
+   * description's receiver, a receiver packets taught; the first of a
+   * rank). Routes of other transports are other streams and are not
+   * reached. A learned route whose receiver no longer knows the SSRC (or
+   * stopped) is dropped on the way. Without a transport every route counts.
    */
   private endpointBySsrc(ssrc: number, transport?: RTCDtlsTransport) {
-    const colliding = this.collidingRoute(transport, ssrc);
-    if (colliding) return colliding;
-    const route = this.ssrcTable[ssrc];
-    if (route && this.isForeignRoute(route, transport)) {
-      return undefined;
-    }
-    return route;
-  }
-
-  private collidingRoute(
-    transport: RTCDtlsTransport | undefined,
-    ssrc: number,
-  ) {
-    const routes = transport && this.collidingRoutes.get(ssrc);
-    if (!routes) return undefined;
-    let found: RTCRtpReceiver | undefined;
-    for (const receiver of [...routes]) {
-      if (!receiver.knowsSsrc(ssrc) || receiver.stopped) {
-        this.dropCollidingRoute(ssrc, receiver);
-      } else if (!found && receiver.dtlsTransport === transport) {
-        found = receiver;
+    let best: Route | undefined;
+    for (const route of [...this.routesOf(ssrc)]) {
+      const { endpoint } = route;
+      if (
+        route.origin === RouteOrigin.learned &&
+        endpoint instanceof RTCRtpReceiver &&
+        (endpoint.stopped || !endpoint.knowsSsrc(ssrc))
+      ) {
+        this.removeRoutes(ssrc, (r) => r === route);
+        continue;
+      }
+      if (!RtpRouter.sameSession(endpoint, transport)) continue;
+      if (!best || ORIGIN_RANK[route.origin] > ORIGIN_RANK[best.origin]) {
+        best = route;
       }
     }
-    return found;
-  }
-
-  private dropCollidingRoute(ssrc: number, receiver: RTCRtpReceiver) {
-    const routes = this.collidingRoutes.get(ssrc);
-    if (!routes?.delete(receiver)) return;
-    if (routes.size === 0) this.collidingRoutes.delete(ssrc);
-  }
-
-  /**
-   * A route (a receiver's, from a description or taught by packets, or a
-   * local sender's) of another RTP session than `transport`: an SSRC is
-   * unique per RTP session only, so a packet of `transport` does not reach
-   * it, and a remote stream there may use the same number. A sender without
-   * a transport yet is not scoped.
-   */
-  private isForeignRoute(
-    route: RTCRtpReceiver | RTCRtpSender,
-    transport: RTCDtlsTransport | undefined,
-  ) {
-    return (
-      !!transport && !!route.dtlsTransport && route.dtlsTransport !== transport
-    );
+    // A transceiver moved into this RTP session (a BUNDLE merge) may bring a
+    // learned SSRC a sender or description route of the session outranks:
+    // that receiver forgets it, as at a registration.
+    if (transport && best && best.origin !== RouteOrigin.learned) {
+      for (const owner of this.fallbackOwnersIn(ssrc, best.endpoint)) {
+        if (owner.dtlsTransport === transport) {
+          this.releaseFallbackSsrc(owner, ssrc);
+        }
+      }
+    }
+    return best?.endpoint;
   }
 
   /**
@@ -1038,65 +1105,53 @@ export class RtpRouter {
   }
 
   /**
-   * A description routes `ssrc` to `receiver`: a receiver that learned it
-   * as a fallback SSRC (on any transport, SDP routes are not scoped by
-   * transport) forgets it, so its track and statistics no longer show it.
-   */
-  private releaseFallbackOwner(ssrc: number, receiver: RTCRtpReceiver) {
-    for (const owner of this.fallbackOwners(ssrc, receiver)) {
-      this.releaseFallbackSsrc(owner, ssrc);
-    }
-  }
-
-  /**
    * Receivers other than `receiver` in its RTP session (same transport) that
    * learned `ssrc` as a fallback SSRC.
    */
   private fallbackOwners(ssrc: number, receiver: RTCRtpReceiver) {
-    return [
-      this.ssrcTable[ssrc],
-      ...(this.collidingRoutes.get(ssrc) ?? []),
-    ].filter(
-      (owner): owner is RTCRtpReceiver =>
-        owner instanceof RTCRtpReceiver &&
-        owner !== receiver &&
-        owner.dtlsTransport === receiver.dtlsTransport &&
-        owner.hasFallbackSsrc(ssrc),
-    );
+    return this.fallbackOwnersIn(ssrc, receiver);
   }
 
-  /** `existing`, the `ssrcTable` route of `ssrc`, is a learned route of another RTP session than `receiver`'s. */
-  private movesAside(
-    ssrc: number,
-    existing: RTCRtpReceiver | RTCRtpSender,
-    receiver: RTCRtpReceiver,
-  ) {
-    return (
-      this.learnedSsrcs.has(ssrc) &&
-      existing instanceof RTCRtpReceiver &&
-      existing.dtlsTransport !== receiver.dtlsTransport
-    );
+  /** Receivers other than `endpoint` in its RTP session that learned `ssrc` as a fallback SSRC. */
+  private fallbackOwnersIn(ssrc: number, endpoint: Endpoint) {
+    const transport = RtpRouter.transportOf(endpoint);
+    return this.routesOf(ssrc)
+      .filter(
+        (r) => r.origin === RouteOrigin.learned && r.endpoint !== endpoint,
+      )
+      .map((r) => r.endpoint)
+      .filter(
+        (owner): owner is RTCRtpReceiver =>
+          owner instanceof RTCRtpReceiver &&
+          RtpRouter.sameSession(owner, transport) &&
+          owner.hasFallbackSsrc(ssrc),
+      );
   }
 
   /**
    * A description routes `ssrc` to `receiver`. A learned owner in the same
-   * RTP session forgets it; a learned route of another transport moves to
-   * `collidingRoutes` and keeps receiving its own stream there.
+   * RTP session forgets it (the description wins); learned routes of other
+   * transports stay, they are other streams. Another receiver's description
+   * route goes on every transport (the later description wins, as before);
+   * a sender keeps its route.
    */
   private takeSsrcRoute(ssrc: number, receiver: RTCRtpReceiver) {
-    this.releaseFallbackOwner(ssrc, receiver);
-    const existing = this.ssrcTable[ssrc];
-    if (
-      existing &&
-      existing !== receiver &&
-      this.movesAside(ssrc, existing, receiver)
-    ) {
-      let routes = this.collidingRoutes.get(ssrc);
-      if (!routes) this.collidingRoutes.set(ssrc, (routes = new Set()));
-      routes.add(existing as RTCRtpReceiver);
+    for (const owner of this.fallbackOwners(ssrc, receiver)) {
+      this.releaseFallbackSsrc(owner, ssrc);
     }
-    this.dropCollidingRoute(ssrc, receiver);
-    this.ssrcTable[ssrc] = receiver;
+    this.removeRoutes(
+      ssrc,
+      (r) =>
+        (r.origin === RouteOrigin.sdp && r.endpoint !== receiver) ||
+        (r.origin === RouteOrigin.learned && r.endpoint === receiver),
+    );
+    if (
+      !this.routesOf(ssrc).some(
+        (r) => r.endpoint === receiver && r.origin === RouteOrigin.sdp,
+      )
+    ) {
+      this.addRoute(ssrc, { endpoint: receiver, origin: RouteOrigin.sdp });
+    }
   }
 
   /** Forget one learned fallback SSRC of `receiver` and its route. */
@@ -1117,13 +1172,10 @@ export class RtpRouter {
 
   /** Drop a learned route of `receiver`; a description's route stays. */
   private unlearnSsrc(ssrc: number, receiver: RTCRtpReceiver) {
-    this.dropCollidingRoute(ssrc, receiver);
-    if (!this.learnedSsrcs.has(ssrc) || this.ssrcTable[ssrc] !== receiver) {
-      return;
-    }
-    log("forget learned ssrc", ssrc);
-    delete this.ssrcTable[ssrc];
-    this.learnedSsrcs.delete(ssrc);
+    this.removeRoutes(
+      ssrc,
+      (r) => r.origin === RouteOrigin.learned && r.endpoint === receiver,
+    );
   }
 
   routeRtcp = (packet: RtcpPacket, dtlsTransport?: RTCDtlsTransport) => {
@@ -1259,7 +1311,7 @@ export class RtpRouter {
     if (incomingTransport) {
       return this.sendersOnTransport(incomingTransport);
     }
-    const seed = this.ssrcTable[rtpfb.feedback.mediaSourceSsrc];
+    const seed = this.endpointBySsrc(rtpfb.feedback.mediaSourceSsrc);
     const transport =
       seed && "dtlsTransport" in seed ? seed.dtlsTransport : undefined;
     const senders = this.sendersOnTransport(transport);
@@ -1272,11 +1324,9 @@ export class RtpRouter {
   private sendersOnTransport(transport?: RTCDtlsTransport): RTCRtpSender[] {
     const seen = new Set<RTCRtpSender>();
     const out: RTCRtpSender[] = [];
-    for (const recipient of Object.values(this.ssrcTable)) {
-      if (!recipient || recipient.type !== "sender") {
-        continue;
-      }
-      const sender = recipient as RTCRtpSender;
+    for (const { endpoint } of this.routeEntries) {
+      if (endpoint.type !== "sender") continue;
+      const sender = endpoint as RTCRtpSender;
       if (transport && sender.dtlsTransport !== transport) {
         continue;
       }
@@ -1298,10 +1348,12 @@ export class RtpRouter {
     if (route || this.keyFrameRequestRouting === "standard") return route;
 
     const senders = new Set(
-      Object.values(this.ssrcTable).filter(
-        (endpoint): endpoint is RTCRtpSender =>
-          !(endpoint instanceof RTCRtpReceiver) && !endpoint.stopped,
-      ),
+      this.routeEntries
+        .map((r) => r.endpoint)
+        .filter(
+          (endpoint): endpoint is RTCRtpSender =>
+            !(endpoint instanceof RTCRtpReceiver) && !endpoint.stopped,
+        ),
     );
     // RFC 4585 / RFC 4588 では、キーフレーム要求(PLI/FIR)の宛先は再送用(RTX)ではなく
     // 元のメディアストリームの SSRC であることが前提で、libwebrtc もメディア SSRC 宛に送る。

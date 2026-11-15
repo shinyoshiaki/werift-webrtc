@@ -48,7 +48,9 @@ import {
   createCollidingSsrcLessRouter,
   createPayloadTypeSharingRouter,
   createPendingRidOverFallback,
+  createRouteMatrix,
   createSsrcLessRouter,
+  expectedRouteMatrix,
   inboundRtpSsrcs,
   opus,
   pcmu,
@@ -265,7 +267,11 @@ describe("media/router", () => {
       "recvonly",
     );
     const ssrc = 1111;
-    router.learnedSsrcs.add(ssrc);
+    (
+      router as unknown as {
+        addLearnedRoute: (ssrc: number, receiver: RTCRtpReceiver) => boolean;
+      }
+    ).addLearnedRoute(ssrc, transceiver.receiver);
     transceiver.receiver.learnedTrackSsrcs.add(ssrc);
 
     // Act: description が同じ SSRC を登録する。
@@ -3647,6 +3653,135 @@ describe("media/router: a=ssrc のない m-line の SSRC 学習 (#356)", () => {
     ]);
     expect(router.ssrcTable[55]).toBe(b.receiver);
   });
+
+  // #356 3.11: 同じ SSRC を名指す 2 つの終端 {sender, sdp, learned} × {同じ transport, 別 transport}
+  // × 登録順の全セル (sender どうしはローカルで起きないので除く)。
+  const routeMatrix = (["sender", "sdp", "learned"] as const)
+    .flatMap((first) =>
+      (["sender", "sdp", "learned"] as const).map((second) => ({
+        first,
+        second,
+      })),
+    )
+    .filter(({ first, second }) => !(first === "sender" && second === "sender"))
+    .flatMap((pair) =>
+      [true, false].map((sameTransport) => ({ ...pair, sameTransport })),
+    );
+  test.each(routeMatrix)(
+    "経路の組み合わせ: $first → $second (同じ transport: $sameTransport) で RTP と RTCP が正しい終端に届く",
+    ({ first, second, sameTransport }) => {
+      // Arrange: 同じ SSRC を名指す 2 つの終端
+      const matrix = createRouteMatrix({ first, second, sameTransport });
+
+      // Act: 登録順に経路を作り、各 transport に RTP と SR / RR / NACK / PLI / TWCC を流す
+      matrix.register();
+      const got = matrix.probe();
+
+      // Assert: 各 transport で勝つ終端だけに届き、負けた学習側は SSRC を忘れる
+      const expected = expectedRouteMatrix(matrix.ends, matrix.transports);
+      expect(got).toEqual(expected.got);
+      for (const end of matrix.ends) {
+        if (end.kind !== "learned") continue;
+        const receiver = end.transceiver!.receiver;
+        expect(receiver.hasFallbackSsrc(matrix.ssrc), end.label).toBe(
+          expected.keeps[end.label],
+        );
+        expect(receiver.track.ssrc, end.label).toBe(
+          expected.keeps[end.label] ? matrix.ssrc : undefined,
+        );
+      }
+    },
+  );
+
+  // #356 3.11: sender を含むセルに、rollback・受信側の登録解除・transport の付け替え (BUNDLE の
+  // 統合) を加えた派生ケース。
+  const senderCells = routeMatrix.filter(
+    ({ first, second }) => first === "sender" || second === "sender",
+  );
+  test.each(
+    senderCells.flatMap((cell) =>
+      (["rollback", "unregister", "merge"] as const)
+        .filter((op) => op !== "merge" || !cell.sameTransport)
+        .map((op) => ({ ...cell, op })),
+    ),
+  )(
+    "経路の組み合わせ $first → $second (同じ transport: $sameTransport) の後の $op でも、残る終端に正しく届く",
+    ({ first, second, sameTransport, op }) => {
+      // Arrange: 経路を作る前の baseline を取ってから、登録順に経路を作る
+      const matrix = createRouteMatrix({ first, second, sameTransport });
+      const baseline = matrix.router.snapshotRoutes();
+      matrix.register();
+      const receiverEnd = matrix.ends.find((e) => e.kind !== "sender")!;
+      const senderEnd = matrix.ends.find((e) => e.kind === "sender")!;
+      const keptBefore = Object.fromEntries(
+        matrix.ends
+          .filter((e) => e.kind === "learned")
+          .map((e) => [
+            e.label,
+            e.transceiver!.receiver.hasFallbackSsrc(matrix.ssrc),
+          ]),
+      );
+
+      // Act: rollback (SDP の経路は baseline に戻り、パケット由来と live な sender は残る)、
+      // 受信側の登録解除、または受信側を sender の transport に付け替える
+      let ends = matrix.ends;
+      if (op === "rollback") {
+        matrix.router.restoreRoutes(baseline, {
+          endpoints: new Set(
+            matrix.ends.flatMap((e) =>
+              e.transceiver
+                ? [e.transceiver.receiver, e.transceiver.sender]
+                : [],
+            ),
+          ),
+          liveSenders: [senderEnd.sender!],
+        });
+        ends = ends.filter((e) => e.kind !== "sdp");
+      } else if (op === "unregister") {
+        matrix.router.unregisterTransceiver(receiverEnd.transceiver!);
+        matrix.transceivers.splice(
+          matrix.transceivers.indexOf(receiverEnd.transceiver!),
+          1,
+        );
+        ends = ends.filter((e) => e !== receiverEnd);
+      } else {
+        receiverEnd.transceiver!.setDtlsTransport(senderEnd.transport);
+        ends = ends.map((e) =>
+          e === receiverEnd ? { ...e, transport: senderEnd.transport } : e,
+        );
+      }
+      // 登録時に負けて忘れた学習側は、経路を持たない
+      ends = ends.filter((e) => e.kind !== "learned" || keptBefore[e.label]);
+      const got = matrix.probe();
+
+      // Assert: 残る終端だけで組み合わせ表の規則どおりに届き、負けた学習側は SSRC を忘れる
+      const transports = [...new Set(ends.map((e) => e.transport))];
+      const expected = expectedRouteMatrix(
+        ends,
+        matrix.transports.filter((t) => transports.includes(t)),
+      );
+      for (const end of matrix.ends) {
+        const index = matrix.transports.indexOf(end.transport);
+        const wanted = (expected.got[end.label] ?? []).map((what) =>
+          what.startsWith("rtp:t")
+            ? `rtp:t${matrix.transports.indexOf(
+                ends.find((e) => e.label === end.label)!.transport,
+              )}`
+            : what,
+        );
+        expect(got[end.label], `${end.label} (transport ${index})`).toEqual(
+          wanted,
+        );
+      }
+      for (const end of ends) {
+        if (end.kind !== "learned") continue;
+        expect(
+          end.transceiver!.receiver.hasFallbackSsrc(matrix.ssrc),
+          end.label,
+        ).toBe(expected.keeps[end.label]);
+      }
+    },
+  );
 
   test("transceiver の登録解除で学習済み SSRC が残らない", () => {
     // Arrange

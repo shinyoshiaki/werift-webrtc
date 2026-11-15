@@ -294,6 +294,58 @@ RFC 8843 / RFC 9143（BUNDLE）§9.2「Associating RTP/RTCP Streams with the Cor
 - `pbt:deep`: model 360/363（失敗は seed 287。単独で 3 回中 1 回、従来と同じ「channel dc0 did not open on both peers」。3.9 の比較で develop でも 8 回中 5 回失敗）、scenario 2158 成功・5 flaky（単独で成功）、fuzz 306/306、leak 652/653（失敗は heap seed 4。3.9 の比較で develop でも 4 回中 4 回、閾値超えで失敗。ICE チケット `74132240`）。
 - 未実施: ブラウザとの E2E（`npm run e2e`）。SDP 由来の経路の引き当てが transport ごとになったため、BUNDLE を使わない構成・BUNDLE の分割と統合は negotiation テストと model / scenario property で確認したが、実ブラウザでは確認していない。
 
+### 3.11 追加要件: SSRC の経路を「SSRC → 経路の集合」に置き換え、組み合わせ表で網羅する（ユーザー承認済み）
+
+**なぜ通過できないのか:** 最新の指摘（10 回目）は再現し、同系統の未指摘の穴が 3 つ残っていた（一時プローブで確認）。
+
+| ケース | 順序 | 結果（修正前） |
+| --- | --- | --- |
+| 指摘 10 | A が 55 を学習 → 別 transport の sender が 55 を登録 | `ssrcTable` が sender に上書きされ、A の経路が消える |
+| 未指摘 1 | 別 transport の SDP receiver が 55 → sender が 55 を登録 | SDP receiver の RTP も SR も届かなくなる |
+| 未指摘 2 | sender が 55 → 別 transport の SDP receiver が 55 を登録 | sender の RR が届かなくなる |
+| 未指摘 3 | 同じ transport で A が 55 を学習 → sender が 55 を登録 | 経路は sender なのに receiver の track と統計は 55 のまま（表と receiver の不一致） |
+
+構造的な原因:
+1. **`ssrcTable` が SSRC ごとに 1 本しか経路を持てない。** `collidingRoutes` は receiver 専用の補助表で sender を退避できず、`registerRtpSender` と `takeSsrcRoute` は「上書き」のまま。{sender, SDP receiver, 学習 receiver} × 同一 / 別 transport × 登録順 の組み合わせのうち、個別に直した組だけが通っていた。指摘 1〜10 の非承認 6 件はすべてこの表の組み合わせ漏れ。
+2. **sender を列挙する箇所が表を直接走査している。** `sendersOnTransport`（TWCC）と `keyFrameRequestTarget` が `ssrcTable` の値を走査するので、補助表に退避した sender は見えなくなる。
+3. **PBT が複数 transport を一度も生成していない。** `tests/pbt` と harness に `bundlePolicy` の指定がなく、model / scenario / leak はすべて単一 transport だった。
+
+**採用した案: E（`ssrcTable` を「SSRC → 経路の集合」に変え、引き当て時に transport で絞って優先順位で 1 つ選ぶ）。** 代替 F（補助表に sender を足す）は「覚えておく箇所」が増える方向なので採らなかった。
+- [x] `RtpRouter.routes: Map<SSRC, { endpoint, origin: "sender" | "sdp" | "learned" }[]>`。経路は endpoint の現在の `dtlsTransport` に属する（transport を持たない sender はすべての transport）。`endpointBySsrc` はパケットの transport の経路だけから、同じ RTP session 内の優先順位 sender > sdp > learned（同順位は先のもの）で 1 つ選ぶ。transport のない呼び出しは全経路から選ぶ。
+- [x] `collidingRoutes`、`learnedSsrcs`（状態としての）、`movesAside`、`takeSsrcRoute` の退避処理、`registerRtpSender` の上書き、`isForeignRoute` を廃止した。テストと観測用に、読み取り専用の `ssrcTable`（transport なしで引き当てた結果）、`learnedSsrcs`（learned の経路がある SSRC）、`collidingRoutes`（transport なしの結果と並ぶ learned 経路）、`routeEntries`（全経路）を残した。
+- [x] 登録の規則:
+  - `registerRtpSender`: 経路を追加する（上書きしない）。同じ RTP session でその SSRC を学習していた receiver は忘れる（未指摘 3）。別 transport の経路はそのまま（指摘 10・未指摘 1）。
+  - `registerRtpReceiver` / `takeSsrcRoute`（SDP）: 経路を追加する。同じ RTP session の学習側は忘れる。別の receiver の SDP 経路は、従来どおりすべての transport で後勝ち（範囲外、下記）。sender の経路は残る（未指摘 2）。保留中の description は、別の receiver の SDP 経路か同じ RTP session の学習側を奪う場合だけ staging する。
+  - 学習（`learnSsrc` / `addLearnedRoute`）: その transport に経路がないときだけ追加する。
+  - BUNDLE の統合などで学習側の receiver が sender / SDP の経路がある RTP session に入った場合も、引き当て時に忘れる（`endpointBySsrc`）。
+- [x] sender の列挙（`sendersOnTransport`、`keyFrameRequestTarget` の fallback）と TWCC の seed は同じ経路の集合を走査する（原因 2）。
+- [x] snapshot / restore は経路の集合のコピー。rollback は description 由来（`sdp` / `sender`）の経路を baseline に戻し、learned の経路は今のもの（接続中の endpoint の分）を残し、live な sender を登録し直す（`origin === "learned"` のフィルタで表現）。
+- [x] `assertLearnedRoutes`（`assertNegotiationInvariants`）を新モデルに書き換えた: learned 経路の receiver はその SSRC を知っている（`knowsSsrc`）、同じ RTP session に同じ origin の経路は 2 本ない、同じ RTP session で sender / sdp の経路の横に別 endpoint の learned 経路は残らない、fallback SSRC には learned 経路がある。leak probe の指標は `router.routes`（経路の総数）と `router.learnedRoutes` に置き換えた（`router.ssrcTable` / `router.learnedSsrcs` / `router.collidingRoutes` を廃止。`BOUNDED_METRICS` には router の指標はなく、周期ごとに一定であることを検査する）。
+- [x] TSDoc（`RtpRouter`）の経路表を新モデルに書き直し、`npm run doc` で再生成した。`changelog.md` を更新した。
+
+**組み合わせ表（`tests/media/router.test.ts`「経路の組み合わせ」、Arrange は `ssrcLessTestUtils.ts` の `createRouteMatrix` / `expectedRouteMatrix`）:** 終端 {sender, sdp, learned} の対（同種どうしを含む。sender どうしはローカルで起きないので除く）× {同一 transport, 別 transport} × 登録順 = 16 セル。各セルで、各 transport に SR / RR / NACK / PLI / TWCC を流してから MID なしの RTP を流し（RTP が経路を学習し直す前の状態を確かめる）、各 transport で勝つ終端だけに届くこと、sender は自分の transport の TWCC を受けること、負けた学習側が SSRC を忘れることを同じ Assert で確認する。
+- 修正前の HEAD（`bbce96a1d`）で失敗したセル（5）: learned → sender（別 transport、指摘 10）、sdp → sender（別 transport、未指摘 1）、sender → sdp（別 transport、未指摘 2）、learned → sender（同じ transport、未指摘 3）、sender → sdp（同じ transport。SDP 登録が sender の経路を上書きし、sender の RTCP が届かない）。
+- 修正後: 16 セルすべて成功。
+- 派生ケース（sender を含むセルに rollback・受信側の登録解除・受信側の transport の付け替え（BUNDLE の統合）を加えた 20 件）もすべて成功。付け替えで学習側が sender の RTP session に入るケースは、引き当て時に忘れる処理を加えるまで失敗した（2 件）。
+
+**PBT に複数 transport を入れた:** model property のシーンに `bundle`（`bundlePolicy`）の軸を追加した（`tests/pbt/model/generator.ts` の `modelConfig(pairing, bundlePolicy)`。専用の乱数列 `seed ^ 0x356` で 30% の seed が `"disable"` か `"max-compat"` を引くので、既存 seed の操作列は変わらない）。300 seed 中 44 seed が `"disable"`（m-line ごとに transport が分かれることを確認）、57 seed が `"max-compat"`。`ssrcRemoved` / `ssrcAndMidRemoved` / `remoteSsrcSwitch` と組み合わさる。`pbt:deep -- --suite model`（300 seed）で失敗は既知の seed（287、275）だけだった。
+
+**範囲外（変更しない）:** 別 transport の 2 つの SDP 経路が同じ SSRC を宣言するケース（後勝ちのまま）。RTCP SDES / BYE による対応付けの更新。RingCentral 原文 SDP（3.6 の合流ルール）。
+
+**検証（`bbce96a1d` + 未コミット差分）:**
+- ルートの `npm run type` と `npm run test:small` 成功。webrtc の `npm test` は 1954 passed、5 skipped。対象テスト（`router.test.ts` と `356.test.ts`）170 件成功。
+- `npm run pbt:deep`（全スイート）: fuzz 306/306。model 361/363（flaky 2 件: seed 40、287。単独で成功）。leak 652/653（失敗は heap seed 4）。scenario 2155 成功・失敗 1（seed 52）・flaky 7（単独で成功）。
+
+| seed | 失敗内容 | 本ブランチ（単独） | develop `41773f4dc`（単独） | 扱い |
+| --- | --- | --- | --- | --- |
+| model 287 | channel dc0 did not open on both peers | 3/8（3.9） | 5/8（3.9） | 既知の揺らぎ（SCTP） |
+| model 40 | added DataChannel did not reach the peer | 2/6（3.10） | 4/6（3.10） | 既知の揺らぎ（SCTP） |
+| model 275 | the transport did not settle | 10/16（3.9 の 3 回の合計） | 9/16（同） | 既知の揺らぎ（ICE / transport、ICE チケット `74132240`） |
+| leak heap seed 4 | heap slope 18〜19 KiB/cycle（閾値 16） | 4/4（3.9） | 4/4（3.9） | ICE チケット `74132240`（`Connection.closedSignal` の保持） |
+| scenario 52 | rollback 後の SDP に `a=end-of-candidates` が入るか（ICE 候補収集の完了タイミング） | 5/18 | 1/18 | develop でも同じ失敗。経路の処理とは無関係だが本ブランチで発生率が高い（パケットごとの処理量の増加でタイミングがずれた可能性。因果は未確認） |
+
+- 未実施: ブラウザとの E2E（`npm run e2e`）、`tools/negotiation-diff`、scenario / leak への `bundlePolicy` 軸の追加（model だけに入れた）。
+
 ---
 
 ## 4. 制約・注意点
@@ -405,4 +457,5 @@ develop との比較が必要なら、一時 worktree（`git worktree add --deta
 - [ ] 確認レビューを依頼する時点で、修正が `ticket review` の対象として見える状態にしている（CLI は未コミットの差分がないとレビューを開始しない）。
 - [ ] 3.8 の追加要件を満たしている。MID のない未知 SSRC は、受信中のすべての m-line で一意な PT のときだけ学習し、MID は fallback の対応付けを更新し、rollback 後も表と track が一致する。
 - [ ] `pbt:deep` の leak の ICE 失敗について、3.8 の扱いに沿って原因の切り分け（develop での再現）と報告をしている。
+- [ ] 3.11 を満たしている。SSRC の経路は「SSRC → 経路の集合」で、引き当ては transport で絞った優先順位（sender > sdp > learned）で 1 つ選び、組み合わせ表の全セルと派生ケースが通る。model property に複数 transport（`bundlePolicy`）の軸がある。
 - [ ] 3.9 の A〜D を満たしている。学習 SSRC は receiver ごとに有界 LRU で保持し（旧 SSRC の遅延パケットは同じ track に届く）、MID は拡張 seq が新しいパケットだけが対応付けを更新し、保留中の description は SSRC-less の m-line に commit まで触れない。model PBT（`ssrcRemoved` の traffic 検査、`ssrcAndMidRemoved`、`remoteSsrcSwitch`、`assertLearnedRoutes`）と提出前の敵対レビューで見つかった問題を直している。
