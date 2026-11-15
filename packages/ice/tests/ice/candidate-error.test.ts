@@ -49,6 +49,7 @@ import {
   errnoError,
   errorResponse,
   hostCandidate,
+  ipv4AndIpv6Sockets,
   recordCandidateErrors,
   recordServerReached,
   singleIpv4Socket,
@@ -280,6 +281,65 @@ describe("onIceCandidateError: STUN", () => {
         errorCode: NOT_REACHED,
       });
       expect(hosts.map((host) => host.port)).toContain(errors[0].port);
+    } finally {
+      await connection.close();
+      await silent.close();
+    }
+  });
+
+  test("STUN を問い合わせない IPv6 ソケットがあっても、IPv4 ソケットが届かなければ 701 を 1 件通知する", async () => {
+    // Arrange: IPv4 と IPv6 (問い合わせない) のソケットと、応答しない STUN
+    const silent = await createSilentUdpServer(candidateErrorHost);
+    const { connection, errors } = createRecordingAgent({
+      ...ipv4AndIpv6Sockets,
+      stunServers: [silent.address],
+      stunGatherTimeout: 0.3,
+    });
+    try {
+      // Act: 候補収集を完了まで待つ
+      await connection.gatherCandidates();
+      await delay(100);
+
+      // Assert: IPv6 のホスト候補もあり、701 は IPv4 ソケットのアドレスで 1 件
+      const hosts = connection.localCandidates.filter(
+        (candidate) => candidate.type === "host",
+      );
+      expect(hosts.map(({ host }) => host).sort()).toEqual(
+        ["::1", candidateErrorHost].sort(),
+      );
+      expect(errors).toHaveLength(1);
+      expect(errors[0]).toMatchObject({
+        errorCode: NOT_REACHED,
+        address: candidateErrorHost,
+      });
+    } finally {
+      await connection.close();
+      await silent.close();
+    }
+  });
+
+  test("開けなかったソケットがあっても、他のソケットが届かなければ 701 を 1 件通知する", async () => {
+    // Arrange: このホストにない IPv6 アドレス (bind が失敗する) と、応答しない STUN を使う
+    const silent = await createSilentUdpServer(candidateErrorHost);
+    const { connection, errors } = createRecordingAgent({
+      useIpv6: true,
+      interfaceAddresses: { udp4: candidateErrorHost, udp6: "2001:db8::1" },
+      stunServers: [silent.address],
+      stunGatherTimeout: 0.3,
+    });
+    try {
+      // Act: 候補収集を完了まで待つ
+      await connection.gatherCandidates();
+      await delay(100);
+
+      // Assert: 開けたのは IPv4 ソケットだけで、その 701 が 1 件
+      expect(
+        connection.localCandidates
+          .filter((candidate) => candidate.type === "host")
+          .map(({ host }) => host),
+      ).toEqual([candidateErrorHost]);
+      expect(errors).toHaveLength(1);
+      expect(errors[0].errorCode).toBe(NOT_REACHED);
     } finally {
       await connection.close();
       await silent.close();

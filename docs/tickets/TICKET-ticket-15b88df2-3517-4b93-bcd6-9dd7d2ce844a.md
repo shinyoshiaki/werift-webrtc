@@ -158,6 +158,7 @@ function classifyGatherError(error: unknown): { errorCode: number; errorText: st
 - **経緯**: 701 の重複抑制の粒度をチケットに決めないまま、レビューの指摘ごとに「サーバー × ソケット × 世代」→「gatherer で URL ごと」→「`RTCPeerConnection` 全体で URL ごと」→「ソケット間・transport 間で集約」→「gathering 番号で参加 transport を管理」と広げた。その結果、失敗イベントが届いたときだけ評価する状態付きの集約処理が増え、途中で抜けた transport や URL を試さなかった transport が通知を止める、という新しい穴が毎回見つかった。これを止めるため、701 の意味を 8.決定 3〜5 として固定し、判定を gathering の終了時に 1 回だけ行う閉じた形に作り直す。
 - **ICE 層（`werift-ice`）**
   - STUN の 701 は、そのサーバーをすべてのローカルソケットが問い合わせ終えた時点で、どのソケットも到達しなかった場合だけ、サーバー × 世代ごとに 1 回出す（最初に失敗したソケットのアドレス付き）。
+  - 【追加要件】待ち数（pending）の数え方: 経路（再利用ソケット、新しいソケット、wildcard ソケット）は gathering の設定時に同期的に登録し、各経路は数えたサーバーを必ず 1 回ずつ確定させる。問い合わせない経路（IPv6 のソケット、開けなかったソケット、古い世代）は、そのサーバーを「試していない」として確定させ、701 の判定を止めない。新しいソケットの経路はソケットが開く前に登録する（開いてから登録すると、IPv6 や失敗のときに確定されず、701 が出なくなる）。さらに、すべての経路が終わった時点でまだ待ちが残るサーバーは、その時点で判定する（数え違いで 701 が失われないための保険）。
   - 新しいイベント `Connection.onIceServerReached`（`IceServerReachedInfo { server, generation }`、`IceConnection` にも任意で追加）を出す。STUN の成功応答・エラー応答、TURN の割り当て成功・エラー応答（最終的に報告するコードが 701 以外）を「到達」とする。古い世代と close 後は出さない。`close()` で complete する。
 - **webrtc 層**
   - `RTCIceGatherer.onIceServerReached(urls)` → `RTCIceTransport.onIceServerReached`（`Event<[string[]]>`）→ `RTCPeerConnection` の順に URL を伝える。
@@ -216,6 +217,7 @@ AGENTS.md に従い Arrange / Act / Assert 形式で書き、Act と Assert に�
   - [ ] 【追加要件】gathering 中に結果を出さずに抜けた transport（close）は判定から外れ、他の transport の 701 が出る。
   - [ ] 【追加要件】その URL を試さなかった transport（サーバー構成が違う）は判定に影響しない。
   - [ ] 【追加要件】複数 URL の 701 を配送する途中で、ハンドラーが `close()` したら、残りの URL の 701 と `icegatheringstatechange` は配送しない（各配送の前にクローズを確認する）。
+  - [ ] 【追加要件】ICE 層: STUN を問い合わせない IPv6 のソケット、開けなかったソケットがあっても、問い合わせた IPv4 のソケットが届かなければ 701 が 1 件出る。
   - [ ] 【追加要件】ICE 層: STUN の成功応答・エラー応答と TURN の割り当て成功で `onIceServerReached` が出て、無応答では出ない。2 ソケットの片方だけ届いたときは 701 が出ず、両方届かないときは 1 件。
 - **WPT**
   - [ ] `webrtc/RTCPeerConnection-onicecandidateerror.https.html` を、**subtest 1（`Surfacing onicecandidateerror`）と subtest 2（`icecandidateerror fires for each failing server`）の両方**を対象に `wpt/allowlist.json` に追加する。

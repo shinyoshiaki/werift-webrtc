@@ -199,3 +199,12 @@ export function createCodelessErrorServer() {
         .bytes,
   );
 }
+
+/**
+ * An IPv4 host socket (the test address) and an IPv6 one on loopback: the
+ * IPv6 socket queries no STUN server (STUN queries are IPv4 only).
+ */
+export const ipv4AndIpv6Sockets: Partial<IceOptions> = {
+  useIpv6: true,
+  interfaceAddresses: { udp4: candidateErrorHost, udp6: "::1" },
+};

@@ -1693,19 +1693,44 @@ export class Connection implements IceConnection {
         );
       }
     };
-    /** Settles every STUN server `query` did not settle (a skipped socket). */
-    const settlingStunServers = async <T>(
+    /**
+     * One counted path toward `servers`: settles every one of them `query`
+     * did not settle (a socket that does not query: an IPv6 socket, one
+     * that failed to open, a stale generation). Called synchronously while
+     * the paths are set up, so stunPaths holds every path.
+     */
+    const stunPaths: Promise<unknown>[] = [];
+    const settlingStunServers = <T>(
       query: (settled: Set<Address>) => Promise<T>,
       servers = stunServers,
     ) => {
       const settled = new Set<Address>();
-      try {
-        return await query(settled);
-      } finally {
-        for (const server of servers) {
-          if (!settled.has(server)) settleStunServer(server, "skipped");
+      const path = (async () => {
+        try {
+          return await query(settled);
+        } finally {
+          for (const server of servers) {
+            if (!settled.has(server)) settleStunServer(server, "skipped");
+          }
         }
-      }
+      })();
+      stunPaths.push(path.catch(() => undefined));
+      return path;
+    };
+    /**
+     * Backstop once every path ended: a server still pending (a path that
+     * was counted but never settled it) is judged now, so its 701 is not
+     * lost to a counting mismatch.
+     */
+    const judgeRemainingStunServers = () => {
+      void Promise.allSettled(stunPaths).then(() => {
+        for (const [server, state] of stunOutcomes) {
+          if (state.pending === 0) continue;
+          log("STUN server still pending after every path ended", server);
+          state.pending = 1;
+          settleStunServer(server, "skipped");
+        }
+      });
     };
 
     // A server-reflexive query of one socket to one STUN server, bounded by
@@ -1865,24 +1890,28 @@ export class Connection implements IceConnection {
           log("query reused STUN socket", error);
         });
 
-      const reflexiveOfNew = (protocol: StunProtocol) =>
-        settlingStunServers(async (settled) => {
-          const advertised: Candidate[] = [];
-          await Promise.all(
-            stunServers.map(async (server) => {
-              const candidate = await queryReflexive(protocol, server, settled);
-              if (!candidate || stale()) return;
-              if (advertised.some((known) => sameMapping(known, candidate)))
-                return;
-              advertised.push(candidate);
-              this.reflexiveBySocket.set(protocol, advertised);
-              this.appendLocalCandidate(candidate);
-            }),
-          ).catch((error) => {
-            log("query new STUN socket", error);
-          });
-          return advertised;
+      // The queries of a new socket; its path (settlingStunServers) is
+      // opened before the socket is, see newHosts.
+      const reflexiveOfNew = async (
+        protocol: StunProtocol,
+        settled: Set<Address>,
+      ) => {
+        const advertised: Candidate[] = [];
+        await Promise.all(
+          stunServers.map(async (server) => {
+            const candidate = await queryReflexive(protocol, server, settled);
+            if (!candidate || stale()) return;
+            if (advertised.some((known) => sameMapping(known, candidate)))
+              return;
+            advertised.push(candidate);
+            this.reflexiveBySocket.set(protocol, advertised);
+            this.appendLocalCandidate(candidate);
+          }),
+        ).catch((error) => {
+          log("query new STUN socket", error);
         });
+        return advertised;
+      };
 
       // A kept wildcard socket is a representative: gathering waits for it.
       const reusedWildcards = [...this.wildcardProtocols.values()].filter(
@@ -1905,18 +1934,37 @@ export class Connection implements IceConnection {
       const reusedHosts: HostQuery[] = reusedStunProtocols
         .filter((protocol) => isIPv4(protocol.localCandidate!.host))
         .map((protocol) => track(protocol, reflexiveOfReused(protocol)));
+      // Every new socket is counted for every STUN server (stunOutcomes),
+      // so its path opens now, before the socket does: a socket that does
+      // not query (IPv6, failed to open) settles them as skipped.
       const newHosts = Promise.all(
-        localStunPromises.map(async (protocolPromise) => {
-          const protocol = await protocolPromise;
-          if (
-            !protocol?.localCandidate ||
-            !isIPv4(protocol.localCandidate.host)
-          ) {
-            return;
-          }
-          return track(protocol, reflexiveOfNew(protocol));
+        localStunPromises.map((protocolPromise) => {
+          let resolveEntry!: (entry: HostQuery | undefined) => void;
+          const entry = new Promise<HostQuery | undefined>((resolve) => {
+            resolveEntry = resolve;
+          });
+          settlingStunServers(async (settled) => {
+            const protocol = await Promise.resolve(protocolPromise).catch(
+              () => undefined,
+            );
+            if (
+              !protocol?.localCandidate ||
+              !isIPv4(protocol.localCandidate.host)
+            ) {
+              resolveEntry(undefined);
+              return;
+            }
+            const query = reflexiveOfNew(protocol, settled);
+            resolveEntry(track(protocol, query));
+            await query;
+          }).catch((error) => {
+            resolveEntry(undefined);
+            log("query new STUN socket", error);
+          });
+          return entry;
         }),
       );
+      judgeRemainingStunServers();
       primary.push(
         (async () => {
           const queries = [
