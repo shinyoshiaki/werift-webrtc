@@ -1,9 +1,16 @@
 import type { RTCRtpTransceiver, RtpRouter, TransceiverManager } from "./media";
-import type {
-  RouterSnapshot,
-  TransceiverNegotiationState,
-  TransceiversNegotiationState,
+import {
+  getApplicationStopRevision,
+  type RouterSnapshot,
+  type TransceiverNegotiationState,
+  type TransceiversNegotiationState,
 } from "./negotiation/internalState";
+import {
+  livePairingState,
+  livePairingView,
+  type PairingState,
+  type PairingView,
+} from "./negotiation/transceiverPairing";
 import type { SctpNegotiationState, SctpTransportManager } from "./sctpManager";
 import type { SessionDescription } from "./sdp";
 import type { SDPManager } from "./sdpManager";
@@ -159,6 +166,14 @@ const RETIRED_UFRAG_HISTORY = 64;
  * `expectedLive` and `assertNegotiationInvariants` in
  * tests/negotiation/harness/negotiationTransactionUtils.ts.
  *
+ * A remote offer pairs its m-lines with transceivers after its implicit
+ * rollback, replacement or unapplied-createOffer revert, but resolves codecs
+ * before them (a rejected proposal must leave the old transaction):
+ * `pairingViewForRemoteOffer` gives the codec plan the transceiver state the
+ * association will see, so both pair every m-line with the same transceiver
+ * (a local `addTransceiver()` one that only the rolled-back local offer gave
+ * the remote MID is not paired by either).
+ *
  * Each component owns the snapshot of its reversible state and the rule for
  * restoring it; this class only composes them. Add new negotiation state to
  * its component's pair:
@@ -167,7 +182,7 @@ const RETIRED_UFRAG_HISTORY = 64;
  * | --- | --- | --- |
  * | `RTCRtpTransceiver` (with sender, receiver) | `snapshotNegotiationState` / `restoreNegotiationState` | an application `stop()` made during the transaction |
  * | `RTCRtpReceiver` | `snapshotNegotiationState` / `restoreNegotiationState` | SSRCs learned from RID packets whose track survives; one packets dropped after the baseline (retired by a media SSRC change of its RID, or evicted) is not restored |
- * | `TransceiverManager` | `snapshotNegotiationState` / `restoreNegotiationState` | transceivers the application uses (`heldByApplication`) |
+ * | `TransceiverManager` | `snapshotNegotiationState` / `restoreNegotiationState` | transceivers the application uses (`heldByApplication`); what created each transceiver (`createdBy`), except that a kept remote one `addTrack()` reused becomes `addTrack` |
  * | `RtpRouter` | `snapshotRoutes` / `restoreRoutes` | packet-learned SSRC routes (one packets dropped after the baseline is not restored), every live sender's route |
  * | `SctpTransportManager` | `snapshotNegotiationState` / `restoreNegotiationState` | an application-created SCTP transport (a pending-only association is replaced by an unstarted one) and its channels without a stream ID |
  */
@@ -335,15 +350,8 @@ export class NegotiationTransaction {
    */
   async replace(next?: SessionDescription) {
     if (!this.baseline) return;
-    const describedAgain = (transceiver: RTCRtpTransceiver) =>
-      !!next?.media.some(
-        (media) =>
-          media.port !== 0 &&
-          media.kind === transceiver.kind &&
-          media.rtp.muxId === transceiver.mid,
-      );
     const carried = new Set(
-      [...this.resources.remoteCreated].filter(describedAgain),
+      [...this.resources.remoteCreated].filter((t) => describedAgain(next, t)),
     );
     // A transceiver that existed before the transaction and that the
     // replacing offer describes again keeps the track it already notified,
@@ -352,7 +360,8 @@ export class NegotiationTransaction {
       this.transceivers
         .getTransceivers()
         .filter(
-          (t) => !this.resources.remoteCreated.has(t) && describedAgain(t),
+          (t) =>
+            !this.resources.remoteCreated.has(t) && describedAgain(next, t),
         ),
     );
     await this.restoreState(
@@ -368,6 +377,91 @@ export class NegotiationTransaction {
     }
     this.revision++;
     this.phase = "pending";
+  }
+
+  /**
+   * Internal: the transceiver state a remote offer's m-line association will
+   * see once the operations that run before it are done: `"rollback"` (the
+   * implicit rollback of a local offer), `"replace"` (a replacement remote
+   * offer, `next`), or neither, where opening the transaction reverts what an
+   * unapplied `createOffer` associated. It mirrors `restoreState` /
+   * `TransceiverManager.restoreNegotiationState` and
+   * `revertUnappliedAssociations` without mutating anything.
+   */
+  pairingViewForRemoteOffer(
+    next: SessionDescription,
+    restore: "rollback" | "replace" | undefined,
+  ): PairingView {
+    const baseline = this.baseline;
+    if (restore && baseline) {
+      const { states } = baseline.transceivers;
+      const remoteCreated = this.resources.remoteCreated;
+      const restored = (
+        transceiver: RTCRtpTransceiver,
+        state: TransceiverNegotiationState,
+        createdBy = transceiver.createdBy,
+      ): PairingState => ({
+        mid: state.mid,
+        mLineIndex: state.mLineIndex,
+        stopping:
+          state.stopping ||
+          getApplicationStopRevision(transceiver) !==
+            state.applicationStopRevision,
+        stopped: state.stopped,
+        createdBy,
+      });
+      return (transceiver) => {
+        const base = states.get(transceiver);
+        if (base) return restored(transceiver, base.transceiver);
+        if (remoteCreated.has(transceiver)) {
+          const created = this.createdStates.get(transceiver);
+          if (restore === "replace" && describedAgain(next, transceiver)) {
+            // Carried over with its MID and m-line, in its created state.
+            return created
+              ? {
+                  ...restored(transceiver, created),
+                  mid: transceiver.mid,
+                  mLineIndex: transceiver.mLineIndex,
+                }
+              : livePairingState(transceiver);
+          }
+          if (!transceiver.heldByApplication) return undefined;
+          const createdBy = transceiver.reusedForAddTrack
+            ? "addTrack"
+            : transceiver.createdBy;
+          return {
+            ...(created
+              ? restored(transceiver, created, createdBy)
+              : { ...livePairingState(transceiver), createdBy }),
+            mid: null,
+            mLineIndex: undefined,
+          };
+        }
+        // Added by the application during the transaction: not committed.
+        if (transceiver.stopped) return livePairingState(transceiver);
+        return {
+          ...livePairingState(transceiver),
+          mid: null,
+          mLineIndex: undefined,
+        };
+      };
+    }
+    const snapshot = this.offerSnapshot;
+    if (!this.baseline && snapshot) {
+      const { states } = snapshot.transceivers;
+      return (transceiver) => {
+        const state = states.get(transceiver)?.transceiver;
+        if (!state || transceiver.currentDirection || transceiver.stopped) {
+          return livePairingState(transceiver);
+        }
+        return {
+          ...livePairingState(transceiver),
+          mid: state.mid,
+          mLineIndex: state.mLineIndex,
+        };
+      };
+    }
+    return livePairingView;
   }
 
   async rollback() {
@@ -632,3 +726,15 @@ export class NegotiationTransaction {
     };
   }
 }
+
+/** Whether a replacing offer describes the MID of `transceiver` again. */
+const describedAgain = (
+  next: SessionDescription | undefined,
+  transceiver: RTCRtpTransceiver,
+) =>
+  !!next?.media.some(
+    (media) =>
+      media.port !== 0 &&
+      media.kind === transceiver.kind &&
+      media.rtp.muxId === transceiver.mid,
+  );

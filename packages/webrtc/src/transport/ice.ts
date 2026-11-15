@@ -1063,19 +1063,36 @@ export class RTCIceGatherer {
       this.setState("gathering");
       const generation = this.connection.generation;
       await this.connection.gatherCandidates();
-      // Gathering an ICE restart replaced in the meantime does not complete
-      // the new generation: that one signals its own end.
+      // ICE restart で世代が置き換わった場合は新世代自身の完了通知に任せる。
       if (this.connection.generation !== generation) return;
-      // A transport closed mid-gathering gathers nothing more: it ends as
-      // "complete" (no end-of-candidates), so the aggregate
-      // iceGatheringState and its icecandidateerror judgement do not wait
-      // for it forever.
+      // gathering 中に閉じた transport は候補を終え、集約状態を先へ進める。
       if (this.connection.state === "closed") {
         this.setState("complete");
         return;
       }
-      this.onIceCandidate(undefined);
-      this.setState("complete");
+      const replaced = () =>
+        this.connection.generation !== generation ||
+        this.connection.state === "closed";
+      const complete = () => {
+        this.onIceCandidate(undefined);
+        this.setState("complete");
+      };
+      if (
+        this.connection.localCandidatesEnd ||
+        !this.connection.waitForLocalCandidatesEnd
+      ) {
+        complete();
+        return;
+      }
+      // The representative sockets are done, so the description need not
+      // wait; the other sockets' server-reflexive candidates trickle and
+      // end-of-candidates follows them.
+      void this.connection
+        .waitForLocalCandidatesEnd()
+        .then(() => {
+          if (!replaced() && this.connection.localCandidatesEnd) complete();
+        })
+        .catch((error) => log("gathering failed", error));
     }
   }
 

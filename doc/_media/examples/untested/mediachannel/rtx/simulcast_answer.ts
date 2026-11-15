@@ -2,6 +2,7 @@ import { WebSocketServer } from "ws";
 import {
   RTCPeerConnection,
   RTCRtpCodecParameters,
+  type RTCRtpTransceiver,
   useAbsSendTime,
   useRepairedRtpStreamId,
   useSdesMid,
@@ -44,16 +45,25 @@ server.on("connection", (socket) => {
       },
     });
 
-    const transceiver = pc.addTransceiver("video", { direction: "recvonly" });
+    // The browser offers a simulcast sendonly m-line and three recvonly
+    // ones; each gets its own transceiver (JSEP 5.10). Receive the layers on
+    // the first and send each layer back on one of the others.
+    const remote: RTCRtpTransceiver[] = [];
     const multiCast = {
-      high: pc.addTransceiver("video", { direction: "sendonly" }),
-      middle: pc.addTransceiver("video", { direction: "sendonly" }),
-      low: pc.addTransceiver("video", { direction: "sendonly" }),
+      high: () => remote[1],
+      middle: () => remote[2],
+      low: () => remote[3],
     };
-
-    transceiver.onTrack.subscribe((track) => {
-      const sender = multiCast[track.rid as keyof typeof multiCast];
-      sender.sender.replaceTrack(track);
+    pc.onRemoteTransceiverAdded.subscribe((transceiver) => {
+      remote.push(transceiver);
+      if (remote.length > 1) {
+        transceiver.setDirection("sendonly");
+        return;
+      }
+      transceiver.onTrack.subscribe((track) => {
+        const sender = multiCast[track.rid as keyof typeof multiCast]?.();
+        sender?.sender.replaceTrack(track);
+      });
     });
     // transceiver.receiver.onPacketLost.subscribe((nack) => {
     //   console.log("packet loss", nack.lost);

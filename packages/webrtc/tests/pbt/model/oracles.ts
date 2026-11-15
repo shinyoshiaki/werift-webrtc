@@ -58,6 +58,11 @@ import {
  *   rollback returns it to the start of the transaction.
  * - ice: an operation that commits nothing keeps the selected pair of every
  *   connected ICE transport (a restart checks its new generation beside it).
+ * - pairing (#816, `transceiverPairing: "standard"`): a remote offer never gives
+ *   a MID to an unassociated transceiver that `addTransceiver()` created (JSEP
+ *   5.10); it keeps its direction and gets a MID only from its own peer's
+ *   local offer. What created a transceiver changes only when a rollback
+ *   keeps a remote one that `addTrack()` reused (it becomes `addTrack`).
  * - continuity: at a commit, an m-line of the previous and the new current
  *   session that keeps its BUNDLE transport (same tag, or unbundled in
  *   both) keeps its DTLS transport object (no new handshake, RFC 8843).
@@ -80,6 +85,12 @@ function world(pc: RTCPeerConnection) {
     pendingLocal: bare(snapshot.pendingLocal),
     pendingRemote: bare(snapshot.pendingRemote),
     objects: [...pc.getTransceivers()],
+    pairing: pc.getTransceivers().map((t) => ({
+      t,
+      mid: t.mid,
+      createdBy: t.createdBy,
+      direction: t.direction,
+    })),
     sendParams: pc.getTransceivers().map((t) => liveSendParams(t)),
     receiveTables: pc
       .getTransceivers()
@@ -366,6 +377,7 @@ export class ModelOracles implements Observer {
     }
     this.signalingEvents(pc, before, label);
     this.trackEvents(pc, before, step, label);
+    this.pairing(pc, step, before.self, label);
     for (const [channel, owner] of this.applicationChannels) {
       // アプリが作った DataChannel は交渉で閉じない (SCTP transport が替わっても)。
       if (owner === pc) {
@@ -459,6 +471,40 @@ export class ModelOracles implements Observer {
       ) {
         this.receivingReset.add(t.receiver);
       }
+    }
+  }
+
+  /** pairing: see the class comment (#816). */
+  private pairing(
+    pc: RTCPeerConnection,
+    step: AppliedStep,
+    before: World,
+    label: string,
+  ) {
+    const standard =
+      (Reflect.get(pc, "config") as { transceiverPairing: string })
+        .transceiverPairing === "standard";
+    for (const { t, mid, createdBy, direction } of before.pairing) {
+      if (t.createdBy !== createdBy) {
+        // 生成元が変わるのは、addTrack() で再利用した remote transceiver を rollback が残すときだけ。
+        // remote offer の暗黙の rollback で昇格した場合は、その offer が続けて関連付けてよい。
+        const remoteOffer = step.kind === "setRemote" && step.type === "offer";
+        expect(
+          createdBy === "remote" &&
+            t.createdBy === "addTrack" &&
+            t.reusedForAddTrack &&
+            (t.mid == null || remoteOffer),
+          `${label}: the origin of ${t.kind} changed from ${createdBy}`,
+        ).toBe(true);
+      }
+      // description の適用は app が選んだ方向を変えない。
+      expect(t.direction, `${label}: direction of ${t.kind}`).toBe(direction);
+      if (!standard || createdBy !== "addTransceiver" || mid != null) continue;
+      const ownOffer = step.kind === "setLocal" && step.type === "offer";
+      expect(
+        t.mid == null || ownOffer,
+        `${label}: a remote description paired an addTransceiver() ${t.kind} (MID ${t.mid})`,
+      ).toBe(true);
     }
   }
 
