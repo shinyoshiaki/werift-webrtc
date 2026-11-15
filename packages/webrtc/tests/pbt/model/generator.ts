@@ -2,6 +2,7 @@ import {
   MediaStreamTrack,
   type RTCPeerConnection,
   type RTCRtpTransceiver,
+  type TransceiverPairing,
   useH264,
   useNACK,
   useOPUS,
@@ -46,7 +47,10 @@ export type Side = "a" | "b";
  * transport-cc header extensions, so codec, feedback, RTX and extension
  * rewrites on the wire have something to change.
  */
-export const modelConfig = () => ({
+export const modelConfig = (
+  transceiverPairing: TransceiverPairing = "standard",
+) => ({
+  transceiverPairing,
   codecs: {
     video: [
       useVP8({ rtcpFeedback: [useNACK(), usePLI(), useREMB(), useTWCC()] }),
@@ -69,7 +73,12 @@ export const modelConfig = () => ({
 export type Start = "connected" | "unnegotiated" | "media";
 /** One operation: the peer that takes it, its name and the choices it made. */
 export type Op = [Side, string, Record<string, unknown>?];
-export type Scene = { start: Start; ops: Op[] };
+/**
+ * `pairing`: the `transceiverPairing` of both peers (default `"standard"`, the
+ * JSEP 5.10 rules the oracles check; a generated scene draws `"byKind"`, the
+ * werift default, sometimes, #816).
+ */
+export type Scene = { start: Start; ops: Op[]; pairing?: TransceiverPairing };
 
 type World = {
   c: NegotiationCase;
@@ -138,6 +147,32 @@ export const STEPS: Record<string, Step> = {
       const track = new MediaStreamTrack({ kind: kind as "audio" });
       w.oracles.application(
         pc.addTransceiver(track, { direction: "sendrecv" }),
+      );
+    },
+  },
+  // #816: a transceiver addTrack() creates (or the one it reuses) may pair
+  // with a remote offer; one addTransceiver() creates never does (JSEP 5.10).
+  addTrackApi: {
+    weight: 1,
+    applies: ({ pc }) => pc.getTransceivers().length < 6,
+    draw: (rng) => ({ kind: rng.pick(kinds) }),
+    run: async ({ pc }, w, { kind }) => {
+      const sender = pc.addTrack(
+        new MediaStreamTrack({ kind: kind as "audio" }),
+      );
+      w.oracles.application(
+        pc.getTransceivers().find((t) => t.sender === sender)!,
+      );
+    },
+  },
+  addSendonly: {
+    weight: 1,
+    applies: ({ pc }) => pc.getTransceivers().length < 6,
+    draw: (rng) => ({ kind: rng.pick(kinds) }),
+    run: async ({ pc }, w, { kind }) => {
+      const track = new MediaStreamTrack({ kind: kind as "audio" });
+      w.oracles.application(
+        pc.addTransceiver(track, { direction: "sendonly" }),
       );
     },
   },
@@ -480,12 +515,13 @@ async function deliver(
 async function arrange(
   c: NegotiationCase,
   start: Start,
+  pairing: TransceiverPairing = "standard",
 ): Promise<World & Peers2> {
   const oracles = new ModelOracles(c);
   let a: RTCPeerConnection;
   let b: RTCPeerConnection;
   if (start !== "connected") {
-    ({ a, b } = await c.given(createPeerPair(modelConfig())));
+    ({ a, b } = await c.given(createPeerPair(modelConfig(pairing))));
     oracles.application(
       a.addTransceiver(new MediaStreamTrack({ kind: "video" }), {
         direction: "sendrecv",
@@ -495,7 +531,7 @@ async function arrange(
       oracles.channel(a.createDataChannel("dc0"), a);
     }
   } else {
-    const scope = await c.given(createDuplexSession(modelConfig()));
+    const scope = await c.given(createDuplexSession(modelConfig(pairing)));
     ({ a, b } = scope);
     oracles.application(scope.aVideo);
     oracles.application(scope.bVideo);
@@ -503,7 +539,7 @@ async function arrange(
     oracles.channel(scope.bChannel, b);
   }
   oracles.watch(a, b);
-  c.note(`start: ${start}`);
+  c.note(`start: ${start}${pairing === "standard" ? "" : ` (${pairing})`}`);
   return { c, oracles, saved: new Map(), created: 0, a, b };
 }
 type Peers2 = { a: RTCPeerConnection; b: RTCPeerConnection };
@@ -520,7 +556,7 @@ export async function runScene(
   scene: Scene,
   { lenient = false } = {},
 ) {
-  const w = await arrange(c, scene.start);
+  const w = await arrange(c, scene.start, scene.pairing);
   for (const [index, [side, name, args = {}]] of scene.ops.entries()) {
     const peers = peersOf(w, side);
     const step = STEPS[name];
@@ -552,7 +588,9 @@ export async function generateScene(
     "unnegotiated",
     "media",
   ] as const);
-  const w = await arrange(c, scene.start);
+  // The pairing axis has its own stream, so it does not shift the operations.
+  if (seededRandom(seed ^ 0x816).chance(0.25)) scene.pairing = "byKind";
+  const w = await arrange(c, scene.start, scene.pairing);
   for (let index = 1; index <= steps; index++) {
     const side: Side = rng.chance(0.5) ? "a" : "b";
     const peers = peersOf(w, side);
