@@ -71,7 +71,8 @@ import {
  *   for each live negotiated m-line, every configured primary codec that the
  *   codec preferences and a fixed track source allow, whatever the last
  *   answer kept (RFC 8829 5.2.2, issue 818), and keeps the negotiated
- *   codecs they allow whatever the direction (`direction`, `removeTrack()`);
+ *   codecs they allow whatever the direction (`direction`, `removeTrack()`)
+ *   in their negotiated form (payload type, fmtp, rtcp-fb);
  *   `transceiver.codecs` of a negotiated transceiver is part of the state
  *   createOffer / rollback keep.
  * (A rejected operation changing nothing is checked by the harness.)
@@ -478,6 +479,26 @@ export class ModelOracles implements Observer {
       expect(offered, `offer keeps negotiated codecs of ${t.mid}`).toEqual(
         expect.arrayContaining(allowed(t.codecs)),
       );
+      // 交渉済み primary codec は交渉済みの形式 (PT・fmtp・rtcp-fb) のまま offer に載る
+      // (RFC 3264 8.3.2。相手の形式でも設定の形式に書き換えない)。
+      const form = (c: {
+        payloadType: number;
+        mimeType: string;
+        parameters?: string;
+        rtcpFeedback: readonly { type: string; parameter?: string }[];
+      }) => ({
+        payloadType: c.payloadType,
+        mimeType: c.mimeType.toLowerCase(),
+        parameters: c.parameters ?? "",
+        rtcpFeedback: c.rtcpFeedback
+          .map((f) => `${f.type} ${f.parameter ?? ""}`.trim())
+          .sort(),
+      });
+      const keptNegotiated = t.codecs.filter((c) => allowed([c]).length > 0);
+      expect(
+        (m?.rtp.codecs ?? []).map(form),
+        `offer keeps the negotiated form of ${t.mid}`,
+      ).toEqual(expect.arrayContaining(keptNegotiated.map(form)));
       // direction 付きの codec 設定は能力の一致を見ない (方向の規則は個別テストで検証する)。
       if (configured.some((c) => c.direction !== "all")) continue;
       expect(offered, `offer capability of ${t.mid}`).toEqual(

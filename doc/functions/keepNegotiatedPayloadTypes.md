@@ -9,8 +9,16 @@
 > **keepNegotiatedPayloadTypes**(`capability`, `negotiated`, `taken`): [`RTCRtpCodecParameters`](../classes/RTCRtpCodecParameters.md)[]
 
 Offer codecs for a negotiated m-line (RFC 8829 §5.2.2, RFC 3264 §8.3.2):
-`capability` (configured payload types, in offer order) with each codec
-that is already negotiated moved to its negotiated payload type.
+`capability` (configured codecs, in offer order) with each configured codec
+that is already negotiated replaced by the negotiated codec itself, so its
+payload type, fmtp and rtcp-fb stay as negotiated (also when the remote's
+form differs from the configured one). A configured codec pairs with the
+negotiated codec of the same format (`isCodecCompatible`) first, then with
+one negotiation pairs it with (`negotiatesAs`, the same MIME type). A
+configured codec of the MIME type of a negotiated codec that another
+configured codec already stands for is not offered again, so an answer
+cannot pair it in place of the negotiated one. A negotiated RTX / RED for
+the offered primaries is offered as negotiated too.
 
 A codec offered again keeps its configured payload type unless that type is
 already used on this m-line or maps to another codec in `taken` (every

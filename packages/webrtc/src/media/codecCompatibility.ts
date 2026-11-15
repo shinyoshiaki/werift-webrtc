@@ -58,6 +58,24 @@ export function isCodecCompatible(
   );
 }
 
+/**
+ * The predicate negotiation pairs a configured codec with a remote one by
+ * (`setRemoteDescription()` / `createAnswer()`): the same MIME type. The
+ * negotiated codec is therefore in the remote's form (payload type, fmtp,
+ * rtcp-fb), which may differ from the configured one, but it is what the
+ * configured codec negotiated, so a later offer lists it as it is
+ * (RFC 3264 §8.3.2).
+ */
+export function negotiatesAs(
+  configured: RTCRtpCodecParameters,
+  negotiated: RTCRtpCodecParameters,
+) {
+  return (
+    normalizeCodecMimeType(configured.mimeType) ===
+    normalizeCodecMimeType(negotiated.mimeType)
+  );
+}
+
 function isAuxiliary(codec: RTCRtpCodecParameters) {
   return ["rtx", "red"].includes(codecName(codec));
 }
@@ -253,7 +271,8 @@ export function assertCodecsSupported(options: {
 /**
  * Configured codecs a negotiated m-line offers, before payload types are
  * mapped (`keepNegotiatedPayloadTypes`): `capability` plus the configured
- * counterpart of every negotiated codec that `capability` lacks.
+ * counterpart (`negotiatesAs`, the predicate negotiation pairs by) of every
+ * negotiated codec that `capability` lacks.
  *
  * `eligible` is every configured codec of the kind with the fixed source and
  * the codec preferences applied but no direction filter, and `capability` is
@@ -286,7 +305,7 @@ export function withNegotiatedCodecs(
         !isAuxiliary(codec) &&
         (capability.includes(codec) ||
           negotiated.some(
-            (other) => !isAuxiliary(other) && isCodecCompatible(other, codec),
+            (other) => !isAuxiliary(other) && negotiatesAs(codec, other),
           )),
     ),
   );
@@ -306,7 +325,7 @@ export function withNegotiatedCodecs(
           return (
             primary != undefined &&
             otherPrimary != undefined &&
-            isCodecCompatible(otherPrimary, primary)
+            negotiatesAs(primary, otherPrimary)
           );
         })
       );
@@ -419,8 +438,16 @@ function withPayloadType(
 
 /**
  * Offer codecs for a negotiated m-line (RFC 8829 §5.2.2, RFC 3264 §8.3.2):
- * `capability` (configured payload types, in offer order) with each codec
- * that is already negotiated moved to its negotiated payload type.
+ * `capability` (configured codecs, in offer order) with each configured codec
+ * that is already negotiated replaced by the negotiated codec itself, so its
+ * payload type, fmtp and rtcp-fb stay as negotiated (also when the remote's
+ * form differs from the configured one). A configured codec pairs with the
+ * negotiated codec of the same format (`isCodecCompatible`) first, then with
+ * one negotiation pairs it with (`negotiatesAs`, the same MIME type). A
+ * configured codec of the MIME type of a negotiated codec that another
+ * configured codec already stands for is not offered again, so an answer
+ * cannot pair it in place of the negotiated one. A negotiated RTX / RED for
+ * the offered primaries is offered as negotiated too.
  *
  * A codec offered again keeps its configured payload type unless that type is
  * already used on this m-line or maps to another codec in `taken` (every
@@ -464,23 +491,52 @@ export function keepNegotiatedPayloadTypes(
     used.add(codec.payloadType);
   };
 
-  // 1. Negotiated primaries keep their payload types.
+  // 1. Negotiated primaries are offered as negotiated (payload type, fmtp,
+  //    rtcp-fb). A configured codec pairs with the negotiated codec of the
+  //    same format first, then with one negotiation paired it by
+  //    (`negotiatesAs`).
+  const covered = new Set<RTCRtpCodecParameters>();
+  const pairings = [
+    (configured: RTCRtpCodecParameters, candidate: RTCRtpCodecParameters) =>
+      isCodecCompatible(candidate, configured),
+    negotiatesAs,
+  ];
+  for (const pairs of pairings) {
+    capability.forEach((codec, index) => {
+      if (isAuxiliary(codec) || offered[index]) return;
+      const match = negotiated.find(
+        (candidate) =>
+          !isAuxiliary(candidate) &&
+          !matched.has(candidate) &&
+          !used.has(candidate.payloadType) &&
+          pairs(codec, candidate),
+      );
+      if (!match) return;
+      matched.add(match);
+      primaryPayloadType.set(codec.payloadType, match.payloadType);
+      place(index, match);
+    });
+  }
+  // A configured codec negotiation would pair with a negotiated codec that
+  // another configured codec already stands for is not offered again: the
+  // answer could pair it (by MIME type) in place of the negotiated one and
+  // switch the committed format.
   capability.forEach((codec, index) => {
-    if (isAuxiliary(codec)) return;
-    const match = negotiated.find(
-      (candidate) =>
-        !isAuxiliary(candidate) &&
-        !matched.has(candidate) &&
-        isCodecCompatible(candidate, codec),
-    );
-    if (!match || used.has(match.payloadType)) return;
-    matched.add(match);
-    primaryPayloadType.set(codec.payloadType, match.payloadType);
-    place(index, withPayloadType(codec, match.payloadType));
+    if (isAuxiliary(codec) || offered[index]) return;
+    if (
+      negotiated.some(
+        (candidate) =>
+          !isAuxiliary(candidate) &&
+          matched.has(candidate) &&
+          negotiatesAs(codec, candidate),
+      )
+    ) {
+      covered.add(codec);
+    }
   });
   // 2. Primaries offered again.
   capability.forEach((codec, index) => {
-    if (isAuxiliary(codec) || offered[index]) return;
+    if (isAuxiliary(codec) || offered[index] || covered.has(codec)) return;
     const payloadType = pick(codec.payloadType, codec);
     if (payloadType == undefined) return;
     primaryPayloadType.set(codec.payloadType, payloadType);
@@ -510,18 +566,23 @@ export function keepNegotiatedPayloadTypes(
             `$1apt=${references[0]}`,
           )
         : references.join("/");
-    const candidate = withPayloadType(codec, codec.payloadType, parameters);
-    const negotiatedPayloadType = negotiated.find(
+    // The RTX / RED negotiated for these primaries is offered as negotiated.
+    const negotiatedAuxiliary = negotiated.find(
       (other) =>
         codecName(other) === codecName(codec) &&
+        !matched.has(other) &&
+        !used.has(other.payloadType) &&
         (codecName(codec) === "rtx"
           ? referencedPayloadTypes(other)[0] === references[0]
-          : (other.parameters ?? "") === parameters),
-    )?.payloadType;
-    const payloadType =
-      negotiatedPayloadType != undefined && !used.has(negotiatedPayloadType)
-        ? negotiatedPayloadType
-        : pick(codec.payloadType, candidate);
+          : (other.parameters ?? "") === (parameters ?? "")),
+    );
+    if (negotiatedAuxiliary) {
+      matched.add(negotiatedAuxiliary);
+      place(index, negotiatedAuxiliary);
+      return;
+    }
+    const candidate = withPayloadType(codec, codec.payloadType, parameters);
+    const payloadType = pick(codec.payloadType, candidate);
     if (payloadType == undefined) return;
     place(index, withPayloadType(candidate, payloadType));
   });

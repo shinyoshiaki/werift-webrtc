@@ -139,6 +139,7 @@
 - [ ] 上記の回帰テストがすべて追加されて通る。`npm run type` / `npm test` / `npm run pbt:deep` / `npm run wpt` が通る。
 - [ ] `tools/negotiation-diff` のdevelop比較でregression / hang / state differenceが0。意図した差分は説明されている。
 - [ ] 新しいルールが実装のTSDocとテストに記録され、`changelog.md` が更新されている。
+- [ ] 交渉済みcodecは、codec設定が非対称な相手に対しても交渉済みの形式（PT・fmtp・rtcp-fb）のまま再提示される。設定codecとの対応付けは交渉と同じ述語（`negotiatesAs`）を使い、非対称な構成でのdevelopとの差分は「以前のanswerで削られたcodecが増える」とBUNDLE内のPT衝突回避だけ（§10）。
 
 ## 9. 追加要件: 方向変更で交渉済みcodecを失わない（レビュー7回目の打開策）
 
@@ -205,3 +206,80 @@
 
 - leak heap seed 4（`-t "heap seed"` で単独実行すると再現、slope 19〜21 KiB/cycle、上限16）は、developの一時worktreeでも同じく失敗する（18.4 / 19.5 KiB/cycle）。修正前のHEADも同じ（19.2 / 19.4）。本チケットの変更によるものではない既存の問題で、範囲外とする。
 - `packages/rtp/tests/codec/vp8.test.ts` に混入していたroot formatによるimport順の差分は、developの内容に戻した。
+
+## 10. 追加要件: 交渉済みcodecを交渉済みの形式のまま再提示する（非対称な相手、レビュー9回目の打開策）
+
+### 10.1 背景と原因
+
+- レビュー8〜10回目は、BUNDLE内のPT共有判定（H264の `packetization-mode` / `profile-level-id`、REDの参照先、`rtcp-fb`）を1次元ずつ指摘した。8〜10回目の対応で、PTを共有できるのは `rtpmap`・`fmtp`・`rtcp-fb` がすべて同じcodecだけとした（`samePayloadMapping`、RFC 8859 の IDENTICAL-PER-PT）。
+- レビュー9回目以降の指摘（H264 level差で確定PTが移る）を含め、**根本原因はcodecの「同一性」を判定する述語が経路ごとに食い違っていたこと**だった。
+  - 交渉（answer作成・remote answer適用、`resolveRemoteCodecSet`）は、localとremoteのcodecを**MIME typeだけ**で対にする。確定した `transceiver.codecs` には**remote側のcodecオブジェクト**（remoteのPT・fmtp・rtcp-fb）が入る。
+  - 再オファー（`withNegotiatedCodecs` / `keepNegotiatedPayloadTypes`）は、`isCodecCompatible`（MIME + clockRate + channels + H264のmode / profile）で「交渉済みcodecの設定上の対応物」を探していた。見つかると**設定上の形式に書き換えて**提示していた。developは `transceiver.codecs` をそのまま再提示していたので、この書き換えは起きなかった。
+  - その結果、実装自身が `samePayloadMapping` で「fmtp / rtcp-fbが違えば別codec」と定義しているのに、交渉済みPTのfmtp / rtcp-fbを再オファーで書き換えていた（RFC 3264 §8.3.2 のPT不変則に違反）。
+- 非承認レビューは毎回「両peerのcodec設定が**非対称**な公開APIシナリオ」をHEADとdevelopで比較していた。一方、修正側の自己検証（9.3の2400行マトリクス、`tools/negotiation-diff`、model property）はどれも**両peerに同じ設定**を渡しており、この次元を含んでいなかった。
+
+修正前（`b527549ac`）に再現した非対称な相手との差分（設定変更なしの再オファー、answerer側）:
+
+| 非対称な相手との交渉後の再オファー | develop | 修正前のHEAD |
+| --- | --- | --- |
+| H264 level差（相手 42e01f/98、自分 42e00d/96） | 98 / 42e01f を維持 | 96 / 42e00d に変わり、確定PTも96へ移る |
+| 同上 + VP8併設 | 98を維持 | H264が97へ移る |
+| H264 packetization-mode差 | 98 / mode 1 を維持 | 96 / mode 0 へ |
+| opus fmtp差（相手 `minptime=10;useinbandfec=1`、自分 `stereo=1`） | fmtpを維持 | 同じPT 111のfmtpが `stereo=1` に変わる |
+| VP8 rtcp-fb差（相手 nack/pli/remb、自分なし） | feedbackを維持 | 同じPT 100のrtcp-fbが消える |
+| 設定にH264が2本（mode 1/96、mode 0/97）、相手は mode 0/98 | 98だけ | 96 mode 1 を追加提示し、相手のMIMEだけの照合で確定codecが mode 1/96 に切り替わる |
+
+### 10.2 ルール
+
+**交渉済みcodecは交渉済みの形式（PT・fmtp・rtcp-fb）のまま再提示し、設定上の対応物は交渉が使う述語と同じ述語で対応付ける。**
+
+- `negotiatesAs(configured, negotiated)`（`codecCompatibility.ts`、export）を、交渉がcodecを対にする述語（MIME typeの一致）として1か所に置いた。`resolveRemoteCodecSet` のインライン比較もこの関数に置き換え、交渉と再オファーの述語を同じ関数にした。
+- `withNegotiatedCodecs`: 方向で外れた交渉済みcodecの設定上の対応物を `negotiatesAs` で探す（以前は `isCodecCompatible`）。
+- `keepNegotiatedPayloadTypes`:
+  1. 設定codecを交渉済みcodecと、**まず `isCodecCompatible`（同じ形式）で、次に `negotiatesAs`（MIME type）で**対応付ける。対応したら**交渉済みcodecのオブジェクトそのもの**を置く（PT・fmtp・rtcp-fbは交渉済みのまま）。
+  2. 対応相手の交渉済みcodecが別の設定codecに取られている同じMIME typeの設定codecは、「covered」として再提示しない。再提示すると、相手がMIME typeだけで照合して確定codecの形式が切り替わる（表の最終行）。
+  3. 以前のanswerで外れたcodec（別MIME type）は従来どおり再提示する（#818）。PTは設定値、BUNDLE内で別codecが使っていれば空きPT。
+  4. 提示したprimaryに対する交渉済みRTX / REDは、交渉済みのオブジェクトをそのまま置く（REDの比較は両辺 `?? ""`）。
+- この結果、developとの差分は「以前のanswerで削られたcodecが増える」方向と、BUNDLE内のPT衝突回避（追加m-lineが、別m-lineで別の形式に使われているPTを避ける）だけに閉じる。非対称な相手に対しては、交渉済みm-lineの再オファーがdevelopと同一になる。
+- 既知の制限（develop互換）: 同じMIME typeで形式の違うcodec（H264 mode 0 / mode 1 など）のうち、交渉で選ばれなかったものは再提示しない。交渉がMIME typeだけで対にするためで、交渉側の対応付けを形式単位にするのは本チケットの範囲外とする。
+- ルールは `negotiatesAs` / `withNegotiatedCodecs` / `keepNegotiatedPayloadTypes` / `TransceiverManager.resolveOfferCodecs` / `NegotiationTransaction`（Codecs行）のTSDocと `changelog.md` の#818項に記載した。
+
+### 10.3 回帰テスト
+
+- [x] `tests/issue/818.test.ts`: 公開APIの非対称な2者（H264 level差、opus fmtp差、VP8 rtcp-fb差、設定H264 2本 vs 相手1本）。接続済みセッションで、answererの再オファーのrtpmap / fmtp / rtcp-fbが初回answerと同一であること、確定後もPT・fmtp・rtcp-fbが変わらないこと、`expectSessionContinues`（ハーネスが本体の後に実行）を確認する。修正前のHEAD（`b527549ac`）では4件とも失敗する。
+- [x] `tests/issue/818.test.ts` の `rtcp-fb collision` ケース: 期待値を新ルールに合わせた（既存m-lineは交渉済みの `98 VP8`（feedbackあり）だけ、追加m-lineは `96 VP8`（feedbackあり）と `97 VP8`（feedbackなし））。修正前のHEADでは失敗する。
+- [x] `tests/media/codecResolution.test.ts`: 交渉済みcodecが別fmtp / 別feedbackでもそのオブジェクトが置かれる、同じ形式 → MIME typeの順で対応付く、同じMIME typeの別の設定codecは再提示しない（covered）、交渉済みRTXがそのまま置かれる、`negotiatesAs` がMIME typeだけで対にする。
+- [x] model property: oracle `offerCapability` に「交渉済みprimary codecは、PT・parameters・rtcpFeedbackがofferと一致する」を追加した。あわせて、peer bのcodec設定を別の形式にする非対称の軸（`asymmetricModelConfig`: VP8のPT 120 + NACK/PLIだけ、H264 level 42e00d、Opus `stereo=1`）を、pairingと同じく独立したseed streamで25%のシーンに入れた。修正前のHEADでは100 seed中 seed 87 がこのoracleで失敗し、修正後は100 seedすべて成功する。
+
+### 10.4 自己検証への「非対称な相手」次元の追加（再発防止）
+
+- `tools/negotiation-diff/lib.ts` の `session()` に、peer bだけに足す設定 `extraB` を追加した。
+- `tools/negotiation-diff/run.ts` の設定軸に、非対称構成4種を追加した: `asymmetricPt`（bのPTが別）、`asymmetricH264`（bのH264がlevel 42e00d / mode 0 の2本）、`asymmetricOpus`（bのOpus fmtpが `stereo=1;useinbandfec=1`）、`asymmetricFeedback`（bのVP8 / H264にrtcp-fbなし）。
+- 公開APIの非対称マトリクス（一時スクリプト `/tmp/asym818/asym.test.ts`）: codec構成14種（上の表の6行、逆向き2種、PT差で以前のanswerが削ったVP9、RTXの非対称2種、REDの非対称、方向付きcodec、対称）× 再オファーする側2種（offerer / answerer）× 操作4種（なし、`inactive`、m-line追加、2回続けて再オファー）= 112行。各行で初回answer、再オファー、2回目のanswer、両peerの確定codec（PT・fmtp・rtcp-fb）を記録し、develop（`41773f4dc`）・修正前のHEAD（`b527549ac`）・修正後で比較した。
+
+| 比較（112行） | developと同一 | codecが増える（#818） | 追加m-lineがPT衝突を避ける | 交渉済みの形式が変わる |
+| --- | --- | --- | --- | --- |
+| 修正前のHEAD | 52 | 28 | 0 | **32** |
+| 修正後 | 85 | 24 | 3 | **0** |
+
+- 「追加m-lineがPT衝突を避ける」3行（`opusFmtp` / `vp8FbSelfNone` / `vp8FbRemoteNone` のanswerer + m-line追加）は、既存m-lineが相手の形式（例: `111 opus minptime=10;useinbandfec=1`）を交渉済みのまま提示し、追加m-lineの設定codec（`stereo=1`）が同じPTを使えないため空きPTへ移る行。developは同じPT 111に別のfmtpを載せていた（RFC 8859違反）。既存m-lineの再オファーと確定codecはdevelopと同一。
+- 修正前のHEADが「codecが増える」とした行のうち4行（`h264Two` のofferer側）は、修正後developと同一になった。相手のMIMEだけの照合で mode 1/96 が確定しているため、mode 0 はcoveredとして再提示しない（10.2の既知の制限）。
+- `tools/negotiation-diff` の非対称構成4種（各15 seed、12 step）をdevelop（`41773f4dc`）の一時worktreeと比較した。4種ともregression 0、divergence 0、hang 0、HEADだけの失敗0、transceiver state difference 0。
+
+### 10.5 検証結果（§10の対応）
+
+対象は `b527549ac` に未コミットの変更（`codecCompatibility.ts`、`transceiverManager.ts`、`negotiationTransaction.ts`、テスト、model property、`tools/negotiation-diff`、ドキュメント）を加えた状態。
+
+| 確認 | 結果 |
+| --- | --- |
+| `npm run type`（rootとwebrtc） | エラー0 |
+| `cd packages/webrtc && npm test` | 89ファイル、1871件成功、5件スキップ（ICE系の環境要因による失敗はこの機体では出なかった） |
+| 新規・更新テスト | `818.test.ts` の非対称4件と `rtcp-fb collision` は修正前のHEAD（`b527549ac`）で失敗し、修正後に成功 |
+| model property（100 seed） | 成功。修正前のHEADでは seed 87 が新しいoracle（交渉済みの形式）で失敗 |
+| 公開APIの非対称マトリクス（112行） | 交渉済みの形式が変わる行は0（修正前のHEADは32）。差分はcodecの追加24行とPT衝突回避3行だけ（10.4） |
+| `tools/negotiation-diff`（非対称4構成 × 15 seed、develop比較） | regression / divergence / hang / failure / state difference すべて0 |
+| `npm run pbt:deep` | fuzz・scenario・modelは失敗0（flakyは単独で成功）。leakは heap seed 4 だけが失敗し、developの一時worktreeでも同じく失敗する（18.56 KiB/cycle、上限16、既存の問題。9.6参照） |
+| `npm run wpt` | regression 0。`codecs-subsequent-offer` はPASS |
+
+- 1回目の `pbt:deep` で、model / leak の seed 171 が失敗した。原因はテストの設定だった。非対称構成のVP8をPT 120にしていたが、wire mutation `codecRenumbered` もH264を「未使用」のPT 120へ移すため、同じPTに2つのcodecが載る不正なSDPができていた（修正前のHEADでも同じく失敗）。非対称構成のVP8をPT 110に変えて解消した。scenario seed 214 は単独で3回、所属shard（seed 211〜217）で2回再実行し、すべて成功した（並列負荷下のflaky）。
+- 一時スクリプトと結果は `/tmp/asym818`（`asym.test.ts`、`classify.py`、`dev.json` / `head.json` / `final.json`）と `/tmp/nd818` に残した。

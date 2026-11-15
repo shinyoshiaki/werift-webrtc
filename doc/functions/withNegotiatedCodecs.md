@@ -10,7 +10,8 @@
 
 Configured codecs a negotiated m-line offers, before payload types are
 mapped (`keepNegotiatedPayloadTypes`): `capability` plus the configured
-counterpart of every negotiated codec that `capability` lacks.
+counterpart (`negotiatesAs`, the predicate negotiation pairs by) of every
+negotiated codec that `capability` lacks.
 
 `eligible` is every configured codec of the kind with the fixed source and
 the codec preferences applied but no direction filter, and `capability` is

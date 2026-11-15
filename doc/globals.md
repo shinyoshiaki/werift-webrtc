@@ -603,6 +603,7 @@
 - [mergeIceServerOptions](functions/mergeIceServerOptions.md)
 - [microTime](functions/microTime.md)
 - [negotiateRemoteCodecs](functions/negotiateRemoteCodecs.md)
+- [negotiatesAs](functions/negotiatesAs.md)
 - [nodeIpAddress](functions/nodeIpAddress.md)
 - [normalizeCodecMimeType](functions/normalizeCodecMimeType.md)
 - [normalizeFamilyNodeV18](functions/normalizeFamilyNodeV18.md)

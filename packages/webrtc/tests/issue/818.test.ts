@@ -532,13 +532,101 @@ describeCases("issue 818: subsequent offers list every supported codec", () => {
       for (const [pt, value] of feedback[1]) {
         expect(feedback[0].get(pt) ?? value).toEqual(value);
       }
-      // Assert: 既存 m-line の VP8 (feedback あり) は 98 のまま、両 m-line とも feedback なしの VP8 を提示する。
-      expect(feedback[0].get(98)).toEqual("goog-remb,nack,nack pli");
-      for (const section of feedback) {
-        expect([...section.values()]).toContain("");
-      }
+      // Assert: 既存 m-line は交渉済みの VP8 (98, feedback あり) だけを交渉済みのまま提示する。
+      // 同じ MIME の設定 codec (98, feedback なし) は、answer が MIME で取り違えないよう再提示しない。
+      expect([...feedback[0]]).toEqual([[98, "goog-remb,nack,nack pli"]]);
+      // Assert: 追加 m-line の feedback なし VP8 は 98 を避けて空き PT 97 へ移る。
+      expect([...feedback[1]]).toEqual([
+        [96, "goog-remb,nack,nack pli"],
+        [97, ""],
+      ]);
     },
   );
+
+  // 非対称な相手: 交渉は MIME type で codec を対にするので、確定 codec は相手の形式
+  // (PT・fmtp・rtcp-fb) になる。再オファーはそれを交渉済みのまま提示する (RFC 3264 §8.3.2)。
+  const h264 = (payloadType: number, parameters: string) =>
+    useH264({ payloadType, parameters });
+  const asymmetricPeers = [
+    {
+      name: "an H264 of another level",
+      kind: "video",
+      offerer: () => [h264(98, "profile-level-id=42e01f;packetization-mode=1")],
+      answerer: () => [
+        h264(96, "profile-level-id=42e00d;packetization-mode=1"),
+      ],
+    },
+    {
+      name: "an opus with other fmtp",
+      kind: "audio",
+      offerer: () => [
+        useOPUS({ payloadType: 111, parameters: "minptime=10;useinbandfec=1" }),
+      ],
+      answerer: () => [useOPUS({ payloadType: 111, parameters: "stereo=1" })],
+    },
+    {
+      name: "a VP8 with other RTCP feedback",
+      kind: "video",
+      offerer: () => [useVP8({ payloadType: 100 })],
+      answerer: () => [useVP8({ payloadType: 100, rtcpFeedback: [] })],
+    },
+    {
+      name: "one H264 where two (mode 1 / mode 0) are configured",
+      kind: "video",
+      offerer: () => [h264(98, "profile-level-id=42e01f;packetization-mode=0")],
+      answerer: () => [
+        h264(96, "profile-level-id=42e01f;packetization-mode=1"),
+        h264(97, "profile-level-id=42e01f;packetization-mode=0"),
+      ],
+    },
+  ] as const;
+  /** rtpmap / fmtp / rtcp-fb lines of each m-line, sorted. */
+  const codecLines = (sdp: string) =>
+    sdp
+      .split(/^m=/m)
+      .slice(1)
+      .map((section) =>
+        section
+          .split(/\r?\n/)
+          .filter((line) => /^a=(rtpmap|fmtp|rtcp-fb):/.test(line))
+          .sort(),
+      );
+  const committed = (transceiver: RTCRtpTransceiver) =>
+    transceiver.codecs.map((codec) => ({
+      payloadType: codec.payloadType,
+      mimeType: codec.mimeType,
+      parameters: codec.parameters,
+      rtcpFeedback: codec.rtcpFeedback.map((feedback) => ({ ...feedback })),
+    }));
+
+  for (const row of asymmetricPeers) {
+    negotiationCase(
+      `answerer: after negotiating ${row.name} with the peer, a re-offer lists the negotiated codec as negotiated`,
+      { ref: "origin: issue 818 (asymmetric peers: negotiated form)" },
+      async (c) => {
+        // Arrange: 設定が非対称な 2 者で交渉を確定する (B が answerer)。
+        const { a, b } = await c.given(
+          createConnectedVideoPeersWith({
+            kind: row.kind,
+            offerer: { codecs: { [row.kind]: row.offerer() } },
+            answerer: { codecs: { [row.kind]: row.answerer() } },
+          }),
+        );
+        const answer = codecLines(b.currentLocalDescription!.sdp);
+        const transceiver = b.getTransceivers()[0];
+        const before = committed(transceiver);
+
+        // Act: 設定を変えずに B が再オファーし、A の answer で確定する。
+        const offer = await c.offer(b);
+        await c.answer(a);
+
+        // Assert: 再オファーの rtpmap / fmtp / rtcp-fb は初回 answer と同じ (交渉済みのまま)。
+        expect(codecLines(offer.sdp)).toEqual(answer);
+        // Assert: 確定後も PT・fmtp・rtcp-fb は変わらない。
+        expect(committed(transceiver)).toEqual(before);
+      },
+    );
+  }
 
   negotiationCase(
     "glare on a connected session: the polite peer's implicit rollback keeps RTP and DataChannel flowing both ways",

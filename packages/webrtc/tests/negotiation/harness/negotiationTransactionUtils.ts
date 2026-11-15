@@ -1318,9 +1318,10 @@ function assertNoOrphanTransports(pc: RTCPeerConnection) {
  */
 export async function createDuplexSession(
   config: ConstructorParameters<typeof RTCPeerConnection>[0] = {},
+  configB = config,
 ) {
   const a = new RTCPeerConnection(config);
-  const b = new RTCPeerConnection(config);
+  const b = new RTCPeerConnection(configB);
   const aOut = new MediaStreamTrack({ kind: "video" });
   const bOut = new MediaStreamTrack({ kind: "video" });
   const aChannel = a.createDataChannel("matrix");
@@ -3367,23 +3368,27 @@ export function rtxCodec() {
 /**
  * Shared Arrange: connected sendonly video like `createConnectedVideoPeers`,
  * with a separate configuration per peer and optional codec preferences the
- * offerer applies before its first offer.
+ * offerer applies before its first offer. `kind: "audio"` sends audio
+ * instead.
  */
 export async function createConnectedVideoPeersWith({
   offerer: offererConfig,
   answerer: answererConfig = offererConfig,
   offererPreferences,
   direction = "sendonly",
+  kind = "video",
 }: {
   offerer: ConstructorParameters<typeof RTCPeerConnection>[0];
   answerer?: ConstructorParameters<typeof RTCPeerConnection>[0];
   offererPreferences?: RTCRtpCodecParameters[];
   /** direction of the offerer's transceiver (it always has a track) */
   direction?: "sendrecv" | "sendonly";
+  /** media kind of the offerer's track (default video) */
+  kind?: "video" | "audio";
 }) {
   const offerer = new RTCPeerConnection(offererConfig);
   const answerer = new RTCPeerConnection(answererConfig);
-  const outgoing = new MediaStreamTrack({ kind: "video" });
+  const outgoing = new MediaStreamTrack({ kind });
   const transceiver = offerer.addTransceiver(outgoing, { direction });
   if (offererPreferences) transceiver.setCodecPreferences(offererPreferences);
   await offerer.setLocalDescription(await offerer.createOffer());

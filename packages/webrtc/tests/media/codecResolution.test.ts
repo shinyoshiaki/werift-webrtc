@@ -13,6 +13,7 @@ import {
 import {
   applyCodecPreferences,
   keepNegotiatedPayloadTypes,
+  negotiatesAs,
   withNegotiatedCodecs,
 } from "../../src/media/codecCompatibility";
 import {
@@ -1483,6 +1484,108 @@ describe("codec resolution", () => {
 
       // Assert: feedback が違う 98 は空き PT 96 へ移り、順序と大文字小文字だけが違う 100 は共有する。
       expect(offered.map((c) => c.payloadType)).toEqual([96, 100]);
+    });
+
+    test("a negotiated codec in the remote's form (other fmtp / feedback) is offered as that codec", () => {
+      // Arrange: 設定は opus 111 (stereo=1, feedback なし)。交渉済みは相手の形式の opus 111 (useinbandfec=1, transport-cc)。
+      const configured = codec("audio/opus", 111, "stereo=1");
+      const negotiated = new RTCRtpCodecParameters({
+        mimeType: "audio/OPUS",
+        clockRate: 48_000,
+        channels: 2,
+        payloadType: 111,
+        parameters: "minptime=10;useinbandfec=1",
+        rtcpFeedback: [{ type: "transport-cc" }],
+      });
+
+      // Act: offer 用の codec を解決する。
+      const offered = keepNegotiatedPayloadTypes(
+        [configured],
+        [negotiated],
+        taken(negotiated),
+      );
+
+      // Assert: 交渉済み codec のオブジェクトそのもの (PT・fmtp・rtcp-fb が交渉済みのまま) を提示する。
+      expect(offered).toHaveLength(1);
+      expect(offered[0]).toBe(negotiated);
+    });
+
+    test("a configured codec pairs with the negotiated codec of its format first, then by MIME type; another of that MIME type is not offered again", () => {
+      // Arrange: 設定は H264 mode 1 (96) と mode 0 (97)、交渉済みは相手の H264 mode 0 (98)。
+      // 別の設定 H264 (level 違い 42e00d) は相手の 42e01f と MIME type だけで対になる。
+      const h264 = (payloadType: number, parameters: string) =>
+        codec("video/H264", payloadType, parameters);
+      const capability = [
+        h264(96, "profile-level-id=42e01f;packetization-mode=1"),
+        h264(97, "profile-level-id=42e01f;packetization-mode=0"),
+        codec("video/VP9", 100),
+      ];
+      const negotiated = [
+        h264(98, "profile-level-id=42e01f;packetization-mode=0"),
+      ];
+      const otherLevel = [h264(96, "profile-level-id=42e00d")];
+      const negotiatedOtherLevel = [h264(98, "profile-level-id=42e01f")];
+
+      // Act: 同じ形式がある場合とない場合で offer 用の codec を解決する。
+      const strict = keepNegotiatedPayloadTypes(
+        capability,
+        negotiated,
+        taken(...negotiated),
+      );
+      const loose = keepNegotiatedPayloadTypes(
+        otherLevel,
+        negotiatedOtherLevel,
+        taken(...negotiatedOtherLevel),
+      );
+
+      // Assert: mode 0 の設定が交渉済み mode 0 と対になり、同じ MIME type の mode 1 は再提示しない。
+      // 別 MIME type の VP9 は再提示する。
+      expect(strict[0]).toBe(negotiated[0]);
+      expect(summary(strict)).toEqual([
+        "98 H264 profile-level-id=42e01f;packetization-mode=0",
+        "100 VP9",
+      ]);
+      // Assert: 同じ形式がなければ MIME type で対になり、相手の形式 (98, 42e01f) のまま提示する。
+      expect(loose).toEqual(negotiatedOtherLevel);
+      expect(loose[0]).toBe(negotiatedOtherLevel[0]);
+    });
+
+    test("a negotiated RTX for an offered primary is offered as negotiated", () => {
+      // Arrange: 設定は VP8 96 / RTX 97 (apt=96)。交渉済みは相手の VP8 100 / RTX 101 (apt=100;rtx-time=3000)。
+      const capability = [
+        codec("video/VP8", 96),
+        codec("video/rtx", 97, "apt=96"),
+      ];
+      const negotiated = [
+        codec("video/VP8", 100),
+        codec("video/rtx", 101, "apt=100;rtx-time=3000"),
+      ];
+
+      // Act: offer 用の codec を解決する。
+      const offered = keepNegotiatedPayloadTypes(
+        capability,
+        negotiated,
+        taken(...negotiated),
+      );
+
+      // Assert: VP8 も RTX も交渉済みのオブジェクトをそのまま提示する。
+      expect(offered).toHaveLength(2);
+      expect(offered[0]).toBe(negotiated[0]);
+      expect(offered[1]).toBe(negotiated[1]);
+    });
+
+    test("negotiatesAs pairs by MIME type only, as negotiation does", () => {
+      // Arrange: 形式 (level / fmtp) が違う同じ MIME type と、別の MIME type。
+      const configured = codec("video/H264", 96, "profile-level-id=42e00d");
+
+      // Act / Assert: 同じ MIME type (大文字小文字違いを含む) なら対になり、別 MIME type はならない。
+      expect(
+        negotiatesAs(
+          configured,
+          codec("video/h264", 98, "profile-level-id=42e01f"),
+        ),
+      ).toBe(true);
+      expect(negotiatesAs(configured, codec("video/VP8", 96))).toBe(false);
     });
 
     test("RED follows its primaries and is dropped without them", () => {

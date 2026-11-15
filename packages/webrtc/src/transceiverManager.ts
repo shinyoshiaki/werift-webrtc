@@ -26,7 +26,7 @@ import {
   hasCommonPrimaryMimeType,
   isCodecCompatible,
   keepNegotiatedPayloadTypes,
-  normalizeCodecMimeType,
+  negotiatesAs,
   resolveCodecs,
   withNegotiatedCodecs,
 } from "./media/codecCompatibility";
@@ -707,12 +707,20 @@ export class TransceiverManager {
    *   with `NotSupportedError`, as for a first offer.
    * - An inactive transceiver can use every configured codec (whatever its
    *   `direction` attribute), so an inactive first offer has codecs too.
-   * - A negotiated codec keeps its negotiated payload type; a codec offered
-   *   again takes its configured payload type, or a free dynamic one when that
-   *   type is used by another codec in this session (any m-line; the same
-   *   codec with other `a=fmtp` / `a=rtcp-fb` counts as another). RTX `apt`
-   *   and RED references follow the primary's payload type, and an RTX / RED
-   *   whose primary is not offered is dropped.
+   * - A negotiated codec is offered as negotiated: payload type, fmtp and
+   *   rtcp-fb all stay as the answer committed them, also when that is the
+   *   remote's form (RFC 3264 §8.3.2). Its configured counterpart is found
+   *   with the predicate negotiation pairs codecs by (`negotiatesAs`, the
+   *   same MIME type; the same format first), and another configured codec
+   *   of that MIME type is not offered again, so the answer cannot pair it
+   *   in place of the negotiated one. A negotiated RTX / RED for an offered
+   *   primary is offered as negotiated too.
+   * - A codec offered again (one the last answer left out) takes its
+   *   configured payload type, or a free dynamic one when that type is used
+   *   by another codec in this session (any m-line; the same codec with other
+   *   `a=fmtp` / `a=rtcp-fb` counts as another). RTX `apt` and RED
+   *   references follow the primary's payload type, and an RTX / RED whose
+   *   primary is not offered is dropped.
    * - A transceiver without a negotiated session resolves as before: its
    *   codecs are assigned when empty or when a codec change asks for it.
    */
@@ -959,8 +967,7 @@ export class TransceiverManager {
       const remoteCodec = remoteMedia.rtp.codecs.find(
         (codec) =>
           !usedRemote.has(codec) &&
-          normalizeCodecMimeType(codec.mimeType) ===
-            normalizeCodecMimeType(localCodec.mimeType) &&
+          negotiatesAs(localCodec, codec) &&
           (source == undefined ||
             source.some((sourceCodec) =>
               isCodecCompatible(sourceCodec, codec),
