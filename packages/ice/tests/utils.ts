@@ -3051,18 +3051,28 @@ export function selectSamePath(a: Connection, b: Connection) {
  * (unsent, cancellable) until `open()`: the agents select the relay pair
  * first, while `b`'s check of the host pair is still in flight. With
  * `drop`, those requests are lost instead (they time out at once), so both
- * agents' checks of the host pair fail before `open()`.
+ * agents' checks of the host pair fail before `open()`. `nomination` /
+ * `nominationDelayMs` set `IceOptions` of both agents.
  */
 export async function createDelayedPreferredPathPair({
   renomination = false,
   drop = false,
+  nomination,
+  nominationDelayMs,
 }: {
   renomination?: boolean;
   drop?: boolean;
+  nomination?: IceOptions["nomination"];
+  nominationDelayMs?: number;
 } = {}) {
   const host = getHostAddresses(true, false)[0]!;
   const server = await createLocalTurnServer(host);
-  const shared: Partial<IceOptions> = { useIpv6: false, renomination };
+  const shared: Partial<IceOptions> = {
+    useIpv6: false,
+    renomination,
+    nomination,
+    nominationDelayMs,
+  };
   const a = createTestConnection(true, {
     ...shared,
     ...localTurnOptions(server),
