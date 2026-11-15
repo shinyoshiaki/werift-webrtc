@@ -8,6 +8,12 @@ import type { RtpHeader } from "./rtp";
  * switch (`replaceTrack`, `onSourceChanged`): the first packet actually sent
  * after it continues from the last output (`seq + 1`, `timestamp + step`).
  * RTX and padding use their own numbering and never go through this.
+ *
+ * This is the low-level piece used by `RTCRtpSender`: the caller detects the
+ * source switch, chooses the timestamp step and drops late packets of the old
+ * source itself. Applications that forward RTP (SFU / relay, RTP-to-SRTP
+ * gateways, replay) should use {@link RtpTimelineRewriter}, which does all of
+ * that on top of this class.
  */
 export class RtpContinuity {
   private _sequenceNumber?: number;
@@ -16,6 +22,7 @@ export class RtpContinuity {
   private seqOffset = 0;
   private pending = false;
   private pendingTimestampStep = 1;
+  private pendingFrom?: { sequenceNumber: number; timestamp: number };
 
   /** Last sent output sequence number; undefined before the first packet. */
   get sequenceNumber() {
@@ -30,15 +37,23 @@ export class RtpContinuity {
   /**
    * Rewrite offsets on the next sent packet.
    * @param timestampStep Timestamp increment across the source boundary.
+   * @param from Output to continue from instead of the last assigned one
+   * (for example the highest output when the last assigned packet was a
+   * reordered older one). Omitted: the last assigned output.
    */
-  schedule(timestampStep = 1) {
+  schedule(
+    timestampStep = 1,
+    from?: { sequenceNumber: number; timestamp: number },
+  ) {
     this.pending = true;
     this.pendingTimestampStep = timestampStep;
+    this.pendingFrom = from;
   }
 
   /** Forget a scheduled rewrite (track detached / sender stopped). */
   cancel() {
     this.pending = false;
+    this.pendingFrom = undefined;
   }
 
   /** Output timestamp of `inputTimestamp` with the current offset (before send). */
@@ -58,19 +73,23 @@ export class RtpContinuity {
   ): boolean {
     let rewritten = false;
     if (this.pending) {
-      if (this._sequenceNumber != undefined && this._timestamp != undefined) {
+      const lastSequenceNumber =
+        this.pendingFrom?.sequenceNumber ?? this._sequenceNumber;
+      const lastTimestamp = this.pendingFrom?.timestamp ?? this._timestamp;
+      if (lastSequenceNumber != undefined && lastTimestamp != undefined) {
         this.seqOffset = uint16Add(
-          uint16Add(this._sequenceNumber, 1),
+          uint16Add(lastSequenceNumber, 1),
           -inputSequenceNumber,
         );
         this.timestampOffset = uint32Add(
-          uint32Add(this._timestamp, this.pendingTimestampStep),
+          uint32Add(lastTimestamp, this.pendingTimestampStep),
           -inputTimestamp,
         );
         rewritten = true;
       }
       this.pending = false;
       this.pendingTimestampStep = 1;
+      this.pendingFrom = undefined;
     }
 
     header.timestamp = uint32Add(inputTimestamp, this.timestampOffset);

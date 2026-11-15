@@ -346,7 +346,7 @@ describe("media/router", () => {
     test("strict: PLI is routed only by a registered media SSRC", () => {
       // Arrange
       const { router, video, remoteSsrc, rtcpSpies } =
-        createSingleVideoSenderRouter("strict");
+        createSingleVideoSenderRouter("standard");
 
       // Act: media SSRC が 0 / RTX SSRC / 自分の SSRC の PLI を順に配送する
       router.routeRtcp(
@@ -467,7 +467,7 @@ describe("media/router", () => {
     test("strict: FIR entries for an unregistered SSRC are not routed", async () => {
       // Arrange
       const { router, video, remoteSsrc, rtcpSpies } =
-        createSingleVideoSenderRouter("strict");
+        createSingleVideoSenderRouter("standard");
 
       // Act: RTX SSRC 宛と未登録 SSRC 宛のエントリだけを持つ FIR を配送する
       router.routeRtcp(

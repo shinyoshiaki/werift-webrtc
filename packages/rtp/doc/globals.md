@@ -12,6 +12,7 @@
 
 - [PacketChunk](enumerations/PacketChunk.md)
 - [PacketStatus](enumerations/PacketStatus.md)
+- [RtpTimelineDropReason](enumerations/RtpTimelineDropReason.md)
 
 ## Classes
 
@@ -69,6 +70,7 @@
 - [RtpMediaPacer](classes/RtpMediaPacer.md)
 - [RtpMediaTimeline](classes/RtpMediaTimeline.md)
 - [RtpPacket](classes/RtpPacket.md)
+- [RtpTimelineRewriter](classes/RtpTimelineRewriter.md)
 - [RunLengthChunk](classes/RunLengthChunk.md)
 - [SourceDescriptionChunk](classes/SourceDescriptionChunk.md)
 - [SourceDescriptionItem](classes/SourceDescriptionItem.md)
@@ -109,8 +111,11 @@
 - [RtpMediaPacerTick](interfaces/RtpMediaPacerTick.md)
 - [RtpMediaTimelineAnchor](interfaces/RtpMediaTimelineAnchor.md)
 - [RtpMediaTimelineOptions](interfaces/RtpMediaTimelineOptions.md)
+- [RtpTimelineRewriterOptions](interfaces/RtpTimelineRewriterOptions.md)
+- [RtpTimelineSwitch](interfaces/RtpTimelineSwitch.md)
 - [StreamTransportOptions](interfaces/StreamTransportOptions.md)
 - [Transport](interfaces/Transport.md)
+- [UdpTransportOptions](interfaces/UdpTransportOptions.md)
 - [videoOrientationPayload](interfaces/videoOrientationPayload.md)
 
 ## Type Aliases
@@ -144,6 +149,7 @@
 - [RtpHeaderDeSerializeOptions](type-aliases/RtpHeaderDeSerializeOptions.md)
 - [RtpMediaClockStallPolicy](type-aliases/RtpMediaClockStallPolicy.md)
 - [RtpMediaClockState](type-aliases/RtpMediaClockState.md)
+- [RtpTimestampStepMode](type-aliases/RtpTimestampStepMode.md)
 - [SendStreamIds](type-aliases/SendStreamIds.md)
 - [SrtpProfile](type-aliases/SrtpProfile.md)
 - [TelephoneEventFields](type-aliases/TelephoneEventFields.md)

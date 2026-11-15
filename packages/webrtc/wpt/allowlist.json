@@ -132,9 +132,9 @@
     },
     {
       "file": "webrtc/RTCPeerConnection-createDataChannel.html",
-      "enabled": false,
+      "enabled": true,
       "variant": "?rest",
-      "reason": "Deferred until createDataChannel fully matches Web IDL coercion and DOMException semantics."
+      "reason": "Gates the subtests that pass in every full run (wpt/baseline.json); the rest stays open until createDataChannel fully matches Web IDL coercion and DOMException semantics."
     },
     {
       "file": "webrtc/RTCConfiguration-bundlePolicy.html",
@@ -148,13 +148,47 @@
     },
     {
       "file": "webrtc/RTCDataChannel-close.html",
-      "enabled": false,
-      "reason": "Deferred until the close path matches the upstream RTCDataChannel timing and event semantics."
+      "enabled": true,
+      "reason": "Gates the subtests that pass in every full run (wpt/baseline.json); the rest stays open: deferred until the close path matches the upstream RTCDataChannel timing and event semantics."
     },
     {
       "file": "webrtc/RTCPeerConnection-getStats.https.html",
+      "enabled": true,
+      "reason": "Gates the subtests that pass in every full run (wpt/baseline.json); the rest stays open: deferred until the stats surface is baselined against upstream expectations."
+    },
+    {
+      "file": "webrtc/RTCRtpTransceiver.https.html",
+      "enabled": true,
+      "variant": "?rest",
+      "reason": "#816: a remote offer pairs only transceivers addTrack() created (JSEP 5.10, the WPT wrapper sets transceiverPairing \"standard\"; the werift default is \"legacy\").",
+      "subtests": [
+        "checkAddTransceiverNoTrackDoesntPair",
+        "checkAddTransceiverWithTrackDoesntPair",
+        "checkAddTransceiverThenReplaceTrackDoesntPair"
+      ]
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-perfect-negotiation.https.html",
+      "enabled": true,
+      "reason": "#816: perfect negotiation with addTransceiver(sendonly) on both sides connects (JSEP 5.10). Runs in the runner's iframe/postMessage shim. The glare subtests pass the #816 direction check but are not gated (ticket cd89d492): on develop too a remote offer's implicit rollback can start before the setLocalDescription() promise's continuation (signalingState have-local-offer while localDescription is null; ~10% of full runs for \"glare\").",
+      "subtests": [
+        "Perfect negotiation setup connects",
+        "Perfect negotiation setup connects with roles reversed"
+      ],
+      "baselineExclusions": [
+        "Perfect negotiation glare",
+        "Perfect negotiation glare with roles reversed"
+      ]
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-perfect-negotiation-stress-glare.https.html",
       "enabled": false,
-      "reason": "Deferred until the stats surface is baselined against upstream expectations."
+      "reason": "Not gated: depends on ticket cd89d492 (operations chain release order). Passes the #816 direction check, but on develop too a remote offer's implicit rollback can start before the setLocalDescription() promise's continuation (signalingState have-local-offer while localDescription is null; ~20% of full runs). Still runs (auto-discovered) with the long timeout."
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-perfect-negotiation-stress-glare-linear.https.html",
+      "enabled": false,
+      "reason": "Not gated: depends on ticket cd89d492 (operations chain release order). Passes the #816 direction check, but on develop too a remote offer's implicit rollback can start before the setLocalDescription() promise's continuation (signalingState have-local-offer while localDescription is null; ~20% of full runs). Still runs (auto-discovered) with the long timeout."
     },
     {
       "file": "webrtc/RTCDtlsTransport-state.html",
