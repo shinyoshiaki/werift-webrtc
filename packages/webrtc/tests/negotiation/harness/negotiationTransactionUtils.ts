@@ -2456,10 +2456,13 @@ export function holdDtlsStart(pc: RTCPeerConnection) {
   });
   for (const transport of pc.dtlsTransports) {
     const original = transport.start.bind(transport);
-    transport.start = async () => {
-      transport.start = original;
-      await released;
-      return original();
+    let startPromise: Promise<void> | undefined;
+    transport.start = () => {
+      startPromise ??= released.then(() => {
+        transport.start = original;
+        return original();
+      });
+      return startPromise;
     };
   }
   return { release };
