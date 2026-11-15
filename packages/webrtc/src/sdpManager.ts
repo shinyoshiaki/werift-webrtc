@@ -337,11 +337,61 @@ export class SDPManager {
     type: "offer" | "answer" | "pranswer";
   }): SessionDescription {
     const description = SessionDescription.parse(sdp);
+    if (!isLocal && type === "offer") this.acceptBundleOnlyMedia(description);
     this.validateDescription({ description, isLocal, signalingState, type });
     if (!isLocal && type !== "offer") this.alignInitialAnswerMids(description);
     this.validateSections(description, type, isLocal);
     description.type = type;
     return description;
+  }
+
+  /**
+   * RFC 8843 §6 / §7.3.3: a port 0 m-line with `a=bundle-only` (Firefox
+   * writes every non-tagged m-line of a re-offer, an ICE restart offer and a
+   * `max-bundle` first offer this way) is not rejected: an answerer that
+   * accepts the BUNDLE group accepts it as a bundled non-tagged m-line. Such
+   * an m-line takes `DISCARD_PORT`, so every later "port 0 = rejected"
+   * check treats it like any other bundled non-tagged m-line, and the answer
+   * writes it like one (port 9 + `c=IN IP4 0.0.0.0` and no `a=bundle-only`,
+   * as Chrome and Firefox answer; RFC 8843 §7.3.1 would write port 0).
+   *
+   * It stays rejected (JSEP §5.10: it is "as if" rejected) when werift does
+   * not accept BUNDLE (`bundlePolicy: "disable"`), when its MID is in no
+   * BUNDLE group, or when it is the offerer-tagged m-line (first MID of the
+   * group, which RFC 8843 §6 forbids to be bundle-only: such an offer throws) or the tagged m-line
+   * itself is rejected.
+   */
+  private acceptBundleOnlyMedia(offer: SessionDescription) {
+    for (const group of offer.group) {
+      if (group.semantic !== "BUNDLE") continue;
+      // RFC 8843 §6: the offerer-tagged m-line must not be bundle-only, so an
+      // offer that marks it so is invalid whatever the bundlePolicy.
+      const tagMid = group.items[0];
+      if (offer.media.find((m) => m.rtp.muxId === tagMid)?.bundleOnly) {
+        throw new Error(
+          `BUNDLE tag m-line (mid=${tagMid}) must not have a=bundle-only (RFC 8843 section 6)`,
+        );
+      }
+    }
+    if (this.bundlePolicy === "disable") return;
+    for (const group of offer.group) {
+      if (group.semantic !== "BUNDLE") continue;
+      const [tagMid, ...members] = group.items;
+      const tag = offer.media.find((media) => media.rtp.muxId === tagMid);
+      if (!tag || tag.port === 0) continue;
+      for (const media of offer.media) {
+        if (
+          !media.bundleOnly ||
+          media.port !== 0 ||
+          !media.rtp.muxId ||
+          !members.includes(media.rtp.muxId)
+        ) {
+          continue;
+        }
+        media.port = DISCARD_PORT;
+        media.acceptedBundleOnly = true;
+      }
+    }
   }
 
   /**
@@ -925,6 +975,9 @@ export class SDPManager {
           remoteMedia.profile,
           remoteMedia.fmt,
         );
+        // RFC 8866 §5.7: without a session-level `c=`, every m-line needs
+        // one, a rejected one too (Firefox refuses the answer otherwise).
+        media.host = DISCARD_HOST;
         media.rtp.muxId = remoteMedia.rtp.muxId;
         media.direction = "inactive";
         description.media.push(media);
@@ -1032,6 +1085,8 @@ export class SDPManager {
       description.media.push(media);
     }
 
+    this.rejectBundleOnlyWithoutTag(remoteDescription, description);
+
     if (this.bundlePolicy !== "disable") {
       description.group.push(
         ...this.buildAnswerBundleGroups(remoteDescription, description),
@@ -1040,6 +1095,54 @@ export class SDPManager {
 
     this.applyBundleCandidates(description);
     return description;
+  }
+
+  /**
+   * RFC 8843 §7.3.1: offerer-tagged m-line を拒否した answerer は、offer 上で
+   * port 0 でない m-line を新しい tag に選ぶ。受理した bundle-only m-line
+   * (offer 上は port 0, `acceptedBundleOnly`) はその条件を満たさず、tag なしでは
+   * 通信先の transport も決められないため、tag が answer で拒否されたら
+   * その group の bundle-only m-line も拒否する。
+   */
+  private rejectBundleOnlyWithoutTag(
+    remoteDescription: SessionDescription,
+    answer: SessionDescription,
+  ) {
+    const indexOfMid = (sdp: SessionDescription, mid: string) =>
+      sdp.media.findIndex((media) => media.rtp.muxId === mid);
+    for (const group of remoteDescription.group) {
+      if (group.semantic !== "BUNDLE") continue;
+      const [tagMid, ...members] = group.items;
+      const tagIndex = indexOfMid(answer, tagMid);
+      if (tagIndex < 0 || answer.media[tagIndex].port !== 0) continue;
+      // RFC 8843 §7.3.1: the answerer picks a new tag among the accepted
+      // members whose offered m-line has a usable port; only without one are
+      // the bundle-only members rejected.
+      const hasAlternativeTag = members.some((mid) => {
+        const index = indexOfMid(remoteDescription, mid);
+        return (
+          index >= 0 &&
+          !remoteDescription.media[index].acceptedBundleOnly &&
+          answer.media[index].port !== 0
+        );
+      });
+      if (hasAlternativeTag) continue;
+      for (const mid of members) {
+        const index = indexOfMid(remoteDescription, mid);
+        const offered = remoteDescription.media[index];
+        if (!offered?.acceptedBundleOnly || answer.media[index].port === 0) {
+          continue;
+        }
+        const rejected = this.createRejectedMediaDescription({
+          kind: offered.kind,
+          profile: offered.profile,
+          fmt: offered.fmt,
+          codecs: offered.rtp.codecs,
+          mid,
+        });
+        answer.media[index] = rejected;
+      }
+    }
   }
 
   /**
@@ -1073,7 +1176,14 @@ export class SDPManager {
             "BUNDLE",
             orderBundleMids(
               mids,
-              negotiatedTags.find((tag) => mids.includes(tag)),
+              negotiatedTags.find((tag) => mids.includes(tag)) ??
+                // A new answerer-tagged m-line needs a usable port in the
+                // offer: not an accepted bundle-only one (RFC 8843 §7.3.1).
+                mids.find(
+                  (mid) =>
+                    !remoteDescription.media.find((m) => m.rtp.muxId === mid)
+                      ?.acceptedBundleOnly,
+                ),
             ),
           ),
       );
