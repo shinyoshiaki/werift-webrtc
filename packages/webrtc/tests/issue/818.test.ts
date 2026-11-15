@@ -532,9 +532,12 @@ describeCases("issue 818: subsequent offers list every supported codec", () => {
       for (const [pt, value] of feedback[1]) {
         expect(feedback[0].get(pt) ?? value).toEqual(value);
       }
-      // Assert: 既存 m-line は交渉済みの VP8 (98, feedback あり) だけを交渉済みのまま提示する。
-      // 同じ MIME の設定 codec (98, feedback なし) は、answer が MIME で取り違えないよう再提示しない。
-      expect([...feedback[0]]).toEqual([[98, "goog-remb,nack,nack pli"]]);
+      // Assert: 既存 m-line は交渉済みの VP8 (98, feedback あり) を交渉済みのまま提示し、
+      // 交渉で外れた設定の VP8 (feedback なし) は 98 を避けて空き PT 97 で再提示する。
+      expect([...feedback[0]]).toEqual([
+        [98, "goog-remb,nack,nack pli"],
+        [97, ""],
+      ]);
       // Assert: 追加 m-line の feedback なし VP8 は 98 を避けて空き PT 97 へ移る。
       expect([...feedback[1]]).toEqual([
         [96, "goog-remb,nack,nack pli"],
@@ -578,6 +581,14 @@ describeCases("issue 818: subsequent offers list every supported codec", () => {
         h264(96, "profile-level-id=42e01f;packetization-mode=1"),
         h264(97, "profile-level-id=42e01f;packetization-mode=0"),
       ],
+      // 交渉で外れた同じ MIME type の別形式 (mode 1) は設定の PT 96 で再提示する。
+      reoffered: [
+        "a=fmtp:96 profile-level-id=42e01f;packetization-mode=1",
+        "a=rtcp-fb:96 goog-remb",
+        "a=rtcp-fb:96 nack",
+        "a=rtcp-fb:96 nack pli",
+        "a=rtpmap:96 H264/90000",
+      ],
     },
   ] as const;
   /** rtpmap / fmtp / rtcp-fb lines of each m-line, sorted. */
@@ -620,13 +631,77 @@ describeCases("issue 818: subsequent offers list every supported codec", () => {
         const offer = await c.offer(b);
         await c.answer(a);
 
-        // Assert: 再オファーの rtpmap / fmtp / rtcp-fb は初回 answer と同じ (交渉済みのまま)。
-        expect(codecLines(offer.sdp)).toEqual(answer);
+        // Assert: 再オファーの rtpmap / fmtp / rtcp-fb は、初回 answer の行 (交渉済みのまま) と、
+        // 交渉で外れた設定 codec の行だけからなる。
+        const reoffered: readonly string[] =
+          "reoffered" in row ? row.reoffered : [];
+        expect(codecLines(offer.sdp)).toEqual([
+          [...answer[0], ...reoffered].sort(),
+        ]);
         // Assert: 確定後も PT・fmtp・rtcp-fb は変わらない。
         expect(committed(transceiver)).toEqual(before);
       },
     );
   }
+
+  negotiationCase(
+    "after a session on H264 mode 0, a re-offer lists mode 1 again, so a peer that now accepts only mode 1 moves to it",
+    {
+      ref: "origin: issue 818 (review: another format of a negotiated MIME type)",
+    },
+    async (c) => {
+      // Arrange: 両側の設定は H264 mode 0 (96) と mode 1 (97)。A は mode 0 固定 source の track で
+      // offer し、mode 0 だけでセッションを確定する。
+      const mode = (packetizationMode: number, payloadType: number) =>
+        useH264({
+          payloadType,
+          parameters: `profile-level-id=42e01f;packetization-mode=${packetizationMode};level-asymmetry-allowed=1`,
+        });
+      const config = () => ({ codecs: { video: [mode(0, 96), mode(1, 97)] } });
+      const { a, b } = await c.given(
+        createConnectedVideoPeersWith({
+          offerer: config(),
+          answerer: config(),
+          direction: "sendrecv",
+          outgoing: new MediaStreamTrack({ kind: "video", codec: mode(0, 96) }),
+        }),
+      );
+      const modeOf = (codecs: readonly (RTCRtpCodecParameters | undefined)[]) =>
+        codecs.map(
+          (codec) => codec?.parameters?.match(/packetization-mode=(\d)/)?.[1],
+        );
+      const aTransceiver = a.getTransceivers()[0];
+      const bTransceiver = b.getTransceivers()[0];
+      expect(modeOf(aTransceiver.codecs)).toEqual(["0"]);
+      expect(modeOf(bTransceiver.codecs)).toEqual(["0"]);
+
+      // Act: A は固定 source のない track に替える。B は mode 1 固定 source の track を足し
+      // (B は mode 1 だけを受け付ける)、A が再オファーして B が answer する。
+      await aTransceiver.sender.replaceTrack(
+        new MediaStreamTrack({ kind: "video" }),
+      );
+      const bSender = b.addTrack(
+        new MediaStreamTrack({ kind: "video", codec: mode(1, 97) }),
+      );
+      expect(bSender).toBe(bTransceiver.sender);
+      const offer = await c.offer(a);
+      await c.answer(b);
+
+      // Assert: A の再オファーは交渉済みの mode 0 (96) に加えて、交渉で外れた mode 1 (97) を提示する。
+      expect(
+        [
+          ...offer.sdp.matchAll(/^a=fmtp:(\d+) .*packetization-mode=(\d)/gm),
+        ].map(([, pt, packetizationMode]) => [Number(pt), packetizationMode]),
+      ).toEqual([
+        [96, "0"],
+        [97, "1"],
+      ]);
+      // Assert: 確定後は両側とも mode 1 だけになり、B は mode 1 で送る。
+      expect(modeOf(aTransceiver.codecs)).toEqual(["1"]);
+      expect(modeOf(bTransceiver.codecs)).toEqual(["1"]);
+      expect(modeOf([bTransceiver.sender.codec])).toEqual(["1"]);
+    },
+  );
 
   negotiationCase(
     "glare on a connected session: the polite peer's implicit rollback keeps RTP and DataChannel flowing both ways",

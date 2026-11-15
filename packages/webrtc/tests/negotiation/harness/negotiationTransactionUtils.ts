@@ -3369,7 +3369,7 @@ export function rtxCodec() {
  * Shared Arrange: connected sendonly video like `createConnectedVideoPeers`,
  * with a separate configuration per peer and optional codec preferences the
  * offerer applies before its first offer. `kind: "audio"` sends audio
- * instead.
+ * instead, and `outgoing` gives the offerer's track (a fixed source codec).
  */
 export async function createConnectedVideoPeersWith({
   offerer: offererConfig,
@@ -3377,6 +3377,7 @@ export async function createConnectedVideoPeersWith({
   offererPreferences,
   direction = "sendonly",
   kind = "video",
+  outgoing = new MediaStreamTrack({ kind }),
 }: {
   offerer: ConstructorParameters<typeof RTCPeerConnection>[0];
   answerer?: ConstructorParameters<typeof RTCPeerConnection>[0];
@@ -3385,10 +3386,11 @@ export async function createConnectedVideoPeersWith({
   direction?: "sendrecv" | "sendonly";
   /** media kind of the offerer's track (default video) */
   kind?: "video" | "audio";
+  /** the offerer's track (default a track of `kind` without a fixed source codec) */
+  outgoing?: MediaStreamTrack;
 }) {
   const offerer = new RTCPeerConnection(offererConfig);
   const answerer = new RTCPeerConnection(answererConfig);
-  const outgoing = new MediaStreamTrack({ kind });
   const transceiver = offerer.addTransceiver(outgoing, { direction });
   if (offererPreferences) transceiver.setCodecPreferences(offererPreferences);
   await offerer.setLocalDescription(await offerer.createOffer());

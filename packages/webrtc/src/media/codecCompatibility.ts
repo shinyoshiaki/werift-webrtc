@@ -59,11 +59,11 @@ export function isCodecCompatible(
 }
 
 /**
- * The predicate negotiation pairs a configured codec with a remote one by
- * (`setRemoteDescription()` / `createAnswer()`): the same MIME type. The
- * negotiated codec is therefore in the remote's form (payload type, fmtp,
- * rtcp-fb), which may differ from the configured one, but it is what the
- * configured codec negotiated, so a later offer lists it as it is
+ * The fallback predicate negotiation pairs a configured codec with a remote
+ * one by when no remote codec has its format (`pairCodecs`): the same MIME
+ * type. The negotiated codec is then in the remote's form (payload type,
+ * fmtp, rtcp-fb), which may differ from the configured one, but it is what
+ * the configured codec negotiated, so a later offer lists it as it is
  * (RFC 3264 §8.3.2).
  */
 export function negotiatesAs(
@@ -74,6 +74,52 @@ export function negotiatesAs(
     normalizeCodecMimeType(configured.mimeType) ===
     normalizeCodecMimeType(negotiated.mimeType)
   );
+}
+
+/**
+ * Pair each configured primary codec with at most one of `others` (and each
+ * of `others` with at most one configured codec), the rule negotiation
+ * (`setRemoteDescription()` / `createAnswer()`) and a later offer share:
+ * first the codec of the same format (`isCodecCompatible`: MIME type, clock
+ * rate, channels, H264 `packetization-mode` / `profile-level-id`), then, for
+ * a configured codec still unpaired, one of the same MIME type
+ * (`negotiatesAs`, for instance an H264 of another level). So when the
+ * configured codecs hold several formats of one MIME type (H264 mode 0 and
+ * mode 1), each pairs with its own format and an answer does not switch the
+ * format the offer meant. RTX / RED are not paired. `accept` limits the
+ * candidates (a fixed track source).
+ */
+export function pairCodecs(
+  configured: readonly RTCRtpCodecParameters[],
+  others: readonly RTCRtpCodecParameters[],
+  accept: (
+    configured: RTCRtpCodecParameters,
+    other: RTCRtpCodecParameters,
+  ) => boolean = () => true,
+): Map<RTCRtpCodecParameters, RTCRtpCodecParameters> {
+  const pairs = new Map<RTCRtpCodecParameters, RTCRtpCodecParameters>();
+  const used = new Set<RTCRtpCodecParameters>();
+  const passes = [
+    (codec: RTCRtpCodecParameters, other: RTCRtpCodecParameters) =>
+      isCodecCompatible(other, codec),
+    negotiatesAs,
+  ];
+  for (const matches of passes) {
+    for (const codec of configured) {
+      if (isAuxiliary(codec) || pairs.has(codec)) continue;
+      const other = others.find(
+        (candidate) =>
+          !isAuxiliary(candidate) &&
+          !used.has(candidate) &&
+          matches(codec, candidate) &&
+          accept(codec, candidate),
+      );
+      if (!other) continue;
+      pairs.set(codec, other);
+      used.add(other);
+    }
+  }
+  return pairs;
 }
 
 function isAuxiliary(codec: RTCRtpCodecParameters) {
@@ -271,7 +317,7 @@ export function assertCodecsSupported(options: {
 /**
  * Configured codecs a negotiated m-line offers, before payload types are
  * mapped (`keepNegotiatedPayloadTypes`): `capability` plus the configured
- * counterpart (`negotiatesAs`, the predicate negotiation pairs by) of every
+ * counterpart (`pairCodecs`, the rule negotiation pairs by) of every
  * negotiated codec that `capability` lacks.
  *
  * `eligible` is every configured codec of the kind with the fixed source and
@@ -299,14 +345,11 @@ export function withNegotiatedCodecs(
     codecs.find(
       (codec) => !isAuxiliary(codec) && codec.payloadType === payloadType,
     );
+  const pairs = pairCodecs(candidates, negotiated);
   const kept = new Set(
     candidates.filter(
       (codec) =>
-        !isAuxiliary(codec) &&
-        (capability.includes(codec) ||
-          negotiated.some(
-            (other) => !isAuxiliary(other) && negotiatesAs(codec, other),
-          )),
+        !isAuxiliary(codec) && (capability.includes(codec) || pairs.has(codec)),
     ),
   );
   const negotiatedForSamePrimaries = (codec: RTCRtpCodecParameters) => {
@@ -325,7 +368,7 @@ export function withNegotiatedCodecs(
           return (
             primary != undefined &&
             otherPrimary != undefined &&
-            negotiatesAs(primary, otherPrimary)
+            pairs.get(primary) === otherPrimary
           );
         })
       );
@@ -441,13 +484,14 @@ function withPayloadType(
  * `capability` (configured codecs, in offer order) with each configured codec
  * that is already negotiated replaced by the negotiated codec itself, so its
  * payload type, fmtp and rtcp-fb stay as negotiated (also when the remote's
- * form differs from the configured one). A configured codec pairs with the
- * negotiated codec of the same format (`isCodecCompatible`) first, then with
- * one negotiation pairs it with (`negotiatesAs`, the same MIME type). A
- * configured codec of the MIME type of a negotiated codec that another
- * configured codec already stands for is not offered again, so an answer
- * cannot pair it in place of the negotiated one. A negotiated RTX / RED for
- * the offered primaries is offered as negotiated too.
+ * form differs from the configured one). Configured and negotiated codecs
+ * pair as negotiation pairs them (`pairCodecs`: the same format first, then
+ * the same MIME type). Another format of a negotiated MIME type that the
+ * answer left out (H264 mode 1 next to a negotiated mode 0) is offered again
+ * like any other codec, so a later answer can move to it; an answer that
+ * still has the negotiated format pairs with it, since negotiation prefers
+ * the same format. A negotiated RTX / RED for the offered primaries is
+ * offered as negotiated too.
  *
  * A codec offered again keeps its configured payload type unless that type is
  * already used on this m-line or maps to another codec in `taken` (every
@@ -492,51 +536,17 @@ export function keepNegotiatedPayloadTypes(
   };
 
   // 1. Negotiated primaries are offered as negotiated (payload type, fmtp,
-  //    rtcp-fb). A configured codec pairs with the negotiated codec of the
-  //    same format first, then with one negotiation paired it by
-  //    (`negotiatesAs`).
-  const covered = new Set<RTCRtpCodecParameters>();
-  const pairings = [
-    (configured: RTCRtpCodecParameters, candidate: RTCRtpCodecParameters) =>
-      isCodecCompatible(candidate, configured),
-    negotiatesAs,
-  ];
-  for (const pairs of pairings) {
-    capability.forEach((codec, index) => {
-      if (isAuxiliary(codec) || offered[index]) return;
-      const match = negotiated.find(
-        (candidate) =>
-          !isAuxiliary(candidate) &&
-          !matched.has(candidate) &&
-          !used.has(candidate.payloadType) &&
-          pairs(codec, candidate),
-      );
-      if (!match) return;
-      matched.add(match);
-      primaryPayloadType.set(codec.payloadType, match.payloadType);
-      place(index, match);
-    });
+  //    rtcp-fb), each in place of the configured codec it pairs with
+  //    (`pairCodecs`: the same format first, then the same MIME type).
+  for (const [codec, match] of pairCodecs(capability, negotiated)) {
+    if (used.has(match.payloadType)) continue;
+    matched.add(match);
+    primaryPayloadType.set(codec.payloadType, match.payloadType);
+    place(capability.indexOf(codec), match);
   }
-  // A configured codec negotiation would pair with a negotiated codec that
-  // another configured codec already stands for is not offered again: the
-  // answer could pair it (by MIME type) in place of the negotiated one and
-  // switch the committed format.
-  capability.forEach((codec, index) => {
-    if (isAuxiliary(codec) || offered[index]) return;
-    if (
-      negotiated.some(
-        (candidate) =>
-          !isAuxiliary(candidate) &&
-          matched.has(candidate) &&
-          negotiatesAs(codec, candidate),
-      )
-    ) {
-      covered.add(codec);
-    }
-  });
   // 2. Primaries offered again.
   capability.forEach((codec, index) => {
-    if (isAuxiliary(codec) || offered[index] || covered.has(codec)) return;
+    if (isAuxiliary(codec) || offered[index]) return;
     const payloadType = pick(codec.payloadType, codec);
     if (payloadType == undefined) return;
     primaryPayloadType.set(codec.payloadType, payloadType);

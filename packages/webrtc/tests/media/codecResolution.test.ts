@@ -14,6 +14,7 @@ import {
   applyCodecPreferences,
   keepNegotiatedPayloadTypes,
   negotiatesAs,
+  pairCodecs,
   withNegotiatedCodecs,
 } from "../../src/media/codecCompatibility";
 import {
@@ -1510,7 +1511,7 @@ describe("codec resolution", () => {
       expect(offered[0]).toBe(negotiated);
     });
 
-    test("a configured codec pairs with the negotiated codec of its format first, then by MIME type; another of that MIME type is not offered again", () => {
+    test("a configured codec pairs with the negotiated codec of its format first, then by MIME type; another format of that MIME type is offered again", () => {
       // Arrange: 設定は H264 mode 1 (96) と mode 0 (97)、交渉済みは相手の H264 mode 0 (98)。
       // 別の設定 H264 (level 違い 42e00d) は相手の 42e01f と MIME type だけで対になる。
       const h264 = (payloadType: number, parameters: string) =>
@@ -1538,16 +1539,47 @@ describe("codec resolution", () => {
         taken(...negotiatedOtherLevel),
       );
 
-      // Assert: mode 0 の設定が交渉済み mode 0 と対になり、同じ MIME type の mode 1 は再提示しない。
-      // 別 MIME type の VP9 は再提示する。
-      expect(strict[0]).toBe(negotiated[0]);
+      // Assert: mode 0 の設定が交渉済み mode 0 と対になり (98 のまま)、交渉で外れた同じ MIME type の
+      // mode 1 も設定の PT 96 で再提示する。別 MIME type の VP9 も再提示する。順序は設定どおり。
+      expect(strict[1]).toBe(negotiated[0]);
       expect(summary(strict)).toEqual([
+        "96 H264 profile-level-id=42e01f;packetization-mode=1",
         "98 H264 profile-level-id=42e01f;packetization-mode=0",
         "100 VP9",
       ]);
       // Assert: 同じ形式がなければ MIME type で対になり、相手の形式 (98, 42e01f) のまま提示する。
       expect(loose).toEqual(negotiatedOtherLevel);
       expect(loose[0]).toBe(negotiatedOtherLevel[0]);
+    });
+
+    test("pairCodecs pairs each configured codec with its own format first, then by MIME type, one to one", () => {
+      // Arrange: 設定は H264 mode 1 / mode 0 と VP8。相手は mode 0 を先に、mode 1 を後に並べ、VP8 は持たない。
+      const h264 = (payloadType: number, parameters: string) =>
+        codec("video/H264", payloadType, parameters);
+      const mode1 = h264(96, "profile-level-id=42e01f;packetization-mode=1");
+      const mode0 = h264(97, "profile-level-id=42e01f;packetization-mode=0");
+      const vp8 = codec("video/VP8", 100);
+      const remoteMode0 = h264(
+        102,
+        "profile-level-id=42e01f;packetization-mode=0",
+      );
+      const remoteMode1 = h264(
+        104,
+        "profile-level-id=42e01f;packetization-mode=1",
+      );
+      const otherLevel = h264(106, "profile-level-id=42e00d");
+
+      // Act: 両方の形式がある場合と、別 level の H264 だけがある場合で対にする。
+      const both = pairCodecs([mode1, mode0, vp8], [remoteMode0, remoteMode1]);
+      const fallback = pairCodecs([mode1, mode0], [otherLevel]);
+
+      // Assert: 各形式は相手の同じ形式と対になり (並び順によらない)、VP8 は対にならない。
+      expect([...both]).toEqual([
+        [mode1, remoteMode1],
+        [mode0, remoteMode0],
+      ]);
+      // Assert: 同じ形式がなければ先頭の設定 codec が MIME type で対になり、1 対 1 なので 2 本目は対にならない。
+      expect([...fallback]).toEqual([[mode1, otherLevel]]);
     });
 
     test("a negotiated RTX for an offered primary is offered as negotiated", () => {

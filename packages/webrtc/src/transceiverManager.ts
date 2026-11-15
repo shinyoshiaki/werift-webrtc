@@ -26,7 +26,7 @@ import {
   hasCommonPrimaryMimeType,
   isCodecCompatible,
   keepNegotiatedPayloadTypes,
-  negotiatesAs,
+  pairCodecs,
   resolveCodecs,
   withNegotiatedCodecs,
 } from "./media/codecCompatibility";
@@ -710,12 +710,12 @@ export class TransceiverManager {
    * - A negotiated codec is offered as negotiated: payload type, fmtp and
    *   rtcp-fb all stay as the answer committed them, also when that is the
    *   remote's form (RFC 3264 §8.3.2). Its configured counterpart is found
-   *   with the predicate negotiation pairs codecs by (`negotiatesAs`, the
-   *   same MIME type; the same format first), and another configured codec
-   *   of that MIME type is not offered again, so the answer cannot pair it
-   *   in place of the negotiated one. A negotiated RTX / RED for an offered
-   *   primary is offered as negotiated too.
-   * - A codec offered again (one the last answer left out) takes its
+   *   with the rule negotiation pairs codecs by (`pairCodecs`: the same
+   *   format first, then the same MIME type). A negotiated RTX / RED for an
+   *   offered primary is offered as negotiated too.
+   * - A codec offered again (one the last answer left out, also another
+   *   format of a negotiated MIME type such as H264 mode 1 next to a
+   *   negotiated mode 0) takes its
    *   configured payload type, or a free dynamic one when that type is used
    *   by another codec in this session (any m-line; the same codec with other
    *   `a=fmtp` / `a=rtcp-fb` counts as another). RTX `apt` and RED
@@ -962,21 +962,19 @@ export class TransceiverManager {
       RTCRtpCodecParameters
     >();
     const usedRemote = new Set<RTCRtpCodecParameters>();
-    for (const localCodec of localCodecs) {
-      if (["red", "rtx"].includes(codecName(localCodec))) continue;
-      const remoteCodec = remoteMedia.rtp.codecs.find(
-        (codec) =>
-          !usedRemote.has(codec) &&
-          negotiatesAs(localCodec, codec) &&
-          (source == undefined ||
-            source.some((sourceCodec) =>
-              isCodecCompatible(sourceCodec, codec),
-            )),
-      );
-      if (remoteCodec) {
-        remoteByLocal.set(localCodec, remoteCodec);
-        usedRemote.add(remoteCodec);
-      }
+    // The same format first, then the same MIME type (`pairCodecs`, shared
+    // with the re-offer), so a remote offer listing several formats of one
+    // MIME type (H264 mode 0 and mode 1) pairs each local codec with its own.
+    const pairs = pairCodecs(
+      localCodecs,
+      remoteMedia.rtp.codecs,
+      (_, codec) =>
+        source == undefined ||
+        source.some((sourceCodec) => isCodecCompatible(sourceCodec, codec)),
+    );
+    for (const [localCodec, remoteCodec] of pairs) {
+      remoteByLocal.set(localCodec, remoteCodec);
+      usedRemote.add(remoteCodec);
     }
 
     const negotiated = localCodecs.flatMap((localCodec) => {

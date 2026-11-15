@@ -150,8 +150,9 @@ const RETIRED_UFRAG_HISTORY = 64;
  *   effective-value rules. R restores the baseline tables.
  * - Codecs: every offer lists what each transceiver can use now, whatever
  *   the last answer kept, and the negotiated codecs as negotiated (payload
- *   type, fmtp, rtcp-fb; paired with the configured codecs by the predicate
- *   negotiation uses, `negotiatesAs`)
+ *   type, fmtp, rtcp-fb; paired with the configured codecs by the rule
+ *   negotiation uses, `pairCodecs`: the same format first, then the same
+ *   MIME type)
  *   (`TransceiverManager.resolveOfferCodecs`, issue 818). The negotiated
  *   codecs stay in it whatever the direction is now (`direction`,
  *   `removeTrack()` never take one off the m-line; only an answer does), and

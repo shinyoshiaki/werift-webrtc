@@ -139,7 +139,8 @@
 - [ ] 上記の回帰テストがすべて追加されて通る。`npm run type` / `npm test` / `npm run pbt:deep` / `npm run wpt` が通る。
 - [ ] `tools/negotiation-diff` のdevelop比較でregression / hang / state differenceが0。意図した差分は説明されている。
 - [ ] 新しいルールが実装のTSDocとテストに記録され、`changelog.md` が更新されている。
-- [ ] 交渉済みcodecは、codec設定が非対称な相手に対しても交渉済みの形式（PT・fmtp・rtcp-fb）のまま再提示される。設定codecとの対応付けは交渉と同じ述語（`negotiatesAs`）を使い、非対称な構成でのdevelopとの差分は「以前のanswerで削られたcodecが増える」とBUNDLE内のPT衝突回避だけ（§10）。
+- [ ] 交渉済みcodecは、codec設定が非対称な相手に対しても交渉済みの形式（PT・fmtp・rtcp-fb）のまま再提示される。設定codecとの対応付けは交渉と同じ規則（`pairCodecs`: 同じ形式 → 同じMIME type）を使い、非対称な構成でのdevelopとの差分は「以前のanswerで削られたcodecが増える」、BUNDLE内のPT衝突回避、同じMIME typeの複数形式を含むofferへの形式単位の応答だけ（§10、§11）。
+- [ ] 交渉で外れた同じMIME typeの別形式（H264 mode 0で確立した後のmode 1など）も再オファーに載り、後のanswerでその形式へ移れる（§11）。
 
 ## 9. 追加要件: 方向変更で交渉済みcodecを失わない（レビュー7回目の打開策）
 
@@ -237,11 +238,11 @@
 - `withNegotiatedCodecs`: 方向で外れた交渉済みcodecの設定上の対応物を `negotiatesAs` で探す（以前は `isCodecCompatible`）。
 - `keepNegotiatedPayloadTypes`:
   1. 設定codecを交渉済みcodecと、**まず `isCodecCompatible`（同じ形式）で、次に `negotiatesAs`（MIME type）で**対応付ける。対応したら**交渉済みcodecのオブジェクトそのもの**を置く（PT・fmtp・rtcp-fbは交渉済みのまま）。
-  2. 対応相手の交渉済みcodecが別の設定codecに取られている同じMIME typeの設定codecは、「covered」として再提示しない。再提示すると、相手がMIME typeだけで照合して確定codecの形式が切り替わる（表の最終行）。
+  2. ~~対応相手の交渉済みcodecが別の設定codecに取られている同じMIME typeの設定codecは、「covered」として再提示しない。~~ **§11で廃止**（同じMIME typeの別形式を再提示できなくなるため）。表の最終行の切り替わりは、交渉側の対応付けを形式単位にして防ぐ（§11）。
   3. 以前のanswerで外れたcodec（別MIME type）は従来どおり再提示する（#818）。PTは設定値、BUNDLE内で別codecが使っていれば空きPT。
   4. 提示したprimaryに対する交渉済みRTX / REDは、交渉済みのオブジェクトをそのまま置く（REDの比較は両辺 `?? ""`）。
 - この結果、developとの差分は「以前のanswerで削られたcodecが増える」方向と、BUNDLE内のPT衝突回避（追加m-lineが、別m-lineで別の形式に使われているPTを避ける）だけに閉じる。非対称な相手に対しては、交渉済みm-lineの再オファーがdevelopと同一になる。
-- 既知の制限（develop互換）: 同じMIME typeで形式の違うcodec（H264 mode 0 / mode 1 など）のうち、交渉で選ばれなかったものは再提示しない。交渉がMIME typeだけで対にするためで、交渉側の対応付けを形式単位にするのは本チケットの範囲外とする。
+- ~~既知の制限（develop互換）: 同じMIME typeで形式の違うcodecのうち、交渉で選ばれなかったものは再提示しない。~~ **§11で解消**（交渉側の対応付けも形式単位にした）。
 - ルールは `negotiatesAs` / `withNegotiatedCodecs` / `keepNegotiatedPayloadTypes` / `TransceiverManager.resolveOfferCodecs` / `NegotiationTransaction`（Codecs行）のTSDocと `changelog.md` の#818項に記載した。
 
 ### 10.3 回帰テスト
@@ -249,7 +250,7 @@
 - [x] `tests/issue/818.test.ts`: 公開APIの非対称な2者（H264 level差、opus fmtp差、VP8 rtcp-fb差、設定H264 2本 vs 相手1本）。接続済みセッションで、answererの再オファーのrtpmap / fmtp / rtcp-fbが初回answerと同一であること、確定後もPT・fmtp・rtcp-fbが変わらないこと、`expectSessionContinues`（ハーネスが本体の後に実行）を確認する。修正前のHEAD（`b527549ac`）では4件とも失敗する。
 - [x] `tests/issue/818.test.ts` の `rtcp-fb collision` ケース: 期待値を新ルールに合わせた（既存m-lineは交渉済みの `98 VP8`（feedbackあり）だけ、追加m-lineは `96 VP8`（feedbackあり）と `97 VP8`（feedbackなし））。修正前のHEADでは失敗する。
 - [x] `tests/media/codecResolution.test.ts`: 交渉済みcodecが別fmtp / 別feedbackでもそのオブジェクトが置かれる、同じ形式 → MIME typeの順で対応付く、同じMIME typeの別の設定codecは再提示しない（covered）、交渉済みRTXがそのまま置かれる、`negotiatesAs` がMIME typeだけで対にする。
-- [x] model property: oracle `offerCapability` に「交渉済みprimary codecは、PT・parameters・rtcpFeedbackがofferと一致する」を追加した。あわせて、peer bのcodec設定を別の形式にする非対称の軸（`asymmetricModelConfig`: VP8のPT 120 + NACK/PLIだけ、H264 level 42e00d、Opus `stereo=1`）を、pairingと同じく独立したseed streamで25%のシーンに入れた。修正前のHEADでは100 seed中 seed 87 がこのoracleで失敗し、修正後は100 seedすべて成功する。
+- [x] model property: oracle `offerCapability` に「交渉済みprimary codecは、PT・parameters・rtcpFeedbackがofferと一致する」を追加した。あわせて、peer bのcodec設定を別の形式にする非対称の軸（`asymmetricModelConfig`: VP8のPT 110 + NACK/PLIだけ、H264 level 42e00d、Opus `stereo=1`。PT 120はwire mutation `codecRenumbered` が使うため避ける。10.5参照）を、pairingと同じく独立したseed streamで25%のシーンに入れた。修正前のHEADでは100 seed中 seed 87 がこのoracleで失敗し、修正後は100 seedすべて成功する。
 
 ### 10.4 自己検証への「非対称な相手」次元の追加（再発防止）
 
@@ -283,3 +284,46 @@
 
 - 1回目の `pbt:deep` で、model / leak の seed 171 が失敗した。原因はテストの設定だった。非対称構成のVP8をPT 120にしていたが、wire mutation `codecRenumbered` もH264を「未使用」のPT 120へ移すため、同じPTに2つのcodecが載る不正なSDPができていた（修正前のHEADでも同じく失敗）。非対称構成のVP8をPT 110に変えて解消した。scenario seed 214 は単独で3回、所属shard（seed 211〜217）で2回再実行し、すべて成功した（並列負荷下のflaky）。
 - 一時スクリプトと結果は `/tmp/asym818`（`asym.test.ts`、`classify.py`、`dev.json` / `head.json` / `final.json`）と `/tmp/nd818` に残した。
+
+## 11. 追加要件: 同じMIME typeの別形式を再提示する（レビュー指摘: covered による能力の欠落）
+
+### 11.1 背景と原因
+
+- §10の「covered」規則（交渉済みcodecと同じMIME typeの、未配置の設定codecを再提示しない）により、交渉で外れた同じMIME typeの別形式が再オファーから消えていた。例: H264 mode 0 / mode 1 の両方を設定し、最初にmode 0だけで交渉すると、次のofferにmode 1が載らない。後からmode 1だけを受け付ける相手には、能力があるのにその形式へ移れない（RFC 8829 §5.2.2 に反する）。
+- covered規則は、交渉（`resolveRemoteCodecSet`）がlocalとremoteのcodecを**MIME typeだけ**で対にするための回避策だった。answererは、offerの先頭にある同じMIME typeのcodecと対になる。そのため、交渉済みのmode 0より前にmode 1を再提示すると、answerで確定codecの形式が切り替わってしまう。
+- 本当の原因は交渉側の対応付けが形式を見ないことであり、re-offer側で再提示を削るのは症状への対処だった。
+
+### 11.2 ルール
+
+- `pairCodecs(configured, others, accept?)`（`codecCompatibility.ts`、export）を、codecを対にする唯一の規則として置いた。各設定primary codecは、`others` のうち**まず同じ形式（`isCodecCompatible`: MIME type、clock rate、channels、H264 `packetization-mode` / `profile-level-id`）**と、まだ対になっていなければ**次に同じMIME type（`negotiatesAs`）**と、1対1で対になる。RTX / REDは対にしない。
+- 交渉（`resolveRemoteCodecSet`、answer作成とremote answerの適用）、`withNegotiatedCodecs`、`keepNegotiatedPayloadTypes` の3か所すべてがこの関数を使う。固定sourceの制約は `accept` で渡す。
+- covered規則は廃止した。交渉で外れた同じMIME typeの別形式は、ほかの外れたcodecと同じく再提示する（PTは設定値、交渉済みPTやBUNDLE内の別codecと衝突すれば空きPT）。交渉済みcodecは引き続き交渉済みの形式（PT・fmtp・rtcp-fb）のまま提示する。
+- 交渉済みの形式をまだ持つ相手は、形式単位の対応付けによってその形式と対になる。そのため、別形式を再提示しても確定codecは切り替わらない（§10.1の表の最終行）。
+- developとの意図した差分（初回answer）: offerが同じMIME typeの複数形式（例: H264 mode 1 / mode 0 の順）を含み、answererの設定codecが先頭以外の形式と一致する場合。answererは自分の形式（mode 0）で応答する。developはMIME typeで先頭のmode 1と対にしていたので、answererが設定していない形式で確定していた。
+- ルールは `pairCodecs` / `negotiatesAs` / `withNegotiatedCodecs` / `keepNegotiatedPayloadTypes` / `TransceiverManager.resolveOfferCodecs` / `NegotiationTransaction`（Codecs行）のTSDocと、`changelog.md` の#818項に記載した。
+
+### 11.3 回帰テスト
+
+- [x] `tests/issue/818.test.ts`（新規）: 両側の設定はH264 mode 0（96）とmode 1（97）。Aがmode 0固定sourceのtrackでofferし、mode 0だけで確立する。その後、Aは固定sourceのないtrackに `replaceTrack()` し、Bはmode 1固定sourceのtrackを `addTrack()` する（Bはmode 1だけを受け付ける。remote offerが作ったtransceiverを再利用する）。Aの再オファーが交渉済みのmode 0（96）に加えてmode 1（97）を提示し、確定後は両側ともmode 1だけになり、Bがmode 1で送ること、`expectSessionContinues`（ハーネス）を確認する。修正前のHEAD（`b41fca9a6`）では失敗する。
+- [x] `tests/issue/818.test.ts`（更新）: 非対称な2者の「設定H264 2本 vs 相手1本」は、再オファーが初回answerの行に加えてmode 1（96）の行を含み、確定後もmode 0（98）のままであることを確認する。`rtcp-fb collision` は、既存m-lineが交渉済みの `98 VP8`（feedbackあり）に加えて設定の `97 VP8`（feedbackなし）を再提示する期待値にした。
+- [x] `tests/media/codecResolution.test.ts`: covered を期待していたテストを、同じMIME typeの別形式を設定PTで再提示する期待値に改めた。`pairCodecs` の単体テスト（並び順によらず各形式が同じ形式と対になる、同じ形式がなければMIME typeで対になる、1対1）を追加した。
+- [x] 共有Arrangeの `createConnectedVideoPeersWith` に `outgoing`（offererのtrack、固定sourceを指定できる）を追加した。
+
+### 11.4 developとの比較と検証結果
+
+対象は `b41fca9a6` に未コミットの変更（`codecCompatibility.ts`、`transceiverManager.ts`、`negotiationTransaction.ts`、テスト、ドキュメント）を加えた状態。
+
+| 確認 | 結果 |
+| --- | --- |
+| `npm run type`（rootとwebrtc） | エラー0 |
+| `cd packages/webrtc && npm test` | 89ファイル、1873件成功、5件スキップ。leak property（`tests/pbt/leak`、`npm test` に含まれる）も成功し、単独で2回実行しても53件成功 |
+| 新規・更新テスト | 新規のmode 1テストと更新3件は修正前のHEAD（`b41fca9a6`）で失敗し、修正後に成功 |
+| model property（100 seed） | 160件成功 |
+| 公開APIの非対称マトリクス（112行、develop `41773f4dc` と比較） | 同一77、codecの追加28（同じMIME typeの別形式を含む）、追加m-lineのPT衝突回避3、初回answerの形式単位の応答4（`h264Two` のofferer側。11.2の意図した差分）。交渉済みの形式が変わる行は0 |
+| `tools/negotiation-diff`（非対称4構成 × 15 seed、develop比較） | regression / divergence / hang / failure / state difference すべて0 |
+| `npm run pbt:deep` | fuzzは失敗0。scenario seed 119 / 162 は単独で各3回成功（並列負荷下のflaky）。model seed 287 とleak heap seed 4 は下記 |
+| `npm run wpt` | regression 0。`codecs-subsequent-offer` はPASS |
+
+- model seed 287（非対称シーン、ICE restart付きの `codecSubset` wire offerの後に「channel dc0 did not open on both peers」で3秒timeout）は単独でも断続的に失敗する。修正前のHEAD（`b41fca9a6`）で8回中2回、修正後で8回中1回失敗し、developの一時worktree（同じテストファイルを使用）でも同じメッセージで失敗する。codecではなくDataChannelのタイミングの既存問題で、本チケットの範囲外とする。
+- leak heap seed 4 はdevelopでも失敗する既存の問題（§9.6、§10.5）。
+- レビューで「全体テスト中に表示された」とされたleak propertyの失敗は、上記のとおり `npm test` と単独実行のどちらでも再現しなかった。

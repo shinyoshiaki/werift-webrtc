@@ -617,6 +617,7 @@
 - [paddingBits](functions/paddingBits.md)
 - [paddingByte](functions/paddingByte.md)
 - [paddingLength](functions/paddingLength.md)
+- [pairCodecs](functions/pairCodecs.md)
 - [parseAvcDecoderConfigurationRecord](functions/parseAvcDecoderConfigurationRecord.md)
 - [parseGroup](functions/parseGroup.md)
 - [parseH265PayloadHeader](functions/parseH265PayloadHeader.md)
