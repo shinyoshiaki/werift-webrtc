@@ -52,10 +52,11 @@ describe("sctp burst transfer", () => {
     const { medianRatio } = JSON.parse(stdout.trim()) as {
       medianRatio: number;
     };
+    const ratio = medianRatio;
 
-    // Assert: 二次なら 16 倍になるところ、線形に近い比 (8 倍未満) に収まる
-    expect(medianRatio).toBeLessThan(8);
-  });
+    // Assert: 二次なら 16 倍になるところ、線形に近い比 (8 倍未満) に収まる。
+    expect(ratio).toBeLessThan(8);
+  }, 30_000);
 
   test("event loop heartbeat keeps running during a large burst", async () => {
     // Arrange

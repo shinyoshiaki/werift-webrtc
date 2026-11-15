@@ -218,6 +218,100 @@ remote source's RTP timestamps). Pass those timestamps through as-is
 rewrites RTP timestamps based on send time, and no pacing is enforced on these
 use cases.
 
+# keep one RTP timeline across upstream switches (RtpTimelineRewriter)
+
+When RTP from an upstream source is forwarded to a long-lived downstream RTP /
+SRTP session and the upstream is replaced (for example a WebRTC connection that
+has to be recreated every 30 minutes), the new upstream starts from other
+sequence numbers / timestamps / SSRC. Forwarded as-is, the downstream SRTP
+receiver mis-estimates its rollover counter or drops packets as replays, and
+jitter buffers stall. `RtpTimelineRewriter` maps every upstream onto one
+continuous output timeline:
+
+```ts
+import { RtpTimelineRewriter } from "werift-rtp"; // also exported by "werift"
+
+const rewriter = new RtpTimelineRewriter({
+  clockRate: 90000, // with "auto", the reconnect time becomes media time
+  ssrc: downstreamSsrc, // optional fixed output SSRC
+});
+
+// once per upstream connection
+const generation = ++connectionCount;
+track.onReceiveRtp.subscribe((rtp) => {
+  const out = rewriter.rewrite(rtp, { source: generation });
+  if (out) srtpSession.encrypt(out.payload, out.header);
+});
+receiver.sendRtcpPLI(track.ssrc); // the decoder needs a key frame of the new source
+```
+
+- The first source is output unchanged. Within a source, output = input +
+  offset, so reordering and loss are kept as they are.
+- A new `source` key, a new input SSRC (`switchOnSsrcChange`, default true) or
+  `switchSource()` starts a new source: its first packet continues from the
+  highest output (`sequenceNumber + 1`, `timestamp + step`), wrapping at 16 /
+  32 bits.
+- `timestampStep`: a number, `"lastDelta"` (last increment of the old source,
+  `defaultTimestampStep` before one was seen), `"wallClock"` (time between the
+  last old packet and the first new one × `clockRate / 1000`; keeps separate
+  audio / video rewriters in sync) or `"auto"` (default: `"wallClock"` with
+  `clockRate`, otherwise `"lastDelta"`).
+- Late packets of a replaced source and packets older than the first packet of
+  the new source are dropped (`undefined`, `onDrop`), so the output sequence
+  number never goes back or repeats across a switch. `onSourceSwitch` reports
+  each switch.
+- The given packet is not modified (a clone is returned) unless `inPlace: true`.
+- Padding-only packets are rewritten like media. Do not pass RTX packets (own
+  SSRC / sequence space). Use one instance per stream (audio / video).
+
+Not done for you:
+
+- **Key frames**: request one upstream (PLI / FIR) after each switch.
+- **RTCP**: an upstream Sender Report carries the upstream SSRC and RTP
+  timestamp. Rewrite it with `rewriter.mapTimestamp(sr.rtpTimestamp)` and the
+  downstream SSRC, or generate downstream SRs yourself.
+
+Examples:
+
+- `examples/mediachannel/rtp_forward/camera_switcher.ts`: forward the active
+  one of two live cameras as one RTP stream (relay / broadcast switcher /
+  active speaker). A replaced `source` key stays retired, so switching back to
+  a camera uses a new key per activation (`"A#3"`); the switch waits for a key
+  frame of the new camera after a PLI.
+- `examples/mediachannel/rtp_forward/switch_source.ts`: recreate the upstream
+  WebRTC connection on a timer and keep forwarding on one timeline.
+
+**`RtpTimelineRewriter` or `replaceTrack()`?** It depends on where the
+switched media goes:
+
+- To a WebRTC peer that werift sends to (a browser viewer, SFU subscribers):
+  `transceiver.sender.replaceTrack(track)` with the received track of the new
+  source (see `examples/mediachannel/pubsub/offer.ts`). `RTCRtpSender` keeps
+  seq / timestamp / SSRC continuous, drops queued packets of the old track,
+  re-anchors its Sender Reports and keeps NACK / RTX / pacing working. No
+  rewriter is needed.
+- Anywhere else (raw RTP over UDP to ffmpeg / GStreamer, RTSP, an
+  `SrtpSession` you drive yourself, recording): `RtpTimelineRewriter`. There is
+  no `RTCRtpSender` on that path.
+
+Neither waits for a key frame: request one (PLI / FIR) and switch when it
+arrives. At the switch `replaceTrack()` advances the timestamp by 1 and can
+switch back to the same track; the rewriter can use the elapsed time
+(`"wallClock"`, keeps separately switched audio / video in sync) and needs a
+new `source` key to switch back to a source.
+
+`RtpContinuity` is the low-level piece behind it (and behind `RTCRtpSender`);
+the caller must detect switches and drop late packets itself.
+
+**Forwarding through werift's own sender** (`track.writeRtp()` into an
+`RTCRtpSender`): the sender already keeps its output continuous across
+`replaceTrack()`. When the RTP written into the same track switches to another
+upstream, call `track.notifySourceChanged(header)` on that track or
+`sender.replaceRTP(header, false, timestampStep)`: the next packet continues
+from the last sent one and queued packets of the old source are dropped. The
+`header` argument is kept for compatibility only and is not used for the
+offsets.
+
 # When using in browser
 
 ```sh

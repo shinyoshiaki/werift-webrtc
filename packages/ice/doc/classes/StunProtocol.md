@@ -134,7 +134,11 @@ Application data (not STUN) and the remote address it came from.
 
 ### connectionMade()
 
-> **connectionMade**(`useIpv4`, `portRange?`, `interfaceAddresses?`): `Promise`\<`void`\>
+> **connectionMade**(`useIpv4`, `portRange?`, `interfaceAddresses?`, `__namedParameters?`): `Promise`\<`void`\>
+
+Opens the UDP socket. `bindAddress` binds it to that address (an IPv6
+link-local one with its zone, `fe80::1%eth0`) instead of the address of
+`interfaceAddresses` or the wildcard address.
 
 #### Parameters
 
@@ -149,6 +153,12 @@ Application data (not STUN) and the remote address it came from.
 ##### interfaceAddresses?
 
 `InterfaceAddresses`
+
+##### \_\_namedParameters?
+
+###### bindAddress?
+
+`string`
 
 #### Returns
 
