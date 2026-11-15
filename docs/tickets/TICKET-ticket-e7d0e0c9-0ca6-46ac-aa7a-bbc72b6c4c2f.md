@@ -356,6 +356,19 @@ RFC 8843 / RFC 9143（BUNDLE）§9.2「Associating RTP/RTCP Streams with the Cor
 - [x] 回帰テスト（`router.test.ts`）: 別 transport の同じ SSRC の受信先を 1 つの交渉でそれぞれ移し commit すると両方が新しい receiver に届く。別 transport に同じ SSRC の仮経路を 2 つ足して破棄すると両方消える（どちらも修正前のコードで失敗することを確認）。対象テスト 173 件成功。
 - 検証（`4dcad81f2` + 未コミット差分。ロードアベレージ 2〜11）: ルートの `npm run type` と `npm run test:small` 成功（webrtc 1957 passed）。最初の webrtc の `npm test` では leak の固定ケース「closing macrotask after a TURN gathering started releases the client's sockets and timers」が 1 件失敗した（`test:small` の webrtc では成功）。単独で交互に 8 回ずつ: 本ブランチ 0/8、develop `41773f4dc` 1/8（既存の揺らぎ）。`pbt:deep`: fuzz 306/306、scenario 2158 成功・5 flaky（単独で成功、失敗 0）、model 361/363（失敗は seed 287（3.9 の比較: 本ブランチ 3/8・develop 5/8、SCTP）、flaky 1）、leak 652/653（heap seed 4。develop でも閾値超え、ICE チケット `74132240`）。前回レビューで挙がった leak seed 102 は今回の実行では失敗していない。
 
+**承認前の根拠（レビューの提案: deep run の scenario seed 58 の再現性、heap seed 4 の develop との差）:** `6356ecf8d`（作業ツリーはクリーン）と develop `41773f4dc` の一時 worktree を同じコンテナで交互に実行した。
+- **scenario seed 58:**
+  - 単独 replay（`WERIFT_NEGOTIATION_SCENARIO_SEED=58 WERIFT_NEGOTIATION_SCENARIO_SEEDS=1 npx vitest run tests/pbt/scenario/negotiationScenarioProperty.test.ts -t "seed 58"`）: 本ブランチ 0/10、develop 0/10。
+  - seed 58 を含むシャード（`SEED=57 SEEDS=7`、`pbt:deep` と同じ単位）を負荷なしで 6 回: 本ブランチ 0/6。
+  - 同じシャードを、もう一方の worktree で `pbt:deep -- --suite scenario` を並列に流して負荷をかけながら実行: 本ブランチのシャードは 4 回中 1 回 seed 58 が失敗、develop のシャードも 6 回中 1 回 seed 58 が失敗（ほかに seed 57、59、61 も同様に失敗）。失敗内容は双方とも同じで、rollback 後の SDP に `a=end-of-candidates` が入るかどうか（ICE の候補収集の完了タイミング。seed 52 と同じ種類）。負荷に依存する既存の揺らぎで、経路の処理とは関係ない。
+  - `pbt:deep -- --suite scenario` を交互に 7 回ずつ: 失敗は本ブランチ 6 件・develop 6 件（seed は毎回違う）、flaky は本ブランチ 94 件・develop 64 件、seed 58 は本ブランチ 2 回（失敗 1・flaky 1）・develop 0 回。所要時間は本ブランチ 61〜97 秒・develop 53〜69 秒で、速度の低下は見られない。flaky の件数は本ブランチがやや多いが、失敗の件数は同じで、seed と内容は負荷によって変わる。
+- **leak heap seed 4（develop との差を許容できる根拠）:** 現在のコード（3.11 の経路の集合）で、3.8 と同じヒープスナップショットの比較をやり直した（seed 4 の周期を 40 回 → A、さらに 120 回 → B、A→B の保持オブジェクトを型ごとに集計）。
+  - 保持の増分: 本ブランチ 28.70 KiB/cycle、develop 30.30 KiB/cycle（本ブランチの方が少ない）。
+  - `RTCRtpReceiver` / `RTCRtpTransceiver` / `MediaStreamTrack` / `RtpRouter` / `Map` / `Set` の増分は両方とも 0。差のある型は `Object`（975 / 998）、`Array`（1755 / 1738）、`ArrayBuffer`（469 / 476）程度。
+  - 増え続ける `Candidate`（両方とも +240 = 1 周期 2 個）の保持経路は両方とも `RTCPeerConnection → … → RTCIceTransport.connection → Connection.closedSignal`（3.8 と同じ、ICE チケット `74132240`）。
+  - したがって P3 の傾き（レビュアーの測定で本ブランチ 18.64、develop 18.79 KiB/cycle、閾値 16）は develop の ICE 側の保持によるもので、本チケットの差分による保持はない。閾値の見直しは ICE チケット `74132240` の作業項目。
+- leak seed 102（前回のレビューで deep run 中に不安定、単独では成功）は、今回は再確認していない（前回の本ブランチの全スイート実行（3.11 の保留経路の修正後）では失敗しなかった）。
+
 ---
 
 ## 4. 制約・注意点
