@@ -3501,6 +3501,68 @@ describe("media/router: a=ssrc のない m-line の SSRC 学習 (#356)", () => {
     expect(router.ssrcTable[301]).toBeUndefined();
   });
 
+  test.each(["学習が先", "SDP が先"] as const)(
+    "別 transport の SDP が同じ SSRC を指定しても、学習した receiver と SDP の receiver にそれぞれ届く (%s)",
+    (order) => {
+      // Arrange: transport A の SSRC-less receiver a と、transport B の receiver n がある
+      const { router, dtls, addReceiver } = createSsrcLessRouter();
+      const other = createDtlsTransport();
+      const a = addReceiver({ mid: "a" });
+      const n = addReceiver({ mid: "n", transport: other });
+      const aPayloads = collectTrackPayloads(a);
+      const nPayloads: string[] = [];
+      const recipients = collectRtcpRecipients({ a, n });
+      const learn = () =>
+        router.routeRtp(
+          ssrcLessPacket({
+            ssrc: 55,
+            payloadType: 111,
+            mid: "a",
+            sequenceNumber: 1,
+          }),
+          dtls,
+        );
+      const describe = () => {
+        router.registerRtpReceiverBySsrc(n, {
+          codecs: [opus()],
+          headerExtensions: [],
+          encodings: [
+            new RTCRtpCodingParameters({ ssrc: 55, payloadType: 111 }),
+          ],
+        });
+        n.receiver.trackBySSRC[55].onReceiveRtp.subscribe((rtp) =>
+          nPayloads.push(rtp.payload.toString()),
+        );
+      };
+
+      // Act: A の学習と B の SDP 登録を指定の順で行い、両 transport に RTP と SR を流す
+      if (order === "学習が先") {
+        learn();
+        describe();
+      } else {
+        describe();
+        learn();
+      }
+      router.routeRtp(
+        ssrcLessPacket({ ssrc: 55, payloadType: 111, sequenceNumber: 2 }),
+        dtls,
+      );
+      router.routeRtp(
+        ssrcLessPacket({ ssrc: 55, payloadType: 111, sequenceNumber: 3 }),
+        other,
+      );
+      router.routeRtcp(rtcpNamingSsrc.SR(55), dtls);
+      router.routeRtcp(rtcpNamingSsrc.SR(55), other);
+
+      // Assert: A のストリームは a に、B のストリームは n にだけ届き、a は 55 を学習したまま
+      expect(aPayloads).toEqual(["payload-1", "payload-2"]);
+      expect(nPayloads).toEqual(["payload-3"]);
+      expect(recipients).toEqual(["a", "n"]);
+      expect(a.receiver.fallbackSsrcs).toEqual([55]);
+      expect(a.receiver.track.ssrc).toBe(55);
+    },
+  );
+
   test("transceiver の登録解除で学習済み SSRC が残らない", () => {
     // Arrange
     const { router, dtls, addReceiver } = createSsrcLessRouter();

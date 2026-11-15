@@ -76,16 +76,18 @@ keep their receiver whatever the MID (existing behaviour). A rollback keeps
 the receiver packets taught last, even over a baseline route packets
 taught another receiver.
 
-An SSRC is unique per RTP session only: a route learned from packets
-belongs to its receiver's current transport (a transceiver moved to another
-transport takes it along, and the old transport no longer reaches it). RTP and RTCP (SR, RR and every
-feedback naming an SSRC) arriving on another transport never resolve to it;
-when that transport's receiver learns the same numeric SSRC (fallback or
-RID) it keeps its own route, and an SSRC another transport's receiver
-replaced is a new stream here. Routes from SDP and sender routes are not
-scoped by transport (a packet of another transport naming them reaches
-them, as before). A remote stream using a local sender's SSRC is not
-learned.
+An SSRC is unique per RTP session only: a receiver route, from a
+description or learned from packets, belongs to its receiver's current
+transport (a transceiver moved to another transport takes it along, and
+the old transport no longer reaches it). RTP and RTCP (SR, RR and every
+feedback naming an SSRC) arriving on another transport never resolve to
+it; that transport's receiver learning the same numeric SSRC (fallback or
+RID) keeps its own route (`collidingRoutes`), and a description giving
+the SSRC to a receiver of another transport than its learned owner's
+moves the learned route aside instead of taking it. Within one RTP
+session a description's SSRC wins over a learned one (the learning
+receiver forgets it). Sender routes are not scoped by transport. A remote
+stream using a local sender's SSRC is not learned.
 
 A payload type or extension ID counts as in use only when both current
 descriptions carry it for the m-line. RID lookup uses MID+RID when the
