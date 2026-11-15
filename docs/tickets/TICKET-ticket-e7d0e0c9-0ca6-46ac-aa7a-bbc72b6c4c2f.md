@@ -265,6 +265,9 @@ RFC 8843 / RFC 9143（BUNDLE）§9.2「Associating RTP/RTCP Streams with the Cor
 - `npm run pbt:deep -- --suite model`（最終コード）: 363/363 成功、flaky 0。
 - `npm run pbt:deep`（全スイート、最終コード）: fuzz 306/306。model 362/363（失敗は seed 287。DataChannel が開かない既存の flaky で、縮小後のシーンに SSRC-less の変異を含まない）。leak 651/653（失敗は既知の heap seed 4 と、単独で成功する seed 50）。scenario 2149 成功・14 flaky（すべて単独で成功）。
 - scenario の flaky の比較（同じコンテナで `--suite scenario` を交互に 2 回ずつ）: 本ブランチ「失敗 2・flaky 6」「失敗 1・flaky 18」、develop `41773f4dc`「失敗 2・flaky 12」「失敗 1・flaky 8」。develop と同程度の負荷依存の揺らぎで、scenario スイートは SSRC-less の経路を通らない。
+- **確認レビュー（3.9 の反復 1）は、実装の誤配送・状態破壊は見つからず、`pbt:deep` の model seed 287 と leak heap seed 4 だけを理由に非承認。** 提案どおり、他の負荷のない状態で本ブランチと develop `41773f4dc` を交互に実行して比較した（同じコンテナ、一時 worktree）:
+  - model seed 287（`packages/webrtc` で `WERIFT_NEGOTIATION_MODEL_SEED=287 WERIFT_NEGOTIATION_MODEL_SEEDS=1 WERIFT_NEGOTIATION_MODEL_STEPS=10 npx vitest run tests/pbt/model/negotiationModelProperty.test.ts --retry=0 -t "seed 287"`）: 本ブランチ 3/8、develop 5/8 が同じ「channel dc0 did not open on both peers」で失敗。縮小後のシーンは SSRC-less の変異を含まない（DataChannel / SCTP の既存の揺らぎ）。
+  - leak heap seed 4（`WERIFT_NEGOTIATION_LEAK_SEED=4 WERIFT_NEGOTIATION_LEAK_SEEDS=1 WERIFT_NEGOTIATION_LEAK_STEPS=8 WERIFT_NEGOTIATION_LEAK_CYCLES=4 WERIFT_NEGOTIATION_LEAK_HEAP=1 npx vitest run tests/pbt/leak/negotiationLeakProperty.test.ts --retry=0 -t "heap seed 4"`）: 本ブランチ 4/4（18.3〜19.2 KiB/cycle）、develop 4/4（18.1〜18.9 KiB/cycle）が閾値 16 KiB/cycle を超えて失敗。最新の develop 自体が決定的に失敗する状態で、原因は ICE チケット `74132240` の `Connection.closedSignal` の保持（3.8）。
 - `src` の差分（develop 比）: 981 行の追加。行数は前の 898 行から減っていない（TSDoc と、拡張 seq による順序判定・commit 時の適用が加わった）。状態を持つフィールドは receiver で `stagedTracks` / `retiredFallbackSsrcs` / `fallbackCodec` / snapshot の `defaultTrackCodec` を削除し、`fallbackStreams`（1 つの表）と `deferredRemote` に置き換えた。
 
 ---
