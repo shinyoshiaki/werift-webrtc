@@ -351,6 +351,11 @@ RFC 8843 / RFC 9143（BUNDLE）§9.2「Associating RTP/RTCP Streams with the Cor
 - `pbt:deep`（全スイート）: fuzz 306/306、model 363/363（flaky 0）、scenario 2152 成功・11 flaky（単独で成功、失敗 0）、leak 652/653（heap seed 4。ICE チケット `74132240`）。ルートの `npm run type` と `npm run test:small` 成功（webrtc 1955 passed）。
 - 最初の webrtc の `npm test` では、ホストの高負荷（ロードアベレージ 19〜39。同じホストの他の作業）の中で 2 件が 5 秒のタイムアウトで失敗した（`codecResolution` の RED のテスト、`dtlsAlert` の 1 件。どちらもアサーション失敗ではない）。単独で交互に繰り返すと、`dtlsAlert` は本ブランチ 8/25・develop `41773f4dc` 4/20（失敗するサブテストは毎回違い、所要時間に差はない）、`codecResolution` は本ブランチ 2/17・develop 0/12（毎回違うテストのタイムアウト。RED のテストは ICE も RTP も使わず SDP の適用だけでタイムアウトした）。負荷によるタイムアウトと判断する。
 
+**保留中・仮登録の SSRC 経路も RTP session ごとに持つ（3.11 のレビュー指摘）:**
+- [x] `stagedSsrc`（保留中の description が commit まで待たせる経路）と `provisionalSsrc`（保留中の description が仮に足した経路）は SSRC だけをキーにしていたため、別 transport の同じ SSRC を 1 つの交渉でそれぞれ変えると後の staging が先を上書きし（commit 後も一方が古い receiver に届いた）、別 transport に同じ SSRC の仮経路を 2 つ足すと一方しか記録されなかった（仮経路の破棄後ももう一方が残った）。`PendingSsrcRoutes`（`[SSRC, receiver]` の組。同じ SSRC の後の登録は同じ transport の組だけを置き換え、別 transport の組は並立）に置き換えた。登録解除では staging と仮経路の両方からその receiver の組を外す。snapshot の形（`StagedRoutes` の `[SSRC, receiver][]`）は変わらない。
+- [x] 回帰テスト（`router.test.ts`）: 別 transport の同じ SSRC の受信先を 1 つの交渉でそれぞれ移し commit すると両方が新しい receiver に届く。別 transport に同じ SSRC の仮経路を 2 つ足して破棄すると両方消える（どちらも修正前のコードで失敗することを確認）。対象テスト 173 件成功。
+- 検証（`4dcad81f2` + 未コミット差分。ロードアベレージ 2〜11）: ルートの `npm run type` と `npm run test:small` 成功（webrtc 1957 passed）。最初の webrtc の `npm test` では leak の固定ケース「closing macrotask after a TURN gathering started releases the client's sockets and timers」が 1 件失敗した（`test:small` の webrtc では成功）。単独で交互に 8 回ずつ: 本ブランチ 0/8、develop `41773f4dc` 1/8（既存の揺らぎ）。`pbt:deep`: fuzz 306/306、scenario 2158 成功・5 flaky（単独で成功、失敗 0）、model 361/363（失敗は seed 287（3.9 の比較: 本ブランチ 3/8・develop 5/8、SCTP）、flaky 1）、leak 652/653（heap seed 4。develop でも閾値超え、ICE チケット `74132240`）。前回レビューで挙がった leak seed 102 は今回の実行では失敗していない。
+
 ---
 
 ## 4. 制約・注意点

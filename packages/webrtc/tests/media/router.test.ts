@@ -3836,6 +3836,74 @@ describe("media/router: a=ssrc のない m-line の SSRC 学習 (#356)", () => {
     expect(a.receiver.fallbackSsrcs).toEqual([]);
   });
 
+  test("別 transport の同じ SSRC の受信先を 1 つの交渉でそれぞれ変えると、commit で両方が新しい receiver に移る", () => {
+    // Arrange: transport A の a1 と transport B の b1 が SDP で SSRC 55 を受けている
+    const { router, dtls, addReceiver } = createSsrcLessRouter();
+    const other = createDtlsTransport();
+    const a1 = addReceiver({ mid: "a1" });
+    const a2 = addReceiver({ mid: "a2" });
+    const b1 = addReceiver({ mid: "b1", transport: other });
+    const b2 = addReceiver({ mid: "b2", transport: other });
+    const sdp55 = {
+      codecs: [opus()],
+      headerExtensions: [],
+      encodings: [new RTCRtpCodingParameters({ ssrc: 55, payloadType: 111 })],
+    };
+    router.registerRtpReceiverBySsrc(a1, sdp55);
+    router.registerRtpReceiverBySsrc(b1, sdp55);
+    // a2 / b2 は保留中の description が加えた m-line (まだ ontrack を通知していない)
+    a2.firedReceiving = false;
+    b2.firedReceiving = false;
+
+    // Act: 保留中の description が 55 を A では a2、B では b2 に移し、commit する
+    router.registerRtpReceiverBySsrc(a2, sdp55, { deferConflicts: true });
+    router.registerRtpReceiverBySsrc(b2, sdp55, { deferConflicts: true });
+    router.commitStaged();
+    // commit 後の各 receiver の track (a2 / b2 は description が作った track) で受ける
+    const payloads = Object.fromEntries(
+      [a1, a2, b1, b2].map((t) => [t.mid!, collectTrackPayloads(t)]),
+    );
+    router.routeRtp(
+      ssrcLessPacket({ ssrc: 55, payloadType: 111, sequenceNumber: 1 }),
+      dtls,
+    );
+    router.routeRtp(
+      ssrcLessPacket({ ssrc: 55, payloadType: 111, sequenceNumber: 2 }),
+      other,
+    );
+
+    // Assert: A の RTP は a2 に、B の RTP は b2 に届く
+    expect(payloads).toEqual({
+      a1: [],
+      a2: ["payload-1"],
+      b1: [],
+      b2: ["payload-2"],
+    });
+  });
+
+  test("別 transport に同じ SSRC の仮経路を 2 つ追加しても、仮経路の破棄で両方とも消える", () => {
+    // Arrange: transport A の a と transport B の b がある
+    const { router, dtls, addReceiver } = createSsrcLessRouter();
+    const other = createDtlsTransport();
+    const a = addReceiver({ mid: "a" });
+    const b = addReceiver({ mid: "b", transport: other });
+    a.firedReceiving = false;
+    b.firedReceiving = false;
+    const sdp55 = {
+      codecs: [opus()],
+      headerExtensions: [],
+      encodings: [new RTCRtpCodingParameters({ ssrc: 55, payloadType: 111 })],
+    };
+
+    // Act: 保留中の description が両方に 55 を仮経路として与え、後の pranswer がそれを破棄する
+    router.registerRtpReceiverBySsrc(a, sdp55, { deferConflicts: true });
+    router.registerRtpReceiverBySsrc(b, sdp55, { deferConflicts: true });
+    router.discardProvisional();
+
+    // Assert: どちらの transport にも 55 の経路は残らない
+    expect(router.routeEntries.filter((r) => r.ssrc === 55)).toEqual([]);
+  });
+
   test("transceiver の登録解除で学習済み SSRC が残らない", () => {
     // Arrange
     const { router, dtls, addReceiver } = createSsrcLessRouter();

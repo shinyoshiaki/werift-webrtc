@@ -93,6 +93,56 @@ const ORIGIN_RANK: Record<RouteOrigin, number> = {
 type Endpoint = RTCRtpReceiver | RTCRtpSender;
 type Route = { endpoint: Endpoint; origin: RouteOrigin };
 
+/**
+ * SSRC routes a pending description staged or added provisionally, one per
+ * SSRC and RTP session: a later entry for the same SSRC replaces one of the
+ * same transport (the later description decides) and leaves those of other
+ * transports, which are other streams.
+ */
+class PendingSsrcRoutes {
+  private list: [number, RTCRtpReceiver][];
+
+  constructor(entries: [number, RTCRtpReceiver][] = []) {
+    this.list = entries.map(([ssrc, receiver]) => [ssrc, receiver]);
+  }
+
+  private static sameSession(a: RTCRtpReceiver, b: RTCRtpReceiver) {
+    return a === b || a.dtlsTransport === b.dtlsTransport;
+  }
+
+  set(ssrc: number, receiver: RTCRtpReceiver) {
+    this.delete(ssrc, receiver);
+    this.list.push([ssrc, receiver]);
+  }
+
+  /** Drop the entry of `ssrc` in `receiver`'s RTP session. */
+  delete(ssrc: number, receiver: RTCRtpReceiver) {
+    this.list = this.list.filter(
+      ([s, r]) => s !== ssrc || !PendingSsrcRoutes.sameSession(r, receiver),
+    );
+  }
+
+  deleteReceiver(receiver: RTCRtpReceiver) {
+    this.list = this.list.filter(([, r]) => r !== receiver);
+  }
+
+  clear() {
+    this.list = [];
+  }
+
+  get size() {
+    return this.list.length;
+  }
+
+  entries(): [number, RTCRtpReceiver][] {
+    return this.list.map(([ssrc, receiver]) => [ssrc, receiver]);
+  }
+
+  [Symbol.iterator]() {
+    return this.entries()[Symbol.iterator]();
+  }
+}
+
 type StagedRoutes = {
   ssrc: [number, RTCRtpReceiver][];
   rid: [string, RTCRtpReceiver][];
@@ -210,15 +260,17 @@ export class RtpRouter {
   /**
    * Routes a pending offer or pranswer would move away from the receiver the
    * current session uses. They apply at commit; until then current RTP keeps
-   * its route, and rollback drops them.
+   * its route, and rollback drops them. Keyed by SSRC and RTP session: one
+   * entry per SSRC per transport (`PendingSsrcRoutes`).
    */
-  private stagedSsrc = new Map<number, RTCRtpReceiver>();
+  private stagedSsrc = new PendingSsrcRoutes();
   private stagedRid = new Map<string, RTCRtpReceiver>();
   /**
    * New SSRC routes a pending description added at once (no conflict). A
    * later remote pranswer / answer replaces them, the commit keeps them.
+   * Keyed like `stagedSsrc`.
    */
-  private provisionalSsrc = new Map<number, RTCRtpReceiver>();
+  private provisionalSsrc = new PendingSsrcRoutes();
   extIdUriMap: { [id: number]: string } = {};
 
   keyFrameRequestRouting: KeyFrameRequestRouting = "fallback";
@@ -438,17 +490,17 @@ export class RtpRouter {
   /** Internal: capture staged routes for a transaction baseline or checkpoint. */
   snapshotStaged(): StagedRoutes {
     return {
-      ssrc: [...this.stagedSsrc],
+      ssrc: this.stagedSsrc.entries(),
       rid: [...this.stagedRid],
-      provisional: [...this.provisionalSsrc],
+      provisional: this.provisionalSsrc.entries(),
     };
   }
 
   /** Internal: restore staged routes (an empty snapshot discards them). */
   restoreStaged(snapshot: StagedRoutes) {
-    this.stagedSsrc = new Map(snapshot.ssrc);
+    this.stagedSsrc = new PendingSsrcRoutes(snapshot.ssrc);
     this.stagedRid = new Map(snapshot.rid);
-    this.provisionalSsrc = new Map(snapshot.provisional);
+    this.provisionalSsrc = new PendingSsrcRoutes(snapshot.provisional);
   }
 
   /** Internal: every route a negotiation may change, for a rollback baseline. */
@@ -526,9 +578,8 @@ export class RtpRouter {
     transceiver.receiver.deferredRemote = undefined;
     transceiver.receiver.releaseFallbackSsrcs();
     transceiver.receiver.takeForgottenSsrcs();
-    for (const [ssrc, receiver] of this.stagedSsrc) {
-      if (receiver === transceiver.receiver) this.stagedSsrc.delete(ssrc);
-    }
+    this.stagedSsrc.deleteReceiver(transceiver.receiver);
+    this.provisionalSsrc.deleteReceiver(transceiver.receiver);
     for (const [key, receiver] of this.stagedRid) {
       if (receiver === transceiver.receiver) this.stagedRid.delete(key);
     }
@@ -573,8 +624,8 @@ export class RtpRouter {
       return;
     }
     if (deferConflicts && !own) this.provisionalSsrc.set(ssrc, receiver);
-    if (!deferConflicts) this.provisionalSsrc.delete(ssrc);
-    this.stagedSsrc.delete(ssrc);
+    if (!deferConflicts) this.provisionalSsrc.delete(ssrc, receiver);
+    this.stagedSsrc.delete(ssrc, receiver);
     this.takeSsrcRoute(ssrc, receiver);
   }
 
