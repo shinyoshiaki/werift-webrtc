@@ -6,14 +6,18 @@ const {
   buildRecord,
   collectGitInfo,
   recordFileName,
+  selectRecordsToPrune,
   summarizeEvents,
 } = require("../../firefox-run-record.js");
+const { keepFromEnv, pruneRecords } = require("../../firefox-runs-prune.js");
 const {
   COMMIT,
   TEST_FILE,
   fakeGit,
   finished,
   gitInfo,
+  recordNames,
+  recordsDirWith,
   reporterEvents,
   started,
 } = require("./firefoxRunRecordFixtures.js");
@@ -167,4 +171,51 @@ test("the record carries the commit and outcome, and its file name sorts by star
   assert.deepEqual(record.vitestArgs, ["tests/bundle"]);
   assert.equal(recordFileName(record), "20261114T010203Z-012345678.json");
   assert.equal(dirtyName, "20261114T010203Z-012345678-dirty.json");
+});
+
+test("pruning selects the oldest records beyond the kept count", () => {
+  // Arrange: 順不同に並んだ 4 件の記録と、記録ではないファイル
+  const [a, b, c, d] = recordNames([1, 2, 3, 4]);
+  const names = [c, "README.md", a, d, b, "notes.txt"];
+  // Act: 新しい 2 件を残す場合、全件消す場合、件数より多く残す場合を選ぶ
+  const keepTwo = selectRecordsToPrune(names, 2);
+  const clear = selectRecordsToPrune(names, 0);
+  const keepMany = selectRecordsToPrune(names, 10);
+  // Assert: 古い順に選ばれ、記録以外のファイルは選ばれない
+  assert.deepEqual(keepTwo, [a, b]);
+  assert.deepEqual(clear, [a, b, c, d]);
+  assert.deepEqual(keepMany, []);
+  // 不正な件数は拒否する
+  assert.throws(() => selectRecordsToPrune(names, -1), /non-negative integer/);
+  assert.throws(() => selectRecordsToPrune(names, Number.NaN), /non-negative/);
+});
+
+test("pruneRecords deletes old records and keeps other files", () => {
+  // Arrange: 3 件の記録と README.md がある一時ディレクトリ
+  const { existsSync, readdirSync, rmSync } = require("node:fs");
+  const [a, b, c] = recordNames([1, 2, 3]);
+  const dir = recordsDirWith([a, b, c]);
+  try {
+    // Act: dry-run で 1 件残す場合を確かめてから、実際に 1 件残して消す
+    const listed = pruneRecords(dir, 1, { dryRun: true });
+    const afterDryRun = readdirSync(dir).sort();
+    const deleted = pruneRecords(dir, 1);
+    // Assert: dry-run は何も消さず、実行後は最新の記録と README.md だけが残る
+    assert.deepEqual(listed, [a, b]);
+    assert.deepEqual(afterDryRun, [a, b, c, "README.md"].sort());
+    assert.deepEqual(deleted, [a, b]);
+    assert.deepEqual(readdirSync(dir).sort(), [c, "README.md"].sort());
+    // ディレクトリがなければ何もしない
+    assert.deepEqual(pruneRecords(`${dir}-missing`, 0), []);
+    assert.equal(existsSync(`${dir}-missing`), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the kept count comes from FIREFOX_RECORDS_KEEP or defaults to 20", () => {
+  // Act / Assert: 未設定・空は既定の 20、設定値はそのまま数値になる
+  assert.equal(keepFromEnv({}), 20);
+  assert.equal(keepFromEnv({ FIREFOX_RECORDS_KEEP: "" }), 20);
+  assert.equal(keepFromEnv({ FIREFOX_RECORDS_KEEP: "5" }), 5);
 });
