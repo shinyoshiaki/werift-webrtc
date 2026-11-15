@@ -6,15 +6,12 @@
 
 # Function: queryServerReflexiveCandidate()
 
-> **queryServerReflexiveCandidate**(`protocol`, `stunServer`): `Promise`\<[`Candidate`](../classes/Candidate.md)\>
+> **queryServerReflexiveCandidate**(`protocol`, `stunServer`, `base?`): `Promise`\<[`Candidate`](../classes/Candidate.md)\>
 
 Query `stunServer` from `protocol` for a server-reflexive candidate.
 Unlike [serverReflexiveCandidate](serverReflexiveCandidate.md) it rejects with the reason of a
-failure: the STUN transaction's error (`TransactionTimeout`,
-`TransactionFailed` for an error response, `TransactionCancelled`, a DNS
-error, `AddressFamilyMismatch`), a [MissingMappedAddressError](../classes/MissingMappedAddressError.md) for a
-success response without XOR-MAPPED-ADDRESS, or an `Error` when the
-protocol has no local candidate (thrown before any request is sent).
+failure. `base` is used for wildcard sockets that advertise no host
+candidate themselves.
 
 ## Parameters
 
@@ -25,6 +22,10 @@ protocol has no local candidate (thrown before any request is sent).
 ### stunServer
 
 readonly \[`string`, `number`\]
+
+### base?
+
+`Pick`\<[`Candidate`](../classes/Candidate.md), `"port"` \| `"host"` \| `"component"` \| `"transport"`\> & `Partial`\<`Pick`\<[`Candidate`](../classes/Candidate.md), `"tcptype"`\>\>
 
 ## Returns
 

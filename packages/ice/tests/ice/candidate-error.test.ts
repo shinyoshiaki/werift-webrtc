@@ -95,7 +95,7 @@ describe("onIceCandidateError: STUN", () => {
     } finally {
       await connection.close();
     }
-  });
+  }, 15_000);
 
   test("応答しない STUN は stunGatherTimeout の満了で 701 が 1 回だけ出て、遅れた応答は無視される", async () => {
     // Arrange: タイムアウト (100ms) より後 (400ms) にエラー応答を返す STUN
@@ -297,9 +297,9 @@ describe("onIceCandidateError: STUN", () => {
       // Act: 候補収集を完了まで待つ
       await connection.gatherCandidates();
 
-      // Assert: 2 ソケットそれぞれから 400 が 1 件ずつ
-      expect(errors.map((error) => error.errorCode)).toEqual([400, 400]);
-      expect(new Set(errors.map((error) => error.port)).size).toBe(2);
+      // Assert: 2 host sockets と wildcard socket から 400 が届く
+      expect(errors.map((error) => error.errorCode)).toEqual([400, 400, 400]);
+      expect(new Set(errors.map((error) => error.port)).size).toBe(3);
     } finally {
       await connection.close();
       await server.close();

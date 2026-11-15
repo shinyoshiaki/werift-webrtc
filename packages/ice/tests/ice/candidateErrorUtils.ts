@@ -160,8 +160,8 @@ export function errnoError(code: string) {
 }
 
 /**
- * Two IPv4 UDP host sockets (the host address and loopback, both bound to
- * the wildcard address), so every STUN server is queried from two ports.
+ * Two IPv4 host addresses (the host address and loopback), plus the default
+ * wildcard STUN socket used by the normal interface-discovery path.
  */
 export const twoIpv4Sockets: Partial<IceOptions> = {
   useIpv6: false,
