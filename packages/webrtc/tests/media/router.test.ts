@@ -3563,6 +3563,47 @@ describe("media/router: a=ssrc のない m-line の SSRC 学習 (#356)", () => {
     },
   );
 
+  test("別 transport が先に学習した SSRC を RTX SSRC として学習しても、rrid を省いた後続の RTX で欠落した媒体を復元する", () => {
+    // Arrange: transport B の SSRC-less receiver b が SSRC 55 を学習済み。transport A の simulcast receiver
+    // (RID "low") が、同じ数値の 55 を RTX SSRC として学習する
+    const { router, addReceiver } = createSsrcLessRouter();
+    const other = createDtlsTransport();
+    const b = addReceiver({ mid: "b", transport: other });
+    router.routeRtp(
+      ssrcLessPacket({ ssrc: 55, payloadType: 111, mid: "b" }),
+      other,
+    );
+    const simulcast = createSimulcastRtxReceiver({ router });
+    const delivered = collectDeliveredRtp(simulcast.receiver.trackByRID.low);
+    const media = (sequenceNumber: number, rid?: string) =>
+      createSimulcastMediaPacket({ ssrc: 2000, sequenceNumber, rid });
+    router.routeRtp(media(1, "low"), simulcast.dtls);
+    router.routeRtp(media(3, "low"), simulcast.dtls);
+    router.routeRtp(
+      createSimulcastRtxFor(2000, 2, {
+        rtxSsrc: 55,
+        rtxSequenceNumber: 1,
+        rrid: "low",
+      }),
+      simulcast.dtls,
+    );
+
+    // Act: rid / rrid を省いた媒体と RTX が続く
+    router.routeRtp(media(4), simulcast.dtls);
+    router.routeRtp(media(6), simulcast.dtls);
+    router.routeRtp(
+      createSimulcastRtxFor(2000, 5, { rtxSsrc: 55, rtxSequenceNumber: 2 }),
+      simulcast.dtls,
+    );
+
+    // Assert: 2 つ目の RTX も媒体 SSRC で復元され、b の経路は残る
+    expect(retransmissionsOf(delivered)).toEqual([
+      [2000, 2],
+      [2000, 5],
+    ]);
+    expect(router.ssrcTable[55]).toBe(b.receiver);
+  });
+
   test("transceiver の登録解除で学習済み SSRC が残らない", () => {
     // Arrange
     const { router, dtls, addReceiver } = createSsrcLessRouter();

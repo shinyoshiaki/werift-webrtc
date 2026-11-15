@@ -792,7 +792,7 @@ function assertLearnedRoutes(pc: RTCPeerConnection) {
     };
   };
   const knows = (receiver: RTCRtpReceiver, ssrc: number) =>
-    !!receiver.trackBySSRC[ssrc] || ssrc in receiver.ridByRtxSsrc;
+    receiver.knowsSsrc(ssrc);
   for (const ssrc of router.learnedSsrcs) {
     const owner = router.ssrcTable[ssrc];
     expect(owner, `learned SSRC ${ssrc} has a route`).toBeDefined();
@@ -806,7 +806,7 @@ function assertLearnedRoutes(pc: RTCPeerConnection) {
   for (const [ssrc, receivers] of router.collidingRoutes) {
     const owner = router.ssrcTable[ssrc];
     for (const receiver of receivers) {
-      if (receiver.stopped || !receiver.trackBySSRC[ssrc]) continue;
+      if (receiver.stopped || !receiver.knowsSsrc(ssrc)) continue;
       if (owner instanceof RTCRtpReceiver) {
         expect(
           receiver.dtlsTransport,

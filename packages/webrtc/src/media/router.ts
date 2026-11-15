@@ -972,7 +972,7 @@ export class RtpRouter {
     if (!routes) return undefined;
     let found: RTCRtpReceiver | undefined;
     for (const receiver of [...routes]) {
-      if (!receiver.trackBySSRC[ssrc] || receiver.stopped) {
+      if (!receiver.knowsSsrc(ssrc) || receiver.stopped) {
         this.dropCollidingRoute(ssrc, receiver);
       } else if (!found && receiver.dtlsTransport === transport) {
         found = receiver;

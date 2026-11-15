@@ -276,6 +276,15 @@ export class RTCRtpReceiver {
     return [...this.fallbackStreams.keys()];
   }
 
+  /**
+   * Internal (router): a route to this receiver for `ssrc` is still in use:
+   * a track has it (media SSRC from a description or packets), or a RID's
+   * RTX learned it (`ridByRtxSsrc`, no track entry of its own).
+   */
+  knowsSsrc(ssrc: number) {
+    return !!this.trackBySSRC[ssrc] || ssrc in this.ridByRtxSsrc;
+  }
+
   /** Internal (router): `ssrc` is one of {@link fallbackSsrcs}. */
   hasFallbackSsrc(ssrc: number) {
     return this.fallbackStreams.has(ssrc);

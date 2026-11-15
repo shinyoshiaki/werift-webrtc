@@ -281,10 +281,12 @@ RFC 8843 / RFC 9143（BUNDLE）§9.2「Associating RTP/RTCP Streams with the Cor
   - 別 transport の学習済み経路は解放せず、`collidingRoutes` に移して自分の transport のストリームを受け続ける。別 transport の学習済み経路は同じ RTP session の衝突ではないので、保留中の description でも staging しない。
 - [x] 逆順（別 transport の SDP 経路が先にある SSRC を学習する）では、学習経路を `collidingRoutes` に登録する（`addLearnedRoute` / `learnSsrc`）。
 - [x] 回帰テスト（`router.test.ts`）: 学習が先 / SDP が先の両方で、A の RTP と SR は a に、B の RTP と SR は n にだけ届き、a は 55 を学習したまま（修正前のコードで両方とも失敗することを確認）。
+- [x] 衝突経路（`collidingRoutes`）の有効性は「receiver がその SSRC を知っている」こと（`RTCRtpReceiver.knowsSsrc`: 媒体 track の `trackBySSRC`、または RID の RTX の対応 `ridByRtxSsrc`）で判定する。RTX SSRC は `trackBySSRC` に入らないので、従来の判定では別 transport と衝突した RTX の経路が引き当て時に消え、rrid を省いた後続の RTX で欠落した媒体を復元できなかった（レビュー指摘）。invariant `assertLearnedRoutes` も同じ判定を使う。回帰テスト: 別 transport が先に学習した SSRC 55 を simulcast receiver が RTX SSRC として学習しても、rrid を省いた 2 つ目の RTX で媒体を復元し、別 transport の経路は残る（修正前のコードで失敗することを確認）。
 - 範囲外（変更しない）: 別 transport の 2 つの SDP 経路が同じ SSRC を宣言する場合は、従来どおり後の description が `ssrcTable` を上書きする（staging 含む）。
 
 **検証（`e5addc7b8` + 未コミット差分）:**
 - ルートの `npm run type` と `npm run test:small` 成功。webrtc の `npm test` は 1915 passed、5 skipped。対象テスト（`router.test.ts` と `356.test.ts`）131 件成功。
+- RTX の衝突経路の修正後: webrtc の `npm test` は 1916 passed、5 skipped。対象テスト 132 件成功。`pbt:deep -- --suite model` は 363/363 成功。
 - `pbt:deep`: model 360/363（失敗は seed 287。単独で 3 回中 1 回、従来と同じ「channel dc0 did not open on both peers」。3.9 の比較で develop でも 8 回中 5 回失敗）、scenario 2158 成功・5 flaky（単独で成功）、fuzz 306/306、leak 652/653（失敗は heap seed 4。3.9 の比較で develop でも 4 回中 4 回、閾値超えで失敗。ICE チケット `74132240`）。
 - 未実施: ブラウザとの E2E（`npm run e2e`）。SDP 由来の経路の引き当てが transport ごとになったため、BUNDLE を使わない構成・BUNDLE の分割と統合は negotiation テストと model / scenario property で確認したが、実ブラウザでは確認していない。
 

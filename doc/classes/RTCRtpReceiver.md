@@ -679,6 +679,26 @@ tracks; the SSRCs the replacing offer gives take them over.
 
 ***
 
+### knowsSsrc()
+
+> **knowsSsrc**(`ssrc`): `boolean`
+
+Internal (router): a route to this receiver for `ssrc` is still in use:
+a track has it (media SSRC from a description or packets), or a RID's
+RTX learned it (`ridByRtxSsrc`, no track entry of its own).
+
+#### Parameters
+
+##### ssrc
+
+`number`
+
+#### Returns
+
+`boolean`
+
+***
+
 ### markFallbackMidUpdate()
 
 > **markFallbackMidUpdate**(`ssrc`, `ext`): `void`
