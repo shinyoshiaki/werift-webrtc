@@ -22,22 +22,18 @@ server.on("connection", (socket) => {
       console.log("pc.iceConnectionStateChange", v),
     );
 
-    {
-      const transceiver = pc.addTransceiver("video", { direction: "recvonly" });
+    // Each m-line of the browser's offer gets its own (recvonly) transceiver
+    // (JSEP 5.10; transceivers added with addTransceiver() before
+    // setRemoteDescription() are not paired with it).
+    const labels = ["A", "B"];
+    pc.onRemoteTransceiverAdded.subscribe((transceiver) => {
+      const label = labels.shift();
       transceiver.onTrack.subscribe((track) => {
         track.onReceiveRtp.subscribe((rtp) => {
-          console.log("track.onReceiveRtp A");
+          console.log(`track.onReceiveRtp ${label}`);
         });
       });
-    }
-    {
-      const transceiver = pc.addTransceiver("video", { direction: "recvonly" });
-      transceiver.onTrack.subscribe((track) => {
-        track.onReceiveRtp.subscribe((rtp) => {
-          console.log("track.onReceiveRtp B");
-        });
-      });
-    }
+    });
 
     await pc.setRemoteDescription(offer);
     await pc.setLocalDescription(await pc.createAnswer());
