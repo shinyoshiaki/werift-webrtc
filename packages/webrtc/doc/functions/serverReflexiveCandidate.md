@@ -25,7 +25,7 @@ readonly \[`string`, `number`\]
 
 ### base?
 
-`Pick`\<[`Candidate`](../classes/Candidate.md), `"component"` \| `"transport"` \| `"host"` \| `"port"`\> & `Partial`\<`Pick`\<[`Candidate`](../classes/Candidate.md), `"tcptype"`\>\>
+`Pick`\<[`Candidate`](../classes/Candidate.md), `"port"` \| `"host"` \| `"component"` \| `"transport"`\> & `Partial`\<`Pick`\<[`Candidate`](../classes/Candidate.md), `"tcptype"`\>\>
 
 ## Returns
 
