@@ -187,7 +187,7 @@ function classifyGatherError(error: unknown): { errorCode: number; errorText: st
 AGENTS.md に従い Arrange / Act / Assert 形式で書き、Act と Assert には日本語のコメントを付ける。
 
 - **ICE（`packages/ice/tests/ice/`、新規 `candidate-error.test.ts`）**。共通の Arrange（応答しない UDP の STUN サーバー、エラーを返す STUN/TURN のスタブ、イベントの収集）は `packages/ice/tests/utils.ts`、またはこのテスト領域用の 1 つのユーティリティファイルにまとめる。
-  - [ ] 存在しない DNS 名の STUN（`stun.invalid`）: `errorCode 701`、`server.address` が一致、`address` が host candidate。【追加要件】名前解決の失敗は resolver（`dns.promises.lookup`）への注入で決定的に起こし、`errorText` の `"Address resolution failed"` まで確認する（実際の DNS に頼ると、遅い環境では先に `stunGatherTimeout` が満了し、正当な 701 の timeout 文言になってテストが不安定になる）。
+  - [ ] 存在しない DNS 名の STUN（`stun.invalid`）: `errorCode 701`、`server.address` が一致、`address` が host candidate。【追加要件】DNS と gather timeout の競合はテストで制御する。(a) 名前解決の失敗をすぐ返すよう注入し、`stunGatherTimeout` を十分長く（60s）して `"Address resolution failed"` を確認する統合テスト。(b) 名前解決が返らないよう注入し、`stunGatherTimeout` を短く（0.2s）して `"STUN binding request timed out"` の 701 が 1 件になる統合テスト。(c) 文言の分類は `classifyGatherError` の単体テスト（`ENOTFOUND` / `EAI_AGAIN` → `"Address resolution failed"`）で確認する。実際の DNS に頼ると、遅い環境では先に timeout が満了し、正当な timeout 文言になってテストが不安定になる。
   - [ ] 応答しない STUN 宛先（ローカルの閉じた UDP ポートか、無応答のソケット）。`stunGatherTimeout` を短くし、満了で 701 が 1 回だけ出る。
   - [ ] STUN Binding のエラー応答（例: 400）で、そのコードが出る。
   - [ ] TURN で 2 回目の 401（誤った credential）: 401、`errorText` に username / password を含まない。

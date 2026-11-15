@@ -225,3 +225,19 @@ export function failDnsLookup(hostname: string, code = "ENOTFOUND") {
     return (lookup as (...args: unknown[]) => Promise<unknown>)(name, ...rest);
   }) as typeof dns.lookup);
 }
+
+/**
+ * Make the resolver never answer for `hostname` (other names resolve as
+ * usual): a query to it can only end by the STUN gather timeout. Undone by
+ * `vi.restoreAllMocks()`.
+ */
+export function hangDnsLookup(hostname: string) {
+  const lookup = dns.lookup.bind(dns);
+  return vi.spyOn(dns, "lookup").mockImplementation(((
+    name: string,
+    ...rest: unknown[]
+  ) => {
+    if (name === hostname) return new Promise<never>(() => {});
+    return (lookup as (...args: unknown[]) => Promise<unknown>)(name, ...rest);
+  }) as typeof dns.lookup);
+}

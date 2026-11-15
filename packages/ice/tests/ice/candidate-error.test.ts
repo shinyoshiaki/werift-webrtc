@@ -49,6 +49,7 @@ import {
   errnoError,
   errorResponse,
   failDnsLookup,
+  hangDnsLookup,
   hostCandidate,
   ipv4AndIpv6Sockets,
   recordCandidateErrors,
@@ -64,13 +65,14 @@ describe("onIceCandidateError: STUN", () => {
     vi.restoreAllMocks();
   });
 
-  test("存在しない DNS 名の STUN は 701 で通知され、host candidate のアドレスを持つ", async () => {
-    // Arrange: 名前解決の失敗を注入する (環境の DNS の速さに左右されない)
+  test("存在しない DNS 名の STUN は 701 で通知され、host candidate のアドレスを持つ (名前解決の失敗)", async () => {
+    // Arrange: 名前解決の失敗をすぐ返すよう注入し、gather timeout は十分長くして競合させない
     const lookup = failDnsLookup("stun.invalid");
     const server: Address = ["stun.invalid", 3478];
     const { connection, errors } = createRecordingAgent({
       stunServers: [server],
       stunServerUrls: [{ address: server, url: "stun:stun.invalid" }],
+      stunGatherTimeout: 60,
     });
     try {
       // Act: 候補収集を完了まで待つ
@@ -95,6 +97,43 @@ describe("onIceCandidateError: STUN", () => {
         },
       ]);
       expect(lookup).toHaveBeenCalledWith("stun.invalid", expect.anything());
+      expect(connection.state).toBe("completed");
+    } finally {
+      await connection.close();
+    }
+  });
+
+  test("名前解決が gather timeout までに終わらない STUN は、timeout の 701 で 1 回だけ通知される", async () => {
+    // Arrange: 名前解決が返らないよう注入し、gather timeout を短くする
+    const lookup = hangDnsLookup("stun.slow.invalid");
+    const server: Address = ["stun.slow.invalid", 3478];
+    const { connection, errors } = createRecordingAgent({
+      stunServers: [server],
+      stunServerUrls: [{ address: server, url: "stun:stun.slow.invalid" }],
+      stunGatherTimeout: 0.2,
+    });
+    try {
+      // Act: 候補収集を完了まで待つ
+      await connection.gatherCandidates();
+
+      // Assert: 名前解決の途中で満了し、timeout の文言の 701 が 1 件
+      expect(lookup).toHaveBeenCalledWith(
+        "stun.slow.invalid",
+        expect.anything(),
+      );
+      expect(
+        errors.map(({ errorCode, errorText, server }) => [
+          errorCode,
+          errorText,
+          server.urls,
+        ]),
+      ).toEqual([
+        [
+          NOT_REACHED,
+          "STUN binding request timed out",
+          ["stun:stun.slow.invalid"],
+        ],
+      ]);
       expect(connection.state).toBe("completed");
     } finally {
       await connection.close();
