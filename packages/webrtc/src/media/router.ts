@@ -159,8 +159,11 @@ type StagedRoutes = {
  * the SSRC to a receiver of another transport than its learned owner's
  * moves the learned route aside instead of taking it. Within one RTP
  * session a description's SSRC wins over a learned one (the learning
- * receiver forgets it). Sender routes are not scoped by transport. A remote
- * stream using a local sender's SSRC is not learned.
+ * receiver forgets it). A local sender's route belongs to its transport
+ * as well: a remote stream of the same RTP session using a local sender's
+ * SSRC is a collision (RFC 3550 section 8.2) and is not learned, while one
+ * of another transport is another stream and is learned there
+ * (`collidingRoutes`), the sender keeping its route and RTCP.
  *
  * A payload type or extension ID counts as in use only when both current
  * descriptions carry it for the m-line. RID lookup uses MID+RID when the
@@ -988,18 +991,18 @@ export class RtpRouter {
   }
 
   /**
-   * A receiver route (from a description or taught by packets) of another
-   * RTP session than `transport`: an SSRC is unique per RTP session only, so
-   * a packet of `transport` does not reach it. Sender routes are not scoped.
+   * A route (a receiver's, from a description or taught by packets, or a
+   * local sender's) of another RTP session than `transport`: an SSRC is
+   * unique per RTP session only, so a packet of `transport` does not reach
+   * it, and a remote stream there may use the same number. A sender without
+   * a transport yet is not scoped.
    */
   private isForeignRoute(
     route: RTCRtpReceiver | RTCRtpSender,
     transport: RTCDtlsTransport | undefined,
   ) {
     return (
-      !!transport &&
-      route instanceof RTCRtpReceiver &&
-      route.dtlsTransport !== transport
+      !!transport && !!route.dtlsTransport && route.dtlsTransport !== transport
     );
   }
 

@@ -139,7 +139,7 @@ RFC 8843 / RFC 9143（BUNDLE）§9.2「Associating RTP/RTCP Streams with the Cor
   - **rollback:** baseline 後に学習済み SSRC の持ち主が変わった場合（A → B）、`restoreRoutes` は baseline のパケット由来経路（A）ではなく今の経路（B）を残す。receiver 側の track と表が食い違わない。
 - [x] TSDoc（`RtpRouter`）に次の規則を書き、`npm run doc` で再生成する。
   - パケットから学習した経路は、学習した transport に属する。RTCP にも同じ規則を適用する。
-  - ~~SDP 由来の経路と sender の経路は transport で区別しない（既存挙動。3.1）。~~ → 3.10 で変更: receiver の経路は SDP 由来も transport ごとに解決する。sender の経路だけ transport で区別しない。
+  - ~~SDP 由来の経路と sender の経路は transport で区別しない（既存挙動。3.1）。~~ → 3.10 で変更: receiver の経路（SDP 由来も）と sender の経路を transport ごとに解決する。
 - ~~**意図的に範囲外とする点:**~~（3.10 で対応した）transport A の SDP で宣言された SSRC 55 と、SSRC のない transport B の SSRC 55 が衝突すると、B のパケットは A に届く（既存挙動、3.1「SDP 由来の経路は transport を使わない」）。SDP 由来の経路に transport の一致を求めると、BUNDLE 移行中に古い transport で届くパケットを失う恐れがあるため、本チケットでは変えず TSDoc に明記する。
 
 **進め方の要件:**
@@ -275,7 +275,8 @@ RFC 8843 / RFC 9143（BUNDLE）§9.2「Associating RTP/RTCP Streams with the Cor
 **指摘:** transport A の受信者が SSRC 55 を学習した後、transport B の SDP が SSRC 55 を指定すると、SDP 登録が transport を区別せずに A の学習を解放し、さらに `endpointBySsrc` の transport 判定が学習済みの経路に限られていたため、A の次のパケットが A の track に届かなかった（逆順でも、B の SDP 経路が A のパケットを受けた）。別の RTP session では同じ SSRC を使えるので、独立したストリームの受信が途切れる。3.7 で範囲外としていたケースだが、3.9 で学習経路を transport ごとに揃えた結果、SDP 側だけが区別しない状態は実害になるので対応する。
 
 **要件:**
-- [x] receiver の経路は、SDP 由来でもパケット由来でも、その receiver の現在の transport に属する（`RtpRouter.isForeignRoute`）。別 transport のパケット（RTP / RTCP）はその経路に届かない。sender の経路は従来どおり transport で区別しない。
+- [x] receiver の経路は、SDP 由来でもパケット由来でも、その receiver の現在の transport に属する（`RtpRouter.isForeignRoute`）。別 transport のパケット（RTP / RTCP）はその経路に届かない。
+- [x] ローカル sender の経路も、その sender の transport に属する（レビュー指摘）。同じ transport の相手が sender と同じ SSRC を使うのは同じ RTP session 内の衝突（RFC 3550 §8.2）なので学習しない（従来どおり）。別 transport の相手が同じ数値の SSRC を使うのは別のストリームなので、その transport の receiver が学習する（`collidingRoutes`）。sender の経路と RTCP はどちらの場合も保たれる。transport を持たない sender（単体テストなど）は区別しない。回帰テスト: 同じ transport / 別 transport の両方で、sender と同じ SSRC の RTP（MID a）と、その SSRC を名指す RR を流す（別 transport のケースは修正前のコードで失敗することを確認）。
 - [x] SDP が SSRC を受信者に与えるとき（`registerRtpReceiver`、commit 時の staged SSRC。`takeSsrcRoute`）:
   - 同じ transport でその SSRC を fallback で学習していた受信者は忘れる（3.9 と同じ。SDP が勝つ）。保留中は staging して commit で移す。
   - 別 transport の学習済み経路は解放せず、`collidingRoutes` に移して自分の transport のストリームを受け続ける。別 transport の学習済み経路は同じ RTP session の衝突ではないので、保留中の description でも staging しない。
@@ -287,6 +288,9 @@ RFC 8843 / RFC 9143（BUNDLE）§9.2「Associating RTP/RTCP Streams with the Cor
 **検証（`e5addc7b8` + 未コミット差分）:**
 - ルートの `npm run type` と `npm run test:small` 成功。webrtc の `npm test` は 1915 passed、5 skipped。対象テスト（`router.test.ts` と `356.test.ts`）131 件成功。
 - RTX の衝突経路の修正後: webrtc の `npm test` は 1916 passed、5 skipped。対象テスト 132 件成功。`pbt:deep -- --suite model` は 363/363 成功。
+- sender の経路の修正後: ルートの `npm run type` と `npm run test:small` 成功（TURN を含む ice のテストも成功）。webrtc の `npm test` は 1918 passed、5 skipped。`pbt:deep`: fuzz 306/306、scenario 2159 成功・4 flaky（単独で成功）、model 361/363（失敗は seed 40、flaky 1）、leak 652/653（失敗は heap seed 4）。
+  - model seed 40 は「added DataChannel did not reach the peer」（SCTP の既知の揺らぎ。縮小後のシーンに SSRC-less の操作なし）。単独 replay を交互に 6 回ずつ: 本ブランチ 2/6、develop `41773f4dc` 4/6 が同じメッセージで失敗。
+  - heap seed 4 は 3.9 の比較どおり develop でも閾値超え（ICE チケット `74132240`）。
 - `pbt:deep`: model 360/363（失敗は seed 287。単独で 3 回中 1 回、従来と同じ「channel dc0 did not open on both peers」。3.9 の比較で develop でも 8 回中 5 回失敗）、scenario 2158 成功・5 flaky（単独で成功）、fuzz 306/306、leak 652/653（失敗は heap seed 4。3.9 の比較で develop でも 4 回中 4 回、閾値超えで失敗。ICE チケット `74132240`）。
 - 未実施: ブラウザとの E2E（`npm run e2e`）。SDP 由来の経路の引き当てが transport ごとになったため、BUNDLE を使わない構成・BUNDLE の分割と統合は negotiation テストと model / scenario property で確認したが、実ブラウザでは確認していない。
 

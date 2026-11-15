@@ -2476,6 +2476,50 @@ describe("media/router: a=ssrc のない m-line の SSRC 学習 (#356)", () => {
     expect(router.ssrcTable[55]).toBe(a.receiver);
   });
 
+  test.each([
+    ["同じ transport", "same"],
+    ["別 transport", "other"],
+  ] as const)(
+    "ローカル sender と同じ SSRC の未知 RTP: %s の sender なら衝突として学習せず、別 transport なら別 RTP session として受信する",
+    (_, where) => {
+      // Arrange: transport A の SSRC-less receiver と、指定の transport のローカル sender がある
+      const { router, dtls, addReceiver } = createSsrcLessRouter();
+      const other = createDtlsTransport();
+      const audio = addReceiver({ mid: "a" });
+      const payloads = collectTrackPayloads(audio);
+      const sender = new RTCRtpSender("audio");
+      sender.dtlsTransport = where === "same" ? dtls : other;
+      router.registerRtpSender(sender);
+      const senderRtcp: unknown[] = [];
+      sender.handleRtcpPacket = (packet: unknown) => {
+        senderRtcp.push(packet);
+      };
+
+      // Act: transport A に sender と同じ SSRC の RTP (MID a) が届き、sender の transport に
+      // その SSRC を名指す RR が届く
+      router.routeRtp(
+        ssrcLessPacket({ ssrc: sender.ssrc, payloadType: 111, mid: "a" }),
+        dtls,
+      );
+      router.routeRtcp(
+        rtcpNamingSsrc.RR(sender.ssrc),
+        where === "same" ? dtls : other,
+      );
+
+      // Assert: 同じ transport なら衝突として届けず、別 transport なら A の track に届く。
+      // どちらも sender の経路と RTCP は保たれる
+      if (where === "same") {
+        expect(payloads).toEqual([]);
+        expect(audio.receiver.fallbackSsrc).toBeUndefined();
+      } else {
+        expect(payloads).toEqual(["payload-1"]);
+        expect(audio.receiver.fallbackSsrc).toBe(sender.ssrc);
+      }
+      expect(router.ssrcTable[sender.ssrc]).toBe(sender);
+      expect(senderRtcp).toHaveLength(1);
+    },
+  );
+
   test("ローカル sender と同じ SSRC の未知 RTP は例外を投げず、sender の経路を保つ", () => {
     // Arrange: SSRC-less の receiver とローカル sender がある
     const { router, dtls, addReceiver } = createSsrcLessRouter();
