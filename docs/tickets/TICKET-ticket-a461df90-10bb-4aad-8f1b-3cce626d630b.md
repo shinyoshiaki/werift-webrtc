@@ -264,7 +264,7 @@
 
 ### 7.4 テストごとの結果（Firefox 157.0 / Playwright 1.64.1、`retry: 1`）
 
-根拠の記録（修正コミット `40fdd5d61`、`vitestArgs: []`、`-dirty` なし）: `e2e/firefox-runs/20261115T095816Z-40fdd5d61.json` と `e2e/firefox-runs/20261115T095950Z-40fdd5d61.json`（どちらも `outcome: completed`、`result: passed`、`runEnded: true`、`unfinished: []`、`moduleErrors: []`、`unhandledErrors: []`、62 passed / 0 failed / 9 skipped、テストごとの結果は 2 回で一致、retry 0 件）
+根拠の記録（レビュー指摘の修正後のコミット `966ad2386`、`vitestArgs: []`、`-dirty` なし）: `e2e/firefox-runs/20261115T124612Z-966ad2386.json` と `e2e/firefox-runs/20261115T124809Z-966ad2386.json`。修正前のコミット `40fdd5d61` の 2 回（`20261115T095816Z-40fdd5d61.json` / `20261115T095950Z-40fdd5d61.json`）も同じ結果だった（どちらも `outcome: completed`、`result: passed`、`runEnded: true`、`unfinished: []`、`moduleErrors: []`、`unhandledErrors: []`、62 passed / 0 failed / 9 skipped、テストごとの結果は 2 回で一致、retry 0 件）
 
 | テスト | Firefox の結果 | 分類 | 参照 / 備考 |
 | --- | --- | --- | --- |
@@ -300,7 +300,7 @@
 
 ### 7.5 回帰の確認
 
-- Chrome: `npm run e2e`（修正後、コミット前）→ 25 files / 71 tests すべて passed。
+- Chrome: `npm run e2e`（修正後、コミット前、およびレビュー指摘の修正コミット `966ad2386`）→ どちらも 25 files / 71 tests すべて passed。
 - `cd e2e && npm run type`、`npm run test:tools`（12 件）→ 通った。`npm run format` を実行した（本チケットと関係のない `packages/rtp/tests/codec/vp8.test.ts` / `packages/webrtc/tests/pbt/model/generator.ts` の書き換えは戻した）。
 - `packages/webrtc/src` は変えていない（調べるための一時的なログは戻した）。
 - 実行記録: 修正前の HEAD `846ab47d1` の datachannel の記録（`20261115T085209Z-846ab47d1.json`、failed）も、比較用に残した。調査中の `-dirty` 記録は削除した。
