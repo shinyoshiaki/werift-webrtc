@@ -1,9 +1,10 @@
 import {
   MediaStreamTrack,
-  type RTCPeerConnection,
+  RTCPeerConnection,
   RTCRtpCodecParameters,
   type RTCRtpTransceiver,
   useH264,
+  useOPUS,
   useVP8,
   useVP9,
 } from "../../src";
@@ -414,6 +415,69 @@ describeCases("issue 818: subsequent offers list every supported codec", () => {
       expect(formats[0][98]).toEqual("1");
       expect(formats[1][98]).not.toEqual("0");
       expect(Object.values(formats[1])).toContain("0");
+    },
+  );
+
+  negotiationCase(
+    "an added m-line does not reuse the payload type of a RED with other primaries",
+    { ref: "origin: issue 818 (review: RED fmtp collision)" },
+    async (c) => {
+      // Arrange: A (opus 110 + RED 63 = 110/110) と B (opus 109 + RED 63 = 109/109) が A の PT で音声を確定する。
+      const red = (primary: number) =>
+        new RTCRtpCodecParameters({
+          mimeType: "audio/red",
+          clockRate: 48000,
+          channels: 2,
+          payloadType: 63,
+          parameters: `${primary}/${primary}`,
+        });
+      const audio = (primary: number) => ({
+        codecs: {
+          audio: [red(primary), useOPUS({ payloadType: primary })],
+        },
+      });
+      const offerer = new RTCPeerConnection({ iceServers: [], ...audio(110) });
+      const answerer = new RTCPeerConnection({ iceServers: [], ...audio(109) });
+      const { a, b } = await c.given({
+        offerer,
+        answerer,
+        close: () => Promise.allSettled([offerer.close(), answerer.close()]),
+      });
+      c.exempt(
+        "SDP only: checks the payload types of an offer, no media is sent",
+      );
+      a.addTransceiver("audio", { direction: "sendrecv" });
+      await c.negotiate(a);
+      expect(b.currentLocalDescription!.sdp).toMatch(
+        /^a=fmtp:63 110\/110\r?$/m,
+      );
+
+      // Act: B が音声 transceiver を追加して offer を作る。
+      b.addTransceiver("audio", { direction: "sendrecv" });
+      const offer = await b.createOffer();
+
+      // Assert: BUNDLE 内の各 PT の fmtp は全 m-line で同じ (RFC 8859 IDENTICAL-PER-PT)。
+      const audioSections = offer.sdp
+        .split(/^m=/m)
+        .slice(1)
+        .filter((section) => section.startsWith("audio"));
+      expect(audioSections).toHaveLength(2);
+      const fmtps = audioSections.map(
+        (section) =>
+          new Map(
+            [...section.matchAll(/^a=fmtp:(\d+) (.*?)\r?$/gm)].map(
+              ([, pt, fmtp]) => [Number(pt), fmtp],
+            ),
+          ),
+      );
+      for (const [pt, fmtp] of fmtps[1]) {
+        expect(fmtps[0].get(pt) ?? fmtp).toEqual(fmtp);
+      }
+      // Assert: 既存 m-line の RED は 63 = 110/110 のまま、追加 m-line の RED (109/109) は 63 以外。
+      expect(fmtps[0].get(63)).toEqual("110/110");
+      const addedRed = [...fmtps[1]].find(([, fmtp]) => fmtp === "109/109");
+      expect(addedRed).toBeDefined();
+      expect(addedRed![0]).not.toEqual(63);
     },
   );
 

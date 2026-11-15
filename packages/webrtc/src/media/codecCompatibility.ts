@@ -324,19 +324,47 @@ export function withNegotiatedCodecs(
 }
 
 /**
- * The H264 format a payload type stands for, with the RFC 6184 §8.1 defaults
- * filled in (`packetization-mode` 0, `profile-level-id` 42000A), so an
- * omitted parameter and its default are the same format.
+ * The format parameters (`a=fmtp`) a payload type stands for, in a form that
+ * compares equal when the parameters mean the same: parameter names are
+ * case-insensitive and unordered, and H264 gets its RFC 6184 §8.1 defaults
+ * (`packetization-mode` 0, `profile-level-id` 42000A, case-insensitive), so
+ * an omitted parameter and its default are the same format. Anything else
+ * (an RTX `apt`, the primaries of a RED `110/110`) is compared as written.
  */
-function h264Format(codec: RTCRtpCodecParameters) {
-  const { packetizationMode, profileLevelId } = h264Parameters(codec);
-  return `${packetizationMode ?? 0}/${profileLevelId ?? "42000a"}`;
+function formatParameters(codec: RTCRtpCodecParameters) {
+  const entries = new Map<string, string>();
+  for (const item of (codec.parameters ?? "").split(";")) {
+    const parameter = item.trim();
+    if (parameter.length === 0) continue;
+    const separator = parameter.indexOf("=");
+    if (separator < 0) {
+      entries.set(parameter, "");
+      continue;
+    }
+    entries.set(
+      parameter.slice(0, separator).trim().toLowerCase(),
+      parameter.slice(separator + 1).trim(),
+    );
+  }
+  if (codecName(codec) === "h264") {
+    entries.set("packetization-mode", entries.get("packetization-mode") ?? "0");
+    entries.set(
+      "profile-level-id",
+      (entries.get("profile-level-id") ?? "42000a").toLowerCase(),
+    );
+  }
+  return [...entries]
+    .map(([name, value]) => `${name}=${value}`)
+    .sort()
+    .join(";");
 }
 
 /**
- * The same codec for a payload type (RFC 3264 §8.3.2, RFC 8843 §9.1), RTX by
- * its `apt`. H264 formats that differ in `packetization-mode` or
- * `profile-level-id` are different codecs and cannot share a payload type.
+ * Whether two codecs can share a payload type in one BUNDLE group (RFC 3264
+ * §8.3.2, RFC 8843 §9.1): the same codec with the same format parameters,
+ * which RFC 8859 puts in the IDENTICAL-PER-PT category (`a=fmtp`). So an H264 format
+ * with another `packetization-mode` or `profile-level-id`, an RTX for another
+ * `apt` or a RED with other primaries is another codec.
  */
 function samePayloadMapping(
   left: RTCRtpCodecParameters,
@@ -347,9 +375,7 @@ function samePayloadMapping(
       normalizeCodecMimeType(right.mimeType) &&
     left.clockRate === right.clockRate &&
     (left.channels ?? 1) === (right.channels ?? 1) &&
-    (codecName(left) !== "rtx" ||
-      referencedPayloadTypes(left)[0] === referencedPayloadTypes(right)[0]) &&
-    (codecName(left) !== "h264" || h264Format(left) === h264Format(right))
+    formatParameters(left) === formatParameters(right)
   );
 }
 
@@ -380,8 +406,8 @@ function withPayloadType(
  *
  * A codec offered again keeps its configured payload type unless that type is
  * already used on this m-line or maps to another codec in `taken` (every
- * payload type the session uses; an H264 format with another
- * `packetization-mode` or `profile-level-id` is another codec); then it takes a free dynamic type (96-127,
+ * payload type the session uses; the same codec with other format parameters,
+ * such as a RED with other primaries, is another codec); then it takes a free dynamic type (96-127,
  * then 35-63). RTX `apt` and RED references follow their primaries, and an
  * RTX / RED whose primary is not offered is dropped. The order of
  * `capability` is kept.

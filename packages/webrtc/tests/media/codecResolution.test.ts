@@ -1419,6 +1419,35 @@ describe("codec resolution", () => {
       expect(offered.map((c) => c.payloadType)).toEqual([96, 97, 102]);
     });
 
+    test("a RED or RTX with other references, or a codec with other fmtp, does not share a payload type", () => {
+      // Arrange: 別 m-line が RED 63 = 110/110、opus 111 (useinbandfec=1)、RTX 97 = apt=96 を使う。
+      const capability = [
+        codec("audio/red", 63, "111/111"),
+        codec("audio/opus", 111, "minptime=10;useinbandfec=1"),
+        codec("audio/opus", 109, "useinbandfec=1"),
+      ];
+      const otherMLine = [
+        codec("audio/red", 63, "110/110"),
+        codec("audio/opus", 111, "useinbandfec=1"),
+        codec("audio/opus", 109, "USEINBANDFEC=1"),
+      ];
+
+      // Act: 交渉前の m-line として offer 用の codec を解決する。
+      const offered = keepNegotiatedPayloadTypes(
+        capability,
+        [],
+        taken(...otherMLine),
+      );
+
+      // Assert: fmtp が違う opus 111 は空き PT 96 へ移り、RED は参照先を書き換えた 96/96 で空き PT 97 へ移る。
+      // Assert: パラメータ名の大文字小文字だけが違う opus 109 は 109 を共有する。
+      expect(summary(offered)).toEqual([
+        "97 red 96/96",
+        "96 opus minptime=10;useinbandfec=1",
+        "109 opus useinbandfec=1",
+      ]);
+    });
+
     test("RED follows its primaries and is dropped without them", () => {
       // Arrange: opus 111 と RED 63 (111/111)。交渉済みは opus 109 だけ。
       const capability = [

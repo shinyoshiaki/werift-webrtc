@@ -709,7 +709,8 @@ export class TransceiverManager {
    *   `direction` attribute), so an inactive first offer has codecs too.
    * - A negotiated codec keeps its negotiated payload type; a codec offered
    *   again takes its configured payload type, or a free dynamic one when that
-   *   type is used by another codec in this session (any m-line). RTX `apt`
+   *   type is used by another codec in this session (any m-line; the same
+   *   codec with other `a=fmtp` parameters counts as another). RTX `apt`
    *   and RED references follow the primary's payload type, and an RTX / RED
    *   whose primary is not offered is dropped.
    * - A transceiver without a negotiated session resolves as before: its
@@ -734,17 +735,30 @@ export class TransceiverManager {
       }
     }
 
-    const taken = new Map<number, RTCRtpCodecParameters>();
-    const reserve = (codecs: readonly RTCRtpCodecParameters[]) => {
-      for (const codec of codecs) {
-        if (!taken.has(codec.payloadType)) taken.set(codec.payloadType, codec);
-      }
-    };
-    for (const transceiver of this.transceivers) {
-      if (!transceiver.stopped) reserve(transceiver.codecs);
-    }
-
     const offerCodecs = new Map<RTCRtpTransceiver, RTCRtpCodecParameters[]>();
+    // Every payload type the session uses, as `transceiver` must not reuse
+    // it for another codec (BUNDLE shares the payload type space across
+    // m-lines, and RFC 8859 requires one `a=fmtp` per payload type): what the
+    // other m-lines put in this offer (resolved so far, otherwise their live
+    // codecs), then, for a negotiated m-line, its own live codecs (a payload
+    // type the remote still maps to a codec of this m-line).
+    const takenBy = (transceiver: RTCRtpTransceiver, ownLive: boolean) => {
+      const taken = new Map<number, RTCRtpCodecParameters>();
+      const reserve = (codecs: readonly RTCRtpCodecParameters[]) => {
+        for (const codec of codecs) {
+          if (!taken.has(codec.payloadType)) {
+            taken.set(codec.payloadType, codec);
+          }
+        }
+      };
+      for (const other of this.transceivers) {
+        if (other === transceiver || other.stopped) continue;
+        reserve(offerCodecs.get(other) ?? other.codecs);
+      }
+      if (ownLive) reserve(transceiver.codecs);
+      return taken;
+    };
+
     for (const transceiver of fromCapability) {
       const source = getTrackSourceCodecs(transceiver.sender.track);
       const preferences = transceiver.codecPreferences;
@@ -782,9 +796,8 @@ export class TransceiverManager {
       const codecs = keepNegotiatedPayloadTypes(
         merged,
         transceiver.codecs,
-        taken,
+        takenBy(transceiver, true),
       );
-      reserve(codecs);
       offerCodecs.set(transceiver, codecs);
       // The resolution requests (`setCodecPreferences()`, `addTrack()`) stay:
       // this offer may never be applied, and an answer created meanwhile
@@ -805,19 +818,10 @@ export class TransceiverManager {
         ) {
           continue;
         }
-        const others = new Map<number, RTCRtpCodecParameters>();
-        for (const other of this.transceivers) {
-          if (other === transceiver || other.stopped) continue;
-          for (const codec of offerCodecs.get(other) ?? other.codecs) {
-            if (!others.has(codec.payloadType)) {
-              others.set(codec.payloadType, codec);
-            }
-          }
-        }
         const codecs = keepNegotiatedPayloadTypes(
           transceiver.codecs,
           [],
-          others,
+          takenBy(transceiver, false),
         );
         const changed =
           codecs.length !== transceiver.codecs.length ||
