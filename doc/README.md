@@ -37,12 +37,18 @@ npm run wpt:coverage --workspace packages/webrtc
 
 WPT reports use `v8-to-istanbul` directly to retain the V8 metrics used by the committed coverage baseline, independently of Vitest's AST-based coverage provider. Only observed TypeScript sources and source-mapped lines are measured.
 
-Refresh the committed baselines when intentionally expanding upstream coverage:
+`npm run wpt` runs every upstream `webrtc/` file and fails only on a regression against `wpt/baseline.json`: a baseline subtest that reports a lower status, or that a file which ran does not report (a whole-file timeout keeps the subtests that finished before it). The per-file timeouts are short, so a target whose regressions are all timeouts is rerun once, one at a time with 4x timeouts, and judged by the rerun (listed under "Rerun after timeout-only regressions"); a FAIL is never rerun. Every `RTCPeerConnection` is created with the browser-compatible configuration of [Compatibility options](#compatibility-options).
+
+The baseline lists the subtests that passed in every one of repeated full runs, minus the targets `wpt/allowlist.json` keeps out of the gate (`enabled: false`, `baselineExclusions`). Refresh it from saved runs, then the coverage baseline:
 
 ```sh
-npm run wpt --workspace packages/webrtc -- --update-baseline
-WPT_UPDATE_COVERAGE_BASELINE=1 npm run wpt:coverage --workspace packages/webrtc
+# from packages/webrtc: save coverage/webrtc-wpt/results.json after each full run (10 runs recommended)
+for i in $(seq 1 10); do npm run wpt; cp ../../coverage/webrtc-wpt/results.json /tmp/wpt-$i.json; done
+npm run wpt:stable-baseline -- /tmp/wpt-*.json
+WPT_UPDATE_COVERAGE_BASELINE=1 npm run wpt:coverage
 ```
+
+`npm run wpt -- --update-baseline` records the PASS subtests of a single run.
 
 ## Rejected, stopped and reused m-lines
 
@@ -59,18 +65,20 @@ await pc.setLocalDescription(await pc.createAnswer()); // video: m=video 0 ...
 `mLineReuse` selects how inactive and stopped m-lines are written. It is fixed at construction time.
 
 ```ts
-new RTCPeerConnection(); // mLineReuse: "compatible" (default)
-new RTCPeerConnection({ mLineReuse: "aggressive" }); // legacy: inactive also uses port 0
+new RTCPeerConnection(); // mLineReuse: "standard" (default, as JSEP and browsers)
+new RTCPeerConnection({ mLineReuse: "aggressive" }); // before v0.25.0: inactive also uses port 0
 ```
 
 | `mLineReuse` | accepted `inactive` | rejected / stopped |
 | --- | --- | --- |
-| `"compatible"` (default) | non-zero port | port 0 |
+| `"standard"` (default) | non-zero port | port 0 |
 | `"aggressive"` | port 0 | port 0 |
 
-With `"aggressive"`, the remote side (browsers included) treats an inactive port 0 m-line as rejected, so once it is negotiated the transceiver becomes `stopped` and cannot be resumed by setting `direction` back to `"sendrecv"`. Add a new transceiver instead; it reuses that position. This differs from older werift versions. Use the default `"compatible"` if you need to pause and resume with `inactive`.
+The v0.27.0 name `"compatible"` (= `"standard"`) is still accepted (see [Compatibility options](#compatibility-options)).
 
-In `"compatible"`, `inactive` m-lines are kept and not reused. To reuse an m-line position, release it explicitly: call `transceiver.stop()` on the side that owns the track (in the browser, after `pc.removeTrack(sender)`) and renegotiate. The m-line is negotiated as port 0 and both sides stop it, then the next `addTransceiver()` / `addTrack()` of the same kind (browser or werift) takes that position with a new MID, so the number of m-lines does not grow. Choose `"aggressive"` only when you cannot change the remote side to call `stop()`.
+With `"aggressive"`, the remote side (browsers included) treats an inactive port 0 m-line as rejected, so once it is negotiated the transceiver becomes `stopped` and cannot be resumed by setting `direction` back to `"sendrecv"`. Add a new transceiver instead; it reuses that position. This differs from older werift versions. Use the default `"standard"` if you need to pause and resume with `inactive`.
+
+In `"standard"`, `inactive` m-lines are kept and not reused. To reuse an m-line position, release it explicitly: call `transceiver.stop()` on the side that owns the track (in the browser, after `pc.removeTrack(sender)`) and renegotiate. The m-line is negotiated as port 0 and both sides stop it, then the next `addTransceiver()` / `addTrack()` of the same kind (browser or werift) takes that position with a new MID, so the number of m-lines does not grow. Choose `"aggressive"` only when you cannot change the remote side to call `stop()`.
 
 - Rejected (`transceiver.rejected`): no common codec or remote port 0. No sender/receiver pipeline, router registration, `ontrack` or TWCC is set up for it.
 - Stopped: `transceiver.stop()` releases media immediately and is negotiated as port 0 in the next local offer; `transceiver.stopped` becomes `true` when the answer is applied. An answerer that calls `stop()` answers `inactive` first and negotiates the stop in its own next offer.
@@ -78,6 +86,67 @@ In `"compatible"`, `inactive` m-lines are kept and not reused. To reuse an m-lin
 - `removeTrack(sender)` only detaches the track. `sender.replaceTrack(track)` plus `transceiver.direction = "sendrecv"` resumes sending on the same sender.
 
 See [the design note](_media/705-media-rejection-and-removetrack.md) for BUNDLE, ICE candidate and rollback details.
+
+`transceiverPairing` selects which local transceiver a remote offer's m-section is paired with when no transceiver has its MID yet (Issue #816). It is fixed at construction time.
+
+```ts
+new RTCPeerConnection(); // transceiverPairing: "byKind" (default, werift up to v0.27.0)
+new RTCPeerConnection({ transceiverPairing: "standard" }); // RFC 8829 section 5.10, as browsers
+```
+
+| `transceiverPairing` | an unassociated transceiver of the same kind paired with the offer | glare (perfect negotiation) |
+| --- | --- | --- |
+| `"byKind"` (default) | any one of the same kind, whatever created it (the one at the same m-line index first) | the remote offer can take over your `addTransceiver()` transceiver, and its direction becomes the negotiated one (e.g. `"sendonly"` becomes `"sendrecv"`) |
+| `"standard"` | only one `addTrack()` created (or a remote one `addTrack()` reused that a rollback kept), and only for a `sendrecv` / `recvonly` m-section (a `sendonly` / `inactive` one gets a new transceiver, RFC 8829 5.10). One `addTransceiver()` created is never paired, with or without a track, also after `replaceTrack()` or a later `addTrack()` reused it: the offer gets a new transceiver and the local one keeps its `direction` and `mid === null` until your next offer negotiates it (`negotiationneeded` fires after the answer). | the direction you gave `addTransceiver()` (e.g. `"sendonly"`) is kept |
+
+Use `"standard"` for the perfect negotiation pattern and for code written for browsers. An answerer that calls `addTransceiver()` before `setRemoteDescription(offer)` and relies on the pairing changes as follows under `"standard"`:
+
+- Send and receive on the offered m-line: use `pc.addTrack(track)` instead (it is paired under `"standard"` too), or, after `setRemoteDescription()`, set `direction` on the transceiver the offer created (`pc.getTransceivers()`, `ontrack` or `onRemoteTransceiverAdded`) and call `sender.replaceTrack(track)` on it.
+
+```ts
+pc.onRemoteTransceiverAdded.subscribe((transceiver) => {
+  transceiver.direction = "sendrecv";
+  transceiver.onTrack.subscribe((track) => transceiver.sender.replaceTrack(track));
+});
+await pc.setRemoteDescription(offer);
+await pc.setLocalDescription(await pc.createAnswer());
+```
+
+- A receive-only transceiver with a fixed direction created before the offer: set `direction` on the transceiver the offer created instead.
+
+These patterns work under both values.
+
+## Compatibility options
+
+Where werift's own behavior differs from the specifications and browsers, a constructor option selects it. Each one takes `"standard"`, the behavior the specifications (W3C WebRTC, JSEP, the RTP RFCs) define and browsers implement, and a value naming werift's own behavior, kept so existing werift applications keep working:
+
+| Option | Default | werift's own value | `"standard"` | `setConfiguration()` | Old names still accepted |
+| --- | --- | --- | --- | --- | --- |
+| `certificateScope` | `"process"` | `"process"`: one default DTLS certificate shared by the process | a certificate per `RTCPeerConnection` | fixed | `"peerConnection"` (= `"standard"`) |
+| `mLineReuse` | `"standard"` | `"aggressive"`: an accepted `inactive` m-line uses port 0, so its position is reused | an accepted `inactive` m-line keeps its port | fixed | `"compatible"` (= `"standard"`) |
+| `transceiverPairing` | `"byKind"` | `"byKind"`: a remote offer takes any unassociated transceiver of its kind | JSEP 5.10: only one `addTrack()` created | fixed | — |
+| `keyFrameRequestRouting` | `"fallback"` | `"fallback"`: a PLI / FIR for an unknown SSRC falls back to the RTX owner or the only video sender | not delivered (RFC 4585 / RFC 5104) | changeable | `"compatible"` (= `"fallback"`), `"strict"` (= `"standard"`) |
+
+Any other value is a `TypeError`, and changing a fixed option is an `InvalidModificationError`. An old name is read as its current name (`getConfiguration()` returns the current name). `CompatibilityOptionValues` lists the values of every option.
+
+`compatibility: "standard"` sets all of them to `"standard"` at once, and `compatibility` cannot be changed after construction. An option given explicitly always takes precedence over it: a value given in the same configuration (an old name included) is kept, and `setConfiguration()` handles the options as without `compatibility` (only `keyFrameRequestRouting` may change). An option given as `undefined` is filled with `"standard"`:
+
+```ts
+new RTCPeerConnection({ compatibility: "standard" }); // every option above is "standard"
+new RTCPeerConnection({ compatibility: "standard", certificateScope: "process" }); // all but certificateScope
+```
+
+Two more defaults differ from a browser: the default `iceServers` is a public STUN server (`stun:stun.l.google.com:19302`, a browser's default is `[]`), and `iceUseDefaultStunServer: true` (default) also uses that server when `iceServers` has no STUN URL. `bundlePolicy: "balanced"` is read as `"max-compat"` (no browser-equivalent value). For code written for browsers (for example with `werift/polyfill` and its `peerConnectionConfig`), create connections with:
+
+```ts
+new RTCPeerConnection({
+  compatibility: "standard",
+  iceServers: [], // or your own STUN / TURN servers
+  iceUseDefaultStunServer: false,
+});
+```
+
+The upstream WPT runner (`npm run wpt`) creates every `RTCPeerConnection` with this configuration (`tools/wpt-runner/browserConfig.ts`).
 
 ## Documentation
 

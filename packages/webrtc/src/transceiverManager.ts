@@ -19,6 +19,7 @@ import {
   Sendonly,
   Sendrecv,
   type TransceiverOptions,
+  type TransceiverOrigin,
 } from "./media";
 import {
   assertCodecsSupported,
@@ -113,6 +114,13 @@ function simulcastFromSendEncodings(
  *   uses it (`heldByApplication`: `addTrack()` attached a track to it, even
  *   one `replaceTrack(null)` / `removeTrack()` detached since, or its sender
  *   has a track); a kept one returns to its created state. An application `stop()` during the transaction survives rollback.
+ * - Each transceiver records what created it (`createdBy`: `addTrack`,
+ *   `addTransceiver` or `remote`); reusing one with `addTrack()` or
+ *   `replaceTrack()` keeps it. Under `transceiverPairing: "standard"` a remote
+ *   offer pairs an m-section with an unassociated transceiver only if
+ *   `addTrack()` created it (JSEP 5.10). A remote one that `addTrack()` reused
+ *   and a rollback keeps becomes `addTrack` (JSEP 4.1.8.2). The origin is not
+ *   part of the negotiation snapshot.
  * - A transceiver the application added while a description was pending is
  *   never committed by it: rollback takes back its MID, m-line and the
  *   direction a pranswer gave it.
@@ -193,7 +201,8 @@ export class TransceiverManager {
       this.restoreNotifiedRemoteTrack(transceiver, state.notifiedRemoteTrack);
     }
     const removedTransports: RTCDtlsTransport[] = [];
-    for (const transceiver of added) {
+    const remoteCreated = new Set(added);
+    for (const transceiver of remoteCreated) {
       if (carried.has(transceiver)) {
         // A replacement remote offer describes its MID again: it keeps its
         // MID, m-line and notified track and goes back to its created state.
@@ -212,6 +221,9 @@ export class TransceiverManager {
         this.notifiedRemoteTrack.delete(transceiver);
         transceiver.mid = null;
         transceiver.mLineIndex = undefined;
+        // JSEP 4.1.8.2: one addTrack() reused stays as if addTrack() had
+        // created it, so the peer's next offer can associate it again.
+        if (transceiver.reusedForAddTrack) transceiver.createdBy = "addTrack";
         continue;
       }
       removedTransports.push(transceiver.dtlsTransport);
@@ -226,6 +238,10 @@ export class TransceiverManager {
     );
     for (const transceiver of this.transceivers) {
       if (snapshot.states.has(transceiver)) continue;
+      // A remote offer's transceiver was handled above: a carried one keeps
+      // the MID the replacing offer describes again (it pairs by MID, also
+      // under "standard" pairing, where its origin would not pair it otherwise).
+      if (remoteCreated.has(transceiver)) continue;
       // One the application added during the transaction was never
       // committed (a final answer ends the transaction): it loses the MID /
       // m-line the rolled-back offer gave it (W3C), also when a replacement
@@ -455,9 +471,15 @@ export class TransceiverManager {
     options: Partial<TransceiverOptions> = {},
     {
       remoteMLineIndex,
+      createdBy = remoteMLineIndex == undefined ? "addTransceiver" : "remote",
     }: {
       /**remote offer 起因で作る場合の m-line index。確定済み停止位置の自動再利用は行わない */
       remoteMLineIndex?: number;
+      /**
+       * The operation creating it (JSEP 5.10 pairing). Defaults to
+       * `"remote"` with `remoteMLineIndex`, else `"addTransceiver"`.
+       */
+      createdBy?: TransceiverOrigin;
     } = {},
   ): RTCRtpTransceiver {
     const kind =
@@ -483,6 +505,7 @@ export class TransceiverManager {
       sender,
       direction,
     );
+    newTransceiver.createdBy = createdBy;
     newTransceiver.onCodecPreferencesChanged.subscribe(() => {
       this.onNegotiationNeeded.execute();
     });
@@ -520,9 +543,9 @@ export class TransceiverManager {
   }
 
   /**
-   * Attach `track` to a reusable transceiver, or add one for it. A new one
-   * gets its DTLS transport from `createTransport` when it is created, so its
-   * created state (what a rollback returns it to) has the transport.
+   * @param createTransport the transport a new transceiver starts on: it is
+   *   part of the state the transceiver was created with, which a rollback
+   *   of a description pending meanwhile returns it to.
    */
   addTrack(
     track: MediaStreamTrack,
@@ -559,6 +582,7 @@ export class TransceiverManager {
       };
       emptyTrackSenderTransceiver.markCodecsForResolution();
       noteApplicationAddTrack(emptyTrackSenderTransceiver);
+      this.noteReusedForAddTrack(emptyTrackSenderTransceiver);
       return emptyTrackSenderTransceiver;
     }
 
@@ -594,16 +618,33 @@ export class TransceiverManager {
       }
       notSendTransceiver.markCodecsForResolution();
       noteApplicationAddTrack(notSendTransceiver);
+      this.noteReusedForAddTrack(notSendTransceiver);
       return notSendTransceiver;
     } else {
       // 失敗し得る検証を先に済ませ、失敗時に transport を作りっぱなしにしない
       this.assertTrackCodecsSupported(track, "sendrecv");
-      const transceiver = this.addTransceiver(track, createTransport?.(), {
-        direction: "sendrecv",
-        streams,
-      });
+      // JSEP 5.10: only a transceiver addTrack() creates may pair with a
+      // remote offer m-section it has no MID for.
+      const transceiver = this.addTransceiver(
+        track,
+        createTransport?.(),
+        { direction: "sendrecv", streams },
+        { createdBy: "addTrack" },
+      );
       noteApplicationAddTrack(transceiver);
       return transceiver;
+    }
+  }
+
+  /**
+   * Reusing a transceiver does not change what created it: one
+   * `addTransceiver()` created stays unpairable (as Chrome's
+   * `created_by_addtrack`). One a remote offer created is recorded, so a
+   * rollback that keeps it promotes it to `addTrack` (JSEP 4.1.8.2).
+   */
+  private noteReusedForAddTrack(transceiver: RTCRtpTransceiver) {
+    if (transceiver.createdBy === "remote") {
+      transceiver.reusedForAddTrack = true;
     }
   }
 
@@ -928,17 +969,16 @@ export class TransceiverManager {
       remoteMedia: MediaDescription,
       index: number,
     ) => RTCRtpTransceiver | undefined,
+    /** Whether the paired transceiver is stopping or stopped at association. */
+    isStopping: (transceiver: RTCRtpTransceiver) => boolean = (t) =>
+      t.stopped || t.stopping,
   ): Map<number, RTCRtpCodecParameters[]> {
     const plan = new Map<number, RTCRtpCodecParameters[]>();
     const isOffer = remoteSdp.type === "offer";
     for (const [index, remoteMedia] of remoteSdp.media.entries()) {
       if (!["audio", "video"].includes(remoteMedia.kind)) continue;
       const transceiver = findTransceiver(remoteMedia, index);
-      if (
-        remoteMedia.port === 0 ||
-        transceiver?.stopped ||
-        transceiver?.stopping
-      ) {
+      if (remoteMedia.port === 0 || (transceiver && isStopping(transceiver))) {
         plan.set(index, []);
         continue;
       }

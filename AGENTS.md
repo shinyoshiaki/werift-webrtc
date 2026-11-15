@@ -46,7 +46,7 @@ Rules that apply to one package or directory belong in the nearest `AGENTS.md`.
 | examples smoke (Chromium + gst/ffmpeg) | `npm run examples:e2e` |
 | install examples smoke Chromium | `npm run examples:e2e:install` |
 | TypeScript resolve hook tests | `npm run test:node-ts` |
-| allowlisted upstream WPT | `npm run wpt` |
+| upstream WPT, gated by `packages/webrtc/wpt/baseline.json` | `npm run wpt` |
 | WPT coverage | `npm run wpt:coverage` |
 | format code | `npm run format` |
 | regenerate docs | `npm run doc` |
