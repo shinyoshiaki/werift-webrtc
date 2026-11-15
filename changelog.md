@@ -21,6 +21,7 @@
 
 ### 🐛 Bug Fixes
 
+- **ICE no longer fails at once when it has no candidate pair of its own to check** (`werift-ice`, `werift`): a peer that offers only active TCP candidates (Firefox with ICE-TCP, RFC 6544) or no reachable candidate left werift's check list empty after end-of-candidates, and `connect()` threw `ICE negotiation failed` (`iceConnectionState` `failed`) about 1 ms after `checking`, before the peer's own check arrived. Now the agent waits for a check from the peer, which adds a peer-reflexive pair and connects. Without one it fails after `incomingCheckTimeout` seconds (`IceOptions`; `iceIncomingCheckTimeout` in `PeerConfig`; default 30, `0` keeps the immediate failure). An agent without any local candidate still fails at once.
 - **The codecs of a remote offer are resolved with the transceiver it is applied to** (#816): `setRemoteDescription(offer)` resolves codecs before its implicit rollback, replacement or unapplied-`createOffer` revert, and used to pair m-lines with the transceivers as they were before (a local transceiver whose MID only the rolled-back local offer gave could lend its codec preferences or track to an m-line another transceiver then took). Both now pair with the state after them.
 - **A replacement remote offer keeps the transceiver the replaced one created for a MID it describes again**, instead of dropping its MID and pairing it again by kind.
 

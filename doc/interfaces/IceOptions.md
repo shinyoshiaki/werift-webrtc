@@ -72,6 +72,19 @@ Advertise and operate as an ICE lite agent.
 
 ***
 
+### incomingCheckTimeout?
+
+> `optional` **incomingCheckTimeout?**: `number`
+
+Seconds `connect()` waits for a connectivity check from the peer when it
+has no candidate pair of its own to check after both sides ended their
+candidates: the peer offered only active TCP candidates (RFC 6544), or
+none this agent can reach. A check from the peer adds a peer-reflexive
+pair and the connection proceeds; without one, `connect()` fails when the
+time runs out. Defaults to 30; 0 fails at once.
+
+***
+
 ### interfaceAddresses?
 
 > `optional` **interfaceAddresses?**: [`InterfaceAddresses`](../type-aliases/InterfaceAddresses.md)

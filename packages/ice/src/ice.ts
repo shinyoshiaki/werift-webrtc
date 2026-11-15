@@ -16,6 +16,7 @@ import {
   CONSENT_INTERVAL,
   CONSENT_TIMEOUT,
   consentResponseTimeoutMs,
+  DEFAULT_INCOMING_CHECK_TIMEOUT,
   defaultOptions,
   ICE_COMPLETED,
   ICE_FAILED,
@@ -105,6 +106,8 @@ export class Connection implements IceConnection {
   private checksBegun = false;
   /** connect() stopped scheduling checks (a later pair must start its own). */
   private schedulingStopped = false;
+  /** connect() is waiting for the peer's first check on an empty check list. */
+  private incomingCheckWait?: AbortController;
   generation = -1;
   /**
    * Counts every reset of the remote generation: a local ICE restart and a
@@ -1973,9 +1976,15 @@ export class Connection implements IceConnection {
     // # perform checks
     // 5.8.  Scheduling Checks
     for (;;) {
-      if (this.state === "closed") break;
-      if (!this.schedulingChecks()) break;
-      await timers.setTimeout(20);
+      for (;;) {
+        if (this.state === "closed") break;
+        if (!this.schedulingChecks()) break;
+        await timers.setTimeout(20);
+      }
+      // No pair to check (the peer offered only active TCP candidates, or
+      // none this agent can reach): a check from the peer can still add a
+      // peer-reflexive pair, so the empty check list does not fail at once.
+      if (!(await this.waitForIncomingCheck())) break;
     }
     this.schedulingStopped = true;
 
@@ -1999,6 +2008,40 @@ export class Connection implements IceConnection {
     this.queryConsent();
 
     this.setState("connected");
+  }
+
+  /**
+   * With an empty check list, wait until a pair is added (a check from the
+   * peer taught a peer-reflexive candidate, RFC 8445 section 7.3.1.3; the
+   * only way to connect to a peer whose TCP candidates are all active,
+   * RFC 6544) or `incomingCheckTimeout` runs out. Resolves true when a pair
+   * was added, so that the scheduling loop runs again.
+   */
+  private async waitForIncomingCheck() {
+    const seconds =
+      this.options.incomingCheckTimeout ?? DEFAULT_INCOMING_CHECK_TIMEOUT;
+    if (
+      this.checkList.length > 0 ||
+      this.state === "closed" ||
+      // Nothing local can receive a check.
+      this.protocols.length === 0 ||
+      !(seconds > 0)
+    ) {
+      return false;
+    }
+    log("empty check list, waiting for an incoming check", seconds);
+    const wait = new AbortController();
+    this.incomingCheckWait = wait;
+    try {
+      await timers.setTimeout(seconds * 1000, undefined, {
+        signal: wait.signal,
+      });
+    } catch {
+      // Aborted: a pair was added or the agent closed.
+    } finally {
+      if (this.incomingCheckWait === wait) this.incomingCheckWait = undefined;
+    }
+    return this.checkList.length > 0 && !this.closed;
   }
 
   private unfreezeInitial() {
@@ -2348,6 +2391,7 @@ export class Connection implements IceConnection {
     this.stopConsentLifecycle();
 
     // # stop check list
+    this.incomingCheckWait?.abort();
     if (this.checkList && !this.checkListDone) {
       this.checkListState.put(
         new Promise((r) => {
@@ -2967,6 +3011,7 @@ export class Connection implements IceConnection {
   private addPair(pair: CandidatePair) {
     this.checkList.push(pair);
     this.sortCheckList();
+    this.incomingCheckWait?.abort();
   }
 
   // 7.2.  STUN Server Procedures

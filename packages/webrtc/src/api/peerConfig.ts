@@ -127,6 +127,14 @@ export interface PeerConfig {
    * Defaults to 8 when undefined.
    */
   iceTurnConnectTimeout: number | undefined;
+  /**
+   * Seconds ICE waits for a connectivity check from the peer when it has no
+   * candidate pair of its own to check after both sides ended their
+   * candidates (the peer offered only active TCP candidates, as Firefox does
+   * for ICE-TCP, or none werift can reach). Without a check in that time the
+   * ICE transport fails. Defaults to 30 when undefined; 0 fails at once.
+   */
+  iceIncomingCheckTimeout: number | undefined;
   turnTransport: "udp" | "tcp" | "tls" | undefined;
   turnTlsOptions: TlsConnectionOptions | undefined;
   /**
@@ -457,6 +465,7 @@ export function generateDefaultPeerConfig(): PeerConfig {
     iceTcpPassive: true,
     iceStunGatherTimeout: undefined,
     iceTurnConnectTimeout: undefined,
+    iceIncomingCheckTimeout: undefined,
     turnTransport: undefined,
     turnTlsOptions: undefined,
     turnUdpFamily: undefined,

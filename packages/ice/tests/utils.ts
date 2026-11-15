@@ -586,11 +586,19 @@ export function createTcpOnlyConnections(extra: Partial<IceOptions> = {}) {
   };
 }
 
-/** Arrange: offer/answer exchange that only exposes TCP candidates. */
-export async function exchangeTcpOnlyCandidates(a: Connection, b: Connection) {
+/**
+ * Arrange: offer/answer exchange that only exposes TCP candidates.
+ * `offered` narrows what b learns of a's candidates (a browser that
+ * advertises only active TCP candidates, or none).
+ */
+export async function exchangeTcpOnlyCandidates(
+  a: Connection,
+  b: Connection,
+  offered: (candidate: Candidate) => boolean = () => true,
+) {
   await a.gatherCandidates();
   b.remoteCandidates = a.localCandidates.filter(
-    (candidate) => candidate.transport === "tcp",
+    (candidate) => candidate.transport === "tcp" && offered(candidate),
   );
   b.remoteUsername = a.localUsername;
   b.remotePassword = a.localPassword;
