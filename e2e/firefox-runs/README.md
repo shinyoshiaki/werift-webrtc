@@ -28,6 +28,23 @@ SIGTERM stops the runner. The exit code is vitest's (1 on the time limit or a
 runner failure, 130 / 143 on a signal). Commit the new record file together
 with the change it verified.
 
+## Retention
+
+The runner keeps the newest `FIREFOX_RECORDS_KEEP` records (default 20) and
+deletes older ones after saving each record; the record it just saved always
+stays. Prune or clear by hand with:
+
+```bash
+cd e2e
+npm run firefox:record:prune                  # keep the newest FIREFOX_RECORDS_KEEP (20)
+npm run firefox:record:prune -- --keep 5      # keep the newest 5
+npm run firefox:record:prune -- --keep 0      # clear every record
+npm run firefox:record:prune -- --dry-run     # list what would be deleted
+```
+
+Only files named like a record are deleted (this README stays). Commit the
+deletions with the new record; deleted records remain in git history.
+
 ## Record
 
 One JSON file per run: `<UTC start time>-<short commit>[-dirty].json`

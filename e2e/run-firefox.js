@@ -13,7 +13,8 @@
  * time limit (`FIREFOX_E2E_TIMEOUT_MIN`, default 60) or no test event for
  * `FIREFOX_E2E_IDLE_MIN` (default 5) stops it, or SIGINT /
  * SIGTERM stops the runner. The exit code is vitest's (1 on a time limit,
- * 130 / 143 on a signal).
+ * 130 / 143 on a signal). After saving, records beyond the newest
+ * `FIREFOX_RECORDS_KEEP` (default 20) are deleted (`firefox-runs-prune.js`).
  */
 const net = require("node:net");
 const os = require("node:os");
@@ -30,6 +31,7 @@ const { dirname, join, resolve } = require("node:path");
 
 const { ensureBrowsersPathEnv } = require("./ensure-browser");
 const { requestServerStop } = require("./stop");
+const { keepFromEnv, pruneRecords } = require("./firefox-runs-prune");
 const {
   RECORDS_DIR,
   buildRecord,
@@ -245,6 +247,17 @@ async function main() {
         console.log(`[firefox:record] unfinished: ${test.file} > ${test.name}`);
       }
       console.log(`[firefox:record] record saved: ${RECORDS_DIR}/${name}`);
+      // Keep the newest records only (the one just saved always stays).
+      try {
+        const pruned = pruneRecords(dir, Math.max(1, keepFromEnv()));
+        if (pruned.length) {
+          console.log(
+            `[firefox:record] pruned ${pruned.length} old record(s), keeping the newest ${Math.max(1, keepFromEnv())}`,
+          );
+        }
+      } catch (error) {
+        console.error(`[firefox:record] prune skipped: ${error.message}`);
+      }
       return exitCode;
     })();
     return finishing;

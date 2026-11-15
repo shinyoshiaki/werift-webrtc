@@ -171,11 +171,34 @@ function recordFileName(record) {
   return `${stamp}-${record.shortCommit}${record.dirty ? "-dirty" : ""}.json`;
 }
 
+/** Records kept by default: the runner prunes older ones after each run. */
+const DEFAULT_RECORDS_KEEP = 20;
+
+/** A record file name as recordFileName writes it (README.md and others excluded). */
+const RECORD_FILE_PATTERN = /^\d{8}T\d{6}Z-[0-9a-f]+(?:-dirty)?\.json$/;
+
+/**
+ * Record files to delete so that the newest `keep` remain. File names sort by
+ * start time (recordFileName), so the oldest go first. Other files are never
+ * selected. `keep` must be a non-negative integer (0 clears every record).
+ */
+function selectRecordsToPrune(fileNames, keep) {
+  if (!Number.isInteger(keep) || keep < 0) {
+    throw new Error(`keep must be a non-negative integer: ${keep}`);
+  }
+  const records = fileNames
+    .filter((name) => RECORD_FILE_PATTERN.test(name))
+    .sort();
+  return records.slice(0, Math.max(0, records.length - keep));
+}
+
 module.exports = {
+  DEFAULT_RECORDS_KEEP,
   RECORDS_DIR,
   RECORD_VERSION,
   buildRecord,
   collectGitInfo,
   recordFileName,
+  selectRecordsToPrune,
   summarizeEvents,
 };
