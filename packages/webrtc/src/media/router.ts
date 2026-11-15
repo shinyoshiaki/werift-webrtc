@@ -26,7 +26,7 @@ import type {
   RTCRtpReceiveParameters,
   RTCRtpSimulcastParameters,
 } from "./parameters";
-import { RTCRtpReceiver } from "./rtpReceiver";
+import { type FallbackStream, RTCRtpReceiver } from "./rtpReceiver";
 import type { RTCRtpSender } from "./rtpSender";
 import type { RTCRtpTransceiver } from "./rtpTransceiver";
 import { MediaStreamTrack } from "./track";
@@ -69,7 +69,6 @@ const UnknownSsrcDrop = {
   unknownPayloadType: "unknown payload type",
   noCandidate: "no candidate",
   ambiguous: "ambiguous",
-  retired: "retired fallback ssrc",
 } as const;
 type UnknownSsrcDrop = (typeof UnknownSsrcDrop)[keyof typeof UnknownSsrcDrop];
 
@@ -108,7 +107,7 @@ type StagedRoutes = {
  * | --- | --- | --- |
  * | SSRC → receiver (RID) | `rtp-stream-id` / `repaired-rtp-stream-id` names a route | per RID (receiver) |
  * | SSRC → receiver (simulcast) | the SSRC is a learned track SSRC of a RID receiver on the packet's transport | as above |
- * | SSRC → receiver (fallback, RFC 9143 section 9.2) | see {@link learnUnknownSsrc} | one per receiver |
+ * | SSRC → receiver (fallback, RFC 9143 section 9.2) | see {@link learnUnknownSsrc} | 8 per receiver, oldest forgotten first |
  *
  * The fallback serves remote m-lines without `a=ssrc` and RIDs (SIP gateways,
  * SBCs, media servers): an SSRC no route, RID or simulcast track knows is
@@ -116,21 +115,36 @@ type StagedRoutes = {
  * of the only m-line on the packet's transport that receives the payload type
  * (one with `a=ssrc` or RIDs counts too, and then nothing is learned); when
  * that is ambiguous, or the packet comes without a
- * transport (`routeRtp(packet)`), it is dropped. The learned SSRC binds the
- * default track `ontrack` announced (`RTCRtpReceiver.bindFallbackSsrc`); a new
- * SSRC that passes the same checks replaces it, so tables stay bounded. Like
- * the other packet-driven routes it is added at once while a description is
- * pending, and commit and rollback keep it while the m-line stays without
- * SSRC and RID. A description that gives the m-line an SSRC or a RID drops it
- * when it applies as an answer or commits; while it is pending the current
- * session keeps receiving on the fallback SSRC and rollback keeps it. The
- * first SSRC such a description gives binds the announced track as well
- * (`RTCRtpReceiver.adoptDefaultTrack`), so `ontrack` does not fire again.
- * Unregistering the transceiver drops the fallback SSRC. A packet whose MID
- * names another m-line than the one holding its fallback SSRC updates the
- * mapping (RFC 9143 section 9.2): the SSRC moves there when that m-line may
- * learn it, else the packet is dropped; the old m-line retires the SSRC, so
- * its late packets do not take it back. Routes from SDP, RIDs and simulcast
+ * transport (`routeRtp(packet)`), it is dropped. A learned SSRC maps to the
+ * default track `ontrack` announced (`RTCRtpReceiver.bindFallbackSsrc`). A
+ * new SSRC (a SIP re-INVITE, a media server switch) is learned beside the
+ * earlier ones, which keep mapping to the same track: a late packet of a
+ * replaced stream is delivered there and resets nothing; `track.ssrc` is the
+ * newest, and the oldest beyond 8 is forgotten. Like the other packet-driven
+ * routes they are added at once while a description is pending, and commit
+ * and rollback keep them while the m-line stays without SSRC and RID (a
+ * rollback forgets those learned with a payload type only the rolled-back
+ * description gave).
+ *
+ * A pending description does not touch an m-line whose current session is
+ * without SSRC and RID: its SSRCs and RIDs wait in
+ * `RTCRtpReceiver.deferredRemote` and register at the commit
+ * (`commitStaged`), as an answer's would; rollback drops them with the rest
+ * of the description. Until then the current session's track, statistics,
+ * routes and learning stay as they are: a packet of the pending SSRC is
+ * learned like any unknown SSRC, and one with a pending RID is the current
+ * stream's. At the commit the learned SSRCs go (the description's SSRCs and
+ * RIDs route from now on), except one that already carried a committed RID,
+ * which becomes that RID's media SSRC. The first SSRC of the description
+ * binds the announced track (`RTCRtpReceiver.adoptDefaultTrack`), so `ontrack`
+ * does not fire again for it; a RID track replacing it is announced after
+ * the commit. Unregistering the transceiver drops the learned SSRCs.
+ *
+ * A MID updates the mapping of a learned SSRC (RFC 9143 section 9.2) only
+ * from a packet whose extended sequence number is newer than the one of the
+ * last update: an older packet is delivered through the mapping it finds.
+ * A newer MID naming another m-line moves the SSRC there when that m-line may
+ * learn it, else the packet is dropped. Routes from SDP, RIDs and simulcast
  * keep their receiver whatever the MID (existing behaviour). A rollback keeps
  * the receiver packets taught last, even over a baseline route packets
  * taught another receiver.
@@ -183,6 +197,14 @@ export class RtpRouter {
    */
   transceivers: () => readonly RTCRtpTransceiver[] = () => [];
   /**
+   * Internal: the track `ontrack` last announced for a transceiver (set by
+   * the TransceiverManager). A replacement offer resets `firedReceiving`
+   * before it applies, while the announcement of the default track stands.
+   */
+  announcedTrack: (
+    transceiver: RTCRtpTransceiver,
+  ) => MediaStreamTrack | undefined = () => undefined;
+  /**
    * Fallback routes whose SSRC `ssrcTable` already holds for a receiver of
    * another transport (an SSRC is unique per RTP session only). Packet-driven
    * like `learnedSsrcs`, not part of a negotiation baseline: an entry is
@@ -206,6 +228,7 @@ export class RtpRouter {
   /** Internal: the negotiation committed, staged routes replace current ones. */
   commitStaged() {
     for (const [ssrc, receiver] of this.stagedSsrc) {
+      this.releaseFallbackOwner(ssrc, receiver);
       this.ssrcTable[ssrc] = receiver;
       this.learnedSsrcs.delete(ssrc);
     }
@@ -215,27 +238,73 @@ export class RtpRouter {
     this.stagedSsrc.clear();
     this.stagedRid.clear();
     this.provisionalSsrc.clear();
-    // An m-line that was without SSRC and RID gets the tracks the committed
-    // description gave it: the announced track adopts its first SSRC.
+    // An m-line whose current session was without SSRC and RID gets what the
+    // committed description gave it only now (`deferredRemote`).
     for (const transceiver of this.transceivers()) {
-      const staged = transceiver.receiver.takeStagedTracks();
-      if (!staged || transceiver.receiver.tracks.length > 0) continue;
-      if (staged.ssrc !== undefined) {
-        transceiver.addTrack(
-          transceiver.receiver.adoptDefaultTrack(staged.ssrc, staged.codec),
-        );
-      }
-      for (const track of staged.tracks) transceiver.addTrack(track);
+      this.applyDeferredRemote(transceiver);
     }
     // A fallback SSRC of an m-line the committed description gave an SSRC or
-    // a RID goes now (a pending description kept it for the current session).
-    // A fallback SSRC that already arrived with one of its new RIDs moves to
-    // that RID's track and keeps its route.
+    // a RID goes now.
     for (const { receiver } of this.transceivers()) {
-      if (receiver.acceptsUnknownSsrc) continue;
-      receiver.handOverFallbackToRid();
-      this.releaseFallbackSsrc(receiver);
+      if (!receiver.acceptsUnknownSsrc) this.releaseFallbackSsrcs(receiver);
     }
+  }
+
+  /**
+   * The commit of a description `deferRemote` kept from an m-line without
+   * SSRC and RID: its RIDs and SSRCs register as an answer's would. A
+   * fallback SSRC that already carried one of its RIDs is that RID's media
+   * SSRC from now on and keeps its learned route.
+   */
+  private applyDeferredRemote(transceiver: RTCRtpTransceiver) {
+    const { receiver } = transceiver;
+    const deferred = receiver.deferredRemote;
+    if (!deferred) return;
+    receiver.deferredRemote = undefined;
+    // A transceiver the application stopped meanwhile takes nothing.
+    if (transceiver.stopped || transceiver.stopping || receiver.stopped) return;
+    for (const param of deferred.simulcast) {
+      this.registerRtpReceiverByRid(transceiver, param, deferred.params);
+    }
+    this.registerRtpReceiverBySsrc(transceiver, deferred.params);
+  }
+
+  /** A learned fallback SSRC that carried `rid` becomes that RID's media SSRC. */
+  private adoptCarriedRid(receiver: RTCRtpReceiver, rid: string) {
+    const ssrc = receiver.fallbackSsrcsByRid().get(rid);
+    if (ssrc === undefined) return;
+    this.releaseFallbackSsrc(receiver, ssrc);
+    if (
+      !this.endpointBySsrc(ssrc, receiver.dtlsTransport) &&
+      receiver.adoptFallbackSsrcForRid(rid, ssrc)
+    ) {
+      this.learnSsrc(ssrc, receiver);
+    }
+  }
+
+  /**
+   * A pending description (`deferConflicts`) does not touch an m-line whose
+   * current session announced the default track and is without SSRC and RID:
+   * its SSRCs and RIDs wait in `RTCRtpReceiver.deferredRemote` for the
+   * commit, so until then the track, its statistics, the routes and the
+   * learning of unknown SSRCs stay the current session's (a new SSRC of the
+   * pending description is learned like any other unknown SSRC).
+   */
+  private defersRemote(
+    transceiver: RTCRtpTransceiver,
+    deferConflicts: boolean,
+  ) {
+    const { receiver } = transceiver;
+    // A replacement offer resets `firedReceiving`; a session receiving on
+    // the default track (learned fallback SSRCs) still counts. A pranswer's
+    // provisional `currentDirection` does not tell a committed session.
+    const announced =
+      transceiver.firedReceiving || receiver.fallbackSsrcs.length > 0;
+    return (
+      deferConflicts &&
+      (receiver.deferredRemote !== undefined ||
+        (announced && receiver.tracks.length === 0))
+    );
   }
 
   /** Internal: drop the routes an earlier pending description added at once. */
@@ -342,7 +411,8 @@ export class RtpRouter {
   }
 
   unregisterTransceiver(transceiver: RTCRtpTransceiver) {
-    transceiver.receiver.releaseFallbackSsrc();
+    transceiver.receiver.deferredRemote = undefined;
+    transceiver.receiver.releaseFallbackSsrcs();
     transceiver.receiver.takeForgottenSsrcs();
     for (const ssrc of [...this.collidingRoutes.keys()]) {
       this.dropCollidingRoute(ssrc, transceiver.receiver);
@@ -379,13 +449,20 @@ export class RtpRouter {
   ) {
     log("registerRtpReceiver", ssrc);
     const existing = this.ssrcTable[ssrc];
-    if (deferConflicts && existing && existing !== receiver) {
+    // The current session's learned owner (in `ssrcTable` or, on another
+    // transport, in `collidingRoutes`) keeps the SSRC until the commit.
+    if (
+      deferConflicts &&
+      ((existing && existing !== receiver) ||
+        this.fallbackOwners(ssrc, receiver).length > 0)
+    ) {
       this.stagedSsrc.set(ssrc, receiver);
       return;
     }
     if (deferConflicts && !existing) this.provisionalSsrc.set(ssrc, receiver);
     if (!deferConflicts) this.provisionalSsrc.delete(ssrc);
     this.stagedSsrc.delete(ssrc);
+    this.releaseFallbackOwner(ssrc, receiver);
     this.ssrcTable[ssrc] = receiver;
     // Registration from SDP makes the route description state again; the
     // packet path re-marks it as learned right after this call.
@@ -404,10 +481,22 @@ export class RtpRouter {
   ) {
     log("registerRtpReceiverBySsrc", params);
 
-    if (!deferConflicts && params.encodings.some((e) => e.ssrc != undefined)) {
-      // The m-line has SSRCs now: the fallback SSRC learned without them goes
-      // (a pending description keeps it until the commit).
-      this.releaseFallbackSsrc(transceiver.receiver);
+    const hasSsrcs = params.encodings.some((e) => e.ssrc != undefined);
+    if (
+      this.defersRemote(transceiver, deferConflicts) &&
+      (hasSsrcs || transceiver.receiver.deferredRemote)
+    ) {
+      const deferred = (transceiver.receiver.deferredRemote ??= {
+        params,
+        simulcast: [],
+      });
+      deferred.params = params;
+      this.registerHeaderExtensions(params);
+      return;
+    }
+    if (hasSsrcs && !deferConflicts) {
+      // The m-line has SSRCs now: the SSRCs learned without them go.
+      this.releaseFallbackSsrcs(transceiver.receiver);
     }
 
     params.encodings
@@ -425,38 +514,22 @@ export class RtpRouter {
         );
         // An m-line that was without SSRC and RID keeps the track `ontrack`
         // announced: the first SSRC a description gives it binds that track.
-        // A pending description only stages it: until the commit the track,
-        // its statistics and unknown-SSRC learning stay the current session's.
         const announced =
           i === 0 &&
-          transceiver.firedReceiving &&
-          transceiver.receiver.tracks.length === 0;
-        if (announced && deferConflicts) {
-          transceiver.receiver.stageDefaultTrack(encode.ssrc, codec);
-        } else if (this.stagesTracks(transceiver, deferConflicts)) {
-          // The rest of a staged description waits for the commit as well.
-          transceiver.receiver.stageTrack(
-            new MediaStreamTrack({
-              ssrc: encode.ssrc,
-              kind: transceiver.kind,
-              id: transceiver.sender.trackId,
-              remote: true,
-              codec,
-            }),
-          );
-        } else {
-          transceiver.addTrack(
-            announced
-              ? transceiver.receiver.adoptDefaultTrack(encode.ssrc, codec)
-              : new MediaStreamTrack({
-                  ssrc: encode.ssrc,
-                  kind: transceiver.kind,
-                  id: transceiver.sender.trackId,
-                  remote: true,
-                  codec,
-                }),
-          );
-        }
+          transceiver.receiver.tracks.length === 0 &&
+          (transceiver.firedReceiving ||
+            this.announcedTrack(transceiver) === transceiver.receiver.track);
+        transceiver.addTrack(
+          announced
+            ? transceiver.receiver.adoptDefaultTrack(encode.ssrc, codec)
+            : new MediaStreamTrack({
+                ssrc: encode.ssrc,
+                kind: transceiver.kind,
+                id: transceiver.sender.trackId,
+                remote: true,
+                codec,
+              }),
+        );
         if (encode.rtx) {
           this.registerRtpReceiver(
             transceiver.receiver,
@@ -466,26 +539,13 @@ export class RtpRouter {
         }
       });
 
+    this.registerHeaderExtensions(params);
+  }
+
+  private registerHeaderExtensions(params: RTCRtpReceiveParameters) {
     params.headerExtensions.forEach((extension) => {
       this.extIdUriMap[extension.id] = extension.uri;
     });
-  }
-
-  /**
-   * Whether a pending description stages the tracks it gives `transceiver`:
-   * its current session announced the default track and is without SSRC and
-   * RID (see `RTCRtpReceiver.stagedTracks`).
-   */
-  private stagesTracks(
-    transceiver: RTCRtpTransceiver,
-    deferConflicts: boolean,
-  ) {
-    const { receiver } = transceiver;
-    return (
-      deferConflicts &&
-      (receiver.hasStagedTracks ||
-        (transceiver.firedReceiving && receiver.tracks.length === 0))
-    );
   }
 
   registerRtpReceiverByRid(
@@ -499,22 +559,31 @@ export class RtpRouter {
     const codec = primaryTrackCodec(transceiver.kind, params.codecs);
 
     log("registerRtpReceiverByRid", param);
-    if (!deferConflicts) this.releaseFallbackSsrc(transceiver.receiver);
-    const track = new MediaStreamTrack({
-      rid: param.rid,
-      kind: transceiver.kind,
-      id: transceiver.sender.trackId,
-      remote: true,
-      codec,
-    });
-    // A pending description that gives an m-line without SSRC and RID its
-    // RIDs stages the tracks: the current session keeps its track and its
-    // fallback SSRC (and may switch it) until the commit.
-    if (this.stagesTracks(transceiver, deferConflicts)) {
-      transceiver.receiver.stageTrack(track);
-    } else {
-      transceiver.addTrack(track);
+    if (this.defersRemote(transceiver, deferConflicts)) {
+      const deferred = (transceiver.receiver.deferredRemote ??= {
+        params,
+        simulcast: [],
+      });
+      deferred.params = params;
+      if (!deferred.simulcast.some((p) => p.rid === param.rid)) {
+        deferred.simulcast.push(param);
+      }
+      return;
     }
+    transceiver.addTrack(
+      new MediaStreamTrack({
+        rid: param.rid,
+        kind: transceiver.kind,
+        id: transceiver.sender.trackId,
+        remote: true,
+        codec,
+      }),
+    );
+    // The m-line has RIDs now. A learned SSRC that already carried this RID
+    // (while a pending description gave it, as answerer or offerer) is that
+    // RID's media SSRC; the other learned SSRCs go at the commit
+    // (`commitStaged`), once every RID of the description registered.
+    if (!deferConflicts) this.adoptCarriedRid(transceiver.receiver, param.rid);
     const key = ridRouteKey(transceiver.mid ?? "", param.rid);
     const existing = this.ridTable[key];
     if (deferConflicts && existing && existing !== transceiver.receiver) {
@@ -523,6 +592,37 @@ export class RtpRouter {
     }
     this.stagedRid.delete(key);
     this.ridTable[key] = transceiver.receiver;
+  }
+
+  /**
+   * A RID a packet carries belongs to an m-line without SSRC and RID (a
+   * pending description's RID, see `deferredRemote`), so it must not be
+   * looked up on another m-line that uses the same RID: the m-line the packet
+   * names (its MID, else its SSRC's route) is SSRC-less and has no route for
+   * the RID, or, for a packet naming none, an SSRC-less m-line of the
+   * transport waits for this RID.
+   */
+  private isPendingRidOfSsrcLess(
+    rid: string,
+    mid: unknown,
+    route: RTCRtpReceiver | undefined,
+    transport: RTCDtlsTransport | undefined,
+  ) {
+    const owner =
+      typeof mid === "string"
+        ? this.transceivers().find((t) => t.mid === mid)
+        : this.transceivers().find((t) => !!route && t.receiver === route);
+    if (owner) {
+      return (
+        owner.receiver.acceptsUnknownSsrc &&
+        !this.ridTable[ridRouteKey(owner.mid ?? "", rid)]
+      );
+    }
+    return this.transceivers().some(
+      (t) =>
+        (!transport || t.receiver.dtlsTransport === transport) &&
+        !!t.receiver.deferredRemote?.simulcast.some((p) => p.rid === rid),
+    );
   }
 
   /**
@@ -568,15 +668,32 @@ export class RtpRouter {
     const rid = extensions[RTP_EXTENSION_URI.sdesRTPStreamID];
     const repairedRid = extensions[RTP_EXTENSION_URI.repairedRtpStreamId];
     const repairedReceiver =
-      typeof rid !== "string" && typeof repairedRid === "string" && !rtpReceiver
+      typeof rid !== "string" &&
+      typeof repairedRid === "string" &&
+      !rtpReceiver &&
+      !this.isPendingRidOfSsrcLess(repairedRid, mid, rtpReceiver, dtlsTransport)
         ? this.receiverByRid(repairedRid, mid)
         : undefined;
-    if (typeof rid === "string") {
-      rtpReceiver = this.receiverByRid(rid, mid);
-      if (!rtpReceiver) {
-        log("rid receiver not found", rid);
-        return;
-      }
+    const ridOfAnotherMline =
+      typeof rid === "string" &&
+      this.isPendingRidOfSsrcLess(rid, mid, rtpReceiver, dtlsTransport);
+    const ridReceiver =
+      typeof rid === "string" && !ridOfAnotherMline
+        ? this.receiverByRid(rid, mid)
+        : undefined;
+    // A RID no route knows, on an m-line whose current session is without
+    // SSRC and RID (a pending description's RID, `deferredRemote`): the packet
+    // is the current session's single stream, routed and learned by SSRC.
+    const ignoredRid =
+      typeof rid === "string" &&
+      !ridReceiver &&
+      (rtpReceiver ? rtpReceiver.acceptsUnknownSsrc : !senderSsrc);
+    if (typeof rid === "string" && !ridReceiver && !ignoredRid) {
+      log("rid receiver not found", rid);
+      return;
+    }
+    if (ridReceiver) {
+      rtpReceiver = ridReceiver;
       learnedNow = this.learnSsrc(ssrc, rtpReceiver);
       rtpReceiver.latestRid = rid;
       rtpReceiver.handleRtpByRid(packet, rid, extensions);
@@ -587,21 +704,18 @@ export class RtpRouter {
     } else if (
       rtpReceiver &&
       dtlsTransport &&
-      this.midNamesAnotherMline(rtpReceiver, ssrc, mid)
+      rtpReceiver.hasFallbackSsrc(ssrc)
     ) {
-      // RFC 9143 section 9.2: the MID updates the SSRC mapping. The fallback
-      // SSRC moves to the m-line the MID names when that one may learn it;
-      // otherwise the packet is not this receiver's either and is dropped.
-      rtpReceiver = this.learnUnknownSsrc(
+      const routed = this.routeFallbackPacket(
         packet,
         mid,
-        false,
         dtlsTransport,
         rtpReceiver,
       );
-      if (rtpReceiver) {
-        learnedNow = true;
-        rtpReceiver.handleRtpBySsrc(packet, extensions);
+      rtpReceiver = routed?.receiver;
+      if (routed) {
+        learnedNow = routed.learned;
+        routed.receiver.handleRtpBySsrc(packet, extensions);
       }
     } else if (rtpReceiver) {
       rtpReceiver.handleRtpBySsrc(packet, extensions);
@@ -642,6 +756,7 @@ export class RtpRouter {
       log("ssrcReceiver not found");
       return;
     }
+    if (ignoredRid) rtpReceiver.noteFallbackRid(ssrc, rid as string);
     for (const forgotten of rtpReceiver.takeForgottenSsrcs()) {
       this.unlearnSsrc(forgotten, rtpReceiver);
     }
@@ -714,12 +829,8 @@ export class RtpRouter {
    * m-line with `a=ssrc` is never taken for it; and receives the payload
    * type as a media codec. RTX (an RTX payload type, or a
    * `repaired-rtp-stream-id`) teaches nothing: without `ssrc-group:FID`
-   * nothing pairs it with the media SSRC. A replaced fallback SSRC loses its
-   * route after the packet (`takeForgottenSsrcs`) and is not learned again
-   * (`isRetiredFallbackSsrc`): a late packet of the old stream is dropped,
-   * judged by the named receiver when a MID names one (another MID may take
-   * the number anew) and by every receiver of the transport without a MID;
-   * another transport may use the number anew.
+   * nothing pairs it with the media SSRC. A learned SSRC stays learned (see
+   * {@link routeFallbackPacket}), so a late packet never comes here.
    * An SSRC `ssrcTable` holds for another transport's receiver is routed
    * through `collidingRoutes`, so each transport keeps its own receiver.
    * Receiving is decided by the committed `currentDirection`; a pending
@@ -730,7 +841,7 @@ export class RtpRouter {
     mid: unknown,
     repaired: boolean,
     transport: RTCDtlsTransport | undefined,
-    previous?: RTCRtpReceiver,
+    handover?: { from: RTCRtpReceiver; stream: FallbackStream },
   ): RTCRtpReceiver | undefined {
     const { ssrc, payloadType } = packet.header;
     const drop = (reason: UnknownSsrcDrop, detail?: object) => {
@@ -781,29 +892,7 @@ export class RtpRouter {
           { mid },
         );
       }
-      // A late packet of the stream this receiver replaced is not a new
-      // stream. Another MID naming the SSRC is: within the RTP session the
-      // old stream ended, and the MID says whose the number is now.
-      if (receiver.isRetiredFallbackSsrc(ssrc)) {
-        return drop(UnknownSsrcDrop.retired, { mid });
-      }
-      if (previous && previous !== receiver) {
-        log("fallback ssrc handed over by mid", { ssrc, mid });
-        this.releaseFallbackSsrc(previous, { retire: true });
-      }
     } else {
-      // Without a MID a late packet of an SSRC any receiver of this RTP
-      // session replaced cannot be told from a new stream: it is dropped. On
-      // another transport the same number is another stream.
-      if (
-        this.transceivers().some(
-          (t) =>
-            t.receiver.dtlsTransport === transport &&
-            t.receiver.isRetiredFallbackSsrc(ssrc),
-        )
-      ) {
-        return drop(UnknownSsrcDrop.retired);
-      }
       // A payload type names an m-line only when no other m-line of the RTP
       // session receives it (RFC 9143 section 9.2): every receiving m-line
       // on the transport counts, with or without `a=ssrc` or RIDs, and as
@@ -836,10 +925,19 @@ export class RtpRouter {
       }
     }
 
-    const replaced = receiver.bindFallbackSsrc(ssrc, payloadType);
-    if (replaced !== undefined) {
-      log("fallback ssrc replaced", { replaced, ssrc });
+    if (handover) {
+      // RFC 9143 section 9.2: a newer MID moves the SSRC to its m-line.
+      log("fallback ssrc moved by mid", { ssrc, mid });
+      this.releaseFallbackSsrc(handover.from, ssrc);
     }
+    receiver.bindFallbackSsrc(
+      ssrc,
+      payloadType,
+      handover?.stream ?? {
+        sequenceNumber: packet.header.sequenceNumber,
+        mid: typeof mid === "string",
+      },
+    );
     log("fallback register receiver by ssrc", ssrc);
     // An SSRC learned on another transport: this one keeps its own route.
     this.addLearnedRoute(ssrc, receiver);
@@ -902,35 +1000,71 @@ export class RtpRouter {
   }
 
   /**
-   * A packet whose MID names another m-line than `receiver`, the receiver
-   * `ssrc` reached as its fallback SSRC. Routes from SDP, RIDs and simulcast
-   * keep their receiver whatever the MID.
+   * A packet of a fallback SSRC `owner` learned. RFC 9143 section 9.2: a MID
+   * updates the mapping only from a packet newer (extended sequence number)
+   * than the last update; an older packet keeps the mapping and is delivered
+   * through it. A newer MID naming another m-line moves the SSRC there when
+   * that m-line may learn it; otherwise the packet is dropped (it belongs to
+   * neither). Returns the receiver and whether the route changed.
    */
-  private midNamesAnotherMline(
-    receiver: RTCRtpReceiver,
-    ssrc: number,
+  private routeFallbackPacket(
+    packet: RtpPacket,
     mid: unknown,
-  ) {
-    if (typeof mid !== "string" || receiver.fallbackSsrc !== ssrc) {
-      return false;
+    transport: RTCDtlsTransport,
+    owner: RTCRtpReceiver,
+  ): { receiver: RTCRtpReceiver; learned: boolean } | undefined {
+    const { ssrc, sequenceNumber } = packet.header;
+    const observed = owner.observeFallbackPacket(ssrc, sequenceNumber);
+    if (!observed || typeof mid !== "string" || !observed.midMayUpdate) {
+      return { receiver: owner, learned: false };
     }
-    const own = this.transceivers().find((t) => t.receiver === receiver);
-    return own?.mid !== mid;
+    const own = this.transceivers().find((t) => t.receiver === owner);
+    if (own?.mid === mid) {
+      owner.markFallbackMidUpdate(ssrc, observed.ext);
+      return { receiver: owner, learned: false };
+    }
+    const target = this.learnUnknownSsrc(packet, mid, false, transport, {
+      from: owner,
+      stream: { ...observed.stream, midUpdateExt: observed.ext },
+    });
+    return target ? { receiver: target, learned: true } : undefined;
   }
 
   /**
-   * Drop the fallback SSRC of `receiver` and its learned route; `retire` when
-   * another m-line takes it over, so late packets of this one do not take it
-   * back.
+   * A description routes `ssrc` to `receiver`: a receiver that learned it
+   * as a fallback SSRC (on any transport, SDP routes are not scoped by
+   * transport) forgets it, so its track and statistics no longer show it.
    */
-  private releaseFallbackSsrc(
-    receiver: RTCRtpReceiver,
-    { retire = false }: { retire?: boolean } = {},
-  ) {
-    const released = retire
-      ? receiver.retireFallbackSsrc()
-      : receiver.releaseFallbackSsrc();
-    if (released === undefined) return;
+  private releaseFallbackOwner(ssrc: number, receiver: RTCRtpReceiver) {
+    for (const owner of this.fallbackOwners(ssrc, receiver)) {
+      this.releaseFallbackSsrc(owner, ssrc);
+    }
+  }
+
+  /** Receivers other than `receiver` that learned `ssrc` as a fallback SSRC. */
+  private fallbackOwners(ssrc: number, receiver: RTCRtpReceiver) {
+    return [
+      this.ssrcTable[ssrc],
+      ...(this.collidingRoutes.get(ssrc) ?? []),
+    ].filter(
+      (owner): owner is RTCRtpReceiver =>
+        owner instanceof RTCRtpReceiver &&
+        owner !== receiver &&
+        owner.hasFallbackSsrc(ssrc),
+    );
+  }
+
+  /** Forget one learned fallback SSRC of `receiver` and its route. */
+  private releaseFallbackSsrc(receiver: RTCRtpReceiver, ssrc: number) {
+    receiver.releaseFallbackSsrc(ssrc);
+    for (const forgotten of receiver.takeForgottenSsrcs()) {
+      this.unlearnSsrc(forgotten, receiver);
+    }
+  }
+
+  /** Forget every learned fallback SSRC of `receiver` and their routes. */
+  private releaseFallbackSsrcs(receiver: RTCRtpReceiver) {
+    receiver.releaseFallbackSsrcs();
     for (const forgotten of receiver.takeForgottenSsrcs()) {
       this.unlearnSsrc(forgotten, receiver);
     }

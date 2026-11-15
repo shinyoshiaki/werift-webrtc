@@ -470,6 +470,15 @@ export const MODEL_SCENES: (Scene & { name: string; ref: string })[] = [
     ] as Scene["ops"],
   })),
   {
+    name: "a replacement offer that gives an m-line offered without a=ssrc its SSRC does not announce its track again",
+    ref: "#356; origin: model property (seed 16) with ssrcRemoved as a same-session rewrite",
+    start: "unnegotiated",
+    ops: [
+      ["a", "wireOffer", { iceRestart: false, mutation: "ssrcRemoved" }],
+      ["a", "replacementOffer", { iceRestart: false }],
+    ],
+  },
+  {
     name: "a re-offer that gives an m-line learned without a=ssrc its SSRC keeps the learned route until the rollback",
     ref: "#356; a pending description must not change a key the current session uses",
     start: "unnegotiated",

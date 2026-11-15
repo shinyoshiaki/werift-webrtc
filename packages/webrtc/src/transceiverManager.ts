@@ -169,7 +169,7 @@ export class TransceiverManager {
   /**
    * Internal: after a commit, announce the track an m-line that was without
    * SSRC and RID got from the committed description (its RID tracks were
-   * staged while it was pending, see `RTCRtpReceiver.stagedTracks`).
+   * deferred while it was pending, see `RTCRtpReceiver.deferredRemote`).
    */
   notifyCommittedRemoteTracks() {
     for (const transceiver of this.transceivers) {
@@ -345,6 +345,8 @@ export class TransceiverManager {
     this.router = router;
     // Candidates of the router's fallback for RTP without a known SSRC.
     this.router.transceivers = () => this.transceivers;
+    this.router.announcedTrack = (transceiver) =>
+      this.notifiedRemoteTrack.get(transceiver)?.track;
   }
 
   getTransceivers(): RTCRtpTransceiver[] {
@@ -1122,8 +1124,8 @@ export class TransceiverManager {
       transceiver.sender.proposeSend(localParams.codecs);
     }
 
-    // The description applied now decides what is staged for the commit.
-    transceiver.receiver.dropStagedTracks();
+    // The description applied now decides what waits for the commit.
+    transceiver.receiver.deferredRemote = undefined;
     if (["recvonly", "sendrecv"].includes(transceiver.direction)) {
       const remotePrams = this.getRemoteRtpParams(remoteMedia, transceiver);
 

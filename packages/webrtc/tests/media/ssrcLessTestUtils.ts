@@ -65,6 +65,15 @@ export const rtxOf = (payloadType: number, apt: number) =>
     parameters: codecParametersToString({ apt }),
   });
 
+export const redOf = (payloadType: number, primary: number) =>
+  new RTCRtpCodecParameters({
+    mimeType: "audio/red",
+    clockRate: 48000,
+    channels: 2,
+    payloadType,
+    parameters: `${primary}/${primary}`,
+  });
+
 export function createSsrcLessRouter() {
   const router = new RtpRouter();
   const transceivers: RTCRtpTransceiver[] = [];

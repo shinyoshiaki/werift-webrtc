@@ -394,17 +394,25 @@ export function leakFootprint(pc: RTCPeerConnection): Footprint {
     "router.stagedRid": router.stagedRid.size,
     "router.provisionalSsrc": router.provisionalSsrc.size,
     "router.learnedSsrcs": router.learnedSsrcs.size,
-    // 別 transport で同じ数値の SSRC を学習した fallback 経路 (receiver ごとに 1 つ)。
+    // 別 transport で同じ数値の SSRC を学習した fallback 経路 (学習 SSRC ごとに 1 つ)。
     "router.collidingRoutes": sum(
       router.collidingRoutes.values(),
       (routes) => routes.size,
     ),
     "router.extIdUriMap": Object.keys(router.extIdUriMap).length,
     // パケットから学習した track の SSRC (RID と、a=ssrc のない m-line の fallback)。
-    // fallback は receiver ごとに 1 つで、新しい SSRC は置き換える (RtpRouter)。
     "receiver.learnedTrackSsrcs": sum(
       transceivers,
       ({ receiver }) => receiver.learnedTrackSsrcs.size,
+    ),
+    // a=ssrc のない m-line の学習 SSRC (receiver ごとに最大 8、古いものから忘れる)。
+    "receiver.fallbackSsrcs": sum(
+      transceivers,
+      ({ receiver }) => receiver.fallbackSsrcs.length,
+    ),
+    // 保留中の description が SSRC-less の m-line に与えた内容 (commit まで適用しない)。
+    "receiver.deferredRemote": sum(transceivers, ({ receiver }) =>
+      receiver.deferredRemote ? 1 : 0,
     ),
     // RID 由来の RTX 対応と SSRC ごとの NACK 状態 (パケット駆動、receiver.stop で解放)。
     "receiver.ridRtx": sum(
@@ -1049,6 +1057,7 @@ export const BOUNDED_METRICS: Record<
  * stable (a commit or rollback releases them).
  */
 export const STABLE_ZERO_METRICS = [
+  "receiver.deferredRemote",
   "router.stagedSsrc",
   "router.stagedRid",
   "router.provisionalSsrc",

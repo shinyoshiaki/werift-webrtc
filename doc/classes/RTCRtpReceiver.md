@@ -281,12 +281,9 @@ an SSRC nor a RID (no track besides the default one), and it is running.
 
 > **get** **fallbackSsrc**(): `number` \| `undefined`
 
-Internal (router): the SSRC learned from a packet for a remote m-line
-without `a=ssrc` and without RIDs (RFC 9143 section 9.2). It is bound to
-the default track, the one `ontrack` already announced, so the
-application keeps receiving on that object. At most one per receiver:
-see [bindFallbackSsrc](#bindfallbackssrc). Derived from `trackBySSRC`, so a
-negotiation snapshot and rollback keep it consistent with the tables.
+Internal (router): the newest SSRC learned from a packet for a remote
+m-line without `a=ssrc` and without RIDs (RFC 9143 section 9.2); see
+fallbackStreams.
 
 ##### Returns
 
@@ -294,18 +291,17 @@ negotiation snapshot and rollback keep it consistent with the tables.
 
 ***
 
-### hasStagedTracks
+### fallbackSsrcs
 
 #### Get Signature
 
-> **get** **hasStagedTracks**(): `boolean`
+> **get** **fallbackSsrcs**(): `number`[]
 
-Internal (router): whether a pending description gives this m-line, whose
-current session is without SSRC and RID, tracks; see stagedTracks.
+Internal (router): every learned fallback SSRC, oldest first.
 
 ##### Returns
 
-`boolean`
+`number`[]
 
 ***
 
@@ -332,20 +328,6 @@ current session is without SSRC and RID, tracks; see stagedTracks.
 ##### Returns
 
 [`RTCPFB`](../type-aliases/RTCPFB.md) \| `undefined`
-
-***
-
-### stagedDefaultSsrc
-
-#### Get Signature
-
-> **get** **stagedDefaultSsrc**(): `number` \| `undefined`
-
-Internal (router): the SSRC a staged adoption gives the announced track.
-
-##### Returns
-
-`number` \| `undefined`
 
 ***
 
@@ -405,6 +387,11 @@ Internal (router): the SSRC a staged adoption gives the announced track.
 
 > **adoptDefaultTrack**(`ssrc`, `codec?`): [`MediaStreamTrack`](MediaStreamTrack.md)
 
+Internal (router): the track a description's first SSRC binds when this
+m-line had neither an SSRC nor a RID and `ontrack` already announced the
+default track: the application keeps receiving on the object it got,
+and `ontrack` does not fire again for it.
+
 #### Parameters
 
 ##### ssrc
@@ -421,16 +408,40 @@ Internal (router): the SSRC a staged adoption gives the announced track.
 
 ***
 
+### adoptFallbackSsrcForRid()
+
+> **adoptFallbackSsrcForRid**(`rid`, `ssrc`): `boolean`
+
+Internal: at the commit that gives `rid`, the SSRC that already carried
+it is that RID's media SSRC (learned, so later packets without
+`rtp-stream-id` keep reaching the RID's track). False without the track.
+
+#### Parameters
+
+##### rid
+
+`string`
+
+##### ssrc
+
+`number`
+
+#### Returns
+
+`boolean`
+
+***
+
 ### bindFallbackSsrc()
 
-> **bindFallbackSsrc**(`ssrc`, `payloadType`): `number` \| `undefined`
+> **bindFallbackSsrc**(`ssrc`, `payloadType`, `from`): `void`
 
-Internal (router): bind `ssrc` to the default track as the fallback SSRC
-(see [fallbackSsrc](#fallbackssrc)). A previous fallback SSRC is replaced (a SIP
-re-INVITE or a media server switch changes the SSRC of the single
-stream): its track entry, NACK holes and per-SSRC receive state are
-dropped, and [takeForgottenSsrcs](#takeforgottenssrcs) hands it to the router to drop
-its learned route. Returns the replaced SSRC.
+Internal (router): learn `ssrc` for the default track (see
+fallbackStreams). Earlier SSRCs stay mapped to the same track (a
+late packet of a replaced stream is delivered, nothing is reset); the
+oldest beyond the bound is forgotten and handed to the router through
+[takeForgottenSsrcs](#takeforgottenssrcs). `from` carries the stream state when a MID
+moves the SSRC here from another m-line.
 
 #### Parameters
 
@@ -442,9 +453,13 @@ its learned route. Returns the replaced SSRC.
 
 `number`
 
+##### from
+
+`FallbackStream` \| \{ `mid`: `boolean`; `sequenceNumber`: `number`; \}
+
 #### Returns
 
-`number` \| `undefined`
+`void`
 
 ***
 
@@ -489,19 +504,6 @@ pranswer or the final answer replaces that proposal as a whole.
 
 ***
 
-### dropStagedTracks()
-
-> **dropStagedTracks**(): `void`
-
-Internal: forget what an earlier pending description staged; the
-description being applied decides anew.
-
-#### Returns
-
-`void`
-
-***
-
 ### endTracks()
 
 > **endTracks**(): `void`
@@ -511,6 +513,18 @@ transceiver の停止確定時に remote track を ended にする
 #### Returns
 
 `void`
+
+***
+
+### fallbackSsrcsByRid()
+
+> **fallbackSsrcsByRid**(): `Map`\<`string`, `number`\>
+
+Internal: RID → newest fallback SSRC that carried it.
+
+#### Returns
+
+`Map`\<`string`, `number`\>
 
 ***
 
@@ -628,30 +642,11 @@ fills a hole of the RID's current media SSRC (see mediaSsrcOfRtx).
 
 ***
 
-### handOverFallbackToRid()
+### hasFallbackSsrc()
 
-> **handOverFallbackToRid**(): `void`
+> **hasFallbackSsrc**(`ssrc`): `boolean`
 
-Internal (router, at the commit): the fallback SSRC already arrived with
-a RID the committed description gave (`mediaSsrcByRid`), so it is that
-RID's media SSRC now: its track entry moves to the RID's track and stays
-learned, so the route survives the release of the fallback and later
-packets without `rtp-stream-id` keep reaching the RID's track.
-
-#### Returns
-
-`void`
-
-***
-
-### isRetiredFallbackSsrc()
-
-> **isRetiredFallbackSsrc**(`ssrc`): `boolean`
-
-Internal (router): whether `ssrc` was the fallback SSRC this receiver
-replaced. A late (reordered) packet of the old stream must not switch the
-receiver back and reset the state of the current one, so the router does
-not learn it again. Bounded by MAX\_RETIRED\_FALLBACK\_SSRCS.
+Internal (router): `ssrc` is one of [fallbackSsrcs](#fallbackssrcs).
 
 #### Parameters
 
@@ -681,6 +676,76 @@ tracks; the SSRCs the replacing offer gives take them over.
 #### Returns
 
 `void`
+
+***
+
+### markFallbackMidUpdate()
+
+> **markFallbackMidUpdate**(`ssrc`, `ext`): `void`
+
+Internal (router): the packet at `ext` carried this m-line's own MID.
+
+#### Parameters
+
+##### ssrc
+
+`number`
+
+##### ext
+
+`number`
+
+#### Returns
+
+`void`
+
+***
+
+### noteFallbackRid()
+
+> **noteFallbackRid**(`ssrc`, `rid`): `void`
+
+Internal (router): the fallback SSRC `ssrc` arrived with a RID this
+m-line has no track for (a pending description's RID). The commit that
+gives the RID hands the SSRC over ([adoptFallbackSsrcForRid](#adoptfallbackssrcforrid)).
+
+#### Parameters
+
+##### ssrc
+
+`number`
+
+##### rid
+
+`string`
+
+#### Returns
+
+`void`
+
+***
+
+### observeFallbackPacket()
+
+> **observeFallbackPacket**(`ssrc`, `sequenceNumber`): \{ `ext`: `number`; `midMayUpdate`: `boolean`; `stream`: `FallbackStream`; \} \| `undefined`
+
+Internal (router): a packet of the learned fallback SSRC `ssrc`; returns
+its extended sequence number and whether its MID may update the mapping
+(RFC 9143 section 9.2: only a packet newer than the last update does).
+
+#### Parameters
+
+##### ssrc
+
+`number`
+
+##### sequenceNumber
+
+`number`
+
+#### Returns
+
+\{ `ext`: `number`; `midMayUpdate`: `boolean`; `stream`: `FallbackStream`; \} \| `undefined`
 
 ***
 
@@ -781,15 +846,35 @@ Internal (router): the payload type is a negotiated RTX codec of this receiver.
 
 ### releaseFallbackSsrc()
 
-> **releaseFallbackSsrc**(): `number` \| `undefined`
+> **releaseFallbackSsrc**(`ssrc`): `FallbackStream` \| `undefined`
 
-Internal (router): drop the fallback SSRC, when the SSRC changes or a
-description gives this m-line an SSRC or a RID. The router drops its
-route through [takeForgottenSsrcs](#takeforgottenssrcs).
+Internal (router): forget one learned fallback SSRC (evicted, or moved
+to the m-line a newer MID names): its track entry, NACK holes and
+per-SSRC receive state go, and [takeForgottenSsrcs](#takeforgottenssrcs) hands it to the
+router to drop its learned route. Returns its stream state.
+
+#### Parameters
+
+##### ssrc
+
+`number`
 
 #### Returns
 
-`number` \| `undefined`
+`FallbackStream` \| `undefined`
+
+***
+
+### releaseFallbackSsrcs()
+
+> **releaseFallbackSsrcs**(): `number`[]
+
+Internal: forget every learned fallback SSRC, when a description gives
+this m-line an SSRC or a RID or the transceiver goes. Returns them.
+
+#### Returns
+
+`number`[]
 
 ***
 
@@ -821,11 +906,9 @@ Internal: return to a negotiation baseline taken by `snapshotNegotiationState`.
 
 ##### state
 
-###### defaultTrackCodec
+###### deferredRemote
 
-[`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined` = `...`
-
-`adoptDefaultTrack` gives the announced track a description's codec.
+`DeferredRemoteRtp` \| `undefined` = `...`
 
 ###### learnedTrackSsrcs
 
@@ -868,10 +951,6 @@ SSRCs of `trackBySSRC` that packets taught (not description state).
 ###### remoteTrackId
 
 `string` \| `undefined` = `...`
-
-###### stagedTracks
-
-\{ `codec?`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); `ssrc?`: `number`; `tracks`: [`MediaStreamTrack`](MediaStreamTrack.md)[]; \} \| `undefined` = `...`
 
 ###### trackByRID
 
@@ -951,21 +1030,6 @@ prepareReceive() so the current decode path remains available.
 
 ***
 
-### retireFallbackSsrc()
-
-> **retireFallbackSsrc**(): `number` \| `undefined`
-
-Internal (router): hand the fallback SSRC over to the m-line a packet's
-MID names (RFC 9143 section 9.2: the MID updates the SSRC mapping). It is
-released like a replaced one, and remembered as retired so a late packet
-naming this m-line does not take it back. Returns the SSRC.
-
-#### Returns
-
-`number` \| `undefined`
-
-***
-
 ### runRtcp()
 
 > **runRtcp**(): `Promise`\<`void`\>
@@ -1042,11 +1106,9 @@ part of it.
 
 #### Returns
 
-##### defaultTrackCodec
+##### deferredRemote
 
-> **defaultTrackCodec**: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined`
-
-`adoptDefaultTrack` gives the announced track a description's codec.
+> **deferredRemote**: `DeferredRemoteRtp` \| `undefined`
 
 ##### learnedTrackSsrcs
 
@@ -1105,10 +1167,6 @@ SSRCs of `trackBySSRC` that packets taught (not description state).
 ##### remoteTrackId
 
 > **remoteTrackId**: `string` \| `undefined`
-
-##### stagedTracks
-
-> **stagedTracks**: \{ `codec?`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); `ssrc?`: `number`; `tracks`: [`MediaStreamTrack`](MediaStreamTrack.md)[]; \} \| `undefined`
 
 ##### trackByRID
 
@@ -1180,46 +1238,6 @@ Internal: capture the decode tables for a negotiation rollback baseline.
 
 ***
 
-### stageDefaultTrack()
-
-> **stageDefaultTrack**(`ssrc`, `codec?`): `void`
-
-Internal (router): the announced track adopts `ssrc` and `codec` at the commit.
-
-#### Parameters
-
-##### ssrc
-
-`number`
-
-##### codec?
-
-[`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
-
-#### Returns
-
-`void`
-
-***
-
-### stageTrack()
-
-> **stageTrack**(`track`): `void`
-
-Internal (router): a track of another SSRC or of a RID, added at the commit.
-
-#### Parameters
-
-##### track
-
-[`MediaStreamTrack`](MediaStreamTrack.md)
-
-#### Returns
-
-`void`
-
-***
-
 ### stop()
 
 > **stop**(): `void`
@@ -1257,15 +1275,3 @@ route the rejected packet itself just added.
 #### Returns
 
 `number`[]
-
-***
-
-### takeStagedTracks()
-
-> **takeStagedTracks**(): \{ `codec?`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); `ssrc?`: `number`; `tracks`: [`MediaStreamTrack`](MediaStreamTrack.md)[]; \} \| `undefined`
-
-Internal (router): the staged tracks, cleared; the router applies them at commit.
-
-#### Returns
-
-\{ `codec?`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); `ssrc?`: `number`; `tracks`: [`MediaStreamTrack`](MediaStreamTrack.md)[]; \} \| `undefined`

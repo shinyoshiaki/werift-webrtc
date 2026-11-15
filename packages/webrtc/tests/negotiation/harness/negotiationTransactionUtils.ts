@@ -15,7 +15,7 @@ import {
   type RTCDataChannel,
   RTCPeerConnection,
   RTCRtpCodecParameters,
-  type RTCRtpReceiver,
+  RTCRtpReceiver,
   type RTCRtpSender,
   type RTCRtpTransceiver,
   RtpHeader,
@@ -678,6 +678,7 @@ export function assertNegotiationInvariants(pc: RTCPeerConnection) {
   const snapshot = assertDescriptionBindings(pc);
   assertRouterAndCodecs(pc, snapshot);
   assertRouteTables(pc, snapshot);
+  assertLearnedRoutes(pc);
   assertIceGenerations(pc, snapshot);
   assertDtlsBindings(pc, snapshot);
   assertSctpBinding(pc, snapshot);
@@ -772,6 +773,89 @@ function currentMediaByTransport(
  * current SDP says, while a pending proposal can only add keys (conflicting
  * ones stay staged until commit).
  */
+/**
+ * #356: routes packets taught agree with the receivers they name. Every
+ * learned SSRC routes (`ssrcTable` or, for an SSRC another transport learned
+ * first, `collidingRoutes`) to a receiver whose track table has it (or its
+ * RID's RTX). A fallback SSRC (an m-line without `a=ssrc` and RIDs) maps to
+ * the track `ontrack` announced, which shows the newest one, and only while
+ * the m-line has no description track; a same-SSRC route of another
+ * transport is on another transport than the owner's. While stable no
+ * pending description is deferred (`RTCRtpReceiver.deferredRemote`).
+ */
+function assertLearnedRoutes(pc: RTCPeerConnection) {
+  const { router } = pc as unknown as {
+    router: {
+      ssrcTable: Record<number, unknown>;
+      learnedSsrcs: Set<number>;
+      collidingRoutes: Map<number, Set<RTCRtpReceiver>>;
+    };
+  };
+  const knows = (receiver: RTCRtpReceiver, ssrc: number) =>
+    !!receiver.trackBySSRC[ssrc] || ssrc in receiver.ridByRtxSsrc;
+  for (const ssrc of router.learnedSsrcs) {
+    const owner = router.ssrcTable[ssrc];
+    expect(owner, `learned SSRC ${ssrc} has a route`).toBeDefined();
+    if (owner instanceof RTCRtpReceiver && !owner.stopped) {
+      expect(
+        knows(owner, ssrc),
+        `learned SSRC ${ssrc} is known to its receiver`,
+      ).toBe(true);
+    }
+  }
+  for (const [ssrc, receivers] of router.collidingRoutes) {
+    const owner = router.ssrcTable[ssrc];
+    for (const receiver of receivers) {
+      if (receiver.stopped || !receiver.trackBySSRC[ssrc]) continue;
+      if (owner instanceof RTCRtpReceiver) {
+        expect(
+          receiver.dtlsTransport,
+          `same-SSRC route ${ssrc} is on another transport`,
+        ).not.toBe(owner.dtlsTransport);
+      }
+    }
+  }
+  for (const transceiver of pc.getTransceivers()) {
+    const { receiver } = transceiver;
+    if (pc.signalingState === "stable") {
+      expect(
+        receiver.deferredRemote,
+        `${transceiver.mid}: no deferred description while stable`,
+      ).toBeUndefined();
+    }
+    // 保留中の description を commit まで待たせている m-line には、SDP 由来の track がない。
+    if (receiver.deferredRemote) {
+      expect(
+        receiver.tracks,
+        `${transceiver.mid}: an m-line whose description is deferred has no description track`,
+      ).toEqual([]);
+    }
+    const fallback = receiver.fallbackSsrcs;
+    if (fallback.length === 0 || receiver.stopped) continue;
+    expect(
+      receiver.tracks,
+      `${transceiver.mid}: an m-line with learned fallback SSRCs has no description track`,
+    ).toEqual([]);
+    expect(
+      receiver.track.ssrc,
+      `${transceiver.mid}: the announced track shows the newest fallback SSRC`,
+    ).toBe(fallback.at(-1));
+    for (const ssrc of fallback) {
+      expect(
+        receiver.trackBySSRC[ssrc],
+        `${transceiver.mid}: fallback SSRC ${ssrc} maps to the announced track`,
+      ).toBe(receiver.track);
+      const routed =
+        router.ssrcTable[ssrc] === receiver ||
+        !!router.collidingRoutes.get(ssrc)?.has(receiver);
+      expect(
+        routed,
+        `${transceiver.mid}: fallback SSRC ${ssrc} routes here`,
+      ).toBe(true);
+    }
+  }
+}
+
 function assertRouteTables(pc: RTCPeerConnection, snapshot: Snapshot) {
   const internal = pc as unknown as {
     router: {

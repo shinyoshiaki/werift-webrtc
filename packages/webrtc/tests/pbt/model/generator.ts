@@ -19,6 +19,7 @@ import {
   NegotiationCase,
 } from "../../negotiation/harness/negotiationCase";
 import {
+  assertNegotiationInvariants,
   createDuplexSession,
   createPeerPair,
   createSplitOffer,
@@ -26,6 +27,7 @@ import {
 } from "../../negotiation/harness/negotiationTransactionUtils";
 import { type SeededRandom, seededRandom } from "../shared/random";
 import { ModelOracles } from "./oracles";
+import { ssrcLessReceivers, switchRemoteSsrc } from "./ssrcLessTraffic";
 import {
   remapsCurrentKeys,
   WIRE_MUTATION_NAMES,
@@ -419,6 +421,23 @@ export const STEPS: Record<string, Step> = {
       if (pc.signalingState === "have-local-offer") {
         await w.c.setRemote(other, pc.localDescription, { mayReject: true });
       }
+    },
+  },
+  // #356: SSRC も RID もない m-line で、相手のストリームが SSRC を切り替え、旧 SSRC の
+  // 遅延パケットが続く (どの signaling state でも。保留中の交渉と重なる)。
+  remoteSsrcSwitch: {
+    weight: 2,
+    applies: ({ pc }) => ssrcLessReceivers(pc).length > 0,
+    draw: (rng, { pc }) => ({
+      index: pickIndex(rng, pc, ssrcLessReceivers(pc)),
+      withMid: rng.chance(0.5),
+      late: rng.chance(0.7),
+    }),
+    run: async ({ pc }, w, { index, withMid, late }) => {
+      const t = byIndex(pc, index);
+      if (!t || !ssrcLessReceivers(pc).includes(t)) return;
+      w.c.note(switchRemoteSsrc(pc, t, { withMid: !!withMid, late: !!late }));
+      assertNegotiationInvariants(pc);
     },
   },
   trickle: {

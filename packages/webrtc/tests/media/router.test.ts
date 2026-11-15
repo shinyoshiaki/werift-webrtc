@@ -52,6 +52,7 @@ import {
   inboundRtpSsrcs,
   opus,
   pcmu,
+  redOf,
   rtcpNamingSsrc,
   rtxOf,
   ssrcLessPacket,
@@ -1811,7 +1812,7 @@ describe("media/router: a=ssrc のない m-line の SSRC 学習 (#356)", () => {
     expect(router.ssrcTable[31]).toBeUndefined();
   });
 
-  test("学習済み receiver に別 SSRC が来たら置き換え、表は 1 件のまま", () => {
+  test("学習済み receiver に別 SSRC が来たら同じ track に追加して track.ssrc を新しい方にし、上限を超えた古い SSRC から忘れる", () => {
     // Arrange
     const { router, dtls, addReceiver } = createSsrcLessRouter();
     const audio = addReceiver();
@@ -1828,17 +1829,33 @@ describe("media/router: a=ssrc のない m-line の SSRC 学習 (#356)", () => {
       dtls,
     );
 
-    // Assert: 同じ track に届き、古い SSRC の経路と track は外れる
+    // Assert: 同じ track に届き、旧 SSRC も同じ track への対応付けとして残る
     expect(payloads).toEqual(["payload-1", "payload-2"]);
-    expect(router.ssrcTable[100]).toBeUndefined();
+    expect(router.ssrcTable[100]).toBe(audio.receiver);
     expect(router.ssrcTable[200]).toBe(audio.receiver);
-    expect([...router.learnedSsrcs]).toEqual([200]);
-    expect(Object.keys(audio.receiver.trackBySSRC)).toEqual(["200"]);
-    expect([...audio.receiver.learnedTrackSsrcs]).toEqual([200]);
+    expect(audio.receiver.fallbackSsrcs).toEqual([100, 200]);
     expect(announced.ssrc).toBe(200);
+
+    // Act: さらに 7 回 SSRC が変わり、学習 SSRC が上限 (8) を超える
+    for (let i = 3; i <= 9; i++) {
+      router.routeRtp(
+        ssrcLessPacket({ ssrc: i * 100, payloadType: 111, sequenceNumber: i }),
+        dtls,
+      );
+    }
+
+    // Assert: 最も古い 100 だけが receiver と経路の両方から消え、表は上限のまま
+    expect(audio.receiver.fallbackSsrcs).toEqual([
+      200, 300, 400, 500, 600, 700, 800, 900,
+    ]);
+    expect(router.ssrcTable[100]).toBeUndefined();
+    expect(router.learnedSsrcs.has(100)).toBe(false);
+    expect(audio.receiver.trackBySSRC[100]).toBeUndefined();
+    expect(router.learnedSsrcs.size).toBe(8);
+    expect(announced.ssrc).toBe(900);
   });
 
-  test("SSRC 切替後に届いた旧 SSRC の遅延パケットでは受信先も状態も巻き戻らない", () => {
+  test("SSRC 切替後に届いた旧 SSRC の遅延パケットは同じ track に届き、受信先も track.ssrc も巻き戻らない", () => {
     // Arrange
     const { router, dtls, addReceiver } = createSsrcLessRouter();
     const audio = addReceiver();
@@ -1866,9 +1883,15 @@ describe("media/router: a=ssrc のない m-line の SSRC 学習 (#356)", () => {
       dtls,
     );
 
-    // Assert: 旧 SSRC は破棄され、新 SSRC の経路と track が保たれる
-    expect(payloads).toEqual(["payload-1", "payload-2", "payload-4"]);
-    expect(router.ssrcTable[100]).toBeUndefined();
+    // Assert: すべて同じ track に届き、新 SSRC の track.ssrc と学習順は変わらない
+    expect(payloads).toEqual([
+      "payload-1",
+      "payload-2",
+      "payload-3",
+      "payload-4",
+      "payload-5",
+    ]);
+    expect(router.ssrcTable[100]).toBe(audio.receiver);
     expect(router.ssrcTable[200]).toBe(audio.receiver);
     expect(audio.receiver.fallbackSsrc).toBe(200);
     expect(audio.receiver.track.ssrc).toBe(200);
@@ -2323,27 +2346,30 @@ describe("media/router: a=ssrc のない m-line の SSRC 学習 (#356)", () => {
     expect(collidingRouteCount(router)).toBe(0);
   });
 
-  test("transport を付け替えた receiver が SSRC を置き換えると、旧 SSRC の補助経路は残らない", () => {
+  test("transport を付け替えた receiver の学習 SSRC が上限で押し出されると、旧 SSRC の補助経路は残らない", () => {
     // Arrange: B が SSRC 55 を学習してから新しい transport に付け替える
     const { router, b } = createCollidingSsrcLessRouter(55);
     const moved = createDtlsTransport();
     b.setDtlsTransport(moved);
     const bPayloads = collectTrackPayloads(b);
 
-    // Act: 新 transport で B に SSRC 66 が届く
-    router.routeRtp(
-      ssrcLessPacket({
-        ssrc: 66,
-        payloadType: 111,
-        sequenceNumber: 2,
-        mid: "b",
-      }),
-      moved,
-    );
+    // Act: 新 transport で B に新しい SSRC が 8 個届き、55 が学習 SSRC の上限から押し出される
+    for (let i = 1; i <= 8; i++) {
+      router.routeRtp(
+        ssrcLessPacket({
+          ssrc: 60 + i,
+          payloadType: 111,
+          sequenceNumber: 1 + i,
+          mid: "b",
+        }),
+        moved,
+      );
+    }
 
-    // Assert: B は 66 で受信し、55 の補助経路は消える
-    expect(bPayloads).toEqual(["payload-2"]);
-    expect(b.receiver.fallbackSsrc).toBe(66);
+    // Assert: B は最新の 68 で受信し、55 の補助経路は消える
+    expect(bPayloads).toHaveLength(8);
+    expect(b.receiver.fallbackSsrc).toBe(68);
+    expect(b.receiver.hasFallbackSsrc(55)).toBe(false);
     expect(collidingRouteCount(router)).toBe(0);
   });
 
@@ -2398,7 +2424,7 @@ describe("media/router: a=ssrc のない m-line の SSRC 学習 (#356)", () => {
     expect(a.receiver.fallbackSsrc).toBe(66);
   });
 
-  test("置き換え済みの SSRC は、自分の MID を示す遅延パケットでも MID なしの遅延パケットでも学習しない", () => {
+  test("切替前の SSRC の遅延パケットは、自分の MID 付きでも MID なしでも同じ track に届き、track.ssrc は新しい SSRC のまま", () => {
     // Arrange: BUNDLE の MID a が SSRC 55 から 66 に切り替えた
     const { router, dtls, addReceiver } = createSsrcLessRouter();
     const a = addReceiver({ mid: "a" });
@@ -2438,10 +2464,16 @@ describe("media/router: a=ssrc のない m-line の SSRC 学習 (#356)", () => {
       dtls,
     );
 
-    // Assert: どちらも破棄され、A は 66 のまま
-    expect(aPayloads).toEqual(["payload-1", "payload-2"]);
+    // Assert: どちらも A の track に届き、A の track.ssrc は 66 のまま
+    expect(aPayloads).toEqual([
+      "payload-1",
+      "payload-2",
+      "payload-3",
+      "payload-4",
+    ]);
     expect(a.receiver.fallbackSsrc).toBe(66);
-    expect(router.ssrcTable[55]).toBeUndefined();
+    expect(a.receiver.track.ssrc).toBe(66);
+    expect(router.ssrcTable[55]).toBe(a.receiver);
   });
 
   test("ローカル sender と同じ SSRC の未知 RTP は例外を投げず、sender の経路を保つ", () => {
@@ -2712,24 +2744,28 @@ describe("media/router: a=ssrc のない m-line の SSRC 学習 (#356)", () => {
         dtls,
       );
 
-      // Assert: 301 は現在の session の新しい SSRC として学習され、400 も同じ track に届く
+      // Assert: 現在の session は SSRC-less のままなので、301 も offer の 400 も未知 SSRC として
+      // 学習されて同じ track に届き、track.ssrc は最後に学習した 400 になる
       expect(payloads).toEqual(["payload-1", "payload-2", "payload-3"]);
-      expect(audio.receiver.fallbackSsrc).toBe(301);
-      expect(announced.ssrc).toBe(301);
+      expect(audio.receiver.fallbackSsrcs).toEqual([300, 301, 400]);
+      expect(announced.ssrc).toBe(400);
       expect(audio.receiver.track).toBe(announced);
+      expect(audio.receiver.tracks).toEqual([]);
 
-      // Act: commit または rollback する
+      // Act: commit または rollback する (rollback は NegotiationTransaction と同じく receiver が先)
       if (finish === "commit") {
         router.commitStaged();
       } else {
+        audio.receiver.restoreNegotiationState(receiverState);
         router.restoreRoutes(routes, {
           endpoints: new Set([audio.receiver, audio.sender]),
           liveSenders: [],
         });
-        audio.receiver.restoreNegotiationState(receiverState);
       }
       if (finish === "rollback") {
-        expect(router.ssrcTable[400]).toBeUndefined();
+        // パケットから学習した 400 は baseline でも受信する PT (PCMU) なので残る
+        expect(router.ssrcTable[400]).toBe(audio.receiver);
+        expect(audio.receiver.fallbackSsrcs).toEqual([300, 301, 400]);
       }
       // commit 後は SDP の 400、rollback 後は学習済みの 301 で流す
       router.routeRtp(
@@ -2739,30 +2775,24 @@ describe("media/router: a=ssrc のない m-line の SSRC 学習 (#356)", () => {
         dtls,
       );
 
-      // Assert: commit は SDP の 400 / PCMU に切り替わり、rollback は学習済みの 301 / opus を保つ
+      // Assert: commit は SDP の 400 / PCMU に切り替わり、rollback は学習済みの SSRC を保つ
       expect(audio.receiver.track).toBe(announced);
+      expect(payloads).toEqual([
+        "payload-1",
+        "payload-2",
+        "payload-3",
+        "payload-4",
+      ]);
+      expect(announced.ssrc).toBe(400);
+      expect(announced.codec?.mimeType).toBe("audio/PCMU");
+      expect(await inboundRtpSsrcs(audio)).toEqual([400]);
       if (finish === "commit") {
-        expect(announced.ssrc).toBe(400);
-        expect(announced.codec?.mimeType).toBe("audio/PCMU");
         expect(audio.receiver.fallbackSsrc).toBeUndefined();
-        expect(payloads).toEqual([
-          "payload-1",
-          "payload-2",
-          "payload-3",
-          "payload-4",
-        ]);
-        expect(await inboundRtpSsrcs(audio)).toEqual([400]);
+        expect(audio.receiver.tracks).toEqual([announced]);
+        expect(router.learnedSsrcs.has(400)).toBe(false);
       } else {
-        expect(announced.ssrc).toBe(301);
-        expect(announced.codec?.mimeType).toBe("audio/opus");
-        expect(audio.receiver.fallbackSsrc).toBe(301);
-        expect(payloads).toEqual([
-          "payload-1",
-          "payload-2",
-          "payload-3",
-          "payload-4",
-        ]);
-        expect(await inboundRtpSsrcs(audio)).toEqual([301]);
+        expect(audio.receiver.fallbackSsrc).toBe(400);
+        expect(audio.receiver.tracks).toEqual([]);
       }
     },
   );
@@ -2833,7 +2863,7 @@ describe("media/router: a=ssrc のない m-line の SSRC 学習 (#356)", () => {
     },
   );
 
-  test("pending の RID track が学習した SSRC は rollback で receiver と経路の両方から消え、現在の送信元が使えば fallback で学習する", () => {
+  test("pending の RID 付きで届いた未知 SSRC は現在の session のストリームとして通知済み track に届き、rollback 後も同じ track に届く", () => {
     // Arrange: SSRC 300 を学習済みの session に、保留中の re-offer が RID "high" を与えた
     const { router, dtls, audio, announced, rollback } =
       createPendingRidOverFallback(300);
@@ -2851,23 +2881,23 @@ describe("media/router: a=ssrc のない m-line の SSRC 学習 (#356)", () => {
     );
     rollback();
 
-    // Assert: RID の track も、400 の track の対応付けも経路も残らない
+    // Assert: RID の track は作られず、400 は現在の session の fallback SSRC として残る
+    expect(payloads).toEqual(["payload-2"]);
     expect(audio.receiver.trackByRID.high).toBeUndefined();
-    expect(audio.receiver.trackBySSRC[400]).toBeUndefined();
-    expect(router.ssrcTable[400]).toBeUndefined();
-    expect(router.learnedSsrcs.has(400)).toBe(false);
+    expect(Object.keys(router.ridTable)).toEqual([]);
+    expect(audio.receiver.trackBySSRC[400]).toBe(announced);
+    expect(router.ssrcTable[400]).toBe(audio.receiver);
 
-    // Act: 現在の送信元が RID なしで SSRC 400 に切り替える
+    // Act: 現在の送信元が RID なしで SSRC 400 を送り続ける
     router.routeRtp(
       ssrcLessPacket({ ssrc: 400, payloadType: 111, sequenceNumber: 3 }),
       dtls,
     );
 
-    // Assert: fallback として学習して通知済み track に届く
-    expect(payloads).toEqual(["payload-3"]);
+    // Assert: 同じ通知済み track に届く
+    expect(payloads).toEqual(["payload-2", "payload-3"]);
     expect(audio.receiver.track).toBe(announced);
     expect(audio.receiver.fallbackSsrc).toBe(400);
-    expect(router.ssrcTable[400]).toBe(audio.receiver);
   });
 
   test("fallback の SSRC が pending 中に RID 付きでも届けば、commit で RID track に引き継ぎ、RID 拡張を省いた後続も届く", () => {
@@ -2903,6 +2933,572 @@ describe("media/router: a=ssrc のない m-line の SSRC 学習 (#356)", () => {
     expect(audio.receiver.fallbackSsrc).toBeUndefined();
     expect(router.ssrcTable[300]).toBe(audio.receiver);
     expect(delivered).toEqual([3]);
+  });
+
+  test("rollback で消える PT で学習した SSRC は、receiver と経路の両方から消え、track.ssrc は残る SSRC に戻る", () => {
+    // Arrange: opus だけを受ける session が SSRC 300 を学習済み。保留中の re-offer が PCMU (PT 0) を加えた
+    const { router, dtls, addReceiver } = createSsrcLessRouter();
+    const audio = addReceiver({ codecs: [opus()] });
+    audio.setCurrentDirection("recvonly");
+    const announced = audio.receiver.track;
+    router.routeRtp(
+      ssrcLessPacket({ ssrc: 300, payloadType: 111, sequenceNumber: 1 }),
+      dtls,
+    );
+    const routes = router.snapshotRoutes();
+    const receiverState = audio.receiver.snapshotNegotiationState();
+    audio.receiver.prepareReceive(
+      { codecs: [opus(), pcmu()], headerExtensions: [], encodings: [] },
+      { deferConflicts: true },
+    );
+
+    // Act: 保留中に PCMU の SSRC 400 を学習してから rollback する (receiver が先、経路が後)
+    router.routeRtp(
+      ssrcLessPacket({ ssrc: 400, payloadType: 0, sequenceNumber: 2 }),
+      dtls,
+    );
+    expect(announced.ssrc).toBe(400);
+    audio.receiver.restoreNegotiationState(receiverState);
+    router.restoreRoutes(routes, {
+      endpoints: new Set([audio.receiver, audio.sender]),
+      liveSenders: [],
+    });
+
+    // Assert: 400 は現在の session のストリームではないので消え、track は 300 / opus に戻る
+    expect(audio.receiver.fallbackSsrcs).toEqual([300]);
+    expect(router.ssrcTable[400]).toBeUndefined();
+    expect(router.learnedSsrcs.has(400)).toBe(false);
+    expect(audio.receiver.trackBySSRC[400]).toBeUndefined();
+    expect(announced.ssrc).toBe(300);
+    expect(announced.codec?.mimeType).toBe("audio/opus");
+  });
+
+  test("保留中の RID を運ぶ SSRC-less m-line のパケットは、同じ RID を確定済みの別 m-line に渡らず、自分の通知済み track に届く", () => {
+    // Arrange: 同じ transport で、v は RID "high" (media SSRC 700) が確定済み、l は SSRC-less で
+    // MID l により 300 を学習済み。保留中の re-offer が l に RID "high" を与えた (commit まで待つ)
+    const { router, dtls, addReceiver } = createSsrcLessRouter();
+    const l = addReceiver({ mid: "l" });
+    l.setCurrentDirection("recvonly");
+    const v = addReceiver({ mid: "v" });
+    v.setCurrentDirection("recvonly");
+    router.registerRtpReceiverByRid(
+      v,
+      new RTCRtpSimulcastParameters({ rid: "high", direction: "send" }),
+      { codecs: [opus()], headerExtensions: [], encodings: [] },
+    );
+    router.routeRtp(
+      ssrcLessPacket({
+        ssrc: 300,
+        payloadType: 111,
+        mid: "l",
+        sequenceNumber: 1,
+      }),
+      dtls,
+    );
+    router.routeRtp(
+      ssrcLessPacket({
+        ssrc: 700,
+        payloadType: 111,
+        mid: "v",
+        rid: "high",
+        sequenceNumber: 1,
+      }),
+      dtls,
+    );
+    const vHigh: string[] = [];
+    v.receiver.trackByRID.high.onReceiveRtp.subscribe((rtp) =>
+      vHigh.push(rtp.payload.toString()),
+    );
+    const lPayloads = collectTrackPayloads(l);
+    router.registerRtpReceiverByRid(
+      l,
+      new RTCRtpSimulcastParameters({ rid: "high", direction: "send" }),
+      { codecs: [opus()], headerExtensions: [], encodings: [] },
+      { deferConflicts: true },
+    );
+
+    // Act: l の現在のストリームが MID l と RID "high" を付けて届き、続けて SSRC 301 に切り替える
+    router.routeRtp(
+      ssrcLessPacket({
+        ssrc: 300,
+        payloadType: 111,
+        mid: "l",
+        rid: "high",
+        sequenceNumber: 2,
+      }),
+      dtls,
+    );
+    router.routeRtp(
+      ssrcLessPacket({
+        ssrc: 301,
+        payloadType: 111,
+        mid: "l",
+        rid: "high",
+        sequenceNumber: 1,
+      }),
+      dtls,
+    );
+
+    // Assert: どちらも l の通知済み track に届き、v の RID の media SSRC は 700 のまま
+    expect(lPayloads).toEqual(["payload-2", "payload-1"]);
+    expect(vHigh).toEqual([]);
+    expect(v.receiver.mediaSsrcByRid.high).toBe(700);
+    expect(router.ssrcTable[301]).toBe(l.receiver);
+  });
+
+  test("別 transport と衝突する fallback の SSRC も、保留中に RID 付きで届いていれば commit で RID track に引き継ぐ", () => {
+    // Arrange: transport B の b が先に 300 を学習し (ssrcTable)、transport A の a も 300 を学習した
+    // (collidingRoutes)。保留中の re-offer が a に RID "high" を与えた
+    const { router, dtls, addReceiver } = createSsrcLessRouter();
+    const other = createDtlsTransport();
+    const a = addReceiver({ mid: "a" });
+    a.setCurrentDirection("recvonly");
+    const b = addReceiver({ mid: "b", transport: other });
+    b.setCurrentDirection("recvonly");
+    router.routeRtp(
+      ssrcLessPacket({ ssrc: 300, payloadType: 111, mid: "b" }),
+      other,
+    );
+    router.routeRtp(
+      ssrcLessPacket({ ssrc: 300, payloadType: 111, mid: "a" }),
+      dtls,
+    );
+    router.registerRtpReceiverByRid(
+      a,
+      new RTCRtpSimulcastParameters({ rid: "high", direction: "send" }),
+      { codecs: [opus()], headerExtensions: [], encodings: [] },
+      { deferConflicts: true },
+    );
+
+    // Act: 保留中に a の 300 が RID "high" 付きで届き、commit 後は RID 拡張なしで届く
+    router.routeRtp(
+      ssrcLessPacket({
+        ssrc: 300,
+        payloadType: 111,
+        sequenceNumber: 2,
+        rid: "high",
+      }),
+      dtls,
+    );
+    router.commitStaged();
+    const high = a.receiver.trackByRID.high;
+    const delivered: number[] = [];
+    high.onReceiveRtp.subscribe((rtp) =>
+      delivered.push(rtp.header.sequenceNumber),
+    );
+    router.routeRtp(
+      ssrcLessPacket({ ssrc: 300, payloadType: 111, sequenceNumber: 3 }),
+      dtls,
+    );
+
+    // Assert: a では 300 が RID track の SSRC になり、b の経路は残る
+    expect(a.receiver.trackBySSRC[300]).toBe(high);
+    expect(delivered).toEqual([3]);
+    expect(router.ssrcTable[300]).toBe(b.receiver);
+  });
+
+  test("rollback で消える RED の PT で学習した SSRC は、主 codec の PT が残っていても忘れる", () => {
+    // Arrange: opus だけを受ける session が 300 を学習済み。保留中の re-offer が RED (PT 63) を加えた
+    const { router, dtls, addReceiver } = createSsrcLessRouter();
+    const audio = addReceiver({ codecs: [opus()] });
+    audio.setCurrentDirection("recvonly");
+    router.routeRtp(ssrcLessPacket({ ssrc: 300, payloadType: 111 }), dtls);
+    const routes = router.snapshotRoutes();
+    const state = audio.receiver.snapshotNegotiationState();
+    audio.receiver.prepareReceive(
+      { codecs: [opus(), redOf(63, 111)], headerExtensions: [], encodings: [] },
+      { deferConflicts: true },
+    );
+
+    // Act: 保留中に RED の SSRC 400 を学習してから rollback する (receiver が先、経路が後)
+    router.routeRtp(
+      ssrcLessPacket({ ssrc: 400, payloadType: 63, sequenceNumber: 1 }),
+      dtls,
+    );
+    audio.receiver.restoreNegotiationState(state);
+    router.restoreRoutes(routes, {
+      endpoints: new Set([audio.receiver, audio.sender]),
+      liveSenders: [],
+    });
+
+    // Assert: 400 は receiver と経路の両方から消え、track は 300 に戻る
+    expect(audio.receiver.fallbackSsrcs).toEqual([300]);
+    expect(router.ssrcTable[400]).toBeUndefined();
+    expect(audio.receiver.track.ssrc).toBe(300);
+  });
+
+  test("学習済みの SSRC を同じ transport の別 m-line の SDP が名指すと、学習していた m-line はその SSRC を手放す", async () => {
+    // Arrange: l が MID l で 500 を学習済み。同じ transport の n は別の PT を受ける
+    const { router, dtls, addReceiver } = createSsrcLessRouter();
+    const l = addReceiver({ mid: "l" });
+    const n = addReceiver({ mid: "n", codecs: [opus(112)] });
+    router.routeRtp(
+      ssrcLessPacket({ ssrc: 500, payloadType: 111, mid: "l" }),
+      dtls,
+    );
+
+    // Act: answer が n に a=ssrc:500 を与える
+    router.registerRtpReceiverBySsrc(n, {
+      codecs: [opus(112)],
+      headerExtensions: [],
+      encodings: [new RTCRtpCodingParameters({ ssrc: 500, payloadType: 112 })],
+    });
+
+    // Assert: 500 は n の経路になり、l の学習 SSRC・track・統計から消える
+    expect(router.ssrcTable[500]).toBe(n.receiver);
+    expect(l.receiver.fallbackSsrcs).toEqual([]);
+    expect(l.receiver.trackBySSRC[500]).toBeUndefined();
+    expect(l.receiver.track.ssrc).toBeUndefined();
+    expect(await inboundRtpSsrcs(l)).toEqual([]);
+  });
+
+  test("MID のない保留中の RID 付きパケットも、SSRC で届く SSRC-less m-line のストリームとして扱い、同じ RID を確定済みの別 m-line に渡さない", () => {
+    // Arrange: l は SSRC-less で 300 を学習済み、v は RID "high" (media SSRC 700) が確定済み。
+    // 保留中の re-offer が l に RID "high" を与えた
+    const { router, dtls, addReceiver } = createSsrcLessRouter();
+    const l = addReceiver({ mid: "l" });
+    l.setCurrentDirection("recvonly");
+    const v = addReceiver({ mid: "v" });
+    v.setCurrentDirection("recvonly");
+    router.registerRtpReceiverByRid(
+      v,
+      new RTCRtpSimulcastParameters({ rid: "high", direction: "send" }),
+      { codecs: [opus()], headerExtensions: [], encodings: [] },
+    );
+    router.routeRtp(
+      ssrcLessPacket({
+        ssrc: 300,
+        payloadType: 111,
+        mid: "l",
+        sequenceNumber: 1,
+      }),
+      dtls,
+    );
+    router.routeRtp(
+      ssrcLessPacket({
+        ssrc: 700,
+        payloadType: 111,
+        mid: "v",
+        rid: "high",
+        sequenceNumber: 1,
+      }),
+      dtls,
+    );
+    const lPayloads = collectTrackPayloads(l);
+    router.registerRtpReceiverByRid(
+      l,
+      new RTCRtpSimulcastParameters({ rid: "high", direction: "send" }),
+      { codecs: [opus()], headerExtensions: [], encodings: [] },
+      { deferConflicts: true },
+    );
+
+    // Act: l の 300 が MID なし・RID "high" 付きで届く
+    router.routeRtp(
+      ssrcLessPacket({
+        ssrc: 300,
+        payloadType: 111,
+        rid: "high",
+        sequenceNumber: 2,
+      }),
+      dtls,
+    );
+
+    // Assert: l の通知済み track に届き、v の RID の media SSRC は 700 のまま
+    expect(lPayloads).toEqual(["payload-2"]);
+    expect(v.receiver.mediaSsrcByRid.high).toBe(700);
+    expect(router.ssrcTable[300]).toBe(l.receiver);
+  });
+
+  test("別 transport の衝突経路だけが持つ fallback の SSRC を保留中の SDP が名指しても、commit まで手放さず、rollback で残る", () => {
+    // Arrange: a (transport A) と b (transport B) が 55 を学習し、a は 8 個の新しい SSRC で 55 を押し出した
+    // (55 は b の collidingRoutes にだけある)
+    const { router, dtls, addReceiver } = createSsrcLessRouter();
+    const other = createDtlsTransport();
+    const a = addReceiver({ mid: "a" });
+    const b = addReceiver({ mid: "b", transport: other });
+    router.routeRtp(
+      ssrcLessPacket({ ssrc: 55, payloadType: 111, mid: "a" }),
+      dtls,
+    );
+    router.routeRtp(
+      ssrcLessPacket({ ssrc: 55, payloadType: 111, mid: "b" }),
+      other,
+    );
+    for (let i = 0; i < 8; i++) {
+      router.routeRtp(
+        ssrcLessPacket({
+          ssrc: 1000 + i,
+          payloadType: 111,
+          mid: "a",
+          sequenceNumber: 2 + i,
+        }),
+        dtls,
+      );
+    }
+    const routes = router.snapshotRoutes();
+    const bState = b.receiver.snapshotNegotiationState();
+    // 保留中の offer が新しく加えた m-line (まだ ontrack を通知していない)
+    const c = addReceiver({ mid: "c", transport: other, codecs: [opus(120)] });
+    c.firedReceiving = false;
+    const bPayloads = collectTrackPayloads(b);
+
+    // Act: 保留中の offer が transport B の c に a=ssrc:55 を与える
+    router.registerRtpReceiverBySsrc(
+      c,
+      {
+        codecs: [opus(120)],
+        headerExtensions: [],
+        encodings: [new RTCRtpCodingParameters({ ssrc: 55, payloadType: 120 })],
+      },
+      { deferConflicts: true },
+    );
+
+    // Assert: 保留中は b が 55 を持ち続け、届く
+    expect(b.receiver.fallbackSsrcs).toEqual([55]);
+    router.routeRtp(
+      ssrcLessPacket({
+        ssrc: 55,
+        payloadType: 111,
+        mid: "b",
+        sequenceNumber: 3,
+      }),
+      other,
+    );
+    expect(bPayloads).toEqual(["payload-3"]);
+
+    // Act: rollback する (receiver が先、経路が後)
+    b.receiver.restoreNegotiationState(bState);
+    router.restoreRoutes(routes, {
+      endpoints: new Set([a.receiver, a.sender, b.receiver, b.sender]),
+      liveSenders: [],
+    });
+
+    // Assert: b は 55 を持ったまま
+    expect(b.receiver.fallbackSsrcs).toEqual([55]);
+  });
+
+  test("置き換えで firedReceiving が戻されても、確定済みで受信中の SSRC-less m-line は保留中の SSRC を commit まで待たせる", () => {
+    // Arrange: 確定済みの recvonly session が 300 を学習済み。置き換えられた保留中の offer が
+    // firedReceiving を戻した状態
+    const { router, dtls, addReceiver } = createSsrcLessRouter();
+    const audio = addReceiver();
+    audio.setCurrentDirection("recvonly");
+    const announced = audio.receiver.track;
+    const payloads = collectTrackPayloads(audio);
+    router.routeRtp(
+      ssrcLessPacket({ ssrc: 300, payloadType: 111, sequenceNumber: 1 }),
+      dtls,
+    );
+    audio.firedReceiving = false;
+
+    // Act: 置き換えの offer が a=ssrc:777 を与え、その間も 300 が届く
+    router.registerRtpReceiverBySsrc(
+      audio,
+      {
+        codecs: [opus()],
+        headerExtensions: [],
+        encodings: [
+          new RTCRtpCodingParameters({ ssrc: 777, payloadType: 111 }),
+        ],
+      },
+      { deferConflicts: true },
+    );
+    router.routeRtp(
+      ssrcLessPacket({ ssrc: 300, payloadType: 111, sequenceNumber: 2 }),
+      dtls,
+    );
+
+    // Assert: 保留中は現在の session のまま 300 が届く
+    expect(audio.receiver.tracks).toEqual([]);
+    expect(payloads).toEqual(["payload-1", "payload-2"]);
+
+    // Act: 置き換えの offer が送信方向を示し (firedReceiving)、commit する
+    audio.firedReceiving = true;
+    router.commitStaged();
+
+    // Assert: 通知済み track が SDP の 777 を引き継ぐ
+    expect(audio.receiver.track).toBe(announced);
+    expect(announced.ssrc).toBe(777);
+  });
+
+  test("offerer 側でも、pranswer の間に RID 付きで届いた fallback の SSRC は、answer で RID track に引き継ぐ", () => {
+    // Arrange: SSRC 300 を学習済みの session に、remote pranswer が RID "high" を与えた
+    const { router, dtls, audio } = createPendingRidOverFallback(300);
+    router.routeRtp(
+      ssrcLessPacket({
+        ssrc: 300,
+        payloadType: 111,
+        sequenceNumber: 2,
+        rid: "high",
+      }),
+      dtls,
+    );
+
+    // Act: remote answer を setRemoteRTP と同じ順で適用し (deferredRemote を捨てて直接登録)、commit する
+    audio.receiver.deferredRemote = undefined;
+    const params = { codecs: [opus()], headerExtensions: [], encodings: [] };
+    router.registerRtpReceiverByRid(
+      audio,
+      new RTCRtpSimulcastParameters({ rid: "high", direction: "send" }),
+      params,
+    );
+    router.registerRtpReceiverBySsrc(audio, params);
+    router.commitStaged();
+    const high = audio.receiver.trackByRID.high;
+    const delivered: number[] = [];
+    high.onReceiveRtp.subscribe((rtp) =>
+      delivered.push(rtp.header.sequenceNumber),
+    );
+    router.routeRtp(
+      ssrcLessPacket({ ssrc: 300, payloadType: 111, sequenceNumber: 3 }),
+      dtls,
+    );
+
+    // Assert: 300 は RID track の SSRC になり、RID 拡張を省いた後続も届く
+    expect(audio.receiver.trackBySSRC[300]).toBe(high);
+    expect(router.ssrcTable[300]).toBe(audio.receiver);
+    expect(delivered).toEqual([3]);
+  });
+
+  test("description を commit まで待たせている間に停止した transceiver には、commit で経路も track も戻らない", () => {
+    // Arrange: l は SSRC-less で 300 を学習済み。保留中の re-offer が l に a=ssrc:777 を与えた
+    const { router, dtls, transceivers, addReceiver } = createSsrcLessRouter();
+    const l = addReceiver({ mid: "l" });
+    l.setCurrentDirection("recvonly");
+    const m = addReceiver({ mid: "m" });
+    router.routeRtp(
+      ssrcLessPacket({ ssrc: 300, payloadType: 111, mid: "l" }),
+      dtls,
+    );
+    router.registerRtpReceiverBySsrc(
+      l,
+      {
+        codecs: [opus()],
+        headerExtensions: [],
+        encodings: [
+          new RTCRtpCodingParameters({ ssrc: 777, payloadType: 111 }),
+        ],
+      },
+      { deferConflicts: true },
+    );
+    const mPayloads = collectTrackPayloads(m);
+
+    // Act: 保留中にアプリが l を止め (登録解除)、その後 commit して、m の MID で 777 が届く
+    l.stop();
+    router.unregisterTransceiver(l);
+    router.commitStaged();
+    router.routeRtp(
+      ssrcLessPacket({
+        ssrc: 777,
+        payloadType: 111,
+        mid: "m",
+        sequenceNumber: 2,
+      }),
+      dtls,
+    );
+
+    // Assert: 止めた l には 777 の経路も track もなく、m が 777 を学習する
+    expect(l.receiver.tracks).toEqual([]);
+    expect(router.ssrcTable[777]).toBe(m.receiver);
+    expect(mPayloads).toEqual(["payload-2"]);
+    expect(transceivers.includes(l)).toBe(true);
+  });
+
+  test("MID も経路もない新しい SSRC が保留中の RID を運んでも、同じ RID を確定済みの別 m-line に渡らない", () => {
+    // Arrange: l は SSRC-less で 300 を学習済み (opus 111)、v は RID "high" (media SSRC 700、PT 120) が確定済み。
+    // 保留中の re-offer が l に RID "high" を与えた
+    const { router, dtls, addReceiver } = createSsrcLessRouter();
+    const l = addReceiver({ mid: "l" });
+    l.setCurrentDirection("recvonly");
+    const v = addReceiver({ mid: "v", codecs: [opus(120)] });
+    v.setCurrentDirection("recvonly");
+    router.registerRtpReceiverByRid(
+      v,
+      new RTCRtpSimulcastParameters({ rid: "high", direction: "send" }),
+      { codecs: [opus(120)], headerExtensions: [], encodings: [] },
+    );
+    router.routeRtp(
+      ssrcLessPacket({
+        ssrc: 300,
+        payloadType: 111,
+        mid: "l",
+        sequenceNumber: 1,
+      }),
+      dtls,
+    );
+    router.routeRtp(
+      ssrcLessPacket({
+        ssrc: 700,
+        payloadType: 120,
+        mid: "v",
+        rid: "high",
+        sequenceNumber: 1,
+      }),
+      dtls,
+    );
+    const lPayloads = collectTrackPayloads(l);
+    router.registerRtpReceiverByRid(
+      l,
+      new RTCRtpSimulcastParameters({ rid: "high", direction: "send" }),
+      { codecs: [opus()], headerExtensions: [], encodings: [] },
+      { deferConflicts: true },
+    );
+
+    // Act: l の送信元が SSRC 301 に切り替え、MID なし・RID "high" 付きで送る
+    router.routeRtp(
+      ssrcLessPacket({
+        ssrc: 301,
+        payloadType: 111,
+        rid: "high",
+        sequenceNumber: 5,
+      }),
+      dtls,
+    );
+
+    // Assert: PT 111 を受けるのは l だけなので l が学習し、v の RID の media SSRC は 700 のまま
+    expect(lPayloads).toEqual(["payload-5"]);
+    expect(router.ssrcTable[301]).toBe(l.receiver);
+    expect(v.receiver.mediaSsrcByRid.high).toBe(700);
+  });
+
+  test("SSRC-less m-line の RTX が repaired-rtp-stream-id を運んでも、同じ RID を持つ別 m-line の RTX にならない", () => {
+    // Arrange: n は RID "high" / "low" の simulcast (RTX あり)、l は同じ transport の SSRC-less video
+    // (VP8 96 / RTX 97) で、保留中の re-offer が l に RID "high" を与えた
+    const { router, transceivers, addReceiver } = createSsrcLessRouter();
+    const n = createSimulcastRtxReceiver({ router, mid: "n" });
+    n.transceiver.firedReceiving = true;
+    n.transceiver.setCurrentDirection("recvonly");
+    transceivers.push(n.transceiver);
+    const l = addReceiver({
+      kind: "video",
+      mid: "l",
+      codecs: [vp8(96), rtxOf(97, 96)],
+      transport: n.dtls,
+    });
+    l.setCurrentDirection("recvonly");
+    router.routeRtp(
+      ssrcLessPacket({ ssrc: 300, payloadType: 96, mid: "l" }),
+      n.dtls,
+    );
+    router.registerRtpReceiverByRid(
+      l,
+      new RTCRtpSimulcastParameters({ rid: "high", direction: "send" }),
+      { codecs: [vp8(96), rtxOf(97, 96)], headerExtensions: [], encodings: [] },
+      { deferConflicts: true },
+    );
+
+    // Act: l の RTX (SSRC 301、MID l、repaired-rtp-stream-id "high") が保留中に届く
+    router.routeRtp(
+      createSimulcastRtxPacket(
+        createSimulcastMediaPacket({ ssrc: 300, sequenceNumber: 1, mid: "l" }),
+        { rtxSsrc: 301, rtxSequenceNumber: 1, rrid: "high", mid: "l" },
+      ),
+      n.dtls,
+    );
+
+    // Assert: n の RTX として結び付かず、経路も作らない
+    expect(n.receiver.ridByRtxSsrc[301]).toBeUndefined();
+    expect(router.ssrcTable[301]).toBeUndefined();
   });
 
   test("transceiver の登録解除で学習済み SSRC が残らない", () => {
@@ -2991,9 +3587,69 @@ describe("media/router: a=ssrc のない m-line の SSRC 学習 (#356)", () => {
       dtls,
     );
 
-    // Assert: 遅延パケットは A に戻さず破棄し、B の経路は保たれる
+    // Assert: 最後の MID 更新より古いパケットの MID は対応付けを変えず (RFC 9143 9.2)、
+    // 今の対応付けの B に届く
     expect(aPayloads).toEqual(["payload-1"]);
-    expect(bPayloads).toEqual(["payload-2", "payload-3"]);
+    expect(bPayloads).toEqual(["payload-2", "payload-3", "payload-1"]);
+    expect(router.ssrcTable[55]).toBe(b.receiver);
+
+    // Act: MID a を示す、最後の更新より新しい 55 のパケットが届く
+    router.routeRtp(
+      ssrcLessPacket({
+        ssrc: 55,
+        payloadType: 111,
+        sequenceNumber: 4,
+        mid: "a",
+      }),
+      dtls,
+    );
+
+    // Assert: 新しい MID が対応付けを A に戻す
+    expect(aPayloads).toEqual(["payload-1", "payload-4"]);
+    expect(router.ssrcTable[55]).toBe(a.receiver);
+    expect(b.receiver.hasFallbackSsrc(55)).toBe(false);
+  });
+
+  test("MID による対応付けの更新は、シーケンス番号の折り返しをまたいでも新旧を正しく判定する", () => {
+    // Arrange: MID a が折り返し直前の 65534 で SSRC 55 を学習し、折り返し後の 1 で MID b に移った
+    const { router, dtls, addReceiver } = createSsrcLessRouter();
+    const a = addReceiver({ mid: "a" });
+    const b = addReceiver({ mid: "b" });
+    const aPayloads = collectTrackPayloads(a);
+    const bPayloads = collectTrackPayloads(b);
+    router.routeRtp(
+      ssrcLessPacket({
+        ssrc: 55,
+        payloadType: 111,
+        sequenceNumber: 65534,
+        mid: "a",
+      }),
+      dtls,
+    );
+    router.routeRtp(
+      ssrcLessPacket({
+        ssrc: 55,
+        payloadType: 111,
+        sequenceNumber: 1,
+        mid: "b",
+      }),
+      dtls,
+    );
+
+    // Act: 折り返し前の 65535 が MID a 付きで遅れて届く
+    router.routeRtp(
+      ssrcLessPacket({
+        ssrc: 55,
+        payloadType: 111,
+        sequenceNumber: 65535,
+        mid: "a",
+      }),
+      dtls,
+    );
+
+    // Assert: 65535 は 1 より古いので対応付けは B のまま、B に届く
+    expect(aPayloads).toEqual(["payload-65534"]);
+    expect(bPayloads).toEqual(["payload-1", "payload-65535"]);
     expect(router.ssrcTable[55]).toBe(b.receiver);
   });
 

@@ -34,7 +34,7 @@ and unregistering a transceiver drops its learned SSRCs.
 | --- | --- | --- |
 | SSRC → receiver (RID) | `rtp-stream-id` / `repaired-rtp-stream-id` names a route | per RID (receiver) |
 | SSRC → receiver (simulcast) | the SSRC is a learned track SSRC of a RID receiver on the packet's transport | as above |
-| SSRC → receiver (fallback, RFC 9143 section 9.2) | see learnUnknownSsrc | one per receiver |
+| SSRC → receiver (fallback, RFC 9143 section 9.2) | see learnUnknownSsrc | 8 per receiver, oldest forgotten first |
 
 The fallback serves remote m-lines without `a=ssrc` and RIDs (SIP gateways,
 SBCs, media servers): an SSRC no route, RID or simulcast track knows is
@@ -42,21 +42,36 @@ learned for the receiver the packet's MID names, or else for the receiver
 of the only m-line on the packet's transport that receives the payload type
 (one with `a=ssrc` or RIDs counts too, and then nothing is learned); when
 that is ambiguous, or the packet comes without a
-transport (`routeRtp(packet)`), it is dropped. The learned SSRC binds the
-default track `ontrack` announced (`RTCRtpReceiver.bindFallbackSsrc`); a new
-SSRC that passes the same checks replaces it, so tables stay bounded. Like
-the other packet-driven routes it is added at once while a description is
-pending, and commit and rollback keep it while the m-line stays without
-SSRC and RID. A description that gives the m-line an SSRC or a RID drops it
-when it applies as an answer or commits; while it is pending the current
-session keeps receiving on the fallback SSRC and rollback keeps it. The
-first SSRC such a description gives binds the announced track as well
-(`RTCRtpReceiver.adoptDefaultTrack`), so `ontrack` does not fire again.
-Unregistering the transceiver drops the fallback SSRC. A packet whose MID
-names another m-line than the one holding its fallback SSRC updates the
-mapping (RFC 9143 section 9.2): the SSRC moves there when that m-line may
-learn it, else the packet is dropped; the old m-line retires the SSRC, so
-its late packets do not take it back. Routes from SDP, RIDs and simulcast
+transport (`routeRtp(packet)`), it is dropped. A learned SSRC maps to the
+default track `ontrack` announced (`RTCRtpReceiver.bindFallbackSsrc`). A
+new SSRC (a SIP re-INVITE, a media server switch) is learned beside the
+earlier ones, which keep mapping to the same track: a late packet of a
+replaced stream is delivered there and resets nothing; `track.ssrc` is the
+newest, and the oldest beyond 8 is forgotten. Like the other packet-driven
+routes they are added at once while a description is pending, and commit
+and rollback keep them while the m-line stays without SSRC and RID (a
+rollback forgets those learned with a payload type only the rolled-back
+description gave).
+
+A pending description does not touch an m-line whose current session is
+without SSRC and RID: its SSRCs and RIDs wait in
+`RTCRtpReceiver.deferredRemote` and register at the commit
+(`commitStaged`), as an answer's would; rollback drops them with the rest
+of the description. Until then the current session's track, statistics,
+routes and learning stay as they are: a packet of the pending SSRC is
+learned like any unknown SSRC, and one with a pending RID is the current
+stream's. At the commit the learned SSRCs go (the description's SSRCs and
+RIDs route from now on), except one that already carried a committed RID,
+which becomes that RID's media SSRC. The first SSRC of the description
+binds the announced track (`RTCRtpReceiver.adoptDefaultTrack`), so `ontrack`
+does not fire again for it; a RID track replacing it is announced after
+the commit. Unregistering the transceiver drops the learned SSRCs.
+
+A MID updates the mapping of a learned SSRC (RFC 9143 section 9.2) only
+from a packet whose extended sequence number is newer than the one of the
+last update: an older packet is delivered through the mapping it finds.
+A newer MID naming another m-line moves the SSRC there when that m-line may
+learn it, else the packet is dropped. Routes from SDP, RIDs and simulcast
 keep their receiver whatever the MID (existing behaviour). A rollback keeps
 the receiver packets taught last, even over a baseline route packets
 taught another receiver.
@@ -90,6 +105,26 @@ omits stays routed; only SSRCs a replaced pranswer alone added are dropped.
 `RtpRouter`
 
 ## Properties
+
+### announcedTrack
+
+> **announcedTrack**: (`transceiver`) => [`MediaStreamTrack`](MediaStreamTrack.md) \| `undefined`
+
+Internal: the track `ontrack` last announced for a transceiver (set by
+the TransceiverManager). A replacement offer resets `firedReceiving`
+before it applies, while the announcement of the default track stands.
+
+#### Parameters
+
+##### transceiver
+
+[`RTCRtpTransceiver`](RTCRtpTransceiver.md)
+
+#### Returns
+
+[`MediaStreamTrack`](MediaStreamTrack.md) \| `undefined`
+
+***
 
 ### extIdUriMap
 
