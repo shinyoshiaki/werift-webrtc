@@ -159,13 +159,20 @@ describe("gathering bound to its ICE generation", () => {
     });
     const markers: WeakRef<object>[] = [];
     const internal = connection as unknown as {
-      getCandidatePromises: (...args: unknown[]) => Promise<unknown>[];
+      getCandidatePromises: (...args: unknown[]) => {
+        primary: Promise<unknown>[];
+        background: { query: Promise<unknown>; settled: boolean }[];
+      };
     };
     const original = internal.getCandidatePromises.bind(connection);
     internal.getCandidatePromises = (...args: unknown[]) => {
       const marker = { gathering: markers.length };
       markers.push(new WeakRef(marker));
-      return [...original(...args), Promise.resolve(marker)];
+      const candidates = original(...args);
+      return {
+        ...candidates,
+        primary: [...candidates.primary, Promise.resolve(marker)],
+      };
     };
 
     try {
