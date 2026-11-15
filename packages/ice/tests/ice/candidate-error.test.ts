@@ -48,6 +48,7 @@ import {
   createScriptedUdpServer,
   errnoError,
   errorResponse,
+  failDnsLookup,
   hostCandidate,
   ipv4AndIpv6Sockets,
   recordCandidateErrors,
@@ -64,7 +65,8 @@ describe("onIceCandidateError: STUN", () => {
   });
 
   test("存在しない DNS 名の STUN は 701 で通知され、host candidate のアドレスを持つ", async () => {
-    // Arrange
+    // Arrange: 名前解決の失敗を注入する (環境の DNS の速さに左右されない)
+    const lookup = failDnsLookup("stun.invalid");
     const server: Address = ["stun.invalid", 3478];
     const { connection, errors } = createRecordingAgent({
       stunServers: [server],
@@ -92,11 +94,12 @@ describe("onIceCandidateError: STUN", () => {
           generation: connection.generation,
         },
       ]);
+      expect(lookup).toHaveBeenCalledWith("stun.invalid", expect.anything());
       expect(connection.state).toBe("completed");
     } finally {
       await connection.close();
     }
-  }, 15_000);
+  });
 
   test("応答しない STUN は stunGatherTimeout の満了で 701 が 1 回だけ出て、遅れた応答は無視される", async () => {
     // Arrange: タイムアウト (100ms) より後 (400ms) にエラー応答を返す STUN

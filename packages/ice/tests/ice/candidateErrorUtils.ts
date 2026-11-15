@@ -1,4 +1,5 @@
 import * as dgram from "node:dgram";
+import { promises as dns } from "node:dns";
 import type { Address } from "../../../common/src";
 import { Candidate } from "../../src/candidate";
 import type {
@@ -208,3 +209,19 @@ export const ipv4AndIpv6Sockets: Partial<IceOptions> = {
   useIpv6: true,
   interfaceAddresses: { udp4: candidateErrorHost, udp6: "::1" },
 };
+
+/**
+ * Make the resolver fail for `hostname` with `code` (other names resolve
+ * as usual), so a DNS failure is classified the same however fast or slow
+ * the environment's resolver is. Undone by `vi.restoreAllMocks()`.
+ */
+export function failDnsLookup(hostname: string, code = "ENOTFOUND") {
+  const lookup = dns.lookup.bind(dns);
+  return vi.spyOn(dns, "lookup").mockImplementation(((
+    name: string,
+    ...rest: unknown[]
+  ) => {
+    if (name === hostname) return Promise.reject(errnoError(code));
+    return (lookup as (...args: unknown[]) => Promise<unknown>)(name, ...rest);
+  }) as typeof dns.lookup);
+}
