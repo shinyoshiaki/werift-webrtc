@@ -496,7 +496,7 @@ export function createRtcpFeedbackRouter() {
  * target SSRC が未登録の keyframe request の扱い (KeyFrameRequestRouting) を検証する Arrange。
  */
 export function createSingleVideoSenderRouter(
-  keyFrameRequestRouting: KeyFrameRequestRouting = "compatible",
+  keyFrameRequestRouting: KeyFrameRequestRouting = "fallback",
 ) {
   const router = new RtpRouter();
   router.keyFrameRequestRouting = keyFrameRequestRouting;
@@ -589,12 +589,26 @@ export async function outboundRtpStats(sender: RTCRtpSender) {
  * werift 同士で sendrecv video を 1 本ずつ接続し、双方が相手の RTP を 1 つ受けた状態にする。
  * 受信側の SSRC と codec が確定するので、PLI を送れる。
  */
+/** Arrange helper: the transceiver of a sender `addTrack()` returned. */
+export function transceiverOfSender(
+  pc: RTCPeerConnection,
+  sender: RTCRtpSender,
+): RTCRtpTransceiver {
+  const transceiver = pc.getTransceivers().find((t) => t.sender === sender);
+  if (!transceiver) throw new Error("no transceiver for the sender");
+  return transceiver;
+}
+
 export async function createConnectedSendrecvVideoPeers(
   pc1Config?: RTCPeerConnectionConfig,
 ) {
-  const connect = (pc: RTCPeerConnection) => {
+  // The answerer uses addTrack(): JSEP 5.10 pairs only a transceiver
+  // addTrack() created with the offer's m-line.
+  const connect = (pc: RTCPeerConnection, answerer = false) => {
     const track = new MediaStreamTrack({ kind: "video" });
-    const transceiver = pc.addTransceiver(track, { direction: "sendrecv" });
+    const transceiver = answerer
+      ? transceiverOfSender(pc, pc.addTrack(track))
+      : pc.addTransceiver(track, { direction: "sendrecv" });
     const received = new Promise<void>((resolve) =>
       transceiver.onTrack.subscribe((remote) =>
         remote.onReceiveRtp.once(() => resolve()),
@@ -612,7 +626,7 @@ export async function createConnectedSendrecvVideoPeers(
   const pc1 = new RTCPeerConnection(pc1Config);
   const pc2 = new RTCPeerConnection();
   const peer1 = connect(pc1);
-  const peer2 = connect(pc2);
+  const peer2 = connect(pc2, true);
 
   await pc1.setLocalDescription(await pc1.createOffer());
   await pc2.setRemoteDescription(pc1.localDescription!);

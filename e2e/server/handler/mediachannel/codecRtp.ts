@@ -202,37 +202,39 @@ class DepacketizeHandler {
         const pc = await createPc(this.codec);
         this.state.pc = pc;
         const kind = codecKind(this.codec);
-        const transceiver = pc.addTransceiver(kind, { direction: "recvonly" });
-
-        transceiver.onTrack.subscribe((track) => {
-          let rtpPackets = 0;
-          const unsubCount = track.onReceiveRtp.subscribe(() => {
-            rtpPackets++;
-            if (this.state.stats) {
-              this.state.stats.rtpPackets = rtpPackets;
-            }
-          });
-          this.state.stoppers.push(() => unsubCount.unSubscribe());
-
-          const { stats, stop } = attachDepacketizer({
-            codec: this.codec,
-            track,
-            pc,
-            sendPli: true,
-            pliIntervalMs: 1000,
-          });
-          const shared = stats as DepacketizeStats & { rtpPackets?: number };
-          shared.rtpPackets = 0;
-          this.state.stats = shared;
-          this.state.stoppers.push(stop);
-
-          track.onReceiveRtp.once(() => {
-            try {
-              const ssrc = track.ssrc;
-              if (ssrc) {
-                void transceiver.receiver.sendRtcpPLI(ssrc);
+        // JSEP 5.10: Chrome's offer gets its own (recvonly) transceiver.
+        pc.onRemoteTransceiverAdded.subscribe((transceiver) => {
+          if (transceiver.kind !== kind) return;
+          transceiver.onTrack.subscribe((track) => {
+            let rtpPackets = 0;
+            const unsubCount = track.onReceiveRtp.subscribe(() => {
+              rtpPackets++;
+              if (this.state.stats) {
+                this.state.stats.rtpPackets = rtpPackets;
               }
-            } catch {}
+            });
+            this.state.stoppers.push(() => unsubCount.unSubscribe());
+
+            const { stats, stop } = attachDepacketizer({
+              codec: this.codec,
+              track,
+              pc,
+              sendPli: true,
+              pliIntervalMs: 1000,
+            });
+            const shared = stats as DepacketizeStats & { rtpPackets?: number };
+            shared.rtpPackets = 0;
+            this.state.stats = shared;
+            this.state.stoppers.push(stop);
+
+            track.onReceiveRtp.once(() => {
+              try {
+                const ssrc = track.ssrc;
+                if (ssrc) {
+                  void transceiver.receiver.sendRtcpPLI(ssrc);
+                }
+              } catch {}
+            });
           });
         });
 
@@ -471,9 +473,11 @@ class RepacketizeHandler {
         this.state.pc = pc;
         const kind = codecKind(this.codec);
 
-        const receiver = pc.addTransceiver(kind, { direction: "recvonly" });
+        // JSEP 5.10: a transceiver addTrack() creates pairs with Chrome's
+        // sendrecv m-line, so it both receives and sends the repacketized media.
         const sendTrack = new MediaStreamTrack({ kind });
-        pc.addTrack(sendTrack);
+        const sender = pc.addTrack(sendTrack);
+        const receiver = pc.getTransceivers().find((t) => t.sender === sender)!;
 
         receiver.onTrack.subscribe((track) => {
           const packetizer = createRtpPacketizer(this.codec, {

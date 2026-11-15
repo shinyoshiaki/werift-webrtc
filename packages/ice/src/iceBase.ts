@@ -51,6 +51,14 @@ export interface IceConnection {
   options: IceOptions;
   remoteCandidatesEnd: boolean;
   localCandidatesEnd: boolean;
+  /**
+   * Resolves when `localCandidatesEnd` becomes true after `gatherCandidates()`
+   * returned (server-reflexive queries that continue in the background), or
+   * when the generation ends. Optional so that other implementations of this
+   * interface keep compiling; without it gathering ends when
+   * `gatherCandidates()` returns.
+   */
+  waitForLocalCandidatesEnd?(): Promise<void>;
   state: IceState;
   lookup?: MdnsLookup;
   nominated?: CandidatePair;
@@ -330,6 +338,10 @@ export interface IceOptions {
    * Defaults to 5. Where UDP is blocked these STUN queries are never answered,
    * so the wait always runs to the timeout; agents that must not stall on such
    * networks can lower it.
+   *
+   * `gatherCandidates()` waits only for the representative sockets' queries
+   * (see `stunServers`); the other host sockets' queries continue up to this
+   * timeout in the background and end-of-candidates follows them.
    */
   stunGatherTimeout?: number;
   /**
@@ -341,8 +353,24 @@ export interface IceOptions {
    * STUN servers queried while gathering, in priority order. Every IPv4 UDP
    * host socket queries each of them in parallel; equal mappings are
    * advertised once, different ones (a NAT that maps per destination) each.
-   * Gathering ends when the slowest server answers or `stunGatherTimeout`
-   * runs out.
+   *
+   * Without `interfaceAddresses`, each family with a STUN server also gets a
+   * UDP socket bound to the wildcard address that advertises no host
+   * candidate: the OS picks its route (a full-tunnel VPN, an interface the
+   * host sockets do not cover), and its server-reflexive candidates carry
+   * the related address `0.0.0.0` / `::`. The IPv4 wildcard socket queries
+   * every server, the IPv6 one only the IPv6 literal servers. It checks only
+   * the remote candidates whose route leaves from an address no UDP host
+   * socket is bound to, so a peer on a covered path learns no
+   * peer-reflexive candidate from it.
+   *
+   * `gatherCandidates()` returns once the representative sockets answered or
+   * `stunGatherTimeout` ran out: the wildcard sockets and the host socket of
+   * the default-route address (every host socket when a family has neither).
+   * The other host sockets' server-reflexive candidates trickle through
+   * `onIceCandidate`, and `localCandidatesEnd` follows the last of them
+   * (`waitForLocalCandidatesEnd()`), so an interface that cannot reach the
+   * STUN server does not delay the description.
    *
    * Merged with the deprecated `stunServer`: the singular one comes first,
    * duplicates are dropped (see {@link normalizeIceServerOptions}).
@@ -404,8 +432,30 @@ export interface IceOptions {
    * gathered. If the bind fails, the family has no UDP host candidate.
    *
    * A family left unspecified while the other one is set gathers no
-   * enumerated addresses (only its `additionalHostAddresses`). Without any
-   * family set, every enumerated address is gathered over wildcard sockets.
+   * enumerated addresses (only its `additionalHostAddresses`).
+   *
+   * Without any family set, every enumerated address gets its own UDP host
+   * socket bound to that address (an IPv6 link-local one with its zone), so
+   * the socket's packets leave from the advertised candidate address even on
+   * a host with several network interfaces. An address whose bind fails, or
+   * whose sends fail, loses only its own candidate; the other addresses are
+   * unaffected. An `additionalHostAddresses` entry that is not assigned to a
+   * local interface (a 1:1 NAT public address, for example) is gathered over
+   * a wildcard socket. The enumerated addresses include costly networks (VPN
+   * / tunnel interfaces: `ipsec`, `tun`, `utun`, `tap`) with a low local
+   * preference; `vmnet` / `veth` interfaces are excluded. The default-route
+   * address gets the highest local preference, so checks start with the path
+   * the OS uses: the source address of the route to the first configured
+   * STUN / TURN server that resolves in the family and has a route (UDP
+   * `connect()`, no packet is sent). A family without such a server has no
+   * default-route address: no other address (no public one) is probed in
+   * its place, and its host candidates keep the gathering order. With a STUN
+   * server, a wildcard socket per family maps the route the
+   * OS picks (see `stunServers`).
+   *
+   * A family set to the wildcard address (`0.0.0.0` / `::`) gathers its
+   * enumerated and additional addresses over wildcard sockets instead;
+   * the wildcard address itself is never advertised.
    */
   interfaceAddresses?: InterfaceAddresses;
   /**
@@ -489,20 +539,24 @@ export function candidatePairPriority(
   return (1 << 32) * Math.min(G, D) + 2 * Math.max(G, D) + (G > D ? 1 : 0);
 }
 
+/**
+ * Query a STUN server to obtain a server-reflexive candidate of `protocol`.
+ * Its base is the protocol's host candidate, or `base` for a socket that
+ * advertises no host candidate (the wildcard socket: related address
+ * `0.0.0.0` / `::`).
+ */
 export async function serverReflexiveCandidate(
   protocol: Protocol,
   stunServer: Address,
+  base?: Pick<Candidate, "host" | "port" | "transport" | "component"> &
+    Partial<Pick<Candidate, "tcptype">>,
 ) {
-  // """
-  // Query STUN server to obtain a server-reflexive candidate.
-  // """
-
   // # perform STUN query
   const request = new Message(methods.BINDING, classes.REQUEST);
   try {
     const [response] = await protocol.request(request, stunServer);
 
-    const localCandidate = protocol.localCandidate;
+    const localCandidate = base ?? protocol.localCandidate;
     if (!localCandidate) {
       throw new Error("not exist");
     }

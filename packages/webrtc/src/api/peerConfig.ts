@@ -21,10 +21,7 @@ import type {
   RTCRtpCodecParameters,
   RTCRtpHeaderExtensionParameters,
 } from "../media/parameters";
-import {
-  type KeyFrameRequestRouting,
-  KeyFrameRequestRoutingModes,
-} from "../media/router";
+import type { KeyFrameRequestRouting } from "../media/router";
 import type { RTCRtpSenderOptions } from "../media/rtpSender";
 import type { BandwidthEstimatorOption } from "../media/sender/createBandwidthEstimator";
 import type { BundlePolicy } from "../sdp";
@@ -36,6 +33,11 @@ import {
 import type { DtlsKeys, RTCCertificate } from "../transport/dtls";
 import { DEFAULT_MAX_MESSAGE_SIZE } from "../transport/sctp";
 import { deepMerge } from "../utils";
+import {
+  type CompatibilityOption,
+  type CompatibilityOptionValue,
+  CompatibilityOptionValues,
+} from "./compatibilityOptions";
 
 export type DebugConfig = Partial<{
   /**% */
@@ -84,11 +86,29 @@ export interface PeerConfig {
    * VPN, ...). If the bind fails, the family has no UDP host candidate.
    * A family left unspecified while the other one is set gathers no
    * enumerated addresses (only its `iceAdditionalHostAddresses`).
+   *
+   * When unset, each enumerated interface address gets a UDP host socket
+   * bound to that address, so connectivity checks leave from the advertised
+   * candidate on multi-NIC hosts. An address whose bind fails is not
+   * advertised. VPN / tunnel interfaces (`tun`, `utun`, `ipsec`, `tap`) are
+   * gathered with a low priority and the default-route address with the
+   * highest: the source address of the route to the configured STUN / TURN
+   * server (without one, no address is preferred and nothing else is probed).
+   * With a STUN server, one more socket per family is bound to the
+   * wildcard address: it advertises no host candidate but maps the route the
+   * OS picks (server-reflexive candidate with `raddr 0.0.0.0`).
+   * `setLocalDescription()` waits only for that socket and the
+   * default-route one; the other interfaces' server-reflexive candidates
+   * trickle through `onicecandidate` before the end-of-candidates `null`.
+   * Set a family to `0.0.0.0` / `::` to gather its enumerated addresses over
+   * wildcard sockets instead.
    */
   iceInterfaceAddresses: InterfaceAddresses | undefined;
   /** Add additional host (local) addresses to use for candidate gathering.
-   * Notably, you can include hosts that are normally excluded, such as loopback, tun interfaces, etc.
+   * Notably, you can include hosts that are normally excluded, such as loopback, vmnet / veth interfaces, etc.
    * For a family bound by `iceInterfaceAddresses`, addresses other than the bound one are ignored.
+   * An address assigned to a local interface is bound like an enumerated one; any other address
+   * (a 1:1 NAT public address, for example) is gathered over a wildcard socket.
    */
   iceAdditionalHostAddresses: string[] | undefined;
   iceUseIpv4: boolean;
@@ -98,7 +118,8 @@ export interface PeerConfig {
   iceTcpPassive: boolean;
   /**
    * Seconds to wait for server-reflexive candidates while gathering.
-   * Defaults to 5 when undefined.
+   * Defaults to 5 when undefined. `setLocalDescription()` waits for it only
+   * on the wildcard and default-route sockets (see `iceInterfaceAddresses`).
    */
   iceStunGatherTimeout: number | undefined;
   /**
@@ -154,12 +175,14 @@ export interface PeerConfig {
   iceCandidatePoolSize: number;
   certificates: RTCCertificate[];
   /**
-   * Which default DTLS certificate is used when neither `certificates` nor `dtls.keys` is given.
-   * Cannot be changed after construction.
-   * - `"process"` (default): one certificate shared by every RTCPeerConnection in the process
-   *   (legacy behavior), so their `a=fingerprint` values are identical.
-   * - `"peerConnection"`: each RTCPeerConnection generates its own certificate (browser behavior).
+   * Which default DTLS certificate is used when neither `certificates` nor `dtls.keys` is given
+   * (see {@link CompatibilityOptionValues}). Cannot be changed after construction.
+   * - `"process"` (default): one certificate shared by every RTCPeerConnection in the process,
+   *   so their `a=fingerprint` values are identical.
+   * - `"standard"`: each RTCPeerConnection generates its own certificate, as browsers do.
    *   All DTLS transports of that connection share it.
+   *
+   * Also accepts the v0.27.0 name `"peerConnection"` (= `"standard"`).
    */
   certificateScope: CertificateScope;
   debug: DebugConfig;
@@ -181,17 +204,48 @@ export interface PeerConfig {
    */
   pendingRtp: NonNullable<RTCRtpSenderOptions["pendingRtp"]>;
   /**
-   * How local SDP marks inactive / stopped m-lines. Cannot be changed after construction.
-   * - `"compatible"` (default): an accepted `inactive` m-line keeps a non-zero port.
-   *   Only rejected (no common codec / remote port 0) or stopped m-lines use port 0,
-   *   and only those negotiated port 0 positions are reused by new transceivers.
-   * - `"aggressive"`: legacy behavior. `inactive` m-lines are also written with port 0.
+   * How local SDP marks inactive / stopped m-lines (see {@link CompatibilityOptionValues}).
+   * Cannot be changed after construction.
+   * - `"standard"` (default): an accepted `inactive` m-line keeps a non-zero port, as JSEP
+   *   and browsers do. Only rejected (no common codec / remote port 0) or stopped m-lines
+   *   use port 0, and only those negotiated port 0 positions are reused by new transceivers.
+   * - `"aggressive"`: behavior before v0.25.0. `inactive` m-lines are also written with
+   *   port 0, so the remote side treats them as rejected and their positions are reused.
+   *
+   * Also accepts the v0.27.0 name `"compatible"` (= `"standard"`).
    */
   mLineReuse: MLineReuse;
   /**
-   * Where a PLI / FIR goes when no route has its target SSRC. See {@link KeyFrameRequestRouting}.
-   * - `"compatible"` (default): the sender whose RTX SSRC it is, else the only video sender.
-   * - `"strict"`: not delivered, as RFC 4585 / RFC 5104 define the target.
+   * How a remote offer's m-sections are paired with local transceivers that
+   * have no MID yet (see {@link CompatibilityOptionValues}). Cannot be changed
+   * after construction.
+   * - `"byKind"` (default): behavior up to v0.27.0. Any unassociated,
+   *   non-stopped transceiver of the same kind is paired (the one at the same
+   *   m-line index first), whatever created it. In glare (perfect negotiation)
+   *   the remote offer can take over a transceiver created with
+   *   `addTransceiver(kind, { direction: "sendonly" })` and its direction
+   *   becomes `sendrecv`.
+   * - `"standard"`: RFC 8829 (JSEP) section 5.10, as browsers do. An
+   *   m-section whose MID no transceiver has is associated only with an
+   *   unassociated, non-stopped transceiver of the same kind that
+   *   `addTrack()` created (or one a rollback promoted to that, JSEP 4.1.8.2),
+   *   and only when the m-section is `sendrecv` or `recvonly`. A transceiver
+   *   created by `addTransceiver()` (with or without a track, also after
+   *   `replaceTrack()` or a later `addTrack()` reusing it) is never paired:
+   *   the offer gets a new transceiver, and the local one keeps its direction
+   *   and `mid === null` until a local offer negotiates it. Use it for the
+   *   perfect negotiation pattern and for code written for browsers.
+   */
+  transceiverPairing: TransceiverPairing;
+  /**
+   * Where a PLI / FIR goes when no route has its target SSRC (see
+   * {@link CompatibilityOptionValues} and {@link KeyFrameRequestRouting}).
+   * `setConfiguration()` may change it.
+   * - `"fallback"` (default): the sender whose RTX SSRC it is, else the only video sender.
+   * - `"standard"`: not delivered, as RFC 4585 / RFC 5104 define the target.
+   *
+   * Also accepts the names up to v0.27.0: `"compatible"` (= `"fallback"`) and
+   * `"strict"` (= `"standard"`).
    */
   keyFrameRequestRouting: KeyFrameRequestRouting;
   /**
@@ -203,15 +257,83 @@ export interface PeerConfig {
    *   them, so renegotiation with more m-lines no longer repeats the candidate list.
    */
   bundleCandidates: BundleCandidates;
+  /**
+   * Sets every compatibility option (`certificateScope`, `mLineReuse`,
+   * `transceiverPairing`, `keyFrameRequestRouting`, see
+   * {@link CompatibilityOptionValues}) to the specification / browser behavior
+   * at once. Cannot be changed after construction.
+   * - `undefined` (default): each option keeps its own default.
+   * - `"standard"`: every compatibility option not given in the same
+   *   configuration is `"standard"`.
+   *
+   * An option given explicitly always takes precedence over `compatibility`:
+   * a value given in the same configuration (an old name included) is kept,
+   * and `setConfiguration()` treats the options as if `compatibility` were
+   * not set (`keyFrameRequestRouting` may change, the others cannot). An
+   * option given as `undefined` counts as not given.
+   *
+   * ```ts
+   * new RTCPeerConnection({ compatibility: "standard" });
+   * // certificateScope, mLineReuse, transceiverPairing and
+   * // keyFrameRequestRouting are all "standard"
+   * new RTCPeerConnection({ compatibility: "standard", certificateScope: "process" });
+   * // certificateScope is "process", the other three are "standard"
+   * ```
+   *
+   * It does not change `iceServers` / `iceUseDefaultStunServer`, which are not
+   * compatibility options.
+   */
+  compatibility: CompatibilityPreset | undefined;
 }
 
-export type CertificateScope = "process" | "peerConnection";
-const CertificateScopes: readonly CertificateScope[] = [
-  "process",
-  "peerConnection",
+/** Which default DTLS certificate is used. See {@link PeerConfig.certificateScope}. */
+export type CertificateScope = CompatibilityOptionValue<"certificateScope">;
+export const CertificateScopeModes: readonly CertificateScope[] =
+  CompatibilityOptionValues.certificateScope;
+
+/** How local SDP marks inactive / stopped m-lines. See {@link PeerConfig.mLineReuse}. */
+export const MLineReuseModes: readonly MLineReuse[] =
+  CompatibilityOptionValues.mLineReuse;
+
+/** How a remote offer pairs m-sections with local transceivers. See {@link PeerConfig.transceiverPairing}. */
+export type TransceiverPairing = CompatibilityOptionValue<"transceiverPairing">;
+export const TransceiverPairingModes: readonly TransceiverPairing[] =
+  CompatibilityOptionValues.transceiverPairing;
+
+/** The values of {@link PeerConfig.compatibility}. */
+export type CompatibilityPreset = "standard";
+export const CompatibilityPresets: readonly CompatibilityPreset[] = [
+  "standard",
 ];
 
-const MLineReuseModes: readonly MLineReuse[] = ["compatible", "aggressive"];
+const COMPATIBILITY_OPTIONS = Object.keys(
+  CompatibilityOptionValues,
+) as CompatibilityOption[];
+
+/**
+ * The values the compatibility options used up to v0.27.0 that are not
+ * values any more, and the value each one is read as. They are accepted on
+ * input only: `getConfiguration()` returns the current name.
+ */
+export const DeprecatedCompatibilityValues = {
+  certificateScope: { peerConnection: "standard" },
+  mLineReuse: { compatible: "standard" },
+  keyFrameRequestRouting: { compatible: "fallback", strict: "standard" },
+} as const satisfies {
+  [K in CompatibilityOption]?: Readonly<
+    Record<string, CompatibilityOptionValue<K>>
+  >;
+};
+
+/** @deprecated Use `"standard"` (`"peerConnection"`). */
+export type DeprecatedCertificateScope =
+  keyof (typeof DeprecatedCompatibilityValues)["certificateScope"];
+/** @deprecated Use `"standard"` (`"compatible"`). */
+export type DeprecatedMLineReuse =
+  keyof (typeof DeprecatedCompatibilityValues)["mLineReuse"];
+/** @deprecated Use `"fallback"` (`"compatible"`) or `"standard"` (`"strict"`). */
+export type DeprecatedKeyFrameRequestRouting =
+  keyof (typeof DeprecatedCompatibilityValues)["keyFrameRequestRouting"];
 
 const MessageIntegrityModes: readonly MessageIntegrityMode[] = [
   "sha1",
@@ -298,9 +420,22 @@ export type RTCPeerConnectionConfig = Partial<
     | "iceCandidatePoolSize"
     | "certificates"
     | "sctp"
+    | "certificateScope"
+    | "mLineReuse"
+    | "keyFrameRequestRouting"
   >
 > &
-  RTCPeerConnectionRTCConfiguration & { sctp?: RTCSctpConfiguration };
+  RTCPeerConnectionRTCConfiguration & {
+    sctp?: RTCSctpConfiguration;
+    /** See {@link PeerConfig.certificateScope}. */
+    certificateScope?: CertificateScope | DeprecatedCertificateScope;
+    /** See {@link PeerConfig.mLineReuse}. */
+    mLineReuse?: MLineReuse | DeprecatedMLineReuse;
+    /** See {@link PeerConfig.keyFrameRequestRouting}. */
+    keyFrameRequestRouting?:
+      | KeyFrameRequestRouting
+      | DeprecatedKeyFrameRequestRouting;
+  };
 
 export function generateDefaultPeerConfig(): PeerConfig {
   return {
@@ -345,9 +480,11 @@ export function generateDefaultPeerConfig(): PeerConfig {
     bandwidthEstimator: "lightweight",
     sctp: { mtu: DEFAULT_SCTP_MTU },
     pendingRtp: false,
-    mLineReuse: "compatible",
-    keyFrameRequestRouting: "compatible",
+    mLineReuse: "standard",
+    transceiverPairing: "byKind",
+    keyFrameRequestRouting: "fallback",
     bundleCandidates: "legacy",
+    compatibility: undefined,
   };
 }
 export const defaultPeerConfig: PeerConfig = generateDefaultPeerConfig();
@@ -366,6 +503,19 @@ function normalizePeerConfiguration(
 
   if (input.bundlePolicy === "balanced") {
     normalizedConfig.bundlePolicy = "max-compat";
+  }
+
+  for (const option of COMPATIBILITY_OPTIONS) {
+    const value: unknown = input[option];
+    if (option in DeprecatedCompatibilityValues && typeof value === "string") {
+      const aliases: Readonly<Record<string, string>> =
+        DeprecatedCompatibilityValues[
+          option as keyof typeof DeprecatedCompatibilityValues
+        ];
+      if (Object.hasOwn(aliases, value)) {
+        (normalizedConfig as Record<string, unknown>)[option] = aliases[value];
+      }
+    }
   }
 
   if ("certificates" in input) {
@@ -499,54 +649,53 @@ export function mergePeerConfiguration(
   }
 
   if (
-    normalizedConfig.certificateScope !== undefined &&
-    !CertificateScopes.includes(normalizedConfig.certificateScope)
+    normalizedConfig.compatibility !== undefined &&
+    !CompatibilityPresets.includes(normalizedConfig.compatibility)
   ) {
     throw createWebRtcTypeError(
-      `certificateScope must be one of ${CertificateScopes.join(", ")}`,
+      `compatibility must be one of ${CompatibilityPresets.join(", ")}`,
     );
   }
-
-  if (
-    isReconfiguration &&
-    normalizedConfig.certificateScope !== undefined &&
-    normalizedConfig.certificateScope !== config.certificateScope
-  ) {
-    throw createWebRtcDomException(
-      "InvalidModificationError",
-      "certificateScope cannot be changed",
-    );
+  if (isReconfiguration) {
+    if (
+      normalizedConfig.compatibility !== undefined &&
+      normalizedConfig.compatibility !== config.compatibility
+    ) {
+      throw createWebRtcDomException(
+        "InvalidModificationError",
+        "compatibility cannot be changed",
+      );
+    }
+  } else if (normalizedConfig.compatibility === "standard") {
+    // 構築時だけ、明示されていない互換性オプションを standard にする。
+    // 明示された値は常に compatibility より優先する (PeerConfig.compatibility)
+    for (const option of COMPATIBILITY_OPTIONS) {
+      if (normalizedConfig[option] === undefined) {
+        (normalizedConfig as Record<string, unknown>)[option] = "standard";
+      }
+    }
   }
 
-  if (
-    normalizedConfig.mLineReuse !== undefined &&
-    !MLineReuseModes.includes(normalizedConfig.mLineReuse)
-  ) {
-    throw createWebRtcTypeError(
-      `mLineReuse must be one of ${MLineReuseModes.join(", ")}`,
-    );
-  }
-
-  if (
-    normalizedConfig.keyFrameRequestRouting !== undefined &&
-    !KeyFrameRequestRoutingModes.includes(
-      normalizedConfig.keyFrameRequestRouting,
-    )
-  ) {
-    throw createWebRtcTypeError(
-      `keyFrameRequestRouting must be one of ${KeyFrameRequestRoutingModes.join(", ")}`,
-    );
-  }
-
-  if (
-    isReconfiguration &&
-    normalizedConfig.mLineReuse !== undefined &&
-    normalizedConfig.mLineReuse !== config.mLineReuse
-  ) {
-    throw createWebRtcDomException(
-      "InvalidModificationError",
-      "mLineReuse cannot be changed",
-    );
+  for (const option of COMPATIBILITY_OPTIONS) {
+    const value = normalizedConfig[option];
+    if (value === undefined) continue;
+    const values: readonly string[] = CompatibilityOptionValues[option];
+    if (!values.includes(value)) {
+      throw createWebRtcTypeError(
+        `${option} must be one of ${values.join(", ")}`,
+      );
+    }
+    // keyFrameRequestRouting は接続中に切り替えられる (router が次の要求から使う)
+    if (
+      isReconfiguration &&
+      option !== "keyFrameRequestRouting" &&
+      value !== config[option]
+    ) {
+      throw createWebRtcDomException(
+        "InvalidModificationError",
+        `${option} cannot be changed`,
+      );
+    }
   }
 
   if (

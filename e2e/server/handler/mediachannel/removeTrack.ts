@@ -18,7 +18,7 @@ export class mediachannel_removetrack_answer_base {
     { dispose: () => void; process: ChildProcess }
   >();
 
-  constructor(mLineReuse: MLineReuse = "compatible") {
+  constructor(mLineReuse: MLineReuse = "standard") {
     this.mLineReuse = mLineReuse;
   }
 
@@ -127,7 +127,7 @@ class mediachannel_removetrack_offer_base {
 
   pc!: RTCPeerConnection;
 
-  constructor(mLineReuse: MLineReuse = "compatible") {
+  constructor(mLineReuse: MLineReuse = "standard") {
     this.mLineReuse = mLineReuse;
   }
 
