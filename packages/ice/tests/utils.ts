@@ -3157,3 +3157,85 @@ export async function createDelayedPreferredPathPair({
     },
   };
 }
+
+// --- property tests ---
+
+/**
+ * Shared Arrange of the property tests: a deterministic PRNG (mulberry32), so
+ * a failing seed replays exactly (the same stream as
+ * `packages/webrtc/tests/pbt/shared/random.ts`).
+ */
+export function seededRandom(seed: number) {
+  let state = seed >>> 0;
+  const next = () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let t = state;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  return {
+    next,
+    chance: (p: number) => next() < p,
+    pick: <T>(items: readonly T[]) => items[Math.floor(next() * items.length)],
+    /** Integer in `[min, max)`. */
+    int: (min: number, max: number) => min + Math.floor(next() * (max - min)),
+  };
+}
+export type SeededRandom = ReturnType<typeof seededRandom>;
+
+/**
+ * The seeds a property test runs: `<prefix>_SEEDS` seeds (default
+ * `defaults.seeds`) from `<prefix>_SEED` (default 1), `<prefix>_STEPS` steps
+ * each. `replay(seed)` is the environment that reruns one seed.
+ */
+export function propertySeeds(
+  prefix: string,
+  defaults: { seeds: number; steps: number },
+) {
+  const env = process.env;
+  const count = Number(env[`${prefix}_SEEDS`] ?? defaults.seeds);
+  const steps = Number(env[`${prefix}_STEPS`] ?? defaults.steps);
+  const first = Number(env[`${prefix}_SEED`] ?? 1);
+  return {
+    seeds: [...Array(count)].map((_, index) => first + index),
+    steps,
+    replay: (seed: number) =>
+      `${prefix}_SEED=${seed} ${prefix}_SEEDS=1 ${prefix}_STEPS=${steps}`,
+  };
+}
+
+/**
+ * Shared Arrange: the live or the provisional checklist of a
+ * `createNominationHarness`, behind the same operations, so one scenario
+ * runs on both (they share `RegularNomination`).
+ */
+export function nominationChecklist(
+  h: ReturnType<typeof createNominationHarness>,
+  kind: "live" | "provisional",
+) {
+  if (kind === "provisional") h.stageProvisional();
+  return {
+    kind,
+    /** Trickle a remote candidate and start its check; its pair, if one formed. */
+    add: async (priority: number) => {
+      if (kind === "provisional") return h.addProvisionalRemote(priority);
+      const pair = await h.addRemote(priority);
+      if (pair) h.check(pair);
+      return pair;
+    },
+    endOfCandidates: () =>
+      kind === "provisional"
+        ? h.connection.addProvisionalRemoteCandidate(undefined)
+        : h.connection.addRemoteCandidate(undefined),
+    nominated: () =>
+      kind === "provisional"
+        ? h.connection.provisionalNominated
+        : h.connection.nominated,
+    /** The peer (controlling) nominates `pair` with USE-CANDIDATE. */
+    receiveNomination: (pair: CandidatePair) =>
+      kind === "provisional"
+        ? h.receiveProvisionalNomination(pair)
+        : h.receiveNomination(pair),
+  };
+}
