@@ -6,7 +6,11 @@ import {
   TURN_TEST_PASSWORD,
   TURN_TEST_USERNAME,
 } from "../../../ice/tests/utils";
-import { RTCIceGatherer, RTCIceTransport } from "../../src";
+import {
+  RTCIceGatherer,
+  RTCIceTransport,
+  type RTCPeerConnection,
+} from "../../src";
 import { iceTransportPair } from "../fixture";
 import {
   connectPeerConnections,
