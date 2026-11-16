@@ -51,6 +51,7 @@ import {
   createPayloadTypeSharingRouter,
   createPendingRidOverFallback,
   createRouteMatrix,
+  createSenderSsrcWithRid,
   createSsrcLessRouter,
   expectedRouteMatrix,
   inboundRtpSsrcs,
@@ -4427,6 +4428,43 @@ describe("media/router: a=ssrc のない m-line の SSRC 学習 (#356)", () => {
     // Assert: A の要求は従来どおり唯一の映像送信側に届く
     expect(got).toEqual([RtcpPayloadSpecificFeedback.type]);
   });
+
+  test.each([
+    ["rid", "same"],
+    ["rrid", "same"],
+    ["rid", "other"],
+    ["rrid", "other"],
+  ] as const)(
+    "%s 付き RTP がローカル送信側の SSRC で届く (送信側は %s transport)",
+    (kind, where) => {
+      // Arrange: RID high の受信側 s と、SSRC X の送信側 (同じ transport か別 transport)
+      const { ssrc, send } = createSenderSsrcWithRid(where);
+
+      // Act: s の transport で、SSRC X と RID (または repaired RID) を持つパケットが届く
+      const got = send(kind);
+
+      if (where === "same") {
+        // Assert: 同じ RTP session では送信側の SSRC の衝突 (RFC 3550 8.2) なので、
+        // RID があっても受信側に届かず、何も学習せず、経路は送信側だけ
+        expect(got.delivered).toEqual([]);
+        expect(got.knows).toBe(false);
+        expect(got.media).toEqual({});
+        expect(got.rtx).toEqual({});
+        expect(got.routes).toEqual(["sender:sender"]);
+      } else {
+        // Assert: 別 transport の送信側とは別のストリームなので、RID の受信側が受けて学習し、
+        // 送信側の経路も残る
+        if (kind === "rid") {
+          expect(got.delivered).toEqual([ssrc]);
+          expect(got.media).toEqual({ high: ssrc });
+        } else {
+          expect(got.rtx).toEqual({ [ssrc]: "high" });
+        }
+        expect(got.knows).toBe(true);
+        expect(got.routes).toEqual(["sender:sender", "learned:s"]);
+      }
+    },
+  );
 
   test("RID で学習した SSRC と同じ SSRC の送信側が登録されると、学習経路は消え RID 受信側に届かない", () => {
     // Arrange: RID high が SSRC X を学習し、同じ transport に SSRC X の送信側ができる

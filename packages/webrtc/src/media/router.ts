@@ -235,7 +235,7 @@ type StagedRoutes = {
  *
  * | Origin | Added by | Rank in one RTP session | Other transports |
  * | --- | --- | --- | --- |
- * | `sender` | `registerRtpSender` | 1: a remote stream using it is a collision (RFC 3550 section 8.2), not learned | other streams, routed there |
+ * | `sender` | `registerRtpSender` | 1: a remote stream using it is a collision (RFC 3550 section 8.2): its RTP is dropped and nothing is learned, whatever RID, repaired RID or MID it carries | other streams, routed there |
  * | `sdp` | `registerRtpReceiver` (an answer, a commit, or a pending description without conflict) | 2: a learned owner forgets the SSRC; another receiver's description route of the SSRC goes (the later description wins) | other streams, routed there |
  * | `learned` | packets (RID, simulcast, fallback) | 3: never beside a `sender` / `sdp` route of another endpoint | other streams, routed there |
  *
@@ -878,10 +878,14 @@ export class RtpRouter {
     const route = this.endpointBySsrc(ssrc, dtlsTransport);
     // A remote stream may use the SSRC of a local sender (RFC 3550 section
     // 8.2 collision): the sender keeps its route and receives no RTP.
-    const senderSsrc = !!route && !(route instanceof RTCRtpReceiver);
-    let rtpReceiver: RTCRtpReceiver | undefined = senderSsrc
-      ? undefined
-      : (route as RTCRtpReceiver | undefined);
+    // This applies before any RID or repaired RID: an identifier of the
+    // packet never takes a sender's SSRC of its RTP session from the sender
+    // (the RTP would reach a receiver while the RTCP reaches the sender).
+    if (route && !(route instanceof RTCRtpReceiver)) {
+      log("ssrc of a local sender", ssrc);
+      return;
+    }
+    let rtpReceiver = route as RTCRtpReceiver | undefined;
 
     const rid = extensions[RTP_EXTENSION_URI.sdesRTPStreamID];
     const repairedRid = extensions[RTP_EXTENSION_URI.repairedRtpStreamId];
@@ -923,7 +927,7 @@ export class RtpRouter {
     const ignoredRid =
       typeof rid === "string" &&
       !ridReceiver &&
-      (rtpReceiver ? rtpReceiver.acceptsUnknownSsrc : !senderSsrc);
+      (!rtpReceiver || rtpReceiver.acceptsUnknownSsrc);
     if (typeof rid === "string" && !ridReceiver && !ignoredRid) {
       log("rid receiver not found", rid);
       return;
@@ -955,8 +959,6 @@ export class RtpRouter {
       }
     } else if (rtpReceiver) {
       rtpReceiver.handleRtpBySsrc(packet, extensions);
-    } else if (senderSsrc) {
-      log("ssrc of a local sender", ssrc);
     } else {
       // simulcast after send receiver report. The SSRC a RID receiver learned
       // belongs to its RTP session: on another transport the same number is

@@ -450,6 +450,17 @@ RFC 8843 / RFC 9143（BUNDLE）§9.2「Associating RTP/RTCP Streams with the Cor
 - **model seed 103（今回の `pbt:deep -- --suite model,leak` で失敗）:** 本ブランチの失敗は「the transport did not settle」。縮小後の操作列（`connected`、simulcast、addSendonly → splitOffer → addTrack → videoInactive の pranswer → remoteRidPacket → answer）で比較した。develop は `remoteRidPacket` の検査そのもの（本チケットで直した RID の transport 境界）で失敗するので、`remoteRidPacket` を外した列で比較した: 本ブランチ 3/8、develop 3/8 で、どちらも「the transport did not settle」。`remoteRidPacket` を含む列は本ブランチ 4/8。経路の変更による差ではない（ICE / transport の既知の揺らぎ、ICE チケット `74132240` と同じ種類）。
 - 検証: ルートの `npm run type` 成功。webrtc の `npm test` は 2034 passed、5 skipped。ルートの `npm run test:small` 成功。`pbt:deep -- --suite model,leak`: model 361/364（失敗は seed 103（上記）、flaky は seed 125 と 275（単独で成功））、leak 650/653（失敗は heap seed 2 と 4。どちらも 3.12 の検証のとおり develop でも同じ傾きで失敗、flaky は cycle seed 248）。
 
+**3.12 のレビュー指摘への対応 2（`ce605a193` + 未コミット差分）:**
+- [x] **[P2] RID 付き RTP が送信側の SSRC 衝突判定を迂回した:** `routeRtp` は、パケットの transport でローカル sender が SSRC を持っていても（経路の勝者が sender）、RID（`rtp-stream-id`）か repaired RID の受信側が見つかるとその受信側に配送し、SSRC を学習していた（RTP は受信側、RTCP は sender に届き食い違う）。RID による配送の分岐は develop からのもので、3.11 の衝突処理は RID なしの RTP にしか効いていなかった。sender の SSRC の判定を RID / repaired RID / MID のどの解決よりも先に置き、同じ RTP session の sender の SSRC の RTP は、どの識別子を持っていても破棄し、何も学習しないようにした（`RtpRouter` の TSDoc の経路表と `changelog.md` を更新）。別 transport の sender の SSRC は別のストリームなので、従来どおり RID で配送・学習する。
+- [x] 回帰テスト（`router.test.ts`「%s 付き RTP がローカル送信側の SSRC で届く (送信側は %s transport)」、Arrange は `ssrcLessTestUtils.ts` の `createSenderSsrcWithRid`）: {RID, repaired RID} × {同じ transport, 別 transport} の 4 件。同じ transport では配送なし・`mediaSsrcByRid` / `ridByRtxSsrc` が空・経路は sender だけ、別 transport では RID の受信側が受けて学習し、sender の経路も残る。修正前のコードでは同じ transport の 2 件が失敗した（別 transport の 2 件は修正前も成功）。
+- 検証: ルートの `npm run type` 成功。webrtc の `npm test` は 2038 passed、5 skipped。ルートの `npm run test:small` 成功。`pbt:deep`（全スイート）: fuzz 306/306。model 362/364（失敗は seed 103 と 275。どちらも上の同一操作列の比較のとおり develop でも同程度に再現する既存の揺らぎ）。leak 650/653（失敗は heap seed 2 と 4。develop でも同じ傾き、flaky は seed 102）。scenario 2151 成功・失敗 3（seed 7、161、295）・flaky 9（単独で成功）。ロードアベレージ 8〜14 の中での実行。
+
+| scenario seed | 本ブランチ（単独） | develop `29b0da4b0`（単独、交互に実行） | 扱い |
+| --- | --- | --- | --- |
+| 7 | 2/10 失敗 | 1/10 失敗 | 負荷依存の既存の揺らぎ（scenario は model の generator を使わないので同一操作列） |
+| 161 | 0/4 | 1/4 失敗 | 同上 |
+| 295 | 0/4 | 0/4 | deep run の負荷の中だけで失敗 |
+
 ---
 
 ## 4. 制約・注意点

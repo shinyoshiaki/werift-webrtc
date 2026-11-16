@@ -315,6 +315,64 @@ export function routeLabels(
     });
 }
 
+/**
+ * Arrange (#356, RFC 3550 section 8.2): a simulcast receiver `s` (RID `high`
+ * + RTX, MID `s`) on its transport and a local sender registered with SSRC
+ * `ssrc` on the same transport (`"same"`) or on another one (`"other"`).
+ * `send(kind)` sends a packet of SSRC `ssrc` carrying the RID (`"rid"`, a
+ * media packet) or the repaired RID (`"rrid"`, an RTX packet) on `s`'s
+ * transport and returns what `s` received and learned.
+ */
+export function createSenderSsrcWithRid(where: "same" | "other") {
+  const simulcast = createSimulcastRtxReceiver({ mid: "s" });
+  const { router, transceiver: s, dtls } = simulcast;
+  router.transceivers = () => [s];
+  s.firedReceiving = true;
+  const sender = new RTCRtpSender("video");
+  sender.dtlsTransport = where === "same" ? dtls : createDtlsTransport();
+  router.registerRtpSender(sender);
+  const ssrc = sender.ssrc;
+  const send = (kind: "rid" | "rrid") => {
+    const delivered: number[] = [];
+    const track = s.receiver.trackByRID.high;
+    const subscription = track.onReceiveRtp.subscribe((rtp) =>
+      delivered.push(rtp.header.ssrc),
+    );
+    if (kind === "rid") {
+      router.routeRtp(
+        createSimulcastMediaPacket({
+          ssrc,
+          sequenceNumber: 1,
+          rid: "high",
+          mid: "s",
+        }),
+        dtls,
+      );
+    } else {
+      router.routeRtp(
+        createSimulcastRtxPacket(
+          createSimulcastMediaPacket({
+            ssrc: 2000,
+            sequenceNumber: 1,
+            mid: null,
+          }),
+          { rtxSsrc: ssrc, rtxSequenceNumber: 1, rrid: "high", mid: "s" },
+        ),
+        dtls,
+      );
+    }
+    subscription.unSubscribe();
+    return {
+      delivered,
+      knows: s.receiver.knowsSsrc(ssrc),
+      media: { ...s.receiver.mediaSsrcByRid },
+      rtx: { ...s.receiver.ridByRtxSsrc },
+      routes: routeLabels(router, ssrc, { s: s.receiver, sender }),
+    };
+  };
+  return { router, s, sender, ssrc, send };
+}
+
 /** Number of same-SSRC routes of other RTP sessions the router holds. */
 export function collidingRouteCount(router: RtpRouter) {
   const routes = (
