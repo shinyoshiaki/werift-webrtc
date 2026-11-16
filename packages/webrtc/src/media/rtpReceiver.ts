@@ -357,24 +357,36 @@ export class RTCRtpReceiver {
   }
 
   /**
-   * Internal (router): a packet of the learned fallback SSRC `ssrc`; returns
-   * its extended sequence number and whether its MID may update the mapping
-   * (RFC 9143 section 9.2: only a packet newer than the last update does).
+   * Internal (router): where a packet of the learned fallback SSRC `ssrc`
+   * stands, without changing anything: its extended sequence number and
+   * whether its MID may update the mapping (RFC 9143 section 9.2: only a
+   * packet newer than the last update does). The router applies it with
+   * {@link acceptFallbackPacket} only once the packet is valid for the
+   * receiver that takes it, so an invalid packet moves nothing.
    */
   observeFallbackPacket(ssrc: number, sequenceNumber: number) {
     const stream = this.fallbackStreams.get(ssrc);
     if (!stream) return undefined;
     const ext = extendRtpSequence(sequenceNumber, stream.highestExt);
-    if (ext > stream.highestExt) stream.highestExt = ext;
     const midMayUpdate =
       stream.midUpdateExt === undefined || ext > stream.midUpdateExt;
-    return { ext, midMayUpdate, stream };
+    return {
+      ext,
+      midMayUpdate,
+      stream: { ...stream, highestExt: Math.max(stream.highestExt, ext) },
+    };
   }
 
-  /** Internal (router): the packet at `ext` carried this m-line's own MID. */
-  markFallbackMidUpdate(ssrc: number, ext: number) {
+  /**
+   * Internal (router): a packet of the fallback SSRC `ssrc` at `ext` this
+   * receiver takes (a negotiated media payload type): it advances the
+   * highest sequence number and, with `ownMid`, the last MID update.
+   */
+  acceptFallbackPacket(ssrc: number, ext: number, ownMid: boolean) {
     const stream = this.fallbackStreams.get(ssrc);
-    if (stream) stream.midUpdateExt = ext;
+    if (!stream) return;
+    if (ext > stream.highestExt) stream.highestExt = ext;
+    if (ownMid) stream.midUpdateExt = ext;
   }
 
   /**

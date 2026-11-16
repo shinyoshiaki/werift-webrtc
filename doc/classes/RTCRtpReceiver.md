@@ -367,6 +367,34 @@ Internal (router): every learned fallback SSRC, oldest first.
 
 ## Methods
 
+### acceptFallbackPacket()
+
+> **acceptFallbackPacket**(`ssrc`, `ext`, `ownMid`): `void`
+
+Internal (router): a packet of the fallback SSRC `ssrc` at `ext` this
+receiver takes (a negotiated media payload type): it advances the
+highest sequence number and, with `ownMid`, the last MID update.
+
+#### Parameters
+
+##### ssrc
+
+`number`
+
+##### ext
+
+`number`
+
+##### ownMid
+
+`boolean`
+
+#### Returns
+
+`void`
+
+***
+
 ### addTrack()
 
 > **addTrack**(`track`): `boolean`
@@ -699,28 +727,6 @@ RTX learned it (`ridByRtxSsrc`, no track entry of its own).
 
 ***
 
-### markFallbackMidUpdate()
-
-> **markFallbackMidUpdate**(`ssrc`, `ext`): `void`
-
-Internal (router): the packet at `ext` carried this m-line's own MID.
-
-#### Parameters
-
-##### ssrc
-
-`number`
-
-##### ext
-
-`number`
-
-#### Returns
-
-`void`
-
-***
-
 ### noteFallbackRid()
 
 > **noteFallbackRid**(`ssrc`, `rid`): `void`
@@ -747,11 +753,14 @@ gives the RID hands the SSRC over ([adoptFallbackSsrcForRid](#adoptfallbackssrcf
 
 ### observeFallbackPacket()
 
-> **observeFallbackPacket**(`ssrc`, `sequenceNumber`): \{ `ext`: `number`; `midMayUpdate`: `boolean`; `stream`: `FallbackStream`; \} \| `undefined`
+> **observeFallbackPacket**(`ssrc`, `sequenceNumber`): \{ `ext`: `number`; `midMayUpdate`: `boolean`; `stream`: \{ `codec?`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); `highestExt`: `number`; `midUpdateExt?`: `number`; `payloadType`: `number`; `rid?`: `string`; \}; \} \| `undefined`
 
-Internal (router): a packet of the learned fallback SSRC `ssrc`; returns
-its extended sequence number and whether its MID may update the mapping
-(RFC 9143 section 9.2: only a packet newer than the last update does).
+Internal (router): where a packet of the learned fallback SSRC `ssrc`
+stands, without changing anything: its extended sequence number and
+whether its MID may update the mapping (RFC 9143 section 9.2: only a
+packet newer than the last update does). The router applies it with
+[acceptFallbackPacket](#acceptfallbackpacket) only once the packet is valid for the
+receiver that takes it, so an invalid packet moves nothing.
 
 #### Parameters
 
@@ -765,7 +774,7 @@ its extended sequence number and whether its MID may update the mapping
 
 #### Returns
 
-\{ `ext`: `number`; `midMayUpdate`: `boolean`; `stream`: `FallbackStream`; \} \| `undefined`
+\{ `ext`: `number`; `midMayUpdate`: `boolean`; `stream`: \{ `codec?`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); `highestExt`: `number`; `midUpdateExt?`: `number`; `payloadType`: `number`; `rid?`: `string`; \}; \} \| `undefined`
 
 ***
 

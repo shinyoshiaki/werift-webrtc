@@ -4238,6 +4238,63 @@ describe("media/router: a=ssrc のない m-line の SSRC 学習 (#356)", () => {
     expect(router.ssrcTable[55]).toBe(b.receiver);
   });
 
+  test("未交渉 PT のパケットは fallback SSRC の MID 対応付けの状態を進めず、後の有効な MID パケットで移る", () => {
+    // Arrange: MID a が SSRC 55 を seq 10 で学習し、MID b も学習できる
+    const { router, dtls, addReceiver } = createSsrcLessRouter();
+    const a = addReceiver({ mid: "a" });
+    const b = addReceiver({ mid: "b" });
+    const aPayloads = collectTrackPayloads(a);
+    const bPayloads = collectTrackPayloads(b);
+    router.routeRtp(
+      ssrcLessPacket({
+        ssrc: 55,
+        payloadType: 111,
+        sequenceNumber: 10,
+        mid: "a",
+      }),
+      dtls,
+    );
+
+    // Act: 未交渉の PT 50 で、自分の MID a と大きな seq 1000 のパケットが届く
+    router.routeRtp(
+      ssrcLessPacket({
+        ssrc: 55,
+        payloadType: 50,
+        sequenceNumber: 1000,
+        mid: "a",
+      }),
+      dtls,
+    );
+
+    // Assert: どちらにも届かず、対応付けは a のまま
+    expect(aPayloads).toEqual(["payload-10"]);
+    expect(bPayloads).toEqual([]);
+    expect(router.ssrcTable[55]).toBe(a.receiver);
+
+    // Act: 最後の有効な MID 更新 (seq 10) より新しい seq 500 が MID b 付きで届き、
+    // 続いて MID なしの seq 501 が届く
+    router.routeRtp(
+      ssrcLessPacket({
+        ssrc: 55,
+        payloadType: 111,
+        sequenceNumber: 500,
+        mid: "b",
+      }),
+      dtls,
+    );
+    router.routeRtp(
+      ssrcLessPacket({ ssrc: 55, payloadType: 111, sequenceNumber: 501 }),
+      dtls,
+    );
+
+    // Assert: 未交渉 PT のパケットに妨げられず b へ移り、MID なしの後続も b に届く
+    expect(aPayloads).toEqual(["payload-10"]);
+    expect(bPayloads).toEqual(["payload-500", "payload-501"]);
+    expect(router.ssrcTable[55]).toBe(b.receiver);
+    expect(a.receiver.fallbackSsrcs).toEqual([]);
+    expect(b.receiver.fallbackSsrcs).toEqual([55]);
+  });
+
   test("fallback で学習済みの SSRC に学習できない m-line の MID が明示されたら、どちらにも届けない", () => {
     // Arrange: MID a が SSRC 55 を学習済みで、MID n は a=ssrc のある m-line
     const { router, dtls, addReceiver } = createSsrcLessRouter();

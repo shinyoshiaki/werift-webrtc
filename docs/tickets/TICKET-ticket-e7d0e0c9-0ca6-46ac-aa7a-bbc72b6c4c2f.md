@@ -435,6 +435,21 @@ RFC 8843 / RFC 9143（BUNDLE）§9.2「Associating RTP/RTCP Streams with the Cor
 - J の途中の `pbt:deep -- --suite model`（simulcast の軸を入れた直後）では seed 25（the transport did not settle）が失敗した。単独で交互に: 本ブランチ 3/6、develop 6/6 で develop の方が多く、ICE / transport の既知の揺らぎ（275 と同じ種類）と判断した。今回の全スイート実行では発生していない。
 - 未実施: ブラウザとの E2E（`npm run e2e`）、`tools/negotiation-diff`、scenario への simulcast 軸の追加（leak は model の generator を使うので、simulcast の軸は leak の seed にも入っている。heap seed 2 と 4 も simulcast を引く）。
 
+**3.12 のレビュー指摘への対応（`8d9c604ba` + 未コミット差分）:**
+- [x] **fallback の MID 対応付けが不正なパケットで更新された:** `routeFallbackPacket` は payload type を確かめる前に `observeFallbackPacket` で最大シーケンス番号を進め、自分の MID なら MID 更新位置（`midUpdateExt`）も進めていた。未交渉 PT・seq 1000・自分の MID のパケット（受信側で破棄される）の後は、最後の有効な MID 更新（seq 10）より新しい seq 500 の別 MID の有効なパケットでも移らず、MID なしの後続も元の receiver に届いた。`observeFallbackPacket` を状態を変えない観測にし、受け取る receiver が決まって有効なパケットのときだけ `acceptFallbackPacket` で進める: 別 m-line の MID なら、その m-line がメディア PT として受けるときだけ移る（`learnUnknownSsrc` の PT 判定。受けなければ何も変えず破棄）。持ち主に残るパケットは、持ち主がメディア PT として受けるときだけシーケンス番号と MID 更新位置を進める。
+- [x] 回帰テスト（`router.test.ts`「未交渉 PT のパケットは fallback SSRC の MID 対応付けの状態を進めず、後の有効な MID パケットで移る」）: 修正前の HEAD（`8d9c604ba`）で失敗することを一時 worktree で確認した。
+- **model seed 275 の切り分け（同一操作列での比較）:** branch と develop で generator が違うので seed 番号では比較できない。そこで、本ブランチの縮小後の操作列（`unnegotiated`、`bundlePolicy: "max-compat"`、simulcast なし、8 操作: codecRenumbered の wireOffer → answer → wireOffer → rollback → addTrack → trickle → glare → answer）を固定シーンとして、本ブランチの model の generator / oracle を移した develop `29b0da4b0` の一時 worktree でも実行した（oracle は develop にない `routeEntries` の代わりに `ssrcTable` を読む）。
+
+| 実行 | 本ブランチ | 修正前 HEAD `8d9c604ba` | develop `29b0da4b0`（同じ generator） |
+| --- | --- | --- | --- |
+| 縮小後の 8 操作（交互に実行） | 5/15 失敗 | 3/5 失敗 | 11/19 失敗 |
+| seed 275 の全 10 操作（交互に実行、縮小なし） | 5/10 失敗 | — | 1/10 失敗 |
+| 合計 | 10/25 | — | 12/29 |
+
+  失敗内容は双方とも同じ「channel dc0 did not open on both peers」（DataChannel / SCTP が開くのを待つ時間切れ）。この操作列には SSRC-less の m-line も RID も simulcast もなく、本チケットの経路の処理を通らない。同一操作列で develop でも同程度に再現するので、既存の揺らぎ（3.9 以降の model 275 / 287 / 40 と同じ種類）と判断する。
+- **model seed 103（今回の `pbt:deep -- --suite model,leak` で失敗）:** 本ブランチの失敗は「the transport did not settle」。縮小後の操作列（`connected`、simulcast、addSendonly → splitOffer → addTrack → videoInactive の pranswer → remoteRidPacket → answer）で比較した。develop は `remoteRidPacket` の検査そのもの（本チケットで直した RID の transport 境界）で失敗するので、`remoteRidPacket` を外した列で比較した: 本ブランチ 3/8、develop 3/8 で、どちらも「the transport did not settle」。`remoteRidPacket` を含む列は本ブランチ 4/8。経路の変更による差ではない（ICE / transport の既知の揺らぎ、ICE チケット `74132240` と同じ種類）。
+- 検証: ルートの `npm run type` 成功。webrtc の `npm test` は 2034 passed、5 skipped。ルートの `npm run test:small` 成功。`pbt:deep -- --suite model,leak`: model 361/364（失敗は seed 103（上記）、flaky は seed 125 と 275（単独で成功））、leak 650/653（失敗は heap seed 2 と 4。どちらも 3.12 の検証のとおり develop でも同じ傾きで失敗、flaky は cycle seed 248）。
+
 ---
 
 ## 4. 制約・注意点

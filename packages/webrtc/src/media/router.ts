@@ -1216,21 +1216,27 @@ export class RtpRouter {
     transport: RTCDtlsTransport,
     owner: RTCRtpReceiver,
   ): { receiver: RTCRtpReceiver; learned: boolean } | undefined {
-    const { ssrc, sequenceNumber } = packet.header;
+    const { ssrc, sequenceNumber, payloadType } = packet.header;
     const observed = owner.observeFallbackPacket(ssrc, sequenceNumber);
-    if (!observed || typeof mid !== "string" || !observed.midMayUpdate) {
-      return { receiver: owner, learned: false };
-    }
+    if (!observed) return { receiver: owner, learned: false };
     const own = this.transceivers().find((t) => t.receiver === owner);
-    if (own?.mid === mid) {
-      owner.markFallbackMidUpdate(ssrc, observed.ext);
-      return { receiver: owner, learned: false };
+    const midUpdate = typeof mid === "string" && observed.midMayUpdate;
+    if (midUpdate && own?.mid !== mid) {
+      // The m-line the MID names takes the packet only with a media payload
+      // type it receives (`learnUnknownSsrc`); otherwise nothing moves.
+      const target = this.learnUnknownSsrc(packet, mid, false, transport, {
+        from: owner,
+        stream: { ...observed.stream, midUpdateExt: observed.ext },
+      });
+      return target ? { receiver: target, learned: true } : undefined;
     }
-    const target = this.learnUnknownSsrc(packet, mid, false, transport, {
-      from: owner,
-      stream: { ...observed.stream, midUpdateExt: observed.ext },
-    });
-    return target ? { receiver: target, learned: true } : undefined;
+    // A packet the owner does not receive as media (a payload type not
+    // negotiated, RTX) is dropped by the receiver: its sequence number and
+    // MID must not move the mapping state either.
+    if (owner.receivesMediaPayloadType(payloadType)) {
+      owner.acceptFallbackPacket(ssrc, observed.ext, midUpdate);
+    }
+    return { receiver: owner, learned: false };
   }
 
   /**
