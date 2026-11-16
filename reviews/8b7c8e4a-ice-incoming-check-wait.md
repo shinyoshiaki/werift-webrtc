@@ -1,6 +1,6 @@
 # 8b7c8e4a: 空の check list での待機と ICE 世代の終了
 
-対象コミット: `9b1cb2bec`（実装とテスト）、`0b72d4547`（Firefox 記録）。ベースは `91f6b80eb`。
+対象コミット: `9b1cb2bec`（実装とテスト）、`0b72d4547`（Firefox 記録）、`bfc957516`（`start()` の延期した `connect()` の取消）、`1cff1bead`（Firefox 記録）。ベースは `91f6b80eb`。
 この文書は確認レビュー用に未コミットのまま置いています。
 
 ## 不変条件
@@ -73,6 +73,53 @@
 
 - [tcp.test.ts:134](../packages/ice/tests/ice/tcp.test.ts#L134)：active のみのケースの準備段階の assert を、候補数 1 の決め打ちから「すべて `tcptype==="active"` で 1 件以上」に変えました（ネットワークインターフェースが複数あるホストで落ちていたため）。
 - 前回追加した TCP 限定の再起動テスト 4 件は、ICE のマトリクスに含まれるので削除しました。
+
+## 追加の修正：`start()` の直後に世代が終わる場合（`bfc957516`）
+
+### 指摘された問題
+
+`RTCIceTransport.start()` は `connection.connect()` を次のマイクロタスクで呼びます。その前に `restart()` または `resetRemoteGeneration()` が走り、新しい認証情報で `start()` が呼ばれると、旧 `start()` も新しい世代の `connect()` を呼びます。その結果、新しい世代の checks が二重に始まります。
+
+これも不変条件の違反で、今回は「旧世代の開始要求が、新しい世代の処理を始めてしまう」という向きの漏れです。
+
+### 修正
+
+- 延期した処理の先頭で世代を比べます（[transport/ice.ts:820](../packages/webrtc/src/transport/ice.ts#L820)）。
+  - 世代が変わっていたら、`connect()` を呼ばずに `IceRestartedError` で決着します。
+  - 同じ区間で `stop()` されていたら、`connect()` を呼ばずに `RTCIceTransport is closed` で決着します。
+- どちらの場合も、`failed` にするかどうかは既存の catch が判定します。世代が変わっていれば何もしません。`stop()` 済みなら `closed` は最終状態なので変わりません。
+- `start()` 以外に、延期して ICE の処理を始める箇所は `transport/ice.ts` と `transportActivation.ts` にありません（`Promise.resolve()` / `queueMicrotask` / `setImmediate` を検索して確認しました）。
+
+### 回帰テスト
+
+[iceGenerationActivation.test.ts:57](../packages/webrtc/tests/transport/iceGenerationActivation.test.ts#L57) で、`start()` の直後、同じ同期区間で世代を終わらせます。準備処理は [tests/utils.ts:73](../packages/webrtc/tests/utils.ts#L73) の `endIceTransportGeneration`（同期で restart する）と `exchangeIceTransportGeneration`（L87）です。
+
+| 終了 | 旧 `start()` | 旧世代での `connect()` の呼び出し | 新しい世代 |
+| --- | --- | --- | --- |
+| local restart | `IceRestartedError`。`failed` にならない | 0 回 | connected。`connect()` は合計 1 回 |
+| remote restart | `IceRestartedError`。`failed` にならない | 0 回 | connected。`connect()` は合計 1 回 |
+| `stop()`（L93） | エラーで決着。`closed` のまま | 0 回 | － |
+
+ベース `82ef35f4b` では 3 件とも失敗します。restart の 2 件は、旧 `start()` が新しい世代の `connect()` を呼んでしまい、認証情報や収集が未完了のエラーになります。`stop()` の件はタイムアウトします。
+
+テスト用の ICE transport（`createIceTransportsWithoutPeerCandidates`）は、`useDefaultStunServer: false` で公開 STUN サーバーに問い合わせないようにしました。問い合わせると収集に時間がかかり、準備段階がタイムアウトすることがありました。
+
+### 検証（`bfc957516`）
+
+| コマンド | 結果 |
+| --- | --- |
+| `npm run type` | 成功 |
+| `npm run test:small` | 全パッケージ成功（webrtc 1875 件成功） |
+| `npm run e2e`（Chrome） | 25 ファイル、71 件成功 |
+| 対象ファイル（`iceGenerationActivation.test.ts` と `transport/ice.test.ts`） | 連続 26 回成功（`iceGenerationActivation.test.ts` 単独 20 回を含む） |
+| `cd e2e && npm run firefox:record`（clean な `bfc957516`、引数なし） | 1 回目（[003908Z](../e2e/firefox-runs/20261116T003908Z-bfc957516.json)）：`iceTcp.test.ts` がリトライを含めて 20 秒のタイムアウトで失敗（62 件成功）。2 回目（[004831Z](../e2e/firefox-runs/20261116T004831Z-bfc957516.json)）：63 件成功、0 件失敗 |
+
+`iceTcp.test.ts` の 1 回目の失敗について：
+
+- 同じコミットで、単独実行 15 回と全件の手動実行 3 回はすべて成功しました。
+- 全件の手動実行のうち 1 回で、`turnRelay.test.ts`（TURN-TCP）の unhandled rejection（`timed out waiting for "server-to-browser-tcp"`）が出ました。この実行も最終的には成功しています。TCP を使う他のテストでも、断続的な遅延が出ています。
+- `bfc957516` の変更は `start()` と再起動が重なるときだけに効き、再起動のない `iceTcp` の経路は変えていません。
+- ただし、1 回目の失敗時のサーバーログは残っていないため、原因は特定できていません。
 
 ## 検証（`9b1cb2bec` 相当の作業ツリー）
 
