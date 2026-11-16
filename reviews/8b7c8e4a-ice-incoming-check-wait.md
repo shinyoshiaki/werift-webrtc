@@ -1,6 +1,6 @@
 # 8b7c8e4a: 空の check list での待機と ICE 世代の終了
 
-対象コミット: `9b1cb2bec`（実装とテスト）、`0b72d4547`（Firefox 記録）、`bfc957516`（`start()` の延期した `connect()` の取消）、`1cff1bead`（Firefox 記録）、`e535dc54d`（同期の状態イベント中の再起動）、`037110bdb`（Firefox 記録）、`feb9f8f52`（ICE-lite の待ち時間）、`3344382e9`（Firefox 記録）、`0a4590d0d`（ICE-lite が収集中に connect する場合）、`0d32385bd`（Firefox 記録）。ベースは `91f6b80eb`。
+対象コミット: `9b1cb2bec`（実装とテスト）、`0b72d4547`（Firefox 記録）、`bfc957516`（`start()` の延期した `connect()` の取消）、`1cff1bead`（Firefox 記録）、`e535dc54d`（同期の状態イベント中の再起動）、`037110bdb`（Firefox 記録）、`feb9f8f52`（ICE-lite の待ち時間）、`3344382e9`（Firefox 記録）、`0a4590d0d`（ICE-lite が収集中に connect する場合）、`0d32385bd`（Firefox 記録）、`1726e9616`（空の check list での待機の起床源）、`988d3db68`（Firefox 記録）。ベースは `91f6b80eb`。
 この文書は確認レビュー用に未コミットのまま置いています。
 
 ## 不変条件
@@ -73,6 +73,60 @@
 
 - [tcp.test.ts:134](../packages/ice/tests/ice/tcp.test.ts#L134)：active のみのケースの準備段階の assert を、候補数 1 の決め打ちから「すべて `tcptype==="active"` で 1 件以上」に変えました（ネットワークインターフェースが複数あるホストで落ちていたため）。
 - 前回追加した TCP 限定の再起動テスト 4 件は、ICE のマトリクスに含まれるので削除しました。
+
+## 空の check list での待機：起床源の不変条件（`1726e9616`）
+
+世代終了の系統は、上のマトリクスで塞ぎました。その後の指摘は、新しい待機（`waitForIncomingCheck`）がいつ始まり、何で起き、いつ失敗するかに移っています。この系統も、1 本ずつではなく不変条件として宣言し、まとめて網羅しました。
+
+### 不変条件
+
+空の check list での待機は、次のとおりに動く。
+
+1. pair が追加されたら、直ちに続行する。
+2. ローカル収集が終わった時点でソケットがなければ、直ちに失敗する。
+3. 世代が終わったら、直ちにその世代のエラーで決着する。
+4. それ以外は、`incomingCheckTimeout` の期限で失敗する。期限は待機の開始時に決まり、起こされて再評価しても延びない。
+
+同一世代の待ち手が複数いても、各自が起きる。
+
+### 修正（[ice.ts:2088](../packages/ice/src/ice.ts#L2088)）
+
+- 待ち手は `incomingCheckWaits`（`Set<AbortController>`）で持ちます。以前は単一の `AbortController` だったので、並行した 2 本目の `connect()` が 1 本目の起床を奪っていました。
+- `wakeIncomingCheckWaits()`（L2120）がすべての待ち手を起こします。呼ぶのは次の 3 か所です。
+  - `addPair()`（L3090）
+  - ローカル収集の終了：`localCandidatesEnd = true` を立てる 2 か所（L1009 の即時の分岐、L1019 の `localCandidatesEndPromise` の `.then`）
+- 前回の応答で「収集の終了を知らせるイベントがない」と書いたのは誤りでした。この 2 か所が終了の地点です。
+- 待機は、開始時に決めた期限までループします。起きるたびに、`ended`、ソケットの有無と収集の終了、pair を再評価します。
+- webrtc 側の実装は変えていません。ICE-lite の regather（`commit()` が収集を await しない経路）から、収集中の `connect()` に到達しうることをコメントで残しました（`transport/ice.ts` の `commit()`）。
+
+### マトリクス（[incoming-check-wake.test.ts](../packages/ice/tests/ice/incoming-check-wake.test.ts)）
+
+準備処理は `tests/utils.ts` の `createLiteAgentStillGathering`（lite 側の options を受け取るよう拡張）、`createLiteAgentWithoutPeerCandidates`、`createTcpOnlyConnections` です。
+
+| 起床源 \ 対象 | ICE-lite 収集中 | ICE-lite 収集後 | full 収集後 |
+| --- | --- | --- | --- |
+| pair 追加（相手の check） | L23：connected になる | `ice-lite-incoming-check.test.ts`：connected になる | `tcp.test.ts`：connected になる |
+| 収集終了・ソケット 0（`useIpv4/6: false`） | **L41：待ち時間 3 秒の前に即失敗（ベースでは 3003 ms）** | 待ちに入る前に即失敗 | 即失敗（従来どおり） |
+| 収集終了・ソケットあり・pair なし | L62：開始時の期限（0.6 秒）で失敗し、延びない | — | — |
+| 世代終了 | L82：restart は `IceRestartedError`、close は `ICE negotiation failed`。どちらも 1 秒以内 | `generation-end.test.ts` の `lite` 行 | `generation-end.test.ts` |
+| 並行 `connect()` 2 本 | — | **L116：2 本とも check の到着直後に接続（ベースでは 1 本目が 3001 ms）** | L138：2 本とも check の到着直後に接続 |
+
+- ベース `df7f97f9f` で失敗するのは、太字の 2 件（L41、L116）です。
+- それ以外のセルはベースでも成功します。不変条件の各項目を固定するために入れています。
+- 並行 `connect()` で 2 本が同じ結果キューを取り合う問題は、チケット以前からの full モードの制約です。webrtc 層は `startPromise` の共有で防いでいます。今回は待機の起床だけを直しました（L138 では 2 本とも接続することを確認しています）。
+- 前回 `ice-lite-incoming-check.test.ts` に加えた「収集中の `connect()`」のテストは、L23 と同じ内容なので削除しました。
+
+### 検証（`1726e9616`）
+
+| コマンド | 結果 |
+| --- | --- |
+| `cd packages/ice && npm test` | 52 ファイル成功、479 件成功、5 件スキップ |
+| `npm run type` | 成功 |
+| `npm run test:small` | 全パッケージ成功（webrtc 1880 件成功） |
+| `npm run e2e`（Chrome） | 25 ファイル、71 件成功 |
+| `cd e2e && npm run firefox:record`（clean な `1726e9616`、引数なし） | 63 件成功、0 件失敗、8 件スキップ。[記録](../e2e/firefox-runs/20261116T082802Z-1726e9616.json) |
+
+`src/negotiation` は変えていないので、`pbt:deep` は実行していません。
 
 ## 追加の修正：ICE-lite が収集の途中で `connect()` する場合（`0a4590d0d`）
 
