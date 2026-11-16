@@ -426,6 +426,30 @@ export class RTCRtpReceiver {
     return stream;
   }
 
+  /**
+   * Internal (router): forget whatever packets taught this receiver about
+   * `ssrc` — a fallback SSRC, a RID's media SSRC or a RID's RTX SSRC — when
+   * a local sender or another m-line's description in the same RTP session
+   * takes it. {@link takeForgottenSsrcs} hands it to the router to drop the
+   * learned route. A description's own SSRC stays.
+   */
+  releaseLearnedSsrc(ssrc: number) {
+    if (this.releaseFallbackSsrc(ssrc)) return;
+    let learned = this.learnedTrackSsrcs.has(ssrc);
+    for (const [rid, media] of Object.entries(this.mediaSsrcByRid)) {
+      if (media !== ssrc) continue;
+      delete this.mediaSsrcByRid[rid];
+      learned = true;
+    }
+    if (ssrc in this.ridByRtxSsrc) {
+      this.unbindRtxSsrc(ssrc);
+      learned = true;
+    }
+    if (!learned) return;
+    this.nack.forget(ssrc);
+    this.forgetLearnedSsrc(ssrc);
+  }
+
   /** The default track shows the newest learned fallback SSRC and its codec. */
   private showNewestFallbackSsrc() {
     const newest = this.fallbackSsrc;
@@ -749,8 +773,9 @@ export class RTCRtpReceiver {
   }
 
   addTrack(track: MediaStreamTrack) {
+    // An SSRC is any 32-bit value, 0 included: test for a missing one only.
     if (
-      track.ssrc &&
+      track.ssrc !== undefined &&
       !track.rid &&
       !this.trackBySSRC[track.ssrc] &&
       this.unboundTracks.length > 0
@@ -770,7 +795,7 @@ export class RTCRtpReceiver {
       if (t.rid) {
         return t.rid === track.rid;
       }
-      if (t.ssrc) {
+      if (t.ssrc !== undefined) {
         return t.ssrc === track.ssrc;
       }
     });
@@ -778,7 +803,7 @@ export class RTCRtpReceiver {
       return false;
     }
     this.tracks.push(track);
-    if (track.ssrc) {
+    if (track.ssrc !== undefined) {
       this.trackBySSRC[track.ssrc] = track;
       this.learnedTrackSsrcs.delete(track.ssrc);
     }
@@ -872,7 +897,7 @@ export class RTCRtpReceiver {
   getStatsRootIds(selector?: MediaStreamTrack) {
     return this.reportedTracks
       .filter((track) => (!selector ? true : track === selector))
-      .filter((track) => track.ssrc)
+      .filter((track) => track.ssrc !== undefined)
       .map((track) => this.getInboundRtpStatsId(track));
   }
 
@@ -886,7 +911,7 @@ export class RTCRtpReceiver {
 
     // Collect stats for each track
     for (const track of this.reportedTracks) {
-      if (!track.ssrc) continue;
+      if (track.ssrc === undefined) continue;
 
       const streamStats = this.remoteStreams[track.ssrc];
 

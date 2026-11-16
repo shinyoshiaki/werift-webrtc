@@ -470,6 +470,21 @@ export const MODEL_SCENES: (Scene & { name: string; ref: string })[] = [
     ] as Scene["ops"],
   })),
   {
+    name: "a RID's media SSRC changing while a description is pending survives the rollback, and RID packets of another transport never reach it",
+    ref: "#356 3.12; origin: model property (seed 4) with the simulcast and bundlePolicy axes",
+    start: "media",
+    pairing: "byKind",
+    bundle: "disable",
+    simulcast: true,
+    ops: [
+      ["a", "offer", { iceRestart: true }],
+      ["b", "answer"],
+      ["b", "offer", { iceRestart: false }],
+      ["b", "remoteRidPacket", { index: 1, withMid: true }],
+      ["a", "rollback"],
+    ],
+  },
+  {
     name: "a replacement offer that gives an m-line offered without a=ssrc its SSRC does not announce its track again",
     ref: "#356; origin: model property (seed 16) with ssrcRemoved as a same-session rewrite",
     start: "unnegotiated",

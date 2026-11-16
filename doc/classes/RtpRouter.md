@@ -76,6 +76,11 @@ keep their receiver whatever the MID (existing behaviour). A rollback keeps
 the receiver packets taught last, even over a baseline route packets
 taught another receiver.
 
+Every identifier of a packet — SSRC, RID (`rtp-stream-id`), RRID
+(`repaired-rtp-stream-id`) and MID — resolves within the packet's RTP
+session (its DTLS transport) only: a route, RID route or m-line of another
+transport is never reached, and a MID naming one drops the packet.
+
 An SSRC is unique per RTP session only, so `routes` keeps, per SSRC, a
 set of routes `{ endpoint, origin }`, each belonging to its endpoint's
 current `dtlsTransport` (a transceiver moved to another transport takes
@@ -89,11 +94,14 @@ to the highest ranked route of its transport (endpointBySsrc):
 | `sdp` | `registerRtpReceiver` (an answer, a commit, or a pending description without conflict) | 2: a learned owner forgets the SSRC; another receiver's description route of the SSRC goes (the later description wins) | other streams, routed there |
 | `learned` | packets (RID, simulcast, fallback) | 3: never beside a `sender` / `sdp` route of another endpoint | other streams, routed there |
 
-A receiver that loses its learned SSRC (a sender or description of its
-session registers it, or a BUNDLE merge brings it into such a session)
-forgets it (`releaseFallbackSsrc`), so its track and statistics agree
-with the table. Sender enumeration (TWCC fan-out, keyframe fallback)
-reads the same routes.
+A receiver that loses its learned SSRC — a fallback SSRC, a RID's media
+SSRC or a RID's RTX SSRC — because a sender or description of its session
+registers it, or a BUNDLE merge brings it into such a session, forgets it
+(`RTCRtpReceiver.releaseLearnedSsrc`), so its track and statistics agree
+with the table. A description route a pending description added in one
+session is taken again in the session its receiver has at the commit.
+Sender enumeration (TWCC fan-out, keyframe fallback) reads the same
+routes, within the packet's session.
 
 A payload type or extension ID counts as in use only when both current
 descriptions carry it for the m-line. RID lookup uses MID+RID when the

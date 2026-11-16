@@ -153,7 +153,7 @@ Where werift's own behavior differs from the specifications and browsers, a cons
 | `certificateScope` | `"process"` | `"process"`: one default DTLS certificate shared by the process | a certificate per `RTCPeerConnection` | fixed | `"peerConnection"` (= `"standard"`) |
 | `mLineReuse` | `"standard"` | `"aggressive"`: an accepted `inactive` m-line uses port 0, so its position is reused | an accepted `inactive` m-line keeps its port | fixed | `"compatible"` (= `"standard"`) |
 | `transceiverPairing` | `"byKind"` | `"byKind"`: a remote offer takes any unassociated transceiver of its kind | JSEP 5.10: only one `addTrack()` created | fixed | — |
-| `keyFrameRequestRouting` | `"fallback"` | `"fallback"`: a PLI / FIR for an unknown SSRC falls back to the RTX owner or the only video sender | not delivered (RFC 4585 / RFC 5104) | changeable | `"compatible"` (= `"fallback"`), `"strict"` (= `"standard"`) |
+| `keyFrameRequestRouting` | `"fallback"` | `"fallback"`: a PLI / FIR for an unknown SSRC falls back to the RTX owner or the only video sender of the transport it arrived on | not delivered (RFC 4585 / RFC 5104) | changeable | `"compatible"` (= `"fallback"`), `"strict"` (= `"standard"`) |
 
 Any other value is a `TypeError`, and changing a fixed option is an `InvalidModificationError`. An old name is read as its current name (`getConfiguration()` returns the current name). `CompatibilityOptionValues` lists the values of every option.
 

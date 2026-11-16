@@ -898,6 +898,28 @@ this m-line an SSRC or a RID or the transceiver goes. Returns them.
 
 ***
 
+### releaseLearnedSsrc()
+
+> **releaseLearnedSsrc**(`ssrc`): `void`
+
+Internal (router): forget whatever packets taught this receiver about
+`ssrc` — a fallback SSRC, a RID's media SSRC or a RID's RTX SSRC — when
+a local sender or another m-line's description in the same RTP session
+takes it. [takeForgottenSsrcs](#takeforgottenssrcs) hands it to the router to drop the
+learned route. A description's own SSRC stays.
+
+#### Parameters
+
+##### ssrc
+
+`number`
+
+#### Returns
+
+`void`
+
+***
+
 ### releaseProvisionalSsrc()
 
 > **releaseProvisionalSsrc**(`ssrc`): `void`

@@ -23,7 +23,11 @@ import { RTCRtpSender } from "../../src/media/rtpSender";
 import type { RTCDtlsTransport } from "../../src/transport/dtls";
 import type { Kind } from "../../src/types/domain";
 import { createDtlsTransport, createPliPacket } from "../fixture";
-import { createSimulcastRtxReceiver } from "./rtpReceiverTestUtils";
+import {
+  createSimulcastMediaPacket,
+  createSimulcastRtxPacket,
+  createSimulcastRtxReceiver,
+} from "./rtpReceiverTestUtils";
 
 /**
  * Shared Arrange of the RTP routing fallback for remote m-lines without
@@ -285,6 +289,32 @@ export function collectRtcpRecipients(
   return recipients;
 }
 
+/** RTCP packet types a local sender got, in order (its handler is replaced). */
+export function collectSenderRtcp(sender: RTCRtpSender) {
+  const types: number[] = [];
+  sender.handleRtcpPacket = ((packet: RtcpPacket) => {
+    types.push(packet.type);
+  }) as RTCRtpSender["handleRtcpPacket"];
+  return types;
+}
+
+/** `origin:label` of every route of `ssrc`, labelled by endpoint. */
+export function routeLabels(
+  router: RtpRouter,
+  ssrc: number,
+  labels: Record<string, RTCRtpReceiver | RTCRtpSender>,
+) {
+  return router.routeEntries
+    .filter((route) => route.ssrc === ssrc)
+    .map((route) => {
+      const label =
+        Object.entries(labels).find(
+          ([, endpoint]) => endpoint === route.endpoint,
+        )?.[0] ?? "?";
+      return `${route.origin}:${label}`;
+    });
+}
+
 /** Number of same-SSRC routes of other RTP sessions the router holds. */
 export function collidingRouteCount(router: RtpRouter) {
   const routes = (
@@ -512,4 +542,154 @@ export function expectedRouteMatrix(
       .map((e) => [e.label, winners.includes(e)]),
   );
   return { got, keeps };
+}
+
+/** An identifier kind of the identifier matrix (#356 3.12). */
+export type IdentifierKind = "rid" | "rrid" | "learned" | "sdp";
+
+/**
+ * Arrange of the identifier matrix (#356 3.12): on transport A an SSRC-less
+ * receiver `a` (Opus, MID `a`), on transport B a simulcast receiver `s`
+ * (VP8 + RTX, RID `high`, MID `s`) and a receiver `n` an answer gave SSRC
+ * 600 (Opus, MID `n`); `a` has learned SSRC 500. `send(kind, mid, transport)`
+ * sends one packet of the identifier — a RID media packet (SSRC 55), an RTX
+ * packet naming the RID (SSRC 77), or an RTP packet of the learned (500) or
+ * SDP (600) SSRC — with the MID extension `mid` (or none) on `transport`,
+ * then an SR, a NACK and a PLI naming its SSRC on the same transport, and
+ * returns which receiver took it and which got the RTCP.
+ */
+export function createIdentifierMatrix() {
+  const arranged = createSsrcLessRouter();
+  const { router, dtls: transportA, transceivers, addReceiver } = arranged;
+  const a = addReceiver({ mid: "a" });
+  a.setCurrentDirection("recvonly");
+  const simulcast = createSimulcastRtxReceiver({ router, mid: "s" });
+  const s = simulcast.transceiver;
+  s.firedReceiving = true;
+  s.setCurrentDirection("recvonly");
+  transceivers.push(s);
+  const transportB = simulcast.dtls;
+  const n = addReceiver({ mid: "n", transport: transportB });
+  n.setCurrentDirection("recvonly");
+  router.registerRtpReceiverBySsrc(n, {
+    codecs: [opus()],
+    headerExtensions: [],
+    encodings: [new RTCRtpCodingParameters({ ssrc: 600, payloadType: 111 })],
+  });
+  router.routeRtp(
+    ssrcLessPacket({
+      ssrc: 500,
+      payloadType: 111,
+      mid: "a",
+      sequenceNumber: 1,
+    }),
+    transportA,
+  );
+  const ssrcOf: Record<IdentifierKind, number> = {
+    rid: 55,
+    rrid: 77,
+    learned: 500,
+    sdp: 600,
+  };
+  const labels = new Map<RTCRtpReceiver, string>([
+    [a.receiver, "a"],
+    [s.receiver, "s"],
+    [n.receiver, "n"],
+  ]);
+  const send = (
+    kind: IdentifierKind,
+    mid: string | undefined,
+    transport: RTCDtlsTransport,
+  ) => {
+    const ssrc = ssrcOf[kind];
+    const taken: string[] = [];
+    const rtcp: string[] = [];
+    const subscriptions = [a, s, n].map((t) => {
+      const label = labels.get(t.receiver)!;
+      const tracks = [
+        t.receiver.track,
+        ...Object.values(t.receiver.trackByRID),
+      ];
+      return [
+        ...tracks.map((track) =>
+          track.onReceiveRtp.subscribe(() => taken.push(label)),
+        ),
+        t.receiver.onRtcp.subscribe(() => rtcp.push(label)),
+      ];
+    });
+    const before = {
+      rtx: { ...s.receiver.ridByRtxSsrc },
+      media: { ...s.receiver.mediaSsrcByRid },
+      fallback: a.receiver.fallbackSsrcs,
+    };
+    if (kind === "rid") {
+      router.routeRtp(
+        createSimulcastMediaPacket({
+          ssrc,
+          sequenceNumber: 1,
+          rid: "high",
+          mid: mid ?? null,
+        }),
+        transport,
+      );
+    } else if (kind === "rrid") {
+      router.routeRtp(
+        createSimulcastRtxPacket(
+          createSimulcastMediaPacket({
+            ssrc: 2000,
+            sequenceNumber: 1,
+            mid: null,
+          }),
+          {
+            rtxSsrc: ssrc,
+            rtxSequenceNumber: 1,
+            rrid: "high",
+            mid: mid ?? null,
+          },
+        ),
+        transport,
+      );
+    } else {
+      router.routeRtp(
+        ssrcLessPacket({ ssrc, payloadType: 111, mid, sequenceNumber: 10 }),
+        transport,
+      );
+    }
+    // RTX は track に届かないので、RID の RTX として結び付いたことで受けたとみなす。
+    if (
+      s.receiver.ridByRtxSsrc[ssrc] !== undefined &&
+      before.rtx[ssrc] === undefined
+    ) {
+      taken.push("s");
+    }
+    for (const packet of [
+      rtcpNamingSsrc.SR(ssrc),
+      rtcpNamingSsrc.NACK(ssrc),
+      rtcpNamingSsrc.PLI(ssrc),
+    ]) {
+      router.routeRtcp(packet, transport);
+    }
+    for (const list of subscriptions) for (const sub of list) sub.unSubscribe();
+    const routes = router.routeEntries
+      .filter((r) => r.ssrc === ssrc)
+      .map((r) => ({
+        label: labels.get(r.endpoint as RTCRtpReceiver),
+        transport: r.endpoint.dtlsTransport,
+      }));
+    return {
+      taken: [...new Set(taken)],
+      rtcp: [...new Set(rtcp)],
+      routes,
+      before,
+    };
+  };
+  return {
+    ...arranged,
+    transportA,
+    transportB,
+    a,
+    s,
+    n,
+    send,
+  };
 }

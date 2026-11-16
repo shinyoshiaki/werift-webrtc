@@ -154,6 +154,29 @@ export const WIRE_MUTATIONS: Record<string, WireMutation> = {
           ),
     same: true,
   },
+  /**
+   * No MID header extension (#356 3.12): RID packets carry the RID alone, and
+   * the receiver resolves it within the packet's RTP session. An m-line
+   * without `a=ssrc` and RIDs would then need a unique payload type, so the
+   * rewrite applies only where every m-line in use has SSRCs or RIDs.
+   */
+  midRemoved: {
+    apply: (sdp) =>
+      sections(sdp)
+        .slice(1)
+        .some(
+          (s) =>
+            !/^m=\S+ 0 /.test(s) &&
+            !s.startsWith("m=application") &&
+            !/^a=(ssrc|rid):/m.test(s),
+        )
+        ? sdp
+        : sdp.replace(
+            /^a=extmap:\d+(?:\/\w+)? urn:ietf:params:rtp-hdrext:sdes:mid\r\n/gm,
+            "",
+          ),
+    same: true,
+  },
   mediaSsrcRenewed: { apply: renewMediaSsrc },
   /** H264 moves to a new payload type (an added key; its old one is gone). */
   codecRenumbered: {

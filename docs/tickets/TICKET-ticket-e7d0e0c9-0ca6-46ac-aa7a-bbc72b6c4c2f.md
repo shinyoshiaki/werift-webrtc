@@ -376,6 +376,65 @@ RFC 8843 / RFC 9143（BUNDLE）§9.2「Associating RTP/RTCP Streams with the Cor
   - 単独で交互に 6 回ずつ（ロードアベレージ 14〜19）: `issue/705-reuse` 本ブランチ 1/6・develop `41773f4dc` 1/6、scenario seed 12 0/6・0/6、seed 98 0/6・0/6。
   - seed 98 を含むシャード（`SEED=92 SEEDS=7`）を、もう一方の worktree で `pbt:deep -- --suite scenario` を流して負荷をかけながら 5 回ずつ: 本ブランチは seed 98 が 0/5（同じシャードの seed 92〜96 が失敗した回が 3/5。内容は集まった ICE 候補の集合の差）、develop は seed 98 が 2/5（内容は `a=end-of-candidates` の差）。どちらも ICE の候補収集のタイミングに依存する既存の揺らぎで、経路の処理とは関係ない。
 
+### 3.12 追加要件: すべての識別子（SSRC / RID / RRID / MID）をパケットの RTP session 内で解決する（ユーザー承認済み）
+
+**なぜ通過できないのか（10 回目の非承認の分析）:** 指摘 10（RID 検索が transport を見ない、SSRC `0` の統計欠落）は 2 件とも一時プローブで再現した。同じ `receiverByRid` を通る未指摘の穴も 2 つあった。
+
+| ケース | 結果（修正前 `c84958c28`） | 状態 |
+| --- | --- | --- |
+| RID のみ・MID なしで transport A に到着。別 transport の simulcast receiver が同名 RID を持つ | 別 transport の receiver に届き、SSRC 55 を学習 | 指摘 10 |
+| RID + 別 transport の m-line の MID `s` が transport A に到着 | MID の receiver に届き、SSRC 56 を学習 | 未指摘（学習 SSRC の MID 判定は transport を照合するが、RID 経路は照合しない） |
+| RRID のみ・MID なしで transport A に到着 | 別 transport の receiver が RTX SSRC 77 を記録 | 未指摘（同じ `receiverByRid` を通る） |
+| SSRC `0` を学習 | RTP は届くが inbound-rtp 統計が空 | 指摘 10 |
+| SSRC `0` の解放・登録解除 | 表は正しく空になる | 問題なし（`addTrack` にも同じ truthy 判定があった） |
+
+原因:
+1. **合格条件は「terra が何も見つけないこと」で、terra の手法は固定している。** terra は {SSRC, RID, RRID, MID, PT} の各引き当てについて {同一 / 別 transport} × {MID なし / 自分の MID / 別 m-line の MID} × {sender / sdp / learned} を試す。10 回の非承認はすべてこの直積のセル。
+2. **指摘された引き当てだけを直す修正で、兄弟の引き当てが残る。** 3.11 で SSRC 表（`endpointBySsrc`）は閉じたが、`receiverByRid` は MID あり分岐と「最初に見つかった RID」分岐の両方が transport を無視していた。識別子ごとの引き当て関数が transport 境界の規則を個別に持っている限り、表を 1 つ閉じるごとに次の表で同じ指摘が出る。
+3. **`pbt:deep` は RID を一度も生成していなかった。** `generator.ts` に `sendEncodings` / simulcast がなく、`ssrcLessTraffic.ts` は `a=rid` 行を取り除くだけ。3.11 の `bundlePolicy` の軸は SSRC 表しか探索していなかった。
+4. **境界値の監査をしていなかった。** SSRC は 32 bit 全域が有効で `0` も正当だが、`rtpReceiver.ts` の `addTrack`（3 か所）、`getStatsRootIds`、`collectStats` が truthy 判定だった。
+
+**採用した規則（G）:** 「パケットのすべての識別子（SSRC / RID / RRID / MID）は、パケットの RTP session（DTLS transport）内でだけ解決する。別 transport の経路・RID 経路・m-line には届かず、別 transport の m-line を名指す MID のパケットは破棄する」。`RtpRouter` の TSDoc にこの 1 つの規則として書き、識別子ごとの例外は置いていない。
+- [x] `receiverByRid(rid, mid, transport)` はパケットの transport 上の receiver だけを返す。MID が別 transport の m-line を名指すときは `rid receiver on another transport` の理由で破棄する。MID の RID 経路がない、または MID がない場合も、RID だけの検索はその transport の RID 経路に限る。transport なしの呼び出し（単体テスト互換）は従来どおり。RID（`rtp-stream-id`）と RRID（`repaired-rtp-stream-id`）の両方の呼び出しで transport を渡す。
+- [x] 境界値（I）: `rtpReceiver.ts` の SSRC の truthy 判定 5 か所（`addTrack` 3、`getStatsRootIds`、`collectStats`）を `!== undefined` に変えた。`bindFallbackSsrc` の `from.mid` は文字列ではなく、router が `typeof mid === "string"` で作る真偽値なので（空文字列の MID も MID として数える）変更不要と判断した。
+
+**組み合わせ表（H、`tests/media/router.test.ts`「識別子の組み合わせ」。Arrange は `ssrcLessTestUtils.ts` の `createIdentifierMatrix`）:** transport A に SSRC-less の a（学習済み SSRC 500）、transport B に simulcast の s（RID `high` + RTX）と SDP SSRC 600 の n。軸は {rid, rrid, learned-ssrc, sdp-ssrc} × {MID なし, 自分の m-line の MID, 別 transport の m-line の MID} × {持ち主と同じ / 別 transport} = 24 セル。各セルの共通 Assert: 受けた receiver（またはなし）、同じ SSRC を名指す SR / NACK / PLI の届き先、別 transport の receiver の `ridByRtxSsrc` / `mediaSsrcByRid` / fallback SSRC が変わらないこと。
+- 修正前の HEAD（`c84958c28`）で失敗したセル（4）: rid × {MID なし, 自分の MID} × 別 transport、rrid × {MID なし, 自分の MID} × 別 transport（上の表の 3 ケースと、RRID + MID の組）。「自分の MID」× 別 transport は、上の表の「別 transport の m-line の MID」と同じ状況（パケットが着いた transport から見て MID が別 transport の m-line を名指す）。
+- 境界値 `test.each([0, 1, 0xffffffff])`（学習 → `getStats()` の inbound-rtp → rollback → description による解放）: 修正前は SSRC `0` が失敗（統計が空）、`1` と `0xffffffff` は成功。
+- 修正後: 24 セルと 3 つの境界値がすべて成功。
+
+**PBT に RID を入れた（J）:**
+- [x] model property のシーンに `simulcast` の軸を追加した（専用の乱数列 `seed ^ 0x3512` で 30%。既存 seed の操作列は変わらない）。a に `sendEncodings`（RID `high` / `low`）の sendonly video transceiver を足し、video の header extension に `rtp-stream-id` / `repaired-rtp-stream-id` を加えた。`connected` で始まるシーンは最初の交渉で simulcast を確立する。300 seed 中 83 seed が simulcast を引き、うち 11 seed が `bundlePolicy: "disable"`、15 seed が `"max-compat"` と組み合わさる。
+- [x] 操作 `remoteRidPacket`（重み 6）: 受信側の RID の track に、自分の transport で新しい SSRC の RID パケット（MID あり / なし）を流して届くことを確かめ、別 transport があればそちらにも同じ RID のパケットを流して届かないこと・その SSRC の経路が作られないことを確かめる（「届いた receiver の transport がパケットの transport と一致する」oracle。`ssrcLessTraffic.ts` の `injectRidPacket`）。その後 `assertNegotiationInvariants`。
+- [x] wire mutation `midRemoved`（MID 拡張の extmap を除去）: RID だけのパケットが流れる。使用中の m-line がすべて `a=ssrc` か `a=rid` を持つときだけ適用する（SSRC-less の m-line は PT の一意性が必要になるため）。
+- [x] oracle の「rollback で経路が戻る」は description 由来の経路（`routeEntries` の `origin !== "learned"`）と `ridTable` だけを比べる（RID の media SSRC がパケットで切り替わった learned 経路は、3.11 の規則どおり rollback 後も今のものを残す）。
+- [x] 固定シーン（`scenes.ts`）: 「a RID's media SSRC changing while a description is pending survives the rollback, and RID packets of another transport never reach it」（media で開始、`byKind`、`bundlePolicy: "disable"`、simulcast、ICE restart の offer → answer → offer → MID 付きの RID パケット → rollback）。
+- simulcast の軸で develop にもある別の不具合が 2 つ見つかった（simulcast の m-line を replacement offer で作り直すと `track` イベントが重複する、停止した simulcast の m-line の再利用で `No compatible codec remains`）。どちらも develop で再現したので本チケットの範囲外とし、チケット `e4bfc125` を作成した。generator は simulcast のシーンで replacement offer と simulcast の transceiver の停止を引かない（コメントで `e4bfc125` を参照）。
+
+**提出前の敵対レビュー（K）:** 上の組み合わせ表を brief にして、未コミット差分に独立した敵対レビューを 1 回かけた。新しい識別子のセルは出なかったが、経路の持ち主の解放と transport 境界で 4 件を再現した。回帰テストを先に書いて修正前のコードで失敗することを確認してから直した（`router.test.ts` の末尾 4 件）。
+1. **compatible の PLI / FIR の救済が transport を見ていなかった:** 未知の SSRC（または RTX SSRC）を名指す PLI / FIR が transport B で届くと、transport A の唯一の映像 sender に届いた。`keyFrameRequestTarget` の救済候補をパケットの RTP session の sender に限った（`KeyFrameRequestRouting` の TSDoc、`compatibilityOptions.ts`、README の表を更新）。
+2. **RID で学習した SSRC と同じ SSRC の sender を登録しても、RID の学習経路が残った:** `registerRtpSender` は fallback SSRC の持ち主しか解放せず、さらに sender の SSRC の RID なしパケットが「simulcast after RR」の検索で RID の受信側に届いた。sender の SSRC のパケットはその検索に入らない（`routeRtp` の分岐順を変更）。
+3. **RID で学習した SSRC を同じ transport の別 m-line の answer が名指しても、RID の学習経路と `mediaSsrcByRid` が残った:** `takeSsrcRoute` も fallback の持ち主しか解放していなかった。2 と 3 は `RTCRtpReceiver.releaseLearnedSsrc`（fallback SSRC、RID の media SSRC、RID の RTX SSRC のどれでも、パケットから学んだものを忘れる）と router の `learnedOwnersIn`（同じ RTP session の learned 経路の持ち主すべて）にまとめ、`registerRtpSender`、`takeSsrcRoute`、BUNDLE の統合時の引き当て（`endpointBySsrc`）、保留中の登録の衝突判定で使う。
+4. **pending の description が別 transport の m-line に仮に与えた SSRC が、commit で BUNDLE に合流すると前の SDP 経路と並んだ:** 仮経路（`provisionalSsrc`）は登録時の RTP session で `takeSsrcRoute` していたため。`commitStaged` で仮経路を commit 時の RTP session でもう一度 `takeSsrcRoute` する（後の description が勝つ）。
+
+**範囲外（変更しない）:** RTCP SDES / BYE による対応付けの更新。別 transport の 2 つの SDP 経路が同じ SSRC を宣言するケース（3.11 のとおり transport ごとに並立したまま。上の 4 は同じ RTP session に合流した仮経路だけを扱う）。RingCentral 原文 SDP（3.6 の合流ルール）。simulcast の m-line の作り直しと再利用の不具合（チケット `e4bfc125`）。
+
+**検証（`c84958c28` + 未コミット差分。ロードアベレージ 2〜8）:**
+- 修正前の HEAD（`c84958c28`）の一時 worktree に新しいテストだけを入れて実行すると 9 件失敗した: 組み合わせ表の 4 セル、SSRC `0`、K の 4 件。修正後はすべて成功。
+- ルートの `npm run type` 成功。webrtc の `npm test` は 2033 passed、5 skipped。ルートの `npm run test:small` 成功（webrtc 2033 passed）。
+- `npm run pbt:deep`（全スイート、278 秒）: fuzz 306/306。model 364/364（flaky 0）。scenario 2159 成功・失敗 0・flaky 4（seed 52 ×2、174、262。単独で成功）。leak 650/653（失敗は heap seed 2 と 4、flaky 1 は seed 273）。
+
+| seed | 失敗内容 | 本ブランチ（単独） | develop `29b0da4b0`（単独、交互に実行） | 扱い |
+| --- | --- | --- | --- | --- |
+| leak heap seed 2 | P3 heap slope（閾値 16 KiB/cycle） | 4/4 失敗（109.1〜109.4 KiB/cycle） | 4/4 失敗（108.5〜108.6 KiB/cycle） | develop でも同じ傾きで失敗する既存の問題（シーンは「BUNDLE split and merge」×2、「replacement offer then rollback」）。差は 0.6 KiB/cycle（約 0.6%）。本ブランチでは seed 2 が simulcast の軸を引くが、軸のない develop の generator でも同じ傾きなので、軸による増加ではない。3.11 の時点（develop `41773f4dc`）の deep run では失敗していなかった。本チケットの範囲外 |
+| leak heap seed 4 | P3 heap slope | 2/2 失敗（19.1、19.7 KiB/cycle） | 2/2 失敗（19.2、19.1 KiB/cycle） | 既知（ICE チケット `74132240`、`Connection.closedSignal` の保持） |
+| leak seed 273 | deep run 中だけ失敗（単独で成功） | 0/3 | 0/3 | 負荷依存の揺らぎ |
+| scenario 52 / 174 / 262 | deep run 中だけ失敗（単独で成功） | — | — | 既知の ICE 候補収集のタイミングの揺らぎ（3.11 の seed 52 と同じ種類） |
+| model 275 / 287 / 40 | 今回は発生せず | — | — | 既知の揺らぎ（275: ICE / transport、ICE チケット `74132240`。287 / 40: SCTP） |
+
+- J の途中の `pbt:deep -- --suite model`（simulcast の軸を入れた直後）では seed 25（the transport did not settle）が失敗した。単独で交互に: 本ブランチ 3/6、develop 6/6 で develop の方が多く、ICE / transport の既知の揺らぎ（275 と同じ種類）と判断した。今回の全スイート実行では発生していない。
+- 未実施: ブラウザとの E2E（`npm run e2e`）、`tools/negotiation-diff`、scenario への simulcast 軸の追加（leak は model の generator を使うので、simulcast の軸は leak の seed にも入っている。heap seed 2 と 4 も simulcast を引く）。
+
 ---
 
 ## 4. 制約・注意点
@@ -447,6 +506,12 @@ RFC 8843 / RFC 9143（BUNDLE）§9.2「Associating RTP/RTCP Streams with the Cor
 - [x] 保留中の re-offer が SSRC と codec を与えても、commit / rollback まで公開 track・統計・未知 SSRC の学習は現在の session のまま（保留中に届く offer の SSRC も未知 SSRC として学習）。commit で SDP の SSRC / codec を採用し、rollback で学習済みの SSRC を保つ。rollback で消える PT で学習した SSRC は receiver と経路の両方から消える。
 - [x] 保留中に RID 付きで届いた未知 SSRC は現在の session のストリームとして通知済み track に届き、rollback 後も同じ track に届く。fallback の SSRC が保留中に RID 付きで届いていれば、commit で RID の track に引き継ぎ RID 拡張を省いた後続も届く。
 - [x] model property: `ssrcRemoved`（traffic 検査あり）、`ssrcAndMidRemoved`、`remoteSsrcSwitch`、`assertLearnedRoutes`、固定シーン「a replacement offer that gives an m-line offered without a=ssrc its SSRC does not announce its track again」。
+
+### 識別子の RTP session 境界（3.12）
+- [x] 識別子 × MID × transport の組み合わせ表（24 セル）: パケットの RTP session の receiver だけが受け、SR / NACK / PLI も同じ先に届き、別 transport の receiver の状態は変わらない。
+- [x] SSRC `0` / `1` / `0xffffffff` で学習 → inbound-rtp 統計 → rollback → 解放。
+- [x] compatible の PLI / FIR 救済はパケットの transport の sender に限る。RID で学習した SSRC は、同じ RTP session の sender / 別 m-line の SDP の登録で忘れる。pending の description の仮経路は commit 時の RTP session で取り直す。
+- [x] model property の simulcast 軸、`remoteRidPacket`、`midRemoved`、固定シーン。
 
 ### negotiation / property
 - [ ] 学習後の rollback / 再 offer / ICE restart で route と track が保たれ、`assertNegotiationInvariants` が通る（`expectSessionContinues` まで）。

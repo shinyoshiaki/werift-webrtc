@@ -43,9 +43,11 @@ import {
 } from "./rtpReceiverTestUtils";
 import {
   collectRtcpRecipients,
+  collectSenderRtcp,
   collectTrackPayloads,
   collidingRouteCount,
   createCollidingSsrcLessRouter,
+  createIdentifierMatrix,
   createPayloadTypeSharingRouter,
   createPendingRidOverFallback,
   createRouteMatrix,
@@ -55,6 +57,7 @@ import {
   opus,
   pcmu,
   redOf,
+  routeLabels,
   rtcpNamingSsrc,
   rtxOf,
   ssrcLessPacket,
@@ -3972,6 +3975,117 @@ describe("media/router: a=ssrc のない m-line の SSRC 学習 (#356)", () => {
     },
   );
 
+  // #356 3.12: 識別子 {RID, RRID, 学習 SSRC, SDP SSRC} × MID {なし, 自分の m-line, 別 transport
+  // の m-line} × {持ち主と同じ transport, 別 transport}。期待値: 識別子はパケットの RTP session
+  // の中でだけ解決し、別 transport の m-line を名指す MID は破棄、SDP 由来の経路は MID で
+  // 動かず、届いた transport にその PT を受ける SSRC-less の m-line があれば PT で学習する。
+  const identifierCells = [
+    // [識別子, MID, transport, 受ける receiver, RTCP を受ける receiver]
+    ["rid", "none", "same", "s", "s"],
+    ["rid", "own", "same", "s", "s"],
+    ["rid", "other", "same", null, null],
+    ["rid", "none", "other", null, null],
+    ["rid", "own", "other", null, null],
+    ["rid", "other", "other", null, null],
+    ["rrid", "none", "same", "s", "s"],
+    ["rrid", "own", "same", "s", "s"],
+    ["rrid", "other", "same", null, null],
+    ["rrid", "none", "other", null, null],
+    ["rrid", "own", "other", null, null],
+    ["rrid", "other", "other", null, null],
+    ["learned", "none", "same", "a", "a"],
+    ["learned", "own", "same", "a", "a"],
+    ["learned", "other", "same", null, "a"],
+    ["learned", "none", "other", null, null],
+    ["learned", "own", "other", null, null],
+    ["learned", "other", "other", null, null],
+    ["sdp", "none", "same", "n", "n"],
+    ["sdp", "own", "same", "n", "n"],
+    ["sdp", "other", "same", "n", "n"],
+    ["sdp", "none", "other", "a", "a"],
+    ["sdp", "own", "other", null, null],
+    ["sdp", "other", "other", "a", "a"],
+  ] as const;
+  test.each(identifierCells)(
+    "識別子の組み合わせ: %s (MID: %s、transport: %s) は %s が受け、RTCP は %s に届く",
+    (kind, midCase, where, taker, rtcpTo) => {
+      // Arrange: transport A に a (学習 SSRC 500)、transport B に s (RID high) と n (SDP SSRC 600)
+      const matrix = createIdentifierMatrix();
+      const ownerOnB = kind !== "learned";
+      const ownMid = { rid: "s", rrid: "s", learned: "a", sdp: "n" }[kind];
+      const otherMid = ownerOnB ? "a" : "n";
+      const mid =
+        midCase === "none" ? undefined : midCase === "own" ? ownMid : otherMid;
+      const ownerTransport = ownerOnB ? matrix.transportB : matrix.transportA;
+      const otherTransport = ownerOnB ? matrix.transportA : matrix.transportB;
+      const transport = where === "same" ? ownerTransport : otherTransport;
+
+      // Act: 識別子のパケットと、その SSRC を名指す SR / NACK / PLI を同じ transport に流す
+      const got = matrix.send(kind, mid, transport);
+
+      // Assert: パケットの RTP session の receiver だけが受け、RTCP も同じ先に届き、
+      // 別 transport の receiver の状態は変わらない
+      expect(got.taken).toEqual(taker ? [taker] : []);
+      expect(got.rtcp).toEqual(rtcpTo ? [rtcpTo] : []);
+      if (transport === matrix.transportA) {
+        expect(matrix.s.receiver.ridByRtxSsrc).toEqual(got.before.rtx);
+        expect(matrix.s.receiver.mediaSsrcByRid).toEqual(got.before.media);
+      } else {
+        expect(matrix.a.receiver.fallbackSsrcs).toEqual(got.before.fallback);
+      }
+    },
+  );
+
+  test.each([0, 1, 0xffffffff])(
+    "SSRC %d (32 bit 全域が有効) も、学習・統計・rollback・解放で他の SSRC と同じに扱う",
+    async (ssrc) => {
+      // Arrange: 学習前の baseline を取る
+      const { router, dtls, addReceiver } = createSsrcLessRouter();
+      const audio = addReceiver();
+      audio.setCurrentDirection("recvonly");
+      const payloads = collectTrackPayloads(audio);
+      const routes = router.snapshotRoutes();
+      const receiverState = audio.receiver.snapshotNegotiationState();
+
+      // Act: SSRC を学習する
+      router.routeRtp(ssrcLessPacket({ ssrc, payloadType: 111 }), dtls);
+
+      // Assert: RTP が届き、track と inbound-rtp 統計にその SSRC が出る
+      expect(payloads).toEqual(["payload-1"]);
+      expect(audio.receiver.track.ssrc).toBe(ssrc);
+      expect(await inboundRtpSsrcs(audio)).toEqual([ssrc]);
+
+      // Act: rollback する (receiver が先、経路が後)
+      audio.receiver.restoreNegotiationState(receiverState);
+      router.restoreRoutes(routes, {
+        endpoints: new Set([audio.receiver, audio.sender]),
+        liveSenders: [],
+      });
+
+      // Assert: パケット由来の SSRC は rollback 後も残り、統計にも出る
+      expect(audio.receiver.fallbackSsrcs).toEqual([ssrc]);
+      expect(audio.receiver.track.ssrc).toBe(ssrc);
+      expect(await inboundRtpSsrcs(audio)).toEqual([ssrc]);
+
+      // Act: description が SSRC を与えて学習 SSRC を外す
+      router.registerRtpReceiverBySsrc(audio, {
+        codecs: [opus()],
+        headerExtensions: [],
+        encodings: [
+          new RTCRtpCodingParameters({
+            ssrc: ssrc === 1 ? 2 : 1,
+            payloadType: 111,
+          }),
+        ],
+      });
+
+      // Assert: 学習 SSRC は receiver と経路の両方から消える
+      expect(audio.receiver.fallbackSsrcs).toEqual([]);
+      expect(audio.receiver.trackBySSRC[ssrc]).toBeUndefined();
+      expect(router.routeEntries.filter((r) => r.ssrc === ssrc)).toEqual([]);
+    },
+  );
+
   test("transceiver の登録解除で学習済み SSRC が残らない", () => {
     // Arrange
     const { router, dtls, addReceiver } = createSsrcLessRouter();
@@ -4216,5 +4330,168 @@ describe("media/router: a=ssrc のない m-line の SSRC 学習 (#356)", () => {
     expect(router.ssrcTable[66]).toBe(a.receiver);
     expect(b.receiver.fallbackSsrc).toBe(55);
     expect(a.receiver.fallbackSsrc).toBe(66);
+  });
+
+  test("compatible の PLI / FIR 救済は、パケットの transport 上の送信側だけに届く", () => {
+    // Arrange: transport A に映像の送信側が 1 つだけあり、B は別の RTP session
+    const { router, dtls, addReceiver } = createSsrcLessRouter();
+    const transportB = createDtlsTransport();
+    const v = addReceiver({ kind: "video", mid: "v", codecs: [vp8()] });
+    v.sender.dtlsTransport = dtls;
+    router.registerRtpSender(v.sender);
+    const got = collectSenderRtcp(v.sender);
+
+    // Act: B で未知の SSRC と A の送信側の RTX SSRC を名指す PLI / FIR が届く
+    router.routeRtcp(
+      createPliPacket({ senderSsrc: 1, mediaSsrc: 424242 }),
+      transportB,
+    );
+    router.routeRtcp(
+      createPliPacket({ senderSsrc: 1, mediaSsrc: v.sender.rtxSsrc }),
+      transportB,
+    );
+    router.routeRtcp(
+      createFirPacket({
+        senderSsrc: 1,
+        fir: [{ ssrc: 424242, sequenceNumber: 1 }],
+      }),
+      transportB,
+    );
+
+    // Assert: 別の RTP session の要求は A の送信側に届かない
+    expect(got).toEqual([]);
+
+    // Act: 同じ PLI が A で届く
+    router.routeRtcp(
+      createPliPacket({ senderSsrc: 1, mediaSsrc: 424242 }),
+      dtls,
+    );
+
+    // Assert: A の要求は従来どおり唯一の映像送信側に届く
+    expect(got).toEqual([RtcpPayloadSpecificFeedback.type]);
+  });
+
+  test("RID で学習した SSRC と同じ SSRC の送信側が登録されると、学習経路は消え RID 受信側に届かない", () => {
+    // Arrange: RID high が SSRC X を学習し、同じ transport に SSRC X の送信側ができる
+    const {
+      router,
+      transceiver: s,
+      dtls,
+    } = createSimulcastRtxReceiver({
+      mid: "s",
+    });
+    router.transceivers = () => [s];
+    s.firedReceiving = true;
+    const sender = new RTCRtpSender("video");
+    sender.dtlsTransport = dtls;
+    const ssrc = sender.ssrc;
+    router.routeRtp(
+      createSimulcastMediaPacket({
+        ssrc,
+        sequenceNumber: 1,
+        rid: "high",
+        mid: "s",
+      }),
+      dtls,
+    );
+    const delivered = collectDeliveredRtp(s.receiver.trackByRID.high);
+    const recipients = collectRtcpRecipients({ s });
+    const senderRtcp = collectSenderRtcp(sender);
+
+    // Act: 送信側を登録し、RID なしの SSRC X の RTP と SR が届く
+    router.registerRtpSender(sender);
+    router.routeRtp(
+      createSimulcastMediaPacket({ ssrc, sequenceNumber: 2, mid: null }),
+      dtls,
+    );
+    router.routeRtcp(rtcpNamingSsrc.SR(ssrc), dtls);
+
+    // Assert: 経路は送信側だけになり、RTP も SR も RID 受信側に届かない
+    // (SR は経路の勝者である送信側に届く、経路表の規則どおり)
+    expect(routeLabels(router, ssrc, { s: s.receiver, sender })).toEqual([
+      "sender:sender",
+    ]);
+    expect(s.receiver.knowsSsrc(ssrc)).toBe(false);
+    expect(delivered).toEqual([]);
+    expect(recipients).toEqual([]);
+    expect(senderRtcp).toEqual([rtcpNamingSsrc.SR(ssrc).type]);
+  });
+
+  test("RID で学習した SSRC を同じ transport の別 m-line の answer が名指すと、RID の学習は消える", () => {
+    // Arrange: transport B で RID high が SSRC 55 を学習している
+    const { router, transportB, s, n } = createIdentifierMatrix();
+    router.routeRtp(
+      createSimulcastMediaPacket({
+        ssrc: 55,
+        sequenceNumber: 1,
+        rid: "high",
+        mid: "s",
+      }),
+      transportB,
+    );
+    const recipients = collectRtcpRecipients({ s, n });
+
+    // Act: answer が B の m-line n に SSRC 55 を与え、55 の SR が届く
+    router.registerRtpReceiverBySsrc(n, {
+      codecs: [opus()],
+      headerExtensions: [],
+      encodings: [new RTCRtpCodingParameters({ ssrc: 55, payloadType: 111 })],
+    });
+    router.routeRtcp(rtcpNamingSsrc.SR(55), transportB);
+
+    // Assert: 経路は SDP の n だけで、s は 55 を RID の媒体 SSRC として持たない
+    expect(routeLabels(router, 55, { s: s.receiver, n: n.receiver })).toEqual([
+      "sdp:n",
+    ]);
+    expect(s.receiver.knowsSsrc(55)).toBe(false);
+    expect(s.receiver.mediaSsrcByRid).toEqual({});
+    expect(recipients).toEqual(["n"]);
+  });
+
+  test("pending の description が別 transport の m-line に与えた SSRC は、commit で BUNDLE に合流すると前の SDP 経路を置き換える", () => {
+    // Arrange: A の r1 が SDP SSRC 4000、B の r2 が 5000 を持ち、pending の再 offer が
+    // 4000 を r2 に、4001 を r1 に移す
+    const { router, dtls, addReceiver } = createSsrcLessRouter();
+    const transportB = createDtlsTransport();
+    const r1 = addReceiver({ mid: "1", ssrc: 4000 });
+    r1.setCurrentDirection("recvonly");
+    const r2 = addReceiver({ mid: "2", transport: transportB, ssrc: 5000 });
+    r2.setCurrentDirection("recvonly");
+    const encodingOf = (ssrc: number) => ({
+      codecs: [opus()],
+      headerExtensions: [],
+      encodings: [new RTCRtpCodingParameters({ ssrc, payloadType: 111 })],
+    });
+    router.registerRtpReceiverBySsrc(r1, encodingOf(4001), {
+      deferConflicts: true,
+    });
+    router.registerRtpReceiverBySsrc(r2, encodingOf(4000), {
+      deferConflicts: true,
+    });
+
+    // Act: commit で r2 が A へ合流し、SSRC 4000 の RTP と SR が A で届く
+    r2.setDtlsTransport(dtls);
+    router.commitStaged();
+    const r1Payloads = collectTrackPayloads(r1);
+    const r2Payloads: string[] = [];
+    for (const track of r2.receiver.tracks) {
+      track.onReceiveRtp.subscribe((rtp) =>
+        r2Payloads.push(rtp.payload.toString()),
+      );
+    }
+    const recipients = collectRtcpRecipients({ r1, r2 });
+    router.routeRtp(
+      ssrcLessPacket({ ssrc: 4000, payloadType: 111, sequenceNumber: 9 }),
+      dtls,
+    );
+    router.routeRtcp(rtcpNamingSsrc.SR(4000), dtls);
+
+    // Assert: 4000 の経路は後の description の r2 だけで、RTP と SR も r2 に届く
+    expect(
+      routeLabels(router, 4000, { r1: r1.receiver, r2: r2.receiver }),
+    ).toEqual(["sdp:r2"]);
+    expect(r1Payloads).toEqual([]);
+    expect(r2Payloads).toEqual(["payload-9"]);
+    expect(recipients).toEqual(["r2"]);
   });
 });
