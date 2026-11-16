@@ -20,7 +20,7 @@ ide:
 - **選択後に失敗した上位ペア**: 選択ペアより優先度が高いのに check が失敗したペアは、失敗から 1・2・4・8・16 秒後に再 check します（合計約 31 秒。2.7）。
 - **controlled 側の同値の指名**: 指名の値が同じペアが複数あるときは、相手がデータを送ってきたペアを使います（libwebrtc と同じ。2.3）。
 - **ICE-TCP ペアと ICE-lite**: どのモードでも従来どおりです。
-- **コードの構成**: 4,168 行あった `packages/ice/src/ice.ts` を、責務ごとに 6 ファイルへ分けました。挙動は変わりません（3 章に Before / After の流れの図）。
+- **コードの構成**: 4,168 行あった `packages/ice/src/ice.ts` を、責務ごとに 5 ファイルへ分けました（候補収集は ice.ts に残しました）。挙動は変わりません（3 章に Before / After の流れの図）。
 
 <div style="display:flex;gap:12px;flex-wrap:wrap;font-family:var(--review-font)">
   <div style="flex:1;min-width:250px;padding:10px 12px;border:1px solid var(--review-border);border-left:5px solid var(--review-danger);border-radius:6px">
@@ -161,11 +161,11 @@ regular nomination は仕様どおり（RFC 8445 §8.1.1）、一度選んだペ
 
 要点:
 
-- 最初のペアに `USE-CANDIDATE` が付くのは、aggressive も semi-aggressive も同じです。2 つの違いは選択した後です。semi-aggressive では、選択時の 8.1.2 の掃除で上位ペアを残します（[packages/ice/src/ice.ts:1472](review-file:packages/ice/src/ice.ts:1472)）。`connect()` の打ち切り処理でも、上位ペアの check は続けます（[packages/ice/src/ice.ts:988](review-file:packages/ice/src/ice.ts:988)）。
-- 後から届いた候補で上位のペアだけを作るのは `admitsPair()` です（[packages/ice/src/ice.ts:2253](review-file:packages/ice/src/ice.ts:2253)）。その check を 20 ms 間隔で進めるのが `SelectionReplacement.checkOutrankingPairs()` です（[packages/ice/src/nomination/selectionReplacement.ts:316](review-file:packages/ice/src/nomination/selectionReplacement.ts:316)）。
-- semi-aggressive で `USE-CANDIDATE` を付けるのは、「未選択の間」の check と「選択より上位のペア」の check だけです（[packages/ice/src/ice.ts:1608](review-file:packages/ice/src/ice.ts:1608)）。regular と renomination の通常の check には何も付けません。
-- 置き換えの判定は `SelectionReplacement.replaces()`（[packages/ice/src/nomination/selectionReplacement.ts:194](review-file:packages/ice/src/nomination/selectionReplacement.ts:194)）です。送信経路・consent・統計の移し替えは `checkComplete()` で行います（[packages/ice/src/ice.ts:1448](review-file:packages/ice/src/ice.ts:1448)）。
-- regular では、待つか指名するかを `decideNomination()` が決めます（[packages/ice/src/nomination/regularNomination.ts:59](review-file:packages/ice/src/nomination/regularNomination.ts:59)）。上位ペアが追加されると、`RegularNomination.pairAdded()` が待ち時間をやり直します（[packages/ice/src/nomination/regularNomination.ts:218](review-file:packages/ice/src/nomination/regularNomination.ts:218)）。regular は選択を置き換えないので、後から届いた候補をペアにするのは選択前だけです（[packages/ice/src/ice.ts:2265](review-file:packages/ice/src/ice.ts:2265)）。
+- 最初のペアに `USE-CANDIDATE` が付くのは、aggressive も semi-aggressive も同じです。2 つの違いは選択した後です。semi-aggressive では、選択時の 8.1.2 の掃除で上位ペアを残します（[packages/ice/src/ice.ts:1771](review-file:packages/ice/src/ice.ts:1771)）。`connect()` の打ち切り処理でも、上位ペアの check は続けます（[packages/ice/src/ice.ts:1080](review-file:packages/ice/src/ice.ts:1080)）。
+- 後から届いた候補で上位のペアだけを作るのは `admitsPair()` です（[packages/ice/src/ice.ts:2612](review-file:packages/ice/src/ice.ts:2612)）。その check を 20 ms 間隔で進めるのが `SelectionReplacement.checkOutrankingPairs()` です（[packages/ice/src/nomination/selectionReplacement.ts:316](review-file:packages/ice/src/nomination/selectionReplacement.ts:316)）。
+- semi-aggressive で `USE-CANDIDATE` を付けるのは、「未選択の間」の check と「選択より上位のペア」の check だけです（[packages/ice/src/ice.ts:1965](review-file:packages/ice/src/ice.ts:1965)）。regular と renomination の通常の check には何も付けません。
+- 置き換えの判定は `SelectionReplacement.replaces()`（[packages/ice/src/nomination/selectionReplacement.ts:194](review-file:packages/ice/src/nomination/selectionReplacement.ts:194)）です。送信経路・consent・統計の移し替えは `checkComplete()` で行います（[packages/ice/src/ice.ts:1747](review-file:packages/ice/src/ice.ts:1747)）。
+- regular では、待つか指名するかを `decideNomination()` が決めます（[packages/ice/src/nomination/regularNomination.ts:59](review-file:packages/ice/src/nomination/regularNomination.ts:59)）。上位ペアが追加されると、`RegularNomination.pairAdded()` が待ち時間をやり直します（[packages/ice/src/nomination/regularNomination.ts:218](review-file:packages/ice/src/nomination/regularNomination.ts:218)）。regular は選択を置き換えないので、後から届いた候補をペアにするのは選択前だけです（[packages/ice/src/ice.ts:2624](review-file:packages/ice/src/ice.ts:2624)）。
 
 ### 2.2 どの方式になるか（条件を切り替えて確認できます）
 
@@ -256,10 +256,10 @@ regular nomination は仕様どおり（RFC 8445 §8.1.1）、一度選んだペ
 | --- | --- | --- |
 | 自分が ICE-lite / 相手が ICE-lite | 従来どおり | `nominatesFullPeer()` が false |
 | controlled | 相手の指名に従う（値 → 最終受信 → 優先度） | [packages/ice/src/nomination/selectionReplacement.ts:194](review-file:packages/ice/src/nomination/selectionReplacement.ts:194) |
-| ICE-TCP ペア | regular（置き換えない） | [packages/ice/src/ice.ts:1898](review-file:packages/ice/src/ice.ts:1898) / [packages/ice/src/ice.ts:1907](review-file:packages/ice/src/ice.ts:1907) |
-| 両端が renomination を宣言 | renomination | [packages/ice/src/ice.ts:1844](review-file:packages/ice/src/ice.ts:1844) |
-| `iceNomination: "regular"` | regular | [packages/ice/src/ice.ts:1858](review-file:packages/ice/src/ice.ts:1858) |
-| それ以外（既定） | semi-aggressive | [packages/ice/src/ice.ts:1874](review-file:packages/ice/src/ice.ts:1874) |
+| ICE-TCP ペア | regular（置き換えない） | [packages/ice/src/ice.ts:2257](review-file:packages/ice/src/ice.ts:2257) / [packages/ice/src/ice.ts:2266](review-file:packages/ice/src/ice.ts:2266) |
+| 両端が renomination を宣言 | renomination | [packages/ice/src/ice.ts:2201](review-file:packages/ice/src/ice.ts:2201) |
+| `iceNomination: "regular"` | regular | [packages/ice/src/ice.ts:2215](review-file:packages/ice/src/ice.ts:2215) |
+| それ以外（既定） | semi-aggressive | [packages/ice/src/ice.ts:2233](review-file:packages/ice/src/ice.ts:2233) |
 
 ### 2.3 controlled 側: 後からの指名に従う
 
@@ -285,7 +285,7 @@ regular nomination は仕様どおり（RFC 8445 §8.1.1）、一度選んだペ
 <div style="font-size:12px;color:var(--review-muted);margin-top:4px">枠付きのセルが Before / After で結果の分かれる箇所です。1 回しか指名しない相手（regular nomination）では違いは出ません。</div>
 </div>
 
-- 受けた指名は `receivedNomination()` で値にします（[packages/ice/src/internal/checkMessages.ts:44](review-file:packages/ice/src/internal/checkMessages.ts:44)）。値はペアごとに最大値を `remoteNomination` に残します（[packages/ice/src/ice.ts:2180](review-file:packages/ice/src/ice.ts:2180)）。
+- 受けた指名は `receivedNomination()` で値にします（[packages/ice/src/internal/checkMessages.ts:44](review-file:packages/ice/src/internal/checkMessages.ts:44)）。値はペアごとに最大値を `remoteNomination` に残します（[packages/ice/src/ice.ts:2539](review-file:packages/ice/src/ice.ts:2539)）。
 - テストは [packages/ice/tests/ice/semi-aggressive.test.ts:344](review-file:packages/ice/tests/ice/semi-aggressive.test.ts:344)（値の大きい NOMINATION が優先）と [packages/ice/tests/ice/semi-aggressive.test.ts:365](review-file:packages/ice/tests/ice/semi-aggressive.test.ts:365)（USE-CANDIDATE は優先度の高いペアが優先）です。
 
 #### 同じ指名の値のとき: 相手がデータを送るペアに従う
@@ -419,9 +419,9 @@ libwebrtc（Chrome）は、優先度だけでなく疎通状態や RTT も見て
 実装の参照先:
 
 - renomination の指名は、`SelectionReplacement.evaluate()`（[packages/ice/src/nomination/selectionReplacement.ts:256](review-file:packages/ice/src/nomination/selectionReplacement.ts:256)）が「今の最良の valid ペア」を選び、`nominateSelection()`（[packages/ice/src/nomination/selectionReplacement.ts:272](review-file:packages/ice/src/nomination/selectionReplacement.ts:272)）が値を 1 増やして送ります。失敗したペアは FAILED にして、次のペアを評価し直します。
-- semi-aggressive の指名は、通常の check の `nominate` 判定で決まります（[packages/ice/src/ice.ts:1608](review-file:packages/ice/src/ice.ts:1608)）。
+- semi-aggressive の指名は、通常の check の `nominate` 判定で決まります（[packages/ice/src/ice.ts:1965](review-file:packages/ice/src/ice.ts:1965)）。
 - controlled 側の「値 → 最終受信 → 優先度」の判定は `SelectionReplacement.replaces()`（[packages/ice/src/nomination/selectionReplacement.ts:194](review-file:packages/ice/src/nomination/selectionReplacement.ts:194)）です。受けた指名を値にするのは `receivedNomination()`（[packages/ice/src/internal/checkMessages.ts:44](review-file:packages/ice/src/internal/checkMessages.ts:44)）です。
-- consent check は、renomination では選択中のペアの値を運びます（`consentNomination()`、[packages/ice/src/ice.ts:1099](review-file:packages/ice/src/ice.ts:1099)）。semi-aggressive では `USE-CANDIDATE` を付けます（`shouldNominateConsentRequest()`、[packages/ice/src/ice.ts:1085](review-file:packages/ice/src/ice.ts:1085)）。
+- consent check は、renomination では選択中のペアの値を運びます（`consentNomination()`、[packages/ice/src/ice.ts:1191](review-file:packages/ice/src/ice.ts:1191)）。semi-aggressive では `USE-CANDIDATE` を付けます（`shouldNominateConsentRequest()`、[packages/ice/src/ice.ts:1177](review-file:packages/ice/src/ice.ts:1177)）。
 - STUN 属性は [packages/ice-server/src/stun/attributes.ts:209](review-file:packages/ice-server/src/stun/attributes.ts:209) に追加しました。
 
 ### 2.5 打ち切った check のペアを Waiting に戻す（S10、レビュー指摘への対応）
@@ -504,9 +504,9 @@ controlled 側が低優先度ペアで接続した時点で、高優先度ペア
   })();
 </script>
 
-- 分かれ目はステップ 2 です。check の打ち切り経路から `checkCancelled()` を呼ぶようにしました（[packages/ice/src/ice.ts:1655](review-file:packages/ice/src/ice.ts:1655)、本体は [packages/ice/src/ice.ts:1786](review-file:packages/ice/src/ice.ts:1786)）。
+- 分かれ目はステップ 2 です。check の打ち切り経路から `checkCancelled()` を呼ぶようにしました（[packages/ice/src/ice.ts:2012](review-file:packages/ice/src/ice.ts:2012)、本体は [packages/ice/src/ice.ts:2143](review-file:packages/ice/src/ice.ts:2143)）。
 - 対象は live checklist にある In-Progress のペアだけです。restart / close で世代が終わった場合と、checklist から外れたペアは対象外です。
-- ステップ 3 で triggered check の対象になるのは `WAITING` と `FAILED` だけです（[packages/ice/src/ice.ts:2193](review-file:packages/ice/src/ice.ts:2193)）。Before ではここで止まっていました。
+- ステップ 3 で triggered check の対象になるのは `WAITING` と `FAILED` だけです（[packages/ice/src/ice.ts:2552](review-file:packages/ice/src/ice.ts:2552)）。Before ではここで止まっていました。
 - 回帰テスト:
   - 実ソケット 2 件（semi-aggressive / renomination）: [packages/ice/tests/ice/semi-aggressive.test.ts:705](review-file:packages/ice/tests/ice/semi-aggressive.test.ts:705)。準備処理は `createDelayedPreferredPathPair()`（[packages/ice/tests/utils.ts:2953](review-file:packages/ice/tests/utils.ts:2953)）です。TURN relay のペアで接続させ、host ↔ host ペアの request を両端で止めておき、接続後に通します。
   - controlled の単体テスト 2 件: [packages/ice/tests/ice/semi-aggressive.test.ts:455](review-file:packages/ice/tests/ice/semi-aggressive.test.ts:455) と [packages/ice/tests/ice/semi-aggressive.test.ts:482](review-file:packages/ice/tests/ice/semi-aggressive.test.ts:482)。
@@ -575,7 +575,7 @@ semi-aggressive と renomination では、選択後も「選択ペアより優�
 
 ## 3. `ice.ts` のモジュール分割（リファクタリング）
 
-**何をしたか。** 4,168 行あった `packages/ice/src/ice.ts` を、責務ごとに 6 つのファイルへ分けました。`Connection` には、公開 API・ライフサイクル（restart / close / 状態）・socket のイベント処理・live checklist の中核（`connect` / `checkStart` / `checkComplete` / `checkIncoming`）だけを残しています（2,339 行）。
+**何をしたか。** 4,168 行あった `packages/ice/src/ice.ts` を、責務ごとに 5 つのファイルへ分けました。`Connection` には、公開 API・ライフサイクル（restart / close / 状態）・socket のイベント処理・候補収集・live checklist の中核（`connect` / `checkStart` / `checkComplete` / `checkIncoming`）を残しています（分割時点で 2,339 行）。候補収集は分割せず、途中で作った `candidateGatherer.ts` は未接続の複製だったため削除しました。develop 取り込み後の `ice.ts` は 3,467 行です（develop の #812 による候補エラー報告の追加を含む）。
 
 **挙動は変えていません。** 公開 API は同じで、`npm run doc` の生成物にも差分はありません。テストの件数と結果も分割前と同じです（7 章）。
 
@@ -610,18 +610,15 @@ semi-aggressive と renomination では、選択後も「選択ペアより優�
   <text x="18" y="134" font-size="11" fill="var(--review-muted)">点線の枠 = 分割で外へ出した責務</text>
 </svg>
 
-<div style="font-weight:bold;margin:12px 0 4px;color:var(--review-success)">After: 中核 + 6 ファイル（呼び出しは host オブジェクト経由）</div>
+<div style="font-weight:bold;margin:12px 0 4px;color:var(--review-success)">After: 中核 + 5 ファイル（呼び出しは host オブジェクト経由）</div>
 <svg viewBox="0 0 760 330" width="100%" role="img" aria-label="After: Connection が協調クラスを呼び、協調クラスは host オブジェクト経由で Connection に戻る">
   <rect x="250" y="120" width="260" height="96" rx="8" fill="none" stroke="var(--review-fg)" stroke-width="2"/>
-  <text x="380" y="144" font-size="13" text-anchor="middle" font-weight="bold" fill="var(--review-fg)">Connection（ice.ts, 2,339 行）</text>
+  <text x="380" y="144" font-size="13" text-anchor="middle" font-weight="bold" fill="var(--review-fg)">Connection（ice.ts, 3,467 行）</text>
   <text x="380" y="164" font-size="11" text-anchor="middle" fill="var(--review-muted)">公開 API・restart / close / 状態</text>
   <text x="380" y="180" font-size="11" text-anchor="middle" fill="var(--review-muted)">ensureProtocol（socket のイベント）</text>
   <text x="380" y="196" font-size="11" text-anchor="middle" fill="var(--review-muted)">connect / checkStart / checkComplete / checkIncoming</text>
   <g font-size="11" text-anchor="middle">
-    <rect x="10" y="12" width="220" height="62" rx="6" fill="none" stroke="var(--review-accent)" stroke-width="2"/>
-    <text x="120" y="32" font-weight="bold" fill="var(--review-accent)">CandidateGatherer</text>
-    <text x="120" y="48" fill="var(--review-fg)">candidateGatherer.ts（483 行）</text>
-    <text x="120" y="64" fill="var(--review-muted)">host / srflx / relay の収集</text>
+    <text x="120" y="40" fill="var(--review-muted)">候補収集（host / srflx / relay）は ice.ts に残す</text>
     <rect x="270" y="12" width="220" height="62" rx="6" fill="none" stroke="var(--review-accent)" stroke-width="2"/>
     <text x="380" y="32" font-weight="bold" fill="var(--review-accent)">ConsentFreshness</text>
     <text x="380" y="48" fill="var(--review-fg)">consent.ts（285 行）</text>
@@ -672,9 +669,9 @@ semi-aggressive と renomination では、選択後も「選択ペアより優�
 要点:
 
 - 分け方は、既存の `RegularNomination` + `NominationHost`（[packages/ice/src/nomination/regularNomination.ts:133](review-file:packages/ice/src/nomination/regularNomination.ts:133)）と同じ形にそろえました。協調クラスは、必要な状態と操作だけを関数として持つ「host オブジェクト」をコンストラクタで受け取ります。`Connection` の private フィールドを直接読むことはありません。
-- host の型はファイルの先頭にあります: `GatherHost`（[packages/ice/src/candidateGatherer.ts:18](review-file:packages/ice/src/candidateGatherer.ts:18)）、`ConsentHost`（[packages/ice/src/consent.ts:16](review-file:packages/ice/src/consent.ts:16)）、`ProvisionalHost`（[packages/ice/src/provisional.ts:62](review-file:packages/ice/src/provisional.ts:62)）、`SelectionHost`（[packages/ice/src/nomination/selectionReplacement.ts:22](review-file:packages/ice/src/nomination/selectionReplacement.ts:22)）。
-- `Connection` 側で host を組み立てている箇所: `selection`（[packages/ice/src/ice.ts:146](review-file:packages/ice/src/ice.ts:146)）、`consent`（[packages/ice/src/ice.ts:223](review-file:packages/ice/src/ice.ts:223)）、`provisionalChecklist`（[packages/ice/src/ice.ts:242](review-file:packages/ice/src/ice.ts:242)）、`gatherer`（[packages/ice/src/ice.ts:266](review-file:packages/ice/src/ice.ts:266)）。
-- どの責務がどのファイルにあるかは、`Connection` の直前のコメントにまとめました（[packages/ice/src/ice.ts:64](review-file:packages/ice/src/ice.ts:64)）。
+- host の型はファイルの先頭にあります: `ConsentHost`（[packages/ice/src/consent.ts:16](review-file:packages/ice/src/consent.ts:16)）、`ProvisionalHost`（[packages/ice/src/provisional.ts:62](review-file:packages/ice/src/provisional.ts:62)）、`SelectionHost`（[packages/ice/src/nomination/selectionReplacement.ts:22](review-file:packages/ice/src/nomination/selectionReplacement.ts:22)）。
+- `Connection` 側で host を組み立てている箇所: `selection`（[packages/ice/src/ice.ts:164](review-file:packages/ice/src/ice.ts:164)）、`consent`（[packages/ice/src/ice.ts:241](review-file:packages/ice/src/ice.ts:241)）、`provisionalChecklist`（[packages/ice/src/ice.ts:260](review-file:packages/ice/src/ice.ts:260)）。候補収集は分割せず、`gatherCandidates()` / `getCandidatePromises()` として `ice.ts` に残しています（未接続の複製ファイルを作っていたため削除）。
+- どの責務がどのファイルにあるかは、`Connection` の直前のコメントにまとめました（[packages/ice/src/ice.ts:75](review-file:packages/ice/src/ice.ts:75)）。
 
 ### 3.2 処理の流れ: 同じ入口から見た Before / After
 
@@ -700,7 +697,7 @@ semi-aggressive と renomination では、選択後も「選択ペアより優�
     <tr>
       <td><b>候補の収集</b><br><code>gatherCandidates()</code></td>
       <td><div class="rf-chain"><span class="rf-step rf-self">this.getCandidatePromises</span><span class="rf-arrow">→</span><span class="rf-step rf-self">this.gatherRelayCandidate</span><span class="rf-arrow">→</span><span class="rf-step rf-self">this.appendLocalCandidate</span></div></td>
-      <td><div class="rf-chain"><span class="rf-step rf-mod">gatherer.candidatePromises<span class="rf-file">candidateGatherer.ts</span></span><span class="rf-arrow">→</span><span class="rf-step rf-mod">gatherRelayCandidate<span class="rf-file">candidateGatherer.ts</span></span><span class="rf-arrow">⇢</span><span class="rf-step rf-back">host.appendLocalCandidate<span class="rf-file">↩ Connection</span></span></div></td>
+      <td><div class="rf-chain"><span class="rf-step rf-self">this.getCandidatePromises</span><span class="rf-arrow">→</span><span class="rf-step rf-self">this.gatherRelayCandidate</span><span class="rf-arrow">→</span><span class="rf-step rf-self">this.appendLocalCandidate</span><span class="rf-file">変更なし（ice.ts）</span></div></td>
     </tr>
     <tr>
       <td><b>check が成功して選択</b><br><code>checkStart()</code> → <code>checkComplete()</code></td>
@@ -779,13 +776,13 @@ semi-aggressive と renomination では、選択後も「選択ペアより優�
 <div style="font-size:12px;color:var(--review-muted);margin-top:4px">凡例: <span style="color:var(--review-success)">緑 = Connection からの呼び出し</span> / <span style="color:var(--review-warning)">黄の点線 = host 経由で Connection に戻る呼び出し</span> / <span style="color:var(--review-accent)">アクセント = 協調クラスの中の処理</span>。① 〜 ④ の順序と判定の中身は Before と同じです。</div>
 </div>
 
-- 入口は `ensureProtocol()` の受信の購読です（[packages/ice/src/ice.ts:869](review-file:packages/ice/src/ice.ts:869)）。判定は [packages/ice/src/nomination/selectionReplacement.ts:225](review-file:packages/ice/src/nomination/selectionReplacement.ts:225) と [packages/ice/src/nomination/selectionReplacement.ts:194](review-file:packages/ice/src/nomination/selectionReplacement.ts:194)、置き換えは `checkComplete()`（[packages/ice/src/ice.ts:1448](review-file:packages/ice/src/ice.ts:1448)）、consent の再開は [packages/ice/src/ice.ts:1469](review-file:packages/ice/src/ice.ts:1469) → [packages/ice/src/consent.ts:95](review-file:packages/ice/src/consent.ts:95) です。
+- 入口は `ensureProtocol()` の受信の購読です（[packages/ice/src/ice.ts:961](review-file:packages/ice/src/ice.ts:961)）。判定は [packages/ice/src/nomination/selectionReplacement.ts:225](review-file:packages/ice/src/nomination/selectionReplacement.ts:225) と [packages/ice/src/nomination/selectionReplacement.ts:194](review-file:packages/ice/src/nomination/selectionReplacement.ts:194)、置き換えは `checkComplete()`（[packages/ice/src/ice.ts:1747](review-file:packages/ice/src/ice.ts:1747)）、consent の再開は [packages/ice/src/ice.ts:1768](review-file:packages/ice/src/ice.ts:1768) → [packages/ice/src/consent.ts:95](review-file:packages/ice/src/consent.ts:95) です。
 
 ### 3.4 名前の対応表（差分を読むとき用）
 
 | 分割前（`ice.ts` の `Connection`） | 分割後 |
 | --- | --- |
-| `getCandidatePromises()` / `gatherRelayCandidate()` / `reflexiveBySocket` | `CandidateGatherer.candidatePromises()`（[packages/ice/src/candidateGatherer.ts:69](review-file:packages/ice/src/candidateGatherer.ts:69)）/ `gatherRelayCandidate()` / `reflexiveOf()` |
+| `getCandidatePromises()` / `gatherRelayCandidate()` / `reflexiveBySocket` | 分割していない（`ice.ts` に残る） |
 | `queryConsent()` / `stopConsentLifecycle()` / `consentFresh` / `consentSessionId` | `ConsentFreshness.start()` / `stop()` / `fresh` / `sessionId`（`connection.consent`） |
 | `stageLocalCredentials()` などの内部 / `checkProvisional()` / `nominateProvisional()` / `checkIncomingProvisional()` / `allowsProvisional()` / `endProvisional()` | `ProvisionalChecklist.stage()` / `check()` / `nominate()` / `checkIncoming()` / `allows()` / `end()`（[packages/ice/src/provisional.ts:105](review-file:packages/ice/src/provisional.ts:105)） |
 | `replacesSelectedPair()` / `evaluateSelection()` / `checkOutrankingPairs()` / `scheduleOutrankingRetries()` / `forgetOutrankingRetry()` / `clearOutrankingRetries()` / `controlledDataReceived()` / `dataReceived` | `SelectionReplacement.replaces()` / `evaluate()` / `checkOutrankingPairs()` / `scheduleRetries()` / `forgetRetry()` / `clearRetries()` / `controlledDataReceived()` / `lastData`（`connection.selection`） |
@@ -794,7 +791,7 @@ semi-aggressive と renomination では、選択後も「選択ペアより優�
 
 ### 3.5 変わらないもの・気をつける点
 
-- **公開 API**: pranswer 系の公開メソッド（`stageLocalCredentials` / `setProvisionalRemoteParams` / `addProvisionalRemoteCandidate` / `startProvisionalChecks` / `provisionalNominated`）は `Connection` に残し、中身を `ProvisionalChecklist` に委譲しています（[packages/ice/src/ice.ts:499](review-file:packages/ice/src/ice.ts:499)）。`npm run doc` の生成物に差分はありません。
+- **公開 API**: pranswer 系の公開メソッド（`stageLocalCredentials` / `setProvisionalRemoteParams` / `addProvisionalRemoteCandidate` / `startProvisionalChecks` / `provisionalNominated`）は `Connection` に残し、中身を `ProvisionalChecklist` に委譲しています（[packages/ice/src/ice.ts:544](review-file:packages/ice/src/ice.ts:544)）。`npm run doc` の生成物に差分はありません。
 - **テスト**: テストケースは変えていません。private の内部に触れていたテスト用の入口だけを、移動先に合わせました。consent は `connection.consent.*`、pranswer の checklist は共通の補助関数 `provisionalChecklistOf()`（[packages/ice/tests/utils.ts:715](review-file:packages/ice/tests/utils.ts:715)）を使います。
 - **debug ログの名前**: ファイルごとの名前空間になりました（例: `werift-ice : packages/ice/src/consent.ts : log`）。`DEBUG=werift-ice*` ならすべて出ますが、旧 `ice.ts` の名前を完全一致で指定していると、移したコードのログは出ません。
 - **追いやすさの代わりに増えたもの**: host オブジェクトの組み立てが `Connection` のフィールド定義に 4 つ増えました。協調クラスは host に必要な関数を足さない限り `Connection` の状態に触れないので、変更の影響範囲は追いやすくなっています。
@@ -831,16 +828,16 @@ develop の `candidatePairPriority()` は `(1 << 32) * MIN + 2 * MAX + tie` で�
 
 差分は大きいので、次の順に読むと追いやすいです（ファイルの構成は 3 章）。
 
-1. 方式の判定（`ice.ts`）: [packages/ice/src/ice.ts:1835](review-file:packages/ice/src/ice.ts:1835)〜[packages/ice/src/ice.ts:1907](review-file:packages/ice/src/ice.ts:1907)
-2. check の送信と USE-CANDIDATE の付与（`ice.ts`）: [packages/ice/src/ice.ts:1584](review-file:packages/ice/src/ice.ts:1584)
-3. 選択と置き換え（`ice.ts`）: [packages/ice/src/ice.ts:1423](review-file:packages/ice/src/ice.ts:1423)
+1. 方式の判定（`ice.ts`）: [packages/ice/src/ice.ts:2192](review-file:packages/ice/src/ice.ts:2192)〜[packages/ice/src/ice.ts:2266](review-file:packages/ice/src/ice.ts:2266)
+2. check の送信と USE-CANDIDATE の付与（`ice.ts`）: [packages/ice/src/ice.ts:2704](review-file:packages/ice/src/ice.ts:2704)
+3. 選択と置き換え（`ice.ts`）: [packages/ice/src/ice.ts:1719](review-file:packages/ice/src/ice.ts:1719)
 4. 選択の置き換え・上位ペアの check と再 check・同値の指名（`selectionReplacement.ts`）: [packages/ice/src/nomination/selectionReplacement.ts:194](review-file:packages/ice/src/nomination/selectionReplacement.ts:194)、[packages/ice/src/nomination/selectionReplacement.ts:316](review-file:packages/ice/src/nomination/selectionReplacement.ts:316)、[packages/ice/src/nomination/selectionReplacement.ts:105](review-file:packages/ice/src/nomination/selectionReplacement.ts:105)
-5. 受信した check と指名（`ice.ts`）: [packages/ice/src/ice.ts:2116](review-file:packages/ice/src/ice.ts:2116)
-6. ロール変更時の指名の無効化（R5）と、選択済みペアの再指名（R16）（`ice.ts`）: [packages/ice/src/ice.ts:1396](review-file:packages/ice/src/ice.ts:1396)、[packages/ice/src/ice.ts:1339](review-file:packages/ice/src/ice.ts:1339)
+5. 受信した check と指名（`ice.ts`）: [packages/ice/src/ice.ts:2475](review-file:packages/ice/src/ice.ts:2475)
+6. ロール変更時の指名の無効化（R5）と、選択済みペアの再指名（R16）（`ice.ts`）: [packages/ice/src/ice.ts:1691](review-file:packages/ice/src/ice.ts:1691)、[packages/ice/src/ice.ts:1614](review-file:packages/ice/src/ice.ts:1614)
 7. regular nomination（`regularNomination.ts`）: [packages/ice/src/nomination/regularNomination.ts:59](review-file:packages/ice/src/nomination/regularNomination.ts:59)、[packages/ice/src/nomination/regularNomination.ts:186](review-file:packages/ice/src/nomination/regularNomination.ts:186)
 8. pranswer の ICE restart（`provisional.ts`）: [packages/ice/src/provisional.ts:105](review-file:packages/ice/src/provisional.ts:105)
 
-`ice.ts` の差分は [packages/ice/src/ice.ts](review-diff:packages/ice/src/ice.ts:1786) から辿れます。新しいファイルは丸ごと追加なので、`review-file` で読むほうが速いです。
+`ice.ts` の差分は [packages/ice/src/ice.ts](review-diff:packages/ice/src/ice.ts:2143) から辿れます。新しいファイルは丸ごと追加なので、`review-file` で読むほうが速いです。
 
 ### 4.4 PBT oracle の調整（S10 の副作用への対応）
 
