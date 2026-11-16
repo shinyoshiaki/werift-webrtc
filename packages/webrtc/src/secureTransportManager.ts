@@ -133,15 +133,20 @@ export class SecureTransportManager {
    * Always returns every server-related field (the deprecated singular ones
    * as undefined) so Connection.setIceServers fully replaces residual TURN
    * servers and credentials.
+   *
+   * The canonical URLs (`stunServerUrls`, each TURN server's `urls`) travel
+   * with the servers as metadata, so `icecandidateerror` names a failing
+   * server by the URL of the generation that gathered with it.
    */
   private resolveIceServerOptions() {
-    const { stunServers, turnServers } = parseIceServers(
+    const { stunServers, stunServerUrls, turnServers } = parseIceServers(
       this.config.iceServers,
     );
     return {
       stunServers,
+      stunServerUrls,
       turnServers: turnServers.flatMap(
-        ({ address, username, password, transport }) => {
+        ({ address, username, password, transport, urls }) => {
           if (!username || !password) {
             log("TURN server without username / credential ignored", address);
             return [];
@@ -156,6 +161,7 @@ export class SecureTransportManager {
                 configuredTurnTransport: this.config.turnTransport,
                 forceTurnTCP: this.config.forceTurnTCP,
               }),
+              urls,
             },
           ];
         },

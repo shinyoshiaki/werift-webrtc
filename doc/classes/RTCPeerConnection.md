@@ -102,6 +102,16 @@ reviewable diff does not depend on external PR text.
 
 ***
 
+### onIceCandidateError
+
+> `readonly` **onIceCandidateError**: [`Event`](Event.md)\<\[[`RTCPeerConnectionIceErrorEvent`](RTCPeerConnectionIceErrorEvent.md)\]\>
+
+`icecandidateerror` (see [RTCPeerConnectionIceErrorEvent](RTCPeerConnectionIceErrorEvent.md)): the
+same event object is passed here, to `onicecandidateerror` and to the
+`icecandidateerror` listeners.
+
+***
+
 ### onNegotiationneeded
 
 > `readonly` **onNegotiationneeded**: [`Event`](Event.md)\<\[\]\>
@@ -525,11 +535,11 @@ W3C [[NegotiationNeeded]].
 
 #### Get Signature
 
-> **get** **onicecandidateerror**(): `CallbackWithValue`\<`any`\>
+> **get** **onicecandidateerror**(): `CallbackWithValue`\<[`RTCPeerConnectionIceErrorEvent`](RTCPeerConnectionIceErrorEvent.md)\>
 
 ##### Returns
 
-`CallbackWithValue`\<`any`\>
+`CallbackWithValue`\<[`RTCPeerConnectionIceErrorEvent`](RTCPeerConnectionIceErrorEvent.md)\>
 
 #### Set Signature
 
@@ -539,7 +549,7 @@ W3C [[NegotiationNeeded]].
 
 ###### value
 
-`CallbackWithValue`\<`any`\>
+`CallbackWithValue`\<[`RTCPeerConnectionIceErrorEvent`](RTCPeerConnectionIceErrorEvent.md)\>
 
 ##### Returns
 

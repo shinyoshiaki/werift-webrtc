@@ -122,6 +122,22 @@ dropped at the commit, so RTP pauses until the new generation nominates.
 
 ***
 
+### onIceCandidateError
+
+> `readonly` **onIceCandidateError**: [`Event`](Event.md)\<\[[`IceCandidateErrorDetails`](../type-aliases/IceCandidateErrorDetails.md)\]\>
+
+A configured STUN / TURN URL failed while gathering (see RTCIceGatherer.onIceCandidateError).
+
+***
+
+### onIceServerReached
+
+> `readonly` **onIceServerReached**: [`Event`](Event.md)\<\[`string`[]\]\>
+
+URLs of a STUN / TURN server that answered while gathering (see RTCIceGatherer.onIceServerReached).
+
+***
+
 ### onNegotiationNeeded
 
 > `readonly` **onNegotiationNeeded**: [`Event`](Event.md)\<\[\]\>
