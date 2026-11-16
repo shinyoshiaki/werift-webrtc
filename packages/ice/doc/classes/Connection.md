@@ -136,7 +136,7 @@ Resolves remote mDNS candidates; closed (pending lookups cancelled) by restart()
 
 ### onIceCandidateError
 
-> `readonly` **onIceCandidateError**: [`Event`](Event.md)\<\[[`IceCandidateErrorInfo`](../type-aliases/IceCandidateErrorInfo.md)\]\>
+> `readonly` **onIceCandidateError**: `Event`\<\[[`IceCandidateErrorInfo`](../type-aliases/IceCandidateErrorInfo.md)\]\>
 
 A STUN server query or TURN allocation of the current generation's
 gathering failed (W3C `icecandidateerror`), synchronously and without
@@ -162,7 +162,7 @@ synthesized URL [DEFAULT\_STUN\_SERVER\_URL](../variables/DEFAULT_STUN_SERVER_UR
 
 ### onIceServerReached
 
-> `readonly` **onIceServerReached**: [`Event`](Event.md)\<\[[`IceServerReachedInfo`](../type-aliases/IceServerReachedInfo.md)\]\>
+> `readonly` **onIceServerReached**: `Event`\<\[[`IceServerReachedInfo`](../type-aliases/IceServerReachedInfo.md)\]\>
 
 A STUN or TURN server of the current generation's gathering answered:
 a STUN query or TURN allocation gave a candidate, or the server sent an
