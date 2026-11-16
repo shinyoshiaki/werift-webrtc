@@ -2078,8 +2078,9 @@ export class Connection implements IceConnection {
     if (
       this.checkList.length > 0 ||
       ended.aborted ||
-      // Nothing local can receive a check.
-      this.protocols.length === 0 ||
+      // Nothing local can receive a check, and gathering (still running
+      // for an ICE-lite agent that connects early) will not add a socket.
+      (this.protocols.length === 0 && this.localCandidatesEnd) ||
       !(seconds > 0)
     ) {
       return false;

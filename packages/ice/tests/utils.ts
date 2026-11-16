@@ -2455,3 +2455,30 @@ export async function createLiteAgentWithoutPeerCandidates(
   full.remotePassword = lite.localPassword;
   return { full, lite };
 }
+
+/**
+ * Shared Arrange: as `createLiteAgentWithoutPeerCandidates`, but the lite
+ * agent's gathering has only just started (no socket is open yet), and the
+ * full agent learns its candidates once `gathering` settles.
+ */
+export async function createLiteAgentStillGathering(
+  incomingCheckTimeout: number,
+) {
+  const options: Partial<IceOptions> = {
+    useIpv6: false,
+    stunServer: undefined,
+    incomingCheckTimeout,
+  };
+  const full = createTestConnection(true, options);
+  const lite = createTestConnection(false, { ...options, iceLite: true });
+  await full.gatherCandidates();
+  lite.remoteCandidates = [];
+  lite.remoteUsername = full.localUsername;
+  lite.remotePassword = full.localPassword;
+  const gathering = lite.gatherCandidates().then(() => {
+    full.remoteCandidates = lite.localCandidates;
+    full.remoteUsername = lite.localUsername;
+    full.remotePassword = lite.localPassword;
+  });
+  return { full, lite, gathering };
+}

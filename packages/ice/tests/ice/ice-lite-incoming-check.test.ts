@@ -1,6 +1,10 @@
 import { describe, expect, test } from "vitest";
 
-import { createLiteAgentWithoutPeerCandidates, timeSettle } from "../utils";
+import {
+  createLiteAgentStillGathering,
+  createLiteAgentWithoutPeerCandidates,
+  timeSettle,
+} from "../utils";
 
 // An ICE-lite agent sends no checks: with an empty check list it waits
 // `incomingCheckTimeout` for the peer's first check, as a full agent does.
@@ -58,6 +62,27 @@ describe("ICE-lite with an empty check list", () => {
       const received = lite.onData.asPromise();
       await full.send(Buffer.from("full-to-lite"));
       expect((await received)[0].toString()).toBe("full-to-lite");
+    } finally {
+      await Promise.all([full.close(), lite.close()]);
+    }
+  });
+
+  test("connect() right after gathering starts waits for the sockets and connects", async () => {
+    // Arrange: lite 側の収集は始まったばかりで、まだソケットがない (待ち時間 5 秒)。
+    const { full, lite, gathering } = await createLiteAgentStillGathering(5);
+    try {
+      expect((lite as any).protocols).toHaveLength(0);
+
+      // Act: 収集の完了を待たずに lite 側で connect し、収集後に full 側も connect する。
+      const connecting = timeSettle(lite.connect());
+      await gathering;
+      const fullResult = await timeSettle(full.connect());
+      const liteResult = await connecting;
+
+      // Assert: lite は即失敗せず、full の check と nomination で接続する。
+      expect(liteResult.error).toBeUndefined();
+      expect(fullResult.error).toBeUndefined();
+      expect(lite.state).toBe("connected");
     } finally {
       await Promise.all([full.close(), lite.close()]);
     }
