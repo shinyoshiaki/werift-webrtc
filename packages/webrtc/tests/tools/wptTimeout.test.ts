@@ -32,6 +32,17 @@ test("heavy WebRTC WPT cases use a longer but bounded timeout profile", () => {
   });
 });
 
+test("onicecandidateerror waits for the ICE server failures", () => {
+  // 実行: TURN の UDP タイムアウトと TCP 接続タイムアウトを待つファイルのタイムアウトを解決する。
+  const profile = resolveTimeoutProfile({
+    file: "webrtc/RTCPeerConnection-onicecandidateerror.https.html",
+    variant: "",
+  });
+
+  // 検証: UDP (約 6.4s) と TCP (8s) の失敗を待てる完了待ち時間になる。
+  expect(profile.completionTimeoutMs).toBeGreaterThanOrEqual(15_000);
+});
+
 test("a long allowlisted WebRTC WPT file gets the long timeout profile", () => {
   // 実行: 多数の subtest を順に実行する RTCRtpTransceiver (?rest) のタイムアウトを解決する。
   const profile = resolveTimeoutProfile({
