@@ -44,6 +44,34 @@ npm run wpt:stable-baseline -- /tmp/wpt-*.json
 WPT_UPDATE_COVERAGE_BASELINE=1 npm run wpt:coverage
 ```
 
+## Diagnosing STUN / TURN failures
+
+When a configured STUN or TURN server cannot be used while gathering (a wrong
+TURN credential, a host name that does not resolve, UDP blocked, ...),
+`RTCPeerConnection` fires `icecandidateerror` with an
+`RTCPeerConnectionIceErrorEvent`, as browsers do:
+
+```ts
+pc.addEventListener("icecandidateerror", (event) => {
+  // url: the configured URL (`turns:` gets `?transport=tcp` when it names no transport)
+  // errorCode: the server's STUN error code (e.g. 401), or 701 when it was not reached
+  console.warn(event.url, event.errorCode, event.errorText);
+});
+```
+
+Gathering itself is not affected: the other servers still give their
+candidates and end-of-candidates still comes. `errorText` is the
+server's reason phrase with the credentials werift knows (TURN username and
+password, realm, nonce) replaced by `***`. The built-in default STUN server (`iceUseDefaultStunServer`, used
+when no STUN server is configured) is not part of the configuration; its
+failure is reported with the synthesized URL `stun:stun.l.google.com:19302`.
+`address` / `port` are the local host address that asked a STUN server, or
+both `null` for a TURN server and with `iceTransportPolicy: "relay"`
+(W3C: a null address has a null port). A
+server's error response is reported at once; a 701 (not reached) is reported
+once per URL when the gathering ends, only if no ICE transport of that
+gathering reached the server.
+
 `npm run wpt -- --update-baseline` records the PASS subtests of a single run.
 
 ## Rejected, stopped and reused m-lines

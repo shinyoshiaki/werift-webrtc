@@ -152,6 +152,7 @@ describe("iceTransport", () => {
             username: "whip-user",
             password: "whip-pass",
             transport: "udp",
+            urls: ["turn:turn.example.com:3478"],
           },
         ]);
         expect((pc as any).needRestart).toBe(false);
@@ -213,6 +214,7 @@ describe("iceTransport", () => {
             username: TURN_TEST_USERNAME,
             password: TURN_TEST_PASSWORD,
             transport: "udp",
+            urls: [`turn:${turnHost}:${turnPort}`],
           },
         ]);
       } finally {
@@ -290,6 +292,7 @@ describe("iceTransport", () => {
             username: "user-b",
             password: "pass-b",
             transport: "tcp",
+            urls: ["turn:turn-b.example.com:5349?transport=tcp"],
           },
         ]);
       } finally {
