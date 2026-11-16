@@ -1,4 +1,80 @@
-# 8b7c8e4a: 空の check list での待機と ICE 世代の終了
+---
+ide:
+  viewer: review-document
+  version: 1
+  title: "ICE 空の check list での待機と世代終了（レビュー解説）"
+  dock: right
+  baseCommit: de00840bf48bbf8c17b2d75b17be418eef97a463
+---
+# 8b7c8e4a: 空の check list での待機と ICE 世代の終了（レビュー解説）
+
+対象 HEAD: `de00840bf`（ベースは `91f6b80eb`、レビュー対象の実装は `1726e9616` まで）。以下の「概要」から「検証結果」までが解説、「付録」は確認レビュー用に積み上げた経緯別の詳細メモです。
+
+## 1. 概要
+
+Firefox のように相手が `tcptype active` の TCP 候補しか出さない場合、werift の ICE は check list が空のまま `connect()` に入り、相手の check を待たずに即 `failed` になっていました。今回の変更で、空の check list では `incomingCheckTimeout`（既定 30 秒）まで相手の check を待ち、届いた check（triggered check / prflx の学習）で接続できるようにしました（RFC 6544）。
+
+待機を入れたことで ICE restart と重なる時間が長くなったため、世代の終了（local / remote restart、close、transport の引退）で待つ側がすべて速やかに決着し、新しい世代の状態を変えないことも、不変条件として一緒に直しています。
+
+## 2. 修正前と修正後の流れ
+
+<div style="font-family:var(--review-font)">
+<svg viewBox="0 0 820 480" width="100%" role="img" aria-label="修正前後の connect() の処理の流れ"><text x="200" y="24" text-anchor="middle" font-size="15" font-weight="bold" fill="var(--review-fg)">修正前</text><rect x="10" y="40" width="380" height="52" rx="6" fill="var(--review-surface)" stroke="var(--review-border)" stroke-width="2"/><text x="200.0" y="62" text-anchor="middle" font-size="13" font-family="var(--review-mono)" fill="var(--review-fg)">connect()</text><text x="200.0" y="80" text-anchor="middle" font-size="11" fill="var(--review-muted)">開始時に check list が空</text><line x1="200" y1="92" x2="200" y2="108" stroke="var(--review-muted)" stroke-width="2"/><polygon points="195,107 205,107 200,114" fill="var(--review-muted)"/><rect x="10" y="114" width="380" height="52" rx="6" fill="var(--review-surface)" stroke="var(--review-border)" stroke-width="2"/><text x="200.0" y="136" text-anchor="middle" font-size="13" font-family="var(--review-mono)" fill="var(--review-fg)">schedulingChecks()</text><text x="200.0" y="154" text-anchor="middle" font-size="11" fill="var(--review-muted)">送る check がなく即終了</text><line x1="200" y1="166" x2="200" y2="182" stroke="var(--review-danger)" stroke-width="2"/><polygon points="195,181 205,181 200,188" fill="var(--review-danger)"/><rect x="10" y="188" width="380" height="52" rx="6" fill="var(--review-surface)" stroke="var(--review-danger)" stroke-width="2"/><text x="200.0" y="210" text-anchor="middle" font-size="13" font-family="var(--review-mono)" fill="var(--review-fg)">while (checkList.length > 0 ...)</text><text x="200.0" y="228" text-anchor="middle" font-size="11" fill="var(--review-muted)">1 回も回らない</text><line x1="200" y1="240" x2="200" y2="256" stroke="var(--review-danger)" stroke-width="2"/><polygon points="195,255 205,255 200,262" fill="var(--review-danger)"/><rect x="10" y="262" width="380" height="52" rx="6" fill="var(--review-surface)" stroke="var(--review-danger)" stroke-width="2"/><text x="200.0" y="284" text-anchor="middle" font-size="13" font-family="var(--review-mono)" fill="var(--review-fg)">res === ICE_FAILED のまま</text><text x="200.0" y="302" text-anchor="middle" font-size="11" fill="var(--review-muted)">throw ICE negotiation failed</text><line x1="200" y1="314" x2="200" y2="330" stroke="var(--review-danger)" stroke-width="2"/><polygon points="195,329 205,329 200,336" fill="var(--review-danger)"/><rect x="10" y="336" width="380" height="52" rx="6" fill="var(--review-surface)" stroke="var(--review-danger)" stroke-width="2"/><text x="200.0" y="358" text-anchor="middle" font-size="13" font-family="var(--review-mono)" fill="var(--review-fg)">iceConnectionState = failed</text><text x="200.0" y="376" text-anchor="middle" font-size="11" fill="var(--review-muted)">checking の 1 ms 後</text><line x1="200" y1="388" x2="200" y2="404" stroke="var(--review-danger)" stroke-width="2"/><polygon points="195,403 205,403 200,410" fill="var(--review-danger)"/><rect x="10" y="410" width="380" height="52" rx="6" fill="var(--review-surface)" stroke="var(--review-danger)" stroke-width="2"/><text x="200.0" y="432" text-anchor="middle" font-size="13" font-family="var(--review-mono)" fill="var(--review-fg)">Firefox の active TCP から check 到着</text><text x="200.0" y="450" text-anchor="middle" font-size="11" fill="var(--review-muted)">2 ms 遅い。nominate しても failed のまま</text><text x="620" y="24" text-anchor="middle" font-size="15" font-weight="bold" fill="var(--review-fg)">修正後</text><rect x="430" y="40" width="380" height="52" rx="6" fill="var(--review-surface)" stroke="var(--review-border)" stroke-width="2"/><text x="620.0" y="62" text-anchor="middle" font-size="13" font-family="var(--review-mono)" fill="var(--review-fg)">connect()</text><text x="620.0" y="80" text-anchor="middle" font-size="11" fill="var(--review-muted)">ended = remoteChecks.signal を保持</text><line x1="620" y1="92" x2="620" y2="108" stroke="var(--review-muted)" stroke-width="2"/><polygon points="615,107 625,107 620,114" fill="var(--review-muted)"/><rect x="430" y="114" width="380" height="52" rx="6" fill="var(--review-surface)" stroke="var(--review-border)" stroke-width="2"/><text x="620.0" y="136" text-anchor="middle" font-size="13" font-family="var(--review-mono)" fill="var(--review-fg)">schedulingChecks()</text><text x="620.0" y="154" text-anchor="middle" font-size="11" fill="var(--review-muted)">check list が空のまま終了</text><line x1="620" y1="166" x2="620" y2="182" stroke="var(--review-success)" stroke-width="2"/><polygon points="615,181 625,181 620,188" fill="var(--review-success)"/><rect x="430" y="188" width="380" height="52" rx="6" fill="var(--review-surface)" stroke="var(--review-success)" stroke-width="2"/><text x="620.0" y="210" text-anchor="middle" font-size="13" font-family="var(--review-mono)" fill="var(--review-fg)">waitForIncomingCheck(ended)</text><text x="620.0" y="228" text-anchor="middle" font-size="11" fill="var(--review-muted)">期限 incomingCheckTimeout を固定して待つ</text><line x1="620" y1="240" x2="620" y2="256" stroke="var(--review-success)" stroke-width="2"/><polygon points="615,255 625,255 620,262" fill="var(--review-success)"/><rect x="430" y="262" width="380" height="52" rx="6" fill="var(--review-surface)" stroke="var(--review-success)" stroke-width="2"/><text x="620.0" y="284" text-anchor="middle" font-size="13" font-family="var(--review-mono)" fill="var(--review-fg)">起床源: addPair / 収集終了 / ended</text><text x="620.0" y="302" text-anchor="middle" font-size="11" fill="var(--review-muted)">待ち手は Set で複数でも全員が起きる</text><line x1="620" y1="314" x2="620" y2="330" stroke="var(--review-success)" stroke-width="2"/><polygon points="615,329 625,329 620,336" fill="var(--review-success)"/><rect x="430" y="336" width="380" height="52" rx="6" fill="var(--review-surface)" stroke="var(--review-success)" stroke-width="2"/><text x="620.0" y="358" text-anchor="middle" font-size="13" font-family="var(--review-mono)" fill="var(--review-fg)">相手の check で pair 追加 → 再スケジュール</text><text x="620.0" y="376" text-anchor="middle" font-size="11" fill="var(--review-muted)">収集終了でソケット 0 / 期限切れなら失敗</text><line x1="620" y1="388" x2="620" y2="404" stroke="var(--review-success)" stroke-width="2"/><polygon points="615,403 625,403 620,410" fill="var(--review-success)"/><rect x="430" y="410" width="380" height="52" rx="6" fill="var(--review-surface)" stroke="var(--review-success)" stroke-width="2"/><text x="620.0" y="432" text-anchor="middle" font-size="13" font-family="var(--review-mono)" fill="var(--review-fg)">connected</text><text x="620.0" y="450" text-anchor="middle" font-size="11" fill="var(--review-muted)">世代が終われば IceRestartedError で即決着</text></svg>
+<div style="font-size:12px;color:var(--review-muted);margin-top:4px"><span style="color:var(--review-danger)">■ 赤枠</span>: 問題の経路　<span style="color:var(--review-success)">■ 緑枠</span>: 修正で変わった経路　灰枠: 変更なし</div>
+</div>
+
+- 修正前は、空の check list が `res === ICE_FAILED` のまま `throw` に落ちます（`packages/ice/src/ice.ts` の `connect()`）。
+- 修正後は、空リストで待機に入り、`addPair()`、ローカル収集の終了、世代終了のどれかで起きます。変更の核は [packages/ice/src/ice.ts:2088](review-diff:packages/ice/src/ice.ts:2088) の `waitForIncomingCheck()` と、[packages/ice/src/ice.ts:1928](review-diff:packages/ice/src/ice.ts:1928) の `connect()` です。
+
+## 3. 主要変更
+
+### ICE（`packages/ice`）
+
+- [packages/ice/src/ice.ts:1928](review-file:packages/ice/src/ice.ts:1928)：`connect()` は開始時に `ended`（`remoteChecks.signal`、`restart()` / `restartRemote()` / `close()` で abort）と `queue`（`checkListState`）を保持し、スケジューリング、空リスト待機、完了待ち、ICE-lite の完了待ちをすべて `ended` で打ち切ります。打ち切ったら `connectError()`（[packages/ice/src/ice.ts:2055](review-file:packages/ice/src/ice.ts:2055)）を投げます。再起動なら `IceRestartedError`、close なら従来どおり `ICE negotiation failed` です。
+- [packages/ice/src/ice.ts:2088](review-diff:packages/ice/src/ice.ts:2088)：`waitForIncomingCheck()` は期限を開始時に固定し、起きるたびにソケットの有無、`ended`、pair を再評価します。期限は延びません。
+- [packages/ice/src/ice.ts:118](review-file:packages/ice/src/ice.ts:118)：待ち手を `incomingCheckWaits`（`Set<AbortController>`）にし、`wakeIncomingCheckWaits()`（[packages/ice/src/ice.ts:2120](review-file:packages/ice/src/ice.ts:2120)）が全員を起こします。呼び出しは `addPair()`（[packages/ice/src/ice.ts:3090](review-file:packages/ice/src/ice.ts:3090)）と、`localCandidatesEnd = true` を立てる 2 か所（[packages/ice/src/ice.ts:1009](review-file:packages/ice/src/ice.ts:1009)、[packages/ice/src/ice.ts:1019](review-file:packages/ice/src/ice.ts:1019)）です。
+
+### webrtc（`packages/webrtc`）
+
+- [packages/webrtc/src/transport/ice.ts:184](review-file:packages/webrtc/src/transport/ice.ts:184)：`checksGeneration` を `restart()` と `resetRemoteGeneration()` で 1 増やします。[packages/webrtc/src/transport/ice.ts:820](review-diff:packages/webrtc/src/transport/ice.ts:820) の `start()` は、まだ自分の世代のときだけ `failed` にします。
+- [packages/webrtc/src/negotiation/transportActivation.ts:256](review-diff:packages/webrtc/src/negotiation/transportActivation.ts:256)（`connect()`）と [packages/webrtc/src/negotiation/transportActivation.ts:395](review-diff:packages/webrtc/src/negotiation/transportActivation.ts:395)（`connectPending()`）は、`start()` と `checksSettled()` の 4 つの await 地点で世代を比べ、変わっていたら（または transport が引退していたら）状態を変えずに終わります。エラーの型ではなく世代で判定します。
+
+### テスト
+
+- ICE：[generation-end.test.ts](review-file:packages/ice/tests/ice/generation-end.test.ts)（世代終了 × 待ち場所のマトリクス）、[incoming-check-wake.test.ts](review-file:packages/ice/tests/ice/incoming-check-wake.test.ts)（起床源のマトリクス）、[tcp.test.ts:134](review-file:packages/ice/tests/ice/tcp.test.ts:134)（active のみ）。
+- webrtc：[iceGenerationActivation.test.ts](review-file:packages/webrtc/tests/transport/iceGenerationActivation.test.ts)（4 待ち手 × 3 終了）、[ice.test.ts:924](review-file:packages/webrtc/tests/transport/ice.test.ts:924)（二つの接続処理が並行中の `restartIce()` で `failed` にならない）。
+- E2E：`e2e/tests/datachannel/iceTcp.test.ts` の Firefox スキップを外しました。
+
+## 4. 判断理由
+
+- 指摘のたびに経路を 1 本ずつ塞ぐのではなく、「世代が終わったら待つ側はすべて決着し、新しい世代に触れない」を不変条件にして、終了のシグナルを `remoteChecks.signal` の 1 本にまとめました。R1 / R5 / R7 と、未指摘だった ICE-lite、full の `schedulingChecks()`、残りの check の取消の経路が同じ仕組みで塞がります。
+- 待機の起床源は、pair 追加、収集の終了、世代終了の 3 つに限り、期限は待機の開始時に固定します（起こされるたびに延びると、収集の終了や並行呼び出しで失敗が遅れるため）。
+- 世代の判定にエラーの型ではなく `checksGeneration` を使うのは、同じ世代の本物の失敗と、再起動による取消を、型で区別できないためです。
+- 採用しなかった案：空リストを失敗にしたまま Firefox だけ別扱いにする案は、RFC 6544 と peer-reflexive の学習に反するため採りませんでした。
+
+## 5. レビュアーが確認すべき点・リスク
+
+- 挙動の互換性：候補が 1 つもなく相手の check も来ない接続は、即 `failed` ではなく最大 `incomingCheckTimeout`（既定 30 秒）後に `failed` になります。ただし、ローカル収集の終了時にソケットが 0 なら即失敗します。
+- 公開 API：`IceOptions.incomingCheckTimeout` と `PeerConfig.iceIncomingCheckTimeout` の JSDoc、`changelog.md`、生成ドキュメントが更新対象です（差分から読み取れる範囲では、コードと文書の整合を確認してください）。
+- 並行 `connect()` が同じ結果キューを取り合う問題は、チケット以前からの full モードの制約で、今回は待機の起床だけを直しています。
+- `RTCIceTransport.checksGeneration` は `@internal` です。
+- 失敗した過去の Firefox 記録（`bfc957516` の 1 回目の `iceTcp.test.ts` のタイムアウト）は、原因を特定できていません（付録を参照）。
+
+## 6. 検証結果
+
+最新の実装コミット `1726e9616` で、付録に記録された結果です（この解説の作成時には再実行していません）。
+
+| コマンド | 結果 |
+| --- | --- |
+| `cd packages/ice && npm test` | 52 ファイル成功、479 件成功、5 件スキップ |
+| `npm run type` | 成功 |
+| `npm run test:small` | 全パッケージ成功（webrtc 1880 件成功） |
+| `npm run e2e`（Chrome） | 25 ファイル、71 件成功 |
+| `cd e2e && npm run firefox:record`（clean な `1726e9616`） | 63 件成功、0 件失敗、8 件スキップ |
+
+`src/negotiation` を変える `9b1cb2bec` では `npm run pbt:deep` も実行済みです（model seed 287 の 1 件はベースでも再現）。`1726e9616` は `src/negotiation` を変えないので実行していません。
+
+## 付録：経緯別の詳細（確認レビュー用メモ）
 
 対象コミット: `9b1cb2bec`（実装とテスト）、`0b72d4547`（Firefox 記録）、`bfc957516`（`start()` の延期した `connect()` の取消）、`1cff1bead`（Firefox 記録）、`e535dc54d`（同期の状態イベント中の再起動）、`037110bdb`（Firefox 記録）、`feb9f8f52`（ICE-lite の待ち時間）、`3344382e9`（Firefox 記録）、`0a4590d0d`（ICE-lite が収集中に connect する場合）、`0d32385bd`（Firefox 記録）、`1726e9616`（空の check list での待機の起床源）、`988d3db68`（Firefox 記録）。ベースは `91f6b80eb`。
 この文書は確認レビュー用に未コミットのまま置いています。
