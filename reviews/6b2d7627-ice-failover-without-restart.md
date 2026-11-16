@@ -4,7 +4,7 @@ ide:
   version: 1
   title: "ICE フェイルオーバー（ICE restart なし）のレビュー"
   dock: right
-  baseCommit: 01d2b42b0ca0a1ab6d56a2b4618d56cc97847761
+  baseCommit: 1fad7f60e0f42d21418bac0064c14e07516cca20
 ---
 # ICE フェイルオーバー（ICE restart なしで次のペアへ移る）のレビュー
 
@@ -12,9 +12,9 @@ ide:
 
 選択中のペア（`Connection.nominated`）が応答しなくなったとき、werift は従来 30 s の consent 失効で `failed` になり、アプリ側の ICE restart を待つしかありませんでした。今回、libwebrtc と同じ考え方で「ローカルのソケット（`Protocol`）ごとに 1 つの退避先ペア」を選択後も監視し続け、選択中のペアが書き込み不可になると、`controlling` 側が退避先を指名して ICE restart なしで切り替えます。
 
-対象は full ICE の semi-aggressive / renomination のみです。regular nomination、ICE-TCP、ICE-lite では従来の挙動を変えません（[packages/ice/src/ice.ts:3418](review-file:packages/ice/src/ice.ts:3418) の `failoverEnabled()` ほか）。
+対象は full ICE の semi-aggressive / renomination のみです。regular nomination、ICE-TCP、ICE-lite では従来の挙動を変えません（[packages/ice/src/ice.ts:3179](review-file:packages/ice/src/ice.ts:3179) の `failoverEnabled()` ほか）。
 
-差分の基準は、チケット worktree に取り込み済みの親チケットのマージコミット `e83850f0e` です。headCommit は `01d2b42b0`（再レビュー 3 回目）です。
+差分の基準は、チケット worktree に取り込み済みの親チケットのマージコミット `e83850f0e` です。headCommit は `1fad7f60e`（第 12 回: 不変条件への整理と行列テスト）です。
 
 ### 受け入れテスト（ここだけ見れば不変条件を確認できます）
 
@@ -96,11 +96,11 @@ ide:
 
 | 変更 | 場所 |
 | --- | --- |
-| 対象判定 `failoverEnabled()` | [packages/ice/src/ice.ts:3418](review-file:packages/ice/src/ice.ts:3418) |
-| 選択の切り替え（元ペアを demote。3 回連続応答まで戻さない） | [packages/ice/src/ice.ts:2660](review-diff:packages/ice/src/ice.ts:2660) |
+| 対象判定 `failoverEnabled()` | [packages/ice/src/ice.ts:3179](review-file:packages/ice/src/ice.ts:3179) |
+| 選択の切り替え（元ペアを demote。3 回連続応答まで戻さない） | [packages/ice/src/ice.ts:2301](review-diff:packages/ice/src/ice.ts:2301) |
 | consent 失効時、書き込み可能な退避先があれば `failed` にしない | [packages/ice/src/ice.ts:2085](review-diff:packages/ice/src/ice.ts:2085) |
 | ロール変更で consent の進行中 request を中断（`consentRoleEpoch`） | [packages/ice/src/ice.ts:2511](review-diff:packages/ice/src/ice.ts:2511) |
-| 指名中の回復でも指名を取り消さない（`failoverNomination`） | [packages/ice/src/ice.ts:3275](review-diff:packages/ice/src/ice.ts:3275) |
+| 指名中の回復でも指名を取り消さない（`failoverNomination`） | [packages/ice/src/ice.ts:3259](review-diff:packages/ice/src/ice.ts:3259) |
 
 ### 3.3 定数
 
@@ -118,8 +118,21 @@ ide:
 - memleak の media シナリオのハーネス修正: [packages/webrtc/tests/memleak/scenarios.ts](review-diff:packages/webrtc/tests/memleak/scenarios.ts)
 - 挙動の記載: [packages/ice/README.md:94](review-file:packages/ice/README.md:94)、[changelog.md](review-diff:changelog.md)。生成ドキュメント（`doc/`、`packages/ice/doc`）は `npm run doc` で更新しています。
 
+### 3.6 第 12 回の変更（不変条件への整理）
+
+これまで指摘ごとに点で直してきた「eligible な経路があるのに監視されない／使われない」を、1 つの不変条件に整理しました。行列テストで 3 つの未修正の穴（A・B・C）が見つかり、次の 3 点で直しています。
+
+| 穴 | 条件 | 修正 | 場所 |
+| --- | --- | --- | --- |
+| A | controlled、同一ソケットに上位のリモート。上位が一度も check されず、選択断で `disconnected`、consent 失効で `failed` | 同一ソケットの別リモートは順位に関係なく退避先の候補にする。上位を除外するのは、自分で選択を上へ移す agent（controlling かつ semi-aggressive / renomination、`movesSelectionUp()`）だけ | [packages/ice/src/failover.ts:457](review-diff:packages/ice/src/failover.ts:457)、[packages/ice/src/ice.ts:3210](review-diff:packages/ice/src/ice.ts:3210) |
+| B | controlling、同一ソケット上位が 60 s 以上落ちてから復帰。再試行が 5 回で止まり、復帰を拾えない | failover 有効中は 16 s ごとに再試行を続ける（`retriesForever`）。選択断で退避先がないときは、FAILED の上位ペアをすぐ check する（`checkFailedOutranking`） | [packages/ice/src/nomination/selectionReplacement.ts:147](review-diff:packages/ice/src/nomination/selectionReplacement.ts:147)、[packages/ice/src/nomination/selectionReplacement.ts:175](review-diff:packages/ice/src/nomination/selectionReplacement.ts:175)、[packages/ice/src/ice.ts:3255](review-diff:packages/ice/src/ice.ts:3255) |
+| C | controlled、semi-aggressive、相手が下位の退避先を USE-CANDIDATE だけ（データなし）で指名。切り替わらず 40 s で `failed` | 選択が down（`selectionDown`）で、nomination の値が等しく、指名されたペアが SUCCEEDED なら置き換える。libwebrtc の controlled が書き込み可否を優先度より先に比べるのと同じ | [packages/ice/src/nomination/selectionReplacement.ts:261](review-diff:packages/ice/src/nomination/selectionReplacement.ts:261) |
+
+テスト側では、[packages/ice/tests/ice/semi-aggressive.test.ts](review-diff:packages/ice/tests/ice/semi-aggressive.test.ts) の 2 件を新しい規則に合わせて書き換えています。「再試行は 5 回で止まる」は「5 回目の後も 16 s ごとに続く」に、「ロール変更で再試行が止まる」は「controlled になった側は上位ペアとしての再 check（ICE-CONTROLLING / USE-CANDIDATE）を送らない」になりました。同一ソケットの退避先としての監視（ICE-CONTROLLED、指名なし）は続きます。
+
 ## 4. 判断理由
 
+- **点修正をやめ、不変条件と行列テストにした**。指摘が毎回同じ族（監視されない／使われない）だったためです。例外は「自分で選択を上へ移す agent の上位ペアは `SelectionReplacement` に任せる」の 1 つだけにしました。
 - **退避先の単位はローカルの `Protocol` ごとに 1 ペア**。同じソケットの host と srflx は経路が同じなので分けません。すべての valid ペアを監視する案は、ping がペア数に比例して増えるため採用しませんでした。
 - **書き込み不可の判定は 5 回かつ 5 s**。libwebrtc の `CONNECTION_WRITE_CONNECT_FAILURES` / `_TIMEOUT` に合わせています。consent の間隔（5 s）自体は短くせず、弱い状態のときだけ 900 ms にします。
 - **RTT やネットワークコストでの切り替えは入れない**。切り替えの理由は「書き込み不可」に限ります。
@@ -133,19 +146,22 @@ ide:
 - **controlled 側**: 自分では指名せず、相手の指名とデータに従います（親チケット §10 T1）。監視と状態遷移は行います。
 - **退避先の応答待ち 3 s**: 従来の 1 s では RTT が 1 s を超える退避先が有効にならないため、libwebrtc の `DEFAULT_RTT` に合わせた独自の値です。
 - **差分に含まれる範囲外の変更**: memleak のハーネス修正（`tests/memleak/scenarios.ts`）は、この環境の loopback の受信バッファあふれで media シナリオが失敗していたための修正です。leak 判定は変えていません。
+- **上位ペアの再試行が無期限になった**: failover 有効中は 16 s ごとのタイマーが選択の続く間ずっと残ります。close とロール変更では止まること、対象外（ICE-TCP など）では従来どおり 5 回で止まることを確認してください（[packages/ice/tests/ice/semi-aggressive.test.ts](review-diff:packages/ice/tests/ice/semi-aggressive.test.ts)）。
+- **controlled の置き換え条件が広がった**: 選択が down のとき、同じ値の USE-CANDIDATE で置き換わります。選択が生きている間の挙動は変わりません。
 - **公開 API**: 追加した定数が `iceBase.ts` から export され、生成ドキュメントに載ります。メソッドや型の変更は確認できていません。
 
 ## 6. 検証結果
 
-チケットの実施結果（第 4 回）に記載された内容です。この文書の作成時には再実行していません。
+チケット §13.7 に記載された実施結果です。この文書の作成時には再実行していません（作業前のリビジョンは `fc09f02bd`）。
 
 | コマンド | 結果 |
 | --- | --- |
+| `cd packages/ice && npm test` | 54 ファイル / 1099 件通過 |
+| `failover-matrix.test.ts` | 修正前は 51 件中 16 件失敗、修正後は 53 件通過（5 回連続） |
 | `npm run type` | 通過 |
-| ice の全テスト | 547 件通過 |
-| `npm run test:small` | 通過（webrtc 1729 件を含む） |
-| `npm run e2e` | 25 ファイル / 73 件通過（Chrome が controlled の退避を含む） |
-| `npm run wpt` | 退行 0。全体実行で `protocol/bundle.https.html` が 1 回 timeout したが、単独 3 回は従来どおり PASS 1 で、負荷による timeout と判断 |
-| `npm run memleak`（既定設定） | media・datachannel・connection・renegotiation が PASS。synthetic-leak は想定どおり検出 |
+| `npm run test:small` | 通過（webrtc 1838 件を含む） |
+| `npm run e2e` | 26 ファイル / 76 件通過 |
+| `npm run wpt` | PASS 577、退行 0 |
+| `npm run memleak`（既定設定） | connection・media・renegotiation は PASS、合成 leak は想定どおり検出。datachannel は受信 timeout で失敗（この環境の UDP 受信バッファあふれによる既知の問題で、第 5 回に変更前のコードでも再現と記録） |
 
-未確認事項: Chrome が controlled のとき、prune 済みの下位接続への退避に追従するかは、ticket の記載では `e2e/tests/ice/failover.test.ts` で確認済みです（semi-aggressive / renomination とも）。
+未確認事項: memleak の datachannel の失敗が今回の変更と無関係であることは、第 5 回の記録に依拠しています。この回では変更前との比較を行っていません。
