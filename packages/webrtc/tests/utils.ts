@@ -32,7 +32,12 @@ import { TransportActivation } from "../src/negotiation/transportActivation";
 export async function createIceTransportsWithoutPeerCandidates(
   incomingCheckTimeout: number,
 ) {
-  const options = { incomingCheckTimeout, useIpv6: false };
+  // Host candidates only: no query to the built-in public STUN server.
+  const options = {
+    incomingCheckTimeout,
+    useIpv6: false,
+    useDefaultStunServer: false,
+  };
   const transport1 = new RTCIceTransport(new RTCIceGatherer(options));
   const transport2 = new RTCIceTransport(new RTCIceGatherer(options));
   transport1.connection.iceControlling = true;
@@ -60,28 +65,52 @@ export async function startIceTransportWaitingForIncomingCheck(
 }
 
 /**
- * Arrange: a new ICE generation of the transports of
- * `startIceTransportWaitingForIncomingCheck` with every candidate exchanged.
- * `restart` is "local" (both restart) or "remote" (only 1 restarts, 2 drops
- * its remote generation and keeps its credentials and candidates).
+ * Arrange: end the ICE generation of the transports of
+ * `createIceTransportsWithoutPeerCandidates`, synchronously. `restart` is
+ * "local" (both restart) or "remote" (only 1 restarts, 2 drops its remote
+ * generation and keeps its credentials and candidates).
  */
-export async function restartIceTransportGeneration(
+export function endIceTransportGeneration(
   transport1: RTCIceTransport,
   transport2: RTCIceTransport,
   restart: "local" | "remote",
 ) {
   transport1.restart(false);
+  if (restart === "local") transport2.restart(false);
+  else transport2.resetRemoteGeneration();
+}
+
+/**
+ * Arrange: gather the generation `endIceTransportGeneration` began and
+ * exchange every candidate and the credentials (no check starts).
+ */
+export async function exchangeIceTransportGeneration(
+  transport1: RTCIceTransport,
+  transport2: RTCIceTransport,
+  restart: "local" | "remote",
+) {
   if (restart === "local") {
-    transport2.restart(false);
     await Promise.all([transport1.gather(), transport2.gather()]);
   } else {
-    transport2.resetRemoteGeneration();
     await transport1.gather();
   }
   transport2.localCandidates.forEach(transport1.addRemoteCandidate);
   transport1.localCandidates.forEach(transport2.addRemoteCandidate);
   transport1.setRemoteParams(transport2.localParameters);
   transport2.setRemoteParams(transport1.localParameters);
+}
+
+/**
+ * Arrange: a new ICE generation of the transports of
+ * `startIceTransportWaitingForIncomingCheck` with every candidate exchanged.
+ */
+export async function restartIceTransportGeneration(
+  transport1: RTCIceTransport,
+  transport2: RTCIceTransport,
+  restart: "local" | "remote",
+) {
+  endIceTransportGeneration(transport1, transport2, restart);
+  await exchangeIceTransportGeneration(transport1, transport2, restart);
 }
 
 export function load(name: string) {

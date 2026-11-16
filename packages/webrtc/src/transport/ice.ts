@@ -4,6 +4,7 @@ import {
   Connection,
   type IceConnection,
   type IceOptions,
+  IceRestartedError,
   isCandidateAllowedByGatherOptions,
   mergeIceServerOptions,
 } from "../../../ice/src";
@@ -815,7 +816,19 @@ export class RTCIceTransport {
     this.setState("checking");
     const generation = this.checksGeneration;
     const startPromise = Promise.resolve()
-      .then(() => this.connection.connect())
+      .then(() => {
+        // connect() runs a microtask later: a restart in between (restart(),
+        // resetRemoteGeneration()) ended this start's generation, and the
+        // connect() would check the next one (whose own start() runs it).
+        if (this.checksGeneration !== generation) {
+          throw new IceRestartedError();
+        }
+        // stop() in between closed the agent: no check starts.
+        if (this.state === "closed") {
+          throw new Error("RTCIceTransport is closed");
+        }
+        return this.connection.connect();
+      })
       .catch((error) => {
         // Once a restart replaced this generation (it already set "new"),
         // the outcome of its checks says nothing about the new one.

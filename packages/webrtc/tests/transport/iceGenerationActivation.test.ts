@@ -1,8 +1,13 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
+
+import { IceRestartedError } from "../../src";
 
 import {
   type ActivationWaiter,
   type ChecksEnd,
+  createIceTransportsWithoutPeerCandidates,
+  endIceTransportGeneration,
+  exchangeIceTransportGeneration,
   startActivationWaiting,
 } from "../utils";
 
@@ -44,5 +49,68 @@ describe("TransportActivation when the awaited ICE generation ends", () => {
         await cleanup();
       }
     });
+  });
+});
+
+// start() runs connect() a microtask later: an end of the generation in
+// between must cancel that request, not let it check the next generation.
+describe("RTCIceTransport.start() whose generation ends before its checks start", () => {
+  test.each(["local", "remote"] as const)(
+    "a %s restart cancels it and the next generation's checks start once",
+    async (restart) => {
+      // Arrange: 2 は 1 の認証情報だけを持つ (1 の候補なし)。
+      const { transport1, transport2 } =
+        await createIceTransportsWithoutPeerCandidates(30);
+      const connect = vi.spyOn(transport2.connection, "connect");
+      try {
+        // Act: start() の直後、同じ同期区間で ICE restart する。
+        const old = transport2.start().then(
+          () => undefined,
+          (error: unknown) => error,
+        );
+        endIceTransportGeneration(transport1, transport2, restart);
+        const oldError = await old;
+
+        // Assert: 旧世代の start() は connect() を呼ばずに IceRestartedError で決着し、failed にしない。
+        expect(oldError).toBeInstanceOf(IceRestartedError);
+        expect(connect).not.toHaveBeenCalled();
+        expect(transport2.state).not.toBe("failed");
+
+        // Act: 新しい世代の候補と認証情報を交換し、両側を start する。
+        await exchangeIceTransportGeneration(transport1, transport2, restart);
+        await Promise.all([transport1.start(), transport2.start()]);
+
+        // Assert: 新しい世代は接続し、2 の connect() は一度だけ呼ばれる。
+        expect(transport1.state).toBe("connected");
+        expect(transport2.state).toBe("connected");
+        expect(connect).toHaveBeenCalledTimes(1);
+      } finally {
+        await Promise.all([transport1.stop(), transport2.stop()]);
+      }
+    },
+  );
+
+  test("stop() cancels it without starting checks", async () => {
+    // Arrange: 2 は 1 の認証情報だけを持つ (1 の候補なし)。
+    const { transport1, transport2 } =
+      await createIceTransportsWithoutPeerCandidates(30);
+    const connect = vi.spyOn(transport2.connection, "connect");
+    try {
+      // Act: start() の直後、同じ同期区間で stop する。
+      const old = transport2.start().then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+      const stopping = transport2.stop();
+      const oldError = await old;
+      await stopping;
+
+      // Assert: start() は connect() を呼ばずに失敗で決着し、transport は closed のまま。
+      expect(oldError).toBeInstanceOf(Error);
+      expect(connect).not.toHaveBeenCalled();
+      expect(transport2.state).toBe("closed");
+    } finally {
+      await Promise.all([transport1.stop(), transport2.stop()]);
+    }
   });
 });
