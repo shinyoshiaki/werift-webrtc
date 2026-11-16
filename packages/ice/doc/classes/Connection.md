@@ -1,0 +1,1025 @@
+[**werift-ice**](../README.md)
+
+***
+
+[werift-ice](../globals.md) / Connection
+
+# Class: Connection
+
+## Implements
+
+- [`IceConnection`](../interfaces/IceConnection.md)
+
+## Constructors
+
+### Constructor
+
+> **new Connection**(`_iceControlling`, `options?`): `Connection`
+
+#### Parameters
+
+##### \_iceControlling
+
+`boolean`
+
+##### options?
+
+`Partial`\<[`IceOptions`](../interfaces/IceOptions.md)\>
+
+#### Returns
+
+`Connection`
+
+## Properties
+
+### checkList
+
+> **checkList**: [`CandidatePair`](CandidatePair.md)[] = `[]`
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`checkList`](../interfaces/IceConnection.md#checklist)
+
+***
+
+### generation
+
+> **generation**: `number` = `-1`
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`generation`](../interfaces/IceConnection.md#generation)
+
+***
+
+### localCandidates
+
+> **localCandidates**: [`Candidate`](Candidate.md)[] = `[]`
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`localCandidates`](../interfaces/IceConnection.md#localcandidates)
+
+***
+
+### localCandidatesEnd
+
+> **localCandidatesEnd**: `boolean` = `false`
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`localCandidatesEnd`](../interfaces/IceConnection.md#localcandidatesend)
+
+***
+
+### localPassword
+
+> **localPassword**: `string`
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`localPassword`](../interfaces/IceConnection.md#localpassword)
+
+***
+
+### localUsername
+
+> **localUsername**: `string`
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`localUsername`](../interfaces/IceConnection.md#localusername)
+
+***
+
+### lookup?
+
+> `optional` **lookup?**: `MdnsLookup`
+
+Resolves remote mDNS candidates; closed (pending lookups cancelled) by restart() and close().
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`lookup`](../interfaces/IceConnection.md#lookup)
+
+***
+
+### nominated?
+
+> `optional` **nominated?**: [`CandidatePair`](CandidatePair.md)
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`nominated`](../interfaces/IceConnection.md#nominated)
+
+***
+
+### onData
+
+> `readonly` **onData**: `Event`\<\[`Buffer`\<`ArrayBufferLike`\>\]\>
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`onData`](../interfaces/IceConnection.md#ondata)
+
+***
+
+### onIceCandidate
+
+> `readonly` **onIceCandidate**: `Event`\<\[[`Candidate`](Candidate.md)\]\>
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`onIceCandidate`](../interfaces/IceConnection.md#onicecandidate)
+
+***
+
+### onIceCandidateError
+
+> `readonly` **onIceCandidateError**: `Event`\<\[[`IceCandidateErrorInfo`](../type-aliases/IceCandidateErrorInfo.md)\]\>
+
+A STUN server query or TURN allocation of the current generation's
+gathering failed (W3C `icecandidateerror`), synchronously and without
+changing the gathering: other servers and sockets go on, and gathering
+still completes. A server answering with an error gives its ERROR-CODE,
+once per local socket and generation. One that is not reached (timeout,
+`stunGatherTimeout`, DNS, connect or socket error) gives 701, once per
+server and generation and only when no local socket reached it (a STUN
+server is reported when the last socket's query ended). A TURN server's UDP attempt and its TCP fallback are
+one failure, reported when both failed (a server's error code wins over
+701). A credential retry (401 / 438) that succeeds is not a failure.
+Nothing is fired for a replaced generation or after close (the event
+completes then). A STUN failure carries the host address of a socket
+that asked; a TURN one carries none. The built-in default STUN server (none
+configured, `useDefaultStunServer` not false) is named by the
+synthesized URL [DEFAULT\_STUN\_SERVER\_URL](../variables/DEFAULT_STUN_SERVER_URL.md) in `server.urls`.
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`onIceCandidateError`](../interfaces/IceConnection.md#onicecandidateerror)
+
+***
+
+### onIceServerReached
+
+> `readonly` **onIceServerReached**: `Event`\<\[[`IceServerReachedInfo`](../type-aliases/IceServerReachedInfo.md)\]\>
+
+A STUN or TURN server of the current generation's gathering answered:
+a STUN query or TURN allocation gave a candidate, or the server sent an
+error response (see [IceServerReachedInfo](../type-aliases/IceServerReachedInfo.md)). Synchronous; nothing
+is fired for a replaced generation or after close.
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`onIceServerReached`](../interfaces/IceConnection.md#oniceserverreached)
+
+***
+
+### options
+
+> **options**: [`IceOptions`](../interfaces/IceOptions.md)
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`options`](../interfaces/IceConnection.md#options)
+
+***
+
+### remoteCandidatesEnd
+
+> **remoteCandidatesEnd**: `boolean` = `false`
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`remoteCandidatesEnd`](../interfaces/IceConnection.md#remotecandidatesend)
+
+***
+
+### remoteIceOptions
+
+> **remoteIceOptions**: `string`[] = `[]`
+
+The remote `a=ice-options` tokens (RFC 8839 §5.6), e.g. `trickle`,
+`ice2`. Informational: werift already follows RFC 8445, so no token
+changes how checks or nomination run.
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`remoteIceOptions`](../interfaces/IceConnection.md#remoteiceoptions)
+
+***
+
+### remoteIsLite
+
+> **remoteIsLite**: `boolean` = `false`
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`remoteIsLite`](../interfaces/IceConnection.md#remoteislite)
+
+***
+
+### remotePassword
+
+> **remotePassword**: `string` = `""`
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`remotePassword`](../interfaces/IceConnection.md#remotepassword)
+
+***
+
+### remoteUsername
+
+> **remoteUsername**: `string` = `""`
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`remoteUsername`](../interfaces/IceConnection.md#remoteusername)
+
+***
+
+### state
+
+> **state**: [`IceState`](../type-aliases/IceState.md) = `"new"`
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`state`](../interfaces/IceConnection.md#state)
+
+***
+
+### stateChanged
+
+> `readonly` **stateChanged**: `Event`\<\[[`IceState`](../type-aliases/IceState.md)\]\>
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`stateChanged`](../interfaces/IceConnection.md#statechanged)
+
+***
+
+### stunServers
+
+> **stunServers**: (readonly \[`string`, `number`\])[] = `[]`
+
+STUN servers gathering queries: the configured ones (see
+normalizeIceServerOptions), or the built-in default when none is
+configured and useDefaultStunServer is not false.
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`stunServers`](../interfaces/IceConnection.md#stunservers)
+
+***
+
+### turnServers
+
+> **turnServers**: [`NormalizedTurnServer`](../type-aliases/NormalizedTurnServer.md)[] = `[]`
+
+TURN servers gathering allocates on, one allocation each.
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`turnServers`](../interfaces/IceConnection.md#turnservers)
+
+***
+
+### userHistory
+
+> **userHistory**: `object` = `{}`
+
+Local credentials STUN requests may use, by ufrag: the current ones, the
+generation the last restart replaced and a staged (provisional) one.
+
+#### Index Signature
+
+\[`username`: `string`\]: `string`
+
+## Accessors
+
+### candidatePairs
+
+#### Get Signature
+
+> **get** **candidatePairs**(): [`CandidatePair`](CandidatePair.md)[]
+
+##### Returns
+
+[`CandidatePair`](CandidatePair.md)[]
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`candidatePairs`](../interfaces/IceConnection.md#candidatepairs)
+
+***
+
+### gathersFromServers
+
+#### Get Signature
+
+> **get** **gathersFromServers**(): `boolean`
+
+Whether gathering contacts a STUN or TURN server (more than re-advertising sockets).
+
+##### Returns
+
+`boolean`
+
+Whether gathering contacts a STUN or TURN server.
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`gathersFromServers`](../interfaces/IceConnection.md#gathersfromservers)
+
+***
+
+### iceControlling
+
+#### Get Signature
+
+> **get** **iceControlling**(): `boolean`
+
+##### Returns
+
+`boolean`
+
+#### Set Signature
+
+> **set** **iceControlling**(`value`): `void`
+
+##### Parameters
+
+###### value
+
+`boolean`
+
+##### Returns
+
+`void`
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`iceControlling`](../interfaces/IceConnection.md#icecontrolling)
+
+***
+
+### iceLite
+
+#### Get Signature
+
+> **get** **iceLite**(): `boolean`
+
+##### Returns
+
+`boolean`
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`iceLite`](../interfaces/IceConnection.md#icelite)
+
+***
+
+### provisionalNominated
+
+#### Get Signature
+
+> **get** **provisionalNominated**(): [`CandidatePair`](CandidatePair.md) \| `undefined`
+
+##### Returns
+
+[`CandidatePair`](CandidatePair.md) \| `undefined`
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`provisionalNominated`](../interfaces/IceConnection.md#provisionalnominated)
+
+***
+
+### remoteCandidates
+
+#### Get Signature
+
+> **get** **remoteCandidates**(): [`Candidate`](Candidate.md)[]
+
+##### Returns
+
+[`Candidate`](Candidate.md)[]
+
+#### Set Signature
+
+> **set** **remoteCandidates**(`value`): `void`
+
+##### Parameters
+
+###### value
+
+[`Candidate`](Candidate.md)[]
+
+##### Returns
+
+`void`
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`remoteCandidates`](../interfaces/IceConnection.md#remotecandidates)
+
+***
+
+### remoteIce2
+
+#### Get Signature
+
+> **get** **remoteIce2**(): `boolean`
+
+The remote declared `ice2`: an RFC 8445 agent (RFC 8445 §10).
+
+##### Returns
+
+`boolean`
+
+The remote declared `ice2`: an RFC 8445 agent (RFC 8445 §10).
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`remoteIce2`](../interfaces/IceConnection.md#remoteice2)
+
+***
+
+### ~~stunServer~~
+
+#### Get Signature
+
+> **get** **stunServer**(): readonly \[`string`, `number`\] \| `undefined`
+
+##### Deprecated
+
+The first of [Connection.stunServers](#stunservers).
+
+##### Returns
+
+readonly \[`string`, `number`\] \| `undefined`
+
+#### Set Signature
+
+> **set** **stunServer**(`server`): `void`
+
+##### Deprecated
+
+Replaces [Connection.stunServers](#stunservers) with this one server (none for undefined).
+
+##### Parameters
+
+###### server
+
+readonly \[`string`, `number`\] \| `undefined`
+
+##### Returns
+
+`void`
+
+#### Deprecated
+
+The first of [IceConnection.stunServers](../interfaces/IceConnection.md#stunservers).
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`stunServer`](../interfaces/IceConnection.md#stunserver)
+
+***
+
+### ~~turnServer~~
+
+#### Get Signature
+
+> **get** **turnServer**(): readonly \[`string`, `number`\] \| `undefined`
+
+##### Deprecated
+
+The address of the first of [Connection.turnServers](#turnservers).
+
+##### Returns
+
+readonly \[`string`, `number`\] \| `undefined`
+
+#### Set Signature
+
+> **set** **turnServer**(`server`): `void`
+
+##### Deprecated
+
+Replaces [Connection.turnServers](#turnservers) with this one server
+and the deprecated turnUsername / turnPassword / turnTransport options
+(none for undefined).
+
+##### Parameters
+
+###### server
+
+readonly \[`string`, `number`\] \| `undefined`
+
+##### Returns
+
+`void`
+
+#### Deprecated
+
+The address of the first of [IceConnection.turnServers](../interfaces/IceConnection.md#turnservers).
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`turnServer`](../interfaces/IceConnection.md#turnserver)
+
+## Methods
+
+### addProvisionalRemoteCandidate()
+
+> **addProvisionalRemoteCandidate**(`remoteCandidate`): `Promise`\<`void`\>
+
+#### Parameters
+
+##### remoteCandidate
+
+[`Candidate`](Candidate.md) \| `undefined`
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`addProvisionalRemoteCandidate`](../interfaces/IceConnection.md#addprovisionalremotecandidate)
+
+***
+
+### addRemoteCandidate()
+
+> **addRemoteCandidate**(`remoteCandidate`): `Promise`\<`void`\>
+
+Known constraint (as in develop): candidates are not deduplicated. A
+description applied again in the same generation (BUNDLE split and
+merge after an ICE restart) adds its candidates and pairs a second time,
+until the next restart. Deduplicating here alone breaks the pairs a
+provisional generation dropped and the repeated add rebuilds; a fix needs
+the pairing and provisional lifecycle together.
+
+#### Parameters
+
+##### remoteCandidate
+
+[`Candidate`](Candidate.md) \| `undefined`
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`addRemoteCandidate`](../interfaces/IceConnection.md#addremotecandidate)
+
+***
+
+### checkIncoming()
+
+> **checkIncoming**(`message`, `addr`, `protocol`): `void`
+
+#### Parameters
+
+##### message
+
+[`Message`](Message.md)
+
+##### addr
+
+readonly \[`string`, `number`\]
+
+##### protocol
+
+[`Protocol`](../interfaces/Protocol.md)
+
+#### Returns
+
+`void`
+
+***
+
+### checkStart()
+
+> **checkStart**(`pair`): `object`
+
+#### Parameters
+
+##### pair
+
+[`CandidatePair`](CandidatePair.md)
+
+#### Returns
+
+`object`
+
+##### awaitable
+
+> **awaitable**: `Promise`\<`void`\> = `p`
+
+##### reject
+
+> **reject**: (`reason?`) => `void`
+
+###### Parameters
+
+###### reason?
+
+`any`
+
+###### Returns
+
+`void`
+
+##### resolve
+
+> **resolve**: (`value`) => `void`
+
+###### Parameters
+
+###### value
+
+`void` \| `PromiseLike`\<`void`\>
+
+###### Returns
+
+`void`
+
+***
+
+### close()
+
+> **close**(): `Promise`\<`void`\>
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`close`](../interfaces/IceConnection.md#close)
+
+***
+
+### commitLocalCredentials()
+
+> **commitLocalCredentials**(`usernameFragment`, `password`): `void`
+
+Called after restart, before re-gathering the chosen generation.
+
+#### Parameters
+
+##### usernameFragment
+
+`string`
+
+##### password
+
+`string`
+
+#### Returns
+
+`void`
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`commitLocalCredentials`](../interfaces/IceConnection.md#commitlocalcredentials)
+
+***
+
+### connect()
+
+> **connect**(): `Promise`\<`void`\>
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`connect`](../interfaces/IceConnection.md#connect)
+
+***
+
+### discardStagedLocalCredentials()
+
+> **discardStagedLocalCredentials**(`usernameFragment`): `void`
+
+#### Parameters
+
+##### usernameFragment
+
+`string`
+
+#### Returns
+
+`void`
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`discardStagedLocalCredentials`](../interfaces/IceConnection.md#discardstagedlocalcredentials)
+
+***
+
+### dropOtherRemoteGenerations()
+
+> **dropOtherRemoteGenerations**(`usernameFragment`): `void`
+
+Drop the remote candidates (and their pairs) that name a ufrag other than
+`usernameFragment`: they belong to another remote generation and cannot
+pass checks with its credentials. Candidates without a ufrag stay.
+
+#### Parameters
+
+##### usernameFragment
+
+`string`
+
+#### Returns
+
+`void`
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`dropOtherRemoteGenerations`](../interfaces/IceConnection.md#dropotherremotegenerations)
+
+***
+
+### gatherCandidates()
+
+> **gatherCandidates**(): `Promise`\<`void`\>
+
+Gather the local candidates of the current generation.
+
+After an ICE restart everything the kept sockets already advertised is
+advertised again synchronously, before this method first awaits: the host
+candidates and the server-reflexive address each kept socket had. Only
+work that needs a server follows (a fresh STUN query, a new TURN
+allocation), so a caller may let it finish in the background.
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`gatherCandidates`](../interfaces/IceConnection.md#gathercandidates)
+
+***
+
+### getDefaultCandidate()
+
+> **getDefaultCandidate**(): [`Candidate`](Candidate.md)
+
+#### Returns
+
+[`Candidate`](Candidate.md)
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`getDefaultCandidate`](../interfaces/IceConnection.md#getdefaultcandidate)
+
+***
+
+### resetNominatedPair()
+
+> **resetNominatedPair**(): `void`
+
+#### Returns
+
+`void`
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`resetNominatedPair`](../interfaces/IceConnection.md#resetnominatedpair)
+
+***
+
+### restart()
+
+> **restart**(): `Promise`\<`void`\>
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`restart`](../interfaces/IceConnection.md#restart)
+
+***
+
+### restartRemote()
+
+> **restartRemote**(): `void`
+
+Only the remote side restarted (new remote credentials in an answer to an
+offer that kept the local ones): the remote generation, its checks and
+the selected pair start over; local credentials and candidates stay.
+
+#### Returns
+
+`void`
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`restartRemote`](../interfaces/IceConnection.md#restartremote)
+
+***
+
+### send()
+
+> **send**(`data`): `Promise`\<`void`\>
+
+#### Parameters
+
+##### data
+
+`Buffer`
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`send`](../interfaces/IceConnection.md#send)
+
+***
+
+### setIceServers()
+
+> **setIceServers**(`options`): `void`
+
+Replace STUN/TURN servers after construction.
+Server-related fields are replaced (not partial-merged) so that removing
+TURN clears residual credentials. W3C setConfiguration replaces the ICE
+server list rather than merging additively.
+
+Used when servers are learned after the gatherer was built (e.g. WHIP
+Link headers) and must take effect before the next gather pass.
+
+#### Parameters
+
+##### options
+
+`Partial`\<[`IceOptions`](../interfaces/IceOptions.md)\>
+
+#### Returns
+
+`void`
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`setIceServers`](../interfaces/IceConnection.md#seticeservers)
+
+***
+
+### setProvisionalRemoteParams()
+
+> **setProvisionalRemoteParams**(`__namedParameters`): `void`
+
+Remote credentials of the provisional generation (pranswer).
+
+#### Parameters
+
+##### \_\_namedParameters
+
+###### password
+
+`string`
+
+###### usernameFragment
+
+`string`
+
+#### Returns
+
+`void`
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`setProvisionalRemoteParams`](../interfaces/IceConnection.md#setprovisionalremoteparams)
+
+***
+
+### setRemoteIceOptions()
+
+> **setRemoteIceOptions**(`options`): `void`
+
+Record the remote `a=ice-options` tokens (see remoteIceOptions).
+
+#### Parameters
+
+##### options
+
+`string`[]
+
+#### Returns
+
+`void`
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`setRemoteIceOptions`](../interfaces/IceConnection.md#setremoteiceoptions)
+
+***
+
+### setRemoteParams()
+
+> **setRemoteParams**(`__namedParameters`): `void`
+
+#### Parameters
+
+##### \_\_namedParameters
+
+###### iceLite
+
+`boolean`
+
+###### password
+
+`string`
+
+###### usernameFragment
+
+`string`
+
+#### Returns
+
+`void`
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`setRemoteParams`](../interfaces/IceConnection.md#setremoteparams)
+
+***
+
+### stageLocalCredentials()
+
+> **stageLocalCredentials**(`usernameFragment`, `password`, `gatherOptions?`): `void`
+
+Accept provisional checks without changing the selected current pair.
+
+#### Parameters
+
+##### usernameFragment
+
+`string`
+
+##### password
+
+`string`
+
+##### gatherOptions?
+
+`Partial`\<[`IceOptions`](../interfaces/IceOptions.md)\>
+
+#### Returns
+
+`void`
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`stageLocalCredentials`](../interfaces/IceConnection.md#stagelocalcredentials)
+
+***
+
+### startProvisionalChecks()
+
+> **startProvisionalChecks**(): `void`
+
+Start checks for the provisional generation; the selected pair is kept.
+
+#### Returns
+
+`void`
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`startProvisionalChecks`](../interfaces/IceConnection.md#startprovisionalchecks)
+
+***
+
+### waitForLocalCandidatesEnd()
+
+> **waitForLocalCandidatesEnd**(): `Promise`\<`void`\>
+
+Resolves when the current generation's gathering has ended
+(`localCandidatesEnd`): [Connection.gatherCandidates](#gathercandidates) returns once
+the host sockets, the TURN allocations and the representative socket's
+server-reflexive query are done, while the other host sockets' queries
+continue and trickle through `onIceCandidate`. Also resolves when the
+agent closes or restarts (the generation ends without its end).
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`waitForLocalCandidatesEnd`](../interfaces/IceConnection.md#waitforlocalcandidatesend)

@@ -17,6 +17,11 @@ same TURN address, transport and credential) are kept once.
 The singular fields are the first STUN URL and the first TURN URL, kept
 for compatibility.
 
+The URLs themselves (canonical, see [canonicalIceServerUrl](canonicalIceServerUrl.md)) are
+kept to name a failing server in `icecandidateerror`: `stunServerUrls`
+maps each STUN URL to its address, and every TURN server carries the
+`urls` naming it (merged for duplicates).
+
 ## Parameters
 
 ### iceServers
@@ -36,6 +41,12 @@ The first of `stunServers`.
 ### stunServers
 
 > **stunServers**: (readonly \[`string`, `number`\])[]
+
+### stunServerUrls
+
+> **stunServerUrls**: [`ParsedStunServerUrl`](../type-aliases/ParsedStunServerUrl.md)[]
+
+Every valid STUN URL with its address, in order (duplicate URLs once).
 
 ### ~~turnPassword?~~
 
