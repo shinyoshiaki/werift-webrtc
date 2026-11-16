@@ -712,17 +712,29 @@ function createAudioContextShim(sources: Array<{ stop(): void }>) {
 function createPeerConnectionWrapper(peerConnections: Set<RTCPeerConnection>) {
   class WptRTCPeerConnection extends RTCPeerConnection {
     constructor(...args: ConstructorParameters<typeof RTCPeerConnection>) {
-      // upstream WPT はブラウザ互換設定に加え、既定の映像 codec として VP8 + H264 を使う。
+      // WPT はブラウザー同様、暗黙の STUN サーバーなしで実行し、既定映像 codec に VP8 + H264 を使う。
       const [config, ...rest] = args;
+      const compatible = withBrowserCompatibleConfig(config);
+      const browserConfig =
+        compatible !== null && typeof compatible === "object"
+          ? { ...compatible, iceUseDefaultStunServer: false }
+          : compatible;
       super(
         withBrowserVideoCodecs(
-          withBrowserCompatibleConfig(config) as ConstructorParameters<
-            typeof RTCPeerConnection
-          >[0],
+          browserConfig as ConstructorParameters<typeof RTCPeerConnection>[0],
         ),
         ...rest,
       );
       peerConnections.add(this);
+      // W3C: an unknown local address gives `port: null` (werift's API does
+      // so). The upstream WPT expects Chrome's `port: 0` (it checks
+      // `address === null` only when `port == 0`), so this wrapper shows 0.
+      // Subscribed first: it runs before onicecandidateerror / the listeners.
+      this.onIceCandidateError.subscribe((event) => {
+        if (event.port === null) {
+          Object.defineProperty(event, "port", { value: 0 });
+        }
+      });
       const setLocalDescription = this.setLocalDescription.bind(this);
       this.setLocalDescription = ((
         ...sldArgs: Parameters<RTCPeerConnection["setLocalDescription"]>

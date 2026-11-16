@@ -20,6 +20,23 @@
       ]
     },
     {
+      "file": "webrtc/RTCPeerConnection-onicecandidateerror.https.html",
+      "enabled": true,
+      "reason": "Covers icecandidateerror for unreachable STUN / TURN servers, including the canonical turns: URL.",
+      "subtests": [
+        "Surfacing onicecandidateerror",
+        "icecandidateerror fires for each failing server"
+      ]
+    },
+    {
+      "file": "webrtc/RTCPeerConnectionIceErrorEvent.html",
+      "enabled": true,
+      "reason": "Covers the RTCPeerConnectionIceErrorEvent constructor exposed by the polyfill.",
+      "subtests": [
+        "RTCPeerConnectionIceErrorEvent constructed from init parameters"
+      ]
+    },
+    {
       "file": "webrtc/RTCPeerConnection-ontrack.https.html",
       "enabled": true,
       "reason": "Covers upstream ontrack event semantics that match the previous local port.",
