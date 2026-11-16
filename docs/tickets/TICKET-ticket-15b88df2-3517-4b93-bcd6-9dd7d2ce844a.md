@@ -1,0 +1,279 @@
+# [ICE] STUN/TURN到達失敗をicecandidateerrorとしてアプリへ通知する（#812）
+
+## 元報告と判定
+元Issue: #812（sidorares）。**妥当（developの静的検証）**。
+`RTCPeerConnection`は[`onicecandidateerror`プロパティ](https://github.com/shinyoshiaki/werift-webrtc/blob/6cef593e8a5ca0a429da64787dfeca5b9a49ec46/packages/webrtc/src/peerConnection.ts#L216-L222)を提供するが、現行コードに対応するエラーイベント生成・通知処理はない。`UdpTransport.onError`のみではDNS、STUN transaction timeout、TURN allocation、EHOSTUNREACHなどの収集失敗がアプリへ伝わらない。
+
+---
+
+## 1. 目的と背景
+
+- W3C WebRTC は、ICE gathering 中に STUN/TURN サーバーの利用に失敗したら `RTCPeerConnectionIceErrorEvent`（`address` / `port` / `url` / `errorCode` / `errorText`）を `icecandidateerror` として発火すると定めている（WebRTC §4.8.2、IDL は `third_party/wpt/interfaces/webrtc.idl:235-250`）。
+- werift はハンドラ属性 `onicecandidateerror`（`packages/webrtc/src/peerConnection.ts:216-222`、型は `CallbackWithValue<any>`、`api/peerConnectionEvents.ts:46`）を持つだけで、イベントを発火するコードはない。そのため、TURN の認証情報誤り、DNS 名の誤り、UDP 遮断などで relay / srflx 候補が出なくても、アプリは「接続できない理由」を知る手段がない。ログ（`debug`）を読むしかない。
+- 目的: 設定した ICE サーバー（URL）ごとの失敗をアプリが特定できるようにする。正常な gathering 経路（候補の出る順序とタイミング、end-of-candidates、`iceGatheringState`）には影響を与えない。
+
+## 2. 現状調査（develop @ `0f761d0d5`）
+
+### 2.1 ICE 層（`packages/ice/src/ice.ts`）
+
+| 箇所 | 現状 | 問題 |
+| --- | --- | --- |
+| `getCandidatePromises` `queryReflexive`（`ice.ts:1357-1370`） | `serverReflexiveCandidate()` と `stunGatherTimeout` タイマーを race させ、失敗もタイムアウトも `undefined` を返す | 失敗の理由が呼び出し側に届かない |
+| `serverReflexiveCandidate`（`iceBase.ts:468-511`） | `protocol.request()` の例外をすべて `catch` して `log` し、`undefined` を返す（`// todo fix`） | `TransactionTimeout` / `TransactionFailed`（STUN error response）/ DNS `ENOTFOUND` / `AddressFamilyMismatch` を区別できない。`queryReflexive` の `.catch` には到達しない |
+| STUN 送信先 DNS | `StunProtocol.request` → `resolveRequestAddress`（`stun/transaction.ts:27-40`、`dns.lookup`）。ソケット × サーバーごとに引く | DNS 失敗は reject されるが、上の catch で握りつぶされる |
+| 送信エラー | `Transaction` の `sendStun().catch(log)`（`stun/transaction.ts:311`）、`StunProtocol` の `transport.onError.subscribe(log)`（`stun/protocol.ts:55`）、`TurnProtocol.attachTransport`（`turn/protocol.ts:332`） | EHOSTUNREACH や ENETUNREACH ではトランザクションが再送を続け、タイムアウトで初めて失敗する（理由は失われる） |
+| TURN `gatherRelayCandidate`（`ice.ts:1465-1540`） | `createStunOverTurnClient` が失敗すると、UDP なら TCP で 1 回再試行する。最終失敗は `getCandidatePromises` の `.catch(log)`（`ice.ts:1527-1533`） | 失敗の理由（`TransactionFailed` の ERROR-CODE、`TurnRedirectError`、TCP connect timeout、TLS 検証失敗、`ENOTFOUND`）が捨てられる |
+| TURN 401/438 | `requestWithRetry`（`turn/protocol.ts:727-770`）が最初の challenge（`TransactionChallenge`）で realm と nonce を得て再送し、2 回目の challenge やその他のエラーで throw する | 正常な再送は内部で完結している。イベントは最終 reject 時だけ出せばよい |
+| 世代・close | `stale = () => !this.isGathering(generation)`、`closing.signal`（abort 時は `TransactionCancelled`）、`closedSignal` | 抑制の仕組みは揃っている。エラー通知も同じ `stale()` で判定できる |
+| 公開イベント | `Connection` には `onData` / `stateChanged` / `onIceCandidate` しかない（`ice.ts:173-175`）。`IceConnection` interface（`iceBase.ts:18-`）も同じ | エラー用のイベントがない |
+
+### 2.2 サーバー識別子（URL との対応）
+
+- `Connection` に渡るのは `stunServers: Address[]` と `turnServers: Required<TurnServerOptions>[]`（`{address, username, password, transport}`）だけで、**URL 文字列は ICE 層に届かない**。
+- webrtc 層の `parseIceServers`（`packages/webrtc/src/utils.ts:141-215`）と `parseIceServerUrl`（`utils.ts:244-`）が URL をパースし、重複（同じ STUN address、または同じ TURN address・transport・credential）を 1 つにまとめる。`stuns:` は `stun:` と同じく UDP 扱い。
+- `secureTransportManager.resolveIceServerOptions`（`secureTransportManager.ts:122-160`）は、URL に transport の指定がないとき `turnTransport` / `forceTurnTCP` で決める。ICE restart や `setConfiguration` 後のサーバー差し替えは `RTCIceTransport`（`transport/ice.ts:360`）から `mergeIceServerOptions` に渡る。
+- 設定に STUN URL がなく `useDefaultStunServer !== false` のときは、ICE 層が `stun.l.google.com:19302` を補う（`ice.ts:50, 217-224`）。この既定サーバーに対応する URL は設定に存在しない。
+
+### 2.3 webrtc 層の伝播経路
+
+`Connection.onIceCandidate` → `RTCIceGatherer`（`transport/ice.ts:935-`、コールバック `onIceCandidate`）→ `RTCIceTransport.onIceCandidate`（`transport/ice.ts:215, 224`）→ `RTCPeerConnection` が transport を作るときに subscribe（`peerConnection.ts:878-`、`applyingIceRestart` と pending-only transport では抑制）→ `onIceCandidate.execute` / `onicecandidate?.()` / `emit("icecandidate")`。
+
+`RTCPeerConnection extends EventTarget`（`helper.ts:36`、`EventEmitter` ベース）。`emit(type, event)` は event に `type` を付ける。
+
+### 2.4 WPT
+
+- `third_party/wpt/webrtc/RTCPeerConnection-onicecandidateerror.https.html` には 2 つの subtest がある。
+  1. `turn:123`（不正ホスト）で `event instanceof RTCPeerConnectionIceErrorEvent`、`300 <= errorCode <= 799`、`port == 0` なら `address === null`、そうでなければ `address` に `.` か `:` を含むこと、`url.includes("123")` を確認する。
+  2. 4 サーバー（`turn:…:3478`、`turn:…?transport=tcp`、`turns:…:5349`、`stun:…`）それぞれの URL でイベントが出ることを確認する。**`turns:turn3.invalid:5349` は `"turns:turn3.invalid:5349?transport=tcp"` として期待されている**（Chrome の正規化）。
+- `packages/webrtc/wpt/allowlist.json` に、このファイルはまだ登録されていない。
+- ラッパー `tools/wpt-runner/runner.ts:567-578` は `onicecandidateerror` を event attribute として定義済み。グローバルの `RTCPeerConnectionIceErrorEvent` は polyfill（`src/polyfill/install.ts:36, 105`、`globals.ts`）に存在せず、`RTCTrackEvent` と同じように追加する必要がある。
+- WPT の `port` が `null` だと `null == 0` は false になり、`address.includes` が TypeError で落ちる。これは Chrome の挙動（`port: 0`）を前提にした upstream WPT の非規範的な書き方で、W3C 仕様は「`address` が `null` なら `port` も `null`」と定めている。**改訂（8.決定 6）**: `src` の API はローカルアドレスが不明なとき **`address: null, port: null`**（仕様どおり）にし、WPT との差は `tools/wpt-runner` のラッパーで `port: null` を `0` に置き換えて吸収する（AGENTS.md Do 5）。
+- **WPT の所要時間**: runner の completion timeout は file ごとに 800ms〜2.5s（`tools/wpt-runner/timeoutLogic.ts`）。subtest 1 の `turn:123` は `dns.lookup("123")` で `0.0.0.123` に解決され、UDP の送信はエラーにならない（Linux で確認済み。send callback の error は null）。そのため、UDP の Allocate はトランザクションのタイムアウト（`RETRY_RTO = 50ms` を倍々にして 7 回送るので約 6.35s）で初めて失敗し、そのあと TCP へフォールバックする。subtest 2 の `.invalid` は DNS 失敗ですぐ終わる。この file には、`timeoutLogic.ts` に `onicecandidateerror` 用のプロファイルを追加する必要がある（**決定: completion 20s**。UDP の失敗約 6.4s に TCP フォールバックの接続タイムアウト 8s が加わり、`turn:123` の失敗まで約 14.4s かかるため。当初の 10s 程度では足りない）。これは runner 側だけの変更で、`src` の挙動は変えない。
+
+## 3. 実装内容
+
+### 3.1 ICE 層: 型付きエラーイベント
+
+`packages/ice/src` に次を追加する（`index.ts` から export する）。
+
+```ts
+/** One STUN/TURN server of the gathering, as configured. */
+export type IceServerRef =
+  | { kind: "stun"; address: Address }
+  | {
+      kind: "turn";
+      address: Address;
+      transport: "udp" | "tcp" | "tls";
+      /** `TurnServerOptions.urls` of the server, passed through (see 3.5-1). */
+      urls?: string[];
+    };
+
+export type IceCandidateErrorInfo = {
+  server: IceServerRef;
+  /** Local address used to contact the server; undefined when unknown or hidden. */
+  address?: string;
+  /** Local port; undefined when `address` is. */
+  port?: number;
+  /** STUN error code (300-699) received, or 701 when the server was not reached. */
+  errorCode: number;
+  /** Reason phrase; never contains credentials. */
+  errorText: string;
+  generation: number;
+};
+```
+
+- `Connection` に `readonly onIceCandidateError = new Event<[IceCandidateErrorInfo]>()` を追加し、`IceConnection` interface にも加える。`close()` で `complete()` / `allUnsubscribe()` する（既存の `onIceCandidate` の終了処理に揃える）。
+- 701 などの定数とエラーの分類ヘルパーは `exceptions.ts` かその近くに 1 か所でまとめる。
+
+```ts
+function classifyGatherError(error: unknown): { errorCode: number; errorText: string } | undefined
+```
+
+| 例外 | errorCode | errorText（例） |
+| --- | --- | --- |
+| `TransactionCancelled`、`closing.signal.aborted` | 通知しない | – |
+| `TransactionChallenge`（2 回目の 401/438） | 401 / 438 | サーバーの reason phrase（username・password・realm・nonce を `***` に伏せる。空なら `"Unauthorized"` / `"Stale Nonce"`。8.決定 9） |
+| `TransactionFailed`（ERROR-CODE あり。403、437、441、486、508、および STUN Binding の 4xx/5xx） | ERROR-CODE の値 | サーバーの reason phrase（既知の資格情報を `***` に伏せる。空なら登録済みの文言、未登録のコードは `"STUN error <code>"`。8.決定 9） |
+| `TurnRedirectError` | 300（cause の ERROR-CODE） | `reason`（`loop` など） |
+| `TransactionTimeout`、`stunGatherTimeout` の満了 | 701 | `"STUN binding request timed out"` / `"TURN allocate request timed out"` |
+| DNS（`ENOTFOUND`、`EAI_AGAIN` など）、`AddressFamilyMismatch` | 701 | `"Address resolution failed"` / `"No address of the socket family"` |
+| TCP / TLS 接続失敗（`ECONNREFUSED`、connect timeout、証明書検証） | 701 | `"TCP connect failed"` / `"TLS handshake failed"` |
+| 応答はあったが STUN エラーコードがない: `TransactionFailed`（有効な ERROR-CODE なし）、`TransactionIntegrityViolation`、`MissingMappedAddressError` | 通知しない（到達として扱う。8.決定 10） | – |
+| socket error（`EHOSTUNREACH`、`ENETUNREACH`） | 701 | `"Host unreachable"` などの errno 名 |
+
+### 3.2 STUN（srflx）の失敗を捕捉する
+
+- **決定: `serverReflexiveCandidate` の挙動は変えない（非破壊）。失敗時に throw する関数を別に追加する。**
+  - 新しい関数 `queryServerReflexiveCandidate(protocol, stunServer): Promise<Candidate>` を `iceBase.ts` に追加して export する。この関数は失敗を握りつぶさずに reject する。reject するのは、`protocol.request()` の `TransactionTimeout` / `TransactionFailed` / DNS エラー / `AddressFamilyMismatch` / `TransactionCancelled` と、成功応答に `XOR-MAPPED-ADDRESS` がない場合（新しい `Error` サブクラス `MissingMappedAddressError` を用意する。**訂正（8.決定 10）**: 当初は 701 に分類するとしていたが、応答が届いたサーバーは到達済みなので 701 にせず、通知もしない）。`protocol.localCandidate` がない場合は、request を送る前に throw する。
+  - 既存の `serverReflexiveCandidate` は、`queryServerReflexiveCandidate(...).catch((error) => { log(...); return undefined; })` の薄いラッパーにする。シグネチャ（`Promise<Candidate | undefined>`）と「失敗しても reject しない」という契約は従来どおり。TSDoc に「失敗の理由が必要なら `queryServerReflexiveCandidate` を使う」と書く（`@deprecated` は付けない）。
+  - 理由: (1) `werift-ice` と `werift`（`doc/functions/serverReflexiveCandidate.md`）の公開 API で、戻り値の型にもともと `undefined` が含まれている。呼び出し側は undefined を処理する前提なので、throw に変えると、未処理の rejection やクラッシュとして黙って壊れる。(2) v0.27.0 で破壊的変更をまとめて出した直後であり、Issue の修正で互換性を壊す理由がない。(3) `{ candidate } | { error }` という独自の Result 型は、リポジトリの既存のスタイル（例外クラスで分類する。`exceptions.ts`）と合わない。throw する版を 1 つ追加するのが最小の変更になる。
+  - changelog は **🚀 Features** に「`queryServerReflexiveCandidate` の追加」を載せる。Breaking changes には載せない。
+- gathering の `queryReflexive`（`ice.ts:1357-1370`）は、`serverReflexiveCandidate` ではなく `queryServerReflexiveCandidate` を呼ぶ。成功なら Candidate を返し、失敗なら `classifyGatherError` の結果と `protocol.localCandidate`（host の address / port）を添えて `emitCandidateError` を呼ぶ。`stunGatherTimeout` が満了したときは 701 を通知し、満了後に届いた遅い成功や失敗は無視する（ICE 層の通知は**サーバー × ソケット × 世代ごとに最大 1 回**。ただし 701 は 3.7 と 8.決定 3 に従い、ICE 層ではサーバー × 世代でソケット間を集約し、webrtc 層では gathering の終了時に URL ごとに判定する）。
+- 新規ソケットの経路と、ICE restart で再利用されるソケットの経路（`reusedReflexivePromises`）の両方を対象にする。1 つのサーバーが失敗しても、`Promise.all` の他のサーバーや他のソケットは止めない。各 `stunServers.map` 要素の中で完結させ、外へ throw しない。
+- 発火の直前に `stale()` を確認し、古い世代や close 済みなら捨てる。
+
+### 3.3 TURN（relay）の失敗を捕捉する
+
+- `getCandidatePromises` の `.catch`（`ice.ts:1527-1533`）で、`stale()` でなく、かつ `classifyGatherError` が通知対象とした失敗について、`server: { kind: "turn", address, transport, urls }`（`urls` は `TurnServerOptions.urls` をそのまま入れる。credential は入れない）で通知する。
+- **UDP から TCP へのフォールバックは 1 つの設定サーバーに対する試行として扱う**。最初の試行（UDP）の失敗では通知せず、最終的に失敗したときに 1 回だけ通知する。errorCode は、どちらかの試行でサーバーが返した STUN エラーコードを 701 より優先する（例: UDP は 701 で TCP が 401 なら 401）。`gatherRelayCandidate` の中で両方の失敗を保持し、その組み合わせで判断する。
+- 正常な 401/438 の再送は `requestWithRetry` の中で完結するので、イベントにしない（最終的に reject されたときだけ通知する）。
+- ローカルアドレス: UDP の TURN ソケットは wildcard bind なので通常は不明になる。`address` は undefined（webrtc 層で `null` / `null` にする。8.決定 6）。`relayOnly`（`iceTransportPolicy: "relay"`）のときは、ローカルアドレスを常に隠す（`ice.ts:1510-1514` の方針と揃える）。
+
+### 3.4 送信エラーの早期失敗（任意）
+
+- 最低要件は「EHOSTUNREACH でも、タイムアウトによる 701 が最終的に通知されること」。
+- 余力があれば、`Transaction` の `sendStun` が reject したとき（DNS 名の送信先、あるいは送信先 address / port 付きの socket error）に、そのトランザクションを `fail(error)` で即時に終わらせる。これで理由を errno のまま早く返せる。ただし ICE connectivity check や consent のトランザクションの挙動も変わるので、gathering 用のトランザクションだけを対象にするか、全体を対象にするかを判断して別のテストで固める。影響が大きければ別チケットに切り出す。
+
+### 3.5 webrtc 層: URL 対応と公開イベント
+
+1. **URL の表記（決定: `src` 側で正規化し、Chrome / WPT と合わせる）**
+   - `parseIceServerUrl` に、通知用の URL を作る `canonicalIceServerUrl` を追加する。規則は次の 1 つだけにする。
+     - 設定値の前後の空白を除き、scheme を小文字にした文字列を基本とする（host、port、その他の query は設定値のまま。port の補完はしない）。
+     - **`turns:` で `transport` query がない場合だけ、`?transport=tcp` を付ける**（`turns:h:5349` は `turns:h:5349?transport=tcp` に）。RFC 7065 §3 では `turns:` の既定の transport は TCP（TLS over TCP）なので、既定値を明示するだけで、指しているサーバーは変わらない。
+     - `turn:`（既定は UDP）、`stun:`、`stuns:` には何も付けない（WPT は `turn:turn1.invalid:3478` と `stun:stun1.invalid:3478` をそのまま期待している）。werift 独自の「`turn:` の UDP が失敗したら TCP にフォールバックする」挙動があっても、URL は `turn:h:p` のままにする（3.3 の 1 サーバー 1 通知）。
+   - 理由: (1) 仕様が定めているのは「failure の起きたサーバーを識別する URL」までで、表記を決めているのは upstream WPT（Chrome が通る）だけ。interop の基準として WPT に従う。(2) 正規化しても指すサーバーは変わらない。アプリが URL を突き合わせる場合も、`turns:` の既定値を明示するだけなので影響は小さい。TSDoc と changelog に規則を書く。(3) AGENTS.md（Do 5）に従い、厳格化を `wpt-runner` だけに入れることはしない。この規則は werift の通常の挙動として `src` に置く。これで subtest 2 も allowlist に含められる。
+2. **URL とサーバーの対応付け**
+   - STUN: 同じ address の STUN はもともと 1 つのサーバーにまとめられ、credential もない。そのため webrtc 層で `address → url[]` の表を作る。`parseIceServers` の結果に `stunServerUrls: { address, url }[]` を追加し、正規化した URL を設定順に並べる。
+   - TURN: 同じ address でも credential が違えば別の allocation になる。address と transport だけでは識別できないので、**`TurnServerOptions` に任意のメタデータ `urls?: string[]` を追加する**（公開型への追加。ICE 層は allocation には使わない）。webrtc の `resolveIceServerOptions` が、正規化した URL を `urls` に入れて渡す。`normalizeIceServerOptions` で重複を 1 つにまとめるときは `urls` を合わせる。ICE 層は、その値を `IceServerRef.urls` にそのまま入れて通知する。これで credential をイベントに載せずに対応付けられる（戻り値の型は `Required<Omit<TurnServerOptions, "urls">> & Pick<TurnServerOptions, "urls">` に変える）。
+   - 1 つのサーバーに複数の URL が対応する場合（例: `stun:a:3478` と `stuns:a:3478`、`turn:h:3478` と `turn:h:3478?transport=udp`）は、**対応する URL ごとに 1 イベントずつ出す**（URL の重複は除く）。アプリが設定した URL は、どれも失敗として見える。
+   - `setConfiguration` / ICE restart でサーバーが入れ替わると、`urls` も gather options と一緒に入れ替わる。そのため、世代と対応表がずれない。
+   - 既定の STUN（`stun.l.google.com:19302`）は合成した URL `stun:stun.l.google.com:19302` で通知する（設定にない werift 独自の挙動として TSDoc に書く）。
+3. **イベントクラス**: `api/peerConnectionEvents.ts` に `RTCPeerConnectionIceErrorEvent` を追加する（`RTCTrackEvent` と同じ形。`type = "icecandidateerror"` と、`address: string | null`、`port: number | null`、`url`、`errorCode`、`errorText` の readonly。constructor は `(type, init)`）。`index.ts` から export し、polyfill の `install.ts` と `globals.ts` にグローバルとして追加する。
+4. **伝播**: `RTCIceGatherer` で `connection.onIceCandidateError` を subscribe し、URL へ変換した `onIceCandidateError` を、`RTCIceTransport`、`SecureTransportManager`（または `RTCPeerConnection` の transport 作成時の subscribe）、`RTCPeerConnection` の順に伝える。`RTCPeerConnection` には `readonly onIceCandidateError = new Event<[RTCPeerConnectionIceErrorEvent]>()` を追加し、同じイベントオブジェクトで `onicecandidateerror?.(event)` と `emit("icecandidateerror", event)` を呼ぶ（`icecandidate` と同じ 3 経路）。`onicecandidateerror` の setter と getter の型は `CallbackWithValue<RTCPeerConnectionIceErrorEvent>` にする。
+5. **抑制**:
+   - `pc.close()` 後は発火しない（`connectionState === "closed"` を確認する。transport の `close` で Event を complete する）。
+   - ICE restart で前の世代になった gathering の失敗は捨てる（ICE 層の `stale()`。webrtc 層では `generation` を照合する）。
+   - pending-only transport（rollback で破棄される transport）の失敗の扱いは、`onIceCandidate` の抑制（`peerConnection.ts:879-883`）と揃える。
+6. **アドレスの露出**: `address` と `port` は、host candidate のアドレスが分かっていて `iceTransportPolicy !== "relay"` のときだけ設定する。それ以外は `address: null, port: null`（W3C 仕様どおり。WPT runner だけ `port` を `0` に置き換える。8.決定 6）。
+7. **errorText**: 生成する文字列にユーザー名、パスワード、realm、nonce、MESSAGE-INTEGRITY を含めない。サーバーの reason phrase は使うが、werift が知っている資格情報（送った username・password、応答の USERNAME・REALM・NONCE）を `***` に伏せる（8.決定 9）。`TurnRedirectError.message` のようにサーバーのアドレスを含むものは許容するが、URL の credential 部（`turn:user@host` 形式）は出さない。
+
+### 3.6 ドキュメント
+
+- `changelog.md`（🚀 Features。Breaking changes には載せない）: `icecandidateerror` / `onicecandidateerror` の実装、`RTCPeerConnectionIceErrorEvent` の追加と polyfill のグローバル、`werift-ice` の `Connection.onIceCandidateError`・`queryServerReflexiveCandidate`・`TurnServerOptions.urls` の追加、URL の表記規則（`turns:` に `?transport=tcp` を補う）。`serverReflexiveCandidate` は変えない、と明記する。
+- `packages/webrtc/README.md` かサンプル: TURN の失敗を `pc.addEventListener("icecandidateerror", …)` でログに出す例を短く載せる。
+- `npm run doc` で生成ドキュメントを作り直す。
+
+### 3.7 701（サーバーに到達できない）の判定【追加要件: レビュー打開策 A】
+
+- **経緯**: 701 の重複抑制の粒度をチケットに決めないまま、レビューの指摘ごとに「サーバー × ソケット × 世代」→「gatherer で URL ごと」→「`RTCPeerConnection` 全体で URL ごと」→「ソケット間・transport 間で集約」→「gathering 番号で参加 transport を管理」と広げた。その結果、失敗イベントが届いたときだけ評価する状態付きの集約処理が増え、途中で抜けた transport や URL を試さなかった transport が通知を止める、という新しい穴が毎回見つかった。これを止めるため、701 の意味を 8.決定 3〜5 として固定し、判定を gathering の終了時に 1 回だけ行う閉じた形に作り直す。
+- **ICE 層（`werift-ice`）**
+  - STUN の 701 は、そのサーバーをすべてのローカルソケットが問い合わせ終えた時点で、どのソケットも到達しなかった場合だけ、サーバー × 世代ごとに 1 回出す（最初に失敗したソケットのアドレス付き）。
+  - 【追加要件】待ち数（pending）の数え方: 経路（再利用ソケット、新しいソケット、wildcard ソケット）は gathering の設定時に同期的に登録し、各経路は数えたサーバーを必ず 1 回ずつ確定させる。問い合わせない経路（IPv6 のソケット、開けなかったソケット、古い世代）は、そのサーバーを「試していない」として確定させ、701 の判定を止めない。新しいソケットの経路はソケットが開く前に登録する（開いてから登録すると、IPv6 や失敗のときに確定されず、701 が出なくなる）。さらに、すべての経路が終わった時点でまだ待ちが残るサーバーは、その時点で判定する（数え違いで 701 が失われないための保険）。
+  - 新しいイベント `Connection.onIceServerReached`（`IceServerReachedInfo { server, generation }`、`IceConnection` にも任意で追加）を出す。STUN の成功応答・エラー応答、TURN の割り当て成功・エラー応答（最終的に報告するコードが 701 以外）を「到達」とする。古い世代と close 後は出さない。`close()` で complete する。
+- **webrtc 層**
+  - `RTCIceGatherer.onIceServerReached(urls)` → `RTCIceTransport.onIceServerReached`（`Event<[string[]]>`）→ `RTCPeerConnection` の順に URL を伝える。
+  - `RTCPeerConnection` は gathering ごとに URL 単位で「到達した transport（と世代）」「試して届かなかった transport（と世代、イベント内容）」を記録するだけにする。300〜699 はこれまでどおり即時に通知する。
+  - `iceGatheringState` が `"gathering"` に入ると記録を空にし、`"gathering"` から出るとき（`icegatheringstatechange` を出す直前）に一度だけ判定する。判定に使うのは、その時点で使われている transport（closed でも pending-only でもない）と、記録時と同じ ICE 世代の記録だけ。到達の記録がなく、失敗の記録がある URL に、最初の失敗の内容で 701 を 1 件出す。
+  - これにより、途中で抜けた transport（close・rollback）は判定から外れ、その URL を試さなかった transport は記録がないので判定に影響しない。ICE restart で置き換えられた世代の記録も数えない。gathering 番号、transport ごとの失敗集合、評価順序への依存は不要になる。
+  - `RTCIceGatherer.gather()` は、gathering 中に ICE 接続が閉じたとき `"complete"` で終える（end-of-candidates は出さない）。これまでは `"gathering"` のまま残り、`iceGatheringState` が終わらず 701 の判定もされなかった。
+- **gathering 状態との関係**: 701 のハンドラー内では `iceGatheringState` は `"gathering"` を返す（内部の集約状態は既に `"complete"` でも、701 の配送が終わるまでは `"gathering"` と見せる）。`"complete"` はその後の `icegatheringstatechange` から見える。
+- **クローズとの関係**: 701 は 1 件ずつ配送し、各配送の前に接続が閉じていないかを確認する。ハンドラーが `close()` したら、残りの 701 も、その gathering の終了を知らせる `icegatheringstatechange` も出さない（閉じた接続はイベントを出さない）。
+- **注意点**: 701 の通知は gathering の終了まで遅れる。`stunGatherTimeout` と TURN の接続タイムアウトで gathering は必ず終わり、WPT もタイムアウトまで待つ前提なので影響は小さい（WPT で確認する）。仕様の「gathering 中に発火」を守るため、`complete` への `icegatheringstatechange` より前に出す。end-of-candidates（`icecandidate` の null）は transport の gathering 完了時に出るので、701 より先になる。
+
+## 4. 制約・注意点
+
+- **正常経路に影響させない**: 候補が出る順序、`localCandidatesEnd`、end-of-candidates、`iceGatheringState` の遷移は変えない。エラーの通知は同期的に `Event.execute` するだけにし、gathering の Promise を reject させない。アプリのハンドラが throw しても gathering が止まらないようにする（`Event` の既存の挙動を確認する）。
+- **重複の抑制**: サーバーのエラー応答（300〜699）は同じ (世代, サーバー, ローカルソケット) について 1 回にする（ソケットごとに出る）。701 は 3.7 のとおり gathering ごと・URL ごとに最大 1 回にする。
+  - **訂正（追加要件）**: 旧記述「STUN はソケットごとに出るので、IPv4 のホストアドレスが複数あれば同じ URL でも `address` 違いで複数のイベントが出る（仕様どおり）」は、W3C 仕様の errorCode の説明（701 は「only fired once per server URL while in the RTCIceGatheringState of "gathering"」）と食い違っていたため誤りとして訂正する。ソケットごとに出るのは 300〜699 だけである。
+- **IPv6**: 現在の STUN query は IPv4 ソケットだけが行う（`ice.ts:1386, 1417-1419`）。IPv6 ソケットは query しないので、AddressFamilyMismatch のイベントは出ない。この範囲は変えない。
+- **タイムアウトの二重性**: `stunGatherTimeout`（既定 5 秒）は UDP の STUN 再送全体（`RETRY_RTO` 50ms を倍々にして 7 回送るので約 6.35 秒）より短い。タイマーが満了した時点で 701 を通知して確定する。トランザクション自体は従来どおり裏で終わるのを待つ。
+- **close 中の abort**: `closing.signal` による `TransactionCancelled` や、close 後の reject はすべて通知しない。listener は `close()` で解除する（memleak の観点。`tests/pbt/leak` の footprint に Event の subscriber が増えないことを確認する）。
+- **erasable syntax**: `enum` は使わない（AGENTS.md）。errorCode の定数は `as const` オブジェクトにする。
+- **WPT 専用の厳格化は `tools/wpt-runner/*` に閉じ込める**。`src` の挙動を WPT に合わせて変える場合は、werift の利便性を損なわないことを確認する。
+- `debug` のログには従来どおり詳細を出してよい。ただし credential は出さない。
+
+## 5. テスト計画
+
+AGENTS.md に従い Arrange / Act / Assert 形式で書き、Act と Assert には日本語のコメントを付ける。
+
+- **ICE（`packages/ice/tests/ice/`、新規 `candidate-error.test.ts`）**。共通の Arrange（応答しない UDP の STUN サーバー、エラーを返す STUN/TURN のスタブ、イベントの収集）は `packages/ice/tests/utils.ts`、またはこのテスト領域用の 1 つのユーティリティファイルにまとめる。
+  - [ ] 存在しない DNS 名の STUN（`stun.invalid`）: `errorCode 701`、`server.address` が一致、`address` が host candidate。【追加要件】DNS と gather timeout の競合はテストで制御する。(a) 名前解決の失敗をすぐ返すよう注入し、`stunGatherTimeout` を十分長く（60s）して `"Address resolution failed"` を確認する統合テスト。(b) 名前解決が返らないよう注入し、`stunGatherTimeout` を短く（0.2s）して `"STUN binding request timed out"` の 701 が 1 件になる統合テスト。(c) 文言の分類は `classifyGatherError` の単体テスト（`ENOTFOUND` / `EAI_AGAIN` → `"Address resolution failed"`）で確認する。実際の DNS に頼ると、遅い環境では先に timeout が満了し、正当な timeout 文言になってテストが不安定になる。
+  - [ ] 応答しない STUN 宛先（ローカルの閉じた UDP ポートか、無応答のソケット）。`stunGatherTimeout` を短くし、満了で 701 が 1 回だけ出る。
+  - [ ] STUN Binding のエラー応答（例: 400）で、そのコードが出る。
+  - [ ] TURN で 2 回目の 401（誤った credential）: 401、`errorText` に username / password を含まない。
+  - [ ] 【追加要件】応答はあったが STUN エラーコードのないサーバー（`XOR-MAPPED-ADDRESS` のない成功応答、ERROR-CODE のないエラー応答、MESSAGE-INTEGRITY の検証失敗）は 701 にならず、通知もされず、`onIceServerReached` で到達として扱われる。TURN で UDP がそうした応答を受け、TCP フォールバックが接続できない場合も 701 にしない（`classifyGatherError` / `isServerAnswer` の単体テストを含む）。
+  - [ ] 【追加要件】サーバーの reason phrase（例: 400 の `Missing fingerprint`）が `errorText` に届く。STUN / TURN の reason phrase に設定した username・password や応答の realm・nonce・username を含めても `***` に伏せられる。制御文字の除去、127 文字の上限、空のときの登録済みの文言（未登録は `"STUN error <code>"`）も確認する。
+  - [ ] 【追加要件】701 のハンドラー内で `iceGatheringState` は `"gathering"` で、`"complete"` はその後の `icegatheringstatechange` から見える。
+  - [ ] 【追加要件】`stopImmediatePropagation()` を呼んだハンドラーより後のリスナーには配送しない。`pc.onIceCandidateError` の 1 つ目の購読者が呼んだ場合も、2 つ目の購読者・`onicecandidateerror`・`addEventListener` のリスナーは呼ばれない。
+  - [ ] 【追加要件】配送中に `removeEventListener` で削除されたリスナーは呼ばれず、配送中に追加されたリスナーはその配送では呼ばれない。`stopPropagation()` は後続を止めず、`preventDefault()` 後も `defaultPrevented === false`。
+  - [ ] 【追加要件】`packages/common` の `Event.executeUntil`: 停止の述語が true になったら残りの購読者を呼ばない。購読者の例外は `onError` に渡して続ける。
+  - [ ] TURN の UDP 失敗と TCP 失敗: イベントは 1 回で、STUN のエラーコードが 701 より優先される。
+  - [ ] 正常な 401 → 再送 → 成功、または 438 → 再送 → 成功のとき、イベントは 0 件で relay candidate が出る（既存の `turn-long-term-credential.test.ts` などのスタブを流用する）。
+  - [ ] 正常な STUN/TURN と失敗するサーバーが混在しても、正常な srflx / relay candidate が出て、`gatherCandidates()` が完了する。
+  - [ ] close / ICE restart 中に終わった失敗は通知されない（`turn-close-during-allocation`、`gather-generation` 系の Arrange を流用する）。
+  - [ ] `queryServerReflexiveCandidate` は timeout / error response / DNS 失敗 / `XOR-MAPPED-ADDRESS` 欠落で reject する。同じ条件で `serverReflexiveCandidate` は従来どおり `undefined` を返し、reject しない（互換性の回帰テスト）。
+  - [ ] `normalizeIceServerOptions` で重複をまとめるとき、`urls` が合わさる。`IceServerRef.urls` に credential は載らない。
+  - [ ] EHOSTUNREACH: ルーティングできない宛先（例: TEST-NET で到達しない環境依存のもの）は CI で不安定になりうる。`sendStun` の reject をスタブで注入して 701 を確認する。
+- **webrtc（`packages/webrtc/tests/`）**
+  - [ ] `addEventListener("icecandidateerror")` と `onicecandidateerror` が同じイベントオブジェクト（`instanceof RTCPeerConnectionIceErrorEvent`）を受け取り、`url` が設定値の URL と一致する。
+  - [ ] 同じ host で URL / transport が違う 2 つの TURN が、別々の URL で通知される。同じ address で credential だけが違う 2 つの TURN は、それぞれの URL でだけ通知される（取り違えない）。
+  - [ ] URL の正規化（`canonicalIceServerUrl` の単体テスト）: `turns:h:5349` は `turns:h:5349?transport=tcp` になる。`turns:h:5349?transport=tcp`、`turn:h:3478`、`turn:h:3478?transport=tcp`、`stun:h:3478`、`stuns:h:3478` は変わらない。前後の空白は除き、scheme は小文字にする。
+  - [ ] 1 つのサーバーに複数の URL（`stun:a:3478` と `stuns:a:3478`）が対応する場合、URL ごとに 1 件ずつ通知される。
+  - [ ] `iceTransportPolicy: "relay"` と TURN の失敗では `address === null && port === null`（8.決定 6）。WPT runner のラッパー経由では `port === 0` になり、WPT subtest 1 が通る。
+  - [ ] `close()` 後はイベントが出ない。ICE restart 後は古い世代のイベントが出ない。
+  - [ ] 【追加要件】701 は gathering の終了時に URL ごとに 1 件: 複数ソケット・複数 transport（`bundlePolicy: "disable"`）が同じサーバーに届かなくても 1 件。ICE restart の新しい gathering では再び 1 件。
+  - [ ] 【追加要件】あるソケット・transport がサーバーに届いたら、同じ gathering の他の失敗があっても 701 は出ない（先に始めた transport・後から加わった transport の両方）。
+  - [ ] 【追加要件】以前の gathering だけに参加した transport は、新しく加わった transport の 701 を止めない。
+  - [ ] 【追加要件】gathering 中に結果を出さずに抜けた transport（close）は判定から外れ、他の transport の 701 が出る。
+  - [ ] 【追加要件】その URL を試さなかった transport（サーバー構成が違う）は判定に影響しない。
+  - [ ] 【追加要件】複数 URL の 701 を配送する途中で、ハンドラーが `close()` したら、残りの URL の 701 と `icegatheringstatechange` は配送しない（各配送の前にクローズを確認する）。
+  - [ ] 【追加要件】ICE 層: STUN を問い合わせない IPv6 のソケット、開けなかったソケットがあっても、問い合わせた IPv4 のソケットが届かなければ 701 が 1 件出る。
+  - [ ] 【追加要件】ICE 層: STUN の成功応答・エラー応答と TURN の割り当て成功で `onIceServerReached` が出て、無応答では出ない。2 ソケットの片方だけ届いたときは 701 が出ず、両方届かないときは 1 件。
+- **WPT**
+  - [ ] `webrtc/RTCPeerConnection-onicecandidateerror.https.html` を、**subtest 1（`Surfacing onicecandidateerror`）と subtest 2（`icecandidateerror fires for each failing server`）の両方**を対象に `wpt/allowlist.json` に追加する。
+  - [ ] `tools/wpt-runner/timeoutLogic.ts` に、この file 用の completion timeout（20s。8.決定 8）を追加する。subtest 1 の `turn:123` は UDP のタイムアウト（約 6.35s）と TCP フォールバックの接続タイムアウト（8s）を待ってから失敗するため（2.4）。
+  - [ ] `npm run wpt` と `npm run wpt:coverage`（baseline の更新）を実行する。
+
+## 6. 検証コマンド
+
+- `cd packages/ice && npm test`、`cd packages/webrtc && npm test`
+- 複数パッケージ・公開 API の変更なので、`npm run type` と `npm run test:small`
+- `npm run wpt`、`npm run wpt:coverage`（allowlist と baseline の更新）
+- `npm run format`、`npm run doc`
+
+## 7. 完了条件
+
+- [ ] DNS 失敗、STUN の無応答やエラー応答、TURN の認証・割り当て・接続の失敗のそれぞれで、`RTCPeerConnectionIceErrorEvent` が `url` / `errorCode` / `errorText` / `address` / `port` 付きで `icecandidateerror`（EventTarget）と `onicecandidateerror` の両方に届く。到達できない失敗は 701、サーバーから受けたエラーはそのコード。
+- [ ] 1 つのサーバーが失敗しても、他のサーバーや他のソケットの gathering は続き、正常な候補と end-of-candidates は従来どおり出る。
+- [ ] 正常な 401/438 の再送が成功したときは通知しない。`errorText` に credential を含めない。
+- [ ] close、ICE restart、世代の切り替え後には古いイベントを出さず、listener がリークしない。
+- [ ] WPT `RTCPeerConnection-onicecandidateerror.https.html` の subtest 1 と subtest 2 の両方が allowlist に入って通る。
+- [ ] `serverReflexiveCandidate` のシグネチャと「失敗時は `undefined`」という挙動が変わらず、公開 API に破壊的変更がない。
+- [ ] 通知される `url` が 3.5-1 の規則（`turns:` だけ `?transport=tcp` を補う）に従い、TSDoc と changelog に書かれている。
+- [ ] changelog、README、生成ドキュメントを更新する。
+- [ ] 【追加要件】TURN の失敗と `iceTransportPolicy: "relay"` で `port === null`（仕様どおり）、WPT runner 経由では `0` で、WPT subtest 1・2 が通る（8.決定 6）。`pc.onIceCandidateError` の購読者間を含め、`stopImmediatePropagation()` と配送中の `removeEventListener` が DOM どおりに働く（8.決定 11）。
+- [ ] 【追加要件】701 が 3.7 と 8.決定 3〜5 のとおり、gathering の終了時に URL ごとに最大 1 回だけ、その gathering で試した transport がどれも届かなかったときに出る。5 の【追加要件】のテストがあり、旧実装で失敗することを確認している。
+
+## 8. 決定事項と残りの検討事項
+
+### 決定済み
+
+1. **公開 API の互換性**: `serverReflexiveCandidate` は変えない（失敗しても `undefined` を返し、reject しない）。失敗時に reject する `queryServerReflexiveCandidate` を新しく追加し、gathering はこちらを使う。changelog では Features 扱い（3.2）。
+2. **`turns:` URL の表記**: `src` 側で正規化する。`turns:` で `transport` がない場合だけ `?transport=tcp` を補い、それ以外は設定値のまま（trim と scheme の小文字化だけ）。URL とサーバーの対応は、STUN は address で、TURN は `TurnServerOptions.urls` で取る。WPT は subtest 1 と 2 の両方を allowlist に入れる（3.5-1、3.5-2、5、7）。
+
+3. **【追加要件】701 の意味（W3C 仕様に準拠）**: 701 は「1 回の gathering で、その URL を試した参加者（ソケット・transport）が 1 つもサーバーに届かなかったとき、URL ごとに 1 回」とする。判定は gathering の終了時に 1 回だけ行う（3.7）。4 章の旧記述（同じ URL でも `address` 違いで複数のイベント）は誤りとして訂正した。
+4. **【追加要件】300〜699 のエラーコード**: サーバーが応答した（到達した）ことを意味するので、従来どおりソケットごとに即時に通知する。
+5. **【追加要件】701 の `address` / `port`**: 最初に失敗したソケットの値を入れる（STUN）。TURN と `iceTransportPolicy: "relay"` では `null` / `null`（決定 6）。WPT subtest 1 の「`port == 0` でなければ `address` に `.` か `:` を含む」は、runner のラッパーが `null` の `port` を `0` に置き換えることで満たす。
+6. **【改訂】`address` が不明なときの `port`**: `null`（W3C 仕様どおり。`address` が `null` なら `port` も `null`）。TURN の失敗と `iceTransportPolicy: "relay"` が該当する。upstream WPT（subtest 1）は `event.port == 0` のときだけ `address === null` を確認し、それ以外は `address.includes(...)` を呼ぶので、`port: null` だと TypeError で落ちる。これは Chrome 固有の挙動を前提にした非規範的な書き方なので、`tools/wpt-runner` のラッパーで、配送する `icecandidateerror` の `port` が `null` なら `0` に置き換える（AGENTS.md Do 5: upstream-WPT 専用の挙動はラッパーに閉じ込める）。`src` の API は仕様どおり。`RTCPeerConnectionIceErrorEvent` を直接生成して `port` を省いた場合の IDL 既定値 `null` とも一致する。経緯: 旧決定（`port: 0` を優先し、レビューで `null` を求められても押し返す）の後も、2 回続けて同じ指摘が出て押し返しが通らなかったため、ユーザーの承認を得て仕様側に合わせた。
+7. **既定の STUN サーバー**: 合成した URL `stun:stun.l.google.com:19302` で通知する（3.5-2）。WPT runner は、ブラウザーに既定の STUN がないことに合わせて `iceUseDefaultStunServer: false` で接続を作る（オフライン環境で既定 STUN の失敗が先に届き、subtest 1 が落ちるのを防ぐ）。
+8. **WPT の completion timeout**: 20s（2.4）。
+9. **【追加要件・改訂】`errorText` はサーバーの理由句を、既知の資格情報を伏せて渡す**: W3C は errorText を「サーバーが返した理由テキスト」と定めており、固定文言にすると診断情報（例: 400 の `Missing fingerprint`）が失われる。そのため、サーバーのエラー応答（300〜699）の `errorText` はサーバーの reason phrase を使い、werift が知っている資格情報をすべて `***`（`MASKED_REASON_TEXT`）に置き換える。対象は、TURN に送った username と password（`GatherErrorContext.secrets`）と、応答の USERNAME / REALM / NONCE 属性。長い値から順に置き換えるので、他の値を含む値も丸ごと伏せられる。さらに制御文字を除き、RFC 8489 §14.8 に合わせて 127 文字で切る。結果が空なら、そのコードの登録済みの reason phrase（IANA「STUN Error Codes」。例: 401 は `"Unauthorized"`）、未登録のコードは `"STUN error <code>"`（`gatherErrorReasonText`、`stunErrorReasonPhrase`）。701 は従来どおり原因を表す固定文言。旧決定（固定文言だけにする）は、資格情報の保護はこの伏せ字で満たせ、仕様の診断情報を失うため改訂した。
+
+10. **【追加要件】応答はあったが STUN エラーコードのない場合**: 有効な ERROR-CODE のないエラー応答、MESSAGE-INTEGRITY の検証に失敗した応答、`XOR-MAPPED-ADDRESS` のない成功応答は、サーバーから応答が届いているので「到達」とする（`isServerAnswer`、`onIceServerReached`）。W3C の 701 は「どのホスト候補からもサーバーに到達できない」ときのコードで、errorCode はサーバーが返した STUN エラーコードなので、どちらにも当てはまらないこれらは `icecandidateerror` を出さない（`classifyGatherError` は `undefined` を返す。`debug` ログにだけ残る）。3.2 の「`XOR-MAPPED-ADDRESS` 欠落は 701」は、決定 3 と矛盾していたため訂正した。TURN で試行ごとに結果が違う場合（UDP は応答あり、TCP は接続失敗など）も、どれかの試行で応答があれば 701 にしない。
+
+11. **【追加要件】イベントの配送順と伝播停止**: `pc.onIceCandidateError`、`onicecandidateerror`、`addEventListener` のリスナーの順に同じイベントを配送する。ハンドラーが `stopImmediatePropagation()` を呼んだら、それより後のハンドラーには配送しない（DOM のイベント配送に合わせる。ハンドラーが throw しても他には配送する）。**`pc.onIceCandidateError` の購読者間でも停止を伝播する**（`Event.executeUntil` で購読者ごとに停止を確認する）。配送中に `removeEventListener` で削除されたリスナーは呼ばない。配送中に追加されたリスナーは、その配送では呼ばない。`stopPropagation()`（immediate でない）は AT_TARGET では後続を止めない。`cancelable` は `false` で、`preventDefault()` は `defaultPrevented` を変えない。接続が配送するイベントは `isTrusted` を `true` にする（DOM: UA が配送したイベント。アプリが自分で生成したものは `false`）。ハンドラー内の `restartIce()` は、次の gathering で同じ URL を再び 1 件通知する。
+
+### 範囲外（別チケット）
+
+- 送信エラーでトランザクションを即時に失敗させる処理（3.4）。EHOSTUNREACH もタイムアウトで最終的に 701 として通知されるので、このチケットでは入れない。
+- 701 の判定より細かい経路の最適化（例: gathering の途中で 701 を先に出す、ネットワークインターフェースごとの判定）。701 は gathering の終了時の一括判定に固定する。
+- gathering の途中での `setConfiguration` による同じ transport 内のサーバー入れ替えの即時反映（JSEP どおり次の gathering で反映する。3.7 では「試さなかった transport は判定に影響しない」ことだけを保証する）。
+- `iceGatheringState` の集約規則そのものの見直し（closed の transport の扱い全般）。このチケットでは gathering 中に閉じた transport が `"complete"` で終わる変更だけを入れる。
+- Chrome（libwebrtc）の 701 の通知粒度との実機比較。
+
+### レビュー対応の基準【追加要件】
+
+- チケットと食い違う指摘は、そのまま受け入れず、チケットの決定と根拠を示して押し返す。チケットの決定を変える場合は、先にチケットへ決定として書く。
+- **【改訂】仕様と食い違う決定は、押し返しが 1 回通らなければ仕様側に合わせ、WPT との差は `tools/wpt-runner` のラッパーに閉じ込める**（`port` の件: 押し返しが 2 回通らず、決定 6 を改訂した）。レビューはチケットではなく W3C / DOM 仕様を基準に判定するので、根拠は TSDoc と changelog にも書く。
+- 自前のイベント配送（`dispatchIceCandidateError`）は、DOM の配送アルゴリズムの観測可能な性質（target / currentTarget / eventPhase、伝播停止、例外の隔離、配送中の追加・削除、cancelable）をテストで固めてからレビューに出す。
+- レビューを依頼する前に、境界条件の組み合わせ（参加者の途中参加・途中離脱（close / rollback）、成功・失敗、URL 構成の違い、ICE restart、close）を 5 の【追加要件】のテストで確認しておく。
