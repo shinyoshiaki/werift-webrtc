@@ -1,6 +1,6 @@
 # 8b7c8e4a: 空の check list での待機と ICE 世代の終了
 
-対象コミット: `9b1cb2bec`（実装とテスト）、`0b72d4547`（Firefox 記録）、`bfc957516`（`start()` の延期した `connect()` の取消）、`1cff1bead`（Firefox 記録）。ベースは `91f6b80eb`。
+対象コミット: `9b1cb2bec`（実装とテスト）、`0b72d4547`（Firefox 記録）、`bfc957516`（`start()` の延期した `connect()` の取消）、`1cff1bead`（Firefox 記録）、`e535dc54d`（同期の状態イベント中の再起動）、`037110bdb`（Firefox 記録）。ベースは `91f6b80eb`。
 この文書は確認レビュー用に未コミットのまま置いています。
 
 ## 不変条件
@@ -73,6 +73,43 @@
 
 - [tcp.test.ts:134](../packages/ice/tests/ice/tcp.test.ts#L134)：active のみのケースの準備段階の assert を、候補数 1 の決め打ちから「すべて `tcptype==="active"` で 1 件以上」に変えました（ネットワークインターフェースが複数あるホストで落ちていたため）。
 - 前回追加した TCP 限定の再起動テスト 4 件は、ICE のマトリクスに含まれるので削除しました。
+
+## 追加の修正：同期の状態イベント中の再起動（`e535dc54d`）
+
+### 指摘された問題と同じ形の箇所
+
+`Event` の購読者は同期で呼ばれます。そのため、状態イベントを発行してから世代を読む、またはイベントの後に登録や消去をするコードでは、購読者が途中で世代を切り替えられます。`transport/ice.ts` と `transportActivation.ts` の状態イベント発行箇所をすべて確認し、該当する 3 か所を直しました。
+
+| 箇所 | 問題 | 修正 |
+| --- | --- | --- |
+| `start()` の `setState("checking")`（指摘箇所、[transport/ice.ts:814](../packages/webrtc/src/transport/ice.ts#L814)） | 世代をイベントの後に読んでいた。購読者が再起動すると、旧 `start()` が新しい世代の番号を捕まえ、新しい世代の `connect()` を呼んで、失敗時に `failed` にしていた | 世代の固定と `waitStart` / `checksStarted` / `startPromise` の登録をすべて済ませてから `checking` を発行する。購読者が `start()` を呼び直しても同じ要求を共有する |
+| `restart()` / `resetRemoteGeneration()` の `setState("new")`（[transport/ice.ts:778](../packages/webrtc/src/transport/ice.ts#L778), [L791](../packages/webrtc/src/transport/ice.ts#L791)） | `startPromise` などの消去をイベントの後に行っていた。`new` の購読者が始めた新しい世代の `start()` の登録が消え、次の `start()` が二重に checks を始めうる | 消去をイベント（`new`、gathering state、negotiationneeded）より前に移す |
+| `TransportActivation.connect()` の `setConnectionState("connecting")`（[transportActivation.ts:263](../packages/webrtc/src/negotiation/transportActivation.ts#L263)） | 購読者が再起動して新しい認証情報を設定すると、旧 connect が新しい世代の `start()` を呼んでいた | イベントの後に `replaced()` を確かめ、変わっていれば `start()` を呼ばずに状態を変えずに終わる |
+
+### 回帰テスト（[iceGenerationActivation.test.ts](../packages/webrtc/tests/transport/iceGenerationActivation.test.ts)）
+
+| テスト | 内容 | ベース `6f8704ddb` |
+| --- | --- | --- |
+| L97 `$restart restart $when`（4 件） | local / remote restart を、`start()` の直後と `checking` の同期購読者の中で行う。旧 `start()` が `connect()` を呼ばずに `IceRestartedError` で決着し、`failed` にならず、`checksStarted=false`。新しい世代は connected で、`connect()` は合計 1 回 | 購読者の中の 2 件が失敗（新しい世代で `connect()` が呼ばれる） |
+| L143 | 指摘の再現。`checking` の購読者が `resetRemoteGeneration()` し、新しい認証情報を設定する | 失敗（タイムアウト） |
+| L183 | `new` の購読者が新しい世代を設定して `start()` し、その後もう一度 `start()` を呼ぶ。`connect()` は 1 回で connected | 失敗 |
+| L56 | `connecting` の connectionState 購読者が remote restart し、新しい認証情報を設定する。旧 connect は新しい世代の checks を始めず（`checksStarted=false`）、`setConnectionState` は `["connecting"]` だけ。DTLS も始まらない | 失敗（タイムアウト） |
+
+### 検証（`e535dc54d`）
+
+| コマンド | 結果 |
+| --- | --- |
+| `npm run type` | 成功 |
+| `npm run test:small` | 全パッケージ成功（webrtc 1880 件成功） |
+| `npm run e2e`（Chrome） | 25 ファイル、71 件成功 |
+| `npm run pbt:deep` | fuzz 306/306。scenario は seed 95 が失敗、flaky 4 件。model は flaky 1 件。leak は heap seed 4 が失敗 |
+| `cd e2e && npm run firefox:record`（clean な `e535dc54d`、引数なし） | 63 件成功、0 件失敗、8 件スキップ。[記録](../e2e/firefox-runs/20261116T011924Z-e535dc54d.json) |
+
+`pbt:deep` の 2 件の失敗について：
+
+- 単独で再実行すると、scenario seed 95 は 3/3、leak heap seed 4 は 2/2 成功しました。seed 95 は、失敗時と同じ shard（seed 92〜98）で 2/2 成功しました。
+- ベース `6f8704ddb` でも同じ条件で再実行し、どれも同じく成功しました。
+- 失敗が出るのは 16 並列の負荷下だけで、今回の変更による回帰ではないと判断しました。leak heap seed 4 は、前回（`9b1cb2bec`）の `pbt:deep` でも同じく負荷下で失敗しています。
 
 ## 追加の修正：`start()` の直後に世代が終わる場合（`bfc957516`）
 
