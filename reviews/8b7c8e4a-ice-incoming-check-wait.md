@@ -1,6 +1,6 @@
 # 8b7c8e4a: 空の check list での待機と ICE 世代の終了
 
-対象コミット: `9b1cb2bec`（実装とテスト）、`0b72d4547`（Firefox 記録）、`bfc957516`（`start()` の延期した `connect()` の取消）、`1cff1bead`（Firefox 記録）、`e535dc54d`（同期の状態イベント中の再起動）、`037110bdb`（Firefox 記録）、`feb9f8f52`（ICE-lite の待ち時間）、`3344382e9`（Firefox 記録）。ベースは `91f6b80eb`。
+対象コミット: `9b1cb2bec`（実装とテスト）、`0b72d4547`（Firefox 記録）、`bfc957516`（`start()` の延期した `connect()` の取消）、`1cff1bead`（Firefox 記録）、`e535dc54d`（同期の状態イベント中の再起動）、`037110bdb`（Firefox 記録）、`feb9f8f52`（ICE-lite の待ち時間）、`3344382e9`（Firefox 記録）、`0a4590d0d`（ICE-lite が収集中に connect する場合）、`0d32385bd`（Firefox 記録）。ベースは `91f6b80eb`。
 この文書は確認レビュー用に未コミットのまま置いています。
 
 ## 不変条件
@@ -73,6 +73,34 @@
 
 - [tcp.test.ts:134](../packages/ice/tests/ice/tcp.test.ts#L134)：active のみのケースの準備段階の assert を、候補数 1 の決め打ちから「すべて `tcptype==="active"` で 1 件以上」に変えました（ネットワークインターフェースが複数あるホストで落ちていたため）。
 - 前回追加した TCP 限定の再起動テスト 4 件は、ICE のマトリクスに含まれるので削除しました。
+
+## 追加の修正：ICE-lite が収集の途中で `connect()` する場合（`0a4590d0d`）
+
+### 指摘された問題
+
+`waitForIncomingCheck()` は、check を受けられるソケット（`protocols`）が 1 つもないと即座に戻っていました。full agent はローカル候補の収集が終わった後にしかこの待ちに入らないので、問題は起きません。しかし ICE-lite は、check list が空ならすぐにこの待ちに入ります。そのため `gatherCandidates()` の開始直後、ソケットが開く前に `connect()` すると、すぐにソケットが開くにもかかわらず `ICE negotiation failed` で失敗していました。
+
+### 修正
+
+- ソケットがないことによる即失敗は、収集が終わってもソケットがない場合（`protocols.length === 0 && localCandidatesEnd`）だけにしました（[ice.ts:2081](../packages/ice/src/ice.ts#L2081)）。
+- 収集中は `incomingCheckTimeout` の間待ちます。その間にソケットが開いて相手の check が届けば、peer-reflexive の pair が追加されて先に進みます。
+- 収集がソケットなしで終わった場合は、待ち時間が過ぎてから失敗します。`gatherCandidates()` には終了を知らせるイベントがないため、待ちを途中で打ち切ってはいません。
+- full agent の動作は変わりません。収集の終了後に待ちに入るので、ソケットがなければ従来どおり即失敗します。
+
+### テスト（[ice-lite-incoming-check.test.ts:70](../packages/ice/tests/ice/ice-lite-incoming-check.test.ts#L70)）
+
+- 準備処理は [tests/utils.ts:2464](../packages/ice/tests/utils.ts#L2464) の `createLiteAgentStillGathering` です。
+- 内容：`gatherCandidates()` を開始した直後（`protocols` が空であることを確認）に ICE-lite の `connect()` を呼び、収集の完了後に full 側が connect します。lite が即失敗せずに接続することを確認します。
+- ベース `04dc6829a` では、`ICE negotiation failed` で失敗します。
+
+### 検証（`0a4590d0d`）
+
+| コマンド | 結果 |
+| --- | --- |
+| `npm run type` | 成功 |
+| `npm run test:small` | 全パッケージ成功（ice 473 件、webrtc 1880 件成功） |
+| `npm run e2e`（Chrome） | 25 ファイル、71 件成功 |
+| `cd e2e && npm run firefox:record`（clean な `0a4590d0d`、引数なし） | 63 件成功、0 件失敗、8 件スキップ。[記録](../e2e/firefox-runs/20261116T014758Z-0a4590d0d.json) |
 
 ## 追加の修正：ICE-lite の空の check list にも `incomingCheckTimeout` を適用する（`feb9f8f52`）
 
