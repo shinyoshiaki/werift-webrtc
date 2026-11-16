@@ -610,52 +610,6 @@ export async function exchangeTcpOnlyCandidates(
   a.remotePassword = b.localPassword;
 }
 
-/**
- * Arrange: b runs connect() with an empty check list (a offered no
- * candidate and does not connect), so it waits for an incoming check.
- * `connecting` settles with that connect()'s outcome and its duration.
- */
-export async function startWaitingForIncomingCheck(
-  extra: Partial<IceOptions> = {},
-) {
-  const { a, b } = createTcpOnlyConnections(extra);
-  await exchangeTcpOnlyCandidates(a, b, () => false);
-  const connecting = timeSettle(b.connect());
-  await new Promise((resolve) => setTimeout(resolve, 100));
-  return { a, b, connecting };
-}
-
-/**
- * Arrange: a new generation of the agents of
- * `startWaitingForIncomingCheck`, with every TCP candidate exchanged.
- * `restart` is "local" (b.restart(), b gathers again) or "remote"
- * (b.restartRemote(), b keeps its credentials and candidates).
- */
-export async function restartTcpOnlyGeneration(
-  a: Connection,
-  b: Connection,
-  restart: "local" | "remote",
-) {
-  await a.restart();
-  if (restart === "local") {
-    await b.restart();
-    await exchangeTcpOnlyCandidates(a, b);
-    return;
-  }
-  b.restartRemote();
-  await a.gatherCandidates();
-  b.remoteCandidates = a.localCandidates.filter(
-    (candidate) => candidate.transport === "tcp",
-  );
-  b.remoteUsername = a.localUsername;
-  b.remotePassword = a.localPassword;
-  a.remoteCandidates = b.localCandidates.filter(
-    (candidate) => candidate.transport === "tcp",
-  );
-  a.remoteUsername = b.localUsername;
-  a.remotePassword = b.localPassword;
-}
-
 /** Arrange: TCP-only agents that completed ICE with each other. */
 export async function connectTcpOnly(extra: Partial<IceOptions> = {}) {
   const { a, b } = createTcpOnlyConnections(extra);
@@ -2387,4 +2341,91 @@ export function localReflexiveCandidates(connection: Connection) {
   return connection.localCandidates.filter(
     (candidate) => candidate.type === "srflx",
   );
+}
+
+/**
+ * Where connect() of the agent under test waits when its generation ends:
+ * - `empty`: an empty check list after end-of-candidates (the wait for an
+ *   incoming check).
+ * - `scheduling`: the scheduling loop, remote end-of-candidates not received.
+ * - `completion`: the wait for the check list result, its only pair checking
+ *   a UDP address that never answers.
+ * - `lite`: an ICE-lite agent waiting for the peer's nomination.
+ */
+export type ConnectWaitPhase = "empty" | "scheduling" | "completion" | "lite";
+
+/**
+ * Shared Arrange: host-only UDP agents (a = controlling, never started) whose
+ * `b.connect()` waits in `phase`. `connecting` settles with that connect()'s
+ * outcome and duration; `cleanup` closes both agents and the silent socket.
+ */
+export async function startConnectWaitingIn(phase: ConnectWaitPhase) {
+  const options: Partial<IceOptions> = {
+    useIpv6: false,
+    stunServer: undefined,
+    incomingCheckTimeout: 30,
+  };
+  const a = createTestConnection(true, options);
+  const b = createTestConnection(false, {
+    ...options,
+    iceLite: phase === "lite",
+  });
+  await Promise.all([a.gatherCandidates(), b.gatherCandidates()]);
+  b.remoteUsername = a.localUsername;
+  b.remotePassword = a.localPassword;
+
+  let silent: dgram.Socket | undefined;
+  if (phase === "completion") {
+    // A bound socket that reads and never answers: the check retransmits.
+    const host = b.localCandidates[0].host;
+    silent = dgram.createSocket("udp4");
+    silent.on("message", () => {});
+    await new Promise<void>((resolve) => silent!.bind(0, host, resolve));
+    const { port } = silent.address();
+    b.remoteCandidates = [
+      new Candidate("silent", 1, "udp", 1_000, host, port, "host"),
+    ];
+  } else if (phase !== "scheduling") {
+    b.remoteCandidates = [];
+  }
+
+  const connecting = timeSettle(b.connect());
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  const cleanup = async () => {
+    await Promise.all([a.close(), b.close()]);
+    silent?.close();
+  };
+  return { a, b, connecting, cleanup };
+}
+
+/**
+ * Shared Arrange: end the generation of the agents of `startConnectWaitingIn`.
+ * `end` is "local" (both restart and gather again) or "remote" (only a
+ * restarts and gathers; b drops its remote generation and keeps its own
+ * credentials and candidates). Nothing is exchanged yet (see
+ * `exchangeGeneration`), so b expects more remote candidates meanwhile.
+ */
+export async function restartGeneration(
+  a: Connection,
+  b: Connection,
+  end: "local" | "remote",
+) {
+  await a.restart();
+  if (end === "local") {
+    await b.restart();
+    await b.gatherCandidates();
+  } else {
+    b.restartRemote();
+  }
+  await a.gatherCandidates();
+}
+
+/** Shared Arrange: exchange candidates and credentials of a new generation. */
+export function exchangeGeneration(a: Connection, b: Connection) {
+  b.remoteCandidates = a.localCandidates;
+  b.remoteUsername = a.localUsername;
+  b.remotePassword = a.localPassword;
+  a.remoteCandidates = b.localCandidates;
+  a.remoteUsername = b.localUsername;
+  a.remotePassword = b.localPassword;
 }

@@ -4,7 +4,6 @@ import {
   Connection,
   type IceConnection,
   type IceOptions,
-  IceRestartedError,
   isCandidateAllowedByGatherOptions,
   mergeIceServerOptions,
 } from "../../../ice/src";
@@ -173,6 +172,15 @@ export class RTCIceTransport {
    * @internal
    */
   checksStarted = false;
+  /**
+   * Counts the ends of the remote generation (restart(),
+   * resetRemoteGeneration()). Whoever awaits the checks of a generation
+   * (start(), `TransportActivation`) compares it before and after: once it
+   * changed, the outcome belongs to a replaced generation and changes no
+   * state; the new generation's own start reports it.
+   * @internal
+   */
+  checksGeneration = 0;
   private renominating = false;
   /**
    * The restart generation selected for the description being created or
@@ -764,6 +772,7 @@ export class RTCIceTransport {
    */
   resetRemoteGeneration() {
     if (!this.connection.restartRemote) return;
+    this.checksGeneration++;
     this.connection.restartRemote();
     this.setState("new");
     this.waitStart = undefined;
@@ -773,6 +782,7 @@ export class RTCIceTransport {
 
   restart(notifyNegotiation = true, applyNextGatherIceServers = true) {
     this.iceRestarts++;
+    this.checksGeneration++;
     this.connection.restart();
     const servers = this.nextGatherIceServers;
     if (servers && applyNextGatherIceServers) this.setIceServers(servers);
@@ -803,12 +813,13 @@ export class RTCIceTransport {
     this.checksStarted = true;
 
     this.setState("checking");
+    const generation = this.checksGeneration;
     const startPromise = Promise.resolve()
       .then(() => this.connection.connect())
       .catch((error) => {
-        // A restart replaced this generation (restart() already set "new"):
-        // the cancelled checks say nothing about the new one.
-        if (!(error instanceof IceRestartedError)) this.setState("failed");
+        // Once a restart replaced this generation (it already set "new"),
+        // the outcome of its checks says nothing about the new one.
+        if (this.checksGeneration === generation) this.setState("failed");
         throw error;
       })
       .finally(() => {

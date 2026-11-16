@@ -20,6 +20,7 @@ import {
   firstIceTransport,
   iceAgentTurnServers,
   negotiate,
+  negotiateWithoutCandidates,
   peerTurnAllocations,
   restartIceTransportGeneration,
   startIceTransportWaitingForIncomingCheck,
@@ -919,6 +920,36 @@ describe("iceTransport", () => {
     },
     15_000,
   );
+
+  test("restartIce() while two connects await the checks of one generation leaves connectionState out of failed", async () => {
+    // Arrange: 候補なしで交渉し、1 回目の connect が ICE の checks を始めて相手の check を待つ。
+    const pc1 = new RTCPeerConnection({ iceIncomingCheckTimeout: 30 });
+    const pc2 = new RTCPeerConnection({ iceIncomingCheckTimeout: 30 });
+    const states: string[] = [];
+    pc1.connectionStateChange.subscribe((state) => states.push(state));
+    try {
+      pc1.createDataChannel("dc");
+      await negotiateWithoutCandidates(pc1, pc2);
+      expect(firstIceTransport(pc1).ice.state).toBe("checking");
+
+      // Arrange: 再交渉の answer で 2 回目の connect が同じ世代の checks を待つ。
+      await negotiateWithoutCandidates(pc1, pc2);
+
+      // Act: 両方の connect が待っている間に restartIce し、候補ありで交渉し直す。
+      pc1.restartIce();
+      const connected = pc1.connectionStateChange.watch(
+        (state) => state === "connected",
+      );
+      await negotiate(pc1, pc2);
+      await connected;
+
+      // Assert: 旧世代を待っていた connect は connectionState を failed にしない。
+      expect(states).not.toContain("failed");
+      expect(pc1.connectionState).toBe("connected");
+    } finally {
+      await Promise.all([pc1.close(), pc2.close()]);
+    }
+  }, 20_000);
 
   test("test_connect", async () => {
     const gatherer1 = new RTCIceGatherer({

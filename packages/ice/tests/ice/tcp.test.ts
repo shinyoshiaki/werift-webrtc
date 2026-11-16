@@ -3,7 +3,7 @@ import { setTimeout } from "timers/promises";
 import { describe, expect, test, vi } from "vitest";
 
 import type { Address } from "../../../common/src";
-import { CandidatePairState, IceRestartedError } from "../../src";
+import { CandidatePairState } from "../../src";
 import {
   classes,
   methods,
@@ -22,8 +22,6 @@ import {
   expectDataFlows,
   getClosedTcpPort,
   getSelectedTcpSocket,
-  restartTcpOnlyGeneration,
-  startWaitingForIncomingCheck,
   timeSettle,
 } from "../utils";
 
@@ -118,25 +116,30 @@ describe("ICE-TCP with an empty check list", () => {
       name: "only active TCP candidates",
       offered: (candidate: { tcptype?: string }) =>
         candidate.tcptype === "active",
-      expectedRemoteCandidates: 1,
+      expectActiveCandidates: true,
     },
     {
       name: "no candidate",
       offered: () => false,
-      expectedRemoteCandidates: 0,
+      expectActiveCandidates: false,
     },
   ])(
     "connects through the peer's check when the peer offers $name",
-    async ({ offered, expectedRemoteCandidates }) => {
+    async ({ offered, expectActiveCandidates }) => {
       // Arrange: a (controlling) は b の TCP 候補をすべて知るが、b は a の候補を絞って受け取る。
       const { a, b } = createTcpOnlyConnections();
       await exchangeTcpOnlyCandidates(a, b, offered);
 
       try {
-        // Arrange の確認: b は passive / active の候補を持つが、相手候補とペアにできるものがない。
-        expect(
-          b.remoteCandidates.filter((c) => c.type !== "prflx"),
-        ).toHaveLength(expectedRemoteCandidates);
+        // Arrange の確認: b は passive / active の候補を持つが、相手候補とペアにできるものがない
+        // (相手候補はネットワークインターフェースの数だけある active のみ、または空)。
+        const offeredCandidates = b.remoteCandidates.filter(
+          (c) => c.type !== "prflx",
+        );
+        expect(offeredCandidates.length > 0).toBe(expectActiveCandidates);
+        expect(offeredCandidates.every((c) => c.tcptype === "active")).toBe(
+          true,
+        );
 
         // Act: 両側で connect する。b の check list は空のまま始まる。
         await Promise.all([a.connect(), b.connect()]);
@@ -195,58 +198,6 @@ describe("ICE-TCP with an empty check list", () => {
     expect((error as Error).message).toBe("ICE negotiation failed");
     expect(elapsedMs).toBeLessThan(5000);
   });
-
-  test.each(["local", "remote"] as const)(
-    "a %s ICE restart during the wait cancels the old connect() and the new generation connects",
-    async (restart) => {
-      // Arrange: b は空の check list で相手の check を待っている (待ち時間 3 秒)。
-      const { a, b, connecting } = await startWaitingForIncomingCheck({
-        incomingCheckTimeout: 3,
-      });
-
-      try {
-        // Act: 待機中に ICE restart する。
-        await restartTcpOnlyGeneration(a, b, restart);
-        const old = await connecting;
-
-        // Assert: 旧世代の connect() は待ち時間を待たず IceRestartedError で終わる。
-        expect(old.error).toBeInstanceOf(IceRestartedError);
-        expect(old.elapsedMs).toBeLessThan(2000);
-
-        // Act: 新しい世代で両側が connect する。
-        await Promise.all([a.connect(), b.connect()]);
-
-        // Assert: 新しい世代は接続し、旧世代の待ち時間を過ぎても状態と通信は変わらない。
-        expect(b.state).toBe("connected");
-        expect(a.state).toBe("connected");
-        await setTimeout(3200);
-        expect(b.state).toBe("connected");
-        await expectDataFlows(a, b, `${restart}-restart`);
-      } finally {
-        await Promise.all([a.close(), b.close()]);
-      }
-    },
-  );
-
-  test.each(["local", "remote"] as const)(
-    "close() after a %s ICE restart during the wait leaves no connect() pending",
-    async (restart) => {
-      // Arrange: b は既定の待ち時間 (30 秒) で相手の check を待っている。
-      const { a, b, connecting } = await startWaitingForIncomingCheck();
-
-      // Act: 待機中に ICE restart し、新しい世代の connect() を始めてから両側を close する。
-      await restartTcpOnlyGeneration(a, b, restart);
-      const next = timeSettle(b.connect());
-      await setTimeout(100);
-      await Promise.all([a.close(), b.close()]);
-      const [old, current] = await Promise.all([connecting, next]);
-
-      // Assert: 旧世代の connect() は IceRestartedError で、新しい世代の connect() は close で終わる。
-      expect(old.error).toBeInstanceOf(IceRestartedError);
-      expect(current.error).toBeInstanceOf(Error);
-      expect(current.elapsedMs).toBeLessThan(5000);
-    },
-  );
 });
 
 describe("ICE-TCP selected connection", () => {
