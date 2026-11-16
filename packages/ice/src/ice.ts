@@ -7,6 +7,16 @@ import {
   candidatePriority,
   remoteTcpTypeForIncoming,
 } from "./candidate";
+import {
+  classifyGatherError,
+  type GatherErrorContext,
+  IceCandidateErrorCode,
+  type IceCandidateErrorInfo,
+  type IceServerReachedInfo,
+  type IceServerRef,
+  isServerAnswer,
+  pickReportedGatherError,
+} from "./candidateError";
 import { MdnsLookup } from "./dns/lookup";
 import { TransactionCancelled, type TransactionError } from "./exceptions";
 import { type Cancelable, cancelable, PQueue, randomString } from "./helper";
@@ -25,10 +35,11 @@ import {
   isCandidateAllowedByGatherOptions,
   isRelayOnlyGathering,
   mergeIceServerOptions,
+  type NormalizedTurnServer,
   normalizeIceServerOptions,
-  serverReflexiveCandidate,
+  queryServerReflexiveCandidate,
+  type StunServerUrl,
   sortCandidatePairs,
-  type TurnServerOptions,
   validateRemoteCandidate,
 } from "./iceBase";
 import { type Address, debug, Event, interfaceAddress } from "./imports/common";
@@ -66,6 +77,11 @@ const log = debug("werift-ice : packages/ice/src/ice.ts : log");
 
 /** Fallback STUN server when none is configured (constructor / setIceServers). */
 const DEFAULT_STUN_SERVER: Address = ["stun.l.google.com", 19302];
+/**
+ * The URL `onIceCandidateError` names the built-in default STUN server by:
+ * it is in no configuration, so werift synthesizes one.
+ */
+export const DEFAULT_STUN_SERVER_URL = "stun:stun.l.google.com:19302";
 
 export class Connection implements IceConnection {
   private _iceControlling: boolean;
@@ -84,8 +100,10 @@ export class Connection implements IceConnection {
    * configured and useDefaultStunServer is not false.
    */
   stunServers: Address[] = [];
+  /** Whether stunServers is the built-in default (none configured). */
+  private usesDefaultStunServer = false;
   /** TURN servers gathering allocates on, one allocation each. */
-  turnServers: Required<TurnServerOptions>[] = [];
+  turnServers: NormalizedTurnServer[] = [];
   options: IceOptions;
   remoteCandidatesEnd = false;
   /**
@@ -151,9 +169,9 @@ export class Connection implements IceConnection {
    *   (`endProvisional()`, a replacement pranswer, close); `belongs()`.
    * - `queryConsent`: a per-request `AbortController` and
    *   `stopConsentLifecycle()`; `consentSessionId`.
-   * - `serverReflexiveCandidate` (gathering): `protocol.close()`; otherwise
-   *   it ends by its retransmission timeout, and `stale()` drops the
-   *   candidate of an ended gather.
+   * - `queryServerReflexiveCandidate` (gathering): `protocol.close()`;
+   *   otherwise it ends by its retransmission timeout, and `stale()` drops
+   *   the candidate (or the failure) of an ended gather.
    * - TURN client requests: the `closing` signal and `TurnProtocol.close()`.
    * Regression tests: `tests/ice/check-cancel.test.ts`.
    */
@@ -205,6 +223,31 @@ export class Connection implements IceConnection {
   readonly onData = new Event<[Buffer]>();
   readonly stateChanged = new Event<[IceState]>();
   readonly onIceCandidate: Event<[Candidate]> = new Event();
+  /**
+   * A STUN server query or TURN allocation of the current generation's
+   * gathering failed (W3C `icecandidateerror`), synchronously and without
+   * changing the gathering: other servers and sockets go on, and gathering
+   * still completes. A server answering with an error gives its ERROR-CODE,
+   * once per local socket and generation. One that is not reached (timeout,
+   * `stunGatherTimeout`, DNS, connect or socket error) gives 701, once per
+   * server and generation and only when no local socket reached it (a STUN
+   * server is reported when the last socket's query ended). A TURN server's UDP attempt and its TCP fallback are
+   * one failure, reported when both failed (a server's error code wins over
+   * 701). A credential retry (401 / 438) that succeeds is not a failure.
+   * Nothing is fired for a replaced generation or after close (the event
+   * completes then). A STUN failure carries the host address of a socket
+   * that asked; a TURN one carries none. The built-in default STUN server (none
+   * configured, `useDefaultStunServer` not false) is named by the
+   * synthesized URL {@link DEFAULT_STUN_SERVER_URL} in `server.urls`.
+   */
+  readonly onIceCandidateError = new Event<[IceCandidateErrorInfo]>();
+  /**
+   * A STUN or TURN server of the current generation's gathering answered:
+   * a STUN query or TURN allocation gave a candidate, or the server sent an
+   * error response (see {@link IceServerReachedInfo}). Synchronous; nothing
+   * is fired for a replaced generation or after close.
+   */
+  readonly onIceServerReached = new Event<[IceServerReachedInfo]>();
 
   constructor(_iceControlling: boolean, options?: Partial<IceOptions>) {
     this._iceControlling = _iceControlling;
@@ -249,10 +292,12 @@ export class Connection implements IceConnection {
     const { stunServers, turnServers } = normalizeIceServerOptions(
       this.options,
     );
-    this.stunServers =
+    this.usesDefaultStunServer = !(
       stunServers.length > 0 || this.options.useDefaultStunServer === false
-        ? stunServers
-        : [DEFAULT_STUN_SERVER];
+    );
+    this.stunServers = this.usesDefaultStunServer
+      ? [DEFAULT_STUN_SERVER]
+      : stunServers;
     this.turnServers = turnServers;
   }
 
@@ -1097,6 +1142,53 @@ export class Connection implements IceConnection {
     this.onIceCandidate.execute(candidate);
   }
 
+  /**
+   * Report a failed STUN query / TURN allocation of the gathering whose
+   * `stale` is given (see onIceCandidateError). A failure that is not
+   * reported (cancelled), belongs to a replaced generation or arrives after
+   * close is dropped. A listener that throws does not stop the gathering.
+   */
+  private emitCandidateError(
+    stale: () => boolean,
+    generation: number,
+    server: IceServerRef,
+    failure: { errorCode: number; errorText: string } | undefined,
+    local?: { address: string; port: number },
+  ) {
+    if (!failure || stale() || this.closing.signal.aborted) return;
+    const info: IceCandidateErrorInfo = {
+      server,
+      ...(local ? { address: local.address, port: local.port } : {}),
+      errorCode: failure.errorCode,
+      errorText: failure.errorText,
+      generation,
+    };
+    log("ice candidate error", {
+      server: { ...server, urls: undefined },
+      errorCode: info.errorCode,
+      errorText: info.errorText,
+    });
+    try {
+      this.onIceCandidateError.execute(info);
+    } catch (error) {
+      log("onIceCandidateError listener threw", error);
+    }
+  }
+
+  /** Report that `server` answered the gathering whose `stale` is given. */
+  private emitServerReached(
+    stale: () => boolean,
+    generation: number,
+    server: IceServerRef,
+  ) {
+    if (stale() || this.closing.signal.aborted) return;
+    try {
+      this.onIceServerReached.execute({ server, generation });
+    } catch (error) {
+      log("onIceServerReached listener threw", error);
+    }
+  }
+
   private ensureProtocol(protocol: Protocol) {
     protocol.onRequestReceived.subscribe((msg, addr, data) => {
       if (msg.messageMethod !== methods.BINDING) {
@@ -1515,24 +1607,214 @@ export class Connection implements IceConnection {
       primary.push(...tcpCandidatePromises);
     }
 
+    // The application's names of the STUN servers this gathering queries;
+    // the built-in default one, in no configuration, gets a synthesized URL.
+    const stunServerUrls: StunServerUrl[] = [
+      ...(this.options.stunServerUrls ?? []),
+      ...(this.usesDefaultStunServer
+        ? [{ address: DEFAULT_STUN_SERVER, url: DEFAULT_STUN_SERVER_URL }]
+        : []),
+    ];
+    const stunServerRef = (server: Address): IceServerRef => {
+      const urls = [
+        ...new Set(
+          stunServerUrls
+            .filter(
+              (entry) =>
+                entry?.address?.[0] === server[0] &&
+                entry.address[1] === server[1],
+            )
+            .map((entry) => entry.url),
+        ),
+      ];
+      return urls.length > 0
+        ? { kind: "stun", address: server, urls }
+        : { kind: "stun", address: server };
+    };
+    const stunContext: GatherErrorContext = { kind: "stun" };
+
+    // W3C: a 701 means no host candidate reached the server. Every socket
+    // path (a kept socket, a new socket) settles each STUN server once; a
+    // server none of them reached (no answer, no error response) is
+    // reported once, with the first such failure, when the last path
+    // settled. A server's error response is reported per socket at once.
+    type StunServerOutcome = {
+      pending: number;
+      reached: boolean;
+      unreached?: {
+        failure: { errorCode: number; errorText: string };
+        local?: { address: string; port: number };
+      };
+    };
+    const stunOutcomes = new Map<Address, StunServerOutcome>();
+    const hostStunPathCount =
+      reusedStunProtocols.filter((protocol) =>
+        isIPv4(protocol.localCandidate!.host),
+      ).length + localStunPromises.length;
+    const defaultMode = !interfaceAddresses?.udp4 && !interfaceAddresses?.udp6;
+    const wildcardFamilies = ([4, 6] as const).filter(
+      (family) =>
+        defaultMode &&
+        (family === 4 ? this.options.useIpv4 : this.options.useIpv6) &&
+        this.reflexiveServersOf(family).length > 0,
+    );
+    for (const server of stunServers) {
+      const wildcardPaths = wildcardFamilies.filter((family) =>
+        this.reflexiveServersOf(family).some(
+          (candidate) =>
+            candidate[0] === server[0] && candidate[1] === server[1],
+        ),
+      ).length;
+      stunOutcomes.set(server, {
+        pending: hostStunPathCount + wildcardPaths,
+        reached: false,
+      });
+    }
+    const settleStunServer = (
+      server: Address,
+      outcome: StunServerOutcome["unreached"] | "reached" | "skipped",
+    ) => {
+      const state = stunOutcomes.get(server);
+      if (!state || state.pending === 0) return;
+      state.pending--;
+      if (outcome === "reached") state.reached = true;
+      else if (outcome && outcome !== "skipped") {
+        if (!state.unreached || (!state.unreached.local && outcome.local)) {
+          state.unreached = outcome;
+        }
+      }
+      if (state.pending === 0 && !state.reached && state.unreached) {
+        this.emitCandidateError(
+          stale,
+          generation,
+          stunServerRef(server),
+          state.unreached.failure,
+          state.unreached.local,
+        );
+      }
+    };
+    /**
+     * One counted path toward `servers`: settles every one of them `query`
+     * did not settle (a socket that does not query: an IPv6 socket, one
+     * that failed to open, a stale generation). Called synchronously while
+     * the paths are set up, so stunPaths holds every path.
+     */
+    const stunPaths: Promise<unknown>[] = [];
+    const settlingStunServers = <T>(
+      query: (settled: Set<Address>) => Promise<T>,
+      servers = stunServers,
+    ) => {
+      const settled = new Set<Address>();
+      const path = (async () => {
+        try {
+          return await query(settled);
+        } finally {
+          for (const server of servers) {
+            if (!settled.has(server)) settleStunServer(server, "skipped");
+          }
+        }
+      })();
+      stunPaths.push(path.catch(() => undefined));
+      return path;
+    };
+    /**
+     * Backstop once every path ended: a server still pending (a path that
+     * was counted but never settled it) is judged now, so its 701 is not
+     * lost to a counting mismatch.
+     */
+    const judgeRemainingStunServers = () => {
+      void Promise.allSettled(stunPaths).then(() => {
+        for (const [server, state] of stunOutcomes) {
+          if (state.pending === 0) continue;
+          log("STUN server still pending after every path ended", server);
+          state.pending = 1;
+          settleStunServer(server, "skipped");
+        }
+      });
+    };
+
     // A server-reflexive query of one socket to one STUN server, bounded by
-    // the STUN gather timeout; an unanswered one yields nothing.
-    const queryReflexive = async (protocol: StunProtocol, server: Address) => {
+    // the STUN gather timeout; an unanswered or failed one yields nothing.
+    // The first of its failure and the timeout decides, a late result is
+    // ignored; the outcome settles the server for this socket (above).
+    const queryReflexive = async (
+      protocol: StunProtocol,
+      server: Address,
+      settled?: Set<Address>,
+    ) => {
+      const local = protocol.localCandidate
+        ? {
+            address: protocol.localCandidate.host,
+            port: protocol.localCandidate.port,
+          }
+        : undefined;
+      // The first of the query's outcome and the timeout settles it.
+      let settledQuery = false;
+      // Assigned in the callbacks below (not narrowed by the initializer).
+      let outcome = "skipped" as
+        | StunServerOutcome["unreached"]
+        | "reached"
+        | "skipped";
+      const fail = (failure: { errorCode: number; errorText: string }) => {
+        if (failure.errorCode === IceCandidateErrorCode.SERVER_NOT_REACHED) {
+          outcome = { failure, local };
+          return;
+        }
+        // The server answered: it was reached, its error is reported now.
+        outcome = "reached";
+        this.emitCandidateError(
+          stale,
+          generation,
+          stunServerRef(server),
+          failure,
+          local,
+        );
+      };
       let timer: ReturnType<typeof setTimeout> | undefined;
       const candidate = await Promise.race([
-        serverReflexiveCandidate(
+        queryServerReflexiveCandidate(
           protocol,
           server,
           this.wildcardBaseOf(protocol),
-        ).catch((error) => {
-          log("query STUN server", server, error);
-          return undefined;
-        }),
+        ).then(
+          (candidate): Candidate | undefined => {
+            if (!settledQuery) outcome = "reached";
+            settledQuery = true;
+            return candidate;
+          },
+          (error) => {
+            log("query STUN server", server, error);
+            if (!settledQuery) {
+              settledQuery = true;
+              const failure = classifyGatherError(error, stunContext);
+              if (failure) fail(failure);
+              // Answers without a reportable STUN error still prove reachability.
+              else if (isServerAnswer(error)) outcome = "reached";
+            }
+            return undefined;
+          },
+        ),
         new Promise<undefined>((resolve) => {
-          timer = setTimeout(() => resolve(undefined), timeout * 1000);
+          timer = setTimeout(() => {
+            if (settledQuery) return;
+            settledQuery = true;
+            log("query STUN server timed out", server);
+            fail({
+              errorCode: IceCandidateErrorCode.SERVER_NOT_REACHED,
+              errorText: "STUN binding request timed out",
+            });
+            resolve(undefined);
+          }, timeout * 1000);
         }),
       ]);
       clearTimeout(timer);
+      if (outcome === "reached") {
+        this.emitServerReached(stale, generation, stunServerRef(server));
+      }
+      if (settled) {
+        settled.add(server);
+        settleStunServer(server, outcome);
+      }
       return candidate;
     };
     // RFC 8445 §5.1.3: a mapping equal to one the socket already advertised
@@ -1548,19 +1830,8 @@ export class Connection implements IceConnection {
       // even when the only way out is an interface the host sockets do not
       // cover, and it receives whatever reaches its port (a DNAT to another
       // local address, an address added after gathering).
-      const defaultMode =
-        !interfaceAddresses?.udp4 && !interfaceAddresses?.udp6;
       const wildcardReady = new Map<4 | 6, Promise<boolean>>();
-      for (const family of [4, 6] as const) {
-        const enabled =
-          family === 4 ? this.options.useIpv4 : this.options.useIpv6;
-        if (
-          !defaultMode ||
-          !enabled ||
-          this.reflexiveServersOf(family).length === 0
-        ) {
-          continue;
-        }
+      for (const family of wildcardFamilies) {
         const kept = this.wildcardProtocols.get(family);
         if (kept && this.protocols.includes(kept)) {
           // Kept across an ICE restart: queried again with the reused sockets.
@@ -1572,11 +1843,16 @@ export class Connection implements IceConnection {
           this.wildcardProtocols.delete(family);
           void kept.close().catch(() => {});
         }
-        const query = this.gatherWildcardReflexive(
-          family,
-          queryReflexive,
-          sameMapping,
-          stale,
+        const wildcardServers = this.reflexiveServersOf(family);
+        const query = settlingStunServers(
+          (settled) =>
+            this.gatherWildcardReflexive(
+              family,
+              (protocol, server) => queryReflexive(protocol, server, settled),
+              sameMapping,
+              stale,
+            ),
+          wildcardServers,
         );
         wildcardReady.set(
           family,
@@ -1590,20 +1866,19 @@ export class Connection implements IceConnection {
       // the start; a different fresh mapping (the NAT rebound) is added to
       // it, and the fresh mappings replace the kept ones for the next restart.
       const reflexiveOfReused = (protocol: StunProtocol) =>
-        (async () => {
+        settlingStunServers(async (settled) => {
           const previous = this.reflexiveBySocket.get(protocol) ?? [];
           const advertised = [...previous];
           const fresh: Candidate[] = [];
           await Promise.all(
             this.reflexiveServersOf(protocol).map(async (server) => {
-              const candidate = await queryReflexive(protocol, server);
+              const candidate = await queryReflexive(protocol, server, settled);
               if (!candidate || stale()) return;
               if (!fresh.some((known) => sameMapping(known, candidate))) {
                 fresh.push(candidate);
               }
-              if (advertised.some((known) => sameMapping(known, candidate))) {
+              if (advertised.some((known) => sameMapping(known, candidate)))
                 return;
-              }
               advertised.push(candidate);
               this.appendLocalCandidate(candidate);
             }),
@@ -1611,30 +1886,32 @@ export class Connection implements IceConnection {
           if (stale()) return;
           if (fresh.length > 0) this.reflexiveBySocket.set(protocol, fresh);
           return fresh.length > 0 ? fresh : previous;
-        })().catch((error) => {
-          log("query STUN server", error);
+        }, this.reflexiveServersOf(protocol)).catch((error) => {
+          log("query reused STUN socket", error);
         });
 
-      // Every new IPv4 host socket queries every STUN server in parallel.
-      const reflexiveOfNew = (protocol: StunProtocol) =>
-        (async () => {
-          const advertised: Candidate[] = [];
-          await Promise.all(
-            stunServers.map(async (server) => {
-              const candidate = await queryReflexive(protocol, server);
-              if (!candidate || stale()) return;
-              if (advertised.some((known) => sameMapping(known, candidate))) {
-                return;
-              }
-              advertised.push(candidate);
-              this.reflexiveBySocket.set(protocol, advertised);
-              this.appendLocalCandidate(candidate);
-            }),
-          ).catch((error) => {
-            log("query STUN server", error);
-          });
-          return advertised;
-        })();
+      // The queries of a new socket; its path (settlingStunServers) is
+      // opened before the socket is, see newHosts.
+      const reflexiveOfNew = async (
+        protocol: StunProtocol,
+        settled: Set<Address>,
+      ) => {
+        const advertised: Candidate[] = [];
+        await Promise.all(
+          stunServers.map(async (server) => {
+            const candidate = await queryReflexive(protocol, server, settled);
+            if (!candidate || stale()) return;
+            if (advertised.some((known) => sameMapping(known, candidate)))
+              return;
+            advertised.push(candidate);
+            this.reflexiveBySocket.set(protocol, advertised);
+            this.appendLocalCandidate(candidate);
+          }),
+        ).catch((error) => {
+          log("query new STUN socket", error);
+        });
+        return advertised;
+      };
 
       // A kept wildcard socket is a representative: gathering waits for it.
       const reusedWildcards = [...this.wildcardProtocols.values()].filter(
@@ -1657,18 +1934,37 @@ export class Connection implements IceConnection {
       const reusedHosts: HostQuery[] = reusedStunProtocols
         .filter((protocol) => isIPv4(protocol.localCandidate!.host))
         .map((protocol) => track(protocol, reflexiveOfReused(protocol)));
+      // Every new socket is counted for every STUN server (stunOutcomes),
+      // so its path opens now, before the socket does: a socket that does
+      // not query (IPv6, failed to open) settles them as skipped.
       const newHosts = Promise.all(
-        localStunPromises.map(async (protocolPromise) => {
-          const protocol = await protocolPromise;
-          if (
-            !protocol?.localCandidate ||
-            !isIPv4(protocol.localCandidate.host)
-          ) {
-            return;
-          }
-          return track(protocol, reflexiveOfNew(protocol));
+        localStunPromises.map((protocolPromise) => {
+          let resolveEntry!: (entry: HostQuery | undefined) => void;
+          const entry = new Promise<HostQuery | undefined>((resolve) => {
+            resolveEntry = resolve;
+          });
+          settlingStunServers(async (settled) => {
+            const protocol = await Promise.resolve(protocolPromise).catch(
+              () => undefined,
+            );
+            if (
+              !protocol?.localCandidate ||
+              !isIPv4(protocol.localCandidate.host)
+            ) {
+              resolveEntry(undefined);
+              return;
+            }
+            const query = reflexiveOfNew(protocol, settled);
+            resolveEntry(track(protocol, query));
+            await query;
+          }).catch((error) => {
+            resolveEntry(undefined);
+            log("query new STUN socket", error);
+          });
+          return entry;
         }),
       );
+      judgeRemainingStunServers();
       primary.push(
         (async () => {
           const queries = [
@@ -1700,11 +1996,14 @@ export class Connection implements IceConnection {
       // address unless interfaceAddresses binds the family: the OS picks
       // its route as for the wildcard STUN socket.
       const turnCandidatePromises = turnServers.map((server) =>
-        this.gatherRelayCandidate(server, gatherRelayOnly, stale).catch(
-          (error) => {
-            log("query TURN server", server.address, error);
-          },
-        ),
+        this.gatherRelayCandidate(
+          server,
+          gatherRelayOnly,
+          stale,
+          generation,
+        ).catch((error) => {
+          log("query TURN server", server.address, error);
+        }),
       );
       primary.push(...turnCandidatePromises);
     }
@@ -1834,14 +2133,42 @@ export class Connection implements IceConnection {
    * Allocate on one TURN server and add its relay candidate. A UDP
    * allocation that fails falls back to TCP on the same server. An
    * allocation that completes for a replaced generation (or a closed agent)
-   * is released.
+   * is released. A failed allocation (both attempts, for the fallback) is
+   * reported once (onIceCandidateError) before it rejects.
    */
   private async gatherRelayCandidate(
-    server: Required<TurnServerOptions>,
+    server: NormalizedTurnServer,
     relayOnly: boolean,
     stale: () => boolean,
+    generation = this.generation,
   ) {
     const { address, username, password, transport } = server;
+    // Failures of the attempts at this server (UDP, then TCP fallback), and
+    // whether any attempt got an answer from it (reached, even without a
+    // STUN error code to report).
+    const failures: ({ errorCode: number; errorText: string } | undefined)[] =
+      [];
+    let answered = false;
+    const recordFailure = (
+      error: unknown,
+      attemptTransport: "udp" | "tcp" | "tls",
+    ) => {
+      if (isServerAnswer(error)) answered = true;
+      failures.push(
+        classifyGatherError(error, {
+          kind: "turn",
+          transport: attemptTransport,
+          // Masked out of the server's reason phrase.
+          secrets: [username, password],
+        }),
+      );
+    };
+    const ref: IceServerRef = {
+      kind: "turn",
+      address,
+      transport,
+      ...(server.urls ? { urls: [...server.urls] } : {}),
+    };
     const protocol = await createStunOverTurnClient(
       { address, username, password },
       {
@@ -1853,29 +2180,59 @@ export class Connection implements IceConnection {
         udpFamily: this.options.turnUdpFamily,
         signal: this.closing.signal,
       },
-    ).catch(async (e) => {
-      // close() cancelled the allocation: no TCP fallback.
-      if (transport === "udp" && !this.closing.signal.aborted) {
-        return await createStunOverTurnClient(
-          { address, username, password },
-          {
-            portRange: this.options.portRange,
-            interfaceAddresses: this.options.interfaceAddresses,
-            transport: "tcp",
-            connectTimeoutMs: (this.options.turnConnectTimeout ?? 8) * 1000,
-            signal: this.closing.signal,
-          },
-        );
-      } else {
+    )
+      .catch(async (e) => {
+        recordFailure(e, transport);
+        // close() cancelled the allocation: no TCP fallback.
+        if (transport === "udp" && !this.closing.signal.aborted) {
+          return await createStunOverTurnClient(
+            { address, username, password },
+            {
+              portRange: this.options.portRange,
+              interfaceAddresses: this.options.interfaceAddresses,
+              transport: "tcp",
+              connectTimeoutMs: (this.options.turnConnectTimeout ?? 8) * 1000,
+              signal: this.closing.signal,
+            },
+          ).catch((fallbackError) => {
+            recordFailure(fallbackError, "tcp");
+            throw fallbackError;
+          });
+        }
         throw e;
-      }
-    });
+      })
+      .catch((error) => {
+        // A cancelled attempt (close) is not a failure of the server.
+        if (
+          error instanceof TransactionCancelled ||
+          this.closing.signal.aborted
+        ) {
+          throw error;
+        }
+        const reported = pickReportedGatherError(failures);
+        const reachedServer =
+          answered ||
+          (reported !== undefined &&
+            reported.errorCode !== IceCandidateErrorCode.SERVER_NOT_REACHED);
+        // A server that answered is never reported as 701 (an attempt that
+        // was not answered does not make it unreached).
+        if (
+          reported &&
+          (reported.errorCode !== IceCandidateErrorCode.SERVER_NOT_REACHED ||
+            !reachedServer)
+        ) {
+          this.emitCandidateError(stale, generation, ref, reported);
+        }
+        if (reachedServer) this.emitServerReached(stale, generation, ref);
+        throw error;
+      });
     if (stale()) {
       // The allocation never joins a generation: release it (and its
       // refresh timer) instead of keeping a second one alive.
       await protocol.close();
       return;
     }
+    this.emitServerReached(stale, generation, ref);
     protocol.configuredTransport = transport;
     this.ensureProtocol(protocol);
     this.protocols.push(protocol);
@@ -2334,6 +2691,8 @@ export class Connection implements IceConnection {
 
     this.closed = true;
     this.setState("closed");
+    this.onIceCandidateError.complete();
+    this.onIceServerReached.complete();
     this.signalClosed();
     this.closing.abort();
     this.cancelChecks();

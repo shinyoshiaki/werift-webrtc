@@ -9,6 +9,7 @@ import type {
 } from "../media";
 import type {
   RTCPeerConnection as WeriftRTCPeerConnection,
+  RTCPeerConnectionIceErrorEvent as WeriftRTCPeerConnectionIceErrorEvent,
   RTCTrackEvent as WeriftRTCTrackEvent,
 } from "../peerConnection";
 import type { RTCDtlsTransport as WeriftRTCDtlsTransport } from "../transport/dtls";
@@ -32,6 +33,7 @@ declare global {
   var RTCIceTransport: typeof WeriftRTCIceTransport;
   var RTCDtlsTransport: typeof WeriftRTCDtlsTransport;
   var RTCTrackEvent: typeof WeriftRTCTrackEvent;
+  var RTCPeerConnectionIceErrorEvent: typeof WeriftRTCPeerConnectionIceErrorEvent;
   var OverconstrainedError: typeof WeriftOverconstrainedError;
 
   interface Navigator {
