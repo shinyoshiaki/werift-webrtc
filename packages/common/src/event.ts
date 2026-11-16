@@ -28,6 +28,16 @@ export class Event<T extends any[]> {
   ended = false;
   onended?: () => void;
   onerror = (e: any) => {};
+  private readonly onListenerError?: (e: unknown) => void;
+
+  /**
+   * @param options.onListenerError When given, a throwing subscriber is
+   * reported to it and the remaining subscribers still run. Without it the
+   * first exception propagates out of `execute` (default).
+   */
+  constructor(options: { onListenerError?: (e: unknown) => void } = {}) {
+    this.onListenerError = options.onListenerError;
+  }
 
   execute = (...args: T) => {
     if (this.ended) {
@@ -35,7 +45,15 @@ export class Event<T extends any[]> {
     }
 
     for (const item of this.event.stack) {
-      item.execute(...args);
+      if (this.onListenerError) {
+        try {
+          item.execute(...args);
+        } catch (error) {
+          this.onListenerError(error);
+        }
+      } else {
+        item.execute(...args);
+      }
     }
 
     (async () => {
@@ -54,6 +72,45 @@ export class Event<T extends any[]> {
    * work (state propagation, cleanup) that an application subscriber
    * registered before them must not be able to skip.
    */
+  /**
+   * Like {@link executeIsolated}, but `shouldStop` is checked before each
+   * subscriber: once it returns true, the remaining subscribers are not
+   * called (a DOM-like `stopImmediatePropagation`). A subscriber that
+   * throws is reported to `onError` and the next one still runs. One added
+   * during the call is not called; one removed during it is skipped. The
+   * promise subscribers (`asPromise` / `watch`) are not run when stopped.
+   */
+  executeUntil(
+    shouldStop: () => boolean,
+    onError: (error: unknown) => void,
+    ...args: T
+  ) {
+    if (this.ended) {
+      return;
+    }
+
+    // A snapshot: a subscriber added meanwhile is not called this time; one
+    // removed meanwhile is skipped (as DOM listeners).
+    for (const item of [...this.event.stack]) {
+      if (shouldStop()) return;
+      if (!this.event.stack.includes(item)) continue;
+      try {
+        item.execute(...args);
+      } catch (error) {
+        onError(error);
+      }
+    }
+    if (shouldStop()) return;
+
+    (async () => {
+      for (const item of this.event.promiseStack) {
+        await item.execute(...args);
+      }
+    })().catch((e) => {
+      this.onerror(e);
+    });
+  }
+
   executeIsolated(onError: (error: unknown) => void, ...args: T) {
     if (this.ended) {
       return;
