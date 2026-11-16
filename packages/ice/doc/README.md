@@ -106,11 +106,16 @@ a path broken in one direction).
 
 - Backups: one pair per local socket (a UDP socket, whose host and
   server-reflexive candidates share one path, or a TURN allocation over UDP /
-  TCP / TLS): its highest-priority pair that did not fail. On the selected
-  pair's own socket it is a lower pair to another remote address, so the
-  agent also fails over when only the remote side of the path breaks (the
-  peer's host goes away while its relay still answers); after such a move
-  only the old remote address waits for its 3 responses. A backup that never answers (5 checks and 5 s) or receives
+  TCP / TLS): its highest-priority pair that did not fail, above or below the
+  selection and whatever the role. On the selected pair's own socket it is a
+  pair to another remote address, so the agent also fails over when only
+  the remote side of the path breaks (the peer's host goes away while its
+  relay still answers); after such a move only the old remote address waits
+  for its 3 responses. One exception: a controlling agent leaves the pairs
+  that outrank the selection on its socket to the checks that move the
+  selection up; those are retried after 1, 2, 4, 8, 16 s and then every
+  16 s, and checked at once when the selection is unwritable with no
+  writable backup. A backup that never answers (5 checks and 5 s) or receives
   nothing for 30 s fails and the next pair of its socket follows, up to 3
   pairs; then the socket starts again from its best pair after 1, 2, 4, 8,
   16 s, and then every 16 s for as long as the selection lasts, so a path
@@ -147,7 +152,10 @@ a path broken in one direction).
   alike; they are not counted as unanswered, and monitoring goes on under
   the new role.
 - Controlled agent: it monitors the same way but never nominates; it follows
-  the peer's nomination and the pair the peer sends data on.
+  the peer's nomination and the pair the peer sends data on. While its
+  selected pair is down, a nomination as strong as the selection's
+  (USE-CANDIDATE again) of a valid pair moves the selection at once, without
+  waiting for data, as libwebrtc's controlled agent ranks writability first.
 - State: `disconnected` while the selected pair is unwritable and no backup
   is writable, back to `connected` only once the selected pair works again:
   it answers again, or the selection moved to a backup (a backup that merely

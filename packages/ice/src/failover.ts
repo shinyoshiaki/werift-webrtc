@@ -127,6 +127,12 @@ export interface FailoverHost {
   eligible(pair: CandidatePair): boolean;
   iceControlling(): boolean;
   /**
+   * The agent moves the selection up by itself (controlling, semi-aggressive
+   * nomination or renomination): the pairs that outrank the selection are
+   * checked and retried there (`SelectionReplacement`).
+   */
+  movesSelectionUp(): boolean;
+  /**
    * Send one check of `pair` without a nomination; resolves true when it
    * was answered. `signal` cancels it.
    */
@@ -451,13 +457,17 @@ export class FailoverMonitor {
   private backupEligible(pair: CandidatePair, selected: CandidatePair) {
     if (!this.host.eligible(pair)) return false;
     if (pair.protocol !== selected.protocol) return true;
-    // On the selected pair's socket: another remote address, below the
-    // selection (pairs that outrank it are checked and retried to move the
-    // selection up, `SelectionReplacement`), or the path the agent failed
-    // over from (monitored until it recovers, see `demote`).
+    // On the selected pair's socket: any other remote address. Only an
+    // agent that moves the selection up by itself (controlling) leaves the
+    // pairs that outrank the selection to `SelectionReplacement` (checked
+    // and retried there), except the path it failed over from (monitored
+    // until it recovers, see `demote`). A controlled agent monitors them,
+    // so the peer's nomination finds a path known to work.
+    if (remoteKey(pair) === remoteKey(selected)) return false;
     return (
-      remoteKey(pair) !== remoteKey(selected) &&
-      (!this.outranks(pair, selected) || this.isDemoted(pair))
+      !this.outranks(pair, selected) ||
+      this.isDemoted(pair) ||
+      !this.host.movesSelectionUp()
     );
   }
 

@@ -199,6 +199,8 @@ export class Connection implements IceConnection {
     nominationEnded: (pair) => {
       if (this.failoverNomination === pair) this.failoverNomination = undefined;
     },
+    retriesForever: () => this.failoverEnabled(),
+    selectionDown: () => this.selectionDown(),
   });
   /** See `NominationHint`; set by the restart that ends a provisional checklist. */
   private nominationHint?: NominationHint;
@@ -3205,6 +3207,7 @@ export class Connection implements IceConnection {
       pairs: () => this.checkList,
       eligible: (pair) => this.replacesWith(pair),
       iceControlling: () => this.iceControlling,
+      movesSelectionUp: () => this.iceControlling && this.replacesSelection(),
       ping: (pair, signal) => this.pingBackup(pair, signal),
       validated: (pair) => {
         pair.updateState(CandidatePairState.SUCCEEDED);
@@ -3246,7 +3249,12 @@ export class Connection implements IceConnection {
       return;
     }
     const target = this.failover.target();
-    if (!target) return;
+    if (!target) {
+      // Nothing to fail over to: check the failed pairs that outrank the
+      // selection now (a path that came back may be one of them).
+      this.selection.checkFailedOutranking();
+      return;
+    }
     log("failover", target.toJSON(), { selected: this.nominated?.toJSON() });
     this.failoverNomination = target;
     this.selection.nominate(target);

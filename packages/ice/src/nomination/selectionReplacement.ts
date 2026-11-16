@@ -64,6 +64,17 @@ export type SelectionHost = {
   failoverReplaces?: (pair: CandidatePair) => boolean;
   /** The nominating check of `pair` ended (any outcome, or aborted). */
   nominationEnded?: (pair: CandidatePair) => void;
+  /**
+   * Failover applies (`Connection.failoverEnabled`): the retries of failed
+   * pairs that outrank the selection go on every last delay (16 s) instead
+   * of stopping after `OUTRANKING_RETRY_DELAYS_MS`.
+   */
+  retriesForever?: () => boolean;
+  /**
+   * Controlled agent: the selected pair stopped answering (failover), so a
+   * nomination of the peer equal to the selection's replaces it.
+   */
+  selectionDown?: () => boolean;
 };
 
 /**
@@ -133,19 +144,48 @@ export class SelectionReplacement {
         entry = { retries: 0 };
         this.retries.set(pair, entry);
       }
+      const forever = this.host.retriesForever?.() ?? false;
       if (
         entry.timer !== undefined ||
-        entry.retries >= OUTRANKING_RETRY_DELAYS_MS.length
+        (!forever && entry.retries >= OUTRANKING_RETRY_DELAYS_MS.length)
       ) {
         continue;
       }
       const current = entry;
       const remoteGeneration = this.host.remoteGeneration();
+      const delay =
+        OUTRANKING_RETRY_DELAYS_MS[
+          Math.min(current.retries, OUTRANKING_RETRY_DELAYS_MS.length - 1)
+        ];
       current.timer = setTimeout(() => {
         current.timer = undefined;
         current.retries++;
         this.retryOutrankingPair(pair, remoteGeneration);
-      }, OUTRANKING_RETRY_DELAYS_MS[current.retries]);
+      }, delay);
+    }
+  }
+
+  /**
+   * Failover (controlling): the selection stopped answering and no backup
+   * is writable, so the failed pairs that outrank it are checked at once
+   * instead of waiting for their next retry (libwebrtc pings at its strong
+   * interval when no connection is writable). One check per pair at a time:
+   * a pair being checked is not Failed.
+   */
+  checkFailedOutranking() {
+    const selected = this.host.selected();
+    if (
+      !selected ||
+      this.host.closed() ||
+      !this.host.controlling() ||
+      !this.host.replacesSelection()
+    ) {
+      return;
+    }
+    for (const pair of this.host.checkList()) {
+      if (!this.retriesOutranking(pair, selected)) continue;
+      log("check failed outranking pair at once", pair.toJSON());
+      this.host.check(pair);
     }
   }
 
@@ -212,6 +252,16 @@ export class SelectionReplacement {
     if (!this.host.controlling()) {
       if (pair.remoteNomination !== selected.remoteNomination) {
         return pair.remoteNomination > selected.remoteNomination;
+      }
+      // Failover: the selected pair stopped answering and the peer
+      // nominates a valid pair as strongly as the selection (USE-CANDIDATE
+      // again): it replaces the selection without waiting for data, as
+      // libwebrtc's controlled agent ranks a writable connection first.
+      if (
+        this.host.selectionDown?.() &&
+        pair.state === CandidatePairState.SUCCEEDED
+      ) {
+        return true;
       }
       // Equal nominations: the pair the peer last sent data on, as libwebrtc
       // (the peer's own selection may move to a lower-priority pair, e.g.

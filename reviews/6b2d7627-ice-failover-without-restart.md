@@ -16,6 +16,29 @@ ide:
 
 差分の基準は、チケット worktree に取り込み済みの親チケットのマージコミット `e83850f0e` です。headCommit は `01d2b42b0`（再レビュー 3 回目）です。
 
+### 受け入れテスト（ここだけ見れば不変条件を確認できます）
+
+[packages/ice/tests/ice/failover-matrix.test.ts:56](review-file:packages/ice/tests/ice/failover-matrix.test.ts:56) の 1 ファイルで、次の不変条件を確かめられます。「選択中のペアと経路が異なる（別ソケット、または同じソケットの別リモートアドレスへの）eligible なペアは、順位とロールに関係なく監視され、選択した経路だけが切れたときに使われる」。
+
+| 件 | 確認すること |
+| --- | --- |
+| [行列 48 件](review-file:packages/ice/tests/ice/failover-matrix.test.ts:67) | ロール {controlling, controlled} × モード {semi-aggressive, renomination} × 代替経路の位置 {別ソケット下位/上位, 同一ソケット下位/上位} × 代替の初期状態 {通る, 10 s 断後に復帰, 60 s 断後に復帰}。controlling は切断から 11 s 以内に代替へ移り、`failed` を経ない（通る上位の代替には切断前に移っている）。controlled は 10 s 以内に代替が有効で check が続き、40 s 前に `failed` にならず、相手の指名だけ（データなし）で 2 s 以内に代替へ移り `connected` に戻る |
+| [ロール変更直後](review-file:packages/ice/tests/ice/failover-matrix.test.ts:148) | controlled になった直後も、同一ソケットの上位ペアを監視する |
+| [controlled への候補の後着](review-file:packages/ice/tests/ice/failover-matrix.test.ts:178) | 選択後に届いた同一ソケット上位の候補を、退避先として監視する |
+| [復帰と同時の切断](review-file:packages/ice/tests/ice/failover-matrix.test.ts:202) | controlling で、長く落ちていた同一ソケット上位が戻った直後に選択経路が切れても、次の 16 s の再試行を待たずに 11 s 以内に移る |
+| [リモートの restart](review-file:packages/ice/tests/ice/failover-matrix.test.ts:239) | 相手の ufrag が変わると、古い世代の demote 情報が残らない |
+
+実行: `cd packages/ice && npx vitest run tests/ice/failover-matrix.test.ts`（53 件、1 s 未満、fake timer）。共通の準備処理は [packages/ice/tests/utils.ts:3618](review-file:packages/ice/tests/utils.ts:3618) の `createFailoverMatrixCell` です。
+
+修正を 1 つずつ戻して確かめた検出力:
+
+| 戻した修正 | 落ちる件 |
+| --- | --- |
+| controlled は同一ソケットの上位も監視する（[failover.ts:457](review-file:packages/ice/src/failover.ts:457)） | controlled × 同一ソケット上位の 6 件、ロール変更直後、候補の後着 |
+| 上位ペアの再試行を 16 s ごとに続ける（[selectionReplacement.ts:147](review-file:packages/ice/src/nomination/selectionReplacement.ts:147)） | controlling × 同一ソケット上位 × 60 s 断の 2 件 |
+| 選択断で退避先がないとき、FAILED の上位ペアをすぐ check する（[ice.ts:3255](review-file:packages/ice/src/ice.ts:3255)） | 復帰と同時の切断の 2 件 |
+| controlled は選択断のとき、同じ値の指名で置き換える（[selectionReplacement.ts:261](review-file:packages/ice/src/nomination/selectionReplacement.ts:261)） | controlled × semi-aggressive × 下位（別ソケット・同一ソケット）の 6 件 |
+
 ## 2. 修正前と修正後の流れ
 
 <div style="font-family:sans-serif;font-size:13px;display:flex;gap:16px;flex-wrap:wrap">

@@ -1800,10 +1800,12 @@ export function createNominationHarness({
   const addRemotePairs = async (priority: number) => {
     const candidate = remoteCandidate(priority);
     await connection.addRemoteCandidate(candidate);
-    return protocols.map((local) =>
-      connection.checkList.find(
-        (pair) => pair.remoteCandidate === candidate && pair.protocol === local,
-      )!,
+    return protocols.map(
+      (local) =>
+        connection.checkList.find(
+          (pair) =>
+            pair.remoteCandidate === candidate && pair.protocol === local,
+        )!,
     );
   };
   /** Trickle a remote candidate; returns the pair it formed with the first local candidate. */
@@ -1888,10 +1890,12 @@ export function createNominationHarness({
   const addProvisionalRemotePairs = async (priority: number) => {
     const candidate = remoteCandidate(priority);
     await connection.addProvisionalRemoteCandidate(candidate);
-    return protocols.map((local) =>
-      provisionalGeneration(connection)!.pairs.find(
-        (pair) => pair.remoteCandidate === candidate && pair.protocol === local,
-      )!,
+    return protocols.map(
+      (local) =>
+        provisionalGeneration(connection)!.pairs.find(
+          (pair) =>
+            pair.remoteCandidate === candidate && pair.protocol === local,
+        )!,
     );
   };
   /** Trickle a provisional remote candidate; returns its pair with the first local candidate. */
@@ -2625,7 +2629,9 @@ export function createSignedTurnSuccessResponse(request: Message, key: Buffer) {
 
 /** What the scripted TURN server sends back for one request. */
 export type TurnScriptedReply =
-  Buffer | { bytes: Buffer; from: Address } | undefined;
+  | Buffer
+  | { bytes: Buffer; from: Address }
+  | undefined;
 
 /** One request the scripted TURN server received. */
 export interface TurnScriptedRequest {
@@ -3455,7 +3461,8 @@ export async function createFailoverHarness({
     await vi.advanceTimersByTimeAsync(0);
     await settle();
   }
-  if (connection.nominated !== selection) {
+  // (A reachable pair above it may have replaced the selection already.)
+  if (!selection.nominated || !connection.nominated) {
     throw new Error("failover harness: the first pair was not selected");
   }
   // As connect() ends: consent freshness starts and the agent is connected.
@@ -3589,6 +3596,107 @@ export function propertySeeds(
     steps,
     replay: (seed: number) =>
       `${prefix}_SEED=${seed} ${prefix}_SEEDS=1 ${prefix}_STEPS=${steps}`,
+  };
+}
+
+/** Where the alternative path of a failover matrix cell is, against the selected pair. */
+export type FailoverMatrixPhase =
+  | "other-socket-lower"
+  | "other-socket-upper"
+  | "same-socket-lower"
+  | "same-socket-upper";
+
+/**
+ * Shared Arrange for the failover matrix: a failover harness whose first
+ * pair (local 0, remote 0) is selected and whose alternative path `alt` sits
+ * where `phase` says (another local socket or another remote address on the
+ * selected socket, below or above the selection). With `altDownMs` > 0 the
+ * alternative path is unreachable from before the selection (the harness
+ * always selects pair (0, 0), so `cut` would come too late) and comes back
+ * after that time; `restoreAlt()` brings it back at once.
+ */
+export async function createFailoverMatrixCell({
+  iceControlling,
+  renomination,
+  phase,
+  altDownMs,
+}: {
+  iceControlling: boolean;
+  renomination: boolean;
+  phase: FailoverMatrixPhase;
+  altDownMs: number;
+}) {
+  const layout = {
+    "other-socket-lower": {
+      locals: [
+        { type: "stun", candidateType: "host", priority: FAILOVER_HIGH },
+        { type: "turn", candidateType: "relay", priority: FAILOVER_LOW },
+      ],
+      remotes: [FAILOVER_HIGH],
+      alt: [1, 0],
+    },
+    "other-socket-upper": {
+      locals: [
+        { type: "stun", candidateType: "host", priority: FAILOVER_MID },
+        { type: "stun", candidateType: "host", priority: FAILOVER_HIGH },
+      ],
+      remotes: [FAILOVER_HIGH],
+      alt: [1, 0],
+    },
+    "same-socket-lower": {
+      locals: [
+        { type: "stun", candidateType: "host", priority: FAILOVER_HIGH },
+      ],
+      remotes: [FAILOVER_HIGH, FAILOVER_LOW],
+      alt: [0, 1],
+    },
+    "same-socket-upper": {
+      locals: [
+        { type: "stun", candidateType: "host", priority: FAILOVER_HIGH },
+      ],
+      remotes: [FAILOVER_MID, FAILOVER_HIGH],
+      alt: [0, 1],
+    },
+  }[phase];
+  const [altLocal, altRemote] = layout.alt;
+  const altPort = 5000 + altRemote;
+  let altDown = altDownMs > 0;
+  const reaches = FailoverPathProtocol.prototype.reaches;
+  const spy = vi
+    .spyOn(FailoverPathProtocol.prototype, "reaches")
+    .mockImplementation(function (this: FailoverPathProtocol, addr: Address) {
+      if (
+        altDown &&
+        this.localCandidate.port === 4000 + altLocal &&
+        addr[1] === altPort
+      ) {
+        return false;
+      }
+      return reaches.call(this, addr);
+    });
+  const h = await createFailoverHarness({
+    iceControlling,
+    renomination,
+    locals: layout.locals,
+    remotes: layout.remotes,
+  });
+  if (altDown) {
+    setTimeout(() => {
+      altDown = false;
+    }, altDownMs);
+  }
+  return {
+    h,
+    alt: h.pairOf(altLocal, altRemote),
+    restoreAlt: () => {
+      altDown = false;
+    },
+    /** Cut the selected path (local 0 to remote 0) only. */
+    cutSelected: () => h.cut(0, 0),
+    close: async () => {
+      await h.connection.close();
+      spy.mockRestore();
+    },
   };
 }
 

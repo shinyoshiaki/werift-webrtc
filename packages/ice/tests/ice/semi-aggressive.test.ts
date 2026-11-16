@@ -405,7 +405,8 @@ describe("semi-aggressive nomination / renomination (controlling): model propert
       for (let step = 0; step < steps; step++) {
         const before = selected();
         let answered:
-          { request: ScriptedRequest; pair: CandidatePair } | undefined;
+          | { request: ScriptedRequest; pair: CandidatePair }
+          | undefined;
         const waiting = pairs.filter(
           (p) => p.pair.state === CandidatePairState.WAITING && !before,
         );
@@ -722,25 +723,22 @@ describe("a failed pair that outranks the selection is checked again (controllin
     return { h, low, high };
   };
 
-  test("retries back off (1, 2, 4, 8, 16 s) and stop after five", async () => {
+  test("retries back off (1, 2, 4, 8, 16 s) and then go on every 16 s (failover keeps looking for the path)", async () => {
     const { h, high } = await selectLowAfterHighFailed();
     const counts: number[] = [];
 
     try {
       // Act: 再 check をすべて失敗させながら、各間隔の直前と到達時の送信数を記録する。
-      for (const delay of [1000, 2000, 4000, 8000, 16000]) {
+      for (const delay of [1000, 2000, 4000, 8000, 16000, 16000, 16000]) {
         await vi.advanceTimersByTimeAsync(delay - 1);
         counts.push(h.requestsTo(high).length);
         await vi.advanceTimersByTimeAsync(1);
         counts.push(h.requestsTo(high).length);
         await h.release(high, "failure");
       }
-      // Act: さらに 60 s 進める。
-      await vi.advanceTimersByTimeAsync(60_000);
 
-      // Assert: 間隔が倍になり、5 回で止まる。選択は低優先度 pair のまま。
-      expect(counts).toEqual([1, 2, 2, 3, 3, 4, 4, 5, 5, 6]);
-      expect(h.requestsTo(high)).toHaveLength(6);
+      // Assert: 間隔が倍になり、5 回目の後は 16 s ごとに続く (長く落ちていた経路も復帰を検出できる)。選択は低優先度 pair のまま。
+      expect(counts).toEqual([1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8]);
       expect(h.connection.nominated).not.toBe(high);
     } finally {
       await h.connection.close();
@@ -784,9 +782,16 @@ describe("a failed pair that outranks the selection is checked again (controllin
       switching.h.switchRole(false);
       await vi.advanceTimersByTimeAsync(60_000);
 
-      // Assert: どちらも再 check を送らない。
+      // Assert: close した側は何も送らない。
       expect(closing.h.requestsTo(closing.high)).toHaveLength(1);
-      expect(switching.h.requestsTo(switching.high)).toHaveLength(1);
+      // Assert: controlled になった側は上位ペアとしての再 check (ICE-CONTROLLING / USE-CANDIDATE) を送らない。
+      // 同じソケットの退避先としての監視 check (ICE-CONTROLLED、指名なし) だけが続く。
+      const after = switching.h.requestsTo(switching.high).slice(1);
+      expect(after.length).toBeGreaterThan(0);
+      for (const request of after) {
+        expect(request.message.attributesKeys).toContain("ICE-CONTROLLED");
+        expect(request.message.attributesKeys).not.toContain("USE-CANDIDATE");
+      }
     } finally {
       await switching.h.connection.close();
     }
