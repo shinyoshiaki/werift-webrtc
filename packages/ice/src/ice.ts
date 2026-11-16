@@ -104,9 +104,9 @@ export const DEFAULT_STUN_SERVER_URL = "stun:stun.l.google.com:19302";
 
 // The ICE agent. This file keeps the public API, the lifecycle (restart,
 // close, state), the protocol event wiring and the live checklist
-// (connect / checkStart / checkComplete / checkIncoming). Its parts live in
+// (connect / checkStart / checkComplete / checkIncoming) and candidate
+// gathering (gatherCandidates / getCandidatePromises). Its other parts live in
 // collaborators the agent supplies through a host object:
-// - candidateGatherer.ts: host / server-reflexive / relay gathering
 // - consent.ts: RFC 7675 consent freshness of the selected pair
 // - provisional.ts: the checklist of an ICE restart negotiated with a pranswer
 // - nomination/regularNomination.ts: RFC 8445 regular nomination
