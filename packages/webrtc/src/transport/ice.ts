@@ -608,6 +608,9 @@ export class RTCIceTransport {
     staged.endDeferred = undefined;
     // The kept sockets are re-advertised synchronously; nothing here waits
     // for a server, so the commit never holds the new generation's checks.
+    // The checks may thus start while this gathering still runs: an ICE-lite
+    // agent then waits on its empty check list until the gathering ends
+    // (Connection.waitForIncomingCheck wakes on that end).
     const gathering = this.gather();
     if (regather) {
       void gathering.catch((error) => log("restart gathering failed", error));

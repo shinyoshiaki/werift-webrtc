@@ -110,8 +110,12 @@ export class Connection implements IceConnection {
   private checksBegun = false;
   /** connect() stopped scheduling checks (a later pair must start its own). */
   private schedulingStopped = false;
-  /** connect() is waiting for the peer's first check on an empty check list. */
-  private incomingCheckWait?: AbortController;
+  /**
+   * The waits of connect() (one per concurrent call) for the peer's first
+   * check on an empty check list; woken when a pair is added or the local
+   * gathering ends (waitForIncomingCheck).
+   */
+  private readonly incomingCheckWaits = new Set<AbortController>();
   generation = -1;
   /**
    * Counts every reset of the remote generation: a local ICE restart and a
@@ -1002,6 +1006,7 @@ export class Connection implements IceConnection {
       const pending = background.filter(({ settled }) => !settled);
       if (pending.length === 0) {
         this.localCandidatesEnd = true;
+        this.wakeIncomingCheckWaits();
       } else {
         // The other host sockets' server-reflexive candidates trickle in;
         // end-of-candidates follows the last of them.
@@ -1011,6 +1016,7 @@ export class Connection implements IceConnection {
         ]).then(() => {
           if (!this.isGathering(generation)) return;
           this.localCandidatesEnd = true;
+          this.wakeIncomingCheckWaits();
           if (this.checksBegun) this.concludeCheckListIfExhausted();
         });
       }
@@ -2066,38 +2072,53 @@ export class Connection implements IceConnection {
   }
 
   /**
-   * With an empty check list, wait until a pair is added (a check from the
-   * peer taught a peer-reflexive candidate, RFC 8445 section 7.3.1.3; the
-   * only way to connect to a peer whose TCP candidates are all active,
-   * RFC 6544) or `incomingCheckTimeout` runs out. Resolves true when a pair
-   * was added, so that the scheduling loop runs again.
+   * With an empty check list, wait for a pair (a check from the peer taught a
+   * peer-reflexive candidate, RFC 8445 section 7.3.1.3, the only way to
+   * connect to a peer whose TCP candidates are all active, RFC 6544; or a
+   * trickled candidate). Resolves true when a pair was added, so that the
+   * scheduling loop runs again; false when:
+   * - the local gathering ended without a socket that could receive a check
+   *   (at once, also when it ends during the wait: an ICE-lite agent may
+   *   connect while it still gathers),
+   * - `incomingCheckTimeout` ran out (a deadline fixed when the wait began;
+   *   being woken does not extend it), or
+   * - the generation ended (`ended`; the caller settles with connectError).
+   * Every concurrent caller wakes on its own.
    */
   private async waitForIncomingCheck(ended: AbortSignal) {
     const seconds =
       this.options.incomingCheckTimeout ?? DEFAULT_INCOMING_CHECK_TIMEOUT;
-    if (
-      this.checkList.length > 0 ||
-      ended.aborted ||
-      // Nothing local can receive a check, and gathering (still running
-      // for an ICE-lite agent that connects early) will not add a socket.
-      (this.protocols.length === 0 && this.localCandidatesEnd) ||
-      !(seconds > 0)
-    ) {
+    if (this.checkList.length > 0 || ended.aborted || !(seconds > 0)) {
       return false;
     }
     log("empty check list, waiting for an incoming check", seconds);
-    const wait = new AbortController();
-    this.incomingCheckWait = wait;
-    try {
-      await timers.setTimeout(seconds * 1000, undefined, {
-        signal: AbortSignal.any([wait.signal, ended]),
-      });
-    } catch {
-      // Aborted: a pair was added, or the generation ended (restart, close).
-    } finally {
-      if (this.incomingCheckWait === wait) this.incomingCheckWait = undefined;
+    const deadline = Date.now() + seconds * 1000;
+    for (;;) {
+      // Nothing local can receive a check, and gathering will not add one.
+      if (this.protocols.length === 0 && this.localCandidatesEnd) return false;
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) return false;
+      const wake = new AbortController();
+      this.incomingCheckWaits.add(wake);
+      try {
+        await timers.setTimeout(remaining, undefined, {
+          signal: AbortSignal.any([wake.signal, ended]),
+        });
+        return false;
+      } catch {
+        // Woken: a pair was added, the gathering ended, or the generation ended.
+      } finally {
+        this.incomingCheckWaits.delete(wake);
+      }
+      if (ended.aborted || this.closed) return false;
+      if (this.checkList.length > 0) return true;
+      // The gathering ended without a pair: check its sockets again.
     }
-    return this.checkList.length > 0 && !this.closed;
+  }
+
+  /** Wake every wait of connect() for an incoming check (waitForIncomingCheck). */
+  private wakeIncomingCheckWaits() {
+    for (const wait of this.incomingCheckWaits) wait.abort();
   }
 
   private unfreezeInitial() {
@@ -3066,7 +3087,7 @@ export class Connection implements IceConnection {
   private addPair(pair: CandidatePair) {
     this.checkList.push(pair);
     this.sortCheckList();
-    this.incomingCheckWait?.abort();
+    this.wakeIncomingCheckWaits();
   }
 
   // 7.2.  STUN Server Procedures

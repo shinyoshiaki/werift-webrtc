@@ -60,3 +60,50 @@ nominated {...}                          ← nominate まで進むが、状態�
   - `packages/ice` のテスト、`npm run type`、`npm run test:small`、`npm run e2e`、`npm run pbt:deep` を実行する（`src/negotiation` を変えるため）。
   - 修正をコミットした後、clean な HEAD で `cd e2e && npm run firefox:record`（引数なし）を実行し、その記録をコミットする。
   - 確認レビューは未コミットの差分だけを見る。そのため `reviews/8b7c8e4a-ice-incoming-check-wait.md` に不変条件、マトリクス、テストの位置を書き、未コミットのまま残してレビューを依頼する。
+
+## 6. 追加要件：空の check list での待機の起床源を網羅する
+
+### 背景
+
+- 世代終了の系統はマトリクステストで塞いだ。その後のレビューの指摘は、新しい待機（`waitForIncomingCheck`）が「いつ始まり、何で起き、いつ失敗するか」に移った（ICE-lite に待ち時間が効かない、ICE-lite が収集中に即失敗する）。
+- 同じ系統で未指摘だった問題が 2 件ある。
+  - A：ICE-lite がソケットを 1 つも作れない（`useIpv4/6: false`）状態で、収集中に `connect()` すると、収集が数 ms で終わっても待ち時間が切れるまで失敗しない。
+  - B：同一世代で `connect()` を 2 本並行に呼ぶと、待ち手が 1 つしか登録できないため、2 本目が 1 本目の起床を奪い、1 本目は待ち時間が切れるまで接続しない。
+- 原因は、待機が「pair 追加」と「世代終了」でしか起きず、「ローカル収集の完了」で起きないこと、そして待ち手を 1 つしか持てないことにある。`gatherCandidates()` には `localCandidatesEnd = true` を立てる地点が 2 か所ある（即時の分岐と `localCandidatesEndPromise` の `.then`）。
+
+### 不変条件
+
+空の check list での待機は、次のとおりに動く。
+
+1. pair が追加されたら、直ちに続行する。
+2. ローカル収集が終わった時点でソケットがなければ、直ちに失敗する。
+3. 世代が終わったら、直ちにその世代のエラーで決着する。
+4. それ以外は、`incomingCheckTimeout` の期限で失敗する。期限は待機の開始時に決まり、起こされて再評価しても延びない。
+
+同一世代の待ち手が複数いても、各自が起きる。
+
+### 要件
+
+- **`packages/ice/src/ice.ts`**
+  - 待ち手を `incomingCheckWaits`（`Set<AbortController>`）で管理する。
+  - `addPair()` と、`localCandidatesEnd = true` を立てる 2 か所の直後で、`wakeIncomingCheckWaits()` を呼ぶ。
+  - `waitForIncomingCheck()` は期限を固定してループで待ち、起きるたびにソケットの有無と pair を再評価する。
+- **ドキュメント**
+  - `IceOptions.incomingCheckTimeout` と `PeerConfig.iceIncomingCheckTimeout` の JSDoc に、「収集が終わってソケットがなければ即失敗」「期限は延びない」を追記する。
+  - `changelog.md` を更新し、`npm run doc` を実行する。
+  - webrtc 側の実装は変えない。ICE-lite の regather（`commit()` が収集を await しない経路）から、収集中の `connect()` に到達しうることをコメントで残す。
+- **マトリクステスト `packages/ice/tests/ice/incoming-check-wake.test.ts`**（Arrange は `tests/utils.ts` の共有ユーティリティ、各ステップに日本語コメント）
+
+  | 起床源 | 対象 | 期待 |
+  | --- | --- | --- |
+  | pair 追加 | ICE-lite 収集中 | connected になる |
+  | 収集終了・ソケット 0 | ICE-lite 収集中 | 待ち時間の前に即失敗する（A） |
+  | 収集終了・ソケットあり・pair なし | ICE-lite 収集中 | 開始時の期限で失敗する（延びない） |
+  | 世代終了（restart / close） | ICE-lite 収集中 | `IceRestartedError` / `ICE negotiation failed` |
+  | 並行 `connect()` 2 本 | ICE-lite / full、収集後 | 2 本とも check の到着直後に決着する（B） |
+
+  ベース（`df7f97f9f`）で失敗するケースを一時 worktree で確認する。
+- **検証と記録**
+  - `packages/ice` のテスト、`npm run type`、`npm run test:small`、`npm run e2e` を実行する（`src/negotiation` は変えないので `pbt:deep` は不要）。
+  - コミット後、clean な HEAD で `cd e2e && npm run firefox:record`（引数なし）を実行し、記録をコミットする。
+  - レビューは上限（`maxReviewIterations = 5`）に達しているため、再開にはユーザーの操作（`currentReviewIteration` のリセット、または手動でのレビュー開始）が必要。再開時は `reviews/8b7c8e4a-ice-incoming-check-wait.md` に不変条件と表を追記し、未コミットのまま `ticket review` を依頼する。

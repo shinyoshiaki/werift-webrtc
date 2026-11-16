@@ -2459,10 +2459,13 @@ export async function createLiteAgentWithoutPeerCandidates(
 /**
  * Shared Arrange: as `createLiteAgentWithoutPeerCandidates`, but the lite
  * agent's gathering has only just started (no socket is open yet), and the
- * full agent learns its candidates once `gathering` settles.
+ * full agent learns its candidates once `gathering` settles (it does not
+ * connect unless the test calls `full.connect()`).
  */
 export async function createLiteAgentStillGathering(
   incomingCheckTimeout: number,
+  /** Options of the lite agent only (e.g. no address family: no socket). */
+  liteOptions: Partial<IceOptions> = {},
 ) {
   const options: Partial<IceOptions> = {
     useIpv6: false,
@@ -2470,7 +2473,11 @@ export async function createLiteAgentStillGathering(
     incomingCheckTimeout,
   };
   const full = createTestConnection(true, options);
-  const lite = createTestConnection(false, { ...options, iceLite: true });
+  const lite = createTestConnection(false, {
+    ...options,
+    iceLite: true,
+    ...liteOptions,
+  });
   await full.gatherCandidates();
   lite.remoteCandidates = [];
   lite.remoteUsername = full.localUsername;

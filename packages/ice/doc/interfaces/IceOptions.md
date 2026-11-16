@@ -82,7 +82,10 @@ candidates: the peer offered only active TCP candidates (RFC 6544), or
 none this agent can reach. A check from the peer adds a peer-reflexive
 pair and the connection proceeds; without one, `connect()` fails when the
 time runs out. An ICE-lite agent, which sends no checks, waits the same
-time whenever it has no candidate pair. Defaults to 30; 0 fails at once.
+time whenever it has no candidate pair, also while it still gathers. The
+deadline is fixed when the wait begins; once the local gathering ended
+without a socket that could receive a check, `connect()` fails at once.
+Defaults to 30; 0 fails at once.
 
 ***
 
