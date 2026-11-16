@@ -769,7 +769,11 @@ export type ChecksEnd = "restart" | "resetRemoteGeneration" | "retire";
  * transport only records `start()`. `running` settles with the activation
  * call; `end` ends the awaited generation.
  */
-export async function startActivationWaiting(waiter: ActivationWaiter) {
+export async function startActivationWaiting(
+  waiter: ActivationWaiter,
+  /** Runs inside `setConnectionState` (a synchronous connectionstatechange subscriber). */
+  onConnectionState?: (state: string, transport2: RTCIceTransport) => void,
+) {
   const { transport1, transport2 } =
     await createIceTransportsWithoutPeerCandidates(30);
   const dtlsTransport = {
@@ -783,7 +787,9 @@ export async function startActivationWaiting(waiter: ActivationWaiter) {
   const pending = waiter.startsWith("pending");
   const live = pending ? [] : [dtlsTransport];
   const pendingOnly = new Set(pending ? [transport2.id] : []);
-  const setConnectionState: Mock<(state: string) => void> = vi.fn();
+  const setConnectionState: Mock<(state: string) => void> = vi.fn(
+    (state: string) => onConnectionState?.(state, transport2),
+  );
   const activation = new TransportActivation(
     {} as any,
     {
@@ -832,6 +838,7 @@ export async function startActivationWaiting(waiter: ActivationWaiter) {
     await Promise.all([transport1.stop(), transport2.stop()]);
   };
   return {
+    transport1,
     transport2,
     dtlsTransport,
     setConnectionState,

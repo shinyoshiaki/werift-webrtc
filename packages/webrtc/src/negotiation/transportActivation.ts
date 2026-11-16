@@ -260,6 +260,9 @@ export class TransportActivation {
         if (!iceTransport.checksStarted) {
           progressed = true;
           this.secure.setConnectionState("connecting");
+          // A connectionstatechange subscriber may have restarted ICE: the
+          // new generation's own connect() starts its checks.
+          if (replaced()) return false;
           const error = await iceTransport.start().then(
             () => undefined,
             (err: unknown) => err ?? new Error("ICE start failed"),

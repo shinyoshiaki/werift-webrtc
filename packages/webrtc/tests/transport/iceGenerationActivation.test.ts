@@ -1,6 +1,6 @@
 import { describe, expect, test, vi } from "vitest";
 
-import { IceRestartedError } from "../../src";
+import { IceRestartedError, RTCIceParameters } from "../../src";
 
 import {
   type ActivationWaiter,
@@ -52,29 +52,79 @@ describe("TransportActivation when the awaited ICE generation ends", () => {
   });
 });
 
-// start() runs connect() a microtask later: an end of the generation in
-// between must cancel that request, not let it check the next generation.
+describe("TransportActivation.connect() whose ICE generation ends in the connecting event", () => {
+  test("a remote restart with new credentials there starts no check of the new generation", async () => {
+    // Arrange: connectionState "connecting" の同期購読者が remote restart し、新しい認証情報を設定する。
+    const { transport2, dtlsTransport, setConnectionState, running, cleanup } =
+      await startActivationWaiting("connect-start", (state, transport) => {
+        if (state !== "connecting") return;
+        transport.resetRemoteGeneration();
+        transport.setRemoteParams(
+          new RTCIceParameters({
+            usernameFragment: "next",
+            password: "next-generation-password",
+          }),
+        );
+      });
+    try {
+      // Act: connect() の決着を待つ。
+      const { error } = await running;
+
+      // Assert: 旧世代の connect() は新しい世代の checks を始めず、状態も変えない。
+      expect(error).toBeUndefined();
+      expect(transport2.checksStarted).toBe(false);
+      expect(transport2.state).not.toBe("failed");
+      const states = setConnectionState.mock.calls.map(([state]) => state);
+      expect(states).toEqual(["connecting"]);
+      expect(dtlsTransport.start).not.toHaveBeenCalled();
+    } finally {
+      await cleanup();
+    }
+  });
+});
+
+// start() runs connect() a microtask later, and emits "checking" before
+// that: an end of the generation in between (right after start(), or from a
+// synchronous "checking" subscriber) must cancel the request, not let it
+// check the next generation or set its state.
 describe("RTCIceTransport.start() whose generation ends before its checks start", () => {
-  test.each(["local", "remote"] as const)(
-    "a %s restart cancels it and the next generation's checks start once",
-    async (restart) => {
+  const cases = (["local", "remote"] as const).flatMap((restart) =>
+    (["after start()", "in the checking event"] as const).map((when) => ({
+      restart,
+      when,
+    })),
+  );
+  test.each(cases)(
+    "a $restart restart $when cancels it and the next generation's checks start once",
+    async ({ restart, when }) => {
       // Arrange: 2 は 1 の認証情報だけを持つ (1 の候補なし)。
       const { transport1, transport2 } =
         await createIceTransportsWithoutPeerCandidates(30);
       const connect = vi.spyOn(transport2.connection, "connect");
+      if (when === "in the checking event") {
+        // Arrange: checking の同期購読者が ICE restart する。
+        const { unSubscribe } = transport2.onStateChange.subscribe((state) => {
+          if (state !== "checking") return;
+          unSubscribe();
+          endIceTransportGeneration(transport1, transport2, restart);
+        });
+      }
       try {
-        // Act: start() の直後、同じ同期区間で ICE restart する。
+        // Act: start() し、after start() では同じ同期区間で ICE restart する。
         const old = transport2.start().then(
           () => undefined,
           (error: unknown) => error,
         );
-        endIceTransportGeneration(transport1, transport2, restart);
+        if (when === "after start()") {
+          endIceTransportGeneration(transport1, transport2, restart);
+        }
         const oldError = await old;
 
         // Assert: 旧世代の start() は connect() を呼ばずに IceRestartedError で決着し、failed にしない。
         expect(oldError).toBeInstanceOf(IceRestartedError);
         expect(connect).not.toHaveBeenCalled();
         expect(transport2.state).not.toBe("failed");
+        expect(transport2.checksStarted).toBe(false);
 
         // Act: 新しい世代の候補と認証情報を交換し、両側を start する。
         await exchangeIceTransportGeneration(transport1, transport2, restart);
@@ -89,6 +139,83 @@ describe("RTCIceTransport.start() whose generation ends before its checks start"
       }
     },
   );
+
+  test("a remote restart with the new credentials in the checking event leaves the new generation to its own start()", async () => {
+    // Arrange: 1 は次の世代を収集済み。2 の checking の同期購読者が remote restart し、新しい認証情報を設定する。
+    const { transport1, transport2 } =
+      await createIceTransportsWithoutPeerCandidates(30);
+    transport1.restart(false);
+    await transport1.gather();
+    const connect = vi.spyOn(transport2.connection, "connect");
+    const { unSubscribe } = transport2.onStateChange.subscribe((state) => {
+      if (state !== "checking") return;
+      unSubscribe();
+      transport2.resetRemoteGeneration();
+      transport2.setRemoteParams(transport1.localParameters);
+    });
+    try {
+      // Act: 旧世代で start() する。
+      const oldError = await transport2.start().then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+
+      // Assert: 旧世代の start() は新しい世代の connect() を呼ばず、failed にもしない。
+      expect(oldError).toBeInstanceOf(IceRestartedError);
+      expect(connect).not.toHaveBeenCalled();
+      expect(transport2.state).not.toBe("failed");
+      expect(transport2.checksStarted).toBe(false);
+
+      // Act: 新しい世代の候補を交換し、両側を start する。
+      transport2.localCandidates.forEach(transport1.addRemoteCandidate);
+      transport1.localCandidates.forEach(transport2.addRemoteCandidate);
+      transport1.setRemoteParams(transport2.localParameters);
+      await Promise.all([transport1.start(), transport2.start()]);
+
+      // Assert: 新しい世代は接続し、2 の connect() は一度だけ呼ばれる。
+      expect(transport2.state).toBe("connected");
+      expect(connect).toHaveBeenCalledTimes(1);
+    } finally {
+      await Promise.all([transport1.stop(), transport2.stop()]);
+    }
+  });
+
+  test("the new generation started in the new event of a remote restart keeps its single start", async () => {
+    // Arrange: 2 の旧世代の start() が相手の check を待っている。1 は次の世代を収集済み。
+    const { transport1, transport2 } =
+      await createIceTransportsWithoutPeerCandidates(30);
+    const old = transport2.start().then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    transport1.restart(false);
+    await transport1.gather();
+    const connect = vi.spyOn(transport2.connection, "connect");
+    let next: Promise<void> | undefined;
+    const { unSubscribe } = transport2.onStateChange.subscribe((state) => {
+      if (state !== "new") return;
+      unSubscribe();
+      // "new" の同期購読者が新しい世代の認証情報と候補を設定して start する。
+      transport2.setRemoteParams(transport1.localParameters);
+      transport1.localCandidates.forEach(transport2.addRemoteCandidate);
+      next = transport2.start();
+    });
+    try {
+      // Act: remote restart し、その後にもう一度 start() を呼ぶ (同じ世代の start は共有される)。
+      transport2.resetRemoteGeneration();
+      const again = transport2.start();
+      transport2.localCandidates.forEach(transport1.addRemoteCandidate);
+      transport1.setRemoteParams(transport2.localParameters);
+      await Promise.all([transport1.start(), next, again]);
+
+      // Assert: 旧世代は IceRestartedError で終わり、新しい世代の connect() は一度だけで接続する。
+      expect(await old).toBeInstanceOf(IceRestartedError);
+      expect(connect).toHaveBeenCalledTimes(1);
+      expect(transport2.state).toBe("connected");
+    } finally {
+      await Promise.all([transport1.stop(), transport2.stop()]);
+    }
+  });
 
   test("stop() cancels it without starting checks", async () => {
     // Arrange: 2 は 1 の認証情報だけを持つ (1 の候補なし)。

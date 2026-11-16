@@ -775,10 +775,11 @@ export class RTCIceTransport {
     if (!this.connection.restartRemote) return;
     this.checksGeneration++;
     this.connection.restartRemote();
-    this.setState("new");
+    // Reset before the event: a "new" subscriber may start the generation.
     this.waitStart = undefined;
     this.startPromise = undefined;
     this.checksStarted = false;
+    this.setState("new");
   }
 
   restart(notifyNegotiation = true, applyNextGatherIceServers = true) {
@@ -787,13 +788,14 @@ export class RTCIceTransport {
     this.connection.restart();
     const servers = this.nextGatherIceServers;
     if (servers && applyNextGatherIceServers) this.setIceServers(servers);
+    // Reset before the events: a subscriber may start the new generation.
+    this.waitStart = undefined;
+    this.startPromise = undefined;
+    this.checksStarted = false;
     this.setState("new");
     // Use setGatheringState so onGatheringStateChange fires and the
     // SecureTransportManager aggregate iceGatheringState stays in sync.
     this.iceGather.setGatheringState("new");
-    this.waitStart = undefined;
-    this.startPromise = undefined;
-    this.checksStarted = false;
     if (notifyNegotiation) this.onNegotiationNeeded.execute();
   }
 
@@ -809,12 +811,13 @@ export class RTCIceTransport {
     // their result. Waiting for the event and then continuing would start a
     // second connection attempt after the first one settles.
     if (this.startPromise) return this.startPromise;
+    // The request is bound to its generation and registered before any
+    // event: a "checking" subscriber may restart (a new generation, whose
+    // own start() runs its checks) or call start() again (it shares this).
+    const generation = this.checksGeneration;
     const waitStart = new Event<[]>();
     this.waitStart = waitStart;
     this.checksStarted = true;
-
-    this.setState("checking");
-    const generation = this.checksGeneration;
     const startPromise = Promise.resolve()
       .then(() => {
         // connect() runs a microtask later: a restart in between (restart(),
@@ -843,6 +846,7 @@ export class RTCIceTransport {
         if (this.startPromise === startPromise) this.startPromise = undefined;
       });
     this.startPromise = startPromise;
+    this.setState("checking");
     return startPromise;
   }
 
