@@ -220,4 +220,4 @@ WARP `sendBeforeNomination`: data or media left on a valid pair before ICE nomin
 
 ### warpSpedState?
 
-> `optional` **warpSpedState?**: `"active"` \| `"disabled"` \| `"probing"` \| `"fallback"`
+> `optional` **warpSpedState?**: `"active"` \| `"fallback"` \| `"disabled"` \| `"probing"`

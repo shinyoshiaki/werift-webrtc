@@ -586,7 +586,7 @@ Fires public onClose once (bridge is disposed before eng.close).
 
 ### closeLegacy12Association()
 
-> `protected` **closeLegacy12Association**(`firePublicOnClose?`): `void`
+> `protected` **closeLegacy12Association**(`firePublicOnClose?`, `closeTransport?`): `void`
 
 Local close for pure DTLS 1.2 (server and non-overridden paths).
 Terminal transition + optional single public onClose (client dual uses
@@ -595,6 +595,10 @@ closeAssociationHard instead).
 #### Parameters
 
 ##### firePublicOnClose?
+
+`boolean` = `true`
+
+##### closeTransport?
 
 `boolean` = `true`
 

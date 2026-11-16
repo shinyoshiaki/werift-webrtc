@@ -33,7 +33,7 @@ alert.
 
 ##### source
 
-`"local"` \| `"remote"`
+`"remote"` \| `"local"`
 
 ##### reason?
 
@@ -109,7 +109,7 @@ Local errors: what made this side abort (e.g. the verifier's exception).
 
 ### source
 
-> `readonly` **source**: `"local"` \| `"remote"`
+> `readonly` **source**: `"remote"` \| `"local"`
 
 ***
 
