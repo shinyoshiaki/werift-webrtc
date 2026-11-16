@@ -132,7 +132,9 @@ export interface PeerConfig {
    * candidate pair of its own to check after both sides ended their
    * candidates (the peer offered only active TCP candidates, as Firefox does
    * for ICE-TCP, or none werift can reach). Without a check in that time the
-   * ICE transport fails. Defaults to 30 when undefined; 0 fails at once.
+   * ICE transport fails. With `iceLite`, which sends no checks, ICE waits the
+   * same time whenever it has no candidate pair. Defaults to 30 when
+   * undefined; 0 fails at once.
    */
   iceIncomingCheckTimeout: number | undefined;
   turnTransport: "udp" | "tcp" | "tls" | undefined;

@@ -1964,6 +1964,18 @@ export class Connection implements IceConnection {
     this.earlyChecksDone = true;
 
     if (this.iceLite) {
+      // An ICE-lite agent sends no checks: with no pair yet, only a check
+      // from the peer (or a trickled candidate) can add one, and like a full
+      // agent it waits `incomingCheckTimeout` for it.
+      if (
+        !this.nominated &&
+        this.checkList.length === 0 &&
+        !(await this.waitForIncomingCheck(ended))
+      ) {
+        if (ended.aborted) throw this.connectError();
+        if (!this.nominated) throw new Error("ICE negotiation failed");
+      }
+      if (ended.aborted) throw this.connectError();
       if (!this.nominated) {
         let res: number = ICE_FAILED;
         while (!this.checkListDone) {

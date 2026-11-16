@@ -2429,3 +2429,29 @@ export function exchangeGeneration(a: Connection, b: Connection) {
   a.remoteUsername = b.localUsername;
   a.remotePassword = b.localPassword;
 }
+
+/**
+ * Shared Arrange: a full (controlling) agent and an ICE-lite agent on host
+ * UDP candidates. The full agent knows every candidate of the lite one; the
+ * lite one knows the full agent's credentials but none of its candidates, so
+ * its check list starts empty and only the full agent's checks can fill it.
+ */
+export async function createLiteAgentWithoutPeerCandidates(
+  incomingCheckTimeout: number,
+) {
+  const options: Partial<IceOptions> = {
+    useIpv6: false,
+    stunServer: undefined,
+    incomingCheckTimeout,
+  };
+  const full = createTestConnection(true, options);
+  const lite = createTestConnection(false, { ...options, iceLite: true });
+  await Promise.all([full.gatherCandidates(), lite.gatherCandidates()]);
+  lite.remoteCandidates = [];
+  lite.remoteUsername = full.localUsername;
+  lite.remotePassword = full.localPassword;
+  full.remoteCandidates = lite.localCandidates;
+  full.remoteUsername = lite.localUsername;
+  full.remotePassword = lite.localPassword;
+  return { full, lite };
+}
