@@ -1,6 +1,6 @@
 # 8b7c8e4a: 空の check list での待機と ICE 世代の終了
 
-対象コミット: `9b1cb2bec`（実装とテスト）、`0b72d4547`（Firefox 記録）、`bfc957516`（`start()` の延期した `connect()` の取消）、`1cff1bead`（Firefox 記録）、`e535dc54d`（同期の状態イベント中の再起動）、`037110bdb`（Firefox 記録）。ベースは `91f6b80eb`。
+対象コミット: `9b1cb2bec`（実装とテスト）、`0b72d4547`（Firefox 記録）、`bfc957516`（`start()` の延期した `connect()` の取消）、`1cff1bead`（Firefox 記録）、`e535dc54d`（同期の状態イベント中の再起動）、`037110bdb`（Firefox 記録）、`feb9f8f52`（ICE-lite の待ち時間）、`3344382e9`（Firefox 記録）。ベースは `91f6b80eb`。
 この文書は確認レビュー用に未コミットのまま置いています。
 
 ## 不変条件
@@ -73,6 +73,42 @@
 
 - [tcp.test.ts:134](../packages/ice/tests/ice/tcp.test.ts#L134)：active のみのケースの準備段階の assert を、候補数 1 の決め打ちから「すべて `tcptype==="active"` で 1 件以上」に変えました（ネットワークインターフェースが複数あるホストで落ちていたため）。
 - 前回追加した TCP 限定の再起動テスト 4 件は、ICE のマトリクスに含まれるので削除しました。
+
+## 追加の修正：ICE-lite の空の check list にも `incomingCheckTimeout` を適用する（`feb9f8f52`）
+
+### 指摘された問題
+
+ICE-lite の分岐は check list が空でも待ち時間の処理を通らず、相手の nomination を際限なく待っていました。`incomingCheckTimeout` の説明は ICE-lite を例外にしていないので、説明と動作が食い違っていました。
+
+### 修正
+
+- ICE-lite の `connect()` は、nominate されておらず check list が空なら、full agent と同じ `waitForIncomingCheck(ended)` で待ちます（[ice.ts:1967](../packages/ice/src/ice.ts#L1967)）。
+  - 相手の check で peer-reflexive の pair が追加されるか、trickle された候補で pair ができると、待ちを抜けて従来どおり nomination を待ちます。
+  - 時間内に pair ができなければ `ICE negotiation failed` で失敗します。`0` なら即失敗です。
+  - 待機中に世代が終わった場合は、従来どおり `connectError()` で決着します（ICE の世代終了マトリクスの `lite` 行）。
+- pair ができた後の nomination 待ちには、従来どおり時間制限を設けていません。
+- `IceOptions.incomingCheckTimeout` と `PeerConfig.iceIncomingCheckTimeout` の説明に ICE-lite の扱いを書き足し、`changelog.md` と生成ドキュメントを更新しました。
+
+### テスト（[ice-lite-incoming-check.test.ts](../packages/ice/tests/ice/ice-lite-incoming-check.test.ts)）
+
+準備処理は [tests/utils.ts:2439](../packages/ice/tests/utils.ts#L2439) の `createLiteAgentWithoutPeerCandidates` です。
+
+| テスト | 内容 | ベース `06eee1235` |
+| --- | --- | --- |
+| L8 | 待ち時間 0.3 秒で check が届かない。250 ms 以上待ってから `ICE negotiation failed` | 失敗（決着しない） |
+| L25 | 待ち時間 0 で即 `ICE negotiation failed` | 失敗（決着しない） |
+| L40 | full 側の check と nomination で、時間内に peer-reflexive の pair で接続し、データが届く | 成功（従来の動作を保つ） |
+
+### 検証（`feb9f8f52`）
+
+| コマンド | 結果 |
+| --- | --- |
+| `npm run type` | 成功 |
+| `npm run test:small` | 全パッケージ成功（ice 472 件、webrtc 1880 件成功） |
+| `npm run e2e`（Chrome） | 25 ファイル、71 件成功（ICE-lite の E2E を含む） |
+| `cd e2e && npm run firefox:record`（clean な `feb9f8f52`、引数なし） | 63 件成功、0 件失敗、8 件スキップ。[記録](../e2e/firefox-runs/20261116T013444Z-feb9f8f52.json) |
+
+`src/negotiation` は変えていないので、今回は `pbt:deep` を実行していません。
 
 ## 追加の修正：同期の状態イベント中の再起動（`e535dc54d`）
 
