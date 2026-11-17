@@ -24,13 +24,16 @@ describe("issue #356 RTP without a=ssrc in SDP", () => {
 
     // offer にあるが answer で交渉しなかった PT (どれになるかは codec 選択に任せる)
     const offered = [63, 109, 111, 18, 0, 8, 9, 96, 101];
+    const negotiatedCodecs = transceiver.codecs;
     const unnegotiated = offered.filter(
-      (pt) => transceiver.receiver.codecs[pt] === undefined,
+      (pt) => !negotiatedCodecs.some((codec) => codec.payloadType === pt),
     );
     expect(unnegotiated.length).toBeGreaterThan(0);
-    expect(transceiver.receiver.codecs[0]?.mimeType.toLowerCase()).toBe(
-      "audio/pcmu",
-    );
+    expect(
+      negotiatedCodecs
+        .find((codec) => codec.payloadType === 0)
+        ?.mimeType.toLowerCase(),
+    ).toBe("audio/pcmu");
 
     // Act: MID / RID 拡張なしで、交渉しなかった PT と PCMU (0) を流す
     unnegotiated.forEach((pt, i) => dtls.onRtp.execute(rtp(0x1234, pt, i)));
