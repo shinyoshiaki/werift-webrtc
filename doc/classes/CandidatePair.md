@@ -90,6 +90,15 @@
 
 ***
 
+### nomination
+
+> **nomination**: `number` = `0`
+
+The NOMINATION value this agent (controlling, renomination) sent for the
+pair and the peer answered; 0 when it did not renominate the pair.
+
+***
+
 ### packetsReceived
 
 > **packetsReceived**: `number` = `0`
@@ -125,6 +134,17 @@
 ### remoteNominated
 
 > **remoteNominated**: `boolean` = `false`
+
+***
+
+### remoteNomination
+
+> **remoteNomination**: `number` = `0`
+
+The largest nomination the peer sent for this pair while this agent was
+controlled: the NOMINATION attribute's value (renomination), or 1 for
+USE-CANDIDATE. The controlled agent selects the nominated pair with the
+largest value, the higher-priority one between equal values.
 
 ***
 

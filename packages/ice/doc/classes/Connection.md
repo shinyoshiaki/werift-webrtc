@@ -229,6 +229,18 @@ changes how checks or nomination run.
 
 ***
 
+### remoteRenomination
+
+> **remoteRenomination**: `boolean` = `false`
+
+The peer advertised `a=ice-options:renomination` (see `IceOptions.renomination`).
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`remoteRenomination`](../interfaces/IceConnection.md#remoterenomination)
+
+***
+
 ### remoteUsername
 
 > **remoteUsername**: `string` = `""`
