@@ -30,6 +30,10 @@
 
 Add `ice2` (RFC 8445 §10) to the local ice-options.
 
+###### iceRenomination?
+
+`boolean`
+
 ###### midSuffix?
 
 `boolean`
@@ -73,6 +77,14 @@ Add `ice2` (RFC 8445 §10) to the local ice-options.
 > `readonly` **iceOptions**: `string`
 
 Local `a=ice-options` tokens written on every m-line.
+
+***
+
+### iceRenomination
+
+> `readonly` **iceRenomination**: `boolean`
+
+`PeerConfig.iceRenomination`: descriptions advertise `a=ice-options:renomination`.
 
 ***
 

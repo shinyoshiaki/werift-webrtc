@@ -34,6 +34,7 @@ import { dtls_alert } from "./handler/datachannel/dtlsAlert";
 import { datachannel_ice_lite_answer } from "./handler/datachannel/iceLite";
 import { datachannel_ice_tcp } from "./handler/datachannel/iceTcp";
 import { datachannel_turn_relay } from "./handler/datachannel/turnRelay";
+import { ice_nomination } from "./handler/ice/nomination";
 import {
   ice_restart_node_trigger,
   ice_restart_web_trigger,
@@ -183,6 +184,7 @@ function attachWebSocketServer() {
         new datachannel_close_client_create_server_close(),
       datachannel_close_server_create_client_close:
         new datachannel_close_server_create_client_close(),
+      ice_nomination: new ice_nomination(),
       dtls_alert_close_notify_from_werift: new dtls_alert(),
       dtls_alert_close_notify_from_chrome: new dtls_alert(),
       dtls_alert_bad_certificate: new dtls_alert(),

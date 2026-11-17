@@ -87,6 +87,7 @@
 - [candidatePairPriority](functions/candidatePairPriority.md)
 - [candidatePriority](functions/candidatePriority.md)
 - [classifyGatherError](functions/classifyGatherError.md)
+- [compareCandidatePairPriority](functions/compareCandidatePairPriority.md)
 - [consentResponseTimeoutMs](functions/consentResponseTimeoutMs.md)
 - [createStunOverTurnClient](functions/createStunOverTurnClient.md)
 - [createTurnClient](functions/createTurnClient.md)
