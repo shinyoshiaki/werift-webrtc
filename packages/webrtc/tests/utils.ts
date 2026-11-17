@@ -3,6 +3,12 @@ import { readFileSync } from "fs";
 import { type Mock, vi } from "vitest";
 
 import type { Connection, IceConnection } from "../../ice/src";
+import {
+  Candidate,
+  CandidatePair,
+  CandidatePairState,
+  type Protocol,
+} from "../../ice/src";
 import { getHostAddresses } from "../../ice/src/utils";
 import {
   createLocalStunServer,
@@ -714,6 +720,69 @@ export function captureSctpDataChunks(transport: RTCSctpTransport) {
 }
 
 /**
+ * Shared Arrange: an `RTCIceTransport` that is not connected, with remote
+ * credentials and one pair whose ordinary check succeeded but that is not
+ * nominated (no network: the pair is built from SDP candidates).
+ */
+export function createIceTransportWithValidPair() {
+  const transport = new RTCIceTransport(new RTCIceGatherer({ useIpv6: false }));
+  const connection = transport.connection as unknown as Connection;
+  connection.remoteUsername = "remote";
+  connection.remotePassword = "remote-password-0000000000";
+  const local = Candidate.fromSdp(
+    "1 1 udp 2130706431 127.0.0.1 40000 typ host",
+  );
+  const remote = Candidate.fromSdp(
+    "2 1 udp 2130706431 127.0.0.1 40001 typ host",
+  );
+  const pair = new CandidatePair(
+    { localCandidate: local } as unknown as Protocol,
+    remote,
+    true,
+  );
+  pair.updateState(CandidatePairState.SUCCEEDED);
+  connection.checkList.push(pair);
+  return { transport, connection, pair };
+}
+
+/** The `a=ice-options` lines of `sdp`. */
+export function iceOptionLines(sdp: string) {
+  return sdp.split("\r\n").filter((line) => line.startsWith("a=ice-options:"));
+}
+
+/**
+ * Shared Arrange: two PeerConnections over loopback with their own
+ * `PeerConfig` (e.g. `iceRenomination`), connected by one offer/answer
+ * exchange. Returns the offer and answer SDP as sent and each side's ICE
+ * agent (the offerer's is controlling). `beforeGather` runs on the offerer
+ * once its ICE transport exists, before it gathers (e.g. `setConfiguration`,
+ * which updates the agent only before gathering).
+ */
+export async function connectWithIceConfigs(
+  offererConfig: Partial<PeerConfig>,
+  answererConfig: Partial<PeerConfig>,
+  {
+    beforeGather,
+  }: { beforeGather?: (offerer: RTCPeerConnection) => void } = {},
+) {
+  const shared: Partial<PeerConfig> = { iceServers: [], iceUseIpv6: false };
+  const offerer = new RTCPeerConnection({ ...shared, ...offererConfig });
+  const answerer = new RTCPeerConnection({ ...shared, ...answererConfig });
+  if (beforeGather) {
+    offerer.createDataChannel("before-gather");
+    beforeGather(offerer);
+  }
+  await connectPeerConnections(offerer, answerer);
+  return {
+    offerer,
+    answerer,
+    offerSdp: offerer.localDescription!.sdp,
+    answerSdp: answerer.localDescription!.sdp,
+    controlling: firstIceTransport(offerer).connection,
+    controlled: firstIceTransport(answerer).connection,
+  };
+}
+/**
  * Shared Arrange: a local-only peer configuration (no STUN / TURN) whose ICE
  * agent sends checks with `iceMessageIntegrity` and records the integrity
  * algorithm of every connectivity check it receives.
@@ -750,10 +819,7 @@ export function sdpIceOptionLines(sdp: string) {
  *   connect() / connectPending() awaits them (`checksSettled()`).
  */
 export type ActivationWaiter =
-  | "connect-start"
-  | "connect-waiter"
-  | "pending-start"
-  | "pending-waiter";
+  "connect-start" | "connect-waiter" | "pending-start" | "pending-waiter";
 
 /**
  * How the awaited generation ends: `restart` (local ICE restart),

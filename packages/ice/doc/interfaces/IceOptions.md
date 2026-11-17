@@ -154,9 +154,65 @@ a response is always signed with the algorithm of its request
 
 ***
 
+### nomination?
+
+> `optional` **nomination?**: `"semi-aggressive"` \| `"regular"`
+
+How the controlling agent nominates toward a full ICE peer when
+renomination is not in use (see `renomination`).
+
+- `"semi-aggressive"` (default, as libwebrtc / Chrome): a check carries
+  USE-CANDIDATE while no pair is selected and for every pair that
+  outranks the selected one. The first pair whose check succeeds is
+  selected at once; checks of higher-priority pairs go on, and one that
+  succeeds later replaces the selection. Consent checks of the selected
+  pair carry USE-CANDIDATE as well.
+- `"regular"`: RFC 8445 §8.1.1 regular nomination. Checks carry no
+  USE-CANDIDATE; after `nominationDelayMs` (or end-of-candidates) the
+  best valid pair is nominated once with a separate check and never
+  replaced.
+
+Toward an ICE-lite peer the first valid pair is nominated in either mode.
+
+***
+
+### nominationDelayMs?
+
+> `optional` **nominationDelayMs?**: `number`
+
+With `nomination: "regular"`: milliseconds the controlling agent keeps
+checking before it nominates (RFC 8445 §8.1.1 regular nomination). The
+default semi-aggressive nomination does not wait. Counted from the later of the first
+valid pair and the last pair added that outranks the best valid pair, so
+a higher-priority candidate trickled shortly after a lower-priority one
+succeeded can still be selected. Once both sides signalled
+end-of-candidates and no higher-priority pair is still being checked, the
+best valid pair is nominated at once. Defaults to 300; 0 nominates the
+best valid pair as soon as one exists. A negative or non-finite value
+falls back to the default.
+
+***
+
 ### portRange?
 
 > `optional` **portRange?**: \[`number`, `number`\]
+
+***
+
+### renomination?
+
+> `optional` **renomination?**: `boolean`
+
+Renomination (draft-thatcher-ice-renomination, as libwebrtc implements
+it). When enabled the agent advertises `a=ice-options:renomination`
+(packages/webrtc). When the peer advertised it too, the controlling agent
+nominates with the NOMINATION attribute (0xC001) and an increasing value
+instead of USE-CANDIDATE: it nominates the first valid pair, keeps
+checking higher-priority pairs and renominates a better one when its
+check succeeds. This replaces `nomination` for that session.
+
+The controlled agent always honours the NOMINATION attribute: it selects
+the pair with the largest value. Defaults to false.
 
 ***
 
@@ -213,6 +269,17 @@ STUN server does not delay the description.
 
 Merged with the deprecated `stunServer`: the singular one comes first,
 duplicates are dropped (see [normalizeIceServerOptions](../functions/normalizeIceServerOptions.md)).
+
+***
+
+### stunServerUrls?
+
+> `optional` **stunServerUrls?**: [`StunServerUrl`](../type-aliases/StunServerUrl.md)[]
+
+The application's names (URLs) of [IceOptions.stunServers](#stunservers), by
+address. Metadata only, reported in IceServerRef.urls of
+`Connection.onIceCandidateError`; replaced together with the STUN
+servers (see [mergeIceServerOptions](../functions/mergeIceServerOptions.md)).
 
 ***
 
