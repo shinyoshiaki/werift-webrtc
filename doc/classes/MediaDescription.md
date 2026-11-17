@@ -112,17 +112,26 @@
 
 > `optional` **rtcpHost?**: `string`
 
+`a=rtcp` の connection-address (RFC 3605)。
+`a=rtcp:<port>` のようにアドレスが省略された場合は `undefined` のまま保持し、
+有効な RTCP アドレスは media-level の `c=` (`host`)、それもなければ
+session-level の `c=` を継承する (`rtcpHost ?? media.host ?? session.host`)。
+
 ***
 
 ### rtcpMux
 
 > **rtcpMux**: `boolean` = `false`
 
+`a=rtcp-mux` (RFC 5761)。`a=rtcp` の有無とは独立して入出力する。
+
 ***
 
 ### rtcpPort?
 
 > `optional` **rtcpPort?**: `number`
+
+`a=rtcp` の RTCP port (RFC 3605)。`undefined` のときは `a=rtcp` を出力しない。
 
 ***
 
