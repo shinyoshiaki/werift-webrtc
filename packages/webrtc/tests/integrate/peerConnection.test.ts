@@ -1424,7 +1424,7 @@ a=ssrc:1001 cname:some
       pair!.updateState(CandidatePairState.IN_PROGRESS);
       controlledIce.nominated = undefined;
       controlledIce.state = "connected";
-      (controlledIce as any).consentFresh = false;
+      (controlledIce as any).consent.fresh = false;
       const packetsSentBefore = sender.packetsSent;
       const bytesSentBefore = sender.bytesSent;
 
@@ -1449,7 +1449,7 @@ a=ssrc:1001 cname:some
       pair!.updateState(CandidatePairState.SUCCEEDED);
       pair!.nominated = true;
       controlledIce.nominated = pair;
-      (controlledIce as any).consentFresh = true;
+      (controlledIce as any).consent.fresh = true;
       const allowedRtp = await sender.sendRtp(
         Buffer.from("after-consent"),
         new RtpHeader({ ssrc: 0x7102, payloadType: 96 }),

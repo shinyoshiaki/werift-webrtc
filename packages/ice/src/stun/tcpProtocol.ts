@@ -70,7 +70,7 @@ abstract class BaseTcpProtocol implements Protocol {
   localIp?: string;
 
   readonly onRequestReceived = new Event<[Message, Address, Buffer]>();
-  readonly onDataReceived = new Event<[Buffer, Address]>();
+  readonly onDataReceived = new Event<[Buffer, Address?]>();
   /** The connection to this remote address was closed (by either side). */
   readonly onConnectionClosed = new Event<[Address]>();
   /** close() ran: no new transaction starts. */

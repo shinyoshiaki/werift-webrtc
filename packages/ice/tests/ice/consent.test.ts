@@ -264,7 +264,7 @@ describe("ICE consent freshness (RFC 7675)", () => {
       pair.updateState(CandidatePairState.SUCCEEDED);
       pair.nominated = true;
       connection.nominated = pair;
-      (connection as any).consentFresh = true;
+      (connection as any).consent.fresh = true;
       await connection.send(Buffer.from("after-consent"));
 
       // Assert: 成功 pair と consent がそろった後だけ wire へ出る。

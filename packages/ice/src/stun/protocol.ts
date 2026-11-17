@@ -28,7 +28,7 @@ export class StunProtocol implements Protocol {
   private closed = false;
 
   readonly onRequestReceived = new Event<[Message, Address, Buffer]>();
-  readonly onDataReceived = new Event<[Buffer, Address]>();
+  readonly onDataReceived = new Event<[Buffer, Address?]>();
 
   constructor() {}
 

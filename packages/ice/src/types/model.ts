@@ -48,8 +48,11 @@ export interface TransactionRequestOptions {
 export interface Protocol {
   type: string;
   onRequestReceived: Event<[Message, Address, Buffer]>;
-  /** Application data (not STUN) and the remote address it came from. */
-  onDataReceived: Event<[Buffer, Address]>;
+  /**
+   * Non-STUN datagrams on this protocol. The optional source address is
+   * required to route handshake DTLS to the matching CandidatePair.
+   */
+  onDataReceived: Event<[Buffer, Address?]>;
   /** Connection-oriented protocols: the connection to this remote address is gone. */
   onConnectionClosed?: Event<[Address]>;
   request: (

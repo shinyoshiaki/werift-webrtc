@@ -6,7 +6,7 @@ import {
   consentResponseTimeoutMs,
   type IceState,
 } from "./iceBase";
-import { debug } from "./imports/common";
+import { type Address, debug } from "./imports/common";
 import type { MessageIntegrityMode } from "./stun/const";
 import type { Message } from "./stun/message";
 
@@ -29,6 +29,20 @@ export type ConsentHost = {
    * (USE-CANDIDATE, NOMINATION).
    */
   buildRequest: (pair: CandidatePair) => Message;
+  /** Local generation; an answer received after a local restart does not count. */
+  generation: () => number;
+  /**
+   * Last chance to add to the consent request (SPED); `false` skips this
+   * round's request.
+   */
+  decorateRequest: (request: Message, pair: CandidatePair) => boolean;
+  /** An accepted consent response (SPED carry). */
+  onResponse: (
+    response: Message,
+    addr: Address,
+    pair: CandidatePair,
+    generation: number,
+  ) => Promise<void> | void;
 };
 
 /**
@@ -197,9 +211,13 @@ export class ConsentFreshness {
 
           const pairId = nominated.id;
           const generation = this.host.remoteGeneration();
+          const localGeneration = this.host.generation();
           const remotePassword = this.host.remotePassword();
 
           const request = this.host.buildRequest(nominated);
+          if (!this.host.decorateRequest(request, nominated)) {
+            continue;
+          }
 
           this.requestAbort?.abort();
           const requestAbort = new AbortController();
@@ -230,7 +248,7 @@ export class ConsentFreshness {
                 },
               },
             )
-            .then(() => {
+            .then(async ([response, addr]) => {
               // Accept only responses for the current pair / generation / session.
               // Address / MESSAGE-INTEGRITY / response class are enforced in Transaction + protocol.
               if (sessionId !== this.sessionId || canceled) {
@@ -243,7 +261,10 @@ export class ConsentFreshness {
               if (this.host.selected()?.id !== pairId) {
                 return;
               }
-              if (this.host.remoteGeneration() !== generation) {
+              if (
+                this.host.generation() !== localGeneration ||
+                this.host.remoteGeneration() !== generation
+              ) {
                 return;
               }
               if (this.host.remotePassword() !== remotePassword) {
@@ -261,6 +282,12 @@ export class ConsentFreshness {
               if (state === "disconnected") {
                 this.host.setState("connected");
               }
+              await this.host.onResponse(
+                response,
+                addr,
+                nominated,
+                localGeneration,
+              );
             })
             .catch((error) => {
               // Individual request loss is expected; keep monitoring (RFC 7675).
