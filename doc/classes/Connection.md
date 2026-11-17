@@ -134,6 +134,47 @@ Resolves remote mDNS candidates; closed (pending lookups cancelled) by restart()
 
 ***
 
+### onIceCandidateError
+
+> `readonly` **onIceCandidateError**: [`Event`](Event.md)\<\[[`IceCandidateErrorInfo`](../type-aliases/IceCandidateErrorInfo.md)\]\>
+
+A STUN server query or TURN allocation of the current generation's
+gathering failed (W3C `icecandidateerror`), synchronously and without
+changing the gathering: other servers and sockets go on, and gathering
+still completes. A server answering with an error gives its ERROR-CODE,
+once per local socket and generation. One that is not reached (timeout,
+`stunGatherTimeout`, DNS, connect or socket error) gives 701, once per
+server and generation and only when no local socket reached it (a STUN
+server is reported when the last socket's query ended). A TURN server's UDP attempt and its TCP fallback are
+one failure, reported when both failed (a server's error code wins over
+701). A credential retry (401 / 438) that succeeds is not a failure.
+Nothing is fired for a replaced generation or after close (the event
+completes then). A STUN failure carries the host address of a socket
+that asked; a TURN one carries none. The built-in default STUN server (none
+configured, `useDefaultStunServer` not false) is named by the
+synthesized URL [DEFAULT\_STUN\_SERVER\_URL](../variables/DEFAULT_STUN_SERVER_URL.md) in `server.urls`.
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`onIceCandidateError`](../interfaces/IceConnection.md#onicecandidateerror)
+
+***
+
+### onIceServerReached
+
+> `readonly` **onIceServerReached**: [`Event`](Event.md)\<\[[`IceServerReachedInfo`](../type-aliases/IceServerReachedInfo.md)\]\>
+
+A STUN or TURN server of the current generation's gathering answered:
+a STUN query or TURN allocation gave a candidate, or the server sent an
+error response (see [IceServerReachedInfo](../type-aliases/IceServerReachedInfo.md)). Synchronous; nothing
+is fired for a replaced generation or after close.
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`onIceServerReached`](../interfaces/IceConnection.md#oniceserverreached)
+
+***
+
 ### options
 
 > **options**: [`IceOptions`](../interfaces/IceOptions.md)
@@ -154,6 +195,20 @@ Resolves remote mDNS candidates; closed (pending lookups cancelled) by restart()
 
 ***
 
+### remoteIceOptions
+
+> **remoteIceOptions**: `string`[] = `[]`
+
+The remote `a=ice-options` tokens (RFC 8839 §5.6), e.g. `trickle`,
+`ice2`. Informational: werift already follows RFC 8445, so no token
+changes how checks or nomination run.
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`remoteIceOptions`](../interfaces/IceConnection.md#remoteiceoptions)
+
+***
+
 ### remoteIsLite
 
 > **remoteIsLite**: `boolean` = `false`
@@ -171,6 +226,18 @@ Resolves remote mDNS candidates; closed (pending lookups cancelled) by restart()
 #### Implementation of
 
 [`IceConnection`](../interfaces/IceConnection.md).[`remotePassword`](../interfaces/IceConnection.md#remotepassword)
+
+***
+
+### remoteRenomination
+
+> **remoteRenomination**: `boolean` = `false`
+
+The peer advertised `a=ice-options:renomination` (see `IceOptions.renomination`).
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`remoteRenomination`](../interfaces/IceConnection.md#remoterenomination)
 
 ***
 
@@ -220,7 +287,7 @@ configured and useDefaultStunServer is not false.
 
 ### turnServers
 
-> **turnServers**: `Required`\<[`TurnServerOptions`](../type-aliases/TurnServerOptions.md)\>[] = `[]`
+> **turnServers**: [`NormalizedTurnServer`](../type-aliases/NormalizedTurnServer.md)[] = `[]`
 
 TURN servers gathering allocates on, one allocation each.
 
@@ -368,6 +435,26 @@ Whether gathering contacts a STUN or TURN server.
 #### Implementation of
 
 [`IceConnection`](../interfaces/IceConnection.md).[`remoteCandidates`](../interfaces/IceConnection.md#remotecandidates)
+
+***
+
+### remoteIce2
+
+#### Get Signature
+
+> **get** **remoteIce2**(): `boolean`
+
+The remote declared `ice2`: an RFC 8445 agent (RFC 8445 §10).
+
+##### Returns
+
+`boolean`
+
+The remote declared `ice2`: an RFC 8445 agent (RFC 8445 §10).
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`remoteIce2`](../interfaces/IceConnection.md#remoteice2)
 
 ***
 
@@ -832,6 +919,28 @@ Remote credentials of the provisional generation (pranswer).
 
 ***
 
+### setRemoteIceOptions()
+
+> **setRemoteIceOptions**(`options`): `void`
+
+Record the remote `a=ice-options` tokens (see remoteIceOptions).
+
+#### Parameters
+
+##### options
+
+`string`[]
+
+#### Returns
+
+`void`
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`setRemoteIceOptions`](../interfaces/IceConnection.md#setremoteiceoptions)
+
+***
+
 ### setRemoteParams()
 
 > **setRemoteParams**(`__namedParameters`): `void`
@@ -905,3 +1014,24 @@ Start checks for the provisional generation; the selected pair is kept.
 #### Implementation of
 
 [`IceConnection`](../interfaces/IceConnection.md).[`startProvisionalChecks`](../interfaces/IceConnection.md#startprovisionalchecks)
+
+***
+
+### waitForLocalCandidatesEnd()
+
+> **waitForLocalCandidatesEnd**(): `Promise`\<`void`\>
+
+Resolves when the current generation's gathering has ended
+(`localCandidatesEnd`): [Connection.gatherCandidates](#gathercandidates) returns once
+the host sockets, the TURN allocations and the representative socket's
+server-reflexive query are done, while the other host sockets' queries
+continue and trickle through `onIceCandidate`. Also resolves when the
+agent closes or restarts (the generation ends without its end).
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`waitForLocalCandidatesEnd`](../interfaces/IceConnection.md#waitforlocalcandidatesend)

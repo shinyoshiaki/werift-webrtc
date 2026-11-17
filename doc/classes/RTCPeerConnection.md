@@ -102,6 +102,16 @@ reviewable diff does not depend on external PR text.
 
 ***
 
+### onIceCandidateError
+
+> `readonly` **onIceCandidateError**: [`Event`](Event.md)\<\[[`RTCPeerConnectionIceErrorEvent`](RTCPeerConnectionIceErrorEvent.md)\]\>
+
+`icecandidateerror` (see [RTCPeerConnectionIceErrorEvent](RTCPeerConnectionIceErrorEvent.md)): the
+same event object is passed here, to `onicecandidateerror` and to the
+`icecandidateerror` listeners.
+
+***
+
 ### onNegotiationneeded
 
 > `readonly` **onNegotiationneeded**: [`Event`](Event.md)\<\[\]\>
@@ -525,11 +535,11 @@ W3C [[NegotiationNeeded]].
 
 #### Get Signature
 
-> **get** **onicecandidateerror**(): `CallbackWithValue`\<`any`\>
+> **get** **onicecandidateerror**(): `CallbackWithValue`\<[`RTCPeerConnectionIceErrorEvent`](RTCPeerConnectionIceErrorEvent.md)\>
 
 ##### Returns
 
-`CallbackWithValue`\<`any`\>
+`CallbackWithValue`\<[`RTCPeerConnectionIceErrorEvent`](RTCPeerConnectionIceErrorEvent.md)\>
 
 #### Set Signature
 
@@ -539,7 +549,7 @@ W3C [[NegotiationNeeded]].
 
 ###### value
 
-`CallbackWithValue`\<`any`\>
+`CallbackWithValue`\<[`RTCPeerConnectionIceErrorEvent`](RTCPeerConnectionIceErrorEvent.md)\>
 
 ##### Returns
 
@@ -710,6 +720,22 @@ W3C [[NegotiationNeeded]].
 ##### Returns
 
 [`RTCSessionDescription`](RTCSessionDescription.md) \| `null`
+
+***
+
+### remoteIceOptionIce2
+
+#### Get Signature
+
+> **get** **remoteIceOptionIce2**(): `boolean` \| `null`
+
+Whether the remote description declares the `ice2` ice-option (an
+RFC 8445 agent, RFC 8839 §5.6), or null without a remote description.
+Informational: werift runs the RFC 8445 procedures either way.
+
+##### Returns
+
+`boolean` \| `null`
 
 ***
 
@@ -1127,14 +1153,16 @@ Send-side estimator used by each new sender; defaults to `"lightweight"`.
 
 ##### certificateScope
 
-> **certificateScope**: `CertificateScope`
+> **certificateScope**: `"process"` \| `"standard"`
 
-Which default DTLS certificate is used when neither `certificates` nor `dtls.keys` is given.
-Cannot be changed after construction.
-- `"process"` (default): one certificate shared by every RTCPeerConnection in the process
-  (legacy behavior), so their `a=fingerprint` values are identical.
-- `"peerConnection"`: each RTCPeerConnection generates its own certificate (browser behavior).
+Which default DTLS certificate is used when neither `certificates` nor `dtls.keys` is given
+(see [CompatibilityOptionValues](../variables/CompatibilityOptionValues.md)). Cannot be changed after construction.
+- `"process"` (default): one certificate shared by every RTCPeerConnection in the process,
+  so their `a=fingerprint` values are identical.
+- `"standard"`: each RTCPeerConnection generates its own certificate, as browsers do.
   All DTLS transports of that connection share it.
+
+Also accepts the v0.27.0 name `"peerConnection"` (= `"standard"`).
 
 ##### codecs
 
@@ -1147,6 +1175,35 @@ Cannot be changed after construction.
 ###### codecs.video
 
 > **video**: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[] \| `undefined`
+
+##### compatibility
+
+> **compatibility**: `"standard"` \| `undefined`
+
+Sets every compatibility option (`certificateScope`, `mLineReuse`,
+`transceiverPairing`, `keyFrameRequestRouting`, see
+[CompatibilityOptionValues](../variables/CompatibilityOptionValues.md)) to the specification / browser behavior
+at once. Cannot be changed after construction.
+- `undefined` (default): each option keeps its own default.
+- `"standard"`: every compatibility option not given in the same
+  configuration is `"standard"`.
+
+An option given explicitly always takes precedence over `compatibility`:
+a value given in the same configuration (an old name included) is kept,
+and `setConfiguration()` treats the options as if `compatibility` were
+not set (`keyFrameRequestRouting` may change, the others cannot). An
+option given as `undefined` counts as not given.
+
+```ts
+new RTCPeerConnection({ compatibility: "standard" });
+// certificateScope, mLineReuse, transceiverPairing and
+// keyFrameRequestRouting are all "standard"
+new RTCPeerConnection({ compatibility: "standard", certificateScope: "process" });
+// certificateScope is "process", the other three are "standard"
+```
+
+It does not change `iceServers` / `iceUseDefaultStunServer`, which are not
+compatibility options.
 
 ##### debug
 
@@ -1246,11 +1303,73 @@ VPN, ...). If the bind fails, the family has no UDP host candidate.
 A family left unspecified while the other one is set gathers no
 enumerated addresses (only its `iceAdditionalHostAddresses`).
 
+When unset, each enumerated interface address gets a UDP host socket
+bound to that address, so connectivity checks leave from the advertised
+candidate on multi-NIC hosts. An address whose bind fails is not
+advertised. VPN / tunnel interfaces (`tun`, `utun`, `ipsec`, `tap`) are
+gathered with a low priority and the default-route address with the
+highest: the source address of the route to the configured STUN / TURN
+server (without one, no address is preferred and nothing else is probed).
+With a STUN server, one more socket per family is bound to the
+wildcard address: it advertises no host candidate but maps the route the
+OS picks (server-reflexive candidate with `raddr 0.0.0.0`).
+`setLocalDescription()` waits only for that socket and the
+default-route one; the other interfaces' server-reflexive candidates
+trickle through `onicecandidate` before the end-of-candidates `null`.
+Set a family to `0.0.0.0` / `::` to gather its enumerated addresses over
+wildcard sockets instead.
+
 ##### iceLite
 
 > **iceLite**: `boolean`
 
 Advertise local ICE lite and operate in the controlled role.
+
+##### iceMessageIntegrity
+
+> **iceMessageIntegrity**: [`MessageIntegrityMode`](../type-aliases/MessageIntegrityMode.md) \| `undefined`
+
+Integrity attributes of the ICE connectivity checks and consent requests
+werift sends (RFC 8489 short-term credentials). Applies to ICE transports
+created after it is set.
+- `undefined` / `"sha1"` (default): MESSAGE-INTEGRITY only. Browsers
+  (libwebrtc, Firefox) accept this.
+- `"sha256"`: MESSAGE-INTEGRITY-SHA256 only. Only for peers known to
+  support it: a peer that does not know the attribute rejects the checks.
+- `"both"`: MESSAGE-INTEGRITY followed by MESSAGE-INTEGRITY-SHA256.
+
+Checks and responses from the peer are accepted with either algorithm,
+and responses are always signed with the algorithm of the request.
+
+##### iceNomination
+
+> **iceNomination**: `"semi-aggressive"` \| `"regular"` \| `undefined`
+
+werift extension. How the controlling ICE agent nominates toward a full
+ICE peer (`IceOptions.nomination`). `"semi-aggressive"` (default when
+undefined, as Chrome): the first pair whose check succeeds is selected at
+once and a higher-priority pair that succeeds later replaces it.
+`"regular"`: RFC 8445 regular nomination, one nomination after
+`iceNominationDelayMs`.
+
+##### iceNominationDelayMs
+
+> **iceNominationDelayMs**: `number` \| `undefined`
+
+werift extension. With `iceNomination: "regular"`: milliseconds the
+controlling ICE agent keeps checking before it nominates a candidate pair,
+so a higher-priority candidate trickled shortly after a lower-priority one
+succeeded can still be selected. Maps to `IceOptions.nominationDelayMs`:
+300 when undefined, 0 nominates the first valid pair at once.
+
+##### iceOptionIce2
+
+> **iceOptionIce2**: `boolean`
+
+Advertise the `ice2` ice-option (`a=ice-options:trickle ice2`, RFC 8445
+§10 / RFC 8839) to declare an RFC 8445 agent. Defaults to false
+(`a=ice-options:trickle`). It is only a declaration: werift runs the
+RFC 8445 procedures either way. Cannot be changed after construction.
 
 ##### icePasswordPrefix
 
@@ -1259,6 +1378,20 @@ Advertise local ICE lite and operate in the controlled role.
 ##### icePortRange
 
 > **icePortRange**: \[`number`, `number`\] \| `undefined`
+
+##### iceRenomination
+
+> **iceRenomination**: `boolean`
+
+werift extension. Enable ICE renomination
+(draft-thatcher-ice-renomination, as libwebrtc implements it): every
+description advertises `a=ice-options:trickle renomination`. When the
+remote description advertises `renomination` too, the controlling agent
+nominates with the NOMINATION STUN attribute and an increasing value, so
+a later, better pair reliably replaces the selection on both sides
+(`IceOptions.renomination`). Chrome advertises it only when its SDP is
+modified before `setLocalDescription`; as the controlled side it honours
+the attribute regardless. Defaults to false.
 
 ##### iceServers
 
@@ -1269,7 +1402,8 @@ Advertise local ICE lite and operate in the controlled role.
 > **iceStunGatherTimeout**: `number` \| `undefined`
 
 Seconds to wait for server-reflexive candidates while gathering.
-Defaults to 5 when undefined.
+Defaults to 5 when undefined. `setLocalDescription()` waits for it only
+on the wildcard and default-route sockets (see `iceInterfaceAddresses`).
 
 ##### iceTcpPassive
 
@@ -1279,7 +1413,7 @@ Gather passive (listening) TCP host candidates. Defaults to true.
 
 ##### iceTransportPolicy
 
-> **iceTransportPolicy**: `"relay"` \| `"all"`
+> **iceTransportPolicy**: `"all"` \| `"relay"`
 
 ##### iceTurnConnectTimeout
 
@@ -1317,11 +1451,16 @@ such as google cloud run
 
 ##### keyFrameRequestRouting
 
-> **keyFrameRequestRouting**: [`KeyFrameRequestRouting`](../type-aliases/KeyFrameRequestRouting.md)
+> **keyFrameRequestRouting**: `"standard"` \| `"fallback"`
 
-Where a PLI / FIR goes when no route has its target SSRC. See [KeyFrameRequestRouting](../type-aliases/KeyFrameRequestRouting.md).
-- `"compatible"` (default): the sender whose RTX SSRC it is, else the only video sender.
-- `"strict"`: not delivered, as RFC 4585 / RFC 5104 define the target.
+Where a PLI / FIR goes when no route has its target SSRC (see
+[CompatibilityOptionValues](../variables/CompatibilityOptionValues.md) and [KeyFrameRequestRouting](../type-aliases/KeyFrameRequestRouting.md)).
+`setConfiguration()` may change it.
+- `"fallback"` (default): the sender whose RTX SSRC it is, else the only video sender.
+- `"standard"`: not delivered, as RFC 4585 / RFC 5104 define the target.
+
+Also accepts the names up to v0.27.0: `"compatible"` (= `"fallback"`) and
+`"strict"` (= `"standard"`).
 
 ##### maxMessageSize
 
@@ -1335,13 +1474,17 @@ Advertised local SCTP max-message-size in SDP. Use 0 for unlimited.
 
 ##### mLineReuse
 
-> **mLineReuse**: [`MLineReuse`](../type-aliases/MLineReuse.md)
+> **mLineReuse**: `"standard"` \| `"aggressive"`
 
-How local SDP marks inactive / stopped m-lines. Cannot be changed after construction.
-- `"compatible"` (default): an accepted `inactive` m-line keeps a non-zero port.
-  Only rejected (no common codec / remote port 0) or stopped m-lines use port 0,
-  and only those negotiated port 0 positions are reused by new transceivers.
-- `"aggressive"`: legacy behavior. `inactive` m-lines are also written with port 0.
+How local SDP marks inactive / stopped m-lines (see [CompatibilityOptionValues](../variables/CompatibilityOptionValues.md)).
+Cannot be changed after construction.
+- `"standard"` (default): an accepted `inactive` m-line keeps a non-zero port, as JSEP
+  and browsers do. Only rejected (no common codec / remote port 0) or stopped m-lines
+  use port 0, and only those negotiated port 0 positions are reused by new transceivers.
+- `"aggressive"`: behavior before v0.25.0. `inactive` m-lines are also written with
+  port 0, so the remote side treats them as rejected and their positions are reused.
+
+Also accepts the v0.27.0 name `"compatible"` (= `"standard"`).
 
 ##### pendingRtp
 
@@ -1380,6 +1523,30 @@ Max queued packets when enabled. Oldest packets are dropped. Default 256.
 ###### sctp.mtu
 
 > **mtu**: `number`
+
+##### transceiverPairing
+
+> **transceiverPairing**: `"standard"` \| `"byKind"`
+
+How a remote offer's m-sections are paired with local transceivers that
+have no MID yet (see [CompatibilityOptionValues](../variables/CompatibilityOptionValues.md)). Cannot be changed
+after construction.
+- `"byKind"` (default): behavior up to v0.27.0. Any unassociated,
+  non-stopped transceiver of the same kind is paired (the one at the same
+  m-line index first), whatever created it. In glare (perfect negotiation)
+  the remote offer can take over a transceiver created with
+  `addTransceiver(kind, { direction: "sendonly" })` and its direction
+  becomes `sendrecv`.
+- `"standard"`: RFC 8829 (JSEP) section 5.10, as browsers do. An
+  m-section whose MID no transceiver has is associated only with an
+  unassociated, non-stopped transceiver of the same kind that
+  `addTrack()` created (or one a rollback promoted to that, JSEP 4.1.8.2),
+  and only when the m-section is `sendrecv` or `recvonly`. A transceiver
+  created by `addTransceiver()` (with or without a track, also after
+  `replaceTrack()` or a later `addTrack()` reusing it) is never paired:
+  the offer gets a new transceiver, and the local one keeps its direction
+  and `mid === null` until a local offer negotiates it. Use it for the
+  perfect negotiation pattern and for code written for browsers.
 
 ##### turnTlsOptions
 

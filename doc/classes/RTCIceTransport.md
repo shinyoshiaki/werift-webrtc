@@ -38,9 +38,13 @@ nomination, staged-password error responses).
   and send target never change. A response for an earlier checklist is
   ignored.
 - Ends at the final answer, which recreates the live agent with the staged
-  credentials and checks the answered generation from scratch, or at
-  rollback / a replacement offer / selecting another generation, which
-  stops its checks and keeps the live generation.
+  credentials and checks the answered generation from scratch (when the
+  answer keeps the pranswer's credentials and the commit keeps that pair's
+  local socket, the controlling side nominates only the 5-tuple its
+  provisional checklist nominated, which the peer may have selected
+  already, and fails if it cannot), or at rollback / a
+  replacement offer / selecting another generation, which stops its checks
+  and keeps the live generation.
 
 A first negotiation and transports created for a proposal have no
 provisional generation; they connect normally from the pranswer. The
@@ -119,6 +123,22 @@ dropped at the commit, so RTP pauses until the new generation nominates.
 ### onIceCandidate
 
 > `readonly` **onIceCandidate**: [`Event`](Event.md)\<\[[`IceCandidate`](IceCandidate.md) \| `undefined`\]\>
+
+***
+
+### onIceCandidateError
+
+> `readonly` **onIceCandidateError**: [`Event`](Event.md)\<\[[`IceCandidateErrorDetails`](../type-aliases/IceCandidateErrorDetails.md)\]\>
+
+A configured STUN / TURN URL failed while gathering (see RTCIceGatherer.onIceCandidateError).
+
+***
+
+### onIceServerReached
+
+> `readonly` **onIceServerReached**: [`Event`](Event.md)\<\[`string`[]\]\>
+
+URLs of a STUN / TURN server that answered while gathering (see RTCIceGatherer.onIceServerReached).
 
 ***
 
@@ -209,6 +229,36 @@ Whether the local description may carry `a=end-of-candidates`.
 ##### Returns
 
 [`RTCIceParameters`](RTCIceParameters.md)
+
+***
+
+### remoteIce2
+
+#### Get Signature
+
+> **get** **remoteIce2**(): `boolean`
+
+The remote declared the `ice2` ice-option (an RFC 8445 agent). Only
+informational: werift follows RFC 8445 regardless.
+
+##### Returns
+
+`boolean`
+
+***
+
+### remoteIceOptions
+
+#### Get Signature
+
+> **get** **remoteIceOptions**(): readonly `string`[]
+
+The `a=ice-options` tokens of the applied remote description for this
+transport (session level and its m-line), e.g. `trickle`, `ice2`.
+
+##### Returns
+
+readonly `string`[]
 
 ***
 
@@ -455,6 +505,11 @@ Signal the candidates an ICE restart committed by a local answer gathered.
 
 > **getSelectedCandidatePair**(): \{ `local`: [`RTCIceCandidate`](RTCIceCandidate.md); `remote`: [`RTCIceCandidate`](RTCIceCandidate.md); \} \| `null`
 
+The pair the agent selected (nominated), or null. A pair whose ordinary
+check succeeded is not selected: while the controlling agent waits to
+nominate (regular nomination), after it gave up, or before the peer
+nominated, no pair is reported.
+
 #### Returns
 
 \{ `local`: [`RTCIceCandidate`](RTCIceCandidate.md); `remote`: [`RTCIceCandidate`](RTCIceCandidate.md); \} \| `null`
@@ -584,6 +639,24 @@ Feed a pranswer's ICE generation to the provisional checklist.
 ##### remoteParameters
 
 [`RTCIceParameters`](RTCIceParameters.md)
+
+#### Returns
+
+`void`
+
+***
+
+### setRemoteIceOptions()
+
+> **setRemoteIceOptions**(`options`): `void`
+
+Internal: record the remote ice-options a remote description applied.
+
+#### Parameters
+
+##### options
+
+`string`[]
 
 #### Returns
 

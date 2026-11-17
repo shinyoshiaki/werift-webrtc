@@ -28,26 +28,26 @@ export class StunProtocol implements Protocol {
   private closed = false;
 
   readonly onRequestReceived = new Event<[Message, Address, Buffer]>();
-  readonly onDataReceived = new Event<[Buffer]>();
+  readonly onDataReceived = new Event<[Buffer, Address]>();
 
   constructor() {}
 
+  /**
+   * Opens the UDP socket. `bindAddress` binds it to that address (an IPv6
+   * link-local one with its zone, `fe80::1%eth0`) instead of the address of
+   * `interfaceAddresses` or the wildcard address.
+   */
   connectionMade = async (
     useIpv4: boolean,
     portRange?: [number, number],
     interfaceAddresses?: InterfaceAddresses,
+    { bindAddress }: { bindAddress?: string } = {},
   ) => {
-    if (useIpv4) {
-      this.transport = await UdpTransport.init("udp4", {
-        portRange,
-        interfaceAddresses,
-      });
-    } else {
-      this.transport = await UdpTransport.init("udp6", {
-        portRange,
-        interfaceAddresses,
-      });
-    }
+    this.transport = await UdpTransport.init(useIpv4 ? "udp4" : "udp6", {
+      portRange,
+      interfaceAddresses,
+      bindAddress,
+    });
 
     this.transport.onData = (data, addr) => {
       this.datagramReceived(data, addr);
@@ -62,7 +62,7 @@ export class StunProtocol implements Protocol {
       const message = parseMessage(data);
       if (!message) {
         if (this.localCandidate) {
-          this.onDataReceived.execute(data);
+          this.onDataReceived.execute(data, addr);
         }
         return;
       }
@@ -73,7 +73,8 @@ export class StunProtocol implements Protocol {
         this.transactionsKeys.includes(message.transactionIdHex)
       ) {
         const transaction = this.transactions[message.transactionIdHex];
-        // Re-parse with integrity key so unauthenticated responses are dropped.
+        // Re-parse with integrity key so unauthenticated responses are dropped
+        // (MESSAGE-INTEGRITY or MESSAGE-INTEGRITY-SHA256, RFC 8489 §9.1.4).
         const verified = transaction.integrityKey
           ? parseMessage(data, transaction.integrityKey)
           : message;
@@ -127,8 +128,13 @@ export class StunProtocol implements Protocol {
     if (this.transactionsKeys.includes(request.transactionIdHex))
       throw new Error("already request ed");
 
+    const options = buildTransactionOptions(
+      integrityKey,
+      retransmissionsOrOptions,
+      onRequestSent,
+    );
     if (integrityKey) {
-      request.addMessageIntegrity(integrityKey);
+      request.addIntegrity(integrityKey, options.integrityAlgorithm);
       request.addFingerprint();
     }
 
@@ -141,11 +147,6 @@ export class StunProtocol implements Protocol {
     // retransmit on the closed socket and keep its timers.
     if (this.closed) throw new TransactionCancelled();
 
-    const options = buildTransactionOptions(
-      integrityKey,
-      retransmissionsOrOptions,
-      onRequestSent,
-    );
     const transaction: Transaction = new Transaction(
       request,
       resolvedAddr,

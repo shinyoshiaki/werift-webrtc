@@ -24,13 +24,23 @@
 
 `string`
 
+###### iceOptionIce2?
+
+`boolean`
+
+Add `ice2` (RFC 8445 §10) to the local ice-options.
+
+###### iceRenomination?
+
+`boolean`
+
 ###### midSuffix?
 
 `boolean`
 
 ###### mLineReuse?
 
-[`MLineReuse`](../type-aliases/MLineReuse.md)
+`"standard"` \| `"aggressive"`
 
 #### Returns
 
@@ -62,6 +72,22 @@
 
 ***
 
+### iceOptions
+
+> `readonly` **iceOptions**: `string`
+
+Local `a=ice-options` tokens written on every m-line.
+
+***
+
+### iceRenomination
+
+> `readonly` **iceRenomination**: `boolean`
+
+`PeerConfig.iceRenomination`: descriptions advertise `a=ice-options:renomination`.
+
+***
+
 ### midSuffix
 
 > `readonly` **midSuffix**: `boolean`
@@ -70,7 +96,7 @@
 
 ### mLineReuse
 
-> `readonly` **mLineReuse**: [`MLineReuse`](../type-aliases/MLineReuse.md)
+> `readonly` **mLineReuse**: `"standard"` \| `"aggressive"`
 
 ***
 

@@ -2,6 +2,7 @@ import { randomBytes, randomUUID } from "crypto";
 import {
   Candidate,
   Connection,
+  type IceCandidateErrorInfo,
   type IceConnection,
   type IceOptions,
   isCandidateAllowedByGatherOptions,
@@ -129,9 +130,13 @@ type StagedLocalRestart = {
  *   and send target never change. A response for an earlier checklist is
  *   ignored.
  * - Ends at the final answer, which recreates the live agent with the staged
- *   credentials and checks the answered generation from scratch, or at
- *   rollback / a replacement offer / selecting another generation, which
- *   stops its checks and keeps the live generation.
+ *   credentials and checks the answered generation from scratch (when the
+ *   answer keeps the pranswer's credentials and the commit keeps that pair's
+ *   local socket, the controlling side nominates only the 5-tuple its
+ *   provisional checklist nominated, which the peer may have selected
+ *   already, and fails if it cannot), or at rollback / a
+ *   replacement offer / selecting another generation, which stops its checks
+ *   and keeps the live generation.
  *
  * A first negotiation and transports created for a proposal have no
  * provisional generation; they connect normally from the pranswer. The
@@ -213,6 +218,10 @@ export class RTCIceTransport {
 
   readonly onStateChange = new Event<[RTCIceConnectionState]>();
   readonly onIceCandidate = new Event<[IceCandidate | undefined]>();
+  /** A configured STUN / TURN URL failed while gathering (see RTCIceGatherer.onIceCandidateError). */
+  readonly onIceCandidateError = new Event<[IceCandidateErrorDetails]>();
+  /** URLs of a STUN / TURN server that answered while gathering (see RTCIceGatherer.onIceServerReached). */
+  readonly onIceServerReached = new Event<[string[]]>();
   readonly onNegotiationNeeded = new Event<[]>();
 
   constructor(iceGather: RTCIceGatherer) {
@@ -224,6 +233,14 @@ export class RTCIceTransport {
     this.iceGather.onIceCandidate = (candidate) => {
       if (this.heldCandidateEvents) this.heldCandidateEvents.push(candidate);
       else this.onIceCandidate.execute(candidate);
+    };
+    this.iceGather.onIceCandidateError = (error) => {
+      if (this.state === "closed") return;
+      this.onIceCandidateError.execute(error);
+    };
+    this.iceGather.onIceServerReached = (urls) => {
+      if (this.state === "closed") return;
+      this.onIceServerReached.execute(urls);
     };
     this.iceGather.onGatheringStateChange.subscribe(() => {
       this.ongatheringstatechange?.();
@@ -628,10 +645,14 @@ export class RTCIceTransport {
     );
   }
 
+  /**
+   * The pair the agent selected (nominated), or null. A pair whose ordinary
+   * check succeeded is not selected: while the controlling agent waits to
+   * nominate (regular nomination), after it gave up, or before the peer
+   * nominated, no pair is reported.
+   */
   getSelectedCandidatePair() {
-    const pair =
-      this.connection.candidatePairs.find((candidate) => candidate.nominated) ??
-      this.connection.candidatePairs.find((candidate) => candidate.state === 3);
+    const pair = this.connection.nominated;
     if (!pair) {
       return null;
     }
@@ -644,6 +665,27 @@ export class RTCIceTransport {
 
   getLocalParameters() {
     return this.localParameters ?? null;
+  }
+
+  /**
+   * The `a=ice-options` tokens of the applied remote description for this
+   * transport (session level and its m-line), e.g. `trickle`, `ice2`.
+   */
+  get remoteIceOptions(): readonly string[] {
+    return this.connection.remoteIceOptions ?? [];
+  }
+
+  /**
+   * The remote declared the `ice2` ice-option (an RFC 8445 agent). Only
+   * informational: werift follows RFC 8445 regardless.
+   */
+  get remoteIce2() {
+    return this.connection.remoteIce2 ?? false;
+  }
+
+  /** Internal: record the remote ice-options a remote description applied. */
+  setRemoteIceOptions(options: string[]) {
+    this.connection.setRemoteIceOptions?.(options);
   }
 
   getRemoteParameters() {
@@ -822,6 +864,8 @@ export class RTCIceTransport {
     }
     this.onStateChange.complete();
     this.onIceCandidate.complete();
+    this.onIceCandidateError.complete();
+    this.onIceServerReached.complete();
     this.onNegotiationNeeded.complete();
   }
 
@@ -932,12 +976,35 @@ export type RTCIceConnectionState = (typeof IceTransportStates)[number];
 export const IceGathererStates = ["new", "gathering", "complete"] as const;
 export type IceGathererState = (typeof IceGathererStates)[number];
 
+/**
+ * One failing server URL of an `icecandidateerror`: the members of
+ * `RTCPeerConnectionIceErrorEvent` (see there for their meaning).
+ */
+export type IceCandidateErrorDetails = {
+  address: string | null;
+  port: number | null;
+  url: string;
+  errorCode: number;
+  errorText: string;
+};
+
 export class RTCIceGatherer {
   private options: Partial<IceOptions>;
 
   onIceCandidate: (candidate: IceCandidate | undefined) => void = () => {};
+  /**
+   * A server of the current generation's gathering failed: called once per
+   * configured URL naming it (see iceCandidateErrorDetails).
+   */
+  onIceCandidateError: (error: IceCandidateErrorDetails) => void = () => {};
+  /**
+   * A server of the current generation's gathering answered (a candidate or
+   * an error response): called with the URLs naming it.
+   */
+  onIceServerReached: (urls: string[]) => void = () => {};
   gatheringState: IceGathererState = "new";
   readonly connection: IceConnection;
+  private unreachableUrls = { generation: -1, urls: new Set<string>() };
 
   readonly onGatheringStateChange = new Event<[IceGathererState]>();
 
@@ -947,6 +1014,56 @@ export class RTCIceGatherer {
     this.connection.onIceCandidate.subscribe((candidate) => {
       this.onIceCandidate(candidateFromIce(candidate));
     });
+    this.connection.onIceServerReached?.subscribe((info) => {
+      if (
+        info.generation !== this.connection.generation ||
+        this.connection.state === "closed"
+      ) {
+        return;
+      }
+      const urls = [...new Set(info.server.urls ?? [])];
+      if (urls.length === 0) return;
+      try {
+        this.onIceServerReached(urls);
+      } catch (error) {
+        log("onIceServerReached listener threw", error);
+      }
+    });
+    this.connection.onIceCandidateError?.subscribe((info) => {
+      // Only the generation gathering now (the ICE agent drops stale ones).
+      if (
+        info.generation !== this.connection.generation ||
+        this.connection.state === "closed"
+      ) {
+        return;
+      }
+      // W3C: a 701 (server not reached) fires once per server URL while
+      // gathering, however many local sockets queried the server.
+      if (info.errorCode === 701) {
+        if (this.unreachableUrls.generation !== info.generation) {
+          this.unreachableUrls = {
+            generation: info.generation,
+            urls: new Set(),
+          };
+        }
+        const { urls } = this.unreachableUrls;
+        const fresh = (info.server.urls ?? []).filter((url) => !urls.has(url));
+        for (const url of fresh) urls.add(url);
+        if (fresh.length === 0) return;
+        info = { ...info, server: { ...info.server, urls: fresh } };
+      }
+      for (const details of iceCandidateErrorDetails(
+        info,
+        !!this.connection.options.forceTurn,
+      )) {
+        try {
+          this.onIceCandidateError(details);
+        } catch (error) {
+          // A throwing listener must not hide the other URLs' errors.
+          log("onIceCandidateError listener threw", error);
+        }
+      }
+    });
   }
 
   async gather() {
@@ -954,16 +1071,36 @@ export class RTCIceGatherer {
       this.setState("gathering");
       const generation = this.connection.generation;
       await this.connection.gatherCandidates();
-      // Gathering an ICE restart (or close) replaced in the meantime does not
-      // complete the new generation: that one signals its own end.
-      if (
-        this.connection.generation !== generation ||
-        this.connection.state === "closed"
-      ) {
+      // ICE restart で世代が置き換わった場合は新世代自身の完了通知に任せる。
+      if (this.connection.generation !== generation) return;
+      // gathering 中に閉じた transport は候補を終え、集約状態を先へ進める。
+      if (this.connection.state === "closed") {
+        this.setState("complete");
         return;
       }
-      this.onIceCandidate(undefined);
-      this.setState("complete");
+      const replaced = () =>
+        this.connection.generation !== generation ||
+        this.connection.state === "closed";
+      const complete = () => {
+        this.onIceCandidate(undefined);
+        this.setState("complete");
+      };
+      if (
+        this.connection.localCandidatesEnd ||
+        !this.connection.waitForLocalCandidatesEnd
+      ) {
+        complete();
+        return;
+      }
+      // The representative sockets are done, so the description need not
+      // wait; the other sockets' server-reflexive candidates trickle and
+      // end-of-candidates follows them.
+      void this.connection
+        .waitForLocalCandidatesEnd()
+        .then(() => {
+          if (!replaced() && this.connection.localCandidatesEnd) complete();
+        })
+        .catch((error) => log("gathering failed", error));
     }
   }
 
@@ -1000,6 +1137,31 @@ export class RTCIceGatherer {
       this.onGatheringStateChange.execute(state);
     }
   }
+}
+
+/**
+ * The `icecandidateerror` members of an ICE agent's server failure: one per
+ * URL of the server (the configured ones, or the synthesized URL of the
+ * built-in default STUN server). The local address is given only when the
+ * agent knows it and the ICE transport policy is not "relay"; otherwise
+ * `address` and `port` are both `null` (W3C: a null address has a null
+ * port).
+ */
+export function iceCandidateErrorDetails(
+  info: IceCandidateErrorInfo,
+  relayOnly: boolean,
+): IceCandidateErrorDetails[] {
+  const urls = [...new Set(info.server.urls ?? [])];
+  const local =
+    !relayOnly && info.address !== undefined && info.port !== undefined
+      ? { address: info.address, port: info.port }
+      : { address: null, port: null };
+  return urls.map((url) => ({
+    ...local,
+    url,
+    errorCode: info.errorCode,
+    errorText: info.errorText,
+  }));
 }
 
 export function candidateFromIce(c: Candidate) {

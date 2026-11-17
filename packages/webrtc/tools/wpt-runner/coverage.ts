@@ -1,14 +1,15 @@
 import { mergeProcessCovs } from "@bcoe/v8-coverage";
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "fs/promises";
+import { spawnSync } from "child_process";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { dirname, resolve } from "path";
-import { spawnSync } from "child_process";
 import { fileURLToPath } from "url";
 import {
+  type CoverageTotals,
   extractCoverageTotals,
   findCoverageRegressions,
-  type CoverageTotals,
 } from "./coverageLogic";
+import { convertCoverage, generateCoverageReports } from "./coverageProvider";
 import {
   defaultMarkdownReportPath,
   defaultReportPath,
@@ -16,15 +17,18 @@ import {
   type WptRunReport,
 } from "./runner";
 
-import { convertCoverage, generateCoverageReports } from "./coverageProvider";
-
 const toolDir = dirname(fileURLToPath(import.meta.url));
 const packageDir = resolve(toolDir, "..", "..");
 const repoRoot = resolve(packageDir, "..", "..");
 const coverageDir = resolve(repoRoot, "coverage", "webrtc-wpt");
 const coverageSummaryPath = resolve(coverageDir, "coverage-summary.json");
-const coverageBaselinePath = resolve(packageDir, "wpt", "coverage-baseline.json");
+const coverageBaselinePath = resolve(
+  packageDir,
+  "wpt",
+  "coverage-baseline.json",
+);
 const sourceDir = resolve(packageDir, "src");
+const DEFAULT_COVERAGE_WPT_CONCURRENCY = "2";
 
 /**
  * GCC / selectable BWE algorithm sources are public API (barrel-exported) so
@@ -49,21 +53,29 @@ async function main() {
   const rawCoverageDir = await mkdtemp(resolve(tmpdir(), "werift-wpt-v8-"));
 
   try {
-    const result = spawnSync(process.execPath, [
-      "--disable-warning=ExperimentalWarning",
-      "--disable-warning=MODULE_TYPELESS_PACKAGE_JSON",
-      "--import",
-      resolve(repoRoot, "tools/node-ts/register.mjs"),
-      "tools/wpt-runner/run.ts",
-    ], {
-      cwd: packageDir,
-      env: {
-        ...process.env,
-        NODE_V8_COVERAGE: rawCoverageDir,
-        WPT_USE_WORKERS: "1",
+    const result = spawnSync(
+      process.execPath,
+      [
+        "--disable-warning=ExperimentalWarning",
+        "--disable-warning=MODULE_TYPELESS_PACKAGE_JSON",
+        "--import",
+        resolve(repoRoot, "tools/node-ts/register.mjs"),
+        "tools/wpt-runner/run.ts",
+      ],
+      {
+        cwd: packageDir,
+        env: {
+          ...process.env,
+          NODE_V8_COVERAGE: rawCoverageDir,
+          // V8 coverage makes each worker substantially heavier; keep the
+          // default low enough that worker timeout profiles remain reliable.
+          WPT_CONCURRENCY:
+            process.env.WPT_CONCURRENCY ?? DEFAULT_COVERAGE_WPT_CONCURRENCY,
+          WPT_USE_WORKERS: "1",
+        },
+        stdio: "inherit",
       },
-      stdio: "inherit",
-    });
+    );
 
     if (result.status !== 0) {
       process.exit(result.status ?? 1);
@@ -88,7 +100,9 @@ async function main() {
     const totals = extractCoverageTotals(summary);
     await updateBaselineIfRequested(totals);
 
-    const baseline = JSON.parse(await readFile(coverageBaselinePath, "utf8")) as {
+    const baseline = JSON.parse(
+      await readFile(coverageBaselinePath, "utf8"),
+    ) as {
       totals: Partial<CoverageTotals>;
     };
     const regressions = findCoverageRegressions(totals, baseline.totals);
@@ -183,12 +197,17 @@ async function readMarkdownReport() {
   try {
     return await readFile(defaultMarkdownReportPath, "utf8");
   } catch {
-    const report = JSON.parse(await readFile(defaultReportPath, "utf8")) as WptRunReport;
+    const report = JSON.parse(
+      await readFile(defaultReportPath, "utf8"),
+    ) as WptRunReport;
     return formatMarkdownReport(report);
   }
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (
+  process.argv[1] &&
+  resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+) {
   main().catch((error) => {
     console.error(error);
     process.exitCode = 1;

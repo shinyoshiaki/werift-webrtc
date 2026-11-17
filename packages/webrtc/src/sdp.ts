@@ -30,6 +30,25 @@ import {
 import { RTCSctpCapabilities } from "./transport/sctp";
 import type { Kind } from "./types/domain";
 
+/**
+ * Tokens of an `a=ice-options` value (RFC 8839 §5.6: space-separated
+ * ice-option-tags, e.g. `trickle ice2`).
+ */
+export function parseIceOptions(value: string | undefined): string[] {
+  return (value ?? "").split(/\s+/).filter((token) => token.length > 0);
+}
+
+/**
+ * Every `a=ice-options` token of `description`, session level and each
+ * m-line (an m-line inherits the session value when it has none).
+ */
+export function descriptionIceOptions(description: SessionDescription) {
+  return [
+    description.iceOptions,
+    ...description.media.map((media) => media.iceOptions),
+  ].flatMap(parseIceOptions);
+}
+
 export class SessionDescription {
   version = 0;
   origin?: string;

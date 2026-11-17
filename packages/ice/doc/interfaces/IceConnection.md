@@ -94,6 +94,25 @@ Whether gathering contacts a STUN or TURN server.
 
 ***
 
+### onIceCandidateError?
+
+> `readonly` `optional` **onIceCandidateError?**: `Event`\<\[[`IceCandidateErrorInfo`](../type-aliases/IceCandidateErrorInfo.md)\]\>
+
+A STUN or TURN server of the current generation's gathering gave no
+candidate (see [IceCandidateErrorInfo](../type-aliases/IceCandidateErrorInfo.md)). Optional so that other
+implementations of this interface keep compiling.
+
+***
+
+### onIceServerReached?
+
+> `readonly` `optional` **onIceServerReached?**: `Event`\<\[[`IceServerReachedInfo`](../type-aliases/IceServerReachedInfo.md)\]\>
+
+A STUN or TURN server of the current generation's gathering answered
+(see [IceServerReachedInfo](../type-aliases/IceServerReachedInfo.md)). Optional like onIceCandidateError.
+
+***
+
 ### options
 
 > **options**: [`IceOptions`](IceOptions.md)
@@ -118,6 +137,24 @@ Whether gathering contacts a STUN or TURN server.
 
 ***
 
+### remoteIce2?
+
+> `readonly` `optional` **remoteIce2?**: `boolean`
+
+The remote declared `ice2`: an RFC 8445 agent (RFC 8445 §10).
+
+***
+
+### remoteIceOptions?
+
+> `optional` **remoteIceOptions?**: `string`[]
+
+The remote `a=ice-options` tokens (RFC 8839 §5.6), e.g. `trickle`,
+`ice2`. Informational: werift already follows RFC 8445, so no token
+changes how checks or nomination run.
+
+***
+
 ### remoteIsLite
 
 > **remoteIsLite**: `boolean`
@@ -127,6 +164,16 @@ Whether gathering contacts a STUN or TURN server.
 ### remotePassword
 
 > **remotePassword**: `string`
+
+***
+
+### remoteRenomination?
+
+> `optional` **remoteRenomination?**: `boolean`
+
+The peer advertised `a=ice-options:renomination`. With
+[IceOptions.renomination](IceOptions.md#renomination) the controlling agent then nominates with
+the NOMINATION attribute (see `renomination`).
 
 ***
 
@@ -404,6 +451,24 @@ and gathered candidates.
 
 ***
 
+### setRemoteIceOptions()?
+
+> `optional` **setRemoteIceOptions**(`options`): `void`
+
+Record the remote `a=ice-options` tokens (see remoteIceOptions).
+
+#### Parameters
+
+##### options
+
+`string`[]
+
+#### Returns
+
+`void`
+
+***
+
 ### setRemoteParams()
 
 > **setRemoteParams**(`params`): `void`
@@ -465,3 +530,19 @@ the sockets those options allow. Defaults to the current options.
 #### Returns
 
 `void`
+
+***
+
+### waitForLocalCandidatesEnd()?
+
+> `optional` **waitForLocalCandidatesEnd**(): `Promise`\<`void`\>
+
+Resolves when `localCandidatesEnd` becomes true after `gatherCandidates()`
+returned (server-reflexive queries that continue in the background), or
+when the generation ends. Optional so that other implementations of this
+interface keep compiling; without it gathering ends when
+`gatherCandidates()` returns.
+
+#### Returns
+
+`Promise`\<`void`\>

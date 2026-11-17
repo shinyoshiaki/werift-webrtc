@@ -394,6 +394,18 @@ export function leakFootprint(pc: RTCPeerConnection): Footprint {
     "router.provisionalSsrc": router.provisionalSsrc.size,
     "router.learnedSsrcs": router.learnedSsrcs.size,
     "router.extIdUriMap": Object.keys(router.extIdUriMap).length,
+    // RID 由来の RTX 対応と SSRC ごとの NACK 状態 (パケット駆動、receiver.stop で解放)。
+    "receiver.ridRtx": sum(
+      transceivers,
+      ({ receiver }) =>
+        Object.keys(receiver.ridByRtxSsrc).length +
+        Object.keys(receiver.rtxSsrcsByRid).length +
+        Object.keys(receiver.mediaSsrcByRid).length +
+        Object.keys(receiver.repairedMediaByRtx).length +
+        Object.keys(receiver.retiredSsrcsByRid).length +
+        (receiver as unknown as { nack: { ssrcs: number[] } }).nack.ssrcs
+          .length,
+    ),
     "ice.localGenerations": sum(ice, (t) => t.localGenerations.size),
     "ice.heldCandidateEvents": sum(
       ice,
@@ -1004,6 +1016,8 @@ const GROWTH_EXPIRY_MS = 8000;
  *   the SSRCs and m-lines negotiated (as in develop; the cycles keep SSRCs).
  * - sent packets awaiting transport-cc feedback: 5 s and 32768 per sender
  *   (`senderBWE.ts`); the cycles carry no RTP, `senderBWE.test.ts` checks it.
+ * - sent RTCP Sender Reports matched for RTT: 30 s and 32 per sender
+ *   (`senderReportHistory.ts`); `senderReportHistory.test.ts` checks it.
  */
 export const BOUNDED_METRICS: Record<
   string,

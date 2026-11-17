@@ -8,6 +8,11 @@ import type {
   RTCRtpTransceiver,
 } from "../../../src";
 import { SessionDescription } from "../../../src";
+import {
+  type CandidatePair,
+  compareCandidatePairPriority,
+  type IceConnection,
+} from "../../../src/imports/ice";
 import type {
   AppliedStep,
   NegotiationCase,
@@ -58,6 +63,11 @@ import {
  *   rollback returns it to the start of the transaction.
  * - ice: an operation that commits nothing keeps the selected pair of every
  *   connected ICE transport (a restart checks its new generation beside it).
+ * - pairing (#816, `transceiverPairing: "standard"`): a remote offer never gives
+ *   a MID to an unassociated transceiver that `addTransceiver()` created (JSEP
+ *   5.10); it keeps its direction and gets a MID only from its own peer's
+ *   local offer. What created a transceiver changes only when a rollback
+ *   keeps a remote one that `addTrack()` reused (it becomes `addTrack`).
  * - continuity: at a commit, an m-line of the previous and the new current
  *   session that keeps its BUNDLE transport (same tag, or unbundled in
  *   both) keeps its DTLS transport object (no new handshake, RFC 8843).
@@ -80,6 +90,12 @@ function world(pc: RTCPeerConnection) {
     pendingLocal: bare(snapshot.pendingLocal),
     pendingRemote: bare(snapshot.pendingRemote),
     objects: [...pc.getTransceivers()],
+    pairing: pc.getTransceivers().map((t) => ({
+      t,
+      mid: t.mid,
+      createdBy: t.createdBy,
+      direction: t.direction,
+    })),
     sendParams: pc.getTransceivers().map((t) => liveSendParams(t)),
     receiveTables: pc
       .getTransceivers()
@@ -366,6 +382,7 @@ export class ModelOracles implements Observer {
     }
     this.signalingEvents(pc, before, label);
     this.trackEvents(pc, before, step, label);
+    this.pairing(pc, step, before.self, label);
     for (const [channel, owner] of this.applicationChannels) {
       // アプリが作った DataChannel は交渉で閉じない (SCTP transport が替わっても)。
       if (owner === pc) {
@@ -459,6 +476,40 @@ export class ModelOracles implements Observer {
       ) {
         this.receivingReset.add(t.receiver);
       }
+    }
+  }
+
+  /** pairing: see the class comment (#816). */
+  private pairing(
+    pc: RTCPeerConnection,
+    step: AppliedStep,
+    before: World,
+    label: string,
+  ) {
+    const standard =
+      (Reflect.get(pc, "config") as { transceiverPairing: string })
+        .transceiverPairing === "standard";
+    for (const { t, mid, createdBy, direction } of before.pairing) {
+      if (t.createdBy !== createdBy) {
+        // 生成元が変わるのは、addTrack() で再利用した remote transceiver を rollback が残すときだけ。
+        // remote offer の暗黙の rollback で昇格した場合は、その offer が続けて関連付けてよい。
+        const remoteOffer = step.kind === "setRemote" && step.type === "offer";
+        expect(
+          createdBy === "remote" &&
+            t.createdBy === "addTrack" &&
+            t.reusedForAddTrack &&
+            (t.mid == null || remoteOffer),
+          `${label}: the origin of ${t.kind} changed from ${createdBy}`,
+        ).toBe(true);
+      }
+      // description の適用は app が選んだ方向を変えない。
+      expect(t.direction, `${label}: direction of ${t.kind}`).toBe(direction);
+      if (!standard || createdBy !== "addTransceiver" || mid != null) continue;
+      const ownOffer = step.kind === "setLocal" && step.type === "offer";
+      expect(
+        t.mid == null || ownOffer,
+        `${label}: a remote description paired an addTransceiver() ${t.kind} (MID ${t.mid})`,
+      ).toBe(true);
     }
   }
 
@@ -698,14 +749,27 @@ export class ModelOracles implements Observer {
     }
   }
 
-  /** ice: an operation that commits nothing keeps every selected pair. */
+  /**
+   * ice: an operation that commits nothing keeps every selected pair. ICE may
+   * still replace a selection by itself meanwhile (semi-aggressive
+   * nomination, renomination, a controlled agent following a later
+   * nomination): the new pair is then one of the same checklist that the
+   * agent prefers (`iceReplaced`).
+   */
   private selectedPairs(step: AppliedStep, before: Before, label: string) {
     if (step.type === "answer") return;
     for (const [transport, pair] of before.pairs) {
       if (transport.state === "closed") continue;
+      const connection = transport.connection;
       // restart の pending 中も、確定済みの選択ペアで通信を続ける。
       expect(
-        transport.connection?.nominated === pair,
+        connection?.nominated === pair ||
+          (!!connection &&
+            iceReplaced(
+              connection,
+              pair as CandidatePair,
+              connection.nominated,
+            )),
         `${label}: the selected pair of a connected transport changed`,
       ).toBe(true);
     }
@@ -820,3 +884,40 @@ const remoteOf = (pc: RTCPeerConnection, t: RTCRtpTransceiver) =>
   t.mid == undefined
     ? undefined
     : pc.getTransceivers().find((r) => r.mid === t.mid);
+
+/**
+ * `now` replaced `selected` as ICE does by itself: both are pairs of the
+ * current checklist (no restart or reset dropped `selected`), and `now`
+ * carries a larger nomination (sent while controlling, received while
+ * controlled), or the same one and a higher priority. A controlled agent
+ * also moves between nominated pairs of the same nomination to the one the
+ * peer sends data on (as libwebrtc), whatever their priority.
+ */
+function iceReplaced(
+  connection: IceConnection,
+  selected: CandidatePair,
+  now: CandidatePair | undefined,
+) {
+  if (
+    !now ||
+    !connection.checkList.includes(selected) ||
+    !connection.checkList.includes(now)
+  ) {
+    return false;
+  }
+  const nomination = (pair: CandidatePair) =>
+    connection.iceControlling ? pair.nomination : pair.remoteNomination;
+  if (nomination(now) !== nomination(selected)) {
+    return nomination(now) > nomination(selected);
+  }
+  if (!connection.iceControlling && now.nominated) return true;
+  return (
+    compareCandidatePairPriority(
+      now.localCandidate,
+      now.remoteCandidate,
+      selected.localCandidate,
+      selected.remoteCandidate,
+      connection.iceControlling,
+    ) > 0
+  );
+}
