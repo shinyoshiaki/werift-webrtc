@@ -641,6 +641,10 @@ function ipAddressToSdp(addr: string) {
  * - `<port> IN IP4|IP6 <address>`: アドレス付き形式
  *
  * port は 1–65535 の 10 進数でなければならず、それ以外の形式はエラーにする。
+ *
+ * 制約: `IP4` / `IP6` の後ろのアドレスは文字列のまま受理する (ホスト名も可)。
+ * addrtype は保持しないため、ホスト名は {@link rtcpAttributeToSdp} で
+ * 再出力すると `IP4` 以外 (IPv4 リテラルでないもの) は `IP6` として書き出される。
  */
 export function rtcpAttributeFromSdp(value: string): {
   port: number;
@@ -676,6 +680,7 @@ export function rtcpAttributeFromSdp(value: string): {
 /**
  * `a=rtcp` の値 (`a=rtcp:` 以降) を生成する (RFC 3605 §2.1)。
  * `host` が `undefined` の場合はアドレス省略形 `<port>` を出力する。
+ * addrtype は `host` が IPv4 リテラルなら `IP4`、それ以外 (IPv6 リテラル・ホスト名) は `IP6`。
  */
 export function rtcpAttributeToSdp({
   port,

@@ -36,4 +36,10 @@ describe("issue 355: a=rtcp without address (RFC 3605)", () => {
       await pc.close();
     }
   });
+
+  // #356 (SDP に SSRC が無い単一ストリームの学習・配送) はこのブランチに未導入。
+  // 導入後に ringCentralOffer のまま SSRC 学習 / RTP 配送を検証する。
+  test.todo(
+    "RingCentral の offer で SSRC 学習・RTP 配送まで確認する (#356 導入後)",
+  );
 });
