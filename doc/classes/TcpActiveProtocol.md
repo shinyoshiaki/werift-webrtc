@@ -54,20 +54,19 @@ The connection to this remote address was closed (by either side).
 
 #### Inherited from
 
-`BaseTcpProtocol.onConnectionClosed`
+[`TcpPassiveProtocol`](TcpPassiveProtocol.md).[`onConnectionClosed`](TcpPassiveProtocol.md#onconnectionclosed)
 
 ***
 
 ### onDataReceived
 
-> `readonly` **onDataReceived**: [`Event`](Event.md)\<\[`Buffer`\<`ArrayBufferLike`\>, (readonly \[`string`, `number`\])?\]\>
+> `readonly` **onDataReceived**: [`Event`](Event.md)\<\[`Buffer`\<`ArrayBufferLike`\>, readonly \[`string`, `number`\]\]\>
 
-Non-STUN datagrams on this protocol. The optional source address is
-required to route handshake DTLS to the matching CandidatePair.
+Application data (not STUN) and the remote address it came from.
 
 #### Inherited from
 
-`BaseTcpProtocol.onDataReceived`
+[`TcpPassiveProtocol`](TcpPassiveProtocol.md).[`onDataReceived`](TcpPassiveProtocol.md#ondatareceived)
 
 ***
 
@@ -77,7 +76,7 @@ required to route handshake DTLS to the matching CandidatePair.
 
 #### Inherited from
 
-`BaseTcpProtocol.onRequestReceived`
+[`TcpPassiveProtocol`](TcpPassiveProtocol.md).[`onRequestReceived`](TcpPassiveProtocol.md#onrequestreceived)
 
 ***
 
@@ -97,7 +96,7 @@ required to route handshake DTLS to the matching CandidatePair.
 
 #### Inherited from
 
-`BaseTcpProtocol.sockets`
+[`TcpPassiveProtocol`](TcpPassiveProtocol.md).[`sockets`](TcpPassiveProtocol.md#sockets)
 
 ***
 
@@ -121,7 +120,7 @@ required to route handshake DTLS to the matching CandidatePair.
 
 #### Inherited from
 
-`BaseTcpProtocol.type`
+[`TcpPassiveProtocol`](TcpPassiveProtocol.md).[`type`](TcpPassiveProtocol.md#type)
 
 ***
 

@@ -1,5 +1,6 @@
 import type { Address } from "../../../common/src";
 import { normalizeIceServerOptions } from "../../src/iceBase";
+import type { ProvisionalGeneration } from "../../src/provisional";
 import { getHostAddresses } from "../../src/utils";
 import {
   createCountingStunServer,
@@ -12,6 +13,7 @@ import {
   localReflexiveCandidates,
   localRelayCandidates,
   localTurnServerEntry,
+  provisionalChecklistOf,
   turnAllocations,
 } from "../utils";
 
@@ -361,11 +363,10 @@ describe("gathering from multiple TURN servers", () => {
         generation: unknown,
         protocol: (typeof allocations)[number],
       ) =>
-        (
-          connection as unknown as {
-            allowsProvisional(g: unknown, p: unknown): boolean;
-          }
-        ).allowsProvisional(generation, protocol);
+        provisionalChecklistOf(connection).allows(
+          generation as ProvisionalGeneration,
+          protocol,
+        );
       const byTransport = (transport: "udp" | "tcp") =>
         allocations.find(
           ({ configuredTransport }) => configuredTransport === transport,

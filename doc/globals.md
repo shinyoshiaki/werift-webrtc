@@ -552,6 +552,7 @@
 - [codecParametersFromString](functions/codecParametersFromString.md)
 - [codecParametersToString](functions/codecParametersToString.md)
 - [compactNtp](functions/compactNtp.md)
+- [compareCandidatePairPriority](functions/compareCandidatePairPriority.md)
 - [compareTransportWideSeq](functions/compareTransportWideSeq.md)
 - [computeFeedbackRttStats](functions/computeFeedbackRttStats.md)
 - [consentResponseTimeoutMs](functions/consentResponseTimeoutMs.md)

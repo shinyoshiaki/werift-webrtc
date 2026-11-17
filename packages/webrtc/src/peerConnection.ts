@@ -336,6 +336,7 @@ export class RTCPeerConnection extends EventTarget {
       cname: this.cname,
       bundlePolicy: this.config.bundlePolicy,
       mLineReuse: this.config.mLineReuse,
+      iceRenomination: this.config.iceRenomination,
       iceOptionIce2: this.config.iceOptionIce2,
     });
     this.transceiverManager = new TransceiverManager(
