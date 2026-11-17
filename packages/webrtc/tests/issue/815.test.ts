@@ -430,4 +430,25 @@ describe("issue 815: stream ID exhaustion", () => {
     expect(channel.readyState).toBe("closed");
     expect(events).toEqual(["close"]);
   });
+
+  test("pc.close() closes every pending channel even if a close listener throws", async () => {
+    // Arrange: 先頭 channel の close リスナーが例外を投げる 2 つの未採番 channel。
+    const pc = new RTCPeerConnection();
+    const first = pc.createDataChannel("first");
+    const second = pc.createDataChannel("second");
+    first.addEventListener("close", () => {
+      throw new Error("close listener failed");
+    });
+    const events: string[] = [];
+    second.addEventListener("close", () => events.push("close"));
+
+    // Act: PeerConnection を閉じる。
+    await pc.close();
+
+    // Assert: reject せず、後続 channel も closed になり close が通知される。
+    expect(first.readyState).toBe("closed");
+    expect(second.readyState).toBe("closed");
+    expect(events).toEqual(["close"]);
+    expect(pc.connectionState).toBe("closed");
+  });
 });

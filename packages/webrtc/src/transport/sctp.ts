@@ -730,7 +730,13 @@ export class RTCSctpTransport {
       ) {
         delete this.dataChannels[channel.id];
       }
-      channel.setReadyState("closed");
+      // A throwing close listener must not stop the remaining channels nor
+      // the rest of the PeerConnection teardown.
+      try {
+        channel.setReadyState("closed");
+      } catch (error) {
+        log("close listener failed", error);
+      }
     }
   }
 
