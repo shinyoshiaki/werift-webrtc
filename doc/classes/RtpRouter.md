@@ -418,6 +418,8 @@ Internal: restore staged routes (an empty snapshot discards them).
 
 > **routeRtcp**(`packet`, `dtlsTransport?`): `void`
 
+Deliver an RTCP packet within the RTP session of `dtlsTransport` (`routing/rtcpRouting.ts`).
+
 #### Parameters
 
 ##### packet
