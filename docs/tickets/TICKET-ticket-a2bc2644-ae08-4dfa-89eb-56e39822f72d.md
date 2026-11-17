@@ -103,7 +103,7 @@ rtcp-attribute = "a=rtcp:" port [nettype space addrtype space connection-address
 
 ### 4.3 FQDN・addrtype の保持
 
-`ipAddressToSdp()` は `isIPv4` が false のものをすべて `IP6` として出力する。そのため `a=rtcp:53020 IN IP4 host.example.com` は `IN IP6 host.example.com` に化ける。この問題は `c=` にも以前からある。このチケットの最低ラインは IPv4 / IPv6 リテラルの round trip とする。FQDN で addrtype を保持するには、`rtcpAddressType` のような新フィールドを足す必要があり、公開 API が増える。その場合は別チケットに切り出すか、実装時にスコープを判断して記録する。
+`ipAddressToSdp()` は `isIPv4` が false のものをすべて `IP6` として出力するため、`c=` では `a=rtcp:53020 IN IP4 host.example.com` 相当の FQDN が `IP6` に化ける（以前からの挙動で、このチケットでは変更しない）。`a=rtcp` については実装で解消した: パースした addrtype を `MediaDescription.rtcpAddrType` に保持し、`rtcpAttributeFromSdp()` が `addrType` を返し、`rtcpAttributeToSdp()` が受け取って元の addrtype のまま再出力する（`addrType` 省略時は従来どおり `host` から推定）。FQDN を含む round trip は `tests/sdp.test.ts` で固定している。
 
 ### 4.4 リポジトリ規約
 
