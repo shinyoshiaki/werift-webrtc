@@ -9,6 +9,21 @@ import type { Scene } from "./generator";
  */
 export const MODEL_SCENES: (Scene & { name: string; ref: string })[] = [
   {
+    name: "an answer that kept only VP8 does not narrow the next offers of either peer",
+    ref: "origin: issue 818 (RFC 8829 5.2.2): a later offer listed only the codecs the last answer kept",
+    start: "connected",
+    ops: [
+      ["b", "codecPreferences", { index: 0, codec: "video/VP8" }],
+      ["a", "offer"],
+      ["b", "answer"],
+      ["a", "createOnly"],
+      ["b", "codecPreferences", { index: 0, reversed: true }],
+      ["b", "createOnly"],
+      ["a", "offer"],
+      ["b", "answer"],
+    ],
+  },
+  {
     name: "a DataChannel created during a first offer survives its rollback and opens at the next negotiation",
     ref: "2.3-15 2.3-17 2.3-18; was NT rollback keeps a DataChannel created $when",
     start: "unnegotiated",
