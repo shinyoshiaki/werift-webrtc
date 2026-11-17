@@ -87,7 +87,7 @@ describe("ICE-TCP nomination", () => {
       await harness.connection.checkStart(low).awaitable;
       await setTimeout(10);
 
-      // Assert: 高優先度 pair の結果が出るまで nomination は送らない。
+      // Assert: nomination の deadline 内は高優先度 pair の結果を待ち、nomination を送らない。
       expect(harness.protocol.sentMessages).toHaveLength(1);
       expect(harness.connection.nominated).toBeUndefined();
 

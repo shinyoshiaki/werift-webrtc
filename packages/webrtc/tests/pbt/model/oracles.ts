@@ -8,6 +8,11 @@ import type {
   RTCRtpTransceiver,
 } from "../../../src";
 import { SessionDescription } from "../../../src";
+import {
+  type CandidatePair,
+  compareCandidatePairPriority,
+  type IceConnection,
+} from "../../../src/imports/ice";
 import type {
   AppliedStep,
   NegotiationCase,
@@ -757,14 +762,27 @@ export class ModelOracles implements Observer {
     }
   }
 
-  /** ice: an operation that commits nothing keeps every selected pair. */
+  /**
+   * ice: an operation that commits nothing keeps every selected pair. ICE may
+   * still replace a selection by itself meanwhile (semi-aggressive
+   * nomination, renomination, a controlled agent following a later
+   * nomination): the new pair is then one of the same checklist that the
+   * agent prefers (`iceReplaced`).
+   */
   private selectedPairs(step: AppliedStep, before: Before, label: string) {
     if (step.type === "answer") return;
     for (const [transport, pair] of before.pairs) {
       if (transport.state === "closed") continue;
+      const connection = transport.connection;
       // restart の pending 中も、確定済みの選択ペアで通信を続ける。
       expect(
-        transport.connection?.nominated === pair,
+        connection?.nominated === pair ||
+          (!!connection &&
+            iceReplaced(
+              connection,
+              pair as CandidatePair,
+              connection.nominated,
+            )),
         `${label}: the selected pair of a connected transport changed`,
       ).toBe(true);
     }
@@ -879,3 +897,40 @@ const remoteOf = (pc: RTCPeerConnection, t: RTCRtpTransceiver) =>
   t.mid == undefined
     ? undefined
     : pc.getTransceivers().find((r) => r.mid === t.mid);
+
+/**
+ * `now` replaced `selected` as ICE does by itself: both are pairs of the
+ * current checklist (no restart or reset dropped `selected`), and `now`
+ * carries a larger nomination (sent while controlling, received while
+ * controlled), or the same one and a higher priority. A controlled agent
+ * also moves between nominated pairs of the same nomination to the one the
+ * peer sends data on (as libwebrtc), whatever their priority.
+ */
+function iceReplaced(
+  connection: IceConnection,
+  selected: CandidatePair,
+  now: CandidatePair | undefined,
+) {
+  if (
+    !now ||
+    !connection.checkList.includes(selected) ||
+    !connection.checkList.includes(now)
+  ) {
+    return false;
+  }
+  const nomination = (pair: CandidatePair) =>
+    connection.iceControlling ? pair.nomination : pair.remoteNomination;
+  if (nomination(now) !== nomination(selected)) {
+    return nomination(now) > nomination(selected);
+  }
+  if (!connection.iceControlling && now.nominated) return true;
+  return (
+    compareCandidatePairPriority(
+      now.localCandidate,
+      now.remoteCandidate,
+      selected.localCandidate,
+      selected.remoteCandidate,
+      connection.iceControlling,
+    ) > 0
+  );
+}
