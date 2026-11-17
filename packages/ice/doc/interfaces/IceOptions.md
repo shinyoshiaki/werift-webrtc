@@ -255,6 +255,17 @@ duplicates are dropped (see [normalizeIceServerOptions](../functions/normalizeIc
 
 ***
 
+### stunServerUrls?
+
+> `optional` **stunServerUrls?**: [`StunServerUrl`](../type-aliases/StunServerUrl.md)[]
+
+The application's names (URLs) of [IceOptions.stunServers](#stunservers), by
+address. Metadata only, reported in IceServerRef.urls of
+`Connection.onIceCandidateError`; replaced together with the STUN
+servers (see [mergeIceServerOptions](../functions/mergeIceServerOptions.md)).
+
+***
+
 ### tcpPassive?
 
 > `optional` **tcpPassive?**: `boolean`

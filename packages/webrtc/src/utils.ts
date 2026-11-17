@@ -126,7 +126,15 @@ export type ParsedTurnServer = {
   password?: string;
   /** From the URL (scheme / `?transport=`); undefined when it names none. */
   transport?: "udp" | "tcp" | "tls";
+  /**
+   * The URLs naming this server, canonical (see {@link canonicalIceServerUrl})
+   * and in configuration order; several when duplicates were merged.
+   */
+  urls: string[];
 };
+
+/** A STUN URL of `RTCIceServer.urls` and the address it names. */
+export type ParsedStunServerUrl = { address: Address; url: string };
 
 /**
  * The STUN and TURN servers of `iceServers`: every valid `stun:` / `stuns:`
@@ -137,10 +145,17 @@ export type ParsedTurnServer = {
  *
  * The singular fields are the first STUN URL and the first TURN URL, kept
  * for compatibility.
+ *
+ * The URLs themselves (canonical, see {@link canonicalIceServerUrl}) are
+ * kept to name a failing server in `icecandidateerror`: `stunServerUrls`
+ * maps each STUN URL to its address, and every TURN server carries the
+ * `urls` naming it (merged for duplicates).
  */
 export function parseIceServers(iceServers: RTCIceServer[]) {
   const options: {
     stunServers: Address[];
+    /** Every valid STUN URL with its address, in order (duplicate URLs once). */
+    stunServerUrls: ParsedStunServerUrl[];
     turnServers: ParsedTurnServer[];
     /** @deprecated The first of `stunServers`. */
     stunServer?: Address;
@@ -152,7 +167,7 @@ export function parseIceServers(iceServers: RTCIceServer[]) {
     turnPassword?: string;
     /** @deprecated The transport of the first of `turnServers`. */
     turnTransport?: "udp" | "tcp" | "tls";
-  } = { stunServers: [], turnServers: [] };
+  } = { stunServers: [], stunServerUrls: [], turnServers: [] };
 
   const sameAddress = (a: Address, b: Address) =>
     a[0] === b[0] && a[1] === b[1];
@@ -167,7 +182,16 @@ export function parseIceServers(iceServers: RTCIceServer[]) {
         continue;
       }
 
+      const canonicalUrl = canonicalIceServerUrl(url)!;
       if (parsed.kind === "stun") {
+        if (
+          !options.stunServerUrls.some((known) => known.url === canonicalUrl)
+        ) {
+          options.stunServerUrls.push({
+            address: parsed.address,
+            url: canonicalUrl,
+          });
+        }
         if (
           !options.stunServers.some((address) =>
             sameAddress(address, parsed.address),
@@ -183,17 +207,19 @@ export function parseIceServers(iceServers: RTCIceServer[]) {
         username: iceServer.username,
         password: iceServer.credential,
         transport: parsed.transport,
+        urls: [canonicalUrl],
       };
-      if (
-        !options.turnServers.some(
-          (known) =>
-            sameAddress(known.address, turnServer.address) &&
-            known.transport === turnServer.transport &&
-            known.username === turnServer.username &&
-            known.password === turnServer.password,
-        )
-      ) {
+      const known = options.turnServers.find(
+        (known) =>
+          sameAddress(known.address, turnServer.address) &&
+          known.transport === turnServer.transport &&
+          known.username === turnServer.username &&
+          known.password === turnServer.password,
+      );
+      if (!known) {
         options.turnServers.push(turnServer);
+      } else if (!known.urls.includes(canonicalUrl)) {
+        known.urls.push(canonicalUrl);
       }
     }
   }
@@ -239,6 +265,37 @@ export function resolveTurnTransport({
   }
 
   return undefined;
+}
+
+/**
+ * The URL `icecandidateerror` reports for an `RTCIceServer` URL, or
+ * undefined for a URL werift does not use (see parseIceServers). The rule:
+ *
+ * - the configured URL without surrounding whitespace and with a lower-case
+ *   scheme; host, port and query are kept as configured (no default port is
+ *   added);
+ * - only a `turns:` URL without a `transport` query gets `?transport=tcp`
+ *   (`&transport=tcp` after another query): TLS over TCP is its default
+ *   (RFC 7065 §3), so the URL still names the same server. This matches
+ *   Chrome and upstream WPT.
+ *
+ * `turn:`, `stun:` and `stuns:` are not changed; a `turn:` server whose UDP
+ * allocation falls back to TCP keeps its `turn:` URL.
+ */
+export function canonicalIceServerUrl(url: string): string | undefined {
+  if (typeof url !== "string" || !parseIceServerUrl(url)) return;
+  const trimmed = url.trim();
+  const colon = trimmed.indexOf(":");
+  const scheme = trimmed.slice(0, colon).toLowerCase();
+  const rest = trimmed.slice(colon + 1);
+  if (scheme !== "turns") return `${scheme}:${rest}`;
+  const [, query] = rest.split("?", 2);
+  if (query !== undefined && new URLSearchParams(query).has("transport")) {
+    return `${scheme}:${rest}`;
+  }
+  const separator =
+    query === undefined ? "?" : query === "" || rest.endsWith("&") ? "" : "&";
+  return `${scheme}:${rest}${separator}transport=tcp`;
 }
 
 function parseIceServerUrl(url: string) {
