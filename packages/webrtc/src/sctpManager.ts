@@ -44,7 +44,15 @@ export type SctpNegotiationState = ReturnType<
  *   application m-line (JSEP 5.11), also on an already connected DTLS
  *   transport: an `m=application` a renegotiation adds to a connected session
  *   starts without touching ICE or DTLS and without moving `connectionState`.
- *   Its client / server side follows the ICE role at the DTLS start. Starting
+ *   Its INIT client / server side follows the ICE role at the DTLS start.
+ *   Stream IDs of in-band channels follow the DTLS role instead (RFC 8832
+ *   section 6: client even, server odd) and are reserved as soon as it is
+ *   decided, before the description's promise resolves (W3C webrtc-pc
+ *   4.4.1.6): by a local or remote answer / pranswer, or by the DTLS start
+ *   resolving `auto` (`RTCDtlsTransport.onRoleChange`), or at once by a
+ *   `createDataChannel` after that; the DCEP OPEN still waits for the
+ *   established association. An ICE restart or role conflict keeps them.
+ *   `createDataChannel` ignores the `id` of an in-band channel. Starting
  *   is idempotent (`RTCSctpTransport.ensureStarted`): an established
  *   association, also one the remote INIT established first, a handshaking
  *   one and a closed one never start again, so a final answer keeping the
@@ -57,8 +65,10 @@ export type SctpNegotiationState = ReturnType<
  *   initial state under the proposal (started by a pranswer, or established
  *   from the remote INIT) is pending-only: it is aborted and an
  *   application-owned transport gets a new, unstarted association on the same
- *   DTLS transport. Its channels with a stream ID close; channels still
- *   waiting for one stay `connecting` for the next negotiation.
+ *   DTLS transport. Its announced channels close; channels whose OPEN was
+ *   not sent give their reserved stream ID back and stay `connecting` until
+ *   the next answer assigns one again (also after a final answer rejecting
+ *   the application).
  * - `sctp.mtu` is configuration: every transport, also a pending one, is built
  *   with it, and moving to another DTLS transport keeps it.
  */
@@ -133,8 +143,14 @@ export class SctpTransportManager {
     }
     this.applicationOwned.add(this.sctpTransport);
 
+    // W3C webrtc-pc createDataChannel: `id` only counts for a negotiated
+    // channel. An in-band one gets its stream ID from the DTLS role, so a
+    // given `id` (also an out-of-range one) is ignored, as in browsers.
+    if (!settings.negotiated && settings.id !== undefined) {
+      log("in-band data channel: ignored id", settings.id, label);
+    }
     const parameters = new RTCDataChannelParameters({
-      id: settings.id,
+      id: settings.negotiated ? settings.id : undefined,
       label,
       maxPacketLifeTime: settings.maxPacketLifeTime,
       maxRetransmits: settings.maxRetransmits,
@@ -203,10 +219,16 @@ export class SctpTransportManager {
     // new, unstarted one waits for the next negotiation. Attached channels
     // close; unattached ones stay queued.
     const kept = keepAdded ? added : state.transport;
-    if (kept && state.remotePort === undefined && kept.associationActive) {
-      await kept.resetAssociation(
-        kept === state.transport ? state.dtlsTransport : undefined,
-      );
+    if (kept && state.remotePort === undefined) {
+      if (kept.associationActive) {
+        await kept.resetAssociation(
+          kept === state.transport ? state.dtlsTransport : undefined,
+        );
+      } else {
+        // Stream IDs the rolled-back description reserved (its DTLS role)
+        // are taken again by the next negotiation.
+        kept.releaseUnannouncedStreamIds();
+      }
     }
     this.sctpTransport = kept;
     if (
@@ -236,6 +258,7 @@ export class SctpTransportManager {
     const transport = this.sctpTransport;
     if (!transport) return;
     if (transport.associationActive) await transport.resetAssociation();
+    else transport.releaseUnannouncedStreamIds();
     this.sctpRemotePort = undefined;
     this.detachFromDescription(transport);
   }

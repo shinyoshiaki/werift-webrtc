@@ -52,6 +52,10 @@ import {
  *   sending codec is in the other peer's receive table.
  * - channels: a DataChannel open on a committed session stays open; a
  *   remote channel is announced once.
+ * - streamIds (#815): the stream ID of an in-band channel the application
+ *   created follows its own peer's DTLS role (client even, server odd, none
+ *   while `auto`), never ICE; after a final answer that negotiates the
+ *   application m-line every such channel has one.
  * - feedback: after a packet of payload type P reached a receiver, a PLI
  *   request leaves it exactly when P's effective `a=rtcp-fb` has `nack pli`,
  *   and transport-cc feedback runs when it has `transport-cc`. The effective
@@ -397,6 +401,7 @@ export class ModelOracles implements Observer {
       }
     }
     this.announcedOnce(pc, label);
+    this.streamIds(step, label);
     for (const t of pc.getTransceivers()) {
       // m-line のない transceiver は (停止したものを除き) currentDirection を持たない。
       if (t.mid == undefined && !t.stopped) {
@@ -705,6 +710,37 @@ export class ModelOracles implements Observer {
         now.transports.get(mid) === transport,
         `${label}: the DTLS transport of ${mid} was replaced`,
       ).toBe(true);
+    }
+  }
+
+  /** streamIds: in-band IDs follow the DTLS role of their own peer (RFC 8832 section 6). */
+  private streamIds(step: AppliedStep, label: string) {
+    const answered =
+      step.kind === "setLocal" || step.kind === "setRemote"
+        ? step.type === "answer" && /^m=application [1-9]/m.test(step.sdp ?? "")
+        : false;
+    for (const [channel, owner] of this.applicationChannels) {
+      // negotiated channel の ID はアプリが、相手が開いた channel の ID は相手が決める。
+      if (
+        owner !== step.pc ||
+        channel.negotiated ||
+        channel.isCreatedByRemote
+      ) {
+        continue;
+      }
+      const role = channel.sctp.dtlsTransport?.role;
+      if (channel.id === undefined) {
+        // 交渉済みの application m-line を持つ final answer の後は採番済み。
+        expect(answered, `${label}: channel ${channel.label} has no ID`).toBe(
+          false,
+        );
+        continue;
+      }
+      // ID は自分の DTLS role の偶奇 (client 偶数 / server 奇数) に従う。
+      expect(
+        [role, channel.id % 2],
+        `${label}: ID ${channel.id} of ${channel.label}`,
+      ).toEqual([role, role === "client" ? 0 : 1]);
     }
   }
 

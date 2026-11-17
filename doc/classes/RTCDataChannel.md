@@ -634,6 +634,26 @@ v6.0.0
 
 ***
 
+### failWithError()
+
+> **failWithError**(`error`): `void`
+
+Internal: W3C webrtc-pc 4.4.1.6 step 2.2.6, no stream ID could be
+generated: the channel becomes `closed`, then `error` (with `error`) and
+`close` fire.
+
+#### Parameters
+
+##### error
+
+`Error`
+
+#### Returns
+
+`void`
+
+***
+
 ### getMaxListeners()
 
 > **getMaxListeners**(): `number`
@@ -1249,11 +1269,13 @@ v0.1.26
 
 > **setId**(`id`): `void`
 
+Internal: `undefined` gives a reserved stream ID back (see RTCSctpTransport).
+
 #### Parameters
 
 ##### id
 
-`number`
+`number` \| `undefined`
 
 #### Returns
 

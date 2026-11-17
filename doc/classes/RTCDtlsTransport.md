@@ -100,8 +100,9 @@
 
 Internal: the ICE role when the handshake started. werift sets the ICE role at
 every offer / answer, so an SCTP association that starts later on this
-transport takes its client / server side from here, as both peers agreed
-on it when they started DTLS.
+transport takes its INIT client / server side from here, as both peers
+agreed on it when they started DTLS. Data channel stream IDs follow
+[RTCDtlsTransport.role](#role) instead.
 
 ***
 
@@ -148,6 +149,17 @@ A close_notify (`closed`) does not fire it. Also delivered as
 #### Returns
 
 `void`
+
+***
+
+### onRoleChange
+
+> `readonly` **onRoleChange**: [`Event`](Event.md)\<\[[`DtlsRole`](../type-aliases/DtlsRole.md)\]\>
+
+Fires synchronously whenever [RTCDtlsTransport.role](#role) changes: an
+answer / pranswer naming the role (local or remote), or `start()`
+resolving `auto` from the ICE role. The SCTP transport on it assigns the
+data channel stream IDs from it (RFC 8832 section 6).
 
 ***
 
@@ -206,12 +218,6 @@ not mean ICE has released its resources.
 #### Implementation of
 
 [`DtlsTransportStats`](../interfaces/DtlsTransportStats.md).[`packetsSent`](../interfaces/DtlsTransportStats.md#packetssent)
-
-***
-
-### role
-
-> **role**: [`DtlsRole`](../type-aliases/DtlsRole.md) = `"auto"`
 
 ***
 
@@ -294,6 +300,35 @@ Internal: whether a description gave this transport the peer's DTLS parameters.
 ##### Returns
 
 [`RTCDtlsParameters`](RTCDtlsParameters.md)
+
+***
+
+### role
+
+#### Get Signature
+
+> **get** **role**(): [`DtlsRole`](../type-aliases/DtlsRole.md)
+
+The DTLS role: `auto` until a description or the handshake start decides
+it. Data channel stream IDs follow it (client even, server odd).
+
+##### Returns
+
+[`DtlsRole`](../type-aliases/DtlsRole.md)
+
+#### Set Signature
+
+> **set** **role**(`role`): `void`
+
+##### Parameters
+
+###### role
+
+[`DtlsRole`](../type-aliases/DtlsRole.md)
+
+##### Returns
+
+`void`
 
 ## Methods
 

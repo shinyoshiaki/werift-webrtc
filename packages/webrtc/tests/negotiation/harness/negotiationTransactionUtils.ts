@@ -510,6 +510,7 @@ function assertDescriptionBindings(pc: RTCPeerConnection) {
  * | BUNDLE owner / transport | current | both (a split owner is provisional) | `assertDescriptionBindings` |
  * | SCTP port | current | reject a change of an existing association (also at the answer) | `assertSctpBinding` |
  * | SCTP max-message-size | current | provisional (W3C updates it at answer and pranswer) | `expectedLive("remoteMaxMessageSize")` |
+ * | In-band DataChannel `id` (#815) | current (none while the DTLS role is `auto`) | provisional: the pranswer's DTLS role reserves IDs of its parity (client even, server odd); rollback gives unsent ones back | `streamIds` oracle (tests/pbt/model/oracles.ts) |
  * | Header extension IDs | both; remap of a current ID rejected | both; remap rejected | `assertRouteTables` |
  * | Remote SSRC routes | both (conflicts staged) | both; routes only a replaced pranswer added are dropped | `assertEffectiveValues` |
  *

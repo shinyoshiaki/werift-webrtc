@@ -176,12 +176,20 @@ export class RTCDtlsTransport implements DtlsTransportStats {
 
   id = randomUUID().toString();
   state: DtlsState = "new";
-  role: DtlsRole = "auto";
+  private _role: DtlsRole = "auto";
+  /**
+   * Fires synchronously whenever {@link RTCDtlsTransport.role} changes: an
+   * answer / pranswer naming the role (local or remote), or `start()`
+   * resolving `auto` from the ICE role. The SCTP transport on it assigns the
+   * data channel stream IDs from it (RFC 8832 section 6).
+   */
+  readonly onRoleChange = new Event<[DtlsRole]>();
   /**
    * Internal: the ICE role when the handshake started. werift sets the ICE role at
    * every offer / answer, so an SCTP association that starts later on this
-   * transport takes its client / server side from here, as both peers agreed
-   * on it when they started DTLS.
+   * transport takes its INIT client / server side from here, as both peers
+   * agreed on it when they started DTLS. Data channel stream IDs follow
+   * {@link RTCDtlsTransport.role} instead.
    */
   iceRoleAtStart?: RTCIceTransport["role"];
   srtpStarted = false;
@@ -262,6 +270,23 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   };
 
   dispatchEvent = (event: globalThis.Event) => this.events.dispatchEvent(event);
+
+  /**
+   * The DTLS role: `auto` until a description or the handshake start decides
+   * it. Data channel stream IDs follow it (client even, server odd).
+   */
+  get role(): DtlsRole {
+    return this._role;
+  }
+
+  set role(role: DtlsRole) {
+    if (role === this._role) return;
+    this._role = role;
+    this.onRoleChange.executeIsolated(
+      (error) => log("onRoleChange listener failed", error),
+      role,
+    );
+  }
 
   get localParameters() {
     return new RTCDtlsParameters(

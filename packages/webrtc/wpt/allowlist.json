@@ -164,6 +164,18 @@
       "reason": "Deferred until the SCTP / RTCDataChannel behavior is aligned with the upstream browser expectations."
     },
     {
+      "file": "webrtc/RTCDataChannel-id.html",
+      "enabled": true,
+      "reason": "#815: in-band data channel IDs follow the DTLS role (RFC 8832 section 6) and are assigned when an answer decides it; an in-band id is ignored (W3C createDataChannel). The exhaustion subtest is disabled upstream.",
+      "subtests": [
+        "DTLS client uses odd data channel IDs",
+        "DTLS server uses even data channel IDs",
+        "In-band negotiation with a specific ID should not work",
+        "Odd/even role should not be violated when mixing with negotiated channels",
+        "Test that ids are reusable after close event"
+      ]
+    },
+    {
       "file": "webrtc/RTCDataChannel-close.html",
       "enabled": true,
       "reason": "Gates the subtests that pass in every full run (wpt/baseline.json); the rest stays open: deferred until the close path matches the upstream RTCDataChannel timing and event semantics."

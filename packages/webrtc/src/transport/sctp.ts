@@ -26,12 +26,15 @@ import {
   RTCDataChannel,
   RTCDataChannelParameters,
 } from "../dataChannel";
+import { createWebRtcDomException } from "../errors";
 import { EventTarget as DomEventTarget, notifySafely } from "../helper";
 import { debug, Event, FifoQueue } from "../imports/common";
 import type { RTCDtlsTransport } from "./dtls";
 
 const log = debug("werift:packages/webrtc/src/transport/sctp.ts");
 export const DEFAULT_MAX_MESSAGE_SIZE = 65536;
+/** Stream IDs a data channel may use: 0..65534 (W3C webrtc-pc, RFC 8831 section 6.5). */
+const DATA_CHANNEL_ID_LIMIT = 65535;
 
 /** W3C webrtc-pc `RTCSctpTransportState`. */
 export type RTCSctpTransportState = "connecting" | "connected" | "closed";
@@ -67,7 +70,13 @@ export class RTCSctpTransport {
   remoteMaxMessageSize = DEFAULT_MAX_MESSAGE_SIZE;
 
   private dataChannelQueue = new FifoQueue<[RTCDataChannel, number, Buffer]>();
-  private dataChannelId?: number;
+  /**
+   * In-band channels created on this side whose DATA_CHANNEL_OPEN is not
+   * handed to SCTP yet, in creation order. Their stream ID, if any, is a
+   * reservation: it is released when the association is discarded or the
+   * DTLS role changes, and taken again from the role in force.
+   */
+  private readonly unannounced = new Set<RTCDataChannel>();
   private eventDisposer: (() => void)[] = [];
 
   constructor(
@@ -129,16 +138,18 @@ export class RTCSctpTransport {
    * @internal
    * Discard the current association (ABORT, attached channels close) and
    * bind a new, unstarted one (on the same DTLS transport by default).
-   * Channels still waiting for a stream ID stay queued for the next
-   * association.
+   * Channels whose DATA_CHANNEL_OPEN was not sent yet give their stream ID
+   * back and stay queued; the next negotiation that decides the DTLS role
+   * assigns them again ({@link RTCSctpTransport.assignPendingStreamIds}).
    */
   async resetAssociation(dtlsTransport = this.dtlsTransport) {
+    // Before stop(): the closed association closes every registered channel.
+    this.releaseUnannouncedStreamIds();
     await this.stop();
-    this.dataChannelQueue = this.dataChannelQueue.filter(
-      ([channel]) => channel.id === undefined,
+    this.dataChannelQueue = this.dataChannelQueue.filter(([channel]) =>
+      this.unannounced.has(channel),
     );
-    this.dataChannelId = undefined;
-    this.bindAssociation(dtlsTransport);
+    this.bindAssociation(dtlsTransport, { assignIds: false });
   }
 
   /**
@@ -153,7 +164,15 @@ export class RTCSctpTransport {
     );
   }
 
-  private bindAssociation(dtlsTransport: RTCDtlsTransport) {
+  /**
+   * `assignIds`: unannounced channels take stream IDs from the role of the
+   * bound DTLS transport at once (a BUNDLE move keeps a decided role). A
+   * reset association leaves them waiting for the next negotiation.
+   */
+  private bindAssociation(
+    dtlsTransport: RTCDtlsTransport,
+    { assignIds = true }: { assignIds?: boolean } = {},
+  ) {
     this.eventDisposer.forEach((dispose) => dispose());
 
     this.dtlsTransport = dtlsTransport;
@@ -190,7 +209,10 @@ export class RTCSctpTransport {
         }),
         this.sctp.stateChanged.closed.subscribe(() => {
           if (!this.stopped) this.setState("closed");
+          // Every registered channel closes, also one with a reserved ID
+          // (resetAssociation gives those back first to keep them).
           Object.values(this.dataChannels).forEach((dc) => {
+            this.unannounced.delete(dc);
             dc.setReadyState("closed");
           });
           this.dataChannels = {};
@@ -206,6 +228,13 @@ export class RTCSctpTransport {
             this.sctp.setState(SCTP_STATE.CLOSED);
           }
         }),
+        // A DTLS role decided (or changed) by a description or by the
+        // handshake start: unannounced channels take IDs of its parity now,
+        // before the description's promise resolves (W3C webrtc-pc 4.4.1.6).
+        this.dtlsTransport.onRoleChange.subscribe(() => {
+          this.releaseUnannouncedStreamIds();
+          this.assignPendingStreamIds();
+        }),
       ].map((e) => e.unSubscribe),
       () => (this.sctp.onSackReceived = async () => {}),
     ];
@@ -213,12 +242,103 @@ export class RTCSctpTransport {
     this.sctp.onSackReceived = async () => {
       this.dataChannelFlush();
     };
+    if (assignIds) {
+      this.releaseUnannouncedStreamIds();
+      this.assignPendingStreamIds();
+    }
   }
 
+  /**
+   * The SCTP INIT side (`SCTP.isServer`): the ICE role when DTLS started.
+   * It is independent of the stream ID parity, which follows the DTLS role.
+   */
   private get isServer() {
     const role =
       this.dtlsTransport.iceRoleAtStart ?? this.dtlsTransport.iceTransport.role;
     return role !== "controlling";
+  }
+
+  /**
+   * RFC 8832 section 6: the DTLS client uses even stream IDs, the DTLS
+   * server odd ones. Undefined while the DTLS role is not decided (`auto`):
+   * no ID is assigned until it is.
+   */
+  private get idParity(): 0 | 1 | undefined {
+    switch (this.dtlsTransport?.role) {
+      case "client":
+        return 0;
+      case "server":
+        return 1;
+      default:
+        return undefined;
+    }
+  }
+
+  /** Exclusive upper bound of a stream ID: 65535, or what SCTP negotiated. */
+  private get streamIdLimit() {
+    const negotiated = this.sctp?.maxChannels;
+    return negotiated === undefined
+      ? DATA_CHANNEL_ID_LIMIT
+      : Math.min(negotiated, DATA_CHANNEL_ID_LIMIT);
+  }
+
+  /**
+   * The lowest free stream ID of `parity`. Every registered channel is
+   * skipped: negotiated ones (also of the other parity), ones the peer
+   * opened and ones reserved here. A closed channel is unregistered, so its
+   * ID is reused.
+   */
+  private allocateStreamId(parity: 0 | 1) {
+    const limit = this.streamIdLimit;
+    for (let id = parity; id < limit; id += 2) {
+      if (!this.dataChannels[id]) return id;
+    }
+    return undefined;
+  }
+
+  /**
+   * @internal
+   * Reserve a stream ID for every unannounced channel without one, from the
+   * DTLS role (nothing while it is `auto`). A channel for which no ID is left
+   * closes with an `OperationError` (W3C webrtc-pc 4.4.1.6 step 2.2.6).
+   */
+  assignPendingStreamIds() {
+    const parity = this.idParity;
+    if (parity === undefined) return;
+    for (const channel of [...this.unannounced]) {
+      if (channel.id != undefined) continue;
+      const id = this.allocateStreamId(parity);
+      if (id === undefined) {
+        this.unannounced.delete(channel);
+        this.dataChannelQueue = this.dataChannelQueue.filter(
+          ([queued]) => queued !== channel,
+        );
+        channel.failWithError(
+          createWebRtcDomException(
+            "OperationError",
+            "No data channel stream ID is available",
+          ),
+        );
+        continue;
+      }
+      this.dataChannels[id] = channel;
+      channel.setId(id);
+    }
+  }
+
+  /**
+   * @internal
+   * Give back the reservations of unannounced channels; they wait for the
+   * next {@link RTCSctpTransport.assignPendingStreamIds}.
+   */
+  releaseUnannouncedStreamIds() {
+    for (const channel of this.unannounced) {
+      if (channel.id == undefined) continue;
+      if (this.dataChannels[channel.id] === channel) {
+        delete this.dataChannels[channel.id];
+      }
+      channel.setId(undefined);
+    }
   }
 
   channelByLabel(label: string) {
@@ -243,7 +363,18 @@ export class RTCSctpTransport {
               return;
             }
 
-            if (!Object.keys(this.dataChannels).includes(streamId.toString())) {
+            const existing = this.dataChannels[streamId];
+            if (existing && !existing.isCreatedByRemote) {
+              // The stream ID is one this side uses (reserved or opened
+              // here, or negotiated): the peer violates the parity of its
+              // DTLS role. Never acknowledge an OPEN for another channel.
+              log("DATA_CHANNEL_OPEN on a stream ID in local use, rejected", {
+                streamId,
+                label: existing.label,
+              });
+              return;
+            }
+            if (!existing) {
               // !BBHLHH — 12 byte DCEP OPEN header (big-endian)
               const channelType = data.readUInt8(1);
               const reliability = data.readUInt32BE(4);
@@ -360,13 +491,28 @@ export class RTCSctpTransport {
     const label = Buffer.from(channel.label, "utf8");
     const protocol = Buffer.from(channel.protocol, "utf8");
 
-    if (channel.id !== undefined) {
-      if (this.dataChannels[channel.id])
-        throw new Error(
-          `Data channel with ID ${channel.id} already registered`,
-        );
-      this.dataChannels[channel.id] = channel;
+    // The public entry (`SctpTransportManager.createDataChannel`) drops the
+    // `id` of an in-band channel: its ID always comes from the DTLS role.
+    if (channel.id != undefined) {
+      throw new Error(
+        "internal: an in-band data channel gets its stream ID from the DTLS role",
+      );
     }
+    // With the DTLS role decided the ID is taken at once (W3C webrtc-pc
+    // createDataChannel step 19); none left is an OperationError.
+    const parity = this.idParity;
+    if (parity !== undefined) {
+      const id = this.allocateStreamId(parity);
+      if (id === undefined) {
+        throw createWebRtcDomException(
+          "OperationError",
+          "No data channel stream ID is available",
+        );
+      }
+      this.dataChannels[id] = channel;
+      channel.setId(id);
+    }
+    this.unannounced.add(channel);
 
     const priority = 0;
     // RFC 8832 5.1: the reliability mode and the unordered bit (0x80) are
@@ -403,19 +549,17 @@ export class RTCSctpTransport {
     this.dataChannelFlush();
   }
 
+  /**
+   * Hand the queued DCEP and user messages to SCTP once the association is
+   * established. Sending only: stream IDs are reserved when the DTLS role is
+   * decided ({@link RTCSctpTransport.assignPendingStreamIds}); a message of
+   * a channel still without one stays queued.
+   */
   private dataChannelFlush() {
-    // """
-    // Try to flush buffered data to the SCTP layer.
-
-    // We wait until the association is established, as we need to know
-    // whether we are a client or a server to correctly assign an odd/even ID
-    // to the data channels.
-    // """
-
     if (this.sctp.associationState != SCTP_STATE.ESTABLISHED) return;
-    // The peer's INIT can establish an association that joined a connected
-    // DTLS transport before start() ran here; the same side decides the IDs.
-    this.dataChannelId ??= this.isServer ? 0 : 1;
+    // Established means DTLS ran, so its role is decided.
+    this.assignPendingStreamIds();
+    const waiting = new FifoQueue<[RTCDataChannel, number, Buffer]>();
 
     // Hands every queued message to SCTP synchronously (SCTP.send enqueues
     // before its first await) and tracks completion per message, so repeated
@@ -431,20 +575,14 @@ export class RTCSctpTransport {
         continue;
       }
 
-      let streamId = channel.id;
-      if (streamId === undefined) {
-        // An association the remote established before start() decides the
-        // parity here (RFC 8832: DTLS client even; ICE controlling is server).
-        this.dataChannelId ??= this.isServer ? 0 : 1;
-        streamId = this.dataChannelId;
-        while (Object.keys(this.dataChannels).includes(streamId.toString())) {
-          streamId += 2;
-        }
-        this.dataChannels[streamId] = channel;
-        channel.setId(streamId);
+      const streamId = channel.id;
+      if (streamId == undefined) {
+        waiting.push([channel, protocol, userData]);
+        continue;
       }
 
       if (protocol === WEBRTC_DCEP) {
+        if (userData[0] === DATA_CHANNEL_OPEN) this.unannounced.delete(channel);
         this.sctp
           .send(streamId, protocol, userData, {
             ordered: true,
@@ -473,6 +611,7 @@ export class RTCSctpTransport {
           });
       }
     }
+    if (waiting.length > 0) this.dataChannelQueue = waiting;
   }
 
   private assertSendableMessageSize(size: number) {
@@ -540,7 +679,6 @@ export class RTCSctpTransport {
   }
 
   private assignRole() {
-    this.dataChannelId = this.isServer ? 0 : 1;
     this.sctp.isServer = this.isServer;
   }
 
@@ -582,13 +720,21 @@ export class RTCSctpTransport {
       }
     }
     this.dataChannelQueue = kept;
+    for (const channel of this.unannounced) {
+      if (channel.readyState === "closed" || channel.readyState === "closing") {
+        this.unannounced.delete(channel);
+      }
+    }
   }
 
   dataChannelClose(channel: RTCDataChannel) {
     if (!(["closing", "closed"] as DCState[]).includes(channel.readyState)) {
       channel.setReadyState("closing");
 
-      if (this.sctp.associationState === SCTP_STATE.ESTABLISHED) {
+      if (
+        this.sctp.associationState === SCTP_STATE.ESTABLISHED &&
+        !this.unannounced.has(channel)
+      ) {
         // Check if channel.id is already in reconfigQueue to prevent duplicates
         if (!this.sctp.reconfigQueue.includes(channel.id)) {
           this.sctp.reconfigQueue.push(channel.id);
@@ -597,14 +743,19 @@ export class RTCSctpTransport {
           this.sctp.transmitReconfigRequest();
         }
       } else {
+        // By identity: an ID alone may be reused by another channel.
         this.dataChannelQueue = this.dataChannelQueue.filter(
-          (queueItem) => queueItem[0].id !== channel.id,
+          (queueItem) => queueItem[0] !== channel,
         );
+        this.unannounced.delete(channel);
         // Remove any pending reconfiguration requests for this channel
         this.sctp.reconfigQueue = this.sctp.reconfigQueue.filter(
           (streamId) => streamId !== channel.id,
         );
-        if (channel.id !== undefined) {
+        if (
+          channel.id != undefined &&
+          this.dataChannels[channel.id] === channel
+        ) {
           delete this.dataChannels[channel.id];
         }
         channel.setReadyState("closed");

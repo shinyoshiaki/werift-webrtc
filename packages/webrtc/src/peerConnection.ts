@@ -900,6 +900,26 @@ export class RTCPeerConnection extends EventTarget {
     return createdOffer;
   }
 
+  /**
+   * W3C webrtc-pc 4.4.1.6 step 2.2.6: an answer / pranswer that negotiates
+   * the application m-line has decided the DTLS role of the SCTP transport,
+   * so every in-band channel still without a stream ID gets one before the
+   * description's promise resolves. A role change already assigned them
+   * (`RTCDtlsTransport.onRoleChange`); this covers a role kept from an earlier
+   * negotiation after a rollback or a rejection gave the IDs back.
+   */
+  private assignDataChannelIds(description: SessionDescription) {
+    if (description.type !== "answer" && description.type !== "pranswer") {
+      return;
+    }
+    const negotiatesApplication = description.media.some(
+      (media) => media.kind === "application" && media.port !== 0,
+    );
+    if (negotiatesApplication) {
+      this.sctpTransport?.assignPendingStreamIds();
+    }
+  }
+
   private createSctpTransport() {
     const sctp = this.sctpManager.createSctpTransport(
       this.config.maxMessageSize,
@@ -1652,6 +1672,8 @@ export class RTCPeerConnection extends EventTarget {
         this.negotiation.transportByMid,
       );
 
+      this.assignDataChannelIds(description);
+
       if (description.type === "offer") {
         this.secureManager.markStagedIceRestartApplied();
         this.negotiation.settle();
@@ -2094,6 +2116,8 @@ export class RTCPeerConnection extends EventTarget {
         }
         throw error;
       }
+
+      this.assignDataChannelIds(remoteSdp);
 
       if (remoteSdp.type === "offer") {
         this.sdpManager.applyRemoteDescription(remoteSdp);

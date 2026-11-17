@@ -1,12 +1,11 @@
 import { type ChildProcess, spawn } from "child_process";
+import { mkdir, readdir, readFile, writeFile } from "fs/promises";
 import * as os from "os";
 import { dirname, resolve } from "path";
 import vm from "vm";
-import { mkdir, readFile, readdir, writeFile } from "fs/promises";
 
 import { MediaStream, RTCPeerConnection } from "../../src";
-import { withBrowserCompatibleConfig } from "./browserConfig";
-import { installDocumentWithIframe, installMessageWindow } from "./frameShim";
+import { createDummyAudioTrack } from "../../src/nonstandard/dummyMedia";
 import { createDummyRegister, installPolyfill } from "../../src/polyfill";
 import {
   findBaselineRegressions,
@@ -15,8 +14,9 @@ import {
   selectTimeoutRetryTargets,
   targetKeyOf,
 } from "./baselineLogic";
+import { withBrowserCompatibleConfig } from "./browserConfig";
 import { resolveTargetConcurrency } from "./concurrencyLogic";
-import { createDummyAudioTrack } from "../../src/nonstandard/dummyMedia";
+import { installDocumentWithIframe, installMessageWindow } from "./frameShim";
 import { ensureWptCheckout } from "./submodule";
 import {
   createSubtestSelector,
@@ -714,6 +714,31 @@ function createPeerConnectionWrapper(peerConnections: Set<RTCPeerConnection>) {
         this.holdIceCandidatesDuring(() =>
           setLocalDescription(...sldArgs),
         )) as RTCPeerConnection["setLocalDescription"];
+    }
+
+    // W3C: an in-band channel's `id` is null until the DTLS role gives it one;
+    // werift's API reads `undefined` there. The upstream WPT compares with
+    // null, so channels this wrapper creates show null (#815).
+    // `(label, options)` keeps `createDataChannel.length === 1` (Web IDL).
+    override createDataChannel(
+      label: string,
+      ...rest: [Parameters<RTCPeerConnection["createDataChannel"]>[1]?]
+    ) {
+      const channel = super.createDataChannel(
+        ...([label, ...rest] as Parameters<
+          RTCPeerConnection["createDataChannel"]
+        >),
+      );
+      let id: number | undefined = channel.id;
+      Object.defineProperty(channel, "id", {
+        get: () => id ?? null,
+        set: (value: number | undefined) => {
+          id = value;
+        },
+        configurable: true,
+        enumerable: true,
+      });
+      return channel;
     }
 
     // ブラウザの operations chain と同じく、処理中の setRemoteDescription() の完了を待ってから

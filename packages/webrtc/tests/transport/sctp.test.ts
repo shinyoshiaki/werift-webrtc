@@ -30,7 +30,7 @@ describe("RTCSctpTransportTest", () => {
     transport.setDtlsTransport(first);
     const channel = new RTCDataChannel(
       transport,
-      new RTCDataChannelParameters({ label: "unsent", id: 1 }),
+      new RTCDataChannelParameters({ label: "unsent" }),
     );
     transport.datachannelSend(channel, Buffer.from("stale-1"));
     transport.datachannelSend(channel, "stale-2");
@@ -64,11 +64,11 @@ describe("RTCSctpTransportTest", () => {
     client.setDtlsTransport(first);
     const closedChannel = new RTCDataChannel(
       client,
-      new RTCDataChannelParameters({ label: "closed-before-reconnect", id: 1 }),
+      new RTCDataChannelParameters({ label: "closed-before-reconnect" }),
     );
     const aliveChannel = new RTCDataChannel(
       client,
-      new RTCDataChannelParameters({ label: "alive", id: 3 }),
+      new RTCDataChannelParameters({ label: "alive" }),
     );
     await client.stop();
     closedChannel.setReadyState("closed");
@@ -157,7 +157,7 @@ describe("RTCSctpTransportTest", () => {
 
       const channel = new RTCDataChannel(
         client,
-        new RTCDataChannelParameters({ label: "chat", id: 1 }),
+        new RTCDataChannelParameters({ label: "chat" }),
       );
       channel.onMessage.subscribe((data) => {
         expect(data.toString()).toBe("ping");
@@ -176,7 +176,7 @@ describe("RTCSctpTransportTest", () => {
       // Act: 指定の ordered / 部分信頼性でチャネルを作成し OPEN を送らせる。
       new RTCDataChannel(
         client,
-        new RTCDataChannelParameters({ label: "dcep", id: 1, ...options }),
+        new RTCDataChannelParameters({ label: "dcep", ...options }),
       );
       const [received] = await remote;
 
@@ -205,7 +205,7 @@ describe("RTCSctpTransportTest", () => {
       const remote = server.onDataChannel.asPromise();
       const local = new RTCDataChannel(
         client,
-        new RTCDataChannelParameters({ label: "dcep", id: 1, ...options }),
+        new RTCDataChannelParameters({ label: "dcep", ...options }),
       );
       const [received] = await remote;
       const replies = local.onMessage.asPromise();
@@ -224,7 +224,7 @@ describe("RTCSctpTransportTest", () => {
           serverChunks
             .filter(
               (chunk) =>
-                chunk.streamId === 1 && chunk.protocol === WEBRTC_BINARY,
+                chunk.streamId === local.id && chunk.protocol === WEBRTC_BINARY,
             )
             .map((chunk) => [chunk.tsn, chunk]),
         ).values(),
@@ -257,7 +257,6 @@ describe("RTCSctpTransportTest", () => {
       client,
       new RTCDataChannelParameters({
         label: "lifetime",
-        id: 1,
         maxPacketLifeTime: 500,
       }),
     );
@@ -296,7 +295,7 @@ describe("RTCSctpTransportTest", () => {
       // Act: in-band negotiation でチャネルを作成し OPEN を送らせる。
       new RTCDataChannel(
         client,
-        new RTCDataChannelParameters({ label, protocol, id: 1 }),
+        new RTCDataChannelParameters({ label, protocol }),
       );
       const [received] = await remote;
 
@@ -326,33 +325,31 @@ describe("RTCSctpTransportTest", () => {
       parameters: { label: "ok", protocol: "あ".repeat(21846) },
     },
   ])(
-    "DATA_CHANNEL_OPEN rejects an over-long $name without registering the ID",
+    "DATA_CHANNEL_OPEN rejects an over-long $name without reserving a stream ID",
     async ({ parameters }) => {
       // Arrange: SCTP association を確立し、client が送る DCEP を記録する。
       const { client, server } = await connectedPair();
       const dcep = captureDcep(client);
 
-      // Act: UTF-8 で 65535 バイトを超える値を ID 指定で作成する。
+      // Act: UTF-8 で 65535 バイトを超える値で作成する。
       const create = () =>
-        new RTCDataChannel(
-          client,
-          new RTCDataChannelParameters({ ...parameters, id: 42 }),
-        );
+        new RTCDataChannel(client, new RTCDataChannelParameters(parameters));
 
       // Assert: TypeError で失敗し、OPEN は送られない。
       expect(create).toThrow(TypeError);
       expect(dcep).toHaveLength(0);
 
-      // Act: 同じ ID で有効な label を使って作り直す。
+      // Act: 有効な label で作り直す。
       const remote = server.onDataChannel.asPromise();
       const retry = new RTCDataChannel(
         client,
-        new RTCDataChannelParameters({ label: "retry", id: 42 }),
+        new RTCDataChannelParameters({ label: "retry" }),
       );
       const [received] = await remote;
 
-      // Assert: ID が解放されており、作り直したチャネルが相手側に届く。
-      expect(retry.id).toBe(42);
+      // Assert: 失敗した作成は ID を予約しておらず、DTLS client の最初の
+      // 偶数 ID 0 が割り当たり、作り直したチャネルが相手側に届く。
+      expect(retry.id).toBe(0);
       expect(received.label).toBe("retry");
 
       await Promise.all([client.stop(), server.stop()]);

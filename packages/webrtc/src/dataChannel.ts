@@ -134,8 +134,30 @@ export class RTCDataChannel extends EventTarget implements DataChannelStats {
     this._bufferedAmountLowThreshold = value;
   }
 
-  setId(id: number) {
-    this.id = id;
+  /** Internal: `undefined` gives a reserved stream ID back (see RTCSctpTransport). */
+  setId(id: number | undefined) {
+    this.id = id as number;
+  }
+
+  /**
+   * Internal: W3C webrtc-pc 4.4.1.6 step 2.2.6, no stream ID could be
+   * generated: the channel becomes `closed`, then `error` (with `error`) and
+   * `close` fire.
+   */
+  failWithError(error: Error) {
+    if (this.readyState === "closed") return;
+    this.readyState = "closed";
+    this.stateChange.execute("closed");
+    this.stateChanged.execute("closed");
+    this.error.execute(error);
+    if (this.onerror) this.onerror({ error });
+    // emit("error") would throw without a listener.
+    this.emitIsolated((e) => log("error listener failed", e), "error", {
+      error,
+    });
+    if (this.onclose) this.onclose();
+    this.emit("close");
+    log("failed", error.message);
   }
 
   setReadyState(state: DCState) {
