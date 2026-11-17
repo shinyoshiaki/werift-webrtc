@@ -580,3 +580,34 @@ develop との比較が必要なら、一時 worktree（`git worktree add --deta
 - [ ] `pbt:deep` の leak の ICE 失敗について、3.8 の扱いに沿って原因の切り分け（develop での再現）と報告をしている。
 - [ ] 3.11 を満たしている。SSRC の経路は「SSRC → 経路の集合」で、引き当ては transport で絞った優先順位（sender > sdp > learned）で 1 つ選び、組み合わせ表の全セルと派生ケースが通る。model property に複数 transport（`bundlePolicy`）の軸がある。
 - [ ] 3.9 の A〜D を満たしている。学習 SSRC は receiver ごとに有界 LRU で保持し（旧 SSRC の遅延パケットは同じ track に届く）、MID は拡張 seq が新しいパケットだけが対応付けを更新し、保留中の description は SSRC-less の m-line に commit まで触れない。model PBT（`ssrcRemoved` の traffic 検査、`ssrcAndMidRemoved`、`remoteSsrcSwitch`、`assertLearnedRoutes`）と提出前の敵対レビューで見つかった問題を直している。
+
+---
+
+## 8. 受け入れテスト
+
+`packages/webrtc/tests/media/acceptance.test.ts`（4 件、約 2 秒）。共通の Arrange（`answerRingCentral`、`connectWithoutSsrc`）は `tests/issue/356.test.ts` から `tests/media/ssrcLessTestUtils.ts` に移し、`connectWithoutSsrc` に `bundlePolicy` のオプションを足した。`src` は変更していない。
+
+**Before → After:** SDP に `a=ssrc`（と MID / RID 拡張）がない m-line の RTP は「ssrcReceiver not found」で全部捨てられていた → `ontrack` で通知済みの track に初回パケットから届き、SSRC の切替・remote SR・inbound-rtp 統計も追従する。受信先を PT で一意に決められない場合だけ、推測せず届けない（一意性は RTP session ごと）。
+
+| テスト | 要件 |
+| --- | --- |
+| (RingCentral offer) 初回パケットから ontrack の track に届き、SSRC が変わっても同じ track に届き続ける | 3.2・3.3・3.4 |
+| (werift 同士、BUNDLE) audio と video がそれぞれの track に届き、SR と統計も追従する | 3.2・3.3 |
+| (werift 同士、BUNDLE) PT が重なる 2 本の audio はどちらにも届けない | 3.2 |
+| (werift 同士、transport 別) 同じ PT の 2 本の audio もそれぞれの track に届く | 3.7・3.8 |
+
+### 検出力（1 か所ずつ壊して対象ファイルだけを実行し、元に戻した）
+
+| 壊した箇所 | 落ちた件 |
+| --- | --- |
+| M1 `peerConnection.ts`: `routeRtp(rtp, dtlsTransport)` → `routeRtp(rtp)` | RingCentral、BUNDLE audio+video、transport 別 |
+| M2 `routing/unknownSsrc.ts`: 曖昧判定（`byPayloadType.length > 1`）を外す | BUNDLE PT 重複 |
+| M3 `routing/unknownSsrc.ts`: PT 一意性の判定を受信 transport で絞らない | transport 別 |
+| M4 `rtpReceiver.ts` `bindFallbackSsrc`: 通知済みの既定 track ではなく新しい track に結び付ける | RingCentral、BUNDLE audio+video、transport 別 |
+| M5 `rtpReceiver.ts` `acceptsUnknownSsrc`: 学習済みの receiver は別 SSRC を学習しない | RingCentral（SSRC 切替） |
+| M6 `routing/rtcpRouting.ts`: SR を SSRC 経路で引かない | BUNDLE audio+video（SR） |
+
+- 修正前（develop `18c63e065`、一時 worktree にテストと共通 Arrange だけを置いて実行）: PT 重複の件以外の 3 件が「何も届かない」（`expected [] to deeply equal [ 'pt0-1', 'pt0-2' ]` など）で落ちた。PT 重複の件は develop では何も届かないため通る。この件が守る曖昧判定は M2 で検出を確認した。
+- 10 回連続で実行して全件成功（1 回 1.8〜2.6 秒）。
+- 仕様との食い違いはなかった。Assert は緩めていない。
+- 範囲外: 同じ数値の SSRC を別 transport で使うケース（3.7）は、werift の sender の SSRC をテストから決められないため受け入れテストに入れていない。`tests/media/router.test.ts` の組み合わせ表で確認している。RingCentral の元 SDP（`a=rtcp:48037` を含む）は 3.6 の合流ルールどおりヘルパーで 1 行除いている。

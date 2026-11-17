@@ -14,6 +14,19 @@ SDPに `a=ssrc` がない m-line（SIPゲートウェイ、SBC など）から�
 
 変更の中心は `RtpRouter` の未知SSRC学習（`learnUnknownSsrc`）と、学習したSSRCを通知済み track に結び付ける `RTCRtpReceiver` 側の処理です。`sdp.ts` は変更していません（`a=rtcp:48037` のパースは #355 の範囲で、テストでは該当1行だけをヘルパーで除いています）。
 
+### 受け入れテスト（ここだけ見れば目的の達成を確認できます）
+
+[packages/webrtc/tests/media/acceptance.test.ts](review-file:packages/webrtc/tests/media/acceptance.test.ts:17)（4 件、約 2 秒）。実行: `cd packages/webrtc && npx vitest run tests/media/acceptance.test.ts`
+
+| テスト | 確認すること |
+| --- | --- |
+| (RingCentral offer) 3.2・3.3・3.4 | 報告された offer の RTP が初回パケットから `ontrack` の track に届き、SSRC が変わっても同じ track に届き続ける（`ontrack` は再発火しない） |
+| (werift 同士、BUNDLE) 3.2・3.3 | 実際の ICE / DTLS 接続で、`a=ssrc` と MID のない audio / video がそれぞれの track に届き、相手の SR と inbound-rtp 統計も学習した SSRC に追従する |
+| (werift 同士、BUNDLE) 3.2 | PT が重なる 2 本は推測せず、どちらにも届けない |
+| (werift 同士、transport 別) 3.7・3.8 | 同じ PT の 2 本も RTP session が分かれていればそれぞれの track に届く |
+
+実装を 6 か所（transport を渡さない、曖昧判定、PT 一意性の transport 絞り込み、通知済み track への結び付け、SSRC 切替の学習、SR の SSRC 引き当て）壊すと、それぞれ対応する件が落ちます。develop では曖昧判定の件以外の 3 件が「何も届かない」で落ちます。詳細はチケット 8 章。
+
 ## 2. 修正前と修正後の流れ
 
 <div style="display:flex;gap:12px;flex-wrap:wrap;font-family:sans-serif;font-size:13px">

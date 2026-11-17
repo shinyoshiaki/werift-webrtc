@@ -1,42 +1,9 @@
-import { setTimeout } from "timers/promises";
+import { RtcpSenderInfo, RtcpSrPacket } from "../../src";
 import {
-  MediaStreamTrack,
-  RTCPeerConnection,
-  RtcpSenderInfo,
-  RtcpSrPacket,
-  RtpHeader,
-  RtpPacket,
-} from "../../src";
-import {
-  ringCentralOffer,
-  withoutAddresslessRtcp,
-  withoutSsrcAndMidExtension,
-} from "./356.fixture";
-
-/** Arrange: answer the RingCentral offer and capture the announced track. */
-async function answerRingCentral() {
-  const pc = new RTCPeerConnection();
-  const announced: MediaStreamTrack[] = [];
-  pc.ontrack = ({ track }) => announced.push(track);
-  // #355 が直るまでは a=rtcp:48037 だけを除く (fixture 自体は原文のまま)。
-  await pc.setRemoteDescription({
-    type: "offer",
-    sdp: withoutAddresslessRtcp(ringCentralOffer),
-  });
-  await pc.setLocalDescription(await pc.createAnswer());
-  const [transceiver] = pc.getTransceivers();
-  const dtls = transceiver.receiver.dtlsTransport;
-  const payloads: string[] = [];
-  announced[0].onReceiveRtp.subscribe((rtp) =>
-    payloads.push(rtp.payload.toString()),
-  );
-  const rtp = (ssrc: number, payloadType: number, sequenceNumber: number) =>
-    new RtpPacket(
-      new RtpHeader({ ssrc, payloadType, sequenceNumber, timestamp: 160 }),
-      Buffer.from(`pt${payloadType}-${sequenceNumber}`),
-    );
-  return { pc, announced, transceiver, dtls, payloads, rtp };
-}
+  answerRingCentral,
+  connectWithoutSsrc,
+} from "../media/ssrcLessTestUtils";
+import { ringCentralOffer, withoutAddresslessRtcp } from "./356.fixture";
 
 describe("issue #356 RTP without a=ssrc in SDP", () => {
   test("fixture は原文のままで、除くのは a=rtcp:48037 の 1 行だけ", () => {
@@ -109,56 +76,6 @@ describe("issue #356 RTP without a=ssrc in SDP", () => {
   });
 });
 
-/**
- * Arrange: pc1 sends `kinds` (one track each) to pc2 with SSRCs and the MID
- * extension removed from its offer, as a peer without them does.
- */
-async function connectWithoutSsrc(kinds: ("audio" | "video")[]) {
-  const pc1 = new RTCPeerConnection();
-  const pc2 = new RTCPeerConnection();
-  const sent = kinds.map((kind) => {
-    const track = new MediaStreamTrack({ kind });
-    const transceiver = pc1.addTransceiver(track, { direction: "sendonly" });
-    return { kind, track, transceiver };
-  });
-  const announced: MediaStreamTrack[] = [];
-  pc2.ontrack = ({ track }) => announced.push(track);
-
-  await pc1.setLocalDescription(await pc1.createOffer());
-  await pc2.setRemoteDescription({
-    type: "offer",
-    sdp: withoutSsrcAndMidExtension(pc1.localDescription!.sdp),
-  });
-  await pc2.setLocalDescription(await pc2.createAnswer());
-  await pc1.setRemoteDescription(pc2.localDescription!);
-  await Promise.all(
-    sent.map(
-      ({ transceiver }) =>
-        new Promise<void>((resolve) =>
-          transceiver.sender.onReady.subscribe(() => resolve()),
-        ),
-    ),
-  );
-
-  const received = announced.map((track) => {
-    const payloads: string[] = [];
-    track.onReceiveRtp.subscribe((rtp) =>
-      payloads.push(rtp.payload.toString()),
-    );
-    return payloads;
-  });
-  const sendAll = async (count: number) => {
-    for (let i = 0; i < count; i++) {
-      for (const { kind, track } of sent) {
-        track.writeRtp(new RtpPacket(new RtpHeader(), Buffer.from(kind)));
-      }
-      await setTimeout(20);
-    }
-  };
-  const close = () => Promise.all([pc1.close(), pc2.close()]);
-  return { pc2, announced, received, sendAll, close };
-}
-
 describe("issue #356 werift to werift without a=ssrc and MID extension", () => {
   test("BUNDLE の audio + video は PT が分かれていれば各 track に届く", async () => {
     // Arrange
@@ -174,8 +91,8 @@ describe("issue #356 werift to werift without a=ssrc and MID extension", () => {
     // Assert: 各 ontrack の track に自分の kind の RTP だけが届く
     expect(received[0].length).toBeGreaterThan(0);
     expect(received[1].length).toBeGreaterThan(0);
-    expect(new Set(received[0])).toEqual(new Set(["audio"]));
-    expect(new Set(received[1])).toEqual(new Set(["video"]));
+    expect(new Set(received[0])).toEqual(new Set(["audio0"]));
+    expect(new Set(received[1])).toEqual(new Set(["video1"]));
     await close();
   });
 
