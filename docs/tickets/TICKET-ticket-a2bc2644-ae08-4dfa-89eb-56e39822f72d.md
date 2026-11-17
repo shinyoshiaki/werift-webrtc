@@ -164,3 +164,6 @@ npm test
 - [ ] 拒否・停止 m-line の `rtcpMux = true` を削除し（4.1 案 A）、werift が生成する SDP が develop と同じであることをテストで固定する。拒否 m-section に `a=rtcp-mux` / `a=rtcp:` が出ず、生きている RTP m-section には今までどおり出ることを確認する。
 - [ ] 既存の negotiation・統合・#705 テストが、期待値を変えずにすべて通る。
 - [ ] TSDoc、`doc/`、`changelog.md` を更新する（公開 API に変更がある場合）。
+
+## #356 統合確認
+- [ ] #356 が先に develop に入ったため、`packages/webrtc/tests/issue/356.test.ts` の `a=rtcp:48037` 除去 helper を外し、元の RingCentral SDP で SSRC 学習・RTP 配送まで確認する。
