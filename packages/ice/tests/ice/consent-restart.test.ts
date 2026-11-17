@@ -31,12 +31,12 @@ describe("ICE consent restart integration", () => {
       await Promise.all([a.connect(), b.connect()]);
       expect(a.state).toBe("connected");
       expect(b.state).toBe("connected");
-      expect((a as any).consentFresh).toBe(true);
+      expect((a as any).consent.fresh).toBe(true);
 
       const oldRemotePassword = a.remotePassword;
       const oldLocalUsername = a.localUsername;
       const oldLocalPassword = a.localPassword;
-      const oldSession = (a as any).consentSessionId as number;
+      const oldSession = (a as any).consent.sessionId as number;
       const oldGeneration = a.generation;
       const packetsBeforeExpire = a.nominated?.packetsSent ?? 0;
 
@@ -75,23 +75,23 @@ describe("ICE consent restart integration", () => {
 
       // Assert: production expiry 経路（合成 setState ではない）
       expect(a.state).toBe("failed");
-      expect((a as any).consentFresh).toBe(false);
-      expect((a as any).consentSessionId).toBeGreaterThan(oldSession);
+      expect((a as any).consent.fresh).toBe(false);
+      expect((a as any).consent.sessionId).toBeGreaterThan(oldSession);
 
       // Act: 失効後は application data を送らない
       await a.send(Buffer.from("blocked"));
       expect(a.nominated?.packetsSent ?? 0).toBe(packetsBeforeExpire);
 
       // Act: 失効後に届いた「旧 credentials 相当」の遅延成功でも復帰しない
-      // （session が既に進んでいるため consentFresh は false のまま）
-      const sessionAfterExpire = (a as any).consentSessionId as number;
-      (a as any).consentFresh = false;
-      // 旧 remotePassword に戻しても、failed のままでは queryConsent は走らない
+      // （session が既に進んでいるため consent.fresh は false のまま）
+      const sessionAfterExpire = (a as any).consent.sessionId as number;
+      (a as any).consent.fresh = false;
+      // 旧 remotePassword に戻しても、failed のままでは consent.start() は走らない
       a.remotePassword = oldRemotePassword;
       await new Promise((r) => setTimeout(r, 50));
       expect(a.state).toBe("failed");
-      expect((a as any).consentFresh).toBe(false);
-      expect((a as any).consentSessionId).toBe(sessionAfterExpire);
+      expect((a as any).consent.fresh).toBe(false);
+      expect((a as any).consent.sessionId).toBe(sessionAfterExpire);
 
       // Act: 両端 ICE restart → 新 credentials で再交換・再接続
       await a.restart();
@@ -106,8 +106,8 @@ describe("ICE consent restart integration", () => {
 
       await Promise.all([a.connect(), b.connect()]);
       expect(a.state).toBe("connected");
-      expect((a as any).consentFresh).toBe(true);
-      expect((a as any).consentSessionId).toBeGreaterThan(sessionAfterExpire);
+      expect((a as any).consent.fresh).toBe(true);
+      expect((a as any).consent.sessionId).toBeGreaterThan(sessionAfterExpire);
 
       // Assert: 新接続で双方向に送れる
       const recvB = new Promise<string>((resolve) => {
@@ -125,7 +125,7 @@ describe("ICE consent restart integration", () => {
       // Assert: 旧 local credentials は新 session で使われない
       expect(a.localUsername).not.toBe(oldLocalUsername);
       expect(a.generation).toBeGreaterThan(oldGeneration);
-      expect((a as any).consentSessionId).toBeGreaterThan(oldSession);
+      expect((a as any).consent.sessionId).toBeGreaterThan(oldSession);
     },
     (CONSENT_TIMEOUT + 25) * 1000,
   );

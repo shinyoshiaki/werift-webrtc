@@ -23,6 +23,7 @@ import {
   type IceOptions,
   normalizeIceServerOptions,
 } from "../src/iceBase";
+import type { ProvisionalChecklist } from "../src/provisional";
 import type { AttributeKey } from "../src/stun/attributes";
 import {
   classes,
@@ -108,7 +109,7 @@ export class ConsentMockProtocol implements Protocol {
   type: string;
   localCandidate: Candidate;
   onRequestReceived = new Event<[Message, any, Buffer]>();
-  onDataReceived = new Event<[Buffer]>();
+  onDataReceived = new Event<[Buffer, Address]>();
   sentMessages: Message[] = [];
   sendStunCount = 0;
   requestTimes: number[] = [];
@@ -224,7 +225,7 @@ function delay(ms: number, signal?: AbortSignal): Promise<void> {
 
 /**
  * Arrange: Connection with a nominated pair and scripted consent outcomes.
- * Starts queryConsent() so tests only advance timers.
+ * Starts the consent checks (`consent.start()`) so tests only advance timers.
  */
 export function createConsentHarness(
   outcomes: ConsentOutcome[],
@@ -234,6 +235,10 @@ export function createConsentHarness(
     responseDelayMilliseconds?: number;
     protocolType?: string;
     transport?: string;
+    /** Options of the agent (e.g. `nomination`, `renomination`). */
+    iceOptions?: Partial<IceOptions>;
+    /** The peer advertised renomination. */
+    remoteRenomination?: boolean;
   } = {},
 ): ConsentHarness {
   const iceControlling = options.iceControlling ?? true;
@@ -261,14 +266,15 @@ export function createConsentHarness(
   );
   nominated.nominated = true;
 
-  const connection = new Connection(iceControlling);
+  const connection = new Connection(iceControlling, options.iceOptions);
   connection.remoteUsername = "remote";
   connection.remotePassword = "remote-password";
   connection.remoteIsLite = options.remoteIsLite ?? true;
+  connection.remoteRenomination = options.remoteRenomination ?? false;
   connection.nominated = nominated;
   connection.state = "connected";
   // Private method is reachable at runtime for consent lifecycle tests.
-  (connection as any).queryConsent();
+  (connection as any).consent.start();
 
   return {
     connection,
@@ -558,7 +564,7 @@ export function addTcpPair(harness: ReturnType<typeof createTcpCheckHarness>) {
 /** Arrange: incoming ICE connectivity check sent by the controlled peer. */
 export function createIncomingCheck(
   connection: Connection,
-  options: { useCandidate?: boolean } = {},
+  options: { useCandidate?: boolean; nomination?: number } = {},
 ) {
   const request = new Message(methods.BINDING, classes.REQUEST);
   request
@@ -569,6 +575,9 @@ export function createIncomingCheck(
     .setAttribute("PRIORITY", 1_000)
     .setAttribute("ICE-CONTROLLED", 1n);
   if (options.useCandidate) request.setAttribute("USE-CANDIDATE", null);
+  if (options.nomination !== undefined) {
+    request.setAttribute("NOMINATION", options.nomination);
+  }
   return request;
 }
 
@@ -681,15 +690,7 @@ export function remoteHostCandidate(port: number, host = "127.0.0.1") {
 
 /** Test-only observation of the provisional generation of `connection`. */
 export function provisionalGeneration(connection: Connection) {
-  return (
-    connection as unknown as {
-      provisional?: {
-        remoteCandidates: Candidate[];
-        remoteCandidatesEnd: boolean;
-        pairs: CandidatePair[];
-      };
-    }
-  ).provisional;
+  return provisionalChecklistOf(connection).generation;
 }
 
 /**
@@ -711,21 +712,26 @@ export function holdNextCheckResponse(pair: CandidatePair) {
   return { release };
 }
 
+/** Test-only access to the agent's provisional (pranswer ICE restart) checklist. */
+export function provisionalChecklistOf(connection: Connection) {
+  return (
+    connection as unknown as { provisionalChecklist: ProvisionalChecklist }
+  ).provisionalChecklist;
+}
+
 /** Test-only access to start one provisional check of `pair` directly. */
 export function checkProvisionalPair(
   connection: Connection,
   pair: CandidatePair,
 ) {
-  const internal = connection as unknown as {
-    provisional?: { started: boolean };
-    checkProvisional: (
-      generation: unknown,
-      pair: CandidatePair,
-    ) => Promise<void>;
-  };
-  const generation = internal.provisional!;
+  const checklist = provisionalChecklistOf(connection);
+  const generation = checklist.generation!;
   generation.started = true;
-  return internal.checkProvisional(generation, pair);
+  return (
+    checklist as unknown as {
+      check: (generation: unknown, pair: CandidatePair) => Promise<void>;
+    }
+  ).check(generation, pair);
 }
 
 /**
@@ -1521,6 +1527,8 @@ export type ScriptedReply = "success" | "hold" | 401 | 487;
 /** One request ScriptedCheckProtocol received. */
 export type ScriptedRequest = {
   message: Message;
+  /** Destination of the request (the pair's remote address). */
+  addr: Address;
   nominate: boolean;
   /** Settled (answered, failed, or cancelled by its signal). */
   done: boolean;
@@ -1538,7 +1546,7 @@ export class ScriptedCheckProtocol implements Protocol {
   type: string;
   localCandidate: Candidate;
   onRequestReceived = new Event<[Message, any, Buffer]>();
-  onDataReceived = new Event<[Buffer]>();
+  onDataReceived = new Event<[Buffer, Address]>();
   readonly requests: ScriptedRequest[] = [];
   readonly request: Protocol["request"];
 
@@ -1566,6 +1574,7 @@ export class ScriptedCheckProtocol implements Protocol {
       return new Promise((resolve, reject) => {
         const entry: ScriptedRequest = {
           message,
+          addr,
           nominate,
           done: false,
           release: (outcome) => {
@@ -1613,6 +1622,15 @@ export class ScriptedCheckProtocol implements Protocol {
   async close() {}
 }
 
+/** A USE-CANDIDATE check of the live checklist (ICE-lite or regular nomination) is in flight. */
+export function nominationInFlight(connection: Connection) {
+  const internals = connection as unknown as {
+    liteNominating: boolean;
+    nomination: { inFlight: boolean };
+  };
+  return internals.liteNominating || internals.nomination.inFlight;
+}
+
 /**
  * Shared Arrange: a controlling Connection whose remote credentials are set
  * and whose single protocol is a ScriptedCheckProtocol; `addPair()` puts a
@@ -1656,8 +1674,7 @@ export function createScriptedCheckHarness({
     pair.handle = connection.checkStart(pair);
     return pair.handle;
   };
-  const nominating = () =>
-    (connection as unknown as { nominating: boolean }).nominating;
+  const nominating = () => nominationInFlight(connection);
   return {
     connection,
     protocol,
@@ -1666,6 +1683,546 @@ export function createScriptedCheckHarness({
     nominating,
     setRemoteCredentials,
   };
+}
+
+// --- regular nomination ---
+
+/**
+ * Shared Arrange for regular nomination: a controlling full agent whose local
+ * gathering finished, with one ScriptedCheckProtocol. Ordinary checks stay in
+ * flight until `succeed` / `fail`; USE-CANDIDATE checks are answered by
+ * `nominationReply` (success by default). Remote candidates are trickled with
+ * `addRemote(priority)` (a higher priority makes a higher-priority pair), the
+ * way signaling delivers them, so the agent sees each pair being added.
+ */
+export function createNominationHarness({
+  nomination = "regular",
+  renomination = false,
+  nominationDelayMs,
+  remoteIsLite = false,
+  nominationReply = () => "success",
+  localPriorities = [undefined],
+  localTypes = [],
+  forceTurn,
+  honorSignal = true,
+}: {
+  /** `IceOptions.nomination`; the regular nomination cases are the default. */
+  nomination?: "regular" | "semi-aggressive";
+  /** Both agents advertise renomination (`IceOptions.renomination`). */
+  renomination?: boolean;
+  nominationDelayMs?: number;
+  remoteIsLite?: boolean;
+  /**
+   * The answer to a USE-CANDIDATE check. With semi-aggressive nomination
+   * ordinary checks carry USE-CANDIDATE too: pass `() => "hold"` and answer
+   * them with `release`.
+   */
+  nominationReply?: (nominationIndex: number) => ScriptedReply;
+  /** One local candidate (socket) per entry; undefined keeps the host default. */
+  localPriorities?: (number | undefined)[];
+  /** Protocol type per local candidate (`"stun"`: a host socket, `"turn"`: a relay); unset keeps the scripted type. */
+  localTypes?: ("stun" | "turn" | undefined)[];
+  forceTurn?: boolean;
+  /** false: a held request still answers after its signal aborted (a late response). */
+  honorSignal?: boolean;
+} = {}) {
+  let nominationCount = 0;
+  const protocols = localPriorities.map((priority, index) => {
+    const local = new ScriptedCheckProtocol(
+      "udp",
+      ({ nominate }) =>
+        nominate ? nominationReply(nominationCount++) : "hold",
+      honorSignal,
+    );
+    local.localCandidate.foundation = `local${index}`;
+    local.localCandidate.port = 4000 + index;
+    if (forceTurn && index === 0) {
+      // The first scripted path stands in for TURN in forceTurn cases.
+      local.localCandidate.type = "relay";
+    }
+    if (priority !== undefined) local.localCandidate.priority = priority;
+    const type = localTypes[index];
+    if (type) local.type = type;
+    return local;
+  });
+  const [protocol] = protocols;
+  const requestsOf = (pair: CandidatePair) =>
+    (pair.protocol as ScriptedCheckProtocol).requests;
+  const allRequests = () => protocols.flatMap((local) => local.requests);
+  const connection = new Connection(true, {
+    nomination,
+    renomination,
+    nominationDelayMs,
+    forceTurn,
+    ...(forceTurn
+      ? {
+          turnServer: ["192.0.2.10", 3478] as const,
+          turnUsername: "test-user",
+          turnPassword: "test-password",
+        }
+      : {}),
+  });
+  connection.remoteIsLite = remoteIsLite;
+  connection.remoteRenomination = renomination;
+  connection.remoteUsername = "remote";
+  connection.remotePassword = "remote-password-0000000000";
+  connection.localCandidatesEnd = true;
+  (connection as unknown as { protocols: Protocol[] }).protocols.push(
+    ...protocols,
+  );
+  // As gathering does: the agent listens to each socket's events.
+  for (const local of protocols) {
+    (
+      connection as unknown as { ensureProtocol(protocol: Protocol): void }
+    ).ensureProtocol(local);
+  }
+
+  let port = 5000;
+  const remoteCandidate = (priority: number) =>
+    new Candidate(
+      `remote${port}`,
+      1,
+      "udp",
+      priority,
+      "192.0.2.2",
+      port++,
+      "host",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+    );
+  /**
+   * Trickle a remote candidate; returns the live pairs it formed, one per
+   * local candidate in `localPriorities` order.
+   */
+  const addRemotePairs = async (priority: number) => {
+    const candidate = remoteCandidate(priority);
+    await connection.addRemoteCandidate(candidate);
+    return protocols.map(
+      (local) =>
+        connection.checkList.find(
+          (pair) =>
+            pair.remoteCandidate === candidate && pair.protocol === local,
+        )!,
+    );
+  };
+  /** Trickle a remote candidate; returns the pair it formed with the first local candidate. */
+  const addRemote = async (priority: number) =>
+    (await addRemotePairs(priority))[0];
+  /** Start the ordinary check of `pair` as the scheduler does. */
+  const check = (pair: CandidatePair) => {
+    pair.handle = connection.checkStart(pair);
+    return pair.handle;
+  };
+  const pendingCheck = (pair: CandidatePair) =>
+    requestsOf(pair).find(
+      (request) =>
+        !request.nominate &&
+        !request.done &&
+        request.addr[0] === pair.remoteAddr[0] &&
+        request.addr[1] === pair.remoteAddr[1],
+    );
+  /** Answer the ordinary check of `pair` in flight. */
+  const succeed = async (pair: CandidatePair) => {
+    pendingCheck(pair)!.release("success");
+    await vi.advanceTimersByTimeAsync(0);
+  };
+  /** Let the ordinary check of `pair` in flight time out. */
+  const fail = async (pair: CandidatePair) => {
+    pendingCheck(pair)!.release("failure");
+    await vi.advanceTimersByTimeAsync(0);
+  };
+  /**
+   * Answer the oldest request to `pair` still in flight, whatever it
+   * carries (semi-aggressive checks carry USE-CANDIDATE, renomination
+   * checks NOMINATION).
+   */
+  const release = async (
+    pair: CandidatePair,
+    outcome: "success" | "failure" = "success",
+  ) => {
+    requestsOf(pair)
+      .find(
+        (request) =>
+          !request.done &&
+          request.addr[0] === pair.remoteAddr[0] &&
+          request.addr[1] === pair.remoteAddr[1],
+      )!
+      .release(outcome);
+    await vi.advanceTimersByTimeAsync(0);
+  };
+  /** The requests sent to `pair`, in order. */
+  const requestsTo = (pair: CandidatePair) =>
+    requestsOf(pair).filter(
+      (request) =>
+        request.addr[0] === pair.remoteAddr[0] &&
+        request.addr[1] === pair.remoteAddr[1],
+    );
+  /** USE-CANDIDATE checks sent so far, with the port they were sent to. */
+  const nominations = () => allRequests().filter((request) => request.nominate);
+  /** Let every request still in flight time out (checks and nominations). */
+  const timeOutPending = async () => {
+    for (const request of allRequests()) {
+      if (!request.done) request.release("failure");
+    }
+    await vi.advanceTimersByTimeAsync(0);
+  };
+  /** Every request sent, ordinary checks and nominations alike. */
+  const requests = () => allRequests();
+  const ordinaryChecks = () =>
+    allRequests().filter((request) => !request.nominate);
+
+  // Provisional generation (an ICE restart signalled in a pranswer).
+  const stageProvisional = () => {
+    connection.stageLocalCredentials("provA", "provisional-password-a-000");
+    connection.setProvisionalRemoteParams({
+      usernameFragment: "provB",
+      password: "provisional-password-b-000",
+    });
+    connection.startProvisionalChecks();
+  };
+  /**
+   * Trickle a provisional remote candidate (its checks start at once);
+   * returns its pairs, one per local candidate in `localPriorities` order.
+   */
+  const addProvisionalRemotePairs = async (priority: number) => {
+    const candidate = remoteCandidate(priority);
+    await connection.addProvisionalRemoteCandidate(candidate);
+    return protocols.map(
+      (local) =>
+        provisionalGeneration(connection)!.pairs.find(
+          (pair) =>
+            pair.remoteCandidate === candidate && pair.protocol === local,
+        )!,
+    );
+  };
+  /** Trickle a provisional remote candidate; returns its pair with the first local candidate. */
+  const addProvisionalRemote = async (priority: number) =>
+    (await addProvisionalRemotePairs(priority))[0];
+  /** Replacement pranswer: new remote credentials for the provisional checklist. */
+  const replaceProvisionalRemote = () =>
+    connection.setProvisionalRemoteParams({
+      usernameFragment: "provC",
+      password: "provisional-password-c-000",
+    });
+  /**
+   * The final answer of the restart `stageProvisional` started, the way the
+   * webrtc transport commits it: the agent restarts with the staged local
+   * credentials and takes the answer's remote ones (by default the
+   * pranswer's) and gathering ends again.
+   */
+  const finalAnswer = async ({
+    usernameFragment = "provB",
+    password = "provisional-password-b-000",
+  } = {}) => {
+    await connection.restart();
+    connection.commitLocalCredentials("provA", "provisional-password-a-000");
+    connection.setRemoteParams({
+      iceLite: remoteIsLite,
+      usernameFragment,
+      password,
+    });
+    connection.localCandidatesEnd = true;
+    // The live checks of the new generation begin, as connect() marks them.
+    (connection as unknown as { checksBegun: boolean }).checksBegun = true;
+  };
+  /**
+   * The commit drops the local socket of `pair` from the agent, as
+   * `gatherCandidates()` does for a TURN allocation it replaces or a socket
+   * the gather options exclude.
+   */
+  const dropLocalSocketOf = (pair: CandidatePair) => {
+    const internals = connection as unknown as { protocols: Protocol[] };
+    internals.protocols = internals.protocols.filter(
+      (protocol) => protocol !== pair.protocol,
+    );
+  };
+  /**
+   * Signal the remote candidate of `pair` (a provisional one) again to the
+   * live checklist; returns the live pair with the same local candidate.
+   */
+  const addRemoteLike = async (pair: CandidatePair) => {
+    const { remoteCandidate: c } = pair;
+    const candidate = new Candidate(
+      c.foundation,
+      c.component,
+      c.transport,
+      c.priority,
+      c.host,
+      c.port,
+      c.type,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+    );
+    await connection.addRemoteCandidate(candidate);
+    return connection.checkList.find(
+      (live) =>
+        live.remoteCandidate === candidate && live.protocol === pair.protocol,
+    )!;
+  };
+
+  /** Role change as a role-conflict repair makes it (RFC 8445 §7.3.1.1). */
+  const switchRole = (iceControlling: boolean) =>
+    (
+      connection as unknown as { switchRole: (controlling: boolean) => void }
+    ).switchRole(iceControlling);
+  /**
+   * The peer's ordinary check arrives from the address of `pair` (a
+   * provisional pair) on its socket; returns the live pair it forms (a
+   * peer-reflexive one when that address was not signalled).
+   */
+  const receiveCheckLike = (pair: CandidatePair) => {
+    connection.checkIncoming(
+      createIncomingCheck(connection),
+      pair.remoteAddr,
+      pair.protocol,
+    );
+    return connection.checkList.find(
+      (live) =>
+        live.protocol === pair.protocol &&
+        live.remoteAddr[0] === pair.remoteAddr[0] &&
+        live.remoteAddr[1] === pair.remoteAddr[1],
+    )!;
+  };
+  /** The peer (controlling) nominates provisional `pair` with USE-CANDIDATE. */
+  const receiveProvisionalNomination = (pair: CandidatePair) => {
+    const request = new Message(methods.BINDING, classes.REQUEST)
+      .setAttribute("USERNAME", "provA:provB")
+      .setAttribute("PRIORITY", 1_000)
+      .setAttribute("ICE-CONTROLLING", 1n)
+      .setAttribute("USE-CANDIDATE", null);
+    provisionalChecklistOf(connection).checkIncoming(
+      provisionalGeneration(connection)!,
+      request,
+      pair.remoteAddr,
+      pair.protocol,
+    );
+  };
+  /**
+   * The peer (now controlling) nominates `pair` with USE-CANDIDATE, or with
+   * a NOMINATION value (renomination).
+   */
+  const receiveNomination = (pair: CandidatePair, nomination?: number) =>
+    connection.checkIncoming(
+      createIncomingCheck(
+        connection,
+        nomination === undefined ? { useCandidate: true } : { nomination },
+      ),
+      pair.remoteAddr,
+      pair.protocol,
+    );
+
+  /** The peer sends application data on `pair` (it arrives from its remote address). */
+  const receiveData = (pair: CandidatePair) =>
+    (pair.protocol as ScriptedCheckProtocol).onDataReceived.execute(
+      Buffer.from("data"),
+      pair.remoteAddr,
+    );
+
+  return {
+    connection,
+    protocol,
+    switchRole,
+    receiveNomination,
+    receiveData,
+    receiveProvisionalNomination,
+    timeOutPending,
+    requests,
+    addRemote,
+    addRemotePairs,
+    check,
+    succeed,
+    fail,
+    release,
+    requestsTo,
+    nominations,
+    ordinaryChecks,
+    stageProvisional,
+    addProvisionalRemote,
+    addProvisionalRemotePairs,
+    replaceProvisionalRemote,
+    finalAnswer,
+    addRemoteLike,
+    receiveCheckLike,
+    dropLocalSocketOf,
+  };
+}
+
+/**
+ * Arrange: `connection` processes the first `count` USE-CANDIDATE checks it
+ * receives (so it may select their pair) but their responses, including the
+ * ones answering retransmissions, never leave: only the response is lost.
+ * Call after gathering, when the connection's sockets exist.
+ */
+export function dropNominationResponses(connection: Connection, count = 1) {
+  const dropped = new Set<string>();
+  let remaining = count;
+  /** USE-CANDIDATE checks received from now on are answered. */
+  const stop = () => {
+    remaining = 0;
+  };
+  const protocols = (connection as unknown as { protocols: Protocol[] })
+    .protocols;
+  for (const protocol of protocols) {
+    const execute = protocol.onRequestReceived.execute;
+    protocol.onRequestReceived.execute = (message, addr, data) => {
+      const id = message.transactionIdHex;
+      if (
+        message.attributesKeys.includes("USE-CANDIDATE") &&
+        !dropped.has(id) &&
+        remaining > 0
+      ) {
+        remaining--;
+        dropped.add(id);
+      }
+      execute(message, addr, data);
+    };
+    const sendStun = protocol.sendStun.bind(protocol);
+    protocol.sendStun = async (message, addr) => {
+      if (
+        message.messageClass !== classes.REQUEST &&
+        dropped.has(message.transactionIdHex)
+      ) {
+        return;
+      }
+      return sendStun(message, addr);
+    };
+  }
+  return { dropped, stop };
+}
+
+/**
+ * Arrange: from now on `connection` ignores every STUN request reaching its
+ * socket at `host`:`port` (checks on that path time out); requests it sends
+ * itself are unaffected.
+ */
+export function ignoreRequestsOn(
+  connection: Connection,
+  host: string,
+  port: number,
+) {
+  const protocols = (connection as unknown as { protocols: Protocol[] })
+    .protocols;
+  for (const protocol of protocols) {
+    const local = protocol.localCandidate;
+    if (local?.host !== host || local.port !== port) continue;
+    protocol.onRequestReceived.execute = () => {};
+  }
+}
+
+/**
+ * Arrange: a controlling and a controlled host-only agent that each gather
+ * the loopback address beside the machine's own, so several valid pairs
+ * exist. Candidates and credentials are exchanged; checks have not started.
+ */
+export async function createMultiPathPair() {
+  const options: Partial<IceOptions> = {
+    nomination: "regular",
+    useIpv6: false,
+    additionalHostAddresses: ["127.0.0.1"],
+  };
+  const a = createTestConnection(true, options);
+  const b = createTestConnection(false, options);
+  await inviteAccept(a, b);
+  return { a, b };
+}
+
+/** Copy of `candidate` as signalling delivers it again (no ufrag: either generation may take it). */
+const signalledCandidate = (candidate: Candidate) =>
+  new Candidate(
+    candidate.foundation,
+    candidate.component,
+    candidate.transport,
+    candidate.priority,
+    candidate.host,
+    candidate.port,
+    candidate.type,
+    candidate.relatedAddress,
+    candidate.relatedPort,
+    candidate.tcptype,
+    undefined,
+    undefined,
+  );
+
+/**
+ * Shared Arrange: `createMultiPathPair` connected, then an ICE restart
+ * negotiated up to its pranswer, the way the webrtc transport drives it.
+ * Both agents stage the restart credentials and run the provisional
+ * checklist; the controlling agent `a` only learns `b`'s lowest-priority
+ * candidate (`bLowest`) in the pranswer (the others follow in the final answer), so the
+ * provisional checklist nominates a pair the live checklist would rank
+ * lower. `commit(agent, remoteCandidates)` applies the final answer to one
+ * agent and starts its live checks.
+ */
+export async function createProvisionalRestartPair() {
+  const { a, b } = await createMultiPathPair();
+  await Promise.all([a.connect(), b.connect()]);
+  const credentials = new Map([
+    [a, { usernameFragment: "provA", password: "provisional-password-a-000" }],
+    [b, { usernameFragment: "provB", password: "provisional-password-b-000" }],
+  ]);
+  const peerOf = (agent: Connection) => (agent === a ? b : a);
+  const aCandidates = a.localCandidates.map(signalledCandidate);
+  const bCandidates = b.localCandidates.map(signalledCandidate);
+  // b signals its loopback candidate with the lowest priority, so its pairs
+  // rank below the others in a's checklists.
+  const bLowest =
+    bCandidates.find((candidate) => candidate.host === "127.0.0.1") ??
+    bCandidates[0];
+  bLowest.priority -= 1000;
+
+  const startProvisional = async () => {
+    for (const agent of [a, b]) {
+      const own = credentials.get(agent)!;
+      agent.stageLocalCredentials(own.usernameFragment, own.password);
+    }
+    for (const agent of [a, b]) {
+      agent.setProvisionalRemoteParams(credentials.get(peerOf(agent))!);
+    }
+    for (const candidate of aCandidates) {
+      await b.addProvisionalRemoteCandidate(candidate);
+    }
+    await b.addProvisionalRemoteCandidate(undefined);
+    await a.addProvisionalRemoteCandidate(signalledCandidate(bLowest));
+    await a.addProvisionalRemoteCandidate(undefined);
+    b.startProvisionalChecks();
+    a.startProvisionalChecks();
+  };
+
+  /**
+   * The final answer reaches `agent`: it restarts to the staged generation.
+   * `signalCandidates: false`: the answer carries end-of-candidates but none
+   * of the peer's candidates (only incoming checks form pairs).
+   */
+  const commit = async (
+    agent: Connection,
+    { signalCandidates = true } = {},
+  ) => {
+    const own = credentials.get(agent)!;
+    await agent.restart();
+    agent.commitLocalCredentials(own.usernameFragment, own.password);
+    agent.setRemoteParams({
+      iceLite: false,
+      ...credentials.get(peerOf(agent))!,
+    });
+    await agent.gatherCandidates();
+    for (const candidate of signalCandidates
+      ? agent === a
+        ? bCandidates
+        : aCandidates
+      : []) {
+      await agent.addRemoteCandidate(candidate);
+    }
+    await agent.addRemoteCandidate(undefined);
+    return agent.connect();
+  };
+
+  return { a, b, bLowest, startProvisional, commit };
 }
 
 /** `udp/host`, `tcp/host`, `udp/srflx`, `udp/relay`, ... of the local candidates. */
@@ -1796,6 +2353,83 @@ export function connectionProtocols(connection: Connection) {
   return (connection as unknown as { protocols: Protocol[] }).protocols;
 }
 
+/**
+ * Shared Arrange: a relay-only controlling agent `a` (forceTurn through a
+ * local TURN server) and a host-only controlled agent `b`, connected, then an
+ * ICE restart negotiated up to its pranswer: both stage the restart
+ * credentials and run the provisional checklist, which `a` checks over the
+ * TURN allocation it kept. `commit(agent)` applies the final answer to one
+ * agent (restart to the staged credentials and gather); `connectBoth()`
+ * then exchanges the committed candidates and connects both.
+ */
+export async function createRelayProvisionalRestartPair() {
+  const server = await createLocalTurnServer(getHostAddresses(true, false)[0]!);
+  const a = createTestConnection(true, {
+    ...localTurnOptions(server),
+    nomination: "regular",
+  });
+  const b = createTestConnection(false, { useIpv6: false });
+  await Promise.all([a.gatherCandidates(), b.gatherCandidates()]);
+  exchangeIceCredentials(a, b);
+  await deliverLocalCandidates(a, b, { endOfCandidates: true });
+  await deliverLocalCandidates(b, a, { endOfCandidates: true });
+  await Promise.all([a.connect(), b.connect()]);
+
+  const credentials = new Map([
+    [a, { usernameFragment: "provA", password: "provisional-password-a-000" }],
+    [b, { usernameFragment: "provB", password: "provisional-password-b-000" }],
+  ]);
+  const peerOf = (agent: Connection) => (agent === a ? b : a);
+
+  const startProvisional = async () => {
+    for (const agent of [a, b]) {
+      const own = credentials.get(agent)!;
+      agent.stageLocalCredentials(own.usernameFragment, own.password);
+    }
+    for (const agent of [a, b]) {
+      agent.setProvisionalRemoteParams(credentials.get(peerOf(agent))!);
+      for (const candidate of peerOf(agent).localCandidates) {
+        await agent.addProvisionalRemoteCandidate(
+          signalledCandidate(candidate),
+        );
+      }
+      await agent.addProvisionalRemoteCandidate(undefined);
+    }
+    b.startProvisionalChecks();
+    a.startProvisionalChecks();
+  };
+
+  /** The final answer reaches `agent`: it restarts to the staged generation and gathers it. */
+  const commit = async (agent: Connection) => {
+    const own = credentials.get(agent)!;
+    await agent.restart();
+    agent.commitLocalCredentials(own.usernameFragment, own.password);
+    agent.setRemoteParams({
+      iceLite: false,
+      ...credentials.get(peerOf(agent))!,
+    });
+    await agent.gatherCandidates();
+  };
+
+  /** Signal each committed generation's candidates to the other and connect both. */
+  const connectBoth = async () => {
+    await deliverLocalCandidates(a, b, { endOfCandidates: true });
+    await deliverLocalCandidates(b, a, { endOfCandidates: true });
+    await Promise.all([a.connect(), b.connect()]);
+  };
+
+  return {
+    a,
+    b,
+    startProvisional,
+    commit,
+    connectBoth,
+    close: async () => {
+      await Promise.allSettled([a.close(), b.close()]);
+      await server.close();
+    },
+  };
+}
 // --- mDNS lookup lifecycle ---
 
 /** Shared Arrange: an in-memory `multicast-dns` stand-in (no socket). */
@@ -2333,4 +2967,285 @@ export function localReflexiveCandidates(connection: Connection) {
   return connection.localCandidates.filter(
     (candidate) => candidate.type === "srflx",
   );
+}
+
+// --- semi-aggressive nomination / renomination ---
+
+/**
+ * Shared Arrange: two agents over real loopback sockets with two host paths
+ * each (a = controlling), credentials and candidates exchanged with
+ * end-of-candidates. `options` applies to both (e.g. `renomination: true`);
+ * `remoteRenomination` marks that each one saw the other advertise
+ * renomination, as the webrtc layer does from `a=ice-options`.
+ */
+export async function createSelectionPair({
+  options = {},
+  remoteRenomination = false,
+}: {
+  options?: Partial<IceOptions>;
+  remoteRenomination?: boolean;
+} = {}) {
+  const shared: Partial<IceOptions> = {
+    useIpv6: false,
+    additionalHostAddresses: ["127.0.0.1"],
+    ...options,
+  };
+  const a = createTestConnection(true, shared);
+  const b = createTestConnection(false, shared);
+  a.remoteRenomination = remoteRenomination;
+  b.remoteRenomination = remoteRenomination;
+  await inviteAccept(a, b);
+  return { a, b };
+}
+
+/** A STUN request an agent sent, as `recordSentRequests` keeps it. */
+export type SentRequest = {
+  address: Address;
+  useCandidate: boolean;
+  /** The NOMINATION value, when the request carried one. */
+  nomination?: number;
+  controlling: boolean;
+};
+
+/** Arrange: record every STUN request `connection`'s sockets send from now on. */
+export function recordSentRequests(connection: Connection) {
+  const sent: SentRequest[] = [];
+  for (const protocol of (connection as unknown as { protocols: Protocol[] })
+    .protocols) {
+    const original = protocol.request.bind(protocol);
+    protocol.request = ((
+      message: Message,
+      address: Address,
+      ...rest: unknown[]
+    ) => {
+      const keys = message.attributesKeys;
+      sent.push({
+        address,
+        useCandidate: keys.includes("USE-CANDIDATE"),
+        nomination: keys.includes("NOMINATION")
+          ? message.getAttributeValue("NOMINATION")
+          : undefined,
+        controlling: keys.includes("ICE-CONTROLLING"),
+      });
+      return (original as (...args: unknown[]) => unknown)(
+        message,
+        address,
+        ...rest,
+      );
+    }) as typeof protocol.request;
+  }
+  return sent;
+}
+
+/** The selected pairs of `a` and `b` are the same path (one 5-tuple seen from both ends). */
+export function selectSamePath(a: Connection, b: Connection) {
+  const pa = a.nominated;
+  const pb = b.nominated;
+  if (!pa || !pb) return false;
+  return (
+    pa.localCandidate.host === pb.remoteAddr[0] &&
+    pa.localCandidate.port === pb.remoteAddr[1] &&
+    pb.localCandidate.host === pa.remoteAddr[0] &&
+    pb.localCandidate.port === pa.remoteAddr[1]
+  );
+}
+
+/**
+ * Shared Arrange: a controlling agent `a` with a host and a TURN relay
+ * candidate, and a controlled host-only agent `b`. The host ↔ host pair
+ * outranks the relay one, but the requests of both agents on it wait
+ * (unsent, cancellable) until `open()`: the agents select the relay pair
+ * first, while `b`'s check of the host pair is still in flight. With
+ * `drop`, those requests are lost instead (they time out at once), so both
+ * agents' checks of the host pair fail before `open()`. `nomination` /
+ * `nominationDelayMs` set `IceOptions` of both agents.
+ */
+export async function createDelayedPreferredPathPair({
+  renomination = false,
+  drop = false,
+  nomination,
+  nominationDelayMs,
+}: {
+  renomination?: boolean;
+  drop?: boolean;
+  nomination?: IceOptions["nomination"];
+  nominationDelayMs?: number;
+} = {}) {
+  const host = getHostAddresses(true, false)[0]!;
+  const server = await createLocalTurnServer(host);
+  const shared: Partial<IceOptions> = {
+    useIpv6: false,
+    renomination,
+    nomination,
+    nominationDelayMs,
+  };
+  const a = createTestConnection(true, {
+    ...shared,
+    ...localTurnOptions(server),
+    forceTurn: false,
+  });
+  const b = createTestConnection(false, shared);
+  a.remoteRenomination = renomination;
+  b.remoteRenomination = renomination;
+  await Promise.all([a.gatherCandidates(), b.gatherCandidates()]);
+  exchangeIceCredentials(a, b);
+
+  let isOpen = false;
+  let open!: () => void;
+  const opened = new Promise<void>((resolve) => {
+    open = () => {
+      isOpen = true;
+      resolve();
+    };
+  });
+  const hostOf = (connection: Connection) =>
+    connection.localCandidates.find((candidate) => candidate.type === "host")!;
+  const hold = (connection: Connection, peer: Candidate) => {
+    for (const protocol of (connection as unknown as { protocols: Protocol[] })
+      .protocols) {
+      if (protocol.localCandidate?.type !== "host") continue;
+      const original = protocol.request.bind(protocol);
+      protocol.request = (async (
+        message: Message,
+        address: Address,
+        integrityKey?: Buffer,
+        options?: TransactionRequestOptions,
+      ) => {
+        if (address[0] === peer.host && address[1] === peer.port) {
+          if (drop && !isOpen) {
+            await new Promise((resolve) => setTimeout(resolve, 10));
+            throw new TransactionTimeout();
+          }
+          const signal = options?.signal;
+          await new Promise<void>((resolve, reject) => {
+            const abort = () => reject(new TransactionCancelled());
+            if (signal?.aborted) return abort();
+            signal?.addEventListener("abort", abort, { once: true });
+            void opened.then(() => {
+              signal?.removeEventListener("abort", abort);
+              resolve();
+            });
+          });
+        }
+        return original(message, address, integrityKey, options);
+      }) as typeof protocol.request;
+    }
+  };
+  hold(a, hostOf(b));
+  hold(b, hostOf(a));
+  await deliverLocalCandidates(a, b, { endOfCandidates: true });
+  await deliverLocalCandidates(b, a, { endOfCandidates: true });
+
+  /** `connection` selected the host ↔ host pair. */
+  const selectsPreferred = (connection: Connection) =>
+    connection.nominated?.localCandidate.type === "host" &&
+    connection.nominated.remoteCandidate.type === "host";
+  /** `connection`'s host ↔ host pair. */
+  const preferredPair = (connection: Connection) =>
+    connection.checkList.find(
+      (pair) =>
+        pair.localCandidate.type === "host" &&
+        pair.remoteCandidate.type === "host",
+    )!;
+  /** `connection`'s relay pair (a's relay candidate ↔ b's host). */
+  const relayPair = (connection: Connection) =>
+    connection.checkList.find(
+      (pair) =>
+        pair.localCandidate.type === "relay" ||
+        pair.remoteCandidate.type === "relay",
+    )!;
+  return {
+    a,
+    b,
+    open,
+    selectsPreferred,
+    preferredPair,
+    relayPair,
+    close: async () => {
+      await Promise.allSettled([a.close(), b.close()]);
+      await server.close();
+    },
+  };
+}
+
+// --- property tests ---
+
+/**
+ * Shared Arrange of the property tests: a deterministic PRNG (mulberry32), so
+ * a failing seed replays exactly (the same stream as
+ * `packages/webrtc/tests/pbt/shared/random.ts`).
+ */
+export function seededRandom(seed: number) {
+  let state = seed >>> 0;
+  const next = () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let t = state;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  return {
+    next,
+    chance: (p: number) => next() < p,
+    pick: <T>(items: readonly T[]) => items[Math.floor(next() * items.length)],
+    /** Integer in `[min, max)`. */
+    int: (min: number, max: number) => min + Math.floor(next() * (max - min)),
+  };
+}
+export type SeededRandom = ReturnType<typeof seededRandom>;
+
+/**
+ * The seeds a property test runs: `<prefix>_SEEDS` seeds (default
+ * `defaults.seeds`) from `<prefix>_SEED` (default 1), `<prefix>_STEPS` steps
+ * each. `replay(seed)` is the environment that reruns one seed.
+ */
+export function propertySeeds(
+  prefix: string,
+  defaults: { seeds: number; steps: number },
+) {
+  const env = process.env;
+  const count = Number(env[`${prefix}_SEEDS`] ?? defaults.seeds);
+  const steps = Number(env[`${prefix}_STEPS`] ?? defaults.steps);
+  const first = Number(env[`${prefix}_SEED`] ?? 1);
+  return {
+    seeds: [...Array(count)].map((_, index) => first + index),
+    steps,
+    replay: (seed: number) =>
+      `${prefix}_SEED=${seed} ${prefix}_SEEDS=1 ${prefix}_STEPS=${steps}`,
+  };
+}
+
+/**
+ * Shared Arrange: the live or the provisional checklist of a
+ * `createNominationHarness`, behind the same operations, so one scenario
+ * runs on both (they share `RegularNomination`).
+ */
+export function nominationChecklist(
+  h: ReturnType<typeof createNominationHarness>,
+  kind: "live" | "provisional",
+) {
+  if (kind === "provisional") h.stageProvisional();
+  return {
+    kind,
+    /** Trickle a remote candidate and start its check; its pair, if one formed. */
+    add: async (priority: number) => {
+      if (kind === "provisional") return h.addProvisionalRemote(priority);
+      const pair = await h.addRemote(priority);
+      if (pair) h.check(pair);
+      return pair;
+    },
+    endOfCandidates: () =>
+      kind === "provisional"
+        ? h.connection.addProvisionalRemoteCandidate(undefined)
+        : h.connection.addRemoteCandidate(undefined),
+    nominated: () =>
+      kind === "provisional"
+        ? h.connection.provisionalNominated
+        : h.connection.nominated,
+    /** The peer (controlling) nominates `pair` with USE-CANDIDATE. */
+    receiveNomination: (pair: CandidatePair) =>
+      kind === "provisional"
+        ? h.receiveProvisionalNomination(pair)
+        : h.receiveNomination(pair),
+  };
 }

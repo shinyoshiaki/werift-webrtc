@@ -5,15 +5,24 @@ import {
   createLocalTurnServer,
   TURN_TEST_PASSWORD,
   TURN_TEST_USERNAME,
+  waitUntil,
 } from "../../../ice/tests/utils";
-import { RTCIceGatherer, RTCIceTransport, RTCPeerConnection } from "../../src";
+import {
+  type PeerConfig,
+  RTCIceGatherer,
+  RTCIceTransport,
+  RTCPeerConnection,
+} from "../../src";
 import { iceTransportPair } from "../fixture";
 import {
   connectPeerConnections,
+  connectWithIceConfigs,
+  createIceTransportWithValidPair,
   createPeerConnectionWithIceTransport,
   createTurnRotationServers,
   firstIceTransport,
   iceAgentTurnServers,
+  iceOptionLines,
   negotiate,
   peerTurnAllocations,
   waitForLocalCandidatesEnd,
@@ -555,6 +564,103 @@ describe("iceTransport", () => {
     });
   });
 
+  describe("nomination options (PeerConfig → ICE agent → SDP → selection)", () => {
+    const RENOMINATION = { iceRenomination: true } as const;
+    test.each<[string, Partial<PeerConfig>, Partial<PeerConfig>]>([
+      ["defaults", {}, {}],
+      ["renomination on both", RENOMINATION, RENOMINATION],
+      ["renomination on the offerer only", RENOMINATION, {}],
+      ["renomination on the answerer only", {}, RENOMINATION],
+      [
+        "renomination on both wins over iceNomination: regular",
+        { ...RENOMINATION, iceNomination: "regular", iceNominationDelayMs: 0 },
+        { ...RENOMINATION, iceNominationDelayMs: 0 },
+      ],
+    ])("%s", async (_, offererConfig, answererConfig) => {
+      // Arrange / Act: 各自の設定で 2 つの PeerConnection を接続する。offerer は収集前に ICE server を更新する。
+      const peers = await connectWithIceConfigs(offererConfig, answererConfig, {
+        beforeGather: (pc) => pc.setConfiguration({ iceServers: [] }),
+      });
+      const { offerer, answerer } = peers;
+      const negotiated =
+        !!offererConfig.iceRenomination && !!answererConfig.iceRenomination;
+
+      try {
+        for (const [config, connection, sdp] of [
+          [offererConfig, peers.controlling, peers.offerSdp],
+          [answererConfig, peers.controlled, peers.answerSdp],
+        ] as const) {
+          const { nomination, renomination, nominationDelayMs } =
+            connection.options;
+          // Assert: PeerConfig の値が ICE agent に渡り (offerer は ICE server の更新後も残り)、各 m-line の ice-options で renomination を宣言する (しない)。
+          expect({ nomination, renomination, nominationDelayMs }).toEqual({
+            nomination: config.iceNomination,
+            renomination: !!config.iceRenomination,
+            nominationDelayMs: config.iceNominationDelayMs,
+          });
+          expect(iceOptionLines(sdp).length).toBeGreaterThan(0);
+          for (const line of iceOptionLines(sdp)) {
+            expect(line).toBe(
+              config.iceRenomination
+                ? "a=ice-options:trickle renomination"
+                : "a=ice-options:trickle",
+            );
+          }
+        }
+        // Assert: 各端が相手の宣言を読み取る。
+        expect(peers.controlling.remoteRenomination).toBe(
+          !!answererConfig.iceRenomination,
+        );
+        expect(peers.controlled.remoteRenomination).toBe(
+          !!offererConfig.iceRenomination,
+        );
+        // Assert: 両端が宣言したときだけ NOMINATION (iceNomination より優先)、それ以外は USE-CANDIDATE (値 1) で選択する。
+        await waitUntil(
+          () =>
+            peers.controlled.nominated?.remoteNomination ===
+            (negotiated ? peers.controlling.nominated?.nomination : 1),
+        );
+        expect(peers.controlling.nominated!.nomination > 0).toBe(negotiated);
+        // Assert: 両端が同じ pair を選択する。
+        expect(peers.controlled.nominated!.localCandidate.port).toBe(
+          peers.controlling.nominated!.remoteCandidate.port,
+        );
+      } finally {
+        await Promise.all([offerer.close(), answerer.close()]);
+      }
+    });
+
+    test("getSelectedCandidatePair reports only the nominated pair, and start() fails the transport when the agent fails", async () => {
+      const { transport, connection, pair } = createIceTransportWithValidPair();
+      vi.spyOn(connection, "connect").mockRejectedValue(
+        new Error("ICE negotiation failed"),
+      );
+
+      try {
+        // Assert: check が成功しただけの pair は選択済みとして返さない。
+        expect(transport.getSelectedCandidatePair()).toBeNull();
+
+        // Act: ICE agent の connect() が失敗する (nomination の断念など)。
+        const started = transport.start();
+
+        // Assert: start() は失敗を伝え、transport は failed になる。
+        await expect(started).rejects.toThrow("ICE negotiation failed");
+        expect(transport.state).toBe("failed");
+
+        // Act: その pair が nominate される。
+        connection.nominated = pair;
+
+        // Assert: nominate された pair が選択済みとして返る。
+        expect(transport.getSelectedCandidatePair()).toMatchObject({
+          local: { port: pair.localCandidate.port },
+          remote: { port: pair.remoteCandidate.port },
+        });
+      } finally {
+        await transport.stop();
+      }
+    });
+  });
+
   describe("TURN credential rotation (setConfiguration + ICE restart)", () => {
     let servers: Awaited<ReturnType<typeof createTurnRotationServers>>;
     const peers: RTCPeerConnection[] = [];
@@ -849,10 +955,10 @@ describe("iceTransport", () => {
       expect(transport1.state).toBe("connected");
       expect(transport2.state).toBe("connected");
       const oldUfrag = transport1.connection.localUsername;
-      const oldSession = (transport1.connection as any).consentSessionId;
+      const oldSession = (transport1.connection as any).consent.sessionId;
 
       // Act: consent 失効相当
-      (transport1.connection as any).stopConsentLifecycle?.();
+      (transport1.connection as any).consent.stop();
       (transport1.connection as any).setState("failed");
       expect(transport1.state).toBe("failed");
 
@@ -871,8 +977,8 @@ describe("iceTransport", () => {
       // Assert: 新 credentials で connected に復帰
       expect(transport1.state).toBe("connected");
       expect(transport2.state).toBe("connected");
-      expect((transport1.connection as any).consentFresh).toBe(true);
-      expect((transport1.connection as any).consentSessionId).toBeGreaterThan(
+      expect((transport1.connection as any).consent.fresh).toBe(true);
+      expect((transport1.connection as any).consent.sessionId).toBeGreaterThan(
         oldSession ?? 0,
       );
 
