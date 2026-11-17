@@ -82,6 +82,33 @@ export const modelConfig = (
 });
 
 /**
+ * The configuration of peer b in an asymmetric scene: the codecs of
+ * `modelConfig` in another form, so the codecs negotiation commits are in the
+ * remote's form on one side (issue 818): VP8 on another payload type (110) with
+ * NACK and PLI only, H264 of another level (42e00d), and Opus with other fmtp.
+ */
+export const asymmetricModelConfig = (
+  transceiverPairing: TransceiverPairing = "standard",
+  bundlePolicy: ModelBundlePolicy = "max-bundle",
+) => ({
+  ...modelConfig(transceiverPairing, bundlePolicy),
+  codecs: {
+    video: [
+      // 120 is the free payload type the `codecRenumbered` wire mutation
+      // moves H264 to, so VP8 takes another one.
+      useVP8({ payloadType: 110, rtcpFeedback: [useNACK(), usePLI()] }),
+      rtxCodec(),
+      useH264({
+        rtcpFeedback: [useNACK(), usePLI()],
+        parameters:
+          "profile-level-id=42e00d;packetization-mode=1;level-asymmetry-allowed=1",
+      }),
+    ],
+    audio: [useOPUS({ parameters: "stereo=1" }), usePCMU()],
+  },
+});
+
+/**
  * `connected`: a duplex session (video both ways and a DataChannel);
  * `unnegotiated`: a sends video and has a DataChannel; `media`: a sends
  * video only (the first SCTP transport comes during a negotiation).
@@ -92,7 +119,8 @@ export type Op = [Side, string, Record<string, unknown>?];
 /**
  * `pairing`: the `transceiverPairing` of both peers (default `"standard"`, the
  * JSEP 5.10 rules the oracles check; a generated scene draws `"byKind"`, the
- * werift default, sometimes, #816).
+ * werift default, sometimes, #816). `asymmetric`: peer b has
+ * `asymmetricModelConfig` (a generated scene draws it sometimes, #818).
  */
 /**
  * `bundlePolicy` of both peers (default `"max-bundle"`, one transport). A
@@ -107,6 +135,7 @@ export type Scene = {
   bundle?: ModelBundlePolicy;
   /** a also sends a simulcast video (RIDs "high" / "low", #356 3.12). */
   simulcast?: boolean;
+  asymmetric?: boolean;
 };
 
 type World = {
@@ -253,6 +282,26 @@ export const STEPS: Record<string, Step> = {
       await t.sender.replaceTrack(new MediaStreamTrack({ kind: t.kind }));
       t.setDirection("sendrecv");
       w.oracles.application(t);
+    },
+  },
+  // removeTrack(): sendrecv becomes recvonly and sendonly becomes inactive;
+  // the next offer keeps the negotiated codecs (issue 818).
+  removeTrack: {
+    weight: 1,
+    applies: ({ pc, other }) =>
+      applicationTurn(pc, other) &&
+      targets(pc).some((t) => !!t.sender.track && !t.stopping),
+    draw: (rng, { pc }) => ({
+      index: pickIndex(
+        rng,
+        pc,
+        targets(pc).filter((t) => !!t.sender.track && !t.stopping),
+      ),
+    }),
+    run: async ({ pc }, _w, { index }) => {
+      const t = byIndex(pc, index);
+      if (!t || t.stopping || !t.sender.track) return;
+      pc.removeTrack(t.sender);
     },
   },
   direction: {
@@ -455,6 +504,7 @@ export const STEPS: Record<string, Step> = {
         await w.oracles.unchanged(pc, async () => {
           offer = (await pc.createOffer()) as never;
         });
+        w.oracles.offerCapability(pc, offer!);
         w.saved.set(pc, offer!);
       }
     },
@@ -603,12 +653,19 @@ async function arrange(
   pairing: TransceiverPairing = "standard",
   bundle: ModelBundlePolicy = "max-bundle",
   simulcast = false,
+  asymmetric = false,
 ): Promise<World & Peers2> {
   const oracles = new ModelOracles(c);
   let a: RTCPeerConnection;
   let b: RTCPeerConnection;
+  const configB = (asymmetric ? asymmetricModelConfig : modelConfig)(
+    pairing,
+    bundle,
+  );
   if (start !== "connected") {
-    ({ a, b } = await c.given(createPeerPair(modelConfig(pairing, bundle))));
+    ({ a, b } = await c.given(
+      createPeerPair(modelConfig(pairing, bundle), configB),
+    ));
     oracles.application(
       a.addTransceiver(new MediaStreamTrack({ kind: "video" }), {
         direction: "sendrecv",
@@ -619,7 +676,7 @@ async function arrange(
     }
   } else {
     const scope = await c.given(
-      createDuplexSession(modelConfig(pairing, bundle)),
+      createDuplexSession(modelConfig(pairing, bundle), configB),
     );
     ({ a, b } = scope);
     oracles.application(scope.aVideo);
@@ -645,7 +702,7 @@ async function arrange(
     await c.answer(b);
   }
   c.note(
-    `start: ${start}${pairing === "standard" ? "" : ` (${pairing})`}${bundle === "max-bundle" ? "" : ` (bundlePolicy ${bundle})`}${simulcast ? " (simulcast)" : ""}`,
+    `start: ${start}${pairing === "standard" ? "" : ` (${pairing})`}${bundle === "max-bundle" ? "" : ` (bundlePolicy ${bundle})`}${simulcast ? " (simulcast)" : ""}${asymmetric ? " (asymmetric b)" : ""}`,
   );
   return {
     c,
@@ -678,6 +735,7 @@ export async function runScene(
     scene.pairing,
     scene.bundle,
     scene.simulcast,
+    scene.asymmetric,
   );
   for (const [index, [side, name, args = {}]] of scene.ops.entries()) {
     const peers = peersOf(w, side);
@@ -719,12 +777,15 @@ export async function generateScene(
   }
   // The simulcast axis has its own stream as well (RID routing, #356 3.12).
   if (seededRandom(seed ^ 0x3512).chance(0.3)) scene.simulcast = true;
+  // So has the asymmetric axis (peer b configured in another codec form).
+  if (seededRandom(seed ^ 0x818).chance(0.25)) scene.asymmetric = true;
   const w = await arrange(
     c,
     scene.start,
     scene.pairing,
     scene.bundle,
     scene.simulcast,
+    scene.asymmetric,
   );
   for (let index = 1; index <= steps; index++) {
     const side: Side = rng.chance(0.5) ? "a" : "b";

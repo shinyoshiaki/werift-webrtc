@@ -99,6 +99,10 @@ rollback can return one that no description committed to it.
 
 > **mLineIndex**: `number` \| `undefined`
 
+#### negotiatedCodecsStale
+
+> **negotiatedCodecsStale**: `boolean`
+
 #### offerDirection
 
 > **offerDirection**: `"inactive"` \| `"sendonly"` \| `"recvonly"` \| `"sendrecv"`
@@ -298,6 +302,16 @@ SSRCs of `trackBySSRC` that packets taught (not description state).
 ### mLineIndex?
 
 > `optional` **mLineIndex?**: `number`
+
+***
+
+### negotiatedCodecsStale
+
+> **negotiatedCodecsStale**: `boolean` = `false`
+
+Internal: an application change (`markCodecsForResolution`) made the
+negotiated `codecs`, kept live, stale for the next answer: it resolves
+them again, as for empty codecs. The next write of `codecs` clears it.
 
 ***
 
@@ -530,6 +544,20 @@ set on a remote-created transceiver do not keep it.
 
 `string`[]
 
+***
+
+### needsCodecResolution
+
+#### Get Signature
+
+> **get** **needsCodecResolution**(): `boolean`
+
+Internal: the next answer resolves this transceiver's codecs again.
+
+##### Returns
+
+`boolean`
+
 ## Methods
 
 ### addTrack()
@@ -608,6 +636,11 @@ Internal: an application change makes the next offer / answer resolve
 this transceiver's codecs again. The live sender and receiver keep the
 committed codecs until a description is committed.
 
+A negotiated transceiver keeps `codecs` (the negotiated codecs that
+`getPayloadType()`, stats and the live tables use): its offers are
+resolved again every time anyway, keeping these payload types
+(`TransceiverManager.resolveOfferCodecs`).
+
 #### Returns
 
 `void`
@@ -663,6 +696,10 @@ Internal: return to a negotiation baseline taken by `snapshotNegotiationState`.
 ###### mLineIndex
 
 `number` \| `undefined` = `...`
+
+###### negotiatedCodecsStale
+
+`boolean` = `...`
 
 ###### offerDirection
 
@@ -931,6 +968,10 @@ application choice and are not part of it.
 ##### mLineIndex
 
 > **mLineIndex**: `number` \| `undefined`
+
+##### negotiatedCodecsStale
+
+> **negotiatedCodecsStale**: `boolean`
 
 ##### offerDirection
 
