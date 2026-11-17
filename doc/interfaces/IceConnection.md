@@ -94,6 +94,25 @@ Whether gathering contacts a STUN or TURN server.
 
 ***
 
+### onIceCandidateError?
+
+> `readonly` `optional` **onIceCandidateError?**: [`Event`](../classes/Event.md)\<\[[`IceCandidateErrorInfo`](../type-aliases/IceCandidateErrorInfo.md)\]\>
+
+A STUN or TURN server of the current generation's gathering gave no
+candidate (see [IceCandidateErrorInfo](../type-aliases/IceCandidateErrorInfo.md)). Optional so that other
+implementations of this interface keep compiling.
+
+***
+
+### onIceServerReached?
+
+> `readonly` `optional` **onIceServerReached?**: [`Event`](../classes/Event.md)\<\[[`IceServerReachedInfo`](../type-aliases/IceServerReachedInfo.md)\]\>
+
+A STUN or TURN server of the current generation's gathering answered
+(see [IceServerReachedInfo](../type-aliases/IceServerReachedInfo.md)). Optional like onIceCandidateError.
+
+***
+
 ### options
 
 > **options**: [`IceOptions`](IceOptions.md)
@@ -145,6 +164,16 @@ changes how checks or nomination run.
 ### remotePassword
 
 > **remotePassword**: `string`
+
+***
+
+### remoteRenomination?
+
+> `optional` **remoteRenomination?**: `boolean`
+
+The peer advertised `a=ice-options:renomination`. With
+[IceOptions.renomination](IceOptions.md#renomination) the controlling agent then nominates with
+the NOMINATION attribute (see `renomination`).
 
 ***
 

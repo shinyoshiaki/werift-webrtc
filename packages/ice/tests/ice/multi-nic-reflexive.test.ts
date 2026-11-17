@@ -2,16 +2,22 @@ import * as dgram from "node:dgram";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { UdpTransport } from "../../../common/src";
-import type { Candidate } from "../../src/candidate";
+import { Candidate } from "../../src/candidate";
 import type { Connection } from "../../src/ice";
 import { HostLocalPreference } from "../../src/internal/hostPreference";
 import {
   canBindAddress,
   createInterfaceBoundConnection,
+  createLocalTurnServer,
   createSelectiveStunServer,
   createTestConnection,
+  deliverLocalCandidates,
+  exchangeIceCredentials,
   fakeNetworkInterfaces,
   inviteAccept,
+  localTurnOptions,
+  provisionalChecklistOf,
+  stageProvisionalGeneration,
 } from "../utils";
 
 // 疑似 NIC と既定経路: テストごとに差し替える
@@ -327,6 +333,68 @@ describe("multi-NIC server-reflexive gathering", () => {
     }
   });
 
+  test.each([
+    {
+      name: "a host socket covers the path to B: no wildcard pair",
+      nics: { eth0: ["127.0.0.1"], eth1: ["127.0.0.2"] } as Record<
+        string,
+        string[]
+      >,
+      defaultRoutes: ["127.0.0.1"],
+      wildcardPaired: false,
+    },
+    {
+      name: "no host socket covers the path to B: the wildcard socket pairs",
+      nics: { eth1: ["127.0.0.2"] },
+      defaultRoutes: [],
+      wildcardPaired: true,
+    },
+  ])(
+    "a pranswer ICE restart pairs the wildcard socket as the live checklist does ($name)",
+    async ({ nics, defaultRoutes, wildcardPaired }) => {
+      // Arrange: wildcard socket を持つ A と 127.0.0.1 に明示 bind した B を接続しておく
+      useNics(nics);
+      env.defaultRoutes = defaultRoutes;
+      const stun = await createSelectiveStunServer("127.0.0.1");
+      const a = createTestConnection(true, {
+        stunServer: stun.address,
+        stunGatherTimeout: 1,
+        useIpv6: false,
+      });
+      const b = createInterfaceBoundConnection(false, { udp4: "127.0.0.1" });
+      const wildcardPairsOf = () =>
+        (provisionalChecklistOf(a).generation?.pairs ?? []).filter(
+          (pair) => pair.localCandidate.type === "srflx",
+        );
+
+      try {
+        await a.gatherCandidates();
+        await a.waitForLocalCandidatesEnd();
+        await inviteAccept(a, b);
+        await Promise.all([a.connect(), b.connect()]);
+
+        // Act: pranswer の ICE restart を stage する (check はまだ始めないので、
+        // pair は A 自身が B の candidate から作ったものだけ)
+        await stageProvisionalGeneration(a, b);
+        // 経路の判定 (wildcardPathUncovered) は非同期なので結果が出るまで待つ
+        await new Promise((resolve) => setTimeout(resolve, 200));
+
+        // Assert: host pair は作られる
+        expect(
+          provisionalChecklistOf(a).generation?.pairs.some(
+            (pair) => pair.localCandidate.type === "host",
+          ),
+        ).toBe(true);
+        // Assert: wildcard socket の pair は、host socket が覆わない経路でだけ作られる
+        expect(wildcardPairsOf().length > 0).toBe(wildcardPaired);
+      } finally {
+        await a.close();
+        await b.close();
+        await stun.close();
+      }
+    },
+  );
+
   test("the wildcard socket checks a path no host socket covers, from the srflx it advertised", async () => {
     // Arrange: A の列挙 NIC は 127.0.0.2 だけで、B (127.0.0.1) への経路の送信元は
     // 列挙されないアドレス (127.0.0.1)
@@ -357,6 +425,69 @@ describe("multi-NIC server-reflexive gathering", () => {
       await a.close();
       await b.close();
       await stun.close();
+    }
+  });
+
+  test("after a relay selection that may still be replaced, a later remote candidate only the wildcard socket reaches is paired", async () => {
+    // Arrange: A (controlling, 既定の semi-aggressive) の列挙 NIC は 127.0.0.2 だけで、
+    // 127.0.0.1 への経路は wildcard socket だけが覆う。最初は relay 以外の pair を
+    // filterCandidatePair で止め、A に relay の pair を選択させる
+    useNics({ eth1: ["127.0.0.2"] });
+    const stun = await createSelectiveStunServer("127.0.0.1");
+    const turn = await createLocalTurnServer("127.0.0.1");
+    let relayOnly = true;
+    const a = createTestConnection(true, {
+      ...localTurnOptions(turn),
+      forceTurn: false,
+      stunServer: stun.address,
+      stunGatherTimeout: 1,
+      useIpv6: false,
+      filterCandidatePair: (pair) =>
+        !relayOnly || pair.localCandidate.type === "relay",
+    });
+    const b = createInterfaceBoundConnection(false, { udp4: "127.0.0.1" });
+    // 後から trickle する candidate の宛先 (check に応答しなくてよい)
+    const late = dgram.createSocket("udp4");
+    await new Promise<void>((resolve) => late.bind(0, "127.0.0.1", resolve));
+
+    try {
+      await Promise.all([a.gatherCandidates(), b.gatherCandidates()]);
+      await a.waitForLocalCandidatesEnd();
+      // B には A の relay candidate だけを渡す (A の host への check を起こさない)
+      exchangeIceCredentials(a, b);
+      await deliverLocalCandidates(b, a, { endOfCandidates: false });
+      const relay = a.localCandidates.find((c) => c.type === "relay")!;
+      await b.addRemoteCandidate(Candidate.fromSdp(relay.toSdp()));
+      await b.addRemoteCandidate(undefined);
+      await Promise.all([a.connect(), b.connect()]);
+      expect(a.nominated?.localCandidate.type).toBe("relay");
+      relayOnly = false;
+
+      // Act: 127.0.0.1 の新しい host candidate を A に trickle する
+      const lateCandidate = Candidate.fromSdp(
+        `late 1 udp 2130706431 127.0.0.1 ${late.address().port} typ host`,
+      );
+      await a.addRemoteCandidate(lateCandidate);
+
+      // Assert: 経路の判定 (非同期) の後、wildcard socket (srflx) とその candidate の
+      // pair が checklist に入る (relay の選択を置き換えうる上位の pair なので)
+      await vi.waitFor(
+        () =>
+          expect(
+            a.checkList.some(
+              (pair) =>
+                pair.localCandidate.type === "srflx" &&
+                pair.remoteCandidate.port === lateCandidate.port,
+            ),
+          ).toBe(true),
+        { timeout: 2000 },
+      );
+    } finally {
+      late.close();
+      await a.close();
+      await b.close();
+      await stun.close();
+      await turn.close();
     }
   });
 

@@ -8,10 +8,9 @@
 
 > **serverReflexiveCandidate**(`protocol`, `stunServer`, `base?`): `Promise`\<[`Candidate`](../classes/Candidate.md) \| `undefined`\>
 
-Query a STUN server to obtain a server-reflexive candidate of `protocol`.
-Its base is the protocol's host candidate, or `base` for a socket that
-advertises no host candidate (the wildcard socket: related address
-`0.0.0.0` / `::`).
+Query a STUN server for a server-reflexive candidate. This compatibility
+helper resolves `undefined` on failure; use
+[queryServerReflexiveCandidate](queryServerReflexiveCandidate.md) when the failure reason is needed.
 
 ## Parameters
 
