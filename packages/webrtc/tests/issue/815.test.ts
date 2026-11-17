@@ -295,4 +295,63 @@ describe("issue 815: stream ID exhaustion", () => {
       await pc.close();
     }
   });
+  test("a reservation beyond the negotiated stream limit is given back and fails", async () => {
+    // Arrange: 上限未確定の role 確定で client の偶数 ID 0 と 2 を予約する。
+    const dtls: RTCDtlsTransport = createDtlsTransport();
+    const transport = new RTCSctpTransport();
+    transport.setDtlsTransport(dtls);
+    const pc = new RTCPeerConnection();
+    const manager = (pc as any).sctpManager;
+    manager.sctpTransport = transport;
+    const first = manager.createDataChannel("first");
+    const second = manager.createDataChannel("second");
+    dtls.role = "client";
+    expect([first.id, second.id]).toEqual([0, 2]);
+
+    try {
+      // Act: SCTP 交渉で stream 数が 2 に決まった後に採番し直す。
+      transport.sctp._inboundStreamsCount = 2;
+      transport.sctp._outboundStreamsCount = 2;
+      transport.assignPendingStreamIds();
+
+      // Assert: 範囲内の 0 は維持され、範囲外の 2 は解放されて OperationError で閉じる。
+      expect(first.id).toBe(0);
+      expect(second.id).toBeUndefined();
+      expect(second.readyState).toBe("closed");
+      expect(transport.dataChannels[2]).toBeUndefined();
+    } finally {
+      await transport.stop();
+      await pc.close();
+    }
+  });
+
+  test("a channel closed by an error handler is not given an ID", async () => {
+    // Arrange: ID が 1 つしかない状況で 3 つの channel を待機させる。
+    const { dtls, transport } = createLimitedTransport();
+    const pc = new RTCPeerConnection();
+    const manager = (pc as any).sctpManager;
+    manager.sctpTransport = transport;
+    const ok = manager.createDataChannel("ok");
+    const failed = manager.createDataChannel("failed");
+    const closedByHandler = manager.createDataChannel("closed-by-handler");
+    failed.addEventListener("error", () => {
+      // 失敗通知の中で使用中 channel と後続の待機 channel を閉じる。
+      ok.close();
+      closedByHandler.close();
+    });
+
+    try {
+      // Act: DTLS role を client に確定させる。
+      dtls.role = "client";
+
+      // Assert: 閉じられた待機 channel には ID が割り当てられず、登録表にも残らない。
+      expect(closedByHandler.id).toBeUndefined();
+      expect(Object.values(transport.dataChannels)).not.toContain(
+        closedByHandler,
+      );
+    } finally {
+      await transport.stop();
+      await pc.close();
+    }
+  });
 });

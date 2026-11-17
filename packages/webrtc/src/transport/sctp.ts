@@ -305,8 +305,25 @@ export class RTCSctpTransport {
   assignPendingStreamIds() {
     const parity = this.idParity;
     if (parity === undefined) return;
+    const limit = this.streamIdLimit;
     for (const channel of [...this.unannounced]) {
-      if (channel.id != undefined) continue;
+      // An error callback of an earlier channel may have closed this one.
+      if (
+        !this.unannounced.has(channel) ||
+        channel.readyState === "closed" ||
+        channel.readyState === "closing"
+      ) {
+        continue;
+      }
+      if (channel.id != undefined) {
+        // A reservation made before SCTP negotiated fewer streams is out of
+        // range: give it back and allocate again below.
+        if (channel.id < limit) continue;
+        if (this.dataChannels[channel.id] === channel) {
+          delete this.dataChannels[channel.id];
+        }
+        channel.setId(undefined);
+      }
       const id = this.allocateStreamId(parity);
       if (id === undefined) {
         this.unannounced.delete(channel);
