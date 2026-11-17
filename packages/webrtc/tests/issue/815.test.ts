@@ -354,4 +354,37 @@ describe("issue 815: stream ID exhaustion", () => {
       await pc.close();
     }
   });
+
+  test("close still fires when error listeners throw", async () => {
+    // Arrange: error 購読者と onerror が例外を投げる待機 channel を作る。
+    const { dtls, transport } = createLimitedTransport();
+    const pc = new RTCPeerConnection();
+    const manager = (pc as any).sctpManager;
+    manager.sctpTransport = transport;
+    manager.createDataChannel("ok");
+    const failed = manager.createDataChannel("failed");
+    const events: string[] = [];
+    failed.onerror = () => {
+      events.push("onerror");
+      throw new Error("onerror failed");
+    };
+    failed.addEventListener("error", () => {
+      events.push("error");
+      throw new Error("listener failed");
+    });
+    failed.onclose = () => events.push("onclose");
+    failed.addEventListener("close", () => events.push("close"));
+
+    try {
+      // Act: DTLS role を client に確定させ、ID 枯渇で失敗させる。
+      dtls.role = "client";
+
+      // Assert: 例外が出ても error の後に close 通知まで完了する。
+      expect(failed.readyState).toBe("closed");
+      expect(events).toEqual(["onerror", "error", "onclose", "close"]);
+    } finally {
+      await transport.stop();
+      await pc.close();
+    }
+  });
 });

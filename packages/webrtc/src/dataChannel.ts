@@ -1,6 +1,6 @@
 import { randomUUID } from "crypto";
 import { createWebRtcTypeError } from "./errors";
-import { EventTarget } from "./helper";
+import { EventTarget, notifySafely } from "./helper";
 import { debug, Event } from "./imports/common";
 import type { RTCSctpTransport } from "./transport/sctp";
 import type { Callback, CallbackWithValue } from "./types/util";
@@ -147,16 +147,20 @@ export class RTCDataChannel extends EventTarget implements DataChannelStats {
   failWithError(error: Error) {
     if (this.readyState === "closed") return;
     this.readyState = "closed";
-    this.stateChange.execute("closed");
-    this.stateChanged.execute("closed");
-    this.error.execute(error);
-    if (this.onerror) this.onerror({ error });
+    // Each notification is isolated: a throwing listener must not skip the
+    // later ones, so `close` always follows `error`.
+    notifySafely(log, "stateChange", () => this.stateChange.execute("closed"));
+    notifySafely(log, "stateChanged", () =>
+      this.stateChanged.execute("closed"),
+    );
+    notifySafely(log, "error event", () => this.error.execute(error));
+    notifySafely(log, "onerror", () => this.onerror?.({ error }));
     // emit("error") would throw without a listener.
     this.emitIsolated((e) => log("error listener failed", e), "error", {
       error,
     });
-    if (this.onclose) this.onclose();
-    this.emit("close");
+    notifySafely(log, "onclose", () => this.onclose?.());
+    this.emitIsolated((e) => log("close listener failed", e), "close");
     log("failed", error.message);
   }
 
