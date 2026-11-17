@@ -6,7 +6,7 @@ import {
   consentResponseTimeoutMs,
   type IceState,
 } from "./iceBase";
-import { debug } from "./imports/common";
+import { type Address, debug } from "./imports/common";
 import type { MessageIntegrityMode } from "./stun/const";
 import type { Message } from "./stun/message";
 
@@ -29,6 +29,20 @@ export type ConsentHost = {
    * (USE-CANDIDATE, NOMINATION).
    */
   buildRequest: (pair: CandidatePair) => Message;
+  /** The local ICE generation; an answer of an earlier one does not count. */
+  generation?: () => number;
+  /**
+   * Last chance to add what the request carries (SPED L1). Returning false
+   * skips this consent check.
+   */
+  decorateRequest?: (request: Message, pair: CandidatePair) => boolean;
+  /** A valid consent response of the current session, pair and generations. */
+  onResponse?: (
+    response: Message,
+    addr: Address,
+    pair: CandidatePair,
+    generation: number,
+  ) => Promise<void> | void;
 };
 
 /**
@@ -197,9 +211,13 @@ export class ConsentFreshness {
 
           const pairId = nominated.id;
           const generation = this.host.remoteGeneration();
+          const localGeneration = this.host.generation?.();
           const remotePassword = this.host.remotePassword();
 
           const request = this.host.buildRequest(nominated);
+          if (this.host.decorateRequest?.(request, nominated) === false) {
+            continue;
+          }
 
           this.requestAbort?.abort();
           const requestAbort = new AbortController();
@@ -230,7 +248,7 @@ export class ConsentFreshness {
                 },
               },
             )
-            .then(() => {
+            .then(async ([response, responseAddr]) => {
               // Accept only responses for the current pair / generation / session.
               // Address / MESSAGE-INTEGRITY / response class are enforced in Transaction + protocol.
               if (sessionId !== this.sessionId || canceled) {
@@ -243,7 +261,10 @@ export class ConsentFreshness {
               if (this.host.selected()?.id !== pairId) {
                 return;
               }
-              if (this.host.remoteGeneration() !== generation) {
+              if (
+                this.host.remoteGeneration() !== generation ||
+                this.host.generation?.() !== localGeneration
+              ) {
                 return;
               }
               if (this.host.remotePassword() !== remotePassword) {
@@ -260,6 +281,14 @@ export class ConsentFreshness {
               refreshConsentExpiry();
               if (state === "disconnected") {
                 this.host.setState("connected");
+              }
+              if (localGeneration !== undefined) {
+                await this.host.onResponse?.(
+                  response,
+                  responseAddr,
+                  nominated,
+                  localGeneration,
+                );
               }
             })
             .catch((error) => {
