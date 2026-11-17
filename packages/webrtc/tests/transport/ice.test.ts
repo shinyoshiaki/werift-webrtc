@@ -21,6 +21,7 @@ import {
   createPeerConnectionWithIceTransport,
   createTurnRotationServers,
   firstIceTransport,
+  gatherUntilComplete,
   iceAgentTurnServers,
   iceOptionLines,
   negotiate,
@@ -311,7 +312,7 @@ describe("iceTransport", () => {
         pc.createDataChannel("post-gather");
         const ice = (pc as any).secureManager
           .iceTransports[0] as RTCIceTransport;
-        await ice.gather();
+        await gatherUntilComplete(ice);
         expect(ice.gatheringState).toBe("complete");
         expect(pc.iceGatheringState).toBe("complete");
         expect(ice.connection.turnServer).toBeUndefined();
@@ -361,7 +362,7 @@ describe("iceTransport", () => {
         pc.createDataChannel("second-server");
         const ice = (pc as any).secureManager
           .iceTransports[0] as RTCIceTransport;
-        await ice.gather();
+        await gatherUntilComplete(ice);
         expect(ice.gatheringState).toBe("complete");
 
         // Act: 先頭の TURN A を維持したまま TURN B を追加する
@@ -406,7 +407,7 @@ describe("iceTransport", () => {
         pc.createDataChannel("other-fields");
         const ice = (pc as any).secureManager
           .iceTransports[0] as RTCIceTransport;
-        await ice.gather();
+        await gatherUntilComplete(ice);
         expect(ice.gatheringState).toBe("complete");
         const changes: Parameters<RTCPeerConnection["setConfiguration"]>[0][] =
           [
@@ -460,7 +461,7 @@ describe("iceTransport", () => {
         pc.createDataChannel("clear-turn-options");
         const ice = (pc as any).secureManager
           .iceTransports[0] as RTCIceTransport;
-        await ice.gather();
+        await gatherUntilComplete(ice);
         expect(pc.getConfiguration().turnTlsOptions).toBeDefined();
 
         // Act: 省略した setConfiguration では値が維持される
@@ -511,7 +512,7 @@ describe("iceTransport", () => {
         pc.createDataChannel("same-config");
         const ice = (pc as any).secureManager
           .iceTransports[0] as RTCIceTransport;
-        await ice.gather();
+        await gatherUntilComplete(ice);
         expect(ice.gatheringState).toBe("complete");
 
         // Act: 現在の設定をそのまま再設定する
@@ -532,7 +533,7 @@ describe("iceTransport", () => {
         pc.createDataChannel("restart-sync");
         const ice = (pc as any).secureManager
           .iceTransports[0] as RTCIceTransport;
-        await ice.gather();
+        await gatherUntilComplete(ice);
         expect(pc.iceGatheringState).toBe("complete");
 
         // Act: ICE restart（gatherer は new、manager 集約も追従する）
