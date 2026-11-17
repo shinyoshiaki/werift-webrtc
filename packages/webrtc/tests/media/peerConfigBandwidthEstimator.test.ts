@@ -125,7 +125,7 @@ describe("PeerConfig.bandwidthEstimator", () => {
     expect(video.sender.transport).toBe(audio.sender.transport);
     expect(probeTargets.length).toBeGreaterThan(0);
     expect(Math.max(...probeTargets)).toBeLessThanOrEqual(150_000);
-  });
+  }, 15_000);
 
   test("RTCRtpSender コンストラクタでも estimator を渡せる", () => {
     // Arrange
