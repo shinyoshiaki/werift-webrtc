@@ -1,3 +1,4 @@
+import type { CompatibilityOptionValue } from "./api/compatibilityOptions";
 import { DISCARD_HOST, DISCARD_PORT } from "./const";
 import { createWebRtcDomException } from "./errors";
 import type { RTCRtpTransceiver } from "./media";
@@ -29,6 +30,10 @@ export class SDPManager {
   readonly midSuffix: boolean;
   readonly bundlePolicy?: BundlePolicy;
   readonly mLineReuse: MLineReuse;
+  /** `PeerConfig.iceRenomination`: descriptions advertise `a=ice-options:renomination`. */
+  readonly iceRenomination: boolean;
+  /** Local `a=ice-options` tokens written on every m-line. */
+  readonly iceOptions: string;
 
   private seenMid = new Set<string>();
 
@@ -37,16 +42,27 @@ export class SDPManager {
     midSuffix,
     bundlePolicy,
     mLineReuse,
+    iceRenomination,
+    iceOptionIce2,
   }: {
     cname: string;
     midSuffix?: boolean;
     bundlePolicy?: BundlePolicy;
     mLineReuse?: MLineReuse;
+    iceRenomination?: boolean;
+    /** Add `ice2` (RFC 8445 §10) to the local ice-options. */
+    iceOptionIce2?: boolean;
   }) {
     this.cname = cname;
     this.midSuffix = midSuffix ?? false;
     this.bundlePolicy = bundlePolicy;
-    this.mLineReuse = mLineReuse ?? "compatible";
+    this.mLineReuse = mLineReuse ?? "standard";
+    this.iceRenomination = iceRenomination ?? false;
+    this.iceOptions = [
+      "trickle",
+      ...(iceOptionIce2 ? ["ice2"] : []),
+      ...(this.iceRenomination ? ["renomination"] : []),
+    ].join(" ");
   }
 
   get localDescription() {
@@ -212,13 +228,13 @@ export class SDPManager {
     media.iceCandidates = generation.candidates;
     media.iceCandidatesComplete = generation.complete;
     media.iceParams = generation.parameters;
-    media.iceOptions = "trickle";
+    media.iceOptions = this.iceOptions;
 
     media.host = DISCARD_HOST;
     media.port = DISCARD_PORT;
 
     if (media.direction === "inactive") {
-      // compatible は受け入れた inactive を拒否と区別するため非ゼロ port を保つ
+      // standard は受け入れた inactive を拒否と区別するため非ゼロ port を保つ (aggressive は port 0)
       if (this.mLineReuse === "aggressive") {
         media.port = 0;
       }
@@ -1247,7 +1263,11 @@ function orderBundleMids(mids: string[], preferredTag?: string) {
   return [preferredTag, ...mids.filter((mid) => mid !== preferredTag)];
 }
 
-export type MLineReuse = "compatible" | "aggressive";
+/**
+ * How local SDP marks inactive / stopped m-lines: `"standard"` (default) or
+ * `"aggressive"`. See `PeerConfig.mLineReuse`.
+ */
+export type MLineReuse = CompatibilityOptionValue<"mLineReuse">;
 
 export interface RTCSessionDescriptionInit {
   sdp?: string;

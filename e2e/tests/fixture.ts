@@ -1116,3 +1116,124 @@ export async function decodeAudioFile(
     peak,
   };
 }
+
+/** The addresses and types of the candidate pair Chrome selected. */
+export type SelectedCandidatePairAddresses = {
+  localAddress?: string;
+  localPort?: number;
+  localCandidateType?: string;
+  remoteCandidateType?: string;
+};
+
+export async function getSelectedCandidatePairAddresses(
+  connection: RTCPeerConnection,
+): Promise<SelectedCandidatePairAddresses> {
+  const stats = await connection.getStats();
+  const statsMap = stats as unknown as Map<string, RTCStats>;
+  const pair = findSelectedCandidatePair(stats) as
+    | (RTCStats & { localCandidateId?: string; remoteCandidateId?: string })
+    | undefined;
+  if (!pair) return {};
+  const local = pair.localCandidateId
+    ? (statsMap.get(pair.localCandidateId) as
+        | (RTCStats & { address?: string; port?: number })
+        | undefined)
+    : undefined;
+  const remote = pair.remoteCandidateId
+    ? statsMap.get(pair.remoteCandidateId)
+    : undefined;
+  return {
+    localAddress: local?.address,
+    localPort: local?.port,
+    localCandidateType: readStatString(local, "candidateType"),
+    remoteCandidateType: readStatString(remote, "candidateType"),
+  };
+}
+
+/**
+ * Add `renomination` to every `a=ice-options` line of a local description
+ * before `setLocalDescription`: Chrome has no API for it
+ * (`RTCConfiguration.enable_ice_renomination` is not exposed), but it takes
+ * the option from the description it applies.
+ */
+export function advertiseRenomination(sdp: string) {
+  return sdp.replace(/^a=ice-options:(.*)$/gm, (line, options: string) =>
+    options.split(/\s+/).includes("renomination")
+      ? line
+      : `a=ice-options:${options} renomination`,
+  );
+}
+
+/**
+ * Remove the non-relay candidates (and end-of-candidates) from a remote
+ * description; returns the description and the removed candidate strings,
+ * to signal later with `addIceCandidate`.
+ */
+export function holdBackNonRelayCandidates(sdp: string) {
+  const held: string[] = [];
+  const lines = sdp.split("\r\n").filter((line) => {
+    if (line === "a=end-of-candidates") return false;
+    if (!line.startsWith("a=candidate:")) return true;
+    if (line.includes(" typ relay")) return true;
+    held.push(line.slice("a=".length));
+    return false;
+  });
+  return { sdp: lines.join("\r\n"), held };
+}
+/**
+ * Arrange: Node (werift) offers a data channel on `label`; Chrome answers
+ * (after `transformAnswer`, e.g. to corrupt its fingerprint) and resolves
+ * once the answer is applied on both sides.
+ */
+export async function answerServerDataChannelOffer(
+  label: string,
+  transformAnswer: (sdp: string) => string = (sdp) => sdp,
+) {
+  await ensurePeerConnected();
+  const pc = new RTCPeerConnection({
+    iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+  });
+  pc.onicecandidate = ({ candidate }) => {
+    peer
+      .request(label, { type: "candidate", payload: candidate })
+      .catch(() => {});
+  };
+  const channel = new Promise<RTCDataChannel>((resolve) => {
+    pc.ondatachannel = ({ channel }) => resolve(channel);
+  });
+
+  const offer = await peer.request(label, { type: "init" });
+  await pc.setRemoteDescription(offer);
+  await pc.setLocalDescription(await pc.createAnswer());
+  await peer.request(label, {
+    type: "answer",
+    payload: {
+      type: "answer",
+      sdp: transformAnswer(pc.localDescription!.sdp),
+    },
+  });
+  return { pc, channel };
+}
+
+/** Resolve once `condition` holds, checked on every `event` of `target`. */
+export function waitForEventCondition(
+  target: EventTarget,
+  event: string,
+  condition: () => boolean,
+  timeoutMs = 10_000,
+) {
+  if (condition()) return Promise.resolve();
+  return new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      target.removeEventListener(event, check);
+      reject(new Error(`condition not met after ${event} (${timeoutMs}ms)`));
+    }, timeoutMs);
+    const check = () => {
+      if (!condition()) return;
+      clearTimeout(timer);
+      target.removeEventListener(event, check);
+      resolve();
+    };
+    target.addEventListener(event, check);
+  });
+}

@@ -660,6 +660,7 @@ export class RTCRtpSender {
     this.bwe.bumpGeneration();
     this.rtcpRunning = false;
     this.rtcpCancel.abort();
+    this.stats.clearSenderReports();
     this.bwe.close();
     if (this.disposeTrack) {
       this.disposeTrack();
@@ -720,6 +721,13 @@ export class RTCRtpSender {
    * offsets. `discontinuity` does not change sequence or timestamp mapping.
    * `timestampStep` (default 1) is the only way to choose the timestamp increment
    * at the source-switch boundary.
+   *
+   * Use this (or `MediaStreamTrack.notifySourceChanged`) when the RTP written
+   * into this sender's track switches to another upstream source: the next
+   * packet continues from the last sent one (`seq + 1`, `timestamp + step`)
+   * and queued packets of the old source are dropped. Apps that send RTP
+   * without `RTCRtpSender` (for example through `SrtpSession`) can use
+   * `RtpTimelineRewriter` from werift-rtp instead.
    */
   replaceRTP(
     header: Pick<RtpHeader, "sequenceNumber" | "timestamp">,
@@ -1239,9 +1247,7 @@ export class RTCRtpSender {
             .filter((report) => report.ssrc === this.ssrc)
             .forEach((report) => {
               const rawRttSeconds = this.stats.recordReceptionReport(report);
-              // pin OnRoundTripTimeUpdate: only **unsmoothed** RTT goes to
-              // AIMD (smoothed updates are discarded in GoogCc).
-              // Lightweight / disabled no-op setRoundTripTime.
+              // Only unsmoothed RTT goes to AIMD.
               if (rawRttSeconds !== undefined && rawRttSeconds > 0) {
                 this.bwe.estimator.setRoundTripTime(rawRttSeconds * 1000);
               }

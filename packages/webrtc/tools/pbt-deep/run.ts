@@ -21,8 +21,9 @@
  *   bwe       tests/pbt/bwe/bweProperty.test.ts, 300 seeds x 3 phases
  *   sender    tests/pbt/sender/senderProperty.test.ts, 300 seeds x 300 steps
  *   receiver  tests/pbt/receiver/receiverProperty.test.ts, 300 seeds x 300 steps
+ *   simulcastRtx tests/pbt/simulcastRtx/simulcastRtxProperty.test.ts, 300 seeds x 300 steps
  *
- *   npm run pbt:deep -- --suite twcc,bwe,sender,receiver
+ *   npm run pbt:deep -- --suite twcc,bwe,sender,receiver,simulcastRtx
  * The fixed scenes and regression seeds run once in their own shard. Every
  * shard is its own vitest process running one file, so the leak property's
  * process-wide measurements (active resources, heap) never mix with another
@@ -36,7 +37,7 @@ import { cpus, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 type Suite = "fuzz" | "scenario" | "model" | "leak" | MediaSuite;
-type MediaSuite = "twcc" | "bwe" | "sender" | "receiver";
+type MediaSuite = "twcc" | "bwe" | "sender" | "receiver" | "simulcastRtx";
 
 /** Media property tests: one file, seeds from `<prefix>_SEED(S)` (tests/pbt/shared/seeds.ts). */
 const mediaSuites: Record<MediaSuite, { file: string; prefix: string }> = {
@@ -49,6 +50,10 @@ const mediaSuites: Record<MediaSuite, { file: string; prefix: string }> = {
   receiver: {
     file: "tests/pbt/receiver/receiverProperty.test.ts",
     prefix: "WERIFT_RECEIVER",
+  },
+  simulcastRtx: {
+    file: "tests/pbt/simulcastRtx/simulcastRtxProperty.test.ts",
+    prefix: "WERIFT_SIMULCAST_RTX",
   },
 };
 type Shard = {
@@ -142,7 +147,8 @@ function shards(suite: Suite): Shard[] {
     case "twcc":
     case "bwe":
     case "sender":
-    case "receiver": {
+    case "receiver":
+    case "simulcastRtx": {
       const { file, prefix } = mediaSuites[suite];
       return ranges(seeds).map(({ first, count }) => ({
         label: `${suite} seeds ${first}-${first + count - 1}`,
@@ -296,6 +302,7 @@ async function main() {
     "scenario",
     "sender",
     "receiver",
+    "simulcastRtx",
     "bwe",
     "twcc",
   ];

@@ -53,6 +53,48 @@ An Allocate answered with `300 (Try Alternate)` is retried against its
   Allocate, including the resolved IP of a configured host name, `too-many-redirects` beyond `maxAllocateRedirects` (default 3),
   or `unsupported-transport`).
 
+## MESSAGE-INTEGRITY-SHA256 (RFC 8489)
+
+Connectivity checks and consent requests use the ICE short-term credential
+(`ice-pwd`) as the HMAC key with either integrity attribute:
+
+- Receiving: `parseMessage(data, key)` verifies `MESSAGE-INTEGRITY` (HMAC-SHA1)
+  and `MESSAGE-INTEGRITY-SHA256` (HMAC-SHA256, truncated to 16-32 bytes in
+  steps of 4). When both are present only `MESSAGE-INTEGRITY-SHA256` is
+  verified (RFC 8489 §9.1.4); a malformed truncation length is rejected.
+  Attributes after `MESSAGE-INTEGRITY` other than `MESSAGE-INTEGRITY-SHA256` /
+  `FINGERPRINT`, and after `MESSAGE-INTEGRITY-SHA256` other than
+  `FINGERPRINT`, are ignored (RFC 8489 §14.5 / §14.6).
+  `Message.integrityAlgorithm` tells which one a message is signed with.
+  Responses signed with only SHA-256 are accepted over UDP, TCP and TURN.
+- Responding: a Binding success or error response is signed with
+  `MESSAGE-INTEGRITY-SHA256` when the request carried it, otherwise with
+  `MESSAGE-INTEGRITY` (RFC 8489 §9.1.3).
+- Sending: `IceOptions.messageIntegrity` (`PeerConfig.iceMessageIntegrity` in
+  `werift`) selects `"sha1"` (default), `"sha256"` or `"both"`. The default
+  stays SHA-1 because `MESSAGE-INTEGRITY-SHA256` (0x001C) is a
+  comprehension-required attribute that libwebrtc / Firefox do not implement
+  for ICE: a peer that does not know it can reject the check (420) or drop it.
+  Use `"sha256"` / `"both"` only with peers known to support it.
+- Building messages: `Message.addMessageIntegritySha256(key, length = 32)`,
+  or `addIntegrity(key, mode)` for the attributes `mode` selects, in the order
+  `MESSAGE-INTEGRITY` -> `MESSAGE-INTEGRITY-SHA256` -> `FINGERPRINT`.
+  `TransactionRequestOptions.integrityAlgorithm` passes the choice to
+  `Protocol.request()`.
+
+The `ice2` ice-option (RFC 8445 §10) is only a declaration and does not
+negotiate SHA-256. `Connection.setRemoteIceOptions()` records the remote
+`a=ice-options` tokens and `Connection.remoteIce2` reports `ice2`; werift
+already runs the RFC 8445 procedures, so no token changes its behavior.
+
+Not covered here:
+
+- The integrity of incoming connectivity checks is not verified yet (no 401
+  for a check the local password cannot verify); this is a separate change.
+- TURN long-term credentials stay `MESSAGE-INTEGRITY` only. SHA-256 there needs
+  the `PASSWORD-ALGORITHM(S)` / `USERHASH` negotiation of RFC 8489 §9.2 in
+  both the client and `werift-ice-server`, which is out of scope.
+
 ## pion TURN interop (opt-in)
 
 Default `npm test` skips third-party TURN tests. To exercise werift ICE against
