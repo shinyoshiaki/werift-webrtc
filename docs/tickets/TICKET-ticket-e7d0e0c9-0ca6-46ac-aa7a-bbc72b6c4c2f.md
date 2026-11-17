@@ -481,7 +481,7 @@ RFC 8843 / RFC 9143（BUNDLE）§9.2「Associating RTP/RTCP Streams with the Cor
 
 共通の Arrange（SSRC-less の receiver / transceiver / 偽 DTLS transport / RTP パケットの生成）は `tests/fixture.ts`、または新しい `tests/media/routerTestUtils.ts` に 1 か所でまとめる。
 
-### 単体（`tests/media/router.test.ts`）
+### 単体（9 章の分割後は `tests/media/ssrcLess/*.test.ts`）
 - [ ] `a=ssrc` なし、MID/RID なし、音声 m-line 1 本: 初回 RTP が `ontrack` 済みの `receiver.track` の `onReceiveRtp` に届き、2 パケット目以降も同じ SSRC で届く。`ssrcTable` / `learnedSsrcs` / `trackBySSRC` / `track.ssrc` / `track.codec` が整合する。
 - [ ] 同じ transport 上に SSRC-less の receiver が 2 つあり PT が重なる: 学習せずに drop する（どの track にも届かず、`ssrcTable` も変わらない）。
 - [ ] 同じ transport 上に SSRC-less の audio と video がいて PT が分かれている: PT で一意に決まり、正しい receiver だけに届く。
@@ -585,7 +585,7 @@ develop との比較が必要なら、一時 worktree（`git worktree add --deta
 
 ## 8. 受け入れテスト
 
-`packages/webrtc/tests/media/acceptance.test.ts`（4 件、約 2 秒）。共通の Arrange（`answerRingCentral`、`connectWithoutSsrc`）は `tests/issue/356.test.ts` から `tests/media/ssrcLessTestUtils.ts` に移し、`connectWithoutSsrc` に `bundlePolicy` のオプションを足した。`src` は変更していない。
+`packages/webrtc/tests/media/ssrcLess/acceptance.test.ts`（4 件、約 2 秒。9 章で `tests/media/acceptance.test.ts` から移動）。共通の Arrange（`answerRingCentral`、`connectWithoutSsrc`）は `tests/issue/356.test.ts` から共通ユーティリティ（9 章の分割後は `tests/media/ssrcLess/peers.ts`）に移し、`connectWithoutSsrc` に `bundlePolicy` のオプションを足した。`src` は変更していない。
 
 **Before → After:** SDP に `a=ssrc`（と MID / RID 拡張）がない m-line の RTP は「ssrcReceiver not found」で全部捨てられていた → `ontrack` で通知済みの track に初回パケットから届き、SSRC の切替・remote SR・inbound-rtp 統計も追従する。受信先を PT で一意に決められない場合だけ、推測せず届けない（一意性は RTP session ごと）。
 
@@ -611,3 +611,57 @@ develop との比較が必要なら、一時 worktree（`git worktree add --deta
 - 10 回連続で実行して全件成功（1 回 1.8〜2.6 秒）。
 - 仕様との食い違いはなかった。Assert は緩めていない。
 - 範囲外: 同じ数値の SSRC を別 transport で使うケース（3.7）は、werift の sender の SSRC をテストから決められないため受け入れテストに入れていない。`tests/media/router.test.ts` の組み合わせ表で確認している。RingCentral の元 SDP（`a=rtcp:48037` を含む）は 3.6 の合流ルールどおりヘルパーで 1 行除いている。
+
+---
+
+## 9. テストコードの整理（モジュール分割と、その場限りのテストの削除）
+
+### 分割後の構成（`packages/webrtc/tests/media/ssrcLess/`）
+
+このチケットで追加したテストは `router.test.ts` の末尾の 1 つの describe（約 3000 行）と 866 行の `ssrcLessTestUtils.ts` に集まっていた。`rtpReceiver.ts` + `receiver/` と同じく、領域ごとのディレクトリにまとめた。既存の `router.test.ts` には、このチケットが変えた既存テスト「SDP registration clears the learned mark of an SSRC」だけが残る。
+
+| ファイル | 役割 |
+| --- | --- |
+| `arrange.ts` | router 単位の共通 Arrange（codec、SSRC-less の router と transceiver、パケット、RTCP、受信の収集） |
+| `matrices.ts` | 組み合わせ表の Arrange と期待値（3.11 の経路表、3.12 の識別子表） |
+| `peers.ts` | PeerConnection 単位の Arrange（RingCentral offer、SSRC と MID を除いた werift 同士の接続） |
+| `learning.test.ts` | 未知 SSRC の学習（RFC 9143 §9.2 の MID → PT、候補の条件、SSRC 切替と遅延パケット、上限、MID による対応付けの更新、SSRC の境界値） |
+| `negotiation.test.ts` | pending / commit / rollback 中の学習（確定済みの方向、SDP の SSRC・RID・codec の採用時期、rollback で残す・消す規則） |
+| `rtpSession.test.ts` | 識別子と経路を RTP session（transport）ごとに解決する規則（経路表・識別子表、付け替え、別 session の同一 SSRC、同じ session 内の sender / SDP / 学習の優先順位） |
+| `acceptance.test.ts` | 受け入れテスト（8 章） |
+
+`tests/issue/356.test.ts` は issue 固有の確認（fixture が原文のままであること、RingCentral offer で交渉しなかった PT から学習しないこと）だけにした。
+
+### 削除したテスト（その場限りの確認）
+
+判定基準: 規則を外から観測できる形で確かめ、実装を作り直しても意味が残るものは残す。次のどれかに当たるものを削除した。(a) 組み合わせ表や他のテストに完全に含まれる、(b) 置き換えた設計の内部状態（退役 SSRC リスト、`collidingRoutes` の補助経路）を確かめていた、(c) 途中の実装にだけあった例外の再現。
+
+| 削除したテスト | 理由 | 今カバーしているテスト |
+| --- | --- | --- |
+| 別 transport で同じ数値の SSRC を学習しても、それぞれの receiver に配送する | (a) | 経路の組み合わせ learned → learned（別 transport） |
+| 別 SSRC を名指す SR / RR / NACK / PLI が受信 transport の receiver に届く（4 件） | (a) | 同上（SR / RR / NACK / PLI / TWCC を確認） |
+| 別 transport の同一 SSRC の経路は登録解除で残らない | (a) | 「先に学習した transport の経路が消えても…」（逆側の登録解除）と leak property |
+| 別 transport で置き換え済みの SSRC でも新しいストリームとして学習する | (b) 3.9 で退役リストを廃止 | 経路の組み合わせ learned → learned |
+| 付け替えた receiver の同一 SSRC の経路は登録解除で残らない | (b) 補助経路の件数 | 付け替え後の配送テスト、leak property、`assertLearnedRoutes` |
+| 付け替えた receiver の学習 SSRC が上限で押し出されると補助経路が残らない | (b) | 同上と上限のテスト |
+| 同じ transport で別 MID が置き換え済みの SSRC を使い始める | (b) | 「fallback で学習済みの SSRC に別 MID が明示されたら…」 |
+| ローカル sender と同じ SSRC の未知 RTP（同じ / 別 transport、2 件） | (a) | 経路の組み合わせ sender ↔ learned |
+| ローカル sender と同じ SSRC の未知 RTP は例外を投げない | (c) | 経路の組み合わせ sender → learned |
+| 別 transport と衝突する fallback の SSRC も保留中の RID で commit 時に引き継ぐ | (a)(b) 2 つの規則の組み合わせ | 「fallback の SSRC が pending 中に RID 付きでも届けば…」と経路表 |
+| 別 transport の衝突経路だけが持つ fallback の SSRC を保留中の SDP が名指す | (b) | 経路表と negotiation の pending SSRC テスト |
+| MID も経路もない新しい SSRC が保留中の RID を運んでも別 m-line に渡らない | (a) | 「…保留中と確定済みの両方の m-line にある RID を運ぶとき、PT で決める」の 1 件 |
+| 別 transport の SDP が同じ SSRC を指定しても両方に届く（学習が先 / SDP が先、2 件） | (a) | 経路の組み合わせ learned ↔ sdp（別 transport） |
+| 学習した SSRC を同じ receiver の SDP が指定しても別 transport の SDP 経路は残る | (a) | 経路の組み合わせ sdp → sdp（別 transport） |
+| `356.test.ts`: 学習後の remote SR と inbound-rtp 統計 | (a) | 受け入れテスト（BUNDLE の audio / video） |
+| `356.test.ts`: werift 同士の BUNDLE audio + video、PT が重なる 2 本 | (a) | 受け入れテスト（同じ 2 件） |
+
+あわせて、削除したテストだけが使っていた `collidingRouteCount` を共通 Arrange から外した。テスト数は 216 件から 194 件になった。
+
+### develop の取り込みで古くなった期待値
+
+`7a1cb6f6c`（#853「Keep codecs negotiated earlier in re-offers」）を取り込んだ後、RingCentral offer への answer は `109 OPUS/16000` ではなく `111 OPUS/48000/2` を選ぶ（RFC 7587 では opus は 48000/2）。`356.test.ts` は「PT 111 は交渉しない」と決め打ちしていたため、HEAD `b7bba7619` の時点で 2 件が落ちていた。answer で交渉しなかった PT を受信 codec 表から求めるように改め、codec の選び方が変わっても成り立つようにした（学習の実装の問題ではない）。
+
+### 検証
+
+- `npx vitest run tests/media/ssrcLess tests/media/router.test.ts tests/issue/356.test.ts`: 6 ファイル、194 件成功。
+- webrtc の `npm run type` と `npm test`（結果は報告を参照）。

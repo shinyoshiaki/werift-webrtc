@@ -16,7 +16,7 @@ SDPに `a=ssrc` がない m-line（SIPゲートウェイ、SBC など）から�
 
 ### 受け入れテスト（ここだけ見れば目的の達成を確認できます）
 
-[packages/webrtc/tests/media/acceptance.test.ts](review-file:packages/webrtc/tests/media/acceptance.test.ts:17)（4 件、約 2 秒）。実行: `cd packages/webrtc && npx vitest run tests/media/acceptance.test.ts`
+[packages/webrtc/tests/media/ssrcLess/acceptance.test.ts](review-file:packages/webrtc/tests/media/ssrcLess/acceptance.test.ts:17)（4 件、約 2 秒）。実行: `cd packages/webrtc && npx vitest run tests/media/ssrcLess/acceptance.test.ts`
 
 | テスト | 確認すること |
 | --- | --- |
@@ -66,7 +66,7 @@ SDPに `a=ssrc` がない m-line（SIPゲートウェイ、SBC など）から�
 - ontrack の整合: [packages/webrtc/src/transceiverManager.ts:140](review-file:packages/webrtc/src/transceiverManager.ts:140) の `notifyRemoteTrack` と、[packages/webrtc/src/negotiationTransaction.ts:299](review-file:packages/webrtc/src/negotiationTransaction.ts:299) の `notifyCommittedRemoteTracks` で、通知済み track と同じものを二重通知しないようにしています。学習は通知済みの `receiver.track` に結び付くので、アプリが受け取った track にそのままRTPが届きます。
 - pending / rollback / SDP 上書き: pending 中の学習は即時に route へ入ります。commit で SDP の SSRC / RID が有効になると学習分は外れ、RID を運んでいたSSRCはその RID の media SSRC になります。rollback は、学習した route を残しつつ、巻き戻した description だけが与えた PT で学習した分を忘れます。詳細は [router.ts:178](review-file:packages/webrtc/src/media/router.ts:178) 以降の TSDoc に書きました。
 - ドキュメント: `doc/` は `npm run doc` で再生成されたもの、`packages/webrtc/README.md` と [compatibilityOptions.ts](review-file:packages/webrtc/src/api/compatibilityOptions.ts:16) の文言（「その transport 上の唯一の video sender」）を更新しています。
-- テスト: [packages/webrtc/tests/issue/356.test.ts](review-file:packages/webrtc/tests/issue/356.test.ts:41)（RingCentral offer の配送、SR と統計、werift 同士の BUNDLE）、[packages/webrtc/tests/media/router.test.ts](review-file:packages/webrtc/tests/media/router.test.ts)（組み合わせ表・rollback・上限）、共有 Arrange の [ssrcLessTestUtils.ts](review-file:packages/webrtc/tests/media/ssrcLessTestUtils.ts)、property テスト（`tests/pbt/model/ssrcLessTraffic.ts` ほか）。
+- テスト: `packages/webrtc/tests/media/ssrcLess/` にまとめています（構成はチケット 9 章）。[learning.test.ts](review-file:packages/webrtc/tests/media/ssrcLess/learning.test.ts)（§9.2 の学習・SSRC 切替・MID 更新）、[negotiation.test.ts](review-file:packages/webrtc/tests/media/ssrcLess/negotiation.test.ts)（pending / commit / rollback）、[rtpSession.test.ts](review-file:packages/webrtc/tests/media/ssrcLess/rtpSession.test.ts)（経路表・識別子表と transport 境界）、共有 Arrange の [arrange.ts](review-file:packages/webrtc/tests/media/ssrcLess/arrange.ts) / [matrices.ts](review-file:packages/webrtc/tests/media/ssrcLess/matrices.ts) / [peers.ts](review-file:packages/webrtc/tests/media/ssrcLess/peers.ts)、issue 固有の [356.test.ts](review-file:packages/webrtc/tests/issue/356.test.ts)、property テスト（`tests/pbt/model/ssrcLessTraffic.ts` ほか）。
 
 ## 4. 判断理由
 

@@ -1,10 +1,7 @@
 import { describe, expect, test, vi } from "vitest";
 
-import {
-  answerRingCentral,
-  connectWithoutSsrc,
-  inboundRtpSsrcs,
-} from "./ssrcLessTestUtils";
+import { inboundRtpSsrcs } from "./arrange";
+import { answerRingCentral, connectWithoutSsrc } from "./peers";
 
 /**
  * Acceptance test of ticket e7d0e0c9 (#356): RTP from a peer whose SDP has no
