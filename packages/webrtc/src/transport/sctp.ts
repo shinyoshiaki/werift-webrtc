@@ -710,6 +710,30 @@ export class RTCSctpTransport {
     this.setState("closed", false);
   }
 
+  /**
+   * @internal
+   * `RTCPeerConnection.close()`: close the channels still waiting for a
+   * stream ID or an OPEN. They are not in the registry the association close
+   * walks. Not part of {@link RTCSctpTransport.stop}, which a rollback or a
+   * reset also uses and which keeps these channels for the next negotiation.
+   */
+  closeUnannouncedChannels() {
+    const channels = [...this.unannounced];
+    this.unannounced.clear();
+    this.dataChannelQueue = this.dataChannelQueue.filter(
+      ([queued]) => !channels.includes(queued),
+    );
+    for (const channel of channels) {
+      if (
+        channel.id != undefined &&
+        this.dataChannels[channel.id] === channel
+      ) {
+        delete this.dataChannels[channel.id];
+      }
+      channel.setReadyState("closed");
+    }
+  }
+
   async stop() {
     this.markStopped();
     this.dtlsTransport.dataReceiver = () => {};

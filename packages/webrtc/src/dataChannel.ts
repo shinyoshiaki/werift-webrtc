@@ -149,11 +149,10 @@ export class RTCDataChannel extends EventTarget implements DataChannelStats {
     this.readyState = "closed";
     // Each notification is isolated: a throwing listener must not skip the
     // later ones, so `close` always follows `error`.
-    notifySafely(log, "stateChange", () => this.stateChange.execute("closed"));
-    notifySafely(log, "stateChanged", () =>
-      this.stateChanged.execute("closed"),
-    );
-    notifySafely(log, "error event", () => this.error.execute(error));
+    const onError = (e: unknown) => log("subscriber failed", e);
+    this.stateChange.executeIsolated(onError, "closed");
+    this.stateChanged.executeIsolated(onError, "closed");
+    this.error.executeIsolated((e) => log("error subscriber failed", e), error);
     notifySafely(log, "onerror", () => this.onerror?.({ error }));
     // emit("error") would throw without a listener.
     this.emitIsolated((e) => log("error listener failed", e), "error", {

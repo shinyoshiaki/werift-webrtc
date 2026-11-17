@@ -387,4 +387,47 @@ describe("issue 815: stream ID exhaustion", () => {
       await pc.close();
     }
   });
+
+  test("every error subscriber is notified even if one throws", async () => {
+    // Arrange: 最初の購読者が例外を投げ、後続に 2 つ目の購読者を置く。
+    const { dtls, transport } = createLimitedTransport();
+    const pc = new RTCPeerConnection();
+    const manager = (pc as any).sctpManager;
+    manager.sctpTransport = transport;
+    manager.createDataChannel("ok");
+    const failed = manager.createDataChannel("failed");
+    const received: Error[] = [];
+    failed.error.subscribe(() => {
+      throw new Error("first subscriber failed");
+    });
+    failed.error.subscribe((e: Error) => received.push(e));
+
+    try {
+      // Act: DTLS role を client に確定させ、ID 枯渇で失敗させる。
+      dtls.role = "client";
+
+      // Assert: 後続の購読者も OperationError を受け取る。
+      expect(received.map((e) => e.name)).toEqual(["OperationError"]);
+    } finally {
+      await transport.stop();
+      await pc.close();
+    }
+  });
+
+  test("pc.close() closes a channel that has no stream ID yet", async () => {
+    // Arrange: role 確定前に in-band channel を作る (id 指定は無視され未採番)。
+    const pc = new RTCPeerConnection();
+    const channel = pc.createDataChannel("test", { id: 42 });
+    const events: string[] = [];
+    channel.addEventListener("close", () => events.push("close"));
+    expect(channel.id).toBeUndefined();
+    expect(channel.readyState).toBe("connecting");
+
+    // Act: PeerConnection を閉じる。
+    await pc.close();
+
+    // Assert: 未採番の channel も closed になり close が通知される。
+    expect(channel.readyState).toBe("closed");
+    expect(events).toEqual(["close"]);
+  });
 });

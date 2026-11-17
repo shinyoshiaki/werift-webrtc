@@ -355,6 +355,7 @@ export class SctpTransportManager {
 
   /** @internal The synchronous part of close(): see {@link RTCSctpTransport.markStopped}. */
   markClosed() {
+    this.sctpTransport?.closeUnannouncedChannels();
     this.sctpTransport?.markStopped();
   }
 
