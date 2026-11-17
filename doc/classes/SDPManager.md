@@ -280,7 +280,7 @@ Local `a=ice-options` tokens written on every m-line.
 
 ### buildOfferSdp()
 
-> **buildOfferSdp**(`transceivers`, `sctpTransport`): [`SessionDescription`](SessionDescription.md)
+> **buildOfferSdp**(`transceivers`, `sctpTransport`, `offerCodecs?`): [`SessionDescription`](SessionDescription.md)
 
 オファーSDPを構築
 
@@ -293,6 +293,12 @@ Local `a=ice-options` tokens written on every m-line.
 ##### sctpTransport
 
 [`RTCSctpTransport`](RTCSctpTransport.md) \| `undefined`
+
+##### offerCodecs?
+
+`ReadonlyMap`\<[`RTCRtpTransceiver`](RTCRtpTransceiver.md), [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]\>
+
+offer codecs that differ from `transceiver.codecs` (resolveOfferCodecs)
 
 #### Returns
 
@@ -320,7 +326,7 @@ MediaDescriptionをSCTP用に作成
 
 ### createMediaDescriptionForTransceiver()
 
-> **createMediaDescriptionForTransceiver**(`transceiver`, `direction`): [`MediaDescription`](MediaDescription.md)
+> **createMediaDescriptionForTransceiver**(`transceiver`, `direction`, `codecs?`): [`MediaDescription`](MediaDescription.md)
 
 MediaDescriptionをトランシーバー用に作成
 
@@ -333,6 +339,12 @@ MediaDescriptionをトランシーバー用に作成
 ##### direction
 
 `"inactive"` \| `"sendonly"` \| `"recvonly"` \| `"sendrecv"`
+
+##### codecs?
+
+[`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[] = `transceiver.codecs`
+
+codecs to describe; the transceiver's negotiated codecs by default
 
 #### Returns
 
