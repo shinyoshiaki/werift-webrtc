@@ -130,9 +130,13 @@ type StagedLocalRestart = {
  *   and send target never change. A response for an earlier checklist is
  *   ignored.
  * - Ends at the final answer, which recreates the live agent with the staged
- *   credentials and checks the answered generation from scratch, or at
- *   rollback / a replacement offer / selecting another generation, which
- *   stops its checks and keeps the live generation.
+ *   credentials and checks the answered generation from scratch (when the
+ *   answer keeps the pranswer's credentials and the commit keeps that pair's
+ *   local socket, the controlling side nominates only the 5-tuple its
+ *   provisional checklist nominated, which the peer may have selected
+ *   already, and fails if it cannot), or at rollback / a
+ *   replacement offer / selecting another generation, which stops its checks
+ *   and keeps the live generation.
  *
  * A first negotiation and transports created for a proposal have no
  * provisional generation; they connect normally from the pranswer. The
@@ -641,10 +645,14 @@ export class RTCIceTransport {
     );
   }
 
+  /**
+   * The pair the agent selected (nominated), or null. A pair whose ordinary
+   * check succeeded is not selected: while the controlling agent waits to
+   * nominate (regular nomination), after it gave up, or before the peer
+   * nominated, no pair is reported.
+   */
   getSelectedCandidatePair() {
-    const pair =
-      this.connection.candidatePairs.find((candidate) => candidate.nominated) ??
-      this.connection.candidatePairs.find((candidate) => candidate.state === 3);
+    const pair = this.connection.nominated;
     if (!pair) {
       return null;
     }
