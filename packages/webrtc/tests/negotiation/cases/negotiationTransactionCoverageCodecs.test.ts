@@ -335,7 +335,7 @@ describeCases(
     );
 
     negotiationCase(
-      "[2.5-17] a rolled-back remote offer restores the re-resolution request an unapplied createOffer consumed while it was pending",
+      "[2.5-17] an unapplied createOffer keeps the re-resolution request while a remote offer is pending, and a rollback leaves it",
       { ref: "2.5-17" },
       async (c) => {
         // Arrange: createAnswer 後の addTrack で、answer の H264 を commit しつつ再解決要求が残った answerer。
@@ -350,16 +350,16 @@ describeCases(
         );
         await c.offer(a);
 
-        // Act: remote offer の pending 中に自分の offer を作る (適用しない。再解決要求を消費する)。
+        // Act: remote offer の pending 中に自分の offer を作る (適用しない。再解決要求は消費しない)。
         const unapplied = await b.createOffer();
 
-        // Assert: 未適用の createOffer で再解決要求は消費され、codec は解決し直されている。
+        // Assert: 未適用の createOffer は再解決要求を消さず (answer が解決し直せる)、offer は設定から解決される。
         expect(offeredVideoCodecs(unapplied.sdp)).toEqual(["VP8", "H264"]);
-        expect(transceiver.codecPreferencesNeedResolution).toBe(false);
+        expect(transceiver.codecPreferencesNeedResolution).toBe(true);
 
         await c.rollback(b);
 
-        // Assert: pending 中に消費した再解決要求と解決済み codec は baseline に戻る。
+        // Assert: 再解決要求と codec は baseline のまま。
         expect(transceiver.codecPreferencesNeedResolution).toBe(true);
         expect(transceiver.codecs.map((codec) => codec.payloadType)).toEqual(
           baselineCodecs,
