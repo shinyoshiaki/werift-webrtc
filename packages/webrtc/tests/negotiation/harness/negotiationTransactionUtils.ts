@@ -963,6 +963,30 @@ function assertRouterAndCodecs(pc: RTCPeerConnection, snapshot: Snapshot) {
         sender.codec.mimeType.toLowerCase(),
       );
     }
+    // stable の transceiver.codecs は確定した codec (current の local と remote の両方) だけを持つ。
+    // offer は毎回能力から解決するが、その集合は transceiver.codecs に書き戻さない (issue 818)。
+    if (
+      pc.signalingState === "stable" &&
+      transceiver.currentDirection &&
+      transceiver.currentDirection !== "stopped"
+    ) {
+      const localMedia = snapshot.currentLocal?.media.find(
+        (m) => m.rtp.muxId === media.rtp.muxId,
+      );
+      const negotiated = media.rtp.codecs.filter((codec) =>
+        localMedia?.rtp.codecs.some((c) => sameNegotiatedCodec(c, codec)),
+      );
+      for (const codec of transceiver.codecs) {
+        expect(
+          negotiated.some(
+            (c) =>
+              c.payloadType === codec.payloadType &&
+              c.mimeType.toLowerCase() === codec.mimeType.toLowerCase(),
+          ),
+          `transceiver ${transceiver.mid} codec ${codec.payloadType} ${codec.mimeType} is not negotiated`,
+        ).toBe(true);
+      }
+    }
     // 実際の PLI 送信判定も、その SSRC の current SDP の codec の RTCP feedback に従う。
     for (const { ssrc } of media.ssrc) {
       if (!transceiver.receiver.trackBySSRC[ssrc]) continue;
@@ -1299,14 +1323,14 @@ function assertNoOrphanTransports(pc: RTCPeerConnection) {
  */
 export async function createDuplexSession(
   config: ConstructorParameters<typeof RTCPeerConnection>[0] = {},
+  configB = config,
 ) {
-  const peerConfig = {
+  const defaults = {
     iceServers: [],
     iceUseDefaultStunServer: false,
-    ...config,
   };
-  const a = new RTCPeerConnection(peerConfig);
-  const b = new RTCPeerConnection(peerConfig);
+  const a = new RTCPeerConnection({ ...defaults, ...config });
+  const b = new RTCPeerConnection({ ...defaults, ...configB });
   const aOut = new MediaStreamTrack({ kind: "video" });
   const bOut = new MediaStreamTrack({ kind: "video" });
   const aChannel = a.createDataChannel("matrix");
@@ -3370,23 +3394,30 @@ export function rtxCodec() {
 /**
  * Shared Arrange: connected sendonly video like `createConnectedVideoPeers`,
  * with a separate configuration per peer and optional codec preferences the
- * offerer applies before its first offer.
+ * offerer applies before its first offer. `kind: "audio"` sends audio
+ * instead, and `outgoing` gives the offerer's track (a fixed source codec).
  */
 export async function createConnectedVideoPeersWith({
   offerer: offererConfig,
   answerer: answererConfig = offererConfig,
   offererPreferences,
+  direction = "sendonly",
+  kind = "video",
+  outgoing = new MediaStreamTrack({ kind }),
 }: {
   offerer: ConstructorParameters<typeof RTCPeerConnection>[0];
   answerer?: ConstructorParameters<typeof RTCPeerConnection>[0];
   offererPreferences?: RTCRtpCodecParameters[];
+  /** direction of the offerer's transceiver (it always has a track) */
+  direction?: "sendrecv" | "sendonly";
+  /** media kind of the offerer's track (default video) */
+  kind?: "video" | "audio";
+  /** the offerer's track (default a track of `kind` without a fixed source codec) */
+  outgoing?: MediaStreamTrack;
 }) {
   const offerer = new RTCPeerConnection(offererConfig);
   const answerer = new RTCPeerConnection(answererConfig);
-  const outgoing = new MediaStreamTrack({ kind: "video" });
-  const transceiver = offerer.addTransceiver(outgoing, {
-    direction: "sendonly",
-  });
+  const transceiver = offerer.addTransceiver(outgoing, { direction });
   if (offererPreferences) transceiver.setCodecPreferences(offererPreferences);
   await offerer.setLocalDescription(await offerer.createOffer());
   await answerer.setRemoteDescription(offerer.localDescription!);

@@ -94,9 +94,7 @@
       "enabled": true,
       "variant": "?rest",
       "reason": "Covers parameterless setLocalDescription flows that the current implementation aims to support.",
-      "subtests": [
-        "Parameterless SLD() in a full O/A exchange succeeds"
-      ]
+      "subtests": ["Parameterless SLD() in a full O/A exchange succeeds"]
     },
     {
       "file": "webrtc/RTCPeerConnection-setLocalDescription-rollback.html",
@@ -141,6 +139,14 @@
         "addTrack with existing sender that has not been used to send should reuse the sender",
         "addTrack with existing sender that has been used to send should create new sender",
         "addTrack with existing sender with null track, different kind, and recvonly direction should create new sender"
+      ]
+    },
+    {
+      "file": "webrtc/protocol/codecs-subsequent-offer.https.html",
+      "enabled": true,
+      "reason": "Issue #818: a subsequent offer lists every codec the transceiver supports, not only those an earlier answer kept (RFC 8829 5.2.2). The WPT wrapper configures VP8 + H264 like a browser.",
+      "subtests": [
+        "A subsequent offer after a VP8-only negotiation includes at least all mandatory to implement codecs"
       ]
     },
     {
