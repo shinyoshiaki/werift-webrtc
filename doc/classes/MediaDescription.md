@@ -108,6 +108,15 @@
 
 ***
 
+### rtcpAddrType?
+
+> `optional` **rtcpAddrType?**: `"IP4"` \| `"IP6"`
+
+`a=rtcp` の addrtype。パースした値を保持して再出力に使う (ホスト名の
+`IN IP4 host.example.com` が `IP6` に変わらない)。未設定なら `rtcpHost` から推定する。
+
+***
+
 ### rtcpHost?
 
 > `optional` **rtcpHost?**: `string`

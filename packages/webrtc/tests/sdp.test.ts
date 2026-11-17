@@ -236,9 +236,30 @@ describe("ice-options", () => {
 
       // Assert: 1 と 65535 は有効で、生成は入力と一致する
       expect(min).toEqual({ port: 1 });
-      expect(max).toEqual({ port: 65535, host: "192.0.2.1" });
+      expect(max).toEqual({
+        port: 65535,
+        host: "192.0.2.1",
+        addrType: "IP4",
+      });
       expect(rtcpAttributeToSdp(min)).toBe("1");
       expect(rtcpAttributeToSdp(max)).toBe("65535 IN IP4 192.0.2.1");
+    });
+
+    test.each([
+      "a=rtcp:53020 IN IP4 host.example.com",
+      "a=rtcp:53020 IN IP6 host.example.com",
+    ])("ホスト名を含む %s は addrtype を保ったまま round trip する", (line) => {
+      // Arrange: ホスト名のアドレス付き a=rtcp を含む SDP
+      const sdp = buildAudioSdp({
+        sessionHost: "192.0.2.1",
+        mediaAttributes: [line],
+      });
+
+      // Act: パースして再シリアライズする
+      const serialized = SessionDescription.parse(sdp).string;
+
+      // Assert: addrtype もアドレスも入力と同じ
+      expect(rtcpLines(serialized)).toEqual([line]);
     });
   });
 });

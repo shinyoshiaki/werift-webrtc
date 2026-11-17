@@ -221,9 +221,10 @@ export class SessionDescription {
               break;
             case "rtcp":
               {
-                const { port, host } = rtcpAttributeFromSdp(value);
+                const { port, host, addrType } = rtcpAttributeFromSdp(value);
                 currentMedia.rtcpPort = port;
                 currentMedia.rtcpHost = host;
+                currentMedia.rtcpAddrType = addrType;
               }
               break;
             case "rtcp-mux":
@@ -434,6 +435,11 @@ export class MediaDescription {
    */
   rtcpHost?: string;
   /**
+   * `a=rtcp` の addrtype。パースした値を保持して再出力に使う (ホスト名の
+   * `IN IP4 host.example.com` が `IP6` に変わらない)。未設定なら `rtcpHost` から推定する。
+   */
+  rtcpAddrType?: "IP4" | "IP6";
+  /**
    * `a=rtcp-mux` (RFC 5761)。`a=rtcp` の有無とは独立して入出力する。
    */
   rtcpMux = false;
@@ -532,7 +538,7 @@ export class MediaDescription {
 
     if (this.rtcpPort !== undefined) {
       lines.push(
-        `a=rtcp:${rtcpAttributeToSdp({ port: this.rtcpPort, host: this.rtcpHost })}`,
+        `a=rtcp:${rtcpAttributeToSdp({ port: this.rtcpPort, host: this.rtcpHost, addrType: this.rtcpAddrType })}`,
       );
     }
     if (this.rtcpMux) {
@@ -642,13 +648,14 @@ function ipAddressToSdp(addr: string) {
  *
  * port は 1–65535 の 10 進数でなければならず、それ以外の形式はエラーにする。
  *
- * 制約: `IP4` / `IP6` の後ろのアドレスは文字列のまま受理する (ホスト名も可)。
- * addrtype は保持しないため、ホスト名は {@link rtcpAttributeToSdp} で
- * 再出力すると `IP4` 以外 (IPv4 リテラルでないもの) は `IP6` として書き出される。
+ * `IP4` / `IP6` の後ろのアドレスは文字列のまま受理する (ホスト名も可)。
+ * addrtype は `addrType` として返すので、{@link rtcpAttributeToSdp} に渡せば
+ * 元の addrtype のまま再出力できる。
  */
 export function rtcpAttributeFromSdp(value: string): {
   port: number;
   host?: string;
+  addrType?: "IP4" | "IP6";
 } {
   const invalid = () =>
     new Error(`invalid a=rtcp attribute: ${JSON.stringify(value)}`);
@@ -674,22 +681,27 @@ export function rtcpAttributeFromSdp(value: string): {
   ) {
     throw invalid();
   }
-  return { port, host: address };
+  return { port, host: address, addrType: addrtype };
 }
 
 /**
  * `a=rtcp` の値 (`a=rtcp:` 以降) を生成する (RFC 3605 §2.1)。
  * `host` が `undefined` の場合はアドレス省略形 `<port>` を出力する。
- * addrtype は `host` が IPv4 リテラルなら `IP4`、それ以外 (IPv6 リテラル・ホスト名) は `IP6`。
+ * `addrType` を省略した場合は `host` が IPv4 リテラルなら `IP4`、それ以外は `IP6` とする。
  */
 export function rtcpAttributeToSdp({
   port,
   host,
+  addrType,
 }: {
   port: number;
   host?: string;
+  addrType?: "IP4" | "IP6";
 }) {
-  return host === undefined ? `${port}` : `${port} ${ipAddressToSdp(host)}`;
+  if (host === undefined) return `${port}`;
+  return addrType === undefined
+    ? `${port} ${ipAddressToSdp(host)}`
+    : `${port} IN ${addrType} ${host}`;
 }
 
 export function candidateToSdp(c: IceCandidate) {
