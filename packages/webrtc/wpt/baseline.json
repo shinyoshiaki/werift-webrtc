@@ -3462,6 +3462,12 @@
       "variant": "",
       "subtest": "RTCSessionDescription.toJSON serializes only specific attributes",
       "status": "PASS"
+    },
+    {
+      "file": "webrtc/protocol/codecs-subsequent-offer.https.html",
+      "variant": "",
+      "subtest": "A subsequent offer after a VP8-only negotiation includes at least all mandatory to implement codecs",
+      "status": "PASS"
     }
   ]
 }

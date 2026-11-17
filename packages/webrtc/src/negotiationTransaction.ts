@@ -148,6 +148,18 @@ const RETIRED_UFRAG_HISTORY = 64;
  * - RTP / router: new routing keys at once, conflicting ones staged until K
  *   (`RtpRouter`); codec and direction of current m-lines follow the
  *   effective-value rules. R restores the baseline tables.
+ * - Codecs: every offer lists what each transceiver can use now, whatever
+ *   the last answer kept, and the negotiated codecs as negotiated (payload
+ *   type, fmtp, rtcp-fb; paired with the configured codecs by the rule
+ *   negotiation uses, `pairCodecs`: the same format first, then the same
+ *   MIME type)
+ *   (`TransceiverManager.resolveOfferCodecs`, issue 818). The negotiated
+ *   codecs stay in it whatever the direction is now (`direction`,
+ *   `removeTrack()` never take one off the m-line; only an answer does), and
+ *   preferences and a fixed source narrow them too. `createOffer` and
+ *   applying the local offer leave `transceiver.codecs` (the negotiated
+ *   codecs that the sender, receiver and router use) unchanged; the answer
+ *   (or pranswer) to it replaces them, and R restores them.
  * - BUNDLE: current owners keep their transports; a changed topology gets
  *   transports prepared for the proposal and switches at K (`BundleTopology`).
  * - ICE: a restart is staged on the live transport, with a provisional

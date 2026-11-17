@@ -1,7 +1,7 @@
 import { createWebRtcDomException } from "../errors";
 import { codecParametersFromString } from "../sdp";
 import type { Kind } from "../types/domain";
-import type { RTCRtpCodecParameters } from "./parameters";
+import { RTCRtpCodecParameters } from "./parameters";
 
 /**
  * Lower-cased MIME type with the legacy `video/AV1X` name folded into
@@ -20,14 +20,33 @@ function optionalEqual<T>(left: T | undefined, right: T | undefined) {
   return left == undefined || right == undefined || left === right;
 }
 
-function h264Parameters(codec: RTCRtpCodecParameters) {
+/**
+ * The `a=fmtp` parameters that tell the formats of one MIME type apart (a
+ * decoder for one cannot take the other): H264 `packetization-mode` and
+ * `profile-level-id` (RFC 6184), VP9 `profile-id` (RFC 9628) and AV1
+ * `profile` (AV1 RTP payload format). Values are compared case-insensitively.
+ */
+const FORMAT_PARAMETERS: { readonly [name: string]: readonly string[] } = {
+  h264: ["packetization-mode", "profile-level-id"],
+  vp9: ["profile-id"],
+  av1: ["profile"],
+  av1x: ["profile"],
+};
+
+function formatIdentity(codec: RTCRtpCodecParameters) {
   const parameters = codecParametersFromString(codec.parameters ?? "");
-  return {
-    packetizationMode: parameters["packetization-mode"],
-    profileLevelId: parameters["profile-level-id"]?.toString().toLowerCase(),
-  };
+  return (FORMAT_PARAMETERS[codecName(codec)] ?? []).map((name) =>
+    parameters[name]?.toString().toLowerCase(),
+  );
 }
 
+/**
+ * Whether `source` (a track's codec or a remote codec) can be carried as
+ * `configured`: the same MIME type, clock rate and channels, and the same
+ * format-identifying parameters (`FORMAT_PARAMETERS`: H264 mode / profile,
+ * VP9 profile, AV1 profile). A parameter omitted on either side matches any
+ * value.
+ */
 export function isCodecCompatible(
   source: RTCRtpCodecParameters,
   configured: RTCRtpCodecParameters,
@@ -40,22 +59,86 @@ export function isCodecCompatible(
   }
   if (source.clockRate !== configured.clockRate) return false;
   if (!optionalEqual(source.channels, configured.channels)) return false;
-  if (codecName(source) !== "h264") return true;
-
-  const sourceParameters = h264Parameters(source);
-  const configuredParameters = h264Parameters(configured);
-  if (
-    !optionalEqual(
-      sourceParameters.packetizationMode,
-      configuredParameters.packetizationMode,
-    )
-  ) {
-    return false;
-  }
-  return optionalEqual(
-    sourceParameters.profileLevelId,
-    configuredParameters.profileLevelId,
+  const sourceIdentity = formatIdentity(source);
+  const configuredIdentity = formatIdentity(configured);
+  return sourceIdentity.every((value, index) =>
+    optionalEqual(value, configuredIdentity[index]),
   );
+}
+
+/**
+ * The fallback predicate negotiation pairs a configured codec with a remote
+ * one by when no remote codec has its format (`pairCodecs`): the same MIME
+ * type. The negotiated codec is then in the remote's form (payload type,
+ * fmtp, rtcp-fb), which may differ from the configured one, but it is what
+ * the configured codec negotiated, so a later offer lists it as it is
+ * (RFC 3264 §8.3.2).
+ */
+export function negotiatesAs(
+  configured: RTCRtpCodecParameters,
+  negotiated: RTCRtpCodecParameters,
+) {
+  return (
+    normalizeCodecMimeType(configured.mimeType) ===
+    normalizeCodecMimeType(negotiated.mimeType)
+  );
+}
+
+/**
+ * Pair each configured primary codec with at most one of `others` (and each
+ * of `others` with at most one configured codec), the rule negotiation
+ * (`setRemoteDescription()` / `createAnswer()`) and a later offer share,
+ * in three passes over the configured codecs, each pass only for the codecs
+ * still unpaired:
+ *
+ * 1. the codec of exactly the same format (`sameFormat`: MIME type, clock
+ *    rate, channels and every `a=fmtp` parameter, for any codec: VP9
+ *    `profile-id`, AV1 `profile`, H264 `packetization-mode` /
+ *    `profile-level-id`, Opus parameters, ...);
+ * 2. a compatible one (`isCodecCompatible`: the same format-identifying
+ *    parameters, H264 mode / profile, VP9 / AV1 profile, where an omitted
+ *    one matches any value);
+ * 3. one of the same MIME type (`negotiatesAs`, for instance an H264 of
+ *    another level or a VP9 of another profile).
+ *
+ * So when the configured codecs hold several formats of one MIME type (H264
+ * mode 0 and mode 1, VP9 profile 0 and profile 2), each pairs with its own
+ * format whatever the order, and an answer does not switch the format the
+ * offer meant. RTX / RED are not paired. `accept` limits the candidates (a
+ * fixed track source).
+ */
+export function pairCodecs(
+  configured: readonly RTCRtpCodecParameters[],
+  others: readonly RTCRtpCodecParameters[],
+  accept: (
+    configured: RTCRtpCodecParameters,
+    other: RTCRtpCodecParameters,
+  ) => boolean = () => true,
+): Map<RTCRtpCodecParameters, RTCRtpCodecParameters> {
+  const pairs = new Map<RTCRtpCodecParameters, RTCRtpCodecParameters>();
+  const used = new Set<RTCRtpCodecParameters>();
+  const passes = [
+    sameFormat,
+    (codec: RTCRtpCodecParameters, other: RTCRtpCodecParameters) =>
+      isCodecCompatible(other, codec),
+    negotiatesAs,
+  ];
+  for (const matches of passes) {
+    for (const codec of configured) {
+      if (isAuxiliary(codec) || pairs.has(codec)) continue;
+      const other = others.find(
+        (candidate) =>
+          !isAuxiliary(candidate) &&
+          !used.has(candidate) &&
+          matches(codec, candidate) &&
+          accept(codec, candidate),
+      );
+      if (!other) continue;
+      pairs.set(codec, other);
+      used.add(other);
+    }
+  }
+  return pairs;
 }
 
 function isAuxiliary(codec: RTCRtpCodecParameters) {
@@ -131,8 +214,10 @@ function referencedPayloadTypes(codec: RTCRtpCodecParameters) {
     return Number.isNaN(apt) ? [] : [apt];
   }
   if (codecName(codec) === "red") {
+    // `Number("")` is 0: a RED without fmtp references nothing.
     return parameters
       .split("/")
+      .filter((value) => value.trim() !== "")
       .map(Number)
       .filter((value) => !Number.isNaN(value));
   }
@@ -246,4 +331,299 @@ export function assertCodecsSupported(options: {
     );
   }
   return effective;
+}
+
+/**
+ * Configured codecs a negotiated m-line offers, before payload types are
+ * mapped (`keepNegotiatedPayloadTypes`): `capability` plus the configured
+ * counterpart (`pairCodecs`, the rule negotiation pairs by) of every
+ * negotiated codec that `capability` lacks.
+ *
+ * `eligible` is every configured codec of the kind with the fixed source and
+ * the codec preferences applied but no direction filter, and `capability` is
+ * the same for the current direction. A direction change (`direction`,
+ * `removeTrack()`) therefore never takes a negotiated codec off the m-line;
+ * only an answer does. Preferences and a fixed source still exclude one. An
+ * RTX / RED is kept when its primaries are and it is in `capability` or
+ * negotiated for the same primaries. The order is that of `eligible`
+ * (preferences, then configuration), the order of a first offer.
+ */
+export function withNegotiatedCodecs(
+  eligible: readonly RTCRtpCodecParameters[],
+  capability: readonly RTCRtpCodecParameters[],
+  negotiated: readonly RTCRtpCodecParameters[],
+): RTCRtpCodecParameters[] {
+  const candidates = [
+    ...eligible,
+    ...capability.filter((codec) => !eligible.includes(codec)),
+  ];
+  const primaryOf = (
+    codecs: readonly RTCRtpCodecParameters[],
+    payloadType: number,
+  ) =>
+    codecs.find(
+      (codec) => !isAuxiliary(codec) && codec.payloadType === payloadType,
+    );
+  const pairs = pairCodecs(candidates, negotiated);
+  const kept = new Set(
+    candidates.filter(
+      (codec) =>
+        !isAuxiliary(codec) && (capability.includes(codec) || pairs.has(codec)),
+    ),
+  );
+  const negotiatedForSamePrimaries = (codec: RTCRtpCodecParameters) => {
+    const primaries = referencedPayloadTypes(codec).map((payloadType) =>
+      primaryOf(candidates, payloadType),
+    );
+    return negotiated.some((other) => {
+      if (codecName(other) !== codecName(codec)) return false;
+      const otherPrimaries = referencedPayloadTypes(other).map((payloadType) =>
+        primaryOf(negotiated, payloadType),
+      );
+      return (
+        otherPrimaries.length === primaries.length &&
+        primaries.every((primary, index) => {
+          const otherPrimary = otherPrimaries[index];
+          return (
+            primary != undefined &&
+            otherPrimary != undefined &&
+            pairs.get(primary) === otherPrimary
+          );
+        })
+      );
+    });
+  };
+  return candidates.filter((codec) => {
+    if (!isAuxiliary(codec)) return kept.has(codec);
+    const primaries = referencedPayloadTypes(codec).map((payloadType) =>
+      primaryOf(candidates, payloadType),
+    );
+    if (primaries.some((primary) => primary == undefined || !kept.has(primary)))
+      return false;
+    return capability.includes(codec) || negotiatedForSamePrimaries(codec);
+  });
+}
+
+/**
+ * The format parameters (`a=fmtp`) a payload type stands for, in a form that
+ * compares equal when the parameters mean the same: parameter names are
+ * case-insensitive and unordered, and H264 gets its RFC 6184 §8.1 defaults
+ * (`packetization-mode` 0, `profile-level-id` 42000A, case-insensitive), so
+ * an omitted parameter and its default are the same format. Anything else
+ * (an RTX `apt`, the primaries of a RED `110/110`) is compared as written.
+ */
+function formatParameters(codec: RTCRtpCodecParameters) {
+  const entries = new Map<string, string>();
+  for (const item of (codec.parameters ?? "").split(";")) {
+    const parameter = item.trim();
+    if (parameter.length === 0) continue;
+    const separator = parameter.indexOf("=");
+    if (separator < 0) {
+      entries.set(parameter, "");
+      continue;
+    }
+    entries.set(
+      parameter.slice(0, separator).trim().toLowerCase(),
+      parameter.slice(separator + 1).trim(),
+    );
+  }
+  if (codecName(codec) === "h264") {
+    entries.set("packetization-mode", entries.get("packetization-mode") ?? "0");
+    entries.set(
+      "profile-level-id",
+      (entries.get("profile-level-id") ?? "42000a").toLowerCase(),
+    );
+  }
+  return [...entries]
+    .map(([name, value]) => `${name}=${value}`)
+    .sort()
+    .join(";");
+}
+
+/**
+ * The RTCP feedback (`a=rtcp-fb`) a payload type stands for, unordered and
+ * without duplicates, with the type and parameter compared case-insensitively.
+ */
+function feedbackTypes(codec: RTCRtpCodecParameters) {
+  return [
+    ...new Set(
+      codec.rtcpFeedback.map((feedback) =>
+        `${feedback.type} ${feedback.parameter ?? ""}`.trim().toLowerCase(),
+      ),
+    ),
+  ]
+    .sort()
+    .join(";");
+}
+
+/**
+ * Whether two codecs can share a payload type in one BUNDLE group (RFC 3264
+ * §8.3.2, RFC 8843 §9.1): the same codec with the same format parameters and
+ * RTCP feedback, the attributes RFC 8859 puts in the IDENTICAL-PER-PT
+ * category (`a=fmtp`, `a=rtcp-fb`). So an H264 format with another
+ * `packetization-mode` or `profile-level-id`, an RTX for another `apt`, a RED
+ * with other primaries or a VP8 with other feedback is another codec.
+ */
+function samePayloadMapping(
+  left: RTCRtpCodecParameters,
+  right: RTCRtpCodecParameters,
+) {
+  return (
+    sameFormat(left, right) && feedbackTypes(left) === feedbackTypes(right)
+  );
+}
+
+/**
+ * The same media format (`a=rtpmap` and `a=fmtp`, RFC 4566): MIME type,
+ * clock rate, channels and the format parameters (`formatParameters`), for
+ * every codec. RTCP feedback is not part of the format.
+ */
+function sameFormat(left: RTCRtpCodecParameters, right: RTCRtpCodecParameters) {
+  return (
+    normalizeCodecMimeType(left.mimeType) ===
+      normalizeCodecMimeType(right.mimeType) &&
+    left.clockRate === right.clockRate &&
+    (left.channels ?? 1) === (right.channels ?? 1) &&
+    formatParameters(left) === formatParameters(right)
+  );
+}
+
+function withPayloadType(
+  codec: RTCRtpCodecParameters,
+  payloadType: number,
+  parameters = codec.parameters,
+) {
+  if (codec.payloadType === payloadType && codec.parameters === parameters) {
+    return codec;
+  }
+  const next = new RTCRtpCodecParameters({
+    mimeType: codec.mimeType,
+    clockRate: codec.clockRate,
+    ...(codec.channels != undefined ? { channels: codec.channels } : {}),
+    payloadType,
+    rtcpFeedback: codec.rtcpFeedback.map((feedback) => ({ ...feedback })),
+    ...(parameters != undefined ? { parameters } : {}),
+    direction: codec.direction,
+  });
+  return next;
+}
+
+/**
+ * Offer codecs for a negotiated m-line (RFC 8829 §5.2.2, RFC 3264 §8.3.2):
+ * `capability` (configured codecs, in offer order) with each configured codec
+ * that is already negotiated replaced by the negotiated codec itself, so its
+ * payload type, fmtp and rtcp-fb stay as negotiated (also when the remote's
+ * form differs from the configured one). Configured and negotiated codecs
+ * pair as negotiation pairs them (`pairCodecs`: the same format first, then
+ * the same MIME type). Another format of a negotiated MIME type that the
+ * answer left out (H264 mode 1 next to a negotiated mode 0) is offered again
+ * like any other codec, so a later answer can move to it; an answer that
+ * still has the negotiated format pairs with it, since negotiation prefers
+ * the same format. A negotiated RTX / RED for the offered primaries is
+ * offered as negotiated too.
+ *
+ * A codec offered again keeps its configured payload type unless that type is
+ * already used on this m-line or maps to another codec in `taken` (every
+ * payload type the session uses; the same codec with other format parameters
+ * or RTCP feedback, such as a RED with other primaries, is another codec);
+ * then it takes a free dynamic type (96-127,
+ * then 35-63). RTX `apt` and RED references follow their primaries, and an
+ * RTX / RED whose primary is not offered is dropped. The order of
+ * `capability` is kept.
+ */
+export function keepNegotiatedPayloadTypes(
+  capability: readonly RTCRtpCodecParameters[],
+  negotiated: readonly RTCRtpCodecParameters[],
+  taken: ReadonlyMap<number, RTCRtpCodecParameters>,
+): RTCRtpCodecParameters[] {
+  const offered: (RTCRtpCodecParameters | undefined)[] = capability.map(
+    () => undefined,
+  );
+  const used = new Set<number>();
+  const primaryPayloadType = new Map<number, number>();
+  const matched = new Set<RTCRtpCodecParameters>();
+  const isFree = (payloadType: number, codec: RTCRtpCodecParameters) => {
+    if (used.has(payloadType)) return false;
+    const owner = taken.get(payloadType);
+    return owner == undefined || samePayloadMapping(owner, codec);
+  };
+  const pick = (preferred: number, codec: RTCRtpCodecParameters) => {
+    if (isFree(preferred, codec)) return preferred;
+    for (const [from, to] of [
+      [96, 127],
+      [35, 63],
+    ]) {
+      for (let payloadType = from; payloadType <= to; payloadType++) {
+        if (isFree(payloadType, codec)) return payloadType;
+      }
+    }
+    return undefined;
+  };
+  const place = (index: number, codec: RTCRtpCodecParameters) => {
+    offered[index] = codec;
+    used.add(codec.payloadType);
+  };
+
+  // 1. Negotiated primaries are offered as negotiated (payload type, fmtp,
+  //    rtcp-fb), each in place of the configured codec it pairs with
+  //    (`pairCodecs`: the same format first, then the same MIME type).
+  for (const [codec, match] of pairCodecs(capability, negotiated)) {
+    if (used.has(match.payloadType)) continue;
+    matched.add(match);
+    primaryPayloadType.set(codec.payloadType, match.payloadType);
+    place(capability.indexOf(codec), match);
+  }
+  // 2. Primaries offered again.
+  capability.forEach((codec, index) => {
+    if (isAuxiliary(codec) || offered[index]) return;
+    const payloadType = pick(codec.payloadType, codec);
+    if (payloadType == undefined) return;
+    primaryPayloadType.set(codec.payloadType, payloadType);
+    place(index, withPayloadType(codec, payloadType));
+  });
+  // 3. RTX / RED follow their primaries.
+  capability.forEach((codec, index) => {
+    if (!isAuxiliary(codec)) return;
+    const references = referencedPayloadTypes(codec).map((payloadType) =>
+      primaryPayloadType.get(payloadType),
+    );
+    // A video RED has no fmtp (nothing references a primary): it is offered
+    // as configured. An RTX, or a RED that names primaries, needs them offered.
+    const standalone = codecName(codec) === "red" && references.length === 0;
+    if (
+      !standalone &&
+      (references.length === 0 ||
+        references.some((payloadType) => payloadType == undefined))
+    ) {
+      return;
+    }
+    const parameters = standalone
+      ? codec.parameters
+      : codecName(codec) === "rtx"
+        ? (codec.parameters ?? "").replace(
+            /(^|;)\s*apt=\d+/,
+            `$1apt=${references[0]}`,
+          )
+        : references.join("/");
+    // The RTX / RED negotiated for these primaries is offered as negotiated.
+    const negotiatedAuxiliary = negotiated.find(
+      (other) =>
+        codecName(other) === codecName(codec) &&
+        !matched.has(other) &&
+        !used.has(other.payloadType) &&
+        (codecName(codec) === "rtx"
+          ? referencedPayloadTypes(other)[0] === references[0]
+          : (other.parameters ?? "") === (parameters ?? "")),
+    );
+    if (negotiatedAuxiliary) {
+      matched.add(negotiatedAuxiliary);
+      place(index, negotiatedAuxiliary);
+      return;
+    }
+    const candidate = withPayloadType(codec, codec.payloadType, parameters);
+    const payloadType = pick(codec.payloadType, candidate);
+    if (payloadType == undefined) return;
+    place(index, withPayloadType(candidate, payloadType));
+  });
+  return offered.filter((codec) => codec != undefined);
 }
