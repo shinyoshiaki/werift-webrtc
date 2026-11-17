@@ -35,6 +35,13 @@ const LONG_TIMEOUT_PROFILE: WptTimeoutProfile = {
   cleanupTimeoutMs: 400,
   vmTimeoutMs: 2_500,
 };
+/** `turn:123` waits for UDP transaction timeout and TCP fallback. */
+const ICE_SERVER_FAILURE_TIMEOUT_PROFILE: WptTimeoutProfile = {
+  completionTimeoutMs: 20_000,
+  cleanupTimeoutMs: 400,
+  vmTimeoutMs: 2_500,
+};
+
 const LONG_TARGETS = [
   "webrtc/rtcrtptransceiver.https.html ?rest",
   "webrtc/rtcpeerconnection-perfect-negotiation.https.html",
@@ -50,8 +57,7 @@ const HEAVY_TIMEOUT_PROFILE: WptTimeoutProfile = {
 
 /**
  * The profile of `target`, every limit multiplied by `scale` (the rerun of a
- * target that only regressed by timeouts uses a larger scale, see
- * `selectTimeoutRetryTargets`).
+ * target that only regressed by timeouts uses a larger scale).
  */
 export function resolveTimeoutProfile(
   target: Pick<WptTarget, "file" | "variant">,
@@ -68,14 +74,14 @@ export function resolveTimeoutProfile(
 
 function resolveBaseTimeoutProfile(
   target: Pick<WptTarget, "file" | "variant">,
-) {
+): WptTimeoutProfile {
   const key =
     `${target.file}${target.variant ? ` ${target.variant}` : ""}`.toLowerCase();
 
-  if (LONG_TARGETS.includes(key)) {
-    return LONG_TIMEOUT_PROFILE;
+  if (LONG_TARGETS.includes(key)) return LONG_TIMEOUT_PROFILE;
+  if (matchesAny(key, ["onicecandidateerror"])) {
+    return ICE_SERVER_FAILURE_TIMEOUT_PROFILE;
   }
-
   if (
     matchesAny(key, [
       "gc",

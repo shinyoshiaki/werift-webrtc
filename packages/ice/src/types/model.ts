@@ -48,7 +48,8 @@ export interface TransactionRequestOptions {
 export interface Protocol {
   type: string;
   onRequestReceived: Event<[Message, Address, Buffer]>;
-  onDataReceived: Event<[Buffer]>;
+  /** Application data (not STUN) and the remote address it came from. */
+  onDataReceived: Event<[Buffer, Address]>;
   /** Connection-oriented protocols: the connection to this remote address is gone. */
   onConnectionClosed?: Event<[Address]>;
   request: (

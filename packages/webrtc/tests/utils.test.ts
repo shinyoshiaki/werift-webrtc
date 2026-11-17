@@ -1,4 +1,9 @@
-import { deepMerge, parseIceServers, resolveTurnTransport } from "../src";
+import {
+  canonicalIceServerUrl,
+  deepMerge,
+  parseIceServers,
+  resolveTurnTransport,
+} from "../src";
 import type { RTCIceServer } from "../src/peerConnection";
 import { ntpTime, ntpTimeToEpochMs } from "../src/utils";
 import { ntpDiffMs, rfc3550Ntp } from "./fixture";
@@ -227,24 +232,28 @@ describe("utils", () => {
           username: "user-a",
           password: "pass-a",
           transport: undefined,
+          urls: ["turn:turn-a.example.com:3478"],
         },
         {
           address: ["turn-a.example.com", 3478],
           username: "user-a",
           password: "pass-a",
           transport: "tcp",
+          urls: ["turn:turn-a.example.com:3478?transport=tcp"],
         },
         {
           address: ["turn-b.example.com", 5349],
           username: "user-b",
           password: "pass-b",
           transport: "tls",
+          urls: ["turns:turn-b.example.com?transport=tcp"],
         },
         {
           address: ["turn-c.example.com", 3479],
           username: "user-b",
           password: "pass-b",
           transport: undefined,
+          urls: ["turn:turn-c.example.com:3479"],
         },
       ]);
     });
@@ -295,6 +304,52 @@ describe("utils", () => {
       expect(parsed.turnServer).toEqual(["turn-a.example.com", 3478]);
       expect(parsed.turnUsername).toBe("a");
       expect(parsed.turnPassword).toBe("pa");
+    });
+  });
+
+  describe("icecandidateerror の URL", () => {
+    test.each([
+      ["turns:h:5349", "turns:h:5349?transport=tcp"],
+      ["turns:h:5349?transport=tcp", "turns:h:5349?transport=tcp"],
+      ["turn:h:3478", "turn:h:3478"],
+      ["turn:h:3478?transport=tcp", "turn:h:3478?transport=tcp"],
+      ["stun:h:3478", "stun:h:3478"],
+      ["stuns:h:3478", "stuns:h:3478"],
+      ["  TURNS:H:5349 ", "turns:H:5349?transport=tcp"],
+      ["Stun:h", "stun:h"],
+    ])("canonicalIceServerUrl(%j) は %j", (url, expected) => {
+      // Act / Assert: turns: だけ transport=tcp を補い、空白除去と scheme の小文字化のみ行う
+      expect(canonicalIceServerUrl(url)).toBe(expected);
+    });
+
+    test("werift が使わない URL は undefined", () => {
+      // Act / Assert
+      expect(canonicalIceServerUrl("http://example.com")).toBeUndefined();
+      expect(canonicalIceServerUrl("turns:h?transport=udp")).toBeUndefined();
+    });
+
+    test("STUN URL は設定順にアドレスと対応付けられ、重複した TURN は urls をまとめる", () => {
+      // Arrange
+      const iceServers: RTCIceServer[] = [
+        { urls: ["stun:a:3478", "stuns:a:3478", "stun:a:3478"] },
+        {
+          urls: ["turn:t:3478?transport=tcp", "TURN:t:3478?transport=tcp"],
+          username: "u",
+          credential: "p",
+        },
+      ];
+
+      // Act
+      const { stunServerUrls, turnServers } = parseIceServers(iceServers);
+
+      // Assert: STUN は 1 アドレスに 2 URL、TURN は 1 サーバーに正規化後 1 URL
+      expect(stunServerUrls).toEqual([
+        { address: ["a", 3478], url: "stun:a:3478" },
+        { address: ["a", 3478], url: "stuns:a:3478" },
+      ]);
+      expect(turnServers.map(({ urls }) => urls)).toEqual([
+        ["turn:t:3478?transport=tcp"],
+      ]);
     });
   });
 

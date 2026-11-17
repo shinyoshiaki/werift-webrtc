@@ -31,6 +31,8 @@ export class SDPManager {
   readonly bundlePolicy?: BundlePolicy;
   readonly mLineReuse: MLineReuse;
   readonly bundleCandidates: BundleCandidates;
+  /** `PeerConfig.iceRenomination`: descriptions advertise `a=ice-options:renomination`. */
+  readonly iceRenomination: boolean;
   /** Local `a=ice-options` tokens written on every m-line. */
   readonly iceOptions: string;
 
@@ -51,6 +53,7 @@ export class SDPManager {
     bundlePolicy,
     mLineReuse,
     bundleCandidates,
+    iceRenomination,
     iceOptionIce2,
   }: {
     cname: string;
@@ -58,6 +61,7 @@ export class SDPManager {
     bundlePolicy?: BundlePolicy;
     mLineReuse?: MLineReuse;
     bundleCandidates?: BundleCandidates;
+    iceRenomination?: boolean;
     /** Add `ice2` (RFC 8445 §10) to the local ice-options. */
     iceOptionIce2?: boolean;
   }) {
@@ -66,7 +70,12 @@ export class SDPManager {
     this.bundlePolicy = bundlePolicy;
     this.mLineReuse = mLineReuse ?? "standard";
     this.bundleCandidates = bundleCandidates ?? "legacy";
-    this.iceOptions = iceOptionIce2 ? "trickle ice2" : "trickle";
+    this.iceRenomination = iceRenomination ?? false;
+    this.iceOptions = [
+      "trickle",
+      ...(iceOptionIce2 ? ["ice2"] : []),
+      ...(this.iceRenomination ? ["renomination"] : []),
+    ].join(" ");
   }
 
   get localDescription() {
