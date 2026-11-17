@@ -166,4 +166,16 @@ npm test
 - [ ] TSDoc、`doc/`、`changelog.md` を更新する（公開 API に変更がある場合）。
 
 ## #356 統合確認
-- [ ] #356 が先に develop に入ったため、`packages/webrtc/tests/issue/356.test.ts` の `a=rtcp:48037` 除去 helper を外し、元の RingCentral SDP で SSRC 学習・RTP 配送まで確認する。
+
+### 前提の訂正（2026-11-17 確認）
+
+この節は当初「#356 が先に develop に入った」前提で書いていたが、事実ではない。`origin/develop` に SDP に SSRC が無い単一ストリームの学習（#356 の本題）は入っておらず、`packages/webrtc/tests/issue/356.test.ts` も存在しない（`git log origin/develop` と `src/media/router.ts` の `routeRtp` で確認）。§3 のとおり #356 の本題はこのチケットの範囲外なので、ここでは #355 の変更が RTP 配送を妨げないことだけを確認する。
+
+### このチケットで確認したこと（完了）
+
+- [x] `tests/issue/355.test.ts`: RingCentral offer（`a=rtcp:48037` と `a=rtcp-mux` はそのまま）に `a=ssrc:1234` だけを足して（`tests/sdpUtils.ts` の `withDeclaredSsrc`）、`setRemoteDescription()` → `setLocalDescription(createAnswer())` → DTLS transport の `onRtp` に PCMU (PT 0) の RTP を流す。その RTP が `onTrack` の track の `onReceiveRtp` に届き、`remoteDescription.sdp` に `a=rtcp:48037` / `a=rtcp-mux` が残ることを確認した。#355 の修正前は `setRemoteDescription()` が例外になるため、このテストは失敗する。
+
+### #356 へ引き継ぐこと（このチケットの完了条件ではない）
+
+- `a=ssrc` の無い元の RingCentral offer では、`RtpRouter.routeRtp` が SSRC を学習しないので RTP は配送されない（`ssrcReceiver not found`）。これは #356 で扱う。
+- #356 の実装時に、元の `ringCentralOffer`（`a=rtcp:48037` 除去なし・`a=ssrc` なし）で SSRC 学習と RTP 配送を確認するテストを追加する。

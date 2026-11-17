@@ -84,3 +84,15 @@ export const ringCentralOffer = [
   "a=rtcp:48037",
   "",
 ].join("\r\n");
+
+/**
+ * RingCentral offer の audio m-section に `a=ssrc:<ssrc> cname:<cname>` を足す。
+ * `a=rtcp:48037` はそのまま残すので、#355 の省略形 `a=rtcp` を保ったまま SSRC 経路で RTP 配送を確かめられる。
+ * SDP に SSRC が無い offer の学習 (#356) はこのブランチの範囲外。
+ */
+export function withDeclaredSsrc(sdp: string, ssrc: number, cname = "rc") {
+  return sdp.replace(
+    "a=rtcp:48037\r\n",
+    `a=rtcp:48037\r\na=ssrc:${ssrc} cname:${cname}\r\n`,
+  );
+}

@@ -1,5 +1,11 @@
-import { RTCPeerConnection, SessionDescription } from "../../src";
-import { ringCentralOffer, rtcpLines } from "../sdpUtils";
+import {
+  type MediaStreamTrack,
+  RTCPeerConnection,
+  RtpHeader,
+  RtpPacket,
+  SessionDescription,
+} from "../../src";
+import { ringCentralOffer, rtcpLines, withDeclaredSsrc } from "../sdpUtils";
 
 // https://github.com/shinyoshiaki/werift-webrtc/issues/355
 describe("issue 355: a=rtcp without address (RFC 3605)", () => {
@@ -37,9 +43,44 @@ describe("issue 355: a=rtcp without address (RFC 3605)", () => {
     }
   });
 
-  // #356 (SDP に SSRC が無い単一ストリームの学習・配送) はこのブランチに未導入。
-  // 導入後に ringCentralOffer のまま SSRC 学習 / RTP 配送を検証する。
-  test.todo(
-    "RingCentral の offer で SSRC 学習・RTP 配送まで確認する (#356 導入後)",
-  );
+  test("RingCentral の offer (a=rtcp:48037 のまま) で SSRC を宣言すると RTP が track に配送される", async () => {
+    // Arrange: a=rtcp:48037 を残したまま a=ssrc を宣言した offer に answer する
+    const ssrc = 1234;
+    const pc = new RTCPeerConnection({ iceServers: [] });
+    const tracks: MediaStreamTrack[] = [];
+    pc.onTrack.subscribe((track) => tracks.push(track));
+
+    try {
+      await pc.setRemoteDescription({
+        type: "offer",
+        sdp: withDeclaredSsrc(ringCentralOffer, ssrc),
+      });
+      await pc.setLocalDescription(await pc.createAnswer());
+      const received: RtpPacket[] = [];
+      tracks[0].onReceiveRtp.subscribe((packet) => received.push(packet));
+      const [transceiver] = pc.getTransceivers();
+      const packet = new RtpPacket(
+        new RtpHeader({
+          ssrc,
+          payloadType: 0,
+          sequenceNumber: 1,
+          timestamp: 1,
+        }),
+        Buffer.from([1, 2, 3]),
+      );
+
+      // Act: DTLS transport が復号した RTP として PCMU (PT 0) のパケットを流す
+      transceiver.dtlsTransport!.onRtp.execute(packet);
+
+      // Assert: 宣言した SSRC の経路で track に届き、remoteDescription には a=rtcp:48037 が残る
+      expect(tracks).toHaveLength(1);
+      expect(received.map((p) => p.header.ssrc)).toEqual([ssrc]);
+      expect(rtcpLines(pc.remoteDescription!.sdp)).toEqual([
+        "a=rtcp:48037",
+        "a=rtcp-mux",
+      ]);
+    } finally {
+      await pc.close();
+    }
+  });
 });
