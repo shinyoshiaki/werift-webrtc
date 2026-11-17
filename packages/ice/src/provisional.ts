@@ -72,6 +72,13 @@ export type ProvisionalHost = {
   mdnsLookup: () => MdnsLookup;
   /** A pair the agent never checks itself (forceTurn). */
   isUncheckedPair: (pair: CandidatePair) => boolean;
+  /** A wildcard socket (`CandidateGatherer.isWildcardProtocol`). */
+  isWildcardProtocol: (protocol: Protocol) => boolean;
+  /**
+   * The wildcard socket should check `remoteCandidate`: no host socket
+   * covers its path (`CandidateGatherer.wildcardPathUncovered`).
+   */
+  wildcardPathUncovered: (remoteCandidate: Candidate) => Promise<boolean>;
   /** Full ICE on both sides and this agent controlling. */
   nominatesFullPeer: () => boolean;
   usesRegularNomination: () => boolean;
@@ -271,11 +278,26 @@ export class ProvisionalChecklist {
     return this.generation?.nominated;
   }
 
+  /**
+   * @param routeChecked a wildcard socket's pair whose path no host socket
+   *   covers (checked by `wildcardPathUncovered`, as the live checklist does).
+   */
   private tryPair(
     generation: ProvisionalGeneration,
     protocol: Protocol,
     remoteCandidate: Candidate,
+    routeChecked = false,
   ) {
+    if (!routeChecked && this.host.isWildcardProtocol(protocol)) {
+      void this.host
+        .wildcardPathUncovered(remoteCandidate)
+        .then((uncovered) => {
+          if (uncovered && this.generation === generation) {
+            this.tryPair(generation, protocol, remoteCandidate, true);
+          }
+        });
+      return;
+    }
     if (
       !protocol.localCandidate?.canPairWith(remoteCandidate) ||
       !this.allows(generation, protocol) ||
