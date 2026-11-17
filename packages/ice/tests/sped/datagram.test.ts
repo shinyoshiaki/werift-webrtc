@@ -138,7 +138,12 @@ describe("Connection datagram routing without source", () => {
     });
 
     // Act: 従来どおり source 無しで発火する
-    protocol.onDataReceived.execute(dtls);
+    // 型上は source 必須。防御的に source 欠落を再現する
+    (
+      protocol.onDataReceived as unknown as {
+        execute: (bytes: Buffer, source?: readonly [string, number]) => void;
+      }
+    ).execute(dtls);
 
     // Assert: pair.remoteAddr を捏造せず、handshake DTLS は拒否。onData は互換のため発火する
     expect(appData).toHaveLength(1);

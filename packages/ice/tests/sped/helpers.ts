@@ -107,7 +107,7 @@ export function decoratedCheckRequest(
 export class SpedProtocolMock implements Protocol {
   type = "mock";
   onRequestReceived: Event<[Message, Address, Buffer]> = new Event();
-  onDataReceived: Event<[Buffer, Address?]> = new Event();
+  onDataReceived: Event<[Buffer, Address]> = new Event();
   localCandidate = new Candidate(
     "some-foundation",
     1,

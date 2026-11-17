@@ -184,7 +184,12 @@ describe("IceSpedTransport datagram gate", () => {
     const dtls = Buffer.from([22, 1, 2, 3]);
 
     // Act: source 無しのあと、同じ bytes を pair の remote 5-tuple 付きで流す
-    protocol.onDataReceived.execute(dtls);
+    // 型上は source 必須。防御的に source 欠落を再現する
+    (
+      protocol.onDataReceived as unknown as {
+        execute: (bytes: Buffer, source?: readonly [string, number]) => void;
+      }
+    ).execute(dtls);
     protocol.onDataReceived.execute(dtls, pair.remoteAddr);
 
     // Assert: source が無い datagram は DTLS に入れず、明示 source だけ通す

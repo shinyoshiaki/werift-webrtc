@@ -31,6 +31,7 @@ export class TransportActivation {
   private readonly topology: BundleTopology;
   private readonly host: {
     signalingState: () => RTCSignalingState;
+    config: () => PeerConfig;
     /** The transport a transceiver starts on (BUNDLE policy aware). */
     createTransport: () => RTCDtlsTransport;
   };
