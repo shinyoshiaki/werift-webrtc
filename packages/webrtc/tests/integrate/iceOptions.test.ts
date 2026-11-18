@@ -96,6 +96,28 @@ describe("ice-options ice2 / iceMessageIntegrity", () => {
     expect(() => pc.setConfiguration({ iceOptionIce2: false })).not.toThrow();
   });
 
+  test("bundleCandidates は既定 legacy、不正値を拒否し、構築後に変更できない", () => {
+    // Arrange
+    const pc = createPeer({});
+    const compatible = createPeer({ bundleCandidates: "compatible" });
+
+    // Assert: 既定値と明示値が getConfiguration に現れる
+    expect(pc.getConfiguration().bundleCandidates).toBe("legacy");
+    expect(compatible.getConfiguration().bundleCandidates).toBe("compatible");
+    // Act / Assert: 不正な値 (旧仮称 tagOnly を含む) は TypeError、変更は InvalidModificationError、同じ値は許可される
+    for (const value of ["all", "tagOnly"]) {
+      expect(
+        () => new RTCPeerConnection({ bundleCandidates: value as never }),
+      ).toThrow(TypeError);
+    }
+    expect(() =>
+      pc.setConfiguration({ bundleCandidates: "compatible" }),
+    ).toThrow("bundleCandidates cannot be changed");
+    expect(() =>
+      pc.setConfiguration({ bundleCandidates: "legacy" }),
+    ).not.toThrow();
+  });
+
   test("iceMessageIntegrity は sha1 / sha256 / both 以外を拒否する", () => {
     // Act / Assert: 不正な値は TypeError
     expect(

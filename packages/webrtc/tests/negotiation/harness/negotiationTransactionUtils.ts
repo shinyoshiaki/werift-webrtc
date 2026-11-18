@@ -1771,6 +1771,48 @@ export function sdpCandidates(sdp: string, mid: string) {
   );
 }
 
+/**
+ * The candidate lines of every m-section of `sdp` by MID (`bundleCandidates`,
+ * issue #269): its `a=candidate` values, whether it ends with
+ * `a=end-of-candidates`, and the transport lines every bundled m-line keeps.
+ * `bundle` lists the BUNDLE groups (tag first).
+ */
+export function candidateLayout(sdp: string) {
+  const sections = sdp.split(/(?=^m=)/m).slice(1);
+  const media = Object.fromEntries(
+    sections.map((section) => {
+      const mid = section.match(/^a=mid:(\S+)/m)?.[1] ?? "";
+      return [
+        mid,
+        {
+          port: Number(section.match(/^m=\S+ (\d+)/)![1]),
+          candidates: [...section.matchAll(/^a=(candidate:[^\r\n]+)/gm)].map(
+            ([, candidate]) => candidate,
+          ),
+          end: /^a=end-of-candidates\r?$/m.test(section),
+          ufrag: section.match(/^a=ice-ufrag:(\S+)/m)?.[1],
+          pwd: section.match(/^a=ice-pwd:(\S+)/m)?.[1],
+          fingerprint: /^a=fingerprint:/m.test(section),
+          setup: /^a=setup:/m.test(section),
+        },
+      ];
+    }),
+  );
+  const bundle = [...sdp.matchAll(/^a=group:BUNDLE ([^\r\n]+)/gm)].map(
+    ([, group]) => group.trim().split(" "),
+  );
+  return { media, bundle };
+}
+
+/** Wait until the ICE gathering of `pc` is complete (its end-of-candidates is in the SDP). */
+export async function waitForGatheringComplete(pc: RTCPeerConnection) {
+  await waitUntil(
+    () => pc.iceGatheringState === "complete",
+    "ICE gathering did not complete",
+    10000,
+  );
+}
+
 /** Wait until a (possibly newly split) DTLS transport is connected. */
 export async function waitForDtlsConnected(
   transport: RTCPeerConnection["dtlsTransports"][number],
@@ -1795,6 +1837,58 @@ export async function addNegotiatedAudio(
   const remote = () =>
     answerer.pc.getTransceivers().find((t) => t.mid === mid)!;
   return { out, transceiver, mid, remote };
+}
+
+/**
+ * The offer `sdp` as a `bundle-only` offerer writes it on the wire (RFC 8843
+ * §6): every non-tagged member of a BUNDLE group (`mids`, default: all of
+ * them) gets port 0 and `a=bundle-only`, keeping its `c=`, ICE and DTLS lines.
+ * This is the shape Firefox 157 writes for an m-line added by a re-offer, for
+ * every non-tagged m-line of an ICE restart offer and of a `max-bundle` first
+ * offer (ticket 21a27c92 §2). Only the wire changes: the offerer applies its
+ * own offer unchanged, like a peer whose offers are written this way.
+ */
+export function toBundleOnlyOffer(sdp: string, mids?: string[]) {
+  const group = sdp
+    .match(/^a=group:BUNDLE ([^\r\n]+)/m)![1]
+    .trim()
+    .split(" ");
+  const targets = new Set(mids ?? group.slice(1));
+  const [session, ...sections] = sdp.split(/(?=^m=)/m);
+  return (
+    session +
+    sections
+      .map((section) => {
+        const mid = section.match(/^a=mid:(\S+)/m)?.[1];
+        if (!mid || !targets.has(mid) || mid === group[0]) return section;
+        return section
+          .replace(/^(m=\S+) \d+ /, "$1 0 ")
+          .replace(/^(a=mid:[^\r\n]+\r?\n)/m, "a=bundle-only\r\n$1");
+      })
+      .join("")
+  );
+}
+
+/**
+ * `sdp` with the ICE candidates (`a=candidate`, `a=end-of-candidates`) of the
+ * m-lines of `mids` left out, as Firefox writes a bundle-only m-line (it
+ * writes candidates only in the offerer-tagged m-line).
+ */
+export function withoutCandidates(sdp: string, mids: string[]) {
+  const [session, ...sections] = sdp.split(/(?=^m=)/m);
+  return (
+    session +
+    sections
+      .map((section) => {
+        const mid = section.match(/^a=mid:(\S+)/m)?.[1];
+        if (!mid || !mids.includes(mid)) return section;
+        return section.replace(
+          /^a=(candidate|end-of-candidates)[^\r\n]*\r?\n/gm,
+          "",
+        );
+      })
+      .join("")
+  );
 }
 
 /** Local offer SDP whose BUNDLE group leaves `mid` out (a BUNDLE split). */

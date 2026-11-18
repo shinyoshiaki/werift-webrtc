@@ -25,7 +25,11 @@ import type { KeyFrameRequestRouting } from "../media/router";
 import type { RTCRtpSenderOptions } from "../media/rtpSender";
 import type { BandwidthEstimatorOption } from "../media/sender/createBandwidthEstimator";
 import type { BundlePolicy } from "../sdp";
-import type { MLineReuse } from "../sdpManager";
+import {
+  type BundleCandidates,
+  BundleCandidatesModes,
+  type MLineReuse,
+} from "../sdpManager";
 import type { DtlsKeys, RTCCertificate } from "../transport/dtls";
 import { DEFAULT_MAX_MESSAGE_SIZE } from "../transport/sctp";
 import { deepMerge } from "../utils";
@@ -274,6 +278,15 @@ export interface PeerConfig {
    */
   keyFrameRequestRouting: KeyFrameRequestRouting;
   /**
+   * Which m-lines of a BUNDLE group carry the local ICE candidates.
+   * Cannot be changed after construction. See {@link BundleCandidates}.
+   * - `"legacy"` (default): every m-line repeats its transport's candidates and
+   *   `a=end-of-candidates` (werift's earlier output).
+   * - `"compatible"`: as Chrome writes them, only the BUNDLE tag m-line carries
+   *   them, so renegotiation with more m-lines no longer repeats the candidate list.
+   */
+  bundleCandidates: BundleCandidates;
+  /**
    * Sets every compatibility option (`certificateScope`, `mLineReuse`,
    * `transceiverPairing`, `keyFrameRequestRouting`, see
    * {@link CompatibilityOptionValues}) to the specification / browser behavior
@@ -502,6 +515,7 @@ export function generateDefaultPeerConfig(): PeerConfig {
     mLineReuse: "standard",
     transceiverPairing: "byKind",
     keyFrameRequestRouting: "fallback",
+    bundleCandidates: "legacy",
     compatibility: undefined,
   };
 }
@@ -714,6 +728,26 @@ export function mergePeerConfiguration(
         `${option} cannot be changed`,
       );
     }
+  }
+
+  if (
+    normalizedConfig.bundleCandidates !== undefined &&
+    !BundleCandidatesModes.includes(normalizedConfig.bundleCandidates)
+  ) {
+    throw createWebRtcTypeError(
+      `bundleCandidates must be one of ${BundleCandidatesModes.join(", ")}`,
+    );
+  }
+
+  if (
+    isReconfiguration &&
+    normalizedConfig.bundleCandidates !== undefined &&
+    normalizedConfig.bundleCandidates !== config.bundleCandidates
+  ) {
+    throw createWebRtcDomException(
+      "InvalidModificationError",
+      "bundleCandidates cannot be changed",
+    );
   }
 
   if (
