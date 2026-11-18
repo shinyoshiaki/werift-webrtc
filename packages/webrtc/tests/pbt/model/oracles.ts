@@ -257,24 +257,37 @@ const restored = (w: World, baseline: World, after: World) => ({
     )
     .map((transport) => w.ice[w.iceObjects.indexOf(transport)].ufrag),
 });
-/** Router entries that point at `objects` (by position), for comparing routes. */
+/**
+ * Router entries that point at `objects` (by position), for comparing routes.
+ * Only description state: SSRC routes of a description or a local sender
+ * (`RtpRouter.routeEntries` of origin `sdp` / `sender`) and RID routes.
+ * Routes packets taught (origin `learned`) are live state a rollback keeps
+ * as they are (a RID's media SSRC may change while a description is
+ * pending); `assertLearnedRoutes` checks them after every operation.
+ */
 function routes(pc: RTCPeerConnection, objects: RTCRtpTransceiver[]) {
   const router = (
     pc as unknown as {
       router: {
-        ssrcTable: Record<string, unknown>;
+        routeEntries: { ssrc: number; endpoint: unknown; origin: string }[];
         ridTable: Record<string, unknown>;
       };
     }
   ).router;
   const endpoints = objects.flatMap((t) => [t.sender, t.receiver]) as unknown[];
-  const table = (entries: Record<string, unknown>) =>
+  const table = (entries: [string, unknown][]) =>
     Object.fromEntries(
-      Object.entries(entries)
+      entries
         .map(([key, value]) => [key, endpoints.indexOf(value)] as const)
         .filter(([, index]) => index >= 0),
     );
-  return { ssrc: table(router.ssrcTable), rid: table(router.ridTable) };
+  const described = router.routeEntries
+    .filter((r) => r.origin !== "learned")
+    .map((r) => [`${r.ssrc}:${r.origin}`, r.endpoint] as [string, unknown]);
+  return {
+    ssrc: table(described),
+    rid: table(Object.entries(router.ridTable)),
+  };
 }
 /** The m-line structure of an SDP (kind and MID per m-line), for local descriptions. */
 const structure = (sdp?: string | null) =>

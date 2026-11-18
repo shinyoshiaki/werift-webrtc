@@ -196,7 +196,8 @@ werift-webrtcは、TypeScript (Node.js) で実装されたピュアなWebRTC実�
 - **rtpTransceiver.ts**: RTPトランシーバー
 - **rtpSender.ts**: RTP送信機
 - **rtpReceiver.ts**: RTP受信機
-- **router.ts**: パケットルーティング
+- **router.ts**: パケットルーティング（`RtpRouter`: 経路の登録・交渉の staging / rollback・RTP の配送と学習）
+- **routing/**: `RtpRouter` の部品（`routeTable.ts` SSRC → 経路の集合と RTP session の判定、`pendingRoutes.ts` 保留中の description の経路、`ridRouting.ts` RID / MID の引き当て、`unknownSsrc.ts` RFC 9143 §9.2 の学習先の決定、`rtcpRouting.ts` RTCP の配送と `KeyFrameRequestRouting`）
 - **track.ts**: メディアトラック
 - **codec.ts**: コーデック定義
 - **parameters.ts**: RTPパラメータ
