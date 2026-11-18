@@ -1318,6 +1318,10 @@ v0.3.5
 
 > **setReadyState**(`state`): `void`
 
+Internal. Every listener is isolated (DOM event semantics): a throwing
+one is logged, and neither skips the later listeners nor reaches the
+caller (the SCTP receive path, `RTCPeerConnection.close()`, a rollback).
+
 #### Parameters
 
 ##### state

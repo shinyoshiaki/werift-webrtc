@@ -6,9 +6,11 @@ import {
 import { createDtlsTransport } from "../fixture";
 import {
   closeAll,
+  closedObservation,
   createPeers,
   negotiate,
   nextMessage,
+  observeCloseStates,
   waitOpen,
   waitRemoteChannel,
 } from "./815.helpers";
@@ -450,5 +452,83 @@ describe("issue 815: stream ID exhaustion", () => {
     expect(second.readyState).toBe("closed");
     expect(events).toEqual(["close"]);
     expect(pc.connectionState).toBe("closed");
+  });
+
+  test("pc.close() notifies close of a channel without an ID after SCTP / DTLS / the PeerConnection closed", async () => {
+    // Arrange: role 確定前の in-band channel (未採番) と negotiated channel (登録済み)。
+    const pc = new RTCPeerConnection();
+    const inBand = pc.createDataChannel("in-band", { id: 42 });
+    const negotiated = pc.createDataChannel("negotiated", {
+      negotiated: true,
+      id: 3,
+    });
+    const observed = observeCloseStates(pc, [inBand, negotiated]);
+
+    // Act: PeerConnection を閉じる。
+    await pc.close();
+
+    // Assert: どちらの close 通知でも、PeerConnection・SCTP・DTLS はすでに closed。
+    expect(observed).toEqual([
+      closedObservation("negotiated"),
+      closedObservation("in-band"),
+    ]);
+  });
+
+  test("pc.close() notifies close of a reserved, unannounced channel after the transports closed", async () => {
+    // Arrange: answer で DTLS role が決まり ID を予約済みだが、SCTP 未接続の channel。
+    const pc = new RTCPeerConnection();
+    const remote = new RTCPeerConnection();
+    const channel = pc.createDataChannel("reserved");
+    await pc.setLocalDescription(await pc.createOffer());
+    await remote.setRemoteDescription(pc.localDescription!);
+    await remote.setLocalDescription(await remote.createAnswer());
+    await pc.setRemoteDescription(remote.localDescription!);
+    expect(channel.id).toBe(1);
+    const observed = observeCloseStates(pc, [channel]);
+
+    try {
+      // Act: PeerConnection を閉じる。
+      await pc.close();
+
+      // Assert: close 通知の時点で PeerConnection・SCTP・DTLS はすでに closed。
+      expect(channel.readyState).toBe("closed");
+      expect(observed).toEqual([closedObservation("reserved")]);
+    } finally {
+      await remote.close();
+    }
+  });
+
+  test("a throwing close listener of a registered channel skips no listener, channel or teardown", async () => {
+    // Arrange: 登録済み channel の先頭 close リスナーが例外を投げる。後続に
+    // 同じ channel の 2 つ目のリスナー、別の登録済み channel、未採番 channel を置く。
+    const pc = new RTCPeerConnection();
+    const first = pc.createDataChannel("first", { negotiated: true, id: 3 });
+    first.addEventListener("close", () => {
+      throw new Error("close listener failed");
+    });
+    first.onclose = () => {
+      throw new Error("onclose failed");
+    };
+    const second = pc.createDataChannel("second", {
+      negotiated: true,
+      id: 5,
+    });
+    const pending = pc.createDataChannel("pending");
+    const observed = observeCloseStates(pc, [first, second, pending]);
+
+    // Act: PeerConnection を閉じる。
+    await pc.close();
+
+    // Assert: close() は reject せず、すべての channel とリスナーに close が届く。
+    expect([first, second, pending].map((c) => c.readyState)).toEqual([
+      "closed",
+      "closed",
+      "closed",
+    ]);
+    expect(observed).toEqual([
+      closedObservation("first"),
+      closedObservation("second"),
+      closedObservation("pending"),
+    ]);
   });
 });

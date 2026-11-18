@@ -91,3 +91,44 @@ export function nextMessage(channel: RTCDataChannel) {
 export async function closeAll(...pcs: RTCPeerConnection[]) {
   await Promise.all(pcs.map((pc) => pc.close()));
 }
+
+/** close 通知の時点で見える PeerConnection / SCTP / DTLS の状態。 */
+export interface CloseObservation {
+  label: string;
+  connectionState: string;
+  sctpState: string | undefined;
+  dtlsState: string | undefined;
+}
+
+/**
+ * 各 channel の close 通知の時点で、PeerConnection・SCTP・DTLS の状態を記録する。
+ * 記録用リスナーは呼び出し時点で最後に登録される。
+ */
+export function observeCloseStates(
+  pc: RTCPeerConnection,
+  channels: RTCDataChannel[],
+) {
+  const observed: CloseObservation[] = [];
+  for (const channel of channels) {
+    channel.addEventListener("close", () => {
+      const sctp = (pc as any).sctpManager.sctpTransport;
+      observed.push({
+        label: channel.label,
+        connectionState: pc.connectionState,
+        sctpState: sctp?.state,
+        dtlsState: sctp?.dtlsTransport?.state,
+      });
+    });
+  }
+  return observed;
+}
+
+/** 全状態が closed であることを表す close 通知時の観測値。 */
+export function closedObservation(label: string): CloseObservation {
+  return {
+    label,
+    connectionState: "closed",
+    sctpState: "closed",
+    dtlsState: "closed",
+  };
+}

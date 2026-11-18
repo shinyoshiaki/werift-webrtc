@@ -211,11 +211,14 @@ export class RTCSctpTransport {
           if (!this.stopped) this.setState("closed");
           // Every registered channel closes, also one with a reserved ID
           // (resetAssociation gives those back first to keep them).
-          Object.values(this.dataChannels).forEach((dc) => {
+          // setReadyState isolates the listeners, so a throwing one skips
+          // neither the other channels nor the rest of stop().
+          const channels = Object.values(this.dataChannels);
+          this.dataChannels = {};
+          for (const dc of channels) {
             this.unannounced.delete(dc);
             dc.setReadyState("closed");
-          });
-          this.dataChannels = {};
+          }
         }),
         // DTLS closed (close_notify from the peer) or failed (a fatal
         // alert): the association and its data channels close. A stopped
@@ -716,6 +719,9 @@ export class RTCSctpTransport {
    * stream ID or an OPEN. They are not in the registry the association close
    * walks. Not part of {@link RTCSctpTransport.stop}, which a rollback or a
    * reset also uses and which keeps these channels for the next negotiation.
+   * Called after stop(), like the association close of the registered
+   * channels: the `close` listeners see the PeerConnection, the SCTP and the
+   * DTLS transports `closed` (`SctpTransportManager.close`).
    */
   closeUnannouncedChannels() {
     const channels = [...this.unannounced];
@@ -730,13 +736,9 @@ export class RTCSctpTransport {
       ) {
         delete this.dataChannels[channel.id];
       }
-      // A throwing close listener must not stop the remaining channels nor
-      // the rest of the PeerConnection teardown.
-      try {
-        channel.setReadyState("closed");
-      } catch (error) {
-        log("close listener failed", error);
-      }
+      // setReadyState isolates the listeners: a throwing one stops neither
+      // the remaining channels nor the rest of the PeerConnection teardown.
+      channel.setReadyState("closed");
     }
   }
 

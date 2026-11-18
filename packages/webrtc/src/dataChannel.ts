@@ -163,23 +163,29 @@ export class RTCDataChannel extends EventTarget implements DataChannelStats {
     log("failed", error.message);
   }
 
+  /**
+   * Internal. Every listener is isolated (DOM event semantics): a throwing
+   * one is logged, and neither skips the later listeners nor reaches the
+   * caller (the SCTP receive path, `RTCPeerConnection.close()`, a rollback).
+   */
   setReadyState(state: DCState) {
     if (state !== this.readyState) {
       this.readyState = state;
-      this.stateChange.execute(state);
-      this.stateChanged.execute(state);
+      const onError = (e: unknown) => log("state listener failed", state, e);
+      this.stateChange.executeIsolated(onError, state);
+      this.stateChanged.executeIsolated(onError, state);
 
       switch (state) {
         case "open":
-          if (this.onopen) this.onopen();
-          this.emit("open");
+          notifySafely(log, "onopen", () => this.onopen?.());
+          this.emitIsolated(onError, "open");
           break;
         case "closed":
-          if (this.onclose) this.onclose();
-          this.emit("close");
+          notifySafely(log, "onclose", () => this.onclose?.());
+          this.emitIsolated(onError, "close");
           break;
         case "closing":
-          if (this.onclosing) this.onclosing();
+          notifySafely(log, "onclosing", () => this.onclosing?.());
           break;
       }
       log("change state", state);

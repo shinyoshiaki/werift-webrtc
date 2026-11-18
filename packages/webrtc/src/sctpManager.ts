@@ -355,13 +355,20 @@ export class SctpTransportManager {
 
   /** @internal The synchronous part of close(): see {@link RTCSctpTransport.markStopped}. */
   markClosed() {
-    this.sctpTransport?.closeUnannouncedChannels();
     this.sctpTransport?.markStopped();
   }
 
   async close() {
-    if (this.sctpTransport) {
-      await this.sctpTransport.stop();
+    const transport = this.sctpTransport;
+    if (transport) {
+      try {
+        await transport.stop();
+      } finally {
+        // 未採番 / OPEN 未送信の channel は association の closed では閉じない。
+        // 登録済み channel と同じく stop() の後（PeerConnection・SCTP・DTLS が
+        // すべて closed になった後）に閉じて close を通知する。
+        transport.closeUnannouncedChannels();
+      }
       // UdpTransport.send は既知アドレスでは callback を待たない。呼び出し側が
       // 直後に ICE ソケットを閉じると queued な AbortChunk が落ちるので、1 tick 譲る。
       await new Promise<void>((resolve) => setImmediate(resolve));
