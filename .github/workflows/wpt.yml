@@ -38,11 +38,9 @@ jobs:
           npm i
       - name: build
         run: npm run build
-      - name: wpt
-        env:
-          CI: true
-        run: npm run wpt
-      - name: wpt coverage
+      # wpt:coverage は内部で WPT 本体 (run.ts) を実行し、baseline ゲートも兼ねる。
+      # `npm run wpt` を別ステップで呼ぶと WPT が二重実行されるため呼ばない。
+      - name: wpt (with coverage)
         env:
           CI: true
         run: npm run wpt:coverage

@@ -5,7 +5,7 @@
 
 ## 変更内容
 - ルート `package.json` の `ci` から `wpt` `wpt:coverage` を除外。
-- `.github/workflows/wpt.yml` を新設（submodule 初期化、Node 24/26 マトリクス、build、`npm run wpt`、`npm run wpt:coverage`）。
+- `.github/workflows/wpt.yml` を新設（submodule 初期化、Node 24/26 マトリクス、build、`npm run wpt:coverage` のみ。内部で WPT 本体を実行するため `npm run wpt` は呼ばない）。
 - `AGENTS.md` の Commands 表を更新。
 
 ## 制約
@@ -14,5 +14,5 @@
 
 ## 完了条件
 - `npm run ci` が WPT を実行しない。
-- `wpt.yml` が push / PR / 手動で WPT と coverage を実行する。
+- `wpt.yml` が push / PR / 手動で `wpt:coverage` 1回で WPT 本体と coverage を実行する（二重実行しない）。
 - ドキュメントが整合している。
