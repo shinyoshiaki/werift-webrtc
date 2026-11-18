@@ -175,7 +175,11 @@ npm test
 
 - [x] `tests/issue/355.test.ts`: RingCentral offer（`a=rtcp:48037` と `a=rtcp-mux` はそのまま）に `a=ssrc:1234` だけを足して（`tests/sdpUtils.ts` の `withDeclaredSsrc`）、`setRemoteDescription()` → `setLocalDescription(createAnswer())` → DTLS transport の `onRtp` に PCMU (PT 0) の RTP を流す。その RTP が `onTrack` の track の `onReceiveRtp` に届き、`remoteDescription.sdp` に `a=rtcp:48037` / `a=rtcp-mux` が残ることを確認した。#355 の修正前は `setRemoteDescription()` が例外になるため、このテストは失敗する。
 
+- [x] `tests/issue/355.test.ts`: **元の** RingCentral offer（`a=ssrc` なし、`a=rtcp:48037` あり）と、#356 側が #355 修正前の回避策として使っていた「`a=rtcp:48037` の 1 行だけを除いた offer」（`tests/sdpUtils.ts` の `withoutAddresslessRtcp`）を、それぞれ `setRemoteDescription()` → `setLocalDescription(createAnswer())` まで適用し、乱数で決まる行を除いた answer、transceiver の mid / kind / direction / codecs、受信 track の SSRC（未確定）が完全に一致することを確認した（`answerReceiveSetup`）。`a=rtcp` は受信経路の準備に何も影響しないため、#356 が除去版 offer で確認する SSRC 学習・RTP 配送は、元の offer でもそのまま成り立つ。
+- [x] 参考確認（2026-11-18、一時 worktree・コミットなし）: #356 のブランチ `ticket/e7d0e0c9-0ca6-46ac-aa7a-bbc72b6c4c2f` をこのブランチにマージするとコンフリクトなしで統合できる。統合したツリーで元の `ringCentralOffer`（除去・SSRC 追加なし）に PCMU の RTP を流すと、SSRC `0x1234` を学習して `onTrack` の track に配送されることを確認した。
+
 ### #356 へ引き継ぐこと（このチケットの完了条件ではない）
 
-- `a=ssrc` の無い元の RingCentral offer では、`RtpRouter.routeRtp` が SSRC を学習しないので RTP は配送されない（`ssrcReceiver not found`）。これは #356 で扱う。
-- #356 の実装時に、元の `ringCentralOffer`（`a=rtcp:48037` 除去なし・`a=ssrc` なし）で SSRC 学習と RTP 配送を確認するテストを追加する。
+- `a=ssrc` の無い元の RingCentral offer では、このブランチ単体の `RtpRouter.routeRtp` は SSRC を学習しないので RTP は配送されない（`ssrcReceiver not found`）。これは #356 で扱う。
+- #355 と #356 の両方が develop に入った時点で、後からマージする側が次を行う: `tests/issue/356.fixture.ts` の `withoutAddresslessRtcp` と、それを使う `356.test.ts` 冒頭の fixture テスト・`ssrcLessTestUtils.ts` の `answerRingCentral()` の除去呼び出しを外し、元の offer のまま SSRC 学習・RTP 配送を確認する。`ringCentralOffer` は `tests/sdpUtils.ts` と `tests/issue/356.fixture.ts` に同じ内容で 2 つあるので、1 か所にまとめる（共有 Arrange は 1 ファイル）。
+- 2026-11-18 時点で、#356 のブランチ自身の `tests/issue/356.test.ts` は、develop をマージした `b7bba7619` で 2 件失敗している（`28e1ed22b` では成功）。develop 側の codec 解決の変更により、answer に `OPUS/48000/2`（PT 111）が入るようになり、「PT 111 は受信 codec 表にない」というテストの前提が崩れたため。#355 の変更とは無関係（除去版 offer でも同じく失敗する）で、#356 側で直す。

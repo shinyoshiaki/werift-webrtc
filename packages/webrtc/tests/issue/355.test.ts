@@ -5,7 +5,13 @@ import {
   RtpPacket,
   SessionDescription,
 } from "../../src";
-import { ringCentralOffer, rtcpLines, withDeclaredSsrc } from "../sdpUtils";
+import {
+  answerReceiveSetup,
+  ringCentralOffer,
+  rtcpLines,
+  withDeclaredSsrc,
+  withoutAddresslessRtcp,
+} from "../sdpUtils";
 
 // https://github.com/shinyoshiaki/werift-webrtc/issues/355
 describe("issue 355: a=rtcp without address (RFC 3605)", () => {
@@ -41,6 +47,28 @@ describe("issue 355: a=rtcp without address (RFC 3605)", () => {
     } finally {
       await pc.close();
     }
+  });
+
+  test("元の RingCentral offer (a=ssrc なし) の受信準備は a=rtcp:48037 を除いた offer と同じになる", async () => {
+    // Act: 元の offer と、#355 修正前の回避策 (a=rtcp:48037 だけ除去) を適用した offer にそれぞれ answer する
+    const original = await answerReceiveSetup(ringCentralOffer);
+    const withoutRtcp = await answerReceiveSetup(
+      withoutAddresslessRtcp(ringCentralOffer),
+    );
+
+    // Assert: a=rtcp:48037 の有無で answer・transceiver・受信 track の状態が一致する
+    // (SSRC 学習 (#356) が入っても、元の offer と回避策の offer で RTP 配送の前提が変わらない)
+    expect(original).toEqual(withoutRtcp);
+    // Assert: answer は受信できる形 (recvonly、PCMU を含む) で、track の SSRC は未確定のまま
+    expect(original.transceivers).toEqual([
+      expect.objectContaining({
+        mid: "0",
+        kind: "audio",
+        direction: "recvonly",
+      }),
+    ]);
+    expect(original.transceivers[0].codecs).toContain("0:audio/pcmu");
+    expect(original.receiverTrackSsrc).toBeUndefined();
   });
 
   test("RingCentral の offer (a=rtcp:48037 のまま) で SSRC を宣言すると RTP が track に配送される", async () => {

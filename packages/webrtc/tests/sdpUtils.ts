@@ -1,3 +1,5 @@
+import { RTCPeerConnection } from "../src";
+
 /**
  * SDP パーサー / シリアライザーのテスト (sdp.test.ts, issue/355.test.ts) で共有する Arrange 用ユーティリティ。
  */
@@ -95,4 +97,44 @@ export function withDeclaredSsrc(sdp: string, ssrc: number, cname = "rc") {
     "a=rtcp:48037\r\n",
     `a=rtcp:48037\r\na=ssrc:${ssrc} cname:${cname}\r\n`,
   );
+}
+
+/**
+ * アドレス省略形の `a=rtcp:<port>` 行だけを取り除く。
+ * #355 の修正前に #356 側のテストが使っていた回避策と同じ変換で、
+ * 「`a=rtcp:48037` の有無で受信の準備が変わらない」ことを比べる対照群を作るために使う。
+ */
+export function withoutAddresslessRtcp(sdp: string) {
+  return sdp.replace(/^a=rtcp:\d+\r\n/gm, "");
+}
+
+/**
+ * RingCentral offer を `setRemoteDescription()` → `setLocalDescription(createAnswer())` まで適用し、
+ * 受信の準備に関わる値だけを取り出す。PeerConnection ごとに乱数で決まる行
+ * (`o=` / ICE 資格情報 / candidate / fingerprint / 送信用 `a=ssrc` / `a=msid`) は比較から外す。
+ */
+export async function answerReceiveSetup(offer: string) {
+  const pc = new RTCPeerConnection({ iceServers: [] });
+  try {
+    await pc.setRemoteDescription({ type: "offer", sdp: offer });
+    await pc.setLocalDescription(await pc.createAnswer());
+    const [transceiver] = pc.getTransceivers();
+    const randomLine =
+      /^(o=|a=ice-ufrag:|a=ice-pwd:|a=candidate:|a=end-of-candidates|a=fingerprint:|a=ssrc:|a=msid:)/;
+    return {
+      answerLines: pc
+        .localDescription!.sdp.split("\r\n")
+        .filter((line) => !randomLine.test(line)),
+      transceivers: pc.getTransceivers().map((t) => ({
+        mid: t.mid,
+        kind: t.kind,
+        direction: t.direction,
+        currentDirection: t.currentDirection,
+        codecs: t.codecs.map((c) => `${c.payloadType}:${c.mimeType}`),
+      })),
+      receiverTrackSsrc: transceiver.receiver.track?.ssrc,
+    };
+  } finally {
+    await pc.close();
+  }
 }
