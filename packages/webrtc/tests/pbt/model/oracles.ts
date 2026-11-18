@@ -8,6 +8,12 @@ import type {
   RTCRtpTransceiver,
 } from "../../../src";
 import { SessionDescription } from "../../../src";
+import {
+  type CandidatePair,
+  compareCandidatePairPriority,
+  type IceConnection,
+} from "../../../src/imports/ice";
+import { getTrackSourceCodecs } from "../../../src/media/track";
 import type {
   AppliedStep,
   NegotiationCase,
@@ -75,6 +81,14 @@ import {
  *   a rejected (port 0) one included, has a `c=` line unless the session
  *   level has one (RFC 8866 §5.7; Firefox refuses a description without it,
  *   ticket 21a27c92).
+ * - offer capability: an offer created on a stable negotiated session lists,
+ *   for each live negotiated m-line, every configured primary codec that the
+ *   codec preferences and a fixed track source allow, whatever the last
+ *   answer kept (RFC 8829 5.2.2, issue 818), and keeps the negotiated
+ *   codecs they allow whatever the direction (`direction`, `removeTrack()`)
+ *   in their negotiated form (payload type, fmtp, rtcp-fb);
+ *   `transceiver.codecs` of a negotiated transceiver is part of the state
+ *   createOffer / rollback keep.
  * (A rejected operation changing nothing is checked by the harness.)
  */
 type World = ReturnType<typeof world>;
@@ -107,6 +121,14 @@ function world(pc: RTCPeerConnection) {
     iceObjects: [...pc.iceTransports],
     routes: routes(pc, pc.getTransceivers()),
     twcc: pc.getTransceivers().map((t) => !!t.receiver.receiverTWCC),
+    // 交渉済み transceiver の codecs (offer 用の解決結果は書き戻さない, issue 818)。
+    negotiatedCodecs: pc
+      .getTransceivers()
+      .map((t) =>
+        t.currentDirection && t.currentDirection !== "stopped"
+          ? t.codecs.map((c) => `${c.payloadType} ${c.mimeType.toLowerCase()}`)
+          : undefined,
+      ),
     transports: transportsByMid(pc),
   };
 }
@@ -438,6 +460,79 @@ export class ModelOracles implements Observer {
       this.idempotent = false;
     }
     this.commit(label);
+  }
+
+  /**
+   * Assert (offer capability): `offer`, created by `pc` on a stable
+   * negotiated session, lists for each live negotiated m-line every
+   * configured primary codec its preferences and fixed track source allow,
+   * and every negotiated primary codec they allow, whatever the direction.
+   */
+  offerCapability(pc: RTCPeerConnection, offer: { sdp: string }) {
+    if (pc.signalingState !== "stable" || !pc.currentLocalDescription) return;
+    const primary = (mimeType: string) =>
+      !/\/(rtx|red|ulpfec|flexfec-03)$/i.test(mimeType);
+    const media = SessionDescription.parse(offer.sdp).media;
+    for (const t of pc.getTransceivers()) {
+      if (!t.currentDirection || t.currentDirection === "stopped") continue;
+      if (t.stopping || t.stopped || t.mid == undefined) continue;
+      const configured = pc.config.codecs[t.kind] ?? [];
+      const preferences = t.codecPreferences?.map((c) =>
+        c.mimeType.toLowerCase(),
+      );
+      // 固定 source は addTrack / replaceTrack 時に捕捉した codec (送信中に track.codec は変わる)。
+      const source = getTrackSourceCodecs(t.sender.track)?.map((c) =>
+        c.mimeType.toLowerCase(),
+      );
+      const allowed = (codecs: readonly { mimeType: string }[]) =>
+        [
+          ...new Set(
+            codecs
+              .map((c) => c.mimeType.toLowerCase())
+              .filter(primary)
+              .filter((m) => !preferences || preferences.includes(m))
+              .filter((m) => !source || source.includes(m)),
+          ),
+        ].sort();
+      const m = media.find((m) => m.rtp.muxId === t.mid);
+      const offered = [
+        ...new Set(
+          (m?.rtp.codecs ?? [])
+            .map((c) => c.mimeType.toLowerCase())
+            .filter(primary),
+        ),
+      ].sort();
+      // 交渉済み codec は、preferences / 固定 source で外れない限り direction に
+      // よらず offer に残る (answer だけが外す)。createOffer が throw すれば step が失敗する。
+      expect(offered, `offer keeps negotiated codecs of ${t.mid}`).toEqual(
+        expect.arrayContaining(allowed(t.codecs)),
+      );
+      // 交渉済み primary codec は交渉済みの形式 (PT・fmtp・rtcp-fb) のまま offer に載る
+      // (RFC 3264 8.3.2。相手の形式でも設定の形式に書き換えない)。
+      const form = (c: {
+        payloadType: number;
+        mimeType: string;
+        parameters?: string;
+        rtcpFeedback: readonly { type: string; parameter?: string }[];
+      }) => ({
+        payloadType: c.payloadType,
+        mimeType: c.mimeType.toLowerCase(),
+        parameters: c.parameters ?? "",
+        rtcpFeedback: c.rtcpFeedback
+          .map((f) => `${f.type} ${f.parameter ?? ""}`.trim())
+          .sort(),
+      });
+      const keptNegotiated = t.codecs.filter((c) => allowed([c]).length > 0);
+      expect(
+        (m?.rtp.codecs ?? []).map(form),
+        `offer keeps the negotiated form of ${t.mid}`,
+      ).toEqual(expect.arrayContaining(keptNegotiated.map(form)));
+      // direction 付きの codec 設定は能力の一致を見ない (方向の規則は個別テストで検証する)。
+      if (configured.some((c) => c.direction !== "all")) continue;
+      expect(offered, `offer capability of ${t.mid}`).toEqual(
+        allowed(configured),
+      );
+    }
   }
 
   /** Assert (idempotent): `action` (createOffer / createAnswer) changes nothing on `pc`. */
@@ -830,14 +925,27 @@ export class ModelOracles implements Observer {
     }
   }
 
-  /** ice: an operation that commits nothing keeps every selected pair. */
+  /**
+   * ice: an operation that commits nothing keeps every selected pair. ICE may
+   * still replace a selection by itself meanwhile (semi-aggressive
+   * nomination, renomination, a controlled agent following a later
+   * nomination): the new pair is then one of the same checklist that the
+   * agent prefers (`iceReplaced`).
+   */
   private selectedPairs(step: AppliedStep, before: Before, label: string) {
     if (step.type === "answer") return;
     for (const [transport, pair] of before.pairs) {
       if (transport.state === "closed") continue;
+      const connection = transport.connection;
       // restart の pending 中も、確定済みの選択ペアで通信を続ける。
       expect(
-        transport.connection?.nominated === pair,
+        connection?.nominated === pair ||
+          (!!connection &&
+            iceReplaced(
+              connection,
+              pair as CandidatePair,
+              connection.nominated,
+            )),
         `${label}: the selected pair of a connected transport changed`,
       ).toBe(true);
     }
@@ -952,3 +1060,40 @@ const remoteOf = (pc: RTCPeerConnection, t: RTCRtpTransceiver) =>
   t.mid == undefined
     ? undefined
     : pc.getTransceivers().find((r) => r.mid === t.mid);
+
+/**
+ * `now` replaced `selected` as ICE does by itself: both are pairs of the
+ * current checklist (no restart or reset dropped `selected`), and `now`
+ * carries a larger nomination (sent while controlling, received while
+ * controlled), or the same one and a higher priority. A controlled agent
+ * also moves between nominated pairs of the same nomination to the one the
+ * peer sends data on (as libwebrtc), whatever their priority.
+ */
+function iceReplaced(
+  connection: IceConnection,
+  selected: CandidatePair,
+  now: CandidatePair | undefined,
+) {
+  if (
+    !now ||
+    !connection.checkList.includes(selected) ||
+    !connection.checkList.includes(now)
+  ) {
+    return false;
+  }
+  const nomination = (pair: CandidatePair) =>
+    connection.iceControlling ? pair.nomination : pair.remoteNomination;
+  if (nomination(now) !== nomination(selected)) {
+    return nomination(now) > nomination(selected);
+  }
+  if (!connection.iceControlling && now.nominated) return true;
+  return (
+    compareCandidatePairPriority(
+      now.localCandidate,
+      now.remoteCandidate,
+      selected.localCandidate,
+      selected.remoteCandidate,
+      connection.iceControlling,
+    ) > 0
+  );
+}

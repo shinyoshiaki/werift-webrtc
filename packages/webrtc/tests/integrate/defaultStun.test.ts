@@ -1,4 +1,6 @@
 import { RTCPeerConnection } from "../../src";
+import { DEFAULT_STUN_SERVER_URL } from "../../src/imports/ice";
+import { HERMETIC_DEFAULT_STUN_HOST } from "../setup/hermeticDefaultStun";
 
 describe("iceUseDefaultStunServer", () => {
   const stunOf = (pc: RTCPeerConnection) => (
@@ -43,5 +45,15 @@ describe("iceUseDefaultStunServer", () => {
     expect(stunOf(explicit)).toEqual(["127.0.0.1", 3478]);
     expect(stunOf(turnOnly)).toBeUndefined();
     return Promise.all([explicit.close(), turnOnly.close()]);
+  });
+
+  test("テスト用 setup は組み込み STUN サーバーのホスト名を名前解決させない", async () => {
+    // Arrange: 組み込み STUN サーバーの URL からホスト名を取り出す
+    const host = new URL(DEFAULT_STUN_SERVER_URL).pathname.replace(/:\d+$/, "");
+    const { lookup } = await import("node:dns/promises");
+
+    // Act / Assert: setup が遮断するホスト名と一致し、名前解決は ENOTFOUND になる
+    expect(host).toBe(HERMETIC_DEFAULT_STUN_HOST);
+    await expect(lookup(host)).rejects.toMatchObject({ code: "ENOTFOUND" });
   });
 });

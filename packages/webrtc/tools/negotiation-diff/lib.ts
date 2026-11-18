@@ -67,9 +67,15 @@ export type Peer = {
 
 /**
  * Two connected peers (video + DataChannel). `extra` adds configuration to
- * both (bundlePolicy, iceServers, iceTransportPolicy, rtcpMuxPolicy).
+ * both (bundlePolicy, iceServers, iceTransportPolicy, rtcpMuxPolicy);
+ * `extraB` adds configuration to b only on top of it (an asymmetric peer,
+ * such as codecs in another form: payload type, fmtp, rtcp-fb).
  */
-export async function session(api: Api, extra: Record<string, unknown> = {}) {
+export async function session(
+  api: Api,
+  extra: Record<string, unknown> = {},
+  extraB: Record<string, unknown> = {},
+) {
   const config = {
     codecs: {
       audio: [api.useOPUS()],
@@ -87,7 +93,7 @@ export async function session(api: Api, extra: Record<string, unknown> = {}) {
   };
   const b: Peer = {
     name: "b",
-    pc: new api.RTCPeerConnection(config),
+    pc: new api.RTCPeerConnection({ ...config, ...extraB }),
     outgoing: new Map(),
     pool: [],
     candidates: [],

@@ -1,5 +1,10 @@
 import { randomUUID } from "crypto";
 import { Candidate, candidateFoundation, candidatePriority } from "./candidate";
+import {
+  type IceCandidateErrorInfo,
+  type IceServerReachedInfo,
+  MissingMappedAddressError,
+} from "./candidateError";
 import type { MdnsLookup } from "./dns/lookup";
 import type { Cancelable } from "./helper";
 import {
@@ -23,6 +28,12 @@ export interface IceConnection {
   remotePassword: string;
   remoteUsername: string;
   remoteIsLite: boolean;
+  /**
+   * The peer advertised `a=ice-options:renomination`. With
+   * {@link IceOptions.renomination} the controlling agent then nominates with
+   * the NOMINATION attribute (see `renomination`).
+   */
+  remoteRenomination?: boolean;
   /**
    * The remote `a=ice-options` tokens (RFC 8839 §5.6), e.g. `trickle`,
    * `ice2`. Informational: werift already follows RFC 8445, so no token
@@ -66,6 +77,17 @@ export interface IceConnection {
   readonly onData: Event<[Buffer]>;
   readonly stateChanged: Event<[IceState]>;
   readonly onIceCandidate: Event<[Candidate]>;
+  /**
+   * A STUN or TURN server of the current generation's gathering gave no
+   * candidate (see {@link IceCandidateErrorInfo}). Optional so that other
+   * implementations of this interface keep compiling.
+   */
+  readonly onIceCandidateError?: Event<[IceCandidateErrorInfo]>;
+  /**
+   * A STUN or TURN server of the current generation's gathering answered
+   * (see {@link IceServerReachedInfo}). Optional like onIceCandidateError.
+   */
+  readonly onIceServerReached?: Event<[IceServerReachedInfo]>;
 
   restart(): void;
   /** Record the remote `a=ice-options` tokens (see remoteIceOptions). */
@@ -161,6 +183,18 @@ export class CandidatePair implements CandidatePairStats {
   handle?: Cancelable<void>;
   nominated = false;
   remoteNominated = false;
+  /**
+   * The largest nomination the peer sent for this pair while this agent was
+   * controlled: the NOMINATION attribute's value (renomination), or 1 for
+   * USE-CANDIDATE. The controlled agent selects the nominated pair with the
+   * largest value, the higher-priority one between equal values.
+   */
+  remoteNomination = 0;
+  /**
+   * The NOMINATION value this agent (controlling, renomination) sent for the
+   * pair and the peer answered; 0 when it did not renominate the pair.
+   */
+  nomination = 0;
   // 5.7.4.  Computing States
   private _state: CandidatePairState = CandidatePairState.FROZEN;
   get state() {
@@ -320,7 +354,27 @@ export type TurnServerOptions = {
   password: string;
   /** Defaults to "udp" (with a TCP fallback when the UDP allocation fails). */
   transport?: "udp" | "tcp" | "tls";
+  /**
+   * The application's names (URLs) for this server. Metadata only: the
+   * allocation does not use them. They are passed through unchanged to
+   * {@link IceServerRef.urls} of `Connection.onIceCandidateError`, so a
+   * failure can be matched to the configured server without exposing the
+   * credential. Duplicates merged by {@link normalizeIceServerOptions} have
+   * their urls merged.
+   */
+  urls?: string[];
 };
+
+/** A TURN server as gathering uses it (see {@link normalizeIceServerOptions}). */
+export type NormalizedTurnServer = Required<Omit<TurnServerOptions, "urls">> &
+  Pick<TurnServerOptions, "urls">;
+
+/**
+ * The application's name (URL) of a STUN server, reported in
+ * {@link IceServerRef.urls} of `Connection.onIceCandidateError`. Metadata
+ * only; several entries may name the same address.
+ */
+export type StunServerUrl = { address: Address; url: string };
 
 export interface IceOptions {
   /** Advertise and operate as an ICE lite agent. */
@@ -350,6 +404,50 @@ export interface IceOptions {
    */
   turnConnectTimeout?: number;
   /**
+   * With `nomination: "regular"`: milliseconds the controlling agent keeps
+   * checking before it nominates (RFC 8445 §8.1.1 regular nomination). The
+   * default semi-aggressive nomination does not wait. Counted from the later of the first
+   * valid pair and the last pair added that outranks the best valid pair, so
+   * a higher-priority candidate trickled shortly after a lower-priority one
+   * succeeded can still be selected. Once both sides signalled
+   * end-of-candidates and no higher-priority pair is still being checked, the
+   * best valid pair is nominated at once. Defaults to 300; 0 nominates the
+   * best valid pair as soon as one exists. A negative or non-finite value
+   * falls back to the default.
+   */
+  nominationDelayMs?: number;
+  /**
+   * How the controlling agent nominates toward a full ICE peer when
+   * renomination is not in use (see `renomination`).
+   *
+   * - `"semi-aggressive"` (default, as libwebrtc / Chrome): a check carries
+   *   USE-CANDIDATE while no pair is selected and for every pair that
+   *   outranks the selected one. The first pair whose check succeeds is
+   *   selected at once; checks of higher-priority pairs go on, and one that
+   *   succeeds later replaces the selection. Consent checks of the selected
+   *   pair carry USE-CANDIDATE as well.
+   * - `"regular"`: RFC 8445 §8.1.1 regular nomination. Checks carry no
+   *   USE-CANDIDATE; after `nominationDelayMs` (or end-of-candidates) the
+   *   best valid pair is nominated once with a separate check and never
+   *   replaced.
+   *
+   * Toward an ICE-lite peer the first valid pair is nominated in either mode.
+   */
+  nomination?: "semi-aggressive" | "regular";
+  /**
+   * Renomination (draft-thatcher-ice-renomination, as libwebrtc implements
+   * it). When enabled the agent advertises `a=ice-options:renomination`
+   * (packages/webrtc). When the peer advertised it too, the controlling agent
+   * nominates with the NOMINATION attribute (0xC001) and an increasing value
+   * instead of USE-CANDIDATE: it nominates the first valid pair, keeps
+   * checking higher-priority pairs and renominates a better one when its
+   * check succeeds. This replaces `nomination` for that session.
+   *
+   * The controlled agent always honours the NOMINATION attribute: it selects
+   * the pair with the largest value. Defaults to false.
+   */
+  renomination?: boolean;
+  /**
    * STUN servers queried while gathering, in priority order. Every IPv4 UDP
    * host socket queries each of them in parallel; equal mappings are
    * advertised once, different ones (a NAT that maps per destination) each.
@@ -376,6 +474,13 @@ export interface IceOptions {
    * duplicates are dropped (see {@link normalizeIceServerOptions}).
    */
   stunServers?: Address[];
+  /**
+   * The application's names (URLs) of {@link IceOptions.stunServers}, by
+   * address. Metadata only, reported in {@link IceServerRef.urls} of
+   * `Connection.onIceCandidateError`; replaced together with the STUN
+   * servers (see {@link mergeIceServerOptions}).
+   */
+  stunServerUrls?: StunServerUrl[];
   /**
    * TURN servers allocated on while gathering, in priority order. Each one
    * gets its own allocation with its own credential and transport; one that
@@ -511,80 +616,120 @@ export function sortCandidatePairs(
   }[],
   iceControlling: boolean,
 ) {
-  return pairs
-    .sort(
-      (a, b) =>
-        candidatePairPriority(
-          a.localCandidate,
-          a.remoteCandidate,
-          iceControlling,
-        ) -
-        candidatePairPriority(
-          b.localCandidate,
-          b.remoteCandidate,
-          iceControlling,
-        ),
-    )
-    .reverse();
+  // Highest priority first; pairs of equal priority keep their order.
+  return pairs.sort((a, b) =>
+    compareCandidatePairPriority(
+      b.localCandidate,
+      b.remoteCandidate,
+      a.localCandidate,
+      a.remoteCandidate,
+      iceControlling,
+    ),
+  );
+}
+
+/** RFC 8445 §6.1.2.3: G is the controlling agent's candidate priority, D the controlled one's. */
+function pairPriorityTerms(
+  local: Pick<Candidate, "priority">,
+  remote: Pick<Candidate, "priority">,
+  iceControlling: boolean,
+) {
+  const G = iceControlling ? local.priority : remote.priority;
+  const D = iceControlling ? remote.priority : local.priority;
+  return { min: Math.min(G, D), max: Math.max(G, D), tie: G > D ? 1 : 0 };
 }
 
 // 5.7.2.  Computing Pair Priority and Ordering Pairs
+/**
+ * `2^32 * MIN(G,D) + 2 * MAX(G,D) + (G > D ? 1 : 0)` (RFC 8445 §6.1.2.3).
+ * The value can exceed `Number.MAX_SAFE_INTEGER`, so it is approximate;
+ * order pairs with `compareCandidatePairPriority`, which is exact.
+ */
 export function candidatePairPriority(
   local: Pick<Candidate, "priority">,
   remote: Pick<Candidate, "priority">,
   iceControlling: boolean,
 ) {
-  const G = (iceControlling && local.priority) || remote.priority;
-  const D = (iceControlling && remote.priority) || local.priority;
-  return (1 << 32) * Math.min(G, D) + 2 * Math.max(G, D) + (G > D ? 1 : 0);
+  const { min, max, tie } = pairPriorityTerms(local, remote, iceControlling);
+  return 2 ** 32 * min + 2 * max + tie;
 }
 
 /**
- * Query a STUN server to obtain a server-reflexive candidate of `protocol`.
- * Its base is the protocol's host candidate, or `base` for a socket that
- * advertises no host candidate (the wildcard socket: related address
- * `0.0.0.0` / `::`).
+ * Exact comparison of two pair priorities (RFC 8445 §6.1.2.3): negative
+ * when pair `a` has the lower priority, positive when the higher, 0 when equal.
+ */
+export function compareCandidatePairPriority(
+  aLocal: Pick<Candidate, "priority">,
+  aRemote: Pick<Candidate, "priority">,
+  bLocal: Pick<Candidate, "priority">,
+  bRemote: Pick<Candidate, "priority">,
+  iceControlling: boolean,
+) {
+  const a = pairPriorityTerms(aLocal, aRemote, iceControlling);
+  const b = pairPriorityTerms(bLocal, bRemote, iceControlling);
+  return a.min - b.min || a.max - b.max || a.tie - b.tie;
+}
+
+/**
+ * Query `stunServer` from `protocol` for a server-reflexive candidate.
+ * Unlike {@link serverReflexiveCandidate} it rejects with the reason of a
+ * failure. `base` is used for wildcard sockets that advertise no host
+ * candidate themselves.
+ */
+export async function queryServerReflexiveCandidate(
+  protocol: Protocol,
+  stunServer: Address,
+  base?: Pick<Candidate, "host" | "port" | "transport" | "component"> &
+    Partial<Pick<Candidate, "tcptype">>,
+): Promise<Candidate> {
+  const localCandidate = base ?? protocol.localCandidate;
+  if (!localCandidate) {
+    throw new Error("protocol has no local candidate");
+  }
+
+  const request = new Message(methods.BINDING, classes.REQUEST);
+  const [response] = await protocol.request(request, stunServer);
+  const mapped = response.getAttributeValue("XOR-MAPPED-ADDRESS") as
+    | Address
+    | undefined;
+  if (!mapped) {
+    throw new MissingMappedAddressError(stunServer);
+  }
+
+  return new Candidate(
+    candidateFoundation("srflx", localCandidate.transport, localCandidate.host),
+    localCandidate.component,
+    localCandidate.transport,
+    candidatePriority("srflx", {
+      transport: localCandidate.transport,
+      tcptype: localCandidate.tcptype,
+    }),
+    mapped[0],
+    mapped[1],
+    "srflx",
+    localCandidate.host,
+    localCandidate.port,
+    localCandidate.tcptype,
+  );
+}
+
+/**
+ * Query a STUN server for a server-reflexive candidate. This compatibility
+ * helper resolves `undefined` on failure; use
+ * {@link queryServerReflexiveCandidate} when the failure reason is needed.
  */
 export async function serverReflexiveCandidate(
   protocol: Protocol,
   stunServer: Address,
   base?: Pick<Candidate, "host" | "port" | "transport" | "component"> &
     Partial<Pick<Candidate, "tcptype">>,
-) {
-  // # perform STUN query
-  const request = new Message(methods.BINDING, classes.REQUEST);
-  try {
-    const [response] = await protocol.request(request, stunServer);
-
-    const localCandidate = base ?? protocol.localCandidate;
-    if (!localCandidate) {
-      throw new Error("not exist");
-    }
-
-    const candidate = new Candidate(
-      candidateFoundation(
-        "srflx",
-        localCandidate.transport,
-        localCandidate.host,
-      ),
-      localCandidate.component,
-      localCandidate.transport,
-      candidatePriority("srflx", {
-        transport: localCandidate.transport,
-        tcptype: localCandidate.tcptype,
-      }),
-      response.getAttributeValue("XOR-MAPPED-ADDRESS")[0],
-      response.getAttributeValue("XOR-MAPPED-ADDRESS")[1],
-      "srflx",
-      localCandidate.host,
-      localCandidate.port,
-      localCandidate.tcptype,
-    );
-    return candidate;
-  } catch (error) {
-    // todo fix
-    log("error serverReflexiveCandidate", error);
-  }
+): Promise<Candidate | undefined> {
+  return queryServerReflexiveCandidate(protocol, stunServer, base).catch(
+    (error) => {
+      log("error serverReflexiveCandidate", error);
+      return undefined;
+    },
+  );
 }
 
 export function validateAddress(addr?: Address): Address | undefined {
@@ -600,6 +745,7 @@ export type IceServerFields = Partial<
     IceOptions,
     | "stunServer"
     | "stunServers"
+    | "stunServerUrls"
     | "turnServer"
     | "turnServers"
     | "turnUsername"
@@ -630,14 +776,15 @@ const sameAddress = (a: Address, b: Address) => a[0] === b[0] && a[1] === b[1];
  *   credential) are kept once, at their first position;
  * - an invalid address (see {@link validateAddress}) is dropped, and so is a
  *   TURN server without username or password (it cannot allocate);
- * - a TURN transport left unset is "udp".
+ * - a TURN transport left unset is "udp";
+ * - the `urls` of merged TURN duplicates are merged (in order, once each).
  *
  * The built-in default STUN server is not added here; Connection falls back
  * to it when the result has no STUN server.
  */
 export function normalizeIceServerOptions(options: IceServerFields): {
   stunServers: Address[];
-  turnServers: Required<TurnServerOptions>[];
+  turnServers: NormalizedTurnServer[];
 } {
   const stunServers: Address[] = [];
   for (const server of [options.stunServer, ...(options.stunServers ?? [])]) {
@@ -653,7 +800,7 @@ export function normalizeIceServerOptions(options: IceServerFields): {
     stunServers.push(address);
   }
 
-  const turnServers: Required<TurnServerOptions>[] = [];
+  const turnServers: NormalizedTurnServer[] = [];
   const configured: Partial<TurnServerOptions>[] = [
     ...(options.turnServer !== undefined
       ? [
@@ -678,21 +825,28 @@ export function normalizeIceServerOptions(options: IceServerFields): {
       log("TURN server without username / credential ignored", address);
       continue;
     }
-    const entry: Required<TurnServerOptions> = {
+    const urls = Array.isArray(server.urls)
+      ? server.urls.filter((url) => typeof url === "string")
+      : undefined;
+    const entry: NormalizedTurnServer = {
       address,
       username,
       password,
       transport: server.transport ?? "udp",
+      ...(urls ? { urls: [...new Set(urls)] } : {}),
     };
-    if (
-      turnServers.some(
-        (existing) =>
-          sameAddress(existing.address, entry.address) &&
-          existing.transport === entry.transport &&
-          existing.username === entry.username &&
-          existing.password === entry.password,
-      )
-    ) {
+    const existing = turnServers.find(
+      (known) =>
+        sameAddress(known.address, entry.address) &&
+        known.transport === entry.transport &&
+        known.username === entry.username &&
+        known.password === entry.password,
+    );
+    if (existing) {
+      // One allocation serves both: it answers to every name of them.
+      if (entry.urls) {
+        existing.urls = [...new Set([...(existing.urls ?? []), ...entry.urls])];
+      }
       continue;
     }
     turnServers.push(entry);
@@ -714,6 +868,7 @@ export function mergeIceServerOptions<T extends Partial<IceOptions>>(
     ...current,
     stunServer: update.stunServer,
     stunServers: update.stunServers,
+    stunServerUrls: update.stunServerUrls,
     turnServer: update.turnServer,
     turnServers: update.turnServers,
     turnUsername: update.turnUsername,

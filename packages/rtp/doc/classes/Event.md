@@ -16,7 +16,19 @@
 
 ### Constructor
 
-> **new Event**\<`T`\>(): `Event`\<`T`\>
+> **new Event**\<`T`\>(`options?`): `Event`\<`T`\>
+
+#### Parameters
+
+##### options?
+
+###### onListenerError?
+
+(`e`) => `void`
+
+When given, a throwing subscriber is
+reported to it and the remaining subscribers still run. Without it the
+first exception propagates out of `execute` (default).
 
 #### Returns
 
@@ -264,13 +276,38 @@
 
 > **executeIsolated**(`onError`, ...`args`): `void`
 
-Like [execute](#execute), but every synchronous subscriber runs even if an
-earlier one throws: each exception is passed to `onError` instead of
-ending the iteration. For events whose later subscribers carry internal
-work (state propagation, cleanup) that an application subscriber
-registered before them must not be able to skip.
+#### Parameters
+
+##### onError
+
+(`error`) => `void`
+
+##### args
+
+...`T`
+
+#### Returns
+
+`void`
+
+***
+
+### executeUntil()
+
+> **executeUntil**(`shouldStop`, `onError`, ...`args`): `void`
+
+Like [executeIsolated](#executeisolated), but `shouldStop` is checked before each
+subscriber: once it returns true, the remaining subscribers are not
+called (a DOM-like `stopImmediatePropagation`). A subscriber that
+throws is reported to `onError` and the next one still runs. One added
+during the call is not called; one removed during it is skipped. The
+promise subscribers (`asPromise` / `watch`) are not run when stopped.
 
 #### Parameters
+
+##### shouldStop
+
+() => `boolean`
 
 ##### onError
 

@@ -60,7 +60,9 @@ The connection to this remote address was closed (by either side).
 
 ### onDataReceived
 
-> `readonly` **onDataReceived**: `Event`\<\[`Buffer`\<`ArrayBufferLike`\>\]\>
+> `readonly` **onDataReceived**: `Event`\<\[`Buffer`\<`ArrayBufferLike`\>, readonly \[`string`, `number`\]\]\>
+
+Application data (not STUN) and the remote address it came from.
 
 #### Inherited from
 
