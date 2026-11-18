@@ -21,7 +21,7 @@
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
-    "ci": "run-s type:all build test doc wpt wpt:coverage",
+    "ci": "run-s type:all build test doc",
     "clean": "rm -rf e2e/node_modules && rm -rf packages/*/node_modules",
     "datachannel": "node --watch --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./tools/node-ts/register.mjs examples/datachannel/offer.ts",
     "debug": "DEBUG=werift* node --watch --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./tools/node-ts/register.mjs examples/mediachannel/sendrecv/answer.ts",

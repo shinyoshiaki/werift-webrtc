@@ -1,0 +1,48 @@
+name: WPT
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+      - develop
+      - "feature/*"
+      - "maintain/*"
+      - "shinyoshiaki/*"
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  wpt:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [24.x, 26.x]
+
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: init submodules
+        run: |
+          git config --global url."https://github.com/".insteadOf git@github.com:
+          git submodule update --init --recursive
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4.4.0
+        with:
+          node-version: ${{ matrix.node-version }}
+      - name: prepare
+        run: |
+          sudo apt-get update
+          sudo apt-get -y install libavdevice-dev libavfilter-dev libopus-dev libvpx-dev pkg-config libsrtp2-dev libasound2-dev ffmpeg
+          npm i
+      - name: build
+        run: npm run build
+      - name: wpt
+        env:
+          CI: true
+        run: npm run wpt
+      - name: wpt coverage
+        env:
+          CI: true
+        run: npm run wpt:coverage

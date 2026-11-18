@@ -42,7 +42,7 @@ Rules that apply to one package or directory belong in the nearest `AGENTS.md`.
 | package / unit tests | `npm run test:small` |
 | full suite including E2E | `npm run test` |
 | E2E only (verbose: `e2e:verbose`) | `npm run e2e` |
-| broad workspace validation | `npm run ci` |
+| broad workspace validation (WPT は含まない。別ワークフロー `wpt.yml`) | `npm run ci` |
 | examples smoke (Chromium + gst/ffmpeg) | `npm run examples:e2e` |
 | install examples smoke Chromium | `npm run examples:e2e:install` |
 | TypeScript resolve hook tests | `npm run test:node-ts` |
