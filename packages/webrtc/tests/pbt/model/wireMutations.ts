@@ -91,6 +91,26 @@ const renewMediaSsrc = first(
   },
 );
 
+/** No `a=ssrc` / `a=ssrc-group` lines. */
+const withoutSsrcs = (sdp: string) =>
+  sdp.replace(/^a=ssrc(-group)?:.*\r\n/gm, "");
+
+/** Two m-sections in use receive one payload type (a PT names no single m-line). */
+function sharesPayloadTypes(sdp: string) {
+  const seen = new Set<string>();
+  for (const section of sections(sdp).slice(1)) {
+    if (/^m=\S+ 0 /.test(section) || section.startsWith("m=application")) {
+      continue;
+    }
+    const pts = section.split("\r\n")[0].split(" ").slice(3);
+    for (const pt of pts) {
+      if (seen.has(pt)) return true;
+      seen.add(pt);
+    }
+  }
+  return false;
+}
+
 export const WIRE_MUTATIONS: Record<string, WireMutation> = {
   maxMessageSize: { apply: MUTATIONS.maxMessageSize.apply, same: true },
   noNack: { apply: MUTATIONS.noNack.apply, same: true },
@@ -110,6 +130,53 @@ export const WIRE_MUTATIONS: Record<string, WireMutation> = {
   /** The video RTX codec is gone (its payload type, `apt` and FID stay unused). */
   noRtx: { apply: (sdp) => withoutCodecs(sdp, "video", ["rtx"]) },
   ssrcSwapped: { apply: swapSsrcs },
+  /**
+   * No `a=ssrc` / `a=ssrc-group` (a SIP gateway, an SBC, #356): the receiver
+   * learns the SSRC from the packets (`RtpRouter` fallback, by MID here).
+   */
+  ssrcRemoved: {
+    apply: withoutSsrcs,
+    // MID が残るので受信側は MID で SSRC を学習し、同じ session として通信が続く。
+    same: true,
+  },
+  /**
+   * Neither `a=ssrc` nor the MID header extension (the RingCentral offer of
+   * #356): the receiver learns by payload type, which names an m-line only
+   * when no other m-line receives it, so the rewrite applies only then.
+   */
+  ssrcAndMidRemoved: {
+    apply: (sdp) =>
+      sharesPayloadTypes(sdp)
+        ? sdp
+        : withoutSsrcs(sdp).replace(
+            /^a=extmap:\d+(?:\/\w+)? urn:ietf:params:rtp-hdrext:sdes:mid\r\n/gm,
+            "",
+          ),
+    same: true,
+  },
+  /**
+   * No MID header extension (#356 3.12): RID packets carry the RID alone, and
+   * the receiver resolves it within the packet's RTP session. An m-line
+   * without `a=ssrc` and RIDs would then need a unique payload type, so the
+   * rewrite applies only where every m-line in use has SSRCs or RIDs.
+   */
+  midRemoved: {
+    apply: (sdp) =>
+      sections(sdp)
+        .slice(1)
+        .some(
+          (s) =>
+            !/^m=\S+ 0 /.test(s) &&
+            !s.startsWith("m=application") &&
+            !/^a=(ssrc|rid):/m.test(s),
+        )
+        ? sdp
+        : sdp.replace(
+            /^a=extmap:\d+(?:\/\w+)? urn:ietf:params:rtp-hdrext:sdes:mid\r\n/gm,
+            "",
+          ),
+    same: true,
+  },
   mediaSsrcRenewed: { apply: renewMediaSsrc },
   /** H264 moves to a new payload type (an added key; its old one is gone). */
   codecRenumbered: {
