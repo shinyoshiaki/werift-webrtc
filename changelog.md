@@ -31,6 +31,7 @@
 
 ### 🐛 Bug Fixes
 
+- **Looped file playback keeps the VP8 PictureID when the answer adds fmtp** (`createFileMediaPlayer`): the packetizer was created again when `track.codec.parameters` changed (for example Firefox answers VP8 with `max-fs` / `max-fr`), so the PictureID jumped to a new random value at the next loop. The packetizer is now created again only when a value it reads changes (mime type, clock rate, channels, and the H.264 `packetization-mode`).
 - **The codecs of a remote offer are resolved with the transceiver it is applied to** (#816): `setRemoteDescription(offer)` resolves codecs before its implicit rollback, replacement or unapplied-`createOffer` revert, and used to pair m-lines with the transceivers as they were before (a local transceiver whose MID only the rolled-back local offer gave could lend its codec preferences or track to an m-line another transceiver then took). Both now pair with the state after them.
 - **A replacement remote offer keeps the transceiver the replaced one created for a MID it describes again**, instead of dropping its MID and pairing it again by kind.
 
