@@ -8,6 +8,7 @@
 import {
   appendWebmToMediaSource,
   connectRecordPlayback,
+  decodeAudioFile,
   peer,
   playWebmFile,
   type RecordPlaybackKinds,
@@ -44,8 +45,11 @@ describe("mediachannel_record_playback", () => {
         const playback = await playWebmFile(file);
         // Act: Chrome の MSE (WebM バイトストリームパーサ) にファイル全体を渡す
         const mse = await appendWebmToMediaSource(file, mimeType);
+        // Act: 音声付きの場合は Web Audio でファイル全体の音声をデコードする
+        const decoded =
+          kinds === "av" ? await decodeAudioFile(file) : undefined;
 
-        console.log(label, { status, playback, mse });
+        console.log(label, { status, playback, mse, decoded });
 
         // Assert: サーバーは全トラックの RTP を受け取り、録画中にエラーがない
         expect(status.error).toBeUndefined();
@@ -72,9 +76,19 @@ describe("mediachannel_record_playback", () => {
         expect(playback.endedAt).toBeGreaterThan(playback.duration * 0.9);
         // Assert: 再生中に複数秒分のフレームがデコードされた
         expect(playback.totalVideoFrames).toBeGreaterThan(30);
-        // Assert: 音声付きの場合は音声もデコードされた
-        if (kinds === "av") {
-          expect(playback.audioDecodedBytes).toBeGreaterThan(0);
+        if (decoded) {
+          // Assert: <video> が音声をデコードした（計測値は Chrome だけにあり、
+          // Firefox では undefined になる）
+          expect(playback.audioDecoded).not.toBe(false);
+          // Assert: Web Audio でもファイル全体の音声がデコードでき、Opus 48 kHz / 2ch で、
+          // 長さは再生時間とほぼ一致する（音声が途中で欠けていない）
+          expect(decoded.sampleRate).toBe(48_000);
+          expect(decoded.numberOfChannels).toBe(2);
+          expect(Math.abs(decoded.duration - playback.duration)).toBeLessThan(
+            0.3,
+          );
+          // Assert: 無音ではなく、マイク (fake device) の音声が入っている
+          expect(decoded.peak).toBeGreaterThan(0.01);
         }
         // Assert: 中央へのシークが完了し、黒ではないフレームが描画された
         expect(playback.seekedTo).toBeGreaterThan(0);

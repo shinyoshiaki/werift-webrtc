@@ -7,7 +7,11 @@ import {
   RTCRtpSender,
   RTCRtpTransceiver,
 } from "../media";
-import { type RTCPeerConnectionConfig, RTCTrackEvent } from "../peerConnection";
+import {
+  type RTCPeerConnectionConfig,
+  RTCPeerConnectionIceErrorEvent,
+  RTCTrackEvent,
+} from "../peerConnection";
 import { RTCDtlsTransport } from "../transport/dtls";
 import { RTCIceCandidate, RTCIceTransport } from "../transport/ice";
 import * as browserIdentity from "./browserIdentity";
@@ -34,6 +38,7 @@ const INSTALLED_KEYS = [
   "RTCIceTransport",
   "RTCDtlsTransport",
   "RTCTrackEvent",
+  "RTCPeerConnectionIceErrorEvent",
   "OverconstrainedError",
 ] as const;
 
@@ -103,6 +108,11 @@ export function installPolyfill(options: InstallPolyfillOptions): () => void {
     assign(target, "RTCIceTransport", RTCIceTransport);
     assign(target, "RTCDtlsTransport", RTCDtlsTransport);
     assign(target, "RTCTrackEvent", RTCTrackEvent);
+    assign(
+      target,
+      "RTCPeerConnectionIceErrorEvent",
+      RTCPeerConnectionIceErrorEvent,
+    );
     assign(target, "OverconstrainedError", OverconstrainedError);
 
     if (mediaAction === "install") {

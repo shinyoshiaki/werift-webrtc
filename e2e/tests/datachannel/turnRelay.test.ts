@@ -1,8 +1,10 @@
 import {
   ensurePeerConnected,
   expectMessage,
+  firefoxUnsupported,
   getSelectedRelayCandidatePair,
   getTurnRelayConfig,
+  itSkipOnFirefox,
   peer,
   sleep,
   waitForDataChannelOpen,
@@ -27,7 +29,7 @@ type TurnRelayStats = {
 };
 
 describe("datachannel/turn relay", () => {
-  test.each([
+  const cases = [
     {
       name: "udp",
       getUrl: (config: Awaited<ReturnType<typeof getTurnRelayConfig>>) =>
@@ -46,94 +48,100 @@ describe("datachannel/turn relay", () => {
         config.turn.tlsUrl,
       relayProtocol: "tls",
     },
-  ])(
-    "exchanges data over $name TURN relay between Chrome and werift",
-    async ({ getUrl, name, relayProtocol }) => {
-      // Arrange: ブラウザ側のシグナリング接続と TURN 設定を揃え、relay-only の PeerConnection を作る。
-      await ensurePeerConnected();
-      await sleep(100);
-      const config = await getTurnRelayConfig();
-      const pc = new RTCPeerConnection({
-        iceServers: [
-          {
-            urls: getUrl(config),
-            username: config.turn.username,
-            credential: config.turn.credential,
-          },
-        ],
-        iceTransportPolicy: "relay",
-      });
-      const channel = pc.createDataChannel("turn-relay");
-      const serverInitiatedMessage = expectMessage(
-        channel,
-        `server-to-browser-${name}`,
-        () => {},
-      );
-
-      try {
-        // Act: Chrome 側で relay 候補の gather を完了させた offer を作り、werift 側へ渡す。
-        await pc.setLocalDescription(await pc.createOffer());
-        await waitForIceGatheringComplete(pc);
-        const answer = await peer.request("datachannel_turn_relay", {
-          type: "init",
-          payload: {
-            offer: pc.localDescription,
-            transport: name,
-          },
+  ];
+  for (const { getUrl, name, relayProtocol } of cases) {
+    // TURNS は Firefox では IP リテラルと自己署名証明書を受け付けない
+    const itRelay =
+      name === "tls" ? itSkipOnFirefox(firefoxUnsupported.turnsIpLiteral) : it;
+    itRelay(
+      `exchanges data over ${name} TURN relay between Chrome and werift`,
+      async () => {
+        // Arrange: ブラウザ側のシグナリング接続と TURN 設定を揃え、relay-only の PeerConnection を作る。
+        await ensurePeerConnected();
+        await sleep(100);
+        const config = await getTurnRelayConfig();
+        const pc = new RTCPeerConnection({
+          iceServers: [
+            {
+              urls: getUrl(config),
+              username: config.turn.username,
+              credential: config.turn.credential,
+            },
+          ],
+          iceTransportPolicy: "relay",
         });
-        await pc.setRemoteDescription(answer);
-        await Promise.all([
-          waitForPeerConnection(pc),
-          waitForDataChannelOpen(channel),
-        ]);
+        const channel = pc.createDataChannel("turn-relay");
+        const serverInitiatedMessage = expectMessage(
+          channel,
+          `server-to-browser-${name}`,
+          () => {},
+        );
 
-        // Act: werift 起点の送信を受け取り、TURN relay 経由の逆方向通信が成立していることを確認する。
-        await serverInitiatedMessage;
+        try {
+          // Act: Chrome 側で relay 候補の gather を完了させた offer を作り、werift 側へ渡す。
+          await pc.setLocalDescription(await pc.createOffer());
+          await waitForIceGatheringComplete(pc);
+          const answer = await peer.request("datachannel_turn_relay", {
+            type: "init",
+            payload: {
+              offer: pc.localDescription,
+              transport: name,
+            },
+          });
+          await pc.setRemoteDescription(answer);
+          await Promise.all([
+            waitForPeerConnection(pc),
+            waitForDataChannelOpen(channel),
+          ]);
 
-        // Act: Chrome からも送信し、werift 側の応答が返ることを確認する。
-        await expectMessage(channel, `browser-to-server-${name}pong`, () => {
-          channel.send(`browser-to-server-${name}`);
-        });
+          // Act: werift 起点の送信を受け取り、TURN relay 経由の逆方向通信が成立していることを確認する。
+          await serverInitiatedMessage;
 
-        const browserStats = await getSelectedRelayCandidatePair(pc);
-        const serverStats = (await peer.request("datachannel_turn_relay", {
-          type: "stats",
-          payload: {},
-        })) as TurnRelayStats;
+          // Act: Chrome からも送信し、werift 側の応答が返ることを確認する。
+          await expectMessage(channel, `browser-to-server-${name}pong`, () => {
+            channel.send(`browser-to-server-${name}`);
+          });
 
-        // Assert: Chrome 側ではローカル候補が relay で、選択された TURN transport が期待どおりであることを確認する。
-        expect(browserStats.localCandidateType).toBe("relay");
-        expect(browserStats.localRelayProtocol).toBe(relayProtocol);
-        expect(browserStats.remoteCandidateType).toBe("relay");
-
-        // Assert: werift 側では nominated pair が TURN protocol を使い、ローカル候補も relay になっていることを確認する。
-        expect(serverStats.connectionState).toBe("connected");
-        expect(
-          serverStats.iceTransports.every((iceTransport) =>
-            iceTransport.localCandidateTypes.every(
-              (candidateType) => candidateType === "relay",
-            ),
-          ),
-        ).toBe(true);
-        expect(
-          serverStats.iceTransports.some((iceTransport) => {
-            const { nominated } = iceTransport;
-            return (
-              nominated?.localCandidateType === "relay" &&
-              nominated.protocolType === "turn" &&
-              nominated.relayTransport === relayProtocol
-            );
-          }),
-        ).toBe(true);
-      } finally {
-        await peer
-          .request("datachannel_turn_relay", {
-            type: "close",
+          const browserStats = await getSelectedRelayCandidatePair(pc);
+          const serverStats = (await peer.request("datachannel_turn_relay", {
+            type: "stats",
             payload: {},
-          })
-          .catch(() => {});
-        pc.close();
-      }
-    },
-  );
+          })) as TurnRelayStats;
+
+          // Assert: Chrome 側ではローカル候補が relay で、選択された TURN transport が期待どおりであることを確認する。
+          expect(browserStats.localCandidateType).toBe("relay");
+          expect(browserStats.localRelayProtocol).toBe(relayProtocol);
+          expect(browserStats.remoteCandidateType).toBe("relay");
+
+          // Assert: werift 側では nominated pair が TURN protocol を使い、ローカル候補も relay になっていることを確認する。
+          expect(serverStats.connectionState).toBe("connected");
+          expect(
+            serverStats.iceTransports.every((iceTransport) =>
+              iceTransport.localCandidateTypes.every(
+                (candidateType) => candidateType === "relay",
+              ),
+            ),
+          ).toBe(true);
+          expect(
+            serverStats.iceTransports.some((iceTransport) => {
+              const { nominated } = iceTransport;
+              return (
+                nominated?.localCandidateType === "relay" &&
+                nominated.protocolType === "turn" &&
+                nominated.relayTransport === relayProtocol
+              );
+            }),
+          ).toBe(true);
+        } finally {
+          await peer
+            .request("datachannel_turn_relay", {
+              type: "close",
+              payload: {},
+            })
+            .catch(() => {});
+          pc.close();
+        }
+      },
+    );
+  }
 });

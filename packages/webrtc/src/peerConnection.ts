@@ -10,6 +10,7 @@ import {
 import {
   type PeerConnectionEventHandlers,
   type RTCDataChannelEvent,
+  RTCPeerConnectionIceErrorEvent,
   type RTCPeerConnectionIceEvent,
   RTCTrackEvent,
 } from "./api/peerConnectionEvents";
@@ -59,6 +60,7 @@ import { type RTCSessionDescriptionInit, SDPManager } from "./sdpManager";
 import { SecureTransportManager } from "./secureTransportManager";
 import type { DtlsRole, RTCDtlsTransport } from "./transport/dtls";
 import type {
+  IceCandidateErrorDetails,
   IceGathererState,
   RTCIceCandidate,
   RTCIceCandidateInit,
@@ -99,6 +101,8 @@ export {
 } from "./api/peerConfig";
 export {
   type RTCDataChannelEvent,
+  RTCPeerConnectionIceErrorEvent,
+  type RTCPeerConnectionIceErrorEventInit,
   type RTCPeerConnectionIceEvent,
   RTCTrackEvent,
 } from "./api/peerConnectionEvents";
@@ -177,6 +181,30 @@ export class RTCPeerConnection extends EventTarget {
   private isClosed = false;
   private applyingIceRestart = false;
   /**
+   * The current gathering's STUN / TURN outcomes by URL, for the 701 of
+   * `icecandidateerror` (see RTCPeerConnectionIceErrorEvent): the
+   * transports that reached the server, and the 701s of the transports
+   * that tried and did not, in order. Judged once when `iceGatheringState`
+   * leaves "gathering" (fireUnreachableServerErrors) and cleared when it
+   * enters "gathering".
+   */
+  /**
+   * True while the 701s of the gathering that just ended are dispatched:
+   * `iceGatheringState` still reads "gathering" for their handlers.
+   */
+  private firingGatheringErrors = false;
+  private gatheringServerOutcomes = new Map<
+    string,
+    {
+      reached: { transport: RTCIceTransport; generation: number }[];
+      unreached: {
+        transport: RTCIceTransport;
+        generation: number;
+        details: IceCandidateErrorDetails;
+      }[];
+    }
+  >();
+  /**
    * The last operation of the chain: `done` when it finished, `applied` when
    * the description it applies is in place (setLocalDescription's gathering
    * wait comes after it). addIceCandidate only needs `applied`.
@@ -213,6 +241,15 @@ export class RTCPeerConnection extends EventTarget {
   readonly onRemoteTransceiverAdded = new Event<[RTCRtpTransceiver]>();
   readonly onTransceiverAdded = new Event<[RTCRtpTransceiver]>();
   readonly onIceCandidate = new Event<[RTCIceCandidate | undefined]>();
+  /**
+   * `icecandidateerror` (see {@link RTCPeerConnectionIceErrorEvent}): the
+   * same event object is passed here, to `onicecandidateerror` and to the
+   * `icecandidateerror` listeners.
+   */
+  readonly onIceCandidateError = new Event<[RTCPeerConnectionIceErrorEvent]>({
+    onListenerError: (error) =>
+      log("onIceCandidateError subscriber threw", error),
+  });
   readonly onNegotiationneeded = new Event<[]>();
   readonly onTrack = new Event<[MediaStreamTrack]>();
   private readonly eventHandlers: PeerConnectionEventHandlers = {};
@@ -237,7 +274,7 @@ export class RTCPeerConnection extends EventTarget {
     return this.eventHandlers.onicecandidateerror ?? null;
   }
 
-  set onicecandidateerror(value: CallbackWithValue<any> | null) {
+  set onicecandidateerror(value: CallbackWithValue<RTCPeerConnectionIceErrorEvent> | null,) {
     this.eventHandlers.onicecandidateerror = value ?? undefined;
   }
 
@@ -299,6 +336,7 @@ export class RTCPeerConnection extends EventTarget {
       bundlePolicy: this.config.bundlePolicy,
       mLineReuse: this.config.mLineReuse,
       bundleCandidates: this.config.bundleCandidates,
+      iceRenomination: this.config.iceRenomination,
       iceOptionIce2: this.config.iceOptionIce2,
     });
     this.transceiverManager = new TransceiverManager(
@@ -401,6 +439,15 @@ export class RTCPeerConnection extends EventTarget {
       },
     );
     this.secureManager.iceGatheringStateChange.subscribe((state) => {
+      if (state === "gathering") {
+        this.gatheringServerOutcomes = new Map();
+      } else {
+        // The gathering ended: its 701s fire before the state change.
+        this.fireUnreachableServerErrors();
+      }
+      // A closed connection fires no event (also when a handler of those
+      // 701s closed it, or a transport closing mid-gathering ends it).
+      if (this.isClosed) return;
       this.iceGatheringStateChange.execute(state);
       this.onicegatheringstatechange?.(
         new globalThis.Event("icegatheringstatechange"),
@@ -453,6 +500,9 @@ export class RTCPeerConnection extends EventTarget {
     return this.secureManager.iceGatheringState;
   }
   get iceGatheringState() {
+    // The 701s of a gathering fire while it is still "gathering" (W3C): the
+    // ended state shows only from its icegatheringstatechange on.
+    if (this.firingGatheringErrors) return "gathering";
     return this.secureManager.iceGatheringState;
   }
   get dtlsTransports() {
@@ -470,6 +520,144 @@ export class RTCPeerConnection extends EventTarget {
   get iceTransports() {
     return this.secureManager.iceTransports;
   }
+
+  /** The outcome record of `url` in the current gathering. */
+  private gatheringServerOutcome(url: string) {
+    let outcome = this.gatheringServerOutcomes.get(url);
+    if (!outcome) {
+      outcome = { reached: [], unreached: [] };
+      this.gatheringServerOutcomes.set(url, outcome);
+    }
+    return outcome;
+  }
+
+  /**
+   * Judge the gathering that just ended (W3C: a 701 means no host candidate
+   * reached the server, once per URL per gathering): fire one 701 for each
+   * URL some transport tried without reaching it and none reached. Only
+   * transports still live count (not closed, not pending only), with the
+   * ICE generation they had: one that left during the gathering, or whose
+   * generation an ICE restart replaced, neither reached nor failed for it.
+   * The event carries the first counted failure (its local address and
+   * text). Stops as soon as the connection is closed (a handler may close
+   * it).
+   */
+  private fireUnreachableServerErrors() {
+    this.firingGatheringErrors = true;
+    try {
+      this.judgeUnreachableServers();
+    } finally {
+      this.firingGatheringErrors = false;
+    }
+  }
+
+  private judgeUnreachableServers() {
+    const outcomes = this.gatheringServerOutcomes;
+    this.gatheringServerOutcomes = new Map();
+    if (this.isClosed) return;
+    const live = new Set(
+      this.secureManager.iceTransports.filter(
+        (transport) =>
+          transport.state !== "closed" &&
+          !this.negotiation.isPendingOnlyTransport(transport.id),
+      ),
+    );
+    const counts = (entry: {
+      transport: RTCIceTransport;
+      generation: number;
+    }) =>
+      live.has(entry.transport) &&
+      entry.transport.connection.generation === entry.generation;
+    for (const { reached, unreached } of outcomes.values()) {
+      // A handler of an earlier 701 may have closed the connection: a
+      // closed connection fires nothing more.
+      if (this.isClosed) return;
+      if (reached.some(counts)) continue;
+      const first = unreached.find(counts);
+      if (first) this.dispatchIceCandidateError(first.details);
+    }
+  }
+
+  /**
+   * Dispatch an `icecandidateerror` to `onIceCandidateError`,
+   * `onicecandidateerror` and the listeners, in that order, with one event
+   * object. A handler calling `stopImmediatePropagation()` stops the ones
+   * after it (also the later subscribers of onIceCandidateError); a
+   * listener removed during the dispatch is not called, one added during it
+   * is not called this time.
+   */
+  private dispatchIceCandidateError(details: IceCandidateErrorDetails) {
+    const event = new RTCPeerConnectionIceErrorEvent(
+      "icecandidateerror",
+      details,
+    );
+    // Not dispatched through a native EventTarget, so set what a listener
+    // sees of the dispatch itself (W3C DOM: target, currentTarget, phase).
+    const setDispatchState = (currentTarget: unknown, eventPhase: number) => {
+      for (const [key, value] of Object.entries({
+        target: this,
+        currentTarget,
+        eventPhase,
+      })) {
+        Object.defineProperty(event, key, {
+          value,
+          configurable: true,
+          enumerable: false,
+        });
+      }
+    };
+    setDispatchState(this, 2);
+    // Fired by the connection (the user agent), not constructed by the
+    // application: a trusted event (W3C DOM `isTrusted`).
+    Object.defineProperty(event, "isTrusted", {
+      value: true,
+      enumerable: true,
+    });
+    // stopImmediatePropagation() stops the listeners after the caller (W3C
+    // DOM), in the order below.
+    let stopped = false;
+    const stopImmediatePropagation = event.stopImmediatePropagation.bind(event);
+    Object.defineProperty(event, "stopImmediatePropagation", {
+      value: () => {
+        stopped = true;
+        stopImmediatePropagation();
+      },
+      configurable: true,
+      enumerable: false,
+      writable: true,
+    });
+    const onError = (error: unknown) =>
+      log("icecandidateerror handler threw", error);
+    // The listeners when the dispatch starts (W3C DOM): one added meanwhile
+    // is not called this time.
+    const listeners = this.rawListeners("icecandidateerror");
+    // One throwing handler must not hide the event from the others, and the
+    // stop is checked before each one (also between the subscribers of
+    // onIceCandidateError).
+    this.onIceCandidateError.executeUntil(() => stopped, onError, event);
+    if (!stopped) {
+      try {
+        this.onicecandidateerror?.(event);
+      } catch (error) {
+        onError(error);
+      }
+    }
+    // EventEmitter stops at the first throwing listener: call each one.
+    for (const listener of listeners) {
+      if (stopped) break;
+      // Removed meanwhile (removeEventListener): not called (W3C DOM).
+      if (!this.rawListeners("icecandidateerror").includes(listener)) {
+        continue;
+      }
+      try {
+        listener.call(this, event);
+      } catch (error) {
+        onError(error);
+      }
+    }
+    setDispatchState(null, 0);
+  }
+
   get extIdUriMap() {
     return this.router.extIdUriMap;
   }
@@ -663,13 +851,12 @@ export class RTCPeerConnection extends EventTarget {
 
     await this.secureManager.ensureCerts();
 
+    // Every offer lists what each transceiver can use now, whatever an earlier
+    // answer narrowed (RFC 8829 5.2.2); a negotiated transceiver keeps its
+    // negotiated codecs live until an answer commits new ones
+    // (TransceiverManager.resolveOfferCodecs).
+    const offerCodecs = this.transceiverManager.resolveOfferCodecs();
     for (const transceiver of this.transceiverManager.getTransceivers()) {
-      if (
-        transceiver.codecs.length === 0 ||
-        transceiver.codecPreferencesNeedResolution
-      ) {
-        this.transceiverManager.assignTransceiverCodecs(transceiver);
-      }
       if (transceiver.headerExtensions.length === 0) {
         transceiver.headerExtensions =
           this.config.headerExtensions[transceiver.kind] ?? [];
@@ -691,6 +878,7 @@ export class RTCPeerConnection extends EventTarget {
     const description = this.sdpManager.buildOfferSdp(
       transceivers,
       this.sctpTransport,
+      offerCodecs,
     );
     const transceiverByMid = new Map(
       transceivers
@@ -914,6 +1102,41 @@ export class RTCPeerConnection extends EventTarget {
 
     iceTransport.onNegotiationNeeded.subscribe(() => {
       this.needNegotiation();
+    });
+    iceTransport.onIceServerReached.subscribe((urls) => {
+      if (
+        this.isClosed ||
+        this.negotiation.isPendingOnlyTransport(iceTransport.id)
+      ) {
+        return;
+      }
+      for (const url of urls) {
+        this.gatheringServerOutcome(url).reached.push({
+          transport: iceTransport,
+          generation: iceTransport.connection.generation,
+        });
+      }
+    });
+    iceTransport.onIceCandidateError.subscribe((details) => {
+      // A closed connection fires nothing; a transport a rollback discards
+      // (pending only) is not announced, as for its candidates.
+      if (
+        this.isClosed ||
+        this.negotiation.isPendingOnlyTransport(iceTransport.id)
+      ) {
+        return;
+      }
+      // A 701 waits for the end of the gathering (fireUnreachableServerErrors);
+      // a server's error response (300-699) fires now.
+      if (details.errorCode === 701) {
+        this.gatheringServerOutcome(details.url).unreached.push({
+          transport: iceTransport,
+          generation: iceTransport.connection.generation,
+          details,
+        });
+        return;
+      }
+      this.dispatchIceCandidateError(details);
     });
     iceTransport.onIceCandidate.subscribe((candidate) => {
       if (
@@ -1263,8 +1486,9 @@ export class RTCPeerConnection extends EventTarget {
           );
           if (!answered || answered.rtp.codecs.length === 0) continue;
           const resolved = transceiver.codecs;
+          const stale = transceiver.negotiatedCodecsStale;
           transceiver.codecs = [...answered.rtp.codecs];
-          if (!sameCodecList(resolved, transceiver.codecs)) {
+          if (stale || !sameCodecList(resolved, transceiver.codecs)) {
             resolveAfterAnswer.push(transceiver);
           }
         }
@@ -2026,12 +2250,7 @@ export class RTCPeerConnection extends EventTarget {
     // setCodecPreferences() は negotiated codec と分けて保持される。
     // Answer SDP 用の候補だけを再解決し、送受信の live table は commit まで触らない。
     for (const transceiver of this.transceiverManager.getTransceivers()) {
-      if (
-        transceiver.codecs.length !== 0 &&
-        !transceiver.codecPreferencesNeedResolution
-      ) {
-        continue;
-      }
+      if (!transceiver.needsCodecResolution) continue;
       if (
         transceiver.pendingRejection ||
         transceiver.stopping ||
@@ -2189,6 +2408,7 @@ export class RTCPeerConnection extends EventTarget {
       this.onTransceiverAdded,
       this.onRemoteTransceiverAdded,
       this.onIceCandidate,
+      this.onIceCandidateError,
       this.onNegotiationneeded,
     ] as const;
     for (const event of events) {

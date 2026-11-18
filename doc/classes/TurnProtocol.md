@@ -117,7 +117,9 @@ TURN server as configured, before any 300 (Try Alternate) redirect.
 
 ### onDataReceived
 
-> **onDataReceived**: [`Event`](Event.md)\<\[`Buffer`\<`ArrayBufferLike`\>\]\>
+> **onDataReceived**: [`Event`](Event.md)\<\[`Buffer`\<`ArrayBufferLike`\>, readonly \[`string`, `number`\]\]\>
+
+Application data (not STUN) and the remote address it came from.
 
 #### Implementation of
 

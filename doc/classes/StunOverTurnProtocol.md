@@ -50,7 +50,9 @@ that entry also releases the fallback allocation.
 
 ### onDataReceived
 
-> **onDataReceived**: [`Event`](Event.md)\<\[`Buffer`\<`ArrayBufferLike`\>\]\>
+> **onDataReceived**: [`Event`](Event.md)\<\[`Buffer`\<`ArrayBufferLike`\>, readonly \[`string`, `number`\]\]\>
+
+Application data (not STUN) and the remote address it came from.
 
 #### Implementation of
 
