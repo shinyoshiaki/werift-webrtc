@@ -215,6 +215,11 @@ export class RTCSctpTransport {
           // neither the other channels nor the rest of stop().
           const channels = Object.values(this.dataChannels);
           this.dataChannels = {};
+          // A reserved channel closes too: its queued OPEN must not stay.
+          const closing = new Set(channels);
+          this.dataChannelQueue = this.dataChannelQueue.filter(
+            ([queued]) => !closing.has(queued),
+          );
           for (const dc of channels) {
             this.unannounced.delete(dc);
             dc.setReadyState("closed");
@@ -434,7 +439,12 @@ export class RTCSctpTransport {
               channel.isCreatedByRemote = true;
               this.dataChannels[streamId] = channel;
 
-              this.onDataChannel.execute(channel);
+              // Isolated: a throwing `datachannel` listener must neither skip
+              // the open nor the ACK below.
+              this.onDataChannel.executeIsolated(
+                (error) => log("onDataChannel listener failed", error),
+                channel,
+              );
               channel.setReadyState("open");
             } else {
               log("datachannel already opened", "retransmit ack");
@@ -452,7 +462,13 @@ export class RTCSctpTransport {
             log("DATA_CHANNEL_ACK", streamId, ppId);
             const channel = this.dataChannels[streamId];
             if (!channel) {
-              throw new Error("channel not found");
+              // Not thrown: this async receive callback has no caller to
+              // catch it (an unhandled rejection).
+              log(
+                "DATA_CHANNEL_ACK for an unknown stream ID, ignored",
+                streamId,
+              );
+              return;
             }
             channel.setReadyState("open");
           }
@@ -472,19 +488,28 @@ export class RTCSctpTransport {
             case WEBRTC_BINARY_EMPTY:
               return Buffer.from([]);
             default:
-              throw new Error();
+              return undefined;
           }
         })();
+        if (msg === undefined) {
+          log("message with an unknown PPID, ignored", { streamId, ppId });
+          return;
+        }
 
         // Update reception statistics
         channel.messagesReceived++;
         channel.bytesReceived += data.length;
 
-        channel.onMessage.execute(msg);
-        channel.emit("message", { data: msg });
-        if (channel.onmessage) {
-          channel.onmessage({ data: msg });
-        }
+        // Every listener is isolated (DOM event semantics): a throwing one
+        // skips neither the later listeners nor later messages, and is no
+        // unhandled rejection of this async callback.
+        const onError = (error: unknown) =>
+          log("message listener failed", error);
+        channel.onMessage.executeIsolated(onError, msg);
+        channel.emitIsolated(onError, "message", { data: msg });
+        notifySafely(log, "onmessage", () =>
+          channel.onmessage?.({ data: msg }),
+        );
       }
     }
   };

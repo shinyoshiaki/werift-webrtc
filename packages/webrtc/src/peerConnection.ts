@@ -403,11 +403,15 @@ export class RTCPeerConnection extends EventTarget {
       this.negotiation,
       this.topology,
     );
+    // Every `datachannel` listener is isolated: a throwing one is logged and
+    // skips neither the later ones nor the open of the channel.
     this.sctpManager.onDataChannel.subscribe((channel) => {
-      this.onDataChannel.execute(channel);
+      const onError = (error: unknown) =>
+        log("datachannel listener failed", error);
+      this.onDataChannel.executeIsolated(onError, channel);
       const event: RTCDataChannelEvent = { type: "datachannel", channel };
-      this.ondatachannel?.(event);
-      this.emit("datachannel", event);
+      notifySafely(log, "ondatachannel", () => this.ondatachannel?.(event));
+      this.emitIsolated(onError, "datachannel", event);
     });
     this.secureManager = new SecureTransportManager({
       config: this.config,
@@ -941,6 +945,10 @@ export class RTCPeerConnection extends EventTarget {
       id?: number;
     }> = {},
   ): RTCDataChannel {
+    // W3C webrtc-pc createDataChannel step 2: [[IsClosed]]. Checked first,
+    // also for a `close` listener while close() runs (the SCTP transport is
+    // still there), so no channel outlives the close.
+    this.assertNotClosed();
     // Reject invalid input before creating the transport or scheduling
     // negotiation, so a failed call leaves the connection unchanged.
     assertDataChannelFieldLengths({ label, protocol: options.protocol });

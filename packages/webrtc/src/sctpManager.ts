@@ -93,7 +93,10 @@ export class SctpTransportManager {
     sctp.mid = undefined;
     sctp.onDataChannel.subscribe((channel) => {
       this.track(channel);
-      this.onDataChannel.execute(channel);
+      this.onDataChannel.executeIsolated(
+        (error) => log("onDataChannel listener failed", error),
+        channel,
+      );
     });
 
     this.sctpTransport = sctp;

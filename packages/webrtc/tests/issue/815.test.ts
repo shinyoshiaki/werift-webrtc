@@ -5,8 +5,10 @@ import {
 } from "../../src";
 import { createDtlsTransport } from "../fixture";
 import {
+  channelSetsOf,
   closeAll,
   closedObservation,
+  createLimitedTransport,
   createPeers,
   negotiate,
   nextMessage,
@@ -251,16 +253,6 @@ describe("issue 815: data channel stream IDs follow the DTLS role", () => {
 });
 
 describe("issue 815: stream ID exhaustion", () => {
-  /** maxChannels を 2 に絞った SCTP transport (DTLS role は未確定)。 */
-  function createLimitedTransport() {
-    const dtls: RTCDtlsTransport = createDtlsTransport();
-    const transport = new RTCSctpTransport();
-    transport.setDtlsTransport(dtls);
-    transport.sctp._inboundStreamsCount = 2;
-    transport.sctp._outboundStreamsCount = 2;
-    return { dtls, transport };
-  }
-
   test("a channel waiting for an ID closes with OperationError when none is left", async () => {
     // Arrange: role 確定前に 2 つの in-band channel を作る (client の偶数は 0 だけ)。
     const { dtls, transport } = createLimitedTransport();
@@ -493,6 +485,12 @@ describe("issue 815: stream ID exhaustion", () => {
       // Assert: close 通知の時点で PeerConnection・SCTP・DTLS はすでに closed。
       expect(channel.readyState).toBe("closed");
       expect(observed).toEqual([closedObservation("reserved")]);
+      // Assert: 予約済み channel の OPEN も送信待ちキューに残らない。
+      expect(channelSetsOf(pc)).toEqual({
+        registered: [],
+        unannounced: [],
+        queued: [],
+      });
     } finally {
       await remote.close();
     }

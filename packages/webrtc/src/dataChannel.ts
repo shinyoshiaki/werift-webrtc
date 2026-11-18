@@ -198,8 +198,12 @@ export class RTCDataChannel extends EventTarget implements DataChannelStats {
       this.bufferedAmount + amount <= this.bufferedAmountLowThreshold;
     this.bufferedAmount += amount;
     if (crossesThreshold) {
-      this.bufferedAmountLow.execute();
-      this.emit("bufferedamountlow");
+      // Isolated: called from the SCTP send completion, which a throwing
+      // listener must not interrupt.
+      const onError = (e: unknown) =>
+        log("bufferedamountlow listener failed", e);
+      this.bufferedAmountLow.executeIsolated(onError);
+      this.emitIsolated(onError, "bufferedamountlow");
     }
   }
 

@@ -2,8 +2,19 @@
  * Issue #815 (DataChannel の stream ID を DTLS role から採番する) テストの
  * Arrange 用ユーティリティ。
  */
-import { type RTCDataChannel, RTCPeerConnection } from "../../src";
+import {
+  type RTCDataChannel,
+  type RTCDtlsTransport,
+  RTCPeerConnection,
+  RTCSctpTransport,
+} from "../../src";
 import type { RTCSessionDescriptionInit } from "../../src/sdpManager";
+import { createDtlsTransport } from "../fixture";
+import {
+  createConnectedVideoPeers,
+  exchangePranswer,
+  waitForChannelState,
+} from "../negotiation/harness/negotiationTransactionUtils";
 
 export type Setup = "actpass" | "active" | "passive";
 
@@ -131,4 +142,117 @@ export function closedObservation(label: string): CloseObservation {
     sctpState: "closed",
     dtlsState: "closed",
   };
+}
+
+/** maxChannels を 2 に絞った SCTP transport (DTLS role は未確定)。 */
+export function createLimitedTransport() {
+  const dtls: RTCDtlsTransport = createDtlsTransport();
+  const transport = new RTCSctpTransport();
+  transport.setDtlsTransport(dtls);
+  transport.sctp._inboundStreamsCount = 2;
+  transport.sctp._outboundStreamsCount = 2;
+  return { dtls, transport };
+}
+
+/**
+ * `createLimitedTransport` を PeerConnection の SCTP transport として差し込む。
+ * 返す `create` は公開入口 (`SctpTransportManager.createDataChannel`) で channel を作る。
+ */
+export function attachLimitedTransport(pc: RTCPeerConnection) {
+  const limited = createLimitedTransport();
+  const manager = (pc as any).sctpManager;
+  manager.sctpTransport = limited.transport;
+  const create = (label: string): RTCDataChannel =>
+    manager.createDataChannel(label);
+  return { ...limited, create };
+}
+
+/** 接続済みの 2 peer と、offerer が作り両端で open になった channel "dc"。 */
+export async function openChannelPair() {
+  const { offerer, answerer } = createPeers();
+  const remoteChannel = waitRemoteChannel(answerer, "dc");
+  const local = offerer.createDataChannel("dc");
+  await negotiate(offerer, answerer);
+  await waitOpen(local);
+  const remote = await remoteChannel;
+  await waitOpen(remote);
+  return { offerer, answerer, local, remote };
+}
+
+/**
+ * 接続済みの video セッションに後付けした channel "late" を pranswer で open にする
+ * (pending-only の association。rollback / final answer の拒否で破棄される)。
+ */
+export async function openProvisionalChannel() {
+  const { offerer, answerer } = await createConnectedVideoPeers();
+  const local = offerer.createDataChannel("late");
+  const answer = await exchangePranswer(offerer, answerer);
+  await waitForChannelState(local, "open");
+  return { offerer, answerer, local, answer };
+}
+
+/** 通知の時点でコールバックから見える状態。 */
+export interface NotificationObservation {
+  connectionState: string;
+  sctpState: string | undefined;
+  dtlsState: string | undefined;
+  id: number | undefined;
+  readyState: string;
+}
+
+/** channel の `type` 通知の時点で見える状態を記録する (呼び出し時点で最後のリスナー)。 */
+export function observeAt(
+  pc: RTCPeerConnection,
+  channel: RTCDataChannel,
+  type: "close" | "error" = "close",
+) {
+  const observed: NotificationObservation[] = [];
+  channel.addEventListener(type, () => {
+    const sctp = (pc as any).sctpManager.sctpTransport;
+    observed.push({
+      connectionState: pc.connectionState,
+      sctpState: sctp?.state,
+      dtlsState: sctp?.dtlsTransport?.state,
+      id: channel.id,
+      readyState: channel.readyState,
+    });
+  });
+  return observed;
+}
+
+/**
+ * SCTP transport の内部集合: 登録表 (stream ID → channel)、OPEN 未送信の
+ * channel、送信待ちキューの channel。`label:readyState` で表す。
+ */
+export function channelSetsOf(pc: RTCPeerConnection) {
+  const transport = (pc as any).sctpManager.sctpTransport;
+  const describe = (channel: RTCDataChannel) =>
+    `${channel.label}:${channel.readyState}`;
+  return {
+    registered: Object.values(transport.dataChannels as object).map(describe),
+    unannounced: [...transport.unannounced].map(describe),
+    queued: transport.dataChannelQueue
+      .toArray()
+      .map(([channel]: [RTCDataChannel]) => channel.label),
+  };
+}
+
+/** 例外を投げるリスナー (先頭に登録して、後続が止まらないことを確かめる)。 */
+export function throwing(name: string) {
+  return () => {
+    throw new Error(`${name} listener failed`);
+  };
+}
+
+/** createDataChannel を試し、`created` か `throws:<name>` を返す (再入の確認用)。 */
+export function tryCreateDataChannel(
+  pc: RTCPeerConnection,
+  label = "in-callback",
+) {
+  try {
+    pc.createDataChannel(label);
+    return "created";
+  } catch (error) {
+    return `throws:${(error as Error).name}`;
+  }
 }

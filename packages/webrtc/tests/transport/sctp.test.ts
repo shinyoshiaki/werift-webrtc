@@ -36,7 +36,8 @@ describe("RTCSctpTransportTest", () => {
     transport.datachannelSend(channel, "stale-2");
     expect(channel.bufferedAmount).toBe(14);
 
-    // Act: 停止して別の DTLS transport で再接続する。
+    // Act: rollback と同じく予約 ID を返してから停止し、別の DTLS transport で再接続する。
+    transport.releaseUnannouncedStreamIds();
     await transport.stop();
     transport.setDtlsTransport(second);
     const sent: unknown[] = [];
@@ -49,7 +50,8 @@ describe("RTCSctpTransportTest", () => {
 
     // Assert: 古いメッセージは SCTP に渡されず、bufferedAmount は 0 に戻る。
     expect(sent).toHaveLength(0);
-    // DATA_CHANNEL_OPEN だけが残る (チャネルが存続する場合に備える)。
+    // 存続するチャネルの DATA_CHANNEL_OPEN だけが残る。
+    expect(channel.readyState).toBe("connecting");
     expect(transport["dataChannelQueue"].toArray().map((i) => i[1])).toEqual([
       50,
     ]);
