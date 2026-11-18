@@ -137,3 +137,22 @@ get heldByApplication() {
 - [ ] 公開 API（公開関数の signature、生成 docs）が変わらない。生成 docs の差分は `heldByApplication` の TSDoc だけ。
 - [ ] root `AGENTS.md` に再発防止の指示がある。
 - [ ] 検証: `npm run type`、`cd packages/webrtc && npm test`、`npm run pbt:deep -- --suite model,leak`（失敗 seed は develop と比較）、`npm run wpt`、`tools/negotiation-diff/scenarios.ts --check 1`、`npm run doc`、`npm run format`。
+
+## 7. レビュー対応で追加した変更: ICE 候補収集の保持（ICE チケット 74132240 の原因修正）
+
+レビューで、`pbt:deep` の leak P3 `heap seed 4`（閾値 16 KiB/cycle）が未解決の失敗として指摘された。develop でも失敗する既存の問題（ICE チケット `74132240-6e06-4628-8ca1-13db4377f261`）だが、原因は特定済みで修正が小さいため、このチケットで直す。
+
+### 原因と修正
+- `packages/ice/src/ice.ts` の候補収集が、`Promise.race([…, this.closedSignal])` を 3 か所で行っていた。`closedSignal` は close まで解決しないので、収集のたびに反応が 1 つ積まれ、その generation の収集結果（候補）を agent の close まで保持していた。
+- `closedSignal` を廃止し、`untilClosed(work)` に置き換えた。close（`closing` の abort）を listener で待ち、`work` が決着したら listener を外す。close での即時打ち切りという挙動は変わらない。
+
+### 検証
+- 回帰テスト `packages/ice/tests/ice/restart-gather.test.ts`「a finished gathering keeps nothing alive until close」: 各 gathering の primary に参照されない目印を足し、restart を繰り返して GC した後、前の generation の目印が回収されることを確認する。修正前のコードでは失敗する。
+- leak P3 `heap seed 4`: 修正前 16.5〜16.9 KiB/cycle で失敗 → 修正後 14.2〜14.5 KiB/cycle で成功（同じ時間帯に交互に 3 回ずつ）。
+- ICE チケット 74132240 の残りの作業項目（閾値の見直し、model seed 275 の切り分け）は、このチケットでは扱わない。
+
+### 完了条件（追加分）
+- [ ] `packages/ice` の `npm test`、`npm run type`、`packages/webrtc` の `npm test` が通る。
+- [ ] `npm run pbt:deep`（fuzz・scenario・model・leak）で leak の失敗がない。
+- [ ] `tools/negotiation-diff` の develop 比較で差分数 0。
+- [ ] `wpt/baseline.json` を変えるので、`npm run wpt` を 10 回実行して baseline の追加 subtest が毎回 PASS になる（`packages/webrtc/AGENTS.md` Validation）。

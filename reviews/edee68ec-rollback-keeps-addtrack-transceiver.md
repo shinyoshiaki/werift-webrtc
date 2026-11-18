@@ -4,7 +4,7 @@ ide:
   version: 1
   title: "#817 rollback で addTrack 済み transceiver を保持する"
   dock: right
-  baseCommit: ff714d3278f68b0846888b9f1719e124e457795f
+  baseCommit: 25e8d03301e57062ee17bc33320933e8bf6ee4a6
 ---
 # #817 remote rollback で addTrack 済み transceiver が消える問題の修正
 
@@ -602,3 +602,76 @@ leak の周期 session（`arrangeCycleSession`。cycle seed・fixed cycle・heap
 レビューでは、失敗 10 件・flaky 14 件でした。周期の pair 数の揺れによる失敗と flaky は、どちらもなくなりました。
 
 残る heap seed 4 は、傾きが閾値 16 KiB/cycle をわずかに超える既存の失敗です。同じ時間帯に交互に 3 回ずつ実行すると、HEAD は 16.81〜17.07、develop は 16.44〜16.82、develop に probe の修正だけを当てたものは 16.85〜16.88 で、すべて失敗しました。develop でも失敗する、ICE の候補収集が restart ごとの候補を close まで保持する問題です（ICE チケット `74132240`）。
+
+## 5 回目のレビュー指摘への対応
+
+### leak P3 heap seed 4：ICE の候補収集が restart ごとの結果を close まで保持していた
+
+heap seed 4 は develop でも閾値（16 KiB/cycle）をわずかに超える既存の失敗で、ICE チケット `74132240` がヒープスナップショットで原因を特定していました。修正が小さいので、このチケットで直しました（チケット §7）。
+
+<style>
+  .h817 { display:flex; gap:14px; flex-wrap:wrap; font-family:var(--review-font); }
+  .h817 .pane { flex:1; min-width:320px; border:1px solid var(--review-border); border-radius:8px; padding:8px 10px; background:var(--review-surface); }
+  .h817 h4 { margin:2px 0 6px; font-size:14px; }
+  .h817 svg text { font-family:var(--review-font); } .h817 svg .mono { font-family:var(--review-mono); }
+</style>
+
+<div class="h817">
+<div class="pane">
+<h4 style="color:var(--review-danger)">Before：close まで解決しない Promise に race する</h4>
+<svg viewBox="0 0 360 300" width="100%" role="img" aria-label="Before: gathering ごとに closedSignal に反応が積まれ、結果が close まで残る">
+  <g fill="none" stroke-width="1.5">
+    <rect x="10" y="10" width="340" height="60" rx="7" stroke="var(--review-border)"/>
+    <rect x="10" y="90" width="340" height="110" rx="7" stroke="var(--review-danger)" stroke-width="2.5"/>
+    <rect x="10" y="220" width="340" height="70" rx="7" stroke="var(--review-danger)" stroke-width="2.5"/>
+  </g>
+  <g font-size="12" fill="var(--review-fg)">
+    <text x="20" y="32" class="mono">gatherCandidates()（ICE restart ごと）</text>
+    <text x="20" y="52" class="mono" fill="var(--review-muted)">Promise.race([allSettled(primary), closedSignal])</text>
+    <text x="20" y="112" class="mono" fill="var(--review-danger)">closedSignal（close まで pending）</text>
+    <text x="20" y="134" class="mono">  reaction #1 → 結果 gen1（候補）</text>
+    <text x="20" y="154" class="mono">  reaction #2 → 結果 gen2（候補）</text>
+    <text x="20" y="174" class="mono">  reaction #3 → 結果 gen3（候補）…</text>
+    <text x="20" y="244" fill="var(--review-danger)">restart のたびに 1 つ積まれ、close まで GC されない</text>
+    <text x="20" y="266" fill="var(--review-danger)">heap seed 4：16.5〜16.9 KiB/cycle で失敗 ✗</text>
+  </g>
+</svg>
+</div>
+<div class="pane">
+<h4 style="color:var(--review-success)">After：決着したら外せる close listener</h4>
+<svg viewBox="0 0 360 300" width="100%" role="img" aria-label="After: close listener は収集の決着時に外れ、結果は回収される">
+  <g fill="none" stroke-width="1.5">
+    <rect x="10" y="10" width="340" height="60" rx="7" stroke="var(--review-border)"/>
+    <rect x="10" y="90" width="340" height="110" rx="7" stroke="var(--review-accent)" stroke-width="2.5"/>
+    <rect x="10" y="220" width="340" height="70" rx="7" stroke="var(--review-success)" stroke-width="2.5"/>
+  </g>
+  <g font-size="12" fill="var(--review-fg)">
+    <text x="20" y="32" class="mono">gatherCandidates()（ICE restart ごと）</text>
+    <text x="20" y="52" class="mono" fill="var(--review-muted)">this.untilClosed(allSettled(primary))</text>
+    <text x="20" y="112" class="mono" fill="var(--review-accent)">closing.signal（AbortSignal）</text>
+    <text x="20" y="134" class="mono">  addEventListener("abort", onClose, once)</text>
+    <text x="20" y="154" class="mono">  work が決着 → removeEventListener</text>
+    <text x="20" y="174" class="mono" fill="var(--review-muted)">  close なら即 resolve（挙動は同じ）</text>
+    <text x="20" y="244" fill="var(--review-success)">前の generation の結果は close 前でも回収される</text>
+    <text x="20" y="266" fill="var(--review-success)">heap seed 4：14.2〜14.5 KiB/cycle で成功 ✓</text>
+  </g>
+</svg>
+</div>
+</div>
+
+- `closedSignal`（close でだけ resolve する Promise）を廃止しました。3 か所の `Promise.race` を `untilClosed(work)` に置き換えています。`untilClosed` は close（既存の `closing` AbortController の abort）を listener で待ち、`work` が決着したら listener を外します。close で即座に待ちを打ち切る挙動は変わりません。 [packages/ice/src/ice.ts:821](review-diff:packages/ice/src/ice.ts:821)、[packages/ice/src/ice.ts:775](review-diff:packages/ice/src/ice.ts:775)
+- 回帰テスト：各 gathering の primary に、他から参照されない目印を 1 つ足します。restart を 4 回繰り返して GC した後、前の generation の目印が回収されていることを確認します。修正前のコードでは 2 回とも失敗し、修正後は 3 回とも成功しました。 [packages/ice/tests/ice/restart-gather.test.ts:100](review-diff:packages/ice/tests/ice/restart-gather.test.ts:100)。GC を実行する共有ヘルパーは [packages/ice/tests/utils.ts:3257](review-diff:packages/ice/tests/utils.ts:3257) です。
+- heap seed 4（同じ時間帯に交互に 3 回ずつ）：修正後は 14.2〜14.5 KiB/cycle で 3 回とも成功、修正前の HEAD は 16.5〜16.9 KiB、develop は 16.7〜16.9 KiB でどちらも失敗しました。
+- `packages/ice` の `npm test` で 11 件が失敗しますが、修正前の HEAD でも同じ 11 件（名前も一致）が失敗します。この host は host 候補を 5 つ持ち、2 つを前提にしたテストが落ちる、host に依存した既存の失敗です。
+
+### 検証のやり直し
+
+| 検証 | 結果 |
+| --- | --- |
+| `npm run type` | エラーなし |
+| `packages/webrtc` の `npm test` | 93 ファイル、1958 件成功、5 件スキップ |
+| `npm run pbt:deep -- --suite fuzz,scenario,model,leak --jobs 16`（load 平均 42.7、最大 54.0） | 終了コード 0。fuzz 306・model 365 は失敗 0。scenario は 2163 件中 flaky 1（seed 114）、leak は 653 件中 flaky 1（heap seed 2）。失敗 0 |
+| `tools/negotiation-diff` の develop 比較（develop `a530187fd`、50 seeds × 12 steps、load 平均 27.3） | regressions 0、other divergences 0、hangs 0、failed without fault 0、transceiver state differences 0 |
+| `npm run wpt` を 10 回 | 10 回とも REGRESSION 0。毎回 215 target。追加した subtest は 10 回とも PASS。`baseline.json` の 572 件はすべて 10 回とも PASS |
+
+flaky の scenario seed 114 と heap seed 2 は、以前の高負荷の比較で develop でも flaky・失敗になったものです。今回はどちらも単独の再実行で成功しています。
