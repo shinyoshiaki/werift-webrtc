@@ -172,6 +172,9 @@ export class SessionDescription {
             case "end-of-candidates":
               currentMedia.iceCandidatesComplete = true;
               break;
+            case "bundle-only":
+              currentMedia.bundleOnly = true;
+              break;
             case "extmap":
               {
                 // eslint-disable-next-line prefer-const
@@ -310,10 +313,17 @@ export class SessionDescription {
           bundle &&
           bundle.items.includes(currentMedia.rtp.muxId)
         ) {
-          for (let i = 0; i < bundle.items.length; i++) {
-            if (!bundle.items.includes(i.toString())) continue;
-            const check = session.media[i];
-            if (check.iceParams?.usernameFragment && check.iceParams.password) {
+          // An m-line without ICE credentials (a bundle-only one may omit
+          // them, RFC 8843 §6) takes those of an earlier member of its
+          // BUNDLE group, looked up by MID in group order.
+          for (const mid of bundle.items) {
+            const check = session.media.find(
+              (media) => media !== currentMedia && media.rtp.muxId === mid,
+            );
+            if (
+              check?.iceParams?.usernameFragment &&
+              check.iceParams.password
+            ) {
               currentMedia.iceParams = {
                 ...check.iceParams,
               };
@@ -447,6 +457,20 @@ export class MediaDescription {
   iceCandidatesComplete = false;
   iceOptions?: string;
 
+  /**
+   * `a=bundle-only` (RFC 8843 §6): the offerer writes the m-line with port 0
+   * so that an answerer without BUNDLE rejects it. werift itself never offers
+   * it (Chrome does not either).
+   */
+  bundleOnly = false;
+  /**
+   * Set when the port 0 of a remote offer's bundle-only m-line was replaced
+   * by `DISCARD_PORT` because werift accepts it into BUNDLE (see
+   * `SDPManager.acceptBundleOnlyMedia`). The m-line is still written with
+   * port 0, as received.
+   */
+  acceptedBundleOnly = false;
+
   // Simulcast
   simulcastParameters: RTCRtpSimulcastParameters[] = [];
 
@@ -473,7 +497,9 @@ export class MediaDescription {
   toString() {
     const lines: string[] = [];
     lines.push(
-      `m=${this.kind} ${this.port} ${this.profile} ${(this.fmt as number[])
+      `m=${this.kind} ${this.acceptedBundleOnly ? 0 : this.port} ${this.profile} ${(
+        this.fmt as number[]
+      )
         .map((v) => v.toString())
         .join(" ")}`,
     );
@@ -498,6 +524,9 @@ export class MediaDescription {
     }
     if (this.iceOptions) {
       lines.push(`a=ice-options:${this.iceOptions}`);
+    }
+    if (this.bundleOnly) {
+      lines.push("a=bundle-only");
     }
 
     // dtls

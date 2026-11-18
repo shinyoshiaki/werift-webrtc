@@ -36,6 +36,27 @@
 
 ## Properties
 
+### acceptedBundleOnly
+
+> **acceptedBundleOnly**: `boolean` = `false`
+
+Set when the port 0 of a remote offer's bundle-only m-line was replaced
+by `DISCARD_PORT` because werift accepts it into BUNDLE (see
+`SDPManager.acceptBundleOnlyMedia`). The m-line is still written with
+port 0, as received.
+
+***
+
+### bundleOnly
+
+> **bundleOnly**: `boolean` = `false`
+
+`a=bundle-only` (RFC 8843 §6): the offerer writes the m-line with port 0
+so that an answerer without BUNDLE rejects it. werift itself never offers
+it (Chrome does not either).
+
+***
+
 ### direction?
 
 > `optional` **direction?**: `"inactive"` \| `"sendonly"` \| `"recvonly"` \| `"sendrecv"`

@@ -27,7 +27,9 @@
     "knip": "npx knip --config ./knip.json",
     "chrome:sim": "vitest run --config ./simulations/vitest.sim.config.mts --browser.headless",
     "test:sim": "npm run install:browsers && npm run build && node simulations/run-sim.js",
-    "test:sim:netns": "node simulations/netns/run-netns-sim.js"
+    "test:sim:netns": "node simulations/netns/run-netns-sim.js",
+    "firefox:record": "node run-firefox.js",
+    "firefox:record:prune": "node firefox-runs-prune.js"
   },
   "dependencies": {
     "bowser": "^2.12.1",

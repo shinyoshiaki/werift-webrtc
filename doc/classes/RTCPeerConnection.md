@@ -1143,6 +1143,17 @@ v6.0.0
 
 Send-side estimator used by each new sender; defaults to `"lightweight"`.
 
+##### bundleCandidates
+
+> **bundleCandidates**: [`BundleCandidates`](../type-aliases/BundleCandidates.md)
+
+Which m-lines of a BUNDLE group carry the local ICE candidates.
+Cannot be changed after construction. See [BundleCandidates](../type-aliases/BundleCandidates.md).
+- `"legacy"` (default): every m-line repeats its transport's candidates and
+  `a=end-of-candidates` (werift's earlier output).
+- `"compatible"`: as Chrome writes them, only the BUNDLE tag m-line carries
+  them, so renegotiation with more m-lines no longer repeats the candidate list.
+
 ##### bundlePolicy
 
 > **bundlePolicy**: [`BundlePolicy`](../type-aliases/BundlePolicy.md)
