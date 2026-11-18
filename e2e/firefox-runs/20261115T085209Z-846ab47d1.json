@@ -1,0 +1,67 @@
+{
+  "version": 1,
+  "suite": "e2e firefox (vitest.firefox.config.mts)",
+  "commit": "846ab47d1c629f3acc02d5ac31a61ecac3a68353",
+  "shortCommit": "846ab47d1",
+  "branch": "ticket/a461df90-10bb-4aad-8f1b-3cce626d630b",
+  "dirty": false,
+  "uncommittedFiles": [],
+  "uncommittedDiffSha256": null,
+  "startedAt": "2026-11-15T08:52:09.744Z",
+  "finishedAt": "2026-11-15T08:53:12.350Z",
+  "durationSec": 63,
+  "exitCode": 1,
+  "outcome": "completed",
+  "stopReason": null,
+  "result": "failed",
+  "vitestArgs": [
+    "tests/datachannel/datachannel.test.ts",
+    "-t",
+    "answer"
+  ],
+  "environment": {
+    "firefox": "157.0",
+    "playwright": "1.64.1",
+    "vitest": "5.0.5",
+    "node": "v24.22.2",
+    "platform": "linux 7.0.0-43-generic x64"
+  },
+  "runEnded": true,
+  "endReason": "failed",
+  "unhandledErrors": [],
+  "totals": {
+    "files": 1,
+    "tests": 3,
+    "passed": 0,
+    "failed": 1,
+    "skipped": 2,
+    "unfinished": 0
+  },
+  "tests": [
+    {
+      "file": "e2e/tests/datachannel/datachannel.test.ts",
+      "name": "datachannel > answer",
+      "status": "failed",
+      "durationMs": 40064,
+      "retryCount": 1,
+      "failureMessages": [
+        "Error: Test timed out in 20000ms.\nIf this is a long-running test, pass a timeout value as the last argument or configure it globally with \"testTimeout\".",
+        "Error: Test timed out in 20000ms.\nIf this is a long-running test, pass a timeout value as the last argument or configure it globally with \"testTimeout\"."
+      ]
+    },
+    {
+      "file": "e2e/tests/datachannel/datachannel.test.ts",
+      "name": "datachannel > offer",
+      "status": "skipped",
+      "durationMs": 0
+    },
+    {
+      "file": "e2e/tests/datachannel/datachannel.test.ts",
+      "name": "datachannel > echoes fragmented binary messages",
+      "status": "skipped",
+      "durationMs": 0
+    }
+  ],
+  "unfinished": [],
+  "moduleErrors": []
+}
