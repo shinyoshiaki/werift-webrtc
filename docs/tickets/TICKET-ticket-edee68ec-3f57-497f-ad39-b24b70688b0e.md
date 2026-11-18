@@ -121,7 +121,7 @@ get heldByApplication() {
 | B3 | `media/track.ts` `sourceCodecsByTrack` / `sourceCodecsCapturedByTrack` | `MediaStreamTrack` の `@internal` フィールド `sourceCodecs` / `sourceCodecsCaptured` に移す。公開関数 `setTrackSourceCodecs` / `getTrackSourceCodecs` / `captureTrackSourceCodecs` の signature は変えない |
 | B4 | `media/receiver/receiverTwcc.ts` `receiverTwccByTransport` | DTLS transport ごとの共有 TWCC と参照数を `RTCDtlsTransport` の `@internal sharedReceiverTWCC` に移す |
 | B5 | `polyfill/sourceIo.ts` `let udpSocketFactory` / `setUdpSocketFactory()` | 削除。`udp` source の `@internal createSocket` option で渡す。テスト（`withUdpSocketCounter`）は register に factory を渡す |
-| B6 | `nonstandard/dummyMedia.ts` `let nextDummySourceId` | `createDummyAudioTrack` / `createDummyVideoTrack` に `sourceId` 引数を足し、作る側（`MediaDevices` のインスタンス、`createDummyRegister` のクロージャ、WPT の `AudioContext` shim）が自分で数える |
+| B6 | `nonstandard/dummyMedia.ts` `let nextDummySourceId` | 削除。各 dummy source が作成時に SSRC・初期 sequence・初期 PictureID を乱数で決める（RFC 3550 5.1 / 8.1）。当初は作る側ごとに `sourceId` を数える形にしたが、別々の `MediaDevices` の source が同じ SSRC・sequence になる回帰があったため（レビュー指摘）、採番をやめた。`tests/nonstandard/navigator.test.ts` で別々の `MediaDevices` の 4 source の SSRC が異なることを確認する |
 
 ### 残すもの（プロセス全体で共有するのが仕様）
 - `polyfill/sourceIo.ts` `streamHubs`: キーはアプリの stream で、1 つの reader でしか読めないため共有が必要。宣言に理由のコメントを付ける。

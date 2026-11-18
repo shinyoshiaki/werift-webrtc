@@ -4,7 +4,7 @@ ide:
   version: 1
   title: "#817 rollback で addTrack 済み transceiver を保持する"
   dock: right
-  baseCommit: 70e710c699b9eefcd6b315fce1f00a5bd4ae4370
+  baseCommit: 76dbe33602796b4eed827bb4063b6e96d4d5f508
 ---
 # #817 remote rollback で addTrack 済み transceiver が消える問題の修正
 
@@ -419,7 +419,7 @@ rollback で除去されうるのは、remote offer が作った transceiver だ
 </div>
 <div class="f817-legend"><span style="--c:var(--review-danger)">モジュールスコープの状態</span><span style="--c:var(--review-success)">インスタンスのフィールド</span><span style="--c:var(--review-border)">変わらない部分</span></div>
 
-図は A1 / A2（transceiver）の例です。B3〜B6 も同じ形で、状態を track・transport・`MediaDevices`・register の各インスタンスへ移しています。どれも振る舞いは変えていません（生成 docs の差分は `heldByApplication` の TSDoc だけです）。
+図は A1 / A2（transceiver）の例です。B3〜B5 も同じ形で、状態を track・transport・source の option へ移しています。B6 は採番そのものをやめ、各 dummy source が作成時に乱数で SSRC などを決めます。どれも振る舞いは変えていません（生成 docs の差分は `heldByApplication` の TSDoc だけです）。
 
 <style>
   .r817 { border-collapse:collapse; width:100%; font:13px var(--review-font); }
@@ -437,7 +437,7 @@ rollback で除去されうるのは、remote offer が作った transceiver だ
     <tr><td>B3</td><td class="was"><code>track.ts</code> <code>sourceCodecsByTrack</code> / <code>sourceCodecsCapturedByTrack</code></td><td class="now"><code>MediaStreamTrack</code> の <code>@internal</code> <code>sourceCodecs</code> / <code>sourceCodecsCaptured</code>。公開関数の signature は不変</td></tr>
     <tr><td>B4</td><td class="was"><code>receiverTwcc.ts</code> <code>receiverTwccByTransport</code>（WeakMap）</td><td class="now"><code>RTCDtlsTransport</code> の <code>@internal sharedReceiverTWCC</code></td></tr>
     <tr><td>B5</td><td class="was"><code>sourceIo.ts</code> <code>let udpSocketFactory</code> / <code>setUdpSocketFactory()</code></td><td class="now"><code>udp</code> source の <code>@internal createSocket</code> option。テストは register に渡す</td></tr>
-    <tr><td>B6</td><td class="was"><code>dummyMedia.ts</code> <code>let nextDummySourceId</code></td><td class="now"><code>sourceId</code> 引数。<code>MediaDevices</code>、<code>createDummyRegister</code>、WPT の <code>AudioContext</code> shim がそれぞれ数える</td></tr>
+    <tr><td>B6</td><td class="was"><code>dummyMedia.ts</code> <code>let nextDummySourceId</code></td><td class="now">削除。各 source が SSRC・初期 sequence・初期 PictureID を乱数で決める（RFC 3550 5.1 / 8.1）</td></tr>
   </tbody>
 </table>
 
@@ -445,7 +445,7 @@ rollback で除去されうるのは、remote offer が作った transceiver だ
 - B3： [packages/webrtc/src/media/track.ts:34](review-diff:packages/webrtc/src/media/track.ts:34)（公開関数）、[packages/webrtc/src/media/track.ts:146](review-diff:packages/webrtc/src/media/track.ts:146)（フィールド）
 - B4： [packages/webrtc/src/media/receiver/receiverTwcc.ts:54](review-diff:packages/webrtc/src/media/receiver/receiverTwcc.ts:54)、[packages/webrtc/src/transport/dtls.ts:181](review-diff:packages/webrtc/src/transport/dtls.ts:181)
 - B5： [packages/webrtc/src/polyfill/sourceIo.ts:19](review-diff:packages/webrtc/src/polyfill/sourceIo.ts:19)（option）、[packages/webrtc/src/polyfill/sourceIo.ts:73](review-diff:packages/webrtc/src/polyfill/sourceIo.ts:73)（使う側）、[packages/webrtc/tests/nonstandard/polyfillTestUtils.ts:120](review-diff:packages/webrtc/tests/nonstandard/polyfillTestUtils.ts:120)、[packages/webrtc/tests/nonstandard/polyfill.test.ts:1562](review-diff:packages/webrtc/tests/nonstandard/polyfill.test.ts:1562)
-- B6： [packages/webrtc/src/nonstandard/dummyMedia.ts:55](review-diff:packages/webrtc/src/nonstandard/dummyMedia.ts:55)、[packages/webrtc/src/nonstandard/navigator.ts:26](review-diff:packages/webrtc/src/nonstandard/navigator.ts:26)、[packages/webrtc/src/polyfill/registers/callback.ts:58](review-diff:packages/webrtc/src/polyfill/registers/callback.ts:58)、[packages/webrtc/tools/wpt-runner/runner.ts:665](review-diff:packages/webrtc/tools/wpt-runner/runner.ts:665)
+- B6： [packages/webrtc/src/nonstandard/dummyMedia.ts:128](review-diff:packages/webrtc/src/nonstandard/dummyMedia.ts:128)（乱数の SSRC と初期 sequence）、[packages/webrtc/src/nonstandard/dummyMedia.ts:85](review-diff:packages/webrtc/src/nonstandard/dummyMedia.ts:85)（初期 PictureID）、回帰テスト [packages/webrtc/tests/nonstandard/navigator.test.ts:92](review-diff:packages/webrtc/tests/nonstandard/navigator.test.ts:92)
 
 **残したもの**（プロセス全体で共有するのが仕様のもの）：
 
@@ -525,3 +525,30 @@ leak cycle seed 248 は負荷のないときにも HEAD で落ちやすかった
 develop の src でも seed 248 は 20 回中 11 回失敗します。そのため、この失敗は今回の rollback・状態移動の変更から来たものではないと判断しました。ハーネスの変更は、テストが外部の STUN サーバーに依存しないようにするためのものなので、残しています。
 
 ICE の増加そのものは、この branch では直していません。並列 `pbt:deep` の leak が緑になるのは、ICE チケット `74132240` が直った後です。
+
+## 3 回目のレビュー指摘への対応
+
+### dummy RTP source の SSRC 重複（B6 の回帰）
+
+B6 の 1 回目の修正では、dummy source の番号を作る側（`MediaDevices` のインスタンスなど）ごとに 0 から数えていました。修正前のプロセス全体の連番は、異なる `MediaDevices` の source にも別の番号を振っていました。それを失ったため、別々の `MediaDevices` から作った track の SSRC が同じ `0x1a2b3c00`、最初の sequence も同じ `0x4000` になっていました。1 つの PeerConnection で両方を送ると、受信側は区別できません。
+
+番号を振ること自体をやめました。各 source が作成時に、SSRC（`random32()`）、初期 sequence（`random16()`）、初期 PictureID（15 bit の乱数）を決めます。RFC 3550 5.1 / 8.1 も、SSRC と初期 sequence を乱数にするよう勧めています。これで共有の状態も作る側ごとの採番も要らなくなりました。`navigator.ts`、`callback.ts`、WPT の `runner.ts` は develop と同じ内容に戻っています。
+
+- [packages/webrtc/src/nonstandard/dummyMedia.ts:128](review-diff:packages/webrtc/src/nonstandard/dummyMedia.ts:128)（SSRC と初期 sequence）
+- [packages/webrtc/src/nonstandard/dummyMedia.ts:85](review-diff:packages/webrtc/src/nonstandard/dummyMedia.ts:85)（初期 PictureID）
+- 回帰テスト [packages/webrtc/tests/nonstandard/navigator.test.ts:92](review-diff:packages/webrtc/tests/nonstandard/navigator.test.ts:92)：2 つの `Navigator` から audio と video を 1 本ずつ作り、4 つの source の SSRC がすべて異なることを確認します。修正前のコード（`76dbe3360`）では失敗し、修正後は成功します。
+- 既存テストの sequence の比較は、初期値が乱数になったので 16 bit の差（`& 0xffff`）で比べるようにしました。 [packages/webrtc/tests/nonstandard/navigator.test.ts:22](review-diff:packages/webrtc/tests/nonstandard/navigator.test.ts:22)
+
+### leak cycle seed 206
+
+レビューでは、seed 206 が現 branch で単独で失敗し、develop では単独で成功していました。merge-base `7a1cb6f6c`（develop の変更を含み、この branch の変更を含まない）と HEAD を同じループで交互に 20 回ずつ実行しました。
+
+| 変種 | 失敗 |
+| --- | --- |
+| HEAD `76dbe3360` | 12/20 |
+| merge-base `7a1cb6f6c` | 12/20 |
+| merge-base + HEAD のハーネス | 14/20 |
+
+この間は並行して確認レビューが動いていたので、load は 1.0〜19.8 と高めでした。ただし交互に実行したので、各変種への負荷の影響は揃っています。merge-base でも HEAD と同じ率で失敗するので、seed 206 の失敗はこの branch の変更から来たものではありません。レビューで develop が単独で成功したのは、5〜6 割で失敗する seed がたまたま通ったものと判断しました。失敗の中身は、ほかの cycle seed と同じ ICE `checkList` の 1 件の増加です（ICE チケット `74132240`）。
+
+`npm test` の leak fixed scene「an ICE restart keeps the agent's credential history bounded」も、load 25 のとき 1 回だけ同じ `checkList` の増加で失敗しました。単独で 3 回実行すると 3 回とも成功しました。
