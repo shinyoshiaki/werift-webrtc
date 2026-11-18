@@ -1133,9 +1133,17 @@ export async function createHeldUdpProxy(target: Address) {
   let held = true;
   /** Each datagram waits this long (ms) in either direction (`setDelay`). */
   let delayMs = 0;
+  const timers = new Set<NodeJS.Timeout>();
+  let closed = false;
   const later = (send: () => void) => {
-    if (delayMs > 0) setTimeout(send, delayMs);
-    else send();
+    if (closed) return;
+    if (delayMs > 0) {
+      const timer = setTimeout(() => {
+        timers.delete(timer);
+        send();
+      }, delayMs);
+      timers.add(timer);
+    } else send();
   };
   front.on("message", (data, rinfo) => {
     const key = `${rinfo.address}:${rinfo.port}`;
@@ -1167,6 +1175,9 @@ export async function createHeldUdpProxy(target: Address) {
       delayMs = ms;
     },
     close() {
+      closed = true;
+      for (const timer of timers) clearTimeout(timer);
+      timers.clear();
       for (const socket of upstream.values()) socket.close();
       front.close();
     },
