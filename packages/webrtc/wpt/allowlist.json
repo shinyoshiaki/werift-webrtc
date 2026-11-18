@@ -20,6 +20,23 @@
       ]
     },
     {
+      "file": "webrtc/RTCPeerConnection-onicecandidateerror.https.html",
+      "enabled": true,
+      "reason": "Covers icecandidateerror for unreachable STUN / TURN servers, including the canonical turns: URL.",
+      "subtests": [
+        "Surfacing onicecandidateerror",
+        "icecandidateerror fires for each failing server"
+      ]
+    },
+    {
+      "file": "webrtc/RTCPeerConnectionIceErrorEvent.html",
+      "enabled": true,
+      "reason": "Covers the RTCPeerConnectionIceErrorEvent constructor exposed by the polyfill.",
+      "subtests": [
+        "RTCPeerConnectionIceErrorEvent constructed from init parameters"
+      ]
+    },
+    {
       "file": "webrtc/RTCPeerConnection-ontrack.https.html",
       "enabled": true,
       "reason": "Covers upstream ontrack event semantics that match the previous local port.",
@@ -77,9 +94,7 @@
       "enabled": true,
       "variant": "?rest",
       "reason": "Covers parameterless setLocalDescription flows that the current implementation aims to support.",
-      "subtests": [
-        "Parameterless SLD() in a full O/A exchange succeeds"
-      ]
+      "subtests": ["Parameterless SLD() in a full O/A exchange succeeds"]
     },
     {
       "file": "webrtc/RTCPeerConnection-setLocalDescription-rollback.html",
@@ -126,15 +141,23 @@
       ]
     },
     {
+      "file": "webrtc/protocol/codecs-subsequent-offer.https.html",
+      "enabled": true,
+      "reason": "Issue #818: a subsequent offer lists every codec the transceiver supports, not only those an earlier answer kept (RFC 8829 5.2.2). The WPT wrapper configures VP8 + H264 like a browser.",
+      "subtests": [
+        "A subsequent offer after a VP8-only negotiation includes at least all mandatory to implement codecs"
+      ]
+    },
+    {
       "file": "webrtc/RTCPeerConnection-track-stats.https.html",
       "enabled": false,
       "reason": "Deferred until the dummy media source and stats surface are validated against a larger upstream subset."
     },
     {
       "file": "webrtc/RTCPeerConnection-createDataChannel.html",
-      "enabled": false,
+      "enabled": true,
       "variant": "?rest",
-      "reason": "Deferred until createDataChannel fully matches Web IDL coercion and DOMException semantics."
+      "reason": "Gates the subtests that pass in every full run (wpt/baseline.json); the rest stays open until createDataChannel fully matches Web IDL coercion and DOMException semantics."
     },
     {
       "file": "webrtc/RTCConfiguration-bundlePolicy.html",
@@ -148,13 +171,83 @@
     },
     {
       "file": "webrtc/RTCDataChannel-close.html",
-      "enabled": false,
-      "reason": "Deferred until the close path matches the upstream RTCDataChannel timing and event semantics."
+      "enabled": true,
+      "reason": "Gates the subtests that pass in every full run (wpt/baseline.json); the rest stays open: deferred until the close path matches the upstream RTCDataChannel timing and event semantics."
     },
     {
       "file": "webrtc/RTCPeerConnection-getStats.https.html",
+      "enabled": true,
+      "reason": "Gates the subtests that pass in every full run (wpt/baseline.json); the rest stays open: deferred until the stats surface is baselined against upstream expectations."
+    },
+    {
+      "file": "webrtc/RTCRtpTransceiver.https.html",
+      "enabled": true,
+      "variant": "?rest",
+      "reason": "#816: a remote offer pairs only transceivers addTrack() created (JSEP 5.10, the WPT wrapper sets transceiverPairing \"standard\"; the werift default is \"legacy\").",
+      "subtests": [
+        "checkAddTransceiverNoTrackDoesntPair",
+        "checkAddTransceiverWithTrackDoesntPair",
+        "checkAddTransceiverThenReplaceTrackDoesntPair"
+      ]
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-perfect-negotiation.https.html",
+      "enabled": true,
+      "reason": "#816: perfect negotiation with addTransceiver(sendonly) on both sides connects (JSEP 5.10). Runs in the runner's iframe/postMessage shim. The glare subtests pass the #816 direction check but are not gated (ticket cd89d492): on develop too a remote offer's implicit rollback can start before the setLocalDescription() promise's continuation (signalingState have-local-offer while localDescription is null; ~10% of full runs for \"glare\").",
+      "subtests": [
+        "Perfect negotiation setup connects",
+        "Perfect negotiation setup connects with roles reversed"
+      ],
+      "baselineExclusions": [
+        "Perfect negotiation glare",
+        "Perfect negotiation glare with roles reversed"
+      ]
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-perfect-negotiation-stress-glare.https.html",
       "enabled": false,
-      "reason": "Deferred until the stats surface is baselined against upstream expectations."
+      "reason": "Not gated: depends on ticket cd89d492 (operations chain release order). Passes the #816 direction check, but on develop too a remote offer's implicit rollback can start before the setLocalDescription() promise's continuation (signalingState have-local-offer while localDescription is null; ~20% of full runs). Still runs (auto-discovered) with the long timeout."
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-perfect-negotiation-stress-glare-linear.https.html",
+      "enabled": false,
+      "reason": "Not gated: depends on ticket cd89d492 (operations chain release order). Passes the #816 direction check, but on develop too a remote offer's implicit rollback can start before the setLocalDescription() promise's continuation (signalingState have-local-offer while localDescription is null; ~20% of full runs). Still runs (auto-discovered) with the long timeout."
+    },
+    {
+      "file": "webrtc/RTCDtlsTransport-state.html",
+      "enabled": true,
+      "reason": "RTCDtlsTransport state: connected, a synchronous closed without statechange on close(), and the peer's closed via close_notify (#811).",
+      "subtests": [
+        "DTLS transport goes to connected state",
+        "close() causes the local transport to close immediately",
+        "close() causes the other end's DTLS transport to close"
+      ],
+      "skippedSubtests": [
+        {
+          "name": "stop bundled transceiver retains dtls transport state",
+          "reason": "Waits for the remote track's onended, which werift's MediaStreamTrack does not support (no onended event attribute); out of scope of #811."
+        }
+      ]
+    },
+    {
+      "file": "webrtc/protocol/dtls-close.html",
+      "enabled": true,
+      "reason": "close() sends an encrypted DTLS close_notify, so the peer's DTLS / SCTP transports and data channels close (#811).",
+      "subtests": [
+        "close() causes the other end's DTLS and SCTP transport and datachannels to close"
+      ]
+    },
+    {
+      "file": "webrtc/protocol/dtls-fingerprint-validation.html",
+      "enabled": true,
+      "reason": "A fingerprint mismatch is reported to the peer with a fatal bad_certificate alert, so both connections fail (#811).",
+      "subtests": [
+        "Connection fails if one side provides a wrong DTLS fingerprint",
+        "SDP negotiation with a sha-1 fingerprint succeds",
+        "SDP negotiation with a sha-256 fingerprint succeds",
+        "SDP negotiation with a sha-384 fingerprint succeds",
+        "SDP negotiation with a sha-512 fingerprint succeds"
+      ]
     }
   ]
 }

@@ -9,7 +9,7 @@ import {
   TURN_TEST_USERNAME,
 } from "../../../../ice/tests/utils";
 import { InitChunk } from "../../../../sctp/src/chunk";
-import type { RTCIceCandidate } from "../../../src";
+import type { Kind, RTCIceCandidate, TransceiverPairing } from "../../../src";
 import {
   MediaStreamTrack,
   type RTCDataChannel,
@@ -683,7 +683,35 @@ export function assertNegotiationInvariants(pc: RTCPeerConnection) {
   assertSctpBinding(pc, snapshot);
   assertEffectiveValues(pc, snapshot);
   assertNoOrphanTransports(pc);
+  assertTransceiverPairing(pc, snapshot);
   return snapshot;
+}
+
+/**
+ * #816 (JSEP 5.10, `transceiverPairing: "standard"`): a pending remote offer
+ * associates a transceiver `addTransceiver()` created only by its MID, never
+ * by pairing. Such a transceiver with a MID that only the pending remote
+ * offer has (no current description knows it) was paired with the offer.
+ */
+function assertTransceiverPairing(pc: RTCPeerConnection, snapshot: Snapshot) {
+  const config = Reflect.get(pc, "config") as { transceiverPairing: string };
+  if (config.transceiverPairing !== "standard") return;
+  const pending = snapshot.pendingRemote;
+  if (pending?.type !== "offer") return;
+  const known = new Set(
+    [snapshot.currentLocal, snapshot.currentRemote].flatMap(
+      (description) => description?.media.map((m) => m.rtp.muxId) ?? [],
+    ),
+  );
+  const offered = new Set(pending.media.map((m) => m.rtp.muxId));
+  for (const transceiver of pc.getTransceivers()) {
+    if (transceiver.stopped || transceiver.mid == null) continue;
+    if (transceiver.createdBy !== "addTransceiver") continue;
+    expect(
+      offered.has(transceiver.mid) && !known.has(transceiver.mid),
+      `an addTransceiver() transceiver is paired with the remote offer MID ${transceiver.mid}`,
+    ).toBe(false);
+  }
 }
 
 type Snapshot = ReturnType<typeof assertDescriptionBindings>;
@@ -864,8 +892,15 @@ function assertRouterAndCodecs(pc: RTCPeerConnection, snapshot: Snapshot) {
     if (transceiver.stopping) continue;
     // current SDP の payload type は pending 中も current の codec・fmtp・RTCP feedback
     // で解釈される (final answer と実際の受信設定が一致する)。
+    // current SDP でこの peer が受信しない m-line (currentDirection が sendonly /
+    // inactive) は受信表を使わないので検査しない。受信表は direction が受信を含む
+    // ときだけ更新され (TransceiverManager の受信設定)、受信を再開する description が
+    // 更新し直す。再開後はこの検査が再び適用される。
+    const receivesInCurrent = ["recvonly", "sendrecv"].includes(
+      transceiver.currentDirection ?? "",
+    );
     const table = transceiver.receiver.snapshotReceiveTables().codecs;
-    for (const codec of transceiver.codecs) {
+    for (const codec of receivesInCurrent ? transceiver.codecs : []) {
       const live = table[codec.payloadType];
       if (
         !live ||
@@ -922,6 +957,30 @@ function assertRouterAndCodecs(pc: RTCPeerConnection, snapshot: Snapshot) {
       expect(sent?.mimeType.toLowerCase()).toBe(
         sender.codec.mimeType.toLowerCase(),
       );
+    }
+    // stable の transceiver.codecs は確定した codec (current の local と remote の両方) だけを持つ。
+    // offer は毎回能力から解決するが、その集合は transceiver.codecs に書き戻さない (issue 818)。
+    if (
+      pc.signalingState === "stable" &&
+      transceiver.currentDirection &&
+      transceiver.currentDirection !== "stopped"
+    ) {
+      const localMedia = snapshot.currentLocal?.media.find(
+        (m) => m.rtp.muxId === media.rtp.muxId,
+      );
+      const negotiated = media.rtp.codecs.filter((codec) =>
+        localMedia?.rtp.codecs.some((c) => sameNegotiatedCodec(c, codec)),
+      );
+      for (const codec of transceiver.codecs) {
+        expect(
+          negotiated.some(
+            (c) =>
+              c.payloadType === codec.payloadType &&
+              c.mimeType.toLowerCase() === codec.mimeType.toLowerCase(),
+          ),
+          `transceiver ${transceiver.mid} codec ${codec.payloadType} ${codec.mimeType} is not negotiated`,
+        ).toBe(true);
+      }
     }
     // 実際の PLI 送信判定も、その SSRC の current SDP の codec の RTCP feedback に従う。
     for (const { ssrc } of media.ssrc) {
@@ -1259,9 +1318,10 @@ function assertNoOrphanTransports(pc: RTCPeerConnection) {
  */
 export async function createDuplexSession(
   config: ConstructorParameters<typeof RTCPeerConnection>[0] = {},
+  configB = config,
 ) {
   const a = new RTCPeerConnection(config);
-  const b = new RTCPeerConnection(config);
+  const b = new RTCPeerConnection(configB);
   const aOut = new MediaStreamTrack({ kind: "video" });
   const bOut = new MediaStreamTrack({ kind: "video" });
   const aChannel = a.createDataChannel("matrix");
@@ -1711,6 +1771,48 @@ export function sdpCandidates(sdp: string, mid: string) {
   );
 }
 
+/**
+ * The candidate lines of every m-section of `sdp` by MID (`bundleCandidates`,
+ * issue #269): its `a=candidate` values, whether it ends with
+ * `a=end-of-candidates`, and the transport lines every bundled m-line keeps.
+ * `bundle` lists the BUNDLE groups (tag first).
+ */
+export function candidateLayout(sdp: string) {
+  const sections = sdp.split(/(?=^m=)/m).slice(1);
+  const media = Object.fromEntries(
+    sections.map((section) => {
+      const mid = section.match(/^a=mid:(\S+)/m)?.[1] ?? "";
+      return [
+        mid,
+        {
+          port: Number(section.match(/^m=\S+ (\d+)/)![1]),
+          candidates: [...section.matchAll(/^a=(candidate:[^\r\n]+)/gm)].map(
+            ([, candidate]) => candidate,
+          ),
+          end: /^a=end-of-candidates\r?$/m.test(section),
+          ufrag: section.match(/^a=ice-ufrag:(\S+)/m)?.[1],
+          pwd: section.match(/^a=ice-pwd:(\S+)/m)?.[1],
+          fingerprint: /^a=fingerprint:/m.test(section),
+          setup: /^a=setup:/m.test(section),
+        },
+      ];
+    }),
+  );
+  const bundle = [...sdp.matchAll(/^a=group:BUNDLE ([^\r\n]+)/gm)].map(
+    ([, group]) => group.trim().split(" "),
+  );
+  return { media, bundle };
+}
+
+/** Wait until the ICE gathering of `pc` is complete (its end-of-candidates is in the SDP). */
+export async function waitForGatheringComplete(pc: RTCPeerConnection) {
+  await waitUntil(
+    () => pc.iceGatheringState === "complete",
+    "ICE gathering did not complete",
+    10000,
+  );
+}
+
 /** Wait until a (possibly newly split) DTLS transport is connected. */
 export async function waitForDtlsConnected(
   transport: RTCPeerConnection["dtlsTransports"][number],
@@ -1735,6 +1837,58 @@ export async function addNegotiatedAudio(
   const remote = () =>
     answerer.pc.getTransceivers().find((t) => t.mid === mid)!;
   return { out, transceiver, mid, remote };
+}
+
+/**
+ * The offer `sdp` as a `bundle-only` offerer writes it on the wire (RFC 8843
+ * §6): every non-tagged member of a BUNDLE group (`mids`, default: all of
+ * them) gets port 0 and `a=bundle-only`, keeping its `c=`, ICE and DTLS lines.
+ * This is the shape Firefox 157 writes for an m-line added by a re-offer, for
+ * every non-tagged m-line of an ICE restart offer and of a `max-bundle` first
+ * offer (ticket 21a27c92 §2). Only the wire changes: the offerer applies its
+ * own offer unchanged, like a peer whose offers are written this way.
+ */
+export function toBundleOnlyOffer(sdp: string, mids?: string[]) {
+  const group = sdp
+    .match(/^a=group:BUNDLE ([^\r\n]+)/m)![1]
+    .trim()
+    .split(" ");
+  const targets = new Set(mids ?? group.slice(1));
+  const [session, ...sections] = sdp.split(/(?=^m=)/m);
+  return (
+    session +
+    sections
+      .map((section) => {
+        const mid = section.match(/^a=mid:(\S+)/m)?.[1];
+        if (!mid || !targets.has(mid) || mid === group[0]) return section;
+        return section
+          .replace(/^(m=\S+) \d+ /, "$1 0 ")
+          .replace(/^(a=mid:[^\r\n]+\r?\n)/m, "a=bundle-only\r\n$1");
+      })
+      .join("")
+  );
+}
+
+/**
+ * `sdp` with the ICE candidates (`a=candidate`, `a=end-of-candidates`) of the
+ * m-lines of `mids` left out, as Firefox writes a bundle-only m-line (it
+ * writes candidates only in the offerer-tagged m-line).
+ */
+export function withoutCandidates(sdp: string, mids: string[]) {
+  const [session, ...sections] = sdp.split(/(?=^m=)/m);
+  return (
+    session +
+    sections
+      .map((section) => {
+        const mid = section.match(/^a=mid:(\S+)/m)?.[1];
+        if (!mid || !mids.includes(mid)) return section;
+        return section.replace(
+          /^a=(candidate|end-of-candidates)[^\r\n]*\r?\n/gm,
+          "",
+        );
+      })
+      .join("")
+  );
 }
 
 /** Local offer SDP whose BUNDLE group leaves `mid` out (a BUNDLE split). */
@@ -1861,9 +2015,11 @@ export async function createSimulcastPeers() {
 }
 
 /** Two peers before their first negotiation, without any transceiver. */
-export function createUnnegotiatedPeers() {
-  const offerer = new RTCPeerConnection({ iceServers: [] });
-  const answerer = new RTCPeerConnection({ iceServers: [] });
+export function createUnnegotiatedPeers(
+  config: ConstructorParameters<typeof RTCPeerConnection>[0] = {},
+) {
+  const offerer = new RTCPeerConnection({ iceServers: [], ...config });
+  const answerer = new RTCPeerConnection({ iceServers: [], ...config });
   return {
     offerer,
     answerer,
@@ -3312,23 +3468,30 @@ export function rtxCodec() {
 /**
  * Shared Arrange: connected sendonly video like `createConnectedVideoPeers`,
  * with a separate configuration per peer and optional codec preferences the
- * offerer applies before its first offer.
+ * offerer applies before its first offer. `kind: "audio"` sends audio
+ * instead, and `outgoing` gives the offerer's track (a fixed source codec).
  */
 export async function createConnectedVideoPeersWith({
   offerer: offererConfig,
   answerer: answererConfig = offererConfig,
   offererPreferences,
+  direction = "sendonly",
+  kind = "video",
+  outgoing = new MediaStreamTrack({ kind }),
 }: {
   offerer: ConstructorParameters<typeof RTCPeerConnection>[0];
   answerer?: ConstructorParameters<typeof RTCPeerConnection>[0];
   offererPreferences?: RTCRtpCodecParameters[];
+  /** direction of the offerer's transceiver (it always has a track) */
+  direction?: "sendrecv" | "sendonly";
+  /** media kind of the offerer's track (default video) */
+  kind?: "video" | "audio";
+  /** the offerer's track (default a track of `kind` without a fixed source codec) */
+  outgoing?: MediaStreamTrack;
 }) {
   const offerer = new RTCPeerConnection(offererConfig);
   const answerer = new RTCPeerConnection(answererConfig);
-  const outgoing = new MediaStreamTrack({ kind: "video" });
-  const transceiver = offerer.addTransceiver(outgoing, {
-    direction: "sendonly",
-  });
+  const transceiver = offerer.addTransceiver(outgoing, { direction });
   if (offererPreferences) transceiver.setCodecPreferences(offererPreferences);
   await offerer.setLocalDescription(await offerer.createOffer());
   await answerer.setRemoteDescription(offerer.localDescription!);
@@ -3487,6 +3650,30 @@ export async function createCommittedInactiveAudioPeers() {
 }
 
 // --- SDP edits of the declarative cases ---
+
+/**
+ * Arrange: two peers before any negotiation with `transceiverPairing` (#816)
+ * and `codecs` (default VP8 + H264 video, Opus audio).
+ */
+export function createPairingPeers(
+  transceiverPairing: TransceiverPairing,
+  config: ConstructorParameters<typeof RTCPeerConnection>[0] = {},
+) {
+  return createPeerPair({
+    iceServers: [],
+    codecs: { video: [useVP8(), useH264()], audio: [useOPUS()] },
+    ...config,
+    transceiverPairing,
+  });
+}
+
+/** Arrange: the transceiver `pc.addTrack()` uses for a new track of `kind`. */
+export function addTrackTransceiver(pc: RTCPeerConnection, kind: Kind) {
+  const track = new MediaStreamTrack({ kind });
+  const sender = pc.addTrack(track);
+  const transceiver = pc.getTransceivers().find((t) => t.sender === sender)!;
+  return { track, transceiver };
+}
 
 /** Arrange: two peers before any negotiation (`a` with `config`, `b` with `configB`). */
 export function createPeerPair(

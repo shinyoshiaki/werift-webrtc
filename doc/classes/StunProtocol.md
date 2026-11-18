@@ -44,7 +44,9 @@
 
 ### onDataReceived
 
-> `readonly` **onDataReceived**: [`Event`](Event.md)\<\[`Buffer`\<`ArrayBufferLike`\>\]\>
+> `readonly` **onDataReceived**: [`Event`](Event.md)\<\[`Buffer`\<`ArrayBufferLike`\>, readonly \[`string`, `number`\]\]\>
+
+Application data (not STUN) and the remote address it came from.
 
 #### Implementation of
 
@@ -132,7 +134,11 @@
 
 ### connectionMade()
 
-> **connectionMade**(`useIpv4`, `portRange?`, `interfaceAddresses?`): `Promise`\<`void`\>
+> **connectionMade**(`useIpv4`, `portRange?`, `interfaceAddresses?`, `__namedParameters?`): `Promise`\<`void`\>
+
+Opens the UDP socket. `bindAddress` binds it to that address (an IPv6
+link-local one with its zone, `fe80::1%eth0`) instead of the address of
+`interfaceAddresses` or the wildcard address.
 
 #### Parameters
 
@@ -147,6 +153,12 @@
 ##### interfaceAddresses?
 
 [`InterfaceAddresses`](../type-aliases/InterfaceAddresses.md)
+
+##### \_\_namedParameters?
+
+###### bindAddress?
+
+`string`
 
 #### Returns
 

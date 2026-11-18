@@ -19,13 +19,16 @@ import {
   Sendonly,
   Sendrecv,
   type TransceiverOptions,
+  type TransceiverOrigin,
 } from "./media";
 import {
   assertCodecsSupported,
   hasCommonPrimaryMimeType,
   isCodecCompatible,
-  normalizeCodecMimeType,
+  keepNegotiatedPayloadTypes,
+  pairCodecs,
   resolveCodecs,
+  withNegotiatedCodecs,
 } from "./media/codecCompatibility";
 import { createBandwidthEstimator } from "./media/sender/createBandwidthEstimator";
 import type { RTCStats } from "./media/stats";
@@ -110,6 +113,13 @@ function simulcastFromSendEncodings(
  *   (no `negotiationneeded`). Rollback removes it unless the application
  *   attached a track (`heldByApplication`); a kept one returns to its created
  *   state. An application `stop()` during the transaction survives rollback.
+ * - Each transceiver records what created it (`createdBy`: `addTrack`,
+ *   `addTransceiver` or `remote`); reusing one with `addTrack()` or
+ *   `replaceTrack()` keeps it. Under `transceiverPairing: "standard"` a remote
+ *   offer pairs an m-section with an unassociated transceiver only if
+ *   `addTrack()` created it (JSEP 5.10). A remote one that `addTrack()` reused
+ *   and a rollback keeps becomes `addTrack` (JSEP 4.1.8.2). The origin is not
+ *   part of the negotiation snapshot.
  * - A transceiver the application added while a description was pending is
  *   never committed by it: rollback takes back its MID, m-line and the
  *   direction a pranswer gave it.
@@ -190,7 +200,8 @@ export class TransceiverManager {
       this.restoreNotifiedRemoteTrack(transceiver, state.notifiedRemoteTrack);
     }
     const removedTransports: RTCDtlsTransport[] = [];
-    for (const transceiver of added) {
+    const remoteCreated = new Set(added);
+    for (const transceiver of remoteCreated) {
       if (carried.has(transceiver)) {
         // A replacement remote offer describes its MID again: it keeps its
         // MID, m-line and notified track and goes back to its created state.
@@ -209,6 +220,9 @@ export class TransceiverManager {
         this.notifiedRemoteTrack.delete(transceiver);
         transceiver.mid = null;
         transceiver.mLineIndex = undefined;
+        // JSEP 4.1.8.2: one addTrack() reused stays as if addTrack() had
+        // created it, so the peer's next offer can associate it again.
+        if (transceiver.reusedForAddTrack) transceiver.createdBy = "addTrack";
         continue;
       }
       removedTransports.push(transceiver.dtlsTransport);
@@ -223,6 +237,10 @@ export class TransceiverManager {
     );
     for (const transceiver of this.transceivers) {
       if (snapshot.states.has(transceiver)) continue;
+      // A remote offer's transceiver was handled above: a carried one keeps
+      // the MID the replacing offer describes again (it pairs by MID, also
+      // under "standard" pairing, where its origin would not pair it otherwise).
+      if (remoteCreated.has(transceiver)) continue;
       // One the application added during the transaction was never
       // committed (a final answer ends the transaction): it loses the MID /
       // m-line the rolled-back offer gave it (W3C), also when a replacement
@@ -438,9 +456,15 @@ export class TransceiverManager {
     options: Partial<TransceiverOptions> = {},
     {
       remoteMLineIndex,
+      createdBy = remoteMLineIndex == undefined ? "addTransceiver" : "remote",
     }: {
       /**remote offer 起因で作る場合の m-line index。確定済み停止位置の自動再利用は行わない */
       remoteMLineIndex?: number;
+      /**
+       * The operation creating it (JSEP 5.10 pairing). Defaults to
+       * `"remote"` with `remoteMLineIndex`, else `"addTransceiver"`.
+       */
+      createdBy?: TransceiverOrigin;
     } = {},
   ): RTCRtpTransceiver {
     const kind =
@@ -472,6 +496,7 @@ export class TransceiverManager {
       sender,
       direction,
     );
+    newTransceiver.createdBy = createdBy;
     newTransceiver.onCodecPreferencesChanged.subscribe(() => {
       this.onNegotiationNeeded.execute();
     });
@@ -508,9 +533,15 @@ export class TransceiverManager {
     return newTransceiver;
   }
 
+  /**
+   * @param createTransport the transport a new transceiver starts on: it is
+   *   part of the state the transceiver was created with, which a rollback
+   *   of a description pending meanwhile returns it to.
+   */
   addTrack(
     track: MediaStreamTrack,
     streams: MediaStream[] = [],
+    createTransport?: () => RTCDtlsTransport,
   ): RTCRtpTransceiver {
     if (this.getSenders().find((sender) => sender.track?.uuid === track.uuid)) {
       throw createWebRtcDomException(
@@ -541,6 +572,7 @@ export class TransceiverManager {
         streams,
       };
       emptyTrackSenderTransceiver.markCodecsForResolution();
+      this.noteReusedForAddTrack(emptyTrackSenderTransceiver);
       return emptyTrackSenderTransceiver;
     }
 
@@ -575,13 +607,30 @@ export class TransceiverManager {
           break;
       }
       notSendTransceiver.markCodecsForResolution();
+      this.noteReusedForAddTrack(notSendTransceiver);
       return notSendTransceiver;
     } else {
-      const transceiver = this.addTransceiver(track, undefined, {
-        direction: "sendrecv",
-        streams,
-      });
+      // JSEP 5.10: only a transceiver addTrack() creates may pair with a
+      // remote offer m-section it has no MID for.
+      const transceiver = this.addTransceiver(
+        track,
+        createTransport?.(),
+        { direction: "sendrecv", streams },
+        { createdBy: "addTrack" },
+      );
       return transceiver;
+    }
+  }
+
+  /**
+   * Reusing a transceiver does not change what created it: one
+   * `addTransceiver()` created stays unpairable (as Chrome's
+   * `created_by_addtrack`). One a remote offer created is recorded, so a
+   * rollback that keeps it promotes it to `addTrack` (JSEP 4.1.8.2).
+   */
+  private noteReusedForAddTrack(transceiver: RTCRtpTransceiver) {
+    if (transceiver.createdBy === "remote") {
+      transceiver.reusedForAddTrack = true;
     }
   }
 
@@ -635,33 +684,193 @@ export class TransceiverManager {
     transceiver.codecPreferencesNeedResolution = false;
   }
 
+  /**
+   * Codecs each transceiver puts in the next offer (`createOffer()`).
+   *
+   * Rules (RFC 8829 §5.2.2, RFC 3264 §8.3.2):
+   * - An offer lists everything the transceiver can currently use: the
+   *   configured codecs for its direction, narrowed by a fixed track source
+   *   and by `setCodecPreferences()`. An earlier answer that narrowed the
+   *   negotiated codecs does not narrow later offers (issue #818).
+   * - A transceiver with a negotiated session (`currentDirection` set) has its
+   *   offer codecs resolved again for every offer and they are returned
+   *   here, not written to `transceiver.codecs`: those stay the negotiated
+   *   codecs that the sender, receiver, router, `getPayloadType()` and stats
+   *   use until an answer commits new ones. A `createOffer()` that is never
+   *   applied therefore changes nothing that is sending or receiving.
+   * - A negotiated transceiver offers its negotiated codecs plus that
+   *   capability (`withNegotiatedCodecs`). A direction change (`direction`,
+   *   `removeTrack()`) never takes a negotiated codec off the m-line, even one
+   *   configured for the other direction: only an answer removes codecs.
+   *   Preferences and a fixed source apply to the negotiated codecs too, so
+   *   they still narrow the offer. A codec change that leaves no codec fails
+   *   with `NotSupportedError`, as for a first offer.
+   * - An inactive transceiver can use every configured codec (whatever its
+   *   `direction` attribute), so an inactive first offer has codecs too.
+   * - A negotiated codec is offered as negotiated: payload type, fmtp and
+   *   rtcp-fb all stay as the answer committed them, also when that is the
+   *   remote's form (RFC 3264 §8.3.2). Its configured counterpart is found
+   *   with the rule negotiation pairs codecs by (`pairCodecs`: the same
+   *   format first, then the same MIME type). A negotiated RTX / RED for an
+   *   offered primary is offered as negotiated too.
+   * - A codec offered again (one the last answer left out, also another
+   *   format of a negotiated MIME type such as H264 mode 1 next to a
+   *   negotiated mode 0) takes its
+   *   configured payload type, or a free dynamic one when that type is used
+   *   by another codec in this session (any m-line; the same codec with other
+   *   `a=fmtp` / `a=rtcp-fb` counts as another). RTX `apt` and RED
+   *   references follow the primary's payload type, and an RTX / RED whose
+   *   primary is not offered is dropped.
+   * - A transceiver without a negotiated session resolves as before: its
+   *   codecs are assigned when empty or when a codec change asks for it.
+   */
+  resolveOfferCodecs(): Map<RTCRtpTransceiver, RTCRtpCodecParameters[]> {
+    const fromCapability = this.transceivers.filter(
+      (t) =>
+        t.currentDirection != undefined &&
+        t.currentDirection !== "stopped" &&
+        !t.stopping &&
+        !t.stopped &&
+        t.codecs.length > 0,
+    );
+    for (const transceiver of this.transceivers) {
+      if (fromCapability.includes(transceiver)) continue;
+      if (
+        transceiver.codecs.length === 0 ||
+        transceiver.codecPreferencesNeedResolution
+      ) {
+        this.assignTransceiverCodecs(transceiver);
+      }
+    }
+
+    const offerCodecs = new Map<RTCRtpTransceiver, RTCRtpCodecParameters[]>();
+    // Every payload type the session uses, as `transceiver` must not reuse
+    // it for another codec (BUNDLE shares the payload type space across
+    // m-lines, and RFC 8859 requires one `a=fmtp` and `a=rtcp-fb` per payload
+    // type): what the
+    // other m-lines put in this offer (resolved so far, otherwise their live
+    // codecs), then, for a negotiated m-line, its own live codecs (a payload
+    // type the remote still maps to a codec of this m-line).
+    const takenBy = (transceiver: RTCRtpTransceiver, ownLive: boolean) => {
+      const taken = new Map<number, RTCRtpCodecParameters>();
+      const reserve = (codecs: readonly RTCRtpCodecParameters[]) => {
+        for (const codec of codecs) {
+          if (!taken.has(codec.payloadType)) {
+            taken.set(codec.payloadType, codec);
+          }
+        }
+      };
+      for (const other of this.transceivers) {
+        if (other === transceiver || other.stopped) continue;
+        reserve(offerCodecs.get(other) ?? other.codecs);
+      }
+      if (ownLive) reserve(transceiver.codecs);
+      return taken;
+    };
+
+    for (const transceiver of fromCapability) {
+      const source = getTrackSourceCodecs(transceiver.sender.track);
+      const preferences = transceiver.codecPreferences;
+      const configured = this.filterCodecsByDirection(
+        transceiver.kind,
+        transceiver.direction,
+      );
+      // Negotiated codecs stay on the m-line whatever the direction is now;
+      // the capability for that direction adds to them. Only preferences and
+      // a fixed source take codecs away before an answer does.
+      const merged = withNegotiatedCodecs(
+        resolveCodecs(
+          (this.config.codecs[transceiver.kind] ??
+            []) as RTCRtpCodecParameters[],
+          source,
+          preferences,
+        ),
+        resolveCodecs(configured, source, preferences),
+        transceiver.codecs,
+      );
+      if (merged.length === 0) {
+        if (!transceiver.needsCodecResolution) {
+          // Nothing changed since the answer: offer what it committed.
+          offerCodecs.set(transceiver, transceiver.codecs);
+          continue;
+        }
+        // A codec change left nothing: fail as the first offer does.
+        assertCodecsSupported({
+          kind: transceiver.kind,
+          configured,
+          source,
+          preferences,
+        });
+      }
+      const codecs = keepNegotiatedPayloadTypes(
+        merged,
+        transceiver.codecs,
+        takenBy(transceiver, true),
+      );
+      offerCodecs.set(transceiver, codecs);
+      // The resolution requests (`setCodecPreferences()`, `addTrack()`) stay:
+      // this offer may never be applied, and an answer created meanwhile
+      // (remote offer pending) must still resolve its codecs again. An
+      // answer that commits codecs clears them.
+    }
+
+    // A transceiver without a negotiated session (added to an existing
+    // session) offers its configured codecs, but not with a payload type that
+    // already means another codec in this session (BUNDLE shares the payload
+    // type space across m-lines): it takes a free one instead.
+    if (fromCapability.length > 0) {
+      for (const transceiver of this.transceivers) {
+        if (
+          fromCapability.includes(transceiver) ||
+          transceiver.stopped ||
+          transceiver.codecs.length === 0
+        ) {
+          continue;
+        }
+        const codecs = keepNegotiatedPayloadTypes(
+          transceiver.codecs,
+          [],
+          takenBy(transceiver, false),
+        );
+        const changed =
+          codecs.length !== transceiver.codecs.length ||
+          codecs.some((codec, i) => codec !== transceiver.codecs[i]);
+        if (changed) offerCodecs.set(transceiver, codecs);
+      }
+    }
+    return offerCodecs;
+  }
+
   private filterCodecsByDirection(
     kind: Kind,
     direction: RTCRtpTransceiver["direction"],
   ) {
-    return (this.config.codecs[kind] as RTCRtpCodecParameters[]).filter(
-      (codecCandidate) => {
-        switch (codecCandidate.direction) {
-          case "recvonly": {
-            if (ReceiverDirection.includes(direction)) return true;
-            return false;
-          }
-          case "sendonly": {
-            if (SenderDirections.includes(direction)) return true;
-            return false;
-          }
-          case "sendrecv": {
-            if ([Sendrecv, Recvonly, Sendonly].includes(direction)) return true;
-            return false;
-          }
-          case "all": {
-            return true;
-          }
-          default:
-            return false;
+    const configured = this.config.codecs[kind] as RTCRtpCodecParameters[];
+    // An inactive m-line neither sends nor receives yet; it keeps every
+    // codec so that a later direction can use it (and `removeTrack()`, which
+    // makes `sendonly` inactive, leaves the m-line its codecs).
+    if (direction === "inactive") return configured;
+    return configured.filter((codecCandidate) => {
+      switch (codecCandidate.direction) {
+        case "recvonly": {
+          if (ReceiverDirection.includes(direction)) return true;
+          return false;
         }
-      },
-    );
+        case "sendonly": {
+          if (SenderDirections.includes(direction)) return true;
+          return false;
+        }
+        case "sendrecv": {
+          if ([Sendrecv, Recvonly, Sendonly].includes(direction)) return true;
+          return false;
+        }
+        case "all": {
+          return true;
+        }
+        default:
+          return false;
+      }
+    });
   }
 
   private validateTrackForTransceiver(
@@ -753,22 +962,19 @@ export class TransceiverManager {
       RTCRtpCodecParameters
     >();
     const usedRemote = new Set<RTCRtpCodecParameters>();
-    for (const localCodec of localCodecs) {
-      if (["red", "rtx"].includes(codecName(localCodec))) continue;
-      const remoteCodec = remoteMedia.rtp.codecs.find(
-        (codec) =>
-          !usedRemote.has(codec) &&
-          normalizeCodecMimeType(codec.mimeType) ===
-            normalizeCodecMimeType(localCodec.mimeType) &&
-          (source == undefined ||
-            source.some((sourceCodec) =>
-              isCodecCompatible(sourceCodec, codec),
-            )),
-      );
-      if (remoteCodec) {
-        remoteByLocal.set(localCodec, remoteCodec);
-        usedRemote.add(remoteCodec);
-      }
+    // The same format first, then the same MIME type (`pairCodecs`, shared
+    // with the re-offer), so a remote offer listing several formats of one
+    // MIME type (H264 mode 0 and mode 1) pairs each local codec with its own.
+    const pairs = pairCodecs(
+      localCodecs,
+      remoteMedia.rtp.codecs,
+      (_, codec) =>
+        source == undefined ||
+        source.some((sourceCodec) => isCodecCompatible(sourceCodec, codec)),
+    );
+    for (const [localCodec, remoteCodec] of pairs) {
+      remoteByLocal.set(localCodec, remoteCodec);
+      usedRemote.add(remoteCodec);
     }
 
     const negotiated = localCodecs.flatMap((localCodec) => {
@@ -906,17 +1112,16 @@ export class TransceiverManager {
       remoteMedia: MediaDescription,
       index: number,
     ) => RTCRtpTransceiver | undefined,
+    /** Whether the paired transceiver is stopping or stopped at association. */
+    isStopping: (transceiver: RTCRtpTransceiver) => boolean = (t) =>
+      t.stopped || t.stopping,
   ): Map<number, RTCRtpCodecParameters[]> {
     const plan = new Map<number, RTCRtpCodecParameters[]>();
     const isOffer = remoteSdp.type === "offer";
     for (const [index, remoteMedia] of remoteSdp.media.entries()) {
       if (!["audio", "video"].includes(remoteMedia.kind)) continue;
       const transceiver = findTransceiver(remoteMedia, index);
-      if (
-        remoteMedia.port === 0 ||
-        transceiver?.stopped ||
-        transceiver?.stopping
-      ) {
+      if (remoteMedia.port === 0 || (transceiver && isStopping(transceiver))) {
         plan.set(index, []);
         continue;
       }

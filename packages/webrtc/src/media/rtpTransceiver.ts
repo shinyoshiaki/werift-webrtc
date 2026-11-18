@@ -25,6 +25,13 @@ import {
 } from "./stats";
 import type { MediaStream, MediaStreamTrack } from "./track";
 
+/**
+ * @internal The operation that created a transceiver. Under
+ * `transceiverPairing: "standard"` only an `"addTrack"` one may be associated
+ * with a remote offer m-section whose MID it does not have (RFC 8829 5.10).
+ */
+export type TransceiverOrigin = "addTrack" | "addTransceiver" | "remote";
+
 export class RTCRtpTransceiver {
   public readonly kind: Kind;
   public receiver: RTCRtpReceiver;
@@ -36,6 +43,20 @@ export class RTCRtpTransceiver {
   readonly onTrack = new Event<[MediaStreamTrack, RTCRtpTransceiver]>();
   mid: string | null = null;
   mLineIndex?: number;
+  /**
+   * @internal Which operation created this transceiver (JSEP 5.10 pairing,
+   * see {@link TransceiverOrigin}). An application property: it is not part
+   * of the negotiation snapshot, so a rollback does not change it, except
+   * for the promotion of a remote one the application reused with
+   * `addTrack()` (`reusedForAddTrack`).
+   */
+  createdBy: TransceiverOrigin = "addTransceiver";
+  /**
+   * @internal A transceiver a remote offer created that `addTrack()` reused.
+   * A rollback that keeps it promotes it to `createdBy: "addTrack"`
+   * (JSEP 4.1.8.2), so a later remote offer can associate it again.
+   */
+  reusedForAddTrack = false;
   /**should not be reused because it has been used for sending before. */
   usedForSender = false;
   private _currentDirection?: CurrentDirection;
@@ -43,6 +64,7 @@ export class RTCRtpTransceiver {
   _codecs: RTCRtpCodecParameters[] = [];
   set codecs(codecs: RTCRtpCodecParameters[]) {
     this._codecs = codecs;
+    this.negotiatedCodecsStale = false;
   }
   get codecs() {
     return this._codecs;
@@ -52,6 +74,12 @@ export class RTCRtpTransceiver {
   readonly onCodecPreferencesChanged = new Event<[]>();
   pendingLocalOfferCodecs?: RTCRtpCodecParameters[];
   codecPreferencesNeedResolution = false;
+  /**
+   * Internal: an application change (`markCodecsForResolution`) made the
+   * negotiated `codecs`, kept live, stale for the next answer: it resolves
+   * them again, as for empty codecs. The next write of `codecs` clears it.
+   */
+  negotiatedCodecsStale = false;
   /**
    * Counts application changes to the codecs this transceiver may use
    * (`setCodecPreferences()`, a track attached by `addTrack()`). A rollback
@@ -83,10 +111,33 @@ export class RTCRtpTransceiver {
    * Internal: an application change makes the next offer / answer resolve
    * this transceiver's codecs again. The live sender and receiver keep the
    * committed codecs until a description is committed.
+   *
+   * A negotiated transceiver keeps `codecs` (the negotiated codecs that
+   * `getPayloadType()`, stats and the live tables use): its offers are
+   * resolved again every time anyway, keeping these payload types
+   * (`TransceiverManager.resolveOfferCodecs`).
    */
   markCodecsForResolution() {
     this.codecChangeRevision++;
-    this._codecs = [];
+    if (this.hasNegotiatedCodecs) this.negotiatedCodecsStale = true;
+    else this._codecs = [];
+  }
+
+  /** Internal: the next answer resolves this transceiver's codecs again. */
+  get needsCodecResolution() {
+    return (
+      this._codecs.length === 0 ||
+      this.negotiatedCodecsStale ||
+      this.codecPreferencesNeedResolution
+    );
+  }
+
+  /** a committed answer gave this transceiver its current codecs */
+  private get hasNegotiatedCodecs() {
+    return (
+      this._currentDirection != undefined &&
+      this._currentDirection !== "stopped"
+    );
   }
   options: Partial<TransceiverOptions> = {};
   /**stop() 済み、または停止が確定した transceiver */
@@ -200,6 +251,7 @@ export class RTCRtpTransceiver {
         ...this.pendingLocalOfferCodecs,
       ],
       codecPreferencesNeedResolution: this.codecPreferencesNeedResolution,
+      negotiatedCodecsStale: this.negotiatedCodecsStale,
       codecChangeRevision: this.codecChangeRevision,
       headerExtensions: this.headerExtensions,
       offerDirection: this.offerDirection,
@@ -227,10 +279,16 @@ export class RTCRtpTransceiver {
     // stays: the next offer / answer resolves the codecs again.
     if (this.codecChangeRevision === state.codecChangeRevision) {
       this.codecs = state.codecs;
+      this.negotiatedCodecsStale = state.negotiatedCodecsStale;
       this.codecPreferencesNeedResolution =
         state.codecPreferencesNeedResolution;
     } else {
-      this.codecs = [];
+      // A negotiated baseline keeps its codecs live (markCodecsForResolution).
+      this.codecs =
+        state.currentDirection != undefined &&
+        state.currentDirection !== "stopped"
+          ? state.codecs
+          : [];
       this.codecPreferencesNeedResolution = true;
     }
     this.headerExtensions = state.headerExtensions;

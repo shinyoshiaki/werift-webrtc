@@ -1,6 +1,7 @@
 import * as dgram from "node:dgram";
 import * as dns from "node:dns";
 import * as net from "node:net";
+import type * as os from "node:os";
 import * as tls from "node:tls";
 import { deepStrictEqual } from "assert";
 import { EventEmitter } from "events";
@@ -22,6 +23,7 @@ import {
   type IceOptions,
   normalizeIceServerOptions,
 } from "../src/iceBase";
+import type { ProvisionalChecklist } from "../src/provisional";
 import type { AttributeKey } from "../src/stun/attributes";
 import {
   classes,
@@ -107,7 +109,7 @@ export class ConsentMockProtocol implements Protocol {
   type: string;
   localCandidate: Candidate;
   onRequestReceived = new Event<[Message, any, Buffer]>();
-  onDataReceived = new Event<[Buffer]>();
+  onDataReceived = new Event<[Buffer, Address]>();
   sentMessages: Message[] = [];
   sendStunCount = 0;
   requestTimes: number[] = [];
@@ -223,7 +225,7 @@ function delay(ms: number, signal?: AbortSignal): Promise<void> {
 
 /**
  * Arrange: Connection with a nominated pair and scripted consent outcomes.
- * Starts queryConsent() so tests only advance timers.
+ * Starts the consent checks (`consent.start()`) so tests only advance timers.
  */
 export function createConsentHarness(
   outcomes: ConsentOutcome[],
@@ -272,7 +274,7 @@ export function createConsentHarness(
   connection.nominated = nominated;
   connection.state = "connected";
   // Private method is reachable at runtime for consent lifecycle tests.
-  (connection as any).queryConsent();
+  (connection as any).consent.start();
 
   return {
     connection,
@@ -688,15 +690,7 @@ export function remoteHostCandidate(port: number, host = "127.0.0.1") {
 
 /** Test-only observation of the provisional generation of `connection`. */
 export function provisionalGeneration(connection: Connection) {
-  return (
-    connection as unknown as {
-      provisional?: {
-        remoteCandidates: Candidate[];
-        remoteCandidatesEnd: boolean;
-        pairs: CandidatePair[];
-      };
-    }
-  ).provisional;
+  return provisionalChecklistOf(connection).generation;
 }
 
 /**
@@ -718,21 +712,26 @@ export function holdNextCheckResponse(pair: CandidatePair) {
   return { release };
 }
 
+/** Test-only access to the agent's provisional (pranswer ICE restart) checklist. */
+export function provisionalChecklistOf(connection: Connection) {
+  return (
+    connection as unknown as { provisionalChecklist: ProvisionalChecklist }
+  ).provisionalChecklist;
+}
+
 /** Test-only access to start one provisional check of `pair` directly. */
 export function checkProvisionalPair(
   connection: Connection,
   pair: CandidatePair,
 ) {
-  const internal = connection as unknown as {
-    provisional?: { started: boolean };
-    checkProvisional: (
-      generation: unknown,
-      pair: CandidatePair,
-    ) => Promise<void>;
-  };
-  const generation = internal.provisional!;
+  const checklist = provisionalChecklistOf(connection);
+  const generation = checklist.generation!;
   generation.started = true;
-  return internal.checkProvisional(generation, pair);
+  return (
+    checklist as unknown as {
+      check: (generation: unknown, pair: CandidatePair) => Promise<void>;
+    }
+  ).check(generation, pair);
 }
 
 /**
@@ -960,6 +959,114 @@ export async function createStreamTurnServer({
       await new Promise<void>((resolve) => server.close(() => resolve()));
     },
   };
+}
+
+/**
+ * Shared Arrange: a STUN server that answers Binding Requests with the
+ * source address (XOR-MAPPED-ADDRESS) but ignores those from
+ * `ignoredSources`, so a socket bound to such an address cannot reach it
+ * (a network interface without a route to the STUN server).
+ */
+export async function createSelectiveStunServer(
+  host: string,
+  ignoredSources: string[] = [],
+) {
+  const socket = dgram.createSocket(net.isIPv4(host) ? "udp4" : "udp6");
+  const ignored = new Set(ignoredSources);
+  const answeredSources: string[] = [];
+  socket.on("message", (data, rinfo) => {
+    const request = parseMessage(data);
+    if (
+      !request ||
+      request.messageMethod !== methods.BINDING ||
+      request.messageClass !== classes.REQUEST ||
+      ignored.has(rinfo.address)
+    ) {
+      return;
+    }
+    answeredSources.push(rinfo.address);
+    const response = new Message(
+      methods.BINDING,
+      classes.RESPONSE,
+      request.transactionId,
+    );
+    response.setAttribute("XOR-MAPPED-ADDRESS", [rinfo.address, rinfo.port]);
+    socket.send(response.bytes, rinfo.port, rinfo.address);
+  });
+  await new Promise<void>((resolve) => socket.bind(0, host, () => resolve()));
+  const address: Address = [host, socket.address().port];
+  return {
+    address,
+    /** Source addresses of the requests the server answered. */
+    answeredSources,
+    close: () =>
+      new Promise<void>((resolve) => {
+        socket.close(() => resolve());
+      }),
+  };
+}
+
+/** Whether a UDP socket can bind `address` on this host. */
+export async function canBindAddress(address: string) {
+  const socket = dgram.createSocket(net.isIPv4(address) ? "udp4" : "udp6");
+  try {
+    await new Promise<void>((resolve, reject) => {
+      socket.once("error", reject);
+      socket.bind(0, address, () => resolve());
+    });
+    return true;
+  } catch {
+    return false;
+  } finally {
+    try {
+      socket.close();
+    } catch {}
+  }
+}
+
+/**
+ * Shared Arrange: an `os.networkInterfaces()` result where each entry of
+ * `nics` is a non-internal interface holding the given addresses, so local
+ * addresses such as 127.0.0.2 look like separate NICs to the gathering.
+ */
+export function fakeNetworkInterfaces(nics: Record<string, string[]>) {
+  return Object.fromEntries(
+    Object.entries(nics).map(([nic, addresses]) => [
+      nic,
+      addresses.map((address) => {
+        const ipv4 = net.isIPv4(address);
+        return {
+          address,
+          netmask: ipv4 ? "255.0.0.0" : "ffff:ffff:ffff:ffff::",
+          family: ipv4 ? "IPv4" : "IPv6",
+          mac: "00:00:00:00:00:00",
+          internal: false,
+          cidr: `${address}/${ipv4 ? 8 : 64}`,
+          ...(ipv4 ? {} : { scopeid: 0 }),
+        };
+      }),
+    ]),
+  ) as unknown as NodeJS.Dict<os.NetworkInterfaceInfo[]>;
+}
+
+/**
+ * Shared Arrange: records the source address of every STUN request the UDP
+ * host sockets of `connection` receive (call after gathering).
+ */
+export function recordUdpRequestSources(connection: Connection) {
+  const sources: [string, number][] = [];
+  for (const protocol of (connection as unknown as { protocols: Protocol[] })
+    .protocols) {
+    if (
+      protocol instanceof StunProtocol &&
+      protocol.localCandidate?.type === "host"
+    ) {
+      protocol.onRequestReceived.subscribe((_message, addr) => {
+        sources.push([addr[0], addr[1]]);
+      });
+    }
+  }
+  return sources;
 }
 
 /** Whether a UDP socket can bind the IPv6 loopback address on this host. */
@@ -1439,7 +1546,7 @@ export class ScriptedCheckProtocol implements Protocol {
   type: string;
   localCandidate: Candidate;
   onRequestReceived = new Event<[Message, any, Buffer]>();
-  onDataReceived = new Event<[Buffer]>();
+  onDataReceived = new Event<[Buffer, Address]>();
   readonly requests: ScriptedRequest[] = [];
   readonly request: Protocol["request"];
 
@@ -1663,6 +1770,12 @@ export function createNominationHarness({
   (connection as unknown as { protocols: Protocol[] }).protocols.push(
     ...protocols,
   );
+  // As gathering does: the agent listens to each socket's events.
+  for (const local of protocols) {
+    (
+      connection as unknown as { ensureProtocol(protocol: Protocol): void }
+    ).ensureProtocol(local);
+  }
 
   let port = 5000;
   const remoteCandidate = (priority: number) =>
@@ -1883,17 +1996,8 @@ export function createNominationHarness({
       .setAttribute("PRIORITY", 1_000)
       .setAttribute("ICE-CONTROLLING", 1n)
       .setAttribute("USE-CANDIDATE", null);
-    (
-      connection as unknown as {
-        checkIncomingProvisional: (
-          generation: unknown,
-          message: Message,
-          addr: Address,
-          protocol: Protocol,
-        ) => void;
-      }
-    ).checkIncomingProvisional(
-      provisionalGeneration(connection),
+    provisionalChecklistOf(connection).checkIncoming(
+      provisionalGeneration(connection)!,
       request,
       pair.remoteAddr,
       pair.protocol,
@@ -1913,11 +2017,19 @@ export function createNominationHarness({
       pair.protocol,
     );
 
+  /** The peer sends application data on `pair` (it arrives from its remote address). */
+  const receiveData = (pair: CandidatePair) =>
+    (pair.protocol as ScriptedCheckProtocol).onDataReceived.execute(
+      Buffer.from("data"),
+      pair.remoteAddr,
+    );
+
   return {
     connection,
     protocol,
     switchRole,
     receiveNomination,
+    receiveData,
     receiveProvisionalNomination,
     timeOutPending,
     requests,
@@ -2943,16 +3055,30 @@ export function selectSamePath(a: Connection, b: Connection) {
  * candidate, and a controlled host-only agent `b`. The host ↔ host pair
  * outranks the relay one, but the requests of both agents on it wait
  * (unsent, cancellable) until `open()`: the agents select the relay pair
- * first, while `b`'s check of the host pair is still in flight.
+ * first, while `b`'s check of the host pair is still in flight. With
+ * `drop`, those requests are lost instead (they time out at once), so both
+ * agents' checks of the host pair fail before `open()`. `nomination` /
+ * `nominationDelayMs` set `IceOptions` of both agents.
  */
 export async function createDelayedPreferredPathPair({
   renomination = false,
+  drop = false,
+  nomination,
+  nominationDelayMs,
 }: {
   renomination?: boolean;
+  drop?: boolean;
+  nomination?: IceOptions["nomination"];
+  nominationDelayMs?: number;
 } = {}) {
   const host = getHostAddresses(true, false)[0]!;
   const server = await createLocalTurnServer(host);
-  const shared: Partial<IceOptions> = { useIpv6: false, renomination };
+  const shared: Partial<IceOptions> = {
+    useIpv6: false,
+    renomination,
+    nomination,
+    nominationDelayMs,
+  };
   const a = createTestConnection(true, {
     ...shared,
     ...localTurnOptions(server),
@@ -2964,9 +3090,13 @@ export async function createDelayedPreferredPathPair({
   await Promise.all([a.gatherCandidates(), b.gatherCandidates()]);
   exchangeIceCredentials(a, b);
 
+  let isOpen = false;
   let open!: () => void;
   const opened = new Promise<void>((resolve) => {
-    open = resolve;
+    open = () => {
+      isOpen = true;
+      resolve();
+    };
   });
   const hostOf = (connection: Connection) =>
     connection.localCandidates.find((candidate) => candidate.type === "host")!;
@@ -2982,6 +3112,10 @@ export async function createDelayedPreferredPathPair({
         options?: TransactionRequestOptions,
       ) => {
         if (address[0] === peer.host && address[1] === peer.port) {
+          if (drop && !isOpen) {
+            await new Promise((resolve) => setTimeout(resolve, 10));
+            throw new TransactionTimeout();
+          }
           const signal = options?.signal;
           await new Promise<void>((resolve, reject) => {
             const abort = () => reject(new TransactionCancelled());
@@ -3013,15 +3147,105 @@ export async function createDelayedPreferredPathPair({
         pair.localCandidate.type === "host" &&
         pair.remoteCandidate.type === "host",
     )!;
+  /** `connection`'s relay pair (a's relay candidate ↔ b's host). */
+  const relayPair = (connection: Connection) =>
+    connection.checkList.find(
+      (pair) =>
+        pair.localCandidate.type === "relay" ||
+        pair.remoteCandidate.type === "relay",
+    )!;
   return {
     a,
     b,
     open,
     selectsPreferred,
     preferredPair,
+    relayPair,
     close: async () => {
       await Promise.allSettled([a.close(), b.close()]);
       await server.close();
     },
+  };
+}
+
+// --- property tests ---
+
+/**
+ * Shared Arrange of the property tests: a deterministic PRNG (mulberry32), so
+ * a failing seed replays exactly (the same stream as
+ * `packages/webrtc/tests/pbt/shared/random.ts`).
+ */
+export function seededRandom(seed: number) {
+  let state = seed >>> 0;
+  const next = () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let t = state;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  return {
+    next,
+    chance: (p: number) => next() < p,
+    pick: <T>(items: readonly T[]) => items[Math.floor(next() * items.length)],
+    /** Integer in `[min, max)`. */
+    int: (min: number, max: number) => min + Math.floor(next() * (max - min)),
+  };
+}
+export type SeededRandom = ReturnType<typeof seededRandom>;
+
+/**
+ * The seeds a property test runs: `<prefix>_SEEDS` seeds (default
+ * `defaults.seeds`) from `<prefix>_SEED` (default 1), `<prefix>_STEPS` steps
+ * each. `replay(seed)` is the environment that reruns one seed.
+ */
+export function propertySeeds(
+  prefix: string,
+  defaults: { seeds: number; steps: number },
+) {
+  const env = process.env;
+  const count = Number(env[`${prefix}_SEEDS`] ?? defaults.seeds);
+  const steps = Number(env[`${prefix}_STEPS`] ?? defaults.steps);
+  const first = Number(env[`${prefix}_SEED`] ?? 1);
+  return {
+    seeds: [...Array(count)].map((_, index) => first + index),
+    steps,
+    replay: (seed: number) =>
+      `${prefix}_SEED=${seed} ${prefix}_SEEDS=1 ${prefix}_STEPS=${steps}`,
+  };
+}
+
+/**
+ * Shared Arrange: the live or the provisional checklist of a
+ * `createNominationHarness`, behind the same operations, so one scenario
+ * runs on both (they share `RegularNomination`).
+ */
+export function nominationChecklist(
+  h: ReturnType<typeof createNominationHarness>,
+  kind: "live" | "provisional",
+) {
+  if (kind === "provisional") h.stageProvisional();
+  return {
+    kind,
+    /** Trickle a remote candidate and start its check; its pair, if one formed. */
+    add: async (priority: number) => {
+      if (kind === "provisional") return h.addProvisionalRemote(priority);
+      const pair = await h.addRemote(priority);
+      if (pair) h.check(pair);
+      return pair;
+    },
+    endOfCandidates: () =>
+      kind === "provisional"
+        ? h.connection.addProvisionalRemoteCandidate(undefined)
+        : h.connection.addRemoteCandidate(undefined),
+    nominated: () =>
+      kind === "provisional"
+        ? h.connection.provisionalNominated
+        : h.connection.nominated,
+    /** The peer (controlling) nominates `pair` with USE-CANDIDATE. */
+    receiveNomination: (pair: CandidatePair) =>
+      kind === "provisional"
+        ? h.receiveProvisionalNomination(pair)
+        : h.receiveNomination(pair),
   };
 }

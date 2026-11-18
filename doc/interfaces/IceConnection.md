@@ -94,6 +94,25 @@ Whether gathering contacts a STUN or TURN server.
 
 ***
 
+### onIceCandidateError?
+
+> `readonly` `optional` **onIceCandidateError?**: [`Event`](../classes/Event.md)\<\[[`IceCandidateErrorInfo`](../type-aliases/IceCandidateErrorInfo.md)\]\>
+
+A STUN or TURN server of the current generation's gathering gave no
+candidate (see [IceCandidateErrorInfo](../type-aliases/IceCandidateErrorInfo.md)). Optional so that other
+implementations of this interface keep compiling.
+
+***
+
+### onIceServerReached?
+
+> `readonly` `optional` **onIceServerReached?**: [`Event`](../classes/Event.md)\<\[[`IceServerReachedInfo`](../type-aliases/IceServerReachedInfo.md)\]\>
+
+A STUN or TURN server of the current generation's gathering answered
+(see [IceServerReachedInfo](../type-aliases/IceServerReachedInfo.md)). Optional like onIceCandidateError.
+
+***
+
 ### options
 
 > **options**: [`IceOptions`](IceOptions.md)
@@ -511,3 +530,19 @@ the sockets those options allow. Defaults to the current options.
 #### Returns
 
 `void`
+
+***
+
+### waitForLocalCandidatesEnd()?
+
+> `optional` **waitForLocalCandidatesEnd**(): `Promise`\<`void`\>
+
+Resolves when `localCandidatesEnd` becomes true after `gatherCandidates()`
+returned (server-reflexive queries that continue in the background), or
+when the generation ends. Optional so that other implementations of this
+interface keep compiling; without it gathering ends when
+`gatherCandidates()` returns.
+
+#### Returns
+
+`Promise`\<`void`\>

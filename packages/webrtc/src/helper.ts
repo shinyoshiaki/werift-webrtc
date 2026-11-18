@@ -1,5 +1,22 @@
 import { EventEmitter } from "node:events";
 
+/**
+ * Run one notification to listeners (an `Event.execute`, an `on*` handler or
+ * an `emit`) so that an exception a listener throws is logged and never
+ * interrupts the caller's own processing (state propagation, cleanup).
+ */
+export function notifySafely(
+  log: (...args: unknown[]) => void,
+  name: string,
+  notify: () => void,
+) {
+  try {
+    notify();
+  } catch (error) {
+    log(`${name} listener failed`, error);
+  }
+}
+
 export function enumerate<T>(arr: T[]): [number, T][] {
   return arr.map((v, i) => [i, v]);
 }
@@ -35,12 +52,39 @@ export class PromiseQueue {
 
 export class EventTarget extends EventEmitter {
   override emit(type: string | symbol, ...args: any[]) {
+    return super.emit(type, ...this.eventArgs(type, args));
+  }
+
+  /**
+   * @internal
+   * Like {@link emit}, but every listener runs even if an earlier one
+   * throws: each exception is passed to `onError` (`once` listeners still
+   * run once). Unlike `emit("error")`, nothing is thrown when no listener
+   * is registered.
+   */
+  emitIsolated(
+    onError: (error: unknown) => void,
+    type: string,
+    ...args: any[]
+  ) {
+    const eventArgs = this.eventArgs(type, args);
+    for (const listener of this.rawListeners(type)) {
+      try {
+        (listener as (...args: any[]) => void).apply(this, eventArgs);
+      } catch (error) {
+        onError(error);
+      }
+    }
+  }
+
+  /** The DOM-like event arguments: an Event with `type` as the first one. */
+  private eventArgs(type: string | symbol, args: any[]): any[] {
     if (typeof type !== "string") {
-      return super.emit(type, ...args);
+      return args;
     }
 
     if (args.length === 0) {
-      return super.emit(type, new Event(type));
+      return [new Event(type)];
     }
 
     const [event, ...rest] = args;
@@ -52,11 +96,11 @@ export class EventTarget extends EventEmitter {
           value: type,
         });
       } catch {
-        return super.emit(type, { type, ...event }, ...rest);
+        return [{ type, ...event }, ...rest];
       }
     }
 
-    return super.emit(type, event, ...rest);
+    return [event, ...rest];
   }
 
   addEventListener = (

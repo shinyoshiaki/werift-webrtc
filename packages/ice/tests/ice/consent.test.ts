@@ -240,17 +240,17 @@ describe("ICE consent freshness (RFC 7675)", () => {
       Array.from({ length: 20 }, () => "timeout" as const),
     );
     connections.push(harness.connection);
-    const oldSession = (harness.connection as any).consentSessionId;
+    const oldSession = (harness.connection as any).consent.sessionId;
 
     // Act: selected pair をリセット
     harness.connection.resetNominatedPair();
 
     // Assert: consent session が無効化され送信不可
-    expect((harness.connection as any).consentSessionId).toBeGreaterThan(
+    expect((harness.connection as any).consent.sessionId).toBeGreaterThan(
       oldSession,
     );
-    expect((harness.connection as any).consentFresh).toBe(false);
-    expect((harness.connection as any).queryConsentHandle).toBeUndefined();
+    expect((harness.connection as any).consent.fresh).toBe(false);
+    expect((harness.connection as any).consent.handle).toBeUndefined();
 
     // Act: 新 pair を指名（connected 中の renomination）
     const fresh = new ConsentMockProtocol({
@@ -265,7 +265,7 @@ describe("ICE consent freshness (RFC 7675)", () => {
     harness.connection.nominated = newPair;
     harness.connection.state = "connected";
     // checkComplete 相当: connected 中の新 pair で consent 再開
-    (harness.connection as any).queryConsent();
+    (harness.connection as any).consent.start();
 
     // Assert: 新しい session で request が再開される
     await vi.advanceTimersByTimeAsync(5_000);
@@ -546,8 +546,8 @@ describe("ICE consent freshness (RFC 7675)", () => {
     connections.push(connection);
     // 上書きして遅い pair を nominated にする
     connection.nominated = oldPair;
-    (connection as any).stopConsentLifecycle();
-    (connection as any).queryConsent();
+    (connection as any).consent.stop();
+    (connection as any).consent.start();
 
     // Act: 新しい pair に切替（旧 transaction は進行中）
     await vi.advanceTimersByTimeAsync(5_000);
@@ -561,9 +561,9 @@ describe("ICE consent freshness (RFC 7675)", () => {
     );
     newPair.nominated = true;
     connection.nominated = newPair;
-    (connection as any).stopConsentLifecycle();
+    (connection as any).consent.stop();
     connection.state = "connected";
-    (connection as any).queryConsent();
+    (connection as any).consent.start();
 
     // Act: 旧 pair の遅延応答が解決する時間
     await vi.advanceTimersByTimeAsync(10_000);

@@ -1,3 +1,4 @@
+import type { CompatibilityOptionValue } from "./api/compatibilityOptions";
 import { DISCARD_HOST, DISCARD_PORT } from "./const";
 import { createWebRtcDomException } from "./errors";
 import type { RTCRtpTransceiver } from "./media";
@@ -29,18 +30,29 @@ export class SDPManager {
   readonly midSuffix: boolean;
   readonly bundlePolicy?: BundlePolicy;
   readonly mLineReuse: MLineReuse;
+  readonly bundleCandidates: BundleCandidates;
   /** `PeerConfig.iceRenomination`: descriptions advertise `a=ice-options:renomination`. */
   readonly iceRenomination: boolean;
   /** Local `a=ice-options` tokens written on every m-line. */
   readonly iceOptions: string;
 
   private seenMid = new Set<string>();
+  /**
+   * The transport whose generation `addTransportDescription` last wrote into
+   * an m-line. ICE credentials do not identify a transport: a transport
+   * created next to a live one inherits its credentials.
+   */
+  private describedTransport = new WeakMap<
+    MediaDescription,
+    RTCDtlsTransport
+  >();
 
   constructor({
     cname,
     midSuffix,
     bundlePolicy,
     mLineReuse,
+    bundleCandidates,
     iceRenomination,
     iceOptionIce2,
   }: {
@@ -48,6 +60,7 @@ export class SDPManager {
     midSuffix?: boolean;
     bundlePolicy?: BundlePolicy;
     mLineReuse?: MLineReuse;
+    bundleCandidates?: BundleCandidates;
     iceRenomination?: boolean;
     /** Add `ice2` (RFC 8445 §10) to the local ice-options. */
     iceOptionIce2?: boolean;
@@ -55,7 +68,8 @@ export class SDPManager {
     this.cname = cname;
     this.midSuffix = midSuffix ?? false;
     this.bundlePolicy = bundlePolicy;
-    this.mLineReuse = mLineReuse ?? "compatible";
+    this.mLineReuse = mLineReuse ?? "standard";
+    this.bundleCandidates = bundleCandidates ?? "legacy";
     this.iceRenomination = iceRenomination ?? false;
     this.iceOptions = [
       "trickle",
@@ -100,17 +114,19 @@ export class SDPManager {
   createMediaDescriptionForTransceiver(
     transceiver: RTCRtpTransceiver,
     direction: MediaDirection,
+    /** codecs to describe; the transceiver's negotiated codecs by default */
+    codecs: RTCRtpCodecParameters[] = transceiver.codecs,
   ): MediaDescription {
     const media = new MediaDescription(
       transceiver.kind,
       9,
       "UDP/TLS/RTP/SAVPF",
-      transceiver.codecs.map((c) => c.payloadType),
+      codecs.map((c) => c.payloadType),
     );
     media.direction = direction;
     media.msids = transceiver.msids;
     media.rtp = {
-      codecs: transceiver.codecs,
+      codecs,
       headerExtensions: transceiver.headerExtensions,
       muxId: transceiver.mid ?? undefined,
     };
@@ -221,8 +237,10 @@ export class SDPManager {
       media.iceParams.usernameFragment !==
         generation.parameters?.usernameFragment
     ) {
+      this.describedTransport.delete(media);
       return;
     }
+    this.describedTransport.set(media, dtlsTransport);
 
     media.iceCandidates = generation.candidates;
     media.iceCandidatesComplete = generation.complete;
@@ -233,7 +251,7 @@ export class SDPManager {
     media.port = DISCARD_PORT;
 
     if (media.direction === "inactive") {
-      // compatible は受け入れた inactive を拒否と区別するため非ゼロ port を保つ
+      // standard は受け入れた inactive を拒否と区別するため非ゼロ port を保つ (aggressive は port 0)
       if (this.mLineReuse === "aggressive") {
         media.port = 0;
       }
@@ -245,6 +263,60 @@ export class SDPManager {
       if (!media.dtlsParams.fingerprints) {
         media.dtlsParams.fingerprints =
           dtlsTransport.localParameters.fingerprints;
+      }
+    }
+  }
+
+  /**
+   * `bundleCandidates: "compatible"` (Chrome's shape; RFC 8843 §7.1.3 /
+   * §7.3.1, RFC 8859 TRANSPORT category): ICE candidates belong to a
+   * transport and are written once, on the m-line that owns it. A non-tag
+   * m-line of a BUNDLE group that uses the tag's transport carries no
+   * `a=candidate` / `a=end-of-candidates`, in every offer, answer and
+   * pranswer (also a first answer and a first `max-bundle` offer). The tag
+   * keeps every candidate (RFC 8839 §4.4.1.1.2, W3C localDescription), and
+   * every m-line keeps `a=ice-ufrag` / `a=ice-pwd` / `a=ice-options` /
+   * `a=fingerprint` / `a=setup` / `a=mid`, as Chrome does (werift's receiver
+   * matches the ICE generation per m-line by its ufrag).
+   *
+   * The rule depends only on the description and the transports written
+   * into it, so a refresh with gathered candidates keeps the shape of the
+   * created description, and rollback needs no undo. An m-line on another
+   * transport (a first max-compat offer, a BUNDLE split or a changed BUNDLE
+   * owner), a rejected (port 0) m-line and `bundlePolicy: "disable"` keep
+   * their candidates. `"legacy"` repeats them on every m-line.
+   */
+  private applyBundleCandidates(description: SessionDescription) {
+    if (
+      this.bundleCandidates !== "compatible" ||
+      this.bundlePolicy === "disable"
+    ) {
+      return;
+    }
+    for (const group of description.group) {
+      if (group.semantic !== "BUNDLE") continue;
+      const [tagMid, ...memberMids] = group.items;
+      const tag = description.media.find(
+        (m) => m.port !== 0 && m.rtp.muxId === tagMid,
+      );
+      const tagTransport = tag && this.describedTransport.get(tag);
+      const tagParams = tag?.iceParams;
+      if (!tagTransport || !tagParams) continue;
+      for (const mid of memberMids) {
+        const media = description.media.find(
+          (m) => m !== tag && m.port !== 0 && m.rtp.muxId === mid,
+        );
+        if (
+          !media?.iceParams ||
+          // tag と同じ transport の同じ generation を記述した m-line だけ
+          this.describedTransport.get(media) !== tagTransport ||
+          media.iceParams.usernameFragment !== tagParams.usernameFragment ||
+          media.iceParams.password !== tagParams.password
+        ) {
+          continue;
+        }
+        media.iceCandidates = [];
+        media.iceCandidatesComplete = false;
       }
     }
   }
@@ -276,11 +348,61 @@ export class SDPManager {
     type: "offer" | "answer" | "pranswer";
   }): SessionDescription {
     const description = SessionDescription.parse(sdp);
+    if (!isLocal && type === "offer") this.acceptBundleOnlyMedia(description);
     this.validateDescription({ description, isLocal, signalingState, type });
     if (!isLocal && type !== "offer") this.alignInitialAnswerMids(description);
     this.validateSections(description, type, isLocal);
     description.type = type;
     return description;
+  }
+
+  /**
+   * RFC 8843 §6 / §7.3.3: a port 0 m-line with `a=bundle-only` (Firefox
+   * writes every non-tagged m-line of a re-offer, an ICE restart offer and a
+   * `max-bundle` first offer this way) is not rejected: an answerer that
+   * accepts the BUNDLE group accepts it as a bundled non-tagged m-line. Such
+   * an m-line takes `DISCARD_PORT`, so every later "port 0 = rejected"
+   * check treats it like any other bundled non-tagged m-line, and the answer
+   * writes it like one (port 9 + `c=IN IP4 0.0.0.0` and no `a=bundle-only`,
+   * as Chrome and Firefox answer; RFC 8843 §7.3.1 would write port 0).
+   *
+   * It stays rejected (JSEP §5.10: it is "as if" rejected) when werift does
+   * not accept BUNDLE (`bundlePolicy: "disable"`), when its MID is in no
+   * BUNDLE group, or when it is the offerer-tagged m-line (first MID of the
+   * group, which RFC 8843 §6 forbids to be bundle-only: such an offer throws) or the tagged m-line
+   * itself is rejected.
+   */
+  private acceptBundleOnlyMedia(offer: SessionDescription) {
+    for (const group of offer.group) {
+      if (group.semantic !== "BUNDLE") continue;
+      // RFC 8843 §6: the offerer-tagged m-line must not be bundle-only, so an
+      // offer that marks it so is invalid whatever the bundlePolicy.
+      const tagMid = group.items[0];
+      if (offer.media.find((m) => m.rtp.muxId === tagMid)?.bundleOnly) {
+        throw new Error(
+          `BUNDLE tag m-line (mid=${tagMid}) must not have a=bundle-only (RFC 8843 section 6)`,
+        );
+      }
+    }
+    if (this.bundlePolicy === "disable") return;
+    for (const group of offer.group) {
+      if (group.semantic !== "BUNDLE") continue;
+      const [tagMid, ...members] = group.items;
+      const tag = offer.media.find((media) => media.rtp.muxId === tagMid);
+      if (!tag || tag.port === 0) continue;
+      for (const media of offer.media) {
+        if (
+          !media.bundleOnly ||
+          media.port !== 0 ||
+          !media.rtp.muxId ||
+          !members.includes(media.rtp.muxId)
+        ) {
+          continue;
+        }
+        media.port = DISCARD_PORT;
+        media.acceptedBundleOnly = true;
+      }
+    }
   }
 
   /**
@@ -578,6 +700,8 @@ export class SDPManager {
   buildOfferSdp(
     transceivers: RTCRtpTransceiver[],
     sctpTransport: RTCSctpTransport | undefined,
+    /** offer codecs that differ from `transceiver.codecs` (resolveOfferCodecs) */
+    offerCodecs?: ReadonlyMap<RTCRtpTransceiver, RTCRtpCodecParameters[]>,
   ): SessionDescription {
     const description = new SessionDescription();
     addSDPHeader("offer", description);
@@ -622,6 +746,7 @@ export class SDPManager {
           this.createMediaDescriptionForTransceiver(
             recycled,
             recycled.direction,
+            offerCodecs?.get(recycled),
           ),
         );
         return;
@@ -712,6 +837,7 @@ export class SDPManager {
             transceiver.stopping || transceiver.stopped
               ? "inactive"
               : transceiver.direction,
+            offerCodecs?.get(transceiver),
           ),
         );
       }
@@ -731,6 +857,7 @@ export class SDPManager {
       const mediaDescription = this.createMediaDescriptionForTransceiver(
         transceiver,
         transceiver.direction,
+        offerCodecs?.get(transceiver),
       );
       const reservedIndex = transceiver.mLineIndex;
       if (
@@ -781,6 +908,7 @@ export class SDPManager {
       }
     }
 
+    this.applyBundleCandidates(description);
     return description;
   }
 
@@ -863,6 +991,9 @@ export class SDPManager {
           remoteMedia.profile,
           remoteMedia.fmt,
         );
+        // RFC 8866 §5.7: without a session-level `c=`, every m-line needs
+        // one, a rejected one too (Firefox refuses the answer otherwise).
+        media.host = DISCARD_HOST;
         media.rtp.muxId = remoteMedia.rtp.muxId;
         media.direction = "inactive";
         description.media.push(media);
@@ -970,13 +1101,64 @@ export class SDPManager {
       description.media.push(media);
     }
 
+    this.rejectBundleOnlyWithoutTag(remoteDescription, description);
+
     if (this.bundlePolicy !== "disable") {
       description.group.push(
         ...this.buildAnswerBundleGroups(remoteDescription, description),
       );
     }
 
+    this.applyBundleCandidates(description);
     return description;
+  }
+
+  /**
+   * RFC 8843 §7.3.1: offerer-tagged m-line を拒否した answerer は、offer 上で
+   * port 0 でない m-line を新しい tag に選ぶ。受理した bundle-only m-line
+   * (offer 上は port 0, `acceptedBundleOnly`) はその条件を満たさず、tag なしでは
+   * 通信先の transport も決められないため、tag が answer で拒否されたら
+   * その group の bundle-only m-line も拒否する。
+   */
+  private rejectBundleOnlyWithoutTag(
+    remoteDescription: SessionDescription,
+    answer: SessionDescription,
+  ) {
+    const indexOfMid = (sdp: SessionDescription, mid: string) =>
+      sdp.media.findIndex((media) => media.rtp.muxId === mid);
+    for (const group of remoteDescription.group) {
+      if (group.semantic !== "BUNDLE") continue;
+      const [tagMid, ...members] = group.items;
+      const tagIndex = indexOfMid(answer, tagMid);
+      if (tagIndex < 0 || answer.media[tagIndex].port !== 0) continue;
+      // RFC 8843 §7.3.1: the answerer picks a new tag among the accepted
+      // members whose offered m-line has a usable port; only without one are
+      // the bundle-only members rejected.
+      const hasAlternativeTag = members.some((mid) => {
+        const index = indexOfMid(remoteDescription, mid);
+        return (
+          index >= 0 &&
+          !remoteDescription.media[index].acceptedBundleOnly &&
+          answer.media[index].port !== 0
+        );
+      });
+      if (hasAlternativeTag) continue;
+      for (const mid of members) {
+        const index = indexOfMid(remoteDescription, mid);
+        const offered = remoteDescription.media[index];
+        if (!offered?.acceptedBundleOnly || answer.media[index].port === 0) {
+          continue;
+        }
+        const rejected = this.createRejectedMediaDescription({
+          kind: offered.kind,
+          profile: offered.profile,
+          fmt: offered.fmt,
+          codecs: offered.rtp.codecs,
+          mid,
+        });
+        answer.media[index] = rejected;
+      }
+    }
   }
 
   /**
@@ -1010,7 +1192,14 @@ export class SDPManager {
             "BUNDLE",
             orderBundleMids(
               mids,
-              negotiatedTags.find((tag) => mids.includes(tag)),
+              negotiatedTags.find((tag) => mids.includes(tag)) ??
+                // A new answerer-tagged m-line needs a usable port in the
+                // offer: not an accepted bundle-only one (RFC 8843 §7.3.1).
+                mids.find(
+                  (mid) =>
+                    !remoteDescription.media.find((m) => m.rtp.muxId === mid)
+                      ?.acceptedBundleOnly,
+                ),
             ),
           ),
       );
@@ -1247,6 +1436,8 @@ export class SDPManager {
       );
     }
 
+    this.applyBundleCandidates(description);
+
     // Refreshing the transport lines of the current description (candidates
     // an ICE restart gathers after its commit) keeps it current.
     if (description === this.currentLocalDescription) return;
@@ -1262,7 +1453,27 @@ function orderBundleMids(mids: string[], preferredTag?: string) {
   return [preferredTag, ...mids.filter((mid) => mid !== preferredTag)];
 }
 
-export type MLineReuse = "compatible" | "aggressive";
+/**
+ * How local SDP marks inactive / stopped m-lines: `"standard"` (default) or
+ * `"aggressive"`. See `PeerConfig.mLineReuse`.
+ */
+export type MLineReuse = CompatibilityOptionValue<"mLineReuse">;
+
+/**
+ * Which m-lines of a BUNDLE group carry the local ICE candidates.
+ * - `"legacy"` (default): every m-line repeats its transport's candidates
+ *   and `a=end-of-candidates` (werift's earlier output).
+ * - `"compatible"`: as Chrome writes them, only the m-line that owns the
+ *   transport (the BUNDLE tag) carries them; the other m-lines on the same
+ *   transport keep their ICE / DTLS parameters without candidates
+ *   (RFC 8843 §7.1.3, RFC 8859).
+ */
+export type BundleCandidates = "legacy" | "compatible";
+
+export const BundleCandidatesModes: readonly BundleCandidates[] = [
+  "legacy",
+  "compatible",
+];
 
 export interface RTCSessionDescriptionInit {
   sdp?: string;
