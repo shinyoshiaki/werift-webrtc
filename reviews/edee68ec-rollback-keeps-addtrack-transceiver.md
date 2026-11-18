@@ -4,7 +4,7 @@ ide:
   version: 1
   title: "#817 rollback で addTrack 済み transceiver を保持する"
   dock: right
-  baseCommit: f54cdd569fbf7da0c673384fffe9027e5a312658
+  baseCommit: 70e710c699b9eefcd6b315fce1f00a5bd4ae4370
 ---
 # #817 remote rollback で addTrack 済み transceiver が消える問題の修正
 
@@ -494,3 +494,34 @@ rollback で除去されうるのは、remote offer が作った transceiver だ
 - negotiation-diff の develop 比較（80 seeds × 12 steps）は追加要件の前に行ったもので、修正後は `--check` だけです。
 - leak seed 295 を含む shard は、develop で比較していません。
 - P2 の回帰テスト（図 5）が修正前のコードで失敗するかは確かめていません。
+
+## 並列実行時の失敗の切り分け（2 回目のレビューの「残る不確実性」への対応）
+
+前回のレビューの高並列 `pbt:deep` では、3 つの失敗が出ていました。scenario seed 58 と model seed 130 の失敗、flaky 4 件、`negotiation-diff scenarios.ts` の glare シナリオでの通信確認の失敗 1 回です。これらを、並列数と負荷（`/proc/loadavg` の 1 分値を 10 秒ごとに記録）を変えて、HEAD と develop で交互に再実行しました。対象は HEAD `70e710c69`（develop `7a1cb6f6c` をマージ済み）と develop `7a1cb6f6c` で、16 コアのホストです。
+
+| 条件 | HEAD | develop |
+| --- | --- | --- |
+| scenario seed 58 / model seed 130 を単独（1 プロセス、load 約 2） | 5/5 成功 / 5/5 成功 | 5/5 成功 / 5/5 成功 |
+| `pbt:deep --suite scenario,model --jobs 16` と `scenarios.ts --check` を同時実行（load 平均 5.5〜11.4、最大 16.1）、2 回ずつ | 失敗 0・flaky 0、契約一致 | 失敗 0・flaky 0、契約一致 |
+| `pbt:deep --suite fuzz,scenario,model,leak --jobs 16` と `pbt:deep --suite scenario,model --jobs 16` と `scenarios.ts --check` を同時実行（load 最大 19.9）、1 回ずつ | fuzz・scenario・model は失敗 0。leak は失敗 4・flaky 17。契約は 18 件すべて一致 | fuzz・model は失敗 0、scenario は flaky 2。leak は失敗 5・flaky 21。契約は 18 件すべて一致 |
+
+- **scenario seed 58・model seed 130・glare の通信確認**：どの条件でも HEAD・develop の両方で再現しませんでした（合計で、通信確認は HEAD で 3 回、develop で 3 回、高負荷下で実行）。
+- **leak の失敗**：失敗は 2 種類で、どちらも develop でも出ます。1 つは cycle seed で、ICE 再起動を含むサイクルの後に `ice.checkList` / `ice.remoteCandidates` が 1 件だけ増えます。もう 1 つは heap seed 4 で、傾きが閾値 16 KiB/cycle を少し超えます（HEAD 16.11〜16.33、develop 16.59〜16.71）。原因は ICE の候補収集で、ICE チケット `74132240` で追跡しています。
+
+leak cycle seed 248 は負荷のないときにも HEAD で落ちやすかったので、src とテストハーネスを入れ替えて同じループで交互に 20 回ずつ実行しました。
+
+| 変種 | src | ハーネス（`negotiationTransactionUtils.ts`） | seed 248 の失敗 |
+| --- | --- | --- | --- |
+| HEAD | HEAD | HEAD | 15/20 |
+| develop + HEAD のハーネス | develop | HEAD | 15/20 |
+| develop | develop | develop | 11/20 |
+| HEAD + develop のハーネス | HEAD | develop | 9/20 |
+
+失敗率は src ではなくハーネスの違いに従っています。このブランチでは、CI 対応の自動コミット（`665a1bfe4`）が、テストの peer で公開の既定 STUN サーバーを使わないようにしています（`iceUseDefaultStunServer: false`）。leak probe はこのハーネスの `createDuplexSession` を使うので、候補収集のタイミングが変わり、既存の ICE の増加が表に出やすくなります。
+
+- ハーネスの設定： [packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts:1330](review-diff:packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts:1330)
+- leak probe からの呼び出し： [packages/webrtc/tests/pbt/leak/leakProbe.ts:1085](review-file:packages/webrtc/tests/pbt/leak/leakProbe.ts:1085)
+
+develop の src でも seed 248 は 20 回中 11 回失敗します。そのため、この失敗は今回の rollback・状態移動の変更から来たものではないと判断しました。ハーネスの変更は、テストが外部の STUN サーバーに依存しないようにするためのものなので、残しています。
+
+ICE の増加そのものは、この branch では直していません。並列 `pbt:deep` の leak が緑になるのは、ICE チケット `74132240` が直った後です。
