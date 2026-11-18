@@ -1092,7 +1092,7 @@ export class RTCPeerConnection extends EventTarget {
 
     const dtlsTransport = this.secureManager.createTransport(forceNew);
     dtlsTransport.onRtp.subscribe((rtp) => {
-      this.router.routeRtp(rtp);
+      this.router.routeRtp(rtp, dtlsTransport);
     });
     dtlsTransport.onRtcp.subscribe((rtcp) => {
       this.router.routeRtcp(rtcp, dtlsTransport);
