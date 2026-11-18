@@ -19,9 +19,9 @@ import { type Cancelable, cancelable, PQueue, randomString } from "./helper";
 import {
   CandidatePair,
   CandidatePairState,
-  compareCandidatePairPriority,
   CONSENT_INTERVAL,
   CONSENT_TIMEOUT,
+  compareCandidatePairPriority,
   consentResponseTimeoutMs,
   DEFAULT_INCOMING_CHECK_TIMEOUT,
   defaultOptions,

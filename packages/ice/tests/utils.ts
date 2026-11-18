@@ -1808,10 +1808,12 @@ export function createNominationHarness({
   const addRemotePairs = async (priority: number) => {
     const candidate = remoteCandidate(priority);
     await connection.addRemoteCandidate(candidate);
-    return protocols.map((local) =>
-      connection.checkList.find(
-        (pair) => pair.remoteCandidate === candidate && pair.protocol === local,
-      )!,
+    return protocols.map(
+      (local) =>
+        connection.checkList.find(
+          (pair) =>
+            pair.remoteCandidate === candidate && pair.protocol === local,
+        )!,
     );
   };
   /** Trickle a remote candidate; returns the pair it formed with the first local candidate. */
@@ -1896,10 +1898,12 @@ export function createNominationHarness({
   const addProvisionalRemotePairs = async (priority: number) => {
     const candidate = remoteCandidate(priority);
     await connection.addProvisionalRemoteCandidate(candidate);
-    return protocols.map((local) =>
-      provisionalGeneration(connection)!.pairs.find(
-        (pair) => pair.remoteCandidate === candidate && pair.protocol === local,
-      )!,
+    return protocols.map(
+      (local) =>
+        provisionalGeneration(connection)!.pairs.find(
+          (pair) =>
+            pair.remoteCandidate === candidate && pair.protocol === local,
+        )!,
     );
   };
   /** Trickle a provisional remote candidate; returns its pair with the first local candidate. */
@@ -2633,7 +2637,9 @@ export function createSignedTurnSuccessResponse(request: Message, key: Buffer) {
 
 /** What the scripted TURN server sends back for one request. */
 export type TurnScriptedReply =
-  Buffer | { bytes: Buffer; from: Address } | undefined;
+  | Buffer
+  | { bytes: Buffer; from: Address }
+  | undefined;
 
 /** One request the scripted TURN server received. */
 export interface TurnScriptedRequest {

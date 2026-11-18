@@ -474,7 +474,8 @@ export type RTCPeerConnectionConfig = Partial<
     mLineReuse?: MLineReuse | DeprecatedMLineReuse;
     /** See {@link PeerConfig.keyFrameRequestRouting}. */
     keyFrameRequestRouting?:
-      KeyFrameRequestRouting | DeprecatedKeyFrameRequestRouting;
+      | KeyFrameRequestRouting
+      | DeprecatedKeyFrameRequestRouting;
   };
 
 export function generateDefaultPeerConfig(): PeerConfig {

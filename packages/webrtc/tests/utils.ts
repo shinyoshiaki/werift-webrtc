@@ -833,7 +833,10 @@ export function sdpIceOptionLines(sdp: string) {
  *   connect() / connectPending() awaits them (`checksSettled()`).
  */
 export type ActivationWaiter =
-  "connect-start" | "connect-waiter" | "pending-start" | "pending-waiter";
+  | "connect-start"
+  | "connect-waiter"
+  | "pending-start"
+  | "pending-waiter";
 
 /**
  * How the awaited generation ends: `restart` (local ICE restart),
