@@ -247,7 +247,11 @@ describe("media/router", () => {
       "recvonly",
     );
     const ssrc = 1111;
-    router.learnedSsrcs.add(ssrc);
+    (
+      router as unknown as {
+        addLearnedRoute: (ssrc: number, receiver: RTCRtpReceiver) => boolean;
+      }
+    ).addLearnedRoute(ssrc, transceiver.receiver);
     transceiver.receiver.learnedTrackSsrcs.add(ssrc);
 
     // Act: description が同じ SSRC を登録する。
