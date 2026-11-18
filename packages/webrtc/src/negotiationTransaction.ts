@@ -307,6 +307,7 @@ export class NegotiationTransaction {
     for (const transceiver of this.transceivers.getTransceivers()) {
       transceiver.receiver.commitStagedReceive();
     }
+    this.transceivers.notifyCommittedRemoteTracks();
     // The recycling offer is final: the displaced transceiver stops for good.
     for (const transceiver of this.resources.displaced) {
       if (!transceiver.stopped) continue;
