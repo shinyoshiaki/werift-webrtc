@@ -335,6 +335,7 @@ export class RTCPeerConnection extends EventTarget {
       cname: this.cname,
       bundlePolicy: this.config.bundlePolicy,
       mLineReuse: this.config.mLineReuse,
+      bundleCandidates: this.config.bundleCandidates,
       iceRenomination: this.config.iceRenomination,
       iceOptionIce2: this.config.iceOptionIce2,
     });
@@ -850,13 +851,12 @@ export class RTCPeerConnection extends EventTarget {
 
     await this.secureManager.ensureCerts();
 
+    // Every offer lists what each transceiver can use now, whatever an earlier
+    // answer narrowed (RFC 8829 5.2.2); a negotiated transceiver keeps its
+    // negotiated codecs live until an answer commits new ones
+    // (TransceiverManager.resolveOfferCodecs).
+    const offerCodecs = this.transceiverManager.resolveOfferCodecs();
     for (const transceiver of this.transceiverManager.getTransceivers()) {
-      if (
-        transceiver.codecs.length === 0 ||
-        transceiver.codecPreferencesNeedResolution
-      ) {
-        this.transceiverManager.assignTransceiverCodecs(transceiver);
-      }
       if (transceiver.headerExtensions.length === 0) {
         transceiver.headerExtensions =
           this.config.headerExtensions[transceiver.kind] ?? [];
@@ -878,6 +878,7 @@ export class RTCPeerConnection extends EventTarget {
     const description = this.sdpManager.buildOfferSdp(
       transceivers,
       this.sctpTransport,
+      offerCodecs,
     );
     const transceiverByMid = new Map(
       transceivers
@@ -1485,8 +1486,9 @@ export class RTCPeerConnection extends EventTarget {
           );
           if (!answered || answered.rtp.codecs.length === 0) continue;
           const resolved = transceiver.codecs;
+          const stale = transceiver.negotiatedCodecsStale;
           transceiver.codecs = [...answered.rtp.codecs];
-          if (!sameCodecList(resolved, transceiver.codecs)) {
+          if (stale || !sameCodecList(resolved, transceiver.codecs)) {
             resolveAfterAnswer.push(transceiver);
           }
         }
@@ -2248,12 +2250,7 @@ export class RTCPeerConnection extends EventTarget {
     // setCodecPreferences() は negotiated codec と分けて保持される。
     // Answer SDP 用の候補だけを再解決し、送受信の live table は commit まで触らない。
     for (const transceiver of this.transceiverManager.getTransceivers()) {
-      if (
-        transceiver.codecs.length !== 0 &&
-        !transceiver.codecPreferencesNeedResolution
-      ) {
-        continue;
-      }
+      if (!transceiver.needsCodecResolution) continue;
       if (
         transceiver.pendingRejection ||
         transceiver.stopping ||

@@ -13,6 +13,7 @@ import {
   compareCandidatePairPriority,
   type IceConnection,
 } from "../../../src/imports/ice";
+import { getTrackSourceCodecs } from "../../../src/media/track";
 import type {
   AppliedStep,
   NegotiationCase,
@@ -71,6 +72,23 @@ import {
  * - continuity: at a commit, an m-line of the previous and the new current
  *   session that keeps its BUNDLE transport (same tag, or unbundled in
  *   both) keeps its DTLS transport object (no new handshake, RFC 8843).
+ * - candidates: with `bundleCandidates: "compatible"` (Chrome's shape,
+ *   issue #269), no local description (pending or current, also after a
+ *   refresh with gathered candidates) repeats a candidate of a BUNDLE tag on
+ *   another m-line of its group, and every bundled m-line keeps
+ *   `a=ice-ufrag`, `a=fingerprint` and `a=setup`.
+ * - connection: every m-line of a local description (pending or current),
+ *   a rejected (port 0) one included, has a `c=` line unless the session
+ *   level has one (RFC 8866 §5.7; Firefox refuses a description without it,
+ *   ticket 21a27c92).
+ * - offer capability: an offer created on a stable negotiated session lists,
+ *   for each live negotiated m-line, every configured primary codec that the
+ *   codec preferences and a fixed track source allow, whatever the last
+ *   answer kept (RFC 8829 5.2.2, issue 818), and keeps the negotiated
+ *   codecs they allow whatever the direction (`direction`, `removeTrack()`)
+ *   in their negotiated form (payload type, fmtp, rtcp-fb);
+ *   `transceiver.codecs` of a negotiated transceiver is part of the state
+ *   createOffer / rollback keep.
  * (A rejected operation changing nothing is checked by the harness.)
  */
 type World = ReturnType<typeof world>;
@@ -103,6 +121,14 @@ function world(pc: RTCPeerConnection) {
     iceObjects: [...pc.iceTransports],
     routes: routes(pc, pc.getTransceivers()),
     twcc: pc.getTransceivers().map((t) => !!t.receiver.receiverTWCC),
+    // 交渉済み transceiver の codecs (offer 用の解決結果は書き戻さない, issue 818)。
+    negotiatedCodecs: pc
+      .getTransceivers()
+      .map((t) =>
+        t.currentDirection && t.currentDirection !== "stopped"
+          ? t.codecs.map((c) => `${c.payloadType} ${c.mimeType.toLowerCase()}`)
+          : undefined,
+      ),
     transports: transportsByMid(pc),
   };
 }
@@ -133,6 +159,16 @@ function transportsByMid(pc: RTCPeerConnection) {
     map.set(pc.sctpTransport.mid, pc.sctpTransport.dtlsTransport);
   }
   return map;
+}
+
+/** The m-sections of `sdp` by MID. */
+function sectionsByMid(sdp: string) {
+  return new Map(
+    sdp
+      .split(/(?=^m=)/m)
+      .slice(1)
+      .map((section) => [section.match(/^a=mid:(\S+)/m)?.[1], section]),
+  );
 }
 
 /** The transport key of `mid` in `sdp`: its BUNDLE tag, or itself when unbundled. */
@@ -406,6 +442,10 @@ export class ModelOracles implements Observer {
         ).toBe(null);
       }
     }
+    for (const peer of this.events.keys()) {
+      this.bundleCandidates(peer, label);
+      this.connectionLines(peer, label);
+    }
     await this.feedback(step, before, label);
     this.selectedPairs(step, before, label);
     if (this.idempotent || step.type === "rollback") {
@@ -420,6 +460,79 @@ export class ModelOracles implements Observer {
       this.idempotent = false;
     }
     this.commit(label);
+  }
+
+  /**
+   * Assert (offer capability): `offer`, created by `pc` on a stable
+   * negotiated session, lists for each live negotiated m-line every
+   * configured primary codec its preferences and fixed track source allow,
+   * and every negotiated primary codec they allow, whatever the direction.
+   */
+  offerCapability(pc: RTCPeerConnection, offer: { sdp: string }) {
+    if (pc.signalingState !== "stable" || !pc.currentLocalDescription) return;
+    const primary = (mimeType: string) =>
+      !/\/(rtx|red|ulpfec|flexfec-03)$/i.test(mimeType);
+    const media = SessionDescription.parse(offer.sdp).media;
+    for (const t of pc.getTransceivers()) {
+      if (!t.currentDirection || t.currentDirection === "stopped") continue;
+      if (t.stopping || t.stopped || t.mid == undefined) continue;
+      const configured = pc.config.codecs[t.kind] ?? [];
+      const preferences = t.codecPreferences?.map((c) =>
+        c.mimeType.toLowerCase(),
+      );
+      // 固定 source は addTrack / replaceTrack 時に捕捉した codec (送信中に track.codec は変わる)。
+      const source = getTrackSourceCodecs(t.sender.track)?.map((c) =>
+        c.mimeType.toLowerCase(),
+      );
+      const allowed = (codecs: readonly { mimeType: string }[]) =>
+        [
+          ...new Set(
+            codecs
+              .map((c) => c.mimeType.toLowerCase())
+              .filter(primary)
+              .filter((m) => !preferences || preferences.includes(m))
+              .filter((m) => !source || source.includes(m)),
+          ),
+        ].sort();
+      const m = media.find((m) => m.rtp.muxId === t.mid);
+      const offered = [
+        ...new Set(
+          (m?.rtp.codecs ?? [])
+            .map((c) => c.mimeType.toLowerCase())
+            .filter(primary),
+        ),
+      ].sort();
+      // 交渉済み codec は、preferences / 固定 source で外れない限り direction に
+      // よらず offer に残る (answer だけが外す)。createOffer が throw すれば step が失敗する。
+      expect(offered, `offer keeps negotiated codecs of ${t.mid}`).toEqual(
+        expect.arrayContaining(allowed(t.codecs)),
+      );
+      // 交渉済み primary codec は交渉済みの形式 (PT・fmtp・rtcp-fb) のまま offer に載る
+      // (RFC 3264 8.3.2。相手の形式でも設定の形式に書き換えない)。
+      const form = (c: {
+        payloadType: number;
+        mimeType: string;
+        parameters?: string;
+        rtcpFeedback: readonly { type: string; parameter?: string }[];
+      }) => ({
+        payloadType: c.payloadType,
+        mimeType: c.mimeType.toLowerCase(),
+        parameters: c.parameters ?? "",
+        rtcpFeedback: c.rtcpFeedback
+          .map((f) => `${f.type} ${f.parameter ?? ""}`.trim())
+          .sort(),
+      });
+      const keptNegotiated = t.codecs.filter((c) => allowed([c]).length > 0);
+      expect(
+        (m?.rtp.codecs ?? []).map(form),
+        `offer keeps the negotiated form of ${t.mid}`,
+      ).toEqual(expect.arrayContaining(keptNegotiated.map(form)));
+      // direction 付きの codec 設定は能力の一致を見ない (方向の規則は個別テストで検証する)。
+      if (configured.some((c) => c.direction !== "all")) continue;
+      expect(offered, `offer capability of ${t.mid}`).toEqual(
+        allowed(configured),
+      );
+    }
   }
 
   /** Assert (idempotent): `action` (createOffer / createAnswer) changes nothing on `pc`. */
@@ -539,6 +652,69 @@ export class ModelOracles implements Observer {
         `channel ${channel.label} did not open on both peers`,
         10_000,
       );
+    }
+  }
+
+  /** connection: every m-line of a local description has `c=` (or the session level has it). */
+  private connectionLines(pc: RTCPeerConnection, label: string) {
+    if (pc.signalingState === "closed") return;
+    const side = [...this.events.keys()][0] === pc ? "a" : "b";
+    for (const description of [
+      pc.pendingLocalDescription,
+      pc.currentLocalDescription,
+    ]) {
+      if (!description) continue;
+      const [session, ...media] = description.sdp.split(/(?=^m=)/m);
+      if (/^c=/m.test(session)) continue;
+      for (const section of media) {
+        // 拒否 (port 0) の m-line も c= を持つ。
+        expect(
+          /^c=/m.test(section),
+          `${label}: ${description.type} of ${side} ${section.split(/\r?\n/)[0]} has no c=`,
+        ).toBe(true);
+      }
+    }
+  }
+
+  /** candidates: no local description of a `"compatible"` peer repeats its BUNDLE tags' candidates. */
+  private bundleCandidates(pc: RTCPeerConnection, label: string) {
+    if (
+      pc.signalingState === "closed" ||
+      pc.getConfiguration().bundleCandidates !== "compatible"
+    ) {
+      return;
+    }
+    const side = [...this.events.keys()][0] === pc ? "a" : "b";
+    for (const description of [
+      pc.pendingLocalDescription,
+      pc.currentLocalDescription,
+    ]) {
+      if (!description) continue;
+      const sections = sectionsByMid(description.sdp);
+      const candidatesOf = (section: string) =>
+        [...section.matchAll(/^a=(candidate:[^\r\n]+)/gm)].map(
+          ([, candidate]) => candidate,
+        );
+      for (const [, group] of description.sdp.matchAll(
+        /^a=group:BUNDLE ([^\r\n]+)/gm,
+      )) {
+        const [tagMid, ...members] = group.trim().split(" ");
+        const tagCandidates = new Set(candidatesOf(sections.get(tagMid)!));
+        for (const mid of members) {
+          const section = sections.get(mid)!;
+          if (/^m=\S+ 0 /.test(section)) continue;
+          const where = `${label}: ${description.type} of ${side} mid ${mid}`;
+          // tag の候補を他の m-line で繰り返さない (transport ごとに 1 回だけ書く)。
+          expect(
+            candidatesOf(section).filter((c) => tagCandidates.has(c)),
+            `${where} repeats the tag's candidates`,
+          ).toEqual([]);
+          // ICE / DTLS の識別子は残す。
+          expect(/^a=ice-ufrag:/m.test(section), where).toBe(true);
+          expect(/^a=fingerprint:/m.test(section), where).toBe(true);
+          expect(/^a=setup:/m.test(section), where).toBe(true);
+        }
+      }
     }
   }
 

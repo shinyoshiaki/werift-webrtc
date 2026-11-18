@@ -9,6 +9,21 @@ import type { Scene } from "./generator";
  */
 export const MODEL_SCENES: (Scene & { name: string; ref: string })[] = [
   {
+    name: "an answer that kept only VP8 does not narrow the next offers of either peer",
+    ref: "origin: issue 818 (RFC 8829 5.2.2): a later offer listed only the codecs the last answer kept",
+    start: "connected",
+    ops: [
+      ["b", "codecPreferences", { index: 0, codec: "video/VP8" }],
+      ["a", "offer"],
+      ["b", "answer"],
+      ["a", "createOnly"],
+      ["b", "codecPreferences", { index: 0, reversed: true }],
+      ["b", "createOnly"],
+      ["a", "offer"],
+      ["b", "answer"],
+    ],
+  },
+  {
     name: "a DataChannel created during a first offer survives its rollback and opens at the next negotiation",
     ref: "2.3-15 2.3-17 2.3-18; was NT rollback keeps a DataChannel created $when",
     start: "unnegotiated",
@@ -556,6 +571,28 @@ export const MODEL_SCENES: (Scene & { name: string; ref: string })[] = [
     ],
   },
   {
+    name: "compatible: added m-lines, a pranswer, a rollback, an ICE restart and a stopped tag never repeat the tag's candidates",
+    ref: "issue #269 Phase A; bundleCandidates oracle",
+    start: "connected",
+    bundleCandidates: "compatible",
+    ops: [
+      ["a", "addTrack", { kind: "audio" }],
+      ["a", "offer"],
+      ["b", "pranswer"],
+      ["b", "answer"],
+      ["b", "dataChannel"],
+      ["b", "offer"],
+      ["b", "rollback"],
+      ["a", "offer", { iceRestart: true }],
+      ["b", "answer"],
+      ["a", "stop", { index: 0 }],
+      ["a", "offer"],
+      ["b", "answer"],
+      ["b", "offer"],
+      ["a", "answer"],
+    ],
+  },
+  {
     name: "#816 glare: both peers' sendonly addTransceiver() keep their direction through the polite peer's implicit rollback",
     ref: "#816 5-7; JSEP 5.10",
     start: "unnegotiated",
@@ -606,6 +643,19 @@ export const MODEL_SCENES: (Scene & { name: string; ref: string })[] = [
       ["b", "answer"],
       ["b", "offer"],
       ["a", "answer"],
+    ],
+  },
+  {
+    name: "compatible: an m-line split out of BUNDLE keeps its own candidates",
+    ref: "issue #269 5 (transport split); bundleCandidates oracle",
+    start: "connected",
+    bundleCandidates: "compatible",
+    ops: [
+      ["a", "addTrack", { kind: "audio" }],
+      ["a", "offer"],
+      ["b", "answer"],
+      ["a", "splitOffer", { mid: "2" }],
+      ["b", "answer"],
     ],
   },
   {

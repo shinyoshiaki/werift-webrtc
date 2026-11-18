@@ -140,6 +140,20 @@ export async function waitForLocalCandidatesEnd(pc: RTCPeerConnection) {
   );
 }
 
+/**
+ * Shared Arrange: gather `ice` until its gathering state is `complete`.
+ * `gather()` resolves once the representative sockets are done; the other
+ * sockets' server-reflexive candidates trickle and `complete` follows them,
+ * so a test that needs gathering finished waits for the state as well.
+ */
+export async function gatherUntilComplete(ice: RTCIceTransport) {
+  await ice.gather();
+  await waitUntil(
+    () => ice.gatheringState === "complete",
+    "ICE gathering did not complete",
+  );
+}
+
 export async function waitUntil(
   condition: () => boolean,
   message: string,
