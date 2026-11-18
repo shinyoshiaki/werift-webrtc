@@ -10,7 +10,14 @@ import {
   useTWCC,
   useVP8,
 } from "../../src";
-import { applyCodecPreferences } from "../../src/media/codecCompatibility";
+import {
+  applyCodecPreferences,
+  isCodecCompatible,
+  keepNegotiatedPayloadTypes,
+  negotiatesAs,
+  pairCodecs,
+  withNegotiatedCodecs,
+} from "../../src/media/codecCompatibility";
 import {
   getTrackSourceCodecs,
   setTrackSourceCodecs,
@@ -451,11 +458,11 @@ describe("codec resolution", () => {
     transceiver.setCodecPreferences([changed]);
     await new Promise<void>((resolve) => setImmediate(resolve));
 
-    // 検証: preferenceを更新し、codec cacheを無効化して再交渉を要求する。
+    // 検証: preferenceを更新して再交渉を要求し、交渉済みcodecは次の確定まで維持する (issue 818)。
     expect(transceiver.codecPreferences?.[0].parameters).toBe(
       changed.parameters,
     );
-    expect(transceiver.codecs).toEqual([]);
+    expect(codecNames(offerer)).toEqual(["video/h264"]);
     expect(onNegotiationNeeded).toHaveBeenCalledTimes(1);
 
     // 実行: 変更後preferenceで次のofferを生成する。
@@ -853,7 +860,8 @@ describe("codec resolution", () => {
     // 検証: 旧交渉codecの反映で再解決要求が失われず、H264 preferenceを使用する。
     expect(nextOffer.sdp.toLowerCase()).toContain("h264/90000");
     expect(nextOffer.sdp.toLowerCase()).not.toContain("vp8/90000");
-    expect(codecNames(offerer)).toEqual(["video/h264"]);
+    // 検証: 未適用のofferは交渉済みcodecを書き換えない (issue 818)。
+    expect(codecNames(offerer)).toEqual(["video/vp8"]);
     await offerer.close();
     await answerer.close();
   });
@@ -1302,5 +1310,442 @@ describe("codec resolution", () => {
     expect(answererTransceiver.receiver.receiverTWCC).toBeUndefined();
     await offerer.close();
     await answerer.close();
+  });
+
+  describe("keepNegotiatedPayloadTypes (issue 818)", () => {
+    const codec = (
+      mimeType: string,
+      payloadType: number,
+      parameters?: string,
+    ) =>
+      new RTCRtpCodecParameters({
+        mimeType,
+        clockRate: mimeType.startsWith("audio") ? 48_000 : 90_000,
+        ...(mimeType.startsWith("audio") ? { channels: 2 } : {}),
+        payloadType,
+        ...(parameters != undefined ? { parameters } : {}),
+      });
+    const summary = (codecs: RTCRtpCodecParameters[]) =>
+      codecs.map(
+        (c) =>
+          `${c.payloadType} ${c.name}${c.parameters ? ` ${c.parameters}` : ""}`,
+      );
+    const taken = (...codecs: RTCRtpCodecParameters[]) =>
+      new Map(codecs.map((c) => [c.payloadType, c]));
+
+    test("negotiated codecs keep their payload types and RTX apt follows", () => {
+      // Arrange: 設定は VP8 96 / RTX 97 / VP9 98 / RTX 99。交渉済みは VP8 100 / RTX 101。
+      const capability = [
+        codec("video/VP8", 96),
+        codec("video/rtx", 97, "apt=96"),
+        codec("video/VP9", 98),
+        codec("video/rtx", 99, "apt=98"),
+      ];
+      const negotiated = [
+        codec("video/VP8", 100),
+        codec("video/rtx", 101, "apt=100"),
+      ];
+
+      // Act: offer 用の codec を解決する。
+      const offered = keepNegotiatedPayloadTypes(
+        capability,
+        negotiated,
+        taken(...negotiated),
+      );
+
+      // Assert: VP8 と RTX は交渉済み PT、VP9 と RTX は設定上の PT で、順序は設定どおり。
+      expect(summary(offered)).toEqual([
+        "100 VP8",
+        "101 rtx apt=100",
+        "98 VP9",
+        "99 rtx apt=98",
+      ]);
+    });
+
+    test("a payload type another codec uses in the session is reassigned", () => {
+      // Arrange: 設定上の VP9 98 / RTX 99 は、別 m-line の H264 98 と交渉済み RTX 99 (apt=96) と衝突する。
+      const capability = [
+        codec("video/VP8", 96),
+        codec("video/rtx", 97, "apt=96"),
+        codec("video/VP9", 98),
+        codec("video/rtx", 99, "apt=98"),
+      ];
+      const negotiated = [
+        codec("video/VP8", 96),
+        codec("video/rtx", 99, "apt=96"),
+      ];
+      const otherMLine = codec("video/H264", 98);
+
+      // Act: offer 用の codec を解決する。
+      const offered = keepNegotiatedPayloadTypes(
+        capability,
+        negotiated,
+        taken(...negotiated, otherMLine),
+      );
+
+      // Assert: VP8 の RTX は交渉済み 99、VP9 は空き 97、その RTX は空き 100 で apt=97。
+      expect(summary(offered)).toEqual([
+        "96 VP8",
+        "99 rtx apt=96",
+        "97 VP9",
+        "100 rtx apt=97",
+      ]);
+      // Assert: PT は m-line 内で一意。
+      expect(new Set(offered.map((c) => c.payloadType)).size).toEqual(
+        offered.length,
+      );
+    });
+
+    test("an H264 format with another packetization-mode or profile does not share a payload type", () => {
+      // Arrange: 別 m-line が PT 98 = H264 mode 1、PT 100 = H264 (profile 42e01f, mode 省略 = 0) を使う。
+      const h264 = (payloadType: number, parameters: string) =>
+        codec("video/H264", payloadType, parameters);
+      const capability = [
+        h264(98, "profile-level-id=42e01f;packetization-mode=0"),
+        h264(100, "profile-level-id=640c1f;packetization-mode=0"),
+        h264(102, "profile-level-id=42E01F;packetization-mode=1"),
+      ];
+      const otherMLine = [
+        h264(98, "profile-level-id=42e01f;packetization-mode=1"),
+        h264(100, "profile-level-id=42e01f"),
+        h264(102, "profile-level-id=42e01f;packetization-mode=1"),
+      ];
+
+      // Act: 交渉前の m-line として offer 用の codec を解決する。
+      const offered = keepNegotiatedPayloadTypes(
+        capability,
+        [],
+        taken(...otherMLine),
+      );
+
+      // Assert: mode / profile が違う 98 と 100 は空き PT へ移り、同じ形式の 102 (大文字小文字違い) はそのまま。
+      expect(offered.map((c) => c.payloadType)).toEqual([96, 97, 102]);
+    });
+
+    test("a RED or RTX with other references, or a codec with other fmtp, does not share a payload type", () => {
+      // Arrange: 別 m-line が RED 63 = 110/110、opus 111 (useinbandfec=1)、RTX 97 = apt=96 を使う。
+      const capability = [
+        codec("audio/red", 63, "111/111"),
+        codec("audio/opus", 111, "minptime=10;useinbandfec=1"),
+        codec("audio/opus", 109, "useinbandfec=1"),
+      ];
+      const otherMLine = [
+        codec("audio/red", 63, "110/110"),
+        codec("audio/opus", 111, "useinbandfec=1"),
+        codec("audio/opus", 109, "USEINBANDFEC=1"),
+      ];
+
+      // Act: 交渉前の m-line として offer 用の codec を解決する。
+      const offered = keepNegotiatedPayloadTypes(
+        capability,
+        [],
+        taken(...otherMLine),
+      );
+
+      // Assert: fmtp が違う opus 111 は空き PT 96 へ移り、RED は参照先を書き換えた 96/96 で空き PT 97 へ移る。
+      // Assert: パラメータ名の大文字小文字だけが違う opus 109 は 109 を共有する。
+      expect(summary(offered)).toEqual([
+        "97 red 96/96",
+        "96 opus minptime=10;useinbandfec=1",
+        "109 opus useinbandfec=1",
+      ]);
+    });
+
+    test("the same codec with other RTCP feedback does not share a payload type", () => {
+      // Arrange: 別 m-line が PT 98 = VP8 (feedback なし)、PT 100 = VP8 (pli, nack) を使う。
+      const feedback = (...types: [string, string?][]) =>
+        types.map(([type, parameter]) => ({
+          type,
+          ...(parameter ? { parameter } : {}),
+        }));
+      const withFeedback = (
+        payloadType: number,
+        rtcpFeedback: { type: string; parameter?: string }[],
+      ) =>
+        new RTCRtpCodecParameters({
+          mimeType: "video/VP8",
+          clockRate: 90_000,
+          payloadType,
+          rtcpFeedback,
+        });
+      const capability = [
+        withFeedback(98, feedback(["nack"], ["nack", "pli"])),
+        withFeedback(100, feedback(["nack", "PLI"], ["nack"])),
+      ];
+      const otherMLine = [
+        withFeedback(98, []),
+        withFeedback(100, feedback(["nack", "pli"], ["nack"])),
+      ];
+
+      // Act: 交渉前の m-line として offer 用の codec を解決する。
+      const offered = keepNegotiatedPayloadTypes(
+        capability,
+        [],
+        taken(...otherMLine),
+      );
+
+      // Assert: feedback が違う 98 は空き PT 96 へ移り、順序と大文字小文字だけが違う 100 は共有する。
+      expect(offered.map((c) => c.payloadType)).toEqual([96, 100]);
+    });
+
+    test("a negotiated codec in the remote's form (other fmtp / feedback) is offered as that codec", () => {
+      // Arrange: 設定は opus 111 (stereo=1, feedback なし)。交渉済みは相手の形式の opus 111 (useinbandfec=1, transport-cc)。
+      const configured = codec("audio/opus", 111, "stereo=1");
+      const negotiated = new RTCRtpCodecParameters({
+        mimeType: "audio/OPUS",
+        clockRate: 48_000,
+        channels: 2,
+        payloadType: 111,
+        parameters: "minptime=10;useinbandfec=1",
+        rtcpFeedback: [{ type: "transport-cc" }],
+      });
+
+      // Act: offer 用の codec を解決する。
+      const offered = keepNegotiatedPayloadTypes(
+        [configured],
+        [negotiated],
+        taken(negotiated),
+      );
+
+      // Assert: 交渉済み codec のオブジェクトそのもの (PT・fmtp・rtcp-fb が交渉済みのまま) を提示する。
+      expect(offered).toHaveLength(1);
+      expect(offered[0]).toBe(negotiated);
+    });
+
+    test("a configured codec pairs with the negotiated codec of its format first, then by MIME type; another format of that MIME type is offered again", () => {
+      // Arrange: 設定は H264 mode 1 (96) と mode 0 (97)、交渉済みは相手の H264 mode 0 (98)。
+      // 別の設定 H264 (level 違い 42e00d) は相手の 42e01f と MIME type だけで対になる。
+      const h264 = (payloadType: number, parameters: string) =>
+        codec("video/H264", payloadType, parameters);
+      const capability = [
+        h264(96, "profile-level-id=42e01f;packetization-mode=1"),
+        h264(97, "profile-level-id=42e01f;packetization-mode=0"),
+        codec("video/VP9", 100),
+      ];
+      const negotiated = [
+        h264(98, "profile-level-id=42e01f;packetization-mode=0"),
+      ];
+      const otherLevel = [h264(96, "profile-level-id=42e00d")];
+      const negotiatedOtherLevel = [h264(98, "profile-level-id=42e01f")];
+
+      // Act: 同じ形式がある場合とない場合で offer 用の codec を解決する。
+      const strict = keepNegotiatedPayloadTypes(
+        capability,
+        negotiated,
+        taken(...negotiated),
+      );
+      const loose = keepNegotiatedPayloadTypes(
+        otherLevel,
+        negotiatedOtherLevel,
+        taken(...negotiatedOtherLevel),
+      );
+
+      // Assert: mode 0 の設定が交渉済み mode 0 と対になり (98 のまま)、交渉で外れた同じ MIME type の
+      // mode 1 も設定の PT 96 で再提示する。別 MIME type の VP9 も再提示する。順序は設定どおり。
+      expect(strict[1]).toBe(negotiated[0]);
+      expect(summary(strict)).toEqual([
+        "96 H264 profile-level-id=42e01f;packetization-mode=1",
+        "98 H264 profile-level-id=42e01f;packetization-mode=0",
+        "100 VP9",
+      ]);
+      // Assert: 同じ形式がなければ MIME type で対になり、相手の形式 (98, 42e01f) のまま提示する。
+      expect(loose).toEqual(negotiatedOtherLevel);
+      expect(loose[0]).toBe(negotiatedOtherLevel[0]);
+    });
+
+    test("pairCodecs pairs each configured codec with its own format first, then by MIME type, one to one", () => {
+      // Arrange: 設定は H264 mode 1 / mode 0 と VP8。相手は mode 0 を先に、mode 1 を後に並べ、VP8 は持たない。
+      const h264 = (payloadType: number, parameters: string) =>
+        codec("video/H264", payloadType, parameters);
+      const mode1 = h264(96, "profile-level-id=42e01f;packetization-mode=1");
+      const mode0 = h264(97, "profile-level-id=42e01f;packetization-mode=0");
+      const vp8 = codec("video/VP8", 100);
+      const remoteMode0 = h264(
+        102,
+        "profile-level-id=42e01f;packetization-mode=0",
+      );
+      const remoteMode1 = h264(
+        104,
+        "profile-level-id=42e01f;packetization-mode=1",
+      );
+      const otherLevel = h264(106, "profile-level-id=42e00d");
+
+      // Act: 両方の形式がある場合と、別 level の H264 だけがある場合で対にする。
+      const both = pairCodecs([mode1, mode0, vp8], [remoteMode0, remoteMode1]);
+      const fallback = pairCodecs([mode1, mode0], [otherLevel]);
+
+      // Assert: 各形式は相手の同じ形式と対になり (並び順によらない)、VP8 は対にならない。
+      expect([...both]).toEqual([
+        [mode1, remoteMode1],
+        [mode0, remoteMode0],
+      ]);
+      // Assert: 同じ形式がなければ先頭の設定 codec が MIME type で対になり、1 対 1 なので 2 本目は対にならない。
+      expect([...fallback]).toEqual([[mode1, otherLevel]]);
+    });
+
+    test("VP9 profiles pair by profile-id: a negotiated profile 2 keeps its place and profile 0 is offered again", () => {
+      // Arrange: 設定は VP9 profile 0 (98) と profile 2 (100) の順。交渉済みは相手の形式の VP9 profile 2 (102)。
+      const vp9 = (payloadType: number, profile: number) =>
+        codec("video/VP9", payloadType, `profile-id=${profile}`);
+      const capability = [vp9(98, 0), vp9(100, 2)];
+      const negotiated = [vp9(102, 2)];
+
+      // Act: 対応付けと offer 用の codec を解決する。
+      const pairs = pairCodecs(capability, negotiated);
+      const offered = keepNegotiatedPayloadTypes(
+        capability,
+        negotiated,
+        taken(...negotiated),
+      );
+
+      // Assert: profile 2 の設定だけが交渉済み profile 2 と対になる (profile 0 は対にならない)。
+      expect([...pairs]).toEqual([[capability[1], negotiated[0]]]);
+      // Assert: offer は profile 0 を設定の PT 98 で再提示し、profile 2 は交渉済み (102) のまま 1 本だけ載る。
+      expect(summary(offered)).toEqual([
+        "98 VP9 profile-id=0",
+        "102 VP9 profile-id=2",
+      ]);
+      expect(offered[1]).toBe(negotiated[0]);
+    });
+
+    test("isCodecCompatible tells VP9 / AV1 profiles apart and an omitted profile matches any", () => {
+      // Arrange: VP9 profile 0 / 2 / 指定なし、AV1 profile 0 / 1。
+      const vp9 = (parameters?: string) => codec("video/VP9", 98, parameters);
+      const av1 = (parameters?: string) => codec("video/AV1", 45, parameters);
+
+      // Act / Assert: profile が両方にあって違えば互換でなく、片方が省略なら互換。
+      expect(isCodecCompatible(vp9("profile-id=0"), vp9("profile-id=2"))).toBe(
+        false,
+      );
+      expect(isCodecCompatible(vp9("profile-id=2"), vp9("profile-id=2"))).toBe(
+        true,
+      );
+      expect(isCodecCompatible(vp9(), vp9("profile-id=2"))).toBe(true);
+      expect(isCodecCompatible(av1("profile=0"), av1("profile=1"))).toBe(false);
+      expect(isCodecCompatible(av1("profile=1"), av1())).toBe(true);
+    });
+
+    test("a negotiated RTX for an offered primary is offered as negotiated", () => {
+      // Arrange: 設定は VP8 96 / RTX 97 (apt=96)。交渉済みは相手の VP8 100 / RTX 101 (apt=100;rtx-time=3000)。
+      const capability = [
+        codec("video/VP8", 96),
+        codec("video/rtx", 97, "apt=96"),
+      ];
+      const negotiated = [
+        codec("video/VP8", 100),
+        codec("video/rtx", 101, "apt=100;rtx-time=3000"),
+      ];
+
+      // Act: offer 用の codec を解決する。
+      const offered = keepNegotiatedPayloadTypes(
+        capability,
+        negotiated,
+        taken(...negotiated),
+      );
+
+      // Assert: VP8 も RTX も交渉済みのオブジェクトをそのまま提示する。
+      expect(offered).toHaveLength(2);
+      expect(offered[0]).toBe(negotiated[0]);
+      expect(offered[1]).toBe(negotiated[1]);
+    });
+
+    test("negotiatesAs pairs by MIME type only, as negotiation does", () => {
+      // Arrange: 形式 (level / fmtp) が違う同じ MIME type と、別の MIME type。
+      const configured = codec("video/H264", 96, "profile-level-id=42e00d");
+
+      // Act / Assert: 同じ MIME type (大文字小文字違いを含む) なら対になり、別 MIME type はならない。
+      expect(
+        negotiatesAs(
+          configured,
+          codec("video/h264", 98, "profile-level-id=42e01f"),
+        ),
+      ).toBe(true);
+      expect(negotiatesAs(configured, codec("video/VP8", 96))).toBe(false);
+    });
+
+    test("RED follows its primaries and is dropped without them", () => {
+      // Arrange: opus 111 と RED 63 (111/111)。交渉済みは opus 109 だけ。
+      const capability = [
+        codec("audio/red", 63, "111/111"),
+        codec("audio/opus", 111),
+      ];
+      const negotiated = [codec("audio/opus", 109)];
+
+      // Act: primary がある場合とない場合の offer 用 codec を解決する。
+      const withPrimary = keepNegotiatedPayloadTypes(
+        capability,
+        negotiated,
+        taken(...negotiated),
+      );
+      const withoutPrimary = keepNegotiatedPayloadTypes(
+        [capability[0]],
+        negotiated,
+        taken(...negotiated),
+      );
+
+      // Assert: RED の参照は opus の交渉済み PT に書き換わり、primary がなければ落ちる。
+      expect(summary(withPrimary)).toEqual(["63 red 109/109", "109 opus"]);
+      expect(withoutPrimary).toEqual([]);
+    });
+  });
+
+  describe("withNegotiatedCodecs (issue 818)", () => {
+    const codec = (mimeType: string, payloadType: number, apt?: number) =>
+      new RTCRtpCodecParameters({
+        mimeType,
+        clockRate: 90_000,
+        payloadType,
+        ...(apt != undefined ? { parameters: `apt=${apt}` } : {}),
+      });
+    const names = (codecs: RTCRtpCodecParameters[]) =>
+      codecs.map((c) => `${c.payloadType} ${c.name}`);
+    // 設定は VP8 96 / RTX 97 / VP9 98 / RTX 99 / H264 100。
+    const configured = [
+      codec("video/VP8", 96),
+      codec("video/rtx", 97, 96),
+      codec("video/VP9", 98),
+      codec("video/rtx", 99, 98),
+      codec("video/H264", 100),
+    ];
+
+    test("negotiated codecs missing from the capability of the current direction are added in configured order", () => {
+      // Arrange: 現在の方向の能力は H264 だけ。交渉済みは remote PT の VP9 110 / RTX 111 と VP8 112 (RTX なし)。
+      const capability = [configured[4]];
+      const negotiated = [
+        codec("video/VP9", 110),
+        codec("video/rtx", 111, 110),
+        codec("video/VP8", 112),
+      ];
+
+      // Act: offer に載せる設定上の codec を求める。
+      const merged = withNegotiatedCodecs(configured, capability, negotiated);
+
+      // Assert: VP8 / VP9 と、交渉済みの VP9 用 RTX だけが設定順で加わる。
+      expect(names(merged)).toEqual(["96 VP8", "98 VP9", "99 rtx", "100 H264"]);
+    });
+
+    test("a negotiated codec the eligible codecs exclude (preferences, source) is not added", () => {
+      // Arrange: preferences 適用後の候補は VP9 / RTX だけ。交渉済みは VP8 / RTX。
+      const eligible = [configured[2], configured[3]];
+      const negotiated = [codec("video/VP8", 96), codec("video/rtx", 97, 96)];
+
+      // Act: 現在の方向の能力が空でも offer に載せる codec を求める。
+      const merged = withNegotiatedCodecs(eligible, [], negotiated);
+
+      // Assert: 候補にない VP8 は戻らず、交渉していない VP9 も加わらない。
+      expect(merged).toEqual([]);
+    });
+
+    test("the capability is kept as resolved when nothing is negotiated", () => {
+      // Arrange: 能力は VP8 / RTX と H264。交渉済みはなし。
+      const capability = [configured[0], configured[1], configured[4]];
+
+      // Act: offer に載せる codec を求める。
+      const merged = withNegotiatedCodecs(configured, capability, []);
+
+      // Assert: 能力そのまま (同じ object、同じ順序) を返す。
+      expect(merged).toEqual(capability);
+      merged.forEach((c, i) => expect(c).toBe(capability[i]));
+    });
   });
 });

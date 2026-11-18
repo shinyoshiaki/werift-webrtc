@@ -3350,6 +3350,12 @@
       "status": "PASS"
     },
     {
+      "file": "webrtc/protocol/codecs-subsequent-offer.https.html",
+      "variant": "",
+      "subtest": "A subsequent offer after a VP8-only negotiation includes at least all mandatory to implement codecs",
+      "status": "PASS"
+    },
+    {
       "file": "webrtc/protocol/dtls-close.html",
       "variant": "",
       "subtest": "close() causes the other end's DTLS and SCTP transport and datachannels to close",
@@ -3401,6 +3407,24 @@
       "file": "webrtc/RTCDtlsTransport-state.html",
       "variant": "",
       "subtest": "DTLS transport goes to connected state",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-onicecandidateerror.https.html",
+      "variant": "",
+      "subtest": "Surfacing onicecandidateerror",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-onicecandidateerror.https.html",
+      "variant": "",
+      "subtest": "icecandidateerror fires for each failing server",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnectionIceErrorEvent.html",
+      "variant": "",
+      "subtest": "RTCPeerConnectionIceErrorEvent constructed from init parameters",
       "status": "PASS"
     }
   ]

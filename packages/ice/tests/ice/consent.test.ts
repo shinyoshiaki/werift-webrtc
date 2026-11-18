@@ -240,17 +240,17 @@ describe("ICE consent freshness (RFC 7675)", () => {
       Array.from({ length: 20 }, () => "timeout" as const),
     );
     connections.push(harness.connection);
-    const oldSession = (harness.connection as any).consentSessionId;
+    const oldSession = (harness.connection as any).consent.sessionId;
 
     // Act: selected pair をリセット
     harness.connection.resetNominatedPair();
 
     // Assert: consent session が無効化され送信不可
-    expect((harness.connection as any).consentSessionId).toBeGreaterThan(
+    expect((harness.connection as any).consent.sessionId).toBeGreaterThan(
       oldSession,
     );
-    expect((harness.connection as any).consentFresh).toBe(false);
-    expect((harness.connection as any).queryConsentHandle).toBeUndefined();
+    expect((harness.connection as any).consent.fresh).toBe(false);
+    expect((harness.connection as any).consent.handle).toBeUndefined();
 
     // Act: 新 pair を指名（connected 中の renomination）
     const fresh = new ConsentMockProtocol({
@@ -265,7 +265,7 @@ describe("ICE consent freshness (RFC 7675)", () => {
     harness.connection.nominated = newPair;
     harness.connection.state = "connected";
     // checkComplete 相当: connected 中の新 pair で consent 再開
-    (harness.connection as any).queryConsent();
+    (harness.connection as any).consent.start();
 
     // Assert: 新しい session で request が再開される
     await vi.advanceTimersByTimeAsync(5_000);
@@ -390,8 +390,8 @@ describe("ICE consent freshness (RFC 7675)", () => {
     },
   );
 
-  it("USE-CANDIDATE は controlling + remote ICE-lite + selected pair のときだけ付く", async () => {
-    // Arrange / Act / Assert: 条件を満たす場合
+  it("USE-CANDIDATE は controlling の selected pair で、相手が ICE-lite か semi-aggressive nomination のときだけ付く", async () => {
+    // Arrange / Act / Assert: remote が ICE-lite なら付く
     {
       const harness = createConsentHarness(["success"], {
         iceControlling: true,
@@ -404,11 +404,25 @@ describe("ICE consent freshness (RFC 7675)", () => {
       );
     }
 
-    // Arrange / Act / Assert: remote が full ICE なら付かない
+    // Arrange / Act / Assert: remote が full ICE でも既定の semi-aggressive nomination なら付く (libwebrtc と同じ)
     {
       const harness = createConsentHarness(["success"], {
         iceControlling: true,
         remoteIsLite: false,
+      });
+      connections.push(harness.connection);
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(harness.sentMessages[0]?.attributesKeys).toContain(
+        "USE-CANDIDATE",
+      );
+    }
+
+    // Arrange / Act / Assert: remote が full ICE で regular nomination なら付かない
+    {
+      const harness = createConsentHarness(["success"], {
+        iceControlling: true,
+        remoteIsLite: false,
+        iceOptions: { nomination: "regular" },
       });
       connections.push(harness.connection);
       await vi.advanceTimersByTimeAsync(5_000);
@@ -429,6 +443,29 @@ describe("ICE consent freshness (RFC 7675)", () => {
         "USE-CANDIDATE",
       );
     }
+  });
+
+  it("renomination では consent check が USE-CANDIDATE の代わりに selected pair の NOMINATION を運ぶ", async () => {
+    // Arrange: renomination を双方が広告し、selected pair は相手の指名で選ばれた (自分の NOMINATION なし)
+    const harness = createConsentHarness(["success", "success"], {
+      iceControlling: true,
+      remoteIsLite: false,
+      iceOptions: { renomination: true },
+      remoteRenomination: true,
+    });
+    connections.push(harness.connection);
+
+    // Act: consent check を 2 回送る
+    await vi.advanceTimersByTimeAsync(5_000);
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    // Assert: 各 consent check は USE-CANDIDATE を持たず、同じ NOMINATION の値を繰り返す
+    const [first, second] = harness.sentMessages;
+    expect(first?.attributesKeys).not.toContain("USE-CANDIDATE");
+    expect(first?.getAttributeValue("NOMINATION")).toBeGreaterThan(0);
+    expect(second?.getAttributeValue("NOMINATION")).toBe(
+      first?.getAttributeValue("NOMINATION"),
+    );
   });
 
   it("consent 関連 stats が実際の packet 数と一致する", async () => {
@@ -509,8 +546,8 @@ describe("ICE consent freshness (RFC 7675)", () => {
     connections.push(connection);
     // 上書きして遅い pair を nominated にする
     connection.nominated = oldPair;
-    (connection as any).stopConsentLifecycle();
-    (connection as any).queryConsent();
+    (connection as any).consent.stop();
+    (connection as any).consent.start();
 
     // Act: 新しい pair に切替（旧 transaction は進行中）
     await vi.advanceTimersByTimeAsync(5_000);
@@ -524,9 +561,9 @@ describe("ICE consent freshness (RFC 7675)", () => {
     );
     newPair.nominated = true;
     connection.nominated = newPair;
-    (connection as any).stopConsentLifecycle();
+    (connection as any).consent.stop();
     connection.state = "connected";
-    (connection as any).queryConsent();
+    (connection as any).consent.start();
 
     // Act: 旧 pair の遅延応答が解決する時間
     await vi.advanceTimersByTimeAsync(10_000);
