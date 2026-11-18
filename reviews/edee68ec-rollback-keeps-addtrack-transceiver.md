@@ -4,7 +4,7 @@ ide:
   version: 1
   title: "#817 rollback で addTrack 済み transceiver を保持する"
   dock: right
-  baseCommit: 76dbe33602796b4eed827bb4063b6e96d4d5f508
+  baseCommit: ff714d3278f68b0846888b9f1719e124e457795f
 ---
 # #817 remote rollback で addTrack 済み transceiver が消える問題の修正
 
@@ -552,3 +552,53 @@ B6 の 1 回目の修正では、dummy source の番号を作る側（`MediaDevi
 この間は並行して確認レビューが動いていたので、load は 1.0〜19.8 と高めでした。ただし交互に実行したので、各変種への負荷の影響は揃っています。merge-base でも HEAD と同じ率で失敗するので、seed 206 の失敗はこの branch の変更から来たものではありません。レビューで develop が単独で成功したのは、5〜6 割で失敗する seed がたまたま通ったものと判断しました。失敗の中身は、ほかの cycle seed と同じ ICE `checkList` の 1 件の増加です（ICE チケット `74132240`）。
 
 `npm test` の leak fixed scene「an ICE restart keeps the agent's credential history bounded」も、load 25 のとき 1 回だけ同じ `checkList` の増加で失敗しました。単独で 3 回実行すると 3 回とも成功しました。
+
+## 4 回目のレビュー指摘への対応：leak cycle seed 5 の `ice.checkList` 増加
+
+### 増えていたもの
+
+leak probe に一時的な出力を足し（一時 worktree のみ）、seed 5 の各周期の後に、両 peer の candidate と pair を一覧にしました。失敗した実行では、side b の pair 数が周期 3 だけ 34 になり、周期 4 では 33 に戻っています。
+
+| 周期 | a の pair（うち prflx） | b の pair（うち prflx） |
+| --- | --- | --- |
+| 1・2 | 33（1） | 33（1） |
+| 3 | 33（1） | **34（2）** |
+| 4〜6 | 33（1） | 33（1） |
+
+増えた 1 件は、peer-reflexive の remote 候補 `192.168.0.100:37093` と、b の 2 つ目の local 候補との pair です。port 37093 は、a の `docker0`（`172.20.0.1`）の host 候補の port です。この host は複数の interface（`enp8s0`、Wi-Fi、`tailscale0`、`docker0` などの bridge、IPv6）を持ち、docker の NAT（MASQUERADE）が送信元を書き換えます。そのため、a の `docker0` の socket から出た check は、送信元 `192.168.0.100` として b に届きます。b はこれを知らない送信元として prflx 候補にします。
+
+この check が届く b の socket が 1 つか 2 つかは、nomination が終わるまでのタイミングで変わります。そこで、ICE generation ごとに pair が 1 件だけ揺れます。次の ICE restart で checkList が作り直されると、元に戻ります。周期を重ねて状態が増えているのではありません。
+
+### 切り分け
+
+seed 5 を交互に 10 回ずつ実行しました（develop は `8070a8e58`）。
+
+| 変種 | 失敗 |
+| --- | --- |
+| HEAD（複数 interface） | 5/10、3/10 |
+| HEAD、ICE を 1 つの IPv4（`192.168.0.100`）に限定し IPv6 なし | 0/10 |
+| HEAD、ICE を IPv4 loopback（`127.0.0.1`）に限定し IPv6 なし | 0/10 |
+| develop（複数 interface） | 0/10、0/10 |
+| develop の src + HEAD のハーネス | 2/10 |
+| HEAD の src + develop のハーネス | 0/10 |
+
+- interface を 1 つに限ると、HEAD でも失敗しなくなります。原因は、この host の interface と NAT が作る prflx 候補です。
+- HEAD と develop の差は、src ではなくハーネスに従います。develop では `iceUseDefaultStunServer` が既定の `true` なので、leak probe はコメント（「STUN server なし」）に反して公開 STUN に問い合わせていました。その待ち時間で check の時刻がずれ、prflx の 2 件目が出にくかっただけです。HEAD のハーネスはこの問い合わせを止めているので（`665a1bfe4`）、揺れが表に出ます。
+
+### 修正
+
+leak の周期 session（`arrangeCycleSession`。cycle seed・fixed cycle・heap の各テストが使います）を、IPv4 loopback だけで ICE を張るようにしました（`iceInterfaceAddresses: { udp4: "127.0.0.1" }`、`iceUseIpv6: false`、`iceUseDefaultStunServer: false`）。計測する host の interface 数や NAT で pair 数が揺れなくなります。周期ごとの状態の増加は 1 候補でも検出できるので、leak property が見ている性質は変わりません。
+
+- [packages/webrtc/tests/pbt/leak/leakProbe.ts:1082](review-diff:packages/webrtc/tests/pbt/leak/leakProbe.ts:1082)
+
+### 再実行の結果
+
+| 検証 | 結果 |
+| --- | --- |
+| `npx vitest run tests/pbt/leak`（既定の seed） | 53 件成功、2 件スキップ |
+| `npm run pbt:deep -- --suite leak --jobs 16`、1 回目（load 平均 25.7、最大 30.5） | 653 件中 652 件成功、失敗 1（heap seed 4）、flaky 0 |
+| 同 2 回目（load 平均 28.7、最大 31.3） | 653 件中 652 件成功、失敗 1（heap seed 4）、flaky 0 |
+
+レビューでは、失敗 10 件・flaky 14 件でした。周期の pair 数の揺れによる失敗と flaky は、どちらもなくなりました。
+
+残る heap seed 4 は、傾きが閾値 16 KiB/cycle をわずかに超える既存の失敗です。同じ時間帯に交互に 3 回ずつ実行すると、HEAD は 16.81〜17.07、develop は 16.44〜16.82、develop に probe の修正だけを当てたものは 16.85〜16.88 で、すべて失敗しました。develop でも失敗する、ICE の候補収集が restart ごとの候補を close まで保持する問題です（ICE チケット `74132240`）。

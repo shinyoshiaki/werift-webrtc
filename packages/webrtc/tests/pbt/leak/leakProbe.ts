@@ -1081,8 +1081,17 @@ async function arrangeCycleSession(c: NegotiationCase, observe: boolean) {
   // 増えるテスト側の保持なので、heap を見るときは付けない (application の登録だけ受ける)。
   const oracles = observe ? new ModelOracles(c) : bareOracles();
   // STUN server なし: サーバーへの問い合わせの timer (最長 5 s) が周期ごとの timer 数を揺らさない。
+  // host 候補は IPv4 loopback だけ: 計測する host の interface 数や NAT (docker の
+  // MASQUERADE が作る peer-reflexive 候補) で ICE generation ごとの pair 数が 1 つ揺れ、
+  // 状態の増加と区別できなくなるのを防ぐ。周期ごとの増加は 1 候補でも検出できる。
   const scope = await c.given(
-    createDuplexSession({ ...modelConfig(), iceServers: [] }),
+    createDuplexSession({
+      ...modelConfig(),
+      iceServers: [],
+      iceUseDefaultStunServer: false,
+      iceInterfaceAddresses: { udp4: "127.0.0.1" },
+      iceUseIpv6: false,
+    }),
   );
   const { a, b } = scope;
   oracles.application(scope.aVideo);
