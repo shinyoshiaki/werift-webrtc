@@ -307,6 +307,90 @@ export const CONSENT_RESPONSE_TIMEOUT = 1000;
 /** RFC 8445 §14.3: ICE RTO must not be less than 500ms. */
 export const CONSENT_RESPONSE_TIMEOUT_MIN = 500;
 
+// Failover of the selected pair without an ICE restart (semi-aggressive
+// nomination and renomination, full ICE, not ICE-TCP). The values follow
+// libwebrtc (`p2p/base/connection.h`, `p2p/base/ice_controller_interface.h`,
+// `basic_ice_controller.cc`); the libwebrtc name is given where it differs.
+
+/**
+ * Ping interval (ms) of a pair that is weak (a check went unanswered) or
+ * stabilizing (fewer than {@link MIN_PINGS_AT_WEAK_PING_INTERVAL} responses
+ * since it began to be monitored). libwebrtc:
+ * `WEAK_OR_STABILIZING_WRITABLE_CONNECTION_PING_INTERVAL`.
+ */
+export const WEAK_OR_STABILIZING_WRITABLE_CONNECTION_PING_INTERVAL = 900;
+
+/**
+ * Ping interval (ms) of a stable backup pair (multiplied by a random 0.8–1.2).
+ * libwebrtc: `STABLE_WRITABLE_CONNECTION_PING_INTERVAL`.
+ */
+export const STABLE_WRITABLE_CONNECTION_PING_INTERVAL = 2500;
+
+/**
+ * Responses a pair needs, pinged at the weak interval, before it counts as
+ * stable. libwebrtc: `MIN_PINGS_AT_WEAK_PING_INTERVAL`.
+ */
+export const MIN_PINGS_AT_WEAK_PING_INTERVAL = 3;
+
+/**
+ * A pair is no longer writable once at least this many consecutive checks
+ * went unanswered and {@link CONNECTION_WRITE_CONNECT_TIMEOUT} passed since
+ * its last response. libwebrtc: `CONNECTION_WRITE_CONNECT_FAILURES`.
+ */
+export const CONNECTION_WRITE_CONNECT_FAILURES = 5;
+
+/** See {@link CONNECTION_WRITE_CONNECT_FAILURES} (ms). libwebrtc: `CONNECTION_WRITE_CONNECT_TIMEOUT`. */
+export const CONNECTION_WRITE_CONNECT_TIMEOUT = 5000;
+
+/**
+ * A pair that received nothing (response, request or data) for this long
+ * (ms) is weak. libwebrtc: `WEAK_CONNECTION_RECEIVE_TIMEOUT`.
+ */
+export const WEAK_CONNECTION_RECEIVE_TIMEOUT = 2500;
+
+/**
+ * A backup pair that received nothing for this long (ms) is dropped (its
+ * state becomes Failed) and the next pair of its socket is monitored. The
+ * same value as {@link CONSENT_TIMEOUT}. libwebrtc:
+ * `DEAD_CONNECTION_RECEIVE_TIMEOUT`.
+ */
+export const DEAD_CONNECTION_RECEIVE_TIMEOUT = CONSENT_TIMEOUT * 1000;
+
+/**
+ * Response timeout (ms) of a backup check while the pair's RTT is still
+ * unknown (it never answered a check of this agent). libwebrtc starts a
+ * connection's RTT estimate at `DEFAULT_RTT` (3000 ms); the consent default
+ * ({@link CONSENT_RESPONSE_TIMEOUT}, 1 s) would never let a backup path
+ * slower than that become valid. Once the pair answered, the timeout follows
+ * its RTT ({@link consentResponseTimeoutMs}).
+ */
+export const BACKUP_UNKNOWN_RTT_RESPONSE_TIMEOUT = 3000;
+
+/**
+ * After the selected pair's consent expired (RFC 7675: no more application
+ * data on it), how long (ms) the agent stays `disconnected` waiting for the
+ * selection to move to a writable backup (its own failover nomination, or
+ * the peer's when controlled) before it fails. A peer that fails over does
+ * so 5–10 s after the path broke, long before the 30 s expiry; the grace
+ * covers a nomination still in flight. werift's own value.
+ */
+export const FAILOVER_CONSENT_EXPIRED_GRACE = 10_000;
+
+/**
+ * Pairs of one local socket (or TURN allocation) tried as its backup before
+ * the socket waits for a retry (1, 2, 4, 8, 16 s, then every 16 s) and starts
+ * again from its highest-priority pair. werift's own limit.
+ */
+export const FAILOVER_BACKUP_ATTEMPTS = 3;
+
+/**
+ * Consecutive responses a pair the agent failed over from needs before the
+ * selection may move back to it (or to another pair of its socket). Keeps
+ * the selection from flapping. werift's own value (libwebrtc relies on
+ * {@link MIN_PINGS_AT_WEAK_PING_INTERVAL} for the same purpose).
+ */
+export const FAILOVER_RECOVERY_RESPONSES = 3;
+
 /**
  * Compute consent response wait from pair RTT (seconds).
  * Uses 2×RTT + 200ms jitter margin, floored at {@link CONSENT_RESPONSE_TIMEOUT_MIN}.

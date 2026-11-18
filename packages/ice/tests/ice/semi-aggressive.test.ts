@@ -34,6 +34,107 @@ describe("semi-aggressive nomination (default, full ICE, controlling)", () => {
       nominationReply: () => "hold",
     });
 
+  test("ordinary checks carry USE-CANDIDATE and the first pair that succeeds is selected at once", async () => {
+    const h = createHarness();
+    const low = await h.addRemote(LOW);
+    const high = await h.addRemote(HIGH);
+    h.check(high);
+    h.check(low);
+
+    try {
+      // Act: 低優先度 pair の check が先に成功する (タイマーは進めない)。
+      await h.release(low);
+
+      // Assert: 選択前の通常 check には USE-CANDIDATE が付き、最初に成功した pair が待たずに選択される。
+      expect(h.requests()).toHaveLength(2);
+      for (const request of h.requests()) {
+        expect(request.message.attributesKeys).toContain("USE-CANDIDATE");
+      }
+      expect(h.connection.nominated).toBe(low);
+      // Assert: 高優先度 pair の check は打ち切られず続いている。
+      expect(high.state).toBe(CandidatePairState.IN_PROGRESS);
+    } finally {
+      await h.connection.close();
+    }
+  });
+
+  test("a higher-priority pair that succeeds after the selection replaces it", async () => {
+    const h = createHarness();
+    const low = await h.addRemote(LOW);
+    const high = await h.addRemote(HIGH);
+    h.check(high);
+    h.check(low);
+    await h.release(low);
+
+    try {
+      // Act: 選択後に高優先度 pair の check (USE-CANDIDATE 付き) が成功する。
+      await h.release(high);
+
+      // Assert: 選択が高優先度 pair に置き換わる。
+      expect(h.connection.nominated).toBe(high);
+      expect(high.nominated).toBe(true);
+    } finally {
+      await h.connection.close();
+    }
+  });
+
+  test("a pair that does not outrank the selection neither carries USE-CANDIDATE nor replaces it", async () => {
+    const h = createHarness();
+    const high = await h.addRemote(HIGH);
+    const low = await h.addRemote(LOW);
+    h.check(high);
+    await h.release(high);
+    expect(h.connection.nominated).toBe(high);
+
+    try {
+      // Act: 選択後に低優先度 pair の check (相手からの triggered check 相当) が成功する。
+      h.check(low);
+      await h.release(low);
+
+      // Assert: 選択より低い pair の check には USE-CANDIDATE が付かず、選択も変わらない。
+      const [lowCheck] = h.requestsTo(low);
+      expect(lowCheck.message.attributesKeys).not.toContain("USE-CANDIDATE");
+      expect(h.connection.nominated).toBe(high);
+      expect(low.nominated).toBe(false);
+    } finally {
+      await h.connection.close();
+    }
+  });
+
+  test("a higher-priority candidate trickled after the selection is checked and replaces it; a lower one becomes a backup checked without USE-CANDIDATE", async () => {
+    const h = createHarness();
+    const mid = await h.addRemote(MID);
+    h.check(mid);
+    await h.release(mid);
+    expect(h.connection.nominated).toBe(mid);
+
+    try {
+      // Act: 選択後に低優先度と高優先度の候補が trickle で届く。
+      const low = await h.addRemote(LOW);
+      const high = await h.addRemote(HIGH);
+
+      // Assert: 低優先度の候補は同じソケットの退避先の pair になり、USE-CANDIDATE なしで監視される (failover)。
+      expect(low).toBeDefined();
+      await vi.advanceTimersByTimeAsync(100);
+      expect(h.requestsTo(low).length).toBeGreaterThan(0);
+      for (const request of h.requestsTo(low)) {
+        expect(request.message.attributesKeys).not.toContain("USE-CANDIDATE");
+      }
+      expect(h.connection.nominated).toBe(mid);
+      // Assert: 高優先度の pair は自動で check される (USE-CANDIDATE 付き)。
+      const [highCheck] = h.requestsTo(high);
+      expect(highCheck.message.attributesKeys).toContain("USE-CANDIDATE");
+
+      // Act: その check が成功する。
+      await h.release(high);
+
+      // Assert: 選択が高優先度 pair に置き換わる。
+      expect(h.connection.nominated).toBe(high);
+    } finally {
+      await h.connection.close();
+    }
+  });
+
   test("a pair that succeeded while controlled is nominated with a separate USE-CANDIDATE check after the agent became controlling", async () => {
     const h = createHarness();
     h.switchRole(false);
@@ -198,6 +299,12 @@ describe("semi-aggressive nomination / renomination (controlling): model propert
     const selected = () => h.connection.nominated;
     const outranksSelection = (pair: CandidatePair) =>
       !selected() || priorityOf(pair) > priorityOf(selected()!);
+    const isSameSocketBackup = (pair: CandidatePair) => {
+      const current = selected();
+      return (
+        !!current && pair !== current && pair.protocol === current.protocol
+      );
+    };
     const pending = () => h.requests().filter((request) => !request.done);
     /** Pairs with no request in flight. */
     const idle = () =>
@@ -233,6 +340,17 @@ describe("semi-aggressive nomination / renomination (controlling): model propert
             request.nominate,
             why("USE-CANDIDATE on a triggered check"),
           ).toBe(outranksSelection(pair));
+        } else if (
+          isSameSocketBackup(pair) &&
+          priorityOf(pair) < priorityOf(selected()!) &&
+          !keys.includes("USE-CANDIDATE") &&
+          !keys.includes("NOMINATION")
+        ) {
+          // Assert: 同じ socket の下位ペアは nomination せず backup として監視する。
+          expect(
+            request.nominate,
+            why("a backup check carries nomination"),
+          ).toBe(false);
         } else {
           // Assert: 自分から送る check は (未選択か選択より上位なので) すべて USE-CANDIDATE を運ぶ。
           expect(request.nominate, why("a check without USE-CANDIDATE")).toBe(
@@ -240,7 +358,12 @@ describe("semi-aggressive nomination / renomination (controlling): model propert
           );
         }
         // Assert: 選択後に自分から送る check と指名は、選択より上位の pair にだけ送る。
-        if (after && !triggered.has(processed)) {
+        if (
+          after &&
+          pair !== after &&
+          !triggered.has(processed) &&
+          (keys.includes("USE-CANDIDATE") || keys.includes("NOMINATION"))
+        ) {
           expect(
             outranksSelection(pair),
             why("a request to a pair below the selection"),
@@ -304,12 +427,13 @@ describe("semi-aggressive nomination / renomination (controlling): model propert
           );
           trace.push(`add:${priority}`);
           const pair = await h.addRemote(priority);
-          // Assert: 選択後は、選択より下位の候補で pair を作らない。
+          // Assert: 選択後も、同じ socket の別リモートへの下位候補は backup pair になる。
           if (before && priority < priorityOf(before)) {
             expect(
               pair,
-              why("a lower pair formed after the selection"),
-            ).toBeUndefined();
+              why("a same-socket backup pair was not formed"),
+            ).toBeDefined();
+            expect(pair!.protocol).toBe(before.protocol);
           }
           if (pair) {
             pairs.push({ pair, priority });
@@ -599,26 +723,50 @@ describe("a failed pair that outranks the selection is checked again (controllin
     return { h, low, high };
   };
 
-  test("retries back off (1, 2, 4, 8, 16 s) and stop after five", async () => {
+  test("retries back off (1, 2, 4, 8, 16 s) and then go on every 16 s (failover keeps looking for the path)", async () => {
     const { h, high } = await selectLowAfterHighFailed();
     const counts: number[] = [];
 
     try {
       // Act: 再 check をすべて失敗させながら、各間隔の直前と到達時の送信数を記録する。
-      for (const delay of [1000, 2000, 4000, 8000, 16000]) {
+      for (const delay of [1000, 2000, 4000, 8000, 16000, 16000, 16000]) {
         await vi.advanceTimersByTimeAsync(delay - 1);
         counts.push(h.requestsTo(high).length);
         await vi.advanceTimersByTimeAsync(1);
         counts.push(h.requestsTo(high).length);
         await h.release(high, "failure");
       }
-      // Act: さらに 60 s 進める。
+
+      // Assert: 間隔が倍になり、5 回目の後は 16 s ごとに続く (長く落ちていた経路も復帰を検出できる)。選択は低優先度 pair のまま。
+      expect(counts).toEqual([1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8]);
+      expect(h.connection.nominated).not.toBe(high);
+    } finally {
+      await h.connection.close();
+    }
+  });
+
+  test("a failed pair that does not outrank the selection is not retried as an outranking pair (only monitored as a backup, without USE-CANDIDATE)", async () => {
+    const h = createNominationHarness({
+      nomination: "semi-aggressive",
+      nominationReply: () => "hold",
+    });
+    const low = await h.addRemote(LOW);
+    const high = await h.addRemote(HIGH);
+    h.check(high);
+    h.check(low);
+    await h.release(low, "failure");
+    await h.release(high);
+
+    try {
+      // Act: 60 s 進める。
       await vi.advanceTimersByTimeAsync(60_000);
 
-      // Assert: 間隔が倍になり、5 回で止まる。選択は低優先度 pair のまま。
-      expect(counts).toEqual([1, 2, 2, 3, 3, 4, 4, 5, 5, 6]);
-      expect(h.requestsTo(high)).toHaveLength(6);
-      expect(h.connection.nominated).not.toBe(high);
+      // Assert: 選択より下位の失敗した pair は上位ペアとしては再 check しない (USE-CANDIDATE を付けない)。
+      // 同じソケットの退避先としての監視 check だけが送られ、選択は変わらない。
+      expect(h.connection.nominated).toBe(high);
+      for (const request of h.requestsTo(low).slice(1)) {
+        expect(request.message.attributesKeys).not.toContain("USE-CANDIDATE");
+      }
     } finally {
       await h.connection.close();
     }
@@ -634,9 +782,16 @@ describe("a failed pair that outranks the selection is checked again (controllin
       switching.h.switchRole(false);
       await vi.advanceTimersByTimeAsync(60_000);
 
-      // Assert: どちらも再 check を送らない。
+      // Assert: close した側は何も送らない。
       expect(closing.h.requestsTo(closing.high)).toHaveLength(1);
-      expect(switching.h.requestsTo(switching.high)).toHaveLength(1);
+      // Assert: controlled になった側は上位ペアとしての再 check (ICE-CONTROLLING / USE-CANDIDATE) を送らない。
+      // 同じソケットの退避先としての監視 check (ICE-CONTROLLED、指名なし) だけが続く。
+      const after = switching.h.requestsTo(switching.high).slice(1);
+      expect(after.length).toBeGreaterThan(0);
+      for (const request of after) {
+        expect(request.message.attributesKeys).toContain("ICE-CONTROLLED");
+        expect(request.message.attributesKeys).not.toContain("USE-CANDIDATE");
+      }
     } finally {
       await switching.h.connection.close();
     }
