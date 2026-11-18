@@ -45,7 +45,7 @@ Rules that apply to one package or directory belong in the nearest `AGENTS.md`.
 | E2E only (verbose: `e2e:verbose`) | `npm run e2e` |
 | Firefox E2E with a committed run record (local only, not in CI) | `cd e2e && npm run firefox:record` |
 | prune / clear Firefox E2E run records (`--keep <n>`, `--dry-run`) | `cd e2e && npm run firefox:record:prune` |
-| broad workspace validation | `npm run ci` |
+| broad workspace validation (WPT は含まない。別ワークフロー `wpt.yml`) | `npm run ci` |
 | examples smoke (Chromium + gst/ffmpeg) | `npm run examples:e2e` |
 | install examples smoke Chromium | `npm run examples:e2e:install` |
 | TypeScript resolve hook tests | `npm run test:node-ts` |
