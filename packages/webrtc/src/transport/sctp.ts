@@ -400,6 +400,15 @@ export class RTCSctpTransport {
               this.rejectOpenOnStreamInUse(existing);
               return;
             }
+            if (!existing && streamId % 2 === this.idParity) {
+              // RFC 8832 section 6: the peer must use the other parity of
+              // the DTLS role. Not acknowledged; its channel is closed.
+              log("DATA_CHANNEL_OPEN violating the odd/even rule, rejected", {
+                streamId,
+              });
+              this.resetStream(streamId);
+              return;
+            }
             if (!existing) {
               // !BBHLHH — 12 byte DCEP OPEN header (big-endian)
               const channelType = data.readUInt8(1);
@@ -810,6 +819,21 @@ export class RTCSctpTransport {
    * channel on the stream closes too once the peer resets its side, as both
    * ends claim the stream. One whose OPEN is still queued is not announced.
    */
+  /**
+   * Close the peer's data channel on a stream no local channel uses: reset
+   * the outgoing stream (RFC 8831 section 6.7). The peer sees the reset
+   * before any ACK (a failed open), closes its channel and resets its side;
+   * nothing is registered here for it.
+   */
+  private resetStream(streamId: number) {
+    if (!this.sctp.reconfigQueue.includes(streamId)) {
+      this.sctp.reconfigQueue.push(streamId);
+    }
+    if (this.sctp.reconfigQueue.length === 1) {
+      this.sctp.transmitReconfigRequest();
+    }
+  }
+
   private rejectOpenOnStreamInUse(channel: RTCDataChannel) {
     if (this.unannounced.delete(channel)) {
       this.dataChannelQueue = this.dataChannelQueue.filter(

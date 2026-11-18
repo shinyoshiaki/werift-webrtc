@@ -581,3 +581,51 @@ describe("issue 815: a DATA_CHANNEL_OPEN on a stream in local use", () => {
     }
   });
 });
+
+describe("issue 815: a DATA_CHANNEL_OPEN violating the odd/even rule on an unused stream", () => {
+  test.each([
+    // offerer = DTLS server (奇数)、answerer = DTLS client (偶数)。
+    { violator: "answerer", parity: 1, expectedId: 3 },
+    { violator: "offerer", parity: 0, expectedId: 0 },
+  ] as const)(
+    "$violator opens on $expectedId: not acknowledged and closed",
+    async ({ violator, parity, expectedId }) => {
+      // Arrange: 接続済みの 2 peer。違反側を受信側の偶奇で採番させ、受信側の DCEP 送信を記録する。
+      const pair = await openChannelPair();
+      const [sender, receiver] =
+        violator === "answerer"
+          ? [pair.answerer, pair.offerer]
+          : [pair.offerer, pair.answerer];
+      forceIdParity(sender, parity);
+      const receiverDcep = captureSentDcep(receiver);
+      const announced: string[] = [];
+      receiver.onDataChannel.subscribe((c) => announced.push(c.label));
+
+      try {
+        // Act: 受信側で未使用の、受信側の偶奇の stream ID で OPEN を送る。
+        const violating = sender.createDataChannel("violating");
+        expect(violating.id).toBe(expectedId);
+
+        // Assert: ACK も datachannel 通知もなく、stream reset で送信側の channel が閉じる。
+        await vi.waitFor(() => expect(violating.readyState).toBe("closed"));
+        expect(receiverDcep).toEqual([]);
+        expect(announced).toEqual([]);
+        // Assert: 両端の登録表・待機集合・キューに違反 channel が残らない。
+        for (const pc of [pair.offerer, pair.answerer]) {
+          expect(channelSetsOf(pc)).toEqual({
+            registered: ["dc:open"],
+            unannounced: [],
+            queued: [],
+          });
+        }
+
+        // Act / Assert: 既存 channel は影響を受けず送受信できる。
+        const received = nextMessage(pair.remote);
+        pair.local.send("still-open");
+        await expect(received).resolves.toBe("still-open");
+      } finally {
+        await closeAll(pair.offerer, pair.answerer);
+      }
+    },
+  );
+});
