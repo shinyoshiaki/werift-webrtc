@@ -72,6 +72,15 @@ import {
  * - continuity: at a commit, an m-line of the previous and the new current
  *   session that keeps its BUNDLE transport (same tag, or unbundled in
  *   both) keeps its DTLS transport object (no new handshake, RFC 8843).
+ * - candidates: with `bundleCandidates: "compatible"` (Chrome's shape,
+ *   issue #269), no local description (pending or current, also after a
+ *   refresh with gathered candidates) repeats a candidate of a BUNDLE tag on
+ *   another m-line of its group, and every bundled m-line keeps
+ *   `a=ice-ufrag`, `a=fingerprint` and `a=setup`.
+ * - connection: every m-line of a local description (pending or current),
+ *   a rejected (port 0) one included, has a `c=` line unless the session
+ *   level has one (RFC 8866 §5.7; Firefox refuses a description without it,
+ *   ticket 21a27c92).
  * - offer capability: an offer created on a stable negotiated session lists,
  *   for each live negotiated m-line, every configured primary codec that the
  *   codec preferences and a fixed track source allow, whatever the last
@@ -150,6 +159,16 @@ function transportsByMid(pc: RTCPeerConnection) {
     map.set(pc.sctpTransport.mid, pc.sctpTransport.dtlsTransport);
   }
   return map;
+}
+
+/** The m-sections of `sdp` by MID. */
+function sectionsByMid(sdp: string) {
+  return new Map(
+    sdp
+      .split(/(?=^m=)/m)
+      .slice(1)
+      .map((section) => [section.match(/^a=mid:(\S+)/m)?.[1], section]),
+  );
 }
 
 /** The transport key of `mid` in `sdp`: its BUNDLE tag, or itself when unbundled. */
@@ -436,6 +455,10 @@ export class ModelOracles implements Observer {
         ).toBe(null);
       }
     }
+    for (const peer of this.events.keys()) {
+      this.bundleCandidates(peer, label);
+      this.connectionLines(peer, label);
+    }
     await this.feedback(step, before, label);
     this.selectedPairs(step, before, label);
     if (this.idempotent || step.type === "rollback") {
@@ -642,6 +665,69 @@ export class ModelOracles implements Observer {
         `channel ${channel.label} did not open on both peers`,
         10_000,
       );
+    }
+  }
+
+  /** connection: every m-line of a local description has `c=` (or the session level has it). */
+  private connectionLines(pc: RTCPeerConnection, label: string) {
+    if (pc.signalingState === "closed") return;
+    const side = [...this.events.keys()][0] === pc ? "a" : "b";
+    for (const description of [
+      pc.pendingLocalDescription,
+      pc.currentLocalDescription,
+    ]) {
+      if (!description) continue;
+      const [session, ...media] = description.sdp.split(/(?=^m=)/m);
+      if (/^c=/m.test(session)) continue;
+      for (const section of media) {
+        // 拒否 (port 0) の m-line も c= を持つ。
+        expect(
+          /^c=/m.test(section),
+          `${label}: ${description.type} of ${side} ${section.split(/\r?\n/)[0]} has no c=`,
+        ).toBe(true);
+      }
+    }
+  }
+
+  /** candidates: no local description of a `"compatible"` peer repeats its BUNDLE tags' candidates. */
+  private bundleCandidates(pc: RTCPeerConnection, label: string) {
+    if (
+      pc.signalingState === "closed" ||
+      pc.getConfiguration().bundleCandidates !== "compatible"
+    ) {
+      return;
+    }
+    const side = [...this.events.keys()][0] === pc ? "a" : "b";
+    for (const description of [
+      pc.pendingLocalDescription,
+      pc.currentLocalDescription,
+    ]) {
+      if (!description) continue;
+      const sections = sectionsByMid(description.sdp);
+      const candidatesOf = (section: string) =>
+        [...section.matchAll(/^a=(candidate:[^\r\n]+)/gm)].map(
+          ([, candidate]) => candidate,
+        );
+      for (const [, group] of description.sdp.matchAll(
+        /^a=group:BUNDLE ([^\r\n]+)/gm,
+      )) {
+        const [tagMid, ...members] = group.trim().split(" ");
+        const tagCandidates = new Set(candidatesOf(sections.get(tagMid)!));
+        for (const mid of members) {
+          const section = sections.get(mid)!;
+          if (/^m=\S+ 0 /.test(section)) continue;
+          const where = `${label}: ${description.type} of ${side} mid ${mid}`;
+          // tag の候補を他の m-line で繰り返さない (transport ごとに 1 回だけ書く)。
+          expect(
+            candidatesOf(section).filter((c) => tagCandidates.has(c)),
+            `${where} repeats the tag's candidates`,
+          ).toEqual([]);
+          // ICE / DTLS の識別子は残す。
+          expect(/^a=ice-ufrag:/m.test(section), where).toBe(true);
+          expect(/^a=fingerprint:/m.test(section), where).toBe(true);
+          expect(/^a=setup:/m.test(section), where).toBe(true);
+        }
+      }
     }
   }
 
