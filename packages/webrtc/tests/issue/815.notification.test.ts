@@ -7,8 +7,10 @@ import {
   channelSetsOf,
   closeAll,
   createPeers,
+  limitStreams,
   type NotificationObservation,
   negotiate,
+  nextMessage,
   observeAt,
   openChannelPair,
   openProvisionalChannel,
@@ -395,6 +397,88 @@ describe("issue 815: re-entrance from close / error callbacks leaves no stale en
       unannounced: [],
       queued: [],
     });
+  });
+
+  test.each([
+    { closedBy: "this side (outgoing reset first)" as const, local: true },
+    { closedBy: "the peer (incoming reset first)" as const, local: false },
+  ])(
+    "closed by $closedBy: a close listener re-creates a channel on the only free ID",
+    async ({ local }) => {
+      // Arrange: offerer (DTLS server) の上限を 2 にし、使える奇数 ID を開いている "dc" の 1 だけにする。
+      const pair = await openChannelPair();
+      limitStreams(pair.offerer, 2);
+      expect(pair.local.id).toBe(1);
+      const remoteAgain = waitRemoteChannel(pair.answerer, "again");
+      let again: RTCDataChannel | undefined;
+      let failure: unknown;
+      pair.local.addEventListener("close", () => {
+        try {
+          again = pair.offerer.createDataChannel("again");
+        } catch (error) {
+          failure = error;
+        }
+      });
+
+      try {
+        // Act: "dc" を閉じる (自分から、または相手から)。
+        (local ? pair.local : pair.remote).close();
+        await vi.waitFor(() => expect(pair.local.readyState).toBe("closed"));
+
+        // Assert: close 通知の時点で ID 1 は解放済みで、同期的に作り直せる。
+        expect(failure).toBeUndefined();
+        expect(again!.id).toBe(1);
+
+        // Assert: 残りの方向の stream reset は作り直した channel を閉じず、両端で open になって送受信できる。
+        await waitOpen(again!);
+        const received = await remoteAgain;
+        await waitOpen(received);
+        const message = nextMessage(received);
+        again!.send("reused");
+        await expect(message).resolves.toBe("reused");
+        const back = nextMessage(again!);
+        received.send("reused-back");
+        await expect(back).resolves.toBe("reused-back");
+        expect(again!.readyState).toBe("open");
+        expect(pair.remote.readyState).toBe("closed");
+      } finally {
+        await closeAll(pair.offerer, pair.answerer);
+      }
+    },
+  );
+
+  test("closed by both ends at once: a close listener re-creates a channel that opens", async () => {
+    // Arrange: 使える奇数 ID が 1 だけの offerer と、close で作り直すリスナー。
+    const pair = await openChannelPair();
+    limitStreams(pair.offerer, 2);
+    const remoteAgain = waitRemoteChannel(pair.answerer, "again");
+    let again: RTCDataChannel | undefined;
+    pair.local.addEventListener("close", () => {
+      again = pair.offerer.createDataChannel("again");
+    });
+
+    try {
+      // Act: 両端が同じ tick で "dc" を閉じ、互いの reset が行き違う。
+      pair.local.close();
+      pair.remote.close();
+      await vi.waitFor(() =>
+        expect([pair.local.readyState, pair.remote.readyState]).toEqual([
+          "closed",
+          "closed",
+        ]),
+      );
+
+      // Assert: 作り直した channel は ID 1 で両端とも open になり、送受信できる。
+      expect(again!.id).toBe(1);
+      await waitOpen(again!);
+      const received = await remoteAgain;
+      const message = nextMessage(received);
+      again!.send("after-both");
+      await expect(message).resolves.toBe("after-both");
+      expect(channelSetsOf(pair.offerer).registered).toEqual(["again:open"]);
+    } finally {
+      await closeAll(pair.offerer, pair.answerer);
+    }
   });
 
   test("createDataChannel after pc.close() still throws InvalidStateError", async () => {

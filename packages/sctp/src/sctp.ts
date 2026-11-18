@@ -128,7 +128,11 @@ export class SCTP {
   readonly stateChanged: {
     [key in SCTPConnectionState]: Event<[]>;
   } = createEventsFromList(SCTPConnectionStates);
-  readonly onReconfigStreams = new Event<[number[]]>();
+  /**
+   * Streams reset (RFC 6525): `"outgoing"` when the peer performed our
+   * request, `"incoming"` when we performed the peer's.
+   */
+  readonly onReconfigStreams = new Event<[number[], "outgoing" | "incoming"]>();
   /**streamId: number, ppId: number, data: Buffer */
   readonly onReceive = new Event<[number, number, Buffer]>();
   onSackReceived: () => Promise<void> = async () => {};
@@ -705,6 +709,26 @@ export class SCTP {
     }
   }
 
+  /**
+   * A reset of outgoing stream `streamId` is queued or waits for the peer's
+   * response (RFC 6525).
+   */
+  isOutgoingResetPending(streamId: number) {
+    return (
+      this.reconfigQueue.includes(streamId) ||
+      !!this.reconfigRequest?.streams.includes(streamId)
+    );
+  }
+
+  /**
+   * The peer sent DATA on incoming stream `streamId` since its last reset,
+   * so it resets that stream too when the stream closes (RFC 8831 section
+   * 6.7: each side resets the outgoing stream it used).
+   */
+  hasIncomingStream(streamId: number) {
+    return this.inboundStreams[streamId] !== undefined;
+  }
+
   /** The peer answered our outstanding reset request with Success - Performed. */
   private async completeOutgoingReset() {
     const streamIds = this.reconfigRequest!.streams.map((streamId) => {
@@ -712,7 +736,7 @@ export class SCTP {
       return streamId;
     });
 
-    this.onReconfigStreams.execute(streamIds);
+    this.onReconfigStreams.execute(streamIds, "outgoing");
 
     this.reconfigRequest = undefined;
     this.reconfigRequestInProgress = false;
@@ -847,7 +871,7 @@ export class SCTP {
     }
 
     // # close data channel
-    this.onReconfigStreams.execute(resetStreams);
+    this.onReconfigStreams.execute(resetStreams, "incoming");
 
     // DATA beyond the boundary belongs to the reset streams (SSN starts at 0).
     const streamIds = new Set<number>();

@@ -289,3 +289,10 @@ export function captureSentDcep(pc: RTCPeerConnection) {
   };
   return sent;
 }
+
+/** `pc` 側の stream ID 上限を `count` に絞る (SCTP が交渉した stream 数の代わり)。 */
+export function limitStreams(pc: RTCPeerConnection, count: number) {
+  const sctp = (pc as any).sctpManager.sctpTransport.sctp;
+  sctp._inboundStreamsCount = count;
+  sctp._outboundStreamsCount = count;
+}
