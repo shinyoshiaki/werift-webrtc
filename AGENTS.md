@@ -42,6 +42,8 @@ Rules that apply to one package or directory belong in the nearest `AGENTS.md`.
 | package / unit tests | `npm run test:small` |
 | full suite including E2E | `npm run test` |
 | E2E only (verbose: `e2e:verbose`) | `npm run e2e` |
+| Firefox E2E with a committed run record (local only, not in CI) | `cd e2e && npm run firefox:record` |
+| prune / clear Firefox E2E run records (`--keep <n>`, `--dry-run`) | `cd e2e && npm run firefox:record:prune` |
 | broad workspace validation | `npm run ci` |
 | examples smoke (Chromium + gst/ffmpeg) | `npm run examples:e2e` |
 | install examples smoke Chromium | `npm run examples:e2e:install` |
@@ -63,7 +65,7 @@ Start with the narrowest package command, and widen to workspace commands only w
 * Single-package logic: that package's test and/or type-check command.
 * Cross-package, public API, or protocol changes: `npm run type` and `npm run test:small`; `npm run ci` when the change spans the full stack.
 * WPT runner, dummy media, or allowlist changes: `npm run wpt`; also `npm run wpt:coverage` when coverage or baseline wiring changes.
-* Browser interop or signaling changes: the relevant example and/or `npm run e2e`. For a failing E2E, reproduce with only the affected test file first, then run the full suite as final validation. Root `examples/` demos in the `examples/e2e` catalog also need `npm run examples:e2e`.
+* Browser interop or signaling changes: the relevant example and/or `npm run e2e`. A Firefox E2E run goes through `npm run firefox:record` so its record (commit hash and per-test results, `e2e/firefox-runs/`) is committed with the change. For a failing E2E, reproduce with only the affected test file first, then run the full suite as final validation. Root `examples/` demos in the `examples/e2e` catalog also need `npm run examples:e2e`.
 * Infrastructure-backed E2E: run the targeted scenario with its opt-in environment flag, so the real dependency path is exercised.
 * `integration/werift-mediasoup-interop`: follow that directory's `AGENTS.md`.
 

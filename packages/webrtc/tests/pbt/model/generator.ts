@@ -1,4 +1,5 @@
 import {
+  type BundleCandidates,
   MediaStreamTrack,
   type RTCPeerConnection,
   type RTCRtpTransceiver,
@@ -100,6 +101,9 @@ export type Start = "connected" | "unnegotiated" | "media";
 /** One operation: the peer that takes it, its name and the choices it made. */
 export type Op = [Side, string, Record<string, unknown>?];
 /**
+ * `bundleCandidates`: the `bundleCandidates` of both peers (default `"legacy"`; a generated
+ * scene draws `"compatible"` on even seeds). Each property varies
+ * independently so the model checks both configuration axes.
  * `pairing`: the `transceiverPairing` of both peers (default `"standard"`, the
  * JSEP 5.10 rules the oracles check; a generated scene draws `"byKind"`, the
  * werift default, sometimes, #816). `asymmetric`: peer b has
@@ -108,6 +112,7 @@ export type Op = [Side, string, Record<string, unknown>?];
 export type Scene = {
   start: Start;
   ops: Op[];
+  bundleCandidates?: BundleCandidates;
   pairing?: TransceiverPairing;
   asymmetric?: boolean;
 };
@@ -568,15 +573,20 @@ async function deliver(
 async function arrange(
   c: NegotiationCase,
   start: Start,
+  bundleCandidates: BundleCandidates = "legacy",
   pairing: TransceiverPairing = "standard",
   asymmetric = false,
 ): Promise<World & Peers2> {
   const oracles = new ModelOracles(c);
+  const config = { ...modelConfig(pairing), bundleCandidates };
   let a: RTCPeerConnection;
   let b: RTCPeerConnection;
-  const configB = (asymmetric ? asymmetricModelConfig : modelConfig)(pairing);
+  const configB = {
+    ...(asymmetric ? asymmetricModelConfig : modelConfig)(pairing),
+    bundleCandidates,
+  };
   if (start !== "connected") {
-    ({ a, b } = await c.given(createPeerPair(modelConfig(pairing), configB)));
+    ({ a, b } = await c.given(createPeerPair(config, configB)));
     oracles.application(
       a.addTransceiver(new MediaStreamTrack({ kind: "video" }), {
         direction: "sendrecv",
@@ -586,9 +596,7 @@ async function arrange(
       oracles.channel(a.createDataChannel("dc0"), a);
     }
   } else {
-    const scope = await c.given(
-      createDuplexSession(modelConfig(pairing), configB),
-    );
+    const scope = await c.given(createDuplexSession(config, configB));
     ({ a, b } = scope);
     oracles.application(scope.aVideo);
     oracles.application(scope.bVideo);
@@ -597,7 +605,7 @@ async function arrange(
   }
   oracles.watch(a, b);
   c.note(
-    `start: ${start}${pairing === "standard" ? "" : ` (${pairing})`}${asymmetric ? " (asymmetric b)" : ""}`,
+    `start: ${start} (bundleCandidates: ${bundleCandidates}${pairing === "standard" ? "" : `, ${pairing}`}${asymmetric ? ", asymmetric b" : ""})`,
   );
   return { c, oracles, saved: new Map(), created: 0, a, b };
 }
@@ -615,7 +623,13 @@ export async function runScene(
   scene: Scene,
   { lenient = false } = {},
 ) {
-  const w = await arrange(c, scene.start, scene.pairing, scene.asymmetric);
+  const w = await arrange(
+    c,
+    scene.start,
+    scene.bundleCandidates,
+    scene.pairing,
+    scene.asymmetric,
+  );
   for (const [index, [side, name, args = {}]] of scene.ops.entries()) {
     const peers = peersOf(w, side);
     const step = STEPS[name];
@@ -647,11 +661,19 @@ export async function generateScene(
     "unnegotiated",
     "media",
   ] as const);
-  // The pairing axis has its own stream, so it does not shift the operations.
+  // seed の乱数列を変えず、偶数 seed で compatible を選ぶ。
+  if (seed % 2 === 0) scene.bundleCandidates = "compatible";
+  // Pairing uses a separate stream so it does not shift the operations.
   if (seededRandom(seed ^ 0x816).chance(0.25)) scene.pairing = "byKind";
   // So has the asymmetric axis (peer b configured in another codec form).
   if (seededRandom(seed ^ 0x818).chance(0.25)) scene.asymmetric = true;
-  const w = await arrange(c, scene.start, scene.pairing, scene.asymmetric);
+  const w = await arrange(
+    c,
+    scene.start,
+    scene.bundleCandidates,
+    scene.pairing,
+    scene.asymmetric,
+  );
   for (let index = 1; index <= steps; index++) {
     const side: Side = rng.chance(0.5) ? "a" : "b";
     const peers = peersOf(w, side);
