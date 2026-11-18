@@ -16,7 +16,19 @@ ide:
 
 差分の基準は、チケット worktree に取り込み済みの親チケットのマージコミット `e83850f0e` です。headCommit は `1fad7f60e`（第 12 回: 不変条件への整理と行列テスト）です。
 
-### 受け入れテスト（ここだけ見れば不変条件を確認できます）
+### 受け入れテスト（ここだけ見れば目的の達成を確認できます）
+
+[packages/ice/tests/ice/failover-acceptance.test.ts:18](review-file:packages/ice/tests/ice/failover-acceptance.test.ts:18) の 1 ファイルで、チケットの目的「選択中の host 経路が切れても、ICE restart なしで両端が relay 経路へ移り、データが届く（修正前は consent 失効で `failed`）」を確かめられます。実ソケット（werift 同士）とローカルの TURN サーバーを使い、`cutHostPath()` で host ↔ host の経路だけを両方向とも落とします（共通の準備処理は [packages/ice/tests/utils.ts:3711](review-file:packages/ice/tests/utils.ts:3711) の `createFailoverRealPair`）。
+
+| 件 | 確認すること |
+| --- | --- |
+| [(semi-aggressive / renomination) 1章・F3・F5](review-file:packages/ice/tests/ice/failover-acceptance.test.ts:19) | host 経路で接続しデータが届く → 遮断から 12 s 以内に controlling 側が relay 経路へ移る → controlled 側も同じ 5-tuple に移り、データが双方向に届く → ICE restart なし（`generation` 不変）、両端とも `failed` を経ずに `connected` |
+
+実行: `cd packages/ice && npx vitest run tests/ice/failover-acceptance.test.ts`（2 件、各 8〜10 s、計約 18 s）。10 回連続で通過しました。修正前のリビジョン `e83850f0e` では 2 件とも失敗します（relay 経路へ移らない）。
+
+壊して確かめた箇所: controlling の退避の指名をやめる・書き込み不可を判定しない・退避先を監視しない、の 3 つは 2 件とも失敗。下位への置き換え（`failoverReplaces`）を外す・controlled が同じ値の指名で追従しない、の 2 つは semi-aggressive だけが失敗します（renomination は値の大きい NOMINATION で常に移るため、仕様どおり）。regular nomination は対象外（F7）のため、この件には含めず既存の `failover.test.ts` で確認しています。
+
+### 不変条件の行列テスト
 
 [packages/ice/tests/ice/failover-matrix.test.ts:56](review-file:packages/ice/tests/ice/failover-matrix.test.ts:56) の 1 ファイルで、次の不変条件を確かめられます。「選択中のペアと経路が異なる（別ソケット、または同じソケットの別リモートアドレスへの）eligible なペアは、順位とロールに関係なく監視され、選択した経路だけが切れたときに使われる」。
 
