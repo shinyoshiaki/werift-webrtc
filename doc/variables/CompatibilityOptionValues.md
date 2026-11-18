@@ -22,8 +22,8 @@ one takes two values:
   - `transceiverPairing: "byKind"`: a remote offer's m-section takes any
     unassociated transceiver of its kind (`"standard"`: JSEP 5.10).
   - `keyFrameRequestRouting: "fallback"`: a PLI / FIR for an unknown SSRC
-    falls back to the RTX owner or the only video sender (`"standard"`: not
-    delivered).
+    falls back to the RTX owner or the only video sender of the transport
+    it arrived on (`"standard"`: not delivered).
 
 Each option documents its default and whether `setConfiguration()` may
 change it. Any other value is a `TypeError`; the names used up to v0.27.0
