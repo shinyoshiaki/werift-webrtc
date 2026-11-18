@@ -51,6 +51,7 @@ export const AttributeKeys = [
   "ALTERNATE-SERVER",
   "RESPONSE-ORIGIN",
   "OTHER-ADDRESS",
+  "NOMINATION",
 ] as const;
 
 /**

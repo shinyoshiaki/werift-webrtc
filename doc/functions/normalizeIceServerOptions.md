@@ -16,7 +16,8 @@ The STUN and TURN servers `options` configure, the one place the singular
   credential) are kept once, at their first position;
 - an invalid address (see [validateAddress](validateAddress.md)) is dropped, and so is a
   TURN server without username or password (it cannot allocate);
-- a TURN transport left unset is "udp".
+- a TURN transport left unset is "udp";
+- the `urls` of merged TURN duplicates are merged (in order, once each).
 
 The built-in default STUN server is not added here; Connection falls back
 to it when the result has no STUN server.
@@ -37,4 +38,4 @@ to it when the result has no STUN server.
 
 ### turnServers
 
-> **turnServers**: `Required`\<[`TurnServerOptions`](../type-aliases/TurnServerOptions.md)\>[]
+> **turnServers**: [`NormalizedTurnServer`](../type-aliases/NormalizedTurnServer.md)[]
