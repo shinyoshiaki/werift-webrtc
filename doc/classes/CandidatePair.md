@@ -322,6 +322,23 @@ readonly \[`string`, `number`\]
 
 ***
 
+### smoothedRtt
+
+#### Get Signature
+
+> **get** **smoothedRtt**(): `number` \| `undefined`
+
+The smoothed RTT (seconds): the median of the last
+[RTT\_SMOOTHING\_SAMPLES](../variables/RTT_SMOOTHING_SAMPLES.md) samples, undefined with fewer than
+[RTT\_SMOOTHING\_MIN\_SAMPLES](../variables/RTT_SMOOTHING_MIN_SAMPLES.md). Switching the selection compares it
+(`SelectionController`), so one outlier does not cause a switch.
+
+##### Returns
+
+`number` \| `undefined`
+
+***
+
 ### state
 
 #### Get Signature
@@ -347,6 +364,26 @@ readonly \[`string`, `number`\]
 #### Returns
 
 `boolean`
+
+***
+
+### recordRoundTrip()
+
+> **recordRoundTrip**(`rtt`): `void`
+
+Record the RTT (seconds) of a check, consent check or backup check that
+was answered: `rtt` (the stats' `currentRoundTripTime`), the totals and
+the samples of [smoothedRtt](#smoothedrtt).
+
+#### Parameters
+
+##### rtt
+
+`number`
+
+#### Returns
+
+`void`
 
 ***
 
