@@ -62,6 +62,7 @@ import {
   pairKey,
   RegularNomination,
 } from "./nomination/regularNomination";
+import { SelectionController } from "./nomination/selectionController";
 import { SelectionReplacement } from "./nomination/selectionReplacement";
 import { ProvisionalChecklist } from "./provisional";
 import { classes, methods, TCP_CHECK_RESPONSE_TIMEOUT_MS } from "./stun/const";
@@ -189,10 +190,12 @@ export class Connection implements IceConnection {
     roleConflict: () => this.switchRole(false),
     allows: (pair) => this.failoverAllows(pair),
     failoverReplaces: (pair) =>
-      this.failoverNomination === pair ||
+      this.switchNomination?.pair === pair ||
       (this.selectionDown() && this.failover.writable(pair)),
     nominationEnded: (pair) => {
-      if (this.failoverNomination === pair) this.failoverNomination = undefined;
+      if (this.switchNomination?.pair === pair) {
+        this.switchNomination = undefined;
+      }
     },
     retriesForever: () => this.failoverEnabled(),
     selectionDown: () => this.selectionDown(),
@@ -289,6 +292,7 @@ export class Connection implements IceConnection {
         // it is used again only if selected anew.
         if (!this.failover.hasWritableBackup()) {
           this.failover.reset();
+          this.switching.stop();
           return false;
         }
         this.startConsentExpiredGrace();
@@ -305,12 +309,50 @@ export class Connection implements IceConnection {
    */
   private readonly failover = new FailoverMonitor(this.failoverHost());
   /**
-   * The pair a failover nomination (`evaluateFailover`) is sent for, until
-   * its outcome. When it succeeds the selection moves to it even if the old
-   * pair answered again meanwhile (the peer may already have taken the
-   * nomination), and the old pair's socket is demoted (D4).
+   * The pair a nomination that moves the selection off a pair that still
+   * outranks (or equals) it is sent for, until its outcome:
+   * - `failover` (`evaluateFailover`): the selection stopped answering;
+   * - `receiving` (`SelectionController`): the selection has not been
+   *   receiving for RECEIVING_SWITCHING_DELAY while the pair is;
+   * - `rtt` (`SelectionController`): equal priority, a lower smoothed RTT.
+   * When it succeeds the selection moves to it even if the old pair answered
+   * again meanwhile (the peer may already have taken the nomination). After
+   * `failover` and `receiving` the old pair's socket is demoted (D4).
    */
-  private failoverNomination?: CandidatePair;
+  private switchNomination?: {
+    pair: CandidatePair;
+    reason: "failover" | "receiving" | "rtt";
+  };
+  /**
+   * The controlling agent's choice among the selection and the monitored
+   * backups by receiving state and RTT (libwebrtc's ICE controller).
+   */
+  private readonly switching = new SelectionController({
+    active: () =>
+      this.iceControlling &&
+      this.replacesSelection() &&
+      this.failoverEnabled() &&
+      !this.selection.nominating &&
+      (this.state === "connected" || this.state === "completed") &&
+      !this.selectionDown(),
+    selected: () => this.nominated,
+    candidates: () => this.failover.backupPairs,
+    liveness: (pair) => this.failover.livenessOf(pair),
+    writable: (pair, now) => this.failover.writable(pair, now),
+    allows: (pair) => this.replacesWith(pair) && this.failoverAllows(pair),
+    comparePriority: (pair, other) =>
+      compareCandidatePairPriority(
+        pair.localCandidate,
+        pair.remoteCandidate,
+        other.localCandidate,
+        other.remoteCandidate,
+        this.iceControlling,
+      ),
+    switchTo: (pair, reason) => {
+      this.switchNomination = { pair, reason };
+      this.selection.nominate(pair);
+    },
+  });
   /**
    * The selected pair's consent expired while a backup was writable: the
    * agent fails when this fires unless the selection moved first
@@ -622,6 +664,7 @@ export class Connection implements IceConnection {
     for (const pair of this.checkList) pair.handle?.resolve?.();
     this.selection.clearRetries();
     this.failover.reset();
+    this.switching.stop();
     this.clearConsentExpiredGrace();
   }
 
@@ -712,6 +755,7 @@ export class Connection implements IceConnection {
     this.selection.abort();
     this.nominationHint = undefined;
     this.failover.reset();
+    this.switching.stop();
     this.clearConsentExpiredGrace();
     // Drop old pair's consent timers/transactions; restarted when a new pair is nominated.
     this.consent.stop();
@@ -1558,6 +1602,7 @@ export class Connection implements IceConnection {
       // pair's consent requests (not counted as unanswered; the next one
       // carries the new role).
       this.failover.halt();
+      this.switching.stop();
       this.consent.cancelRequests();
       // USE-CANDIDATE received while controlled came from a peer that was
       // controlling then; as the controlling agent this one nominates itself.
@@ -1699,14 +1744,19 @@ export class Connection implements IceConnection {
         (this.nominated == undefined || this.selection.replaces(pair))
       ) {
         const previous = this.nominated;
-        // Failover: the selection moves off a pair that stopped answering,
-        // or a failover nomination sent while it did not answer succeeded.
+        const switching =
+          this.switchNomination?.pair === pair
+            ? this.switchNomination.reason
+            : undefined;
+        if (switching) this.switchNomination = undefined;
+        // Failover: the selection moves off a pair that stopped answering
+        // (or stopped receiving), or a failover nomination sent while it did
+        // not answer succeeded.
         const failingOver =
           !!previous &&
-          (this.selectionDown() || this.failoverNomination === pair);
-        if (this.failoverNomination === pair) {
-          this.failoverNomination = undefined;
-        }
+          (this.selectionDown() ||
+            switching === "failover" ||
+            switching === "receiving");
         log(
           failingOver
             ? "selected pair failed over"
@@ -1714,7 +1764,7 @@ export class Connection implements IceConnection {
               ? "selected pair replaced"
               : "nominated",
           pair.toJSON(),
-          { previous: previous?.toJSON() },
+          { previous: previous?.toJSON(), reason: switching },
         );
         this.nominated = pair;
         this.liteNominating = false;
@@ -1725,6 +1775,10 @@ export class Connection implements IceConnection {
           // with a new nomination.
           previous.nominated = false;
           this.failover.demote(previous);
+        } else if (previous && switching === "rtt") {
+          // A lower RTT moved it: the old pair is a backup, which the
+          // selection moves back to only with a new nomination.
+          previous.nominated = false;
         }
         // RFC 7675 section 5.1: the successful connectivity check that
         // selected the pair is its initial consent, so data may flow at once
@@ -1791,6 +1845,8 @@ export class Connection implements IceConnection {
           this.selection.evaluate();
           void this.selection.checkOutrankingPairs();
           this.selection.scheduleRetries();
+          // A check answered: its RTT may move the selection (M3).
+          this.switching.evaluate();
         }
         return;
       }
@@ -1923,9 +1979,7 @@ export class Connection implements IceConnection {
         const rtt = (endTime - startTime) / 1000; // Convert to seconds
 
         // Update RTT statistics
-        pair.rtt = rtt;
-        pair.totalRoundTripTime += rtt;
-        pair.roundTripTimeMeasurements++;
+        pair.recordRoundTrip(rtt);
 
         log("response received", request.toJSON(), response.toJSON(), addr, {
           localUsername,
@@ -2659,6 +2713,8 @@ export class Connection implements IceConnection {
   private onLinkChanged() {
     this.evaluateFailover();
     this.updateLinkState();
+    // An outcome changes the RTT and the receiving state (M3).
+    this.switching.evaluate();
   }
 
   /**
@@ -2687,7 +2743,7 @@ export class Connection implements IceConnection {
       return;
     }
     log("failover", target.toJSON(), { selected: this.nominated?.toJSON() });
-    this.failoverNomination = target;
+    this.switchNomination = { pair: target, reason: "failover" };
     this.selection.nominate(target);
   }
 
@@ -2773,6 +2829,7 @@ export class Connection implements IceConnection {
     this.clearConsentExpiredGrace();
     this.consent.stop();
     this.failover.reset();
+    this.switching.stop();
     this.setState("failed");
   }
 
@@ -2831,9 +2888,7 @@ export class Connection implements IceConnection {
       }
       pair.responsesReceived++;
       const rtt = (performance.now() - startedAt) / 1000;
-      pair.rtt = rtt;
-      pair.totalRoundTripTime += rtt;
-      pair.roundTripTimeMeasurements++;
+      pair.recordRoundTrip(rtt);
       return true;
     } catch (error) {
       // 487: repair the role conflict as a check does (RFC 8445 §7.2.5.1).

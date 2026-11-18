@@ -49,6 +49,11 @@ export type PairLiveness = {
   lastReceived: number;
   /** Consecutive checks that went unanswered. */
   unanswered: number;
+  /**
+   * When the first of the `unanswered` checks was counted (ms); undefined
+   * while the last check was answered.
+   */
+  missedSince?: number;
   /** Responses since monitoring began (stabilizing below MIN_PINGS_AT_WEAK_PING_INTERVAL). */
   responses: number;
   /** Consecutive responses (reset by an unanswered check). */
@@ -309,14 +314,16 @@ export class FailoverMonitor {
     liveness.lastResponse = now;
     liveness.lastReceived = now;
     liveness.unanswered = 0;
+    liveness.missedSince = undefined;
     liveness.responses++;
     liveness.consecutive++;
   }
 
   /** A check of monitored `pair` went unanswered. */
-  unanswered(pair: CandidatePair) {
+  unanswered(pair: CandidatePair, now = Date.now()) {
     const liveness = this.liveness.get(pair);
     if (!liveness) return;
+    if (liveness.unanswered === 0) liveness.missedSince = now;
     liveness.unanswered++;
     liveness.consecutive = 0;
   }

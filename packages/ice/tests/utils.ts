@@ -1131,6 +1131,12 @@ export async function createHeldUdpProxy(target: Address) {
   const upstream = new Map<string, dgram.Socket>();
   const queued: (() => void)[] = [];
   let held = true;
+  /** Each datagram waits this long (ms) in either direction (`setDelay`). */
+  let delayMs = 0;
+  const later = (send: () => void) => {
+    if (delayMs > 0) setTimeout(send, delayMs);
+    else send();
+  };
   front.on("message", (data, rinfo) => {
     const key = `${rinfo.address}:${rinfo.port}`;
     let socket = upstream.get(key);
@@ -1138,11 +1144,11 @@ export async function createHeldUdpProxy(target: Address) {
       socket = dgram.createSocket(family);
       socket.bind(0, host);
       socket.on("message", (reply) => {
-        front.send(reply, rinfo.port, rinfo.address);
+        later(() => front.send(reply, rinfo.port, rinfo.address));
       });
       upstream.set(key, socket);
     }
-    const forward = () => socket!.send(data, target[1], target[0]);
+    const forward = () => later(() => socket!.send(data, target[1], target[0]));
     if (held) queued.push(forward);
     else forward();
   });
@@ -1155,6 +1161,10 @@ export async function createHeldUdpProxy(target: Address) {
     /** Queue the following datagrams again until the next `release()`. */
     hold() {
       held = true;
+    },
+    /** Delay every following datagram by `ms` in each direction (the path's RTT grows by 2 × `ms`). */
+    setDelay(ms: number) {
+      delayMs = ms;
     },
     close() {
       for (const socket of upstream.values()) socket.close();
@@ -3836,5 +3846,166 @@ export function nominationChecklist(
       kind === "provisional"
         ? h.receiveProvisionalNomination(pair)
         : h.receiveNomination(pair),
+  };
+}
+
+// --- switching the selection by receiving state and RTT (SelectionController) ---
+
+/** Pair priority of the equal-priority sockets of `createRttSwitchHarness`. */
+export const RTT_SWITCH_PRIORITY = 1_000_000;
+
+/**
+ * Shared Arrange for `SelectionController`: a controlling failover harness
+ * whose sockets are two TURN allocations of equal priority (the pairs to the
+ * one remote candidate tie on priority), the pair of socket 0 selected, and
+ * the RTT of each socket injected as the delay of its peer's answers
+ * (`setRtt`, fake time). `liveness(pair)` is what the failover monitor knows
+ * of a pair; `switchNominations(pair)` the nominating checks sent for it
+ * (USE-CANDIDATE or NOMINATION) since the selection.
+ */
+export async function createRttSwitchHarness({
+  renomination = false,
+  locals = [
+    {
+      type: "turn",
+      candidateType: "relay",
+      priority: RTT_SWITCH_PRIORITY,
+    },
+    {
+      type: "turn",
+      candidateType: "relay",
+      priority: RTT_SWITCH_PRIORITY,
+    },
+  ],
+}: {
+  renomination?: boolean;
+  locals?: { type: string; candidateType: string; priority: number }[];
+} = {}) {
+  const h = await createFailoverHarness({
+    renomination,
+    locals,
+    remotes: [FAILOVER_HIGH],
+  });
+  const selectedAt = h.requests().length;
+  const failover = (
+    h.connection as unknown as {
+      failover: {
+        livenessOf(pair: CandidatePair):
+          | {
+              lastReceived: number;
+              missedSince?: number;
+              responses: number;
+            }
+          | undefined;
+      };
+    }
+  ).failover;
+  return {
+    ...h,
+    /** The peer answers checks on socket `local` after `ms` (its RTT, fake time). */
+    setRtt: (local: number, ms: number) => {
+      h.protocols[local].responseDelayMs = ms;
+    },
+    liveness: (pair: CandidatePair) => failover.livenessOf(pair),
+    /** Checks carrying a nomination (USE-CANDIDATE / NOMINATION) sent to `pair` after the first selection; consent checks of the selected pair carry one too. */
+    switchNominations: (pair: CandidatePair) =>
+      h
+        .requestsTo(pair)
+        .filter(
+          (request) =>
+            h.requests().indexOf(request) >= selectedAt &&
+            (request.useCandidate || request.nomination !== undefined),
+        ),
+  };
+}
+
+/**
+ * Shared Arrange: a controlling relay-only agent `a` (forceTurn) with two
+ * TURN allocations of equal priority on one local TURN server, each reached
+ * through its own UDP proxy, and a controlled agent `b` with one IPv4 host
+ * candidate, connected over real sockets. `delay(index, ms)` delays every
+ * datagram between `a` and the TURN server on allocation `index` (its proxy)
+ * by `ms` each way; `relayIndexOf(connection)` is the allocation the
+ * selection of `a` or `b` goes through.
+ */
+export async function createRttSwitchRealPair({
+  renomination = false,
+}: {
+  renomination?: boolean;
+} = {}) {
+  const host = getHostAddresses(true, false)[0]!;
+  const server = await createLocalTurnServer(host);
+  const proxies = [
+    await createHeldUdpProxy(server.address!),
+    await createHeldUdpProxy(server.address!),
+  ];
+  for (const proxy of proxies) proxy.release();
+  const shared: Partial<IceOptions> = { useIpv6: false, renomination };
+  const a = createTestConnection(true, {
+    ...shared,
+    stunServer: undefined,
+    forceTurn: true,
+    turnServers: proxies.map((proxy) => ({
+      address: proxy.address,
+      username: TURN_TEST_USERNAME,
+      password: TURN_TEST_PASSWORD,
+      transport: "udp" as const,
+    })),
+  });
+  const b = createTestConnection(false, {
+    ...shared,
+    interfaceAddresses: { udp4: host },
+  });
+  a.remoteRenomination = renomination;
+  b.remoteRenomination = renomination;
+  await Promise.all([a.gatherCandidates(), b.gatherCandidates()]);
+  exchangeIceCredentials(a, b);
+  await deliverLocalCandidates(a, b, { endOfCandidates: true });
+  await deliverLocalCandidates(b, a, { endOfCandidates: true });
+  await Promise.all([a.connect(), b.connect()]);
+
+  const relays = a.localCandidates.filter(
+    (candidate) => candidate.type === "relay",
+  );
+  /** The relay candidate of `a` the selection of `connection` uses (index in `relays`), or -1. */
+  const relayIndexOf = (connection: Connection) => {
+    const pair = connection.nominated;
+    if (!pair) return -1;
+    const candidate =
+      connection === a ? pair.localCandidate : pair.remoteCandidate;
+    return relays.findIndex(
+      (relay) => relay.host === candidate.host && relay.port === candidate.port,
+    );
+  };
+  /** The proxy of the allocation behind relay candidate `index` of `a`. */
+  const proxyOf = (index: number) => {
+    const relay = relays[index];
+    const protocol = (a as unknown as { protocols: Protocol[] }).protocols.find(
+      (protocol) =>
+        protocol.localCandidate?.host === relay.host &&
+        protocol.localCandidate?.port === relay.port,
+    ) as unknown as { turn?: { server: Address } } | undefined;
+    const server = protocol?.turn?.server;
+    const proxy = proxies.find(
+      (proxy) =>
+        server &&
+        proxy.address[0] === server[0] &&
+        proxy.address[1] === server[1],
+    );
+    if (!proxy) throw new Error(`rtt switch: no proxy for relay ${index}`);
+    return proxy;
+  };
+  return {
+    a,
+    b,
+    relays,
+    relayIndexOf,
+    /** Delay every datagram of relay `index` of `a` by `ms` each way. */
+    delay: (index: number, ms: number) => proxyOf(index).setDelay(ms),
+    close: async () => {
+      await Promise.allSettled([a.close(), b.close()]);
+      for (const proxy of proxies) proxy.close();
+      await server.close();
+    },
   };
 }

@@ -406,9 +406,7 @@ export class ConsentFreshness {
               }
 
               const rtt = (performance.now() - requestStartedAt) / 1000; // seconds
-              nominated.rtt = rtt;
-              nominated.totalRoundTripTime += rtt;
-              nominated.roundTripTimeMeasurements++;
+              nominated.recordRoundTrip(rtt);
 
               nominated.responsesReceived++;
               this.fresh = true;

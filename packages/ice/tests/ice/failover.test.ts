@@ -32,10 +32,18 @@ describe("failover of the selected pair", () => {
     { mode: "semi-aggressive", renomination: false },
     { mode: "renomination", renomination: true },
   ])("controlling ($mode)", ({ renomination }) => {
-    test("the selected pair stops answering: checked every 900 ms, unwritable after 5 checks and 5 s, the agent moves to the writable backup", async () => {
+    test("the selected pair stops answering: checked every 900 ms, the agent moves to the receiving backup once the selection has not been receiving for RECEIVING_SWITCHING_DELAY (before it is unwritable)", async () => {
       const h = await createFailoverHarness({ renomination });
       const host = h.selection;
       const relay = h.pairOf(1);
+      const liveness = () =>
+        (
+          h.connection as unknown as {
+            failover: {
+              livenessOf(pair: unknown): { lastReceived: number };
+            };
+          }
+        ).failover.livenessOf(host)!;
       // 退避先 (relay) が安定するまで進める。
       await vi.advanceTimersByTimeAsync(10_000);
       expect(relay.state).toBe(CandidatePairState.SUCCEEDED);
@@ -44,22 +52,25 @@ describe("failover of the selected pair", () => {
         // Act: 選択中の host の経路を切り、退避するまで進める。
         h.cut(0);
         const cutAt = Date.now();
+        const lastReceived = liveness().lastReceived;
         const sentBefore = h.requestsTo(host).length;
-        const took = await h.advanceUntil(
-          () => h.connection.nominated === relay,
-          20_000,
-        );
+        await h.advanceUntil(() => h.connection.nominated === relay, 20_000);
+        const movedAt = Date.now();
 
-        // Assert: 経路が切れてから 5〜10 s (+応答待ち) で relay へ移る。
+        // Assert: 最後の受信から 2.5 s で受信なし、その後の check が応答されず (RTT 0 なので期限は既定の 1 s)、
+        // さらに 1 s (RECEIVING_SWITCHING_DELAY) 待ってから relay へ移る。書き込み不可 (5 回・5 s) は待たない。
         expect(h.connection.nominated).toBe(relay);
-        expect(took).toBeGreaterThanOrEqual(5000);
-        expect(took).toBeLessThanOrEqual(11_000);
-        // Assert: 応答がなくなった後の consent check は 1 s 以下の間隔で、少なくとも 5 回送られた。
+        expect(movedAt - lastReceived).toBeGreaterThanOrEqual(2500 + 1000);
+        expect(movedAt - lastReceived).toBeLessThanOrEqual(
+          2500 + 1000 + 1000 + 200,
+        );
+        expect(movedAt - cutAt).toBeLessThan(5000);
+        // Assert: 応答がなくなった後の consent check は 1 s 以下の間隔で送られた。
         const missed = h
           .requestsTo(host)
           .slice(sentBefore)
           .filter((request) => request.at >= cutAt);
-        expect(missed.length).toBeGreaterThanOrEqual(5);
+        expect(missed.length).toBeGreaterThanOrEqual(2);
         const gaps = missed.slice(1).map((r, i) => r.at - missed[i].at);
         for (const gap of gaps) expect(gap).toBeLessThanOrEqual(1000);
         // Assert: 移る時の指名は USE-CANDIDATE (semi-aggressive) / 大きい NOMINATION (renomination)。
@@ -594,7 +605,10 @@ describe("failover: review regressions (delay, late candidate, state, silence)",
 
     try {
       // Act: 以後の応答が 3 s 遅れる (期限 500 ms は過ぎるが、transaction の 5 s 以内) 状態で 30 s 進める。
+      // 混んだ event loop はどのソケットの応答も遅らせるので、退避先 (relay) も同じだけ遅れる
+      // (relay だけ速いと、受信状態の差で relay へ移るのが正しい動き)。
       h.protocols[0].responseDelayMs = 3000;
+      h.protocols[1].responseDelayMs = 3000;
       const responsesBefore = liveness().responses;
       await vi.advanceTimersByTimeAsync(30_000);
 

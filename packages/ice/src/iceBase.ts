@@ -217,6 +217,36 @@ export class CandidatePair implements CandidatePairStats {
   retransmissionsSent = 0;
   consentRequestsSent = 0;
   private readonly requestTransactionIds = new Set<string>();
+  /** The most recent RTT samples (seconds), oldest first (see `smoothedRtt`). */
+  private readonly rttSamples: number[] = [];
+
+  /**
+   * Record the RTT (seconds) of a check, consent check or backup check that
+   * was answered: `rtt` (the stats' `currentRoundTripTime`), the totals and
+   * the samples of {@link smoothedRtt}.
+   */
+  recordRoundTrip(rtt: number) {
+    this.rtt = rtt;
+    this.totalRoundTripTime += rtt;
+    this.roundTripTimeMeasurements++;
+    this.rttSamples.push(rtt);
+    if (this.rttSamples.length > RTT_SMOOTHING_SAMPLES) this.rttSamples.shift();
+  }
+
+  /**
+   * The smoothed RTT (seconds): the median of the last
+   * {@link RTT_SMOOTHING_SAMPLES} samples, undefined with fewer than
+   * {@link RTT_SMOOTHING_MIN_SAMPLES}. Switching the selection compares it
+   * (`SelectionController`), so one outlier does not cause a switch.
+   */
+  get smoothedRtt(): number | undefined {
+    if (this.rttSamples.length < RTT_SMOOTHING_MIN_SAMPLES) return undefined;
+    const sorted = [...this.rttSamples].sort((a, b) => a - b);
+    const middle = sorted.length >> 1;
+    return sorted.length % 2
+      ? sorted[middle]
+      : (sorted[middle - 1] + sorted[middle]) / 2;
+  }
 
   toJSON() {
     return this.json;
@@ -390,6 +420,42 @@ export const FAILOVER_BACKUP_ATTEMPTS = 3;
  * {@link MIN_PINGS_AT_WEAK_PING_INTERVAL} for the same purpose).
  */
 export const FAILOVER_RECOVERY_RESPONSES = 3;
+
+// Switching the selected pair (`SelectionController`, controlling, within the
+// failover scope): libwebrtc's `BasicIceController::ShouldSwitchConnection`
+// compares the state (writable, receiving), then the priority, then the RTT.
+
+/**
+ * A backup that wins over the selected pair only because the selection is not
+ * receiving (nothing received for {@link WEAK_CONNECTION_RECEIVE_TIMEOUT})
+ * takes over only once the selection has not been receiving for this long
+ * (ms); the decision is checked again then, and a selection that received
+ * something meanwhile stays. libwebrtc: `receiving_switching_delay`
+ * (`kReceivingSwitchingDelay`).
+ */
+export const RECEIVING_SWITCHING_DELAY = 1000;
+
+/**
+ * Between pairs of equal state and priority, the selection moves only to a
+ * pair whose smoothed RTT ({@link CandidatePair.smoothedRtt}) is at least this
+ * much (ms) lower. libwebrtc: `kMinImprovement`.
+ */
+export const RTT_SWITCH_MIN_IMPROVEMENT = 10;
+
+/**
+ * The RTT samples {@link CandidatePair.smoothedRtt} keeps (the most recent
+ * ones); their median is the smoothed RTT, so a single outlier moves nothing.
+ * werift's own value (libwebrtc keeps a moving average, ratio 3, which one
+ * outlier still moves by a quarter of its distance).
+ */
+export const RTT_SMOOTHING_SAMPLES = 5;
+
+/**
+ * Samples a pair needs before {@link CandidatePair.smoothedRtt} has a value
+ * (the RTT takes part in a switch). The same as
+ * {@link MIN_PINGS_AT_WEAK_PING_INTERVAL}: a backup is stable from then on.
+ */
+export const RTT_SMOOTHING_MIN_SAMPLES = 3;
 
 /**
  * Compute consent response wait from pair RTT (seconds).
