@@ -392,11 +392,12 @@ export class RTCSctpTransport {
             if (existing && !existing.isCreatedByRemote) {
               // The stream ID is one this side uses (reserved or opened
               // here, or negotiated): the peer violates the parity of its
-              // DTLS role. Never acknowledge an OPEN for another channel.
+              // DTLS role, or reuses a stream in use.
               log("DATA_CHANNEL_OPEN on a stream ID in local use, rejected", {
                 streamId,
                 label: existing.label,
               });
+              this.rejectOpenOnStreamInUse(existing);
               return;
             }
             if (!existing) {
@@ -799,6 +800,23 @@ export class RTCSctpTransport {
         this.unannounced.delete(channel);
       }
     }
+  }
+
+  /**
+   * RFC 8832 section 6: a DATA_CHANNEL_OPEN on a stream already in use is
+   * not acknowledged, and the data channel of that stream is closed by
+   * resetting its outgoing stream (RFC 8831 section 6.7). The peer's channel
+   * then sees the reset before any ACK (a failed open) and closes; the local
+   * channel on the stream closes too once the peer resets its side, as both
+   * ends claim the stream. One whose OPEN is still queued is not announced.
+   */
+  private rejectOpenOnStreamInUse(channel: RTCDataChannel) {
+    if (this.unannounced.delete(channel)) {
+      this.dataChannelQueue = this.dataChannelQueue.filter(
+        ([queued]) => queued !== channel,
+      );
+    }
+    this.dataChannelClose(channel);
   }
 
   dataChannelClose(channel: RTCDataChannel) {

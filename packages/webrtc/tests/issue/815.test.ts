@@ -1,3 +1,5 @@
+import { vi } from "vitest";
+
 import {
   type RTCDtlsTransport,
   RTCPeerConnection,
@@ -5,14 +7,17 @@ import {
 } from "../../src";
 import { createDtlsTransport } from "../fixture";
 import {
+  captureSentDcep,
   channelSetsOf,
   closeAll,
   closedObservation,
   createLimitedTransport,
   createPeers,
+  forceIdParity,
   negotiate,
   nextMessage,
   observeCloseStates,
+  openChannelPair,
   waitOpen,
   waitRemoteChannel,
 } from "./815.helpers";
@@ -528,5 +533,51 @@ describe("issue 815: stream ID exhaustion", () => {
       closedObservation("second"),
       closedObservation("pending"),
     ]);
+  });
+});
+
+describe("issue 815: a DATA_CHANNEL_OPEN on a stream in local use", () => {
+  test("is not acknowledged and the stream is reset, so neither channel stays connecting", async () => {
+    // Arrange: 接続済みの 2 peer (offerer = DTLS server = 奇数)。answerer を偶奇規則に
+    // 違反する相手 (奇数で採番) にし、OPEN と ACK の送信を記録する。
+    const pair = await openChannelPair();
+    forceIdParity(pair.answerer, 1);
+    const offererDcep = captureSentDcep(pair.offerer);
+    const announced: string[] = [];
+    for (const pc of [pair.offerer, pair.answerer]) {
+      pc.onDataChannel.subscribe((c) => announced.push(c.label));
+    }
+
+    try {
+      // Act: 両端が同じ tick で channel を作り、同じ stream ID 3 で OPEN を送り合う (#815 の衝突)。
+      const mine = pair.offerer.createDataChannel("mine");
+      const theirs = pair.answerer.createDataChannel("theirs");
+      expect([mine.id, theirs.id]).toEqual([3, 3]);
+
+      // Assert: どちらも ACK されず、stream reset で両端の channel が closed になる。
+      await vi.waitFor(() =>
+        expect([mine.readyState, theirs.readyState]).toEqual([
+          "closed",
+          "closed",
+        ]),
+      );
+      expect(offererDcep).toEqual(["OPEN:3"]);
+      expect(announced).toEqual([]);
+      // Assert: どちらの登録表・待機集合・キューにも閉じた channel が残らない。
+      for (const pc of [pair.offerer, pair.answerer]) {
+        expect(channelSetsOf(pc)).toEqual({
+          registered: [`dc:open`],
+          unannounced: [],
+          queued: [],
+        });
+      }
+
+      // Act / Assert: 他の stream の channel は影響を受けず送受信できる。
+      const received = nextMessage(pair.remote);
+      pair.local.send("still-open");
+      await expect(received).resolves.toBe("still-open");
+    } finally {
+      await closeAll(pair.offerer, pair.answerer);
+    }
   });
 });

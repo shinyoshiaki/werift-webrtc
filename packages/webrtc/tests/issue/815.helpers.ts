@@ -256,3 +256,36 @@ export function tryCreateDataChannel(
     return `throws:${(error as Error).name}`;
   }
 }
+
+/**
+ * `pc` の in-band 採番を指定の偶奇に固定する (DTLS role の偶奇規則に違反する
+ * 相手、たとえば ICE role から偶奇を決めていた旧 werift の再現)。
+ */
+export function forceIdParity(pc: RTCPeerConnection, parity: 0 | 1) {
+  const transport = (pc as any).sctpManager.sctpTransport;
+  Object.defineProperty(transport, "idParity", {
+    get: () => parity,
+    configurable: true,
+  });
+}
+
+/** `pc` が SCTP に渡した DCEP メッセージ (`OPEN:<stream>` / `ACK:<stream>`)。 */
+export function captureSentDcep(pc: RTCPeerConnection) {
+  const sctp = (pc as any).sctpManager.sctpTransport.sctp;
+  const sent: string[] = [];
+  const send = sctp.send.bind(sctp);
+  sctp.send = (
+    streamId: number,
+    ppId: number,
+    data: Buffer,
+    ...rest: any[]
+  ) => {
+    if (ppId === 50) {
+      sent.push(
+        `${data[0] === 3 ? "OPEN" : data[0] === 2 ? "ACK" : data[0]}:${streamId}`,
+      );
+    }
+    return send(streamId, ppId, data, ...rest);
+  };
+  return sent;
+}
