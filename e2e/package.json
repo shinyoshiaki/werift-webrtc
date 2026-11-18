@@ -14,7 +14,7 @@
     "clean": "pkill -9 gst-launch",
     "debug": "cd debug && npm run dev",
     "dev": "vitest ./tests --browser.headless",
-    "firefox": "vitest run ./tests --browser.headless --config vitest.firefox.config.mts",
+    "firefox": "vitest run --browser.headless --config vitest.firefox.config.mts",
     "format": "biome check --write server tests simulations",
     "install:browsers": "node ensure-browser.js",
     "server": "node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../tools/node-ts/register.mjs ./server/main.ts",
