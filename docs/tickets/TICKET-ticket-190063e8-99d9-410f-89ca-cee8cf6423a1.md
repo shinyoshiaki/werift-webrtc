@@ -1,0 +1,213 @@
+# [ICE/SDP] ICE restartを伴わないBUNDLE再交渉で候補を繰り返し広告する問題を改善する（#269）
+
+## 1. 目的と背景
+
+- 元Issue: #269（koush）。**妥当な最適化課題（developで再現可能）**。
+- werift はローカルSDPを作るとき、m-line ごとに、その m-line が使う ICE transport の全 candidate と `a=end-of-candidates` を書いている。BUNDLE で全 m-line が 1 つの transport を共有していても、同じ candidate 一覧が m-line の数だけ繰り返される。そのため、長く続く BUNDLE 接続で addTrack などの再交渉を重ねると、SDP サイズが「m-line 数 × candidate 数」に比例して大きくなる。
+- スコープは**冗長な SDP 候補列挙（と、それに伴うトリクルの重複）の削減**に限る。ICE 再交渉そのものの不具合とは扱わない。#270（未使用ソケットの累積）とは独立している。
+
+### 現状の実測（develop `9234d0b74`、ローカル 2 PC、STUN なし、BUNDLE 確立後に video を 1 本ずつ追加して再オファー）
+
+| 時点 | m-line 数 | `a=candidate` 行 | `a=end-of-candidates` | SDP bytes |
+| --- | --- | --- | --- | --- |
+| 初回 offer（収集後の localDescription） | 2 | 24 | 2 | 3,793 |
+| 再オファー 1 | 3 | 36 | 3 | 5,724 |
+| 再オファー 3 | 5 | 60 | 5 | 9,586 |
+| 再オファー 5 | 7 | 84 | 7 | 13,448 |
+
+transport は 1 つで、candidate は 12 個しかない。それでも m-line が 1 本増えるたびに約 1.9KB（12 candidates + eoc）増える。BUNDLE の非tag m-line に載っている candidate はすべて重複である。
+
+## 2. 現行コードの根拠
+
+| 箇所 | 内容 |
+| --- | --- |
+| `packages/webrtc/src/sdpManager.ts` `addTransportDescription()`（L192–235） | `describedLocalGeneration()` が返す generation の `candidates` / `complete` / `parameters` を、**m-line 単位で無条件に** `media.iceCandidates` / `iceCandidatesComplete` / `iceParams` に設定している。BUNDLE の tag かどうかは判定していない。 |
+| 同 `createMediaDescriptionForTransceiver()` L131 / `createMediaDescriptionForSctp()` L185 | `buildOfferSdp()` / `buildAnswerSdp()` で m-line を作るたびに、上の関数を呼んでいる。 |
+| 同 `buildAnswerSdp()` L921–927 | pending proposal 用に用意した transport（`transportByMid`）で、もう一度 `addTransportDescription()` を呼ぶ。 |
+| 同 `setLocal()` L1176–1240 | 候補収集や end-of-candidates のたびに、`_localDescription` の全 m-line を `addTransportDescription(..., { applied })` で書き直す（`peerConnection.ts` L878– の `onIceCandidate` 購読から呼ばれる）。 |
+| 同 `negotiatedBundleTags`（L795） | 確定した answer の BUNDLE tag（group の先頭 MID）。`buildOfferSdp()` の group 順序付けで使われている。 |
+| `packages/webrtc/src/transport/ice.ts` `describedLocalGeneration()`（L278） | live または staged（ICE restart）の generation から、credentials・candidates・complete を返す。 |
+| `packages/webrtc/src/negotiation/bundleTopology.ts` `isBundledNonTag()`（L83） | 受信側はすでに、**非tag m-line の candidate と ICE/DTLS パラメータを無視する**（`remoteMediaApplication.ts` L494–525、`remoteCandidates.ts` L244）。そのため werift 同士なら、送信側で非tag の candidate を省いても受信結果は変わらない。 |
+| `packages/webrtc/src/peerConnection.ts` L1412–1451 | offer/answer/pranswer の適用後、`takePreparedCandidateTransports()` で新しく用意した transport の candidate をまとめてトリクルし直す。同じ generation の既存 transport は対象外。ICE restart のときは `emitStagedIceCandidates()` / `emitCommittedIceCandidates()` が新しい generation を通知する。 |
+
+## 3. 仕様上の位置づけ（実装前に条文を再確認すること）
+
+- **RFC 8843（BUNDLE）§7** と **RFC 8859** の TRANSPORT カテゴリ: BUNDLE を交渉した後は、candidate などのトランスポート属性を tag の m-section にだけ載せ、他の bundled m-section には載せない、という扱い。JSEP（RFC 8829）§5.2.2 / §5.3.2（subsequent offer / answer）の bundled m-section の扱いも合わせて確認する。
+  → **非tag m-line の candidate と end-of-candidates を省くのは仕様に沿う方向**であり、第一の改善対象とする。
+- **RFC 8839 §4.4.1.1.2 など**（ICE 実行中の既存ストリームを再オファーする場合）: 「通知済みのローカル候補をすべて含める」という要求がある。Completed 後の扱い（選択ペアのローカル候補だけにするか）は RFC 5245 §9.1.2.2 と RFC 8839 で違いがあるため、要確認。
+  → **tag m-line の candidate まで省くのは仕様上グレー**なので、既定では行わない（下の Phase B）。
+- **W3C webrtc-pc**: `localDescription` / `pending|currentLocalDescription` は、収集済みのローカル候補を含んでいる必要がある。tag m-line に全候補が残っていればこの要件は満たせる。WPT に影響が出るかは `npm run wpt` で確認する。
+
+## 4. 実装内容
+
+### Phase A（本チケットの必須範囲）: BUNDLE 非tag m-line の candidate / end-of-candidates を省く
+
+1. **判定ロジック**を `SDPManager` に追加する。例: `omitsBundledCandidates(media, dtlsTransport, description)`。次の**すべて**を満たすときだけ省く。
+   - `bundlePolicy !== "disable"`
+   - 確定 answer の BUNDLE group が存在する（`negotiatedBundleTags` が空でない）。最初の offer、pranswer の段階、BUNDLE がまだ確定していない状態では省かない。
+   - 当該 m-line の MID が、生成中の description の BUNDLE group に含まれていて、しかも group の tag ではない（offer では `orderBundleMids()` 後の先頭、answer では `buildAnswerBundleGroups()` の先頭）。
+   - 当該 m-line の transport が tag m-line の transport と**同一**である。pending-only transport（max-compat / balanced で新しく追加した m-line、BUNDLE owner の変更、`transportByMid` で別の transport が割り当てられたもの）は対象外とし、従来どおり全候補を載せる。
+   - port ≠ 0（rejected m-line にはもともと candidate を載せていない）
+2. **適用箇所**: `addTransportDescription()` の candidate 設定部分に判定を入れる。tag は group から決まるので、m-line ごとに呼ぶ時点ではまだ group が確定していない。そのため次のどちらかの方法で処理する。
+   - (a) `buildOfferSdp()` / `buildAnswerSdp()` の最後、group を付けた後に「非tag の `iceCandidates = []`、`iceCandidatesComplete = false`」をまとめて適用する後処理関数を通す。
+   - (b) `setLocal()` の再描画（候補収集時の refresh）でも同じ後処理を呼ぶ。そうしないと、`createOffer()` の戻り値と、収集後の `localDescription` で形が変わってしまう。
+3. **維持するもの**: `a=ice-ufrag` / `a=ice-pwd` / `a=ice-options:trickle` / `a=fingerprint` / `a=setup` / `a=mid` / BUNDLE group は、すべての m-line に今までどおり出力する。werift 自身の受信側が m-line ごとの ufrag で同じ generation かどうかを判定し（`deliverSameGenerationDescription`）、検証も m-line ごとに行っているため。`c=` / port は discard（`0.0.0.0` / 9）のまま変えない。
+4. **end-of-candidates**: tag m-line にだけ出力する。受信側はすでに `completeSharedTransportMedia()` で group 全体に反映している。
+5. **トリクル**: 同じ generation の再交渉で既存の candidate が `icecandidate` イベントとして再発火しないことを、テストで固定する（現状でも発火しない想定）。新しい transport や ICE restart のときの通知（`takePreparedCandidateTransports` / `emitStagedIceCandidates`）は変えない。
+6. **ICE restart**: 新しい generation の candidate は tag m-line に必ず載ること、非tag を省いても restart が完了することを確認する。
+7. **設定**（後方互換のため）: `PeerConfig` に `mLineReuse` / `keyFrameRequestRouting` と同じ形の選択式オプションを追加する。名前の例は `bundleCandidates: "compatible" | "tagOnly"`。
+   - 既定値をどちらにするかは、Chrome / Firefox / mediasoup interop の E2E 結果を見て決める。安全側の案は `"compatible"`（現行の動作）を既定にし、仕様準拠の `"tagOnly"` を opt-in にするもの。既定値を `"tagOnly"` に切り替えるなら changelog で明示する。
+   - WPT 固有の厳密な挙動が必要な場合は、`tools/wpt-runner/*` のラッパー内に閉じ込める（root AGENTS.md Do 5）。
+
+### Phase B（任意・分割可）: tag m-line の同一 generation 候補も省く
+
+- ICE が connected/completed で、ICE restart がなく、transport も変わっていない subsequent offer/answer に限り、tag m-line に選択ペアのローカル候補だけを載せる（または候補を載せない）モード。
+- RFC 8839 の「Running 中は全候補を含める」要求、W3C の localDescription の要件、非 Trickle の相手（`canTrickleIceCandidates === false`）との兼ね合いがあるため、**既定にはせず opt-in に限る**。本チケットで扱わず、別チケットに分けてもよい。
+
+## 5. 制約・注意点
+
+- **negotiation 変更として扱う**（`packages/webrtc/AGENTS.md` Do 6–8）。
+  - 作成した description を後で適用・再適用するときの形が変わるため、`tools/negotiation-diff` で develop と比較し、差分 0 を保つ。差分が出る場合は、その差分が意図したものだと説明できること。
+  - レビュー前に `npm run pbt:deep` を実行する。
+- `setLocal()` の `applied` 分岐（max-compat で最初に tag だった m-line が別の transport に移ったとき、その credentials を保持するロジック）を壊さない。
+- rollback では pending description を捨てて current に戻るので、判定の基準は確定 answer（`negotiatedBundleTags`）だけにし、pending の状態を見ない。
+- BUNDLE の tag が変わる場合（tag の m-line を stop/reject して別の MID が tag になる場合）、新しい tag の m-line は必ず全候補を持つこと。
+- 相手が BUNDLE を部分的に拒否したり、group から m-line を外したりして transport が分かれた後の offer では、分かれた m-line に自分の候補を載せる。
+- ICE-lite（自分または相手）でも、tag m-line の候補と `a=ice-lite` は従来どおり出力する。
+- コーデック、RTP ヘッダ拡張、SSRC、direction の再交渉には影響させない。
+- 既存アプリが、非tag m-line の `a=candidate` を前提に SDP を解析しているかもしれない（SFU 連携など）。このため設定で切り替えられるようにし、README（`packages/webrtc/README.md` と `doc/README.md` の `mLineReuse` 節と同じ形式）と `changelog.md` に記載する。
+- `enum` は使わない。`as const` のオブジェクトと同名の union 型（`@enum` タグ付き）で定義する（root AGENTS.md）。
+- テスト用サーバーやブラウザは、パターン指定の kill ではなく PID で止める。
+
+## 6. テスト計画
+
+| 観点 | 置き場所（AGENTS.md の規約に従う） |
+| --- | --- |
+| BUNDLE 確立後に addTrack / removeTrack / createDataChannel で再交渉（restart なし）しても、`a=candidate` の総数が transport の候補数のまま一定で、非tag の m-line に candidate と eoc がないこと | `tests/negotiation/cases/` の `negotiationCase` ケース（Arrange/Act/Assert のコメントは日本語、最後に `expectSessionContinues`） |
+| 「`tagOnly` のときは、どの操作列の後でも、確定 BUNDLE の非tag かつ tag と同じ transport の m-line に candidate がない」 | `tests/pbt/model/oracles.ts` の oracle として追加 |
+| 同じ generation の再交渉で `icecandidate` が再発火しないこと（SDP とトリクルの両方で重複がないこと） | model oracle（trickle 系）または個別ケース |
+| ICE restart 後、新しい generation の候補が tag m-line とトリクルで通知され、接続が続くこと | negotiation case |
+| BUNDLE の owner（tag）変更、max-compat / balanced での新しい m-line、bundlePolicy `disable`、rollback、pranswer、ICE-lite で接続できること | negotiation case（具体的な BUNDLE/ICE 値を使うので個別テスト） |
+| `"compatible"` で現行の出力と完全に一致すること（後方互換） | 同上、または `tests/sdp.test.ts` |
+| Chrome / Firefox との再交渉の相互接続（tagOnly） | `e2e/`（他実装の SDP は `tests/negotiation/cases` で捏造しない） |
+| SDP サイズと候補数の測定（上の表の再現と改善の確認）。ソケット数は #270 の範囲なので、増えていないことの確認だけ行う | 測定スクリプトまたはテストのログ |
+
+## 7. 検証コマンド
+
+- `cd packages/webrtc && npm run type && npm test`
+- `cd packages/webrtc && npm run pbt:deep`
+- `tools/negotiation-diff`（develop との比較。`git worktree add --detach` で作った一時 worktree で実行する）
+- `npm run wpt`（localDescription の候補要件の回帰確認）
+- `npm run e2e`（Chrome との再交渉）。`integration/werift-mediasoup-interop` に影響がありそうなら、その AGENTS.md の手順にも従う。
+- `npm run format`、公開 API を変えた場合は `npm run doc`
+
+## 8. 完了条件
+
+- [ ] `tagOnly`（仮称）で、ICE restart なしの BUNDLE 接続に m-line を N 本追加して再交渉しても、`a=candidate` の総数が transport の候補数（上の実測では 12）のまま一定で、SDP サイズの増加が m-line 本体の分だけになる。
+- [ ] 非tag の m-line に `a=candidate` / `a=end-of-candidates` がなく、`ice-ufrag` / `ice-pwd` / `fingerprint` / `setup` / `mid` は残っている。
+- [ ] 最初の offer、BUNDLE 未確定、pranswer、rollback、tag の変更、transport の分離、bundlePolicy `disable` では、従来どおり全候補を出力する（fallback）。
+- [ ] ICE restart で新しい generation の候補が確実に通知され、接続が続く。
+- [ ] 同じ generation の再交渉で、トリクルによる重複通知がない。
+- [ ] `"compatible"` の出力が develop と一致する（既定値をどうするか決め、その理由を changelog に記録する）。
+- [ ] package テスト、`pbt:deep`、negotiation-diff、WPT、E2E（Chrome）がすべて通る。
+- [ ] README、`doc/`、`changelog.md` にオプションと挙動を記載する。
+
+## 9. 追加要件（2026-11-11 レビュー後）: モード名の変更と Chrome 形状への統一
+
+### 9.1 要件
+
+- 従来の `"tagOnly"` を **`"compatible"`** に改名し、出力を Chrome（libwebrtc）の形に揃える。
+- 従来の `"compatible"`（全 m-line に候補を繰り返す出力）は **`"legacy"`** に改名する。**既定値は `"legacy"` のまま**とし、既定の SDP 出力は develop と同じに保つ。
+- 型は `BundleCandidates = "legacy" | "compatible"` とする。旧名の `"tagOnly"` は不正値（`TypeError`）として扱う。構築後の変更は従来どおり `InvalidModificationError` で拒否する。
+- 根拠: レビューでの議論（「ブラウザ互換で仕様に沿うのはどちらか」）。ブラウザの出力に近く、RFC 8843 §7.1.3 / §7.3.1（RFC 8859 の TRANSPORT カテゴリ）にも沿うのは、候補を tag にだけ書く形である。
+
+### 9.2 Chrome の実測（Chrome 156 / headless、Chrome 同士の in-page 交渉）
+
+測定は `balanced` / `max-bundle` / `max-compat` の 3 通りで行い、それぞれ初回交渉、双方向の再交渉、ICE restart、pranswer、BUNDLE なしの offer への answer を記録した。
+
+| 場面 | 候補を書く m-line |
+| --- | --- |
+| 初回 offer（`balanced` / `max-compat`） | m-line ごとの transport の候補を、それぞれの m-line に書く |
+| 初回 offer（`max-bundle`） | tag（共有 transport）だけ |
+| 初回 answer / pranswer（BUNDLE 受け入れ） | tag だけ |
+| BUNDLE 確立後の再 offer / 再 answer | tag だけ |
+| ICE restart の offer / answer と、その後の offer | tag だけ（新しい generation） |
+| BUNDLE なしの offer への answer | 各 m-line |
+
+- `a=ice-ufrag` / `a=ice-pwd` / `a=ice-options` / `a=fingerprint` / `a=setup` は、全 m-line に残る。
+- Chrome は `a=end-of-candidates` を出力しない。
+- トリクルは tag の `sdpMid` 宛ての 1 回だけで、同じ generation の再交渉では再発火しない。
+- Chrome の癖: `balanced` / `max-compat` で初回交渉した後の再 offer に、BUNDLE 確立で破棄した transport の古い候補が残る（前回の localDescription から写すため）。
+
+### 9.3 `"compatible"` の規則（4 章 Phase A の条件を置き換える）
+
+- offer / answer / pranswer を問わず、また初回か BUNDLE 確定後かも問わず、description の BUNDLE group の非tag m-line で、tag と同じ transport・同じ ICE generation を記述したものは `a=candidate` / `a=end-of-candidates` を書かない。従来の条件だった「`negotiatedBundleTags` が空でない」「pranswer では省かない」は撤廃する。
+- 従来どおり候補を書くもの: 別 transport の m-line（max-compat / balanced の初回 offer、BUNDLE の分離、BUNDLE owner の変更）、port 0 の m-line、`bundlePolicy: "disable"`、新しい tag。
+- 規則は description と、そこに記述した transport だけで決まる。そのため、候補収集後の再描画でも形は変わらず、rollback で元に戻す処理も要らない。
+- **Chrome と意図して変える点**
+  - `a=end-of-candidates` は tag に残す。仕様に沿うためと、werift の受信側が収集完了の判定に使うため。
+  - 破棄した transport の古い候補（9.2 の癖）は真似しない。
+- トリクル（owner の m-line 宛てに 1 回だけ）は、すでに Chrome と同じなので変更しない。
+
+### 9.4 追加の完了条件
+
+- [ ] `"compatible"` で、初回 answer、pranswer、`max-bundle` の初回 offer も、非tag の候補と eoc を持たない。max-compat の初回 offer は m-line ごとの候補を持つ。
+- [ ] 既定（`"legacy"`）の出力が develop と一致する。旧名 `"tagOnly"` は `TypeError` になる。
+- [ ] README、`doc/`、`changelog.md`、Chrome E2E（handler / test）、PBT（generator / oracle / scenes）、negotiation case が新しい名前と規則に揃っている。
+- [ ] 7 章の検証コマンドが通る。
+
+### 9.5 作業メモ
+
+- 実装・ドキュメント・E2E・検証は、同じ worktree の別セッション（`workspace-35`）が担当する。このセッションは Chrome の実測とチケットへの追記を担当し、コードは編集していない。
+
+### 9.6 Firefox / mediasoup との相互接続確認（2026-11-12、HEAD `7ffcaaf9a`）
+
+**結論**: `bundleCandidates: "compatible"` は、Firefox とも mediasoup とも `"legacy"` と同じ結果になり、このモード固有の失敗はなかった。Firefox との接続で失敗した手順は、`"legacy"` と develop でも同じように失敗する既存の問題（下の「別課題」）である。
+
+#### Firefox 157（Playwright）
+
+- **Firefox 自身の出力**（Firefox 同士の in-page 交渉）: 候補は tag にだけ書き、**`a=end-of-candidates` も tag に書く**。初回 answer と再交渉も tag だけ。`max-bundle` の初回 offer と、再 offer で追加する m-line は `port 0` + `a=bundle-only` にする。pranswer は未実装（`pranswer not yet implemented`）。werift の `"compatible"` が eoc を tag に残すのは、Firefox の形と同じ。
+- **`e2e/` の Firefox 実行**（`vitest.firefox.config.mts`）は、この環境では既定設定の基本テスト（`datachannel.test.ts`、`sendrecv.test.ts`、`tests/bundle/*`）も全件失敗した。mDNS の秘匿を外しても同じだったため、`e2e/` 経由の結果は判定に使わなかった。CI の E2E は Chrome だけで、Firefox の E2E は保守されていない。
+- **代わりの直結スクリプト**（`/tmp/ffharness/interop.ts`、リポジトリ外）: Node 上の werift と Playwright の Firefox を直接つなぐ。各手順で、SDP の候補配置、DataChannel の ping/pong、全 video m-line での双方向 RTP を確認する。手順は次のとおり。
+  1. werift の初回 offer
+  2. werift の再 offer（video 追加、2 回）
+  3. werift 起点の ICE restart（表の手順 5）
+  4. Firefox 起点の ICE restart への werift の answer（表の手順 6）
+  5. Firefox の再 offer（video 追加）への werift の answer（表の手順 4。後続を巻き込まないよう最後に実行）
+  6. Firefox 起点の初回 offer への werift の answer（表の手順 7）
+
+  ブラウザ 2 種 × `legacy` / `compatible` × `max-compat` / `balanced` / `max-bundle` の各組み合わせを 2 回ずつ実行した。
+
+| 手順 | Firefox `compatible` | Firefox `legacy` |
+| --- | --- | --- |
+| 1 初回 offer（`max-bundle` では tag だけ）、2–3 再 offer（tag だけ）: SDP 受理、DataChannel、双方向映像 | 全組み合わせで成功 | 全組み合わせで成功 |
+| 7 Firefox の初回 offer に werift が tag だけの answer を返す: 受理、DataChannel | 成功 | 成功 |
+| 5 werift 起点の ICE restart の後、Firefox が受信を止める（DataChannel が届かない） | 6 回中 6 回失敗 | 6 回中 5 回失敗（develop でも失敗） |
+| 6 / 4 Firefox の `bundle-only` 付き offer への werift の answer を、Firefox が `c= connection line not specified` で拒否する | 全組み合わせで失敗 | 全組み合わせで失敗（develop でも同じ） |
+
+- Chromium（参考、同じスクリプト）: `compatible` の全組み合わせで 22/22 成功した。ただし `balanced` の 1 回は Chromium 起点の ICE restart の後に werift が `checking` のまま止まり、同じ失敗が `legacy` / `max-compat` でも 1 回出ている。モードによらず出る不安定な失敗である。
+
+#### mediasoup（`integration/werift-mediasoup-interop`）
+
+- 実行方法: fixture を `/tmp` に複製し、`WERIFT_REPO_ROOT=/workspace` で HEAD の werift を参照させた。複製側の `test/helpers/polyfill.ts` だけを差し替え、polyfill に `bundleCandidates` を渡せるようにし、werift が適用したローカル SDP の候補配置を記録した。リポジトリのファイルは変更していない。
+- 結果（`compatible` / `legacy` とも同じ）:
+  - `test:small`: 7/7
+  - `test:interop`: 20/27
+  - `test:browser`（Chromium mediasoup-client ↔ mediasoup 3.26.0 ↔ werift polyfill）: 9/10
+  - 失敗した 8 件はすべて `mediasoup-legacy`（3.19.2）のテストで、ワーカーを起動できなかった（`spawn … ENOENT`）。3.19.2 にはこの環境向けのビルド済みワーカーがなく、ソースからのビルドに `pip` が必要なため。**mediasoup 3.19.2 との組み合わせは未確認**である。
+- SDP の記録: BUNDLE で複数 m-line を持ち tag に候補がある description（interop で 37 件、browser で 6 件。offer と answer の両方を含む）を確認した。`compatible` では全件で非tag の候補と eoc が省かれ、ufrag / fingerprint / setup は残っていた。`legacy` では全件で候補が繰り返されていた。mediasoup は ICE-lite で、mediasoup-client はローカル SDP の DTLS パラメータしか使わない。このため、候補を省いても mediasoup 側への影響はない。
+
+#### 別課題（本チケットの範囲外。develop で再現する既存の不具合）
+
+- **`a=bundle-only` 未対応**: Firefox は再 offer や ICE restart の offer で、BUNDLE の非tag m-line を `port 0` + `a=bundle-only`（RFC 8843 §6）として送る。werift はこれを拒否された m-line と解釈し、`c=` 行のない `port 0` の m-line で answer するため、Firefox は answer を拒否する。werift のソースには `bundle-only` を扱う処理がない。
+- **werift 起点の ICE restart の後、Firefox への送信が止まる**: werift は Firefox の RTP を受信し続けるが、Firefox は werift からの RTP と DataChannel を受け取らなくなる。
+
+### 9.7 Firefox の問題のサブタスク化（2026-11-12）
+
+§9.6 で見つかった Firefox 関連の問題を、本チケットのサブタスクに切り出し、それぞれ詳細化エージェントで詳細化した（作成時は review レーンを継承したので todo に移した。本チケットの範囲には含めない）。
+
+| サブタスク | 内容 | 詳細化で挙がった原因・方針 |
+| --- | --- | --- |
+| `21a27c92-7ca2-4075-bd29-246f95715de2` | [SDP/BUNDLE] Firefox の `a=bundle-only` m-line を拒否扱いし、`c=` のない answer を返す | `sdp.ts` が `a=bundle-only` をパースしない。`buildAnswerSdp()` の port 0 分岐が `c=` のない m-line を返す。`port === 0` を拒否とみなす判定が 70 か所以上に散らばっている。answer の非tag の port は、Chrome / Firefox の実測（どちらも port 0 を返さない）を追記した。 |
+| `ef1c086e-1a6f-479e-8940-822231b4f359` | [ICE] werift 起点の ICE restart の後、Firefox が werift からの RTP / DataChannel を受け取れない | 最有力の仮説: werift が answer を適用する前に届いた Firefox の新しい ufrag の check を、`Connection.restart()` の `endProvisional()` と `earlyChecks = []` が捨ててしまう。初回接続にある、早く届いた check を後で再生する経路が restart にない（`packages/ice/src/ice.ts`）。 |
+| `a461df90-10bb-4aad-8f1b-3cce626d630b` | [E2E] 保守されていない Firefox E2E を正常に動作させる | 起動経路（`npm run firefox` はサーバーを起動しない、`ensure-browser.js` は Firefox を取得しない）、設定の差、CI の方針案。§9.6 ではサーバーを起動した状態で全件失敗していたので、「サーバー未起動」が主因だという仮説は誤りと追記した。主因は未特定で、まず DEBUG ログで止まる箇所を特定する。 |
