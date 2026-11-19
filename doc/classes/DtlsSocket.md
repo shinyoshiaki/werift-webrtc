@@ -319,13 +319,21 @@ or a synchronous throw) is only logged.
 
 ### handleFragmentHandshake()
 
-> **handleFragmentHandshake**(`messages`): `FragmentedHandshake`[]
+> **handleFragmentHandshake**(`messages`, `epoch?`): `FragmentedHandshake`[]
+
+Pass received handshake fragments of the record `epoch` to the
+reassembler and return the complete messages: unfragmented ones, and
+fragmented ones whose every byte has now been received.
 
 #### Parameters
 
 ##### messages
 
 `FragmentedHandshake`[]
+
+##### epoch?
+
+`number` = `0`
 
 #### Returns
 

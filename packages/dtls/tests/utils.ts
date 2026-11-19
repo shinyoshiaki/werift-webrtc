@@ -21,11 +21,12 @@ import { Signature } from "../src/handshake/extensions/signature";
 import { Alert } from "../src/handshake/message/alert";
 import { ClientHello } from "../src/handshake/message/client/hello";
 import { ServerKeyExchange } from "../src/handshake/message/server/keyExchange";
-import type { DtlsRandom } from "../src/handshake/random";
+import { DtlsRandom } from "../src/handshake/random";
 import { createPlaintext } from "../src/record/builder";
 import { ContentType } from "../src/record/const";
 import { FragmentedHandshake } from "../src/record/message/fragment";
 import { DtlsPlaintext } from "../src/record/message/plaintext";
+import type { HandshakeReassembler } from "../src/record/message/reassembler";
 import { parsePacket } from "../src/record/receive";
 import type { Options } from "../src/socket";
 import { certPem, keyPem } from "./fixture";
@@ -139,6 +140,50 @@ export const sliceHandshake = (
     end - start,
     Buffer.from(fragment),
   );
+
+/**
+ * A fragment that leaves message `message_seq` (of `length` bytes) partial:
+ * only its first byte. Each call advances `clock` by 1 ms, so the messages
+ * are updated in call order.
+ */
+export const createPartialFragment = (
+  clock: { now: number },
+  message_seq: number,
+  length: number,
+) => {
+  clock.now++;
+  return new FragmentedHandshake(
+    HandshakeType.certificate_11,
+    length,
+    message_seq,
+    0,
+    1,
+    Buffer.alloc(1),
+  );
+};
+
+/** Add every fragment to `reassembler` and return each add() result. */
+export const addAllFragments = (
+  reassembler: HandshakeReassembler,
+  fragments: FragmentedHandshake[],
+  epoch = 0,
+) => fragments.map((fragment) => reassembler.add(fragment, epoch));
+
+/**
+ * DtlsServer that has received only the middle fragment of a large
+ * ClientHello, so its reassembler holds one partial message.
+ */
+export const createServerWithPartialHandshake = async () => {
+  const { server, transport } = await createEcdsaDtlsServer();
+  const hello = createLargeClientHelloHandshake({ random: new DtlsRandom() });
+  const [, middle] = fragmentHandshake(hello, Math.ceil(hello.length / 3));
+  transport.onData(
+    createHandshakeRecord(middle, { sequenceNumber: 0 }),
+    undefined as any,
+  );
+  const reassembler = (server as any).reassembler as HandshakeReassembler;
+  return { server, transport, reassembler, hello };
+};
 
 /** A plaintext handshake record (one datagram) carrying `fragment`. */
 export const createHandshakeRecord = (
