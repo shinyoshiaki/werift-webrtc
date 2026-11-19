@@ -101,11 +101,13 @@ test("e2e/self12: connected authenticated fatal alert tears down pure associatio
 
   // Assert: terminal
   expect(errors.length).toBe(1);
-  expect(closes.length).toBe(1);
+  // fatal は onError のみで onClose は発火しない
+  expect(closes.length).toBe(0);
   expect(client.connected).toBe(false);
   expect((client as any).associationTornDown).toBe(true);
   expect((client as any).dtls.flightTimers.size).toBe(0);
-  await expect(client.send(Buffer.from("x"))).rejects.toThrow(/closed/i);
+  // send は接続終了後は reject せず破棄する
+  await expect(client.send(Buffer.from("x"))).resolves.toBeUndefined();
   expect(() => client.exportKeyingMaterial("EXTRACTOR-dtls_srtp", 16)).toThrow(
     /closed/i,
   );
@@ -122,7 +124,7 @@ test("e2e/self12: connected authenticated fatal alert tears down pure associatio
   await new Promise((r) => setTimeout(r, 30));
   expect(data.length).toBe(0);
   expect(errors.length).toBe(1);
-  expect(closes.length).toBe(1);
+  expect(closes.length).toBe(0);
   expect((client as any).associationTornDown).toBe(true);
 
   try {
@@ -170,7 +172,8 @@ test("e2e/self12: connected close_notify graceful association close", async () =
   expect(client.connected).toBe(false);
   expect((client as any).associationTornDown).toBe(true);
   expect((client as any).dtls.flightTimers.size).toBe(0);
-  await expect(client.send(Buffer.from("x"))).rejects.toThrow(/closed/i);
+  // send は接続終了後は reject せず破棄する
+  await expect(client.send(Buffer.from("x"))).resolves.toBeUndefined();
 
   // late inject で復活しない
   (client as any).udpOnMessage(closePkt, peerOf(serverTransport));
@@ -248,7 +251,8 @@ test("e2e/self12: server.close() fires onClose exactly once", async () => {
   server.close();
   expect(closes.length).toBe(1);
 
-  await expect(server.send(Buffer.from("x"))).rejects.toThrow(/closed/i);
+  // send は接続終了後は reject せず破棄する
+  await expect(server.send(Buffer.from("x"))).resolves.toBeUndefined();
 
   try {
     client.close();
@@ -328,13 +332,14 @@ test("e2e/self12: fatal vs local close race is terminal once", async () => {
 
   await new Promise((r) => setTimeout(r, 50));
 
-  // Assert: onError ≤1, onClose ≤1（fatal path fires both; close is no-op after)
+  // Assert: onError ≤1, onClose ≤1（fatal は onError のみ、先に close した場合は onClose のみ）
   expect(errors.length).toBeLessThanOrEqual(1);
   expect(closes.length).toBeLessThanOrEqual(1);
   expect(errors.length + closes.length).toBeGreaterThanOrEqual(1);
   expect(client.connected).toBe(false);
   expect((client as any).associationTornDown).toBe(true);
-  await expect(client.send(Buffer.from("x"))).rejects.toThrow(/closed/i);
+  // send は接続終了後は reject せず破棄する
+  await expect(client.send(Buffer.from("x"))).resolves.toBeUndefined();
 
   try {
     server.close();

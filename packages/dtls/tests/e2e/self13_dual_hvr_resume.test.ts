@@ -593,9 +593,10 @@ test("e2e/dual: genuine 1.2 handshake_failure during probing fires onError immed
   expect(client.dualAssociationPhase).toBe("closed");
   expect(client.connected).toBe(false);
   expect((client as any).associationTornDown).toBe(true);
-  await expect(client.send(Buffer.from("after-fatal"))).rejects.toThrow(
-    /closed/i,
-  );
+  // send は接続終了後は reject せず破棄する
+  await expect(
+    client.send(Buffer.from("after-fatal")),
+  ).resolves.toBeUndefined();
 
   try {
     client.close();
@@ -1263,9 +1264,10 @@ test("e2e/dual: resume 1.3 without parked/material tears down association", asyn
   expect(client.dualAssociationPhase).toBe("closed");
   expect(client.connected).toBe(false);
   expect(client.isDtls13).toBe(false);
+  // send は接続終了後は reject せず破棄する
   await expect(
     client.send(Buffer.from("after-missing-resume")),
-  ).rejects.toThrow(/closed/i);
+  ).resolves.toBeUndefined();
 
   try {
     client.close();
@@ -1527,7 +1529,8 @@ test("e2e/dual: fatal after committed13 tears down association to closed", async
   // Assert: association closed / public 1.3 ハンドルなし
   expect(fatalErrors.length).toBe(1);
   expect(fatalErrors[0].message).toMatch(/handshake_failure|fatal/i);
-  expect(closes.length).toBe(1);
+  // fatal は onError のみで onClose は発火しない
+  expect(closes.length).toBe(0);
   expect(client.isDtls13).toBe(false);
   expect((client as any).engine13).toBeUndefined();
   expect((client as any).parkedEngine13).toBeUndefined();
@@ -1544,7 +1547,7 @@ test("e2e/dual: fatal after committed13 tears down association to closed", async
   await new Promise((r) => setTimeout(r, INITIAL_RTO_MS + 200));
   expect(connectsAfter).toEqual([]);
   expect(fatalErrors.length).toBe(1);
-  expect(closes.length).toBe(1);
+  expect(closes.length).toBe(0);
   expect(client.dualAssociationPhase).toBe("closed");
   expect(client.isDtls13).toBe(false);
 
@@ -1701,7 +1704,8 @@ test("e2e/dual: close() after committed12 closes association carrier", async () 
 
   // closed 後の Public API は legacy 1.2 に落ちない
   await expect(client.connect()).rejects.toThrow(/closed/i);
-  await expect(client.send(Buffer.from("x"))).rejects.toThrow(/closed/i);
+  // send は接続終了後は reject せず破棄する
+  await expect(client.send(Buffer.from("x"))).resolves.toBeUndefined();
   expect(() => client.exportKeyingMaterial("EXTRACTOR-dtls_srtp", 16)).toThrow(
     /closed/i,
   );
@@ -1829,7 +1833,8 @@ test("e2e/dual: fatal after committed13 closes transport", async () => {
   expect(client.dualAssociationPhase).toBe("closed");
   expect(client.isDtls13).toBe(false);
   expect((clientTransport as any).closed).toBe(true);
-  await expect(client.send(Buffer.from("x"))).rejects.toThrow(/closed/i);
+  // send は接続終了後は reject せず破棄する
+  await expect(client.send(Buffer.from("x"))).resolves.toBeUndefined();
   await expect(client.connect()).rejects.toThrow(/closed/i);
   expect(() => client.exportKeyingMaterial("EXTRACTOR-dtls_srtp", 16)).toThrow(
     /closed/i,
@@ -1904,9 +1909,10 @@ test("e2e/dual: peer close_notify sets phase closed and blocks 1.2 fallthrough",
   expect((client as any).engine13).toBeUndefined();
   expect((clientTransport as any).closed).toBe(true);
 
-  await expect(client.send(Buffer.from("after-peer-close"))).rejects.toThrow(
-    /closed/i,
-  );
+  // send は接続終了後は reject せず破棄する
+  await expect(
+    client.send(Buffer.from("after-peer-close")),
+  ).resolves.toBeUndefined();
   await expect(client.connect()).rejects.toThrow(/closed/i);
   expect(() => client.exportKeyingMaterial("EXTRACTOR-dtls_srtp", 16)).toThrow(
     /closed/i,
@@ -1963,7 +1969,8 @@ test("e2e/dual: 1.3-only version mismatch closes transport", async () => {
   expect(client.dualAssociationPhase).toBe("closed");
   expect(client.isDtls13).toBe(false);
   expect((clientTransport as any).closed).toBe(true);
-  await expect(client.send(Buffer.from("x"))).rejects.toThrow(/closed/i);
+  // send は接続終了後は reject せず破棄する
+  await expect(client.send(Buffer.from("x"))).resolves.toBeUndefined();
   await expect(client.connect()).rejects.toThrow(/closed/i);
 
   try {
@@ -3020,9 +3027,10 @@ test("e2e/dual: malformed or unknown ServerHello during probing does not commit1
   expect(client.connected).toBe(false);
   expect((client as any).parkedEngine13).toBeUndefined();
   expect((client as any).engine13).toBeUndefined();
-  await expect(client.send(Buffer.from("after-unknown-sv"))).rejects.toThrow(
-    /closed/i,
-  );
+  // send は接続終了後は reject せず破棄する
+  await expect(
+    client.send(Buffer.from("after-unknown-sv")),
+  ).resolves.toBeUndefined();
 
   try {
     client.close();

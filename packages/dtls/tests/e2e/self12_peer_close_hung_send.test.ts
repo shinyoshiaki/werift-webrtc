@@ -95,7 +95,8 @@ test("e2e/self12: peer close_notify frees association if send hangs", async () =
   expect(Date.now() - t0).toBeLessThan(800);
   expect((client as any).associationTornDown).toBe(true);
   expect(client.connected).toBe(false);
-  await expect(client.send(Buffer.from("x"))).rejects.toThrow(/closed/i);
+  // send は接続終了後は reject せず破棄する
+  await expect(client.send(Buffer.from("x"))).resolves.toBeUndefined();
 
   try {
     server.close();

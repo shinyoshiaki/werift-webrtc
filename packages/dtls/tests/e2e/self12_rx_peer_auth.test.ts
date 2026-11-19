@@ -289,7 +289,8 @@ test("e2e/self12: renegotiation rejected after terminal close", async () => {
     true,
   );
   expect((client as any).associationTornDown).toBe(true);
-  await expect(client.send(Buffer.from("x"))).rejects.toThrow(/closed/i);
+  // send は接続終了後は reject せず破棄する
+  await expect(client.send(Buffer.from("x"))).resolves.toBeUndefined();
 
   try {
     server.close();
@@ -322,7 +323,8 @@ test("e2e/self12: AEAD-protected fatal from pin still tears down", async () => {
   await new Promise((r) => setTimeout(r, 30));
 
   expect(errors.length).toBe(1);
-  expect(closes.length).toBe(1);
+  // fatal は onError のみで onClose は発火しない
+  expect(closes.length).toBe(0);
   expect((client as any).associationTornDown).toBe(true);
 
   try {

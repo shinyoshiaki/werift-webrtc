@@ -73,7 +73,8 @@ test("e2e/self12: server close during Finished path does not reconnect", async (
   expect(server.connected).toBe(false);
   // onConnect must not fire after we forced terminal (may have fired before — 0 expected)
   expect(connects.length).toBe(0);
-  await expect(server.send(Buffer.from("x"))).rejects.toThrow(/closed/i);
+  // send は接続終了後は reject せず破棄する
+  await expect(server.send(Buffer.from("x"))).resolves.toBeUndefined();
 
   try {
     client.close();

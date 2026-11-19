@@ -104,9 +104,10 @@ test("e2e/self12: fatal alert during retransmit sleep cancels timers", async () 
   expect(server.connected).toBe(false);
   expect((server as any).associationTornDown).toBe(true);
   // pure 1.2 Public API も閉じている（fatal 後に send 可能であってはならない）
-  await expect(server.send(Buffer.from("after-fatal"))).rejects.toThrow(
-    /closed/i,
-  );
+  // send は接続終了後は reject せず破棄する
+  await expect(
+    server.send(Buffer.from("after-fatal")),
+  ).resolves.toBeUndefined();
 
   // RTO 相当待っても追加 retransmit なし
   await new Promise((r) => setTimeout(r, 600));

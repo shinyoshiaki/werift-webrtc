@@ -71,7 +71,7 @@ async function connectPair13(
  * send/exporter が空の 1.2 cipher に fallthrough して内部 TypeError になる非対称を防ぐ。
  * （client pure 1.3 / pure 1.2 は既に terminal API 拒否済み）
  */
-test("e2e/self13: pure server close rejects send/exporter/cert cleanly", async () => {
+test("e2e/self13: pure server close drops send and rejects exporter/cert cleanly", async () => {
   // Arrange
   const { client, server, clientTransport, serverTransport } =
     await connectPair13([DtlsVersion.V1_3]);
@@ -91,7 +91,8 @@ test("e2e/self13: pure server close rejects send/exporter/cert cleanly", async (
   expect(server.isDtls13).toBe(false);
   expect(closes.length).toBe(1);
 
-  await expect(server.send(Buffer.from("x"))).rejects.toThrow(/closed/i);
+  // send は接続終了後は reject せず破棄する
+  await expect(server.send(Buffer.from("x"))).resolves.toBeUndefined();
   expect(() => server.exportKeyingMaterial("EXTRACTOR-dtls_srtp", 16)).toThrow(
     /closed/i,
   );
@@ -113,7 +114,7 @@ test("e2e/self13: pure server close rejects send/exporter/cert cleanly", async (
 /**
  * P1: pure DTLS 1.3 server fatal 後も Public API が 1.2 fallthrough しないこと。
  */
-test("e2e/self13: pure server fatal rejects Public API and stays terminal", async () => {
+test("e2e/self13: pure server fatal ends Public API without onClose and stays terminal", async () => {
   // Arrange
   const { client, server, clientTransport, serverTransport } =
     await connectPair13([DtlsVersion.V1_3]);
@@ -130,11 +131,13 @@ test("e2e/self13: pure server fatal rejects Public API and stays terminal", asyn
 
   // Assert
   expect(errors.length).toBe(1);
-  expect(closes.length).toBe(1);
+  // fatal は onError のみで onClose は発火しない
+  expect(closes.length).toBe(0);
   expect(server.connected).toBe(false);
   expect((server as any).associationTornDown).toBe(true);
   expect(server.isDtls13).toBe(false);
-  await expect(server.send(Buffer.from("z"))).rejects.toThrow(/closed/i);
+  // send は接続終了後は reject せず破棄する
+  await expect(server.send(Buffer.from("z"))).resolves.toBeUndefined();
   expect(() => server.exportKeyingMaterial("EXTRACTOR-dtls_srtp", 16)).toThrow(
     /closed/i,
   );
@@ -143,7 +146,7 @@ test("e2e/self13: pure server fatal rejects Public API and stays terminal", asyn
   eng?.onError?.execute?.(new Error("late"));
   await new Promise((r) => setTimeout(r, 20));
   expect(errors.length).toBe(1);
-  expect(closes.length).toBe(1);
+  expect(closes.length).toBe(0);
 
   try {
     client.close();
@@ -173,7 +176,8 @@ test("e2e/self13: dual server after 1.3 commit close is terminal", async () => {
   // Assert
   expect((server as any).associationTornDown).toBe(true);
   expect(closes.length).toBe(1);
-  await expect(server.send(Buffer.from("x"))).rejects.toThrow(/closed/i);
+  // send は接続終了後は reject せず破棄する
+  await expect(server.send(Buffer.from("x"))).resolves.toBeUndefined();
 
   try {
     client.close();
@@ -207,7 +211,8 @@ test("e2e/self13: peer close_notify leaves pure server terminal without onError"
   expect(closes.length).toBe(1);
   expect(server.connected).toBe(false);
   expect((server as any).associationTornDown).toBe(true);
-  await expect(server.send(Buffer.from("x"))).rejects.toThrow(/closed/i);
+  // send は接続終了後は reject せず破棄する
+  await expect(server.send(Buffer.from("x"))).resolves.toBeUndefined();
 
   try {
     server.close();
@@ -241,7 +246,8 @@ test("e2e/self13: peer close_notify leaves pure client terminal without onError"
   expect(client.connected).toBe(false);
   expect((client as any).associationTornDown).toBe(true);
   expect((client as any).dualAssociationPhase).toBe("closed");
-  await expect(client.send(Buffer.from("x"))).rejects.toThrow(/closed/i);
+  // send は接続終了後は reject せず破棄する
+  await expect(client.send(Buffer.from("x"))).resolves.toBeUndefined();
   await expect(client.connect()).rejects.toThrow(/closed/i);
 
   try {

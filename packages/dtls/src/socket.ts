@@ -565,13 +565,13 @@ export class DtlsSocket {
 
   /**
    * Fatal teardown for a received alert: the association is torn down before
-   * the listeners run, then onAlert, onError and onClose fire once each.
+   * the listeners run, then onAlert and onError fire once each. A fatal alert
+   * is not a close, so onClose does not fire.
    */
   private failFromRemoteAlert(alert: DtlsAlert, error: Error) {
     if (!this.failLegacy12Association(error)) return;
     this.notify(this.onAlert, alert);
     this.notify(this.onError, error);
-    this.notify(this.onClose);
   }
 
   /**
@@ -910,13 +910,16 @@ export class DtlsSocket {
 
   /**send application data */
   send = async (buf: Buffer, addr?: Address) => {
-    // A torn-down association rejects (see the lifecycle table in README);
-    // after this side only sent an alert, application data is dropped.
-    this.assertReadyForApplicationApi("send");
-    if (this.alertSent || this.ended) {
-      log(this.dtls.sessionId, "drop application data after alert");
+    // Once the connection ended (an alert sent or received, close_notify,
+    // close()), application data is dropped without rejecting.
+    if (this.alertSent || this.ended || this.associationTornDown) {
+      log(
+        this.dtls.sessionId,
+        "drop application data after the connection ended",
+      );
       return;
     }
+    this.assertReadyForApplicationApi("send");
     if (this.engine13) {
       await this.engine13.send(buf);
       return;
@@ -960,8 +963,8 @@ export class DtlsSocket {
    * Stops flight timers, clears connected, closes transport, disables Public API.
    * Dual client overrides to also set dualPhase=closed and close carrier/candidates.
    *
-   * @returns true when the caller should fire public onClose after onError
-   *   (same ordering as 1.3 {@link failAssociationFromEngine13}).
+   * @returns true when the association was torn down now (false when it was
+   *   already terminal), so the caller fires onError once.
    */
   protected failLegacy12Association(error: Error): boolean {
     if (this.associationTornDown) return false;
@@ -976,7 +979,8 @@ export class DtlsSocket {
   }
 
   /**
-   * Tear down the 1.2 association then fire onError + onClose once.
+   * Tear down the 1.2 association then fire onError once (no onClose: it is
+   * reserved for close_notify and a local close()).
    * Used for fatal alerts, handshake failures, probing DOWNGRD / classify error,
    * and ProtocolVersionError paths. Idempotent: concurrent terminal paths must
    * not double-fire public events.
@@ -985,7 +989,6 @@ export class DtlsSocket {
     // failLegacy12Association returns false when already terminal.
     if (!this.failLegacy12Association(error)) return;
     this.notify(this.onError, error);
-    this.notify(this.onClose);
   }
 
   /**
@@ -1014,7 +1017,7 @@ export class DtlsSocket {
 
   /**
    * Close this association. The Public API becomes terminal synchronously
-   * (send() rejects right after close()), before any await. DTLS 1.2
+   * (send() right after close() drops the data), before any await. DTLS 1.2
    * optionally sends close_notify first; an alert already handed to the
    * transport is flushed before the transport closes. A live DTLS 1.3 engine
    * sends its close_notify and closes the transport itself
@@ -1130,8 +1133,8 @@ export class DtlsSocket {
    * Subclasses (dual client) override to also flip dualPhase → closed and
    * tear down parked candidates / 1.2 flight timers.
    *
-   * @returns true when public onClose should be fired after onError (caller
-   *   owns ordering so handlers observe isDtls13 === false first).
+   * @returns true when the association was torn down now (the caller fires
+   *   onError afterwards, so handlers observe isDtls13 === false first).
    */
   protected failAssociationFromEngine13(_err: Error): boolean {
     // Terminal for pure 1.3 and dual-server 1.3: same Public-API disable as 1.2.
@@ -1234,12 +1237,10 @@ export class DtlsSocket {
         this.connected = false;
         // Tear down association before public onError so handlers observe
         // isDtls13 === false and dualPhase === closed (client override).
-        const fireClose = this.failAssociationFromEngine13(e);
-        this.onError.execute(e);
-        // Single public onClose (engine's own onClose is unsubscribed above).
-        if (fireClose) {
-          this.onClose.execute();
-        }
+        // A fatal error ends the association with onError only: onClose is
+        // reserved for close_notify and a local close() (as for DTLS 1.2).
+        this.failAssociationFromEngine13(e);
+        this.notify(this.onError, e);
       })
       .disposer(this.engine13Bridge);
     engine.onClose

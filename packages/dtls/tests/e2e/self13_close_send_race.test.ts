@@ -65,10 +65,10 @@ async function connectPair13() {
 }
 
 /**
- * P1: pure 1.3 server local close() 直後に send は同期的に拒否
+ * P1: pure 1.3 server local close() 直後の send は同期的に terminal で破棄される
  * （close_notify 完了を待たない）。
  */
-test("e2e/self13: server close() rejects send synchronously", async () => {
+test("e2e/self13: server close() drops send synchronously", async () => {
   // Arrange
   const { client, server, clientTransport, serverTransport } =
     await connectPair13();
@@ -81,9 +81,10 @@ test("e2e/self13: server close() rejects send synchronously", async () => {
   // Assert: terminal sync — no race window for app send
   expect((server as any).associationTornDown).toBe(true);
   expect(server.connected).toBe(false);
-  await expect(server.send(Buffer.from("after-close"))).rejects.toThrow(
-    /closed/i,
-  );
+  // send は接続終了後は reject せず破棄する
+  await expect(
+    server.send(Buffer.from("after-close")),
+  ).resolves.toBeUndefined();
   expect(() => server.exportKeyingMaterial("EXTRACTOR-dtls_srtp", 16)).toThrow(
     /closed/i,
   );
@@ -98,10 +99,10 @@ test("e2e/self13: server close() rejects send synchronously", async () => {
 }, 20_000);
 
 /**
- * P1: pure 1.3 peer close_notify 開始直後も send 拒否（teardown 完了前）。
+ * P1: pure 1.3 peer close_notify 開始直後も send は破棄される（teardown 完了前）。
  * client.close() が wire 上の close_notify を送り、server onClosing が同期 terminal。
  */
-test("e2e/self13: peer close_notify rejects send before teardown completes", async () => {
+test("e2e/self13: peer close_notify drops send before teardown completes", async () => {
   // Arrange
   const { client, server, clientTransport, serverTransport } =
     await connectPair13();
@@ -119,7 +120,8 @@ test("e2e/self13: peer close_notify rejects send before teardown completes", asy
   }
 
   expect((server as any).associationTornDown).toBe(true);
-  await expect(server.send(Buffer.from("late"))).rejects.toThrow(/closed/i);
+  // send は接続終了後は reject せず破棄する
+  await expect(server.send(Buffer.from("late"))).resolves.toBeUndefined();
 
   // onClose still eventually fires once
   await new Promise<void>((resolve) => {
@@ -142,14 +144,15 @@ test("e2e/self13: peer close_notify rejects send before teardown completes", asy
 /**
  * pure 1.3 client close も同様に同期 terminal（dual closeAssociationHard 経路）。
  */
-test("e2e/self13: client close() rejects send synchronously", async () => {
+test("e2e/self13: client close() drops send synchronously", async () => {
   const { client, server, clientTransport, serverTransport } =
     await connectPair13();
 
   client.close();
   expect((client as any).associationTornDown).toBe(true);
   expect((client as any).dualAssociationPhase).toBe("closed");
-  await expect(client.send(Buffer.from("x"))).rejects.toThrow(/closed/i);
+  // send は接続終了後は reject せず破棄する
+  await expect(client.send(Buffer.from("x"))).resolves.toBeUndefined();
 
   try {
     server.close();

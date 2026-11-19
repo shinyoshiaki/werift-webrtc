@@ -350,9 +350,10 @@ test("e2e/downgrade: dual client aborts when 1.2 ServerHello carries DOWNGRD sen
   });
 
   // Assert: Public API stays disabled after DOWNGRD association fail
-  await expect(client.send(Buffer.from("after-downgrd"))).rejects.toThrow(
-    /closed/i,
-  );
+  // send は接続終了後は reject せず破棄する
+  await expect(
+    client.send(Buffer.from("after-downgrd")),
+  ).resolves.toBeUndefined();
   try {
     client.close();
   } catch {

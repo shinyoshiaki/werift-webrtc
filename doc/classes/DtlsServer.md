@@ -535,7 +535,7 @@ Clear TX pin on association terminal teardown.
 > **close**(`options?`): `Promise`\<`void`\>
 
 Close this association. The Public API becomes terminal synchronously
-(send() rejects right after close()), before any await. DTLS 1.2
+(send() right after close() drops the data), before any await. DTLS 1.2
 optionally sends close_notify first; an alert already handed to the
 transport is flushed before the transport closes. A live DTLS 1.3 engine
 sends its close_notify and closes the transport itself
@@ -677,8 +677,8 @@ tear down parked candidates / 1.2 flight timers.
 
 `boolean`
 
-true when public onClose should be fired after onError (caller
-  owns ordering so handlers observe isDtls13 === false first).
+true when the association was torn down now (the caller fires
+  onError afterwards, so handlers observe isDtls13 === false first).
 
 #### Inherited from
 
@@ -704,8 +704,8 @@ Dual client overrides to also set dualPhase=closed and close carrier/candidates.
 
 `boolean`
 
-true when the caller should fire public onClose after onError
-  (same ordering as 1.3 [failAssociationFromEngine13](DtlsSocket.md#failassociationfromengine13)).
+true when the association was torn down now (false when it was
+  already terminal), so the caller fires onError once.
 
 #### Inherited from
 
@@ -1065,7 +1065,8 @@ Dual client also sets dualPhase → closed here.
 
 > `protected` **reportLegacy12Fatal**(`error`): `void`
 
-Tear down the 1.2 association then fire onError + onClose once.
+Tear down the 1.2 association then fire onError once (no onClose: it is
+reserved for close_notify and a local close()).
 Used for fatal alerts, handshake failures, probing DOWNGRD / classify error,
 and ProtocolVersionError paths. Idempotent: concurrent terminal paths must
 not double-fire public events.
