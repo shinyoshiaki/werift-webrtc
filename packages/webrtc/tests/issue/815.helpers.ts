@@ -2,6 +2,8 @@
  * Issue #815 (DataChannel の stream ID を DTLS role から採番する) テストの
  * Arrange 用ユーティリティ。
  */
+import { expect, vi } from "vitest";
+
 import {
   type RTCDataChannel,
   type RTCDtlsTransport,
@@ -295,4 +297,78 @@ export function limitStreams(pc: RTCPeerConnection, count: number) {
   const sctp = (pc as any).sctpManager.sctpTransport.sctp;
   sctp._inboundStreamsCount = count;
   sctp._outboundStreamsCount = count;
+}
+
+/** 両端が同じ ID で作る negotiated channel。 */
+export function createNegotiatedPair(
+  offerer: RTCPeerConnection,
+  answerer: RTCPeerConnection,
+  { label, id, ordered }: { label: string; id: number; ordered: boolean },
+) {
+  const options = { negotiated: true, id, ordered };
+  return {
+    local: offerer.createDataChannel(label, options),
+    remote: answerer.createDataChannel(label, options),
+  };
+}
+
+/** 接続済みの 2 peer と、両端で open になった negotiated channel。 */
+export async function openNegotiatedPair(options: {
+  id: number;
+  ordered: boolean;
+}) {
+  const { offerer, answerer } = createPeers();
+  const { local, remote } = createNegotiatedPair(offerer, answerer, {
+    label: "dc",
+    ...options,
+  });
+  await negotiate(offerer, answerer);
+  await Promise.all([waitOpen(local), waitOpen(remote)]);
+  return { offerer, answerer, local, remote };
+}
+
+/** `from` から送ったメッセージが `to` に届くのを待つ。 */
+export async function deliver(
+  from: RTCDataChannel,
+  to: RTCDataChannel,
+  text: string,
+) {
+  const received = nextMessage(to);
+  from.send(text);
+  await expect(received).resolves.toBe(text);
+}
+
+/** channel が closed になるのを待つ。 */
+export function waitClosed(channel: RTCDataChannel) {
+  return vi.waitFor(() => expect(channel.readyState).toBe("closed"), {
+    timeout: 5_000,
+  });
+}
+
+/**
+ * `pc` の stream reset 処理を develop (7a1cb6f6c 以前の werift) と同じにする:
+ * どちらかの方向の reset で channel をすぐ閉じ、相手の reset には SCTP が
+ * ordered で送った stream についてだけ答える。
+ */
+export function emulateLegacyResetHandling(pc: RTCPeerConnection) {
+  const transport = (pc as any).sctpManager.sctpTransport;
+  transport.onStreamsReset = (ids: number[]) => {
+    for (const id of ids) {
+      const channel = transport.dataChannels[id];
+      if (!channel) continue;
+      channel.setReadyState("closing");
+      channel.setReadyState("closed");
+      delete transport.dataChannels[id];
+    }
+  };
+}
+
+/** `pc` が相手の reset を待つ時間 (reverseResetTimeout) を `ms` にする。 */
+export function setReverseResetTimeout(pc: RTCPeerConnection, ms: number) {
+  (pc as any).sctpManager.sctpTransport.reverseResetTimeout = ms;
+}
+
+/** SCTP transport が close 中として追跡している stream。 */
+export function closingStreamsOf(pc: RTCPeerConnection) {
+  return [...(pc as any).sctpManager.sctpTransport.closingStreams.keys()];
 }

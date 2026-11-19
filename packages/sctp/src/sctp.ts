@@ -720,15 +720,6 @@ export class SCTP {
     );
   }
 
-  /**
-   * The peer sent DATA on incoming stream `streamId` since its last reset,
-   * so it resets that stream too when the stream closes (RFC 8831 section
-   * 6.7: each side resets the outgoing stream it used).
-   */
-  hasIncomingStream(streamId: number) {
-    return this.inboundStreams[streamId] !== undefined;
-  }
-
   /** The peer answered our outstanding reset request with Success - Performed. */
   private async completeOutgoingReset() {
     const streamIds = this.reconfigRequest!.streams.map((streamId) => {

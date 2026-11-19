@@ -36,6 +36,14 @@ export const DEFAULT_MAX_MESSAGE_SIZE = 65536;
 /** Stream IDs a data channel may use: 0..65534 (W3C webrtc-pc, RFC 8831 section 6.5). */
 const DATA_CHANNEL_ID_LIMIT = 65535;
 
+/** Which direction of a closing channel's stream is reset (RFC 8831 6.7). */
+interface ClosingStream {
+  outgoing: boolean;
+  incoming: boolean;
+  /** Closes the channel if the peer never resets its side. */
+  fallback?: ReturnType<typeof setTimeout>;
+}
+
 /** W3C webrtc-pc `RTCSctpTransportState`. */
 export type RTCSctpTransportState = "connecting" | "connected" | "closed";
 
@@ -79,16 +87,18 @@ export class RTCSctpTransport {
   private readonly unannounced = new Set<RTCDataChannel>();
   private eventDisposer: (() => void)[] = [];
   /**
-   * Streams whose channel closed with one direction of the RFC 8831 section
-   * 6.7 reset still to come: the incoming one (the peer resets the stream it
-   * used, after ours) or the outgoing one (our reset answering the peer's).
-   * That later reset belongs to the closed channel, not to one that reuses
-   * the ID meanwhile; data waits for the outgoing one.
+   * Streams of closing channels and which direction of the RFC 8831 section
+   * 6.7 reset is done. The channel keeps its stream ID until both are, so a
+   * channel reusing the ID never meets a reset of the closed one.
    */
-  private readonly resetAwaited = {
-    incoming: new Set<number>(),
-    outgoing: new Set<number>(),
-  };
+  private readonly closingStreams = new Map<number, ClosingStream>();
+  /**
+   * @internal
+   * How long a channel whose outgoing stream is reset waits for the peer to
+   * reset its side before it closes anyway: older werift resets only a stream
+   * it sent ordered data on.
+   */
+  reverseResetTimeout = 5_000;
 
   constructor(
     port = 5000,
@@ -186,8 +196,7 @@ export class RTCSctpTransport {
   ) {
     this.eventDisposer.forEach((dispose) => dispose());
     // Resets of the previous association never arrive on this one.
-    this.resetAwaited.incoming.clear();
-    this.resetAwaited.outgoing.clear();
+    this.clearClosingStreams();
 
     this.dtlsTransport = dtlsTransport;
     // A new association: the transport delivers again.
@@ -216,6 +225,7 @@ export class RTCSctpTransport {
         }),
         this.sctp.stateChanged.closed.subscribe(() => {
           if (!this.stopped) this.setState("closed");
+          this.clearClosingStreams();
           // Every registered channel closes, also one with a reserved ID
           // (resetAssociation gives those back first to keep them).
           // setReadyState isolates the listeners, so a throwing one skips
@@ -264,50 +274,76 @@ export class RTCSctpTransport {
   }
 
   /**
-   * RFC 8831 section 6.7: a channel closes when its stream is reset. The
-   * peer's reset starts the close here (`closing`). The ID is released
-   * before `closed` fires, so a `close` listener may create a channel on it
-   * at once (W3C: ids are reusable after the close event).
+   * RFC 8831 section 6.7: a channel closes when both directions of its
+   * stream are reset. The first reset (ours or the peer's) starts the close
+   * (`closing`); a reset of the peer's stream is answered with ours, whatever
+   * data went over the stream. The ID is released before `closed` fires, so
+   * a `close` listener may create a channel on it at once (W3C: ids are
+   * reusable after the close event), and no reset of the closed channel is
+   * left to arrive.
    */
   private onStreamsReset(ids: number[], direction: "outgoing" | "incoming") {
     for (const id of ids) {
-      if (this.resetAwaited[direction].delete(id)) {
-        // The peer's reset of the closed channel's stream: ours is done and
-        // the stream may carry a new channel, which SCTP's reverse reset
-        // (queued for any stream with ordered data) would close.
-        if (direction === "incoming") {
-          this.sctp.reconfigQueue = this.sctp.reconfigQueue.filter(
-            (streamId) => streamId !== id,
-          );
-        }
-        continue;
-      }
+      // No channel: a stream reset to reject the peer's OPEN on it.
       const dc = this.dataChannels[id];
       if (!dc) continue;
-      dc.setReadyState("closing");
-      // A `closing` listener may have closed it or the transport already.
-      if (this.dataChannels[id] !== dc || dc.readyState === "closed") continue;
-      if (direction === "incoming") {
-        if (this.sctp.reconfigRequest?.streams.includes(id)) {
-          // Our own reset of the stream is in flight (we closed it too):
-          // the reverse reset SCTP queued again would reset the stream a
-          // new channel may reuse once ours completes.
-          this.sctp.reconfigQueue = this.sctp.reconfigQueue.filter(
-            (streamId) => streamId !== id,
-          );
-          this.resetAwaited.outgoing.add(id);
-        } else if (this.sctp.isOutgoingResetPending(id)) {
-          this.resetAwaited.outgoing.add(id);
-        }
-      } else if (this.sctp.hasIncomingStream(id)) {
-        this.resetAwaited.incoming.add(id);
+      let reset = this.closingStreams.get(id);
+      if (!reset) {
+        reset = { outgoing: false, incoming: false };
+        this.closingStreams.set(id, reset);
       }
+      reset[direction] = true;
+      if (dc.readyState !== "closing") {
+        dc.setReadyState("closing");
+        // A `closing` listener may have closed the transport meanwhile.
+        if (this.dataChannels[id] !== dc || dc.readyState === "closed") {
+          continue;
+        }
+      }
+      if (direction === "incoming") this.answerIncomingReset(id, reset);
+      this.completeClose(id, dc, reset);
+    }
+  }
+
+  /** Reset our side of a stream the peer reset, exactly once. */
+  private answerIncomingReset(id: number, reset: ClosingStream) {
+    const inFlight = !!this.sctp.reconfigRequest?.streams.includes(id);
+    if (reset.outgoing || inFlight) {
+      // SCTP queues a reverse reset for a stream with ordered data even when
+      // ours is in flight; a second one would reset the stream's next channel.
+      this.sctp.reconfigQueue = this.sctp.reconfigQueue.filter(
+        (streamId) => streamId !== id,
+      );
+      return;
+    }
+    // Queued by our close() or by SCTP (ordered data), or not yet at all
+    // (no data, or only unordered data, went over the stream).
+    this.resetStream(id);
+  }
+
+  private completeClose(id: number, dc: RTCDataChannel, reset: ClosingStream) {
+    if (reset.outgoing && reset.incoming) {
+      clearTimeout(reset.fallback);
+      this.closingStreams.delete(id);
       delete this.dataChannels[id];
       this.unannounced.delete(dc);
       dc.setReadyState("closed");
+    } else if (reset.outgoing && !reset.fallback) {
+      reset.fallback = setTimeout(() => {
+        if (this.closingStreams.get(id) !== reset) return;
+        log("the peer did not reset its side of the stream", id);
+        reset.incoming = true;
+        this.completeClose(id, dc, reset);
+      }, this.reverseResetTimeout);
+      reset.fallback.unref?.();
     }
-    // Messages held for a stream whose outgoing reset just completed.
-    if (direction === "outgoing") this.dataChannelFlush();
+  }
+
+  private clearClosingStreams() {
+    for (const { fallback } of this.closingStreams.values()) {
+      clearTimeout(fallback);
+    }
+    this.closingStreams.clear();
   }
 
   /**
@@ -685,9 +721,7 @@ export class RTCSctpTransport {
       }
 
       const streamId = channel.id;
-      // No ID yet, or the ID of a closed channel whose outgoing stream is
-      // not reset yet: data now would precede that reset and be lost.
-      if (streamId == undefined || this.resetAwaited.outgoing.has(streamId)) {
+      if (streamId == undefined) {
         waiting.push([channel, protocol, userData]);
         continue;
       }
