@@ -1,14 +1,8 @@
 import type { AcceptFn, Peer } from "protoo-server";
-import { RTCPeerConnection, type RTCIceCandidate } from "../..";
+import { RTCPeerConnection } from "../..";
 import { peerConfig } from "../../fixture";
 import { acceptLocalDescription } from "../localDescription";
-
-function notifyCandidate(peer: Peer, candidate: RTCIceCandidate | null) {
-  if (peer.closed) return;
-
-  // ブラウザーの切断後に届く candidate は不要なので、通知失敗を無視する。
-  void peer.notify("candidate", { candidate }).catch(() => {});
-}
+import { notifyCandidate } from "../notifyCandidate";
 
 export class bundle_disable_answer {
   pc!: RTCPeerConnection;
