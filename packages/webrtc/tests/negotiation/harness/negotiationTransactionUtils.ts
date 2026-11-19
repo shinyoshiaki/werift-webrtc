@@ -83,8 +83,13 @@ export async function createConnectedVideoPeers(
     withAudio = false,
   }: { trickleOpen?: boolean; withAudio?: boolean } = {},
 ) {
-  const offerer = new RTCPeerConnection(config);
-  const answerer = new RTCPeerConnection(config);
+  const peerConfig = {
+    iceServers: [],
+    iceUseDefaultStunServer: false,
+    ...config,
+  };
+  const offerer = new RTCPeerConnection(peerConfig);
+  const answerer = new RTCPeerConnection(peerConfig);
   const outgoing = new MediaStreamTrack({ kind: "video" });
   let incoming: MediaStreamTrack | undefined;
   answerer.onRemoteTransceiverAdded.subscribe((transceiver) => {
@@ -1419,8 +1424,12 @@ export async function createDuplexSession(
   config: ConstructorParameters<typeof RTCPeerConnection>[0] = {},
   configB = config,
 ) {
-  const a = new RTCPeerConnection(config);
-  const b = new RTCPeerConnection(configB);
+  const defaults = {
+    iceServers: [],
+    iceUseDefaultStunServer: false,
+  };
+  const a = new RTCPeerConnection({ ...defaults, ...config });
+  const b = new RTCPeerConnection({ ...defaults, ...configB });
   const aOut = new MediaStreamTrack({ kind: "video" });
   const bOut = new MediaStreamTrack({ kind: "video" });
   const aChannel = a.createDataChannel("matrix");
@@ -2670,10 +2679,13 @@ export function holdDtlsStart(pc: RTCPeerConnection) {
   });
   for (const transport of pc.dtlsTransports) {
     const original = transport.start.bind(transport);
-    transport.start = async () => {
-      transport.start = original;
-      await released;
-      return original();
+    let startPromise: Promise<void> | undefined;
+    transport.start = () => {
+      startPromise ??= released.then(() => {
+        transport.start = original;
+        return original();
+      });
+      return startPromise;
     };
   }
   return { release };
@@ -2722,8 +2734,14 @@ export async function createHeldTurnRestartPeers(restarts: number) {
   const proxies = await Promise.all(
     [...Array(restarts)].map(() => createHeldUdpProxy(turn.server.address!)),
   );
-  const offerer = new RTCPeerConnection({ iceServers: turn.iceServers });
-  const answerer = new RTCPeerConnection();
+  const offerer = new RTCPeerConnection({
+    iceServers: turn.iceServers,
+    iceUseDefaultStunServer: false,
+  });
+  const answerer = new RTCPeerConnection({
+    iceServers: [],
+    iceUseDefaultStunServer: false,
+  });
   const channel = offerer.createDataChannel("turn");
   const received = answerer.onDataChannel.asPromise().then(([c]) => c);
   await offerer.setLocalDescription(await offerer.createOffer());
@@ -2767,10 +2785,12 @@ export async function createRelayOnlyPeers() {
   proxy.release();
   const a = new RTCPeerConnection({
     iceServers: turn.iceServers,
+    iceUseDefaultStunServer: false,
     iceTransportPolicy: "relay",
   });
   const b = new RTCPeerConnection({
     iceServers: turnIceServers(proxy.address),
+    iceUseDefaultStunServer: false,
     iceTransportPolicy: "relay",
   });
   const candidateErrors: string[] = [];
@@ -3311,6 +3331,44 @@ export async function createKeptRemoteTransceiver() {
     localTrack,
     offererEvents,
     both,
+    close: () => Promise.allSettled([offerer.close(), answerer.close()]),
+  };
+}
+
+/**
+ * Shared Arrange (acceptance of #817): `answerer` holds `offerer`'s audio
+ * offer as a pending remote description, with the transceiver the offer
+ * created (`remoteCreated`). `rollback()` rolls the offer back on both
+ * peers. `expectMediaFlows(sender)` then negotiates from `answerer` and
+ * checks that RTP written to `sender`'s track reaches `offerer`. Local
+ * candidates only (no public STUN).
+ */
+export async function createPendingRemoteOffer() {
+  const config = { iceServers: [], iceUseDefaultStunServer: false };
+  const offerer = new RTCPeerConnection(config);
+  const answerer = new RTCPeerConnection(config);
+  offerer.addTransceiver("audio", { direction: "sendrecv" });
+  await offerer.setLocalDescription(await offerer.createOffer());
+  await answerer.setRemoteDescription(offerer.localDescription!);
+  const [remoteCreated] = answerer.getTransceivers();
+  return {
+    offerer,
+    answerer,
+    remoteCreated,
+    rollback: async () => {
+      await answerer.setRemoteDescription({ type: "rollback" });
+      await offerer.setLocalDescription({ type: "rollback" });
+    },
+    expectMediaFlows: async (sender: RTCRtpSender) => {
+      const incoming = offerer.onTrack.watch(() => true);
+      await exchangeOfferAnswer(answerer, offerer);
+      const [track] = await incoming;
+      await Promise.all([
+        waitForConnection(offerer),
+        waitForConnection(answerer),
+      ]);
+      await sendAndExpectRtp(sender.track!, track, "after-rollback");
+    },
     close: () => Promise.allSettled([offerer.close(), answerer.close()]),
   };
 }

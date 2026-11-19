@@ -30,6 +30,7 @@ import {
   resolveCodecs,
   withNegotiatedCodecs,
 } from "./media/codecCompatibility";
+import type { MediaDirection } from "./media/rtpTransceiver";
 import { createBandwidthEstimator } from "./media/sender/createBandwidthEstimator";
 import type { RTCStats } from "./media/stats";
 import { captureTrackSourceCodecs, getTrackSourceCodecs } from "./media/track";
@@ -111,8 +112,9 @@ function simulcastFromSendEncodings(
  *   answer.
  * - A transceiver created for a remote offer is not an application operation
  *   (no `negotiationneeded`). Rollback removes it unless the application
- *   attached a track (`heldByApplication`); a kept one returns to its created
- *   state. An application `stop()` during the transaction survives rollback.
+ *   uses it (`heldByApplication`: `addTrack()` attached a track to it, even
+ *   one `replaceTrack(null)` / `removeTrack()` detached since, or its sender
+ *   has a track); a kept one returns to its created state. An application `stop()` during the transaction survives rollback.
  * - Each transceiver records what created it (`createdBy`: `addTrack`,
  *   `addTransceiver` or `remote`); reusing one with `addTrack()` or
  *   `replaceTrack()` keeps it. Under `transceiverPairing: "standard"` a remote
@@ -496,6 +498,20 @@ export class TransceiverManager {
     }
   }
 
+  /** transport など副作用のある資源を作る前に、track の codec が構成と互換か検証する */
+  private assertTrackCodecsSupported(
+    track: MediaStreamTrack,
+    direction: MediaDirection,
+  ) {
+    captureTrackSourceCodecs(track);
+    assertCodecsSupported({
+      kind: track.kind,
+      configured: this.filterCodecsByDirection(track.kind, direction),
+      source: getTrackSourceCodecs(track),
+      preferences: undefined,
+    });
+  }
+
   addTransceiver(
     trackOrKind: Kind | MediaStreamTrack,
     dtlsTransport?: RTCDtlsTransport,
@@ -519,13 +535,7 @@ export class TransceiverManager {
     const direction = options.direction || "sendrecv";
 
     if (typeof trackOrKind !== "string") {
-      captureTrackSourceCodecs(trackOrKind);
-      assertCodecsSupported({
-        kind,
-        configured: this.filterCodecsByDirection(kind, direction),
-        source: getTrackSourceCodecs(trackOrKind),
-        preferences: undefined,
-      });
+      this.assertTrackCodecsSupported(trackOrKind, direction);
     }
 
     const sender = new RTCRtpSender(trackOrKind, {
@@ -656,15 +666,16 @@ export class TransceiverManager {
       this.noteReusedForAddTrack(notSendTransceiver);
       return notSendTransceiver;
     } else {
+      // 失敗し得る検証を先に済ませ、失敗時に transport を作りっぱなしにしない
+      this.assertTrackCodecsSupported(track, "sendrecv");
       // JSEP 5.10: only a transceiver addTrack() creates may pair with a
       // remote offer m-section it has no MID for.
-      const transceiver = this.addTransceiver(
+      return this.addTransceiver(
         track,
         createTransport?.(),
         { direction: "sendrecv", streams },
         { createdBy: "addTrack" },
       );
-      return transceiver;
     }
   }
 
