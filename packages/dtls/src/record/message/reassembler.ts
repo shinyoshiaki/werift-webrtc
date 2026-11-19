@@ -15,7 +15,11 @@ export interface HandshakeReassemblerLimits {
   maxBufferedBytes: number;
   /** Disjoint received byte ranges kept per message. */
   maxRangesPerMessage: number;
-  /** A partial message not updated for this long (ms) is discarded. */
+  /**
+   * A partial message not updated for this long (ms) is discarded. Expiry is
+   * evaluated when the next fragment is added (no timer), so an idle
+   * reassembler keeps its entries until then or until `clear()`.
+   */
   entryLifetimeMs: number;
 }
 

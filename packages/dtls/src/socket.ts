@@ -226,6 +226,8 @@ export class DtlsSocket {
     }
 
     this.ended = true;
+    // No record is processed any more: free the partial handshake messages.
+    this.reassembler.clear();
     // Retransmitting a handshake flight makes no sense any more.
     this.transport.stopFlights();
 
@@ -405,6 +407,8 @@ export class DtlsSocket {
    * the caller, e.g. the onError notification of a received fatal alert.
    */
   private closeTransport() {
+    // Every ending path (received/sent alert, close()) closes the transport.
+    this.reassembler.clear();
     return this.transport.close().catch((error: unknown) => {
       err(this.dtls.sessionId, "failed to close transport", error);
     });

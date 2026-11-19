@@ -1,3 +1,7 @@
+import { AlertDesc, AlertLevel, ContentType } from "../src";
+import { Alert } from "../src/handshake/message/alert";
+import { createPlaintext } from "../src/record/builder";
+import { HandshakeReassembler } from "../src/record/message/reassembler";
 import { HandshakeType } from "../src/handshake/const";
 import { DtlsRandom } from "../src/handshake/random";
 import {
@@ -74,4 +78,65 @@ describe("server", () => {
       await server.close();
     },
   );
+  test.each([
+    ["fatal alert", AlertLevel.fatal, AlertDesc.HandshakeFailure],
+    ["close_notify", AlertLevel.warning, AlertDesc.CloseNotify],
+  ])(
+    "partial handshake fragments are freed when the peer ends with a %s",
+    async (_, level, description) => {
+      // Arrange
+      const { server, transport } = await createEcdsaDtlsServer();
+      const hello = createLargeClientHelloHandshake({
+        random: new DtlsRandom(),
+      });
+      const [, middle] = fragmentHandshake(hello, Math.ceil(hello.length / 3));
+      const reassembler = (server as any).reassembler as HandshakeReassembler;
+      transport.onData(
+        createHandshakeRecord(middle, { sequenceNumber: 0 }),
+        undefined as any,
+      );
+      expect(reassembler.size).toBe(1);
+
+      // Act
+      // 部分フラグメントを保持したまま、相手からの終了アラートを受信させる
+      const [packet] = createPlaintext(server.dtls)(
+        [
+          {
+            type: ContentType.alert,
+            fragment: new Alert(level, description).serialize(),
+          },
+        ],
+        1,
+      );
+      transport.onData(packet.serialize(), undefined as any);
+      await server.alertFlushed();
+
+      // Assert
+      // 接続終了とともに再構成バッファが解放される
+      expect(reassembler.size).toBe(0);
+      expect(reassembler.bufferedBytes).toBe(0);
+      await server.close();
+    },
+  );
+
+  test("partial handshake fragments are freed by close()", async () => {
+    // Arrange
+    const { server, transport } = await createEcdsaDtlsServer();
+    const hello = createLargeClientHelloHandshake({ random: new DtlsRandom() });
+    const [, middle] = fragmentHandshake(hello, Math.ceil(hello.length / 3));
+    const reassembler = (server as any).reassembler as HandshakeReassembler;
+    transport.onData(
+      createHandshakeRecord(middle, { sequenceNumber: 0 }),
+      undefined as any,
+    );
+    expect(reassembler.size).toBe(1);
+
+    // Act
+    // 部分フラグメントを保持したままソケットを閉じる
+    await server.close();
+
+    // Assert
+    // 再構成バッファが解放される
+    expect(reassembler.size).toBe(0);
+  });
 });
