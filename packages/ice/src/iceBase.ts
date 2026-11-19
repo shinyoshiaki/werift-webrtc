@@ -282,6 +282,8 @@ export class CandidatePair implements CandidatePairStats {
   }
 }
 
+/** Default of {@link IceOptions.incomingCheckTimeout}, in seconds. */
+export const DEFAULT_INCOMING_CHECK_TIMEOUT = 30;
 export const ICE_COMPLETED = 1 as const;
 export const ICE_FAILED = 2 as const;
 
@@ -398,6 +400,19 @@ export interface IceOptions {
    * timeout in the background and end-of-candidates follows them.
    */
   stunGatherTimeout?: number;
+  /**
+   * Seconds `connect()` waits for a connectivity check from the peer when it
+   * has no candidate pair of its own to check after both sides ended their
+   * candidates: the peer offered only active TCP candidates (RFC 6544), or
+   * none this agent can reach. A check from the peer adds a peer-reflexive
+   * pair and the connection proceeds; without one, `connect()` fails when the
+   * time runs out. An ICE-lite agent, which sends no checks, waits the same
+   * time whenever it has no candidate pair, also while it still gathers. The
+   * deadline is fixed when the wait begins; once the local gathering ended
+   * without a socket that could receive a check, `connect()` fails at once.
+   * Defaults to 30; 0 fails at once.
+   */
+  incomingCheckTimeout?: number;
   /**
    * Seconds to wait for a TURN TCP/TLS connection to be established.
    * Defaults to 8.
