@@ -1117,7 +1117,14 @@ async function arrangeCycleSession(c: NegotiationCase, observe: boolean) {
   oracles.channel(scope.aChannel, a);
   oracles.channel(scope.bChannel, b);
   if (observe) oracles.watch(a, b);
-  const w: StepWorld = { c, oracles, saved: new Map(), created: 0 } as never;
+  const w: StepWorld = {
+    c,
+    oracles,
+    saved: new Map(),
+    // model の STEPS (takeTrack / detachTrack) が使う World の欄を揃える。
+    addTracked: new WeakSet(),
+    created: 0,
+  } as never;
   const audio = a.addTransceiver(new MediaStreamTrack({ kind: "audio" }), {
     direction: "sendrecv",
   });

@@ -156,3 +156,17 @@ get heldByApplication() {
 - [ ] `npm run pbt:deep`（fuzz・scenario・model・leak）で leak の失敗がない。
 - [ ] `tools/negotiation-diff` の develop 比較で差分数 0。
 - [ ] `wpt/baseline.json` を変えるので、`npm run wpt` を 10 回実行して baseline の追加 subtest が毎回 PASS になる（`packages/webrtc/AGENTS.md` Validation）。
+
+## 8. マージ・コンフリクト解決の確認（develop 取り込み後の整合性）
+
+このブランチの develop 取り込み（`80a6eb5b9`、`4fbc7652e`、`70e710c69`、`3adb1392c` のコンフリクト解決と、その他の `Merge develop into ticket worktree`）を確認した。
+
+- コンフリクト解決の内容（`git show --cc`）: `transceiverManager.ts` / `negotiationTransaction.ts` の TSDoc と `addTrack()` 分岐、`negotiationTransactionUtils.ts` の `createDuplexSession`（`configB` と既定の `iceUseDefaultStunServer: false` の両立）、`tests/pbt/model/generator.ts` の `World`、`tests/transport/ice.test.ts` の import は、両側の変更を残している。
+- §6・§7 のリファクタリングは取り込み後も保たれている: 削除した識別子（`getApplicationStopRevision`、`noteApplicationAddTrack`、`closedSignal`、`setUdpSocketFactory`、`nextDummySourceId` など）への参照はない。develop から入ったコード（SSRC-less 受信 #356 の `router` / `routing/*`、`rtpReceiver`）にモジュールスコープの状態はない（`moduleState.test.ts` が通る）。新しい receiver の状態 `deferredRemote` は receiver の snapshot / restore に含まれ、rollback で保持する transceiver は作成時の状態に戻る。生成 docs は `npm run doc` で差分なし。
+- 修正したもの:
+  - leak probe の周期 session の `World`（`tests/pbt/leak/leakProbe.ts`）に、§3 で model の `World` に足した `addTracked` が無かった（`as never` で型検査を通っていた）。model の `takeTrack` / `detachTrack` を周期で使うと落ちるので、欄を揃えた。
+  - B6（dummy media の SSRC などを乱数にした変更）が `changelog.md` に無かった。以前の版の記載（「dummy media: deterministic per source」）と食い違うので、Unreleased の 🐛 Bug Fixes に追記した。
+- 対象外: `changelog.md` の Unreleased に `🚀 Features` / `🐛 Bug Fixes` の見出しが 2 組あるのは develop と同じで、このブランチのマージによるものではない。
+- 最新の取り込み（`3adb1392c`、#356 の SSRC-less 受信）後の `pbt:deep --suite model,leak --jobs 16`（load 平均 37.7）で、次の 2 件が失敗した。どちらもこのブランチのマージ・リファクタリングによるものではない（merge-base `38981b880` との比較）。
+  - model seed 234: 縮小した scene（`attachTrack` → `removeTrack` → `attachTrack` → `wireOffer`（`ssrcAndMidRemoved`）→ `lateAnswer`、simulcast、`bundlePolicy: max-compat`）は、merge-base でも 3 回とも同じ「after operation #23: traffic / RTP was not received」で失敗する。HEAD では generator の `takeTrack` / `detachTrack` で乱数列が変わり、seed 234 がこの scene に当たる。develop 側の不具合として別途扱う。
+  - leak heap seed 2: HEAD 16.2〜16.3 KiB/cycle（閾値 16）。#356 の取り込み前（`679dea2fb`）は 15.4〜15.9 で成功していた。merge-base に §7 の ICE 修正と leak probe の loopback 化だけを当てると 16.25〜16.32 で HEAD と同じなので、増加分は develop の #356 のコードによる。merge-base そのものは 273.75 KiB/cycle（ICE の候補保持と複数 interface）で、§7 と leak probe の修正で 16 前後まで下がる。
