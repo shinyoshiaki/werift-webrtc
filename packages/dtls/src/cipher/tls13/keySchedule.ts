@@ -36,7 +36,11 @@ export interface Dtls13KeyScheduleState {
  * Label prefix defaults to "dtls13" (RFC 9147).
  */
 export class Dtls13KeySchedule {
-  constructor(private readonly labelPrefix: string = DTLS13_LABEL_PREFIX) {}
+  private readonly labelPrefix: string;
+
+  constructor(labelPrefix: string = DTLS13_LABEL_PREFIX) {
+    this.labelPrefix = labelPrefix;
+  }
 
   earlySecret(psk: Buffer = Buffer.alloc(0)): Buffer {
     // Early Secret = HKDF-Extract(0, PSK) with zeros of Hash.length when PSK empty

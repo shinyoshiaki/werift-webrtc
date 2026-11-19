@@ -48,8 +48,7 @@ import type {
 } from "../src/media/sender/senderBWE";
 import type { RTCRemoteInboundRtpStreamStats } from "../src/media/stats";
 import { compactNtp } from "../src/utils";
-import { exchangeIceCandidates } from "./utils";
-import { waitUntil } from "./utils";
+import { exchangeIceCandidates, waitUntil } from "./utils";
 
 export const createRtpPacket = (
   sequenceNumber = 0,

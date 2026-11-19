@@ -9,10 +9,13 @@ export class CertificateVerify13 implements Handshake {
   msgType = HandshakeType.certificate_verify_15;
   messageSeq?: number;
 
-  constructor(
-    public algorithm: number,
-    public signature: Buffer,
-  ) {}
+  algorithm: number;
+  signature: Buffer;
+
+  constructor(algorithm: number, signature: Buffer) {
+    this.algorithm = algorithm;
+    this.signature = signature;
+  }
 
   static createEmpty() {
     return new CertificateVerify13(0, Buffer.alloc(0));

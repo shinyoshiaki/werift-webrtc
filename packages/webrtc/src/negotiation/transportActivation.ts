@@ -302,6 +302,27 @@ export class TransportActivation {
             throw error;
           }
           iceReady = true;
+          if (dtlsPromise) {
+            // As for a DTLS transport started after ICE (below): start()
+            // also returns when it closed meanwhile, which ends the attempt
+            // as failed while a live m-line uses it, and SCTP on it is
+            // ensured before this transport activation completes.
+            if (
+              (dtlsTransport.state as RTCDtlsTransport["state"]) !== "connected"
+            ) {
+              if (this.secure.dtlsTransports.includes(dtlsTransport)) {
+                throw new Error(`DTLS transport ${dtlsTransport.state}`);
+              }
+              return false;
+            }
+            if (
+              this.sctp.sctpTransport &&
+              this.sctp.sctpTransport.dtlsTransport.id === dtlsTransport.id
+            ) {
+              await this.sctp.connectSctp();
+            }
+            return progressed;
+          }
         } else if (iceTransport.state === "checking") {
           // Checks an earlier connect() (or a pranswer) started are awaited,
           // never started again.

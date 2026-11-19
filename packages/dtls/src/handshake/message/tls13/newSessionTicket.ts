@@ -20,18 +20,30 @@ export class NewSessionTicket implements Handshake {
   msgType = HandshakeType.new_session_ticket_4 as any;
   messageSeq?: number;
 
+  /** RFC 8446 ticket_lifetime (seconds; 0 = immediately stale). */
+  ticketLifetime: number;
+  /** RFC 8446 ticket_age_add (obfuscation). */
+  ticketAgeAdd: number;
+  /** RFC 8446 ticket_nonce. */
+  ticketNonce: Buffer;
+  /** RFC 8446 ticket (opaque; length ≥ 1). */
+  ticket: Buffer;
+  /** RFC 8446 extensions vector bytes (without the 2-byte length prefix). */
+  extensions: Buffer;
+
   constructor(
-    /** RFC 8446 ticket_lifetime (seconds; 0 = immediately stale). */
-    public ticketLifetime: number,
-    /** RFC 8446 ticket_age_add (obfuscation). */
-    public ticketAgeAdd: number,
-    /** RFC 8446 ticket_nonce. */
-    public ticketNonce: Buffer,
-    /** RFC 8446 ticket (opaque; length ≥ 1). */
-    public ticket: Buffer,
-    /** RFC 8446 extensions vector bytes (without the 2-byte length prefix). */
-    public extensions: Buffer = Buffer.alloc(0),
-  ) {}
+    ticketLifetime: number,
+    ticketAgeAdd: number,
+    ticketNonce: Buffer,
+    ticket: Buffer,
+    extensions: Buffer = Buffer.alloc(0),
+  ) {
+    this.ticketLifetime = ticketLifetime;
+    this.ticketAgeAdd = ticketAgeAdd;
+    this.ticketNonce = ticketNonce;
+    this.ticket = ticket;
+    this.extensions = extensions;
+  }
 
   static createEmpty() {
     return new NewSessionTicket(0, 0, Buffer.alloc(0), Buffer.from([0]));

@@ -10,6 +10,7 @@
 
 ## Enumerations
 
+- [AlertDesc](enumerations/AlertDesc.md)
 - [AlertLevel](enumerations/AlertLevel.md)
 - [CandidatePairState](enumerations/CandidatePairState.md)
 - [classes](enumerations/classes.md)
@@ -260,7 +261,6 @@
 - [AacHbrDepacketizerOptions](type-aliases/AacHbrDepacketizerOptions.md)
 - [AacHbrPacketizerOptions](type-aliases/AacHbrPacketizerOptions.md)
 - [Address](type-aliases/Address.md)
-- [AlertDesc](type-aliases/AlertDesc.md)
 - [AudioLevelIndicationPayload](type-aliases/AudioLevelIndicationPayload.md)
 - [AuHeader](type-aliases/AuHeader.md)
 - [Av1PacketizeOptions](type-aliases/Av1PacketizeOptions.md)
@@ -392,7 +392,6 @@
 - [AAC\_HBR\_INDEX\_DELTA\_LENGTH](variables/AAC_HBR_INDEX_DELTA_LENGTH.md)
 - [AAC\_HBR\_INDEX\_LENGTH](variables/AAC_HBR_INDEX_LENGTH.md)
 - [AAC\_HBR\_SIZE\_LENGTH](variables/AAC_HBR_SIZE_LENGTH.md)
-- [AlertDesc](variables/AlertDesc.md)
 - [AttributeKeys](variables/AttributeKeys.md)
 - [BundleCandidatesModes](variables/BundleCandidatesModes.md)
 - [CertificateScopeModes](variables/CertificateScopeModes.md)

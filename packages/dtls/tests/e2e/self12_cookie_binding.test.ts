@@ -118,9 +118,10 @@ test("e2e/self12: cookie minted for A is rejected from peer B", async () => {
 }, 15_000);
 
 /**
- * P1: CH1 と random が異なる CH2 + 同 cookie → 拒否。
+ * P1: CH1 と cipher_suites が異なる CH2 + 同 cookie → 拒否。
+ * （random は cookie に bind しない: 別 random の CH2 は server.clientHelloRandom.test.ts）
  */
-test("e2e/self12: CH2 with different random than cookie-bound CH1 is rejected", async () => {
+test("e2e/self12: CH2 with different cipher suites than cookie-bound CH1 is rejected", async () => {
   const serverTransport = await UdpTransport.init("udp4");
   const server = new DtlsServer({
     transport: serverTransport,
@@ -138,16 +139,20 @@ test("e2e/self12: CH2 with different random than cookie-bound CH1 is rejected", 
   );
   const cookie = Buffer.from((server as any).dtls.cookie as Buffer);
 
-  // Different random (new ClientHello params) — cookie binding must fail
-  const rnd2 = fixedClientRandom();
-  expect(rnd2.random_bytes.equals(rnd1.random_bytes)).toBe(false);
+  // Act: 同じ random のまま cipher_suites を変えた CH2 を同じ cookie で送る
   await (server as any).handleHandshakes(
-    chAsAssembled(build12ClientHello({ cookie, random: rnd2 })),
+    chAsAssembled(
+      build12ClientHello({
+        cookie,
+        random: rnd1,
+        ciphers: [CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256_49195],
+      }),
+    ),
     peer,
   );
 
+  // Assert: cookie binding が失敗し、pin も association crypto も commit しない
   expect((server as any).transport.pinnedPeer).toBeUndefined();
-  // Association crypto not committed to rnd2
   expect((server as any).cipher.remoteRandom).toBeUndefined();
 
   server.close();
@@ -255,10 +260,11 @@ test("unit: mintDtls12HelloVerifyCookie binds peer and ClientHello params", () =
   expect(
     verifyDtls12HelloVerifyCookie(secret, cookie, "10.0.0.2:9", body),
   ).toBe(false);
-  // Wrong random (CH params)
+  // Wrong cipher suites (CH params)
   const ch2 = build12ClientHello({
     cookie: Buffer.from(cookie),
-    random: fixedClientRandom(),
+    random: rnd,
+    ciphers: [CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256_49195],
   });
   expect(
     verifyDtls12HelloVerifyCookie(
@@ -268,6 +274,19 @@ test("unit: mintDtls12HelloVerifyCookie binds peer and ClientHello params", () =
       ch2.serialize(),
     ),
   ).toBe(false);
+  // A different random is not bound: some peers renew it in CH2
+  const ch2NewRandom = build12ClientHello({
+    cookie: Buffer.from(cookie),
+    random: fixedClientRandom(),
+  });
+  expect(
+    verifyDtls12HelloVerifyCookie(
+      secret,
+      cookie,
+      "10.0.0.1:9",
+      ch2NewRandom.serialize(),
+    ),
+  ).toBe(true);
   // Same params + cookie field set still verifies (cookie zeroed for binding)
   const ch2ok = build12ClientHello({
     cookie: Buffer.from(cookie),

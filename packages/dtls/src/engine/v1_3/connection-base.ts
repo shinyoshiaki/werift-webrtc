@@ -414,10 +414,10 @@ export class Dtls13ConnectionBase {
    */
   expectedRxGeneration?: () => number | undefined;
 
-  constructor(
-    readonly options: Dtls13Options,
-    sessionType: SessionTypes,
-  ) {
+  readonly options: Dtls13Options;
+
+  constructor(options: Dtls13Options, sessionType: SessionTypes) {
+    this.options = options;
     this.role = sessionType === SessionType.CLIENT ? "client" : "server";
     if (this.role === "server") {
       if (!options.cert || !options.key) {

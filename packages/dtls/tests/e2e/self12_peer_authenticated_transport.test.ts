@@ -36,7 +36,10 @@ class PeerAuthTransport implements Transport {
   onData: (data: Buffer, addr: Address) => void = () => {};
   private peer?: PeerAuthTransport;
 
-  constructor(private readonly udp: UdpTransport) {
+  private readonly udp: UdpTransport;
+
+  constructor(udp: UdpTransport) {
+    this.udp = udp;
     udp.onData = (data) => {
       // Default: no source address — same as WebRTC IceTransport
       this.onData(data, this.fakeRxAddr as any);

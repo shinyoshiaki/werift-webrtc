@@ -14,10 +14,13 @@ export class CertificateRequest13 implements Handshake {
   msgType = HandshakeType.certificate_request_13;
   messageSeq?: number;
 
-  constructor(
-    public certificateRequestContext: Buffer,
-    public extensions: Extension[],
-  ) {}
+  certificateRequestContext: Buffer;
+  extensions: Extension[];
+
+  constructor(certificateRequestContext: Buffer, extensions: Extension[]) {
+    this.certificateRequestContext = certificateRequestContext;
+    this.extensions = extensions;
+  }
 
   static create(
     context: Buffer = Buffer.alloc(0),

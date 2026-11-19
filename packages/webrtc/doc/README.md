@@ -185,6 +185,20 @@ In `"standard"`, `inactive` m-lines are kept and not reused. To reuse an m-line 
 
 See [the design note](_media/705-media-rejection-and-removetrack.md) for BUNDLE, ICE candidate and rollback details.
 
+`bundleCandidates` selects which m-lines of a BUNDLE group carry the local ICE candidates. It is fixed at construction time.
+
+```ts
+new RTCPeerConnection(); // bundleCandidates: "legacy" (default)
+new RTCPeerConnection({ bundleCandidates: "compatible" }); // Chrome's shape: candidates on the BUNDLE tag only
+```
+
+| `bundleCandidates` | m-line that owns the transport (BUNDLE tag) | other m-lines on the same transport |
+| --- | --- | --- |
+| `"legacy"` (default) | candidates + `a=end-of-candidates` | the same candidates repeated |
+| `"compatible"` | candidates + `a=end-of-candidates` | none (ICE / DTLS parameters only) |
+
+With `"legacy"`, every m-line repeats its transport's `a=candidate` lines and `a=end-of-candidates`, so the SDP of a long BUNDLE session grows with "m-lines × candidates" at each renegotiation (Issue #269). `"compatible"` writes them as Chrome does: the candidates of a transport appear once, on the tag m-line of its BUNDLE group, in every offer, answer and pranswer (including the first answer and a first `max-bundle` offer), so the number of candidates in the SDP stays the number of the transport's candidates (RFC 8843 §7.1.3 / §7.3.1, RFC 8859). Every m-line keeps `a=ice-ufrag`, `a=ice-pwd`, `a=ice-options`, `a=fingerprint`, `a=setup` and `a=mid`, as Chrome does. A first `max-compat` / `balanced` offer, whose m-lines have their own transports, an m-line split out of BUNDLE and `bundlePolicy: "disable"` keep each transport's candidates on its m-line. A new BUNDLE tag (the old tag stopped) gets the candidates, and an ICE restart writes the new generation's candidates on the tag. Trickled candidates are unchanged. Unlike Chrome, werift still writes `a=end-of-candidates` (on the tag). Keep `"legacy"` if your application or SFU reads the candidates of every m-line.
+
 `transceiverPairing` selects which local transceiver a remote offer's m-section is paired with when no transceiver has its MID yet (Issue #816). It is fixed at construction time.
 
 ```ts
@@ -223,7 +237,7 @@ Where werift's own behavior differs from the specifications and browsers, a cons
 | `certificateScope` | `"process"` | `"process"`: one default DTLS certificate shared by the process | a certificate per `RTCPeerConnection` | fixed | `"peerConnection"` (= `"standard"`) |
 | `mLineReuse` | `"standard"` | `"aggressive"`: an accepted `inactive` m-line uses port 0, so its position is reused | an accepted `inactive` m-line keeps its port | fixed | `"compatible"` (= `"standard"`) |
 | `transceiverPairing` | `"byKind"` | `"byKind"`: a remote offer takes any unassociated transceiver of its kind | JSEP 5.10: only one `addTrack()` created | fixed | — |
-| `keyFrameRequestRouting` | `"fallback"` | `"fallback"`: a PLI / FIR for an unknown SSRC falls back to the RTX owner or the only video sender | not delivered (RFC 4585 / RFC 5104) | changeable | `"compatible"` (= `"fallback"`), `"strict"` (= `"standard"`) |
+| `keyFrameRequestRouting` | `"fallback"` | `"fallback"`: a PLI / FIR for an unknown SSRC falls back to the RTX owner or the only video sender of the transport it arrived on | not delivered (RFC 4585 / RFC 5104) | changeable | `"compatible"` (= `"fallback"`), `"strict"` (= `"standard"`) |
 
 Any other value is a `TypeError`, and changing a fixed option is an `InvalidModificationError`. An old name is read as its current name (`getConfiguration()` returns the current name). `CompatibilityOptionValues` lists the values of every option.
 

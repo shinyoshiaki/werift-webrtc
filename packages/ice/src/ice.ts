@@ -1246,6 +1246,14 @@ export class Connection implements IceConnection {
       ) {
         return;
       }
+      // The application filter applies to every generation's check, as for
+      // the current generation (options.filterStunResponse).
+      if (
+        this.options.filterStunResponse &&
+        !this.options.filterStunResponse(verified, addr, protocol)
+      ) {
+        return;
+      }
       const response = new Message(
         methods.BINDING,
         classes.RESPONSE,

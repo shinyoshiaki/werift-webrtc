@@ -911,6 +911,10 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       if (!this.isFreshApplicationReceive()) return;
       this.applicationGate.receive(buf);
     });
+    // close_notify from the peer, also during the handshake: closed (with
+    // statechange, the peer caused it; W3C RTCDtlsTransportState "closed").
+    // close_notify is not a fatal alert, so neither failed nor an error
+    // event. closed / failed are final.
     this.dtls.onClose.subscribe(() => {
       // 全 close 経路で送信許可を解除し、close 後の SRTP/SRTCP 送信を防ぐ。
       this.srtpAccess.revoke();
@@ -920,15 +924,13 @@ export class RTCDtlsTransport implements DtlsTransportStats {
         this.discardUnauthenticatedData();
       }
       if (this.state !== "failed") {
+        log("dtls closed by the peer");
         this.setState("closed");
       }
-      // onClose may be the only terminal edge observed by the start wrapper
-      // (notably when stop() closes a handshake before onConnect).  Reject it
-      // so every caller awaiting the shared startPromise is released.
-      reject(
-        this.lastError ??
-          new Error("DTLS transport closed before start completed"),
-      );
+      // Settle start() on a close: it returns with the transport closed
+      // (transport activation then ends a connection attempt that never
+      // connected as failed). A failure rejects through onError instead.
+      resolve();
     });
     this.dtls.onConnect.once(resolve);
     // Reflect the core's write readiness (DTLS 1.3 server: after its own
@@ -952,7 +954,15 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       this.abortSpedSession();
       this.discardUnauthenticatedData();
       log("dtls failed", error);
-      reject(error);
+      // A local certificate rejection rejects with the verifier's error
+      // (e.g. "remote certificate fingerprint mismatch").
+      reject(
+        error instanceof DtlsAlertError &&
+          error.source === "local" &&
+          error.reason instanceof Error
+          ? error.reason
+          : error,
+      );
     });
   }
 

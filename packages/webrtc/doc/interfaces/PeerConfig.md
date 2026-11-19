@@ -16,6 +16,19 @@ Send-side estimator used by each new sender; defaults to `"lightweight"`.
 
 ***
 
+### bundleCandidates
+
+> **bundleCandidates**: [`BundleCandidates`](../type-aliases/BundleCandidates.md)
+
+Which m-lines of a BUNDLE group carry the local ICE candidates.
+Cannot be changed after construction. See [BundleCandidates](../type-aliases/BundleCandidates.md).
+- `"legacy"` (default): every m-line repeats its transport's candidates and
+  `a=end-of-candidates` (werift's earlier output).
+- `"compatible"`: as Chrome writes them, only the BUNDLE tag m-line carries
+  them, so renegotiation with more m-lines no longer repeats the candidate list.
+
+***
+
 ### bundlePolicy
 
 > **bundlePolicy**: [`BundlePolicy`](../type-aliases/BundlePolicy.md)
@@ -150,6 +163,22 @@ Return `true` if a STUN response should be sent, false if it should be skipped.
 
 ***
 
+### iceIncomingCheckTimeout
+
+> **iceIncomingCheckTimeout**: `number` \| `undefined`
+
+Seconds ICE waits for a connectivity check from the peer when it has no
+candidate pair of its own to check after both sides ended their
+candidates (the peer offered only active TCP candidates, as Firefox does
+for ICE-TCP, or none werift can reach). Without a check in that time the
+ICE transport fails. With `iceLite`, which sends no checks, ICE waits the
+same time whenever it has no candidate pair, also while it still
+gathers. The deadline is fixed when the wait begins; once gathering ended
+without a socket that could receive a check, ICE fails at once. Defaults
+to 30 when undefined; 0 fails at once.
+
+***
+
 ### iceInterfaceAddresses
 
 > **iceInterfaceAddresses**: [`InterfaceAddresses`](../type-aliases/InterfaceAddresses.md) \| `undefined`
@@ -208,6 +237,31 @@ and responses are always signed with the algorithm of the request.
 
 ***
 
+### iceNomination
+
+> **iceNomination**: `"semi-aggressive"` \| `"regular"` \| `undefined`
+
+werift extension. How the controlling ICE agent nominates toward a full
+ICE peer (`IceOptions.nomination`). `"semi-aggressive"` (default when
+undefined, as Chrome): the first pair whose check succeeds is selected at
+once and a higher-priority pair that succeeds later replaces it.
+`"regular"`: RFC 8445 regular nomination, one nomination after
+`iceNominationDelayMs`.
+
+***
+
+### iceNominationDelayMs
+
+> **iceNominationDelayMs**: `number` \| `undefined`
+
+werift extension. With `iceNomination: "regular"`: milliseconds the
+controlling ICE agent keeps checking before it nominates a candidate pair,
+so a higher-priority candidate trickled shortly after a lower-priority one
+succeeded can still be selected. Maps to `IceOptions.nominationDelayMs`:
+300 when undefined, 0 nominates the first valid pair at once.
+
+***
+
 ### iceOptionIce2
 
 > **iceOptionIce2**: `boolean`
@@ -230,6 +284,22 @@ RFC 8445 procedures either way. Cannot be changed after construction.
 > **icePortRange**: \[`number`, `number`\] \| `undefined`
 
 Minimum port and Maximum port must not be the same value
+
+***
+
+### iceRenomination
+
+> **iceRenomination**: `boolean`
+
+werift extension. Enable ICE renomination
+(draft-thatcher-ice-renomination, as libwebrtc implements it): every
+description advertises `a=ice-options:trickle renomination`. When the
+remote description advertises `renomination` too, the controlling agent
+nominates with the NOMINATION STUN attribute and an increasing value, so
+a later, better pair reliably replaces the selection on both sides
+(`IceOptions.renomination`). Chrome advertises it only when its SDP is
+modified before `setLocalDescription`; as the controlled side it honours
+the attribute regardless. Defaults to false.
 
 ***
 

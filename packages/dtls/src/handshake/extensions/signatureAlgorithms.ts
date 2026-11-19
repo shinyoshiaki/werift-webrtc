@@ -28,7 +28,11 @@ export const DEFAULT_SIGNATURE_SCHEMES: number[] = [
 export class SignatureAlgorithms {
   static type = SIGNATURE_ALGORITHMS_TYPE;
 
-  constructor(public schemes: number[]) {}
+  schemes: number[];
+
+  constructor(schemes: number[]) {
+    this.schemes = schemes;
+  }
 
   static create(schemes: number[] = DEFAULT_SIGNATURE_SCHEMES) {
     return new SignatureAlgorithms(schemes);

@@ -297,6 +297,39 @@ describe("ice", () => {
     expect(filterCalled).toBe(false);
   });
 
+  test("filterStunResponse は前の generation の Binding Request にも適用される", async () => {
+    // Arrange: 前の generation の ufrag / password を userHistory に残し、filter は拒否する
+    const connection = createTestConnection(false);
+    const protocol = new ProtocolMock();
+    const filtered: string[] = [];
+    connection.options.filterStunResponse = (message) => {
+      filtered.push(message.getAttributeValue("USERNAME"));
+      return false;
+    };
+    (connection as any).userHistory["old-ufrag"] = "old-password-0123456789";
+    (connection as any).ensureProtocol(protocol);
+
+    const request = new Message(methods.BINDING, classes.REQUEST);
+    request
+      .setAttribute("USERNAME", "old-ufrag:remote")
+      .setAttribute("PRIORITY", 1);
+    request
+      .addMessageIntegrity(Buffer.from("old-password-0123456789", "utf8"))
+      .addFingerprint();
+
+    // Act: 前の generation の認証済み Binding Request を受信する
+    protocol.onRequestReceived.execute(
+      request,
+      ["2.3.4.5", 2345],
+      request.bytes,
+    );
+    await new Promise((r) => setImmediate(r));
+
+    // Assert: filter が呼ばれ、拒否されたので応答しない
+    expect(filtered).toEqual(["old-ufrag:remote"]);
+    expect(protocol.sentMessage).toBeUndefined();
+  });
+
   test("test_connect", async () => {
     const a = createTestConnection(true);
     const b = createTestConnection(false);

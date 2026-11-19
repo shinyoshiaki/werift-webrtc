@@ -34,7 +34,11 @@ const EXT_KEY_SHARE = 51;
 export class CookieExtension {
   static type = COOKIE_EXTENSION_TYPE;
 
-  constructor(public cookie: Buffer) {}
+  cookie: Buffer;
+
+  constructor(cookie: Buffer) {
+    this.cookie = cookie;
+  }
 
   static fromData(data: Buffer): CookieExtension {
     if (data.length < 2) throw new Error("cookie extension: truncated");
@@ -142,13 +146,19 @@ export function cookieBinding(
 /**
  * ClientHello body for DTLS 1.2 HelloVerifyRequest cookie binding (RFC 6347).
  * Zeros `legacy_cookie` so CH1 and the cookie-bearing CH2 hash the same
- * version/random/session_id/cipher_suites/compression/extensions.
+ * version/session_id/cipher_suites/compression/extensions.
+ *
+ * `random` is zeroed as well: some peers send a new random in the
+ * cookie-bearing ClientHello, and the server then uses that ClientHello's
+ * random (no association state is committed before the cookie). The cookie
+ * stays bound to the peer address and the other parameters.
  */
 export function clientHelloBodyForDtls12Cookie(
   clientHelloBody: Buffer,
 ): Buffer {
   const ch = ClientHello.deSerialize(clientHelloBody);
   ch.cookie = Buffer.alloc(0);
+  ch.random = new DtlsRandom(0, Buffer.alloc(28));
   return ch.serialize();
 }
 

@@ -88,7 +88,8 @@ describe("STUN wire attribute order", () => {
     original.setAttribute("USERNAME", "a:b");
     original.appendRawAttribute(0x8001, Buffer.from("xy"));
     original.setAttribute("PRIORITY", 1);
-    original.appendRawAttribute(0xc001, Buffer.from([1, 2, 3]));
+    // 0xc001 は NOMINATION（known）なので、未登録の 0xc0fe を使う
+    original.appendRawAttribute(0xc0fe, Buffer.from([1, 2, 3]));
 
     // Act: 一度 wire に出して再パースする
     const parsed = parseMessage(original.bytes);
