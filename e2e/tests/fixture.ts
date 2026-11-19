@@ -16,8 +16,6 @@ export const isFirefox = browserName === "Firefox";
 export const firefoxKnownIssue = {
   iceTcpActiveOnly:
     "[firefox-known:ice-tcp-active-only] 8b7c8e4a: 相手が active の TCP 候補だけだと werift の ICE が check を待たずに failed になる",
-  vp8PictureIdLoop:
-    "[firefox-known:vp8-picture-id-loop] f90a2878: answer の fmtp で packetizer を作り直し、ファイル再生のループで VP8 PictureID が戻る",
   simulcastSsrcTrack:
     "[firefox-known:simulcast-ssrc-track] be690c2e: a=ssrc 付き simulcast answer で SSRC のトラックが別に作られ、そのレイヤーの RTX がそちらへ復元される",
 } as const;

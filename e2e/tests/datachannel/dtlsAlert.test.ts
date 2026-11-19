@@ -68,18 +68,27 @@ describe("datachannel/dtlsAlert", () => {
           `a=fingerprint:${algorithm} ${value.replace(/[0-9a-f]/gi, "0")}`,
       ),
     );
+    const browserDtls = pc.sctp!.transport;
 
     try {
-      // Act: werift が Chrome の証明書を拒否して bad_certificate を送るのを待つ
+      // Act: Chrome と werift の DTLS failure をそれぞれ待つ
       const weriftFailed = peer.request(label, { type: "waitFailed" });
-      await waitForEventCondition(
-        pc,
-        "connectionstatechange",
-        () => pc.connectionState === "failed",
-      );
+      await Promise.all([
+        waitForEventCondition(
+          pc,
+          "connectionstatechange",
+          () => pc.connectionState === "failed",
+        ),
+        waitForEventCondition(
+          browserDtls,
+          "statechange",
+          () => browserDtls.state === "failed",
+        ),
+        weriftFailed,
+      ]);
 
       // Assert: 両側の connectionState と DTLS transport が failed になる
-      expect(pc.sctp!.transport.state).toBe("failed");
+      expect(browserDtls.state).toBe("failed");
       expect(await weriftFailed).toEqual({
         connectionState: "failed",
         dtlsState: "failed",
