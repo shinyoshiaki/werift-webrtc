@@ -1,4 +1,6 @@
-# [MediaRecorder][Windows] WebM保存時の一時的な EBUSY/EPERM に耐える書き込み・終了処理を実装する
+# [MediaRecorder] WebM保存時の一時的なファイルアクセスエラー（EBUSY）に耐える書き込み・終了処理を実装する
+
+> **位置づけ**: native Windows は werift のサポート対象外（ルート `AGENTS.md`）であり、本チケットでも Windows 対応は行わない。下流の Windows 事例は「ファイルアクセスの一時的な衝突で WebM 保存が壊れる／プロセスが落ちる」という問題の発見元として扱い、**同種の問題が Linux 環境（サポート対象）で起きたときに対処できる**ようにすることを目的とする。Windows 固有の挙動（win32 の `EPERM` 再試行、Windows CI、Windows 実機確認）は対象外。
 
 ## 1. 目的と背景
 
@@ -31,7 +33,17 @@ async function retryOnTransientFsError(fn) {
 - 0.24.4 ベースなので、Cluster サイズの書き換え（PR #791）が入っていない。
 - `EPERM` を全プラットフォームで再試行している。POSIX の `EPERM` は恒久エラー。
 
-本チケットでは、werift 本体で一時的なファイルアクセス衝突に耐えるようにし、下流パッチを不要にする。
+本チケットでは、下流パッチの Windows 固有部分は取り込まない。下流事例から読み取れる **OS に依存しない欠陥**（重複追記しうる書き込み、ハンドルリーク、エラー経路の欠落によるクラッシュ、`unlink` 失敗時の追記）を werift 本体で直し、Linux で一時的なファイルアクセス衝突が起きたときに耐えられるようにする。下流パッチ全体を不要にすることは目標にしない（Windows の `EPERM` 再試行は下流側の責務として残る）。
+
+### Linux で同種の問題が起きうる場面
+
+Linux のローカルファイルシステム（ext4 / xfs など）では、通常ファイルへの `open` / `write` / `close` が一時的な `EBUSY` を返すことはほぼない。起きうるのは主に次のような、ファイルシステムの実装やリモート側の状態に依存する場合:
+
+- CIFS/SMB マウント: サーバー側（Windows 共有など）で別プロセスがファイルを開いていると、共有違反（`STATUS_SHARING_VIOLATION`）が Linux 側で `EBUSY` として返る。
+- FUSE ファイルシステム（クラウドストレージ同期、sshfs など）: 実装が任意の errno を返せるので、同期中に一時的な `EBUSY` を返すことがある。
+- WSL2 の `/mnt/<drive>`（Windows 側ボリューム）: Linux 上の Node から見ても、Windows 側のアンチウイルスやインデクサーによるロックの影響を受けうる。返る errno は環境依存なので、本チケットでは `EBUSY` として観測された場合だけを扱う。
+
+いずれも頻度は低く再現も難しいので、**障害注入テストで振る舞いを固定する**ことを主な検証手段とする。また、一時エラーの有無にかかわらず、書き込み失敗でプロセスが落ちないこと（エラー経路の整備）は Linux でもそのまま価値がある。
 
 ### 現行コード（2026-11-19, `develop` / v0.28.0）
 
@@ -46,10 +58,10 @@ async function retryOnTransientFsError(fn) {
 
 - **WebM のエラー経路がない。** `WebmBase` の `output` は `=> void` 型で、戻り値の Promise を await しない。`WebmCallback` は `queue.push(() => cb(output))` の reject を catch しない。`WebmFactory`（`packages/webrtc/src/nonstandard/recorder/writer/webm.ts`）にも `onError` がない。このため WebM の書き込みに失敗すると **unhandledRejection になり、Node のデフォルト設定ではプロセスが落ちる**。下流で "crashes the ground process" と言われているのはこれ。Ogg 側（`OggCallback.onError` → `OggFactory.onError` → `MediaRecorder.onError`）は対応済みで、`recorder.test.ts` の "reports a write failure through onError and stops without crashing" で検証されている。
 - `WebmFactory` は出力ごとに `saveToFileSystem(this.props.path)(o)` を呼び、saver を毎回作り直している。そのため saver 内の `PromiseQueue` も状態も 1 回の呼び出しで捨てられる。直列化は `WebmCallback` の queue がしているので現状は動くが、saver に書き込みオフセットなどの状態を持たせるなら、録画 1 回につき 1 インスタンスに直す必要がある。
-- `WebmFactory.start()` は `unlink(path).catch((e) => e)` で既存ファイルを消してから append する。Windows で既存ファイルがロックされていて `unlink` が失敗すると、エラーは握りつぶされ、**古い内容の後ろに追記される**。eol の書き換え位置は出力先頭からの絶対オフセット（`DurationPosition=83`、`SegmentSizePosition=40`、`clusters[].position`）なので、ファイルが壊れる。Ogg は最初の書き込みを `writeFile`（truncate）にしてこれを解決済み（`saveOggToFileSystem`）。
+- `WebmFactory.start()` は `unlink(path).catch((e) => e)` で既存ファイルを消してから append する。既存ファイルの `unlink` が失敗すると（Linux でもディレクトリに書き込み権限がない場合や、CIFS 上でロックされている場合に起きうる）、エラーは握りつぶされ、**古い内容の後ろに追記される**。eol の書き換え位置は出力先頭からの絶対オフセット（`DurationPosition=83`、`SegmentSizePosition=40`、`clusters[].position`）なので、ファイルが壊れる。Ogg は最初の書き込みを `writeFile`（truncate）にしてこれを解決済み（`saveOggToFileSystem`）。
 - `WebmBase.position` は initial / cluster / block の出力ごとに chunk 長だけ進む。Cues は最後に書かれ、`position` は進まない。saver が書き込んだバイト数を数えれば、各 chunk の書き込み先オフセットは一意に決まる。
-- libuv の Windows エラー変換は、`ERROR_SHARING_VIOLATION` / `ERROR_LOCK_VIOLATION` → `EBUSY`、`ERROR_ACCESS_DENIED` → `EPERM`。Windows の `EPERM` には一時的なロックと恒久的な ACL / 読み取り専用の拒否の両方が含まれ、区別できないので、**回数と総待ち時間の上限が必須**。
-- ルートの `AGENTS.md` では、native Windows はサポート対象外で、CI（`.github/workflows/nodejs.yml`）は `ubuntu-latest` のみ。
+- 参考: libuv の Windows エラー変換は `ERROR_SHARING_VIOLATION` / `ERROR_LOCK_VIOLATION` → `EBUSY`、`ERROR_ACCESS_DENIED` → `EPERM`。下流パッチが `EPERM` も再試行しているのはこのため。ただし Linux（POSIX）の `EPERM` は恒久的な権限エラーなので、本チケットでは再試行しない。
+- ルートの `AGENTS.md` では、native Windows はサポート対象外で、CI（`.github/workflows/nodejs.yml`）は `ubuntu-latest` のみ。本チケットもこの方針に従う。
 - `saveToFileSystem` は `werift-rtp` の公開 API（`extra/processor/index.ts` から export）で、`examples/save_to_disk/*`（`pipeline.ts`, `h264.ts`, `dtx/server.ts`, `encodedTransform/server.ts`）と `packages/rtp/tests/utils.ts`（`recordWebm`, `recordVp8RtpToWebm`）から使われている。
 - Cluster サイズの実値書き換えは PR #791 で実装済み。本件はファイルアクセス障害への耐性だけを扱う。録画先頭の欠落 #789 は原因が別なので対象外。
 
@@ -59,10 +71,11 @@ async function retryOnTransientFsError(fn) {
 
 - 例: `retryTransientFsError<T>(op: () => Promise<T>, options?): Promise<T>`
 - 一時エラーの判定:
-  - `EBUSY`: 全プラットフォームで再試行する。
-  - `EPERM`: `process.platform === "win32"` のときだけ再試行する。POSIX では恒久エラーとして即 throw する。
-  - それ以外（`EACCES`, `ENOSPC`, `EROFS`, `ENOENT`, `EISDIR`, `EMFILE` など）は即 throw する。
-  - テストのため、判定関数または `platform` を options で注入できるようにする。
+  - `EBUSY` だけを再試行する。プラットフォームによる分岐（`process.platform` の判定）は入れない。
+  - `EPERM` は再試行しない（POSIX では恒久的な権限エラー）。
+  - それ以外（`EACCES`, `ENOSPC`, `EROFS`, `ENOENT`, `EISDIR`, `EMFILE` など）も即 throw する。
+  - 再試行対象の errno は module 内の定数（例: `TRANSIENT_FS_ERROR_CODES = new Set(["EBUSY"])`）にまとめる。Linux で別の一時エラー（例: NFS / FUSE での `EAGAIN`）が実際に観測されたら、ここに足すだけで済む形にしておく。根拠のない errno を先回りして足さない。
+  - テストのため、判定関数を内部 options で注入できるようにする。
 - 上限: 最大試行回数（目安 8 回）と総待ち時間（目安 1 s 以内）の両方で打ち切る。backoff は短くする（例: 20 ms × attempt、線形または上限付き指数）。上限を超えたら**最後のエラーをそのまま throw** する（`code` を保つ）。
 - 通常経路（初回成功）では `setTimeout` などの待機をしない。
 - 定数は module 内に置き、公開オプションにはしない（抽象化を広げない）。
@@ -111,7 +124,7 @@ async function retryOnTransientFsError(fn) {
 - `saveToFileSystem(path)` のシグネチャと戻り値（`Promise<boolean>`、eol のとき `true`）は変えない。
 - 振る舞いの変更点（changelog に書く）:
   - 最初の chunk で既存ファイルを truncate する（`unlink` が失敗したケースが直る）。
-  - 一時エラーを限定回数だけ再試行する。
+  - 一時的なファイルアクセスエラー（`EBUSY`）を限定回数だけ再試行する。
   - 恒久エラーは従来どおりすぐ失敗する。
   - `MediaRecorder` の WebM 書き込み失敗は `onError` に通知され、プロセスは落ちない。
 - 外部利用者が出力ごとに `saveToFileSystem(path)` を作り直す使い方（従来の `WebmFactory` と同じ）でも壊れないかを確認する。`written` が失われるとオフセットを決められないので、次のどちらかを実装時に選ぶ。
@@ -124,7 +137,7 @@ async function retryOnTransientFsError(fn) {
 
 | 論点 | 方針 |
 | --- | --- |
-| 再試行の対象 | `EBUSY` は全 OS、`EPERM` は win32 のみ。それ以外は即失敗 |
+| 再試行の対象 | `EBUSY` のみ（プラットフォーム分岐なし）。`EPERM` を含むそれ以外は即失敗 |
 | 上限 | 試行回数（約 8）と総待ち時間（約 1 s）の両方。短い backoff。最後のエラーを `code` ごと throw |
 | 追記の安全性 | `appendFile` を「`open`（`w`/`r+`）→ `written` 位置への位置指定 write → `finally close`」に置き換え、冪等にする |
 | eol | 固定オフセットへの冪等な上書き。Segment サイズは `written` から計算し、`truncate(written)` する。試行ごとに `finally close` |
@@ -135,9 +148,9 @@ async function retryOnTransientFsError(fn) {
 
 ## 4. 制約・注意点
 
-- **Windows CI について**: ルートの `AGENTS.md` では native Windows はサポート対象外で、CI は ubuntu のみ。元の説明にある「Windows CI でのファイル競合統合テスト」は、リポジトリの方針と矛盾する。本チケットでは、障害注入テスト（Linux、win32 判定は注入）を完了条件とする。Windows runner を CI に追加するかどうかはメンテナーの判断事項として残し、実施しない場合はその旨をチケットと PR に書く。Windows 実機での確認は手動確認（任意）として記録する。
-- Windows 対応を正式にうたわない。changelog では「一時的なファイルロック（EBUSY、Windows の EPERM）を限定回数だけ再試行する」と事実だけを書く。
-- 恒久エラーで待ちを増やさない。POSIX の `EACCES` / `EPERM` / `ENOSPC` は再試行せず、即失敗する。`recorder.test.ts` の "reports an error when the existing file cannot be overwritten"（`EACCES` を期待し、`stop` は 1 s 未満）を回帰させない。
+- **Windows は対象外**: native Windows はサポート対象外（ルート `AGENTS.md`）なので、Windows CI の追加、Windows 実機での確認、win32 専用の分岐（`EPERM` 再試行など）は行わない。検証は Linux 上の障害注入テストで行う。
+- Windows 対応をうたわない。changelog / docs / PR では「一時的なファイルアクセスエラー（`EBUSY`）を限定回数だけ再試行する」と事実だけを書き、「Windows で動くようになった」とは書かない。下流の Windows 事例は発見の経緯として PR に触れる程度にとどめる。
+- 恒久エラーで待ちを増やさない。`EACCES` / `EPERM` / `ENOSPC` は再試行せず、即失敗する。`recorder.test.ts` の "reports an error when the existing file cannot be overwritten"（`EACCES` を期待し、`stop` は 1 s 未満）を回帰させない。
 - `packages/rtp` の `src/index.ts` はブラウザでバンドル可能である必要があるが、`extra` は Node 専用（`packages/rtp/AGENTS.md`）。`process.platform` や `fs/promises` を使うのは `extra/processor` 内だけにする。
 - Node の type stripping 制約（`enum` やパラメータプロパティを使わない）を守る。
 - `stop()` → `onEol` の 5 s タイムアウトと、リトライの総待ち時間（約 1 s）が干渉しないようにする。eol の再試行中でも `stop()` は正しく完了を待てる必要がある。
@@ -154,9 +167,9 @@ async function retryOnTransientFsError(fn) {
 | 各 chunk の `open` / `write` / `close` に `EBUSY` を N 回（N < 上限）注入 | 成功に回復する。生成された WebM が「障害なしで保存したもの」とバイト単位で一致する |
 | `write` が全バイト書いた後に `close` が `EBUSY` | 再試行してもファイルサイズは chunk 1 つ分しか増えず、重複追記がない |
 | 部分書き込みの後に `EBUSY`（write が一部だけ書いて throw） | 再試行後にバイト一致する |
-| eol の途中の write に `EBUSY` / win32 の `EPERM` | 回復する。Duration / Cluster / Segment サイズが正しく、`readEbmlChildren` で Segment が EOF で終わり、Cluster → Cues と辿れる |
+| eol の途中の write に `EBUSY` | 回復する。Duration / Cluster / Segment サイズが正しく、`readEbmlChildren` で Segment が EOF で終わり、Cluster → Cues と辿れる |
 | 上限超過（`EBUSY` を常に返す） | 最後のエラーを `code` ごと throw する。試行回数と総待ち時間が上限内（注入した sleep で検証） |
-| 恒久エラー（`EACCES`, `ENOSPC`, POSIX の `EPERM`） | 再試行せず 1 回で throw する |
+| 恒久エラー（`EACCES`, `ENOSPC`, `EPERM`） | 再試行せず 1 回で throw する |
 | 全失敗経路 | open した FileHandle がすべて close される（注入した fs で open/close を数える） |
 | 本体の処理が失敗し、close も失敗 | 本体のエラーが throw される |
 | 既存ファイルがある | 最初の chunk で truncate され、古い内容が残らない |
@@ -171,7 +184,7 @@ async function retryOnTransientFsError(fn) {
 
 ## 6. 完了条件
 
-- [ ] `EBUSY`（全 OS）と `EPERM`（win32）が、回数と総待ち時間の上限つきの短い backoff で再試行され、上限を超えたら元のエラーが伝わる。恒久エラーは再試行されない。
+- [ ] `EBUSY` が、回数と総待ち時間の上限つきの短い backoff で再試行され、上限を超えたら元のエラーが伝わる。`EPERM` を含む恒久エラーは再試行されない。プラットフォーム分岐を持たない。
 - [ ] WebM の追記が位置指定書き込みなどで冪等になり、再試行しても重複追記やオフセットのずれが起きない（障害注入テストでバイト一致を確認）。
 - [ ] eol のメタデータ書き換えが試行ごとに `finally` で close され、再試行してもメタデータが正しい。未 close のハンドルが残らない（open/close の数で確認）。
 - [ ] `MediaRecorder` の WebM 書き込み失敗が `onError` に通知され、unhandledRejection やプロセスクラッシュを起こさず、`stop()` も待たされない。
@@ -179,6 +192,6 @@ async function retryOnTransientFsError(fn) {
 - [ ] 正常経路で待機が増えない。既存の WebM / Ogg / MP4 のテストと録画終了・再開始の挙動に回帰がない。
 - [ ] `cd packages/rtp && npm test`、`cd packages/webrtc && npm test`（関連するテスト）、`npm run type`、`npm run test:small` が通る。
 - [ ] `changelog.md` に振る舞いの変更を書き、公開型を変えた場合は `npm run doc` で再生成した。
-- [ ] Windows CI を追加しないなら、その理由（native Windows はサポート対象外）と、下流パッチの各箇所（append の再試行、eol の再試行）が本実装で置き換わる対応関係を PR に書き、下流パッチが不要になったことを示す。
+- [ ] PR に、本チケットの位置づけ（native Windows は対象外で、Linux で同種の一時エラーが起きた場合への対処であること）と、下流パッチとの対応関係（append / eol の再試行と重複追記・ハンドルリークの問題は本体で解消、Windows の `EPERM` 再試行は対象外）を書く。
 
 関連: PR #791（WebM Cluster サイズ修正済み）、[#789](https://github.com/shinyoshiaki/werift-webrtc/issues/789)（別原因の録画先頭欠落、対象外）。
