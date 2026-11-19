@@ -269,6 +269,20 @@ export function collectFrames(track: MediaStreamTrack, count: number) {
   });
 }
 
+/**
+ * Mimics RTCRtpSender applying an answer while file playback is running: the
+ * first RTP packet of the track triggers a re-assignment of `track.codec`.
+ */
+export function reassignCodecOnFirstRtp(
+  track: MediaStreamTrack,
+  codec: RTCRtpCodecParameters,
+) {
+  const { unSubscribe } = track.onReceiveRtp.subscribe(() => {
+    unSubscribe();
+    track.codec = codec;
+  });
+}
+
 export async function waitUntil(predicate: () => boolean, timeoutMs = 3_000) {
   const startedAt = performance.now();
 
