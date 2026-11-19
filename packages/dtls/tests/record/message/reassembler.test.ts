@@ -216,9 +216,7 @@ describe("record/message/reassembler", () => {
 
       // Assert
       // それぞれが混ざらずに元と同じバイト列で組み立つ
-      expect(
-        assembled.map((a) => a!.serialize()).sort(Buffer.compare),
-      ).toEqual(
+      expect(assembled.map((a) => a!.serialize()).sort(Buffer.compare)).toEqual(
         [helloSeq0, helloSeq1, certificate, shorter]
           .map((h) => h.serialize())
           .sort(Buffer.compare),

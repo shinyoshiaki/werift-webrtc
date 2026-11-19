@@ -1,8 +1,8 @@
 import { AlertDesc, AlertLevel, ContentType, type DtlsServer } from "../src";
-import { Alert } from "../src/handshake/message/alert";
-import { createPlaintext } from "../src/record/builder";
 import { HandshakeType } from "../src/handshake/const";
+import { Alert } from "../src/handshake/message/alert";
 import { DtlsRandom } from "../src/handshake/random";
+import { createPlaintext } from "../src/record/builder";
 import {
   createClientHelloHandshake,
   createEcdsaDtlsServer,
@@ -82,11 +82,7 @@ describe("server", () => {
   );
 
   test.each([
-    [
-      "receiving a fatal alert",
-      AlertLevel.fatal,
-      AlertDesc.HandshakeFailure,
-    ],
+    ["receiving a fatal alert", AlertLevel.fatal, AlertDesc.HandshakeFailure],
     ["receiving close_notify", AlertLevel.warning, AlertDesc.CloseNotify],
   ])(
     "frees partial handshake fragments when the connection ends by %s",

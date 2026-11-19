@@ -5,27 +5,32 @@ const err = debug(
   "werift-dtls : packages/dtls/src/record/message/reassembler.ts : err",
 );
 
-/** Limits that bound the bytes buffered from untrusted handshake fragments. */
+/**
+ * Limits on the bytes buffered from untrusted handshake fragments.
+ * Spec: `tests/record/message/reassembler.test.ts` › "limits".
+ */
 export interface HandshakeReassemblerLimits {
-  /** Largest declared handshake message `length` that is reassembled. */
+  /** Spec: "drops a fragment of a message longer than maxMessageLength" */
   maxMessageLength: number;
-  /** Partially received messages kept at the same time. */
+  /** Spec: "keeps at most maxEntries partial messages" */
   maxEntries: number;
-  /** Total bytes allocated for partially received messages. */
+  /**
+   * Spec: "keeps at most maxBufferedBytes of partial messages",
+   * "drops a message longer than maxBufferedBytes on its own"
+   */
   maxBufferedBytes: number;
-  /** Disjoint received byte ranges kept per message. */
+  /** Spec: "discards a message split into more than maxRangesPerMessage ranges" */
   maxRangesPerMessage: number;
   /**
-   * A partial message not updated for this long (ms) is discarded. Expiry is
-   * evaluated when the next fragment is added (no timer), so an idle
-   * reassembler keeps its entries until then or until `clear()`.
+   * Spec: "discards a partial message not updated for entryLifetimeMs",
+   * "evaluates entryLifetimeMs only when the next fragment is added, not on a timer"
    */
   entryLifetimeMs: number;
 }
 
 export interface HandshakeReassemblerOptions
   extends Partial<HandshakeReassemblerLimits> {
-  /** Clock (ms) used for the entry lifetime; injectable for tests. */
+  /** Clock (ms) for `entryLifetimeMs`. */
   now?: () => number;
 }
 
@@ -33,22 +38,19 @@ interface Entry {
   msg_type: number;
   message_seq: number;
   buffer: Buffer;
-  /** Sorted, merged, disjoint received byte ranges `[start, end)`. */
+  /**
+   * Received byte ranges `[start, end)`. Spec: "merges adjacent and
+   * overlapping ranges, so contiguous fragments count as one range"
+   */
   ranges: [number, number][];
   updatedAt: number;
 }
 
 /**
  * Reassembles fragmented DTLS 1.2 handshake messages (RFC 6347 §4.2.3).
- *
- * Fragments are grouped by `(epoch, msg_type, message_seq, length)` and a
- * message is returned only once every byte of `[0, length)` was received,
- * whatever the order of arrival. Duplicate and overlapping fragments (a
- * retransmission, possibly split at other boundaries) are accepted when the
- * overlapping bytes match; a mismatch discards the partial message. Invalid
- * fragments and fragments over the limits are discarded silently (RFC 6347
- * §4.1.2.1) and logged: no alert is sent, so an injected datagram cannot
- * end the connection.
+ * Spec: `tests/record/message/reassembler.test.ts`; invalid fragments are
+ * dropped without an alert (RFC 6347 §4.1.2.1), spec: `tests/server.test.ts`
+ * › "drops invalid and inconsistent handshake fragments without an alert".
  */
 export class HandshakeReassembler {
   static MaxMessageLength = 0x10000;
@@ -87,17 +89,18 @@ export class HandshakeReassembler {
     return this.buffered;
   }
 
-  /** Discard every partially received message. */
+  /** Spec: "clear() discards every partial message" */
   clear() {
     this.entries.clear();
     this.buffered = 0;
   }
 
   /**
-   * Add one received handshake fragment of the record `epoch`. Returns the
-   * complete message (a single fragment with `fragment_offset = 0` and
-   * `fragment_length = length`) when this fragment completed it, or the
-   * fragment itself when it is an unfragmented message; otherwise undefined.
+   * Add one handshake fragment received in a record of `epoch`; returns the
+   * message it completes, if any. Spec: "delivers a message only once every
+   * byte was received, as one fragment at offset 0", "keeps messages of
+   * distinct sequence, type and length apart", "keeps fragments of distinct
+   * epochs apart"
    */
   add(
     fragment: FragmentedHandshake,
@@ -127,8 +130,7 @@ export class HandshakeReassembler {
       return;
     }
 
-    // Unfragmented message: delivered as is (a retransmission is delivered
-    // again, the flights answer it).
+    // Spec: "delivers an unfragmented message, and each retransmission of it, as is"
     if (fragment_offset === 0 && fragment_length === length) {
       this.delete(key);
       return fragment;
@@ -141,7 +143,7 @@ export class HandshakeReassembler {
       });
       return;
     }
-    // An empty fragment adds nothing.
+    // Spec: "ignores an empty fragment"
     if (fragment_length === 0) return;
 
     let entry = this.entries.get(key);
@@ -171,7 +173,7 @@ export class HandshakeReassembler {
     const start = fragment_offset;
     const end = fragment_offset + fragment_length;
 
-    // Bytes already received must not change.
+    // Spec: "discards a partial message whose already received bytes would change"
     for (const [rangeStart, rangeEnd] of entry.ranges) {
       if (rangeEnd <= start) continue;
       if (rangeStart >= end) break;
@@ -249,7 +251,10 @@ export class HandshakeReassembler {
   }
 }
 
-/** Insert `[start, end)` into sorted disjoint ranges, merging touching ones. */
+/**
+ * Insert `[start, end)` into the received ranges. Spec: "merges adjacent and
+ * overlapping ranges, so contiguous fragments count as one range"
+ */
 const mergeRange = (
   ranges: [number, number][],
   start: number,

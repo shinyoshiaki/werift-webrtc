@@ -226,7 +226,8 @@ export class DtlsSocket {
     }
 
     this.ended = true;
-    // No record is processed any more: free the partial handshake messages.
+    // Spec: tests/server.test.ts › "frees partial handshake fragments when
+    // the connection ends by receiving a fatal alert / close_notify"
     this.reassembler.clear();
     // Retransmitting a handshake flight makes no sense any more.
     this.transport.stopFlights();
@@ -407,7 +408,8 @@ export class DtlsSocket {
    * the caller, e.g. the onError notification of a received fatal alert.
    */
   private closeTransport() {
-    // Every ending path (received/sent alert, close()) closes the transport.
+    // Spec: tests/server.test.ts › "frees partial handshake fragments when
+    // the connection ends by sending a fatal alert / close()"
     this.reassembler.clear();
     return this.transport.close().catch((error: unknown) => {
       err(this.dtls.sessionId, "failed to close transport", error);
@@ -463,9 +465,9 @@ export class DtlsSocket {
     });
 
   /**
-   * Pass received handshake fragments of the record `epoch` to the
-   * reassembler and return the complete messages: unfragmented ones, and
-   * fragmented ones whose every byte has now been received.
+   * Returns the handshake messages that `messages` (received in a record of
+   * `epoch`) complete. Spec: `tests/server.test.ts` › "handleFragmentHandshake
+   * returns a message only once every byte was received"
    */
   handleFragmentHandshake(messages: FragmentedHandshake[], epoch = 0) {
     const handshakes: FragmentedHandshake[] = [];
