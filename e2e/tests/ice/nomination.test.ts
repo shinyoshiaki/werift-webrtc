@@ -146,16 +146,16 @@ describe("ice/nomination (semi-aggressive / renomination with Chrome)", () => {
       });
 
       try {
-        // Assert: 最初は relay の経路が両端で選択され、データが届く。
+        // Assert: 最初に werift が relay を指名し、Chrome も relay 経由の初期経路で通信する。
         const before = await serverStats();
         expect(before.controlling).toBe(offerer === "werift");
         expect(before.nominated?.localCandidateType).toBe("relay");
-        const initialPair = await getSelectedCandidatePairAddresses(pc);
-        if (offerer === "werift") {
-          // Assert: Chrome は relay peer の mapped tuple を peer-reflexive と分類する場合がある。
-          expect(["relay", "prflx"]).toContain(initialPair.remoteCandidateType);
+        const browserPair = await getSelectedCandidatePairAddresses(pc);
+        if (offerer === "chrome") {
+          expect(browserPair.remoteCandidateType).toBe("relay");
         } else {
-          expect(initialPair.remoteCandidateType).toBe("relay");
+          // werift が controlling のとき、TURN source address の変換を Chrome が prflx と記録することがある。
+          expect(["relay", "prflx"]).toContain(browserPair.remoteCandidateType);
         }
         await roundTrip(channel, "relay-first");
 
