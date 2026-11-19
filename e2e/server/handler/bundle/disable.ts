@@ -1,7 +1,14 @@
 import type { AcceptFn, Peer } from "protoo-server";
-import { RTCPeerConnection } from "../..";
+import { RTCPeerConnection, type RTCIceCandidate } from "../..";
 import { peerConfig } from "../../fixture";
 import { acceptLocalDescription } from "../localDescription";
+
+function notifyCandidate(peer: Peer, candidate: RTCIceCandidate | null) {
+  if (peer.closed) return;
+
+  // ブラウザーの切断後に届く candidate は不要なので、通知失敗を無視する。
+  void peer.notify("candidate", { candidate }).catch(() => {});
+}
 
 export class bundle_disable_answer {
   pc!: RTCPeerConnection;
@@ -21,7 +28,7 @@ export class bundle_disable_answer {
             }
           };
           this.pc.onicecandidate = (e) => {
-            peer.notify("candidate", { candidate: e.candidate ?? null });
+            notifyCandidate(peer, e.candidate ?? null);
           };
 
           {
@@ -90,7 +97,7 @@ export class bundle_disable_offer {
           });
 
           this.pc.onicecandidate = (e) => {
-            peer.notify("candidate", { candidate: e.candidate ?? null });
+            notifyCandidate(peer, e.candidate ?? null);
           };
 
           await this.pc.setRemoteDescription(payload);
