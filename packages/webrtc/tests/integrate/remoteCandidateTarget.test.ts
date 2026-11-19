@@ -1,4 +1,5 @@
-import { RTCIceCandidate, RTCPeerConnection } from "../../src";
+import { RTCIceCandidate, type RTCPeerConnection } from "../../src";
+import { createLocalPeerConnection } from "../utils";
 import {
   addIceCandidateNonBundleSdp,
   addIceCandidateSdpMid2,
@@ -22,7 +23,7 @@ describe("addIceCandidate with an empty sdpMid", () => {
   let pc: RTCPeerConnection;
 
   beforeEach(() => {
-    pc = new RTCPeerConnection();
+    pc = createLocalPeerConnection();
   });
 
   afterEach(async () => {
