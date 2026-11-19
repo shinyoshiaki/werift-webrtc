@@ -365,7 +365,7 @@ such as google cloud run
 
 ### keyFrameRequestRouting
 
-> **keyFrameRequestRouting**: `"standard"` \| `"fallback"`
+> **keyFrameRequestRouting**: `"fallback"` \| `"standard"`
 
 Where a PLI / FIR goes when no route has its target SSRC (see
 [CompatibilityOptionValues](../variables/CompatibilityOptionValues.md) and [KeyFrameRequestRouting](../type-aliases/KeyFrameRequestRouting.md)).
