@@ -150,9 +150,13 @@ describe("ice/nomination (semi-aggressive / renomination with Chrome)", () => {
         const before = await serverStats();
         expect(before.controlling).toBe(offerer === "werift");
         expect(before.nominated?.localCandidateType).toBe("relay");
-        expect(
-          (await getSelectedCandidatePairAddresses(pc)).remoteCandidateType,
-        ).toBe("relay");
+        const initialPair = await getSelectedCandidatePairAddresses(pc);
+        if (offerer === "werift") {
+          // Assert: Chrome は relay peer の mapped tuple を peer-reflexive と分類する場合がある。
+          expect(["relay", "prflx"]).toContain(initialPair.remoteCandidateType);
+        } else {
+          expect(initialPair.remoteCandidateType).toBe("relay");
+        }
         await roundTrip(channel, "relay-first");
 
         // Act: 保留していた werift の host 候補を Chrome に通知する。
