@@ -212,4 +212,36 @@ describe("addIceCandidate with an empty sdpMid", () => {
     // Assert: MID が優先され、m-line 1 にだけ記録される。
     expect(linesIn(30011)).toEqual([1]);
   });
+
+  test("ICE restart: an old-ufrag candidate reaches the current generation, a new-ufrag one the pending one", async () => {
+    // Arrange: 通常の交渉を完了して current を作り、新しい ufrag の再 offer を pending にする。
+    const restartedSdp = addIceCandidateWptSdp
+      .replace(addIceCandidateUsernameFragment1, "NEW1")
+      .replace(addIceCandidateUsernameFragment2, "NEW2");
+    await setRemote(addIceCandidateWptSdp);
+    await pc.setLocalDescription(await pc.createAnswer());
+    await setRemote(restartedSdp);
+    expect(pc.pendingRemoteDescription).not.toBeNull();
+    expect(pc.currentRemoteDescription).not.toBeNull();
+    const sectionsOf = (sdp: string | undefined, port: number) =>
+      mediaSectionsWithLine(sdp ?? "", `a=${pionCandidateLine(port)}`);
+
+    // Act: 旧 ufrag の空 sdpMid + index candidate と、新 ufrag のものを追加する。
+    await pc.addIceCandidate(
+      pionCandidate(0, 30012, {
+        usernameFragment: addIceCandidateUsernameFragment1,
+      }),
+    );
+    await pc.addIceCandidate(
+      pionCandidate(0, 30013, { usernameFragment: "NEW1" }),
+    );
+
+    // Assert: 旧 ufrag は current の m-line 0 のみ、新 ufrag は pending の m-line 0 のみに入る。
+    const current = pc.currentRemoteDescription?.sdp;
+    const pending = pc.pendingRemoteDescription?.sdp;
+    expect(sectionsOf(current, 30012)).toEqual([0]);
+    expect(sectionsOf(pending, 30012)).toEqual([]);
+    expect(sectionsOf(pending, 30013)).toEqual([0]);
+    expect(sectionsOf(current, 30013)).toEqual([]);
+  });
 });

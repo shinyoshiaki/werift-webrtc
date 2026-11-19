@@ -55,8 +55,10 @@ Validity contract shared by every path that produces them
 
 Not adopted: the W3C constructor TypeError when both `sdpMid` and
 `sdpMLineIndex` are null (werift keeps its convenience behavior; strict
-checks belong in the WPT runner wrappers). `relayProtocol` and `url` are not
-implemented.
+checks belong in the WPT runner wrappers). Likewise `addIceCandidate()`
+resolves an empty `sdpMid` with a numeric `sdpMLineIndex` by the index
+instead of rejecting it (see `normalizeEmptyCandidateMid`). `relayProtocol`
+and `url` are not implemented.
 
 ## Properties
 
