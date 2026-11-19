@@ -666,6 +666,8 @@
 - [resolveTurnTransport](functions/resolveTurnTransport.md)
 - [reverseDirection](functions/reverseDirection.md)
 - [reverseSimulcastDirection](functions/reverseSimulcastDirection.md)
+- [rtcpAttributeFromSdp](functions/rtcpAttributeFromSdp.md)
+- [rtcpAttributeToSdp](functions/rtcpAttributeToSdp.md)
 - [rtpHeaderExtensionsParser](functions/rtpHeaderExtensionsParser.md)
 - [saltLength](functions/saltLength.md)
 - [selectMissingH264ParameterSets](functions/selectMissingH264ParameterSets.md)
