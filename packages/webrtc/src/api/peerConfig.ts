@@ -129,6 +129,18 @@ export interface PeerConfig {
    */
   iceTurnConnectTimeout: number | undefined;
   /**
+   * Seconds ICE waits for a connectivity check from the peer when it has no
+   * candidate pair of its own to check after both sides ended their
+   * candidates (the peer offered only active TCP candidates, as Firefox does
+   * for ICE-TCP, or none werift can reach). Without a check in that time the
+   * ICE transport fails. With `iceLite`, which sends no checks, ICE waits the
+   * same time whenever it has no candidate pair, also while it still
+   * gathers. The deadline is fixed when the wait begins; once gathering ended
+   * without a socket that could receive a check, ICE fails at once. Defaults
+   * to 30 when undefined; 0 fails at once.
+   */
+  iceIncomingCheckTimeout: number | undefined;
+  /**
    * werift extension. With `iceNomination: "regular"`: milliseconds the
    * controlling ICE agent keeps checking before it nominates a candidate pair,
    * so a higher-priority candidate trickled shortly after a lower-priority one
@@ -519,6 +531,7 @@ export function generateDefaultPeerConfig(): Required<PeerConfig> {
     iceTcpPassive: true,
     iceStunGatherTimeout: undefined,
     iceTurnConnectTimeout: undefined,
+    iceIncomingCheckTimeout: undefined,
     iceNominationDelayMs: undefined,
     iceNomination: undefined,
     iceRenomination: false,

@@ -5,6 +5,7 @@ import {
   type IceCandidateErrorInfo,
   type IceConnection,
   type IceOptions,
+  IceRestartedError,
   isCandidateAllowedByGatherOptions,
   mergeIceServerOptions,
 } from "../../../ice/src";
@@ -177,6 +178,15 @@ export class RTCIceTransport {
    * @internal
    */
   checksStarted = false;
+  /**
+   * Counts the ends of the remote generation (restart(),
+   * resetRemoteGeneration()). Whoever awaits the checks of a generation
+   * (start(), `TransportActivation`) compares it before and after: once it
+   * changed, the outcome belongs to a replaced generation and changes no
+   * state; the new generation's own start reports it.
+   * @internal
+   */
+  checksGeneration = 0;
   private renominating = false;
   /**
    * The restart generation selected for the description being created or
@@ -615,6 +625,9 @@ export class RTCIceTransport {
     staged.endDeferred = undefined;
     // The kept sockets are re-advertised synchronously; nothing here waits
     // for a server, so the commit never holds the new generation's checks.
+    // The checks may thus start while this gathering still runs: an ICE-lite
+    // agent then waits on its empty check list until the gathering ends
+    // (Connection.waitForIncomingCheck wakes on that end).
     const gathering = this.gather();
     if (regather) {
       void gathering.catch((error) => log("restart gathering failed", error));
@@ -784,25 +797,29 @@ export class RTCIceTransport {
    */
   resetRemoteGeneration() {
     if (!this.connection.restartRemote) return;
+    this.checksGeneration++;
     this.connection.restartRemote();
-    this.setState("new");
+    // Reset before the event: a "new" subscriber may start the generation.
     this.waitStart = undefined;
     this.startPromise = undefined;
     this.checksStarted = false;
+    this.setState("new");
   }
 
   restart(notifyNegotiation = true, applyNextGatherIceServers = true) {
     this.iceRestarts++;
+    this.checksGeneration++;
     this.connection.restart();
     const servers = this.nextGatherIceServers;
     if (servers && applyNextGatherIceServers) this.setIceServers(servers);
+    // Reset before the events: a subscriber may start the new generation.
+    this.waitStart = undefined;
+    this.startPromise = undefined;
+    this.checksStarted = false;
     this.setState("new");
     // Use setGatheringState so onGatheringStateChange fires and the
     // SecureTransportManager aggregate iceGatheringState stays in sync.
     this.iceGather.setGatheringState("new");
-    this.waitStart = undefined;
-    this.startPromise = undefined;
-    this.checksStarted = false;
     if (notifyNegotiation) this.onNegotiationNeeded.execute();
   }
 
@@ -818,18 +835,31 @@ export class RTCIceTransport {
     // their result. Waiting for the event and then continuing would start a
     // second connection attempt after the first one settles.
     if (this.startPromise) return this.startPromise;
+    // The request is bound to its generation and registered before any
+    // event: a "checking" subscriber may restart (a new generation, whose
+    // own start() runs its checks) or call start() again (it shares this).
+    const generation = this.checksGeneration;
     const waitStart = new Event<[]>();
     this.waitStart = waitStart;
     this.checksStarted = true;
-
-    const iceRestartsAtStart = this.iceRestarts;
-    this.setState("checking");
     const startPromise = Promise.resolve()
-      .then(() => this.connection.connect())
-      .catch((error) => {
-        if (this.iceRestarts === iceRestartsAtStart) {
-          this.setState("failed");
+      .then(() => {
+        // connect() runs a microtask later: a restart in between (restart(),
+        // resetRemoteGeneration()) ended this start's generation, and the
+        // connect() would check the next one (whose own start() runs it).
+        if (this.checksGeneration !== generation) {
+          throw new IceRestartedError();
         }
+        // stop() in between closed the agent: no check starts.
+        if (this.state === "closed") {
+          throw new Error("RTCIceTransport is closed");
+        }
+        return this.connection.connect();
+      })
+      .catch((error) => {
+        // Once a restart replaced this generation (it already set "new"),
+        // the outcome of its checks says nothing about the new one.
+        if (this.checksGeneration === generation) this.setState("failed");
         throw error;
       })
       .finally(() => {
@@ -842,6 +872,7 @@ export class RTCIceTransport {
         if (this.startPromise === startPromise) this.startPromise = undefined;
       });
     this.startPromise = startPromise;
+    this.setState("checking");
     return startPromise;
   }
 
