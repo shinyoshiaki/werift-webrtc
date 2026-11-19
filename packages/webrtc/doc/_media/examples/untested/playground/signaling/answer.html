@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Answer</title>
+    <script
+      crossorigin
+      src="https://unpkg.com/react@16/umd/react.development.js"
+    ></script>
+    <script
+      crossorigin
+      src="https://unpkg.com/react-dom@16/umd/react-dom.development.js"
+    ></script>
+    <script
+      crossorigin
+      src="https://cdnjs.cloudflare.com/ajax/libs/babel-core/5.8.34/browser.min.js"
+    ></script>
+    <script src="https://cdn.jsdelivr.net/npm/babel-regenerator-runtime@6.5.0/runtime.min.js"></script>
+  </head>
+  <body>
+    <div class="main">
+      <div class="section" id="app1"></div>
+    </div>
+    <script type="text/babel">
+      const socket = new WebSocket("ws://localhost:8888");
+      let rtc;
+
+      const App = () => {
+        const videos = React.useRef([]);
+        const [streams, setStreams] = React.useState([]);
+
+        const main = async () => {
+          await new Promise((r) => (socket.onopen = r));
+          console.log("open websocket");
+
+          const offer = await new Promise(
+            (r) => (socket.onmessage = (ev) => r(JSON.parse(ev.data)))
+          );
+          console.log("offer", offer.sdp);
+
+          const peer = (rtc = new RTCPeerConnection({
+            iceServers: [],
+          }));
+
+          peer.onicecandidate = ({ candidate }) => {
+            if (!candidate) {
+              console.log(
+                peer.localDescription.type,
+                peer.localDescription.sdp
+              );
+              socket.send(JSON.stringify(peer.localDescription));
+            }
+          };
+
+          peer.onnegotiationneeded = async () => {
+            console.log("needed");
+            await peer.setLocalDescription(await peer.createOffer());
+          };
+
+          peer.oniceconnectionstatechange = () => {
+            console.log("oniceconnectionstatechange", peer.iceConnectionState);
+          };
+
+          peer.ontrack = (e) => {
+            const stream = e.streams[0];
+            console.log("track", stream.id);
+            stream.onremovetrack = () => {
+              setStreams((streams) =>
+                streams.filter((s) => stream.id !== s.id)
+              );
+            };
+
+            setStreams((streams) => [...streams, stream]);
+          };
+
+          await peer.setRemoteDescription(offer);
+          await peer.setLocalDescription(await peer.createAnswer());
+
+          socket.onmessage = async ({ data }) => {
+            const sdp = JSON.parse(data);
+            console.log("sdp", sdp.type, sdp.sdp);
+            await peer.setRemoteDescription(sdp);
+            if (sdp.type === "offer") {
+              await peer.setLocalDescription(await peer.createAnswer());
+            }
+          };
+        };
+
+        React.useEffect(() => {
+          main();
+        }, []);
+
+        React.useEffect(() => {
+          videos.current.forEach((v, i) => {
+            if (streams[i]) v.srcObject = streams[i];
+          });
+        }, [streams]);
+
+        const addTrack = async () => {
+          const stream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: false,
+          });
+          rtc.addTransceiver(stream.getTracks()[0], {
+            streams: [stream],
+            direction: "sendonly",
+          });
+        };
+
+        return (
+          <div>
+            answer
+            <div>
+              <button onClick={addTrack}>addTrack</button>
+            </div>
+            <div style={{ display: "flex", width: "100%" }}>
+              {streams.map((_, i) => (
+                <div key={i}>
+                  <video
+                    ref={(ref) => {
+                      const arr = videos.current;
+                      arr[i] = ref;
+                      videos.current = arr;
+                    }}
+                    autoPlay
+                    muted
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      };
+
+      ReactDOM.render(<App />, document.getElementById("app1"));
+    </script>
+  </body>
+</html>

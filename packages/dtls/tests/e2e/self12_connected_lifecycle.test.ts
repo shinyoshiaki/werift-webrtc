@@ -101,8 +101,7 @@ test("e2e/self12: connected authenticated fatal alert tears down pure associatio
 
   // Assert: terminal
   expect(errors.length).toBe(1);
-  // Fatal alert emits onError; onClose is reserved for graceful close_notify.
-  expect(closes.length).toBe(0);
+  expect(closes.length).toBe(1);
   expect(client.connected).toBe(false);
   expect((client as any).associationTornDown).toBe(true);
   expect((client as any).dtls.flightTimers.size).toBe(0);
@@ -123,7 +122,7 @@ test("e2e/self12: connected authenticated fatal alert tears down pure associatio
   await new Promise((r) => setTimeout(r, 30));
   expect(data.length).toBe(0);
   expect(errors.length).toBe(1);
-  expect(closes.length).toBe(0);
+  expect(closes.length).toBe(1);
   expect((client as any).associationTornDown).toBe(true);
 
   try {

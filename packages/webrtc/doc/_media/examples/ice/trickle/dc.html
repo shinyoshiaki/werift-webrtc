@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Answer</title>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <script
+      crossorigin
+      src="https://unpkg.com/react@16/umd/react.development.js"
+    ></script>
+    <script
+      crossorigin
+      src="https://unpkg.com/react-dom@16/umd/react-dom.development.js"
+    ></script>
+    <script
+      crossorigin
+      src="https://cdnjs.cloudflare.com/ajax/libs/babel-core/5.8.34/browser.min.js"
+    ></script>
+    <script src="https://cdn.jsdelivr.net/npm/babel-regenerator-runtime@6.5.0/runtime.min.js"></script>
+  </head>
+  <body>
+    <div class="main">
+      <div class="section" id="app1"></div>
+    </div>
+    <script type="text/babel">
+      let rtc;
+
+      const App = () => {
+        const [log, setLog] = React.useState([]);
+
+        React.useEffect(() => {
+          (async () => {
+            const { offer } = (
+              await axios.get("http://127.0.0.1:12223/connection")
+            ).data;
+            console.log("offer", offer.sdp);
+
+            const peer = (rtc = new RTCPeerConnection({
+              iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+            }));
+            peer.onicecandidate = ({ candidate }) => {
+              if (candidate) {
+                console.log(candidate.candidate);
+                axios.post("http://127.0.0.1:12223/candidate", { candidate });
+              }
+            };
+            peer.oniceconnectionstatechange = () => {
+              console.log(
+                "oniceconnectionstatechange",
+                peer.iceConnectionState
+              );
+            };
+
+            peer.ondatachannel = (ev) => {
+              const channel = ev.channel;
+              let index = 0;
+              setInterval(() => {
+                channel.send("ping" + index++);
+              }, 1000);
+
+              channel.onmessage = (ev) => {
+                const text = new TextDecoder("utf-8").decode(ev.data);
+                console.log(text);
+                setLog((prev) => [...prev, text]);
+              };
+              channel.onclose = (e) => {
+                console.log("close", e);
+              };
+              channel.onerror = (e) => {
+                console.log("error", e);
+              };
+            };
+
+            await peer.setRemoteDescription(offer);
+
+            const answer = await peer.createAnswer();
+            await peer.setLocalDescription(answer);
+            const sdp = JSON.stringify(peer.localDescription);
+            console.log("answer", peer.localDescription.sdp);
+            axios.post("http://127.0.0.1:12223/answer", { answer });
+          })();
+        }, []);
+
+        return (
+          <div>
+            answer
+            <div>
+              {log.slice(-10).map((v, i) => (
+                <div key={i}>{v}</div>
+              ))}
+            </div>
+          </div>
+        );
+      };
+
+      ReactDOM.render(<App />, document.getElementById("app1"));
+    </script>
+  </body>
+</html>

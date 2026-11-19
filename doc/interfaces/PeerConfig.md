@@ -43,7 +43,7 @@ Cannot be changed after construction. See [BundleCandidates](../type-aliases/Bun
 
 ### certificateScope
 
-> **certificateScope**: `"process"` \| `"standard"`
+> **certificateScope**: `"standard"` \| `"process"`
 
 Which default DTLS certificate is used when neither `certificates` nor `dtls.keys` is given
 (see [CompatibilityOptionValues](../variables/CompatibilityOptionValues.md)). Cannot be changed after construction.
@@ -381,7 +381,7 @@ such as google cloud run
 
 ### keyFrameRequestRouting
 
-> **keyFrameRequestRouting**: `"fallback"` \| `"standard"`
+> **keyFrameRequestRouting**: `"standard"` \| `"fallback"`
 
 Where a PLI / FIR goes when no route has its target SSRC (see
 [CompatibilityOptionValues](../variables/CompatibilityOptionValues.md) and [KeyFrameRequestRouting](../type-aliases/KeyFrameRequestRouting.md)).
@@ -501,7 +501,7 @@ after construction.
 
 ### turnTransport
 
-> **turnTransport**: `"tcp"` \| `"tls"` \| `"udp"` \| `undefined`
+> **turnTransport**: `"udp"` \| `"tcp"` \| `"tls"` \| `undefined`
 
 ***
 

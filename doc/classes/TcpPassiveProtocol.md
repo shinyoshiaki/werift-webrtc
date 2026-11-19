@@ -60,9 +60,10 @@ The connection to this remote address was closed (by either side).
 
 ### onDataReceived
 
-> `readonly` **onDataReceived**: [`Event`](Event.md)\<\[`Buffer`\<`ArrayBufferLike`\>, readonly \[`string`, `number`\]\]\>
+> `readonly` **onDataReceived**: [`Event`](Event.md)\<\[`Buffer`\<`ArrayBufferLike`\>, (readonly \[`string`, `number`\])?\]\>
 
-Application data (not STUN) and the remote address it came from.
+Non-STUN datagrams on this protocol. The optional source address is
+required to route handshake DTLS to the matching CandidatePair.
 
 #### Inherited from
 

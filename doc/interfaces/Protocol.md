@@ -56,9 +56,10 @@ Connection-oriented protocols: the connection to this remote address is gone.
 
 ### onDataReceived
 
-> **onDataReceived**: [`Event`](../classes/Event.md)\<\[`Buffer`\<`ArrayBufferLike`\>, readonly \[`string`, `number`\]\]\>
+> **onDataReceived**: [`Event`](../classes/Event.md)\<\[`Buffer`\<`ArrayBufferLike`\>, (readonly \[`string`, `number`\])?\]\>
 
-Application data (not STUN) and the remote address it came from.
+Non-STUN datagrams on this protocol. The optional source address is
+required to route handshake DTLS to the matching CandidatePair.
 
 ***
 

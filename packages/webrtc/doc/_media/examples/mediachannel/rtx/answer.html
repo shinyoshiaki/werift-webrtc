@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Answer</title>
+    <script
+      crossorigin
+      src="https://unpkg.com/react@16/umd/react.development.js"
+    ></script>
+    <script
+      crossorigin
+      src="https://unpkg.com/react-dom@16/umd/react-dom.development.js"
+    ></script>
+    <script
+      crossorigin
+      src="https://cdnjs.cloudflare.com/ajax/libs/babel-core/5.8.34/browser.min.js"
+    ></script>
+    <script src="https://cdn.jsdelivr.net/npm/babel-regenerator-runtime@6.5.0/runtime.min.js"></script>
+  </head>
+  <body>
+    <div class="main">
+      <div class="section" id="app1"></div>
+    </div>
+    <script type="text/babel">
+      let rtc;
+
+      const App = () => {
+        const remoteRef = React.useRef();
+        const localRef = React.useRef();
+
+        React.useEffect(() => {
+          (async () => {
+            const socket = new WebSocket("ws://192.168.0.101:8888");
+            await new Promise((r) => (socket.onopen = r));
+            console.log("open websocket");
+
+            const offer = await new Promise(
+              (r) => (socket.onmessage = (ev) => r(JSON.parse(ev.data)))
+            );
+            console.log("offer", offer.sdp);
+
+            const peer = (rtc = new RTCPeerConnection({
+              iceServers: [],
+            }));
+            peer.onicecandidate = ({ candidate }) => {
+              if (!candidate) {
+                const sdp = JSON.stringify(peer.localDescription);
+                console.log(peer.localDescription.sdp);
+                socket.send(sdp);
+              }
+            };
+            peer.oniceconnectionstatechange = () => {
+              console.log(
+                "oniceconnectionstatechange",
+                peer.iceConnectionState
+              );
+            };
+            peer.ontrack = (e) => {
+              console.log("ontrack", e);
+              remoteRef.current.srcObject = e.streams[0];
+            };
+            const localStream = await navigator.mediaDevices.getUserMedia({
+              video: true,
+              audio: false,
+            });
+            localRef.current.srcObject = localStream;
+
+            localStream
+              .getVideoTracks()
+              .forEach((track) => peer.addTrack(track, localStream));
+
+            await peer.setRemoteDescription(offer);
+            const answer = await peer.createAnswer();
+            await peer.setLocalDescription(answer);
+          })();
+        }, []);
+
+        return (
+          <div>
+            answer
+            <div style={{ display: "flex" }}>
+              <div>
+                <p>local</p>
+                <video ref={localRef} autoPlay muted />
+              </div>
+              <div>
+                <p>remote</p>
+                <video ref={remoteRef} autoPlay muted />
+              </div>
+            </div>
+          </div>
+        );
+      };
+
+      ReactDOM.render(<App />, document.getElementById("app1"));
+    </script>
+  </body>
+</html>

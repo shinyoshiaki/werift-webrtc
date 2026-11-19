@@ -68,13 +68,13 @@ reviewable diff does not depend on external PR text.
 
 ### connectionStateChange
 
-> `readonly` **connectionStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"connected"` \| `"disconnected"` \| `"new"` \| `"failed"` \| `"connecting"`\]\>
+> `readonly` **connectionStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"connecting"` \| `"disconnected"` \| `"new"` \| `"connected"` \| `"failed"`\]\>
 
 ***
 
 ### iceConnectionStateChange
 
-> `readonly` **iceConnectionStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"connected"` \| `"disconnected"` \| `"completed"` \| `"new"` \| `"failed"` \| `"checking"`\]\>
+> `readonly` **iceConnectionStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"disconnected"` \| `"completed"` \| `"new"` \| `"connected"` \| `"failed"` \| `"checking"`\]\>
 
 ***
 
@@ -269,11 +269,11 @@ v13.6.0, v12.17.0
 
 #### Get Signature
 
-> **get** **connectionState**(): `"closed"` \| `"connected"` \| `"disconnected"` \| `"new"` \| `"failed"` \| `"connecting"`
+> **get** **connectionState**(): `"closed"` \| `"connecting"` \| `"disconnected"` \| `"new"` \| `"connected"` \| `"failed"`
 
 ##### Returns
 
-`"closed"` \| `"connected"` \| `"disconnected"` \| `"new"` \| `"failed"` \| `"connecting"`
+`"closed"` \| `"connecting"` \| `"disconnected"` \| `"new"` \| `"connected"` \| `"failed"`
 
 ***
 
@@ -329,11 +329,11 @@ v13.6.0, v12.17.0
 
 #### Get Signature
 
-> **get** **iceConnectionState**(): `"closed"` \| `"connected"` \| `"disconnected"` \| `"completed"` \| `"new"` \| `"failed"` \| `"checking"`
+> **get** **iceConnectionState**(): `"closed"` \| `"disconnected"` \| `"completed"` \| `"new"` \| `"connected"` \| `"failed"` \| `"checking"`
 
 ##### Returns
 
-`"closed"` \| `"connected"` \| `"disconnected"` \| `"completed"` \| `"new"` \| `"failed"` \| `"checking"`
+`"closed"` \| `"disconnected"` \| `"completed"` \| `"new"` \| `"connected"` \| `"failed"` \| `"checking"`
 
 ***
 
@@ -929,7 +929,7 @@ v0.1.26
 
 ##### trackOrKind
 
-[`Kind`](../type-aliases/Kind.md) \| [`MediaStreamTrack`](MediaStreamTrack.md)
+[`MediaStreamTrack`](MediaStreamTrack.md) \| [`Kind`](../type-aliases/Kind.md)
 
 ##### options?
 
@@ -1164,7 +1164,7 @@ Cannot be changed after construction. See [BundleCandidates](../type-aliases/Bun
 
 ##### certificateScope
 
-> **certificateScope**: `"process"` \| `"standard"`
+> **certificateScope**: `"standard"` \| `"process"`
 
 Which default DTLS certificate is used when neither `certificates` nor `dtls.keys` is given
 (see [CompatibilityOptionValues](../variables/CompatibilityOptionValues.md)). Cannot be changed after construction.
@@ -1484,7 +1484,7 @@ such as google cloud run
 
 ##### keyFrameRequestRouting
 
-> **keyFrameRequestRouting**: `"fallback"` \| `"standard"`
+> **keyFrameRequestRouting**: `"standard"` \| `"fallback"`
 
 Where a PLI / FIR goes when no route has its target SSRC (see
 [CompatibilityOptionValues](../variables/CompatibilityOptionValues.md) and [KeyFrameRequestRouting](../type-aliases/KeyFrameRequestRouting.md)).
@@ -1601,7 +1601,7 @@ after construction.
 
 ##### turnTransport
 
-> **turnTransport**: `"tcp"` \| `"tls"` \| `"udp"` \| `undefined`
+> **turnTransport**: `"udp"` \| `"tcp"` \| `"tls"` \| `undefined`
 
 ##### turnUdpFamily
 

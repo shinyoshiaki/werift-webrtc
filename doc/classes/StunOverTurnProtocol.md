@@ -30,7 +30,7 @@
 
 ### configuredTransport?
 
-> `optional` **configuredTransport?**: `"tcp"` \| `"tls"` \| `"udp"`
+> `optional` **configuredTransport?**: `"udp"` \| `"tcp"` \| `"tls"`
 
 The transport the TURN server was configured with. A UDP entry whose
 allocation fell back to TCP keeps "udp" here, so a restart that removes
@@ -50,9 +50,10 @@ that entry also releases the fallback allocation.
 
 ### onDataReceived
 
-> **onDataReceived**: [`Event`](Event.md)\<\[`Buffer`\<`ArrayBufferLike`\>, readonly \[`string`, `number`\]\]\>
+> **onDataReceived**: [`Event`](Event.md)\<\[`Buffer`\<`ArrayBufferLike`\>, (readonly \[`string`, `number`\])?\]\>
 
-Application data (not STUN) and the remote address it came from.
+Non-STUN datagrams on this protocol. The optional source address is
+required to route handshake DTLS to the matching CandidatePair.
 
 #### Implementation of
 
