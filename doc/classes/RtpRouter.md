@@ -154,7 +154,7 @@ before it applies, while the announcement of the default track stands.
 
 ### keyFrameRequestRouting
 
-> **keyFrameRequestRouting**: `"standard"` \| `"fallback"` = `"fallback"`
+> **keyFrameRequestRouting**: `"fallback"` \| `"standard"` = `"fallback"`
 
 ***
 

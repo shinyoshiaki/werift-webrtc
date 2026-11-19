@@ -167,7 +167,11 @@ const RETIRED_UFRAG_HISTORY = 64;
  *   BUNDLE split owner) handshakes during the proposal.
  * - SCTP: the current association stays live; a new pending association may
  *   run at a pranswer and closes on R. A port change or move of an
- *   established association is rejected in validate.
+ *   established association is rejected in validate. In-band DataChannel
+ *   stream IDs are reserved from the DTLS role as soon as a pranswer or
+ *   answer decides it (before its promise resolves); R gives back the IDs
+ *   of channels whose DCEP OPEN was not sent (`SctpTransportManager`;
+ *   test: tests/issue/815.test.ts "a rollback gives back the IDs a pranswer reserved").
  * - Candidates / end-of-candidates: kept per generation (ufrag) and per
  *   proposal; replacement and R drop the pending buckets
  *   (`RemoteCandidates`).
@@ -195,7 +199,7 @@ const RETIRED_UFRAG_HISTORY = 64;
  * | `RTCRtpReceiver` | `snapshotNegotiationState` / `restoreNegotiationState` | SSRCs learned from RID packets whose track survives; one packets dropped after the baseline (retired by a media SSRC change of its RID, or evicted) is not restored |
  * | `TransceiverManager` | `snapshotNegotiationState` / `restoreNegotiationState` | transceivers the application uses (`heldByApplication`: one `addTrack()` attached a track to, also after the track was detached, or whose sender has a track); what created each transceiver (`createdBy`), except that a kept remote one `addTrack()` reused becomes `addTrack` |
  * | `RtpRouter` | `snapshotRoutes` / `restoreRoutes` | packet-learned SSRC routes (one packets dropped after the baseline is not restored), every live sender's route |
- * | `SctpTransportManager` | `snapshotNegotiationState` / `restoreNegotiationState` | an application-created SCTP transport (a pending-only association is replaced by an unstarted one) and its channels without a stream ID |
+ * | `SctpTransportManager` | `snapshotNegotiationState` / `restoreNegotiationState` | an application-created SCTP transport (a pending-only association is replaced by an unstarted one) and its channels whose DCEP OPEN was not sent (their reserved stream ID is released) |
  */
 export class NegotiationTransaction {
   private readonly sdp: SDPManager;
