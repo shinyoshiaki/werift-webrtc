@@ -1,4 +1,9 @@
-import { createPublicKey, generateKeyPairSync, verify } from "crypto";
+import {
+  createPublicKey,
+  generateKeyPairSync,
+  randomBytes,
+  verify,
+} from "crypto";
 import type { Address, Transport } from "../../common/src";
 import { type DtlsAlert, DtlsClient, DtlsServer } from "../src";
 import {
@@ -63,9 +68,12 @@ export const createEcdsaDtlsServer = async () => {
 export const createClientHelloHandshake = ({
   random,
   cookie = Buffer.alloc(0),
+  extraExtensions = [],
 }: {
   random: DtlsRandom;
   cookie?: Buffer;
+  /** appended after the default extensions (e.g. a large key_share) */
+  extraExtensions?: { type: number; data: Buffer }[];
 }) => {
   const curves = EllipticCurves.createEmpty();
   curves.data = [NamedCurveAlgorithm.secp256r1_23];
@@ -79,10 +87,93 @@ export const createClientHelloHandshake = ({
     cookie,
     [CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256_49195],
     [0], // don't compress
-    [curves.extension, signature.extension],
+    [curves.extension, signature.extension, ...extraExtensions],
   );
   return hello.toFragment();
 };
+
+/**
+ * ClientHello as large as Chrome's post-quantum one (an X25519MLKEM768
+ * key_share is 1,216 bytes of public key): over 1,200 bytes, so it must be
+ * fragmented. The key share bytes are random, so a missing range cannot be
+ * mistaken for zero-filled data.
+ */
+export const createLargeClientHelloHandshake = ({
+  random,
+  cookie,
+  keyShareLength = 1216,
+}: {
+  random: DtlsRandom;
+  cookie?: Buffer;
+  keyShareLength?: number;
+}) =>
+  createClientHelloHandshake({
+    random,
+    cookie,
+    // key_share (RFC 8446 §4.2.8) の形だけを真似た未知の拡張として送る
+    extraExtensions: [{ type: 51, data: randomBytes(keyShareLength) }],
+  });
+
+/** Fragments of `handshake` (fragment_length <= `size`) picked in `order` (indexes). */
+export const fragmentHandshake = (
+  handshake: FragmentedHandshake,
+  size: number,
+  order?: number[],
+) => {
+  const fragments = handshake.chunk(size);
+  return order ? order.map((i) => fragments[i]) : fragments;
+};
+
+/** One handshake fragment cut at an arbitrary `[start, end)` of `handshake`. */
+export const sliceHandshake = (
+  handshake: FragmentedHandshake,
+  start: number,
+  end: number,
+  fragment = handshake.fragment.subarray(start, end),
+) =>
+  new FragmentedHandshake(
+    handshake.msg_type,
+    handshake.length,
+    handshake.message_seq,
+    start,
+    end - start,
+    Buffer.from(fragment),
+  );
+
+/** A plaintext handshake record (one datagram) carrying `fragment`. */
+export const createHandshakeRecord = (
+  fragment: FragmentedHandshake,
+  {
+    epoch = 0,
+    sequenceNumber = 0,
+  }: { epoch?: number; sequenceNumber?: number } = {},
+) => {
+  const raw = fragment.serialize();
+  return new DtlsPlaintext(
+    {
+      contentType: ContentType.handshake,
+      protocolVersion: { major: 255 - 1, minor: 255 - 2 },
+      epoch,
+      sequenceNumber,
+      contentLen: raw.length,
+    },
+    raw,
+  ).serialize();
+};
+
+/** Handshake messages (msg_type) of the plaintext records in `datagrams`. */
+export const sentHandshakeTypes = (datagrams: Buffer[]) =>
+  datagrams.flatMap((datagram) =>
+    parsePacket(datagram)
+      .filter(
+        (packet) =>
+          packet.recordLayerHeader.contentType === ContentType.handshake &&
+          packet.recordLayerHeader.epoch === 0,
+      )
+      .map(
+        (packet) => FragmentedHandshake.deSerialize(packet.fragment).msg_type,
+      ),
+  );
 
 /**extract ServerKeyExchange from datagrams sent by the server */
 export const findServerKeyExchange = (datagrams: Buffer[]) => {
@@ -152,7 +243,17 @@ export class PairedTransport implements Transport {
   sent: Buffer[] = [];
   peer?: PairedTransport;
   sendBehavior: "deliver" | "hang" | "reject" = "deliver";
+  /**
+   * Network impairment: rewrites one sent datagram into the datagrams the
+   * peer receives (none = loss, several = re-fragmentation / duplication).
+   * Datagrams sent in the same tick are then delivered together.
+   */
+  impair?: (data: Buffer, index: number) => Buffer[];
+  /** With {@link impair}: deliver the datagrams of one tick in reverse order. */
+  reverseOrder = false;
   onData: (data: Buffer, addr: Address) => void = () => {};
+  private impairedCount = 0;
+  private pending?: Buffer[];
 
   send = async (data: Buffer) => {
     this.sent.push(data);
@@ -164,11 +265,32 @@ export class PairedTransport implements Transport {
     }
     const peer = this.peer;
     if (!this.closed && peer && !peer.closed) {
+      if (this.impair) {
+        this.deliverImpaired(peer, this.impair(data, this.impairedCount++));
+        return;
+      }
       setImmediate(() => {
         if (!peer.closed) peer.onData(data, this.address);
       });
     }
   };
+
+  private deliverImpaired(peer: PairedTransport, datagrams: Buffer[]) {
+    if (this.pending) {
+      this.pending.push(...datagrams);
+      return;
+    }
+    this.pending = [...datagrams];
+    setImmediate(() => {
+      const batch = this.pending ?? [];
+      this.pending = undefined;
+      if (this.reverseOrder) batch.reverse();
+      for (const datagram of batch) {
+        if (peer.closed) return;
+        peer.onData(datagram, this.address);
+      }
+    });
+  }
 
   close = async () => {
     this.closed = true;
@@ -276,3 +398,64 @@ export const createEpoch0HandshakeRecord = (
     },
     fragment,
   ).serialize();
+
+/**
+ * {@link PairedTransport.impair} that re-fragments every unfragmented
+ * plaintext (epoch 0) handshake message into fragments of at most
+ * `maxFragmentLength` bytes, one record per datagram, as a peer with a small
+ * MTU would send them. `firstFragmentLast` delivers each message's
+ * offset-0 fragment after its other fragments (the fragment ending the
+ * message then arrives while the start is still missing). `duplicate`
+ * repeats every fragment; `dropOnce` loses the first fragment it matches,
+ * to force a retransmission.
+ */
+export const createRefragmentingImpairment = ({
+  maxFragmentLength,
+  firstFragmentLast = false,
+  duplicate = false,
+  dropOnce,
+}: {
+  maxFragmentLength: number;
+  firstFragmentLast?: boolean;
+  duplicate?: boolean;
+  dropOnce?: (fragment: FragmentedHandshake) => boolean;
+}) => {
+  let dropped = false;
+  return (data: Buffer): Buffer[] =>
+    parsePacket(data).flatMap((packet) => {
+      const { contentType, epoch, sequenceNumber } = packet.recordLayerHeader;
+      if (contentType !== ContentType.handshake || epoch !== 0) {
+        return [packet.serialize()];
+      }
+      const handshakes: FragmentedHandshake[] = [];
+      for (let start = 0; start < packet.fragment.length; ) {
+        const handshake = FragmentedHandshake.deSerialize(
+          packet.fragment.subarray(start),
+        );
+        handshakes.push(handshake);
+        start += 12 + handshake.fragment_length;
+      }
+      return handshakes
+        .flatMap((handshake) => {
+          if (handshake.fragment_length !== handshake.length) {
+            return [handshake];
+          }
+          const [first, ...rest] = handshake.chunk(maxFragmentLength);
+          return firstFragmentLast ? [...rest, first] : [first, ...rest];
+        })
+        .filter((fragment) => {
+          if (!dropped && dropOnce?.(fragment)) {
+            dropped = true;
+            return false;
+          }
+          return true;
+        })
+        .flatMap((fragment) => {
+          const record = createHandshakeRecord(fragment, {
+            epoch,
+            sequenceNumber,
+          });
+          return duplicate ? [record, record] : [record];
+        });
+    });
+};

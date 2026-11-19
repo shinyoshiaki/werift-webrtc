@@ -26,7 +26,8 @@ import { binaryData, debug, Event } from "./imports/common";
 import type { SrtpProfile } from "./imports/rtp";
 import { createPlaintext } from "./record/builder";
 import { AlertDesc, AlertLevel, ContentType } from "./record/const";
-import { FragmentedHandshake } from "./record/message/fragment";
+import type { FragmentedHandshake } from "./record/message/fragment";
+import { HandshakeReassembler } from "./record/message/reassembler";
 import { parsePacket, parsePlainText } from "./record/receive";
 import type { Extension } from "./typings/domain";
 
@@ -63,7 +64,8 @@ export class DtlsSocket {
   extensions: Extension[] = [];
   onHandleHandshakes!: (assembled: FragmentedHandshake[]) => Promise<void>;
 
-  private bufferFragmentedHandshakes: FragmentedHandshake[] = [];
+  /** Partially received handshake messages (RFC 6347 §4.2.3). */
+  private readonly reassembler = new HandshakeReassembler();
   /** close_notify or a fatal alert was sent: no record is sent any more. */
   private alertSent = false;
   /** The alert that is being sent (shared with concurrent close calls). */
@@ -101,7 +103,7 @@ export class DtlsSocket {
     this.dtls = new DtlsContext(this.options, this.sessionType);
     this.srtp = new SrtpContext();
     this.extensions = [];
-    this.bufferFragmentedHandshakes = [];
+    this.reassembler.clear();
   }
 
   /**
@@ -164,19 +166,10 @@ export class DtlsSocket {
                   continue;
                 }
                 const handshake = message.data as FragmentedHandshake;
-                const handshakes = this.handleFragmentHandshake([handshake]);
-                const assembled = Object.values(
-                  handshakes.reduce(
-                    (acc: { [type: string]: FragmentedHandshake[] }, cur) => {
-                      if (!acc[cur.msg_type]) acc[cur.msg_type] = [];
-                      acc[cur.msg_type].push(cur);
-                      return acc;
-                    },
-                    {},
-                  ),
-                )
-                  .map((v) => FragmentedHandshake.assemble(v))
-                  .sort((a, b) => a.msg_type - b.msg_type);
+                const assembled = this.handleFragmentHandshake(
+                  [handshake],
+                  packet.recordLayerHeader.epoch,
+                ).sort((a, b) => a.msg_type - b.msg_type);
 
                 this.onHandleHandshakes(assembled).catch((error) => {
                   err(this.dtls.sessionId, "onHandleHandshakes error", error);
@@ -465,24 +458,18 @@ export class DtlsSocket {
       f("waitForReady timeout");
     });
 
-  handleFragmentHandshake(messages: FragmentedHandshake[]) {
-    let handshakes = messages.filter((v) => {
-      // find fragmented
-      if (v.fragment_length !== v.length) {
-        this.bufferFragmentedHandshakes.push(v);
-        return false;
-      }
-      return true;
-    });
-
-    if (this.bufferFragmentedHandshakes.length > 1) {
-      const [last] = this.bufferFragmentedHandshakes.slice(-1);
-      if (last.fragment_offset + last.fragment_length === last.length) {
-        handshakes = [...this.bufferFragmentedHandshakes, ...handshakes];
-        this.bufferFragmentedHandshakes = [];
-      }
+  /**
+   * Pass received handshake fragments of the record `epoch` to the
+   * reassembler and return the complete messages: unfragmented ones, and
+   * fragmented ones whose every byte has now been received.
+   */
+  handleFragmentHandshake(messages: FragmentedHandshake[], epoch = 0) {
+    const handshakes: FragmentedHandshake[] = [];
+    for (const message of messages) {
+      const handshake = this.reassembler.add(message, epoch);
+      if (handshake) handshakes.push(handshake);
     }
-    return handshakes; // return un fragmented handshakes
+    return handshakes;
   }
 
   /**
@@ -535,6 +522,7 @@ export class DtlsSocket {
     }
     this.ended = true;
     this.transport.stopFlights();
+    this.reassembler.clear();
     // Closing the transport now would drop an alert handed to it but not
     // yet written (a UDP datagram goes out on a later tick).
     await this.alertFlushed();
