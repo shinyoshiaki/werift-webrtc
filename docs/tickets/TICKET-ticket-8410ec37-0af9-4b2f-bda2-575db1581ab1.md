@@ -136,3 +136,14 @@ This is an interoperability investigation, not a claim that every empty MID must
 - [ ] `cd packages/webrtc && npm run type && npm test` が通る（`host-dependent` な既知の失敗はベースラインと比較する）。
 - [ ] `npm run wpt` で addIceCandidate 系の subtest が baseline から後退しない。
 - [ ] `changelog.md` の次リリースのセクションに Bug Fix として記載し、`npm run format` を実行した。
+
+## 9. 実装時の確認結果（§3 の未検証項目）
+
+| 対象 | ソースで確認した挙動 | 出典 |
+| --- | --- | --- |
+| libwebrtc | `SdpOfferAnswerHandler::FindContentInfo` は `!candidate->sdp_mid().empty()` のときだけ mid で検索する（一致しなければ INVALID_PARAMETER）。空なら `sdp_mline_index() >= 0` で index 解決（範囲外は INVALID_RANGE）。両方無ければ「Neither sdp_mline_index nor sdp_mid specified.」 → **空 MID は index へフォールバック** | `pc/sdp_offer_answer.cc`（webrtc-sdk/webrtc の master ミラー） |
+| Firefox | `PeerConnection.sys.mjs` の `_addIceCandidate` が `sdpMid \|\| ""` を渡す。`JsepSessionImpl::AddRemoteIceCandidate` は `!mid.empty()` なら mid、そうでなく level があれば `GetTransceiverForLevel`、どちらも無ければ OperationError → **空 MID は index へフォールバック** | gecko-dev master |
+| Pion v4 | `AddICECandidate` は candidate 文字列だけを使い、`SDPMid` / `SDPMLineIndex` を読まない（`newICECandidateFromICE(cand, "", 0)`）。`ToJSON()` は `SDPMid: &c.SDPMid`（`string` フィールドへのポインタ）なので、MID 未記録なら `""` が出る | `peerconnection.go`, `icecandidate.go`（master） |
+| W3C webrtc-pc | 「`candidate.sdpMid` is not null」で MID 分岐に入り、一致しなければ OperationError。`""` は null ではないので index 分岐に入らない → **仕様に厳密なら reject**（ステップ構造からの推論） | https://w3c.github.io/webrtc-pc/ |
+
+→ 前提（主要ブラウザは index へフォールバック）が確認できたので、§4 の案 B で実装した。仕様との差異は `normalizeEmptyCandidateMid`（`remoteCandidates.ts`）と `peerConnection.ts` の W3C 互換ノートに記載した。upstream WPT（`third_party/wpt/webrtc`）に空の `sdpMid` を使う subtest は無い（grep で確認）ので、WPT runner の wrapper は追加していない。

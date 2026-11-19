@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### 🐛 Bug Fixes
+
+- **`addIceCandidate()` resolves an empty `sdpMid` by `sdpMLineIndex`** (Pion interoperability): Pion's `ICECandidate.ToJSON()` (and SFUs built on it) send `sdpMid: ""` with a numeric `sdpMLineIndex`, which werift rejected with `OperationError("Media section for sdpMid was not found")`. Such a candidate (or end-of-candidates) now targets the m-line of the index, as libwebrtc and Firefox do, before it is queued, so the ICE generation choice and the m-line it is recorded in agree; a `usernameFragment` that does not match that m-line, or an index out of range, is still an `OperationError`. An empty `sdpMid` without an index is still rejected, now with `"sdpMid is empty and no sdpMLineIndex was given"`. The W3C steps reject an empty `sdpMid`; werift keeps the interoperable behavior (no upstream WPT subtest covers it).
+
 ## v0.28.0
 
 This release collects everything merged since v0.27.0.
