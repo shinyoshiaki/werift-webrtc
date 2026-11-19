@@ -1,5 +1,9 @@
 import { getHostAddresses } from "../../src/utils";
-import { createLocalStunServer, createTestConnection } from "../utils";
+import {
+  collectGarbage,
+  createLocalStunServer,
+  createTestConnection,
+} from "../utils";
 
 const localStunHost = getHostAddresses(true, false)[0];
 const testWithLocalStun = localStunHost ? test : test.skip;
@@ -92,4 +96,44 @@ describe("ICE restart gathering", () => {
       }
     },
   );
+
+  test("a finished gathering keeps nothing alive until close: earlier generations' results are collected", async () => {
+    // Arrange: loopback だけで gather する agent。各 gathering の primary に、他から参照されない
+    // 目印の結果を 1 つ足し、WeakRef で追う (host socket の候補は socket が持ち続けるので使わない)。
+    const connection = createTestConnection(true, {
+      interfaceAddresses: { udp4: "127.0.0.1" },
+      useIpv6: false,
+    });
+    const gatherer = (connection as any).gatherer;
+    const original = gatherer.candidatePromises.bind(gatherer);
+    const markers: WeakRef<object>[] = [];
+    gatherer.candidatePromises = (...args: unknown[]) => {
+      const promises = original(...args);
+      const marker = { generation: markers.length };
+      markers.push(new WeakRef(marker));
+      promises.primary.push(Promise.resolve(marker));
+      return promises;
+    };
+    try {
+      // Act: ICE restart と gather を繰り返し、最後の generation 以外を手放させる。
+      for (let i = 0; i < 4; i++) {
+        if (i > 0) await connection.restart();
+        await connection.gatherCandidates();
+        await connection.waitForLocalCandidatesEnd();
+      }
+      await collectGarbage();
+
+      // Assert: 前の generation の gathering の結果は close 前でも回収される
+      // (close まで解決しない Promise に race すると、その反応が結果を保持し続ける)。
+      expect(markers).toHaveLength(4);
+      expect(
+        markers
+          .slice(0, -1)
+          .map((ref) => ref.deref())
+          .filter((marker) => marker !== undefined),
+      ).toEqual([]);
+    } finally {
+      await connection.close();
+    }
+  });
 });

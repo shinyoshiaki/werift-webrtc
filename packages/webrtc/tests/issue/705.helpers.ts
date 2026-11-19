@@ -104,6 +104,7 @@ export function audioOnlyConfig(
 ): RTCPeerConnectionConfig {
   return {
     iceServers: [],
+    iceUseDefaultStunServer: false,
     ...config,
     codecs: { audio: [useOPUS()], video: [] },
   };
@@ -117,7 +118,11 @@ export function createAudioOnlyPeer(
 
 /** STUN を待たずにローカル候補だけで接続するデフォルト構成の peer */
 export function createPeer(config: Partial<RTCPeerConnectionConfig> = {}) {
-  return new RTCPeerConnection({ iceServers: [], ...config });
+  return new RTCPeerConnection({
+    iceServers: [],
+    iceUseDefaultStunServer: false,
+    ...config,
+  });
 }
 
 export function parseSdp(sdp: string) {
