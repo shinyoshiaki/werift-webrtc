@@ -32,9 +32,10 @@ describe("datachannel/openLimit", () => {
       // Act: 同じ ID で有効な値を使って作り直す。
       const retry = pc.createDataChannel("retry", { id: 42, negotiated });
 
-      // Assert: ID が解放されており、作成に成功する。
-      expect(retry.id).toBe(42);
+      // Assert: 作成に成功する。negotiated なら ID が解放されていて同じ ID を
+      // 使え、in-band なら指定 ID は無視されて DTLS role の確定まで未採番。
       expect(retry.label).toBe("retry");
+      expect(retry.id).toBe(negotiated ? 42 : undefined);
 
       await pc.close();
     },

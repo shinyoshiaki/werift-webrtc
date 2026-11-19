@@ -246,9 +246,6 @@ export class Connection implements IceConnection {
    */
   private remoteChecks = new AbortController();
   private checkListDone = false;
-  /** Resolves when the agent closes: work that awaits the network stops waiting. */
-  private readonly closedSignal: Promise<void>;
-  private signalClosed!: () => void;
   /** Aborted by close(): a TURN allocation still running is released. */
   private readonly closing = new AbortController();
   /**
@@ -463,9 +460,6 @@ export class Connection implements IceConnection {
 
   constructor(_iceControlling: boolean, options?: Partial<IceOptions>) {
     this._iceControlling = _iceControlling;
-    this.closedSignal = new Promise<void>((resolve) => {
-      this.signalClosed = resolve;
-    });
     this.options = {
       ...defaultOptions,
       ...options,
@@ -884,13 +878,12 @@ export class Connection implements IceConnection {
       // other address is probed). Its host candidate gets the highest local preference, and its
       // socket is a representative of the family's server-reflexive queries.
       // Probed while the sockets bind: no server work waits for it.
-      const defaultRoutes = Promise.race([
+      const defaultRoutes = this.untilClosed(
         getDefaultRouteAddresses(this.options.useIpv4, this.options.useIpv6, [
           ...this.stunServers.map(([host]) => host),
           ...this.turnServers.map(({ address: [host] }) => host),
         ]),
-        this.closedSignal.then(() => [] as string[]),
-      ]);
+      ).then((routes) => routes ?? []);
 
       const { primary, background } = this.gatherer.candidatePromises(
         address,
@@ -900,7 +893,7 @@ export class Connection implements IceConnection {
       );
       // close() ends the gathering at once: the continuations above close
       // whatever a server query still opens for a closed agent.
-      await Promise.race([Promise.allSettled(primary), this.closedSignal]);
+      await this.untilClosed(Promise.allSettled(primary));
 
       // A later ICE restart (or close) owns the agent now: this gathering
       // neither completes that generation nor touches its state.
@@ -912,10 +905,9 @@ export class Connection implements IceConnection {
       } else {
         // The other host sockets' server-reflexive candidates trickle in;
         // end-of-candidates follows the last of them.
-        this.localCandidatesEndPromise = Promise.race([
+        this.localCandidatesEndPromise = this.untilClosed(
           Promise.allSettled(pending.map(({ query }) => query)),
-          this.closedSignal,
-        ]).then(() => {
+        ).then(() => {
           if (!this.isGathering(generation)) return;
           this.localCandidatesEnd = true;
           this.wakeIncomingCheckWaits();
@@ -939,6 +931,33 @@ export class Connection implements IceConnection {
    */
   async waitForLocalCandidatesEnd() {
     await this.localCandidatesEndPromise;
+  }
+
+  /**
+   * Resolves with `work`'s value, or with `undefined` once the agent closes,
+   * whichever comes first: work that awaits the network stops waiting at
+   * close(). The close listener is removed when `work` settles, so repeated
+   * gatherings (ICE restarts) leave nothing attached to the agent: racing a
+   * promise that resolves only at close keeps a reaction, and with it each
+   * gathering's candidates, until the agent closes.
+   */
+  private untilClosed<T>(work: Promise<T>): Promise<T | undefined> {
+    const signal = this.closing.signal;
+    if (signal.aborted) return Promise.resolve(undefined);
+    return new Promise((resolve, reject) => {
+      const onClose = () => resolve(undefined);
+      signal.addEventListener("abort", onClose, { once: true });
+      work.then(
+        (value) => {
+          signal.removeEventListener("abort", onClose);
+          resolve(value);
+        },
+        (error: unknown) => {
+          signal.removeEventListener("abort", onClose);
+          reject(error);
+        },
+      );
+    });
   }
 
   /**
@@ -1529,7 +1548,6 @@ export class Connection implements IceConnection {
     this.setState("closed");
     this.onIceCandidateError.complete();
     this.onIceServerReached.complete();
-    this.signalClosed();
     this.closing.abort();
     this.cancelChecks();
     this.provisionalChecklist.end();

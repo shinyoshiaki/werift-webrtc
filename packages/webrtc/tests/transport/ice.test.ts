@@ -12,13 +12,14 @@ import {
   type PeerConfig,
   RTCIceGatherer,
   RTCIceTransport,
-  RTCPeerConnection,
+  type RTCPeerConnection,
 } from "../../src";
 import { iceTransportPair } from "../fixture";
 import {
   connectPeerConnections,
   connectWithIceConfigs,
   createIceTransportWithValidPair,
+  createLocalPeerConnection,
   createPeerConnectionWithIceTransport,
   createTurnRotationServers,
   firstIceTransport,
@@ -36,7 +37,7 @@ import {
 describe("iceTransport", () => {
   test("ICE consent failure maps to failed without closing PeerConnection", async () => {
     // Arrange: 外部ネットワーク不要。datachannel 作成で ICE transport を用意する
-    const pc = new RTCPeerConnection({ iceServers: [] });
+    const pc = createLocalPeerConnection();
     try {
       pc.createDataChannel("consent");
       const ice = (pc as any).secureManager.iceTransports[0] as RTCIceTransport;
@@ -101,7 +102,7 @@ describe("iceTransport", () => {
       const turnB = await createCountingTurnServer(host, {
         credentials: { "user-b": "pass-b" },
       });
-      const pc = new RTCPeerConnection({
+      const pc = createLocalPeerConnection({
         iceServers: [
           {
             urls: [
@@ -165,7 +166,7 @@ describe("iceTransport", () => {
   describe("setConfiguration iceServers", () => {
     test("gathering 前の setConfiguration が Connection に TURN を反映する", async () => {
       // Arrange: createOffer で gatherer を作るが、まだ gather していない (WHIP パス)
-      const pc = new RTCPeerConnection({ iceServers: [] });
+      const pc = createLocalPeerConnection();
       try {
         pc.createDataChannel("whip");
         await pc.createOffer();
@@ -207,7 +208,7 @@ describe("iceTransport", () => {
       const turnServer = await createLocalTurnServer(localTurnHost);
       const [turnHost, turnPort] = turnServer.address!;
 
-      const pc = new RTCPeerConnection({
+      const pc = createLocalPeerConnection({
         iceServers: [],
         iceTransportPolicy: "relay",
       });
@@ -265,7 +266,7 @@ describe("iceTransport", () => {
 
     test("TURN A → STUN only で Connection 上の TURN residual が消える", async () => {
       // Arrange: TURN A で PeerConnection を構築
-      const pc = new RTCPeerConnection({
+      const pc = createLocalPeerConnection({
         iceServers: [
           {
             urls: "turn:turn-a.example.com:3478",
@@ -299,7 +300,7 @@ describe("iceTransport", () => {
 
     test("TURN A → TURN B で Connection 上の server / credential が置換される", async () => {
       // Arrange
-      const pc = new RTCPeerConnection({
+      const pc = createLocalPeerConnection({
         iceServers: [
           {
             urls: "turn:turn-a.example.com:3478",
@@ -342,7 +343,7 @@ describe("iceTransport", () => {
 
     test("gathering 完了後の setConfiguration は live Connection を更新せず restart を要求する", async () => {
       // Arrange: gather 完了まで進める
-      const pc = new RTCPeerConnection({ iceServers: [] });
+      const pc = createLocalPeerConnection();
       try {
         pc.createDataChannel("post-gather");
         const ice = (pc as any).secureManager
@@ -392,7 +393,7 @@ describe("iceTransport", () => {
         username: "user-b",
         credential: "pass-b",
       };
-      const pc = new RTCPeerConnection({ iceServers: [turnA] });
+      const pc = createLocalPeerConnection({ iceServers: [turnA] });
       try {
         pc.createDataChannel("second-server");
         const ice = (pc as any).secureManager
@@ -429,7 +430,7 @@ describe("iceTransport", () => {
 
     test("gathering 完了後に turnTransport / turnTlsOptions / iceUseTcp だけ変更しても defer され restart を要求する", async () => {
       // Arrange: TURN 付きで gather 完了まで進める
-      const pc = new RTCPeerConnection({
+      const pc = createLocalPeerConnection({
         iceServers: [
           {
             urls: "turn:turn.example.com:3478",
@@ -480,7 +481,7 @@ describe("iceTransport", () => {
 
     test("turnTlsOptions / turnUdpFamily / turnTransport に undefined を明示すると解除され、次の gathering に反映される", async () => {
       // Arrange: TLS 設定付きの TURN で gather 完了まで進める
-      const pc = new RTCPeerConnection({
+      const pc = createLocalPeerConnection({
         iceServers: [
           {
             urls: "turns:turn.example.com:5349",
@@ -534,7 +535,7 @@ describe("iceTransport", () => {
 
     test("gathering 完了後に同じ iceServers を再設定しても restart を要求しない", async () => {
       // Arrange: gather 完了まで進める
-      const pc = new RTCPeerConnection({
+      const pc = createLocalPeerConnection({
         iceServers: [
           {
             urls: "turn:turn.example.com:3478",
@@ -563,7 +564,7 @@ describe("iceTransport", () => {
     test("ICE restart 後 gatheringState が new なら setConfiguration が反映される", async () => {
       // Arrange: 一度 gather 完了 → restart
       // setGatheringState 経由で manager 集約も new に戻る
-      const pc = new RTCPeerConnection({ iceServers: [] });
+      const pc = createLocalPeerConnection();
       try {
         pc.createDataChannel("restart-sync");
         const ice = (pc as any).secureManager
@@ -711,10 +712,10 @@ describe("iceTransport", () => {
 
     /** Arrange: credential A の TURN を持つ offerer と STUN のみの answerer を接続する */
     async function connectWithTurnA() {
-      const offerer = new RTCPeerConnection({
+      const offerer = createLocalPeerConnection({
         iceServers: servers.iceServers("a"),
       });
-      const answerer = new RTCPeerConnection({
+      const answerer = createLocalPeerConnection({
         iceServers: servers.iceServers(),
       });
       peers.push(offerer, answerer);
@@ -880,10 +881,10 @@ describe("iceTransport", () => {
 
     test("相手側起点の ICE restart でも answerer は最新の iceServers で gather する", async () => {
       // Arrange: credential A の TURN を持つ answerer と STUN のみの offerer を接続する
-      const offerer = new RTCPeerConnection({
+      const offerer = createLocalPeerConnection({
         iceServers: servers.iceServers(),
       });
-      const answerer = new RTCPeerConnection({
+      const answerer = createLocalPeerConnection({
         iceServers: servers.iceServers("a"),
       });
       peers.push(offerer, answerer);
@@ -1060,8 +1061,8 @@ describe("iceTransport", () => {
 
   test("restartIce() while two connects await the checks of one generation leaves connectionState out of failed", async () => {
     // Arrange: 候補なしで交渉し、1 回目の connect が ICE の checks を始めて相手の check を待つ。
-    const pc1 = new RTCPeerConnection({ iceIncomingCheckTimeout: 30 });
-    const pc2 = new RTCPeerConnection({ iceIncomingCheckTimeout: 30 });
+    const pc1 = createLocalPeerConnection({ iceIncomingCheckTimeout: 30 });
+    const pc2 = createLocalPeerConnection({ iceIncomingCheckTimeout: 30 });
     const states: string[] = [];
     pc1.connectionStateChange.subscribe((state) => states.push(state));
     try {
