@@ -808,9 +808,10 @@ test("e2e/self12: peerAuthenticated transport app data + local close + epoch-0 i
   client.close();
   await new Promise((r) => setTimeout(r, 50));
   expect((client as any).associationTornDown).toBe(true);
-  await expect(client.send(Buffer.from("after-close"))).rejects.toThrow(
-    /closed/i,
-  );
+  // send は接続終了後は reject せず破棄する
+  await expect(
+    client.send(Buffer.from("after-close")),
+  ).resolves.toBeUndefined();
   // Re-entrant close is idempotent
   client.close();
   expect(closes.length).toBeGreaterThanOrEqual(1);

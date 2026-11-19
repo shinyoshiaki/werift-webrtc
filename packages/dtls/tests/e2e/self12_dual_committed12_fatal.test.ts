@@ -102,12 +102,14 @@ test("e2e/dual: committed12 fatal alert tears down association", async () => {
   expect((client as any).dtls.flight).toBe(99);
   expect((client as any).dtls.flightTimers.size).toBe(0);
   expect(clientCarrier.isClosed()).toBe(true);
-  expect(closes.length).toBe(1);
+  // fatal は onError のみで onClose は発火しない
+  expect(closes.length).toBe(0);
 
   // Public API 無効（committed12 のまま send できる状態に戻らない）
-  await expect(client.send(Buffer.from("after-fatal"))).rejects.toThrow(
-    /closed/i,
-  );
+  // send は接続終了後は reject せず破棄する
+  await expect(
+    client.send(Buffer.from("after-fatal")),
+  ).resolves.toBeUndefined();
   await expect(client.connect()).rejects.toThrow(/closed/i);
   expect(() => client.exportKeyingMaterial("EXTRACTOR-dtls_srtp", 16)).toThrow(
     /closed/i,
@@ -200,9 +202,10 @@ test("e2e/dual: committed12 peer close_notify closes association gracefully", as
   expect((client as any).dtls.flightTimers.size).toBe(0);
   expect(clientCarrier.isClosed()).toBe(true);
 
-  await expect(client.send(Buffer.from("after-close-notify"))).rejects.toThrow(
-    /closed/i,
-  );
+  // send は接続終了後は reject せず破棄する
+  await expect(
+    client.send(Buffer.from("after-close-notify")),
+  ).resolves.toBeUndefined();
   await expect(client.connect()).rejects.toThrow(/closed/i);
 
   try {

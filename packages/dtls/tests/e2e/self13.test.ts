@@ -121,24 +121,18 @@ test("e2e/self13 bad server Finished verify_data fails client promptly", async (
         /* */
       }
     };
-    let clientErrored = false;
-    let clientClosed = false;
-    const maybeDone = () => {
-      if (clientErrored && clientClosed) {
-        clearTimeout(timer);
-        cleanup();
-        resolve();
-      }
-    };
+    let settled = false;
     client.onError.subscribe((e: Error) => {
       // Assert: 認証済み失敗が即 onError（再送タイムアウト待ちではない）
       expect(e.message).toMatch(/verify_data|Finished/i);
-      clientErrored = true;
-      maybeDone();
+      settled = true;
+      clearTimeout(timer);
+      resolve();
+      cleanup();
     });
     client.onClose.subscribe(() => {
-      clientClosed = true;
-      maybeDone();
+      // Assert: fatal は onError のみで、onClose は発火しない
+      if (!settled) reject(new Error("fatal must not fire onClose"));
     });
     client.onConnect.subscribe(() => {
       clearTimeout(timer);
@@ -169,33 +163,30 @@ test("e2e/self13 bad CertificateVerify fails server promptly (mutual auth)", asy
         ),
       5_000,
     );
-    let serverErrored = false;
-    let serverClosed = false;
+    let settled = false;
     const done = () => {
-      if (serverErrored && serverClosed) {
-        clearTimeout(timer);
-        try {
-          client.close();
-        } catch {
-          /* */
-        }
-        try {
-          server.close();
-        } catch {
-          /* */
-        }
-        resolve();
+      settled = true;
+      clearTimeout(timer);
+      resolve();
+      try {
+        client.close();
+      } catch {
+        /* */
+      }
+      try {
+        server.close();
+      } catch {
+        /* */
       }
     };
     server.onError.subscribe((e: Error) => {
       // Assert: 認証済み失敗が即 onError（再送タイムアウト待ちではない）
       expect(e.message).toMatch(/CertificateVerify|signature/i);
-      serverErrored = true;
       done();
     });
     server.onClose.subscribe(() => {
-      serverClosed = true;
-      done();
+      // Assert: fatal は onError のみで、onClose は発火しない
+      if (!settled) reject(new Error("fatal must not fire onClose"));
     });
     client.onConnect.subscribe(() => {
       // client が先に connect しても server は CV 失敗で落ちる

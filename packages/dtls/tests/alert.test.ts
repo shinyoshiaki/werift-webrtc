@@ -65,12 +65,10 @@ describe("DTLS alert", () => {
     });
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(onError).not.toHaveBeenCalled();
-    // Assert: server は close_notify を 1 回だけ返し、その後の send は closed で拒否して何も送らない
+    // Assert: server は close_notify を 1 回だけ返し、その後は application data を送らない
     expect(alertRecords(pair.serverTransport.sent)).toHaveLength(1);
     const sentBefore = pair.serverTransport.sent.length;
-    await expect(pair.server.send(Buffer.from("after close"))).rejects.toThrow(
-      /closed/i,
-    );
+    await pair.server.send(Buffer.from("after close"));
     expect(pair.serverTransport.sent.length).toBe(sentBefore);
   });
 
@@ -146,8 +144,8 @@ describe("DTLS alert", () => {
     expect(error.level).toBe(AlertLevel.fatal);
     expect(error.description).toBe(AlertDesc.InternalError);
     expect(error.alertDescName).toBe("InternalError");
-    // Assert: onError の後に onClose が 1 回だけ発火し、client の transport が閉じ、データも届かない
-    expect(onClose).toHaveBeenCalledTimes(1);
+    // Assert: close 扱いにはならず、client の transport が閉じ、データも届かない
+    expect(onClose).not.toHaveBeenCalled();
     expect(onData).not.toHaveBeenCalled();
     expect(pair.clientTransport.closed).toBe(true);
     // Assert: fatal alert には応答しない
@@ -645,8 +643,8 @@ describe("1 つの record に入った複数の alert", () => {
               sentBefore + 1,
             );
           } else {
-            // Assert: fatal alert で onError（remote）と onClose が 1 回ずつ発火し、応答せず transport を閉じる
-            expect(onClose).toHaveBeenCalledTimes(1);
+            // Assert: fatal alert で onError（remote）が 1 回だけ発火し、応答せず transport を閉じる
+            expect(onClose).not.toHaveBeenCalled();
             expect(errors).toHaveLength(1);
             expect((errors[0] as DtlsAlertError).source).toBe("remote");
             expect((errors[0] as DtlsAlertError).description).toBe(
@@ -896,12 +894,11 @@ describe("Finished と alert が同じ datagram に入っている場合", () =>
         ContentType.handshake,
         ContentType.alert,
       ]);
-      // Assert: client は終了し、終了イベントはちょうど 1 回ずつ（fatal は error → close）、connect は高々 1 回
+      // Assert: client は終了し、終了イベントはちょうど 1 回、connect は高々 1 回
       expect(pair.client.terminated).toBe(true);
       const ending = level === AlertLevel.fatal ? "error" : "close";
-      const endings =
-        level === AlertLevel.fatal ? ["error", "close"] : ["close"];
-      expect(events.filter((e) => e !== "connect")).toEqual(endings);
+      expect(events.filter((e) => e === ending)).toHaveLength(1);
+      expect(events.filter((e) => e !== ending && e !== "connect")).toEqual([]);
       expect(events.filter((e) => e === "connect").length).toBeLessThanOrEqual(
         1,
       );

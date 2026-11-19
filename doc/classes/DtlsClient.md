@@ -694,7 +694,8 @@ Dual association fatal teardown: phase → closed, all candidates + 1.2 flight
 stopped, RX drops further inject. Invoked from bridge on non-soft 1.3 errors
 (committed13 fatal alert, 1.3-only version mismatch, RTO exhaust, …).
 HVR soft (DtlsVersionSelected) never reaches here (filterError).
-Public onClose is fired by bridge after this returns (not here).
+The bridge fires public onError after this returns (a fatal error fires
+no onClose).
 
 #### Parameters
 
@@ -718,7 +719,7 @@ Public onClose is fired by bridge after this returns (not here).
 
 DTLS 1.2 fatal alert / protocol_version on dual association (incl. committed12).
 Same ownership as 1.3 fatal: phase closed, carrier/transport down, Public API off.
-Caller fires onError then onClose when this returns true.
+Caller fires onError (no onClose) when this returns true.
 
 #### Parameters
 
@@ -1195,7 +1196,8 @@ re-entrant local close() inside handlers is idempotent (no second onClose).
 
 > `protected` **reportLegacy12Fatal**(`error`): `void`
 
-Tear down the 1.2 association then fire onError + onClose once.
+Tear down the 1.2 association then fire onError once (no onClose: it is
+reserved for close_notify and a local close()).
 Used for fatal alerts, handshake failures, probing DOWNGRD / classify error,
 and ProtocolVersionError paths. Idempotent: concurrent terminal paths must
 not double-fire public events.
