@@ -394,3 +394,10 @@ export function dcepOpen(label: string) {
   header.writeUInt16BE(labelBytes.length, 8);
   return Buffer.concat([header, labelBytes]);
 }
+
+/** `pc` から stream `streamId` の送信側 reset を送る (相手の遅れて届く reset の再現)。 */
+export function sendStreamReset(pc: RTCPeerConnection, streamId: number) {
+  const sctp = (pc as any).sctpManager.sctpTransport.sctp;
+  sctp.reconfigQueue.push(streamId);
+  return sctp.transmitReconfigRequest();
+}

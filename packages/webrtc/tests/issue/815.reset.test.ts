@@ -12,6 +12,7 @@ import {
   openChannelPair,
   openNegotiatedPair,
   receiveOn,
+  sendStreamReset,
   setReverseResetTimeout,
   waitClosed,
   waitOpen,
@@ -139,7 +140,7 @@ describe("issue 815: closing waits for the peer's reset", () => {
   });
 
   test.each([true, false])(
-    "a legacy peer that does not reset its side (ordered=%s, no data from it): close fires after reverseResetTimeout and the ID is reused",
+    "a legacy peer that does not reset its side (ordered=%s, no data from it): close fires after reverseResetTimeout and the ID stays in use",
     async (ordered) => {
       // Arrange: 相手は develop の reset 処理で、こちらの待ち時間は 200ms。
       const pair = await openNegotiatedPair({ id: 4, ordered });
@@ -156,26 +157,86 @@ describe("issue 815: closing waits for the peer's reset", () => {
         await waitClosed(pair.local);
         expect(closingStreamsOf(pair.offerer)).toEqual([]);
 
-        // Act: 同じ ID で作り直し、相手 (legacy) から閉じる。
-        const reused = createNegotiatedPair(pair.offerer, pair.answerer, {
-          label: "reused",
-          id: 4,
+        // Act / Assert: 相手の reset が届くまで stream 4 は再利用できない (後から届く reset が
+        // 作り直した channel を閉じないように)。
+        expect(() =>
+          createNegotiatedPair(pair.offerer, pair.answerer, {
+            label: "reused",
+            id: 4,
+            ordered,
+          }),
+        ).toThrow(expect.objectContaining({ name: "OperationError" }));
+
+        // Act / Assert: 別の ID の channel は作れて、相手から閉じると両端で閉じる。
+        const other = createNegotiatedPair(pair.offerer, pair.answerer, {
+          label: "other",
+          id: 6,
           ordered,
         });
-        await Promise.all([waitOpen(reused.local), waitOpen(reused.remote)]);
-        await deliver(reused.remote, reused.local, "reused-to-local");
-        reused.remote.close();
-
-        // Assert: 作り直した channel は相手の close で両端とも閉じる。
-        await Promise.all([
-          waitClosed(reused.local),
-          waitClosed(reused.remote),
-        ]);
+        await Promise.all([waitOpen(other.local), waitOpen(other.remote)]);
+        await deliver(other.remote, other.local, "other-to-local");
+        other.remote.close();
+        await Promise.all([waitClosed(other.local), waitClosed(other.remote)]);
       } finally {
         await closeAll(pair.offerer, pair.answerer);
       }
     },
   );
+
+  test("a peer reset arriving after reverseResetTimeout closes nothing and frees the ID", async () => {
+    // Arrange: 相手は reset を返さずに閉じ、こちらは待ち時間 (200ms) の後に閉じた。
+    // 別の ID の channel が open のまま残っている。
+    const pair = await openNegotiatedPair({ id: 4, ordered: false });
+    emulateLegacyResetHandling(pair.answerer);
+    setReverseResetTimeout(pair.offerer, 200);
+    const bystander = createNegotiatedPair(pair.offerer, pair.answerer, {
+      label: "bystander",
+      id: 6,
+      ordered: true,
+    });
+    try {
+      await Promise.all([
+        waitOpen(bystander.local),
+        waitOpen(bystander.remote),
+      ]);
+      pair.local.close();
+      await Promise.all([waitClosed(pair.remote), waitClosed(pair.local)]);
+
+      // Act: 相手の stream 4 の reset が、待ち時間を過ぎてから届く。
+      await sendStreamReset(pair.answerer, 4);
+      // 相手の reset 要求に、こちらの応答が届くまで待つ。
+      await expect
+        .poll(
+          () =>
+            (pair.answerer as any).sctpManager.sctpTransport.sctp
+              .reconfigRequest,
+        )
+        .toBeUndefined();
+
+      // Assert: 遅れた reset はどの channel も閉じず、こちらから reset を返し直すこともない。
+      expect(bystander.local.readyState).toBe("open");
+      expect(
+        (pair.offerer as any).sctpManager.sctpTransport.sctp.reconfigQueue,
+      ).toEqual([]);
+
+      // Act: 両方向の reset が揃ったので、同じ ID で作り直す。
+      const reused = createNegotiatedPair(pair.offerer, pair.answerer, {
+        label: "reused",
+        id: 4,
+        ordered: false,
+      });
+      await Promise.all([waitOpen(reused.local), waitOpen(reused.remote)]);
+
+      // Assert: 作り直した channel は双方向に送受信でき、相手から閉じると両端で閉じる。
+      await deliver(reused.local, reused.remote, "reused-to-remote");
+      await deliver(reused.remote, reused.local, "reused-to-local");
+      reused.remote.close();
+      await Promise.all([waitClosed(reused.local), waitClosed(reused.remote)]);
+      expect(bystander.local.readyState).toBe("open");
+    } finally {
+      await closeAll(pair.offerer, pair.answerer);
+    }
+  });
 
   test("pc.close() while waiting for the peer's reset closes the channel once and leaves no timer", async () => {
     // Arrange: 相手が reset を返さず、こちらが待っている channel。

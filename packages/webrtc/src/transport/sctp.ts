@@ -102,6 +102,12 @@ export class RTCSctpTransport {
    * channel to older werift at most 5 s late.
    */
   reverseResetTimeout = 5_000;
+  /**
+   * Streams of channels closed by {@link RTCSctpTransport.reverseResetTimeout}
+   * whose peer reset never came: in use until it does (or the association
+   * ends), for automatic IDs and negotiated channels alike.
+   */
+  private readonly awaitingPeerReset = new Set<number>();
 
   constructor(
     port = 5000,
@@ -287,6 +293,15 @@ export class RTCSctpTransport {
    */
   private onStreamsReset(ids: number[], direction: "outgoing" | "incoming") {
     for (const id of ids) {
+      if (direction === "incoming" && this.awaitingPeerReset.delete(id)) {
+        // The late reset of a channel closed by `reverseResetTimeout`: our
+        // side is reset already, so SCTP's reverse reset is dropped, and
+        // the ID is free again now that both directions are.
+        this.sctp.reconfigQueue = this.sctp.reconfigQueue.filter(
+          (streamId) => streamId !== id,
+        );
+        continue;
+      }
       // No channel: a stream reset to reject the peer's OPEN on it.
       const dc = this.dataChannels[id];
       if (!dc) continue;
@@ -335,6 +350,10 @@ export class RTCSctpTransport {
       reset.fallback = setTimeout(() => {
         if (this.closingStreams.get(id) !== reset) return;
         log("the peer did not reset its side of the stream", id);
+        // The channel closes, but its stream is not reusable (RFC 8831
+        // section 6.7) until the peer's reset arrives: it may come late and
+        // would then close a channel created on the ID.
+        this.awaitingPeerReset.add(id);
         reset.incoming = true;
         this.completeClose(id, dc, reset);
       }, this.reverseResetTimeout);
@@ -347,6 +366,8 @@ export class RTCSctpTransport {
       clearTimeout(fallback);
     }
     this.closingStreams.clear();
+    // No reset of an ended association arrives on the next one.
+    this.awaitingPeerReset.clear();
   }
 
   /**
@@ -392,7 +413,7 @@ export class RTCSctpTransport {
   private allocateStreamId(parity: 0 | 1) {
     const limit = this.streamIdLimit;
     for (let id = parity; id < limit; id += 2) {
-      if (!this.dataChannels[id]) return id;
+      if (!this.dataChannels[id] && !this.awaitingPeerReset.has(id)) return id;
     }
     return undefined;
   }
@@ -642,6 +663,14 @@ export class RTCSctpTransport {
     }
     if (this.dataChannels[channel.id]) {
       throw new Error();
+    }
+    if (this.awaitingPeerReset.has(channel.id)) {
+      // W3C createDataChannel: an ID in use is an OperationError. RFC 8831
+      // section 6.7: the stream is reusable once the peer reset its side.
+      throw createWebRtcDomException(
+        "OperationError",
+        `Stream ${channel.id} waits for the peer to reset it`,
+      );
     }
 
     this.dataChannels[channel.id] = channel;
