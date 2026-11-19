@@ -634,6 +634,31 @@ v6.0.0
 
 ***
 
+### failWithError()
+
+> **failWithError**(`error`): `void`
+
+Internal: W3C webrtc-pc 4.4.1.6 step 2.2.6, no stream ID could be
+generated: `closed`, then `error` and `close`, each listener isolated.
+
+#### Parameters
+
+##### error
+
+`Error`
+
+#### Returns
+
+`void`
+
+#### See
+
+ - tests/issue/815.test.ts "a channel waiting for an ID closes with OperationError when none is left"
+ - tests/issue/815.test.ts "close still fires when error listeners throw"
+ - tests/issue/815.test.ts "every error subscriber is notified even if one throws"
+
+***
+
 ### getMaxListeners()
 
 > **getMaxListeners**(): `number`
@@ -1249,15 +1274,21 @@ v0.1.26
 
 > **setId**(`id`): `void`
 
+Internal: `undefined` gives a reserved stream ID back.
+
 #### Parameters
 
 ##### id
 
-`number`
+`number` \| `undefined`
 
 #### Returns
 
 `void`
+
+#### See
+
+tests/issue/815.test.ts "a rollback gives back the IDs a pranswer reserved"
 
 ***
 
@@ -1296,6 +1327,8 @@ v0.3.5
 
 > **setReadyState**(`state`): `void`
 
+Internal. Every listener is isolated (DOM event semantics).
+
 #### Parameters
 
 ##### state
@@ -1305,6 +1338,11 @@ v0.3.5
 #### Returns
 
 `void`
+
+#### See
+
+ - tests/issue/815.test.ts "a throwing close listener of a registered channel skips no listener, channel or teardown"
+ - tests/issue/815.test.ts "pc.close() closes every pending channel even if a close listener throws"
 
 ***
 

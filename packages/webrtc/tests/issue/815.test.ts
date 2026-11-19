@@ -1,0 +1,787 @@
+import { vi } from "vitest";
+
+import {
+  type RTCDtlsTransport,
+  RTCPeerConnection,
+  RTCSctpTransport,
+} from "../../src";
+import { createDtlsTransport } from "../fixture";
+import {
+  createConnectedVideoPeers,
+  exchangeOfferAnswer,
+  rejectApplicationSection,
+} from "../negotiation/harness/negotiationTransactionUtils";
+import {
+  attachLimitedTransport,
+  captureSentDcep,
+  channelSetsOf,
+  closeAll,
+  closedObservation,
+  createInBandChannel,
+  createLimitedTransport,
+  createPeers,
+  createUnstartedDtlsPair,
+  forceIdParity,
+  negotiate,
+  nextMessage,
+  observeCloseStates,
+  openChannelPair,
+  waitOpen,
+  waitRemoteChannel,
+} from "./815.helpers";
+
+/**
+ * Issue #815: in-band DataChannel の stream ID は DTLS role で決まる (RFC 8832
+ * section 6: client 偶数、server 奇数)。ICE role ではない。role を確定させる
+ * description の適用時に採番する (W3C webrtc-pc 4.4.1.6 step 2.2.6)。
+ */
+describe("issue 815: data channel stream IDs follow the DTLS role", () => {
+  test.each([
+    {
+      name: "passive answer (offerer = DTLS client)",
+      answerSetup: "passive" as const,
+      offerer: [0, 2],
+      answerer: [1, 3],
+    },
+    {
+      name: "active answer (answerer = DTLS client)",
+      answerSetup: "active" as const,
+      offerer: [1, 3],
+      answerer: [0, 2],
+    },
+    {
+      name: "default actpass / active (offerer = DTLS server)",
+      offerer: [1, 3],
+      answerer: [0, 2],
+    },
+  ])("$name", async ({ answerSetup, offerer, answerer }) => {
+    // Arrange: 両 peer に交渉前の in-band channel を 2 つずつ作る。
+    const peers = createPeers();
+    const offererChannels = [0, 1].map((i) =>
+      peers.offerer.createDataChannel(`o${i}`),
+    );
+    peers.answerer.createDataChannel("trigger-answerer-sctp");
+    const ids: Record<string, (number | undefined)[]> = {};
+    let answererChannels: ReturnType<RTCPeerConnection["createDataChannel"]>[] =
+      [];
+
+    try {
+      // Act: offer / answer を適用し、answer 適用の直後 (SCTP 接続前) に ID を読む。
+      await negotiate(peers.offerer, peers.answerer, {
+        answerSetup,
+        onAnswered: (side) => {
+          if (side === "offerer") {
+            ids.offerer = offererChannels.map((c) => c.id);
+          } else {
+            // role 確定後の createDataChannel は即時に採番される。
+            answererChannels = [0, 1].map((i) =>
+              peers.answerer.createDataChannel(`a${i}`),
+            );
+            ids.answerer = answererChannels.map((c) => c.id);
+          }
+        },
+      });
+
+      // Assert: SCTP 接続前でも DTLS role の偶奇で ID が見える。
+      expect(peers.offerer.sctpTransport!.state).not.toBe("connected");
+      expect(ids.offerer).toEqual(offerer);
+      // answerer は交渉前の channel が最小 ID を取り、その後の 2 つが続く。
+      expect(ids.answerer).toEqual(answerer.map((id) => id + 2));
+
+      // Assert: 接続後も ID は変わらず、すべて open になる。
+      await Promise.all(
+        [...offererChannels, ...answererChannels].map(waitOpen),
+      );
+      expect(offererChannels.map((c) => c.id)).toEqual(offerer);
+    } finally {
+      await closeAll(peers.offerer, peers.answerer);
+    }
+  });
+
+  test("#815 report: reversed ICE / DTLS roles with channels from both ends do not collide", async () => {
+    // Arrange: 両端が交渉前に channel を作り、answer を passive にして
+    // ICE controlling (offerer) を DTLS client にする。
+    const { offerer, answerer } = createPeers();
+    const fromOfferer = offerer.createDataChannel("from-offerer");
+    const fromAnswerer = answerer.createDataChannel("from-answerer");
+    const remoteAtAnswerer = waitRemoteChannel(answerer, "from-offerer");
+    const remoteAtOfferer = waitRemoteChannel(offerer, "from-answerer");
+
+    try {
+      // Act: 交渉して両端の OPEN を同時に送らせる。
+      await negotiate(offerer, answerer, { answerSetup: "passive" });
+      await Promise.all([waitOpen(fromOfferer), waitOpen(fromAnswerer)]);
+      const [atAnswerer, atOfferer] = await Promise.all([
+        remoteAtAnswerer,
+        remoteAtOfferer,
+      ]);
+
+      // Assert: DTLS client (offerer) は偶数、server (answerer) は奇数で衝突しない。
+      expect(fromOfferer.id).toBe(0);
+      expect(fromAnswerer.id).toBe(1);
+      expect(atAnswerer.id).toBe(0);
+      expect(atOfferer.id).toBe(1);
+
+      // Act: 双方向にメッセージを送る。
+      const received = Promise.all([
+        nextMessage(atAnswerer),
+        nextMessage(atOfferer),
+      ]);
+      fromOfferer.send("hello answerer");
+      fromAnswerer.send("hello offerer");
+
+      // Assert: それぞれの相手に届く。
+      expect(await received).toEqual(["hello answerer", "hello offerer"]);
+    } finally {
+      await closeAll(offerer, answerer);
+    }
+  });
+
+  test("an id given to an in-band channel is ignored", async () => {
+    // Arrange: 両端が同じ id: 42 を in-band channel に指定する。
+    const { offerer, answerer } = createPeers();
+    const a = offerer.createDataChannel("a", { id: 42 });
+    const b = answerer.createDataChannel("b", { id: 42 });
+    const atAnswerer = waitRemoteChannel(answerer, "a");
+    const atOfferer = waitRemoteChannel(offerer, "b");
+
+    try {
+      // Assert: 指定 id は無視され、role 確定前は未採番。
+      expect(a.id).toBeUndefined();
+      expect(b.id).toBeUndefined();
+      // Assert: 範囲外の id も in-band なら throw しない。
+      expect(() =>
+        offerer.createDataChannel("max", { id: 65535 }),
+      ).not.toThrow();
+      expect(() => offerer.createDataChannel("neg", { id: -1 })).not.toThrow();
+
+      // Act: 交渉して接続する。
+      await negotiate(offerer, answerer);
+      await Promise.all([waitOpen(a), waitOpen(b)]);
+
+      // Assert: 自分の DTLS role の偶奇で採番され、両方が 42 になることはない。
+      expect(a.id % 2).toBe(1);
+      expect(b.id % 2).toBe(0);
+      expect(a.id === 42 && b.id === 42).toBe(false);
+
+      // Act: 双方向にメッセージを送る。
+      const remote = await Promise.all([atAnswerer, atOfferer]);
+      const received = Promise.all(remote.map(nextMessage));
+      a.send("to answerer");
+      b.send("to offerer");
+
+      // Assert: それぞれの相手に届く。
+      expect(await received).toEqual(["to answerer", "to offerer"]);
+    } finally {
+      await closeAll(offerer, answerer);
+    }
+  });
+
+  test("auto IDs skip negotiated channels of either parity and reuse closed IDs", async () => {
+    // Arrange: DTLS client になる offerer に偶奇両方の negotiated channel を作る。
+    const { offerer, answerer } = createPeers();
+    offerer.createDataChannel("n0", { negotiated: true, id: 0 });
+    offerer.createDataChannel("n1", { negotiated: true, id: 1 });
+    answerer.createDataChannel("n0", { negotiated: true, id: 0 });
+    answerer.createDataChannel("n1", { negotiated: true, id: 1 });
+    const first = offerer.createDataChannel("first");
+
+    try {
+      // Act: passive answer で offerer を DTLS client にする。
+      await negotiate(offerer, answerer, { answerSetup: "passive" });
+
+      // Assert: 自動採番は偶数を守り、negotiated の 0 を避ける。
+      expect(first.id).toBe(2);
+      const second = offerer.createDataChannel("second");
+      expect(second.id).toBe(4);
+      await Promise.all([waitOpen(first), waitOpen(second)]);
+
+      // Act: first を閉じ、close イベントの後に作り直す。
+      const closed = new Promise<void>((r) => (first.onclose = r));
+      first.close();
+      await closed;
+      const reused = offerer.createDataChannel("reused");
+
+      // Assert: 閉じた channel の ID が再利用され、使用中の 4 は避ける
+      // (WPT「ids are reusable after close event」相当)。
+      expect(reused.id).toBe(2);
+      expect(second.readyState).toBe("open");
+    } finally {
+      await closeAll(offerer, answerer);
+    }
+  });
+
+  test("renegotiation and an ICE restart keep IDs and parity", async () => {
+    // Arrange: passive answer で offerer を DTLS client にして接続する。
+    const { offerer, answerer } = createPeers();
+    const first = offerer.createDataChannel("first");
+    try {
+      await negotiate(offerer, answerer, { answerSetup: "passive" });
+      await waitOpen(first);
+
+      // Act: ICE restart を含む再交渉をし、その後に channel を作る。
+      offerer.restartIce();
+      await negotiate(offerer, answerer);
+      const later = offerer.createDataChannel("later");
+
+      // Assert: 既存 ID は変わらず、DTLS role (client) の偶数が続く。
+      expect(first.id).toBe(0);
+      expect(later.id).toBe(2);
+      await waitOpen(later);
+    } finally {
+      await closeAll(offerer, answerer);
+    }
+  });
+
+  test("a rollback gives back the IDs a pranswer reserved", async () => {
+    // Arrange: offerer が channel を作り、passive の pranswer を受ける準備をする。
+    const { offerer, answerer } = createPeers();
+    const channel = offerer.createDataChannel("rollback");
+    try {
+      const offer = await offerer.createOffer();
+      await offerer.setLocalDescription(offer);
+      await answerer.setRemoteDescription(offer);
+      const answer = await answerer.createAnswer();
+      const pranswer = {
+        type: "pranswer" as const,
+        sdp: answer.sdp.replace(/a=setup:\w+/g, "a=setup:passive"),
+      };
+
+      // Act: pranswer を適用して DTLS role (client) を確定させる。
+      await offerer.setRemoteDescription(pranswer);
+
+      // Assert: pranswer の role で偶数 ID が予約される。
+      expect(channel.id).toBe(0);
+
+      // Act: rollback する。
+      await offerer.setLocalDescription({ type: "rollback" });
+
+      // Assert: 未送信の予約は解放される。
+      expect(channel.id).toBeUndefined();
+      expect(channel.readyState).toBe("connecting");
+    } finally {
+      await closeAll(offerer, answerer);
+    }
+  });
+});
+
+describe("issue 815: stream ID exhaustion", () => {
+  test("a channel waiting for an ID closes with OperationError when none is left", async () => {
+    // Arrange: role 確定前に 2 つの in-band channel を作る (client の偶数は 0 だけ)。
+    const { dtls, transport } = createLimitedTransport();
+    const pc = new RTCPeerConnection();
+    const manager = (pc as any).sctpManager;
+    manager.sctpTransport = transport;
+    const ok = manager.createDataChannel("ok");
+    const failed = manager.createDataChannel("failed");
+    const events: string[] = [];
+    let error: Error | undefined;
+    failed.addEventListener("error", (e: { error: Error }) => {
+      events.push(`error:${failed.readyState}`);
+      error = e.error;
+    });
+    failed.addEventListener("close", () => events.push("close"));
+
+    try {
+      // Act: DTLS role を client に確定させる。
+      dtls.role = "client";
+
+      // Assert: 1 つ目は 0、2 つ目は closed になり error → close の順で通知される。
+      expect(ok.id).toBe(0);
+      expect(failed.id).toBeUndefined();
+      expect(failed.readyState).toBe("closed");
+      expect(events).toEqual(["error:closed", "close"]);
+      expect(error?.name).toBe("OperationError");
+
+      // Act / Assert: role 確定後の作成で ID が無ければ OperationError を throw する。
+      expect(() => manager.createDataChannel("throws")).toThrow(
+        expect.objectContaining({ name: "OperationError" }),
+      );
+    } finally {
+      await transport.stop();
+      await pc.close();
+    }
+  });
+  test("a reservation beyond the negotiated stream limit is given back and fails", async () => {
+    // Arrange: 上限未確定の role 確定で client の偶数 ID 0 と 2 を予約する。
+    const dtls: RTCDtlsTransport = createDtlsTransport();
+    const transport = new RTCSctpTransport();
+    transport.setDtlsTransport(dtls);
+    const pc = new RTCPeerConnection();
+    const manager = (pc as any).sctpManager;
+    manager.sctpTransport = transport;
+    const first = manager.createDataChannel("first");
+    const second = manager.createDataChannel("second");
+    dtls.role = "client";
+    expect([first.id, second.id]).toEqual([0, 2]);
+
+    try {
+      // Act: SCTP 交渉で stream 数が 2 に決まった後に採番し直す。
+      transport.sctp._inboundStreamsCount = 2;
+      transport.sctp._outboundStreamsCount = 2;
+      transport.assignPendingStreamIds();
+
+      // Assert: 範囲内の 0 は維持され、範囲外の 2 は解放されて OperationError で閉じる。
+      expect(first.id).toBe(0);
+      expect(second.id).toBeUndefined();
+      expect(second.readyState).toBe("closed");
+      expect(transport.dataChannels[2]).toBeUndefined();
+    } finally {
+      await transport.stop();
+      await pc.close();
+    }
+  });
+
+  test("a channel closed by an error handler is not given an ID", async () => {
+    // Arrange: ID が 1 つしかない状況で 3 つの channel を待機させる。
+    const { dtls, transport } = createLimitedTransport();
+    const pc = new RTCPeerConnection();
+    const manager = (pc as any).sctpManager;
+    manager.sctpTransport = transport;
+    const ok = manager.createDataChannel("ok");
+    const failed = manager.createDataChannel("failed");
+    const closedByHandler = manager.createDataChannel("closed-by-handler");
+    failed.addEventListener("error", () => {
+      // 失敗通知の中で使用中 channel と後続の待機 channel を閉じる。
+      ok.close();
+      closedByHandler.close();
+    });
+
+    try {
+      // Act: DTLS role を client に確定させる。
+      dtls.role = "client";
+
+      // Assert: 閉じられた待機 channel には ID が割り当てられず、登録表にも残らない。
+      expect(closedByHandler.id).toBeUndefined();
+      expect(Object.values(transport.dataChannels)).not.toContain(
+        closedByHandler,
+      );
+    } finally {
+      await transport.stop();
+      await pc.close();
+    }
+  });
+
+  test("close still fires when error listeners throw", async () => {
+    // Arrange: error 購読者と onerror が例外を投げる待機 channel を作る。
+    const { dtls, transport } = createLimitedTransport();
+    const pc = new RTCPeerConnection();
+    const manager = (pc as any).sctpManager;
+    manager.sctpTransport = transport;
+    manager.createDataChannel("ok");
+    const failed = manager.createDataChannel("failed");
+    const events: string[] = [];
+    failed.onerror = () => {
+      events.push("onerror");
+      throw new Error("onerror failed");
+    };
+    failed.addEventListener("error", () => {
+      events.push("error");
+      throw new Error("listener failed");
+    });
+    failed.onclose = () => events.push("onclose");
+    failed.addEventListener("close", () => events.push("close"));
+
+    try {
+      // Act: DTLS role を client に確定させ、ID 枯渇で失敗させる。
+      dtls.role = "client";
+
+      // Assert: 例外が出ても error の後に close 通知まで完了する。
+      expect(failed.readyState).toBe("closed");
+      expect(events).toEqual(["onerror", "error", "onclose", "close"]);
+    } finally {
+      await transport.stop();
+      await pc.close();
+    }
+  });
+
+  test("every error subscriber is notified even if one throws", async () => {
+    // Arrange: 最初の購読者が例外を投げ、後続に 2 つ目の購読者を置く。
+    const { dtls, transport } = createLimitedTransport();
+    const pc = new RTCPeerConnection();
+    const manager = (pc as any).sctpManager;
+    manager.sctpTransport = transport;
+    manager.createDataChannel("ok");
+    const failed = manager.createDataChannel("failed");
+    const received: Error[] = [];
+    failed.error.subscribe(() => {
+      throw new Error("first subscriber failed");
+    });
+    failed.error.subscribe((e: Error) => received.push(e));
+
+    try {
+      // Act: DTLS role を client に確定させ、ID 枯渇で失敗させる。
+      dtls.role = "client";
+
+      // Assert: 後続の購読者も OperationError を受け取る。
+      expect(received.map((e) => e.name)).toEqual(["OperationError"]);
+    } finally {
+      await transport.stop();
+      await pc.close();
+    }
+  });
+
+  test("pc.close() closes a channel that has no stream ID yet", async () => {
+    // Arrange: role 確定前に in-band channel を作る (id 指定は無視され未採番)。
+    const pc = new RTCPeerConnection();
+    const channel = pc.createDataChannel("test", { id: 42 });
+    const events: string[] = [];
+    channel.addEventListener("close", () => events.push("close"));
+    expect(channel.id).toBeUndefined();
+    expect(channel.readyState).toBe("connecting");
+
+    // Act: PeerConnection を閉じる。
+    await pc.close();
+
+    // Assert: 未採番の channel も closed になり close が通知される。
+    expect(channel.readyState).toBe("closed");
+    expect(events).toEqual(["close"]);
+  });
+
+  test("pc.close() closes every pending channel even if a close listener throws", async () => {
+    // Arrange: 先頭 channel の close リスナーが例外を投げる 2 つの未採番 channel。
+    const pc = new RTCPeerConnection();
+    const first = pc.createDataChannel("first");
+    const second = pc.createDataChannel("second");
+    first.addEventListener("close", () => {
+      throw new Error("close listener failed");
+    });
+    const events: string[] = [];
+    second.addEventListener("close", () => events.push("close"));
+
+    // Act: PeerConnection を閉じる。
+    await pc.close();
+
+    // Assert: reject せず、後続 channel も closed になり close が通知される。
+    expect(first.readyState).toBe("closed");
+    expect(second.readyState).toBe("closed");
+    expect(events).toEqual(["close"]);
+    expect(pc.connectionState).toBe("closed");
+  });
+
+  test("pc.close() notifies close of a channel without an ID after SCTP / DTLS / the PeerConnection closed", async () => {
+    // Arrange: role 確定前の in-band channel (未採番) と negotiated channel (登録済み)。
+    const pc = new RTCPeerConnection();
+    const inBand = pc.createDataChannel("in-band", { id: 42 });
+    const negotiated = pc.createDataChannel("negotiated", {
+      negotiated: true,
+      id: 3,
+    });
+    const observed = observeCloseStates(pc, [inBand, negotiated]);
+
+    // Act: PeerConnection を閉じる。
+    await pc.close();
+
+    // Assert: どちらの close 通知でも、PeerConnection・SCTP・DTLS はすでに closed。
+    expect(observed).toEqual([
+      closedObservation("negotiated"),
+      closedObservation("in-band"),
+    ]);
+  });
+
+  test("pc.close() notifies close of a reserved, unannounced channel after the transports closed", async () => {
+    // Arrange: answer で DTLS role が決まり ID を予約済みだが、SCTP 未接続の channel。
+    const pc = new RTCPeerConnection();
+    const remote = new RTCPeerConnection();
+    const channel = pc.createDataChannel("reserved");
+    await pc.setLocalDescription(await pc.createOffer());
+    await remote.setRemoteDescription(pc.localDescription!);
+    await remote.setLocalDescription(await remote.createAnswer());
+    await pc.setRemoteDescription(remote.localDescription!);
+    expect(channel.id).toBe(1);
+    const observed = observeCloseStates(pc, [channel]);
+
+    try {
+      // Act: PeerConnection を閉じる。
+      await pc.close();
+
+      // Assert: close 通知の時点で PeerConnection・SCTP・DTLS はすでに closed。
+      expect(channel.readyState).toBe("closed");
+      expect(observed).toEqual([closedObservation("reserved")]);
+      // Assert: 予約済み channel の OPEN も送信待ちキューに残らない。
+      expect(channelSetsOf(pc)).toEqual({
+        registered: [],
+        unannounced: [],
+        queued: [],
+      });
+    } finally {
+      await remote.close();
+    }
+  });
+
+  test("a throwing close listener of a registered channel skips no listener, channel or teardown", async () => {
+    // Arrange: 登録済み channel の先頭 close リスナーが例外を投げる。後続に
+    // 同じ channel の 2 つ目のリスナー、別の登録済み channel、未採番 channel を置く。
+    const pc = new RTCPeerConnection();
+    const first = pc.createDataChannel("first", { negotiated: true, id: 3 });
+    first.addEventListener("close", () => {
+      throw new Error("close listener failed");
+    });
+    first.onclose = () => {
+      throw new Error("onclose failed");
+    };
+    const second = pc.createDataChannel("second", {
+      negotiated: true,
+      id: 5,
+    });
+    const pending = pc.createDataChannel("pending");
+    const observed = observeCloseStates(pc, [first, second, pending]);
+
+    // Act: PeerConnection を閉じる。
+    await pc.close();
+
+    // Assert: close() は reject せず、すべての channel とリスナーに close が届く。
+    expect([first, second, pending].map((c) => c.readyState)).toEqual([
+      "closed",
+      "closed",
+      "closed",
+    ]);
+    expect(observed).toEqual([
+      closedObservation("first"),
+      closedObservation("second"),
+      closedObservation("pending"),
+    ]);
+  });
+});
+
+describe("issue 815: a DATA_CHANNEL_OPEN on a stream in local use", () => {
+  test("is not acknowledged and the stream is reset, so neither channel stays connecting", async () => {
+    // Arrange: 接続済みの 2 peer (offerer = DTLS server = 奇数)。answerer を偶奇規則に
+    // 違反する相手 (奇数で採番) にし、OPEN と ACK の送信を記録する。
+    const pair = await openChannelPair();
+    forceIdParity(pair.answerer, 1);
+    const offererDcep = captureSentDcep(pair.offerer);
+    const announced: string[] = [];
+    for (const pc of [pair.offerer, pair.answerer]) {
+      pc.onDataChannel.subscribe((c) => announced.push(c.label));
+    }
+
+    try {
+      // Act: 両端が同じ tick で channel を作り、同じ stream ID 3 で OPEN を送り合う (#815 の衝突)。
+      const mine = pair.offerer.createDataChannel("mine");
+      const theirs = pair.answerer.createDataChannel("theirs");
+      expect([mine.id, theirs.id]).toEqual([3, 3]);
+
+      // Assert: どちらも ACK されず、stream reset で両端の channel が closed になる。
+      await vi.waitFor(() =>
+        expect([mine.readyState, theirs.readyState]).toEqual([
+          "closed",
+          "closed",
+        ]),
+      );
+      expect(offererDcep).toEqual(["OPEN:3"]);
+      expect(announced).toEqual([]);
+      // Assert: どちらの登録表・待機集合・キューにも閉じた channel が残らない。
+      for (const pc of [pair.offerer, pair.answerer]) {
+        expect(channelSetsOf(pc)).toEqual({
+          registered: [`dc:open`],
+          unannounced: [],
+          queued: [],
+        });
+      }
+
+      // Act / Assert: 他の stream の channel は影響を受けず送受信できる。
+      const received = nextMessage(pair.remote);
+      pair.local.send("still-open");
+      await expect(received).resolves.toBe("still-open");
+    } finally {
+      await closeAll(pair.offerer, pair.answerer);
+    }
+  });
+});
+
+describe("issue 815: a DATA_CHANNEL_OPEN violating the odd/even rule on an unused stream", () => {
+  test.each([
+    // offerer = DTLS server (奇数)、answerer = DTLS client (偶数)。
+    { violator: "answerer", parity: 1, expectedId: 3 },
+    { violator: "offerer", parity: 0, expectedId: 0 },
+  ] as const)(
+    "$violator opens on $expectedId: not acknowledged and closed",
+    async ({ violator, parity, expectedId }) => {
+      // Arrange: 接続済みの 2 peer。違反側を受信側の偶奇で採番させ、受信側の DCEP 送信を記録する。
+      const pair = await openChannelPair();
+      const [sender, receiver] =
+        violator === "answerer"
+          ? [pair.answerer, pair.offerer]
+          : [pair.offerer, pair.answerer];
+      forceIdParity(sender, parity);
+      const receiverDcep = captureSentDcep(receiver);
+      const announced: string[] = [];
+      receiver.onDataChannel.subscribe((c) => announced.push(c.label));
+
+      try {
+        // Act: 受信側で未使用の、受信側の偶奇の stream ID で OPEN を送る。
+        const violating = sender.createDataChannel("violating");
+        expect(violating.id).toBe(expectedId);
+
+        // Assert: ACK も datachannel 通知もなく、stream reset で送信側の channel が閉じる。
+        await vi.waitFor(() => expect(violating.readyState).toBe("closed"));
+        expect(receiverDcep).toEqual([]);
+        expect(announced).toEqual([]);
+        // Assert: 両端の登録表・待機集合・キューに違反 channel が残らない。
+        for (const pc of [pair.offerer, pair.answerer]) {
+          expect(channelSetsOf(pc)).toEqual({
+            registered: ["dc:open"],
+            unannounced: [],
+            queued: [],
+          });
+        }
+
+        // Act / Assert: 既存 channel は影響を受けず送受信できる。
+        const received = nextMessage(pair.remote);
+        pair.local.send("still-open");
+        await expect(received).resolves.toBe("still-open");
+      } finally {
+        await closeAll(pair.offerer, pair.answerer);
+      }
+    },
+  );
+});
+
+describe("issue 815: each source of the DTLS role assigns the stream IDs", () => {
+  test.each(["rollback", "final answer rejecting m=application"] as const)(
+    "a %s gives the IDs back and the next answer, keeping the DTLS role, assigns them again",
+    async (how) => {
+      // Arrange: 接続済み (DTLS role 確定済み) のセッションで後付けの channel を作る。
+      const { offerer, answerer } = await createConnectedVideoPeers();
+      const channel = offerer.createDataChannel("late");
+      const assigned = channel.id;
+      expect(assigned).toBeDefined();
+      try {
+        // Act: m=application を含む offer を rollback する、または final answer で拒否する。
+        await offerer.setLocalDescription(await offerer.createOffer());
+        if (how === "rollback") {
+          await offerer.setLocalDescription({ type: "rollback" });
+        } else {
+          await answerer.setRemoteDescription(offerer.localDescription!);
+          const answer = await answerer.createAnswer();
+          await offerer.setRemoteDescription({
+            type: "answer",
+            sdp: rejectApplicationSection(answer.sdp),
+          });
+          await answerer
+            .setLocalDescription({ type: "rollback" })
+            .catch(() => {});
+        }
+
+        // Assert: OPEN 未送信の予約は解放される。
+        expect(channel.id).toBeUndefined();
+        expect(channel.readyState).toBe("connecting");
+
+        // Act: DTLS role を変えない次の offer / answer。
+        await exchangeOfferAnswer(offerer, answerer);
+
+        // Assert: role 変更の通知はなくても、answer の適用で同じ偶奇の ID が付き、open になる。
+        expect(channel.id).toBe(assigned);
+        await waitOpen(channel);
+      } finally {
+        await closeAll(offerer, answerer);
+      }
+    },
+    15000,
+  );
+
+  test("the DTLS start resolving auto assigns the IDs of the role it took", async () => {
+    // Arrange: role が auto の DTLS transport に SCTP transport と in-band channel を載せる。
+    const dtls = await createUnstartedDtlsPair();
+    const transport = new RTCSctpTransport();
+    transport.setDtlsTransport(dtls.first);
+    const channel = createInBandChannel(transport, "auto");
+    expect(dtls.first.role).toBe("auto");
+    expect(channel.id).toBeUndefined();
+
+    try {
+      // Act: DTLS を開始する (ICE controlling 側は DTLS server になる)。
+      await dtls.start();
+
+      // Assert: 決まった role の偶奇で ID が付く。
+      expect(dtls.first.role).toBe("server");
+      expect(channel.id).toBe(1);
+    } finally {
+      await transport.stop();
+      await dtls.stop();
+    }
+  });
+
+  test("a move to a DTLS transport with a decided role assigns its parity; a reset association waits for the next negotiation", async () => {
+    // Arrange: role が auto の DTLS transport 上の in-band channel と、role が server の移動先。
+    const transport = new RTCSctpTransport();
+    transport.setDtlsTransport(createDtlsTransport());
+    const channel = createInBandChannel(transport, "moved");
+    const target: RTCDtlsTransport = createDtlsTransport();
+    target.role = "server";
+
+    try {
+      // Act: BUNDLE などで移動先の DTLS transport に付け替える。
+      transport.setDtlsTransport(target);
+
+      // Assert: 移動先の role (server = 奇数) で ID が付く。
+      expect(channel.id).toBe(1);
+
+      // Act: association を作り直す (rollback と同じ経路)。
+      await transport.resetAssociation();
+
+      // Assert: 予約は解放され、次の採番 (交渉) まで待つ。
+      expect(channel.id).toBeUndefined();
+      transport.assignPendingStreamIds();
+      expect(channel.id).toBe(1);
+    } finally {
+      await transport.stop();
+    }
+  });
+
+  test("a channel failing for lack of an ID without any listener throws nothing", async () => {
+    // Arrange: ID が 1 つしかない transport に、リスナーのない 2 つの channel を待機させる。
+    const pc = new RTCPeerConnection();
+    const { dtls, transport, create } = attachLimitedTransport(pc);
+    const [, failed] = ["ok", "failed"].map(create);
+
+    try {
+      // Act / Assert: role 確定で 2 つ目が失敗しても例外は出ない (error リスナーなしの emit)。
+      expect(() => {
+        dtls.role = "client";
+      }).not.toThrow();
+      expect(failed.readyState).toBe("closed");
+    } finally {
+      await transport.stop();
+      await pc.close();
+    }
+  });
+
+  test("an in-band channel reaching the transport with an id is an internal error", async () => {
+    // Arrange: 公開入口 (in-band の id を捨てる) を通さずに作る準備。
+    const transport = new RTCSctpTransport();
+    transport.setDtlsTransport(createDtlsTransport());
+
+    try {
+      // Act / Assert: in-band の ID は DTLS role から採るので、指定済みの id は内部の不変条件違反。
+      expect(() => createInBandChannel(transport, "with-id", 3)).toThrow(
+        /in-band data channel gets its stream ID from the DTLS role/,
+      );
+    } finally {
+      await transport.stop();
+    }
+  });
+
+  test("closing one channel before negotiation keeps the OPEN of another (queue filtered by identity)", async () => {
+    // Arrange: 交渉前 (どちらも ID なし) の 2 つの in-band channel。
+    const { offerer, answerer } = createPeers();
+    const closed = offerer.createDataChannel("closed");
+    const kept = offerer.createDataChannel("kept");
+    const announced: string[] = [];
+    answerer.onDataChannel.subscribe((c) => announced.push(c.label));
+
+    try {
+      // Act: 片方だけ閉じてから交渉する。
+      closed.close();
+      await negotiate(offerer, answerer);
+
+      // Assert: 閉じなかった channel だけが相手に通知され、open になる。
+      await waitOpen(kept);
+      expect(closed.readyState).toBe("closed");
+      expect(announced).toEqual(["kept"]);
+    } finally {
+      await closeAll(offerer, answerer);
+    }
+  });
+});

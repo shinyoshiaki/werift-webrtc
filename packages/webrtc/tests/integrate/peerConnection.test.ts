@@ -15,6 +15,7 @@ import {
   useSdesRTPStreamId,
 } from "../../src";
 import { SignatureAlgorithm } from "../../src/const";
+import { createLocalPeerConnection } from "../utils";
 import {
   addIceCandidateEndOfCandidatesLine,
   addIceCandidateLine1,
@@ -35,8 +36,8 @@ import {
 describe("peerConnection", () => {
   test("test_connect_datachannel_modern_sdp", async () =>
     new Promise<void>(async (done) => {
-      const pc1 = new RTCPeerConnection({});
-      const pc2 = new RTCPeerConnection({});
+      const pc1 = createLocalPeerConnection();
+      const pc2 = createLocalPeerConnection();
 
       pc2.onDataChannel.subscribe((channel) => {
         channel.onMessage.subscribe((data) => {
