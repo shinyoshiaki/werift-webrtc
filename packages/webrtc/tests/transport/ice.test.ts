@@ -12,7 +12,7 @@ import {
   type PeerConfig,
   RTCIceGatherer,
   RTCIceTransport,
-  type RTCPeerConnection,
+  RTCPeerConnection,
 } from "../../src";
 import { iceTransportPair } from "../fixture";
 import {
