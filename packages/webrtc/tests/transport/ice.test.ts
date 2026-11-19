@@ -8,6 +8,7 @@ import {
   waitUntil,
 } from "../../../ice/tests/utils";
 import {
+  IceRestartedError,
   type PeerConfig,
   RTCIceGatherer,
   RTCIceTransport,
@@ -25,7 +26,10 @@ import {
   iceAgentTurnServers,
   iceOptionLines,
   negotiate,
+  negotiateWithoutCandidates,
   peerTurnAllocations,
+  restartIceTransportGeneration,
+  startIceTransportWaitingForIncomingCheck,
   waitForLocalCandidatesEnd,
 } from "../utils";
 
@@ -1020,6 +1024,67 @@ describe("iceTransport", () => {
       expect((await recv)[0].toString()).toBe("post-restart");
     } finally {
       await Promise.all([transport1.stop(), transport2.stop()]);
+    }
+  }, 20_000);
+
+  test.each(["local", "remote"] as const)(
+    "%s restart during the wait for an incoming check ends the old start() without failing the new generation",
+    async (restart) => {
+      // Arrange: transport2 は空の check list で相手の check を待っている (待ち時間 3 秒)。
+      const { transport1, transport2, starting } =
+        await startIceTransportWaitingForIncomingCheck(3);
+
+      try {
+        // Act: 待機中に restart する。
+        await restartIceTransportGeneration(transport1, transport2, restart);
+        const old = await starting;
+
+        // Assert: 旧世代の start() は IceRestartedError で終わり、transport を failed にしない。
+        expect(old.error).toBeInstanceOf(IceRestartedError);
+        expect(transport2.state).not.toBe("failed");
+
+        // Act: 新しい世代で両側を start する。
+        await Promise.all([transport1.start(), transport2.start()]);
+
+        // Assert: 新しい世代は接続し、旧世代の待ち時間を過ぎても connected のまま。
+        expect(transport1.state).toBe("connected");
+        expect(transport2.state).toBe("connected");
+        await new Promise((resolve) => setTimeout(resolve, 3200));
+        expect(transport2.state).toBe("connected");
+      } finally {
+        await Promise.all([transport1.stop(), transport2.stop()]);
+      }
+    },
+    15_000,
+  );
+
+  test("restartIce() while two connects await the checks of one generation leaves connectionState out of failed", async () => {
+    // Arrange: 候補なしで交渉し、1 回目の connect が ICE の checks を始めて相手の check を待つ。
+    const pc1 = new RTCPeerConnection({ iceIncomingCheckTimeout: 30 });
+    const pc2 = new RTCPeerConnection({ iceIncomingCheckTimeout: 30 });
+    const states: string[] = [];
+    pc1.connectionStateChange.subscribe((state) => states.push(state));
+    try {
+      pc1.createDataChannel("dc");
+      await negotiateWithoutCandidates(pc1, pc2);
+      expect(firstIceTransport(pc1).ice.state).toBe("checking");
+
+      // Arrange: 再交渉の answer で 2 回目の connect が同じ世代の checks を待つ。
+      await negotiateWithoutCandidates(pc1, pc2);
+
+      // Act: 両方の connect が待っている間に restartIce し、候補ありで交渉し直す。
+      pc1.restartIce();
+      const connected = pc1.connectionStateChange.watch(
+        (state) => state === "connected",
+      );
+      await negotiate(pc1, pc2);
+      await connected;
+
+      // Assert: 旧世代を待っていた connect は connectionState を failed にしない。
+      expect(states).not.toContain("failed");
+      expect(pc1.connectionState).toBe("connected");
+    } finally {
+      await Promise.all([pc1.close(), pc2.close()]);
     }
   }, 20_000);
 

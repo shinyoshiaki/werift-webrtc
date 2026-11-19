@@ -643,7 +643,8 @@ describe("ice", () => {
 
   test("test_connect_no_remote_candidates", async () =>
     new Promise<void>(async (done) => {
-      const conn = createTestConnection(true);
+      // 空の check list は相手からの check を incomingCheckTimeout だけ待ってから失敗する。
+      const conn = createTestConnection(true, { incomingCheckTimeout: 0.1 });
 
       await conn.gatherCandidates();
       conn.remoteCandidates = [];
