@@ -15,7 +15,12 @@ import {
   type TransactionError,
   TransactionTimeout,
 } from "./exceptions";
-import { type FailoverHost, FailoverMonitor } from "./failover";
+import {
+  type FailoverHost,
+  FailoverMonitor,
+  type FailoverThresholds,
+  resolveFailoverThresholds,
+} from "./failover";
 import { cancelable, PQueue, randomString } from "./helper";
 import {
   BACKUP_UNKNOWN_RTT_RESPONSE_TIMEOUT,
@@ -200,12 +205,12 @@ export class Connection implements IceConnection {
     allows: (pair) => this.failoverAllows(pair),
     failoverReplaces: (pair) =>
       this.failoverNomination === pair ||
-      (this.selectionDown() && this.failover.writable(pair)),
+      (this.selectionFailing() && this.failover.writable(pair)),
     nominationEnded: (pair) => {
       if (this.failoverNomination === pair) this.failoverNomination = undefined;
     },
     retriesForever: () => this.failoverEnabled(),
-    selectionDown: () => this.selectionDown(),
+    selectionDown: () => this.selectionFailing(),
   });
   /** See `NominationHint`; set by the restart that ends a provisional checklist. */
   private nominationHint?: NominationHint;
@@ -279,6 +284,7 @@ export class Connection implements IceConnection {
     failover: {
       enabled: () => this.failoverEnabled(),
       liveness: (pair) => this.failover.livenessOf(pair),
+      thresholds: () => this.failoverThresholds,
       responded: (pair) => {
         this.failover.responded(pair);
         this.onLinkChanged();
@@ -319,6 +325,11 @@ export class Connection implements IceConnection {
    * nomination), and the old pair's socket is demoted (D4).
    */
   private failoverNomination?: CandidatePair;
+  /** See `failoverThresholds`. */
+  private failoverThresholdsCache?: {
+    source: IceOptions["failover"];
+    value: FailoverThresholds;
+  };
   /**
    * The selected pair's consent expired while a backup was writable: the
    * agent fails when this fires unless the selection moved first
@@ -1118,6 +1129,9 @@ export class Connection implements IceConnection {
     protocol.onConnectionClosed?.subscribe((remoteAddr) => {
       this.handleConnectionClosed(protocol, remoteAddr);
     });
+    protocol.onPathBroken?.subscribe((remoteAddr, error) => {
+      this.failoverPathBroken(protocol, remoteAddr, error);
+    });
   }
 
   /**
@@ -1819,11 +1833,12 @@ export class Connection implements IceConnection {
         (this.nominated == undefined || this.selection.replaces(pair))
       ) {
         const previous = this.nominated;
-        // Failover: the selection moves off a pair that stopped answering,
-        // or a failover nomination sent while it did not answer succeeded.
+        // Failover: the selection moves off a pair that stopped answering
+        // (or receiving), or a failover nomination sent while it did not
+        // answer succeeded.
         const failingOver =
           !!previous &&
-          (this.selectionDown() || this.failoverNomination === pair);
+          (this.selectionFailing() || this.failoverNomination === pair);
         if (this.failoverNomination === pair) {
           this.failoverNomination = undefined;
         }
@@ -2737,6 +2752,38 @@ export class Connection implements IceConnection {
     );
   }
 
+  /** `IceOptions.failover` with its defaults (resolved again when the options change). */
+  private get failoverThresholds(): FailoverThresholds {
+    const source = this.options.failover;
+    let cache = this.failoverThresholdsCache;
+    if (!cache || cache.source !== source) {
+      cache = { source, value: resolveFailoverThresholds(source) };
+      this.failoverThresholdsCache = cache;
+    }
+    return cache.value;
+  }
+
+  /**
+   * Failover: the selected pair stopped receiving (`isNotReceiving`: nothing
+   * received for `receivingTimeout` + `receivingSwitchingDelay` and a check
+   * unanswered) while its consent is still fresh and it is not unwritable
+   * yet. libwebrtc switches on it (`CompareConnectionStates`: receiving).
+   */
+  private selectionNotReceiving() {
+    const selected = this.nominated;
+    return (
+      !!selected &&
+      this.failoverEnabled() &&
+      this.consent.fresh &&
+      this.failover.notReceiving(selected)
+    );
+  }
+
+  /** Failover: the selection may move to a backup ({@link selectionDown} or {@link selectionNotReceiving}). */
+  private selectionFailing() {
+    return this.selectionDown() || this.selectionNotReceiving();
+  }
+
   /** Failover: the selected pair stopped answering (unwritable) or its consent expired. */
   private selectionDown() {
     const selected = this.nominated;
@@ -2759,6 +2806,7 @@ export class Connection implements IceConnection {
       pairs: () => this.checkList,
       eligible: (pair) => this.replacesWith(pair),
       iceControlling: () => this.iceControlling,
+      thresholds: () => this.failoverThresholds,
       movesSelectionUp: () => this.iceControlling && this.replacesSelection(),
       ping: (pair, signal) => this.pingBackup(pair, signal),
       validated: (pair) => {
@@ -2788,6 +2836,10 @@ export class Connection implements IceConnection {
    * (semi-aggressive) or the next NOMINATION value (renomination). Its
    * success moves the selection (`replacesSelectedPair`). A controlled agent
    * only follows the peer's nominations.
+   *
+   * Before the selected pair is unwritable, a selected pair that stopped
+   * receiving (`selectionNotReceiving`) moves to a backup that receives (not
+   * weak), as libwebrtc compares the receiving state after the writable one.
    */
   private evaluateFailover() {
     if (
@@ -2795,19 +2847,23 @@ export class Connection implements IceConnection {
       !this.replacesSelection() ||
       this.selection.nominating ||
       this.state === "closed" ||
-      this.state === "failed" ||
-      !this.selectionDown()
+      this.state === "failed"
     ) {
       return;
     }
-    const target = this.failover.target();
+    const down = this.selectionDown();
+    if (!down && !this.selectionNotReceiving()) return;
+    const target = this.failover.target(undefined, { receiving: !down });
     if (!target) {
       // Nothing to fail over to: check the failed pairs that outrank the
       // selection now (a path that came back may be one of them).
-      this.selection.checkFailedOutranking();
+      if (down) this.selection.checkFailedOutranking();
       return;
     }
-    log("failover", target.toJSON(), { selected: this.nominated?.toJSON() });
+    log("failover", target.toJSON(), {
+      selected: this.nominated?.toJSON(),
+      reason: down ? "unwritable" : "not receiving",
+    });
     this.failoverNomination = target;
     this.selection.nominate(target);
   }
@@ -2895,6 +2951,29 @@ export class Connection implements IceConnection {
     this.consent.stop();
     this.failover.reset();
     this.setState("failed");
+  }
+
+  /**
+   * Failover: sending on `protocol` (to `remoteAddr`, or on every path of it
+   * when undefined: its TURN allocation is lost) failed in a way that says
+   * the path is gone (`Protocol.onPathBroken`). The monitored pairs on it are
+   * unwritable at once, so the selection fails over without waiting for
+   * unanswered checks (libwebrtc drops the connections of a port that is
+   * gone).
+   */
+  private failoverPathBroken(
+    protocol: Protocol,
+    remoteAddr: Address | undefined,
+    error: Error,
+  ) {
+    if (!this.failoverEnabled()) return;
+    if (this.state === "closed" || this.state === "failed") return;
+    if (!this.failover.broken(protocol, remoteAddr)) return;
+    log("failover path broken", remoteAddr, error);
+    // The selected pair's next check comes at the weak interval, so a path
+    // that comes back is seen soon.
+    this.consent.recheck();
+    this.onLinkChanged();
   }
 
   /** Failover: application data arrived on `protocol` from `addr`. */

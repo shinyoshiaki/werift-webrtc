@@ -351,6 +351,15 @@ export const CONNECTION_WRITE_CONNECT_TIMEOUT = 5000;
 export const WEAK_CONNECTION_RECEIVE_TIMEOUT = 2500;
 
 /**
+ * How long (ms) the selected pair must have stopped receiving (nothing
+ * received for {@link WEAK_CONNECTION_RECEIVE_TIMEOUT}) before the
+ * controlling agent fails over to a backup that receives, without waiting
+ * for the selected pair to become unwritable. libwebrtc:
+ * `receiving_switching_delay` (default 1000 ms).
+ */
+export const RECEIVING_SWITCHING_DELAY = 1000;
+
+/**
  * A backup pair that received nothing for this long (ms) is dropped (its
  * state becomes Failed) and the next pair of its socket is monitored. The
  * same value as {@link CONSENT_TIMEOUT}. libwebrtc:
@@ -462,6 +471,44 @@ export type NormalizedTurnServer = Required<Omit<TurnServerOptions, "urls">> &
  */
 export type StunServerUrl = { address: Address; url: string };
 
+/**
+ * Thresholds of the failover of the selected pair ({@link IceOptions.failover}),
+ * after libwebrtc's `RTCConfiguration` fields of the same meaning. Lower
+ * values fail over sooner and also on a shorter loss burst.
+ */
+export interface IceFailoverOptions {
+  /**
+   * Consecutive unanswered checks after which a pair is unwritable (together
+   * with `unwritableTimeout`). An integer of at least 1; defaults to
+   * {@link CONNECTION_WRITE_CONNECT_FAILURES} (5). libwebrtc:
+   * `ice_unwritable_min_checks`.
+   */
+  unwritableMinChecks?: number;
+  /**
+   * Time (ms) since a pair's last response after which it is unwritable
+   * (together with `unwritableMinChecks`). At least 0; defaults to
+   * {@link CONNECTION_WRITE_CONNECT_TIMEOUT} (5000). libwebrtc:
+   * `ice_unwritable_timeout`.
+   */
+  unwritableTimeout?: number;
+  /**
+   * Time (ms) without receiving anything (response, request or data) after
+   * which a pair is weak (checked at the weak interval, 900 ms) and stops
+   * receiving. Greater than 0; defaults to
+   * {@link WEAK_CONNECTION_RECEIVE_TIMEOUT} (2500). libwebrtc:
+   * `receiving_timeout`.
+   */
+  receivingTimeout?: number;
+  /**
+   * Time (ms) the selected pair must have stopped receiving (one of its
+   * checks unanswered as well) before the controlling agent fails over to a
+   * backup that receives, before the selected pair becomes unwritable. At
+   * least 0; defaults to {@link RECEIVING_SWITCHING_DELAY} (1000).
+   * libwebrtc: `receiving_switching_delay`.
+   */
+  receivingSwitchingDelay?: number;
+}
+
 export interface IceOptions {
   /** Advertise and operate as an ICE lite agent. */
   iceLite: boolean;
@@ -546,6 +593,13 @@ export interface IceOptions {
    * the pair with the largest value. Defaults to false.
    */
   renomination?: boolean;
+  /**
+   * Thresholds of the failover of the selected pair without an ICE restart
+   * (semi-aggressive nomination or renomination, full ICE, not ICE-TCP).
+   * Each unset or invalid value keeps its default, which follows libwebrtc.
+   * See {@link IceFailoverOptions}.
+   */
+  failover?: IceFailoverOptions;
   /**
    * STUN servers queried while gathering, in priority order. Every IPv4 UDP
    * host socket queries each of them in parallel; equal mappings are

@@ -529,6 +529,18 @@ export async function expectDataFlows(
   await received;
 }
 
+/**
+ * Shared Arrange: `connection` keeps sending application data every
+ * `everyMs` (as media does); returns the function that stops it. A send
+ * that fails (no selected pair for a moment) is ignored.
+ */
+export function keepSending(connection: Connection, everyMs = 50) {
+  const timer = setInterval(() => {
+    connection.send(Buffer.from("media")).catch(() => {});
+  }, everyMs);
+  return () => clearInterval(timer);
+}
+
 /** Arrange: controlling Connection with one TCP mock protocol and no pairs yet. */
 export function createTcpCheckHarness() {
   const protocol = new ConsentMockProtocol({
@@ -3359,6 +3371,8 @@ export class FailoverPathProtocol implements Protocol {
   localCandidate: Candidate;
   onRequestReceived = new Event<[Message, any, Buffer]>();
   onDataReceived = new Event<[Buffer, Address]>();
+  /** See `Protocol.onPathBroken` (`createFailoverHarness().breakPath`). */
+  onPathBroken = new Event<[Address | undefined, Error]>();
   readonly requests: FailoverRequest[] = [];
   /** Unreachable remote ports; `"all"`: the whole socket is cut off. */
   readonly unreachable = new Set<number | "all">();
@@ -3528,10 +3542,13 @@ export async function createFailoverHarness({
   remoteTransports = [],
   selectDirectly = false,
   responseDelayMs = 0,
+  failover,
 }: {
   iceControlling?: boolean;
   nomination?: "regular" | "semi-aggressive";
   renomination?: boolean;
+  /** `IceOptions.failover` (thresholds). */
+  failover?: IceOptions["failover"];
   remoteIsLite?: boolean;
   locals?: {
     type: string;
@@ -3554,6 +3571,7 @@ export async function createFailoverHarness({
   const connection = new Connection(iceControlling, {
     nomination,
     renomination,
+    failover,
   });
   connection.remoteIsLite = remoteIsLite;
   connection.remoteRenomination = renomination;
@@ -3645,6 +3663,28 @@ export async function createFailoverHarness({
     );
   /** Restore socket `local` (every path). */
   const restore = (local: number) => protocols[local].unreachable.clear();
+  /**
+   * Socket `local` reports its path to `remote` gone (a send error such as
+   * ENETUNREACH), or every path of it when `remote` is undefined (its TURN
+   * allocation is lost): `Protocol.onPathBroken`. With `cut` (default) the
+   * path is cut off as well, as it is once the OS says so.
+   */
+  const breakPath = (
+    local: number,
+    remote?: number,
+    { cut: alsoCut = true }: { cut?: boolean } = {},
+  ) => {
+    if (alsoCut) cut(local, remote);
+    const error = Object.assign(new Error("send ENETUNREACH"), {
+      code: "ENETUNREACH",
+    });
+    protocols[local].onPathBroken.execute(
+      remote === undefined
+        ? undefined
+        : [remoteCandidates[remote].host, remoteCandidates[remote].port],
+      error,
+    );
+  };
   /** Advance until `predicate` holds (or `limitMs` passed); returns the time it took. */
   const advanceUntil = async (predicate: () => boolean, limitMs: number) => {
     const start = Date.now();
@@ -3652,6 +3692,22 @@ export async function createFailoverHarness({
       await vi.advanceTimersByTimeAsync(100);
     }
     return Date.now() - start;
+  };
+  /**
+   * Cut socket `local` right after the selected pair's last check was
+   * answered (the worst moment: the longest silence before the next one);
+   * returns when it was cut.
+   */
+  const cutRightAfterAnswer = async (local: number, remote?: number) => {
+    const answered = requestsTo(selection).length;
+    await advanceUntil(
+      () =>
+        requestsTo(selection).length > answered &&
+        !!requestsTo(selection).at(-1)?.answered,
+      10_000,
+    );
+    cut(local, remote);
+    return Date.now();
   };
   /** Trickle a remote candidate (UDP host); returns its index for `pairOf`. */
   const addRemote = async (priority: number) => {
@@ -3680,6 +3736,14 @@ export async function createFailoverHarness({
       Buffer.from("data"),
       pair.remoteAddr,
     );
+  /**
+   * The peer keeps sending application data on `pair` every `everyMs` (its
+   * media still arrives); returns the function that stops it.
+   */
+  const keepReceiving = (pair: CandidatePair, everyMs = 200) => {
+    const timer = setInterval(() => receiveData(pair), everyMs);
+    return () => clearInterval(timer);
+  };
   /** The peer (controlling) nominates `pair`: USE-CANDIDATE, or a NOMINATION value. */
   const receiveNomination = (pair: CandidatePair, value?: number) =>
     connection.checkIncoming(
@@ -3700,7 +3764,10 @@ export async function createFailoverHarness({
     cut,
     restore,
     advanceUntil,
+    breakPath,
+    cutRightAfterAnswer,
     receiveData,
+    keepReceiving,
     receiveNomination,
     addRemote,
     switchRole: (controlling: boolean) => internals.switchRole(controlling),
@@ -3868,7 +3935,10 @@ export async function createFailoverMatrixCell({
  * semi-aggressive nomination or renomination), candidates exchanged and
  * connected over real sockets. `cutHostPath()` cuts every host ↔ host path
  * in both directions (requests time out, responses and data are dropped),
- * while `a`'s relay still reaches `b`'s host sockets.
+ * while `a`'s relay still reaches `b`'s host sockets. `loseHostRoute()`
+ * cuts the same paths, but as a network interface of `a` that went away:
+ * the OS rejects `a`'s datagrams to `b`'s host candidates with ENETUNREACH
+ * (reported to a send with `confirm`), and `b`'s never arrive.
  */
 export async function createFailoverRealPair({
   renomination = false,
@@ -3892,19 +3962,26 @@ export async function createFailoverRealPair({
   await deliverLocalCandidates(b, a, { endOfCandidates: true });
 
   let cut = false;
+  let routeLost = false;
   const hostsOf = (connection: Connection) =>
     connection.localCandidates.filter((candidate) => candidate.type === "host");
-  const block = (connection: Connection, peer: Connection) => {
-    const peerHosts = hostsOf(peer);
-    const blocked = (address: Address) =>
-      cut &&
-      peerHosts.some(
-        (candidate) =>
-          candidate.host === address[0] && candidate.port === address[1],
-      );
-    for (const protocol of (connection as unknown as { protocols: Protocol[] })
-      .protocols) {
-      if (protocol.localCandidate?.type !== "host") continue;
+  const hostProtocolsOf = (connection: Connection) =>
+    (connection as unknown as { protocols: Protocol[] }).protocols.filter(
+      (protocol) => protocol.localCandidate?.type === "host",
+    );
+  const toHostOf = (peer: Connection) => (address: Address) =>
+    hostsOf(peer).some(
+      (candidate) =>
+        candidate.host === address[0] && candidate.port === address[1],
+    );
+  const block = (
+    connection: Connection,
+    peer: Connection,
+    active: () => boolean,
+  ) => {
+    const toPeerHost = toHostOf(peer);
+    const blocked = (address: Address) => active() && toPeerHost(address);
+    for (const protocol of hostProtocolsOf(connection)) {
       const request = protocol.request.bind(protocol);
       protocol.request = (async (
         message: Message,
@@ -3939,8 +4016,25 @@ export async function createFailoverRealPair({
       };
     }
   };
-  block(a, b);
-  block(b, a);
+  block(a, b, () => cut);
+  block(b, a, () => cut || routeLost);
+  // `a`'s route to `b`'s host candidates is gone: the OS refuses the
+  // datagram (an error a confirmed send sees) and nothing goes out.
+  const toPeerHost = toHostOf(b);
+  for (const protocol of hostProtocolsOf(a)) {
+    const transport = (protocol as StunProtocol).transport;
+    const send = transport.send.bind(transport);
+    transport.send = async (data, address, options) => {
+      if (!routeLost || !address || !toPeerHost(address)) {
+        return send(data, address, options);
+      }
+      if (!options?.confirm) return;
+      throw Object.assign(new Error(`send ENETUNREACH ${address[0]}`), {
+        code: "ENETUNREACH",
+        syscall: "send",
+      });
+    };
+  }
 
   /** `connection` selected a host ↔ host pair. */
   const selectsHostPath = (connection: Connection) =>
@@ -3958,6 +4052,9 @@ export async function createFailoverRealPair({
     selectsRelayPath,
     cutHostPath: () => {
       cut = true;
+    },
+    loseHostRoute: () => {
+      routeLost = true;
     },
     close: async () => {
       await Promise.allSettled([a.close(), b.close()]);

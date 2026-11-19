@@ -32,7 +32,7 @@ describe("failover of the selected pair", () => {
     { mode: "semi-aggressive", renomination: false },
     { mode: "renomination", renomination: true },
   ])("controlling ($mode)", ({ renomination }) => {
-    test("the selected pair stops answering: checked every 900 ms, unwritable after 5 checks and 5 s, the agent moves to the writable backup", async () => {
+    test("the selected pair stops answering and receiving: once nothing arrived for 2.5 s + 1 s and a check went unanswered, the agent moves to the backup that receives, before the pair is unwritable (§15 A)", async () => {
       const h = await createFailoverHarness({ renomination });
       const host = h.selection;
       const relay = h.pairOf(1);
@@ -44,13 +44,67 @@ describe("failover of the selected pair", () => {
         // Act: 選択中の host の経路を切り、退避するまで進める。
         h.cut(0);
         const cutAt = Date.now();
+        const took = await h.advanceUntil(
+          () => h.connection.nominated === relay,
+          20_000,
+        );
+        const lastAnswered = h
+          .requestsTo(host)
+          .filter((request) => request.answered)
+          .at(-1)!.at;
+        const missed = h
+          .requestsTo(host)
+          .filter((request) => request.at >= cutAt && !request.answered);
+
+        // Assert: 最後に受信してから 2.5 s + 1 s 以上たち、遮断から 5 s 未満 (書き込み不可の 5 回・5 s を待たない) で relay へ移る。
+        expect(h.connection.nominated).toBe(relay);
+        expect(Date.now() - lastAnswered).toBeGreaterThanOrEqual(3500);
+        expect(took).toBeLessThan(5000);
+        // Assert: 移る前に host への check が応答されず (無通信だけでは移らない)、その数は書き込み不可の 5 回に届いていない。
+        expect(missed.length).toBeGreaterThanOrEqual(1);
+        expect(missed.length).toBeLessThan(5);
+        // Assert: 移る時の指名は USE-CANDIDATE (semi-aggressive) / 大きい NOMINATION (renomination)。
+        const nomination = h
+          .requestsTo(relay)
+          .find((request) => request.useCandidate || request.nomination);
+        if (renomination) {
+          expect(nomination?.nomination).toBeGreaterThan(host.nomination);
+          expect(relay.nomination).toBe(nomination?.nomination);
+        } else {
+          expect(nomination?.useCandidate).toBe(true);
+        }
+        // Assert: disconnected にならず、統計の nominated も新しいペアを指す。
+        expect(h.states.map(({ state }) => state)).not.toContain(
+          "disconnected",
+        );
+        expect(h.connection.state).toBe("connected");
+        expect(relay.nominated).toBe(true);
+        expect(host.nominated).toBe(false);
+      } finally {
+        await h.connection.close();
+      }
+    });
+
+    test("the selected pair's checks go unanswered while the peer's data still arrives (one-way break): it never stops receiving, so the agent moves once it is unwritable (checked every 900 ms, 5 checks and 5 s)", async () => {
+      const h = await createFailoverHarness({ renomination });
+      const host = h.selection;
+      const relay = h.pairOf(1);
+      // 退避先 (relay) が安定するまで進める。
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(relay.state).toBe(CandidatePairState.SUCCEEDED);
+      const stopReceiving = h.keepReceiving(host);
+
+      try {
+        // Act: host への送信だけを落とし (相手のデータは届き続ける)、退避するまで進める。
+        h.cut(0);
+        const cutAt = Date.now();
         const sentBefore = h.requestsTo(host).length;
         const took = await h.advanceUntil(
           () => h.connection.nominated === relay,
           20_000,
         );
 
-        // Assert: 経路が切れてから 5〜10 s (+応答待ち) で relay へ移る。
+        // Assert: 受信は続くので受信途絶では移らず、書き込み不可 (5 回・5 s) の判定で 5〜10 s (+応答待ち) に relay へ移る。
         expect(h.connection.nominated).toBe(relay);
         expect(took).toBeGreaterThanOrEqual(5000);
         expect(took).toBeLessThanOrEqual(11_000);
@@ -62,24 +116,13 @@ describe("failover of the selected pair", () => {
         expect(missed.length).toBeGreaterThanOrEqual(5);
         const gaps = missed.slice(1).map((r, i) => r.at - missed[i].at);
         for (const gap of gaps) expect(gap).toBeLessThanOrEqual(1000);
-        // Assert: 移る時の指名は USE-CANDIDATE (semi-aggressive) / 大きい NOMINATION (renomination)。
-        const nomination = h
-          .requestsTo(relay)
-          .find((request) => request.useCandidate || request.nomination);
-        if (renomination) {
-          expect(nomination?.nomination).toBeGreaterThan(host.nomination);
-          expect(relay.nomination).toBe(nomination?.nomination);
-        } else {
-          expect(nomination?.useCandidate).toBe(true);
-        }
-        // Assert: 書き込み可能な退避先があったので disconnected にならず、統計の nominated も新しいペアを指す。
+        // Assert: 書き込み可能な退避先があったので disconnected にならない。
         expect(h.states.map(({ state }) => state)).not.toContain(
           "disconnected",
         );
-        expect(h.connection.state).toBe("connected");
         expect(relay.nominated).toBe(true);
-        expect(host.nominated).toBe(false);
       } finally {
+        stopReceiving();
         await h.connection.close();
       }
     });
@@ -442,7 +485,7 @@ describe("failover: review regressions (delay, late candidate, state, silence)",
     { mode: "semi-aggressive", renomination: false },
     { mode: "renomination", renomination: true },
   ])(
-    "($mode) a selected pair with RTT 1.2 s that goes dead fails over within the D3 bound: checks keep the 900 ms pacing while earlier ones still wait for their response",
+    "($mode) a selected pair with RTT 1.2 s that goes dead fails over within 10 s (it stopped receiving once its first check passed its 2.6 s deadline): checks keep the 900 ms pacing while earlier ones still wait for their response",
     async ({ renomination }) => {
       // RTT 1.2 s (応答待ちは RTT から 2.6 s)。
       const h = await createFailoverHarness({
@@ -481,17 +524,17 @@ describe("failover: review regressions (delay, late candidate, state, silence)",
           .map(({ cancelled, answered }) => ({ cancelled, answered }));
         await h.advanceUntil(() => h.connection.nominated === relay, 5000);
 
-        // Assert: 遮断から 10 s 以内に書き込み不可と判定して relay へ指名し、移る。
+        // Assert: 遮断から 10 s 以内 (受信途絶: 最初の check の応答期限 2.6 s が過ぎた時点) に relay へ指名し、移る。
         expect(took).toBeLessThanOrEqual(10_000);
         expect(h.connection.nominated).toBe(relay);
-        // Assert: 遮断後の check は前の応答待ちを取り消さず、900 ms 間隔で重ねて送られた。
+        // Assert: 遮断後の check は前の応答待ちを取り消さず、900 ms 間隔で重ねて送られた (期限までに 3 回)。
         const sent = h
           .requestsTo(host)
           .filter((request) => request.at >= cutAt && request.at <= decided);
-        expect(sent.length).toBeGreaterThanOrEqual(5);
+        expect(sent.length).toBeGreaterThanOrEqual(3);
         const gaps = sent.slice(1).map((r, i) => r.at - sent[i].at);
         for (const gap of gaps.slice(1)) expect(gap).toBeLessThanOrEqual(1000);
-        expect(atDecision.length).toBeGreaterThanOrEqual(5);
+        expect(atDecision.length).toBeGreaterThanOrEqual(3);
         for (const request of atDecision) {
           expect(request).toEqual({ cancelled: false, answered: false });
         }
@@ -592,6 +635,9 @@ describe("failover: review regressions (delay, late candidate, state, silence)",
       ).failover.livenessOf(host)!;
     await vi.advanceTimersByTimeAsync(10_000);
 
+    // 負荷の高い間も相手のデータは届き続ける (届かなければ受信途絶で移るのが正しい: §15 A)。
+    const stopReceiving = h.keepReceiving(host);
+
     try {
       // Act: 以後の応答が 3 s 遅れる (期限 500 ms は過ぎるが、transaction の 5 s 以内) 状態で 30 s 進める。
       h.protocols[0].responseDelayMs = 3000;
@@ -607,6 +653,7 @@ describe("failover: review regressions (delay, late candidate, state, silence)",
           expect(request.cancelled || request.answered).toBe(true);
       }
     } finally {
+      stopReceiving();
       await h.connection.close();
     }
   });
@@ -642,10 +689,13 @@ describe("failover: review regressions (delay, late candidate, state, silence)",
       const switchedAt = Date.now();
       await vi.advanceTimersByTimeAsync(15_000);
 
-      // Assert: 以後の consent check は ICE-CONTROLLED で送られて応答され、書き込み不可にも disconnected にもならない。
+      // Assert: 以後の consent check (取り消した要求を除く) は ICE-CONTROLLED で送られて応答され、書き込み不可にも disconnected にもならない。
       const after = h
         .requestsTo(host)
-        .filter((request) => request.at >= switchedAt && request.done);
+        .filter(
+          (request) =>
+            request !== inFlight && request.at >= switchedAt && request.done,
+        );
       expect(after.length).toBeGreaterThan(0);
       for (const request of after) {
         expect(request.controlling).toBe(false);

@@ -235,6 +235,7 @@ export class SecureTransportManager {
       nominationDelayMs: this.config.iceNominationDelayMs,
       nomination: this.config.iceNomination,
       renomination: this.config.iceRenomination,
+      failover: this.config.iceFailover,
       turnTlsOptions: this.config.turnTlsOptions,
       turnUdpFamily: this.config.turnUdpFamily,
       useLinkLocalAddress: this.config.iceUseLinkLocalAddress,

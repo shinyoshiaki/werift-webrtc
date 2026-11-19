@@ -46,9 +46,9 @@ describe("acceptance: a cut selected path fails over without an ICE restart", ()
         // Act: host ↔ host の経路を両方向とも遮断する (relay は通るまま)。
         cutHostPath();
 
-        // Assert: controlling 側 (a) が D3 の上限 (約 10 s) に余裕を足した時間内に relay 経路へ移る。
+        // Assert: controlling 側 (a) が、受信途絶 (2.5 s + 1 s と未応答の check、約 4 s。§15 A) に余裕を足した 6 s 以内に relay 経路へ移る。
         await vi.waitFor(() => expect(selectsRelayPath(a)).toBe(true), {
-          timeout: 12_000,
+          timeout: 6000,
           interval: 100,
         });
 

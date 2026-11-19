@@ -22,9 +22,9 @@ ide:
 
 | 件 | 確認すること |
 | --- | --- |
-| [(semi-aggressive / renomination) 1章・F3・F5](review-file:packages/ice/tests/ice/failover-acceptance.test.ts:19) | host 経路で接続しデータが届く → 遮断から 12 s 以内に controlling 側が relay 経路へ移る → controlled 側も同じ 5-tuple に移り、データが双方向に届く → ICE restart なし（`generation` 不変）、両端とも `failed` を経ずに `connected` |
+| [(semi-aggressive / renomination) 1章・F3・F5](review-file:packages/ice/tests/ice/failover-acceptance.test.ts:19) | host 経路で接続しデータが届く → 遮断から 6 s 以内（§15 A。実測 3.9 s）に controlling 側が relay 経路へ移る → controlled 側も同じ 5-tuple に移り、データが双方向に届く → ICE restart なし（`generation` 不変）、両端とも `failed` を経ずに `connected` |
 
-実行: `cd packages/ice && npx vitest run tests/ice/failover-acceptance.test.ts`（2 件、各 8〜10 s、計約 18 s）。10 回連続で通過しました。修正前のリビジョン `e83850f0e` では 2 件とも失敗します（relay 経路へ移らない）。
+実行: `cd packages/ice && npx vitest run tests/ice/failover-acceptance.test.ts`（2 件、各 4.6〜6.0 s。§15 の前は各 8〜10 s）。10 回連続で通過しました。修正前のリビジョン `e83850f0e` では 2 件とも失敗します（relay 経路へ移らない）。
 
 壊して確かめた箇所: controlling の退避の指名をやめる・書き込み不可を判定しない・退避先を監視しない、の 3 つは 2 件とも失敗。下位への置き換え（`failoverReplaces`）を外す・controlled が同じ値の指名で追従しない、の 2 つは semi-aggressive だけが失敗します（renomination は値の大きい NOMINATION で常に移るため、仕様どおり）。regular nomination は対象外（F7）のため、この件には含めず既存の `failover.test.ts` で確認しています。
 
@@ -142,12 +142,25 @@ ide:
 
 テスト側では、[packages/ice/tests/ice/semi-aggressive.test.ts](review-diff:packages/ice/tests/ice/semi-aggressive.test.ts) の 2 件を新しい規則に合わせて書き換えています。「再試行は 5 回で止まる」は「5 回目の後も 16 s ごとに続く」に、「ロール変更で再試行が止まる」は「controlled になった側は上位ペアとしての再 check（ICE-CONTROLLING / USE-CANDIDATE）を送らない」になりました。同一ソケットの退避先としての監視（ICE-CONTROLLED、指名なし）は続きます。
 
+### 3.7 第 13 回の変更（§15: 退避先への切り替えの高速化 A・B・C）
+
+両方向の断から退避まで約 5〜10 s かかっていたのを、libwebrtc に合わせて短くしました。テストは [packages/ice/tests/ice/failover-detection.test.ts:41](review-file:packages/ice/tests/ice/failover-detection.test.ts:41) の 1 ファイル（20 件）にまとめています。
+
+| 案 | 内容 | 場所 |
+| --- | --- | --- |
+| A 受信途絶 | 選択中のペアが 2.5 s + 1 s 何も受けず、check が 1 回以上未応答なら、controlling は受信している（weak でない）退避先へ指名する。controlled は同じ状態で、同じ強さの USE-CANDIDATE に従う。遮断から約 3.9 s | [packages/ice/src/failover.ts:160](review-file:packages/ice/src/failover.ts:160)、[packages/ice/src/ice.ts:2844](review-file:packages/ice/src/ice.ts:2844) |
+| B 経路の消失 | UDP の送信の経路エラー（`PATH_BROKEN_SEND_ERRORS`）、TURN allocation の喪失（TCP/TLS の切断・Refresh の失敗）を `Protocol.onPathBroken` で報告し、その経路のペアをすぐ書き込み不可にする。STUN は常に、データは 100 ms に 1 個、完了コールバックつきで送る | [packages/ice/src/stun/protocol.ts:24](review-file:packages/ice/src/stun/protocol.ts:24)、[packages/ice/src/turn/protocol.ts:351](review-file:packages/ice/src/turn/protocol.ts:351)、[packages/ice/src/ice.ts:2964](review-file:packages/ice/src/ice.ts:2964)、[packages/common/src/transport.ts:511](review-file:packages/common/src/transport.ts:511) |
+| C 閾値 | `IceOptions.failover` / `PeerConfig.iceFailover`（`unwritableMinChecks`・`unwritableTimeout`・`receivingTimeout`・`receivingSwitchingDelay`、既定値は libwebrtc） | [packages/ice/src/iceBase.ts:479](review-file:packages/ice/src/iceBase.ts:479)、[packages/ice/src/failover.ts:36](review-file:packages/ice/src/failover.ts:36)、[packages/webrtc/src/api/peerConfig.ts:181](review-file:packages/webrtc/src/api/peerConfig.ts:181) |
+
+作業中に、consent の最初の check が無受信 2.5 s の規則に従っていない漏れ（§14 までの D3 にもあったもの）を見つけて直しました（[packages/ice/src/consent.ts:296](review-file:packages/ice/src/consent.ts:296)）。新しい選択の直後に切れた経路は、最初の check が 4〜6 s 後になっていました。このため受け入れテストの切り替えが 4.7〜6.5 s にばらついていました。直した後は 3.9 s で一定です。各仕組みを 1 か所ずつ壊して、対応するテストが落ちることをチケット §15.7 に記録しています。
+
 ## 4. 判断理由
 
 - **点修正をやめ、不変条件と行列テストにした**。指摘が毎回同じ族（監視されない／使われない）だったためです。例外は「自分で選択を上へ移す agent の上位ペアは `SelectionReplacement` に任せる」の 1 つだけにしました。
 - **退避先の単位はローカルの `Protocol` ごとに 1 ペア**。同じソケットの host と srflx は経路が同じなので分けません。すべての valid ペアを監視する案は、ping がペア数に比例して増えるため採用しませんでした。
 - **書き込み不可の判定は 5 回かつ 5 s**。libwebrtc の `CONNECTION_WRITE_CONNECT_FAILURES` / `_TIMEOUT` に合わせています。consent の間隔（5 s）自体は短くせず、弱い状態のときだけ 900 ms にします。
-- **RTT やネットワークコストでの切り替えは入れない**。切り替えの理由は「書き込み不可」に限ります。
+- **RTT やネットワークコストでの切り替えは入れない**。切り替えの理由は「書き込み不可」と「受信途絶」（§15 A、libwebrtc の receiving）に限ります。受信途絶には未応答の check を条件にしたので、idle の接続や、応答が期限内に届く遅い経路では切り替わりません。
+- **インターフェースの消失の定期的な確認は入れない**（§15 B）。アドレスが消えると次の送信が経路エラーになるので、データが流れていれば 100 ms 以内、idle でも次の check で検知できるためです。
 - **対象外は従来どおり**。regular nomination は RFC 8445 §8.1.1 が再指名を認めないため、ICE-TCP と ICE-lite は退避の前提が合わないためです。
 
 ## 5. レビュアーが確認すべき点・リスク
@@ -160,9 +173,24 @@ ide:
 - **差分に含まれる範囲外の変更**: memleak のハーネス修正（`tests/memleak/scenarios.ts`）は、この環境の loopback の受信バッファあふれで media シナリオが失敗していたための修正です。leak 判定は変えていません。
 - **上位ペアの再試行が無期限になった**: failover 有効中は 16 s ごとのタイマーが選択の続く間ずっと残ります。close とロール変更では止まること、対象外（ICE-TCP など）では従来どおり 5 回で止まることを確認してください（[packages/ice/tests/ice/semi-aggressive.test.ts](review-diff:packages/ice/tests/ice/semi-aggressive.test.ts)）。
 - **controlled の置き換え条件が広がった**: 選択が down のとき、同じ値の USE-CANDIDATE で置き換わります。選択が生きている間の挙動は変わりません。
+- **§15 の切り替えの前倒し**: 3.5 s 以上何も届かない経路は、書き込み不可を待たずに切り替わります。戻りには従来どおり 3 回連続の応答が必要です。短い閾値（C）を選ぶと、短い損失でも切り替わります。
+- **§15 の送信の確認**: STUN と、ソケットごとに 100 ms に 1 個のデータを、完了コールバックつきで送るようになりました（Node.js はコールバックなしの UDP の送信エラーを捨てるため）。IP アドレス宛ての送信は、従来どおり reject しません。
 - **公開 API**: 追加した定数が `iceBase.ts` から export され、生成ドキュメントに載ります。メソッドや型の変更は確認できていません。
 
 ## 6. 検証結果
+
+§15（第 13 回）の後の結果（作業前のリビジョン `aaacc5263`、変更は未コミット。詳細はチケット §15.9）:
+
+| コマンド | 結果 |
+| --- | --- |
+| `cd packages/ice && npm test` | 1197 件通過 |
+| `npm run type` | 通過 |
+| `npm run test:small` | 通過（webrtc 2152 件を含む） |
+| `npm run e2e` | 27 ファイル / 77 件通過（Chrome の failover は単独でも 2 件通過、各 4.2 s） |
+| `npm run wpt` | PASS 582、退行 0 |
+| `npm run memleak` | 未実施 |
+
+以下は第 12 回までの結果です。
 
 チケット §13.7 に記載された実施結果です。この文書の作成時には再実行していません（作業前のリビジョンは `fc09f02bd`）。
 
