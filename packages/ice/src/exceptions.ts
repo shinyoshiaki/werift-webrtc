@@ -125,3 +125,16 @@ export class TurnRedirectError extends Error {
     this.alternate = alternate;
   }
 }
+
+/**
+ * `Connection.connect()` was cancelled because an ICE restart (local or
+ * remote-only) replaced the generation it was checking. It says nothing about
+ * the new generation, whose own connect() reports its outcome (webrtc's
+ * `RTCIceTransport` / `TransportActivation` leave the state to it).
+ */
+export class IceRestartedError extends Error {
+  constructor() {
+    super("ICE restarted: connect() of the replaced generation was cancelled");
+    this.name = "IceRestartedError";
+  }
+}

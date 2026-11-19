@@ -163,6 +163,22 @@ Return `true` if a STUN response should be sent, false if it should be skipped.
 
 ***
 
+### iceIncomingCheckTimeout
+
+> **iceIncomingCheckTimeout**: `number` \| `undefined`
+
+Seconds ICE waits for a connectivity check from the peer when it has no
+candidate pair of its own to check after both sides ended their
+candidates (the peer offered only active TCP candidates, as Firefox does
+for ICE-TCP, or none werift can reach). Without a check in that time the
+ICE transport fails. With `iceLite`, which sends no checks, ICE waits the
+same time whenever it has no candidate pair, also while it still
+gathers. The deadline is fixed when the wait begins; once gathering ended
+without a socket that could receive a check, ICE fails at once. Defaults
+to 30 when undefined; 0 fails at once.
+
+***
+
 ### iceInterfaceAddresses
 
 > **iceInterfaceAddresses**: [`InterfaceAddresses`](../type-aliases/InterfaceAddresses.md) \| `undefined`

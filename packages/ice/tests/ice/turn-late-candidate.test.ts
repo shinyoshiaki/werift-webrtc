@@ -161,6 +161,7 @@ describe("TURN relay candidate gathered after the remote candidates", () => {
         turnServer: tlsServer.address,
         turnTransport: "tls",
         turnConnectTimeout: 0.5,
+        incomingCheckTimeout: 0.1,
       },
     });
     const order: string[] = [];
