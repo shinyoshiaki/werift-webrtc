@@ -372,3 +372,25 @@ export function setReverseResetTimeout(pc: RTCPeerConnection, ms: number) {
 export function closingStreamsOf(pc: RTCPeerConnection) {
   return [...(pc as any).sctpManager.sctpTransport.closingStreams.keys()];
 }
+
+/**
+ * `channel` の SCTP transport に、相手から stream `streamId` で届いたものとして
+ * DCEP / ユーザーデータを渡す (受信コールバックを直接呼ぶ)。
+ */
+export function receiveOn(
+  channel: RTCDataChannel,
+  streamId: number,
+  ppId: number,
+  data: Buffer,
+): Promise<void> {
+  return (channel as any).sctp.datachannelReceive(streamId, ppId, data);
+}
+
+/** RFC 8832 DATA_CHANNEL_OPEN (reliable / ordered、protocol なし)。 */
+export function dcepOpen(label: string) {
+  const labelBytes = Buffer.from(label, "utf8");
+  const header = Buffer.alloc(12);
+  header.writeUInt8(3, 0); // DATA_CHANNEL_OPEN
+  header.writeUInt16BE(labelBytes.length, 8);
+  return Buffer.concat([header, labelBytes]);
+}

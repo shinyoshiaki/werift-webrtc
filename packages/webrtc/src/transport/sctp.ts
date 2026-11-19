@@ -96,7 +96,10 @@ export class RTCSctpTransport {
    * @internal
    * How long a channel whose outgoing stream is reset waits for the peer to
    * reset its side before it closes anyway: older werift resets only a stream
-   * it sent ordered data on.
+   * it sent ordered data on. A peer that does reset sends its request with
+   * its response to ours; 5 s covers one retransmission of a lost request
+   * (SCTP RTO.Initial 3 s, RFC 9260 section 16) and keeps the `close` of a
+   * channel to older werift at most 5 s late.
    */
   reverseResetTimeout = 5_000;
 
@@ -546,6 +549,13 @@ export class RTCSctpTransport {
                 channel,
               );
               channel.setReadyState("open");
+            } else if (existing.readyState !== "open") {
+              // The peer's channel on this stream is closing (RFC 8831
+              // section 6.7 reset under way): an OPEN on a stream in use is
+              // not acknowledged (RFC 8832 section 6), and the close that
+              // RFC asks for is already running.
+              log("DATA_CHANNEL_OPEN on a closing stream, ignored", streamId);
+              return;
             } else {
               log("datachannel already opened", "retransmit ack");
             }
@@ -593,6 +603,18 @@ export class RTCSctpTransport {
         })();
         if (msg === undefined) {
           log("message with an unknown PPID, ignored", { streamId, ppId });
+          return;
+        }
+
+        // W3C webrtc-pc "Receiving messages on a data channel" step 3: not
+        // `open` (here `closing`: the stream reset is under way) discards the
+        // message; libwebrtc does not deliver it either. `connecting` still
+        // delivers: unordered data of the peer may overtake its ACK.
+        if (
+          channel.readyState === "closing" ||
+          channel.readyState === "closed"
+        ) {
+          log("message on a closing data channel, discarded", streamId);
           return;
         }
 

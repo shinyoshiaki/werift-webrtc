@@ -1,14 +1,17 @@
 import { describe, expect, test } from "vitest";
 
 import {
+  captureSentDcep,
   channelSetsOf,
   closeAll,
   closingStreamsOf,
   createNegotiatedPair,
+  dcepOpen,
   deliver,
   emulateLegacyResetHandling,
   openChannelPair,
   openNegotiatedPair,
+  receiveOn,
   setReverseResetTimeout,
   waitClosed,
   waitOpen,
@@ -69,7 +72,12 @@ describe("issue 815: a stream ID reused after a close (RFC 8831 section 6.7 rese
 
         // Assert: 両端とも閉じた channel を登録表に残さない。
         expect(channelSetsOf(pair.offerer).registered).toEqual([]);
-        expect(channelSetsOf(pair.answerer).registered).toEqual([]);
+        // Assert: ACK が送信待ちキューに残ることもない。
+        expect(channelSetsOf(pair.answerer)).toEqual({
+          registered: [],
+          unannounced: [],
+          queued: [],
+        });
 
         // Act: 同じ ID 4 で作り直し、双方向に送る。
         const reused = createNegotiatedPair(pair.offerer, pair.answerer, {
@@ -222,4 +230,73 @@ describe("issue 815: closing waits for the peer's reset", () => {
       }
     },
   );
+});
+
+describe("issue 815: what a closing channel accepts while its stream reset runs", () => {
+  /** WEBRTC_STRING (RFC 8831 section 8)。 */
+  const WEBRTC_STRING = 51;
+  const WEBRTC_DCEP = 50;
+
+  test("a message arriving while closing is discarded (W3C: not open discards it)", async () => {
+    // Arrange: 両端で open の channel。open の間に届いたメッセージは配送される。
+    const pair = await openChannelPair();
+    const delivered: string[] = [];
+    pair.local.onMessage.subscribe((data) => delivered.push(data.toString()));
+    await receiveOn(
+      pair.local,
+      pair.local.id,
+      WEBRTC_STRING,
+      Buffer.from("while-open"),
+    );
+
+    try {
+      // Act: 自分から閉じ (closing)、reset が終わる前にメッセージが届く。
+      pair.local.close();
+      expect(pair.local.readyState).toBe("closing");
+      await receiveOn(
+        pair.local,
+        pair.local.id,
+        WEBRTC_STRING,
+        Buffer.from("while-closing"),
+      );
+
+      // Assert: closing 中のメッセージは配送も受信統計への加算もされない。
+      expect(delivered).toEqual(["while-open"]);
+      expect(pair.local.messagesReceived).toBe(1);
+      // Assert: close はそのまま両端で完了する。
+      await waitClosed(pair.local);
+      await waitClosed(pair.remote);
+    } finally {
+      await closeAll(pair.offerer, pair.answerer);
+    }
+  });
+
+  test("a DATA_CHANNEL_OPEN on the stream of a closing remote channel is not acknowledged", async () => {
+    // Arrange: 相手が作った channel (answerer 側) を閉じ始め、answerer の DCEP 送信を記録する。
+    const pair = await openChannelPair();
+    const sent = captureSentDcep(pair.answerer);
+    const announced: string[] = [];
+    pair.answerer.onDataChannel.subscribe((c) => announced.push(c.label));
+    pair.remote.close();
+    expect(pair.remote.readyState).toBe("closing");
+
+    try {
+      // Act: reset が終わる前に、同じ stream で OPEN が届く。
+      await receiveOn(
+        pair.remote,
+        pair.remote.id,
+        WEBRTC_DCEP,
+        dcepOpen("late-open"),
+      );
+
+      // Assert: ACK も新しい channel の通知もなく、元の close は両端で完了する。
+      expect(sent.filter((m) => m.startsWith("ACK"))).toEqual([]);
+      expect(announced).toEqual([]);
+      await waitClosed(pair.remote);
+      await waitClosed(pair.local);
+      expect(channelSetsOf(pair.answerer).registered).toEqual([]);
+    } finally {
+      await closeAll(pair.offerer, pair.answerer);
+    }
+  });
 });
