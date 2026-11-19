@@ -2364,15 +2364,17 @@ export function connectionProtocols(connection: Connection) {
  */
 export async function createRelayProvisionalRestartPair() {
   const host = "127.0.0.1";
-  const interfaceAddresses = { udp4: host };
   const server = await createLocalTurnServer(host);
-  const a = createTestConnection(true, {
-    ...localTurnOptions(server),
+  const shared: Partial<IceOptions> = {
     useIpv6: false,
-    interfaceAddresses,
+    interfaceAddresses: { udp4: host },
+  };
+  const a = createTestConnection(true, {
+    ...shared,
+    ...localTurnOptions(server),
     nomination: "regular",
   });
-  const b = createTestConnection(false, { useIpv6: false, interfaceAddresses });
+  const b = createTestConnection(false, shared);
   await Promise.all([a.gatherCandidates(), b.gatherCandidates()]);
   exchangeIceCredentials(a, b);
   await deliverLocalCandidates(a, b, { endOfCandidates: true });

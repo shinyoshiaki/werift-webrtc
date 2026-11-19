@@ -27,6 +27,7 @@ import { codecParametersFromString } from "../sdp";
 import {
   createPacketizer,
   type Packetizer,
+  packetizerStateKey,
   type SupportedSourceCodec,
   supportedSourceCodecs,
   toSupportedMimeType,
@@ -330,7 +331,12 @@ class TrackPlaybackRunner {
     // RTCRtpSender assigns a new codec object on every offer/answer (and the
     // payload type may only be filled in after playback started), so compare
     // by value; identity would reset PictureID at the next loop.
-    const codecKey = packetizerCodecKey(codec);
+    // Raw fmtp is not compared either: answers may add parameters such as VP8
+    // max-fs / max-fr that do not change the packetizer output.
+    const codecKey = packetizerStateKey({
+      codec,
+      sourceCodec: this.props.sourceCodec,
+    });
     if (this.packetizer?.codecKey !== codecKey) {
       this.packetizer = {
         codecKey,
@@ -613,19 +619,6 @@ function toBuffer(value: Buffer | ArrayBuffer | ArrayBufferView | string) {
     return Buffer.from(value.buffer, value.byteOffset, value.byteLength);
   }
   return Buffer.from(new Uint8Array(value));
-}
-
-/**
- * Codec fields that change `createPacketizer` output. The payload type is
- * excluded: `MediaStreamTrack.writeRtp` rewrites it from `track.codec`.
- */
-function packetizerCodecKey(codec: RTCRtpCodecParameters) {
-  return JSON.stringify([
-    normalizeMimeType(codec.mimeType),
-    codec.clockRate,
-    codec.channels,
-    codec.parameters,
-  ]);
 }
 
 function normalizeMimeType(mimeType: string) {

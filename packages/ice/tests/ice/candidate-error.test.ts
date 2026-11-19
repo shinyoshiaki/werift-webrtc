@@ -1,4 +1,5 @@
 import { setTimeout as delay } from "node:timers/promises";
+import { afterEach, beforeEach, vi } from "vitest";
 import type { Address } from "../../../common/src";
 import {
   classifyGatherError,
@@ -30,6 +31,7 @@ import {
   createFixedMappingStunServer,
   createLocalTurnServer,
   createSilentUdpServer,
+  fakeNetworkInterfaces,
   localReflexiveCandidates,
   localRelayCandidates,
   localTurnServerEntry,
@@ -58,13 +60,32 @@ import {
   singleIpv4Socket,
 } from "./candidateErrorUtils";
 
+// candidate-error テストでは NIC を 1 つに固定し、明示した loopback socket を追加する。
+const networkInterfaces = vi.hoisted(() => ({
+  current: undefined as Record<string, unknown> | undefined,
+}));
+vi.mock("node:os", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:os")>();
+  return {
+    ...actual,
+    networkInterfaces: () =>
+      networkInterfaces.current ?? actual.networkInterfaces(),
+  };
+});
+
+beforeEach(() => {
+  networkInterfaces.current = fakeNetworkInterfaces({
+    eth0: [candidateErrorHost],
+  });
+});
+afterEach(() => {
+  networkInterfaces.current = undefined;
+  vi.restoreAllMocks();
+});
+
 const NOT_REACHED = IceCandidateErrorCode.SERVER_NOT_REACHED;
 
 describe("onIceCandidateError: STUN", () => {
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
   test("存在しない DNS 名の STUN は 701 で通知され、host candidate のアドレスを持つ (名前解決の失敗)", async () => {
     // Arrange: 名前解決の失敗をすぐ返すよう注入し、gather timeout は十分長くして競合させない
     const lookup = failDnsLookup("stun.invalid");
