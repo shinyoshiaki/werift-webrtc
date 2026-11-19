@@ -5,13 +5,19 @@
 import { expect, vi } from "vitest";
 
 import {
-  type RTCDataChannel,
-  type RTCDtlsTransport,
+  defaultPeerConfig,
+  RTCDataChannel,
+  RTCDataChannelParameters,
+  RTCDtlsTransport,
   RTCPeerConnection,
   RTCSctpTransport,
 } from "../../src";
 import type { RTCSessionDescriptionInit } from "../../src/sdpManager";
-import { createDtlsTransport } from "../fixture";
+import {
+  createDtlsTransport,
+  createTestCertificate,
+  iceTransportPair,
+} from "../fixture";
 import {
   createConnectedVideoPeers,
   exchangePranswer,
@@ -400,4 +406,34 @@ export function sendStreamReset(pc: RTCPeerConnection, streamId: number) {
   const sctp = (pc as any).sctpManager.sctpTransport.sctp;
   sctp.reconfigQueue.push(streamId);
   return sctp.transmitReconfigRequest();
+}
+
+/**
+ * ICE だけ接続した DTLS transport のペア (DTLS は未開始で role は `auto`)。
+ * `start()` で ICE role から role が決まる。
+ */
+export async function createUnstartedDtlsPair() {
+  const [ice1, ice2] = await iceTransportPair();
+  ice1.connection.iceControlling = true;
+  ice2.connection.iceControlling = false;
+  const certificate = await createTestCertificate();
+  const first = new RTCDtlsTransport(defaultPeerConfig, ice1, certificate);
+  const second = new RTCDtlsTransport(defaultPeerConfig, ice2, certificate);
+  first.setRemoteParams(second.localParameters);
+  second.setRemoteParams(first.localParameters);
+  const start = () => Promise.all([first.start(), second.start()]);
+  const stop = () => Promise.all([first.stop(), second.stop()]);
+  return { first, second, start, stop };
+}
+
+/** `transport` に in-band channel を直接作る (公開入口を通さない内部の経路)。 */
+export function createInBandChannel(
+  transport: RTCSctpTransport,
+  label: string,
+  id?: number,
+) {
+  return new RTCDataChannel(
+    transport,
+    new RTCDataChannelParameters({ label, id: id as number }),
+  );
 }

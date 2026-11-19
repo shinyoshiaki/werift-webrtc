@@ -7,12 +7,20 @@ import {
 } from "../../src";
 import { createDtlsTransport } from "../fixture";
 import {
+  createConnectedVideoPeers,
+  exchangeOfferAnswer,
+  rejectApplicationSection,
+} from "../negotiation/harness/negotiationTransactionUtils";
+import {
+  attachLimitedTransport,
   captureSentDcep,
   channelSetsOf,
   closeAll,
   closedObservation,
+  createInBandChannel,
   createLimitedTransport,
   createPeers,
+  createUnstartedDtlsPair,
   forceIdParity,
   negotiate,
   nextMessage,
@@ -628,4 +636,152 @@ describe("issue 815: a DATA_CHANNEL_OPEN violating the odd/even rule on an unuse
       }
     },
   );
+});
+
+describe("issue 815: each source of the DTLS role assigns the stream IDs", () => {
+  test.each(["rollback", "final answer rejecting m=application"] as const)(
+    "a %s gives the IDs back and the next answer, keeping the DTLS role, assigns them again",
+    async (how) => {
+      // Arrange: 接続済み (DTLS role 確定済み) のセッションで後付けの channel を作る。
+      const { offerer, answerer } = await createConnectedVideoPeers();
+      const channel = offerer.createDataChannel("late");
+      const assigned = channel.id;
+      expect(assigned).toBeDefined();
+      try {
+        // Act: m=application を含む offer を rollback する、または final answer で拒否する。
+        await offerer.setLocalDescription(await offerer.createOffer());
+        if (how === "rollback") {
+          await offerer.setLocalDescription({ type: "rollback" });
+        } else {
+          await answerer.setRemoteDescription(offerer.localDescription!);
+          const answer = await answerer.createAnswer();
+          await offerer.setRemoteDescription({
+            type: "answer",
+            sdp: rejectApplicationSection(answer.sdp),
+          });
+          await answerer
+            .setLocalDescription({ type: "rollback" })
+            .catch(() => {});
+        }
+
+        // Assert: OPEN 未送信の予約は解放される。
+        expect(channel.id).toBeUndefined();
+        expect(channel.readyState).toBe("connecting");
+
+        // Act: DTLS role を変えない次の offer / answer。
+        await exchangeOfferAnswer(offerer, answerer);
+
+        // Assert: role 変更の通知はなくても、answer の適用で同じ偶奇の ID が付き、open になる。
+        expect(channel.id).toBe(assigned);
+        await waitOpen(channel);
+      } finally {
+        await closeAll(offerer, answerer);
+      }
+    },
+    15000,
+  );
+
+  test("the DTLS start resolving auto assigns the IDs of the role it took", async () => {
+    // Arrange: role が auto の DTLS transport に SCTP transport と in-band channel を載せる。
+    const dtls = await createUnstartedDtlsPair();
+    const transport = new RTCSctpTransport();
+    transport.setDtlsTransport(dtls.first);
+    const channel = createInBandChannel(transport, "auto");
+    expect(dtls.first.role).toBe("auto");
+    expect(channel.id).toBeUndefined();
+
+    try {
+      // Act: DTLS を開始する (ICE controlling 側は DTLS server になる)。
+      await dtls.start();
+
+      // Assert: 決まった role の偶奇で ID が付く。
+      expect(dtls.first.role).toBe("server");
+      expect(channel.id).toBe(1);
+    } finally {
+      await transport.stop();
+      await dtls.stop();
+    }
+  });
+
+  test("a move to a DTLS transport with a decided role assigns its parity; a reset association waits for the next negotiation", async () => {
+    // Arrange: role が auto の DTLS transport 上の in-band channel と、role が server の移動先。
+    const transport = new RTCSctpTransport();
+    transport.setDtlsTransport(createDtlsTransport());
+    const channel = createInBandChannel(transport, "moved");
+    const target: RTCDtlsTransport = createDtlsTransport();
+    target.role = "server";
+
+    try {
+      // Act: BUNDLE などで移動先の DTLS transport に付け替える。
+      transport.setDtlsTransport(target);
+
+      // Assert: 移動先の role (server = 奇数) で ID が付く。
+      expect(channel.id).toBe(1);
+
+      // Act: association を作り直す (rollback と同じ経路)。
+      await transport.resetAssociation();
+
+      // Assert: 予約は解放され、次の採番 (交渉) まで待つ。
+      expect(channel.id).toBeUndefined();
+      transport.assignPendingStreamIds();
+      expect(channel.id).toBe(1);
+    } finally {
+      await transport.stop();
+    }
+  });
+
+  test("a channel failing for lack of an ID without any listener throws nothing", async () => {
+    // Arrange: ID が 1 つしかない transport に、リスナーのない 2 つの channel を待機させる。
+    const pc = new RTCPeerConnection();
+    const { dtls, transport, create } = attachLimitedTransport(pc);
+    const [, failed] = ["ok", "failed"].map(create);
+
+    try {
+      // Act / Assert: role 確定で 2 つ目が失敗しても例外は出ない (error リスナーなしの emit)。
+      expect(() => {
+        dtls.role = "client";
+      }).not.toThrow();
+      expect(failed.readyState).toBe("closed");
+    } finally {
+      await transport.stop();
+      await pc.close();
+    }
+  });
+
+  test("an in-band channel reaching the transport with an id is an internal error", async () => {
+    // Arrange: 公開入口 (in-band の id を捨てる) を通さずに作る準備。
+    const transport = new RTCSctpTransport();
+    transport.setDtlsTransport(createDtlsTransport());
+
+    try {
+      // Act / Assert: in-band の ID は DTLS role から採るので、指定済みの id は内部の不変条件違反。
+      expect(() => createInBandChannel(transport, "with-id", 3)).toThrow(
+        /in-band data channel gets its stream ID from the DTLS role/,
+      );
+    } finally {
+      await transport.stop();
+    }
+  });
+
+  test("closing one channel before negotiation keeps the OPEN of another (queue filtered by identity)", async () => {
+    // Arrange: 交渉前 (どちらも ID なし) の 2 つの in-band channel。
+    const { offerer, answerer } = createPeers();
+    const closed = offerer.createDataChannel("closed");
+    const kept = offerer.createDataChannel("kept");
+    const announced: string[] = [];
+    answerer.onDataChannel.subscribe((c) => announced.push(c.label));
+
+    try {
+      // Act: 片方だけ閉じてから交渉する。
+      closed.close();
+      await negotiate(offerer, answerer);
+
+      // Assert: 閉じなかった channel だけが相手に通知され、open になる。
+      await waitOpen(kept);
+      expect(closed.readyState).toBe("closed");
+      expect(announced).toEqual(["kept"]);
+    } finally {
+      await closeAll(offerer, answerer);
+    }
+  });
 });

@@ -131,6 +131,7 @@ export class SCTP {
   /**
    * Streams reset (RFC 6525): `"outgoing"` when the peer performed our
    * request, `"incoming"` when we performed the peer's.
+   * @see tests/reconfig.test.ts "the requester sees outgoing, the peer incoming; pending until the peer answers"
    */
   readonly onReconfigStreams = new Event<[number[], "outgoing" | "incoming"]>();
   /**streamId: number, ppId: number, data: Buffer */
@@ -712,6 +713,7 @@ export class SCTP {
   /**
    * A reset of outgoing stream `streamId` is queued or waits for the peer's
    * response (RFC 6525).
+   * @see tests/reconfig.test.ts "the requester sees outgoing, the peer incoming; pending until the peer answers"
    */
   isOutgoingResetPending(streamId: number) {
     return (

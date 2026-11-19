@@ -6,6 +6,7 @@ import {
   attachLimitedTransport,
   channelSetsOf,
   closeAll,
+  closingStreamsOf,
   createPeers,
   limitStreams,
   type NotificationObservation,
@@ -476,6 +477,36 @@ describe("issue 815: re-entrance from close / error callbacks leaves no stale en
       again!.send("after-both");
       await expect(message).resolves.toBe("after-both");
       expect(channelSetsOf(pair.offerer).registered).toEqual(["again:open"]);
+    } finally {
+      await closeAll(pair.offerer, pair.answerer);
+    }
+  });
+
+  test("a closing listener closing the PeerConnection ends the channel once", async () => {
+    // Arrange: 相手から閉じられて closing になったとき、PeerConnection を閉じるリスナー。
+    const pair = await openChannelPair();
+    let closing: Promise<void> | undefined;
+    let closeEvents = 0;
+    pair.local.onclosing = () => {
+      closing = pair.offerer.close();
+    };
+    pair.local.addEventListener("close", () => closeEvents++);
+
+    try {
+      // Act: 相手が channel を閉じる (こちらには相手の stream reset が届く)。
+      pair.remote.close();
+      await vi.waitFor(() => expect(closing).toBeDefined());
+      await closing;
+
+      // Assert: channel は 1 回だけ closed になり、close 中の追跡も残らない。
+      expect(pair.local.readyState).toBe("closed");
+      expect(closeEvents).toBe(1);
+      expect(closingStreamsOf(pair.offerer)).toEqual([]);
+      expect(channelSetsOf(pair.offerer)).toEqual({
+        registered: [],
+        unannounced: [],
+        queued: [],
+      });
     } finally {
       await closeAll(pair.offerer, pair.answerer);
     }

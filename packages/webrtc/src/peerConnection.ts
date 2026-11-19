@@ -404,8 +404,7 @@ export class RTCPeerConnection extends EventTarget {
       this.negotiation,
       this.topology,
     );
-    // Every `datachannel` listener is isolated: a throwing one is logged and
-    // skips neither the later ones nor the open of the channel.
+    // Test: tests/issue/815.notification.test.ts "datachannel: later listeners run and the channel opens on both ends"
     this.sctpManager.onDataChannel.subscribe((channel) => {
       const onError = (error: unknown) =>
         log("datachannel listener failed", error);
@@ -906,12 +905,11 @@ export class RTCPeerConnection extends EventTarget {
   }
 
   /**
-   * W3C webrtc-pc 4.4.1.6 step 2.2.6: an answer / pranswer that negotiates
-   * the application m-line has decided the DTLS role of the SCTP transport,
-   * so every in-band channel still without a stream ID gets one before the
-   * description's promise resolves. A role change already assigned them
-   * (`RTCDtlsTransport.onRoleChange`); this covers a role kept from an earlier
-   * negotiation after a rollback or a rejection gave the IDs back.
+   * W3C webrtc-pc 4.4.1.6 step 2.2.6: an answer / pranswer negotiating the
+   * application m-line assigns stream IDs before its promise resolves, also
+   * when the DTLS role it keeps did not change.
+   * @see tests/issue/815.test.ts "issue 815: data channel stream IDs follow the DTLS role"
+   * @see tests/issue/815.test.ts "a %s gives the IDs back and the next answer, keeping the DTLS role, assigns them again"
    */
   private assignDataChannelIds(description: SessionDescription) {
     if (description.type !== "answer" && description.type !== "pranswer") {
@@ -946,9 +944,8 @@ export class RTCPeerConnection extends EventTarget {
       id?: number;
     }> = {},
   ): RTCDataChannel {
-    // W3C webrtc-pc createDataChannel step 2: [[IsClosed]]. Checked first,
-    // also for a `close` listener while close() runs (the SCTP transport is
-    // still there), so no channel outlives the close.
+    // W3C webrtc-pc createDataChannel step 2: [[IsClosed]].
+    // Test: tests/issue/815.notification.test.ts "pc.close(): createDataChannel throws, channel.close() and pc.close() complete"
     this.assertNotClosed();
     // Reject invalid input before creating the transport or scheduling
     // negotiation, so a failed call leaves the connection unchanged.

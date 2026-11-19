@@ -639,8 +639,7 @@ v6.0.0
 > **failWithError**(`error`): `void`
 
 Internal: W3C webrtc-pc 4.4.1.6 step 2.2.6, no stream ID could be
-generated: the channel becomes `closed`, then `error` (with `error`) and
-`close` fire.
+generated: `closed`, then `error` and `close`, each listener isolated.
 
 #### Parameters
 
@@ -651,6 +650,12 @@ generated: the channel becomes `closed`, then `error` (with `error`) and
 #### Returns
 
 `void`
+
+#### See
+
+ - tests/issue/815.test.ts "a channel waiting for an ID closes with OperationError when none is left"
+ - tests/issue/815.test.ts "close still fires when error listeners throw"
+ - tests/issue/815.test.ts "every error subscriber is notified even if one throws"
 
 ***
 
@@ -1269,7 +1274,7 @@ v0.1.26
 
 > **setId**(`id`): `void`
 
-Internal: `undefined` gives a reserved stream ID back (see RTCSctpTransport).
+Internal: `undefined` gives a reserved stream ID back.
 
 #### Parameters
 
@@ -1280,6 +1285,10 @@ Internal: `undefined` gives a reserved stream ID back (see RTCSctpTransport).
 #### Returns
 
 `void`
+
+#### See
+
+tests/issue/815.test.ts "a rollback gives back the IDs a pranswer reserved"
 
 ***
 
@@ -1318,9 +1327,7 @@ v0.3.5
 
 > **setReadyState**(`state`): `void`
 
-Internal. Every listener is isolated (DOM event semantics): a throwing
-one is logged, and neither skips the later listeners nor reaches the
-caller (the SCTP receive path, `RTCPeerConnection.close()`, a rollback).
+Internal. Every listener is isolated (DOM event semantics).
 
 #### Parameters
 
@@ -1331,6 +1338,11 @@ caller (the SCTP receive path, `RTCPeerConnection.close()`, a rollback).
 #### Returns
 
 `void`
+
+#### See
+
+ - tests/issue/815.test.ts "a throwing close listener of a registered channel skips no listener, channel or teardown"
+ - tests/issue/815.test.ts "pc.close() closes every pending channel even if a close listener throws"
 
 ***
 

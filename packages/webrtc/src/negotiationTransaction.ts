@@ -171,7 +171,8 @@ const RETIRED_UFRAG_HISTORY = 64;
  *   established association is rejected in validate. In-band DataChannel
  *   stream IDs are reserved from the DTLS role as soon as a pranswer or
  *   answer decides it (before its promise resolves); R gives back the IDs
- *   of channels whose DCEP OPEN was not sent (`SctpTransportManager`).
+ *   of channels whose DCEP OPEN was not sent (`SctpTransportManager`;
+ *   test: tests/issue/815.test.ts "a rollback gives back the IDs a pranswer reserved").
  * - Candidates / end-of-candidates: kept per generation (ufrag) and per
  *   proposal; replacement and R drop the pending buckets
  *   (`RemoteCandidates`).

@@ -178,10 +178,10 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   state: DtlsState = "new";
   private _role: DtlsRole = "auto";
   /**
-   * Fires synchronously whenever {@link RTCDtlsTransport.role} changes: an
-   * answer / pranswer naming the role (local or remote), or `start()`
-   * resolving `auto` from the ICE role. The SCTP transport on it assigns the
-   * data channel stream IDs from it (RFC 8832 section 6).
+   * Fires synchronously whenever {@link RTCDtlsTransport.role} changes (a
+   * local or remote answer / pranswer, or `start()` resolving `auto`).
+   * @see tests/issue/815.test.ts "issue 815: data channel stream IDs follow the DTLS role"
+   * @see tests/issue/815.test.ts "the DTLS start resolving auto assigns the IDs of the role it took"
    */
   readonly onRoleChange = new Event<[DtlsRole]>();
   /**
@@ -190,6 +190,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
    * transport takes its INIT client / server side from here, as both peers
    * agreed on it when they started DTLS. Data channel stream IDs follow
    * {@link RTCDtlsTransport.role} instead.
+   * @see tests/issue/815.test.ts "#815 report: reversed ICE / DTLS roles with channels from both ends do not collide"
    */
   iceRoleAtStart?: RTCIceTransport["role"];
   srtpStarted = false;
@@ -274,6 +275,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   /**
    * The DTLS role: `auto` until a description or the handshake start decides
    * it. Data channel stream IDs follow it (client even, server odd).
+   * @see tests/issue/815.test.ts "issue 815: data channel stream IDs follow the DTLS role"
    */
   get role(): DtlsRole {
     return this._role;

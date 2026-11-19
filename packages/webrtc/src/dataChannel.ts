@@ -134,27 +134,30 @@ export class RTCDataChannel extends EventTarget implements DataChannelStats {
     this._bufferedAmountLowThreshold = value;
   }
 
-  /** Internal: `undefined` gives a reserved stream ID back (see RTCSctpTransport). */
+  /**
+   * Internal: `undefined` gives a reserved stream ID back.
+   * @see tests/issue/815.test.ts "a rollback gives back the IDs a pranswer reserved"
+   */
   setId(id: number | undefined) {
     this.id = id as number;
   }
 
   /**
    * Internal: W3C webrtc-pc 4.4.1.6 step 2.2.6, no stream ID could be
-   * generated: the channel becomes `closed`, then `error` (with `error`) and
-   * `close` fire.
+   * generated: `closed`, then `error` and `close`, each listener isolated.
+   * @see tests/issue/815.test.ts "a channel waiting for an ID closes with OperationError when none is left"
+   * @see tests/issue/815.test.ts "close still fires when error listeners throw"
+   * @see tests/issue/815.test.ts "every error subscriber is notified even if one throws"
    */
   failWithError(error: Error) {
     if (this.readyState === "closed") return;
     this.readyState = "closed";
-    // Each notification is isolated: a throwing listener must not skip the
-    // later ones, so `close` always follows `error`.
     const onError = (e: unknown) => log("subscriber failed", e);
     this.stateChange.executeIsolated(onError, "closed");
     this.stateChanged.executeIsolated(onError, "closed");
     this.error.executeIsolated((e) => log("error subscriber failed", e), error);
     notifySafely(log, "onerror", () => this.onerror?.({ error }));
-    // emit("error") would throw without a listener.
+    // Test: tests/issue/815.test.ts "a channel failing for lack of an ID without any listener throws nothing"
     this.emitIsolated((e) => log("error listener failed", e), "error", {
       error,
     });
@@ -164,9 +167,9 @@ export class RTCDataChannel extends EventTarget implements DataChannelStats {
   }
 
   /**
-   * Internal. Every listener is isolated (DOM event semantics): a throwing
-   * one is logged, and neither skips the later listeners nor reaches the
-   * caller (the SCTP receive path, `RTCPeerConnection.close()`, a rollback).
+   * Internal. Every listener is isolated (DOM event semantics).
+   * @see tests/issue/815.test.ts "a throwing close listener of a registered channel skips no listener, channel or teardown"
+   * @see tests/issue/815.test.ts "pc.close() closes every pending channel even if a close listener throws"
    */
   setReadyState(state: DCState) {
     if (state !== this.readyState) {
@@ -198,8 +201,7 @@ export class RTCDataChannel extends EventTarget implements DataChannelStats {
       this.bufferedAmount + amount <= this.bufferedAmountLowThreshold;
     this.bufferedAmount += amount;
     if (crossesThreshold) {
-      // Isolated: called from the SCTP send completion, which a throwing
-      // listener must not interrupt.
+      // Test: tests/issue/815.notification.test.ts "bufferedamountlow: later listeners run and sending continues"
       const onError = (e: unknown) =>
         log("bufferedamountlow listener failed", e);
       this.bufferedAmountLow.executeIsolated(onError);

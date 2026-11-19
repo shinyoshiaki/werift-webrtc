@@ -44,15 +44,14 @@ export type SctpNegotiationState = ReturnType<
  *   application m-line (JSEP 5.11), also on an already connected DTLS
  *   transport: an `m=application` a renegotiation adds to a connected session
  *   starts without touching ICE or DTLS and without moving `connectionState`.
- *   Its INIT client / server side follows the ICE role at the DTLS start.
- *   Stream IDs of in-band channels follow the DTLS role instead (RFC 8832
- *   section 6: client even, server odd) and are reserved as soon as it is
- *   decided, before the description's promise resolves (W3C webrtc-pc
- *   4.4.1.6): by a local or remote answer / pranswer, or by the DTLS start
- *   resolving `auto` (`RTCDtlsTransport.onRoleChange`), or at once by a
- *   `createDataChannel` after that; the DCEP OPEN still waits for the
+ *   Its INIT client / server side follows the ICE role at the DTLS start;
+ *   in-band stream IDs follow the DTLS role (RFC 8832 section 6) and are
+ *   reserved as soon as it is decided, before the description's promise
+ *   resolves (W3C webrtc-pc 4.4.1.6); the DCEP OPEN waits for the
  *   established association. An ICE restart or role conflict keeps them.
- *   `createDataChannel` ignores the `id` of an in-band channel. Starting
+ *   `createDataChannel` ignores the `id` of an in-band channel.
+ *   (Tests: tests/issue/815.test.ts "issue 815: data channel stream IDs follow the DTLS role";
+ *   tests/issue/815.test.ts "issue 815: each source of the DTLS role assigns the stream IDs".) Starting
  *   is idempotent (`RTCSctpTransport.ensureStarted`): an established
  *   association, also one the remote INIT established first, a handshaking
  *   one and a closed one never start again, so a final answer keeping the
@@ -68,7 +67,7 @@ export type SctpNegotiationState = ReturnType<
  *   DTLS transport. Its announced channels close; channels whose OPEN was
  *   not sent give their reserved stream ID back and stay `connecting` until
  *   the next answer assigns one again (also after a final answer rejecting
- *   the application).
+ *   the application). (Test: tests/issue/815.test.ts "a %s gives the IDs back and the next answer, keeping the DTLS role, assigns them again".)
  * - `sctp.mtu` is configuration: every transport, also a pending one, is built
  *   with it, and moving to another DTLS transport keeps it.
  */
@@ -146,9 +145,8 @@ export class SctpTransportManager {
     }
     this.applicationOwned.add(this.sctpTransport);
 
-    // W3C webrtc-pc createDataChannel: `id` only counts for a negotiated
-    // channel. An in-band one gets its stream ID from the DTLS role, so a
-    // given `id` (also an out-of-range one) is ignored, as in browsers.
+    // W3C webrtc-pc createDataChannel: `id` only counts when negotiated.
+    // Test: tests/issue/815.test.ts "an id given to an in-band channel is ignored"
     if (!settings.negotiated && settings.id !== undefined) {
       log("in-band data channel: ignored id", settings.id, label);
     }
@@ -228,8 +226,7 @@ export class SctpTransportManager {
           kept === state.transport ? state.dtlsTransport : undefined,
         );
       } else {
-        // Stream IDs the rolled-back description reserved (its DTLS role)
-        // are taken again by the next negotiation.
+        // Test: tests/issue/815.test.ts "a rollback gives back the IDs a pranswer reserved"
         kept.releaseUnannouncedStreamIds();
       }
     }
@@ -367,9 +364,7 @@ export class SctpTransportManager {
       try {
         await transport.stop();
       } finally {
-        // 未採番 / OPEN 未送信の channel は association の closed では閉じない。
-        // 登録済み channel と同じく stop() の後（PeerConnection・SCTP・DTLS が
-        // すべて closed になった後）に閉じて close を通知する。
+        // Test: tests/issue/815.test.ts "pc.close() notifies close of a channel without an ID after SCTP / DTLS / the PeerConnection closed"
         transport.closeUnannouncedChannels();
       }
       // UdpTransport.send は既知アドレスでは callback を待たない。呼び出し側が

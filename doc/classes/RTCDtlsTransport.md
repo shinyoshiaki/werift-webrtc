@@ -104,6 +104,10 @@ transport takes its INIT client / server side from here, as both peers
 agreed on it when they started DTLS. Data channel stream IDs follow
 [RTCDtlsTransport.role](#role) instead.
 
+#### See
+
+tests/issue/815.test.ts "#815 report: reversed ICE / DTLS roles with channels from both ends do not collide"
+
 ***
 
 ### iceTransport
@@ -156,10 +160,13 @@ A close_notify (`closed`) does not fire it. Also delivered as
 
 > `readonly` **onRoleChange**: [`Event`](Event.md)\<\[[`DtlsRole`](../type-aliases/DtlsRole.md)\]\>
 
-Fires synchronously whenever [RTCDtlsTransport.role](#role) changes: an
-answer / pranswer naming the role (local or remote), or `start()`
-resolving `auto` from the ICE role. The SCTP transport on it assigns the
-data channel stream IDs from it (RFC 8832 section 6).
+Fires synchronously whenever [RTCDtlsTransport.role](#role) changes (a
+local or remote answer / pranswer, or `start()` resolving `auto`).
+
+#### See
+
+ - tests/issue/815.test.ts "issue 815: data channel stream IDs follow the DTLS role"
+ - tests/issue/815.test.ts "the DTLS start resolving auto assigns the IDs of the role it took"
 
 ***
 
@@ -311,6 +318,10 @@ Internal: whether a description gave this transport the peer's DTLS parameters.
 
 The DTLS role: `auto` until a description or the handshake start decides
 it. Data channel stream IDs follow it (client even, server odd).
+
+##### See
+
+tests/issue/815.test.ts "issue 815: data channel stream IDs follow the DTLS role"
 
 ##### Returns
 
