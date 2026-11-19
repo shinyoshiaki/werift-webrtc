@@ -358,6 +358,7 @@ codecs to describe; the transceiver's negotiated codecs by default
 
 拒否 / 停止した m-line を作成する (RFC 3264 §6 / RFC 8829 §5.3.1)。
 port は 0、proto と MID は元の m-line を保ち、fmt は少なくとも 1 token 残す。
+拒否 m-line は RTP/RTCP を流さないので `a=rtcp` / `a=rtcp-mux` を載せない (#705 以降の出力形式を保つ)。
 
 #### Parameters
 
