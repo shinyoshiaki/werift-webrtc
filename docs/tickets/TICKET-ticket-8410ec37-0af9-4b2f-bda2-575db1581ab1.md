@@ -112,6 +112,7 @@ This is an interoperability investigation, not a claim that every empty MID must
 任意ケース（リスクの洗い出し用）:
 - ICE restart 中（pending の re-offer で ufrag が変わる）に、`sdpMid: ""` + index + 旧 ufrag の candidate を追加すると、current の generation に送られることを確認する（`apply()` の `targetMedia` が正規化済みの値を見ていることの確認）。
 - 実際の werift ⇔ Pion の接続テストは、リポジトリに Go / Pion ハーネスが無いので **スコープ外** とし、必要なら follow-up にする。
+  - → 追加要件により、リポジトリ外の一時ハーネスで実機検証を行った（§10）。リポジトリにはハーネスを追加していない。
 
 ## 7. 制約・注意点
 
@@ -136,6 +137,7 @@ This is an interoperability investigation, not a claim that every empty MID must
 - [ ] `cd packages/webrtc && npm run type && npm test` が通る（`host-dependent` な既知の失敗はベースラインと比較する）。
 - [ ] `npm run wpt` で addIceCandidate 系の subtest が baseline から後退しない。
 - [ ] `changelog.md` の次リリースのセクションに Bug Fix として記載し、`npm run format` を実行した。
+- [x] （追加要件）Pion / Chromium / Firefox の実機と werift を接続し、空 `sdpMid` の candidate を使っても相互接続（ICE・DTLS・DataChannel・映像 RTP）できることを確認した（§10）。
 
 ## 9. 実装時の確認結果（§3 の未検証項目）
 
@@ -147,3 +149,66 @@ This is an interoperability investigation, not a claim that every empty MID must
 | W3C webrtc-pc | 「`candidate.sdpMid` is not null」で MID 分岐に入り、一致しなければ OperationError。`""` は null ではないので index 分岐に入らない → **仕様に厳密なら reject**（ステップ構造からの推論） | https://w3c.github.io/webrtc-pc/ |
 
 → 前提（主要ブラウザは index へフォールバック）が確認できたので、§4 の案 B で実装した。仕様との差異は `normalizeEmptyCandidateMid`（`remoteCandidates.ts`）と `peerConnection.ts` の W3C 互換ノートに記載した。upstream WPT（`third_party/wpt/webrtc`）に空の `sdpMid` を使う subtest は無い（grep で確認）ので、WPT runner の wrapper は追加していない。
+
+## 10. 実機での相互接続検証（追加要件）
+
+追加要件:「pion / chromium / Firefox の挙動を実際に検証し、問題なく相互接続して利用できることを確認する」。
+
+### 10.1 結論
+
+- 修正後の werift は、Pion v3.3.6・v4.0.0・v4.2.27、Chromium 156.0.8078.4、Firefox 157.0 のすべてと、空 `sdpMid` の candidate を使って相互接続できた。ICE / DTLS の接続、DataChannel の往復、映像 RTP の双方向がすべて通った（修正後の実行 42 件がすべて成功。内訳は Pion 18 件、ブラウザ 24 件）。
+- 修正前の werift（`ff55c4562`、修正コミット `c0b4b8d12` の親）では、空 `sdpMid` の candidate がすべて `OperationError: Media section for sdpMid was not found` で拒否された。接続がその candidate に依存する構成では、12 件すべてで接続できなかった（Pion 4 件、ブラウザ 8 件）。今回の修正が実際の接続を直していることを確認した。
+- Pion が `sdpMid: ""` を送るのは古い系統だけだった。v3.3.6 と v4.0.0 は、`ICECandidate.ToJSON()` が常に `{sdpMid: "", sdpMLineIndex: 0}` を返す（実機の出力で確認）。v4.2.27 は BUNDLE の先頭 m-line の mid（例 `"0"`）を入れて送る。
+- Chromium と Firefox は、空 `sdpMid` に数値 index を付けた candidate を index が指す m-line に適用し、接続した。非 BUNDLE の 3 transport もすべて接続した。§9 でソースから導いた結論を、実機でも確認できた。
+
+### 10.2 環境と方法
+
+- 実行環境: コンテナ（Linux）。Node.js v24.22.2。werift はソースから `node --import tools/node-ts/register.mjs` で読み込んだ。
+- Pion: Go 1.25.4 を `/tmp` に入れ、pion/webrtc の v3.3.6・v4.0.0・v4.2.27 で同じピアプログラムをビルドした。シグナリングは stdio の JSON 行で、candidate は trickle で送る。Pion から werift へは `ICECandidate.ToJSON()` の結果をそのまま渡した（書き換えなし）。Pion 側は動画トラックで VP8 の RTP を送り、DataChannel は受信内容を echo する。
+- ブラウザ: Playwright 1.64.1 で起動した headless の Chromium と Firefox。Firefox の prefs は `e2e/vitest.firefox.config.mts` と同じ。ページは `http://127.0.0.1` から配信した。ブラウザ側では canvas の映像トラックを 2 本送り、werift が受信トラックを echo し返す。
+- candidate はどちらの向きも Pion 形式 `{candidate, sdpMid: "", sdpMLineIndex: <元の index>, usernameFragment: null}` に書き換えて渡した。
+- 配送モード:
+  - `full`: 両方向に配送する。
+  - `to-werift-only`（Pion では `pion-only`）: SDP から `a=candidate` を消し、相手から werift への candidate だけを渡す。werift が受け取った空 mid の candidate が無いと接続できない構成。
+  - `to-browser-only` / `to-pion-only`: 逆向きだけを渡す。相手側の空 mid の扱いを確かめる構成。
+- 成功条件: 両端の `connectionState` が connected になり、DataChannel で 3 往復し、RTP を 20 パケット以上受信すること。ブラウザ側は映像 2 本それぞれで受信パケットが 20 を超え、フレームが 5 枚以上デコードされることも条件にした。上限は Pion で 15 秒、ブラウザで 20 秒。
+- ハーネスはリポジトリ外（`/tmp`）の一時スクリプトで、リポジトリには追加していない。
+
+### 10.3 結果: Pion ⇔ werift（BUNDLE。Pion は単一 ICE transport）
+
+| Pion | Pion が送った candidate | 修正後（offer 側 2 種 × 3 モード） | 修正前 |
+| --- | --- | --- | --- |
+| v3.3.6 | `sdpMid: ""`, `sdpMLineIndex: 0` | 6/6 成功。addIceCandidate はすべて成功 | 全件 OperationError。`pion-only` 2/2 で接続できず（connecting のまま）。`full` は werift から送った candidate を使い、peer-reflexive で接続した |
+| v4.0.0 | `sdpMid: ""`, `sdpMLineIndex: 0` | 6/6 成功 | v3.3.6 と同じ |
+| v4.2.27 | `sdpMid: "0"`, `sdpMLineIndex: 0` | 6/6 成功 | 4/4 成功（空 mid を送らないので影響を受けない） |
+
+`to-pion-only`（werift の candidate を空 mid にして Pion へ渡す）は、修正後に 3 バージョン × offer 側 2 種の 6/6 で成功した。Pion の `AddICECandidate` はエラーを返さなかった。
+
+### 10.4 結果: Chromium / Firefox ⇔ werift
+
+各ブラウザで、BUNDLE（`max-bundle`、1 transport）と非 BUNDLE（werift `bundlePolicy: "disable"` / ブラウザ `max-compat`、3 transport）を、offer 側 2 種 × 3 モードで実行した。
+
+| ブラウザ | 修正後 | 修正前 |
+| --- | --- | --- |
+| Chromium 156.0.8078.4 | 12/12 成功。werift の addIceCandidate はすべて成功。非 BUNDLE では index 0〜2 の candidate がそれぞれの transport に届き、3 transport とも接続した | ブラウザから werift への空 mid の candidate はすべて拒否された。`to-werift-only` は 4/4 で接続できなかった。それ以外は、拒否されたまま逆方向の candidate で接続した |
+| Firefox 157.0 | 12/12 成功。Firefox が m-line ごとに送る end-of-candidates（`candidate: ""` + 空 mid + index）も受理した | Chromium と同じ。`to-werift-only` は 4/4 で接続できなかった（Firefox 側は failed） |
+
+`to-browser-only` は修正前後どちらでも成功した。ブラウザは空 `sdpMid` を index で解決するので、こちらの向きは werift の修正に関係しない。
+
+### 10.5 ブラウザ単体の挙動（ブラウザ内の 2 つの PeerConnection で確認。m-line は video と data の 2 本）
+
+| 入力 | Chromium 156 | Firefox 157 | werift（修正後） |
+| --- | --- | --- | --- |
+| `sdpMid: ""`, `sdpMLineIndex: 0` | 受理 | 受理 | 受理 |
+| `sdpMid: ""`, `sdpMLineIndex: 1` | 受理 | 受理 | 受理 |
+| `sdpMid: ""`、index なし | **受理** | OperationError（`No such transceiver`） | OperationError（§4.2 の方針どおり） |
+| `sdpMid: ""`、範囲外の index（9） | OperationError | OperationError | OperationError |
+
+Chromium は index が無くても空 `sdpMid` を受理した（Blink 層で index が補われているとみられるが、原因は未調査）。この入力では Firefox・W3C 仕様・werift の 3 者が reject で揃っている。index が無いと m-line を特定できないので、§4.2 の「受け入れる入力を最小に保つ」方針を維持し、werift の挙動は変えない。
+
+### 10.6 未確認の事項
+
+- dTelecom / LiveKit 系の実際の SFU との接続は確認していない。同じ形式の candidate を送る Pion v3.3.6 / v4.0.0 の素の PeerConnection で代わりに確認した。
+- 非 BUNDLE の Pion は確認していない。Pion は ICE transport が 1 つで、§7 の既知の制約（index 0 の candidate は m-line 0 の transport にだけ届く）は今回の範囲外のまま。
+- 実行環境はコンテナ内の loopback / ブリッジのネットワークだけで、NAT や TURN を越える経路は確認していない。
+- 音声 m-line、ICE restart 中の実機接続、Safari / WebKit は確認していない。
