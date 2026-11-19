@@ -375,10 +375,10 @@ export class Dtls13ConnectionBase {
   /** Serialize datagram handling to avoid races on keys / message_seq inbox. */
   rxChain: Promise<void> = Promise.resolve();
 
-  constructor(
-    readonly options: Dtls13Options,
-    sessionType: SessionTypes,
-  ) {
+  readonly options: Dtls13Options;
+
+  constructor(options: Dtls13Options, sessionType: SessionTypes) {
+    this.options = options;
     this.role = sessionType === SessionType.CLIENT ? "client" : "server";
     if (this.role === "server") {
       if (!options.cert || !options.key) {

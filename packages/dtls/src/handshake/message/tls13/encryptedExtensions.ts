@@ -16,7 +16,11 @@ export class EncryptedExtensions implements Handshake {
     extensions: ExtensionList,
   };
 
-  constructor(public extensions: Extension[] = []) {}
+  extensions: Extension[];
+
+  constructor(extensions: Extension[] = []) {
+    this.extensions = extensions;
+  }
 
   static createEmpty() {
     return new EncryptedExtensions([]);

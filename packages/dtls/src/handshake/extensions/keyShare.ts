@@ -47,11 +47,19 @@ function assertKeyExchangeEncoding(group: number, ke: Buffer): void {
 export class KeyShare {
   static type = KEY_SHARE_TYPE;
 
+  clientShares?: KeyShareEntry[];
+  serverShare?: KeyShareEntry;
+  selectedGroup?: number;
+
   constructor(
-    public clientShares?: KeyShareEntry[],
-    public serverShare?: KeyShareEntry,
-    public selectedGroup?: number,
-  ) {}
+    clientShares?: KeyShareEntry[],
+    serverShare?: KeyShareEntry,
+    selectedGroup?: number,
+  ) {
+    this.clientShares = clientShares;
+    this.serverShare = serverShare;
+    this.selectedGroup = selectedGroup;
+  }
 
   static forClient(shares: KeyShareEntry[]): KeyShare {
     return new KeyShare(shares);

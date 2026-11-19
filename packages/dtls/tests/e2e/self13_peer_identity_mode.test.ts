@@ -30,7 +30,10 @@ class PeerAuthTransport implements Transport {
   onData: (data: Buffer, addr: Address) => void = () => {};
   private peer?: PeerAuthTransport;
 
-  constructor(private readonly udp: UdpTransport) {
+  private readonly udp: UdpTransport;
+
+  constructor(udp: UdpTransport) {
+    this.udp = udp;
     udp.onData = (data) => {
       this.onData(data, this.fakeRxAddr as any);
     };

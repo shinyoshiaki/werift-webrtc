@@ -6,7 +6,7 @@ import {
   DtlsAck,
   remainingAfterAck,
 } from "../../handshake/message/tls13/ack";
-import { AlertDesc, ContentType } from "../../record/const";
+import { AlertDesc, alertDescName, ContentType } from "../../record/const";
 import { FragmentedHandshake } from "../../record/message/fragment";
 import {
   DtlsDecodeError,
@@ -590,7 +590,7 @@ export function handleAlert(
   // TLS 1.3: error alerts are fatal regardless of AlertLevel
   this.fail(
     new Error(
-      `fatal alert ${alert.description} (${AlertDesc[alert.description] ?? "unknown"})`,
+      `fatal alert ${alert.description} (${alertDescName(alert.description) ?? "unknown"})`,
     ),
   );
 }

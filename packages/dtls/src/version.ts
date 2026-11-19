@@ -1,11 +1,13 @@
 /**
  * DTLS protocol version selection for public Options.
  * Default when omitted is DTLS 1.2 only for backward compatibility.
+ * @enum
  */
-export enum DtlsVersion {
-  V1_2 = "1.2",
-  V1_3 = "1.3",
-}
+export const DtlsVersion = {
+  V1_2: "1.2",
+  V1_3: "1.3",
+} as const;
+export type DtlsVersion = (typeof DtlsVersion)[keyof typeof DtlsVersion];
 
 /** Wire version constants (RFC 6347 / RFC 9147). */
 export const WireVersion = {
@@ -151,6 +153,7 @@ export function protocolVersionsToWire(
 
 export class ProtocolVersionError extends Error {
   readonly code = "protocol_version";
+
   constructor(message: string) {
     super(message);
     this.name = "ProtocolVersionError";
@@ -164,11 +167,11 @@ export class ProtocolVersionError extends Error {
  */
 export class DtlsProtocolError extends Error {
   readonly code = "protocol_error";
-  constructor(
-    message: string,
-    public readonly alertDescription?: number,
-  ) {
+  readonly alertDescription?: number;
+
+  constructor(message: string, alertDescription?: number) {
     super(message);
+    this.alertDescription = alertDescription;
     this.name = "DtlsProtocolError";
   }
 }
@@ -181,13 +184,18 @@ export class DtlsProtocolError extends Error {
  */
 export class DtlsVersionSelected extends Error {
   readonly code = "version_selected";
+  readonly version: DtlsVersion;
+  /** Cookie from HelloVerifyRequest to continue dual CH on 1.2 path. */
+  readonly helloVerifyCookie?: Buffer;
+
   constructor(
-    public readonly version: DtlsVersion,
+    version: DtlsVersion,
     message?: string,
-    /** Cookie from HelloVerifyRequest to continue dual CH on 1.2 path. */
-    public readonly helloVerifyCookie?: Buffer,
+    helloVerifyCookie?: Buffer,
   ) {
     super(message ?? `selected DTLS ${version}`);
+    this.version = version;
+    this.helloVerifyCookie = helloVerifyCookie;
     this.name = "DtlsVersionSelected";
   }
 }

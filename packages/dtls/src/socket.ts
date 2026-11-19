@@ -45,7 +45,11 @@ import {
 import { FragmentedHandshake } from "./record/message/fragment";
 import { parsePacket, parsePlainText } from "./record/receive";
 import type { Extension } from "./typings/domain";
-import { DtlsVersion, normalizeProtocolVersions } from "./version";
+import {
+  DtlsVersion,
+  normalizeProtocolVersions,
+  ProtocolVersionError,
+} from "./version";
 
 export type { PeerIdentityMode } from "./peer";
 
@@ -470,6 +474,15 @@ export class DtlsSocket {
     return this.alertSending ?? Promise.resolve();
   }
 
+  /**
+   * A local close() ended the connection: received records are no longer
+   * processed and no handshake flight is (re)sent.
+   */
+  protected markEndedByLocalClose() {
+    this.ended = true;
+    this.transport.stopFlights();
+  }
+
   /** Whether the connection ended (alert, or close()). */
   get terminated() {
     return this.ended;
@@ -504,6 +517,20 @@ export class DtlsSocket {
    */
   private handleAlert(alert: DtlsAlert) {
     if (this.ended || this.associationTornDown) return;
+    if (alert.description === AlertDesc.ProtocolVersion) {
+      // protocol_version at any level: the peer rejected the version, so the
+      // association fails with ProtocolVersionError (not a silent timeout).
+      err(this.dtls.sessionId, "received protocol_version alert", alert);
+      this.alertSent = true;
+      this.transport.stopFlights();
+      this.failFromRemoteAlert(
+        alert,
+        new ProtocolVersionError(
+          "peer rejected protocol version (alert protocol_version)",
+        ),
+      );
+      return;
+    }
     const action = classifyAlert(alert);
     if (action === "ignore") {
       log(this.dtls.sessionId, "ignore warning alert", alert);
@@ -527,21 +554,35 @@ export class DtlsSocket {
       // The connection is over: the socket closes its transport once the
       // reply has been sent or timed out, like after a fatal alert (the
       // application does not need to call close()).
-      void this.alertFlushed().then(() => {
-        this.clearSendPeerPin();
-        this.notify(this.onClose);
-        return this.closeTransport();
-      });
+      void this.alertFlushed().then(() => this.finishPeerCloseNotify());
     } else {
       err(this.dtls.sessionId, "received fatal alert", alert);
       // A fatal alert is not answered (RFC 5246 §7.2.2).
       this.alertSent = true;
-      if (!this.failLegacy12Association(new DtlsAlertError(alert, "remote"))) {
-        return;
-      }
-      this.notify(this.onAlert, alert);
-      this.notify(this.onError, new DtlsAlertError(alert, "remote"));
+      this.failFromRemoteAlert(alert, new DtlsAlertError(alert, "remote"));
     }
+  }
+
+  /**
+   * Fatal teardown for a received alert: the association is torn down before
+   * the listeners run, then onAlert, onError and onClose fire once each.
+   */
+  private failFromRemoteAlert(alert: DtlsAlert, error: Error) {
+    if (!this.failLegacy12Association(error)) return;
+    this.notify(this.onAlert, alert);
+    this.notify(this.onError, error);
+    this.notify(this.onClose);
+  }
+
+  /**
+   * After the reply to the peer's close_notify was sent (or timed out):
+   * fire onClose once and close the transport. The dual client overrides it
+   * to also hard-close its 1.3 candidates and carrier.
+   */
+  protected finishPeerCloseNotify(): Promise<void> {
+    this.clearSendPeerPin();
+    this.notify(this.onClose);
+    return this.closeTransport();
   }
 
   /**
@@ -869,11 +910,13 @@ export class DtlsSocket {
 
   /**send application data */
   send = async (buf: Buffer, addr?: Address) => {
+    // A torn-down association rejects (see the lifecycle table in README);
+    // after this side only sent an alert, application data is dropped.
+    this.assertReadyForApplicationApi("send");
     if (this.alertSent || this.ended) {
       log(this.dtls.sessionId, "drop application data after alert");
       return;
     }
-    this.assertReadyForApplicationApi("send");
     if (this.engine13) {
       await this.engine13.send(buf);
       return;
@@ -950,7 +993,10 @@ export class DtlsSocket {
    * Terminal transition + optional single public onClose (client dual uses
    * closeAssociationHard instead).
    */
-  protected closeLegacy12Association(firePublicOnClose = true): void {
+  protected closeLegacy12Association(
+    firePublicOnClose = true,
+    closeTransport = true,
+  ): void {
     if (this.associationTornDown) return;
     this.abortLegacy12Flight();
     this.connected = false;
@@ -959,97 +1005,45 @@ export class DtlsSocket {
     this.abortAssociationWaits();
     this.clearSendPeerPin();
     if (firePublicOnClose) {
-      this.onClose.execute();
-    }
-    void this.transport.close().catch(() => {});
-  }
-
-  /**
-   * Peer close_notify on DTLS 1.2 path: sync terminal + best-effort reply with
-   * a short send budget (same root cause as 1.3 hung transport.send).
-   * Dual client overrides for phase/carrier/transport ownership.
-   */
-  protected onLegacy12PeerCloseNotify(): void {
-    if (this.associationTornDown) return;
-    // Sync terminal first so Public API / late HS cannot resume.
-    this.abortLegacy12Flight();
-    this.connected = false;
-    this.associationTornDown = true;
-    this.abortAssociationWaits();
-    // Keep TX pin for best-effort reply, then free with budget.
-    this.finishLegacy12PeerCloseWithOptionalNotify();
-  }
-
-  /**
-   * Best-effort 1.2 close_notify reply then onClose/transport free even if
-   * transport.send never settles (~250ms budget, parity with 1.3).
-   */
-  protected finishLegacy12PeerCloseWithOptionalNotify(
-    after?: () => void,
-  ): void {
-    const notify = this.sendLegacy12CloseNotify().catch(() => {});
-    let done = false;
-    const finish = () => {
-      if (done) return;
-      done = true;
-      this.clearSendPeerPin();
-      after?.();
       this.notify(this.onClose);
+    }
+    if (closeTransport) {
       void this.transport.close().catch(() => {});
-    };
-    // Use global timer APIs — module imports setTimeout from timers/promises.
-    const timer = globalThis.setTimeout(finish, 250);
-    void notify.finally(() => {
-      globalThis.clearTimeout(timer);
-      finish();
-    });
-  }
-
-  /** Best-effort close_notify on the current 1.2 write epoch. */
-  protected async sendLegacy12CloseNotify(): Promise<void> {
-    try {
-      const alert = Buffer.from([1, AlertDesc.CloseNotify]); // warning
-      const pkt = createPlaintext(this.dtls)(
-        [{ type: ContentType.alert, fragment: alert }],
-        ++this.dtls.recordSequenceNumber,
-      )[0];
-      // Post-handshake alerts are encrypted when epoch > 0 (keys established).
-      const wire =
-        this.dtls.epoch > 0
-          ? this.cipher.encryptPacket(pkt).serialize()
-          : pkt.serialize();
-      await this.transport.sendAndWait(wire);
-    } catch (e) {
-      log(this.dtls.sessionId, "sendLegacy12CloseNotify failed", e);
     }
   }
 
   /**
-   * Close this association. DTLS 1.2 optionally sends close_notify first;
-   * all paths wait for an alert already handed to the transport before close.
+   * Close this association. The Public API becomes terminal synchronously
+   * (send() rejects right after close()), before any await. DTLS 1.2
+   * optionally sends close_notify first; an alert already handed to the
+   * transport is flushed before the transport closes. A live DTLS 1.3 engine
+   * sends its close_notify and closes the transport itself
+   * (teardownAssociation), so it is not closed here.
    */
   async close(options: { notify?: boolean; timeoutMs?: number } = {}) {
-    if (options.notify && !this.engine13) {
-      await this.sendAlert(AlertLevel.warning, AlertDesc.CloseNotify, {
-        ...(options.timeoutMs !== undefined && {
-          timeoutMs: options.timeoutMs,
-        }),
-      });
-    }
-    this.ended = true;
-    this.transport.stopFlights();
-    await this.alertFlushed();
+    const sending =
+      options.notify && !this.engine13
+        ? this.sendAlert(AlertLevel.warning, AlertDesc.CloseNotify, {
+            ...(options.timeoutMs !== undefined && {
+              timeoutMs: options.timeoutMs,
+            }),
+          })
+        : undefined;
+    this.markEndedByLocalClose();
     if (this.engine13) {
-      // Sync Public-API terminal *before* async close_notify so send() cannot
-      // race pure 1.3 / dual-server graceful close (client dual overrides this).
       // onClosing from the engine is idempotent with prepareAssociationClosed.
       this.prepareAssociationClosedFromEngine();
       this.engine13.close();
-      await this.closeTransport();
+      await this.alertFlushed();
       return;
     }
     // DTLS 1.2 server (and any non-overridden close): terminal + onClose once.
-    this.closeLegacy12Association(true);
+    this.closeLegacy12Association(true, false);
+    await sending;
+    // Closing the transport now would drop an alert handed to it but not
+    // yet written (a UDP datagram goes out on a later tick).
+    await this.alertFlushed();
+    // Waits for a close already in progress (e.g. after a fatal alert).
     await this.closeTransport();
   }
 

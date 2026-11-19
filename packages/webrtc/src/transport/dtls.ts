@@ -435,6 +435,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     addressValidation: "dtls-cookie" | "ice-authenticated",
   ) {
     await new Promise<void>(async (r, f) => {
+      this.settleStart = r;
       if (this.role === "server") {
         this.dtls = new DtlsServer({
           cert: this.localCertificate?.certPem,
@@ -473,6 +474,11 @@ export class RTCDtlsTransport implements DtlsTransportStats {
 
       if (this.dtls instanceof DtlsClient) {
         await setTimeout(100);
+        if (this.isFinalState) {
+          // stop() / a failure during the wait: settle start().
+          r();
+          return;
+        }
         this.dtls.connect().catch((error) => {
           if (!(this.lastError instanceof FingerprintMismatchError)) {
             this.lastError =
@@ -483,7 +489,6 @@ export class RTCDtlsTransport implements DtlsTransportStats {
                 : error;
           }
           this.fail(error);
-          this.setState("failed");
           log("dtls connect failed", error);
           f(error);
         });
@@ -577,6 +582,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     };
 
     await new Promise<void>(async (r, f) => {
+      this.settleStart = r;
       if (this.role === "server") {
         this.dtls = createDtlsServerInternal({
           ...common,
@@ -602,7 +608,6 @@ export class RTCDtlsTransport implements DtlsTransportStats {
                 : error;
           }
           this.fail(error);
-          this.setState("failed");
           this.abortSpedSession();
           log("dtls connect failed", error);
           f(error);
@@ -624,30 +629,51 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       }
       this.dataReceiver(buf);
     });
+    // close_notify from the peer, also during the handshake: closed (with
+    // statechange, the peer caused it; W3C RTCDtlsTransportState "closed").
+    // close_notify is not a fatal alert, so neither failed nor an error
+    // event. closed / failed are final.
     this.dtls.onClose.subscribe(() => {
-      if (this.isFinalState) return;
-      if (this.state === "connecting") {
-        this.abortSpedSession();
+      if (this.isFinalState) {
+        r();
+        return;
       }
-      if (this.state !== "failed") {
+      log("dtls closed by the peer");
+      try {
+        if (this.state === "connecting") {
+          this.abortSpedSession();
+        }
         this.setState("closed");
+      } finally {
+        // Settle start() even if a statechange listener threw: it returns
+        // with closed (transport activation then ends a connection attempt
+        // that never connected as failed).
+        r();
       }
     });
     this.dtls.onConnect.once(r);
-    this.dtls.onError.once((error) => {
-      if (!(this.lastError instanceof FingerprintMismatchError)) {
-        this.lastError =
-          error instanceof DtlsAlertError &&
-          error.source === "local" &&
-          error.reason instanceof Error
-            ? error.reason
-            : error;
-      }
-      this.fail(error);
-      this.setState("failed");
-      this.abortSpedSession();
+    // A handshake error, or a fatal alert received or sent while
+    // connecting or after the connection was established.
+    this.dtls.onError.subscribe((error) => {
       log("dtls failed", error);
-      f(error);
+      const reason =
+        error instanceof DtlsAlertError &&
+        error.source === "local" &&
+        error.reason instanceof Error
+          ? error.reason
+          : error;
+      if (!(this.lastError instanceof FingerprintMismatchError)) {
+        this.lastError = reason;
+      }
+      try {
+        this.fail(error);
+      } finally {
+        this.abortSpedSession();
+        // Settle start() even if a statechange listener threw. A local
+        // certificate rejection rejects with the verifier's error (e.g.
+        // "remote certificate fingerprint mismatch").
+        f(reason);
+      }
     });
   }
 

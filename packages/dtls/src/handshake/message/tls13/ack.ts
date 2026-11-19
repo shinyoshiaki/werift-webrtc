@@ -65,7 +65,11 @@ export function recordsFullyAcked(
 export const MAX_ACK_RECORD_NUMBERS_INBOUND = 32;
 
 export class DtlsAck {
-  constructor(public recordNumbers: AckRecordNumber[]) {}
+  recordNumbers: AckRecordNumber[];
+
+  constructor(recordNumbers: AckRecordNumber[]) {
+    this.recordNumbers = recordNumbers;
+  }
 
   static deSerialize(buf: Buffer, options?: { strict?: boolean }): DtlsAck {
     if (buf.length < 2) throw new Error("ACK: truncated length");

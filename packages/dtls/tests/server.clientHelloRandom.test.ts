@@ -68,4 +68,69 @@ describe("server: ClientHello random after HelloVerifyRequest", () => {
       }),
     ).toBe(true);
   });
+
+  test("cookie-authenticated ClientHello with a different random", async () => {
+    // Arrange
+    const firstRandom = new DtlsRandom();
+    const secondRandom = new DtlsRandom();
+
+    // Act
+    const { server, transport, certPem } = await handshakeUntilFlight4(
+      firstRandom,
+      secondRandom,
+    );
+
+    // Assert
+    // client_random は cookie 検証済み (2 回目) の ClientHello の random に更新される
+    expect(server.cipher.remoteRandom.serialize()).toEqual(
+      secondRandom.serialize(),
+    );
+    const keyExchange = findServerKeyExchange(transport.sent)!;
+    // ServerKeyExchange の署名は受け入れた ClientHello の random で検証できる
+    expect(
+      verifyServerKeyExchangeSignature({
+        certPem,
+        keyExchange,
+        clientRandom: secondRandom,
+        serverRandom: server.cipher.localRandom,
+      }),
+    ).toBe(true);
+    // 1 回目の (古い) random では検証できない
+    expect(
+      verifyServerKeyExchangeSignature({
+        certPem,
+        keyExchange,
+        clientRandom: firstRandom,
+        serverRandom: server.cipher.localRandom,
+      }),
+    ).toBe(false);
+  });
+
+  test("flight4 retransmission keeps the accepted random and cached messages", async () => {
+    // Arrange
+    const secondRandom = new DtlsRandom();
+    const { server, transport, cookie } = await handshakeUntilFlight4(
+      new DtlsRandom(),
+      secondRandom,
+    );
+    const firstFlight4 = [...transport.sent];
+    const lastMessage = server.dtls.lastMessage;
+    transport.sent = [];
+
+    // Act
+    // さらに別の random を持つ cookie 付き ClientHello を再受信させる
+    await server.onHandleHandshakes([
+      createClientHelloHandshake({ random: new DtlsRandom(), cookie }),
+    ]);
+
+    // Assert
+    // client_random は初回 flight4 で受け入れた random のまま
+    expect(server.cipher.remoteRandom.serialize()).toEqual(
+      secondRandom.serialize(),
+    );
+    // キャッシュ済みの flight4 がそのまま再送される
+    expect(server.dtls.lastMessage).toBe(lastMessage);
+    expect(transport.sent).toEqual(firstFlight4);
+    expect(transport.sent).toEqual(lastMessage);
+  });
 });

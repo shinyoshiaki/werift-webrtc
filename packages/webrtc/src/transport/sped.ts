@@ -25,7 +25,10 @@ export class IceSpedTransport implements Transport {
    */
   private applicationReady = false;
 
-  constructor(private readonly ice: Connection) {
+  private readonly ice: Connection;
+
+  constructor(ice: Connection) {
+    this.ice = ice;
     connectionDatagramEvent(ice).subscribe((ctx) => {
       if (!isDtls(ctx.bytes) || !this.onData) {
         return;

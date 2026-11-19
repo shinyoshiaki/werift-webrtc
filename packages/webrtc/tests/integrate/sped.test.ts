@@ -697,17 +697,56 @@ function spyConnectionWire(
   return ice.protocols.length > 0;
 }
 
+const protocolAddHooked = new WeakSet<object>();
+
+/**
+ * Spy each protocol synchronously when gathering adds it to the agent, so the
+ * first ICE check / response on it is already captured. Polling alone can
+ * miss checks sent in the same I/O callback that bound the socket.
+ */
+function spyProtocolsOnAdd(pc: RTCPeerConnection, spy: () => void) {
+  const ice = pc.iceTransports[0]?.connection as unknown as
+    | { protocols: Protocol[] }
+    | undefined;
+  if (!ice || protocolAddHooked.has(ice)) {
+    return;
+  }
+  protocolAddHooked.add(ice);
+  const hookArray = (protocols: Protocol[]) => {
+    const push = protocols.push.bind(protocols);
+    protocols.push = (...added: Protocol[]) => {
+      const length = push(...added);
+      spy();
+      return length;
+    };
+    return protocols;
+  };
+  let current = hookArray(ice.protocols);
+  Object.defineProperty(ice, "protocols", {
+    configurable: true,
+    enumerable: true,
+    get: () => current,
+    set: (protocols: Protocol[]) => {
+      current = hookArray(protocols);
+      spy();
+    },
+  });
+}
+
 function spyWhenReady(
   pc: RTCPeerConnection,
   stun: Buffer[],
   handshakeDtls: Buffer[],
   options?: WireSpyOptions,
 ) {
-  if (spyConnectionWire(pc, stun, handshakeDtls, options)) {
+  const spy = () => spyConnectionWire(pc, stun, handshakeDtls, options);
+  spyProtocolsOnAdd(pc, spy);
+  if (spy()) {
     return () => {};
   }
   const id = setInterval(() => {
-    if (spyConnectionWire(pc, stun, handshakeDtls, options)) {
+    spyProtocolsOnAdd(pc, spy);
+    if (spy()) {
       clearInterval(id);
     }
   }, 1);
@@ -1322,13 +1361,11 @@ describe("RTCPeerConnection SPED opt-in", () => {
       dc1.send("fallback");
       expect(await awaitMessage(dc2)).toBe("fallback");
 
-      // Assert: SPED client の ClientHello (L1) が作られ、同一 bytes で raw fallback する。
-      // 最初の probe は answerer の ICE check が wire spy の取り付けより先に出ると
-      // 捕捉できないため、probe の証拠は wire 上の C070 か、捕捉した L1 flight とする。
+      // Assert: SPED client の ClientHello が probe され、同一 bytes で raw fallback する
       expect(
         stun.some((bytes) =>
           stunAttributeTypes(bytes).includes(DTLS_IN_STUN_DATA),
-        ) || flights.length > 0,
+        ),
       ).toBe(true);
       const embedded = firstNonEmptySpedData(stun) ?? flights[0]?.[0];
       expect(handshakeDtls.length).toBeGreaterThan(0);

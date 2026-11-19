@@ -161,7 +161,10 @@ class PionIceTransport implements Transport {
   readonly peerAuthenticated = true;
   onData: (data: Buffer, addr: Address) => void = () => {};
 
-  constructor(private readonly agent: PionIceAgent) {
+  private readonly agent: PionIceAgent;
+
+  constructor(agent: PionIceAgent) {
+    this.agent = agent;
     agent.onDatagram = (bytes) => {
       this.onData(bytes, ["127.0.0.1", 1]);
     };

@@ -10,10 +10,13 @@ export const SUPPORTED_VERSIONS_TYPE = 43;
 export class SupportedVersions {
   static type = SUPPORTED_VERSIONS_TYPE;
 
-  constructor(
-    public versions: number[],
-    public selected?: number,
-  ) {}
+  versions: number[];
+  selected?: number;
+
+  constructor(versions: number[], selected?: number) {
+    this.versions = versions;
+    this.selected = selected;
+  }
 
   static forClient(versions: number[]): SupportedVersions {
     return new SupportedVersions(versions);

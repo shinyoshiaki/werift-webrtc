@@ -407,7 +407,7 @@ fatal error: see endWithFatalAlert.
 
 ##### description
 
-[`AlertDesc`](../type-aliases/AlertDesc.md)
+[`AlertDesc`](../enumerations/AlertDesc.md)
 
 ##### reason?
 
@@ -534,8 +534,12 @@ Clear TX pin on association terminal teardown.
 
 > **close**(`options?`): `Promise`\<`void`\>
 
-Close this association. DTLS 1.2 optionally sends close_notify first;
-all paths wait for an alert already handed to the transport before close.
+Close this association. The Public API becomes terminal synchronously
+(send() rejects right after close()), before any await. DTLS 1.2
+optionally sends close_notify first; an alert already handed to the
+transport is flushed before the transport closes. A live DTLS 1.3 engine
+sends its close_notify and closes the transport itself
+(teardownAssociation), so it is not closed here.
 
 #### Parameters
 
@@ -561,7 +565,7 @@ all paths wait for an alert already handed to the transport before close.
 
 ### closeLegacy12Association()
 
-> `protected` **closeLegacy12Association**(`firePublicOnClose?`): `void`
+> `protected` **closeLegacy12Association**(`firePublicOnClose?`, `closeTransport?`): `void`
 
 Local close for pure DTLS 1.2 (server and non-overridden paths).
 Terminal transition + optional single public onClose (client dual uses
@@ -570,6 +574,10 @@ closeAssociationHard instead).
 #### Parameters
 
 ##### firePublicOnClose?
+
+`boolean` = `true`
+
+##### closeTransport?
 
 `boolean` = `true`
 
@@ -705,26 +713,21 @@ true when the caller should fire public onClose after onError
 
 ***
 
-### finishLegacy12PeerCloseWithOptionalNotify()
+### finishPeerCloseNotify()
 
-> `protected` **finishLegacy12PeerCloseWithOptionalNotify**(`after?`): `void`
+> `protected` **finishPeerCloseNotify**(): `Promise`\<`void`\>
 
-Best-effort 1.2 close_notify reply then onClose/transport free even if
-transport.send never settles (~250ms budget, parity with 1.3).
-
-#### Parameters
-
-##### after?
-
-() => `void`
+After the reply to the peer's close_notify was sent (or timed out):
+fire onClose once and close the transport. The dual client overrides it
+to also hard-close its 1.3 candidates and carrier.
 
 #### Returns
 
-`void`
+`Promise`\<`void`\>
 
 #### Inherited from
 
-[`DtlsSocket`](DtlsSocket.md).[`finishLegacy12PeerCloseWithOptionalNotify`](DtlsSocket.md#finishlegacy12peerclosewithoptionalnotify)
+[`DtlsSocket`](DtlsSocket.md).[`finishPeerCloseNotify`](DtlsSocket.md#finishpeerclosenotify)
 
 ***
 
@@ -867,6 +870,23 @@ Request KeyUpdate on DTLS 1.3 connections.
 
 ***
 
+### markEndedByLocalClose()
+
+> `protected` **markEndedByLocalClose**(): `void`
+
+A local close() ended the connection: received records are no longer
+processed and no handshake flight is (re)sent.
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+[`DtlsSocket`](DtlsSocket.md).[`markEndedByLocalClose`](DtlsSocket.md#markendedbylocalclose)
+
+***
+
 ### matchesPinnedPeer()
 
 > `protected` **matchesPinnedPeer**(`addr?`): `boolean`
@@ -951,24 +971,6 @@ hard-close carrier / transport / candidates.
 
 ***
 
-### onLegacy12PeerCloseNotify()
-
-> `protected` **onLegacy12PeerCloseNotify**(): `void`
-
-Peer close_notify on DTLS 1.2 path: sync terminal + best-effort reply with
-a short send budget (same root cause as 1.3 hung transport.send).
-Dual client overrides for phase/carrier/transport ownership.
-
-#### Returns
-
-`void`
-
-#### Inherited from
-
-[`DtlsSocket`](DtlsSocket.md).[`onLegacy12PeerCloseNotify`](DtlsSocket.md#onlegacy12peerclosenotify)
-
-***
-
 ### pinSendPeer()
 
 > `protected` **pinSendPeer**(`addr?`, `mode?`): `void`
@@ -987,7 +989,7 @@ readonly \[`string`, `number`\]
 
 ##### mode?
 
-`"set-if-empty"` \| `"replace"` = `"set-if-empty"`
+`"replace"` \| `"set-if-empty"` = `"set-if-empty"`
 
 `set-if-empty` keeps the first authenticated pin (server Flight4 /
   connect). `replace` is for dual association re-pin / client connect.
@@ -1014,7 +1016,7 @@ Pass `replace` when the association deliberately re-pins (e.g. client connect).
 
 ##### mode?
 
-`"set-if-empty"` \| `"replace"` = `"set-if-empty"`
+`"replace"` \| `"set-if-empty"` = `"set-if-empty"`
 
 #### Returns
 
@@ -1177,7 +1179,7 @@ promise resolves after that).
 
 ##### description
 
-[`AlertDesc`](../type-aliases/AlertDesc.md)
+[`AlertDesc`](../enumerations/AlertDesc.md)
 
 ##### options?
 
@@ -1192,22 +1194,6 @@ promise resolves after that).
 #### Inherited from
 
 [`DtlsSocket`](DtlsSocket.md).[`sendAlert`](DtlsSocket.md#sendalert)
-
-***
-
-### sendLegacy12CloseNotify()
-
-> `protected` **sendLegacy12CloseNotify**(): `Promise`\<`void`\>
-
-Best-effort close_notify on the current 1.2 write epoch.
-
-#### Returns
-
-`Promise`\<`void`\>
-
-#### Inherited from
-
-[`DtlsSocket`](DtlsSocket.md).[`sendLegacy12CloseNotify`](DtlsSocket.md#sendlegacy12closenotify)
 
 ***
 

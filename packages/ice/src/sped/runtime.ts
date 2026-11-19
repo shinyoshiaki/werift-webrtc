@@ -124,10 +124,12 @@ export class SpedRuntime {
   /** Last DTLS datagram MTU pushed to the carrier. */
   private lastMtu: number;
 
-  constructor(
-    readonly session: SpedSession,
-    readonly hooks: SpedHooks,
-  ) {
+  readonly session: SpedSession;
+  readonly hooks: SpedHooks;
+
+  constructor(session: SpedSession, hooks: SpedHooks) {
+    this.session = session;
+    this.hooks = hooks;
     this.hooks.setRetransmissionMode("external");
     this.lastMtu = defaultSpedDtlsMtu();
     this.hooks.setMtu(this.lastMtu);

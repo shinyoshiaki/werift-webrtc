@@ -54,7 +54,7 @@ The connection to this remote address was closed (by either side).
 
 #### Inherited from
 
-[`TcpPassiveProtocol`](TcpPassiveProtocol.md).[`onConnectionClosed`](TcpPassiveProtocol.md#onconnectionclosed)
+`BaseTcpProtocol.onConnectionClosed`
 
 ***
 
@@ -66,7 +66,7 @@ Application data (not STUN) and the remote address it came from.
 
 #### Inherited from
 
-[`TcpPassiveProtocol`](TcpPassiveProtocol.md).[`onDataReceived`](TcpPassiveProtocol.md#ondatareceived)
+`BaseTcpProtocol.onDataReceived`
 
 ***
 
@@ -76,7 +76,7 @@ Application data (not STUN) and the remote address it came from.
 
 #### Inherited from
 
-[`TcpPassiveProtocol`](TcpPassiveProtocol.md).[`onRequestReceived`](TcpPassiveProtocol.md#onrequestreceived)
+`BaseTcpProtocol.onRequestReceived`
 
 ***
 
@@ -96,7 +96,7 @@ Application data (not STUN) and the remote address it came from.
 
 #### Inherited from
 
-[`TcpPassiveProtocol`](TcpPassiveProtocol.md).[`sockets`](TcpPassiveProtocol.md#sockets)
+`BaseTcpProtocol.sockets`
 
 ***
 
@@ -120,7 +120,7 @@ Application data (not STUN) and the remote address it came from.
 
 #### Inherited from
 
-[`TcpPassiveProtocol`](TcpPassiveProtocol.md).[`type`](TcpPassiveProtocol.md#type)
+`BaseTcpProtocol.type`
 
 ***
 

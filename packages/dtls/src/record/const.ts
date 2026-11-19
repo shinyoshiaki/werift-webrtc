@@ -11,7 +11,10 @@ export const ContentType = {
 } as const;
 export type ContentType = (typeof ContentType)[keyof typeof ContentType];
 
-const alertDescriptionValues = {
+/**
+ * @enum
+ */
+export const AlertDesc = {
   CloseNotify: 0,
   UnexpectedMessage: 10,
   BadRecordMac: 20,
@@ -42,29 +45,11 @@ const alertDescriptionValues = {
   /** RFC 8446 certificate_required */
   CertificateRequired: 116,
 } as const;
-
-/**
- * @enum
- */
-export const AlertDesc = new Proxy(alertDescriptionValues, {
-  get(target, property, receiver) {
-    if (typeof property === "string" && /^\d+$/.test(property)) {
-      const value = Number(property);
-      return Object.entries(target).find(([, memberValue]) =>
-        Object.is(memberValue, value),
-      )?.[0];
-    }
-    return Reflect.get(target, property, receiver);
-  },
-}) as typeof alertDescriptionValues & {
-  readonly [value: number]: string | undefined;
-};
-export type AlertDesc =
-  (typeof alertDescriptionValues)[keyof typeof alertDescriptionValues];
+export type AlertDesc = (typeof AlertDesc)[keyof typeof AlertDesc];
 
 /** Returns the AlertDesc member name for a wire value, or undefined if unknown. */
 export const alertDescName = (value: number): string | undefined =>
-  Object.entries(alertDescriptionValues).find(([, v]) => v === value)?.[0];
+  Object.entries(AlertDesc).find(([, v]) => v === value)?.[0];
 
 /**
  * Alert level (RFC 5246 §7.2).

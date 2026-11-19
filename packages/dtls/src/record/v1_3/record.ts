@@ -32,15 +32,24 @@ export const DTLS13_MAX_CIPHERTEXT_LENGTH = DTLS13_MAX_PLAINTEXT_LENGTH + 256; /
 /** Thrown when a ciphertext is discarded by anti-replay (not a fatal connection error). */
 export class DtlsReplayError extends Error {
   readonly code = "replay";
+  readonly epoch: number;
+  readonly sequenceNumber: number;
+  readonly consumed: number;
+  /** Content type after successful AEAD (for handshake-only re-ACK). */
+  readonly contentType: number;
+
   constructor(
     message: string,
-    public readonly epoch = 0,
-    public readonly sequenceNumber = 0,
-    public readonly consumed = 0,
-    /** Content type after successful AEAD (for handshake-only re-ACK). */
-    public readonly contentType = 0,
+    epoch = 0,
+    sequenceNumber = 0,
+    consumed = 0,
+    contentType = 0,
   ) {
     super(message);
+    this.epoch = epoch;
+    this.sequenceNumber = sequenceNumber;
+    this.consumed = consumed;
+    this.contentType = contentType;
     this.name = "DtlsReplayError";
   }
 }
@@ -48,6 +57,7 @@ export class DtlsReplayError extends Error {
 /** Truncated or malformed DTLS record / handshake framing. */
 export class DtlsDecodeError extends Error {
   readonly code = "decode";
+
   constructor(message: string) {
     super(message);
     this.name = "DtlsDecodeError";

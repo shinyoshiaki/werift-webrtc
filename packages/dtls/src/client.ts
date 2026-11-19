@@ -333,7 +333,12 @@ export class DtlsClient extends DtlsSocket {
     hardDisposeCandidates?: boolean;
     /** Local close only — fire public onClose once while engine13 still visible. */
     firePublicOnClose?: boolean;
-  }): void {
+    /**
+     * The caller closes the transport itself once an in-flight 1.2 alert was
+     * flushed (local close()). A live 1.3 engine still owns its close.
+     */
+    keepTransportOpen?: boolean;
+  }): boolean {
     // dualPhase already closed: never re-fire onClose.
     // - Peer/fatal finish path: hardDisposeCandidates + candidates still present
     // - Re-entrant local close() from onClose handlers: pure no-op (outer continues)
@@ -348,9 +353,14 @@ export class DtlsClient extends DtlsSocket {
         void this.transport.close().catch(() => {});
       } else if (!this.engine13 && !this.parkedEngine13) {
         this.closeAssociationCarrier();
-        void this.transport.close().catch(() => {});
+        if (!opts?.keepTransportOpen) {
+          void this.transport.close().catch(() => {});
+        }
+      } else {
+        // A live candidate still finishes its close and the transport.
+        return true;
       }
-      return;
+      return false;
     }
     // Cancel cancelable 1.2 retransmit sleeps (not just flight=99 sentinel).
     this.abortLegacy12Flight();
@@ -367,7 +377,7 @@ export class DtlsClient extends DtlsSocket {
     // Local close: fire onClose while engine13 still visible (peer path parity).
     // Fatal/peer paths omit this flag — they already fire or will fire elsewhere.
     if (opts?.firePublicOnClose) {
-      this.onClose.execute();
+      this.notify(this.onClose);
     }
     const deferredTransport = this.closeAllDtls13Candidates({
       hardDispose: opts?.hardDisposeCandidates,
@@ -379,9 +389,13 @@ export class DtlsClient extends DtlsSocket {
     this.transport.socket.onData = this.udpOnMessage;
     if (opts?.hardDisposeCandidates || !deferredTransport) {
       // Fatal path, or no engine left to finish close_notify + teardown.
-      void this.transport.close().catch(() => {});
+      if (!opts?.keepTransportOpen || opts?.hardDisposeCandidates) {
+        void this.transport.close().catch(() => {});
+      }
+      return false;
     }
     // Graceful with live engine: teardownAssociation closes transport after notify.
+    return true;
   }
 
   /**
@@ -412,37 +426,19 @@ export class DtlsClient extends DtlsSocket {
   }
 
   /**
-   * Peer close_notify on DTLS 1.2 path (committed12 / pure dual 1.2):
-   * sync Public-API terminal (associationTornDown), best-effort reply with
-   * send budget, then hard-close which flips dualPhase=closed + onClose once.
-   * Do not set dualPhase=closed before hard-close or firePublicOnClose is skipped.
+   * Peer close_notify on the DTLS 1.2 path (committed12 / pure dual 1.2),
+   * after the reply was sent or timed out: hard-close the association
+   * (dualPhase closed before onClose, so a close() from an onClose listener
+   * is a no-op), fire onClose once, then close the transport.
    */
-  protected onLegacy12PeerCloseNotify(): void {
-    if (this.dualPhase === "closed" || this.associationTornDown) return;
+  protected finishPeerCloseNotify(): Promise<void> {
     log("dual association: 1.2 peer close_notify");
-    // Sync Public API off immediately (send/exporter) while reply is in flight.
-    this.abortLegacy12Flight();
-    this.connected = false;
-    this.associationTornDown = true;
-    this.abortAssociationWaits();
-    this.associationGen++;
-    this.flight5 = undefined;
-    // Budget-bound reply then hard-close (sets dualPhase closed + onClose).
-    const notify = this.sendLegacy12CloseNotify().catch(() => {});
-    let done = false;
-    const finish = () => {
-      if (done) return;
-      done = true;
-      this.closeAssociationHard({
-        firePublicOnClose: true,
-        hardDisposeCandidates: true,
-      });
-    };
-    const timer = globalThis.setTimeout(finish, 250);
-    void notify.finally(() => {
-      globalThis.clearTimeout(timer);
-      finish();
+    this.closeAssociationHard({
+      hardDisposeCandidates: true,
+      keepTransportOpen: true,
     });
+    this.notify(this.onClose);
+    return this.transport.close().catch(() => {});
   }
 
   /**
@@ -529,18 +525,27 @@ export class DtlsClient extends DtlsSocket {
    * Fires public onClose once (bridge is disposed before eng.close).
    */
   async close(options: { notify?: boolean; timeoutMs?: number } = {}) {
-    if (options.notify && !this.engine13) {
-      await this.sendAlert(AlertLevel.warning, AlertDesc.CloseNotify, {
-        ...(options.timeoutMs !== undefined && {
-          timeoutMs: options.timeoutMs,
-        }),
-      });
-    }
+    const sending =
+      options.notify && !this.engine13
+        ? this.sendAlert(AlertLevel.warning, AlertDesc.CloseNotify, {
+            ...(options.timeoutMs !== undefined && {
+              timeoutMs: options.timeoutMs,
+            }),
+          })
+        : undefined;
+    // Sync Public-API terminal before any await, so send() cannot race close.
+    this.markEndedByLocalClose();
+    const engineClosesTransport = this.closeAssociationHard({
+      firePublicOnClose: true,
+      keepTransportOpen: true,
+    });
+    await sending;
     // A concurrent fatal alert may already be in flight; do not close its
     // transport before the alert has been handed to the peer.
     await this.alertFlushed();
-    this.closeAssociationHard({ firePublicOnClose: true });
-    await this.transport.close().catch(() => {});
+    if (!engineClosesTransport) {
+      await this.transport.close().catch(() => {});
+    }
   }
 
   /**

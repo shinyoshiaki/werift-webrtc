@@ -37,8 +37,10 @@ export class DirectHandshakeCarrier implements DtlsHandshakeCarrier {
   /** When false, send() does not write the datagram (SPED embeds it in STUN). */
   private wireSendEnabled = true;
 
+  private readonly transport: Transport;
+
   constructor(
-    private readonly transport: Transport,
+    transport: Transport,
     options?: {
       mtu?: number;
       onInject?: (bytes: Buffer, peer?: InjectPeerAddr) => void;
@@ -46,6 +48,7 @@ export class DirectHandshakeCarrier implements DtlsHandshakeCarrier {
       rttMs?: number;
     },
   ) {
+    this.transport = transport;
     this.mtu = options?.mtu ?? DEFAULT_MTU;
     this.injectHandler = options?.onInject;
     if (options?.rttMs != null && options.rttMs > 0) {

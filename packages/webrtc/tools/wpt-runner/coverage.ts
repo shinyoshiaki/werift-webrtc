@@ -1,4 +1,4 @@
-import { spawnSync } from "child_process";
+import { spawn } from "child_process";
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { dirname, resolve } from "path";
@@ -68,33 +68,13 @@ async function main() {
   let exitCode = 0;
 
   try {
-    const result = spawnSync(
-      process.execPath,
-      [
-        "--disable-warning=ExperimentalWarning",
-        "--disable-warning=MODULE_TYPELESS_PACKAGE_JSON",
-        "--import",
-        resolve(repoRoot, "tools/node-ts/register.mjs"),
-        "tools/wpt-runner/run.ts",
-      ],
-      {
-        cwd: packageDir,
-        env: {
-          ...process.env,
-          NODE_V8_COVERAGE: rawCoverageDir,
-          // V8 coverage makes each worker substantially heavier; keep the
-          // default low enough that worker timeout profiles remain reliable.
-          WPT_CONCURRENCY:
-            process.env.WPT_CONCURRENCY ?? DEFAULT_COVERAGE_WPT_CONCURRENCY,
-          WPT_USE_WORKERS: "1",
-        },
-        stdio: "inherit",
-      },
-    );
-    if (result.error) {
-      throw result.error;
-    }
-    const status = result.status ?? 1;
+    const status = await runWptAndConsumeCoverage(rawCoverageDir, async () => {
+      mergedCoverage = await consumeCoverageFiles(
+        rawCoverageDir,
+        mergedCoverage,
+        isTargetUrl,
+      );
+    });
     await warnUnreadableCoverageFiles(rawCoverageDir);
 
     if (status !== 0) {
@@ -160,6 +140,58 @@ async function warnUnreadableCoverageFiles(directoryPath: string) {
         error instanceof Error ? error.message : error,
       );
     }
+  }
+}
+
+async function runWptAndConsumeCoverage(
+  rawCoverageDir: string,
+  consume: () => Promise<void>,
+) {
+  const child = spawn(
+    process.execPath,
+    [
+      "--disable-warning=ExperimentalWarning",
+      "--disable-warning=MODULE_TYPELESS_PACKAGE_JSON",
+      "--import",
+      resolve(repoRoot, "tools/node-ts/register.mjs"),
+      "tools/wpt-runner/run.ts",
+    ],
+    {
+      cwd: packageDir,
+      env: {
+        ...process.env,
+        NODE_V8_COVERAGE: rawCoverageDir,
+        // V8 coverage makes each worker substantially heavier; keep the
+        // default low enough that worker timeout profiles remain reliable.
+        WPT_CONCURRENCY:
+          process.env.WPT_CONCURRENCY ?? DEFAULT_COVERAGE_WPT_CONCURRENCY,
+        WPT_USE_WORKERS: "1",
+      },
+      stdio: "inherit",
+    },
+  );
+
+  // Merge and delete finished worker dumps while WPT runs, so raw coverage
+  // does not pile up in tmp until the end of the run.
+  let consumeChain = Promise.resolve();
+  const scheduleConsume = () => {
+    consumeChain = consumeChain.then(consume).catch((error) => {
+      console.error(error);
+    });
+  };
+  const timer = setInterval(scheduleConsume, 1_000);
+
+  try {
+    return await new Promise<number>((resolve, reject) => {
+      child.on("error", reject);
+      child.on("exit", (code, signal) => {
+        resolve(signal ? 1 : (code ?? 1));
+      });
+    });
+  } finally {
+    clearInterval(timer);
+    scheduleConsume();
+    await consumeChain;
   }
 }
 

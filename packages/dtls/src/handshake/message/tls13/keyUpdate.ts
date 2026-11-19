@@ -7,7 +7,11 @@ export class KeyUpdate implements Handshake {
   msgType = HandshakeType.key_update_24 as any;
   messageSeq?: number;
 
-  constructor(public requestUpdate: boolean) {}
+  requestUpdate: boolean;
+
+  constructor(requestUpdate: boolean) {
+    this.requestUpdate = requestUpdate;
+  }
 
   static createEmpty() {
     return new KeyUpdate(false);
