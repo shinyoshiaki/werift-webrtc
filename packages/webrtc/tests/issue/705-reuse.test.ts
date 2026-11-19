@@ -14,6 +14,7 @@ import {
   mLines,
   negotiate,
   routedSsrcs,
+  rtcpLinesBySection,
   startAutoNegotiation,
   transceiverByMid,
 } from "./705.helpers";
@@ -46,6 +47,11 @@ describe("issue 705: transceiver.stop()", () => {
       // Assert: 自分の offer で port 0 になり、answer 適用後に stopped が確定する
       expect(mLines(offer).map((m) => m.port)).toEqual([9, 0]);
       expect(mLines(answer).map((m) => m.port)).toEqual([9, 0]);
+      // Assert: 停止 m-line は a=rtcp / a=rtcp-mux を持たず、生きている m-line は従来どおり持つ
+      expect(rtcpLinesBySection(offer)).toEqual([
+        ["a=rtcp:9 IN IP4 0.0.0.0", "a=rtcp-mux"],
+        [],
+      ]);
       expect(video.stopped).toBe(true);
       expect(video.currentDirection).toBe("stopped");
       expect(video.rejected).toBe(false);
