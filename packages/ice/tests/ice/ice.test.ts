@@ -542,6 +542,7 @@ describe("ice", () => {
 
   test("test_connect_tcp_passive_listener_fails_without_incoming", async () => {
     const connection = createTestConnection(true, {
+      incomingCheckTimeout: 0.1,
       useTcp: true,
       tcpPassive: true,
       useIpv6: false,
@@ -559,7 +560,7 @@ describe("ice", () => {
         ),
       ];
 
-      // Act / Assert: known checks が尽きたあと、有限の inbound TCP 待ちで ICE_FAILED になる
+      // Act / Assert: known checks が尽きたあと、incomingCheckTimeout だけ inbound TCP を待って ICE_FAILED になる
       await expect(connection.connect()).rejects.toThrow(
         "ICE negotiation failed",
       );
@@ -825,26 +826,23 @@ describe("ice", () => {
       }
     }));
 
-  test(
-    "test_connect_no_remote_candidates",
-    async () =>
-      new Promise<void>(async (done) => {
-        const conn = createTestConnection(true);
+  test("test_connect_no_remote_candidates", async () =>
+    new Promise<void>(async (done) => {
+      // 空の check list は相手からの check を incomingCheckTimeout だけ待ってから失敗する。
+      const conn = createTestConnection(true, { incomingCheckTimeout: 0.1 });
 
-        await conn.gatherCandidates();
-        conn.remoteCandidates = [];
-        conn.remoteUsername = "foo";
-        conn.remotePassword = "bar";
-        try {
-          await conn.connect();
-        } catch (error: any) {
-          expect(error.message).toBe("ICE negotiation failed");
-          await conn.close();
-          done();
-        }
-      }),
-    15_000,
-  );
+      await conn.gatherCandidates();
+      conn.remoteCandidates = [];
+      conn.remoteUsername = "foo";
+      conn.remotePassword = "bar";
+      try {
+        await conn.connect();
+      } catch (error: any) {
+        expect(error.message).toBe("ICE negotiation failed");
+        await conn.close();
+        done();
+      }
+    }));
 
   test("test_connect_no_remote_credentials", async () =>
     new Promise<void>(async (done) => {

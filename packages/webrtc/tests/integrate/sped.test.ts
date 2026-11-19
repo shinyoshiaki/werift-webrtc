@@ -2459,11 +2459,13 @@ describe("RTCPeerConnection SPED opt-in", () => {
         warpCarrier: "direct",
       });
 
-      // Assert: SPED client の ClientHello が probe され、同一 bytes で raw fallback する
+      // Assert: SPED client の ClientHello (L1) が作られ、同一 bytes で raw fallback する。
+      // 最初の probe は answerer の ICE check が wire spy の取り付けより先に出ると
+      // 捕捉できないため、probe の証拠は wire 上の C070 か、捕捉した L1 flight とする。
       expect(
         stun.some((bytes) =>
           stunAttributeTypes(bytes).includes(DTLS_IN_STUN_DATA),
-        ),
+        ) || flights.length > 0,
       ).toBe(true);
       const embedded = firstNonEmptySpedData(stun) ?? flights[0]?.[0];
       expect(handshakeDtls.length).toBeGreaterThan(0);

@@ -262,31 +262,44 @@ export class TransportActivation {
         ) {
           return progressed;
         }
+        // The ICE generation awaited below may end meanwhile (restart(),
+        // resetRemoteGeneration()) or the transport retire (renegotiation,
+        // close()): its outcome then changes no state, whether it failed,
+        // was cancelled or connected. The connect() of the description that
+        // carries the new generation reports that one.
+        const generation = iceTransport.checksGeneration;
+        const replaced = () =>
+          iceTransport.checksGeneration !== generation ||
+          !this.secure.dtlsTransports.includes(dtlsTransport);
         if (!iceTransport.checksStarted) {
           progressed = true;
           this.secure.setConnectionState("connecting");
-          if (
+          // A connectionstatechange subscriber may have restarted ICE: the
+          // new generation's own connect() starts its checks.
+          if (replaced()) return false;
+          // SPED: the DTLS handshake rides on the ICE Binding exchange, so
+          // both start together instead of DTLS waiting for ICE.
+          const dtlsPromise =
             config.sped === true &&
             dtlsTransport.state === "new" &&
             dtlsTransport.hasRemoteParameters
-          ) {
-            // SPED: the DTLS handshake rides on the ICE Binding exchange, so
-            // both start together instead of DTLS waiting for ICE.
-            const dtlsPromise = dtlsTransport.start();
-            const earlySctpPromise = this.startEarlySctp(dtlsTransport, config);
-            await Promise.all([
-              iceTransport.start(),
-              dtlsPromise,
-              earlySctpPromise,
-            ]).catch((err) => {
-              log("sped ice/dtls start failed", err);
-              throw err;
-            });
-          } else {
-            await iceTransport.start().catch((err) => {
-              log("iceTransport.start failed", err);
-              throw err;
-            });
+              ? dtlsTransport.start()
+              : undefined;
+          const earlySctpPromise = dtlsPromise
+            ? this.startEarlySctp(dtlsTransport, config)
+            : undefined;
+          const error = await Promise.all([
+            iceTransport.start(),
+            dtlsPromise,
+            earlySctpPromise,
+          ]).then(
+            () => undefined,
+            (err: unknown) => err ?? new Error("ICE start failed"),
+          );
+          if (replaced()) return false;
+          if (error) {
+            log("iceTransport.start failed", error);
+            throw error;
           }
           iceReady = true;
         } else if (iceTransport.state === "checking") {
@@ -294,6 +307,7 @@ export class TransportActivation {
           // never started again.
           progressed = true;
           await iceTransport.checksSettled();
+          if (replaced()) return false;
           iceReady = ["connected", "completed"].includes(iceTransport.state);
           if (!iceReady) {
             throw new Error(`ICE transport ${iceTransport.state}`);
@@ -444,13 +458,26 @@ export class TransportActivation {
     await Promise.all(
       pending.map(async (transport) => {
         const { iceTransport } = transport;
+        // As in connect(): checks of an ended generation, or of a transport
+        // that is no longer pending only (promoted by the final answer or
+        // discarded), lead nowhere.
+        const generation = iceTransport.checksGeneration;
+        const replaced = () =>
+          iceTransport.checksGeneration !== generation ||
+          !this.negotiation.isPendingOnlyTransport(iceTransport.id);
         if (!iceTransport.checksStarted) {
           if (!iceTransport.getRemoteParameters()) return;
           iceTransport.connection.iceControlling =
             this.host.signalingState() === "have-remote-pranswer";
-          await iceTransport.start();
+          const error = await iceTransport.start().then(
+            () => undefined,
+            (err: unknown) => err ?? new Error("ICE start failed"),
+          );
+          if (replaced()) return;
+          if (error) throw error;
         } else if (iceTransport.state === "checking") {
           await iceTransport.checksSettled();
+          if (replaced()) return;
         }
         if (!["connected", "completed"].includes(iceTransport.state)) return;
         if (transport.state === "connecting") {

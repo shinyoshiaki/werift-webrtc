@@ -244,6 +244,7 @@ export class SecureTransportManager {
       tcpPassive: this.config.iceTcpPassive,
       stunGatherTimeout: this.config.iceStunGatherTimeout,
       turnConnectTimeout: this.config.iceTurnConnectTimeout,
+      incomingCheckTimeout: this.config.iceIncomingCheckTimeout,
       nominationDelayMs: this.config.iceNominationDelayMs,
       nomination: this.config.iceNomination,
       renomination: this.config.iceRenomination,

@@ -1,11 +1,13 @@
 import { readFileSync } from "fs";
-import { setTimeout } from "timers/promises";
-import type { IceConnection } from "../../ice/src";
+import { setTimeout as delay } from "timers/promises";
+
+import { type Mock, vi } from "vitest";
+
+import type { Connection, IceConnection } from "../../ice/src";
 import {
   Candidate,
   CandidatePair,
   CandidatePairState,
-  type Connection,
   type Protocol,
 } from "../../ice/src";
 import { getHostAddresses } from "../../ice/src/utils";
@@ -27,8 +29,100 @@ import {
   RTCIceTransport,
   RTCPeerConnection,
   type RTCSctpTransport,
+  type RTCSdpType,
 } from "../src";
+import { Event } from "../src/imports/common";
 import type { RTCTransportStats } from "../src/media/stats";
+import { TransportActivation } from "../src/negotiation/transportActivation";
+
+/**
+ * Arrange: host-only ICE transports (1 controlling) where 2 has 1's
+ * credentials but none of its candidates, and 1 does not start: checks that 2
+ * starts wait for an incoming check on an empty check list.
+ */
+export async function createIceTransportsWithoutPeerCandidates(
+  incomingCheckTimeout: number,
+) {
+  // Host candidates only: no query to the built-in public STUN server.
+  const options = {
+    incomingCheckTimeout,
+    useIpv6: false,
+    useDefaultStunServer: false,
+  };
+  const transport1 = new RTCIceTransport(new RTCIceGatherer(options));
+  const transport2 = new RTCIceTransport(new RTCIceGatherer(options));
+  transport1.connection.iceControlling = true;
+  transport2.connection.iceControlling = false;
+  await Promise.all([transport1.gather(), transport2.gather()]);
+  transport2.setRemoteParams(transport1.localParameters);
+  return { transport1, transport2 };
+}
+
+/**
+ * Arrange: `createIceTransportsWithoutPeerCandidates` with 2's start()
+ * running. `starting` settles with that start().
+ */
+export async function startIceTransportWaitingForIncomingCheck(
+  incomingCheckTimeout: number,
+) {
+  const { transport1, transport2 } =
+    await createIceTransportsWithoutPeerCandidates(incomingCheckTimeout);
+  const starting = transport2.start().then(
+    () => ({ error: undefined as unknown }),
+    (error: unknown) => ({ error }),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  return { transport1, transport2, starting };
+}
+
+/**
+ * Arrange: end the ICE generation of the transports of
+ * `createIceTransportsWithoutPeerCandidates`, synchronously. `restart` is
+ * "local" (both restart) or "remote" (only 1 restarts, 2 drops its remote
+ * generation and keeps its credentials and candidates).
+ */
+export function endIceTransportGeneration(
+  transport1: RTCIceTransport,
+  transport2: RTCIceTransport,
+  restart: "local" | "remote",
+) {
+  transport1.restart(false);
+  if (restart === "local") transport2.restart(false);
+  else transport2.resetRemoteGeneration();
+}
+
+/**
+ * Arrange: gather the generation `endIceTransportGeneration` began and
+ * exchange every candidate and the credentials (no check starts).
+ */
+export async function exchangeIceTransportGeneration(
+  transport1: RTCIceTransport,
+  transport2: RTCIceTransport,
+  restart: "local" | "remote",
+) {
+  if (restart === "local") {
+    await Promise.all([transport1.gather(), transport2.gather()]);
+  } else {
+    await transport1.gather();
+  }
+  transport2.localCandidates.forEach(transport1.addRemoteCandidate);
+  transport1.localCandidates.forEach(transport2.addRemoteCandidate);
+  transport1.setRemoteParams(transport2.localParameters);
+  transport2.setRemoteParams(transport1.localParameters);
+}
+
+/**
+ * Arrange: a new ICE generation of the transports of
+ * `startIceTransportWaitingForIncomingCheck` with every candidate exchanged.
+ */
+export async function restartIceTransportGeneration(
+  transport1: RTCIceTransport,
+  transport2: RTCIceTransport,
+  restart: "local" | "remote",
+) {
+  endIceTransportGeneration(transport1, transport2, restart);
+  await exchangeIceTransportGeneration(transport1, transport2, restart);
+}
 
 export function load(name: string) {
   return readFileSync("./tests/data/" + name);
@@ -125,6 +219,28 @@ export async function negotiate(
   await offerer.setRemoteDescription(answerer.localDescription!);
 }
 
+/**
+ * Arrange: an offer/answer exchange whose descriptions carry no candidate
+ * (the a=candidate lines are dropped; end-of-candidates stays), so each side
+ * checks nothing and waits for a check the other never sends.
+ */
+export async function negotiateWithoutCandidates(
+  offerer: RTCPeerConnection,
+  answerer: RTCPeerConnection,
+) {
+  const strip = (description: { type: RTCSdpType; sdp: string }) => ({
+    type: description.type,
+    sdp: description.sdp
+      .split("\r\n")
+      .filter((line) => !line.startsWith("a=candidate:"))
+      .join("\r\n"),
+  });
+  await offerer.setLocalDescription(await offerer.createOffer());
+  await answerer.setRemoteDescription(strip(offerer.localDescription!));
+  await answerer.setLocalDescription(await answerer.createAnswer());
+  await offerer.setRemoteDescription(strip(answerer.localDescription!));
+}
+
 /** The first live RTCIceTransport of `pc` and its ICE agent. */
 export function firstIceTransport(pc: RTCPeerConnection) {
   const ice = (pc as any).secureManager.iceTransports[0] as RTCIceTransport;
@@ -167,7 +283,7 @@ export async function waitUntil(
   const deadline = Date.now() + timeout;
   while (!condition()) {
     if (Date.now() > deadline) throw new Error(message);
-    await setTimeout(20);
+    await delay(20);
   }
 }
 
@@ -349,7 +465,7 @@ export async function waitForConnectionState(
   }
   await Promise.race([
     pc.connectionStateChange.watch((current) => current === state),
-    setTimeout(timeoutMs).then(() => {
+    delay(timeoutMs).then(() => {
       throw new Error(
         `timed out waiting for connectionState ${state}, got ${pc.connectionState}`,
       );
@@ -367,7 +483,7 @@ export async function waitForSctpEstablished(
     if (Date.now() > deadline) {
       throw new Error("timed out waiting for the SCTP association");
     }
-    await setTimeout(10);
+    await delay(10);
   }
 }
 
@@ -381,7 +497,7 @@ export async function waitForDtlsState(
   }
   await Promise.race([
     transport.onStateChange.watch((current) => current === state),
-    setTimeout(timeoutMs).then(() => {
+    delay(timeoutMs).then(() => {
       throw new Error(
         `timed out waiting for dtls state ${state}, got ${transport.state}`,
       );
@@ -405,7 +521,7 @@ export async function waitForIceNominated(
         `timed out waiting for ICE nominated pair (state=${ice?.state} nominated=${!!ice?.connection.nominated})`,
       );
     }
-    await setTimeout(50);
+    await delay(50);
   }
 }
 
@@ -834,4 +950,111 @@ export function iceIntegrityConfig(config: Partial<PeerConfig> = {}): {
 /** Every `a=ice-options` line of `sdp`. */
 export function sdpIceOptionLines(sdp: string) {
   return sdp.split(/\r?\n/).filter((line) => line.startsWith("a=ice-options:"));
+}
+
+/**
+ * Who awaits the ICE checks in `TransportActivation`:
+ * - `connect-start` / `pending-start`: connect() / connectPending() starts
+ *   them (`RTCIceTransport.start()`).
+ * - `connect-waiter` / `pending-waiter`: they were started already, and
+ *   connect() / connectPending() awaits them (`checksSettled()`).
+ */
+export type ActivationWaiter =
+  | "connect-start"
+  | "connect-waiter"
+  | "pending-start"
+  | "pending-waiter";
+
+/**
+ * How the awaited generation ends: `restart` (local ICE restart),
+ * `resetRemoteGeneration` (remote-only restart) or `retire` (the transport
+ * leaves the live / pending set and stops).
+ */
+export type ChecksEnd = "restart" | "resetRemoteGeneration" | "retire";
+
+/**
+ * Shared Arrange: a real `TransportActivation` over one real
+ * `RTCIceTransport` whose checks wait for an incoming check (the peer never
+ * starts), awaited by `waiter`. The other managers are stubs; the DTLS
+ * transport only records `start()`. `running` settles with the activation
+ * call; `end` ends the awaited generation.
+ */
+export async function startActivationWaiting(
+  waiter: ActivationWaiter,
+  /** Runs inside `setConnectionState` (a synchronous connectionstatechange subscriber). */
+  onConnectionState?: (state: string, transport2: RTCIceTransport) => void,
+) {
+  const { transport1, transport2 } =
+    await createIceTransportsWithoutPeerCandidates(30);
+  const dtlsTransport = {
+    id: "dtls",
+    iceTransport: transport2,
+    state: "new",
+    hasRemoteParameters: true,
+    onStateChange: new Event<[string]>(),
+    start: vi.fn(async () => {}) as Mock<() => Promise<void>>,
+  };
+  const pending = waiter.startsWith("pending");
+  const live = pending ? [] : [dtlsTransport];
+  const pendingOnly = new Set(pending ? [transport2.id] : []);
+  const setConnectionState: Mock<(state: string) => void> = vi.fn(
+    (state: string) => onConnectionState?.(state, transport2),
+  );
+  const activation = new TransportActivation(
+    {} as any,
+    {
+      dtlsTransports: live,
+      iceTransports: live.map((transport) => transport.iceTransport),
+      setConnectionState,
+    } as any,
+    {} as any,
+    { sctpTransport: undefined } as any,
+    {
+      transportByMid: new Map([["0", dtlsTransport]]),
+      isPendingOnlyTransport: (id: string) => pendingOnly.has(id),
+    } as any,
+    {} as any,
+    {
+      signalingState: () => "stable",
+      config: () => ({}) as PeerConfig,
+      createTransport: () => {
+        throw new Error("not used");
+      },
+    },
+  );
+
+  if (waiter.endsWith("waiter")) {
+    // The checks a previous call started; their own outcome is not checked.
+    transport2.start().catch(() => {});
+  }
+  const running = (
+    pending ? activation.connectPending() : activation.connect()
+  ).then(
+    () => ({ error: undefined as unknown }),
+    (error: unknown) => ({ error }),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 100));
+
+  const end = async (how: ChecksEnd) => {
+    if (how === "restart") transport2.restart(false);
+    else if (how === "resetRemoteGeneration") {
+      transport2.resetRemoteGeneration();
+    } else {
+      live.splice(0);
+      pendingOnly.clear();
+      await transport2.stop();
+    }
+  };
+  const cleanup = async () => {
+    await Promise.all([transport1.stop(), transport2.stop()]);
+  };
+  return {
+    transport1,
+    transport2,
+    dtlsTransport,
+    setConnectionState,
+    running,
+    end,
+    cleanup,
+  };
 }
