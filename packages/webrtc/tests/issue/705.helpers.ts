@@ -135,6 +135,21 @@ export function mLines(sdp: string) {
   }));
 }
 
+/**
+ * m-section ごとの `a=rtcp:` / `a=rtcp-mux` 行 (生 SDP のまま)。
+ * 拒否 m-line に RTCP 属性を載せない出力形式の固定に使う。
+ */
+export function rtcpLinesBySection(sdp: string) {
+  return sdp
+    .split("\r\nm=")
+    .slice(1)
+    .map((section) =>
+      section
+        .split("\r\n")
+        .filter((line) => line.startsWith("a=rtcp:") || line === "a=rtcp-mux"),
+    );
+}
+
 export function bundleGroups(sdp: string) {
   return parseSdp(sdp)
     .group.filter((group) => group.semantic === "BUNDLE")
