@@ -23,6 +23,7 @@ import {
   parseSdp,
   REMOTE_UFRAG,
   routedSsrcs,
+  rtcpLinesBySection,
   waitForConnected,
 } from "./705.helpers";
 
@@ -63,6 +64,11 @@ describe("issue 705: reject unsupported RTP m-lines in the answer", () => {
       ]);
       expect(bundleGroups(answer)).toEqual([]);
       expect(pc.signalingState).toBe("stable");
+      // Assert: 生きている audio は従来どおり a=rtcp / a=rtcp-mux を持ち、拒否 video は RTCP 属性を持たない
+      expect(rtcpLinesBySection(answer)).toEqual([
+        ["a=rtcp:9 IN IP4 0.0.0.0", "a=rtcp-mux"],
+        [],
+      ]);
 
       // Assert: 拒否した video は送受信準備・router 登録・onTrack・TWCC を行わない
       const video = pc.getTransceivers().find((t) => t.mid === "1")!;
