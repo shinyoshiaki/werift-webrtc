@@ -224,9 +224,10 @@ export class SessionDescription {
               break;
             case "rtcp":
               {
-                const [port, rest] = divide(value, " ");
-                currentMedia.rtcpPort = Number.parseInt(port);
-                currentMedia.rtcpHost = ipAddressFromSdp(rest);
+                const { port, host, addrType } = rtcpAttributeFromSdp(value);
+                currentMedia.rtcpPort = port;
+                currentMedia.rtcpHost = host;
+                currentMedia.rtcpAddrType = addrType;
               }
               break;
             case "rtcp-mux":
@@ -432,8 +433,25 @@ export class MediaDescription {
   msids: string[] = [];
 
   // rtcp
+  /**
+   * `a=rtcp` の RTCP port (RFC 3605)。`undefined` のときは `a=rtcp` を出力しない。
+   */
   rtcpPort?: number;
+  /**
+   * `a=rtcp` の connection-address (RFC 3605)。
+   * `a=rtcp:<port>` のようにアドレスが省略された場合は `undefined` のまま保持し、
+   * 有効な RTCP アドレスは media-level の `c=` (`host`)、それもなければ
+   * session-level の `c=` を継承する (`rtcpHost ?? media.host ?? session.host`)。
+   */
   rtcpHost?: string;
+  /**
+   * `a=rtcp` の addrtype。パースした値を保持して再出力に使う (ホスト名の
+   * `IN IP4 host.example.com` が `IP6` に変わらない)。未設定なら `rtcpHost` から推定する。
+   */
+  rtcpAddrType?: "IP4" | "IP6";
+  /**
+   * `a=rtcp-mux` (RFC 5761)。`a=rtcp` の有無とは独立して入出力する。
+   */
   rtcpMux = false;
 
   // ssrc
@@ -547,11 +565,13 @@ export class MediaDescription {
     }
     this.msids.forEach((msid) => lines.push(`a=msid:${msid}`));
 
-    if (this.rtcpPort && this.rtcpHost) {
-      lines.push(`a=rtcp:${this.rtcpPort} ${ipAddressToSdp(this.rtcpHost)}`);
-      if (this.rtcpMux) {
-        lines.push("a=rtcp-mux");
-      }
+    if (this.rtcpPort !== undefined) {
+      lines.push(
+        `a=rtcp:${rtcpAttributeToSdp({ port: this.rtcpPort, host: this.rtcpHost, addrType: this.rtcpAddrType })}`,
+      );
+    }
+    if (this.rtcpMux) {
+      lines.push("a=rtcp-mux");
     }
 
     this.ssrcGroup.forEach((group) => {
@@ -645,6 +665,72 @@ function ipAddressFromSdp(sdp: string) {
 function ipAddressToSdp(addr: string) {
   const version = isIPv4(addr) ? 4 : 6;
   return `IN IP${version} ${addr}`;
+}
+
+/**
+ * `a=rtcp` の値 (`a=rtcp:` 以降) をパースする (RFC 3605 §2.1)。
+ *
+ * `rtcp-attribute = "a=rtcp:" port [nettype space addrtype space connection-address]`
+ *
+ * - `<port>`: アドレス省略形。`host` は `undefined` (c= を継承する)
+ * - `<port> IN IP4|IP6 <address>`: アドレス付き形式
+ *
+ * port は 1–65535 の 10 進数でなければならず、それ以外の形式はエラーにする。
+ *
+ * `IP4` / `IP6` の後ろのアドレスは文字列のまま受理する (ホスト名も可)。
+ * addrtype は `addrType` として返すので、{@link rtcpAttributeToSdp} に渡せば
+ * 元の addrtype のまま再出力できる。
+ */
+export function rtcpAttributeFromSdp(value: string): {
+  port: number;
+  host?: string;
+  addrType?: "IP4" | "IP6";
+} {
+  const invalid = () =>
+    new Error(`invalid a=rtcp attribute: ${JSON.stringify(value)}`);
+  const tokens = value.split(" ");
+  if (tokens.length !== 1 && tokens.length !== 4) {
+    throw invalid();
+  }
+  const [portToken, nettype, addrtype, address] = tokens;
+  if (!/^\d+$/.test(portToken)) {
+    throw invalid();
+  }
+  const port = Number.parseInt(portToken, 10);
+  if (port < 1 || port > 65535) {
+    throw invalid();
+  }
+  if (tokens.length === 1) {
+    return { port };
+  }
+  if (
+    nettype !== "IN" ||
+    (addrtype !== "IP4" && addrtype !== "IP6") ||
+    address === ""
+  ) {
+    throw invalid();
+  }
+  return { port, host: address, addrType: addrtype };
+}
+
+/**
+ * `a=rtcp` の値 (`a=rtcp:` 以降) を生成する (RFC 3605 §2.1)。
+ * `host` が `undefined` の場合はアドレス省略形 `<port>` を出力する。
+ * `addrType` を省略した場合は `host` が IPv4 リテラルなら `IP4`、それ以外は `IP6` とする。
+ */
+export function rtcpAttributeToSdp({
+  port,
+  host,
+  addrType,
+}: {
+  port: number;
+  host?: string;
+  addrType?: "IP4" | "IP6";
+}) {
+  if (host === undefined) return `${port}`;
+  return addrType === undefined
+    ? `${port} ${ipAddressToSdp(host)}`
+    : `${port} IN ${addrType} ${host}`;
 }
 
 export function candidateToSdp(c: IceCandidate) {
