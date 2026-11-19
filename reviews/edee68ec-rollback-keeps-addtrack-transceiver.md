@@ -4,7 +4,7 @@ ide:
   version: 1
   title: "#817 rollback で addTrack 済み transceiver を保持する"
   dock: right
-  baseCommit: 25e8d03301e57062ee17bc33320933e8bf6ee4a6
+  baseCommit: 652dc06f85cc3b59e4421b1797623c9ae20c5b22
 ---
 # #817 remote rollback で addTrack 済み transceiver が消える問題の修正
 
@@ -19,6 +19,11 @@ remote offer を rollback すると、アプリが `addTrack()` で使った tra
 - remote offer の保留中に `addTrack()` が transceiver を新しく作ると、rollback で `TypeError` になっていました（develop にもある不具合です。図 4）。
 - 上の修正の 1 回目で、codec 検証に失敗するたびに DTLS transport が残る回帰が入っていました。レビューの指摘を受けて直しています（図 5）。
 - **追加要件**：モジュールスコープに置いていた実行時の状態を、すべて持ち主のインスタンスへ移しました（図 6）。対象は、この修正の 1 回目で入れた WeakSet と、同じ形の既存 5 件です。再発防止として、root `AGENTS.md` に指示を足し、検査テストを追加しました。
+- レビュー対応の中で、さらに次の 4 つを直しました。
+  - dummy media の SSRC 重複（図 6 の B6 の 1 回目の回帰）：各 source が SSRC・初期 sequence・初期 PictureID を乱数で決めるようにしました（3 回目の対応）。
+  - leak probe の計測の揺れ：host の interface と docker の NAT が作る peer-reflexive 候補で、pair 数が 1 つ揺れていました。周期 session を IPv4 loopback に限定しました（4 回目の対応）。
+  - ICE の候補収集の保持（ICE チケット `74132240` の原因）：ICE restart ごとの収集結果が、agent の close まで残っていました（5 回目の対応）。
+  - develop の取り込み後の整合性：leak probe の `World` と changelog を揃えました（6 回目の対応）。
 
 ## 図 1：#817 の処理の流れ（Before / After）
 
@@ -105,9 +110,9 @@ remote offer を rollback すると、アプリが `addTrack()` で使った tra
 
 ①〜④ は Before と After で同じです。② で `reusedForAddTrack` が立つことも develop と変わりません。違いは ④ の判定だけです。After は、この既存の記録と `createdBy` も見るようになりました。
 
-- 判定： [packages/webrtc/src/media/rtpTransceiver.ts:293](review-diff:packages/webrtc/src/media/rtpTransceiver.ts:293)（`heldByApplication`）
-- 判定に使う既存の記録： [packages/webrtc/src/media/rtpTransceiver.ts:55](review-file:packages/webrtc/src/media/rtpTransceiver.ts:55)（`reusedForAddTrack`）、[packages/webrtc/src/transceiverManager.ts:640](review-file:packages/webrtc/src/transceiverManager.ts:640)（`noteReusedForAddTrack`。remote 生成のものだけに立てる）
-- 判定を使う rollback 側（変更なし）： [packages/webrtc/src/transceiverManager.ts:214](review-file:packages/webrtc/src/transceiverManager.ts:214)、[packages/webrtc/src/negotiationTransaction.ts:426](review-file:packages/webrtc/src/negotiationTransaction.ts:426)
+- 判定： [packages/webrtc/src/media/rtpTransceiver.ts:330](review-diff:packages/webrtc/src/media/rtpTransceiver.ts:330)（`heldByApplication`）
+- 判定に使う既存の記録： [packages/webrtc/src/media/rtpTransceiver.ts:55](review-file:packages/webrtc/src/media/rtpTransceiver.ts:55)（`reusedForAddTrack`）、[packages/webrtc/src/transceiverManager.ts:688](review-file:packages/webrtc/src/transceiverManager.ts:688)（`noteReusedForAddTrack`。remote 生成のものだけに立てる）
+- 判定を使う rollback 側（変更なし）： [packages/webrtc/src/transceiverManager.ts:258](review-file:packages/webrtc/src/transceiverManager.ts:258)、[packages/webrtc/src/negotiationTransaction.ts:439](review-file:packages/webrtc/src/negotiationTransaction.ts:439)
 
 rollback で除去されうるのは、remote offer が作った transceiver だけです。そうした transceiver に `addTrack()` を使うと、空の sender を再利用する分岐か、送信しない transceiver を再利用する分岐を必ず通ります。どちらの分岐でも `reusedForAddTrack` が立つので、#817 を判定するにはこのフラグで足ります。`createdBy === "addTrack"` は、`addTrack()` が新しく作った transceiver にも、このプロパティの意味を合わせるために加えています。
 
@@ -174,7 +179,7 @@ rollback で除去されうるのは、remote offer が作った transceiver だ
 })();
 </script>
 
-③ で判定が分かれ、④ で結果が変わります。この再現手順は [packages/webrtc/tests/pbt/model/scenes.ts:346](review-diff:packages/webrtc/tests/pbt/model/scenes.ts:346) の 2 つの scene（`replaceTrack` と `removeTrack`）です。どちらも修正前のコードでは失敗します。そこで使う `takeTrack` / `detachTrack` のステップは [packages/webrtc/tests/pbt/model/generator.ts:158](review-diff:packages/webrtc/tests/pbt/model/generator.ts:158) で追加しました。
+③ で判定が分かれ、④ で結果が変わります。この再現手順は [packages/webrtc/tests/pbt/model/scenes.ts:361](review-diff:packages/webrtc/tests/pbt/model/scenes.ts:361) の 2 つの scene（`replaceTrack` と `removeTrack`）です。どちらも修正前のコードでは失敗します。そこで使う `takeTrack` / `detachTrack` のステップは [packages/webrtc/tests/pbt/model/generator.ts:235](review-diff:packages/webrtc/tests/pbt/model/generator.ts:235) で追加しました。
 
 ## 図 3：rollback で保持されるか（操作ごとの比較）
 
@@ -275,10 +280,10 @@ rollback で除去されうるのは、remote offer が作った transceiver だ
 
 変わったのは ② だけです。transport を作成後に付けるのをやめ、作成時に渡します。そのため、rollback が戻す先の「作成時状態」にも transport が入ります。破線の ③ は、再利用の分岐のために残っています。
 
-- `pc.addTrack` から transport を作る関数を渡す： [packages/webrtc/src/peerConnection.ts:1976](review-diff:packages/webrtc/src/peerConnection.ts:1976)
-- 新規作成の分岐で、作成時に渡す： [packages/webrtc/src/transceiverManager.ts:627](review-diff:packages/webrtc/src/transceiverManager.ts:627)
-- 例外が出ていた箇所（変更なし）： [packages/webrtc/src/media/rtpTransceiver.ts:276](review-file:packages/webrtc/src/media/rtpTransceiver.ts:276) → [packages/webrtc/src/media/rtpSender.ts:341](review-file:packages/webrtc/src/media/rtpSender.ts:341)
-- 再現する scene： [packages/webrtc/tests/pbt/model/scenes.ts:334](review-diff:packages/webrtc/tests/pbt/model/scenes.ts:334)（model property の seed 25 で見つけたもの）
+- `pc.addTrack` から transport を作る関数を渡す： [packages/webrtc/src/peerConnection.ts:2201](review-diff:packages/webrtc/src/peerConnection.ts:2201)
+- 新規作成の分岐で、作成時に渡す： [packages/webrtc/src/transceiverManager.ts:675](review-diff:packages/webrtc/src/transceiverManager.ts:675)
+- 例外が出ていた箇所（変更なし）： [packages/webrtc/src/media/rtpTransceiver.ts:313](review-file:packages/webrtc/src/media/rtpTransceiver.ts:313) → [packages/webrtc/src/media/rtpSender.ts:341](review-file:packages/webrtc/src/media/rtpSender.ts:341)
+- 再現する scene： [packages/webrtc/tests/pbt/model/scenes.ts:349](review-diff:packages/webrtc/tests/pbt/model/scenes.ts:349)（model property の seed 25 で見つけたもの）
 
 ## 図 5：レビュー指摘（P2）の修正 — codec 検証と transport 作成の順序
 
@@ -344,11 +349,11 @@ rollback で除去されうるのは、remote offer が作った transceiver だ
 
 失敗しうる codec 検証を、副作用のある `createTransport()` より前に移しました。検証の中身は `addTransceiver` 内の処理を `assertTrackCodecsSupported` に切り出したものです。両方が同じ関数を呼ぶので、検証内容は変わっていません。
 
-- 切り出した検証： [packages/webrtc/src/transceiverManager.ts:454](review-diff:packages/webrtc/src/transceiverManager.ts:454)
-- `addTransceiver` からの呼び出し： [packages/webrtc/src/transceiverManager.ts:490](review-diff:packages/webrtc/src/transceiverManager.ts:490)
-- `addTrack` の新規作成分岐で先に検証する箇所： [packages/webrtc/src/transceiverManager.ts:622](review-diff:packages/webrtc/src/transceiverManager.ts:622)
-- transport が登録される箇所（変更なし）： [packages/webrtc/src/secureTransportManager.ts:278](review-file:packages/webrtc/src/secureTransportManager.ts:278)
-- 回帰テスト： [packages/webrtc/tests/media/codecResolution.test.ts:97](review-diff:packages/webrtc/tests/media/codecResolution.test.ts:97)（3 回失敗させ、`ownedTransports` の数と transceiver 0 件を確認）
+- 切り出した検証： [packages/webrtc/src/transceiverManager.ts:502](review-diff:packages/webrtc/src/transceiverManager.ts:502)
+- `addTransceiver` からの呼び出し： [packages/webrtc/src/transceiverManager.ts:538](review-diff:packages/webrtc/src/transceiverManager.ts:538)
+- `addTrack` の新規作成分岐で先に検証する箇所： [packages/webrtc/src/transceiverManager.ts:670](review-diff:packages/webrtc/src/transceiverManager.ts:670)
+- transport が登録される箇所（変更なし）： [packages/webrtc/src/secureTransportManager.ts:287](review-file:packages/webrtc/src/secureTransportManager.ts:287)
+- 回帰テスト： [packages/webrtc/tests/media/codecResolution.test.ts:104](review-diff:packages/webrtc/tests/media/codecResolution.test.ts:104)（3 回失敗させ、`ownedTransports` の数と transceiver 0 件を確認）
 
 ## 図 6：追加要件 — モジュールスコープの状態を持ち主のインスタンスへ移す
 
@@ -441,7 +446,7 @@ rollback で除去されうるのは、remote offer が作った transceiver だ
   </tbody>
 </table>
 
-- A1 / A2： [packages/webrtc/src/negotiation/internalState.ts:39](review-diff:packages/webrtc/src/negotiation/internalState.ts:39)（状態の削除）、[packages/webrtc/src/media/rtpTransceiver.ts:83](review-diff:packages/webrtc/src/media/rtpTransceiver.ts:83)（`_applicationStopRevision`）、[packages/webrtc/src/negotiationTransaction.ts:407](review-diff:packages/webrtc/src/negotiationTransaction.ts:407)（getter を使う側）
+- A1 / A2： [packages/webrtc/src/negotiation/internalState.ts:39](review-diff:packages/webrtc/src/negotiation/internalState.ts:39)（状態の削除）、[packages/webrtc/src/media/rtpTransceiver.ts:90](review-diff:packages/webrtc/src/media/rtpTransceiver.ts:90)（`_applicationStopRevision`）、[packages/webrtc/src/negotiationTransaction.ts:420](review-diff:packages/webrtc/src/negotiationTransaction.ts:420)（getter を使う側）
 - B3： [packages/webrtc/src/media/track.ts:34](review-diff:packages/webrtc/src/media/track.ts:34)（公開関数）、[packages/webrtc/src/media/track.ts:146](review-diff:packages/webrtc/src/media/track.ts:146)（フィールド）
 - B4： [packages/webrtc/src/media/receiver/receiverTwcc.ts:54](review-diff:packages/webrtc/src/media/receiver/receiverTwcc.ts:54)、[packages/webrtc/src/transport/dtls.ts:181](review-diff:packages/webrtc/src/transport/dtls.ts:181)
 - B5： [packages/webrtc/src/polyfill/sourceIo.ts:19](review-diff:packages/webrtc/src/polyfill/sourceIo.ts:19)（option）、[packages/webrtc/src/polyfill/sourceIo.ts:73](review-diff:packages/webrtc/src/polyfill/sourceIo.ts:73)（使う側）、[packages/webrtc/tests/nonstandard/polyfillTestUtils.ts:120](review-diff:packages/webrtc/tests/nonstandard/polyfillTestUtils.ts:120)、[packages/webrtc/tests/nonstandard/polyfill.test.ts:1562](review-diff:packages/webrtc/tests/nonstandard/polyfill.test.ts:1562)
@@ -519,8 +524,8 @@ leak cycle seed 248 は負荷のないときにも HEAD で落ちやすかった
 
 失敗率は src ではなくハーネスの違いに従っています。このブランチでは、CI 対応の自動コミット（`665a1bfe4`）が、テストの peer で公開の既定 STUN サーバーを使わないようにしています（`iceUseDefaultStunServer: false`）。leak probe はこのハーネスの `createDuplexSession` を使うので、候補収集のタイミングが変わり、既存の ICE の増加が表に出やすくなります。
 
-- ハーネスの設定： [packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts:1330](review-diff:packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts:1330)
-- leak probe からの呼び出し： [packages/webrtc/tests/pbt/leak/leakProbe.ts:1085](review-file:packages/webrtc/tests/pbt/leak/leakProbe.ts:1085)
+- ハーネスの設定： [packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts:1427](review-diff:packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts:1427)
+- leak probe からの呼び出し： [packages/webrtc/tests/pbt/leak/leakProbe.ts:1106](review-file:packages/webrtc/tests/pbt/leak/leakProbe.ts:1106)
 
 develop の src でも seed 248 は 20 回中 11 回失敗します。そのため、この失敗は今回の rollback・状態移動の変更から来たものではないと判断しました。ハーネスの変更は、テストが外部の STUN サーバーに依存しないようにするためのものなので、残しています。
 
@@ -589,7 +594,7 @@ seed 5 を交互に 10 回ずつ実行しました（develop は `8070a8e58`）�
 
 leak の周期 session（`arrangeCycleSession`。cycle seed・fixed cycle・heap の各テストが使います）を、IPv4 loopback だけで ICE を張るようにしました（`iceInterfaceAddresses: { udp4: "127.0.0.1" }`、`iceUseIpv6: false`、`iceUseDefaultStunServer: false`）。計測する host の interface 数や NAT で pair 数が揺れなくなります。周期ごとの状態の増加は 1 候補でも検出できるので、leak property が見ている性質は変わりません。
 
-- [packages/webrtc/tests/pbt/leak/leakProbe.ts:1082](review-diff:packages/webrtc/tests/pbt/leak/leakProbe.ts:1082)
+- [packages/webrtc/tests/pbt/leak/leakProbe.ts:1102](review-diff:packages/webrtc/tests/pbt/leak/leakProbe.ts:1102)
 
 ### 再実行の結果
 
@@ -675,3 +680,51 @@ heap seed 4 は develop でも閾値（16 KiB/cycle）をわずかに超える�
 | `npm run wpt` を 10 回 | 10 回とも REGRESSION 0。毎回 215 target。追加した subtest は 10 回とも PASS。`baseline.json` の 572 件はすべて 10 回とも PASS |
 
 flaky の scenario seed 114 と heap seed 2 は、以前の高負荷の比較で develop でも flaky・失敗になったものです。今回はどちらも単独の再実行で成功しています。
+
+## 6 回目の対応：develop の取り込みとコンフリクト解決の確認
+
+このブランチは develop を何度も取り込み、そのうち 4 回はコンフリクトを解決しています（`80a6eb5b9`、`4fbc7652e`、`70e710c69`、`3adb1392c`）。これらを見直し、特にこのチケットのリファクタリング（図 6・5 回目の対応）が取り込み後も保たれているかを確認しました。結果はチケット §8 にも記録しています。
+
+### コンフリクト解決の内容
+
+`git show --cc` で、両親のどちらとも違う結果になった hunk を確認しました。どれも両側の変更を残しています。
+
+| merge | ファイル | 解決の内容 |
+| --- | --- | --- |
+| `80a6eb5b9` | `transceiverManager.ts` / `negotiationTransaction.ts` | develop の `createdBy`（JSEP 5.10 pairing）と、このチケットの `heldByApplication` の TSDoc・`addTrack()` の 3 分岐の両方を残した |
+| `4fbc7652e` | `tests/transport/ice.test.ts` | develop の import（`connectWithIceConfigs` など）と、このブランチの `createLocalPeerConnection` を両方残した |
+| `70e710c69` | `negotiationTransactionUtils.ts` | develop の `createDuplexSession(config, configB)` と、このブランチの既定値 `iceUseDefaultStunServer: false` を両立させた |
+| `70e710c69` / `3adb1392c` | `tests/pbt/model/generator.ts` | develop の `asymmetric` / `simulcast` と、このチケットの `addTracked`（`takeTrack` / `detachTrack` 用）を両方残した |
+
+### リファクタリングとの整合性
+
+- 削除した識別子への参照は残っていません：`getApplicationStopRevision`、`noteApplicationAddTrack`、`isAttachedByAddTrack`、`closedSignal`（ICE）、`setUdpSocketFactory`、`nextDummySourceId` など。dtls の `closedSignal` は別物（`AbortSignal` の getter）です。
+- develop から入った #356（SSRC-less 受信）の `router` / `routing/*` / `rtpReceiver` には、モジュールスコープの状態はありません。`moduleState.test.ts` も通ります。
+- `heldByApplication`（[packages/webrtc/src/media/rtpTransceiver.ts:330](review-file:packages/webrtc/src/media/rtpTransceiver.ts:330)）、`applicationStopRevision`、`RTCDtlsTransport.sharedReceiverTWCC`、ICE の `untilClosed` は、取り込み後もそのままです。
+- #356 が receiver に足した状態 `deferredRemote` は、receiver の snapshot / restore に含まれます。rollback で保持する transceiver は作成時の状態（`deferredRemote` なし）に戻るので、このチケットの保持の経路と矛盾しません。
+- `npm run doc` で生成 docs を作り直しても差分はありません。
+
+### 直したもの
+
+- leak probe の周期 session の `World` に、このチケットで model の `World` に足した `addTracked` がありませんでした。`as never` のキャストで型検査を通っていたので、周期で model の `takeTrack` / `detachTrack` を使うと落ちるところでした。欄を揃えています。 [packages/webrtc/tests/pbt/leak/leakProbe.ts:1124](review-diff:packages/webrtc/tests/pbt/leak/leakProbe.ts:1124)
+- B6（dummy media の SSRC などを乱数にした変更）が `changelog.md` にありませんでした。以前の版の「dummy media: deterministic per source」という記載と食い違うので、Unreleased の 🐛 Bug Fixes に追記しました。 [changelog.md:63](review-diff:changelog.md:63)
+
+`changelog.md` の Unreleased に `🚀 Features` / `🐛 Bug Fixes` の見出しが 2 組ある点は、develop と同じなので、このブランチでは触っていません。
+
+### 取り込み後の検証
+
+| 検証 | 結果 |
+| --- | --- |
+| `npm run type` | エラーなし |
+| `packages/webrtc` の `npm test` | 98 ファイル、2106 件成功、5 件スキップ |
+| ICE の回帰テスト（`restart-gather.test.ts`） | 成功 |
+| `npm run pbt:deep -- --suite model,leak --jobs 16`（load 平均 37.7、最大 62.1） | 失敗 2 件（下記）。どちらも develop 側の原因 |
+
+- model seed 234：縮小した scene は、develop にもある操作（`attachTrack` → `removeTrack` → `attachTrack` → `wireOffer`（`ssrcAndMidRemoved`）→ `lateAnswer`、simulcast、`bundlePolicy: max-compat`）だけでできています。merge-base `38981b880` でも 3 回とも、同じ「after operation #23: traffic / RTP was not received」で失敗します。HEAD では generator の `takeTrack` / `detachTrack` で乱数列が変わり、seed 234 がこの scene に当たります。develop 側の不具合として別途扱う必要があります。
+- leak heap seed 2：HEAD は 16.2〜16.3 KiB/cycle で、閾値 16 をわずかに超えます。#356 の取り込み前（`679dea2fb`）は 15.4〜15.9 で成功していました。merge-base にこのチケットの ICE 修正と leak probe の loopback 化だけを当てると 16.25〜16.32 で、HEAD と同じです。増えた分は develop の #356 のコードによるもので、マージの解決によるものではありません。なお merge-base そのものは 273.75 KiB/cycle で、このチケットの修正で 16 前後まで下がります。
+
+未確認のこと：
+
+- 最新の取り込み後に、`npm run wpt` と `tools/negotiation-diff` の develop 比較は再実行していません。
+- model seed 234 の develop 側の不具合について、チケットはまだ作っていません。
+
