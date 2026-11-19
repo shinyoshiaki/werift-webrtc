@@ -4,7 +4,7 @@ ide:
   version: 1
   title: "#817 rollback で addTrack 済み transceiver を保持する"
   dock: right
-  baseCommit: 652dc06f85cc3b59e4421b1797623c9ae20c5b22
+  baseCommit: 86d550b8d7d6211d9a5513d6e054e52a1c138cb9
 ---
 # #817 remote rollback で addTrack 済み transceiver が消える問題の修正
 
@@ -24,6 +24,19 @@ remote offer を rollback すると、アプリが `addTrack()` で使った tra
   - leak probe の計測の揺れ：host の interface と docker の NAT が作る peer-reflexive 候補で、pair 数が 1 つ揺れていました。周期 session を IPv4 loopback に限定しました（4 回目の対応）。
   - ICE の候補収集の保持（ICE チケット `74132240` の原因）：ICE restart ごとの収集結果が、agent の close まで残っていました（5 回目の対応）。
   - develop の取り込み後の整合性：leak probe の `World` と changelog を揃えました（6 回目の対応）。
+
+## 受け入れテスト（ここだけ見れば目的の達成を確認できます）
+
+[packages/webrtc/tests/negotiation/acceptance.test.ts](review-file:packages/webrtc/tests/negotiation/acceptance.test.ts) は、実際の werift の peer 2 つ（ローカルの ICE / DTLS / SRTP）で、利用者から見える結果を確かめます。共通の準備処理は [packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts:3346](review-diff:packages/webrtc/tests/negotiation/harness/negotiationTransactionUtils.ts:3346)（`createPendingRemoteOffer`）です。
+
+| テスト | 確認すること |
+| --- | --- |
+| `(replaceTrack(null))` / `(removeTrack(sender))` 1章・5章 | addTrack で使った transceiver から track を外して rollback しても、同じ object のまま停止せず残る。付け直して交渉すると相手に RTP が届く |
+| `(addTrack なし)` 5章 | アプリが使わなかった transceiver は、従来どおり除去される |
+| `(保留中に新規作成)` 2章 関連修正 | addTrack が新しく作った transceiver があっても、rollback が例外を出さない。その transceiver で RTP が届く |
+
+- 実行：`cd packages/webrtc && npx vitest run tests/negotiation/acceptance.test.ts`（4 件、約 1 秒）。10 回続けて成功しました。
+- 壊して確かめた箇所（どれも該当する件が落ちる）：`heldByApplication` を develop の `!!sender.track` に戻す、`reusedForAddTrack` を見ない・立てない、新規作成時に transport を渡さない、remote 生成の transceiver を常に保持する。修正前（merge-base）では #817 の 2 件が落ちます。詳細はチケット §9 にあります。
 
 ## 図 1：#817 の処理の流れ（Before / After）
 
@@ -352,7 +365,7 @@ rollback で除去されうるのは、remote offer が作った transceiver だ
 - 切り出した検証： [packages/webrtc/src/transceiverManager.ts:502](review-diff:packages/webrtc/src/transceiverManager.ts:502)
 - `addTransceiver` からの呼び出し： [packages/webrtc/src/transceiverManager.ts:538](review-diff:packages/webrtc/src/transceiverManager.ts:538)
 - `addTrack` の新規作成分岐で先に検証する箇所： [packages/webrtc/src/transceiverManager.ts:670](review-diff:packages/webrtc/src/transceiverManager.ts:670)
-- transport が登録される箇所（変更なし）： [packages/webrtc/src/secureTransportManager.ts:287](review-file:packages/webrtc/src/secureTransportManager.ts:287)
+- transport が登録される箇所（変更なし）： [packages/webrtc/src/secureTransportManager.ts:288](review-file:packages/webrtc/src/secureTransportManager.ts:288)
 - 回帰テスト： [packages/webrtc/tests/media/codecResolution.test.ts:104](review-diff:packages/webrtc/tests/media/codecResolution.test.ts:104)（3 回失敗させ、`ownedTransports` の数と transceiver 0 件を確認）
 
 ## 図 6：追加要件 — モジュールスコープの状態を持ち主のインスタンスへ移す
@@ -664,8 +677,8 @@ heap seed 4 は develop でも閾値（16 KiB/cycle）をわずかに超える�
 </div>
 </div>
 
-- `closedSignal`（close でだけ resolve する Promise）を廃止しました。3 か所の `Promise.race` を `untilClosed(work)` に置き換えています。`untilClosed` は close（既存の `closing` AbortController の abort）を listener で待ち、`work` が決着したら listener を外します。close で即座に待ちを打ち切る挙動は変わりません。 [packages/ice/src/ice.ts:821](review-diff:packages/ice/src/ice.ts:821)、[packages/ice/src/ice.ts:775](review-diff:packages/ice/src/ice.ts:775)
-- 回帰テスト：各 gathering の primary に、他から参照されない目印を 1 つ足します。restart を 4 回繰り返して GC した後、前の generation の目印が回収されていることを確認します。修正前のコードでは 2 回とも失敗し、修正後は 3 回とも成功しました。 [packages/ice/tests/ice/restart-gather.test.ts:100](review-diff:packages/ice/tests/ice/restart-gather.test.ts:100)。GC を実行する共有ヘルパーは [packages/ice/tests/utils.ts:3257](review-diff:packages/ice/tests/utils.ts:3257) です。
+- `closedSignal`（close でだけ resolve する Promise）を廃止しました。3 か所の `Promise.race` を `untilClosed(work)` に置き換えています。`untilClosed` は close（既存の `closing` AbortController の abort）を listener で待ち、`work` が決着したら listener を外します。close で即座に待ちを打ち切る挙動は変わりません。 [packages/ice/src/ice.ts:832](review-diff:packages/ice/src/ice.ts:832)、[packages/ice/src/ice.ts:784](review-diff:packages/ice/src/ice.ts:784)
+- 回帰テスト：各 gathering の primary に、他から参照されない目印を 1 つ足します。restart を 4 回繰り返して GC した後、前の generation の目印が回収されていることを確認します。修正前のコードでは 2 回とも失敗し、修正後は 3 回とも成功しました。 [packages/ice/tests/ice/restart-gather.test.ts:100](review-diff:packages/ice/tests/ice/restart-gather.test.ts:100)。GC を実行する共有ヘルパーは [packages/ice/tests/utils.ts:3419](review-diff:packages/ice/tests/utils.ts:3419) です。
 - heap seed 4（同じ時間帯に交互に 3 回ずつ）：修正後は 14.2〜14.5 KiB/cycle で 3 回とも成功、修正前の HEAD は 16.5〜16.9 KiB、develop は 16.7〜16.9 KiB でどちらも失敗しました。
 - `packages/ice` の `npm test` で 11 件が失敗しますが、修正前の HEAD でも同じ 11 件（名前も一致）が失敗します。この host は host 候補を 5 つ持ち、2 つを前提にしたテストが落ちる、host に依存した既存の失敗です。
 
@@ -707,7 +720,7 @@ flaky の scenario seed 114 と heap seed 2 は、以前の高負荷の比較で
 ### 直したもの
 
 - leak probe の周期 session の `World` に、このチケットで model の `World` に足した `addTracked` がありませんでした。`as never` のキャストで型検査を通っていたので、周期で model の `takeTrack` / `detachTrack` を使うと落ちるところでした。欄を揃えています。 [packages/webrtc/tests/pbt/leak/leakProbe.ts:1124](review-diff:packages/webrtc/tests/pbt/leak/leakProbe.ts:1124)
-- B6（dummy media の SSRC などを乱数にした変更）が `changelog.md` にありませんでした。以前の版の「dummy media: deterministic per source」という記載と食い違うので、Unreleased の 🐛 Bug Fixes に追記しました。 [changelog.md:63](review-diff:changelog.md:63)
+- B6（dummy media の SSRC などを乱数にした変更）が `changelog.md` にありませんでした。以前の版の「dummy media: deterministic per source」という記載と食い違うので、Unreleased の 🐛 Bug Fixes に追記しました。 [changelog.md:72](review-diff:changelog.md:72)
 
 `changelog.md` の Unreleased に `🚀 Features` / `🐛 Bug Fixes` の見出しが 2 組ある点は、develop と同じなので、このブランチでは触っていません。
 
@@ -728,3 +741,9 @@ flaky の scenario seed 114 と heap seed 2 は、以前の高負荷の比較で
 - 最新の取り込み後に、`npm run wpt` と `tools/negotiation-diff` の develop 比較は再実行していません。
 - model seed 234 の develop 側の不具合について、チケットはまだ作っていません。
 
+
+## 7 回目の対応：受け入れテストの追加と、取り込みで壊れた型検査の修正
+
+- 受け入れテストを追加しました（冒頭の「受け入れテスト」の節と、チケット §9）。removeTrack の件は、W3C の `removeTrack()` が direction も `recvonly` にするので、アプリが送信に戻す手順を入れています。これは期待の誤りを直したもので、実装は変えていません。
+- develop の最新の取り込み（`86d550b8d`）で、`tests/transport/ice.test.ts` の型検査が壊れていました。以前のコンフリクト解決（`4fbc7652e`）で `RTCPeerConnection` を型だけの import にした後、develop から `new RTCPeerConnection(...)` を使うテストが入ったためです。このブランチの方針（テストで公開 STUN を使わない）に合わせて、`createLocalPeerConnection(...)` に置き換えました。 [packages/webrtc/tests/transport/ice.test.ts:1033](review-diff:packages/webrtc/tests/transport/ice.test.ts:1033)
+- 検証：`npm run type` はエラーなし。`packages/webrtc` の `npm test` は 101 ファイル、2162 件成功、5 件スキップでした。

@@ -3335,6 +3335,44 @@ export async function createKeptRemoteTransceiver() {
   };
 }
 
+/**
+ * Shared Arrange (acceptance of #817): `answerer` holds `offerer`'s audio
+ * offer as a pending remote description, with the transceiver the offer
+ * created (`remoteCreated`). `rollback()` rolls the offer back on both
+ * peers. `expectMediaFlows(sender)` then negotiates from `answerer` and
+ * checks that RTP written to `sender`'s track reaches `offerer`. Local
+ * candidates only (no public STUN).
+ */
+export async function createPendingRemoteOffer() {
+  const config = { iceServers: [], iceUseDefaultStunServer: false };
+  const offerer = new RTCPeerConnection(config);
+  const answerer = new RTCPeerConnection(config);
+  offerer.addTransceiver("audio", { direction: "sendrecv" });
+  await offerer.setLocalDescription(await offerer.createOffer());
+  await answerer.setRemoteDescription(offerer.localDescription!);
+  const [remoteCreated] = answerer.getTransceivers();
+  return {
+    offerer,
+    answerer,
+    remoteCreated,
+    rollback: async () => {
+      await answerer.setRemoteDescription({ type: "rollback" });
+      await offerer.setLocalDescription({ type: "rollback" });
+    },
+    expectMediaFlows: async (sender: RTCRtpSender) => {
+      const incoming = offerer.onTrack.watch(() => true);
+      await exchangeOfferAnswer(answerer, offerer);
+      const [track] = await incoming;
+      await Promise.all([
+        waitForConnection(offerer),
+        waitForConnection(answerer),
+      ]);
+      await sendAndExpectRtp(sender.track!, track, "after-rollback");
+    },
+    close: () => Promise.allSettled([offerer.close(), answerer.close()]),
+  };
+}
+
 // --- spec coverage: ice ---
 
 /**

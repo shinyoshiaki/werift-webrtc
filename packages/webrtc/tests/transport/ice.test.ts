@@ -1030,8 +1030,8 @@ describe("iceTransport", () => {
 
   test("restartIce() while two connects await the checks of one generation leaves connectionState out of failed", async () => {
     // Arrange: 候補なしで交渉し、1 回目の connect が ICE の checks を始めて相手の check を待つ。
-    const pc1 = new RTCPeerConnection({ iceIncomingCheckTimeout: 30 });
-    const pc2 = new RTCPeerConnection({ iceIncomingCheckTimeout: 30 });
+    const pc1 = createLocalPeerConnection({ iceIncomingCheckTimeout: 30 });
+    const pc2 = createLocalPeerConnection({ iceIncomingCheckTimeout: 30 });
     const states: string[] = [];
     pc1.connectionStateChange.subscribe((state) => states.push(state));
     try {

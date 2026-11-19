@@ -170,3 +170,36 @@ get heldByApplication() {
 - 最新の取り込み（`3adb1392c`、#356 の SSRC-less 受信）後の `pbt:deep --suite model,leak --jobs 16`（load 平均 37.7）で、次の 2 件が失敗した。どちらもこのブランチのマージ・リファクタリングによるものではない（merge-base `38981b880` との比較）。
   - model seed 234: 縮小した scene（`attachTrack` → `removeTrack` → `attachTrack` → `wireOffer`（`ssrcAndMidRemoved`）→ `lateAnswer`、simulcast、`bundlePolicy: max-compat`）は、merge-base でも 3 回とも同じ「after operation #23: traffic / RTP was not received」で失敗する。HEAD では generator の `takeTrack` / `detachTrack` で乱数列が変わり、seed 234 がこの scene に当たる。develop 側の不具合として別途扱う。
   - leak heap seed 2: HEAD 16.2〜16.3 KiB/cycle（閾値 16）。#356 の取り込み前（`679dea2fb`）は 15.4〜15.9 で成功していた。merge-base に §7 の ICE 修正と leak probe の loopback 化だけを当てると 16.25〜16.32 で HEAD と同じなので、増加分は develop の #356 のコードによる。merge-base そのものは 273.75 KiB/cycle（ICE の候補保持と複数 interface）で、§7 と leak probe の修正で 16 前後まで下がる。
+
+## 9. 受け入れテスト
+
+レビュアーが 1 ファイルと実行結果だけで目的の達成を確かめられるよう、`packages/webrtc/tests/negotiation/acceptance.test.ts`（121 行）を追加した。実際の werift の peer 2 つを、ローカルの ICE / DTLS / SRTP でつなぐ（公開 STUN は使わない）。共通の Arrange は `tests/negotiation/harness/negotiationTransactionUtils.ts` の `createPendingRemoteOffer()` に置いた。
+
+### 目的（Before → After）
+- **#817（replaceTrack(null) / removeTrack）**: remote offer の保留中に `addTrack()` で使った transceiver から track を外し、rollback すると、修正前は除去・停止された。修正後は、同じ object のまま `stopped === false`・`mid === null` で残る。track を付け直して交渉すれば、相手に RTP が届く。
+- **対照（addTrack なし）**: アプリが使わなかった remote 生成の transceiver は、従来どおり rollback で除去される（保持しすぎていないこと）。
+- **関連修正**: 再利用できる transceiver がなく `addTrack()` が新しく作ると、修正前は rollback が `TypeError` になった。修正後は例外を出さずに戻せて、その transceiver で RTP が届く。
+
+### テストと結果
+| テスト | 確認すること |
+| --- | --- |
+| `(replaceTrack(null)) 1章・5章` / `(removeTrack(sender)) 1章・5章` | 前提（再利用・track なし）→ rollback 後に同じ transceiver が残る → 付け直して RTP が届く。removeTrack は direction も `recvonly` にする（W3C）ので、送信に戻してから付け直す |
+| `(addTrack なし) 5章` | rollback 後に transceiver が 0 件で、停止している |
+| `(保留中に新規作成) 2章 関連修正` | 作成時から DTLS transport を持つ → rollback が resolve し、作った transceiver が残る → RTP が届く |
+
+- 実行: `cd packages/webrtc && npx vitest run tests/negotiation/acceptance.test.ts`（4 件、約 1 秒）。10 回続けて実行し、10 回とも成功した。
+
+### 検出力（実装を 1 か所ずつ壊して実行。終わった後 `src` に差分なし）
+| 壊した箇所 | 落ちた件 |
+| --- | --- |
+| `heldByApplication` を develop の `!!this.sender.track` に戻す | replaceTrack(null)、removeTrack |
+| `heldByApplication` から `reusedForAddTrack` を外す | replaceTrack(null)、removeTrack |
+| `noteReusedForAddTrack` で `reusedForAddTrack` を立てない | replaceTrack(null)、removeTrack |
+| `addTrack()` の新規作成で transport を渡さない（TypeError 修正を戻す） | 保留中に新規作成 |
+| remote 生成の transceiver を常に保持する | addTrack なし、保留中に新規作成 |
+
+- 修正前のリビジョン（merge-base `e069c5c84`）では、#817 の 2 件が落ちる。「保留中に新規作成」は merge-base でも成功する。develop が #816（`8c89aca87`）で、新規作成時に transport を渡す修正を独自に入れたため。
+
+### 判断
+- removeTrack の件は、最初は track を付け直すだけで送信を確かめていたので、タイムアウトした。W3C の `removeTrack()` は direction を `recvonly` にするので、実装ではなく期待の誤りと判断した。アプリが送信に戻す手順（`direction = "sendrecv"`）を足した。
+- 作業中に、develop の最新の取り込み（`86d550b8d`）で `tests/transport/ice.test.ts` の型検査が壊れているのを見つけた。コンフリクト解決で `RTCPeerConnection` を型だけの import にした後、develop から `new RTCPeerConnection(...)` を使うテストが入っていた。このブランチの方針（テストで公開 STUN を使わない）に合わせて、`createLocalPeerConnection(...)` に置き換えた。
