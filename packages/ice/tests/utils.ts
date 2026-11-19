@@ -2363,12 +2363,18 @@ export function connectionProtocols(connection: Connection) {
  * then exchanges the committed candidates and connects both.
  */
 export async function createRelayProvisionalRestartPair() {
-  const server = await createLocalTurnServer(getHostAddresses(true, false)[0]!);
+  const host = "127.0.0.1";
+  const server = await createLocalTurnServer(host);
+  const shared: Partial<IceOptions> = {
+    useIpv6: false,
+    interfaceAddresses: { udp4: host },
+  };
   const a = createTestConnection(true, {
+    ...shared,
     ...localTurnOptions(server),
     nomination: "regular",
   });
-  const b = createTestConnection(false, { useIpv6: false });
+  const b = createTestConnection(false, shared);
   await Promise.all([a.gatherCandidates(), b.gatherCandidates()]);
   exchangeIceCredentials(a, b);
   await deliverLocalCandidates(a, b, { endOfCandidates: true });
@@ -3071,10 +3077,11 @@ export async function createDelayedPreferredPathPair({
   nomination?: IceOptions["nomination"];
   nominationDelayMs?: number;
 } = {}) {
-  const host = getHostAddresses(true, false)[0]!;
+  const host = "127.0.0.1";
   const server = await createLocalTurnServer(host);
   const shared: Partial<IceOptions> = {
     useIpv6: false,
+    interfaceAddresses: { udp4: host },
     renomination,
     nomination,
     nominationDelayMs,
