@@ -14,8 +14,6 @@ export const isFirefox = browserName === "Firefox";
  * `grep -rn "firefox-known:<name>" e2e/tests` and remove them.
  */
 export const firefoxKnownIssue = {
-  vp8PictureIdLoop:
-    "[firefox-known:vp8-picture-id-loop] f90a2878: answer の fmtp で packetizer を作り直し、ファイル再生のループで VP8 PictureID が戻る",
   simulcastSsrcTrack:
     "[firefox-known:simulcast-ssrc-track] be690c2e: a=ssrc 付き simulcast answer で SSRC のトラックが別に作られ、そのレイヤーの RTX がそちらへ復元される",
 } as const;
