@@ -166,6 +166,7 @@ export class SDPManager {
   /**
    * 拒否 / 停止した m-line を作成する (RFC 3264 §6 / RFC 8829 §5.3.1)。
    * port は 0、proto と MID は元の m-line を保ち、fmt は少なくとも 1 token 残す。
+   * 拒否 m-line は RTP/RTCP を流さないので `a=rtcp` / `a=rtcp-mux` を載せない (#705 以降の出力形式を保つ)。
    */
   createRejectedMediaDescription(
     source: {
@@ -190,7 +191,6 @@ export class SDPManager {
       headerExtensions: [],
       muxId: source.mid,
     };
-    media.rtcpMux = true;
     if (dtlsTransport) {
       // 候補は載せず、ICE / DTLS の識別子だけを残す
       media.iceParams = dtlsTransport.iceTransport.localParameters;
