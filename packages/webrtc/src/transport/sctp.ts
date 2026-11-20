@@ -27,6 +27,7 @@ import {
   RTCDataChannel,
   RTCDataChannelParameters,
 } from "../dataChannel";
+import { createWebRtcDomException } from "../errors";
 import { EventTarget as DomEventTarget, notifySafely } from "../helper";
 import { debug, Event, FifoQueue } from "../imports/common";
 import type { RTCDtlsTransport } from "./dtls";
@@ -40,6 +41,23 @@ export const DEFAULT_MAX_MESSAGE_SIZE = 65536;
  * below the SCTP initial RTO (3 s), so a lost INIT also recovers sooner.
  */
 export const PASSIVE_INIT_FALLBACK_MS = 1000;
+
+/**
+ * Stream IDs a data channel may use: 0..65534 (W3C webrtc-pc, RFC 8831 section 6.5).
+ * @see tests/issue/815.test.ts "a reservation beyond the negotiated stream limit is given back and fails"
+ */
+const DATA_CHANNEL_ID_LIMIT = 65535;
+
+/**
+ * Which direction of a closing channel's stream is reset (RFC 8831 6.7).
+ * @see tests/issue/815.reset.test.ts "close fires on neither end before both directions of the stream are reset"
+ */
+interface ClosingStream {
+  outgoing: boolean;
+  incoming: boolean;
+  /** Test: tests/issue/815.reset.test.ts "a legacy peer that does not reset its side (ordered=%s, no data from it): close fires after reverseResetTimeout and the ID stays in use" */
+  fallback?: ReturnType<typeof setTimeout>;
+}
 
 /** W3C webrtc-pc `RTCSctpTransportState`. */
 export type RTCSctpTransportState = "connecting" | "connected" | "closed";
@@ -75,11 +93,36 @@ export class RTCSctpTransport {
   remoteMaxMessageSize = DEFAULT_MAX_MESSAGE_SIZE;
 
   private dataChannelQueue = new FifoQueue<[RTCDataChannel, number, Buffer]>();
-  private dataChannelId?: number;
+  /**
+   * In-band channels created here whose DATA_CHANNEL_OPEN is not sent yet;
+   * their stream ID, if any, is a reservation.
+   * @see tests/issue/815.test.ts "a rollback gives back the IDs a pranswer reserved"
+   * @see tests/issue/815.test.ts "a move to a DTLS transport with a decided role assigns its parity; a reset association waits for the next negotiation"
+   */
+  private readonly unannounced = new Set<RTCDataChannel>();
   private eventDisposer: (() => void)[] = [];
   private stopping = false;
   /** Associations whose start began before DTLS peer authentication. */
   private readonly preAuthenticationStarts = new WeakSet<SCTP>();
+  /**
+   * Closing channels' streams and which reset direction is done.
+   * @see tests/issue/815.reset.test.ts "close fires on neither end before both directions of the stream are reset"
+   */
+  private readonly closingStreams = new Map<number, ClosingStream>();
+  /**
+   * @internal
+   * How long a channel waits for the peer to reset its side. 5 s covers one
+   * retransmission of a lost reset request (SCTP RTO.Initial 3 s, RFC 9260
+   * section 16).
+   * @see tests/issue/815.reset.test.ts "a legacy peer that does not reset its side (ordered=%s, no data from it): close fires after reverseResetTimeout and the ID stays in use"
+   */
+  reverseResetTimeout = 5_000;
+  /**
+   * Streams closed by {@link RTCSctpTransport.reverseResetTimeout}: in use
+   * until the peer's reset arrives or the association ends.
+   * @see tests/issue/815.reset.test.ts "a peer reset arriving after reverseResetTimeout closes nothing and frees the ID"
+   */
+  private readonly awaitingPeerReset = new Set<number>();
 
   constructor(
     port = 5000,
@@ -140,16 +183,16 @@ export class RTCSctpTransport {
    * @internal
    * Discard the current association (ABORT, attached channels close) and
    * bind a new, unstarted one (on the same DTLS transport by default).
-   * Channels still waiting for a stream ID stay queued for the next
-   * association.
+   * Channels whose DATA_CHANNEL_OPEN was not sent stay, without stream ID.
+   * @see tests/issue/815.test.ts "a move to a DTLS transport with a decided role assigns its parity; a reset association waits for the next negotiation"
    */
   async resetAssociation(dtlsTransport = this.dtlsTransport) {
+    this.releaseUnannouncedStreamIds();
     await this.stop();
-    this.dataChannelQueue = this.dataChannelQueue.filter(
-      ([channel]) => channel.id === undefined,
+    this.dataChannelQueue = this.dataChannelQueue.filter(([channel]) =>
+      this.unannounced.has(channel),
     );
-    this.dataChannelId = undefined;
-    this.bindAssociation(dtlsTransport);
+    this.bindAssociation(dtlsTransport, { assignIds: false });
   }
 
   /**
@@ -164,12 +207,24 @@ export class RTCSctpTransport {
     );
   }
 
-  private bindAssociation(dtlsTransport: RTCDtlsTransport) {
+  /**
+   * `assignIds`: unannounced channels take stream IDs from the bound DTLS
+   * transport's role at once.
+   * @see tests/issue/815.test.ts "a move to a DTLS transport with a decided role assigns its parity; a reset association waits for the next negotiation"
+   */
+  private bindAssociation(
+    dtlsTransport: RTCDtlsTransport,
+    { assignIds = true }: { assignIds?: boolean } = {},
+  ) {
     this.disposeSctpListeners();
     this.dtlsTransport = dtlsTransport;
     this.stopping = false;
     this.stopped = false;
     this.createSctpAssociation();
+    if (assignIds) {
+      this.releaseUnannouncedStreamIds();
+      this.assignPendingStreamIds();
+    }
   }
 
   private disposeSctpListeners() {
@@ -179,6 +234,7 @@ export class RTCSctpTransport {
 
   private createSctpAssociation() {
     this.disposeSctpListeners();
+    this.clearClosingStreams();
     this.stopped = false;
     this.setState("connecting", false);
     this.sctp = new SCTP(
@@ -191,16 +247,9 @@ export class RTCSctpTransport {
     this.eventDisposer = [
       ...[
         association.onReceive.subscribe(this.datachannelReceive),
-        association.onReconfigStreams.subscribe((ids: number[]) => {
-          ids.forEach((id) => {
-            const dc = this.dataChannels[id];
-            if (!dc) return;
-            // todo fix
-            dc.setReadyState("closing");
-            dc.setReadyState("closed");
-            delete this.dataChannels[id];
-          });
-        }),
+        association.onReconfigStreams.subscribe((ids, direction) =>
+          this.onStreamsReset(ids, direction),
+        ),
         association.stateChanged.connected.subscribe(() => {
           this.setState("connected");
           Object.values(this.dataChannels).forEach((channel) => {
@@ -211,7 +260,8 @@ export class RTCSctpTransport {
           this.dataChannelFlush();
         }),
         association.stateChanged.closed.subscribe(() => {
-          this.setState("closed");
+          if (!this.stopped) this.setState("closed");
+          this.clearClosingStreams();
           // An explicit stop() closes the channels registered on this
           // association only; channels whose OPEN is still queued outlive it
           // (rollback re-announces them on the next association).
@@ -285,6 +335,8 @@ export class RTCSctpTransport {
             // preserve queued DCEP/data for a retry after authentication has
             // failed, and close every channel immediately.
             this.stopping = true;
+            // The channels' close notification sees the transport closed.
+            this.setState("closed");
             // Close queued pre-establishment channels before SCTP removes its
             // state listeners; otherwise their DCEP entries are lost without
             // a DataChannel close event.
@@ -292,6 +344,12 @@ export class RTCSctpTransport {
             association.setState(SCTP_STATE.CLOSED);
             this.disposeSctpListeners();
           }
+        }),
+        // Test: tests/issue/815.test.ts "issue 815: data channel stream IDs follow the DTLS role"
+        // Test: tests/issue/815.test.ts "the DTLS start resolving auto assigns the IDs of the role it took"
+        this.dtlsTransport.onRoleChange.subscribe(() => {
+          this.releaseUnannouncedStreamIds();
+          this.assignPendingStreamIds();
         }),
       ].map((e) => e.unSubscribe),
       () => (association.onSackReceived = async () => {}),
@@ -314,12 +372,85 @@ export class RTCSctpTransport {
   }
 
   /**
-   * RFC 8832 §6: the DTLS client uses even stream IDs and the DTLS server odd
-   * ones. Shared by start() and by an association the peer's INIT established
-   * before start() ran, so both sides never pick the same ID.
+   * RFC 8831 section 6.7: the first reset of a stream makes its channel
+   * `closing`; it is `closed`, its ID released just before, once both
+   * directions are reset.
+   * @see tests/issue/815.reset.test.ts "issue 815: a stream ID reused after a close (RFC 8831 section 6.7 reset in both directions)"
+   * @see tests/issue/815.notification.test.ts "closed by $closedBy: a close listener re-creates a channel on the only free ID"
    */
-  private get firstLocalStreamId() {
-    return this.isServer ? 1 : 0;
+  private onStreamsReset(ids: number[], direction: "outgoing" | "incoming") {
+    for (const id of ids) {
+      if (direction === "incoming" && this.awaitingPeerReset.delete(id)) {
+        // Test: tests/issue/815.reset.test.ts "a peer reset arriving after reverseResetTimeout closes nothing and frees the ID"
+        this.sctp.reconfigQueue = this.sctp.reconfigQueue.filter(
+          (streamId) => streamId !== id,
+        );
+        continue;
+      }
+      // Test: tests/issue/815.test.ts "issue 815: a DATA_CHANNEL_OPEN violating the odd/even rule on an unused stream"
+      const dc = this.dataChannels[id];
+      if (!dc) continue;
+      let reset = this.closingStreams.get(id);
+      if (!reset) {
+        reset = { outgoing: false, incoming: false };
+        this.closingStreams.set(id, reset);
+      }
+      reset[direction] = true;
+      if (dc.readyState !== "closing") {
+        dc.setReadyState("closing");
+        // Test: tests/issue/815.notification.test.ts "a closing listener closing the PeerConnection ends the channel once"
+        if (this.dataChannels[id] !== dc || dc.readyState === "closed") {
+          continue;
+        }
+      }
+      if (direction === "incoming") this.answerIncomingReset(id, reset);
+      this.completeClose(id, dc, reset);
+    }
+  }
+
+  /**
+   * Reset our side of a stream the peer reset, exactly once.
+   * @see tests/issue/815.reset.test.ts "issue 815: a stream ID reused after a close (RFC 8831 section 6.7 reset in both directions)"
+   */
+  private answerIncomingReset(id: number, reset: ClosingStream) {
+    const inFlight = !!this.sctp.reconfigRequest?.streams.includes(id);
+    if (reset.outgoing || inFlight) {
+      // Test: tests/issue/815.notification.test.ts "closed by both ends at once: a close listener re-creates a channel that opens"
+      this.sctp.reconfigQueue = this.sctp.reconfigQueue.filter(
+        (streamId) => streamId !== id,
+      );
+      return;
+    }
+    this.resetStream(id);
+  }
+
+  private completeClose(id: number, dc: RTCDataChannel, reset: ClosingStream) {
+    if (reset.outgoing && reset.incoming) {
+      clearTimeout(reset.fallback);
+      this.closingStreams.delete(id);
+      delete this.dataChannels[id];
+      this.unannounced.delete(dc);
+      dc.setReadyState("closed");
+    } else if (reset.outgoing && !reset.fallback) {
+      reset.fallback = setTimeout(() => {
+        if (this.closingStreams.get(id) !== reset) return;
+        log("the peer did not reset its side of the stream", id);
+        // Test: tests/issue/815.reset.test.ts "a peer reset arriving after reverseResetTimeout closes nothing and frees the ID"
+        this.awaitingPeerReset.add(id);
+        reset.incoming = true;
+        this.completeClose(id, dc, reset);
+      }, this.reverseResetTimeout);
+      reset.fallback.unref?.();
+    }
+  }
+
+  private clearClosingStreams() {
+    for (const { fallback } of this.closingStreams.values()) {
+      clearTimeout(fallback);
+    }
+    this.closingStreams.clear();
+    // Test: tests/issue/815.reset.test.ts "pc.close() while waiting for the peer's reset closes the channel once and leaves no timer"
+    this.awaitingPeerReset.clear();
   }
 
   private get isServer() {
@@ -327,40 +458,104 @@ export class RTCSctpTransport {
   }
 
   /**
-   * An older werift (<= 0.26) picks its stream ID parity by the ICE role
-   * (controlling = odd), not by the DTLS role. When the two roles are not
-   * aligned that way (we are DTLS server but ICE controlled, or DTLS client
-   * but ICE controlling), such a peer uses our parity, counting up from the
-   * bottom.
+   * RFC 8832 section 6: DTLS client even, server odd; none while `auto`.
+   * @see tests/issue/815.test.ts "issue 815: data channel stream IDs follow the DTLS role"
    */
-  private get legacyPeerSharesParity() {
-    const iceRole =
-      this.dtlsTransport.iceRoleAtStart ?? this.dtlsTransport.iceTransport.role;
-    return this.isServer !== (iceRole === "controlling");
+  private get idParity(): 0 | 1 | undefined {
+    switch (this.dtlsTransport?.role) {
+      case "client":
+        return 0;
+      case "server":
+        return 1;
+      default:
+        return undefined;
+    }
   }
 
   /**
-   * Next free in-band stream ID with the DTLS-role parity (RFC 8832 §6).
-   * When an older werift peer would share that parity, count down from the
-   * top of the negotiated range instead, so its IDs (counting up) and ours
-   * cannot collide even when both sides open channels at the same time.
+   * Exclusive upper bound of a stream ID: 65535, or what SCTP negotiated.
+   * @see tests/issue/815.test.ts "a reservation beyond the negotiated stream limit is given back and fails"
    */
-  private allocateLocalStreamId() {
-    const used = (id: number) =>
-      Object.keys(this.dataChannels).includes(id.toString());
-    if (!this.legacyPeerSharesParity) {
-      let streamId = this.dataChannelId!;
-      while (used(streamId)) streamId += 2;
-      return streamId;
+  private get streamIdLimit() {
+    const negotiated = this.sctp?.maxChannels;
+    return negotiated === undefined
+      ? DATA_CHANNEL_ID_LIMIT
+      : Math.min(negotiated, DATA_CHANNEL_ID_LIMIT);
+  }
+
+  /**
+   * The lowest free stream ID of `parity`.
+   * @see tests/issue/815.test.ts "auto IDs skip negotiated channels of either parity and reuse closed IDs"
+   */
+  private allocateStreamId(parity: 0 | 1) {
+    const limit = this.streamIdLimit;
+    const free = (id: number) =>
+      !this.dataChannels[id] && !this.awaitingPeerReset.has(id);
+    for (let id = parity; id < limit; id += 2) {
+      if (free(id)) return id;
     }
-    const streams = this.sctp.maxChannels ?? this.sctp._outboundStreamsCount;
-    let streamId = Math.min(streams, 65535) - 1;
-    if (streamId % 2 !== this.firstLocalStreamId) streamId -= 1;
-    while (streamId >= 0 && used(streamId)) streamId -= 2;
-    if (streamId < 0) {
-      throw new Error("no free SCTP stream for a new data channel");
+    return undefined;
+  }
+
+  /**
+   * @internal
+   * Reserve a stream ID for every unannounced channel without one, from the
+   * DTLS role; none left is an `OperationError` (W3C 4.4.1.6 step 2.2.6).
+   * @see tests/issue/815.test.ts "a channel waiting for an ID closes with OperationError when none is left"
+   */
+  assignPendingStreamIds() {
+    const parity = this.idParity;
+    if (parity === undefined) return;
+    const limit = this.streamIdLimit;
+    for (const channel of [...this.unannounced]) {
+      // Test: tests/issue/815.test.ts "a channel closed by an error handler is not given an ID"
+      if (
+        !this.unannounced.has(channel) ||
+        channel.readyState === "closed" ||
+        channel.readyState === "closing"
+      ) {
+        continue;
+      }
+      if (channel.id != undefined) {
+        // Test: tests/issue/815.test.ts "a reservation beyond the negotiated stream limit is given back and fails"
+        if (channel.id < limit) continue;
+        if (this.dataChannels[channel.id] === channel) {
+          delete this.dataChannels[channel.id];
+        }
+        channel.setId(undefined);
+      }
+      const id = this.allocateStreamId(parity);
+      if (id === undefined) {
+        this.unannounced.delete(channel);
+        this.dataChannelQueue = this.dataChannelQueue.filter(
+          ([queued]) => queued !== channel,
+        );
+        channel.failWithError(
+          createWebRtcDomException(
+            "OperationError",
+            "No data channel stream ID is available",
+          ),
+        );
+        continue;
+      }
+      this.dataChannels[id] = channel;
+      channel.setId(id);
     }
-    return streamId;
+  }
+
+  /**
+   * @internal
+   * Give back the reservations of unannounced channels.
+   * @see tests/issue/815.test.ts "a %s gives the IDs back and the next answer, keeping the DTLS role, assigns them again"
+   */
+  releaseUnannouncedStreamIds() {
+    for (const channel of this.unannounced) {
+      if (channel.id == undefined) continue;
+      if (this.dataChannels[channel.id] === channel) {
+        delete this.dataChannels[channel.id];
+      }
+      channel.setId(undefined);
+    }
   }
 
   channelByLabel(label: string) {
@@ -385,7 +580,25 @@ export class RTCSctpTransport {
               return;
             }
 
-            if (!Object.keys(this.dataChannels).includes(streamId.toString())) {
+            const existing = this.dataChannels[streamId];
+            if (existing && !existing.isCreatedByRemote) {
+              // Test: tests/issue/815.test.ts "is not acknowledged and the stream is reset, so neither channel stays connecting"
+              log("DATA_CHANNEL_OPEN on a stream ID in local use, rejected", {
+                streamId,
+                label: existing.label,
+              });
+              this.rejectOpenOnStreamInUse(existing);
+              return;
+            }
+            if (!existing && streamId % 2 === this.idParity) {
+              // Test: tests/issue/815.test.ts "issue 815: a DATA_CHANNEL_OPEN violating the odd/even rule on an unused stream"
+              log("DATA_CHANNEL_OPEN violating the odd/even rule, rejected", {
+                streamId,
+              });
+              this.resetStream(streamId);
+              return;
+            }
+            if (!existing) {
               // !BBHLHH — 12 byte DCEP OPEN header (big-endian)
               const channelType = data.readUInt8(1);
               const reliability = data.readUInt32BE(4);
@@ -425,8 +638,16 @@ export class RTCSctpTransport {
               channel.isCreatedByRemote = true;
               this.dataChannels[streamId] = channel;
 
-              this.onDataChannel.execute(channel);
+              // Test: tests/issue/815.notification.test.ts "datachannel: later listeners run and the channel opens on both ends"
+              this.onDataChannel.executeIsolated(
+                (error) => log("onDataChannel listener failed", error),
+                channel,
+              );
               channel.setReadyState("open");
+            } else if (existing.readyState !== "open") {
+              // Test: tests/issue/815.reset.test.ts "a DATA_CHANNEL_OPEN on the stream of a closing remote channel is not acknowledged"
+              log("DATA_CHANNEL_OPEN on a closing stream, ignored", streamId);
+              return;
             } else {
               log("datachannel already opened", "retransmit ack");
             }
@@ -443,7 +664,12 @@ export class RTCSctpTransport {
             log("DATA_CHANNEL_ACK", streamId, ppId);
             const channel = this.dataChannels[streamId];
             if (!channel) {
-              throw new Error("channel not found");
+              // Test: tests/issue/815.notification.test.ts "the receive callback ignores an ACK of an unknown stream and an unknown PPID"
+              log(
+                "DATA_CHANNEL_ACK for an unknown stream ID, ignored",
+                streamId,
+              );
+              return;
             }
             channel.setReadyState("open");
           }
@@ -463,19 +689,37 @@ export class RTCSctpTransport {
             case WEBRTC_BINARY_EMPTY:
               return Buffer.from([]);
             default:
-              throw new Error();
+              return undefined;
           }
         })();
+        // Test: tests/issue/815.notification.test.ts "the receive callback ignores an ACK of an unknown stream and an unknown PPID"
+        if (msg === undefined) {
+          log("message with an unknown PPID, ignored", { streamId, ppId });
+          return;
+        }
+
+        // W3C webrtc-pc "Receiving messages on a data channel" step 3.
+        // Test: tests/issue/815.reset.test.ts "a message arriving while closing is discarded (W3C: not open discards it)"
+        if (
+          channel.readyState === "closing" ||
+          channel.readyState === "closed"
+        ) {
+          log("message on a closing data channel, discarded", streamId);
+          return;
+        }
 
         // Update reception statistics
         channel.messagesReceived++;
         channel.bytesReceived += data.length;
 
-        channel.onMessage.execute(msg);
-        channel.emit("message", { data: msg });
-        if (channel.onmessage) {
-          channel.onmessage({ data: msg });
-        }
+        // Test: tests/issue/815.notification.test.ts "message: later listeners and later messages are delivered"
+        const onError = (error: unknown) =>
+          log("message listener failed", error);
+        channel.onMessage.executeIsolated(onError, msg);
+        channel.emitIsolated(onError, "message", { data: msg });
+        notifySafely(log, "onmessage", () =>
+          channel.onmessage?.({ data: msg }),
+        );
       }
     }
   };
@@ -486,6 +730,13 @@ export class RTCSctpTransport {
     }
     if (this.dataChannels[channel.id]) {
       throw new Error();
+    }
+    if (this.awaitingPeerReset.has(channel.id)) {
+      // Test: tests/issue/815.reset.test.ts "a legacy peer that does not reset its side (ordered=%s, no data from it): close fires after reverseResetTimeout and the ID stays in use"
+      throw createWebRtcDomException(
+        "OperationError",
+        `Stream ${channel.id} waits for the peer to reset it`,
+      );
     }
 
     this.dataChannels[channel.id] = channel;
@@ -502,13 +753,26 @@ export class RTCSctpTransport {
     const label = Buffer.from(channel.label, "utf8");
     const protocol = Buffer.from(channel.protocol, "utf8");
 
-    if (channel.id !== undefined) {
-      if (this.dataChannels[channel.id])
-        throw new Error(
-          `Data channel with ID ${channel.id} already registered`,
-        );
-      this.dataChannels[channel.id] = channel;
+    // Test: tests/issue/815.test.ts "an in-band channel reaching the transport with an id is an internal error"
+    if (channel.id != undefined) {
+      throw new Error(
+        "internal: an in-band data channel gets its stream ID from the DTLS role",
+      );
     }
+    // Test: tests/issue/815.test.ts "a channel waiting for an ID closes with OperationError when none is left"
+    const parity = this.idParity;
+    if (parity !== undefined) {
+      const id = this.allocateStreamId(parity);
+      if (id === undefined) {
+        throw createWebRtcDomException(
+          "OperationError",
+          "No data channel stream ID is available",
+        );
+      }
+      this.dataChannels[id] = channel;
+      channel.setId(id);
+    }
+    this.unannounced.add(channel);
 
     const priority = 0;
     // RFC 8832 5.1: the reliability mode and the unordered bit (0x80) are
@@ -545,19 +809,15 @@ export class RTCSctpTransport {
     this.dataChannelFlush();
   }
 
+  /**
+   * Hand the queued DCEP and user messages to SCTP once the association is
+   * established; a channel still without stream ID stays queued.
+   * @see tests/issue/815.test.ts "issue 815: data channel stream IDs follow the DTLS role"
+   */
   private dataChannelFlush() {
-    // """
-    // Try to flush buffered data to the SCTP layer.
-
-    // We wait until the association is established, as we need to know
-    // whether we are a client or a server to correctly assign an odd/even ID
-    // to the data channels.
-    // """
-
     if (this.sctp.associationState != SCTP_STATE.ESTABLISHED) return;
-    // The peer's INIT can establish an association that joined a connected
-    // DTLS transport before start() ran here; the same side decides the IDs.
-    this.dataChannelId ??= this.firstLocalStreamId;
+    this.assignPendingStreamIds();
+    const waiting = new FifoQueue<[RTCDataChannel, number, Buffer]>();
 
     // Hands every queued message to SCTP synchronously (SCTP.send enqueues
     // before its first await) and tracks completion per message, so repeated
@@ -573,14 +833,14 @@ export class RTCSctpTransport {
         continue;
       }
 
-      let streamId = channel.id;
-      if (streamId === undefined) {
-        streamId = this.allocateLocalStreamId();
-        this.dataChannels[streamId] = channel;
-        channel.setId(streamId);
+      const streamId = channel.id;
+      if (streamId == undefined) {
+        waiting.push([channel, protocol, userData]);
+        continue;
       }
 
       if (protocol === WEBRTC_DCEP) {
+        if (userData[0] === DATA_CHANNEL_OPEN) this.unannounced.delete(channel);
         this.sctp
           .send(streamId, protocol, userData, {
             ordered: true,
@@ -609,6 +869,7 @@ export class RTCSctpTransport {
           });
       }
     }
+    if (waiting.length > 0) this.dataChannelQueue = waiting;
   }
 
   /** Close retained channels even when SCTP removed its state listeners. */
@@ -629,6 +890,7 @@ export class RTCSctpTransport {
     this.dataChannels = {};
 
     for (const channel of channels) {
+      this.unannounced.delete(channel);
       if (channel.readyState === "closed") continue;
       try {
         channel.setReadyState("closed");
@@ -691,7 +953,6 @@ export class RTCSctpTransport {
     if (this.dtlsTransport.state !== "connected") {
       this.preAuthenticationStarts.add(this.sctp);
     }
-    this.dataChannelId = this.firstLocalStreamId;
     // SCTP's `isServer` flag means passive COOKIE-WAIT peer. WARP assigns the
     // active INIT sender to the DTLS server, independently of the ICE role.
     this.sctp.isServer = !this.isServer;
@@ -747,10 +1008,41 @@ export class RTCSctpTransport {
     await this.start(remotePort);
   }
 
+  /**
+   * @internal
+   * The synchronous part of {@link RTCSctpTransport.stop}: `closed` without
+   * statechange, and nothing received afterwards reaches the application.
+   * `RTCPeerConnection.close()` calls it before its first await.
+   */
   markStopped() {
     this.stopping = true;
     this.stopped = true;
     this.setState("closed", false);
+  }
+
+  /**
+   * @internal
+   * `RTCPeerConnection.close()`, after stop(): close the channels whose
+   * DATA_CHANNEL_OPEN was not sent (stop() keeps them for a rollback).
+   * @see tests/issue/815.test.ts "pc.close() notifies close of a channel without an ID after SCTP / DTLS / the PeerConnection closed"
+   * @see tests/issue/815.test.ts "pc.close() notifies close of a reserved, unannounced channel after the transports closed"
+   */
+  closeUnannouncedChannels() {
+    const channels = [...this.unannounced];
+    this.unannounced.clear();
+    this.dataChannelQueue = this.dataChannelQueue.filter(
+      ([queued]) => !channels.includes(queued),
+    );
+    for (const channel of channels) {
+      if (
+        channel.id != undefined &&
+        this.dataChannels[channel.id] === channel
+      ) {
+        delete this.dataChannels[channel.id];
+      }
+      // Test: tests/issue/815.test.ts "pc.close() closes every pending channel even if a close listener throws"
+      channel.setReadyState("closed");
+    }
   }
 
   async stop() {
@@ -795,13 +1087,49 @@ export class RTCSctpTransport {
       }
     }
     this.dataChannelQueue = kept;
+    for (const channel of this.unannounced) {
+      if (channel.readyState === "closed" || channel.readyState === "closing") {
+        this.unannounced.delete(channel);
+      }
+    }
+  }
+
+  /**
+   * Reset our outgoing stream (RFC 8831 section 6.7), which closes the
+   * peer's channel on it.
+   * @see tests/issue/815.test.ts "issue 815: a DATA_CHANNEL_OPEN violating the odd/even rule on an unused stream"
+   */
+  private resetStream(streamId: number) {
+    if (!this.sctp.reconfigQueue.includes(streamId)) {
+      this.sctp.reconfigQueue.push(streamId);
+    }
+    if (this.sctp.reconfigQueue.length === 1) {
+      this.sctp.transmitReconfigRequest();
+    }
+  }
+
+  /**
+   * RFC 8832 section 6: an OPEN on a stream in use is not acknowledged and
+   * the stream's channel closes (both ends claimed it).
+   * @see tests/issue/815.test.ts "is not acknowledged and the stream is reset, so neither channel stays connecting"
+   */
+  private rejectOpenOnStreamInUse(channel: RTCDataChannel) {
+    if (this.unannounced.delete(channel)) {
+      this.dataChannelQueue = this.dataChannelQueue.filter(
+        ([queued]) => queued !== channel,
+      );
+    }
+    this.dataChannelClose(channel);
   }
 
   dataChannelClose(channel: RTCDataChannel) {
     if (!(["closing", "closed"] as DCState[]).includes(channel.readyState)) {
       channel.setReadyState("closing");
 
-      if (this.sctp.associationState === SCTP_STATE.ESTABLISHED) {
+      if (
+        this.sctp.associationState === SCTP_STATE.ESTABLISHED &&
+        !this.unannounced.has(channel)
+      ) {
         // Check if channel.id is already in reconfigQueue to prevent duplicates
         if (!this.sctp.reconfigQueue.includes(channel.id)) {
           this.sctp.reconfigQueue.push(channel.id);
@@ -810,14 +1138,19 @@ export class RTCSctpTransport {
           this.sctp.transmitReconfigRequest();
         }
       } else {
+        // Test: tests/issue/815.test.ts "closing one channel before negotiation keeps the OPEN of another (queue filtered by identity)"
         this.dataChannelQueue = this.dataChannelQueue.filter(
-          (queueItem) => queueItem[0].id !== channel.id,
+          (queueItem) => queueItem[0] !== channel,
         );
+        this.unannounced.delete(channel);
         // Remove any pending reconfiguration requests for this channel
         this.sctp.reconfigQueue = this.sctp.reconfigQueue.filter(
           (streamId) => streamId !== channel.id,
         );
-        if (channel.id !== undefined) {
+        if (
+          channel.id != undefined &&
+          this.dataChannels[channel.id] === channel
+        ) {
           delete this.dataChannels[channel.id];
         }
         channel.setReadyState("closed");

@@ -129,13 +129,25 @@ export function load(name: string) {
 }
 
 /**
+ * Shared Arrange: create a peer that does not contact the public default STUN
+ * server. Tests that need STUN or TURN pass their local server in `config`.
+ */
+export function createLocalPeerConnection(config: Partial<PeerConfig> = {}) {
+  return new RTCPeerConnection({
+    iceServers: [],
+    iceUseDefaultStunServer: false,
+    ...config,
+  });
+}
+
+/**
  * Create a PeerConnection with one data channel so that its first
  * RTCIceTransport exists, and return both.
  */
 export function createPeerConnectionWithIceTransport(
   config: Partial<PeerConfig> = {},
 ) {
-  const pc = new RTCPeerConnection({ iceServers: [], ...config });
+  const pc = createLocalPeerConnection(config);
   pc.createDataChannel("ice-transport");
   const ice = (pc as any).secureManager.iceTransports[0] as RTCIceTransport;
   return { pc, ice };

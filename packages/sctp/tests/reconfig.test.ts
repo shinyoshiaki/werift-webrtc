@@ -718,3 +718,35 @@ describe("stream reset under seeded random loss of every packet (property)", () 
     },
   );
 });
+
+describe("onReconfigStreams direction and isOutgoingResetPending", () => {
+  test("the requester sees outgoing, the peer incoming; pending until the peer answers", async () => {
+    // Arrange: 確立済みのペアと、両端の reset 通知の記録。
+    const pair = await createConnectedSctpPair();
+    const seen: string[] = [];
+    pair.client.onReconfigStreams.subscribe((ids, direction) => {
+      seen.push(`client:${direction}:${ids.join(",")}`);
+    });
+    pair.server.onReconfigStreams.subscribe((ids, direction) => {
+      seen.push(`server:${direction}:${ids.join(",")}`);
+    });
+    try {
+      // Act: client が stream 3 の送信側 reset を要求する (データは送っていない)。
+      pair.client.reconfigQueue.push(3);
+      const transmitted = pair.client.transmitReconfigRequest();
+
+      // Assert: 応答が届くまでは pending で、関係のない stream は pending ではない。
+      expect(pair.client.isOutgoingResetPending(3)).toBe(true);
+      expect(pair.client.isOutgoingResetPending(5)).toBe(false);
+      await transmitted;
+
+      // Assert: server は incoming、client は outgoing として通知され、完了後は pending でない。
+      await vi.waitFor(() =>
+        expect(seen).toEqual(["server:incoming:3", "client:outgoing:3"]),
+      );
+      expect(pair.client.isOutgoingResetPending(3)).toBe(false);
+    } finally {
+      await pair.stop();
+    }
+  });
+});

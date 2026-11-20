@@ -32,6 +32,7 @@ import {
   type SrtpProfile,
   type SrtpSession,
 } from "../imports/rtp";
+import type { SharedReceiverTWCC } from "../media/receiver/receiverTwcc";
 import { getStatsTimestamp, type RTCStats } from "../media/stats";
 import { milliTime } from "../utils";
 import { InboundApplicationGate } from "./dtls-application-gate";
@@ -48,7 +49,6 @@ import {
 import { createIceTransport } from "./dtls-ice-transport";
 import { PreAuthMediaQueue } from "./dtls-media-queue";
 import { TransportReadiness } from "./dtls-readiness";
-import { isDtlsTransportSped } from "./dtls-sped";
 import { runSpedHandshake } from "./dtls-sped-handshake";
 import { decryptRtcp, decryptRtp, SrtpAccess } from "./dtls-srtp";
 import { buildDtlsTransportStats } from "./dtls-stats";
@@ -177,14 +177,31 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   readonly iceTransport: RTCIceTransport;
   public localCertificate?: RTCCertificate;
   private readonly srtpProfiles: SrtpProfile[];
+  /**
+   * @internal The TWCC feedback generator the receivers on this transport
+   * share, see `acquireTransportReceiverTWCC`.
+   */
+  sharedReceiverTWCC?: SharedReceiverTWCC;
+  /** @internal Set from PeerConfig.sped; not a public RTCDtlsTransport option. */
+  sped = false;
+
   id = randomUUID().toString();
   state: DtlsState = "new";
-  role: DtlsRole = "auto";
+  private _role: DtlsRole = "auto";
+  /**
+   * Fires synchronously whenever {@link RTCDtlsTransport.role} changes (a
+   * local or remote answer / pranswer, or `start()` resolving `auto`).
+   * @see tests/issue/815.test.ts "issue 815: data channel stream IDs follow the DTLS role"
+   * @see tests/issue/815.test.ts "the DTLS start resolving auto assigns the IDs of the role it took"
+   */
+  readonly onRoleChange = new Event<[DtlsRole]>();
   /**
    * Internal: the ICE role when the handshake started. werift sets the ICE role at
    * every offer / answer, so an SCTP association that starts later on this
-   * transport takes its client / server side from here, as both peers agreed
-   * on it when they started DTLS.
+   * transport takes its INIT client / server side from here, as both peers
+   * agreed on it when they started DTLS. Data channel stream IDs follow
+   * {@link RTCDtlsTransport.role} instead.
+   * @see tests/issue/815.test.ts "#815 report: reversed ICE / DTLS roles with channels from both ends do not collide"
    */
   iceRoleAtStart?: RTCIceTransport["role"];
   srtpStarted = false;
@@ -331,7 +348,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     // Early server send exists only on SPED transports; never revoke (and so
     // never cancel an SCTP start) on the default non-SPED path.
     if (
-      isDtlsTransportSped(this) &&
+      this.sped &&
       previousAllowEarlyServerData &&
       !nextWarp.allowEarlyServerData
     ) {
@@ -362,6 +379,24 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   };
 
   dispatchEvent = (event: globalThis.Event) => this.events.dispatchEvent(event);
+
+  /**
+   * The DTLS role: `auto` until a description or the handshake start decides
+   * it. Data channel stream IDs follow it (client even, server odd).
+   * @see tests/issue/815.test.ts "issue 815: data channel stream IDs follow the DTLS role"
+   */
+  get role(): DtlsRole {
+    return this._role;
+  }
+
+  set role(role: DtlsRole) {
+    if (role === this._role) return;
+    this._role = role;
+    this.onRoleChange.executeIsolated(
+      (error) => log("onRoleChange listener failed", error),
+      role,
+    );
+  }
 
   get localParameters() {
     return new RTCDtlsParameters(
@@ -521,7 +556,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   private isEarlyServerOutboundReady(): boolean {
     const attempt = this.attempts.current;
     return (
-      isDtlsTransportSped(this) &&
+      this.sped &&
       this.role === "server" &&
       this.allowsEarlyServerData &&
       !this.earlyModeDisabled &&
@@ -561,7 +596,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       this.mediaQueue.renew(this.bufferEarlyMedia);
       return;
     }
-    if (isDtlsTransportSped(this)) return;
+    if (this.sped) return;
 
     const generation = this.liveIceGeneration;
     if (generation === current.iceGeneration) return;
@@ -645,7 +680,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   private async completeHandshake() {
     let attempt = this.attempts.begin(this.liveIceGeneration);
     this.readiness.startHandshake();
-    const sped = isDtlsTransportSped(this);
+    const sped = this.sped;
     const addressValidation: AddressValidation = sped
       ? "ice-authenticated"
       : this.config.helloRetryRequest
@@ -902,7 +937,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     // engine RX queue の stale 実行を世代で遮断する (ICE restart race)。
     // 対象は世代ごとに注入される SPED carrier だけ。非 SPED では restart を
     // またいでも同じ DTLS association の datagram なので遮断しない (warp と同じ)。
-    if (isDtlsTransportSped(this)) {
+    if (this.sped) {
       this.dtls.setExpectedRxGeneration(() => this.liveIceGeneration);
     }
     this.dtls.onData.subscribe((buf) => {

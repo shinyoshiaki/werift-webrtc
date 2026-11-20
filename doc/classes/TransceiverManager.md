@@ -24,8 +24,9 @@ m-line stop, rejection and reuse inside a negotiation:
   answer.
 - A transceiver created for a remote offer is not an application operation
   (no `negotiationneeded`). Rollback removes it unless the application
-  attached a track (`heldByApplication`); a kept one returns to its created
-  state. An application `stop()` during the transaction survives rollback.
+  uses it (`heldByApplication`: `addTrack()` attached a track to it, even
+  one `replaceTrack(null)` / `removeTrack()` detached since, or its sender
+  has a track); a kept one returns to its created state. An application `stop()` during the transaction survives rollback.
 - Each transceiver records what created it (`createdBy`: `addTrack`,
   `addTransceiver` or `remote`); reusing one with `addTrack()` or
   `replaceTrack()` keeps it. Under `transceiverPairing: "standard"` a remote

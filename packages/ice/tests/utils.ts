@@ -3454,3 +3454,18 @@ export function nominationChecklist(
         : h.receiveNomination(pair),
   };
 }
+
+/**
+ * Shared Arrange: run a full garbage collection. Exposes `gc` at runtime
+ * (`--expose-gc` through `v8`), so the vitest command needs no extra flag.
+ */
+export async function collectGarbage() {
+  const { setFlagsFromString } = await import("node:v8");
+  const { runInNewContext } = await import("node:vm");
+  setFlagsFromString("--expose-gc");
+  const gc = runInNewContext("gc") as () => void;
+  // Promise の反応と FinalizationRegistry の後片付けを挟んで 2 回回す。
+  gc();
+  await new Promise((resolve) => setImmediate(resolve));
+  gc();
+}

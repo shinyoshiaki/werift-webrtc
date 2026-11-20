@@ -44,7 +44,14 @@ export type SctpNegotiationState = ReturnType<
  *   application m-line (JSEP 5.11), also on an already connected DTLS
  *   transport: an `m=application` a renegotiation adds to a connected session
  *   starts without touching ICE or DTLS and without moving `connectionState`.
- *   Its client / server side follows the ICE role at the DTLS start. Starting
+ *   Its INIT client / server side follows the ICE role at the DTLS start;
+ *   in-band stream IDs follow the DTLS role (RFC 8832 section 6) and are
+ *   reserved as soon as it is decided, before the description's promise
+ *   resolves (W3C webrtc-pc 4.4.1.6); the DCEP OPEN waits for the
+ *   established association. An ICE restart or role conflict keeps them.
+ *   `createDataChannel` ignores the `id` of an in-band channel.
+ *   (Tests: tests/issue/815.test.ts "issue 815: data channel stream IDs follow the DTLS role";
+ *   tests/issue/815.test.ts "issue 815: each source of the DTLS role assigns the stream IDs".) Starting
  *   is idempotent (`RTCSctpTransport.ensureStarted`): an established
  *   association, also one the remote INIT established first, a handshaking
  *   one and a closed one never start again, so a final answer keeping the
@@ -57,8 +64,10 @@ export type SctpNegotiationState = ReturnType<
  *   initial state under the proposal (started by a pranswer, or established
  *   from the remote INIT) is pending-only: it is aborted and an
  *   application-owned transport gets a new, unstarted association on the same
- *   DTLS transport. Its channels with a stream ID close; channels still
- *   waiting for one stay `connecting` for the next negotiation.
+ *   DTLS transport. Its announced channels close; channels whose OPEN was
+ *   not sent give their reserved stream ID back and stay `connecting` until
+ *   the next answer assigns one again (also after a final answer rejecting
+ *   the application). (Test: tests/issue/815.test.ts "a %s gives the IDs back and the next answer, keeping the DTLS role, assigns them again".)
  * - `sctp.mtu` is configuration: every transport, also a pending one, is built
  *   with it, and moving to another DTLS transport keeps it.
  */
@@ -85,7 +94,10 @@ export class SctpTransportManager {
     sctp.mid = undefined;
     sctp.onDataChannel.subscribe((channel) => {
       this.track(channel);
-      this.onDataChannel.execute(channel);
+      this.onDataChannel.executeIsolated(
+        (error) => log("onDataChannel listener failed", error),
+        channel,
+      );
     });
 
     this.sctpTransport = sctp;
@@ -135,8 +147,13 @@ export class SctpTransportManager {
     }
     this.applicationOwned.add(this.sctpTransport);
 
+    // W3C webrtc-pc createDataChannel: `id` only counts when negotiated.
+    // Test: tests/issue/815.test.ts "an id given to an in-band channel is ignored"
+    if (!settings.negotiated && settings.id !== undefined) {
+      log("in-band data channel: ignored id", settings.id, label);
+    }
     const parameters = new RTCDataChannelParameters({
-      id: settings.id,
+      id: settings.negotiated ? settings.id : undefined,
       label,
       maxPacketLifeTime: settings.maxPacketLifeTime,
       maxRetransmits: settings.maxRetransmits,
@@ -205,10 +222,15 @@ export class SctpTransportManager {
     // new, unstarted one waits for the next negotiation. Attached channels
     // close; unattached ones stay queued.
     const kept = keepAdded ? added : state.transport;
-    if (kept && state.remotePort === undefined && kept.associationActive) {
-      await kept.resetAssociation(
-        kept === state.transport ? state.dtlsTransport : undefined,
-      );
+    if (kept && state.remotePort === undefined) {
+      if (kept.associationActive) {
+        await kept.resetAssociation(
+          kept === state.transport ? state.dtlsTransport : undefined,
+        );
+      } else {
+        // Test: tests/issue/815.test.ts "a rollback gives back the IDs a pranswer reserved"
+        kept.releaseUnannouncedStreamIds();
+      }
     }
     this.sctpTransport = kept;
     if (
@@ -238,6 +260,7 @@ export class SctpTransportManager {
     const transport = this.sctpTransport;
     if (!transport) return;
     if (transport.associationActive) await transport.resetAssociation();
+    else transport.releaseUnannouncedStreamIds();
     this.sctpRemotePort = undefined;
     this.detachFromDescription(transport);
   }
@@ -419,8 +442,14 @@ export class SctpTransportManager {
   }
 
   async close() {
-    if (this.sctpTransport) {
-      await this.sctpTransport.stop();
+    const transport = this.sctpTransport;
+    if (transport) {
+      try {
+        await transport.stop();
+      } finally {
+        // Test: tests/issue/815.test.ts "pc.close() notifies close of a channel without an ID after SCTP / DTLS / the PeerConnection closed"
+        transport.closeUnannouncedChannels();
+      }
       // UdpTransport.send は既知アドレスでは callback を待たない。呼び出し側が
       // 直後に ICE ソケットを閉じると queued な AbortChunk が落ちるので、1 tick 譲る。
       await new Promise<void>((resolve) => setImmediate(resolve));

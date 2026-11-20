@@ -344,6 +344,31 @@ export const MODEL_SCENES: (Scene & { name: string; ref: string })[] = [
       ["b", "rollback"],
     ],
   },
+  {
+    name: "a transceiver addTrack adds while a remote offer is pending survives the rollback with its DTLS transport",
+    ref: "2.12-3; origin: model property (seed 25): addTrack created the transceiver without a DTLS transport and the rollback to its created state threw (also in develop)",
+    start: "connected",
+    ops: [
+      ["b", "offer"],
+      ["a", "takeTrack", { kind: "audio" }],
+      ["a", "rollback"],
+      ["b", "offer"],
+      ["a", "answer"],
+    ],
+  },
+  ...(["replaceTrack", "removeTrack"] as const).map((how) => ({
+    name: `rollback of a remote offer keeps the transceiver addTrack took after the application's ${how} detached the track`,
+    ref: "2.12-3; origin: #817 (addTrack then replaceTrack(null) / removeTrack lost the transceiver at rollback); WPT RTCPeerConnection-setRemoteDescription-rollback rollback of a remote offer should keep a transceiver without tracks",
+    start: "unnegotiated" as const,
+    ops: [
+      ["a", "offer"],
+      ["b", "takeTrack", { kind: "video" }],
+      ["b", "detachTrack", { index: 0, how }],
+      ["b", "rollback"],
+      ["a", "offer"],
+      ["b", "answer"],
+    ] as Scene["ops"],
+  })),
   ...(["stop", "direction", "codecPreferences"] as const).map((op) => ({
     name: `rollback of a remote offer removes the transceiver it created after the application's ${op} (as develop)`,
     ref: `2.12-3; origin: property test (develop comparison); was Reg rollback of a remote offer after the application's ${op} …`,

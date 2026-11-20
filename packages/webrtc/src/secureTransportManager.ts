@@ -18,7 +18,6 @@ import {
   RTCCertificate,
   RTCDtlsTransport,
 } from "./transport/dtls";
-import { markDtlsTransportSped } from "./transport/dtls-sped";
 import type {
   IceGathererState,
   RTCIceCandidate,
@@ -301,7 +300,7 @@ export class SecureTransportManager {
       srtpProfiles,
     );
     if (this.config.sped === true) {
-      markDtlsTransportSped(dtlsTransport);
+      dtlsTransport.sped = true;
       // Candidates can receive authenticated checks before setLocalDescription
       // finishes gathering and starts DTLS. Do not advertise a non-SPED peer
       // during that interval; leave DTLS DATA unacknowledged until start().
