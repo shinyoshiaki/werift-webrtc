@@ -46,7 +46,8 @@ import {
   alertDescName,
   ContentType,
 } from "./record/const";
-import { FragmentedHandshake } from "./record/message/fragment";
+import type { FragmentedHandshake } from "./record/message/fragment";
+import { HandshakeReassembler } from "./record/message/reassembler";
 import { parsePacket, parsePlainText } from "./record/receive";
 import type { Extension } from "./typings/domain";
 import {
@@ -122,7 +123,8 @@ export class DtlsSocket {
     meta?: DatagramRxMeta,
   ) => Promise<void>;
 
-  private bufferFragmentedHandshakes: FragmentedHandshake[] = [];
+  /** Partially received handshake messages (RFC 6347 §4.2.3). */
+  private readonly reassembler = new HandshakeReassembler();
   /** close_notify or a fatal alert was sent: no record is sent any more. */
   private alertSent = false;
   /** The alert that is being sent (shared with concurrent close calls). */
@@ -477,7 +479,7 @@ export class DtlsSocket {
     this.dtls = new DtlsContext(this.options, this.sessionType);
     this.srtp = new SrtpContext();
     this.extensions = [];
-    this.bufferFragmentedHandshakes = [];
+    this.reassembler.clear();
     this.setupExtensions();
   }
 
@@ -737,23 +739,10 @@ export class DtlsSocket {
                   break;
                 }
                 const handshake = message.data as FragmentedHandshake;
-                const handshakes = this.handleFragmentHandshake([handshake]);
-                const assembled = Object.values(
-                  handshakes.reduce(
-                    (acc: { [type: string]: FragmentedHandshake[] }, cur) => {
-                      if (!acc[cur.msg_type]) acc[cur.msg_type] = [];
-                      acc[cur.msg_type].push(cur);
-                      return acc;
-                    },
-                    {},
-                  ),
-                )
-                  .map((v) =>
-                    FragmentedHandshake.assemble(v, {
-                      validation: this.options.handshakeValidation,
-                    }),
-                  )
-                  .sort((a, b) => a.msg_type - b.msg_type);
+                const assembled = this.handleFragmentHandshake(
+                  [handshake],
+                  packet.recordLayerHeader.epoch,
+                ).sort((a, b) => a.msg_type - b.msg_type);
 
                 // Pass the datagram source so async Flight2 / protocol alerts
                 // do not depend on mutable UdpTransport.rinfo after await.
@@ -934,6 +923,9 @@ export class DtlsSocket {
     }
 
     this.ended = true;
+    // Spec: tests/server.test.ts › "frees partial handshake fragments when
+    // the connection ends by receiving a fatal alert / close_notify"
+    this.reassembler.clear();
     // Retransmitting a handshake flight makes no sense any more.
     this.transport.stopFlights();
 
@@ -1136,6 +1128,9 @@ export class DtlsSocket {
    * the caller, e.g. the onError notification of a received fatal alert.
    */
   private closeTransport() {
+    // Spec: tests/server.test.ts › "frees partial handshake fragments when
+    // the connection ends by sending a fatal alert / close()"
+    this.reassembler.clear();
     return this.transport.close().catch((error: unknown) => {
       err(this.dtls.sessionId, "failed to close transport", error);
     });
@@ -1212,24 +1207,18 @@ export class DtlsSocket {
       f(new Error("waitForReady timeout"));
     });
 
-  handleFragmentHandshake(messages: FragmentedHandshake[]) {
-    let handshakes = messages.filter((v) => {
-      // find fragmented
-      if (v.fragment_length !== v.length) {
-        this.bufferFragmentedHandshakes.push(v);
-        return false;
-      }
-      return true;
-    });
-
-    if (this.bufferFragmentedHandshakes.length > 1) {
-      const [last] = this.bufferFragmentedHandshakes.slice(-1);
-      if (last.fragment_offset + last.fragment_length === last.length) {
-        handshakes = [...this.bufferFragmentedHandshakes, ...handshakes];
-        this.bufferFragmentedHandshakes = [];
-      }
+  /**
+   * Returns the handshake messages that `messages` (received in a record of
+   * `epoch`) complete. Spec: `tests/server.test.ts` › "handleFragmentHandshake
+   * returns a message only once every byte was received"
+   */
+  handleFragmentHandshake(messages: FragmentedHandshake[], epoch = 0) {
+    const handshakes: FragmentedHandshake[] = [];
+    for (const message of messages) {
+      const handshake = this.reassembler.add(message, epoch);
+      if (handshake) handshakes.push(handshake);
     }
-    return handshakes; // return un fragmented handshakes
+    return handshakes;
   }
 
   /**
@@ -1405,6 +1394,7 @@ export class DtlsSocket {
     this.connected = false;
     this.associationTornDown = true;
     this.ended = true;
+    this.reassembler.clear();
     this.abortAssociationWaits();
     this.clearSendPeerPin();
     if (firePublicOnClose) {

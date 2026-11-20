@@ -176,6 +176,16 @@ const client = new DtlsClient({
 });
 ```
 
+# Handshake fragments
+
+A handshake message larger than the path MTU arrives in several fragments (RFC 6347 §4.2.3). `DtlsSocket` reassembles them before the handshake sees the message:
+
+- Fragments are grouped by record epoch, `msg_type`, `message_seq` and `length`; a message is delivered only once every byte of `[0, length)` was received, in any order.
+- Duplicate and overlapping fragments (a retransmission, also split at other boundaries) are accepted when the overlapping bytes match; a mismatch discards the partial message (no alert is sent, the retransmission can complete it).
+- A truncated fragment, a fragment beyond its message length and a message over 64 KiB are dropped.
+- At most 16 partial messages, 256 KiB and 256 disjoint byte ranges per message are buffered (the oldest partial message is discarded first), and a partial message without a new fragment for 60 s is discarded when the next fragment is added (no timer; an idle socket keeps it until the connection ends or `close()`). The partial messages are also freed when the connection ends (received or sent alert, `close()`). The limits are the static fields of `HandshakeReassembler` (`src/record/message/reassembler.ts`).
+- An unfragmented message (and each of its retransmissions) is delivered as is.
+
 # reference
 
 - RFC5246 / RFC6347 (DTLS 1.2)
