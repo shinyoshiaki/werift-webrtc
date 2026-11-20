@@ -10,6 +10,7 @@ import { HandshakeType } from "../../src/handshake/const";
 import { UseSRTP } from "../../src/handshake/extensions/useSrtp";
 import { ServerHello } from "../../src/handshake/message/server/hello";
 import { ContentType } from "../../src/record/const";
+import { HandshakeValidation } from "../../src/handshake/validation";
 import { FragmentedHandshake } from "../../src/record/message/fragment";
 import { DtlsPlaintext } from "../../src/record/message/plaintext";
 import { certPem, keyPem } from "../fixture";
@@ -342,6 +343,8 @@ test("e2e/self12 dual client は commit12 後の use_srtp 解析失敗を stale 
     addressValidation: "none",
     protocolVersions: [DtlsVersion.V1_3, DtlsVersion.V1_2],
     srtpProfiles: [ProtectionProfileAeadAes128Gcm],
+    // malformed use_srtp の解析失敗を検出するには strict 検査が必要（既定の lenient は長さを検査しない）。
+    handshakeValidation: HandshakeValidation.standard,
   });
   const errors: Error[] = [];
   const errorSubscription = client.onError.subscribe((error) => {

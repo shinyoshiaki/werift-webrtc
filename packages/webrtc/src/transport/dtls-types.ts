@@ -1,10 +1,12 @@
-import type { DtlsVersion } from "../imports/dtls";
+import type { DtlsVersion, HandshakeValidation } from "../imports/dtls";
 import type { DebugConfig } from "../peerConnection";
 
 export interface DtlsTransportConfig {
   debug?: DebugConfig;
   protocolVersions?: readonly DtlsVersion[];
   helloRetryRequest?: boolean;
+  /** PeerConfig.dtlsHandshakeValidation (DTLS 1.2 handshake validation). */
+  handshakeValidation?: HandshakeValidation;
   warp?: {
     allowEarlyServerData?: boolean;
     earlyMediaPolicy?: "drop" | "buffer";
