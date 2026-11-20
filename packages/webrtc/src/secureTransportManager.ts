@@ -442,6 +442,14 @@ export class SecureTransportManager {
   }) {
     let mediaIndices: number[];
 
+    if (sdpMid === "" && typeof sdpMLineIndex !== "number") {
+      // addIceCandidate resolves "" with an index by the index
+      // (normalizeEmptyCandidateMid); without one no m-line is named.
+      throw createWebRtcDomException(
+        "OperationError",
+        "sdpMid is empty and no sdpMLineIndex was given",
+      );
+    }
     if (typeof sdpMid === "string") {
       const mediaIndex = sdp.media.findIndex(
         (media) => media.rtp.muxId === sdpMid,
