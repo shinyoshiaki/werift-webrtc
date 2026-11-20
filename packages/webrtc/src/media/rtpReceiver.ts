@@ -151,6 +151,19 @@ export class RTCRtpReceiver {
   private readonly stagedSsrcByRtx: { [rtxSsrc: number]: number } = {};
   /** {@link ridFidMediaByRtx} values a pending description staged (see `prepareReceive`). */
   private readonly stagedRidFidMediaByRtx: { [rtxSsrc: number]: number } = {};
+  /**
+   * The whole FID table of the latest pending description (see
+   * `prepareReceive`): the commit replaces {@link ridFidMediaByRtx} with it,
+   * so a pair the committed description no longer lists does not survive.
+   */
+  private stagedRidFidTable?: { [rtxSsrc: number]: number };
+  /**
+   * FID media SSRC under which an RTX SSRC was bound to its RID by the FID
+   * table rather than by a repaired RID. When the committed FID table no
+   * longer pairs the RTX SSRC with that media SSRC the binding is dropped
+   * (see {@link reconcileFidBindings}).
+   */
+  private readonly fidMediaOfBinding: { [rtxSsrc: number]: number } = {};
   /** SSRCs of `trackBySSRC` learned from RID packets rather than SDP. */
   readonly learnedTrackSsrcs = new Set<number>();
   /**
@@ -558,6 +571,11 @@ export class RTCRtpReceiver {
         e.rtx ? [{ ssrc: e.ssrc, rtxSsrc: e.rtx.ssrc }] : [],
       ),
     ];
+    if (deferConflicts) {
+      this.stagedRidFidTable = Object.fromEntries(
+        (params.ridRtxPairs ?? []).map(({ ssrc, rtxSsrc }) => [rtxSsrc, ssrc]),
+      );
+    }
     params.ridRtxPairs?.forEach(({ ssrc, rtxSsrc }) => {
       const existing = this.ridFidMediaByRtx[rtxSsrc];
       if (deferConflicts && existing !== undefined && existing !== ssrc) {
@@ -586,16 +604,24 @@ export class RTCRtpReceiver {
     clearTable(this.stagedCodecs);
     clearTable(this.stagedSsrcByRtx);
     clearTable(this.stagedRidFidMediaByRtx);
+    this.stagedRidFidTable = undefined;
   }
 
   /** Internal: the transaction committed, staged payload types and RTX pairs apply. */
   commitStagedReceive() {
     Object.assign(this.codecs, this.stagedCodecs);
     Object.assign(this.ssrcByRtx, this.stagedSsrcByRtx);
-    Object.assign(this.ridFidMediaByRtx, this.stagedRidFidMediaByRtx);
+    if (this.stagedRidFidTable) {
+      // The committed description lists the FID pairs as a whole.
+      clearTable(this.ridFidMediaByRtx);
+      Object.assign(this.ridFidMediaByRtx, this.stagedRidFidTable);
+    } else {
+      Object.assign(this.ridFidMediaByRtx, this.stagedRidFidMediaByRtx);
+    }
     clearTable(this.stagedCodecs);
     clearTable(this.stagedSsrcByRtx);
     clearTable(this.stagedRidFidMediaByRtx);
+    this.stagedRidFidTable = undefined;
     this.reconcileFidBindings();
   }
 
@@ -608,6 +634,9 @@ export class RTCRtpReceiver {
       stagedSsrcByRtx: { ...this.stagedSsrcByRtx },
       ridFidMediaByRtx: { ...this.ridFidMediaByRtx },
       stagedRidFidMediaByRtx: { ...this.stagedRidFidMediaByRtx },
+      stagedRidFidTable: this.stagedRidFidTable && {
+        ...this.stagedRidFidTable,
+      },
     };
   }
 
@@ -626,6 +655,9 @@ export class RTCRtpReceiver {
       clearTable(table);
       Object.assign(table, saved);
     }
+    this.stagedRidFidTable = snapshot.stagedRidFidTable && {
+      ...snapshot.stagedRidFidTable,
+    };
   }
 
   /**
@@ -734,6 +766,9 @@ export class RTCRtpReceiver {
     // Codec/RTX tables added or changed by a pending description are
     // dropped; current RTP is decoded exactly as before the transaction.
     this.restoreReceiveTables(state.receiveTables);
+    // An RTX SSRC bound by a FID pair only the rolled-back description gave
+    // is unbound; the current FID pairs bind again.
+    this.reconcileFidBindings();
     // A stream learned with a payload type only the rolled-back description
     // gave is not a stream of the current session: it is forgotten too.
     for (const [ssrc, stream] of [...this.fallbackStreams]) {
@@ -869,6 +904,8 @@ export class RTCRtpReceiver {
     clearTable(this.ridByRtxSsrc);
     clearTable(this.ridFidMediaByRtx);
     clearTable(this.stagedRidFidMediaByRtx);
+    clearTable(this.fidMediaOfBinding);
+    this.stagedRidFidTable = undefined;
     clearTable(this.rtxSsrcsByRid);
     clearTable(this.repairedMediaByRtx);
     clearTable(this.retiredSsrcsByRid);
@@ -1270,16 +1307,25 @@ export class RTCRtpReceiver {
     for (const [rtx, fidMedia] of Object.entries(this.ridFidMediaByRtx)) {
       const rtxSsrc = Number(rtx);
       if (fidMedia === media && this.ridByRtxSsrc[rtxSsrc] !== rid) {
-        this.bindRtxSsrc(rtxSsrc, rid);
+        this.bindRtxSsrc(rtxSsrc, rid, fidMedia);
       }
     }
   }
 
   /**
-   * A committed description changed the FID table: an RTX SSRC bound to
-   * another RID than the one now carrying its FID media SSRC moves there.
+   * The FID table changed (a commit, `resyncCodecs`, a rollback): an RTX
+   * SSRC the table bound under a media SSRC it no longer pairs it with is
+   * unbound, and an RTX SSRC bound to another RID than the one now carrying
+   * its FID media SSRC moves there. Until a RID carries the new FID media
+   * SSRC, its RTX restores nothing.
    */
   private reconcileFidBindings() {
+    for (const [rtx, media] of Object.entries(this.fidMediaOfBinding)) {
+      const rtxSsrc = Number(rtx);
+      if (this.ridFidMediaByRtx[rtxSsrc] !== media) {
+        this.unbindRtxSsrc(rtxSsrc);
+      }
+    }
     for (const [rid, media] of Object.entries(this.mediaSsrcByRid)) {
       this.bindFidRtxOfMedia(rid, media);
     }
@@ -1293,11 +1339,16 @@ export class RTCRtpReceiver {
   }
 
   /** Bind `rtxSsrc` to `rid`, evicting beyond {@link MAX_RTX_SSRCS_PER_RID}. */
-  private bindRtxSsrc(rtxSsrc: number, rid: string) {
+  private bindRtxSsrc(rtxSsrc: number, rid: string, fidMedia?: number) {
     const previous = this.ridByRtxSsrc[rtxSsrc];
-    if (previous === rid) return;
+    if (previous === rid) {
+      // A repaired RID confirms the binding beyond the FID pair.
+      if (fidMedia === undefined) delete this.fidMediaOfBinding[rtxSsrc];
+      return;
+    }
     if (previous !== undefined) this.unbindRtxSsrc(rtxSsrc);
     this.ridByRtxSsrc[rtxSsrc] = rid;
+    if (fidMedia !== undefined) this.fidMediaOfBinding[rtxSsrc] = fidMedia;
     const ssrcs = (this.rtxSsrcsByRid[rid] ??= []);
     ssrcs.push(rtxSsrc);
     if (ssrcs.length <= MAX_RTX_SSRCS_PER_RID) return;
@@ -1320,6 +1371,7 @@ export class RTCRtpReceiver {
     if (index >= 0) list!.splice(index, 1);
     delete this.ridByRtxSsrc[rtxSsrc];
     delete this.repairedMediaByRtx[rtxSsrc];
+    delete this.fidMediaOfBinding[rtxSsrc];
   }
 
   /**
@@ -1408,7 +1460,7 @@ export class RTCRtpReceiver {
       const fidRid = Object.entries(this.mediaSsrcByRid).find(
         ([, media]) => media === fidMedia,
       )?.[0];
-      if (fidRid !== undefined) this.bindRtxSsrc(rtxSsrc, fidRid);
+      if (fidRid !== undefined) this.bindRtxSsrc(rtxSsrc, fidRid, fidMedia);
     }
     const rid = this.ridByRtxSsrc[rtxSsrc];
     const media = rid === undefined ? undefined : this.mediaSsrcByRid[rid];
