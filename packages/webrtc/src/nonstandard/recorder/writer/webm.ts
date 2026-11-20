@@ -22,6 +22,10 @@ export class WebmFactory extends MediaWriter {
   rtpSources: RtpSourceCallback[] = [];
   private onEol = new Event();
   private ended = false;
+  /** RTP sources are stopped once: a second eol would break LipsyncCallback */
+  private sourcesStopped?: Promise<unknown>;
+  /** a write failure stops the recording and is reported here */
+  onError = new Event<[Error]>();
   unSubscribers = new EventDisposer();
 
   async start(tracks: MediaStreamTrack[]) {
@@ -79,6 +83,15 @@ export class WebmFactory extends MediaWriter {
 
     const webm = new WebmCallback(inputTracks, {
       duration: this.props.defaultDuration ?? 1000 * 60 * 60 * 24,
+    });
+    webm.onError.once((error) => {
+      this.ended = true;
+      webm.destroy();
+      // the recording is dead: stop feeding it RTP / RTCP
+      this.unSubscribers.dispose();
+      this.stopSources();
+      this.onEol.execute();
+      this.onError.execute(error);
     });
     const lipsync = new LipsyncCallback({
       ...this.props.lipsync,
@@ -144,8 +157,10 @@ export class WebmFactory extends MediaWriter {
       return rtpSource;
     });
     if (this.props.path) {
+      // one writer per recording: it tracks the bytes written so far
+      const save = saveToFileSystem(this.props.path);
       webm.pipe(async (o) => {
-        const eol = await saveToFileSystem(this.props.path)(o);
+        const eol = await save(o);
         if (this.props.stream) {
           this.props.stream.execute(o);
         }
@@ -161,8 +176,13 @@ export class WebmFactory extends MediaWriter {
     }
   }
 
+  private stopSources() {
+    this.sourcesStopped ??= Promise.all(this.rtpSources.map((r) => r.stop()));
+    return this.sourcesStopped;
+  }
+
   async stop() {
-    await Promise.all(this.rtpSources.map((r) => r.stop()));
+    await this.stopSources();
 
     if (!this.ended) {
       await this.onEol.asPromise(5000).catch((e) => e);

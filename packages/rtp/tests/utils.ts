@@ -1,6 +1,7 @@
 import { spawn, spawnSync } from "child_process";
 import { createSocket } from "dgram";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { open as openFile } from "fs/promises";
 import { BufferSource, Input, MP4, OGG } from "mediabunny";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -1266,6 +1267,138 @@ export async function recordWebm(
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+}
+
+/** Collects every output of a `WebmCallback` recording of `frames`. */
+export async function collectWebmOutputs(
+  frames: ReturnType<typeof createWebmFrames>,
+) {
+  const outputs: WebmOutput[] = [];
+  const done = new Promise<void>((resolve) => {
+    const webm = new WebmCallback(createWebmTracks(), { duration: 60_000 });
+    webm.pipe(async (output: WebmOutput) => {
+      outputs.push(output);
+      if (output.eol) {
+        resolve();
+      }
+    });
+    feedWebmFrames(webm, frames);
+  });
+  await withTimeout(done, 5_000);
+  return outputs;
+}
+
+/** Temporary directory for WebM file writer tests, removed by `cleanup`. */
+export function createWebmFileDir() {
+  const dir = mkdtempSync(join(tmpdir(), "werift-rtp-webm-writer-"));
+  return {
+    path: (name: string) => join(dir, name),
+    read: (name: string) => readFileSync(join(dir, name)),
+    cleanup: () => rmSync(dir, { recursive: true, force: true }),
+  };
+}
+
+/** WebM bytes saved by `saveToFileSystem` without any fault, as the reference. */
+export async function saveWebmReference(outputs: WebmOutput[]) {
+  const dir = createWebmFileDir();
+  try {
+    const save = saveToFileSystem(dir.path("reference.webm"));
+    for (const output of outputs) {
+      await save(output);
+    }
+    return dir.read("reference.webm");
+  } finally {
+    dir.cleanup();
+  }
+}
+
+export type FsFaultOp = "open" | "write" | "truncate" | "close";
+
+type ArmedFault = {
+  op: FsFaultOp;
+  code: string;
+  remaining: number;
+  /** write: write half of the requested bytes before throwing */
+  partial: boolean;
+};
+
+function fsError(code: string, op: FsFaultOp) {
+  return Object.assign(new Error(`${code}: injected ${op} fault`), { code });
+}
+
+/**
+ * `open` and `sleep` for `createWebmFileWriter` over the real file system,
+ * with armed faults: `arm(op, code, times)` makes the next `times` calls of
+ * `op` throw an error with `code`. A faulted `close` still closes the real
+ * handle, so the test process never leaks a descriptor. `opens` / `closes`
+ * count the calls, `sleeps` records every backoff delay (resolved at once).
+ */
+export function createFaultInjectingFs() {
+  const faults: ArmedFault[] = [];
+  const stats = { opens: 0, closes: 0, sleeps: [] as number[] };
+  const take = (op: FsFaultOp) => {
+    const fault = faults.find((f) => f.op === op && f.remaining > 0);
+    if (fault) {
+      fault.remaining--;
+    }
+    return fault;
+  };
+
+  const open = async (path: string, flags: string | number) => {
+    const fault = take("open");
+    if (fault) {
+      throw fsError(fault.code, "open");
+    }
+    const handle = await openFile(path, flags);
+    stats.opens++;
+    return {
+      write: async (
+        buffer: Uint8Array,
+        offset: number,
+        length: number,
+        position: number,
+      ) => {
+        const fault = take("write");
+        if (fault) {
+          if (fault.partial && length > 1) {
+            await handle.write(buffer, offset, length >> 1, position);
+          }
+          throw fsError(fault.code, "write");
+        }
+        return handle.write(buffer, offset, length, position);
+      },
+      truncate: async (len: number) => {
+        const fault = take("truncate");
+        if (fault) {
+          throw fsError(fault.code, "truncate");
+        }
+        await handle.truncate(len);
+      },
+      stat: () => handle.stat(),
+      close: async () => {
+        stats.closes++;
+        await handle.close();
+        const fault = take("close");
+        if (fault) {
+          throw fsError(fault.code, "close");
+        }
+      },
+    };
+  };
+
+  return {
+    open,
+    sleep: async (ms: number) => {
+      stats.sleeps.push(ms);
+    },
+    stats,
+    arm: (op: FsFaultOp, code: string, times = 1, partial = false) => {
+      faults.push({ op, code, remaining: times, partial });
+    },
+    disarm: () => {
+      faults.length = 0;
+    },
+  };
 }
 
 export type EbmlElementHeader = {
