@@ -1306,9 +1306,9 @@ export class RTCRtpReceiver {
   private bindFidRtxOfMedia(rid: string, media: number) {
     for (const [rtx, fidMedia] of Object.entries(this.ridFidMediaByRtx)) {
       const rtxSsrc = Number(rtx);
-      if (fidMedia === media && this.ridByRtxSsrc[rtxSsrc] !== rid) {
-        this.bindRtxSsrc(rtxSsrc, rid, fidMedia);
-      }
+      // Also an RTX SSRC already bound to `rid` (by a repaired RID): the
+      // pair is recorded for the next change of the FID table.
+      if (fidMedia === media) this.bindRtxSsrc(rtxSsrc, rid, fidMedia);
     }
   }
 
@@ -1325,6 +1325,12 @@ export class RTCRtpReceiver {
       if (this.ridFidMediaByRtx[rtxSsrc] !== media) {
         this.unbindRtxSsrc(rtxSsrc);
       }
+    }
+    // A binding a repaired RID made before the table listed its RTX SSRC
+    // stands under the pair the table gives it now.
+    for (const [rtx, media] of Object.entries(this.ridFidMediaByRtx)) {
+      const rtxSsrc = Number(rtx);
+      if (rtxSsrc in this.ridByRtxSsrc) this.fidMediaOfBinding[rtxSsrc] = media;
     }
     for (const [rid, media] of Object.entries(this.mediaSsrcByRid)) {
       this.bindFidRtxOfMedia(rid, media);

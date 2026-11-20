@@ -180,7 +180,10 @@ describe("simulcast (RID) receive with a=ssrc-group:FID keeps the RID rules", ()
   const [high] = firefoxSimulcastLayers;
 
   /** Arrange: a peer that applied a Firefox offer (FID, no repaired RID extension). */
-  const receiveFirefoxOffer = async (repairedRidExtension: boolean) => {
+  const receiveFirefoxOffer = async (
+    repairedRidExtension: boolean,
+    transformSdp: (sdp: string) => string = (sdp) => sdp,
+  ) => {
     const pc = createFirefoxSimulcastReceivingPeer();
     const tracks: MediaStreamTrack[] = [];
     pc.onTransceiverAdded.subscribe((transceiver) =>
@@ -188,7 +191,9 @@ describe("simulcast (RID) receive with a=ssrc-group:FID keeps the RID rules", ()
     );
     await pc.setRemoteDescription({
       type: "offer",
-      sdp: firefoxSimulcastSdp({ type: "offer", repairedRidExtension }),
+      sdp: transformSdp(
+        firefoxSimulcastSdp({ type: "offer", repairedRidExtension }),
+      ),
     });
     await pc.setLocalDescription(await pc.createAnswer());
     const [transceiver] = pc.getTransceivers();
@@ -574,6 +579,69 @@ describe("simulcast (RID) receive with a=ssrc-group:FID keeps the RID rules", ()
       const beforeLearning = retransmissionsOf(delivered);
 
       // Act: 新しい媒体 SSRC を学習し、その欠落 11 の RTX (repaired RID なし) を受信する。
+      route(media(newMedia, 10));
+      route(media(newMedia, 12));
+      route(repair(newMedia, 11, 3));
+
+      // Assert: 学習前は旧媒体の 4 を復元せず、学習後は新しい媒体の 11 を復元する。
+      expect(beforeLearning).toEqual([[high.ssrc, 2]]);
+      expect(retransmissionsOf(delivered)).toEqual([
+        [high.ssrc, 2],
+        [newMedia, 11],
+      ]);
+    } finally {
+      await pc.close();
+    }
+  });
+
+  test("repaired RID で結合を学習した後に FID が加わり、さらに FID の媒体 SSRC が変わって確定しても、新しい媒体を学習するまでは旧媒体の欠落を復元しない", async () => {
+    // Arrange: FID のない初期 offer。repaired RID で RTX SSRC が RID high に結合され、媒体 4 が欠落した状態。
+    const withoutFid = (sdp: string) =>
+      sdp
+        .split("\r\n")
+        .filter((line) => !/^a=ssrc(-group)?:/.test(line))
+        .join("\r\n");
+    const { pc, route, delivered } = await receiveFirefoxOffer(
+      true,
+      withoutFid,
+    );
+    const newMedia = 123456789;
+    const withFid = (mediaSsrc: number) =>
+      withoutFid(firefoxSimulcastSdp({ type: "offer" })) +
+      [
+        `a=ssrc:${mediaSsrc} cname:x`,
+        `a=ssrc:${high.rtxSsrc} cname:x`,
+        `a=ssrc-group:FID ${mediaSsrc} ${high.rtxSsrc}`,
+        "",
+      ].join("\r\n");
+    const repair = (
+      mediaSsrc: number,
+      sequenceNumber: number,
+      rtxSequenceNumber: number,
+      rrid?: string,
+    ) =>
+      createSimulcastRtxFor(mediaSsrc, sequenceNumber, {
+        rtxSsrc: high.rtxSsrc,
+        rtxSequenceNumber,
+        rrid,
+        mid: "0",
+      });
+    try {
+      route(media(high.ssrc, 1));
+      route(media(high.ssrc, 3));
+      route(repair(high.ssrc, 2, 1, "high"));
+      route(media(high.ssrc, 5));
+
+      // Act: FID を加えた再 offer、続けて FID の媒体 SSRC を変えた再 offer を確定する。
+      for (const mediaSsrc of [high.ssrc, newMedia]) {
+        await pc.setRemoteDescription({
+          type: "offer",
+          sdp: withFid(mediaSsrc),
+        });
+        await pc.setLocalDescription(await pc.createAnswer());
+      }
+      route(repair(high.ssrc, 4, 2));
+      const beforeLearning = retransmissionsOf(delivered);
       route(media(newMedia, 10));
       route(media(newMedia, 12));
       route(repair(newMedia, 11, 3));
