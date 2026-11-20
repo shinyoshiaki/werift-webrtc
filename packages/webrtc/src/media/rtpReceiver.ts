@@ -149,6 +149,8 @@ export class RTCRtpReceiver {
   private readonly ridFidMediaByRtx: { [rtxSsrc: number]: number } = {};
   private readonly stagedCodecs: { [pt: number]: RTCRtpCodecParameters } = {};
   private readonly stagedSsrcByRtx: { [rtxSsrc: number]: number } = {};
+  /** {@link ridFidMediaByRtx} values a pending description staged (see `prepareReceive`). */
+  private readonly stagedRidFidMediaByRtx: { [rtxSsrc: number]: number } = {};
   /** SSRCs of `trackBySSRC` learned from RID packets rather than SDP. */
   readonly learnedTrackSsrcs = new Set<number>();
   /**
@@ -556,7 +558,13 @@ export class RTCRtpReceiver {
       ),
     ];
     params.ridRtxPairs?.forEach(({ ssrc, rtxSsrc }) => {
-      this.ridFidMediaByRtx[rtxSsrc] = ssrc;
+      const existing = this.ridFidMediaByRtx[rtxSsrc];
+      if (deferConflicts && existing !== undefined && existing !== ssrc) {
+        this.stagedRidFidMediaByRtx[rtxSsrc] = ssrc;
+      } else {
+        delete this.stagedRidFidMediaByRtx[rtxSsrc];
+        this.ridFidMediaByRtx[rtxSsrc] = ssrc;
+      }
     });
     pairs.forEach(({ ssrc, rtxSsrc }) => {
       const existing = this.ssrcByRtx[rtxSsrc];
@@ -576,14 +584,17 @@ export class RTCRtpReceiver {
   discardStagedReceive() {
     clearTable(this.stagedCodecs);
     clearTable(this.stagedSsrcByRtx);
+    clearTable(this.stagedRidFidMediaByRtx);
   }
 
   /** Internal: the transaction committed, staged payload types and RTX pairs apply. */
   commitStagedReceive() {
     Object.assign(this.codecs, this.stagedCodecs);
     Object.assign(this.ssrcByRtx, this.stagedSsrcByRtx);
+    Object.assign(this.ridFidMediaByRtx, this.stagedRidFidMediaByRtx);
     clearTable(this.stagedCodecs);
     clearTable(this.stagedSsrcByRtx);
+    clearTable(this.stagedRidFidMediaByRtx);
   }
 
   /** Internal: capture the decode tables for a negotiation rollback baseline. */
@@ -593,6 +604,8 @@ export class RTCRtpReceiver {
       ssrcByRtx: { ...this.ssrcByRtx },
       stagedCodecs: { ...this.stagedCodecs },
       stagedSsrcByRtx: { ...this.stagedSsrcByRtx },
+      ridFidMediaByRtx: { ...this.ridFidMediaByRtx },
+      stagedRidFidMediaByRtx: { ...this.stagedRidFidMediaByRtx },
     };
   }
 
@@ -605,6 +618,8 @@ export class RTCRtpReceiver {
       [this.ssrcByRtx, snapshot.ssrcByRtx],
       [this.stagedCodecs, snapshot.stagedCodecs],
       [this.stagedSsrcByRtx, snapshot.stagedSsrcByRtx],
+      [this.ridFidMediaByRtx, snapshot.ridFidMediaByRtx],
+      [this.stagedRidFidMediaByRtx, snapshot.stagedRidFidMediaByRtx],
     ] as [Record<number, unknown>, Record<number, unknown>][]) {
       clearTable(table);
       Object.assign(table, saved);
@@ -850,6 +865,7 @@ export class RTCRtpReceiver {
     clearTable(this.mediaSsrcByRid);
     clearTable(this.ridByRtxSsrc);
     clearTable(this.ridFidMediaByRtx);
+    clearTable(this.stagedRidFidMediaByRtx);
     clearTable(this.rtxSsrcsByRid);
     clearTable(this.repairedMediaByRtx);
     clearTable(this.retiredSsrcsByRid);
@@ -1158,16 +1174,16 @@ export class RTCRtpReceiver {
     this.handleRTP(packet, extensions, track);
   };
 
-  /**
-   * An RTX packet that names the RID it repairs (`repaired-rtp-stream-id`).
-   * The RTX SSRC is bound to that RID; the packet is restored only when it
-   * fills a hole of the RID's current media SSRC (see {@link mediaSsrcOfRtx}).
-   */
   /** Internal (router): `ssrc` is the RTX SSRC of an `a=ssrc-group:FID` of a RID m-line. */
   isFidRtxSsrc(ssrc: number) {
     return ssrc in this.ridFidMediaByRtx;
   }
 
+  /**
+   * An RTX packet that names the RID it repairs (`repaired-rtp-stream-id`).
+   * The RTX SSRC is bound to that RID; the packet is restored only when it
+   * fills a hole of the RID's current media SSRC (see {@link mediaSsrcOfRtx}).
+   */
   handleRtxByRid = (
     packet: RtpPacket,
     repairedRid: string,
@@ -1228,7 +1244,10 @@ export class RTCRtpReceiver {
     for (const rtxSsrc of [...(this.rtxSsrcsByRid[rid] ?? [])]) {
       if (this.repairedMediaByRtx[rtxSsrc] === old) {
         this.unbindRtxSsrc(rtxSsrc);
-        this.retire(rid, rtxSsrc);
+        // An RTX SSRC the description pairs by FID stays the layer's RTX
+        // SSRC: it binds again (repaired RID, or FID to the current media
+        // SSRC) and still restores only holes of the new media SSRC.
+        if (!(rtxSsrc in this.ridFidMediaByRtx)) this.retire(rid, rtxSsrc);
       }
     }
   }

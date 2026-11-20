@@ -251,4 +251,83 @@ describe("simulcast (RID) receive with a=ssrc-group:FID keeps the RID rules", ()
       await pc.close();
     }
   });
+
+  test("旧媒体 SSRC を修復した FID の RTX SSRC は、媒体 SSRC の切り替え後も新しい媒体の欠落を復元する", async () => {
+    // Arrange
+    const { pc, route, delivered } = await receiveFirefoxOffer(true);
+    const switched = 123456789;
+    try {
+      // Act: SDP の媒体 SSRC の 2 を FID の RTX SSRC で修復した後、媒体 SSRC が切り替わり、同じ RTX SSRC が新しい媒体の 11 を再送する。
+      route(media(high.ssrc, 1));
+      route(media(high.ssrc, 3));
+      route(
+        createSimulcastRtxFor(high.ssrc, 2, {
+          rtxSsrc: high.rtxSsrc,
+          rtxSequenceNumber: 1,
+          rrid: "high",
+          mid: "0",
+        }),
+      );
+      route(media(switched, 10));
+      route(media(switched, 12));
+      route(
+        createSimulcastRtxFor(switched, 11, {
+          rtxSsrc: high.rtxSsrc,
+          rtxSequenceNumber: 2,
+          rrid: "high",
+          mid: "0",
+        }),
+      );
+
+      // Assert: 切り替え前の 2 と切り替え後の 11 の両方が復元されて届く。
+      expect(retransmissionsOf(delivered)).toEqual([
+        [high.ssrc, 2],
+        [switched, 11],
+      ]);
+    } finally {
+      await pc.close();
+    }
+  });
+
+  test("保留中の offer が同じ RTX SSRC に別の FID 媒体 SSRC を割り当てても、現行セッションの RTX は復元され、rollback 後も元の対応に戻る", async () => {
+    // Arrange: 現行セッションの FID (high.ssrc ↔ high.rtxSsrc) と、同じ RTX SSRC を別の媒体 SSRC と組にした再 offer。
+    const { pc, route, delivered } = await receiveFirefoxOffer(false);
+    const otherMedia = 987654321;
+    const reoffer = firefoxSimulcastSdp({
+      type: "offer",
+      repairedRidExtension: false,
+    }).replace(
+      `a=ssrc-group:FID ${high.ssrc} ${high.rtxSsrc}`,
+      `a=ssrc-group:FID ${otherMedia} ${high.rtxSsrc}`,
+    );
+    const repair = (sequenceNumber: number, rtxSequenceNumber: number) =>
+      createSimulcastRtxFor(high.ssrc, sequenceNumber, {
+        rtxSsrc: high.rtxSsrc,
+        rtxSequenceNumber,
+        mid: "0",
+      });
+    try {
+      // Act: 再 offer を保留したまま、現行の媒体 1, 3 と 2 の RTX (repaired RID なし) を受信する。
+      await pc.setRemoteDescription({ type: "offer", sdp: reoffer });
+      expect(pc.signalingState).toBe("have-remote-offer");
+      route(media(high.ssrc, 1));
+      route(media(high.ssrc, 3));
+      route(repair(2, 1));
+
+      // Act: rollback 後に媒体 4, 6 と 5 の RTX を受信する。
+      await pc.setRemoteDescription({ type: "rollback", sdp: "" });
+      route(media(high.ssrc, 4));
+      route(media(high.ssrc, 6));
+      route(repair(5, 2));
+
+      // Assert: 保留中も rollback 後も、現行の FID に従って RID high のトラックへ復元される。
+      expect(pc.signalingState).toBe("stable");
+      expect(retransmissionsOf(delivered)).toEqual([
+        [high.ssrc, 2],
+        [high.ssrc, 5],
+      ]);
+    } finally {
+      await pc.close();
+    }
+  });
 });

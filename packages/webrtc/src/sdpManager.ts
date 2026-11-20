@@ -326,7 +326,7 @@ export class SDPManager {
    */
   allocateMid(type: "dc" | "av" | "" = ""): string {
     let mid = "";
-    for (let i = 0; ;) {
+    for (let i = 0; ; ) {
       // rfc9143.html#name-security-considerations
       // SHOULD be 3 bytes or fewer to allow them to efficiently fit into the MID RTP header extension
       mid = (i++).toString() + type;
