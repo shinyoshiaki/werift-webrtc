@@ -839,6 +839,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       // candidate while a negotiated 1.2 candidate commits to direct DTLS.
       protocolVersions: this.config.protocolVersions,
       peerIdentityMode: "authenticated-single-peer" as const,
+      handshakeValidation: this.config.handshakeValidation,
       addressValidation,
       verifyRemoteCertificate: (certificate: Buffer) => {
         try {

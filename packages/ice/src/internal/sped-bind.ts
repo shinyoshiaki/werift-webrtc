@@ -1,20 +1,33 @@
 /**
  * Package-private SPED attachment for Connection. Not exported from src/index.ts.
+ * The state lives on the connection ({@link Connection.internalSped}).
  */
 import type { Connection } from "../ice";
-import type { CandidatePair, IceConnection } from "../iceBase";
+import type { CandidatePair } from "../iceBase";
 import { SpedSession } from "../sped/draft00/session";
 import { isSpedAdvertisablePair, type SpedRuntime } from "../sped/runtime";
 import type { Message } from "../stun/message";
 
-const runtimes = new WeakMap<Connection, SpedRuntime>();
-const pendingAdvertisements = new WeakMap<IceConnection, SpedSession>();
+/** SPED wiring of one Connection ({@link Connection.internalSped}). */
+export type ConnectionSpedState = {
+  /** PeerConfig.sped marked this connection before any check arrived. */
+  enabled: boolean;
+  /** The attached SPED controller. */
+  runtime?: SpedRuntime;
+  /**
+   * Capability advertisement of an opted-in connection before its DTLS
+   * transport attaches a runtime ({@link prepareConnectionSped}).
+   */
+  pendingAdvertisement?: SpedSession;
+};
 
 /** Advertise opt-in before gathering exposes a socket to early ICE checks. */
-export function prepareConnectionSped(connection: IceConnection): void {
-  pendingAdvertisements.set(connection, new SpedSession(connection.generation));
+export function prepareConnectionSped(connection: Connection): void {
+  connection.internalSped.pendingAdvertisement = new SpedSession(
+    connection.generation,
+  );
   // The opt-in also selects the SPED request boundary (see below).
-  markConnectionSpedEnabled(connection as Connection);
+  markConnectionSpedEnabled(connection);
 }
 
 /**
@@ -25,18 +38,16 @@ export function prepareConnectionSped(connection: IceConnection): void {
  * a C070-less first authenticated Binding as unsupported.
  */
 export function decoratePendingSped(
-  connection: IceConnection,
+  connection: Connection,
   message: Message,
   pair: CandidatePair,
 ): boolean {
-  const advertisement = pendingAdvertisements.get(connection);
+  const advertisement = connection.internalSped.pendingAdvertisement;
   if (!advertisement || !isSpedAdvertisablePair(pair)) {
     return true;
   }
   return advertisement.decorateCapabilityAdvertisement(message);
 }
-
-const spedEnabled = new WeakSet<Connection>();
 
 /**
  * Mark a Connection whose peer connection opted into SPED
@@ -47,28 +58,24 @@ const spedEnabled = new WeakSet<Connection>();
  * handling.
  */
 export function markConnectionSpedEnabled(connection: Connection): void {
-  spedEnabled.add(connection);
+  connection.internalSped.enabled = true;
 }
 
 /** Whether SPED was enabled for the connection (marked or attached). */
 export function isConnectionSpedEnabled(connection: Connection): boolean {
-  return spedEnabled.has(connection) || runtimes.has(connection);
+  return connection.internalSped.enabled || !!connection.internalSped.runtime;
 }
 
 export function setConnectionSpedRuntime(
   connection: Connection,
   runtime: SpedRuntime | undefined,
 ): void {
-  pendingAdvertisements.delete(connection);
-  if (runtime) {
-    runtimes.set(connection, runtime);
-  } else {
-    runtimes.delete(connection);
-  }
+  connection.internalSped.pendingAdvertisement = undefined;
+  connection.internalSped.runtime = runtime;
 }
 
 export function getConnectionSpedRuntime(
   connection: Connection,
 ): SpedRuntime | undefined {
-  return runtimes.get(connection);
+  return connection.internalSped.runtime;
 }

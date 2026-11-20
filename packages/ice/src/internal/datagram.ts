@@ -2,7 +2,13 @@ import { type CandidatePair, CandidatePairState } from "../iceBase";
 import { type Address, Event } from "../imports/common";
 import type { Protocol } from "../types/model";
 
-const datagramEvents = new WeakMap<object, Event<[IceDatagramContext]>>();
+/**
+ * Where the datagram event lives: on the connection itself
+ * ({@link Connection.internalDatagramEvent}), created on first use.
+ */
+type DatagramEventHolder = {
+  internalDatagramEvent?: Event<[IceDatagramContext]>;
+};
 
 /**
  * Internal source/generation-aware datagram event.
@@ -11,12 +17,9 @@ const datagramEvents = new WeakMap<object, Event<[IceDatagramContext]>>();
 export function connectionDatagramEvent(
   connection: object,
 ): Event<[IceDatagramContext]> {
-  let event = datagramEvents.get(connection);
-  if (!event) {
-    event = new Event();
-    datagramEvents.set(connection, event);
-  }
-  return event;
+  const holder = connection as DatagramEventHolder;
+  holder.internalDatagramEvent ??= new Event();
+  return holder.internalDatagramEvent;
 }
 
 /**

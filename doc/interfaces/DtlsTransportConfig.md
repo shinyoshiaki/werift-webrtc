@@ -14,6 +14,14 @@
 
 ***
 
+### handshakeValidation?
+
+> `optional` **handshakeValidation?**: [`HandshakeValidation`](../enumerations/HandshakeValidation.md)
+
+PeerConfig.dtlsHandshakeValidation (DTLS 1.2 handshake validation).
+
+***
+
 ### helloRetryRequest?
 
 > `optional` **helloRetryRequest?**: `boolean`

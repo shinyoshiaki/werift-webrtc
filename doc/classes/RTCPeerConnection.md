@@ -1192,7 +1192,8 @@ Also accepts the v0.27.0 name `"peerConnection"` (= `"standard"`).
 > **compatibility**: `"standard"` \| `undefined`
 
 Sets every compatibility option (`certificateScope`, `mLineReuse`,
-`transceiverPairing`, `keyFrameRequestRouting`, see
+`transceiverPairing`, `keyFrameRequestRouting`,
+`dtlsHandshakeValidation`, see
 [CompatibilityOptionValues](../variables/CompatibilityOptionValues.md)) to the specification / browser behavior
 at once. Cannot be changed after construction.
 - `undefined` (default): each option keeps its own default.
@@ -1207,10 +1208,10 @@ option given as `undefined` counts as not given.
 
 ```ts
 new RTCPeerConnection({ compatibility: "standard" });
-// certificateScope, mLineReuse, transceiverPairing and
-// keyFrameRequestRouting are all "standard"
+// certificateScope, mLineReuse, transceiverPairing,
+// keyFrameRequestRouting and dtlsHandshakeValidation are all "standard"
 new RTCPeerConnection({ compatibility: "standard", certificateScope: "process" });
-// certificateScope is "process", the other three are "standard"
+// certificateScope is "process", the others are "standard"
 ```
 
 It does not change `iceServers` / `iceUseDefaultStunServer`, which are not
@@ -1261,6 +1262,22 @@ ms
 ###### dtls.protocolVersions
 
 > **protocolVersions**: [`DtlsVersion`](../enumerations/DtlsVersion.md)[] \| `undefined`
+
+##### dtlsHandshakeValidation
+
+> **dtlsHandshakeValidation**: `"standard"` \| `"lenient"`
+
+How strictly the DTLS 1.2 handshake validates the peer's messages (see
+[CompatibilityOptionValues](../variables/CompatibilityOptionValues.md)). Cannot be changed after construction.
+- `"lenient"` (default): a malformed `supported_versions` is ignored and
+  DTLS 1.2 negotiated, duplicate extensions are accepted, `use_srtp` is
+  read without length checks and fragments are reassembled without
+  coverage checks, as before the strict checks.
+- `"standard"`: RFC-strict; these fail the handshake (a malformed
+  `supported_versions` with a `protocol_version` alert).
+
+A `supported_versions` without an overlapping version fails either way,
+and DTLS 1.3 always validates strictly.
 
 ##### filterProbePaddingOnReceiveRtp
 

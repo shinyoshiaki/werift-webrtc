@@ -294,6 +294,7 @@ export class SecureTransportManager {
         protocolVersions: this.config.dtls.protocolVersions,
         helloRetryRequest: this.config.dtls.helloRetryRequest,
         warp: this.config.warp,
+        handshakeValidation: this.config.dtlsHandshakeValidation,
       },
       iceTransport,
       this.certificate,
@@ -304,7 +305,7 @@ export class SecureTransportManager {
       // Candidates can receive authenticated checks before setLocalDescription
       // finishes gathering and starts DTLS. Do not advertise a non-SPED peer
       // during that interval; leave DTLS DATA unacknowledged until start().
-      prepareConnectionSped(iceTransport.connection);
+      prepareConnectionSped(iceTransport.connection as Connection);
       // Before any check arrives: SPED's authenticated request boundary.
       markConnectionSpedEnabled(iceGatherer.connection as Connection);
     }

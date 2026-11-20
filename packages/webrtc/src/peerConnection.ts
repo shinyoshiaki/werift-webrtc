@@ -86,6 +86,8 @@ export {
   DeprecatedCompatibilityValues,
   type DeprecatedKeyFrameRequestRouting,
   type DeprecatedMLineReuse,
+  type DtlsHandshakeValidation,
+  DtlsHandshakeValidationModes,
   defaultPeerConfig,
   findCodecByMimeType,
   MLineReuseModes,
