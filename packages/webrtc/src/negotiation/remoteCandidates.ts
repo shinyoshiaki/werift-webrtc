@@ -35,6 +35,34 @@ export function normalizeCandidateUfrag(
 }
 
 /**
+ * Pion (`ICECandidate.ToJSON()`) and SFUs built on it can send a candidate
+ * without a recorded MID as `sdpMid: ""` with a numeric `sdpMLineIndex`. An empty
+ * MID names no m-line (an RFC 5888 identification-tag is a non-empty token),
+ * so werift resolves such a candidate by its `sdpMLineIndex`, as libwebrtc and
+ * Firefox do for an empty MID. The W3C steps reject it with OperationError (a
+ * non-null `sdpMid` that matches no m-line); werift keeps the
+ * interoperable behavior and no upstream WPT subtest covers it (add a strict
+ * wrapper in `tools/wpt-runner` if one appears).
+ *
+ * Only `""` with a numeric index is normalized: `""` without an index stays
+ * an error, and a non-empty MID (even whitespace) is looked up as given. The
+ * caller's object is not modified.
+ */
+export function normalizeEmptyCandidateMid(
+  message: RTCIceCandidate | RTCIceCandidateInit | null,
+): RTCIceCandidate | RTCIceCandidateInit | null {
+  if (
+    !message ||
+    message.sdpMid !== "" ||
+    typeof message.sdpMLineIndex !== "number"
+  ) {
+    return message;
+  }
+  const init = "toJSON" in message ? message.toJSON() : { ...message };
+  return { ...init, sdpMid: null };
+}
+
+/**
  * Trickle ICE for remote candidates: routes each candidate or
  * end-of-candidates to the ICE generation (current or pending) of the m-line
  * it targets, records it in that SDP and hands it to the live, pending-only or
@@ -43,7 +71,11 @@ export function normalizeCandidateUfrag(
  *
  * - The generation is chosen by the ufrag of the m-line the candidate targets
  *   (`sdpMid`, else `sdpMLineIndex`): in a partial BUNDLE split one m-line can
- *   keep the current ufrag while another moves to a new one.
+ *   keep the current ufrag while another moves to a new one. An empty
+ *   `sdpMid` with a numeric `sdpMLineIndex` (Pion) targets the m-line of the
+ *   index; `addIceCandidate()` normalizes it with
+ *   {@link normalizeEmptyCandidateMid} before queueing, so this choice and
+ *   the m-line `SecureTransportManager` resolves always agree.
  * - During a remote re-offer, a candidate for an m-line whose ufrag is
  *   unchanged belongs to both the pending proposal and the live generation:
  *   it is recorded in both SDPs and handed to the live checklist once, and a
