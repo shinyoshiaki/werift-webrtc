@@ -8,9 +8,9 @@ import type {
 import type { RtpRouter } from "../../src/media/router";
 import {
   collectDeliveredRtp,
+  createFirefoxSimulcastReceivingPeer,
   createSimulcastMediaPacket,
   createSimulcastRtxFor,
-  createFirefoxSimulcastReceivingPeer,
   firefoxSimulcastLayers,
   firefoxSimulcastSdp,
   retransmissionsOf,
@@ -326,6 +326,40 @@ describe("simulcast (RID) receive with a=ssrc-group:FID keeps the RID rules", ()
         [high.ssrc, 2],
         [high.ssrc, 5],
       ]);
+    } finally {
+      await pc.close();
+    }
+  });
+
+  test("保留中の offer だけが記述した FID の RTX SSRC は、rollback で経路ごと元に戻る", async () => {
+    // Arrange: 現行の FID の RTX SSRC を別の値 (pendingRtx) に替えた再 offer。
+    const { pc } = await receiveFirefoxOffer(false);
+    const pendingRtx = 2468013579;
+    const [transceiver] = pc.getTransceivers();
+    const { router } = pc as unknown as {
+      router: {
+        endpointBySsrc: (ssrc: number, dtls: unknown) => unknown;
+      };
+    };
+    const routed = (ssrc: number) =>
+      router.endpointBySsrc(ssrc, transceiver.dtlsTransport) !== undefined;
+    const reoffer = firefoxSimulcastSdp({
+      type: "offer",
+      repairedRidExtension: false,
+    }).replace(
+      `a=ssrc-group:FID ${high.ssrc} ${high.rtxSsrc}`,
+      `a=ssrc-group:FID ${high.ssrc} ${pendingRtx}`,
+    );
+    try {
+      // Act: 再 offer を保留し、続けて rollback する。
+      await pc.setRemoteDescription({ type: "offer", sdp: reoffer });
+      const pendingRouted = routed(pendingRtx);
+      await pc.setRemoteDescription({ type: "rollback", sdp: "" });
+
+      // Assert: 保留中だけ新しい RTX SSRC に経路があり、rollback 後は消えて元の RTX SSRC の経路が残る。
+      expect(pendingRouted).toBe(true);
+      expect(routed(pendingRtx)).toBe(false);
+      expect(routed(high.rtxSsrc)).toBe(true);
     } finally {
       await pc.close();
     }

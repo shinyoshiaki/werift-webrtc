@@ -1303,8 +1303,10 @@ export class RTCRtpReceiver {
     const described =
       this.trackBySSRC[ssrc] !== undefined ||
       this.tracks.some((track) => track.ssrc === ssrc) ||
-      Object.entries(this.ssrcByRtx).some(
-        ([rtx, media]) => Number(rtx) === ssrc || media === ssrc,
+      [this.ssrcByRtx, this.ridFidMediaByRtx].some((table) =>
+        Object.entries(table).some(
+          ([rtx, media]) => Number(rtx) === ssrc || media === ssrc,
+        ),
       );
     if (!described) {
       for (const table of [
