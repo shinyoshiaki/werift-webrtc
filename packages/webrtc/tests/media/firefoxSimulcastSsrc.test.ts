@@ -8,6 +8,8 @@ import type {
 import type { RtpRouter } from "../../src/media/router";
 import {
   collectDeliveredRtp,
+  createSimulcastMediaPacket,
+  createSimulcastRtxFor,
   createFirefoxSimulcastReceivingPeer,
   firefoxSimulcastLayers,
   firefoxSimulcastSdp,
@@ -170,6 +172,83 @@ describe("simulcast a=rid restrictions in the answer", () => {
       expect(sender.signalingState).toBe("stable");
     } finally {
       await Promise.all([sender.close(), receiver.close()]);
+    }
+  });
+});
+
+describe("simulcast (RID) receive with a=ssrc-group:FID keeps the RID rules", () => {
+  const [high] = firefoxSimulcastLayers;
+
+  /** Arrange: a peer that applied a Firefox offer (FID, no repaired RID extension). */
+  const receiveFirefoxOffer = async (repairedRidExtension: boolean) => {
+    const pc = createFirefoxSimulcastReceivingPeer();
+    const tracks: MediaStreamTrack[] = [];
+    pc.onTransceiverAdded.subscribe((transceiver) =>
+      transceiver.onTrack.subscribe((track) => tracks.push(track)),
+    );
+    await pc.setRemoteDescription({
+      type: "offer",
+      sdp: firefoxSimulcastSdp({ type: "offer", repairedRidExtension }),
+    });
+    await pc.setLocalDescription(await pc.createAnswer());
+    const [transceiver] = pc.getTransceivers();
+    const { router } = pc as unknown as { router: RtpRouter };
+    const route = (packet: RtpPacket) =>
+      router.routeRtp(packet, transceiver.dtlsTransport);
+    const delivered = collectDeliveredRtp(
+      tracks.find((track) => track.rid === "high")!,
+    );
+    return { pc, route, delivered };
+  };
+
+  const media = (ssrc: number, sequenceNumber: number) =>
+    createSimulcastMediaPacket({ ssrc, sequenceNumber, rid: "high", mid: "0" });
+
+  test("媒体 SSRC が SDP の値から切り替わっても、FID の RTX SSRC からの再送は新しい媒体の欠落を復元する", async () => {
+    // Arrange
+    const { pc, route, delivered } = await receiveFirefoxOffer(true);
+    const switched = 123456789;
+    try {
+      // Act: RID high の媒体 SSRC が切り替わり (1, 3 を受信、2 が欠落)、SDP の RTX SSRC が 2 を再送する。
+      route(media(switched, 1));
+      route(media(switched, 3));
+      route(
+        createSimulcastRtxFor(switched, 2, {
+          rtxSsrc: high.rtxSsrc,
+          rtxSequenceNumber: 1,
+          rrid: "high",
+          mid: "0",
+        }),
+      );
+
+      // Assert: 新しい媒体 SSRC の seq 2 が復元されて届く。
+      expect(retransmissionsOf(delivered)).toEqual([[switched, 2]]);
+    } finally {
+      await pc.close();
+    }
+  });
+
+  test("FID の RTX SSRC から、すでに受信済みの番号の遅延 RTX が来ても重複して配送しない", async () => {
+    // Arrange
+    const { pc, route, delivered } = await receiveFirefoxOffer(false);
+    try {
+      // Act: 媒体を 1, 3, 2 の順に受信し、その後に番号 2 の RTX が届く。
+      route(media(high.ssrc, 1));
+      route(media(high.ssrc, 3));
+      route(media(high.ssrc, 2));
+      route(
+        createSimulcastRtxFor(high.ssrc, 2, {
+          rtxSsrc: high.rtxSsrc,
+          rtxSequenceNumber: 1,
+          mid: "0",
+        }),
+      );
+
+      // Assert: 番号 2 は一度だけ届き、再送としては配送されない。
+      expect(delivered.map((p) => p.seq)).toEqual([1, 3, 2]);
+      expect(retransmissionsOf(delivered)).toEqual([]);
+    } finally {
+      await pc.close();
     }
   });
 });

@@ -723,6 +723,13 @@ export class RtpRouter {
       rtpReceiver.handleRtxByRid(packet, repairedRid as string, extensions);
     } else if (
       rtpReceiver &&
+      typeof repairedRid === "string" &&
+      rtpReceiver.isFidRtxSsrc(ssrc)
+    ) {
+      // The SDP routes this RTX SSRC, the repaired RID names its RID.
+      rtpReceiver.handleRtxByRid(packet, repairedRid, extensions);
+    } else if (
+      rtpReceiver &&
       dtlsTransport &&
       rtpReceiver.hasFallbackSsrc(ssrc)
     ) {

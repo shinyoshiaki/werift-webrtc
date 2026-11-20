@@ -140,6 +140,13 @@ export class RTCRtpReceiver {
     );
   }
   private readonly ssrcByRtx: { [rtxSsrc: number]: number } = {};
+  /**
+   * RTX SSRC → media SSRC of the `a=ssrc-group:FID` of an m-line sent by RID.
+   * Only a hint to bind the RTX SSRC to the RID that carries that media SSRC:
+   * the RID's current media SSRC and the hole / duplicate checks of
+   * {@link mediaSsrcOfRtx} still decide.
+   */
+  private readonly ridFidMediaByRtx: { [rtxSsrc: number]: number } = {};
   private readonly stagedCodecs: { [pt: number]: RTCRtpCodecParameters } = {};
   private readonly stagedSsrcByRtx: { [rtxSsrc: number]: number } = {};
   /** SSRCs of `trackBySSRC` learned from RID packets rather than SDP. */
@@ -547,8 +554,10 @@ export class RTCRtpReceiver {
       ...params.encodings.flatMap((e) =>
         e.rtx ? [{ ssrc: e.ssrc, rtxSsrc: e.rtx.ssrc }] : [],
       ),
-      ...(params.ridRtxPairs ?? []),
     ];
+    params.ridRtxPairs?.forEach(({ ssrc, rtxSsrc }) => {
+      this.ridFidMediaByRtx[rtxSsrc] = ssrc;
+    });
     pairs.forEach(({ ssrc, rtxSsrc }) => {
       const existing = this.ssrcByRtx[rtxSsrc];
       if (deferConflicts && existing !== undefined && existing !== ssrc) {
@@ -729,6 +738,7 @@ export class RTCRtpReceiver {
     this.discardStagedReceive();
     clearTable(this.codecs);
     clearTable(this.ssrcByRtx);
+    clearTable(this.ridFidMediaByRtx);
     this.prepareReceive(params);
     const codec = primaryTrackCodec(this.kind, params.codecs);
     if (codec) {
@@ -839,6 +849,7 @@ export class RTCRtpReceiver {
     this.nack.close();
     clearTable(this.mediaSsrcByRid);
     clearTable(this.ridByRtxSsrc);
+    clearTable(this.ridFidMediaByRtx);
     clearTable(this.rtxSsrcsByRid);
     clearTable(this.repairedMediaByRtx);
     clearTable(this.retiredSsrcsByRid);
@@ -1152,6 +1163,11 @@ export class RTCRtpReceiver {
    * The RTX SSRC is bound to that RID; the packet is restored only when it
    * fills a hole of the RID's current media SSRC (see {@link mediaSsrcOfRtx}).
    */
+  /** Internal (router): `ssrc` is the RTX SSRC of an `a=ssrc-group:FID` of a RID m-line. */
+  isFidRtxSsrc(ssrc: number) {
+    return ssrc in this.ridFidMediaByRtx;
+  }
+
   handleRtxByRid = (
     packet: RtpPacket,
     repairedRid: string,
@@ -1331,6 +1347,15 @@ export class RTCRtpReceiver {
     const rtxSsrc = rtx.header.ssrc;
     const bySdp = this.ssrcByRtx[rtxSsrc];
     if (bySdp !== undefined) return bySdp;
+    // An RTX SSRC the FID pairs with the media SSRC a RID currently carries
+    // binds to that RID, then follows the RID rules below.
+    const fidMedia = this.ridFidMediaByRtx[rtxSsrc];
+    if (fidMedia !== undefined && !(rtxSsrc in this.ridByRtxSsrc)) {
+      const fidRid = Object.entries(this.mediaSsrcByRid).find(
+        ([, media]) => media === fidMedia,
+      )?.[0];
+      if (fidRid !== undefined) this.bindRtxSsrc(rtxSsrc, fidRid);
+    }
     const rid = this.ridByRtxSsrc[rtxSsrc];
     const media = rid === undefined ? undefined : this.mediaSsrcByRid[rid];
     if (media === undefined) return undefined;
