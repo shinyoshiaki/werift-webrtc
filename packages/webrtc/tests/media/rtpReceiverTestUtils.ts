@@ -5,6 +5,7 @@ import {
   GenericNack,
   MediaStreamTrack,
   type PeerConfig,
+  RTCPeerConnection,
   RTCRtpCodecParameters,
   RTCRtpCodingParameters,
   RTCRtpTransceiver,
@@ -12,6 +13,11 @@ import {
   RtcpTransportLayerFeedback,
   RtpHeader,
   RtpPacket,
+  useNACK,
+  usePLI,
+  useRepairedRtpStreamId,
+  useSdesMid,
+  useSdesRTPStreamId,
 } from "../../src";
 import { RTCRtpSimulcastParameters } from "../../src/media/parameters";
 import type { NackHandler } from "../../src/media/receiver/nack";
@@ -414,4 +420,128 @@ export function collectDeliveredRtp(track: MediaStreamTrack) {
     });
   });
   return delivered;
+}
+
+/**
+ * Arrange: the SSRCs of a Firefox simulcast sender with two layers. Firefox
+ * describes each layer's media and RTX SSRC with `a=ssrc` and
+ * `a=ssrc-group:FID` besides `a=rid`, without saying which RID they carry.
+ */
+export const firefoxSimulcastLayers = [
+  { rid: "high", ssrc: 3388294025, rtxSsrc: 1904437218 },
+  { rid: "low", ssrc: 2201395340, rtxSsrc: 4017512609 },
+] as const;
+
+/**
+ * Arrange: a werift peer receiving VP8 + RTX simulcast with the MID / RID /
+ * repaired RID extensions in the IDs of {@link simulcastExtensionIds} and the
+ * payload types of {@link createSimulcastMediaPacket} (VP8 96, RTX 97).
+ */
+export function createFirefoxSimulcastReceivingPeer() {
+  return new RTCPeerConnection({
+    codecs: {
+      video: [
+        new RTCRtpCodecParameters({
+          mimeType: "video/VP8",
+          clockRate: 90000,
+          payloadType: 96,
+          rtcpFeedback: [useNACK(), usePLI()],
+        }),
+        new RTCRtpCodecParameters({
+          mimeType: "video/rtx",
+          clockRate: 90000,
+          payloadType: 97,
+          parameters: codecParametersToString({ apt: 96 }),
+        }),
+      ],
+      audio: [],
+    },
+    headerExtensions: {
+      video: [useSdesMid(), useSdesRTPStreamId(), useRepairedRtpStreamId()],
+      audio: [],
+    },
+  });
+}
+
+/**
+ * Arrange: a Firefox description sending one video m-line by simulcast
+ * (`a=rid:<id> send` ×2, `a=simulcast:send`, RID / repaired RID extensions)
+ * that also lists each layer's media and RTX SSRC (`a=ssrc` ×4,
+ * `a=ssrc-group:FID` ×2), as Firefox writes it in an offer or an answer.
+ */
+export function firefoxSimulcastSdp(
+  options: { type: "offer" | "answer"; mid?: string } = { type: "offer" },
+) {
+  const mid = options.mid ?? "0";
+  const ids = simulcastExtensionIds;
+  const cname = "{f9b1d5a0-4c3e-4f5e-9d2b-7a1c2e3f4a5b}";
+  const [high, low] = firefoxSimulcastLayers;
+  return [
+    "v=0",
+    "o=mozilla...THIS_IS_SDPARTA-99.0 4011592410357045000 0 IN IP4 0.0.0.0",
+    "s=-",
+    "t=0 0",
+    "a=fingerprint:sha-256 0B:E6:4B:7C:6A:2D:3F:51:4E:8C:9A:1B:2C:3D:4E:5F:60:71:82:93:A4:B5:C6:D7:E8:F9:0A:1B:2C:3D:4E:5F",
+    `a=group:BUNDLE ${mid}`,
+    "a=ice-options:trickle",
+    "a=msid-semantic:WMS *",
+    "m=video 9 UDP/TLS/RTP/SAVPF 96 97",
+    "c=IN IP4 0.0.0.0",
+    "a=sendonly",
+    `a=extmap:${ids.mid} ${RTP_EXTENSION_URI.sdesMid}`,
+    `a=extmap:${ids.rid} ${RTP_EXTENSION_URI.sdesRTPStreamID}`,
+    `a=extmap:${ids.rrid} ${RTP_EXTENSION_URI.repairedRtpStreamId}`,
+    "a=fmtp:97 apt=96",
+    "a=ice-pwd:4f0bb1b0a7b8b0d2e6f3c9a1d5e7f9a1",
+    "a=ice-ufrag:9a3c1d2e",
+    `a=mid:${mid}`,
+    "a=msid:{5c4d3e2f-1a0b-4c9d-8e7f-6a5b4c3d2e1f} {0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d}",
+    "a=rid:high send",
+    "a=rid:low send",
+    "a=rtcp-fb:96 nack",
+    "a=rtcp-fb:96 nack pli",
+    "a=rtcp-mux",
+    "a=rtpmap:96 VP8/90000",
+    "a=rtpmap:97 rtx/90000",
+    `a=setup:${options.type === "offer" ? "actpass" : "active"}`,
+    "a=simulcast:send high;low",
+    `a=ssrc:${high.ssrc} cname:${cname}`,
+    `a=ssrc:${high.rtxSsrc} cname:${cname}`,
+    `a=ssrc:${low.ssrc} cname:${cname}`,
+    `a=ssrc:${low.rtxSsrc} cname:${cname}`,
+    `a=ssrc-group:FID ${high.ssrc} ${high.rtxSsrc}`,
+    `a=ssrc-group:FID ${low.ssrc} ${low.rtxSsrc}`,
+    "",
+  ].join("\r\n");
+}
+
+/**
+ * Act helper: each layer of {@link firefoxSimulcastLayers} sends media
+ * 1 and 3 with its RID (2 is lost), then the RTX of 2 with its repaired RID,
+ * through `route` (the receiving peer's RTP routing).
+ */
+export function sendFirefoxSimulcastWithRepair(
+  route: (packet: RtpPacket) => void,
+  mid = "0",
+) {
+  for (const layer of firefoxSimulcastLayers) {
+    for (const sequenceNumber of [1, 3]) {
+      route(
+        createSimulcastMediaPacket({
+          ssrc: layer.ssrc,
+          sequenceNumber,
+          rid: layer.rid,
+          mid,
+        }),
+      );
+    }
+    route(
+      createSimulcastRtxFor(layer.ssrc, 2, {
+        rtxSsrc: layer.rtxSsrc,
+        rtxSequenceNumber: 1,
+        rrid: layer.rid,
+        mid,
+      }),
+    );
+  }
 }

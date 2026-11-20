@@ -13,10 +13,7 @@ export const isFirefox = browserName === "Firefox";
  * When the ticket is fixed, find its skips with
  * `grep -rn "firefox-known:<name>" e2e/tests` and remove them.
  */
-export const firefoxKnownIssue = {
-  simulcastSsrcTrack:
-    "[firefox-known:simulcast-ssrc-track] be690c2e: a=ssrc 付き simulcast answer で SSRC のトラックが別に作られ、そのレイヤーの RTX がそちらへ復元される",
-} as const;
+export const firefoxKnownIssue = {} as const;
 
 /**
  * Why a test is skipped in Firefox: the test relies on something Firefox (or
