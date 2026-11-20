@@ -451,6 +451,119 @@ describe("packages/webrtc/tests/nonstandard/recorder.test.ts", () => {
     }
   });
 
+  it("reports a WebM write failure through onError and stops without crashing", async () => {
+    // Arrange: 存在しないディレクトリを WebM の保存先にする。
+    const dir = await createRecordingDir();
+    const track = createVp8Track();
+    const baseline = {
+      rtp: track.onReceiveRtp.length,
+      rtcp: track.onReceiveRtcp.length,
+    };
+    const errors: Error[] = [];
+    const unhandled: unknown[] = [];
+    const onUnhandled = (e: unknown) => unhandled.push(e);
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      const recorder = new MediaRecorder({
+        path: dir.path("missing/out.webm"),
+        tracks: [track],
+        disableNtp: true,
+      });
+      recorder.onError.subscribe((e) => errors.push(e));
+      await waitForWebmRecorderStarted(recorder);
+
+      // Act: RTP を流して停止する。
+      feedVp8Rtp(track, 0, 10);
+      await vi.waitFor(() => {
+        if (errors.length === 0) throw new Error("no error yet");
+      });
+      const elapsed = await measureStop(recorder);
+
+      // Assert: 書き込みエラーが onError に 1 回だけ通知される。
+      expect(errors.map((e) => (e as NodeJS.ErrnoException).code)).toEqual([
+        "ENOENT",
+      ]);
+      // Assert: 失敗後は RTP / RTCP の購読が解除される。
+      expect(track.onReceiveRtp.length).toBe(baseline.rtp);
+      expect(track.onReceiveRtcp.length).toBe(baseline.rtcp);
+      // Assert: 停止は 5 秒待たずに完了し、未処理の Promise 拒否は起きない。
+      expect(elapsed).toBeLessThan(2000);
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+      await dir.cleanup();
+    }
+  });
+
+  it("replaces an existing WebM file that cannot be deleted", async () => {
+    // Arrange: 書き込み可能な既存ファイルがあり、ディレクトリからは削除できない。
+    const dir = await createRecordingDir();
+    const track = createVp8Track();
+    const errors: Error[] = [];
+    try {
+      await dir.write("out.webm", "OLD-CONTENT".repeat(1000));
+      await dir.lock();
+      const recorder = new MediaRecorder({
+        path: dir.path("out.webm"),
+        tracks: [track],
+        disableNtp: true,
+      });
+      recorder.onError.subscribe((e) => errors.push(e));
+      await waitForWebmRecorderStarted(recorder);
+
+      // Act: 1 秒分の映像を録画して停止する。
+      feedVp8Rtp(track, 0, 30);
+      await recorder.stop();
+      const buffer = await dir.read("out.webm");
+
+      // Assert: 古い内容は残らず、ファイルは EBML header で始まる。
+      expect(buffer.readUInt32BE(0)).toBe(0x1a45dfa3);
+      expect(buffer.includes(Buffer.from("OLD-CONTENT"))).toBe(false);
+      // Assert: Segment のサイズはファイル末尾までを指す。
+      const segmentSize = buffer.readBigUInt64BE(40) & 0x00ffffffffffffffn;
+      expect(Number(segmentSize)).toBe(buffer.length - 48);
+      // Assert: エラーは通知されない。
+      expect(errors).toEqual([]);
+    } finally {
+      await dir.cleanup();
+    }
+  });
+
+  it("reports an error when an existing WebM file cannot be overwritten", async () => {
+    // Arrange: 読み取り専用の既存ファイルがあり、ディレクトリからも削除できない。
+    const dir = await createRecordingDir();
+    const track = createVp8Track();
+    const errors: Error[] = [];
+    try {
+      await dir.write("out.webm", "OLD-CONTENT", 0o444);
+      await dir.lock();
+      const recorder = new MediaRecorder({
+        path: dir.path("out.webm"),
+        tracks: [track],
+        disableNtp: true,
+      });
+      recorder.onError.subscribe((e) => errors.push(e));
+      await waitForWebmRecorderStarted(recorder);
+
+      // Act
+      feedVp8Rtp(track, 0, 10);
+      await vi.waitFor(() => {
+        if (errors.length === 0) throw new Error("no error yet");
+      });
+      const elapsed = await measureStop(recorder);
+
+      // Assert: 恒久エラーは再試行されずに onError に通知され、停止は待たずに終わる。
+      expect(errors.map((e) => (e as NodeJS.ErrnoException).code)).toEqual([
+        "EACCES",
+      ]);
+      expect(elapsed).toBeLessThan(1000);
+      // Assert: 既存ファイルは変更されない。
+      expect((await dir.read("out.webm")).toString()).toBe("OLD-CONTENT");
+    } finally {
+      await dir.cleanup();
+    }
+  });
+
   it("rejects a second track added to a started ogg recorder", async () => {
     // Arrange: 1 トラックで録音を開始する。
     const dir = await createRecordingDir();
