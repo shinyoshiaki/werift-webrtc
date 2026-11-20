@@ -426,6 +426,7 @@ export class RTCRtpReceiver {
     const track = this.trackByRID[rid];
     if (!track) return false;
     this.mediaSsrcByRid[rid] = ssrc;
+    this.bindFidRtxOfMedia(rid, ssrc);
     this.trackBySSRC[ssrc] = track;
     this.learnedTrackSsrcs.add(ssrc);
     return true;
@@ -1166,6 +1167,7 @@ export class RTCRtpReceiver {
       return;
     }
     if (this.mediaSsrcByRid[rid] !== ssrc) this.switchRidMedia(rid, ssrc);
+    this.bindFidRtxOfMedia(rid, ssrc);
     if (!this.trackBySSRC[ssrc]) {
       this.trackBySSRC[ssrc] = track;
       this.learnedTrackSsrcs.add(ssrc);
@@ -1253,6 +1255,20 @@ export class RTCRtpReceiver {
           this.unbindRtxSsrc(rtxSsrc);
           this.retire(rid, rtxSsrc);
         }
+      }
+    }
+  }
+
+  /**
+   * The RTX SSRC an `a=ssrc-group:FID` pairs with `media` is the RTX SSRC of
+   * `rid` as soon as `rid` carries `media`, before any RTX arrives: a later
+   * media SSRC change of the RID keeps it (see {@link switchRidMedia}).
+   */
+  private bindFidRtxOfMedia(rid: string, media: number) {
+    for (const [rtx, fidMedia] of Object.entries(this.ridFidMediaByRtx)) {
+      const rtxSsrc = Number(rtx);
+      if (fidMedia === media && !(rtxSsrc in this.ridByRtxSsrc)) {
+        this.bindRtxSsrc(rtxSsrc, rid);
       }
     }
   }
