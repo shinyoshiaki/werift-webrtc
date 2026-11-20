@@ -1,4 +1,5 @@
 import { setTimeout as delay } from "node:timers/promises";
+import { afterEach, beforeEach, vi } from "vitest";
 import type { Address } from "../../../common/src";
 import {
   classifyGatherError,
@@ -30,6 +31,7 @@ import {
   createFixedMappingStunServer,
   createLocalTurnServer,
   createSilentUdpServer,
+  fakeNetworkInterfaces,
   localReflexiveCandidates,
   localRelayCandidates,
   localTurnServerEntry,
@@ -46,6 +48,7 @@ import {
   createRecordingAgent,
   createRejectingUdpTurnServer,
   createScriptedUdpServer,
+  enumeratedIpv4Sockets,
   errnoError,
   errorResponse,
   failDnsLookup,
@@ -55,16 +58,34 @@ import {
   recordCandidateErrors,
   recordServerReached,
   singleIpv4Socket,
-  twoIpv4Sockets,
 } from "./candidateErrorUtils";
+
+// candidate-error テストでは NIC を 1 つに固定し、明示した loopback socket を追加する。
+const networkInterfaces = vi.hoisted(() => ({
+  current: undefined as Record<string, unknown> | undefined,
+}));
+vi.mock("node:os", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:os")>();
+  return {
+    ...actual,
+    networkInterfaces: () =>
+      networkInterfaces.current ?? actual.networkInterfaces(),
+  };
+});
+
+beforeEach(() => {
+  networkInterfaces.current = fakeNetworkInterfaces({
+    eth0: [candidateErrorHost],
+  });
+});
+afterEach(() => {
+  networkInterfaces.current = undefined;
+  vi.restoreAllMocks();
+});
 
 const NOT_REACHED = IceCandidateErrorCode.SERVER_NOT_REACHED;
 
 describe("onIceCandidateError: STUN", () => {
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
   test("存在しない DNS 名の STUN は 701 で通知され、host candidate のアドレスを持つ (名前解決の失敗)", async () => {
     // Arrange: 名前解決の失敗をすぐ返すよう注入し、gather timeout は十分長くして競合させない
     const lookup = failDnsLookup("stun.invalid");
@@ -271,10 +292,10 @@ describe("onIceCandidateError: STUN", () => {
   });
 
   test("一方のソケットだけがサーバーに届いたときは 701 を通知しない", async () => {
-    // Arrange: 2 つの IPv4 ソケットのうち最初に問い合わせたポートにだけ応答する STUN
+    // Arrange: 複数の IPv4 ソケットのうち、最初に問い合わせたポートにだけ応答する STUN
     const server = await createFirstPortOnlyStunServer();
     const { connection, errors } = createRecordingAgent({
-      ...twoIpv4Sockets,
+      ...enumeratedIpv4Sockets,
       stunServers: [server.address],
       stunGatherTimeout: 0.3,
     });
@@ -282,12 +303,12 @@ describe("onIceCandidateError: STUN", () => {
       // Act: 候補収集を完了まで待つ
       await connection.gatherCandidates();
 
-      // Assert: ソケットは 2 つ、srflx は 1 つ得られ、701 は出ない
+      // Assert: 複数の host socket のうち応答した経路の srflx だけが得られ、701 は出ない
       expect(
         connection.localCandidates.filter(
           (candidate) => candidate.type === "host",
-        ),
-      ).toHaveLength(2);
+        ).length,
+      ).toBeGreaterThan(1);
       expect(
         connection.localCandidates.filter(
           (candidate) => candidate.type === "srflx",
@@ -301,22 +322,23 @@ describe("onIceCandidateError: STUN", () => {
   });
 
   test("どのソケットもサーバーに届かないときは 701 をサーバーごとに 1 件だけ通知する", async () => {
-    // Arrange: 2 つの IPv4 ソケットと応答しない STUN
+    // Arrange: 複数の IPv4 ソケットと応答しない STUN
     const silent = await createSilentUdpServer(candidateErrorHost);
     const { connection, errors } = createRecordingAgent({
-      ...twoIpv4Sockets,
+      ...enumeratedIpv4Sockets,
       stunServers: [silent.address],
       stunGatherTimeout: 0.3,
     });
     try {
       // Act: 候補収集を完了まで待つ
       await connection.gatherCandidates();
+      await delay(100);
 
-      // Assert: ソケットは 2 つ、701 は 1 件で、そのソケットの一方のアドレスを持つ
+      // Assert: 複数の host socket があり、701 はサーバーごとに 1 件だけ出る
       const hosts = connection.localCandidates.filter(
         (candidate) => candidate.type === "host",
       );
-      expect(hosts).toHaveLength(2);
+      expect(hosts.length).toBeGreaterThan(1);
       expect(errors).toHaveLength(1);
       expect(errors[0]).toMatchObject({
         server: { kind: "stun", address: silent.address },
@@ -392,7 +414,7 @@ describe("onIceCandidateError: STUN", () => {
     // Arrange: 2 つの IPv4 ソケットと 400 を返す STUN
     const server = await createErrorStunServer(400, "Bad Request");
     const { connection, errors } = createRecordingAgent({
-      ...twoIpv4Sockets,
+      ...enumeratedIpv4Sockets,
       stunServers: [server.address],
     });
     try {
@@ -465,7 +487,7 @@ describe("応答はあったが STUN エラーコードのないサーバー (�
       // Arrange: 2 ソケットとも応答を受けるが候補にならない STUN
       const server = await createServer();
       const { connection, errors } = createRecordingAgent({
-        ...twoIpv4Sockets,
+        ...enumeratedIpv4Sockets,
         stunServers: [server.address],
         stunGatherTimeout: 0.5,
       });

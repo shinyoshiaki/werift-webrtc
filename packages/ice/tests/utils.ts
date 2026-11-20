@@ -595,11 +595,19 @@ export function createTcpOnlyConnections(extra: Partial<IceOptions> = {}) {
   };
 }
 
-/** Arrange: offer/answer exchange that only exposes TCP candidates. */
-export async function exchangeTcpOnlyCandidates(a: Connection, b: Connection) {
+/**
+ * Arrange: offer/answer exchange that only exposes TCP candidates.
+ * `offered` narrows what b learns of a's candidates (a browser that
+ * advertises only active TCP candidates, or none).
+ */
+export async function exchangeTcpOnlyCandidates(
+  a: Connection,
+  b: Connection,
+  offered: (candidate: Candidate) => boolean = () => true,
+) {
   await a.gatherCandidates();
   b.remoteCandidates = a.localCandidates.filter(
-    (candidate) => candidate.transport === "tcp",
+    (candidate) => candidate.transport === "tcp" && offered(candidate),
   );
   b.remoteUsername = a.localUsername;
   b.remotePassword = a.localPassword;
@@ -2363,12 +2371,18 @@ export function connectionProtocols(connection: Connection) {
  * then exchanges the committed candidates and connects both.
  */
 export async function createRelayProvisionalRestartPair() {
-  const server = await createLocalTurnServer(getHostAddresses(true, false)[0]!);
+  const host = "127.0.0.1";
+  const server = await createLocalTurnServer(host);
+  const shared: Partial<IceOptions> = {
+    useIpv6: false,
+    interfaceAddresses: { udp4: host },
+  };
   const a = createTestConnection(true, {
+    ...shared,
     ...localTurnOptions(server),
     nomination: "regular",
   });
-  const b = createTestConnection(false, { useIpv6: false });
+  const b = createTestConnection(false, shared);
   await Promise.all([a.gatherCandidates(), b.gatherCandidates()]);
   exchangeIceCredentials(a, b);
   await deliverLocalCandidates(a, b, { endOfCandidates: true });
@@ -2969,6 +2983,153 @@ export function localReflexiveCandidates(connection: Connection) {
   );
 }
 
+/**
+ * Where connect() of the agent under test waits when its generation ends:
+ * - `empty`: an empty check list after end-of-candidates (the wait for an
+ *   incoming check).
+ * - `scheduling`: the scheduling loop, remote end-of-candidates not received.
+ * - `completion`: the wait for the check list result, its only pair checking
+ *   a UDP address that never answers.
+ * - `lite`: an ICE-lite agent waiting for the peer's nomination.
+ */
+export type ConnectWaitPhase = "empty" | "scheduling" | "completion" | "lite";
+
+/**
+ * Shared Arrange: host-only UDP agents (a = controlling, never started) whose
+ * `b.connect()` waits in `phase`. `connecting` settles with that connect()'s
+ * outcome and duration; `cleanup` closes both agents and the silent socket.
+ */
+export async function startConnectWaitingIn(phase: ConnectWaitPhase) {
+  const options: Partial<IceOptions> = {
+    useIpv6: false,
+    stunServer: undefined,
+    incomingCheckTimeout: 30,
+  };
+  const a = createTestConnection(true, options);
+  const b = createTestConnection(false, {
+    ...options,
+    iceLite: phase === "lite",
+  });
+  await Promise.all([a.gatherCandidates(), b.gatherCandidates()]);
+  b.remoteUsername = a.localUsername;
+  b.remotePassword = a.localPassword;
+
+  let silent: dgram.Socket | undefined;
+  if (phase === "completion") {
+    // A bound socket that reads and never answers: the check retransmits.
+    const host = b.localCandidates[0].host;
+    silent = dgram.createSocket("udp4");
+    silent.on("message", () => {});
+    await new Promise<void>((resolve) => silent!.bind(0, host, resolve));
+    const { port } = silent.address();
+    b.remoteCandidates = [
+      new Candidate("silent", 1, "udp", 1_000, host, port, "host"),
+    ];
+  } else if (phase !== "scheduling") {
+    b.remoteCandidates = [];
+  }
+
+  const connecting = timeSettle(b.connect());
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  const cleanup = async () => {
+    await Promise.all([a.close(), b.close()]);
+    silent?.close();
+  };
+  return { a, b, connecting, cleanup };
+}
+
+/**
+ * Shared Arrange: end the generation of the agents of `startConnectWaitingIn`.
+ * `end` is "local" (both restart and gather again) or "remote" (only a
+ * restarts and gathers; b drops its remote generation and keeps its own
+ * credentials and candidates). Nothing is exchanged yet (see
+ * `exchangeGeneration`), so b expects more remote candidates meanwhile.
+ */
+export async function restartGeneration(
+  a: Connection,
+  b: Connection,
+  end: "local" | "remote",
+) {
+  await a.restart();
+  if (end === "local") {
+    await b.restart();
+    await b.gatherCandidates();
+  } else {
+    b.restartRemote();
+  }
+  await a.gatherCandidates();
+}
+
+/** Shared Arrange: exchange candidates and credentials of a new generation. */
+export function exchangeGeneration(a: Connection, b: Connection) {
+  b.remoteCandidates = a.localCandidates;
+  b.remoteUsername = a.localUsername;
+  b.remotePassword = a.localPassword;
+  a.remoteCandidates = b.localCandidates;
+  a.remoteUsername = b.localUsername;
+  a.remotePassword = b.localPassword;
+}
+
+/**
+ * Shared Arrange: a full (controlling) agent and an ICE-lite agent on host
+ * UDP candidates. The full agent knows every candidate of the lite one; the
+ * lite one knows the full agent's credentials but none of its candidates, so
+ * its check list starts empty and only the full agent's checks can fill it.
+ */
+export async function createLiteAgentWithoutPeerCandidates(
+  incomingCheckTimeout: number,
+) {
+  const options: Partial<IceOptions> = {
+    useIpv6: false,
+    stunServer: undefined,
+    incomingCheckTimeout,
+  };
+  const full = createTestConnection(true, options);
+  const lite = createTestConnection(false, { ...options, iceLite: true });
+  await Promise.all([full.gatherCandidates(), lite.gatherCandidates()]);
+  lite.remoteCandidates = [];
+  lite.remoteUsername = full.localUsername;
+  lite.remotePassword = full.localPassword;
+  full.remoteCandidates = lite.localCandidates;
+  full.remoteUsername = lite.localUsername;
+  full.remotePassword = lite.localPassword;
+  return { full, lite };
+}
+
+/**
+ * Shared Arrange: as `createLiteAgentWithoutPeerCandidates`, but the lite
+ * agent's gathering has only just started (no socket is open yet), and the
+ * full agent learns its candidates once `gathering` settles (it does not
+ * connect unless the test calls `full.connect()`).
+ */
+export async function createLiteAgentStillGathering(
+  incomingCheckTimeout: number,
+  /** Options of the lite agent only (e.g. no address family: no socket). */
+  liteOptions: Partial<IceOptions> = {},
+) {
+  const options: Partial<IceOptions> = {
+    useIpv6: false,
+    stunServer: undefined,
+    incomingCheckTimeout,
+  };
+  const full = createTestConnection(true, options);
+  const lite = createTestConnection(false, {
+    ...options,
+    iceLite: true,
+    ...liteOptions,
+  });
+  await full.gatherCandidates();
+  lite.remoteCandidates = [];
+  lite.remoteUsername = full.localUsername;
+  lite.remotePassword = full.localPassword;
+  const gathering = lite.gatherCandidates().then(() => {
+    full.remoteCandidates = lite.localCandidates;
+    full.remoteUsername = lite.localUsername;
+    full.remotePassword = lite.localPassword;
+  });
+  return { full, lite, gathering };
+}
+
 // --- semi-aggressive nomination / renomination ---
 
 /**
@@ -3071,10 +3232,11 @@ export async function createDelayedPreferredPathPair({
   nomination?: IceOptions["nomination"];
   nominationDelayMs?: number;
 } = {}) {
-  const host = getHostAddresses(true, false)[0]!;
+  const host = "127.0.0.1";
   const server = await createLocalTurnServer(host);
   const shared: Partial<IceOptions> = {
     useIpv6: false,
+    interfaceAddresses: { udp4: host },
     renomination,
     nomination,
     nominationDelayMs,
@@ -3248,4 +3410,19 @@ export function nominationChecklist(
         ? h.receiveProvisionalNomination(pair)
         : h.receiveNomination(pair),
   };
+}
+
+/**
+ * Shared Arrange: run a full garbage collection. Exposes `gc` at runtime
+ * (`--expose-gc` through `v8`), so the vitest command needs no extra flag.
+ */
+export async function collectGarbage() {
+  const { setFlagsFromString } = await import("node:v8");
+  const { runInNewContext } = await import("node:vm");
+  setFlagsFromString("--expose-gc");
+  const gc = runInNewContext("gc") as () => void;
+  // Promise の反応と FinalizationRegistry の後片付けを挟んで 2 回回す。
+  gc();
+  await new Promise((resolve) => setImmediate(resolve));
+  gc();
 }

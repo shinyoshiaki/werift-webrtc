@@ -146,13 +146,17 @@ describe("ice/nomination (semi-aggressive / renomination with Chrome)", () => {
       });
 
       try {
-        // Assert: 最初は relay の経路が両端で選択され、データが届く。
+        // Assert: 最初に werift が relay を指名し、Chrome も relay 経由の初期経路で通信する。
         const before = await serverStats();
         expect(before.controlling).toBe(offerer === "werift");
         expect(before.nominated?.localCandidateType).toBe("relay");
-        expect(
-          (await getSelectedCandidatePairAddresses(pc)).remoteCandidateType,
-        ).toBe("relay");
+        const browserPair = await getSelectedCandidatePairAddresses(pc);
+        if (offerer === "chrome") {
+          expect(browserPair.remoteCandidateType).toBe("relay");
+        } else {
+          // werift が controlling のとき、TURN source address の変換を Chrome が prflx と記録することがある。
+          expect(["relay", "prflx"]).toContain(browserPair.remoteCandidateType);
+        }
         await roundTrip(channel, "relay-first");
 
         // Act: 保留していた werift の host 候補を Chrome に通知する。

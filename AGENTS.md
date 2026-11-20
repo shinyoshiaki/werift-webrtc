@@ -29,6 +29,7 @@ Rules that apply to one package or directory belong in the nearest `AGENTS.md`.
 ## Don't
 
 * Don't reintroduce third-party TypeScript runners such as `tsx`. Run TypeScript with `node --import <rel>/tools/node-ts/register.mjs` (Node.js type stripping, Node.js 22.18+, see `devEngines`). Node.js 26 removed the TypeScript transform mode, so don't add transform flags or loaders back and keep sources erasable: no `enum` (use an `as const` object plus a same-name union type tagged `@enum`) and no parameter properties. `erasableSyntaxOnly` in each tsconfig enforces this.
+* Don't keep runtime state in module scope: no top-level `let`, and no module-level `Map` / `Set` / `WeakMap` / `WeakSet`, counter or cache that code writes after load; also no writable `static` field used as state. Put the state on the object whose lifetime it follows (a field of the transceiver, track, transport or manager, `private` or tagged `@internal` to stay out of the public API and the generated docs), and pass test seams such as socket factories in through options. A value that is process-wide by contract (the default certificate cache of `certificateScope: "process"`, the exported `navigator`, a public static tunable, a registry keyed by an application-owned object that must be shared) stays only with a comment at its declaration saying why; `packages/webrtc/tests/moduleState.test.ts` checks `packages/webrtc/src` against its allowlist.
 * Don't stop test servers or browsers with pattern-based kills (`pkill -f`, `killall`); they can match the agent's own shell. Stop them by PID or through the runner's stop path.
 * Don't end a turn while a background test or build you started is still running, unless you report it as unfinished.
 * Don't put credentials, secrets, or machine-specific setup in any `AGENTS.md`.
@@ -44,7 +45,7 @@ Rules that apply to one package or directory belong in the nearest `AGENTS.md`.
 | E2E only (verbose: `e2e:verbose`) | `npm run e2e` |
 | Firefox E2E with a committed run record (local only, not in CI) | `cd e2e && npm run firefox:record` |
 | prune / clear Firefox E2E run records (`--keep <n>`, `--dry-run`) | `cd e2e && npm run firefox:record:prune` |
-| broad workspace validation | `npm run ci` |
+| broad workspace validation (WPT は含まない。別ワークフロー `wpt.yml`) | `npm run ci` |
 | examples smoke (Chromium + gst/ffmpeg) | `npm run examples:e2e` |
 | install examples smoke Chromium | `npm run examples:e2e:install` |
 | TypeScript resolve hook tests | `npm run test:node-ts` |

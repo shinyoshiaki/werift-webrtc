@@ -24,8 +24,9 @@ m-line stop, rejection and reuse inside a negotiation:
   answer.
 - A transceiver created for a remote offer is not an application operation
   (no `negotiationneeded`). Rollback removes it unless the application
-  attached a track (`heldByApplication`); a kept one returns to its created
-  state. An application `stop()` during the transaction survives rollback.
+  uses it (`heldByApplication`: `addTrack()` attached a track to it, even
+  one `replaceTrack(null)` / `removeTrack()` detached since, or its sender
+  has a track); a kept one returns to its created state. An application `stop()` during the transaction survives rollback.
 - Each transceiver records what created it (`createdBy`: `addTrack`,
   `addTransceiver` or `remote`); reusing one with `addTrack()` or
   `replaceTrack()` keeps it. Under `transceiverPairing: "standard"` a remote
@@ -358,6 +359,20 @@ remote SDP 起因の停止なので negotiationneeded は要求しない。
 
 ***
 
+### notifyCommittedRemoteTracks()
+
+> **notifyCommittedRemoteTracks**(): `void`
+
+Internal: after a commit, announce the track an m-line that was without
+SSRC and RID got from the committed description (its RID tracks were
+deferred while it was pending, see `RTCRtpReceiver.deferredRemote`).
+
+#### Returns
+
+`void`
+
+***
+
 ### planRemoteRtpCodecs()
 
 > **planRemoteRtpCodecs**(`remoteSdp`, `findTransceiver`, `isStopping?`): `Map`\<`number`, [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]\>
@@ -562,7 +577,7 @@ keep the track event they delivered.
 
 ##### createdState?
 
-(`transceiver`) => \{ `applicationStopRevision`: `number`; `codecChangeRevision`: `number`; `codecPreferencesNeedResolution`: `boolean`; `codecs`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]; `currentDirection`: [`CurrentDirection`](../type-aliases/CurrentDirection.md) \| `null`; `dtlsTransport`: [`RTCDtlsTransport`](RTCDtlsTransport.md); `firedReceiving`: `boolean`; `headerExtensions`: [`RTCRtpHeaderExtensionParameters`](RTCRtpHeaderExtensionParameters.md)[]; `mid`: `string` \| `null`; `mLineIndex`: `number` \| `undefined`; `negotiatedCodecsStale`: `boolean`; `offerDirection`: `"inactive"` \| `"sendonly"` \| `"recvonly"` \| `"sendrecv"`; `pendingLocalOfferCodecs`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[] \| `undefined`; `pendingRejection`: `boolean`; `receiver`: \{ `learnedTrackSsrcs`: `number`[]; `receiverTWCC`: `ReceiverTWCC` \| `undefined`; `receiveTables`: \{ `codecs`: \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \}; `ssrcByRtx`: \{\[`rtxSsrc`: `number`\]: `number`; \}; `stagedCodecs`: \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \}; `stagedSsrcByRtx`: \{\[`rtxSsrc`: `number`\]: `number`; \}; \}; `remoteStreamId`: `string` \| `undefined`; `remoteStreamIds`: `string`[]; `remoteTrackId`: `string` \| `undefined`; `trackByRID`: \{\[`rid`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md); \}; `trackBySSRC`: \{\[`ssrc`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md); \}; `tracks`: [`MediaStreamTrack`](MediaStreamTrack.md)[]; `unboundTracks`: [`MediaStreamTrack`](MediaStreamTrack.md)[]; \}; `rejected`: `boolean`; `sender`: \{ `cname`: `string` \| `undefined`; `codec`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined`; `headerExtensions`: [`RTCRtpHeaderExtensionParameters`](RTCRtpHeaderExtensionParameters.md)[]; `mid`: `string` \| `undefined`; `negotiatedCodecs`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]; `proposedPrimaryCodec`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined`; `redRedundantPayloadType`: `number` \| `undefined`; `repairedRtpStreamId`: `string` \| `undefined`; `rtpStreamId`: `string` \| `undefined`; `rtxPayloadType`: `number` \| `undefined`; `sendPrimaryCodec`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined`; `track`: [`MediaStreamTrack`](MediaStreamTrack.md) \| `null`; `trackCodec`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined`; \}; `stopped`: `boolean`; `stopping`: `boolean`; \} \| `undefined`
+(`transceiver`) => \{ `applicationStopRevision`: `number`; `codecChangeRevision`: `number`; `codecPreferencesNeedResolution`: `boolean`; `codecs`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]; `currentDirection`: [`CurrentDirection`](../type-aliases/CurrentDirection.md) \| `null`; `dtlsTransport`: [`RTCDtlsTransport`](RTCDtlsTransport.md); `firedReceiving`: `boolean`; `headerExtensions`: [`RTCRtpHeaderExtensionParameters`](RTCRtpHeaderExtensionParameters.md)[]; `mid`: `string` \| `null`; `mLineIndex`: `number` \| `undefined`; `negotiatedCodecsStale`: `boolean`; `offerDirection`: `"inactive"` \| `"sendonly"` \| `"recvonly"` \| `"sendrecv"`; `pendingLocalOfferCodecs`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[] \| `undefined`; `pendingRejection`: `boolean`; `receiver`: \{ `deferredRemote`: `DeferredRemoteRtp` \| `undefined`; `learnedTrackSsrcs`: `number`[]; `receiverTWCC`: `ReceiverTWCC` \| `undefined`; `receiveTables`: \{ `codecs`: \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \}; `ssrcByRtx`: \{\[`rtxSsrc`: `number`\]: `number`; \}; `stagedCodecs`: \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \}; `stagedSsrcByRtx`: \{\[`rtxSsrc`: `number`\]: `number`; \}; \}; `remoteStreamId`: `string` \| `undefined`; `remoteStreamIds`: `string`[]; `remoteTrackId`: `string` \| `undefined`; `trackByRID`: \{\[`rid`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md); \}; `trackBySSRC`: \{\[`ssrc`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md); \}; `tracks`: [`MediaStreamTrack`](MediaStreamTrack.md)[]; `unboundTracks`: [`MediaStreamTrack`](MediaStreamTrack.md)[]; \}; `rejected`: `boolean`; `sender`: \{ `cname`: `string` \| `undefined`; `codec`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined`; `headerExtensions`: [`RTCRtpHeaderExtensionParameters`](RTCRtpHeaderExtensionParameters.md)[]; `mid`: `string` \| `undefined`; `negotiatedCodecs`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]; `proposedPrimaryCodec`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined`; `redRedundantPayloadType`: `number` \| `undefined`; `repairedRtpStreamId`: `string` \| `undefined`; `rtpStreamId`: `string` \| `undefined`; `rtxPayloadType`: `number` \| `undefined`; `sendPrimaryCodec`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined`; `track`: [`MediaStreamTrack`](MediaStreamTrack.md) \| `null`; `trackCodec`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined`; \}; `stopped`: `boolean`; `stopping`: `boolean`; \} \| `undefined`
 
 ##### carried?
 

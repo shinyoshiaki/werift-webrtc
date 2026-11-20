@@ -119,6 +119,10 @@ rollback can return one that no description committed to it.
 
 > **receiver**: `object`
 
+##### receiver.deferredRemote
+
+> **deferredRemote**: `DeferredRemoteRtp` \| `undefined`
+
 ##### receiver.learnedTrackSsrcs
 
 > **learnedTrackSsrcs**: `number`[]
@@ -507,10 +511,16 @@ RFC 8829 4.2.4. setDirectionに渡された最後の値を示します
 
 > **get** **heldByApplication**(): `boolean`
 
-Internal: the application sends on this transceiver (its sender has a
-track), so a rollback keeps it even if a remote offer created it. As in
-develop, only a track counts: stop(), a direction or codec preferences
-set on a remote-created transceiver do not keep it.
+Internal: the application uses this transceiver, so a rollback keeps it
+even if a remote offer created it. It is held once `addTrack()` attached a
+track to it (W3C rollback: only a transceiver addTrack never touched is
+removed), also after `replaceTrack(null)` / `removeTrack()` detached that
+track, or while its sender has a track (werift keeps one given a track by
+`replaceTrack()` alone). stop(), a direction or codec preferences set on a
+remote-created transceiver do not keep it. Only a remote-created
+transceiver can be removed, and `addTrack()` reusing one sets
+`reusedForAddTrack`; one `addTrack()` created has `createdBy: "addTrack"`.
+Both are instance state a rollback does not restore.
 
 ##### Returns
 
@@ -711,7 +721,11 @@ Internal: return to a negotiation baseline taken by `snapshotNegotiationState`.
 
 ###### receiver
 
-\{ `learnedTrackSsrcs`: `number`[]; `receiverTWCC`: `ReceiverTWCC` \| `undefined`; `receiveTables`: \{ `codecs`: \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \}; `ssrcByRtx`: \{\[`rtxSsrc`: `number`\]: `number`; \}; `stagedCodecs`: \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \}; `stagedSsrcByRtx`: \{\[`rtxSsrc`: `number`\]: `number`; \}; \}; `remoteStreamId`: `string` \| `undefined`; `remoteStreamIds`: `string`[]; `remoteTrackId`: `string` \| `undefined`; `trackByRID`: \{\[`rid`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md); \}; `trackBySSRC`: \{\[`ssrc`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md); \}; `tracks`: [`MediaStreamTrack`](MediaStreamTrack.md)[]; `unboundTracks`: [`MediaStreamTrack`](MediaStreamTrack.md)[]; \} = `...`
+\{ `deferredRemote`: `DeferredRemoteRtp` \| `undefined`; `learnedTrackSsrcs`: `number`[]; `receiverTWCC`: `ReceiverTWCC` \| `undefined`; `receiveTables`: \{ `codecs`: \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \}; `ssrcByRtx`: \{\[`rtxSsrc`: `number`\]: `number`; \}; `stagedCodecs`: \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \}; `stagedSsrcByRtx`: \{\[`rtxSsrc`: `number`\]: `number`; \}; \}; `remoteStreamId`: `string` \| `undefined`; `remoteStreamIds`: `string`[]; `remoteTrackId`: `string` \| `undefined`; `trackByRID`: \{\[`rid`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md); \}; `trackBySSRC`: \{\[`ssrc`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md); \}; `tracks`: [`MediaStreamTrack`](MediaStreamTrack.md)[]; `unboundTracks`: [`MediaStreamTrack`](MediaStreamTrack.md)[]; \} = `...`
+
+###### receiver.deferredRemote
+
+`DeferredRemoteRtp` \| `undefined` = `...`
 
 ###### receiver.learnedTrackSsrcs
 
@@ -980,6 +994,10 @@ application choice and are not part of it.
 ##### receiver
 
 > **receiver**: `object`
+
+###### receiver.deferredRemote
+
+> **deferredRemote**: `DeferredRemoteRtp` \| `undefined`
 
 ###### receiver.learnedTrackSsrcs
 

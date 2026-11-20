@@ -15,7 +15,7 @@ import {
   type RTCDataChannel,
   RTCPeerConnection,
   RTCRtpCodecParameters,
-  type RTCRtpReceiver,
+  RTCRtpReceiver,
   type RTCRtpSender,
   type RTCRtpTransceiver,
   RtpHeader,
@@ -83,8 +83,13 @@ export async function createConnectedVideoPeers(
     withAudio = false,
   }: { trickleOpen?: boolean; withAudio?: boolean } = {},
 ) {
-  const offerer = new RTCPeerConnection(config);
-  const answerer = new RTCPeerConnection(config);
+  const peerConfig = {
+    iceServers: [],
+    iceUseDefaultStunServer: false,
+    ...config,
+  };
+  const offerer = new RTCPeerConnection(peerConfig);
+  const answerer = new RTCPeerConnection(peerConfig);
   const outgoing = new MediaStreamTrack({ kind: "video" });
   let incoming: MediaStreamTrack | undefined;
   answerer.onRemoteTransceiverAdded.subscribe((transceiver) => {
@@ -510,6 +515,7 @@ function assertDescriptionBindings(pc: RTCPeerConnection) {
  * | BUNDLE owner / transport | current | both (a split owner is provisional) | `assertDescriptionBindings` |
  * | SCTP port | current | reject a change of an existing association (also at the answer) | `assertSctpBinding` |
  * | SCTP max-message-size | current | provisional (W3C updates it at answer and pranswer) | `expectedLive("remoteMaxMessageSize")` |
+ * | In-band DataChannel `id` (#815) | current (none while the DTLS role is `auto`) | provisional: the pranswer's DTLS role reserves IDs of its parity (client even, server odd); rollback gives unsent ones back | `streamIds` oracle (tests/pbt/model/oracles.ts) |
  * | Header extension IDs | both; remap of a current ID rejected | both; remap rejected | `assertRouteTables` |
  * | Remote SSRC routes | both (conflicts staged) | both; routes only a replaced pranswer added are dropped | `assertEffectiveValues` |
  *
@@ -678,6 +684,7 @@ export function assertNegotiationInvariants(pc: RTCPeerConnection) {
   const snapshot = assertDescriptionBindings(pc);
   assertRouterAndCodecs(pc, snapshot);
   assertRouteTables(pc, snapshot);
+  assertLearnedRoutes(pc);
   assertIceGenerations(pc, snapshot);
   assertDtlsBindings(pc, snapshot);
   assertSctpBinding(pc, snapshot);
@@ -772,6 +779,104 @@ function currentMediaByTransport(
  * current SDP says, while a pending proposal can only add keys (conflicting
  * ones stay staged until commit).
  */
+/**
+ * #356: the SSRC routes (`RtpRouter.routeEntries`) agree with the endpoints
+ * they name. A learned route's receiver knows the SSRC (a track or its RID's
+ * RTX); one RTP session has at most one route of each origin for an SSRC,
+ * and no learned route beside a sender or description route of another
+ * endpoint (the learning receiver forgot it). A fallback SSRC (an m-line
+ * without `a=ssrc` and RIDs) has its learned route, maps to the track
+ * `ontrack` announced, which shows the newest one, and only while the
+ * m-line has no description track. While stable no pending description is
+ * deferred (`RTCRtpReceiver.deferredRemote`).
+ */
+function assertLearnedRoutes(pc: RTCPeerConnection) {
+  type Entry = {
+    ssrc: number;
+    endpoint: RTCRtpReceiver | { dtlsTransport?: unknown; stopped?: boolean };
+    origin: "sender" | "sdp" | "learned";
+  };
+  const { router } = pc as unknown as { router: { routeEntries: Entry[] } };
+  const entries = router.routeEntries;
+  const transportOf = (e: Entry) => e.endpoint.dtlsTransport;
+  const sameSession = (a: Entry, b: Entry) =>
+    !transportOf(a) || !transportOf(b) || transportOf(a) === transportOf(b);
+  for (const entry of entries) {
+    const label = `${entry.origin} route of SSRC ${entry.ssrc}`;
+    // パケットから学習した経路の receiver は、その SSRC を知っている (track か RID の RTX)。
+    if (
+      entry.origin === "learned" &&
+      entry.endpoint instanceof RTCRtpReceiver &&
+      !entry.endpoint.stopped
+    ) {
+      expect(entry.endpoint.knowsSsrc(entry.ssrc), `${label} is known`).toBe(
+        true,
+      );
+    }
+    for (const other of entries) {
+      if (other === entry || other.ssrc !== entry.ssrc) continue;
+      // 同じ RTP session に同じ由来の経路は 2 本ない。
+      if (other.origin === entry.origin && sameSession(entry, other)) {
+        expect(
+          other.endpoint === entry.endpoint,
+          `${label}: one per origin in an RTP session`,
+        ).toBe(true);
+      }
+      // 同じ RTP session で sender / SDP の経路に負ける学習経路は残らない。
+      if (
+        entry.origin === "learned" &&
+        other.origin !== "learned" &&
+        other.endpoint !== entry.endpoint
+      ) {
+        expect(
+          sameSession(entry, other),
+          `${label}: no learned route beside a ${other.origin} route in one RTP session`,
+        ).toBe(false);
+      }
+    }
+  }
+  for (const transceiver of pc.getTransceivers()) {
+    const { receiver } = transceiver;
+    if (pc.signalingState === "stable") {
+      expect(
+        receiver.deferredRemote,
+        `${transceiver.mid}: no deferred description while stable`,
+      ).toBeUndefined();
+    }
+    // 保留中の description を commit まで待たせている m-line には、SDP 由来の track がない。
+    if (receiver.deferredRemote) {
+      expect(
+        receiver.tracks,
+        `${transceiver.mid}: an m-line whose description is deferred has no description track`,
+      ).toEqual([]);
+    }
+    const fallback = receiver.fallbackSsrcs;
+    if (fallback.length === 0 || receiver.stopped) continue;
+    expect(
+      receiver.tracks,
+      `${transceiver.mid}: an m-line with learned fallback SSRCs has no description track`,
+    ).toEqual([]);
+    expect(
+      receiver.track.ssrc,
+      `${transceiver.mid}: the announced track shows the newest fallback SSRC`,
+    ).toBe(fallback.at(-1));
+    for (const ssrc of fallback) {
+      expect(
+        receiver.trackBySSRC[ssrc],
+        `${transceiver.mid}: fallback SSRC ${ssrc} maps to the announced track`,
+      ).toBe(receiver.track);
+      const routed = entries.some(
+        (e) =>
+          e.ssrc === ssrc && e.origin === "learned" && e.endpoint === receiver,
+      );
+      expect(
+        routed,
+        `${transceiver.mid}: fallback SSRC ${ssrc} routes here`,
+      ).toBe(true);
+    }
+  }
+}
+
 function assertRouteTables(pc: RTCPeerConnection, snapshot: Snapshot) {
   const internal = pc as unknown as {
     router: {
@@ -1320,8 +1425,12 @@ export async function createDuplexSession(
   config: ConstructorParameters<typeof RTCPeerConnection>[0] = {},
   configB = config,
 ) {
-  const a = new RTCPeerConnection(config);
-  const b = new RTCPeerConnection(configB);
+  const defaults = {
+    iceServers: [],
+    iceUseDefaultStunServer: false,
+  };
+  const a = new RTCPeerConnection({ ...defaults, ...config });
+  const b = new RTCPeerConnection({ ...defaults, ...configB });
   const aOut = new MediaStreamTrack({ kind: "video" });
   const bOut = new MediaStreamTrack({ kind: "video" });
   const aChannel = a.createDataChannel("matrix");
@@ -2571,10 +2680,13 @@ export function holdDtlsStart(pc: RTCPeerConnection) {
   });
   for (const transport of pc.dtlsTransports) {
     const original = transport.start.bind(transport);
-    transport.start = async () => {
-      transport.start = original;
-      await released;
-      return original();
+    let startPromise: Promise<void> | undefined;
+    transport.start = () => {
+      startPromise ??= released.then(() => {
+        transport.start = original;
+        return original();
+      });
+      return startPromise;
     };
   }
   return { release };
@@ -2623,8 +2735,14 @@ export async function createHeldTurnRestartPeers(restarts: number) {
   const proxies = await Promise.all(
     [...Array(restarts)].map(() => createHeldUdpProxy(turn.server.address!)),
   );
-  const offerer = new RTCPeerConnection({ iceServers: turn.iceServers });
-  const answerer = new RTCPeerConnection();
+  const offerer = new RTCPeerConnection({
+    iceServers: turn.iceServers,
+    iceUseDefaultStunServer: false,
+  });
+  const answerer = new RTCPeerConnection({
+    iceServers: [],
+    iceUseDefaultStunServer: false,
+  });
   const channel = offerer.createDataChannel("turn");
   const received = answerer.onDataChannel.asPromise().then(([c]) => c);
   await offerer.setLocalDescription(await offerer.createOffer());
@@ -2668,10 +2786,12 @@ export async function createRelayOnlyPeers() {
   proxy.release();
   const a = new RTCPeerConnection({
     iceServers: turn.iceServers,
+    iceUseDefaultStunServer: false,
     iceTransportPolicy: "relay",
   });
   const b = new RTCPeerConnection({
     iceServers: turnIceServers(proxy.address),
+    iceUseDefaultStunServer: false,
     iceTransportPolicy: "relay",
   });
   const candidateErrors: string[] = [];
@@ -3212,6 +3332,44 @@ export async function createKeptRemoteTransceiver() {
     localTrack,
     offererEvents,
     both,
+    close: () => Promise.allSettled([offerer.close(), answerer.close()]),
+  };
+}
+
+/**
+ * Shared Arrange (acceptance of #817): `answerer` holds `offerer`'s audio
+ * offer as a pending remote description, with the transceiver the offer
+ * created (`remoteCreated`). `rollback()` rolls the offer back on both
+ * peers. `expectMediaFlows(sender)` then negotiates from `answerer` and
+ * checks that RTP written to `sender`'s track reaches `offerer`. Local
+ * candidates only (no public STUN).
+ */
+export async function createPendingRemoteOffer() {
+  const config = { iceServers: [], iceUseDefaultStunServer: false };
+  const offerer = new RTCPeerConnection(config);
+  const answerer = new RTCPeerConnection(config);
+  offerer.addTransceiver("audio", { direction: "sendrecv" });
+  await offerer.setLocalDescription(await offerer.createOffer());
+  await answerer.setRemoteDescription(offerer.localDescription!);
+  const [remoteCreated] = answerer.getTransceivers();
+  return {
+    offerer,
+    answerer,
+    remoteCreated,
+    rollback: async () => {
+      await answerer.setRemoteDescription({ type: "rollback" });
+      await offerer.setLocalDescription({ type: "rollback" });
+    },
+    expectMediaFlows: async (sender: RTCRtpSender) => {
+      const incoming = offerer.onTrack.watch(() => true);
+      await exchangeOfferAnswer(answerer, offerer);
+      const [track] = await incoming;
+      await Promise.all([
+        waitForConnection(offerer),
+        waitForConnection(answerer),
+      ]);
+      await sendAndExpectRtp(sender.track!, track, "after-rollback");
+    },
     close: () => Promise.allSettled([offerer.close(), answerer.close()]),
   };
 }

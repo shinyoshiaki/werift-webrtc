@@ -2,6 +2,7 @@ import type { AcceptFn, Peer } from "protoo-server";
 import { RTCPeerConnection } from "../..";
 import { peerConfig } from "../../fixture";
 import { acceptLocalDescription } from "../localDescription";
+import { notifyCandidate } from "../notifyCandidate";
 
 /**
  * `bundleCandidates: "compatible"` (Chrome's shape, issue #269) against the browser: werift
@@ -40,7 +41,7 @@ export class bundle_tag_only_candidates {
             }
           };
           this.pc.onicecandidate = (e) => {
-            peer.notify("candidate", { candidate: e.candidate ?? null });
+            notifyCandidate(peer, e.candidate ?? null);
           };
           this.pc.onRemoteTransceiverAdded.subscribe((transceiver) => {
             transceiver.onTrack.subscribe((track) => {
