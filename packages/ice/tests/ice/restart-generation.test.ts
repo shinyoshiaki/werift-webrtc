@@ -1,5 +1,6 @@
 import { Candidate } from "../../src/candidate";
 import { CandidatePair, CandidatePairState } from "../../src/iceBase";
+import { markConnectionSpedEnabled } from "../../src/internal/sped-bind";
 import { classes, methods } from "../../src/stun/const";
 import { Message } from "../../src/stun/message";
 import type { Protocol } from "../../src/types/model";
@@ -152,6 +153,8 @@ describe("ICE restart generation boundaries", () => {
     async (kind) => {
       // Arrange: 未通知の送信元から現行 generation の check が届き、prflx を学習する。
       const connection = createTestConnection(true);
+      // SPED opt-in: 現行 generation の check は pair / prflx を応答前に作る。
+      markConnectionSpedEnabled(connection);
       const protocol = new SpedProtocolMock();
       (
         connection as unknown as { ensureProtocol(p: Protocol): void }
