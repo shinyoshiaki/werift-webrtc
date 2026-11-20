@@ -328,6 +328,11 @@ Open:
 
 https://shinyoshiaki.github.io/werift-webrtc/examples/datachannel/answer
 
+An in-band DataChannel (`negotiated` not `true`) gets its stream ID from the
+DTLS role when an answer decides it (client even, server odd, RFC 8832); an
+`id` passed to `createDataChannel()` is ignored for it, as in browsers. Use
+`{ negotiated: true, id }` for a fixed stream ID.
+
 The outbound SCTP packet MTU can be configured independently from the
 negotiated DataChannel message-size limit:
 

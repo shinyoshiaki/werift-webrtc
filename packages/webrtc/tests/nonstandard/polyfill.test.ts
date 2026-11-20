@@ -16,6 +16,7 @@ import {
 } from "../../src/polyfill";
 import "../../src/polyfill";
 import * as nonstandard from "../../src/nonstandard";
+import type { UdpSocketFactory } from "../../src/polyfill/sourceIo";
 import {
   encodeLengthPrefixed,
   openPacketSource,
@@ -1555,11 +1556,17 @@ test("mp4/webm hanging stream read is aborted on uninstall", async () => {
 });
 
 test("same rtp/encoded udp register can be acquired twice and all sockets close", async () => {
-  await assertUdpAcquisitionsReleased(() =>
-    createRtpRtcpRegister({ mimeType: "video/VP8", udp: { port: 0 } }),
+  await assertUdpAcquisitionsReleased((createUdpSocket) =>
+    createRtpRtcpRegister({
+      mimeType: "video/VP8",
+      udp: { port: 0, createSocket: createUdpSocket },
+    }),
   );
-  await assertUdpAcquisitionsReleased(() =>
-    createEncodedBinaryRegister({ mimeType: "video/VP8", udp: { port: 0 } }),
+  await assertUdpAcquisitionsReleased((createUdpSocket) =>
+    createEncodedBinaryRegister({
+      mimeType: "video/VP8",
+      udp: { port: 0, createSocket: createUdpSocket },
+    }),
   );
 });
 
@@ -1638,12 +1645,14 @@ test("same rtp/encoded web stream register can be acquired twice", async () => {
 });
 
 async function assertUdpAcquisitionsReleased(
-  createRegister: () => Parameters<
-    typeof installPolyfill
-  >[0]["mediaRegister"][number],
+  createRegister: (
+    createUdpSocket: UdpSocketFactory,
+  ) => Parameters<typeof installPolyfill>[0]["mediaRegister"][number],
 ) {
   await withUdpSocketCounter(async (sockets) => {
-    const uninstall = installPolyfill({ mediaRegister: [createRegister()] });
+    const uninstall = installPolyfill({
+      mediaRegister: [createRegister(sockets.createSocket)],
+    });
     let uninstalled = false;
     const uninstallOnce = () => {
       if (uninstalled) {
