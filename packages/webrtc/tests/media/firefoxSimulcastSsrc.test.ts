@@ -478,6 +478,69 @@ describe("simulcast (RID) receive with a=ssrc-group:FID keeps the RID rules", ()
     }
   });
 
+  test("pranswer を 2 回適用してから answer で確定しても、FID 表は最後の answer の組だけになり、repaired RID のない RTX はその組で復元される", async () => {
+    // Arrange: werift が simulcast 受信の offer を出し、RTX SSRC を変えた FID の記述 (pranswer ×2、answer) を用意する。
+    const pc = createFirefoxSimulcastReceivingPeer();
+    const tracks: MediaStreamTrack[] = [];
+    const transceiver = pc.addTransceiver("video", {
+      direction: "recvonly",
+      simulcast: [
+        { rid: "high", direction: "recv" },
+        { rid: "low", direction: "recv" },
+      ],
+    });
+    transceiver.onTrack.subscribe((track) => tracks.push(track));
+    await pc.setLocalDescription(await pc.createOffer());
+    const withHighRtx = (rtxSsrc: number) =>
+      firefoxSimulcastSdp({
+        type: "answer",
+        repairedRidExtension: false,
+      }).replace(
+        `a=ssrc-group:FID ${high.ssrc} ${high.rtxSsrc}`,
+        `a=ssrc-group:FID ${high.ssrc} ${rtxSsrc}`,
+      );
+    const [pranswerA, pranswerB, finalRtx] = [
+      1111111111, 2222222222, 3333333333,
+    ];
+    const { router } = pc as unknown as { router: RtpRouter };
+    const route = (packet: RtpPacket) =>
+      router.routeRtp(packet, transceiver.dtlsTransport);
+    try {
+      // Act: pranswer を 2 回、続けて answer を適用し、媒体 1, 3 を受信して各 RTX SSRC から 2 の再送を試みる。
+      await pc.setRemoteDescription({
+        type: "pranswer",
+        sdp: withHighRtx(pranswerA),
+      });
+      await pc.setRemoteDescription({
+        type: "pranswer",
+        sdp: withHighRtx(pranswerB),
+      });
+      await pc.setRemoteDescription({
+        type: "answer",
+        sdp: withHighRtx(finalRtx),
+      });
+      const delivered = collectDeliveredRtp(
+        tracks.find((track) => track.rid === "high")!,
+      );
+      route(media(high.ssrc, 1));
+      route(media(high.ssrc, 3));
+      for (const rtxSsrc of [pranswerA, pranswerB, finalRtx]) {
+        route(
+          createSimulcastRtxFor(high.ssrc, 2, {
+            rtxSsrc,
+            rtxSequenceNumber: 1,
+            mid: "0",
+          }),
+        );
+      }
+
+      // Assert: 復元されるのは最後の answer の RTX SSRC からの 1 件だけ (pranswer の組は残らない)。
+      expect(retransmissionsOf(delivered)).toEqual([[high.ssrc, 2]]);
+    } finally {
+      await pc.close();
+    }
+  });
+
   test("保留中の offer が同じ RTX SSRC に別の FID 媒体 SSRC を割り当てても、現行セッションの RTX は復元され、rollback 後も元の対応に戻る", async () => {
     // Arrange: 現行セッションの FID (high.ssrc ↔ high.rtxSsrc) と、同じ RTX SSRC を別の媒体 SSRC と組にした再 offer。
     const { pc, route, delivered } = await receiveFirefoxOffer(false);
