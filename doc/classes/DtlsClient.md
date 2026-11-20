@@ -422,9 +422,9 @@ or a synchronous throw) is only logged.
 
 > **handleFragmentHandshake**(`messages`, `epoch?`): `FragmentedHandshake`[]
 
-Pass received handshake fragments of the record `epoch` to the
-reassembler and return the complete messages: unfragmented ones, and
-fragmented ones whose every byte has now been received.
+Returns the handshake messages that `messages` (received in a record of
+`epoch`) complete. Spec: `tests/server.test.ts` › "handleFragmentHandshake
+returns a message only once every byte was received"
 
 #### Parameters
 
