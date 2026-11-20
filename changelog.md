@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased
+
+DTLS 1.3 and SPED (DTLS handshake in ICE Binding) as opt-ins. A default `RTCPeerConnection` stays on DTLS 1.2 without SPED; the changes below that reach it are listed under "Breaking changes".
+
+### ⚠️ Breaking changes
+
+- **DTLS 1.2 association lifecycle** (`werift-dtls`): a local `close()` now fires `onClose` once (also on `DtlsServer`). After the connection ended (local `close()`, the peer's close_notify, a fatal alert or handshake failure), `exportKeyingMaterial()`, `remoteCertificate` and `connect()` throw `DTLS association is closed`, and `send()` resolves without sending. The peer's close_notify fires `onClose` once the reply was sent (or timed out). A fatal alert fires `onError` only. `RTCDtlsTransport` is unaffected.
+- **DTLS 1.2 HelloVerifyRequest cookie** (`werift-dtls`): the cookie is an HMAC over the peer binding and the ClientHello parameters (except `random` and the cookie), 104 bytes, valid for 60 s; a cookie-bearing ClientHello whose parameters differ is challenged again. Over ICE (`peerIdentityMode: "authenticated-single-peer"`, every `RTCDtlsTransport`) the cookie is not bound to an address; otherwise it is bound to the ClientHello source.
+- **A received `protocol_version` alert ends the DTLS 1.2 connection at any level** (`werift-dtls`) and is reported as `ProtocolVersionError` (not `DtlsAlertError`). A ClientHello whose `supported_versions` shares no version with this side is answered with `protocol_version`.
+- **Wire renegotiation is not supported** (`werift-dtls`): a ClientHello after the handshake completed is ignored (it used to call `renegotiation()`).
+- **ICE** (`werift-ice`): `restart()` abandons the STUN transactions still in flight; a trickled candidate that matches a learned peer-reflexive one updates its type and priority instead of being added again; `connect()` reports `failed` itself and succeeds once a pair is nominated even if other checks did not complete.
+- **STUN serialization** (`werift-ice`, `werift-ice-server`): comprehension-optional (unknown) attributes keep their wire position, before `MESSAGE-INTEGRITY` / `FINGERPRINT`, instead of being appended at the end; `Message.rawAttributes` is an accessor; a transaction retransmits the bytes of its first send. Messages with known attributes only serialize as before.
+- **Smaller API changes** (`werift`, `werift-dtls`): `RTCDtlsTransport.start()` returns at once when already connected and waits for a start in progress (it threw "state must be new"); `getStats()` reports the remote certificate only while connected; `DtlsSocket.waitForReady()` rejects with an `Error`; `CipherSuite`, `AlertDesc`, `ContentType` and `HandshakeType` have DTLS 1.3 members; `generateDefaultPeerConfig()` returns `Required<PeerConfig>`; `getConfiguration().dtls` lists `protocolVersions` / `helloRetryRequest`.
+
+### 🚀 Features
+
+- **DTLS 1.3 opt-in** (`werift-dtls`, `werift`, RFC 9147): `dtls.protocolVersions` (`werift`) / `protocolVersions` (`werift-dtls`) takes `DtlsVersion.V1_3` alone or with `V1_2` (preferred first); omitted keeps DTLS 1.2 only. `dtls.helloRetryRequest: true` sends a cookie-bearing HelloRetryRequest (off by default on the ICE path). `getStats()` transport `tlsVersion` is `"DTLS 1.2"` / `"DTLS 1.3"`. A 1.3-only × 1.2-only pair fails with `ProtocolVersionError`.
+- **SPED opt-in** (`werift`, `werift-ice`, `draft-hancke-webrtc-sped-00`): `new RTCPeerConnection({ sped: true, dtls: { protocolVersions: [DtlsVersion.V1_3] } })` carries the DTLS 1.3 handshake in authenticated ICE Binding requests / responses (`0xC070` / `0xC071`) and falls back to direct DTLS with the same bytes against a peer without SPED. Only such a PeerConnection's ICE agent verifies the `MESSAGE-INTEGRITY` of incoming Binding requests (others are dropped), keeps an older generation's check out of the current checklist and pairs checks that arrive before `connect()` at once; without `sped` the ICE request handling is unchanged.
+- **`dtlsHandshakeValidation` compatibility option** (`werift`, `"lenient"` default / `"standard"`; `handshakeValidation` in `werift-dtls`): `"standard"` validates the DTLS 1.2 handshake strictly (a malformed `supported_versions` is answered with `protocol_version`, duplicate extensions, a malformed `use_srtp` and inconsistent fragments fail the handshake); `"lenient"` keeps the previous behavior. `compatibility: "standard"` sets it to `"standard"`. Cannot be changed after construction. DTLS 1.3 always validates strictly.
+- **`peerIdentityMode`** (`werift-dtls`): `"datagram-address"` pins a DTLS association to its peer's address (datagrams from another source are dropped and the TX goes to the pinned peer; before the pin unauthenticated alerts and handshake errors are ignored), `"authenticated-single-peer"` treats the transport path as the peer (WebRTC over ICE), and `"unpinned"` keeps the previous behavior. Default: `"unpinned"` for DTLS 1.2 only, `"datagram-address"` when DTLS 1.3 is offered.
+
 ## v0.28.0
 
 This release collects everything merged since v0.27.0.

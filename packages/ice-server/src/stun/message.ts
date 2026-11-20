@@ -31,9 +31,10 @@ import {
  * One STUN attribute in on-wire order (known or comprehension-optional raw).
  * RFC 8489 HMAC covers attributes that precede MESSAGE-INTEGRITY, so unknown
  * optional attributes must sit in this list before integrity — not in a trailing dump.
- * File-private: not part of the ice-server / ice public API.
+ * Internal: not part of the ice-server / ice public API.
+ * @internal
  */
-type WireAttribute =
+export type WireAttribute =
   | {
       kind: "known";
       name: AttributeKey;
@@ -45,38 +46,36 @@ type WireAttribute =
       value: Buffer;
     };
 
-const messageWireAttributes = new WeakMap<Message, WireAttribute[]>();
-const messageRawAttributes = new WeakMap<Message, RawAttribute[]>();
+/**
+ * Wire-order attribute state of one {@link Message}, held by the message
+ * itself (a private field, so it is neither an own enumerable property nor
+ * part of `toJSON()`).
+ * @internal
+ */
+export type MessageWireState = {
+  /** Every attribute in wire order (known and raw). */
+  wire: WireAttribute[];
+  /** The live `rawAttributes` array. */
+  raw: RawAttribute[];
+};
 
 function wireAttributesOf(message: Message): WireAttribute[] {
-  const existing = messageWireAttributes.get(message);
-  if (existing) {
-    return existing;
-  }
-  const created: WireAttribute[] = [];
-  messageWireAttributes.set(message, created);
-  return created;
+  return Message.wireStateOf(message).wire;
 }
 
 function setMessageWireAttributes(
   message: Message,
   wireAttributes: WireAttribute[],
 ) {
-  messageWireAttributes.set(message, wireAttributes);
+  Message.wireStateOf(message).wire = wireAttributes;
 }
 
 function rawAttributeListOf(message: Message): RawAttribute[] {
-  const existing = messageRawAttributes.get(message);
-  if (existing) {
-    return existing;
-  }
-  const created: RawAttribute[] = [];
-  messageRawAttributes.set(message, created);
-  return created;
+  return Message.wireStateOf(message).raw;
 }
 
 function setRawAttributeList(message: Message, list: RawAttribute[]) {
-  messageRawAttributes.set(message, list);
+  Message.wireStateOf(message).raw = list;
 }
 
 /** Point the live rawAttributes array at the current wire raw buffers. */
@@ -263,6 +262,12 @@ export class Message extends AttributeRepository {
   public transactionId: Buffer;
   /** Every ALTERNATE-SERVER attribute, in wire order. */
   public alternateServers: [string, number][];
+  #wireState: MessageWireState = { wire: [], raw: [] };
+
+  /** @internal The wire-order attribute state of `message`. */
+  static wireStateOf(message: Message): MessageWireState {
+    return message.#wireState;
+  }
 
   constructor(
     messageMethod: methods,
@@ -276,7 +281,6 @@ export class Message extends AttributeRepository {
     this.messageMethod = messageMethod;
     this.messageClass = messageClass;
     this.transactionId = transactionId;
-    this.rawAttributes = rawAttributes;
     this.alternateServers = alternateServers;
     setRawAttributeList(this, rawAttributes);
     setMessageWireAttributes(this, [

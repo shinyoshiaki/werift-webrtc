@@ -22,6 +22,7 @@ import {
   DtlsServer,
   type DtlsSocket,
   DtlsVersion,
+  type HandshakeValidation,
   HashAlgorithm,
   NamedCurveAlgorithm,
   normalizePem,
@@ -130,6 +131,8 @@ export interface DtlsTransportConfig {
   debug?: DebugConfig;
   protocolVersions?: readonly DtlsVersion[];
   helloRetryRequest?: boolean;
+  /** PeerConfig.dtlsHandshakeValidation (DTLS 1.2 handshake validation). */
+  handshakeValidation?: HandshakeValidation;
 }
 
 class FingerprintMismatchError extends Error {
@@ -481,6 +484,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
           certificateRequest: true,
           protocolVersions: this.config.protocolVersions,
           peerIdentityMode: "authenticated-single-peer",
+          handshakeValidation: this.config.handshakeValidation,
           addressValidation,
           verifyRemoteCertificate: (certificate) => {
             this.verifyRemoteCertificateDuringHandshake(certificate);
@@ -497,6 +501,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
           extendedMasterSecret: true,
           protocolVersions: this.config.protocolVersions,
           peerIdentityMode: "authenticated-single-peer",
+          handshakeValidation: this.config.handshakeValidation,
           addressValidation,
           verifyRemoteCertificate: (certificate) => {
             this.verifyRemoteCertificateDuringHandshake(certificate);
@@ -607,6 +612,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
         this.config.protocolVersions,
       ),
       peerIdentityMode: "authenticated-single-peer" as const,
+      handshakeValidation: this.config.handshakeValidation,
       addressValidation,
       verifyRemoteCertificate: (certificate: Buffer) => {
         this.verifyRemoteCertificateDuringHandshake(certificate);

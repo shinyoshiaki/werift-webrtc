@@ -279,6 +279,7 @@ export class SecureTransportManager {
         debug: this.config.debug,
         protocolVersions: this.config.dtls.protocolVersions,
         helloRetryRequest: this.config.dtls.helloRetryRequest,
+        handshakeValidation: this.config.dtlsHandshakeValidation,
       },
       iceTransport,
       this.certificate,

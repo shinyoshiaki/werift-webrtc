@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/ban-ts-comment */
 
 import type { HandshakeType } from "../../handshake/const";
+import type { HandshakeValidation } from "../../handshake/validation";
 import { getObjectSummary } from "../../helper";
 import { binaryData } from "../../imports/common";
 
@@ -117,10 +118,39 @@ export class FragmentedHandshake {
     return fragments;
   }
 
-  static assemble(messages: FragmentedHandshake[]): FragmentedHandshake {
+  /**
+   * Reassembly without range / coverage checks (`handshakeValidation:
+   * "lenient"`, the DTLS 1.2 behavior before the strict checks): fragments
+   * are copied at their offsets into a buffer of the first one's length.
+   */
+  private static assembleLenient(
+    messages: FragmentedHandshake[],
+  ): FragmentedHandshake {
+    messages = messages.sort((a, b) => a.fragment_offset - b.fragment_offset);
+    const combined = Buffer.alloc(messages[0].length);
+    for (const msg of messages) {
+      msg.fragment.copy(combined, msg.fragment_offset);
+    }
+    return new FragmentedHandshake(
+      messages[0].msg_type,
+      messages[0].length,
+      messages[0].message_seq,
+      0,
+      combined.length,
+      combined,
+    );
+  }
+
+  static assemble(
+    messages: FragmentedHandshake[],
+    options: { validation?: HandshakeValidation } = {},
+  ): FragmentedHandshake {
     // cannot reassemble empty arrays
     if (!messages?.length) {
       throw new Error("cannot reassemble handshake from empty array");
+    }
+    if (options.validation === "lenient") {
+      return FragmentedHandshake.assembleLenient(messages);
     }
 
     const total = messages[0].length;

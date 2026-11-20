@@ -9,6 +9,7 @@ export { DtlsClient } from "./client";
 export * from "./context/cipher";
 export * from "./context/srtp";
 export { EARLY_APP_DATA_UNLIMITED } from "./engine/v1_3/types";
+export { HandshakeValidation } from "./handshake/validation";
 export type { PeerIdentityMode } from "./peer";
 // selectVersion / DtlsVersionSelected are association-internal (not Public API).
 // Carrier / SPED types are package-internal for Epic 1.

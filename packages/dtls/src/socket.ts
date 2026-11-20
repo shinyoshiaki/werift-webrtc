@@ -25,6 +25,7 @@ import { ExtendedMasterSecret } from "./handshake/extensions/extendedMasterSecre
 import { RenegotiationIndication } from "./handshake/extensions/renegotiationIndication";
 import { Signature } from "./handshake/extensions/signature";
 import { UseSRTP } from "./handshake/extensions/useSrtp";
+import type { HandshakeValidation } from "./handshake/validation";
 import type { Address, Transport } from "./imports/common";
 import { binaryData, debug, Event, EventDisposer } from "./imports/common";
 import type { SrtpProfile } from "./imports/rtp";
@@ -397,7 +398,11 @@ export class DtlsSocket {
                     {},
                   ),
                 )
-                  .map((v) => FragmentedHandshake.assemble(v))
+                  .map((v) =>
+                    FragmentedHandshake.assemble(v, {
+                      validation: this.options.handshakeValidation,
+                    }),
+                  )
                   .sort((a, b) => a.msg_type - b.msg_type);
 
                 // Pass the datagram source so async Flight2 / protocol alerts
@@ -1340,6 +1345,13 @@ export interface Options {
    * not depend on inference.
    */
   peerIdentityMode?: PeerIdentityMode;
+  /**
+   * How strictly the DTLS 1.2 path validates handshake messages. Default
+   * `"lenient"` (the behavior before the strict checks); `"standard"` is
+   * RFC-strict. See {@link HandshakeValidation}. The DTLS 1.3 engine always
+   * validates strictly.
+   */
+  handshakeValidation?: HandshakeValidation;
   /**
    * DTLS 1.3 named groups preference order (key_share).
    * Default: X25519 then P-256. Use `[NamedCurveAlgorithm.secp256r1_23]` for P-256 only.

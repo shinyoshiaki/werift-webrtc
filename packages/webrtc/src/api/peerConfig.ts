@@ -315,6 +315,20 @@ export interface PeerConfig {
    */
   keyFrameRequestRouting: KeyFrameRequestRouting;
   /**
+   * How strictly the DTLS 1.2 handshake validates the peer's messages (see
+   * {@link CompatibilityOptionValues}). Cannot be changed after construction.
+   * - `"lenient"` (default): a malformed `supported_versions` is ignored and
+   *   DTLS 1.2 negotiated, duplicate extensions are accepted, `use_srtp` is
+   *   read without length checks and fragments are reassembled without
+   *   coverage checks, as before the strict checks.
+   * - `"standard"`: RFC-strict; these fail the handshake (a malformed
+   *   `supported_versions` with a `protocol_version` alert).
+   *
+   * A `supported_versions` without an overlapping version fails either way,
+   * and DTLS 1.3 always validates strictly.
+   */
+  dtlsHandshakeValidation: DtlsHandshakeValidation;
+  /**
    * Which m-lines of a BUNDLE group carry the local ICE candidates.
    * Cannot be changed after construction. See {@link BundleCandidates}.
    * - `"legacy"` (default): every m-line repeats its transport's candidates and
@@ -325,7 +339,8 @@ export interface PeerConfig {
   bundleCandidates: BundleCandidates;
   /**
    * Sets every compatibility option (`certificateScope`, `mLineReuse`,
-   * `transceiverPairing`, `keyFrameRequestRouting`, see
+   * `transceiverPairing`, `keyFrameRequestRouting`,
+   * `dtlsHandshakeValidation`, see
    * {@link CompatibilityOptionValues}) to the specification / browser behavior
    * at once. Cannot be changed after construction.
    * - `undefined` (default): each option keeps its own default.
@@ -340,10 +355,10 @@ export interface PeerConfig {
    *
    * ```ts
    * new RTCPeerConnection({ compatibility: "standard" });
-   * // certificateScope, mLineReuse, transceiverPairing and
-   * // keyFrameRequestRouting are all "standard"
+   * // certificateScope, mLineReuse, transceiverPairing,
+   * // keyFrameRequestRouting and dtlsHandshakeValidation are all "standard"
    * new RTCPeerConnection({ compatibility: "standard", certificateScope: "process" });
-   * // certificateScope is "process", the other three are "standard"
+   * // certificateScope is "process", the others are "standard"
    * ```
    *
    * It does not change `iceServers` / `iceUseDefaultStunServer`, which are not
@@ -365,6 +380,12 @@ export const MLineReuseModes: readonly MLineReuse[] =
 export type TransceiverPairing = CompatibilityOptionValue<"transceiverPairing">;
 export const TransceiverPairingModes: readonly TransceiverPairing[] =
   CompatibilityOptionValues.transceiverPairing;
+
+/** How strictly the DTLS 1.2 handshake validates the peer. See {@link PeerConfig.dtlsHandshakeValidation}. */
+export type DtlsHandshakeValidation =
+  CompatibilityOptionValue<"dtlsHandshakeValidation">;
+export const DtlsHandshakeValidationModes: readonly DtlsHandshakeValidation[] =
+  CompatibilityOptionValues.dtlsHandshakeValidation;
 
 /** The values of {@link PeerConfig.compatibility}. */
 export type CompatibilityPreset = "standard";
@@ -562,6 +583,7 @@ export function generateDefaultPeerConfig(): Required<PeerConfig> {
     mLineReuse: "standard",
     transceiverPairing: "byKind",
     keyFrameRequestRouting: "fallback",
+    dtlsHandshakeValidation: "lenient",
     bundleCandidates: "legacy",
     compatibility: undefined,
   };

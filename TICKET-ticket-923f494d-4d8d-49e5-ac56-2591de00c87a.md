@@ -148,6 +148,21 @@ develop マージ前の監査で、DTLS 1.3 / SPED 実装が既定（DTLS 1.2・
 
 既定経路でも残す warp の変更（opt-in にしないもの）は、DTLS 1.2 cookie の HMAC 化（random は bind しない）、終了後の Public API の扱い（README の lifecycle 表）など、develop との差分として README / changelog に記載するものに限る。
 
+### 追加要件（2026-11-20 その2: develop 既存利用者への影響の残件）
+
+既定経路（DTLS 1.2・SPED 無し）に残る差分を再監査した結果に対し、ユーザー指示により次のとおり対応する。
+
+| # | 対象 | 方針 |
+| --- | --- | --- |
+| C-1 | DTLS 1.2 association lifecycle（ローカル `close()` で `onClose`、終了後の exporter / `remoteCertificate` / `connect()` は例外、`send()` は破棄） | **許容**（変更しない）。changelog の Breaking changes に記載する |
+| C-2 | DTLS 1.2 handshake 検証の厳格化（不正な `supported_versions`、重複拡張、不正な `use_srtp` / MKI、断片の再構成の不整合） | PeerConnection のコンストラクタオプション **`dtlsHandshakeValidation`**（互換性オプション。`"standard"` / `"lenient"`、既定 `"lenient"`、構築後は変更不可、`compatibility: "standard"` で `"standard"`）。`"standard"` は厳密、`"lenient"` は develop の挙動。`werift-dtls` は `handshakeValidation`（既定 `"lenient"`）。共通する version が無い well-formed な `supported_versions` はどちらでも `protocol_version`（RFC 8446 §4.2.1）。DTLS 1.3 は常に厳密 |
+| C-3 | マージ起因: 鍵が無い状態で復号できない epoch > 0 の alert を平文として読み直す（`33c1abd26`） | DTLS 1.3 を提示する association（dual-version probing）に限定する。DTLS 1.2 のみは develop どおり破棄（RFC 6347 §4.1.2.1） |
+| C-4 | マージ起因: 一覧に無い候補からの check に同じ 5-tuple の既存 pair を流用（`f9fb80e97`、どちらの親にも無いコード） | SPED を有効にした connection に限定する（SPED の認証済み経路の pin に必要）。既定は develop どおり prflx pair を作る |
+| C-5 | マージ起因: ice-server `Message` コンストラクタの二重設定（`c32f4b296`） | setter 経由の二重設定を削除する |
+| C-6 | AGENTS.md「module scope に runtime state を持たない」への違反（ice-server `message.ts`、ice `internal/datagram.ts`、`internal/sped-bind.ts` の module-level `WeakMap` / `WeakSet`） | 状態を持ち主のオブジェクトへ移す（`Message` の private field、`Connection` の `@internal` field `internalSped` / `internalDatagramEvent`）。定数の lookup `Set` は `ReadonlySet` にする |
+| C-7 | changelog に DTLS 1.3 / SPED と既定経路の差分が無い | `changelog.md` に `Unreleased` を追加し、Breaking changes（C-1 ほか既定経路の差分）と Features（DTLS 1.3、SPED、`dtlsHandshakeValidation`、`peerIdentityMode`）を記載する |
+| C-8 | 未検証（最新 develop マージ後のテスト、E2E、CI 相当、WPT、相互接続） | `npm run ci` の各段（lint:imports、type:all、build、test:small と E2E）を実行し、`doc:check` は再生成と差分確認で代える。WPT / 相互接続は実行可否を確認して実施し、未実施分は理由とともに報告する |
+
 ---
 
 ## 2. 実装すべき具体的な機能や変更内容
@@ -773,6 +788,16 @@ WebRTC は `packages/webrtc/src/imports/ice.ts` が ice の barrel を再export 
 - [ ] B-2: `authenticated-single-peer` の DTLS 1.2 server は、CH2 の送信元アドレスが変わっても再 HVR せず Flight4 へ進む
 - [ ] B-4: `protocolVersions` / `peerIdentityMode` 未指定の DTLS 1.2 client / server は pin せず別送信元も処理する。`"datagram-address"` の opt-in と DTLS 1.3 提示時は従来の pin を維持する
 - [ ] 既存の pin / 認証境界のテストは opt-in を明示して通る。README（dtls / webrtc）に既定値と opt-in を記載する
+
+### 追加要件（2026-11-20 その2）
+
+- [ ] C-2: `dtlsHandshakeValidation` が互換性オプションとして既定 `"lenient"`・`"standard"`・`compatibility: "standard"`・構築後変更不可で動作し、DTLS transport へ渡る
+- [ ] C-2: `werift-dtls` の `handshakeValidation` で、不正な `use_srtp`、覆わない断片、重複拡張、不正な `supported_versions` が `"standard"` で失敗し、`"lenient"`（既定）で develop どおり処理される
+- [ ] C-3: DTLS 1.2 のみの association は復号できない epoch > 0 の alert を破棄し、DTLS 1.3 を提示する association は鍵が無い間だけ平文として読む
+- [ ] C-4: SPED 無効時は一覧に無い候補からの check で prflx pair を作り、SPED 有効時は既存 pair を流用する
+- [ ] C-6: warp が追加した module-level の mutable state が無い
+- [ ] C-7: changelog に Unreleased の Breaking changes / Features がある
+- [ ] C-8: lint:imports、type:all、build、test:small、E2E が通る
 
 ### SPED draft00
 

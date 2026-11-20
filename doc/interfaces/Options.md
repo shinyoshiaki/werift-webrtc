@@ -36,6 +36,17 @@ WebRTC ICE-authenticated peers use `"ice-authenticated"` (Epic 2/3).
 
 ***
 
+### handshakeValidation?
+
+> `optional` **handshakeValidation?**: [`HandshakeValidation`](../enumerations/HandshakeValidation.md)
+
+How strictly the DTLS 1.2 path validates handshake messages. Default
+`"lenient"` (the behavior before the strict checks); `"standard"` is
+RFC-strict. See [HandshakeValidation](../enumerations/HandshakeValidation.md). The DTLS 1.3 engine always
+validates strictly.
+
+***
+
 ### key?
 
 > `optional` **key?**: `string`

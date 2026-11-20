@@ -11,6 +11,7 @@ import {
 } from "./handshake/extensions/cookie";
 import { SupportedVersions } from "./handshake/extensions/supportedVersions";
 import { ClientHello } from "./handshake/message/client/hello";
+import { isStandardHandshakeValidation } from "./handshake/validation";
 import type { Address } from "./imports/common";
 import { debug } from "./imports/common";
 import { AlertDesc, ContentType } from "./record/const";
@@ -179,14 +180,30 @@ export class DtlsServer extends DtlsSocket {
         peerSupported = peerVersionsFromSupportedVersionsWire(sv.versions);
       } catch {
         // Malformed supported_versions (odd length, trailing bytes, empty list)
-        return undefined;
+        return this.lenientDtls12Fallback();
       }
     }
     try {
+      // A well-formed list without an overlap always fails: the peer cannot
+      // negotiate a version it did not list (RFC 8446 §4.2.1).
       return selectVersion(this.protocolVersions, peerSupported);
     } catch {
       return undefined;
     }
+  }
+
+  /**
+   * `handshakeValidation: "lenient"`: a malformed supported_versions is
+   * ignored, as before the strict checks, so DTLS 1.2 is negotiated when this
+   * side offers it. `"standard"` answers it with a protocol_version alert.
+   */
+  private lenientDtls12Fallback(): DtlsVersion | undefined {
+    if (isStandardHandshakeValidation(this.options.handshakeValidation)) {
+      return undefined;
+    }
+    return this.protocolVersions.includes(DtlsVersion.V1_2)
+      ? DtlsVersion.V1_2
+      : undefined;
   }
 
   private flight6?: Flight6;

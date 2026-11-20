@@ -3,9 +3,17 @@ import type { CipherContext } from "../context/cipher";
 import type { DtlsContext } from "../context/dtls";
 import { Alert } from "../handshake/message/alert";
 import { debug } from "../imports/common";
+import { DtlsVersion, normalizeProtocolVersions } from "../version";
 import { alertDescName, ContentType } from "./const";
 import { FragmentedHandshake } from "./message/fragment";
 import { DtlsPlaintext } from "./message/plaintext";
+
+/** Whether the association offers DTLS 1.3 (dual-version probing). */
+function offersDtls13(dtls: DtlsContext): boolean {
+  return normalizeProtocolVersions(dtls.options.protocolVersions).includes(
+    DtlsVersion.V1_3,
+  );
+}
 
 const log = debug("werift-dtls : packages/dtls/record/receive.ts : log");
 const err = debug("werift-dtls : packages/dtls/record/receive.ts : err");
@@ -109,9 +117,12 @@ export const parsePlainText =
             raw = cipher.decryptPacket(plain);
             dtls.remoteEpoch = Math.max(dtls.remoteEpoch, epoch);
           } catch (error) {
-            // During dual-version probing, epoch>0 may be a structurally valid
-            // pre-key alert; retain that compatibility only before local keys.
-            if (dtls.epoch > 0) throw error;
+            // During dual-version probing (this side offers DTLS 1.3), epoch>0
+            // may be a structurally valid pre-key alert; retain that
+            // compatibility only before local keys. A DTLS 1.2-only
+            // association discards a record that fails to decrypt
+            // (RFC 6347 §4.1.2.1).
+            if (dtls.epoch > 0 || !offersDtls13(dtls)) throw error;
             raw = plain.fragment;
           }
         }

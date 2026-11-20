@@ -49,6 +49,7 @@ import {
 } from "./internal/checkMessages";
 import {
   connectionDatagramEvent,
+  type IceDatagramContext,
   isAuthenticatedHandshakePair,
 } from "./internal/datagram";
 import { getDefaultRouteAddresses } from "./internal/defaultRoute";
@@ -58,6 +59,7 @@ import {
 } from "./internal/hostInterfaces";
 import { resolveHostAddresses } from "./internal/resolveHostAddresses";
 import {
+  type ConnectionSpedState,
   getConnectionSpedRuntime,
   isConnectionSpedEnabled,
   registerSpedCarryMaybeFlush,
@@ -121,6 +123,10 @@ export const DEFAULT_STUN_SERVER_URL = "stun:stun.l.google.com:19302";
 // - internal/checkMessages.ts: building and reading connectivity checks
 export class Connection implements IceConnection {
   private _iceControlling: boolean;
+  /** @internal SPED wiring (see internal/sped-bind.ts); PeerConfig.sped only. */
+  readonly internalSped: ConnectionSpedState = { enabled: false };
+  /** @internal Source/generation-aware datagram event (see internal/datagram.ts). */
+  internalDatagramEvent?: Event<[IceDatagramContext]>;
 
   localUsername = randomString(4);
   localPassword = randomString(22);
@@ -3244,14 +3250,17 @@ export class Connection implements IceConnection {
         break;
       }
     }
-    if (!remoteCandidate) {
-      // A pair of this protocol and remote address exists already (its
-      // candidate is no longer listed): the check belongs to it, a second
-      // pair of the same 5-tuple would split what the checks authenticated.
+    if (!remoteCandidate && isConnectionSpedEnabled(this)) {
+      // SPED: a pair of this protocol and remote address exists already (its
+      // candidate is no longer listed). The check belongs to it: a second
+      // pair of the same 5-tuple would split the authenticated path SPED
+      // pins. Without SPED a new peer-reflexive pair is formed as before.
       const existing = this.findPairByAddr(protocol, addr);
       if (existing) {
         return existing;
       }
+    }
+    if (!remoteCandidate) {
       remoteCandidate = new Candidate(
         randomString(10),
         1,

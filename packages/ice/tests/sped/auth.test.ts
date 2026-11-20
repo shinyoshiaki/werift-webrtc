@@ -795,8 +795,9 @@ describe("ICE Binding Request 認証境界", () => {
   });
 
   it("認証済み Binding Request 直後の WAITING pair は raw DTLS を通す", async () => {
-    // Arrange: checkList を空でない状態にして checkIncoming を走らせる
+    // Arrange: SPED を有効にし、checkList を空でない状態にして checkIncoming を走らせる
     const connection = createTestConnection(true);
+    markConnectionSpedEnabled(connection);
     const protocol = new SpedProtocolMock();
     (connection as any).ensureProtocol(protocol);
     seedDummyPair(connection, protocol);
@@ -828,6 +829,34 @@ describe("ICE Binding Request 認証境界", () => {
     expect(pair!.state).toBe(CandidatePairState.WAITING);
     expect(pair!.responsesReceived).toBe(0);
     expect(seen).toEqual([true]);
+  });
+
+  it("SPED 無効時は一覧に無い候補からの check に同じ 5-tuple の既存 pair を流用せず prflx pair を作る", async () => {
+    // Arrange: 一覧から外れた remote candidate の pair が 1.2.3.4:9 に残っている
+    const connection = createTestConnection(true);
+    const protocol = new SpedProtocolMock();
+    (connection as any).ensureProtocol(protocol);
+    seedDummyPair(connection, protocol);
+    const before = connection.checkList.length;
+    const request = new Message(methods.BINDING, classes.REQUEST);
+    request
+      .setAttribute("USERNAME", `${connection.localUsername}:remote`)
+      .setAttribute("PRIORITY", 1)
+      .setAttribute("ICE-CONTROLLED", 1n)
+      .addMessageIntegrity(Buffer.from(connection.localPassword))
+      .addFingerprint();
+
+    // Act: 同じ 5-tuple から check を受信する
+    protocol.onRequestReceived.execute(request, ["1.2.3.4", 9], request.bytes);
+    await new Promise((r) => setTimeout(r, 30));
+
+    // Assert: 既定の ICE は従来どおり prflx candidate の pair を新しく作る
+    expect(connection.checkList.length).toBe(before + 1);
+    expect(
+      connection.remoteCandidates.some(
+        (c) => c.type === "prflx" && c.host === "1.2.3.4" && c.port === 9,
+      ),
+    ).toBe(true);
   });
 
   it("MESSAGE-INTEGRITY 後の DATA/ACK は DTLS に inject されない", async () => {

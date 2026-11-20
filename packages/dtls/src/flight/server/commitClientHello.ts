@@ -16,6 +16,7 @@ import { assertUniqueExtensions } from "../../handshake/extensions/unique";
 import { UseSRTP } from "../../handshake/extensions/useSrtp";
 import type { ClientHello } from "../../handshake/message/client/hello";
 import { DtlsRandom } from "../../handshake/random";
+import { isStandardHandshakeValidation } from "../../handshake/validation";
 import { debug, type SrtpProfile } from "../../imports/rtp";
 
 const log = debug(
@@ -43,7 +44,12 @@ export function validateAndNegotiateClientHello(
   dtls: DtlsContext,
   cipher: CipherContext,
 ): NegotiatedClientHello {
-  assertUniqueExtensions(clientHello.extensions, "ClientHello");
+  const standard = isStandardHandshakeValidation(
+    dtls.options.handshakeValidation,
+  );
+  if (standard) {
+    assertUniqueExtensions(clientHello.extensions, "ClientHello");
+  }
 
   let namedCurve: NamedCurveAlgorithms | undefined;
   let srtpProfile: SrtpProfile | undefined;
@@ -87,7 +93,9 @@ export function validateAndNegotiateClientHello(
         {
           if (!dtls.options?.srtpProfiles?.length) break;
 
-          const useSrtp = UseSRTP.fromData(extension.data);
+          const useSrtp = UseSRTP.fromData(extension.data, {
+            lenient: !standard,
+          });
           log(dtls.sessionId, "srtp profiles", useSrtp.profiles);
           const profile = SrtpContext.findMatchingSRTPProfile(
             useSrtp.profiles as SrtpProfile[],

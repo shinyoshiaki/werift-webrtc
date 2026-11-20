@@ -24,6 +24,10 @@ one takes two values:
   - `keyFrameRequestRouting: "fallback"`: a PLI / FIR for an unknown SSRC
     falls back to the RTX owner or the only video sender of the transport
     it arrived on (`"standard"`: not delivered).
+  - `dtlsHandshakeValidation: "lenient"`: the DTLS 1.2 handshake ignores a
+    malformed `supported_versions`, accepts duplicate extensions, reads
+    `use_srtp` without length checks and reassembles fragments without
+    coverage checks (`"standard"`: RFC-strict, these fail the handshake).
 
 Each option documents its default and whether `setConfiguration()` may
 change it. Any other value is a `TypeError`; the names used up to v0.27.0
@@ -35,6 +39,10 @@ are still accepted (see `DeprecatedCompatibilityValues` in
 ### certificateScope
 
 > `readonly` **certificateScope**: readonly \[`"standard"`, `"process"`\]
+
+### dtlsHandshakeValidation
+
+> `readonly` **dtlsHandshakeValidation**: readonly \[`"standard"`, `"lenient"`\]
 
 ### keyFrameRequestRouting
 

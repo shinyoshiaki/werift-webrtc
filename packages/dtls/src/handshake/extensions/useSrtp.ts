@@ -35,10 +35,31 @@ export class UseSRTP {
     return v;
   }
 
-  static deSerialize(buf: Buffer) {
+  static deSerialize(buf: Buffer, options: { lenient?: boolean } = {}) {
     const useSrtp = new UseSRTP(decode(buf, UseSRTP.spec));
-    UseSRTP.parseProfilesAndMki(useSrtp);
+    if (options.lenient) {
+      UseSRTP.parseProfilesAndMkiLenient(useSrtp);
+    } else {
+      UseSRTP.parseProfilesAndMki(useSrtp);
+    }
     return useSrtp;
+  }
+
+  /**
+   * Parse without length checks (`handshakeValidation: "lenient"`, the DTLS
+   * 1.2 behavior before the strict checks): the declared profile list is
+   * read as far as the data reaches and the rest after the MKI length byte
+   * is the MKI.
+   */
+  private static parseProfilesAndMkiLenient(useSrtp: UseSRTP): void {
+    const data = useSrtp.data;
+    const profileLength = data.length >= 2 ? data.readUInt16BE(0) : 0;
+    const profiles: number[] = [];
+    for (let i = 0; i + 1 < profileLength && 2 + i + 2 <= data.length; i += 2) {
+      profiles.push(data.readUInt16BE(2 + i));
+    }
+    useSrtp.profiles = profiles;
+    useSrtp.mki = Buffer.from(data.subarray(2 + profileLength + 1));
   }
 
   /**
@@ -96,11 +117,11 @@ export class UseSRTP {
     return encode(this, UseSRTP.spec);
   }
 
-  static fromData(buf: Buffer) {
+  static fromData(buf: Buffer, options: { lenient?: boolean } = {}) {
     const head = Buffer.alloc(4);
     head.writeUInt16BE(UseSRTP.type);
     head.writeUInt16BE(buf.length, 2);
-    return UseSRTP.deSerialize(Buffer.concat([head, buf]));
+    return UseSRTP.deSerialize(Buffer.concat([head, buf]), options);
   }
 
   get extension(): Extension {

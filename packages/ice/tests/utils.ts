@@ -3,6 +3,8 @@ import * as dns from "node:dns";
 import * as net from "node:net";
 import type * as os from "node:os";
 import * as tls from "node:tls";
+import { setFlagsFromString } from "node:v8";
+import { runInNewContext } from "node:vm";
 import { deepStrictEqual } from "assert";
 import { EventEmitter } from "events";
 import { readFileSync } from "fs";
@@ -3419,8 +3421,6 @@ export function nominationChecklist(
  * (`--expose-gc` through `v8`), so the vitest command needs no extra flag.
  */
 export async function collectGarbage() {
-  const { setFlagsFromString } = await import("node:v8");
-  const { runInNewContext } = await import("node:vm");
   setFlagsFromString("--expose-gc");
   const gc = runInNewContext("gc") as () => void;
   // Promise の反応と FinalizationRegistry の後片付けを挟んで 2 回回す。
