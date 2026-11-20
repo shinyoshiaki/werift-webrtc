@@ -454,11 +454,14 @@ export class Dtls13ConnectionBase {
     this.addressValidated =
       this.addressValidation === "none" ||
       this.addressValidation === "ice-authenticated";
-    this.peerIdentityMode = resolvePeerIdentityMode({
+    const peerIdentityMode = resolvePeerIdentityMode({
       peerIdentityMode: options.peerIdentityMode,
       addressValidation: this.addressValidation,
       transport: options.transport as { peerAuthenticated?: boolean },
     });
+    // "unpinned" is DTLS 1.2 only: a DTLS 1.3 association always pins.
+    this.peerIdentityMode =
+      peerIdentityMode === "unpinned" ? "datagram-address" : peerIdentityMode;
     this.maxEarlyAppDataRecords = resolveMaxEarlyAppDataRecords(
       options.maxEarlyAppDataRecords,
     );

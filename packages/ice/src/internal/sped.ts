@@ -6,7 +6,10 @@
 import type { Connection } from "../ice";
 import { SpedSession } from "../sped/draft00/session";
 import { type SpedHooks, SpedRuntime } from "../sped/runtime";
-import { setConnectionSpedRuntime } from "./sped-bind";
+import {
+  markConnectionSpedEnabled,
+  setConnectionSpedRuntime,
+} from "./sped-bind";
 
 export {
   DTLS_IN_STUN_ACK,
@@ -63,6 +66,7 @@ export function attachSpedToConnection(
     },
   });
   runtime.syncPathMtuFromConnection(connection);
+  markConnectionSpedEnabled(connection);
   setConnectionSpedRuntime(connection, runtime);
   return {
     session,

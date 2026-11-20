@@ -168,6 +168,8 @@ test("e2e/self12: pre-cookie HVR targets CH source not spoofed rinfo", async () 
   // Arrange
   const serverTransport = await UdpTransport.init("udp4");
   const server = new DtlsServer({
+    // DTLS 1.2 の association アドレス pin は opt-in
+    peerIdentityMode: "datagram-address",
     transport: serverTransport,
     cert: certPem,
     key: keyPem,
@@ -222,6 +224,7 @@ test("e2e/self12: pre-cookie HVR targets CH source not spoofed rinfo", async () 
 test("e2e/self12: pre-cookie protocol_version alert targets CH source", async () => {
   const serverTransport = await UdpTransport.init("udp4");
   const server = new DtlsServer({
+    peerIdentityMode: "datagram-address",
     transport: serverTransport,
     cert: certPem,
     key: keyPem,
@@ -257,6 +260,7 @@ test("e2e/self12: pre-cookie protocol_version alert targets CH source", async ()
 test("e2e/self12: cookie pin uses CH source under concurrent rinfo spoof", async () => {
   const serverTransport = await UdpTransport.init("udp4");
   const server = new DtlsServer({
+    peerIdentityMode: "datagram-address",
     transport: serverTransport,
     cert: certPem,
     key: keyPem,
@@ -319,6 +323,7 @@ test("e2e/self13: close then carrier.inject is dropped by association", async ()
     mtu: 1200,
   });
   const server = new DtlsServer({
+    peerIdentityMode: "datagram-address",
     transport: serverTransport,
     cert: certPem,
     key: keyPem,

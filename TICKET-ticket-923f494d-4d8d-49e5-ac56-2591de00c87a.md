@@ -126,6 +126,28 @@ Epic 1 carrier コメントの「Epic 2 SPED」は古い番号である。**Issu
 | `sped: true` かつ DTLS 1.3 が無い | **`connect()` 開始時に明示的に失敗**（throw）。constructor では落とさない。`protocolVersions` 未指定 / 空 / `1.2` のみは失敗。`1.3` が含まれていれば可（`[V1_3]` または `[V1_3, V1_2]`）。失敗時は SPED を付けない |
 | ACK 5 件以上 | **送信は hard cap 4**（L2 を受信順キューとし、先頭から最大 4 件だけ attribute に入れる。5 件目は次の Binding）。**受信**は、長さが 4 の倍数でないなら ACK 属性だけ無視（STUN / DATA は続ける）。20 bytes 超かつ 4 の倍数なら **先頭 4 CRC だけ採用**し残りは無視。属性全体は drop しない。Pion へは 4 以下しか送らない |
 
+### 追加要件（2026-11-20: develop マージ前の既定経路の互換性）
+
+develop マージ前の監査で、DTLS 1.3 / SPED 実装が既定（DTLS 1.2・SPED 無し）利用者の挙動まで変えていた箇所と、マージ処理が原因で生じた認証チェックの緩和が見つかった。ユーザー指示により次の両方を実施する。
+
+**A. マージ起因の DTLS 1.2 認証チェック緩和の修正**（`33c1abd26` で develop の alert テストを通すために緩められたもの）
+
+| 対象 | 方針 |
+| --- | --- |
+| `hasAssociationPeerAuth` の「client は常に認証済み」分岐 | 削除する。develop の alert テストが必要としていたのは pin の無い transport での alert 処理であり、B-4 の `"unpinned"` 既定で満たす |
+| `isAuthenticatedLegacy12Record` の「未接続なら epoch 0 を全部受理」 | 絞る。鍵が無い間は全 record を受理し、自分の write epoch が進んだ後は epoch > 0 のみ。例外は **接続完了前の epoch 0 alert のみ**（server が client の Flight5 に平文の `bad_certificate` を返すケース。RFC 上正当）。epoch 0 の handshake / application data は受理しない |
+
+**B. 既定経路に波及していた warp の設計変更の opt-in 化**（DTLS 1.3 / SPED に必須ではないもの）
+
+| # | 変更 | opt-in の条件 | 既定（develop 互換）の挙動 |
+| --- | --- | --- | --- |
+| B-1 | 受信 Binding Request の HMAC 検証（失敗・MI 無しは drop）と、旧 generation の check を current の checklist に渡さない処理（§2.2） | `PeerConfig.sped: true` の PeerConnection の ICE agent のみ（`markConnectionSpedEnabled`。`attachSpedToConnection` でも有効） | MESSAGE-INTEGRITY を検証せず応答し（401 で拒否する変更は別途扱い）、role conflict は全 generation に適用、旧 generation の check は従来どおり処理する |
+| B-2 | DTLS 1.2 HelloVerifyRequest cookie の peer binding | `peerIdentityMode: "authenticated-single-peer"`（WebRTC over ICE）では address に bind しない | WebRTC で nominated pair が CH1 と CH2 の間に変わっても再 HVR しない。単体 DTLS（datagram 送信元が peer）は従来どおり送信元アドレスに bind する |
+| B-3 | `connect()` 前の check を即 pair 化してから保留（`ensureIncomingPair` を response 前に実行、checklist が空でなくても保留） | SPED を有効にした connection のみ | checklist が空の間だけ early check として保留し、pair は response 後の `checkIncoming()` で作る |
+| B-4 | 単体 `DtlsClient` / `DtlsServer` の association アドレス pin（別送信元の破棄、pin 前の alert / handshake エラーの黙殺） | `peerIdentityMode: "datagram-address"` を明示するか、`protocolVersions` に `"1.3"` を含める。DTLS 1.3 engine は常に pin する | 新しい `PeerIdentityMode` の値 `"unpinned"` を DTLS 1.2 のみの既定とする。pin せず、すべての送信元を処理し、TX は transport の最後の送信元（`rinfo`）に従う |
+
+既定経路でも残す warp の変更（opt-in にしないもの）は、DTLS 1.2 cookie の HMAC 化（random は bind しない）、終了後の Public API の扱い（README の lifecycle 表）など、develop との差分として README / changelog に記載するものに限る。
+
 ---
 
 ## 2. 実装すべき具体的な機能や変更内容
@@ -186,6 +208,8 @@ SPED Binding に `MESSAGE-INTEGRITY-SHA256` は付けない（ICE2 スコープ�
 ### 2.2 Binding Request の認証境界を修正する
 
 対象: `packages/ice/src/ice.ts` の request 処理、および UDP/TCP/TURN の request 配信。
+
+> **適用範囲（2026-11-20 追加要件 B-1）**: 以下の認証境界は `PeerConfig.sped: true` の PeerConnection の ICE agent にだけ適用する。SPED を有効にしない connection は develop の request 処理（MI 未検証で応答、旧 generation の check も従来どおり処理）を維持する。
 
 現状: RFC 8445 §7.3 は Binding request に short-term `MESSAGE-INTEGRITY` を MUST とし、role conflict（§7.3.1.1）は **受理した request** に対する追加手順である。werift は Response だけ二段階 parse し、Request は未認証 Message のまま role conflict まで進む。SPED DATA をこの経路に載せる前に直す必要がある。
 
@@ -706,7 +730,7 @@ WebRTC は `packages/webrtc/src/imports/ice.ts` が ice の barrel を再export 
 
 ## 4. 考慮すべき制約や注意点
 
-- **既定動作**: SPED disabled / DTLS 1.2 default を維持。`sped` 未指定の `RTCPeerConnection` と opt-in しない `Connection` は現行 ICE とバイト互換に近いこと（wire order 変更は unknown attribute を含むメッセージに限る）
+- **既定動作**: SPED disabled / DTLS 1.2 default を維持。`sped` 未指定の `RTCPeerConnection` と opt-in しない `Connection` は現行 ICE とバイト互換に近いこと（wire order 変更は unknown attribute を含むメッセージに限る）。Binding Request の認証境界・early check の扱い・DTLS 1.2 の association アドレス pin は opt-in 側に閉じる（追加要件 B）
 - **draft vs プロファイル**: §4.4 / §6 の MAY・RECOMMENDED を MUST 扱いしない。HS 完了まで埋め込む選択と、埋め込み中に DTLS RTO を再開しない選択は §2.5 / §2.7 に固定する
 - **RFC 8489 MI 境界**: DATA/ACK を MI より後に置くと HMAC 対象外かつ受信側が無視する。FINGERPRINT は末尾
 - **RFC 8445 §7.3**: connectivity-check Binding は short-term MI 必須。role conflict は認証後
@@ -736,9 +760,19 @@ WebRTC は `packages/webrtc/src/imports/ice.ts` が ice の barrel を再export 
 
 - [ ] known / unknown を含む wire order を保持できる
 - [ ] SPED DATA / ACK が `MESSAGE-INTEGRITY` より前に serialize され、HMAC 範囲に入る（RFC 8489 §9 / §14.5）。`FINGERPRINT` が末尾（§14.7）
-- [ ] Binding Request は USERNAME で credential 選択後に再 parse / HMAC される（RFC 8445 §7.3）
-- [ ] 未認証 request は role conflict / filter / SPED / pair state に到達しない
+- [ ] SPED を有効にした connection では、Binding Request は USERNAME で credential 選択後に再 parse / HMAC される（RFC 8445 §7.3）
+- [ ] SPED を有効にした connection では、未認証 request は role conflict / filter / SPED / pair state に到達しない
 - [ ] old generation authenticated request が current SPED state を更新しない
+- [ ] SPED を有効にしない connection は develop と同じ request 処理を維持する（追加要件 B-1）
+
+### 追加要件（2026-11-20）
+
+- [ ] A: `hasAssociationPeerAuth` の client 分岐が無く、develop の alert テストが `"unpinned"` 既定で通る
+- [ ] A: 自分の epoch が進んだ未接続状態で、epoch 0 の alert は受理し、epoch 0 の handshake / application data は受理しない。接続後は epoch 0 の alert も受理しない
+- [ ] B-1 / B-3: SPED を有効にしない connection では、誤 HMAC の check にも応答し、空の checklist の間だけ early check として保留する。旧 generation の check は従来どおり処理する
+- [ ] B-2: `authenticated-single-peer` の DTLS 1.2 server は、CH2 の送信元アドレスが変わっても再 HVR せず Flight4 へ進む
+- [ ] B-4: `protocolVersions` / `peerIdentityMode` 未指定の DTLS 1.2 client / server は pin せず別送信元も処理する。`"datagram-address"` の opt-in と DTLS 1.3 提示時は従来の pin を維持する
+- [ ] 既存の pin / 認証境界のテストは opt-in を明示して通る。README（dtls / webrtc）に既定値と opt-in を記載する
 
 ### SPED draft00
 

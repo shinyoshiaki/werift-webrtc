@@ -19,12 +19,15 @@ async function connectPair12() {
   clientTransport.rinfo = serverTransport.address;
 
   const server = new DtlsServer({
+    // DTLS 1.2 の association アドレス pin は opt-in
+    peerIdentityMode: "datagram-address",
     transport: serverTransport,
     cert: certPem,
     key: keyPem,
     signatureHash: sig,
   });
   const client = new DtlsClient({
+    peerIdentityMode: "datagram-address",
     transport: clientTransport,
     cert: certPem,
     key: keyPem,
@@ -197,6 +200,7 @@ test("e2e/self12: dual committed12 carrier.inject spoof peer is dropped", async 
   clientTransport.rinfo = serverTransport.address;
 
   const server = new DtlsServer({
+    peerIdentityMode: "datagram-address",
     transport: serverTransport,
     cert: certPem,
     key: keyPem,
@@ -205,6 +209,7 @@ test("e2e/self12: dual committed12 carrier.inject spoof peer is dropped", async 
     protocolVersions: [DtlsVersion.V1_2],
   });
   const client = new DtlsClient({
+    peerIdentityMode: "datagram-address",
     transport: clientTransport,
     cert: certPem,
     key: keyPem,

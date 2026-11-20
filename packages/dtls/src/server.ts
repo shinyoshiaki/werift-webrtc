@@ -204,6 +204,20 @@ export class DtlsServer extends DtlsSocket {
   }
 
   private flight6?: Flight6;
+
+  /**
+   * Peer binding of a DTLS 1.2 HelloVerifyRequest cookie. With an
+   * authenticated single-peer transport (WebRTC over ICE) the transport path
+   * is the peer and its reported address can change between the two
+   * ClientHellos (the nominated pair moves), so the cookie is not bound to
+   * an address there; otherwise it is bound to the ClientHello source.
+   */
+  private cookiePeerKey(addr?: Address) {
+    return this.peerIdentityMode === "authenticated-single-peer"
+      ? "authenticated-single-peer"
+      : peerKeyFromAddr(addr);
+  }
+
   private handleHandshakes = async (
     assembled: FragmentedHandshake[],
     peer?: Address,
@@ -327,11 +341,12 @@ export class DtlsServer extends DtlsSocket {
                 clientHello,
                 replyTo,
                 handshake.message_seq,
+                this.cookiePeerKey(replyTo),
               );
             } else {
               // Cookie must bind source address + ClientHello parameters
               // (RFC 6347 HMAC style / RFC 9147 address dependency).
-              const peerKey = peerKeyFromAddr(replyTo);
+              const peerKey = this.cookiePeerKey(replyTo);
               const chBody = clientHello.serialize();
               const cookieOk = verifyDtls12HelloVerifyCookie(
                 this.dtls.cookieSecret,
@@ -362,6 +377,7 @@ export class DtlsServer extends DtlsSocket {
                   ch1Shape,
                   replyTo,
                   handshake.message_seq,
+                  peerKey,
                 );
                 return;
               }

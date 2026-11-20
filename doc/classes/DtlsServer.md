@@ -854,7 +854,7 @@ lower-level state while keeping the public socket alive.
 
 ### isAuthenticatedLegacy12Record()
 
-> `protected` **isAuthenticatedLegacy12Record**(`epoch`): `boolean`
+> `protected` **isAuthenticatedLegacy12Record**(`epoch`, `contentType`): `boolean`
 
 After keys exist (connected or write epoch advanced), only epoch>0 records
 are cryptographically authenticated for lifecycle alerts. Epoch-0 fatal /
@@ -865,6 +865,10 @@ close_notify must not tear down a post-handshake association (unauth DoS).
 ##### epoch
 
 `number`
+
+##### contentType
+
+`"alert"` \| `"handshake"` \| `"applicationData"`
 
 #### Returns
 

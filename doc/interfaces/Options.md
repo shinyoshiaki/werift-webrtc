@@ -89,8 +89,11 @@ Default: X25519 then P-256. Use `[NamedCurveAlgorithm.secp256r1_23]` for P-256 o
 
 Peer-identity policy for association TX/RX lifecycle.
 Default (when omitted): inferred as `"authenticated-single-peer"` when
-`transport.peerAuthenticated` or `addressValidation: "ice-authenticated"`,
-otherwise `"datagram-address"`.
+`transport.peerAuthenticated` or `addressValidation: "ice-authenticated"`;
+otherwise `"datagram-address"` when `protocolVersions` offers DTLS 1.3,
+and `"unpinned"` (no address pin, the DTLS 1.2 behavior before it) for a
+DTLS 1.2-only association. Set `"datagram-address"` to opt a DTLS 1.2
+association into the address pin.
 
 Prefer setting this explicitly for custom carriers / ICE so call sites do
 not depend on inference.

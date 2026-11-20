@@ -18,6 +18,8 @@ test("e2e/self12: pre-cookie fatal alert does not tear down server", async () =>
   // Arrange: server only — no pin yet
   const serverTransport = await UdpTransport.init("udp4");
   const server = new DtlsServer({
+    // DTLS 1.2 の association アドレス pin は opt-in
+    peerIdentityMode: "datagram-address",
     transport: serverTransport,
     cert: certPem,
     key: keyPem,
@@ -63,6 +65,7 @@ test("e2e/self12: pre-cookie fatal alert does not tear down server", async () =>
 test("e2e/self12: pre-cookie malformed ClientHello does not tear down server", async () => {
   const serverTransport = await UdpTransport.init("udp4");
   const server = new DtlsServer({
+    peerIdentityMode: "datagram-address",
     transport: serverTransport,
     cert: certPem,
     key: keyPem,
