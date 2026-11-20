@@ -579,6 +579,15 @@ export class RtpRouter {
     // The RTX SSRC of a RID layer routes to the receiver; its media SSRC is
     // learned from the RID of the packets.
     for (const { rtxSsrc } of params.ridRtxPairs ?? []) {
+      // A pending description leaves a route this receiver already has for
+      // the RTX SSRC (learned from a repaired RID): taking it as a
+      // description route would lose it at a rollback.
+      if (
+        deferConflicts &&
+        this.routes.of(rtxSsrc).some((r) => r.endpoint === transceiver.receiver)
+      ) {
+        continue;
+      }
       this.registerRtpReceiver(transceiver.receiver, rtxSsrc, deferConflicts);
     }
 

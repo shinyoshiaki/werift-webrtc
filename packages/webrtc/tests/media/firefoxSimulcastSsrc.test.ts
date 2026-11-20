@@ -657,6 +657,69 @@ describe("simulcast (RID) receive with a=ssrc-group:FID keeps the RID rules", ()
     }
   });
 
+  test("現行通信が repaired RID で RID high に学習した RTX SSRC を、保留中の offer が RID low の FID に記載しても、確定まで high の RTX は復元され、rollback 後も復元される", async () => {
+    // Arrange: FID のない初期 offer。repaired RID で RTX SSRC が RID high に学習された状態。
+    const withoutFid = (sdp: string) =>
+      sdp
+        .split("\r\n")
+        .filter((line) => !/^a=ssrc(-group)?:/.test(line))
+        .join("\r\n");
+    const { pc, route, delivered } = await receiveFirefoxOffer(
+      true,
+      withoutFid,
+    );
+    const [, low] = firefoxSimulcastLayers;
+    const reoffer =
+      withoutFid(firefoxSimulcastSdp({ type: "offer" })) +
+      [
+        `a=ssrc:${low.ssrc} cname:x`,
+        `a=ssrc:${high.rtxSsrc} cname:x`,
+        `a=ssrc-group:FID ${low.ssrc} ${high.rtxSsrc}`,
+        "",
+      ].join("\r\n");
+    const repair = (
+      sequenceNumber: number,
+      rtxSequenceNumber: number,
+      rrid?: string,
+    ) =>
+      createSimulcastRtxFor(high.ssrc, sequenceNumber, {
+        rtxSsrc: high.rtxSsrc,
+        rtxSequenceNumber,
+        rrid,
+        mid: "0",
+      });
+    try {
+      route(media(high.ssrc, 1));
+      route(media(high.ssrc, 3));
+      route(repair(2, 1, "high"));
+      route(media(low.ssrc, 1, "low"));
+
+      // Act: 再 offer を保留したまま、high の媒体 4 を欠落させて RTX (repaired RID なし) を受信する。
+      await pc.setRemoteDescription({ type: "offer", sdp: reoffer });
+      route(media(high.ssrc, 5));
+      route(repair(4, 2));
+      const pending = retransmissionsOf(delivered);
+
+      // Act: rollback 後に high の媒体 7 を欠落させて RTX (repaired RID なし) を受信する。
+      await pc.setRemoteDescription({ type: "rollback", sdp: "" });
+      route(media(high.ssrc, 8));
+      route(repair(7, 3));
+
+      // Assert: 保留中も rollback 後も、現行の high の欠落が復元される。
+      expect(pending).toEqual([
+        [high.ssrc, 2],
+        [high.ssrc, 4],
+      ]);
+      expect(retransmissionsOf(delivered)).toEqual([
+        [high.ssrc, 2],
+        [high.ssrc, 4],
+        [high.ssrc, 7],
+      ]);
+    } finally {
+      await pc.close();
+    }
+  });
+
   test("保留中の offer が同じ RTX SSRC に別の FID 媒体 SSRC を割り当てても、現行セッションの RTX は復元され、rollback 後も元の対応に戻る", async () => {
     // Arrange: 現行セッションの FID (high.ssrc ↔ high.rtxSsrc) と、同じ RTX SSRC を別の媒体 SSRC と組にした再 offer。
     const { pc, route, delivered } = await receiveFirefoxOffer(false);

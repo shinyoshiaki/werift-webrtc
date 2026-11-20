@@ -578,7 +578,14 @@ export class RTCRtpReceiver {
     }
     params.ridRtxPairs?.forEach(({ ssrc, rtxSsrc }) => {
       const existing = this.ridFidMediaByRtx[rtxSsrc];
-      if (deferConflicts && existing !== undefined && existing !== ssrc) {
+      // A pending description does not take an RTX SSRC the current session
+      // already bound to a RID (learned from a repaired RID): it waits for
+      // the commit, so the current RTX keeps restoring until then.
+      const inUse = existing === undefined && rtxSsrc in this.ridByRtxSsrc;
+      if (
+        deferConflicts &&
+        ((existing !== undefined && existing !== ssrc) || inUse)
+      ) {
         this.stagedRidFidMediaByRtx[rtxSsrc] = ssrc;
       } else {
         delete this.stagedRidFidMediaByRtx[rtxSsrc];
