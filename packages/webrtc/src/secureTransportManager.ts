@@ -15,7 +15,6 @@ import {
   RTCCertificate,
   RTCDtlsTransport,
 } from "./transport/dtls";
-import { markDtlsTransportSped } from "./transport/dtls-sped";
 import type {
   IceGathererState,
   RTCIceCandidate,
@@ -286,7 +285,7 @@ export class SecureTransportManager {
       srtpProfiles,
     );
     if (this.config.sped === true) {
-      markDtlsTransportSped(dtlsTransport);
+      dtlsTransport.sped = true;
       // Before any check arrives: SPED's authenticated request boundary.
       markConnectionSpedEnabled(iceGatherer.connection as Connection);
     }

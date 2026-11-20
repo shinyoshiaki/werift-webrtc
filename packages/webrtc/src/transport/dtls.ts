@@ -61,7 +61,6 @@ import {
   normalizeFingerprintAlgorithm,
   normalizeFingerprintValue,
 } from "../utils";
-import { isDtlsTransportSped } from "./dtls-sped";
 import type { RTCIceTransport } from "./ice";
 import { IceSpedTransport } from "./sped";
 
@@ -209,6 +208,8 @@ export class RTCDtlsTransport implements DtlsTransportStats {
    * share, see `acquireTransportReceiverTWCC`.
    */
   sharedReceiverTWCC?: SharedReceiverTWCC;
+  /** @internal Set from PeerConfig.sped; not a public RTCDtlsTransport option. */
+  sped = false;
 
   id = randomUUID().toString();
   state: DtlsState = "new";
@@ -425,7 +426,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   }
 
   private async completeHandshake() {
-    const sped = isDtlsTransportSped(this);
+    const sped = this.sped;
     const addressValidation = sped
       ? "ice-authenticated"
       : this.config.helloRetryRequest
