@@ -1,6 +1,5 @@
 /* eslint-disable @typescript-eslint/ban-ts-comment */
 
-import type { HandshakeType } from "../../handshake/const";
 import { getObjectSummary } from "../../helper";
 import { binaryData } from "../../imports/common";
 
@@ -115,50 +114,5 @@ export class FragmentedHandshake {
     }
 
     return fragments;
-  }
-
-  static assemble(messages: FragmentedHandshake[]): FragmentedHandshake {
-    // cannot reassemble empty arrays
-    if (!messages?.length) {
-      throw new Error("cannot reassemble handshake from empty array");
-    }
-
-    // sort by fragment start
-    messages = messages.sort((a, b) => a.fragment_offset - b.fragment_offset);
-    // combine into a single buffer
-    const combined = Buffer.alloc(messages[0].length);
-    for (const msg of messages) {
-      msg.fragment.copy(combined, msg.fragment_offset);
-    }
-
-    // and return the complete message
-    return new FragmentedHandshake(
-      messages[0].msg_type,
-      messages[0].length,
-      messages[0].message_seq,
-      0,
-      combined.length,
-      combined,
-    );
-  }
-
-  static findAllFragments(
-    fragments: FragmentedHandshake[],
-    type: HandshakeType,
-  ): FragmentedHandshake[] {
-    const reference = fragments.find((v) => v.msg_type === type);
-    if (!reference) return [];
-
-    // ignore empty arrays
-    if (!fragments?.length) return [];
-
-    // return all fragments with matching msg_type, message_seq and total length
-    return fragments.filter((f) => {
-      return (
-        f.msg_type === reference.msg_type &&
-        f.message_seq === reference.message_seq &&
-        f.length === reference.length
-      );
-    });
   }
 }
