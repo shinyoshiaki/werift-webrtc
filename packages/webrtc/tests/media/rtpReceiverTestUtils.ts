@@ -475,6 +475,8 @@ export function firefoxSimulcastSdp(
     mid?: string;
     /** Appended to each `a=rid:<id> send` line (RFC 8851 restrictions). */
     ridRestrictions?: string;
+    /** false: the description omits the repaired RID extension (RFC 8852). */
+    repairedRidExtension?: boolean;
   } = { type: "offer" },
 ) {
   const mid = options.mid ?? "0";
@@ -498,7 +500,9 @@ export function firefoxSimulcastSdp(
     "a=sendonly",
     `a=extmap:${ids.mid} ${RTP_EXTENSION_URI.sdesMid}`,
     `a=extmap:${ids.rid} ${RTP_EXTENSION_URI.sdesRTPStreamID}`,
-    `a=extmap:${ids.rrid} ${RTP_EXTENSION_URI.repairedRtpStreamId}`,
+    ...(options.repairedRidExtension === false
+      ? []
+      : [`a=extmap:${ids.rrid} ${RTP_EXTENSION_URI.repairedRtpStreamId}`]),
     "a=fmtp:97 apt=96",
     "a=ice-pwd:4f0bb1b0a7b8b0d2e6f3c9a1d5e7f9a1",
     "a=ice-ufrag:9a3c1d2e",
@@ -531,6 +535,7 @@ export function firefoxSimulcastSdp(
 export function sendFirefoxSimulcastWithRepair(
   route: (packet: RtpPacket) => void,
   mid = "0",
+  { repairedRid = true }: { repairedRid?: boolean } = {},
 ) {
   for (const layer of firefoxSimulcastLayers) {
     for (const sequenceNumber of [1, 3]) {
@@ -547,7 +552,7 @@ export function sendFirefoxSimulcastWithRepair(
       createSimulcastRtxFor(layer.ssrc, 2, {
         rtxSsrc: layer.rtxSsrc,
         rtxSequenceNumber: 1,
-        rrid: layer.rid,
+        rrid: repairedRid ? layer.rid : undefined,
         mid,
       }),
     );

@@ -516,7 +516,9 @@ export class RtpRouter {
   ) {
     log("registerRtpReceiverBySsrc", params);
 
-    const hasSsrcs = params.encodings.some((e) => e.ssrc != undefined);
+    const hasSsrcs =
+      params.encodings.some((e) => e.ssrc != undefined) ||
+      (params.ridRtxPairs?.length ?? 0) > 0;
     if (
       this.defersRemote(transceiver, deferConflicts) &&
       (hasSsrcs || transceiver.receiver.deferredRemote)
@@ -573,6 +575,12 @@ export class RtpRouter {
           );
         }
       });
+
+    // The RTX SSRC of a RID layer routes to the receiver; its media SSRC is
+    // learned from the RID of the packets.
+    for (const { rtxSsrc } of params.ridRtxPairs ?? []) {
+      this.registerRtpReceiver(transceiver.receiver, rtxSsrc, deferConflicts);
+    }
 
     this.registerHeaderExtensions(params);
   }

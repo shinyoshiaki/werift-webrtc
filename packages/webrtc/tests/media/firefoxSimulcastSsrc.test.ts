@@ -37,6 +37,7 @@ describe("simulcast (RID) receive with a=ssrc / ssrc-group:FID (Firefox)", () =>
     tracks: MediaStreamTrack[],
     transceiver: RTCRtpTransceiver,
     route: (packet: RtpPacket) => void,
+    repairedRid = true,
   ) => {
     // Assert: onTrack は RID の数 (high / low) だけ発火し、SSRC のトラックはない。
     expect(tracks.map((t) => [t.rid, t.ssrc])).toEqual([
@@ -51,7 +52,7 @@ describe("simulcast (RID) receive with a=ssrc / ssrc-group:FID (Firefox)", () =>
     );
 
     // Act: 各レイヤーが seq 1, 3 を RID 付きで送り、落ちた seq 2 を rrid 付き RTX で再送する。
-    sendFirefoxSimulcastWithRepair(route);
+    sendFirefoxSimulcastWithRepair(route, "0", { repairedRid });
 
     // Assert: 両レイヤーとも、復元パケットは元の媒体 SSRC / seq で同じ RID のトラックに届く。
     for (const layer of firefoxSimulcastLayers) {
@@ -67,9 +68,10 @@ describe("simulcast (RID) receive with a=ssrc / ssrc-group:FID (Firefox)", () =>
   };
 
   describe.each([
-    ["制約なしの RID", undefined],
-    ["制約付きの RID (max-width)", "max-width=1280"],
-  ])("%s", (_name, ridRestrictions) => {
+    ["制約なしの RID", undefined, true],
+    ["制約付きの RID (max-width)", "max-width=1280", true],
+    ["repaired RID 拡張なし (FID だけで RTX を対応付ける)", undefined, false],
+  ])("%s", (_name, ridRestrictions, repairedRid) => {
     test("werift の offer に対する Firefox の answer でも、トラックは RID ごとの 1 本だけで、両レイヤーの RTX は RID のトラックへ復元される", async () => {
       // Arrange
       const pc = createFirefoxSimulcastReceivingPeer();
@@ -88,10 +90,19 @@ describe("simulcast (RID) receive with a=ssrc / ssrc-group:FID (Firefox)", () =>
       // Act: a=ssrc ×4 と ssrc-group:FID ×2 を持つ Firefox の answer を適用する。
       await pc.setRemoteDescription({
         type: "answer",
-        sdp: firefoxSimulcastSdp({ type: "answer", ridRestrictions }),
+        sdp: firefoxSimulcastSdp({
+          type: "answer",
+          ridRestrictions,
+          repairedRidExtension: repairedRid,
+        }),
       });
 
-      expectRidTracksRepair(tracks, transceiver, routeOf(pc, transceiver));
+      expectRidTracksRepair(
+        tracks,
+        transceiver,
+        routeOf(pc, transceiver),
+        repairedRid,
+      );
     });
 
     test("Firefox の offer を受けても、トラックは RID ごとの 1 本だけで、両レイヤーの RTX は RID のトラックへ復元される", async () => {
@@ -106,12 +117,59 @@ describe("simulcast (RID) receive with a=ssrc / ssrc-group:FID (Firefox)", () =>
       // Act: a=ssrc ×4 と ssrc-group:FID ×2 を持つ Firefox の offer を適用し、answer を確定する。
       await pc.setRemoteDescription({
         type: "offer",
-        sdp: firefoxSimulcastSdp({ type: "offer", ridRestrictions }),
+        sdp: firefoxSimulcastSdp({
+          type: "offer",
+          ridRestrictions,
+          repairedRidExtension: repairedRid,
+        }),
       });
       await pc.setLocalDescription(await pc.createAnswer());
 
       const [transceiver] = pc.getTransceivers();
-      expectRidTracksRepair(tracks, transceiver, routeOf(pc, transceiver));
+      expectRidTracksRepair(
+        tracks,
+        transceiver,
+        routeOf(pc, transceiver),
+        repairedRid,
+      );
     });
+  });
+});
+
+describe("simulcast a=rid restrictions in the answer", () => {
+  test("制約付き RID の offer への answer は recv を返し、offer 側がその answer を適用できる", async () => {
+    // Arrange: 送信側が simulcast の offer を作り、その RID 行に制約を付けて受信側へ渡す。
+    const sender = createFirefoxSimulcastReceivingPeer();
+    const receiver = createFirefoxSimulcastReceivingPeer();
+    try {
+      sender.addTransceiver("video", {
+        direction: "sendonly",
+        simulcast: [
+          { rid: "high", direction: "send" },
+          { rid: "low", direction: "send" },
+        ],
+      });
+      const offer = await sender.createOffer();
+      await sender.setLocalDescription(offer);
+      const constrained = offer.sdp.replace(
+        /^(a=rid:\w+ send)\r$/gm,
+        "$1 max-width=1280\r",
+      );
+      expect(constrained).toContain("a=rid:high send max-width=1280");
+
+      // Act: 受信側が制約付き offer に answer し、送信側がそれを適用する。
+      await receiver.setRemoteDescription({ type: "offer", sdp: constrained });
+      const answer = await receiver.createAnswer();
+      await receiver.setLocalDescription(answer);
+      await sender.setRemoteDescription(answer);
+
+      // Assert: answer の RID は recv で、制約は含まず、送信側に適用されている。
+      expect(answer.sdp).toContain("a=rid:high recv\r\n");
+      expect(answer.sdp).toContain("a=rid:low recv\r\n");
+      expect(answer.sdp).not.toContain("max-width");
+      expect(sender.signalingState).toBe("stable");
+    } finally {
+      await Promise.all([sender.close(), receiver.close()]);
+    }
   });
 });

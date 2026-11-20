@@ -543,14 +543,19 @@ export class RTCRtpReceiver {
         this.codecs[c.payloadType] = c;
       }
     });
-    params.encodings.forEach((e) => {
-      if (!e.rtx) return;
-      const existing = this.ssrcByRtx[e.rtx.ssrc];
-      if (deferConflicts && existing !== undefined && existing !== e.ssrc) {
-        this.stagedSsrcByRtx[e.rtx.ssrc] = e.ssrc;
+    const pairs = [
+      ...params.encodings.flatMap((e) =>
+        e.rtx ? [{ ssrc: e.ssrc, rtxSsrc: e.rtx.ssrc }] : [],
+      ),
+      ...(params.ridRtxPairs ?? []),
+    ];
+    pairs.forEach(({ ssrc, rtxSsrc }) => {
+      const existing = this.ssrcByRtx[rtxSsrc];
+      if (deferConflicts && existing !== undefined && existing !== ssrc) {
+        this.stagedSsrcByRtx[rtxSsrc] = ssrc;
       } else {
-        delete this.stagedSsrcByRtx[e.rtx.ssrc];
-        this.ssrcByRtx[e.rtx.ssrc] = e.ssrc;
+        delete this.stagedSsrcByRtx[rtxSsrc];
+        this.ssrcByRtx[rtxSsrc] = ssrc;
       }
     });
   }

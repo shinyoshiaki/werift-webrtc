@@ -99,6 +99,13 @@ export class RTCRtpCodingParameters {
 
 export interface RTCRtpReceiveParameters extends RTCRtpParameters {
   encodings: RTCRtpCodingParameters[];
+  /**
+   * Media / RTX SSRC pairs (`a=ssrc-group:FID`) of an m-line the remote sends
+   * by RID. They route and pair the RTX SSRC only: the media SSRC and its
+   * track come from the RID of the packets.
+   * @internal
+   */
+  ridRtxPairs?: { ssrc: number; rtxSsrc: number }[];
 }
 
 export type RTCRtpSendParameters = RTCRtpParameters;
@@ -106,6 +113,8 @@ export type RTCRtpSendParameters = RTCRtpParameters;
 export class RTCRtpSimulcastParameters {
   rid!: string;
   direction!: "send" | "recv";
+  /** `a=rid` restrictions after the direction (`max-width=1280`), RFC 8851. */
+  restrictions?: string;
   constructor(props: RTCRtpSimulcastParameters) {
     Object.assign(this, props);
   }

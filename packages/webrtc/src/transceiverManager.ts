@@ -972,12 +972,26 @@ export class TransceiverManager {
     // `a=ssrc` lines do not name their RID, so they give no SSRC track or
     // route; packets naming a RID or repaired RID teach each layer's SSRCs
     // (tests/media/firefoxSimulcastSsrc.test.ts "werift の offer に対する Firefox の answer でも、トラックは RID ごとの 1 本だけで、両レイヤーの RTX は RID のトラックへ復元される").
-    const ssrcs = receivesByRid(media) ? [] : media.ssrc;
+    const byRid = receivesByRid(media);
+    const ssrcs = byRid ? [] : media.ssrc;
+    // The FID pairs still say which media SSRC an RTX SSRC repairs, with or
+    // without a repaired RID extension.
+    const ridRtxPairs = byRid
+      ? media.ssrcGroup
+          .filter(
+            (group) => group.semantic === "FID" && group.items.length === 2,
+          )
+          .map((group) => ({
+            ssrc: Number(group.items[0]),
+            rtxSsrc: Number(group.items[1]),
+          }))
+      : undefined;
     const receiveParameters: RTCRtpReceiveParameters = {
       muxId: media.rtp.muxId,
       rtcp: media.rtp.rtcp,
       codecs: transceiver.codecs,
       headerExtensions: transceiver.headerExtensions,
+      ...(ridRtxPairs?.length ? { ridRtxPairs } : {}),
       // RTX pairs with its `apt` codec wherever the description lists it (an
       // answer may put RTX before its primary codec), so primaries come first.
       encodings: Object.values(
