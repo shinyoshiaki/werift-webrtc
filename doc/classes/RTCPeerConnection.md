@@ -15,6 +15,9 @@ reviewable diff does not depend on external PR text.
 - `addIceCandidate()` also validates `sdpMid` / `sdpMLineIndex` /
   `usernameFragment` against the applied remote description and appends
   candidates or end-of-candidates markers to the corresponding m-section.
+  An empty `sdpMid` with a numeric `sdpMLineIndex` (as Pion sends) is
+  resolved by the index, as libwebrtc and Firefox do; the W3C steps reject it with
+  OperationError. An empty `sdpMid` without an index is still rejected.
   The public API keeps werift's historical pre-SRD buffering behavior, while
   the WPT runner wraps the class to exercise strict spec rejection.
 - `bundlePolicy: "balanced"` is accepted for input compatibility but is
