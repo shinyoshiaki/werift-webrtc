@@ -1546,24 +1546,22 @@ export function createRtpAt(timestamp: number, sequenceNumber = 0) {
   );
 }
 
-/**シード固定の疑似乱数 (mulberry32)。0 以上 1 未満を返す */
-export function createPrng(seed: number) {
-  let state = seed >>> 0;
-  return () => {
-    state = (state + 0x6d2b79f5) >>> 0;
-    let t = state;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
 export type JitterStream = {
   startSeq: number;
   startTs: number;
   /**RTP timestamp increment per packet */
   step: number;
 };
+
+/** 20ms 間隔 (48kHz) の Opus のストリーム。 */
+export const opusJitterStream = (
+  startSeq: number,
+  startTs = 0,
+): JitterStream => ({
+  startSeq,
+  startTs,
+  step: 960,
+});
 
 /**index 番目のパケット。payload に index を入れて識別できるようにする */
 export function createJitterRtp(index: number, stream: JitterStream) {
@@ -1630,45 +1628,6 @@ export function runJitterBuffer(
 /**index の並びから到着順のパケット列を作る */
 export function createJitterArrivals(order: number[], stream: JitterStream) {
   return order.map((index) => createJitterRtp(index, stream));
-}
-
-/**
- * 欠落・重複・入れ替わりを含む到着順を乱数で作る。
- * 各パケットは本来の位置から最大 maxDelay パケット分だけ遅れて届く。
- * 先頭パケットは基準になるため必ず最初に届く。
- */
-export function createRandomJitterOrder({
-  count,
-  rng,
-  lossRate,
-  duplicateRate,
-  maxDelay,
-  duplicateMaxDelay = maxDelay,
-}: {
-  count: number;
-  rng: () => number;
-  lossRate: number;
-  duplicateRate: number;
-  maxDelay: number;
-  duplicateMaxDelay?: number;
-}) {
-  const keyed: { index: number; key: number }[] = [{ index: 0, key: -1 }];
-  const received = new Set<number>([0]);
-  for (let index = 1; index < count; index++) {
-    if (rng() < lossRate) {
-      continue;
-    }
-    received.add(index);
-    keyed.push({ index, key: index + rng() * maxDelay });
-    if (rng() < duplicateRate) {
-      keyed.push({ index, key: index + rng() * duplicateMaxDelay });
-    }
-  }
-  keyed.sort((a, b) => a.key - b.key);
-  return {
-    order: keyed.map((k) => k.index),
-    received: [...received].sort((a, b) => a - b),
-  };
 }
 
 /**昇順の index 列から、間にある欠落区間を求める */

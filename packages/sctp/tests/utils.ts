@@ -2,6 +2,7 @@ import { readFileSync } from "fs";
 import { setImmediate as waitImmediate } from "timers/promises";
 import { setFlagsFromString } from "v8";
 import { expect, type Mock, vi } from "vitest";
+
 import { runInNewContext } from "vm";
 
 import { SCTP, SCTP_STATE } from "../src";
@@ -661,36 +662,6 @@ export const flushImmediates = async (rounds = 10) => {
   for (let i = 0; i < rounds; i++) {
     await new Promise<void>((resolve) => setImmediate(resolve));
   }
-};
-
-/**
- * Seeds of a property test, as in packages/webrtc/tests/pbt/shared/seeds.ts:
- * `<prefix>_SEEDS` seeds (default `defaults.seeds`) starting at `<prefix>_SEED`
- * (default 1). A failing seed is replayed with `<prefix>_SEED=<n> <prefix>_SEEDS=1`.
- */
-export const propertySeeds = (prefix: string, defaults: { seeds: number }) => {
-  const env = process.env;
-  const count = Number(env[`${prefix}_SEEDS`] ?? defaults.seeds);
-  const first = Number(env[`${prefix}_SEED`] ?? 1);
-  return {
-    seeds: [...Array(count)].map((_, index) => first + index),
-    /** True when `<prefix>_SEED` picks the seeds (a replay of one seed). */
-    seedSelected: env[`${prefix}_SEED`] !== undefined,
-    replay: (seed: number | string) =>
-      `${prefix}_SEED=${seed} ${prefix}_SEEDS=1`,
-  };
-};
-
-/** Deterministic PRNG (mulberry32) so a failing random-loss seed can be replayed. */
-export const createSeededRandom = (seed: number) => {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
 };
 
 /**

@@ -18,7 +18,7 @@ ide:
 
 ### 受け入れテスト（ここだけ見れば目的の達成を確認できます）
 
-[packages/ice/tests/ice/failover-acceptance.test.ts:18](review-file:packages/ice/tests/ice/failover-acceptance.test.ts:18) の 1 ファイルで、チケットの目的「選択中の host 経路が切れても、ICE restart なしで両端が relay 経路へ移り、データが届く（修正前は consent 失効で `failed`）」を確かめられます。実ソケット（werift 同士）とローカルの TURN サーバーを使い、`cutHostPath()` で host ↔ host の経路だけを両方向とも落とします（共通の準備処理は [packages/ice/tests/utils.ts:3711](review-file:packages/ice/tests/utils.ts:3711) の `createFailoverRealPair`）。
+[packages/ice/tests/ice/failover-acceptance.test.ts:18](review-file:packages/ice/tests/ice/failover-acceptance.test.ts:18) の 1 ファイルで、チケットの目的「選択中の host 経路が切れても、ICE restart なしで両端が relay 経路へ移り、データが届く（修正前は consent 失効で `failed`）」を確かめられます。実ソケット（werift 同士）とローカルの TURN サーバーを使い、`cutHostPath()` で host ↔ host の経路だけを両方向とも落とします（共通の準備処理は [packages/ice/tests/utils.ts:3896](review-file:packages/ice/tests/utils.ts:3896) の `createFailoverRealPair`）。
 
 | 件 | 確認すること |
 | --- | --- |
@@ -30,17 +30,17 @@ ide:
 
 ### 不変条件の行列テスト
 
-[packages/ice/tests/ice/failover-matrix.test.ts:36](review-file:packages/ice/tests/ice/failover-matrix.test.ts:36) の 1 ファイルで、次の不変条件を確かめられます。「選択中のペアと経路が異なる（別ソケット、または同じソケットの別リモートアドレスへの）eligible なペアは、順位とロールに関係なく監視され、選択した経路だけが切れたときに使われる」。
+[packages/ice/tests/pbt/failoverMatrix/failoverMatrixProperty.test.ts:33](review-file:packages/ice/tests/pbt/failoverMatrix/failoverMatrixProperty.test.ts:33)（プロパティ）と [packages/ice/tests/ice/failover-matrix.test.ts:1](review-file:packages/ice/tests/ice/failover-matrix.test.ts:1)（周辺の件）で、次の不変条件を確かめられます。「選択中のペアと経路が異なる（別ソケット、または同じソケットの別リモートアドレスへの）eligible なペアは、順位とロールに関係なく監視され、選択した経路だけが切れたときに使われる」。
 
 | 件 | 確認すること |
 | --- | --- |
-| [行列のプロパティ（§17、既定 128 seed）](review-file:packages/ice/tests/ice/failover-matrix.test.ts:48) | 16 seed ごとに全組み合わせを一巡し、代替が落ちていた時間（0 または 1〜90 s）・切断までの時間・タイマーの揺らぎは乱数。ロール {controlling, controlled} × モード {semi-aggressive, renomination} × 代替経路の位置 {別ソケット下位/上位, 同一ソケット下位/上位} × 代替の初期状態 {通る, 10 s 断後に復帰, 60 s 断後に復帰}。controlling は切断から 11 s 以内に代替へ移り、`failed` を経ない（通る上位の代替には切断前に移っている）。controlled は 10 s 以内に代替が有効で check が続き、40 s 前に `failed` にならず、相手の指名だけ（データなし）で 2 s 以内に代替へ移り `connected` に戻る |
-| [ロール変更直後](review-file:packages/ice/tests/ice/failover-matrix.test.ts:139) | controlled になった直後も、同一ソケットの上位ペアを監視する |
-| [controlled への候補の後着](review-file:packages/ice/tests/ice/failover-matrix.test.ts:169) | 選択後に届いた同一ソケット上位の候補を、退避先として監視する |
-| [復帰と同時の切断](review-file:packages/ice/tests/ice/failover-matrix.test.ts:193) | controlling で、長く落ちていた同一ソケット上位が戻った直後に選択経路が切れても、次の 16 s の再試行を待たずに 11 s 以内に移る |
-| [リモートの restart](review-file:packages/ice/tests/ice/failover-matrix.test.ts:230) | 相手の ufrag が変わると、古い世代の demote 情報が残らない |
+| [行列のプロパティ（§17、既定 128 seed）](review-file:packages/ice/tests/pbt/failoverMatrix/failoverMatrixProperty.test.ts:46) | 16 seed ごとに全組み合わせを一巡し、代替が落ちていた時間（0 または 1〜90 s）・切断までの時間・タイマーの揺らぎは乱数。ロール {controlling, controlled} × モード {semi-aggressive, renomination} × 代替経路の位置 {別ソケット下位/上位, 同一ソケット下位/上位} × 代替の初期状態 {通る, 10 s 断後に復帰, 60 s 断後に復帰}。controlling は切断から 11 s 以内に代替へ移り、`failed` を経ない（通る上位の代替には切断前に移っている）。controlled は 10 s 以内に代替が有効で check が続き、40 s 前に `failed` にならず、相手の指名だけ（データなし）で 2 s 以内に代替へ移り `connected` に戻る |
+| [ロール変更直後](review-file:packages/ice/tests/ice/failover-matrix.test.ts:33) | controlled になった直後も、同一ソケットの上位ペアを監視する |
+| [controlled への候補の後着](review-file:packages/ice/tests/ice/failover-matrix.test.ts:63) | 選択後に届いた同一ソケット上位の候補を、退避先として監視する |
+| [復帰と同時の切断](review-file:packages/ice/tests/ice/failover-matrix.test.ts:87) | controlling で、長く落ちていた同一ソケット上位が戻った直後に選択経路が切れても、次の 16 s の再試行を待たずに 11 s 以内に移る |
+| [リモートの restart](review-file:packages/ice/tests/ice/failover-matrix.test.ts:124) | 相手の ufrag が変わると、古い世代の demote 情報が残らない |
 
-実行: `cd packages/ice && npx vitest run tests/ice/failover-matrix.test.ts`（133 件、1 s 未満、fake timer。seed の再実行は `WERIFT_ICE_FAILOVER_MATRIX_SEED=<n> WERIFT_ICE_FAILOVER_MATRIX_SEEDS=1`）。共通の準備処理は [packages/ice/tests/utils.ts:3847](review-file:packages/ice/tests/utils.ts:3847) の `createFailoverMatrixCell` です。
+実行: `cd packages/ice && npx vitest run tests/pbt/failoverMatrix tests/ice/failover-matrix.test.ts`（133 件、1 s 未満、fake timer。seed の再実行は失敗した題名の環境変数 `WERIFT_ICE_FAILOVER_MATRIX_SEED=<n> WERIFT_ICE_FAILOVER_MATRIX_SEEDS=1`、深い探索は `npm run pbt:deep -- --suite failoverMatrix`）。共通の準備処理は [packages/ice/tests/utils.ts:3800](review-file:packages/ice/tests/utils.ts:3800) の `createFailoverMatrixCell` です。
 
 修正を 1 つずつ戻して確かめた検出力:
 
@@ -144,7 +144,7 @@ ide:
 
 ### 3.7 第 13 回の変更（§15: 退避先への切り替えの高速化 A・B・C）
 
-両方向の断から退避まで約 5〜10 s かかっていたのを、libwebrtc に合わせて短くしました。テストは [packages/ice/tests/ice/failover-detection.test.ts:41](review-file:packages/ice/tests/ice/failover-detection.test.ts:41) の 1 ファイル（20 件）にまとめています。
+両方向の断から退避まで約 5〜10 s かかっていたのを、libwebrtc に合わせて短くしました。テストは [packages/ice/tests/ice/failover-detection.test.ts:41](review-file:packages/ice/tests/ice/failover-detection.test.ts:39) の 1 ファイル（20 件）にまとめています。
 
 | 案 | 内容 | 場所 |
 | --- | --- | --- |

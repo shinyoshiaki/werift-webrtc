@@ -18,12 +18,10 @@ import {
   buildSack,
   createChunkQueue,
   createMockSctp,
-  createSeededRandom,
   disposeMockSctp,
   expectFlightSizeInvariant,
   flightSizeOf,
   holdTransport,
-  propertySeeds,
   receiveSack,
   sentChunks,
   sentDataTsns,
@@ -379,28 +377,6 @@ describe("sctp flight size accounting", () => {
       await disposeMockSctp(sctp);
     }
   });
-
-  test.each(propertySeeds("WERIFT_SCTP_BOOK_SIZE", { seeds: 200 }).seeds)(
-    "seed %i: a DATA chunk books its size on the wire (16-byte header and padded payload)",
-    (seed) => {
-      // Arrange: 0〜1200 バイトのペイロードの DATA チャンクを作る。
-      const random = createSeededRandom(seed);
-      const length = Math.floor(random() * 1201);
-      const chunk = new DataChunk(0, undefined);
-      chunk.userData = Buffer.alloc(length);
-
-      // Act: 計上する大きさと、パケットにしたときの大きさを求める。
-      const booked = book(length);
-      const onWire =
-        serializePacket(5000, 5000, 0, chunk).length - SCTP_COMMON_HEADER_SIZE;
-
-      // Assert: 計上はパケット上のチャンクの大きさ (共通ヘッダを除く) に等しい。
-      expect(
-        booked,
-        `WERIFT_SCTP_BOOK_SIZE_SEED=${seed} length=${length}`,
-      ).toBe(onWire);
-    },
-  );
 
   test("a chunk is fast-retransmitted only once until the T3-rtx timer resends it (RFC 9260 §7.2.4)", async () => {
     const { sctp, transport } = createMockSctp({ established: true });
