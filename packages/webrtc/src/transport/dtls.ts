@@ -34,6 +34,7 @@ import {
   SrtpSession,
   saltLength,
 } from "../imports/rtp";
+import type { SharedReceiverTWCC } from "../media/receiver/receiverTwcc";
 import {
   generateStatsId,
   getStatsTimestamp,
@@ -173,15 +174,29 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   readonly iceTransport: RTCIceTransport;
   public localCertificate?: RTCCertificate | undefined;
   private readonly srtpProfiles: SrtpProfile[];
+  /**
+   * @internal The TWCC feedback generator the receivers on this transport
+   * share, see `acquireTransportReceiverTWCC`.
+   */
+  sharedReceiverTWCC?: SharedReceiverTWCC;
 
   id = randomUUID().toString();
   state: DtlsState = "new";
-  role: DtlsRole = "auto";
+  private _role: DtlsRole = "auto";
+  /**
+   * Fires synchronously whenever {@link RTCDtlsTransport.role} changes (a
+   * local or remote answer / pranswer, or `start()` resolving `auto`).
+   * @see tests/issue/815.test.ts "issue 815: data channel stream IDs follow the DTLS role"
+   * @see tests/issue/815.test.ts "the DTLS start resolving auto assigns the IDs of the role it took"
+   */
+  readonly onRoleChange = new Event<[DtlsRole]>();
   /**
    * Internal: the ICE role when the handshake started. werift sets the ICE role at
    * every offer / answer, so an SCTP association that starts later on this
-   * transport takes its client / server side from here, as both peers agreed
-   * on it when they started DTLS.
+   * transport takes its INIT client / server side from here, as both peers
+   * agreed on it when they started DTLS. Data channel stream IDs follow
+   * {@link RTCDtlsTransport.role} instead.
+   * @see tests/issue/815.test.ts "#815 report: reversed ICE / DTLS roles with channels from both ends do not collide"
    */
   iceRoleAtStart?: RTCIceTransport["role"];
   srtpStarted = false;
@@ -262,6 +277,24 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   };
 
   dispatchEvent = (event: globalThis.Event) => this.events.dispatchEvent(event);
+
+  /**
+   * The DTLS role: `auto` until a description or the handshake start decides
+   * it. Data channel stream IDs follow it (client even, server odd).
+   * @see tests/issue/815.test.ts "issue 815: data channel stream IDs follow the DTLS role"
+   */
+  get role(): DtlsRole {
+    return this._role;
+  }
+
+  set role(role: DtlsRole) {
+    if (role === this._role) return;
+    this._role = role;
+    this.onRoleChange.executeIsolated(
+      (error) => log("onRoleChange listener failed", error),
+      role,
+    );
+  }
 
   get localParameters() {
     return new RTCDtlsParameters(

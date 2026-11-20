@@ -100,8 +100,13 @@
 
 Internal: the ICE role when the handshake started. werift sets the ICE role at
 every offer / answer, so an SCTP association that starts later on this
-transport takes its client / server side from here, as both peers agreed
-on it when they started DTLS.
+transport takes its INIT client / server side from here, as both peers
+agreed on it when they started DTLS. Data channel stream IDs follow
+[RTCDtlsTransport.role](#role) instead.
+
+#### See
+
+tests/issue/815.test.ts "#815 report: reversed ICE / DTLS roles with channels from both ends do not collide"
 
 ***
 
@@ -148,6 +153,20 @@ A close_notify (`closed`) does not fire it. Also delivered as
 #### Returns
 
 `void`
+
+***
+
+### onRoleChange
+
+> `readonly` **onRoleChange**: [`Event`](Event.md)\<\[[`DtlsRole`](../type-aliases/DtlsRole.md)\]\>
+
+Fires synchronously whenever [RTCDtlsTransport.role](#role) changes (a
+local or remote answer / pranswer, or `start()` resolving `auto`).
+
+#### See
+
+ - tests/issue/815.test.ts "issue 815: data channel stream IDs follow the DTLS role"
+ - tests/issue/815.test.ts "the DTLS start resolving auto assigns the IDs of the role it took"
 
 ***
 
@@ -206,12 +225,6 @@ not mean ICE has released its resources.
 #### Implementation of
 
 [`DtlsTransportStats`](../interfaces/DtlsTransportStats.md).[`packetsSent`](../interfaces/DtlsTransportStats.md#packetssent)
-
-***
-
-### role
-
-> **role**: [`DtlsRole`](../type-aliases/DtlsRole.md) = `"auto"`
 
 ***
 
@@ -294,6 +307,39 @@ Internal: whether a description gave this transport the peer's DTLS parameters.
 ##### Returns
 
 [`RTCDtlsParameters`](RTCDtlsParameters.md)
+
+***
+
+### role
+
+#### Get Signature
+
+> **get** **role**(): [`DtlsRole`](../type-aliases/DtlsRole.md)
+
+The DTLS role: `auto` until a description or the handshake start decides
+it. Data channel stream IDs follow it (client even, server odd).
+
+##### See
+
+tests/issue/815.test.ts "issue 815: data channel stream IDs follow the DTLS role"
+
+##### Returns
+
+[`DtlsRole`](../type-aliases/DtlsRole.md)
+
+#### Set Signature
+
+> **set** **role**(`role`): `void`
+
+##### Parameters
+
+###### role
+
+[`DtlsRole`](../type-aliases/DtlsRole.md)
+
+##### Returns
+
+`void`
 
 ## Methods
 
