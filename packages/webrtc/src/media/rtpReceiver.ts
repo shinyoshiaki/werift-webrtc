@@ -1340,15 +1340,17 @@ export class RTCRtpReceiver {
 
   /** Bind `rtxSsrc` to `rid`, evicting beyond {@link MAX_RTX_SSRCS_PER_RID}. */
   private bindRtxSsrc(rtxSsrc: number, rid: string, fidMedia?: number) {
+    // The FID pair the binding stands under, also when a repaired RID found
+    // it: a later change of that pair invalidates the binding.
+    const pair = fidMedia ?? this.ridFidMediaByRtx[rtxSsrc];
     const previous = this.ridByRtxSsrc[rtxSsrc];
     if (previous === rid) {
-      // A repaired RID confirms the binding beyond the FID pair.
-      if (fidMedia === undefined) delete this.fidMediaOfBinding[rtxSsrc];
+      if (pair !== undefined) this.fidMediaOfBinding[rtxSsrc] = pair;
       return;
     }
     if (previous !== undefined) this.unbindRtxSsrc(rtxSsrc);
     this.ridByRtxSsrc[rtxSsrc] = rid;
-    if (fidMedia !== undefined) this.fidMediaOfBinding[rtxSsrc] = fidMedia;
+    if (pair !== undefined) this.fidMediaOfBinding[rtxSsrc] = pair;
     const ssrcs = (this.rtxSsrcsByRid[rid] ??= []);
     ssrcs.push(rtxSsrc);
     if (ssrcs.length <= MAX_RTX_SSRCS_PER_RID) return;

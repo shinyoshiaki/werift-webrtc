@@ -541,6 +541,54 @@ describe("simulcast (RID) receive with a=ssrc-group:FID keeps the RID rules", ()
     }
   });
 
+  test("repaired RID で確認した RTX も、再 offer が FID の媒体 SSRC を変えて確定したら、新しい媒体を学習するまでは旧媒体の欠落を復元せず、学習後は新しい媒体の欠落を復元する", async () => {
+    // Arrange: repaired RID で RTX SSRC が RID high に確認された後、媒体 4 が欠落した状態。
+    const { pc, route, delivered } = await receiveFirefoxOffer(true);
+    const newMedia = 123456789;
+    const reoffer = firefoxSimulcastSdp({ type: "offer" }).replace(
+      `a=ssrc-group:FID ${high.ssrc} ${high.rtxSsrc}`,
+      `a=ssrc-group:FID ${newMedia} ${high.rtxSsrc}`,
+    );
+    const repair = (
+      mediaSsrc: number,
+      sequenceNumber: number,
+      rtxSequenceNumber: number,
+      rrid?: string,
+    ) =>
+      createSimulcastRtxFor(mediaSsrc, sequenceNumber, {
+        rtxSsrc: high.rtxSsrc,
+        rtxSequenceNumber,
+        rrid,
+        mid: "0",
+      });
+    try {
+      route(media(high.ssrc, 1));
+      route(media(high.ssrc, 3));
+      route(repair(high.ssrc, 2, 1, "high"));
+      route(media(high.ssrc, 5));
+
+      // Act: FID の媒体 SSRC を変えた再 offer を確定し、新しい媒体の学習前に旧媒体の 4 の RTX (repaired RID なし) を受信する。
+      await pc.setRemoteDescription({ type: "offer", sdp: reoffer });
+      await pc.setLocalDescription(await pc.createAnswer());
+      route(repair(high.ssrc, 4, 2));
+      const beforeLearning = retransmissionsOf(delivered);
+
+      // Act: 新しい媒体 SSRC を学習し、その欠落 11 の RTX (repaired RID なし) を受信する。
+      route(media(newMedia, 10));
+      route(media(newMedia, 12));
+      route(repair(newMedia, 11, 3));
+
+      // Assert: 学習前は旧媒体の 4 を復元せず、学習後は新しい媒体の 11 を復元する。
+      expect(beforeLearning).toEqual([[high.ssrc, 2]]);
+      expect(retransmissionsOf(delivered)).toEqual([
+        [high.ssrc, 2],
+        [newMedia, 11],
+      ]);
+    } finally {
+      await pc.close();
+    }
+  });
+
   test("保留中の offer が同じ RTX SSRC に別の FID 媒体 SSRC を割り当てても、現行セッションの RTX は復元され、rollback 後も元の対応に戻る", async () => {
     // Arrange: 現行セッションの FID (high.ssrc ↔ high.rtxSsrc) と、同じ RTX SSRC を別の媒体 SSRC と組にした再 offer。
     const { pc, route, delivered } = await receiveFirefoxOffer(false);
