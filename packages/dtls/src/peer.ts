@@ -11,17 +11,34 @@ export type AddressValidationMode =
 /**
  * How the association identifies the remote peer for TX/RX lifecycle.
  *
- * - `"datagram-address"` — UDP 5-tuple pin after cookie/connect
+ * - `"datagram-address"` — UDP 5-tuple pin after cookie/connect: datagrams
+ *   from another source are dropped and TX goes to the pinned peer
  * - `"authenticated-single-peer"` — transport path is the identity (ICE);
  *   addressless and non-matching 5-tuples do not drop authenticated RX
+ * - `"unpinned"` — DTLS 1.2 only: no pin. Every source is processed and TX
+ *   follows the transport's last remote address (the behavior before the
+ *   association pin). A DTLS 1.3 engine always uses `"datagram-address"`
+ *   instead.
  */
-export type PeerIdentityMode = "datagram-address" | "authenticated-single-peer";
+export type PeerIdentityMode =
+  | "datagram-address"
+  | "authenticated-single-peer"
+  | "unpinned";
 
-/** Resolve peer-identity policy (1.2 association + 1.3 engine). */
+/**
+ * Resolve peer-identity policy (1.2 association + 1.3 engine).
+ *
+ * Unless set explicitly, an ICE-style transport is `"authenticated-single-peer"`;
+ * otherwise the address pin is opt-in through DTLS 1.3: offering DTLS 1.3
+ * (`protocolVersions` including "1.3") pins (`"datagram-address"`), and a DTLS
+ * 1.2-only association stays `"unpinned"`.
+ */
 export function resolvePeerIdentityMode(opts: {
   peerIdentityMode?: PeerIdentityMode;
   addressValidation?: AddressValidationMode;
   transport?: { peerAuthenticated?: boolean };
+  /** Offered versions; omitted means a DTLS 1.3 engine. */
+  offersDtls13?: boolean;
 }): PeerIdentityMode {
   if (opts.peerIdentityMode) return opts.peerIdentityMode;
   if (opts.transport?.peerAuthenticated === true) {
@@ -30,7 +47,7 @@ export function resolvePeerIdentityMode(opts: {
   if (opts.addressValidation === "ice-authenticated") {
     return "authenticated-single-peer";
   }
-  return "datagram-address";
+  return opts.offersDtls13 === false ? "unpinned" : "datagram-address";
 }
 
 /**
@@ -42,7 +59,10 @@ export function associationHasPeerAuth(opts: {
   identityMode: PeerIdentityMode;
 }): boolean {
   return (
-    opts.hasPinnedPeer || opts.identityMode === "authenticated-single-peer"
+    opts.hasPinnedPeer ||
+    opts.identityMode === "authenticated-single-peer" ||
+    // No pin to wait for: every source drives the lifecycle.
+    opts.identityMode === "unpinned"
   );
 }
 

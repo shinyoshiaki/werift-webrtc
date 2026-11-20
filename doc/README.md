@@ -54,7 +54,7 @@ const cookieHrr = new RTCPeerConnection({
 
 ## SPED opt-in
 
-`PeerConfig.sped` defaults to `false`: ICE completes, then DTLS starts. Set `sped: true` together with DTLS 1.3 so this PeerConnection embeds the DTLS 1.3 handshake in authenticated ICE Binding attributes (`0xC070` / `0xC071`). `connect()` throws if `sped` is true and `dtls.protocolVersions` does not include `"1.3"`. `sped: true` cannot be combined with `dtls.helloRetryRequest: true` (SPED uses ICE-authenticated address validation, not a DTLS cookie).
+`PeerConfig.sped` defaults to `false`: ICE completes, then DTLS starts. Set `sped: true` together with DTLS 1.3 so this PeerConnection embeds the DTLS 1.3 handshake in authenticated ICE Binding attributes (`0xC070` / `0xC071`). `connect()` throws if `sped` is true and `dtls.protocolVersions` does not include `"1.3"`. `sped: true` cannot be combined with `dtls.helloRetryRequest: true` (SPED uses ICE-authenticated address validation, not a DTLS cookie). Only a `sped: true` PeerConnection applies the SPED request boundary on its ICE agent: incoming Binding requests must carry a valid `MESSAGE-INTEGRITY` (others are dropped), a check carrying an older generation's ufrag is answered without touching the current checklist, and checks arriving before `connect()` are paired at once and held until it. Without `sped` the ICE agent keeps its default request handling.
 
 ```ts
 const pc = new RTCPeerConnection({

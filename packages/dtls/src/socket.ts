@@ -230,6 +230,8 @@ export class DtlsSocket {
     // Transport identity is the peer: 5-tuple is not an auth boundary.
     // Accept addressless and alternate addresses (ICE may not expose stable rinfo).
     if (this.isAuthenticatedSinglePeerTransport()) return true;
+    // No association pin: every source is processed.
+    if (this.peerIdentityMode === "unpinned") return true;
     const pin = this.transport.pinnedPeer;
     if (!pin) return true;
     if (!addr) {
@@ -251,6 +253,7 @@ export class DtlsSocket {
       peerIdentityMode: this.options.peerIdentityMode,
       addressValidation: this.options.addressValidation,
       transport: this.options.transport as { peerAuthenticated?: boolean },
+      offersDtls13: this.protocolVersions.includes(DtlsVersion.V1_3),
     });
   }
 
@@ -268,11 +271,18 @@ export class DtlsSocket {
    * are cryptographically authenticated for lifecycle alerts. Epoch-0 fatal /
    * close_notify must not tear down a post-handshake association (unauth DoS).
    */
-  protected isAuthenticatedLegacy12Record(epoch: number): boolean {
-    // During the handshake, a peer may still send a plaintext fatal alert
-    // after this side has advanced its write epoch. Require AEAD only once the
-    // association is connected; the source/cookie identity gate still applies.
-    return !this.connected || epoch > 0;
+  protected isAuthenticatedLegacy12Record(
+    epoch: number,
+    contentType: "alert" | "handshake" | "applicationData",
+  ): boolean {
+    if (epoch > 0) return true;
+    // Before keys exist every record is epoch 0.
+    if (!this.connected && this.dtls.epoch === 0) return true;
+    // The peer may still send a plaintext (epoch-0) alert after this side
+    // advanced its write epoch, e.g. the server's bad_certificate answering
+    // the client's Flight5 before its own ChangeCipherSpec. Only alerts are
+    // accepted there, and only until the handshake completed.
+    return contentType === "alert" && !this.connected;
   }
 
   /**
@@ -287,10 +297,8 @@ export class DtlsSocket {
    * but either is sufficient for association-lifecycle alert decisions.
    */
   protected hasAssociationPeerAuth(): boolean {
-    // A DTLS client has an outbound association owner; source pinning (when
-    // available) is still enforced by matchesPinnedPeer(). Servers remain
-    // silent until ICE identity or a return-routability pin is established.
-    if (this.sessionType === SessionType.CLIENT) return true;
+    // Without ICE identity or the unpinned mode, an association (client or
+    // server) stays silent until its return-routability pin is established.
     return associationHasPeerAuth({
       hasPinnedPeer: !!this.transport.pinnedPeer,
       identityMode: this.peerIdentityMode,
@@ -363,7 +371,10 @@ export class DtlsSocket {
                 // invariant as DTLS 1.3 (drop without lifecycle change). Must not
                 // call renegotiation() / reset cipher on garbage or spoofed CH.
                 if (
-                  !this.isAuthenticatedLegacy12Record(recordEpoch) ||
+                  !this.isAuthenticatedLegacy12Record(
+                    recordEpoch,
+                    "handshake",
+                  ) ||
                   (this.connected && recordEpoch < this.dtls.remoteEpoch)
                 ) {
                   log(
@@ -415,7 +426,12 @@ export class DtlsSocket {
                 // Never deliver app data after association terminal teardown.
                 if (this.associationTornDown || this.ended) return;
                 // App data is always epoch>0 AEAD; unauthenticated epoch-0 must not deliver.
-                if (!this.isAuthenticatedLegacy12Record(recordEpoch)) {
+                if (
+                  !this.isAuthenticatedLegacy12Record(
+                    recordEpoch,
+                    "applicationData",
+                  )
+                ) {
                   log(
                     this.dtls.sessionId,
                     "DTLS 1.2: drop unauthenticated application_data",
@@ -444,7 +460,7 @@ export class DtlsSocket {
                 }
                 // Unauthenticated (epoch-0 after keys) alerts must not change
                 // association lifecycle — only AEAD-protected records may.
-                if (!this.isAuthenticatedLegacy12Record(recordEpoch)) {
+                if (!this.isAuthenticatedLegacy12Record(recordEpoch, "alert")) {
                   log(
                     this.dtls.sessionId,
                     "DTLS 1.2: ignore unauthenticated alert (no terminal)",
@@ -881,6 +897,8 @@ export class DtlsSocket {
     mode: "set-if-empty" | "replace" = "set-if-empty",
   ): void {
     if (!addr || addr[0] == null || addr[1] == null) return;
+    // "unpinned": TX follows the transport's last remote address.
+    if (this.peerIdentityMode === "unpinned") return;
     if (mode === "set-if-empty" && this.transport.pinnedPeer) return;
     this.transport.pinnedPeer = normalizePeerTuple([addr[0], addr[1]]);
   }
@@ -1312,8 +1330,11 @@ export interface Options {
   /**
    * Peer-identity policy for association TX/RX lifecycle.
    * Default (when omitted): inferred as `"authenticated-single-peer"` when
-   * `transport.peerAuthenticated` or `addressValidation: "ice-authenticated"`,
-   * otherwise `"datagram-address"`.
+   * `transport.peerAuthenticated` or `addressValidation: "ice-authenticated"`;
+   * otherwise `"datagram-address"` when `protocolVersions` offers DTLS 1.3,
+   * and `"unpinned"` (no address pin, the DTLS 1.2 behavior before it) for a
+   * DTLS 1.2-only association. Set `"datagram-address"` to opt a DTLS 1.2
+   * association into the address pin.
    *
    * Prefer setting this explicitly for custom carriers / ICE so call sites do
    * not depend on inference.

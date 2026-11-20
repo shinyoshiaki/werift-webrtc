@@ -9,6 +9,7 @@ import {
 } from "../../src";
 import { Candidate, candidatePriority } from "../../src/candidate";
 import { Connection } from "../../src/ice";
+import { markConnectionSpedEnabled } from "../../src/internal/sped-bind";
 import { classes, methods } from "../../src/stun/const";
 import { Message } from "../../src/stun/message";
 import type { Protocol } from "../../src/types/model";
@@ -267,9 +268,10 @@ describe("ice", () => {
     ]);
   });
 
-  test("unauthenticated Binding Request は role / filter に到達しない", async () => {
-    // Arrange
+  test("SPED 有効時、unauthenticated Binding Request は role / filter に到達しない", async () => {
+    // Arrange: SPED の認証境界は PeerConfig.sped の connection だけに適用される
     const connection = createTestConnection(false, { iceLite: true });
+    markConnectionSpedEnabled(connection);
     const protocol = new ProtocolMock();
     let filterCalled = false;
     connection.options.filterStunResponse = () => {

@@ -6,6 +6,24 @@ import type { SpedRuntime } from "../sped/runtime";
 
 const runtimes = new WeakMap<Connection, SpedRuntime>();
 const maybeFlush = new WeakMap<Connection, () => void>();
+const spedEnabled = new WeakSet<Connection>();
+
+/**
+ * Mark a Connection whose peer connection opted into SPED
+ * (`PeerConfig.sped`), before any check arrives. Only such a connection
+ * applies the SPED request boundary: incoming Binding requests are
+ * HMAC-verified (RFC 8445 §7.3) and an older generation's check never touches
+ * the current checklist. Without it the ICE agent keeps its default request
+ * handling.
+ */
+export function markConnectionSpedEnabled(connection: Connection): void {
+  spedEnabled.add(connection);
+}
+
+/** Whether SPED was enabled for the connection (marked or attached). */
+export function isConnectionSpedEnabled(connection: Connection): boolean {
+  return spedEnabled.has(connection) || runtimes.has(connection);
+}
 
 export function setConnectionSpedRuntime(
   connection: Connection,

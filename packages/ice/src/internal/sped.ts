@@ -7,6 +7,7 @@ import type { Connection } from "../ice";
 import { SpedSession } from "../sped/draft00/session";
 import { type SpedHooks, SpedRuntime } from "../sped/runtime";
 import {
+  markConnectionSpedEnabled,
   requestSpedCarryMaybeFlush,
   setConnectionSpedRuntime,
 } from "./sped-bind";
@@ -66,6 +67,7 @@ export function attachSpedToConnection(
     },
   });
   runtime.syncPathMtuFromConnection(connection);
+  markConnectionSpedEnabled(connection);
   setConnectionSpedRuntime(connection, runtime);
   return {
     session,

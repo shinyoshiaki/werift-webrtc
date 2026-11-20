@@ -81,6 +81,8 @@ test("e2e/self12: failed CH2 commit does not poison association state", async ()
   // Arrange
   const serverTransport = await UdpTransport.init("udp4");
   const server = new DtlsServer({
+    // DTLS 1.2 の association アドレス pin は opt-in
+    peerIdentityMode: "datagram-address",
     transport: serverTransport,
     cert: certPem,
     key: keyPem,
@@ -135,6 +137,7 @@ test("e2e/self12: after failed commit, clean client handshake succeeds", async (
   clientTransport.rinfo = serverTransport.address;
 
   const server = new DtlsServer({
+    peerIdentityMode: "datagram-address",
     transport: serverTransport,
     cert: certPem,
     key: keyPem,
@@ -162,6 +165,7 @@ test("e2e/self12: after failed commit, clean client handshake succeeds", async (
   serverTransport.send = blackhole;
 
   const client = new DtlsClient({
+    peerIdentityMode: "datagram-address",
     transport: clientTransport,
     cert: certPem,
     key: keyPem,

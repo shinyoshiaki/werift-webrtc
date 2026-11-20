@@ -25,7 +25,13 @@ const log = debug("werift-dtls : packages/dtls/flight/server/flight2.ts : log");
  */
 export const flight2 =
   (udp: TransportContext, dtls: DtlsContext) =>
-  (clientHello: ClientHello, dest?: Address, clientHelloMessageSeq = 0) => {
+  (
+    clientHello: ClientHello,
+    dest?: Address,
+    clientHelloMessageSeq = 0,
+    /** Cookie peer binding; defaults to the ClientHello source address. */
+    peerKey = peerKeyFromAddr(dest),
+  ) => {
     log("dtls version", clientHello.clientVersion);
 
     dtls.flight = 2;
@@ -37,7 +43,6 @@ export const flight2 =
     // replay window will discard HVR2 as a duplicate of HVR1.
     dtls.sequenceNumber = clientHelloMessageSeq;
 
-    const peerKey = peerKeyFromAddr(dest);
     const chBody = clientHello.serialize();
     const cookie = mintDtls12HelloVerifyCookie(
       dtls.cookieSecret,

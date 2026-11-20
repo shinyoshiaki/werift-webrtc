@@ -6,6 +6,7 @@ import {
   attachSpedToConnection,
   decodeSpedData,
 } from "../../src/internal/sped";
+import { markConnectionSpedEnabled } from "../../src/internal/sped-bind";
 import {
   DTLS_IN_STUN_ACK,
   DTLS_IN_STUN_DATA,
@@ -133,8 +134,9 @@ function forgedSpedAttributes(data: Buffer) {
 
 describe("ICE Binding Request 認証境界", () => {
   it("誤 HMAC の Binding Request は drop する", async () => {
-    // Arrange
+    // Arrange: SPED を有効にした connection
     const connection = createTestConnection(true);
+    markConnectionSpedEnabled(connection);
     const protocol = new SpedProtocolMock();
     (connection as any).ensureProtocol(protocol);
     const request = new Message(methods.BINDING, classes.REQUEST);
@@ -150,6 +152,51 @@ describe("ICE Binding Request 認証境界", () => {
     // Assert
     expect(protocol.sentMessage).toBeUndefined();
     expect(connection.checkList).toHaveLength(0);
+  });
+
+  it("SPED 無効時は誤 HMAC の Binding Request も従来どおり応答し、checklist 確定まで保留する", async () => {
+    // Arrange: SPED を有効にしていない connection
+    const connection = createTestConnection(true);
+    const protocol = new SpedProtocolMock();
+    (connection as any).ensureProtocol(protocol);
+    const request = new Message(methods.BINDING, classes.REQUEST);
+    request
+      .setAttribute("USERNAME", `${connection.localUsername}:remote`)
+      .setAttribute("PRIORITY", 1)
+      .addMessageIntegrity(Buffer.from("wrong-password"))
+      .addFingerprint();
+
+    // Act: 誤 HMAC の check を受信する
+    protocol.onRequestReceived.execute(request, ["1.2.3.4", 1], request.bytes);
+    await new Promise((r) => setTimeout(r, 20));
+
+    // Assert: MI は検証せず応答し、空の checklist には pair を作らず early check として保留する
+    expect(protocol.sentMessage?.messageClass).toBe(classes.RESPONSE);
+    expect(connection.checkList).toHaveLength(0);
+    expect((connection as any).earlyChecks).toHaveLength(1);
+  });
+
+  it("SPED 無効時の旧 generation の check は従来どおり current の checklist へ渡す", async () => {
+    // Arrange: restart 後に旧 ufrag の check が届く
+    const connection = createTestConnection(true);
+    const oldUser = connection.localUsername;
+    const oldPass = connection.localPassword;
+    await connection.restart();
+    const protocol = new SpedProtocolMock();
+    (connection as any).ensureProtocol(protocol);
+    const request = new Message(methods.BINDING, classes.REQUEST);
+    request
+      .setAttribute("USERNAME", `${oldUser}:remote`)
+      .setAttribute("PRIORITY", 1);
+    request.addMessageIntegrity(Buffer.from(oldPass)).addFingerprint();
+
+    // Act: 旧 generation の check を受信する
+    protocol.onRequestReceived.execute(request, ["1.2.3.4", 9], request.bytes);
+    await new Promise((r) => setTimeout(r, 20));
+
+    // Assert: 応答し、空の checklist なので early check として保留される
+    expect(protocol.sentMessage?.messageClass).toBe(classes.RESPONSE);
+    expect((connection as any).earlyChecks).toHaveLength(1);
   });
 
   it("old generation の認証済み request は current SPED を更新しない", async () => {

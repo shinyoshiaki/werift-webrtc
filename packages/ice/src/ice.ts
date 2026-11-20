@@ -59,6 +59,7 @@ import {
 import { resolveHostAddresses } from "./internal/resolveHostAddresses";
 import {
   getConnectionSpedRuntime,
+  isConnectionSpedEnabled,
   registerSpedCarryMaybeFlush,
   setConnectionSpedRuntime,
 } from "./internal/sped-bind";
@@ -1138,10 +1139,20 @@ export class Connection implements IceConnection {
     const { remoteUsername: localUsername } = decodeTxUsername(txUsername);
     const localPassword = this.userHistory[localUsername] ?? this.localPassword;
 
-    const verified = parseMessage(data, Buffer.from(localPassword, "utf8"));
-    if (!verified) {
-      log("drop unauthenticated Binding Request");
-      return;
+    // SPED (PeerConfig.sped) carries DTLS on the check exchange, so its
+    // requests are HMAC-verified (RFC 8445 §7.3) and an older generation's
+    // check never reaches the current state. Without SPED the agent keeps its
+    // default handling: the MESSAGE-INTEGRITY of an incoming check is not
+    // verified here (rejecting unverifiable checks with 401, RFC 8489 §9.1.3,
+    // changes established behavior and is tracked separately).
+    const spedBoundary = isConnectionSpedEnabled(this);
+    let verified: Message | undefined = msg;
+    if (spedBoundary) {
+      verified = parseMessage(data, Buffer.from(localPassword, "utf8"));
+      if (!verified) {
+        log("drop unauthenticated Binding Request");
+        return;
+      }
     }
 
     const isCurrentGeneration = localUsername === this.localUsername;
@@ -1158,7 +1169,7 @@ export class Connection implements IceConnection {
         return;
       }
       if (
-        isProvisional &&
+        (isProvisional || !spedBoundary) &&
         this.resolveRoleConflict(
           verified,
           addr,
@@ -1201,6 +1212,9 @@ export class Connection implements IceConnection {
           addr,
           protocol,
         );
+      } else if (!spedBoundary) {
+        // Without SPED an older generation's check is handled as before.
+        this.queueOrCheckIncoming(verified, addr, protocol);
       }
       return;
     }
@@ -1214,6 +1228,7 @@ export class Connection implements IceConnection {
         addr,
         localPassword,
         iceControlling,
+        spedBoundary,
       );
     } finally {
       this.spedIncomingStunDepth--;
@@ -1221,6 +1236,19 @@ export class Connection implements IceConnection {
         this.spedCarryQueued = false;
         void this.flushSpedCarry();
       }
+    }
+  }
+
+  /** Queue a check until connect() while the checklist is empty, else handle it. */
+  private queueOrCheckIncoming(
+    message: Message,
+    addr: Address,
+    protocol: Protocol,
+  ) {
+    if (this.checkList.length === 0 && !this.earlyChecksDone) {
+      this.earlyChecks.push([message, addr, protocol]);
+    } else {
+      this.checkIncoming(message, addr, protocol);
     }
   }
 
@@ -1280,6 +1308,7 @@ export class Connection implements IceConnection {
     addr: Address,
     localPassword: string,
     iceControlling: boolean,
+    spedBoundary: boolean,
   ) {
     if (
       this.resolveRoleConflict(
@@ -1301,9 +1330,15 @@ export class Connection implements IceConnection {
     }
 
     const generation = this.generation;
-    const deferIncoming = !this.earlyChecksDone;
+    // SPED needs the pair (and its prflx candidate) before the response so
+    // the response can carry DTLS, and holds every check until connect().
+    // Without SPED a check is queued only while the checklist is still empty
+    // and the pair is formed by checkIncoming() after the response.
+    const deferIncoming = spedBoundary
+      ? !this.earlyChecksDone
+      : this.checkList.length === 0 && !this.earlyChecksDone;
     let pair = this.findPairByAddr(protocol, addr);
-    if (!pair) {
+    if (!pair && spedBoundary) {
       pair = this.ensureIncomingPair(verified, addr, protocol);
     }
 

@@ -66,6 +66,8 @@ test("e2e/self12: cookie minted for A is rejected from peer B", async () => {
   // Arrange
   const serverTransport = await UdpTransport.init("udp4");
   const server = new DtlsServer({
+    // DTLS 1.2 の association アドレス pin は opt-in
+    peerIdentityMode: "datagram-address",
     transport: serverTransport,
     cert: certPem,
     key: keyPem,
@@ -118,12 +120,62 @@ test("e2e/self12: cookie minted for A is rejected from peer B", async () => {
 }, 15_000);
 
 /**
+ * WebRTC (authenticated-single-peer) では transport 経路が peer なので、
+ * ICE の nominated pair が変わって送信元アドレスが変わっても cookie は再チャレンジしない。
+ */
+test("e2e/self12: authenticated-single-peer accepts the cookie from a changed address", async () => {
+  // Arrange: ICE と同様に transport 経路を peer とみなす server
+  const serverTransport = await UdpTransport.init("udp4");
+  const server = new DtlsServer({
+    peerIdentityMode: "authenticated-single-peer",
+    transport: serverTransport,
+    cert: certPem,
+    key: keyPem,
+    signatureHash: sig,
+  });
+  let hvrCount = 0;
+  let flight4Count = 0;
+  serverTransport.send = async () => {
+    if ((server as any).dtls.flight === 2) hvrCount += 1;
+    if ((server as any).dtls.flight === 4) flight4Count += 1;
+  };
+  const pathA: [string, number] = ["198.51.100.1", 10001];
+  const pathB: [string, number] = ["198.51.100.2", 10002];
+  const rnd = fixedClientRandom();
+
+  try {
+    // Act: CH1 は経路 A、cookie 付き CH2 は経路 B から届く
+    await (server as any).handleHandshakes(
+      chAsAssembled(build12ClientHello({ random: rnd })),
+      pathA,
+    );
+    const cookie = Buffer.from((server as any).dtls.cookie as Buffer);
+    const hvrAfterCh1 = hvrCount;
+    // Flight4 の再送ループは await しない
+    void (server as any).handleHandshakes(
+      chAsAssembled(build12ClientHello({ cookie, random: rnd })),
+      pathB,
+    );
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Assert: 再 HVR せず Flight4 へ進む
+    expect(hvrCount).toBe(hvrAfterCh1);
+    expect(flight4Count).toBeGreaterThan(0);
+  } finally {
+    (server as any).dtls.flight = 6;
+    server.close();
+    await serverTransport.close().catch(() => {});
+  }
+}, 15_000);
+
+/**
  * P1: CH1 と cipher_suites が異なる CH2 + 同 cookie → 拒否。
  * （random は cookie に bind しない: 別 random の CH2 は server.clientHelloRandom.test.ts）
  */
 test("e2e/self12: CH2 with different cipher suites than cookie-bound CH1 is rejected", async () => {
   const serverTransport = await UdpTransport.init("udp4");
   const server = new DtlsServer({
+    peerIdentityMode: "datagram-address",
     transport: serverTransport,
     cert: certPem,
     key: keyPem,
@@ -166,6 +218,7 @@ test("e2e/self12: CH2 with different cipher suites than cookie-bound CH1 is reje
 test("e2e/self12: B cookie-less CH1 does not poison A's cookie CH2 commit", async () => {
   const serverTransport = await UdpTransport.init("udp4");
   const server = new DtlsServer({
+    peerIdentityMode: "datagram-address",
     transport: serverTransport,
     cert: certPem,
     key: keyPem,
@@ -311,12 +364,14 @@ test("e2e/self12: full handshake still completes with bound cookies", async () =
   clientTransport.rinfo = serverTransport.address;
 
   const server = new DtlsServer({
+    peerIdentityMode: "datagram-address",
     transport: serverTransport,
     cert: certPem,
     key: keyPem,
     signatureHash: sig,
   });
   const client = new DtlsClient({
+    peerIdentityMode: "datagram-address",
     transport: clientTransport,
     cert: certPem,
     key: keyPem,
