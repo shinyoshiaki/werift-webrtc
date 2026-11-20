@@ -967,7 +967,9 @@ function assertRouteTables(pc: RTCPeerConnection, snapshot: Snapshot) {
  * teach them (tests/media/firefoxSimulcastSsrc.test.ts).
  */
 function sendsByRid(media: MediaDescription) {
-  return media.simulcastParameters.some((param) => param.direction === "send");
+  return media.simulcastParameters.some(
+    (param) => `${param.direction}`.split(" ", 1)[0] === "send",
+  );
 }
 
 function assertRouterAndCodecs(pc: RTCPeerConnection, snapshot: Snapshot) {
