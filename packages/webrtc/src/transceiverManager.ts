@@ -80,7 +80,10 @@ export function negotiateRemoteCodecs(
 
 /** The remote sends this m-line's layers by RID (`a=rid:<id> send`). */
 function receivesByRid(media: MediaDescription) {
-  return media.simulcastParameters.some((param) => param.direction === "send");
+  // The parsed direction keeps the restrictions (`send max-width=1280`).
+  return media.simulcastParameters.some(
+    (param) => `${param.direction}`.split(" ", 1)[0] === "send",
+  );
 }
 
 function simulcastFromSendEncodings(

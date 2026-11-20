@@ -66,47 +66,52 @@ describe("simulcast (RID) receive with a=ssrc / ssrc-group:FID (Firefox)", () =>
     }
   };
 
-  test("werift の offer に対する Firefox の answer でも、トラックは RID ごとの 1 本だけで、両レイヤーの RTX は RID のトラックへ復元される", async () => {
-    // Arrange
-    const pc = createFirefoxSimulcastReceivingPeer();
-    peers.push(pc);
-    const transceiver = pc.addTransceiver("video", {
-      direction: "recvonly",
-      simulcast: [
-        { rid: "high", direction: "recv" },
-        { rid: "low", direction: "recv" },
-      ],
+  describe.each([
+    ["制約なしの RID", undefined],
+    ["制約付きの RID (max-width)", "max-width=1280"],
+  ])("%s", (_name, ridRestrictions) => {
+    test("werift の offer に対する Firefox の answer でも、トラックは RID ごとの 1 本だけで、両レイヤーの RTX は RID のトラックへ復元される", async () => {
+      // Arrange
+      const pc = createFirefoxSimulcastReceivingPeer();
+      peers.push(pc);
+      const transceiver = pc.addTransceiver("video", {
+        direction: "recvonly",
+        simulcast: [
+          { rid: "high", direction: "recv" },
+          { rid: "low", direction: "recv" },
+        ],
+      });
+      const tracks: MediaStreamTrack[] = [];
+      transceiver.onTrack.subscribe((track) => tracks.push(track));
+      await pc.setLocalDescription(await pc.createOffer());
+
+      // Act: a=ssrc ×4 と ssrc-group:FID ×2 を持つ Firefox の answer を適用する。
+      await pc.setRemoteDescription({
+        type: "answer",
+        sdp: firefoxSimulcastSdp({ type: "answer", ridRestrictions }),
+      });
+
+      expectRidTracksRepair(tracks, transceiver, routeOf(pc, transceiver));
     });
-    const tracks: MediaStreamTrack[] = [];
-    transceiver.onTrack.subscribe((track) => tracks.push(track));
-    await pc.setLocalDescription(await pc.createOffer());
 
-    // Act: a=ssrc ×4 と ssrc-group:FID ×2 を持つ Firefox の answer を適用する。
-    await pc.setRemoteDescription({
-      type: "answer",
-      sdp: firefoxSimulcastSdp({ type: "answer" }),
+    test("Firefox の offer を受けても、トラックは RID ごとの 1 本だけで、両レイヤーの RTX は RID のトラックへ復元される", async () => {
+      // Arrange
+      const pc = createFirefoxSimulcastReceivingPeer();
+      peers.push(pc);
+      const tracks: MediaStreamTrack[] = [];
+      pc.onTransceiverAdded.subscribe((transceiver) =>
+        transceiver.onTrack.subscribe((track) => tracks.push(track)),
+      );
+
+      // Act: a=ssrc ×4 と ssrc-group:FID ×2 を持つ Firefox の offer を適用し、answer を確定する。
+      await pc.setRemoteDescription({
+        type: "offer",
+        sdp: firefoxSimulcastSdp({ type: "offer", ridRestrictions }),
+      });
+      await pc.setLocalDescription(await pc.createAnswer());
+
+      const [transceiver] = pc.getTransceivers();
+      expectRidTracksRepair(tracks, transceiver, routeOf(pc, transceiver));
     });
-
-    expectRidTracksRepair(tracks, transceiver, routeOf(pc, transceiver));
-  });
-
-  test("Firefox の offer を受けても、トラックは RID ごとの 1 本だけで、両レイヤーの RTX は RID のトラックへ復元される", async () => {
-    // Arrange
-    const pc = createFirefoxSimulcastReceivingPeer();
-    peers.push(pc);
-    const tracks: MediaStreamTrack[] = [];
-    pc.onTransceiverAdded.subscribe((transceiver) =>
-      transceiver.onTrack.subscribe((track) => tracks.push(track)),
-    );
-
-    // Act: a=ssrc ×4 と ssrc-group:FID ×2 を持つ Firefox の offer を適用し、answer を確定する。
-    await pc.setRemoteDescription({
-      type: "offer",
-      sdp: firefoxSimulcastSdp({ type: "offer" }),
-    });
-    await pc.setLocalDescription(await pc.createAnswer());
-
-    const [transceiver] = pc.getTransceivers();
-    expectRidTracksRepair(tracks, transceiver, routeOf(pc, transceiver));
   });
 });

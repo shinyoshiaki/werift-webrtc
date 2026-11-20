@@ -470,12 +470,20 @@ export function createFirefoxSimulcastReceivingPeer() {
  * `a=ssrc-group:FID` ×2), as Firefox writes it in an offer or an answer.
  */
 export function firefoxSimulcastSdp(
-  options: { type: "offer" | "answer"; mid?: string } = { type: "offer" },
+  options: {
+    type: "offer" | "answer";
+    mid?: string;
+    /** Appended to each `a=rid:<id> send` line (RFC 8851 restrictions). */
+    ridRestrictions?: string;
+  } = { type: "offer" },
 ) {
   const mid = options.mid ?? "0";
   const ids = simulcastExtensionIds;
   const cname = "{f9b1d5a0-4c3e-4f5e-9d2b-7a1c2e3f4a5b}";
   const [high, low] = firefoxSimulcastLayers;
+  const ridSuffix = options.ridRestrictions
+    ? ` ${options.ridRestrictions}`
+    : "";
   return [
     "v=0",
     "o=mozilla...THIS_IS_SDPARTA-99.0 4011592410357045000 0 IN IP4 0.0.0.0",
@@ -496,8 +504,8 @@ export function firefoxSimulcastSdp(
     "a=ice-ufrag:9a3c1d2e",
     `a=mid:${mid}`,
     "a=msid:{5c4d3e2f-1a0b-4c9d-8e7f-6a5b4c3d2e1f} {0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d}",
-    "a=rid:high send",
-    "a=rid:low send",
+    `a=rid:high send${ridSuffix}`,
+    `a=rid:low send${ridSuffix}`,
     "a=rtcp-fb:96 nack",
     "a=rtcp-fb:96 nack pli",
     "a=rtcp-mux",
