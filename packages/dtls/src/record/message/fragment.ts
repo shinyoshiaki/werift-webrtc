@@ -1,6 +1,5 @@
 /* eslint-disable @typescript-eslint/ban-ts-comment */
 
-import type { HandshakeType } from "../../handshake/const";
 import type { HandshakeValidation } from "../../handshake/validation";
 import { getObjectSummary } from "../../helper";
 import { binaryData } from "../../imports/common";
@@ -205,25 +204,5 @@ export class FragmentedHandshake {
       combined.length,
       combined,
     );
-  }
-
-  static findAllFragments(
-    fragments: FragmentedHandshake[],
-    type: HandshakeType,
-  ): FragmentedHandshake[] {
-    const reference = fragments.find((v) => v.msg_type === type);
-    if (!reference) return [];
-
-    // ignore empty arrays
-    if (!fragments?.length) return [];
-
-    // return all fragments with matching msg_type, message_seq and total length
-    return fragments.filter((f) => {
-      return (
-        f.msg_type === reference.msg_type &&
-        f.message_seq === reference.message_seq &&
-        f.length === reference.length
-      );
-    });
   }
 }
