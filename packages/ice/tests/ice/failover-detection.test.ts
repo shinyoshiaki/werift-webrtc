@@ -3,10 +3,22 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { Message } from "../../src";
 import {
   DEFAULT_FAILOVER_THRESHOLDS,
+  isNotReceiving,
+  isUnwritable,
+  isWeak,
+  isWritable,
+  nextPingAt,
+  type PairLiveness,
   resolveFailoverThresholds,
 } from "../../src/failover";
 import { classes, methods } from "../../src/stun/const";
-import { StunProtocol } from "../../src/stun/protocol";
+import {
+  DATA_SEND_CONFIRM_INTERVAL_MS,
+  DataSendConfirmation,
+  isPathBrokenSendError,
+  PATH_BROKEN_SEND_ERRORS,
+  StunProtocol,
+} from "../../src/stun/protocol";
 import {
   createStunOverTurnClient,
   type StunOverTurnProtocol,
@@ -16,10 +28,14 @@ import {
   createFailoverRealPair,
   createStreamTurnServer,
   createTurnSuccessResponse,
+  drawFailoverBurstCase,
+  drawFailoverThresholds,
   expectDataFlows,
   FAILOVER_HIGH,
   FAILOVER_LOW,
   keepSending,
+  propertySeeds,
+  seededRandom,
   selectSamePath,
 } from "../utils";
 
@@ -85,30 +101,6 @@ describe("§15 A: a selected pair that stopped receiving", () => {
       expect(first!.at - cutAt).toBeLessThanOrEqual(2500);
       expect(h.connection.nominated).toBe(relay);
       expect(Date.now() - cutAt).toBeLessThanOrEqual(4500);
-    } finally {
-      await h.connection.close();
-    }
-  });
-
-  test("a loss burst shorter than 2.5 s + 1 s does not move the selection", async () => {
-    const h = await createFailoverHarness();
-    const relay = h.pairOf(1);
-    await vi.advanceTimersByTimeAsync(10_000);
-
-    try {
-      // Act: host の応答直後に host を 3 s だけ切って戻し、30 s 進める。
-      const cutAt = await h.cutRightAfterAnswer(0);
-      await vi.advanceTimersByTimeAsync(cutAt + 3000 - Date.now());
-      h.restore(0);
-      await vi.advanceTimersByTimeAsync(30_000);
-
-      // Assert: 選択は host のまま、relay へ指名を送らない。
-      expect(h.connection.nominated).toBe(h.selection);
-      expect(
-        h
-          .requestsTo(relay)
-          .some((request) => request.useCandidate || request.nomination),
-      ).toBe(false);
     } finally {
       await h.connection.close();
     }
@@ -454,98 +446,331 @@ describe("§15 B: the protocols report a path gone", () => {
   });
 });
 
-describe("§15 C: thresholds (IceOptions.failover)", () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-    vi.spyOn(Math, "random").mockReturnValue(0.5);
+describe("§15 A / C property: a cut of random length under random thresholds", () => {
+  // seed ごとに閾値・モード・断の向きと長さを引き、退避の安全側 (短い断では移らない) と
+  // 活性側 (長い断では上限内に移る) の境界を調べる。その間の灰色の範囲は判定しない。
+  const { seeds, replay } = propertySeeds("WERIFT_ICE_FAILOVER_BURST", {
+    seeds: 96,
+    steps: 1,
+  });
+  /** The harness's consent response deadline (ms; its pairs have no RTT yet). */
+  const DEADLINE = 1000;
+  /** `advanceUntil` polls every 100 ms; `cutRightAfterAnswer` cuts within 100 ms of the answer. */
+  const SLACK = 300;
+  /**
+   * What a two-way cut of `burstMs` must lead to. The checks during the cut:
+   * the first once nothing arrived for `receivingTimeout`, then every 900 ms;
+   * the silence lasts at most one weak interval past the cut. `safe`: neither
+   * rule can hold (no check went unanswered, or the silence stays below
+   * receiving + delay and the unwritable rule lacks its time or its checks),
+   * so the selection must not move. `live`: the cut outlasts the receiving
+   * rule's decision, so the selection moves within `liveBound`.
+   */
+  const classifyBurst = (
+    {
+      receivingTimeout: rt,
+      receivingSwitchingDelay: delay,
+      unwritableMinChecks: minChecks,
+      unwritableTimeout,
+    }: ReturnType<typeof drawFailoverBurstCase>["thresholds"],
+    burstMs: number,
+  ) => {
+    const unansweredMax =
+      burstMs + 100 < rt ? 0 : Math.floor((burstMs + 100 - rt) / 900) + 1;
+    const silenceMax = burstMs + 100 + 900 + 100;
+    const safe =
+      unansweredMax === 0 ||
+      (silenceMax < rt + delay &&
+        (silenceMax < unwritableTimeout || unansweredMax < minChecks));
+    const liveBound = rt + Math.max(DEADLINE, delay + 900) + SLACK;
+    return { safe, live: burstMs >= liveBound, liveBound };
+  };
+
+  test("the default seeds cover each asserted branch (a safe cut, a live cut, a one-way break) and leave few cuts unasserted", () => {
+    // Act: 既定の seed の事例を分類する。
+    const counts = { safe: 0, live: 0, gray: 0, outbound: 0 };
+    for (const seed of seeds) {
+      const c = drawFailoverBurstCase(seed);
+      if (c.direction === "outbound") {
+        counts.outbound++;
+        continue;
+      }
+      const { safe, live } = classifyBurst(c.thresholds, c.burstMs);
+      counts[safe ? "safe" : live ? "live" : "gray"]++;
+    }
+
+    // Assert: 判定する分岐はどれも seed の 1 割以上で調べ、判定しない灰色の範囲は 2 割未満。
+    for (const branch of ["safe", "live", "outbound"] as const) {
+      expect(counts[branch], JSON.stringify(counts)).toBeGreaterThanOrEqual(
+        seeds.length / 10,
+      );
+    }
+    expect(counts.gray, JSON.stringify(counts)).toBeLessThan(seeds.length / 5);
   });
   afterEach(() => {
     vi.restoreAllMocks();
     vi.useRealTimers();
   });
 
-  test("unset or invalid values keep libwebrtc's defaults; valid ones apply", () => {
-    // Act / Assert: 未指定は既定値 (5 回・5000・2500・1000 ms)。
-    expect(resolveFailoverThresholds(undefined)).toEqual({
-      unwritableMinChecks: 5,
-      unwritableTimeout: 5000,
-      receivingTimeout: 2500,
-      receivingSwitchingDelay: 1000,
-    });
-    expect(resolveFailoverThresholds({})).toEqual(DEFAULT_FAILOVER_THRESHOLDS);
-
-    // Act / Assert: 範囲内の値はそのまま使う (0 も可の項目は 0 を受け付ける)。
-    expect(
-      resolveFailoverThresholds({
-        unwritableMinChecks: 2,
-        unwritableTimeout: 0,
-        receivingTimeout: 1000,
-        receivingSwitchingDelay: 0,
-      }),
-    ).toEqual({
-      unwritableMinChecks: 2,
-      unwritableTimeout: 0,
-      receivingTimeout: 1000,
-      receivingSwitchingDelay: 0,
-    });
-
-    // Act / Assert: 不正な値 (負・非有限・小数の回数・0 の受信時間) は既定値に戻る。
-    expect(
-      resolveFailoverThresholds({
-        unwritableMinChecks: 1.5,
-        unwritableTimeout: -1,
-        receivingTimeout: 0,
-        receivingSwitchingDelay: Number.NaN,
-      }),
-    ).toEqual(DEFAULT_FAILOVER_THRESHOLDS);
-  });
-
-  test("shorter receiving thresholds fail a dead path over sooner", async () => {
+  test.each(seeds)("seed %i", async (seed) => {
+    const { thresholds, renomination, direction, burstMs, random } =
+      drawFailoverBurstCase(seed);
+    const {
+      receivingTimeout: rt,
+      receivingSwitchingDelay: delay,
+      unwritableMinChecks: minChecks,
+      unwritableTimeout,
+    } = thresholds;
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockImplementation(random.next);
+    const label = `${replay(seed)} ${JSON.stringify({ ...thresholds, renomination, direction, burstMs })}`;
     const h = await createFailoverHarness({
-      failover: { receivingTimeout: 1000, receivingSwitchingDelay: 0 },
-    });
-    const relay = h.pairOf(1);
-    await vi.advanceTimersByTimeAsync(10_000);
-
-    try {
-      // Act: host の応答直後に host を切り、退避するまで進める。
-      const cutAt = await h.cutRightAfterAnswer(0);
-      await h.advanceUntil(() => h.connection.nominated === relay, 10_000);
-
-      // Assert: 既定値 (2.5 s + 1 s 以上) よりずっと早く、遮断から 2 s 以内に relay へ移る。
-      expect(h.connection.nominated).toBe(relay);
-      expect(Date.now() - cutAt).toBeLessThanOrEqual(2000);
-    } finally {
-      await h.connection.close();
-    }
-  });
-
-  test("fewer unwritable checks fail a one-way break over after that many unanswered checks", async () => {
-    const h = await createFailoverHarness({
-      failover: { unwritableMinChecks: 2, unwritableTimeout: 1000 },
+      renomination,
+      failover: thresholds,
     });
     const host = h.selection;
     const relay = h.pairOf(1);
     await vi.advanceTimersByTimeAsync(10_000);
-    const stopReceiving = h.keepReceiving(host);
+    const stopReceiving =
+      direction === "outbound" ? h.keepReceiving(host) : () => {};
+    let movedAt: number | undefined;
+    const recordMove = () => {
+      if (movedAt === undefined && h.connection.nominated === relay) {
+        movedAt = Date.now();
+      }
+      return false;
+    };
 
     try {
-      // Act: 相手のデータは届いたまま host への送信だけを落とし、退避するまで進める。
+      // Act: 応答の直後に host を切る。
       const cutAt = await h.cutRightAfterAnswer(0);
-      await h.advanceUntil(() => h.connection.nominated === relay, 20_000);
 
-      // Assert: 応答のない consent check 2 回で (既定の 5 回を待たずに) relay へ移る (3 回目は応答待ちのまま)。
-      const missed = h
-        .requestsTo(host)
-        .filter((request) => request.at > cutAt && !request.answered);
-      expect(h.connection.nominated).toBe(relay);
-      expect(missed.length).toBeGreaterThanOrEqual(2);
-      expect(missed.length).toBeLessThanOrEqual(3);
+      if (direction === "outbound") {
+        // Act: 相手のデータは届いたまま、移るまで進める。
+        await h.advanceUntil(() => h.connection.nominated === relay, 30_000);
+        const took = Date.now() - cutAt;
+        const sent = h
+          .requestsTo(host)
+          .filter((request) => request.at > cutAt && request.at < cutAt + took);
+
+        // Assert: 受信は続くので受信途絶では移らず、書き込み不可 (minChecks 回の check と unwritableTimeout) を満たしてから移る。
+        expect(h.connection.nominated, label).toBe(relay);
+        expect(sent.length, label).toBeGreaterThanOrEqual(minChecks);
+        expect(took, label).toBeGreaterThanOrEqual(unwritableTimeout - 100);
+        // Assert: consent の間隔 (最大 6 s) の後、900 ms ごとの check で数が揃うか、timeout を過ぎた次の check までに移る。
+        expect(took, label).toBeLessThanOrEqual(
+          Math.max(6000 + 900 * (minChecks - 1), unwritableTimeout + 900) +
+            DEADLINE +
+            SLACK,
+        );
+        return;
+      }
+
+      // Act: burstMs だけ切って戻し、さらに 20 s 進める (移った時刻を記録する)。
+      await h.advanceUntil(recordMove, burstMs);
+      h.restore(0);
+      await h.advanceUntil(recordMove, 20_000);
+
+      const { safe, live, liveBound } = classifyBurst(thresholds, burstMs);
+
+      // Assert: どちらの規則も満たせない短い断では移らない。
+      if (safe) expect(movedAt, label).toBeUndefined();
+      // Assert: 受信途絶の判定に足りる長さの断では、その上限内に移る。
+      if (live) {
+        expect(movedAt, label).toBeDefined();
+        expect(movedAt! - cutAt, label).toBeLessThanOrEqual(liveBound);
+      }
+      // Assert: どの場合も failed にならない。
+      expect(
+        h.states.map(({ state }) => state),
+        label,
+      ).not.toContain("failed");
     } finally {
       stopReceiving();
       await h.connection.close();
     }
   });
+});
+
+describe("§15 pure rules (properties)", () => {
+  const { seeds, replay } = propertySeeds("WERIFT_ICE_FAILOVER_RULES", {
+    seeds: 200,
+    steps: 1,
+  });
+
+  test.each(seeds)(
+    "seed %i: resolveFailoverThresholds keeps each valid value and the default for any other",
+    (seed) => {
+      // Arrange: 項目ごとに未指定・範囲内・範囲外・非有限・小数を引く。
+      const random = seededRandom(seed);
+      const draw = () =>
+        random.pick([
+          undefined,
+          random.int(0, 10_000),
+          random.int(1, 8),
+          -random.int(1, 1000),
+          0,
+          0.5,
+          1.5,
+          Number.NaN,
+          Number.POSITIVE_INFINITY,
+        ]);
+      const options = {
+        unwritableMinChecks: draw(),
+        unwritableTimeout: draw(),
+        receivingTimeout: draw(),
+        receivingSwitchingDelay: draw(),
+      };
+      const valid = {
+        unwritableMinChecks: (v: number) => Number.isInteger(v) && v >= 1,
+        unwritableTimeout: (v: number) => v >= 0,
+        receivingTimeout: (v: number) => v > 0,
+        receivingSwitchingDelay: (v: number) => v >= 0,
+      };
+
+      // Act: 既定値を補う。
+      const resolved = resolveFailoverThresholds(options);
+
+      // Assert: 有限で範囲内の値はそのまま、ほかは libwebrtc の既定値 (5・5000・2500・1000 ms)。
+      for (const key of Object.keys(valid) as (keyof typeof valid)[]) {
+        const value = options[key];
+        const keep =
+          typeof value === "number" &&
+          Number.isFinite(value) &&
+          valid[key](value);
+        expect(resolved[key], `${replay(seed)} ${key}=${value}`).toBe(
+          keep ? value : DEFAULT_FAILOVER_THRESHOLDS[key],
+        );
+      }
+      expect(DEFAULT_FAILOVER_THRESHOLDS).toEqual({
+        unwritableMinChecks: 5,
+        unwritableTimeout: 5000,
+        receivingTimeout: 2500,
+        receivingSwitchingDelay: 1000,
+      });
+    },
+  );
+
+  test.each(seeds)(
+    "seed %i: the liveness rules are consistent and monotonic (in time and in the thresholds)",
+    (seed) => {
+      // Arrange: ペアの状態・時刻・閾値を引く。
+      const random = seededRandom(seed);
+      const since = random.int(0, 10_000);
+      const lastResponse = random.chance(0.8)
+        ? since + random.int(0, 10_000)
+        : undefined;
+      const liveness: PairLiveness = {
+        since,
+        lastResponse,
+        lastReceived: (lastResponse ?? since) + random.int(0, 5_000),
+        unanswered: random.int(0, 8),
+        responses: random.int(0, 5),
+        consecutive: random.int(0, 3),
+        broken: random.chance(0.1),
+      };
+      const now = liveness.lastReceived + random.int(0, 12_000);
+      const later = now + random.int(0, 5_000);
+      const thresholds = drawFailoverThresholds(random);
+      const looser = {
+        ...thresholds,
+        unwritableMinChecks: thresholds.unwritableMinChecks + random.int(0, 3),
+        unwritableTimeout: thresholds.unwritableTimeout + random.int(0, 3000),
+        receivingTimeout: thresholds.receivingTimeout + random.int(0, 3000),
+      };
+      const lastSentAt = random.int(0, now);
+      const stable = random.int(900, 6_000);
+      const label = `${replay(seed)} ${JSON.stringify({ liveness, now, thresholds, lastSentAt, stable })}`;
+
+      // Act: 各規則を評価する。
+      const unwritable = isUnwritable(liveness, now, thresholds);
+      const weak = isWeak(liveness, now, thresholds);
+      const notReceiving = isNotReceiving(liveness, now, thresholds);
+      const writable = isWritable(liveness, now, thresholds);
+      const due = nextPingAt(liveness, lastSentAt, stable, thresholds);
+
+      // Assert: 受信途絶なら weak。書き込み可能は「応答を受けたことがあり、書き込み不可でない」。broken は書き込み不可。
+      if (notReceiving) expect(weak, label).toBe(true);
+      expect(writable, label).toBe(lastResponse !== undefined && !unwritable);
+      if (liveness.broken) expect(unwritable, label).toBe(true);
+      // Assert: 時間が進んでも書き込み不可・受信途絶・weak は解けない (応答や受信がない限り)。
+      if (unwritable)
+        expect(isUnwritable(liveness, later, thresholds), label).toBe(true);
+      if (notReceiving)
+        expect(isNotReceiving(liveness, later, thresholds), label).toBe(true);
+      if (weak) expect(isWeak(liveness, later, thresholds), label).toBe(true);
+      // Assert: 閾値を緩めると書き込み不可・受信途絶になりにくくなるだけ。
+      if (isUnwritable(liveness, now, looser))
+        expect(unwritable, label).toBe(true);
+      if (isNotReceiving(liveness, now, looser))
+        expect(notReceiving, label).toBe(true);
+      // Assert: 次の check は weak の間隔 (900 ms) より早くならない。未応答・broken なら 900 ms ちょうど。
+      // それ以外は安定時の間隔と無受信 receivingTimeout の早い方 (ただし 900 ms 以上)。
+      const weakAt = lastSentAt + 900;
+      expect(due, label).toBeGreaterThanOrEqual(weakAt);
+      if (liveness.unanswered > 0 || liveness.broken) {
+        expect(due, label).toBe(weakAt);
+      } else {
+        expect(due, label).toBe(
+          Math.max(
+            weakAt,
+            Math.min(
+              lastSentAt + stable,
+              liveness.lastReceived + thresholds.receivingTimeout,
+            ),
+          ),
+        );
+      }
+      // Assert: 閾値を省略すると既定値で評価する。
+      expect(isUnwritable(liveness, now), label).toBe(
+        isUnwritable(liveness, now, DEFAULT_FAILOVER_THRESHOLDS),
+      );
+    },
+  );
+
+  test.each(seeds)(
+    "seed %i: a send error is a broken path exactly for the routing codes; data sends are confirmed once per 100 ms",
+    (seed) => {
+      // Arrange: エラーコードと、増加する送信時刻の列を引く。
+      const random = seededRandom(seed);
+      const code = random.pick([
+        ...PATH_BROKEN_SEND_ERRORS,
+        "EINVAL",
+        "EACCES",
+        "EMSGSIZE",
+        "ECONNREFUSED",
+        "ENOBUFS",
+        "",
+      ]);
+      const error = random.chance(0.9)
+        ? Object.assign(new Error(`send ${code}`), { code })
+        : { code };
+      const times: number[] = [];
+      let t = random.int(0, 1000);
+      for (let i = 0; i < random.int(1, 60); i++) {
+        t += random.pick([0, 1, random.int(0, 50), random.int(50, 150), 100]);
+        times.push(t);
+      }
+      const confirmation = new DataSendConfirmation();
+
+      // Act: 分類と、送信ごとの確認の要否を求める。
+      const broken = isPathBrokenSendError(error);
+      const confirmed = times.filter((time) => confirmation.due(time));
+
+      // Assert: Error で、経路のエラーコードのときだけ経路の消失とみなす。
+      expect(broken, `${replay(seed)} ${code}`).toBe(
+        error instanceof Error && PATH_BROKEN_SEND_ERRORS.has(code),
+      );
+      // Assert: 最初の送信は確認し、確認どうしは 100 ms 以上離れ、前の確認から 100 ms 経った最初の送信は必ず確認する。
+      let last = Number.NEGATIVE_INFINITY;
+      const expected = times.filter((time) => {
+        if (time - last < DATA_SEND_CONFIRM_INTERVAL_MS) return false;
+        last = time;
+        return true;
+      });
+      expect(confirmed, `${replay(seed)} ${times}`).toEqual(expected);
+    },
+  );
 });
 
 describe("§15 over real sockets (werift ↔ werift)", () => {

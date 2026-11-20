@@ -713,6 +713,70 @@ export const findFlightSizeViolation = (sctp: SCTP) => {
   return undefined;
 };
 
+/** Bytes a DATA chunk of `payloadLength` occupies on the wire: 16-byte header + payload padded to 4. */
+export const dataChunkWireSize = (payloadLength: number) =>
+  16 + Math.ceil(payloadLength / 4) * 4;
+
+/**
+ * Oracle of the sender's congestion control, observed from outside its
+ * bookkeeping (the chunks' wire sizes and the T3 / Fast Retransmit marks):
+ * - new data goes out only while the DATA already in flight, counted at its
+ *   wire size, is below cwnd (RFC 9260 §6.1 B / §7.2);
+ * - a chunk is marked for Fast Retransmit at most once per transmission
+ *   round started by the T3-rtx timer (RFC 9260 §7.2.4).
+ * Returns the violations found so far and the counts of the marks.
+ */
+export const observeCongestionControl = (sctp: SCTP) => {
+  const sender = sctp as any;
+  const violations: string[] = [];
+  const fastRetransmits = new Map<DataChunk, number>();
+  const t3Rounds = new Map<DataChunk, number>();
+  const counts = { newData: 0, fastRetransmits: 0, t3: 0 };
+
+  const strike = sender.strikeChunk.bind(sender);
+  sender.strikeChunk = (chunk: DataChunk) => {
+    const marked = strike(chunk);
+    if (marked) {
+      counts.fastRetransmits++;
+      const n = (fastRetransmits.get(chunk) ?? 0) + 1;
+      fastRetransmits.set(chunk, n);
+      if (n > 1 + (t3Rounds.get(chunk) ?? 0)) {
+        violations.push(
+          `tsn ${chunk.tsn} fast-retransmitted ${n} times in ${t3Rounds.get(chunk) ?? 0} T3 rounds`,
+        );
+      }
+    }
+    return marked;
+  };
+  const t3 = sender.timer3Expired;
+  sender.timer3Expired = () => {
+    counts.t3++;
+    for (const chunk of sender.sentQueue as DataChunk[]) {
+      if (!chunk.acked && !chunk.abandoned) {
+        t3Rounds.set(chunk, (t3Rounds.get(chunk) ?? 0) + 1);
+      }
+    }
+    t3();
+  };
+  const send = sender.sendChunk.bind(sender);
+  sender.sendChunk = (chunk: Chunk) => {
+    if (chunk instanceof DataChunk && chunk.sentCount === 1) {
+      counts.newData++;
+      // The chunk is already counted in flight: the others were below cwnd.
+      const others = ([...sender.sentQueue] as DataChunk[])
+        .filter((c) => c.inFlight && c !== chunk)
+        .reduce((sum, c) => sum + dataChunkWireSize(c.userData.length), 0);
+      if (others >= sender.cwnd) {
+        violations.push(
+          `new tsn ${chunk.tsn} sent with ${others} wire bytes in flight >= cwnd ${sender.cwnd}`,
+        );
+      }
+    }
+    return send(chunk);
+  };
+  return { violations, counts };
+};
+
 // # stream reset (RFC 6525) helpers
 
 const DATA_FLAG_LAST_FRAG = 0x01;
