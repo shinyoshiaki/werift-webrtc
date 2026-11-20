@@ -289,6 +289,39 @@ describe("simulcast (RID) receive with a=ssrc-group:FID keeps the RID rules", ()
     }
   });
 
+  test("repaired RID がなくても、旧媒体 SSRC を修復した FID の RTX SSRC は、媒体 SSRC の切り替え後に新しい媒体の欠落を復元する", async () => {
+    // Arrange: repaired RID 拡張なしの FID 付き offer。
+    const { pc, route, delivered } = await receiveFirefoxOffer(false);
+    const switched = 123456789;
+    const repair = (
+      mediaSsrc: number,
+      sequenceNumber: number,
+      rtxSequenceNumber: number,
+    ) =>
+      createSimulcastRtxFor(mediaSsrc, sequenceNumber, {
+        rtxSsrc: high.rtxSsrc,
+        rtxSequenceNumber,
+        mid: "0",
+      });
+    try {
+      // Act: 切り替え前に 2 を修復し、媒体 SSRC が切り替わった後に同じ RTX SSRC が 11 を再送する。
+      route(media(high.ssrc, 1));
+      route(media(high.ssrc, 3));
+      route(repair(high.ssrc, 2, 1));
+      route(media(switched, 10));
+      route(media(switched, 12));
+      route(repair(switched, 11, 2));
+
+      // Assert: 切り替え前の 2 と切り替え後の 11 の両方が復元されて届く。
+      expect(retransmissionsOf(delivered)).toEqual([
+        [high.ssrc, 2],
+        [switched, 11],
+      ]);
+    } finally {
+      await pc.close();
+    }
+  });
+
   test("保留中の offer が同じ RTX SSRC に別の FID 媒体 SSRC を割り当てても、現行セッションの RTX は復元され、rollback 後も元の対応に戻る", async () => {
     // Arrange: 現行セッションの FID (high.ssrc ↔ high.rtxSsrc) と、同じ RTX SSRC を別の媒体 SSRC と組にした再 offer。
     const { pc, route, delivered } = await receiveFirefoxOffer(false);

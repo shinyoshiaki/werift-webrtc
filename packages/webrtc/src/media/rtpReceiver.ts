@@ -1243,11 +1243,16 @@ export class RTCRtpReceiver {
     this.retire(rid, old);
     for (const rtxSsrc of [...(this.rtxSsrcsByRid[rid] ?? [])]) {
       if (this.repairedMediaByRtx[rtxSsrc] === old) {
-        this.unbindRtxSsrc(rtxSsrc);
-        // An RTX SSRC the description pairs by FID stays the layer's RTX
-        // SSRC: it binds again (repaired RID, or FID to the current media
-        // SSRC) and still restores only holes of the new media SSRC.
-        if (!(rtxSsrc in this.ridFidMediaByRtx)) this.retire(rid, rtxSsrc);
+        if (rtxSsrc in this.ridFidMediaByRtx) {
+          // An RTX SSRC the description pairs by FID stays the layer's RTX
+          // SSRC, bound to its RID without a repaired RID: it only no longer
+          // counts as having repaired the old media, and restores holes of
+          // the new media SSRC alone (`NackHandler.canRepair`).
+          delete this.repairedMediaByRtx[rtxSsrc];
+        } else {
+          this.unbindRtxSsrc(rtxSsrc);
+          this.retire(rid, rtxSsrc);
+        }
       }
     }
   }
