@@ -15,6 +15,7 @@ describe("SctpTransportManager", () => {
       id: "fake-dtls-init-failure",
       role: "server",
       onStateChange: new Event<[string]>(),
+      onRoleChange: new Event<[]>(),
       dataReceiver: () => {},
       sendData,
     } as any;
@@ -38,6 +39,7 @@ describe("SctpTransportManager", () => {
       id: "fake-dtls",
       role: "server",
       onStateChange: new Event<[string]>(),
+      onRoleChange: new Event<[]>(),
       dataReceiver: () => {},
       sendData,
     } as any;

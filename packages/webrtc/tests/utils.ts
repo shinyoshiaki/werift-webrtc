@@ -1004,6 +1004,7 @@ export async function startActivationWaiting(
     state: "new",
     hasRemoteParameters: true,
     onStateChange: new Event<[string]>(),
+    onRoleChange: new Event<[]>(),
     start: vi.fn(async () => {}) as Mock<() => Promise<void>>,
   };
   const pending = waiter.startsWith("pending");

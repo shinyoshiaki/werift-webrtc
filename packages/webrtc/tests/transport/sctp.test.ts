@@ -182,6 +182,7 @@ describe("RTCSctpTransportTest", () => {
       id: "fake-dtls",
       role: "server",
       onStateChange: new Event<[string]>(),
+      onRoleChange: new Event<[]>(),
       dataReceiver: () => {},
       sendData,
     } as any;
@@ -208,6 +209,7 @@ describe("RTCSctpTransportTest", () => {
       role: "server",
       state: "connecting",
       onStateChange: new Event<[string]>(),
+      onRoleChange: new Event<[]>(),
       onEarlyApplicationAttemptCancelled: new Event<[]>(),
       onEarlyApplicationSendRevoked: new Event<[]>(),
       dataReceiver: () => {},
