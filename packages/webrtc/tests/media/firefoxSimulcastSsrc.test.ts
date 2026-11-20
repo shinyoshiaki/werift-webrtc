@@ -198,11 +198,13 @@ describe("simulcast (RID) receive with a=ssrc-group:FID keeps the RID rules", ()
     const delivered = collectDeliveredRtp(
       tracks.find((track) => track.rid === "high")!,
     );
-    return { pc, route, delivered };
+    const deliveredOf = (rid: string) =>
+      collectDeliveredRtp(tracks.find((track) => track.rid === rid)!);
+    return { pc, route, delivered, deliveredOf };
   };
 
-  const media = (ssrc: number, sequenceNumber: number) =>
-    createSimulcastMediaPacket({ ssrc, sequenceNumber, rid: "high", mid: "0" });
+  const media = (ssrc: number, sequenceNumber: number, rid = "high") =>
+    createSimulcastMediaPacket({ ssrc, sequenceNumber, rid, mid: "0" });
 
   test("媒体 SSRC が SDP の値から切り替わっても、FID の RTX SSRC からの再送は新しい媒体の欠落を復元する", async () => {
     // Arrange
@@ -342,6 +344,56 @@ describe("simulcast (RID) receive with a=ssrc-group:FID keeps the RID rules", ()
 
       // Assert: 新しい媒体 SSRC の 11 が復元されて届く。
       expect(retransmissionsOf(delivered)).toEqual([[switched, 11]]);
+    } finally {
+      await pc.close();
+    }
+  });
+
+  test("再 offer が 2 レイヤーの FID の RTX SSRC を交換して確定したら、repaired RID がなくても RTX は新しい対応先のレイヤーで復元される", async () => {
+    // Arrange: 両レイヤーの媒体を受信して RTX SSRC を結び付けた後、RTX SSRC を交換した再 offer を用意する。
+    const { pc, route, deliveredOf } = await receiveFirefoxOffer(false);
+    const [, low] = firefoxSimulcastLayers;
+    const swapped = firefoxSimulcastSdp({
+      type: "offer",
+      repairedRidExtension: false,
+    })
+      .replace(
+        `a=ssrc-group:FID ${high.ssrc} ${high.rtxSsrc}`,
+        `a=ssrc-group:FID ${high.ssrc} ${low.rtxSsrc}`,
+      )
+      .replace(
+        `a=ssrc-group:FID ${low.ssrc} ${low.rtxSsrc}`,
+        `a=ssrc-group:FID ${low.ssrc} ${high.rtxSsrc}`,
+      );
+    const high1 = deliveredOf("high");
+    const low1 = deliveredOf("low");
+    try {
+      for (const layer of firefoxSimulcastLayers) {
+        route(media(layer.ssrc, 1, layer.rid));
+        route(media(layer.ssrc, 3, layer.rid));
+      }
+
+      // Act: 再 offer を確定し、交換後の RTX SSRC から各レイヤーの 2 を再送する。
+      await pc.setRemoteDescription({ type: "offer", sdp: swapped });
+      await pc.setLocalDescription(await pc.createAnswer());
+      route(
+        createSimulcastRtxFor(high.ssrc, 2, {
+          rtxSsrc: low.rtxSsrc,
+          rtxSequenceNumber: 1,
+          mid: "0",
+        }),
+      );
+      route(
+        createSimulcastRtxFor(low.ssrc, 2, {
+          rtxSsrc: high.rtxSsrc,
+          rtxSequenceNumber: 1,
+          mid: "0",
+        }),
+      );
+
+      // Assert: 各レイヤーの欠落が、新しい対応先の RTX SSRC から同じレイヤーに復元される。
+      expect(retransmissionsOf(high1)).toEqual([[high.ssrc, 2]]);
+      expect(retransmissionsOf(low1)).toEqual([[low.ssrc, 2]]);
     } finally {
       await pc.close();
     }

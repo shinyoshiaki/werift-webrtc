@@ -596,6 +596,7 @@ export class RTCRtpReceiver {
     clearTable(this.stagedCodecs);
     clearTable(this.stagedSsrcByRtx);
     clearTable(this.stagedRidFidMediaByRtx);
+    this.reconcileFidBindings();
   }
 
   /** Internal: capture the decode tables for a negotiation rollback baseline. */
@@ -756,6 +757,7 @@ export class RTCRtpReceiver {
     clearTable(this.ssrcByRtx);
     clearTable(this.ridFidMediaByRtx);
     this.prepareReceive(params);
+    this.reconcileFidBindings();
     const codec = primaryTrackCodec(this.kind, params.codecs);
     if (codec) {
       for (const track of this.reportedTracks) track.codec = codec;
@@ -1267,9 +1269,19 @@ export class RTCRtpReceiver {
   private bindFidRtxOfMedia(rid: string, media: number) {
     for (const [rtx, fidMedia] of Object.entries(this.ridFidMediaByRtx)) {
       const rtxSsrc = Number(rtx);
-      if (fidMedia === media && !(rtxSsrc in this.ridByRtxSsrc)) {
+      if (fidMedia === media && this.ridByRtxSsrc[rtxSsrc] !== rid) {
         this.bindRtxSsrc(rtxSsrc, rid);
       }
+    }
+  }
+
+  /**
+   * A committed description changed the FID table: an RTX SSRC bound to
+   * another RID than the one now carrying its FID media SSRC moves there.
+   */
+  private reconcileFidBindings() {
+    for (const [rid, media] of Object.entries(this.mediaSsrcByRid)) {
+      this.bindFidRtxOfMedia(rid, media);
     }
   }
 
