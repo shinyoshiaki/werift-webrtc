@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### 🐛 Bug Fixes
+
+- **WebM file saving survives a transient file access error and reports write failures** (`werift-rtp` `saveToFileSystem`, `werift` `MediaRecorder`):
+  - `saveToFileSystem(path)` writes each chunk at its byte offset (positional write) instead of appending it, so a retried chunk is never appended twice. It opens and closes the file once per chunk and once for the eol header rewrite, and closes it on every failure path. The Segment size is computed from the bytes written instead of a separate `stat(path)`, and bytes past the end are truncated on eol.
+  - A transient file access error (`EBUSY`, e.g. a sharing violation on a CIFS/SMB mount or a FUSE file system) is retried a limited number of times (at most 8 attempts and 1 s of waiting, with a short backoff). Any other error, including `EPERM`, `EACCES` and `ENOSPC`, fails immediately as before; once the limits are reached the last error is thrown with its `code`. Nothing waits on the normal path. After a failure the writer writes nothing more.
+  - The first chunk truncates an existing file, so a file that could not be deleted (`unlink` failed) is replaced instead of being appended to and corrupted.
+  - `WebmOutput.position` (new, optional): the byte offset of `saveToFile` from the start of the output, or the total output length on the `eol` output. `WebmBase` sets it. A writer created per output (as `MediaRecorder` used to do) keeps working; for outputs without `position`, it appends after the current end of the file.
+  - `WebmCallback.onError` reports a failed output callback instead of an unhandled rejection. `MediaRecorder` forwards a WebM write failure to `onError` (as for Ogg), stops the recording and its RTP / RTCP subscriptions, and `stop()` no longer waits 5 seconds for it. A WebM write failure used to crash the process with an unhandled rejection.
+  - `MediaRecorder` creates one WebM file writer per recording.
+
 ## v0.28.0
 
 This release collects everything merged since v0.27.0.

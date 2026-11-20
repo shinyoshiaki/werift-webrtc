@@ -1,29 +1,30 @@
-import { appendFile, open, stat } from "fs/promises";
-
 import { PromiseQueue } from "../..";
+import { Event } from "../../imports/common";
 import {
-  ClusterSizeOffset,
-  DurationPosition,
-  replaceClusterSize,
-  replaceSegmentSize,
-  SegmentSizePosition,
   WebmBase,
   type WebmInput,
   type WebmOption,
   type WebmOutput,
   type WebmTrack,
 } from "./webm";
+import { createWebmFileWriter } from "./webmFileWriter";
 
 export class WebmCallback extends WebmBase {
   private cb?: (input: WebmOutput) => Promise<void>;
   private queue = new PromiseQueue();
+  /** a failed output callback (e.g. file write error) is reported here instead of an unhandled rejection */
+  onError = new Event<[Error]>();
   constructor(tracks: WebmTrack[], options: WebmOption = {}) {
     super(
       tracks,
       async (output) => {
         const cb = this.cb;
         if (cb) {
-          await this.queue.push(() => cb(output));
+          await this.queue
+            .push(() => cb(output))
+            .catch((error) => {
+              this.onError.execute(error);
+            });
         }
       },
       options,
@@ -49,52 +50,16 @@ export class WebmCallback extends WebmBase {
 }
 
 /**
+ * File writer for {@link WebmCallback} output. Each chunk is written at its
+ * `position` (positional write, so a retry never appends it twice) and the
+ * first chunk replaces an existing file at `path`. On eol the Duration,
+ * Cluster and Segment sizes are rewritten in place. A transient file access
+ * error (`EBUSY`) is retried a bounded number of times with a short backoff;
+ * any other error fails immediately. After a failure nothing more is written.
+ *
+ * Create one writer per recording.
  *
  * @param path
  * @returns eol
  */
-export const saveToFileSystem = (path: string) => {
-  const queue = new PromiseQueue();
-  return async (value: WebmOutput): Promise<boolean> => {
-    return await queue.push<boolean>(async () => {
-      if (value.saveToFile) {
-        await appendFile(path, value.saveToFile);
-
-        return false;
-      } else if (value.eol) {
-        const { durationElement, clusters } = value.eol;
-        const handler = await open(path, "r+");
-
-        // set duration
-        await handler.write(
-          durationElement,
-          0,
-          durationElement.length,
-          DurationPosition,
-        );
-
-        // set cluster sizes
-        for (const { position, size } of clusters) {
-          const resize = replaceClusterSize(size);
-          await handler.write(
-            resize,
-            0,
-            resize.length,
-            position + ClusterSizeOffset,
-          );
-        }
-
-        // set size
-        const meta = await stat(path);
-        const resize = replaceSegmentSize(meta.size);
-        await handler.write(resize, 0, resize.length, SegmentSizePosition);
-
-        await handler.close();
-
-        return true;
-      }
-
-      return false;
-    });
-  };
-};
+export const saveToFileSystem = (path: string) => createWebmFileWriter(path);
