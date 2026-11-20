@@ -99,6 +99,31 @@ describe("sctp burst transfer", () => {
     await pair.stop();
   });
 
+  test("many small messages with a few losses: DATA is resent only as needed (no fast retransmit storm, memleak datachannel)", async () => {
+    // Arrange: クライアントが送る DATA パケットの一部を破棄する transport と、1 バイト相当の小さなメッセージ。
+    const pair = await createConnectedSctpPair({
+      dropClient: dropDataPacketsAt([50, 51, 300, 301, 302]),
+    });
+    const messages = createMessages(3_000, 4);
+
+    // Act: 損失を挟みながら一括送信する。
+    const { received } = await runBurstTransfer(
+      pair.client,
+      pair.server,
+      messages,
+    );
+
+    // Assert: 全件が順序通りに届き、クライアントの送信パケット数はメッセージ数の 1.1 倍以内 (修正前は 1 件あたり数十回の再送)。
+    expect(pair.transports.client.droppedPackets).toBe(5);
+    expect(received.length).toBe(messages.length);
+    received.forEach((data, i) => expect(data.equals(messages[i])).toBe(true));
+    expect(pair.transports.client.sentPackets).toBeLessThanOrEqual(
+      messages.length * 1.1,
+    );
+
+    await pair.stop();
+  });
+
   test("send resolves when its own chunks are transmitted, not when the whole queue drains", async () => {
     // Arrange
     const pair = await createConnectedSctpPair();

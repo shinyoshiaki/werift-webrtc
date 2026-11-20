@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 
-import { SCTP_STATE } from "../src";
+import { dataChunkBookSize, SCTP_STATE } from "../src";
 import {
   AbortChunk,
   DataChunk,
@@ -815,7 +815,7 @@ describe("PR-SCTP lifetime of DATA queued behind a zero receive window", () => {
       for (const chunk of expired) {
         expect(chunk.abandoned).toBe(true);
         expect(chunk.userData.length).toBe(0);
-        expect(chunk.bookSize).toBe(1024);
+        expect(chunk.bookSize).toBe(dataChunkBookSize(1024));
       }
       // Assert: 送信待ちの A のペイロードは保持される
       expect(a.abandoned).toBe(false);
