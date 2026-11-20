@@ -1,5 +1,19 @@
 # SCTP/DataChannelの送信待ち量・バックプレッシャーを安定した公開APIで扱えるようにする
 
+## 進捗状況（2026-11-19 調査、develop `e069c5c84` 時点）
+
+- **ごく一部だけレビュー中ブランチで修正済み。** レビュー中の `ticket/6ab13832-5312-4d88-b409-66fc84ada0b9`（#815）では、未知の stream に遅れて届いた `DATA_CHANNEL_ACK` を throw せず、ログを出して無視するようになった（`packages/webrtc/src/transport/sctp.ts`）。develop はまだ "channel not found" を throw する。同じブランチで `ondatachannel` handler も `executeIsolated` 経由で呼ばれるようになった。
+- **未着手の部分（develop と全レビューブランチ共通）:**
+  - `bufferedAmount` がまだ書き込める field のまま（`dataChannel.ts`）。
+  - `onbufferedamountlow` と `SctpSendResult` がない。
+  - `send("")` が何も送らない（空メッセージを PPID 56/57 にしていない）。
+  - association が確立していないときの `dataChannelClose` で、待ち行列のメッセージが捨てられる。
+  - DCEP ACK を `onDataChannel` の後でキューに積んでいる。
+  - `outboundQueue` / `addBufferedAmount` の deprecate と、`emit("closing")` の修正。
+- 6ab13832 が develop にマージされたら、その実装を前提に進める。
+
+---
+
 ## 1. 目的と背景
 
 ### 背景
