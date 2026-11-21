@@ -28,6 +28,7 @@ function epoch0Alert(desc: number, level = 2): Buffer {
  * P1: pure DTLS 1.3 server は pre-cookie 未認証 fatal で listener を落とさない。
  */
 test("e2e/self13: pure server ignores unauth epoch-0 fatal (no DoS)", async () => {
+  // Arrange: pure DTLS 1.3 server だけを起動し、onError / onClose を記録する
   const serverTransport = await UdpTransport.init("udp4");
   const server = new DtlsServer({
     transport: serverTransport,
@@ -46,28 +47,30 @@ test("e2e/self13: pure server ignores unauth epoch-0 fatal (no DoS)", async () =
   expect(eng).toBeTruthy();
   expect(eng.isClosed()).toBe(false);
 
-  // Act: spoof UDP-path fatal
+  // Act: UDP 経路で偽装した epoch-0 fatal alert を受信させる
   const alert = epoch0Alert(AlertDesc.HandshakeFailure);
   serverTransport.onData?.(alert, ["127.0.0.1", 19991] as any);
   await new Promise((r) => setTimeout(r, 40));
 
-  // Assert
+  // Assert: エラー / close は起きず、listener (engine) は閉じない
   expect(errors.length).toBe(0);
   expect(closes.length).toBe(0);
   expect((server as any).associationTornDown).toBe(false);
   expect(eng.isClosed()).toBe(false);
 
-  // carrier.inject path (association-owned)
+  // Act: association が持つ carrier.inject 経路で fatal を注入する
   const carrier = eng.getHandshakeCarrier();
   carrier.inject(epoch0Alert(AlertDesc.InternalError), ["10.1.2.3", 7]);
   await new Promise((r) => setTimeout(r, 40));
+  // Assert: carrier 経路でも tear down しない
   expect(errors.length).toBe(0);
   expect((server as any).associationTornDown).toBe(false);
 
-  // close_notify / warning also unauth pre-keys
+  // Act: 鍵確立前の未認証 close_notify / warning も注入する
   carrier.inject(epoch0Alert(AlertDesc.CloseNotify, 1), ["10.0.0.2", 9]);
   carrier.inject(epoch0Alert(AlertDesc.UserCanceled, 1), ["10.0.0.3", 9]);
   await new Promise((r) => setTimeout(r, 40));
+  // Assert: close / エラーにならず、listener は開いたまま
   expect(errors.length).toBe(0);
   expect(closes.length).toBe(0);
   expect(eng.isClosed()).toBe(false);
@@ -80,6 +83,7 @@ test("e2e/self13: pure server ignores unauth epoch-0 fatal (no DoS)", async () =
  * P1: dual server が 1.3 に commit した後も、未認証 epoch-0 fatal で落ちない。
  */
 test("e2e/self13: dual server after 1.3 select ignores unauth fatal", async () => {
+  // Arrange: dual server × 1.3 client で接続し、server が 1.3 を選んだことを確かめる
   const serverTransport = await UdpTransport.init("udp4");
   const clientTransport = await UdpTransport.init("udp4");
   clientTransport.rinfo = serverTransport.address;
@@ -130,7 +134,7 @@ test("e2e/self13: dual server after 1.3 select ignores unauth fatal", async () =
   const errors: Error[] = [];
   server.onError.subscribe((e) => errors.push(e));
 
-  // spoof fatal after connected — epoch-0 dropped (protected keys exist)
+  // Act: 接続後に spoof socket から epoch-0 fatal alert を UDP で送る（保護鍵があるので epoch-0 は drop されるはず）
   const spoof = createSocket("udp4");
   await new Promise<void>((r) => spoof.bind(0, "127.0.0.1", () => r()));
   const port = (serverTransport.address as { port: number }).port;
@@ -143,16 +147,18 @@ test("e2e/self13: dual server after 1.3 select ignores unauth fatal", async () =
     );
   });
   await new Promise((r) => setTimeout(r, 50));
+  // Assert: server はエラーを出さず接続を保つ
   expect(errors.length).toBe(0);
   expect((server as any).associationTornDown).toBe(false);
   expect(server.connected).toBe(true);
 
-  // post-handshake epoch-0 handshake must not change state
+  // Act: 接続後の epoch-0 handshake レコードを spoof peer から注入する
   const junkHs = Buffer.alloc(20, 0x11);
   junkHs[0] = HandshakeType.client_hello_1;
   const hsPkt = serializePlaintextRecord(ContentType.handshake, 0, 1, junkHs);
   (server as any).udpOnMessage(hsPkt, ["127.0.0.1", spoof.address().port]);
   await new Promise((r) => setTimeout(r, 30));
+  // Assert: state は変わらず接続を保つ
   expect(server.connected).toBe(true);
   expect((server as any).associationTornDown).toBe(false);
 
@@ -171,6 +177,7 @@ test("e2e/self13: dual server after 1.3 select ignores unauth fatal", async () =
  * association dispatcher: terminal 後の inject / UDP は no-op。
  */
 test("e2e/self13: pure server association RX drops after terminal", async () => {
+  // Arrange: carrier 付きの pure DTLS 1.3 server を、ハンドシェイクなしで terminal にする
   const serverTransport = await UdpTransport.init("udp4");
   const carrier = new DirectHandshakeCarrier(serverTransport, { mtu: 1200 });
   const server = createDtlsServerInternal({
@@ -190,12 +197,14 @@ test("e2e/self13: pure server association RX drops after terminal", async () => 
   const errors: Error[] = [];
   server.onError.subscribe((e) => errors.push(e));
 
+  // Act: terminal 後に carrier.inject と UDP の両経路で fatal alert を受信させる
   carrier.inject(epoch0Alert(AlertDesc.HandshakeFailure), ["1.2.3.4", 1]);
   serverTransport.onData?.(epoch0Alert(AlertDesc.InternalError), [
     "1.2.3.4",
     2,
   ] as any);
   await new Promise((r) => setTimeout(r, 30));
+  // Assert: RX は no-op で onError は出ず、terminal のまま
   expect(errors.length).toBe(0);
   // engine may still exist until close, but association ignores RX
   expect((server as any).associationTornDown).toBe(true);
@@ -212,6 +221,7 @@ test("e2e/self13: pure server association RX drops after terminal", async () => 
  * post-handshake pure 1.3: epoch-0 handshake is dropped; connection stays up.
  */
 test("e2e/self13: post-handshake epoch-0 handshake does not change state", async () => {
+  // Arrange: pure DTLS 1.3 で接続し、両側の onError / server の onClose を記録する
   const serverTransport = await UdpTransport.init("udp4");
   const clientTransport = await UdpTransport.init("udp4");
   clientTransport.rinfo = serverTransport.address;
@@ -268,7 +278,7 @@ test("e2e/self13: post-handshake epoch-0 handshake does not change state", async
   body.copy(hs, 12);
   const pkt = serializePlaintextRecord(ContentType.handshake, 0, 99, hs);
 
-  // inject toward both
+  // Act: epoch-0 の ClientHello 風レコードを、相手 peer のアドレスから両側に注入する
   (server as any).udpOnMessage(pkt, [
     (clientTransport.address as any).address === "0.0.0.0"
       ? "127.0.0.1"
@@ -283,6 +293,7 @@ test("e2e/self13: post-handshake epoch-0 handshake does not change state", async
   ]);
   await new Promise((r) => setTimeout(r, 40));
 
+  // Assert: drop されて state は変わらず、両側とも接続を保ち送信できる
   expect(errors.length).toBe(0);
   expect(closes.length).toBe(0);
   expect(server.connected).toBe(true);

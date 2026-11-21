@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import type { Address, Transport } from "../../../common/src";
+import type { Address } from "../../../common/src";
 import { UdpTransport } from "../../../common/src";
 import {
   DtlsClient,
@@ -7,7 +7,6 @@ import {
   DtlsVersion,
   ProtocolVersionError,
 } from "../../src";
-import { HashAlgorithm, SignatureAlgorithm } from "../../src/cipher/const";
 import { HandshakeType } from "../../src/handshake/const";
 import { SupportedVersions } from "../../src/handshake/extensions/supportedVersions";
 import { ClientHello } from "../../src/handshake/message/client/hello";
@@ -16,58 +15,13 @@ import { createPlaintext } from "../../src/record/builder";
 import { AlertDesc, ContentType } from "../../src/record/const";
 import { serializePlaintextRecord } from "../../src/record/v1_3/record";
 import { DTLS_1_3_VERSION, WireVersion } from "../../src/version";
-import { certPem, keyPem } from "../fixture";
-
-const sig = {
-  hash: HashAlgorithm.sha256_4,
-  signature: SignatureAlgorithm.rsa_1,
-};
-
-/**
- * Addressless but peer-authenticated transport (ICE-like): no rinfo, no addr
- * on onData — DTLS must still treat AEAD alerts as association-lifecycle.
- */
-class PeerAuthTransport implements Transport {
-  type = "ice";
-  closed = false;
-  readonly peerAuthenticated = true;
-  /** When set, onData is invoked with this fake source (wrong-addr RX). */
-  fakeRxAddr?: Address;
-  onData: (data: Buffer, addr: Address) => void = () => {};
-  private peer?: PeerAuthTransport;
-
-  private readonly udp: UdpTransport;
-
-  constructor(udp: UdpTransport) {
-    this.udp = udp;
-    udp.onData = (data) => {
-      // Default: no source address — same as WebRTC IceTransport
-      this.onData(data, this.fakeRxAddr as any);
-    };
-  }
-
-  get address() {
-    return this.udp.address as any;
-  }
-
-  link(peer: PeerAuthTransport) {
-    this.peer = peer;
-  }
-
-  send = async (data: Buffer, _addr?: Address) => {
-    if (this.closed || !this.peer) return;
-    // Deliver to peer's UDP stack so rinfo is not required
-    const p = this.peer;
-    queueMicrotask(() => {
-      if (!p.closed) p.onData(data, p.fakeRxAddr as any);
-    });
-  };
-
-  close = async () => {
-    this.closed = true;
-    await this.udp.close().catch(() => {});
-  };
-}
+import {
+  certPem,
+  connectPeerAuthPair,
+  keyPem,
+  linkedPeerAuthTransports,
+  rsaSignatureHash,
+} from "../fixture";
 
 /**
  * Peer-auth Options base: explicit peerIdentityMode (public API).
@@ -76,61 +30,15 @@ class PeerAuthTransport implements Transport {
  * works with peerKey "unknown" when dtls-cookie is default).
  */
 const peerAuthOpts = {
-  signatureHash: sig,
+  signatureHash: rsaSignatureHash,
   peerIdentityMode: "authenticated-single-peer" as const,
   // ICE path: skip cookie / treat address as pre-validated (1.3 anti-amp).
   addressValidation: "ice-authenticated" as const,
 };
 
-async function peerAuthTransports() {
-  const u1 = await UdpTransport.init("udp4");
-  const u2 = await UdpTransport.init("udp4");
-  const t1 = new PeerAuthTransport(u1);
-  const t2 = new PeerAuthTransport(u2);
-  t1.link(t2);
-  t2.link(t1);
-  return { t1, t2 };
-}
-
-async function connectPeerAuthPair() {
-  const { t1, t2 } = await peerAuthTransports();
-
-  const server = new DtlsServer({
-    transport: t1,
-    cert: certPem,
-    key: keyPem,
-    ...peerAuthOpts,
-  });
-  const client = new DtlsClient({
-    transport: t2,
-    cert: certPem,
-    key: keyPem,
-    ...peerAuthOpts,
-  });
-
-  await new Promise<void>((resolve, reject) => {
-    const t = setTimeout(() => reject(new Error("connect timeout")), 20_000);
-    client.onConnect.subscribe(() => {
-      clearTimeout(t);
-      resolve();
-    });
-    client.onError.subscribe((e) => {
-      clearTimeout(t);
-      reject(e);
-    });
-    server.onError.subscribe((e) => {
-      clearTimeout(t);
-      reject(e);
-    });
-    void client.connect();
-  });
-
-  return { client, server, t1, t2 };
-}
-
 test("e2e/self12: peerAuthenticated transport treats protected fatal as terminal", async () => {
   // Arrange: ICE-like transport, pure 1.2 connected
-  const { client, server, t1, t2 } = await connectPeerAuthPair();
+  const { client, server, t1, t2 } = await connectPeerAuthPair(peerAuthOpts);
   expect(client.connected).toBe(true);
   expect(server.connected).toBe(true);
   // No UDP pin required when peerAuthenticated
@@ -178,7 +86,7 @@ test("e2e/self12: peerAuthenticated transport treats protected fatal as terminal
 }, 25_000);
 
 test("e2e/self12: peerAuthenticated transport delivers protected close_notify", async () => {
-  const { client, server, t1, t2 } = await connectPeerAuthPair();
+  const { client, server, t1, t2 } = await connectPeerAuthPair(peerAuthOpts);
 
   const closes: number[] = [];
   client.onClose.subscribe(() => closes.push(Date.now()));
@@ -213,7 +121,7 @@ test("e2e/self12: peerAuthenticated transport delivers protected close_notify", 
 
 test("e2e/self12: peerIdentityMode authenticated-single-peer is public and resolved", async () => {
   // Arrange: explicit Options.peerIdentityMode (not only transport flag inference)
-  const { t1, t2 } = await peerAuthTransports();
+  const { t1, t2 } = await linkedPeerAuthTransports();
   const server = new DtlsServer({
     transport: t1,
     cert: certPem,
@@ -236,7 +144,7 @@ test("e2e/self12: peerIdentityMode authenticated-single-peer is public and resol
     transport: plain,
     cert: certPem,
     key: keyPem,
-    signatureHash: sig,
+    signatureHash: rsaSignatureHash,
     peerIdentityMode: "datagram-address",
   });
   expect(plainClient.peerIdentityMode).toBe("datagram-address");
@@ -270,7 +178,7 @@ test("e2e/self12: peerIdentityMode authenticated-single-peer is public and resol
  */
 test("e2e/peerAuth: 1.2-only client vs 1.3-only server → ProtocolVersionError", async () => {
   // Arrange: same PeerAuthTransport fixture as lifecycle tests
-  const { t1, t2 } = await peerAuthTransports();
+  const { t1, t2 } = await linkedPeerAuthTransports();
   const server = new DtlsServer({
     transport: t1,
     cert: certPem,
@@ -338,7 +246,7 @@ test("e2e/peerAuth: 1.2-only client vs 1.3-only server → ProtocolVersionError"
  */
 test("e2e/peerAuth: 1.3-only client vs 1.2-only server → both ProtocolVersionError", async () => {
   // Arrange: addressless peer-auth, 1.3-only client / 1.2-only server
-  const { t1, t2 } = await peerAuthTransports();
+  const { t1, t2 } = await linkedPeerAuthTransports();
   const server = new DtlsServer({
     transport: t1,
     cert: certPem,
@@ -432,7 +340,7 @@ test("e2e/peerAuth: 1.3-only client vs 1.2-only server → both ProtocolVersionE
 test("e2e/peerAuth: 1.2-only server rejects 1.3-only CH with 0x1301+0x1302 (no HVR)", async () => {
   // Arrange: authenticated-single-peer の 1.2-only server に、
   // supported_versions=[1.3] かつ cipher=[0x1301,0x1302] の CH を注入する
-  const { t1, t2 } = await peerAuthTransports();
+  const { t1, t2 } = await linkedPeerAuthTransports();
   const server = new DtlsServer({
     transport: t1,
     cert: certPem,
@@ -521,7 +429,7 @@ test("e2e/peerAuth: 1.2-only server rejects 1.3-only CH with 0x1301+0x1302 (no H
  */
 test("e2e/peerAuth: dual [1.3,1.2] client → 1.2-only server completes", async () => {
   // Arrange
-  const { t1, t2 } = await peerAuthTransports();
+  const { t1, t2 } = await linkedPeerAuthTransports();
   const server = new DtlsServer({
     transport: t1,
     cert: certPem,
@@ -638,7 +546,7 @@ test("e2e/peerAuth: dual [1.3,1.2] client → 1.2-only server completes", async 
  */
 test("e2e/peerAuth: dual→1.2 accepts alternate-addr RX after 1.3 candidate gone", async () => {
   // Arrange
-  const { t1, t2 } = await peerAuthTransports();
+  const { t1, t2 } = await linkedPeerAuthTransports();
   const server = new DtlsServer({
     transport: t1,
     cert: certPem,
@@ -721,12 +629,12 @@ test("e2e/peerAuth: dual→1.2 accepts alternate-addr RX after 1.3 candidate gon
 
 test("e2e/peerAuth: datagram-address isAssociationPeer rejects non-pin after 1.3 candidate gone", async () => {
   // Arrange: 1.2-only client (no engine13) with explicit datagram-address
-  const { t1, t2 } = await peerAuthTransports();
+  const { t1, t2 } = await linkedPeerAuthTransports();
   const client = new DtlsClient({
     transport: t2,
     cert: certPem,
     key: keyPem,
-    signatureHash: sig,
+    signatureHash: rsaSignatureHash,
     peerIdentityMode: "datagram-address",
     addressValidation: "none",
     protocolVersions: [DtlsVersion.V1_2],
@@ -753,7 +661,7 @@ test("e2e/peerAuth: datagram-address isAssociationPeer rejects non-pin after 1.3
 
 test("e2e/self12: peerAuthenticated transport app data + local close + epoch-0 ignore", async () => {
   // Arrange: ICE-like addressless path
-  const { client, server, t1, t2 } = await connectPeerAuthPair();
+  const { client, server, t1, t2 } = await connectPeerAuthPair(peerAuthOpts);
   expect((client as any).hasAssociationPeerAuth()).toBe(true);
   expect(client.peerIdentityMode).toBe("authenticated-single-peer");
 

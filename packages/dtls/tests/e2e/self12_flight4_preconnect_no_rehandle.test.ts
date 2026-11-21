@@ -22,7 +22,7 @@ const sig = {
  * Pre-fix: every Flight4 retransmit re-ran ServerKeyExchange → ECDHE regen.
  */
 test("e2e/self12: pre-connect Flight4 re-inject does not re-run Flight5 handlers", async () => {
-  // Arrange
+  // Arrange: DTLS 1.2 の UDP ペアで ServerHelloDone を保留し、client を epoch 0 の Flight5 待ちで止める
   const serverTransport = await UdpTransport.init("udp4");
   const clientTransport = await UdpTransport.init("udp4");
   clientTransport.rinfo = serverTransport.address;
@@ -109,7 +109,7 @@ test("e2e/self12: pre-connect Flight4 re-inject does not re-run Flight5 handlers
     return origHandle(hs);
   };
 
-  // Act: re-inject Flight4 wire packets (SH/Cert/SKX) while still pre-connect
+  // Act: 接続前のまま Flight4 の wire パケット (SH/Cert/SKX) を client に再注入する
   const peer: [string, number] = [
     serverTransport.address.address,
     serverTransport.address.port,
@@ -124,7 +124,7 @@ test("e2e/self12: pre-connect Flight4 re-inject does not re-run Flight5 handlers
   const cacheLenAfter = ((client as any).dtls.handshakeCache[4]?.data ?? [])
     .length;
 
-  // Assert: ECDHE object identity unchanged (handlers short-circuit on cache)
+  // Assert: ECDHE 鍵 / remoteRandom / cache は同一のまま（handler は cache 済みで副作用を飛ばす）
   expect(keyPairAfter).toBe(keyPairBefore);
   expect(keyAfter.equals(keyBefore)).toBe(true);
   expect((client as any).cipher.remoteRandom).toBe(remoteRandomBefore);
@@ -133,7 +133,7 @@ test("e2e/self12: pre-connect Flight4 re-inject does not re-run Flight5 handlers
   expect(handlerCalls).toBeGreaterThan(0);
   expect(applyPathCalls).toBe(0);
 
-  // Release ServerHelloDone so handshake can complete
+  // Act: 保留した ServerHelloDone を送り、ハンドシェイクを完走させる
   releaseShd = true;
   for (const buf of shdHold) {
     await origServerSend(buf);
@@ -160,6 +160,7 @@ test("e2e/self12: pre-connect Flight4 re-inject does not re-run Flight5 handlers
     });
   });
 
+  // Assert: 再注入の後でも両側が接続済みになる
   expect(client.connected).toBe(true);
   expect(server.connected).toBe(true);
 

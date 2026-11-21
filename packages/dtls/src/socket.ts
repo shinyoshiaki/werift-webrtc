@@ -449,7 +449,7 @@ export class DtlsSocket {
       const error = new Error(
         "DTLS association is closed; cannot renegotiation",
       );
-      this.onError.execute(error);
+      this.notify(this.onError, error);
       return;
     }
     if (this.engine13) {
@@ -457,7 +457,7 @@ export class DtlsSocket {
       const error = new Error(
         "renegotiation is not supported after DTLS 1.3 handshake",
       );
-      this.onError.execute(error);
+      this.notify(this.onError, error);
       return;
     }
     log("renegotiation", this.sessionType);
@@ -1630,11 +1630,11 @@ export class DtlsSocket {
         if (profile !== undefined) {
           this.srtp.srtpProfile = profile;
         }
-        this.onConnect.execute();
+        this.notify(this.onConnect);
       })
       .disposer(this.engine13Bridge);
     engine.onData
-      .subscribe((data) => this.onData.execute(data))
+      .subscribe((data) => this.notify(this.onData, data))
       .disposer(this.engine13Bridge);
     // Graceful close start (local close / peer close_notify): Public API off
     // immediately — before async close_notify completes.
@@ -1661,8 +1661,9 @@ export class DtlsSocket {
         // Mark closed before public onClose so handlers that call close()
         // re-entrantly do not double-fire onClose. (Often already set via onClosing.)
         this.prepareAssociationClosedFromEngine();
-        // Fire public onClose while engine13 is still inspectable.
-        this.onClose.execute();
+        // Fire public onClose while engine13 is still inspectable. Isolated:
+        // a throwing listener must not skip the association close below.
+        this.notify(this.onClose);
         // Then association-level close: carrier/transport/candidates.
         this.onEngine13PeerOrLocalClose();
       })

@@ -26,49 +26,12 @@ import { ContentType } from "../../../src/record/const";
 import { serializePlaintextRecord } from "../../../src/record/v1_3/record";
 import { DTLS_1_3_VERSION, WireVersion } from "../../../src/version";
 import {
+  build13ClientHelloRecord,
   certPem,
   ecdsaP256CertPem,
   ecdsaP256KeyPem,
   keyPem,
 } from "../../fixture";
-
-function buildCh(opts?: {
-  compression?: number[];
-  keyExchange?: Buffer;
-  group?: number;
-}): Buffer {
-  const group = opts?.group ?? NamedCurveAlgorithm.x25519_29;
-  const kp =
-    opts?.keyExchange != null
-      ? { publicKey: opts.keyExchange }
-      : generateKeyPair(group as any);
-  const curves = EllipticCurves.createEmpty();
-  curves.data = [group] as any;
-  const ch = new ClientHello(
-    WireVersion.DTLS_1_2,
-    new DtlsRandom(),
-    Buffer.alloc(0),
-    Buffer.alloc(0),
-    [CipherSuite.TLS_AES_128_GCM_SHA256_0x1301],
-    opts?.compression ?? [0],
-    [
-      SupportedVersions.forClient([DTLS_1_3_VERSION]).clientExtension,
-      curves.extension,
-      KeyShare.forClient([{ group, keyExchange: kp.publicKey as Buffer }])
-        .clientExtension,
-      SignatureAlgorithms.create().extension,
-    ],
-  );
-  ch.messageSeq = 0;
-  const frag = ch.toFragment();
-  frag.message_seq = 0;
-  return serializePlaintextRecord(
-    ContentType.handshake,
-    0,
-    0,
-    frag.serialize(),
-  );
-}
 
 describe("P1: pre-cookie multi-source must not wipe legitimate CH1", () => {
   test("A→valid CH, B→missing signature_algorithms CH, A still completes cookie path", async () => {
@@ -347,7 +310,7 @@ describe("P1: pre-cookie multi-source must not wipe legitimate CH1", () => {
       void client.connect();
       // Shortly after, inject B's parseable-but-illegal CH (bad compression)
       await new Promise((r) => setTimeout(r, 30));
-      const bad = buildCh({ compression: [0, 1] });
+      const bad = build13ClientHelloRecord({ compression: [0, 1] });
       serverTransport.onData?.(bad, ["203.0.113.99", 4444] as any);
       await new Promise((r) => setTimeout(r, 20));
     });
@@ -433,7 +396,7 @@ describe("P2: invalid key_share is illegal_parameter (not timeout)", () => {
     });
 
     const zero = Buffer.alloc(32, 0);
-    const probe = buildCh({ keyExchange: zero });
+    const probe = build13ClientHelloRecord({ keyExchange: zero });
 
     // Act / Assert: all-zero は illegal_parameter で即 fail
     await new Promise<void>((resolve, reject) => {
@@ -542,7 +505,7 @@ describe("P1: pre-cookie HRR is non-retransmitting; unresponsive source does not
     });
 
     // Act: 無応答 source が CH を送り HRR を受ける（再送しない / fail しない）
-    const silentCh = buildCh();
+    const silentCh = build13ClientHelloRecord();
     serverTransport.onData?.(silentCh, ["198.51.100.9", 4444] as any);
     await new Promise((r) => setTimeout(r, 50));
     const eng = (server as any).engine13;

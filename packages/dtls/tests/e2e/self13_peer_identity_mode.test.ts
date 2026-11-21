@@ -1,109 +1,23 @@
 import { expect, test } from "vitest";
-import type { Address, Transport } from "../../../common/src";
+import type { Address } from "../../../common/src";
 import { UdpTransport } from "../../../common/src";
-import {
-  DtlsClient,
-  DtlsServer,
-  DtlsVersion,
-  type PeerIdentityMode,
-} from "../../src";
-import { HashAlgorithm, SignatureAlgorithm } from "../../src/cipher/const";
+import { DtlsClient, DtlsServer, DtlsVersion } from "../../src";
 import { AlertDesc, ContentType } from "../../src/record/const";
 import { encryptRecord } from "../../src/record/v1_3/record";
-import { certPem, keyPem } from "../fixture";
+import {
+  certPem,
+  connectPeerAuthPair,
+  keyPem,
+  rsaSignatureHash,
+} from "../fixture";
 
-const sig = {
-  hash: HashAlgorithm.sha256_4,
-  signature: SignatureAlgorithm.rsa_1,
+/** Peer-auth DTLS 1.3 Options for the ICE-like {@link connectPeerAuthPair} pair. */
+const peerAuth13Opts = {
+  signatureHash: rsaSignatureHash,
+  protocolVersions: [DtlsVersion.V1_3] as const,
+  peerIdentityMode: "authenticated-single-peer" as const,
+  addressValidation: "ice-authenticated" as const,
 };
-
-/**
- * Addressless peer-authenticated carrier (ICE-like).
- * Optionally stamps a fake source address on RX for demux tests.
- */
-class PeerAuthTransport implements Transport {
-  type = "ice";
-  closed = false;
-  readonly peerAuthenticated = true;
-  /** When set, onData is invoked with this fake source (tests wrong-addr RX). */
-  fakeRxAddr?: Address;
-  onData: (data: Buffer, addr: Address) => void = () => {};
-  private peer?: PeerAuthTransport;
-
-  private readonly udp: UdpTransport;
-
-  constructor(udp: UdpTransport) {
-    this.udp = udp;
-    udp.onData = (data) => {
-      this.onData(data, this.fakeRxAddr as any);
-    };
-  }
-
-  get address() {
-    return this.udp.address as any;
-  }
-
-  link(peer: PeerAuthTransport) {
-    this.peer = peer;
-  }
-
-  send = async (data: Buffer, _addr?: Address) => {
-    if (this.closed || !this.peer) return;
-    const p = this.peer;
-    queueMicrotask(() => {
-      if (!p.closed) p.onData(data, p.fakeRxAddr as any);
-    });
-  };
-
-  close = async () => {
-    this.closed = true;
-    await this.udp.close().catch(() => {});
-  };
-}
-
-async function connect13PeerAuth(
-  mode: PeerIdentityMode = "authenticated-single-peer",
-) {
-  const u1 = await UdpTransport.init("udp4");
-  const u2 = await UdpTransport.init("udp4");
-  const t1 = new PeerAuthTransport(u1);
-  const t2 = new PeerAuthTransport(u2);
-  t1.link(t2);
-  t2.link(t1);
-
-  const base = {
-    cert: certPem,
-    key: keyPem,
-    signatureHash: sig,
-    protocolVersions: [DtlsVersion.V1_3] as const,
-    peerIdentityMode: mode,
-    addressValidation: "ice-authenticated" as const,
-  };
-  const server = new DtlsServer({ transport: t1, ...base });
-  const client = new DtlsClient({ transport: t2, ...base });
-
-  await new Promise<void>((resolve, reject) => {
-    const t = setTimeout(
-      () => reject(new Error("1.3 peerAuth connect timeout")),
-      20_000,
-    );
-    client.onConnect.subscribe(() => {
-      clearTimeout(t);
-      resolve();
-    });
-    client.onError.subscribe((e) => {
-      clearTimeout(t);
-      reject(e);
-    });
-    server.onError.subscribe((e) => {
-      clearTimeout(t);
-      reject(e);
-    });
-    void client.connect();
-  });
-
-  return { client, server, t1, t2 };
-}
 
 async function encryptAlertFrom(
   side: DtlsClient | DtlsServer,
@@ -119,14 +33,13 @@ async function encryptAlertFrom(
 }
 
 test("e2e/self13 peerIdentityMode: authenticated-single-peer delivers addressless app data + fatal + close_notify", async () => {
-  // Arrange
-  const { client, server, t1, t2 } = await connect13PeerAuth(
-    "authenticated-single-peer",
-  );
+  // Arrange: アドレスなしの peer 認証済み transport で pure DTLS 1.3 を接続する
+  const { client, server, t1, t2 } = await connectPeerAuthPair(peerAuth13Opts);
   expect(client.peerIdentityMode).toBe("authenticated-single-peer");
   expect(client.isDtls13).toBe(true);
 
-  // Act/Assert: bidirectional app data without addresses
+  // Act: アドレスなしで client からアプリデータを送る
+  // Assert: server の onData に同じデータが届く
   await new Promise<void>((resolve, reject) => {
     const t = setTimeout(() => reject(new Error("app data timeout")), 5_000);
     server.onData.subscribe((d) => {
@@ -142,7 +55,7 @@ test("e2e/self13 peerIdentityMode: authenticated-single-peer delivers addressles
     void client.send(Buffer.from("auth-peer-app"));
   });
 
-  // Act: protected fatal from server (addressless) → client terminal + onError
+  // Act: server の鍵で暗号化した fatal alert をアドレスなしで client に受信させる
   const errors: Error[] = [];
   client.onError.subscribe((e) => errors.push(e));
   const fatalWire = await encryptAlertFrom(
@@ -151,6 +64,7 @@ test("e2e/self13 peerIdentityMode: authenticated-single-peer delivers addressles
   );
   t2.onData(fatalWire, undefined as any);
   await new Promise((r) => setTimeout(r, 40));
+  // Assert: client は onError を出して terminal になる
   expect(errors.length).toBeGreaterThan(0);
   expect((client as any).associationTornDown).toBe(true);
 
@@ -169,10 +83,8 @@ test("e2e/self13 peerIdentityMode: authenticated-single-peer delivers addressles
 }, 25_000);
 
 test("e2e/self13 peerIdentityMode: authenticated-single-peer accepts protected RX from alternate fake addr", async () => {
-  // Arrange: connect addressless, then stamp a fake source on subsequent RX
-  const { client, server, t1, t2 } = await connect13PeerAuth(
-    "authenticated-single-peer",
-  );
+  // Arrange: アドレスなしで接続した後、以降の受信に偽の送信元アドレスを付ける
+  const { client, server, t1, t2 } = await connectPeerAuthPair(peerAuth13Opts);
 
   // Spoof different 5-tuple on deliver — must NOT drop under authenticated-single-peer
   t2.fakeRxAddr = ["203.0.113.50", 44444] as Address;
@@ -182,7 +94,7 @@ test("e2e/self13 peerIdentityMode: authenticated-single-peer accepts protected R
   client.onError.subscribe((e) => errors.push(e));
   client.onClose.subscribe(() => closes.push(1));
 
-  // Act: protected close_notify with wrong source address
+  // Act: 違う送信元アドレスで、暗号化された close_notify を client に受信させる
   const closeWire = await encryptAlertFrom(
     server,
     Buffer.from([1, AlertDesc.CloseNotify]),
@@ -190,7 +102,7 @@ test("e2e/self13 peerIdentityMode: authenticated-single-peer accepts protected R
   t2.onData(closeWire, t2.fakeRxAddr as any);
   await new Promise((r) => setTimeout(r, 50));
 
-  // Assert: close_notify processed (not dropped as wrong peer)
+  // Assert: 別 peer として drop されず close_notify が処理され、onError は出ない
   expect(closes.length).toBeGreaterThanOrEqual(1);
   // close_notify is graceful — may not set onError
   expect(errors.length).toBe(0);
@@ -210,7 +122,7 @@ test("e2e/self13 peerIdentityMode: authenticated-single-peer accepts protected R
 }, 25_000);
 
 test("e2e/self13 peerIdentityMode: datagram-address rejects non-pin peer after connect", async () => {
-  // Arrange: classic UDP with pin
+  // Arrange: datagram-address (UDP アドレス pin) の pure DTLS 1.3 で接続し、pin が設定されたことを確かめる
   const serverTransport = await UdpTransport.init("udp4");
   const clientTransport = await UdpTransport.init("udp4");
   clientTransport.rinfo = serverTransport.address;
@@ -218,7 +130,7 @@ test("e2e/self13 peerIdentityMode: datagram-address rejects non-pin peer after c
   const base = {
     cert: certPem,
     key: keyPem,
-    signatureHash: sig,
+    signatureHash: rsaSignatureHash,
     protocolVersions: [DtlsVersion.V1_3] as const,
     peerIdentityMode: "datagram-address" as const,
     addressValidation: "none" as const,
@@ -256,7 +168,7 @@ test("e2e/self13 peerIdentityMode: datagram-address rejects non-pin peer after c
     closesBefore.n += 1;
   });
 
-  // Act: inject protected fatal as if from a different UDP peer
+  // Act: 暗号化された fatal alert を、別の UDP peer から来たものとして engine に注入する
   const fatalWire = await encryptAlertFrom(
     server,
     Buffer.from([2, AlertDesc.InternalError]),
@@ -266,13 +178,13 @@ test("e2e/self13 peerIdentityMode: datagram-address rejects non-pin peer after c
   eng.injectDatagram(fatalWire, spoof);
   await new Promise((r) => setTimeout(r, 40));
 
-  // Assert: wrong peer dropped — no terminal lifecycle
+  // Assert: pin と違う peer なので drop され、client は接続を保つ
   expect(errors.length).toBe(0);
   expect(closesBefore.n).toBe(0);
   expect((client as any).associationTornDown).toBe(false);
   expect(client.connected).toBe(true);
 
-  // Control: same alert from correct peer tears down
+  // Act: 対照として、同じ alert を正しい peer から注入する
   eng.injectDatagram(fatalWire, [
     serverTransport.address.address === "0.0.0.0"
       ? "127.0.0.1"
@@ -280,6 +192,7 @@ test("e2e/self13 peerIdentityMode: datagram-address rejects non-pin peer after c
     serverTransport.address.port,
   ]);
   await new Promise((r) => setTimeout(r, 40));
+  // Assert: 正しい peer からの fatal は onError になる
   expect(errors.length).toBeGreaterThan(0);
 
   try {

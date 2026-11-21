@@ -15,7 +15,7 @@ const sig = {
  * P1: pre-cookie (unpinned) epoch-0 fatal で listening server を DoS できない。
  */
 test("e2e/self12: pre-cookie fatal alert does not tear down server", async () => {
-  // Arrange: server only — no pin yet
+  // Arrange: server だけを起動する（まだ pin なし）
   const serverTransport = await UdpTransport.init("udp4");
   const server = new DtlsServer({
     // DTLS 1.2 の association アドレス pin は opt-in
@@ -33,7 +33,7 @@ test("e2e/self12: pre-cookie fatal alert does not tear down server", async () =>
 
   expect((server as any).transport.pinnedPeer).toBeUndefined();
 
-  // Act: spoof fatal from arbitrary peer (pre-auth)
+  // Act: 認証前に任意の peer から epoch-0 の fatal alert を偽装して受信させる
   const alertPkt = serializePlaintextRecord(
     ContentType.alert,
     0,
@@ -43,15 +43,16 @@ test("e2e/self12: pre-cookie fatal alert does not tear down server", async () =>
   (server as any).udpOnMessage(alertPkt, ["127.0.0.1", 44444]);
   await new Promise((r) => setTimeout(r, 30));
 
-  // Assert: association still listening
+  // Assert: エラー / close は起きず、association は listening のまま
   expect(errors.length).toBe(0);
   expect(closes.length).toBe(0);
   expect((server as any).associationTornDown).toBe(false);
   expect(server.connected).toBe(false);
 
-  // Second spoof still no tear down
+  // Act: 別の peer から 2 回目の偽装 fatal を受信させる
   (server as any).udpOnMessage(alertPkt, ["10.0.0.1", 1]);
   await new Promise((r) => setTimeout(r, 20));
+  // Assert: 2 回目でも tear down しない
   expect(errors.length).toBe(0);
   expect((server as any).associationTornDown).toBe(false);
 
@@ -63,6 +64,7 @@ test("e2e/self12: pre-cookie fatal alert does not tear down server", async () =>
  * P1: pre-cookie malformed ClientHello も association fatal にしない。
  */
 test("e2e/self12: pre-cookie malformed ClientHello does not tear down server", async () => {
+  // Arrange: server だけを起動し、onError / onClose を記録する
   const serverTransport = await UdpTransport.init("udp4");
   const server = new DtlsServer({
     peerIdentityMode: "datagram-address",
@@ -77,7 +79,7 @@ test("e2e/self12: pre-cookie malformed ClientHello does not tear down server", a
   server.onError.subscribe((e) => errors.push(e));
   server.onClose.subscribe(() => closes.push(1));
 
-  // Act: handshake record with garbage body (msg_type client_hello = 1)
+  // Act: body が壊れた ClientHello (msg_type 1) の handshake レコードを受信させる
   // DTLS HS header: type(1) length(3) message_seq(2) frag_off(3) frag_len(3) + body
   const body = Buffer.alloc(20, 0xab);
   const hs = Buffer.alloc(12 + body.length);
@@ -93,6 +95,7 @@ test("e2e/self12: pre-cookie malformed ClientHello does not tear down server", a
   // Allow async onHandleHandshakes rejection path
   await new Promise((r) => setTimeout(r, 50));
 
+  // Assert: association fatal にならず、エラー / close も起きない
   expect(errors.length).toBe(0);
   expect(closes.length).toBe(0);
   expect((server as any).associationTornDown).toBe(false);

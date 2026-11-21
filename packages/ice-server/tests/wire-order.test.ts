@@ -1,83 +1,19 @@
 import { describe, expect, it } from "vitest";
 
 import { crc32 } from "../../common/src";
-import {
-  classes,
-  FINGERPRINT_LENGTH,
-  FINGERPRINT_XOR,
-  HEADER_LENGTH,
-  methods,
-} from "../src/stun/const";
+import { classes, methods } from "../src/stun/const";
 import { Message, paddingLength, parseMessage } from "../src/stun/message";
 import { getRawAttributeValue } from "../src/stun/rawAttributeValue";
-
-/** IANA META-DTLS-IN-STUN / META-DTLS-IN-STUN-ACKNOWLEDGEMENT (not registered in ATTRIBUTES). */
-const DTLS_IN_STUN_DATA = 0xc070;
-const DTLS_IN_STUN_ACK = 0xc071;
-
-function attributeTypes(bytes: Buffer): number[] {
-  const types: number[] = [];
-  for (let pos = 20; pos + 4 <= bytes.length; ) {
-    const type = bytes.readUInt16BE(pos);
-    const length = bytes.readUInt16BE(pos + 2);
-    types.push(type);
-    pos += 4 + length + paddingLength(length);
-  }
-  return types;
-}
-
-function rewriteStunMessageLength(bytes: Buffer): Buffer {
-  const out = Buffer.from(bytes);
-  out.writeUInt16BE(out.length - HEADER_LENGTH, 2);
-  return out;
-}
-
-function serializeRawAttribute(type: number, value: Buffer): Buffer {
-  const padLen = paddingLength(value.length);
-  const header = Buffer.alloc(4);
-  header.writeUInt16BE(type, 0);
-  header.writeUInt16BE(value.length, 2);
-  return Buffer.concat([header, value, Buffer.alloc(padLen)]);
-}
-
-function appendFingerprint(prefix: Buffer): Buffer {
-  const checkData = Buffer.from(prefix);
-  checkData.writeUInt16BE(
-    prefix.length - HEADER_LENGTH + FINGERPRINT_LENGTH,
-    2,
-  );
-  const fingerprint = (crc32(checkData) ^ FINGERPRINT_XOR) >>> 0;
-  const value = Buffer.alloc(4);
-  value.writeUInt32BE(fingerprint, 0);
-  return rewriteStunMessageLength(
-    Buffer.concat([prefix, serializeRawAttribute(0x8028, value)]),
-  );
-}
-
-function buildSignedBindingWithoutSped(key: Buffer, fingerprint: boolean) {
-  const request = new Message(methods.BINDING, classes.REQUEST);
-  request
-    .setAttribute("USERNAME", "abcd:efgh")
-    .setAttribute("PRIORITY", 1853824767)
-    .setAttribute("ICE-CONTROLLING", 1n)
-    .addMessageIntegrity(key);
-  if (fingerprint) {
-    request.addFingerprint();
-  }
-  return request;
-}
-
-function buildSignedSpedBinding(dataValue: Buffer, key: Buffer) {
-  const request = new Message(methods.BINDING, classes.REQUEST);
-  request
-    .setAttribute("USERNAME", "abcd:efgh")
-    .setAttribute("PRIORITY", 1853824767)
-    .setAttribute("ICE-CONTROLLING", 1n);
-  request.appendRawAttribute(DTLS_IN_STUN_ACK, Buffer.alloc(0));
-  request.appendRawAttribute(DTLS_IN_STUN_DATA, dataValue);
-  request.addMessageIntegrity(key).addFingerprint();
-  return request;
-}
+import {
+  appendAttribute,
+  appendFingerprint,
+  attributeBytes,
+  DTLS_IN_STUN_ACK,
+  DTLS_IN_STUN_DATA,
+  signedBindingRequest,
+  signedSpedBindingRequest,
+  wireAttributeTypes,
+} from "./messageIntegrityUtils";
 
 describe("STUN wire attribute order", () => {
   const key = Buffer.from("local-password", "utf8");
@@ -96,8 +32,8 @@ describe("STUN wire attribute order", () => {
 
     // Assert: unknown が USERNAME と PRIORITY の間 / PRIORITY の後に残る
     expect(parsed).toBeDefined();
-    expect(attributeTypes(parsed!.bytes)).toEqual(
-      attributeTypes(original.bytes),
+    expect(wireAttributeTypes(parsed!.bytes)).toEqual(
+      wireAttributeTypes(original.bytes),
     );
     expect(
       getRawAttributeValue(parsed!, 0x8001)?.equals(Buffer.from("xy")),
@@ -106,8 +42,8 @@ describe("STUN wire attribute order", () => {
 
   it("DATA / ACK は MESSAGE-INTEGRITY より前、FINGERPRINT が末尾", () => {
     // Arrange / Act
-    const request = buildSignedSpedBinding(Buffer.from([20, 1, 2, 3]), key);
-    const types = attributeTypes(request.bytes);
+    const request = signedSpedBindingRequest(Buffer.from([20, 1, 2, 3]), key);
+    const types = wireAttributeTypes(request.bytes);
 
     // Assert: RFC 8489 §9 / §14.7
     expect(types.indexOf(DTLS_IN_STUN_ACK)).toBeGreaterThan(-1);
@@ -133,9 +69,9 @@ describe("STUN wire attribute order", () => {
 
   it("DATA value 改ざんで MESSAGE-INTEGRITY 検証が失敗する", () => {
     // Arrange: 正しい HMAC のあと DATA だけ壊す
-    const request = buildSignedSpedBinding(Buffer.from([20, 9, 8, 7]), key);
+    const request = signedSpedBindingRequest(Buffer.from([20, 9, 8, 7]), key);
     const bytes = Buffer.from(request.bytes);
-    const types = attributeTypes(bytes);
+    const types = wireAttributeTypes(bytes);
     const dataIndex = types.indexOf(DTLS_IN_STUN_DATA);
     let pos = 20;
     for (let i = 0; i < dataIndex; i++) {
@@ -185,7 +121,7 @@ describe("STUN wire attribute order", () => {
     request.addMessageIntegrity(key).addFingerprint();
 
     // Act
-    const types = attributeTypes(request.bytes);
+    const types = wireAttributeTypes(request.bytes);
 
     // Assert: SPED を付けない経路は known 順 + MI + FP
     expect(types).toEqual([0x0006, 0x0024, 0x802a, 0x0008, 0x8028]);
@@ -205,15 +141,15 @@ describe("STUN wire attribute order", () => {
 
   it("認証付き parse は MESSAGE-INTEGRITY 後の DATA/ACK を公開しない", () => {
     // Arrange: HMAC 対象外へ DATA/ACK を挿し、FINGERPRINT だけ付け直す
-    const request = buildSignedBindingWithoutSped(key, false);
+    const request = signedBindingRequest(key, { fingerprint: false });
     const data = Buffer.from([22, 9, 8, 7]);
     const ack = Buffer.alloc(4);
     ack.writeUInt32BE(0xdeadbeef, 0);
     const tampered = appendFingerprint(
       Buffer.concat([
         request.bytes,
-        serializeRawAttribute(DTLS_IN_STUN_ACK, ack),
-        serializeRawAttribute(DTLS_IN_STUN_DATA, data),
+        attributeBytes(DTLS_IN_STUN_ACK, ack),
+        attributeBytes(DTLS_IN_STUN_DATA, data),
       ]),
     );
 
@@ -228,15 +164,15 @@ describe("STUN wire attribute order", () => {
 
   it("認証付き parse は FINGERPRINT 後の DATA/ACK を公開しない", () => {
     // Arrange: 長さフィールドを更新して FP の後ろへ DATA/ACK を足す
-    const request = buildSignedBindingWithoutSped(key, true);
+    const request = signedBindingRequest(key, { fingerprint: true });
     const data = Buffer.from([22, 9, 8, 7]);
     const ack = Buffer.alloc(4);
     ack.writeUInt32BE(0xdeadbeef, 0);
-    const tampered = rewriteStunMessageLength(
+    const tampered = appendAttribute(
+      request.bytes,
       Buffer.concat([
-        request.bytes,
-        serializeRawAttribute(DTLS_IN_STUN_ACK, ack),
-        serializeRawAttribute(DTLS_IN_STUN_DATA, data),
+        attributeBytes(DTLS_IN_STUN_ACK, ack),
+        attributeBytes(DTLS_IN_STUN_DATA, data),
       ]),
     );
 
@@ -251,12 +187,12 @@ describe("STUN wire attribute order", () => {
 
   it("認証付き parse は MESSAGE-INTEGRITY 後の通常 MI を無視する", () => {
     // Arrange: 検証済み MI の後ろに HMAC が合わない MI を置く
-    const request = buildSignedBindingWithoutSped(key, false);
+    const request = signedBindingRequest(key, { fingerprint: false });
     const firstIntegrity = request.getAttributeValue("MESSAGE-INTEGRITY");
     const tampered = appendFingerprint(
       Buffer.concat([
         request.bytes,
-        serializeRawAttribute(0x0008, Buffer.alloc(20, 0xff)),
+        attributeBytes(0x0008, Buffer.alloc(20, 0xff)),
       ]),
     );
 
@@ -272,11 +208,11 @@ describe("STUN wire attribute order", () => {
 
   it("認証付き parse は MESSAGE-INTEGRITY 後の malformed known で失敗しない", () => {
     // Arrange: unpack が throw する XOR-MAPPED-ADDRESS を MI 後へ置く
-    const request = buildSignedBindingWithoutSped(key, false);
+    const request = signedBindingRequest(key, { fingerprint: false });
     const tampered = appendFingerprint(
       Buffer.concat([
         request.bytes,
-        serializeRawAttribute(0x0020, Buffer.from([0x01])),
+        attributeBytes(0x0020, Buffer.from([0x01])),
       ]),
     );
 
@@ -304,7 +240,7 @@ describe("STUN wire attribute order", () => {
     expect(
       getRawAttributeValue(message, DTLS_IN_STUN_DATA)?.equals(payload),
     ).toBe(true);
-    expect(attributeTypes(message.bytes)).toContain(DTLS_IN_STUN_DATA);
+    expect(wireAttributeTypes(message.bytes)).toContain(DTLS_IN_STUN_DATA);
   });
 
   it("getAttributes().push は getAttributeValue と serialize の両方に載る", () => {
@@ -316,7 +252,7 @@ describe("STUN wire attribute order", () => {
 
     // Assert: lookup と bytes が分離しない
     expect(message.getAttributeValue("USERNAME")).toBe("a:b");
-    expect(attributeTypes(message.bytes)).toContain(0x0006);
+    expect(wireAttributeTypes(message.bytes)).toContain(0x0006);
   });
 
   it("rawAttributes.reverse は wire order に反映される", () => {
@@ -330,7 +266,7 @@ describe("STUN wire attribute order", () => {
     message.rawAttributes.reverse();
 
     // Assert: 公開配列の順が serialize に載る
-    expect(attributeTypes(message.bytes)).toEqual([
+    expect(wireAttributeTypes(message.bytes)).toEqual([
       0x0006,
       DTLS_IN_STUN_ACK,
       DTLS_IN_STUN_DATA,
@@ -347,7 +283,7 @@ describe("STUN wire attribute order", () => {
     message.getAttributes().reverse();
 
     // Assert
-    expect(attributeTypes(message.bytes)).toEqual([0x0024, 0x0006]);
+    expect(wireAttributeTypes(message.bytes)).toEqual([0x0024, 0x0006]);
   });
 
   it("clear は known だけ消し rawAttributes は残す", () => {
@@ -366,6 +302,6 @@ describe("STUN wire attribute order", () => {
     expect(
       getRawAttributeValue(message, DTLS_IN_STUN_DATA)?.equals(payload),
     ).toBe(true);
-    expect(attributeTypes(message.bytes)).toEqual([DTLS_IN_STUN_DATA]);
+    expect(wireAttributeTypes(message.bytes)).toEqual([DTLS_IN_STUN_DATA]);
   });
 });

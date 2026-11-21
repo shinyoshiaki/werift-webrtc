@@ -9,7 +9,7 @@ import { ServerHelloVerifyRequest } from "../../src/handshake/message/server/hel
 import { createDtlsClientInternal } from "../../src/internal";
 import { AlertDesc, ContentType } from "../../src/record/const";
 import { serializePlaintextRecord } from "../../src/record/v1_3/record";
-import { certPem, keyPem } from "../fixture";
+import { certPem, keyPem, peerOf } from "../fixture";
 
 /**
  * Build a DTLS 1.2 HelloVerifyRequest epoch-0 record (unauthenticated).
@@ -35,23 +35,12 @@ function buildHvrDatagram(cookie = Buffer.alloc(16, 0xab)): Buffer {
  * UdpTransport.address is often 0.0.0.0:port; the 1.3 engine normalizes that
  * to 127.0.0.1 for pin. Injecting 0.0.0.0 is dropped as non-association peer.
  */
-function clientFacingServerPeer(serverTransport: {
-  address: { address: string; port: number } | string;
-}): [string, number] {
-  const a = serverTransport.address as { address: string; port: number };
-  const host = a.address === "0.0.0.0" ? "127.0.0.1" : a.address;
-  return [host, a.port];
-}
-
 /** Inject unauthenticated HVR as if it came from the dual/1.2 peer. */
 function injectHvr(
   clientTransport: { onData?: (data: Buffer, addr?: any) => void },
   serverTransport: { address: { address: string; port: number } | string },
 ) {
-  clientTransport.onData?.(
-    buildHvrDatagram(),
-    clientFacingServerPeer(serverTransport),
-  );
+  clientTransport.onData?.(buildHvrDatagram(), peerOf(serverTransport));
 }
 
 /**
@@ -582,10 +571,7 @@ test("e2e/dual: genuine 1.2 handshake_failure during probing fires onError immed
         alertBody,
       );
       queueMicrotask(() => {
-        clientTransport.onData?.(
-          alertPkt,
-          clientFacingServerPeer(serverTransport),
-        );
+        clientTransport.onData?.(alertPkt, peerOf(serverTransport));
       });
     }
   };
@@ -832,10 +818,7 @@ test("e2e/dual: close() during probing tears down parked engine and carrier time
   expect(connects).toEqual([]);
 
   // close 後の inject は closed を壊さない
-  clientCarrier.inject(
-    buildHvrDatagram(),
-    clientFacingServerPeer(serverTransport),
-  );
+  clientCarrier.inject(buildHvrDatagram(), peerOf(serverTransport));
   expect(client.dualAssociationPhase).toBe("closed");
   expect(connects).toEqual([]);
   expect(errors).toEqual([]);
@@ -908,7 +891,7 @@ test("e2e/dual: carrier.inject of 1.3 SH during probing commits via association"
       // — association demux must unpark and set engine13
       releaseServer = true;
       for (const pkt of shFlight) {
-        clientCarrier.inject(pkt.buf, clientFacingServerPeer(serverTransport));
+        clientCarrier.inject(pkt.buf, peerOf(serverTransport));
       }
       return;
     }
@@ -1011,10 +994,7 @@ test("e2e/dual: carrier.inject of 1.2 SH during probing commits via association"
     }
     // After commit path starts, still deliver remaining flights via inject so
     // association 1.2 path (not UDP only) is exercised for the whole HS.
-    clientCarrier.inject(
-      Buffer.from(buf),
-      clientFacingServerPeer(serverTransport),
-    );
+    clientCarrier.inject(Buffer.from(buf), peerOf(serverTransport));
   };
 
   let clientSends = 0;
@@ -1030,10 +1010,7 @@ test("e2e/dual: carrier.inject of 1.2 SH during probing commits via association"
       // 1.2 server は通常 HVR を返す — wire へは出さず client に注入
       const firstFlight = heldServerTx.splice(0);
       for (const pkt of firstFlight) {
-        clientTransport.onData?.(
-          pkt.buf,
-          clientFacingServerPeer(serverTransport),
-        );
+        clientTransport.onData?.(pkt.buf, peerOf(serverTransport));
       }
       for (let i = 0; i < 50; i++) {
         if (client.dualAssociationPhase === "probing") break;
@@ -1045,7 +1022,7 @@ test("e2e/dual: carrier.inject of 1.2 SH during probing commits via association"
       // 以降の 1.2 SH 等は carrier.inject 経由
       injectViaCarrier = true;
       for (const pkt of heldServerTx.splice(0)) {
-        clientCarrier.inject(pkt.buf, clientFacingServerPeer(serverTransport));
+        clientCarrier.inject(pkt.buf, peerOf(serverTransport));
       }
     }
   };
@@ -1159,7 +1136,7 @@ test("e2e/dual: late 1.3 packet after commit12 does not reverse version", async 
 
   // Act: late 1.3-looking SH（supported_versions=1.3）を注入
   const late13 = buildMinimalDtls13ServerHelloRecord();
-  clientTransport.onData?.(late13, clientFacingServerPeer(serverTransport));
+  clientTransport.onData?.(late13, peerOf(serverTransport));
   await new Promise((r) => setTimeout(r, 50));
 
   // Assert: 1.2 のまま、二重 connect なし
@@ -1205,7 +1182,7 @@ test("e2e/dual: late 1.2 packet after commit13 does not reverse version", async 
   const connects: number[] = [];
   client.onConnect.subscribe(() => connects.push(Date.now()));
 
-  const peer = clientFacingServerPeer(serverTransport);
+  const peer = peerOf(serverTransport);
 
   // Act: late 1.2-style packets（HVR / epoch-0 alert / **1.2 ServerHello 本体**）
   clientTransport.onData?.(buildHvrDatagram(Buffer.alloc(8, 0xcd)), peer);
@@ -1274,7 +1251,7 @@ test("e2e/dual: resume 1.3 without parked/material tears down association", asyn
   (client as any).dualResume = undefined;
   clientTransport.onData?.(
     buildMinimalDtls13ServerHelloRecord(),
-    clientFacingServerPeer(serverTransport),
+    peerOf(serverTransport),
   );
   await new Promise((r) => setTimeout(r, 30));
 
@@ -1345,7 +1322,7 @@ test("e2e/dual: close races with carrier.inject leave association closed", async
 
   // Act: close 直後に inject（race）
   client.close();
-  const peer = clientFacingServerPeer(serverTransport);
+  const peer = peerOf(serverTransport);
   clientCarrier.inject(buildHvrDatagram(), peer);
   clientCarrier.inject(buildMinimalDtls13ServerHelloRecord(), peer);
   // ほぼ同時パターン: inject 中に再度 close してもよい
@@ -1564,7 +1541,7 @@ test("e2e/dual: fatal after committed13 tears down association to closed", async
   // 再 inject / RTO 進行でも connect 二重・追加 error なし
   clientCarrier.inject(
     buildMinimalDtls13ServerHelloRecord(),
-    clientFacingServerPeer(serverTransport),
+    peerOf(serverTransport),
   );
   await new Promise((r) => setTimeout(r, INITIAL_RTO_MS + 200));
   expect(connectsAfter).toEqual([]);
@@ -1619,7 +1596,7 @@ test("e2e/dual: 1.3-only version mismatch tears down association to closed", asy
   client.onConnect.subscribe(() => connects.push(Date.now()));
 
   // Server may hard-close transport on protocol_version — pin peer while open.
-  const serverPeer = clientFacingServerPeer(serverTransport);
+  const serverPeer = peerOf(serverTransport);
 
   // Act: HVR → ProtocolVersionError（1.3-only は dual soft に入らない）
   void client.connect();
@@ -2106,10 +2083,7 @@ test("e2e/dual: epoch-1 illegal_parameter during probing surfaces onError", asyn
       clearTimeout(timer);
       resolve(e);
     });
-    clientTransport.onData?.(
-      epoch1Alert,
-      clientFacingServerPeer(serverTransport),
-    );
+    clientTransport.onData?.(epoch1Alert, peerOf(serverTransport));
   });
 
   // Assert: public onError（timeout 化・握りつぶしではない）
@@ -2566,7 +2540,7 @@ test("e2e/dual: after commit12 spoof inject does not redirect send to attacker",
   expect(client.dualAssociationPhase).toBe("committed12");
   expect(client.isDtls13).toBe(false);
 
-  const peerA = clientFacingServerPeer(serverTransport);
+  const peerA = peerOf(serverTransport);
   const peerB: [string, number] = ["203.0.113.99", 40000];
 
   // Act: spoof inject from B（packet は drop、rinfo を汚さない）
@@ -2662,7 +2636,7 @@ test("e2e/dual: after commit12 real-UDP spoof does not redirect send", async () 
     void client.connect();
   });
 
-  const peerA = clientFacingServerPeer(serverTransport);
+  const peerA = peerOf(serverTransport);
   const peerB: [string, number] = ["198.51.100.77", 41000];
 
   // Act: UDP onData 経路で spoof（UdpTransport 相当: 先に rinfo を B に汚す）
@@ -2994,7 +2968,7 @@ test("e2e/dual: malformed or unknown ServerHello during probing does not commit1
   expect((client as any).parkedEngine13).toBeTruthy();
   const genBefore = (client as any).associationGen;
 
-  const peer = clientFacingServerPeer(serverTransport);
+  const peer = peerOf(serverTransport);
 
   // Act / Assert: drop 系 — probing 維持・commit12 しない
   const dropCases: { name: string; buf: Buffer }[] = [
