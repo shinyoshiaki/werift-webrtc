@@ -1,4 +1,5 @@
 export {
+  abnormalExit,
   type DeepContext,
   type DeepSearchConfig,
   type DeepShard,

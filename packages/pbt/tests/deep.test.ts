@@ -1,11 +1,13 @@
 import { describe, expect, test } from "vitest";
 
 import {
+  abnormalExit,
   type DeepSearchConfig,
   planDeepSearch,
   SEED_TITLE_PATTERN,
   seedRanges,
 } from "../src";
+import { runFixtureDeepSearch } from "./utils";
 
 const config: DeepSearchConfig = {
   cwd: "/tmp/pkg",
@@ -103,5 +105,62 @@ describe("deep search plan", () => {
     expect(() => planDeepSearch(config, ["--suite", "nope"], 1)).toThrow(
       /unknown pbt:deep suite nope/,
     );
+  });
+});
+
+describe("deep search run", () => {
+  test("a shard whose tests pass and whose vitest exits 0 passes", async () => {
+    // Act: 通るだけのフィクスチャを実行器で動かす。
+    const { exit, output } = await runFixtureDeepSearch(["passing"]);
+
+    // Assert: 終了コード 0 で、1 件通過・失敗なしと報告する。
+    expect(exit).toBe(0);
+    expect(output).toContain("1 passed, 0 failed, 0 flaky");
+  }, 60_000);
+
+  test("an unhandled error after the assertions passed fails the search", async () => {
+    // Act: assertion は通るが、その後に未処理の rejection で vitest が終了コード 1 になるフィクスチャを動かす。
+    const { exit, lines } = await runFixtureDeepSearch(["unhandled"]);
+
+    // Assert: テストの結果がすべて通過でも、実行器は終了コード 1 を返す。
+    expect(exit).toBe(1);
+    // Assert: 単独での再実行でも異常終了するので flaky ではなく失敗とし、分割名と終了コードを示す。
+    expect(lines).toContain(
+      "  FAILED unhandled shard: vitest exited with code 1 (an error outside the test results, e.g. an unhandled rejection)",
+    );
+    expect(lines.join("\n")).toContain("1 failed, 0 flaky");
+  }, 60_000);
+
+  test("a failing assertion fails the search under its test title", async () => {
+    // Act: assertion が失敗するフィクスチャと、通るフィクスチャを同じ pool で動かす。
+    const { exit, lines } = await runFixtureDeepSearch(["failing", "passing"]);
+
+    // Assert: 終了コード 1 で、失敗はテストの題名で報告し、異常終了の行は重ねて出さない。
+    expect(exit).toBe(1);
+    expect(lines).toContain("  FAILED a failing fixture");
+    expect(lines.some((line) => line.includes("vitest exited"))).toBe(false);
+    // Assert: 通るフィクスチャは失敗にならない。
+    expect(lines.join("\n")).toContain(
+      "passing: 1 shards, 1 tests, 1 passed, 0 failed",
+    );
+  }, 60_000);
+
+  test("an exit by a signal, an exit code or a missing report is abnormal; exit code 0 with a report is not", () => {
+    // Act / Assert: シグナルで終わったプロセスは異常終了。
+    expect(
+      abnormalExit({ exitCode: null, signal: "SIGKILL", reported: true }),
+    ).toBe("vitest was killed by SIGKILL");
+    // Act / Assert: 終了コードが 0 以外なら異常終了。
+    expect(abnormalExit({ exitCode: 2, signal: null, reported: true })).toMatch(
+      /^vitest exited with code 2/,
+    );
+    // Act / Assert: 終了コード 0 でもレポートがなければ異常終了。
+    expect(abnormalExit({ exitCode: 0, signal: null, reported: false })).toBe(
+      "vitest wrote no report",
+    );
+    // Act / Assert: 終了コード 0 でレポートがあれば正常。
+    expect(
+      abnormalExit({ exitCode: 0, signal: null, reported: true }),
+    ).toBeUndefined();
   });
 });

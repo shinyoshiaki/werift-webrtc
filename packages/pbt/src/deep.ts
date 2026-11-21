@@ -3,8 +3,11 @@
  * seeds of each property suite into shards and runs them as separate vitest
  * processes, `--jobs` (default: the CPU count) at a time, all suites in one
  * pool. A failed seed is replayed alone afterwards, so a failure caused by
- * CPU load is reported as flaky instead of failed. Exit code 1 when a seed
- * fails again when replayed alone.
+ * CPU load is reported as flaky instead of failed. A vitest process that
+ * ends abnormally (an exit code other than 0, e.g. an unhandled rejection
+ * after the tests passed; a signal; no report) fails its shard even when every
+ * test in its report passed; that shard is replayed alone too. Exit code 1
+ * when a seed or a shard fails again when replayed alone.
  *
  * A package lists its suites in `tests/pbt/suites.ts` (a `DeepSearchConfig`
  * as default export) and runs them with `npm run pbt:deep`:
@@ -167,6 +170,43 @@ export function planDeepSearch(
 
 type Failure = { suite: string; title: string; shard: DeepShard };
 
+/** One vitest process: its tests by status and how it ended. */
+type ShardRun = {
+  passed: number;
+  /** Titles of the failed tests. */
+  failed: string[];
+  exitCode: number | null;
+  signal: NodeJS.Signals | null;
+  /** Whether the JSON report was written and parsed. */
+  reported: boolean;
+};
+
+/**
+ * Why a vitest process ended abnormally, or undefined when it exited 0 with
+ * its report. vitest exits 1 for an error outside the test results (an
+ * unhandled rejection or exception, a failing hook or file) even when every
+ * test in the report passed, so the exit code and signal are checked besides
+ * the report.
+ */
+export function abnormalExit({
+  exitCode,
+  signal,
+  reported,
+}: Pick<ShardRun, "exitCode" | "signal" | "reported">): string | undefined {
+  if (signal) return `vitest was killed by ${signal}`;
+  if (exitCode !== 0) {
+    return exitCode === null
+      ? "vitest could not be started"
+      : `vitest exited with code ${exitCode} (an error outside the test results, e.g. an unhandled rejection)`;
+  }
+  if (!reported) return "vitest wrote no report";
+  return undefined;
+}
+
+/** A replay that ran a test, failed none and ended normally. */
+const passedCleanly = (result: ShardRun) =>
+  result.passed > 0 && result.failed.length === 0 && !abnormalExit(result);
+
 /** Run every shard of the selected suites; resolves the exit code. */
 export async function runDeepSearch(
   config: DeepSearchConfig,
@@ -201,11 +241,14 @@ export async function runDeepSearch(
   );
   const work = mkdtempSync(join(tmpdir(), "pbt-deep-"));
 
-  /** Run one vitest process; returns the titles of its tests by status. */
+  /**
+   * Run one vitest process; returns the titles of its tests by status and
+   * how the process ended.
+   */
   const run = (shard: DeepShard, id: string, extraPattern?: string) => {
     const output = join(work, `${id}.json`);
     const pattern = extraPattern ?? shard.pattern;
-    return new Promise<{ passed: number; failed: string[] }>((resolve) => {
+    return new Promise<ShardRun>((resolve) => {
       const child = spawn(
         process.execPath,
         [
@@ -223,7 +266,13 @@ export async function runDeepSearch(
           stdio: "ignore",
         },
       );
-      child.on("exit", () => {
+      let settled = false;
+      const settle = (
+        exitCode: number | null,
+        signal: NodeJS.Signals | null,
+      ) => {
+        if (settled) return;
+        settled = true;
         try {
           const report = JSON.parse(readFileSync(output, "utf8"));
           const results = report.testResults.flatMap(
@@ -237,14 +286,17 @@ export async function runDeepSearch(
             failed: results
               .filter((r: { status: string }) => r.status === "failed")
               .map((r: { title: string }) => r.title),
+            exitCode,
+            signal,
+            reported: true,
           });
         } catch {
-          resolve({
-            passed: 0,
-            failed: [`${shard.label}: no report (the process crashed)`],
-          });
+          resolve({ passed: 0, failed: [], exitCode, signal, reported: false });
         }
-      });
+      };
+      child.on("exit", settle);
+      // The process could not be started (no exit event follows).
+      child.on("error", () => settle(null, null));
     });
   };
 
@@ -269,33 +321,56 @@ export async function runDeepSearch(
       })),
     );
     const passed = indices.reduce((sum, i) => sum + results[i].passed, 0);
-    // テスト名のパターンが合わず何も実行しなかった分割は失敗として扱う。
+    const tests =
+      passed + indices.reduce((sum, i) => sum + results[i].failed.length, 0);
+    // テスト名のパターンが合わず何も実行しなかった分割は失敗として扱う
+    // (パターンの誤りで、再実行しても同じなので確定)。
+    const confirmed: Failure[] = [];
+    const ranNoTest = new Set<number>();
     for (const i of indices) {
-      if (results[i].passed + results[i].failed.length === 0) {
-        failures.push({
+      const result = results[i];
+      if (result.reported && result.passed + result.failed.length === 0) {
+        ranNoTest.add(i);
+        confirmed.push({
           suite,
           title: `${list[i].shard.label}: ran no test`,
           shard: list[i].shard,
         });
       }
     }
-    // 失敗は単独で再実行し、負荷による失敗 (flaky) と本当の失敗を分ける。
-    const confirmed: Failure[] = [];
+    // 失敗は単独で再実行し、負荷による失敗 (flaky) と本当の失敗を分ける。単独で
+    // 実行して通った (1 件以上実行し失敗なし、vitest も正常終了) ものだけが flaky。
     const flaky: Failure[] = [];
-    for (const [index, failure] of failures.entries()) {
+    let retries = 0;
+    for (const failure of failures) {
       const again = await run(
         failure.shard,
-        `${suite}-retry-${index}`,
+        `${suite}-retry-${retries++}`,
         escapeRegExp(failure.title),
       );
-      // 単独で実行して通った (1 件以上実行し失敗なし) ものだけが flaky。何も実行
-      // しない分割やプロセスの異常終了は、そのまま失敗として扱う。
-      const passedAlone = again.passed > 0 && again.failed.length === 0;
-      (passedAlone ? flaky : confirmed).push(failure);
+      (passedCleanly(again) ? flaky : confirmed).push(failure);
+    }
+    // テストの結果に現れない異常終了 (assertion の後の未処理の rejection、
+    // シグナル、レポートなし) は、その分割の題名の失敗がすべて flaky だったとき
+    // にも説明がつかないので、分割を丸ごと単独で再実行して判定する。
+    for (const i of indices) {
+      const reason = abnormalExit(results[i]);
+      const explained = failures.some(
+        (failure) =>
+          failure.shard === list[i].shard && confirmed.includes(failure),
+      );
+      if (!reason || explained || ranNoTest.has(i)) continue;
+      const failure: Failure = {
+        suite,
+        title: `${list[i].shard.label}: ${reason}`,
+        shard: list[i].shard,
+      };
+      const again = await run(list[i].shard, `${suite}-retry-${retries++}`);
+      (passedCleanly(again) ? flaky : confirmed).push(failure);
     }
     const last = Math.max(...indices.map((i) => finished[i]));
     console.log(
-      `${suite}: ${indices.length} shards, ${passed + failures.length} tests, ${passed} passed, ` +
+      `${suite}: ${indices.length} shards, ${tests} tests, ${passed} passed, ` +
         `${confirmed.length} failed, ${flaky.length} flaky, done at ${((last - started) / 1000).toFixed(0)}s`,
     );
     for (const failure of confirmed) {

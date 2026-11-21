@@ -31,7 +31,11 @@ npm run pbt:deep -- --dry-run                    # the shards, without running t
 Each shard is its own vitest process (one file, `--retry=0`, the seed range in
 its environment); the shards of every selected suite share one pool of
 `--jobs` (default: the CPU count). A failed seed runs again alone; the exit
-code is 1 when it fails again. A suite with a `prefix` is split by seed range;
+code is 1 when it fails again. A vitest process that ends abnormally fails its
+shard even when every test in its report passed: an exit code other than 0
+(for example an unhandled rejection after the assertions), a signal, or no
+report (`abnormalExit`). Such a shard runs again alone too. A suite with a
+`prefix` is split by seed range;
 one with fixed scenes or other parts gives its own `shards` (see
 `packages/webrtc/tests/pbt/suites.ts`).
 
@@ -41,4 +45,4 @@ one with fixed scenes or other parts gives its own `shards` (see
 - `propertySeeds(prefix, { seeds, steps? })`: `{ seeds, cases, steps, seedSelected, replay, title }`.
 - `propertyOptions(timeout?)`: `{ retry: 0, timeout? }`.
 - `SEED_TITLE_PATTERN`: the vitest `-t` pattern of the seed titles.
-- `runDeepSearch(config, argv)`, `planDeepSearch`, `seedRanges`, `prefixShards`, `parseDeepArgs`; types `DeepSearchConfig`, `DeepSuite`, `DeepShard`, `DeepContext`.
+- `runDeepSearch(config, argv)`, `abnormalExit`, `planDeepSearch`, `seedRanges`, `prefixShards`, `parseDeepArgs`; types `DeepSearchConfig`, `DeepSuite`, `DeepShard`, `DeepContext`.
