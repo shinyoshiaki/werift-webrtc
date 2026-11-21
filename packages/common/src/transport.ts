@@ -190,24 +190,6 @@ export class UdpTransport implements Transport {
     }
   };
 
-  /**
-   * Wait until the kernel accepts the datagram. Use only when a later
-   * socket.close() must not drop this packet (DTLS close_notify).
-   */
-  sendAndWait = (data: Buffer, addr?: Address) => {
-    addr = addr ?? [this.rinfo?.address!, this.rinfo?.port!];
-    return new Promise<void>((r, f) => {
-      this.socket.send(data, addr![1], addr![0], (error) => {
-        if (error) {
-          log("send error", addr, data);
-          f(error);
-        } else {
-          r();
-        }
-      });
-    });
-  };
-
   get address() {
     return this.socket.address();
   }
@@ -308,10 +290,6 @@ export class TcpTransport implements Transport {
     await this.stream.send(data, addr);
   };
 
-  sendAndWait = async (data: Buffer, addr?: Address) => {
-    await this.stream.send(data, addr);
-  };
-
   close = async () => {
     await this.stream.close();
   };
@@ -387,10 +365,6 @@ export class TlsTransport implements Transport {
     addr?: Address,
     _options?: TransportSendOptions,
   ) => {
-    await this.stream.send(data, addr);
-  };
-
-  sendAndWait = async (data: Buffer, addr?: Address) => {
     await this.stream.send(data, addr);
   };
 
@@ -576,12 +550,6 @@ export interface Transport {
     addr?: Address,
     options?: TransportSendOptions,
   ) => Promise<void>;
-  /**
-   * Optional flush: wait until the datagram is accepted by the kernel.
-   * Hot-path {@link send} must stay fire-and-forget for resolved IP peers.
-   * DTLS close_notify uses this so a following socket.close() cannot drop it.
-   */
-  sendAndWait?: (data: Buffer, addr?: Address) => Promise<void>;
   close: () => Promise<void>;
   /**
    * When true, the transport path is already peer-authenticated (e.g. ICE).
@@ -600,16 +568,4 @@ export interface Transport {
    * from this address. Built-in TCP/TLS transports set it once connected.
    */
   remoteAddress?: Address;
-}
-
-/** Flush one datagram when the transport supports it; else {@link Transport.send}. */
-export function flushTransportSend(
-  transport: Transport,
-  data: Buffer,
-  addr?: Address,
-): Promise<void> {
-  if (transport.sendAndWait) {
-    return transport.sendAndWait(data, addr);
-  }
-  return transport.send(data, addr);
 }

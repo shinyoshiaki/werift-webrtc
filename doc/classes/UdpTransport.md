@@ -186,33 +186,6 @@ readonly \[`string`, `number`\]
 
 ***
 
-### sendAndWait()
-
-> **sendAndWait**(`data`, `addr?`): `Promise`\<`void`\>
-
-Wait until the kernel accepts the datagram. Use only when a later
-socket.close() must not drop this packet (DTLS close_notify).
-
-#### Parameters
-
-##### data
-
-`Buffer`
-
-##### addr?
-
-readonly \[`string`, `number`\]
-
-#### Returns
-
-`Promise`\<`void`\>
-
-#### Implementation of
-
-[`Transport`](../interfaces/Transport.md).[`sendAndWait`](../interfaces/Transport.md#sendandwait)
-
-***
-
 ### init()
 
 > `static` **init**(`type`, `options?`): `Promise`\<`UdpTransport`\>

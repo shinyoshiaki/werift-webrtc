@@ -227,7 +227,6 @@
 - [dumpBuffer](functions/dumpBuffer.md)
 - [enumerate](functions/enumerate.md)
 - [findPort](functions/findPort.md)
-- [flushTransportSend](functions/flushTransportSend.md)
 - [getBit](functions/getBit.md)
 - [growBufferSize](functions/growBufferSize.md)
 - [hasTwccReceiveTiming](functions/hasTwccReceiveTiming.md)

@@ -189,6 +189,16 @@ develop マージ前の監査で、DTLS 1.3 / SPED 実装が既定（DTLS 1.2・
 | E-8 | changelog に未記載の既定経路の差分 | DTLS 1.2 の record 受理、ClientHello の検証時点、細かな wire 変更、API の変更を Breaking changes に追記し、`restart()` の記述を実装に合わせる |
 
 **F. 検証はコンテナ内で行う**: Node 24・Go（Pion ツールの toolchain）・Playwright の依存・GStreamer を入れたコンテナで、`npm run ci` 相当（lint:imports、type:all、doc:check、build、test:small、E2E）、WPT、BoringSSL、Pion（SPED codec / ICE agent）を実行する。
+
+### 追加要件（2026-11-21 その2: develop #875 のマージ確認と方針への追従）
+
+develop #875（ICE の failover と property test 基盤 `packages/pbt`）のマージ `70f2c63c5` を確認した。6 ファイルのコンフリクトはいずれも両側の変更を残しており不適切な解消は無い（直後の自動コミット `f6ef63f81` は整形のみ）。取り込まれた方針に合わせて次を行う。
+
+| # | 方針 / 確認 | 対応 |
+| --- | --- | --- |
+| G-1 | develop は「OS が datagram を受け取るまで待つ送信」を `Transport.send(data, addr, { confirm: true })` に一本化した | warp が独自に足した `Transport.sendAndWait` / `UdpTransport`・`TcpTransport`・`TlsTransport` の `sendAndWait` / `flushTransportSend` / `TransportContext.sendAndWait` を削除し、DTLS 1.3 の close_notify を `send(..., { confirm: true })` で送る |
+| G-2 | property test は `<package>/tests/pbt/<name>/` で `packages/pbt` を使い、影響するパッケージで `npm run pbt:deep` を流す | warp のテストに property test 相当のもの（seed / 乱数の反復）は無いことを確認。ICE（SPED が触る選択・指名の経路）は `pbt:deep` で検証する。`packages/ice/AGENTS.md` に `pbt:deep` と property test の検証手順を記載する |
+| G-3 | develop の failover（ICE restart なしで選択経路を切り替える）と SPED の認証境界の組み合わせ | SPED を有効にした両端でも host 経路の遮断から relay へ failover しデータが届くことを `packages/ice/tests/sped/failover.test.ts` で検証する（このホストは複数 interface のため develop 由来の failover テストも失敗する。単一 interface のコンテナで検証する） |
 ---
 
 ## 2. 実装すべき具体的な機能や変更内容
@@ -832,6 +842,12 @@ WebRTC は `packages/webrtc/src/imports/ice.ts` が ice の barrel を再export 
 - [ ] E-2〜E-4: Binding Request の例外がログに留まり、購読者なしでは pair 解決をせず、SPED 無効時は `:` の無い USERNAME に応答する
 - [ ] E-5〜E-8: 到達不能な分岐と誤った説明が無く、changelog が既定経路の差分を網羅する
 - [ ] F: コンテナ内で CI 相当、WPT、BoringSSL、Pion（SPED codec / ICE agent）が通る
+
+### 追加要件（2026-11-21 その2）
+
+- [ ] G-1: `sendAndWait` / `flushTransportSend` が無く、close_notify は `send(..., { confirm: true })` で送られる
+- [ ] G-2: ICE の `pbt:deep` が通る。`packages/ice/AGENTS.md` に property test の手順がある
+- [ ] G-3: SPED 有効の両端で、選択経路の遮断から ICE restart なしで failover しデータが届く
 
 ### SPED draft00
 

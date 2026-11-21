@@ -33,6 +33,7 @@ Instructions for coding agents working in `packages/ice`.
 | --- | --- |
 | type-check package | `npm run type` |
 | test package | `npm test` |
+| deep property search (`tests/pbt/suites.ts`; options in `packages/pbt/README.md`) | `npm run pbt:deep` |
 | format package | `npm run format` |
 | pion TURN interop (opt-in) | `npm run test:pion-turn` |
 | pion SPED wire codec (opt-in) | `npm run test:pion-sped` |
@@ -41,6 +42,7 @@ Instructions for coding agents working in `packages/ice`.
 ## Validation
 
 * STUN / ICE logic: `npm run type` and `npm test`.
+* Property tests live in `tests/pbt/<name>/` on `packages/pbt` (rules in its `README.md`), each listed in `tests/pbt/suites.ts`. ICE selection / nomination / failover changes, including SPED paths that touch them: `npm test`, then `npm run pbt:deep`.
 * Opt-in Pion SPED codec: `npm run test:pion-sped` with `WERIFT_PION_SPED` or `WERIFT_PION_SPED_AUTO_BUILD=1` (see `tools/pion-sped/README.md`). Default `npm test` skips a missing/incompatible env path. The opt-in script fails if neither source is set, and on a bad path.
 * Opt-in released Pion ICE agent fallback: `npm run test:pion-ice-agent --workspace packages/webrtc` with `WERIFT_PION_ICE_AGENT` or `WERIFT_PION_ICE_AGENT_AUTO_BUILD=1` (see `tools/pion-ice-agent/README.md`). Default `npm test` skips a missing path. The opt-in script fails if neither source is set, and on a missing path.
 

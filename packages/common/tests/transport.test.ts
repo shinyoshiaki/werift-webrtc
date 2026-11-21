@@ -49,7 +49,7 @@ describe("stream transport connection timeout", () => {
 });
 
 describe("UdpTransport send semantics", () => {
-  test("IP send is fire-and-forget; sendAndWait awaits the kernel callback", async () => {
+  test("IP send is fire-and-forget; send with confirm awaits the kernel callback", async () => {
     // Arrange
     const t = await UdpTransport.init("udp4");
     let callbackInvoked = false;
@@ -74,11 +74,10 @@ describe("UdpTransport send semantics", () => {
       // Assert
       expect(callbackInvoked).toBe(false);
 
-      // Act: close_notify 用 flush は callback 完了を待つ
-      const flushed = t.sendAndWait(Buffer.from("flush"), [
-        "127.0.0.1",
-        t.port,
-      ]);
+      // Act: confirm 付きの send（close_notify 用）は callback 完了を待つ
+      const flushed = t.send(Buffer.from("flush"), ["127.0.0.1", t.port], {
+        confirm: true,
+      });
       expect(callbackInvoked).toBe(false);
       await flushed;
       expect(callbackInvoked).toBe(true);
