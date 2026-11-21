@@ -1155,7 +1155,13 @@ export class Connection implements IceConnection {
 
   private ensureProtocol(protocol: Protocol) {
     protocol.onRequestReceived.subscribe((msg, addr, data) => {
-      void this.handleBindingRequest(protocol, msg, addr, data);
+      // Asynchronous (SPED awaits the DTLS inject before answering): a
+      // failure, e.g. thrown by a filterStunResponse callback, is logged as
+      // it was when the request was handled synchronously, never left as an
+      // unhandled rejection.
+      this.handleBindingRequest(protocol, msg, addr, data).catch((error) => {
+        log("handleBindingRequest", error);
+      });
     });
     protocol.onDataReceived.subscribe((data, addr) => {
       try {
@@ -1215,20 +1221,24 @@ export class Connection implements IceConnection {
       return;
     }
 
-    const txUsername = msg.getAttributeValue("USERNAME");
-    if (typeof txUsername !== "string" || !txUsername.includes(":")) {
-      return;
-    }
-    const { remoteUsername: localUsername } = decodeTxUsername(txUsername);
-    const localPassword = this.userHistory[localUsername] ?? this.localPassword;
-
     // SPED (PeerConfig.sped) carries DTLS on the check exchange, so its
     // requests are HMAC-verified (RFC 8445 §7.3) and an older generation's
     // check never reaches the current state. Without SPED the agent keeps its
     // default handling: the MESSAGE-INTEGRITY of an incoming check is not
     // verified here (rejecting unverifiable checks with 401, RFC 8489 §9.1.3,
-    // changes established behavior and is tracked separately).
+    // changes established behavior and is tracked separately), and a
+    // USERNAME without ":" is read as the local ufrag as before.
     const spedBoundary = isConnectionSpedEnabled(this);
+    const txUsername = msg.getAttributeValue("USERNAME");
+    if (typeof txUsername !== "string") {
+      return;
+    }
+    if (spedBoundary && !txUsername.includes(":")) {
+      return;
+    }
+    const { remoteUsername: localUsername } = decodeTxUsername(txUsername);
+    const localPassword = this.userHistory[localUsername] ?? this.localPassword;
+
     let verified: Message | undefined = msg;
     if (spedBoundary) {
       verified = parseMessage(data, Buffer.from(localPassword, "utf8"));

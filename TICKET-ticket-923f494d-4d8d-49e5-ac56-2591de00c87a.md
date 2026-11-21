@@ -155,7 +155,7 @@ develop マージ前の監査で、DTLS 1.3 / SPED 実装が既定（DTLS 1.2・
 | # | 対象 | 方針 |
 | --- | --- | --- |
 | C-1 | DTLS 1.2 association lifecycle（ローカル `close()` で `onClose`、終了後の exporter / `remoteCertificate` / `connect()` は例外、`send()` は破棄） | **許容**（変更しない）。changelog の Breaking changes に記載する |
-| C-2 | DTLS 1.2 handshake 検証の厳格化（不正な `supported_versions`、重複拡張、不正な `use_srtp` / MKI、断片の再構成の不整合） | PeerConnection のコンストラクタオプション **`dtlsHandshakeValidation`**（互換性オプション。`"standard"` / `"lenient"`、既定 `"lenient"`、構築後は変更不可、`compatibility: "standard"` で `"standard"`）。`"standard"` は厳密、`"lenient"` は develop の挙動。`werift-dtls` は `handshakeValidation`（既定 `"lenient"`）。共通する version が無い well-formed な `supported_versions` はどちらでも `protocol_version`（RFC 8446 §4.2.1）。DTLS 1.3 は常に厳密 |
+| C-2 | DTLS 1.2 handshake 検証の厳格化（不正な `supported_versions`、重複拡張、不正な `use_srtp` / MKI）。断片の再構成は develop の `HandshakeReassembler`（全 byte が揃ってから組み立てる）がモードによらず担う | PeerConnection のコンストラクタオプション **`dtlsHandshakeValidation`**（互換性オプション。`"standard"` / `"lenient"`、既定 `"lenient"`、構築後は変更不可、`compatibility: "standard"` で `"standard"`）。`"standard"` は厳密、`"lenient"` は develop の挙動。`werift-dtls` は `handshakeValidation`（既定 `"lenient"`）。共通する version が無い well-formed な `supported_versions` はどちらでも `protocol_version`（RFC 8446 §4.2.1）。DTLS 1.3 は常に厳密 |
 | C-3 | マージ起因: 鍵が無い状態で復号できない epoch > 0 の alert を平文として読み直す（`33c1abd26`） | DTLS 1.3 を提示する association（dual-version probing）に限定する。DTLS 1.2 のみは develop どおり破棄（RFC 6347 §4.1.2.1） |
 | C-4 | マージ起因: 一覧に無い候補からの check に同じ 5-tuple の既存 pair を流用（`f9fb80e97`、どちらの親にも無いコード） | SPED を有効にした connection に限定する（SPED の認証済み経路の pin に必要）。既定は develop どおり prflx pair を作る |
 | C-5 | マージ起因: ice-server `Message` コンストラクタの二重設定（`c32f4b296`） | setter 経由の二重設定を削除する |
@@ -163,6 +163,32 @@ develop マージ前の監査で、DTLS 1.3 / SPED 実装が既定（DTLS 1.2・
 | C-7 | changelog に DTLS 1.3 / SPED と既定経路の差分が無い | `changelog.md` に `Unreleased` を追加し、Breaking changes（C-1 ほか既定経路の差分）と Features（DTLS 1.3、SPED、`dtlsHandshakeValidation`、`peerIdentityMode`）を記載する |
 | C-8 | 未検証（最新 develop マージ後のテスト、E2E、CI 相当、WPT、相互接続） | `npm run ci` の各段（lint:imports、type:all、build、test:small と E2E）を実行し、`doc:check` は再生成と差分確認で代える。WPT / 相互接続は実行可否を確認して実施し、未実施分は理由とともに報告する |
 
+
+### 追加要件（2026-11-21: 再監査の残件と develop のリファクタリング方針）
+
+**D. develop の方針への追従**（develop の AGENTS.md / changelog で強化された方針に warp のコードを合わせる）
+
+| # | 方針 | 対応 |
+| --- | --- | --- |
+| D-1 | `werift-dtls` のソケットイベントは購読者ごとに隔離して通知する | DTLS 1.3 の公開イベント（`onConnect` / `onData` / `onClose`、再ネゴシエーション拒否の `onError`）を `notify()` に揃える。`onClose` のリスナーの例外で association の後始末が止まらないことをテストする |
+| D-2 | 新しいセッション状態は leak property の `leakFootprint` に指標を持つ | SPED の Binding Response キャッシュを SPED 有効時だけに使い、`ice.spedBindingResponses` を指標に加える |
+| D-3 | テストは日本語コメント付きの Arrange / Act / Assert、共有 Arrange は領域ごとに 1 ファイル | warp の DTLS テスト 18 ファイルにコメントを付け、重複した Arrange（`connectPair12` / `connectPair13` / `peerOf` など）を `packages/dtls/tests/fixture.ts` に集約する。ice-server の MESSAGE-INTEGRITY の Arrange は `tests/messageIntegrityUtils.ts` に置く |
+| D-4 | スクリプト・設定を変えたら最寄りの AGENTS.md を更新する | `e2e/AGENTS.md` に DTLS スイート（`vitest.dtls.config.mts`、`run-dtls-*.js`、`tests/dtls/fixture.ts`）を記載する |
+
+**E. 再監査で見つかった既定経路の問題の修正**
+
+| # | 問題 | 対応 |
+| --- | --- | --- |
+| E-1 | **高**: server の Flight6（ChangeCipherSpec + Finished）が失われると handshake が完了しない（接続済みでは client の Flight5 再送を無視していた） | 接続済みで Finished の再送を受けたら Flight6 を再送する（RFC 6347 §4.2.4）。`onConnect` は 1 回のまま |
+| E-2 | Binding Request 処理の例外が unhandled rejection になる | `.catch` でログに留める |
+| E-3 | 受信データグラム（RTP / SRTP を含む）ごとに SPED 用の pair 解決が走る | datagram event の購読者（SPED）がいるときだけ行う |
+| E-4 | `:` の無い USERNAME の Binding Request を無応答で破棄していた | SPED 有効時だけ破棄し、既定は develop どおり応答する |
+| E-5 | `dtlsHandshakeValidation` の断片再構成の lenient 分岐が develop の `HandshakeReassembler` 導入で到達不能 | 分岐を削除し、説明を「断片はモードによらず全 byte が揃ってから組み立てる」に直す |
+| E-6 | dual（1.3 + 1.2）経路で ICE 用 transport の読み取り専用 `rinfo` に書いて TypeError になりうる | ICE 用 transport に無視する setter を置く |
+| E-7 | SPED でない `RTCDtlsTransport` もエラー時に SPED の wiring を読む（独自 ICE で例外） | SPED transport のときだけ SPED session を abort する |
+| E-8 | changelog に未記載の既定経路の差分 | DTLS 1.2 の record 受理、ClientHello の検証時点、細かな wire 変更、API の変更を Breaking changes に追記し、`restart()` の記述を実装に合わせる |
+
+**F. 検証はコンテナ内で行う**: Node 24・Go（Pion ツールの toolchain）・Playwright の依存・GStreamer を入れたコンテナで、`npm run ci` 相当（lint:imports、type:all、doc:check、build、test:small、E2E）、WPT、BoringSSL、Pion（SPED codec / ICE agent）を実行する。
 ---
 
 ## 2. 実装すべき具体的な機能や変更内容
@@ -792,12 +818,20 @@ WebRTC は `packages/webrtc/src/imports/ice.ts` が ice の barrel を再export 
 ### 追加要件（2026-11-20 その2）
 
 - [ ] C-2: `dtlsHandshakeValidation` が互換性オプションとして既定 `"lenient"`・`"standard"`・`compatibility: "standard"`・構築後変更不可で動作し、DTLS transport へ渡る
-- [ ] C-2: `werift-dtls` の `handshakeValidation` で、不正な `use_srtp`、覆わない断片、重複拡張、不正な `supported_versions` が `"standard"` で失敗し、`"lenient"`（既定）で develop どおり処理される
+- [ ] C-2: `werift-dtls` の `handshakeValidation` で、不正な `use_srtp`、重複拡張、不正な `supported_versions` が `"standard"` で失敗し、`"lenient"`（既定）で develop どおり処理される
 - [ ] C-3: DTLS 1.2 のみの association は復号できない epoch > 0 の alert を破棄し、DTLS 1.3 を提示する association は鍵が無い間だけ平文として読む
 - [ ] C-4: SPED 無効時は一覧に無い候補からの check で prflx pair を作り、SPED 有効時は既存 pair を流用する
 - [ ] C-6: warp が追加した module-level の mutable state が無い
 - [ ] C-7: changelog に Unreleased の Breaking changes / Features がある
 - [ ] C-8: lint:imports、type:all、build、test:small、E2E が通る
+
+### 追加要件（2026-11-21）
+
+- [ ] D-1〜D-4: develop の方針（隔離通知、leakFootprint、テスト規約、AGENTS.md）に沿っている
+- [ ] E-1: server の最初の Flight6 を落としても client の Flight5 再送で接続し、`onConnect` は各 1 回
+- [ ] E-2〜E-4: Binding Request の例外がログに留まり、購読者なしでは pair 解決をせず、SPED 無効時は `:` の無い USERNAME に応答する
+- [ ] E-5〜E-8: 到達不能な分岐と誤った説明が無く、changelog が既定経路の差分を網羅する
+- [ ] F: コンテナ内で CI 相当、WPT、BoringSSL、Pion（SPED codec / ICE agent）が通る
 
 ### SPED draft00
 

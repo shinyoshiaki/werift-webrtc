@@ -332,6 +332,102 @@ describe("ice", () => {
     expect(protocol.sentMessage).toBeUndefined();
   });
 
+  test("filterStunResponse が例外を投げても Binding Request の処理は unhandled rejection にならない", async () => {
+    // Arrange: filter が例外を投げる
+    const connection = createTestConnection(false);
+    const protocol = new ProtocolMock();
+    connection.options.filterStunResponse = () => {
+      throw new Error("filter failed");
+    };
+    (connection as any).ensureProtocol(protocol);
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => unhandled.push(reason);
+    process.on("unhandledRejection", onUnhandled);
+    const request = new Message(methods.BINDING, classes.REQUEST);
+    request
+      .setAttribute("USERNAME", `${connection.localUsername}:remote`)
+      .setAttribute("PRIORITY", 1);
+    request
+      .addMessageIntegrity(Buffer.from(connection.localPassword, "utf8"))
+      .addFingerprint();
+
+    try {
+      // Act: 認証済みの Binding Request を受信する
+      protocol.onRequestReceived.execute(
+        request,
+        ["2.3.4.5", 2345],
+        request.bytes,
+      );
+      await setTimeout(20);
+
+      // Assert: 例外はログに留まり、応答もしない
+      expect(unhandled).toEqual([]);
+      expect(protocol.sentMessage).toBeUndefined();
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+  });
+
+  test("SPED 無効時は ':' の無い USERNAME の Binding Request にも従来どおり応答し、SPED 有効時は応答しない", async () => {
+    // Arrange: SPED 無効と有効の connection
+    const plain = createTestConnection(false);
+    const sped = createTestConnection(false);
+    markConnectionSpedEnabled(sped);
+    const plainProtocol = new ProtocolMock();
+    const spedProtocol = new ProtocolMock();
+    (plain as any).ensureProtocol(plainProtocol);
+    (sped as any).ensureProtocol(spedProtocol);
+    const requestFor = (connection: Connection) => {
+      const request = new Message(methods.BINDING, classes.REQUEST);
+      request
+        .setAttribute("USERNAME", connection.localUsername)
+        .setAttribute("PRIORITY", 1);
+      request
+        .addMessageIntegrity(Buffer.from(connection.localPassword, "utf8"))
+        .addFingerprint();
+      return request;
+    };
+
+    // Act: ':' の無い USERNAME の check を受信する
+    const plainRequest = requestFor(plain);
+    const spedRequest = requestFor(sped);
+    plainProtocol.onRequestReceived.execute(
+      plainRequest,
+      ["2.3.4.5", 2345],
+      plainRequest.bytes,
+    );
+    spedProtocol.onRequestReceived.execute(
+      spedRequest,
+      ["2.3.4.5", 2345],
+      spedRequest.bytes,
+    );
+    await setTimeout(20);
+
+    // Assert: SPED 無効は USERNAME 全体を local ufrag として応答し、SPED 有効は破棄する
+    expect(plainProtocol.sentMessage?.messageClass).toBe(classes.RESPONSE);
+    expect(spedProtocol.sentMessage).toBeUndefined();
+  });
+
+  test("datagram event の購読者がいなければ受信データグラムごとの pair 解決をしない", () => {
+    // Arrange: SPED の datagram event を購読しない connection
+    const connection = createTestConnection(false);
+    const protocol = new ProtocolMock();
+    (connection as any).ensureProtocol(protocol);
+    const resolve = vi.spyOn(connection as any, "resolveDatagramPair");
+    const received: Buffer[] = [];
+    connection.onData.subscribe((data) => received.push(data));
+
+    // Act: データグラムを受信する
+    protocol.onDataReceived.execute(Buffer.from([0x80, 1, 2]), [
+      "2.3.4.5",
+      2345,
+    ]);
+
+    // Assert: 公開 onData には届くが、SPED 用の pair 解決は走らない
+    expect(received).toHaveLength(1);
+    expect(resolve).not.toHaveBeenCalled();
+  });
+
   test("test_connect", async () => {
     const a = createTestConnection(true);
     const b = createTestConnection(false);

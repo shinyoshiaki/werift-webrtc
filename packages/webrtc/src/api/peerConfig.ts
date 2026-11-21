@@ -347,9 +347,8 @@ export interface PeerConfig {
    * How strictly the DTLS 1.2 handshake validates the peer's messages (see
    * {@link CompatibilityOptionValues}). Cannot be changed after construction.
    * - `"lenient"` (default): a malformed `supported_versions` is ignored and
-   *   DTLS 1.2 negotiated, duplicate extensions are accepted, `use_srtp` is
-   *   read without length checks and fragments are reassembled without
-   *   coverage checks, as before the strict checks.
+   *   DTLS 1.2 negotiated, duplicate extensions are accepted and `use_srtp`
+   *   is read without length checks, as before the strict checks.
    * - `"standard"`: RFC-strict; these fail the handshake (a malformed
    *   `supported_versions` with a `protocol_version` alert).
    *
