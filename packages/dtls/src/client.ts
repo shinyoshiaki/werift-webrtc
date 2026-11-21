@@ -177,7 +177,6 @@ export class DtlsClient extends DtlsSocket {
         srtpProfiles: this.options.srtpProfiles,
         extendedMasterSecret: this.options.extendedMasterSecret,
         certificateRequest: this.options.certificateRequest,
-        extendedMasterSecret: this.options.extendedMasterSecret,
         addressValidation: this.options.addressValidation,
         peerIdentityMode: this.peerIdentityMode,
         groups: this.options.namedGroups
@@ -1169,7 +1168,6 @@ export class DtlsClient extends DtlsSocket {
         srtpProfiles: this.options.srtpProfiles,
         extendedMasterSecret: this.options.extendedMasterSecret,
         certificateRequest: this.options.certificateRequest,
-        extendedMasterSecret: this.options.extendedMasterSecret,
         addressValidation: this.options.addressValidation,
         peerIdentityMode: this.peerIdentityMode,
         groups: this.options.namedGroups
