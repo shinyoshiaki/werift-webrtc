@@ -8,9 +8,8 @@
 
 > `const` **RECEIVING\_SWITCHING\_DELAY**: `1000` = `1000`
 
-A backup that wins over the selected pair only because the selection is not
-receiving (nothing received for [WEAK\_CONNECTION\_RECEIVE\_TIMEOUT](WEAK_CONNECTION_RECEIVE_TIMEOUT.md))
-takes over only once the selection has not been receiving for this long
-(ms); the decision is checked again then, and a selection that received
-something meanwhile stays. libwebrtc: `receiving_switching_delay`
-(`kReceivingSwitchingDelay`).
+How long (ms) the selected pair must have stopped receiving (nothing
+received for [WEAK\_CONNECTION\_RECEIVE\_TIMEOUT](WEAK_CONNECTION_RECEIVE_TIMEOUT.md)) before the
+controlling agent fails over to a backup that receives, without waiting
+for the selected pair to become unwritable. libwebrtc:
+`receiving_switching_delay` (default 1000 ms).

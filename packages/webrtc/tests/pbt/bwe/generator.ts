@@ -1,5 +1,5 @@
+import type { SeededRandom } from "../../../../pbt/src";
 import type { GccPhase, GccScenario } from "../../media/gccSimulation";
-import type { SeededRandom } from "../shared/random";
 
 /**
  * Generators of the bandwidth-estimator property test

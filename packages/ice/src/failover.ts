@@ -7,12 +7,67 @@ import {
   DEAD_CONNECTION_RECEIVE_TIMEOUT,
   FAILOVER_BACKUP_ATTEMPTS,
   FAILOVER_RECOVERY_RESPONSES,
+  type IceFailoverOptions,
   MIN_PINGS_AT_WEAK_PING_INTERVAL,
+  RECEIVING_SWITCHING_DELAY,
   STABLE_WRITABLE_CONNECTION_PING_INTERVAL,
   WEAK_CONNECTION_RECEIVE_TIMEOUT,
   WEAK_OR_STABILIZING_WRITABLE_CONNECTION_PING_INTERVAL,
 } from "./iceBase";
+import type { Address } from "./imports/common";
 import type { Protocol } from "./types/model";
+
+/** The thresholds in use: {@link IceFailoverOptions} with every default applied. */
+export type FailoverThresholds = Required<IceFailoverOptions>;
+
+/** The defaults of {@link IceFailoverOptions} (libwebrtc's values). */
+export const DEFAULT_FAILOVER_THRESHOLDS: Readonly<FailoverThresholds> =
+  Object.freeze({
+    unwritableMinChecks: CONNECTION_WRITE_CONNECT_FAILURES,
+    unwritableTimeout: CONNECTION_WRITE_CONNECT_TIMEOUT,
+    receivingTimeout: WEAK_CONNECTION_RECEIVE_TIMEOUT,
+    receivingSwitchingDelay: RECEIVING_SWITCHING_DELAY,
+  });
+
+/**
+ * {@link IceFailoverOptions} with its defaults: an unset or invalid value
+ * (not finite, out of range, a fractional check count) keeps the default.
+ */
+export const resolveFailoverThresholds = (
+  options: IceFailoverOptions | undefined,
+): FailoverThresholds => {
+  const pick = (
+    value: number | undefined,
+    fallback: number,
+    valid: (value: number) => boolean,
+  ) =>
+    typeof value === "number" && Number.isFinite(value) && valid(value)
+      ? value
+      : fallback;
+  const defaults = DEFAULT_FAILOVER_THRESHOLDS;
+  return {
+    unwritableMinChecks: pick(
+      options?.unwritableMinChecks,
+      defaults.unwritableMinChecks,
+      (value) => Number.isInteger(value) && value >= 1,
+    ),
+    unwritableTimeout: pick(
+      options?.unwritableTimeout,
+      defaults.unwritableTimeout,
+      (value) => value >= 0,
+    ),
+    receivingTimeout: pick(
+      options?.receivingTimeout,
+      defaults.receivingTimeout,
+      (value) => value > 0,
+    ),
+    receivingSwitchingDelay: pick(
+      options?.receivingSwitchingDelay,
+      defaults.receivingSwitchingDelay,
+      (value) => value >= 0,
+    ),
+  };
+};
 
 /**
  * A demoted path (`FailoverMonitor.demote`): undefined for a whole socket,
@@ -58,26 +113,63 @@ export type PairLiveness = {
   responses: number;
   /** Consecutive responses (reset by an unanswered check). */
   consecutive: number;
+  /**
+   * The path is known to be gone without waiting for checks: sending on it
+   * failed with a routing error, or its TURN allocation was lost
+   * (`Protocol.onPathBroken`). Unwritable until a check is answered again.
+   */
+  broken?: boolean;
 };
 
 /**
- * No longer writable: CONNECTION_WRITE_CONNECT_FAILURES consecutive checks
- * unanswered and CONNECTION_WRITE_CONNECT_TIMEOUT since the last response
- * (or, for a pair never answered, since monitoring began).
+ * No longer writable: `unwritableMinChecks` (CONNECTION_WRITE_CONNECT_FAILURES)
+ * consecutive checks unanswered and `unwritableTimeout`
+ * (CONNECTION_WRITE_CONNECT_TIMEOUT) since the last response (or, for a pair
+ * never answered, since monitoring began); or the path is known to be gone
+ * (`broken`).
  */
-export const isUnwritable = (liveness: PairLiveness, now: number) =>
-  liveness.unanswered >= CONNECTION_WRITE_CONNECT_FAILURES &&
-  now - (liveness.lastResponse ?? liveness.since) >=
-    CONNECTION_WRITE_CONNECT_TIMEOUT;
+export const isUnwritable = (
+  liveness: PairLiveness,
+  now: number,
+  thresholds: FailoverThresholds = DEFAULT_FAILOVER_THRESHOLDS,
+) =>
+  !!liveness.broken ||
+  (liveness.unanswered >= thresholds.unwritableMinChecks &&
+    now - (liveness.lastResponse ?? liveness.since) >=
+      thresholds.unwritableTimeout);
 
 /** Answered since monitoring began and not unwritable. */
-export const isWritable = (liveness: PairLiveness, now: number) =>
-  liveness.lastResponse !== undefined && !isUnwritable(liveness, now);
+export const isWritable = (
+  liveness: PairLiveness,
+  now: number,
+  thresholds: FailoverThresholds = DEFAULT_FAILOVER_THRESHOLDS,
+) =>
+  liveness.lastResponse !== undefined &&
+  !isUnwritable(liveness, now, thresholds);
 
-/** The last check went unanswered, or nothing was received for WEAK_CONNECTION_RECEIVE_TIMEOUT. */
-export const isWeak = (liveness: PairLiveness, now: number) =>
+/** The last check went unanswered, or nothing was received for `receivingTimeout` (WEAK_CONNECTION_RECEIVE_TIMEOUT). */
+export const isWeak = (
+  liveness: PairLiveness,
+  now: number,
+  thresholds: FailoverThresholds = DEFAULT_FAILOVER_THRESHOLDS,
+) =>
   liveness.unanswered > 0 ||
-  now - liveness.lastReceived >= WEAK_CONNECTION_RECEIVE_TIMEOUT;
+  now - liveness.lastReceived >= thresholds.receivingTimeout;
+
+/**
+ * Stopped receiving, as libwebrtc switches on (`receiving`, then
+ * `receiving_switching_delay`): nothing was received for `receivingTimeout`
+ * plus `receivingSwitchingDelay`, and a check went unanswered meanwhile (an
+ * idle peer still answers the checks, so silence alone is not a break).
+ */
+export const isNotReceiving = (
+  liveness: PairLiveness,
+  now: number,
+  thresholds: FailoverThresholds = DEFAULT_FAILOVER_THRESHOLDS,
+) =>
+  liveness.unanswered > 0 &&
+  now - liveness.lastReceived >=
+    thresholds.receivingTimeout + thresholds.receivingSwitchingDelay;
 
 /**
  * Interval (ms) to the next check of a backup pair: the weak / stabilizing
@@ -93,11 +185,12 @@ export const backupPingInterval = (liveness: PairLiveness) =>
 /**
  * When the next check of a monitored pair is due (ms), given when the last
  * one was sent and the interval it uses while the pair is not weak (D3):
- * - its last check went unanswered (weak): WEAK_OR_STABILIZING_WRITABLE_CONNECTION_PING_INTERVAL
- *   after it;
+ * - its last check went unanswered (weak), or its path is known to be gone
+ *   (`broken`): WEAK_OR_STABILIZING_WRITABLE_CONNECTION_PING_INTERVAL after it;
  * - otherwise `stableInterval` after it, but no later than the moment the
- *   pair has received nothing for WEAK_CONNECTION_RECEIVE_TIMEOUT (weak by
- *   silence), and never sooner than the weak interval.
+ *   pair has received nothing for `receivingTimeout`
+ *   (WEAK_CONNECTION_RECEIVE_TIMEOUT, weak by silence), and never sooner
+ *   than the weak interval.
  * Something received later only moves it later: a caller that wakes up at
  * the time computed earlier computes it again.
  */
@@ -105,15 +198,16 @@ export const nextPingAt = (
   liveness: PairLiveness,
   lastSentAt: number,
   stableInterval: number,
+  thresholds: FailoverThresholds = DEFAULT_FAILOVER_THRESHOLDS,
 ) => {
   const weakAt =
     lastSentAt + WEAK_OR_STABILIZING_WRITABLE_CONNECTION_PING_INTERVAL;
-  if (liveness.unanswered > 0) return weakAt;
+  if (liveness.unanswered > 0 || liveness.broken) return weakAt;
   return Math.max(
     weakAt,
     Math.min(
       lastSentAt + stableInterval,
-      liveness.lastReceived + WEAK_CONNECTION_RECEIVE_TIMEOUT,
+      liveness.lastReceived + thresholds.receivingTimeout,
     ),
   );
 };
@@ -131,6 +225,8 @@ export interface FailoverHost {
   /** `pair` may be a backup (not ICE-TCP, checked by the agent). */
   eligible(pair: CandidatePair): boolean;
   iceControlling(): boolean;
+  /** The thresholds in use (`IceOptions.failover`). */
+  thresholds(): FailoverThresholds;
   /**
    * The agent moves the selection up by itself (controlling, semi-aggressive
    * nomination or renomination): the pairs that outrank the selection are
@@ -222,7 +318,7 @@ export class FailoverMonitor {
   /** `pair` is monitored and writable. */
   writable(pair: CandidatePair, now = Date.now()) {
     const liveness = this.liveness.get(pair);
-    return !!liveness && isWritable(liveness, now);
+    return !!liveness && isWritable(liveness, now, this.host.thresholds());
   }
 
   /** `pair` is monitored, answered since and is unwritable now. */
@@ -231,8 +327,41 @@ export class FailoverMonitor {
     return (
       !!liveness &&
       liveness.lastResponse !== undefined &&
-      isUnwritable(liveness, now)
+      isUnwritable(liveness, now, this.host.thresholds())
     );
+  }
+
+  /** `pair` is monitored and stopped receiving (`isNotReceiving`). */
+  notReceiving(pair: CandidatePair, now = Date.now()) {
+    const liveness = this.liveness.get(pair);
+    return !!liveness && isNotReceiving(liveness, now, this.host.thresholds());
+  }
+
+  /**
+   * The path of the monitored pairs on `protocol` (to `remote` only, when
+   * given) is known to be gone (`PairLiveness.broken`). Returns whether a
+   * monitored pair was on it.
+   */
+  broken(protocol: Protocol, remote?: Address) {
+    const pairs = new Set(this.backupPairs);
+    const selected = this.host.selected();
+    if (selected) pairs.add(selected);
+    let hit = false;
+    for (const pair of pairs) {
+      if (pair.protocol !== protocol) continue;
+      if (
+        remote &&
+        (pair.remoteAddr[0] !== remote[0] || pair.remoteAddr[1] !== remote[1])
+      ) {
+        continue;
+      }
+      const liveness = this.liveness.get(pair);
+      if (!liveness) continue;
+      liveness.broken = true;
+      liveness.consecutive = 0;
+      hit = true;
+    }
+    return hit;
   }
 
   /** A backup is writable. */
@@ -242,9 +371,15 @@ export class FailoverMonitor {
 
   /**
    * The backup to fail over to: the highest-priority writable one that is
-   * not weak, else the highest-priority writable one.
+   * not weak, else the highest-priority writable one. With `receiving`
+   * (the selected pair only stopped receiving, it is not unwritable yet)
+   * only a backup that is not weak: writable, its last check answered and
+   * received within `receivingTimeout`.
    */
-  target(now = Date.now()): CandidatePair | undefined {
+  target(
+    now = Date.now(),
+    { receiving = false }: { receiving?: boolean } = {},
+  ): CandidatePair | undefined {
     const writable = this.backupPairs.filter((pair) =>
       this.writable(pair, now),
     );
@@ -253,10 +388,13 @@ export class FailoverMonitor {
         (best, pair) => (!best || this.outranks(pair, best) ? pair : best),
         undefined,
       );
-    return (
-      best(writable.filter((pair) => !isWeak(this.liveness.get(pair)!, now))) ??
-      best(writable)
+    const strong = best(
+      writable.filter(
+        (pair) =>
+          !isWeak(this.liveness.get(pair)!, now, this.host.thresholds()),
+      ),
     );
+    return receiving ? strong : (strong ?? best(writable));
   }
 
   /**
@@ -315,6 +453,7 @@ export class FailoverMonitor {
     liveness.lastReceived = now;
     liveness.unanswered = 0;
     liveness.missedSince = undefined;
+    liveness.broken = false;
     liveness.responses++;
     liveness.consecutive++;
   }
@@ -610,6 +749,7 @@ export class FailoverMonitor {
             liveness,
             record.sentAt,
             record.stableInterval,
+            this.host.thresholds(),
           );
           if (record.nextAt > now) continue;
         }
@@ -636,7 +776,13 @@ export class FailoverMonitor {
     record.inFlight++;
     record.sentAt = sentAt;
     record.stableInterval = backupPingInterval(liveness);
-    record.nextAt = nextPingAt(liveness, sentAt, record.stableInterval);
+    const thresholds = this.host.thresholds();
+    record.nextAt = nextPingAt(
+      liveness,
+      sentAt,
+      record.stableInterval,
+      thresholds,
+    );
     let answered = false;
     try {
       answered = await this.host.ping(pair, signal);
@@ -661,7 +807,7 @@ export class FailoverMonitor {
     record.stableInterval = backupPingInterval(liveness);
     record.nextAt = Math.max(
       now,
-      nextPingAt(liveness, sentAt, record.stableInterval),
+      nextPingAt(liveness, sentAt, record.stableInterval, thresholds),
     );
 
     if (answered && pair.state !== CandidatePairState.SUCCEEDED) {
@@ -669,7 +815,8 @@ export class FailoverMonitor {
     }
     if (
       !answered &&
-      ((liveness.lastResponse === undefined && isUnwritable(liveness, now)) ||
+      ((liveness.lastResponse === undefined &&
+        isUnwritable(liveness, now, thresholds)) ||
         now - liveness.lastReceived >= DEAD_CONNECTION_RECEIVE_TIMEOUT)
     ) {
       this.fail(record, pair, true);

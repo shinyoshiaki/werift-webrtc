@@ -12,7 +12,7 @@ import {
   type PeerConfig,
   RTCIceGatherer,
   RTCIceTransport,
-  type RTCPeerConnection,
+  RTCPeerConnection,
 } from "../../src";
 import { iceTransportPair } from "../fixture";
 import {
@@ -161,6 +161,35 @@ describe("iceTransport", () => {
         );
       }
     }, 20_000);
+  });
+
+  test("PeerConfig.iceFailover reaches the ICE agent as IceOptions.failover (unset stays unset)", async () => {
+    // Arrange: 退避の閾値を指定した PeerConnection と、指定しない PeerConnection。
+    const failover = {
+      unwritableMinChecks: 2,
+      unwritableTimeout: 2000,
+      receivingTimeout: 1000,
+      receivingSwitchingDelay: 500,
+    };
+    const configured = new RTCPeerConnection({ iceFailover: failover });
+    const unset = new RTCPeerConnection();
+    try {
+      // Act: offer を作って ICE transport を作らせる。
+      for (const pc of [configured, unset]) {
+        pc.createDataChannel("dc");
+        await pc.createOffer();
+      }
+
+      // Assert: 指定した閾値だけが ICE agent の options に渡る。
+      expect(firstIceTransport(configured).connection.options.failover).toEqual(
+        failover,
+      );
+      expect(
+        firstIceTransport(unset).connection.options.failover,
+      ).toBeUndefined();
+    } finally {
+      await Promise.all([configured.close(), unset.close()]);
+    }
   });
 
   describe("setConfiguration iceServers", () => {

@@ -18,6 +18,17 @@ ignored.
 
 ***
 
+### failover?
+
+> `optional` **failover?**: [`IceFailoverOptions`](IceFailoverOptions.md)
+
+Thresholds of the failover of the selected pair without an ICE restart
+(semi-aggressive nomination or renomination, full ICE, not ICE-TCP).
+Each unset or invalid value keeps its default, which follows libwebrtc.
+See [IceFailoverOptions](IceFailoverOptions.md).
+
+***
+
 ### filterCandidatePair?
 
 > `optional` **filterCandidatePair?**: (`pair`) => `boolean`

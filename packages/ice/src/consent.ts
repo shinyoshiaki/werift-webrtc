@@ -1,4 +1,8 @@
-import { nextPingAt, type PairLiveness } from "./failover";
+import {
+  type FailoverThresholds,
+  nextPingAt,
+  type PairLiveness,
+} from "./failover";
 import { type Cancelable, cancelable } from "./helper";
 import {
   type CandidatePair,
@@ -43,6 +47,8 @@ export type ConsentFailoverHooks = {
   enabled: () => boolean;
   /** The liveness the monitor keeps for `pair` (`nextPingAt`). */
   liveness: (pair: CandidatePair) => PairLiveness | undefined;
+  /** The thresholds in use (`IceOptions.failover`, for `nextPingAt`). */
+  thresholds: () => FailoverThresholds;
   /** A consent check of `pair` was answered. */
   responded: (pair: CandidatePair) => void;
   /** A consent check of `pair` went unanswered (its RTT-based deadline passed). */
@@ -77,6 +83,8 @@ export class ConsentFreshness {
    * cancelled, and its failure says nothing about the path.
    */
   private requestEpoch = 0;
+  /** Wakes the running session's wait up (see `recheck`). */
+  private wakeLoop?: () => void;
   private readonly host: ConsentHost;
 
   constructor(host: ConsentHost) {
@@ -90,6 +98,7 @@ export class ConsentFreshness {
   stop() {
     this.sessionId++;
     this.fresh = false;
+    this.wakeLoop = undefined;
     if (this.expiryTimer !== undefined) {
       clearTimeout(this.expiryTimer);
       this.expiryTimer = undefined;
@@ -111,6 +120,15 @@ export class ConsentFreshness {
     this.requestEpoch++;
     this.requestAbort?.abort();
     this.requestAbort = undefined;
+  }
+
+  /**
+   * Failover: compute the next request's due time again now (the selected
+   * pair's path was reported gone, so it is checked at the weak interval:
+   * `nextPingAt`). Without failover, or with no session, nothing happens.
+   */
+  recheck() {
+    this.wakeLoop?.();
   }
 
   /**
@@ -240,7 +258,8 @@ export class ConsentFreshness {
       // selected pair's liveness: the consent interval while it answers and
       // receives, WEAK_OR_STABILIZING_WRITABLE_CONNECTION_PING_INTERVAL after
       // an unanswered request, and at once (no sooner than that interval)
-      // when nothing was received for WEAK_CONNECTION_RECEIVE_TIMEOUT.
+      // when nothing was received for `receivingTimeout`
+      // (WEAK_CONNECTION_RECEIVE_TIMEOUT).
       // Requests keep this pacing whatever their response timeout (RTT
       // based, it may exceed that interval): the next one does not cancel
       // or wait for one still in flight, so a slow response still counts
@@ -252,10 +271,16 @@ export class ConsentFreshness {
       const failoverDueAt = (pair: CandidatePair) => {
         const liveness = hooks?.liveness(pair);
         return liveness
-          ? nextPingAt(liveness, lastSentAt, stableInterval)
+          ? nextPingAt(
+              liveness,
+              lastSentAt,
+              stableInterval,
+              hooks!.thresholds(),
+            )
           : lastSentAt + stableInterval;
       };
       const wake = () => wakeup?.abort();
+      if (hooks) this.wakeLoop = wake;
 
       try {
         while (
@@ -263,6 +288,12 @@ export class ConsentFreshness {
           !canceled &&
           sessionId === this.sessionId
         ) {
+          // Failover: the due time follows the selected pair's liveness from
+          // the first request of the session on (a path that breaks right
+          // after a selection is checked once nothing arrived for
+          // `receivingTimeout`, not only after the consent interval).
+          const due = this.host.selected();
+          if (hooks?.enabled() && due) nextConsentAt = failoverDueAt(due);
           wakeup = new AbortController();
           await this.abortableDelay(
             // Bounded for setTimeout.

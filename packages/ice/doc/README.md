@@ -128,7 +128,8 @@ a path broken in one direction).
 - The selected pair is checked by the consent checks (every 4–6 s). While it
   is weak they are sent every 900 ms: after an unanswered check, and as soon
   as nothing (response, request or data) was received for 2.5 s, so an idle
-  pair is checked about every 2.5 s. Checks keep this pacing while earlier
+  pair is checked about every 2.5 s, from the first check after a selection
+  on. Checks keep this pacing while earlier
   ones still wait for their (RTT-based) response timeout: a slow response is
   never cancelled and still counts, and a dead high-RTT path is still told
   within the bound (about 8.7 s with an RTT of 1.2 s). A check counts as
@@ -148,13 +149,40 @@ a path broken in one direction).
   the failover nomination is in flight: the nomination is not withdrawn (the
   peer may already have taken it), and when it succeeds the selection moves
   and the old socket waits for its 3 responses.
+- Stopped receiving (libwebrtc's `receiving` and `receiving_switching_delay`):
+  the controlling agent does not wait for the unwritable rule when nothing
+  was received on the selected pair for 2.5 s + 1 s and one of its checks
+  went unanswered meanwhile; it fails over to the best backup that receives
+  (its last check answered, something received within 2.5 s), about 4 s
+  after a path broke both ways. An idle pair whose checks are answered, a
+  slow path whose checks are answered before their deadline, a shorter loss
+  burst and a break of one direction only (the peer's data still arrives)
+  keep the unwritable rule. Equal-priority pairs are told apart by RTT (see
+  "Choosing the selected pair").
+- A path reported gone fails over at once (as libwebrtc drops the
+  connections of a port that is gone): the protocol's `onPathBroken` makes
+  the monitored pairs on it unwritable until one of their checks is
+  answered again. A UDP socket reports a routing error of a send
+  (`ENETUNREACH`, `EHOSTUNREACH`, `ENETDOWN`, `EHOSTDOWN`, `EADDRNOTAVAIL`,
+  `EPERM`: `PATH_BROKEN_SEND_ERRORS`) for that remote address; STUN messages
+  are always sent with a completion callback (`TransportSendOptions.confirm`)
+  and application data one datagram per 100 ms per socket
+  (`DATA_SEND_CONFIRM_INTERVAL_MS`), so a route that goes away while data
+  flows is seen within about 100 ms. A TURN allocation reports every path of
+  it (`TurnProtocol.onAllocationLost`) when its TCP / TLS connection to the
+  server closes, a Refresh fails, or the server cannot be reached. The
+  selected pair is then checked at the weak interval, so a path that comes
+  back is seen within about 1 s. A path that is gone without an error (a
+  remote host that went away, a firewall that drops) still takes the
+  receiving / unwritable rules.
 - A role change (role-conflict repair) cancels the checks in flight that
   carry the old role, backups' and the selected pair's consent requests
   alike; they are not counted as unanswered, and monitoring goes on under
   the new role.
 - Controlled agent: it monitors the same way but never nominates; it follows
   the peer's nomination and the pair the peer sends data on. While its
-  selected pair is down, a nomination as strong as the selection's
+  selected pair is down or stopped receiving, a nomination as strong as the
+  selection's
   (USE-CANDIDATE again) of a valid pair moves the selection at once, without
   waiting for data, as libwebrtc's controlled agent ranks writability first.
 - State: `disconnected` while the selected pair is unwritable and no backup
@@ -174,7 +202,26 @@ a path broken in one direction).
 - The constants are exported from `iceBase.ts`
   (`WEAK_OR_STABILIZING_WRITABLE_CONNECTION_PING_INTERVAL`,
   `STABLE_WRITABLE_CONNECTION_PING_INTERVAL`,
-  `CONNECTION_WRITE_CONNECT_FAILURES`, ...), with their libwebrtc names.
+  `CONNECTION_WRITE_CONNECT_FAILURES`, `RECEIVING_SWITCHING_DELAY`, ...),
+  with their libwebrtc names.
+- Thresholds (`IceOptions.failover`, `PeerConfig.iceFailover` in `werift`),
+  after libwebrtc's `RTCConfiguration` fields; each unset or invalid value
+  keeps its default:
+
+  | Option | Default | libwebrtc |
+  | --- | --- | --- |
+  | `unwritableMinChecks` | 5 | `ice_unwritable_min_checks` |
+  | `unwritableTimeout` (ms) | 5000 | `ice_unwritable_timeout` |
+  | `receivingTimeout` (ms) | 2500 | `receiving_timeout` |
+  | `receivingSwitchingDelay` (ms) | 1000 | `receiving_switching_delay` |
+
+  ```ts
+  new Connection(true, {
+    failover: { receivingTimeout: 1000, receivingSwitchingDelay: 0 },
+  });
+  ```
+
+  Lower values fail over sooner, and also on a shorter loss burst.
 
 ## Choosing the selected pair (receiving state, priority, RTT)
 
@@ -186,15 +233,15 @@ check or backup check is answered or goes unanswered:
 1. A backup that is not writable is never switched to; a writable one wins
    over a selection that is not (the failover above).
 2. Receiving state: a pair is not receiving once nothing was received on it
-   for 2.5 s (`WEAK_CONNECTION_RECEIVE_TIMEOUT`) and a check sent to it went
-   unanswered. A receiving backup wins over a selection that is not
+   for 2.5 s (`receivingTimeout`, `WEAK_CONNECTION_RECEIVE_TIMEOUT`) and a
+   check sent to it went unanswered. A receiving backup wins over a selection that is not
    receiving only once the selection has not been receiving for 1 s
-   (`RECEIVING_SWITCHING_DELAY`, libwebrtc's `receiving_switching_delay`):
+   (`receivingSwitchingDelay`, `RECEIVING_SWITCHING_DELAY`, libwebrtc's `receiving_switching_delay`):
    the decision is checked again then, and a selection that answered or
    received data meanwhile stays. After such a move the old pair waits for
    its 3 responses, as after a failover. A selected path that breaks is
-   therefore left about 4–6 s after its last response (2.5 s, the unanswered
-   check's RTT-based deadline, then 1 s) when a backup is receiving.
+   therefore left about 3.5 s after its last received packet (2.5 s, then 1 s), once
+   a check has gone unanswered, when a backup is receiving.
 3. Priority: a higher-priority pair wins (the moves up of semi-aggressive
    nomination and renomination, as before).
 4. RTT: between pairs of equal priority (for example relays on two TURN
@@ -210,7 +257,7 @@ nomination, the next `NOMINATION` value with renomination). A controlled
 agent never switches by itself: it follows the peer's nominations and, between
 equal ones, the pair the peer sends data on. The network cost libwebrtc also
 compares (Wi-Fi / cellular) is not known in Node.js and is not used, and the
-values are constants (not options).
+RTT values are constants (not options).
 
 ## pion TURN interop (opt-in)
 
