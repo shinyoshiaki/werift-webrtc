@@ -30,6 +30,14 @@
 
 ***
 
+### restrictions?
+
+> `optional` **restrictions?**: `string`
+
+`a=rid` restrictions after the direction (`max-width=1280`), RFC 8851.
+
+***
+
 ### rid
 
 > **rid**: `string`

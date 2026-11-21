@@ -835,6 +835,32 @@ until the transaction commits, and rollback drops the staged value.
 
 ***
 
+### readsRepairedRid()
+
+> **readsRepairedRid**(`ssrc`, `repairedRid`): `boolean`
+
+Internal (router): a packet of `ssrc`, already routed here, naming the
+repaired RID `repairedRid` is handled by that RID: `ssrc` is the RTX
+SSRC of a committed `a=ssrc-group:FID` of this RID m-line, or an SSRC no
+RID, track or SDP RTX pair claims yet (for example the RTX SSRC of a FID
+pair a commit removed). An RTX SSRC a repaired RID bound keeps its RID.
+
+#### Parameters
+
+##### ssrc
+
+`number`
+
+##### repairedRid
+
+`string`
+
+#### Returns
+
+`boolean`
+
+***
+
 ### receivesMediaPayloadType()
 
 > **receivesMediaPayloadType**(`payloadType`): `boolean`
@@ -973,11 +999,15 @@ SSRCs of `trackBySSRC` that packets taught (not description state).
 
 ###### receiveTables
 
-\{ `codecs`: \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \}; `ssrcByRtx`: \{\[`rtxSsrc`: `number`\]: `number`; \}; `stagedCodecs`: \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \}; `stagedSsrcByRtx`: \{\[`rtxSsrc`: `number`\]: `number`; \}; \} = `...`
+\{ `codecs`: \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \}; `ridFidMediaByRtx`: \{\[`rtxSsrc`: `number`\]: `number`; \}; `ssrcByRtx`: \{\[`rtxSsrc`: `number`\]: `number`; \}; `stagedCodecs`: \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \}; `stagedRidFidTable`: \{\[`rtxSsrc`: `number`\]: `number`; \} \| `undefined`; `stagedSsrcByRtx`: \{\[`rtxSsrc`: `number`\]: `number`; \}; \} = `...`
 
 ###### receiveTables.codecs
 
 \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \} = `...`
+
+###### receiveTables.ridFidMediaByRtx
+
+\{\[`rtxSsrc`: `number`\]: `number`; \} = `...`
 
 ###### receiveTables.ssrcByRtx
 
@@ -986,6 +1016,10 @@ SSRCs of `trackBySSRC` that packets taught (not description state).
 ###### receiveTables.stagedCodecs
 
 \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \} = `...`
+
+###### receiveTables.stagedRidFidTable
+
+\{\[`rtxSsrc`: `number`\]: `number`; \} \| `undefined` = `...`
 
 ###### receiveTables.stagedSsrcByRtx
 
@@ -1039,6 +1073,10 @@ Internal: replace the decode tables with a rollback baseline.
 
 \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \} = `...`
 
+###### ridFidMediaByRtx
+
+\{\[`rtxSsrc`: `number`\]: `number`; \} = `...`
+
 ###### ssrcByRtx
 
 \{\[`rtxSsrc`: `number`\]: `number`; \} = `...`
@@ -1046,6 +1084,10 @@ Internal: replace the decode tables with a rollback baseline.
 ###### stagedCodecs
 
 \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \} = `...`
+
+###### stagedRidFidTable
+
+\{\[`rtxSsrc`: `number`\]: `number`; \} \| `undefined` = `...`
 
 ###### stagedSsrcByRtx
 
@@ -1183,6 +1225,14 @@ SSRCs of `trackBySSRC` that packets taught (not description state).
 
 \[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
 
+###### receiveTables.ridFidMediaByRtx
+
+> **ridFidMediaByRtx**: `object`
+
+###### Index Signature
+
+\[`rtxSsrc`: `number`\]: `number`
+
 ###### receiveTables.ssrcByRtx
 
 > **ssrcByRtx**: `object`
@@ -1198,6 +1248,10 @@ SSRCs of `trackBySSRC` that packets taught (not description state).
 ###### Index Signature
 
 \[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
+
+###### receiveTables.stagedRidFidTable
+
+> **stagedRidFidTable**: \{\[`rtxSsrc`: `number`\]: `number`; \} \| `undefined`
 
 ###### receiveTables.stagedSsrcByRtx
 
@@ -1263,6 +1317,14 @@ Internal: capture the decode tables for a negotiation rollback baseline.
 
 \[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
 
+##### ridFidMediaByRtx
+
+> **ridFidMediaByRtx**: `object`
+
+###### Index Signature
+
+\[`rtxSsrc`: `number`\]: `number`
+
 ##### ssrcByRtx
 
 > **ssrcByRtx**: `object`
@@ -1278,6 +1340,10 @@ Internal: capture the decode tables for a negotiation rollback baseline.
 ###### Index Signature
 
 \[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
+
+##### stagedRidFidTable
+
+> **stagedRidFidTable**: \{\[`rtxSsrc`: `number`\]: `number`; \} \| `undefined`
 
 ##### stagedSsrcByRtx
 
