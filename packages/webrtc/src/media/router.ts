@@ -733,9 +733,10 @@ export class RtpRouter {
     } else if (
       rtpReceiver &&
       typeof repairedRid === "string" &&
-      rtpReceiver.isFidRtxSsrc(ssrc)
+      rtpReceiver.readsRepairedRid(ssrc, repairedRid)
     ) {
-      // The SDP routes this RTX SSRC, the repaired RID names its RID.
+      // The SDP routes this RTX SSRC (FID) or no RID claims it yet: the
+      // repaired RID names its RID.
       rtpReceiver.handleRtxByRid(packet, repairedRid, extensions);
     } else if (
       rtpReceiver &&

@@ -558,3 +558,53 @@ export function sendFirefoxSimulcastWithRepair(
     );
   }
 }
+
+/**
+ * Arrange: {@link firefoxSimulcastSdp} (offer) whose `a=ssrc` /
+ * `a=ssrc-group:FID` lines are exactly `fidPairs` (`[media, rtx]`); none
+ * gives a Chrome-like description without SSRCs.
+ */
+export function firefoxSimulcastOfferWithFid(fidPairs: [number, number][]) {
+  const withoutSsrcs = firefoxSimulcastSdp({ type: "offer" })
+    .split("\r\n")
+    .filter((line) => !/^a=ssrc(-group)?:/.test(line))
+    .join("\r\n");
+  return (
+    withoutSsrcs +
+    fidPairs
+      .flatMap(([media, rtx]) => [
+        `a=ssrc:${media} cname:x`,
+        `a=ssrc:${rtx} cname:x`,
+        `a=ssrc-group:FID ${media} ${rtx}`,
+      ])
+      .concat([""])
+      .join("\r\n")
+  );
+}
+
+/**
+ * Arrange: a {@link createFirefoxSimulcastReceivingPeer} that applied the
+ * Firefox simulcast offer `sdp` and answered it. `route` feeds RTP through
+ * its router, `deliveredOf(rid)` records what the RID's track delivers, and
+ * `remoteOffer` applies a re-offer (answered unless `answer: false`).
+ */
+export async function receiveFirefoxSimulcastOffer(sdp: string) {
+  const pc = createFirefoxSimulcastReceivingPeer();
+  const tracks: MediaStreamTrack[] = [];
+  pc.onTransceiverAdded.subscribe((transceiver) =>
+    transceiver.onTrack.subscribe((track) => tracks.push(track)),
+  );
+  await pc.setRemoteDescription({ type: "offer", sdp });
+  await pc.setLocalDescription(await pc.createAnswer());
+  const [transceiver] = pc.getTransceivers();
+  const { router } = pc as unknown as { router: RtpRouter };
+  const route = (packet: RtpPacket) =>
+    router.routeRtp(packet, transceiver.dtlsTransport);
+  const deliveredOf = (rid: string) =>
+    collectDeliveredRtp(tracks.find((track) => track.rid === rid)!);
+  const remoteOffer = async (offer: string, { answer = true } = {}) => {
+    await pc.setRemoteDescription({ type: "offer", sdp: offer });
+    if (answer) await pc.setLocalDescription(await pc.createAnswer());
+  };
+  return { pc, route, deliveredOf, remoteOffer };
+}
