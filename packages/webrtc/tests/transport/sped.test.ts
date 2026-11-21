@@ -12,7 +12,7 @@ import {
 import { SpedSession } from "../../../ice/src/internal/sped";
 import { SpedRuntime } from "../../../ice/src/sped/runtime";
 import type { Protocol } from "../../../ice/src/types/model";
-import { Event, flushTransportSend } from "../../src/imports/common";
+import { Event } from "../../src/imports/common";
 import { IceSpedTransport } from "../../src/transport/sped";
 
 function createIceStub(generation = 1, checkList: CandidatePair[] = []) {
@@ -1118,12 +1118,8 @@ describe("IceSpedTransport pre-nomination send", () => {
     const application = Buffer.from([1, 4, 5, 6]);
 
     try {
-      // Act: 共通 flush と直接の sendAndWait を control として pending queue へ登録する。
-      const controlSend = flushTransportSend(
-        transport,
-        control,
-        pair.remoteAddr,
-      );
+      // Act: 通常の send（共通の送信経路）と直接の sendAndWait を control として pending queue へ登録する。
+      const controlSend = transport.send(control, pair.remoteAddr);
       const directControlSend = transport.sendAndWait(
         directControl,
         pair.remoteAddr,

@@ -605,13 +605,9 @@ test.each(["close_notify", "fatal"] as const)(
     }
     const captured: Buffer[] = [];
     const originalSend = pair.serverTransport.send;
-    const originalSendAndWait = pair.serverTransport.sendAndWait;
     try {
       await connectGenerationAware13Pair(pair);
       pair.serverTransport.send = async (data) => {
-        captured.push(Buffer.from(data));
-      };
-      pair.serverTransport.sendAndWait = async (data) => {
         captured.push(Buffer.from(data));
       };
 
@@ -661,9 +657,6 @@ test.each(["close_notify", "fatal"] as const)(
       expect(clientEngine.closed).toBe(false);
     } finally {
       pair.serverTransport.send = originalSend;
-      if (originalSendAndWait) {
-        pair.serverTransport.sendAndWait = originalSendAndWait;
-      }
       errorSubscription.unSubscribe();
       pair.server.setExpectedRxGeneration(undefined);
       pair.client.setExpectedRxGeneration(undefined);
