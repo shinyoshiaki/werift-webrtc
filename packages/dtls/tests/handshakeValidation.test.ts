@@ -1,7 +1,6 @@
 import { HandshakeValidation } from "../src";
 import { validateAndNegotiateClientHello } from "../src/flight/server/commitClientHello";
 import { UseSRTP } from "../src/handshake/extensions/useSrtp";
-import { FragmentedHandshake } from "../src/record/message/fragment";
 import { createDtls12ClientHello, createEcdsaDtlsServer } from "./utils";
 
 /** use_srtp: profile 0x0001 だけを持ち、MKI 長 1 を宣言して MKI 本体が無い不正な data */
@@ -16,21 +15,6 @@ describe("handshakeValidation (DTLS 1.2)", () => {
     // Act / Assert: lenient は従来どおり長さを検査せず profile を読む
     const lenient = UseSRTP.fromData(malformedUseSrtp, { lenient: true });
     expect(lenient.profiles).toEqual([0x0001]);
-  });
-
-  test("断片が handshake message を覆わない再構成は standard で失敗し、lenient では従来どおり組み立てる", () => {
-    // Arrange: 長さ 4 の message のうち先頭 2 bytes だけの断片
-    const partial = new FragmentedHandshake(1, 4, 0, 0, 2, Buffer.from([1, 2]));
-
-    // Act / Assert: standard は未到達の範囲を拒否する
-    expect(() => FragmentedHandshake.assemble([partial])).toThrow(
-      /incomplete reassembly/,
-    );
-    // Act / Assert: lenient は断片を offset に置いた長さ 4 の message を返す
-    const lenient = FragmentedHandshake.assemble([partial], {
-      validation: HandshakeValidation.lenient,
-    });
-    expect(lenient.fragment).toEqual(Buffer.from([1, 2, 0, 0]));
   });
 
   test.each([

@@ -56,6 +56,26 @@ describe("RTCDtlsTransportTest", () => {
     expect(receiver2.data).toEqual([Buffer.from("ping")]);
   });
 
+  test("DTLS が ICE transport の rinfo に送信元を記録しても例外にならず、送信は nominated pair のまま", async () => {
+    // Arrange: 接続済みの DTLS transport pair
+    const [session1, session2] = await dtlsTransportPair();
+    try {
+      const transport = (session1.dtls as any).options.transport;
+      const before = transport.rinfo;
+
+      // Act: DTLS association が UDP と同じように rinfo を書く
+      const write = () => {
+        transport.rinfo = { address: "192.0.2.1", port: 1 };
+      };
+
+      // Assert: 読み取り専用の accessor で TypeError にならず、値は ICE の経路のまま
+      expect(write).not.toThrow();
+      expect(transport.rinfo).toEqual(before);
+    } finally {
+      await Promise.allSettled([session1.stop(), session2.stop()]);
+    }
+  });
+
   test("dtls_start_accepts_matching_fingerprint_in_selected_algorithm_set", async () => {
     const [session1, session2] = await createDtlsSessions();
     const expectedFingerprint = session2.localParameters.fingerprints[0];

@@ -718,6 +718,9 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   }
 
   private abortSpedSession() {
+    // Only a SPED transport has a session; any other (default) transport may
+    // run over an ICE connection without SPED wiring.
+    if (!this.sped) return;
     const ice = this.iceTransport.connection as Connection;
     getConnectionSpedRuntime(ice)?.abort();
   }
@@ -1416,6 +1419,13 @@ class IceTransport implements Transport {
     const [address, port] = this.remotePeer();
     return { address, port };
   }
+
+  /**
+   * The DTLS association may record a datagram source here (as on a UDP
+   * transport). ICE routes every send over the nominated pair, so the value
+   * is not used: ignore it instead of throwing on the read-only accessor.
+   */
+  set rinfo(_rinfo: { address?: string; port?: number } | undefined) {}
 
   type: string = "ice";
 

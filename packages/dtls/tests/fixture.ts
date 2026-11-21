@@ -188,6 +188,13 @@ export type UdpDtlsPairOptions = {
   client?: Partial<Options>;
   /** Fail the connect wait on the first onError of either side (default true). */
   rejectOnError?: boolean;
+  /** Called after the sockets exist and before the client connects (e.g. to wrap transport sends). */
+  beforeConnect?: (pair: {
+    server: DtlsServer;
+    client: DtlsClient;
+    serverTransport: UdpTransport;
+    clientTransport: UdpTransport;
+  }) => void;
 };
 
 /**
@@ -199,6 +206,7 @@ export async function connectUdpDtlsPair({
   server: serverOptions,
   client: clientOptions,
   rejectOnError = true,
+  beforeConnect,
 }: UdpDtlsPairOptions = {}) {
   const serverTransport = await UdpTransport.init("udp4");
   const clientTransport = await UdpTransport.init("udp4");
@@ -220,6 +228,7 @@ export async function connectUdpDtlsPair({
     ...base,
     ...clientOptions,
   });
+  beforeConnect?.({ server, client, serverTransport, clientTransport });
 
   await new Promise<void>((resolve, reject) => {
     const timer = setTimeout(

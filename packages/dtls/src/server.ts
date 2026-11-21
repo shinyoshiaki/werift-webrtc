@@ -462,8 +462,21 @@ export class DtlsServer extends DtlsSocket {
           break;
         case HandshakeType.finished_20:
           {
-            // Terminal / already connected: never re-enter connect path
-            if (this.associationTornDown || this.connected) return;
+            if (this.associationTornDown) return;
+            if (this.connected) {
+              // The client retransmitted Flight5: our Flight6 (ChangeCipherSpec
+              // + Finished, which has no retransmission timer of its own) was
+              // lost. Send it again (RFC 6347 §4.2.4) without re-entering the
+              // connect path (onConnect fires once).
+              if (!this.handshakeStopped && this.flight6) {
+                log(
+                  this.dtls.sessionId,
+                  "resend flight6 for retransmitted Finished",
+                );
+                await this.flight6.exec();
+              }
+              return;
+            }
             await this.waitForReady(() => !!this.flight6);
             if (this.associationTornDown || this.connected) return;
             this.flight6?.handleHandshake(handshake);
