@@ -657,6 +657,65 @@ describe("simulcast (RID) receive with a=ssrc-group:FID keeps the RID rules", ()
     }
   });
 
+  test("repaired RID で結合を学習した RTX SSRC を、最初の再 offer が未学習の媒体 SSRC と FID で組にして確定したら、その媒体を学習するまでは旧媒体の欠落を復元せず、学習後は新しい媒体の欠落を復元する", async () => {
+    // Arrange: FID のない初期 offer。repaired RID で RTX SSRC が RID high に結合され、媒体 4 が欠落した状態。
+    const withoutFid = (sdp: string) =>
+      sdp
+        .split("\r\n")
+        .filter((line) => !/^a=ssrc(-group)?:/.test(line))
+        .join("\r\n");
+    const { pc, route, delivered } = await receiveFirefoxOffer(
+      true,
+      withoutFid,
+    );
+    const newMedia = 123456789;
+    const withFid =
+      withoutFid(firefoxSimulcastSdp({ type: "offer" })) +
+      [
+        `a=ssrc:${newMedia} cname:x`,
+        `a=ssrc:${high.rtxSsrc} cname:x`,
+        `a=ssrc-group:FID ${newMedia} ${high.rtxSsrc}`,
+        "",
+      ].join("\r\n");
+    const repair = (
+      mediaSsrc: number,
+      sequenceNumber: number,
+      rtxSequenceNumber: number,
+      rrid?: string,
+    ) =>
+      createSimulcastRtxFor(mediaSsrc, sequenceNumber, {
+        rtxSsrc: high.rtxSsrc,
+        rtxSequenceNumber,
+        rrid,
+        mid: "0",
+      });
+    try {
+      route(media(high.ssrc, 1));
+      route(media(high.ssrc, 3));
+      route(repair(high.ssrc, 2, 1, "high"));
+      route(media(high.ssrc, 5));
+
+      // Act: 未学習の媒体 SSRC との FID を初めて加えた再 offer を確定し、repaired RID なしで旧媒体の 4 を再送する。
+      await pc.setRemoteDescription({ type: "offer", sdp: withFid });
+      await pc.setLocalDescription(await pc.createAnswer());
+      route(repair(high.ssrc, 4, 2));
+      const beforeLearning = retransmissionsOf(delivered);
+      // Act: RID high が FID の媒体 SSRC を運び始めた後、repaired RID なしで新しい媒体の 11 を再送する。
+      route(media(newMedia, 10));
+      route(media(newMedia, 12));
+      route(repair(newMedia, 11, 3));
+
+      // Assert: 学習前は旧媒体の 4 を復元せず、学習後は新しい媒体の 11 を復元する。
+      expect(beforeLearning).toEqual([[high.ssrc, 2]]);
+      expect(retransmissionsOf(delivered)).toEqual([
+        [high.ssrc, 2],
+        [newMedia, 11],
+      ]);
+    } finally {
+      await pc.close();
+    }
+  });
+
   test("現行通信が repaired RID で RID high に学習した RTX SSRC を、保留中の offer が RID low の FID に記載しても、確定まで high の RTX は復元され、rollback 後も復元される", async () => {
     // Arrange: FID のない初期 offer。repaired RID で RTX SSRC が RID high に学習された状態。
     const withoutFid = (sdp: string) =>
