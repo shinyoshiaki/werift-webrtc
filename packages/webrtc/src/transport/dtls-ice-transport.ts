@@ -61,6 +61,13 @@ class IceTransport implements Transport {
     return { address, port };
   }
 
+  /**
+   * The DTLS association may record a datagram source here (as on a UDP
+   * transport). ICE routes every send over the nominated pair, so the value
+   * is not used: ignore it instead of throwing on the read-only accessor.
+   */
+  set rinfo(_rinfo: { address?: string; port?: number } | undefined) {}
+
   type: string = "ice";
 
   readonly send = (data: Buffer, _addr?: Address) => {
