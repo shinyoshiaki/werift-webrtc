@@ -3413,7 +3413,7 @@ export class FailoverPathProtocol implements Protocol {
   type: string;
   localCandidate: Candidate;
   onRequestReceived = new Event<[Message, any, Buffer]>();
-  onDataReceived = new Event<[Buffer, Address]>();
+  onDataReceived = new Event<[Buffer, Address?]>();
   /** See `Protocol.onPathBroken` (`createFailoverHarness().breakPath`). */
   onPathBroken = new Event<[Address | undefined, Error]>();
   readonly requests: FailoverRequest[] = [];

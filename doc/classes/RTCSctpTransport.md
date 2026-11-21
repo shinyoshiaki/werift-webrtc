@@ -260,16 +260,6 @@ A new association (renegotiation) starts again from `connecting`.
 
 ***
 
-### markStopped()
-
-> **markStopped**(): `void`
-
-#### Returns
-
-`void`
-
-***
-
 ### removeEventListener()
 
 > **removeEventListener**(`type`, `listener`): `void`
