@@ -37,7 +37,7 @@ const sig = {
  * cipher re-init mid-association / desync with client.
  */
 test("e2e/self12: duplicate Flight5 CKE/Finished does not re-init server cipher", async () => {
-  // Arrange
+  // Arrange: DTLS 1.2 の UDP ペアで client の CCS/Finished を保留し、server を Flight6 の接続前で止める
   const serverTransport = await UdpTransport.init("udp4");
   const clientTransport = await UdpTransport.init("udp4");
   clientTransport.rinfo = serverTransport.address;
@@ -130,7 +130,7 @@ test("e2e/self12: duplicate Flight5 CKE/Finished does not re-init server cipher"
     return origHandle(hs);
   };
 
-  // Act: re-inject ClientKeyExchange wire packets (Flight5 retransmit) pre-connect
+  // Act: 接続前のまま ClientKeyExchange の wire パケットを server に再注入する（Flight5 再送）
   const peer: [string, number] = [
     clientTransport.address.address,
     clientTransport.address.port,
@@ -147,7 +147,7 @@ test("e2e/self12: duplicate Flight5 CKE/Finished does not re-init server cipher"
     (server as any).cipher.cipher?.writeKey ?? Buffer.alloc(0),
   );
 
-  // Assert: crypto state unchanged (idempotent Flight6 handlers)
+  // Assert: masterSecret / cipher / writeKey は変わらない（Flight6 handler は冪等）
   expect(masterAfter.equals(masterBefore)).toBe(true);
   expect((server as any).cipher.cipher).toBe(cipherInstBefore);
   if (writeKeyBefore.length > 0) {
@@ -157,7 +157,7 @@ test("e2e/self12: duplicate Flight5 CKE/Finished does not re-init server cipher"
   expect(ckeApplyCalls).toBe(0);
   expect(server.connected).toBe(false);
 
-  // Release CCS/Finished so handshake can complete
+  // Act: 保留した CCS/Finished を送り、ハンドシェイクを完走させる
   releaseFinished = true;
   for (const buf of finishedHold) {
     await origClientSend(buf);
@@ -184,10 +184,11 @@ test("e2e/self12: duplicate Flight5 CKE/Finished does not re-init server cipher"
     });
   });
 
+  // Assert: 両側が接続済みになる
   expect(server.connected).toBe(true);
   expect(client.connected).toBe(true);
 
-  // App data still works both ways after duplicate CKE inject
+  // Assert: 重複 CKE の注入後も server からのアプリデータが client に届く
   await new Promise<void>((resolve, reject) => {
     const t = setTimeout(() => reject(new Error("app data timeout")), 5_000);
     client.onData.subscribe((d) => {
@@ -213,6 +214,7 @@ test("e2e/self12: duplicate Flight5 CKE/Finished does not re-init server cipher"
  * Unit-level: second ClientKeyExchange on Flight6 must not re-init masterSecret.
  */
 test("unit/flight6: second ClientKeyExchange does not re-init masterSecret", async () => {
+  // Arrange: server の Flight6 に ClientKeyExchange を 1 回処理させ、masterSecret と cipher を控える
   const transport = await UdpTransport.init("udp4");
   transport.send = async () => {};
   const dtls = new DtlsContext({ transport } as any, SessionType.SERVER);
@@ -242,11 +244,11 @@ test("unit/flight6: second ClientKeyExchange does not re-init masterSecret", asy
   const master1 = Buffer.from(cipher.masterSecret as Buffer);
   const cipherInst1 = cipher.cipher;
 
-  // Act: duplicate CKE (Flight5 retransmit)
+  // Act: 同じ ClientKeyExchange をもう一度処理させる（Flight5 再送）
   flight6.handleHandshake(frag);
   const master2 = Buffer.from(cipher.masterSecret as Buffer);
 
-  // Assert
+  // Assert: masterSecret は再計算されず、cipher も同じインスタンスのまま
   expect(master2.equals(master1)).toBe(true);
   expect(cipher.cipher).toBe(cipherInst1);
 
@@ -259,6 +261,7 @@ test("unit/flight6: second ClientKeyExchange does not re-init masterSecret", asy
  * after the first Finished is cached.
  */
 test("unit/flight6: second Finished does not re-apply Finished handler", async () => {
+  // Arrange: server の Flight6 に Finished を 1 回処理させ、transcript に 1 件入れる
   const transport = await UdpTransport.init("udp4");
   transport.send = async () => {};
   const dtls = new DtlsContext({ transport } as any, SessionType.SERVER);
@@ -273,11 +276,11 @@ test("unit/flight6: second Finished does not re-apply Finished handler", async (
   const cacheLen1 = (dtls.handshakeCache[5]?.data ?? []).length;
   expect(cacheLen1).toBe(1);
 
-  // Act: duplicate Finished wire fragment
+  // Act: 同じ Finished の fragment をもう一度処理させる
   flight6.handleHandshake(frag);
   const cacheLen2 = (dtls.handshakeCache[5]?.data ?? []).length;
 
-  // Assert: transcript de-duped; no second Finished entry
+  // Assert: transcript は重複排除され、Finished は 1 件のまま
   expect(cacheLen2).toBe(1);
   expect(
     (dtls.handshakeCache[5]?.data ?? []).filter(

@@ -1,84 +1,24 @@
 import { expect, test } from "vitest";
-import { UdpTransport } from "../../../common/src";
-import { DtlsClient, DtlsServer, DtlsVersion } from "../../src";
-import { HashAlgorithm, SignatureAlgorithm } from "../../src/cipher/const";
-import { certPem, keyPem } from "../fixture";
-
-const sig = {
-  hash: HashAlgorithm.sha256_4,
-  signature: SignatureAlgorithm.rsa_1,
-};
-
-async function connectPair13() {
-  const serverTransport = await UdpTransport.init("udp4");
-  const clientTransport = await UdpTransport.init("udp4");
-  clientTransport.rinfo = serverTransport.address;
-
-  const server = new DtlsServer({
-    transport: serverTransport,
-    cert: certPem,
-    key: keyPem,
-    signatureHash: sig,
-    protocolVersions: [DtlsVersion.V1_3],
-  });
-  const client = new DtlsClient({
-    transport: clientTransport,
-    cert: certPem,
-    key: keyPem,
-    signatureHash: sig,
-    protocolVersions: [DtlsVersion.V1_3],
-  });
-
-  await new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(
-      () => reject(new Error("connect timeout")),
-      15_000,
-    );
-    let c = false;
-    let s = false;
-    const done = () => {
-      if (c && s) {
-        clearTimeout(timer);
-        resolve();
-      }
-    };
-    client.onConnect.subscribe(() => {
-      c = true;
-      done();
-    });
-    server.onConnect.subscribe(() => {
-      s = true;
-      done();
-    });
-    client.onError.subscribe((e) => {
-      clearTimeout(timer);
-      reject(e);
-    });
-    server.onError.subscribe((e) => {
-      clearTimeout(timer);
-      reject(e);
-    });
-    void client.connect();
-  });
-
-  return { client, server, clientTransport, serverTransport };
-}
+import { DtlsVersion } from "../../src";
+import { connectUdpDtlsPair } from "../fixture";
 
 /**
  * P1: pure 1.3 server local close() 直後の send は同期的に terminal で破棄される
  * （close_notify 完了を待たない）。
  */
 test("e2e/self13: server close() drops send synchronously", async () => {
-  // Arrange
+  // Arrange: pure DTLS 1.3 で接続する
   const { client, server, clientTransport, serverTransport } =
-    await connectPair13();
+    await connectUdpDtlsPair({
+      shared: { protocolVersions: [DtlsVersion.V1_3] },
+    });
   expect(server.isDtls13).toBe(true);
   expect(server.connected).toBe(true);
 
-  // Act: close then immediate send (no await of onClose)
+  // Act: server を close する（onClose は待たない）
   server.close();
 
-  // Assert: terminal sync — no race window for app send
+  // Assert: 同期的に terminal になり、直後の send は破棄され exporter は closed で失敗する
   expect((server as any).associationTornDown).toBe(true);
   expect(server.connected).toBe(false);
   // send は接続終了後は reject せず破棄する
@@ -103,14 +43,16 @@ test("e2e/self13: server close() drops send synchronously", async () => {
  * client.close() が wire 上の close_notify を送り、server onClosing が同期 terminal。
  */
 test("e2e/self13: peer close_notify drops send before teardown completes", async () => {
-  // Arrange
+  // Arrange: pure DTLS 1.3 で接続し、server の onClose を記録する
   const { client, server, clientTransport, serverTransport } =
-    await connectPair13();
+    await connectUdpDtlsPair({
+      shared: { protocolVersions: [DtlsVersion.V1_3] },
+    });
 
   const closes: number[] = [];
   server.onClose.subscribe(() => closes.push(Date.now()));
 
-  // Act: client local close delivers close_notify to server over UDP
+  // Act: client を close し、UDP で close_notify を server に届ける
   client.close();
 
   // Wait until server observes peer close_notify (onClosing → associationTornDown)
@@ -119,11 +61,12 @@ test("e2e/self13: peer close_notify drops send before teardown completes", async
     await new Promise((r) => setTimeout(r, 10));
   }
 
+  // Assert: close_notify を受けた server は terminal になり、send は破棄される
   expect((server as any).associationTornDown).toBe(true);
   // send は接続終了後は reject せず破棄する
   await expect(server.send(Buffer.from("late"))).resolves.toBeUndefined();
 
-  // onClose still eventually fires once
+  // Assert: その後 onClose も発火する
   await new Promise<void>((resolve) => {
     if (closes.length > 0) {
       resolve();
@@ -145,10 +88,15 @@ test("e2e/self13: peer close_notify drops send before teardown completes", async
  * pure 1.3 client close も同様に同期 terminal（dual closeAssociationHard 経路）。
  */
 test("e2e/self13: client close() drops send synchronously", async () => {
+  // Arrange: pure DTLS 1.3 で接続する
   const { client, server, clientTransport, serverTransport } =
-    await connectPair13();
+    await connectUdpDtlsPair({
+      shared: { protocolVersions: [DtlsVersion.V1_3] },
+    });
 
+  // Act: client を close する
   client.close();
+  // Assert: 同期的に terminal (phase closed) になり、直後の send は破棄される
   expect((client as any).associationTornDown).toBe(true);
   expect((client as any).dualAssociationPhase).toBe("closed");
   // send は接続終了後は reject せず破棄する

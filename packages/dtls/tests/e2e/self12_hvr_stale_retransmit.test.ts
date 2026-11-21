@@ -19,7 +19,7 @@ import { DtlsRandom } from "../../src/handshake/random";
  * re-send cookie1 after HVR2 superseded it.
  */
 test("e2e/flight3: HVR2 supersedes; stale gen1 RTO does not retransmit cookie1", async () => {
-  // Arrange
+  // Arrange: 送信ごとに cookie / generation を記録し、再送 sleep を手動で起こせる Flight3 を 2 つ用意する
   const transport = await UdpTransport.init("udp4");
   transport.rinfo = { address: "127.0.0.1", port: 9 } as any;
 
@@ -71,7 +71,7 @@ test("e2e/flight3: HVR2 supersedes; stale gen1 RTO does not retransmit cookie1",
     cookie2,
   );
 
-  // Act: HVR1 → CH2(cookie1) then sleep (pending RTO)
+  // Act: HVR1 を処理させ、CH2(cookie1) を送って RTO 待ちの sleep に入らせる
   const p1 = f3a.exec(hvr1);
   await new Promise((r) => setTimeout(r, 15));
   expect(sends.length).toBe(1);
@@ -82,7 +82,7 @@ test("e2e/flight3: HVR2 supersedes; stale gen1 RTO does not retransmit cookie1",
   expect(activeFlight3Waiting()).toBe(1);
   expect(f3a.state).toBe("WAITING");
 
-  // HVR2 while gen1 sleeping — active cookie becomes cookie2
+  // Act: gen1 が sleep 中に HVR2 を処理させ、有効な cookie を cookie2 にする
   dtls.flight = 3;
   const p2 = f3b.exec(hvr2);
   await new Promise((r) => setTimeout(r, 15));
@@ -94,8 +94,8 @@ test("e2e/flight3: HVR2 supersedes; stale gen1 RTO does not retransmit cookie1",
   expect(f3b.state).toBe("WAITING");
   expect(activeFlight3Waiting()).toBe(2);
 
-  // "Drop" CH2(cookie2) retransmit: we simply do not wake gen2 yet.
-  // Stale gen1 RTO fires — must not send cookie1 again; gen1 loop exits FINISHED.
+  // Act: gen2 はまだ起こさず（CH2(cookie2) の再送が落ちた想定）、古い gen1 の RTO を発火させる
+  // Assert: gen1 は cookie1 を再送せず FINISHED で抜け、再送ループは gen2 だけになる
   sleepWaiters[0]();
   await new Promise((r) => setTimeout(r, 15));
   expect(sends.length).toBe(2); // no third send from stale gen1
@@ -104,7 +104,8 @@ test("e2e/flight3: HVR2 supersedes; stale gen1 RTO does not retransmit cookie1",
   expect(activeFlight3Waiting()).toBe(1);
   expect(f3b.state).toBe("WAITING");
 
-  // Only gen2 remains active: wake it once → still cookie2 only
+  // Act: 残った gen2 を 1 回起こす
+  // Assert: gen2 の再送は cookie2 だけで、cookie1 は二度と現れない
   dtls.flight = 3; // still waiting for SH
   sleepWaiters[1]?.();
   await new Promise((r) => setTimeout(r, 15));
@@ -118,14 +119,14 @@ test("e2e/flight3: HVR2 supersedes; stale gen1 RTO does not retransmit cookie1",
   expect(f3a.state).toBe("FINISHED");
   expect(activeFlight3Waiting()).toBeLessThanOrEqual(1);
 
-  // Finish loops
+  // Act: ループをすべて終わらせる
   dtls.flight = 5;
   for (const w of sleepWaiters) w();
   await Promise.all([p1, p2]);
   expect(f3b.state).toBe("FINISHED");
   expect(activeFlight3Waiting()).toBe(0);
 
-  // Assert: every send after HVR1 initial is cookie2 or the HVR2 first send
+  // Assert: 最初の送信だけが cookie1 で、それ以降の送信はすべて cookie2
   expect(sends[0].cookie.equals(cookie1)).toBe(true);
   expect(sends.slice(1).every((s) => s.cookie.equals(cookie2))).toBe(true);
   // At most one pending Flight3 loop for the active generation

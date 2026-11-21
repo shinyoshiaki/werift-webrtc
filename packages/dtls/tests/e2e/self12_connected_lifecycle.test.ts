@@ -1,76 +1,16 @@
 import { expect, test } from "vitest";
 import { UdpTransport } from "../../../common/src";
-import { DtlsClient, DtlsServer } from "../../src";
-import { HashAlgorithm, SignatureAlgorithm } from "../../src/cipher/const";
+import { DtlsServer } from "../../src";
 import { createPlaintext } from "../../src/record/builder";
 import { AlertDesc, ContentType } from "../../src/record/const";
 import { serializePlaintextRecord } from "../../src/record/v1_3/record";
-import { certPem, keyPem } from "../fixture";
-
-const sig = {
-  hash: HashAlgorithm.sha256_4,
-  signature: SignatureAlgorithm.rsa_1,
-};
-
-async function connectPair() {
-  const serverTransport = await UdpTransport.init("udp4");
-  const clientTransport = await UdpTransport.init("udp4");
-  clientTransport.rinfo = serverTransport.address;
-
-  const server = new DtlsServer({
-    transport: serverTransport,
-    cert: certPem,
-    key: keyPem,
-    signatureHash: sig,
-  });
-  const client = new DtlsClient({
-    transport: clientTransport,
-    cert: certPem,
-    key: keyPem,
-    signatureHash: sig,
-  });
-
-  await new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(
-      () => reject(new Error("connect timeout")),
-      15_000,
-    );
-    let c = false;
-    let s = false;
-    const done = () => {
-      if (c && s) {
-        clearTimeout(timer);
-        resolve();
-      }
-    };
-    client.onConnect.subscribe(() => {
-      c = true;
-      done();
-    });
-    server.onConnect.subscribe(() => {
-      s = true;
-      done();
-    });
-    client.onError.subscribe((e) => {
-      clearTimeout(timer);
-      reject(e);
-    });
-    server.onError.subscribe((e) => {
-      clearTimeout(timer);
-      reject(e);
-    });
-    void client.connect();
-  });
-
-  return { client, server, clientTransport, serverTransport };
-}
-
-function peerOf(t: {
-  address: { address: string; port: number } | string;
-}): [string, number] {
-  const a = t.address as { address: string; port: number };
-  return [a.address === "0.0.0.0" ? "127.0.0.1" : a.address, a.port];
-}
+import {
+  certPem,
+  connectUdpDtlsPair,
+  keyPem,
+  peerOf,
+  rsaSignatureHash,
+} from "../fixture";
 
 /**
  * P1: pure DTLS 1.2 接続完了後の **認証済み (epoch>0 AEAD)** fatal → association terminal。
@@ -79,7 +19,7 @@ function peerOf(t: {
 test("e2e/self12: connected authenticated fatal alert tears down pure association", async () => {
   // Arrange
   const { client, server, clientTransport, serverTransport } =
-    await connectPair();
+    await connectUdpDtlsPair();
   expect(client.connected).toBe(true);
   expect(server.connected).toBe(true);
 
@@ -141,7 +81,7 @@ test("e2e/self12: connected authenticated fatal alert tears down pure associatio
  */
 test("e2e/self12: connected close_notify graceful association close", async () => {
   const { client, server, clientTransport, serverTransport } =
-    await connectPair();
+    await connectUdpDtlsPair();
 
   const errors: Error[] = [];
   const closes: number[] = [];
@@ -195,7 +135,7 @@ test("e2e/self12: connected close_notify graceful association close", async () =
  */
 test("e2e/self12: non-close_notify warning does not tear down", async () => {
   const { client, server, clientTransport, serverTransport } =
-    await connectPair();
+    await connectUdpDtlsPair();
 
   const errors: Error[] = [];
   const closes: number[] = [];
@@ -233,7 +173,7 @@ test("e2e/self12: non-close_notify warning does not tear down", async () => {
 test("e2e/self12: server.close() fires onClose exactly once", async () => {
   // Arrange: pure 1.2 接続完了
   const { client, server, clientTransport, serverTransport } =
-    await connectPair();
+    await connectUdpDtlsPair();
   expect(server.connected).toBe(true);
 
   const closes: number[] = [];
@@ -275,7 +215,7 @@ test("e2e/self12: waitForReady sleep aborts immediately on close", async () => {
     transport: serverTransport,
     cert: certPem,
     key: keyPem,
-    signatureHash: sig,
+    signatureHash: rsaSignatureHash,
   });
 
   // never-true → i=0 sleep0, i=1 sleep100, … i=4 sleep400
@@ -312,7 +252,7 @@ test("e2e/self12: waitForReady sleep aborts immediately on close", async () => {
  */
 test("e2e/self12: fatal vs local close race is terminal once", async () => {
   const { client, server, clientTransport, serverTransport } =
-    await connectPair();
+    await connectUdpDtlsPair();
 
   const errors: Error[] = [];
   const closes: number[] = [];

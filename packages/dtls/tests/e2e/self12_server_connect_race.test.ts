@@ -14,7 +14,7 @@ const sig = {
  * に復帰しない（waitForReady / Flight6.exec 後の race）。
  */
 test("e2e/self12: server close during Finished path does not reconnect", async () => {
-  // Arrange: start handshake, hold Flight6 until we tear down mid-path
+  // Arrange: DTLS 1.2 の UDP ペアを作り、server の 2 回目の waitForReady 中に association を terminal にするフックを仕込む
   const serverTransport = await UdpTransport.init("udp4");
   const clientTransport = await UdpTransport.init("udp4");
   clientTransport.rinfo = serverTransport.address;
@@ -60,15 +60,15 @@ test("e2e/self12: server close during Finished path does not reconnect", async (
     return;
   };
 
+  // Act: ハンドシェイクを開始し、server が Finished 処理に入るまで待つ
   void client.connect();
 
-  // Allow handshake to reach Finished handling
   for (let i = 0; i < 100; i++) {
     if (intercept >= 2 || connects.length > 0) break;
     await new Promise((r) => setTimeout(r, 20));
   }
 
-  // Assert: never successfully connected after terminal mid-Finished
+  // Assert: Finished 処理中に terminal になった server は接続済みに戻らず、onConnect も発火しない
   expect((server as any).associationTornDown).toBe(true);
   expect(server.connected).toBe(false);
   // onConnect must not fire after we forced terminal (may have fired before — 0 expected)
@@ -94,6 +94,7 @@ test("e2e/self12: server close during Finished path does not reconnect", async (
  * P1: fatal during waitForReady 後も connected に戻らない。
  */
 test("e2e/self12: server fatal mid-handshake blocks later onConnect", async () => {
+  // Arrange: DTLS 1.2 の UDP ペアを作り、server の 2 回目の waitForReady で association fatal を起こすフックを仕込む
   const serverTransport = await UdpTransport.init("udp4");
   const clientTransport = await UdpTransport.init("udp4");
   clientTransport.rinfo = serverTransport.address;
@@ -126,9 +127,11 @@ test("e2e/self12: server fatal mid-handshake blocks later onConnect", async () =
     return originalWait(cond);
   };
 
+  // Act: ハンドシェイクを開始し、fatal が起きるまで待つ
   void client.connect();
   await new Promise((r) => setTimeout(r, 800));
 
+  // Assert: fatal 後の server は terminal のままで、onConnect も発火しない
   expect((server as any).associationTornDown).toBe(true);
   expect(server.connected).toBe(false);
   expect(connects.length).toBe(0);

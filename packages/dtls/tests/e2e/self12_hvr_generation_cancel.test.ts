@@ -13,6 +13,7 @@ import { DtlsRandom } from "../../src/handshake/random";
  * Generation cancel: sleep wake with mismatched hvrGeneration exits without send.
  */
 test("unit/flight3: superseded HVR generation stops stale CH2 retransmit", async () => {
+  // Arrange: 送信を cookie / generation ごとに記録し、再送 sleep を手動で起こせる Flight3 を 2 つ用意する
   const transport = await UdpTransport.init("udp4");
   transport.rinfo = { address: "127.0.0.1", port: 9 } as any;
 
@@ -59,7 +60,7 @@ test("unit/flight3: superseded HVR generation stops stale CH2 retransmit", async
     cookieB,
   );
 
-  // Act: HVR1 enters retransmit sleep
+  // Act: HVR1 を処理させ、CH2(cookieA) を送って再送 sleep に入らせる
   const p1 = f3a.exec(hvr1);
   await new Promise((r) => setTimeout(r, 20));
   expect(dtls.hvrGeneration).toBe(1);
@@ -67,7 +68,7 @@ test("unit/flight3: superseded HVR generation stops stale CH2 retransmit", async
   expect(sendMeta[0].cookie.equals(cookieA)).toBe(true);
   expect(sleepWaiters.length).toBe(1);
 
-  // HVR2 supersedes while gen1 is sleeping
+  // Act: gen1 が sleep 中に HVR2 で置き換える
   dtls.flight = 3;
   const p2 = f3b.exec(hvr2);
   await new Promise((r) => setTimeout(r, 20));
@@ -76,17 +77,17 @@ test("unit/flight3: superseded HVR generation stops stale CH2 retransmit", async
   expect(sendMeta[1].cookie.equals(cookieB)).toBe(true);
   expect(sleepWaiters.length).toBe(2);
 
-  // Wake gen1 sleep — must NOT send (generation mismatch)
+  // Act: gen1 の sleep を起こす。generation が違うので送信しないはず
   sleepWaiters[0]();
   await new Promise((r) => setTimeout(r, 20));
   expect(sendMeta.length).toBe(2); // no third send from stale loop
 
-  // Finish gen2
+  // Act: gen2 を終わらせる
   dtls.flight = 5;
   sleepWaiters[1]?.();
   await Promise.all([p1, p2]);
 
-  // Assert: only one send per generation; stale loop produced zero retransmits
+  // Assert: generation ごとに 1 回だけ送信し、古いループは再送していない
   expect(sendMeta.length).toBe(2);
   expect(dtls.hvrGeneration).toBe(2);
 

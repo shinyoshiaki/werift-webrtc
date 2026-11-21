@@ -15,6 +15,7 @@ function wait(ms: number) {
 describe("dtls parameterized fingerprint", () => {
   for (const testCase of BROWSER_DTLS_CASES) {
     it(`${testCase.name} Chromium offerer fingerprint mismatch`, async () => {
+      // Arrange: Chromium が offerer、werift は answer の fingerprint を改ざんする
       await ensureDtlsPeer();
       const method = "dtls_fingerprint_offer";
       const pc = new RTCPeerConnection({ iceServers });
@@ -30,6 +31,7 @@ describe("dtls parameterized fingerprint", () => {
             .catch(() => {});
         };
 
+        // Act: offer / answer を交換し、werift の DTLS が failed になるまで待つ
         await pc.setLocalDescription(await pc.createOffer());
         const answer = await peer.request(method, {
           type: "init",
@@ -60,6 +62,7 @@ describe("dtls parameterized fingerprint", () => {
     }, 30_000);
 
     it(`${testCase.name} werift offerer fingerprint mismatch`, async () => {
+      // Arrange: werift が offerer で、offer の fingerprint を改ざんする
       await ensureDtlsPeer();
       const method = "dtls_fingerprint_answer";
       const pc = new RTCPeerConnection({ iceServers });
@@ -76,6 +79,7 @@ describe("dtls parameterized fingerprint", () => {
             .catch(() => {});
         };
 
+        // Act: 改ざんした offer に Chromium が answer し、DTLS / 接続が failed になるまで待つ
         const offer = await peer.request(method, {
           type: "init",
           payload: {
@@ -100,6 +104,7 @@ describe("dtls parameterized fingerprint", () => {
           chromium = await getChromiumDtlsStats(pc);
         }
 
+        // Assert: Chromium 側の DTLS / 接続が失敗し、DataChannel は open しない
         expect(opened).toBe(false);
         expect(
           chromium.dtlsState === "failed" ||

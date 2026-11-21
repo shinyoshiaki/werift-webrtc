@@ -2,76 +2,18 @@ import { expect, test } from "vitest";
 import { UdpTransport } from "../../../common/src";
 import { DtlsServer, DtlsVersion } from "../../src";
 import { DirectHandshakeCarrier } from "../../src/carrier/direct";
-import {
-  CipherSuite,
-  HashAlgorithm,
-  SignatureAlgorithm,
-} from "../../src/cipher/const";
-import { EllipticCurves } from "../../src/handshake/extensions/ellipticCurves";
-import { Signature } from "../../src/handshake/extensions/signature";
-import { SupportedVersions } from "../../src/handshake/extensions/supportedVersions";
-import { ClientHello } from "../../src/handshake/message/client/hello";
-import { DtlsRandom } from "../../src/handshake/random";
 import { createDtlsClientInternal } from "../../src/internal";
 import { AlertDesc, ContentType } from "../../src/record/const";
-import { FragmentedHandshake } from "../../src/record/message/fragment";
 import { serializePlaintextRecord } from "../../src/record/v1_3/record";
 import { DTLS_1_3_VERSION } from "../../src/version";
-import { certPem, keyPem } from "../fixture";
-
-const sig = {
-  hash: HashAlgorithm.sha256_4,
-  signature: SignatureAlgorithm.rsa_1,
-};
-
-type ClientRandom = { gmt_unix_time: number; random_bytes: Buffer };
-
-function fixedClientRandom(): ClientRandom {
-  const r = new DtlsRandom();
-  return {
-    gmt_unix_time: r.gmt_unix_time,
-    random_bytes: Buffer.from(r.random_bytes),
-  };
-}
-
-function build12ClientHello(opts?: {
-  cookie?: Buffer;
-  only13Cipher?: boolean;
-  /** Wire versions for supported_versions (RFC 8446). Absent = legacy 1.2. */
-  supportedVersions?: number[];
-  /** Fixed random for CH1/CH2 cookie binding (RFC 6347 same parameters). */
-  random?: ClientRandom;
-}): ClientHello {
-  // EllipticCurves / Signature matching RSA fixture cert
-  const curves = new EllipticCurves({ data: [23, 29] }); // secp256r1, x25519
-  const signature = new Signature({
-    data: [
-      { hash: HashAlgorithm.sha256_4, signature: SignatureAlgorithm.rsa_1 },
-    ],
-  });
-  const extensions = [curves.extension, signature.extension];
-  if (opts?.supportedVersions?.length) {
-    extensions.unshift(
-      SupportedVersions.forClient(opts.supportedVersions).clientExtension,
-    );
-  }
-  return new ClientHello(
-    { major: 254, minor: 253 },
-    opts?.random ?? fixedClientRandom(),
-    Buffer.alloc(0),
-    opts?.cookie ?? Buffer.alloc(0),
-    opts?.only13Cipher
-      ? [0x1301]
-      : [CipherSuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256_49199],
-    [0],
-    extensions,
-  );
-}
-
-function chAsAssembled(hello: ClientHello): FragmentedHandshake[] {
-  const frag = hello.toFragment();
-  return [FragmentedHandshake.assemble([frag])];
-}
+import {
+  build12ClientHello,
+  certPem,
+  chAsAssembled,
+  fixedClientRandom,
+  keyPem,
+  rsaSignatureHash,
+} from "../fixture";
 
 /**
  * P1: pure / initial dual DTLS 1.3 client は startEngine13 直後から
@@ -85,7 +27,7 @@ test("e2e: pure 1.3 client binds association dispatcher at startEngine13", async
     transport: clientTransport,
     cert: certPem,
     key: keyPem,
-    signatureHash: sig,
+    signatureHash: rsaSignatureHash,
     protocolVersions: [DtlsVersion.V1_3],
     handshakeCarrier: carrier,
   });
@@ -120,7 +62,7 @@ test("e2e: dual initial client binds association dispatcher before HVR", async (
     transport: clientTransport,
     cert: certPem,
     key: keyPem,
-    signatureHash: sig,
+    signatureHash: rsaSignatureHash,
     protocolVersions: [DtlsVersion.V1_3, DtlsVersion.V1_2],
     handshakeCarrier: carrier,
   });
@@ -173,7 +115,7 @@ test("e2e/self12: pre-cookie HVR targets CH source not spoofed rinfo", async () 
     transport: serverTransport,
     cert: certPem,
     key: keyPem,
-    signatureHash: sig,
+    signatureHash: rsaSignatureHash,
   });
 
   const sent: Array<{ addr?: [string, number] }> = [];
@@ -228,7 +170,7 @@ test("e2e/self12: pre-cookie protocol_version alert targets CH source", async ()
     transport: serverTransport,
     cert: certPem,
     key: keyPem,
-    signatureHash: sig,
+    signatureHash: rsaSignatureHash,
   });
 
   const sent: Array<[string, number] | undefined> = [];
@@ -264,7 +206,7 @@ test("e2e/self12: cookie pin uses CH source under concurrent rinfo spoof", async
     transport: serverTransport,
     cert: certPem,
     key: keyPem,
-    signatureHash: sig,
+    signatureHash: rsaSignatureHash,
   });
 
   // Suppress real sends
@@ -327,14 +269,14 @@ test("e2e/self13: close then carrier.inject is dropped by association", async ()
     transport: serverTransport,
     cert: certPem,
     key: keyPem,
-    signatureHash: sig,
+    signatureHash: rsaSignatureHash,
     protocolVersions: [DtlsVersion.V1_3],
   });
   const client = createDtlsClientInternal({
     transport: clientTransport,
     cert: certPem,
     key: keyPem,
-    signatureHash: sig,
+    signatureHash: rsaSignatureHash,
     protocolVersions: [DtlsVersion.V1_3],
     handshakeCarrier: clientCarrier,
   });

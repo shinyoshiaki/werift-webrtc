@@ -19,7 +19,7 @@ class TestFlight extends Flight {
 }
 
 test("unit/flight: stale send rejection after cancelFlightTimers is ignored", async () => {
-  // Arrange
+  // Arrange: 送信が保留されたまま再送 sleep に入る Flight を走らせておく
   const transport = await UdpTransport.init("udp4");
   let rejectSend: (e: Error) => void = () => {};
   const sendPromise = new Promise<void>((_resolve, reject) => {
@@ -44,18 +44,18 @@ test("unit/flight: stale send rejection after cancelFlightTimers is ignored", as
   await new Promise((r) => setTimeout(r, 20));
 
   const genBefore = dtls.flightTxGeneration;
-  // Act: association hard-close cancels timers + bumps flightTxGeneration
+  // Act: association の hard-close として timer を止め、flightTxGeneration を進める
   dtls.flight = 99;
   dtls.cancelFlightTimers();
   expect(dtls.flightTxGeneration).toBeGreaterThan(genBefore);
 
-  // Late transport failure after terminal
+  // Act: terminal 後に遅れて transport の送信失敗を返し、sleep を起こす
   rejectSend(new Error("socket closed after association teardown"));
   await new Promise((r) => setTimeout(r, 20));
   wakeSleep();
   await p; // must resolve without throw (terminal path)
 
-  // Assert: generation invalidated the send wave
+  // Assert: run は throw せずに終わり、generation が送信 wave を無効化している
   expect(dtls.flightTxGeneration).toBeGreaterThan(genBefore);
   void errors;
   void origErr;
@@ -64,10 +64,15 @@ test("unit/flight: stale send rejection after cancelFlightTimers is ignored", as
 });
 
 test("unit/dtls: cancelFlightTimers bumps flightTxGeneration each call", () => {
+  // Arrange: 初期の flightTxGeneration を控える
   const dtls = new DtlsContext({ transport: {} } as any, SessionType.CLIENT);
   const g0 = dtls.flightTxGeneration;
+  // Act: cancelFlightTimers を 1 回呼ぶ
   dtls.cancelFlightTimers();
+  // Assert: generation が 1 進む
   expect(dtls.flightTxGeneration).toBe(g0 + 1);
+  // Act: もう 1 回呼ぶ
   dtls.cancelFlightTimers();
+  // Assert: 呼ぶたびに generation が進む
   expect(dtls.flightTxGeneration).toBe(g0 + 2);
 });

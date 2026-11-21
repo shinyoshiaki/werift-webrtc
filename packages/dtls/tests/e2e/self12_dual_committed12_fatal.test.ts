@@ -7,7 +7,7 @@ import { createDtlsClientInternal } from "../../src/internal";
 import { createPlaintext } from "../../src/record/builder";
 import { AlertDesc, ContentType } from "../../src/record/const";
 import { serializePlaintextRecord } from "../../src/record/v1_3/record";
-import { certPem, keyPem } from "../fixture";
+import { certPem, keyPem, peerOf } from "../fixture";
 
 function encryptServerAlert(
   server: DtlsServer,
@@ -20,11 +20,6 @@ function encryptServerAlert(
     ++(server as any).dtls.recordSequenceNumber,
   )[0];
   return (server as any).cipher.encryptPacket(pkt).serialize();
-}
-
-function serverPeer(serverTransport: UdpTransport): [string, number] {
-  const a = serverTransport.address as { address: string; port: number };
-  return [a.address === "0.0.0.0" ? "127.0.0.1" : a.address, a.port];
 }
 
 /**
@@ -91,7 +86,7 @@ test("e2e/dual: committed12 fatal alert tears down association", async () => {
 
   // AEAD-protected fatal (epoch-0 plaintext is ignored post-handshake)
   const alertPkt = encryptServerAlert(server, 2, AlertDesc.HandshakeFailure);
-  (client as any).udpOnMessage(alertPkt, serverPeer(serverTransport));
+  (client as any).udpOnMessage(alertPkt, peerOf(serverTransport));
 
   // Assert: onError 直後に association は閉じている
   expect(errors.length).toBe(1);
@@ -191,7 +186,7 @@ test("e2e/dual: committed12 peer close_notify closes association gracefully", as
       clearTimeout(timer);
       resolve();
     });
-    (client as any).udpOnMessage(closePkt, serverPeer(serverTransport));
+    (client as any).udpOnMessage(closePkt, peerOf(serverTransport));
   });
 
   // Assert: graceful close — onError なし、phase closed

@@ -2,83 +2,20 @@ import { expect, test } from "vitest";
 import { UdpTransport } from "../../../common/src";
 import { DtlsClient, DtlsServer } from "../../src";
 import {
-  CipherSuite,
-  HashAlgorithm,
-  SignatureAlgorithm,
-} from "../../src/cipher/const";
-import { EllipticCurves } from "../../src/handshake/extensions/ellipticCurves";
-import { ExtendedMasterSecret } from "../../src/handshake/extensions/extendedMasterSecret";
-import { Signature } from "../../src/handshake/extensions/signature";
-import { ClientHello } from "../../src/handshake/message/client/hello";
-import { DtlsRandom } from "../../src/handshake/random";
-import { FragmentedHandshake } from "../../src/record/message/fragment";
-import { certPem, keyPem } from "../fixture";
-
-const sig = {
-  hash: HashAlgorithm.sha256_4,
-  signature: SignatureAlgorithm.rsa_1,
-};
-
-type ClientRandom = { gmt_unix_time: number; random_bytes: Buffer };
-
-function fixedRandom(): ClientRandom {
-  const r = new DtlsRandom();
-  return {
-    gmt_unix_time: r.gmt_unix_time,
-    random_bytes: Buffer.from(r.random_bytes),
-  };
-}
-
-function buildCh(opts: {
-  cookie?: Buffer;
-  random?: ClientRandom;
-  /** ECDSA-only suites so RSA server fails cipher negotiation */
-  ecdsaOnly?: boolean;
-  ems?: boolean;
-}): ClientHello {
-  const curves = new EllipticCurves({ data: [23, 29] });
-  const signature = new Signature({
-    data: opts.ecdsaOnly
-      ? [
-          {
-            hash: HashAlgorithm.sha256_4,
-            signature: SignatureAlgorithm.ecdsa_3,
-          },
-        ]
-      : [
-          {
-            hash: HashAlgorithm.sha256_4,
-            signature: SignatureAlgorithm.rsa_1,
-          },
-        ],
-  });
-  const exts = [curves.extension, signature.extension];
-  if (opts.ems) {
-    exts.push({ type: ExtendedMasterSecret.type, data: Buffer.alloc(0) });
-  }
-  return new ClientHello(
-    { major: 254, minor: 253 },
-    opts.random ?? fixedRandom(),
-    Buffer.alloc(0),
-    opts.cookie ?? Buffer.alloc(0),
-    opts.ecdsaOnly
-      ? [CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256_49195]
-      : [CipherSuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256_49199],
-    [0],
-    exts,
-  );
-}
-
-function assembled(hello: ClientHello): FragmentedHandshake[] {
-  return [FragmentedHandshake.assemble([hello.toFragment()])];
-}
+  build12ClientHello,
+  certPem,
+  chAsAssembled,
+  fixedClientRandom,
+  keyPem,
+  rsaSignatureHash,
+} from "../fixture";
 
 /**
  * P1: failed commit after cookie-valid CH2 must not leave EMS/srtp/curve
  * partial state for the next peer (transactional commit).
  */
 test("e2e/self12: failed CH2 commit does not poison association state", async () => {
-  // Arrange
+  // Arrange: EMS 必須の RSA server に、peer A の CH1 を通して HVR cookie を発行させる
   const serverTransport = await UdpTransport.init("udp4");
   const server = new DtlsServer({
     // DTLS 1.2 の association アドレス pin は opt-in
@@ -86,26 +23,28 @@ test("e2e/self12: failed CH2 commit does not poison association state", async ()
     transport: serverTransport,
     cert: certPem,
     key: keyPem,
-    signatureHash: sig,
+    signatureHash: rsaSignatureHash,
     extendedMasterSecret: true,
   });
   serverTransport.send = async () => {};
 
   const peerA: [string, number] = ["198.51.100.1", 41001];
-  const rndA = fixedRandom();
+  const rndA = fixedClientRandom();
 
   // A CH1 → HVR
   await (server as any).handleHandshakes(
-    assembled(buildCh({ random: rndA, ems: true, ecdsaOnly: true })),
+    chAsAssembled(
+      build12ClientHello({ random: rndA, ems: true, ecdsaOnly: true }),
+    ),
     peerA,
   );
   const cookieA = Buffer.from((server as any).dtls.cookie as Buffer);
   expect((server as any).dtls.remoteExtendedMasterSecret).toBe(false);
 
-  // Act: A CH2 cookie-valid, EMS present, cipher suite fails (ECDSA vs RSA)
+  // Act: cookie は正しく EMS もあるが、cipher suite 交渉に失敗する (ECDSA vs RSA) CH2 を A から渡す
   await (server as any).handleHandshakes(
-    assembled(
-      buildCh({
+    chAsAssembled(
+      build12ClientHello({
         cookie: cookieA,
         random: rndA,
         ems: true,
@@ -115,7 +54,7 @@ test("e2e/self12: failed CH2 commit does not poison association state", async ()
     peerA,
   );
 
-  // Assert: no partial association poison
+  // Assert: EMS / random / 鍵 / cipher / SRTP / pin のどれも途中まで書き換わっていない
   expect((server as any).dtls.remoteExtendedMasterSecret).toBe(false);
   expect((server as any).dtls.clientHelloCommitted).toBe(false);
   expect((server as any).cipher.remoteRandom).toBeUndefined();
@@ -132,6 +71,7 @@ test("e2e/self12: failed CH2 commit does not poison association state", async ()
  * After a failed commit poison attempt, a real peer still completes (same process).
  */
 test("e2e/self12: after failed commit, clean client handshake succeeds", async () => {
+  // Arrange: EMS 必須の RSA server に、偽 peer X から commit に失敗する CH1 / CH2 を先に渡す
   const serverTransport = await UdpTransport.init("udp4");
   const clientTransport = await UdpTransport.init("udp4");
   clientTransport.rinfo = serverTransport.address;
@@ -141,23 +81,30 @@ test("e2e/self12: after failed commit, clean client handshake succeeds", async (
     transport: serverTransport,
     cert: certPem,
     key: keyPem,
-    signatureHash: sig,
+    signatureHash: rsaSignatureHash,
     extendedMasterSecret: true,
   });
 
   // Poison attempt via direct handleHandshakes (no UDP)
   const peerX: [string, number] = ["203.0.113.9", 9];
-  const rndX = fixedRandom();
+  const rndX = fixedClientRandom();
   const blackhole = serverTransport.send.bind(serverTransport);
   serverTransport.send = async () => {};
   await (server as any).handleHandshakes(
-    assembled(buildCh({ random: rndX, ems: true, ecdsaOnly: true })),
+    chAsAssembled(
+      build12ClientHello({ random: rndX, ems: true, ecdsaOnly: true }),
+    ),
     peerX,
   );
   const cX = Buffer.from((server as any).dtls.cookie as Buffer);
   await (server as any).handleHandshakes(
-    assembled(
-      buildCh({ cookie: cX, random: rndX, ems: true, ecdsaOnly: true }),
+    chAsAssembled(
+      build12ClientHello({
+        cookie: cX,
+        random: rndX,
+        ems: true,
+        ecdsaOnly: true,
+      }),
     ),
     peerX,
   );
@@ -169,10 +116,11 @@ test("e2e/self12: after failed commit, clean client handshake succeeds", async (
     transport: clientTransport,
     cert: certPem,
     key: keyPem,
-    signatureHash: sig,
+    signatureHash: rsaSignatureHash,
     extendedMasterSecret: true,
   });
 
+  // Act: 正規 client が同じ server とハンドシェイクする
   await new Promise<void>((resolve, reject) => {
     const t = setTimeout(() => reject(new Error("handshake timeout")), 15_000);
     client.onConnect.subscribe(() => {
@@ -190,6 +138,7 @@ test("e2e/self12: after failed commit, clean client handshake succeeds", async (
     void client.connect();
   });
 
+  // Assert: 失敗した commit の影響を受けず、両側が接続済みになる
   expect(client.connected).toBe(true);
   expect(server.connected).toBe(true);
 

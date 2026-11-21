@@ -1,63 +1,19 @@
 import { expect, test } from "vitest";
 import { UdpTransport } from "../../../common/src";
 import { DtlsClient, DtlsServer } from "../../src";
-import {
-  CipherSuite,
-  HashAlgorithm,
-  SignatureAlgorithm,
-} from "../../src/cipher/const";
+import { CipherSuite } from "../../src/cipher/const";
 import {
   mintDtls12HelloVerifyCookie,
   verifyDtls12HelloVerifyCookie,
 } from "../../src/handshake/extensions/cookie";
-import { EllipticCurves } from "../../src/handshake/extensions/ellipticCurves";
-import { Signature } from "../../src/handshake/extensions/signature";
-import { ClientHello } from "../../src/handshake/message/client/hello";
-import { DtlsRandom } from "../../src/handshake/random";
-import { FragmentedHandshake } from "../../src/record/message/fragment";
-import { certPem, keyPem } from "../fixture";
-
-const sig = {
-  hash: HashAlgorithm.sha256_4,
-  signature: SignatureAlgorithm.rsa_1,
-};
-
-type ClientRandom = { gmt_unix_time: number; random_bytes: Buffer };
-
-function fixedClientRandom(): ClientRandom {
-  const r = new DtlsRandom();
-  return {
-    gmt_unix_time: r.gmt_unix_time,
-    random_bytes: Buffer.from(r.random_bytes),
-  };
-}
-
-function build12ClientHello(opts?: {
-  cookie?: Buffer;
-  random?: ClientRandom;
-  ciphers?: number[];
-}): ClientHello {
-  const curves = new EllipticCurves({ data: [23, 29] });
-  const signature = new Signature({
-    data: [
-      { hash: HashAlgorithm.sha256_4, signature: SignatureAlgorithm.rsa_1 },
-    ],
-  });
-  return new ClientHello(
-    { major: 254, minor: 253 },
-    opts?.random ?? fixedClientRandom(),
-    Buffer.alloc(0),
-    opts?.cookie ?? Buffer.alloc(0),
-    opts?.ciphers ?? [CipherSuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256_49199],
-    [0],
-    [curves.extension, signature.extension],
-  );
-}
-
-function chAsAssembled(hello: ClientHello): FragmentedHandshake[] {
-  const frag = hello.toFragment();
-  return [FragmentedHandshake.assemble([frag])];
-}
+import {
+  build12ClientHello,
+  certPem,
+  chAsAssembled,
+  fixedClientRandom,
+  keyPem,
+  rsaSignatureHash,
+} from "../fixture";
 
 /**
  * P1: A に発行した cookie を B が提示しても pin / Flight4 しない。
@@ -71,7 +27,7 @@ test("e2e/self12: cookie minted for A is rejected from peer B", async () => {
     transport: serverTransport,
     cert: certPem,
     key: keyPem,
-    signatureHash: sig,
+    signatureHash: rsaSignatureHash,
   });
 
   const flight4Sends: Array<[string, number] | undefined> = [];
@@ -131,7 +87,7 @@ test("e2e/self12: authenticated-single-peer accepts the cookie from a changed ad
     transport: serverTransport,
     cert: certPem,
     key: keyPem,
-    signatureHash: sig,
+    signatureHash: rsaSignatureHash,
   });
   let hvrCount = 0;
   let flight4Count = 0;
@@ -179,7 +135,7 @@ test("e2e/self12: CH2 with different cipher suites than cookie-bound CH1 is reje
     transport: serverTransport,
     cert: certPem,
     key: keyPem,
-    signatureHash: sig,
+    signatureHash: rsaSignatureHash,
   });
   serverTransport.send = async () => {};
 
@@ -222,7 +178,7 @@ test("e2e/self12: B cookie-less CH1 does not poison A's cookie CH2 commit", asyn
     transport: serverTransport,
     cert: certPem,
     key: keyPem,
-    signatureHash: sig,
+    signatureHash: rsaSignatureHash,
   });
 
   const flight4To: Array<[string, number] | undefined> = [];
@@ -368,14 +324,14 @@ test("e2e/self12: full handshake still completes with bound cookies", async () =
     transport: serverTransport,
     cert: certPem,
     key: keyPem,
-    signatureHash: sig,
+    signatureHash: rsaSignatureHash,
   });
   const client = new DtlsClient({
     peerIdentityMode: "datagram-address",
     transport: clientTransport,
     cert: certPem,
     key: keyPem,
-    signatureHash: sig,
+    signatureHash: rsaSignatureHash,
   });
 
   await new Promise<void>((resolve, reject) => {

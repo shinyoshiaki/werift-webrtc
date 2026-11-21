@@ -1,70 +1,6 @@
 import { createSocket } from "dgram";
 import { expect, test } from "vitest";
-import { UdpTransport } from "../../../common/src";
-import { DtlsClient, DtlsServer } from "../../src";
-import { HashAlgorithm, SignatureAlgorithm } from "../../src/cipher/const";
-import { certPem, keyPem } from "../fixture";
-
-const sig = {
-  hash: HashAlgorithm.sha256_4,
-  signature: SignatureAlgorithm.rsa_1,
-};
-
-async function connectPair12() {
-  const serverTransport = await UdpTransport.init("udp4");
-  const clientTransport = await UdpTransport.init("udp4");
-  clientTransport.rinfo = serverTransport.address;
-
-  const server = new DtlsServer({
-    // DTLS 1.2 の association アドレス pin は opt-in
-    peerIdentityMode: "datagram-address",
-    transport: serverTransport,
-    cert: certPem,
-    key: keyPem,
-    signatureHash: sig,
-  });
-  const client = new DtlsClient({
-    peerIdentityMode: "datagram-address",
-    transport: clientTransport,
-    cert: certPem,
-    key: keyPem,
-    signatureHash: sig,
-  });
-
-  await new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(
-      () => reject(new Error("connect timeout")),
-      15_000,
-    );
-    let c = false;
-    let s = false;
-    const done = () => {
-      if (c && s) {
-        clearTimeout(timer);
-        resolve();
-      }
-    };
-    client.onConnect.subscribe(() => {
-      c = true;
-      done();
-    });
-    server.onConnect.subscribe(() => {
-      s = true;
-      done();
-    });
-    client.onError.subscribe((e) => {
-      clearTimeout(timer);
-      reject(e);
-    });
-    server.onError.subscribe((e) => {
-      clearTimeout(timer);
-      reject(e);
-    });
-    void client.connect();
-  });
-
-  return { client, server, clientTransport, serverTransport };
-}
+import { connectUdpDtlsPair, dtls12AddressPin } from "../fixture";
 
 /**
  * P1: pure DTLS 1.2 server の application TX は association pin を使い、
@@ -74,7 +10,7 @@ async function connectPair12() {
 test("e2e/self12: server app send stays on real peer after spoof RX", async () => {
   // Arrange: pure 1.2 接続完了
   const { client, server, clientTransport, serverTransport } =
-    await connectPair12();
+    await connectUdpDtlsPair({ shared: dtls12AddressPin });
   expect(server.connected).toBe(true);
   expect((server as any).transport.pinnedPeer).toBeTruthy();
 
@@ -136,7 +72,7 @@ test("e2e/self12: server app send stays on real peer after spoof RX", async () =
 test("e2e/self12: server pin is set-if-empty (spoof cannot replace)", async () => {
   // Arrange
   const { client, server, clientTransport, serverTransport } =
-    await connectPair12();
+    await connectUdpDtlsPair({ shared: dtls12AddressPin });
 
   const pinBefore = [...(server as any).transport.pinnedPeer] as [
     string,

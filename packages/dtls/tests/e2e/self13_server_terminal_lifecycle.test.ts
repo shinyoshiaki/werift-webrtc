@@ -1,70 +1,6 @@
 import { expect, test } from "vitest";
-import { UdpTransport } from "../../../common/src";
-import { DtlsClient, DtlsServer, DtlsVersion } from "../../src";
-import { HashAlgorithm, SignatureAlgorithm } from "../../src/cipher/const";
-import { certPem, keyPem } from "../fixture";
-
-const sig = {
-  hash: HashAlgorithm.sha256_4,
-  signature: SignatureAlgorithm.rsa_1,
-};
-
-async function connectPair13(
-  serverVersions: readonly DtlsVersion[] = [DtlsVersion.V1_3],
-) {
-  const serverTransport = await UdpTransport.init("udp4");
-  const clientTransport = await UdpTransport.init("udp4");
-  clientTransport.rinfo = serverTransport.address;
-
-  const server = new DtlsServer({
-    transport: serverTransport,
-    cert: certPem,
-    key: keyPem,
-    signatureHash: sig,
-    protocolVersions: serverVersions,
-  });
-  const client = new DtlsClient({
-    transport: clientTransport,
-    cert: certPem,
-    key: keyPem,
-    signatureHash: sig,
-    protocolVersions: [DtlsVersion.V1_3],
-  });
-
-  await new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(
-      () => reject(new Error("connect timeout")),
-      15_000,
-    );
-    let c = false;
-    let s = false;
-    const done = () => {
-      if (c && s) {
-        clearTimeout(timer);
-        resolve();
-      }
-    };
-    client.onConnect.subscribe(() => {
-      c = true;
-      done();
-    });
-    server.onConnect.subscribe(() => {
-      s = true;
-      done();
-    });
-    client.onError.subscribe((e) => {
-      clearTimeout(timer);
-      reject(e);
-    });
-    server.onError.subscribe((e) => {
-      clearTimeout(timer);
-      reject(e);
-    });
-    void client.connect();
-  });
-
-  return { client, server, clientTransport, serverTransport };
-}
+import { DtlsVersion } from "../../src";
+import { connectUdpDtlsPair } from "../fixture";
 
 /**
  * P1: pure DTLS 1.3 server local close 後も associationTornDown が立たず、
@@ -74,7 +10,9 @@ async function connectPair13(
 test("e2e/self13: pure server close drops send and rejects exporter/cert cleanly", async () => {
   // Arrange
   const { client, server, clientTransport, serverTransport } =
-    await connectPair13([DtlsVersion.V1_3]);
+    await connectUdpDtlsPair({
+      shared: { protocolVersions: [DtlsVersion.V1_3] },
+    });
   expect(server.isDtls13).toBe(true);
   expect(server.connected).toBe(true);
 
@@ -117,7 +55,9 @@ test("e2e/self13: pure server close drops send and rejects exporter/cert cleanly
 test("e2e/self13: pure server fatal ends Public API without onClose and stays terminal", async () => {
   // Arrange
   const { client, server, clientTransport, serverTransport } =
-    await connectPair13([DtlsVersion.V1_3]);
+    await connectUdpDtlsPair({
+      shared: { protocolVersions: [DtlsVersion.V1_3] },
+    });
 
   const errors: Error[] = [];
   const closes: number[] = [];
@@ -163,7 +103,10 @@ test("e2e/self13: pure server fatal ends Public API without onClose and stays te
 test("e2e/self13: dual server after 1.3 commit close is terminal", async () => {
   // Arrange
   const { client, server, clientTransport, serverTransport } =
-    await connectPair13([DtlsVersion.V1_3, DtlsVersion.V1_2]);
+    await connectUdpDtlsPair({
+      shared: { protocolVersions: [DtlsVersion.V1_3] },
+      server: { protocolVersions: [DtlsVersion.V1_3, DtlsVersion.V1_2] },
+    });
   expect(server.isDtls13).toBe(true);
 
   const closes: number[] = [];
@@ -195,7 +138,9 @@ test("e2e/self13: dual server after 1.3 commit close is terminal", async () => {
 test("e2e/self13: peer close_notify leaves pure server terminal without onError", async () => {
   // Arrange
   const { client, server, clientTransport, serverTransport } =
-    await connectPair13([DtlsVersion.V1_3]);
+    await connectUdpDtlsPair({
+      shared: { protocolVersions: [DtlsVersion.V1_3] },
+    });
 
   const errors: Error[] = [];
   const closes: number[] = [];
@@ -229,7 +174,9 @@ test("e2e/self13: peer close_notify leaves pure server terminal without onError"
 test("e2e/self13: peer close_notify leaves pure client terminal without onError", async () => {
   // Arrange
   const { client, server, clientTransport, serverTransport } =
-    await connectPair13([DtlsVersion.V1_3]);
+    await connectUdpDtlsPair({
+      shared: { protocolVersions: [DtlsVersion.V1_3] },
+    });
 
   const errors: Error[] = [];
   const closes: number[] = [];

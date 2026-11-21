@@ -1405,22 +1405,28 @@ export class Connection implements IceConnection {
       }
     };
 
-    const cachedResponse = this.cachedSpedBindingResponse(txHex);
-    if (cachedResponse) {
-      await replayCached(cachedResponse);
-      return;
-    }
-
-    const inFlight = this.spedBindingCache.getInFlight(txHex);
-    if (inFlight) {
-      const ready = await inFlight;
-      if (ready && this.generation === generation) {
-        await replayCached(ready);
+    // The Binding Response replay cache is SPED state: without SPED a
+    // request is answered as before, keeping nothing per transaction.
+    if (spedBoundary) {
+      const cachedResponse = this.cachedSpedBindingResponse(txHex);
+      if (cachedResponse) {
+        await replayCached(cachedResponse);
+        return;
       }
-      return;
+
+      const inFlight = this.spedBindingCache.getInFlight(txHex);
+      if (inFlight) {
+        const ready = await inFlight;
+        if (ready && this.generation === generation) {
+          await replayCached(ready);
+        }
+        return;
+      }
     }
 
-    const { finish } = this.spedBindingCache.begin(txHex);
+    const finish = spedBoundary
+      ? this.spedBindingCache.begin(txHex).finish
+      : () => {};
     let result: Buffer | undefined;
     try {
       if (
@@ -1464,9 +1470,11 @@ export class Connection implements IceConnection {
             : responseIntegrityMode(verified),
         )
         .addFingerprint();
-      const wire = Buffer.from(response.bytes);
-      this.storeSpedBindingResponse(txHex, wire);
-      result = wire;
+      if (spedBoundary) {
+        const wire = Buffer.from(response.bytes);
+        this.storeSpedBindingResponse(txHex, wire);
+        result = wire;
+      }
       protocol.sendStun(response, addr).catch((e) => {
         log("sendStun error", e);
       });

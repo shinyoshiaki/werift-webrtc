@@ -15,7 +15,7 @@ const sig = {
  * serverRandom/ECDHE — cached Flight4 is bit-identical and handshake completes.
  */
 test("e2e/self12: CH2 retransmit resends bit-identical Flight4 without re-commit", async () => {
-  // Arrange
+  // Arrange: DTLS 1.2 の UDP ペアを作り、最初の Flight4 を落とす送信フックを仕込む
   const serverTransport = await UdpTransport.init("udp4");
   const clientTransport = await UdpTransport.init("udp4");
   clientTransport.rinfo = serverTransport.address;
@@ -63,6 +63,7 @@ test("e2e/self12: CH2 retransmit resends bit-identical Flight4 without re-commit
     return origClientSend(buf, addr);
   };
 
+  // Act: 接続を開始し、client の CH2 再送で server に Flight4 を再送させる
   await new Promise<void>((resolve, reject) => {
     const t = setTimeout(
       () =>
@@ -75,6 +76,7 @@ test("e2e/self12: CH2 retransmit resends bit-identical Flight4 without re-commit
     );
     client.onConnect.subscribe(() => {
       try {
+        // Assert: 再送された Flight4 の先頭は落とした Flight4 とビット一致し、commit も維持される
         expect(firstFlight4.length).toBeGreaterThan(0);
         expect(resentFlight4.length).toBeGreaterThan(0);
         const a = Buffer.concat(firstFlight4);
@@ -92,6 +94,7 @@ test("e2e/self12: CH2 retransmit resends bit-identical Flight4 without re-commit
     });
     server.onData.subscribe((d) => {
       try {
+        // Assert: 接続後のアプリデータが server に届き、ハンドシェイクが完走している
         expect(d.toString()).toBe("ch2-rtx-ok");
         clearTimeout(t);
         resolve();
