@@ -1,5 +1,5 @@
 import { expect } from "vitest";
-
+import { type SeededRandom, seededRandom } from "../../../../pbt/src";
 import { MediaStreamTrack, type RTCPeerConnection } from "../../../src";
 import {
   assertNegotiationInvariants,
@@ -16,7 +16,6 @@ import {
   waitForCommittedNomination,
   withMaxMessageSize,
 } from "../../negotiation/harness/negotiationTransactionUtils";
-import { type SeededRandom, seededRandom } from "../shared/random";
 
 export { seededRandom };
 

@@ -38,6 +38,7 @@
     "media": "DEBUG=werift* node --watch --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./tools/node-ts/register.mjs examples/mediachannel/pubsub/offer.ts",
     "test": "run-s test:small e2e",
     "test:small": "npm run test --workspaces --if-present",
+    "pbt:deep": "npm run pbt:deep --workspaces --if-present",
     "type": "npm run type:packages",
     "type:all": "run-s type:packages type:extra",
     "type:extra": "cd e2e && npm run type",
