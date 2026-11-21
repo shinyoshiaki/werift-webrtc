@@ -4,7 +4,7 @@ ide:
   version: 1
   title: "ICE フェイルオーバー（ICE restart なし）のレビュー"
   dock: right
-  baseCommit: 1fad7f60e0f42d21418bac0064c14e07516cca20
+  baseCommit: 678b650b792300ae727df8283719a0cd334f5b8d
 ---
 # ICE フェイルオーバー（ICE restart なしで次のペアへ移る）のレビュー
 
@@ -154,6 +154,17 @@ ide:
 
 作業中に、consent の最初の check が無受信 2.5 s の規則に従っていない漏れ（§14 までの D3 にもあったもの）を見つけて直しました（[packages/ice/src/consent.ts:296](review-file:packages/ice/src/consent.ts:296)）。新しい選択の直後に切れた経路は、最初の check が 4〜6 s 後になっていました。このため受け入れテストの切り替えが 4.7〜6.5 s にばらついていました。直した後は 3.9 s で一定です。各仕組みを 1 か所ずつ壊して、対応するテストが落ちることをチケット §15.7 に記録しています。
 
+### 3.8 再レビュー（第 14 回）の変更: `pbt:deep` が Vitest の異常終了を見落とさない
+
+指摘は、深い探索の実行器が Vitest 子プロセスの終了コードを見ず、JSON の個々のテスト結果だけで成否を決めていた点でした。assertion が通った後に未処理の rejection が起きると、Vitest は終了コード 1 を返しますが、実行器は「全件通過」で終了コード 0 と報告していました。ICE の挙動には影響しない、`packages/pbt` 側の修正です。
+
+- [packages/pbt/src/deep.ts](review-diff:packages/pbt/src/deep.ts) に `abnormalExit()` を追加しました。シグナル終了、終了コードが 0 以外、レポートなしのいずれかを異常終了とします。
+- 異常終了した分割は、テストの結果が全件通過でも失敗の候補にします。分割ごと単独で再実行し、正常に終わって 1 件以上通れば flaky、そうでなければ失敗です。
+- 失敗したテストが既に確定していれば、同じ分割の異常終了は重ねて報告しません。
+- 起動に失敗した場合（`error` イベント）も異常終了として扱います。
+- [packages/pbt/tests/deep.test.ts](review-diff:packages/pbt/tests/deep.test.ts) に再現テストを追加しました。未処理の rejection を含むフィクスチャで終了コード 1 になること、通常の失敗は題名で報告されること、通るものは通ることを確認します。フィクスチャは `packages/pbt/tests/fixtures/deep/` にあり、実行の補助は [packages/pbt/tests/utils.ts](review-diff:packages/pbt/tests/utils.ts) です。
+- [packages/pbt/README.md](review-diff:packages/pbt/README.md) に判定の規則を、`index.ts` に `abnormalExit` の export を追加しました。
+
 ## 4. 判断理由
 
 - **点修正をやめ、不変条件と行列テストにした**。指摘が毎回同じ族（監視されない／使われない）だったためです。例外は「自分で選択を上へ移す agent の上位ペアは `SelectionReplacement` に任せる」の 1 つだけにしました。
@@ -178,6 +189,9 @@ ide:
 - **公開 API**: 追加した定数が `iceBase.ts` から export され、生成ドキュメントに載ります。メソッドや型の変更は確認できていません。
 
 ## 6. 検証結果
+
+第 14 回（`pbt` の修正のみ。ICE のコードは変更していません）: `cd packages/pbt && npm test` は型検査を含めて 3 ファイル / 18 件通過しました（この文書の作成時に実行）。`npm run pbt:deep` と、ICE 側の下記の結果の再実行は行っていません。
+
 
 §15（第 13 回）の後の結果（作業前のリビジョン `aaacc5263`、変更は未コミット。詳細はチケット §15.9）:
 
