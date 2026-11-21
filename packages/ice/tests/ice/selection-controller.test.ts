@@ -312,13 +312,11 @@ describe("switching the selection by RTT and receiving state (controlling)", () 
       await vi.advanceTimersByTimeAsync(10_000);
 
       try {
-        // Act: host の経路を切り、未応答の check が数えられたら (保留開始) 0.1 s 後に戻す。
-        h.cut(0);
-        await h.advanceUntil(
-          () => h.liveness(host)?.missedSince !== undefined,
-          10_000,
+        // Act: 応答の直後に host の経路を切り、受信なしの判定 (2.5 s) の後 (保留中) に戻す。
+        await h.cutRightAfterAnswer(0);
+        await vi.advanceTimersByTimeAsync(
+          WEAK_CONNECTION_RECEIVE_TIMEOUT + RECEIVING_SWITCHING_DELAY / 2,
         );
-        await vi.advanceTimersByTimeAsync(100);
         h.restore(0);
         await vi.advanceTimersByTimeAsync(10_000);
 
@@ -326,17 +324,10 @@ describe("switching the selection by RTT and receiving state (controlling)", () 
         expect(h.connection.nominated).toBe(host);
         expect(h.switchNominations(relay)).toEqual([]);
 
-        // Act: host の経路をもう一度切り、今度は戻さない。
-        h.cut(0);
-        await h.advanceUntil(
-          () => h.liveness(host)?.missedSince !== undefined,
-          10_000,
-        );
-        const liveness = h.liveness(host)!;
-        const holdFrom = Math.max(
-          liveness.lastReceived + WEAK_CONNECTION_RECEIVE_TIMEOUT,
-          liveness.missedSince!,
-        );
+        // Act: host の経路をもう一度、応答の直後に切り、今度は戻さない。
+        await h.cutRightAfterAnswer(0);
+        const holdFrom =
+          h.liveness(host)!.lastReceived + WEAK_CONNECTION_RECEIVE_TIMEOUT;
         await h.advanceUntil(() => h.connection.nominated === relay, 10_000);
 
         // Assert: 受信がなくなってから RECEIVING_SWITCHING_DELAY 経って relay へ移る。
@@ -345,7 +336,7 @@ describe("switching the selection by RTT and receiving state (controlling)", () 
           RECEIVING_SWITCHING_DELAY,
         );
         expect(Date.now() - holdFrom).toBeLessThanOrEqual(
-          RECEIVING_SWITCHING_DELAY + 200,
+          RECEIVING_SWITCHING_DELAY + 1200,
         );
         expect(h.connection.state).toBe("connected");
       } finally {

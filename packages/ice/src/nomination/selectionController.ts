@@ -62,10 +62,14 @@ export type SwitchDecision = {
  * is merely still in flight (or not sent yet: the first consent check comes
  * at the consent interval) would count as not receiving.
  */
-export const notReceivingSince = (pair: SwitchPairState, now: number) => {
-  const silentSince = pair.lastReceived + WEAK_CONNECTION_RECEIVE_TIMEOUT;
+export const notReceivingSince = (
+  pair: SwitchPairState,
+  now: number,
+  receivingTimeout = WEAK_CONNECTION_RECEIVE_TIMEOUT,
+) => {
+  const silentSince = pair.lastReceived + receivingTimeout;
   if (now < silentSince || pair.missedSince === undefined) return undefined;
-  return Math.max(silentSince, pair.missedSince);
+  return silentSince;
 };
 
 /**
@@ -95,6 +99,7 @@ export function shouldSwitch({
   priority,
   now,
   receivingSwitchingDelay = RECEIVING_SWITCHING_DELAY,
+  receivingTimeout = WEAK_CONNECTION_RECEIVE_TIMEOUT,
   minRttImprovement = RTT_SWITCH_MIN_IMPROVEMENT,
 }: {
   selected: SwitchPairState;
@@ -102,14 +107,15 @@ export function shouldSwitch({
   priority: number;
   now: number;
   receivingSwitchingDelay?: number;
+  receivingTimeout?: number;
   minRttImprovement?: number;
 }): SwitchDecision {
   if (!candidate.writable) return {};
   if (!selected.writable) return { reason: "writable" };
 
   let recheckAt: number | undefined;
-  const selectedSince = notReceivingSince(selected, now);
-  const candidateSince = notReceivingSince(candidate, now);
+  const selectedSince = notReceivingSince(selected, now, receivingTimeout);
+  const candidateSince = notReceivingSince(candidate, now, receivingTimeout);
   if (selectedSince === undefined && candidateSince !== undefined) return {};
   if (selectedSince !== undefined && candidateSince === undefined) {
     if (now - selectedSince >= receivingSwitchingDelay) {
@@ -146,6 +152,11 @@ export type SelectionControllerHost = {
   /** The liveness the failover monitor keeps for `pair`. */
   liveness: (pair: CandidatePair) => PairLiveness | undefined;
   writable: (pair: CandidatePair, now: number) => boolean;
+  /** `IceOptions.failover` thresholds (`receivingTimeout`, `receivingSwitchingDelay`). */
+  thresholds?: () => {
+    receivingTimeout: number;
+    receivingSwitchingDelay: number;
+  };
   /** `pair` may be nominated (not on a path the agent failed over from). */
   allows: (pair: CandidatePair) => boolean;
   /** > 0 when `pair` outranks `other` (pair priority). */
@@ -184,6 +195,7 @@ export class SelectionController {
     const selectedLiveness = this.host.liveness(selected);
     if (!selectedLiveness) return;
     const now = Date.now();
+    const thresholds = this.host.thresholds?.();
     const selectedState: SwitchPairState = {
       writable: this.host.writable(selected, now),
       lastReceived: selectedLiveness.lastReceived,
@@ -207,6 +219,8 @@ export class SelectionController {
         },
         priority: this.host.comparePriority(pair, selected),
         now,
+        receivingTimeout: thresholds?.receivingTimeout,
+        receivingSwitchingDelay: thresholds?.receivingSwitchingDelay,
       });
       if (decision.recheckAt !== undefined) {
         recheckAt = Math.min(recheckAt ?? Infinity, decision.recheckAt);

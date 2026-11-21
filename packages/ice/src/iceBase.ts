@@ -437,16 +437,6 @@ export const FAILOVER_RECOVERY_RESPONSES = 3;
 // compares the state (writable, receiving), then the priority, then the RTT.
 
 /**
- * A backup that wins over the selected pair only because the selection is not
- * receiving (nothing received for {@link WEAK_CONNECTION_RECEIVE_TIMEOUT})
- * takes over only once the selection has not been receiving for this long
- * (ms); the decision is checked again then, and a selection that received
- * something meanwhile stays. libwebrtc: `receiving_switching_delay`
- * (`kReceivingSwitchingDelay`).
- */
-export const RECEIVING_SWITCHING_DELAY = 1000;
-
-/**
  * Between pairs of equal state and priority, the selection moves only to a
  * pair whose smoothed RTT ({@link CandidatePair.smoothedRtt}) is at least this
  * much (ms) lower. libwebrtc: `kMinImprovement`.
