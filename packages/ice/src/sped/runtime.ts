@@ -36,7 +36,13 @@ export interface SpedDirectHandshakeReadiness {
 
 export interface SpedHooks {
   inject: (bytes: Buffer, peer: Address, generation: number) => Promise<void>;
-  onFallbackFlight: (packets: Buffer[]) => Promise<void>;
+  /**
+   * The peer has no SPED (or the path cannot carry it): ICE then sends the
+   * original L1 flight directly. Resolving `false` means the DTLS layer
+   * restarts with standard DTLS instead (draft §3.3.4), so ICE must not put
+   * the L1 flight on the wire.
+   */
+  onFallbackFlight: (packets: Buffer[]) => Promise<boolean | void>;
   onHandshakeComplete?: () => void;
   /** ICE restart / new generation: drop in-flight handshake injects. */
   onSessionReset?: () => void;

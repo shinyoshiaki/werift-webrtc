@@ -31,6 +31,7 @@ import {
   createDataChannelPair,
   exchangeIceCandidates,
   exchangeOfferAnswer,
+  getTransportStats,
   mutateSdpFingerprint,
   waitForDtlsState,
   waitForIceNominated,
@@ -2460,6 +2461,77 @@ describe("RTCPeerConnection SPED opt-in", () => {
       await pc2.close();
     }
   }, 30_000);
+
+  test.each([
+    ["SPED 側が offerer（DTLS server）", "offerer", [], "DTLS 1.2"],
+    ["SPED 側が answerer（DTLS client）", "answerer", [], "DTLS 1.2"],
+    [
+      "相手も 1.3 / 1.2 を提示（SPED 側が DTLS client）",
+      "answerer",
+      [DtlsVersion.V1_3, DtlsVersion.V1_2],
+      "DTLS 1.3",
+    ],
+  ] as const)(
+    "DTLS 1.2 も提示する SPED は SPED 非対応の peer と通常の DTLS で接続する: %s",
+    async (_name, spedSide, peerVersions, expected) => {
+      // 相手は sped なし（develop 以前の werift と同じ既定は DTLS 1.2 のみ）
+      const plain = {
+        iceServers: [] as { urls: string }[],
+        ...(peerVersions.length > 0
+          ? { dtls: { protocolVersions: [...peerVersions] } }
+          : {}),
+      };
+      const dual = {
+        iceServers: [] as { urls: string }[],
+        sped: true,
+        dtls: {
+          protocolVersions: [DtlsVersion.V1_3, DtlsVersion.V1_2] as const,
+        },
+      };
+      const pc1 = new RTCPeerConnection(spedSide === "offerer" ? dual : plain);
+      const pc2 = new RTCPeerConnection(spedSide === "offerer" ? plain : dual);
+      const spedPc = spedSide === "offerer" ? pc1 : pc2;
+      const stun: Buffer[] = [];
+      const rawDtls: Buffer[] = [];
+      const flights: Buffer[][] = [];
+      const stopCapture = captureL1Flights(spedPc, flights);
+      try {
+        // Act: SPED の probe が無視された後、データチャネルを開いて送る
+        const [dc1, dc2] = await openDataChannelWithWireSpy(
+          pc1,
+          pc2,
+          stun,
+          [],
+          {
+            onRawDtls: (bytes) => rawDtls.push(bytes),
+          },
+        );
+        dc1.send("standard-dtls");
+        expect(await awaitMessage(dc2)).toBe("standard-dtls");
+
+        // Assert: 両端が設定どおりの version で接続し、alert は出ていない
+        expect((await getTransportStats(pc1))?.tlsVersion).toBe(expected);
+        expect((await getTransportStats(pc2))?.tlsVersion).toBe(expected);
+        expect(rawDtls.some((bytes) => bytes[0] === 21)).toBe(false);
+        // Assert: チケット §2.7 の direct fallback: SPED に埋め込んだ flight は
+        // 再 serialize せず同じ bytes のまま direct transport へ送られる
+        for (const packet of flights.flat()) {
+          expect(rawDtls.some((bytes) => bytes.equals(packet))).toBe(true);
+        }
+        // Assert: SPED は止まり、runtime は direct fallback の状態で残る
+        expect(
+          getConnectionSpedRuntime(
+            spedPc.iceTransports[0]!.connection as unknown as Connection,
+          )?.diagnosticsSnapshot(),
+        ).toMatchObject({ state: "fallback", carrier: "direct" });
+      } finally {
+        stopCapture();
+        await pc1.close();
+        await pc2.close();
+      }
+    },
+    30_000,
+  );
 
   test("non-SPED peer へ fallback して handshake が完了する", async () => {
     const stun: Buffer[] = [];

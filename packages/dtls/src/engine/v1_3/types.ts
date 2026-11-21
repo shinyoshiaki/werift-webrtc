@@ -164,6 +164,12 @@ export interface Dtls13Options {
   /** Matching private key for `cert`. */
   key?: string;
   srtpProfiles?: SrtpProfile[];
+  /**
+   * Client offering DTLS 1.2 as well (dual ClientHello): also put
+   * `extended_master_secret` (RFC 7627) in the first ClientHello, as the
+   * DTLS 1.2 association does. Ignored when 1.2 is not offered.
+   */
+  extendedMasterSecret?: boolean;
   certificateRequest?: boolean;
   /**
    * Client: offer extended_master_secret (RFC 7627) in a ClientHello that

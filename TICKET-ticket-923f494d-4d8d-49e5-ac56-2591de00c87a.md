@@ -199,6 +199,15 @@ develop #875（ICE の failover と property test 基盤 `packages/pbt`）のマ
 | G-1 | develop は「OS が datagram を受け取るまで待つ送信」を `Transport.send(data, addr, { confirm: true })` に一本化した | warp が独自に足した `Transport.sendAndWait` / `UdpTransport`・`TcpTransport`・`TlsTransport` の `sendAndWait` / `flushTransportSend` / `TransportContext.sendAndWait` を削除し、DTLS 1.3 の close_notify を `send(..., { confirm: true })` で送る |
 | G-2 | property test は `<package>/tests/pbt/<name>/` で `packages/pbt` を使い、影響するパッケージで `npm run pbt:deep` を流す | warp のテストに property test 相当のもの（seed / 乱数の反復）は無いことを確認。ICE（SPED が触る選択・指名の経路）は `pbt:deep` で検証する。`packages/ice/AGENTS.md` に `pbt:deep` と property test の検証手順を記載する |
 | G-3 | develop の failover（ICE restart なしで選択経路を切り替える）と SPED の認証境界の組み合わせ | SPED を有効にした両端でも host 経路の遮断から relay へ failover しデータが届くことを `packages/ice/tests/sped/failover.test.ts` で検証する（このホストは複数 interface のため develop 由来の failover テストも失敗する。単一 interface のコンテナで検証する） |
+
+### 追加要件（2026-11-22: develop との相互接続試験）
+
+develop（`75bf5ed0a`）と warp を同じプロセスに読み込み、実際の wire bytes で接続する相互接続試験 `packages/webrtc/tests/interop/develop`（`npm run test:interop-develop`）を追加し、後方互換性の問題を直す。offerer / answerer（= DTLS server / client）の全組み合わせ（develop × develop を基準）で、trickle / 非 trickle、音声・映像 RTP / RTCP + DataChannel の BUNDLE、answerer からの再ネゴシエーション、双方からの ICE restart、ICE-TCP、ICE-lite、regular nomination、peer-reflexive、consent、片側 close、DTLS 1.2 の各 flight の初回喪失、双方の TURN server 経由の relay、warp の opt-in（DTLS 1.3/1.2、`dtlsHandshakeValidation` / `compatibility: "standard"`、SPED）と、単体 `werift-dtls` の client / server（RSA / ECDSA、close_notify、opt-in）を試す。
+
+| # | 見つかった問題 | 対応 |
+| --- | --- | --- |
+| H-1 | DTLS 1.3 / 1.2 を両方提示する client の最初の ClientHello（1.3 engine が作る CH-A）に `extended_master_secret` / `renegotiation_info` が無く、cookie 付きの CH だけに足していた。CH1 で EMS を判定する DTLS 1.2 server（develop の werift）は EMS なしの master secret を使いつつ ServerHello で EMS を返すため、Finished の復号に失敗して接続できない | 1.2 も提示するときは CH-A にも同じ 1.2 拡張を載せ、cookie 付きの CH と拡張集合を揃える（RFC 6347 §4.2.1。1.3 server は無視する） |
+| H-2 | `sped: true` と `dtls.protocolVersions: ["1.3", "1.2"]` の PeerConnection が、SPED 非対応で DTLS 1.2 のみの peer（develop）と接続できない。SPED の DTLS は 1.3 専用で、fallback もその flight を直接送るだけだった | peer が SPED を実装していない（最初の認証済み Binding に DATA が無い）と判明し、かつ 1.2 も提示しているときは、SPED の DTLS を捨てて設定どおりの version で通常の DTLS handshake を行う（draft §3.3.4「standard unencapsulated DTLS へ fallback」、`sped: false` と同じ）。1.3 のみの設定は従来どおり同一 bytes で fallback する |
 ---
 
 ## 2. 実装すべき具体的な機能や変更内容
@@ -848,6 +857,12 @@ WebRTC は `packages/webrtc/src/imports/ice.ts` が ice の barrel を再export 
 - [ ] G-1: `sendAndWait` / `flushTransportSend` が無く、close_notify は `send(..., { confirm: true })` で送られる
 - [ ] G-2: ICE の `pbt:deep` が通る。`packages/ice/AGENTS.md` に property test の手順がある
 - [ ] G-3: SPED 有効の両端で、選択経路の遮断から ICE restart なしで failover しデータが届く
+
+### 追加要件（2026-11-22）
+
+- [ ] H: `npm run test:interop-develop` が develop に対して全組み合わせで通る
+- [ ] H-1: dual client の CH-A と cookie 付き CH が同じ拡張集合（EMS / renegotiation_info を含む）で、develop の DTLS 1.2 server と接続する
+- [ ] H-2: `sped: true` + `["1.3", "1.2"]` が SPED 非対応の DTLS 1.2 のみの peer と DTLS 1.2 で、SPED 非対応の dual peer と DTLS 1.3 で、server / client どちらの役割でも接続し、1.3 専用の SPED flight を wire に出さない
 
 ### SPED draft00
 

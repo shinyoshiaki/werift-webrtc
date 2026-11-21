@@ -41,6 +41,7 @@ Instructions for coding agents working in `packages/webrtc`.
 | format package | `npm run format` |
 | pion ICE agent fallback (opt-in) | `npm run test:pion-ice-agent` |
 | released werift SCTP interop (opt-in) | `npm run test:legacy-werift` |
+| wire interop with another revision (default `develop`, temporary worktree; `WERIFT_DEVELOP_ROOT` / `WERIFT_DEVELOP_REV`, CI-excluded) | `npm run test:interop-develop` |
 | package-local GCC / TWCC bottleneck simulation (CI-excluded) | `npm run test:sim` |
 | memory leak test (Node 24+, local only) | `npm run memleak` |
 | deep negotiation property search incl. leak property (parallel, before review) | `npm run pbt:deep` |
@@ -56,6 +57,7 @@ Bottleneck simulations live in `simulations/` (`npm run test:sim`); the Chrome p
 ## Validation
 
 * Logic changes in `src`: `npm run type` and relevant `npm test` paths.
+* Changes that can alter what werift sends or accepts on the wire (ICE / STUN, DTLS, SCTP, RTP, SPED fallback): `npm run test:interop-develop` (this branch against `develop` in every offerer / answerer and DTLS client / server pairing; `tests/interop/develop` skips without `WERIFT_DEVELOP_ROOT`).
 * Opt-in released Pion ICE agent fallback: `npm run test:pion-ice-agent` with `WERIFT_PION_ICE_AGENT` or `WERIFT_PION_ICE_AGENT_AUTO_BUILD=1`. Default `npm test` skips a missing path. The opt-in script fails if neither source is set, even when `packages/ice/tools/pion-ice-agent/pion-ice-agent` is already built (see that README for the explicit command).
 * Opt-in released werift interop (SCTP initiator, DTLS `[1.3, 1.2]` / SPED fallback to 1.2, ICE-TCP, DataChannel IDs with an older release; findings in `reviews/legacy-werift-compatibility.md`): `npm run test:legacy-werift` with `WERIFT_LEGACY_RELEASE=<installed werift package dir>` or `WERIFT_LEGACY_RELEASE_AUTO_INSTALL=1` (installs `werift@0.26.0`, or `WERIFT_LEGACY_RELEASE_VERSION`, with `--ignore-scripts` into a temporary directory). Default `npm test` skips it; the opt-in script fails if neither is set.
 * GCC / TWCC / bottleneck simulation changes: `npm run test:sim`, plus `cd e2e && npm run test:sim` when the Chrome path may be affected, and `cd e2e && npm run test:sim:netns` (needs Docker) when the estimator's response to a real Chrome receiver matters.

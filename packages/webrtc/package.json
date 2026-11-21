@@ -56,6 +56,7 @@
     "test": "vitest run ./tests",
     "test:pion-ice-agent": "WERIFT_PION_ICE_AGENT_REQUIRED=1 vitest run ./tests/integrate/sped-pion-ice.test.ts",
     "test:legacy-werift": "WERIFT_LEGACY_RELEASE_REQUIRED=1 vitest run ./tests/integrate/legacyWeriftRelease.test.ts",
+    "test:interop-develop": "node tools/interop-develop/run.mjs",
     "memleak": "vitest run --config ./tests/memleak/memleak.vitest.config.mts",
     "leak:verify": "bash tools/leak-verify/run.sh",
     "pbt:deep": "node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs ../pbt/src/cli.ts tests/pbt/suites.ts",

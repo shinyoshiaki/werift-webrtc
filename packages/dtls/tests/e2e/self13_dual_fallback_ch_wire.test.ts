@@ -131,15 +131,14 @@ test("e2e/dual: CH-A and HVR-cookie ClientHello extension sets on the wire", asy
   const a = extTypes(chA!);
   const b = extTypes(ch2!);
 
-  // Assert: CH-A は 1.3 engine の拡張に加え、1.2 server が応答し得るので EMS を
-  // 提示する (HVR 前の CH から EMS を判定する 1.2 server と鍵導出を揃える)。
-  // renegotiation_info は HVR 後の CH だけに載せる
+  // Assert: CH-A は 1.3 engine の拡張に加え、1.2 server が CH1 から読む
+  // EMS / renegotiation_info も載せる（develop 以前の werift は EMS を CH1 だけで判定する）
   expect(a.has(SupportedVersions.type)).toBe(true);
   expect(a.has(KeyShare.type)).toBe(true);
   expect(a.has(SignatureAlgorithms.type)).toBe(true);
   expect(a.has(UseSRTP.type)).toBe(true);
   expect(a.has(ExtendedMasterSecret.type)).toBe(true);
-  expect(a.has(RenegotiationIndication.type)).toBe(false);
+  expect(a.has(RenegotiationIndication.type)).toBe(true);
   expect(chA!.cookie.length).toBe(0);
   expect(chA!.cipherSuites).toContain(
     CipherSuite.TLS_AES_128_GCM_SHA256_0x1301,
@@ -157,13 +156,14 @@ test("e2e/dual: CH-A and HVR-cookie ClientHello extension sets on the wire", asy
   );
   expect(sigA.schemes).toContain(0x0401);
 
-  // Assert: HVR 後 CH は 1.3 拡張を残し、1.2 拡張と legacy cookie を載せる
+  // Assert: HVR 後 CH は CH-A と同じ拡張集合に legacy cookie を載せる（RFC 6347 §4.2.1）
   expect(b.has(SupportedVersions.type)).toBe(true);
   expect(b.has(KeyShare.type)).toBe(true);
   expect(b.has(SignatureAlgorithms.type)).toBe(true);
   expect(b.has(UseSRTP.type)).toBe(true);
   expect(b.has(ExtendedMasterSecret.type)).toBe(true);
   expect(b.has(RenegotiationIndication.type)).toBe(true);
+  expect([...b].sort()).toEqual([...a].sort());
   expect(ch2!.cookie.length).toBeGreaterThan(0);
   expect(ch2!.cipherSuites).toContain(
     CipherSuite.TLS_AES_128_GCM_SHA256_0x1301,
@@ -203,7 +203,7 @@ function dtls12ServerHelloWithoutSupportedVersions(): Buffer {
   );
 }
 
-test("e2e/dual: cookie-less 1.2 ServerHello park retransmits CH-A unchanged (EMS offered by CH-A itself)", async () => {
+test("e2e/dual: cookie-less 1.2 ServerHello park retransmits CH-A unchanged", async () => {
   // Arrange: Chrome ICE 相当。HVR を出さず、SV 無しの 1.2 SH だけ返す
   const serverTransport = await UdpTransport.init("udp4");
   const clientTransport = await UdpTransport.init("udp4");
@@ -248,12 +248,12 @@ test("e2e/dual: cookie-less 1.2 ServerHello park retransmits CH-A unchanged (EMS
   const chA = cookieLess[0];
   const chResend = cookieLess[1];
 
-  // Assert: SH-only park の再送は CH-A と同じ拡張集合 (EMS は CH-A 自身が提示済み)
+  // Assert: SH-only park の再送は CH-A と同じ拡張集合（CH-A の EMS をそのまま保つ）
   expect(chA).toBeDefined();
   expect(chResend).toBeDefined();
   expect(extTypes(chA!).has(ExtendedMasterSecret.type)).toBe(true);
   expect(extTypes(chResend!).has(ExtendedMasterSecret.type)).toBe(true);
-  expect(extTypes(chResend!).has(RenegotiationIndication.type)).toBe(false);
+  expect(extTypes(chResend!).has(RenegotiationIndication.type)).toBe(true);
   expect([...extTypes(chResend!)].sort()).toEqual([...extTypes(chA!)].sort());
 
   client.close();
