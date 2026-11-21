@@ -54,3 +54,10 @@ answer 適用の流れ（`packages/webrtc/src/transceiverManager.ts`）:
 - `e2e/tests/mediachannel/simulcast.test.ts` の `itSkipOnFirefox(firefoxKnownIssue.simulcastSsrcTrack)` を `it` に戻し、使われなくなった `e2e/tests/fixture.ts` の `firefoxKnownIssue.simulcastSsrcTrack` を削除する（`grep -rn "firefox-known:simulcast-ssrc-track" e2e/tests` が空になる）。`cd e2e && npm run firefox:record -- tests/mediachannel/simulcast.test.ts` で通り、その run record（`e2e/firefox-runs/`）をコミットする。
 - `cd packages/webrtc && npm test`、`npm run type`、`npm run test:small`、Chrome の E2E（`npm run e2e`）に回帰がない。
 - `npm run format` 済み。公開 API に変更があれば docs / `changelog.md` を更新する（この修正は内部挙動のみの想定）。
+
+## 7. Firefox 全スイート実行での既知の失敗（このチケットの範囲外）
+
+完了条件の Firefox 記録は simulcast 単体（`npm run firefox:record -- tests/mediachannel/simulcast.test.ts`）。参考として取った全スイートの記録（`e2e/firefox-runs/20261121T032323Z-affd1237e.json`）では simulcast 3 件は通り、次の ICE の失敗が残る。どちらもこのチケットの差分（RTP 受信 / SDP、ICE は未変更）とは無関係。
+
+- `ice/failover`（werift の host ソケット切断後に relay ペアへ移る 2 件）: develop `75bf5ed0a` で同じファイルを単体実行しても同じ 2 件が失敗する。
+- `ice/nomination`（relay から host への切り替え 4 件）: このチケット以前の記録（`20261118T233958Z-bcbcc593a.json` など）から同じ 4 件が失敗している。再現調査は別チケットで扱う。

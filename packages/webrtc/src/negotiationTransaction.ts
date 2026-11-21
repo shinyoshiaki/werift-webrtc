@@ -154,9 +154,10 @@ const RETIRED_UFRAG_HISTORY = 64;
  *   `prepareReceive` with deferred conflicts): a pair for an RTX SSRC the
  *   current session knows nothing about applies at once; a pair that changes
  *   a current pair, or names an RTX SSRC the session already bound to a RID
- *   from a repaired RID, is staged, so the current RTX keeps restoring into
- *   its current RID; the latest description's whole table is staged too, and
- *   a later pranswer replaces it. The router routes the RTX SSRC to the
+ *   from a repaired RID, waits in the staged table, so the current RTX keeps
+ *   restoring into its current RID. The staged table
+ *   (`RTCRtpReceiver.stagedRidFidTable`) is the latest description's whole
+ *   FID table; a later pranswer replaces it. The router routes the RTX SSRC to the
  *   receiver, staging a conflicting route and keeping one the receiver
  *   learned from packets. K (`commitStagedReceive`; `resyncCodecs` when the
  *   final answer is the remote one) replaces the table by the committed

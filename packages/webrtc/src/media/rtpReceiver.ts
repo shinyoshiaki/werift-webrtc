@@ -151,12 +151,12 @@ export class RTCRtpReceiver {
   private readonly ridFidMediaByRtx: { [rtxSsrc: number]: number } = {};
   private readonly stagedCodecs: { [pt: number]: RTCRtpCodecParameters } = {};
   private readonly stagedSsrcByRtx: { [rtxSsrc: number]: number } = {};
-  /** {@link ridFidMediaByRtx} values a pending description staged (see `prepareReceive`). */
-  private readonly stagedRidFidMediaByRtx: { [rtxSsrc: number]: number } = {};
   /**
-   * The whole FID table of the latest pending description (see
-   * `prepareReceive`): the commit replaces {@link ridFidMediaByRtx} with it,
-   * so a pair the committed description no longer lists does not survive.
+   * The pending FID state: the whole FID table of the latest pending
+   * description (see `prepareReceive`). A pair of it that would change a
+   * current pair, or take an RTX SSRC the session bound from a repaired RID,
+   * waits here only; the commit replaces {@link ridFidMediaByRtx} with it, so
+   * a pair the committed description no longer lists does not survive.
    */
   private stagedRidFidTable?: { [rtxSsrc: number]: number };
   /** SSRCs of `trackBySSRC` learned from RID packets rather than SDP. */
@@ -576,18 +576,11 @@ export class RTCRtpReceiver {
       // already bound to a RID (learned from a repaired RID): it waits for
       // the commit, so the current RTX keeps restoring until then.
       const inUse = existing === undefined && rtxSsrc in this.ridByRtxSsrc;
-      if (
-        deferConflicts &&
-        ((existing !== undefined && existing !== ssrc) || inUse)
-      ) {
-        this.stagedRidFidMediaByRtx[rtxSsrc] = ssrc;
-      } else {
-        delete this.stagedRidFidMediaByRtx[rtxSsrc];
-        if (existing !== undefined && existing !== ssrc) {
-          this.unbindRtxSsrc(rtxSsrc);
-        }
-        this.ridFidMediaByRtx[rtxSsrc] = ssrc;
-      }
+      const changes = existing !== undefined && existing !== ssrc;
+      // A conflicting pair waits in `stagedRidFidTable` until the commit.
+      if (deferConflicts && (changes || inUse)) return;
+      if (changes) this.unbindRtxSsrc(rtxSsrc);
+      this.ridFidMediaByRtx[rtxSsrc] = ssrc;
     });
     pairs.forEach(({ ssrc, rtxSsrc }) => {
       const existing = this.ssrcByRtx[rtxSsrc];
@@ -607,7 +600,6 @@ export class RTCRtpReceiver {
   discardStagedReceive() {
     clearTable(this.stagedCodecs);
     clearTable(this.stagedSsrcByRtx);
-    clearTable(this.stagedRidFidMediaByRtx);
     this.stagedRidFidTable = undefined;
   }
 
@@ -620,12 +612,9 @@ export class RTCRtpReceiver {
       // The committed description lists the FID pairs as a whole.
       clearTable(this.ridFidMediaByRtx);
       Object.assign(this.ridFidMediaByRtx, this.stagedRidFidTable);
-    } else {
-      Object.assign(this.ridFidMediaByRtx, this.stagedRidFidMediaByRtx);
     }
     clearTable(this.stagedCodecs);
     clearTable(this.stagedSsrcByRtx);
-    clearTable(this.stagedRidFidMediaByRtx);
     this.stagedRidFidTable = undefined;
     this.unbindChangedFidRtx(before);
   }
@@ -638,7 +627,6 @@ export class RTCRtpReceiver {
       stagedCodecs: { ...this.stagedCodecs },
       stagedSsrcByRtx: { ...this.stagedSsrcByRtx },
       ridFidMediaByRtx: { ...this.ridFidMediaByRtx },
-      stagedRidFidMediaByRtx: { ...this.stagedRidFidMediaByRtx },
       stagedRidFidTable: this.stagedRidFidTable && {
         ...this.stagedRidFidTable,
       },
@@ -655,7 +643,6 @@ export class RTCRtpReceiver {
       [this.stagedCodecs, snapshot.stagedCodecs],
       [this.stagedSsrcByRtx, snapshot.stagedSsrcByRtx],
       [this.ridFidMediaByRtx, snapshot.ridFidMediaByRtx],
-      [this.stagedRidFidMediaByRtx, snapshot.stagedRidFidMediaByRtx],
     ] as [Record<number, unknown>, Record<number, unknown>][]) {
       clearTable(table);
       Object.assign(table, saved);
@@ -906,7 +893,6 @@ export class RTCRtpReceiver {
     clearTable(this.mediaSsrcByRid);
     clearTable(this.ridByRtxSsrc);
     clearTable(this.ridFidMediaByRtx);
-    clearTable(this.stagedRidFidMediaByRtx);
     this.stagedRidFidTable = undefined;
     clearTable(this.rtxSsrcsByRid);
     clearTable(this.repairedMediaByRtx);
