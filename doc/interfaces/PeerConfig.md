@@ -166,6 +166,20 @@ An address assigned to a local interface is bound like an enumerated one; any ot
 
 ***
 
+### iceFailover
+
+> **iceFailover**: [`IceFailoverOptions`](IceFailoverOptions.md) \| `undefined`
+
+werift extension. Thresholds of the failover of the selected candidate
+pair without an ICE restart (with semi-aggressive nomination or
+renomination): how soon a pair is unwritable (`unwritableMinChecks`,
+`unwritableTimeout`) and how soon a selected pair that stopped receiving
+moves to a backup (`receivingTimeout`, `receivingSwitchingDelay`). Maps
+to `IceOptions.failover`; each unset or invalid value keeps its default
+(libwebrtc's: 5 checks, 5000 ms, 2500 ms, 1000 ms).
+
+***
+
 ### iceFilterCandidatePair
 
 > **iceFilterCandidatePair**: ((`pair`) => `boolean`) \| `undefined`

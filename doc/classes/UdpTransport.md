@@ -160,7 +160,7 @@ transport that leaves it unset gets no family preference.
 
 ### send()
 
-> **send**(`data`, `addr?`): `Promise`\<`void`\>
+> **send**(`data`, `addr?`, `options?`): `Promise`\<`void`\>
 
 #### Parameters
 
@@ -171,6 +171,10 @@ transport that leaves it unset gets no family preference.
 ##### addr?
 
 readonly \[`string`, `number`\]
+
+##### options?
+
+[`TransportSendOptions`](../interfaces/TransportSendOptions.md)
 
 #### Returns
 

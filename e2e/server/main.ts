@@ -44,6 +44,7 @@ import {
   dtls_fingerprint_offer,
 } from "./handler/dtls/fingerprint";
 import { dtls_media_answer, dtls_media_offer } from "./handler/dtls/media";
+import { ice_failover } from "./handler/ice/failover";
 import { ice_nomination } from "./handler/ice/nomination";
 import {
   ice_restart_node_trigger,
@@ -200,6 +201,7 @@ function attachWebSocketServer() {
         new datachannel_close_client_create_server_close(),
       datachannel_close_server_create_client_close:
         new datachannel_close_server_create_client_close(),
+      ice_failover: new ice_failover(),
       ice_nomination: new ice_nomination(),
       dtls_alert_close_notify_from_werift: new dtls_alert(),
       dtls_alert_close_notify_from_chrome: new dtls_alert(),

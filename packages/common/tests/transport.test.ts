@@ -304,3 +304,51 @@ describe("UdpTransport socket error handling", () => {
     expect(transport.closed).toBe(true);
   });
 });
+
+describe("transport failure reporting (failover of the selected ICE pair)", () => {
+  test("a datagram sent with confirm rejects with the OS send error; without it the error is not reported", async () => {
+    // Arrange: loopback に bind した transport と、送れない宛先 (broadcast) を用意する。
+    const transport = await createLoopbackUdpTransport();
+    const unsendable: [string, number] = ["255.255.255.255", 9];
+
+    try {
+      // Act / Assert: confirm 付きの送信は OS のエラー (code 付き) で reject する。
+      await expect(
+        transport.send(Buffer.from("x"), unsendable, { confirm: true }),
+      ).rejects.toMatchObject({ code: expect.any(String), syscall: "send" });
+
+      // Act / Assert: confirm なしの送信 (IP アドレス宛て) は従来どおりエラーを報告しない。
+      await expect(
+        transport.send(Buffer.from("x"), unsendable),
+      ).resolves.toBeUndefined();
+    } finally {
+      await transport.close();
+    }
+  });
+
+  test("a TCP transport whose peer closed the connection reports onClosed once; close() does not", async () => {
+    // Arrange: TCP サーバーと、それに接続した transport 2 つ (相手に切られる側・自分で閉じる側) を用意する。
+    const server = await createHangingStreamServer();
+    const closedByPeer = await TcpTransport.init(server.address);
+    const closedLocally = await TcpTransport.init(server.address);
+    const peerCloses: number[] = [];
+    const localCloses: number[] = [];
+    closedByPeer.onClosed.subscribe(() => peerCloses.push(Date.now()));
+    closedLocally.onClosed.subscribe(() => localCloses.push(Date.now()));
+
+    try {
+      // Act: 自分の側から 1 つを閉じ、サーバー側から残りの接続を切る。
+      await closedLocally.close();
+      await vi.waitFor(() => expect(server.sockets.size).toBe(1));
+      for (const socket of server.sockets) socket.destroy();
+
+      // Assert: 相手に切られた transport だけが onClosed を 1 回通知し、closed になる。
+      await vi.waitFor(() => expect(peerCloses).toHaveLength(1));
+      expect(closedByPeer.closed).toBe(true);
+      expect(localCloses).toEqual([]);
+    } finally {
+      await closedByPeer.close();
+      await server.close();
+    }
+  });
+});

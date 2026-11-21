@@ -1,8 +1,10 @@
 /**
- * Shared by every property test of tests/pbt: the seeded random stream a
- * seed replays exactly. Changing `next` changes the operations of every seed;
- * the helpers below only combine `next` and may be added freely.
+ * The seeded random stream every property test of werift draws from, so a
+ * seed replays exactly. Changing `next` changes the inputs of every seed of
+ * every package; the helpers below only combine `next` and may be added
+ * freely.
  */
+
 /** Deterministic PRNG (mulberry32) so a failing seed replays exactly. */
 export function seededRandom(seed: number) {
   let state = seed >>> 0;
@@ -14,6 +16,7 @@ export function seededRandom(seed: number) {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
   return {
+    /** Real number in `[0, 1)`. */
     next,
     chance: (p: number) => next() < p,
     pick: <T>(items: readonly T[]) => items[Math.floor(next() * items.length)],

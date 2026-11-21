@@ -1,9 +1,9 @@
+import { propertySeeds } from "../../../../pbt/src";
 import {
   type CaseMeta,
   describeCases,
   negotiationCase,
 } from "../../negotiation/harness/negotiationCase";
-import { propertySeeds } from "../shared/seeds";
 import { generateScene, runScene, type Scene, shrinkScene } from "./generator";
 import { MODEL_SCENES } from "./scenes";
 
