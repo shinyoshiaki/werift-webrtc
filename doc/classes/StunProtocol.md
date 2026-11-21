@@ -55,6 +55,18 @@ required to route handshake DTLS to the matching CandidatePair.
 
 ***
 
+### onPathBroken
+
+> `readonly` **onPathBroken**: [`Event`](Event.md)\<\[readonly \[`string`, `number`\] \| `undefined`, `Error`\]\>
+
+See `Protocol.onPathBroken`: a datagram to that address could not be sent.
+
+#### Implementation of
+
+[`Protocol`](../interfaces/Protocol.md).[`onPathBroken`](../interfaces/Protocol.md#onpathbroken)
+
+***
+
 ### onRequestReceived
 
 > `readonly` **onRequestReceived**: [`Event`](Event.md)\<\[[`Message`](Message.md), readonly \[`string`, `number`\], `Buffer`\<`ArrayBufferLike`\>\]\>

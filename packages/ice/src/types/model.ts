@@ -55,6 +55,15 @@ export interface Protocol {
   onDataReceived: Event<[Buffer, Address?]>;
   /** Connection-oriented protocols: the connection to this remote address is gone. */
   onConnectionClosed?: Event<[Address]>;
+  /**
+   * Sending failed in a way that says the path is gone, not just a lost
+   * packet: a routing error from the OS for this remote address (see
+   * `PATH_BROKEN_SEND_ERRORS`), or, with no address, every path of the
+   * protocol (its TURN allocation is lost: the connection to the TURN
+   * server closed, a Refresh failed, the server is unreachable). The ICE
+   * agent fails over at once instead of waiting for unanswered checks.
+   */
+  onPathBroken?: Event<[Address | undefined, Error]>;
   request: (
     message: Message,
     addr: Address,

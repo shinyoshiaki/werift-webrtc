@@ -12,6 +12,7 @@ import type {
 import type { DtlsVersion } from "../imports/dtls";
 import type {
   CandidatePair,
+  IceFailoverOptions,
   Message,
   MessageIntegrityMode,
   Protocol,
@@ -169,6 +170,16 @@ export interface PeerConfig {
    * the attribute regardless. Defaults to false.
    */
   iceRenomination: boolean;
+  /**
+   * werift extension. Thresholds of the failover of the selected candidate
+   * pair without an ICE restart (with semi-aggressive nomination or
+   * renomination): how soon a pair is unwritable (`unwritableMinChecks`,
+   * `unwritableTimeout`) and how soon a selected pair that stopped receiving
+   * moves to a backup (`receivingTimeout`, `receivingSwitchingDelay`). Maps
+   * to `IceOptions.failover`; each unset or invalid value keeps its default
+   * (libwebrtc's: 5 checks, 5000 ms, 2500 ms, 1000 ms).
+   */
+  iceFailover: IceFailoverOptions | undefined;
   turnTransport: "udp" | "tcp" | "tls" | undefined;
   turnTlsOptions: TlsConnectionOptions | undefined;
   /**
@@ -584,6 +595,7 @@ export function generateDefaultPeerConfig(): Required<PeerConfig> {
     iceNominationDelayMs: undefined,
     iceNomination: undefined,
     iceRenomination: false,
+    iceFailover: undefined,
     turnTransport: undefined,
     turnTlsOptions: undefined,
     turnUdpFamily: undefined,

@@ -163,14 +163,31 @@ export class UdpTransport implements Transport {
     });
   }
 
-  send = async (data: Buffer, addr?: Address) => {
-    if (addr && !net.isIP(addr[0])) {
-      // Unresolved hostname: must wait for the send callback (DNS failure).
-      return this.sendAndWait(data, addr);
+  send = async (
+    data: Buffer,
+    addr?: Address,
+    options?: TransportSendOptions,
+  ) => {
+    if ((addr && !net.isIP(addr[0])) || options?.confirm) {
+      // if address is not resolved, need to use send callback to handle dns
+      // failure; `confirm` asks for the send error too.
+      const target = addr ?? [this.rinfo?.address!, this.rinfo?.port!];
+      return new Promise<void>((r, f) => {
+        this.socket.send(data, target[1], target[0], (error) => {
+          if (error) {
+            log("send error", target, data);
+            f(error);
+          } else {
+            r();
+          }
+        });
+      });
+    } else {
+      addr = addr ?? [this.rinfo?.address!, this.rinfo?.port!];
+      // a preestablished remote address does not need a callback to verify dns.
+      // this is faster because event loop is not used per packet.
+      this.socket.send(data, addr[1], addr[0]);
     }
-    addr = addr ?? [this.rinfo?.address!, this.rinfo?.port!];
-    // Resolved IP: fire-and-forget so the event loop is not used per packet.
-    this.socket.send(data, addr[1], addr[0]);
   };
 
   /**
@@ -271,6 +288,10 @@ export class TcpTransport implements Transport {
     return this.stream.closed;
   }
 
+  get onClosed() {
+    return this.stream.onClosed;
+  }
+
   get onData() {
     return this.stream.onData;
   }
@@ -279,7 +300,11 @@ export class TcpTransport implements Transport {
     this.stream.onData = handler;
   }
 
-  send = async (data: Buffer, addr?: Address) => {
+  send = async (
+    data: Buffer,
+    addr?: Address,
+    _options?: TransportSendOptions,
+  ) => {
     await this.stream.send(data, addr);
   };
 
@@ -345,6 +370,10 @@ export class TlsTransport implements Transport {
     return this.stream.closed;
   }
 
+  get onClosed() {
+    return this.stream.onClosed;
+  }
+
   get onData() {
     return this.stream.onData;
   }
@@ -353,7 +382,11 @@ export class TlsTransport implements Transport {
     this.stream.onData = handler;
   }
 
-  send = async (data: Buffer, addr?: Address) => {
+  send = async (
+    data: Buffer,
+    addr?: Address,
+    _options?: TransportSendOptions,
+  ) => {
     await this.stream.send(data, addr);
   };
 
@@ -376,6 +409,8 @@ class StreamTransport implements Transport {
   private client!: StreamSocket;
   onData: (data: Buffer, addr: Address) => void = () => {};
   closed = false;
+  /** See `Transport.onClosed`. */
+  readonly onClosed = new Event<[]>();
   private rejectConnecting?: (error: Error) => void;
 
   constructor(
@@ -442,6 +477,14 @@ class StreamTransport implements Transport {
     client.on("error", (error) => {
       log(`${this.type} transport error`, error);
     });
+    // The peer closed the connection, or an error destroyed it, after it
+    // was established (a failed connect rejects waitForConnect instead).
+    client.once("close", () => {
+      if (this.closed || this.client !== client) return;
+      this.closed = true;
+      log(`${this.type} transport closed by the peer`);
+      this.onClosed.execute();
+    });
   }
 
   async waitForConnect() {
@@ -479,6 +522,7 @@ class StreamTransport implements Transport {
     this.closed = true;
     this.rejectConnecting?.(new Error(`${this.type} transport closed`));
     this.client?.destroy();
+    this.onClosed.complete();
   };
 }
 
@@ -499,6 +543,18 @@ function stripZoneId(address: string) {
 
 export type IpAddressFamily = 4 | 6;
 
+/** Options of one `Transport.send`. */
+export interface TransportSendOptions {
+  /**
+   * Datagram transports: wait until the OS took the datagram and reject with
+   * its error (`ENETUNREACH`, `EADDRNOTAVAIL`, ...). Without it a datagram to
+   * an IP address is sent without a completion callback (faster per packet)
+   * and a send error is not reported. Stream transports always report write
+   * errors.
+   */
+  confirm?: boolean;
+}
+
 export interface Transport {
   type: string;
   address: AddressInfo;
@@ -509,7 +565,17 @@ export interface Transport {
    * custom transports need not implement it; the built-in UDP transport does.
    */
   onError?: Event<[Error]>;
-  send: (data: Buffer, addr?: Address) => Promise<void>;
+  /**
+   * The transport closed by itself after it was established (a stream whose
+   * peer closed the connection, or that an error destroyed); not emitted by
+   * `close()`. Optional: datagram transports do not close by themselves.
+   */
+  onClosed?: Event<[]>;
+  send: (
+    data: Buffer,
+    addr?: Address,
+    options?: TransportSendOptions,
+  ) => Promise<void>;
   /**
    * Optional flush: wait until the datagram is accepted by the kernel.
    * Hot-path {@link send} must stay fire-and-forget for resolved IP peers.

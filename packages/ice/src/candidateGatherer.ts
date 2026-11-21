@@ -526,9 +526,7 @@ export class CandidateGatherer {
       let settledQuery = false;
       // Assigned in the callbacks below (not narrowed by the initializer).
       let outcome = "skipped" as
-        | StunServerOutcome["unreached"]
-        | "reached"
-        | "skipped";
+        StunServerOutcome["unreached"] | "reached" | "skipped";
       const fail = (failure: { errorCode: number; errorText: string }) => {
         if (failure.errorCode === IceCandidateErrorCode.SERVER_NOT_REACHED) {
           outcome = { failure, local };

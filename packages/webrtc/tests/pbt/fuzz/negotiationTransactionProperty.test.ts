@@ -1,4 +1,4 @@
-import { propertySeeds } from "../shared/seeds";
+import { propertySeeds } from "../../../../pbt/src";
 import {
   createFuzzSession,
   expectFuzzSessionAlive,

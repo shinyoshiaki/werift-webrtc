@@ -251,6 +251,7 @@ export class SecureTransportManager {
       nominationDelayMs: this.config.iceNominationDelayMs,
       nomination: this.config.iceNomination,
       renomination: this.config.iceRenomination,
+      failover: this.config.iceFailover,
       turnTlsOptions: this.config.turnTlsOptions,
       turnUdpFamily: this.config.turnUdpFamily,
       useLinkLocalAddress: this.config.iceUseLinkLocalAddress,
@@ -810,6 +811,18 @@ export class SecureTransportManager {
       this.connectionState === "connected"
     ) {
       this.setConnectionState("disconnected");
+    } else if (
+      (newState === "connected" || newState === "completed") &&
+      this.connectionState === "disconnected" &&
+      // W3C: connected once every ICE transport is connected / completed /
+      // closed and every DTLS transport connected / closed (ICE recovered
+      // from `disconnected`, e.g. a failover without an ICE restart).
+      this.dtlsTransports.every(
+        (transport) =>
+          transport.state === "connected" || transport.state === "closed",
+      )
+    ) {
+      this.setConnectionState("connected");
     }
   }
 

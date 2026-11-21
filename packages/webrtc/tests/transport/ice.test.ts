@@ -12,7 +12,7 @@ import {
   type PeerConfig,
   RTCIceGatherer,
   RTCIceTransport,
-  type RTCPeerConnection,
+  RTCPeerConnection,
 } from "../../src";
 import { iceTransportPair, preparedIceTransportPair } from "../fixture";
 import {
@@ -56,6 +56,37 @@ describe("iceTransport", () => {
       expect(pc.signalingState).not.toBe("closed");
     } finally {
       await pc.close();
+    }
+  });
+
+  test("ICE disconnected (selected pair unwritable) and its recovery map to iceConnectionState / connectionState", async () => {
+    // Arrange: 接続済みの PeerConnection 2 つ
+    const caller = new RTCPeerConnection({ iceServers: [] });
+    const callee = new RTCPeerConnection({ iceServers: [] });
+    const iceStates: string[] = [];
+    const connectionStates: string[] = [];
+    try {
+      await connectPeerConnections(caller, callee);
+      caller.iceConnectionStateChange.subscribe((s) => iceStates.push(s));
+      caller.connectionStateChange.subscribe((s) => connectionStates.push(s));
+      const { connection } = firstIceTransport(caller);
+
+      // Act: ICE agent が選択中のペアの書き込み不可 (退避先なし) で disconnected になる
+      (connection as any).setState("disconnected");
+
+      // Assert: iceConnectionState / connectionState とも disconnected
+      expect(caller.iceConnectionState).toBe("disconnected");
+      expect(caller.connectionState).toBe("disconnected");
+
+      // Act: 選択中のペアが回復する (または退避できる) と ICE agent は connected に戻る
+      (connection as any).setState("connected");
+
+      // Assert: どちらも connected に戻る (DTLS は接続済みのまま)
+      expect(iceStates).toEqual(["disconnected", "connected"]);
+      expect(connectionStates).toEqual(["disconnected", "connected"]);
+      expect(caller.connectionState).toBe("connected");
+    } finally {
+      await Promise.all([caller.close(), callee.close()]);
     }
   });
 
@@ -130,6 +161,35 @@ describe("iceTransport", () => {
         );
       }
     }, 20_000);
+  });
+
+  test("PeerConfig.iceFailover reaches the ICE agent as IceOptions.failover (unset stays unset)", async () => {
+    // Arrange: 退避の閾値を指定した PeerConnection と、指定しない PeerConnection。
+    const failover = {
+      unwritableMinChecks: 2,
+      unwritableTimeout: 2000,
+      receivingTimeout: 1000,
+      receivingSwitchingDelay: 500,
+    };
+    const configured = new RTCPeerConnection({ iceFailover: failover });
+    const unset = new RTCPeerConnection();
+    try {
+      // Act: offer を作って ICE transport を作らせる。
+      for (const pc of [configured, unset]) {
+        pc.createDataChannel("dc");
+        await pc.createOffer();
+      }
+
+      // Assert: 指定した閾値だけが ICE agent の options に渡る。
+      expect(firstIceTransport(configured).connection.options.failover).toEqual(
+        failover,
+      );
+      expect(
+        firstIceTransport(unset).connection.options.failover,
+      ).toBeUndefined();
+    } finally {
+      await Promise.all([configured.close(), unset.close()]);
+    }
   });
 
   describe("setConfiguration iceServers", () => {

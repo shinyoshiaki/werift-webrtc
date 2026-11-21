@@ -1,3 +1,4 @@
+import { type SeededRandom, seededRandom } from "../../../../pbt/src";
 import {
   type BundleCandidates,
   MediaStreamTrack,
@@ -28,7 +29,6 @@ import {
   createSplitOffer,
   rtxCodec,
 } from "../../negotiation/harness/negotiationTransactionUtils";
-import { type SeededRandom, seededRandom } from "../shared/random";
 import { ModelOracles } from "./oracles";
 import {
   injectRidPacket,

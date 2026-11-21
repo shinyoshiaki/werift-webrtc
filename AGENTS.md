@@ -11,6 +11,7 @@ Rules that apply to one package or directory belong in the nearest `AGENTS.md`.
 * `werift` is a pure TypeScript WebRTC implementation for Node.js. Supported runtimes are Linux, macOS, and other Unix-like systems; native Windows is not supported.
 * Core packages: `common`, `ice`, `dtls`, `rtp`, `sctp`, `webrtc`. Protocol flow is `ICE -> DTLS -> SCTP/RTP`.
 * `packages/webrtc` is the public API; the lower-level packages are reusable protocol layers.
+* `packages/pbt` is the test-only property-based testing base every package's property tests use (private, never imported from `src`).
 
 ## Do
 
@@ -24,6 +25,7 @@ Rules that apply to one package or directory belong in the nearest `AGENTS.md`.
 8. Extract Arrange-phase setup into utilities wherever practical.
 9. Keep Arrange utility functions in a single file so they can be reused from other test files.
 10. In Act / Assert phases, add Japanese comments at an appropriate granularity for each operation so the test intent and verification points are clear.
+   Property tests live in `<package>/tests/pbt/<name>/`, draw from `packages/pbt` (`seededRandom`, `propertySeeds`) and follow its `README.md` (seed variables, titles with the replay environment, retry, coverage checks); each package lists them in `tests/pbt/suites.ts` for `npm run pbt:deep`.
 11. Fix root causes. Do not silence failing tests, type errors, protocol validation, or interop issues.
 12. Follow existing patterns: manager-style orchestration in `packages/webrtc`, asynchronous notifications based on the custom `Event` class, and package-local error handling instead of broad catch-and-ignore logic. Use handling.
 13. When changing public API, protocol behavior, examples, or WPT wiring, update the nearest docs or examples that demonstrate the behavior.
@@ -52,6 +54,7 @@ Rules that apply to one package or directory belong in the nearest `AGENTS.md`.
 | build all packages | `npm run build` |
 | type-check workspace | `npm run type` |
 | package / unit tests | `npm run test:small` |
+| deep property search of every package (`--workspace packages/<pkg>` for one; options in `packages/pbt/README.md`) | `npm run pbt:deep` |
 | full suite including E2E | `npm run test` |
 | install Playwright browsers | `npm run install:browsers` |
 | E2E only (verbose: `e2e:verbose`) | `npm run e2e` |
@@ -78,6 +81,7 @@ Start with the narrowest package command, and widen to workspace commands only w
 * Docs-only edits: no code validation needed. Public API / Typedoc surface changes: `npm run doc:check` so committed `doc/` and `packages/*/doc` match sources (also part of `npm run ci`).
 * Single-package logic: that package's test and/or type-check command.
 * Cross-package, public API, or protocol changes: `npm run type` and `npm run test:small`; `npm run ci` when the change spans the full stack.
+* Property tests or `packages/pbt`: the package's `npm test`, then `npm run pbt:deep` in the affected packages (`-- --dry-run` checks the shard plan).
 * WPT runner, dummy media, or allowlist changes: `npm run wpt`; also `npm run wpt:coverage` when coverage or baseline wiring changes.
 * Browser interop or signaling changes: run `npm run install:browsers` once from the repo root (covers `e2e`, `packages/ice-server/chrome-e2e`, and `examples/turn-loopback/chrome-e2e`), then the relevant example and/or `npm run e2e`. A Firefox E2E run goes through `npm run firefox:record` so its record (commit hash and per-test results, `e2e/firefox-runs/`) is committed with the change. For a failing E2E, reproduce with only the affected test file first, then run the full suite as final validation. Root `examples/` demos in the `examples/e2e` catalog also need `npm run examples:e2e`.
 * Infrastructure-backed E2E: run the targeted scenario with its opt-in environment flag, so the real dependency path is exercised.

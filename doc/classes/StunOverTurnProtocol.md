@@ -61,6 +61,18 @@ required to route handshake DTLS to the matching CandidatePair.
 
 ***
 
+### onPathBroken
+
+> `readonly` **onPathBroken**: [`Event`](Event.md)\<\[readonly \[`string`, `number`\] \| `undefined`, `Error`\]\>
+
+See `Protocol.onPathBroken`: the TURN allocation is lost (every path of this protocol).
+
+#### Implementation of
+
+[`Protocol`](../interfaces/Protocol.md).[`onPathBroken`](../interfaces/Protocol.md#onpathbroken)
+
+***
+
 ### onRequestReceived
 
 > **onRequestReceived**: [`Event`](Event.md)\<\[[`Message`](Message.md), readonly \[`string`, `number`\], `Buffer`\<`ArrayBufferLike`\>\]\>
