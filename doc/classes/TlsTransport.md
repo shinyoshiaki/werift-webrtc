@@ -54,6 +54,30 @@
 
 ***
 
+### onClosed
+
+#### Get Signature
+
+> **get** **onClosed**(): [`Event`](Event.md)\<\[\]\>
+
+The transport closed by itself after it was established (a stream whose
+peer closed the connection, or that an error destroyed); not emitted by
+`close()`. Optional: datagram transports do not close by themselves.
+
+##### Returns
+
+[`Event`](Event.md)\<\[\]\>
+
+The transport closed by itself after it was established (a stream whose
+peer closed the connection, or that an error destroyed); not emitted by
+`close()`. Optional: datagram transports do not close by themselves.
+
+#### Implementation of
+
+[`Transport`](../interfaces/Transport.md).[`onClosed`](../interfaces/Transport.md#onclosed)
+
+***
+
 ### onData
 
 #### Get Signature
@@ -122,7 +146,7 @@ from this address. Built-in TCP/TLS transports set it once connected.
 
 ### send()
 
-> **send**(`data`, `addr?`): `Promise`\<`void`\>
+> **send**(`data`, `addr?`, `_options?`): `Promise`\<`void`\>
 
 #### Parameters
 
@@ -133,6 +157,10 @@ from this address. Built-in TCP/TLS transports set it once connected.
 ##### addr?
 
 readonly \[`string`, `number`\]
+
+##### \_options?
+
+[`TransportSendOptions`](../interfaces/TransportSendOptions.md)
 
 #### Returns
 

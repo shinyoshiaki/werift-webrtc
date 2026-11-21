@@ -95,6 +95,132 @@ Not covered here:
   the `PASSWORD-ALGORITHM(S)` / `USERHASH` negotiation of RFC 8489 §9.2 in
   both the client and `werift-ice-server`, which is out of scope.
 
+## Failover of the selected pair (no ICE restart)
+
+With semi-aggressive nomination (the default) or negotiated renomination,
+a full ICE agent keeps checking one backup pair per local socket after the
+selection, as libwebrtc (Chrome) keeps pinging its connections, and moves
+the selection to a working backup when the selected pair stops answering,
+without an ICE restart (TURN server down, NAT rebinding, Wi-Fi ↔ cellular,
+a path broken in one direction).
+
+- Backups: one pair per local socket (a UDP socket, whose host and
+  server-reflexive candidates share one path, or a TURN allocation over UDP /
+  TCP / TLS): its highest-priority pair that did not fail, above or below the
+  selection and whatever the role. On the selected pair's own socket it is a
+  pair to another remote address, so the agent also fails over when only
+  the remote side of the path breaks (the peer's host goes away while its
+  relay still answers); after such a move only the old remote address waits
+  for its 3 responses. One exception: a controlling agent leaves the pairs
+  that outrank the selection on its socket to the checks that move the
+  selection up; those are retried after 1, 2, 4, 8, 16 s and then every
+  16 s, and checked at once when the selection is unwritable with no
+  writable backup. A backup that never answers (5 checks and 5 s) or receives
+  nothing for 30 s fails and the next pair of its socket follows, up to 3
+  pairs; then the socket starts again from its best pair after 1, 2, 4, 8,
+  16 s, and then every 16 s for as long as the selection lasts, so a path
+  that comes back after a long outage is found again. Candidates gathered or trickled after the selection still form
+  backup pairs, and one that outranks a socket's backup replaces it. Backups are checked without a nomination, every 900 ms
+  until they answered 3 times (and while a check goes unanswered), then
+  every 2.5 s (0.8–1.2 times), without waiting for a check still in
+  flight. Until a backup answered, its response timeout is 3 s
+  (`BACKUP_UNKNOWN_RTT_RESPONSE_TIMEOUT`, libwebrtc's `DEFAULT_RTT`).
+- The selected pair is checked by the consent checks (every 4–6 s). While it
+  is weak they are sent every 900 ms: after an unanswered check, and as soon
+  as nothing (response, request or data) was received for 2.5 s, so an idle
+  pair is checked about every 2.5 s, from the first check after a selection
+  on. Checks keep this pacing while earlier
+  ones still wait for their (RTT-based) response timeout: a slow response is
+  never cancelled and still counts, and a dead high-RTT path is still told
+  within the bound (about 8.7 s with an RTT of 1.2 s). A check counts as
+  unanswered at its RTT-based deadline, but its transaction stays open for
+  5 s, so a late response (a busy event loop, a delayed path) still counts. The pair is unwritable once 5
+  checks in a row went unanswered and 5 s passed since its last response
+  (libwebrtc's `CONNECTION_WRITE_CONNECT_FAILURES` /
+  `CONNECTION_WRITE_CONNECT_TIMEOUT`), about 5–10 s after the path broke.
+- Controlling agent: it then nominates the best writable backup (one that is
+  not weak first) with `USE-CANDIDATE` (semi-aggressive) or the next
+  `NOMINATION` value (renomination); the selection, consent and application
+  data move to it when the peer answers. The old pair stays a backup of its
+  socket, and the selection moves back to that socket only after it answered
+  3 checks in a row. This also holds when the old pair answers again while
+  the failover nomination is in flight: the nomination is not withdrawn (the
+  peer may already have taken it), and when it succeeds the selection moves
+  and the old socket waits for its 3 responses.
+- Stopped receiving (libwebrtc's `receiving` and `receiving_switching_delay`):
+  the controlling agent does not wait for the unwritable rule when nothing
+  was received on the selected pair for 2.5 s + 1 s and one of its checks
+  went unanswered meanwhile; it fails over to the best backup that receives
+  (its last check answered, something received within 2.5 s), about 4 s
+  after a path broke both ways. An idle pair whose checks are answered, a
+  slow path whose checks are answered before their deadline, a shorter loss
+  burst and a break of one direction only (the peer's data still arrives)
+  keep the unwritable rule. Only writability and receiving switch pairs (no
+  RTT or network-cost switching).
+- A path reported gone fails over at once (as libwebrtc drops the
+  connections of a port that is gone): the protocol's `onPathBroken` makes
+  the monitored pairs on it unwritable until one of their checks is
+  answered again. A UDP socket reports a routing error of a send
+  (`ENETUNREACH`, `EHOSTUNREACH`, `ENETDOWN`, `EHOSTDOWN`, `EADDRNOTAVAIL`,
+  `EPERM`: `PATH_BROKEN_SEND_ERRORS`) for that remote address; STUN messages
+  are always sent with a completion callback (`TransportSendOptions.confirm`)
+  and application data one datagram per 100 ms per socket
+  (`DATA_SEND_CONFIRM_INTERVAL_MS`), so a route that goes away while data
+  flows is seen within about 100 ms. A TURN allocation reports every path of
+  it (`TurnProtocol.onAllocationLost`) when its TCP / TLS connection to the
+  server closes, a Refresh fails, or the server cannot be reached. The
+  selected pair is then checked at the weak interval, so a path that comes
+  back is seen within about 1 s. A path that is gone without an error (a
+  remote host that went away, a firewall that drops) still takes the
+  receiving / unwritable rules.
+- A role change (role-conflict repair) cancels the checks in flight that
+  carry the old role, backups' and the selected pair's consent requests
+  alike; they are not counted as unanswered, and monitoring goes on under
+  the new role.
+- Controlled agent: it monitors the same way but never nominates; it follows
+  the peer's nomination and the pair the peer sends data on. While its
+  selected pair is down or stopped receiving, a nomination as strong as the
+  selection's
+  (USE-CANDIDATE again) of a valid pair moves the selection at once, without
+  waiting for data, as libwebrtc's controlled agent ranks writability first.
+- State: `disconnected` while the selected pair is unwritable and no backup
+  is writable, back to `connected` only once the selected pair works again:
+  it answers again, or the selection moved to a backup (a backup that merely
+  answers again does not end `disconnected`). When the selected pair's
+  consent expires (30 s, RFC 7675) nothing more is sent on it and it is not
+  checked again: with no writable backup the agent is `failed`; with one it
+  is `disconnected` and waits up to 10 s
+  (`FAILOVER_CONSENT_EXPIRED_GRACE`) for the selection to move to a backup
+  (its own failover nomination, or the peer's when controlled), then fails.
+  An ICE restart recovers a `failed` agent.
+- Not covered (unchanged: no backup checks, `failed` when consent expires):
+  regular nomination (`nomination: "regular"`; RFC 8445 §8.1.1 allows no
+  other pair without an ICE restart), ICE-TCP selections (a closed selected
+  TCP connection fails the agent at once) and ICE-lite on either side.
+- The constants are exported from `iceBase.ts`
+  (`WEAK_OR_STABILIZING_WRITABLE_CONNECTION_PING_INTERVAL`,
+  `STABLE_WRITABLE_CONNECTION_PING_INTERVAL`,
+  `CONNECTION_WRITE_CONNECT_FAILURES`, `RECEIVING_SWITCHING_DELAY`, ...),
+  with their libwebrtc names.
+- Thresholds (`IceOptions.failover`, `PeerConfig.iceFailover` in `werift`),
+  after libwebrtc's `RTCConfiguration` fields; each unset or invalid value
+  keeps its default:
+
+  | Option | Default | libwebrtc |
+  | --- | --- | --- |
+  | `unwritableMinChecks` | 5 | `ice_unwritable_min_checks` |
+  | `unwritableTimeout` (ms) | 5000 | `ice_unwritable_timeout` |
+  | `receivingTimeout` (ms) | 2500 | `receiving_timeout` |
+  | `receivingSwitchingDelay` (ms) | 1000 | `receiving_switching_delay` |
+
+  ```ts
+  new Connection(true, {
+    failover: { receivingTimeout: 1000, receivingSwitchingDelay: 0 },
+  });
+  ```
+
+  Lower values fail over sooner, and also on a shorter loss burst.
+
 ## pion TURN interop (opt-in)
 
 Default `npm test` skips third-party TURN tests. To exercise werift ICE against

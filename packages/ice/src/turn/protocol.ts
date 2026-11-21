@@ -23,10 +23,12 @@ import {
   type TlsConnectionOptions,
   TlsTransport,
   type Transport,
+  type TransportSendOptions,
   UdpTransport,
 } from "../imports/common";
 import { classes, methods } from "../stun/const";
 import { Message, paddingLength, parseMessage } from "../stun/message";
+import { DataSendConfirmation, isPathBrokenSendError } from "../stun/protocol";
 import {
   addressEquals,
   buildTransactionOptions,
@@ -112,12 +114,19 @@ export class StunOverTurnProtocol implements Protocol {
   private disposer = new EventDisposer();
   onRequestReceived: Event<[Message, Address, Buffer]> = new Event();
   onDataReceived: Event<[Buffer, Address]> = new Event();
+  /** See `Protocol.onPathBroken`: the TURN allocation is lost (every path of this protocol). */
+  readonly onPathBroken = new Event<[Address | undefined, Error]>();
 
   constructor(turn: TurnProtocol) {
     this.turn = turn;
     turn.onData
       .subscribe((data, addr) => {
         this.handleStunMessage(data, addr);
+      })
+      .disposer(this.disposer);
+    turn.onAllocationLost
+      .subscribe((error) => {
+        this.onPathBroken.execute(undefined, error);
       })
       .disposer(this.disposer);
   }
@@ -195,10 +204,13 @@ export class StunOverTurnProtocol implements Protocol {
     await this.turn.sendData(data, addr);
   }
   async sendStun(message: Message, addr: Address) {
-    await this.turn.sendData(message.bytes, addr);
+    // Confirmed: the send error of a check tells a TURN server that cannot
+    // be reached (`TurnProtocol.onAllocationLost`).
+    await this.turn.sendData(message.bytes, addr, { confirm: true });
   }
   async close() {
     this.disposer.dispose();
+    this.onPathBroken.complete();
     return this.turn.close();
   }
 }
@@ -233,6 +245,15 @@ export class TurnProtocol implements Protocol {
   static type = "turn";
   readonly type = TurnProtocol.type;
   readonly onData = new Event<[Buffer, Address]>();
+  /**
+   * The allocation is lost while in use (once, never after `close()`): the
+   * TCP/TLS connection to the server closed, a Refresh failed, or sending to
+   * the server failed with a routing error (`PATH_BROKEN_SEND_ERRORS`).
+   */
+  readonly onAllocationLost = new Event<[Error]>();
+  /** The allocation succeeded and is not lost yet (see `onAllocationLost`). */
+  private allocated = false;
+  private readonly dataConfirmation = new DataSendConfirmation();
   onRequestReceived: Event<[Message, Address, Buffer]> = new Event();
   onDataReceived: Event<[Buffer, Address]> = new Event();
   integrityKey?: Buffer;
@@ -322,15 +343,32 @@ export class TurnProtocol implements Protocol {
 
     // close() ran while the response was in flight: no refresh starts.
     if (this.closed) throw new TransactionCancelled();
+    this.allocated = true;
     this.refresh(exp);
   }
 
+  /** See `onAllocationLost`. */
+  private allocationLost(error: Error) {
+    if (!this.allocated || this.closed) return;
+    this.allocated = false;
+    log("allocation lost", error);
+    this.onAllocationLost.execute(error);
+  }
+
   private attachTransport() {
-    this.transport.onData = (data, addr) => {
+    const transport = this.transport;
+    transport.onData = (data, addr) => {
       this.dataReceived(data, addr);
     };
-    this.transport.onError?.subscribe((error) => {
+    transport.onError?.subscribe((error) => {
       log("transport error", error);
+    });
+    transport.onClosed?.subscribe(() => {
+      // A transport replaced by a redirect closes locally.
+      if (this.transport !== transport) return;
+      this.allocationLost(
+        new Error(`connection to the TURN server closed (${transport.type})`),
+      );
     });
   }
 
@@ -536,15 +574,33 @@ export class TurnProtocol implements Protocol {
     }
   }
 
-  private async send(data: Buffer, addr: Address) {
+  private async send(
+    data: Buffer,
+    addr: Address,
+    options?: TransportSendOptions,
+  ) {
     if (this.transport.closed) {
       return;
     }
 
-    await this.transport.send(
-      isStreamTransport(this.transport) ? padTurnFrame(data) : data,
-      addr,
-    );
+    const stream = isStreamTransport(this.transport);
+    try {
+      await this.transport.send(
+        stream ? padTurnFrame(data) : data,
+        addr,
+        options,
+      );
+    } catch (error) {
+      // The server cannot be reached: every path through it is gone.
+      if (isPathBrokenSendError(error)) this.allocationLost(error);
+      // A datagram to an IP address reported no error before `confirm`
+      // (the callers do not expect one); the others still reject.
+      if (!stream && isIP(addr[0]) !== 0) {
+        log("send failed", addr, error);
+        return;
+      }
+      throw error;
+    }
   }
 
   private async createPermission(peerAddress: Address) {
@@ -598,6 +654,12 @@ export class TurnProtocol implements Protocol {
             return;
           }
           log("refresh error", error);
+          // RFC 8656 §7: a Refresh that failed (an error response such as
+          // 437 Allocation Mismatch, or no response) leaves no allocation
+          // to rely on.
+          this.allocationLost(
+            error instanceof Error ? error : new Error(String(error)),
+          );
         }
       }
     });
@@ -802,7 +864,16 @@ export class TurnProtocol implements Protocol {
     }
   }
 
-  async sendData(data: Buffer, addr: Address) {
+  /**
+   * Relay `data` to the peer `addr` (ChannelData, else a Send indication).
+   * `options.confirm` waits for the datagram's send error (a STUN check,
+   * see `onAllocationLost`); application data is confirmed only as a sample
+   * (`DataSendConfirmation`), for speed.
+   */
+  async sendData(data: Buffer, addr: Address, options?: TransportSendOptions) {
+    if (!options?.confirm && this.dataConfirmation.due()) {
+      options = { ...options, confirm: true };
+    }
     let channel: TurnChannel | undefined;
     try {
       channel = await this.getChannel(addr);
@@ -824,6 +895,7 @@ export class TurnProtocol implements Protocol {
     await this.send(
       encodeChannelData(channel.number, data),
       await this.serverDestination(),
+      options,
     );
   }
 
@@ -973,7 +1045,7 @@ export class TurnProtocol implements Protocol {
   }
 
   async sendStun(message: Message, addr: Address) {
-    await this.send(message.bytes, addr);
+    await this.send(message.bytes, addr, { confirm: true });
   }
 
   /**
@@ -991,6 +1063,7 @@ export class TurnProtocol implements Protocol {
     }
     this.refreshHandle?.resolve?.();
     await this.transport.close();
+    this.onAllocationLost.complete();
   }
 }
 

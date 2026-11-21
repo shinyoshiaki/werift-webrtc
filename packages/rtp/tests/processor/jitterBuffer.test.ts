@@ -4,10 +4,7 @@ import { JitterBufferTransformer } from "../../src/extra/processor/jitterBufferT
 import {
   createJitterArrivals,
   createJitterRtp,
-  createPrng,
-  createRandomJitterOrder,
-  findMissingRanges,
-  type JitterStream,
+  opusJitterStream,
   runJitterBuffer,
 } from "../utils";
 
@@ -124,11 +121,7 @@ describe("test JitterBuffer", () => {
   });
 
   // 20ms 間隔 (48kHz) の Opus を latency 200ms で扱う
-  const opus = (startSeq: number, startTs = 0): JitterStream => ({
-    startSeq,
-    startTs,
-    step: 960,
-  });
+  const opus = opusJitterStream;
   const range = (from: number, to: number) =>
     Array.from({ length: to - from + 1 }, (_, i) => from + i);
   const without = (indices: number[], ...excluded: number[]) =>
@@ -297,95 +290,5 @@ describe("test JitterBuffer", () => {
     // Assert: バッファ上限を超えても受信分はすべて番号順に出力される
     expect(run.output).toEqual(order);
     expect(run.lost).toEqual([{ from: 1, to: 1 }]);
-  });
-
-  describe("randomized loss, duplication and reordering", () => {
-    const seeds = range(1, 25);
-
-    it.each([0, 65000, 65530, 65534, 65535])(
-      "outputs every received packet once and in order when delay stays within latency (startSeq %i)",
-      (startSeq) => {
-        for (const seed of seeds) {
-          // Arrange: 遅れは最大 5 パケット (100ms) で latency 200ms 未満に収まる
-          const rng = createPrng(seed * 65537 + startSeq);
-          const stream = opus(startSeq, Math.floor(rng() * 2 ** 32));
-          const { order, received } = createRandomJitterOrder({
-            count: 3000,
-            rng,
-            lossRate: 0.05,
-            duplicateRate: 0.05,
-            maxDelay: 5,
-          });
-
-          // Act: 到着順に入力し、最後に eol を入れる
-          const run = runJitterBuffer(
-            new JitterBufferBase(48000, { latency: 200 }),
-            createJitterArrivals(order, stream),
-            stream,
-          );
-
-          // Assert: 出力は受信集合を番号順に並べたものと一致し、欠落通知は実際の欠落区間だけを指す
-          expect({ seed, output: run.output }).toEqual({
-            seed,
-            output: received,
-          });
-          expect({ seed, lost: run.lost }).toEqual({
-            seed,
-            lost: findMissingRanges(received),
-          });
-        }
-      },
-      30_000,
-    );
-
-    it.each([0, 65534])(
-      "keeps output ordered and loss reports consistent when packets exceed latency (startSeq %i)",
-      (startSeq) => {
-        for (const seed of seeds) {
-          // Arrange: latency を超えて遅れるパケットや重複を含む
-          const rng = createPrng(seed * 7919 + startSeq);
-          const stream = opus(startSeq);
-          const { order, received } = createRandomJitterOrder({
-            count: 3000,
-            rng,
-            lossRate: 0.05,
-            duplicateRate: 0.1,
-            maxDelay: 30,
-            duplicateMaxDelay: 60,
-          });
-
-          // Act: 到着順に入力し、最後に eol を入れる
-          const run = runJitterBuffer(
-            new JitterBufferBase(48000, { latency: 200 }),
-            createJitterArrivals(order, stream),
-            stream,
-          );
-
-          // Assert: 出力は重複なく番号順で、受信したパケットだけを含む
-          const unordered = run.output.filter(
-            (index, i) => i > 0 && index <= run.output[i - 1],
-          );
-          expect({ seed, unordered }).toEqual({ seed, unordered: [] });
-          const receivedSet = new Set(received);
-          expect(run.output.every((i) => receivedSet.has(i))).toBe(true);
-          // Assert: 出力範囲の各番号は「出力」か「欠落通知」のどちらか一方だけに含まれる
-          const covered = new Map<number, number>();
-          for (const i of run.output) covered.set(i, (covered.get(i) ?? 0) + 1);
-          for (const { from, to } of run.lost) {
-            for (let i = from; i <= to; i++) {
-              covered.set(i, (covered.get(i) ?? 0) + 1);
-            }
-          }
-          for (let i = 0; i <= run.output.at(-1)!; i++) {
-            expect({ seed, i, count: covered.get(i) }).toEqual({
-              seed,
-              i,
-              count: 1,
-            });
-          }
-        }
-      },
-      30_000,
-    );
   });
 });

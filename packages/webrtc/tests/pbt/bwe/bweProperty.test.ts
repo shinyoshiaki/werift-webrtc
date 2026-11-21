@@ -1,9 +1,12 @@
 import { describe, expect, test } from "vitest";
+import {
+  propertyOptions,
+  propertySeeds,
+  seededRandom,
+} from "../../../../pbt/src";
 import { LightweightBandwidthEstimator, PacketResult } from "../../../src";
 import { runGccSimulation } from "../../media/gccSimulation";
 import { syntheticTwccFeedback, twccSentInfo } from "../../media/twccTestUtils";
-import { seededRandom } from "../shared/random";
-import { propertySeeds } from "../shared/seeds";
 import {
   randomBitrateUpdates,
   randomConstantRateStream,
@@ -27,7 +30,7 @@ const cases = seeds.map((seed) => ({ seed }));
 const title = (claim: string) =>
   `${claim}: seed $seed (replay: ${replay("$seed")})`;
 
-describe("bandwidth estimator property", () => {
+describe("bandwidth estimator property", propertyOptions(), () => {
   test.each(cases)(
     title(
       "gcc: 通知は有限・[min, max] 内・値が変わったときだけで、公開値は最後の通知値",

@@ -6,6 +6,7 @@ import {
   createLocalStunServer,
   createSilentUdpServer,
 } from "../../../../ice/tests/utils";
+import { type SeededRandom, seededRandom } from "../../../../pbt/src";
 import {
   MediaStreamTrack,
   type RTCDataChannel,
@@ -46,7 +47,6 @@ import {
   STEPS,
 } from "../model/generator";
 import { ModelOracles } from "../model/oracles";
-import { type SeededRandom, seededRandom } from "../shared/random";
 
 /**
  * Arrange and measurement of the leak property (`negotiationLeakProperty.test.ts`):

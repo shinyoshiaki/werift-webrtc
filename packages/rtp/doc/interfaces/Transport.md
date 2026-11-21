@@ -40,6 +40,16 @@ transport that leaves it unset gets no family preference.
 
 ***
 
+### onClosed?
+
+> `optional` **onClosed?**: [`Event`](../classes/Event.md)\<\[\]\>
+
+The transport closed by itself after it was established (a stream whose
+peer closed the connection, or that an error destroyed); not emitted by
+`close()`. Optional: datagram transports do not close by themselves.
+
+***
+
 ### onData
 
 > **onData**: (`data`, `addr`) => `void`
@@ -80,7 +90,7 @@ from this address. Built-in TCP/TLS transports set it once connected.
 
 ### send
 
-> **send**: (`data`, `addr?`) => `Promise`\<`void`\>
+> **send**: (`data`, `addr?`, `options?`) => `Promise`\<`void`\>
 
 #### Parameters
 
@@ -91,6 +101,10 @@ from this address. Built-in TCP/TLS transports set it once connected.
 ##### addr?
 
 readonly \[`string`, `number`\]
+
+##### options?
+
+[`TransportSendOptions`](TransportSendOptions.md)
 
 #### Returns
 
