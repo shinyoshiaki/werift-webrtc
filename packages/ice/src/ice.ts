@@ -704,7 +704,10 @@ export class Connection implements IceConnection {
     }
     runtime.pinHandshakePath(pair);
     const packets = runtime.beginFallback();
-    await runtime.hooks.onFallbackFlight(packets);
+    const sendDirect = await runtime.hooks.onFallbackFlight(packets);
+    if (sendDirect === false) {
+      return;
+    }
     for (const packet of packets) {
       await this.sendHandshakeOnAuthenticatedPair(pair, packet, generation);
     }

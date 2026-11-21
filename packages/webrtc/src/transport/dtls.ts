@@ -9,7 +9,10 @@ import {
 } from "../../../dtls/src/internal";
 import type { Connection } from "../../../ice/src";
 import { attachSpedToConnection } from "../../../ice/src/internal/sped";
-import { getConnectionSpedRuntime } from "../../../ice/src/internal/sped-bind";
+import {
+  getConnectionSpedRuntime,
+  setConnectionSpedRuntime,
+} from "../../../ice/src/internal/sped-bind";
 import type { DebugConfig } from "../api/peerConfig";
 import { EventTarget as DomEventTarget, notifySafely } from "../helper";
 import { type Address, Event, type Transport } from "../imports/common";
@@ -471,68 +474,85 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   private async startSerial(
     addressValidation: "dtls-cookie" | "ice-authenticated",
   ) {
-    await new Promise<void>(async (r, f) => {
+    await new Promise<void>((r, f) => {
       this.settleStart = r;
-      if (this.role === "server") {
-        this.dtls = new DtlsServer({
-          cert: this.localCertificate?.certPem,
-          key: this.localCertificate?.privateKey,
-          signatureHash: this.localCertificate?.signatureHash,
-          transport: createIceTransport(this.iceTransport.connection),
-          srtpProfiles: this.srtpProfiles,
-          extendedMasterSecret: true,
-          certificateRequest: true,
-          protocolVersions: this.config.protocolVersions,
-          peerIdentityMode: "authenticated-single-peer",
-          handshakeValidation: this.config.handshakeValidation,
-          addressValidation,
-          verifyRemoteCertificate: (certificate) => {
-            this.verifyRemoteCertificateDuringHandshake(certificate);
-            return true;
-          },
-        });
-      } else {
-        this.dtls = new DtlsClient({
-          cert: this.localCertificate?.certPem,
-          key: this.localCertificate?.privateKey,
-          signatureHash: this.localCertificate?.signatureHash,
-          transport: createIceTransport(this.iceTransport.connection),
-          srtpProfiles: this.srtpProfiles,
-          extendedMasterSecret: true,
-          protocolVersions: this.config.protocolVersions,
-          peerIdentityMode: "authenticated-single-peer",
-          handshakeValidation: this.config.handshakeValidation,
-          addressValidation,
-          verifyRemoteCertificate: (certificate) => {
-            this.verifyRemoteCertificateDuringHandshake(certificate);
-            return true;
-          },
-        });
-      }
-      this.bindDtlsSocketEvents(r, f);
-
-      if (this.dtls instanceof DtlsClient) {
-        await setTimeout(100);
-        if (this.isFinalState) {
-          // stop() / a failure during the wait: settle start().
-          r();
-          return;
-        }
-        this.dtls.connect().catch((error) => {
-          if (!(this.lastError instanceof FingerprintMismatchError)) {
-            this.lastError =
-              error instanceof DtlsAlertError &&
-              error.source === "local" &&
-              error.reason instanceof Error
-                ? error.reason
-                : error;
-          }
-          this.fail(error);
-          log("dtls connect failed", error);
-          f(error);
-        });
-      }
+      void this.startSerialSocket(addressValidation, r, f, () =>
+        setTimeout(100),
+      );
     });
+  }
+
+  /**
+   * Create the direct (non-SPED) DTLS socket with the configured versions,
+   * bind its events to `r` / `f` and start the client handshake after
+   * `beforeConnect`.
+   */
+  private async startSerialSocket(
+    addressValidation: "dtls-cookie" | "ice-authenticated",
+    r: () => void,
+    f: (error: Error) => void,
+    beforeConnect: () => Promise<unknown>,
+  ) {
+    if (this.role === "server") {
+      this.dtls = new DtlsServer({
+        cert: this.localCertificate?.certPem,
+        key: this.localCertificate?.privateKey,
+        signatureHash: this.localCertificate?.signatureHash,
+        transport: createIceTransport(this.iceTransport.connection),
+        srtpProfiles: this.srtpProfiles,
+        extendedMasterSecret: true,
+        certificateRequest: true,
+        protocolVersions: this.config.protocolVersions,
+        peerIdentityMode: "authenticated-single-peer",
+        handshakeValidation: this.config.handshakeValidation,
+        addressValidation,
+        verifyRemoteCertificate: (certificate) => {
+          this.verifyRemoteCertificateDuringHandshake(certificate);
+          return true;
+        },
+      });
+    } else {
+      this.dtls = new DtlsClient({
+        cert: this.localCertificate?.certPem,
+        key: this.localCertificate?.privateKey,
+        signatureHash: this.localCertificate?.signatureHash,
+        transport: createIceTransport(this.iceTransport.connection),
+        srtpProfiles: this.srtpProfiles,
+        extendedMasterSecret: true,
+        protocolVersions: this.config.protocolVersions,
+        peerIdentityMode: "authenticated-single-peer",
+        handshakeValidation: this.config.handshakeValidation,
+        addressValidation,
+        verifyRemoteCertificate: (certificate) => {
+          this.verifyRemoteCertificateDuringHandshake(certificate);
+          return true;
+        },
+      });
+    }
+    this.bindDtlsSocketEvents(r, f);
+
+    const client = this.dtls;
+    if (client instanceof DtlsClient) {
+      await beforeConnect();
+      if (this.isFinalState) {
+        // stop() / a failure during the wait: settle start().
+        r();
+        return;
+      }
+      client.connect().catch((error) => {
+        if (!(this.lastError instanceof FingerprintMismatchError)) {
+          this.lastError =
+            error instanceof DtlsAlertError &&
+            error.source === "local" &&
+            error.reason instanceof Error
+              ? error.reason
+              : error;
+        }
+        this.fail(error);
+        log("dtls connect failed", error);
+        f(error);
+      });
+    }
   }
 
   private async startWithSped(
@@ -547,6 +567,43 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     let lastFlight: Buffer[] = [];
     let handshakeDone = false;
     let dtlsSocket: DtlsSocket | undefined;
+    let settle: { r: () => void; f: (error: Error) => void } | undefined;
+    let switchedToStandardDtls = false;
+    /**
+     * The peer has no SPED at all, and DTLS 1.2 is offered too: run the
+     * standard DTLS handshake with the configured versions (draft §3.3.4
+     * "fall back to standard unencapsulated DTLS"), as `sped: false` would.
+     * The SPED flight is DTLS 1.3 only, so sending it directly would leave a
+     * DTLS 1.2-only peer (e.g. werift before DTLS 1.3) without a common
+     * version. The peer ignored the SPED attributes and never saw that
+     * flight, so nothing has to be undone on its side.
+     */
+    const switchToStandardDtls = () => {
+      if (switchedToStandardDtls || !settle || this.isFinalState) {
+        return false;
+      }
+      switchedToStandardDtls = true;
+      const spedSocket = dtlsSocket;
+      carrier.events.onFlightCreated = () => {};
+      carrier.cancelAllTimers();
+      transport.onData = () => {};
+      void transport.close();
+      handle.runtime.abort();
+      if (getConnectionSpedRuntime(ice) === handle.runtime) {
+        setConnectionSpedRuntime(ice, undefined);
+      }
+      ice.forgetSpedBindingResponseCache();
+      // startSerialSocket replaces this.dtls synchronously, so the SPED
+      // socket's events no longer reach this transport (bindDtlsSocketEvents)
+      // before it is closed. The carrier no longer sends anything, so the
+      // close puts no alert on the wire.
+      const { r, f } = settle;
+      void this.startSerialSocket("ice-authenticated", r, f, () =>
+        this.waitIceConnected(),
+      );
+      void spedSocket?.close().catch(() => {});
+      return true;
+    };
     const handle = attachSpedToConnection(ice, {
       inject: async (bytes, peer, generation) => {
         if (ice.generation !== generation) {
@@ -555,6 +612,9 @@ export class RTCDtlsTransport implements DtlsTransportStats {
         await carrier.inject(bytes, peer ? [peer[0], peer[1]] : undefined);
       },
       onSessionReset: () => {
+        if (switchedToStandardDtls) {
+          return;
+        }
         carrier.invalidateInboundInjects?.();
         if (this.state === "connected" || handshakeDone) {
           handle.runtime.completeHandshake();
@@ -572,6 +632,13 @@ export class RTCDtlsTransport implements DtlsTransportStats {
         carrier.cancelAllTimers();
       },
       onFallbackFlight: async () => {
+        if (
+          handle.runtime.session.peerSupport === "unsupported" &&
+          (this.config.protocolVersions ?? []).includes(DtlsVersion.V1_2) &&
+          switchToStandardDtls()
+        ) {
+          return false;
+        }
         carrier.setWireSendEnabled(true);
       },
       onHandshakeComplete: () => {
@@ -623,6 +690,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
 
     await new Promise<void>(async (r, f) => {
       this.settleStart = r;
+      settle = { r, f };
       if (this.role === "server") {
         this.dtls = createDtlsServerInternal({
           ...common,
@@ -637,8 +705,12 @@ export class RTCDtlsTransport implements DtlsTransportStats {
         handle.onHandshakeComplete();
       });
 
-      if (this.dtls instanceof DtlsClient) {
-        this.dtls.connect().catch((error) => {
+      const spedClient = this.dtls;
+      if (spedClient instanceof DtlsClient) {
+        spedClient.connect().catch((error) => {
+          // Replaced by standard DTLS (switchToStandardDtls): closing it
+          // rejects this handshake, which no longer concerns this transport.
+          if (this.dtls !== spedClient) return;
           if (!(this.lastError instanceof FingerprintMismatchError)) {
             this.lastError =
               error instanceof DtlsAlertError &&
@@ -657,10 +729,15 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   }
 
   private bindDtlsSocketEvents(r: () => void, f: (error: Error) => void) {
-    if (!this.dtls) {
+    const socket = this.dtls;
+    if (!socket) {
       return;
     }
-    this.dtls.onData.subscribe((buf) => {
+    // A SPED socket replaced by standard DTLS (switchToStandardDtls) no
+    // longer drives this transport.
+    const replaced = () => this.dtls !== socket;
+    socket.onData.subscribe((buf) => {
+      if (replaced()) return;
       if (
         this.config.debug?.inboundPacketLoss &&
         this.config.debug?.inboundPacketLoss / 100 < Math.random()
@@ -673,7 +750,8 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     // statechange, the peer caused it; W3C RTCDtlsTransportState "closed").
     // close_notify is not a fatal alert, so neither failed nor an error
     // event. closed / failed are final.
-    this.dtls.onClose.subscribe(() => {
+    socket.onClose.subscribe(() => {
+      if (replaced()) return;
       if (this.isFinalState) {
         r();
         return;
@@ -691,10 +769,13 @@ export class RTCDtlsTransport implements DtlsTransportStats {
         r();
       }
     });
-    this.dtls.onConnect.once(r);
+    socket.onConnect.once(() => {
+      if (!replaced()) r();
+    });
     // A handshake error, or a fatal alert received or sent while
     // connecting or after the connection was established.
-    this.dtls.onError.subscribe((error) => {
+    socket.onError.subscribe((error) => {
+      if (replaced()) return;
       log("dtls failed", error);
       const reason =
         error instanceof DtlsAlertError &&
@@ -715,6 +796,24 @@ export class RTCDtlsTransport implements DtlsTransportStats {
         f(reason);
       }
     });
+  }
+
+  /**
+   * Resolves once ICE has a usable pair, or ICE / this transport reached a
+   * final state (the caller then rechecks isFinalState).
+   */
+  private async waitIceConnected() {
+    const usable = () =>
+      this.isFinalState ||
+      ["connected", "completed", "failed", "closed"].includes(
+        this.iceTransport.state,
+      );
+    while (!usable()) {
+      await Promise.race([
+        this.iceTransport.onStateChange.asPromise(),
+        setTimeout(100),
+      ]);
+    }
   }
 
   private abortSpedSession() {

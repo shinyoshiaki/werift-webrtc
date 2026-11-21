@@ -6,7 +6,9 @@ import { generateKeyPair } from "../../../../cipher/namedCurve";
 import { HandshakeType } from "../../../../handshake/const";
 import { CookieExtension } from "../../../../handshake/extensions/cookie";
 import { EllipticCurves } from "../../../../handshake/extensions/ellipticCurves";
+import { ExtendedMasterSecret } from "../../../../handshake/extensions/extendedMasterSecret";
 import { KeyShare } from "../../../../handshake/extensions/keyShare";
+import { RenegotiationIndication } from "../../../../handshake/extensions/renegotiationIndication";
 import { SignatureAlgorithms } from "../../../../handshake/extensions/signatureAlgorithms";
 import { SupportedVersions } from "../../../../handshake/extensions/supportedVersions";
 import { UseSRTP } from "../../../../handshake/extensions/useSrtp";
@@ -122,6 +124,20 @@ export function buildClientHelloExtensions(this: Dtls13Host): Extension[] {
 
   if (this.tlsCookie.length > 0) {
     exts.push(new CookieExtension(this.tlsCookie).extension);
+  }
+
+  // A dual CH is also the ClientHello a DTLS 1.2-only server answers, so it
+  // carries the 1.2 extensions the 1.2 association sends (RFC 8446 §4.1.2
+  // allows extensions for older offered versions; 1.3 servers ignore them).
+  // The cookie CH must match this one (RFC 6347 §4.2.1), and 1.2 servers
+  // such as werift before DTLS 1.3 read extended_master_secret from this
+  // first CH only: without it they derive a non-EMS master secret while
+  // still echoing EMS, and Finished fails to decrypt.
+  if (supportsVersion(this.offeredProtocolVersions, DtlsVersion.V1_2)) {
+    if (this.options.extendedMasterSecret) {
+      exts.push({ type: ExtendedMasterSecret.type, data: Buffer.alloc(0) });
+    }
+    exts.push(RenegotiationIndication.createEmpty().extension);
   }
 
   if (this.options.srtpProfiles?.length) {
