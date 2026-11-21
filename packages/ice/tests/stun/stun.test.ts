@@ -98,10 +98,7 @@ describe("stun", () => {
   test(
     "test_timeout",
     async () => {
-      const DummyProtocol: any = {
-        sendStun: async () => {},
-        sendData: async () => {},
-      };
+      const DummyProtocol: any = { sendStun: async () => {} };
       const request = new Message(methods.BINDING, classes.REQUEST);
       const transaction = new Transaction(
         request,
@@ -109,11 +106,14 @@ describe("stun", () => {
         DummyProtocol,
       );
 
-      try {
-        await transaction.run();
-      } catch (error: any) {
-        expect(error.str).toBe("STUN transaction timed out");
-      }
+      // Act: 応答の無い transaction を再送上限まで走らせる
+      const error = await transaction.run().then(
+        () => undefined,
+        (e: any) => e,
+      );
+
+      // Assert: 例外で終わり、それが timeout である
+      expect(error?.str).toBe("STUN transaction timed out");
 
       const response = new Message(methods.BINDING, classes.RESPONSE);
       transaction.responseReceived(response, ["127.0.0.1", 1234]);
@@ -125,10 +125,7 @@ describe("stun", () => {
     const request = new Message(methods.BINDING, classes.REQUEST);
     const bytes = request.bytes;
     const message = parseMessage(bytes)!;
-    expect(message.bytes).toEqual(bytes);
-    expect(message.messageMethod).toBe(request.messageMethod);
-    expect(message.messageClass).toBe(request.messageClass);
-    expect(message.transactionId).toEqual(request.transactionId);
+    expect(request).toEqual(message);
   });
 
   describe("MESSAGE-INTEGRITY-SHA256 fixed vectors (RFC 8489, short-term)", () => {
