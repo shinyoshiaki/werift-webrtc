@@ -147,6 +147,30 @@ const RETIRED_UFRAG_HISTORY = 64;
  * - RTP / router: new routing keys at once, conflicting ones staged until K
  *   (`RtpRouter`); codec and direction of current m-lines follow the
  *   effective-value rules. R restores the baseline tables.
+ * - RID m-line FID table (`a=ssrc-group:FID` of an m-line the remote sends
+ *   by RID: RTX SSRC → media SSRC, `RTCRtpReceiver.ridFidMediaByRtx`; no
+ *   SSRC track or media-SSRC route is made from it, the RID's media SSRC is
+ *   learned from packets). Pending (remote offer / pranswer,
+ *   `prepareReceive` with deferred conflicts): a pair for an RTX SSRC the
+ *   current session knows nothing about applies at once; a pair that changes
+ *   a current pair, or names an RTX SSRC the session already bound to a RID
+ *   from a repaired RID, is staged, so the current RTX keeps restoring into
+ *   its current RID; the latest description's whole table is staged too, and
+ *   a later pranswer replaces it. The router routes the RTX SSRC to the
+ *   receiver, staging a conflicting route and keeping one the receiver
+ *   learned from packets. K (`commitStagedReceive`; `resyncCodecs` when the
+ *   final answer is the remote one) replaces the table by the committed
+ *   description's pairs as a whole, so a pair it no longer lists does not
+ *   survive, and drops the repaired-RID binding of every RTX SSRC whose pair
+ *   was added, changed or removed. R restores the table and its staged
+ *   values from the `RTCRtpReceiver` baseline (`snapshotReceiveTables` /
+ *   `restoreReceiveTables`) and the routes from `RtpRouter.snapshotRoutes`.
+ *   The RID an RTX packet repairs is derived per packet from the current
+ *   table (the RID carrying, or having carried, its FID media SSRC), so no
+ *   binding of the rolled-back pairs is left; restore still requires a hole
+ *   of that RID's current media SSRC (tests:
+ *   tests/media/firefoxSimulcastSsrc.test.ts,
+ *   tests/media/firefoxSimulcastFidMatrix.test.ts).
  * - Codecs: every offer lists what each transceiver can use now, whatever
  *   the last answer kept, and the negotiated codecs as negotiated (payload
  *   type, fmtp, rtcp-fb; paired with the configured codecs by the rule
