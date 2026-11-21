@@ -13,7 +13,6 @@ import { HandshakeType } from "../../handshake/const";
 import { peerKeyFromAddr } from "../../handshake/extensions/cookie";
 import { ClientHello } from "../../handshake/message/client/hello";
 import { DtlsRandom } from "../../handshake/random";
-import { flushTransportSend } from "../../imports/common";
 import { normalizePeerTuple } from "../../peer";
 import { AlertDesc, ContentType } from "../../record/const";
 import {
@@ -219,11 +218,11 @@ export class Dtls13Connection
       if (ep?.writeKeys) {
         const record = encryptRecord(alert, ContentType.alert, ep);
         this.localCloseNotifySent = true;
-        await flushTransportSend(
-          this.options.transport,
-          record,
-          this.getSendAddr(),
-        );
+        // `confirm`: wait until the OS took the datagram, so the close that
+        // follows does not drop close_notify.
+        await this.options.transport.send(record, this.getSendAddr(), {
+          confirm: true,
+        });
       } else if (!this.hasProtectedWriteKeys()) {
         const seq = this.recordSeqEpoch0++;
         const record = serializePlaintextRecord(
@@ -233,11 +232,11 @@ export class Dtls13Connection
           alert,
         );
         this.localCloseNotifySent = true;
-        await flushTransportSend(
-          this.options.transport,
-          record,
-          this.getSendAddr(),
-        );
+        // `confirm`: wait until the OS took the datagram, so the close that
+        // follows does not drop close_notify.
+        await this.options.transport.send(record, this.getSendAddr(), {
+          confirm: true,
+        });
       }
     } catch {
       // ignore send failures during close

@@ -19,15 +19,13 @@ test("e2e/self13: graceful close frees carrier even if send hangs", async () => 
   expect(eng).toBeTruthy();
   const carrier = eng.getHandshakeCarrier();
 
-  // Hang flush path used by close_notify (hot-path send is fire-and-forget)
+  // Hang every send, including the confirmed send close_notify uses
   const origSend = serverTransport.send.bind(serverTransport);
-  const origFlush = serverTransport.sendAndWait.bind(serverTransport);
   const hang = () =>
     new Promise<void>(() => {
       /* never resolve */
     });
   serverTransport.send = hang;
-  serverTransport.sendAndWait = hang;
 
   // Act: server を graceful close し、carrier が閉じるまで待つ
   const t0 = Date.now();
@@ -52,7 +50,6 @@ test("e2e/self13: graceful close frees carrier even if send hangs", async () => 
 
   // Restore send for cleanup
   serverTransport.send = origSend;
-  serverTransport.sendAndWait = origFlush;
   try {
     client.close();
   } catch {

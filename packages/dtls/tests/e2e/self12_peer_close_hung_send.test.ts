@@ -11,13 +11,12 @@ test("e2e/self12: peer close_notify frees association if send hangs", async () =
   const { client, server, clientTransport, serverTransport } =
     await connectUdpDtlsPair({ rejectOnError: false });
 
-  // close_notify の返信に使う flush 経路を停滞させる
+  // close_notify の返信に使う送信（confirm 付きを含む）を停滞させる
   const hang = () =>
     new Promise<void>(() => {
       /* never resolve */
     });
   clientTransport.send = hang;
-  clientTransport.sendAndWait = hang;
 
   const closes: number[] = [];
   client.onClose.subscribe(() => closes.push(Date.now()));

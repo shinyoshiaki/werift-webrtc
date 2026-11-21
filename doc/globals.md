@@ -605,7 +605,6 @@
 - [findCodecByMimeType](functions/findCodecByMimeType.md)
 - [findPort](functions/findPort.md)
 - [fingerprint](functions/fingerprint.md)
-- [flushTransportSend](functions/flushTransportSend.md)
 - [gatherErrorReasonText](functions/gatherErrorReasonText.md)
 - [generateCodecStatsId](functions/generateCodecStatsId.md)
 - [generateStatsId](functions/generateStatsId.md)

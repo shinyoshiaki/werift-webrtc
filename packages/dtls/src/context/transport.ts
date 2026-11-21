@@ -1,8 +1,4 @@
-import {
-  type Address,
-  flushTransportSend,
-  type Transport,
-} from "../imports/common";
+import type { Address, Transport } from "../imports/common";
 
 export class TransportContext {
   public socket: Transport;
@@ -29,11 +25,6 @@ export class TransportContext {
 
   readonly send = (buf: Buffer, addr?: Address) => {
     return this.socket.send(buf, addr ?? this.pinnedPeer);
-  };
-
-  /** Flush path for close_notify (does not change hot-path {@link send}). */
-  readonly sendAndWait = (buf: Buffer, addr?: Address) => {
-    return flushTransportSend(this.socket, buf, addr ?? this.pinnedPeer);
   };
 
   get closedSignal(): AbortSignal {
