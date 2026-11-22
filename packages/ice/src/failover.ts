@@ -106,7 +106,7 @@ export type PairLiveness = {
   unanswered: number;
   /**
    * When the first of the `unanswered` checks was counted (ms); undefined
-   * while the last check was answered.
+   * while the last check was answered (see `notReceivingSince`).
    */
   missedSince?: number;
   /** Responses since monitoring began (stabilizing below MIN_PINGS_AT_WEAK_PING_INTERVAL). */
@@ -157,17 +157,13 @@ export const isWeak = (
   now - liveness.lastReceived >= thresholds.receivingTimeout;
 
 /**
- * Since when (ms) `pair` has not been receiving, undefined while it is: it
- * received nothing for WEAK_CONNECTION_RECEIVE_TIMEOUT (as libwebrtc's
- * `Connection::receiving`) and a check sent to it went unanswered; the time
- * is when both began to hold (the later of the two).
- *
- * libwebrtc pings a weak selection every 48 ms, so a silence that long
- * means its pings went unanswered. werift checks the selected pair only
- * when the silence begins (consent, `nextPingAt`) and 900 ms after a check
- * that went unanswered; without the unanswered check, a pair whose check
- * is merely still in flight (or not sent yet: the first consent check comes
- * at the consent interval) would count as not receiving.
+ * Since when (ms) `pair` has not been receiving, undefined while it is: the
+ * later of `receivingTimeout` of silence (libwebrtc's `Connection::receiving`)
+ * and its first unanswered check. libwebrtc needs no unanswered check, as it
+ * pings a weak selection every 48 ms; werift checks it far less often.
+ * @see tests/ice/selection-controller.test.ts "silence alone (no unanswered check) is not 'not receiving'; a receiving selection beats a pair that is not"
+ * @see tests/ice/selection-controller.test.ts "a late unanswered check starts the hold at the check, and a recovery in the hold keeps the selection"
+ * @see tests/pbt/failoverRules/failoverRulesProperty.test.ts "a pair is not receiving exactly from the later of the silence and the unanswered check, plus the hold"
  */
 export const notReceivingSince = <
   T extends { lastReceived: number; missedSince?: number },
@@ -178,18 +174,16 @@ export const notReceivingSince = <
 ) => {
   const silentSince = pair.lastReceived + receivingTimeout;
   if (now < silentSince || pair.missedSince === undefined) return undefined;
-  // Both conditions hold only from the later of the two: a silence that long
-  // followed by a late unanswered check starts the hold at that check.
   return Math.max(silentSince, pair.missedSince);
 };
 
 /**
- * Stopped receiving, as libwebrtc switches on (`receiving`, then
- * `receiving_switching_delay`): `notReceivingSince` (nothing received for
- * `receivingTimeout` and a check unanswered, from the later of the two) is
- * `receivingSwitchingDelay` ago (an idle peer still answers the checks, so
- * silence alone is not a break). The selection controller decides by the
- * same time, so a switch it makes within the hold is not taken as a failover.
+ * Stopped receiving (libwebrtc's `receiving`, then
+ * `receiving_switching_delay`): `notReceivingSince` is
+ * `receivingSwitchingDelay` ago, the same time `SelectionController` switches
+ * at.
+ * @see tests/pbt/failoverRules/failoverRulesProperty.test.ts "a pair is not receiving exactly from the later of the silence and the unanswered check, plus the hold"
+ * @see tests/ice/selection-controller.test.ts "an RTT switch within the hold is not a failover: the old pair is not demoted"
  */
 export const isNotReceiving = (
   liveness: PairLiveness,
@@ -403,8 +397,7 @@ export class FailoverMonitor {
   /**
    * The backup to fail over to from an unwritable selection: the
    * highest-priority writable one that is not weak, else the
-   * highest-priority writable one. (A selection that only stopped receiving
-   * is `SelectionController`'s.)
+   * highest-priority writable one.
    */
   target(now = Date.now()): CandidatePair | undefined {
     const writable = this.backupPairs.filter((pair) =>

@@ -8,9 +8,9 @@ import {
 } from "../../src";
 import {
   notReceivingSince,
-  type SwitchPairState,
   SelectionController,
   type SelectionControllerHost,
+  type SwitchPairState,
   shouldSwitch,
 } from "../../src/nomination/selectionController";
 import {
@@ -229,7 +229,11 @@ describe("SelectionController: several backups compete", () => {
     }) as unknown as CandidatePair;
 
   /** Arrange: 選択中 (受信停止・未応答 2 s) と、指定した退避先から成る controller。 */
-  const arrange = (backups: Spec[], missedAgo = 2000) => {
+  const arrange = (
+    backups: Spec[],
+    missedAgo = 2000,
+    { selectedWritable = true }: { selectedWritable?: boolean } = {},
+  ) => {
     vi.useFakeTimers();
     vi.setSystemTime(now);
     const selected = pairOf({
@@ -258,7 +262,7 @@ describe("SelectionController: several backups compete", () => {
               missedSince: now - missedAgo,
             } as never)
           : ({ lastReceived: now } as never),
-      writable: () => true,
+      writable: (pair) => pair !== selected || selectedWritable,
       allows: () => true,
       comparePriority: (pair, other) =>
         specs.get(pair)!.priority - specs.get(other)!.priority,
@@ -302,7 +306,7 @@ describe("SelectionController: several backups compete", () => {
     controller.stop();
   });
 
-  test("the hold is counted from the unanswered check: no switch right after it", () => {
+  test("the hold is counted from the unanswered check: no switch right after it, the recheck at its end switches", () => {
     // Arrange: 選択中は 10 s 無通信で、未応答が確定したのは now。受信中の退避先が 1 つ。
     const { controller, switched } = arrange(
       [{ name: "B", priority: 5, rtt: 40, silent: false }],
@@ -315,7 +319,36 @@ describe("SelectionController: several backups compete", () => {
     // Assert: 保留中で移らない (保留の再判定がタイマーで予約される)。
     expect(switched).toEqual([]);
     expect(vi.getTimerCount()).toBe(1);
+
+    // Act: 何も受信しないまま保留が明ける時刻まで進める。
+    vi.advanceTimersByTime(RECEIVING_SWITCHING_DELAY);
+
+    // Assert: 再判定のタイマーが判定し直し、受信中の B へ移る。
+    expect(switched).toEqual(["B"]);
     controller.stop();
+  });
+
+  test("a backup that wins by priority or over an unwritable selection is left to SelectionReplacement and the failover", () => {
+    // Arrange: 保留中の選択中より priority が高い受信中の退避先と、書き込み不可の選択中に対する退避先。
+    const higher = arrange(
+      [{ name: "higher", priority: 20, rtt: 40, silent: false }],
+      0,
+    );
+    const overUnwritable = arrange(
+      [{ name: "B", priority: 5, rtt: 40, silent: false }],
+      2000,
+      { selectedWritable: false },
+    );
+
+    // Act: どちらも判定する。
+    higher.controller.evaluate();
+    overUnwritable.controller.evaluate();
+
+    // Assert: controller はどちらへも指名しない (priority は SelectionReplacement、書き込み不可は failover が扱う)。
+    expect(higher.switched).toEqual([]);
+    expect(overUnwritable.switched).toEqual([]);
+    higher.controller.stop();
+    overUnwritable.controller.stop();
   });
 });
 
@@ -345,6 +378,34 @@ describe("CandidatePair.smoothedRtt", () => {
     expect(pair.rtt).toBe(0.9);
     expect(pair.roundTripTimeMeasurements).toBe(5);
     expect(pair.totalRoundTripTime).toBeCloseTo(1.051);
+  });
+
+  test("a response to an older check (latest: false) counts for the totals and the smoothed RTT, not the current RTT", () => {
+    // Arrange
+    const pair = new CandidatePair(
+      { localCandidate: createConsentCandidate("192.0.2.1", 4000) } as never,
+      createConsentCandidate("192.0.2.2", 5000),
+      true,
+    );
+    pair.recordRoundTrip(0.02);
+    pair.recordRoundTrip(0.02);
+
+    // Act: 新しい check の応答 (20 ms) の後に、古い check の遅い応答 (700 ms) が届く。
+    pair.recordRoundTrip(0.7, { latest: false });
+
+    // Assert: 統計の現在値は新しい check のまま。合計と平滑化の標本には数える。
+    expect(pair.rtt).toBe(0.02);
+    expect(pair.roundTripTimeMeasurements).toBe(3);
+    expect(pair.totalRoundTripTime).toBeCloseTo(0.74);
+    expect(pair.smoothedRtt).toBe(0.02);
+
+    // Act: さらに古い応答を 2 回受ける。
+    pair.recordRoundTrip(0.7, { latest: false });
+    pair.recordRoundTrip(0.7, { latest: false });
+
+    // Assert: 標本の中央値が古い応答側へ移る (標本として数えられている)。
+    expect(pair.rtt).toBe(0.02);
+    expect(pair.smoothedRtt).toBe(0.7);
   });
 });
 
@@ -487,6 +548,14 @@ describe("switching the selection by RTT and receiving state (controlling)", () 
 
         // Assert: 受信がなくなってから RECEIVING_SWITCHING_DELAY 経って relay へ移る。
         expect(h.connection.nominated).toBe(relay);
+        // Assert: 受信停止で離れた host は降格され、回復するまで指名し直さない。
+        expect(
+          (
+            h.connection as unknown as {
+              failover: { allows(pair: CandidatePair): boolean };
+            }
+          ).failover.allows(host),
+        ).toBe(false);
         expect(Date.now() - holdFrom).toBeGreaterThanOrEqual(
           RECEIVING_SWITCHING_DELAY,
         );

@@ -221,12 +221,12 @@ export class CandidatePair implements CandidatePairStats {
   private readonly rttSamples: number[] = [];
 
   /**
-   * Record the RTT (seconds) of a check, consent check or backup check that
-   * was answered: `rtt` (the stats' `currentRoundTripTime`), the totals and
-   * the samples of {@link smoothedRtt}.
+   * Record the RTT (seconds) of an answered check: the totals, the samples of
+   * {@link smoothedRtt} and, unless `latest` is false (a response to an older
+   * check than the one `rtt` came from), `rtt`.
+   * @see tests/ice/selection-controller.test.ts "a response to an older check (latest: false) counts for the totals and the smoothed RTT, not the current RTT"
    */
   recordRoundTrip(rtt: number, { latest = true }: { latest?: boolean } = {}) {
-    // `latest: false`: a response to an older check than the one `rtt` came from.
     if (latest) this.rtt = rtt;
     this.totalRoundTripTime += rtt;
     this.roundTripTimeMeasurements++;
@@ -235,10 +235,11 @@ export class CandidatePair implements CandidatePairStats {
   }
 
   /**
-   * The smoothed RTT (seconds): the median of the last
-   * {@link RTT_SMOOTHING_SAMPLES} samples, undefined with fewer than
-   * {@link RTT_SMOOTHING_MIN_SAMPLES}. Switching the selection compares it
-   * (`SelectionController`), so one outlier does not cause a switch.
+   * The smoothed RTT (seconds) the selection switches by: the median of the
+   * last {@link RTT_SMOOTHING_SAMPLES} samples, undefined with fewer than
+   * {@link RTT_SMOOTHING_MIN_SAMPLES}.
+   * @see tests/ice/selection-controller.test.ts "the median of the last 5 samples: one outlier does not move it"
+   * @see tests/ice/selection-controller.test.ts "equal priority: one outlier RTT of the other pair does not move the selection"
    */
   get smoothedRtt(): number | undefined {
     if (this.rttSamples.length < RTT_SMOOTHING_MIN_SAMPLES) return undefined;
@@ -435,22 +436,19 @@ export const FAILOVER_BACKUP_ATTEMPTS = 3;
  */
 export const FAILOVER_RECOVERY_RESPONSES = 3;
 
-// Switching the selected pair (`SelectionController`, controlling, within the
-// failover scope): libwebrtc's `BasicIceController::ShouldSwitchConnection`
-// compares the state (writable, receiving), then the priority, then the RTT.
-
 /**
  * Between pairs of equal state and priority, the selection moves only to a
  * pair whose smoothed RTT ({@link CandidatePair.smoothedRtt}) is at least this
  * much (ms) lower. libwebrtc: `kMinImprovement`.
+ * @see tests/ice/selection-controller.test.ts "equal priority: a pair only 9 ms faster does not take the selection"
  */
 export const RTT_SWITCH_MIN_IMPROVEMENT = 10;
 
 /**
  * The RTT samples {@link CandidatePair.smoothedRtt} keeps (the most recent
- * ones); their median is the smoothed RTT, so a single outlier moves nothing.
- * werift's own value (libwebrtc keeps a moving average, ratio 3, which one
- * outlier still moves by a quarter of its distance).
+ * ones). werift's own value: libwebrtc keeps a moving average instead, which
+ * one outlier still moves.
+ * @see tests/ice/selection-controller.test.ts "the median of the last 5 samples: one outlier does not move it"
  */
 export const RTT_SMOOTHING_SAMPLES = 5;
 
@@ -458,6 +456,7 @@ export const RTT_SMOOTHING_SAMPLES = 5;
  * Samples a pair needs before {@link CandidatePair.smoothedRtt} has a value
  * (the RTT takes part in a switch). The same as
  * {@link MIN_PINGS_AT_WEAK_PING_INTERVAL}: a backup is stable from then on.
+ * @see tests/ice/selection-controller.test.ts "the median of the last 5 samples: one outlier does not move it"
  */
 export const RTT_SMOOTHING_MIN_SAMPLES = 3;
 

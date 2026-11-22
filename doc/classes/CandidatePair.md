@@ -328,10 +328,14 @@ readonly \[`string`, `number`\]
 
 > **get** **smoothedRtt**(): `number` \| `undefined`
 
-The smoothed RTT (seconds): the median of the last
-[RTT\_SMOOTHING\_SAMPLES](../variables/RTT_SMOOTHING_SAMPLES.md) samples, undefined with fewer than
-[RTT\_SMOOTHING\_MIN\_SAMPLES](../variables/RTT_SMOOTHING_MIN_SAMPLES.md). Switching the selection compares it
-(`SelectionController`), so one outlier does not cause a switch.
+The smoothed RTT (seconds) the selection switches by: the median of the
+last [RTT\_SMOOTHING\_SAMPLES](../variables/RTT_SMOOTHING_SAMPLES.md) samples, undefined with fewer than
+[RTT\_SMOOTHING\_MIN\_SAMPLES](../variables/RTT_SMOOTHING_MIN_SAMPLES.md).
+
+##### See
+
+ - tests/ice/selection-controller.test.ts "the median of the last 5 samples: one outlier does not move it"
+ - tests/ice/selection-controller.test.ts "equal priority: one outlier RTT of the other pair does not move the selection"
 
 ##### Returns
 
@@ -371,9 +375,9 @@ The smoothed RTT (seconds): the median of the last
 
 > **recordRoundTrip**(`rtt`, `__namedParameters?`): `void`
 
-Record the RTT (seconds) of a check, consent check or backup check that
-was answered: `rtt` (the stats' `currentRoundTripTime`), the totals and
-the samples of [smoothedRtt](#smoothedrtt).
+Record the RTT (seconds) of an answered check: the totals, the samples of
+[smoothedRtt](#smoothedrtt) and, unless `latest` is false (a response to an older
+check than the one `rtt` came from), `rtt`.
 
 #### Parameters
 
@@ -390,6 +394,10 @@ the samples of [smoothedRtt](#smoothedrtt).
 #### Returns
 
 `void`
+
+#### See
+
+tests/ice/selection-controller.test.ts "a response to an older check (latest: false) counts for the totals and the smoothed RTT, not the current RTT"
 
 ***
 

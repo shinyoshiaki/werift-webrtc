@@ -359,14 +359,14 @@ export class Connection implements IceConnection {
   private readonly failover = new FailoverMonitor(this.failoverHost());
   /**
    * The pair a nomination that moves the selection off a pair that still
-   * outranks (or equals) it is sent for, until its outcome:
-   * - `failover` (`evaluateFailover`): the selection stopped answering;
-   * - `receiving` (`SelectionController`): the selection has not been
-   *   receiving for RECEIVING_SWITCHING_DELAY while the pair is;
-   * - `rtt` (`SelectionController`): equal priority, a lower smoothed RTT.
-   * When it succeeds the selection moves to it even if the old pair answered
-   * again meanwhile (the peer may already have taken the nomination). After
-   * `failover` and `receiving` the old pair's socket is demoted (D4).
+   * outranks (or equals) it is sent for, until its outcome, and why
+   * (`failover`: `evaluateFailover`; `receiving`, `rtt`:
+   * `SelectionController`). When it succeeds the selection moves to it even
+   * if the old pair answered again meanwhile (the peer may already have taken
+   * the nomination). After `failover` and `receiving` the old pair's socket
+   * is demoted (D4).
+   * @see tests/ice/selection-controller.test.ts "receiving: a selection that recovers within RECEIVING_SWITCHING_DELAY stays; one that does not moves after it"
+   * @see tests/ice/selection-controller.test.ts "an RTT switch within the hold is not a failover: the old pair is not demoted"
    */
   private switchNomination?: {
     pair: CandidatePair;
@@ -2698,8 +2698,7 @@ export class Connection implements IceConnection {
           previous.nominated = false;
           this.failover.demote(previous);
         } else if (previous && switching === "rtt") {
-          // A lower RTT moved it: the old pair is a backup, which the
-          // selection moves back to only with a new nomination.
+          // Test: tests/ice/selection-controller.test.ts "equal priority: the selection moves to the pair whose RTT is 11 ms lower, nominating it"
           previous.nominated = false;
         }
         // RFC 7675 section 5.1: the successful connectivity check that
@@ -2772,7 +2771,7 @@ export class Connection implements IceConnection {
           this.selection.evaluate();
           void this.selection.checkOutrankingPairs();
           this.selection.scheduleRetries();
-          // A check answered: its RTT may move the selection (M3).
+          // Test: tests/ice/selection-controller.test.ts "equal priority: the selection moves to the pair whose RTT is 11 ms lower, nominating it"
           this.switching.evaluate();
         }
         return;
@@ -3701,12 +3700,11 @@ export class Connection implements IceConnection {
   }
 
   /**
-   * Failover: the selected pair stopped receiving (`isNotReceiving`:
-   * `receivingSwitchingDelay` passed since `notReceivingSince`, the later of
-   * `receivingTimeout` of silence and an unanswered check) while its consent
-   * is still fresh and it is not unwritable yet. libwebrtc switches on it
-   * (`CompareConnectionStates`: receiving); `SelectionController` makes that
-   * switch, and this lets its nomination replace the selection.
+   * Failover: the selected pair stopped receiving (`isNotReceiving`) while
+   * its consent is still fresh and it is not unwritable yet.
+   * `SelectionController` makes that switch; this lets its nomination
+   * replace the selection.
+   * @see tests/ice/failover.test.ts "the selected pair stops answering and receiving: once it has not been receiving for 1 s (from the later of 2.5 s of silence and an unanswered check), the agent moves to the backup that receives, before the pair is unwritable (§15 A)"
    */
   private selectionNotReceiving() {
     const selected = this.nominated;
@@ -3767,7 +3765,7 @@ export class Connection implements IceConnection {
   private onLinkChanged() {
     this.evaluateFailover();
     this.updateLinkState();
-    // An outcome changes the RTT and the receiving state (M3).
+    // Test: tests/ice/selection-controller.test.ts "receiving: a selection that recovers within RECEIVING_SWITCHING_DELAY stays; one that does not moves after it"
     this.switching.evaluate();
   }
 
@@ -3778,10 +3776,8 @@ export class Connection implements IceConnection {
    * success moves the selection (`replacesSelectedPair`). A controlled agent
    * only follows the peer's nominations.
    *
-   * A selected pair that stopped receiving but is not unwritable yet
-   * (`selectionNotReceiving`) is not handled here: `SelectionController`
-   * holds that switch for `receivingSwitchingDelay` and picks the backup by
-   * receiving state, priority and RTT.
+   * A selected pair that only stopped receiving is `SelectionController`'s.
+   * @see tests/ice/failover.test.ts "the selected pair stops answering and receiving: once it has not been receiving for 1 s (from the later of 2.5 s of silence and an unanswered check), the agent moves to the backup that receives, before the pair is unwritable (§15 A)"
    */
   private evaluateFailover() {
     if (
@@ -3793,7 +3789,6 @@ export class Connection implements IceConnection {
     ) {
       return;
     }
-    // Not receiving only: `SelectionController` decides it (hold, then switch).
     if (!this.selectionDown()) return;
     const target = this.failover.target();
     if (!target) {
