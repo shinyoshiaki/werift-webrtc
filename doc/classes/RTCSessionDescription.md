@@ -8,11 +8,17 @@
 
 A session description (W3C `RTCSessionDescription`).
 
-- `new RTCSessionDescription({ type, sdp })`: the W3C constructor. `type`
-  is required (a missing or unknown value is a `TypeError`), `sdp`
-  defaults to `""`.
-- `new RTCSessionDescription(sdp, type)`: werift's original form, kept
-  for backward compatibility (not validated).
+- `new RTCSessionDescription({ type, sdp })`: the W3C constructor, with
+  the WebIDL dictionary conversion: `undefined` / `null` is an empty
+  dictionary and any other non-object is a `TypeError`; the members are
+  read once each in dictionary order (`sdp`, then `type`); `sdp` defaults
+  to `""` only when it is `undefined` and is otherwise converted with
+  `ToString` (`null` is `"null"`, a Symbol is a `TypeError`); `type` is
+  required and converted with `ToString` before it is matched (a missing
+  or unknown value is a `TypeError`). Extra arguments are ignored.
+- `new RTCSessionDescription(sdp, type)`: werift's original form, chosen
+  only when the first argument is a string; kept for backward
+  compatibility (not validated).
 
 `werift/polyfill` installs this same class as the global
 `RTCSessionDescription`, so `instanceof` holds from both sides.

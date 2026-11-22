@@ -91,6 +91,9 @@ if (channel.onmessage) channel.onmessage({ data: msg });
 | D3 | `RTCSessionDescription.type` の型とリリース | `RTCSdpType`（rollback 含む）に拡張。D2・D3 の型変更は次のマイナー **v0.28.0** の Breaking changes に記載 |
 | D4 | polyfill とコアの `RTCSessionDescription` | polyfill のグローバルにもコアクラスを入れて 1 クラスに統合。`instanceof` は双方向に成立 |
 | D5 | `bufferedamountlow` の発火タイミング | 同期発火を維持し、通知面ごとに例外を隔離。送信完了による減算でのみ発火し、未送信のまま破棄した分では発火しない |
+| D6 | ブラウザ互換入口の値変換（追加要件、§9） | `binaryType` setter と辞書形式 `RTCSessionDescription` は WebIDL の変換規則（`ToString` → enum 照合、辞書メンバーは辞書順に 1 回ずつ）に合わせる。無効な `binaryType` は例外にせず無視（`SyntaxError` にしない） |
+| D7 | `bufferedamountlow` の Event の形（追加要件、§9） | 保証は `type` / `target` / 通知中の `currentTarget`（通知後 `null`）まで。`isTrusted` / `eventPhase` / `composedPath()` / `stopImmediatePropagation()` は保証しないと互換表で宣言する |
+| D8 | WPT の `.window.js`（追加要件、§9） | runner が allowlist に載った `.window.js` / `.any.js` を生成ページとして実行し、`RTCDataChannel-binaryType.window.js` を回帰ゲート（baseline）に入れる |
 
 ### D1. `binaryType` の既定値ポリシー
 
@@ -317,6 +320,50 @@ if (channel.onmessage) channel.onmessage({ data: msg });
   - 公開 API の変更なので、ワークスペースの `npm run type` と `npm run test:small`
   - allowlist を変更したので `npm run wpt`（既存の parameterless / canTrickleIceCandidates を含む）
 - `docs/browser-api-compatibility.md`・`docs/polyfill/guide.md`・`changelog.md` が更新され、`npm run doc` で生成ドキュメントが最新になっている。
+
+## 9. 追加要件（レビュー反復の打開策）
+
+レビューで「ブラウザと同じ形の入力・イベントか」という種類の境界ケースが 1 回に 1 件ずつ指摘され、承認に至らなかった。個別修正をやめ、種類ごとにまとめて閉じる。
+
+### 9.1 誤った指摘への扱い
+
+- 「無効な `binaryType` で `SyntaxError` を投げるべき」という指摘は採用しない。根拠は次の 3 点で、修正報告にも明記する。
+  - 固定版 WPT `third_party/wpt`（`121babb3`）の `webrtc/RTCDataChannel-binaryType.window.js` は、無効値（`'jellyfish'`, `'arraybuffer '`, `''`, `null`, `undefined`, `234`, `54n`）を `Setting binaryType to '…' should be ignored` として検証する。
+  - D1 と §2.5 は無効値を「無視して前の値を保持（例外にしない）」と定めている。
+  - 現行仕様の IDL では `binaryType` は enum 型で、WebIDL の enum 属性 setter は無効値を無視する（`SyntaxError` は DOMString 属性だった旧仕様と、それに基づく旧ミラーの挙動）。
+
+### 9.2 WebIDL 変換（D6）
+
+package-local の変換ヘルパー（`src/webidl.ts`、index からは export しない）を 2 つの入口に適用する。
+
+| 入力 | `binaryType` setter | 辞書 `sdp`（`DOMString sdp = ""`） | 辞書 `type`（必須 enum） |
+| --- | --- | --- | --- |
+| `undefined` | 無視 | `""` | `TypeError`（必須） |
+| `null` / 数値 / bigint | 無視 | `"null"` / `"234"` / `"54"` | `TypeError` |
+| `toString()` を持つオブジェクト | 文字列化した値（有効なら設定） | 文字列化した値 | 文字列化した値（有効なら受理） |
+| Symbol / throw する `toString()` | その例外（値は変えない） | その例外 | その例外 |
+
+- 辞書メンバーは辞書順（`sdp` → `type`）に 1 回ずつ読む。`undefined` / `null` は空辞書、それ以外の非オブジェクトは `TypeError`。
+- 旧 2 引数形式は第 1 引数が string のときだけ選ぶ（辞書 + 余分な第 2 引数は辞書として扱い、第 2 引数は無視）。旧形式の利便挙動（検証なし）は残す。
+- 仕様上の変換なので、WPT wrapper ではなくコアに置く。`PeerConfig.dataChannelBinaryType` は werift 独自の設定なので、従来どおり不正値は `TypeError`。
+
+### 9.3 Event の形の範囲（D7）
+
+`docs/browser-api-compatibility.md` の Remaining differences に、`bufferedamountlow` の Event で保証する属性（`type`、`target`、通知中の `currentTarget`、通知後は `null`）と保証しない属性（`isTrusted`、`eventPhase`、`composedPath()`、`stopImmediatePropagation()` の効果）を明記する。open / close / message / error の各イベントの `target` は既存の制約で、本チケットの範囲外。
+
+### 9.4 WPT runner（D8、§6 ステップ 6 の充足）
+
+- runner は upstream の `.html` に加え、allowlist に載った `.window.js` / `.any.js` を wptserve の自動生成ページと同じ window スコープのページ（`// META: title / timeout / script` を反映）として実行する。それ以外の upstream `.window.js`（BFCache、idlharness、大容量送信）は runner が対応していないため自動収集しない。
+- WPT wrapper の `RTCPeerConnection.close()` は W3C どおり `undefined` を返す（同期 `test()` の `t.add_cleanup(() => pc.close())` が Promise を返すと testharness がファイル全体を失敗にするため）。runner の後始末は実際の close 完了を待つ。
+- allowlist に `RTCDataChannel-binaryType.window.js` と `toJSON.html` を追加し、`RTCDataChannel-binaryType.window.js` の全 10 subtest を baseline に入れる。baseline の追加は当該ファイルの 10 回の単独実行で全 PASS を確認したうえで行う（既存エントリは変えない）。
+
+### 9.5 回帰テストと検証
+
+- [ ] 「入力 × 入口」のマトリクステスト（`tests/webidlConversion.test.ts`）で §9.2 の表、辞書メンバーの読み取り順と回数、余分な第 2 引数、非オブジェクト、旧形式を検証する。
+- [ ] 生成ページのテスト（`tests/tools/wptJsTest.test.ts`）で META の読み取りとページの構成を検証する。
+- [ ] `npm run wpt` で `RTCDataChannel-binaryType.window.js` の 10 subtest が PASS し、baseline に対する回帰が 0 件。
+- [ ] `cd packages/webrtc && npm run type && npm test`。
+- [ ] 修正報告には、変換規則の対応表、誤った指摘への反証（固定版 WPT ファイル）、意図的に範囲外とした項目を含める。
 
 ## 参考
 

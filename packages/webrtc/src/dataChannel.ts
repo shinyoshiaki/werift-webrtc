@@ -4,6 +4,7 @@ import { EventTarget, notifySafely } from "./helper";
 import { debug, Event } from "./imports/common";
 import type { RTCSctpTransport } from "./transport/sctp";
 import type { Callback, CallbackWithValue } from "./types/util";
+import { toEnum } from "./webidl";
 
 /**
  * Label / Protocol Length are 16-bit byte counts of the UTF-8 fields
@@ -187,15 +188,23 @@ export class RTCDataChannel extends EventTarget implements DataChannelStats {
   /**
    * W3C `binaryType`. The initial value is the PeerConnection's
    * `dataChannelBinaryType` (`"nodebuffer"` by default, `"arraybuffer"`
-   * through `werift/polyfill`). A value that is not a
-   * {@link RTCDataChannelBinaryType} is ignored (WebIDL enum attribute).
+   * through `werift/polyfill`). Assignment follows the WebIDL enum
+   * attribute setter: the value is converted with `ToString` first (an
+   * object's `toString()` is used, a Symbol is a `TypeError`), and a result
+   * that is not a {@link RTCDataChannelBinaryType} is ignored without an
+   * exception (WPT `RTCDataChannel-binaryType.window.js`).
    */
   get binaryType(): RTCDataChannelBinaryType {
     return this._binaryType;
   }
 
   set binaryType(value: RTCDataChannelBinaryType) {
-    if (isRTCDataChannelBinaryType(value)) this._binaryType = value;
+    const binaryType = toEnum(
+      value,
+      RTCDataChannelBinaryTypes,
+      "RTCDataChannel.binaryType",
+    );
+    if (binaryType !== undefined) this._binaryType = binaryType;
   }
 
   get bufferedAmountLowThreshold() {

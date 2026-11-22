@@ -30,6 +30,7 @@ import {
 } from "./transport/ice";
 import { RTCSctpCapabilities } from "./transport/sctp";
 import type { Kind } from "./types/domain";
+import { toDOMString, toEnum } from "./webidl";
 
 /**
  * Tokens of an `a=ice-options` value (RFC 8839 §5.6: space-separated
@@ -822,13 +823,54 @@ const RTCSdpTypes: readonly RTCSdpType[] = [
 ];
 
 /**
+ * WebIDL conversion of the `RTCSessionDescriptionInit` constructor argument
+ * (see {@link RTCSessionDescription}).
+ */
+function convertRTCSessionDescriptionInit(value: unknown): {
+  sdp: string;
+  type: RTCSdpType;
+} {
+  if (value !== undefined && value !== null) {
+    if (typeof value !== "object" && typeof value !== "function") {
+      throw createWebRtcTypeError(
+        "RTCSessionDescriptionInit must be a dictionary",
+      );
+    }
+  }
+  const dictionary = (value ?? {}) as Record<string, unknown>;
+  // Dictionary members are read in lexicographic order, once each.
+  const givenSdp = dictionary.sdp;
+  const sdp =
+    givenSdp === undefined
+      ? ""
+      : toDOMString(givenSdp, "RTCSessionDescriptionInit.sdp");
+  const givenType = dictionary.type;
+  if (givenType === undefined) {
+    throw createWebRtcTypeError("RTCSessionDescriptionInit.type is required");
+  }
+  const type = toEnum(givenType, RTCSdpTypes, "RTCSessionDescriptionInit.type");
+  if (type === undefined) {
+    throw createWebRtcTypeError(
+      `RTCSessionDescriptionInit.type must be one of ${RTCSdpTypes.join(", ")}`,
+    );
+  }
+  return { sdp, type };
+}
+
+/**
  * A session description (W3C `RTCSessionDescription`).
  *
- * - `new RTCSessionDescription({ type, sdp })`: the W3C constructor. `type`
- *   is required (a missing or unknown value is a `TypeError`), `sdp`
- *   defaults to `""`.
- * - `new RTCSessionDescription(sdp, type)`: werift's original form, kept
- *   for backward compatibility (not validated).
+ * - `new RTCSessionDescription({ type, sdp })`: the W3C constructor, with
+ *   the WebIDL dictionary conversion: `undefined` / `null` is an empty
+ *   dictionary and any other non-object is a `TypeError`; the members are
+ *   read once each in dictionary order (`sdp`, then `type`); `sdp` defaults
+ *   to `""` only when it is `undefined` and is otherwise converted with
+ *   `ToString` (`null` is `"null"`, a Symbol is a `TypeError`); `type` is
+ *   required and converted with `ToString` before it is matched (a missing
+ *   or unknown value is a `TypeError`). Extra arguments are ignored.
+ * - `new RTCSessionDescription(sdp, type)`: werift's original form, chosen
+ *   only when the first argument is a string; kept for backward
+ *   compatibility (not validated).
  *
  * `werift/polyfill` installs this same class as the global
  * `RTCSessionDescription`, so `instanceof` holds from both sides.
@@ -845,30 +887,11 @@ export class RTCSessionDescription {
   ) {
     let sdp: string;
     let type: RTCSdpType;
-    if (typeof initOrSdp === "string" || legacyType !== undefined) {
-      sdp = initOrSdp as string;
+    if (typeof initOrSdp === "string") {
+      sdp = initOrSdp;
       type = legacyType as RTCSdpType;
     } else {
-      // WebIDL dictionary conversion: undefined / null is an empty dictionary.
-      const init = (initOrSdp ?? {}) as RTCSessionDescriptionInit;
-      if (typeof init !== "object" && typeof init !== "function") {
-        throw createWebRtcTypeError(
-          "RTCSessionDescriptionInit must be a dictionary",
-        );
-      }
-      const givenType: unknown = init.type;
-      if (givenType === undefined) {
-        throw createWebRtcTypeError(
-          "RTCSessionDescriptionInit.type is required",
-        );
-      }
-      if (!RTCSdpTypes.includes(givenType as RTCSdpType)) {
-        throw createWebRtcTypeError(
-          `RTCSessionDescriptionInit.type must be one of ${RTCSdpTypes.join(", ")}`,
-        );
-      }
-      type = givenType as RTCSdpType;
-      sdp = init.sdp === undefined ? "" : String(init.sdp);
+      ({ sdp, type } = convertRTCSessionDescriptionInit(initOrSdp));
     }
     Object.defineProperties(this, {
       sdp: {

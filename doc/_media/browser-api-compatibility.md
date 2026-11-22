@@ -16,10 +16,25 @@ The implementation tracks the W3C WebRTC API closely and is exercised with an al
 | `RTCPeerConnection.generateCertificate()` | Not implemented as the static browser helper | Defined by the browser API | `RTCCertificate` and `RTCConfiguration.certificates` are supported directly. Without `certificates`, werift reuses one process-wide certificate by default; set `certificateScope: "standard"` (up to v0.27.0: `"peerConnection"`) to generate one per `RTCPeerConnection`, as browsers do. See "Compatibility options" in `packages/webrtc/README.md` for the other options that differ from browsers. |
 | `RTCDataChannel.binaryType` default | `"nodebuffer"` from the core `werift` entry point: binary messages are Node.js `Buffer`s. `werift/polyfill` (and the WPT runner) use `"arraybuffer"`; `PeerConfig.dataChannelBinaryType` chooses it per connection | `"arraybuffer"`; only `"arraybuffer"` / `"blob"` exist | Existing Node.js applications expect `Buffer`s. `"nodebuffer"` is a werift extension (the name of the `ws` library's value), so werift's `binaryType` type is not assignable to `lib.dom`'s `BinaryType` (the other way round is). `channel.onMessage` always receives `Buffer` / string. |
 | `bufferedamountlow` timing | Fired synchronously when sent data completes and `bufferedAmount` crosses `bufferedAmountLowThreshold` (`bufferedAmountLow`, `onbufferedamountlow`, then the listeners) | Fired from a queued task | Keeps the timing of the existing `bufferedAmountLow` event and of werift's other DataChannel events; `bufferedAmount` read in the handler is the value at the crossing. Data discarded unsent fires nothing, as in the spec. |
+| `bufferedamountlow` event object | One `Event` goes to `onbufferedamountlow` and to the `"bufferedamountlow"` listeners. Guaranteed: `type` (`"bufferedamountlow"`), `target` (the channel), `currentTarget` (the channel during the notification, `null` after it) | Dispatched through the DOM, which also sets `isTrusted`, `eventPhase`, `composedPath()` and honors `stopImmediatePropagation()` | werift notifies without a DOM `EventTarget` dispatch, so `isTrusted` is `false`, `eventPhase` stays `0`, `composedPath()` is empty and `stopImmediatePropagation()` does not stop later listeners; these are not guaranteed. The `target` of the `open` / `close` / `message` / `error` events is an existing limitation outside this change. |
 | `new RTCSessionDescription(sdp, type)` | Accepted next to the W3C `new RTCSessionDescription({ type, sdp })`, also through the `werift/polyfill` global (the same class) | Only the dictionary form; a string argument is a `TypeError` | Backward compatibility with earlier werift versions. `toJSON()` returns `{ sdp, type }`. |
 | `createOffer()` / `createAnswer()` result | Resolves with werift's `RTCSessionDescription` (with `toSdp()` / `toJSON()`), so it is `instanceof RTCSessionDescription` | Resolves with a plain `RTCSessionDescriptionInit` dictionary | Backward-compatible return type. The WPT runner returns the dictionary. |
 | Legacy callback overloads | Not implemented | Legacy browser forms exist historically | Intentionally out of scope. Promise-based APIs are supported. |
 | `addStream`, `removeStream`, `createDTMFSender` | Not implemented | Obsolete/legacy browser APIs | Intentionally out of scope; use track, transceiver, and sender APIs instead. |
+
+## WebIDL value conversion
+
+The browser-compatible entry points convert their arguments with the WebIDL rules, so values that are not plain strings behave as in browsers:
+
+| Input | `channel.binaryType = value` (enum attribute) | `new RTCSessionDescription({ sdp })` (`DOMString sdp = ""`) | `new RTCSessionDescription({ type })` (required enum) |
+| --- | --- | --- | --- |
+| `undefined` | ignored | `""` | `TypeError` (required) |
+| `null`, a number, a bigint | ignored (`"null"`, `"234"`, `"54"` are not values) | `"null"`, `"234"`, `"54"` | `TypeError` |
+| an object with `toString()` | its string, if valid | its string | its string, if valid |
+| a Symbol, or a throwing `toString()` | the exception (value unchanged) | the exception | the exception |
+| an invalid string | ignored, no exception | the string | `TypeError` |
+
+The dictionary members are read once each, `sdp` before `type`; `undefined` / `null` is an empty dictionary (so `type` is missing) and any other non-object is a `TypeError`. A second argument after a dictionary is ignored; only a string first argument selects werift's `(sdp, type)` form. Invalid `binaryType` values are ignored rather than throwing `SyntaxError`, as the enum-typed IDL and the pinned upstream WPT `webrtc/RTCDataChannel-binaryType.window.js` require (`Setting binaryType to '…' should be ignored`). `PeerConfig.dataChannelBinaryType` is werift's own option and still rejects an invalid value with `TypeError`.
 
 ## Browser-compatible surface
 
@@ -40,6 +55,8 @@ The normal application-facing surface includes:
 ## WPT strategy
 
 werift includes an allowlisted upstream WPT runner under `packages/webrtc`. The default public API keeps backward-compatible werift behavior where changing it would be unnecessarily disruptive, while the WPT tooling can apply strict compatibility shims for test cases that require exact browser ordering or error behavior.
+
+The runner executes every upstream `webrtc/**/*.html` file and the `*.window.js` / `*.any.js` files listed in `packages/webrtc/wpt/allowlist.json` (as the window-scope page wptserve generates); the other upstream JavaScript tests need BFCache, idlharness or large-buffer support the runner does not have.
 
 Initialize the WPT submodule before running the compatibility suite:
 

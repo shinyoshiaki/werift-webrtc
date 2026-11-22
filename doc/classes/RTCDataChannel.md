@@ -311,8 +311,11 @@ v13.6.0, v12.17.0
 
 W3C `binaryType`. The initial value is the PeerConnection's
 `dataChannelBinaryType` (`"nodebuffer"` by default, `"arraybuffer"`
-through `werift/polyfill`). A value that is not a
-[RTCDataChannelBinaryType](../enumerations/RTCDataChannelBinaryType.md) is ignored (WebIDL enum attribute).
+through `werift/polyfill`). Assignment follows the WebIDL enum
+attribute setter: the value is converted with `ToString` first (an
+object's `toString()` is used, a Symbol is a `TypeError`), and a result
+that is not a [RTCDataChannelBinaryType](../enumerations/RTCDataChannelBinaryType.md) is ignored without an
+exception (WPT `RTCDataChannel-binaryType.window.js`).
 
 ##### Returns
 

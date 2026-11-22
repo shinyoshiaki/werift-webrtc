@@ -261,6 +261,32 @@
         "SDP negotiation with a sha-384 fingerprint succeds",
         "SDP negotiation with a sha-512 fingerprint succeds"
       ]
+    },
+    {
+      "file": "webrtc/RTCDataChannel-binaryType.window.js",
+      "enabled": true,
+      "reason": "RTCDataChannel.binaryType (ticket 5d0044af, #375): the default under the browser-compatible configuration is \"arraybuffer\", the valid values are set and invalid values are ignored after the WebIDL ToString conversion. Run as the generated window-scope page (tools/wpt-runner/jsTestLogic.ts).",
+      "subtests": [
+        "Default binaryType value",
+        "Setting binaryType to 'blob' should succeed",
+        "Setting binaryType to 'arraybuffer' should succeed",
+        "Setting binaryType to 'jellyfish' should be ignored",
+        "Setting binaryType to 'arraybuffer ' should be ignored",
+        "Setting binaryType to '' should be ignored",
+        "Setting binaryType to 'null' should be ignored",
+        "Setting binaryType to 'undefined' should be ignored",
+        "Setting binaryType to '234' should be ignored",
+        "Setting binaryType to '54' should be ignored"
+      ]
+    },
+    {
+      "file": "webrtc/toJSON.html",
+      "enabled": true,
+      "reason": "RTCSessionDescription.toJSON() (ticket 5d0044af, #375) returns exactly type and sdp; RTCIceCandidate.toJSON() keeps its existing coverage.",
+      "subtests": [
+        "RTCIceCandidate.toJSON serializes only specific attributes",
+        "RTCSessionDescription.toJSON serializes only specific attributes"
+      ]
     }
   ]
 }
