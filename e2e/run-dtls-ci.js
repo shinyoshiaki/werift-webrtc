@@ -2,9 +2,12 @@ const net = require("node:net");
 const { spawn } = require("node:child_process");
 const { requestServerStop } = require("./stop");
 const { ensurePlaywrightBrowsersPath } = require("./browsers-path");
+const { ensurePlaywrightChromium } = require("./ensure-browser");
 
-// Launch the Chromium that ensure-browser.js installed for this harness.
+// Launch Playwright's pinned Chromium from this harness's browsers directory,
+// installing it when missing (also where a system Chrome exists).
 ensurePlaywrightBrowsersPath();
+ensurePlaywrightChromium();
 
 function npmCommand() {
   return process.platform === "win32" ? "npm.cmd" : "npm";

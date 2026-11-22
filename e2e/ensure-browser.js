@@ -203,8 +203,30 @@ function main() {
   process.exit(0);
 }
 
+/**
+ * The DTLS E2E launches Playwright's pinned Chromium (vitest.dtls.config.mts),
+ * not a system Chrome, so main()'s system-Chrome shortcut (GHA ubuntu-latest
+ * ships /usr/bin/google-chrome) does not apply: install it when missing.
+ */
+function ensurePlaywrightChromium() {
+  ensureBrowsersPathEnv(process.env);
+  if (hasPlaywrightChromium("playwright")) {
+    return;
+  }
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const status = installPlaywrightBrowsers("playwright");
+    if (status === 0 && hasPlaywrightChromium("playwright")) {
+      return;
+    }
+  }
+  throw new Error(
+    `Playwright chromium/headless-shell missing after install (PLAYWRIGHT_BROWSERS_PATH=${process.env.PLAYWRIGHT_BROWSERS_PATH})`,
+  );
+}
+
 module.exports = {
   ensureBrowsersPathEnv,
+  ensurePlaywrightChromium,
   hasPlaywrightChromium,
   resolveSystemChrome,
 };
