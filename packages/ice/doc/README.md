@@ -95,6 +95,28 @@ Not covered here:
   the `PASSWORD-ALGORITHM(S)` / `USERHASH` negotiation of RFC 8489 §9.2 in
   both the client and `werift-ice-server`, which is out of scope.
 
+## Consent freshness (RFC 7675)
+
+- The selected pair gets a consent check every 4–6 s (5 s × 0.8–1.2, measured
+  between request starts; never sooner than 4 s without failover). Each check
+  is sent once (no retransmission) with a fresh transaction ID.
+- A check's transaction stays open for 30 s (`CONSENT_TIMEOUT`), whatever the
+  RTT estimate: a later check does not cancel it, so a response that arrives
+  after the next check (an RTT that rose after the selection, an RTT longer
+  than the interval, responses out of order) still refreshes the consent, as
+  §5.1 allows ("the response may be for a previous request"). At most
+  `CONSENT_MAX_OUTSTANDING_REQUESTS` (35: 30 s of the 900 ms failover weak
+  interval, plus one) are open at once; beyond that the oldest one ends, so a
+  limit never ends a request that can still be answered within 30 s.
+- The response must come from the pair's remote address, with a valid
+  MESSAGE-INTEGRITY (the remote password), for the current selected pair,
+  remote generation and consent session. The current RTT of the pair is taken
+  from the newest request answered.
+- 30 s without such a response, consent expires: the agent stops sending on
+  the pair (`failed`, or failover's grace), and every open consent transaction
+  is discarded, so a response that arrives later does not bring consent back.
+  `close()`, an ICE restart and a new selection discard them as well.
+
 ## Failover of the selected pair (no ICE restart)
 
 With semi-aggressive nomination (the default) or negotiated renomination,
@@ -130,11 +152,15 @@ a path broken in one direction).
   as nothing (response, request or data) was received for 2.5 s, so an idle
   pair is checked about every 2.5 s, from the first check after a selection
   on. Checks keep this pacing while earlier
-  ones still wait for their (RTT-based) response timeout: a slow response is
+  ones still wait for a response: a slow response is
   never cancelled and still counts, and a dead high-RTT path is still told
   within the bound (about 8.7 s with an RTT of 1.2 s). A check counts as
   unanswered at its RTT-based deadline, but its transaction stays open for
-  5 s, so a late response (a busy event loop, a delayed path) still counts. The pair is unwritable once 5
+  30 s as every consent check's does (see "Consent freshness" below), so a
+  late response (a busy event loop, a delayed path) still counts. The 900 ms
+  pacing of a weak selected pair is shorter than the 4 s minimum of RFC 7675
+  §5.1; it follows libwebrtc, which checks a weak selected connection the same
+  way, and applies only with failover and only while the pair is weak. The pair is unwritable once 5
   checks in a row went unanswered and 5 s passed since its last response
   (libwebrtc's `CONNECTION_WRITE_CONNECT_FAILURES` /
   `CONNECTION_WRITE_CONNECT_TIMEOUT`), about 5–10 s after the path broke.

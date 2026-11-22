@@ -8,6 +8,8 @@
 
 > `const` **CONSENT\_RESPONSE\_TIMEOUT**: `1000` = `1000`
 
-Default single-shot response wait for consent requests (ms) when RTT is unknown.
-Independent of retransmission count. Downstream ICE-lite peers typically
-answer in 150–300ms; 1s is a conservative default used by interop patches.
+RTT-based response deadline of a consent request (ms) when the RTT is
+unknown (see [consentResponseTimeoutMs](../functions/consentResponseTimeoutMs.md)). Downstream ICE-lite peers
+typically answer in 150–300ms. It is no longer how long the request's
+transaction stays open: that is [CONSENT\_TIMEOUT](CONSENT_TIMEOUT.md), so a response
+after this deadline still refreshes the consent.
