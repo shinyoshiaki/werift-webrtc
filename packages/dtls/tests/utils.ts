@@ -49,7 +49,7 @@ export class RecordingTransport implements Transport {
 }
 
 /**DtlsServer with a freshly generated ECDSA (P-256 / SHA-256) certificate */
-export const createEcdsaDtlsServer = async () => {
+export const createEcdsaDtlsServer = async (options: Partial<Options> = {}) => {
   const transport = new RecordingTransport();
   const { certPem, keyPem, signatureHash } =
     await CipherContext.createSelfSignedCertificateWithKey(
@@ -61,8 +61,28 @@ export const createEcdsaDtlsServer = async () => {
     cert: certPem,
     key: keyPem,
     signatureHash,
+    ...options,
   });
   return { server, transport, certPem };
+};
+
+/** DTLS 1.2 ClientHello (ECDSA / P-256) with extra extensions appended. */
+export const createDtls12ClientHello = (
+  extraExtensions: { type: number; data: Buffer }[] = [],
+) => {
+  const curves = EllipticCurves.createEmpty();
+  curves.data = [NamedCurveAlgorithm.secp256r1_23];
+  const signature = Signature.createEmpty();
+  signature.data = signatures;
+  return new ClientHello(
+    { major: 255 - 1, minor: 255 - 2 },
+    { gmt_unix_time: 0, random_bytes: Buffer.alloc(28, 1) },
+    Buffer.alloc(0),
+    Buffer.alloc(0),
+    [CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256_49195],
+    [0],
+    [curves.extension, signature.extension, ...extraExtensions],
+  );
 };
 
 /**ClientHello handshake as a DTLS client would send it in flight 1 / 3 */

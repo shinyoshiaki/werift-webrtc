@@ -1,5 +1,4 @@
-import { mergeProcessCovs } from "@bcoe/v8-coverage";
-import { spawnSync } from "child_process";
+import { spawn } from "child_process";
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { dirname, resolve } from "path";
@@ -9,6 +8,13 @@ import {
   extractCoverageTotals,
   findCoverageRegressions,
 } from "./coverageLogic";
+import {
+  consumeCoverageFiles,
+  createEmptyProcessCoverage,
+  isTargetSourceCoverageUrl,
+  removeStaleCoverageTempDirs,
+  WPT_V8_COVERAGE_TEMP_PREFIX,
+} from "./coverageMerge";
 import { convertCoverage, generateCoverageReports } from "./coverageProvider";
 import {
   defaultMarkdownReportPath,
@@ -50,39 +56,38 @@ function isWptCoverageTargetPath(filePath: string) {
 }
 
 async function main() {
-  const rawCoverageDir = await mkdtemp(resolve(tmpdir(), "werift-wpt-v8-"));
+  await removeStaleCoverageTempDirs(tmpdir(), WPT_V8_COVERAGE_TEMP_PREFIX);
+  const rawCoverageDir = await mkdtemp(
+    resolve(tmpdir(), WPT_V8_COVERAGE_TEMP_PREFIX),
+  );
+  const isTargetUrl = (url: unknown) =>
+    isTargetSourceCoverageUrl(url, sourceDir) &&
+    typeof url === "string" &&
+    isWptCoverageTargetPath(url.slice("file://".length));
+  let mergedCoverage = createEmptyProcessCoverage();
+  let exitCode = 0;
 
   try {
-    const result = spawnSync(
-      process.execPath,
-      [
-        "--disable-warning=ExperimentalWarning",
-        "--disable-warning=MODULE_TYPELESS_PACKAGE_JSON",
-        "--import",
-        resolve(repoRoot, "tools/node-ts/register.mjs"),
-        "tools/wpt-runner/run.ts",
-      ],
-      {
-        cwd: packageDir,
-        env: {
-          ...process.env,
-          NODE_V8_COVERAGE: rawCoverageDir,
-          // V8 coverage makes each worker substantially heavier; keep the
-          // default low enough that worker timeout profiles remain reliable.
-          WPT_CONCURRENCY:
-            process.env.WPT_CONCURRENCY ?? DEFAULT_COVERAGE_WPT_CONCURRENCY,
-          WPT_USE_WORKERS: "1",
-        },
-        stdio: "inherit",
-      },
-    );
+    const status = await runWptAndConsumeCoverage(rawCoverageDir, async () => {
+      mergedCoverage = await consumeCoverageFiles(
+        rawCoverageDir,
+        mergedCoverage,
+        isTargetUrl,
+      );
+    });
+    await warnUnreadableCoverageFiles(rawCoverageDir);
 
-    if (result.status !== 0) {
-      process.exit(result.status ?? 1);
+    if (status !== 0) {
+      exitCode = status;
+      return;
     }
 
+    mergedCoverage = await consumeCoverageFiles(
+      rawCoverageDir,
+      mergedCoverage,
+      isTargetUrl,
+    );
     const markdown = await readMarkdownReport();
-    const mergedCoverage = await mergeRawCoverage(rawCoverageDir);
     const coverageMap = await convertCoverage(mergedCoverage);
     coverageMap.filter((filePath) => isWptCoverageTargetPath(filePath));
     await generateCoverageReports(coverageMap, coverageDir);
@@ -113,47 +118,81 @@ async function main() {
           `${regression.metric} coverage regressed: ${regression.current.toFixed(2)} < ${regression.baseline.toFixed(2)}`,
         );
       }
-      process.exitCode = 1;
+      exitCode = 1;
     }
   } finally {
     await rm(rawCoverageDir, { recursive: true, force: true });
   }
+
+  process.exitCode = exitCode;
 }
 
-async function mergeRawCoverage(directoryPath: string) {
-  let merged = { result: [] as Array<Record<string, unknown>> };
-  const coverageFiles = (await readdir(directoryPath))
-    .filter((fileName) => fileName.endsWith(".json"))
-    .sort();
-
-  for (const fileName of coverageFiles) {
-    const filePath = resolve(directoryPath, fileName);
-    let payload: { result?: Array<Record<string, unknown>> };
+async function warnUnreadableCoverageFiles(directoryPath: string) {
+  for (const fileName of (await readdir(directoryPath)).filter((name) =>
+    name.endsWith(".json"),
+  )) {
     try {
-      payload = JSON.parse(await readFile(filePath, "utf8")) as {
-        result?: Array<Record<string, unknown>>;
-      };
+      JSON.parse(await readFile(resolve(directoryPath, fileName), "utf8"));
     } catch (error) {
-      // Worker coverage dumps can be truncated when WPT workers are killed.
-      // Skip the broken file so a single dump cannot fail the whole CI run.
+      // A worker may leave a truncated dump when it is terminated by WPT.
       console.warn(
         `[wpt:coverage] skip unreadable coverage dump ${fileName}:`,
         error instanceof Error ? error.message : error,
       );
-      continue;
     }
-    if (!payload.result) {
-      continue;
-    }
-    merged = mergeProcessCovs([
-      merged,
-      {
-        result: payload.result.filter((entry) => isTargetSourceUrl(entry.url)),
-      },
-    ]);
   }
+}
 
-  return merged;
+async function runWptAndConsumeCoverage(
+  rawCoverageDir: string,
+  consume: () => Promise<void>,
+) {
+  const child = spawn(
+    process.execPath,
+    [
+      "--disable-warning=ExperimentalWarning",
+      "--disable-warning=MODULE_TYPELESS_PACKAGE_JSON",
+      "--import",
+      resolve(repoRoot, "tools/node-ts/register.mjs"),
+      "tools/wpt-runner/run.ts",
+    ],
+    {
+      cwd: packageDir,
+      env: {
+        ...process.env,
+        NODE_V8_COVERAGE: rawCoverageDir,
+        // V8 coverage makes each worker substantially heavier; keep the
+        // default low enough that worker timeout profiles remain reliable.
+        WPT_CONCURRENCY:
+          process.env.WPT_CONCURRENCY ?? DEFAULT_COVERAGE_WPT_CONCURRENCY,
+        WPT_USE_WORKERS: "1",
+      },
+      stdio: "inherit",
+    },
+  );
+
+  // Merge and delete finished worker dumps while WPT runs, so raw coverage
+  // does not pile up in tmp until the end of the run.
+  let consumeChain = Promise.resolve();
+  const scheduleConsume = () => {
+    consumeChain = consumeChain.then(consume).catch((error) => {
+      console.error(error);
+    });
+  };
+  const timer = setInterval(scheduleConsume, 1_000);
+
+  try {
+    return await new Promise<number>((resolve, reject) => {
+      child.on("error", reject);
+      child.on("exit", (code, signal) => {
+        resolve(signal ? 1 : (code ?? 1));
+      });
+    });
+  } finally {
+    clearInterval(timer);
+    scheduleConsume();
+    await consumeChain;
+  }
 }
 
 async function updateBaselineIfRequested(totals: CoverageTotals) {
@@ -177,20 +216,6 @@ async function updateBaselineIfRequested(totals: CoverageTotals) {
       2,
     )}\n`,
   );
-}
-
-function isTargetSourceUrl(value: unknown) {
-  if (typeof value !== "string" || !value.startsWith("file://")) {
-    return false;
-  }
-
-  if (!value.startsWith(`file://${sourceDir}/`) || !value.endsWith(".ts")) {
-    return false;
-  }
-
-  // file:///abs/path → /abs/path (strip scheme only).
-  const filePath = value.slice("file://".length);
-  return isWptCoverageTargetPath(filePath);
 }
 
 async function readMarkdownReport() {

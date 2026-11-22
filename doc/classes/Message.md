@@ -82,12 +82,6 @@ Every ALTERNATE-SERVER attribute, in wire order.
 
 ***
 
-### rawAttributes
-
-> **rawAttributes**: `RawAttribute`[]
-
-***
-
 ### transactionId
 
 > **transactionId**: `Buffer`
@@ -164,6 +158,35 @@ integrity attributes parseMessage accepted in their RFC 8489 positions.
 ###### rawAttributes
 
 > **rawAttributes**: `object`[]
+
+***
+
+### rawAttributes
+
+#### Get Signature
+
+> **get** **rawAttributes**(): `RawAttribute`[]
+
+Unknown (not in ATTRIBUTES) attributes in wire order.
+Live array: `push` / `reverse` / in-place edits are serialized.
+
+##### Returns
+
+`RawAttribute`[]
+
+#### Set Signature
+
+> **set** **rawAttributes**(`value`): `void`
+
+##### Parameters
+
+###### value
+
+`RawAttribute`[]
+
+##### Returns
+
+`void`
 
 ***
 
@@ -394,7 +417,7 @@ Remove the attribute named `key`, if present.
 
 `Message`
 
-#### Inherited from
+#### Overrides
 
 `AttributeRepository.setAttribute`
 

@@ -32,6 +32,14 @@
 
 ***
 
+### CertificateRequired
+
+> **CertificateRequired**: `116`
+
+RFC 8446 certificate_required
+
+***
+
 ### CertificateRevoked
 
 > **CertificateRevoked**: `44`
@@ -101,6 +109,14 @@
 ### InternalError
 
 > **InternalError**: `80`
+
+***
+
+### MissingExtension
+
+> **MissingExtension**: `109`
+
+RFC 8446 missing_extension
 
 ***
 

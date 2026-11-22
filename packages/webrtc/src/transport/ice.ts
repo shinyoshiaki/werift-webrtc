@@ -864,8 +864,10 @@ export class RTCIceTransport {
       })
       .finally(() => {
         // A failed start releases its waiters too.
-        waitStart.execute();
-        waitStart.complete();
+        if (!waitStart.ended) {
+          waitStart.execute();
+          waitStart.complete();
+        }
         if (this.waitStart === waitStart) this.waitStart = undefined;
         if (this.startPromise === startPromise) this.startPromise = undefined;
       });

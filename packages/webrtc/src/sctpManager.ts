@@ -77,6 +77,8 @@ export class SctpTransportManager {
   dataChannelsOpened = 0;
   dataChannelsClosed = 0;
   private dataChannels: RTCDataChannel[] = [];
+  /** In-flight connect of one transport; a replaced transport starts its own. */
+  private connecting?: { transport: RTCSctpTransport; promise: Promise<void> };
   /**
    * SCTP transports that carry a `createDataChannel` call. They are
    * application state: negotiation rollback keeps them instead of stopping.
@@ -300,6 +302,11 @@ export class SctpTransportManager {
     if (!transport || !this.sctpRemotePort) {
       return;
     }
+    if (this.connecting?.transport === transport) {
+      await this.connecting.promise;
+      return;
+    }
+
     const { sctp } = transport;
     if (sctp.state === "closed") {
       log("sctp closed");
@@ -313,13 +320,21 @@ export class SctpTransportManager {
             sctp.stateChanged.connected.asPromise(),
             sctp.stateChanged.closed.asPromise(),
           ]);
-
-    await transport.ensureStarted(this.sctpRemotePort);
-    // The state may have settled while starting.
-    if (settled && !["connected", "closed"].includes(sctp.state)) {
-      await settled;
+    const promise = (async () => {
+      await transport.ensureStarted(this.sctpRemotePort!);
+      // The state may have settled while starting.
+      if (settled && !["connected", "closed"].includes(sctp.state)) {
+        await settled;
+      }
+      log("sctp", sctp.state);
+    })();
+    const connecting = { transport, promise };
+    this.connecting = connecting;
+    try {
+      await promise;
+    } finally {
+      if (this.connecting === connecting) this.connecting = undefined;
     }
-    log("sctp", sctp.state);
   }
 
   /**
