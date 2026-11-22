@@ -457,57 +457,65 @@ describe.skipIf(interopDisabled)(
       "flight5",
       "flight6",
     ];
+    /**
+     * Shared Arrange + Act: connect with the first transmission of `flight`
+     * dropped on whichever side sends it.
+     */
+    async function connectWithFlightLoss(
+      [offerSide, answerSide]: Pairing,
+      flight: DtlsFlight,
+      offerConfig: Record<string, unknown> = {},
+      answerConfig: Record<string, unknown> = {},
+    ) {
+      const offerer = createPeer(impls, offerSide, offerConfig);
+      const answerer = createPeer(impls, answerSide, answerConfig);
+      const offererStates = recordConnectionStates(offerer);
+      const answererStates = recordConnectionStates(answerer);
+      trickle(offerer, answerer);
+      trickle(answerer, offerer);
+      try {
+        const channelPromise = openDataChannel(offerer, answerer);
+        await offerer.setLocalDescription(await offerer.createOffer());
+        const offererDrop = dropFirstDtlsFlight(offerer, flight);
+        await answerer.setRemoteDescription({
+          type: "offer",
+          sdp: offerer.localDescription!.sdp,
+        });
+        await answerer.setLocalDescription(await answerer.createAnswer());
+        const answererDrop = dropFirstDtlsFlight(answerer, flight);
+        // Act: 対象 flight の初回送信だけを落として接続する
+        await offerer.setRemoteDescription({
+          type: "answer",
+          sdp: answerer.localDescription!.sdp,
+        });
+        const channels = await withTimeout(
+          channelPromise,
+          20_000,
+          "open after loss",
+        );
+        // Assert: 実際に落とし、再送で接続し、connected は各 1 回
+        expect(offererDrop.dropped + answererDrop.dropped).toBeGreaterThan(0);
+        const [echo] = await transfer(channels.local, channels.remote, [
+          "after-loss",
+        ]);
+        expect(echo).toBe("after-loss");
+        await waitConnectionState(offerer, "connected", 20_000);
+        await waitConnectionState(answerer, "connected", 20_000);
+        expect(offererStates.filter((s) => s === "connected")).toHaveLength(1);
+        expect(answererStates.filter((s) => s === "connected")).toHaveLength(1);
+        return { offerer, answerer };
+      } finally {
+        await closeAll(offerer, answerer);
+      }
+    }
+
     describe.each(pairings.map((p) => [pairingLabel(p), p] as const))(
       "DTLS 1.2 loss %s",
-      (_label, [offerSide, answerSide]) => {
+      (_label, pairing) => {
         test.each(flights)(
           "first %s lost: retransmission completes the handshake",
           async (flight) => {
-            const offerer = createPeer(impls, offerSide);
-            const answerer = createPeer(impls, answerSide);
-            const offererStates = recordConnectionStates(offerer);
-            const answererStates = recordConnectionStates(answerer);
-            trickle(offerer, answerer);
-            trickle(answerer, offerer);
-            try {
-              const channelPromise = openDataChannel(offerer, answerer);
-              await offerer.setLocalDescription(await offerer.createOffer());
-              const offererDrop = dropFirstDtlsFlight(offerer, flight);
-              await answerer.setRemoteDescription({
-                type: "offer",
-                sdp: offerer.localDescription!.sdp,
-              });
-              await answerer.setLocalDescription(await answerer.createAnswer());
-              const answererDrop = dropFirstDtlsFlight(answerer, flight);
-              // Act: 対象 flight の初回送信だけを落として接続する
-              await offerer.setRemoteDescription({
-                type: "answer",
-                sdp: answerer.localDescription!.sdp,
-              });
-              const channels = await withTimeout(
-                channelPromise,
-                20_000,
-                "open after loss",
-              );
-              // Assert: 実際に落とし、再送で接続し、connected は各 1 回
-              expect(
-                offererDrop.dropped + answererDrop.dropped,
-              ).toBeGreaterThan(0);
-              const [echo] = await transfer(channels.local, channels.remote, [
-                "after-loss",
-              ]);
-              expect(echo).toBe("after-loss");
-              await waitConnectionState(offerer, "connected", 20_000);
-              await waitConnectionState(answerer, "connected", 20_000);
-              expect(
-                offererStates.filter((s) => s === "connected"),
-              ).toHaveLength(1);
-              expect(
-                answererStates.filter((s) => s === "connected"),
-              ).toHaveLength(1);
-            } finally {
-              await closeAll(offerer, answerer);
-            }
+            await connectWithFlightLoss(pairing, flight);
           },
           30_000,
         );
@@ -598,6 +606,132 @@ describe.skipIf(interopDisabled)(
           } finally {
             await turn.close();
           }
+        },
+        30_000,
+      );
+    });
+
+    // warp の DTLS 1.3 / 1.2（SPED あり / なし）は develop に対して DTLS 1.2 へ落ちる。
+    // SPED は通常の DTLS への切り替えを伴う。それが UDP host 以外の経路・restart・loss でも成り立つこと。
+    const warpDualConfigs = [
+      [
+        "SPED + DTLS 1.3/1.2",
+        { sped: true, dtls: { protocolVersions: ["1.3", "1.2"] } },
+      ],
+      ["DTLS 1.3/1.2", { dtls: { protocolVersions: ["1.3", "1.2"] } }],
+    ] as const;
+    const spedPairings = [
+      ["warp", "develop"],
+      ["develop", "warp"],
+    ] as const satisfies readonly Pairing[];
+    const warpDualMatrix = warpDualConfigs.flatMap(([name, config]) =>
+      spedPairings.map(
+        (pairing) =>
+          [`${name} ${pairingLabel(pairing)}`, pairing, config] as const,
+      ),
+    );
+    describe.each(warpDualMatrix)("warp %s", (_label, pairing, warpConfig) => {
+      const warpSped = (
+        [offerSide, answerSide]: Pairing,
+        extra: Record<string, unknown> = {},
+      ) =>
+        [
+          offerSide === "warp" ? { ...warpConfig, ...extra } : extra,
+          answerSide === "warp" ? { ...warpConfig, ...extra } : extra,
+        ] as const;
+      test("ICE-TCP only", async () => {
+        const tcpOnly = {
+          iceUseTcp: true,
+          iceInterfaceAddresses: { udp4: "127.0.0.1", tcp4: "127.0.0.1" },
+          iceFilterCandidatePair: (pair: {
+            localCandidate: { transport: string };
+          }) => pair.localCandidate.transport.toLowerCase() === "tcp",
+        };
+        // Act: TCP の経路だけで接続する
+        const { offerer, answerer, channels } = await connectWithDataChannel(
+          pairing,
+          ...warpSped(pairing, tcpOnly),
+        );
+        try {
+          // Assert: TCP 上で DTLS 1.2 に落ちてデータが双方向に届く
+          await assertBidirectionalData(channels);
+          expect(await transportTlsVersion(offerer)).toBe("DTLS 1.2");
+          expect(
+            offerer.iceTransports[0]!.connection.nominated?.localCandidate.transport.toLowerCase(),
+          ).toBe("tcp");
+        } finally {
+          await closeAll(offerer, answerer);
+        }
+      });
+
+      test.each(["develop", "warp"] as const)(
+        "relay only through the %s TURN server",
+        async (serverSide) => {
+          const turn = await startTurnServer(serverSide);
+          const relay = {
+            iceTransportPolicy: "relay",
+            iceServers: [
+              {
+                urls: `turn:127.0.0.1:${turn.port}`,
+                username: "user",
+                credential: "pass",
+              },
+            ],
+          };
+          try {
+            // Act: relay 候補だけで接続する（relay は SPED を載せない）
+            const { offerer, answerer, channels } =
+              await connectWithDataChannel(
+                pairing,
+                ...warpSped(pairing, relay),
+              );
+            try {
+              // Assert: relay 上で DTLS 1.2 に落ちてデータが双方向に届く
+              await assertBidirectionalData(channels);
+              expect(await transportTlsVersion(answerer)).toBe("DTLS 1.2");
+            } finally {
+              await closeAll(offerer, answerer);
+            }
+          } finally {
+            await turn.close();
+          }
+        },
+        30_000,
+      );
+
+      test.each(["offerer", "answerer"] as const)(
+        "ICE restart started by the %s keeps the DTLS 1.2 session",
+        async (initiator) => {
+          const { offerer, answerer, channels, offererStates, answererStates } =
+            await connectWithDataChannel(pairing, ...warpSped(pairing));
+          try {
+            const [first, second] =
+              initiator === "offerer"
+                ? [offerer, answerer]
+                : [answerer, offerer];
+            // Act: DTLS 1.2 に落ちた接続で restartIce して再ネゴシエーションする
+            first.restartIce();
+            await negotiate(first, second);
+            await waitConnectionState(offerer, "connected");
+            await waitConnectionState(answerer, "connected");
+            // Assert: failed を経ずに DTLS 1.2 のままデータが流れ続ける
+            const [echo] = await transfer(channels.remote, channels.local, [
+              "after-restart",
+            ]);
+            expect(echo).toBe("after-restart");
+            expect(await transportTlsVersion(offerer)).toBe("DTLS 1.2");
+            expect(offererStates).not.toContain("failed");
+            expect(answererStates).not.toContain("failed");
+          } finally {
+            await closeAll(offerer, answerer);
+          }
+        },
+      );
+
+      test.each(flights)(
+        "first %s lost: retransmission completes the DTLS 1.2 handshake",
+        async (flight) => {
+          await connectWithFlightLoss(pairing, flight, ...warpSped(pairing));
         },
         30_000,
       );

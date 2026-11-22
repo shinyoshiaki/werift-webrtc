@@ -363,7 +363,13 @@ export class IceSpedTransport implements Transport {
     await this.sendInternal(data, addr, true, true, false);
   };
 
+  /**
+   * No more records in either direction: also drops the subscription to the
+   * connection's datagrams, which otherwise lives as long as the ICE
+   * connection (e.g. a SPED socket replaced by standard DTLS).
+   */
   async close() {
+    if (this.closed) return;
     this.closed = true;
     this.disableHandshakeDirect();
     this.datagramSubscription.unSubscribe();

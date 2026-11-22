@@ -63,6 +63,7 @@ describe("dtls parameterized media", () => {
           type: "init",
           payload: {
             protocolVersions: testCase.weriftVersions,
+            sped: testCase.weriftSped,
             description: pc.localDescription,
           },
         });
@@ -117,7 +118,10 @@ describe("dtls parameterized media", () => {
 
         const offer = await peer.request(method, {
           type: "init",
-          payload: { protocolVersions: testCase.weriftVersions },
+          payload: {
+            protocolVersions: testCase.weriftVersions,
+            sped: testCase.weriftSped,
+          },
         });
         await pc.setRemoteDescription(offer.description);
         await pc.setLocalDescription(await pc.createAnswer());

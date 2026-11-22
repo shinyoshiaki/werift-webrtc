@@ -47,6 +47,12 @@ export class SpedSession {
   private roundRobinIndex = 0;
   private firstAuthenticatedSeen = false;
   private totalRetransmitCount = 0;
+  /**
+   * A Binding of this generation carried a non-empty DATA (a handshake
+   * packet the peer may have injected), not only the capability
+   * advertisement.
+   */
+  handshakeDataSent = false;
 
   constructor(generation: number, state: SpedState = "probing") {
     this.generation = generation;
@@ -85,6 +91,7 @@ export class SpedSession {
     this.peerSupport = "unknown";
     this.state = "disabled";
     this.firstAuthenticatedSeen = false;
+    this.handshakeDataSent = false;
   }
 
   replaceL1(packets: readonly Buffer[]): void {
@@ -166,6 +173,20 @@ export class SpedSession {
     return this.state;
   }
 
+  /**
+   * The selected path cannot carry SPED (relay / TURN) before any eligible
+   * authenticated Binding decided support: send the handshake directly.
+   * Peer support stays unknown.
+   * @returns true when this moved probing to fallback.
+   */
+  fallBackUndecided(): boolean {
+    if (this.state !== "probing" || this.peerSupport !== "unknown") {
+      return false;
+    }
+    this.state = "fallback";
+    return true;
+  }
+
   completeHandshake(): void {
     if (this.state === "disabled") {
       return;
@@ -195,6 +216,7 @@ export class SpedSession {
     this.peerSupport = "unknown";
     this.state = "probing";
     this.firstAuthenticatedSeen = false;
+    this.handshakeDataSent = false;
   }
 
   /** Original L1 bytes for exact-same-flight fallback. */
@@ -251,6 +273,9 @@ export class SpedSession {
       DTLS_IN_STUN_DATA,
       encodeSpedData(dataValue).value,
     );
+    if (dataValue.length > 0) {
+      this.handshakeDataSent = true;
+    }
     this.consumeAcks(acks.length);
     return true;
   }

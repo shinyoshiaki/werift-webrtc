@@ -32,6 +32,7 @@ describe("dtls parameterized datachannel", () => {
           type: "init",
           payload: {
             protocolVersions: testCase.weriftVersions,
+            sped: testCase.weriftSped,
             description: pc.localDescription,
           },
         });
@@ -72,7 +73,10 @@ describe("dtls parameterized datachannel", () => {
 
         const offer = await peer.request(method, {
           type: "init",
-          payload: { protocolVersions: testCase.weriftVersions },
+          payload: {
+            protocolVersions: testCase.weriftVersions,
+            sped: testCase.weriftSped,
+          },
         });
         expect(offer.sped).toBe(false);
         await pc.setRemoteDescription(offer.description);

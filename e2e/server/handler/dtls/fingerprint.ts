@@ -23,6 +23,7 @@ export class dtls_fingerprint_answer {
           this.pc = new RTCPeerConnection(
             await peerConfigWithDtls({
               protocolVersions: payload?.protocolVersions,
+              sped: payload?.sped,
             }),
           );
           this.pc.createDataChannel("dc");
@@ -79,6 +80,7 @@ export class dtls_fingerprint_offer {
           this.pc = new RTCPeerConnection(
             await peerConfigWithDtls({
               protocolVersions: payload?.protocolVersions,
+              sped: payload?.sped,
             }),
           );
           const description = payload?.mutateFingerprint

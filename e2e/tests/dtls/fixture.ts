@@ -12,6 +12,9 @@
  *   ["1.2"]        → Chromium falls back to DTLS 1.2
  *   ["1.3"]        → DTLS 1.3
  *   ["1.3", "1.2"] → DTLS 1.3 (werift prefers 1.3)
+ * The SPED cases add werift `sped: true`; Chromium's SPED stays off
+ * (chromiumLaunch.ts), so werift falls back to direct DTLS: the same DTLS 1.3
+ * flight with ["1.3"], the standard DTLS handshake with ["1.3", "1.2"].
  * werift's own 1.3 → 1.2 fallback against a 1.2-only peer is covered by the
  * packages/dtls and packages/webrtc tests, because Chromium can no longer be
  * capped to DTLS 1.2.
@@ -32,6 +35,8 @@ export {
 export type BrowserDtlsTestCase = {
   name: string;
   weriftVersions: readonly string[];
+  /** werift `sped: true`; Chromium keeps SPED off, so werift falls back. */
+  weriftSped?: boolean;
   expectedWeriftVersion: "DTLS 1.2" | "DTLS 1.3";
   expectedChromiumVersion: "FEFD" | "FEFC";
 };
@@ -52,6 +57,22 @@ export const BROWSER_DTLS_CASES: BrowserDtlsTestCase[] = [
   {
     name: "1.3 preferred",
     weriftVersions: ["1.3", "1.2"],
+    expectedWeriftVersion: "DTLS 1.3",
+    expectedChromiumVersion: "FEFC",
+  },
+  {
+    // SPED probe ignored by Chromium → the same DTLS 1.3 flight goes direct
+    name: "SPED + DTLS 1.3 against Chromium without SPED",
+    weriftVersions: ["1.3"],
+    weriftSped: true,
+    expectedWeriftVersion: "DTLS 1.3",
+    expectedChromiumVersion: "FEFC",
+  },
+  {
+    // 1.2 offered too → werift switches to the standard DTLS handshake
+    name: "SPED + 1.3 preferred against Chromium without SPED",
+    weriftVersions: ["1.3", "1.2"],
+    weriftSped: true,
     expectedWeriftVersion: "DTLS 1.3",
     expectedChromiumVersion: "FEFC",
   },

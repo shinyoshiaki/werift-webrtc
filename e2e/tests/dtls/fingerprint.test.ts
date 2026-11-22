@@ -37,6 +37,7 @@ describe("dtls parameterized fingerprint", () => {
           type: "init",
           payload: {
             protocolVersions: testCase.weriftVersions,
+            sped: testCase.weriftSped,
             description: pc.localDescription,
             mutateFingerprint: true,
           },
@@ -84,6 +85,7 @@ describe("dtls parameterized fingerprint", () => {
           type: "init",
           payload: {
             protocolVersions: testCase.weriftVersions,
+            sped: testCase.weriftSped,
             mutateFingerprint: true,
           },
         });

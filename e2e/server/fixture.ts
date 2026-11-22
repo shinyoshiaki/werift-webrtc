@@ -80,6 +80,8 @@ export async function peerConfigWithDtls(options?: {
   helloRetryRequest?: boolean;
   /** SPED + WARP `sendBeforeNomination` (application data before ICE nomination). */
   sendBeforeNomination?: boolean;
+  /** PeerConfig.sped (DTLS 1.3 in ICE Binding; Chromium's SPED stays off). */
+  sped?: boolean;
 }): Promise<Partial<PeerConfig>> {
   const base = await peerConfig;
   const protocolVersions = options?.protocolVersions?.map((version) =>
@@ -89,6 +91,7 @@ export async function peerConfigWithDtls(options?: {
   );
   return {
     ...base,
+    ...(options?.sped ? { sped: true } : {}),
     dtls: {
       ...base.dtls,
       protocolVersions,
