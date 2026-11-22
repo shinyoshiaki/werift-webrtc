@@ -11,6 +11,7 @@ import { readFileSync } from "fs";
 import type mdns from "multicast-dns";
 import { type Address, Event, type Transport } from "../../common/src";
 import { NodeStunServer, NodeTurnServer } from "../../ice-server/src";
+import { seededRandom } from "../../pbt/src";
 import { Candidate } from "../src/candidate";
 import { MdnsLookup } from "../src/dns/lookup";
 import {
@@ -286,6 +287,249 @@ export function createConsentHarness(
     requestTimes: protocol.requestTimes,
     sentMessages: protocol.sentMessages,
   };
+}
+
+/** How the scripted peer of {@link createConsentNetworkHarness} answers one consent request. */
+export type ConsentPeerReply = {
+  /** Round trip (ms) from the request's send to the response's arrival. */
+  delay: number;
+  /** The request or its response is lost: nothing arrives. */
+  drop?: boolean;
+  /** Source address of the response (default: the remote candidate). */
+  from?: Address;
+  /** MESSAGE-INTEGRITY key (default: the remote password); null: unsigned. */
+  key?: string | null;
+  /** Answer with another transaction ID than the request's (an unknown txid). */
+  unknownTransactionId?: boolean;
+};
+
+/** A consent request the scripted peer saw. */
+export type ConsentPeerRequest = {
+  /** 0-based index of the request on the wire. */
+  index: number;
+  sentAt: number;
+  transactionIdHex: string;
+};
+
+/** The peer's script: replies to a request (one entry per response it sends). */
+export type ConsentPeerScript = (
+  request: ConsentPeerRequest,
+) => ConsentPeerReply | ConsentPeerReply[] | undefined;
+
+/** Outcome of a response the scripted peer delivered to the agent. */
+export type ConsentDelivery = {
+  transactionIdHex: string;
+  requestIndex: number;
+  at: number;
+  /** Its transaction was still registered in the protocol when it arrived. */
+  registered: boolean;
+  /** `responsesReceived` of the pair grew: consent took the response. */
+  accepted: boolean;
+};
+
+export type ConsentNetworkHarness = {
+  connection: Connection;
+  nominated: CandidatePair;
+  protocol: StunProtocol;
+  remoteAddr: Address;
+  /** Consent requests on the wire, in order. */
+  requests: ConsentPeerRequest[];
+  /** Every response delivered to the agent, in order. */
+  deliveries: ConsentDelivery[];
+  /** Application data that reached the transport. */
+  dataSent: Buffer[];
+  /** Replace the peer's script (an RTT step, a loss burst). */
+  setScript: (script: ConsentPeerScript) => void;
+  /** Transactions the protocol still has open. */
+  openTransactions: () => number;
+  /** Unhandled promise rejections since the harness was built. */
+  unhandledRejections: unknown[];
+  /** Time (ms) since the harness was built (the clock of every recorded time). */
+  elapsed: () => number;
+  /** When the agent moved to `failed` (undefined: it did not). */
+  failedAt: () => number | undefined;
+  dispose: () => Promise<void>;
+};
+
+/**
+ * Arrange: a Connection whose selected pair uses a real `StunProtocol` (and
+ * so real `Transaction`s), its UDP transport replaced by a scripted network.
+ * Every consent request on the wire goes to a peer that answers it as
+ * `script` says (round trip, loss, source address, MESSAGE-INTEGRITY key,
+ * unknown txid), with a BINDING success response signed with the remote
+ * password and fingerprinted, delivered through `datagramReceived`, so a
+ * response that comes after its transaction ended is dropped as on a real
+ * socket. Use with fake timers and a fixed `Math.random`; starts consent
+ * (`consent.start()`) as the selection does.
+ */
+export function createConsentNetworkHarness(
+  script: ConsentPeerScript,
+  options: {
+    /** RTT (s) the pair measured before its selection (undefined: unknown). */
+    initialRtt?: number;
+    remoteIsLite?: boolean;
+    iceControlling?: boolean;
+    iceOptions?: Partial<IceOptions>;
+  } = {},
+): ConsentNetworkHarness {
+  const remoteAddr: Address = ["192.0.2.2", 5000];
+  const remotePassword = "remote-password";
+  const startedAt = Date.now();
+  const elapsed = () => Date.now() - startedAt;
+  const protocol = new StunProtocol();
+  protocol.localCandidate = createConsentCandidate("192.0.2.1", 4000, "local");
+  const requests: ConsentPeerRequest[] = [];
+  const deliveries: ConsentDelivery[] = [];
+  const dataSent: Buffer[] = [];
+  let current = script;
+  const timers = new Set<ReturnType<typeof setTimeout>>();
+
+  const nominated = new CandidatePair(
+    protocol,
+    createConsentCandidate(remoteAddr[0], remoteAddr[1], "remote"),
+    options.iceControlling ?? true,
+  );
+  nominated.nominated = true;
+  nominated.rtt = options.initialRtt;
+
+  const deliver = (request: ConsentPeerRequest, reply: ConsentPeerReply) => {
+    const transactionId = reply.unknownTransactionId
+      ? Buffer.alloc(12, 0xab)
+      : Buffer.from(request.transactionIdHex, "hex");
+    const response = new Message(
+      methods.BINDING,
+      classes.RESPONSE,
+      transactionId,
+    );
+    response.setAttribute("XOR-MAPPED-ADDRESS", ["192.0.2.1", 4000]);
+    const key = reply.key === undefined ? remotePassword : reply.key;
+    if (key !== null) {
+      response.addMessageIntegrity(Buffer.from(key, "utf8"));
+    }
+    response.addFingerprint();
+    const registered = response.transactionIdHex in protocol.transactions;
+    const before = nominated.responsesReceived;
+    (protocol as any).datagramReceived(
+      response.bytes,
+      reply.from ?? remoteAddr,
+    );
+    const delivery: ConsentDelivery = {
+      transactionIdHex: response.transactionIdHex,
+      requestIndex: request.index,
+      at: elapsed(),
+      registered,
+      accepted: false,
+    };
+    deliveries.push(delivery);
+    // The consent callback runs after the transaction's promise settles.
+    void Promise.resolve()
+      .then(() => Promise.resolve())
+      .then(() => Promise.resolve())
+      .then(() => {
+        delivery.accepted = nominated.responsesReceived > before;
+      });
+  };
+
+  (protocol as any).transport = {
+    closed: false,
+    socketType: "udp4",
+    type: "udp",
+    addressFamily: 4,
+    address: { address: "192.0.2.1", port: 4000 },
+    close: async () => {},
+    send: async (data: Buffer) => {
+      const message = parseMessage(data);
+      if (!message) {
+        dataSent.push(Buffer.from(data));
+        return;
+      }
+      if (
+        message.messageClass !== classes.REQUEST ||
+        message.messageMethod !== methods.BINDING
+      ) {
+        return;
+      }
+      const request: ConsentPeerRequest = {
+        index: requests.length,
+        sentAt: elapsed(),
+        transactionIdHex: message.transactionIdHex,
+      };
+      requests.push(request);
+      const result = current(request);
+      const replies = result === undefined ? [] : [result].flat();
+      for (const reply of replies) {
+        if (reply.drop) continue;
+        const timer = setTimeout(() => {
+          timers.delete(timer);
+          deliver(request, reply);
+        }, reply.delay);
+        timers.add(timer);
+      }
+    },
+  };
+
+  const unhandledRejections: unknown[] = [];
+  const onUnhandled = (reason: unknown) => {
+    unhandledRejections.push(reason);
+  };
+  process.on("unhandledRejection", onUnhandled);
+
+  const connection = new Connection(
+    options.iceControlling ?? true,
+    options.iceOptions,
+  );
+  connection.remoteUsername = "remote";
+  connection.remotePassword = remotePassword;
+  connection.remoteIsLite = options.remoteIsLite ?? true;
+  connection.nominated = nominated;
+  connection.state = "connected";
+  let failedAt: number | undefined;
+  connection.stateChanged.subscribe((state) => {
+    if (state === "failed" && failedAt === undefined) failedAt = elapsed();
+  });
+  // Private method is reachable at runtime for consent lifecycle tests.
+  (connection as any).consent.start();
+
+  return {
+    connection,
+    nominated,
+    protocol,
+    remoteAddr,
+    requests,
+    deliveries,
+    dataSent,
+    setScript: (next) => {
+      current = next;
+    },
+    openTransactions: () => Object.keys(protocol.transactions).length,
+    unhandledRejections,
+    elapsed,
+    failedAt: () => failedAt,
+    dispose: async () => {
+      for (const timer of timers) clearTimeout(timer);
+      timers.clear();
+      await connection.close();
+      await protocol.close();
+      process.off("unhandledRejection", onUnhandled);
+    },
+  };
+}
+
+/**
+ * A {@link ConsentPeerScript} answering every request after `rtt` ms, losing
+ * `loss` of the round trips by a seeded stream (`seededRandom`), so a loss
+ * pattern replays exactly.
+ */
+export function lossyConsentPeer(
+  rtt: number | ((request: ConsentPeerRequest) => number),
+  loss = 0,
+  seed = 1,
+): ConsentPeerScript {
+  const random = seededRandom(seed);
+  return (request) => ({
+    delay: typeof rtt === "number" ? rtt : rtt(request),
+    drop: loss > 0 && random.chance(loss),
+  });
 }
 
 export function readMessage(name: string) {
