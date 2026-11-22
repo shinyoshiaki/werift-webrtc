@@ -1,5 +1,6 @@
+import * as dgram from "node:dgram";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { MdnsLookup } from "../../src/dns/lookup";
+import { createMulticastDns, MdnsLookup } from "../../src/dns/lookup";
 import {
   createFakeMdns,
   createTestConnection,
@@ -64,22 +65,23 @@ describe("MdnsLookup when os.networkInterfaces() throws", () => {
     expect(crash.uncaught).toEqual([]);
   });
 
-  test("an enumeration throwing on the 5 second membership update does not crash, and close() leaves no timer", async () => {
+  test("an enumeration throwing on the 5 second membership update only warns, and close() leaves no timer", async () => {
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
     os.succeed();
     const lookup = new MdnsLookup();
     lookups.push(lookup);
+    const warnings: unknown[] = [];
+    lookup.mdnsInstance.on("warning", (warning) => warnings.push(warning));
     await ready(lookup);
     // 'listening' のハンドラの後で interval が登録される。
     await new Promise((resolve) => setImmediate(resolve));
-    const callsAtCreation = os.spy.mock.calls.length;
 
     // Act: 列挙を失敗させて、membership 更新の interval を 2 回走らせる。
     os.fail();
     vi.advanceTimersByTime(10000);
 
-    // Assert: interval から列挙されず、uncaught は起きない。
-    expect(os.spy.mock.calls.length).toBe(callsAtCreation);
+    // Assert: 列挙の失敗は warning になるだけで、uncaught は起きない。
+    expect(warnings).toEqual([os.error, os.error]);
     expect(crash.uncaught).toEqual([]);
 
     // Act: close する。
@@ -87,6 +89,51 @@ describe("MdnsLookup when os.networkInterfaces() throws", () => {
 
     // Assert: interval は残らない。
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  test("an interface that appears after creation is joined by the 5 second update", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    const iface = (address: string) => [
+      {
+        address,
+        family: "IPv4" as const,
+        internal: false,
+        netmask: "255.255.255.0",
+        mac: "00:00:00:00:00:00",
+        cidr: `${address}/24`,
+      },
+    ];
+    os.succeed({ eth0: iface("192.0.2.1") });
+    const socket = dgram.createSocket({ type: "udp4", reuseAddr: true });
+    const addMembership = vi
+      .spyOn(socket, "addMembership")
+      .mockImplementation(() => {});
+    const setMulticastInterface = vi
+      .spyOn(socket, "setMulticastInterface")
+      .mockImplementation(() => {});
+    const lookup = new MdnsLookup(() =>
+      createMulticastDns({ socket, port: 20000 + (process.pid % 20000) }),
+    );
+    lookups.push(lookup);
+    await ready(lookup);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(addMembership.mock.calls.map(([, address]) => address)).toEqual([
+      "192.0.2.1",
+    ]);
+
+    // Act: ネットワークが増えてから、5 秒ごとの更新が走る。
+    os.succeed({ eth0: iface("192.0.2.1"), wlan0: iface("198.51.100.7") });
+    vi.advanceTimersByTime(5000);
+
+    // Assert: 増えた interface だけが join され、送信 interface は文字列で指定される。
+    expect(addMembership.mock.calls.map(([, address]) => address)).toEqual([
+      "192.0.2.1",
+      "198.51.100.7",
+    ]);
+    for (const [value] of setMulticastInterface.mock.calls) {
+      expect(typeof value).toBe("string");
+    }
+    expect(crash.uncaught).toEqual([]);
   });
 
   test("a remote .local candidate is dropped without a crash", async () => {

@@ -792,9 +792,9 @@ export class Connection implements IceConnection {
    * allocation), so a caller may let it finish in the background.
    */
   async gatherCandidates() {
+    const generation = this.generation;
     if (!this.localCandidatesStart) {
       this.localCandidatesStart = true;
-      const generation = this.generation;
       try {
         await this.gatherGeneration(generation);
       } catch (error) {
@@ -822,7 +822,13 @@ export class Connection implements IceConnection {
     // Gathering that finishes after connectivity checks began (an ICE restart
     // keeps gathering from its servers) must not overwrite their state: the
     // agent stays "new" while checking, and only the checks' outcome moves it.
-    if (this.state === "new" && !this.checksBegun) this.setState("completed");
+    if (
+      this.generation === generation &&
+      this.state === "new" &&
+      !this.checksBegun
+    ) {
+      this.setState("completed");
+    }
   }
 
   /** The gathering of `generation` started by {@link Connection.gatherCandidates}. */
@@ -969,6 +975,9 @@ export class Connection implements IceConnection {
         "gathering ended without any local candidate",
       );
     }
+    // A listener of the report above may have restarted (or closed) the
+    // agent: the end then belongs to a generation that is gone.
+    if (!this.isGathering(generation)) return;
     this.localCandidatesEnd = true;
     this.wakeIncomingCheckWaits();
   }

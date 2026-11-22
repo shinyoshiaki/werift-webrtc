@@ -1,3 +1,4 @@
+import * as dgram from "node:dgram";
 import * as worker_thread from "node:worker_threads";
 import mdns from "multicast-dns";
 
@@ -33,6 +34,22 @@ const multicastInterfaces = (
     return ipv4 ? [ipv4.address] : [];
   });
 
+/** multicast-dns' `defaultInterface()`, from an enumeration already made. */
+const defaultMulticastInterface = (
+  interfaces: NetworkInterfaceEnumeration["interfaces"],
+) => {
+  for (const [name, infos] of Object.entries(interfaces)) {
+    for (const info of infos ?? []) {
+      if (normalizeFamilyNodeV18(info.family) === 4 && !info.internal) {
+        return process.platform === "darwin" && name === "en0"
+          ? info.address
+          : "0.0.0.0";
+      }
+    }
+  }
+  return "127.0.0.1";
+};
+
 /**
  * The default mDNS socket of {@link MdnsLookup} (package-private).
  *
@@ -40,20 +57,63 @@ const multicastInterfaces = (
  * when its socket starts listening and again every 5 seconds, in callbacks
  * of the event loop: where the enumeration is not allowed (e.g. AF_NETLINK
  * denied by systemd's RestrictAddressFamilies=) that throw would end the
- * process. So the interfaces are enumerated here, once and without throwing,
- * and given as `interface` (multicast-dns then never enumerates); `bind`
- * keeps the socket on the wildcard address as before. A failed enumeration
- * throws here instead: MdnsLookup then opens no socket that listens.
+ * process. So its `update()` (the membership refresh) is replaced by one that
+ * enumerates without throwing: interfaces that appear later are still joined
+ * (a failed enumeration is only a `warning`, retried at the next tick). The
+ * socket keeps binding to the wildcard address as before. The first
+ * enumeration is made here: when it fails this throws, and MdnsLookup then
+ * opens no socket that listens.
  * @param options more multicast-dns options (tests choose the port).
  */
 export function createMulticastDns(options: mdns.Options = {}) {
-  const { interfaces, error } = readNetworkInterfaces();
-  if (error !== undefined) throw error;
-  return mdns({
-    interface: multicastInterfaces(interfaces),
+  const first = readNetworkInterfaces();
+  if (first.error !== undefined) throw first.error;
+
+  const group = options.ip ?? "224.0.0.251";
+  const socket =
+    options.socket ??
+    dgram.createSocket({
+      type: "udp4",
+      reuseAddr: options.reuseAddr !== false,
+    });
+  const instance = mdns({
     bind: "0.0.0.0",
     ...options,
+    socket,
   } as mdns.Options);
+
+  const joined = new Set<string>();
+  let initial: NetworkInterfaceEnumeration | undefined = first;
+  (instance as unknown as { update: () => void }).update = () => {
+    const enumeration = initial ?? readNetworkInterfaces();
+    initial = undefined;
+    if (enumeration.error !== undefined) {
+      instance.emit("warning", enumeration.error);
+      return;
+    }
+    let updated = false;
+    for (const address of multicastInterfaces(enumeration.interfaces)) {
+      if (joined.has(address)) continue;
+      try {
+        socket.addMembership(group, address);
+        joined.add(address);
+        updated = true;
+      } catch (error) {
+        instance.emit("warning", error);
+      }
+    }
+    if (!updated) return;
+    try {
+      socket.setMulticastInterface(
+        (options.interface as string | undefined) ??
+          defaultMulticastInterface(enumeration.interfaces),
+      );
+    } catch (error) {
+      instance.emit("warning", error);
+    }
+    instance.emit("networkInterface");
+  };
+  return instance;
 }
 
 /**

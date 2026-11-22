@@ -112,6 +112,25 @@ describe("Connection.gatherCandidates when os.networkInterfaces() throws", () =>
     expect(crash.uncaught).toEqual([]);
   });
 
+  test("restarting from the no-candidates listener leaves the new generation ungathered", async () => {
+    const { connection } = createAgent();
+    const generations: number[] = [];
+    connection.onGatheringError.subscribe(({ reason }) => {
+      if (reason === noCandidates) {
+        generations.push(connection.generation);
+        connection.restart();
+      }
+    });
+
+    // Act: 通知の中で ICE restart する。
+    await connection.gatherCandidates();
+
+    // Assert: 新世代は収集前のままで、古い世代の完了が書き込まれない。
+    expect(connection.generation).toBe(generations[0] + 1);
+    expect(connection.localCandidatesEnd).toBe(false);
+    expect(connection.state).toBe("new");
+  });
+
   test("an explicit interfaceAddresses.udp4 still gives its host candidate", async () => {
     const { connection, errors } = createAgent({
       interfaceAddresses: { udp4: "127.0.0.1" },
