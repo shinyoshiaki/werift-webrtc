@@ -105,8 +105,9 @@ Not covered here:
   after the next check (an RTT that rose after the selection, an RTT longer
   than the interval, responses out of order) still refreshes the consent, as
   §5.1 allows ("the response may be for a previous request"). At most
-  `CONSENT_MAX_OUTSTANDING_REQUESTS` (8) are open at once; beyond that the
-  oldest one ends.
+  `CONSENT_MAX_OUTSTANDING_REQUESTS` (35: 30 s of the 900 ms failover weak
+  interval, plus one) are open at once; beyond that the oldest one ends, so a
+  limit never ends a request that can still be answered within 30 s.
 - The response must come from the pair's remote address, with a valid
   MESSAGE-INTEGRITY (the remote password), for the current selected pair,
   remote generation and consent session. The current RTT of the pair is taken
