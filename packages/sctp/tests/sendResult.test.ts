@@ -100,11 +100,21 @@ describe("SCTP.send() resolves with SctpSendResult", () => {
     // Arrange: 停止済みの association
     const { sctp } = createZeroWindowMockSctp();
     await disposeMockSctp(sctp);
+    const queueBefore = outboundQueueOf(sctp).length;
+    const internals = sctp as unknown as {
+      localTsn: number;
+      outboundStreamSeq: Record<number, number>;
+    };
+    const tsnBefore = internals.localTsn;
+    const seqBefore = { ...internals.outboundStreamSeq };
 
     // Act: 停止後に送る
     const result = await sctp.send(0, WEBRTC_PPID.BINARY, Buffer.from("A"));
 
-    // Assert: 送られずに discarded で解決する
+    // Assert: discarded で解決し、キュー・TSN・ストリームシーケンスは変化しない
     expect(result).toBe(SctpSendResult.discarded);
+    expect(outboundQueueOf(sctp).length).toBe(queueBefore);
+    expect(internals.localTsn).toBe(tsnBefore);
+    expect({ ...internals.outboundStreamSeq }).toEqual(seqBefore);
   });
 });

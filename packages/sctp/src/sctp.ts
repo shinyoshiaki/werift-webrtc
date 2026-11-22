@@ -1257,6 +1257,9 @@ export class SCTP {
     } = { expiry: undefined, maxRetransmits: undefined, ordered: true },
   ): Promise<SctpSendResult> => {
     if (userData.length === 0) return SctpSendResult.sent;
+    // A stopped association never drains the queue: do not queue the payload
+    // or advance the TSN / stream sequence for it.
+    if (this.isStopped) return SctpSendResult.discarded;
     const streamSeqNum = ordered ? this.outboundStreamSeq[streamId] || 0 : 0;
 
     const fragments = Math.ceil(userData.length / this.maxPayloadSize);
@@ -1301,7 +1304,6 @@ export class SCTP {
     // sentQueue), not when the whole outboundQueue drains, so N queued sends
     // do not wake N waiters on every transmit.
     const lastChunk = chunks[chunks.length - 1]!;
-    if (this.isStopped) return SctpSendResult.discarded;
     const sent = new Promise<SctpSendResult>((resolve) => {
       this.sendWaiters.push({ chunk: lastChunk, resolve });
     });
