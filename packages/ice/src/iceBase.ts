@@ -308,9 +308,11 @@ export const CONSENT_FAILURES = 6;
 export const CONSENT_TIMEOUT = 30;
 
 /**
- * Default single-shot response wait for consent requests (ms) when RTT is unknown.
- * Independent of retransmission count. Downstream ICE-lite peers typically
- * answer in 150–300ms; 1s is a conservative default used by interop patches.
+ * RTT-based response deadline of a consent request (ms) when the RTT is
+ * unknown (see {@link consentResponseTimeoutMs}). Downstream ICE-lite peers
+ * typically answer in 150–300ms. It is no longer how long the request's
+ * transaction stays open: that is {@link CONSENT_TIMEOUT}, so a response
+ * after this deadline still refreshes the consent.
  */
 export const CONSENT_RESPONSE_TIMEOUT = 1000;
 
@@ -411,9 +413,16 @@ export const FAILOVER_BACKUP_ATTEMPTS = 3;
 export const FAILOVER_RECOVERY_RESPONSES = 3;
 
 /**
- * Compute consent response wait from pair RTT (seconds).
- * Uses 2×RTT + 200ms jitter margin, floored at {@link CONSENT_RESPONSE_TIMEOUT_MIN}.
- * Falls back to {@link CONSENT_RESPONSE_TIMEOUT} when RTT is unavailable.
+ * RTT-based response deadline (ms) from a pair RTT (seconds): when a consent
+ * request without a response counts as unanswered (failover's pacing and
+ * writability), and the response timeout of a backup check once the backup's
+ * RTT is known. Uses 2×RTT + 200ms jitter margin, floored at
+ * {@link CONSENT_RESPONSE_TIMEOUT_MIN}. Falls back to
+ * {@link CONSENT_RESPONSE_TIMEOUT} when RTT is unavailable.
+ *
+ * A consent request's transaction is not ended at this deadline: it stays
+ * open for {@link CONSENT_TIMEOUT}, so a response slower than the estimate
+ * (an RTT that rose after the selection) still refreshes the consent.
  */
 export function consentResponseTimeoutMs(rttSeconds?: number): number {
   if (
