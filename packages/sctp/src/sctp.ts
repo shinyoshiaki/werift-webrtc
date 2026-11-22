@@ -1257,8 +1257,7 @@ export class SCTP {
     } = { expiry: undefined, maxRetransmits: undefined, ordered: true },
   ): Promise<SctpSendResult> => {
     if (userData.length === 0) return SctpSendResult.sent;
-    // A stopped association never drains the queue: do not queue the payload
-    // or advance the TSN / stream sequence for it.
+    // Test: packages/sctp/tests/sendResult.test.ts "discarded: a send() on a stopped association"
     if (this.isStopped) return SctpSendResult.discarded;
     const streamSeqNum = ordered ? this.outboundStreamSeq[streamId] || 0 : 0;
 

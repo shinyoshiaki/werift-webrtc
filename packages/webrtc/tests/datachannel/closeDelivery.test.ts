@@ -150,4 +150,20 @@ describe("datachannel/close delivers what was sent before close()", () => {
     expect(seen).toEqual(["remote onclosing", "remote closing"]);
     await vi.waitFor(() => expect(local.readyState).toBe("closed"));
   });
+
+  test("pc.close() inside a stateChange subscriber of close() leaves the channel closed without error", async () => {
+    // Arrange: closing になった瞬間に PeerConnection を閉じる購読者
+    const pending = negotiatedChannelsBeforeConnect();
+    pending.local.stateChanged.subscribe((state) => {
+      if (state === "closing") void pending.pc1.close();
+    });
+
+    // Act: 購読者の中で pc.close() される close() を呼ぶ
+    const act = () => pending.local.close();
+
+    // Assert: 例外なく closed になる
+    expect(act).not.toThrow();
+    await vi.waitFor(() => expect(pending.local.readyState).toBe("closed"));
+    await pending.pc2.close();
+  });
 });

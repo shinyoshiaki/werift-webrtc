@@ -255,7 +255,7 @@ export class RTCSctpTransport {
         this.sctp.stateChanged.connected.subscribe(() => {
           this.setState("connected");
           Object.values(this.dataChannels).forEach((channel) => {
-            // A channel closed while connecting stays closing.
+            // Test: tests/datachannel/closeDelivery.test.ts "messages sent before close() while connecting reach the peer, then both ends close"
             if (channel.negotiated && channel.readyState === "connecting") {
               channel.setReadyState("open");
             }
@@ -619,7 +619,6 @@ export class RTCSctpTransport {
               );
               return;
             }
-            // A late ACK of a channel closed meanwhile does not reopen it.
             if (channel.readyState === "connecting") {
               channel.setReadyState("open");
             }
@@ -659,8 +658,7 @@ export class RTCSctpTransport {
           return;
         }
 
-        // Update reception statistics; the one byte of an empty message
-        // (PPID 56 / 57) is not data.
+        // Test: tests/datachannel/bufferedAmount.test.ts "empty string and empty Buffer arrive in order, bufferedAmount stays 0, stats count them"
         channel.messagesReceived++;
         channel.bytesReceived +=
           ppId === WEBRTC_STRING_EMPTY || ppId === WEBRTC_BINARY_EMPTY
@@ -793,9 +791,6 @@ export class RTCSctpTransport {
       const item = this.dataChannelQueue.shift()!;
       const [channel, protocol, userData] = item;
 
-      // A channel closed while its message was queued (e.g. the association
-      // closed and was re-established) is no longer managed; never announce
-      // it. Its unsent bytes stay in bufferedAmount (never sent).
       if (channel.readyState === "closed") continue;
 
       const streamId = channel.id;
@@ -1052,7 +1047,7 @@ export class RTCSctpTransport {
   dataChannelClose(channel: RTCDataChannel) {
     if (!(["closing", "closed"] as DCState[]).includes(channel.readyState)) {
       channel.setReadyState("closing", { notifyClosing: false });
-      // A stateChange subscriber may have ended the channel (pc.close()).
+      // Test: tests/datachannel/closeDelivery.test.ts "pc.close() inside a stateChange subscriber of close() leaves the channel closed without error"
       if (channel.readyState !== "closing") return;
 
       const associationEnded = this.stopped || this.sctp.state === "closed";

@@ -44,7 +44,6 @@ const ICE_SERVER_FAILURE_TIMEOUT_PROFILE: WptTimeoutProfile = {
 
 const LONG_TARGETS = [
   "webrtc/rtcrtptransceiver.https.html ?rest",
-  // 32 sequential subtests, each on a new connected data channel pair.
   "webrtc/rtcdatachannel-bufferedamount.html",
   "webrtc/rtcdatachannel-close.html",
   "webrtc/rtcpeerconnection-perfect-negotiation.https.html",
