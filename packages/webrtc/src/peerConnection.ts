@@ -87,6 +87,8 @@ export {
   DeprecatedCompatibilityValues,
   type DeprecatedKeyFrameRequestRouting,
   type DeprecatedMLineReuse,
+  type DtlsHandshakeValidation,
+  DtlsHandshakeValidationModes,
   defaultPeerConfig,
   findCodecByMimeType,
   MLineReuseModes,
@@ -183,6 +185,7 @@ export class RTCPeerConnection extends EventTarget {
   private readonly remoteMedia: RemoteMediaApplication;
   private readonly activation: TransportActivation;
   private isClosed = false;
+  private dtlsTransportCreated = false;
   private applyingIceRestart = false;
   /**
    * The current gathering's STUN / TURN outcomes by URL, for the 701 of
@@ -444,6 +447,7 @@ export class RTCPeerConnection extends EventTarget {
       this.topology,
       {
         signalingState: () => this.signalingState,
+        config: () => this.config,
         createTransport: () => this.findOrCreateTransport(),
       },
     );
@@ -773,6 +777,7 @@ export class RTCPeerConnection extends EventTarget {
       isReconfiguration,
       hasLocalDescription: isReconfiguration && !!this.localDescription,
       hasSctpTransport: !!this.sctpManager?.sctpTransport,
+      dtlsTransportCreated: this.dtlsTransportCreated,
     });
 
     this.router.keyFrameRequestRouting = this.config.keyFrameRequestRouting;
@@ -1101,6 +1106,10 @@ export class RTCPeerConnection extends EventTarget {
     }
   }
 
+  private connect() {
+    return this.activation.connect();
+  }
+
   private findOrCreateTransport(forceNew = false) {
     // A closed connection creates no transport (close() could not stop it).
     this.assertNotClosed();
@@ -1117,11 +1126,13 @@ export class RTCPeerConnection extends EventTarget {
         (this.sdpManager.bundlePolicy !== "disable" && this.remoteIsBundled))
     ) {
       if (existingDtlsTransport) {
+        this.dtlsTransportCreated = true;
         return existingDtlsTransport;
       }
     }
 
     const dtlsTransport = this.secureManager.createTransport(forceNew);
+    this.dtlsTransportCreated = true;
     dtlsTransport.onRtp.subscribe((rtp) => {
       this.router.routeRtp(rtp, dtlsTransport);
     });
@@ -1769,7 +1780,7 @@ export class RTCPeerConnection extends EventTarget {
             .connectPending()
             .catch((err) => log("pending connect failed", err));
         }
-        this.activation.connect().catch((err) => {
+        this.connect().catch((err) => {
           log("connect failed", err);
           this.secureManager.setConnectionState("failed");
         });
@@ -2166,7 +2177,7 @@ export class RTCPeerConnection extends EventTarget {
             .connectPending()
             .catch((err) => log("pending connect failed", err));
         }
-        this.activation.connect().catch((err) => {
+        this.connect().catch((err) => {
           log("connect failed", err);
           this.secureManager.setConnectionState("failed");
         });

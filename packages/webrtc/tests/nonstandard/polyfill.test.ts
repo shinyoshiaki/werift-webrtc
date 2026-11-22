@@ -15,6 +15,7 @@ import {
   installPolyfill,
 } from "../../src/polyfill";
 import "../../src/polyfill";
+import * as nonstandard from "../../src/nonstandard";
 import type { UdpSocketFactory } from "../../src/polyfill/sourceIo";
 import {
   encodeLengthPrefixed,
@@ -1409,7 +1410,6 @@ describe("werift/polyfill builtin registers", () => {
 
 describe("nonstandard getUserMedia({ path }) removal", () => {
   test("werift/nonstandard no longer exports getUserMedia", async () => {
-    const nonstandard = await import("../../src/nonstandard");
     expect("getUserMedia" in nonstandard).toBe(false);
   });
 

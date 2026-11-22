@@ -1,3 +1,5 @@
+import type { Connection } from "../../ice/src";
+import { markConnectionSpedEnabled } from "../../ice/src/internal/sped-bind";
 import type { PeerConfig } from "./api/peerConfig";
 import { SRTP_PROFILE } from "./const";
 import { createWebRtcDomException, createWebRtcTypeError } from "./errors";
@@ -274,11 +276,21 @@ export class SecureTransportManager {
     });
 
     const dtlsTransport = new RTCDtlsTransport(
-      this.config,
+      {
+        debug: this.config.debug,
+        protocolVersions: this.config.dtls.protocolVersions,
+        helloRetryRequest: this.config.dtls.helloRetryRequest,
+        handshakeValidation: this.config.dtlsHandshakeValidation,
+      },
       iceTransport,
       this.certificate,
       srtpProfiles,
     );
+    if (this.config.sped === true) {
+      dtlsTransport.sped = true;
+      // Before any check arrives: SPED's authenticated request boundary.
+      markConnectionSpedEnabled(iceGatherer.connection as Connection);
+    }
     dtlsTransport.onStateChange.subscribe((state) => {
       // Isolated: the DTLS transport's later subscribers (SCTP closing its
       // association) must run even if a connectionState listener throws.

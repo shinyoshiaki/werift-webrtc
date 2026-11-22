@@ -1,4 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import type { Address, Transport } from "../../../common/src";
+import { TransactionFailed } from "../../src/exceptions";
+import { classes, methods } from "../../src/stun/const";
+import { Message, parseMessage } from "../../src/stun/message";
+import { TurnProtocol } from "../../src/turn/protocol";
+import type { TransactionRequestOptions } from "../../src/types/model";
 
 const debugState = vi.hoisted(() => {
   const log = vi.fn();
@@ -26,13 +32,6 @@ vi.mock("timers/promises", () => ({
       options?.signal?.addEventListener("abort", onAbort, { once: true });
     }),
 }));
-
-import type { Address, Transport } from "../../../common/src";
-import { TransactionFailed } from "../../src/exceptions";
-import { classes, methods } from "../../src/stun/const";
-import { Message, parseMessage } from "../../src/stun/message";
-import { TurnProtocol } from "../../src/turn/protocol";
-import type { TransactionRequestOptions } from "../../src/types/model";
 
 interface TurnLifecycleHarness {
   sentMethods: number[];

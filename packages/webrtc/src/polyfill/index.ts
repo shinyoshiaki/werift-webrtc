@@ -1,3 +1,3 @@
-export * from "./api";
-
 import "./globals";
+
+export * from "./api";
