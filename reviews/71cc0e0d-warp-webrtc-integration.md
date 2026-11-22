@@ -394,6 +394,7 @@ flowchart TD
 
 warp と develop には、warp 側の方式とそのテスト（`spedStandardDtlsFallback.test.ts`）が入っていました。マージ（`99becb6f7`）ではチケットの方式を残しましたが、テストは warp の内部（SPED runtime が消えること、旧 socket が回収されること）を検査したままで、10 件失敗していました。テストを「direct carrier へ fallback し、最初の socket のまま DTLS 1.2 が完了する」に合わせて直しています（[packages/webrtc/tests/integrate/spedStandardDtlsFallback.test.ts:49](review-file:packages/webrtc/tests/integrate/spedStandardDtlsFallback.test.ts:49)、16/16）。relay・ICE-TCP・fallback 後の handshake 中の ICE restart・最初の送信の損失・close 後の資源解放を確かめるケースは、そのまま残しています。
 
+<!-- review-bookmark id="bm_1a202cd6f92-660c73ac" title="4.3.2 SPED 非対応の相手への fallback" -->
 #### 4.3.3 direct carrier と再送モード
 
 **仕様**: draft §4.4 — 有効な pair ができたら DTLS を直接送ってかまいません（MAY）。§6 — SPED の間は DTLS 内部のタイムアウトを止め、最初の Binding Response で再開することを推奨します。
@@ -618,6 +619,7 @@ guard は [packages/webrtc/src/transport/sctp.ts:334](review-diff:packages/webrt
 | handshake 後は DTLS の宛先を優先候補としてだけ扱う（§4.3.4） | DTLS の宛先は経路ではなく相手を指し、経路は ICE が決めるため（warp の `ice.send()` と同じ）。handshake 中の規則は誤送信防止のため変えない |
 | SRTP の replay window を 1024 にする（§4.2.2） | RFC の下限 64 では、ストリームが進んだ後に届く NACK 再送を捨ててしまうため（libwebrtc と同じ値） |
 
+<!-- review-bookmark id="bm_1a203bf0183-a6745428" title="6. 判断理由" -->
 ## 7. リスクと確認してほしい点
 
 ### 7.1 仕様からの意図的な逸脱
