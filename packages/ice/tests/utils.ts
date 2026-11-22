@@ -394,6 +394,8 @@ export function createConsentNetworkHarness(
     createConsentCandidate(remoteAddr[0], remoteAddr[1], "remote"),
     options.iceControlling ?? true,
   );
+  // A nominated pair is a valid pair (RFC 8445 §8.1.1): its check succeeded.
+  nominated.updateState(CandidatePairState.SUCCEEDED);
   nominated.nominated = true;
   nominated.rtt = options.initialRtt;
 

@@ -14,7 +14,7 @@ import {
  * failed にならず DataChannel が通ること。sped:false の既定経路と、SPED
  * (early outbound 無効 / 有効) の両方で、SPED/early 用の cancel・revoke・
  * attempt 付け替えが認証後の通常の SCTP 開始を中断しないことを確認する。
- * `warp` との connectionState 遷移の比較は reviews/epic4-warp-verification.md。
+ * `warp` との connectionState 遷移の比較は reviews/71cc0e0d-warp-webrtc-integration.md の付録 A.7.2。
  */
 const scenarios: Omit<
   SctpFaultScenario,

@@ -386,12 +386,12 @@ npm run e2e
   - INIT_ACK または COOKIE_ACK の喪失
   - 送信失敗の注入
   - DTLS の役割: client と server
-- 結果を `reviews/epic4-warp-verification.md` に「`sped:false` 非回帰の証跡」として記録し、`baseCommit` を最新に合わせる。
+- 結果を `reviews/71cc0e0d-warp-webrtc-integration.md`（付録 A）に「`sped:false` 非回帰の証跡」として記録し、`baseCommit` を最新に合わせる。
 
 ### 完了条件
 
 - [x] 指摘 1–4 を修正し、それぞれ回帰テストがある（修正前のコードでは失敗する）。
-- [x] SPED/early 用処理の到達点検表がある（`reviews/epic4-warp-verification.md` §7.1）。点検で見つかった追加の回帰 3 件（非 SPED の DTLS 受信を現 generation に限定していた点、DTLS 1.3 engine の受信世代フィルタ、`sped:false` でも early 送信許可の取消しを発火し得た点）も修正済み。
+- [x] SPED/early 用処理の到達点検表がある（`reviews/71cc0e0d-warp-webrtc-integration.md` 付録 A.7.1）。点検で見つかった追加の回帰 3 件（非 SPED の DTLS 受信を現 generation に限定していた点、DTLS 1.3 engine の受信世代フィルタ、`sped:false` でも early 送信許可の取消しを発火し得た点）も修正済み。
 - [x] 障害注入マトリクス（DTLS 既定 / 1.3 × role 2 通り × 11 シナリオ = 44 件）を `packages/webrtc/tests/integrate/spedFalseNonRegression.test.ts` として常設し、`warp`・修正前・修正後の比較を記録した（同 §7.2）。修正後は 44/44 成功で、`warp` で失敗していた INIT 送信失敗の 4 件も解消した。
 - [x] `npm run type`、`npm run test:small`、`npm run e2e`、`npm run wpt --workspace packages/webrtc` が成功する。
 
@@ -409,7 +409,7 @@ npm run e2e
 ### 要件
 
 1. **再レビュー前の修正は最小限にする:** 直すのは `packages/sctp/src/sctp.ts` の JSDoc のずれ 2 か所（`SCTPStartCancelledError` の説明が `SCTPSendPermissionRevokedError` の上に、`cancelStart` の説明が `cancelStartIfPermissionRevoked` の上に重なっていた）だけにする。差分を増やすと新しい指摘を呼び込むため、新しい機能修正は入れない。
-2. **レビュアーに渡す証跡をリポジトリの中に置く:** `reviews/epic4-warp-verification.md` に次を記録し、`baseCommit` を最終的な HEAD に合わせる。
+2. **レビュアーに渡す証跡をリポジトリの中に置く:** `reviews/71cc0e0d-warp-webrtc-integration.md`（付録 A）に次を記録し、`baseCommit` を最終的な HEAD に合わせる。
    - P1 のシナリオと対応するテストの対照
    - マトリクスが P1 を検出できること（`packages/webrtc/src/transport/sctp.ts` を修正前 `6b2e88a5` に戻すと 13 件失敗、HEAD では 0 件）と、そのまま実行できるコマンド
    - 同じ種類の取りこぼしの点検結果（`SCTPSendPermissionRevokedError` が認証後の association に届く経路の有無）
@@ -418,7 +418,7 @@ npm run e2e
 ### 完了条件
 
 - [x] JSDoc 2 か所を本来の宣言の上に戻した。コードの変更はない。
-- [x] `reviews/epic4-warp-verification.md` §9 に、P1 とテストの対照、検出性の確認（修正を外すと 90 件中 13 件失敗、HEAD では 90/90 成功）、再現コマンド、取りこぼしの点検結果を記録し、`baseCommit` を更新した。
+- [x] `reviews/71cc0e0d-warp-webrtc-integration.md` 付録 A.9 に、P1 とテストの対照、検出性の確認（修正を外すと 90 件中 13 件失敗、HEAD では 90/90 成功）、再現コマンド、取りこぼしの点検結果を記録し、`baseCommit` を更新した。
 - [x] 同 §9.3 に最終検証の結果を記録した（`type`、`lint:imports`、`test:small`、マトリクス `--retry=0`、`doc:check`、`e2e`、`wpt` がすべて成功）。
 
 ## 8. 追加要件: レビュー範囲と承認基準の固定（レビュー #1–#8 の振り返り）
@@ -439,7 +439,7 @@ npm run e2e
    - `docs/rfc/`・`docs/w3c/`: 仕様照合用の原文の参考資料（約 63k 行）。werift のコードでもドキュメントでもない。
    - `doc/`・`packages/*/doc/`: `npm run doc` の生成物。`npm run doc:check` がソースとの一致を保証する。
    - チケット外として残す差分: `package.json` と `import-test/package.json` の非 auditing install（`4393d889`、AGENTS.md の規則 15）、`AGENTS.md`（develop merge 由来）。
-3. **merge のたびに残骸を点検する（C）:** merge の後に次を実行し、チケット外の差分と未使用の import がないことを確認して、結果を `reviews/epic4-warp-verification.md` §11 に記録する。
+3. **merge のたびに残骸を点検する（C）:** merge の後に次を実行し、チケット外の差分と未使用の import がないことを確認して、結果を `reviews/71cc0e0d-warp-webrtc-integration.md` 付録 A.11 に記録する。
    ```bash
    git diff --stat warp -- e2e scripts integration
    git diff warp --submodule=short -- integration third_party
@@ -449,7 +449,7 @@ npm run e2e
    - 既知の対象外事項:
      - 同一 generation 内の ICE candidate の重複登録 → `TICKET-webrtc-existing-negotiation-issues.md` §5。
      - `setConfiguration({ iceServers })` が準備中の transport に届かない（`updateIceServers()`、`warp` と同じコード）→ 同 §6。同じ型の WARP 設定の漏れはこのチケットで直した（§9）。
-     - leak property の ±1 の揺らぎ（prflx の学習有無）→ 下の「leak probe の計測方針」と、`warp` との比較証跡（`reviews/epic4-warp-verification.md` §11.3）。
+     - leak property の ±1 の揺らぎ（prflx の学習有無）→ 下の「leak probe の計測方針」と、`warp` との比較証跡（`reviews/71cc0e0d-warp-webrtc-integration.md` 付録 A.11.3）。
    - leak probe の計測方針（`packages/webrtc/tests/pbt/leak/leakProbe.ts`）:
      - シグナリングされた candidate と、その pair は厳密に数える（`ice.remoteCandidates`、`ice.checkList`）。2 回目の後の値から増えたら失敗。
      - prflx は上限付きで数える（`ice.prflxCandidates`、`ice.prflxPairs`）。prflx は相手の check の送信元（相手のインターフェース IP とソケット port の組）から学習する。wildcard に bind したソケットは経路によって送信元 IP が変わるため、学習するかどうかは check の順序で揺れる。上限は「相手の host IP 数 × host port 数」（pair はさらに × local socket 数）で、これを超えては増えない。
@@ -472,7 +472,7 @@ npm run e2e
 
 - [x] installer 関連 6 ファイルを `warp` の状態に戻し（2 ファイルは削除）、`TICKET-playwright-host-platform-installer.md` を作成した。`git diff --stat warp -- e2e scripts integration` は空になった。
 - [x] `TICKET-webrtc-existing-negotiation-issues.md` の installer の記述を新チケットへの参照に改め、同一 generation の ICE 重複を §5 に追加した。
-- [x] `reviews/epic4-warp-verification.md` §11 に、merge 残骸の点検結果、leak probe の計測方針と seed 1〜200 の結果、`warp` との比較、固定の検証コマンドの結果を記録した。
+- [x] `reviews/71cc0e0d-warp-webrtc-integration.md` 付録 A.11 に、merge 残骸の点検結果、leak probe の計測方針と seed 1〜200 の結果、`warp` との比較、固定の検証コマンドの結果を記録した。
 
 ## 9. 追加要件: 同じ型の漏れの一括点検（レビュー #1–#7 の振り返り）
 
@@ -496,9 +496,9 @@ npm run e2e
 ### 要件
 
 1. **#7 を型ごと直す（A）:** `SecureTransportManager.openDtlsTransports`（作成済みで閉じていない全 transport）を追加し、`setConfiguration` の WARP 設定の更新はこれを通す。回帰テストは #7 の再現手順（3 本の m-line を BUNDLE した接続の分割 offer → `createAnswer` → 設定変更 → `setLocalDescription`）を `packages/webrtc/tests/integrate/warpConfiguration.test.ts` に置き、Arrange は `warpArrange.ts` に置く。`updateIceServers()` の同じ型の不具合は `warp` と同じ既存の問題なので直さず、`TICKET-webrtc-existing-negotiation-issues.md` §6 と §8 の対象外一覧に記録する。
-2. **同じ型を自分で洗い出す（B）:** このチケットが追加した transport ごとの状態を行にし、「どの transport に反映されるか（live / prepared / pendingOnly・speculative / baseline / 停止済み）」と「対になる操作の両方を通るか」を列にした表を `reviews/epic4-warp-verification.md` §12 に置く。すべてのマスについて、反映される・されない理由をコードの位置かテストで示す。
+2. **同じ型を自分で洗い出す（B）:** このチケットが追加した transport ごとの状態を行にし、「どの transport に反映されるか（live / prepared / pendingOnly・speculative / baseline / 停止済み）」と「対になる操作の両方を通るか」を列にした表を `reviews/71cc0e0d-warp-webrtc-integration.md` 付録 A.12 に置く。すべてのマスについて、反映される・されない理由をコードの位置かテストで示す。
 3. **sol と同じ検証を PBT に組み込む（C）:** `tests/pbt/model` に、操作列のどこにでも入る `setConfiguration({ warp })` の操作と、description の操作のたびに「開いているすべての transport の `config.warp` が `getConfiguration().warp` と一致する」ことを検査する invariant を追加する。#7 の順序は固定 scene にする。
-4. **依頼前の確認を sol と同じ深さにする（D）:** CLI レビューを依頼する前に、次を実行して `reviews/epic4-warp-verification.md` に記録する。
+4. **依頼前の確認を sol と同じ深さにする（D）:** CLI レビューを依頼する前に、次を実行して `reviews/71cc0e0d-warp-webrtc-integration.md`（付録 A）に記録する。
    - 全体のテストを `--retry=0` で実行する（`test:small` は vitest の既定 `retry: 1` を使うため、`npx vitest run --retry 0` でも実行する）。
    - `transportFaultMatrix.test.ts` を `--retry=0` で実行する。
    - 指摘されたシナリオを `warp` の一時 worktree と比較する。
@@ -508,9 +508,9 @@ npm run e2e
 
 - [x] `openDtlsTransports` を追加し、WARP 設定の更新をそれに通した。`warpConfiguration.test.ts` は修正を外すと失敗する（準備中の transport が `true` / `"buffer"` のまま）。
 - [x] `TICKET-webrtc-existing-negotiation-issues.md` §6 に `updateIceServers()` を追加し、§8 の対象外一覧に載せた。
-- [x] `reviews/epic4-warp-verification.md` §12 に、反映先と対になる操作の表を記録した。
+- [x] `reviews/71cc0e0d-warp-webrtc-integration.md` 付録 A.12 に、反映先と対になる操作の表を記録した。
 - [x] model property に `warpPolicy` の操作、invariant、固定 scene を追加した。固定 scene は修正を外すと invariant で失敗する。
-- [x] D の確認結果を `reviews/epic4-warp-verification.md` §12.4 に記録した。
+- [x] D の確認結果を `reviews/71cc0e0d-warp-webrtc-integration.md` 付録 A.12.4 に記録した。
 
 
 ## 10. 追加要件: Finished の直後に同じ経路でアプリケーションデータを送る（opt-in）
@@ -538,6 +538,6 @@ DTLS client は自分の Finished を送った直後から DTLS 上は送信で�
 - [x] Chromium（SPED 無効、DTLS 1.3）: werift の nomination を保留したまま DataChannel の ping / pong が通り、`warpPreNominationSendUsed: true`（`e2e/tests/dtls/datachannel.test.ts`）。
 - [x] 公開済みの `werift@0.26.0`（SPED 非対応、DTLS 1.2）: 現行の nomination を保留したまま DataChannel が開き双方向に届く（`legacyWeriftRelease.test.ts`、`npm run test:legacy-werift`）。
 - [x] released `pion/ice` v4.4.1 agent（controlling）: werift（controlled）の nomination を保留したまま、DTLS 完了後の application data が Pion ICE 経由で届く（`sped-pion-ice.test.ts`、`npm run test:pion-ice-agent`）。
-- [x] `packages/webrtc/README.md`、`changelog.md`、`PeerConfig` の JSDoc、`reviews/epic4-warp-verification.md` §25 に記載した。
+- [x] `packages/webrtc/README.md`、`changelog.md`、`PeerConfig` の JSDoc、`reviews/71cc0e0d-warp-webrtc-integration.md` 付録 A.25 に記載した。
 - [ ] 生成 docs（`npm run doc` / `doc:check`）の更新。typedoc が既存の `erasableSyntaxOnly` の型エラーで止まるため未実施。
 - [ ] 相手側の SPED を有効にした組み合わせ（Chromium の `goog-sped-v1`、pion/webrtc の SPED 実装）での確認。いずれも相手側の実装が実験段階のため未実施。

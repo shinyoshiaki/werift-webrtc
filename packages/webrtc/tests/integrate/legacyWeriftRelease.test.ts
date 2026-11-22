@@ -19,7 +19,7 @@ import {
  * 送信側と stream ID の parity を ICE role で決め、initiator は INIT /
  * COOKIE_ECHO を無視する) と現行 werift の相互接続。SCTP 開始側、DTLS 1.3 /
  * SPED を提示する現行側の DTLS 1.2 への fallback、ICE-TCP、両側からの in-band
- * DataChannel を確認する。調査の記録は reviews/legacy-werift-compatibility.md。
+ * DataChannel を確認する。調査の記録は reviews/71cc0e0d-warp-webrtc-integration.md の付録 B。
  * opt-in: `npm run test:legacy-werift` (WERIFT_LEGACY_RELEASE か
  * WERIFT_LEGACY_RELEASE_AUTO_INSTALL=1)。未指定の `npm test` では skip する。
  */
