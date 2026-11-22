@@ -268,6 +268,21 @@ export class SpedRuntime {
     return false;
   }
 
+  /**
+   * ICE selected `pair`. A relay / TURN pair never carries SPED (and its
+   * Bindings do not decide support), so with support still undecided the
+   * handshake would never be sent: fall back to direct DTLS on that pair.
+   * @returns true when this call started the fallback state.
+   */
+  settleIneligibleSelectedPair(pair: CandidatePair): boolean {
+    if (isSpedEligiblePair(pair) || !this.session.fallBackUndecided()) {
+      return false;
+    }
+    // A probe path pinned earlier no longer carries the handshake.
+    this.lastPath = undefined;
+    return true;
+  }
+
   syncRtt(pair: CandidatePair): void {
     const association = this.associationPath();
     if (association) {

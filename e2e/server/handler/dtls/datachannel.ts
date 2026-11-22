@@ -17,6 +17,7 @@ export class dtls_datachannel_answer {
           this.pc = new RTCPeerConnection(
             await peerConfigWithDtls({
               protocolVersions: payload?.protocolVersions,
+              sped: payload?.sped,
             }),
           );
           const dc = this.pc.createDataChannel("dc");
@@ -66,6 +67,7 @@ export class dtls_datachannel_offer {
           this.pc = new RTCPeerConnection(
             await peerConfigWithDtls({
               protocolVersions: payload?.protocolVersions,
+              sped: payload?.sped,
             }),
           );
           this.counters = attachMediaCounters(this.pc);

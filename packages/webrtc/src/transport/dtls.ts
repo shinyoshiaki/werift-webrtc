@@ -570,13 +570,16 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     let settle: { r: () => void; f: (error: Error) => void } | undefined;
     let switchedToStandardDtls = false;
     /**
-     * The peer has no SPED at all, and DTLS 1.2 is offered too: run the
+     * No SPED handshake data can have reached the peer's DTLS: it has no SPED
+     * (it ignores the attributes), or the selected path is relay / TURN,
+     * which carries no SPED, before support was decided and before any
+     * handshake packet was embedded. If DTLS 1.2 is offered too, run the
      * standard DTLS handshake with the configured versions (draft §3.3.4
-     * "fall back to standard unencapsulated DTLS"), as `sped: false` would.
-     * The SPED flight is DTLS 1.3 only, so sending it directly would leave a
+     * "fall back to standard unencapsulated DTLS"), as `sped: false` would:
+     * the SPED flight is DTLS 1.3 only, so sending it directly would leave a
      * DTLS 1.2-only peer (e.g. werift before DTLS 1.3) without a common
-     * version. The peer ignored the SPED attributes and never saw that
-     * flight, so nothing has to be undone on its side.
+     * version. Otherwise the original flight is sent directly with the same
+     * bytes, which a peer that injected it can still answer.
      */
     const switchToStandardDtls = () => {
       if (switchedToStandardDtls || !settle || this.isFinalState) {
@@ -632,8 +635,11 @@ export class RTCDtlsTransport implements DtlsTransportStats {
         carrier.cancelAllTimers();
       },
       onFallbackFlight: async () => {
+        const { session } = handle.runtime;
         if (
-          handle.runtime.session.peerSupport === "unsupported" &&
+          (session.peerSupport === "unsupported" ||
+            (session.peerSupport === "unknown" &&
+              !session.handshakeDataSent)) &&
           (this.config.protocolVersions ?? []).includes(DtlsVersion.V1_2) &&
           switchToStandardDtls()
         ) {

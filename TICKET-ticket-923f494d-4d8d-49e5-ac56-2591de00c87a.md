@@ -208,6 +208,9 @@ develop（`75bf5ed0a`）と warp を同じプロセスに読み込み、実際�
 | --- | --- | --- |
 | H-1 | DTLS 1.3 / 1.2 を両方提示する client の最初の ClientHello（1.3 engine が作る CH-A）に `extended_master_secret` / `renegotiation_info` が無く、cookie 付きの CH だけに足していた。CH1 で EMS を判定する DTLS 1.2 server（develop の werift）は EMS なしの master secret を使いつつ ServerHello で EMS を返すため、Finished の復号に失敗して接続できない | 1.2 も提示するときは CH-A にも同じ 1.2 拡張を載せ、cookie 付きの CH と拡張集合を揃える（RFC 6347 §4.2.1。1.3 server は無視する） |
 | H-2 | `sped: true` と `dtls.protocolVersions: ["1.3", "1.2"]` の PeerConnection が、SPED 非対応で DTLS 1.2 のみの peer（develop）と接続できない。SPED の DTLS は 1.3 専用で、fallback もその flight を直接送るだけだった | peer が SPED を実装していない（最初の認証済み Binding に DATA が無い）と判明し、かつ 1.2 も提示しているときは、SPED の DTLS を捨てて設定どおりの version で通常の DTLS handshake を行う（draft §3.3.4「standard unencapsulated DTLS へ fallback」、`sped: false` と同じ）。1.3 のみの設定は従来どおり同一 bytes で fallback する |
+| H-3 | SPED で relay / TURN の pair だけが選ばれると、SPED を載せる経路も support の判定も無く、DTLS handshake が始まらない（SPED 同士でも。`731bd4e28` 時点から） | support が未決定のまま SPED を載せられない pair が選ばれたら、その pair で直接 DTLS を送る（`settleIneligibleSelectedPair`）。1.2 も提示し、まだ handshake packet を埋め込んでいなければ H-2 と同じく通常の DTLS に切り替える |
+| H-4 | DTLS 1.3 / 1.2 を両方提示する client が HVR の後も CH-A を再送するため、develop の server の Flight4 が落ちると新しい cookie で再 HVR になり、develop は最初の transcript を使い続けて Finished の復号に失敗する | ICE 上（`authenticated-single-peer`）では HVR は peer 自身からなので、HVR 後の CH-A 再送を止める（1.2 の cookie 経路が自分の ClientHello を再送する）。単体 DTLS は off-path の偽 HVR 対策として従来どおり再送する |
+| H-5 | 通常の DTLS へ切り替えた後も、捨てた SPED transport が ICE connection の datagram を購読し続ける | `IceSpedTransport.close()` で購読を外し、送受信を止める。切り替え後に旧 socket が回収され、close 後に資源が残らないことを試験する |
 ---
 
 ## 2. 実装すべき具体的な機能や変更内容
@@ -863,6 +866,10 @@ WebRTC は `packages/webrtc/src/imports/ice.ts` が ice の barrel を再export 
 - [ ] H: `npm run test:interop-develop` が develop に対して全組み合わせで通る
 - [ ] H-1: dual client の CH-A と cookie 付き CH が同じ拡張集合（EMS / renegotiation_info を含む）で、develop の DTLS 1.2 server と接続する
 - [ ] H-2: `sped: true` + `["1.3", "1.2"]` が SPED 非対応の DTLS 1.2 のみの peer と DTLS 1.2 で、SPED 非対応の dual peer と DTLS 1.3 で、server / client どちらの役割でも接続し、1.3 専用の SPED flight を wire に出さない
+- [ ] H-3: SPED（1.3 のみ / 1.3 + 1.2）が relay だけの経路でも、SPED あり・なしの peer と接続する
+- [ ] H-4: dual client（SPED あり / なし）が develop の server と、DTLS 1.2 の各 flight の初回喪失から回復する
+- [ ] H-5: 切り替え後に SPED の datagram 購読・runtime・旧 socket が残らず、close 後に object / socket / timer が残らない。ICE-TCP、relay、切り替え後の handshake 中の ICE restart、切り替え直後の喪失でも接続する
+- [ ] H: Chromium（SPED 無効）と `sped: true` の `["1.3"]` / `["1.3", "1.2"]` が DTLS 1.3 で接続する
 
 ### SPED draft00
 

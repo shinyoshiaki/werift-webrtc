@@ -2697,6 +2697,11 @@ export class Connection implements IceConnection {
           }
         }
         this.updateLinkState();
+        // SPED cannot ride a relay / TURN selection: with support undecided
+        // nothing would carry the handshake, so send it directly.
+        if (this.spedRuntime?.settleIneligibleSelectedPair(pair)) {
+          void this.flushSpedUnconfirmedFallback(pair);
+        }
       }
 
       // Once there is at least one nominated pair in the valid list for

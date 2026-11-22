@@ -26,21 +26,25 @@ export class IceSpedTransport implements Transport {
   private applicationReady = false;
 
   private readonly ice: Connection;
+  /** Detaches from the connection's datagrams (see {@link close}). */
+  private readonly unsubscribeDatagrams: () => void;
 
   constructor(ice: Connection) {
     this.ice = ice;
-    connectionDatagramEvent(ice).subscribe((ctx) => {
-      if (!isDtls(ctx.bytes) || !this.onData) {
-        return;
-      }
-      if (!allowsAuthenticatedDtlsDelivery(ctx, ice.generation)) {
-        return;
-      }
-      // Authenticate inbound records against the current ICE generation and
-      // source tuple. As with the regular ICE transport, receive over any
-      // authenticated pair; application sends still use Connection.send().
-      this.onData(ctx.bytes, ctx.source);
-    });
+    this.unsubscribeDatagrams = connectionDatagramEvent(ice).subscribe(
+      (ctx) => {
+        if (!isDtls(ctx.bytes) || !this.onData) {
+          return;
+        }
+        if (!allowsAuthenticatedDtlsDelivery(ctx, ice.generation)) {
+          return;
+        }
+        // Authenticate inbound records against the current ICE generation and
+        // source tuple. As with the regular ICE transport, receive over any
+        // authenticated pair; application sends still use Connection.send().
+        this.onData(ctx.bytes, ctx.source);
+      },
+    ).unSubscribe;
   }
 
   setRuntime(runtime: SpedRuntime) {
@@ -79,6 +83,9 @@ export class IceSpedTransport implements Transport {
   }
 
   readonly send = async (data: Buffer, addr?: Address) => {
+    if (this.closed) {
+      return;
+    }
     if (this.applicationReady) {
       await this.ice.send(data);
       return;
@@ -98,8 +105,16 @@ export class IceSpedTransport implements Transport {
     await pair.protocol.sendData(data, pair.remoteAddr);
   };
 
+  /**
+   * No more records in either direction: also drops the subscription to the
+   * connection's datagrams, which otherwise lives as long as the ICE
+   * connection (e.g. a SPED socket replaced by standard DTLS).
+   */
   async close() {
+    if (this.closed) return;
     this.closed = true;
+    this.onData = () => {};
+    this.unsubscribeDatagrams();
   }
 
   /**

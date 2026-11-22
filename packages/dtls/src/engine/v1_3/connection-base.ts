@@ -978,9 +978,20 @@ export class Dtls13ConnectionBase {
       return false;
     }
     // Keep pendingFlight + retransmit timers so original CH-A is still RTO'd
-    // (RFC 9147: lost HRR/SH is recovered by ClientHello retransmit).
+    // (RFC 9147: lost HRR/SH is recovered by ClientHello retransmit): an
+    // off-path HelloVerifyRequest must not stop a DTLS 1.3 server's answer.
     this.dualProbeParked = true;
     this.connected = false;
+    if (this.peerIdentityMode === "authenticated-single-peer") {
+      // The transport path is the peer (WebRTC over ICE), so the HVR came
+      // from the peer itself and the 1.2 cookie path retransmits its own
+      // ClientHello. A retransmitted CH-A would make a DTLS 1.2 server
+      // challenge again with a new cookie in the middle of the handshake; a
+      // server that keeps its first transcript (werift before DTLS 1.3)
+      // then derives other keys and the handshake never completes.
+      this.cancelRetransmit?.();
+      this.cancelRetransmit = undefined;
+    }
     log(
       "dual probe park: keep CH-A retransmit, signal association",
       err.message,
