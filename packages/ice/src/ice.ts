@@ -974,7 +974,7 @@ export class Connection implements IceConnection {
       try {
         await this.gatherGeneration(generation);
       } catch (error) {
-        // テスト: interface-enumeration.test.ts「an unexpected exception reports gathering-failed」「a second gatherCandidates()」
+        // テスト: interface-enumeration.test.ts「an unexpected exception reports gathering-failed, ends the generation and rejects」「a second gatherCandidates() reports nothing more and the generation stays ended」
         log("gatherCandidates failed", error);
         this.emitGatheringError(
           generation,
@@ -1053,7 +1053,7 @@ export class Connection implements IceConnection {
       }
     }
 
-    // テスト: interface-enumeration.test.ts「Connection.gatherCandidates when os.networkInterfaces() throws」
+    // テスト: interface-enumeration.test.ts「without servers or explicit addresses: ends with interface-enumeration-failed then no-candidates」「an explicit interfaceAddresses.udp4 still gives its host candidate」「additionalHostAddresses are gathered on a wildcard socket」「a STUN server still gives a server-reflexive candidate」「a TURN server still gives a relay candidate」
     const enumeration = readNetworkInterfaces();
     if (enumeration.error !== undefined) {
       log("network interface enumeration failed", enumeration.error);

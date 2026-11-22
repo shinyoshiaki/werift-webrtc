@@ -134,7 +134,7 @@ export class MdnsLookup {
       this.mdnsInstance = mdns({ bind: false, multicast: false });
     }
     this.mdnsInstance.setMaxListeners(50);
-    // テスト: mdns-enumeration.test.ts「an %s error rejects the pending lookups and the later ones」
+    // テスト: mdns-enumeration.test.ts「a socket error while a remote .local candidate resolves drops it」
     this.mdnsInstance.on("error", (error: unknown) => {
       log("mDNS socket error", error);
       this.failure ??= error;
