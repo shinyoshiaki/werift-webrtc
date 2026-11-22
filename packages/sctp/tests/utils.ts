@@ -546,6 +546,13 @@ export const receiveSack = (sctp: SCTP, sack: SackChunk): Promise<void> =>
 /** TSN preceding `tsn` with uint32 wrap-around. */
 export const tsnBefore = (tsn: number) => (tsn + 0xffffffff) % 0x100000000;
 
+/**
+ * The DATA chunks waiting for their first transmission. `SCTP.outboundQueue`
+ * is deprecated and becomes private in v0.30.0, so tests read it here.
+ */
+export const outboundQueueOf = (sctp: SCTP): FifoQueue<DataChunk> =>
+  (sctp as any).outboundQueue;
+
 export const sentQueueOf = (sctp: SCTP): DataChunk[] => [
   ...(sctp as any).sentQueue,
 ];

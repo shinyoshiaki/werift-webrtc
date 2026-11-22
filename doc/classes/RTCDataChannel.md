@@ -44,15 +44,14 @@
 
 ## Properties
 
-### bufferedAmount
-
-> **bufferedAmount**: `number` = `0`
-
-***
-
 ### bufferedAmountLow
 
 > `readonly` **bufferedAmountLow**: [`Event`](Event.md)\<`any`[]\>
+
+Fires each time [RTCDataChannel.bufferedAmount](#bufferedamount) falls from above
+[RTCDataChannel.bufferedAmountLowThreshold](#bufferedamountlowthreshold) to at or below it,
+together with [RTCDataChannel.onbufferedamountlow](#onbufferedamountlow) and the
+`bufferedamountlow` event. Never fires once the channel is `closed`.
 
 ***
 
@@ -111,6 +110,14 @@
 #### Implementation of
 
 [`DataChannelStats`](../interfaces/DataChannelStats.md).[`messagesSent`](../interfaces/DataChannelStats.md#messagessent)
+
+***
+
+### onbufferedamountlow?
+
+> `optional` **onbufferedamountlow?**: `Callback`
+
+W3C `onbufferedamountlow`; see [RTCDataChannel.bufferedAmountLow](#bufferedamountlow).
 
 ***
 
@@ -291,11 +298,47 @@ v13.6.0, v12.17.0
 
 ## Accessors
 
+### bufferedAmount
+
+#### Get Signature
+
+> **get** **bufferedAmount**(): `number`
+
+Bytes of application data (UTF-8 for strings) queued by
+[RTCDataChannel.send](#send) and not yet handed to the network
+(W3C webrtc-pc `bufferedAmount`, read-only).
+
+- Grows synchronously in `send()` by the message size; an empty message
+  adds nothing.
+- Shrinks once SCTP hands a message's last chunk to the network (not when
+  the peer acknowledges it, so it reaches 0 before retransmissions end),
+  and for a partially reliable channel also when SCTP abandons it.
+- Messages still queued while `closing` keep counting and shrink as they
+  are sent. What is thrown away unsent (`RTCPeerConnection.close()`, the
+  transport stopping, the association ending) is never subtracted, so the
+  value does not reset to zero once the channel closes.
+
+Use it with [RTCDataChannel.bufferedAmountLowThreshold](#bufferedamountlowthreshold) and
+`bufferedamountlow` for backpressure.
+
+##### See
+
+tests/datachannel/bufferedAmount.test.ts
+
+##### Returns
+
+`number`
+
+***
+
 ### bufferedAmountLowThreshold
 
 #### Get Signature
 
 > **get** **bufferedAmountLowThreshold**(): `number`
+
+`bufferedamountlow` fires when [RTCDataChannel.bufferedAmount](#bufferedamount) falls
+from above this value to at or below it. 0..2^32-1, default 0.
 
 ##### Returns
 
@@ -423,22 +466,6 @@ v13.6.0, v12.17.0
 
 ***
 
-### addBufferedAmount()
-
-> **addBufferedAmount**(`amount`): `void`
-
-#### Parameters
-
-##### amount
-
-`number`
-
-#### Returns
-
-`void`
-
-***
-
 ### addEventListener()
 
 > **addEventListener**(`type`, `listener`, `options?`): `void`
@@ -507,9 +534,34 @@ v0.1.26
 
 > **close**(): `void`
 
+Start the closing procedure (W3C webrtc-pc, RFC 8831 6.7): `closing`
+now, `close` once both directions of the stream are reset.
+
+Every message passed to [RTCDataChannel.send](#send) before `close()` is
+kept, even while the association is still being established, and handed
+to SCTP before the stream reset; the reset carries the last TSN assigned
+(RFC 6525), and the peer resets only after it received everything up to
+it. So on a reliable channel, once `close` fires on this side every such
+message has reached the peer, without waiting on `bufferedAmount` first.
+A partially reliable channel may lose what PR-SCTP abandoned.
+
+`RTCPeerConnection.close()` aborts the association: what is not delivered
+yet is lost. To deliver everything, wait for each channel's `close` event
+before closing the PeerConnection.
+
+werift deliberately has no non-standard "unacknowledged amount" API:
+the guarantee above covers "everything sent before close arrives".
+
+An in-band channel whose DATA_CHANNEL_OPEN was not sent yet (the peer
+does not know it) closes at once and sends nothing.
+
 #### Returns
 
 `void`
+
+#### See
+
+tests/datachannel/closeDelivery.test.ts
 
 ***
 
@@ -1258,6 +1310,16 @@ v0.1.26
 
 > **send**(`data`): `void`
 
+Queue a message. While `connecting` it waits until the channel can send
+(werift convenience; W3C throws). On a `closing` / `closed` channel it is
+ignored (nothing is counted or sent).
+
+[RTCDataChannel.bufferedAmount](#bufferedamount) grows by the UTF-8 / byte length.
+An empty string or buffer is sent as an empty message (RFC 8831 6.6,
+PPID 56 / 57) that arrives as `""` / an empty Buffer in order with the
+other messages; it adds nothing to `bufferedAmount` or `bytesSent`, and
+one to `messagesSent`.
+
 #### Parameters
 
 ##### data
@@ -1267,6 +1329,14 @@ v0.1.26
 #### Returns
 
 `void`
+
+#### Throws
+
+Error when the message is larger than the peer's max-message-size.
+
+#### See
+
+tests/datachannel/bufferedAmount.test.ts
 
 ***
 
@@ -1325,15 +1395,23 @@ v0.3.5
 
 ### setReadyState()
 
-> **setReadyState**(`state`): `void`
+> **setReadyState**(`state`, `__namedParameters?`): `void`
 
 Internal. Every listener is isolated (DOM event semantics).
+`notifyClosing: false` (a local close()) moves to `closing` with only
+the stateChange / stateChanged Events, without `closing` / `onclosing`.
 
 #### Parameters
 
 ##### state
 
 [`DCState`](../type-aliases/DCState.md)
+
+##### \_\_namedParameters?
+
+###### notifyClosing?
+
+`boolean` = `true`
 
 #### Returns
 

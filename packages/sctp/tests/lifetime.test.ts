@@ -14,6 +14,7 @@ import {
   createZeroWindowMockSctp,
   disposeMockSctp,
   flushImmediates,
+  outboundQueueOf,
   receiveSack,
   recordedData,
   recordedForwardTsns,
@@ -135,7 +136,7 @@ describe("PR-SCTP lifetime (expiry) abandonment", () => {
     });
     await flushImmediates();
     const client = pair.client as any;
-    const queuedBefore = client.outboundQueue.length;
+    const queuedBefore = outboundQueueOf(client).length;
     const lastTsn = (client.localTsn + 0xffffffff) % 0x100000000;
 
     // Act: 寿命と T3-rtx を超えて時間を進める
@@ -144,7 +145,7 @@ describe("PR-SCTP lifetime (expiry) abandonment", () => {
 
     // Assert: 一部の断片が未送信だったことを前提に、未送信断片も含めて全て破棄され送信キューが空になる
     expect(queuedBefore).toBeGreaterThan(0);
-    expect(client.outboundQueue.length).toBe(0);
+    expect(outboundQueueOf(client).length).toBe(0);
     expect(client.sentQueue.length).toBe(0);
     // Assert: FORWARD-TSN がメッセージ最終断片の TSN まで累積 TSN を進める
     const forwardTsn = recordedForwardTsns(pair.recorder)[0];
@@ -439,7 +440,7 @@ describe("PR-SCTP lifetime (expiry) abandonment", () => {
       }),
     ];
     await flushImmediates();
-    const queued: DataChunk[] = [...client.outboundQueue];
+    const queued: DataChunk[] = [...outboundQueueOf(client)];
     const b = queued[queued.length - 1];
     return { pair, client, received, sends, b };
   };
@@ -450,7 +451,7 @@ describe("PR-SCTP lifetime (expiry) abandonment", () => {
     for (
       let i = 0;
       i < 20 &&
-      (client.outboundQueue.length > 0 ||
+      (outboundQueueOf(client).length > 0 ||
         client.sentQueue.length > 0 ||
         client.forwardTsnChunk);
       i++
@@ -478,7 +479,7 @@ describe("PR-SCTP lifetime (expiry) abandonment", () => {
     expect(bSends).toBe(0);
     expect(b.abandoned).toBe(true);
     expect((pair.server as any).lastReceivedTsn).toBe(b.tsn);
-    expect(client.outboundQueue.length).toBe(0);
+    expect(outboundQueueOf(client).length).toBe(0);
     expect(client.sentQueue.length).toBe(0);
     expect(client.flightSize).toBe(0);
 
@@ -714,7 +715,7 @@ describe("PR-SCTP lifetime of DATA queued behind a zero receive window", () => {
       await flushImmediates();
 
       // Assert: ウィンドウ不足で送信されずキューに残り、T3 は動いていない
-      expect(sctp.outboundQueue.length).toBe(1);
+      expect(outboundQueueOf(sctp).length).toBe(1);
       expect(internal.timer3Handle).toBeUndefined();
       expect(settled).toBe(false);
 
@@ -725,7 +726,7 @@ describe("PR-SCTP lifetime of DATA queued behind a zero receive window", () => {
       // Assert: 期限切れで破棄され、send() は解決し、FORWARD-TSN で相手に飛ばすことを伝える
       await sending;
       expect(settled).toBe(true);
-      expect(sctp.outboundQueue.length).toBe(0);
+      expect(outboundQueueOf(sctp).length).toBe(0);
       expect(internal.sentQueue.length).toBe(0);
       const forwardTsn = sentChunks(transport).find(
         (c): c is ForwardTsnChunk => c instanceof ForwardTsnChunk,
@@ -749,7 +750,7 @@ describe("PR-SCTP lifetime of DATA queued behind a zero receive window", () => {
         aSettled = true;
       });
       await flushImmediates();
-      const [a] = [...sctp.outboundQueue];
+      const [a] = [...outboundQueueOf(sctp)];
 
       // Act: A の後ろに寿命 50ms の B を積み、他のイベントを起こさずに寿命を過ぎるまで待つ
       const sendingB = sctp
@@ -764,8 +765,8 @@ describe("PR-SCTP lifetime of DATA queued behind a zero receive window", () => {
       await sendingB;
       expect(bSettled).toBe(true);
       expect(aSettled).toBe(false);
-      const [, b] = [...sctp.outboundQueue];
-      expect(sctp.outboundQueue.length).toBe(2);
+      const [, b] = [...outboundQueueOf(sctp)];
+      expect(outboundQueueOf(sctp).length).toBe(2);
       expect(b.abandoned).toBe(true);
       expect(sentDataTsns(transport)).toEqual([]);
 
@@ -777,7 +778,7 @@ describe("PR-SCTP lifetime of DATA queued behind a zero receive window", () => {
       await sendingA;
       expect(aSettled).toBe(true);
       expect(sentDataTsns(transport)).toEqual([a.tsn]);
-      expect(sctp.outboundQueue.length).toBe(0);
+      expect(outboundQueueOf(sctp).length).toBe(0);
       await receiveSack(sctp, buildSack(a.tsn));
       await flushImmediates();
       const forwardTsn = sentChunks(transport)
@@ -807,7 +808,7 @@ describe("PR-SCTP lifetime of DATA queued behind a zero receive window", () => {
       await Promise.all(sends);
 
       // Assert: 期限切れの 3 つは send() が解決し、TSN 順の計上に必要な bookSize だけ残してペイロードを手放す
-      const [a, ...expired] = [...sctp.outboundQueue];
+      const [a, ...expired] = [...outboundQueueOf(sctp)];
       expect(expired).toHaveLength(3);
       for (const chunk of expired) {
         expect(chunk.abandoned).toBe(true);

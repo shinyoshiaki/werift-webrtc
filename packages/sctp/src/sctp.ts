@@ -137,6 +137,27 @@ type SCTPConnectionState = Unpacked<typeof SCTPConnectionStates>;
 /** Shared empty payload of abandoned DATA chunks. */
 const EMPTY_PAYLOAD = Buffer.alloc(0);
 
+/**
+ * How a {@link SCTP.send} call ended.
+ *
+ * - `sent`: the last chunk of the message was handed to the network (moved
+ *   from the outbound queue to the sent queue). It is not acknowledged yet.
+ * - `abandoned`: the message expired or ran out of retransmissions (PR-SCTP,
+ *   RFC 3758) before all of it was handed to the network; the peer gets a
+ *   FORWARD-TSN instead. W3C counts it as data the transport tried to send.
+ * - `discarded`: the association closed (or was already stopped) before the
+ *   message was handed to the network; it was never sent.
+ *
+ * @enum
+ */
+export const SctpSendResult = {
+  sent: "sent",
+  abandoned: "abandoned",
+  discarded: "discarded",
+} as const;
+export type SctpSendResult =
+  (typeof SctpSendResult)[keyof typeof SctpSendResult];
+
 export class SCTP {
   public transport: Transport;
   public port: number;
@@ -203,7 +224,14 @@ export class SCTP {
   private forwardTsnChunk?: ForwardTsnChunk;
   private forwardTsnPending = false;
   private flightSize = 0;
-  /** DATA chunks waiting to be transmitted for the first time. */
+  /**
+   * DATA chunks waiting to be transmitted for the first time.
+   * @internal
+   * @deprecated Internal send queue; its type and contents may change without
+   * notice and it becomes private in v0.30.0. Use the value {@link SCTP.send}
+   * resolves with ({@link SctpSendResult}) to know when a message left it, or
+   * `RTCDataChannel.bufferedAmount` / `bufferedamountlow` in werift.
+   */
   readonly outboundQueue = new FifoQueue<DataChunk>();
   /**
    * Pending send() calls in queue order, each waiting for its last chunk to
@@ -211,7 +239,7 @@ export class SCTP {
    */
   private sendWaiters = new FifoQueue<{
     chunk: DataChunk;
-    resolve: () => void;
+    resolve: (result: SctpSendResult) => void;
     /** Resolved out of order because its message expired in outboundQueue. */
     done?: boolean;
   }>();
@@ -1195,6 +1223,21 @@ export class SCTP {
     return false;
   }
 
+  /**
+   * Queue a message on `streamId` and transmit what cwnd / rwnd allow.
+   *
+   * TSNs are assigned and the chunks queued synchronously, before the first
+   * `await`, so a stream reset requested after this call covers the message
+   * (RFC 6525 Sender's Last Assigned TSN). The promise resolves with
+   * {@link SctpSendResult}: `sent` once the message's last chunk is handed to
+   * the network (not when it is acknowledged), `abandoned` when PR-SCTP gave
+   * it up before that, `discarded` when the association closed first.
+   *
+   * An empty `userData` creates no chunk (an SCTP DATA chunk cannot be empty,
+   * RFC 9260 3.3.1) and resolves `sent` at once without consuming a stream
+   * sequence number; WebRTC sends an empty message as one byte with PPID
+   * 56 / 57 (RFC 8831 6.6) instead, so this does not happen there.
+   */
   send = async (
     streamId: number,
     ppId: number,
@@ -1212,7 +1255,8 @@ export class SCTP {
       maxRetransmits?: number | undefined;
       ordered?: boolean;
     } = { expiry: undefined, maxRetransmits: undefined, ordered: true },
-  ) => {
+  ): Promise<SctpSendResult> => {
+    if (userData.length === 0) return SctpSendResult.sent;
     const streamSeqNum = ordered ? this.outboundStreamSeq[streamId] || 0 : 0;
 
     const fragments = Math.ceil(userData.length / this.maxPayloadSize);
@@ -1256,22 +1300,20 @@ export class SCTP {
     // Resolves once this call's last chunk is handed to the network (moved to
     // sentQueue), not when the whole outboundQueue drains, so N queued sends
     // do not wake N waiters on every transmit.
-    const lastChunk = chunks[chunks.length - 1];
-    const sent =
-      lastChunk && !this.isStopped
-        ? new Promise<void>((resolve) => {
-            this.sendWaiters.push({ chunk: lastChunk, resolve });
-          })
-        : undefined;
+    const lastChunk = chunks[chunks.length - 1]!;
+    if (this.isStopped) return SctpSendResult.discarded;
+    const sent = new Promise<SctpSendResult>((resolve) => {
+      this.sendWaiters.push({ chunk: lastChunk, resolve });
+    });
 
     await this.transmit();
-    await sent;
+    return sent;
   };
 
-  private resolveSendWaiters(sentChunk: DataChunk) {
+  private resolveSendWaiters(sentChunk: DataChunk, result: SctpSendResult) {
     this.dropDoneSendWaiters();
     if (this.sendWaiters.peek()?.chunk === sentChunk) {
-      this.sendWaiters.shift()!.resolve();
+      this.sendWaiters.shift()!.resolve(result);
       this.dropDoneSendWaiters();
     }
   }
@@ -1285,7 +1327,7 @@ export class SCTP {
     for (const waiter of this.sendWaiters) {
       if (waiter.chunk === chunk && !waiter.done) {
         waiter.done = true;
-        waiter.resolve();
+        waiter.resolve(SctpSendResult.abandoned);
         return;
       }
     }
@@ -1296,7 +1338,7 @@ export class SCTP {
     const waiters = this.sendWaiters;
     this.sendWaiters = new FifoQueue();
     for (const waiter of waiters) {
-      waiter.resolve();
+      waiter.resolve(SctpSendResult.discarded);
     }
   }
 
@@ -1389,7 +1431,7 @@ export class SCTP {
       if (chunk.abandoned || this.isExpired(chunk)) {
         this.outboundQueue.shift();
         this.sentQueue.push(chunk);
-        this.resolveSendWaiters(chunk);
+        this.resolveSendWaiters(chunk, SctpSendResult.abandoned);
         this.abandonMessage(this.sentQueue.length - 1);
         abandoned = true;
         continue;
@@ -1403,7 +1445,7 @@ export class SCTP {
       this.outboundQueue.shift();
 
       this.sentQueue.push(chunk);
-      this.resolveSendWaiters(chunk);
+      this.resolveSendWaiters(chunk, SctpSendResult.sent);
       this.flightSizeIncrease(chunk);
 
       // # update counters
@@ -1895,7 +1937,7 @@ export class SCTP {
       const oChunk = this.outboundQueue.shift()!;
       this.markAbandoned(oChunk);
       this.sentQueue.push(oChunk);
-      this.resolveSendWaiters(oChunk);
+      this.resolveSendWaiters(oChunk, SctpSendResult.abandoned);
       if (oChunk.flags & SCTP_DATA_LAST_FRAG) {
         lastFragReached = true;
       }

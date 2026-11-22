@@ -202,6 +202,12 @@ A new association (renegotiation) starts again from `connecting`.
 
 > **dataChannelClose**(`channel`): `void`
 
+What [RTCDataChannel.close](RTCDataChannel.md#close) calls; use that instead. The channel's queued messages go
+to SCTP before its stream reset: at once when the association is
+established, otherwise when it is (`closing` until then). A channel the
+peer does not know yet (DATA_CHANNEL_OPEN unsent), or one on an ended
+association, closes at once and its queued messages are dropped.
+
 #### Parameters
 
 ##### channel
@@ -211,6 +217,10 @@ A new association (renegotiation) starts again from `connecting`.
 #### Returns
 
 `void`
+
+#### See
+
+tests/datachannel/closeDelivery.test.ts
 
 ***
 
@@ -233,6 +243,11 @@ A new association (renegotiation) starts again from `connecting`.
 ### datachannelSend()
 
 > **datachannelSend**(`channel`, `data`): `number`
+
+What [RTCDataChannel.send](RTCDataChannel.md#send) calls (use that instead): queue a user
+message and flush.
+An empty message is one byte with PPID 56 / 57 (RFC 8831 6.6) and adds
+nothing to `bufferedAmount`. Returns the message size in bytes.
 
 #### Parameters
 

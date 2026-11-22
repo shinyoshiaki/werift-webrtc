@@ -3,6 +3,7 @@ import {
   SCTP,
   SCTP_STATE,
   type SCTPOptions,
+  SctpSendResult,
   type Transport,
 } from "../../../sctp/src";
 import {
@@ -50,6 +51,23 @@ interface ClosingStream {
   fallback?: ReturnType<typeof setTimeout>;
 }
 
+/**
+ * A message waiting in {@link RTCSctpTransport}'s private queue: channel,
+ * PPID, payload, and the bytes it added to the channel's `bufferedAmount`
+ * (omitted: the payload length for a user message, 0 for DCEP).
+ *
+ * Private; the structure may change without notice. The optional fourth
+ * element keeps a hand-queued 3-element entry (werift <= 0.28 workaround for
+ * empty messages) working in v0.29.0 only; use `send("")` instead.
+ * @see tests/datachannel/bufferedAmount.test.ts "a legacy 3-element queue entry is still sent (v0.29.0 compatibility)"
+ */
+type QueuedMessage = [
+  channel: RTCDataChannel,
+  ppId: number,
+  userData: Buffer,
+  bufferedBytes?: number,
+];
+
 /** W3C webrtc-pc `RTCSctpTransportState`. */
 export type RTCSctpTransportState = "connecting" | "connected" | "closed";
 
@@ -83,7 +101,17 @@ export class RTCSctpTransport {
   private stopped = false;
   remoteMaxMessageSize = DEFAULT_MAX_MESSAGE_SIZE;
 
-  private dataChannelQueue = new FifoQueue<[RTCDataChannel, number, Buffer]>();
+  /**
+   * Private: DCEP and user messages not yet handed to SCTP, in send order.
+   * Its structure may change without notice; use the RTCDataChannel API.
+   */
+  private dataChannelQueue = new FifoQueue<QueuedMessage>();
+  /**
+   * Channels closed before the association was established: their queued
+   * messages go to SCTP first, then their stream is reset.
+   * @see tests/datachannel/closeDelivery.test.ts "messages sent before close() while connecting reach the peer, then both ends close"
+   */
+  private readonly closeAfterFlush = new Set<RTCDataChannel>();
   /**
    * In-band channels created here whose DATA_CHANNEL_OPEN is not sent yet;
    * their stream ID, if any, is a reservation.
@@ -206,6 +234,7 @@ export class RTCSctpTransport {
   ) {
     this.eventDisposer.forEach((dispose) => dispose());
     this.clearClosingStreams();
+    this.closeAfterFlush.clear();
 
     this.dtlsTransport = dtlsTransport;
     // A new association: the transport delivers again.
@@ -226,7 +255,8 @@ export class RTCSctpTransport {
         this.sctp.stateChanged.connected.subscribe(() => {
           this.setState("connected");
           Object.values(this.dataChannels).forEach((channel) => {
-            if (channel.negotiated && channel.readyState !== "open") {
+            // A channel closed while connecting stays closing.
+            if (channel.negotiated && channel.readyState === "connecting") {
               channel.setReadyState("open");
             }
           });
@@ -235,6 +265,7 @@ export class RTCSctpTransport {
         this.sctp.stateChanged.closed.subscribe(() => {
           if (!this.stopped) this.setState("closed");
           this.clearClosingStreams();
+          this.closeAfterFlush.clear();
           // Test: tests/issue/815.test.ts "a throwing close listener of a registered channel skips no listener, channel or teardown"
           // Test: tests/issue/815.notification.test.ts "association closed by the peer: a channel created in a close callback stays registered until pc.close()"
           const channels = Object.values(this.dataChannels);
@@ -550,12 +581,21 @@ export class RTCSctpTransport {
               channel.isCreatedByRemote = true;
               this.dataChannels[streamId] = channel;
 
+              // The ACK goes to SCTP before the application sees the
+              // channel, so a close() in the datachannel handler resets the
+              // stream after it, never before.
+              // Test: tests/datachannel/closeDelivery.test.ts "close() in the datachannel handler: the opener gets the ACK first, no error, both ends close"
+              this.sendDataChannelAck(channel);
+
               // Test: tests/issue/815.notification.test.ts "datachannel: later listeners run and the channel opens on both ends"
               this.onDataChannel.executeIsolated(
                 (error) => log("onDataChannel listener failed", error),
                 channel,
               );
-              channel.setReadyState("open");
+              if (channel.readyState === "connecting") {
+                channel.setReadyState("open");
+              }
+              return;
             } else if (existing.readyState !== "open") {
               // Test: tests/issue/815.reset.test.ts "a DATA_CHANNEL_OPEN on the stream of a closing remote channel is not acknowledged"
               log("DATA_CHANNEL_OPEN on a closing stream, ignored", streamId);
@@ -564,11 +604,7 @@ export class RTCSctpTransport {
               log("datachannel already opened", "retransmit ack");
             }
 
-            const channel = this.dataChannels[streamId];
-            const ack = Buffer.allocUnsafe(1);
-            ack.writeUInt8(DATA_CHANNEL_ACK, 0);
-            this.dataChannelQueue.push([channel, WEBRTC_DCEP, ack]);
-            this.dataChannelFlush();
+            this.sendDataChannelAck(existing);
           }
           break;
         case DATA_CHANNEL_ACK:
@@ -583,7 +619,10 @@ export class RTCSctpTransport {
               );
               return;
             }
-            channel.setReadyState("open");
+            // A late ACK of a channel closed meanwhile does not reopen it.
+            if (channel.readyState === "connecting") {
+              channel.setReadyState("open");
+            }
           }
           break;
       }
@@ -620,9 +659,13 @@ export class RTCSctpTransport {
           return;
         }
 
-        // Update reception statistics
+        // Update reception statistics; the one byte of an empty message
+        // (PPID 56 / 57) is not data.
         channel.messagesReceived++;
-        channel.bytesReceived += data.length;
+        channel.bytesReceived +=
+          ppId === WEBRTC_STRING_EMPTY || ppId === WEBRTC_BINARY_EMPTY
+            ? 0
+            : data.length;
 
         // Test: tests/issue/815.notification.test.ts "message: later listeners and later messages are delivered"
         const onError = (error: unknown) =>
@@ -635,6 +678,13 @@ export class RTCSctpTransport {
       }
     }
   };
+
+  private sendDataChannelAck(channel: RTCDataChannel) {
+    const ack = Buffer.allocUnsafe(1);
+    ack.writeUInt8(DATA_CHANNEL_ACK, 0);
+    this.dataChannelQueue.push([channel, WEBRTC_DCEP, ack]);
+    this.dataChannelFlush();
+  }
 
   dataChannelAddNegotiated(channel: RTCDataChannel) {
     if (channel.id == undefined) {
@@ -722,32 +772,35 @@ export class RTCSctpTransport {
   }
 
   /**
-   * Hand the queued DCEP and user messages to SCTP once the association is
-   * established; a channel still without stream ID stays queued.
+   * Private: hand the queued DCEP and user messages to SCTP once the
+   * association is established; a channel still without stream ID stays
+   * queued. A `closing` channel's messages are sent (W3C closing procedure:
+   * pending messages first), then the streams of channels closed before the
+   * association was established are reset. One synchronous pass, O(1) per
+   * message. Its behavior may change without notice.
    * @see tests/issue/815.test.ts "issue 815: data channel stream IDs follow the DTLS role"
+   * @see tests/datachannel/closeDelivery.test.ts "messages sent before close() while connecting reach the peer, then both ends close"
    */
   private dataChannelFlush() {
     if (this.sctp.associationState != SCTP_STATE.ESTABLISHED) return;
     this.assignPendingStreamIds();
-    const waiting = new FifoQueue<[RTCDataChannel, number, Buffer]>();
+    const waiting = new FifoQueue<QueuedMessage>();
 
     // Hands every queued message to SCTP synchronously (SCTP.send enqueues
     // before its first await) and tracks completion per message, so repeated
     // datachannelSend() calls never spawn concurrent flush loops.
     while (this.dataChannelQueue.length > 0) {
-      const [channel, protocol, userData] = this.dataChannelQueue.shift()!;
+      const item = this.dataChannelQueue.shift()!;
+      const [channel, protocol, userData] = item;
 
       // A channel closed while its message was queued (e.g. the association
-      // closed and was re-established) is no longer managed; never announce it.
-      if (channel.readyState === "closed" || channel.readyState === "closing") {
-        if (protocol !== WEBRTC_DCEP)
-          channel.addBufferedAmount(-userData.length);
-        continue;
-      }
+      // closed and was re-established) is no longer managed; never announce
+      // it. Its unsent bytes stay in bufferedAmount (never sent).
+      if (channel.readyState === "closed") continue;
 
       const streamId = channel.id;
       if (streamId == undefined) {
-        waiting.push([channel, protocol, userData]);
+        waiting.push(item);
         continue;
       }
 
@@ -766,22 +819,40 @@ export class RTCSctpTransport {
             ? Date.now() + channel.maxPacketLifeTime
             : undefined;
 
+        const bufferedBytes = item[3] ?? userData.length;
         this.sctp
           .send(streamId, protocol, userData, {
             expiry,
             maxRetransmits: channel.maxRetransmits ?? undefined,
             ordered: channel.ordered,
           })
-          .catch((err: Error) => {
-            log("send data failed", err.message);
-          })
-          .then(() => channel.addBufferedAmount(-userData.length))
+          .then(
+            (result) => {
+              // W3C: sent (or, PR-SCTP, abandoned after trying) shrinks
+              // bufferedAmount; never sent because the association closed
+              // does not.
+              // Test: tests/datachannel/bufferedAmount.test.ts "pc.close() keeps bufferedAmount and fires no bufferedamountlow"
+              if (result !== SctpSendResult.discarded && bufferedBytes > 0) {
+                channel.changeBufferedAmount(-bufferedBytes);
+              }
+            },
+            (err: Error) => {
+              log("send data failed", err.message);
+            },
+          )
           .catch((err: Error) => {
             log("update bufferedAmount failed", err.message);
           });
       }
     }
     if (waiting.length > 0) this.dataChannelQueue = waiting;
+
+    for (const channel of this.closeAfterFlush) {
+      if (channel.id == undefined) continue;
+      this.closeAfterFlush.delete(channel);
+      if (channel.readyState !== "closing") continue;
+      this.resetStream(channel.id);
+    }
   }
 
   private assertSendableMessageSize(size: number) {
@@ -792,18 +863,36 @@ export class RTCSctpTransport {
     }
   }
 
+  /**
+   * What {@link RTCDataChannel.send} calls (use that instead): queue a user
+   * message and flush.
+   * An empty message is one byte with PPID 56 / 57 (RFC 8831 6.6) and adds
+   * nothing to `bufferedAmount`. Returns the message size in bytes.
+   */
   datachannelSend = (channel: RTCDataChannel, data: Buffer | string) => {
-    const userData = Buffer.isBuffer(data) ? data : Buffer.from(data);
     const size = getDataChannelMessageSize(data);
 
     this.assertSendableMessageSize(size);
-    channel.addBufferedAmount(size);
+    channel.changeBufferedAmount(size);
 
-    this.dataChannelQueue.push(
-      typeof data === "string"
-        ? [channel, WEBRTC_STRING, userData]
-        : [channel, WEBRTC_BINARY, userData],
-    );
+    const isString = typeof data === "string";
+    if (size === 0) {
+      // Test: tests/datachannel/bufferedAmount.test.ts "empty string and empty Buffer arrive in order, bufferedAmount stays 0, stats count them"
+      this.dataChannelQueue.push([
+        channel,
+        isString ? WEBRTC_STRING_EMPTY : WEBRTC_BINARY_EMPTY,
+        Buffer.from([0]),
+        0,
+      ]);
+    } else {
+      const userData = Buffer.isBuffer(data) ? data : Buffer.from(data);
+      this.dataChannelQueue.push([
+        channel,
+        isString ? WEBRTC_STRING : WEBRTC_BINARY,
+        userData,
+        size,
+      ]);
+    }
 
     if (this.sctp.associationState !== SCTP_STATE.ESTABLISHED) {
       log("sctp not established", this.sctp.associationState);
@@ -896,17 +985,18 @@ export class RTCSctpTransport {
   }
 
   // Messages not yet handed to SCTP belong to the stopped association and must
-  // not leak into a later one. User messages are dropped and removed from
-  // bufferedAmount; DATA_CHANNEL_OPEN is kept only for channels still alive, so
-  // a channel that outlives the transport (e.g. rollback) can be announced,
-  // while closed channels and stale ACKs go.
+  // not leak into a later one. User messages are dropped and, never sent, stay
+  // in bufferedAmount (W3C: it does not reset once closed); DATA_CHANNEL_OPEN
+  // is kept only for channels still alive, so a channel that outlives the
+  // transport (e.g. rollback) can be announced, while closed channels and
+  // stale ACKs go.
+  // Test: tests/transport/sctp.test.ts "stop discards unsent messages and keeps them in bufferedAmount"
   private discardUnsentMessages() {
-    const kept = new FifoQueue<[RTCDataChannel, number, Buffer]>();
+    const kept = new FifoQueue<QueuedMessage>();
     for (const item of this.dataChannelQueue.toArray()) {
       const [channel, protocol, userData] = item;
-      if (protocol !== WEBRTC_DCEP) {
-        channel.addBufferedAmount(-userData.length);
-      } else if (
+      if (
+        protocol === WEBRTC_DCEP &&
         userData[0] === DATA_CHANNEL_OPEN &&
         channel.readyState !== "closed" &&
         channel.readyState !== "closing"
@@ -915,6 +1005,7 @@ export class RTCSctpTransport {
       }
     }
     this.dataChannelQueue = kept;
+    this.closeAfterFlush.clear();
     for (const channel of this.unannounced) {
       if (channel.readyState === "closed" || channel.readyState === "closing") {
         this.unannounced.delete(channel);
@@ -950,21 +1041,35 @@ export class RTCSctpTransport {
     this.dataChannelClose(channel);
   }
 
+  /**
+   * What {@link RTCDataChannel.close} calls; use that instead. The channel's queued messages go
+   * to SCTP before its stream reset: at once when the association is
+   * established, otherwise when it is (`closing` until then). A channel the
+   * peer does not know yet (DATA_CHANNEL_OPEN unsent), or one on an ended
+   * association, closes at once and its queued messages are dropped.
+   * @see tests/datachannel/closeDelivery.test.ts
+   */
   dataChannelClose(channel: RTCDataChannel) {
     if (!(["closing", "closed"] as DCState[]).includes(channel.readyState)) {
-      channel.setReadyState("closing");
+      channel.setReadyState("closing", { notifyClosing: false });
+      // A stateChange subscriber may have ended the channel (pc.close()).
+      if (channel.readyState !== "closing") return;
 
+      const associationEnded = this.stopped || this.sctp.state === "closed";
       if (
         this.sctp.associationState === SCTP_STATE.ESTABLISHED &&
         !this.unannounced.has(channel)
       ) {
-        // Check if channel.id is already in reconfigQueue to prevent duplicates
-        if (!this.sctp.reconfigQueue.includes(channel.id)) {
-          this.sctp.reconfigQueue.push(channel.id);
-        }
-        if (this.sctp.reconfigQueue.length === 1) {
-          this.sctp.transmitReconfigRequest();
-        }
+        this.dataChannelFlush();
+        this.resetStream(channel.id);
+      } else if (
+        !associationEnded &&
+        !this.unannounced.has(channel) &&
+        channel.id != undefined &&
+        this.dataChannels[channel.id] === channel
+      ) {
+        // Test: tests/datachannel/closeDelivery.test.ts "messages sent before close() while connecting reach the peer, then both ends close"
+        this.closeAfterFlush.add(channel);
       } else {
         // Test: tests/issue/815.test.ts "closing one channel before negotiation keeps the OPEN of another (queue filtered by identity)"
         this.dataChannelQueue = this.dataChannelQueue.filter(

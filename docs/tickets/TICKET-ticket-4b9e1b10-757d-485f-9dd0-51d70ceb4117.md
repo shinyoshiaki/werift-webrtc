@@ -1,5 +1,15 @@
 # SCTP/DataChannelの送信待ち量・バックプレッシャーを安定した公開APIで扱えるようにする
 
+## 進捗状況（2026-11-22 実装、`0a03984d9` 起点）
+
+- 6ab13832（#870）は develop にマージ済みで、その実装（遅れた `DATA_CHANNEL_ACK` を無視、`ondatachannel` の isolate）を前提にした。
+- 4.1〜4.6 を実装した。`SctpSendResult`、`bufferedAmount` の readonly 化と close / stop 後に減算しない意味論、`onbufferedamountlow`、空メッセージ（PPID 56/57）、確立前 close の保持と flush 後の reset、DCEP ACK を `ondatachannel` より先に積む、`closing` イベント、deprecations、README / changelog。
+- 4.2 を W3C に合わせた結果、`closing` イベントは相手が stream を reset したときだけ発火し、自分で `close()` した側では発火しない（WPT `RTCDataChannel-close.html` の closing 系 4 subtest が通る。changelog の Breaking changes に記載）。
+- DCEP OPEN 未送信の in-band channel を close した場合は、4.2 で許容しているとおり、今と同じくすぐ `closed` になり何も送らない（README / TSDoc に記載）。
+- WPT: `RTCDataChannel-bufferedAmount.html` を allowlist に入れた。10 回の実行で毎回 PASS の 24 subtest（Blob 送信の 6 subtest 以外）と、`RTCDataChannel-close.html` の closing 系 4 subtest を baseline に入れた。runner の sandbox に `Blob` を足し、両ファイルを long timeout profile にした。
+- **#730（キューの計算量・イベントループ飢餓）とは別の変更**であり、性能やベンチマークは変えていない。changelog にもそう書いた。
+- v0.30.0 の作業（`outboundQueue` の private 化、`addBufferedAmount` の削除、3 要素タプル互換の削除）はフォローアップチケット `020426ac-4feb-492c-bd1e-df3d7301c1a6` に起票した。
+
 ## 進捗状況（2026-11-19 調査、develop `e069c5c84` 時点）
 
 - **ごく一部だけレビュー中ブランチで修正済み。** レビュー中の `ticket/6ab13832-5312-4d88-b409-66fc84ada0b9`（#815）では、未知の stream に遅れて届いた `DATA_CHANNEL_ACK` を throw せず、ログを出して無視するようになった（`packages/webrtc/src/transport/sctp.ts`）。develop はまだ "channel not found" を throw する。同じブランチで `ondatachannel` handler も `executeIsolated` 経由で呼ばれるようになった。

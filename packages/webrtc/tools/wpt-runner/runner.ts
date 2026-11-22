@@ -1,3 +1,4 @@
+import { Blob } from "buffer";
 import { type ChildProcess, spawn } from "child_process";
 import { mkdir, readdir, readFile, writeFile } from "fs/promises";
 import * as os from "os";
@@ -549,6 +550,10 @@ function createContext(input: {
   const location = new URL(`https://wpt.local/${input.file}${input.variant}`);
   const sandbox: Record<string, unknown> = {
     AbortController,
+    // Node's Blob, so files that build Blobs at the top level (e.g.
+    // RTCDataChannel-bufferedAmount.html) load; werift's send() does not
+    // take a Blob, so those subtests fail on their own.
+    Blob,
     Buffer,
     DOMException,
     Error,

@@ -54,6 +54,17 @@ test("a long allowlisted WebRTC WPT file gets the long timeout profile", () => {
   expect(profile.completionTimeoutMs).toBe(45_000);
 });
 
+test("RTCDataChannel-bufferedAmount gets the long timeout profile", () => {
+  // 実行: data channel の組を subtest ごとに作り直すファイルのタイムアウトを解決する。
+  const profile = resolveTimeoutProfile({
+    file: "webrtc/RTCDataChannel-bufferedAmount.html",
+    variant: "",
+  });
+
+  // 検証: 32 個の subtest を順に実行し終えられる完了待ち時間になる。
+  expect(profile.completionTimeoutMs).toBe(45_000);
+});
+
 test("a timeout scale multiplies every limit of the profile", () => {
   // 実行: 再実行用に 4 倍のタイムアウトを解決する。
   const profile = resolveTimeoutProfile(
