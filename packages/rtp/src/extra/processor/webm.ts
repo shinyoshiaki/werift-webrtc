@@ -32,6 +32,12 @@ export type WebmInput = {
 
 export interface WebmOutput {
   saveToFile?: Buffer;
+  /**
+   * byte offset of `saveToFile` from the start of the output. On the `eol`
+   * output, the total byte length of the output. Set by {@link WebmBase};
+   * `saveToFileSystem` writes each chunk at this offset.
+   */
+  position?: number;
   kind?: "initial" | "cluster" | "block" | "cuePoints";
   /**ms */
   previousDuration?: number;
@@ -178,7 +184,7 @@ export class WebmBase implements AVProcessor<WebmInput> {
       this.builder.ebmlHeader,
       this.builder.createSegment(this.options.duration),
     ]);
-    this.output({ saveToFile: staticPart, kind: "initial" });
+    this.output({ saveToFile: staticPart, kind: "initial", position: 0 });
     this.position += staticPart.length;
 
     const video = this.tracks.find((t) => t.kind === "video");
@@ -264,6 +270,7 @@ export class WebmBase implements AVProcessor<WebmInput> {
       saveToFile: Buffer.from(cluster),
       kind: "cluster",
       previousDuration: duration,
+      position: this.position,
     });
     this.position += cluster.length;
     this.elapsed = undefined;
@@ -313,7 +320,7 @@ export class WebmBase implements AVProcessor<WebmInput> {
     this.internalStats["createSimpleBlock_trackNumber" + trackNumber] =
       new Date().toISOString();
 
-    this.output({ saveToFile: block, kind: "block" });
+    this.output({ saveToFile: block, kind: "block", position: this.position });
     this.position += block.length;
     const [cuePoint] = this.cuePoints.slice(-1);
     if (cuePoint) {
@@ -351,7 +358,9 @@ export class WebmBase implements AVProcessor<WebmInput> {
       saveToFile: Buffer.from(cues),
       kind: "cuePoints",
       previousDuration: duration,
+      position: this.position,
     });
+    this.position += cues.length;
 
     const durationElement = this.builder.createDuration(duration);
     const header = Buffer.concat([
@@ -361,6 +370,7 @@ export class WebmBase implements AVProcessor<WebmInput> {
 
     this.output({
       eol: { duration, durationElement, header, clusters: this.clusters },
+      position: this.position,
     });
 
     this.timestamps = {};

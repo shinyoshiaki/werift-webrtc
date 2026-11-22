@@ -24,6 +24,7 @@
     "format": "biome check --write src",
     "server": "node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs examples/server.ts",
     "test": "npm run type && vitest run ./tests",
+    "pbt:deep": "node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs ../pbt/src/cli.ts tests/pbt/suites.ts",
     "type": "tsc --noEmit -p . --rootDir ..",
     "upgrade-interactive": "npx npm-check-updates -i"
   },

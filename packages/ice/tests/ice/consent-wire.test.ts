@@ -166,6 +166,7 @@ describe("consent wire-level protocol paths", () => {
     const turnStub = {
       transactions: {} as Record<string, any>,
       onData,
+      onAllocationLost: new Event<[Error]>(),
       sendData: vi.fn(async () => undefined),
       close: async () => undefined,
     };
@@ -206,6 +207,7 @@ describe("consent wire-level protocol paths", () => {
     const turnStub = {
       transactions: {} as Record<string, any>,
       onData,
+      onAllocationLost: new Event<[Error]>(),
       sendData: async () => undefined,
       close: async () => undefined,
     };
@@ -274,6 +276,7 @@ describe("consent wire-level protocol paths", () => {
         const turnStub = {
           transactions: {} as Record<string, any>,
           onData,
+          onAllocationLost: new Event<[Error]>(),
           sendData: async () => undefined,
           close: async () => undefined,
         };

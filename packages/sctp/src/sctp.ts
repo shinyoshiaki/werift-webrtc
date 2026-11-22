@@ -73,6 +73,23 @@ export function maxPayloadSizeForMtu(
   return payloadBudget - (payloadBudget % SCTP_PADDING_MULTIPLE);
 }
 
+/**
+ * What one DATA chunk of `payloadLength` user data bytes counts in the
+ * sender's flightSize and against cwnd / the peer's rwnd: the whole chunk on
+ * the wire (its 16-byte header and the payload padded to 4 bytes), not only
+ * the user data. RFC 9260 §6.1 / §7.2 count outstanding DATA chunks in bytes,
+ * and libwebrtc's dcsctp and usrsctp book the serialized chunk size. Counting
+ * only the user data let a cwnd of a few KiB hold thousands of 1-byte
+ * messages in flight, each in its own datagram, which overflowed the
+ * receiver's socket buffer and fed a retransmission storm.
+ */
+export function dataChunkBookSize(payloadLength: number): number {
+  const padding =
+    (SCTP_PADDING_MULTIPLE - (payloadLength % SCTP_PADDING_MULTIPLE)) %
+    SCTP_PADDING_MULTIPLE;
+  return SCTP_DATA_CHUNK_HEADER_SIZE + payloadLength + padding;
+}
+
 export function validateSctpMtu(mtu: number): void {
   if (!Number.isSafeInteger(mtu) || mtu <= 0) {
     throw new Error("SCTP MTU must be a positive integer");
@@ -128,7 +145,12 @@ export class SCTP {
   readonly stateChanged: {
     [key in SCTPConnectionState]: Event<[]>;
   } = createEventsFromList(SCTPConnectionStates);
-  readonly onReconfigStreams = new Event<[number[]]>();
+  /**
+   * Streams reset (RFC 6525): `"outgoing"` when the peer performed our
+   * request, `"incoming"` when we performed the peer's.
+   * @see tests/reconfig.test.ts "the requester sees outgoing, the peer incoming; pending until the peer answers"
+   */
+  readonly onReconfigStreams = new Event<[number[], "outgoing" | "incoming"]>();
   /**streamId: number, ppId: number, data: Buffer */
   readonly onReceive = new Event<[number, number, Buffer]>();
   onSackReceived: () => Promise<void> = async () => {};
@@ -705,6 +727,18 @@ export class SCTP {
     }
   }
 
+  /**
+   * A reset of outgoing stream `streamId` is queued or waits for the peer's
+   * response (RFC 6525).
+   * @see tests/reconfig.test.ts "the requester sees outgoing, the peer incoming; pending until the peer answers"
+   */
+  isOutgoingResetPending(streamId: number) {
+    return (
+      this.reconfigQueue.includes(streamId) ||
+      !!this.reconfigRequest?.streams.includes(streamId)
+    );
+  }
+
   /** The peer answered our outstanding reset request with Success - Performed. */
   private async completeOutgoingReset() {
     const streamIds = this.reconfigRequest!.streams.map((streamId) => {
@@ -712,7 +746,7 @@ export class SCTP {
       return streamId;
     });
 
-    this.onReconfigStreams.execute(streamIds);
+    this.onReconfigStreams.execute(streamIds, "outgoing");
 
     this.reconfigRequest = undefined;
     this.reconfigRequestInProgress = false;
@@ -847,7 +881,7 @@ export class SCTP {
     }
 
     // # close data channel
-    this.onReconfigStreams.execute(resetStreams);
+    this.onReconfigStreams.execute(resetStreams, "incoming");
 
     // DATA beyond the boundary belongs to the reset streams (SSN starts at 0).
     const streamIds = new Set<number>();
@@ -1201,7 +1235,7 @@ export class SCTP {
       chunk.streamSeqNum = streamSeqNum;
       chunk.protocol = ppId;
       chunk.userData = userData.slice(pos, pos + this.maxPayloadSize);
-      chunk.bookSize = chunk.userData.length;
+      chunk.bookSize = dataChunkBookSize(chunk.userData.length);
       chunk.expiry = expiry;
       chunk.maxRetransmits = maxRetransmits;
 
@@ -1553,6 +1587,9 @@ export class SCTP {
     // for reneging but not retransmitted.
     this.sentQueue.forEach((chunk) => {
       if (chunk.acked || chunk.abandoned) return;
+      // Resent by this timer: Fast Retransmit may resend it once more.
+      chunk.fastRetransmitted = false;
+      chunk.misses = 0;
       if (!this.maybeAbandon(chunk)) {
         this.setRetransmitPending(chunk, true);
       }
@@ -1787,10 +1824,20 @@ export class SCTP {
   }
 
   /** Counts a miss indication; on the third, marks the chunk for Fast Retransmit (or abandons it). */
+  /**
+   * One miss indication for `chunk`; the third marks it for Fast Retransmit
+   * (RFC 9260 §7.2.4). A chunk is fast-retransmitted once: the SACKs that
+   * keep reporting it missing were mostly sent before its retransmission
+   * arrived, so striking it again would resend it every 3 SACKs (a storm
+   * under loss). A retransmission that is lost too is left to the T3-rtx
+   * timer, which makes the chunk eligible again.
+   */
   private strikeChunk(chunk: DataChunk) {
+    if (chunk.fastRetransmitted) return false;
     chunk.misses++;
     if (chunk.misses < 3) return false;
     chunk.misses = 0;
+    chunk.fastRetransmitted = true;
     if (!this.maybeAbandon(chunk)) {
       this.setRetransmitPending(chunk, true);
     }
