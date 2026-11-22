@@ -974,14 +974,7 @@ export class Connection implements IceConnection {
       try {
         await this.gatherGeneration(generation);
       } catch (error) {
-        // An unexpected exception ends this generation's gathering instead
-        // of leaving it started but never ended: a later call would
-        // otherwise skip gathering and report "completed" without a word,
-        // and connect() / waitForLocalCandidatesEnd() would wait for an end
-        // that never comes. Resetting `localCandidatesStart` to gather again
-        // is not done, as the sockets this attempt opened stay advertised.
-        // The failure is reported (gathering-failed, then no-candidates when
-        // nothing was gathered) and this call still rejects.
+        // テスト: interface-enumeration.test.ts「an unexpected exception reports gathering-failed」「a second gatherCandidates()」
         log("gatherCandidates failed", error);
         this.emitGatheringError(
           generation,
@@ -1060,13 +1053,7 @@ export class Connection implements IceConnection {
       }
     }
 
-    // One enumeration serves both the host addresses and the check of
-    // which additionalHostAddresses are assigned locally. Where it is not
-    // allowed (os.networkInterfaces() throws, e.g. AF_NETLINK denied by
-    // systemd's RestrictAddressFamilies=) the gathering goes on without
-    // enumerated addresses: the explicit interfaceAddresses, the
-    // additionalHostAddresses (bound to the wildcard address, as none is
-    // known to be assigned), STUN and TURN may still give candidates.
+    // テスト: interface-enumeration.test.ts「Connection.gatherCandidates when os.networkInterfaces() throws」
     const enumeration = readNetworkInterfaces();
     if (enumeration.error !== undefined) {
       log("network interface enumeration failed", enumeration.error);
@@ -1138,11 +1125,7 @@ export class Connection implements IceConnection {
     }
   }
 
-  /**
-   * End the gathering of `generation` (the current one): `no-candidates` is
-   * reported first when it gave no local candidate (the candidates an ICE
-   * restart re-advertised count), whatever the cause.
-   */
+  /** End the gathering of `generation`, reporting `no-candidates` when it gave none. */
   private endLocalCandidates(generation: number) {
     if (this.localCandidates.length === 0) {
       this.emitGatheringError(
@@ -1151,18 +1134,13 @@ export class Connection implements IceConnection {
         "gathering ended without any local candidate",
       );
     }
-    // A listener of the report above may have restarted (or closed) the
-    // agent: the end then belongs to a generation that is gone.
+    // テスト: interface-enumeration.test.ts「restarting from the no-candidates listener」
     if (!this.isGathering(generation)) return;
     this.localCandidatesEnd = true;
     this.wakeIncomingCheckWaits();
   }
 
-  /**
-   * Report a gathering error of `generation` (see onGatheringError). Nothing
-   * is reported for a replaced generation or after close; a listener that
-   * throws does not stop the gathering.
-   */
+  /** Report a gathering error of `generation` (see onGatheringError). */
   private emitGatheringError(
     generation: number,
     reason: IceGatheringErrorReason,
@@ -1177,8 +1155,7 @@ export class Connection implements IceConnection {
       generation,
     };
     log("ice gathering error", { reason, errorText });
-    // Each listener's exception is logged (onListenerError): the later
-    // listeners still run and the gathering goes on.
+    // テスト: interface-enumeration.test.ts「a listener that throws does not stop」
     this.onGatheringError.execute(info);
   }
 

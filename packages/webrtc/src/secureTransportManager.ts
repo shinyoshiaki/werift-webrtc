@@ -789,10 +789,7 @@ export class SecureTransportManager {
 
   async gatherCandidates() {
     // Partial BUNDLE topology can have an established owner and newly added transports.
-    // A gathering that rejects does not fail setLocalDescription (W3C:
-    // gathering follows it asynchronously): RTCIceGatherer.gather() has
-    // already reported it (onGatheringError, `gathering-failed`) and
-    // completed the transport's gathering, so only the log is left here.
+    // テスト: iceGatheringError.test.ts「of a mocked agent: setLocalDescription succeeds」
     const results = await Promise.allSettled(
       this.iceTransports
         .filter(

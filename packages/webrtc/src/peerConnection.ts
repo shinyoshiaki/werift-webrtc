@@ -1176,8 +1176,7 @@ export class RTCPeerConnection extends EventTarget {
       }
     });
     iceTransport.onGatheringError.subscribe((details) => {
-      // Like icecandidateerror: nothing after close or for a transport a
-      // rollback discards. Fired per transport, without deduplication.
+      // テスト: iceGatheringError.test.ts「nothing is reported after close」「a transport a rollback discards」「without BUNDLE each transport」
       if (
         this.isClosed ||
         this.negotiation.isPendingOnlyTransport(iceTransport.id)
@@ -1795,8 +1794,7 @@ export class RTCPeerConnection extends EventTarget {
       // The description is in place: a queued addIceCandidate need not wait
       // for the gathering below.
       this.markDescriptionApplied();
-      // A failed gathering does not reject setLocalDescription: it is
-      // reported through onIceGatheringError (RTCIceGatherer.gather()).
+      // テスト: iceGatheringError.test.ts「of a mocked agent: setLocalDescription succeeds」
       await this.gatherCandidates().catch((e) => {
         log("gatherCandidates failed", e);
       });

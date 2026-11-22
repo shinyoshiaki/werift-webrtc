@@ -643,7 +643,6 @@ export class RTCIceTransport {
     // (Connection.waitForIncomingCheck wakes on that end).
     const gathering = this.gather();
     if (regather) {
-      // A failure was reported (onGatheringError) by gather() itself.
       void gathering.catch((error) => log("restart gathering failed", error));
     } else {
       await gathering;
@@ -1168,11 +1167,7 @@ export class RTCIceGatherer {
       try {
         await this.connection.gatherCandidates();
       } catch (error) {
-        // The gathering of this generation is over: it is reported
-        // (gathering-failed, unless the ICE agent did) and completes with
-        // end-of-candidates, so iceGatheringState never stays "gathering".
-        // The rejection still reaches the caller, which logs it without
-        // failing setLocalDescription (SecureTransportManager.gatherCandidates).
+        // テスト: iceGatheringError.test.ts「of an ICE agent without onGatheringError」
         if (this.connection.generation === generation) {
           if (this.connection.state === "closed") {
             this.setState("complete");
@@ -1187,8 +1182,7 @@ export class RTCIceGatherer {
                 cause: error,
               });
             }
-            // A listener of the report may have restarted or closed the
-            // transport: the end then belongs to a generation that is gone.
+            // テスト: iceGatheringError.test.ts「of an agent restarted by the gathering-failed listener」
             if (!this.gatheringReplaced(generation)) complete();
           }
         }
@@ -1235,7 +1229,6 @@ export class RTCIceGatherer {
     );
   }
 
-  /** A throwing listener must not stop the gathering. */
   private reportGatheringError(details: IceGatheringErrorDetails) {
     try {
       this.onGatheringError(details);

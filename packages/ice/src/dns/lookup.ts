@@ -51,18 +51,9 @@ const defaultMulticastInterface = (
 };
 
 /**
- * The default mDNS socket of {@link MdnsLookup} (package-private).
- *
- * multicast-dns enumerates the interfaces itself (os.networkInterfaces())
- * when its socket starts listening and again every 5 seconds, in callbacks
- * of the event loop: where the enumeration is not allowed (e.g. AF_NETLINK
- * denied by systemd's RestrictAddressFamilies=) that throw would end the
- * process. So its `update()` (the membership refresh) is replaced by one that
- * enumerates without throwing: interfaces that appear later are still joined
- * (a failed enumeration is only a `warning`, retried at the next tick). The
- * socket keeps binding to the wildcard address as before. The first
- * enumeration is made here: when it fails this throws, and MdnsLookup then
- * opens no socket that listens.
+ * The default mDNS socket of {@link MdnsLookup} (package-private): its
+ * membership `update()` enumerates without throwing.
+ * テスト: tests/ice/mdns-enumeration.test.ts
  * @param options more multicast-dns options (tests choose the port).
  */
 export function createMulticastDns(options: mdns.Options = {}) {
@@ -127,18 +118,10 @@ export class MdnsLookup {
   /** Cancels each pending lookup (rejects it and releases its timer and listener). */
   private readonly pending = new Set<() => void>();
 
-  /**
-   * Why the mDNS socket cannot resolve (it could not be created, or it gave
-   * an `error` such as EACCES / EADDRINUSE): every lookup rejects with it.
-   */
+  /** Why the mDNS socket cannot resolve: every lookup rejects with it. */
   private failure?: unknown;
 
-  /**
-   * @param createMdns creates the mDNS socket; tests inject a fake one. When
-   * it throws (the default one does when the network interfaces cannot be
-   * enumerated), a socket that never binds stands in for it and every lookup
-   * rejects at once.
-   */
+  /** @param createMdns creates the mDNS socket; tests inject a fake one. */
   constructor(
     createMdns: () => mdns.MulticastDNS = () => createMulticastDns(),
   ) {
@@ -147,13 +130,11 @@ export class MdnsLookup {
     } catch (error) {
       log("mDNS socket unavailable", error);
       this.failure = error;
-      // Neither binds nor joins a group: no listening, no interval timer.
+      // テスト: mdns-enumeration.test.ts「an enumeration failing at creation opens no socket」
       this.mdnsInstance = mdns({ bind: false, multicast: false });
     }
     this.mdnsInstance.setMaxListeners(50);
-    // multicast-dns re-emits a socket's EACCES / EADDRINUSE as `error`, which
-    // would end the process without a listener: the socket is unusable then,
-    // so the pending lookups reject and so do later ones.
+    // テスト: mdns-enumeration.test.ts「an %s error rejects the pending lookups and the later ones」
     this.mdnsInstance.on("error", (error: unknown) => {
       log("mDNS socket error", error);
       this.failure ??= error;
