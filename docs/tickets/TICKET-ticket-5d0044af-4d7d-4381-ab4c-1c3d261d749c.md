@@ -331,6 +331,12 @@ if (channel.onmessage) channel.onmessage({ data: msg });
   - D1 と §2.5 は無効値を「無視して前の値を保持（例外にしない）」と定めている。
   - 現行仕様の IDL では `binaryType` は enum 型で、WebIDL の enum 属性 setter は無効値を無視する（`SyntaxError` は DOMString 属性だった旧仕様と、それに基づく旧ミラーの挙動）。
 
+- 「辞書メンバーは IDL の宣言順（`type` → `sdp`）に読むべき」という指摘も採用しない。根拠は次の 3 点。
+  - WebIDL の辞書変換（[es-dictionary](https://webidl.spec.whatwg.org/#es-dictionary)）は、各辞書のメンバーを「辞書順（lexicographical order）」に取得する。宣言順ではない。`required` もこの順序を変えない。
+  - 固定版 WPT `FileAPI/blob/Blob-constructor.any.js` の `options properties should be accessed in lexicographic order` は、`type` → `endings` の順に宣言された `BlobPropertyBag` を `endings` → `type` の順に読むことを検証している。
+  - Chromium 156 で実測すると、`new RTCSessionDescription({ get type(){}, get sdp(){} })` は `sdp` → `type` の順に読み、`type` が無い辞書でも `sdp` を読む。
+  - したがって `sdp` → `type` の順を維持し、`type` 欠落時にも先に `sdp` を読むこと（`sdp` getter の例外が欠落の `TypeError` より先に出ること）をテストで固定する。
+
 ### 9.2 WebIDL 変換（D6）
 
 package-local の変換ヘルパー（`src/webidl.ts`、index からは export しない）を 2 つの入口に適用する。
@@ -342,7 +348,7 @@ package-local の変換ヘルパー（`src/webidl.ts`、index からは export �
 | `toString()` を持つオブジェクト | 文字列化した値（有効なら設定） | 文字列化した値 | 文字列化した値（有効なら受理） |
 | Symbol / throw する `toString()` | その例外（値は変えない） | その例外 | その例外 |
 
-- 辞書メンバーは辞書順（`sdp` → `type`）に 1 回ずつ読む。`undefined` / `null` は空辞書、それ以外の非オブジェクトは `TypeError`。
+- 辞書メンバーは名前の辞書順（`sdp` → `type`、IDL の宣言順ではない。§9.1）に 1 回ずつ読む。`type` が無くても `sdp` は先に読む。`undefined` / `null` は空辞書、それ以外の非オブジェクトは `TypeError`。
 - 旧 2 引数形式は第 1 引数が string のときだけ選ぶ（辞書 + 余分な第 2 引数は辞書として扱い、第 2 引数は無視）。旧形式の利便挙動（検証なし）は残す。
 - 仕様上の変換なので、WPT wrapper ではなくコアに置く。`PeerConfig.dataChannelBinaryType` は werift 独自の設定なので、従来どおり不正値は `TypeError`。
 

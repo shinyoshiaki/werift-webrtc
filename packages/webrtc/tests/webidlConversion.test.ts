@@ -157,7 +157,12 @@ describe("WebIDL conversion: RTCSessionDescription({ type }) member", () => {
 });
 
 describe("WebIDL conversion: RTCSessionDescription dictionary", () => {
-  test("members are read once each, sdp before type", () => {
+  // WebIDL の辞書変換はメンバー名の辞書順 (IDL の宣言順ではない)。根拠は
+  // https://webidl.spec.whatwg.org/#es-dictionary と固定版 WPT
+  // FileAPI/blob/Blob-constructor.any.js "options properties should be accessed in
+  // lexicographic order" (宣言は type → endings、取得は endings → type)。
+  // Chromium 156 も RTCSessionDescriptionInit を sdp → type の順に読む。
+  test("members are read once each in lexicographic order (sdp before type), not in IDL declaration order", () => {
     // Arrange: getter の呼び出しを記録する辞書
     const reads: string[] = [];
     const init = {
@@ -177,6 +182,36 @@ describe("WebIDL conversion: RTCSessionDescription dictionary", () => {
     // Assert: 辞書順 (sdp → type) に 1 回ずつ読む
     expect(reads).toEqual(["sdp", "type"]);
     expect(description.toJSON()).toEqual({ sdp: SDP, type: "answer" });
+  });
+
+  test("a missing type is a TypeError raised after the sdp member was read", () => {
+    // Arrange: type を持たず、sdp の読み取りを記録する辞書
+    const reads: string[] = [];
+    const init = {
+      get sdp() {
+        reads.push("sdp");
+        return SDP;
+      },
+    };
+
+    // Act / Assert: 必須の type が無いので TypeError
+    expect(() => new RTCSessionDescription(init as never)).toThrow(
+      /type is required/,
+    );
+    // Assert: 辞書順では sdp が先なので、type の欠落判定より前に sdp を 1 回読む
+    expect(reads).toEqual(["sdp"]);
+  });
+
+  test("an exception from the sdp getter comes before the missing-type TypeError", () => {
+    // Arrange: sdp の getter が throw し、type が無い辞書
+    const init = {
+      get sdp(): string {
+        throw thrown;
+      },
+    };
+
+    // Act / Assert: 先に読む sdp の例外がそのまま出る (type の欠落より先)
+    expect(() => new RTCSessionDescription(init as never)).toThrow(thrown);
   });
 
   test("a second argument after a dictionary is ignored", () => {

@@ -34,7 +34,7 @@ The browser-compatible entry points convert their arguments with the WebIDL rule
 | a Symbol, or a throwing `toString()` | the exception (value unchanged) | the exception | the exception |
 | an invalid string | ignored, no exception | the string | `TypeError` |
 
-The dictionary members are read once each, `sdp` before `type`; `undefined` / `null` is an empty dictionary (so `type` is missing) and any other non-object is a `TypeError`. A second argument after a dictionary is ignored; only a string first argument selects werift's `(sdp, type)` form. Invalid `binaryType` values are ignored rather than throwing `SyntaxError`, as the enum-typed IDL and the pinned upstream WPT `webrtc/RTCDataChannel-binaryType.window.js` require (`Setting binaryType to '…' should be ignored`). `PeerConfig.dataChannelBinaryType` is werift's own option and still rejects an invalid value with `TypeError`.
+The dictionary members are read once each in the lexicographic order of their names, as WebIDL specifies (not the IDL declaration order): `sdp` before `type`, also when `type` is missing; `undefined` / `null` is an empty dictionary (so `type` is missing) and any other non-object is a `TypeError`. A second argument after a dictionary is ignored; only a string first argument selects werift's `(sdp, type)` form. Invalid `binaryType` values are ignored rather than throwing `SyntaxError`, as the enum-typed IDL and the pinned upstream WPT `webrtc/RTCDataChannel-binaryType.window.js` require (`Setting binaryType to '…' should be ignored`). `PeerConfig.dataChannelBinaryType` is werift's own option and still rejects an invalid value with `TypeError`.
 
 ## Browser-compatible surface
 

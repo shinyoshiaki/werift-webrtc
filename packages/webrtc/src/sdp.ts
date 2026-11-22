@@ -838,7 +838,15 @@ function convertRTCSessionDescriptionInit(value: unknown): {
     }
   }
   const dictionary = (value ?? {}) as Record<string, unknown>;
-  // Dictionary members are read in lexicographic order, once each.
+  // Dictionary members are read once each in lexicographic order of their
+  // names, not in IDL declaration order (WebIDL "es-dictionary": "for each
+  // dictionary member ... in lexicographical order"), so `sdp` comes before
+  // the required `type`, also when `type` is missing. Pinned WPT
+  // FileAPI/blob/Blob-constructor.any.js checks the same rule ("options
+  // properties should be accessed in lexicographic order": `endings` before
+  // `type`, declared the other way round); Chromium reads
+  // RTCSessionDescriptionInit the same way.
+  // Test: tests/webidlConversion.test.ts "members are read once each in lexicographic order (sdp before type), not in IDL declaration order"
   const givenSdp = dictionary.sdp;
   const sdp =
     givenSdp === undefined
