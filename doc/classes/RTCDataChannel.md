@@ -120,7 +120,7 @@
 
 ### onbufferedamountlow?
 
-> `optional` **onbufferedamountlow?**: `Callback`
+> `optional` **onbufferedamountlow?**: `CallbackWithValue`\<`Event`\>
 
 W3C `onbufferedamountlow`. See [RTCDataChannel.bufferedAmountLowThreshold](#bufferedamountlowthreshold).
 

@@ -104,6 +104,32 @@ describe("datachannel/bufferedAmountLow", () => {
     }
   });
 
+  test("onbufferedamountlow receives the same bufferedamountlow Event as the listeners", async () => {
+    // Arrange: ハンドラと addEventListener がそれぞれ受け取る event を記録する
+    const pair = await openDataChannelPair();
+    const seen: Event[] = [];
+    pair.local.onbufferedamountlow = (event) => {
+      // ブラウザ向けコードは event.type を参照する
+      seen.push(event);
+      event.type.length;
+    };
+    pair.local.addEventListener("bufferedamountlow", (event: Event) =>
+      seen.push(event),
+    );
+
+    try {
+      // Act: 1 通送り、閾値を跨ぐのを待つ
+      pair.local.send("hello");
+      await vi.waitFor(() => expect(seen.length).toBe(2));
+
+      // Assert: 両方に type "bufferedamountlow" の同一 Event が渡る
+      expect(seen[0].type).toBe("bufferedamountlow");
+      expect(seen[1]).toBe(seen[0]);
+    } finally {
+      await pair.close();
+    }
+  });
+
   test("a throwing onbufferedamountlow skips no other surface and sending continues", async () => {
     // Arrange: 先に呼ばれる 2 面が例外を投げる
     const pair = await openDataChannelPair();

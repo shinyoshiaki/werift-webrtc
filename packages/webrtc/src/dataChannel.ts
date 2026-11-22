@@ -109,7 +109,7 @@ export class RTCDataChannel extends EventTarget implements DataChannelStats {
   readonly bufferedAmountLow = new Event();
   onopen?: Callback;
   /** W3C `onbufferedamountlow`. See {@link RTCDataChannel.bufferedAmountLowThreshold}. */
-  onbufferedamountlow?: Callback;
+  onbufferedamountlow?: CallbackWithValue<globalThis.Event>;
   onclose?: Callback;
   onclosing?: Callback;
   onmessage?: CallbackWithValue<MessageEvent>;
@@ -299,10 +299,12 @@ export class RTCDataChannel extends EventTarget implements DataChannelStats {
   private notifyBufferedAmountLow() {
     const onError = (e: unknown) => log("bufferedamountlow listener failed", e);
     this.bufferedAmountLow.executeIsolated(onError);
+    // One DOM Event for both surfaces (W3C: handler and listeners see the same event).
+    const event = new globalThis.Event("bufferedamountlow");
     notifySafely(log, "onbufferedamountlow", () =>
-      this.onbufferedamountlow?.(),
+      this.onbufferedamountlow?.(event),
     );
-    this.emitIsolated(onError, "bufferedamountlow");
+    this.emitIsolated(onError, "bufferedamountlow", event);
   }
 
   send(data: Buffer | string) {
