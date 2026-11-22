@@ -19,6 +19,7 @@
 - [methods](enumerations/methods.md)
 - [PacketChunk](enumerations/PacketChunk.md)
 - [PacketStatus](enumerations/PacketStatus.md)
+- [RTCDataChannelBinaryType](enumerations/RTCDataChannelBinaryType.md)
 - [RtpTimelineDropReason](enumerations/RtpTimelineDropReason.md)
 
 ## Classes
@@ -334,6 +335,7 @@
 - [RequireAtLeastOne](type-aliases/RequireAtLeastOne.md)
 - [RoundTripTimeConsumer](type-aliases/RoundTripTimeConsumer.md)
 - [RTCBundlePolicy](type-aliases/RTCBundlePolicy.md)
+- [RTCDataChannelMessageData](type-aliases/RTCDataChannelMessageData.md)
 - [RTCDataChannelState](type-aliases/RTCDataChannelState.md)
 - [RTCDtlsRole](type-aliases/RTCDtlsRole.md)
 - [RTCDtlsTransportState](type-aliases/RTCDtlsTransportState.md)
@@ -505,6 +507,7 @@
 - [Recvonly](variables/Recvonly.md)
 - [RETRY\_MAX](variables/RETRY_MAX.md)
 - [RETRY\_RTO](variables/RETRY_RTO.md)
+- [RTCDataChannelBinaryTypes](variables/RTCDataChannelBinaryTypes.md)
 - [RTCP\_HEADER\_SIZE](variables/RTCP_HEADER_SIZE.md)
 - [RTP\_EXTENSION\_URI](variables/RTP_EXTENSION_URI.md)
 - [RtpReceivePacketType](variables/RtpReceivePacketType.md)

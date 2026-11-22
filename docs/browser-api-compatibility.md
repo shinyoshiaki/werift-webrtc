@@ -14,6 +14,10 @@ The implementation tracks the W3C WebRTC API closely and is exercised with an al
 | `RTCPeerConnection.close()` | Async for historical API compatibility | Browser API is synchronous and returns `undefined` | Intentional backward-compatible return-type difference. |
 | `setLocalDescription()` | Non-rollback calls return the applied `SessionDescription` | Browser API resolves `Promise<void>` | Intentional backward-compatible return-type difference. The rollback path resolves with `undefined`. |
 | `RTCPeerConnection.generateCertificate()` | Not implemented as the static browser helper | Defined by the browser API | `RTCCertificate` and `RTCConfiguration.certificates` are supported directly. Without `certificates`, werift reuses one process-wide certificate by default; set `certificateScope: "standard"` (up to v0.27.0: `"peerConnection"`) to generate one per `RTCPeerConnection`, as browsers do. See "Compatibility options" in `packages/webrtc/README.md` for the other options that differ from browsers. |
+| `RTCDataChannel.binaryType` default | `"nodebuffer"` from the core `werift` entry point: binary messages are Node.js `Buffer`s. `werift/polyfill` (and the WPT runner) use `"arraybuffer"`; `PeerConfig.dataChannelBinaryType` chooses it per connection | `"arraybuffer"`; only `"arraybuffer"` / `"blob"` exist | Existing Node.js applications expect `Buffer`s. `"nodebuffer"` is a werift extension (the name of the `ws` library's value), so werift's `binaryType` type is not assignable to `lib.dom`'s `BinaryType` (the other way round is). `channel.onMessage` always receives `Buffer` / string. |
+| `bufferedamountlow` timing | Fired synchronously when sent data completes and `bufferedAmount` crosses `bufferedAmountLowThreshold` (`bufferedAmountLow`, `onbufferedamountlow`, then the listeners) | Fired from a queued task | Keeps the timing of the existing `bufferedAmountLow` event and of werift's other DataChannel events; `bufferedAmount` read in the handler is the value at the crossing. Data discarded unsent fires nothing, as in the spec. |
+| `new RTCSessionDescription(sdp, type)` | Accepted next to the W3C `new RTCSessionDescription({ type, sdp })`, also through the `werift/polyfill` global (the same class) | Only the dictionary form; a string argument is a `TypeError` | Backward compatibility with earlier werift versions. `toJSON()` returns `{ sdp, type }`. |
+| `createOffer()` / `createAnswer()` result | Resolves with werift's `RTCSessionDescription` (with `toSdp()` / `toJSON()`), so it is `instanceof RTCSessionDescription` | Resolves with a plain `RTCSessionDescriptionInit` dictionary | Backward-compatible return type. The WPT runner returns the dictionary. |
 | Legacy callback overloads | Not implemented | Legacy browser forms exist historically | Intentionally out of scope. Promise-based APIs are supported. |
 | `addStream`, `removeStream`, `createDTMFSender` | Not implemented | Obsolete/legacy browser APIs | Intentionally out of scope; use track, transceiver, and sender APIs instead. |
 
@@ -28,7 +32,8 @@ The normal application-facing surface includes:
 - `RTCConfiguration` fields including `iceServers`, `iceTransportPolicy`, `bundlePolicy`, `rtcpMuxPolicy`, `iceCandidatePoolSize`, and `certificates`
 - `canTrickleIceCandidates` and `sctp`
 - tracks, senders, receivers, and transceivers
-- `RTCDataChannel` with browser-style event handlers
+- `RTCDataChannel` with browser-style event handlers, including `onbufferedamountlow`, and `binaryType` (`"arraybuffer"` / `"blob"`, plus werift's `"nodebuffer"`)
+- `RTCSessionDescription` with the W3C `{ type, sdp }` constructor and `toJSON()`; `werift/polyfill` installs the same class, so `instanceof` holds for descriptions werift creates
 - standard event names through `addEventListener()` / `removeEventListener()`
 - `getStats()` reports for RTP, transport, ICE candidates and candidate pairs, codecs, certificates, DataChannels, and related objects
 

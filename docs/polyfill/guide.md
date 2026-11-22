@@ -25,7 +25,7 @@ fails.
 | Option | Required | Description |
 | --- | --- | --- |
 | `mediaRegister` | yes | An array of media registers. An empty array uses the built-in plain empty-track register. |
-| `peerConnectionConfig` | no | Defaults applied to every polyfill-created `RTCPeerConnection`. Explicit constructor values win; `codecs` and `headerExtensions` are replaced per media kind. |
+| `peerConnectionConfig` | no | Defaults applied to every polyfill-created `RTCPeerConnection`, over the polyfill's own default `dataChannelBinaryType: "arraybuffer"`. Explicit constructor values win; `codecs` and `headerExtensions` are replaced per media kind. |
 | `target` | no | Object receiving the globals. Defaults to `globalThis`. |
 | `existingMediaDevices` | no | How an existing `navigator.mediaDevices` is handled. Defaults to `"overwrite"`. |
 | `userAgent` | no | A non-empty string to install as `navigator.userAgent`. |
@@ -480,8 +480,8 @@ still required.
 
 ### Browser-shaped session descriptions
 
-The polyfill entrypoint exports a browser-style `RTCSessionDescription`
-constructor that accepts an initialization object:
+`RTCSessionDescription` accepts the browser-style initialization object, from
+the polyfill global and from the core `werift` entrypoint alike:
 
 ```ts
 const description = new RTCSessionDescription({
@@ -490,9 +490,20 @@ const description = new RTCSessionDescription({
 });
 ```
 
-The core `werift` entrypoint uses its lower-level constructor form. Use the
-polyfill entrypoint when integrating code that expects the browser
-`{ type, sdp }` form.
+The polyfill installs the core class itself as the global, so descriptions
+werift creates (`pc.localDescription`, `createOffer()`) are
+`instanceof RTCSessionDescription`, as in a browser. The older
+`new RTCSessionDescription(sdp, type)` form is still accepted for backward
+compatibility.
+
+### Data channel binary messages
+
+Connections created through the polyfill use the W3C default
+`binaryType === "arraybuffer"`, so binary messages arrive as `ArrayBuffer`
+(set `channel.binaryType = "blob"` for `Blob`). The core `werift` entrypoint
+keeps `"nodebuffer"` (Node.js `Buffer`); choose per connection with
+`peerConnectionConfig: { dataChannelBinaryType }` or the constructor
+configuration.
 
 ### Runtime scope
 

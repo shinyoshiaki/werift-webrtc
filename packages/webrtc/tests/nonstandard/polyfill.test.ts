@@ -471,7 +471,9 @@ describe("werift/polyfill installPolyfill", () => {
   test("restores globals on uninstall", () => {
     const previous = (globalThis as any).RTCPeerConnection;
     const uninstall = installTestPolyfill([]);
-    expect((globalThis as any).RTCPeerConnection).toBe(RTCPeerConnection);
+    expect(Object.getPrototypeOf((globalThis as any).RTCPeerConnection)).toBe(
+      RTCPeerConnection,
+    );
     uninstall();
     expect((globalThis as any).RTCPeerConnection).toBe(previous);
   });
@@ -540,7 +542,9 @@ describe("werift/polyfill installPolyfill", () => {
       existingMediaDevices: "noop",
     });
     expect(target.navigator.mediaDevices).toBe(existing);
-    expect(target.RTCPeerConnection).toBe(RTCPeerConnection);
+    expect(Object.getPrototypeOf(target.RTCPeerConnection)).toBe(
+      RTCPeerConnection,
+    );
     uninstallNoop();
 
     const uninstallOverwrite = installPolyfill({
@@ -925,7 +929,9 @@ describe("werift/polyfill builtin registers", () => {
 
     // 検証: インストールは同期で成功し、ファイル未検出は getUserMedia まで遅延する。
     expect(typeof uninstall).toBe("function");
-    expect(target.RTCPeerConnection).toBe(RTCPeerConnection);
+    expect(Object.getPrototypeOf(target.RTCPeerConnection)).toBe(
+      RTCPeerConnection,
+    );
     uninstall();
   });
 

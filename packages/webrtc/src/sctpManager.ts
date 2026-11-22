@@ -1,5 +1,9 @@
 import type { SCTPOptions } from "../../sctp/src";
-import { RTCDataChannel, RTCDataChannelParameters } from "./dataChannel";
+import {
+  RTCDataChannel,
+  type RTCDataChannelBinaryType,
+  RTCDataChannelParameters,
+} from "./dataChannel";
 import { createWebRtcTypeError } from "./errors";
 import { debug, Event } from "./imports/common";
 import {
@@ -85,11 +89,23 @@ export class SctpTransportManager {
 
   readonly onDataChannel = new Event<[RTCDataChannel]>();
 
-  constructor() {}
+  /**
+   * The initial `binaryType` of every channel created from now on, local or
+   * announced by the remote peer (`PeerConfig.dataChannelBinaryType`, read
+   * at creation, so `setConfiguration()` affects later channels only).
+   */
+  private readonly dataChannelBinaryType: () => RTCDataChannelBinaryType;
+
+  constructor({
+    dataChannelBinaryType = () => "nodebuffer",
+  }: { dataChannelBinaryType?: () => RTCDataChannelBinaryType } = {}) {
+    this.dataChannelBinaryType = dataChannelBinaryType;
+  }
 
   createSctpTransport(maxMessageSize?: number, sctpOptions?: SCTPOptions) {
     const sctp = new RTCSctpTransport(5000, maxMessageSize, sctpOptions);
     sctp.mid = undefined;
+    sctp.defaultBinaryType = this.dataChannelBinaryType;
     sctp.onDataChannel.subscribe((channel) => {
       this.track(channel);
       this.onDataChannel.executeIsolated(
@@ -160,7 +176,12 @@ export class SctpTransportManager {
       protocol: settings.protocol,
     });
 
-    const channel = new RTCDataChannel(this.sctpTransport, parameters);
+    const channel = new RTCDataChannel(
+      this.sctpTransport,
+      parameters,
+      true,
+      this.dataChannelBinaryType(),
+    );
     this.track(channel);
     return channel;
   }

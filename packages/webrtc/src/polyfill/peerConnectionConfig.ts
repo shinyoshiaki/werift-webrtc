@@ -56,11 +56,27 @@ export function mergePeerConnectionConfig(
   return merged;
 }
 
+/**
+ * The defaults `werift/polyfill` applies under the install configuration:
+ * browser code expects the W3C `binaryType` (`ArrayBuffer`).
+ */
+const POLYFILL_PEER_CONNECTION_DEFAULTS = {
+  dataChannelBinaryType: "arraybuffer",
+} as const satisfies RTCPeerConnectionConfig;
+
+/**
+ * The `RTCPeerConnection` class `installPolyfill()` installs: every instance
+ * is created with `installConfig` (over the polyfill defaults, e.g.
+ * `dataChannelBinaryType: "arraybuffer"`) under the constructor's
+ * configuration.
+ */
 export function createPolyfillRTCPeerConnection(
-  installConfig?: RTCPeerConnectionConfig,
+  installConfig: RTCPeerConnectionConfig = {},
 ): typeof RTCPeerConnection {
-  if (installConfig == undefined) return RTCPeerConnection;
-  const defaults = installConfig;
+  const defaults = mergePeerConnectionConfig(
+    POLYFILL_PEER_CONNECTION_DEFAULTS,
+    installConfig,
+  );
   return class PolyfillRTCPeerConnection extends RTCPeerConnection {
     constructor(config: RTCPeerConnectionConfig = {}) {
       super(mergePeerConnectionConfig(defaults, config));

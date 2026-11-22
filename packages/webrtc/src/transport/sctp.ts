@@ -21,9 +21,11 @@ import {
   WEBRTC_STRING_EMPTY,
 } from "../const";
 import {
+  convertDataChannelMessage,
   type DCState,
   getDataChannelMessageSize,
   RTCDataChannel,
+  type RTCDataChannelBinaryType,
   RTCDataChannelParameters,
 } from "../dataChannel";
 import { createWebRtcDomException } from "../errors";
@@ -106,6 +108,12 @@ export class RTCSctpTransport {
    */
   reverseResetTimeout = 5_000;
   /**
+   * @internal
+   * The initial `binaryType` of a channel the remote peer announces
+   * (`PeerConfig.dataChannelBinaryType`, read when the channel is created).
+   */
+  defaultBinaryType: () => RTCDataChannelBinaryType = () => "nodebuffer";
+  /**
    * Streams closed by {@link RTCSctpTransport.reverseResetTimeout}: in use
    * until the peer's reset arrives or the association ends.
    * @see tests/issue/815.reset.test.ts "a peer reset arriving after reverseResetTimeout closes nothing and frees the ID"
@@ -177,9 +185,7 @@ export class RTCSctpTransport {
   async resetAssociation(dtlsTransport = this.dtlsTransport) {
     this.releaseUnannouncedStreamIds();
     await this.stop();
-    this.dataChannelQueue = this.dataChannelQueue.filter(([channel]) =>
-      this.unannounced.has(channel),
-    );
+    this.dropQueuedMessages((channel) => !this.unannounced.has(channel));
     this.bindAssociation(dtlsTransport, { assignIds: false });
   }
 
@@ -241,9 +247,7 @@ export class RTCSctpTransport {
           this.dataChannels = {};
           // Test: tests/issue/815.test.ts "pc.close() notifies close of a reserved, unannounced channel after the transports closed"
           const closing = new Set(channels);
-          this.dataChannelQueue = this.dataChannelQueue.filter(
-            ([queued]) => !closing.has(queued),
-          );
+          this.dropQueuedMessages((queued) => closing.has(queued));
           for (const dc of channels) {
             this.unannounced.delete(dc);
             dc.setReadyState("closed");
@@ -439,9 +443,7 @@ export class RTCSctpTransport {
       const id = this.allocateStreamId(parity);
       if (id === undefined) {
         this.unannounced.delete(channel);
-        this.dataChannelQueue = this.dataChannelQueue.filter(
-          ([queued]) => queued !== channel,
-        );
+        this.dropQueuedMessages((queued) => queued === channel);
         channel.failWithError(
           createWebRtcDomException(
             "OperationError",
@@ -546,7 +548,12 @@ export class RTCSctpTransport {
                 protocol,
                 id: streamId,
               });
-              const channel = new RTCDataChannel(this, parameters, false);
+              const channel = new RTCDataChannel(
+                this,
+                parameters,
+                false,
+                this.defaultBinaryType(),
+              );
               channel.isCreatedByRemote = true;
               this.dataChannels[streamId] = channel;
 
@@ -628,9 +635,12 @@ export class RTCSctpTransport {
         const onError = (error: unknown) =>
           log("message listener failed", error);
         channel.onMessage.executeIsolated(onError, msg);
-        channel.emitIsolated(onError, "message", { data: msg });
+        // binaryType: converted once, the same object for both surfaces.
+        // Test: tests/datachannel/binaryType.test.ts "$binaryType: $name arrives byte for byte"
+        const converted = convertDataChannelMessage(msg, channel.binaryType);
+        channel.emitIsolated(onError, "message", { data: converted });
         notifySafely(log, "onmessage", () =>
-          channel.onmessage?.({ data: msg }),
+          channel.onmessage?.({ data: converted }),
         );
       }
     }
@@ -741,7 +751,7 @@ export class RTCSctpTransport {
       // closed and was re-established) is no longer managed; never announce it.
       if (channel.readyState === "closed" || channel.readyState === "closing") {
         if (protocol !== WEBRTC_DCEP)
-          channel.addBufferedAmount(-userData.length);
+          channel.addBufferedAmount(-userData.length, { sent: false });
         continue;
       }
 
@@ -873,9 +883,7 @@ export class RTCSctpTransport {
   closeUnannouncedChannels() {
     const channels = [...this.unannounced];
     this.unannounced.clear();
-    this.dataChannelQueue = this.dataChannelQueue.filter(
-      ([queued]) => !channels.includes(queued),
-    );
+    this.dropQueuedMessages((queued) => channels.includes(queued));
     for (const channel of channels) {
       if (
         channel.id != undefined &&
@@ -905,7 +913,7 @@ export class RTCSctpTransport {
     for (const item of this.dataChannelQueue.toArray()) {
       const [channel, protocol, userData] = item;
       if (protocol !== WEBRTC_DCEP) {
-        channel.addBufferedAmount(-userData.length);
+        channel.addBufferedAmount(-userData.length, { sent: false });
       } else if (
         userData[0] === DATA_CHANNEL_OPEN &&
         channel.readyState !== "closed" &&
@@ -920,6 +928,25 @@ export class RTCSctpTransport {
         this.unannounced.delete(channel);
       }
     }
+  }
+
+  /**
+   * Remove the queued messages of the channels `drop` selects. A user
+   * message leaves `bufferedAmount` unsent, so it fires no
+   * `bufferedamountlow`.
+   * @see tests/datachannel/bufferedAmountLow.test.ts "a close before the association is established discards the buffer without bufferedamountlow"
+   */
+  private dropQueuedMessages(drop: (channel: RTCDataChannel) => boolean) {
+    const kept = new FifoQueue<[RTCDataChannel, number, Buffer]>();
+    for (const item of this.dataChannelQueue.toArray()) {
+      const [channel, protocol, userData] = item;
+      if (!drop(channel)) {
+        kept.push(item);
+      } else if (protocol !== WEBRTC_DCEP) {
+        channel.addBufferedAmount(-userData.length, { sent: false });
+      }
+    }
+    this.dataChannelQueue = kept;
   }
 
   /**
@@ -943,9 +970,7 @@ export class RTCSctpTransport {
    */
   private rejectOpenOnStreamInUse(channel: RTCDataChannel) {
     if (this.unannounced.delete(channel)) {
-      this.dataChannelQueue = this.dataChannelQueue.filter(
-        ([queued]) => queued !== channel,
-      );
+      this.dropQueuedMessages((queued) => queued === channel);
     }
     this.dataChannelClose(channel);
   }
@@ -967,9 +992,9 @@ export class RTCSctpTransport {
         }
       } else {
         // Test: tests/issue/815.test.ts "closing one channel before negotiation keeps the OPEN of another (queue filtered by identity)"
-        this.dataChannelQueue = this.dataChannelQueue.filter(
-          (queueItem) => queueItem[0] !== channel,
-        );
+        // Its unsent messages leave bufferedAmount without bufferedamountlow.
+        // Test: tests/datachannel/bufferedAmountLow.test.ts "a close before the association is established discards the buffer without bufferedamountlow"
+        this.dropQueuedMessages((queued) => queued === channel);
         this.unannounced.delete(channel);
         // Remove any pending reconfiguration requests for this channel
         this.sctp.reconfigQueue = this.sctp.reconfigQueue.filter(

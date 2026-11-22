@@ -7,6 +7,7 @@ import {
   FMTP_INT_PARAMETERS,
   SSRC_INFO_ATTRS,
 } from "./const";
+import { createWebRtcTypeError } from "./errors";
 import { divide } from "./helper";
 import { Candidate } from "./imports/ice";
 import {
@@ -802,11 +803,68 @@ export function candidateFromSdp(sdp: string) {
   return candidate;
 }
 
+export interface RTCSessionDescriptionInit {
+  sdp?: string;
+  type?: RTCSdpType;
+}
+export type RTCSdpType = "answer" | "offer" | "pranswer" | "rollback";
+
+const RTCSdpTypes: readonly RTCSdpType[] = [
+  "answer",
+  "offer",
+  "pranswer",
+  "rollback",
+];
+
+/**
+ * A session description (W3C `RTCSessionDescription`).
+ *
+ * - `new RTCSessionDescription({ type, sdp })`: the W3C constructor. `type`
+ *   is required (a missing or unknown value is a `TypeError`), `sdp`
+ *   defaults to `""`.
+ * - `new RTCSessionDescription(sdp, type)`: werift's original form, kept
+ *   for backward compatibility (not validated).
+ *
+ * `werift/polyfill` installs this same class as the global
+ * `RTCSessionDescription`, so `instanceof` holds from both sides.
+ */
 export class RTCSessionDescription {
   readonly sdp!: string;
-  readonly type!: "offer" | "answer" | "pranswer";
+  readonly type!: RTCSdpType;
 
-  constructor(sdp: string, type: "offer" | "answer" | "pranswer") {
+  constructor(init: RTCSessionDescriptionInit);
+  constructor(sdp: string, type: "offer" | "answer" | "pranswer");
+  constructor(
+    initOrSdp: RTCSessionDescriptionInit | string,
+    legacyType?: "offer" | "answer" | "pranswer",
+  ) {
+    let sdp: string;
+    let type: RTCSdpType;
+    if (typeof initOrSdp === "string" || legacyType !== undefined) {
+      sdp = initOrSdp as string;
+      type = legacyType as RTCSdpType;
+    } else {
+      // WebIDL dictionary conversion: undefined / null is an empty dictionary.
+      const init = (initOrSdp ?? {}) as RTCSessionDescriptionInit;
+      if (typeof init !== "object" && typeof init !== "function") {
+        throw createWebRtcTypeError(
+          "RTCSessionDescriptionInit must be a dictionary",
+        );
+      }
+      const givenType: unknown = init.type;
+      if (givenType === undefined) {
+        throw createWebRtcTypeError(
+          "RTCSessionDescriptionInit.type is required",
+        );
+      }
+      if (!RTCSdpTypes.includes(givenType as RTCSdpType)) {
+        throw createWebRtcTypeError(
+          `RTCSessionDescriptionInit.type must be one of ${RTCSdpTypes.join(", ")}`,
+        );
+      }
+      type = givenType as RTCSdpType;
+      sdp = init.sdp == undefined ? "" : String(init.sdp);
+    }
     Object.defineProperties(this, {
       sdp: {
         configurable: true,
@@ -832,6 +890,14 @@ export class RTCSessionDescription {
       sdp: this.sdp,
       type: this.type,
     };
+  }
+
+  /**
+   * W3C `toJSON()`: exactly `type` and `sdp`. The key order (`sdp` first)
+   * keeps `JSON.stringify` output as it was before `toJSON` existed.
+   */
+  toJSON(): { sdp: string; type: RTCSdpType } {
+    return { sdp: this.sdp, type: this.type };
   }
 }
 

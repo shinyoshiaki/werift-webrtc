@@ -14,6 +14,7 @@ import {
   codecParametersFromString,
   GroupDescription,
   MediaDescription,
+  type RTCSessionDescriptionInit,
   SessionDescription,
   SsrcDescription,
 } from "./sdp";
@@ -1475,8 +1476,4 @@ export const BundleCandidatesModes: readonly BundleCandidates[] = [
   "compatible",
 ];
 
-export interface RTCSessionDescriptionInit {
-  sdp?: string;
-  type?: RTCSdpType;
-}
-export type RTCSdpType = "answer" | "offer" | "pranswer" | "rollback";
+export type { RTCSdpType, RTCSessionDescriptionInit } from "./sdp";

@@ -93,6 +93,24 @@ compatibility options.
 
 ***
 
+### dataChannelBinaryType
+
+> **dataChannelBinaryType**: [`RTCDataChannelBinaryType`](../enumerations/RTCDataChannelBinaryType.md)
+
+werift extension. The initial `binaryType` of every data channel this
+connection creates, by `createDataChannel()` or announced by the remote
+peer (see [RTCDataChannelBinaryType](../enumerations/RTCDataChannelBinaryType.md)).
+- `"nodebuffer"` (default): binary messages arrive as a Node.js `Buffer`,
+  as before this option existed.
+- `"arraybuffer"`: the W3C default (`werift/polyfill` uses it).
+- `"blob"`: binary messages arrive as a `Blob`.
+
+Another value is a `TypeError`. `setConfiguration()` may change it; the
+new value applies to channels created afterwards, and an existing
+channel changes with its own `binaryType` setter.
+
+***
+
 ### debug
 
 > **debug**: [`DebugConfig`](../type-aliases/DebugConfig.md)

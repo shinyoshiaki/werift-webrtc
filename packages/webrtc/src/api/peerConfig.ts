@@ -2,6 +2,11 @@
 // defaults, input normalization (W3C RTCConfiguration compatibility) and the
 // validation `setConfiguration` applies before merging.
 import { DEFAULT_SCTP_MTU, validateSctpMtu } from "../../../sctp/src";
+import {
+  isRTCDataChannelBinaryType,
+  type RTCDataChannelBinaryType,
+  RTCDataChannelBinaryTypes,
+} from "../dataChannel";
 import { createWebRtcDomException, createWebRtcTypeError } from "../errors";
 import { enumerate } from "../helper";
 import type {
@@ -241,6 +246,20 @@ export interface PeerConfig {
   midSuffix: boolean;
   /** Advertised local SCTP max-message-size in SDP. Use 0 for unlimited. */
   maxMessageSize: number;
+  /**
+   * werift extension. The initial `binaryType` of every data channel this
+   * connection creates, by `createDataChannel()` or announced by the remote
+   * peer (see {@link RTCDataChannelBinaryType}).
+   * - `"nodebuffer"` (default): binary messages arrive as a Node.js `Buffer`,
+   *   as before this option existed.
+   * - `"arraybuffer"`: the W3C default (`werift/polyfill` uses it).
+   * - `"blob"`: binary messages arrive as a `Blob`.
+   *
+   * Another value is a `TypeError`. `setConfiguration()` may change it; the
+   * new value applies to channels created afterwards, and an existing
+   * channel changes with its own `binaryType` setter.
+   */
+  dataChannelBinaryType: RTCDataChannelBinaryType;
   /**
    * When true, padding-only RTP is omitted from onReceiveRtp and later media
    * sequence numbers are compacted. Default false preserves wire RTP events.
@@ -533,6 +552,7 @@ export function generateDefaultPeerConfig(): PeerConfig {
     midSuffix: false,
     forceTurnTCP: false,
     maxMessageSize: DEFAULT_MAX_MESSAGE_SIZE,
+    dataChannelBinaryType: "nodebuffer",
     filterProbePaddingOnReceiveRtp: false,
     bandwidthEstimator: "lightweight",
     sctp: { mtu: DEFAULT_SCTP_MTU },
@@ -772,6 +792,15 @@ export function mergePeerConfiguration(
     throw createWebRtcDomException(
       "InvalidModificationError",
       "bundleCandidates cannot be changed",
+    );
+  }
+
+  if (
+    normalizedConfig.dataChannelBinaryType !== undefined &&
+    !isRTCDataChannelBinaryType(normalizedConfig.dataChannelBinaryType)
+  ) {
+    throw createWebRtcTypeError(
+      `dataChannelBinaryType must be one of ${RTCDataChannelBinaryTypes.join(", ")}`,
     );
   }
 

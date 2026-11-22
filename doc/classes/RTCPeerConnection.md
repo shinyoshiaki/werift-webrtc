@@ -71,13 +71,13 @@ reviewable diff does not depend on external PR text.
 
 ### connectionStateChange
 
-> `readonly` **connectionStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"new"` \| `"connected"` \| `"connecting"` \| `"disconnected"` \| `"failed"`\]\>
+> `readonly` **connectionStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"new"` \| `"connected"` \| `"connecting"` \| `"failed"` \| `"disconnected"`\]\>
 
 ***
 
 ### iceConnectionStateChange
 
-> `readonly` **iceConnectionStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"new"` \| `"connected"` \| `"disconnected"` \| `"completed"` \| `"failed"` \| `"checking"`\]\>
+> `readonly` **iceConnectionStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"new"` \| `"connected"` \| `"failed"` \| `"disconnected"` \| `"completed"` \| `"checking"`\]\>
 
 ***
 
@@ -272,11 +272,11 @@ v13.6.0, v12.17.0
 
 #### Get Signature
 
-> **get** **connectionState**(): `"closed"` \| `"new"` \| `"connected"` \| `"connecting"` \| `"disconnected"` \| `"failed"`
+> **get** **connectionState**(): `"closed"` \| `"new"` \| `"connected"` \| `"connecting"` \| `"failed"` \| `"disconnected"`
 
 ##### Returns
 
-`"closed"` \| `"new"` \| `"connected"` \| `"connecting"` \| `"disconnected"` \| `"failed"`
+`"closed"` \| `"new"` \| `"connected"` \| `"connecting"` \| `"failed"` \| `"disconnected"`
 
 ***
 
@@ -332,11 +332,11 @@ v13.6.0, v12.17.0
 
 #### Get Signature
 
-> **get** **iceConnectionState**(): `"closed"` \| `"new"` \| `"connected"` \| `"disconnected"` \| `"completed"` \| `"failed"` \| `"checking"`
+> **get** **iceConnectionState**(): `"closed"` \| `"new"` \| `"connected"` \| `"failed"` \| `"disconnected"` \| `"completed"` \| `"checking"`
 
 ##### Returns
 
-`"closed"` \| `"new"` \| `"connected"` \| `"disconnected"` \| `"completed"` \| `"failed"` \| `"checking"`
+`"closed"` \| `"new"` \| `"connected"` \| `"failed"` \| `"disconnected"` \| `"completed"` \| `"checking"`
 
 ***
 
@@ -1218,6 +1218,22 @@ new RTCPeerConnection({ compatibility: "standard", certificateScope: "process" }
 
 It does not change `iceServers` / `iceUseDefaultStunServer`, which are not
 compatibility options.
+
+##### dataChannelBinaryType
+
+> **dataChannelBinaryType**: [`RTCDataChannelBinaryType`](../enumerations/RTCDataChannelBinaryType.md)
+
+werift extension. The initial `binaryType` of every data channel this
+connection creates, by `createDataChannel()` or announced by the remote
+peer (see [RTCDataChannelBinaryType](../enumerations/RTCDataChannelBinaryType.md)).
+- `"nodebuffer"` (default): binary messages arrive as a Node.js `Buffer`,
+  as before this option existed.
+- `"arraybuffer"`: the W3C default (`werift/polyfill` uses it).
+- `"blob"`: binary messages arrive as a `Blob`.
+
+Another value is a `TypeError`. `setConfiguration()` may change it; the
+new value applies to channels created afterwards, and an existing
+channel changes with its own `binaryType` setter.
 
 ##### debug
 

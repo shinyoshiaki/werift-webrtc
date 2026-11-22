@@ -12,17 +12,17 @@ import type {
   RTCPeerConnectionIceErrorEvent as WeriftRTCPeerConnectionIceErrorEvent,
   RTCTrackEvent as WeriftRTCTrackEvent,
 } from "../peerConnection";
+import type { RTCSessionDescription as WeriftRTCSessionDescription } from "../sdp";
 import type { RTCDtlsTransport as WeriftRTCDtlsTransport } from "../transport/dtls";
 import type {
   RTCIceCandidate as WeriftRTCIceCandidate,
   RTCIceTransport as WeriftRTCIceTransport,
 } from "../transport/ice";
 import type { MediaDevices } from "./mediaDevices";
-import type { PolyfillRTCSessionDescription } from "./rtcSessionDescription";
 
 declare global {
   var RTCPeerConnection: typeof WeriftRTCPeerConnection;
-  var RTCSessionDescription: typeof PolyfillRTCSessionDescription;
+  var RTCSessionDescription: typeof WeriftRTCSessionDescription;
   var RTCIceCandidate: typeof WeriftRTCIceCandidate;
   var RTCDataChannel: typeof WeriftRTCDataChannel;
   var MediaStream: typeof WeriftMediaStream;

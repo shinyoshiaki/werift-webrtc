@@ -549,6 +549,8 @@ function createContext(input: {
   const location = new URL(`https://wpt.local/${input.file}${input.variant}`);
   const sandbox: Record<string, unknown> = {
     AbortController,
+    // RTCDataChannel binaryType "blob" delivers Node.js Blobs.
+    Blob,
     Buffer,
     DOMException,
     Error,
@@ -762,6 +764,24 @@ function createPeerConnectionWrapper(peerConnections: Set<RTCPeerConnection>) {
         enumerable: true,
       });
       return channel;
+    }
+
+    // W3C: createOffer() / createAnswer() resolve with an RTCSessionDescriptionInit
+    // dictionary, not an RTCSessionDescription. werift returns its
+    // RTCSessionDescription (the polyfill global since #375), so the WPT
+    // wrapper gives the dictionary (RTCPeerConnection-createOffer.html).
+    override async createOffer(
+      ...args: Parameters<RTCPeerConnection["createOffer"]>
+    ) {
+      const description = await super.createOffer(...args);
+      return description.toJSON() as unknown as typeof description;
+    }
+
+    override async createAnswer(
+      ...args: Parameters<RTCPeerConnection["createAnswer"]>
+    ) {
+      const description = await super.createAnswer(...args);
+      return description.toJSON() as unknown as typeof description;
     }
 
     // ブラウザの operations chain と同じく、処理中の setRemoteDescription() の完了を待ってから

@@ -370,7 +370,9 @@ export class RTCPeerConnection extends EventTarget {
     this.transceiverManager.onNegotiationNeeded.subscribe(() =>
       this.needNegotiation(),
     );
-    this.sctpManager = new SctpTransportManager();
+    this.sctpManager = new SctpTransportManager({
+      dataChannelBinaryType: () => this.config.dataChannelBinaryType,
+    });
     this.negotiation = new NegotiationTransaction(
       this.sdpManager,
       this.transceiverManager,

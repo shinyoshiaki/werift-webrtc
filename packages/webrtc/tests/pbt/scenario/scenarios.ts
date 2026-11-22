@@ -344,7 +344,10 @@ async function execute(ctx: ScenarioContext, op: Op): Promise<unknown> {
         return;
       }
       case "createAnswer":
-        ctx.saved.set(op.as ?? "answer", await pc!.createAnswer());
+        ctx.saved.set(
+          op.as ?? "answer",
+          (await pc!.createAnswer()) as Description,
+        );
         return;
       case "setLocal":
         return await pc!.setLocalDescription(argument(ctx, op) as never);

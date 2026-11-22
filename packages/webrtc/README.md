@@ -174,13 +174,14 @@ new RTCPeerConnection({ compatibility: "standard" }); // every option above is "
 new RTCPeerConnection({ compatibility: "standard", certificateScope: "process" }); // all but certificateScope
 ```
 
-Two more defaults differ from a browser: the default `iceServers` is a public STUN server (`stun:stun.l.google.com:19302`, a browser's default is `[]`), and `iceUseDefaultStunServer: true` (default) also uses that server when `iceServers` has no STUN URL. `bundlePolicy: "balanced"` is read as `"max-compat"` (no browser-equivalent value). For code written for browsers (for example with `werift/polyfill` and its `peerConnectionConfig`), create connections with:
+Two more defaults differ from a browser: the default `iceServers` is a public STUN server (`stun:stun.l.google.com:19302`, a browser's default is `[]`), and `iceUseDefaultStunServer: true` (default) also uses that server when `iceServers` has no STUN URL. `bundlePolicy: "balanced"` is read as `"max-compat"` (no browser-equivalent value). Data channels deliver binary messages as Node.js `Buffer`s (`dataChannelBinaryType: "nodebuffer"`, a werift value); a browser's `binaryType` default is `"arraybuffer"`, which `werift/polyfill` uses. For code written for browsers (for example with `werift/polyfill` and its `peerConnectionConfig`), create connections with:
 
 ```ts
 new RTCPeerConnection({
   compatibility: "standard",
   iceServers: [], // or your own STUN / TURN servers
   iceUseDefaultStunServer: false,
+  dataChannelBinaryType: "arraybuffer", // binary messages as ArrayBuffer
 });
 ```
 

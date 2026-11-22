@@ -18,7 +18,7 @@
 
 ### Constructor
 
-> **new RTCDataChannel**(`sctp`, `parameters`, `sendOpen?`): `RTCDataChannel`
+> **new RTCDataChannel**(`sctp`, `parameters`, `sendOpen?`, `binaryType?`): `RTCDataChannel`
 
 #### Parameters
 
@@ -33,6 +33,10 @@
 ##### sendOpen?
 
 `boolean` = `true`
+
+##### binaryType?
+
+[`RTCDataChannelBinaryType`](../enumerations/RTCDataChannelBinaryType.md) = `"nodebuffer"`
 
 #### Returns
 
@@ -111,6 +115,14 @@
 #### Implementation of
 
 [`DataChannelStats`](../interfaces/DataChannelStats.md).[`messagesSent`](../interfaces/DataChannelStats.md#messagessent)
+
+***
+
+### onbufferedamountlow?
+
+> `optional` **onbufferedamountlow?**: `Callback`
+
+W3C `onbufferedamountlow`. See [RTCDataChannel.bufferedAmountLowThreshold](#bufferedamountlowthreshold).
 
 ***
 
@@ -291,6 +303,37 @@ v13.6.0, v12.17.0
 
 ## Accessors
 
+### binaryType
+
+#### Get Signature
+
+> **get** **binaryType**(): [`RTCDataChannelBinaryType`](../enumerations/RTCDataChannelBinaryType.md)
+
+W3C `binaryType`. The initial value is the PeerConnection's
+`dataChannelBinaryType` (`"nodebuffer"` by default, `"arraybuffer"`
+through `werift/polyfill`). A value that is not a
+[RTCDataChannelBinaryType](../enumerations/RTCDataChannelBinaryType.md) is ignored (WebIDL enum attribute).
+
+##### Returns
+
+[`RTCDataChannelBinaryType`](../enumerations/RTCDataChannelBinaryType.md)
+
+#### Set Signature
+
+> **set** **binaryType**(`value`): `void`
+
+##### Parameters
+
+###### value
+
+[`RTCDataChannelBinaryType`](../enumerations/RTCDataChannelBinaryType.md)
+
+##### Returns
+
+`void`
+
+***
+
 ### bufferedAmountLowThreshold
 
 #### Get Signature
@@ -425,7 +468,13 @@ v13.6.0, v12.17.0
 
 ### addBufferedAmount()
 
-> **addBufferedAmount**(`amount`): `void`
+> **addBufferedAmount**(`amount`, `__namedParameters?`): `void`
+
+Internal: add to `bufferedAmount` (a negative `amount` when a message
+left the buffer). Only data that was sent (`sent`, the default) can
+fire `bufferedamountlow` (W3C: "as a result of sending data"); data
+discarded unsent only leaves the buffer, so a low listener that sends
+again on a closed channel cannot loop.
 
 #### Parameters
 
@@ -433,9 +482,20 @@ v13.6.0, v12.17.0
 
 `number`
 
+##### \_\_namedParameters?
+
+###### sent?
+
+`boolean` = `true`
+
 #### Returns
 
 `void`
+
+#### See
+
+ - tests/datachannel/bufferedAmountLow.test.ts "a low listener sending on the channel it closed does not loop"
+ - tests/datachannel/bufferedAmountLow.test.ts "every surface is notified once per crossing, in the order of the other channel events"
 
 ***
 
