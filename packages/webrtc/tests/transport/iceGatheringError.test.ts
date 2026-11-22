@@ -235,6 +235,62 @@ describe("a gatherCandidates() that rejects", () => {
     expect(gatherer.gatheringState).toBe("complete");
   });
 
+  test("of an agent restarted by the gathering-failed listener: the new generation is not completed", async () => {
+    // Arrange: 通知リスナーの中で世代が進む IceConnection 実装にする。
+    os.succeed();
+    const gatherer = new RTCIceGatherer({ useIpv6: false });
+    const failure = new Error("gather failed");
+    const fake = {
+      generation: 0,
+      state: "new",
+      localCandidatesEnd: false,
+      gatherCandidates: () => Promise.reject(failure),
+    };
+    Object.defineProperty(gatherer, "connection", { value: fake });
+    const ended: unknown[] = [];
+    gatherer.onIceCandidate = (candidate) => ended.push(candidate);
+    const states: string[] = [];
+    gatherer.onGatheringError = () => {
+      // ICE restart 相当: 世代が進み、gathering は新世代で未開始になる。
+      fake.generation += 1;
+      states.push(gatherer.gatheringState);
+    };
+
+    // Act: gather する（通知中に restart される）。
+    await expect(gatherer.gather()).rejects.toBe(failure);
+
+    // Assert: 古い世代の end-of-candidates は送られず、新世代の状態は上書きされない。
+    expect(ended).toEqual([]);
+    expect(gatherer.gatheringState).toBe(states[0]);
+    expect(gatherer.gatheringState).not.toBe("complete");
+  });
+
+  test("a throwing transport onGatheringError listener does not stop the later ones", async () => {
+    os.succeed();
+    const { pc } = createPeer();
+    pc.addTransceiver("audio");
+    for (const transport of pc.iceTransports) {
+      vi.spyOn(transport.connection, "gatherCandidates").mockRejectedValue(
+        new Error("gather failed"),
+      );
+    }
+    const later: unknown[] = [];
+    for (const transport of pc.iceTransports) {
+      transport.onGatheringError.subscribe(() => {
+        throw new Error("listener failed");
+      });
+      transport.onGatheringError.subscribe((details) => later.push(details));
+    }
+
+    // Act: 収集失敗を通知させる。
+    await pc.setLocalDescription(await pc.createOffer());
+    await gatheringComplete(pc);
+
+    // Assert: 先のリスナーが throw しても後続リスナーに届く。
+    expect(later.length).toBeGreaterThan(0);
+    expect(crash.uncaught).toEqual([]);
+  });
+
   test("of a mocked agent: setLocalDescription succeeds and iceGatheringState reaches complete", async () => {
     os.succeed();
     const { pc, gatheringErrors, candidates } = createPeer();

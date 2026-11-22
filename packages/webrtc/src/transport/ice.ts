@@ -238,7 +238,9 @@ export class RTCIceTransport {
    * not W3C; see RTCIceGatherer.onGatheringError). Nothing is fired once the
    * transport is closed.
    */
-  readonly onGatheringError = new Event<[IceGatheringErrorDetails]>();
+  readonly onGatheringError = new Event<[IceGatheringErrorDetails]>({
+    onListenerError: (error) => log("onGatheringError listener threw", error),
+  });
   readonly onNegotiationNeeded = new Event<[]>();
 
   constructor(iceGather: RTCIceGatherer) {
@@ -1183,7 +1185,9 @@ export class RTCIceGatherer {
                 cause: error,
               });
             }
-            complete();
+            // A listener of the report may have restarted or closed the
+            // transport: the end then belongs to a generation that is gone.
+            if (!this.gatheringReplaced(generation)) complete();
           }
         }
         throw error;
@@ -1219,6 +1223,14 @@ export class RTCIceGatherer {
 
   setIceServers(options: Partial<IceOptions>) {
     this.connection.setIceServers(options);
+  }
+
+  /** `generation` is gone (ICE restart) or the agent closed. */
+  private gatheringReplaced(generation: number) {
+    return (
+      this.connection.generation !== generation ||
+      this.connection.state === "closed"
+    );
   }
 
   /** A throwing listener must not stop the gathering. */
