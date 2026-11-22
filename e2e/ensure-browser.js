@@ -31,9 +31,10 @@ function resolveSystemChrome() {
   ].find((candidate) => candidate && existsSync(candidate));
 }
 
-const { canAutoDownloadGoogleChrome, resolveCachedGoogleChrome } = require(
-  "./browser-paths",
-);
+const {
+  canAutoDownloadGoogleChrome,
+  resolveCachedGoogleChrome,
+} = require("./browser-paths");
 
 /**
  * Prefer Google Chrome (proprietary H.264) for H.264 E2E. Download a
@@ -103,10 +104,10 @@ function resolveHeadlessShellPath(browsersRoot, revision) {
  * Headless shell is required for vitest --browser.headless with Playwright
  * when no system Chrome executablePath is configured.
  */
-function hasPlaywrightChromium() {
+function hasPlaywrightChromium(packageName = "playwright") {
   try {
     // Require after PLAYWRIGHT_BROWSERS_PATH is set so paths resolve correctly.
-    const { chromium } = require("playwright");
+    const { chromium } = require(packageName);
     const chromiumExecutablePath = chromium.executablePath();
     if (!existsSync(chromiumExecutablePath)) {
       return false;
@@ -123,18 +124,20 @@ function hasPlaywrightChromium() {
   }
 }
 
-function installPlaywrightBrowsers() {
-  const command = process.platform === "win32" ? "npx.cmd" : "npx";
-  // Use local package binary via npx so revision matches e2e/playwright.
+function installPlaywrightBrowsers(
+  packageName = "playwright",
+  components = ["chromium", "chromium-headless-shell"],
+) {
+  const playwrightPackageJson = require.resolve(`${packageName}/package.json`, {
+    paths: [__dirname],
+  });
+  const cliPath = join(dirname(playwrightPackageJson), "cli.js");
   const result = spawnSync(
-    command,
-    ["playwright", "install", "chromium", "chromium-headless-shell"],
-    {
-      stdio: "inherit",
-      env: process.env,
-      cwd: __dirname,
-    },
+    process.execPath,
+    [cliPath, "install", ...components],
+    { cwd: __dirname, stdio: "inherit" },
   );
+
   if (result.error) {
     throw result.error;
   }
@@ -150,17 +153,17 @@ function main() {
 
   // vitest.config.mts pins launch.executablePath when a system Chrome exists,
   // so Playwright headless-shell is optional in that environment.
-  if (chrome || resolveSystemChrome() || hasPlaywrightChromium()) {
+  if (chrome || resolveSystemChrome() || hasPlaywrightChromium("playwright")) {
     process.exit(0);
   }
 
-  let status = installPlaywrightBrowsers();
+  let status = installPlaywrightBrowsers("playwright");
   if (status !== 0) {
     process.exit(status);
   }
 
   // Verify immediately — incomplete unzip / cache races must not pass silently.
-  if (hasPlaywrightChromium()) {
+  if (hasPlaywrightChromium("playwright")) {
     process.exit(0);
   }
 
@@ -170,12 +173,12 @@ function main() {
   console.error(
     `[ensure-browser] PLAYWRIGHT_BROWSERS_PATH=${process.env.PLAYWRIGHT_BROWSERS_PATH}`,
   );
-  status = installPlaywrightBrowsers();
+  status = installPlaywrightBrowsers("playwright");
   if (status !== 0) {
     process.exit(status);
   }
 
-  if (!hasPlaywrightChromium()) {
+  if (!hasPlaywrightChromium("playwright")) {
     console.error(
       "[ensure-browser] Failed to install a usable Playwright chromium + headless shell.",
     );
@@ -200,8 +203,30 @@ function main() {
   process.exit(0);
 }
 
+/**
+ * The DTLS E2E launches Playwright's pinned Chromium (vitest.dtls.config.mts),
+ * not a system Chrome, so main()'s system-Chrome shortcut (GHA ubuntu-latest
+ * ships /usr/bin/google-chrome) does not apply: install it when missing.
+ */
+function ensurePlaywrightChromium() {
+  ensureBrowsersPathEnv(process.env);
+  if (hasPlaywrightChromium("playwright")) {
+    return;
+  }
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const status = installPlaywrightBrowsers("playwright");
+    if (status === 0 && hasPlaywrightChromium("playwright")) {
+      return;
+    }
+  }
+  throw new Error(
+    `Playwright chromium/headless-shell missing after install (PLAYWRIGHT_BROWSERS_PATH=${process.env.PLAYWRIGHT_BROWSERS_PATH})`,
+  );
+}
+
 module.exports = {
   ensureBrowsersPathEnv,
+  ensurePlaywrightChromium,
   hasPlaywrightChromium,
   resolveSystemChrome,
 };

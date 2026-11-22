@@ -7,7 +7,7 @@ import {
 import { setTimeout } from "timers/promises";
 
 import {
-  defaultPeerConfig,
+  DtlsVersion,
   fingerprint,
   RTCCertificate,
   RTCDtlsFingerprint,
@@ -54,6 +54,26 @@ describe("RTCDtlsTransportTest", () => {
     session1.sendData(Buffer.from("ping"));
     await setTimeout(100);
     expect(receiver2.data).toEqual([Buffer.from("ping")]);
+  });
+
+  test("DTLS が ICE transport の rinfo に送信元を記録しても例外にならず、送信は nominated pair のまま", async () => {
+    // Arrange: 接続済みの DTLS transport pair
+    const [session1, session2] = await dtlsTransportPair();
+    try {
+      const transport = (session1.dtls as any).options.transport;
+      const before = transport.rinfo;
+
+      // Act: DTLS association が UDP と同じように rinfo を書く
+      const write = () => {
+        transport.rinfo = { address: "192.0.2.1", port: 1 };
+      };
+
+      // Assert: 読み取り専用の accessor で TypeError にならず、値は ICE の経路のまま
+      expect(write).not.toThrow();
+      expect(transport.rinfo).toEqual(before);
+    } finally {
+      await Promise.allSettled([session1.stop(), session2.stop()]);
+    }
   });
 
   test("dtls_start_accepts_matching_fingerprint_in_selected_algorithm_set", async () => {
@@ -147,6 +167,72 @@ describe("RTCDtlsTransportTest", () => {
     }
   });
 
+  test("dtls 1.3 stats report DTLS 1.3 and TLS_AES_128_GCM_SHA256", async () => {
+    const [session1, session2] = await dtlsTransportPair({
+      protocolVersions: [DtlsVersion.V1_3],
+    });
+    try {
+      // Assert: isDtls13 経路の stats。接続成功だけでは見ない。
+      const stats1 = await session1.getStats();
+      const transport = stats1.find((stat) => stat.type === "transport") as
+        | { tlsVersion?: string; dtlsCipher?: string }
+        | undefined;
+      expect(transport?.tlsVersion).toBe("DTLS 1.3");
+      expect(transport?.dtlsCipher).toBe("TLS_AES_128_GCM_SHA256");
+      expect(session1.dtls?.isDtls13).toBe(true);
+      expect(session2.dtls?.isDtls13).toBe(true);
+    } finally {
+      await Promise.allSettled([session1.stop(), session2.stop()]);
+    }
+  });
+
+  test("dtls 1.2 stats report DTLS 1.2", async () => {
+    const [session1, session2] = await dtlsTransportPair();
+    try {
+      const stats1 = await session1.getStats();
+      const transport = stats1.find((stat) => stat.type === "transport") as
+        | { tlsVersion?: string }
+        | undefined;
+      expect(transport?.tlsVersion).toBe("DTLS 1.2");
+      expect(session1.dtls?.isDtls13).toBeFalsy();
+      expect(session2.dtls?.isDtls13).toBeFalsy();
+    } finally {
+      await Promise.allSettled([session1.stop(), session2.stop()]);
+    }
+  });
+
+  test("dtls_start_fails_for_mismatched_fingerprint_dtls13", async () => {
+    const [session1, session2] = await createDtlsSessions({
+      protocolVersions: [DtlsVersion.V1_3],
+    });
+    const expectedFingerprint = session2.localParameters.fingerprints[0];
+
+    try {
+      session1.setRemoteParams(
+        new RTCDtlsParameters(
+          [
+            new RTCDtlsFingerprint(
+              expectedFingerprint.algorithm,
+              mutateFingerprint(expectedFingerprint.value),
+            ),
+          ],
+          session2.localParameters.role,
+        ),
+      );
+      session2.setRemoteParams(session1.localParameters);
+
+      void session1.start().catch(() => undefined);
+      void session2.start().catch(() => undefined);
+
+      await waitForDtlsState(session1, "failed");
+      expect(session1.state).toBe("failed");
+      expect(session1.lastError?.message).toMatch(/fingerprint/i);
+      await expect(session1.getStats()).resolves.toBeDefined();
+    } finally {
+      await Promise.allSettled([session1.stop(), session2.stop()]);
+    }
+  });
+
   test("dtls_start_ignores_unsupported_fingerprint_algorithm_when_supported_match_exists", async () => {
     const [session1, session2] = await createDtlsSessions();
     const expectedFingerprint = session2.localParameters.fingerprints[0];
@@ -193,6 +279,29 @@ describe("RTCDtlsTransportTest", () => {
 
       await waitForDtlsState(session1, "failed");
       expect(session1.state).toBe("failed");
+    } finally {
+      await Promise.allSettled([session1.stop(), session2.stop()]);
+    }
+  });
+
+  test("connecting 中の start() は既存 handshake に join する", async () => {
+    // Arrange
+    const [session1, session2] = await createDtlsSessions();
+    session1.setRemoteParams(session2.localParameters);
+    session2.setRemoteParams(session1.localParameters);
+
+    try {
+      // Act: 片側を connecting にしてから start を重ねる
+      const first = session1.start();
+      await waitForDtlsState(session1, "connecting");
+      const second = session1.start();
+      await Promise.all([first, second, session2.start()]);
+
+      // Assert: 二重 start でも connected。再入で throw しない
+      expect(session1.state).toBe("connected");
+      expect(session2.state).toBe("connected");
+      await session1.start();
+      expect(session1.state).toBe("connected");
     } finally {
       await Promise.allSettled([session1.stop(), session2.stop()]);
     }

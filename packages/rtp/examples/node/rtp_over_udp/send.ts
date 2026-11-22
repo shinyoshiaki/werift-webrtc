@@ -20,6 +20,7 @@ import {
   OpusPacketizer,
   PcmaPacketizer,
   PcmuPacketizer,
+  type RtpPacket,
   Vp8Packetizer,
   Vp9Packetizer,
   writeH265PayloadHeader,
@@ -44,7 +45,7 @@ function annexB(...nalus: Buffer[]): Buffer {
 }
 
 function buildFrames(codecName: string): {
-  packets: import("../../../src").RtpPacket[];
+  packets: RtpPacket[];
   label: string;
 } {
   switch (codecName) {

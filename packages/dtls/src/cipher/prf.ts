@@ -40,7 +40,7 @@ export function prfPreMasterSecret(
   switch (curve) {
     case NamedCurveAlgorithm.secp256r1_23:
       return p256PreMasterSecret({ publicKey, privateKey });
-    case NamedCurveAlgorithm.x25519_29:
+    case NamedCurveAlgorithm.x25519_29: {
       // The DER prefixes assume 32-byte raw keys; reject anything else instead
       // of letting trailing bytes be silently ignored.
       if (privateKey.length !== x25519RawKeyLength) {
@@ -53,7 +53,11 @@ export function prfPreMasterSecret(
           `invalid X25519 public key length: ${publicKey.length}`,
         );
       }
-      return diffieHellman({
+      // Reject low-order / all-zero contributions (RFC 7748 / TLS 1.3 §7.4.2)
+      if (publicKey.every((b) => b === 0)) {
+        throw new Error("X25519 peer public key is all-zero (low-order point)");
+      }
+      const shared = diffieHellman({
         privateKey: createPrivateKey({
           key: Buffer.concat([x25519PrivateKeyPrefix, privateKey]),
           format: "der",
@@ -65,6 +69,11 @@ export function prfPreMasterSecret(
           type: "spki",
         }),
       });
+      if (shared.every((b) => b === 0)) {
+        throw new Error("X25519 shared secret is all-zero (low-order point)");
+      }
+      return shared;
+    }
     default:
       throw new Error();
   }

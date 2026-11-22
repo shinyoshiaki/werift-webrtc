@@ -31,6 +31,7 @@ Rules that apply to one package or directory belong in the nearest `AGENTS.md`.
 ## Don't
 
 * Don't reintroduce third-party TypeScript runners such as `tsx`. Run TypeScript with `node --import <rel>/tools/node-ts/register.mjs` (Node.js type stripping, Node.js 22.18+, see `devEngines`). Node.js 26 removed the TypeScript transform mode, so don't add transform flags or loaders back and keep sources erasable: no `enum` (use an `as const` object plus a same-name union type tagged `@enum`) and no parameter properties. `erasableSyntaxOnly` in each tsconfig enforces this.
+* Don't add multi-level class inheritance in `packages/dtls/src/engine/v1_3` (see that directory's `AGENTS.md`).
 * Don't keep runtime state in module scope: no top-level `let`, and no module-level `Map` / `Set` / `WeakMap` / `WeakSet`, counter or cache that code writes after load; also no writable `static` field used as state. Put the state on the object whose lifetime it follows (a field of the transceiver, track, transport or manager, `private` or tagged `@internal` to stay out of the public API and the generated docs), and pass test seams such as socket factories in through options. A value that is process-wide by contract (the default certificate cache of `certificateScope: "process"`, the exported `navigator`, a public static tunable, a registry keyed by an application-owned object that must be shared) stays only with a comment at its declaration saying why; `packages/webrtc/tests/moduleState.test.ts` checks `packages/webrtc/src` against its allowlist.
 * Don't stop test servers or browsers with pattern-based kills (`pkill -f`, `killall`); they can match the agent's own shell. Stop them by PID or through the runner's stop path.
 * Don't end a turn while a background test or build you started is still running, unless you report it as unfinished.
@@ -45,6 +46,7 @@ Rules that apply to one package or directory belong in the nearest `AGENTS.md`.
 | package / unit tests | `npm run test:small` |
 | deep property search of every package (`--workspace packages/<pkg>` for one; options in `packages/pbt/README.md`) | `npm run pbt:deep` |
 | full suite including E2E | `npm run test` |
+| install Playwright browsers | `npm run install:browsers` |
 | E2E only (verbose: `e2e:verbose`) | `npm run e2e` |
 | Firefox E2E with a committed run record (local only, not in CI) | `cd e2e && npm run firefox:record` |
 | prune / clear Firefox E2E run records (`--keep <n>`, `--dry-run`) | `cd e2e && npm run firefox:record:prune` |
@@ -56,6 +58,7 @@ Rules that apply to one package or directory belong in the nearest `AGENTS.md`.
 | WPT coverage | `npm run wpt:coverage` |
 | format code | `npm run format` |
 | regenerate docs | `npm run doc` |
+| verify docs match sources | `npm run doc:check` |
 | memory leak test (Node 24+, local only, not in CI) | `cd packages/webrtc && npm run memleak` |
 
 Package builds don't run the formatter; run `npm run format` before review.
@@ -65,12 +68,12 @@ For targeted work, start with the package's own commands, for example `cd packag
 
 Start with the narrowest package command, and widen to workspace commands only when a change crosses package boundaries.
 
-* Docs-only edits: no code validation needed.
+* Docs-only edits: no code validation needed. Public API / Typedoc surface changes: `npm run doc:check` so committed `doc/` and `packages/*/doc` match sources (also part of `npm run ci`).
 * Single-package logic: that package's test and/or type-check command.
 * Cross-package, public API, or protocol changes: `npm run type` and `npm run test:small`; `npm run ci` when the change spans the full stack.
 * Property tests or `packages/pbt`: the package's `npm test`, then `npm run pbt:deep` in the affected packages (`-- --dry-run` checks the shard plan).
 * WPT runner, dummy media, or allowlist changes: `npm run wpt`; also `npm run wpt:coverage` when coverage or baseline wiring changes.
-* Browser interop or signaling changes: the relevant example and/or `npm run e2e`. A Firefox E2E run goes through `npm run firefox:record` so its record (commit hash and per-test results, `e2e/firefox-runs/`) is committed with the change. For a failing E2E, reproduce with only the affected test file first, then run the full suite as final validation. Root `examples/` demos in the `examples/e2e` catalog also need `npm run examples:e2e`.
+* Browser interop or signaling changes: run `npm run install:browsers` once from the repo root (covers `e2e`, `packages/ice-server/chrome-e2e`, and `examples/turn-loopback/chrome-e2e`), then the relevant example and/or `npm run e2e`. A Firefox E2E run goes through `npm run firefox:record` so its record (commit hash and per-test results, `e2e/firefox-runs/`) is committed with the change. For a failing E2E, reproduce with only the affected test file first, then run the full suite as final validation. Root `examples/` demos in the `examples/e2e` catalog also need `npm run examples:e2e`.
 * Infrastructure-backed E2E: run the targeted scenario with its opt-in environment flag, so the real dependency path is exercised.
 * `integration/werift-mediasoup-interop`: follow that directory's `AGENTS.md`.
 

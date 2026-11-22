@@ -1,0 +1,51 @@
+import { binaryData } from "../../../imports/common";
+import { FragmentedHandshake } from "../../../record/message/fragment";
+import type { Extension, Handshake } from "../../../typings/domain";
+import { ExtensionList } from "../../binary";
+import { HandshakeType } from "../../const";
+
+const { decode, encode } = binaryData;
+
+// HandshakeType.encrypted_extensions = 8 (TLS 1.3)
+
+export class EncryptedExtensions implements Handshake {
+  msgType = HandshakeType.encrypted_extensions_8 as any;
+  messageSeq?: number;
+
+  static readonly spec = {
+    extensions: ExtensionList,
+  };
+
+  extensions: Extension[];
+
+  constructor(extensions: Extension[] = []) {
+    this.extensions = extensions;
+  }
+
+  static createEmpty() {
+    return new EncryptedExtensions([]);
+  }
+
+  static deSerialize(buf: Buffer) {
+    const res = decode(buf, EncryptedExtensions.spec) as {
+      extensions: Extension[];
+    };
+    return new EncryptedExtensions(res.extensions ?? []);
+  }
+
+  serialize() {
+    return encode(this, EncryptedExtensions.spec);
+  }
+
+  toFragment() {
+    const body = this.serialize();
+    return new FragmentedHandshake(
+      this.msgType,
+      body.length,
+      this.messageSeq!,
+      0,
+      body.length,
+      body,
+    );
+  }
+}

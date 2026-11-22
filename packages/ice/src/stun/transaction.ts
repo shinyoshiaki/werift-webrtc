@@ -127,6 +127,9 @@ export class Transaction {
   private waitResolve?: () => void;
   private onAbort?: () => void;
 
+  /** First-send snapshot so STUN retransmits do not re-run SPED round-robin. */
+  private readonly requestBytes: Buffer;
+
   constructor(
     request: Message,
     addr: Address,
@@ -150,6 +153,12 @@ export class Transaction {
     this.failOnSendError = options.failOnSendError ?? false;
     this.expectedAddr = addr;
     this.integrityKey = options.integrityKey;
+    this.requestBytes = Buffer.from(request.bytes);
+    Object.defineProperty(request, "bytes", {
+      configurable: true,
+      enumerable: false,
+      get: () => this.requestBytes,
+    });
   }
 
   /**
@@ -329,6 +338,11 @@ export class Transaction {
     }
   };
 
+  /** Fail an in-flight wait so ICE restart does not apply a stale response. */
+  abandon() {
+    this.failWithTimeout();
+  }
+
   /**
    * End the transaction. A `run()` still waiting for a response rejects with
    * `TransactionCancelled`, so whoever awaits it (and its timers) settles
@@ -341,6 +355,12 @@ export class Transaction {
     if (this.signal && this.onAbort) {
       this.signal.removeEventListener("abort", this.onAbort);
       this.onAbort = undefined;
+    }
+    // Restore Message.bytes so TURN 401 retries can re-sign the same object.
+    if (Object.hasOwn(this.request, "bytes")) {
+      // Instance defineProperty must be removed; assignment would shadow the getter.
+      // biome-ignore lint/performance/noDelete: restore prototype Message.bytes getter
+      delete (this.request as { bytes?: Buffer }).bytes;
     }
   }
 }
