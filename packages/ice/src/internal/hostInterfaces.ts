@@ -7,23 +7,13 @@ import {
   selectHostInterfaces,
 } from "./selectAddresses";
 
-/** One enumeration of the local network interfaces. */
+/** @see packages/ice/tests/ice/interface-enumeration.test.ts「readNetworkInterfaces returns the error instead of throwing」 */
 export type NetworkInterfaceEnumeration = {
-  /** The enumerated interfaces: empty when the enumeration failed. */
   interfaces: NodeJS.Dict<os.NetworkInterfaceInfo[]>;
-  /**
-   * What `os.networkInterfaces()` threw (e.g. the `SystemError` of
-   * `uv_interface_addresses` where `AF_NETLINK` is not allowed).
-   */
   error?: unknown;
 };
 
-/**
- * `os.networkInterfaces()` を例外なしで呼ぶ（package-private）。
- * 列挙が禁止された環境（systemd の `RestrictAddressFamilies=` で `AF_NETLINK`
- * を禁止した場合など）では Node.js が同期的に `SystemError` を throw するので、
- * 空の列挙結果と `error` を返す。呼び出し側はその世代の列挙失敗として扱う。
- */
+/** @see packages/ice/tests/ice/interface-enumeration.test.ts「readNetworkInterfaces returns the error instead of throwing」 */
 export function readNetworkInterfaces(): NetworkInterfaceEnumeration {
   try {
     return { interfaces: os.networkInterfaces() };
@@ -34,9 +24,8 @@ export function readNetworkInterfaces(): NetworkInterfaceEnumeration {
 
 /**
  * `getHostAddresses()` と同じ順序で、各アドレスの bind 用アドレス付きの
- * 列挙結果を返す（package-private）。`interfaces` を省略すると列挙し直す。
- * 列挙に失敗しても throw せず、空配列を返す（失敗は {@link readNetworkInterfaces}
- * の `error` で判定する）。
+ * 列挙結果を返す（package-private）。
+ * @see packages/ice/tests/ice/interface-enumeration.test.ts「getHostInterfaceAddresses alone returns no address when the enumeration throws」
  */
 export function getHostInterfaceAddresses(
   useIpv4: boolean,
@@ -64,8 +53,8 @@ export function getHostInterfaceAddresses(
  * 候補列挙の除外条件（loopback / tun などの NIC、link-local の除外）を適用せず、
  * ローカル NIC に割り当てられた全アドレスを返す（package-private）。
  * `additionalHostAddresses` がローカル割り当てかどうかの判定に使う。
- * `interfaces` を省略すると列挙し直す。列挙に失敗しても throw せず空配列を返す
- * （その場合 `additionalHostAddresses` はすべて wildcard bind になる）。
+ * @see packages/ice/tests/ice/interface-enumeration.test.ts「getAssignedInterfaceAddresses alone returns no address when the enumeration throws」
+ * @see packages/ice/tests/ice/interface-enumeration.test.ts「additionalHostAddresses are gathered on a wildcard socket」
  */
 export function getAssignedInterfaceAddresses(
   interfaces = readNetworkInterfaces().interfaces,

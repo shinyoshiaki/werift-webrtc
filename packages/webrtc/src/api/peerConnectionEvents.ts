@@ -132,6 +132,7 @@ export class RTCPeerConnectionIceErrorEvent extends Event {
 /**
  * A gathering error of one ICE transport (`RTCPeerConnection.onIceGatheringError`,
  * a werift extension, not W3C): see {@link IceGatheringErrorDetails}.
+ * @see packages/webrtc/tests/transport/iceGatheringError.test.ts「without STUN / TURN: gathering completes with end-of-candidates and both reasons are reported」
  */
 export type RTCIceGatheringErrorEvent = IceGatheringErrorDetails & {
   /** The transport whose gathering reported it. */

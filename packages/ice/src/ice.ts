@@ -117,7 +117,7 @@ function stunTransactionLifetimeMs() {
 
 /** Fallback STUN server when none is configured (constructor / setIceServers). */
 const DEFAULT_STUN_SERVER: Address = ["stun.l.google.com", 19302];
-/** The message of a thrown value, for an `errorText`. */
+/** @see packages/ice/tests/ice/interface-enumeration.test.ts「without servers or explicit addresses: ends with interface-enumeration-failed then no-candidates」(errorText) */
 const errorMessage = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
 
@@ -463,17 +463,15 @@ export class Connection implements IceConnection {
   readonly onIceCandidateError = new Event<[IceCandidateErrorInfo]>();
   /**
    * The current generation's gathering reported an error (werift extension,
-   * see {@link IceGatheringErrorInfo}), synchronously:
-   * - `interface-enumeration-failed`: os.networkInterfaces() threw; once per
-   *   generation, and the gathering goes on without enumerated addresses.
-   * - `no-candidates`: the generation's gathering ended without any local
-   *   candidate, whatever the cause (also after the other reasons).
-   * - `gathering-failed`: gatherCandidates() hit an unexpected exception; the
-   *   gathering of the generation ends and gatherCandidates() still rejects.
-   *
-   * Nothing is fired for a replaced generation or after close (the event
-   * completes then); a listener that throws does not stop the gathering. New
-   * reasons may be added: handle unknown values.
+   * see {@link IceGatheringErrorInfo}). New reasons may be added: handle
+   * unknown values.
+   * @see packages/ice/tests/ice/interface-enumeration.test.ts「without servers or explicit addresses: ends with interface-enumeration-failed then no-candidates」
+   * @see packages/ice/tests/ice/interface-enumeration.test.ts「a STUN server still gives a server-reflexive candidate」
+   * @see packages/ice/tests/ice/interface-enumeration.test.ts「an unexpected exception reports gathering-failed, ends the generation and rejects」
+   * @see packages/ice/tests/ice/interface-enumeration.test.ts「restarting from the no-candidates listener leaves the new generation ungathered」
+   * @see packages/ice/tests/ice/interface-enumeration.test.ts「nothing is reported after close」
+   * @see packages/ice/tests/ice/interface-enumeration.test.ts「nothing is reported for a generation an ICE restart replaced」
+   * @see packages/ice/tests/ice/interface-enumeration.test.ts「a listener that throws does not stop the gathering or the later listeners」
    */
   readonly onGatheringError = new Event<[IceGatheringErrorInfo]>({
     onListenerError: (error) => log("onGatheringError listener threw", error),
@@ -1000,7 +998,7 @@ export class Connection implements IceConnection {
     }
   }
 
-  /** The gathering of `generation` started by {@link Connection.gatherCandidates}. */
+  /** @see packages/ice/tests/ice/interface-enumeration.test.ts「an unexpected exception reports gathering-failed, ends the generation and rejects」 */
   private async gatherGeneration(generation: number) {
     // An ICE restart allocates TURN afresh, which is how a restart recovers
     // from an allocation that died: the previous one leaves the generation.
@@ -1125,7 +1123,7 @@ export class Connection implements IceConnection {
     }
   }
 
-  /** End the gathering of `generation`, reporting `no-candidates` when it gave none. */
+  /** @see packages/ice/tests/ice/interface-enumeration.test.ts「without servers or explicit addresses: ends with interface-enumeration-failed then no-candidates」 */
   private endLocalCandidates(generation: number) {
     if (this.localCandidates.length === 0) {
       this.emitGatheringError(
@@ -1140,7 +1138,7 @@ export class Connection implements IceConnection {
     this.wakeIncomingCheckWaits();
   }
 
-  /** Report a gathering error of `generation` (see onGatheringError). */
+  /** @see packages/ice/tests/ice/interface-enumeration.test.ts「nothing is reported after close」 */
   private emitGatheringError(
     generation: number,
     reason: IceGatheringErrorReason,

@@ -129,17 +129,18 @@ Resolves remote mDNS candidates; closed (pending lookups cancelled) by restart()
 > `readonly` **onGatheringError**: [`Event`](Event.md)\<\[[`IceGatheringErrorInfo`](../type-aliases/IceGatheringErrorInfo.md)\]\>
 
 The current generation's gathering reported an error (werift extension,
-see [IceGatheringErrorInfo](../type-aliases/IceGatheringErrorInfo.md)), synchronously:
-- `interface-enumeration-failed`: os.networkInterfaces() threw; once per
-  generation, and the gathering goes on without enumerated addresses.
-- `no-candidates`: the generation's gathering ended without any local
-  candidate, whatever the cause (also after the other reasons).
-- `gathering-failed`: gatherCandidates() hit an unexpected exception; the
-  gathering of the generation ends and gatherCandidates() still rejects.
+see [IceGatheringErrorInfo](../type-aliases/IceGatheringErrorInfo.md)). New reasons may be added: handle
+unknown values.
 
-Nothing is fired for a replaced generation or after close (the event
-completes then); a listener that throws does not stop the gathering. New
-reasons may be added: handle unknown values.
+#### See
+
+ - packages/ice/tests/ice/interface-enumeration.test.ts「without servers or explicit addresses: ends with interface-enumeration-failed then no-candidates」
+ - packages/ice/tests/ice/interface-enumeration.test.ts「a STUN server still gives a server-reflexive candidate」
+ - packages/ice/tests/ice/interface-enumeration.test.ts「an unexpected exception reports gathering-failed, ends the generation and rejects」
+ - packages/ice/tests/ice/interface-enumeration.test.ts「restarting from the no-candidates listener leaves the new generation ungathered」
+ - packages/ice/tests/ice/interface-enumeration.test.ts「nothing is reported after close」
+ - packages/ice/tests/ice/interface-enumeration.test.ts「nothing is reported for a generation an ICE restart replaced」
+ - packages/ice/tests/ice/interface-enumeration.test.ts「a listener that throws does not stop the gathering or the later listeners」
 
 #### Implementation of
 

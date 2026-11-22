@@ -41,10 +41,7 @@
 > **onGatheringError**: (`details`) => `void`
 
 The current generation's gathering reported an error (see
-[IceGatheringErrorDetails](../type-aliases/IceGatheringErrorDetails.md)). Besides the errors of the ICE agent
-(`IceConnection.onGatheringError`), a `gatherCandidates()` that rejects
-gives `gathering-failed` when the agent did not report it itself (an
-agent without onGatheringError); the gathering then still completes.
+[IceGatheringErrorDetails](../type-aliases/IceGatheringErrorDetails.md)).
 
 #### Parameters
 
@@ -55,6 +52,11 @@ agent without onGatheringError); the gathering then still completes.
 #### Returns
 
 `void`
+
+#### See
+
+ - packages/webrtc/tests/transport/iceGatheringError.test.ts「of an ICE agent without onGatheringError: gathering-failed is reported and the gathering completes」
+ - packages/webrtc/tests/transport/iceGatheringError.test.ts「of an agent that reported gathering-failed itself: it is not reported twice」
 
 ***
 

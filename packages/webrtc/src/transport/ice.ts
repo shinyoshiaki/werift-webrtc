@@ -235,8 +235,10 @@ export class RTCIceTransport {
   readonly onIceServerReached = new Event<[string[]]>();
   /**
    * The current generation's gathering reported an error (werift extension,
-   * not W3C; see RTCIceGatherer.onGatheringError). Nothing is fired once the
-   * transport is closed.
+   * not W3C; see RTCIceGatherer.onGatheringError).
+   * @see packages/webrtc/tests/transport/iceGatheringError.test.ts「RTCIceTransport.onGatheringError reports the same reasons」
+   * @see packages/webrtc/tests/transport/iceGatheringError.test.ts「nothing is reported after close」
+   * @see packages/webrtc/tests/transport/iceGatheringError.test.ts「a throwing transport onGatheringError listener does not stop the later ones」
    */
   readonly onGatheringError = new Event<[IceGatheringErrorDetails]>({
     onListenerError: (error) => log("onGatheringError listener threw", error),
@@ -1040,8 +1042,8 @@ export type IceCandidateErrorDetails = {
 
 /**
  * A gathering error of an ICE transport (werift extension, not W3C): the
- * `IceGatheringErrorInfo` of the ICE agent without its generation
- * (only the current generation's errors are given).
+ * `IceGatheringErrorInfo` of the ICE agent without its generation.
+ * @see packages/webrtc/tests/transport/iceGatheringError.test.ts「without STUN / TURN: gathering completes with end-of-candidates and both reasons are reported」
  */
 export type IceGatheringErrorDetails = {
   /** Why (new reasons may be added: handle unknown values). */
@@ -1068,16 +1070,15 @@ export class RTCIceGatherer {
   onIceServerReached: (urls: string[]) => void = () => {};
   /**
    * The current generation's gathering reported an error (see
-   * {@link IceGatheringErrorDetails}). Besides the errors of the ICE agent
-   * (`IceConnection.onGatheringError`), a `gatherCandidates()` that rejects
-   * gives `gathering-failed` when the agent did not report it itself (an
-   * agent without onGatheringError); the gathering then still completes.
+   * {@link IceGatheringErrorDetails}).
+   * @see packages/webrtc/tests/transport/iceGatheringError.test.ts「of an ICE agent without onGatheringError: gathering-failed is reported and the gathering completes」
+   * @see packages/webrtc/tests/transport/iceGatheringError.test.ts「of an agent that reported gathering-failed itself: it is not reported twice」
    */
   onGatheringError: (details: IceGatheringErrorDetails) => void = () => {};
   gatheringState: IceGathererState = "new";
   readonly connection: IceConnection;
   private unreachableUrls = { generation: -1, urls: new Set<string>() };
-  /** The latest generation whose `gathering-failed` was given. */
+  /** @see packages/webrtc/tests/transport/iceGatheringError.test.ts「of an agent that reported gathering-failed itself: it is not reported twice」 */
   private failureReportedGeneration = -1;
 
   readonly onGatheringStateChange = new Event<[IceGathererState]>();
@@ -1221,7 +1222,7 @@ export class RTCIceGatherer {
     this.connection.setIceServers(options);
   }
 
-  /** `generation` is gone (ICE restart) or the agent closed. */
+  /** @see packages/webrtc/tests/transport/iceGatheringError.test.ts「of an agent restarted by the gathering-failed listener: the new generation is not completed」 */
   private gatheringReplaced(generation: number) {
     return (
       this.connection.generation !== generation ||

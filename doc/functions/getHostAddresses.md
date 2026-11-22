@@ -34,5 +34,8 @@ such as google cloud run
 
 ## Throws
 
-the `SystemError` of `os.networkInterfaces()` when the interfaces
-cannot be enumerated, like [nodeIpAddress](nodeIpAddress.md).
+the `SystemError` of `os.networkInterfaces()`, like [nodeIpAddress](nodeIpAddress.md).
+
+## See
+
+packages/ice/tests/ice/interface-enumeration.test.ts「the public nodeIpAddress / getHostAddresses keep throwing (documented @throws)」

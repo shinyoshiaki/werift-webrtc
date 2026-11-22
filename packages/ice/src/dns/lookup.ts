@@ -20,10 +20,7 @@ interface DnsLookupResult extends DnsLookupRequest {
   family?: number;
 }
 
-/**
- * The IPv4 address multicast-dns would join on each interface (its
- * `allInterfaces()`: the first IPv4 address of every interface).
- */
+/** @see packages/ice/tests/ice/mdns-enumeration.test.ts「an interface that appears after creation is joined by the 5 second update」 */
 const multicastInterfaces = (
   interfaces: NetworkInterfaceEnumeration["interfaces"],
 ) =>
@@ -34,7 +31,7 @@ const multicastInterfaces = (
     return ipv4 ? [ipv4.address] : [];
   });
 
-/** multicast-dns' `defaultInterface()`, from an enumeration already made. */
+/** @see packages/ice/tests/ice/mdns-enumeration.test.ts「an interface that appears after creation is joined by the 5 second update」 */
 const defaultMulticastInterface = (
   interfaces: NetworkInterfaceEnumeration["interfaces"],
 ) => {
@@ -51,10 +48,9 @@ const defaultMulticastInterface = (
 };
 
 /**
- * The default mDNS socket of {@link MdnsLookup} (package-private): its
- * membership `update()` enumerates without throwing.
- * テスト: tests/ice/mdns-enumeration.test.ts
- * @param options more multicast-dns options (tests choose the port).
+ * The default mDNS socket of {@link MdnsLookup} (package-private).
+ * @see packages/ice/tests/ice/mdns-enumeration.test.ts「an enumeration throwing on the 5 second membership update only warns, and close() leaves no timer」
+ * @see packages/ice/tests/ice/mdns-enumeration.test.ts「an interface that appears after creation is joined by the 5 second update」
  */
 export function createMulticastDns(options: mdns.Options = {}) {
   const first = readNetworkInterfaces();
@@ -118,7 +114,7 @@ export class MdnsLookup {
   /** Cancels each pending lookup (rejects it and releases its timer and listener). */
   private readonly pending = new Set<() => void>();
 
-  /** Why the mDNS socket cannot resolve: every lookup rejects with it. */
+  /** @see packages/ice/tests/ice/mdns-enumeration.test.ts「an enumeration failing at creation opens no socket and rejects lookups at once」 */
   private failure?: unknown;
 
   /** @param createMdns creates the mDNS socket; tests inject a fake one. */

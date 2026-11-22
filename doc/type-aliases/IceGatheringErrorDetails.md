@@ -9,8 +9,11 @@
 > **IceGatheringErrorDetails** = `object`
 
 A gathering error of an ICE transport (werift extension, not W3C): the
-`IceGatheringErrorInfo` of the ICE agent without its generation
-(only the current generation's errors are given).
+`IceGatheringErrorInfo` of the ICE agent without its generation.
+
+## See
+
+packages/webrtc/tests/transport/iceGatheringError.test.ts「without STUN / TURN: gathering completes with end-of-candidates and both reasons are reported」
 
 ## Properties
 

@@ -18,3 +18,7 @@ a werift extension, not W3C): see [IceGatheringErrorDetails](IceGatheringErrorDe
 > `readonly` **iceTransport**: [`RTCIceTransport`](../classes/RTCIceTransport.md)
 
 The transport whose gathering reported it.
+
+## See
+
+packages/webrtc/tests/transport/iceGatheringError.test.ts「without STUN / TURN: gathering completes with end-of-candidates and both reasons are reported」

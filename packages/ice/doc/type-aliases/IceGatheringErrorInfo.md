@@ -10,13 +10,17 @@
 
 A gathering error of one generation (`Connection.onGatheringError`).
 
+## See
+
+packages/ice/tests/ice/interface-enumeration.test.ts「without servers or explicit addresses: ends with interface-enumeration-failed then no-candidates」
+
 ## Properties
 
 ### cause?
 
 > `optional` **cause?**: `unknown`
 
-The original exception (e.g. the SystemError of os.networkInterfaces()), when there is one.
+The original exception, when there is one.
 
 ***
 
@@ -32,7 +36,9 @@ Human-readable description, for logs. Not a stable identifier.
 
 > **generation**: `number`
 
-The generation whose gathering reported it.
+#### See
+
+packages/ice/tests/ice/interface-enumeration.test.ts「nothing is reported for a generation an ICE restart replaced」
 
 ***
 

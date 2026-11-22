@@ -1,4 +1,5 @@
 import * as dgram from "node:dgram";
+import type { NetworkInterfaceInfo } from "node:os";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { createMulticastDns, MdnsLookup } from "../../src/dns/lookup";
 import {
@@ -93,15 +94,18 @@ describe("MdnsLookup when os.networkInterfaces() throws", () => {
 
   test("an interface that appears after creation is joined by the 5 second update", async () => {
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
-    const iface = (address: string) => [
+    const iface = (
+      address: string,
+      family: "IPv4" | "IPv6" = "IPv4",
+    ): NetworkInterfaceInfo[] => [
       {
         address,
-        family: "IPv4" as const,
+        family,
         internal: false,
         netmask: "255.255.255.0",
         mac: "00:00:00:00:00:00",
         cidr: `${address}/24`,
-      },
+      } as NetworkInterfaceInfo,
     ];
     os.succeed({ eth0: iface("192.0.2.1") });
     const socket = dgram.createSocket({ type: "udp4", reuseAddr: true });
@@ -122,16 +126,25 @@ describe("MdnsLookup when os.networkInterfaces() throws", () => {
     ]);
 
     // Act: ネットワークが増えてから、5 秒ごとの更新が走る。
-    os.succeed({ eth0: iface("192.0.2.1"), wlan0: iface("198.51.100.7") });
+    os.succeed({
+      eth0: iface("192.0.2.1"),
+      wlan0: [
+        ...iface("2001:db8::7", "IPv6"),
+        ...iface("198.51.100.7"),
+        ...iface("198.51.100.8"),
+      ],
+    });
     vi.advanceTimersByTime(5000);
 
-    // Assert: 増えた interface だけが join され、送信 interface は文字列で指定される。
+    // Assert: 増えた interface だけが、その最初の IPv4 アドレスで join される。
     expect(addMembership.mock.calls.map(([, address]) => address)).toEqual([
       "192.0.2.1",
       "198.51.100.7",
     ]);
+    // Assert: 送信 interface は配列ではなく文字列（外部向け IPv4 があれば 0.0.0.0）で指定される。
+    expect(setMulticastInterface.mock.calls.length).toBeGreaterThan(0);
     for (const [value] of setMulticastInterface.mock.calls) {
-      expect(typeof value).toBe("string");
+      expect(value).toBe("0.0.0.0");
     }
     expect(crash.uncaught).toEqual([]);
   });

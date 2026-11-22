@@ -15,7 +15,11 @@ New reasons may be added in a minor release: handle unknown values.
 
 > **gatheringFailed**: `"gathering-failed"`
 
-gatherCandidates() failed with an unexpected exception.
+gatherCandidates() threw unexpectedly.
+
+#### See
+
+packages/ice/tests/ice/interface-enumeration.test.ts「an unexpected exception reports gathering-failed, ends the generation and rejects」
 
 ***
 
@@ -23,7 +27,11 @@ gatherCandidates() failed with an unexpected exception.
 
 > **interfaceEnumerationFailed**: `"interface-enumeration-failed"`
 
-os.networkInterfaces() threw: no host address was enumerated.
+os.networkInterfaces() threw.
+
+#### See
+
+packages/ice/tests/ice/interface-enumeration.test.ts「without servers or explicit addresses: ends with interface-enumeration-failed then no-candidates」
 
 ***
 
@@ -31,4 +39,8 @@ os.networkInterfaces() threw: no host address was enumerated.
 
 > **noCandidates**: `"no-candidates"`
 
-The generation's gathering ended without any local candidate.
+The gathering ended without any local candidate.
+
+#### See
+
+packages/ice/tests/ice/interface-enumeration.test.ts「without servers or explicit addresses: ends with interface-enumeration-failed then no-candidates」

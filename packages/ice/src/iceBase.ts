@@ -91,9 +91,8 @@ export interface IceConnection {
   readonly onIceServerReached?: Event<[IceServerReachedInfo]>;
   /**
    * The current generation's gathering reported an error (see
-   * {@link IceGatheringErrorInfo}): the interfaces could not be enumerated,
-   * it ended without any local candidate, or it failed unexpectedly.
-   * Optional like onIceCandidateError.
+   * {@link IceGatheringErrorInfo}). Optional like onIceCandidateError.
+   * @see packages/webrtc/tests/transport/iceGatheringError.test.ts「of an ICE agent without onGatheringError: gathering-failed is reported and the gathering completes」
    */
   readonly onGatheringError?: Event<[IceGatheringErrorInfo]>;
 

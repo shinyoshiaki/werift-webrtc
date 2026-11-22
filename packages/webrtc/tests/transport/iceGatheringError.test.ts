@@ -65,6 +65,8 @@ describe("RTCPeerConnection.onIceGatheringError when os.networkInterfaces() thro
     expect(gatheringErrors[0]).not.toHaveProperty("generation");
     expect(candidateErrors).toEqual([]);
     expect(crash.uncaught).toEqual([]);
+    // Assert: W3C 外の拡張なので on<event> プロパティは持たない。
+    expect(pc).not.toHaveProperty("onicegatheringerror");
   });
 
   test("RTCIceTransport.onGatheringError reports the same reasons", async () => {
@@ -162,6 +164,7 @@ describe("RTCPeerConnection.onIceGatheringError when os.networkInterfaces() thro
       iceStunGatherTimeout: 0.3,
     });
     pc.addTransceiver("audio");
+    const transportErrors = recordTransportGatheringErrors(pc.iceTransports[0]);
     const enumerationFailed = pc.onIceGatheringError.asPromise();
     const applying = pc.setLocalDescription(await pc.createOffer());
     await enumerationFailed;
@@ -173,6 +176,8 @@ describe("RTCPeerConnection.onIceGatheringError when os.networkInterfaces() thro
 
     // Assert: close 前の列挙失敗だけで、close 後の no-candidates は出ない。
     expect(reasonsOf(gatheringErrors)).toEqual([interfaceEnumerationFailed]);
+    // Assert: close した transport からも通知されない。
+    expect(reasonsOf(transportErrors)).toEqual([interfaceEnumerationFailed]);
   });
 
   test("a transport a rollback discards (pending only) reports nothing", async () => {

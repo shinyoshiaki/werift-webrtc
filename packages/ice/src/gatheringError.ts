@@ -4,24 +4,27 @@
  * @enum
  */
 export const IceGatheringErrorReason = {
-  /** os.networkInterfaces() threw: no host address was enumerated. */
+  /** os.networkInterfaces() threw. @see packages/ice/tests/ice/interface-enumeration.test.ts「without servers or explicit addresses: ends with interface-enumeration-failed then no-candidates」 */
   interfaceEnumerationFailed: "interface-enumeration-failed",
-  /** The generation's gathering ended without any local candidate. */
+  /** The gathering ended without any local candidate. @see packages/ice/tests/ice/interface-enumeration.test.ts「without servers or explicit addresses: ends with interface-enumeration-failed then no-candidates」 */
   noCandidates: "no-candidates",
-  /** gatherCandidates() failed with an unexpected exception. */
+  /** gatherCandidates() threw unexpectedly. @see packages/ice/tests/ice/interface-enumeration.test.ts「an unexpected exception reports gathering-failed, ends the generation and rejects」 */
   gatheringFailed: "gathering-failed",
 } as const;
 /** @enum */
 export type IceGatheringErrorReason =
   (typeof IceGatheringErrorReason)[keyof typeof IceGatheringErrorReason];
 
-/** A gathering error of one generation (`Connection.onGatheringError`). */
+/**
+ * A gathering error of one generation (`Connection.onGatheringError`).
+ * @see packages/ice/tests/ice/interface-enumeration.test.ts「without servers or explicit addresses: ends with interface-enumeration-failed then no-candidates」
+ */
 export type IceGatheringErrorInfo = {
   reason: IceGatheringErrorReason;
   /** Human-readable description, for logs. Not a stable identifier. */
   errorText: string;
-  /** The original exception (e.g. the SystemError of os.networkInterfaces()), when there is one. */
+  /** The original exception, when there is one. */
   cause?: unknown;
-  /** The generation whose gathering reported it. */
+  /** @see packages/ice/tests/ice/interface-enumeration.test.ts「nothing is reported for a generation an ICE restart replaced」 */
   generation: number;
 };
