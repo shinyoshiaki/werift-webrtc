@@ -1,10 +1,13 @@
 import { describe, expect, test, vi } from "vitest";
 import type { RTCRtpReceiver } from "../../src";
+import type { RtpRouter } from "../../src/media/router";
 import {
   createSimulcastMediaPacket,
   createSimulcastRtxFor,
+  firefoxSimulcastBundleOfferWithFid,
   firefoxSimulcastLayers,
   firefoxSimulcastOfferWithFid,
+  receiveFirefoxSimulcastBundleOffer,
   receiveFirefoxSimulcastOffer,
   retransmissionsOf,
 } from "./rtpReceiverTestUtils";
@@ -63,20 +66,25 @@ describe("simulcast (RID) RTX routed by SSRC with a repaired RID (readsRepairedR
     return { ...session, receiver, reads, repair, restored };
   };
 
-  test("確定で FID の組が外れて RID にも SDP にも帰属しない RTX SSRC は、SSRC で届いても repaired RID が指す RID のトラックへ復元される", async () => {
+  test("確定で FID の組が外れた RTX SSRC は SDP 由来の経路を失い、repaired RID が指す RID のトラックへパケットから学習して復元される", async () => {
     // Arrange: RTX SSRC を high の媒体と FID で組にした offer を確定し、その組を外した再 offer を確定する。
     const { pc, route, remoteOffer, receiver, reads, repair, restored } =
       await arrange([[high.ssrc, rtxSsrc]]);
+    const { router } = pc as unknown as { router: RtpRouter };
     try {
       await remoteOffer(firefoxSimulcastOfferWithFid([]));
-      expect(receiver.readsRepairedRid(rtxSsrc, "low")).toBe(true);
       reads.mockClear();
+
+      // Assert: 確定後、外れた RTX SSRC には経路が残らない。
+      expect(router.ssrcTable[rtxSsrc]).toBeUndefined();
 
       // Act: その RTX SSRC から、repaired RID low を付けて low の欠落 4 を再送する。
       route(repair(low.ssrc, 4, 1, "low"));
 
-      // Assert: router は readsRepairedRid の経路を通り、low の欠落 4 だけが low のトラックへ復元される。
-      expect(reads).toHaveReturnedWith(true);
+      // Assert: MID と repaired RID で同じ受信者へ学習され、low の欠落 4 だけが low のトラックへ復元される。
+      expect(reads).not.toHaveBeenCalled();
+      expect(router.ssrcTable[rtxSsrc]).toBe(receiver);
+      expect(router.learnedSsrcs.has(rtxSsrc)).toBe(true);
       expect(restored()).toEqual({ high: [], low: [[low.ssrc, 4]] });
     } finally {
       await pc.close();
@@ -133,6 +141,53 @@ describe("simulcast (RID) RTX routed by SSRC with a repaired RID (readsRepairedR
       // Act / Assert: トラックのない RID では、FID の RTX SSRC でも未学習の SSRC でも false になる。
       expect(receiver.readsRepairedRid(rtxSsrc, "unknown")).toBe(false);
       expect(receiver.readsRepairedRid(424242, "unknown")).toBe(false);
+    } finally {
+      await pc.close();
+    }
+  });
+
+  test("確定で FID の組が外れた RTX SSRC を BUNDLE の別 m-line が MID と repaired RID 付きで使うと、その m-line の RID のトラックへ復元される", async () => {
+    // Arrange: MID 0 が RTX SSRC を high の媒体と FID で組にした BUNDLE offer を確定し、
+    // MID 1 の high に媒体 1, 3 を送ってから、MID 0 の FID を外した再 offer を確定する。
+    const otherHighSsrc = 5001;
+    const { pc, router, route, deliveredOf, remoteOffer } =
+      await receiveFirefoxSimulcastBundleOffer(
+        firefoxSimulcastBundleOfferWithFid([[high.ssrc, rtxSsrc]]),
+      );
+    const delivered = {
+      mid0: deliveredOf("0", "high"),
+      mid1: deliveredOf("1", "high"),
+    };
+    const mid1Receiver = pc
+      .getTransceivers()
+      .find((t) => t.mid === "1")!.receiver;
+    try {
+      for (const sequenceNumber of [1, 3]) {
+        route(
+          createSimulcastMediaPacket({
+            ssrc: otherHighSsrc,
+            sequenceNumber,
+            rid: "high",
+            mid: "1",
+          }),
+        );
+      }
+      await remoteOffer(firefoxSimulcastBundleOfferWithFid([]));
+
+      // Act: 外れた RTX SSRC から、MID 1 と repaired RID high を付けて MID 1 の high の欠落 2 を再送する。
+      route(
+        createSimulcastRtxFor(otherHighSsrc, 2, {
+          rtxSsrc,
+          rtxSequenceNumber: 1,
+          rrid: "high",
+          mid: "1",
+        }),
+      );
+
+      // Assert: RTX SSRC は MID 1 の受信者へ経路が移り、欠落 2 は MID 1 の high のトラックへだけ復元される。
+      expect(router.ssrcTable[rtxSsrc]).toBe(mid1Receiver);
+      expect(retransmissionsOf(delivered.mid1)).toEqual([[otherHighSsrc, 2]]);
+      expect(retransmissionsOf(delivered.mid0)).toEqual([]);
     } finally {
       await pc.close();
     }

@@ -608,3 +608,72 @@ export async function receiveFirefoxSimulcastOffer(sdp: string) {
   };
   return { pc, route, deliveredOf, remoteOffer };
 }
+
+/**
+ * Arrange: a BUNDLE offer of two Firefox-style simulcast video m-lines
+ * (MID "0" and "1", RIDs high / low each). MID "0" lists the FID pairs
+ * `fidPairs` (media, RTX); MID "1" sends Chrome style, without `a=ssrc`.
+ */
+export function firefoxSimulcastBundleOfferWithFid(
+  fidPairs: [number, number][],
+) {
+  const section = (mid: string, msid: string, pairs: [number, number][]) => {
+    const lines = firefoxSimulcastSdp({ type: "offer", mid })
+      .split("\r\n")
+      .filter((line) => line !== "" && !/^a=ssrc(-group)?:/.test(line));
+    const media = lines.slice(lines.findIndex((l) => l.startsWith("m=")));
+    return media
+      .map((line) => (line.startsWith("a=msid:") ? `a=msid:${msid}` : line))
+      .concat(
+        pairs.flatMap(([m, rtx]) => [
+          `a=ssrc:${m} cname:x`,
+          `a=ssrc:${rtx} cname:x`,
+          `a=ssrc-group:FID ${m} ${rtx}`,
+        ]),
+      );
+  };
+  const header = firefoxSimulcastSdp({ type: "offer" })
+    .split("\r\n")
+    .filter((line) => line !== "");
+  const session = header
+    .slice(
+      0,
+      header.findIndex((l) => l.startsWith("m=")),
+    )
+    .map((line) =>
+      line.startsWith("a=group:BUNDLE") ? "a=group:BUNDLE 0 1" : line,
+    );
+  return [
+    ...session,
+    ...section("0", "{s0} {t0}", fidPairs),
+    ...section("1", "{s1} {t1}", []),
+    "",
+  ].join("\r\n");
+}
+
+/**
+ * Arrange: a {@link createFirefoxSimulcastReceivingPeer} that applied the
+ * BUNDLE offer `sdp` of {@link firefoxSimulcastBundleOfferWithFid} and
+ * answered it. `deliveredOf(mid, rid)` records what that m-line's RID track
+ * delivers, `remoteOffer` applies and answers a re-offer.
+ */
+export async function receiveFirefoxSimulcastBundleOffer(sdp: string) {
+  const pc = createFirefoxSimulcastReceivingPeer();
+  await pc.setRemoteDescription({ type: "offer", sdp });
+  await pc.setLocalDescription(await pc.createAnswer());
+  const { router } = pc as unknown as { router: RtpRouter };
+  const transceivers = pc.getTransceivers();
+  const route = (packet: RtpPacket) =>
+    router.routeRtp(packet, transceivers[0].dtlsTransport);
+  const deliveredOf = (mid: string, rid: string) =>
+    collectDeliveredRtp(
+      transceivers
+        .find((t) => t.mid === mid)!
+        .receiver.tracks.find((track) => track.rid === rid)!,
+    );
+  const remoteOffer = async (offer: string) => {
+    await pc.setRemoteDescription({ type: "offer", sdp: offer });
+    await pc.setLocalDescription(await pc.createAnswer());
+  };
+  return { pc, router, route, deliveredOf, remoteOffer };
+}

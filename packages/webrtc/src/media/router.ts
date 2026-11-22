@@ -592,6 +592,30 @@ export class RtpRouter {
     }
 
     this.registerHeaderExtensions(params);
+    if (!deferConflicts) this.releaseDroppedFidRtx(transceiver.receiver);
+  }
+
+  /**
+   * Internal: the description routes of the RTX SSRCs whose FID pair of a
+   * RID m-line a committed description removed go (`takeDroppedFidRtxSsrcs`).
+   * Routes packets taught stay. Called at the commit, after the receivers
+   * committed their FID tables.
+   */
+  releaseDroppedFidRtx(receiver?: RTCRtpReceiver) {
+    const receivers = receiver
+      ? [receiver]
+      : this.transceivers().map((t) => t.receiver);
+    for (const r of receivers) {
+      for (const ssrc of r.takeDroppedFidRtxSsrcs()) {
+        log("fid rtx ssrc no longer described", ssrc);
+        this.routes.remove(
+          ssrc,
+          (route) => route.endpoint === r && route.origin === RouteOrigin.sdp,
+        );
+        this.stagedSsrc.delete(ssrc, r);
+        this.provisionalSsrc.delete(ssrc, r);
+      }
+    }
   }
 
   private registerHeaderExtensions(params: RTCRtpReceiveParameters) {

@@ -163,7 +163,11 @@ const RETIRED_UFRAG_HISTORY = 64;
  *   final answer is the remote one) replaces the table by the committed
  *   description's pairs as a whole, so a pair it no longer lists does not
  *   survive, and drops the repaired-RID binding of every RTX SSRC whose pair
- *   was added, changed or removed. R restores the table and its staged
+ *   was added, changed or removed. After K the router drops the description
+ *   route of an RTX SSRC the committed description no longer describes
+ *   (`RtpRouter.releaseDroppedFidRtx`), so a later packet of it is routed as
+ *   an unknown SSRC by MID and repaired RID (another m-line of the BUNDLE
+ *   may use it); a route packets taught stays. R restores the table and its staged
  *   values from the `RTCRtpReceiver` baseline (`snapshotReceiveTables` /
  *   `restoreReceiveTables`) and the routes from `RtpRouter.snapshotRoutes`.
  *   The RID an RTX packet repairs is derived per packet from the current
@@ -171,7 +175,8 @@ const RETIRED_UFRAG_HISTORY = 64;
  *   binding of the rolled-back pairs is left; restore still requires a hole
  *   of that RID's current media SSRC (tests:
  *   tests/media/firefoxSimulcastSsrc.test.ts,
- *   tests/media/firefoxSimulcastFidMatrix.test.ts).
+ *   tests/media/firefoxSimulcastFidMatrix.test.ts,
+ *   tests/media/firefoxSimulcastRepairedRidRoute.test.ts).
  * - Codecs: every offer lists what each transceiver can use now, whatever
  *   the last answer kept, and the negotiated codecs as negotiated (payload
  *   type, fmtp, rtcp-fb; paired with the configured codecs by the rule
@@ -336,6 +341,8 @@ export class NegotiationTransaction {
     for (const transceiver of this.transceivers.getTransceivers()) {
       transceiver.receiver.commitStagedReceive();
     }
+    // FID pairs of RID m-lines the commit removed take their routes along.
+    this.router.releaseDroppedFidRtx();
     this.transceivers.notifyCommittedRemoteTracks();
     // The recycling offer is final: the displaced transceiver stops for good.
     for (const transceiver of this.resources.displaced) {

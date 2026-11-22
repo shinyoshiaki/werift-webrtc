@@ -181,6 +181,11 @@ export class RTCRtpReceiver {
   /** SSRCs retired by a media SSRC change, per RID, oldest first. */
   readonly retiredSsrcsByRid: { [rid: string]: number[] } = {};
   private readonly forgottenSsrcs: number[] = [];
+  /**
+   * RTX SSRCs a committed description no longer pairs by FID on this RID
+   * m-line (see {@link takeDroppedFidRtxSsrcs}).
+   */
+  private readonly droppedFidRtxSsrcs: number[] = [];
   private readonly rejectedSsrcs: number[] = [];
   private readonly nack = new NackHandler(this);
   private readonly audioRedHandler = new RedHandler();
@@ -650,6 +655,7 @@ export class RTCRtpReceiver {
     this.stagedRidFidTable = snapshot.stagedRidFidTable && {
       ...snapshot.stagedRidFidTable,
     };
+    this.droppedFidRtxSsrcs.length = 0;
   }
 
   /**
@@ -898,6 +904,7 @@ export class RTCRtpReceiver {
     clearTable(this.repairedMediaByRtx);
     clearTable(this.retiredSsrcsByRid);
     this.forgottenSsrcs.length = 0;
+    this.droppedFidRtxSsrcs.length = 0;
     this.rejectedSsrcs.length = 0;
   }
 
@@ -1206,8 +1213,10 @@ export class RTCRtpReceiver {
    * Internal (router): a packet of `ssrc`, already routed here, naming the
    * repaired RID `repairedRid` is handled by that RID: `ssrc` is the RTX
    * SSRC of a committed `a=ssrc-group:FID` of this RID m-line, or an SSRC no
-   * RID, track or SDP RTX pair claims yet (for example the RTX SSRC of a FID
-   * pair a commit removed). An RTX SSRC a repaired RID bound keeps its RID.
+   * RID, track or SDP RTX pair claims yet. An RTX SSRC a repaired RID bound
+   * keeps its RID. (The RTX SSRC of a FID pair a commit removed loses its
+   * description route, {@link takeDroppedFidRtxSsrcs}, and is routed as an
+   * unknown SSRC.)
    */
   readsRepairedRid(ssrc: number, repairedRid: string) {
     if (!this.trackByRID[repairedRid]) return false;
@@ -1326,6 +1335,9 @@ export class RTCRtpReceiver {
       const rtxSsrc = Number(rtx);
       if (before[rtxSsrc] === this.ridFidMediaByRtx[rtxSsrc]) continue;
       if (rtxSsrc in this.ridByRtxSsrc) this.unbindRtxSsrc(rtxSsrc);
+      if (!(rtxSsrc in this.ridFidMediaByRtx)) {
+        this.droppedFidRtxSsrcs.push(rtxSsrc);
+      }
     }
   }
 
@@ -1410,6 +1422,23 @@ export class RTCRtpReceiver {
    * retired by a media SSRC change of their RID or evicted by a bound. The
    * router drops their learned routes after each packet.
    */
+  /**
+   * Internal (router): the RTX SSRCs whose FID pair a committed description
+   * removed and that it describes no other way (no FID pair, track SSRC or
+   * RTX pair of an `a=ssrc` encoding). Their description routes go, so a
+   * later packet of the SSRC is routed as an unknown one (MID and repaired
+   * RID, possibly of another m-line of the BUNDLE).
+   */
+  takeDroppedFidRtxSsrcs() {
+    if (this.droppedFidRtxSsrcs.length === 0) return [];
+    return [...new Set(this.droppedFidRtxSsrcs.splice(0))].filter(
+      (ssrc) =>
+        !(ssrc in this.ridFidMediaByRtx) &&
+        this.trackBySSRC[ssrc] === undefined &&
+        this.ssrcByRtx[ssrc] === undefined,
+    );
+  }
+
   takeForgottenSsrcs() {
     return this.forgottenSsrcs.length === 0
       ? []
