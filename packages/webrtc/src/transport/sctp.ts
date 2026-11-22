@@ -52,13 +52,7 @@ interface ClosingStream {
 }
 
 /**
- * A message waiting in {@link RTCSctpTransport}'s private queue: channel,
- * PPID, payload, and the bytes it added to the channel's `bufferedAmount`
- * (omitted: the payload length for a user message, 0 for DCEP).
- *
- * Private; the structure may change without notice. The optional fourth
- * element keeps a hand-queued 3-element entry (werift <= 0.28 workaround for
- * empty messages) working in v0.29.0 only; use `send("")` instead.
+ * @see tests/datachannel/bufferedAmount.test.ts "empty string and empty Buffer arrive in order, bufferedAmount stays 0, stats count them"
  * @see tests/datachannel/bufferedAmount.test.ts "a legacy 3-element queue entry is still sent (v0.29.0 compatibility)"
  */
 type QueuedMessage = [
@@ -101,14 +95,8 @@ export class RTCSctpTransport {
   private stopped = false;
   remoteMaxMessageSize = DEFAULT_MAX_MESSAGE_SIZE;
 
-  /**
-   * Private: DCEP and user messages not yet handed to SCTP, in send order.
-   * Its structure may change without notice; use the RTCDataChannel API.
-   */
   private dataChannelQueue = new FifoQueue<QueuedMessage>();
   /**
-   * Channels closed before the association was established: their queued
-   * messages go to SCTP first, then their stream is reset.
    * @see tests/datachannel/closeDelivery.test.ts "messages sent before close() while connecting reach the peer, then both ends close"
    */
   private readonly closeAfterFlush = new Set<RTCDataChannel>();
@@ -581,9 +569,6 @@ export class RTCSctpTransport {
               channel.isCreatedByRemote = true;
               this.dataChannels[streamId] = channel;
 
-              // The ACK goes to SCTP before the application sees the
-              // channel, so a close() in the datachannel handler resets the
-              // stream after it, never before.
               // Test: tests/datachannel/closeDelivery.test.ts "close() in the datachannel handler: the opener gets the ACK first, no error, both ends close"
               this.sendDataChannelAck(channel);
 
@@ -770,12 +755,8 @@ export class RTCSctpTransport {
   }
 
   /**
-   * Private: hand the queued DCEP and user messages to SCTP once the
-   * association is established; a channel still without stream ID stays
-   * queued. A `closing` channel's messages are sent (W3C closing procedure:
-   * pending messages first), then the streams of channels closed before the
-   * association was established are reset. One synchronous pass, O(1) per
-   * message. Its behavior may change without notice.
+   * Hand the queued DCEP and user messages to SCTP once the association is
+   * established; a channel still without stream ID stays queued.
    * @see tests/issue/815.test.ts "issue 815: data channel stream IDs follow the DTLS role"
    * @see tests/datachannel/closeDelivery.test.ts "messages sent before close() while connecting reach the peer, then both ends close"
    */
@@ -823,9 +804,7 @@ export class RTCSctpTransport {
           })
           .then(
             (result) => {
-              // W3C: sent (or, PR-SCTP, abandoned after trying) shrinks
-              // bufferedAmount; never sent because the association closed
-              // does not.
+              // Test: tests/datachannel/bufferedAmount.test.ts "messages abandoned by maxPacketLifeTime before they were sent are subtracted and notified"
               // Test: tests/datachannel/bufferedAmount.test.ts "pc.close() keeps bufferedAmount and fires no bufferedamountlow"
               if (result !== SctpSendResult.discarded && bufferedBytes > 0) {
                 channel.changeBufferedAmount(-bufferedBytes);
@@ -859,10 +838,8 @@ export class RTCSctpTransport {
   }
 
   /**
-   * What {@link RTCDataChannel.send} calls (use that instead): queue a user
-   * message and flush.
-   * An empty message is one byte with PPID 56 / 57 (RFC 8831 6.6) and adds
-   * nothing to `bufferedAmount`. Returns the message size in bytes.
+   * What {@link RTCDataChannel.send} calls; use that instead.
+   * @see tests/datachannel/bufferedAmount.test.ts "empty string and empty Buffer arrive in order, bufferedAmount stays 0, stats count them"
    */
   datachannelSend = (channel: RTCDataChannel, data: Buffer | string) => {
     const size = getDataChannelMessageSize(data);
@@ -980,9 +957,8 @@ export class RTCSctpTransport {
   }
 
   // Messages not yet handed to SCTP belong to the stopped association and must
-  // not leak into a later one. User messages are dropped and, never sent, stay
-  // in bufferedAmount (W3C: it does not reset once closed); DATA_CHANNEL_OPEN
-  // is kept only for channels still alive, so a channel that outlives the
+  // not leak into a later one. User messages are dropped; DATA_CHANNEL_OPEN is
+  // kept only for channels still alive, so a channel that outlives the
   // transport (e.g. rollback) can be announced, while closed channels and
   // stale ACKs go.
   // Test: tests/transport/sctp.test.ts "stop discards unsent messages and keeps them in bufferedAmount"
@@ -1037,12 +1013,11 @@ export class RTCSctpTransport {
   }
 
   /**
-   * What {@link RTCDataChannel.close} calls; use that instead. The channel's queued messages go
-   * to SCTP before its stream reset: at once when the association is
-   * established, otherwise when it is (`closing` until then). A channel the
-   * peer does not know yet (DATA_CHANNEL_OPEN unsent), or one on an ended
-   * association, closes at once and its queued messages are dropped.
-   * @see tests/datachannel/closeDelivery.test.ts
+   * What {@link RTCDataChannel.close} calls; use that instead.
+   * @see tests/datachannel/closeDelivery.test.ts "close() right after a burst (%o): every message arrives in order before close fires on the sender"
+   * @see tests/datachannel/closeDelivery.test.ts "messages sent before close() while connecting reach the peer, then both ends close"
+   * @see tests/datachannel/closeDelivery.test.ts "pc.close() before the association is established closes the channel and drops its messages"
+   * @see tests/datachannel/closeDelivery.test.ts "an in-band channel closed before its DATA_CHANNEL_OPEN is sent closes at once and sends nothing"
    */
   dataChannelClose(channel: RTCDataChannel) {
     if (!(["closing", "closed"] as DCState[]).includes(channel.readyState)) {

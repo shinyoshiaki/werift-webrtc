@@ -139,15 +139,10 @@ const EMPTY_PAYLOAD = Buffer.alloc(0);
 
 /**
  * How a {@link SCTP.send} call ended.
- *
- * - `sent`: the last chunk of the message was handed to the network (moved
- *   from the outbound queue to the sent queue). It is not acknowledged yet.
- * - `abandoned`: the message expired or ran out of retransmissions (PR-SCTP,
- *   RFC 3758) before all of it was handed to the network; the peer gets a
- *   FORWARD-TSN instead. W3C counts it as data the transport tried to send.
- * - `discarded`: the association closed (or was already stopped) before the
- *   message was handed to the network; it was never sent.
- *
+ * @see tests/sendResult.test.ts "sent: the message's last chunk was handed to the network"
+ * @see tests/sendResult.test.ts "abandoned: a message that expired before it was handed to the network"
+ * @see tests/sendResult.test.ts "discarded: the association closed before the message was handed to the network"
+ * @see tests/sendResult.test.ts "discarded: a send() on a stopped association"
  * @enum
  */
 export const SctpSendResult = {
@@ -1225,18 +1220,9 @@ export class SCTP {
 
   /**
    * Queue a message on `streamId` and transmit what cwnd / rwnd allow.
-   *
-   * TSNs are assigned and the chunks queued synchronously, before the first
-   * `await`, so a stream reset requested after this call covers the message
-   * (RFC 6525 Sender's Last Assigned TSN). The promise resolves with
-   * {@link SctpSendResult}: `sent` once the message's last chunk is handed to
-   * the network (not when it is acknowledged), `abandoned` when PR-SCTP gave
-   * it up before that, `discarded` when the association closed first.
-   *
-   * An empty `userData` creates no chunk (an SCTP DATA chunk cannot be empty,
-   * RFC 9260 3.3.1) and resolves `sent` at once without consuming a stream
-   * sequence number; WebRTC sends an empty message as one byte with PPID
-   * 56 / 57 (RFC 8831 6.6) instead, so this does not happen there.
+   * @see tests/sendResult.test.ts "TSNs are assigned synchronously, before send() first awaits"
+   * @see tests/sendResult.test.ts "an empty message creates no chunk, resolves sent and keeps the stream sequence number"
+   * @see {@link SctpSendResult}
    */
   send = async (
     streamId: number,
@@ -1257,7 +1243,7 @@ export class SCTP {
     } = { expiry: undefined, maxRetransmits: undefined, ordered: true },
   ): Promise<SctpSendResult> => {
     if (userData.length === 0) return SctpSendResult.sent;
-    // Test: packages/sctp/tests/sendResult.test.ts "discarded: a send() on a stopped association"
+    // Test: tests/sendResult.test.ts "discarded: a send() on a stopped association"
     if (this.isStopped) return SctpSendResult.discarded;
     const streamSeqNum = ordered ? this.outboundStreamSeq[streamId] || 0 : 0;
 

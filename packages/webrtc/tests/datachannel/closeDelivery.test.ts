@@ -6,8 +6,9 @@ import {
   closed,
   negotiatedChannelsBeforeConnect,
   openChannelPair,
+  peersBeforeConnect,
   recordMessagesUntilClose,
-  settle,
+  settleSctpDeliveries,
 } from "./dataChannelFlowUtils";
 
 describe("datachannel/close delivers what was sent before close()", () => {
@@ -31,7 +32,7 @@ describe("datachannel/close delivers what was sent before close()", () => {
 
       // Assert: 全メッセージが順番どおりに届き、その後で close が来る
       expect(remote.messages).toEqual(messages);
-      expect(remote.atClose).toBe(messages.length);
+      expect(remote.messagesAtClose).toBe(messages.length);
       expect(pending.local.bufferedAmount).toBe(0);
     } finally {
       await pending.close();
@@ -51,6 +52,37 @@ describe("datachannel/close delivers what was sent before close()", () => {
     expect(pending.local.readyState).toBe("closed");
     expect(pending.local.bufferedAmount).toBe("never sent".length);
     await pending.pc2.close();
+  });
+
+  test("an in-band channel closed before its DATA_CHANNEL_OPEN is sent closes at once and sends nothing", async () => {
+    // Arrange: 未接続の PeerConnection に in-band channel を作り、メッセージを積む
+    const peers = peersBeforeConnect();
+    try {
+      const announced: string[] = [];
+      peers.pc2.onDataChannel.subscribe((c) => announced.push(c.label));
+      const unannounced = peers.pc1.createDataChannel("unannounced");
+      const kept = peers.pc1.createDataChannel("kept");
+      unannounced.send("never sent");
+
+      // Act: DATA_CHANNEL_OPEN を送る前に閉じる
+      unannounced.close();
+      // Assert: closing を待たずにその場で closed になる
+      expect(unannounced.readyState).toBe("closed");
+
+      // Act: 接続し、閉じなかった channel が相手に届くまで待つ
+      await peers.connect();
+      await vi.waitFor(() => expect(kept.readyState).toBe("open"), {
+        timeout: 5_000,
+        interval: 20,
+      });
+
+      // Assert: 閉じた channel は相手に知らされず、メッセージも送られない
+      await settleSctpDeliveries(100);
+      expect(announced).toEqual(["kept"]);
+      expect(unannounced.bufferedAmount).toBe("never sent".length);
+    } finally {
+      await peers.close();
+    }
   });
 
   test.each([{}, { negotiated: true, id: 0 }])(
@@ -117,7 +149,7 @@ describe("datachannel/close delivers what was sent before close()", () => {
       await pc2.setLocalDescription(await pc2.createAnswer());
       await pc1.setRemoteDescription(pc2.localDescription!);
       await Promise.all([remoteClosed, closed(local)]);
-      await settle(200);
+      await settleSctpDeliveries(200);
 
       // Assert: 開いた側は ACK で open になってから閉じ、例外も unhandled rejection も出ない
       expect(states).toEqual(["open", "closing", "closed"]);

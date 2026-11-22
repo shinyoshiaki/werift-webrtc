@@ -30,6 +30,29 @@ describe("SCTP.send() resolves with SctpSendResult", () => {
     }
   });
 
+  test("TSNs are assigned synchronously, before send() first awaits", async () => {
+    // Arrange: 相手の受信ウィンドウが 0 で DATA を送れない association
+    const { sctp } = createZeroWindowMockSctp();
+    const internals = sctp as unknown as {
+      localTsn: number;
+      maxPayloadSize: number;
+    };
+    const tsnBefore = internals.localTsn;
+
+    // Act: 3 断片になるメッセージを await せずに送る
+    const sending = sctp.send(
+      0,
+      WEBRTC_PPID.BINARY,
+      Buffer.alloc(internals.maxPayloadSize * 3, 1),
+    );
+
+    // Assert: send() から戻った時点で全断片が TSN 付きでキューにある
+    expect(outboundQueueOf(sctp).length).toBe(3);
+    expect(internals.localTsn).toBe((tsnBefore + 3) % 0x100000000);
+    await disposeMockSctp(sctp);
+    await sending;
+  });
+
   test("an empty message creates no chunk, resolves sent and keeps the stream sequence number", async () => {
     // Arrange: 確立済みの association
     const pair = await createConnectedSctpPair();

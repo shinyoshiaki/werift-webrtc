@@ -3,12 +3,14 @@ import { vi } from "vitest";
 import { WEBRTC_BINARY_EMPTY, WEBRTC_STRING_EMPTY } from "../../src/const";
 import { captureSctpSendOptions, collectChannelMessages } from "../utils";
 import {
+  closed,
   injectDataLoss,
   negotiatedChannelsBeforeConnect,
   nextBufferedAmountLow,
   openChannelPair,
   recordBufferedAmountLow,
-  settle,
+  recordMessagesUntilClose,
+  settleSctpDeliveries,
 } from "./dataChannelFlowUtils";
 
 const hello = "hello";
@@ -30,6 +32,49 @@ describe.each([{}, { negotiated: true, id: 0 }])(
       }
     });
 
+    test("send() adds the UTF-8 byte length synchronously", async () => {
+      // Arrange
+      const pair = await openChannelPair(options);
+      try {
+        // Act: 3 バイトの文字を含む文字列と Buffer を送る
+        pair.local.send("aあ");
+        pair.local.send(Buffer.alloc(3));
+
+        // Assert: send() から戻った時点で UTF-8 / バイト長の合計だけ増えている
+        expect(pair.local.bufferedAmount).toBe(4 + 3);
+      } finally {
+        await pair.close();
+      }
+    });
+
+    test("send() on a closing or closed channel is ignored", async () => {
+      // Arrange
+      const pair = await openChannelPair(options);
+      try {
+        const remote = recordMessagesUntilClose(pair.remote);
+        pair.local.close();
+
+        // Act: closing 中に送る
+        pair.local.send(hello);
+        // Assert: 数えられない
+        expect(pair.local.readyState).toBe("closing");
+        expect(pair.local.bufferedAmount).toBe(0);
+
+        // Act: closed 後に送る
+        await closed(pair.local);
+        pair.local.send(hello);
+        await settleSctpDeliveries(50);
+
+        // Assert: どちらも数えられず、相手にも届かない
+        expect(pair.local.bufferedAmount).toBe(0);
+        expect(pair.local.messagesSent).toBe(0);
+        expect(pair.local.bytesSent).toBe(0);
+        expect(remote.messages).toEqual([]);
+      } finally {
+        await pair.close();
+      }
+    });
+
     test("bufferedamountlow fires once per downward crossing, through every notification", async () => {
       // Arrange: 閾値 0 (既定)
       const pair = await openChannelPair(options);
@@ -44,7 +89,7 @@ describe.each([{}, { negotiated: true, id: 0 }])(
         expect(record.event).toBe(0);
 
         await nextBufferedAmountLow(pair.local);
-        await settle(50);
+        await settleSctpDeliveries(50);
 
         // Assert: 0 に落ちたとき 1 回だけ、3 種類の通知がそれぞれ届く
         expect(record).toEqual({
@@ -78,7 +123,7 @@ describe.each([{}, { negotiated: true, id: 0 }])(
         pair.local.send(hello);
         pair.local.send(hello);
         await nextBufferedAmountLow(pair.local);
-        await settle(50);
+        await settleSctpDeliveries(50);
 
         // Assert: 閾値ちょうどに達したときの 1 回だけで、0 に落ちても再通知しない
         expect(record.amounts).toEqual([hello.length]);
@@ -87,7 +132,7 @@ describe.each([{}, { negotiated: true, id: 0 }])(
         // Act: 送信後、残量より上に閾値を変えてから送信完了を待つ
         pair.local.send(hello);
         pair.local.bufferedAmountLowThreshold = 1_000;
-        await settle(100);
+        await settleSctpDeliveries(100);
 
         // Assert: 上から跨いでいないので通知されない
         expect(pair.local.bufferedAmount).toBe(0);
@@ -126,7 +171,7 @@ describe.each([{}, { negotiated: true, id: 0 }])(
           51,
         ]);
         // Assert: 統計はメッセージ数を数え、空メッセージのバイトは数えない
-        await settle(50);
+        await settleSctpDeliveries(50);
         expect(pair.local.bufferedAmount).toBe(0);
         expect(pair.local.messagesSent).toBe(4);
         expect(pair.local.bytesSent).toBe(2);
@@ -163,7 +208,7 @@ describe.each([{}, { negotiated: true, id: 0 }])(
       injectDataLoss(pair.pc1, () => true);
       const record = recordBufferedAmountLow(pair.local);
       for (let i = 0; i < 200; i++) pair.local.send(Buffer.alloc(1_000));
-      await settle(100);
+      await settleSctpDeliveries(100);
       const before = pair.local.bufferedAmount;
       expect(before).toBeGreaterThan(0);
 
@@ -172,7 +217,7 @@ describe.each([{}, { negotiated: true, id: 0 }])(
       // Assert: 閉じた直後に減らない
       expect(pair.local.bufferedAmount).toBe(before);
       await closing;
-      await settle(300);
+      await settleSctpDeliveries(300);
 
       // Assert: 送られずに捨てた分は減らず、閉じた後に通知もない
       expect(pair.local.readyState).toBe("closed");
@@ -254,7 +299,7 @@ describe.each([{}, { negotiated: true, id: 0 }])(
 
         // Assert: 今までどおり空文字列として届き、足した 1 バイトは送信で戻る
         expect(await receiving).toEqual([""]);
-        await settle(50);
+        await settleSctpDeliveries(50);
         expect(pair.local.bufferedAmount).toBe(0);
       } finally {
         await pair.close();
@@ -311,4 +356,46 @@ describe("datachannel/bufferedAmount partial reliability", () => {
       await pair.close();
     }
   }, 20_000);
+});
+
+describe("datachannel/bufferedAmount API", () => {
+  test("bufferedAmountLowThreshold defaults to 0 and accepts only 0..2^32-1", async () => {
+    // Arrange
+    const pair = await openChannelPair();
+    try {
+      // Assert: 既定値は 0
+      expect(pair.local.bufferedAmountLowThreshold).toBe(0);
+
+      // Act / Assert: 上限ちょうどは設定でき、範囲外は例外で値を変えない
+      pair.local.bufferedAmountLowThreshold = 4294967295;
+      expect(pair.local.bufferedAmountLowThreshold).toBe(4294967295);
+      expect(() => {
+        pair.local.bufferedAmountLowThreshold = 4294967296;
+      }).toThrow();
+      expect(() => {
+        pair.local.bufferedAmountLowThreshold = -1;
+      }).toThrow();
+      expect(pair.local.bufferedAmountLowThreshold).toBe(4294967295);
+    } finally {
+      await pair.close();
+    }
+  });
+
+  test("the deprecated addBufferedAmount() still notifies on a closed channel", async () => {
+    // Arrange: closed になった channel
+    const pair = await openChannelPair();
+    await pair.close();
+    expect(pair.local.readyState).toBe("closed");
+    const record = recordBufferedAmountLow(pair.local);
+
+    // Act: 旧 API で増やしてから閾値 0 まで減らす
+    pair.local.addBufferedAmount(10);
+    pair.local.addBufferedAmount(-10);
+
+    // Assert: v0.28 までと同じく closed でも通知される
+    expect(pair.local.bufferedAmount).toBe(0);
+    expect(record.event).toBe(1);
+    expect(record.handler).toBe(1);
+    expect(record.listener).toBe(1);
+  });
 });

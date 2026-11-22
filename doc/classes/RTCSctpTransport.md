@@ -202,11 +202,7 @@ A new association (renegotiation) starts again from `connecting`.
 
 > **dataChannelClose**(`channel`): `void`
 
-What [RTCDataChannel.close](RTCDataChannel.md#close) calls; use that instead. The channel's queued messages go
-to SCTP before its stream reset: at once when the association is
-established, otherwise when it is (`closing` until then). A channel the
-peer does not know yet (DATA_CHANNEL_OPEN unsent), or one on an ended
-association, closes at once and its queued messages are dropped.
+What [RTCDataChannel.close](RTCDataChannel.md#close) calls; use that instead.
 
 #### Parameters
 
@@ -220,7 +216,10 @@ association, closes at once and its queued messages are dropped.
 
 #### See
 
-tests/datachannel/closeDelivery.test.ts
+ - tests/datachannel/closeDelivery.test.ts "close() right after a burst (%o): every message arrives in order before close fires on the sender"
+ - tests/datachannel/closeDelivery.test.ts "messages sent before close() while connecting reach the peer, then both ends close"
+ - tests/datachannel/closeDelivery.test.ts "pc.close() before the association is established closes the channel and drops its messages"
+ - tests/datachannel/closeDelivery.test.ts "an in-band channel closed before its DATA_CHANNEL_OPEN is sent closes at once and sends nothing"
 
 ***
 
@@ -244,10 +243,7 @@ tests/datachannel/closeDelivery.test.ts
 
 > **datachannelSend**(`channel`, `data`): `number`
 
-What [RTCDataChannel.send](RTCDataChannel.md#send) calls (use that instead): queue a user
-message and flush.
-An empty message is one byte with PPID 56 / 57 (RFC 8831 6.6) and adds
-nothing to `bufferedAmount`. Returns the message size in bytes.
+What [RTCDataChannel.send](RTCDataChannel.md#send) calls; use that instead.
 
 #### Parameters
 
@@ -262,6 +258,10 @@ nothing to `bufferedAmount`. Returns the message size in bytes.
 #### Returns
 
 `number`
+
+#### See
+
+tests/datachannel/bufferedAmount.test.ts "empty string and empty Buffer arrive in order, bufferedAmount stays 0, stats count them"
 
 ***
 
