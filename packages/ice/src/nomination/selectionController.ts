@@ -1,4 +1,4 @@
-import type { PairLiveness } from "../failover";
+import { notReceivingSince, type PairLiveness } from "../failover";
 import {
   type CandidatePair,
   RECEIVING_SWITCHING_DELAY,
@@ -50,30 +50,7 @@ export type SwitchDecision = {
   recheckAt?: number;
 };
 
-/**
- * Since when (ms) `pair` has not been receiving, undefined while it is: it
- * received nothing for WEAK_CONNECTION_RECEIVE_TIMEOUT (as libwebrtc's
- * `Connection::receiving`) and a check sent to it went unanswered; the time
- * is when both began to hold (the later of the two).
- *
- * libwebrtc pings a weak selection every 48 ms, so a silence that long
- * means its pings went unanswered. werift checks the selected pair only
- * when the silence begins (consent, `nextPingAt`) and 900 ms after a check
- * that went unanswered; without the unanswered check, a pair whose check
- * is merely still in flight (or not sent yet: the first consent check comes
- * at the consent interval) would count as not receiving.
- */
-export const notReceivingSince = (
-  pair: SwitchPairState,
-  now: number,
-  receivingTimeout = WEAK_CONNECTION_RECEIVE_TIMEOUT,
-) => {
-  const silentSince = pair.lastReceived + receivingTimeout;
-  if (now < silentSince || pair.missedSince === undefined) return undefined;
-  // Both conditions hold only from the later of the two: a silence that long
-  // followed by a late unanswered check starts the hold at that check.
-  return Math.max(silentSince, pair.missedSince);
-};
+export { notReceivingSince };
 
 /**
  * Whether the controlling agent moves the selection from `selected` to

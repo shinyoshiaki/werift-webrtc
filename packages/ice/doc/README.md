@@ -239,9 +239,13 @@ check or backup check is answered or goes unanswered:
    (`receivingSwitchingDelay`, `RECEIVING_SWITCHING_DELAY`, libwebrtc's `receiving_switching_delay`):
    the decision is checked again then, and a selection that answered or
    received data meanwhile stays. After such a move the old pair waits for
-   its 3 responses, as after a failover. A selected path that breaks is
-   therefore left about 3.5 s after its last received packet (2.5 s, then 1 s), once
-   a check has gone unanswered, when a backup is receiving.
+   its 3 responses, as after a failover. A pair counts as not receiving from
+   the later of the two conditions (2.5 s of silence, the unanswered check),
+   so a selected path that breaks is left about 3.5 s after its last received
+   packet when the check goes unanswered in time (2.5 s, then 1 s), and 1 s
+   after the unanswered check when that is confirmed later (the hold is never
+   shorter than 1 s). A switch made within the hold (for example by RTT) is
+   not a failover: the old pair is not demoted.
 3. Priority: a higher-priority pair wins (the moves up of semi-aggressive
    nomination and renomination, as before).
 4. RTT: between pairs of equal priority (for example relays on two TURN

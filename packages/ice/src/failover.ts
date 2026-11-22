@@ -157,19 +157,50 @@ export const isWeak = (
   now - liveness.lastReceived >= thresholds.receivingTimeout;
 
 /**
+ * Since when (ms) `pair` has not been receiving, undefined while it is: it
+ * received nothing for WEAK_CONNECTION_RECEIVE_TIMEOUT (as libwebrtc's
+ * `Connection::receiving`) and a check sent to it went unanswered; the time
+ * is when both began to hold (the later of the two).
+ *
+ * libwebrtc pings a weak selection every 48 ms, so a silence that long
+ * means its pings went unanswered. werift checks the selected pair only
+ * when the silence begins (consent, `nextPingAt`) and 900 ms after a check
+ * that went unanswered; without the unanswered check, a pair whose check
+ * is merely still in flight (or not sent yet: the first consent check comes
+ * at the consent interval) would count as not receiving.
+ */
+export const notReceivingSince = <
+  T extends { lastReceived: number; missedSince?: number },
+>(
+  pair: T,
+  now: number,
+  receivingTimeout = WEAK_CONNECTION_RECEIVE_TIMEOUT,
+) => {
+  const silentSince = pair.lastReceived + receivingTimeout;
+  if (now < silentSince || pair.missedSince === undefined) return undefined;
+  // Both conditions hold only from the later of the two: a silence that long
+  // followed by a late unanswered check starts the hold at that check.
+  return Math.max(silentSince, pair.missedSince);
+};
+
+/**
  * Stopped receiving, as libwebrtc switches on (`receiving`, then
- * `receiving_switching_delay`): nothing was received for `receivingTimeout`
- * plus `receivingSwitchingDelay`, and a check went unanswered meanwhile (an
- * idle peer still answers the checks, so silence alone is not a break).
+ * `receiving_switching_delay`): `notReceivingSince` (nothing received for
+ * `receivingTimeout` and a check unanswered, from the later of the two) is
+ * `receivingSwitchingDelay` ago (an idle peer still answers the checks, so
+ * silence alone is not a break). The selection controller decides by the
+ * same time, so a switch it makes within the hold is not taken as a failover.
  */
 export const isNotReceiving = (
   liveness: PairLiveness,
   now: number,
   thresholds: FailoverThresholds = DEFAULT_FAILOVER_THRESHOLDS,
-) =>
-  liveness.unanswered > 0 &&
-  now - liveness.lastReceived >=
-    thresholds.receivingTimeout + thresholds.receivingSwitchingDelay;
+) => {
+  const since = notReceivingSince(liveness, now, thresholds.receivingTimeout);
+  return (
+    since !== undefined && now - since >= thresholds.receivingSwitchingDelay
+  );
+};
 
 /**
  * Interval (ms) to the next check of a backup pair: the weak / stabilizing

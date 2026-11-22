@@ -500,6 +500,45 @@ describe("switching the selection by RTT and receiving state (controlling)", () 
     });
   });
 
+  describe.each([
+    { mode: "semi-aggressive", renomination: false },
+    { mode: "renomination", renomination: true },
+  ])("$mode: a late unanswered check", ({ renomination }) => {
+    test("an RTT switch within the hold is not a failover: the old pair is not demoted", async () => {
+      // Arrange: 同 priority の 2 経路を RTT 30 ms で安定させ、退避先の平滑 RTT だけ 19 ms にする。
+      const h = await createRttSwitchHarness({ renomination });
+      const old = h.selection;
+      const fast = h.pairOf(1);
+      h.setRtt(0, 30);
+      h.setRtt(1, 30);
+      await vi.advanceTimersByTimeAsync(15_000);
+      for (let i = 0; i < 5; i++) fast.recordRoundTrip(0.019);
+      const internals = h.connection as unknown as {
+        switching: { evaluate(): void };
+        failover: { allows(pair: CandidatePair): boolean };
+      };
+      // Arrange: 選択中は 10 s 無通信のあと、check の未応答がたった今確定した (保留の最中)。
+      const now = Date.now();
+      const oldLiveness = h.liveness(old)!;
+      oldLiveness.lastReceived = now - 10_000;
+      oldLiveness.missedSince = now;
+      (oldLiveness as unknown as { unanswered: number }).unanswered = 1;
+      h.liveness(fast)!.lastReceived = now;
+
+      try {
+        // Act: 保留 (1 s) が明ける前に判定させ、指名の応答を受けるまで少し進める。
+        internals.switching.evaluate();
+        await vi.advanceTimersByTimeAsync(200);
+
+        // Assert: RTT で速い経路へ移り、旧経路は降格されない (回復応答を待たず指名で戻れる)。
+        expect(h.connection.nominated).toBe(fast);
+        expect(internals.failover.allows(old)).toBe(true);
+      } finally {
+        await h.connection.close();
+      }
+    });
+  });
+
   test("controlled: the agent does not switch by RTT itself (it follows the peer's nominations)", async () => {
     // Arrange: controlled の agent。priority が同じ 2 つの経路で、選択中の方が 30 ms 遅い。
     const h = await createRttSwitchHarness();
