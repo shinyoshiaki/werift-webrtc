@@ -335,18 +335,22 @@ a reliable channel the sender's `close` event means every message sent before
 `close()` reached the peer. No need to wait for `bufferedAmount` first:
 
 ```typescript
-channel.send(lastMessage);
-channel.close();
-await new Promise((resolve) =>
+// Register the wait before close(): a channel whose DATA_CHANNEL_OPEN was
+// not sent yet closes synchronously and fires `close` inside close().
+const closed = new Promise((resolve) =>
   channel.addEventListener("close", resolve, { once: true }),
 );
+channel.send(lastMessage); // delivered only if the channel is already `open`
+channel.close();
+await closed;
 await pc.close(); // pc.close() aborts SCTP: close the channels first
 ```
 
 `pc.close()` aborts the association, so what is not delivered yet is lost. A
 partially reliable channel may lose what it abandoned. An in-band channel
 whose DATA_CHANNEL_OPEN was not sent yet (no connection so far) closes at once
-and sends nothing.
+and sends nothing. To make sure a message is delivered,
+send it after the channel is `open`.
 
 #### Empty messages
 
