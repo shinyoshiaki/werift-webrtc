@@ -40,6 +40,7 @@ import {
   collectMessages,
   connectWithAnswererDtlsRole,
   dtls13EngineOf,
+  holdPeerAuthentication,
   srtpAccessOf,
   transportStatsOf,
   warpDiagnosticsSourceOf,
@@ -1330,7 +1331,7 @@ describe("RTCPeerConnection SPED opt-in", () => {
     let receivedEarlyRtp = false;
     let receivedEarlyRtcp = false;
     let receivedDataChannel = 0;
-    let releaseClientAuth: (() => void) | undefined;
+    let releaseAuth: (() => void) | undefined;
     try {
       const dc1 = pc1.createDataChannel("early");
       pc2.ondatachannel = () => {
@@ -1350,45 +1351,23 @@ describe("RTCPeerConnection SPED opt-in", () => {
         }
       });
 
-      // Client の fingerprint 完了を write-ready 観測後まで遅らせる。
-      // DTLS 1.3 では server Finished 到着と同時に client が認証完了し得る。
+      // 両端の fingerprint 照合を、認証前の送信と受信の確認が済むまで止める。
+      // DTLS 1.3 では server Finished の到着と同時に client が認証でき、
+      // client Finished の到着で server も認証できるため、止めないと
+      // write-ready の観測より先に両端が connected になり得る。
       const client = pc2.dtlsTransports[0]!;
-      const holdClientAuth = new Promise<void>((resolve) => {
-        releaseClientAuth = resolve;
-      });
-      const originalClientStart = client.start.bind(client);
-      client.start = async () => {
-        const started = originalClientStart();
-        await waitUntil(
-          () =>
-            !!(
-              client as unknown as {
-                dtls?: {
-                  waitForPeerHandshakeAuthenticated: () => Promise<void>;
-                };
-              }
-            ).dtls,
-        );
-        const dtls = (
-          client as unknown as {
-            dtls: {
-              waitForPeerHandshakeAuthenticated: () => Promise<void>;
-            };
-          }
-        ).dtls;
-        const originalWait = dtls.waitForPeerHandshakeAuthenticated.bind(dtls);
-        dtls.waitForPeerHandshakeAuthenticated = async () => {
-          await originalWait();
-          await holdClientAuth;
-        };
-        return started;
+      const server = pc1.dtlsTransports[0]!;
+      const clientHold = holdPeerAuthentication(client);
+      const serverHold = holdPeerAuthentication(server);
+      releaseAuth = () => {
+        clientHold.release();
+        serverHold.release();
       };
 
       await pc2.setLocalDescription(await pc2.createAnswer());
 
       // Act: final SDP 適用を待たず、DTLS server の epoch-3 write key が
       // 入った直後に SCTP INIT と protected RTP/RTCP を送る。
-      const server = pc1.dtlsTransports[0]!;
       const originalServerStart = server.start.bind(server);
       let writeReady: Promise<void> | undefined;
       server.start = async () => {
@@ -1445,7 +1424,7 @@ describe("RTCPeerConnection SPED opt-in", () => {
       expect(receivedDataChannel).toBe(0);
       expect(receivedRtp).toBe(0);
       expect(receivedRtcp).toBe(0);
-      releaseClientAuth?.();
+      releaseAuth?.();
       await applyAnswer;
       await waitUntil(() => dc1.readyState === "open");
       await waitUntil(() => receivedDataChannel === 1);
@@ -1457,7 +1436,7 @@ describe("RTCPeerConnection SPED opt-in", () => {
       expect(receivedRtp).toBeGreaterThan(0);
       expect(receivedRtcp).toBeGreaterThan(0);
     } finally {
-      releaseClientAuth?.();
+      releaseAuth?.();
       await Promise.allSettled([pc1.close(), pc2.close()]);
     }
   }, 60_000);
@@ -1736,6 +1715,10 @@ describe("RTCPeerConnection SPED opt-in", () => {
       });
       pc2.dtlsTransports[0]!.onRtp.subscribe(() => receivedRtp++);
       pc2.dtlsTransports[0]!.onRtcp.subscribe(() => receivedRtcp++);
+      // client の fingerprint 照合（ここで不一致になる）を、server が認証前に
+      // 送り終えるまで止める。止めないと、不一致の alert が先に届いて server が
+      // failed になり、認証前の送信そのものが起きないことがある。
+      const clientHold = holdPeerAuthentication(pc2.dtlsTransports[0]!);
       await pc2.setLocalDescription(await pc2.createAnswer());
       // mismatch 後の close で socket は engine 参照を外すため、pc1 が answer
       // を適用して DTLS を始める前 (= mismatch が起き得ない時点) に保持する。
@@ -1758,6 +1741,8 @@ describe("RTCPeerConnection SPED opt-in", () => {
       expect(
         await server.sendRtcp([new RtcpRrPacket({ ssrc: 0x102, reports: [] })]),
       ).toBeGreaterThan(0);
+      // Act: client の照合を進め、不一致で失敗させる。
+      clientHold.release();
       await waitForDtlsState(pc2.dtlsTransports[0]!, "failed");
       await applyAnswer.catch(() => undefined);
 

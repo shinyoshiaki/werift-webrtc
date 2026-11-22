@@ -1006,30 +1006,38 @@ export function openTransportWarpConfigs(pc: RTCPeerConnection) {
 
 /**
  * Arrange: keep a transport's peer authentication pending until `release`
- * (its handling of the peer's Finished waits). On the DTLS server this holds
- * it in the 0.5-RTT window: write-ready but the client not yet authenticated.
- * Replaces `transport.start` before the description that starts it.
+ * (its handling of the peer's Finished waits), so its SDP fingerprint check
+ * and `connected` wait however fast the handshake runs. On the DTLS server
+ * this holds it in the 0.5-RTT window: write-ready but the client not yet
+ * authenticated. The hook goes on the DTLS socket as `start()` assigns it,
+ * before the transport can wait on it; call this before the description that
+ * starts the transport.
  */
-export function holdPeerAuthentication(client: RTCDtlsTransport) {
+export function holdPeerAuthentication(transport: RTCDtlsTransport) {
+  type HeldDtls = { waitForPeerHandshakeAuthenticated: () => Promise<void> };
   let release!: () => void;
   const held = new Promise<void>((resolve) => {
     release = resolve;
   });
-  type HeldDtls = { waitForPeerHandshakeAuthenticated: () => Promise<void> };
-  const originalStart = client.start.bind(client);
-  client.start = async () => {
-    const started = originalStart();
-    while (!(client as unknown as { dtls?: HeldDtls }).dtls) {
-      await nextTurn();
-    }
-    const dtls = (client as unknown as { dtls: HeldDtls }).dtls;
+  const hook = (dtls: HeldDtls) => {
     const originalWait = dtls.waitForPeerHandshakeAuthenticated.bind(dtls);
     dtls.waitForPeerHandshakeAuthenticated = async () => {
       await originalWait();
       await held;
     };
-    return started;
   };
+  const target = transport as unknown as { dtls?: HeldDtls };
+  let current = target.dtls;
+  if (current) hook(current);
+  Object.defineProperty(target, "dtls", {
+    configurable: true,
+    enumerable: true,
+    get: () => current,
+    set: (next: HeldDtls | undefined) => {
+      if (next && next !== current) hook(next);
+      current = next;
+    },
+  });
   return { release };
 }
 

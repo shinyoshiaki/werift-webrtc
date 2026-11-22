@@ -650,7 +650,6 @@ guard は [packages/webrtc/src/transport/sctp.ts:334](review-diff:packages/webrt
 
 - Pion 同士の full SPED（controlling / controlled、Full / Lite、SPED 上の restart）と、相手も SPED を有効にした組み合わせ（Chromium の `goog-sped-v1`、Pion SPED）は、upstream の対応が前提のため未確認です。
 - BoringSSL の harness が確認するのは handshake と双方向データだけで、exporter・KeyUpdate・negative cases の外部実装との組み合わせは未確認です。
-- `sped.test.ts` › "WARP fingerprint mismatch …" は負荷が高いと失敗することがあります。単独では成功し、未変更の HEAD（`b8a010b41`）でも同じ負荷で失敗するので、マージ見直しの前からあるタイミング依存です。
 - 並列探索中に 1 件失敗した scenario seed 123（`negotiationScenarioProperty.test.ts`）は、原因を特定していません（単独 5 回と seed 100〜149 では再現せず）。
 - memleak の 2 シナリオ（DataChannel / メディア）は、処理数 0 のまま時間切れになります（ローカルのみの `npm run memleak`）。
 
@@ -671,6 +670,7 @@ guard は [packages/webrtc/src/transport/sctp.ts:334](review-diff:packages/webrt
 | `warp.sendBeforeNomination`（追加要件） | Finished の直後に同じ経路で送りたい | opt-in として実装（A.25、§4.2.3） |
 | 過去のマージの見直し（2026-11-22） | develop / warp の変更の取りこぼし、方針からの逸脱 | 下の表（A.26） |
 | develop #880 のマージ（2026-11-22） | #880 の consent のテストの harness が、nominated pair を `SUCCEEDED` にしていなかった | §9.1 |
+| 負荷で失敗する WARP のテスト（2026-11-22） | 相手の認証を止めるフックをポーリングで入れていた | §9.1 |
 
 **2026-11-22 のマージ見直し**: `git diff <develop> HEAD` で develop 側から消えた行を `git blame` で元の commit ごとに分け、コンフリクト解決のたびに `git show --remerge-diff` で確かめ、develop / warp から来たテストを HEAD で実行しました。見つかった主なものです。
 
@@ -688,18 +688,23 @@ guard は [packages/webrtc/src/transport/sctp.ts:334](review-diff:packages/webrt
 
 ## 9. 検証結果
 
-### 9.1 最新の確認（HEAD `2914e50b6`、2026-11-22）
+### 9.1 最新の確認（HEAD `a444bc2ff` とテストの競合の修正、2026-11-22）
 
 | 対象 | 検証 | 結果 |
 | --- | --- | --- |
-| 型 | `npm run type` | 0 errors |
-| ICE | `packages/ice` の `npx vitest run --retry=0` | 2150 passed / 10 skipped（下の harness の修正後） |
-| webrtc の unit / integration | `packages/webrtc` の `npx vitest run ./tests` | 2599 passed / 190 skipped / 0 failed |
-| DTLS / SCTP | `packages/dtls`、`packages/sctp` の vitest（`028fb0c29`。#880 は両パッケージを変えていない） | 571 passed・1 skipped / 651 passed |
-| 旧 werift 実リリース | `WERIFT_LEGACY_RELEASE_AUTO_INSTALL=1 npm run test:legacy-werift`（`028fb0c29`） | 22/22（マージ見直し前の HEAD では 7 件失敗） |
-| 生成 docs | `npm run doc`（`028fb0c29`） | 成功。develop との差分はチケットの公開 API だけ |
+| ワークスペース全体 | `npm run ci`（lint:imports、型、`doc:check`、build、全パッケージのテスト、Chromium E2E） | 終了コード 0 |
+| パッケージのテスト | 上の `npm run ci` の内訳 | common 80、dtls 571（1 skipped）、ice 2150（10 skipped）、ice-server 69 + Chrome 4、pbt 18、rtp 768、sctp 651、webrtc 2599（190 skipped）。すべて成功 |
+| Chromium E2E | `npm run e2e`（一般と DTLS 1.2 / 1.3 モード） | 77 + 31 passed |
+| 通常 TURN の非回帰 | `test:pion-turn`（Docker の Pion TURN）、`examples/turn-loopback` の `chrome-e2e` | 成功、3 passed |
+| 旧 werift 実リリース | `WERIFT_LEGACY_RELEASE_AUTO_INSTALL=1 npm run test:legacy-werift` | 22/22 |
+| Pion | `test:pion-sped`（`golang:1.24` コンテナでビルド）、`test:pion-ice-agent` | 5/5、2/2 |
+| BoringSSL（DTLS 1.3） | `cd packages/dtls && npm run test:boringssl:docker` | 5/5 |
+| WPT | `npm run wpt` | REGRESSION 0（1239 件） |
+| mediasoup（参考） | `integration/werift-mediasoup-interop` の `npm test` / `test:browser` | 現行 mediasoup とは small 7/7、interop 20/20、browser 9/9。旧 mediasoup 3.19.2 の 8 件は、コンテナに pip が無く worker をビルドできないため起動できず未確認 |
 
-**develop #880 のマージ後に見つけた問題**: #880 が追加した [packages/ice/tests/ice/consent-network.test.ts](review-file:packages/ice/tests/ice/consent-network.test.ts) が HEAD で 10 件失敗していました（develop では 26/26）。harness が nominated pair の状態を設定していなかったためです。このブランチの ICE は、nominated pair が `SUCCEEDED` のときだけ application data を送ります。RFC 8445 §8.1.1 では、nominate されるのは valid pair（check に成功した pair）だけです。そこで harness の Arrange で状態を `SUCCEEDED` にしました（[packages/ice/tests/utils.ts](review-diff:packages/ice/tests/utils.ts)）。修正後は 26/26 です。
+**develop #880 のマージ後に見つけた問題**: #880 が追加した [packages/ice/tests/ice/consent-network.test.ts](review-file:packages/ice/tests/ice/consent-network.test.ts) が HEAD で 10 件失敗していました（develop では 26/26）。harness が nominated pair の状態を設定していなかったためです。このブランチの ICE は、nominated pair が `SUCCEEDED` のときだけ application data を送ります。RFC 8445 §8.1.1 では、nominate されるのは valid pair（check に成功した pair）だけです。そこで harness の Arrange で状態を `SUCCEEDED` にしました（[packages/ice/tests/utils.ts](review-file:packages/ice/tests/utils.ts)）。修正後は 26/26 です。
+
+**負荷で失敗していた WARP のテストの修正**: `sped.test.ts` の "WARP early server traffic is held …" と "WARP fingerprint mismatch …" は、相手の認証を止めるフックを、DTLS socket ができた後にポーリングで入れていました。負荷が高いと handshake のほうが先に進んで失敗していました。共通の Arrange [packages/webrtc/tests/integrate/warpArrange.ts](review-file:packages/webrtc/tests/integrate/warpArrange.ts) の `holdPeerAuthentication()` を、`start()` が socket を代入する時点でフックを入れる方式に改めました。前者は server も止めて、server の `connecting` を確実にします。後者は、client の不一致の検出を server の認証前送信の後まで止めます。修正前は `tests/integrate` を 2 本並列で流すと 2 回中 2 回失敗していましたが、修正後は同じ条件で 4 回すべて成功しました。
 
 ### 9.2 障害注入マトリクス
 
@@ -751,9 +756,9 @@ SPED / early 用に入れた中断処理（cancel・revoke・discard・attempt �
 | mediasoup（参考） | `integration/werift-mediasoup-interop` | 7 + 16、browser 8（A.2） |
 | WPT | `npm run wpt --workspace packages/webrtc` | 後退なし（A.15） |
 
-これらは記録した時点の結果で、マージ見直し以降は再実行していません。要件ごとのテスト対応（fingerprint の security tests、early buffer、stats）は付録 A.3〜A.5 にあります。
+表の結果は記録した時点のものです。2026-11-22 に再実行した結果は §9.1 にあります。要件ごとのテスト対応（fingerprint の security tests、early buffer、stats）は付録 A.3〜A.5 にあります。
 
-**未実施**: マージ見直し以降の E2E（Chromium / Firefox）・WPT・`npm run examples:e2e`。`npm run doc:check` は、未コミットの変更がある状態では仕組み上差分ありになるため、`npm run doc` の再生成で代えています。
+**未実施**: Firefox の E2E（`firefox:record`、CI 対象外）、`npm run examples:e2e`、旧 mediasoup 3.19.2 との相互接続（上記の環境の制約）。
 
 ## 付録 A. 検証記録（時系列）
 
