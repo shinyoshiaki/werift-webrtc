@@ -301,6 +301,14 @@ export class RTCDataChannel extends EventTarget implements DataChannelStats {
     this.bufferedAmountLow.executeIsolated(onError);
     // One DOM Event for both surfaces (W3C: handler and listeners see the same event).
     const event = new globalThis.Event("bufferedamountlow");
+    // Not dispatched through a DOM EventTarget, so point target/currentTarget at this channel.
+    for (const key of ["target", "currentTarget"] as const) {
+      Object.defineProperty(event, key, {
+        configurable: true,
+        enumerable: true,
+        value: this,
+      });
+    }
     notifySafely(log, "onbufferedamountlow", () =>
       this.onbufferedamountlow?.(event),
     );

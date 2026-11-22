@@ -111,11 +111,13 @@ describe("datachannel/bufferedAmountLow", () => {
     pair.local.onbufferedamountlow = (event) => {
       // ブラウザ向けコードは event.type を参照する
       seen.push(event);
-      event.type.length;
+      targets.push([event.target, event.currentTarget]);
     };
-    pair.local.addEventListener("bufferedamountlow", (event: Event) =>
-      seen.push(event),
-    );
+    const targets: unknown[][] = [];
+    pair.local.addEventListener("bufferedamountlow", (event: Event) => {
+      seen.push(event);
+      targets.push([event.target, event.currentTarget]);
+    });
 
     try {
       // Act: 1 通送り、閾値を跨ぐのを待つ
@@ -125,6 +127,11 @@ describe("datachannel/bufferedAmountLow", () => {
       // Assert: 両方に type "bufferedamountlow" の同一 Event が渡る
       expect(seen[0].type).toBe("bufferedamountlow");
       expect(seen[1]).toBe(seen[0]);
+      // target / currentTarget はどちらの面でも対象チャネルを指す
+      expect(targets).toEqual([
+        [pair.local, pair.local],
+        [pair.local, pair.local],
+      ]);
     } finally {
       await pair.close();
     }
