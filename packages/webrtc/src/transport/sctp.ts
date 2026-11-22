@@ -749,9 +749,8 @@ export class RTCSctpTransport {
 
       // A channel closed while its message was queued (e.g. the association
       // closed and was re-established) is no longer managed; never announce it.
+      // Its unsent message stays in bufferedAmount (see dropQueuedMessages).
       if (channel.readyState === "closed" || channel.readyState === "closing") {
-        if (protocol !== WEBRTC_DCEP)
-          channel.addBufferedAmount(-userData.length, { sent: false });
         continue;
       }
 
@@ -896,29 +895,37 @@ export class RTCSctpTransport {
     }
   }
 
-  async stop() {
+  /**
+   * `closingChannels`: the caller closes every channel next
+   * (`RTCPeerConnection.close()`), so their unsent bytes stay in
+   * `bufferedAmount`; otherwise (rollback, association reset) a channel that
+   * outlives the transport releases them (see discardUnsentMessages).
+   */
+  async stop({ closingChannels = false }: { closingChannels?: boolean } = {}) {
     this.markStopped();
     this.dtlsTransport.dataReceiver = () => {};
-    this.discardUnsentMessages();
+    this.discardUnsentMessages(closingChannels);
     await this.sctp.stop();
   }
 
   // Messages not yet handed to SCTP belong to the stopped association and must
-  // not leak into a later one. User messages are dropped and removed from
-  // bufferedAmount; DATA_CHANNEL_OPEN is kept only for channels still alive, so
+  // not leak into a later one. User messages are dropped: a closing / closed
+  // channel keeps them in bufferedAmount (never sent, see dropQueuedMessages),
+  // a channel that outlives the transport (rollback) releases them without
+  // bufferedamountlow (releaseDiscardedBufferedAmount); DATA_CHANNEL_OPEN is kept only for channels still alive, so
   // a channel that outlives the transport (e.g. rollback) can be announced,
   // while closed channels and stale ACKs go.
-  private discardUnsentMessages() {
+  private discardUnsentMessages(closingChannels: boolean) {
     const kept = new FifoQueue<[RTCDataChannel, number, Buffer]>();
     for (const item of this.dataChannelQueue.toArray()) {
       const [channel, protocol, userData] = item;
+      const closed =
+        channel.readyState === "closed" || channel.readyState === "closing";
       if (protocol !== WEBRTC_DCEP) {
-        channel.addBufferedAmount(-userData.length, { sent: false });
-      } else if (
-        userData[0] === DATA_CHANNEL_OPEN &&
-        channel.readyState !== "closed" &&
-        channel.readyState !== "closing"
-      ) {
+        if (!closed && !closingChannels) {
+          channel.releaseDiscardedBufferedAmount(userData.length);
+        }
+      } else if (userData[0] === DATA_CHANNEL_OPEN && !closed) {
         kept.push(item);
       }
     }
@@ -931,20 +938,17 @@ export class RTCSctpTransport {
   }
 
   /**
-   * Remove the queued messages of the channels `drop` selects. A user
-   * message leaves `bufferedAmount` unsent, so it fires no
-   * `bufferedamountlow`.
-   * @see tests/datachannel/bufferedAmountLow.test.ts "a close before the association is established discards the buffer without bufferedamountlow"
+   * Remove the queued messages of the channels `drop` selects. A dropped user
+   * message was never sent, so it stays in `bufferedAmount` and fires no
+   * `bufferedamountlow` (W3C: `bufferedAmount` is reduced only by the bytes
+   * the transport sent and does not reset to zero once the channel closes;
+   * WPT RTCDataChannel-bufferedAmount.html checks it right after close()).
+   * @see tests/datachannel/bufferedAmountLow.test.ts "channel.close() before the association is established keeps the unsent bytes in bufferedAmount"
    */
   private dropQueuedMessages(drop: (channel: RTCDataChannel) => boolean) {
     const kept = new FifoQueue<[RTCDataChannel, number, Buffer]>();
     for (const item of this.dataChannelQueue.toArray()) {
-      const [channel, protocol, userData] = item;
-      if (!drop(channel)) {
-        kept.push(item);
-      } else if (protocol !== WEBRTC_DCEP) {
-        channel.addBufferedAmount(-userData.length, { sent: false });
-      }
+      if (!drop(item[0])) kept.push(item);
     }
     this.dataChannelQueue = kept;
   }
@@ -992,8 +996,8 @@ export class RTCSctpTransport {
         }
       } else {
         // Test: tests/issue/815.test.ts "closing one channel before negotiation keeps the OPEN of another (queue filtered by identity)"
-        // Its unsent messages leave bufferedAmount without bufferedamountlow.
-        // Test: tests/datachannel/bufferedAmountLow.test.ts "a close before the association is established discards the buffer without bufferedamountlow"
+        // Its unsent messages stay in bufferedAmount (see dropQueuedMessages).
+        // Test: tests/datachannel/bufferedAmountLow.test.ts "channel.close() before the association is established keeps the unsent bytes in bufferedAmount"
         this.dropQueuedMessages((queued) => queued === channel);
         this.unannounced.delete(channel);
         // Remove any pending reconfiguration requests for this channel

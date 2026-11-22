@@ -48,7 +48,7 @@ if (channel.onmessage) channel.onmessage({ data: msg });
 | 送信完了 | `dataChannelFlush` L408–415 `.then(() => addBufferedAmount(-len))` | 非同期（SCTP send 完了後）。例外は `.catch` でログのみ |
 | flush 時に閉じていたチャネル | `dataChannelFlush` L371–373 | **同期**。ハンドラが throw すると while ループが中断し、残りのキューが flush されない |
 | transport stop | `discardUnsentMessages` L500–515 | **同期**。ハンドラ例外で `stop()` が中断する |
-| SCTP 未確立時の `close()` | `dataChannelClose` L532–534 | キューから除去するが **`bufferedAmount` を減算していない**（既存の不整合。今回確認・必要なら修正） |
+| SCTP 未確立時の `close()` | `dataChannelClose` L532–534 | キューから除去するが **`bufferedAmount` を減算していない**（W3C どおり未送信分を保持する。D5 の改訂を参照） |
 
 → `onbufferedamountlow` を追加すると、同期経路でユーザーハンドラ例外がトランスポート処理を壊し得る。**発火の例外隔離が必要**。
 
@@ -90,7 +90,7 @@ if (channel.onmessage) channel.onmessage({ data: msg });
 | D2 | `MessageEvent.data` の型 | `string \| Buffer \| ArrayBuffer \| Blob` に拡張 |
 | D3 | `RTCSessionDescription.type` の型とリリース | `RTCSdpType`（rollback 含む）に拡張。D2・D3 の型変更は次のマイナー **v0.28.0** の Breaking changes に記載 |
 | D4 | polyfill とコアの `RTCSessionDescription` | polyfill のグローバルにもコアクラスを入れて 1 クラスに統合。`instanceof` は双方向に成立 |
-| D5 | `bufferedamountlow` の発火タイミング | 同期発火を維持し、通知面ごとに例外を隔離。送信完了による減算でのみ発火し、未送信のまま破棄した分では発火しない |
+| D5 | `bufferedamountlow` の発火タイミング | 同期発火を維持し、通知面ごとに例外を隔離。送信完了による減算でのみ発火し、未送信のまま破棄した分は `bufferedAmount` から減算せず（W3C: 送信分だけ減らし、クローズで 0 に戻さない）、発火もしない |
 | D6 | ブラウザ互換入口の値変換（追加要件、§9） | `binaryType` setter と辞書形式 `RTCSessionDescription` は WebIDL の変換規則（`ToString` → enum 照合、辞書メンバーは辞書順に 1 回ずつ）に合わせる。無効な `binaryType` は例外にせず無視（`SyntaxError` にしない） |
 | D7 | `bufferedamountlow` の Event の形（追加要件、§9） | 保証は `type` / `target` / 通知中の `currentTarget`（通知後 `null`）まで。`isTrusted` / `eventPhase` / `composedPath()` / `stopImmediatePropagation()` は保証しないと互換表で宣言する |
 | D8 | WPT の `.window.js`（追加要件、§9） | runner が allowlist に載った `.window.js` / `.any.js` を生成ページとして実行し、`RTCDataChannel-binaryType.window.js` を回帰ゲート（baseline）に入れる |
@@ -190,9 +190,8 @@ if (channel.onmessage) channel.onmessage({ data: msg });
   - 再送出された例外は `uncaughtException` として報告される。Node 組み込み `EventTarget` のリスナー例外と同じ扱いで、握りつぶさない。
   - これにより、`dataChannelFlush` のループ、`stop()`、送信完了の `.then` がユーザーハンドラ例外で中断しない。
 - **発火条件**: 発火するのは、**SCTP に渡したメッセージの送信完了による減算**（`dataChannelFlush` の `.then` 経路）のときだけ。
-  - 未送信のまま破棄した分の減算では `bufferedAmount` は減らすが、イベントは発火しない。該当するのは、flush 時点で closing/closed だったチャネルのメッセージ、`discardUnsentMessages`、SCTP 未確立時の `dataChannelClose` の 3 経路。
-  - `addBufferedAmount` に「発火するか」を指定する内部引数を設けるか、破棄用の内部メソッドを分ける。
-- **既存不整合の修正**: SCTP 未確立時の `dataChannelClose` で、キューから除去した分を `bufferedAmount` から減算する。
+  - 未送信のまま破棄した分は **`bufferedAmount` から減算せず**、イベントも発火しない。該当するのは、flush 時点で closing/closed だったチャネルのメッセージ、`discardUnsentMessages`（`pc.close()` / rollback の transport stop）、SCTP 未確立時の `dataChannelClose`、ID なしで失敗したチャネルの経路。
+  - **改訂（レビュー指摘による）**: 当初は「破棄分も減算する」「未確立 close で減算漏れを直す」としていたが、W3C は `bufferedAmount` を「送信した分だけ」減らし、クローズで 0 に戻さないと定めている（[bufferedAmount](https://www.w3.org/TR/webrtc/#dom-datachannel-bufferedamount)、WPT `RTCDataChannel-bufferedAmount.html` はクローズ直後に減らないことを確認する）。破棄分まで減らすと、データが失われたのにアプリが 0 を送信完了と解釈しうる。AGENTS.md の Do 11 に従い仕様に合わせ、破棄経路は減算しない。develop で減算していた flush 時の closing/closed 分と `discardUnsentMessages` 分も減算しなくなる（Fixes に記載）。SCTP 未確立時の `dataChannelClose` は develop と同じく未送信分を保持する。ただし rollback / association のリセットで SCTP transport だけが止まり**チャネルが存続する**場合は、二度と送られない未送信分を発火なしで差し引く（保持すると存続チャネルの `bufferedAmount` が永久に 0 へ戻らないため。「クローズで 0 に戻さない」はクローズしたチャネルの規定）。`pc.close()` は全チャネルを閉じるので、`stop({ closingChannels: true })` で未送信分を保持する。
 
 **理由**
 
@@ -213,7 +212,7 @@ if (channel.onmessage) channel.onmessage({ data: msg });
 
 - `RTCDataChannel` に `onbufferedamountlow?: Callback` を追加する。
 - `addBufferedAmount()` の跨ぎ判定（`bufferedAmount > threshold && bufferedAmount + amount <= threshold`）は維持する。発火は private メソッドに集約し、D5 の順序と例外隔離を実装する。
-- 破棄経路（`sctp.ts` L371–373、`discardUnsentMessages`、`dataChannelClose` の未確立分岐）は、発火しない減算を使う。`dataChannelClose` の未確立分岐には減算を追加する。
+- 破棄経路（`sctp.ts` L371–373、`discardUnsentMessages`、`dataChannelClose` の未確立分岐）はキューから除くだけで、`bufferedAmount` を減算しない（D5 の改訂）。
 
 ### 4.2 `binaryType`（D1・D2）
 
@@ -268,7 +267,7 @@ if (channel.onmessage) channel.onmessage({ data: msg });
 - `changelog.md`（v0.28.0）に次を記載する。
   - Breaking: D2・D3 の型変更と移行方法
   - Features: `binaryType` / `dataChannelBinaryType` / `onbufferedamountlow` / 辞書形式コンストラクタ / `toJSON`
-  - Fixes: 破棄経路での不要な low イベント、未確立 close 時の `bufferedAmount` 減算漏れ
+  - Fixes: 破棄経路で未送信分を `bufferedAmount` から減算していたこと（とそれによる不要な low イベント）
 - 生成ドキュメントは `npm run doc` で再生成する（手編集しない）。
 
 ## 5. 制約・注意点
@@ -300,7 +299,7 @@ if (channel.onmessage) channel.onmessage({ data: msg });
 - [ ] `bufferedAmountLow`・`onbufferedamountlow`・`addEventListener("bufferedamountlow")` が同じ跨ぎで各 1 回ずつ、D5 の順序で発火する。境界（閾値を跨がない減算、閾値ちょうど、閾値 0）も確認する。
 - [ ] 複数 send 後は 1 回だけ発火し、送信ごとに閾値を跨げば毎回発火する（WPT `RTCDataChannel-bufferedAmount.html` 相当）。
 - [ ] 各通知面のハンドラが throw しても、残りの面への通知、flush、`stop()`、他チャネルの送信が継続する。例外は `uncaughtException` として観測できる。
-- [ ] 破棄経路（closing/closed チャネルの flush、`discardUnsentMessages`、未確立 close）では `bufferedAmount` は減るがイベントは発火しない。未確立 close 後の `bufferedAmount` は 0 になる。low ハンドラ内から closed チャネルへ `send()` しても無限ループにならない。
+- [ ] 破棄経路（closing/closed チャネルの flush、`discardUnsentMessages`、未確立 close）では `bufferedAmount` は減らず（未送信分が残る）、イベントも発火しない。`channel.close()` と `pc.close()` の両方で未送信分が保持される。low ハンドラ内から closed チャネルへ `send()` しても無限ループにならない。
 - [ ] `binaryType` の既定値が、コアでは `"nodebuffer"`、polyfill と WPT wrapper では `"arraybuffer"` になる（ローカル作成・リモート作成の両方）。`dataChannelBinaryType` 指定が優先され、`getConfiguration()` に反映される。不正な config 値は `TypeError` になる。`setConfiguration()` 後は新しいチャネルにだけ効く。
 - [ ] setter: 有効な 3 値は設定でき、WPT の無効値リスト（`"jellyfish"`, `"arraybuffer "`, `""`, `null`, `undefined`, 数値, bigint）は無視される。
 - [ ] `"nodebuffer"` / `"arraybuffer"` / `"blob"` のそれぞれで受信内容がバイト一致する（空バイナリも含む）。ArrayBuffer の `byteLength` が内容長と一致する（プール非共有）。文字列と空文字列は常に string で届く。`onmessage` と `"message"` イベントには同じオブジェクトが渡る。

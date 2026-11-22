@@ -70,7 +70,6 @@ describe("datachannel/bufferedAmountLow", () => {
       expect(calls).toEqual(fires ? [...LOW_NOTIFICATIONS] : []);
       expect(pair.local.bufferedAmount).toBe(start - decrease);
     } finally {
-      pair.local.addBufferedAmount(-pair.local.bufferedAmount, { sent: false });
       await pair.close();
     }
   });
@@ -168,30 +167,30 @@ describe("datachannel/bufferedAmountLow", () => {
     }
   });
 
-  test("a close before the association is established discards the buffer without bufferedamountlow", async () => {
+  test("channel.close() before the association is established keeps the unsent bytes in bufferedAmount", async () => {
     // Arrange: 交渉前の channel に 2 通積む (SCTP 未確立なのでキューに残る)
     const pc = new RTCPeerConnection();
     const channel = pc.createDataChannel("unsent");
     channel.send("abc");
     channel.send(Buffer.from([1, 2]));
     const calls = recordBufferedAmountLow(channel);
-    const bufferedBeforeClose = channel.bufferedAmount;
 
     try {
       // Act: 未確立のまま close する
       channel.close();
 
-      // Assert: 未送信分は bufferedAmount から除かれ 0 になるが、送信していないので low は発火しない
-      expect(bufferedBeforeClose).toBe(5);
+      // Assert: 送られなかった 5 バイトは bufferedAmount に残り (W3C: close で 0 に戻さない)、low は発火しない
       expect(channel.readyState).toBe("closed");
-      expect(channel.bufferedAmount).toBe(0);
+      expect(channel.bufferedAmount).toBe(5);
+      await new Promise((r) => setTimeout(r, 20));
+      expect(channel.bufferedAmount).toBe(5);
       expect(calls).toEqual([]);
     } finally {
       await pc.close();
     }
   });
 
-  test("pc.close() discards unsent messages without bufferedamountlow", async () => {
+  test("pc.close() keeps the unsent bytes in bufferedAmount", async () => {
     // Arrange: 交渉前の channel にメッセージを積む
     const pc = new RTCPeerConnection();
     const channel = pc.createDataChannel("unsent");
@@ -201,8 +200,26 @@ describe("datachannel/bufferedAmountLow", () => {
     // Act: PeerConnection を閉じる (transport stop の破棄経路)
     await pc.close();
 
-    // Assert: buffer は 0 に戻り、low は発火しない
-    expect(channel.bufferedAmount).toBe(0);
+    // Assert: 送られなかった 6 バイトは bufferedAmount に残り、low は発火しない
+    expect(channel.readyState).toBe("closed");
+    expect(channel.bufferedAmount).toBe(6);
+    expect(calls).toEqual([]);
+  });
+
+  test("pc.close() on an open channel keeps the bytes still queued", async () => {
+    // Arrange: open の channel で、SCTP へ渡す前に積まれたメッセージ
+    const pair = await openDataChannelPair();
+    const calls = recordBufferedAmountLow(pair.local);
+    pair.local.bufferedAmountLowThreshold = 0;
+    pair.local.close();
+    // closing の channel への send はキューに積まれるが送られない (既存挙動)
+    pair.local.send("queued");
+
+    // Act: PeerConnection ごと閉じる
+    await pair.close();
+
+    // Assert: 未送信の 6 バイトは残り、low は発火しない
+    expect(pair.local.bufferedAmount).toBe(6);
     expect(calls).toEqual([]);
   });
 
@@ -223,9 +240,9 @@ describe("datachannel/bufferedAmountLow", () => {
       await vi.waitFor(() => expect(lows).toBeGreaterThan(0));
       await new Promise((r) => setTimeout(r, 50));
 
-      // Assert: closing channel への再送は破棄経路で減算され、low は再発火しない
+      // Assert: closing channel への再送は送られずに bufferedAmount に残り、low は再発火しない
       expect(lows).toBe(1);
-      expect(pair.local.bufferedAmount).toBe(0);
+      expect(pair.local.bufferedAmount).toBe(Buffer.byteLength("again"));
     } finally {
       await pair.close();
     }

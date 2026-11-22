@@ -471,25 +471,19 @@ exception (WPT `RTCDataChannel-binaryType.window.js`).
 
 ### addBufferedAmount()
 
-> **addBufferedAmount**(`amount`, `__namedParameters?`): `void`
+> **addBufferedAmount**(`amount`): `void`
 
-Internal: add to `bufferedAmount` (a negative `amount` when a message
-left the buffer). Only data that was sent (`sent`, the default) can
-fire `bufferedamountlow` (W3C: "as a result of sending data"); data
-discarded unsent only leaves the buffer, so a low listener that sends
-again on a closed channel cannot loop.
+Internal: add to `bufferedAmount` (a negative `amount` when the
+transport sent a message). Only sent data leaves `bufferedAmount`, so
+only sending can fire `bufferedamountlow` (W3C: "as a result of sending
+data"); data discarded unsent stays counted, also after close, and a low
+listener that sends again on a closed channel cannot loop.
 
 #### Parameters
 
 ##### amount
 
 `number`
-
-##### \_\_namedParameters?
-
-###### sent?
-
-`boolean` = `true`
 
 #### Returns
 

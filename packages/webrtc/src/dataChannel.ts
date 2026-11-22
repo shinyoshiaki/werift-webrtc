@@ -282,20 +282,35 @@ export class RTCDataChannel extends EventTarget implements DataChannelStats {
   }
 
   /**
-   * Internal: add to `bufferedAmount` (a negative `amount` when a message
-   * left the buffer). Only data that was sent (`sent`, the default) can
-   * fire `bufferedamountlow` (W3C: "as a result of sending data"); data
-   * discarded unsent only leaves the buffer, so a low listener that sends
-   * again on a closed channel cannot loop.
+   * Internal: add to `bufferedAmount` (a negative `amount` when the
+   * transport sent a message). Only sent data leaves `bufferedAmount`, so
+   * only sending can fire `bufferedamountlow` (W3C: "as a result of sending
+   * data"); data discarded unsent stays counted, also after close, and a low
+   * listener that sends again on a closed channel cannot loop.
    * @see tests/datachannel/bufferedAmountLow.test.ts "a low listener sending on the channel it closed does not loop"
    * @see tests/datachannel/bufferedAmountLow.test.ts "every surface is notified once per crossing, in the order of the other channel events"
    */
-  addBufferedAmount(amount: number, { sent = true }: { sent?: boolean } = {}) {
+  addBufferedAmount(amount: number) {
     const crossesThreshold =
       this.bufferedAmount > this.bufferedAmountLowThreshold &&
       this.bufferedAmount + amount <= this.bufferedAmountLowThreshold;
     this.bufferedAmount += amount;
-    if (crossesThreshold && sent) this.notifyBufferedAmountLow();
+    if (crossesThreshold) this.notifyBufferedAmountLow();
+  }
+  /**
+   * @internal
+   * Remove `amount` bytes that were discarded unsent from
+   * `bufferedAmount` of a channel that outlives its transport (a rollback
+   * stops the SCTP transport the channel's queued messages belonged to; they
+   * are never sent, and kept counted the channel's `bufferedAmount` could
+   * never drain). Not sent data, so it fires no `bufferedamountlow`. A
+   * closing / closed channel keeps its unsent bytes instead (W3C: not reset
+   * to zero once the channel closes), so callers do not use this for one.
+   * @see tests/transport/sctp.test.ts "stop discards unsent messages and releases bufferedAmount"
+   * @see tests/datachannel/bufferedAmountLow.test.ts "pc.close() keeps the unsent bytes in bufferedAmount"
+   */
+  releaseDiscardedBufferedAmount(amount: number) {
+    this.bufferedAmount -= amount;
   }
 
   /**
