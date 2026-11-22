@@ -1,5 +1,10 @@
 import { describe, expect, test, vi } from "vitest";
 import {
+  propertyOptions,
+  propertySeeds,
+  seededRandom,
+} from "../../../../pbt/src";
+import {
   defaultPeerConfig,
   type PeerConfig,
   RtcpPacketConverter,
@@ -13,8 +18,6 @@ import {
   createPaddingOnlyRtpPacket,
   createVideoReceiver,
 } from "../../media/rtpReceiverTestUtils";
-import { seededRandom } from "../shared/random";
-import { propertySeeds } from "../shared/seeds";
 import {
   type ReceivedStep,
   randomMediaPaddingStream,
@@ -66,7 +69,7 @@ function receiveCompacted(stream: ReceivedStep[]) {
 const seqDelta = (a: number, b: number) =>
   ((((b - a) & 0xffff) + 0x8000) & 0xffff) - 0x8000;
 
-describe("rtp receiver property", () => {
+describe("rtp receiver property", propertyOptions(), () => {
   test.each(cases)(
     title(
       "compact (順着): media の seq は padding を飛ばした分だけ詰まり、実ロスの欠番は残る",

@@ -2,13 +2,14 @@ import { createSocket } from "dgram";
 import { setTimeout } from "timers/promises";
 import { vi } from "vitest";
 
-import { SCTP, SCTP_STATE } from "../src";
+import { dataChunkBookSize as book, SCTP, SCTP_STATE } from "../src";
 import {
   AbortChunk,
   DataChunk,
   ForwardTsnChunk,
   HeartbeatChunk,
   SackChunk,
+  SCTP_COMMON_HEADER_SIZE,
   serializePacket,
 } from "../src/chunk";
 import { StreamAddOutgoingParam } from "../src/param";
@@ -291,12 +292,12 @@ describe("sctp flight size accounting", () => {
     const { sctp, transport } = createMockSctp({ established: true });
     try {
       const [t0, t1, t2] = await sendMessages(sctp, [36, 652, 652]);
-      expect(flightSizeOf(sctp)).toBe(1340);
+      expect(flightSizeOf(sctp)).toBe(book(36) + 2 * book(652));
 
       // 先頭 TSN を失い、後ろの 2 件を Gap ACK する
       await receiveSack(sctp, buildSack(tsnBefore(t0), [[2, 3]]));
       // Gap ACK 分だけ flightSize が減る
-      expect(flightSizeOf(sctp)).toBe(36);
+      expect(flightSizeOf(sctp)).toBe(book(36));
       expectFlightSizeInvariant(sctp);
 
       // T3 を発火させる
@@ -304,7 +305,7 @@ describe("sctp flight size accounting", () => {
       await fireT3(sctp);
       // 欠落した先頭 TSN だけが再送される
       expect(sentDataTsns(transport, beforeT3)).toEqual([t0]);
-      expect(flightSizeOf(sctp)).toBe(36);
+      expect(flightSizeOf(sctp)).toBe(book(36));
       expectFlightSizeInvariant(sctp);
 
       // 全件を累積 ACK する
@@ -369,9 +370,42 @@ describe("sctp flight size accounting", () => {
       await settle();
       // Gap ACK 済みの 2 件目は再送されない
       expect(sentDataTsns(transport, beforeT3)).toEqual([t0, t2]);
-      expect(flightSizeOf(sctp)).toBe(200);
+      expect(flightSizeOf(sctp)).toBe(2 * book(100));
       expectFlightSizeInvariant(sctp);
       expect(t1).not.toBe(t0);
+    } finally {
+      await disposeMockSctp(sctp);
+    }
+  });
+
+  test("a chunk is fast-retransmitted only once until the T3-rtx timer resends it (RFC 9260 §7.2.4)", async () => {
+    const { sctp, transport } = createMockSctp({ established: true });
+    try {
+      const tsns = await sendMessages(sctp, Array(14).fill(100));
+      const [t0] = tsns;
+      const before = transport.send.mock.calls.length;
+      const resentT0 = () =>
+        sentDataTsns(transport, before).filter((tsn) => tsn === t0).length;
+
+      // Act: 先頭 TSN が欠けたまま、後ろを 1 件ずつ Gap ACK する SACK を 9 回受ける (miss 9 回)。
+      for (let end = 2; end <= 10; end++) {
+        await receiveSack(sctp, buildSack(tsnBefore(t0), [[2, end]]));
+      }
+      await settle();
+
+      // Assert: 3 回目の miss で 1 回だけ Fast Retransmit し、その後の miss では再送しない。
+      expect(resentT0()).toBe(1);
+
+      // Act: 再送も失われたとして T3 が発火し、さらに新しい Gap ACK で miss が 3 回続く。
+      await fireT3(sctp);
+      for (let end = 11; end <= 13; end++) {
+        await receiveSack(sctp, buildSack(tsnBefore(t0), [[2, end]]));
+      }
+      await settle();
+
+      // Assert: T3 が再送し、その後は再び 1 回だけ Fast Retransmit できる。
+      expect(resentT0()).toBe(3);
+      expectFlightSizeInvariant(sctp);
     } finally {
       await disposeMockSctp(sctp);
     }
@@ -422,7 +456,7 @@ describe("sctp flight size accounting", () => {
       await receiveSack(sctp, buildSack(tsnBefore(t0), [[2, 2]]));
       await receiveSack(sctp, buildSack(tsnBefore(t0), [[2, 2]]));
       // Gap ACK 済みの分は一度だけ減算される
-      expect(flightSizeOf(sctp)).toBe(400);
+      expect(flightSizeOf(sctp)).toBe(book(100) + book(300));
       expectFlightSizeInvariant(sctp);
 
       // 再送を止めたまま T3 を 2 回連続で発火させる
@@ -464,7 +498,7 @@ describe("sctp flight size accounting", () => {
       await receiveSack(sctp, buildSack(tsnBefore(t0), [[2, 2]]));
       await receiveSack(sctp, buildSack(t1));
       // 残る 3 件目だけが計上されている
-      expect(flightSizeOf(sctp)).toBe(300);
+      expect(flightSizeOf(sctp)).toBe(book(300));
       expectFlightSizeInvariant(sctp);
     } finally {
       await disposeMockSctp(sctp);
@@ -493,7 +527,7 @@ describe("sctp flight size accounting", () => {
       expect(head.abandoned).toBe(false);
       expect(fragments.every((c) => c.abandoned)).toBe(true);
       expect(sentDataTsns(transport, beforeT3)).toEqual([head.tsn]);
-      expect(flightSizeOf(sctp)).toBe(100);
+      expect(flightSizeOf(sctp)).toBe(book(100));
       expectFlightSizeInvariant(sctp);
 
       // 先頭を累積 ACK する
@@ -627,7 +661,7 @@ describe("sctp flight size accounting", () => {
 
       // Assert: 破棄済み断片は再計上されず、A だけが再送される
       expect(sentDataTsns(transport, before)).toEqual([head.tsn]);
-      expect(flightSizeOf(sctp)).toBe(100);
+      expect(flightSizeOf(sctp)).toBe(book(100));
       expectFlightSizeInvariant(sctp);
       expect((sctp as any).timer3Handle).toBeDefined();
 

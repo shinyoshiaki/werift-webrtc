@@ -37,18 +37,3 @@ export type TransceiversNegotiationState = {
  * by MID and RID: two m-lines may reuse the same RID names.
  */
 export const ridRouteKey = (mid: string, rid: string) => `${mid}\u0000${rid}`;
-
-const applicationStops = new WeakMap<RTCRtpTransceiver, number>();
-
-/** How many times the application called `stop()` on `transceiver`. */
-export function getApplicationStopRevision(transceiver: RTCRtpTransceiver) {
-  return applicationStops.get(transceiver) ?? 0;
-}
-
-/** Record an application `stop()`; a rollback keeps it. */
-export function noteApplicationStop(transceiver: RTCRtpTransceiver) {
-  applicationStops.set(
-    transceiver,
-    getApplicationStopRevision(transceiver) + 1,
-  );
-}

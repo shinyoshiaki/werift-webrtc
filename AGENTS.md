@@ -11,6 +11,7 @@ Rules that apply to one package or directory belong in the nearest `AGENTS.md`.
 * `werift` is a pure TypeScript WebRTC implementation for Node.js. Supported runtimes are Linux, macOS, and other Unix-like systems; native Windows is not supported.
 * Core packages: `common`, `ice`, `dtls`, `rtp`, `sctp`, `webrtc`. Protocol flow is `ICE -> DTLS -> SCTP/RTP`.
 * `packages/webrtc` is the public API; the lower-level packages are reusable protocol layers.
+* `packages/pbt` is the test-only property-based testing base every package's property tests use (private, never imported from `src`).
 
 ## Do
 
@@ -20,6 +21,7 @@ Rules that apply to one package or directory belong in the nearest `AGENTS.md`.
 4. When you change public API, protocol behavior, examples, or WPT wiring, update the docs or examples that demonstrate it.
 5. Keep upstream-WPT-only strict behavior inside the `packages/webrtc/tools/wpt-runner/*` wrappers, so the default `packages/webrtc/src` API keeps werift's convenience behavior.
 6. Write tests as Arrange / Act / Assert. Put shared Arrange setup in one reusable utility file per test area instead of repeating it, and comment each Act / Assert step in Japanese so the intent and the checked outcome are clear.
+   Property tests live in `<package>/tests/pbt/<name>/`, draw from `packages/pbt` (`seededRandom`, `propertySeeds`) and follow its `README.md` (seed variables, titles with the replay environment, retry, coverage checks); each package lists them in `tests/pbt/suites.ts` for `npm run pbt:deep`.
 7. Compare against another revision in a temporary worktree (`git worktree add --detach <tmp-dir> <rev>`). Don't check out, reset, or stash the active worktree: external tooling may auto-commit it at any time.
 8. Before a long-running verification, state the current revision, the uncommitted changes, and the intent, so interrupted work can be resumed.
 9. Run `git submodule update --init --recursive` after checkout before WPT work.
@@ -29,6 +31,7 @@ Rules that apply to one package or directory belong in the nearest `AGENTS.md`.
 ## Don't
 
 * Don't reintroduce third-party TypeScript runners such as `tsx`. Run TypeScript with `node --import <rel>/tools/node-ts/register.mjs` (Node.js type stripping, Node.js 22.18+, see `devEngines`). Node.js 26 removed the TypeScript transform mode, so don't add transform flags or loaders back and keep sources erasable: no `enum` (use an `as const` object plus a same-name union type tagged `@enum`) and no parameter properties. `erasableSyntaxOnly` in each tsconfig enforces this.
+* Don't keep runtime state in module scope: no top-level `let`, and no module-level `Map` / `Set` / `WeakMap` / `WeakSet`, counter or cache that code writes after load; also no writable `static` field used as state. Put the state on the object whose lifetime it follows (a field of the transceiver, track, transport or manager, `private` or tagged `@internal` to stay out of the public API and the generated docs), and pass test seams such as socket factories in through options. A value that is process-wide by contract (the default certificate cache of `certificateScope: "process"`, the exported `navigator`, a public static tunable, a registry keyed by an application-owned object that must be shared) stays only with a comment at its declaration saying why; `packages/webrtc/tests/moduleState.test.ts` checks `packages/webrtc/src` against its allowlist.
 * Don't stop test servers or browsers with pattern-based kills (`pkill -f`, `killall`); they can match the agent's own shell. Stop them by PID or through the runner's stop path.
 * Don't end a turn while a background test or build you started is still running, unless you report it as unfinished.
 * Don't put credentials, secrets, or machine-specific setup in any `AGENTS.md`.
@@ -40,6 +43,7 @@ Rules that apply to one package or directory belong in the nearest `AGENTS.md`.
 | build all packages | `npm run build` |
 | type-check workspace | `npm run type` |
 | package / unit tests | `npm run test:small` |
+| deep property search of every package (`--workspace packages/<pkg>` for one; options in `packages/pbt/README.md`) | `npm run pbt:deep` |
 | full suite including E2E | `npm run test` |
 | E2E only (verbose: `e2e:verbose`) | `npm run e2e` |
 | Firefox E2E with a committed run record (local only, not in CI) | `cd e2e && npm run firefox:record` |
@@ -64,6 +68,7 @@ Start with the narrowest package command, and widen to workspace commands only w
 * Docs-only edits: no code validation needed.
 * Single-package logic: that package's test and/or type-check command.
 * Cross-package, public API, or protocol changes: `npm run type` and `npm run test:small`; `npm run ci` when the change spans the full stack.
+* Property tests or `packages/pbt`: the package's `npm test`, then `npm run pbt:deep` in the affected packages (`-- --dry-run` checks the shard plan).
 * WPT runner, dummy media, or allowlist changes: `npm run wpt`; also `npm run wpt:coverage` when coverage or baseline wiring changes.
 * Browser interop or signaling changes: the relevant example and/or `npm run e2e`. A Firefox E2E run goes through `npm run firefox:record` so its record (commit hash and per-test results, `e2e/firefox-runs/`) is committed with the change. For a failing E2E, reproduce with only the affected test file first, then run the full suite as final validation. Root `examples/` demos in the `examples/e2e` catalog also need `npm run examples:e2e`.
 * Infrastructure-backed E2E: run the targeted scenario with its opt-in environment flag, so the real dependency path is exercised.

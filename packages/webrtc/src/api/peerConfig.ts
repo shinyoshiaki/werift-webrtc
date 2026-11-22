@@ -11,6 +11,7 @@ import type {
 } from "../imports/common";
 import type {
   CandidatePair,
+  IceFailoverOptions,
   Message,
   MessageIntegrityMode,
   Protocol,
@@ -128,6 +129,18 @@ export interface PeerConfig {
    */
   iceTurnConnectTimeout: number | undefined;
   /**
+   * Seconds ICE waits for a connectivity check from the peer when it has no
+   * candidate pair of its own to check after both sides ended their
+   * candidates (the peer offered only active TCP candidates, as Firefox does
+   * for ICE-TCP, or none werift can reach). Without a check in that time the
+   * ICE transport fails. With `iceLite`, which sends no checks, ICE waits the
+   * same time whenever it has no candidate pair, also while it still
+   * gathers. The deadline is fixed when the wait begins; once gathering ended
+   * without a socket that could receive a check, ICE fails at once. Defaults
+   * to 30 when undefined; 0 fails at once.
+   */
+  iceIncomingCheckTimeout: number | undefined;
+  /**
    * werift extension. With `iceNomination: "regular"`: milliseconds the
    * controlling ICE agent keeps checking before it nominates a candidate pair,
    * so a higher-priority candidate trickled shortly after a lower-priority one
@@ -156,6 +169,16 @@ export interface PeerConfig {
    * the attribute regardless. Defaults to false.
    */
   iceRenomination: boolean;
+  /**
+   * werift extension. Thresholds of the failover of the selected candidate
+   * pair without an ICE restart (with semi-aggressive nomination or
+   * renomination): how soon a pair is unwritable (`unwritableMinChecks`,
+   * `unwritableTimeout`) and how soon a selected pair that stopped receiving
+   * moves to a backup (`receivingTimeout`, `receivingSwitchingDelay`). Maps
+   * to `IceOptions.failover`; each unset or invalid value keeps its default
+   * (libwebrtc's: 5 checks, 5000 ms, 2500 ms, 1000 ms).
+   */
+  iceFailover: IceFailoverOptions | undefined;
   turnTransport: "udp" | "tcp" | "tls" | undefined;
   turnTlsOptions: TlsConnectionOptions | undefined;
   /**
@@ -486,9 +509,11 @@ export function generateDefaultPeerConfig(): PeerConfig {
     iceTcpPassive: true,
     iceStunGatherTimeout: undefined,
     iceTurnConnectTimeout: undefined,
+    iceIncomingCheckTimeout: undefined,
     iceNominationDelayMs: undefined,
     iceNomination: undefined,
     iceRenomination: false,
+    iceFailover: undefined,
     turnTransport: undefined,
     turnTlsOptions: undefined,
     turnUdpFamily: undefined,

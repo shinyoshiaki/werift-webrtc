@@ -31,20 +31,16 @@ type ExtensionInfo = {
   ext?: number;
 };
 
-type SharedReceiverTWCC = {
-  instance: ReceiverTWCC;
-  refs: number;
-};
-
 /**
- * One {@link ReceiverTWCC} per DTLS transport. BUNDLE multiplexes audio/video
+ * One {@link ReceiverTWCC} per DTLS transport, held by the transport
+ * (`RTCDtlsTransport.sharedReceiverTWCC`). BUNDLE multiplexes audio/video
  * onto a shared transport-wide sequence; per-receiver generators would treat
  * the other stream's TSNs as PacketNotReceived.
  */
-const receiverTwccByTransport = new WeakMap<
-  RTCDtlsTransport,
-  SharedReceiverTWCC
->();
+export type SharedReceiverTWCC = {
+  instance: ReceiverTWCC;
+  refs: number;
+};
 
 /**
  * Return the transport-scoped TWCC generator, creating it on first use.
@@ -55,14 +51,14 @@ export function acquireTransportReceiverTWCC(
   rtcpSsrc: number,
   mediaSourceSsrc: number,
 ): ReceiverTWCC {
-  const existing = receiverTwccByTransport.get(dtlsTransport);
+  const existing = dtlsTransport.sharedReceiverTWCC;
   if (existing) {
     existing.refs++;
     existing.instance.setMediaSourceSsrc(mediaSourceSsrc);
     return existing.instance;
   }
   const instance = new ReceiverTWCC(dtlsTransport, rtcpSsrc, mediaSourceSsrc);
-  receiverTwccByTransport.set(dtlsTransport, { instance, refs: 1 });
+  dtlsTransport.sharedReceiverTWCC = { instance, refs: 1 };
   return instance;
 }
 
@@ -74,7 +70,7 @@ export function releaseTransportReceiverTWCC(
   dtlsTransport: RTCDtlsTransport,
   instance: ReceiverTWCC,
 ): void {
-  const entry = receiverTwccByTransport.get(dtlsTransport);
+  const entry = dtlsTransport.sharedReceiverTWCC;
   if (!entry || entry.instance !== instance) {
     return;
   }
@@ -83,7 +79,7 @@ export function releaseTransportReceiverTWCC(
     return;
   }
   instance.twccRunning = false;
-  receiverTwccByTransport.delete(dtlsTransport);
+  dtlsTransport.sharedReceiverTWCC = undefined;
 }
 
 /**

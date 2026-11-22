@@ -1,6 +1,12 @@
+import {
+  type FailoverThresholds,
+  nextPingAt,
+  type PairLiveness,
+} from "./failover";
 import { type Cancelable, cancelable } from "./helper";
 import {
   type CandidatePair,
+  CONNECTION_WRITE_CONNECT_TIMEOUT,
   CONSENT_INTERVAL,
   CONSENT_TIMEOUT,
   consentResponseTimeoutMs,
@@ -29,6 +35,30 @@ export type ConsentHost = {
    * (USE-CANDIDATE, NOMINATION).
    */
   buildRequest: (pair: CandidatePair) => Message;
+  /**
+   * Failover of the selected pair (`FailoverMonitor`): when `enabled()`,
+   * consent checks follow its pacing and report their outcome to it.
+   */
+  failover?: ConsentFailoverHooks;
+};
+
+/** See `ConsentHost.failover`. */
+export type ConsentFailoverHooks = {
+  enabled: () => boolean;
+  /** The liveness the monitor keeps for `pair` (`nextPingAt`). */
+  liveness: (pair: CandidatePair) => PairLiveness | undefined;
+  /** The thresholds in use (`IceOptions.failover`, for `nextPingAt`). */
+  thresholds: () => FailoverThresholds;
+  /** A consent check of `pair` was answered. */
+  responded: (pair: CandidatePair) => void;
+  /** A consent check of `pair` went unanswered (its RTT-based deadline passed). */
+  unanswered: (pair: CandidatePair) => void;
+  /**
+   * Consent expired: true when the agent takes it over (a writable backup
+   * may still take the selection), false to fail the agent as without
+   * failover.
+   */
+  expired: () => boolean;
 };
 
 /**
@@ -48,6 +78,13 @@ export class ConsentFreshness {
   private handle?: Cancelable<void>;
   private expiryTimer?: ReturnType<typeof setTimeout>;
   private requestAbort?: AbortController;
+  /**
+   * Counts `cancelRequests()` (a role change): a request sent before it was
+   * cancelled, and its failure says nothing about the path.
+   */
+  private requestEpoch = 0;
+  /** Wakes the running session's wait up (see `recheck`). */
+  private wakeLoop?: () => void;
   private readonly host: ConsentHost;
 
   constructor(host: ConsentHost) {
@@ -61,6 +98,7 @@ export class ConsentFreshness {
   stop() {
     this.sessionId++;
     this.fresh = false;
+    this.wakeLoop = undefined;
     if (this.expiryTimer !== undefined) {
       clearTimeout(this.expiryTimer);
       this.expiryTimer = undefined;
@@ -73,21 +111,60 @@ export class ConsentFreshness {
     handle?.resolve?.();
   }
 
-  private abortableDelay(ms: number, signal: AbortSignal): Promise<void> {
+  /**
+   * Cancel the consent requests in flight without ending the session (a role
+   * change: they carry the old role). Their failure is not counted as
+   * unanswered; the next request carries the new role.
+   */
+  cancelRequests() {
+    this.requestEpoch++;
+    this.requestAbort?.abort();
+    this.requestAbort = undefined;
+  }
+
+  /**
+   * Failover: compute the next request's due time again now (the selected
+   * pair's path was reported gone, so it is checked at the weak interval:
+   * `nextPingAt`). Without failover, or with no session, nothing happens.
+   */
+  recheck() {
+    this.wakeLoop?.();
+  }
+
+  /**
+   * Wait `ms`; rejects when `signal` aborts. `wakeup` ends the wait early
+   * (resolves). Both listeners are removed when the wait ends.
+   */
+  private abortableDelay(
+    ms: number,
+    signal: AbortSignal,
+    wakeup?: AbortSignal,
+  ): Promise<void> {
     return new Promise((resolve, reject) => {
       if (signal.aborted) {
         reject(new DOMException("The operation was aborted", "AbortError"));
         return;
       }
-      const timer = setTimeout(() => {
+      const done = () => {
+        clearTimeout(timer);
         signal.removeEventListener("abort", onAbort);
+        wakeup?.removeEventListener("abort", onWakeup);
+      };
+      const timer = setTimeout(() => {
+        done();
         resolve();
       }, ms);
       const onAbort = () => {
-        clearTimeout(timer);
+        done();
         reject(new DOMException("The operation was aborted", "AbortError"));
       };
+      const onWakeup = () => {
+        done();
+        resolve();
+      };
       signal.addEventListener("abort", onAbort, { once: true });
+      if (wakeup?.aborted) onWakeup();
+      else wakeup?.addEventListener("abort", onWakeup, { once: true });
     });
   }
 
@@ -142,6 +219,11 @@ export class ConsentFreshness {
           }
           canceled = true;
           cancelEvent.abort();
+          // Failover: the agent takes over when a writable backup may still
+          // take the selection (see Connection.updateLinkState).
+          if (this.host.failover?.enabled() && this.host.failover.expired()) {
+            return;
+          }
           // Transport stays available for ICE restart; explicit close() uses "closed".
           this.host.setState("failed");
         }, CONSENT_TIMEOUT * 1000);
@@ -171,6 +253,34 @@ export class ConsentFreshness {
       let nextConsentAt = Date.now() + randomizedConsentInterval();
       const isTerminalState = () =>
         this.host.state() === "closed" || this.host.state() === "failed";
+      const hooks = this.host.failover;
+      // Failover (D3): the next request is due at `nextPingAt` of the
+      // selected pair's liveness: the consent interval while it answers and
+      // receives, WEAK_OR_STABILIZING_WRITABLE_CONNECTION_PING_INTERVAL after
+      // an unanswered request, and at once (no sooner than that interval)
+      // when nothing was received for `receivingTimeout`
+      // (WEAK_CONNECTION_RECEIVE_TIMEOUT).
+      // Requests keep this pacing whatever their response timeout (RTT
+      // based, it may exceed that interval): the next one does not cancel
+      // or wait for one still in flight, so a slow response still counts
+      // and a dead path is told within the D3 bound on a high-RTT path too.
+      // An outcome wakes the wait up.
+      let wakeup: AbortController | undefined;
+      let lastSentAt = Date.now();
+      let stableInterval = nextConsentAt - lastSentAt;
+      const failoverDueAt = (pair: CandidatePair) => {
+        const liveness = hooks?.liveness(pair);
+        return liveness
+          ? nextPingAt(
+              liveness,
+              lastSentAt,
+              stableInterval,
+              hooks!.thresholds(),
+            )
+          : lastSentAt + stableInterval;
+      };
+      const wake = () => wakeup?.abort();
+      if (hooks) this.wakeLoop = wake;
 
       try {
         while (
@@ -178,22 +288,46 @@ export class ConsentFreshness {
           !canceled &&
           sessionId === this.sessionId
         ) {
+          // Failover: the due time follows the selected pair's liveness from
+          // the first request of the session on (a path that breaks right
+          // after a selection is checked once nothing arrived for
+          // `receivingTimeout`, not only after the consent interval).
+          const due = this.host.selected();
+          if (hooks?.enabled() && due) nextConsentAt = failoverDueAt(due);
+          wakeup = new AbortController();
           await this.abortableDelay(
-            Math.max(0, nextConsentAt - Date.now()),
+            // Bounded for setTimeout.
+            Math.min(Math.max(0, nextConsentAt - Date.now()), 2 ** 31 - 1),
             cancelEvent.signal,
+            wakeup.signal,
           );
+          wakeup = undefined;
 
           if (canceled || isTerminalState() || sessionId !== this.sessionId) {
             break;
           }
 
-          // Fix next start time before awaiting any response (independent timers).
-          nextConsentAt = Date.now() + randomizedConsentInterval();
-
           const nominated = this.host.selected();
           if (!nominated) {
             break;
           }
+          const failover = !!hooks?.enabled();
+          // Failover: woken up by an outcome or something received; the due
+          // time is computed again (it may have moved either way).
+          if (failover) nextConsentAt = failoverDueAt(nominated);
+          // Woken up for a later time.
+          if (Date.now() < nextConsentAt) continue;
+
+          const requestSentAt = Date.now();
+          if (failover) {
+            lastSentAt = requestSentAt;
+            stableInterval = randomizedConsentInterval();
+            nextConsentAt = failoverDueAt(nominated);
+          } else {
+            // Fix next start time before awaiting any response (independent timers).
+            nextConsentAt = requestSentAt + randomizedConsentInterval();
+          }
+          const requestEpoch = this.requestEpoch;
 
           const pairId = nominated.id;
           const generation = this.host.remoteGeneration();
@@ -201,16 +335,67 @@ export class ConsentFreshness {
 
           const request = this.host.buildRequest(nominated);
 
-          this.requestAbort?.abort();
-          const requestAbort = new AbortController();
-          this.requestAbort = requestAbort;
+          // Failover: the requests of the session share one signal (stopped
+          // together); otherwise a request replaces the previous one.
+          let requestAbort: AbortController;
+          if (failover && this.requestAbort) {
+            requestAbort = this.requestAbort;
+          } else {
+            this.requestAbort?.abort();
+            requestAbort = new AbortController();
+            this.requestAbort = requestAbort;
+          }
 
           nominated.consentRequestsSent++;
           nominated.requestsSent++;
 
           // RTT-aware wait (floor 500ms); independent of retransmissions: 0.
-          const responseTimeout = consentResponseTimeoutMs(nominated.rtt);
+          const rttTimeout = consentResponseTimeoutMs(nominated.rtt);
+          // Failover: the request counts as unanswered once `rttTimeout`
+          // passed without a response, but its transaction stays open up to
+          // CONNECTION_WRITE_CONNECT_TIMEOUT, so a late response (a busy
+          // event loop handles it after that timer, a delayed path) still
+          // counts as a response, as libwebrtc accepts a ping's response
+          // after it was counted as missing.
+          const responseTimeout = failover
+            ? Math.max(rttTimeout, CONNECTION_WRITE_CONNECT_TIMEOUT)
+            : rttTimeout;
           const requestStartedAt = performance.now();
+          let countedUnanswered = false;
+          const countUnanswered = () => {
+            if (
+              countedUnanswered ||
+              canceled ||
+              sessionId !== this.sessionId ||
+              this.host.selected()?.id !== pairId ||
+              // Cancelled by a role change: says nothing about the path.
+              requestEpoch !== this.requestEpoch ||
+              !hooks?.enabled()
+            ) {
+              return;
+            }
+            countedUnanswered = true;
+            hooks.unanswered(nominated);
+            wake();
+          };
+          // The deadline timer and its abort listener live only while the
+          // request is in flight (the signal is shared by the session's
+          // requests, so a listener left on it would pile up).
+          let deadline: ReturnType<typeof setTimeout> | undefined;
+          const settle = () => {
+            if (deadline !== undefined) clearTimeout(deadline);
+            deadline = undefined;
+            requestAbort.signal.removeEventListener("abort", settle);
+          };
+          if (failover) {
+            deadline = setTimeout(() => {
+              deadline = undefined;
+              countUnanswered();
+            }, rttTimeout);
+            requestAbort.signal.addEventListener("abort", settle, {
+              once: true,
+            });
+          }
 
           // Do not await here: response wait must not stretch the 4–6s cadence.
           nominated.protocol
@@ -231,6 +416,7 @@ export class ConsentFreshness {
               },
             )
             .then(() => {
+              settle();
               // Accept only responses for the current pair / generation / session.
               // Address / MESSAGE-INTEGRITY / response class are enforced in Transaction + protocol.
               if (sessionId !== this.sessionId || canceled) {
@@ -258,17 +444,24 @@ export class ConsentFreshness {
               nominated.responsesReceived++;
               this.fresh = true;
               refreshConsentExpiry();
-              if (state === "disconnected") {
+              if (failover) {
+                if (hooks?.enabled()) hooks.responded(nominated);
+                wake();
+              } else if (state === "disconnected") {
                 this.host.setState("connected");
               }
             })
             .catch((error) => {
+              settle();
               // Individual request loss is expected; keep monitoring (RFC 7675).
               if (
                 sessionId === this.sessionId &&
                 this.host.selected()?.id === pairId
               ) {
                 log("no stun response", error);
+                // Failover: counted at its deadline already, unless it
+                // failed before (e.g. it could not be sent).
+                if (failover && !requestAbort.signal.aborted) countUnanswered();
               }
             });
         }

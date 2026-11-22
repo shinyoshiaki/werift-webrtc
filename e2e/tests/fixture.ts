@@ -14,8 +14,6 @@ export const isFirefox = browserName === "Firefox";
  * `grep -rn "firefox-known:<name>" e2e/tests` and remove them.
  */
 export const firefoxKnownIssue = {
-  iceTcpActiveOnly:
-    "[firefox-known:ice-tcp-active-only] 8b7c8e4a: 相手が active の TCP 候補だけだと werift の ICE が check を待たずに failed になる",
   simulcastSsrcTrack:
     "[firefox-known:simulcast-ssrc-track] be690c2e: a=ssrc 付き simulcast answer で SSRC のトラックが別に作られ、そのレイヤーの RTX がそちらへ復元される",
 } as const;

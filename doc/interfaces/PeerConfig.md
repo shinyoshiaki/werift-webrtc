@@ -148,6 +148,20 @@ An address assigned to a local interface is bound like an enumerated one; any ot
 
 ***
 
+### iceFailover
+
+> **iceFailover**: [`IceFailoverOptions`](IceFailoverOptions.md) \| `undefined`
+
+werift extension. Thresholds of the failover of the selected candidate
+pair without an ICE restart (with semi-aggressive nomination or
+renomination): how soon a pair is unwritable (`unwritableMinChecks`,
+`unwritableTimeout`) and how soon a selected pair that stopped receiving
+moves to a backup (`receivingTimeout`, `receivingSwitchingDelay`). Maps
+to `IceOptions.failover`; each unset or invalid value keeps its default
+(libwebrtc's: 5 checks, 5000 ms, 2500 ms, 1000 ms).
+
+***
+
 ### iceFilterCandidatePair
 
 > **iceFilterCandidatePair**: ((`pair`) => `boolean`) \| `undefined`
@@ -160,6 +174,22 @@ An address assigned to a local interface is bound like an enumerated one; any ot
 
 If provided, is called on each STUN request.
 Return `true` if a STUN response should be sent, false if it should be skipped.
+
+***
+
+### iceIncomingCheckTimeout
+
+> **iceIncomingCheckTimeout**: `number` \| `undefined`
+
+Seconds ICE waits for a connectivity check from the peer when it has no
+candidate pair of its own to check after both sides ended their
+candidates (the peer offered only active TCP candidates, as Firefox does
+for ICE-TCP, or none werift can reach). Without a check in that time the
+ICE transport fails. With `iceLite`, which sends no checks, ICE waits the
+same time whenever it has no candidate pair, also while it still
+gathers. The deadline is fixed when the wait begins; once gathering ended
+without a socket that could receive a check, ICE fails at once. Defaults
+to 30 when undefined; 0 fails at once.
 
 ***
 
@@ -365,7 +395,7 @@ such as google cloud run
 
 ### keyFrameRequestRouting
 
-> **keyFrameRequestRouting**: `"standard"` \| `"fallback"`
+> **keyFrameRequestRouting**: `"fallback"` \| `"standard"`
 
 Where a PLI / FIR goes when no route has its target SSRC (see
 [CompatibilityOptionValues](../variables/CompatibilityOptionValues.md) and [KeyFrameRequestRouting](../type-aliases/KeyFrameRequestRouting.md)).

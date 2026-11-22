@@ -5,8 +5,21 @@ import { createWebRtcDomException } from "../errors";
 
 export type BinaryLike = Buffer | ArrayBuffer | ArrayBufferView;
 
+export type UdpSocketFactory = () => Socket;
+
 export type UdpOrStreamSource =
-  | { udp: { port: number; address?: string }; stream?: never }
+  | {
+      udp: {
+        port: number;
+        address?: string;
+        /**
+         * @internal Creates the UDP socket (default
+         * `dgram.createSocket("udp4")`). Tests use it to observe sockets.
+         */
+        createSocket?: UdpSocketFactory;
+      };
+      stream?: never;
+    }
   | {
       udp?: never;
       stream: Readable | ReadableStream<Uint8Array>;
@@ -51,21 +64,13 @@ export function throwIfAborted(signal?: AbortSignal) {
   }
 }
 
-export type UdpSocketFactory = () => Socket;
-
-let udpSocketFactory: UdpSocketFactory = () => createSocket("udp4");
-
-export function setUdpSocketFactory(factory?: UdpSocketFactory) {
-  udpSocketFactory = factory ?? (() => createSocket("udp4"));
-}
-
 async function bindUdp(
-  udp: { port: number; address?: string },
+  udp: NonNullable<UdpOrStreamSource["udp"]>,
   onPacket: (packet: Buffer) => void,
   onError?: (error: DOMException) => void,
   signal?: AbortSignal,
 ) {
-  const socket: Socket = udpSocketFactory();
+  const socket: Socket = udp.createSocket?.() ?? createSocket("udp4");
   try {
     await new Promise<void>((resolve, reject) => {
       const onBindError = (error: Error) => {
@@ -144,6 +149,11 @@ async function bindUdp(
   return stop;
 }
 
+/**
+ * Process-wide on purpose: the key is the application's stream, which can be
+ * read by one reader only, so every register and track that opens the same
+ * stream must share one hub. The entry goes away when the hub closes.
+ */
 const streamHubs = new WeakMap<
   Readable | ReadableStream<Uint8Array>,
   StreamHub

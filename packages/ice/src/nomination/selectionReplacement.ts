@@ -50,6 +50,31 @@ export type SelectionHost = {
   isStaleNomination: (pair: CandidatePair, generation: number) => boolean;
   /** 487: the peer is controlling and wins; the agent becomes controlled. */
   roleConflict: () => void;
+  /**
+   * Failover: `pair` may be nominated to move the selection up (its socket
+   * is not one the agent failed over from and has not recovered yet, and it
+   * is not known to be unwritable). Unset: every pair.
+   */
+  allows?: (pair: CandidatePair) => boolean;
+  /**
+   * Failover (controlling): the nominated `pair` replaces the selection
+   * whatever its priority (the selection stopped answering, or it is the
+   * failover nomination's pair).
+   */
+  failoverReplaces?: (pair: CandidatePair) => boolean;
+  /** The nominating check of `pair` ended (any outcome, or aborted). */
+  nominationEnded?: (pair: CandidatePair) => void;
+  /**
+   * Failover applies (`Connection.failoverEnabled`): the retries of failed
+   * pairs that outrank the selection go on every last delay (16 s) instead
+   * of stopping after `OUTRANKING_RETRY_DELAYS_MS`.
+   */
+  retriesForever?: () => boolean;
+  /**
+   * Controlled agent: the selected pair stopped answering (failover), so a
+   * nomination of the peer equal to the selection's replaces it.
+   */
+  selectionDown?: () => boolean;
 };
 
 /**
@@ -119,19 +144,48 @@ export class SelectionReplacement {
         entry = { retries: 0 };
         this.retries.set(pair, entry);
       }
+      const forever = this.host.retriesForever?.() ?? false;
       if (
         entry.timer !== undefined ||
-        entry.retries >= OUTRANKING_RETRY_DELAYS_MS.length
+        (!forever && entry.retries >= OUTRANKING_RETRY_DELAYS_MS.length)
       ) {
         continue;
       }
       const current = entry;
       const remoteGeneration = this.host.remoteGeneration();
+      const delay =
+        OUTRANKING_RETRY_DELAYS_MS[
+          Math.min(current.retries, OUTRANKING_RETRY_DELAYS_MS.length - 1)
+        ];
       current.timer = setTimeout(() => {
         current.timer = undefined;
         current.retries++;
         this.retryOutrankingPair(pair, remoteGeneration);
-      }, OUTRANKING_RETRY_DELAYS_MS[current.retries]);
+      }, delay);
+    }
+  }
+
+  /**
+   * Failover (controlling): the selection stopped answering and no backup
+   * is writable, so the failed pairs that outrank it are checked at once
+   * instead of waiting for their next retry (libwebrtc pings at its strong
+   * interval when no connection is writable). One check per pair at a time:
+   * a pair being checked is not Failed.
+   */
+  checkFailedOutranking() {
+    const selected = this.host.selected();
+    if (
+      !selected ||
+      this.host.closed() ||
+      !this.host.controlling() ||
+      !this.host.replacesSelection()
+    ) {
+      return;
+    }
+    for (const pair of this.host.checkList()) {
+      if (!this.retriesOutranking(pair, selected)) continue;
+      log("check failed outranking pair at once", pair.toJSON());
+      this.host.check(pair);
     }
   }
 
@@ -140,7 +194,8 @@ export class SelectionReplacement {
     return (
       pair.state === CandidatePairState.FAILED &&
       this.host.replacesWith(pair) &&
-      this.host.outranks(pair, selected)
+      this.host.outranks(pair, selected) &&
+      this.allows(pair)
     );
   }
 
@@ -198,6 +253,16 @@ export class SelectionReplacement {
       if (pair.remoteNomination !== selected.remoteNomination) {
         return pair.remoteNomination > selected.remoteNomination;
       }
+      // Failover: the selected pair stopped answering and the peer
+      // nominates a valid pair as strongly as the selection (USE-CANDIDATE
+      // again): it replaces the selection without waiting for data, as
+      // libwebrtc's controlled agent ranks a writable connection first.
+      if (
+        this.host.selectionDown?.() &&
+        pair.state === CandidatePairState.SUCCEEDED
+      ) {
+        return true;
+      }
       // Equal nominations: the pair the peer last sent data on, as libwebrtc
       // (the peer's own selection may move to a lower-priority pair, e.g.
       // when the selected one stopped working).
@@ -207,6 +272,7 @@ export class SelectionReplacement {
       return this.host.outranks(pair, selected);
     }
     if (!this.host.replacesWith(pair)) return false;
+    if (this.host.failoverReplaces?.(pair)) return true;
     if (this.host.usesRenomination())
       return pair.nomination > selected.nomination;
     if (this.host.usesSemiAggressiveNomination()) {
@@ -259,7 +325,9 @@ export class SelectionReplacement {
     }
     const renomination = this.host.usesRenomination();
     const best = this.host.bestValidPair(
-      this.host.checkList().filter((pair) => this.host.replacesWith(pair)),
+      this.host
+        .checkList()
+        .filter((pair) => this.host.replacesWith(pair) && this.allows(pair)),
     );
     const selected = this.host.selected();
     if (!best || best === selected) return;
@@ -267,6 +335,20 @@ export class SelectionReplacement {
     // Semi-aggressive: the USE-CANDIDATE check that succeeded selected it.
     if (!renomination && best.nominated) return;
     void this.nominateSelection(best, renomination);
+  }
+
+  /**
+   * Failover (controlling): nominate `pair` now (USE-CANDIDATE, or the next
+   * NOMINATION value), whatever its priority; its success moves the
+   * selection (`replaces` with `failoverReplaces`).
+   */
+  nominate(pair: CandidatePair) {
+    if (this.inFlight || this.host.closed()) return;
+    void this.nominateSelection(pair, this.host.usesRenomination());
+  }
+
+  private allows(pair: CandidatePair) {
+    return this.host.allows?.(pair) ?? true;
   }
 
   private async nominateSelection(pair: CandidatePair, renomination: boolean) {
@@ -283,13 +365,18 @@ export class SelectionReplacement {
     // A role change, restart or close replaced it.
     if (this.inFlight !== current) return;
     this.inFlight = undefined;
-    if (this.host.isStaleNomination(pair, remoteGeneration)) return;
+    if (this.host.isStaleNomination(pair, remoteGeneration)) {
+      this.host.nominationEnded?.(pair);
+      return;
+    }
     if (outcome === "nominated") {
       if (value !== undefined) pair.nomination = value;
       pair.nominated = true;
       this.host.complete(pair);
+      this.host.nominationEnded?.(pair);
       return;
     }
+    this.host.nominationEnded?.(pair);
     if (outcome === "role-conflict") {
       // 487: the peer is controlling and wins; it nominates.
       this.host.roleConflict();
@@ -303,8 +390,10 @@ export class SelectionReplacement {
   }
 
   abort() {
-    this.inFlight?.abort.abort();
+    const inFlight = this.inFlight;
+    inFlight?.abort.abort();
     this.inFlight = undefined;
+    if (inFlight) this.host.nominationEnded?.(inFlight.pair);
   }
 
   /**
@@ -336,7 +425,8 @@ export class SelectionReplacement {
               (pair.state === CandidatePairState.WAITING ||
                 pair.state === CandidatePairState.FROZEN) &&
               this.host.replacesWith(pair) &&
-              this.host.outranks(pair, selected),
+              this.host.outranks(pair, selected) &&
+              this.allows(pair),
           );
         if (!pair) return;
         this.host.check(pair);
