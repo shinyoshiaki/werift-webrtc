@@ -4,7 +4,7 @@ ide:
   version: 1
   title: "Simulcast: a=ssrc / FID 付き RID 受信を RID のトラック 1 本にそろえる"
   dock: right
-  baseCommit: da7457e23a69cdc59c7222c2ad92c1d6e1d41a70
+  baseCommit: 38b856315447db61186d61c140155f203de2dd29
 ---
 # Simulcast: a=ssrc / FID 付き RID 受信を RID のトラック 1 本にそろえる
 
@@ -67,6 +67,15 @@ RID で simulcast を受ける m-line に `a=ssrc` / `a=ssrc-group:FID` があ�
 
 状態の扱いは [packages/webrtc/src/negotiationTransaction.ts:147](review-diff:packages/webrtc/src/negotiationTransaction.ts:147) の設計コメントに追記しました。
 
+### 3.3.1 確定で外れた FID の RTX SSRC の経路を解放する（最新コミット 38b856315）
+
+再レビュー指摘への修正です。再交渉の確定で FID の組が外れた RTX SSRC に SDP 由来の経路が残ると、BUNDLE の別 m-line が同じ SSRC を MID と repaired RID 付きで使っても、古い受信者へ届いてしまいます。
+
+- [packages/webrtc/src/media/rtpReceiver.ts:1432](review-diff:packages/webrtc/src/media/rtpReceiver.ts:1432): `takeDroppedFidRtxSsrcs` を追加。確定で FID の組が外れ、かつ他の記述（FID、トラック SSRC、`a=ssrc` の RTX 対応）にも残っていない RTX SSRC を返します。rollback のスナップショット復元と reset では記録を空にします。
+- [packages/webrtc/src/media/router.ts:604](review-diff:packages/webrtc/src/media/router.ts:604): `releaseDroppedFidRtx` が、その SSRC の SDP 由来の経路と `stagedSsrc` / `provisionalSsrc` を外します。パケットから学習した経路は残します。以降のパケットは未知の SSRC として MID と repaired RID で振り分けられます。
+- [packages/webrtc/src/negotiationTransaction.ts:345](review-diff:packages/webrtc/src/negotiationTransaction.ts:345): 確定処理で、各受信者が FID 表を確定した後に呼びます。設計コメントも更新しました。
+- テスト: [packages/webrtc/tests/media/firefoxSimulcastRepairedRidRoute.test.ts](review-file:packages/webrtc/tests/media/firefoxSimulcastRepairedRidRoute.test.ts) に 2 件。外れた RTX SSRC が repaired RID の指す RID のトラックへ学習で復元されるケースと、BUNDLE の別 m-line が使うケースです。共有 Arrange は [packages/webrtc/tests/media/rtpReceiverTestUtils.ts](review-file:packages/webrtc/tests/media/rtpReceiverTestUtils.ts) に追加しています。
+
 ### 3.4 a=rid の制約の保持
 
 [packages/webrtc/src/sdp.ts:291](review-diff:packages/webrtc/src/sdp.ts:291) で `a=rid:high send max-width=1280` の制約を `restrictions` として保持し、再出力します。answer 側では offerer の制約を落とします（[packages/webrtc/src/sdpManager.ts:1094](review-diff:packages/webrtc/src/sdpManager.ts:1094)）。direction に制約が混ざって RID 受信を取り逃すのを防ぐための変更です。
@@ -92,6 +101,7 @@ RID で simulcast を受ける m-line に `a=ssrc` / `a=ssrc-group:FID` があ�
 
 ## 6. レビュアーが確認すべき点・リスク
 
+- 3.3.1 の経路解放は、確定後に外れた RTX SSRC にだけ働きます。他の記述が同じ SSRC を使い続ける場合は解放しません。この「他の記述」の判定条件が十分か確認してください。
 - `onTrack` の回数が変わるのは「RID 受信 + a=ssrc あり」のときだけです。非 simulcast、Chrome 形式、offer 側の送信は `receivesByRid` が偽なら従来の経路です。
 - 公開 API の変更はありません（`ridRtxPairs` と `restrictions` は内部用）。`changelog.md` と docs の更新は差分にありません。この判断でよいか確認してください。
 - 再交渉まわりの状態が増えています（`ridFidMediaByRtx`、`stagedRidFidTable`、スナップショット）。確定・rollback の対称性を [packages/webrtc/src/media/rtpReceiver.ts:600](review-diff:packages/webrtc/src/media/rtpReceiver.ts:600) 付近で見てください。
@@ -104,4 +114,5 @@ RID で simulcast を受ける m-line に `a=ssrc` / `a=ssrc-group:FID` があ�
 
 - Firefox の simulcast 単体記録 [e2e/firefox-runs/20261121T034729Z-149b8bcf6.json](review-file:e2e/firefox-runs/20261121T034729Z-149b8bcf6.json): 3 件 passed / 0 failed（`mediachannel_simulcast_rtx_answer` を含む）。
 - 全スイートの記録 `20261121T032323Z-affd1237e.json`: simulcast 3 件は通過、ICE の既知失敗のみ残る。
+- 最新コミット 38b856315 のテスト（firefoxSimulcastRepairedRidRoute 追加 2 件）は、この作業では再実行していません。
 - `packages/webrtc` の `npm test`、`npm run type`、`npm run test:small`、Chrome の `npm run e2e` の結果は、この作業では再確認していません（最終承認時の結果に委ねます）。
