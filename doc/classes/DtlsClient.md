@@ -420,13 +420,21 @@ or a synchronous throw) is only logged.
 
 ### handleFragmentHandshake()
 
-> **handleFragmentHandshake**(`messages`): `FragmentedHandshake`[]
+> **handleFragmentHandshake**(`messages`, `epoch?`): `FragmentedHandshake`[]
+
+Returns the handshake messages that `messages` (received in a record of
+`epoch`) complete. Spec: `tests/server.test.ts` › "handleFragmentHandshake
+returns a message only once every byte was received"
 
 #### Parameters
 
 ##### messages
 
 `FragmentedHandshake`[]
+
+##### epoch?
+
+`number` = `0`
 
 #### Returns
 

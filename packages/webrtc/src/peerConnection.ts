@@ -45,6 +45,7 @@ import { IceRestartRequest } from "./negotiation/iceRestartRequest";
 import { NegotiationNeeded } from "./negotiation/negotiationNeeded";
 import {
   normalizeCandidateUfrag,
+  normalizeEmptyCandidateMid,
   RemoteCandidates,
 } from "./negotiation/remoteCandidates";
 import { RemoteMediaApplication } from "./negotiation/remoteMediaApplication";
@@ -119,6 +120,9 @@ const log = debug("werift:packages/webrtc/src/peerConnection.ts");
  * - `addIceCandidate()` also validates `sdpMid` / `sdpMLineIndex` /
  *   `usernameFragment` against the applied remote description and appends
  *   candidates or end-of-candidates markers to the corresponding m-section.
+ *   An empty `sdpMid` with a numeric `sdpMLineIndex` (as Pion sends) is
+ *   resolved by the index, as libwebrtc and Firefox do; the W3C steps reject it with
+ *   OperationError. An empty `sdpMid` without an index is still rejected.
  *   The public API keeps werift's historical pre-SRD buffering behavior, while
  *   the WPT runner wraps the class to exercise strict spec rejection.
  * - `bundlePolicy: "balanced"` is accepted for input compatibility but is
@@ -404,11 +408,14 @@ export class RTCPeerConnection extends EventTarget {
       this.negotiation,
       this.topology,
     );
+    // Test: tests/issue/815.notification.test.ts "datachannel: later listeners run and the channel opens on both ends"
     this.sctpManager.onDataChannel.subscribe((channel) => {
-      this.onDataChannel.execute(channel);
+      const onError = (error: unknown) =>
+        log("datachannel listener failed", error);
+      this.onDataChannel.executeIsolated(onError, channel);
       const event: RTCDataChannelEvent = { type: "datachannel", channel };
-      this.ondatachannel?.(event);
-      this.emit("datachannel", event);
+      notifySafely(log, "ondatachannel", () => this.ondatachannel?.(event));
+      this.emitIsolated(onError, "datachannel", event);
     });
     this.secureManager = new SecureTransportManager({
       config: this.config,
@@ -901,6 +908,25 @@ export class RTCPeerConnection extends EventTarget {
     return createdOffer;
   }
 
+  /**
+   * W3C webrtc-pc 4.4.1.6 step 2.2.6: an answer / pranswer negotiating the
+   * application m-line assigns stream IDs before its promise resolves, also
+   * when the DTLS role it keeps did not change.
+   * @see tests/issue/815.test.ts "issue 815: data channel stream IDs follow the DTLS role"
+   * @see tests/issue/815.test.ts "a %s gives the IDs back and the next answer, keeping the DTLS role, assigns them again"
+   */
+  private assignDataChannelIds(description: SessionDescription) {
+    if (description.type !== "answer" && description.type !== "pranswer") {
+      return;
+    }
+    const negotiatesApplication = description.media.some(
+      (media) => media.kind === "application" && media.port !== 0,
+    );
+    if (negotiatesApplication) {
+      this.sctpTransport?.assignPendingStreamIds();
+    }
+  }
+
   private createSctpTransport() {
     const sctp = this.sctpManager.createSctpTransport(
       this.config.maxMessageSize,
@@ -922,6 +948,9 @@ export class RTCPeerConnection extends EventTarget {
       id?: number;
     }> = {},
   ): RTCDataChannel {
+    // W3C webrtc-pc createDataChannel step 2: [[IsClosed]].
+    // Test: tests/issue/815.notification.test.ts "pc.close(): createDataChannel throws, channel.close() and pc.close() complete"
+    this.assertNotClosed();
     // Reject invalid input before creating the transport or scheduling
     // negotiation, so a failed call leaves the connection unchanged.
     assertDataChannelFieldLengths({ label, protocol: options.protocol });
@@ -1654,6 +1683,8 @@ export class RTCPeerConnection extends EventTarget {
         this.negotiation.transportByMid,
       );
 
+      this.assignDataChannelIds(description);
+
       if (description.type === "offer") {
         this.secureManager.markStagedIceRestartApplied();
         this.negotiation.settle();
@@ -1826,7 +1857,9 @@ export class RTCPeerConnection extends EventTarget {
           throw createWebRtcDomException("InvalidStateError", "is closed");
         }
 
-        candidateMessage = normalizeCandidateUfrag(candidateMessage);
+        candidateMessage = normalizeEmptyCandidateMid(
+          normalizeCandidateUfrag(candidateMessage),
+        );
         if (!this.remoteDescription || !this.sdpManager._remoteDescription) {
           const ufrag = candidateMessage?.usernameFragment;
           if (this.negotiation.isRetiredRemoteUfrag(ufrag)) {
@@ -2096,6 +2129,8 @@ export class RTCPeerConnection extends EventTarget {
         }
         throw error;
       }
+
+      this.assignDataChannelIds(remoteSdp);
 
       if (remoteSdp.type === "offer") {
         this.sdpManager.applyRemoteDescription(remoteSdp);

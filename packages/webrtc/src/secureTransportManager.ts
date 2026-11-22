@@ -231,9 +231,11 @@ export class SecureTransportManager {
       tcpPassive: this.config.iceTcpPassive,
       stunGatherTimeout: this.config.iceStunGatherTimeout,
       turnConnectTimeout: this.config.iceTurnConnectTimeout,
+      incomingCheckTimeout: this.config.iceIncomingCheckTimeout,
       nominationDelayMs: this.config.iceNominationDelayMs,
       nomination: this.config.iceNomination,
       renomination: this.config.iceRenomination,
+      failover: this.config.iceFailover,
       turnTlsOptions: this.config.turnTlsOptions,
       turnUdpFamily: this.config.turnUdpFamily,
       useLinkLocalAddress: this.config.iceUseLinkLocalAddress,
@@ -440,6 +442,14 @@ export class SecureTransportManager {
   }) {
     let mediaIndices: number[];
 
+    if (sdpMid === "" && typeof sdpMLineIndex !== "number") {
+      // addIceCandidate resolves "" with an index by the index
+      // (normalizeEmptyCandidateMid); without one no m-line is named.
+      throw createWebRtcDomException(
+        "OperationError",
+        "sdpMid is empty and no sdpMLineIndex was given",
+      );
+    }
     if (typeof sdpMid === "string") {
       const mediaIndex = sdp.media.findIndex(
         (media) => media.rtp.muxId === sdpMid,
@@ -750,6 +760,18 @@ export class SecureTransportManager {
       this.connectionState === "connected"
     ) {
       this.setConnectionState("disconnected");
+    } else if (
+      (newState === "connected" || newState === "completed") &&
+      this.connectionState === "disconnected" &&
+      // W3C: connected once every ICE transport is connected / completed /
+      // closed and every DTLS transport connected / closed (ICE recovered
+      // from `disconnected`, e.g. a failover without an ICE restart).
+      this.dtlsTransports.every(
+        (transport) =>
+          transport.state === "connected" || transport.state === "closed",
+      )
+    ) {
+      this.setConnectionState("connected");
     }
   }
 

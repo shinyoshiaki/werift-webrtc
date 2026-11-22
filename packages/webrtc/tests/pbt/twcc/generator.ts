@@ -1,6 +1,6 @@
+import type { SeededRandom } from "../../../../pbt/src";
 import type { SentInfo } from "../../../src";
 import { twccSentInfo } from "../../media/twccTestUtils";
-import type { SeededRandom } from "../shared/random";
 
 /**
  * Generators of the TWCC property test (`twccProperty.test.ts`). Every value

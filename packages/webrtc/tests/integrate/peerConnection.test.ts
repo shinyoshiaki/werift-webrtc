@@ -15,12 +15,29 @@ import {
   useSdesRTPStreamId,
 } from "../../src";
 import { SignatureAlgorithm } from "../../src/const";
+import { createLocalPeerConnection } from "../utils";
+import {
+  addIceCandidateEndOfCandidatesLine,
+  addIceCandidateLine1,
+  addIceCandidateLine2,
+  addIceCandidateMediaLine1,
+  addIceCandidateMediaLine2,
+  addIceCandidateSdpMid1,
+  addIceCandidateSdpMid2,
+  addIceCandidateSdpMLineIndex1,
+  addIceCandidateSdpMLineIndex2,
+  addIceCandidateUsernameFragment1,
+  addIceCandidateUsernameFragment2,
+  addIceCandidateWptSdp,
+  isCandidateLineAfter,
+  isCandidateLineBetween,
+} from "./addIceCandidateUtils";
 
 describe("peerConnection", () => {
   test("test_connect_datachannel_modern_sdp", async () =>
     new Promise<void>(async (done) => {
-      const pc1 = new RTCPeerConnection({});
-      const pc2 = new RTCPeerConnection({});
+      const pc1 = createLocalPeerConnection();
+      const pc2 = createLocalPeerConnection();
 
       pc2.onDataChannel.subscribe((channel) => {
         channel.onMessage.subscribe((data) => {
@@ -957,95 +974,6 @@ function assertHasIceCandidate(sdp: string) {
 function assertHasDtls(sdp: string, setup: string) {
   expect(sdp.includes("a=fingerprint:sha-256")).toBeTruthy();
   expect(sdp.includes("a=setup:" + setup)).toBeTruthy();
-}
-
-const addIceCandidateMediaLine1 = "m=audio";
-const addIceCandidateMediaLine2 = "m=video";
-const addIceCandidateSdpMid1 = "a1";
-const addIceCandidateSdpMLineIndex1 = 0;
-const addIceCandidateSdpMid2 = "v1";
-const addIceCandidateSdpMLineIndex2 = 1;
-const addIceCandidateUsernameFragment1 = "ETEn";
-const addIceCandidateUsernameFragment2 = "BGKk";
-const addIceCandidateLine1 =
-  "candidate:1 1 udp 2113929471 203.0.113.100 10100 typ host";
-const addIceCandidateLine2 =
-  "candidate:1 2 udp 2113929470 203.0.113.100 10101 typ host";
-const addIceCandidateEndOfCandidatesLine = "a=end-of-candidates";
-const addIceCandidateWptSdp = `v=0
-o=- 4962303333179871722 1 IN IP4 0.0.0.0
-s=-
-t=0 0
-a=ice-options:trickle
-a=group:BUNDLE a1 v1
-a=group:LS a1 v1
-m=audio 10100 UDP/TLS/RTP/SAVPF 96 0 8 97 98
-c=IN IP4 203.0.113.100
-a=mid:a1
-a=sendrecv
-a=rtpmap:96 opus/48000/2
-a=rtpmap:0 PCMU/8000
-a=rtpmap:8 PCMA/8000
-a=rtpmap:97 telephone-event/8000
-a=rtpmap:98 telephone-event/48000
-a=maxptime:120
-a=extmap:1 urn:ietf:params:rtp-hdrext:sdes:mid
-a=extmap:2 urn:ietf:params:rtp-hdrext:ssrc-audio-level
-a=msid:47017fee-b6c1-4162-929c-a25110252400 f83006c5-a0ff-4e0a-9ed9-d3e6747be7d9
-a=ice-ufrag:ETEn
-a=ice-pwd:OtSK0WpNtpUjkY4+86js7ZQl
-a=fingerprint:sha-256 19:E2:1C:3B:4B:9F:81:E6:B8:5C:F4:A5:A8:D8:73:04:BB:05:2F:70:9F:04:A9:0E:05:E9:26:33:E8:70:88:A2
-a=setup:actpass
-a=dtls-id:1
-a=rtcp:10101 IN IP4 203.0.113.100
-a=rtcp-mux
-a=rtcp-rsize
-m=video 10102 UDP/TLS/RTP/SAVPF 100 101
-c=IN IP4 203.0.113.100
-a=mid:v1
-a=sendrecv
-a=rtpmap:100 VP8/90000
-a=rtpmap:101 rtx/90000
-a=fmtp:101 apt=100
-a=extmap:1 urn:ietf:params:rtp-hdrext:sdes:mid
-a=rtcp-fb:100 ccm fir
-a=rtcp-fb:100 nack
-a=rtcp-fb:100 nack pli
-a=msid:47017fee-b6c1-4162-929c-a25110252400 f30bdb4a-5db8-49b5-bcdc-e0c9a23172e0
-a=ice-ufrag:BGKk
-a=ice-pwd:mqyWsAjvtKwTGnvhPztQ9mIf
-a=fingerprint:sha-256 19:E2:1C:3B:4B:9F:81:E6:B8:5C:F4:A5:A8:D8:73:04:BB:05:2F:70:9F:04:A9:0E:05:E9:26:33:E8:70:88:A2
-a=setup:actpass
-a=dtls-id:1
-a=rtcp:10103 IN IP4 203.0.113.100
-a=rtcp-mux
-a=rtcp-rsize
-`;
-
-function escapeRegExp(value: string) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function isCandidateLineBetween(
-  sdp: string,
-  beforeMediaLine: string,
-  candidateLine: string,
-  afterMediaLine: string,
-) {
-  const line1 = escapeRegExp(beforeMediaLine);
-  const line2 = escapeRegExp(candidateLine);
-  const line3 = escapeRegExp(afterMediaLine);
-  return new RegExp(`${line1}[^]+${line2}[^]+${line3}`).test(sdp);
-}
-
-function isCandidateLineAfter(
-  sdp: string,
-  beforeMediaLine: string,
-  candidateLine: string,
-) {
-  const line1 = escapeRegExp(beforeMediaLine);
-  const line2 = escapeRegExp(candidateLine);
-  return new RegExp(`${line1}[^]+${line2}`).test(sdp);
 }
 
 async function assertIceCompleted(
