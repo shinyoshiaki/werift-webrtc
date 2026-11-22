@@ -6,17 +6,30 @@ import {
 import { type Cancelable, cancelable } from "./helper";
 import {
   type CandidatePair,
-  CONNECTION_WRITE_CONNECT_TIMEOUT,
   CONSENT_INTERVAL,
   CONSENT_TIMEOUT,
   consentResponseTimeoutMs,
   type IceState,
+  WEAK_OR_STABILIZING_WRITABLE_CONNECTION_PING_INTERVAL,
 } from "./iceBase";
 import { type Address, debug } from "./imports/common";
 import type { MessageIntegrityMode } from "./stun/const";
 import type { Message } from "./stun/message";
 
 const log = debug("werift-ice : packages/ice/src/consent.ts : log");
+
+/**
+ * Consent requests a session keeps open at once: the requests the shortest
+ * send interval emits within `CONSENT_TIMEOUT`, so no request that can still
+ * be answered in time is ended by the limit. The shortest interval is
+ * failover's weak interval (900 ms), not the regular `CONSENT_INTERVAL`
+ * (4 s); one extra covers the request being sent now.
+ */
+export const CONSENT_MAX_OUTSTANDING_REQUESTS =
+  Math.ceil(
+    (CONSENT_TIMEOUT * 1000) /
+      WEAK_OR_STABILIZING_WRITABLE_CONNECTION_PING_INTERVAL,
+  ) + 1;
 
 /** What the agent supplies to its `ConsentFreshness`. */
 export type ConsentHost = {
@@ -83,6 +96,15 @@ export type ConsentFailoverHooks = {
  * the pair counts as the first response); `stop()` ends it without changing
  * the agent's state. A session id invalidates the callbacks of an ended
  * session (restart, close, a replaced selection, expiry).
+ *
+ * Each request is sent once and its transaction stays open for
+ * `CONSENT_TIMEOUT`: a later request does not end it, so a response that
+ * comes after the next request (a round trip longer than the RTT estimate
+ * or than the interval) still refreshes the consent, as RFC 7675 §5.1 allows
+ * ("the response may be for a previous request"). The session keeps at most
+ * {@link CONSENT_MAX_OUTSTANDING_REQUESTS} of them open, and ending the
+ * session (stop, expiry, restart, close) ends them all, so a response after
+ * the expiry does not bring the consent back.
  */
 export class ConsentFreshness {
   /** Consent-to-send: application data may use the selected pair. */
@@ -91,7 +113,8 @@ export class ConsentFreshness {
   sessionId = 0;
   private handle?: Cancelable<void>;
   private expiryTimer?: ReturnType<typeof setTimeout>;
-  private requestAbort?: AbortController;
+  /** The consent requests in flight (oldest first), one controller each. */
+  private readonly outstanding = new Set<AbortController>();
   /**
    * Counts `cancelRequests()` (a role change): a request sent before it was
    * cancelled, and its failure says nothing about the path.
@@ -117,8 +140,7 @@ export class ConsentFreshness {
       clearTimeout(this.expiryTimer);
       this.expiryTimer = undefined;
     }
-    this.requestAbort?.abort();
-    this.requestAbort = undefined;
+    this.abortRequests();
     const handle = this.handle;
     this.handle = undefined;
     // Resolve after clearing the field so a stale onCancel cannot wipe a replacement.
@@ -132,8 +154,19 @@ export class ConsentFreshness {
    */
   cancelRequests() {
     this.requestEpoch++;
-    this.requestAbort?.abort();
-    this.requestAbort = undefined;
+    this.abortRequests();
+  }
+
+  /** The consent requests still in flight (diagnostics and tests). @internal */
+  get outstandingRequests() {
+    return this.outstanding.size;
+  }
+
+  /** End every consent request in flight (RFC 7675: discarded on expiry). */
+  private abortRequests() {
+    const controllers = [...this.outstanding];
+    this.outstanding.clear();
+    for (const controller of controllers) controller.abort();
   }
 
   /**
@@ -226,8 +259,7 @@ export class ConsentFreshness {
           // Expire independently of request cadence / failure count (RFC 7675).
           this.fresh = false;
           this.sessionId++;
-          this.requestAbort?.abort();
-          this.requestAbort = undefined;
+          this.abortRequests();
           if (this.handle === handle) {
             this.handle = undefined;
           }
@@ -248,8 +280,7 @@ export class ConsentFreshness {
         // Avoid clearing a replacement session's timer/handle.
         if (sessionId === this.sessionId) {
           clearConsentExpiry();
-          this.requestAbort?.abort();
-          this.requestAbort = undefined;
+          this.abortRequests();
         }
         cancelEvent.abort();
         if (this.handle === handle) {
@@ -274,11 +305,10 @@ export class ConsentFreshness {
       // an unanswered request, and at once (no sooner than that interval)
       // when nothing was received for `receivingTimeout`
       // (WEAK_CONNECTION_RECEIVE_TIMEOUT).
-      // Requests keep this pacing whatever their response timeout (RTT
-      // based, it may exceed that interval): the next one does not cancel
-      // or wait for one still in flight, so a slow response still counts
-      // and a dead path is told within the D3 bound on a high-RTT path too.
-      // An outcome wakes the wait up.
+      // Requests keep this pacing whatever their round trip: the next one
+      // does not cancel or wait for one still in flight, so a slow response
+      // still counts and a dead path is told within the D3 bound on a
+      // high-RTT path too. An outcome wakes the wait up.
       let wakeup: AbortController | undefined;
       let lastSentAt = Date.now();
       let stableInterval = nextConsentAt - lastSentAt;
@@ -294,6 +324,10 @@ export class ConsentFreshness {
           : lastSentAt + stableInterval;
       };
       const wake = () => wakeup?.abort();
+      // When the request that gave the pair's current RTT was sent: a
+      // response to an older request (responses out of order) counts in the
+      // RTT totals but does not replace a newer estimate.
+      let rttSampleSentAt = Number.NEGATIVE_INFINITY;
       if (hooks) this.wakeLoop = wake;
 
       try {
@@ -353,31 +387,30 @@ export class ConsentFreshness {
             continue;
           }
 
-          // Failover: the requests of the session share one signal (stopped
-          // together); otherwise a request replaces the previous one.
-          let requestAbort: AbortController;
-          if (failover && this.requestAbort) {
-            requestAbort = this.requestAbort;
-          } else {
-            this.requestAbort?.abort();
-            requestAbort = new AbortController();
-            this.requestAbort = requestAbort;
+          // Each request has its own controller: a later request leaves it
+          // open (its response may come after the next request), the session
+          // ends them all, and beyond the limit the oldest one ends.
+          const requestAbort = new AbortController();
+          this.outstanding.add(requestAbort);
+          if (this.outstanding.size > CONSENT_MAX_OUTSTANDING_REQUESTS) {
+            const [oldest] = this.outstanding;
+            this.outstanding.delete(oldest!);
+            oldest!.abort();
           }
 
           nominated.consentRequestsSent++;
           nominated.requestsSent++;
 
-          // RTT-aware wait (floor 500ms); independent of retransmissions: 0.
+          // RTT-aware deadline (floor 500ms): failover counts the request
+          // as unanswered once it passed without a response. It does not end
+          // the transaction: that stays open for CONSENT_TIMEOUT (sent once,
+          // retransmissions: 0), so a response slower than the RTT estimate
+          // (the path's RTT rose, a busy event loop) still refreshes the
+          // consent; ending it at the estimate would drop every response
+          // once the RTT rose above it, and the estimate is only updated by
+          // a response it took.
           const rttTimeout = consentResponseTimeoutMs(nominated.rtt);
-          // Failover: the request counts as unanswered once `rttTimeout`
-          // passed without a response, but its transaction stays open up to
-          // CONNECTION_WRITE_CONNECT_TIMEOUT, so a late response (a busy
-          // event loop handles it after that timer, a delayed path) still
-          // counts as a response, as libwebrtc accepts a ping's response
-          // after it was counted as missing.
-          const responseTimeout = failover
-            ? Math.max(rttTimeout, CONNECTION_WRITE_CONNECT_TIMEOUT)
-            : rttTimeout;
+          const responseTimeout = CONSENT_TIMEOUT * 1000;
           const requestStartedAt = performance.now();
           let countedUnanswered = false;
           const countUnanswered = () => {
@@ -403,16 +436,17 @@ export class ConsentFreshness {
           const settle = () => {
             if (deadline !== undefined) clearTimeout(deadline);
             deadline = undefined;
+            this.outstanding.delete(requestAbort);
             requestAbort.signal.removeEventListener("abort", settle);
           };
+          requestAbort.signal.addEventListener("abort", settle, {
+            once: true,
+          });
           if (failover) {
             deadline = setTimeout(() => {
               deadline = undefined;
               countUnanswered();
             }, rttTimeout);
-            requestAbort.signal.addEventListener("abort", settle, {
-              once: true,
-            });
           }
 
           // Do not await here: response wait must not stretch the 4–6s cadence.
@@ -458,7 +492,10 @@ export class ConsentFreshness {
               }
 
               const rtt = (performance.now() - requestStartedAt) / 1000; // seconds
-              nominated.rtt = rtt;
+              if (requestStartedAt > rttSampleSentAt) {
+                rttSampleSentAt = requestStartedAt;
+                nominated.rtt = rtt;
+              }
               nominated.totalRoundTripTime += rtt;
               nominated.roundTripTimeMeasurements++;
 
