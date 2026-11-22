@@ -121,3 +121,20 @@ describe("RTCSessionDescription constructor type", () => {
     expect(() => new RTCSessionDescription({ sdp: "v=0" })).toThrow(TypeError);
   });
 });
+
+describe("RTCSessionDescription sdp conversion", () => {
+  test("only undefined uses the default; null follows the WebIDL DOMString conversion", () => {
+    // Act: sdp を省略 / undefined / null で渡す
+    const omitted = new RTCSessionDescription({ type: "offer" });
+    const undef = new RTCSessionDescription({ type: "offer", sdp: undefined });
+    const nul = new RTCSessionDescription({
+      type: "offer",
+      sdp: null as unknown as string,
+    });
+
+    // Assert: 省略と undefined は既定値 ""、null は文字列変換で "null"
+    expect(omitted.sdp).toBe("");
+    expect(undef.sdp).toBe("");
+    expect(nul.sdp).toBe("null");
+  });
+});

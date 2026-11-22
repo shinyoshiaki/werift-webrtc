@@ -868,7 +868,7 @@ export class RTCSessionDescription {
         );
       }
       type = givenType as RTCSdpType;
-      sdp = init.sdp == undefined ? "" : String(init.sdp);
+      sdp = init.sdp === undefined ? "" : String(init.sdp);
     }
     Object.defineProperties(this, {
       sdp: {
