@@ -1,5 +1,5 @@
 import { createSocket } from "node:dgram";
-import { createServer, type Server } from "node:net";
+import { createServer, type Server, type Socket } from "node:net";
 import { setTimeout as delay } from "node:timers/promises";
 
 import { vi } from "vitest";
@@ -21,7 +21,7 @@ const credentials = {
 };
 
 async function listenTcp(reply: (request: Message) => Message) {
-  const sockets = new Set<import("node:net").Socket>();
+  const sockets = new Set<Socket>();
   const server = createServer((socket) => {
     sockets.add(socket);
     socket.on("close", () => sockets.delete(socket));

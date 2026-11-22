@@ -4,6 +4,13 @@ export class TransportContext {
   public socket: Transport;
 
   /**
+   * Association-owned peer destination for DTLS 1.2 TX.
+   * When set, {@link send} without an explicit addr uses this tuple instead of
+   * mutable UDP rinfo (which spoofed packets can overwrite before demux drop).
+   * Dual association sets this via pin; clear on hard-close.
+   */
+  pinnedPeer?: Address;
+  /**
    * Aborted by `close()` or `stopFlights()`: a flight waiting to retransmit
    * stops and no flight is sent any more.
    */
@@ -17,7 +24,7 @@ export class TransportContext {
   }
 
   readonly send = (buf: Buffer, addr?: Address) => {
-    return this.socket.send(buf, addr);
+    return this.socket.send(buf, addr ?? this.pinnedPeer);
   };
 
   get closedSignal(): AbortSignal {

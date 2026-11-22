@@ -1,4 +1,5 @@
 import { SCTP_STATE } from "../../../sctp/src";
+import { type PeerConfig, peerConfigHasDtls13 } from "../api/peerConfig";
 import { debug, type Event } from "../imports/common";
 import type { TransceiverManager } from "../media";
 import type { NegotiationTransaction } from "../negotiationTransaction";
@@ -30,6 +31,7 @@ export class TransportActivation {
   private readonly topology: BundleTopology;
   private readonly host: {
     signalingState: () => RTCSignalingState;
+    config: () => PeerConfig;
     /** The transport a transceiver starts on (BUNDLE policy aware). */
     createTransport: () => RTCDtlsTransport;
   };
@@ -49,6 +51,7 @@ export class TransportActivation {
     topology: BundleTopology,
     host: {
       signalingState: () => RTCSignalingState;
+      config: () => PeerConfig;
       /** The transport a transceiver starts on (BUNDLE policy aware). */
       createTransport: () => RTCDtlsTransport;
     },
@@ -231,6 +234,17 @@ export class TransportActivation {
    */
   async connect() {
     log("start connect");
+    const config = this.host.config();
+    if (config.sped === true && !peerConfigHasDtls13(config)) {
+      throw new Error(
+        "PeerConfig.sped requires DTLS 1.3 in dtls.protocolVersions",
+      );
+    }
+    if (config.sped === true && config.dtls.helloRetryRequest) {
+      throw new Error(
+        "PeerConfig.sped cannot be combined with dtls.helloRetryRequest",
+      );
+    }
     const epoch = this.connectEpoch;
 
     const res = await Promise.allSettled(
@@ -263,7 +277,18 @@ export class TransportActivation {
           // A connectionstatechange subscriber may have restarted ICE: the
           // new generation's own connect() starts its checks.
           if (replaced()) return false;
-          const error = await iceTransport.start().then(
+          // SPED: the DTLS handshake rides on the ICE Binding exchange, so
+          // both start together instead of DTLS waiting for ICE.
+          const dtlsPromise =
+            config.sped === true &&
+            dtlsTransport.state === "new" &&
+            dtlsTransport.hasRemoteParameters
+              ? dtlsTransport.start()
+              : undefined;
+          const error = await Promise.all([
+            iceTransport.start(),
+            dtlsPromise,
+          ]).then(
             () => undefined,
             (err: unknown) => err ?? new Error("ICE start failed"),
           );
@@ -273,6 +298,27 @@ export class TransportActivation {
             throw error;
           }
           iceReady = true;
+          if (dtlsPromise) {
+            // As for a DTLS transport started after ICE (below): start()
+            // also returns when it closed meanwhile, which ends the attempt
+            // as failed while a live m-line uses it, and SCTP on it is
+            // ensured before this transport activation completes.
+            if (
+              (dtlsTransport.state as RTCDtlsTransport["state"]) !== "connected"
+            ) {
+              if (this.secure.dtlsTransports.includes(dtlsTransport)) {
+                throw new Error(`DTLS transport ${dtlsTransport.state}`);
+              }
+              return false;
+            }
+            if (
+              this.sctp.sctpTransport &&
+              this.sctp.sctpTransport.dtlsTransport.id === dtlsTransport.id
+            ) {
+              await this.sctp.connectSctp();
+            }
+            return progressed;
+          }
         } else if (iceTransport.state === "checking") {
           // Checks an earlier connect() (or a pranswer) started are awaited,
           // never started again.
