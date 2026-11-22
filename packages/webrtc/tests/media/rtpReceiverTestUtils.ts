@@ -689,3 +689,48 @@ export function firefoxSingleStreamOfferWithFid(media: number, rtx: number) {
     .filter((line) => !/^a=(rid|simulcast):/.test(line))
     .join("\r\n");
 }
+
+/**
+ * Arrange (acceptance): a werift peer that negotiated Firefox-style simulcast
+ * ({@link firefoxSimulcastSdp}: `a=rid` ×2, `a=simulcast`, RID / repaired RID
+ * extensions, `a=ssrc` ×4, `a=ssrc-group:FID` ×2) as the answerer of
+ * Firefox's offer (`role: "offer"`) or the offerer Firefox answers
+ * (`role: "answer"`). `announced` is what `transceiver.onTrack` gave the
+ * application (one event per remote track), `ontrack` what `pc.ontrack` gave
+ * (one per transceiver); `receive` feeds RTP to the receiving DTLS transport
+ * as SRTP decryption would, without ICE.
+ */
+export async function negotiateFirefoxSimulcast(role: "offer" | "answer") {
+  const pc = createFirefoxSimulcastReceivingPeer();
+  const announced: MediaStreamTrack[] = [];
+  const ontrack: MediaStreamTrack[] = [];
+  pc.ontrack = ({ track }) => ontrack.push(track);
+  const watch = (transceiver: RTCRtpTransceiver) =>
+    transceiver.onTrack.subscribe((track) => announced.push(track));
+  if (role === "offer") {
+    pc.onTransceiverAdded.subscribe(watch);
+    await pc.setRemoteDescription({
+      type: "offer",
+      sdp: firefoxSimulcastSdp({ type: "offer" }),
+    });
+    await pc.setLocalDescription(await pc.createAnswer());
+  } else {
+    watch(
+      pc.addTransceiver("video", {
+        direction: "recvonly",
+        simulcast: [
+          { rid: "high", direction: "recv" },
+          { rid: "low", direction: "recv" },
+        ],
+      }),
+    );
+    await pc.setLocalDescription(await pc.createOffer());
+    await pc.setRemoteDescription({
+      type: "answer",
+      sdp: firefoxSimulcastSdp({ type: "answer" }),
+    });
+  }
+  const dtls = pc.getTransceivers()[0].receiver.dtlsTransport;
+  const receive = (packet: RtpPacket) => dtls.onRtp.execute(packet);
+  return { pc, announced, ontrack, receive };
+}

@@ -14,6 +14,18 @@ RID で simulcast を受ける m-line に `a=ssrc` / `a=ssrc-group:FID` があ�
 
 `a=ssrc` は RID を指さないため、SDP からレイヤーを決めず、RID 付きパケットから学習する経路に一本化しました。FID は「RTX SSRC → 媒体 SSRC」の表としてだけ保持し、再交渉（pranswer / rollback / 再 offer）でも壊れないようにしています。
 
+### 受け入れテスト（ここだけ見れば目的の達成を確認できます）
+
+[packages/webrtc/tests/media/firefoxSimulcast/acceptance.test.ts:19](review-file:packages/webrtc/tests/media/firefoxSimulcast/acceptance.test.ts:19) は、Firefox 形式の SDP（`a=rid` ×2、`a=simulcast`、RID / RRID 拡張、`a=ssrc` ×4、`a=ssrc-group:FID` ×2）で交渉した werift に、受信側 DTLS transport の `onRtp` から RTP を入れて確かめます。準備は [packages/webrtc/tests/media/rtpReceiverTestUtils.ts](review-file:packages/webrtc/tests/media/rtpReceiverTestUtils.ts) の `negotiateFirefoxSimulcast` です。
+
+| テスト | 確認すること |
+| --- | --- |
+| (Firefox の offer を受ける側) 6章 | `transceiver.onTrack` は high / low の 2 回だけ、両レイヤーの RTX 復元が自分の RID のトラックへ届く、`pc.ontrack` は 1 回 |
+| (Firefox の answer を受ける側) 6章 | 同上（werift が offer し Firefox が answer する向き） |
+
+- 実行: `cd packages/webrtc && npx vitest run tests/media/firefoxSimulcast/acceptance.test.ts`（1 秒未満、10 回連続で成功）
+- 検出力: RID m-line でも `a=ssrc` を encoding に入れる（修正前の挙動）、RID 受信の判定を常に偽にする、のどちらでも 2 件とも失敗します。修正前のリビジョン `05193d4ac` でも 2 件とも失敗します（トラックが 3 本）。
+
 ## 2. 修正前の問題と修正後の仕組み
 
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:13px;font-family:sans-serif">

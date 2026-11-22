@@ -61,3 +61,22 @@ answer 適用の流れ（`packages/webrtc/src/transceiverManager.ts`）:
 
 - `ice/failover`（werift の host ソケット切断後に relay ペアへ移る 2 件）: develop `75bf5ed0a` で同じファイルを単体実行しても同じ 2 件が失敗する。
 - `ice/nomination`（relay から host への切り替え 4 件）: このチケット以前の記録（`20261118T233958Z-bcbcc593a.json` など）から同じ 4 件が失敗している。再現調査は別チケットで扱う。
+
+## 8. 受け入れテスト
+
+- ファイル: `packages/webrtc/tests/media/firefoxSimulcast/acceptance.test.ts`（準備は `tests/media/rtpReceiverTestUtils.ts` の `negotiateFirefoxSimulcast`）。
+- Before → After: Firefox 形式（`a=ssrc` / `ssrc-group:FID` 付き）の simulcast を RID で受けると、RID のトラックとは別に SSRC のトラックが通知され、high の RTX がそちらへ復元されていた → `transceiver.onTrack` は RID の数だけ発火し、両レイヤーの RTX はそれぞれの RID のトラックへ復元される。
+- 受け手の向き（Firefox の offer を受ける / Firefox の answer を受ける）ごとに 1 件。RTP は受信側 DTLS transport の `onRtp` から入れる（SRTP 復号後と同じ入口、ICE なし）。
+- 期待の訂正: 最初は `pc.ontrack` が RID の数だけ発火すると書いたが、`pc.ontrack` は transceiver ごとに 1 回（`TransceiverManager.notifyRemoteTrack`、仕様どおり）。チケットの「`onTrack` は RID の数だけ」は `transceiver.onTrack` のことなので、そちらで数え、`pc.ontrack` は 1 回であることを確かめる形に直した。実装の変更はない。
+
+検出力（1 か所ずつ書き換えて対象ファイルだけ実行し、元に戻した）:
+
+| 壊した箇所 | offer を受ける側 | answer を受ける側 |
+| --- | --- | --- |
+| `getRemoteRtpParams`: RID m-line でも `a=ssrc` を encoding に入れる（修正前の挙動） | 失敗 | 失敗 |
+| `receivesByRid` を常に `false` | 失敗 | 失敗 |
+| `handleRtxByRid` が repaired RID を復元先の決定に渡さない | 成功 | 成功 |
+| 修正前のリビジョン `05193d4ac`（一時 worktree） | 失敗（トラック 3 本） | 失敗（トラック 3 本） |
+
+3 行目が通るのは、RTX SSRC の RID への結び付け（`bindRtxSsrc`）と FID の対応でも同じ RID が求まる冗長な経路のため。目的を支える仕組み（SSRC のトラックを作らない判定）は 1・2 行目で検出できている。
+
