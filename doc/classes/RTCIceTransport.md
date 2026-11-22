@@ -160,13 +160,13 @@ URLs of a STUN / TURN server that answered while gathering (see RTCIceGatherer.o
 
 ### onStateChange
 
-> `readonly` **onStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"disconnected"` \| `"completed"` \| `"new"` \| `"connected"` \| `"failed"` \| `"checking"`\]\>
+> `readonly` **onStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"connected"` \| `"disconnected"` \| `"completed"` \| `"new"` \| `"failed"` \| `"checking"`\]\>
 
 ***
 
 ### state
 
-> **state**: `"closed"` \| `"disconnected"` \| `"completed"` \| `"new"` \| `"connected"` \| `"failed"` \| `"checking"` = `"new"`
+> **state**: `"closed"` \| `"connected"` \| `"disconnected"` \| `"completed"` \| `"new"` \| `"failed"` \| `"checking"` = `"new"`
 
 ## Accessors
 

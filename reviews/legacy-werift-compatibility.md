@@ -65,7 +65,7 @@
 
 **原因:** 現行は RFC 8832 §6 に従い、DTLS role で stream ID の parity を決めます（client は偶数、server は奇数）。0.26.0 は ICE role で決めます（controlling は奇数）。ICE role と DTLS role の対応がずれる構成（現行が DTLS server かつ ICE controlled、または DTLS client かつ ICE controlling）では、両者が同じ parity を使い、どちらも小さい番号から数えます。両側から同時に開くと同じ ID になり、どちらの側も相手の OPEN を「既に開いている」として ACK だけを返すため、相手のチャネルは現れず、メッセージは別の label の自分のチャネルへ混線していました。
 
-**修正:** `packages/webrtc/src/transport/sctp.ts` で、ICE role と DTLS role の対応がずれる構成に限り、DTLS role の parity のまま、交渉済みの stream 数の上端から小さい方へ ID を割り当てます（例: 65533、65531、…）。旧 werift は下端から数えるので、両者の ID が出会うのは約 3 万本を開いた後です。DTLS role の parity は守るので、RFC 8832 に従う peer（逆の parity を使う）とも衝突しません。対応が揃う通常の構成（offerer が ICE controlling かつ DTLS server）の ID は、これまでどおり 0/1、2/3、… です。role がずれる構成でだけ `RTCDataChannel.id` の値が大きくなる点は、`changelog.md` に記載しました。
+**修正（2026-11-22 に develop の #815 に合わせて変更）:** 当初は、role がずれる構成に限り交渉済みの stream 数の上端から ID を割り当てていました。develop の #815（v0.28.0）は、DataChannel の ID を DTLS role の parity の最小の空き番号で、role が決まった時点で割り当て、自分の parity の未使用 stream に来た OPEN を reset する規則を入れました。マージ（`f0611a775`）で上端からの割り当ては消え、旧 werift が開いた DataChannel はすべて reset されるようになっていました。そこで #815 の割り当て規則（role がずれる構成でも最小の空き番号。#815 のテストが固定）は変えず、`packages/webrtc/src/transport/sctp.ts` の `peerMayUseIceRoleParity` で、ICE role と DTLS role がずれる構成に限り、自分の parity の未使用 stream に来た OPEN を受け入れるようにしました。RFC 8832 に従う peer はこの parity を使わないため、影響はありません。旧 werift が先に開いた ID は使用中として避けるので、片側ずつ開く場合は衝突しません。**既知の制限:** この構成で両側が同時に開くと、両者とも同じ最小の番号を選んで衝突し、現行側は #815 の規則でその stream を reset します（旧 werift 側の挙動は確認していません）。
 
 ### 3.4 テスト
 
@@ -107,9 +107,9 @@ opt-in のテストは `cd packages/webrtc && WERIFT_LEGACY_RELEASE_AUTO_INSTALL
 | Chromium E2E（`e2e/run-ci.js` と `run-dtls-ci.js`） | 66 / 18 passed。`npm run e2e` は §6 の型エラーで事前の `tsc` が止まるため、`tsc` の終了コードを無視して同じ手順を実行した |
 | 型エラーの数（package ごと） | HEAD と同じ（増えていない） |
 
-## 6. 別に見つかった問題（本件の範囲外、未対応）
+## 6. 別に見つかった問題（当時は範囲外。2026-11-22 のマージ見直しで対応）
 
-いずれも HEAD（`develop` と `warp` のマージ後）で、本件の変更の前から起きています。
+いずれも当時の HEAD（`develop` と `warp` のマージ後）で、本件の変更の前から起きていました。`erasableSyntaxOnly` の型エラーと `packages/webrtc/doc` は、2026-11-22 のマージ見直しで解消しました（parameter property を明示的なフィールドに変更し、誤って commit された `packages/webrtc/doc` を削除）。
 
 - **`erasableSyntaxOnly` の型エラー:** マージで入った「ソースは消去可能な構文だけ」（Node.js 26 の型除去のみ）の規則に、本チケットで追加したコードが従っていません。parameter property や `enum` のため、package ごとの `tsc` で dtls 40 件、webrtc 49 件（import する dtls・ice のソースを含む）、ice 2 件、rtp 1 件の型エラーがあり、`npm run type`、`npm run e2e` の事前の `tsc`、`tests/nonstandard/polyfill.test.ts`、`tests/types/publicTypes.test.ts` が失敗します。webrtc にはこのほかに `transportActivation.ts` の TS2339 が 1 件あります。Node.js の型除去だけでは本ブランチのソースを実行できません（調査では Node.js 24 の `--experimental-transform-types` で実行した）。
 - **`packages/webrtc/doc` が commit されている:** 別チケットの自動 commit（`004fcafc8`）で 873 ファイルが入っています。`npm run doc` が途中で止まった残りと思われます。`npm test`（`vitest run ./tests`）がその下の例のテストまで拾います。

@@ -533,7 +533,7 @@ after construction.
 
 ### turnTransport
 
-> **turnTransport**: `"udp"` \| `"tcp"` \| `"tls"` \| `undefined`
+> **turnTransport**: `"tcp"` \| `"tls"` \| `"udp"` \| `undefined`
 
 ***
 
@@ -578,7 +578,7 @@ DTLS transport, including ones a pending description prepared.
 
 #### earlyMediaPolicy?
 
-> `optional` **earlyMediaPolicy?**: `"drop"` \| `"buffer"`
+> `optional` **earlyMediaPolicy?**: `"buffer"` \| `"drop"`
 
 #### sendBeforeNomination?
 

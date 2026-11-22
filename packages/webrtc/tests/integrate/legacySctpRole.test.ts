@@ -75,16 +75,24 @@ describe("旧 werift peer との SCTP 開始側の不一致", () => {
       answererRole: "client" as const,
     },
   ])(
-    "$name: 両側から同時に in-band DataChannel を開いても stream ID が衝突せず、label どおりに届く",
+    "$name: 旧 werift が開いた DataChannel を受け入れ、label どおりに届く",
     async ({ legacy, answererRole }) => {
       // Arrange: 旧 werift を模した peer と接続する
       const { offerer, answerer } = await connectWithLegacySctpPeer({
         legacy,
         answererRole,
       });
+      // role がずれると両者は同じ parity を下から数えるので、同時に開くと衝突する
+      // (既知の制限)。旧 werift 側を先に開き、現行側はその ID を避ける。
+      const firstOpens = answererRole === "server" ? legacy : undefined;
       try {
-        // Act: 両側から同時に DataChannel を開き、それぞれで 1 件送る
-        const pairs = await openChannelsFromBothSides(offerer, answerer);
+        // Act: 両側から DataChannel を開き、それぞれで 1 件送る
+        const pairs = await openChannelsFromBothSides(
+          offerer,
+          answerer,
+          5_000,
+          firstOpens,
+        );
         const arrived = pairs.map(([, remote]) => collectMessages(remote, 1));
         pairs.forEach(([local]) => local.send(`via-${local.label}`));
 

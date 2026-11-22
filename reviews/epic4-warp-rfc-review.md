@@ -388,7 +388,7 @@ flowchart LR
 - 自分の INIT を待つ間に相手の INIT が届いたら、INIT_ACK で答えます（RFC 9260 §5.2.1 の INIT 衝突）。[packages/sctp/src/sctp.ts:430](review-file:packages/sctp/src/sctp.ts:430)
 - 応答側（DTLS client）は、DTLS 認証の 1 秒後までに INIT が届かなければ自分から INIT を送ります。[packages/webrtc/src/transport/sctp.ts:629](review-file:packages/webrtc/src/transport/sctp.ts:629)
 - 自分の INIT は常に verification tag 0 で送り、旧 werift が送る「自分の tag 付きの INIT」も受け付けます。[packages/sctp/src/sctp.ts:334](review-file:packages/sctp/src/sctp.ts:334)
-- 役割の対応がずれる構成に限り、in-band DataChannel の id を交渉済みの stream 数の上端から下へ割り当てます（DTLS role の偶奇は守る）。下から数える旧 werift と同時に開いても衝突しません。[packages/webrtc/src/transport/sctp.ts:266](review-file:packages/webrtc/src/transport/sctp.ts:266)
+- 役割の対応がずれる構成に限り、旧 werift（ICE role の偶奇を使う）が自分の偶奇の未使用 stream で開いた DataChannel を、#815 の規則で reset せずに受け入れます。id の割り当ては #815 と同じく DTLS role の偶奇で最小の空き番号です（両側から同時に開くと衝突し、現行側はその stream を reset します。既知の制限）。[packages/webrtc/src/transport/sctp.ts](review-file:packages/webrtc/src/transport/sctp.ts)
 
 テストは [packages/webrtc/tests/integrate/connectionMatrix.test.ts:18](review-file:packages/webrtc/tests/integrate/connectionMatrix.test.ts:18)（setup:active / passive × Full×Full / Full×Lite × SPED × DTLS version の 16 通りで、stream id の偶奇が DTLS role に一致）と [packages/webrtc/tests/integrate/legacySctpRole.test.ts](review-file:packages/webrtc/tests/integrate/legacySctpRole.test.ts) です。
 

@@ -16,7 +16,7 @@
 
 ##### props
 
-`Pick`\<`RTCRtpCodecParameters`, `"mimeType"` \| `"clockRate"`\> & `Partial`\<`RTCRtpCodecParameters`\>
+`Pick`\<`RTCRtpCodecParameters`, `"clockRate"` \| `"mimeType"`\> & `Partial`\<`RTCRtpCodecParameters`\>
 
 #### Returns
 
@@ -38,7 +38,7 @@
 
 ### direction
 
-> **direction**: `"inactive"` \| `"sendonly"` \| `"recvonly"` \| `"sendrecv"` \| `"all"` = `"all"`
+> **direction**: `"all"` \| `"inactive"` \| `"sendonly"` \| `"recvonly"` \| `"sendrecv"` = `"all"`
 
 ***
 

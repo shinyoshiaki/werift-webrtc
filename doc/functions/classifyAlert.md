@@ -6,7 +6,7 @@
 
 # Function: classifyAlert()
 
-> **classifyAlert**(`alert`): `"close"` \| `"ignore"` \| `"fatal"`
+> **classifyAlert**(`alert`): `"close"` \| `"fatal"` \| `"ignore"`
 
 What the receiver does with an alert (RFC 5246 §7.2.1 / §7.2.2).
 
@@ -25,4 +25,4 @@ What the receiver does with an alert (RFC 5246 §7.2.1 / §7.2.2).
 
 ## Returns
 
-`"close"` \| `"ignore"` \| `"fatal"`
+`"close"` \| `"fatal"` \| `"ignore"`

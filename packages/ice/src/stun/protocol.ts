@@ -74,7 +74,7 @@ export class StunProtocol implements Protocol {
   private closed = false;
 
   readonly onRequestReceived = new Event<[Message, Address, Buffer]>();
-  readonly onDataReceived = new Event<[Buffer, Address?]>();
+  readonly onDataReceived = new Event<[Buffer, Address]>();
   /** See `Protocol.onPathBroken`: a datagram to that address could not be sent. */
   readonly onPathBroken = new Event<[Address | undefined, Error]>();
   private readonly dataConfirmation = new DataSendConfirmation();

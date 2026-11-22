@@ -792,3 +792,30 @@ Arrange は `packages/dtls/tests/fixture.ts` の `arrangePartialDtls13Handshake`
 全体の確認: `packages/webrtc` の `npx vitest run --dir tests --retry=0` は 1920 passed / 29 skipped / 5 failed（失敗 5 件はマージ後の HEAD でも同じく失敗する memleak・polyfill・public types）。Chromium E2E は 66 + 19 passed（`npm run e2e` は事前の `tsc` が既存の型エラーで止まるため、その終了コードを無視して同じ手順を実行）。型エラーは 49 → 47 件（新規 0 件。触れた `sped.ts` と `sped-pion-ice.test.ts` のパラメータプロパティを解消）。
 
 **未実施:** 生成 docs（`npm run doc`）は、typedoc が既存の `erasableSyntaxOnly` の型エラーで止まるため再生成していません。libwebrtc（Chromium）の SPED（`goog-sped-v1`）や pion/webrtc の SPED 実装（draft 段階）とは、相手側の SPED を有効にした組み合わせでは確認していません。
+
+## 26. 過去のマージ・コンフリクト解決の見直しと develop の方針への追随（2026-11-22）
+
+**対象:** HEAD `b8a010b41`（`warp` = develop `2e57c99e8` の tree をマージ済み）。`git diff 2e57c99e8 HEAD` で develop 側の行が消えている箇所を `git blame` で元の commit ごとに分け、各コンフリクト解決 merge の `git show --remerge-diff` と、develop から来たテストの HEAD での結果で確かめた。作業中に develop は #880（ICE consent）で先へ進んだが、未マージのまま比較の基準を `2e57c99e8` に固定した。
+
+| 見つかった問題（原因の merge / commit） | 対応 |
+| --- | --- |
+| `dtls-certificate.ts` への分割で、develop の `@fidm/x509` → `node:crypto`（`X509Certificate` / `normalizePem`）への移行と parameter property の除去が消えた（依存は package.json にない） | develop の実装に戻した |
+| `erasableSyntaxOnly` 違反（`dtls-ice-transport.ts`、`dtls-application-gate.ts`、`early-data-buffer.ts`）と、merge 起因の型エラー（`sctpManager.ts` に到達しない分岐（`9d349b101`）、`rtpReceiverTestUtils.ts` の mock、`self_readiness_latch.test.ts`） | 明示的なフィールドに変え、到達しない分岐を削除。`npm run type` が 18 件から 0 件に |
+| DTLS の終了で共有の ICE まで止めていた（`7ea05eed1` の「DTLS は ICE から切り離すだけ」が `e2efcf477` で消えた）。`start()` が `connecting` リスナーからの同期 `stop()` 後に socket を作っていた（`1c326909f`） | develop の挙動に戻した（`dtlsAlert.test.ts` 33/33） |
+| `pc.close()` が SCTP ABORT を送らない（`96baa93c8` で `if (this.stopped) return` が消えた）。close コールバック内で作った channel が残る（`f0611a775`、#815） | guard を戻し、`stop()` の channel close を closed listener に任せた（`issue/681`、`815.notification` が成功） |
+| 停止された `start()` が reject していた（チケット `b7900b411`）。develop の契約（resolve し、呼び出し側は `state` を見る）と食い違い、upstream テストで未処理の rejection になっていた | resolve に揃えた |
+| `spedStandardDtlsFallback.test.ts`（warp `78fc9ceaf`）は warp の「SPED socket を捨てて標準 DTLS を作り直す」実装の内部を検査していた。チケット §2.7 は最初の ClientHello の bytes をそのまま送る方式なので、`99becb6f7` でその実装は取らなかった | テストを「direct carrier へ fallback し、同じ socket で DTLS 1.2 が完了する」に合わせた（16/16）。changelog の SPED 項目も同じ説明にした |
+| ICE: `Protocol.onDataReceived` の source を省略可能に戻していた（`a6479a648`）。datagram の pair 解決を飛ばすゲートが働かない条件になっていた（`e2efcf477` / `a6479a648`、`6040be95d`）。develop の gatherer 分割に追随していないテスト | develop の型・ゲートに戻し、テストを `gatherer.candidatePromises` に向けた |
+| 旧 werift（ICE role の偶奇）との role がずれる構成: #815 の「自分の偶奇の未使用 stream への OPEN は reset」で、旧 werift の DataChannel が開かなくなっていた（`f0611a775` でチケットの上端からの割り当ても消えた）。模擬 peer（`emulateLegacySctpRole`）は消えた内部 API を上書きしていて何も模擬していなかった | role がずれる構成に限り、その OPEN を受け入れる（`peerMayUseIceRoleParity`）。割り当ては #815 の規則（最小の空き番号）のまま。模擬 peer を直した。同時に開いた場合の衝突は既知の制限（[legacy-werift-compatibility.md](legacy-werift-compatibility.md) §3.3） |
+| changelog: チケットの項目が develop のリリース（v0.27.0）の節に入り、develop の Unreleased と重複していた | Unreleased へ移し、重複（EMS、INIT の tag 0、DTLS 1.3 / SPED の説明）を除いた |
+| root `AGENTS.md` を develop の整理前の版に戻していた（`a6479a648`）。`packages/webrtc/doc`（`npm run doc` の途中で残ったもの）と `packages/ice/doc` の古い 6 ファイル（`0fbe321c9`）が commit されていた。mediasoup interop の submodule を古い commit に戻していた（`19b5f8221`） | develop の版にチケットの規則（cache を使う nested install）だけを足した。生成 docs は `npm run doc` で作り直した。submodule を develop の `63bc5d51e` に戻した |
+
+| 検証 | 結果 |
+| --- | --- |
+| `npm run type` | 0 errors（作業前 18） |
+| `packages/dtls` / `packages/sctp` / `packages/ice` の vitest | 571 passed・1 skipped / 651 passed / 2121 passed・10 skipped |
+| `packages/webrtc` の `vitest run ./tests` | 2598 passed / 190 skipped / 1 failed（作業前: 26 failed）。残り 1 件の `sped.test.ts` › "WARP fingerprint mismatch …" は負荷によって失敗し、単独では成功する。`tests/integrate` を同じ負荷で 2 回流すと、未変更の HEAD でも 2 回とも失敗する |
+| `legacyWeriftRelease.test.ts`（opt-in、`werift@0.26.0`） | 22/22（未変更の HEAD では 7 件失敗） |
+| `npm run doc` | 成功。develop との差分はチケットの公開 API だけ |
+
+**未実施:** E2E（Chromium / Firefox）、WPT、`npm run doc:check`（未コミットの変更があると差分ありで失敗するため）、develop の #880 のマージ。

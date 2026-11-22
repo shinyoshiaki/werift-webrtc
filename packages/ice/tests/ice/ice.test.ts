@@ -29,7 +29,7 @@ class ProtocolMock implements Protocol {
   responseAddr?: Address;
   responseMessage?: string;
   onRequestReceived: Event<[Message, Address, Buffer]> = new Event();
-  onDataReceived: Event<[Buffer, Address?]> = new Event();
+  onDataReceived: Event<[Buffer, Address]> = new Event();
   localCandidate = new Candidate(
     "some-foundation",
     1,

@@ -183,18 +183,26 @@ describeLegacy("公開済み旧 werift との相互接続", () => {
   );
 
   test.each(legacyRoleCombos())(
-    "$name: 接続後に両側から同時に in-band DataChannel を開いても stream ID が衝突せず、label どおりに届く",
+    "$name: 接続後に両側から in-band DataChannel を開いても stream ID が衝突せず、label どおりに届く",
     async ({ legacy, answererRole }) => {
       // Arrange: 旧 werift と現行 werift を接続する
       const legacyPc = new Legacy.RTCPeerConnection({ iceServers: [] });
       const currentPc = new RTCPeerConnection({ iceServers: [] });
       const [offerer, answerer] =
         legacy === "offerer" ? [legacyPc, currentPc] : [currentPc, legacyPc];
+      // role がずれると両者は同じ parity を下から数えるので、同時に開くと衝突する
+      // (既知の制限)。旧 werift 側を先に開き、現行側はその ID を避ける。
+      const firstOpens = answererRole === "server" ? legacy : undefined;
       try {
         await connectAcrossBuilds({ offerer, answerer, answererRole });
 
-        // Act: 両側から同時に DataChannel を開き、それぞれで 1 件送る
-        const pairs = await openChannelsFromBothSides(offerer, answerer);
+        // Act: 両側から DataChannel を開き、それぞれで 1 件送る
+        const pairs = await openChannelsFromBothSides(
+          offerer,
+          answerer,
+          5_000,
+          firstOpens,
+        );
         const arrived = pairs.map(
           ([, remote]) =>
             new Promise<string>((resolve) =>

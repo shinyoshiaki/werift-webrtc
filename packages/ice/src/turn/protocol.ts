@@ -113,7 +113,7 @@ export class StunOverTurnProtocol implements Protocol {
   localCandidate!: Candidate;
   private disposer = new EventDisposer();
   onRequestReceived: Event<[Message, Address, Buffer]> = new Event();
-  onDataReceived: Event<[Buffer, Address?]> = new Event();
+  onDataReceived: Event<[Buffer, Address]> = new Event();
   /** See `Protocol.onPathBroken`: the TURN allocation is lost (every path of this protocol). */
   readonly onPathBroken = new Event<[Address | undefined, Error]>();
 
@@ -255,7 +255,7 @@ export class TurnProtocol implements Protocol {
   private allocated = false;
   private readonly dataConfirmation = new DataSendConfirmation();
   onRequestReceived: Event<[Message, Address, Buffer]> = new Event();
-  onDataReceived: Event<[Buffer, Address?]> = new Event();
+  onDataReceived: Event<[Buffer, Address]> = new Event();
   integrityKey?: Buffer;
   nonce?: Buffer;
   realm?: string;

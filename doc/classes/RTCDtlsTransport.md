@@ -194,7 +194,7 @@ local or remote answer / pranswer, or `start()` resolving `auto`).
 
 ### onStateChange
 
-> `readonly` **onStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"connecting"` \| `"new"` \| `"connected"` \| `"failed"`\]\>
+> `readonly` **onStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"connected"` \| `"new"` \| `"failed"` \| `"connecting"`\]\>
 
 ***
 
@@ -248,7 +248,7 @@ not mean ICE has released its resources.
 
 ### state
 
-> **state**: `"closed"` \| `"connecting"` \| `"new"` \| `"connected"` \| `"failed"` = `"new"`
+> **state**: `"closed"` \| `"connected"` \| `"new"` \| `"failed"` \| `"connecting"` = `"new"`
 
 ***
 

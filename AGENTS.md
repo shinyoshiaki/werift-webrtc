@@ -15,28 +15,19 @@ Rules that apply to one package or directory belong in the nearest `AGENTS.md`.
 
 ## Do
 
-1. Read the nearest `AGENTS.md` before editing files in that directory.
-2. Run `git submodule update --init --recursive` after checkout before WPT-related work.
-3. Keep every `AGENTS.md` short, operational, and grounded in the local `package.json` and stable directory structure.
-4. Update the relevant package guide when scripts, stable entrypoints, neighboring package dependencies, or validation expectations change.
-5. Update this root guide last when a change affects the shared template, workspace commands, or package list.
-6. Prefer package-level validation first, then widen to workspace commands only when the change crosses package boundaries.
-7. Write test code in three phases: Arrange / Act / Assert.
-8. Extract Arrange-phase setup into utilities wherever practical.
-9. Keep Arrange utility functions in a single file so they can be reused from other test files.
-10. In Act / Assert phases, add Japanese comments at an appropriate granularity for each operation so the test intent and verification points are clear.
+1. Read the nearest `AGENTS.md` before editing files in a directory.
+2. Fix root causes. Failing tests, type errors, protocol validation, and interop failures point at real bugs, so don't silence them.
+3. Follow existing patterns: manager-style orchestration in `packages/webrtc`, asynchronous notifications through the custom `Event` class, and package-local error handling instead of broad catch-and-ignore.
+4. When you change public API, protocol behavior, examples, or WPT wiring, update the docs or examples that demonstrate it.
+5. Keep upstream-WPT-only strict behavior inside the `packages/webrtc/tools/wpt-runner/*` wrappers, so the default `packages/webrtc/src` API keeps werift's convenience behavior.
+6. Write tests as Arrange / Act / Assert. Put shared Arrange setup in one reusable utility file per test area instead of repeating it, and comment each Act / Assert step in Japanese so the intent and the checked outcome are clear.
    Property tests live in `<package>/tests/pbt/<name>/`, draw from `packages/pbt` (`seededRandom`, `propertySeeds`) and follow its `README.md` (seed variables, titles with the replay environment, retry, coverage checks); each package lists them in `tests/pbt/suites.ts` for `npm run pbt:deep`.
-11. Fix root causes. Do not silence failing tests, type errors, protocol validation, or interop issues.
-12. Follow existing patterns: manager-style orchestration in `packages/webrtc`, asynchronous notifications based on the custom `Event` class, and package-local error handling instead of broad catch-and-ignore logic. Use handling.
-13. When changing public API, protocol behavior, examples, or WPT wiring, update the nearest docs or examples that demonstrate the behavior.
-14. Keep upstream-WPT-only strict behavior inside `packages/webrtc/tools/wpt-runner/*` wrappers. Do not leak stricter WPT shims into the default `packages/webrtc/src` API when that would regress existing werift convenience behavior.
-15. Keep CI-facing nested dependency bootstraps cache-friendly and non-auditing (`--prefer-offline --no-audit --no-fund --no-update-notifier`).
-16. Compare behavior against another revision in a separate temporary worktree (`git worktree add --detach <tmp-dir> <rev>`), never by checking out, resetting, or stashing the active worktree. External tooling may auto-commit the active worktree at any time.
-17. Reproduce a failing E2E with only the affected test file first; run the full E2E suite as final validation.
-18. Before long-running verification, state the current revision, uncommitted changes, and intent so interrupted work can be resumed.
-19. Resolve conflicts in generated docs (`doc/`, `packages/*/doc`) by regenerating them from the finalized source (`npm run doc`), not by merging the text.
-20. After a merge, check that public APIs match the generated docs, READMEs, and `changelog.md`.
-21. When code and docs disagree, decide the correct behavior from history, requirements, specs, and compatibility, then fix the side that is wrong.
+7. Compare against another revision in a temporary worktree (`git worktree add --detach <tmp-dir> <rev>`). Don't check out, reset, or stash the active worktree: external tooling may auto-commit it at any time.
+8. Before a long-running verification, state the current revision, the uncommitted changes, and the intent, so interrupted work can be resumed.
+9. Run `git submodule update --init --recursive` after checkout before WPT work.
+10. Keep CI-facing nested dependency installs cache-friendly and non-auditing (`npm install --prefer-offline --no-audit --no-fund --no-update-notifier`).
+11. Generated docs (`doc/`, `packages/*/doc`): resolve conflicts by regenerating with `npm run doc` from the final source, not by merging text. After a merge, check that public APIs match the generated docs, READMEs, and `changelog.md`.
+12. When code and docs disagree, decide the correct behavior from history, requirements, specs, and compatibility, then fix the side that is wrong.
 
 ## Don't
 

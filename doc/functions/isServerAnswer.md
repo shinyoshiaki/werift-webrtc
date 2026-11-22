@@ -6,7 +6,7 @@
 
 # Function: isServerAnswer()
 
-> **isServerAnswer**(`error`): error is TransactionFailed \| TransactionIntegrityViolation \| MissingMappedAddressError \| TurnRedirectError
+> **isServerAnswer**(`error`): error is TransactionFailed \| TransactionIntegrityViolation \| TurnRedirectError \| MissingMappedAddressError
 
 Whether `error` means a response from the server arrived, whatever its
 content: an error response (with or without a valid ERROR-CODE, a
@@ -22,4 +22,4 @@ server that answered was reached, so it is never reported as 701.
 
 ## Returns
 
-error is TransactionFailed \| TransactionIntegrityViolation \| MissingMappedAddressError \| TurnRedirectError
+error is TransactionFailed \| TransactionIntegrityViolation \| TurnRedirectError \| MissingMappedAddressError

@@ -7,8 +7,11 @@ export class InboundApplicationGate {
   private buffer = createPreAuthEarlyDataBuffer();
   private retiredDroppedPackets = 0;
   private retiredDroppedBytes = 0;
+  private readonly deliver: (data: Buffer) => void;
 
-  constructor(private readonly deliver: (data: Buffer) => void) {}
+  constructor(deliver: (data: Buffer) => void) {
+    this.deliver = deliver;
+  }
 
   /** Read-only snapshot source for stats; instance may rotate on restart. */
   snapshot() {

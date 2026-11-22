@@ -363,7 +363,7 @@ Applied to every TLS TURN server.
 
 ### ~~turnTransport?~~
 
-> `optional` **turnTransport?**: `"udp"` \| `"tcp"` \| `"tls"`
+> `optional` **turnTransport?**: `"tcp"` \| `"tls"` \| `"udp"`
 
 #### Deprecated
 

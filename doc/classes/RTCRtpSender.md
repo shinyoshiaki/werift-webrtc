@@ -16,7 +16,7 @@
 
 ##### trackOrKind
 
-[`MediaStreamTrack`](MediaStreamTrack.md) \| [`Kind`](../type-aliases/Kind.md)
+[`Kind`](../type-aliases/Kind.md) \| [`MediaStreamTrack`](MediaStreamTrack.md)
 
 ##### options?
 
@@ -170,7 +170,7 @@ Probe cluster configs (target bps / min packets). Bridged from the active
 
 ### trackOrKind
 
-> **trackOrKind**: [`MediaStreamTrack`](MediaStreamTrack.md) \| [`Kind`](../type-aliases/Kind.md)
+> **trackOrKind**: [`Kind`](../type-aliases/Kind.md) \| [`MediaStreamTrack`](MediaStreamTrack.md)
 
 ***
 

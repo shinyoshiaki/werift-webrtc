@@ -7,6 +7,13 @@ import type { Address, DatagramRxMeta, Transport } from "../imports/common";
 import type { IceConnection } from "../imports/ice";
 import { isDtls } from "../utils";
 
+/**
+ * The DTLS socket's view of the ICE connection. The ICE connection belongs to
+ * {@link RTCIceTransport} (shared with SRTP, stopped by
+ * {@link RTCDtlsTransport.stop}): when the DTLS socket closes its transport
+ * (after a received close_notify or fatal alert, or close()), this only
+ * detaches DTLS from ICE; it never closes the ICE agent.
+ */
 class IceTransport implements Transport {
   closed: boolean = false;
   private readonly datagramSubscription: { unSubscribe(): void };
@@ -15,7 +22,9 @@ class IceTransport implements Transport {
    * AEAD-protected alerts as "pre-auth" merely because UDP pin is unavailable.
    */
   readonly peerAuthenticated = true;
-  constructor(private ice: IceConnection) {
+  private ice: IceConnection;
+  constructor(ice: IceConnection) {
+    this.ice = ice;
     this.datagramSubscription = connectionDatagramEvent(ice).subscribe(
       (ctx) => {
         // RFC 8445 §9: after an ICE restart the peer keeps sending on the
@@ -71,16 +80,15 @@ class IceTransport implements Transport {
   type: string = "ice";
 
   readonly send = (data: Buffer, _addr?: Address) => {
+    if (this.closed) return Promise.resolve();
     return this.ice.send(data);
   };
 
-  // The DTLS socket closes its transport on every teardown path
-  // ("Double-close is fine"), so close the ICE Connection only once.
+  /** Detach DTLS from ICE: no more DTLS records in either direction. */
   async close() {
     if (this.closed) return;
     this.closed = true;
     this.datagramSubscription.unSubscribe();
-    if (this.ice.state !== "closed") this.ice.close();
   }
 
   private remotePeer(): Address {

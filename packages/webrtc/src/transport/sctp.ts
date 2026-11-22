@@ -331,6 +331,11 @@ export class RTCSctpTransport {
             return;
           }
           if (state === "failed" || state === "closed") {
+            // A stopped transport is left to stop():
+            // RTCPeerConnection.close() marks DTLS closed synchronously,
+            // before stop() sends the SCTP ABORT, and closing the association
+            // here would skip that ABORT.
+            if (this.stopped) return;
             // DTLS failure is terminal for this SCTP association.  Do not
             // preserve queued DCEP/data for a retry after authentication has
             // failed, and close every channel immediately.
@@ -453,6 +458,10 @@ export class RTCSctpTransport {
     this.awaitingPeerReset.clear();
   }
 
+  /**
+   * The SCTP INIT side: the DTLS server, not the ICE role.
+   * @see tests/issue/815.test.ts "#815 report: reversed ICE / DTLS roles with channels from both ends do not collide"
+   */
   private get isServer() {
     return this.dtlsTransport.role === "server";
   }
@@ -461,6 +470,22 @@ export class RTCSctpTransport {
    * RFC 8832 section 6: DTLS client even, server odd; none while `auto`.
    * @see tests/issue/815.test.ts "issue 815: data channel stream IDs follow the DTLS role"
    */
+  /**
+   * werift up to 0.27 picks its stream ID parity by the ICE role (controlling
+   * odd), not by the DTLS role. With the ICE and DTLS roles reversed, such a
+   * peer opens its channels on this side's parity, so an OPEN on an unused
+   * stream of this parity is accepted instead of reset. An RFC 8832 peer never
+   * uses this parity, so this changes nothing for it.
+   * @see tests/integrate/legacySctpRole.test.ts "$name: 旧 werift が開いた DataChannel を受け入れ、label どおりに届く"
+   */
+  private get peerMayUseIceRoleParity() {
+    const parity = this.idParity;
+    if (parity === undefined) return false;
+    const iceRole =
+      this.dtlsTransport.iceRoleAtStart ?? this.dtlsTransport.iceTransport.role;
+    return (parity === 1) !== (iceRole === "controlling");
+  }
+
   private get idParity(): 0 | 1 | undefined {
     switch (this.dtlsTransport?.role) {
       case "client":
@@ -590,7 +615,11 @@ export class RTCSctpTransport {
               this.rejectOpenOnStreamInUse(existing);
               return;
             }
-            if (!existing && streamId % 2 === this.idParity) {
+            if (
+              !existing &&
+              streamId % 2 === this.idParity &&
+              !this.peerMayUseIceRoleParity
+            ) {
               // Test: tests/issue/815.test.ts "issue 815: a DATA_CHANNEL_OPEN violating the odd/even rule on an unused stream"
               log("DATA_CHANNEL_OPEN violating the odd/even rule, rejected", {
                 streamId,
@@ -872,7 +901,12 @@ export class RTCSctpTransport {
     if (waiting.length > 0) this.dataChannelQueue = waiting;
   }
 
-  /** Close retained channels even when SCTP removed its state listeners. */
+  /**
+   * Close retained channels even when SCTP removed its state listeners.
+   * @see tests/issue/815.test.ts "a throwing close listener of a registered channel skips no listener, channel or teardown"
+   * @see tests/issue/815.notification.test.ts "association closed by the peer: a channel created in a close callback stays registered until pc.close()"
+   * @see tests/issue/815.test.ts "pc.close() notifies close of a reserved, unannounced channel after the transports closed"
+   */
   private closeDataChannels({
     clearQueue = true,
     includeQueued = true,
@@ -887,6 +921,10 @@ export class RTCSctpTransport {
         : []),
     ]);
     if (clearQueue) this.dataChannelQueue.clear();
+    else
+      this.dataChannelQueue = this.dataChannelQueue.filter(
+        ([queued]) => !channels.has(queued),
+      );
     this.dataChannels = {};
 
     for (const channel of channels) {
@@ -1046,23 +1084,17 @@ export class RTCSctpTransport {
   }
 
   async stop() {
+    const closedAlready = this.sctp.state === "closed";
     this.markStopped();
     this.dtlsTransport.dataReceiver = () => {};
-    // User data is owned by the stopped association; preserve only DCEP OPEN
-    // entries so a later association can discard them if the channel closed.
     this.discardUnsentMessages();
-    const retainedOpens = this.dataChannelQueue.toArray();
-    // SCTP removes its own state listeners when it reaches CLOSED, so close
-    // the channels registered on this association here. Channels whose OPEN
-    // is still queued outlive the transport (rollback re-announces them);
-    // PeerConnection shutdown closes those in SctpTransportManager.close().
-    this.closeDataChannels({ clearQueue: false, includeQueued: false });
     try {
       await this.sctp.stop();
     } finally {
-      // SCTP's CLOSED listener also clears its queue; restore retained OPENs
-      // afterward so a later association can discard them deterministically.
-      this.dataChannelQueue = new FifoQueue(retainedOpens);
+      // An association already CLOSED emits no closed event again.
+      if (closedAlready) {
+        this.closeDataChannels({ clearQueue: false, includeQueued: false });
+      }
       this.disposeSctpListeners();
     }
   }

@@ -28,7 +28,7 @@
 
 ##### fmt
 
-`string`[] \| `number`[]
+`number`[] \| `string`[]
 
 #### Returns
 
@@ -71,7 +71,7 @@ it (Chrome does not either).
 
 ### fmt
 
-> **fmt**: `string`[] \| `number`[]
+> **fmt**: `number`[] \| `string`[]
 
 ***
 

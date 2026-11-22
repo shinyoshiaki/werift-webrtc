@@ -1214,20 +1214,25 @@ export async function prepareIceCloseCounting(version: DtlsVersion) {
  */
 export function emulateLegacySctpRole(pc: RTCPeerConnection) {
   const sctpTransport = pc.sctpTransport!;
+  const initiatorByIceRole = () => pc.iceTransports[0].role === "controlling";
+  // Stream ID parity by the ICE role (controlling odd), counting up from the
+  // bottom, and an OPEN on this parity accepted like any other.
   const internals = sctpTransport as unknown as {
-    dataChannelId?: number;
     dataChannels: Record<number, unknown>;
-    allocateLocalStreamId: () => number;
+    allocateStreamId: (parity: 0 | 1) => number | undefined;
   };
-  internals.allocateLocalStreamId = () => {
-    let streamId = internals.dataChannelId!;
+  Object.defineProperties(sctpTransport, {
+    idParity: { get: () => (initiatorByIceRole() ? 1 : 0) },
+    peerMayUseIceRoleParity: { get: () => true },
+  });
+  internals.allocateStreamId = (parity) => {
+    let streamId: number = parity;
     while (internals.dataChannels[streamId] !== undefined) streamId += 2;
     return streamId;
   };
   sctpTransport.start = async (remotePort: number) => {
     const association = sctpTransport.prepareForStart();
-    const initiator = pc.iceTransports[0].role === "controlling";
-    internals.dataChannelId = initiator ? 1 : 0;
+    const initiator = initiatorByIceRole();
     association.isServer = !initiator;
     if (initiator) {
       const dtls = sctpTransport.transport;
@@ -1248,22 +1253,45 @@ export function emulateLegacySctpRole(pc: RTCPeerConnection) {
 }
 
 /**
- * Act helper: open an in-band DataChannel from each side at the same moment
- * and wait until each side received the other's channel and both are open.
- * Returns the [local, remote] pair of each direction.
+ * Act helper: open an in-band DataChannel from each side and wait until each
+ * side received the other's channel and both are open. Both are created at
+ * the same moment, or with `firstOpens` that side's channel first, the other
+ * once the first is open at both ends. Returns the [local, remote] pair of
+ * each direction.
  */
 export async function openChannelsFromBothSides(
   offerer: { createDataChannel(label: string): any; onDataChannel: any },
   answerer: { createDataChannel(label: string): any; onDataChannel: any },
   timeoutMs = 5_000,
+  firstOpens?: "offerer" | "answerer",
 ) {
   const seenByOfferer: any[] = [];
   const seenByAnswerer: any[] = [];
   offerer.onDataChannel.subscribe((c: any) => seenByOfferer.push(c));
   answerer.onDataChannel.subscribe((c: any) => seenByAnswerer.push(c));
-  const fromOfferer = offerer.createDataChannel("from-offerer");
-  const fromAnswerer = answerer.createDataChannel("from-answerer");
   const deadline = Date.now() + timeoutMs;
+  const openAtBothEnds = async (local: any, seen: any[]) => {
+    while (!(local.readyState === "open" && seen[0]?.readyState === "open")) {
+      if (Date.now() > deadline) {
+        throw new Error(`channel ${local.label} did not open first`);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  };
+  let fromOfferer: any;
+  let fromAnswerer: any;
+  if (firstOpens === "offerer") {
+    fromOfferer = offerer.createDataChannel("from-offerer");
+    await openAtBothEnds(fromOfferer, seenByAnswerer);
+    fromAnswerer = answerer.createDataChannel("from-answerer");
+  } else if (firstOpens === "answerer") {
+    fromAnswerer = answerer.createDataChannel("from-answerer");
+    await openAtBothEnds(fromAnswerer, seenByOfferer);
+    fromOfferer = offerer.createDataChannel("from-offerer");
+  } else {
+    fromOfferer = offerer.createDataChannel("from-offerer");
+    fromAnswerer = answerer.createDataChannel("from-answerer");
+  }
   while (
     !(
       seenByAnswerer.length > 0 &&

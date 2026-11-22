@@ -44,7 +44,7 @@ PeerConfig.dtlsHandshakeValidation (DTLS 1.2 handshake validation).
 
 #### earlyMediaPolicy?
 
-> `optional` **earlyMediaPolicy?**: `"drop"` \| `"buffer"`
+> `optional` **earlyMediaPolicy?**: `"buffer"` \| `"drop"`
 
 #### sendBeforeNomination?
 

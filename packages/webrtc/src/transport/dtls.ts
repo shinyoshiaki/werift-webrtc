@@ -175,7 +175,7 @@ export type DtlsSendRtpResult = {
 export class RTCDtlsTransport implements DtlsTransportStats {
   readonly config: DtlsTransportConfig;
   readonly iceTransport: RTCIceTransport;
-  public localCertificate?: RTCCertificate;
+  public localCertificate?: RTCCertificate | undefined;
   private readonly srtpProfiles: SrtpProfile[];
   /**
    * @internal The TWCC feedback generator the receivers on this transport
@@ -226,7 +226,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   srtcp!: SrtcpSession;
   lastError?: Error;
   private startPromise?: Promise<void>;
-  private settleStart?: (error: Error) => void;
+  private settleStart?: () => void;
   /** @internal Notifies SCTP that its pre-authenticated early start was revoked. */
   readonly onEarlyApplicationSendRevoked = new Event<[]>();
   /** @internal Cancels pre-established associations owned by an old attempt. */
@@ -507,6 +507,8 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     }
 
     this.setState("connecting");
+    // A connecting listener may have stopped the transport synchronously.
+    if (this.isTerminated()) return;
     this.srtpStarted = true;
     this.startPromise = new Promise<void>((resolve, reject) => {
       let settled = false;
@@ -517,7 +519,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
         if (error === undefined) resolve();
         else reject(error);
       };
-      this.settleStart = (error) => settle(error);
+      this.settleStart = () => settle();
       void this.completeHandshake().then(
         () => settle(),
         (error) => settle(error),
@@ -1407,10 +1409,9 @@ export class RTCDtlsTransport implements DtlsTransportStats {
    */
   markClosed() {
     this.setState("closed", false);
-    // A start() still waiting for the handshake ends here (closed stays).
-    this.settleStart?.(
-      new Error("DTLS transport closed before start completed"),
-    );
+    // A start() still waiting for the handshake returns here; the caller
+    // sees the transport closed (it never connected).
+    this.settleStart?.();
   }
 
   private stopPromise?: Promise<void>;

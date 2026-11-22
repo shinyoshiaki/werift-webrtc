@@ -16,7 +16,7 @@
 
 ##### props
 
-`Partial`\<`RTCRtpCodingParameters`\> & `Pick`\<`RTCRtpCodingParameters`, `"ssrc"` \| `"payloadType"`\>
+`Partial`\<`RTCRtpCodingParameters`\> & `Pick`\<`RTCRtpCodingParameters`, `"payloadType"` \| `"ssrc"`\>
 
 #### Returns
 

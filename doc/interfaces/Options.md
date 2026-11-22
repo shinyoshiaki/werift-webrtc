@@ -10,7 +10,7 @@
 
 ### addressValidation?
 
-> `optional` **addressValidation?**: `"none"` \| `"dtls-cookie"` \| `"ice-authenticated"`
+> `optional` **addressValidation?**: `"dtls-cookie"` \| `"ice-authenticated"` \| `"none"`
 
 Address validation policy for the server.
 Default for generic DTLS: `"dtls-cookie"`.

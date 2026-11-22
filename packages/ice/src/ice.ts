@@ -1247,11 +1247,11 @@ export class Connection implements IceConnection {
     });
     protocol.onDataReceived.subscribe((data, addr) => {
       try {
-        // No candidate pair exists and nothing subscribed to the source-aware
-        // event: there is nothing to resolve or authenticate, so the datagram
-        // skips the pair lookup. Otherwise the lookup tracks the authenticated
-        // path (restart retention) and feeds the event.
-        if (this.internalDatagramEvent || this.checkList.length > 0) {
+        // The source-aware datagram event has internal subscribers only
+        // (SPED, the WebRTC DTLS transport): without one, a datagram (RTP /
+        // SRTP included) skips the pair lookup. The authenticated path it
+        // tracks (restart retention) is read only through this event.
+        if (this.internalDatagramEvent) {
           const pair = this.resolveDatagramPair(protocol, addr);
           const authenticated =
             addr !== undefined &&
@@ -2331,13 +2331,19 @@ export class Connection implements IceConnection {
    * 5-tuple is not judged by a FROZEN/FAILED duplicate.
    */
   private findPairByAddr(protocol: Protocol, addr: Address) {
-    const matches = this.checkList.filter(
-      (pair) =>
-        pair.protocol === protocol &&
-        pair.remoteAddr[0] === addr[0] &&
-        pair.remoteAddr[1] === addr[1],
-    );
-    return matches.find(isAuthenticatedHandshakePair) ?? matches[0];
+    let first: CandidatePair | undefined;
+    for (const pair of this.checkList) {
+      if (
+        pair.protocol !== protocol ||
+        pair.remoteAddr[0] !== addr[0] ||
+        pair.remoteAddr[1] !== addr[1]
+      ) {
+        continue;
+      }
+      if (isAuthenticatedHandshakePair(pair)) return pair;
+      first ??= pair;
+    }
+    return first;
   }
 
   /**

@@ -70,7 +70,7 @@ The address of the first of `turnServers`.
 
 ### ~~turnTransport?~~
 
-> `optional` **turnTransport?**: `"udp"` \| `"tcp"` \| `"tls"`
+> `optional` **turnTransport?**: `"tcp"` \| `"tls"` \| `"udp"`
 
 #### Deprecated
 

@@ -1134,7 +1134,7 @@ readonly \[`string`, `number`\]
 
 ##### mode?
 
-`"set-if-empty"` \| `"replace"` = `"set-if-empty"`
+`"replace"` \| `"set-if-empty"` = `"set-if-empty"`
 
 `set-if-empty` keeps the first authenticated pin (server Flight4 /
   connect). `replace` is for dual association re-pin / client connect.
@@ -1161,7 +1161,7 @@ Pass `replace` when the association deliberately re-pins (e.g. client connect).
 
 ##### mode?
 
-`"set-if-empty"` \| `"replace"` = `"set-if-empty"`
+`"replace"` \| `"set-if-empty"` = `"set-if-empty"`
 
 #### Returns
 

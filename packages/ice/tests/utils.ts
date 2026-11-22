@@ -115,7 +115,7 @@ export class ConsentMockProtocol implements Protocol {
   type: string;
   localCandidate: Candidate;
   onRequestReceived = new Event<[Message, any, Buffer]>();
-  onDataReceived = new Event<[Buffer, Address?]>();
+  onDataReceived = new Event<[Buffer, Address]>();
   sentMessages: Message[] = [];
   sendStunCount = 0;
   requestTimes: number[] = [];
@@ -470,8 +470,9 @@ export function collectDatagrams(connection: Connection) {
 }
 
 /**
- * Arrange: controlling Connection with one TCP mock protocol and no pairs yet.
- * Used to inspect the connectivity checks / nomination the agent sends.
+ * Shared Arrange: a full controlling agent `a` connected to an ICE-lite agent
+ * `b` (which sends no checks of its own, so `a` selects a pair only from the
+ * candidates it was given).
  */
 export async function createConnectedLitePair() {
   const a = createTestConnection(true);
@@ -1588,7 +1589,7 @@ export class ScriptedCheckProtocol implements Protocol {
   type: string;
   localCandidate: Candidate;
   onRequestReceived = new Event<[Message, any, Buffer]>();
-  onDataReceived = new Event<[Buffer, Address?]>();
+  onDataReceived = new Event<[Buffer, Address]>();
   readonly requests: ScriptedRequest[] = [];
   readonly request: Protocol["request"];
 
@@ -1727,21 +1728,18 @@ export function createScriptedCheckHarness({
   };
 }
 
-let cachedGc: (() => void) | undefined;
-
 /** Arrange/Assert helper: force full GCs, letting settled promises be freed between them. */
 export async function collectGarbage(rounds = 3) {
-  if (!cachedGc) {
-    const exposed = (globalThis as { gc?: () => void }).gc;
-    if (typeof exposed === "function") {
-      cachedGc = exposed;
-    } else {
-      setFlagsFromString("--expose-gc");
-      cachedGc = runInNewContext("gc") as () => void;
-    }
+  const exposed = (globalThis as { gc?: () => void }).gc;
+  let gc: () => void;
+  if (typeof exposed === "function") {
+    gc = exposed;
+  } else {
+    setFlagsFromString("--expose-gc");
+    gc = runInNewContext("gc") as () => void;
   }
   for (let i = 0; i < rounds; i++) {
-    cachedGc();
+    gc();
     await new Promise<void>((resolve) => setImmediate(resolve));
   }
 }
@@ -3413,7 +3411,7 @@ export class FailoverPathProtocol implements Protocol {
   type: string;
   localCandidate: Candidate;
   onRequestReceived = new Event<[Message, any, Buffer]>();
-  onDataReceived = new Event<[Buffer, Address?]>();
+  onDataReceived = new Event<[Buffer, Address]>();
   /** See `Protocol.onPathBroken` (`createFailoverHarness().breakPath`). */
   onPathBroken = new Event<[Address | undefined, Error]>();
   readonly requests: FailoverRequest[] = [];

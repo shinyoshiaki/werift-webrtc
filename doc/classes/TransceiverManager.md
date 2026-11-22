@@ -127,7 +127,7 @@ the transport a new transceiver starts on: it is
 
 ##### trackOrKind
 
-[`MediaStreamTrack`](MediaStreamTrack.md) \| [`Kind`](../type-aliases/Kind.md)
+[`Kind`](../type-aliases/Kind.md) \| [`MediaStreamTrack`](MediaStreamTrack.md)
 
 ##### dtlsTransport?
 

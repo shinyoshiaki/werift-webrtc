@@ -12,12 +12,15 @@ export class EarlyDataBuffer {
   private disposed = false;
   private droppedPackets = 0;
   private droppedBytes = 0;
+  readonly maxPackets: number;
+  readonly maxBytes: number;
+  readonly retentionMs: number;
 
-  constructor(
-    readonly maxPackets: number,
-    readonly maxBytes: number,
-    readonly retentionMs = 2_000,
-  ) {}
+  constructor(maxPackets: number, maxBytes: number, retentionMs = 2_000) {
+    this.maxPackets = maxPackets;
+    this.maxBytes = maxBytes;
+    this.retentionMs = retentionMs;
+  }
 
   /** Buffered records still inside the retention window (expires lazily). */
   get packets(): readonly Buffer[] {

@@ -672,7 +672,7 @@ export class SCTP {
             return;
           }
           const ack = new CookieAckChunk();
-          // RFC 4960 5.1 (D): move to ESTABLISHED when replying. Hand off the
+          // RFC 9260 §5.1 (D): move to ESTABLISHED when replying. Hand off the
           // COOKIE_ACK first so it precedes DATA flushed by the connected
           // event. A failed send is packet loss: the initiator retransmits
           // COOKIE_ECHO and this association (same cookie key) answers again.

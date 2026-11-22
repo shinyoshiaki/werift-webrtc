@@ -158,7 +158,7 @@
 
 ### warpCarrier?
 
-> `optional` **warpCarrier?**: `"sped"` \| `"direct"`
+> `optional` **warpCarrier?**: `"direct"` \| `"sped"`
 
 ***
 
@@ -220,4 +220,4 @@ WARP `sendBeforeNomination`: data or media left on a valid pair before ICE nomin
 
 ### warpSpedState?
 
-> `optional` **warpSpedState?**: `"active"` \| `"fallback"` \| `"disabled"` \| `"probing"`
+> `optional` **warpSpedState?**: `"disabled"` \| `"probing"` \| `"active"` \| `"fallback"`

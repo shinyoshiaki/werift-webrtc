@@ -390,19 +390,6 @@ export class SctpTransportManager {
           }
         }),
       ).unSubscribe;
-
-      // The association may have transitioned while listeners were installed.
-      if (sctp.state === "connected") {
-        complete(resolve);
-      } else if (sctp.state === "closed") {
-        complete(() => {
-          if (sctp.startCancellationError) {
-            reject(sctp.startCancellationError);
-          } else {
-            resolve();
-          }
-        });
-      }
     });
 
     return { promise, dispose };

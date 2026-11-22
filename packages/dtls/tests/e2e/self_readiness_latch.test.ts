@@ -21,7 +21,7 @@ const waiters = (socket: DtlsSocket) => [
   socket.waitForHandshakeComplete(),
 ];
 
-describe.each([
+describe.each<{ name: string; client: DtlsVersion[]; server: DtlsVersion[] }>([
   { name: "DTLS 1.3", client: [DtlsVersion.V1_3], server: [DtlsVersion.V1_3] },
   {
     name: "dual client → 1.2 server",

@@ -1524,8 +1524,9 @@ describe("RTCDtlsTransportTest", () => {
       expect(engine.earlyAppDataBuffer.snapshot().bufferedPackets).toBe(0);
       expect(engine.getHandshakeCarrier()?.isClosed()).toBe(true);
       expect(client.state).toBe("closed");
-      await expect(clientStart).rejects.toThrow(/closed|completed/);
-      await expect(secondClientStart).rejects.toThrow(/closed|completed/);
+      // Assert: 待っていた start() は reject せずに戻る (closed のまま)。
+      await expect(clientStart).resolves.toBeUndefined();
+      await expect(secondClientStart).resolves.toBeUndefined();
       await expect(peerAuthenticatedWait).rejects.toThrow(/closed|readiness/);
       await expect(handshakeCompleteWait).rejects.toThrow(/closed|readiness/);
     } finally {

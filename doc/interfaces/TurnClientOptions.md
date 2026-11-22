@@ -57,7 +57,7 @@ transactions) and rejects with `TransactionCancelled`.
 
 ### transport?
 
-> `optional` **transport?**: `"udp"` \| `"tcp"` \| `"tls"`
+> `optional` **transport?**: `"tcp"` \| `"tls"` \| `"udp"`
 
 ***
 
