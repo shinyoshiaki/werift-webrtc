@@ -27,7 +27,7 @@ A session description (W3C `RTCSessionDescription`).
 
 ##### init
 
-[`RTCSessionDescriptionInit`](../interfaces/RTCSessionDescriptionInit.md)
+[`RTCSessionDescriptionConstructorInit`](../interfaces/RTCSessionDescriptionConstructorInit.md)
 
 #### Returns
 

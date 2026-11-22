@@ -309,10 +309,19 @@ export class RTCDataChannel extends EventTarget implements DataChannelStats {
         value: this,
       });
     }
-    notifySafely(log, "onbufferedamountlow", () =>
-      this.onbufferedamountlow?.(event),
-    );
-    this.emitIsolated(onError, "bufferedamountlow", event);
+    try {
+      notifySafely(log, "onbufferedamountlow", () =>
+        this.onbufferedamountlow?.(event),
+      );
+      this.emitIsolated(onError, "bufferedamountlow", event);
+    } finally {
+      // DOM: currentTarget is null once dispatch has finished.
+      Object.defineProperty(event, "currentTarget", {
+        configurable: true,
+        enumerable: true,
+        value: null,
+      });
+    }
   }
 
   send(data: Buffer | string) {

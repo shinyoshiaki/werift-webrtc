@@ -227,6 +227,7 @@
 - [RTCRtpStreamStats](interfaces/RTCRtpStreamStats.md)
 - [RTCSctpConfiguration](interfaces/RTCSctpConfiguration.md)
 - [RTCSentRtpStreamStats](interfaces/RTCSentRtpStreamStats.md)
+- [RTCSessionDescriptionConstructorInit](interfaces/RTCSessionDescriptionConstructorInit.md)
 - [RTCSessionDescriptionInit](interfaces/RTCSessionDescriptionInit.md)
 - [RTCStats](interfaces/RTCStats.md)
 - [RTCTransportStats](interfaces/RTCTransportStats.md)

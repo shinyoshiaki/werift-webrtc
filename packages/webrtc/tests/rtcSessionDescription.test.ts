@@ -113,3 +113,11 @@ describe("RTCSessionDescription: werift/polyfill", () => {
     }
   });
 });
+
+describe("RTCSessionDescription constructor type", () => {
+  test("a dictionary without type is rejected by the compiler and at run time", () => {
+    // Act / Assert: 型は type 必須 (@ts-expect-error で固定) で、実行時も TypeError
+    // @ts-expect-error type is required by the constructor input type
+    expect(() => new RTCSessionDescription({ sdp: "v=0" })).toThrow(TypeError);
+  });
+});

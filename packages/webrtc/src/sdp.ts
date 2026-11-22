@@ -807,6 +807,11 @@ export interface RTCSessionDescriptionInit {
   sdp?: string;
   type?: RTCSdpType;
 }
+/** The W3C constructor input: `type` is required (checked at run time too). */
+export interface RTCSessionDescriptionConstructorInit
+  extends RTCSessionDescriptionInit {
+  type: RTCSdpType;
+}
 export type RTCSdpType = "answer" | "offer" | "pranswer" | "rollback";
 
 const RTCSdpTypes: readonly RTCSdpType[] = [
@@ -832,7 +837,7 @@ export class RTCSessionDescription {
   readonly sdp!: string;
   readonly type!: RTCSdpType;
 
-  constructor(init: RTCSessionDescriptionInit);
+  constructor(init: RTCSessionDescriptionConstructorInit);
   constructor(sdp: string, type: "offer" | "answer" | "pranswer");
   constructor(
     initOrSdp: RTCSessionDescriptionInit | string,

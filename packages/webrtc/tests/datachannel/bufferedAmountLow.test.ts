@@ -128,6 +128,8 @@ describe("datachannel/bufferedAmountLow", () => {
       expect(seen[0].type).toBe("bufferedamountlow");
       expect(seen[1]).toBe(seen[0]);
       // target / currentTarget はどちらの面でも対象チャネルを指す
+      expect(seen[0].currentTarget).toBeNull();
+      expect(seen[0].target).toBe(pair.local);
       expect(targets).toEqual([
         [pair.local, pair.local],
         [pair.local, pair.local],
