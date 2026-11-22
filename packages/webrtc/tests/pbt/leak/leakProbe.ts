@@ -310,6 +310,8 @@ type IceTransportInternals = {
     userHistory: Record<string, string>;
     protocols: object[];
     earlyChecks: unknown[];
+    /** SPED Binding Response replay cache (stays empty without SPED). */
+    spedBindingCache: { size: number };
   };
 };
 type EventInternals = {
@@ -451,6 +453,10 @@ export function leakFootprint(pc: RTCPeerConnection): Footprint {
     ),
     "ice.protocols": sum(ice, (t) => t.connection.protocols.length),
     "ice.earlyChecks": sum(ice, (t) => t.connection.earlyChecks.length),
+    "ice.spedBindingResponses": sum(
+      ice,
+      (t) => t.connection.spedBindingCache.size,
+    ),
     "sctp.dataChannels": sctpManager.dataChannels.length,
     "sctp.routedChannels": Object.keys(sctp?.dataChannels ?? {}).length,
     "negotiation.remoteCreated": negotiation.resources.remoteCreated.size,

@@ -71,13 +71,13 @@ reviewable diff does not depend on external PR text.
 
 ### connectionStateChange
 
-> `readonly` **connectionStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"new"` \| `"connected"` \| `"connecting"` \| `"disconnected"` \| `"failed"`\]\>
+> `readonly` **connectionStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"connected"` \| `"disconnected"` \| `"new"` \| `"failed"` \| `"connecting"`\]\>
 
 ***
 
 ### iceConnectionStateChange
 
-> `readonly` **iceConnectionStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"new"` \| `"connected"` \| `"disconnected"` \| `"completed"` \| `"failed"` \| `"checking"`\]\>
+> `readonly` **iceConnectionStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"connected"` \| `"disconnected"` \| `"completed"` \| `"new"` \| `"failed"` \| `"checking"`\]\>
 
 ***
 
@@ -289,11 +289,11 @@ v13.6.0, v12.17.0
 
 #### Get Signature
 
-> **get** **connectionState**(): `"closed"` \| `"new"` \| `"connected"` \| `"connecting"` \| `"disconnected"` \| `"failed"`
+> **get** **connectionState**(): `"closed"` \| `"connected"` \| `"disconnected"` \| `"new"` \| `"failed"` \| `"connecting"`
 
 ##### Returns
 
-`"closed"` \| `"new"` \| `"connected"` \| `"connecting"` \| `"disconnected"` \| `"failed"`
+`"closed"` \| `"connected"` \| `"disconnected"` \| `"new"` \| `"failed"` \| `"connecting"`
 
 ***
 
@@ -349,11 +349,11 @@ v13.6.0, v12.17.0
 
 #### Get Signature
 
-> **get** **iceConnectionState**(): `"closed"` \| `"new"` \| `"connected"` \| `"disconnected"` \| `"completed"` \| `"failed"` \| `"checking"`
+> **get** **iceConnectionState**(): `"closed"` \| `"connected"` \| `"disconnected"` \| `"completed"` \| `"new"` \| `"failed"` \| `"checking"`
 
 ##### Returns
 
-`"closed"` \| `"new"` \| `"connected"` \| `"disconnected"` \| `"completed"` \| `"failed"` \| `"checking"`
+`"closed"` \| `"connected"` \| `"disconnected"` \| `"completed"` \| `"new"` \| `"failed"` \| `"checking"`
 
 ***
 
@@ -1184,7 +1184,7 @@ Cannot be changed after construction. See [BundleCandidates](../type-aliases/Bun
 
 ##### certificateScope
 
-> **certificateScope**: `"process"` \| `"standard"`
+> **certificateScope**: `"standard"` \| `"process"`
 
 Which default DTLS certificate is used when neither `certificates` nor `dtls.keys` is given
 (see [CompatibilityOptionValues](../variables/CompatibilityOptionValues.md)). Cannot be changed after construction.
@@ -1212,7 +1212,8 @@ Also accepts the v0.27.0 name `"peerConnection"` (= `"standard"`).
 > **compatibility**: `"standard"` \| `undefined`
 
 Sets every compatibility option (`certificateScope`, `mLineReuse`,
-`transceiverPairing`, `keyFrameRequestRouting`, see
+`transceiverPairing`, `keyFrameRequestRouting`,
+`dtlsHandshakeValidation`, see
 [CompatibilityOptionValues](../variables/CompatibilityOptionValues.md)) to the specification / browser behavior
 at once. Cannot be changed after construction.
 - `undefined` (default): each option keeps its own default.
@@ -1227,10 +1228,10 @@ option given as `undefined` counts as not given.
 
 ```ts
 new RTCPeerConnection({ compatibility: "standard" });
-// certificateScope, mLineReuse, transceiverPairing and
-// keyFrameRequestRouting are all "standard"
+// certificateScope, mLineReuse, transceiverPairing,
+// keyFrameRequestRouting and dtlsHandshakeValidation are all "standard"
 new RTCPeerConnection({ compatibility: "standard", certificateScope: "process" });
-// certificateScope is "process", the other three are "standard"
+// certificateScope is "process", the others are "standard"
 ```
 
 It does not change `iceServers` / `iceUseDefaultStunServer`, which are not
@@ -1270,9 +1271,32 @@ ms
 
 > **dtls**: `object`
 
+###### dtls.helloRetryRequest
+
+> **helloRetryRequest**: `boolean` \| `undefined` = `config.dtls.helloRetryRequest`
+
 ###### dtls.keys?
 
 > `optional` **keys?**: [`DtlsKeys`](../type-aliases/DtlsKeys.md)
+
+###### dtls.protocolVersions
+
+> **protocolVersions**: [`DtlsVersion`](../enumerations/DtlsVersion.md)[] \| `undefined`
+
+##### dtlsHandshakeValidation
+
+> **dtlsHandshakeValidation**: `"standard"` \| `"lenient"`
+
+How strictly the DTLS 1.2 handshake validates the peer's messages (see
+[CompatibilityOptionValues](../variables/CompatibilityOptionValues.md)). Cannot be changed after construction.
+- `"lenient"` (default): a malformed `supported_versions` is ignored and
+  DTLS 1.2 negotiated, duplicate extensions are accepted and `use_srtp`
+  is read without length checks, as before the strict checks.
+- `"standard"`: RFC-strict; these fail the handshake (a malformed
+  `supported_versions` with a `protocol_version` alert).
+
+A `supported_versions` without an overlapping version fails either way,
+and DTLS 1.3 always validates strictly.
 
 ##### filterProbePaddingOnReceiveRtp
 
@@ -1508,7 +1532,7 @@ such as google cloud run
 
 ##### keyFrameRequestRouting
 
-> **keyFrameRequestRouting**: `"fallback"` \| `"standard"`
+> **keyFrameRequestRouting**: `"standard"` \| `"fallback"`
 
 Where a PLI / FIR goes when no route has its target SSRC (see
 [CompatibilityOptionValues](../variables/CompatibilityOptionValues.md) and [KeyFrameRequestRouting](../type-aliases/KeyFrameRequestRouting.md)).
@@ -1580,6 +1604,18 @@ Max queued packets when enabled. Oldest packets are dropped. Default 256.
 ###### sctp.mtu
 
 > **mtu**: `number`
+
+##### sped?
+
+> `optional` **sped?**: `boolean`
+
+Opt-in SPED (DTLS handshake embedded in ICE Binding).
+Omit or false: ICE completes, then DTLS starts (current serial path).
+true: this PeerConnection only overlaps ICE checks with DTLS 1.3 handshake.
+Requires explicit DTLS 1.3 in `dtls.protocolVersions`
+(`dtls.protocolVersions` defaults to empty / DTLS 1.2 only).
+Cannot be combined with `dtls.helloRetryRequest: true`
+(SPED uses ICE-authenticated address validation, not a DTLS cookie).
 
 ##### transceiverPairing
 

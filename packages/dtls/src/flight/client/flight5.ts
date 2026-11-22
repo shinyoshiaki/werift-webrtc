@@ -24,6 +24,7 @@ import { ServerHello } from "../../handshake/message/server/hello";
 import { ServerHelloDone } from "../../handshake/message/server/helloDone";
 import { ServerKeyExchange } from "../../handshake/message/server/keyExchange";
 import { DtlsRandom } from "../../handshake/random";
+import { isStandardHandshakeValidation } from "../../handshake/validation";
 import { debug, type SrtpProfile } from "../../imports/rtp";
 import { createPlaintext } from "../../record/builder";
 import { ContentType } from "../../record/const";
@@ -50,7 +51,23 @@ export class Flight5 extends Flight {
   }
 
   handleHandshake(handshake: FragmentedHandshake) {
+    // Flight4 retransmits re-deliver the same msg_type. bufferHandshakeCache
+    // already de-dupes the transcript, but handlers must not re-run either:
+    // ServerKeyExchange regenerates ECDHE localKeyPair — a second apply after
+    // Flight5.exec would desync ClientKeyExchange public key from cipher state.
+    const alreadyCached = !!this.dtls.handshakeCache[4]?.data.some(
+      (t) => t.msg_type === handshake.msg_type,
+    );
     this.dtls.bufferHandshakeCache([handshake], false, 4);
+    if (alreadyCached) {
+      log(
+        this.dtls.sessionId,
+        "skip duplicate Flight4 handshake handler",
+        handshake.msg_type,
+      );
+      return;
+    }
+
     const message = (() => {
       switch (handshake.msg_type) {
         case HandshakeType.server_hello_2:
@@ -242,7 +259,11 @@ handlers[HandshakeType.server_hello_2] =
         switch (extension.type) {
           case UseSRTP.type:
             {
-              const useSrtp = UseSRTP.fromData(extension.data);
+              const useSrtp = UseSRTP.fromData(extension.data, {
+                lenient: !isStandardHandshakeValidation(
+                  dtls.options.handshakeValidation,
+                ),
+              });
               const profile = SrtpContext.findMatchingSRTPProfile(
                 useSrtp.profiles as SrtpProfile[],
                 dtls.options.srtpProfiles || [],

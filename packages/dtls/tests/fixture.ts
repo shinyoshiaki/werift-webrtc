@@ -1,4 +1,27 @@
-import type { Transport } from "../../common/src";
+import type { Address, Transport } from "../../common/src";
+import { UdpTransport } from "../../common/src";
+import type { SrtpProfile } from "../../rtp/src/srtp/const";
+import { DtlsClient, DtlsServer, DtlsVersion } from "../src";
+import {
+  CipherSuite,
+  HashAlgorithm,
+  NamedCurveAlgorithm,
+  SignatureAlgorithm,
+} from "../src/cipher/const";
+import { generateKeyPair } from "../src/cipher/namedCurve";
+import { EllipticCurves } from "../src/handshake/extensions/ellipticCurves";
+import { ExtendedMasterSecret } from "../src/handshake/extensions/extendedMasterSecret";
+import { KeyShare } from "../src/handshake/extensions/keyShare";
+import { Signature } from "../src/handshake/extensions/signature";
+import { SignatureAlgorithms } from "../src/handshake/extensions/signatureAlgorithms";
+import { SupportedVersions } from "../src/handshake/extensions/supportedVersions";
+import { ClientHello } from "../src/handshake/message/client/hello";
+import { DtlsRandom } from "../src/handshake/random";
+import { ContentType } from "../src/record/const";
+import { FragmentedHandshake } from "../src/record/message/fragment";
+import { serializePlaintextRecord } from "../src/record/v1_3/record";
+import type { Options } from "../src/socket";
+import { DTLS_1_3_VERSION, WireVersion } from "../src/version";
 
 export const certPem = `-----BEGIN CERTIFICATE-----
 MIIDETCCAfkCFEtWAs2R7xuwFvkze6b7C0mNodXKMA0GCSqGSIb3DQEBCwUAMEUx
@@ -51,6 +74,79 @@ MRWZMFdB3hM1ZJ3myUyE8qw=
 -----END PRIVATE KEY-----
 `;
 
+/** P-256 ECDSA server/client certificate (self-signed) for CertificateVerify E2E. */
+export const ecdsaP256CertPem = `-----BEGIN CERTIFICATE-----
+MIIBgTCCASegAwIBAgIUWPl9ezaAwooN0W/noF6nMqO27+UwCgYIKoZIzj0EAwIw
+FjEUMBIGA1UEAwwLd2VyaWZ0LXAyNTYwHhcNMjYwODA5MDY0NzUxWhcNMzYwODA2
+MDY0NzUxWjAWMRQwEgYDVQQDDAt3ZXJpZnQtcDI1NjBZMBMGByqGSM49AgEGCCqG
+SM49AwEHA0IABHlUI1X8d3RCb9d7LO1e+XhQWCkPfiIv0UPVtjiWWce3qviPLrlz
+3W0KhJ3dN2QM2bCHtpaIq0W4ElQ1BceywKmjUzBRMB0GA1UdDgQWBBSg3E14VfdS
+7jurKvZOT2XPzGnoXDAfBgNVHSMEGDAWgBSg3E14VfdS7jurKvZOT2XPzGnoXDAP
+BgNVHRMBAf8EBTADAQH/MAoGCCqGSM49BAMCA0gAMEUCIQCe3OhPB504FbF9OnP2
+Z6tBZslb1Ns5zweEKJ9pxERCrAIgC8fWPv+znOXnm7zr3/yQcPZsEG4OOBz0Q8SU
+n8Oal40=
+-----END CERTIFICATE-----
+`;
+
+export const ecdsaP256KeyPem = `-----BEGIN PRIVATE KEY-----
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgge5orEw2sT5d8HA5
+NnKAgw1SjU1EaS/sHrQ6RXEiuSKhRANCAAR5VCNV/Hd0Qm/XeyztXvl4UFgpD34i
+L9FD1bY4llnHt6r4jy65c91tCoSd3TdkDNmwh7aWiKtFuBJUNQXHssCp
+-----END PRIVATE KEY-----
+`;
+
+/** P-384 ECDSA key material — must fail ecdsa_secp256r1_sha256 negotiation. */
+export const ecdsaP384CertPem = `-----BEGIN CERTIFICATE-----
+MIIBvzCCAUSgAwIBAgIUDHFqVeDzyukj2QfNsPAKpLfoPLAwCgYIKoZIzj0EAwIw
+FjEUMBIGA1UEAwwLd2VyaWZ0LXAzODQwHhcNMjYwODA5MDY0NzUxWhcNMzYwODA2
+MDY0NzUxWjAWMRQwEgYDVQQDDAt3ZXJpZnQtcDM4NDB2MBAGByqGSM49AgEGBSuB
+BAAiA2IABDgJ0Eblp++FJHgz0Pnli6B+uEnag1DHDXjgRa3iueDiUDhAI1Br4dKe
+QVbHDLMmZ3jhIQ4E7UvitkC3BWk5sCCrytT5wD0N7K9vgFNgY7SCsm3N+VPrIyId
+EwRxGLIVWaNTMFEwHQYDVR0OBBYEFHN3qcdjB7USDsqqLpd/7lw4RCfgMB8GA1Ud
+IwQYMBaAFHN3qcdjB7USDsqqLpd/7lw4RCfgMA8GA1UdEwEB/wQFMAMBAf8wCgYI
+KoZIzj0EAwIDaQAwZgIxAKgfPBYQMThxostuFLyMRb2cS+RYYxenD3UmFlDb7AtK
+EmXrhKnqVxdr7mMWhKQ8wQIxAOenBxVQXDy15Eed0qPdHAFBA3Zry3HEAdM/6qiu
+gEHcxlZDaPb4GtYJpYF/g4n5Ww==
+-----END CERTIFICATE-----
+`;
+
+export const ecdsaP384KeyPem = `-----BEGIN PRIVATE KEY-----
+MIG2AgEAMBAGByqGSM49AgEGBSuBBAAiBIGeMIGbAgEBBDDwZmwePe2VWRsDzwS+
+YqjsjnVJmEhmjrKofYbJtv8dISDBx6EYAvp2fF79zjuJ86mhZANiAAQ4CdBG5afv
+hSR4M9D55YugfrhJ2oNQxw144EWt4rng4lA4QCNQa+HSnkFWxwyzJmd44SEOBO1L
+4rZAtwVpObAgq8rU+cA9Deyvb4BTYGO0grJtzflT6yMiHRMEcRiyFVk=
+-----END PRIVATE KEY-----
+`;
+
+/** Shared Arrange options for DTLS 1.3 self E2E pairs. */
+export type Dtls13PairExtra = {
+  certificateRequest?: boolean;
+  addressValidation?: "dtls-cookie" | "ice-authenticated" | "none";
+  srtpProfiles?: SrtpProfile[];
+  maxEarlyAppDataRecords?: number;
+  maxEarlyAppDataBytes?: number;
+};
+
+/**
+ * Arrange: UDP-linked DtlsServer / DtlsClient for 1.3 self tests.
+ * Prefer this over duplicating transport setup across e2e files.
+ */
+export async function arrangeDtls13Pair(extra?: Dtls13PairExtra) {
+  const serverTransport = await UdpTransport.init("udp4");
+  const clientTransport = await UdpTransport.init("udp4");
+  clientTransport.rinfo = serverTransport.address;
+  const base = {
+    cert: certPem,
+    key: keyPem,
+    protocolVersions: [DtlsVersion.V1_3] as const,
+    addressValidation: "none" as const,
+    ...extra,
+  };
+  const server = new DtlsServer({ transport: serverTransport, ...base });
+  const client = new DtlsClient({ transport: clientTransport, ...base });
+  return { server, client, serverTransport, clientTransport };
+}
+
 /**
  * Shared Arrange: a transport that sends nowhere and records every datagram
  * (a peer that never answers the handshake).
@@ -70,4 +166,320 @@ export function createSilentTransport() {
     },
   };
   return { transport, sent };
+}
+
+/** signatureHash matching the RSA fixture certificate ({@link certPem} / {@link keyPem}). */
+export const rsaSignatureHash = {
+  hash: HashAlgorithm.sha256_4,
+  signature: SignatureAlgorithm.rsa_1,
+};
+
+/** DTLS 1.2 association address pinning is opt-in: pass this to enable it. */
+export const dtls12AddressPin = {
+  peerIdentityMode: "datagram-address",
+} as const satisfies Partial<Options>;
+
+export type UdpDtlsPairOptions = {
+  /** Options given to both server and client (after cert / key / signatureHash). */
+  shared?: Partial<Options>;
+  /** Server-only options, applied after {@link shared}. */
+  server?: Partial<Options>;
+  /** Client-only options, applied after {@link shared}. */
+  client?: Partial<Options>;
+  /** Fail the connect wait on the first onError of either side (default true). */
+  rejectOnError?: boolean;
+  /** Called after the sockets exist and before the client connects (e.g. to wrap transport sends). */
+  beforeConnect?: (pair: {
+    server: DtlsServer;
+    client: DtlsClient;
+    serverTransport: UdpTransport;
+    clientTransport: UdpTransport;
+  }) => void;
+};
+
+/**
+ * Shared Arrange: UDP-linked DtlsServer / DtlsClient with the RSA fixture
+ * certificate, connected (both onConnect fired) within 15 s.
+ */
+export async function connectUdpDtlsPair({
+  shared,
+  server: serverOptions,
+  client: clientOptions,
+  rejectOnError = true,
+  beforeConnect,
+}: UdpDtlsPairOptions = {}) {
+  const serverTransport = await UdpTransport.init("udp4");
+  const clientTransport = await UdpTransport.init("udp4");
+  clientTransport.rinfo = serverTransport.address;
+
+  const base = {
+    cert: certPem,
+    key: keyPem,
+    signatureHash: rsaSignatureHash,
+    ...shared,
+  };
+  const server = new DtlsServer({
+    transport: serverTransport,
+    ...base,
+    ...serverOptions,
+  });
+  const client = new DtlsClient({
+    transport: clientTransport,
+    ...base,
+    ...clientOptions,
+  });
+  beforeConnect?.({ server, client, serverTransport, clientTransport });
+
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error("connect timeout")),
+      15_000,
+    );
+    let c = false;
+    let s = false;
+    const done = () => {
+      if (c && s) {
+        clearTimeout(timer);
+        resolve();
+      }
+    };
+    client.onConnect.subscribe(() => {
+      c = true;
+      done();
+    });
+    server.onConnect.subscribe(() => {
+      s = true;
+      done();
+    });
+    if (rejectOnError) {
+      client.onError.subscribe((e) => {
+        clearTimeout(timer);
+        reject(e);
+      });
+      server.onError.subscribe((e) => {
+        clearTimeout(timer);
+        reject(e);
+      });
+    }
+    void client.connect();
+  });
+
+  return { client, server, clientTransport, serverTransport };
+}
+
+/**
+ * Remote address [host, port] of a UDP transport as its peer sees it
+ * (a wildcard bind is reached through 127.0.0.1).
+ */
+export function peerOf(t: {
+  address: { address: string; port: number } | string;
+}): [string, number] {
+  const a = t.address as { address: string; port: number };
+  return [a.address === "0.0.0.0" ? "127.0.0.1" : a.address, a.port];
+}
+
+/**
+ * Addressless but peer-authenticated transport (ICE-like): no rinfo, and
+ * onData carries no source address unless {@link fakeRxAddr} is set.
+ */
+export class PeerAuthTransport implements Transport {
+  type = "ice";
+  closed = false;
+  readonly peerAuthenticated = true;
+  /** When set, onData is invoked with this fake source (wrong-addr RX). */
+  fakeRxAddr?: Address;
+  onData: (data: Buffer, addr: Address) => void = () => {};
+  private peer?: PeerAuthTransport;
+
+  private readonly udp: UdpTransport;
+
+  constructor(udp: UdpTransport) {
+    this.udp = udp;
+    udp.onData = (data) => {
+      // Default: no source address — same as WebRTC IceTransport
+      this.onData(data, this.fakeRxAddr as any);
+    };
+  }
+
+  get address() {
+    return this.udp.address as any;
+  }
+
+  link(peer: PeerAuthTransport) {
+    this.peer = peer;
+  }
+
+  send = async (data: Buffer, _addr?: Address) => {
+    if (this.closed || !this.peer) return;
+    // Deliver to peer's UDP stack so rinfo is not required
+    const p = this.peer;
+    queueMicrotask(() => {
+      if (!p.closed) p.onData(data, p.fakeRxAddr as any);
+    });
+  };
+
+  close = async () => {
+    this.closed = true;
+    await this.udp.close().catch(() => {});
+  };
+}
+
+/** Shared Arrange: two {@link PeerAuthTransport}s linked to each other. */
+export async function linkedPeerAuthTransports() {
+  const u1 = await UdpTransport.init("udp4");
+  const u2 = await UdpTransport.init("udp4");
+  const t1 = new PeerAuthTransport(u1);
+  const t2 = new PeerAuthTransport(u2);
+  t1.link(t2);
+  t2.link(t1);
+  return { t1, t2 };
+}
+
+/**
+ * Shared Arrange: server (t1) / client (t2) over {@link linkedPeerAuthTransports},
+ * both with the RSA fixture cert / key plus `options`; resolves once the client
+ * is connected (20 s timeout), rejects on either side's onError.
+ */
+export async function connectPeerAuthPair(options: Partial<Options>) {
+  const { t1, t2 } = await linkedPeerAuthTransports();
+
+  const base = { cert: certPem, key: keyPem, ...options };
+  const server = new DtlsServer({ transport: t1, ...base });
+  const client = new DtlsClient({ transport: t2, ...base });
+
+  await new Promise<void>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error("connect timeout")), 20_000);
+    client.onConnect.subscribe(() => {
+      clearTimeout(t);
+      resolve();
+    });
+    client.onError.subscribe((e) => {
+      clearTimeout(t);
+      reject(e);
+    });
+    server.onError.subscribe((e) => {
+      clearTimeout(t);
+      reject(e);
+    });
+    void client.connect();
+  });
+
+  return { client, server, t1, t2 };
+}
+
+export type ClientRandom = { gmt_unix_time: number; random_bytes: Buffer };
+
+/** A fresh ClientHello random, captured so CH1 / CH2 can reuse it. */
+export function fixedClientRandom(): ClientRandom {
+  const r = new DtlsRandom();
+  return {
+    gmt_unix_time: r.gmt_unix_time,
+    random_bytes: Buffer.from(r.random_bytes),
+  };
+}
+
+/**
+ * DTLS 1.2 ClientHello (legacy_version 0xfefd) for the RSA fixture server:
+ * secp256r1 / x25519 curves, rsa_pkcs1_sha256, ECDHE_RSA_AES_128_GCM.
+ */
+export function build12ClientHello(opts?: {
+  cookie?: Buffer;
+  random?: ClientRandom;
+  /** Explicit cipher suites (overrides {@link only13Cipher} / {@link ecdsaOnly}). */
+  ciphers?: number[];
+  /** Offer only TLS_AES_128_GCM_SHA256 (0x1301). */
+  only13Cipher?: boolean;
+  /** ECDSA-only signature / suite, so an RSA server fails cipher negotiation. */
+  ecdsaOnly?: boolean;
+  /** Append the extended_master_secret extension. */
+  ems?: boolean;
+  /** Wire versions for supported_versions (RFC 8446). Absent = legacy 1.2. */
+  supportedVersions?: number[];
+}): ClientHello {
+  const curves = new EllipticCurves({ data: [23, 29] }); // secp256r1, x25519
+  const signature = new Signature({
+    data: [
+      {
+        hash: HashAlgorithm.sha256_4,
+        signature: opts?.ecdsaOnly
+          ? SignatureAlgorithm.ecdsa_3
+          : SignatureAlgorithm.rsa_1,
+      },
+    ],
+  });
+  const extensions = [curves.extension, signature.extension];
+  if (opts?.supportedVersions?.length) {
+    extensions.unshift(
+      SupportedVersions.forClient(opts.supportedVersions).clientExtension,
+    );
+  }
+  if (opts?.ems) {
+    extensions.push({ type: ExtendedMasterSecret.type, data: Buffer.alloc(0) });
+  }
+  const defaultCiphers = opts?.only13Cipher
+    ? [0x1301]
+    : opts?.ecdsaOnly
+      ? [CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256_49195]
+      : [CipherSuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256_49199];
+  return new ClientHello(
+    { major: 254, minor: 253 },
+    opts?.random ?? fixedClientRandom(),
+    Buffer.alloc(0),
+    opts?.cookie ?? Buffer.alloc(0),
+    opts?.ciphers ?? defaultCiphers,
+    [0],
+    extensions,
+  );
+}
+
+/** A ClientHello as the reassembler hands it to `handleHandshakes`. */
+export function chAsAssembled(hello: ClientHello): FragmentedHandshake[] {
+  return [FragmentedHandshake.assemble([hello.toFragment()])];
+}
+
+/**
+ * DTLS 1.3 ClientHello as an epoch-0 plaintext record (message_seq 0):
+ * supported_versions [DTLS 1.3], one group with a key_share, default
+ * signature_algorithms. Each option replaces one field to make it invalid.
+ */
+export function build13ClientHelloRecord(opts?: {
+  legacyVersion?: { major: number; minor: number };
+  legacyCookie?: Buffer;
+  cipherSuites?: number[];
+  compression?: number[];
+  /** key_share public key (default: a fresh key pair of {@link group}). */
+  keyExchange?: Buffer;
+  group?: number;
+}): Buffer {
+  const group = opts?.group ?? NamedCurveAlgorithm.x25519_29;
+  const kp =
+    opts?.keyExchange != null
+      ? { publicKey: opts.keyExchange }
+      : generateKeyPair(group as any);
+  const curves = EllipticCurves.createEmpty();
+  curves.data = [group] as any;
+  const ch = new ClientHello(
+    opts?.legacyVersion ?? WireVersion.DTLS_1_2,
+    new DtlsRandom(),
+    Buffer.alloc(0),
+    opts?.legacyCookie ?? Buffer.alloc(0),
+    opts?.cipherSuites ?? [CipherSuite.TLS_AES_128_GCM_SHA256_0x1301],
+    opts?.compression ?? [0],
+    [
+      SupportedVersions.forClient([DTLS_1_3_VERSION]).clientExtension,
+      curves.extension,
+      KeyShare.forClient([{ group, keyExchange: kp.publicKey as Buffer }])
+        .clientExtension,
+      SignatureAlgorithms.create().extension,
+    ],
+  );
+  ch.messageSeq = 0;
+  const frag = ch.toFragment();
+  frag.message_seq = 0;
+  return serializePlaintextRecord(
+    ContentType.handshake,
+    0,
+    0,
+    frag.serialize(),
+  );
 }

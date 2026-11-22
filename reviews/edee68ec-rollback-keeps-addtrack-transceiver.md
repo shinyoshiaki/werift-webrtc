@@ -583,7 +583,7 @@ leak probe に一時的な出力を足し（一時 worktree のみ）、seed 5 �
 | 3 | 33（1） | **34（2）** |
 | 4〜6 | 33（1） | 33（1） |
 
-増えた 1 件は、peer-reflexive の remote 候補 `192.168.0.100:37093` と、b の 2 つ目の local 候補との pair です。port 37093 は、a の `docker0`（`172.20.0.1`）の host 候補の port です。この host は複数の interface（`enp8s0`、Wi-Fi、`tailscale0`、`docker0` などの bridge、IPv6）を持ち、docker の NAT（MASQUERADE）が送信元を書き換えます。そのため、a の `docker0` の socket から出た check は、送信元 `192.168.0.100` として b に届きます。b はこれを知らない送信元として prflx 候補にします。
+増えた 1 件は、peer-reflexive の remote 候補 `<LAN のアドレス>:37093` と、b の 2 つ目の local 候補との pair です。port 37093 は、a の docker bridge の host 候補の port です。この host は複数の interface（有線 LAN、Wi-Fi、VPN、docker の bridge、IPv6）を持ち、docker の NAT（MASQUERADE）が送信元を書き換えます。そのため、a の docker bridge の socket から出た check は、送信元 LAN のアドレスとして b に届きます。b はこれを知らない送信元として prflx 候補にします。
 
 この check が届く b の socket が 1 つか 2 つかは、nomination が終わるまでのタイミングで変わります。そこで、ICE generation ごとに pair が 1 件だけ揺れます。次の ICE restart で checkList が作り直されると、元に戻ります。周期を重ねて状態が増えているのではありません。
 
@@ -594,7 +594,7 @@ seed 5 を交互に 10 回ずつ実行しました（develop は `8070a8e58`）�
 | 変種 | 失敗 |
 | --- | --- |
 | HEAD（複数 interface） | 5/10、3/10 |
-| HEAD、ICE を 1 つの IPv4（`192.168.0.100`）に限定し IPv6 なし | 0/10 |
+| HEAD、ICE を 1 つの IPv4（LAN のアドレス）に限定し IPv6 なし | 0/10 |
 | HEAD、ICE を IPv4 loopback（`127.0.0.1`）に限定し IPv6 なし | 0/10 |
 | develop（複数 interface） | 0/10、0/10 |
 | develop の src + HEAD のハーネス | 2/10 |

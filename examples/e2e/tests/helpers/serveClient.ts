@@ -66,8 +66,11 @@ export async function startStaticServer(options: {
 }
 
 export async function startViteServer(options: { root: string; port: number }) {
+  // hoist-imports-allow: load Vite only when a client dev server is started
   const { createServer } = await import("vite");
+  // hoist-imports-allow: load Vite plugins only when a client dev server is started
   const react = (await import("@vitejs/plugin-react")).default;
+  // hoist-imports-allow: load Vite plugins only when a client dev server is started
   const { nodePolyfills } = await import("vite-plugin-node-polyfills");
 
   const stub = path.resolve(e2eRoot, "tests/helpers/browserNodeStubs.ts");
