@@ -369,7 +369,7 @@ The smoothed RTT (seconds): the median of the last
 
 ### recordRoundTrip()
 
-> **recordRoundTrip**(`rtt`): `void`
+> **recordRoundTrip**(`rtt`, `__namedParameters?`): `void`
 
 Record the RTT (seconds) of a check, consent check or backup check that
 was answered: `rtt` (the stats' `currentRoundTripTime`), the totals and
@@ -380,6 +380,12 @@ the samples of [smoothedRtt](#smoothedrtt).
 ##### rtt
 
 `number`
+
+##### \_\_namedParameters?
+
+###### latest?
+
+`boolean` = `true`
 
 #### Returns
 
