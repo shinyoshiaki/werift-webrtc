@@ -53,7 +53,8 @@ export type SwitchDecision = {
 /**
  * Since when (ms) `pair` has not been receiving, undefined while it is: it
  * received nothing for WEAK_CONNECTION_RECEIVE_TIMEOUT (as libwebrtc's
- * `Connection::receiving`) and a check sent to it went unanswered.
+ * `Connection::receiving`) and a check sent to it went unanswered; the time
+ * is when both began to hold (the later of the two).
  *
  * libwebrtc pings a weak selection every 48 ms, so a silence that long
  * means its pings went unanswered. werift checks the selected pair only
@@ -69,7 +70,9 @@ export const notReceivingSince = (
 ) => {
   const silentSince = pair.lastReceived + receivingTimeout;
   if (now < silentSince || pair.missedSince === undefined) return undefined;
-  return silentSince;
+  // Both conditions hold only from the later of the two: a silence that long
+  // followed by a late unanswered check starts the hold at that check.
+  return Math.max(silentSince, pair.missedSince);
 };
 
 /**
@@ -203,20 +206,23 @@ export class SelectionController {
       rtt: selected.smoothedRtt,
     };
 
-    let best: { pair: CandidatePair; reason: "receiving" | "rtt" } | undefined;
+    let best:
+      | { pair: CandidatePair; reason: "receiving" | "rtt"; receiving: boolean }
+      | undefined;
     let recheckAt: number | undefined;
     for (const pair of this.host.candidates()) {
       if (pair === selected || !this.host.allows(pair)) continue;
       const liveness = this.host.liveness(pair);
       if (!liveness) continue;
+      const candidateState: SwitchPairState = {
+        writable: this.host.writable(pair, now),
+        lastReceived: liveness.lastReceived,
+        missedSince: liveness.missedSince,
+        rtt: pair.smoothedRtt,
+      };
       const decision = shouldSwitch({
         selected: selectedState,
-        candidate: {
-          writable: this.host.writable(pair, now),
-          lastReceived: liveness.lastReceived,
-          missedSince: liveness.missedSince,
-          rtt: pair.smoothedRtt,
-        },
+        candidate: candidateState,
         priority: this.host.comparePriority(pair, selected),
         now,
         receivingTimeout: thresholds?.receivingTimeout,
@@ -229,8 +235,11 @@ export class SelectionController {
       // higher-priority one `SelectionReplacement`'s.
       const reason = decision.reason;
       if (reason !== "receiving" && reason !== "rtt") continue;
-      if (!best || this.betterTarget(pair, best.pair)) {
-        best = { pair, reason };
+      const receiving =
+        notReceivingSince(candidateState, now, thresholds?.receivingTimeout) ===
+        undefined;
+      if (!best || this.betterTarget({ pair, receiving }, best)) {
+        best = { pair, reason, receiving };
       }
     }
     if (best) {
@@ -250,11 +259,19 @@ export class SelectionController {
     this.clearRecheck();
   }
 
-  /** Between two pairs the selection may move to: the higher priority, then the lower RTT. */
-  private betterTarget(pair: CandidatePair, other: CandidatePair) {
-    const priority = this.host.comparePriority(pair, other);
+  /**
+   * Between two pairs the selection may move to, in the order of
+   * `shouldSwitch`: a receiving pair, then the higher priority, then the
+   * lower RTT.
+   */
+  private betterTarget(
+    a: { pair: CandidatePair; receiving: boolean },
+    b: { pair: CandidatePair; receiving: boolean },
+  ) {
+    if (a.receiving !== b.receiving) return a.receiving;
+    const priority = this.host.comparePriority(a.pair, b.pair);
     if (priority !== 0) return priority > 0;
-    return (pair.smoothedRtt ?? Infinity) < (other.smoothedRtt ?? Infinity);
+    return (a.pair.smoothedRtt ?? Infinity) < (b.pair.smoothedRtt ?? Infinity);
   }
 
   private scheduleRecheck(at: number) {

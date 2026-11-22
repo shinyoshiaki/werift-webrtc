@@ -9,6 +9,8 @@ import {
 import {
   notReceivingSince,
   type SwitchPairState,
+  SelectionController,
+  type SelectionControllerHost,
   shouldSwitch,
 } from "../../src/nomination/selectionController";
 import {
@@ -147,7 +149,11 @@ describe("shouldSwitch", () => {
       now,
     );
     const missed = notReceivingSince(
-      { writable: true, lastReceived: now - 3000, missedSince: now - 2000 },
+      {
+        writable: true,
+        lastReceived: now - 3000,
+        missedSince: now - 2000,
+      },
       now,
     );
     const candidateDown = shouldSwitch({
@@ -161,6 +167,155 @@ describe("shouldSwitch", () => {
     expect(quiet).toBeUndefined();
     expect(missed).toBe(now - 3000 + WEAK_CONNECTION_RECEIVE_TIMEOUT);
     expect(candidateDown.reason).toBeUndefined();
+  });
+
+  test("a late unanswered check starts the hold at the check, and a recovery in the hold keeps the selection", () => {
+    // Arrange: 選択中のペアは 10 s 無通信だが、check が未応答になったのはたった今。
+    const selected: SwitchPairState = {
+      writable: true,
+      lastReceived: now - 10_000,
+      missedSince: now,
+    };
+
+    // Act: 未応答の確定直後、保留の途中、保留が明けた時刻、保留中に受信した場合を判定する。
+    const since = notReceivingSince(selected, now);
+    const justAfter = shouldSwitch({
+      selected,
+      candidate: up(),
+      priority: -1,
+      now,
+    });
+    const halfway = shouldSwitch({
+      selected,
+      candidate: up(),
+      priority: -1,
+      now: now + RECEIVING_SWITCHING_DELAY / 2,
+    });
+    const expired = shouldSwitch({
+      selected,
+      candidate: up(),
+      priority: -1,
+      now: now + RECEIVING_SWITCHING_DELAY,
+    });
+    const recovered = shouldSwitch({
+      selected: {
+        ...selected,
+        lastReceived: now + 500,
+        missedSince: undefined,
+      },
+      candidate: up(),
+      priority: -1,
+      now: now + RECEIVING_SWITCHING_DELAY,
+    });
+
+    // Assert: 非受信は未応答の確定時刻から数え、その時点では移らず保留が明けて初めて移る。回復すれば移らない。
+    expect(since).toBe(now);
+    expect(justAfter.reason).toBeUndefined();
+    expect(justAfter.recheckAt).toBe(now + RECEIVING_SWITCHING_DELAY);
+    expect(halfway.reason).toBeUndefined();
+    expect(expired.reason).toBe("receiving");
+    expect(recovered.reason).toBeUndefined();
+  });
+});
+
+describe("SelectionController: several backups compete", () => {
+  const now = 100_000;
+  type Spec = { name: string; priority: number; rtt: number; silent: boolean };
+  const pairOf = (spec: Spec) =>
+    ({
+      name: spec.name,
+      smoothedRtt: spec.rtt / 1000,
+      toJSON: () => ({}),
+    }) as unknown as CandidatePair;
+
+  /** Arrange: 選択中 (受信停止・未応答 2 s) と、指定した退避先から成る controller。 */
+  const arrange = (backups: Spec[], missedAgo = 2000) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+    const selected = pairOf({
+      name: "selected",
+      priority: 10,
+      rtt: 50,
+      silent: true,
+    });
+    const specs = new Map<CandidatePair, Spec>([
+      [selected, { name: "selected", priority: 10, rtt: 50, silent: true }],
+    ]);
+    const pairs = backups.map((spec) => {
+      const pair = pairOf(spec);
+      specs.set(pair, spec);
+      return pair;
+    });
+    const switched: string[] = [];
+    const host: SelectionControllerHost = {
+      active: () => true,
+      selected: () => selected,
+      candidates: () => pairs,
+      liveness: (pair) =>
+        specs.get(pair)!.silent
+          ? ({
+              lastReceived: now - 10_000,
+              missedSince: now - missedAgo,
+            } as never)
+          : ({ lastReceived: now } as never),
+      writable: () => true,
+      allows: () => true,
+      comparePriority: (pair, other) =>
+        specs.get(pair)!.priority - specs.get(other)!.priority,
+      switchTo: (pair) =>
+        switched.push((pair as unknown as { name: string }).name),
+    };
+    return { controller: new SelectionController(host), switched };
+  };
+  afterEach(() => vi.useRealTimers());
+
+  test("a receiving backup of lower priority wins over a silent one of equal priority and lower RTT", () => {
+    // Arrange: 選択中と同 priority で RTT が低いが受信停止中の A と、priority は低いが受信中の B。
+    const { controller, switched } = arrange([
+      { name: "A", priority: 10, rtt: 5, silent: true },
+      { name: "B", priority: 5, rtt: 40, silent: false },
+    ]);
+
+    // Act: 選択中の保留時間が明けた時点で判定する。
+    vi.setSystemTime(now + RECEIVING_SWITCHING_DELAY);
+    controller.evaluate();
+
+    // Assert: 受信中の B へ移り、受信停止中の A は選ばれない。
+    expect(switched).toEqual(["B"]);
+    controller.stop();
+  });
+
+  test("among receiving backups the higher priority wins, then the lower RTT", () => {
+    // Arrange: 受信中の 3 つ (priority 低・RTT 低 / priority 高・RTT 高 / priority 高・RTT 低)。
+    const { controller, switched } = arrange([
+      { name: "low", priority: 5, rtt: 1, silent: false },
+      { name: "highSlow", priority: 7, rtt: 30, silent: false },
+      { name: "highFast", priority: 7, rtt: 20, silent: false },
+    ]);
+
+    // Act: 保留時間が明けた時点で判定する。
+    vi.setSystemTime(now + RECEIVING_SWITCHING_DELAY);
+    controller.evaluate();
+
+    // Assert: priority が高い中で RTT が最も低いものへ移る。
+    expect(switched).toEqual(["highFast"]);
+    controller.stop();
+  });
+
+  test("the hold is counted from the unanswered check: no switch right after it", () => {
+    // Arrange: 選択中は 10 s 無通信で、未応答が確定したのは now。受信中の退避先が 1 つ。
+    const { controller, switched } = arrange(
+      [{ name: "B", priority: 5, rtt: 40, silent: false }],
+      0,
+    );
+
+    // Act: 未応答の確定直後に判定する。
+    controller.evaluate();
+
+    // Assert: 保留中で移らない (保留の再判定がタイマーで予約される)。
+    expect(switched).toEqual([]);
+    expect(vi.getTimerCount()).toBe(1);
+    controller.stop();
   });
 });
 
