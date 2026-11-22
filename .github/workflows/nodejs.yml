@@ -91,9 +91,9 @@ jobs:
     name: DTLS 1.3 BoringSSL interop (P0)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
       - name: Use Node.js 24.x
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v4.4.0
         with:
           node-version: 24.x
       - name: Install deps
